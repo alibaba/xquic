@@ -1,0 +1,32 @@
+name: Bug Report
+description: Report a bug
+title: "[Bug]: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+        If you find a security issue, please do not open a GitHub Issue, and instead visit https://github.com/alibaba/xquic/security/policy.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Also tell us, what did you expect to happen?
+      value: "A clear and concise description of what the bug is."
+    validations:
+      required: true
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps To Reproduce
+      description: Tell us how to reproduce this issue.
+      value: "Information and Steps to reproduce the behavior."
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Please copy and paste any relevant log output. This will be automatically formatted into code, so no need for backticks.
+      render: shell

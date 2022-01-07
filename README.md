@@ -109,8 +109,10 @@ XQUIC is released under the Apache 2.0 License.
 
 ## Contact Us
 
-XQUIC open source discussion DingDing Group: 34059705, you can join by searching for group number.
+Feel free to contact us in the following ways:
 
-DingTalk can be downloaded from https://www.dingtalk.com/en.
+* e-mail: xquic@alibaba-inc.com
+* Dingtalk group: 34059705
+* slack channel: #xquic in quicdev group
 
-<img src="docs/images/dingtalk_group.jpg" alt="dingtalk group"/>
+  <img src="docs/images/dingtalk_group.jpg" width=200 alt="dingtalk group"/>

@@ -5,7 +5,7 @@
 Max count of versions supported by xquic. actually xquic support draft-29 and QUIC version 1 right now.
 
 #### XQC_RESET_TOKEN_MAX_KEY_LEN
-Max length of statelessreset token supported by xquic.
+Max length of stateless reset token supported by xquic.
 
 #### XQC_MAX_SEND_MSG_ONCE
 Max iovec count when sending data with xqc_send_mmsg_pt callback.
@@ -107,18 +107,18 @@ Connection-Layer-Callback-Function mainly handles the connection events, like co
 **ALPN implementation considerations**
 In consideration of ALPN implementations, xquic devides Connection-Callback-Functions into Trasnport-Callback-Functions and ALPN-Callback-Functions.
 
-Trasnport-Callback-Functions is the abstraction of QUIC Transport protocol event aggregation, mainly includes the common attributes of QUIC Transport protocol between different Application-Layer-Proctocols, like session ticket, write socket, stateless reset, ect. No matter what ALPN is, these callback functions will directly interact with application.
+Trasnport-Callback-Functions is the abstraction of QUIC Transport protocol event aggregation, mainly includes the common attributes of QUIC Transport protocol between different Application-Layer-Proctocols, like session ticket, write socket, stateless reset, etc. No matter what ALPN is, these callback functions will directly interact with application.
 
 ALPN-Callback-Functions mainly involves the concepts of connection and stream data, and includes connection event callback functions and stream event callback functions. These callback functions will interact with Application-Layer-Protocols first, then Application-Layer-Protocols will define its interaction with application.
 
-Classification of these callback functions may help to reduce workload when implement a new kind of Application-Layer-Protocol as Trasnport-Callback-Functions are reusable.
+As Trasnport-Callback-Functions are reusable, classification of these callback functions may help to reduce workload when implementing a new kind of Application-Layer-Protocol.
 
 ### Engine Callback Functions
 #### xqc_timestamp_pt
 ```
 typedef xqc_usec_t (*xqc_timestamp_pt)(void);
 ```
-By default, xquic will use _**gettimeofday**_ to get timestamp for timing. but on some operating systems, this function might not be precise, and application might get other methods to get precise timestamp.
+By default, xquic will use _**gettimeofday**_ to get the time. Unfortunately, on some operating systems, the result of this function might not be precise, and application might get other methods to get precise timestamp.
 xqc_timestamp_pt callback function allows application to set its own timestamp, especially on embeded systems. This function will be triggered when doing congestion control,  setting timer, and timestamp in micro-second MUST be returned.
 
 Setting this callback function is optional, if not set, xquic will use _**gettimeofday**_ to get timestamp.
@@ -220,8 +220,8 @@ Application MUST implement these callback functions defined in xqc_stream_callba
 typedef void (*xqc_save_token_pt)(const unsigned char *token, uint32_t token_len,
     void *conn_user_data);
 ```
-QUIC new token callback, will be triggered on receiving NEW_TOKEN frame. Application shall save the data from this callback function to device, and use the token as the parameter of furture connection.
-The token is used in furture connections for address validation.
+QUIC new token callback, will be triggered on receiving NEW_TOKEN frame. Application shall save the data from this callback function to device, and use the token as the parameter of future connection.
+The token is used in future connections for address validation.
 
 This callback function is strongly adviced for client.
 
@@ -230,7 +230,7 @@ This callback function is strongly adviced for client.
 typedef void (*xqc_save_string_pt)(const char *data, size_t data_len, void *conn_user_data);
 typedef xqc_save_string_pt xqc_save_session_pt;
 ```
-QUIC session ticket callback function, will be triggered on receiving New Session Ticket. Application shall save the data from this callback function to device, and can use the restored data in furture connection to take advantage of resumption and 0-RTT futures.
+QUIC session ticket callback function, will be triggered on receiving New Session Ticket. Application shall save the data from this callback function to device, and can use the restored data in future connection to take advantage of resumption and 0-RTT feature.
 
 This callback function is strongly adviced for client.
 
@@ -240,8 +240,8 @@ This callback function is strongly adviced for client.
 typedef void (*xqc_save_string_pt)(const char *data, size_t data_len, void *conn_user_data);
 typedef xqc_save_string_pt xqc_save_trans_param_pt;
 ```
-QUIC transport parameter callback function, will be triggered on receving server's Transport Parameters in Encrypted Extensions. Application shall save the data from this callback function to device, and can use the restored data in furture connction to take advantage of resumption and 0-RTT futures.
-xquic defines its own formation of transport parameters, which is also human-readable.
+QUIC transport parameter callback function, will be triggered on receving server's Transport Parameters in Encrypted Extensions. Application shall save the data from this callback function to device, and can use the restored data in future connction to take advantage of resumption and 0-RTT feature.
+xquic defines its own format of transport parameters, which is also human-readable.
 
 This callback function is strongly adviced for client.
 
@@ -251,7 +251,7 @@ This callback function is strongly adviced for client.
 typedef void (*xqc_handshake_finished_pt)(xqc_connection_t *conn, void *conn_user_data);
 ```
 Handshake finished callback function, will be trigger when the QUIC connection handshake is completed, that is, when the TLS stack has both sent a Finished message and verified the peer's Finished message.
-As handshake states are essential to a QUIC connection, handshake finish event is useful on statistics and debug.
+As handshake states are essential to a QUIC connection, handshake finish event is used in statistics and useful for debugging.
 
 
 This callback function is strongly adviced.
@@ -261,10 +261,10 @@ This callback function is strongly adviced.
 typedef void (*xqc_conn_ping_ack_notify_pt)(xqc_connection_t *conn, const xqc_cid_t *cid,
     void *ping_user_data, void *conn_user_data);
 ```
-Notification of acknoledgement on application sent PING frame. xquic has a default max_idle_timeout of 120 seconds, and provide xqc_conn_send_ping interface to actively send PING frame to keep alive. This callback function will be triggered when ACK frame of application sent PING frame is received and processed, just to notify that PING was successful.
+Notification of acknowledgement of application sent PING frame. xquic has a default max_idle_timeout of 120 seconds, and provide xqc_conn_send_ping interface to actively send PING frame to keep alive. This callback function will be triggered when ACK frame of application sent PING frame is received and processed, just to notify that PING was successful.
 
 
-NOTICE: PING frame might be lost and will not be repaired, there might be no ACK for it, applications shall be awared that it shall not wait for ack notify of ping all the time, which might cost a lot of memory if connection persisted for very long time.
+NOTICE: PING frame might be lost and can not be recovered, there might be no ACK for it, applications should not wait for ack notification of ping all the time, which might cost a lot of memory if connection persisted for very long time.
 
 This callback function is adviced for clients.
 
@@ -273,7 +273,7 @@ This callback function is adviced for clients.
 typedef void (*xqc_conn_update_cid_notify_pt)(xqc_connection_t *conn, const xqc_cid_t *retire_cid,
     const xqc_cid_t *new_cid, void *conn_user_data);
 ```
-Connection ID update notification callback function, will be invoked when SCID changes. Application must remembere the new_cid from this callback function.
+Connection ID update notification callback function, will be invoked when SCID changes. Application must remember the new_cid from this callback function.
 
 This callback function is mandatory.
 
@@ -287,7 +287,7 @@ Certificate verify callback function, will be invoked on receiving peer's certif
 
 This callback function is optional.
 
-## Structures
+## Data types
 ### xqc_log_callbacks_t
 xqc_log_callbacks_t is the aggregation of xquic log callback functions.
 #### 
@@ -295,7 +295,7 @@ xqc_log_callbacks_t is the aggregation of xquic log callback functions.
 Trace log callback function, including XQC_LOG_FATAL, XQC_LOG_ERROR, XQC_LOG_WARN, XQC_LOG_STATS, XQC_LOG_INFO, XQC_LOG_DEBUG, xquic will output logs with the level higher or equal to the level configured.
 
 #### xqc_log_write_stat
-Statistic log callback function, will be triggered when write XQC_LOG_REPORT or XQC_LOG_STATS level logs. mainly when connection close, stream close.
+Statistics log callback function, will be triggered when write XQC_LOG_REPORT or XQC_LOG_STATS level logs. Invoked mainly on connection and stream closed.
 
 
 ### xqc_engine_callback_t
@@ -315,7 +315,7 @@ Application-Layer-Protocols shall define its connection events. These functions 
 #### xqc_stream_callbacks_t
 QUIC stream callback functions, belong to ALPN-Callback-Function category. QUIC stream data is the content of Application-Layer-Protocols, for which Application-Layer-Protocols will have their own terms and definitions.
 
-As well, Application-Layer-Protocol implementations shall define its interfaces with application layer, just to transfer QUIC Transport events to its own events.
+Besides, Application-Layer-Protocol implementations shall define its interfaces with application layer, just to transfer QUIC Transport events to its own events.
 
 ### xqc_config_t
 Generic config for xquic, used to initialize an engine.
@@ -325,17 +325,17 @@ Generic config for xquic, used to initialize an engine.
 Congestion control settings.
 
 #### xqc_cong_ctrl_callback_t
-Definition of congestion control callback functions, if application wants to implements its own congestion control algorithm, may implements the callback functions included in this structure, and set to xquic by _**xqc_server_set_conn_settings**_ or _**xqc_connect**_ interfaces with _**xqc_conn_settings_t**_ parameter.
+Definition of congestion control callback functions, applications may include its own congestion control algorithm, by implementing the callback functions included in this struct, and passing the implementation to xquic by _**xqc_server_set_conn_settings**_ or _**xqc_connect**_ interfaces with _**xqc_conn_settings_t**_ parameter.
 
 
 #### xqc_conn_ssl_config_t
 SSL config for xquic connections, mainly for xquic clients.
 
 #### xqc_linger_t
-xquic introduces a mechanism like _SO_LINGER_ option of tcp, will delay connection closure until all data buffered is sent.
+xquic introduces a mechanism like _SO_LINGER_ option of tcp, will delay connection closing until all buffered data are sent.
 
 ### xqc_conn_stats_t
-QUIC connection statistics information, including sending and receiving of transported data, network estimating, early data, connection error, etc.
+QUIC connection statistics information, including sending and receiving of transported data, network usage estimation, early data, connection error, etc.
 
 see _**xqc_conn_get_stats**_.
 
@@ -353,7 +353,7 @@ xqc_engine_t *xqc_engine_create(xqc_engine_type_t engine_type,
 xqc_engine_create creates a new xqc_engine_t object.
 
 
-Application can create one or more engines in a process, but multiple engines MUST NOT share one thread, as xquic is designed to be single-thread drived.
+Application can create one or more engines in a process, but multiple engines MUST NOT share one thread, as xquic is single-threaded.
 
 #### xqc_engine_destroy
 ```
@@ -369,13 +369,13 @@ When destroying engine, if there is any available connection, engine will close 
 xqc_int_t xqc_engine_register_alpn(xqc_engine_t *engine, const char *alpn, size_t alpn_len,
     xqc_app_proto_callbacks_t *ap_cbs);
 ```
-Application-Layer-Protocols are designed to be seperately extendable, and can be used as pulgin to provide more flexibility. AKA, ALPN registeration is the abstract of the Application-Layer-Protocols.
+Application-Layer-Protocols are designed to be extensible, and can be used as a plugin to provide more flexibility. AKA, ALPN registeration is the abstraction of the Application-Layer-Protocols.
 
 One xquic engine supports multiple Applicaton-Layer-Protocol registrations, with name of Application-Layer-Protocol as the key, different Application-Layer-Protocols MUST have different names.
 
-Once registered, the context of related Applicaton-Layer-Protocol is setup and need no more operations during the lifetime of engine object. And when registered by server, this Applicaton-Layer-Protocol will be used when receiving ClientHello from client to negotiate the Applicaton-Layer-Protocol.
+Once registered, the context of related Applicaton-Layer-Protocol is setup and no more operations are needed during the lifetime of engine object. And when registered by server, this Applicaton-Layer-Protocol will be used when receiving ClientHello from client to negotiate the Applicaton-Layer-Protocol.
 
-Applications can extend Application-Layer-Protocols by implements xqc_app_proto_callbacks_t on their terms and definitions on QUIC connection and stream data.
+Applications can extend Application-Layer-Protocols by implementing xqc_app_proto_callbacks_t on their terms and definitions on QUIC connection and stream data.
 
 #### xqc_engine_unregister_alpn
 ```
@@ -400,7 +400,7 @@ Configurate engine.
 ```
 void xqc_server_set_conn_settings(const xqc_conn_settings_t *settings);
 ```
-Set default settings for xquic connections. New configurations will be effective for furture created connections.
+Set default settings for xquic connections. New configurations will be effective for future created connections.
 
 
 #### xqc_engine_set_log_level
@@ -415,7 +415,7 @@ Set log level of an engine. This can be called anytime during the lifetime of an
 void xqc_engine_finish_recv(xqc_engine_t *engine);
 void xqc_engine_recv_batch(xqc_engine_t *engine, xqc_connection_t *conn);
 ```
-Received all data from socket and trigger engine event process flow.
+Receive all data from socket and trigger engine event process flow.
 
 #### xqc_dcid_str_by_scid
 ```
@@ -455,7 +455,7 @@ xqc_int_t xqc_conn_close(xqc_engine_t *engine, const xqc_cid_t *cid);
 ```
 Close xquic connection instance.
 
-_xqc_conn_close_ will trigger the connection to close, xquic will send CONNECTION_CLOSE frame to peer and waiting for destruction. Application MUST not destroy its context related with xquic connection, until the connection close notify callback function is triggered.
+_xqc_conn_close_ will close the connection. xquic will send CONNECTION_CLOSE frame to peer and waiting for destruction. Application MUST not destroy its context related to xquic connection, until the connection close notify callback function is triggered.
 
 #### xqc_conn_get_errno
 ```
@@ -504,7 +504,7 @@ Send PING to keep alive.
 ```
 xqc_bool_t xqc_conn_is_ready_to_send_early_data(xqc_connection_t *conn);
 ```
-Check if early data is optional.
+Check if early data is ready to send.
 
 
 #### xqc_conn_continue_send
@@ -512,13 +512,13 @@ Check if early data is optional.
 xqc_int_t xqc_conn_continue_send(xqc_engine_t *engine, const xqc_cid_t *cid);
 ```
 Continue sending.
-If write socket is temporary unavailable, data will be buffered in xquic. When write event is ready again, call xqc_conn_continue_send to continue send data.
+If write socket is temporarily unavailable, data will be buffered in xquic. When write event is ready again, call xqc_conn_continue_send to continue to send data.
 
 #### xqc_conn_get_stats
 ```
 xqc_conn_stats_t xqc_conn_get_stats(xqc_engine_t *engine, const xqc_cid_t *cid);
 ```
-Get statistic information of a connection.
+Get statistics of a connection.
 
 
 ### Stream-Layer Interfaces
@@ -539,14 +539,14 @@ Close a QUIC stream.
 ```
 void xqc_stream_set_user_data(xqc_stream_t *stream, void *user_data);
 ```
-Set stream layer user_data, which was the parameter of xqc_stream_create set by client, or the parameter of xqc_stream_set_user_data set by server
+Set stream layer user_data.
 
 
 #### xqc_get_conn_user_data_by_stream
 ```
 void *xqc_get_conn_user_data_by_stream(xqc_stream_t *stream);
 ```
-Get user_data of connection with stream instance.
+Get user_data of connection with stream instance, which could be the parameter of xqc_stream_create set by client, or the parameter of xqc_stream_set_user_data set by server.
 
 
 #### xqc_stream_id
@@ -608,10 +608,10 @@ Transfer dcid to human-readable string.
 The read notify flag of _xqc_h3_request_read_notify_pt_ callback function.
 
 #### XQC_REQ_NOTIFY_READ_NULL
-Read header section flag, this will be set when the first HEADERS is processed.
+Read header section flag, this will be set when there is nothing to read.
 
 #### XQC_REQ_NOTIFY_READ_HEADER
-Read header section flag, this will be set when the first HEADERS is processed
+Read header section flag, this will be set when the first HEADERS is processed.
 
 
 #### XQC_REQ_NOTIFY_READ_BODY
@@ -664,14 +664,14 @@ Handshake complete callback function, will be triggered when QUIC Transport Hand
 typedef void (*xqc_h3_conn_ping_ack_notify_pt)(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid,
     void *ping_user_data, void *h3c_user_data);
 ```
-Notification of PING frame acknoledgment from peer. 
+Notification of PING frame acknowledgment from peer. 
 
 
 #### xqc_h3_request_notify_pt
 ```
 typedef int (*xqc_h3_request_notify_pt)(xqc_h3_request_t *h3_request, void *h3s_user_data);
 ```
-Generic request notify callback function, including request creation, closure, write events.
+Generic request notify callback function, including request creation, closing, write events.
 
 
 #### xqc_h3_request_read_notify_pt
@@ -683,7 +683,7 @@ Read data callback function, will be triggered when an entire HEADERS or DATA fr
 
 see _xqc_request_notify_flag_t_.
 
-## Structures
+## Data Types
 ### xqc_http_header_t
 Definition of http header.
 #### name/value
@@ -698,10 +698,10 @@ Header flags of xqc_http3_nv_flag_t with OR operator, see xqc_http3_nv_flag_t.
 Array of headers.
 
 #### count
-header count of headers.
+Number of headers.
 
 #### capacity
-capacity of headers.
+Capacity of headers.
 
 #### total_len
 Sum of the length of names and values in headers array.
@@ -748,7 +748,7 @@ Aggregation of http3 connection events.
 http3 connection creation callback, REQUIRED for server, OPTIONAL for client.
 
 #### h3_conn_close_notify
-http3 connection close callback.
+http3 connection closing callback.
 
 
 #### h3_conn_handshake_finished
@@ -933,7 +933,7 @@ Send http headers to peer on a h3 request stream.
 ssize_t xqc_h3_request_send_body(xqc_h3_request_t *h3_request, unsigned char *data, 
     size_t data_size, uint8_t fin);
 ```
-Send http body to peer on a h3 request stream.
+Send http body to the peer on a h3 request stream.
 
 #### xqc_h3_request_finish
 ```
@@ -941,7 +941,7 @@ ssize_t xqc_h3_request_finish(xqc_h3_request_t *h3_request);
 ```
 Finish request stream on endpoint's direction. if fin is not sent yet, and application has nothing to send anymore, call this function to send a QUIC STREAM frame with only fin. This might be useful when Trailer Section attribute is used.
 
-If there is data in h3 request stream's send buffer, the fin will be attached with the last data block. If all the data was sent, xquic will send a QUIC Transport STREAM frame with zero-length data but with fin set.
+If there is data in h3 request stream's send buffer, the fin will be attached with the last data block. If all the data were sent, xquic will send a QUIC Transport STREAM frame with zero-length data and fin set.
 
 #### xqc_h3_request_recv_headers
 ```
@@ -960,7 +960,7 @@ Receive body from a request stream. This function shall be invoked after h3_requ
 
 Multiple DATA frames can be sent on a h3 request stream, application will be notified multiple times whenever a DATA frame is received and decoded.
 
-xquic will fill the input recv_buf until all the data was copied or all the capacity of recv_buf is used, with returned value as the copied size.
+xquic will fill the input recv_buf until all the data are copied or all the capacity of recv_buf is used, with the copied size as return value.
 
 
 #### xqc_h3_get_conn_user_data_by_request

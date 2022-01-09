@@ -25,7 +25,7 @@ To run test cases, you need
 
 ## QuickStart Guide
 
-xquic supports both BabaSSL and Boringssl.
+XQUIC supports both BabaSSL and Boringssl.
 
 ### Build with BabaSSL
 

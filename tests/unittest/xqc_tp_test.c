@@ -70,7 +70,7 @@ xqc_test_encrypted_extensions()
     xqc_transport_params_t params;
     memset(&params, 0, sizeof(xqc_transport_params_t));
 
-    uint8_t test_stateless_reset_token[XQC_STATELESS_RESET_TOKENLEN];
+    uint8_t test_stateless_reset_token[XQC_STATELESS_RESET_TOKENLEN] = {0};
     xqc_cid_t test_odcid, test_iscid, test_rscid, test_pacid;
     xqc_generate_cid(engine, NULL, &test_odcid, 0);
     xqc_generate_cid(engine, NULL, &test_iscid, 0);

@@ -432,8 +432,15 @@ xqc_demo_cli_write_log_file(xqc_log_level_t lvl, const void *buf, size_t size, v
         return;
     }
     //printf("%s",(char*)buf);
-    write(ctx->log_fd, buf, size);
-    write(ctx->log_fd, line_break, 1);
+    int write_len = write(ctx->log_fd, buf, size);
+    if (write_len < 0) {
+        printf("write log failed, errno: %d\n", errno);
+        return;
+    }
+    write_len = write(ctx->log_fd, line_break, 1);
+    if (write_len < 0) {
+        printf("write log failed, errno: %d\n", errno);
+    }
 }
 
 
@@ -468,8 +475,15 @@ xqc_demo_cli_keylog_cb(const char *line, void *engine_user_data)
         return;
     }
 
-    write(ctx->keylog_fd, line, strlen(line));
-    write(ctx->keylog_fd, "\n", 1);
+    int write_len = write(ctx->keylog_fd, line, strlen(line));
+    if (write_len < 0) {
+        printf("write keys failed, errno: %d\n", errno);
+        return;
+    }
+    write_len = write(ctx->keylog_fd, line_break, 1);
+    if (write_len < 0) {
+        printf("write keys failed, errno: %d\n", errno);
+    }
 }
 
 

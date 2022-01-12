@@ -1,6 +1,6 @@
 # Platforms docs
 
-XQUIC currently supports `Android` , `iOS` , `Linux` and `MacOS` .
+XQUIC currently supports `Android` , `iOS` , `Linux` and `macOS` .
 
 ## Android/iOS Compile Script
 
@@ -30,9 +30,9 @@ cmake -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} -DSSL_INC_PATH=${SSL
 make -j
 ```
 
-## MacOS Release
+## macOS Release
 
-You can use the cmake variables `-DPLATFORM=mac` to build xquic on MacOS.
+You can use the cmake variables `-DPLATFORM=mac` to build xquic on macOS.
 
 ```bash
 # build xquic with BabaSSL

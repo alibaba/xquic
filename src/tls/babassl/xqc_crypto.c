@@ -56,7 +56,7 @@ xqc_ossl_aead_encrypt(const xqc_pkt_protect_aead_t *pp_aead,
 
     outlen += len;
 
-    if (outlen + taglen > destcap){
+    if (outlen + taglen > destcap) {
         goto err;
     }
 

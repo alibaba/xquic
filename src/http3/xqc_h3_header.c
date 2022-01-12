@@ -114,7 +114,7 @@ xqc_h3_hdr_type(unsigned char *name, size_t nlen)
         break;
     case 4:
         switch (name[3]) {
-            case 'e':
+        case 'e':
             if (xqc_memeq("dat", name, 3)) {
                 return XQC_HDR_DATE;
             }
@@ -138,7 +138,7 @@ xqc_h3_hdr_type(unsigned char *name, size_t nlen)
         break;
     case 5:
         switch (name[4]) {
-            case 'e':
+        case 'e':
             if (xqc_memeq("rang", name, 4)) {
                 return XQC_HDR_RANGE;
             }
@@ -152,7 +152,7 @@ xqc_h3_hdr_type(unsigned char *name, size_t nlen)
         break;
     case 6:
         switch (name[5]) {
-            case 'e':
+        case 'e':
             if (xqc_memeq("cooki", name, 5)) {
                 return XQC_HDR_COOKIE;
             }
@@ -208,7 +208,7 @@ xqc_h3_hdr_type(unsigned char *name, size_t nlen)
         break;
     case 8:
         switch (name[7]) {
-            case 'e':
+        case 'e':
             if (xqc_memeq("if-rang", name, 7)) {
                 return XQC_HDR_IF_RANGE;
             }
@@ -222,7 +222,7 @@ xqc_h3_hdr_type(unsigned char *name, size_t nlen)
         break;
     case 9:
         switch (name[8]) {
-            case 'd':
+        case 'd':
             if (xqc_memeq("forwarde", name, 8)) {
                 return XQC_HDR_FORWARDED;
             }
@@ -260,7 +260,7 @@ xqc_h3_hdr_type(unsigned char *name, size_t nlen)
         break;
     case 12:
         switch (name[11]) {
-            case 'e':
+        case 'e':
             if (xqc_memeq("content-typ", name, 11)) {
                 return XQC_HDR_CONTENT_TYPE;
             }
@@ -298,7 +298,7 @@ xqc_h3_hdr_type(unsigned char *name, size_t nlen)
         break;
     case 14:
         switch (name[13]) {
-            case 'h':
+        case 'h':
             if (xqc_memeq("content-lengt", name, 13)) {
                 return XQC_HDR_CONTENT_LENGTH;
             }
@@ -384,7 +384,7 @@ xqc_h3_hdr_type(unsigned char *name, size_t nlen)
         break;
     case 25:
         switch (name[24]) {
-            case 's':
+        case 's':
             if (xqc_memeq("upgrade-insecure-request", name, 24)) {
                 return XQC_HDR_UPGRADE_INSECURE_REQUESTS;
             }
@@ -398,7 +398,7 @@ xqc_h3_hdr_type(unsigned char *name, size_t nlen)
         break;
     case 27:
         switch (name[26]) {
-            case 'n':
+        case 'n':
             if (xqc_memeq("access-control-allow-origi", name, 26)) {
                 return XQC_HDR_ACCESS_CONTROL_ALLOW_ORIGIN;
             }

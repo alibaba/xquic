@@ -509,7 +509,7 @@ xqc_decode_preferred_address(xqc_transport_params_t *params, xqc_transport_param
     /* stateless reset token */
     if ((end - p) < XQC_STATELESS_RESET_TOKENLEN) {
         return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
-    }    
+    }
     memcpy(params->preferred_address.stateless_reset_token, p,
             sizeof(params->preferred_address.stateless_reset_token));
     p += sizeof(params->preferred_address.stateless_reset_token);

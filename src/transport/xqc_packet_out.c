@@ -294,7 +294,7 @@ xqc_write_ack_to_packets(xqc_connection_t *conn)
                         xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_write_ack_to_one_packet try new packet|");
                         goto write_new;
 
-                    } else if (ret == XQC_OK){
+                    } else if (ret == XQC_OK) {
                         goto done;
 
                     } else {

@@ -37,8 +37,8 @@
 #define DEFAULT_IP   "127.0.0.1"
 #define DEFAULT_PORT 8443
 
-typedef struct xqc_demo_svr_net_config_s
-{
+typedef struct xqc_demo_svr_net_config_s {
+
     /* server addr info */
     struct sockaddr addr;
     int     addr_len;
@@ -68,8 +68,7 @@ typedef struct xqc_demo_svr_net_config_s
 
 #define SESSION_TICKET_KEY_FILE     "session_ticket.key"
 #define SESSION_TICKET_KEY_BUF_LEN  2048
-typedef struct xqc_demo_svr_quic_config_s
-{
+typedef struct xqc_demo_svr_quic_config_s {
     /* cipher config */
     char cipher_suit[CIPHER_SUIT_LEN];
     char groups[TLS_GROUPS_LEN];
@@ -100,8 +99,7 @@ typedef struct xqc_demo_svr_quic_config_s
 
 
 /* environment config */
-typedef struct xqc_demo_svr_env_config_s
-{
+typedef struct xqc_demo_svr_env_config_s {
     /* log path */
     char    log_path[PATH_LEN];
     int     log_level;
@@ -166,8 +164,7 @@ typedef struct xqc_demo_svr_user_conn_s {
     xqc_demo_svr_ctx_t     *ctx;
 } xqc_demo_svr_user_conn_t;
 
-typedef struct xqc_demo_svr_resource_s
-{
+typedef struct xqc_demo_svr_resource_s {
     FILE       *fp;
     int         total_len;      /* total len of file */
     int         total_offset;   /* total sent offset of file */
@@ -280,7 +277,7 @@ xqc_demo_svr_open_keylog_file(xqc_demo_svr_ctx_t *ctx)
         return -1;
     }
 
-    return 0;    
+    return 0;
 }
 
 int
@@ -1143,9 +1140,8 @@ void
 xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
 {
     int ch = 0;
-    while((ch = getopt(argc, argv, "p:c:CD:l:L:6k:r")) != -1){
-        switch(ch)
-        {
+    while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:r")) != -1) {
+        switch (ch) {
         /* listen port */
         case 'p':
             printf("option port :%s\n", optarg);
@@ -1156,8 +1152,7 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
         case 'c':
             printf("option cong_ctl :%s\n", optarg);
             /* r:reno b:bbr c:cubic */
-            switch (*optarg)
-            {
+            switch (*optarg) {
             case 'b':
                 args->net_cfg.cc = CC_TYPE_BBR;
                 break;
@@ -1191,7 +1186,7 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
             break;
 
         /* log path */
-        case 'L': // log directory
+        case 'L': /* log directory */
             printf("option log directory :%s\n", optarg);
             snprintf(args->env_cfg.log_path, sizeof(args->env_cfg.log_path), "%s", optarg);
             break;
@@ -1203,7 +1198,7 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
             break;
 
         /* key out path */
-        case 'k': // key out path
+        case 'k': /* key out path */
             printf("option key output file: %s\n", optarg);
             args->env_cfg.key_output_flag = 1;
             strncpy(args->env_cfg.key_out_path, optarg, sizeof(args->env_cfg.key_out_path) - 1);
@@ -1281,8 +1276,7 @@ void
 xqc_demo_svr_init_conn_settings(xqc_demo_svr_args_t *args)
 {
     xqc_cong_ctrl_callback_t ccc = {0};
-    switch (args->net_cfg.cc)
-    {
+    switch (args->net_cfg.cc) {
     case CC_TYPE_BBR:
         ccc = xqc_bbr_cb;
         break;
@@ -1385,8 +1379,7 @@ xqc_demo_svr_init_xquic_engine(xqc_demo_svr_ctx_t *ctx, xqc_demo_svr_args_t *arg
 
     config.cid_len = 12;
 
-    switch (args->env_cfg.log_level)
-    {
+    switch (args->env_cfg.log_level) {
     case 'd':
         config.cfg_log_level = XQC_LOG_DEBUG;
         break;

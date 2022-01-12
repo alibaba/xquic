@@ -441,28 +441,28 @@ xqc_encoder_check_normal_index_mode(xqc_encoder_t *enc, xqc_hdr_enc_rule_t *info
 
     /* decide insertion mode according to lookup results */
     switch (info->ref) {
-        case XQC_NV_REF_NONE:
-            /* no entry found, try to add one in dtable */
-            if (info->hdr->name.iov_len <= enc->name_len_limit) {
-                if (esz <= enc->entry_size_limit) {
-                    info->insertion = XQC_INSERT_LITERAL_NAME_VALUE;
+    case XQC_NV_REF_NONE:
+        /* no entry found, try to add one in dtable */
+        if (info->hdr->name.iov_len <= enc->name_len_limit) {
+            if (esz <= enc->entry_size_limit) {
+                info->insertion = XQC_INSERT_LITERAL_NAME_VALUE;
 
-                } else {
-                    info->insertion = XQC_INSERT_NAME;
-                }
+            } else {
+                info->insertion = XQC_INSERT_NAME;
             }
-            break;
+        }
+        break;
 
-        case XQC_NV_REF_NAME:
-            /* if name is refered in dtable, will try to decide whether an insertion with
-                value is worthy, with a more aggressive size restriction */
-            if (esz <= enc->entry_size_limit /* && info->ref_table == XQC_DTABLE_FLAG */) {
-                info->insertion = XQC_INSERT_NAME_REF_VALUE;
-            }
-            break;
+    case XQC_NV_REF_NAME:
+        /* if name is refered in dtable, will try to decide whether an insertion with
+            value is worthy, with a more aggressive size restriction */
+        if (esz <= enc->entry_size_limit /* && info->ref_table == XQC_DTABLE_FLAG */) {
+            info->insertion = XQC_INSERT_NAME_REF_VALUE;
+        }
+        break;
 
-        default:
-            break;
+    default:
+        break;
     }
 }
 

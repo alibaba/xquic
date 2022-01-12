@@ -10,7 +10,6 @@ xqc_int_t
 xqc_hkdf_expand(uint8_t *dest, size_t destlen, const uint8_t *secret, size_t secretlen,
     const uint8_t *info, size_t infolen, const xqc_digest_t *ctx) 
 {
-    
     EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_HKDF, NULL);
     if (pctx == NULL) {
         return -XQC_TLS_NOBUF;

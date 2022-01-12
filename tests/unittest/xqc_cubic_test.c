@@ -29,7 +29,7 @@ xqc_test_cubic()
 
     print_cubic(&cubic);
 
-    //slow start
+    /* slow start */
     for (int i = 0; i < 10; ++i) {
         xqc_packet_out_t po;
         po.po_sent_time = now;
@@ -39,11 +39,11 @@ xqc_test_cubic()
         print_cubic(&cubic);
     }
 
-    //lost
+    /* lost */
     xqc_cubic_cb.xqc_cong_ctl_on_lost(&cubic, now);
     print_cubic(&cubic);
 
-    //congestion avoid
+    /* congestion avoid */
     for (int i = 0; i < 10; ++i) {
         xqc_packet_out_t po;
         po.po_sent_time = now;

@@ -49,7 +49,7 @@ xqc_2d_ht_compare_value(void *data, void *v1, size_t len1, void *v2, size_t len2
     /* compare name first */
     if (node->nlen == len1) {
         res = strcmp(node->name, name);
-        if (res == 0){
+        if (res == 0) {
             cmp_res = XQC_2D_CMP_RES_1D;
 
             /* check value if required and name is matched */

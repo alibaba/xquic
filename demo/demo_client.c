@@ -85,8 +85,8 @@ typedef enum xqc_demo_cli_task_mode_s {
 
 
 /* network arguments */
-typedef struct xqc_demo_cli_net_config_s
-{
+typedef struct xqc_demo_cli_net_config_s {
+
     /* server addr info */
     struct sockaddr_in6 addr;
     int                 addr_len;
@@ -125,8 +125,7 @@ typedef struct xqc_demo_cli_net_config_s
 #define TRANSPORT_PARAMS_FILE       "transport_params"
 #define TOKEN_FILE                  "token"
 
-typedef struct xqc_demo_cli_quic_config_s
-{
+typedef struct xqc_demo_cli_quic_config_s {
     /* alpn protocol of client */
     xqc_demo_cli_alpn_type_t alpn_type;
     char alpn[16];
@@ -160,8 +159,8 @@ typedef struct xqc_demo_cli_quic_config_s
 #define OUT_DIR  "."
 
 /* environment config */
-typedef struct xqc_demo_cli_env_config_s
-{
+typedef struct xqc_demo_cli_env_config_s {
+
     /* log path */
     char    log_path[256];
     int     log_level;
@@ -190,8 +189,7 @@ typedef struct xqc_demo_cli_env_config_s
 #define g_host ""
 
 /* args of one single request */
-typedef struct xqc_demo_cli_request_s
-{
+typedef struct xqc_demo_cli_request_s {
     char            path[RESOURCE_LEN];         /* request path */
     char            scheme[8];                  /* request scheme, http/https */
     REQUEST_METHOD  method;
@@ -238,8 +236,8 @@ typedef enum xqc_demo_cli_task_status_s {
     TASK_STATUS_FAILED,
 } xqc_demo_cli_task_status_t;
 
-typedef struct xqc_demo_cli_task_schedule_info_s
-{
+typedef struct xqc_demo_cli_task_schedule_info_s {
+
     xqc_demo_cli_task_status_t  status;         /* task status */
     int                         req_create_cnt; /* streams created */
     int                         req_sent_cnt;
@@ -252,8 +250,7 @@ typedef struct xqc_demo_cli_task_schedule_info_s
  * info of all requests, the client will exit when all
  * tasks are finished or closed
  */
-typedef struct xqc_demo_cli_task_schedule_s
-{
+typedef struct xqc_demo_cli_task_schedule_s {
     /* the cnt of tasks that been running or have been ran */
     int idx;
 
@@ -452,7 +449,7 @@ xqc_demo_cli_open_keylog_file(xqc_demo_cli_ctx_t *ctx)
         return -1;
     }
 
-    return 0;    
+    return 0;
 }
 
 int
@@ -519,7 +516,7 @@ xqc_demo_cli_save_tp_cb(const char *data, size_t data_len, void *conn_user_data)
     }
 
     int write_size = fwrite(data, 1, data_len, fp);
-    if(data_len != write_size){
+    if (data_len != write_size) {
         fclose(fp);
         return;
     }
@@ -669,11 +666,10 @@ xqc_demo_cli_hq_req_send(xqc_hq_request_t *hqr, xqc_demo_cli_user_stream_t *user
 
     ret = xqc_hq_request_send_req(hqr, user_stream->send_buf);
     if (ret < 0) {
-        switch (-ret)
-        {
+        switch (-ret) {
         case XQC_EAGAIN:
             return 0;
-        
+
         default:
             printf("send stream failed, ret: %Zd\n", ret);
             return -1;
@@ -1099,12 +1095,11 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
     xqc_demo_cli_client_args_t *args)
 {
     xqc_cong_ctrl_callback_t cong_ctrl;
-    switch (args->net_cfg.cc)
-    {
+    switch (args->net_cfg.cc) {
     case CC_TYPE_BBR:
         cong_ctrl = xqc_bbr_cb;
         break;
-    
+
     case CC_TYPE_CUBIC:
         cong_ctrl = xqc_reno_cb;
         break;
@@ -1265,8 +1260,7 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
 {
     int ch = 0;
     while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:")) != -1) {
-        switch(ch)
-        {
+        switch (ch) {
         /* server ip */
         case 'a':
             printf("option addr :%s\n", optarg);
@@ -1283,8 +1277,7 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
         case 'c':
             printf("option cong_ctl :%s\n", optarg);
             /* r:reno b:bbr c:cubic */
-            switch (*optarg)
-            {
+            switch (*optarg) {
             case 'b':
                 args->net_cfg.cc = CC_TYPE_BBR;
                 break;
@@ -1326,8 +1319,7 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
         /* multi connections */
         case 'm':
             printf("option multi connection: on\n");
-            switch (atoi(optarg))
-            {
+            switch (atoi(optarg)) {
             case 0:
                 args->net_cfg.mode = MODE_SCMR;
                 break;
@@ -1466,7 +1458,7 @@ xqc_demo_cli_format_h3_req(xqc_http_header_t *headers, size_t sz, xqc_demo_cli_r
         headers[i] = req_hdr[i];
     }
 
-    return req_sz;    
+    return req_sz;
 }
 
 int
@@ -1719,8 +1711,7 @@ xqc_demo_cli_init_xquic_engine(xqc_demo_cli_ctx_t *ctx, xqc_demo_cli_client_args
         return XQC_ERROR;
     }
 
-    switch (args->env_cfg.log_level)
-    {
+    switch (args->env_cfg.log_level) {
     case 'd':
         config.cfg_log_level = XQC_LOG_DEBUG;
         break;
@@ -1899,7 +1890,7 @@ xqc_demo_cli_create_socket(xqc_demo_cli_user_conn_t *user_conn, xqc_demo_cli_net
 
     return fd;
 
-  err:
+err:
     close(fd);
     return -1;
 }
@@ -2016,7 +2007,7 @@ xqc_demo_cli_task_schedule_callback(int fd, short what, void *arg)
         }
     }
 
-    /* start next round */ 
+    /* start next round */
     event_add(ctx->ev_task, &tv_task_schedule);
 }
 
@@ -2059,8 +2050,7 @@ void
 xqc_demo_cli_init_tasks(xqc_demo_cli_ctx_t *ctx)
 {
     ctx->task_ctx.mode = ctx->args->net_cfg.mode;
-    switch (ctx->args->net_cfg.mode)
-    {
+    switch (ctx->args->net_cfg.mode) {
     case MODE_SCMR:
         xqc_demo_cli_init_scmr(&ctx->task_ctx, ctx->args);
         break;
@@ -2132,7 +2122,7 @@ main(int argc, char *argv[])
     xqc_demo_cli_parse_args(argc, argv, args);
 
     /* init client ctx */
-    xqc_demo_cli_ctx_t *ctx = calloc(1, sizeof(xqc_demo_cli_ctx_t));;
+    xqc_demo_cli_ctx_t *ctx = calloc(1, sizeof(xqc_demo_cli_ctx_t));
     xqc_demo_cli_init_ctx(ctx, args);
 
     /* engine event */

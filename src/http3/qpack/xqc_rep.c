@@ -185,22 +185,22 @@ xqc_rep_decode_base_index(xqc_rep_ctx_t *ctx, unsigned char *buf, uint64_t buf_l
     int fin = 0;
 
     switch (ctx->state) {
-        case XQC_REP_DECODE_STATE_OPCODE:
-            ctx->table = (*pos) & 0x40 ? XQC_STABLE_FLAG : XQC_DTABLE_FLAG;
-            ctx->state = XQC_REP_DECODE_STATE_INDEX;
-            xqc_prefixed_int_init(&ctx->index, 6);
-        case XQC_REP_DECODE_STATE_INDEX:
-            read = xqc_prefixed_int_read(&ctx->index, pos, end, &fin);
-            if (read < 0) {
-                return read;
-            }
-            pos += read;
-            if (fin) {
-                ctx->state = XQC_REP_DECODE_STATE_FINISH;
-            }
-            break;
-        default:
-            return -XQC_QPACK_DECODER_ERROR;
+    case XQC_REP_DECODE_STATE_OPCODE:
+        ctx->table = (*pos) & 0x40 ? XQC_STABLE_FLAG : XQC_DTABLE_FLAG;
+        ctx->state = XQC_REP_DECODE_STATE_INDEX;
+        xqc_prefixed_int_init(&ctx->index, 6);
+    case XQC_REP_DECODE_STATE_INDEX:
+        read = xqc_prefixed_int_read(&ctx->index, pos, end, &fin);
+        if (read < 0) {
+            return read;
+        }
+        pos += read;
+        if (fin) {
+            ctx->state = XQC_REP_DECODE_STATE_FINISH;
+        }
+        break;
+    default:
+        return -XQC_QPACK_DECODER_ERROR;
     }
 finish:
     return pos - buf;

@@ -74,7 +74,7 @@ xqc_ins_parse_set_dtable_capacity(unsigned char *buf, uint64_t buf_len, xqc_ins_
     ssize_t read;
     int fin = 0;
 
-    switch (ctx->state){
+    switch (ctx->state) {
     case XQC_INS_ES_OPCODE:
         ctx->state = XQC_INS_ES_CAPACITY;
         xqc_prefixed_int_init(&ctx->capacity, 5);
@@ -107,7 +107,6 @@ xqc_ins_parse_insert_name_reference(unsigned char *buf, uint64_t buf_len, xqc_in
     int fin = 0;
 
     switch (ctx->state) {
-
     case XQC_INS_ES_OPCODE:
         ctx->table = (*pos) & 0x40;
         ctx->state = XQC_INS_ES_STATE_INDEX;
@@ -210,7 +209,7 @@ xqc_ins_parse_duplicate(unsigned char *buf, uint64_t buf_len, xqc_ins_enc_ctx_t 
     ssize_t read;
     int fin = 0;
 
-    switch (ctx->state){
+    switch (ctx->state) {
     case XQC_INS_ES_OPCODE:
         ctx->state = XQC_INS_ES_STATE_INDEX;
         xqc_prefixed_int_init(&ctx->name_index, 5);
@@ -323,52 +322,52 @@ xqc_ins_parse_decoder(unsigned char *buf, uint64_t buf_len, xqc_ins_dec_ctx_t *c
     while (ctx->state != XQC_INS_DS_STATE_FINISH && pos < end) {
         switch (ctx->state) {
 
-            case XQC_INS_DS_STATE_OPCODE:
-                ctx->type = xqc_ins_decoder_type(buf);
-                switch (ctx->type) {
-                    case XQC_INS_TYPE_DEC_SECTION_ACK:
-                        xqc_prefixed_int_init(&ctx->stream_id, 7);
-                        ctx->state = XQC_INS_DS_STATE_STREAM_ID;
-                        break;
-                    case XQC_INS_TYPE_DEC_STREAM_CANCEL:
-                        xqc_prefixed_int_init(&ctx->stream_id, 6);
-                        ctx->state = XQC_INS_DS_STATE_STREAM_ID;
-                        break;
-                    case XQC_INS_TYPE_DEC_INSERT_CNT_INC:
-                        xqc_prefixed_int_init(&ctx->increment, 6);
-                        ctx->state = XQC_INS_DS_STATE_INCREMENT;
-                        break;
-                    default:
-                        return -XQC_QPACK_INSTRUCTION_ERROR;
-                }
+        case XQC_INS_DS_STATE_OPCODE:
+            ctx->type = xqc_ins_decoder_type(buf);
+            switch (ctx->type) {
+            case XQC_INS_TYPE_DEC_SECTION_ACK:
+                xqc_prefixed_int_init(&ctx->stream_id, 7);
+                ctx->state = XQC_INS_DS_STATE_STREAM_ID;
                 break;
-
-            case XQC_INS_DS_STATE_STREAM_ID:
-                read = xqc_prefixed_int_read(&ctx->stream_id, pos, end, &fin);
-                if (read < 0) {
-                    return read;
-                }
-                pos += read;
-
-                if (fin) {
-                    ctx->state = XQC_INS_DS_STATE_FINISH;
-                }
+            case XQC_INS_TYPE_DEC_STREAM_CANCEL:
+                xqc_prefixed_int_init(&ctx->stream_id, 6);
+                ctx->state = XQC_INS_DS_STATE_STREAM_ID;
                 break;
-
-            case XQC_INS_DS_STATE_INCREMENT:
-                read = xqc_prefixed_int_read(&ctx->increment, pos, end, &fin);
-                if (read < 0) {
-                    return read;
-                }
-                pos += read;
-
-                if (fin) {
-                    ctx->state = XQC_INS_DS_STATE_FINISH;
-                }
+            case XQC_INS_TYPE_DEC_INSERT_CNT_INC:
+                xqc_prefixed_int_init(&ctx->increment, 6);
+                ctx->state = XQC_INS_DS_STATE_INCREMENT;
                 break;
-
             default:
-                return -XQC_QPACK_DECODER_ERROR;
+                return -XQC_QPACK_INSTRUCTION_ERROR;
+            }
+            break;
+
+        case XQC_INS_DS_STATE_STREAM_ID:
+            read = xqc_prefixed_int_read(&ctx->stream_id, pos, end, &fin);
+            if (read < 0) {
+                return read;
+            }
+            pos += read;
+
+            if (fin) {
+                ctx->state = XQC_INS_DS_STATE_FINISH;
+            }
+            break;
+
+        case XQC_INS_DS_STATE_INCREMENT:
+            read = xqc_prefixed_int_read(&ctx->increment, pos, end, &fin);
+            if (read < 0) {
+                return read;
+            }
+            pos += read;
+
+            if (fin) {
+                ctx->state = XQC_INS_DS_STATE_FINISH;
+            }
+            break;
+
+        default:
+            return -XQC_QPACK_DECODER_ERROR;
         }
     }
 

@@ -6,7 +6,7 @@
 #include "xqc_h3_conn.h"
 #include "xqc_h3_stream.h"
 
-// 应用层注册回调，放到engine
+/* 应用层注册回调，放到engine */
 typedef struct xqc_h3_ctx_s {
     xqc_h3_callbacks_t  h3_cbs;
 } xqc_h3_ctx_t;

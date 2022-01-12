@@ -117,7 +117,6 @@ xqc_qpack_notify_set_dtable_cap(xqc_qpack_t *qpk, uint64_t cap)
         xqc_log(qpk->log, XQC_LOG_ERROR, "|get encoder instruction error|");
         return -XQC_ENOBUF;
     }
-    
 
     xqc_int_t ret = xqc_ins_write_set_dtable_cap(buf, cap);
     if (ret != XQC_OK) {

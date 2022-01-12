@@ -100,7 +100,7 @@ typedef struct user_conn_s {
 typedef struct xqc_user_path_s {
     int                 path_fd;
     uint64_t            path_id;
-    
+
     struct sockaddr    *peer_addr;
     socklen_t           peer_addrlen;
     struct sockaddr    *local_addr;
@@ -197,7 +197,7 @@ save_session_cb(const char * data, size_t data_len, void *user_data)
 
     FILE * fp  = fopen("test_session", "wb");
     int write_size = fwrite(data, 1, data_len, fp);
-    if(data_len != write_size){
+    if (data_len != write_size) {
         printf("save _session_cb error\n");
         fclose(fp);
         return;
@@ -215,7 +215,7 @@ save_tp_cb(const char * data, size_t data_len, void * user_data)
 
     FILE * fp = fopen("tp_localhost", "wb");
     int write_size = fwrite(data, 1, data_len, fp);
-    if(data_len != write_size){
+    if (data_len != write_size) {
         printf("save _tp_cb error\n");
         fclose(fp);
         return;
@@ -309,7 +309,7 @@ xqc_client_write_socket(const unsigned char *buf, size_t size,
     /* COPY to run corruption test cases */
     unsigned char send_buf[XQC_PACKET_TMP_BUF_LEN];
     size_t send_buf_size = 0;
-    
+
     if (size > XQC_PACKET_TMP_BUF_LEN) {
         printf("xqc_client_write_socket err: size=%zu is too long\n", size);
         return XQC_SOCKET_ERROR;
@@ -334,7 +334,7 @@ xqc_client_write_socket(const unsigned char *buf, size_t size,
 
         g_last_sock_op_time = now();
 
-        if (TEST_DROP) { 
+        if (TEST_DROP) {
             return send_buf_size;
         }
         if (g_test_case == 5) { /* socket send fail */
@@ -458,7 +458,7 @@ xqc_client_create_socket(int type,
 
     return fd;
 
-  err:
+err:
     close(fd);
     return -1;
 }
@@ -813,7 +813,7 @@ xqc_client_stream_send(xqc_stream_t *stream, void *user_data)
     }
 
     int fin = 1;
-    if (g_test_case == 4) { //test fin_only
+    if (g_test_case == 4) { /* test fin_only */
         fin = 0;
     }
 
@@ -829,7 +829,7 @@ xqc_client_stream_send(xqc_stream_t *stream, void *user_data)
         }
     }
 
-    if (g_test_case == 4) { //test fin_only
+    if (g_test_case == 4) { /* test fin_only */
         if (user_stream->send_offset == user_stream->send_body_len) {
             fin = 1;
             usleep(200*1000);
@@ -894,7 +894,7 @@ xqc_client_stream_read_notify(xqc_stream_t *stream, void *user_data)
             printf("fwrite error\n");
             return -1;
         }
-        if(save) fflush(user_stream->recv_body_fp);
+        if (save) fflush(user_stream->recv_body_fp);
 
         /* write received body to memory */
         if (g_echo_check && user_stream->recv_body_len + read <= user_stream->send_body_len) {
@@ -932,11 +932,11 @@ xqc_client_stream_read_notify(xqc_stream_t *stream, void *user_data)
                (user_stream->send_body_len + user_stream->recv_body_len)*1000/(now_us - user_stream->start_time),
                user_stream->send_body_len, user_stream->recv_body_len);
 
-        // write to eval file
+        /* write to eval file */
         /*{
             FILE* fp = NULL;
             fp = fopen("eval_result.txt", "a+");
-            if (fp == NULL){
+            if (fp == NULL) {
                 exit(1);
             }
 
@@ -1215,7 +1215,7 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
     }
 
     int fin = 1;
-    if (g_test_case == 4 || g_test_case == 31 || g_test_case == 35 || g_test_case == 36) { //test fin_only
+    if (g_test_case == 4 || g_test_case == 31 || g_test_case == 35 || g_test_case == 36) { /* test fin_only */
         fin = 0;
     }
 
@@ -1269,7 +1269,7 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
         }
     }
 
-    if (g_test_case == 4) { //test fin_only
+    if (g_test_case == 4) { /* test fin_only */
         if (user_stream->send_offset == user_stream->send_body_len) {
             fin = 1;
             usleep(200*1000);
@@ -1448,11 +1448,11 @@ int xqc_client_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_not
                (stats.send_body_size + stats.recv_body_size)*1000/(now_us - user_stream->start_time),
                stats.send_body_size, stats.recv_body_size);
 
-        // write to eval file
+        /* write to eval file */
         /*{
             FILE* fp = NULL;
             fp = fopen("eval_result.txt", "a+");
-            if (fp == NULL){
+            if (fp == NULL) {
                 exit(1);
             }
 
@@ -1717,11 +1717,11 @@ xqc_client_timeout_callback(int fd, short what, void *arg)
     int rc;
     static int restart_after_a_while = 1;
 
-    // write to eval file
+    /* write to eval file */
     /*{
         FILE* fp = NULL;
         fp = fopen("eval_result.txt", "a+");
-        if (fp == NULL){
+        if (fp == NULL) {
             exit(1);
         }
 
@@ -1937,7 +1937,7 @@ int main(int argc, char *argv[]) {
 
     int ch = 0;
     while ((ch = getopt(argc, argv, "a:p:P:n:c:Ct:T1s:w:r:l:Ed:u:H:h:Gx:6NMi:V:q:o:")) != -1) {
-        switch(ch) {
+        switch (ch) {
         case 'a': /* Server addr. */
             printf("option addr :%s\n", optarg);
             snprintf(server_addr, sizeof(server_addr), optarg);

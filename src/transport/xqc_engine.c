@@ -663,8 +663,8 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
     XQC_CHECK_UNDECRYPT_PACKETS();
     XQC_CHECK_IMMEDIATE_CLOSE();
 
-    if (XQC_UNLIKELY(!xqc_list_empty(&conn->conn_send_ctl->ctl_buff_1rtt_packets) &&
-        conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT)) {
+    if (XQC_UNLIKELY(!xqc_list_empty(&conn->conn_send_ctl->ctl_buff_1rtt_packets) 
+        && conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT)) {
         xqc_conn_write_buffed_1rtt_packets(conn);
     }
     XQC_CHECK_IMMEDIATE_CLOSE();
@@ -735,12 +735,12 @@ xqc_engine_recv_batch(xqc_engine_t *engine, xqc_connection_t *conn)
 }
 
 
-void xqc_engine_finish_recv (xqc_engine_t *engine){
+void xqc_engine_finish_recv (xqc_engine_t *engine) {
     xqc_engine_main_logic(engine);
 }
 
 
-void xqc_engine_main_logic_internal(xqc_engine_t *engine, xqc_connection_t *conn){
+void xqc_engine_main_logic_internal(xqc_engine_t *engine, xqc_connection_t *conn) {
     if (conn->conn_flag & XQC_CONN_FLAG_CANNOT_DESTROY) {
         return;
     }

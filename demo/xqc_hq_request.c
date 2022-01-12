@@ -342,7 +342,7 @@ xqc_hq_stream_create_notify(xqc_stream_t *stream, void *strm_user_data)
         return hqr->hqr_cbs->req_create_notify(hqr, hqr->user_data);
     }
 
-    return XQC_OK;    
+    return XQC_OK;
 }
 
 
@@ -356,7 +356,6 @@ xqc_hq_stream_write_notify(xqc_stream_t *stream, void *user_data)
     if (ret < 0) {
         return (int)ret;
     }
-    
 
     if (hqr->hqr_cbs->req_write_notify) {
         return hqr->hqr_cbs->req_write_notify(hqr, hqr->user_data);

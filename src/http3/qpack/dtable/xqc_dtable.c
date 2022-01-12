@@ -318,7 +318,7 @@ xqc_dtable_get_entry_by_abs_idx(xqc_dtable_t *dt, uint64_t idx)
     if (idx < dt->first_idx) {
         return NULL;
     }
-    
+
     return xqc_rarray_get(dt->entries, idx - dt->first_idx);
 }
 

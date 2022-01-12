@@ -420,7 +420,7 @@ xqc_conn_server_create(xqc_engine_t *engine, const struct sockaddr *local_addr,
      * If use the peer's dcid as scid directly, must make sure
      * its length equals to the config cid_len, otherwise might fail
      * decoding dcid from subsequent short header packets
-     */ 
+     */
     if (engine->config->cid_negotiate
         || new_scid.cid_len != engine->config->cid_len) 
     {
@@ -1260,7 +1260,7 @@ xqc_conn_retransmit_lost_packets(xqc_connection_t *conn)
                 conn, packet_out->po_pkt.pkt_num, packet_out->po_used_size,
                 xqc_pkt_type_2_str(packet_out->po_pkt.pkt_type),
                 xqc_frame_type_2_str(packet_out->po_frame_types));
-        
+
         if (xqc_send_ctl_indirectly_ack_po(ctl, packet_out)) {
             continue;
         }
@@ -1340,7 +1340,7 @@ xqc_conn_gen_ping(xqc_connection_t *conn, xqc_pkt_num_space_t pns)
     case XQC_PNS_INIT:
         ptype = XQC_PTYPE_INIT;
         break;
-    
+
     case XQC_PNS_HSK:
         ptype = XQC_PTYPE_HSK;
         break;

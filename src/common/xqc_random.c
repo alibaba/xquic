@@ -83,7 +83,7 @@ xqc_get_random(xqc_random_generator_t *rand_gen, u_char *buf, size_t need_len)
                     continue;
                 }
 
-                if (errno == EAGAIN){
+                if (errno == EAGAIN) {
                     break;
                 }
             }

@@ -751,7 +751,7 @@ int
 xqc_ssl_session_ticket_key_cb(SSL *ssl, uint8_t *key_name, uint8_t *iv,
     EVP_CIPHER_CTX *cipher_ctx, HMAC_CTX *hmac_ctx, int encrypt)
 {
-    size_t size = 0;;
+    size_t size = 0;
     const EVP_CIPHER *cipher = NULL;
     const EVP_MD *digest = EVP_sha256();
     xqc_tls_t *tls = (xqc_tls_t *)SSL_get_app_data(ssl);

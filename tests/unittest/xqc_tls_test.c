@@ -753,7 +753,7 @@ xqc_test_tls_process_truncated_crypto_handshake()
         CU_ASSERT(ret == XQC_OK);
     }
     CU_ASSERT(ttbuf_cli->handshake_completed == XQC_TRUE);
-    CU_ASSERT(!xqc_list_empty(&ttbuf_cli->hsk_crypto_data_list)); /* FIN */        
+    CU_ASSERT(!xqc_list_empty(&ttbuf_cli->hsk_crypto_data_list)); /* FIN */
 
     /* server process handshake data from client, send new session ticket */
     data_len = xqc_crypto_data_list_get_buf(&ttbuf_cli->hsk_crypto_data_list, data_buf);

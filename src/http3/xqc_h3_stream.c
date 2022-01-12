@@ -193,7 +193,7 @@ xqc_h3_stream_write_headers(xqc_h3_stream_t *h3s, xqc_http_headers_t *headers, u
                 h3s->stream_id, (unsigned int)fin);
         return processed;
 
-    } else if(ret < 0) {
+    } else if (ret < 0) {
         xqc_log(h3s->log, XQC_LOG_ERROR, "|send HEADERS frame error|%d|stream_id:%ui|fin:%ud|",
                 ret, h3s->stream_id, (unsigned int)fin);
         processed = ret;

@@ -109,7 +109,7 @@ again:
     ERR_clear_error();
     ret = SSL_do_handshake(ssl);
     if (ret <= 0) {
-        switch(SSL_get_error(ssl, ret)) {
+        switch (SSL_get_error(ssl, ret)) {
         case SSL_ERROR_WANT_READ:
         case SSL_ERROR_WANT_WRITE:
             return XQC_SSL_HSK_RES_WAIT;

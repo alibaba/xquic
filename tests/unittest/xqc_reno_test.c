@@ -31,7 +31,7 @@ xqc_test_reno()
     xqc_reno_cb.xqc_cong_ctl_init(&reno, NULL, params);
     print_reno(&reno);
 
-    //slow start
+    /* slow start */
     for (int i = 0; i < 10; ++i) {
         xqc_packet_out_t po;
         po.po_sent_time = now;
@@ -41,11 +41,11 @@ xqc_test_reno()
         print_reno(&reno);
     }
 
-    //lost
+    /* lost */
     xqc_reno_cb.xqc_cong_ctl_on_lost(&reno, now);
     print_reno(&reno);
 
-    //congestion avoid
+    /* congestion avoid */
     for (int i = 0; i < 10; ++i) {
         xqc_packet_out_t po;
         po.po_sent_time = now;

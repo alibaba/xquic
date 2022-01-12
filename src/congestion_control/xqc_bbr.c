@@ -65,12 +65,12 @@ const uint32_t xqc_bbr2_minrtt_win_size_us = 3000000;
 const uint32_t xqc_bbr2_probertt_win_size_us = 2500000;
 const bool xqc_bbr2_extra_ack_in_startup = 1;
 /* 10 packet-timed rtt */
-const uint32_t xqc_bbr2_extra_ack_win_rtt = 5;   
+const uint32_t xqc_bbr2_extra_ack_win_rtt = 5;
 /* 2 packet-timed rtt */
 const uint32_t xqc_bbr2_extra_ack_win_rtt_in_startup = 1; 
 /* slow down */
 const float xqc_bbr2_startup_pacing_gain_on_lost = 1.5;
-const bool xqc_bbr2_slow_down_startup_on_lost = 0;    
+const bool xqc_bbr2_slow_down_startup_on_lost = 0;
 
 /*5RTT*/
 #if XQC_BBR_RTTVAR_COMPENSATION_ENABLED

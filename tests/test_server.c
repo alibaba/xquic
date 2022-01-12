@@ -660,7 +660,7 @@ xqc_server_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
             read_sum += read;
 
             /* write received body to file */
-            if(save && fwrite(buff, 1, read, user_stream->recv_body_fp) != read) {
+            if (save && fwrite(buff, 1, read, user_stream->recv_body_fp) != read) {
                 printf("fwrite error\n");
                 return -1;
             }
@@ -1212,7 +1212,7 @@ int main(int argc, char *argv[]) {
 
     int ch = 0;
     while ((ch = getopt(argc, argv, "p:ec:Cs:w:r:l:u:x:6bS:o:")) != -1) {
-        switch(ch) {
+        switch (ch) {
         case 'p': /* Server port. */
             printf("option port :%s\n", optarg);
             server_port = atoi(optarg);

@@ -93,7 +93,7 @@ void
 xqc_ssl_free_certs_array(unsigned char **certs_array, size_t certs_array_len)
 {
     for (int i = 0; i < certs_array_len; i++) {
-        if(certs_array[i] != NULL) {
+        if (certs_array[i] != NULL) {
             xqc_free(certs_array[i]);
         }
     }

@@ -12,7 +12,7 @@ xqc_test_get_random()
     u_char buf[1024];
     xqc_random_generator_t *rand_gen = NULL;
     xqc_log_t log;
-    
+
     rand_gen = xqc_random_generator_create(&log);
     CU_ASSERT(rand_gen != NULL);
 

@@ -291,13 +291,13 @@ xqc_bbr2_probe_inflight_hi_upward(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
             bbr2->inflight_hi, sampler->acked, sampler->prior_inflight);
     bool not_cwnd_limited = FALSE;
     if (sampler->prior_inflight < bbr2->congestion_window) {
-        not_cwnd_limited = (bbr2->congestion_window - sampler->prior_inflight)  
+        not_cwnd_limited = (bbr2->congestion_window - sampler->prior_inflight)
             >= XQC_BBR2_MAX_DATAGRAM_SIZE;
     }
     /* not cwnd_limited or ... */
     if (not_cwnd_limited || (bbr2->inflight_hi > bbr2->congestion_window)) {
         bbr2->bw_probe_up_acks = 0; /* don't accmulate unused credits */
-        return;                     
+        return;
         /* not fully using inflight_hi, so don't grow it */
     }
 
@@ -317,7 +317,7 @@ xqc_bbr2_probe_inflight_hi_upward(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
 
     if (bbr2->round_start) {
         xqc_bbr2_raise_inflight_hi_slope(bbr2);
-    } 
+    }
 }
 
 static void 
@@ -334,10 +334,10 @@ xqc_bbr2_handle_inflight_too_high(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
     if (!sampler->is_app_limited) {
         bbr2->inflight_hi = xqc_max(sampler->tx_in_flight,
             xqc_bbr2_target_inflight(bbr2) * (1.0 - beta));
-    }    
+    }
     if (bbr2->mode == BBR2_PROBE_BW && bbr2->cycle_idx == BBR2_BW_PROBE_UP) {
         xqc_bbr2_enter_probe_down(bbr2, sampler);
-    }  
+    }
 }
 
 static bool 
@@ -365,8 +365,8 @@ xqc_bbr2_adapt_upper_bounds(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
          * then probe up again, this time letting inflight persist at
          * inflight_hi for a round trip, then accelerating beyond.
          */
-        if (bbr2->mode == BBR2_PROBE_BW &&
-            bbr2->stopped_risky_probe && !bbr2->prev_probe_too_high)
+        if (bbr2->mode == BBR2_PROBE_BW 
+            && bbr2->stopped_risky_probe && !bbr2->prev_probe_too_high)
         {
             xqc_bbr2_enter_probe_refill(bbr2, sampler, 0);
             return TRUE; /* yes, decided state transition */
@@ -391,8 +391,8 @@ xqc_bbr2_adapt_upper_bounds(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
             bbr2->inflight_hi = sampler->tx_in_flight;
         }
 
-        if (bbr2->mode == BBR2_PROBE_BW &&
-            bbr2->cycle_idx == BBR2_BW_PROBE_UP)
+        if (bbr2->mode == BBR2_PROBE_BW 
+            && bbr2->cycle_idx == BBR2_BW_PROBE_UP)
             xqc_bbr2_probe_inflight_hi_upward(bbr2, sampler);
     }
 
@@ -526,7 +526,7 @@ xqc_bbr2_check_time_to_cruise(xqc_bbr2_t *bbr2, uint32_t inflight, uint32_t bw)
     /* Always need to pull inflight down to leave headroom in queue. */
     if (inflight > xqc_bbr2_inflight_with_headroom(bbr2)) {
         return FALSE;
-    } 
+    }
     is_under_bdp = inflight <= xqc_bbr2_bdp(bbr2, bw);
     return is_under_bdp;
 }
@@ -564,7 +564,7 @@ xqc_bbr2_update_cycle_phase(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
 
     if (!bbr2->full_bandwidth_reached) {
         return;
-    }  
+    }
     /* In DRAIN, PROBE_BW, or PROBE_RTT, adjust upper bounds. */
     if (xqc_bbr2_adapt_upper_bounds(bbr2, sampler)) {
         return; /* already decided state transition */
@@ -572,7 +572,7 @@ xqc_bbr2_update_cycle_phase(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
     if (bbr2->mode != BBR2_PROBE_BW) {
         return;
     }
-    
+
     inflight = sampler->prior_inflight;
     bw = xqc_bbr2_max_bw(bbr2);
 
@@ -601,7 +601,6 @@ xqc_bbr2_update_cycle_phase(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
                             "|BBRv2 Plus|advanced bw hi filter|");
                 }
             }
-            
         }
 #endif
         if (xqc_bbr2_check_time_to_probe_bw(bbr2, sampler)) {
@@ -906,7 +905,7 @@ xqc_bbr2_check_drain(xqc_bbr2_t *bbr2, xqc_sample_t *sampler,
     if (bbr2->mode == BBR2_STARTUP && bbr2->full_bandwidth_reached) {
         xqc_bbr2_enter_drain(bbr2);
     }
-    
+
     if (bbr2->mode == BBR2_DRAIN 
         && sampler->bytes_inflight <= xqc_bbr2_bdp(bbr2, xqc_bbr2_max_bw(bbr2)))
     {
@@ -944,7 +943,7 @@ xqc_bbr2_check_probe_rtt_done(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
     if (!bbr2->probe_rtt_round_done_stamp 
         || sampler->now < bbr2->probe_rtt_round_done_stamp) {
         return;
-    }    
+    }
     bbr2->probe_rtt_min_us_stamp = sampler->now;
     xqc_bbr2_restore_cwnd(bbr2);
     xqc_bbr2_exit_probe_rtt(bbr2, sampler);
@@ -1047,7 +1046,7 @@ _xqc_bbr2_set_pacing_rate_helper(xqc_bbr2_t *bbr2, float pacing_gain)
     if (bbr2->full_bandwidth_reached || rate > bbr2->pacing_rate 
         || bbr2->recovery_mode == BBR2_RECOVERY) {
         bbr2->pacing_rate = rate;
-    }    
+    }
 }
 
 static void 
@@ -1252,7 +1251,7 @@ xqc_bbr2_adapt_lower_bounds(xqc_bbr2_t *bbr2)
     if (xqc_bbr2_is_probing_bandwidth(bbr2)) {
         return;
     }
-        
+
     /* Loss response. */
     if (bbr2->loss_in_round) {
         /* Reduce bw and inflight to (1 - beta). */
@@ -1348,7 +1347,7 @@ xqc_bbr2_check_loss_too_high_in_startup(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
     }
     if (bbr2->loss_round_start) {
         bbr2->loss_events_in_round = 0;
-    }     
+    }
 }
 
 static void 
@@ -1381,7 +1380,7 @@ xqc_bbr2_bound_cwnd_for_inflight_model(xqc_bbr2_t *bbr2)
                 && bbr2->cycle_idx == BBR2_BW_PROBE_CRUISE))
         {
             cap = xqc_bbr2_inflight_with_headroom(bbr2);
-        }    
+        }
     }
     /* Adapt to any loss/ECN since our last bw probe. */
     cap = xqc_min(cap, bbr2->inflight_lo);

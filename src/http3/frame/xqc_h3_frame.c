@@ -29,24 +29,24 @@ void
 xqc_h3_frm_reset_pctx(xqc_h3_frame_pctx_t *pctx)
 {
     switch (pctx->frame.type) {
-        case XQC_H3_FRM_DATA:
-            break;
-        case XQC_H3_FRM_HEADERS:
-            break;
-        case XQC_H3_FRM_CANCEL_PUSH:
-            break;
-        case XQC_H3_FRM_SETTINGS:
-            xqc_var_buf_free(pctx->frame.frame_payload.settings.setting);
-            break;
-        case XQC_H3_FRM_PUSH_PROMISE:
-            xqc_var_buf_free(pctx->frame.frame_payload.push_promise.encoded_field_section);
-            break;
-        case XQC_H3_FRM_GOAWAY:
-            break;
-        case XQC_H3_FRM_MAX_PUSH_ID:
-            break;
-        case XQC_H3_FRM_UNKNOWN:
-            break;
+    case XQC_H3_FRM_DATA:
+        break;
+    case XQC_H3_FRM_HEADERS:
+        break;
+    case XQC_H3_FRM_CANCEL_PUSH:
+        break;
+    case XQC_H3_FRM_SETTINGS:
+        xqc_var_buf_free(pctx->frame.frame_payload.settings.setting);
+        break;
+    case XQC_H3_FRM_PUSH_PROMISE:
+        xqc_var_buf_free(pctx->frame.frame_payload.push_promise.encoded_field_section);
+        break;
+    case XQC_H3_FRM_GOAWAY:
+        break;
+    case XQC_H3_FRM_MAX_PUSH_ID:
+        break;
+    case XQC_H3_FRM_UNKNOWN:
+        break;
     }
     memset(pctx, 0, sizeof(xqc_h3_frame_pctx_t));
     pctx->state = XQC_H3_FRM_STATE_TYPE;

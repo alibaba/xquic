@@ -1,4 +1,4 @@
 
-// the configured options and settings for xquic
+/* the configured options and settings for xquic */
 #define xquic_VERSION_MAJOR @xquic_VERSION_MAJOR@
 #define xquic_VERSION_MINOR @xquic_VERSION_MINOR@

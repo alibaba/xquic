@@ -6,7 +6,7 @@
 
 * **是一个遵循IETF标准的QUIC和HTTP/3的客户端和服务端实现。** 目前支持的QUIC版本是v1和draft-29。
 
-* **是跨平台的。** 目前支持Android、iOS、Linux和MacOS。绝大部分代码被用于我们自己的产品，并已在安卓、iOS APP以及服务端上进行了大规模测试。
+* **是跨平台的。** 目前支持Android、iOS、Linux和macOS。绝大部分代码被用于我们自己的产品，并已在安卓、iOS APP以及服务端上进行了大规模测试。
 
 * **目前仍在积极开发中。** 我们定期与其他QUIC实现进行[互通性测试](https://interop.seemann.io/)。
 

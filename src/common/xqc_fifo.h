@@ -98,8 +98,7 @@ xqc_fifo_push(xqc_fifo_t *fifo, void *buf, size_t size)
         return XQC_ERROR;
     }
 
-    size_t index = fifo->in++ % fifo->capacity * fifo->element_size;
-    memcpy(fifo->buf + index, buf, size);
+    memcpy(fifo->buf + fifo->in++ % fifo->capacity * fifo->element_size, buf, size);
 
     return XQC_OK;
 }
@@ -125,8 +124,7 @@ xqc_fifo_top(xqc_fifo_t *fifo)
         return NULL;
     }
 
-    size_t index = fifo->out % fifo->capacity * fifo->element_size;
-    return fifo->buf + index;
+    return fifo->buf + fifo->out % fifo->capacity * fifo->element_size;
 }
 
 static inline void *

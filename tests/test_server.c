@@ -24,7 +24,7 @@ printf_null(const char *format, ...)
 }
 
 
-#define DEBUG printf("%s:%d (%s)\n",__FILE__, __LINE__ ,__FUNCTION__);
+#define DEBUG printf("%s:%d (%s)\n", __FILE__, __LINE__, __FUNCTION__);
 
 #define TEST_ADDR "127.0.0.1"
 #define TEST_PORT 8443
@@ -105,7 +105,8 @@ static uint64_t last_snd_ts;
 char test_long_value[XQC_TEST_LONG_HEADER_LEN] = {'\0'};
 
 
-static inline uint64_t now()
+static inline uint64_t 
+now()
 {
     /* get microsecond unit time */
     struct timeval tv;
@@ -137,7 +138,7 @@ read_file_data( char * data, size_t data_len, char *filename)
         goto end;
     }
 
-    fseek(fp, 0 , SEEK_END);
+    fseek(fp, 0, SEEK_END);
     total_len = ftell(fp);
     fseek(fp, 0, SEEK_SET);
     if (total_len > data_len) {
@@ -609,7 +610,7 @@ xqc_server_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
         }
 
         for (int i = 0; i < headers->count; i++) {
-            printf("%s = %s\n",(char*)headers->headers[i].name.iov_base, (char*)headers->headers[i].value.iov_base);
+            printf("%s = %s\n", (char*)headers->headers[i].name.iov_base, (char*)headers->headers[i].value.iov_base);
         }
 
         user_stream->header_recvd++;
@@ -899,7 +900,8 @@ xqc_server_socket_event_callback(int fd, short what, void *arg)
     }
 }
 
-int xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data)
+int
+xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data)
 {
     DEBUG;
     user_conn_t *user_conn = calloc(1, sizeof(*user_conn));
@@ -929,7 +931,8 @@ int xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_ci
     return 0;
 }
 
-static int xqc_server_create_socket(const char *addr, unsigned int port)
+static int
+xqc_server_create_socket(const char *addr, unsigned int port)
 {
     int fd;
     int type = g_ipv6 ? AF_INET6 : AF_INET;
@@ -1086,7 +1089,8 @@ xqc_server_write_log(xqc_log_level_t lvl, const void *buf, size_t count, void *e
  * key log functions
  */
 
-int xqc_server_open_keylog_file(xqc_server_ctx_t *ctx)
+int
+xqc_server_open_keylog_file(xqc_server_ctx_t *ctx)
 {
     ctx->keylog_fd = open("./skeys.log", (O_WRONLY | O_APPEND | O_CREAT), 0644);
     if (ctx->keylog_fd <= 0) {
@@ -1096,7 +1100,8 @@ int xqc_server_open_keylog_file(xqc_server_ctx_t *ctx)
     return 0;
 }
 
-int xqc_server_close_keylog_file(xqc_server_ctx_t *ctx)
+int
+xqc_server_close_keylog_file(xqc_server_ctx_t *ctx)
 {
     if (ctx->keylog_fd <= 0) {
         return -1;
@@ -1108,7 +1113,8 @@ int xqc_server_close_keylog_file(xqc_server_ctx_t *ctx)
 }
 
 
-void xqc_keylog_cb(const char *line, void *user_data)
+void
+xqc_keylog_cb(const char *line, void *user_data)
 {
     xqc_server_ctx_t *ctx = (xqc_server_ctx_t*)user_data;
     if (ctx->keylog_fd <= 0) {
@@ -1157,7 +1163,8 @@ ssize_t xqc_server_write_mmsg(const struct iovec *msg_iov, unsigned int vlen,
 }
 #endif
 
-void stop(int signo)
+void
+stop(int signo)
 {
     event_base_loopbreak(eb);
     xqc_engine_destroy(ctx.engine);
@@ -1168,8 +1175,9 @@ void stop(int signo)
 void usage(int argc, char *argv[]) {
     char *prog = argv[0];
     char *const slash = strrchr(prog, '/');
-    if (slash)
+    if (slash) {
         prog = slash + 1;
+    }
     printf(
 "Usage: %s [Options]\n"
 "\n"
@@ -1190,7 +1198,6 @@ void usage(int argc, char *argv[]) {
 "   -o    Output log file path, default ./slog\n"
 , prog);
 }
-
 
 
 int main(int argc, char *argv[]) {
@@ -1223,11 +1230,14 @@ int main(int argc, char *argv[]) {
             break;
         case 'c': /* Congestion Control Algorithm. r:reno b:bbr c:cubic B:bbr2 bbr+ bbr2+ */
             c_cong_ctl = optarg[0];
-            if (strncmp("bbr2", optarg, 4) == 0)
+            if (strncmp("bbr2", optarg, 4) == 0) {
                 c_cong_ctl = 'B';
+            }
             if (strncmp("bbr2+", optarg, 5) == 0
                 || strncmp("bbr+", optarg, 4) == 0)
+            {
                 c_cong_plus = 1;
+            }
             printf("option cong_ctl : %c: %s: plus? %d\n", c_cong_ctl, optarg, c_cong_plus);
             break;
         case 'C': /* Pacing on. */
@@ -1261,7 +1271,7 @@ int main(int argc, char *argv[]) {
             printf("option url :%s\n", optarg);
             snprintf(g_url, sizeof(g_url), optarg);
             g_spec_url = 1;
-            sscanf(g_url,"%[^://]://%[^/]%[^?]", g_scheme, g_host, g_path);
+            sscanf(g_url, "%[^://]://%[^/]%[^?]", g_scheme, g_host, g_path);
             break;
         case 'x': /* Test case ID */
             printf("option test case id: %s\n", optarg);
@@ -1339,8 +1349,9 @@ int main(int argc, char *argv[]) {
         cong_ctrl = xqc_bbr_cb;
         cong_flags = XQC_BBR_FLAG_NONE;
 #if XQC_BBR_RTTVAR_COMPENSATION_ENABLED
-        if (c_cong_plus)
+        if (c_cong_plus) {
             cong_flags |= XQC_BBR_FLAG_RTTVAR_COMPENSATION;
+        }
 #endif
     }
 #ifndef XQC_DISABLE_RENO

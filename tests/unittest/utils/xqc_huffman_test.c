@@ -102,8 +102,10 @@ old_xqc_http3_qpack_huffman_encode(uint8_t *dest, const uint8_t *src, size_t src
     }
     /* 256 is special terminal symbol, pad with its prefix */
     if (rembits < 8) {
-        /* if rembits < 8, we should have at least 1 buffer space
-           available */
+        /*
+         * if rembits < 8, we should have at least 1 buffer space
+         * available 
+         */
         sym = &xqc_huffman_enc_code_table[256];
         *dest++ |= (uint8_t)(sym->lsb >> (sym->bits - rembits));
     }
@@ -127,8 +129,10 @@ old_xqc_http3_qpack_huffman_decode(xqc_huffman_dec_ctx *ctx, uint8_t *dest, size
     size_t dst_sz = dstlen;
     const xqc_huffman_dec_code_t *t;
 
-    /* We use the decoding algorithm described in
-       http://graphics.ics.uci.edu/pub/Prefix.pdf */
+    /*
+     * We use the decoding algorithm described in
+     * http://graphics.ics.uci.edu/pub/Prefix.pdf
+     */
     for (i = 0; i < srclen; ++i) {
         t = &xqc_huffman_dec_code_table[ctx->state][src[i] >> 4];
         if (t->flags & XQC_HUFFMAN_FAIL) {

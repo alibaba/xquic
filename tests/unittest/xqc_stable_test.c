@@ -14,9 +14,12 @@ typedef struct xqc_stable_entry_s {
     /* header type */
     xqc_hdr_type_t      type;
 
-    /* :status/access-control-allow-headers headers are not continuously distributed in static
-       table. when lookup these two headers, if name matched while value not, this attribute is set
-       to tell the next entry with the same name in static table */
+    /* 
+     * :status/access-control-allow-headers headers are not continuously
+     * distributed in static table. when lookup these two headers, if name
+     * matched while value not, this attribute is set to tell the next 
+     * entry with the same name in static table 
+     */
     uint64_t            hop;
 
 } xqc_stable_entry_t;
@@ -61,8 +64,10 @@ xqc_test_static_table_lookup_basic()
                               nv[2].value.len, htype, &idx);
     CU_ASSERT(match == XQC_NV_REF_NONE);
 
-    /* chect static table will get an error result, 
-       which is thought to be the responsibility of user */
+    /* 
+     * chect static table will get an error result,  which is thought to be 
+     * the responsibility of user 
+     */
     htype = XQC_HDR__METHOD;
     match = xqc_stable_lookup("this is a test header name which is incredibly very very very very "
                               "very long", 71, "this is a test header value which is incredibly "
@@ -184,8 +189,8 @@ xqc_test_static_table_get_nv_robust()
 }
 
 
-
-void xqc_test_stable()
+void
+xqc_test_stable()
 {
     xqc_test_static_table_lookup_basic();
     xqc_test_static_table_lookup_robust();

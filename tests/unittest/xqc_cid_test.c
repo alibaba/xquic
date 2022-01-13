@@ -201,7 +201,8 @@ xqc_test_retire_cid_with_odcid_in_set()
     xqc_engine_destroy(conn->engine);
 }
 
-void xqc_test_cid()
+void
+xqc_test_cid()
 {
     xqc_test_cid_basic();
     xqc_test_new_cid();

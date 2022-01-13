@@ -87,8 +87,9 @@ xqc_prefixed_int_put_len(uint64_t n, size_t prefix)
     n -= k;
     ++len;
 
-    for (; n >= 128; n >>= 7, ++len)
-        ;
+    for (; n >= 128; n >>= 7, ++len) {
+        /* void */
+    }
 
     return len + 1;
 }

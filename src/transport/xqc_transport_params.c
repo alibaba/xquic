@@ -639,8 +639,10 @@ xqc_decode_one_transport_param(xqc_transport_params_t *params,
     }
     p += nread;
 
-    /* read param value, note: some parameters are allowed to be zero-length,
-     * for example, disable_active_migration. */
+    /* 
+     * read param value, note: some parameters are allowed to be zero-length,
+     * for example, disable_active_migration. 
+     */
     xqc_int_t param_index = xqc_trans_param_get_index(param_type);
     if (param_index != XQC_TRANSPORT_PARAM_UNKNOWN) {
         xqc_int_t ret = xqc_trans_param_decode_func_list[param_index](params, exttype, p, end,

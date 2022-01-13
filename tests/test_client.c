@@ -31,7 +31,7 @@ printf_null(const char *format, ...)
 
 //#define printf printf_null
 
-#define DEBUG printf("%s:%d (%s)\n",__FILE__, __LINE__ ,__FUNCTION__);
+#define DEBUG printf("%s:%d (%s)\n", __FILE__, __LINE__, __FUNCTION__);
 
 #define TEST_DROP (g_drop_rate != 0 && rand() % 1000 < g_drop_rate)
 
@@ -167,7 +167,8 @@ static void xqc_client_socket_event_callback(int fd, short what, void *arg);
 static void xqc_client_timeout_callback(int fd, short what, void *arg);
 
 
-static inline uint64_t now()
+static inline uint64_t 
+now()
 {
     /* get microsecond unit time */
     struct timeval tv;
@@ -274,7 +275,7 @@ read_file_data(char *data, size_t data_len, char *filename)
         goto end;
     }
 
-    fseek(fp, 0 , SEEK_END);
+    fseek(fp, 0, SEEK_END);
     total_len = ftell(fp);
     fseek(fp, 0, SEEK_SET);
     if (total_len > data_len) {
@@ -510,7 +511,6 @@ xqc_client_init_addr(user_conn_t *user_conn,
         user_conn->local_addrlen = sizeof(struct sockaddr_in);
     }
 }
-
 
 
 static int
@@ -1280,7 +1280,8 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
     return 0;
 }
 
-int xqc_client_request_write_notify(xqc_h3_request_t *h3_request, void *user_data)
+int
+xqc_client_request_write_notify(xqc_h3_request_t *h3_request, void *user_data)
 {
     //DEBUG;
     ssize_t ret = 0;
@@ -1303,7 +1304,8 @@ int xqc_client_request_write_notify(xqc_h3_request_t *h3_request, void *user_dat
     return ret;
 }
 
-int xqc_client_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_flag_t flag, void *user_data)
+int
+xqc_client_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_flag_t flag, void *user_data)
 {
     //DEBUG;
     unsigned char fin = 0;
@@ -1354,7 +1356,7 @@ int xqc_client_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_not
         }
 
         for (int i = 0; i < headers->count; i++) {
-            printf("%s = %s\n",(char*)headers->headers[i].name.iov_base, (char*)headers->headers[i].value.iov_base);
+            printf("%s = %s\n", (char*)headers->headers[i].name.iov_base, (char*)headers->headers[i].value.iov_base);
         }
 
         user_stream->header_recvd = 1;
@@ -1769,7 +1771,8 @@ conn_close:
 }
 
 
-int xqc_client_open_log_file(void *engine_user_data)
+int
+xqc_client_open_log_file(void *engine_user_data)
 {
     client_ctx_t *ctx = (client_ctx_t*)engine_user_data;
     //ctx->log_fd = open("/home/jiuhai.zjh/ramdisk/clog", (O_WRONLY | O_APPEND | O_CREAT), 0644);
@@ -1780,7 +1783,8 @@ int xqc_client_open_log_file(void *engine_user_data)
     return 0;
 }
 
-int xqc_client_close_log_file(void *engine_user_data)
+int
+xqc_client_close_log_file(void *engine_user_data)
 {
     client_ctx_t *ctx = (client_ctx_t*)engine_user_data;
     if (ctx->log_fd <= 0) {
@@ -1842,7 +1846,8 @@ xqc_client_close_keylog_file(client_ctx_t *ctx)
 }
 
 
-void xqc_keylog_cb(const char *line, void *user_data)
+void 
+xqc_keylog_cb(const char *line, void *user_data)
 {
     client_ctx_t *ctx = (client_ctx_t*)user_data;
     if (ctx->keylog_fd <= 0) {
@@ -1874,8 +1879,9 @@ xqc_client_cert_verify(const unsigned char *certs[],
 void usage(int argc, char *argv[]) {
     char *prog = argv[0];
     char *const slash = strrchr(prog, '/');
-    if (slash)
+    if (slash) {
         prog = slash + 1;
+    }
     printf(
 "Usage: %s [Options]\n"
 "\n"
@@ -1956,11 +1962,15 @@ int main(int argc, char *argv[]) {
             break;
         case 'c': /* Congestion Control Algorithm. r:reno b:bbr c:cubic B:bbr2 bbr+ bbr2+ */
             c_cong_ctl = optarg[0];
-            if (strncmp("bbr2", optarg, 4) == 0)
+            if (strncmp("bbr2", optarg, 4) == 0) {
                 c_cong_ctl = 'B';
+            }
+
             if (strncmp("bbr2+", optarg, 5) == 0
                 || strncmp("bbr+", optarg, 4) == 0)
+            {
                 c_cong_plus = 1;
+            }
             printf("option cong_ctl : %c: %s: plus? %d\n", c_cong_ctl, optarg, c_cong_plus);
             break;
         case 'C': /* Pacing on */
@@ -2015,7 +2025,7 @@ int main(int argc, char *argv[]) {
             printf("option url :%s\n", optarg);
             snprintf(g_url, sizeof(g_url), optarg);
             g_spec_url = 1;
-            sscanf(g_url,"%[^://]://%[^/]%s", g_scheme, g_host, g_url_path);
+            sscanf(g_url, "%[^://]://%[^/]%s", g_scheme, g_host, g_url_path);
             break;
         case 'H': /* Header. eg. key:value */
             printf("option header :%s\n", optarg);
@@ -2071,7 +2081,7 @@ int main(int argc, char *argv[]) {
     xqc_client_open_log_file(&ctx);
 
     xqc_engine_ssl_config_t  engine_ssl_config;
-    memset(&engine_ssl_config, 0 ,sizeof(engine_ssl_config));
+    memset(&engine_ssl_config, 0, sizeof(engine_ssl_config));
     /* client does not need to fill in private_key_file & cert_file */
     engine_ssl_config.ciphers = XQC_TLS_CIPHERS;
     engine_ssl_config.groups = XQC_TLS_GROUPS;
@@ -2103,8 +2113,9 @@ int main(int argc, char *argv[]) {
         cong_ctrl = xqc_bbr_cb;
         cong_flags = XQC_BBR_FLAG_NONE;
 #if XQC_BBR_RTTVAR_COMPENSATION_ENABLED
-        if (c_cong_plus)
+        if (c_cong_plus) {
             cong_flags |= XQC_BBR_FLAG_RTTVAR_COMPENSATION;
+        }
 #endif
     }
 #ifndef XQC_DISABLE_RENO
@@ -2240,7 +2251,7 @@ int main(int argc, char *argv[]) {
     }
 
     xqc_conn_ssl_config_t conn_ssl_config;
-    memset(&conn_ssl_config, 0 ,sizeof(conn_ssl_config));
+    memset(&conn_ssl_config, 0, sizeof(conn_ssl_config));
 
     if (g_verify_cert) {
         conn_ssl_config.cert_verify_flag |= XQC_TLS_CERT_FLAG_NEED_VERIFY;

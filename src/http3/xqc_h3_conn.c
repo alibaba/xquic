@@ -111,7 +111,7 @@ xqc_h3_conn_close(xqc_engine_t *engine, const xqc_cid_t *cid)
 }
 
 
-xqc_connection_t *  
+xqc_connection_t *
 xqc_h3_conn_get_xqc_conn(xqc_h3_conn_t *h3_conn)
 {
     return  XQC_LIKELY(h3_conn) ? h3_conn->conn : NULL;
@@ -482,8 +482,10 @@ xqc_h3_conn_on_settings_entry_received(uint64_t identifier, uint64_t value, void
     case XQC_H3_SETTINGS_QPACK_MAX_TABLE_CAPACITY:
         h3c->peer_h3_conn_settings.qpack_max_table_capacity = value;
 
-        /* set peer's max dtable cap of decoder to qpack's encoder, which is essential when encoding
-           Required Insert Count */
+        /* 
+         * set peer's max dtable cap of decoder to qpack's encoder, 
+         * which is essential when encoding Required Insert Count 
+         */
         ret = xqc_qpack_set_enc_max_dtable_cap(h3c->qpack, value);
         if (ret != XQC_OK) {
             xqc_log(h3c->log, XQC_LOG_ERROR, "|set max dtable capacity error|ret:%d", ret);
@@ -562,7 +564,7 @@ xqc_h3_conn_destroy_blocked_stream_list(xqc_h3_conn_t *h3c)
 {
     xqc_list_head_t *pos, *next;
 
-    xqc_list_for_each_safe(pos ,next, &h3c->block_stream_head) {
+    xqc_list_for_each_safe(pos, next, &h3c->block_stream_head) {
         xqc_h3_blocked_stream_t *blocked_stream =
                 xqc_list_entry(pos, xqc_h3_blocked_stream_t, head);
 
@@ -581,7 +583,7 @@ xqc_h3_conn_process_blocked_stream(xqc_h3_conn_t *h3c)
 {
     uint64_t known_received_count = xqc_qpack_get_dec_insert_count(h3c->qpack);
     xqc_list_head_t *pos, *next;
-    xqc_list_for_each_safe(pos ,next, &h3c->block_stream_head) {
+    xqc_list_for_each_safe(pos, next, &h3c->block_stream_head) {
         xqc_h3_blocked_stream_t *blocked_stream = 
             xqc_list_entry(pos, xqc_h3_blocked_stream_t, head);
         if (blocked_stream->ricnt <= known_received_count) {

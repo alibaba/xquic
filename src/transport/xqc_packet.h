@@ -26,8 +26,7 @@ typedef enum xqc_pkt_num_space {
     XQC_PNS_N         = 3,
 } xqc_pkt_num_space_t;
 
-typedef enum xqc_pkt_type
-{
+typedef enum xqc_pkt_type {
     XQC_PTYPE_INIT  = 0,
     XQC_PTYPE_0RTT  = 1,
     XQC_PTYPE_HSK   = 2,

@@ -18,16 +18,14 @@ typedef unsigned int xqc_object_id_t;
 
 #define XQC_INVALID_OBJECT_ID ((xqc_object_id_t)-1)
 
-typedef struct xqc_object_s
-{
+typedef struct xqc_object_s {
     xqc_object_id_t     object_id;  /* object ID, use for object manager */
     xqc_list_head_t     list;       /* object is either in the freelist or in the usedlist */
     char                data[0];    /* other data members, variable length */
 } xqc_object_t;
 
 
-typedef struct xqc_object_manager_s
-{
+typedef struct xqc_object_manager_s {
     char               *object_pool;    /* object pool, pre-allocated */
     size_t              capacity;       /* object poll capacity */
 

@@ -54,14 +54,18 @@ xqc_h3_stream_close(xqc_h3_stream_t *h3s)
     h3s->flags |= XQC_HTTP3_STREAM_FLAG_ACTIVELY_CLOSED;
 
     if (h3s->flags & XQC_HTTP3_STREAM_FLAG_CLOSED) {
-        /* transport stream notified its close event before, will destroy h3 stream and notify to
-           application immediately, even h3 stream is being blocked now */
+        /*
+         * transport stream notified its close event before, will destroy h3 stream and notify to
+         * application immediately, even h3 stream is being blocked now
+         */
         xqc_h3_stream_destroy(h3s);
         return XQC_OK;
 
     } else {
-        /* lifetime of stream and h3 stream synchronizes,
-           will destroy h3 stream during stream close notify */
+        /*
+         * lifetime of stream and h3 stream synchronizes, 
+         * will destroy h3 stream during stream close notify
+         */
         return xqc_stream_close(h3s->stream);
     }
 }
@@ -147,8 +151,10 @@ xqc_h3_stream_send_buffer(xqc_h3_stream_t *h3s)
 static inline uint64_t
 xqc_h3_uncompressed_fields_size(xqc_http_headers_t *headers)
 {
-    /* The size of a field list is calculated based on the uncompressed size of fields, including
-       the length of the name and value in bytes plus an overhead of 32 bytes for each field */
+    /*
+     * The size of a field list is calculated based on the uncompressed size of fields, including
+     * the length of the name and value in bytes plus an overhead of 32 bytes for each field
+     */
     return headers->total_len + headers->count * 32;
 }
 
@@ -276,7 +282,7 @@ xqc_h3_stream_write_setting_to_buffer(xqc_h3_stream_t *h3s, xqc_h3_conn_settings
 xqc_int_t
 xqc_h3_stream_write_goaway_to_buffer(xqc_h3_stream_t *h3s, uint64_t push_id, uint8_t fin)
 {
-    xqc_int_t ret = xqc_h3_frm_write_goaway(&h3s->send_buf,push_id, fin);
+    xqc_int_t ret = xqc_h3_frm_write_goaway(&h3s->send_buf, push_id, fin);
     if (ret != XQC_OK) {
         xqc_log(h3s->log, XQC_LOG_ERROR, "|write GOAWAY frame error|%d|stream_id:%ui|fin:%d|",
                 ret, h3s->stream_id, (unsigned int)fin);
@@ -1281,8 +1287,10 @@ xqc_h3_stream_read_notify(xqc_stream_t *stream, void *user_data)
 
     /* check goaway */
     if (xqc_h3_conn_is_goaway_recved(h3c, stream->stream_id) == XQC_TRUE) {
-        /* peer sent goaway and keep on sending data,
-           stop it with STOP_SENDING frame */
+        /*
+         * peer sent goaway and keep on sending data, 
+         * stop it with STOP_SENDING frame 
+         */
         ret = xqc_write_stop_sending_to_packet(h3c->conn, stream, H3_REQUEST_CANCELLED);
         if (ret != XQC_OK) {
             xqc_log(h3c->log, XQC_LOG_ERROR, "|xqc_write_stop_sending_to_packet error|%d|", ret);
@@ -1340,7 +1348,7 @@ xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data)
     xqc_h3_stream_get_err(h3s);
     h3s->stream = NULL;     /* stream closed, MUST NOT use it any more */
 
-    /**
+    /*
      * transport stream will automatically close itself after all stream data was received by h3
      * stream. under this situation, blocked h3_stream shall wait for encoder stream insertions.
      * otherwise, the h3_stream shall be destroyed.
@@ -1349,8 +1357,10 @@ xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data)
         && (h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED)
         && (h3s->flags & XQC_HTTP3_STREAM_FLAG_READ_EOF))
     {
-        /* if stream closed passively, while h3 stream received all data and is waiting for
-           encoder stream, will delay the destruction */
+        /* 
+         * if stream closed passively, while h3 stream received all data 
+         * and is waiting for encoder stream, will delay the destruction 
+         */
         xqc_log(h3s->log, XQC_LOG_INFO, "|transport stream close while blocked and fin, "
                 "will delay until unblocked|stream_id:%ui|h3s:%p|stream:%p", h3s->stream_id, h3s, stream);
         return XQC_OK;

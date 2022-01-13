@@ -83,7 +83,8 @@ xqc_test_derive_packet_protection_keys()
 }
 
 
-void xqc_test_crypto()
+void
+xqc_test_crypto()
 {
     xqc_test_derive_initial_secret();
     xqc_test_derive_packet_protection_keys();

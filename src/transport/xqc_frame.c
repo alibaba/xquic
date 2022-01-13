@@ -572,9 +572,11 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
     xqc_log(conn->log, XQC_LOG_DEBUG, "|new_conn_id|%s|", xqc_scid_str(&new_conn_cid));
 
     if (retire_prior_to > new_conn_cid.cid_seq_num) {
-        /* The Retire Prior To field MUST be less than or equal to the Sequence Number field.
+        /*
+         * The Retire Prior To field MUST be less than or equal to the Sequence Number field.
          * Receiving a value greater than the Sequence Number MUST be treated as a connection
-         * error of type FRAME_ENCODING_ERROR. */
+         * error of type FRAME_ENCODING_ERROR.
+         */
         xqc_log(conn->log, XQC_LOG_ERROR, "|retire_prior_to:%ui greater than seq_num:%ui|",
                 retire_prior_to, new_conn_cid.cid_seq_num);
         XQC_CONN_ERR(conn, TRA_FRAME_ENCODING_ERROR);
@@ -582,10 +584,12 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
     }
 
     if (new_conn_cid.cid_seq_num < conn->dcid_set.largest_retire_prior_to) {
-        /* An endpoint that receives a NEW_CONNECTION_ID frame with a sequence number smaller
+        /*
+         * An endpoint that receives a NEW_CONNECTION_ID frame with a sequence number smaller
          * than the Retire Prior To field of a previously received NEW_CONNECTION_ID frame
          * MUST send a corresponding RETIRE_CONNECTION_ID frame that retires the newly received
-         * connection ID, unless it has already done so for that sequence number. */
+         * connection ID, unless it has already done so for that sequence number.
+         */
         xqc_log(conn->log, XQC_LOG_DEBUG, "|seq_num:%ui smaller than largest_retire_prior_to:%ui|",
                 new_conn_cid.cid_seq_num, conn->dcid_set.largest_retire_prior_to);
 
@@ -599,9 +603,11 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
     }
 
     if (retire_prior_to > conn->dcid_set.largest_retire_prior_to) {
-        /* Upon receipt of an increased Retire Prior To field, the peer MUST stop using the
+        /*
+         * Upon receipt of an increased Retire Prior To field, the peer MUST stop using the
          * corresponding connection IDs and retire them with RETIRE_CONNECTION_ID frames before
-         * adding the newly provided connection ID to the set of active connection IDs. */
+         * adding the newly provided connection ID to the set of active connection IDs.
+         */
 
         xqc_list_for_each_safe(pos, next, &conn->dcid_set.cid_set.list_head) {
             inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
@@ -652,9 +658,11 @@ xqc_process_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
     }
 
     if (seq_num >= conn->scid_set.largest_scid_seq_num) {
-        /* Receipt of a RETIRE_CONNECTION_ID frame containing a sequence number
+        /* 
+         * Receipt of a RETIRE_CONNECTION_ID frame containing a sequence number
          * greater than any previously sent to the peer MUST be treated as a
-         * connection error of type PROTOCOL_VIOLATION. */
+         * connection error of type PROTOCOL_VIOLATION.
+         */
         xqc_log(conn->log, XQC_LOG_ERROR, "|no match seq_num|");
         XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
         return -XQC_EPROTO;
@@ -667,9 +675,11 @@ xqc_process_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
     }
 
     if (XQC_OK == xqc_cid_is_equal(&inner_cid->cid, &packet_in->pi_pkt.pkt_dcid)) {
-        /* The sequence number specified in a RETIRE_CONNECTION_ID frame MUST NOT refer to
+        /* 
+         * The sequence number specified in a RETIRE_CONNECTION_ID frame MUST NOT refer to
          * the Destination Connection ID field of the packet in which the frame is contained.
-         * The peer MAY treat this as a connection error of type PROTOCOL_VIOLATION. */
+         * The peer MAY treat this as a connection error of type PROTOCOL_VIOLATION.
+         */
         xqc_log(conn->log, XQC_LOG_ERROR, "|seq_num refer to pkt_dcid|");
         XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
         return -XQC_EPROTO;

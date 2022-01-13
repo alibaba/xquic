@@ -170,7 +170,7 @@ xqc_h3_frm_parse(const unsigned char *p, size_t sz, xqc_h3_frame_pctx_t *pctx)
             pctx->frame.consumed_len = 0;
             xqc_h3_vint_pctx_clear(&pctx->pctx);
             pctx->state = XQC_H3_FRM_STATE_PAYLOAD;
-            memset(&pctx->frame.frame_payload, 0 ,sizeof(xqc_h3_frame_pl_t));
+            memset(&pctx->frame.frame_payload, 0, sizeof(xqc_h3_frame_pl_t));
             fin = 0;
         }
     }

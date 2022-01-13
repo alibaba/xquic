@@ -311,7 +311,8 @@ xqc_test_dtable_set_capacity()
 }
 
 
-void xqc_test_dtable()
+void
+xqc_test_dtable()
 {
     xqc_test_dtable_basic();
 

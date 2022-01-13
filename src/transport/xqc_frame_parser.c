@@ -20,7 +20,8 @@ xqc_gen_stream_frame(xqc_packet_out_t *packet_out,
     xqc_stream_id_t stream_id, size_t offset, uint8_t fin,
     const unsigned char *payload, size_t size, size_t *written_size)
 {
-    /* 0b00001XXX
+    /* 
+     * 0b00001XXX
      *  0x4     OFF
      *  0x2     LEN
      *  0x1     FIN
@@ -69,7 +70,8 @@ xqc_gen_stream_frame(xqc_packet_out_t *packet_out,
 
         n_avail = dst_buf_len - (p + stream_id_len + offset_len - dst_buf);
 
-        /* If we cannot fill remaining buffer, we need to include data
+        /* 
+         * If we cannot fill remaining buffer, we need to include data
          * length.
          */
         if (size <= n_avail) {
@@ -266,7 +268,7 @@ xqc_gen_crypto_frame(xqc_packet_out_t *packet_out, size_t offset,
 }
 
 xqc_int_t
-xqc_parse_crypto_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn ,
+xqc_parse_crypto_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
     xqc_stream_frame_t *frame)
 {
     int      vlen;
@@ -580,8 +582,11 @@ xqc_parse_ack_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_ack_
         }
     }
 
-    /* if the actual ack_range_count plus first ack_range is larger than the XQC_MAX_ACK_RANGE_CNT,
-       ack_info don't have enough space to store all the ack_ranges  */
+    /* 
+     * if the actual ack_range_count plus first ack_range is larger than
+     * the XQC_MAX_ACK_RANGE_CNT, ack_info don't have enough space to store
+     *  all the ack_ranges
+     */
     if (ack_range_count + 1 > XQC_MAX_ACK_RANGE_CNT) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|ACK range exceed XQC_MAX_ACK_RANGE_CNT|");
     }

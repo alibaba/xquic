@@ -18,8 +18,10 @@ typedef enum xqc_tls_flag_e {
     /* received peer's transport parameter. this is used for transport parameter callback */
     XQC_TLS_FLAG_TRANSPORT_PARAM_RCVD   = 1 << 0,
 
-    /* handshake completed flag. this is set when ssl library report handshake completion,
-       and is used for process crypto data */
+    /*
+     * handshake completed flag. this is set when ssl library report handshake completion,
+     * and is used for process crypto data
+     */
     XQC_TLS_FLAG_HSK_COMPLETED          = 1 << 1,
 
 } xqc_tls_flag_t;
@@ -193,8 +195,10 @@ xqc_tls_init_client_ssl(xqc_tls_t *tls, xqc_tls_config_t *cfg)
 
     SSL_set_tlsext_host_name(ssl, hostname);
 
-    /* set alpn in ClientHello. for client, xquic set alpn for every ssl instance. while server set
-       the alpn select callback function while initializing tls context. */
+    /*
+     * set alpn in ClientHello. for client, xquic set alpn for every ssl instance. while server set 
+     * the alpn select callback function while initializing tls context. 
+     */
     ret = xqc_tls_set_alpn(ssl, cfg->alpn);
     if (ret != XQC_OK) {
         xqc_log(tls->log, XQC_LOG_ERROR, "|xqc_create_client_ssl|set alpn error|");
@@ -715,7 +719,7 @@ int
 xqc_ssl_alpn_select_cb(SSL *ssl, const unsigned char **out, unsigned char *outlen,
     const unsigned char *in, unsigned int inlen, void *arg)
 {
-    xqc_tls_t *tls = (xqc_tls_t *)SSL_get_app_data(ssl) ;
+    xqc_tls_t *tls = (xqc_tls_t *)SSL_get_app_data(ssl);
 
     /* get configured alpn_list */
     xqc_engine_ssl_config_t *cfg = NULL;
@@ -793,14 +797,17 @@ xqc_ssl_session_ticket_key_cb(SSL *ssl, uint8_t *key_name, uint8_t *iv,
         memcpy(key_name, key->name, 16);
 
     } else {
-        /* decrypt session ticket, returns -1 to abort the handshake, 0 if decrypting the ticket
-           failed, and 1 or 2 on success */
+        /*
+         * decrypt session ticket, returns -1 to abort the handshake,
+         * 0 if decrypting the ticket failed,
+         * and 1 or 2 on success 
+         */
         if (memcmp(key_name, key->name, 16) != 0) {
             xqc_log(tls->log, XQC_LOG_ERROR, "|ssl session ticket decrypt, key name not match|");
             return -1;
         }
 
-        if (key -> size == 48) {
+        if (key->size == 48) {
             cipher = EVP_aes_128_cbc();
             size = 16;
 

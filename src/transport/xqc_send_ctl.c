@@ -318,7 +318,7 @@ xqc_send_ctl_maybe_remove_unacked(xqc_packet_out_t *packet_out, xqc_send_ctl_t *
 {
     /* it is origin & some pkt ref to this packet */
     if (packet_out->po_origin == NULL && packet_out->po_origin_ref_cnt != 0) {
-        return ;
+        return;
     }
 
     xqc_send_ctl_remove_unacked(packet_out, ctl);
@@ -1049,8 +1049,10 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *ctl, xqc_ack_info_t *const ack_info
             xqc_log(ctl->ctl_conn->log, XQC_LOG_DEBUG, "|ctl_packets_used:%ud|ctl_packets_free:%ud|",
                     ctl->ctl_packets_used, ctl->ctl_packets_free);
 
-            /* Update the RTT if the largest acknowledged is newly acked
-               and at least one ack-eliciting was newly acked. */
+            /* 
+             * Update the RTT if the largest acknowledged is newly acked
+             * and at least one ack-eliciting was newly acked.
+             */
             if (packet_out->po_pkt.pkt_num == largest_ack
                 && XQC_IS_ACK_ELICITING(packet_out->po_frame_types))
             {
@@ -1089,8 +1091,10 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *ctl, xqc_ack_info_t *const ack_info
 
     xqc_recv_record_log(ctl->ctl_conn, &ctl->ctl_conn->recv_record[pns]);
 
-    /* reset pto_count unless the client is unsure if 
-       the server has validated the client's address */
+    /*
+     * reset pto_count unless the client is unsure if the server has
+     * validated the client's address
+     */
     if (xqc_conn_peer_complete_address_validation(ctl->ctl_conn)) {
         ctl->ctl_pto_count = 0;
     }
@@ -1204,8 +1208,10 @@ xqc_send_ctl_on_dgram_received(xqc_send_ctl_t *ctl, size_t dgram_size, xqc_usec_
     c->conn_send_ctl->ctl_recv_count++;
     c->conn_send_ctl->ctl_bytes_recv += dgram_size;
 
-    /* If this datagram unblocks the server's anti-amplification limit,
-       arm the PTO timer to avoid deadlock. */
+    /*
+     * If this datagram unblocks the server's anti-amplification limit, 
+     * arm the PTO timer to avoid deadlock. 
+     */
     if (aal && !xqc_send_ctl_check_anti_amplification(c, 0)) {
         xqc_log(ctl->ctl_conn->log, XQC_LOG_DEBUG, "|anti-amplification state unlock|");
         xqc_send_ctl_set_loss_detection_timer(ctl);
@@ -1401,7 +1407,8 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *ctl, xqc_pkt_num_space_t pns, xqc_usec_
      * OnPacketsLost
      */
     if (largest_lost) {
-        /* Start a new congestion epoch if the last lost packet
+        /*
+         * Start a new congestion epoch if the last lost packet
          * is past the end of the previous recovery epoch.
          * enter loss recovery here
          */
@@ -1484,14 +1491,14 @@ xqc_send_ctl_is_app_limited(xqc_send_ctl_t *ctl)
 int
 xqc_send_ctl_is_cwnd_limited(xqc_send_ctl_t *ctl)
 {
-   if (ctl->ctl_cong_callback->xqc_cong_ctl_in_slow_start(ctl->ctl_cong)) {
-       uint32_t double_cwnd = ctl->ctl_max_bytes_in_flight << 1;
-       uint32_t cwnd = ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(ctl->ctl_cong);
-       xqc_log(ctl->ctl_conn->log, XQC_LOG_DEBUG,
-               "|cwnd: %ud, 2*max_inflight: %ud|", cwnd, double_cwnd);
-       return cwnd < double_cwnd;
-   }
-   return (ctl->ctl_is_cwnd_limited);
+    if (ctl->ctl_cong_callback->xqc_cong_ctl_in_slow_start(ctl->ctl_cong)) {
+        uint32_t double_cwnd = ctl->ctl_max_bytes_in_flight << 1;
+        uint32_t cwnd = ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(ctl->ctl_cong);
+        xqc_log(ctl->ctl_conn->log, XQC_LOG_DEBUG,
+                "|cwnd: %ud, 2*max_inflight: %ud|", cwnd, double_cwnd);
+        return cwnd < double_cwnd;
+    }
+    return (ctl->ctl_is_cwnd_limited);
 }
 
 void
@@ -1810,8 +1817,10 @@ xqc_send_ctl_loss_detection_timeout(xqc_send_ctl_timer_type type, xqc_usec_t now
     }
 
     if (ctl->ctl_bytes_in_flight > 0) {
-        /* PTO. Send new data if available, else retransmit old data.
-           If neither is available, send a single PING frame */
+        /*
+         * PTO. Send new data if available, else retransmit old data.
+         * If neither is available, send a single PING frame
+         */
         xqc_log(conn->log, XQC_LOG_DEBUG, "|send Probe pkts|conn:%p|bytes_in_flight:%ud|", 
                 conn, ctl->ctl_bytes_in_flight);
         xqc_usec_t t = xqc_send_ctl_get_pto_time_and_space(ctl, now, &pns);

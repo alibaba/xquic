@@ -41,7 +41,8 @@
 static int xqc_init_suite(void) { return 0; }
 static int xqc_clean_suite(void) { return 0; }
 
-int main()
+int 
+main()
 {
     CU_pSuite pSuite = NULL;
     unsigned int failed_tests_count;

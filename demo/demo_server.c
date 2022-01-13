@@ -515,7 +515,7 @@ xqc_demo_svr_handle_hq_request(xqc_demo_svr_user_stream_t *user_stream, xqc_hq_r
     user_stream->res.buf_size = READ_FILE_BUF_LEN;
 
     /* get total len */
-    fseek(user_stream->res.fp, 0 , SEEK_END);
+    fseek(user_stream->res.fp, 0, SEEK_END);
     user_stream->res.total_len = ftell(user_stream->res.fp);
     fseek(user_stream->res.fp, 0, SEEK_SET);
 
@@ -791,7 +791,7 @@ xqc_demo_svr_handle_h3_request(xqc_demo_svr_user_stream_t *user_stream,
     user_stream->res.buf_size = READ_FILE_BUF_LEN;
 
     /* get total len */
-    fseek(user_stream->res.fp, 0 , SEEK_END);
+    fseek(user_stream->res.fp, 0, SEEK_END);
     user_stream->res.total_len = ftell(user_stream->res.fp);
     fseek(user_stream->res.fp, 0, SEEK_SET);
 
@@ -848,7 +848,7 @@ xqc_demo_svr_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
                 strncpy(user_stream->recv_buf, (char*)headers->headers[i].value.iov_base,
                     headers->headers[i].value.iov_len);
             }
-            printf("%s = %s\n",(char*)headers->headers[i].name.iov_base,
+            printf("%s = %s\n", (char*)headers->headers[i].name.iov_base,
                 (char*)headers->headers[i].value.iov_base);
         }
 
@@ -1086,8 +1086,9 @@ xqc_demo_svr_usage(int argc, char *argv[])
 {
     char *prog = argv[0];
     char *const slash = strrchr(prog, '/');
-    if (slash)
+    if (slash) {
         prog = slash + 1;
+    }
     printf(
             "Usage: %s [Options]\n"
             "\n"

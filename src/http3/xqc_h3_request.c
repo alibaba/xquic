@@ -163,7 +163,7 @@ xqc_h3_request_make_name_lowercase(xqc_http_header_t *dst, xqc_http_header_t *sr
         unsigned char c = ((char *)src->name.iov_base)[i];
 
         /* uppercase character found */
-        if (c >= 'A' && c <='Z') {
+        if (c >= 'A' && c <= 'Z') {
             use_original_buf = XQC_FALSE;
             break;
         }
@@ -526,9 +526,12 @@ xqc_h3_request_on_recv_empty_fin(xqc_h3_request_t *h3r)
 
     h3r->fin_flag = 1;
 
-    /* if read flag is not XQC_REQ_NOTIFY_READ_NULL, it means that there is header or content not
-       received by application, shall not notify empty fin event, application will be noticed when
-       receiving header and content */
+    /* 
+     * if read flag is not XQC_REQ_NOTIFY_READ_NULL, 
+     * it means that there is header or content not received by application, 
+     * shall not notify empty fin event, application will be noticed when
+     * receiving header and content 
+     */
     if (h3r->read_flag != XQC_REQ_NOTIFY_READ_NULL) {
         return XQC_OK;
     }

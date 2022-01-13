@@ -45,14 +45,15 @@ xqc_cubic_update(void *cong_ctl, uint32_t acked_bytes, xqc_usec_t now)
     if (cubic->epoch_start == 0) {
         cubic->epoch_start = now;
 
-        /* take max(last_max_cwnd , cwnd) as current Wmax origin point */
+        /* take max(last_max_cwnd, cwnd) as current Wmax origin point */
         if (cubic->cwnd >= cubic->last_max_cwnd) {
             /* exceed origin point, use cwnd as the new point */
             cubic->bic_K = 0;
             cubic->bic_origin_point = cubic->cwnd;
 
         } else {
-            /* K = cubic_root(W_max*(1-beta_cubic)/C) = cubic_root((W_max-cwnd)/C)
+            /*
+             * K = cubic_root(W_max*(1-beta_cubic)/C) = cubic_root((W_max-cwnd)/C)
              * cube_factor = (1ull << XQC_CUBE_SCALE) / XQC_CUBIC_C / XQC_MSS
              *             = 2^40 / (410 * MSS) = 2^30 / (410/1024*MSS)
              *             = 2^30 / (C*MSS)

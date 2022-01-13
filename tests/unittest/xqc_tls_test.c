@@ -356,7 +356,8 @@ xqc_tt_keylog_cb(const char *line, void *user_data)
 {
 }
 
-void xqc_tt_tls_error_cb(xqc_int_t tls_err, void *user_data)
+void
+xqc_tt_tls_error_cb(xqc_int_t tls_err, void *user_data)
 {
     xqc_tls_test_buff_t *ttbuf = (xqc_tls_test_buff_t *)user_data;
 
@@ -492,13 +493,12 @@ xqc_test_tls_generic()
     CU_ASSERT(ttbuf_cli->new_session_ticket_len > 0);
 
 
-
     /* 0-RTT */
 
     tls_config.session_ticket = ttbuf_cli->new_session_ticket;
     tls_config.session_ticket_len = ttbuf_cli->new_session_ticket_len;
 
-   /* create client tls */
+    /* create client tls */
     xqc_tls_test_buff_t *ttbuf_0rtt_cli = xqc_create_tls_test_buffer();
     xqc_tls_t *tls_0rtt_cli = xqc_tls_create(ctx_cli, &tls_config, engine_cli->log, ttbuf_0rtt_cli);
 
@@ -781,7 +781,7 @@ xqc_test_tls_process_truncated_crypto_handshake()
     tls_config.session_ticket = ttbuf_cli->new_session_ticket;
     tls_config.session_ticket_len = ttbuf_cli->new_session_ticket_len;
 
-   /* create client tls */
+    /* create client tls */
     xqc_tls_test_buff_t *ttbuf_0rtt_cli = xqc_create_tls_test_buffer();
     xqc_tls_t *tls_0rtt_cli = xqc_tls_create(ctx_cli, &tls_config, engine_cli->log, ttbuf_0rtt_cli);
 

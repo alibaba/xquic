@@ -78,5 +78,3 @@ xqc_test_engine_packet_process()
     xqc_engine_destroy(engine);
 }
 
-
-

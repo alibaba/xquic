@@ -112,8 +112,7 @@ typedef enum {
 } xqc_log_type_t;
 
 
-typedef struct xqc_log_s
-{
+typedef struct xqc_log_s {
     xqc_log_level_t                 log_level;
     xqc_flag_t                      log_event; /* 1:enable log event, 0:disable log event */
     xqc_flag_t                      log_timestamp; /* 1:add timestamp before log, 0:don't need timestamp */

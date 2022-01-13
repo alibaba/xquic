@@ -77,13 +77,13 @@ static const int xqc_bbr2_windowed_max_rtt_win_size = 5;
 static const float xqc_bbr2_rtt_compensation_startup_thresh = 2;
 static const float xqc_bbr2_rtt_compensation_thresh = 1;
 static const float xqc_bbr2_rtt_compensation_cwnd_factor = 1;
-/*Probe bw for every 4-8 RTTs*/
+/* Probe bw for every 4-8 RTTs */
 static const int xqc_bbr2_fast_convergence_probe_round_base = 4;
 static const int xqc_bbr2_fast_convergence_probe_round_rand = 4;
 static const float xqc_bbr2_fast_convergence_rtt_factor = 1.25;
-/*Tolerate jitters in 2ms*/
+/* Tolerate jitters in 2ms */
 static const float xqc_bbr2_fast_convergence_srtt_error = 2000;
-/*If max bw has increased by 20%, we enter probe_up phase again*/
+/* If max bw has increased by 20%, we enter probe_up phase again */
 static const float xqc_bbr2_fast_convergence_probe_again_factor = 1.20;
 #endif
 
@@ -232,7 +232,7 @@ static void
 xqc_bbr2_update_round_start(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
 {
     bbr2->round_start = FALSE;
-    /*Check whether the data is legal */
+    /* Check whether the data is legal */
     if (/*sampler->delivered < 0 ||*/ sampler->interval <= 0) {
         return;
     }
@@ -249,7 +249,7 @@ xqc_bbr2_calculate_bw_sample(xqc_sample_t *sampler, xqc_bbr2_context_t *ctx)
     if (sampler->delivered < 0 || sampler->interval <= 0) {
         return;
     }
-    /*Calculate the new bandwidth, bytes per second */
+    /* Calculate the new bandwidth, bytes per second */
     ctx->sample_bw = 1.0 * sampler->delivered / sampler->interval * MSEC2SEC;
 }
 
@@ -1275,7 +1275,7 @@ xqc_bbr2_update_congestion_signals(xqc_bbr2_t *bbr2, xqc_sample_t *sampler,
     uint32_t bw;
     bbr2->loss_round_start = FALSE;
     if (sampler->interval <= 0 || sampler->acked == 0) {
-        return; /*not a valid sample, no new acked data*/
+        return; /* not a valid sample, no new acked data */
     }
     bw = ctx->sample_bw;
     /* update bw_hi */
@@ -1333,7 +1333,7 @@ xqc_bbr2_check_loss_too_high_in_startup(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
     if (bbr2->full_bandwidth_reached) {
         return;
     }
-    /*TODO: put 0xf into a BBRv2 parameter*/
+    /* TODO: put 0xf into a BBRv2 parameter */
     if (sampler->loss && bbr2->loss_events_in_round < 0xf) {
         bbr2->loss_events_in_round++;
     }
@@ -1393,14 +1393,14 @@ xqc_bbr2_on_ack(void *cong_ctl, xqc_sample_t *sampler)
 {
     xqc_bbr2_t *bbr2 = (xqc_bbr2_t *)(cong_ctl);
     xqc_bbr2_context_t bbr2_ctx = {0};
-    /*Update model and state*/
+    /* Update model and state */
     xqc_bbr2_update_round_start(bbr2, sampler);
     if (bbr2->round_start) {
         bbr2->rounds_since_probe = xqc_min(bbr2->rounds_since_probe + 1, 0xff);
         bbr2->round_cnt++;
     }
 #if XQC_BBR2_PLUS_ENABLED
-    /*maintain windowed max rtt here*/
+    /* maintain windowed max rtt here */
     if (bbr2->rtt_compensation_on) {
         if (sampler->rtt >= 0) {
             xqc_usec_t last_max_rtt = xqc_win_filter_get_u64(&bbr2->max_rtt);
@@ -1419,19 +1419,19 @@ xqc_bbr2_on_ack(void *cong_ctl, xqc_sample_t *sampler)
 
 #if XQC_BBR2_PLUS_ENABLED
     if (bbr2->fast_convergence_on) {
-        /*maintain srtt in last and current round*/
+        /* maintain srtt in last and current round */
         if (sampler->rtt >= 0) {
-            /*initialization*/
+            /* initialization */
             if (bbr2->srtt_in_current_round == XQC_BBR2_INF_RTT) {
                 bbr2->srtt_in_current_round = sampler->rtt;
                 bbr2->srtt_in_last_round = sampler->rtt;
             } else {
-                /*shift values at the beginning of every RTT*/
+                /* shift values at the beginning of every RTT */
                 if (bbr2->round_start) {
                     bbr2->srtt_in_last_round = bbr2->srtt_in_current_round;
                     bbr2->srtt_in_current_round = sampler->rtt;
                 } else {
-                    /*calculate EWMA*/
+                    /* calculate EWMA */
                     xqc_usec_t _tmp = 7 * bbr2->srtt_in_current_round;
                     bbr2->srtt_in_current_round = (_tmp + sampler->rtt) / 8;
                 }
@@ -1446,7 +1446,7 @@ xqc_bbr2_on_ack(void *cong_ctl, xqc_sample_t *sampler)
 
     xqc_bbr2_update_recovery_mode(bbr2, sampler);
     xqc_bbr2_update_pacing_gain_for_loss_recovery(bbr2);
-    /*Update control parameter */
+    /* Update control parameter */
     xqc_bbr2_set_pacing_rate(bbr2, sampler);
     xqc_bbr2_set_cwnd(bbr2, sampler, &bbr2_ctx);
     xqc_bbr2_bound_cwnd_for_inflight_model(bbr2);
@@ -1499,7 +1499,7 @@ xqc_bbr2_restart_from_idle(void *cong_ctl, uint64_t conn_delivered)
     }
 }
 
-/*These functions are mainly for debug*/
+/* These functions are mainly for debug */
 static uint8_t 
 xqc_bbr2_info_mode(void *cong)
 {

@@ -190,7 +190,7 @@ We follow the [Nginx code style](http://nginx.org/en/docs/dev/development_guide.
 
 XQUIC participants: Taobao Technology Department, Damo Academy XG Lab, and other teams from Alibaba Group who provided help in deployment of this project.
 
-In no particular order, thanks to these excellent individuals who contributed code to xquic or provided great help to the survival of this project.
+In no particular order, thanks to these excellent individuals who contributed code to XQUIC or provided great help to the survival of this project.
 
 * 左春伟(平兴)
 * 胡军伟(苍茫)

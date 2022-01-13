@@ -20,34 +20,34 @@
 /* 32 is too aggressive. we have observed heavy bufferbloat events from online deployment */
 /* 1440 * 10 / 1200 = 12 */
 #define XQC_BBR_INITIAL_WINDOW  (32 * XQC_BBR_MAX_DATAGRAMSIZE) 
-/*Pacing gain cycle rounds */
+/* Pacing gain cycle rounds */
 #define XQC_BBR_CYCLE_LENGTH    8
 #define XQC_BBR_INF             0x7fffffff
 #define XQC_BBR_MAX_AI_SCALE    (~0U)
 
 
-/*Size of window of bandwidth filter, in rtts */
+/* Size of window of bandwidth filter, in rtts */
 const uint32_t xqc_bbr_bw_win_size = XQC_BBR_CYCLE_LENGTH + 2;
-/*Window of min rtt filter, in sec */
+/* Window of min rtt filter, in sec */
 const uint32_t xqc_bbr_minrtt_win_size = 10;
 /* Minimum time spent in BBR_PROBE_RTT, in us*/
 const uint32_t xqc_bbr_probertt_time_us = 100000;
-/*Initial rtt before any samples are received, in ms  */
+/* Initial rtt before any samples are received, in ms  */
 const uint64_t xqc_bbr_initial_rtt_ms = 100;
-/*The gain of pacing rate for STRAT_UP, 2/(ln2) */
+/* The gain of pacing rate for STRAT_UP, 2/(ln2) */
 const float xqc_bbr_high_gain = 2.885;
-/*Gain in BBR_DRAIN */
+/* Gain in BBR_DRAIN */
 const float xqc_bbr_drain_gain = 1.0 / 2.885;
 /* Gain for cwnd in probe_bw, like slow start*/
 const float xqc_bbr_cwnd_gain = 2.5;
-/*Cycle of gains in PROBE_BW for pacing rate */
+/* Cycle of gains in PROBE_BW for pacing rate */
 const float xqc_bbr_pacing_gain[] = {1.25, 0.75, 1, 1, 1, 1, 1, 1};
 const float xqc_bbr_low_pacing_gain[] = {1.1, 0.9, 1, 1, 1, 1, 1, 1};
-/*Minimum packets that need to ensure ack if there is delayed ack */
+/* Minimum packets that need to ensure ack if there is delayed ack */
 const uint32_t xqc_bbr_min_cwnd = 4 * XQC_BBR_MAX_DATAGRAMSIZE;
-/*If bandwidth has increased by 1.25, there may be more bandwidth avaliable */
+/* If bandwidth has increased by 1.25, there may be more bandwidth avaliable */
 const float xqc_bbr_fullbw_thresh = 1.1;
-/*After 3 rounds bandwidth less than (1.25x), estimate the pipe is full */
+/* After 3 rounds bandwidth less than (1.25x), estimate the pipe is full */
 const uint32_t xqc_bbr_fullbw_cnt = 3;
 const float xqc_bbr_probe_rtt_gain = 0.75;
 const uint32_t xqc_bbr_extra_ack_gain = 1;
@@ -72,7 +72,7 @@ const uint32_t xqc_bbr2_extra_ack_win_rtt_in_startup = 1;
 const float xqc_bbr2_startup_pacing_gain_on_lost = 1.5;
 const bool xqc_bbr2_slow_down_startup_on_lost = 0;
 
-/*5RTT*/
+/* 5RTT */
 #if XQC_BBR_RTTVAR_COMPENSATION_ENABLED
 static const float xqc_bbr_windowed_max_rtt_win_size = 5;
 static const float xqc_bbr_rtt_compensation_startup_thresh = 2;
@@ -196,7 +196,8 @@ xqc_bbr_update_bandwidth(xqc_bbr_t *bbr, xqc_sample_t *sampler)
         return;
     }
 
-    /* check whether the next BBR cycle is reached
+    /* 
+     * check whether the next BBR cycle is reached
      * at the beginning of the cycle, the number of packets sent is less than or equal to
      * the maximum number of packets that have been sent when the current ack packet is sent.
      */
@@ -209,7 +210,7 @@ xqc_bbr_update_bandwidth(xqc_bbr_t *bbr, xqc_sample_t *sampler)
                 "|BBRv1: RTT round update %ud -> %ud|",
                 bbr->round_cnt - 1, bbr->round_cnt);
     }
-    /*FIXED: It may reduce the est. bw due to network instability. */
+    /* FIXED: It may reduce the est. bw due to network instability. */
     /*  if (sampler->lagest_ack_time > bbr->last_round_trip_time) {
         bbr->round_cnt++;
         bbr->last_round_trip_time = xqc_monotonic_timestamp();
@@ -647,8 +648,10 @@ xqc_bbr_modulate_cwnd_for_recovery(xqc_bbr_t *bbr, xqc_sample_t *sampler)
                                          XQC_BBR_MAX_DATAGRAMSIZE);
 
     } else if (bbr->just_exit_recovery_mode) {
-        /*exit recovery mode once any packet sent 
-          during the recovery epoch is acked.*/
+        /* 
+         * exit recovery mode once any packet sent
+         * during the recovery epoch is acked.
+         */
         bbr->just_exit_recovery_mode = FALSE;
         bbr->packet_conservation = 0;
         xqc_bbr_restore_cwnd(bbr);
@@ -683,7 +686,7 @@ xqc_bbr_reset_cwnd(void *cong_ctl)
     }
     /* reset recovery start time in any case */
     bbr->recovery_start_time = 0;
-    /*If losses happened, we do not increase cwnd beyond target_cwnd.*/
+    /* If losses happened, we do not increase cwnd beyond target_cwnd. */
     bbr->snd_cwnd_cnt_bytes = 0;
     bbr->beyond_target_cwnd = 0;
     bbr->ai_scale = 1;
@@ -694,7 +697,7 @@ xqc_bbr_reset_cwnd(void *cong_ctl)
 static void
 xqc_bbr_cong_avoid_ai(xqc_bbr_t *bbr, uint32_t cwnd, uint32_t acked)
 {
-    /*growing 2x cwnd at maximum per RTT*/
+    /* growing 2x cwnd at maximum per RTT */
     uint32_t cwnd_thresh = xqc_max(XQC_BBR_MAX_DATAGRAMSIZE, 
                                    cwnd / bbr->ai_scale);
     if (bbr->snd_cwnd_cnt_bytes >= cwnd_thresh) {
@@ -747,10 +750,10 @@ xqc_bbr_set_cwnd(xqc_bbr_t *bbr, xqc_sample_t *sampler)
                     >= (target_cwnd + bbr->beyond_target_cwnd))
                     && sampler->send_ctl->ctl_is_cwnd_limited)
                 {
-                    /*We are limited by target_cwnd*/
+                    /* We are limited by target_cwnd */
                     xqc_bbr_cong_avoid_ai(bbr, xqc_bbr_target_cwnd(bbr, 1.0), sampler->acked);   
                 }
-                /*additive increasing target_cwnd*/
+                /* additive increasing target_cwnd */
                 target_cwnd += bbr->beyond_target_cwnd;
                 xqc_conn_log(sampler->send_ctl->ctl_conn, XQC_LOG_DEBUG, 
                             "|cwnd: %ud|target_cwnd: %ud|acked: %ud"
@@ -782,14 +785,16 @@ static void
 xqc_bbr_on_lost(void *cong_ctl, xqc_usec_t lost_sent_time)
 {
     xqc_bbr_t *bbr = (xqc_bbr_t *)cong_ctl;
-    /* Unlike the definition of "recovery epoch" for loss-based CCs, 
-       for the sake of resistance to losses, we MUST refresh the end of a 
-       recovery epoch if further lossess happen in the epoch. Otherwise, the
-       ability of BBR to sustain network where high loss rate presents 
-       is hampered because of frequently entering packet conservation state. */
+    /* 
+     * Unlike the definition of "recovery epoch" for loss-based CCs, 
+     * for the sake of resistance to losses, we MUST refresh the end of a 
+     * recovery epoch if further lossess happen in the epoch. Otherwise, the
+     * ability of BBR to sustain network where high loss rate presents 
+     * is hampered because of frequently entering packet conservation state. 
+     */
     xqc_bbr_save_cwnd(bbr);
     bbr->recovery_start_time = xqc_monotonic_timestamp();
-    /*If losses happened, we do not increase cwnd beyond target_cwnd.*/
+    /* If losses happened, we do not increase cwnd beyond target_cwnd. */
     bbr->snd_cwnd_cnt_bytes = 0;
     bbr->beyond_target_cwnd = 0;
     bbr->ai_scale = 1;
@@ -835,7 +840,7 @@ xqc_bbr_on_ack(void *cong_ctl, xqc_sample_t *sampler)
 {
     xqc_bbr_t *bbr = (xqc_bbr_t *)(cong_ctl);
 #if XQC_BBR_RTTVAR_COMPENSATION_ENABLED
-    /*maintain windowed max rtt here*/
+    /* maintain windowed max rtt here */
     if (bbr->rttvar_compensation_on) {
         if (sampler->rtt >= 0) {
             xqc_usec_t last_max_rtt = xqc_win_filter_get_u64(&bbr->max_rtt);

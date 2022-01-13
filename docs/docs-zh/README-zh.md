@@ -27,7 +27,7 @@ XQUIC 支持 BoringSSL 和 BabaSSL。
 ### 使用 BabaSSL 编译
 
 ```bash
-# 获取 xquic 源码
+# 获取 XQUIC 源码
 git clone git@github.com:alibaba/xquic.git
 cd xquic
 
@@ -42,7 +42,7 @@ SSL_INC_PATH_STR="${PWD}/include"
 SSL_LIB_PATH_STR="${PWD}/libssl.a;${PWD}/libcrypto.a"
 cd -
 
-# 使用 BabaSSL 编译 xquic
+# 使用 BabaSSL 编译 XQUIC
 git submodule update --init --recursive
 mkdir -p build; cd build
 cmake -DGCOV=on -DCMAKE_BUILD_TYPE=Debug -DXQC_ENABLE_TESTING=1 -DXQC_SUPPORT_SENDMMSG_BUILD=1 -DXQC_ENABLE_EVENT_LOG=1 -DXQC_ENABLE_BBR2=1 -DXQC_DISABLE_RENO=0 -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} -DSSL_INC_PATH=${SSL_INC_PATH_STR} -DSSL_LIB_PATH=${SSL_LIB_PATH_STR} ..
@@ -52,7 +52,7 @@ make -j
 ### 使用 BoringSSL 编译
 
 ```bash
-# 获取 xquic 源码
+# 获取 XQUIC 源码
 git clone git@github.com:alibaba/xquic.git
 cd xquic
 
@@ -69,7 +69,7 @@ SSL_INC_PATH_STR="${PWD}/include"
 SSL_LIB_PATH_STR="${PWD}/build/ssl/libssl.a;${PWD}/build/crypto/libcrypto.a"
 cd ../..
 
-# 使用 BoringSSL 编译 xquic
+# 使用 BoringSSL 编译 XQUIC
 git submodule update --init --recursive
 mkdir -p build; cd build
 cmake -DGCOV=on -DCMAKE_BUILD_TYPE=Debug -DXQC_ENABLE_TESTING=1 -DXQC_SUPPORT_SENDMMSG_BUILD=1 -DXQC_ENABLE_EVENT_LOG=1 -DXQC_ENABLE_BBR2=1 -DXQC_DISABLE_RENO=0 -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} -DSSL_INC_PATH=${SSL_INC_PATH_STR} -DSSL_LIB_PATH=${SSL_LIB_PATH_STR} ..

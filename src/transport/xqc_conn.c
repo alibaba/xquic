@@ -1706,7 +1706,7 @@ xqc_conn_send_version_negotiation(xqc_connection_t *c)
     /* set used size of packet */
     packet_out->po_used_size = p - packet_out->po_buf;
 
-    /*push to conns queue*/
+    /* push to conns queue */
     if (!(c->conn_flag & XQC_CONN_FLAG_TICKING)) {
         if (0 == xqc_conns_pq_push(c->engine->conns_active_pq, c, c->last_ticked_time)) {
             c->conn_flag |= XQC_CONN_FLAG_TICKING;

@@ -69,10 +69,10 @@ typedef struct xqc_packet_out_s {
     xqc_usec_t              po_first_sent_time; /* the time of first sent packet during current sample period */
     xqc_bool_t              po_is_app_limited;
 
-    /*For BBRv2*/
-    /*the inflight bytes when the packet is sent (including itself)*/
+    /* For BBRv2 */
+    /* the inflight bytes when the packet is sent (including itself) */
     uint64_t                po_tx_in_flight; 
-    /*how many packets have been lost when the packet is sent*/
+    /* how many packets have been lost when the packet is sent */
     uint32_t                po_lost; 
 
     uint64_t                po_path_id;

@@ -181,14 +181,14 @@ typedef struct xqc_bbr2_s {
     uint64_t            probe_rtt_min_us;
     uint64_t            probe_rtt_min_us_stamp;
 
-    /*adjust cwnd in loss recovery*/
+    /* adjust cwnd in loss recovery */
     xqc_usec_t              recovery_start_time;
     bool                    packet_conservation;
     xqc_usec_t              loss_start_time;
     xqc_bbr2_recovery_mode  recovery_mode;
 
 #if XQC_BBR2_PLUS_ENABLED
-    /*For BBRv2+ */
+    /* For BBRv2+ */
     xqc_win_filter_t        max_rtt;
     uint32_t                max_rtt_win_len;
     uint32_t                rtt_compensation_thresh;

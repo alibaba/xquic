@@ -762,10 +762,12 @@ xqc_send_ctl_drop_stream_frame_packets(xqc_send_ctl_t *ctl, xqc_stream_id_t stre
     int count = 0;
     int to_drop = 0;
 
-    /*The previous code was too complicated. Now, we want to keep it as simple
-    as possible. To do so, we just drop all pkts belonging to the closed stream
-    and decrease inflight on corresponding paths carefully. This could have minor
-    impacts on congestion controllers. But, it is ok.*/
+    /*
+     * The previous code was too complicated. Now, we want to keep it as simple
+     * as possible. To do so, we just drop all pkts belonging to the closed stream
+     * and decrease inflight on corresponding paths carefully. This could have minor
+     * impacts on congestion controllers. But, it is ok.
+     */
 
     xqc_list_for_each_safe(pos, next, &ctl->ctl_unacked_packets[XQC_PNS_APP_DATA]) {
         packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
@@ -828,7 +830,7 @@ xqc_send_ctl_update_cwnd_limited(xqc_send_ctl_t *ctl)
         ctl->ctl_max_bytes_in_flight = ctl->ctl_bytes_in_flight;
     }
     uint32_t cwnd_bytes = ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(ctl->ctl_cong);
-    /*If we can not send the next full-size packet, we are CWND limited.*/
+    /* If we can not send the next full-size packet, we are CWND limited. */
     ctl->ctl_is_cwnd_limited = 0;
     if ((ctl->ctl_bytes_in_flight + XQC_QUIC_MSS) > cwnd_bytes) {
         ctl->ctl_is_cwnd_limited = 1;
@@ -1478,7 +1480,7 @@ xqc_send_ctl_is_app_limited(xqc_send_ctl_t *ctl)
     return 0;
 }
 
-/*This function is called inside cc's on_ack callbacks if needed*/
+/* This function is called inside cc's on_ack callbacks if needed */
 int
 xqc_send_ctl_is_cwnd_limited(xqc_send_ctl_t *ctl)
 {
@@ -1499,7 +1501,7 @@ xqc_send_ctl_cc_on_ack(xqc_send_ctl_t *ctl, xqc_packet_out_t *acked_packet,
     if (ctl->ctl_cong_callback->xqc_cong_ctl_on_ack) {
         ctl->ctl_cong_callback->xqc_cong_ctl_on_ack(ctl->ctl_cong, acked_packet, now);
     }
-    /*For CUBIC debug*/
+    /* For CUBIC debug */
 #if 0
     // xqc_cubic_t *c = (xqc_cubic_t*)(ctl->ctl_cong);
     // xqc_log(ctl->ctl_conn->log, XQC_LOG_WARN, "|cubic|time: %ui, sent_time: %ui, rtt: %ui|acked: %ud|"

@@ -885,7 +885,7 @@ xqc_packet_parse_version_negotiation(xqc_connection_t *c, xqc_packet_in_t *packe
         return -XQC_EILLPKT;
     }
 
-    /*check available states*/
+    /* check available states */
     if (c->conn_state != XQC_CONN_STATE_CLIENT_INITIAL_SENT) {
         /* drop packet */
         xqc_log(c->log, XQC_LOG_WARN, "|packet_parse_version_negotiation|invalid state|%d|", c->conn_state);

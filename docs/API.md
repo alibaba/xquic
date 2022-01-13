@@ -2,10 +2,10 @@
 ## Macros
 ### Memory Restrictions
 #### XQC_SUPPORT_VERSION_MAX
-Max count of versions supported by xquic. actually xquic support draft-29 and QUIC version 1 right now.
+Max count of versions supported by XQUIC. actually XQUIC support draft-29 and QUIC version 1 right now.
 
 #### XQC_RESET_TOKEN_MAX_KEY_LEN
-Max length of stateless reset token supported by xquic.
+Max length of stateless reset token supported by XQUIC.
 
 #### XQC_MAX_SEND_MSG_ONCE
 Max iovec count when sending data with xqc_send_mmsg_pt callback.

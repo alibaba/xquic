@@ -1,6 +1,16 @@
 # XQUIC
 <img src="docs/images/xquic_logo.png" alt="xquic logo"/>
 
+![GitHub](https://img.shields.io/github/license/alibaba/xquic)
+![Build](https://github.com/alibaba/xquic/actions/workflows/build.yml/badge.svg?branch=main)
+![CodeQL](https://github.com/alibaba/xquic/actions/workflows/codeql-analysis.yml/badge.svg?branch=main)
+![Codacy grade](https://img.shields.io/codacy/grade/485e758edd98409bb7a51cbb803838c4)
+![Codacy coverage](https://img.shields.io/codacy/coverage/485e758edd98409bb7a51cbb803838c4)
+![GitHub milestones](https://img.shields.io/github/milestones/open/alibaba/xquic)
+![GitHub issues](https://img.shields.io/github/issues/alibaba/xquic)
+![GitHub pull requests](https://img.shields.io/github/issues-pr/alibaba/xquic)
+![GitHub Discussions](https://img.shields.io/github/discussions/alibaba/xquic)
+
 > [简体中文文档 README-Zh-CN](./docs/docs-zh/README-zh.md)
 
 ## Introduction

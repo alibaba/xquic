@@ -27,8 +27,7 @@ typedef enum cc_type_s {
 
 
 /* request method */
-typedef enum request_method_e
-{
+typedef enum request_method_e {
     REQUEST_METHOD_GET,
     REQUEST_METHOD_POST,
 } REQUEST_METHOD;

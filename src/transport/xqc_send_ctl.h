@@ -122,7 +122,7 @@ typedef struct xqc_send_ctl_s {
                                 ctl_rttvar,
                                 ctl_minrtt,
                                 ctl_latest_rtt;
-    xqc_usec_t                  ctl_first_rtt_sample_time; /*The time when the conn gets the first RTT sample.*/
+    xqc_usec_t                  ctl_first_rtt_sample_time; /* The time when the conn gets the first RTT sample. */
 
     xqc_send_ctl_timer_t        ctl_timer[XQC_TIMER_N];
 

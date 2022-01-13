@@ -115,7 +115,7 @@ install_go
 do_compile "XQC_OPENSSL_IS_BORINGSSL"
 run_test_case
 
-##run babassl
+#run babassl
 do_compile
 run_test_case
 

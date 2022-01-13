@@ -11,7 +11,7 @@
 
 #define XQC_kMaxDatagramSize XQC_QUIC_MSS
 #define XQC_kMinimumWindow (2 * XQC_kMaxDatagramSize)
-/*The RECOMMENDED value is the minimum of 10 *
+/* The RECOMMENDED value is the minimum of 10 *
 kMaxDatagramSize and max(2* kMaxDatagramSize, 14720)).*/
 #define XQC_kInitialWindow (10 * XQC_kMaxDatagramSize)
 #define XQC_kLossReductionFactor (0.5f)
@@ -101,7 +101,7 @@ xqc_reno_reset_cwnd(void *cong_ctl)
 {
     xqc_new_reno_t *reno = (xqc_new_reno_t*)(cong_ctl);
     reno->reno_congestion_window = XQC_kMinimumWindow;
-    reno->reno_recovery_start_time  = 0;    /*clear recovery epoch. */
+    reno->reno_recovery_start_time  = 0; /* clear recovery epoch. */
 }
 
 int

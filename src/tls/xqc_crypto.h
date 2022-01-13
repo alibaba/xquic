@@ -70,7 +70,7 @@ typedef xqc_int_t (*xqc_hp_mask_pt)(const xqc_hdr_protect_cipher_t *hp_cipher,
 
 
 struct xqc_pkt_protect_aead_s {
-    /**
+    /*
      * implementation handler for aead
      * boringssl: const EVP_AEAD
      * babassl:   const EVP_CIPHER
@@ -87,7 +87,7 @@ struct xqc_pkt_protect_aead_s {
 
 
 struct xqc_hdr_protect_cipher_s {
-    /**
+    /*
      * implementation handler for cipher
      * boringssl & babassl: const EVP_CIPHER *
      */

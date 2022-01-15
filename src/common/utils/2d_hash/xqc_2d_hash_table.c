@@ -15,8 +15,12 @@ typedef struct xqc_2d_hash_node_s {
     /* hash of second dimension */
     uint64_t            hash2;
 
-    /* the pointer of data, 2d-hash of data can be same, but all inserted data shall be unique. when
-       comparing two different data with xqc_2d_hash_table_data_cmp, non-zero MUST be returned */
+    /* 
+     * the pointer of data, 2d-hash of data can be same, 
+     * but all inserted data shall be unique.
+     * when comparing two different data with xqc_2d_hash_table_data_cmp,
+     * non-zero MUST be returned 
+     */
     void                *data;
 } xqc_2d_hash_node_t;
 
@@ -203,8 +207,11 @@ xqc_2d_hash_lookup(xqc_2d_hash_table_t *ht, uint64_t h1, void *v1, size_t len1,
                     ret_cmp = ret_cb;
                     *data = node->data;
 
-                    /* as we put data at the head of a list, the first found 2d-matched data is
-                       always newest, can't find a better data, break and return this value */
+                    /* 
+                     * as we put data at the head of a list,
+                     * the first found 2d-matched data is always newest, 
+                     * can't find a better data, break and return this value 
+                     */
                     if (ret_cb == XQC_2D_CMP_RES_2D) {
                         break;
                     }

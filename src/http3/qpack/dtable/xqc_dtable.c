@@ -71,8 +71,10 @@ typedef struct xqc_dtable_s {
     /* sum of all added entries */
     uint64_t                byte_sum;
 
-    /* the low limit of dynamic table, which MUST NOT be evicted.
-       if dtable is empty, this value MUST be XQC_INVALID_INDEX */
+    /* 
+     * the low limit of dynamic table, which MUST NOT be evicted.
+     * if dtable is empty, this value MUST be XQC_INVALID_INDEX 
+     */
     uint64_t                min_ref;
 
     xqc_log_t              *log;
@@ -84,8 +86,10 @@ typedef struct xqc_dtable_s {
 static inline uint64_t
 xqc_dtable_make_value_hash(unsigned char *value, size_t vlen)
 {
-    /* make the last char of value the value hash. this is
-       STRONGLY RELEVANT with xqc_dtable_compare_nv function */
+    /*
+     * make the last char of value the value hash. this is 
+     * STRONGLY RELEVANT with xqc_dtable_compare_nv function
+     */
     return (uint64_t)(vlen != 0 ? *(value + vlen - 1) : 0);
 }
 
@@ -339,8 +343,11 @@ xqc_dtable_make_space(xqc_dtable_t *dt, size_t space)
         return -XQC_QPACK_DYNAMIC_TABLE_NOT_ENOUGH;
     }
 
-    /* if free memory is smaller than space, continue to check if there are entries can be
-       evicited to make space. if min_ref is unlimited, all entries can be evicited */
+    /* 
+     * if free memory is smaller than space, continue to check if there are entries
+     * can be evicited to make space. if min_ref is unlimited, all entries can be
+     * evicited 
+     */
     if (dt->capacity - dt->used < space && dt->min_ref != XQC_INVALID_INDEX) {
         xqc_dtable_entry_t *first_entry = xqc_rarray_front(dt->entries);
         if (NULL == first_entry) {
@@ -389,8 +396,10 @@ xqc_dtable_add(xqc_dtable_t *dt, unsigned char *name, uint64_t nlen, unsigned ch
     xqc_int_t ret = XQC_OK;
     size_t space = xqc_dtable_entry_size(nlen, vlen);
 
-    /* MUST make sure that needed space won't exceed capacity,
-       or it might cause FATAL state error after pop failure */
+    /*
+     * MUST make sure that needed space won't exceed capacity, 
+     * or it might cause FATAL state error after pop failure
+     */
     if (space > dt->capacity) {
         xqc_log(dt->log, XQC_LOG_ERROR, "|entry too large|space:%zu|cap:%zu|", space, dt->capacity);
         return -XQC_ELIMIT;
@@ -569,8 +578,10 @@ xqc_dtable_set_capacity(xqc_dtable_t *dt, uint64_t capactiy)
 {
     xqc_int_t ret = XQC_OK;
 
-    /* capacity shrinks, pop entries first.
-       (used size in dtable is not equal to which in ring memory) */
+    /* 
+     * capacity shrinks, pop entries first. 
+     * (used size in dtable is not equal to which in ring memory) 
+     */
     if (capactiy < dt->capacity) {
         ret = xqc_dtable_make_space(dt, dt->capacity - capactiy);
         if (ret != XQC_OK) {

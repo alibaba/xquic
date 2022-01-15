@@ -382,8 +382,10 @@ xqc_update_ack_aggregation(xqc_bbr_t *bbr, xqc_sample_t *sampler)
 static void 
 xqc_bbr_check_full_bw_reached(xqc_bbr_t *bbr, xqc_sample_t *sampler)
 {
-    /* we MUST only check whether full bw is reached ONCE per RTT!!!
-    Otherwise, startup may end too early due to multiple ACKs arrive in a RTT. */
+    /*
+     * we MUST only check whether full bw is reached ONCE per RTT!!! 
+     * Otherwise, startup may end too early due to multiple ACKs arrive in a RTT.
+     */
     if (!bbr->round_start || bbr->full_bandwidth_reached 
         || sampler->is_app_limited)
     {
@@ -710,7 +712,7 @@ xqc_bbr_cong_avoid_ai(xqc_bbr_t *bbr, uint32_t cwnd, uint32_t acked)
         bbr->snd_cwnd_cnt_bytes -= delta * cwnd_thresh;
         bbr->beyond_target_cwnd += delta * XQC_BBR_MAX_DATAGRAMSIZE;
     }
-    /*update ai_scale: we want to double ai_scale when enough data is acked.*/
+    /* update ai_scale: we want to double ai_scale when enough data is acked. */
     bbr->ai_scale_accumulated_bytes += acked;
     if (bbr->ai_scale_accumulated_bytes >= cwnd_thresh) {
         uint32_t delta = bbr->ai_scale_accumulated_bytes / cwnd_thresh;
@@ -815,7 +817,8 @@ xqc_bbr_set_or_restore_pacing_gain_in_startup(void *cong_ctl)
     }
 }
 
-static void xqc_bbr_update_recovery_mode(void *cong_ctl, xqc_sample_t *sampler)
+static void
+xqc_bbr_update_recovery_mode(void *cong_ctl, xqc_sample_t *sampler)
 {
     xqc_bbr_t *bbr = (xqc_bbr_t *)cong_ctl;
     if (sampler->po_sent_time <= bbr->recovery_start_time 

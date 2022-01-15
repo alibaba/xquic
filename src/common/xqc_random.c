@@ -61,7 +61,6 @@ xqc_get_random(xqc_random_generator_t *rand_gen, u_char *buf, size_t need_len)
         || rand_gen->rand_buf.len - (size_t)rand_gen->rand_buf_offset <= need_len) {
 
         /* not enough in rand_buf */
-
         if (rand_gen->rand_fd == -1) {
             rand_gen->rand_fd = open("/dev/urandom", O_RDONLY|O_NONBLOCK);
             if (rand_gen->rand_fd == -1) {

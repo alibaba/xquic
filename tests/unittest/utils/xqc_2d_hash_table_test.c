@@ -173,7 +173,6 @@ test_2d_hash_table_immediate_free()
 }
 
 
-
 void
 test_2d_hash_table_robust()
 {

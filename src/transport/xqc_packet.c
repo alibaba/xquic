@@ -168,8 +168,10 @@ xqc_packet_decrypt_single(xqc_connection_t *c, xqc_packet_in_t *packet_in)
 {
     xqc_int_t ret = XQC_OK;
 
-    /* remember the last position of udp packet, as the last pointer of packet_in will be changed
-       during processing QUIC packets */
+    /* 
+     * remember the last position of udp packet, as the last pointer
+     * of packet_in will be changed during processing QUIC packets 
+     */
     unsigned char *last = packet_in->last;
 
     /* decrypt packet */

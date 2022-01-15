@@ -17,8 +17,10 @@ typedef struct xqc_encoder_s {
     /* capacity of dynamic table */
     size_t                  dtable_cap;
 
-    /* max entry count of dynamic table, this value is calculated by the Max Dynamic Table Capacity
-       specified by decoder, and is remembered here to encode required insert count */
+    /*
+     * max entry count of dynamic table, this value is calculated by the Max Dynamic Table Capacity
+     * specified by decoder, and is remembered here to encode required insert count
+     */
     size_t                  max_entries;
 
     /* unacked field section list. used to protect those entries are still being used */
@@ -29,9 +31,11 @@ typedef struct xqc_encoder_s {
     /* known received count. related with blocked streams */
     uint64_t                krc;
 
-    /* blocked streams. used to limit encoder's streams that might be blocked to decoder's
-       SETTINGS_QPACK_BLOCKED_STREAMS parameter. if reached the MAX_BLOCKED_STREAMS limit, encoder
-       will try to refer those entries which are known to avoid adding a new blocked stream */
+    /*
+     * blocked streams. used to limit encoder's streams that might be blocked to decoder's
+     * SETTINGS_QPACK_BLOCKED_STREAMS parameter. if reached the MAX_BLOCKED_STREAMS limit, encoder
+     * will try to refer those entries which are known to avoid adding a new blocked stream
+     */
     uint64_t                max_blocked_stream;
     uint64_t                blocked_stream_count;
     xqc_list_head_t         blocked_list;
@@ -43,8 +47,10 @@ typedef struct xqc_encoder_s {
     double                  name_limit;
     size_t                  name_len_limit;
 
-    /* dtable insertion limit for entry. 
-       insert_limit_entry_size = insert_limit_entry * dtable_cap */
+    /*
+     * dtable insertion limit for entry. 
+     * insert_limit_entry_size = insert_limit_entry * dtable_cap
+     */
     double                  entry_limit;
     size_t                  entry_size_limit;
 
@@ -69,8 +75,10 @@ typedef enum xqc_insert_type_s {
 } xqc_insert_type_t;
 
 
-/* the encode information of an header, which will be generated after lookup static or dynamic 
-   tables, check index flag, and check encoding strategy */
+/*
+ * the encode information of an header, which will be generated after lookup static or dynamic 
+ * tables, check index flag, and check encoding strategy
+ */
 typedef struct xqc_hdr_enc_rule_s {
     /* pointer to header */
     xqc_http_header_t  *hdr;
@@ -78,8 +86,10 @@ typedef struct xqc_hdr_enc_rule_s {
     /* table flag, 1 for static table, 0 for dynamic table */
     xqc_flag_t          ref_table;
 
-    /* never index flag. if never flag is set, it means that at least value
-       is encoded as literal, and ref MUST NOT be XQC_NV_REF_NAME_AND_VALUE. */
+    /*
+     * never index flag. if never flag is set, it means that at least value
+     * is encoded as literal, and ref MUST NOT be XQC_NV_REF_NAME_AND_VALUE.
+     */
     xqc_flag_t          never;
 
     /* index mode */
@@ -186,8 +196,10 @@ xqc_encoder_add_blocked_stream(xqc_encoder_t *enc, uint64_t stream_id, uint64_t 
             xqc_list_entry(pos, xqc_encoder_blocked_stream_t, head);
 
         if (stream->stream_id == stream_id) {
-            /* if stream is alredy blocked before, but refers larger entries this time,
-               update the required insert count */
+            /*
+             * if stream is alredy blocked before, but refers larger entries this time,
+             * update the required insert count
+             */
             if (ricnt > stream->rqrd_insert_cnt) {
                 xqc_log(enc->log, XQC_LOG_DEBUG, "|update blocked stream ricnt|id:%ui|ricnt:%ui|"
                         "ori:%ui|", stream->stream_id, ricnt, stream->rqrd_insert_cnt);
@@ -364,8 +376,10 @@ xqc_encoder_check_block_stream_limit(xqc_encoder_t *enc, uint64_t stream_id)
         xqc_encoder_blocked_stream_t *bs = 
             xqc_list_entry(pos, xqc_encoder_blocked_stream_t, head);
         if (bs->stream_id == stream_id) {
-            /* the stream is already blocked, won't increse new blocked stream,
-               so it can insert entries into dtable */
+            /*
+             * the stream is already blocked, won't increse new blocked stream,
+             * so it can insert entries into dtable
+             */
             return XQC_FALSE;
         }
     }
@@ -390,8 +404,10 @@ xqc_encoder_check_insert(xqc_encoder_t *enc, xqc_hdr_enc_rule_t *info, xqc_bool_
         return XQC_TRUE;
     }
 
-    /* when blocked, refer an entry in dtable with index larger than known received count,
-       might increse the blocked stream count on decoder, it's better send with literal */
+    /*
+     * when blocked, refer an entry in dtable with index larger than known received count,
+     * might increse the blocked stream count on decoder, it's better send with literal
+     */
     if (info->ref_table == XQC_DTABLE_FLAG && info->ref != XQC_NV_REF_NONE
         && info->index >= enc->krc)
     {
@@ -418,8 +434,10 @@ xqc_encoder_check_never_value_index_mode(xqc_encoder_t *enc, xqc_hdr_enc_rule_t*
         return;
     }
 
-    /* though never is set, but we can try to insert name into dtable and refer it. that is
-        Literal Field Line With Name Reference with never bit set to 1 */
+    /*
+     * though never is set, but we can try to insert name into dtable and refer it. that is
+     * Literal Field Line With Name Reference with never bit set to 1
+     */
     if (info->ref == XQC_NV_REF_NONE) {
         if (info->hdr->name.iov_len <= enc->name_len_limit) {
             info->insertion = XQC_INSERT_NAME;
@@ -454,8 +472,10 @@ xqc_encoder_check_normal_index_mode(xqc_encoder_t *enc, xqc_hdr_enc_rule_t *info
         break;
 
     case XQC_NV_REF_NAME:
-        /* if name is refered in dtable, will try to decide whether an insertion with
-            value is worthy, with a more aggressive size restriction */
+        /*
+         * if name is refered in dtable, will try to decide whether an insertion with
+         * value is worthy, with a more aggressive size restriction
+         */
         if (esz <= enc->entry_size_limit /* && info->ref_table == XQC_DTABLE_FLAG */) {
             info->insertion = XQC_INSERT_NAME_REF_VALUE;
         }
@@ -466,8 +486,10 @@ xqc_encoder_check_normal_index_mode(xqc_encoder_t *enc, xqc_hdr_enc_rule_t *info
     }
 }
 
-/* decide the index mode of headers, based on the lookup result from stable and dtable.
-   never-indexed filed line is returned directly before */
+/*
+ * decide the index mode of headers, based on the lookup result from stable and dtable.
+ * never-indexed filed line is returned directly before
+ */
 void 
 xqc_encoder_check_index_mode(xqc_encoder_t *enc, xqc_hdr_enc_rule_t *info, xqc_bool_t blocked)
 {
@@ -563,8 +585,10 @@ xqc_encoder_insert(xqc_encoder_t *enc, xqc_hdr_enc_rule_t *info, xqc_var_buf_t *
         return ret;
     }
 
-    /* ref mode and index CAN ONLY BE adjusted after insertion success. it may act as downgrade if
-       name was found in dtable or stable, but insertion fails */
+    /*
+     * ref mode and index CAN ONLY BE adjusted after insertion success. it may act as downgrade if
+     * name was found in dtable or stable, but insertion fails
+     */
     info->ref_table = XQC_DTABLE_FLAG;
     info->ref = info->insertion == XQC_INSERT_NAME ? XQC_NV_REF_NAME : XQC_NV_REF_NAME_AND_VALUE;
     info->index = idx;
@@ -604,9 +628,12 @@ xqc_encoder_try_duplicate(xqc_encoder_t *enc, xqc_hdr_enc_rule_t *info, xqc_var_
         xqc_log_event(enc->log, QPACK_INSTRUCTION_CREATED, XQC_LOG_ENCODER_EVENT,
                       XQC_INS_TYPE_ENC_DUP, info->index);
 
-        /* change info->index until duplicate success, if it fails, will do as lookup result. cause
-           peer shall receive encoder ins sequentially, pop of duplicated entry during subsequent
-           operations will always follow duplicate instruction and thus makes it safe on decoder */
+        /* 
+         * change info->index until duplicate success, if it fails, will do
+         * as lookup result. cause peer shall receive encoder ins sequentially,
+         * pop of duplicated entry during subsequent operations will always 
+         * follow duplicate instruction and thus makes it safe on decoder 
+         */
         info->index = dup_idx;
     }
 
@@ -629,8 +656,10 @@ xqc_encoder_prepare(xqc_encoder_t *enc, xqc_http_headers_t *hdrs, xqc_field_sect
         xqc_hdr_enc_rule_t *info = &fs->reps[i];
         info->hdr = hdr;
 
-        /* if XQC_HTTP_HEADER_FLAG_NEVER_INDEX is set, header will be sent as Literal Filed Line
-           With Literal Name, regradless of lookup or insertion operation with stable and dtable */
+        /*
+         * if XQC_HTTP_HEADER_FLAG_NEVER_INDEX is set, header will be sent as Literal Filed Line
+         * With Literal Name, regradless of lookup or insertion operation with stable and dtable
+         */
         if (hdr->flags & XQC_HTTP_HEADER_FLAG_NEVER_INDEX) {
             info->ref = XQC_NV_REF_NONE;
             info->never = 1;
@@ -901,8 +930,10 @@ xqc_encoder_section_ack(xqc_encoder_t *enc, uint64_t stream_id)
         /* find the unacked section, and delete it from unack_list */
         if (found == XQC_FALSE && section->stream_id == stream_id) {
             found = XQC_TRUE;
-            /* if section acked, and this section's required insert count is larger than current
-               known rcvd cnt, it means that decoder received those headers and acked them */
+            /*
+             * if section acked, and this section's required insert count is larger than current
+             * known rcvd cnt, it means that decoder received those headers and acked them
+             */
             if (section->rqrd_insert_cnt > enc->krc) {
                 enc->krc = section->rqrd_insert_cnt;
                 xqc_encoder_unblock_streams(enc);
@@ -962,8 +993,10 @@ xqc_encoder_cancel_stream(xqc_encoder_t *enc, uint64_t stream_id)
             xqc_log(enc->log, XQC_LOG_DEBUG, "|stream cancel|stream_id:%ui|min_rep:%ui|ricnt:%ui|",
                     stream_id, section->min_rep_index, section->rqrd_insert_cnt);
 
-            /* delete section record, there might be two HEADERS frame in one stream if there is a
-               trialer header */
+            /*
+             * delete section record, there might be two HEADERS frame in one stream if there is a
+             * trialer header
+             */
             xqc_encoder_unack_section_free(section);
             continue;
         }

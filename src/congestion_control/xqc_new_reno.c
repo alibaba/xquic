@@ -11,8 +11,10 @@
 
 #define XQC_kMaxDatagramSize XQC_QUIC_MSS
 #define XQC_kMinimumWindow (2 * XQC_kMaxDatagramSize)
-/* The RECOMMENDED value is the minimum of 10 *
-kMaxDatagramSize and max(2* kMaxDatagramSize, 14720)).*/
+/* 
+ * The RECOMMENDED value is the minimum of
+ * 10 * kMaxDatagramSize and max(2* kMaxDatagramSize, 14720)).
+ */
 #define XQC_kInitialWindow (10 * XQC_kMaxDatagramSize)
 #define XQC_kLossReductionFactor (0.5f)
 
@@ -50,8 +52,10 @@ xqc_reno_on_lost(void *cong_ctl, xqc_usec_t lost_sent_time)
 {
     xqc_new_reno_t *reno = (xqc_new_reno_t*)(cong_ctl);
 
-    /* Start a new congestion event if the sent time is larger
-       than the start time of the previous recovery epoch. */
+    /*
+     * Start a new congestion event if the sent time is larger
+     * than the start time of the previous recovery epoch.
+     */
     if (!xqc_reno_was_pkt_sent_in_recovery(cong_ctl, lost_sent_time)) {
         reno->reno_recovery_start_time = xqc_monotonic_timestamp();
         reno->reno_congestion_window *= XQC_kLossReductionFactor;
@@ -61,7 +65,7 @@ xqc_reno_on_lost(void *cong_ctl, xqc_usec_t lost_sent_time)
 }
 
 static void
-xqc_reno_on_ack (void *cong_ctl, xqc_packet_out_t *po, xqc_usec_t now)
+xqc_reno_on_ack(void *cong_ctl, xqc_packet_out_t *po, xqc_usec_t now)
 {
     xqc_new_reno_t *reno = (xqc_new_reno_t*)(cong_ctl);
     xqc_usec_t sent_time = po->po_sent_time;

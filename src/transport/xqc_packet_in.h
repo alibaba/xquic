@@ -10,8 +10,7 @@
 #include "src/transport/xqc_frame.h"
 
 
-struct xqc_packet_in_s
-{
+struct xqc_packet_in_s {
     xqc_packet_t            pi_pkt;
     xqc_list_head_t         pi_list;
     const unsigned char    *buf;

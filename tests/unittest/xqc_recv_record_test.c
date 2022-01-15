@@ -28,7 +28,7 @@ xqc_test_recv_record()
         //printf("low:%llu, high=%llu\n", pnode->pktno_range.low, pnode->pktno_range.high);
     }
 
-    //printf("largest=%llu\n",xqc_recv_record_largest(&record));
+    //printf("largest=%llu\n", xqc_recv_record_largest(&record));
     CU_ASSERT(10 == xqc_recv_record_largest(&record));
 
 

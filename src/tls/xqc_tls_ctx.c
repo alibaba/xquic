@@ -24,7 +24,7 @@ typedef struct xqc_tls_ctx_s {
     /* session ticket key */
     xqc_ssl_session_ticket_key_t    session_ticket_key;
 
-    /* log hander */
+    /* log handler */
     xqc_log_t                      *log;
 
     /* the buffer of alpn, for server alpn selection */

@@ -218,7 +218,6 @@ xqc_test_ring_mem_duplicate_dst_truncated()
 }
 
 
-
 void
 xqc_test_ring_mem_duplicate_src_truncated()
 {

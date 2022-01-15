@@ -11,7 +11,9 @@
 #include "xqc_ring_mem.h"
 
 
-/**
+/*
+ * circular memory, maintains a linear memory block, and can be used to store objects with
+ * Irregular sizes as a queue, xqc_ring_mem_t will maintain the momery as FIFO order
  */
 typedef struct xqc_ring_mem_s {
     /* original memory */
@@ -346,8 +348,11 @@ xqc_ring_mem_duplicate(xqc_ring_mem_t *rmem, xqc_ring_mem_idx_t ori_idx, size_t 
         }
 
     } else {
-        /* impossible 2 truncation happened in one ring mem, so if duplicated memory block is
-           truncated, the original memory block MUST be continuous */
+        /* 
+         * impossible 2 truncation happened in one ring mem, 
+         * so if duplicated memory block is truncated, 
+         * the original memory block MUST be continuous 
+         */
         size_t first_blk_size = rmem->capacity - soffset_dup;
         memmove(rmem->buf + soffset_dup, rmem->buf + soffset_ori, first_blk_size);
         memmove(rmem->buf, rmem->buf + soffset_ori + first_blk_size, len - first_blk_size);

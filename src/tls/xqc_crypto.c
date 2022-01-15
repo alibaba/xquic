@@ -351,8 +351,10 @@ xqc_crypto_derive_packet_protection_iv(xqc_crypto_t *crypto, uint8_t *dest, size
 {
     static uint8_t LABEL[] = "quic iv";
 
-    /* The Length provided with "quic iv" is the minimum length of the AEAD nonce
-       or 8 bytes if that is larger */
+    /* 
+     * he Length provided with "quic iv" is the minimum length of the AEAD nonce
+     * or 8 bytes if that is larger 
+     */
     size_t ivlen = xqc_max(8, crypto->pp_aead.noncelen);
     if (ivlen > destcap) {
         return -XQC_TLS_DERIVE_KEY_ERROR;

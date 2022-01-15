@@ -78,7 +78,7 @@ xqc_hq_request_create(xqc_engine_t *engine, xqc_hq_conn_t *hqc, const xqc_cid_t 
         return NULL;
     }
 
-    /* init app-level callbaks */
+    /* init app-level callbacks */
     if (xqc_hq_ctx_get_request_callbacks(&hqr->hqr_cbs) != XQC_OK) {
         PRINT_LOG("get app-level request callbacks error\n");
         goto fail;
@@ -114,7 +114,7 @@ xqc_hq_request_create_passive(xqc_stream_t *stream)
         return NULL;
     }
 
-    /* init app-level callbaks */
+    /* init app-level callbacks */
     if (xqc_hq_ctx_get_request_callbacks(&hqr->hqr_cbs) != XQC_OK) {
         PRINT_LOG("get app-level request callbacks error");
         xqc_hq_request_destroy(hqr);

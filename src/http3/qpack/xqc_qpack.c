@@ -319,8 +319,10 @@ xqc_qpack_process_encoder(xqc_qpack_t *qpk, unsigned char *data, size_t data_len
         }
     }
 
-    /* get insertion into decoder's dtable, reply Insert Count Increment to peer
-       notity here rather than xqc_qpack_on_encoder_ins to reduce ICI count */
+    /*
+     * get insertion into decoder's dtable, reply Insert Count Increment to peer
+     * notity here rather than xqc_qpack_on_encoder_ins to reduce ICI count
+     */
     if (xqc_qpack_get_dec_insert_count(qpk) > ori_krc) {
         ret = xqc_qpack_notify_insert_cnt_increment(
             qpk, (xqc_qpack_get_dec_insert_count(qpk) - ori_krc));

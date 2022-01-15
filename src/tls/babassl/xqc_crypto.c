@@ -41,7 +41,7 @@ xqc_ossl_aead_encrypt(const xqc_pkt_protect_aead_t *pp_aead,
     }
 
     if (EVP_EncryptUpdate(ctx, NULL, &len, ad, adlen) != XQC_SSL_SUCCESS) {
-        goto err ;
+        goto err;
     }
 
     if (EVP_EncryptUpdate(ctx, dest, &len, plaintext, plaintextlen) != XQC_SSL_SUCCESS) {
@@ -88,7 +88,7 @@ xqc_ossl_aead_decrypt(const xqc_pkt_protect_aead_t *pp_aead,
     size_t outlen = 0;
     int len = 0;
 
-    if (taglen > ciphertextlen || ciphertextlen > destcap + xqc_aead_overhead(pp_aead,destcap)) {
+    if (taglen > ciphertextlen || ciphertextlen > destcap + xqc_aead_overhead(pp_aead, destcap)) {
         return -XQC_TLS_NOBUF;
     }
 
@@ -157,7 +157,7 @@ xqc_ossl_hp_mask(const xqc_hdr_protect_cipher_t *hp_cipher,
         return -XQC_TLS_INVALID_ARGUMENT;
     }
 
-    if (EVP_EncryptInit_ex(ctx, hp_cipher->cipher , NULL, key, sample) != XQC_SSL_SUCCESS) {
+    if (EVP_EncryptInit_ex(ctx, hp_cipher->cipher, NULL, key, sample) != XQC_SSL_SUCCESS) {
         goto err;
     }
 

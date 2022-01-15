@@ -5,7 +5,7 @@
 #ifndef _XQC_ERRNO_H_INCLUDED_
 #define _XQC_ERRNO_H_INCLUDED_
 
-/**
+/*
  *  QUIC Transport Protocol error codes
  */
 typedef enum {
@@ -29,7 +29,7 @@ typedef enum {
 
 #define TRA_CRYPTO_ERROR_BASE   0x100
 
-/**
+/*
  *  QUIC Http/3 Protocol error codes
  */
 typedef enum {
@@ -51,7 +51,7 @@ typedef enum {
     H3_VERSION_FALLBACK             = 0x110,
 } xqc_h3_err_code_t;
 
-/**
+/*
  * QUIC QPACK protocol error codes
  */
 typedef enum {

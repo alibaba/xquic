@@ -68,7 +68,7 @@ typedef enum {
     XQC_HTTP3_STREAM_FLAG_ACTIVELY_CLOSED       = 0x1000,
 } xqc_h3_stream_flag;
 
-typedef struct xqc_h3_stream_pctx_s{
+typedef struct xqc_h3_stream_pctx_s {
     /* parsing context for uni-stream type */
     xqc_discrete_vint_pctx_t        type;
 

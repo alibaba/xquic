@@ -418,8 +418,8 @@ xqc_conn_server_create(xqc_engine_t *engine, const struct sockaddr *local_addr,
 
     xqc_cid_copy(&new_scid, scid);
 
-    /* Server enable cid negotiate, or client initial dcid length not equal to server config length. 
-     *
+    /*
+     * Server enable cid negotiate, or client initial dcid length not equal to server config length. 
      * If use the peer's dcid as scid directly, must make sure
      * its length equals to the config cid_len, otherwise might fail
      * decoding dcid from subsequent short header packets
@@ -3035,8 +3035,10 @@ xqc_conn_tls_crypto_data_cb(xqc_encrypt_level_t level, const uint8_t *data,
         return -XQC_EMALLOC;
     }
 
-    /* should limit the length of crypto data when the TLS layer generates unlimited data
-     * or when the client sends duplicate ClientHello, etc. */
+    /* 
+     * should limit the length of crypto data when the TLS layer generates unlimited data
+     * or when the client sends duplicate ClientHello, etc.
+     */
     conn->crypto_data_total_len += len;
     if (conn->crypto_data_total_len > XQC_CONN_MAX_CRYPTO_DATA_TOTAL_LEN) {
         xqc_log(conn->log, XQC_LOG_ERROR,

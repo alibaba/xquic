@@ -76,7 +76,7 @@ xqc_bssl_hp_mask(const xqc_hdr_protect_cipher_t *hp_cipher,
         return -XQC_TLS_NOBUF;
     }
 
-    if (EVP_EncryptInit_ex(ctx, hp_cipher->cipher , NULL, key, sample) != XQC_SSL_SUCCESS) {
+    if (EVP_EncryptInit_ex(ctx, hp_cipher->cipher, NULL, key, sample) != XQC_SSL_SUCCESS) {
         goto err;
     }
 
@@ -111,12 +111,12 @@ xqc_bssl_hp_mask_chacha20(const xqc_hdr_protect_cipher_t *hp_cipher,
     const uint8_t *key, size_t keylen,
     const uint8_t *sample, size_t samplelen)
 {
-    (void) hp_cipher ;
+    (void) hp_cipher;
 
     if (XQC_UNLIKELY(keylen != 32 && samplelen != 16)) {
         return -XQC_TLS_INVALID_ARGUMENT;
     }
-    uint32_t *counter = (uint32_t *)(sample) ;
+    uint32_t *counter = (uint32_t *)(sample);
     sample += sizeof(uint32_t);
 
     CRYPTO_chacha_20(dest, plaintext, plaintextlen, key, sample, *counter);

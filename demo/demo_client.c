@@ -138,7 +138,7 @@ typedef struct xqc_demo_cli_quic_config_s {
     int  token_len;                     /* token len */
     char token[XQC_MAX_TOKEN_LEN];      /* token buf */
 
-    char *cipher_suits;                 /* cipher suits */
+    char *cipher_suites;                 /* cipher suites */
 
     uint8_t use_0rtt;                   /* 0-rtt switch, default turned off */
 
@@ -172,7 +172,7 @@ typedef struct xqc_demo_cli_env_config_s {
     int     key_output_flag;
     char    key_out_path[256];
 
-    /* life circle */
+    /* life cycle */
     int     life;
 } xqc_demo_cli_env_config_t;
 
@@ -246,7 +246,8 @@ typedef struct xqc_demo_cli_task_schedule_info_s {
 } xqc_demo_cli_task_schedule_info_t;
 
 
-/* the task schedule info, used to mark the operation 
+/* 
+ * the task schedule info, used to mark the operation 
  * info of all requests, the client will exit when all
  * tasks are finished or closed
  */
@@ -258,7 +259,8 @@ typedef struct xqc_demo_cli_task_schedule_s {
     xqc_demo_cli_task_schedule_info_t   *schedule_info;
 } xqc_demo_cli_task_schedule_t;
 
-/* task info structure. 
+/* 
+ * task info structure. 
  * a task is strongly correlate to a net connection
  */
 typedef struct xqc_demo_cli_task_s {
@@ -428,7 +430,7 @@ xqc_demo_cli_write_log_file(xqc_log_level_t lvl, const void *buf, size_t size, v
     if (ctx->log_fd <= 0) {
         return;
     }
-    //printf("%s",(char*)buf);
+    //printf("%s", (char*)buf);
     int write_len = write(ctx->log_fd, buf, size);
     if (write_len < 0) {
         printf("write log failed, errno: %d\n", errno);
@@ -824,7 +826,7 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
         }
 
         for (int i = 0; i < headers->count; i++) {
-            printf("%s = %s\n",(char*)headers->headers[i].name.iov_base,
+            printf("%s = %s\n", (char*)headers->headers[i].name.iov_base,
                 (char*)headers->headers[i].value.iov_base);
         }
 
@@ -1060,9 +1062,9 @@ xqc_demo_cli_init_0rtt(xqc_demo_cli_client_args_t *args)
 void
 xqc_demo_cli_init_engine_ssl_config(xqc_engine_ssl_config_t* cfg, xqc_demo_cli_client_args_t *args)
 {
-    memset(cfg, 0 ,sizeof(xqc_engine_ssl_config_t));
-    if (args->quic_cfg.cipher_suits) {
-        cfg->ciphers = args->quic_cfg.cipher_suits;
+    memset(cfg, 0, sizeof(xqc_engine_ssl_config_t));
+    if (args->quic_cfg.cipher_suites) {
+        cfg->ciphers = args->quic_cfg.cipher_suites;
 
     } else {
         cfg->ciphers = XQC_TLS_CIPHERS;
@@ -1163,7 +1165,7 @@ xqc_demo_cli_parse_server_addr(char *url, xqc_demo_cli_net_config_t *cfg)
 {
     /* get hostname and port */
     char s_port[16] = {0};
-    sscanf(url,"%*[^://]://%[^:]:%[^/]", cfg->host, s_port);
+    sscanf(url, "%*[^://]://%[^:]:%[^/]", cfg->host, s_port);
 
     /* parse port */
     cfg->server_port = atoi(s_port);
@@ -1211,7 +1213,7 @@ xqc_demo_cli_parse_urls(char *urls, xqc_demo_cli_client_args_t *args)
     while (token != NULL) {
         if (token) {
             strncpy(args->req_cfg.reqs[cnt].url, token, URL_LEN - 1);
-            sscanf(token,"%[^://]://%[^/]%s", args->req_cfg.reqs[cnt].scheme,
+            sscanf(token, "%[^://]://%[^/]%s", args->req_cfg.reqs[cnt].scheme,
                 args->req_cfg.reqs[cnt].auth, args->req_cfg.reqs[cnt].path);
         }
         cnt++;
@@ -1231,8 +1233,9 @@ xqc_demo_cli_usage(int argc, char *argv[])
 {
     char *prog = argv[0];
     char *const slash = strrchr(prog, '/');
-    if (slash)
+    if (slash) {
         prog = slash + 1;
+    }
     printf(
         "Usage: %s [Options]\n"
         "\n"
@@ -1304,10 +1307,10 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             args->net_cfg.conn_timeout = atoi(optarg);
             break;
 
-        /* ssl cipher suits */
+        /* ssl cipher suites */
         case 'S':
-            printf("option cipher suits: %s\n", optarg);
-            args->quic_cfg.cipher_suits = optarg;
+            printf("option cipher suites: %s\n", optarg);
+            args->quic_cfg.cipher_suites = optarg;
             break;
 
         /* 0rtt option */
@@ -1956,7 +1959,8 @@ xqc_demo_cli_close_task(xqc_demo_cli_ctx_t *ctx, xqc_demo_cli_task_t *task)
 
 static struct timeval tv_task_schedule = {0, 100};
 
-/* the task schedule timer callback, will break the main event loop
+/* 
+ * the task schedule timer callback, will break the main event loop
  * when all tasks are responsed or closed
  * under multi-connction mode, if previous task has finished, will
  * start a new connection and task.

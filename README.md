@@ -8,7 +8,7 @@
 ![Codacy coverage](https://img.shields.io/codacy/coverage/485e758edd98409bb7a51cbb803838c4)
 ![Platforms](https://img.shields.io/badge/platform-Android%20%7C%20iOS%20%7C%20Linux%20%7C%20macOS-blue)
 
-> [简体中文文档 README-Zh-CN](./docs/docs-zh/README-zh.md)
+> [简体中文文档 README-zh-CN](./docs/docs-zh/README-zh.md)
 
 ## Introduction
 
@@ -96,7 +96,7 @@ sh ../scripts/xquic_test.sh
 
 * For using the API, see the [API docs](./docs/API.md).
 * For platform support details, see the [Platforms docs](./docs/Platforms.md).
-* For Chinese (zh-cn) translation of the IETF QUIC Protocol, see the Translation docs.
+* For Chinese Simplified (zh-CN) translation of the IETF QUIC Protocol, see the Translation docs.
     - The following translation is based on draft-34 and RFC Translation is Working In Progress.
     - [draft-ietf-quic-invariants-13-zh](./docs/translation/draft-ietf-quic-invariants-13-zh.md)
     - [draft-ietf-quic-transport-34-zh](./docs/translation/draft-ietf-quic-transport-34-zh.md)

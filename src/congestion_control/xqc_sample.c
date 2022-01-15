@@ -37,7 +37,8 @@ xqc_generate_sample(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl,
     /* This is for BBRv2 */
     sampler->lost_pkts = send_ctl->ctl_lost_pkts_number - sampler->prior_lost;
 
-    /* Normally we expect interval >= MinRTT.
+    /* 
+     * Normally we expect interval >= MinRTT.
      * Note that rate may still be over-estimated when a spuriously
      * retransmitted skb was first (s)acked because "interval"
      * is under-estimated (up to an RTT). However, continuously
@@ -100,7 +101,8 @@ xqc_update_sample(xqc_sample_t *sampler, xqc_packet_out_t *packet,
         sampler->lagest_ack_time = now;
         sampler->po_sent_time = packet->po_sent_time; /* always keep it updated */
     }
-    /* Mark the packet as delivered once it's SACKed to
+    /* 
+     * Mark the packet as delivered once it's SACKed to
      * avoid being used again when it's cumulatively acked.
      */
     packet->po_delivered_time = 0;

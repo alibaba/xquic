@@ -8,8 +8,10 @@
 typedef struct xqc_decoder_s {
     xqc_dtable_t           *dtable;
 
-    /* max dtable capacity is the configured size of dynamic table, this value is used to decode 
-       the Required Insert Count in encoded filed sections */
+    /*
+     * max dtable capacity is the configured size of dynamic table, this value is used to decode 
+     * the Required Insert Count in encoded filed sections
+     */
     size_t                  max_ents;
 
     /* log handler */

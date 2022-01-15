@@ -326,7 +326,8 @@ xqc_bbr2_handle_inflight_too_high(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
     double beta = xqc_bbr2_inflight_lo_beta;
     bbr2->prev_probe_too_high = 1;
     bbr2->bw_probe_samples = 0; /* only react once per probe */
-    /* If we are app-limited then we are not robustly
+    /*
+     * If we are app-limited then we are not robustly
      * probing the max volume of inflight data we think
      * might be safe (analogous to how app-limited bw
      * samples are not known to be robustly probing bw).
@@ -351,7 +352,8 @@ xqc_bbr2_adapt_upper_bounds(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
         /* End of samples from bw probing phase. */
         bbr2->bw_probe_samples = 0;
         bbr2->ack_phase = BBR2_ACKS_INIT;
-        /* At this point in the cycle, our current bw sample is also
+        /*
+         * At this point in the cycle, our current bw sample is also
          * our best recent chance at finding the highest available bw
          * for this flow. So now is the best time to forget the bw
          * samples from the previous cycle, by advancing the window.
@@ -359,7 +361,8 @@ xqc_bbr2_adapt_upper_bounds(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
         if (bbr2->mode == BBR2_PROBE_BW && !sampler->is_app_limited) {
             xqc_bbr2_advance_bw_hi_filter(bbr2);
         }
-        /* If we had an inflight_hi, then probed and pushed inflight all
+        /*
+         * If we had an inflight_hi, then probed and pushed inflight all
          * the way up to hit that inflight_hi without seeing any
          * high loss/ECN in all the resulting ACKs from that probing,
          * then probe up again, this time letting inflight persist at
@@ -384,7 +387,8 @@ xqc_bbr2_adapt_upper_bounds(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
         if (bbr2->inflight_hi == XQC_BBR2_UNSIGNED_INF) {
             return FALSE;
         }
-        /* To be resilient to random loss, we must raise inflight_hi
+        /*
+         * To be resilient to random loss, we must raise inflight_hi
          * if we observe in any phase that a higher level is safe.
          */
         if (sampler->tx_in_flight > bbr2->inflight_hi) {
@@ -577,7 +581,8 @@ xqc_bbr2_update_cycle_phase(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
     bw = xqc_bbr2_max_bw(bbr2);
 
     switch (bbr2->cycle_idx) {
-    /* First we spend most of our time cruising with a pacing_gain of 1.0,
+    /* 
+     * First we spend most of our time cruising with a pacing_gain of 1.0,
      * which paces at the estimated bw, to try to fully use the pipe
      * without building queue. If we encounter loss/ECN marks, we adapt
      * by slowing down.
@@ -608,13 +613,15 @@ xqc_bbr2_update_cycle_phase(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
         }
         break;
 
-    /* After cruising, when it's time to probe, we first "refill": we send
+    /*
+     * After cruising, when it's time to probe, we first "refill": we send
      * at the estimated bw to fill the pipe, before probing higher and
      * knowingly risking overflowing the bottleneck buffer (causing loss).
      */
     case BBR2_BW_PROBE_REFILL:
         if (bbr2->round_start) {
-            /* After one full round trip of sending in REFILL, we
+            /* 
+             * After one full round trip of sending in REFILL, we
              * start to see bw samples reflecting our REFILL, which
              * may be putting too much data in flight.
              */
@@ -654,7 +661,8 @@ xqc_bbr2_update_cycle_phase(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
         break;
 #endif
 
-    /* After we refill the pipe, we probe by using a pacing_gain > 1.0, to
+    /*
+     * After we refill the pipe, we probe by using a pacing_gain > 1.0, to
      * probe for bw. If we have not seen loss/ECN, we try to raise inflight
      * to at least pacing_gain*BDP; note that this may take more than
      * min_rtt if min_rtt is small (e.g. on a LAN).
@@ -719,7 +727,8 @@ xqc_bbr2_update_cycle_phase(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
         }
         break;
 
-    /* After probing in PROBE_UP, we have usually accumulated some data in
+    /*
+     * After probing in PROBE_UP, we have usually accumulated some data in
      * the bottleneck buffer (if bw probing didn't find more bw). We next
      * enter PROBE_DOWN to try to drain any excess data from the queue. To
      * do this, we use a pacing_gain < 1.0. We hold this pacing gain until
@@ -828,9 +837,11 @@ xqc_update_ack_aggregation(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
 static void 
 xqc_bbr2_check_full_bw_reached(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
 {
-    /* we MUST only check whether full bw is reached ONCE per RTT!!!
+    /*
+     * we MUST only check whether full bw is reached ONCE per RTT!!!
      * Otherwise, startup may end too early due to multiple ACKs arrive in a 
-     * RTT. */
+     * RTT. 
+     */
     if (!bbr2->round_start || bbr2->full_bandwidth_reached 
         || sampler->is_app_limited)
     {
@@ -1210,12 +1221,16 @@ xqc_bbr2_update_recovery_mode(void *cong_ctl, xqc_sample_t *sampler)
     else if (sampler->po_sent_time > bbr2->recovery_start_time 
              && bbr2->recovery_mode == BBR2_RECOVERY)
     {
-        /* exit recovery mode once any packet sent during the 
-           recovery epoch is acked. */
+        /* 
+         * exit recovery mode once any packet sent during the 
+         * recovery epoch is acked. 
+         */
         bbr2->recovery_mode = BBR2_OPEN;
         bbr2->recovery_start_time = 0;
-        /* we do not restore cwnd here as we do not bound cwnd to 
-           inflight when entering recovery */
+        /* 
+         * we do not restore cwnd here as we do not bound cwnd to 
+         * inflight when entering recovery
+         */
     }
 }
 
@@ -1245,7 +1260,8 @@ xqc_bbr2_is_probing_bandwidth(xqc_bbr2_t *bbr2)
 static void 
 xqc_bbr2_adapt_lower_bounds(xqc_bbr2_t *bbr2)
 {
-    /* We only use lower-bound estimates when not probing bw.
+    /*
+     * We only use lower-bound estimates when not probing bw.
      * When probing we need to push inflight higher to probe bw.
      */
     if (xqc_bbr2_is_probing_bandwidth(bbr2)) {

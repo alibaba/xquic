@@ -10,7 +10,7 @@ void
 xqc_test_pq()
 {
     xqc_pq_t pq;
-    memset(&pq, 0 , sizeof(pq));
+    memset(&pq, 0, sizeof(pq));
     int i = xqc_pq_init(&pq, sizeof(xqc_pq_key_t), 4, xqc_default_allocator, xqc_pq_default_cmp);
     CU_ASSERT(i == 0);
 

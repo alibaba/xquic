@@ -17,9 +17,11 @@ typedef struct xqc_stable_entry_s {
     /* header type */
     xqc_hdr_type_t      type;
 
-    /* :status/access-control-allow-headers headers are not continuously distributed in static
-       table. when lookup these two headers, if name matched while value not, this attribute is set
-       to tell the next entry with the same name in static table */
+    /*
+     * :status/access-control-allow-headers headers are not continuously distributed
+     * in static table. when lookup these two headers, if name matched while value not,
+     * this attribute is set to tell the next entry with the same name in static table 
+     */
     uint64_t            hop;
 
 } xqc_stable_entry_t;

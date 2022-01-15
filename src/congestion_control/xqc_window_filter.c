@@ -24,10 +24,10 @@ static uint32_t xqc_win_filter_update(xqc_win_filter_t *w,
             w->s[2] = *nsample;
         }
 
-    } else if ( (w->s[1].t == w->s[0].t) && dt > win/4) {
+    } else if ((w->s[1].t == w->s[0].t) && dt > win/4) {
         w->s[2] = w->s[1] = *nsample;
 
-    } else if ( (w->s[2].t == w->s[1].t) && dt > win/2) {
+    } else if ((w->s[2].t == w->s[1].t) && dt > win/2) {
         w->s[2] = *nsample;
     }
 
@@ -92,10 +92,10 @@ xqc_win_filter_update_u64(xqc_win_filter_t *w, uint32_t win,
             w->s[2] = *nsample;
         }
 
-    } else if ( (w->s[1].t == w->s[0].t) && dt > win/4) {
+    } else if ((w->s[1].t == w->s[0].t) && dt > win/4) {
         w->s[2] = w->s[1] = *nsample;
 
-    } else if ( (w->s[2].t == w->s[1].t) && dt > win/2) {
+    } else if ((w->s[2].t == w->s[1].t) && dt > win/2) {
         w->s[2] = *nsample;
     }
 

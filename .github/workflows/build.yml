@@ -1,0 +1,102 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+
+  ubuntu-latest:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 2
+        submodules: 'recursive'
+
+    - name: Linux Setup
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential libevent-dev
+
+    - name: Cunit Setup
+      run: |
+        sudo apt-get install -y libcunit1 libcunit1-doc libcunit1-dev
+
+    - name: Gcov Setup
+      run: |
+        sudo apt-get install -y python3-pip
+        sudo apt-get install -y python3-lxml
+        sudo pip3 install gcovr
+
+    - name: Update Submodule
+      run: |
+        git submodule update --init --recursive
+
+    - name: Build BoringSSL
+      run: |
+        git clone https://github.com/google/boringssl.git ./third_party/boringssl
+        cd ./third_party/boringssl
+        mkdir -p build
+        cd build
+        cmake -DBUILD_SHARED_LIBS=0 -DCMAKE_C_FLAGS="-fPIC" -DCMAKE_CXX_FLAGS="-fPIC" ..
+        make ssl crypto
+
+    - name: Build XQUIC
+      run: |
+        SSL_TYPE_STR="boringssl"
+        SSL_PATH_STR="${PWD}/third_party/boringssl"
+        SSL_INC_PATH_STR="${PWD}/third_party/boringssl/include"
+        SSL_LIB_PATH_STR="${PWD}/third_party/boringssl/build/ssl/libssl.a;${PWD}/third_party/boringssl/build/crypto/libcrypto.a"
+        mkdir -p build
+        cd build
+        cmake -DGCOV=on -DCMAKE_BUILD_TYPE=Debug -DXQC_ENABLE_TESTING=1 -DXQC_SUPPORT_SENDMMSG_BUILD=1 -DXQC_ENABLE_EVENT_LOG=1 -DXQC_ENABLE_BBR2=1 -DXQC_DISABLE_RENO=0 -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} -DSSL_INC_PATH=${SSL_INC_PATH_STR} -DSSL_LIB_PATH=${SSL_LIB_PATH_STR} ..
+        make -j
+
+    - name: Test
+      run: |
+        cd build
+        keyfile=server.key
+        certfile=server.crt
+        openssl req -newkey rsa:2048 -x509 -nodes -keyout "$keyfile" -new -out "$certfile" -subj /CN=test.xquic.com
+        ./tests/run_tests | tee -a ../xquic_test.log
+        ../scripts/case_test.sh | tee -a ../xquic_test.log
+        gcovr -r .. --xml -o ../coverage.xml
+    
+    - name: Check Test Result
+      run: |
+        echo "unit test:"
+        cat xquic_test.log | grep "Test:"
+        unit_passed=`cat xquic_test.log | grep "Test:" | grep "passed" | wc -l`
+        unit_failed=`cat xquic_test.log | grep "Test:" | grep "FAILED" | wc -l`
+        echo -e "\033[32m unit test passed:$unit_passed failed:$unit_failed \033[0m\n"
+
+        echo "case test:"
+        cat xquic_test.log | grep "pass:"
+        case_passed=`cat xquic_test.log | grep "pass:" | grep "pass:1" | wc -l`
+        case_failed=`cat xquic_test.log | grep "pass:" | grep "pass:0" | wc -l`
+        echo -e "\033[32m case test passed:$case_passed failed:$case_failed \033[0m\n"
+
+        if [ $unit_failed -eq 0 ] && [ $case_failed -eq 0 ] ; then
+          echo "===== All test case passed! ======"
+        else
+          echo "====== Find test case failed! ======"
+          exit 1
+        fi
+
+    - name: Report coverage to Codacy
+      shell: bash
+      env:
+        CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+      run: |
+        if [ "$CODACY_PROJECT_TOKEN" != "" ] ; then
+          bash <(curl -Ls https://coverage.codacy.com/get.sh) report -r coverage.xml
+        else
+          echo "No CODACY_PROJECT_TOKEN provided for Codacy report"
+        fi
+

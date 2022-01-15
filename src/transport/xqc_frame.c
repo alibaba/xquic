@@ -53,7 +53,11 @@ xqc_frame_type_2_str(xqc_frame_type_bit_t type_bit)
     int wsize;
     for (int i = 0; i < XQC_FRAME_NUM; i++) {
         if (type_bit & 1 << i) {
-            wsize = snprintf(g_frame_type_buf + pos, sizeof(g_frame_type_buf) - pos, "%s ", frame_type_2_str[i]);
+            wsize = snprintf(g_frame_type_buf + pos, sizeof(g_frame_type_buf) - pos, "%s ",
+                             frame_type_2_str[i]);
+            if (wsize < 0 || wsize >= sizeof(g_frame_type_buf) - pos) {
+                break;
+            }
             pos += wsize;
         }
     }

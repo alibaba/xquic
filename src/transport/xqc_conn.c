@@ -105,6 +105,9 @@ xqc_conn_flag_2_str(xqc_conn_flag_t conn_flag)
         if (conn_flag & 1 << i) {
             wsize = snprintf(g_conn_flag_buf + pos, sizeof(g_conn_flag_buf) - pos, "%s ", 
                              xqc_conn_flag_to_str[i]);
+            if (wsize < 0 || wsize >= sizeof(g_conn_flag_buf) - pos) {
+                break;
+            }
             pos += wsize;
         }
     }

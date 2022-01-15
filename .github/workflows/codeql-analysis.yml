@@ -1,0 +1,67 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 2
+        submodules: 'recursive'
+
+    - name: Linux Setup
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential libevent-dev
+
+    - name: Cunit Setup
+      run: |
+        sudo apt-get install -y libcunit1 libcunit1-doc libcunit1-dev
+
+    - name: Gcov Setup
+      run: |
+        sudo apt-get install -y python3-pip
+        sudo apt-get install -y python3-lxml
+        sudo pip3 install gcovr
+
+    - name: Update Submodule
+      run: |
+        git submodule update --init --recursive
+
+    - name: Build BoringSSL
+      run: |
+        git clone https://github.com/google/boringssl.git ./third_party/boringssl
+        cd ./third_party/boringssl
+        mkdir -p build
+        cd build
+        cmake -DBUILD_SHARED_LIBS=0 -DCMAKE_C_FLAGS="-fPIC" -DCMAKE_CXX_FLAGS="-fPIC" ..
+        make ssl crypto
+
+    # Initializes the CodeQL tools for scanning.
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v1
+      with:
+        languages: cpp
+
+    - name: Build XQUIC
+      run: |
+        SSL_TYPE_STR="boringssl"
+        SSL_PATH_STR="${PWD}/third_party/boringssl"
+        SSL_INC_PATH_STR="${PWD}/third_party/boringssl/include"
+        SSL_LIB_PATH_STR="${PWD}/third_party/boringssl/build/ssl/libssl.a;${PWD}/third_party/boringssl/build/crypto/libcrypto.a"
+        mkdir -p build
+        cd build
+        cmake -DGCOV=on -DCMAKE_BUILD_TYPE=Debug -DXQC_ENABLE_TESTING=1 -DXQC_SUPPORT_SENDMMSG_BUILD=1 -DXQC_ENABLE_EVENT_LOG=1 -DXQC_ENABLE_BBR2=1 -DXQC_DISABLE_RENO=0 -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} -DSSL_INC_PATH=${SSL_INC_PATH_STR} -DSSL_LIB_PATH=${SSL_LIB_PATH_STR} ..
+        make -j
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v1

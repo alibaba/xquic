@@ -158,13 +158,13 @@ typedef int (*xqc_conn_notify_pt)(xqc_connection_t *conn, const xqc_cid_t *cid,
     void *conn_user_data);
 
 /**
- * @brief QUIC connection token callback. REQIRED for client.
+ * @brief QUIC connection token callback. REQUIRED for client.
  * token is used by the server to validate client's address during the handshake period of next
  * connection to the same server. client applications shall save token to local storage, if
  * need to connect the same server, read the token and take it as the parameter of xqc_connect.
  *
  * NOTICE: as client initiate multiple connections to multiple QUIC servers or server clusters,
- * it shall save the tokens seperately, e.g. save the token with the domain as the key
+ * it shall save the tokens separately, e.g. save the token with the domain as the key
  */
 typedef void (*xqc_save_token_pt)(const unsigned char *token, uint32_t token_len,
     void *conn_user_data);
@@ -282,7 +282,7 @@ typedef ssize_t (*xqc_send_mmsg_pt)(const struct iovec *msg_iov, unsigned int vl
  * @brief multi-path ready callback function
  *
  * this callback function will be triggered when a new connection id is received and endpoint
- * get unsed cids. it's a precondition of multi-path
+ * get unused cids. it's a precondition of multi-path
  *
  * @param scid source connection id of endpoint
  * @param conn_user_data user_data of connection
@@ -368,11 +368,11 @@ typedef int (*xqc_stream_notify_pt)(xqc_stream_t *stream, void *strm_user_data);
  * struct xqc_connection_t. unless Application-Layer-Protocol take over them.
  *
  * Generally, xquic defines callbacks as below:
- * 1. Callbacks between Trasnport and Application:
+ * 1. Callbacks between Transport and Application:
  * QUIC events that are common between different Application Protocols,
  * and is much more convenient to interact with Application and Application Protocol.
  *
- * 2. Callbacks between Application Protocol and Applicaiton:
+ * 2. Callbacks between Application Protocol and Application:
  * Application-Protocol events will interact with Application Layer. these callback functions are
  * defined by Application Protocol Layers.
  *
@@ -439,14 +439,14 @@ typedef struct xqc_transport_callbacks_s {
     xqc_conn_ready_to_create_path_notify_pt ready_to_create_path_notify;
 
     /**
-     * path create callback funcion. REQUIRED both for client and server if multi-path is needed
+     * path create callback function. REQUIRED both for client and server if multi-path is needed
      */
     xqc_path_created_notify_pt      path_created_notify;
 
     /**
-     * path remove callback funcion. REQUIRED both for client and server if multi-path is needed
+     * path remove callback function. REQUIRED both for client and server if multi-path is needed
      */
-    xqc_path_removed_notify_pt      path_reomved_notify;
+    xqc_path_removed_notify_pt      path_removed_notify;
 
 } xqc_transport_callbacks_t;
 
@@ -475,7 +475,7 @@ typedef struct xqc_conn_callbacks_s {
     xqc_conn_notify_pt              conn_close_notify;
 
     /**
-     * handkeshake complete callback. OPTIONAL for client and server
+     * handshake complete callback. OPTIONAL for client and server
      */
     xqc_handshake_finished_pt       conn_handshake_finished;
 
@@ -818,7 +818,7 @@ void xqc_engine_destroy(xqc_engine_t *engine);
 
 /**
  * @brief register alpn and connection and stream callbacks. user can implement his own application
- * protocol by registering apln, and taking quic connection and streams as application connection
+ * protocol by registering alpn, and taking quic connection and streams as application connection
  * and request
  *
  * @param engine engine handler
@@ -846,7 +846,7 @@ xqc_int_t xqc_engine_unregister_alpn(xqc_engine_t *engine, const char *alpn, siz
 
 /**
  * Pass received UDP packet payload into xquic engine.
- * @param recv_time   UDP packet recieved time in microsecond
+ * @param recv_time   UDP packet received time in microsecond
  * @param user_data   connection user_data, server is NULL
  */
 XQC_EXPORT_PUBLIC_API
@@ -899,14 +899,14 @@ void xqc_engine_set_log_level(xqc_engine_t *engine, xqc_log_level_t log_level);
 
 /**
  * user should call after a number of packet processed in xqc_engine_packet_process
- * call after recv a batch packets, may destory connection when error
+ * call after recv a batch packets, may destroy connection when error
  */
 XQC_EXPORT_PUBLIC_API
 void xqc_engine_finish_recv(xqc_engine_t *engine);
 
 
 /**
- * call after recv a batch packets, do not destory connection
+ * call after recv a batch packets, do not destroy connection
  */
 XQC_EXPORT_PUBLIC_API
 void xqc_engine_recv_batch(xqc_engine_t *engine, xqc_connection_t *conn);

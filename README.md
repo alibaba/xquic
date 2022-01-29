@@ -2,10 +2,10 @@
 <img src="docs/images/xquic_logo.png" alt="xquic logo"/>
 
 ![GitHub](https://img.shields.io/github/license/alibaba/xquic)
-![Build](https://github.com/alibaba/xquic/actions/workflows/build.yml/badge.svg?branch=main)
-![CodeQL](https://github.com/alibaba/xquic/actions/workflows/codeql-analysis.yml/badge.svg?branch=main)
-![Codacy grade](https://img.shields.io/codacy/grade/485e758edd98409bb7a51cbb803838c4)
-![Codacy coverage](https://img.shields.io/codacy/coverage/485e758edd98409bb7a51cbb803838c4)
+[![Build](https://github.com/alibaba/xquic/actions/workflows/build.yml/badge.svg)](https://github.com/alibaba/xquic/actions/workflows/build.yml)
+[![CodeQL](https://github.com/alibaba/xquic/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/alibaba/xquic/actions/workflows/codeql-analysis.yml)
+[![Codacy Badge](https://app.codacy.com/project/badge/Grade/485e758edd98409bb7a51cbb803838c4)](https://www.codacy.com/gh/alibaba/xquic/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=alibaba/xquic&amp;utm_campaign=Badge_Grade)
+[![Codacy Badge](https://app.codacy.com/project/badge/Coverage/485e758edd98409bb7a51cbb803838c4)](https://www.codacy.com/gh/alibaba/xquic/dashboard?utm_source=github.com&utm_medium=referral&utm_content=alibaba/xquic&utm_campaign=Badge_Coverage)
 ![Platforms](https://img.shields.io/badge/platform-Android%20%7C%20iOS%20%7C%20Linux%20%7C%20macOS-blue)
 
 > [简体中文文档 README-zh-CN](./docs/docs-zh/README-zh.md)

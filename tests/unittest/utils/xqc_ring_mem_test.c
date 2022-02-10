@@ -103,7 +103,7 @@ xqc_test_ring_mem_basic()
     CU_ASSERT(ret == XQC_OK && memcmp(buf, "16_bytes_string216_bytes_string2", 32) == 0
         && xqc_ring_mem_cmp(rm, 16, "16_bytes_string216_bytes_string2", 32) == 0);
 
-    /* shink to 32 bytes */
+    /* shrink to 32 bytes */
     ret = xqc_ring_mem_resize(rm, 32);
     CU_ASSERT(ret == XQC_OK);
     CU_ASSERT(xqc_ring_mem_used_size(rm) == 32);

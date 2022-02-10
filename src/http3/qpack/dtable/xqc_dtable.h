@@ -28,10 +28,10 @@ void xqc_dtable_free(xqc_dtable_t *dt);
 /**
  * @brief set capacity of dynamic table
  * @param dt dynamic table handler
- * @param capactiy capacity of dynamic table
+ * @param capacity capacity of dynamic table
  * @return XQC_OK for success, others for failure
  */
-xqc_int_t xqc_dtable_set_capacity(xqc_dtable_t *dt, uint64_t capactiy);
+xqc_int_t xqc_dtable_set_capacity(xqc_dtable_t *dt, uint64_t capacity);
 
 
 /**
@@ -62,7 +62,7 @@ xqc_int_t xqc_dtable_duplicate(xqc_dtable_t *dt, uint64_t idx, uint64_t *new_idx
  * @param dt dynamic table handler
  * @param idx absolute index
  * @param name_buf output name buffer
- * @param value_buf output value buffere
+ * @param value_buf output value buffer
  * @return XQC_OK for success, others for failure
  */
 xqc_int_t xqc_dtable_get_nv(xqc_dtable_t *dt, uint64_t idx,
@@ -113,7 +113,7 @@ uint64_t xqc_dtable_get_insert_cnt(xqc_dtable_t *dt);
 
 /**
  * @brief check if entry is draining in dynamic table. if entry memory is in range of the eldest
- * bytes, it is considered to be draing
+ * bytes, it is considered to be draining
  * @param dt 
  * @param idx 
  * @param draining 
@@ -133,9 +133,9 @@ xqc_dtable_entry_size(size_t name_len, size_t value_len)
 
 
 static inline uint64_t
-xqc_dtable_max_entry_cnt(uint64_t capactiy)
+xqc_dtable_max_entry_cnt(uint64_t capacity)
 {
-    return capactiy / XQC_QPACK_ENTRY_SIZE_BASE;
+    return capacity / XQC_QPACK_ENTRY_SIZE_BASE;
 }
 
 

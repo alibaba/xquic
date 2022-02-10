@@ -2,8 +2,8 @@
  * @copyright Copyright (c) 2022, Alibaba Group Holding Limited
  */
 
-#ifndef _XQC_QUEUE_H_INCLUED_
-#define _XQC_QUEUE_H_INCLUED_
+#ifndef _XQC_QUEUE_H_INCLUDE_
+#define _XQC_QUEUE_H_INCLUDE_
 
 #include <stddef.h>
 
@@ -67,4 +67,4 @@ typedef struct xqc_queue_s {
 #define xqc_queue_foreach(pos, q)\
     for (pos = (q)->next; pos != (q); pos = pos->next)
 
-#endif /*_XQC_QUEUE_H_INCLUED_*/
+#endif /*_XQC_QUEUE_H_INCLUDE_*/

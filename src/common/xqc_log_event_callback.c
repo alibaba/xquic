@@ -690,13 +690,13 @@ xqc_log_QPACK_INSTRUCTION_CREATED_callback(xqc_log_t *log, const char *func, ...
         case XQC_INS_TYPE_DEC_SECTION_ACK: {
             uint64_t stream_id = va_arg(args, uint64_t);
             xqc_log_implement(log, QPACK_INSTRUCTION_CREATED, func,
-                              "|header_acknowledgement|strean_id:%ui|", stream_id);
+                              "|header_acknowledgement|stream_id:%ui|", stream_id);
             break;
         }
         case XQC_INS_TYPE_DEC_STREAM_CANCEL: {
             uint64_t stream_id = va_arg(args, uint64_t);
             xqc_log_implement(log, QPACK_INSTRUCTION_CREATED, func,
-                              "|stream_cancellation|strean_id:%ui|", stream_id);
+                              "|stream_cancellation|stream_id:%ui|", stream_id);
             break;
         }
         case XQC_INS_TYPE_DEC_INSERT_CNT_INC: {
@@ -747,11 +747,11 @@ xqc_log_QPACK_INSTRUCTION_PARSED_callback(xqc_log_t *log, const char *func, ...)
         switch (ctx->type) {
         case XQC_INS_TYPE_DEC_SECTION_ACK:
             xqc_log_implement(log, QPACK_INSTRUCTION_PARSED, func,
-                              "|header_acknowledgement|strean_id:%ui|", ctx->stream_id.value);
+                              "|header_acknowledgement|stream_id:%ui|", ctx->stream_id.value);
             break;
         case XQC_INS_TYPE_DEC_STREAM_CANCEL:
             xqc_log_implement(log, QPACK_INSTRUCTION_PARSED, func,
-                              "|stream_cancellation|strean_id:%ui|", ctx->stream_id.value);
+                              "|stream_cancellation|stream_id:%ui|", ctx->stream_id.value);
             break;
         case XQC_INS_TYPE_DEC_INSERT_CNT_INC:
             xqc_log_implement(log, QPACK_INSTRUCTION_PARSED, func,

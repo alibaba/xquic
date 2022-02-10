@@ -229,7 +229,7 @@ xqc_test_dtable_set_capacity()
               && strcmp(vbuf->data, "test_value_xxxx") == 0);
 
 
-    /* shink dtable and pop entry 0 and entry 1 */
+    /* shrink dtable and pop entry 0 and entry 1 */
     ret = xqc_dtable_set_capacity(dt, 128);
     CU_ASSERT(ret == XQC_OK);
     xqc_var_buf_clear(nbuf);

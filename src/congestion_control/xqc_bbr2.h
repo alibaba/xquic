@@ -20,7 +20,7 @@ typedef enum {
     BBR2_STARTUP,
     /* After reaching maximum bandwidth, lower pacing rate to drain the queue*/
     BBR2_DRAIN,
-    /* Steady pahse */
+    /* Steady phase */
     BBR2_PROBE_BW,
     /* Slow down to empty the buffer to probe real min rtt */
     BBR2_PROBE_RTT,

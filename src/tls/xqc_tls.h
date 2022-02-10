@@ -22,12 +22,12 @@ xqc_tls_ctx_t *xqc_tls_ctx_create(xqc_tls_type_t type, const xqc_engine_ssl_conf
 void xqc_tls_ctx_destroy(xqc_tls_ctx_t *ctx);
 
 /**
- * @brief alpn registeration, which is used for alpn selection
+ * @brief alpn registration, which is used for alpn selection
  */
 xqc_int_t xqc_tls_ctx_register_alpn(xqc_tls_ctx_t *ctx, const char *alpn, size_t alpn_len);
 
 /**
- * @brief alpn unregisteration
+ * @brief alpn unregistration
  */
 xqc_int_t xqc_tls_ctx_unregister_alpn(xqc_tls_ctx_t *ctx, const char *alpn, size_t alpn_len);
 

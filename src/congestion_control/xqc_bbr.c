@@ -34,7 +34,7 @@ const uint32_t xqc_bbr_minrtt_win_size = 10;
 const uint32_t xqc_bbr_probertt_time_us = 100000;
 /* Initial rtt before any samples are received, in ms  */
 const uint64_t xqc_bbr_initial_rtt_ms = 100;
-/* The gain of pacing rate for STRAT_UP, 2/(ln2) */
+/* The gain of pacing rate for START_UP, 2/(ln2) */
 const float xqc_bbr_high_gain = 2.885;
 /* Gain in BBR_DRAIN */
 const float xqc_bbr_drain_gain = 1.0 / 2.885;
@@ -45,7 +45,7 @@ const float xqc_bbr_pacing_gain[] = {1.25, 0.75, 1, 1, 1, 1, 1, 1};
 const float xqc_bbr_low_pacing_gain[] = {1.1, 0.9, 1, 1, 1, 1, 1, 1};
 /* Minimum packets that need to ensure ack if there is delayed ack */
 const uint32_t xqc_bbr_min_cwnd = 4 * XQC_BBR_MAX_DATAGRAMSIZE;
-/* If bandwidth has increased by 1.25, there may be more bandwidth avaliable */
+/* If bandwidth has increased by 1.25, there may be more bandwidth available */
 const float xqc_bbr_fullbw_thresh = 1.1;
 /* After 3 rounds bandwidth less than (1.25x), estimate the pipe is full */
 const uint32_t xqc_bbr_fullbw_cnt = 3;
@@ -790,7 +790,7 @@ xqc_bbr_on_lost(void *cong_ctl, xqc_usec_t lost_sent_time)
     /* 
      * Unlike the definition of "recovery epoch" for loss-based CCs, 
      * for the sake of resistance to losses, we MUST refresh the end of a 
-     * recovery epoch if further lossess happen in the epoch. Otherwise, the
+     * recovery epoch if further losses happen in the epoch. Otherwise, the
      * ability of BBR to sustain network where high loss rate presents 
      * is hampered because of frequently entering packet conservation state. 
      */

@@ -536,7 +536,7 @@ xqc_h3_conn_add_blocked_stream(xqc_h3_conn_t *h3c, xqc_h3_stream_t *h3s, uint64_
 
     xqc_h3_blocked_stream_t *blocked_stream = xqc_h3_blocked_stream_create(h3s, ric);
 
-    /* insert into list order by required inseert count asc */
+    /* insert into list order by required insert count asc */
     xqc_list_head_t *pos, *next;
     xqc_h3_blocked_stream_t *bs;
     xqc_list_for_each_safe(pos, next, &h3c->block_stream_head) {

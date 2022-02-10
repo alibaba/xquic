@@ -6,7 +6,7 @@
 
 
 typedef struct xqc_rarray_s {
-    /* continous memory of array, buf_size = cap * esize. this would be NULL if capacity is 0 */
+    /* continuous memory of array, buf_size = cap * esize. this would be NULL if capacity is 0 */
     uint8_t        *buf;
 
     /* size of element */

@@ -14,8 +14,8 @@
 typedef struct xqc_pkt_protect_aead_s      xqc_pkt_protect_aead_t;
 typedef struct xqc_hdr_protect_cipher_s    xqc_hdr_protect_cipher_t;
 
-#undef  XQC_CRYPTO_PRIVAYE
-#define XQC_CRYPTO_PRIVAYE
+#undef  XQC_CRYPTO_PRIVATE
+#define XQC_CRYPTO_PRIVATE
 
 #ifdef OPENSSL_IS_BORINGSSL
 #include "src/tls/boringssl/xqc_aead_impl.h"
@@ -23,7 +23,7 @@ typedef struct xqc_hdr_protect_cipher_s    xqc_hdr_protect_cipher_t;
 #include "src/tls/babassl/xqc_aead_impl.h"
 #endif
 
-#undef  XQC_CRYPTO_PRIVAYE
+#undef  XQC_CRYPTO_PRIVATE
 
 
 /* aes_d_gcm  d is the length of key */

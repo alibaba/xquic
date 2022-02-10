@@ -22,7 +22,7 @@ extern const char* const xqc_h3_alpn[];
 #define XQC_H3_MAX_FIELD_SECTION_SIZE       (32 * 1024)
 
 /* max buf size for converting uppercase filed line name to lowercase */
-#define XQC_H3_HEADERS_LOWCASE_BUF_SIZE 4096
+#define XQC_H3_HEADERS_LOWERCASE_BUF_SIZE 4096
 
 #define XQC_VAR_BUF_INIT_SIZE           (256)
 

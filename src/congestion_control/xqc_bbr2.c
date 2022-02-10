@@ -28,7 +28,7 @@ static const uint32_t xqc_bbr2_probe_minrtt_win_size_us = 2500000;
 static const uint32_t xqc_bbr2_probertt_time_us = 200000;
 /* Initial rtt before any samples are received, in usec */
 static const uint64_t xqc_bbr2_initial_rtt_us = 100;
-/* The gain of pacing rate for STRAT_UP, 2/(ln2) */
+/* The gain of pacing rate for START_UP, 2/(ln2) */
 static const float xqc_bbr2_high_gain = 2.885;
 /* Gain in bbr2_DRAIN */
 static const float xqc_bbr2_drain_gain = 0.75;
@@ -42,7 +42,7 @@ static const float xqc_bbr2_pacing_gain[] = {1.25, 0.75, 1, 1, 1, 1, 1, 1};
 #endif
 /* Minimum packets that need to ensure ack if there is delayed ack */
 static const uint32_t xqc_bbr2_min_cwnd = 4 * XQC_BBR2_MAX_DATAGRAM_SIZE;
-/* If bandwidth has increased by 1.25, there may be more bandwidth avaliable */
+/* If bandwidth has increased by 1.25, there may be more bandwidth available */
 static const float xqc_bbr2_fullbw_thresh = 1.25;
 /* After 3 rounds bandwidth less than (1.25x), estimate the pipe is full */
 static const uint32_t xqc_bbr2_fullbw_cnt = 3;
@@ -296,7 +296,7 @@ xqc_bbr2_probe_inflight_hi_upward(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
     }
     /* not cwnd_limited or ... */
     if (not_cwnd_limited || (bbr2->inflight_hi > bbr2->congestion_window)) {
-        bbr2->bw_probe_up_acks = 0; /* don't accmulate unused credits */
+        bbr2->bw_probe_up_acks = 0; /* don't accumulate unused credits */
         return;
         /* not fully using inflight_hi, so don't grow it */
     }

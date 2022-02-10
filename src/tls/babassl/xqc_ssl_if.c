@@ -59,7 +59,7 @@ xqc_ssl_get_certs_array(SSL *ssl, X509_STORE_CTX *store_ctx, unsigned char **cer
     const STACK_OF(X509) *chain = X509_STORE_CTX_get0_chain(store_ctx);
 
     *certs_array_len = sk_X509_num(chain);
-    if (*certs_array_len > XQC_MAX_VERIFY_DEPTH) { /* imposible */
+    if (*certs_array_len > XQC_MAX_VERIFY_DEPTH) { /* impossible */
         X509_STORE_CTX_set_error(store_ctx, X509_V_ERR_CERT_CHAIN_TOO_LONG);
         return -XQC_TLS_INTERNAL;
     }

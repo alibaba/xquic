@@ -149,7 +149,7 @@ xqc_conn_set_default_settings(xqc_trans_settings_t *settings)
 {
     memset(settings, 0, sizeof(xqc_trans_settings_t));
 
-    /* transport paramter related attributes */
+    /* transport parameter related attributes */
     settings->max_ack_delay              = XQC_DEFAULT_MAX_ACK_DELAY;
     settings->ack_delay_exponent         = XQC_DEFAULT_ACK_DELAY_EXPONENT;
     settings->max_udp_payload_size       = XQC_DEFAULT_MAX_UDP_PAYLOAD_SIZE;
@@ -876,7 +876,7 @@ xqc_conn_send_burst_packets(xqc_connection_t *conn, xqc_list_head_t *head, int c
                 continue;
             }
 
-            /* check the anti-amplification limit, will allow a bit larger than 3x recved */
+            /* check the anti-amplification limit, will allow a bit larger than 3x received */
             if (xqc_send_ctl_check_anti_amplification(conn, total_bytes_to_send)) {
                 xqc_log(conn->log, XQC_LOG_INFO,
                         "|blocked by anti amplification limit|total_sent:%ui|3*total_recv:%ui|",
@@ -2325,12 +2325,12 @@ xqc_conn_confirm_cid(xqc_connection_t *c, xqc_packet_t *pkt)
 
 /**
  * client will validate server's addr by:
- * 1) sucessful processing of Initial packet.
- * 2) sucessful processing of VN/Retry packet with the DCID client chose
+ * 1) successful processing of Initial packet.
+ * 2) successful processing of VN/Retry packet with the DCID client chose
  * 3) server uses the CID which client provided in Initial packet with at least 8 bytes
  *
  * server will validate client's addr by:
- * 1) sucessful processing of Handshake packet.
+ * 1) successful processing of Handshake packet.
  * 2) client's Initial/Handshake packet uses server's CID with at least 8 bytes
  * 3) client's Initial token is what server provided in NEW_TOKEN/Retry frame
  */
@@ -2366,7 +2366,7 @@ xqc_conn_server_validate_address(xqc_connection_t *c, xqc_packet_in_t *pi)
         break;
 
     case XQC_PTYPE_HSK:
-        /* sucessful processing of Handshake packet */
+        /* successful processing of Handshake packet */
         xqc_conn_addr_validated(c);
         break;
 
@@ -2407,7 +2407,7 @@ xqc_conn_validate_address(xqc_connection_t *c, xqc_packet_in_t *pi)
 xqc_int_t
 xqc_conn_on_initial_processed(xqc_connection_t *c, xqc_packet_in_t *pi)
 {
-    /* sucessful decryption of initial packet means that pkt's DCID/SCID is comfirmed */
+    /* successful decryption of initial packet means that pkt's DCID/SCID is confirmed */
     return xqc_conn_confirm_cid(c, &pi->pi_pkt);
 }
 
@@ -2525,7 +2525,7 @@ xqc_conn_process_packet(xqc_connection_t *c,
             return XQC_OK;
         }
 
-        /* error occured or read state is error */
+        /* error occurred or read state is error */
         if (ret != XQC_OK || last_pos == packet_in->pos) {
             /* if last_pos equals packet_in->pos, might trigger infinite loop, return to avoid it */
             xqc_log(c->log, XQC_LOG_ERROR, "|process packets err|ret:%d|pos:%p|buf:%p|buf_size:%uz|",
@@ -2948,7 +2948,7 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
         return;
     }
 
-    /* validate peer's tranport parameter */
+    /* validate peer's transport parameter */
     ret = xqc_conn_check_transport_params(conn, &params);
     if (ret != XQC_OK) {
         XQC_CONN_ERR(conn, TRA_TRANSPORT_PARAMETER_ERROR);
@@ -2971,7 +2971,7 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
         xqc_tls_set_no_crypto(conn->tls);
     }
 
-    /* notify application layer to save tranport parameter */
+    /* notify application layer to save transport parameter */
     if (conn->transport_cbs.save_tp_cb) {
         char tp_buf[8192] = {0};
         ssize_t written = xqc_write_transport_params(tp_buf, sizeof(tp_buf), &params);
@@ -3008,7 +3008,7 @@ xqc_conn_tls_crypto_data_cb(xqc_encrypt_level_t level, const uint8_t *data,
 
     switch (level) {
     case XQC_ENC_LEV_INIT:
-        /* ClientHello, SeerverHello, HelloRetryRequest are from initial encryption level */
+        /* ClientHello, ServerHello, HelloRetryRequest are from initial encryption level */
         crypto_data_list = &conn->initial_crypto_data_list;
         break;
 
@@ -3024,7 +3024,7 @@ xqc_conn_tls_crypto_data_cb(xqc_encrypt_level_t level, const uint8_t *data,
 
     default:
         xqc_log(conn->log, XQC_LOG_ERROR,
-                "|impossible crypto data from encryptoin level|level:%d|", level);
+                "|impossible crypto data from encryption level|level:%d|", level);
         XQC_CONN_ERR(conn, TRA_CRYPTO_ERROR_BASE);
         return -XQC_EFATAL;
     }

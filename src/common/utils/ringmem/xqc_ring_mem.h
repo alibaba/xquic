@@ -10,7 +10,7 @@
 
 /*
  * circular memory, maintains a linear memory block, and can be used to store objects with
- * Irregular sizes as a queue, xqc_ring_mem_t will maintain the momery as FIFO order
+ * Irregular sizes as a queue, xqc_ring_mem_t will maintain the memory as FIFO order
  */
 typedef struct xqc_ring_mem_s xqc_ring_mem_t;
 

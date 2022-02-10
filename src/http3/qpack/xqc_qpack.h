@@ -29,7 +29,7 @@ typedef xqc_var_buf_t *(*xqc_get_ins_buf_pt)(xqc_qpack_ins_type_t type, void *us
 
 /**
  * @brief output instruction callback function.
- * instructions might be generated in multiple suituations,
+ * instructions might be generated in multiple situations,
  * it easier to handle them with a callback
  */
 typedef ssize_t (*xqc_write_ins_pt)(xqc_qpack_ins_type_t type, xqc_var_buf_t *buf,
@@ -72,7 +72,7 @@ xqc_int_t xqc_qpack_set_enc_max_dtable_cap(xqc_qpack_t *qpk, size_t max_cap);
 
 /**
  * @brief set ENCODER's dynamic table capacity, the final capacity will be negotiated. capacity of
- * the decoder's dynamic table is set after receiving peer's Set Dynammic Table Capacity instruction
+ * the decoder's dynamic table is set after receiving peer's Set Dynamic Table Capacity instruction
  * @param qpk, qpack instance
  * @param cap, the input cap
  * @return XQC_OK for suc; negative for failure. when there are still referred entries in dynamic 

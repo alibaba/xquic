@@ -59,7 +59,7 @@ typedef struct xqc_dtable_s {
     /* total number of inserts into the decoder's dynamic table */
     uint64_t                insert_cnt;
 
-    /* the index of first entry, increse when an entry is popped from dtable */
+    /* the index of first entry, increase when an entry is popped from dtable */
     uint64_t                first_idx;
 
     /* capacity = sum(name_len + value_len + 32) */
@@ -279,11 +279,11 @@ xqc_dtable_pop_entry(xqc_dtable_t *dt)
         return -XQC_QPACK_DYNAMIC_TABLE_VOID_ENTRY;
     }
 
-    /* still reffered, shall not be popped */
+    /* still referred, shall not be popped */
     if (entry->abs_index >= dt->min_ref) {
         xqc_log(dt->log, XQC_LOG_DEBUG, "|entry referred|idx:%ui|min_ref:%ui|", entry->abs_index,
                 dt->min_ref);
-        return -XQC_QPACK_DYNAMIC_TABLE_REFFERED;
+        return -XQC_QPACK_DYNAMIC_TABLE_REFERRED;
     }
 
     xqc_log_event(dt->log, QPACK_DYNAMIC_TABLE_UPDATED, XQC_LOG_DTABLE_EVICTED, entry->abs_index);
@@ -309,7 +309,7 @@ xqc_dtable_pop_entry(xqc_dtable_t *dt)
     }
 
     dt->used -= xqc_dtable_entry_size(entry->nv.nlen, entry->nv.vlen);
-    dt->first_idx++;    /* increse index of first entry */
+    dt->first_idx++;    /* increase index of first entry */
 
     return XQC_OK;
 }
@@ -327,7 +327,7 @@ xqc_dtable_get_entry_by_abs_idx(xqc_dtable_t *dt, uint64_t idx)
 }
 
 
-/* evicit entries for space */
+/* evict entries for space */
 xqc_int_t
 xqc_dtable_make_space(xqc_dtable_t *dt, size_t space)
 {
@@ -345,8 +345,8 @@ xqc_dtable_make_space(xqc_dtable_t *dt, size_t space)
 
     /* 
      * if free memory is smaller than space, continue to check if there are entries
-     * can be evicited to make space. if min_ref is unlimited, all entries can be
-     * evicited 
+     * can be evicted to make space. if min_ref is unlimited, all entries can be
+     * evicted
      */
     if (dt->capacity - dt->used < space && dt->min_ref != XQC_INVALID_INDEX) {
         xqc_dtable_entry_t *first_entry = xqc_rarray_front(dt->entries);
@@ -574,7 +574,7 @@ xqc_dtable_set_min_ref(xqc_dtable_t *dt, uint64_t ref)
 
 
 xqc_int_t
-xqc_dtable_set_capacity(xqc_dtable_t *dt, uint64_t capactiy)
+xqc_dtable_set_capacity(xqc_dtable_t *dt, uint64_t capacity)
 {
     xqc_int_t ret = XQC_OK;
 
@@ -582,28 +582,28 @@ xqc_dtable_set_capacity(xqc_dtable_t *dt, uint64_t capactiy)
      * capacity shrinks, pop entries first. 
      * (used size in dtable is not equal to which in ring memory) 
      */
-    if (capactiy < dt->capacity) {
-        ret = xqc_dtable_make_space(dt, dt->capacity - capactiy);
+    if (capacity < dt->capacity) {
+        ret = xqc_dtable_make_space(dt, dt->capacity - capacity);
         if (ret != XQC_OK) {
             xqc_log(dt->log, XQC_LOG_ERROR, "|make space error|ret:%d|", ret);
             return ret;
         }
     }
 
-    ret = xqc_ring_mem_resize(dt->rmem, capactiy);
+    ret = xqc_ring_mem_resize(dt->rmem, capacity);
     if (ret != XQC_OK) {
         xqc_log(dt->log, XQC_LOG_ERROR, "|resize rmem error|ret:%d|", ret);
         return ret;
     }
 
-    uint64_t max_entry_cnt = xqc_dtable_max_entry_cnt(capactiy);
+    uint64_t max_entry_cnt = xqc_dtable_max_entry_cnt(capacity);
     ret = xqc_rarray_resize(dt->entries, max_entry_cnt);
     if (ret != XQC_OK) {
         xqc_log(dt->log, XQC_LOG_ERROR, "|resize rarray error|ret:%d|", ret);
         return ret;
     }
 
-    dt->capacity = capactiy;
+    dt->capacity = capacity;
 
     return XQC_OK;
 }

@@ -138,14 +138,14 @@ xqc_var_buf_reduce(xqc_var_buf_t *buf)
 xqc_int_t
 xqc_var_buf_set_limit(xqc_var_buf_t *buf, uint64_t limit)
 {
-    /* can't shink more */
+    /* can't shrink more */
     if (limit < buf->data_len) {
         return XQC_ERROR;
     }
 
     buf->limit = limit;
     if (limit < buf->buf_len) {
-        /* shink if limit is smaller than allocated */
+        /* shrink if limit is smaller than allocated */
         return xqc_var_buf_realloc(buf, limit);
 
     } else {

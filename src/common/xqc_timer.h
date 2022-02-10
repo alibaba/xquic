@@ -2,8 +2,8 @@
  * @copyright Copyright (c) 2022, Alibaba Group Holding Limited
  */
 
-#ifndef _XQC_H_TIMER_INCLUED_
-#define _XQC_H_TIMER_INCLUED_
+#ifndef _XQC_H_TIMER_INCLUDE_
+#define _XQC_H_TIMER_INCLUDE_
 
 #include <stdint.h>
 #include "src/common/xqc_time.h"
@@ -184,5 +184,5 @@ xqc_timer_manager_tick(xqc_timer_manager_t *manager)
     }
 }
 
-#endif /*_XQC_H_TIMER_INCLUED_*/
+#endif /*_XQC_H_TIMER_INCLUDE_*/
 

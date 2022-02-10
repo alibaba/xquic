@@ -8,7 +8,7 @@
 #include <openssl/evp.h>
 #include <openssl/ssl.h>
 
-#ifndef XQC_CRYPTO_PRIVAYE
+#ifndef XQC_CRYPTO_PRIVATE
 #error "Do not include this file directly，include xqc_crypto.h"
 #endif
 

@@ -903,7 +903,7 @@ xqc_engine_main_logic(xqc_engine_t *engine)
 
 /**
  * Pass received UDP packet payload into xquic engine.
- * @param recv_time   UDP packet recieved time in microsecond
+ * @param recv_time   UDP packet received time in microsecond
  */
 xqc_int_t
 xqc_engine_packet_process(xqc_engine_t *engine,

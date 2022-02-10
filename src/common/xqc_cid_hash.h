@@ -13,7 +13,7 @@
 
 /*
  * hash table for CID
- * interfase reference: xqc_id_hash.h
+ * interface reference: xqc_id_hash.h
  */
 
 typedef struct xqc_cid_hash_element_s {

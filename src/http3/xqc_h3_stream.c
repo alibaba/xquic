@@ -350,7 +350,7 @@ xqc_h3_stream_send_data(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_s
 {
     h3s->flags |= XQC_HTTP3_STREAM_NEED_WRITE_NOTIFY;
 
-    /* write data to DATA frame and add to buffere */
+    /* write data to DATA frame and add to buffer */
     ssize_t write = xqc_h3_stream_write_data_to_buffer(h3s, data, data_size, fin);
     if (write < 0) {
         xqc_log(h3s->log, XQC_LOG_ERROR, "|write data to buffer error|");
@@ -922,7 +922,7 @@ xqc_h3_stream_process_uni(xqc_h3_stream_t *h3s, unsigned char *data, size_t data
         }
 
         if (fin) {
-            /* check legistimation of uni-stream */
+            /* check legitimation of uni-stream */
             h3s->type = h3s->pctx.type.vi;
             h3s->flags |= XQC_HTTP3_STREAM_FLAG_TYPE_IDENTIFIED;
             xqc_h3_vint_pctx_clear(&h3s->pctx.type);
@@ -1026,7 +1026,7 @@ xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_
         /* process bidi stream bytes */
         processed = xqc_h3_stream_process_bidi(h3s, data, data_len, fin_flag);
         if (processed < 0) {
-            /* error occured */
+            /* error occurred */
             xqc_log(h3c->log, XQC_LOG_ERROR, "|xqc_h3_stream_process_bidi|%z|", processed);
             if (processed == -XQC_H3_INVALID_HEADER) {
                 XQC_H3_CONN_ERR(h3c, H3_GENERAL_PROTOCOL_ERROR, -XQC_H3_EPROC_REQUEST);

@@ -2,8 +2,8 @@
  * @copyright Copyright (c) 2022, Alibaba Group Holding Limited
  */
 
-#ifndef _XQC_H_LIST_INCLUED_
-#define _XQC_H_LIST_INCLUED_
+#ifndef _XQC_H_LIST_INCLUDE_
+#define _XQC_H_LIST_INCLUDE_
 
 
 #include <stddef.h>
@@ -144,4 +144,4 @@ xqc_list_empty(const xqc_list_head_t *head)
         pos != (head); \
         pos = n, n = pos->next)
 
-#endif /*_XQC_H_LIST_INCLUED_*/
+#endif /*_XQC_H_LIST_INCLUDE_*/

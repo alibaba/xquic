@@ -1204,7 +1204,7 @@ xqc_send_ctl_on_dgram_received(xqc_send_ctl_t *ctl, size_t dgram_size, xqc_usec_
     xqc_connection_t *c = ctl->ctl_conn;
     xqc_bool_t aal = xqc_send_ctl_check_anti_amplification(c, 0);
 
-    /* reflash recv state */
+    /* refresh recv state */
     c->conn_send_ctl->ctl_recv_count++;
     c->conn_send_ctl->ctl_bytes_recv += dgram_size;
 
@@ -1576,7 +1576,7 @@ xqc_send_ctl_on_packet_acked(xqc_send_ctl_t *ctl,
 
 
 
-/* if handshake is not completed, endpoint will try to send something more agreessively */
+/* if handshake is not completed, endpoint will try to send something more aggressively */
 static const xqc_usec_t xqc_pto_timeout_threshold_hsk = 2000000;
 
 static const xqc_usec_t xqc_pto_timeout_threshold = 5 * 1000000;

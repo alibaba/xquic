@@ -30,7 +30,7 @@ xqc_int_t xqc_encoder_enc_headers(xqc_encoder_t *enc, xqc_var_buf_t *efs,
     xqc_var_buf_t *ins, uint64_t stream_id, xqc_http_headers_t *hdrs);
 
 /**
- * @brief on section acknoledgement instruction
+ * @brief on section acknowledgement instruction
  */
 xqc_int_t xqc_encoder_section_ack(xqc_encoder_t *enc, uint64_t stream_id);
 

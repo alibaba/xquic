@@ -231,8 +231,8 @@ xqc_h3_request_send_headers(xqc_h3_request_t *h3_request, xqc_http_headers_t *he
         return -XQC_H3_EPARAM;
     }
 
-    /* used to convert upper case filed line key to lowcase */
-    xqc_var_buf_t *lowercase_buf = xqc_var_buf_create(XQC_H3_HEADERS_LOWCASE_BUF_SIZE);
+    /* used to convert upper case filed line key to lowercase */
+    xqc_var_buf_t *lowercase_buf = xqc_var_buf_create(XQC_H3_HEADERS_LOWERCASE_BUF_SIZE);
     if (NULL == lowercase_buf) {
         xqc_log(h3_request->h3_stream->log, XQC_LOG_ERROR, "|malloc buf for lowercase error|");
         return -XQC_EMALLOC;

@@ -31,7 +31,7 @@ xqc_h3_ctx_init(xqc_engine_t *engine, xqc_h3_callbacks_t *h3_cbs)
     /* save h3 callbacks */
     h3_ctx->h3_cbs = *h3_cbs;
 
-    /* init http3 layere callbacks */
+    /* init http3 layer callbacks */
     xqc_app_proto_callbacks_t ap_cbs = {
         .conn_cbs       = h3_conn_callbacks,
         .stream_cbs     = h3_stream_callbacks

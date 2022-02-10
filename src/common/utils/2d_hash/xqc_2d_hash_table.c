@@ -35,10 +35,10 @@ typedef struct xqc_2d_hash_table_s {
     /* mask for fast retrieve */
     uint64_t        mask;
 
-    /* data comparasion callback */
+    /* data comparison callback */
     xqc_2d_hash_table_data_cmp  dcmp;
 
-    /* value comparasion callback */
+    /* value comparison callback */
     xqc_2d_hash_table_value_cmp vcmp;
 
     /* callback user data */
@@ -188,8 +188,8 @@ xqc_2d_cmp_res_t
 xqc_2d_hash_lookup(xqc_2d_hash_table_t *ht, uint64_t h1, void *v1, size_t len1,
     uint64_t h2, void *v2, size_t len2, void **data)
 {
-    xqc_2d_cmp_res_t ret_cmp = XQC_2D_CMP_RES_NONE; /* compare result of fuction */
-    xqc_2d_cmp_res_t ret_cb = XQC_2D_CMP_RES_NONE;  /* compare result of callback fuctions */
+    xqc_2d_cmp_res_t ret_cmp = XQC_2D_CMP_RES_NONE; /* compare result of function */
+    xqc_2d_cmp_res_t ret_cb = XQC_2D_CMP_RES_NONE;  /* compare result of callback functions */
     xqc_list_head_t *pos;
     xqc_2d_hash_node_t *node = NULL;
     *data = NULL;

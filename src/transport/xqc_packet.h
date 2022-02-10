@@ -16,7 +16,7 @@
 #define XQC_PACKET_0RTT_MAX_COUNT           30
 /* max 0rtt packet count buffered by server before Initial packet received */
 #define XQC_UNDECRYPT_0RTT_MAX_BEFORE_INIT  10
-/* max buffered pacekt count */
+/* max buffered packet count */
 #define XQC_UNDECRYPT_PACKET_MAX            100
 
 typedef enum xqc_pkt_num_space {

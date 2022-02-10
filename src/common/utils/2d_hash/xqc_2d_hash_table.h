@@ -11,12 +11,12 @@
 
 /**
  * @brief 2d hash table is a variant of single hash table, and actually get 2 hash values to form up
- * comparasion with 2 dimensions. 2d hash table is mainly used to retrieve name-value pair. 
+ * comparison with 2 dimensions. 2d hash table is mainly used to retrieve name-value pair.
  */
 typedef struct xqc_2d_hash_table_s xqc_2d_hash_table_t;
 
 
-/* data comparasion result, user shall return these values in comparasion callback function */
+/* data comparison result, user shall return these values in comparison callback function */
 typedef enum xqc_2d_cmp_res_s {
     /* both name and value are not matched */
     XQC_2D_CMP_RES_NONE = 0x00,
@@ -29,7 +29,7 @@ typedef enum xqc_2d_cmp_res_s {
 
 } xqc_2d_cmp_res_t;
 
-/* comparasion dimensions */
+/* comparison dimensions */
 typedef enum xqc_2d_cmp_dim_s {
     /* only first dimension need to be checked */
     XQC_2D_CMP_DIM_1,
@@ -39,10 +39,10 @@ typedef enum xqc_2d_cmp_dim_s {
 } xqc_2d_cmp_dim_t;
 
 
-/* data comparasion callback, used to check if data is same */
+/* data comparison callback, used to check if data is same */
 typedef int (*xqc_2d_hash_table_data_cmp)(void *data1, void *data2, void *ud);
 
-/* value comparasion callback, used to check if value matches data */
+/* value comparison callback, used to check if value matches data */
 typedef xqc_2d_cmp_res_t (*xqc_2d_hash_table_value_cmp)(
     void *data, void *v1, size_t len1, void *v2, size_t len2, xqc_2d_cmp_dim_t dims, void *ud);
 
@@ -50,8 +50,8 @@ typedef xqc_2d_cmp_res_t (*xqc_2d_hash_table_value_cmp)(
 /**
  * @brief create a 2d hash table
  * @param bkt_cnt bucket count, shall be power of 2, if not, will make the bucket count power of 2
- * @param dcmp data comparasion callback, for deleting a node from 2d hash table
- * @param vcmp value comparasion callback, for lookup values from 2d hash table
+ * @param dcmp data comparison callback, for deleting a node from 2d hash table
+ * @param vcmp value comparison callback, for lookup values from 2d hash table
  * @param ud user data
  * @return the handler of 2d hash table, return NULL for failure
  */
@@ -98,7 +98,7 @@ xqc_int_t xqc_2d_hash_table_remove(xqc_2d_hash_table_t *ht, uint64_t first, uint
  * @param h2 the hash value of second dimension
  * @param v2 the second value
  * @param data output data pointer
- * @return comparasion result, XQC_2D_CMP_RES_2D for both dimensions are matched, XQC_2D_CMP_RES_1D
+ * @return comparison result, XQC_2D_CMP_RES_2D for both dimensions are matched, XQC_2D_CMP_RES_1D
  * for only first dimension is matched, XQC_2D_CMP_RES_NONE for none matched
  */
 xqc_2d_cmp_res_t xqc_2d_hash_lookup(xqc_2d_hash_table_t *ht, uint64_t h1, void *v1, size_t len1,

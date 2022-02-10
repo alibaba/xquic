@@ -221,7 +221,7 @@ xqc_tls_init_client_ssl(xqc_tls_t *tls, xqc_tls_config_t *cfg)
                                         strlen(hostname)) != XQC_SSL_SUCCESS)
         {
             /* hostname set failed need log */
-            xqc_log(tls->log,  XQC_LOG_DEBUG, "|centificate verify set hostname failed|");
+            xqc_log(tls->log,  XQC_LOG_DEBUG, "|certificate verify set hostname failed|");
             ret = -XQC_TLS_INTERNAL;
             goto end;
         }
@@ -268,7 +268,7 @@ xqc_tls_create_ssl(xqc_tls_t *tls, xqc_tls_config_t *cfg)
 
     /* 
      * make tls the app data of ssl instance, which will be used in callback
-     * functions difined in xqc_ssl_cbs.h
+     * functions defined in xqc_ssl_cbs.h
      */
     ssl_ret = SSL_set_app_data(ssl, tls);
     if (ssl_ret != XQC_SSL_SUCCESS) {
@@ -343,7 +343,7 @@ fail:
 }
 
 
-/* try to get trasnport parameter bytes from ssl and notify to Transport layer */
+/* try to get transport parameter bytes from ssl and notify to Transport layer */
 void
 xqc_tls_process_trans_param(xqc_tls_t *tls)
 {

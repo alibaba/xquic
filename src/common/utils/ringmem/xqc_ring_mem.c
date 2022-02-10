@@ -1,7 +1,7 @@
 /**
  * @copyright Copyright (c) 2022, Alibaba Group Holding Limited
  *
- * @brief xqc_ring_mem_t isa ring memory used to store bytes in a contious buf with fixed capacity.
+ * @brief xqc_ring_mem_t isa ring memory used to store bytes in a continuous buf with fixed capacity.
  * every inserted memory block got an unique index (xqc_ring_mem_idx_t), which acts as the handler
  * of a memory block.
  * the index is monotone increasing. this class use two monotone increasing numbers, sidx and eidx,
@@ -13,13 +13,13 @@
 
 /*
  * circular memory, maintains a linear memory block, and can be used to store objects with
- * Irregular sizes as a queue, xqc_ring_mem_t will maintain the momery as FIFO order
+ * Irregular sizes as a queue, xqc_ring_mem_t will maintain the memory as FIFO order
  */
 typedef struct xqc_ring_mem_s {
     /* original memory */
     uint8_t            *buf;
 
-    /* bytes of memory alloced, which is the upper limit of xqc_ring_mem_t */
+    /* bytes of memory allocated, which is the upper limit of xqc_ring_mem_t */
     size_t              capacity;
 
     /* transfer relative offset to absolute index */
@@ -175,7 +175,7 @@ xqc_ring_mem_copy(xqc_ring_mem_t *rmem, xqc_ring_mem_idx_t idx,
 
     /* if eoffset equals soffset, it means a truncation happened */
     if (eoffset > soffset) {
-        /* stored in a continous memory block, copy directly */
+        /* stored in a continuous memory block, copy directly */
         memcpy(buf, rmem->buf + soffset, len);
 
     } else {
@@ -337,7 +337,7 @@ xqc_ring_mem_duplicate(xqc_ring_mem_t *rmem, xqc_ring_mem_idx_t ori_idx, size_t 
     if (eoffset_dup > soffset_dup) {
         /* continuous memory block, will overwrite nothing */
         if (eoffset_ori > soffset_ori) {
-            /* stored in a continous memory block, copy directly */
+            /* stored in a continuous memory block, copy directly */
             memmove(rmem->buf + soffset_dup, rmem->buf + soffset_ori, len);
 
         } else {

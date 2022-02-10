@@ -25,7 +25,7 @@
 
 
 /**
- * @brief transport paramter type
+ * @brief transport parameter type
  */
 typedef enum {
     /* transport parameter for client */
@@ -125,7 +125,7 @@ typedef struct {
 /**
  * encode transport parameters. 
  * @param params input transport parameter structure
- * @param exttype the occasion of transport paramter
+ * @param exttype the occasion of transport parameter
  * @param out pointer of destination buffer
  * @param out_cap capacity of output data buffer
  * @param out_len encoded buffer len
@@ -137,8 +137,8 @@ xqc_int_t xqc_encode_transport_params(const xqc_transport_params_t *params,
 
 /**
  * decode transport parameters. 
- * @param params ouput transport parameter structure
- * @param exttype the occasion of transport paramter
+ * @param params output transport parameter structure
+ * @param exttype the occasion of transport parameter
  * @param in encoded transport parameter buf
  * @param in_len encoded transport parameter buf len
  * @return XQC_OK for success, negative for failure

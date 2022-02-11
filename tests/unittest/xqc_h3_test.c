@@ -153,6 +153,20 @@ xqc_test_frame()
     CU_ASSERT(buf->consumed_len == buf->data_len);
     xqc_h3_frm_reset_pctx(&pctx);
 
+    /* reserved frame type with 10 bytes */
+    char reserved_frame[] = "\xcf\x25\x7c\x52\x89\x59\xd7\xba\x0a\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff";
+    size_t reserved_frame_len = sizeof(reserved_frame) - 1;
+    size_t reserved_consumed_len = 0;
+    for (size_t i = 0; i < reserved_frame_len; i++) {
+        processed = xqc_h3_frm_parse(reserved_frame + reserved_consumed_len, 1, &pctx);
+        CU_ASSERT(processed > 0);
+        reserved_consumed_len += processed;
+    }
+    CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_END);
+    CU_ASSERT(reserved_consumed_len == reserved_frame_len);
+    CU_ASSERT(pctx.frame.type == 0xf257c528959d7ba)
+    xqc_h3_frm_reset_pctx(&pctx);
+
     xqc_var_buf_free(buf);
 }
 

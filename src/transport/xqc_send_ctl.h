@@ -52,6 +52,7 @@ typedef enum {
     XQC_TIMER_PING,
     XQC_TIMER_RETIRE_CID,
     XQC_TIMER_LINGER_CLOSE,
+    XQC_TIMER_KEY_UPDATE,
     XQC_TIMER_N,
 } xqc_send_ctl_timer_type;
 
@@ -294,6 +295,8 @@ float xqc_send_ctl_get_retrans_rate(xqc_send_ctl_t *ctl);
  * @return XQC_FALSE: not at amplification limit, XQC_TRUE: at amplification limit
  */
 xqc_bool_t xqc_send_ctl_check_anti_amplification(xqc_connection_t *conn, size_t byte_cnt);
+
+void xqc_send_ctl_rearm_ld_timer(xqc_send_ctl_t *ctl);
 
 xqc_bool_t xqc_send_ctl_ack_received_in_pns(xqc_send_ctl_t *ctl, xqc_pkt_num_space_t pns);
 

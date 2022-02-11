@@ -344,9 +344,9 @@ xqc_dtable_make_space(xqc_dtable_t *dt, size_t space)
     }
 
     /* 
-     * if free memory is smaller than space, continue to check if there are entries
-     * can be evicted to make space. if min_ref is unlimited, all entries can be
-     * evicted
+     * if there is not enough unused memory, continue to check if it is possible
+     * to make space by evicting entries.
+     * NOTICE: if min_ref is unlimited, all entries can be evicted.
      */
     if (dt->capacity - dt->used < space && dt->min_ref != XQC_INVALID_INDEX) {
         xqc_dtable_entry_t *first_entry = xqc_rarray_front(dt->entries);

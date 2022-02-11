@@ -7,6 +7,7 @@
 #include "src/transport/xqc_engine.h"
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_ctx.h"
+#include "src/common/xqc_time.h"
 
 
 xqc_h3_request_t *
@@ -46,6 +47,20 @@ xqc_h3_request_create(xqc_engine_t *engine, const xqc_cid_t *cid, void *user_dat
 void
 xqc_h3_request_destroy(xqc_h3_request_t *h3_request)
 {
+    xqc_h3_stream_t *h3s = h3_request->h3_stream;
+
+    /* print request statistic log */
+    xqc_request_stats_t stats = xqc_h3_request_get_stats(h3_request);
+    xqc_log(h3_request->h3_stream->log, XQC_LOG_REPORT, "|stream_id:%ui|err:%ui"
+            "|rcvd_bdy_sz:%uz|snd_bdy_sz:%uz|rcvd_hdr_sz:%uz|snd_hdr_sz:%uz"
+            "|blkd_tm:%ui|nblkd_tm:%ui|strm_fin_tm:%ui|h3r_s_tm:%ui|h3r_e_tm:%ui"
+            "|h3r_hdr_s_tm:%ui|h3r_hdr_e_tm:%ui|", h3s->stream_id,
+            stats.stream_err, stats.recv_body_size, stats.send_body_size,
+            stats.recv_header_size, stats.send_header_size,
+            stats.blocked_time, stats.unblocked_time, stats.stream_fin_time,
+            stats.h3r_begin_time, stats.h3r_end_time,
+            stats.h3r_header_begin_time, stats.h3r_header_end_time);
+
     if (h3_request->request_if->h3_request_close_notify) {
         h3_request->request_if->h3_request_close_notify(h3_request, h3_request->user_data);
     }
@@ -129,6 +144,8 @@ xqc_h3_request_create_inner(xqc_h3_conn_t *h3_conn, xqc_h3_stream_t *h3_stream, 
         h3_request->request_if->h3_request_create_notify(h3_request, h3_request->user_data);
     }
 
+    xqc_h3_request_begin(h3_request);
+
     return h3_request;
 }
 
@@ -136,12 +153,21 @@ xqc_request_stats_t
 xqc_h3_request_get_stats(xqc_h3_request_t *h3_request)
 {
     xqc_request_stats_t stats;
-    uint64_t conn_err = h3_request->h3_stream->h3c->conn->conn_err;
-    stats.recv_body_size = h3_request->body_recvd;
-    stats.send_body_size = h3_request->body_sent;
-    stats.recv_header_size = h3_request->header_recvd;
-    stats.send_header_size = h3_request->header_sent;
-    stats.stream_err = conn_err != 0 ? conn_err : (int)xqc_h3_stream_get_err(h3_request->h3_stream);
+
+    uint64_t conn_err       = h3_request->h3_stream->h3c->conn->conn_err;
+    stats.recv_body_size    = h3_request->body_recvd;
+    stats.send_body_size    = h3_request->body_sent;
+    stats.recv_header_size  = h3_request->header_recvd;
+    stats.send_header_size  = h3_request->header_sent;
+    stats.stream_err        = conn_err != 0 ? conn_err : (int)xqc_h3_stream_get_err(h3_request->h3_stream);
+    stats.blocked_time      = h3_request->blocked_time;
+    stats.unblocked_time    = h3_request->unblocked_time;
+    stats.stream_fin_time   = h3_request->stream_fin_time;
+    stats.h3r_begin_time    = h3_request->h3r_begin_time;
+    stats.h3r_end_time      = h3_request->h3r_end_time;
+    stats.h3r_header_begin_time = h3_request->h3r_header_begin_time;
+    stats.h3r_header_end_time   = h3_request->h3r_header_end_time;
+
     return stats;
 }
 
@@ -358,6 +384,9 @@ xqc_h3_request_recv_headers(xqc_h3_request_t *h3_request, uint8_t *fin)
 
         /* if there is body or trailer exists, recv fin together with body or trailer */
         *fin = (h3_request->read_flag == XQC_REQ_NOTIFY_READ_HEADER) ? h3_request->fin_flag : 0;
+        if (*fin) {
+            xqc_h3_request_end(h3_request);
+        }
 
         /* unset read flag */
         h3_request->read_flag &= ~XQC_REQ_NOTIFY_READ_HEADER;
@@ -372,6 +401,9 @@ xqc_h3_request_recv_headers(xqc_h3_request_t *h3_request, uint8_t *fin)
                 h3_request->h3_stream->h3c->conn);
 
         *fin = h3_request->fin_flag;
+        if (*fin) {
+            xqc_h3_request_end(h3_request);
+        }
 
         /* unset read flag */
         h3_request->read_flag &= ~XQC_REQ_NOTIFY_READ_TRAILER;
@@ -425,6 +457,7 @@ xqc_h3_request_recv_body(xqc_h3_request_t *h3_request, unsigned char *recv_buf,
         *fin = h3_request->fin_flag;
         if (*fin) {
             h3_request->body_recvd_final_size = h3_request->body_recvd;
+            xqc_h3_request_end(h3_request);
         }
     }
 
@@ -459,6 +492,8 @@ xqc_h3_request_on_recv_header(xqc_h3_request_t *h3r)
     }
 
     headers = &h3r->h3_header[h3r->current_header];
+
+    xqc_h3_request_header_end(h3r);
 
     /* header is too large */
     if (headers->total_len
@@ -525,12 +560,12 @@ xqc_h3_request_on_recv_empty_fin(xqc_h3_request_t *h3r)
     }
 
     h3r->fin_flag = 1;
+    xqc_h3_request_end(h3r);
 
-    /* 
-     * if read flag is not XQC_REQ_NOTIFY_READ_NULL, 
-     * it means that there is header or content not received by application, 
-     * shall not notify empty fin event, application will be noticed when
-     * receiving header and content 
+    /*
+     * if read flag is not XQC_REQ_NOTIFY_READ_NULL, it means that there is header or content not
+     * received by application, shall not notify empty fin event, application will be noticed when
+     * receiving header and content
      */
     if (h3r->read_flag != XQC_REQ_NOTIFY_READ_NULL) {
         return XQC_OK;
@@ -572,5 +607,53 @@ xqc_h3_request_get_writing_headers(xqc_h3_request_t *h3r)
         return NULL;
     }
 
+    xqc_h3_request_header_begin(h3r);
     return &h3r->h3_header[h3r->current_header];
+}
+
+#define XQC_H3_REQUEST_RECORD_TIME(a)       \
+    if ((a) == 0) {                         \
+        (a) = xqc_monotonic_timestamp();    \
+    }                                       \
+
+void
+xqc_h3_request_blocked(xqc_h3_request_t *h3r)
+{
+    XQC_H3_REQUEST_RECORD_TIME(h3r->blocked_time);
+}
+
+void
+xqc_h3_request_unblocked(xqc_h3_request_t *h3r)
+{
+    XQC_H3_REQUEST_RECORD_TIME(h3r->unblocked_time);
+}
+
+void
+xqc_h3_request_header_begin(xqc_h3_request_t *h3r)
+{
+    XQC_H3_REQUEST_RECORD_TIME(h3r->h3r_header_begin_time);
+}
+
+void
+xqc_h3_request_header_end(xqc_h3_request_t *h3r)
+{
+    XQC_H3_REQUEST_RECORD_TIME(h3r->h3r_header_end_time);
+}
+
+void
+xqc_h3_request_stream_fin(xqc_h3_request_t *h3r)
+{
+    XQC_H3_REQUEST_RECORD_TIME(h3r->stream_fin_time);
+}
+
+void
+xqc_h3_request_begin(xqc_h3_request_t *h3r)
+{
+    XQC_H3_REQUEST_RECORD_TIME(h3r->h3r_begin_time);
+}
+
+void
+xqc_h3_request_end(xqc_h3_request_t *h3r)
+{
+    XQC_H3_REQUEST_RECORD_TIME(h3r->h3r_end_time);
 }

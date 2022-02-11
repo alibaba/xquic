@@ -24,7 +24,7 @@ typedef enum {
     XQC_H3_STREAM_TYPE_REQUEST          = 0x10,
 
     /* reserved stream type or others */
-    XQC_H3_STREAM_TYPE_UNKNOWN          = 0xFF,
+    XQC_H3_STREAM_TYPE_UNKNOWN          = 0xFFFFFFFFFFFFFFFFull,
 } xqc_h3_stream_type_t;
 
 typedef enum {
@@ -88,7 +88,11 @@ typedef struct xqc_h3_stream_s {
     /* http3 connection */
     xqc_h3_conn_t                  *h3c;
 
-    /* bidi stream user interface, used to send/recv request contents */
+    /*
+     * bidi stream user interface, used to send/recv request contents. h3r is
+     * available only in request streams, create or dereference in control or
+     * reserved streams is forbidden.
+     */
     xqc_h3_request_t               *h3r;
 
     /* stream type */

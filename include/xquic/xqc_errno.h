@@ -169,6 +169,8 @@ typedef enum {
     XQC_TLS_DERIVE_KEY_ERROR            = 741,
     XQC_TLS_DO_HANDSHAKE_ERROR          = 742,
     XQC_TLS_POST_HANDSHAKE_ERROR        = 743,
+    XQC_TLS_UPDATE_KEY_ERROR            = 744,
+    XQC_TLS_DECRYPT_WHEN_KU_ERROR       = 745,
 
     XQC_TLS_ERR_MAX,
 } xqc_tls_error_t;

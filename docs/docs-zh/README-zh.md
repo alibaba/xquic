@@ -84,8 +84,8 @@ sh ../scripts/xquic_test.sh
 
 ## 文档
 
-* 关于API的使用，详见 [API文档](../../docs/API.md).
-* 关于平台支持的细节，详见 [平台文档](../../docs/Platforms.md).
+* 关于API的使用，详见 [API文档](../../docs/API.md)。
+* 关于平台支持的细节，详见 [平台文档](../../docs/Platforms.md)。
 * 关于 IETF QUIC Protocol 的中文翻译，详见翻译文档。
     - 以下翻译均基于 draft-34，RFC的翻译工作正在进行中。
     - [draft-ietf-quic-invariants-13-zh](../../docs/translation/draft-ietf-quic-invariants-13-zh.md)
@@ -94,8 +94,9 @@ sh ../scripts/xquic_test.sh
     - [draft-ietf-quic-tls-34-zh](../../docs/translation/draft-ietf-quic-tls-34-zh.md)
     - [draft-ietf-quic-http-34-zh](../../docs/translation/draft-ietf-quic-http-34-zh.md)
     - [draft-ietf-quic-qpack-21-zh](../../docs/translation/draft-ietf-quic-qpack-21-zh.md)
-
-* 关于常见问题，参见 [FAQs](../../docs/FAQ.md).
+* 关于event_log模块的使用, 详见 [Event_log module docs](./docs/docs-zh/Event_log-zh.md)。
+* 关于测试，参见 [测试文档](./docs/docs-zh/Testing-zh.md)。
+* 关于常见问题，参见 [FAQs](./docs/docs-zh/FAQ-zh.md) 和 [Trouble Shooting Guide](./docs/docs-zh/Troubleshooting-zh.md)。
 
 ## Contributing
 

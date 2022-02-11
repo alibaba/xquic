@@ -663,7 +663,7 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
     XQC_CHECK_UNDECRYPT_PACKETS();
     XQC_CHECK_IMMEDIATE_CLOSE();
 
-    if (XQC_UNLIKELY(!xqc_list_empty(&conn->conn_send_ctl->ctl_buff_1rtt_packets) 
+    if (XQC_UNLIKELY(!xqc_list_empty(&conn->conn_send_ctl->ctl_buff_1rtt_packets)
         && conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT)) {
         xqc_conn_write_buffed_1rtt_packets(conn);
     }

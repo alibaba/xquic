@@ -118,9 +118,16 @@ typedef struct xqc_http_headers_s {
 typedef struct xqc_request_stats_s {
     size_t      send_body_size;
     size_t      recv_body_size;
-    size_t      send_header_size;   /* compressed header size */
-    size_t      recv_header_size;   /* compressed header size */
-    int         stream_err;         /* QUIC layer error code, 0 for no error */
+    size_t      send_header_size;       /* compressed header size */
+    size_t      recv_header_size;       /* compressed header size */
+    int         stream_err;             /* QUIC layer error code, 0 for no error */
+    xqc_msec_t  blocked_time;           /* time of h3 stream being blocked */
+    xqc_msec_t  unblocked_time;         /* time of h3 stream being unblocked */
+    xqc_msec_t  stream_fin_time;        /* time of receiving transport fin */
+    xqc_msec_t  h3r_begin_time;         /* time of creating request */
+    xqc_msec_t  h3r_end_time;           /* time of request fin */
+    xqc_msec_t  h3r_header_begin_time;  /* time of receiving HEADERS frame */
+    xqc_msec_t  h3r_header_end_time;    /* time of finishing processing HEADERS frame */
 } xqc_request_stats_t;
 
 

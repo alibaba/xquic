@@ -46,8 +46,6 @@ if [ x"$platform" == xios ] ; then
     configures="-DSSL_TYPE=${ssl_type}
                 -DSSL_PATH=${ssl_path}
                 -DSSL_LIB_PATH=${ssl_lib_path}
-                -DBORINGSSL_PREFIX=bs
-                -DBORINGSSL_PREFIX_SYMBOLS=$cur_dir/bssl_symbols.txt
                 -DDEPLOYMENT_TARGET=10.0
                 -DCMAKE_BUILD_TYPE=Minsizerel
                 -DXQC_ENABLE_TESTING=OFF

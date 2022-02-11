@@ -21,11 +21,13 @@ unsigned xqc_long_packet_header_size(unsigned char dcid_len, unsigned char scid_
 int xqc_write_packet_number(unsigned char *buf, xqc_packet_number_t packet_number, unsigned char packet_number_bits);
 
 int xqc_gen_short_packet_header(xqc_packet_out_t *packet_out, unsigned char *dcid, unsigned int dcid_len,
-    unsigned char packet_number_bits, xqc_packet_number_t packet_number);
+    unsigned char packet_number_bits, xqc_packet_number_t packet_number, xqc_uint_t key_phase);
 
 xqc_int_t xqc_packet_parse_short_header(xqc_connection_t *c, xqc_packet_in_t *packet_in);
 
 void xqc_long_packet_update_length(xqc_packet_out_t *packet_out);
+
+void xqc_short_packet_update_key_phase(xqc_packet_out_t *packet_out, xqc_uint_t key_phase);
 
 void xqc_short_packet_update_dcid(xqc_packet_out_t *packet_out, xqc_connection_t *conn);
 

@@ -112,7 +112,7 @@ _类型_:
 _举例_:
 
 ```bash
-[~]: Update CONTRIBUTING.md
+[~] Update CONTRIBUTING.md
 ```
 
 #### 测试

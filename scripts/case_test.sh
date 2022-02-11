@@ -35,7 +35,6 @@ function case_print_result() {
 }
 
 
-
 clear_log
 echo -e "stream read notify fail ...\c"
 ./test_client -s 1024000 -l d -t 1 -E -x 12 >> clog
@@ -822,8 +821,8 @@ grep_err_log
 
 clear_log
 echo -e "stream concurrency flow control ...\c"
-./test_client -s 1 -l e -t 1 -E -P 1025 -G >> clog
-if [[ `grep ">>>>>>>> pass:1" clog|wc -l` -eq 1024 ]]; then
+./test_client -s 1 -l e -t 1 -E -P 1025 -G > ccfc.log
+if [[ `grep ">>>>>>>> pass:1" ccfc.log|wc -l` -eq 1024 ]]; then
     echo ">>>>>>>> pass:1"
     case_print_result "stream_concurrency_flow_control" "pass"
 else
@@ -831,6 +830,7 @@ else
     case_print_result "stream_concurrency_flow_control" "fail"
 fi
 grep_err_log|grep -v stream
+rm -f ccfc.log
 
 clear_log
 echo -e "1% loss ...\c"
@@ -1145,6 +1145,41 @@ else
     echo "$errlog"
 fi
 
+killall test_server
+./test_server -l d -e > /dev/null &
+sleep 1
+
+clear_log
+echo -e "key update ...\c"
+./test_client -s 102400 -l d -E -x 40 >> clog
+result=`grep ">>>>>>>> pass" clog`
+svr_res=`grep "key phase changed to" slog`
+cli_res=`grep "key phase changed to" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "key_update" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "key_update" "fail"
+fi
+grep_err_log
+
+clear_log
+echo -e "key update 0RTT...\c"
+./test_client -s 102400 -l d -E -x 40 >> clog
+result=`grep ">>>>>>>> pass" clog`
+svr_res=`grep "key phase changed to" slog`
+cli_res=`grep "key phase changed to" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "key_update_0RTT" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "key_update_0RTT" "fail"
+fi
+grep_err_log
 
 killall test_server
 

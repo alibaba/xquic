@@ -1311,6 +1311,26 @@ xqc_demo_svr_init_alpn_ctx(xqc_demo_svr_ctx_t *ctx)
 {
     int ret = 0;
 
+    xqc_hq_callbacks_t hq_cbs = {
+        .hqc_cbs = {
+            .conn_create_notify = xqc_demo_svr_hq_conn_create_notify,
+            .conn_close_notify = xqc_demo_svr_hq_conn_close_notify,
+        },
+        .hqr_cbs = {
+            .req_create_notify = xqc_demo_svr_hq_req_create_notify,
+            .req_close_notify = xqc_demo_svr_hq_req_close_notify,
+            .req_read_notify = xqc_demo_svr_hq_req_read_notify,
+            .req_write_notify = xqc_demo_svr_hq_req_write_notify,
+        }
+    };
+
+    /* init hq context */
+    ret = xqc_hq_ctx_init(ctx->engine, &hq_cbs);
+    if (ret != XQC_OK) {
+        printf("init hq context error, ret: %d\n", ret);
+        return ret;
+    }
+
     xqc_h3_callbacks_t h3_cbs = {
         .h3c_cbs = {
             .h3_conn_create_notify = xqc_demo_svr_h3_conn_create_notify,
@@ -1329,26 +1349,6 @@ xqc_demo_svr_init_alpn_ctx(xqc_demo_svr_ctx_t *ctx)
     ret = xqc_h3_ctx_init(ctx->engine, &h3_cbs);
     if (ret != XQC_OK) {
         printf("init h3 context error, ret: %d\n", ret);
-        return ret;
-    }
-
-    xqc_hq_callbacks_t hq_cbs = {
-        .hqc_cbs = {
-            .conn_create_notify = xqc_demo_svr_hq_conn_create_notify,
-            .conn_close_notify = xqc_demo_svr_hq_conn_close_notify,
-        },
-        .hqr_cbs = {
-            .req_create_notify = xqc_demo_svr_hq_req_create_notify,
-            .req_close_notify = xqc_demo_svr_hq_req_close_notify,
-            .req_read_notify = xqc_demo_svr_hq_req_read_notify,
-            .req_write_notify = xqc_demo_svr_hq_req_write_notify,
-        }
-    };
-
-    /* init hq context */
-    ret = xqc_hq_ctx_init(ctx->engine, &hq_cbs);
-    if (ret != XQC_OK) {
-        printf("init hq context error, ret: %d\n", ret);
         return ret;
     }
 

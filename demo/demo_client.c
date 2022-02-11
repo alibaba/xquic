@@ -24,8 +24,10 @@
 #include "xqc_hq.h"
 
 
-#define XQC_PACKET_TMP_BUF_LEN 1600
-#define MAX_BUF_SIZE (100*1024*1024)
+#define XQC_PACKET_TMP_BUF_LEN  1600
+#define MAX_BUF_SIZE            (100*1024*1024)
+#define XQC_INTEROP_TLS_GROUPS  "X25519:P-256:P-384:P-521"
+
 
 typedef enum xqc_demo_cli_alpn_type_s {
     ALPN_HQ,
@@ -138,9 +140,10 @@ typedef struct xqc_demo_cli_quic_config_s {
     int  token_len;                     /* token len */
     char token[XQC_MAX_TOKEN_LEN];      /* token buf */
 
-    char *cipher_suites;                 /* cipher suites */
+    char *cipher_suites;                /* cipher suites */
 
     uint8_t use_0rtt;                   /* 0-rtt switch, default turned off */
+    uint64_t keyupdate_pkt_threshold;   /* packet limit of a single 1-rtt key, 0 for unlimited */
 
 } xqc_demo_cli_quic_config_t;
 
@@ -867,7 +870,9 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
         user_stream->recv_body_len += read;
     } while (read > 0 && !fin);
 
-    printf("xqc_h3_request_recv_body size %zd, fin:%d\n", read, fin);
+    if (read > 0) {
+        printf("xqc_h3_request_recv_body size %zd, fin:%d\n", read, fin);
+    }
 
     if (fin) {
         user_stream->recv_fin = 1;
@@ -1070,7 +1075,7 @@ xqc_demo_cli_init_engine_ssl_config(xqc_engine_ssl_config_t* cfg, xqc_demo_cli_c
         cfg->ciphers = XQC_TLS_CIPHERS;
     }
 
-    cfg->groups = XQC_TLS_GROUPS;
+    cfg->groups = XQC_INTEROP_TLS_GROUPS;
 }
 
 void
@@ -1114,21 +1119,6 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
         break;
     }
 
-#if 0
-    xqc_conn_settings_t cs = {
-        .pacing_on  = args->net_cfg.pacing,
-        .ping_on    = 0,
-        .cong_ctrl_callback = cong_ctrl,
-        .cc_params  = {
-            .customize_on = 1,
-            .init_cwnd = 32,
-        },
-        .so_sndbuf  = 1024*1024,
-        .proto_version = XQC_VERSION_V1,
-        .spurious_loss_detect_on = 1,
-    };
-    *settings = cs;
-#endif
     memset(settings, 0, sizeof(xqc_conn_settings_t));
     settings->pacing_on = args->net_cfg.pacing;
     settings->cong_ctrl_callback = cong_ctrl;
@@ -1137,6 +1127,7 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
     settings->so_sndbuf = 1024*1024;
     settings->proto_version = XQC_VERSION_V1;
     settings->spurious_loss_detect_on = 1;
+    settings->keyupdate_pkt_threshold = args->quic_cfg.keyupdate_pkt_threshold;
 }
 
 /* set client args to default values */
@@ -1158,6 +1149,7 @@ xqc_demo_cli_init_args(xqc_demo_cli_client_args_t *args)
     /* quic cfg */
     args->quic_cfg.alpn_type = ALPN_HQ;
     strncpy(args->quic_cfg.alpn, "hq-interop", sizeof(args->quic_cfg.alpn));
+    args->quic_cfg.keyupdate_pkt_threshold = UINT64_MAX;
 }
 
 void
@@ -1254,6 +1246,7 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -U    Url. \n"
         "   -k    key out path\n"
         "   -K    Client's life circle time\n"
+        "   -u    key update packet threshold\n"
         , prog);
 }
 
@@ -1262,7 +1255,7 @@ void
 xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:")) != -1) {
         switch (ch) {
         /* server ip */
         case 'a':
@@ -1386,6 +1379,12 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
         case 'U': // request URL, address is parsed from the request
             printf("option url only:%s\n", optarg);
             xqc_demo_cli_parse_urls(optarg, args);
+            break;
+
+        /* key update packet threshold */
+        case 'u':
+            printf("key update packet threshold: %s\n", optarg);
+            args->quic_cfg.keyupdate_pkt_threshold = atoi(optarg);
             break;
 
         default:
@@ -1653,6 +1652,25 @@ xqc_demo_cli_init_alpn_ctx(xqc_demo_cli_ctx_t *ctx)
 {
     int ret = 0;
 
+    xqc_hq_callbacks_t hq_cbs = {
+        .hqc_cbs = {
+            .conn_create_notify = xqc_demo_cli_hq_conn_create_notify,
+            .conn_close_notify = xqc_demo_cli_hq_conn_close_notify,
+        },
+        .hqr_cbs = {
+            .req_close_notify = xqc_demo_cli_hq_req_close_notify,
+            .req_read_notify = xqc_demo_cli_hq_req_read_notify,
+            .req_write_notify = xqc_demo_cli_hq_req_write_notify,
+        }
+    };
+
+    /* init hq context */
+    ret = xqc_hq_ctx_init(ctx->engine, &hq_cbs);
+    if (ret != XQC_OK) {
+        printf("init hq context error, ret: %d\n", ret);
+        return ret;
+    }
+
     xqc_h3_callbacks_t h3_cbs = {
         .h3c_cbs = {
             .h3_conn_create_notify = xqc_demo_cli_h3_conn_create_notify,
@@ -1671,25 +1689,6 @@ xqc_demo_cli_init_alpn_ctx(xqc_demo_cli_ctx_t *ctx)
     ret = xqc_h3_ctx_init(ctx->engine, &h3_cbs);
     if (ret != XQC_OK) {
         printf("init h3 context error, ret: %d\n", ret);
-        return ret;
-    }
-
-    xqc_hq_callbacks_t hq_cbs = {
-        .hqc_cbs = {
-            .conn_create_notify = xqc_demo_cli_hq_conn_create_notify,
-            .conn_close_notify = xqc_demo_cli_hq_conn_close_notify,
-        },
-        .hqr_cbs = {
-            .req_close_notify = xqc_demo_cli_hq_req_close_notify,
-            .req_read_notify = xqc_demo_cli_hq_req_read_notify,
-            .req_write_notify = xqc_demo_cli_hq_req_write_notify,
-        }
-    };
-
-    /* init hq context */
-    ret = xqc_hq_ctx_init(ctx->engine, &hq_cbs);
-    if (ret != XQC_OK) {
-        printf("init hq context error, ret: %d\n", ret);
         return ret;
     }
 

@@ -141,6 +141,17 @@ typedef int (*xqc_server_accept_pt)(xqc_engine_t *engine, xqc_connection_t *conn
     const xqc_cid_t *cid, void *user_data);
 
 /**
+ * @brief connection refused callback. corresponding to xqc_server_accept_pt callback function.
+ * this function will be invoked when a QUIC connection is refused by xquic due to security
+ * considerations, applications SHALL link the connection's lifetime between itself and xquic, and
+ * free the context if it was created during xqc_server_accept_pt.
+ *
+ * @param user_data the user_data parameter of connection
+ */
+typedef void (*xqc_server_refuse_pt)(xqc_engine_t *engine, xqc_connection_t *conn,
+    const xqc_cid_t *cid, void *user_data);
+
+/**
  * @brief engine can't find connection related to input udp packet, and return a STATELESS_RESET
  * packet, implementations shall send this buffer back to peer. this callback function is almost the
  * same with xqc_socket_write_pt, but with different user_data definition.
@@ -189,7 +200,7 @@ typedef xqc_save_string_pt xqc_save_session_pt;
  * transport parameters are use when initiating 0-RTT connections to avoid violating the server's
  * restriction, it shall be remembered with the same storage requirements and strategy as token.
  * When initiating a new connection, transport parameters is part of xqc_conn_ssl_config_t parameter
-*/
+ */
 typedef xqc_save_string_pt xqc_save_trans_param_pt;
 
 /**
@@ -394,6 +405,11 @@ typedef struct xqc_transport_callbacks_s {
      * what was passed into xqc_engine_packet_process
      */
     xqc_server_accept_pt            server_accept;
+
+    /**
+     * connection refused by xquic. REQUIRED only for server
+     */
+    xqc_server_refuse_pt            server_refuse;
 
     /* stateless reset callback */
     xqc_stateless_reset_pt          stateless_reset;
@@ -761,6 +777,8 @@ typedef struct xqc_conn_settings_s {
     xqc_msec_t                  init_idle_time_out; /* initial idle timeout interval, effective before handshake completion */
     xqc_msec_t                  idle_time_out;      /* idle timeout interval, effective after handshake completion */
     int32_t                     spurious_loss_detect_on;
+    uint32_t                    anti_amplification_limit;   /* limit of anti-amplification, default 3 */
+    uint64_t                    keyupdate_pkt_threshold;    /* packet limit of a single 1-rtt key, 0 for unlimited */
 } xqc_conn_settings_t;
 
 

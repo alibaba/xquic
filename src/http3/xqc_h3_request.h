@@ -46,6 +46,15 @@ typedef struct xqc_h3_request_s {
     size_t                          body_sent;
     size_t                          body_sent_final_size;
 
+    /* statistic */
+    xqc_msec_t                      blocked_time;           /* time of h3 stream being blocked */
+    xqc_msec_t                      unblocked_time;         /* time of h3 stream being unblocked */
+    xqc_msec_t                      stream_fin_time;        /* time of receiving transport fin */
+    xqc_msec_t                      h3r_begin_time;         /* time of creating request */
+    xqc_msec_t                      h3r_end_time;           /* time of request fin */
+    xqc_msec_t                      h3r_header_begin_time;  /* time of receiving HEADERS frame */
+    xqc_msec_t                      h3r_header_end_time;    /* time of finishing processing HEADERS frame */
+
 } xqc_h3_request_t;
 
 
@@ -67,5 +76,12 @@ xqc_int_t xqc_h3_request_on_recv_empty_fin(xqc_h3_request_t *h3r);
 /* get headers for writing */
 xqc_http_headers_t *xqc_h3_request_get_writing_headers(xqc_h3_request_t *h3r);
 
+void xqc_h3_request_blocked(xqc_h3_request_t *h3r);
+void xqc_h3_request_unblocked(xqc_h3_request_t *h3r);
+void xqc_h3_request_header_begin(xqc_h3_request_t *h3r);
+void xqc_h3_request_header_end(xqc_h3_request_t *h3r);
+void xqc_h3_request_stream_fin(xqc_h3_request_t *h3r);
+void xqc_h3_request_begin(xqc_h3_request_t *h3r);
+void xqc_h3_request_end(xqc_h3_request_t *h3r);
 
 #endif /* _XQC_H3_REQUEST_H_INCLUDED_ */

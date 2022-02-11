@@ -48,11 +48,11 @@ if(HAVE_CUNIT)
     target_include_directories(run_tests PRIVATE ${CUNIT_INCLUDE_DIRS})
     target_link_libraries(run_tests
         xquic-static
+        ${CUNIT_LIBRARIES}
+        ${SSL_LIB_PATH}
         m
         dl
         pthread
-        ${CUNIT_LIBRARIES}
-        ${SSL_LIB_PATH}
     )
 
     add_test(run_tests run_tests)

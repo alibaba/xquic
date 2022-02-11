@@ -143,7 +143,8 @@ xqc_send_ctl_get_packet_out(xqc_send_ctl_t *ctl, unsigned need, xqc_pkt_type_t p
     xqc_list_for_each_reverse(pos, &ctl->ctl_send_packets) {
         packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
         if (packet_out->po_pkt.pkt_type == pkt_type 
-            && packet_out->po_buf_size - packet_out->po_used_size >= need) {
+            && packet_out->po_buf_size - packet_out->po_used_size >= need)
+        {
             return packet_out;
         }
     }
@@ -1049,24 +1050,20 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *ctl, xqc_ack_info_t *const ack_info
             xqc_log(ctl->ctl_conn->log, XQC_LOG_DEBUG, "|ctl_packets_used:%ud|ctl_packets_free:%ud|",
                     ctl->ctl_packets_used, ctl->ctl_packets_free);
 
-            /* 
-             * Update the RTT if the largest acknowledged is newly acked
-             * and at least one ack-eliciting was newly acked.
-             */
-            if (packet_out->po_pkt.pkt_num == largest_ack
-                && XQC_IS_ACK_ELICITING(packet_out->po_frame_types))
-            {
+            if (XQC_IS_ACK_ELICITING(packet_out->po_frame_types)) {
                 has_ack_eliciting = 1;
+            }
+
+            if (packet_out->po_pkt.pkt_num == largest_ack
+                && packet_out->po_pkt.pkt_num == ctl->ctl_largest_acked[pns])
+            {
                 update_rtt = 1;
                 ctl->ctl_latest_rtt = ack_recv_time - ctl->ctl_largest_acked_sent_time[pns];
             }
         }
     }
 
-    /* Nothing to do if there are no newly acked packets */
-    if (!has_ack_eliciting) {
-        return XQC_OK;
-    }
+    update_rtt &= has_ack_eliciting;
 
     if (update_rtt) {
         xqc_send_ctl_update_rtt(ctl, &ctl->ctl_latest_rtt, ack_info->ack_delay);
@@ -1713,7 +1710,9 @@ xqc_send_ctl_get_earliest_loss_time(xqc_send_ctl_t *ctl, xqc_pkt_num_space_t *pn
     xqc_usec_t time = ctl->ctl_loss_time[XQC_PNS_INIT];
     *pns_ret = XQC_PNS_INIT;
     for (xqc_pkt_num_space_t pns = XQC_PNS_HSK; pns <= XQC_PNS_APP_DATA; ++pns) {
-        if (time == 0 || ctl->ctl_loss_time[pns] < time) {
+        if (ctl->ctl_loss_time[pns] != 0
+            && (time == 0 || ctl->ctl_loss_time[pns] < time))
+        {
             time = ctl->ctl_loss_time[pns];
             *pns_ret = pns;
         }
@@ -1749,11 +1748,23 @@ xqc_send_ctl_check_anti_amplification(xqc_connection_t *conn, size_t byte_cnt)
         && conn->conn_send_ctl->ctl_bytes_send > 0
         && !(conn->conn_flag & XQC_CONN_FLAG_ADDR_VALIDATED))
     {
-        limit = (conn->conn_send_ctl->ctl_bytes_send + byte_cnt >= 3 * conn->conn_send_ctl->ctl_bytes_recv);
+        limit = (conn->conn_send_ctl->ctl_bytes_send + byte_cnt
+                >= conn->conn_settings.anti_amplification_limit * conn->conn_send_ctl->ctl_bytes_recv);
     }
 
     return limit;
 }
+
+
+void
+xqc_send_ctl_rearm_ld_timer(xqc_send_ctl_t *ctl)
+{
+    /* make sure the loss detection timer is armed */
+    if (!xqc_send_ctl_timer_is_set(ctl, XQC_TIMER_LOSS_DETECTION)) {
+        xqc_send_ctl_set_loss_detection_timer(ctl);
+    }
+}
+
 
 xqc_bool_t
 xqc_send_ctl_ack_received_in_pns(xqc_send_ctl_t *ctl, xqc_pkt_num_space_t pns)
@@ -1776,6 +1787,7 @@ static const char * const timer_type_2_str[XQC_TIMER_N] = {
     [XQC_TIMER_PING]            = "PING",
     [XQC_TIMER_RETIRE_CID]      = "RETIRE_CID",
     [XQC_TIMER_LINGER_CLOSE]    = "LINGER_CLOSE",
+    [XQC_TIMER_KEY_UPDATE]      = "KEY_UPDATE",
 };
 
 const char *
@@ -1984,6 +1996,15 @@ xqc_send_ctl_linger_close_timeout(xqc_send_ctl_timer_type type, xqc_usec_t now, 
     }
 }
 
+void
+xqc_send_ctl_key_update_timeout(xqc_send_ctl_timer_type type, xqc_usec_t now, void *ctx)
+{
+    xqc_send_ctl_t *ctl = (xqc_send_ctl_t *) ctx;
+    xqc_connection_t *conn = ctl->ctl_conn;
+
+    xqc_tls_discard_old_1rtt_keys(conn->tls);
+}
+
 /* timer callbacks end */
 
 void
@@ -2020,11 +2041,17 @@ xqc_send_ctl_timer_init(xqc_send_ctl_t *ctl)
         } else if (type == XQC_TIMER_PING) {
             timer->ctl_timer_callback = xqc_send_ctl_ping_timeout;
             timer->ctl_ctx = ctl;
+
         } else if (type == XQC_TIMER_RETIRE_CID) {
             timer->ctl_timer_callback = xqc_send_ctl_retire_cid_timeout;
             timer->ctl_ctx = ctl;
+
         } else if (type == XQC_TIMER_LINGER_CLOSE) {
             timer->ctl_timer_callback = xqc_send_ctl_linger_close_timeout;
+            timer->ctl_ctx = ctl;
+
+        } else if (type == XQC_TIMER_KEY_UPDATE) {
+            timer->ctl_timer_callback = xqc_send_ctl_key_update_timeout;
             timer->ctl_ctx = ctl;
         }
     }

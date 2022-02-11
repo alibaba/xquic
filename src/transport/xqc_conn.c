@@ -29,14 +29,16 @@
 
 
 xqc_conn_settings_t default_conn_settings = {
-    .pacing_on               = 0,
-    .ping_on                 = 0,
-    .so_sndbuf               = 0,
-    .linger                  = {.linger_on = 0, .linger_timeout = 0},
-    .proto_version           = XQC_VERSION_V1,
-    .init_idle_time_out      = XQC_CONN_INITIAL_IDLE_TIMEOUT,
-    .idle_time_out           = XQC_CONN_DEFAULT_IDLE_TIMEOUT,
-    .spurious_loss_detect_on = 0,
+    .pacing_on                  = 0,
+    .ping_on                    = 0,
+    .so_sndbuf                  = 0,
+    .linger                     = {.linger_on = 0, .linger_timeout = 0},
+    .proto_version              = XQC_VERSION_V1,
+    .init_idle_time_out         = XQC_CONN_INITIAL_IDLE_TIMEOUT,
+    .idle_time_out              = XQC_CONN_DEFAULT_IDLE_TIMEOUT,
+    .spurious_loss_detect_on    = 0,
+    .anti_amplification_limit   = XQC_DEFAULT_ANTI_AMPLIFICATION_LIMIT,
+    .keyupdate_pkt_threshold    = 0,
 };
 
 void
@@ -49,13 +51,24 @@ xqc_server_set_conn_settings(const xqc_conn_settings_t *settings)
     default_conn_settings.so_sndbuf = settings->so_sndbuf;
     default_conn_settings.linger    = settings->linger;
     default_conn_settings.spurious_loss_detect_on = settings->spurious_loss_detect_on;
+
+    if (settings->init_idle_time_out > 0) {
+        default_conn_settings.init_idle_time_out = settings->init_idle_time_out;
+    }
+
     if (settings->idle_time_out > 0) {
         default_conn_settings.idle_time_out = settings->idle_time_out;
+    }
+
+    if (settings->anti_amplification_limit > XQC_DEFAULT_ANTI_AMPLIFICATION_LIMIT) {
+        default_conn_settings.anti_amplification_limit = settings->anti_amplification_limit;
     }
 
     if (xqc_check_proto_version_valid(settings->proto_version)) {
         default_conn_settings.proto_version = settings->proto_version;
     }
+
+    default_conn_settings.keyupdate_pkt_threshold = settings->keyupdate_pkt_threshold;
 }
 
 static const char * const xqc_conn_flag_to_str[XQC_CONN_FLAG_SHIFT_NUM] = {
@@ -204,6 +217,19 @@ xqc_conn_init_flow_ctl(xqc_connection_t *conn)
     flow_ctl->fc_last_window_update_time = 0;
 }
 
+static inline void
+xqc_conn_init_key_update_ctx(xqc_connection_t *conn)
+{
+    xqc_key_update_ctx_t *ctx = &conn->key_update_ctx;
+
+    ctx->cur_out_key_phase = 0;
+    ctx->next_in_key_phase = 0;
+
+    ctx->first_sent_pktno  = 0;
+    ctx->first_recv_pktno  = 0;
+    ctx->enc_pkt_cnt       = 0;
+}
+
 xqc_connection_t *
 xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     const xqc_conn_settings_t *settings, void *user_data, xqc_conn_type_t type)
@@ -234,8 +260,13 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
         xc->conn_settings.init_idle_time_out = XQC_CONN_INITIAL_IDLE_TIMEOUT;
     }
 
+    if (xc->conn_settings.anti_amplification_limit < XQC_DEFAULT_ANTI_AMPLIFICATION_LIMIT) {
+        xc->conn_settings.anti_amplification_limit = XQC_DEFAULT_ANTI_AMPLIFICATION_LIMIT;
+    }
+
     xqc_conn_init_trans_settings(xc);
     xqc_conn_init_flow_ctl(xc);
+    xqc_conn_init_key_update_ctx(xc);
 
     xc->conn_pool = pool;
 
@@ -494,7 +525,7 @@ xqc_conn_client_on_alpn(xqc_connection_t *conn, const unsigned char *alpn, size_
     /* set quic callbacks to quic connection */
     ret = xqc_engine_get_alpn_callbacks(conn->engine, alpn, alpn_len, &conn->app_proto_cbs);
     if (ret != XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|can't get application level|ret:%d", ret);
+        xqc_log(conn->log, XQC_LOG_ERROR, "|can't get application layer callback|ret:%d", ret);
         return ret;
     }
 
@@ -510,7 +541,7 @@ xqc_conn_server_on_alpn(xqc_connection_t *conn, const unsigned char *alpn, size_
     /* set quic callbacks to quic connection */
     ret = xqc_engine_get_alpn_callbacks(conn->engine, alpn, alpn_len, &conn->app_proto_cbs);
     if (ret != XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|can't get application level|ret:%d", ret);
+        xqc_log(conn->log, XQC_LOG_ERROR, "|can't get application layer callback|ret:%d", ret);
         return ret;
     }
 
@@ -544,7 +575,7 @@ xqc_conn_destroy(xqc_connection_t *xc)
 
     xqc_log(xc->log, XQC_LOG_REPORT, "|%p|srtt:%ui|retrans rate:%.4f|send_count:%ud|lost_count:%ud|tlp_count:%ud|"
             "spurious_loss_count:%ud|recv_count:%ud|has_0rtt:%d|0rtt_accept:%d|token_ok:%d|handshake_time:%ui|"
-            "first_send_delay:%ui|conn_persist:%ui|err:0x%xi|%s|",
+            "first_send_delay:%ui|conn_persist:%ui|keyupdate_cnt:%d|err:0x%xi|%s|",
             xc, xqc_send_ctl_get_srtt(xc->conn_send_ctl), xqc_send_ctl_get_retrans_rate(xc->conn_send_ctl),
             xc->conn_send_ctl->ctl_send_count, xc->conn_send_ctl->ctl_lost_count, xc->conn_send_ctl->ctl_tlp_count,
             xc->conn_send_ctl->ctl_spurious_loss_count, xc->conn_send_ctl->ctl_recv_count,
@@ -553,7 +584,8 @@ xqc_conn_destroy(xqc_connection_t *xc)
             xc->conn_type == XQC_CONN_TYPE_SERVER ? (xc->conn_flag & XQC_CONN_FLAG_TOKEN_OK ? 1:0) : (-1),
             (xc->handshake_complete_time > xc->conn_create_time) ? (xc->handshake_complete_time - xc->conn_create_time) : 0,
             (xc->first_data_send_time > xc->conn_create_time) ? (xc->first_data_send_time - xc->conn_create_time) : 0,
-            xqc_monotonic_timestamp() - xc->conn_create_time, xc->conn_err, xqc_conn_addr_str(xc));
+            xqc_monotonic_timestamp() - xc->conn_create_time, xc->key_update_ctx.key_update_cnt,
+            xc->conn_err, xqc_conn_addr_str(xc));
     xqc_log_event(xc->log, CON_CONNECTION_CLOSED, xc);
 
     if (xc->conn_flag & XQC_CONN_FLAG_WAIT_WAKEUP) {
@@ -571,10 +603,24 @@ xqc_conn_destroy(xqc_connection_t *xc)
         xqc_destroy_stream(stream);
     }
 
-    if (xc->app_proto_cbs.conn_cbs.conn_close_notify
-        && (xc->conn_flag & XQC_CONN_FLAG_UPPER_CONN_EXIST))
-    {
-        xc->app_proto_cbs.conn_cbs.conn_close_notify(xc, &xc->scid_set.user_scid, xc->app_proto_user_data);
+    /* notify destruction */
+    if (xc->conn_flag & XQC_CONN_FLAG_UPPER_CONN_EXIST) {
+        /* ALPN negotiated, notify close through application layer protocol callback function */
+        if (xc->app_proto_cbs.conn_cbs.conn_close_notify) {
+            xc->app_proto_cbs.conn_cbs.conn_close_notify(xc, &xc->scid_set.user_scid,
+                                                         xc->app_proto_user_data);
+
+        } else if (xc->transport_cbs.server_refuse) {
+            /* ALPN context is not initialized, ClientHello has not been received */
+            xc->transport_cbs.server_refuse(xc->engine, xc, &xc->scid_set.user_scid, xc->user_data);
+            xqc_log(xc->log, XQC_LOG_REPORT,
+                    "|conn close notified by refuse|%s", xqc_conn_addr_str(xc));
+
+        } else {
+            xqc_log(xc->log, XQC_LOG_REPORT,
+                    "|conn close event not notified|%s", xqc_conn_addr_str(xc));
+        }
+
         xc->conn_flag &= ~XQC_CONN_FLAG_UPPER_CONN_EXIST;
     }
 
@@ -836,7 +882,8 @@ xqc_convert_pkt_0rtt_2_1rtt(xqc_connection_t *conn, xqc_packet_out_t *packet_out
     /* copy header */
     packet_out->po_used_size = 0;
     int ret = xqc_gen_short_packet_header(packet_out, conn->dcid_set.current_dcid.cid_buf,
-                                          conn->dcid_set.current_dcid.cid_len, XQC_PKTNO_BITS, 0);
+                                          conn->dcid_set.current_dcid.cid_len, XQC_PKTNO_BITS, 0,
+                                          conn->key_update_ctx.cur_out_key_phase);
     packet_out->po_used_size = ret;
 
     /* copy frame directly */
@@ -1184,6 +1231,7 @@ xqc_process_packet_with_pn(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
     packet_out->po_pkt.pkt_num = conn->conn_send_ctl->ctl_packet_number[packet_out->po_pkt.pkt_pns];
     xqc_write_packet_number(packet_out->po_ppktno, packet_out->po_pkt.pkt_num, XQC_PKTNO_BITS);
     xqc_long_packet_update_length(packet_out);
+    xqc_short_packet_update_key_phase(packet_out, conn->key_update_ctx.cur_out_key_phase);
 
     /* encrypt packet body */
     if (xqc_packet_encrypt(conn, packet_out) < 0) {
@@ -2373,6 +2421,15 @@ xqc_conn_server_validate_address(xqc_connection_t *c, xqc_packet_in_t *pi)
     default:
         break;
     }
+
+    /*
+     * loss detection timer might be unset when anti-amplification limit is reached, but receiving 
+     * a handshake or receiving a packet with cid which was choosed by server, will remove the 
+     * anti-amplification state, and loss detection timer shall be re-armed.
+     */
+    if (c->conn_flag & XQC_CONN_FLAG_ADDR_VALIDATED) {
+        xqc_send_ctl_rearm_ld_timer(c->conn_send_ctl);
+    }
 }
 
 
@@ -2641,6 +2698,35 @@ xqc_conn_try_retire_conn_id(xqc_connection_t *conn, uint64_t seq_num)
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_retire_conn_id_frame_to_packet error|");
         return ret;
+    }
+
+    return XQC_OK;
+}
+
+xqc_int_t
+xqc_conn_confirm_key_update(xqc_connection_t *conn)
+{
+    xqc_key_update_ctx_t *ctx = &conn->key_update_ctx;
+
+    ctx->key_update_cnt++;
+    ctx->first_sent_pktno = conn->conn_send_ctl->ctl_packet_number[XQC_PNS_APP_DATA] + 1;
+    ctx->first_recv_pktno = UINT64_MAX;
+    ctx->cur_out_key_phase ^= 1;
+    ctx->next_in_key_phase ^= 1;
+    ctx->enc_pkt_cnt = 0;
+
+    xqc_tls_set_1rtt_key_phase(conn->tls, ctx->cur_out_key_phase);
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|key phase changed to %ui|", ctx->cur_out_key_phase);
+
+    /*
+     * An endpoint SHOULD retain old read keys for no more than three times the PTO after having
+     * received a packet protected using the new keys. After this period, old read keys and their
+     * corresponding secrets SHOULD be discarded.
+     */
+    xqc_usec_t now = xqc_monotonic_timestamp();
+    xqc_usec_t pto = xqc_send_ctl_calc_pto(conn->conn_send_ctl);
+    if (!xqc_send_ctl_timer_is_set(conn->conn_send_ctl, XQC_TIMER_KEY_UPDATE)) {
+        xqc_send_ctl_timer_set(conn->conn_send_ctl, XQC_TIMER_KEY_UPDATE, now, 3 * pto);
     }
 
     return XQC_OK;
@@ -3085,6 +3171,17 @@ xqc_settings_copy_from_transport_params(xqc_trans_settings_t *dest,
     dest->active_connection_id_limit = src->active_connection_id_limit;
 }
 
+void
+xqc_conn_update_flow_ctl_settings(xqc_connection_t *conn)
+{
+    xqc_conn_flow_ctl_t *flow_ctl = &conn->conn_flow_ctl;
+    xqc_trans_settings_t *remote_settings = &conn->remote_settings;
+
+    flow_ctl->fc_max_data_can_send = remote_settings->max_data;
+    flow_ctl->fc_max_streams_bidi_can_send = remote_settings->max_streams_bidi;
+    flow_ctl->fc_max_streams_uni_can_send = remote_settings->max_streams_uni;
+}
+
 
 xqc_int_t
 xqc_conn_set_early_remote_transport_params(xqc_connection_t *conn,
@@ -3095,7 +3192,7 @@ xqc_conn_set_early_remote_transport_params(xqc_connection_t *conn,
     }
 
     xqc_settings_copy_from_transport_params(&conn->remote_settings, params);
-
+    xqc_conn_update_flow_ctl_settings(conn);
     return XQC_OK;
 }
 

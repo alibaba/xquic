@@ -116,7 +116,7 @@ _Type_:
 _Example_:
 
 ```bash
-[~]: Update CONTRIBUTING.md
+[~] Update CONTRIBUTING.md
 ```
 
 #### Tests

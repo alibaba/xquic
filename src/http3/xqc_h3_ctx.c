@@ -38,8 +38,8 @@ xqc_h3_ctx_init(xqc_engine_t *engine, xqc_h3_callbacks_t *h3_cbs)
     };
 
     /* register ALPN and transport layer callbacks */
-    if (xqc_engine_register_alpn(engine, XQC_ALPN_H3_29, XQC_ALPN_H3_29_LEN, &ap_cbs) != XQC_OK
-        || xqc_engine_register_alpn(engine, XQC_ALPN_H3, XQC_ALPN_H3_LEN, &ap_cbs) != XQC_OK)
+    if (xqc_engine_register_alpn(engine, XQC_ALPN_H3, XQC_ALPN_H3_LEN, &ap_cbs) != XQC_OK
+        || xqc_engine_register_alpn(engine, XQC_ALPN_H3_29, XQC_ALPN_H3_29_LEN, &ap_cbs) != XQC_OK)
     {
         xqc_h3_ctx_destroy(engine);
         return -XQC_EFATAL;

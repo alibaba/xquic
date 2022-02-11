@@ -51,7 +51,8 @@ xqc_pacing_rate_calc(xqc_pacing_t *pacing)
     pacing_rate = cwnd * 1000000 / srtt;
 
     if (ctl->ctl_cong_callback->xqc_cong_ctl_in_slow_start 
-        && ctl->ctl_cong_callback->xqc_cong_ctl_in_slow_start(ctl->ctl_cong)) {
+        && ctl->ctl_cong_callback->xqc_cong_ctl_in_slow_start(ctl->ctl_cong))
+    {
         pacing_rate *= 2;
 
     } else {

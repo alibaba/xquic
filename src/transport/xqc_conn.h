@@ -201,6 +201,18 @@ typedef struct {
     char            data[];
 } xqc_hs_buffer_t;
 
+typedef struct {
+    xqc_uint_t              cur_out_key_phase; /* key phase used in current sent packets */
+    xqc_uint_t              next_in_key_phase; /* key phase expected in next received packets */
+    xqc_uint_t              key_update_cnt;    /* number of key updates per connection */
+
+    /* for current out key phase */
+    xqc_packet_number_t     first_sent_pktno;  /* lowest packet number sent with each key phase */
+    xqc_packet_number_t     first_recv_pktno;  /* lowest packet number recv with each key phase */
+    uint64_t                enc_pkt_cnt;       /* number of packet encrypt with each key phase */
+
+} xqc_key_update_ctx_t;
+
 struct xqc_connection_s {
 
     xqc_conn_settings_t             conn_settings;
@@ -304,6 +316,8 @@ struct xqc_connection_s {
     /* for limit the length of crypto_data */
     size_t                          crypto_data_total_len;
 
+    /* for key update */
+    xqc_key_update_ctx_t            key_update_ctx;
 };
 
 const char *xqc_conn_flag_2_str(xqc_conn_flag_t conn_flag);
@@ -436,5 +450,7 @@ xqc_int_t xqc_conn_on_recv_retry(xqc_connection_t *conn);
 
 /* get idle timeout in milliseconds */
 xqc_msec_t xqc_conn_get_idle_timeout(xqc_connection_t *conn);
+
+xqc_int_t xqc_conn_confirm_key_update(xqc_connection_t *conn);
 
 #endif /* _XQC_CONN_H_INCLUDED_ */

@@ -71,6 +71,7 @@ typedef struct user_stream_s {
     xqc_msec_t          first_frame_time;   /* first frame download time */
     xqc_msec_t          last_read_time;
     int                 abnormal_count;
+    int                 body_read_notify_cnt;
 } user_stream_t;
 
 typedef struct user_conn_s {
@@ -1485,8 +1486,15 @@ xqc_client_request_close_notify(xqc_h3_request_t *h3_request, void *user_data)
     if (g_echo_check) {
         int pass = 0;
         if (user_stream->recv_fin && user_stream->send_body_len == user_stream->recv_body_len
-            && memcmp(user_stream->send_body, user_stream->recv_body, user_stream->send_body_len) == 0) {
+            && memcmp(user_stream->send_body, user_stream->recv_body, user_stream->send_body_len) == 0)
+        {
             pass = 1;
+
+            /* large data read once for all */
+            if (user_stream->send_body_len >= 1024 * 1024 && user_stream->body_read_notify_cnt == 1) {
+                pass = 0;
+                printf("large body received once for all");
+            }
         }
         printf(">>>>>>>> pass:%d\n", pass);
     }
@@ -1811,6 +1819,7 @@ xqc_client_write_log(xqc_log_level_t lvl, const void *buf, size_t count, void *e
         printf("xqc_client_write_log err\n");
         return;
     }
+
     int write_len = write(ctx->log_fd, log_buf, log_len);
     if (write_len < 0) {
         printf("write log failed, errno: %d\n", errno);
@@ -1860,6 +1869,7 @@ xqc_keylog_cb(const char *line, void *user_data)
         printf("write keys failed, errno: %d\n", errno);
         return;
     }
+
     write_len = write(ctx->keylog_fd, "\n", 1);
     if (write_len < 0) {
         printf("write keys failed, errno: %d\n", errno);
@@ -2152,6 +2162,7 @@ int main(int argc, char *argv[]) {
         //.so_sndbuf  =   1024*1024,
         .proto_version = XQC_VERSION_V1,
         .spurious_loss_detect_on = 0,
+        .keyupdate_pkt_threshold = 0,
     };
 
     xqc_config_t config;
@@ -2185,6 +2196,11 @@ int main(int argc, char *argv[]) {
     /* test spurious loss detect */
     if (g_test_case == 26) {
         conn_settings.spurious_loss_detect_on = 1;
+    }
+
+    /* test key update */
+    if (g_test_case == 40) {
+        conn_settings.keyupdate_pkt_threshold = 30;
     }
 
     eb = event_base_new();

@@ -48,7 +48,7 @@ typedef struct xqc_encoder_s {
     size_t                  name_len_limit;
 
     /*
-     * dtable insertion limit for entry. 
+     * dtable insertion limit for entry.
      * insert_limit_entry_size = insert_limit_entry * dtable_cap
      */
     double                  entry_limit;

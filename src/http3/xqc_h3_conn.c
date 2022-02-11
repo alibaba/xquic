@@ -349,6 +349,7 @@ xqc_h3_conn_destroy(xqc_h3_conn_t *h3_conn)
 xqc_int_t
 xqc_h3_conn_on_uni_stream_created(xqc_h3_conn_t *h3c, uint64_t stype)
 {
+    uint64_t cflag;
     static const uint64_t stype_2_flag_map[] = {
         [XQC_H3_STREAM_TYPE_CONTROL]        = XQC_H3_CONN_FLAG_CONTROL_OPENED,
         [XQC_H3_STREAM_TYPE_PUSH]           = XQC_H3_CONN_FLAG_PUSH_OPENED,
@@ -357,12 +358,12 @@ xqc_h3_conn_on_uni_stream_created(xqc_h3_conn_t *h3c, uint64_t stype)
     };
 
     /* check if control and qpack streams are already created */
-    uint64_t cflag = stype_2_flag_map[stype];   /* stream creation flag */
     switch (stype) {
     case XQC_H3_STREAM_TYPE_CONTROL:
     case XQC_H3_STREAM_TYPE_PUSH:
     case XQC_H3_STREAM_TYPE_QPACK_ENCODER:
     case XQC_H3_STREAM_TYPE_QPACK_DECODER:
+        cflag = stype_2_flag_map[stype];   /* stream creation flag */
         /* if control/encoder/decoder stream has been created, close connection */
         if (h3c->flags & cflag) {
             xqc_log(h3c->log, XQC_LOG_ERROR,
@@ -376,6 +377,7 @@ xqc_h3_conn_on_uni_stream_created(xqc_h3_conn_t *h3c, uint64_t stype)
         break;
 
     default:
+        /* reserved stream type, do nothing */
         break;
     }
 
@@ -512,7 +514,9 @@ xqc_h3_conn_on_settings_entry_received(uint64_t identifier, uint64_t value, void
         break;
 
     default:
-        return XQC_ERROR;
+        xqc_log(h3c->log, XQC_LOG_INFO, "|ignore unknown setting|identifier%ui|value:%ui",
+                identifier, value);
+        break;
     }
 
     return XQC_OK;

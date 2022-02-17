@@ -1656,7 +1656,7 @@ xqc_client_socket_read_handler(user_conn_t *user_conn)
         if (g_test_case == 25) {
             static int loss_num = 0;
             loss_num++;
-            /* continous loss to make server at amplification limit */
+            /* continuous loss to make server at amplification limit */
             if (loss_num >= 1 && loss_num <= 10) {
                 continue;
             }

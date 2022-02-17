@@ -20,6 +20,9 @@ openssl req -newkey rsa:2048 -x509 -nodes -keyout "$keyfile" -new -out "$certfil
 ./test_client -a 127.0.0.1 -p 8443 -s 1024000 -E
 ```
 
+注意：不同的服务端之间， session ticket 、传输参数、 token 可能是不兼容的。在使用 test_client 连接到一种服务端之后，需要连接到另外一种服务端，则需要删除 test_client 本地保存的 test_session 、 tp_localhost 、 xqc_token 文件，否则可能造成连接失败。
+此外，同一个服务端上的不同域名，可能配置了不同的证书。因此，如果要使用 test_client 先后以不同域名连接到同一个服务端，也需要注意本地保存的 test_session 文件可能会造成连接失败。
+
 ## 参数含义
 
 以下参数都可以在 tests/test_client.c 和 tests/test_server.c 的 `usage()` 中找到对应说明，如本文档有更新滞后的情况，请以最新代码为准。

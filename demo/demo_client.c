@@ -572,7 +572,7 @@ xqc_demo_cli_write_socket(const unsigned char *buf, size_t size, const struct so
         errno = 0;
         res = sendto(user_conn->fd, buf, size, 0, peer_addr, peer_addrlen);
         if (res < 0) {
-            printf("xqc_demo_cli_write_socket err %zd %s, fd: %d, buf: %p, size: %Zu, "
+            printf("xqc_demo_cli_write_socket err %zd %s, fd: %d, buf: %p, size: %zu, "
                 "server_addr: %s\n", res, strerror(errno), user_conn->fd, buf, size,
                 user_conn->ctx->args->net_cfg.server_addr);
             if (errno == EAGAIN) {
@@ -586,6 +586,7 @@ xqc_demo_cli_write_socket(const unsigned char *buf, size_t size, const struct so
 }
 
 
+#if defined(XQC_SUPPORT_SENDMMSG)
 ssize_t
 xqc_demo_cli_write_mmsg(void *conn_user_data, struct iovec *msg_iov, unsigned int vlen, 
     const struct sockaddr *peer_addr, socklen_t peer_addrlen)
@@ -612,6 +613,7 @@ xqc_demo_cli_write_mmsg(void *conn_user_data, struct iovec *msg_iov, unsigned in
     } while ((res < 0) && (errno == EINTR));
     return res;
 }
+#endif
 
 
 void
@@ -676,7 +678,7 @@ xqc_demo_cli_hq_req_send(xqc_hq_request_t *hqr, xqc_demo_cli_user_stream_t *user
             return 0;
 
         default:
-            printf("send stream failed, ret: %Zd\n", ret);
+            printf("send stream failed, ret: %zd\n", ret);
             return -1;
         }
 

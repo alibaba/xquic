@@ -180,7 +180,7 @@ xqc_hq_request_send_data(xqc_hq_request_t *hqr, const uint8_t *data, size_t len,
                 return 0;
 
             } else {
-                PRINT_LOG("|send req error|ret:%"PRId64"", ret);
+                PRINT_LOG("|send req error|ret:%zd", ret);
                 return ret;
             }
         }
@@ -213,7 +213,7 @@ xqc_hq_request_send_req(xqc_hq_request_t *hqr, const char *resource)
     hqr->send_buf_len = snprintf(hqr->send_buf, max_req_buf_len, "GET %s\r\n", resource);
     ret = xqc_hq_request_send_data(hqr, hqr->send_buf, hqr->send_buf_len, 1);
     if (ret < 0) {
-        PRINT_LOG("|send request error|ret: %"PRIu64"|", ret);
+        PRINT_LOG("|send request error|ret: %zd|", ret);
         return ret;
     }
 
@@ -268,7 +268,7 @@ xqc_hq_request_recv_req(xqc_hq_request_t *hqr, char *res_buf, size_t buf_sz, uin
             break;
 
         } else if (read < 0) {
-            PRINT_LOG("|xqc_stream_recv error %"PRId64"|", read);
+            PRINT_LOG("|xqc_stream_recv error %zd|", read);
             return 0;
         }
 

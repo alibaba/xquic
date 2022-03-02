@@ -921,7 +921,7 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
     }
 
     if (g_batch) {
-        int ret = connect(ctx.fd, &user_conn->peer_addr, user_conn->peer_addrlen);
+        int ret = connect(ctx.fd, (struct sockaddr *)&user_conn->peer_addr, user_conn->peer_addrlen);
         if (ret != 0) {
             printf("connect error, errno: %d\n", errno);
             return ret;

@@ -82,6 +82,7 @@ configure_file (
 
 include_directories(
     include
+    /usr/local/include
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_BINARY_DIR}/include"
 )

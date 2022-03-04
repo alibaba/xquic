@@ -1300,6 +1300,7 @@ xqc_demo_svr_init_conn_settings(xqc_demo_svr_args_t *args)
             .init_cwnd = 32,
         },
         .spurious_loss_detect_on = 1,
+        .init_idle_time_out = 60000,
     };
 
     xqc_server_set_conn_settings(&conn_settings);

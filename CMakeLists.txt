@@ -303,7 +303,7 @@ if (XQC_ENABLE_TESTING)
     add_executable(demo_server ${DEMO_SERVER_SOURCES})
     add_executable(demo_client ${DEMO_CLIENT_SOURCES})
 
-    link_directories( /usr/local/lib )
+    link_directories(/usr/local/lib)
 
     if(PLATFORM STREQUAL "mac32")
         target_link_libraries(test_server xquic  -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)

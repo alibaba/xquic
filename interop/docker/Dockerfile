@@ -8,7 +8,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends build-essential cmake golang make autoconf automake libtool libevent-dev net-tools git && \
     go env -w GOPROXY=https://goproxy.cn && \
     git clone https://github.com/Kulsk/xquic.git && \
-    git clone git clone https://github.com/BabaSSL/BabaSSL.git xquic/third_party/babassl && \
+    git clone https://github.com/BabaSSL/BabaSSL.git xquic/third_party/babassl && \
     cd xquic/third_party/babassl/ && \
     ./config --prefix=/usr/local/babassl no-sm2 no-sm3 no-sm4 && \
     make -j && \

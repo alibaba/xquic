@@ -15,7 +15,7 @@
 #define XQC_ALPN_HQ_29              "hq-29"
 #define XQC_ALPN_HQ_29_LEN          5
 
-static const char* const xqc_hq_alpn[] = {
+static const char *const xqc_hq_alpn[] = {
     [XQC_IDRAFT_INIT_VER]        = "",                      /* placeholder */
     [XQC_VERSION_V1]             = XQC_ALPN_HQ_INTEROP,     /* QUIC v1 */
     [XQC_IDRAFT_VER_29]          = XQC_ALPN_HQ_29,          /* draft-29 */

@@ -46,9 +46,9 @@ typedef struct xqc_str_s {
 #define xqc_lengthof(x)         (sizeof(x) - 1)
 
 
-unsigned char* xqc_hex_dump(unsigned char *dst, const unsigned char *src, size_t len);
-unsigned char* xqc_vsprintf(unsigned char *buf, unsigned char *last, const char *fmt, va_list args);
-unsigned char* xqc_sprintf_num(unsigned char *buf, unsigned char *last,
+unsigned char *xqc_hex_dump(unsigned char *dst, const unsigned char *src, size_t len);
+unsigned char *xqc_vsprintf(unsigned char *buf, unsigned char *last, const char *fmt, va_list args);
+unsigned char *xqc_sprintf_num(unsigned char *buf, unsigned char *last,
     uint64_t ui64, unsigned char zero, uintptr_t hexadecimal, uintptr_t width);
 
 static inline void

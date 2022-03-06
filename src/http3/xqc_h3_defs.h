@@ -13,7 +13,7 @@
 #define XQC_ALPN_H3_29      "h3-29"
 #define XQC_ALPN_H3_29_LEN  5
 
-extern const char* const xqc_h3_alpn[];
+extern const char *const xqc_h3_alpn[];
 
 
 /**

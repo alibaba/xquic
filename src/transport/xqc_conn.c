@@ -1716,7 +1716,7 @@ xqc_conn_send_version_negotiation(xqc_connection_t *c)
         return -XQC_EWRITE_PKT;
     }
 
-    unsigned char* p = packet_out->po_buf;
+    unsigned char *p = packet_out->po_buf;
     /* first byte of packet */
     *p++ = (1 << 7);
 
@@ -1743,7 +1743,7 @@ xqc_conn_send_version_negotiation(xqc_connection_t *c)
     /* set supported version list */
     uint32_t *version_list = c->engine->config->support_version_list;
     uint32_t version_count = c->engine->config->support_version_count;
-    unsigned char* end = packet_out->po_buf + packet_out->po_buf_size;
+    unsigned char *end = packet_out->po_buf + packet_out->po_buf_size;
     for (size_t i = 0; i < version_count; ++i) {
         if (p + sizeof(uint32_t) <= end) {
             *(uint32_t*)p = htonl(version_list[i]);

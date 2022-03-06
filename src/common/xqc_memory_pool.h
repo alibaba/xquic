@@ -148,7 +148,7 @@ xqc_palloc(xqc_memory_pool_t *pool, size_t size)
         xqc_memory_block_t * block = pool->current;
 
         do {
-            char* p = xqc_align_ptr(block->last, XQC_ALIGNMENT);
+            char *p = xqc_align_ptr(block->last, XQC_ALIGNMENT);
             if ((size_t)(block->end - p) >= size) {
                 block->last = p + size;
                 return p;

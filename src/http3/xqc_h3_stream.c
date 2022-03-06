@@ -210,7 +210,7 @@ xqc_h3_stream_write_headers(xqc_h3_stream_t *h3s, xqc_http_headers_t *headers, u
 
 
 ssize_t
-xqc_h3_stream_write_data_to_buffer(xqc_h3_stream_t *h3s, unsigned char* data, uint64_t data_size,
+xqc_h3_stream_write_data_to_buffer(xqc_h3_stream_t *h3s, unsigned char *data, uint64_t data_size,
     uint8_t fin)
 {
     uint64_t write = 0;

@@ -264,7 +264,7 @@ include_directories(${CMAKE_SOURCE_DIR}/)
 
 
 
-##### build unittest, test client/server, demo client/server #####
+##### build unittest, test client/server, interop client/server #####
 if (XQC_ENABLE_TESTING)
     # CUnit
     find_package(CUnit 2.1)
@@ -280,46 +280,46 @@ if (XQC_ENABLE_TESTING)
     add_executable(test_server tests/test_server.c)
     add_executable(test_client tests/test_client.c)
 
-    ### hq demo client/server ###
+    ### hq interop client/server ###
     set(
         HQ_SOURCES
-        "demo/xqc_hq_ctx.c"
-        "demo/xqc_hq_conn.c"
-        "demo/xqc_hq_request.c"
+        "interop/xqc_hq_ctx.c"
+        "interop/xqc_hq_conn.c"
+        "interop/xqc_hq_request.c"
     )
 
     set(
-        DEMO_CLIENT_SOURCES
+        INTEROP_CLIENT_SOURCES
         ${HQ_SOURCES}
-        "demo/demo_client.c"
+        "interop/io_client.c"
     )
 
     set(
-        DEMO_SERVER_SOURCES
+        INTEROP_SERVER_SOURCES
         ${HQ_SOURCES}
-        "demo/demo_server.c"
+        "interop/io_server.c"
     )
 
-    add_executable(demo_server ${DEMO_SERVER_SOURCES})
-    add_executable(demo_client ${DEMO_CLIENT_SOURCES})
+    add_executable(interop_server ${INTEROP_SERVER_SOURCES})
+    add_executable(interop_client ${INTEROP_CLIENT_SOURCES})
 
     link_directories(/usr/local/lib)
 
     if(PLATFORM STREQUAL "mac32")
-        target_link_libraries(test_server xquic  -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
-        target_link_libraries(test_client xquic  -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
-        target_link_libraries(demo_server xquic  -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
-        target_link_libraries(demo_client xquic  -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
+        target_link_libraries(test_server xquic -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
+        target_link_libraries(test_client xquic -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
+        target_link_libraries(interop_server xquic -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
+        target_link_libraries(interop_client xquic -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
     elseif(PLATFORM STREQUAL "mac")
         target_link_libraries(test_server xquic -lm -L/usr/local/lib -levent)
         target_link_libraries(test_client xquic -lm -L/usr/local/lib -levent)
-        target_link_libraries(demo_server xquic -lm -L/usr/local/lib -levent)
-        target_link_libraries(demo_client xquic -lm -L/usr/local/lib -levent)
+        target_link_libraries(interop_server xquic -lm -L/usr/local/lib -levent)
+        target_link_libraries(interop_client xquic -lm -L/usr/local/lib -levent)
     else()
         target_link_libraries(test_server xquic -levent -lm)
         target_link_libraries(test_client xquic -levent -lm)
-        target_link_libraries(demo_server xquic -levent -lm)
-        target_link_libraries(demo_client xquic -levent -lm)
+        target_link_libraries(interop_server xquic -levent -lm)
+        target_link_libraries(interop_client xquic -levent -lm)
     endif()
 
 endif()

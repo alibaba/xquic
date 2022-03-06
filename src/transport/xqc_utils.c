@@ -75,10 +75,10 @@ int
 xqc_insert_conns_addr_hash(xqc_str_hash_table_t *conns_hash, xqc_connection_t *conn,
     const struct sockaddr *addr, socklen_t addrlen)
 {
-    uint64_t hash = xqc_hash_string((unsigned char*)addr, addrlen);
+    uint64_t hash = xqc_hash_string((unsigned char *)addr, addrlen);
     xqc_str_hash_element_t c = {
         .str    = {
-            .data = (unsigned char*)addr,
+            .data = (unsigned char *)addr,
             .len = addrlen
         },
         .hash   = hash,

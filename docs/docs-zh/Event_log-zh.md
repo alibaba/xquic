@@ -656,7 +656,7 @@ typedef enum {
 const char *
 xqc_log_type_str(xqc_log_type_t type)
 {
-    static const char* event_type2str[] = {
+    static const char *event_type2str[] = {
             [CON_SERVER_LISTENING]              = "server_listening",
             [CON_CONNECTION_STARTED]            = "connection_started",
             [CON_CONNECTION_CLOSED]             = "connection_closed",

@@ -40,7 +40,7 @@ xqc_wakeup_pq_revert_cmp(xqc_pq_wakeup_time_t a, xqc_pq_wakeup_time_t b)
 }
 
 typedef struct xqc_wakeup_pq_s {
-    char* elements;         /* elements */
+    char  *elements;         /* elements */
     size_t element_size;    /* memory size of element objects */
     size_t count;           /* number of elements */
     size_t capacity;        /* element capacity */

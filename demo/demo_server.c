@@ -408,7 +408,7 @@ xqc_demo_svr_hq_conn_handshake_finished(xqc_hq_conn_t *conn, void *conn_user_dat
 
 
 int
-xqc_demo_svr_send_rsp_resource(xqc_demo_svr_user_stream_t *user_stream, char* data, ssize_t len,
+xqc_demo_svr_send_rsp_resource(xqc_demo_svr_user_stream_t *user_stream, char *data, ssize_t len,
     int fin)
 {
     ssize_t ret = xqc_hq_request_send_rsp(user_stream->hq_request, data, len, fin);
@@ -507,7 +507,7 @@ xqc_demo_svr_handle_hq_request(xqc_demo_svr_user_stream_t *user_stream, xqc_hq_r
     // printf("open file[%s] suc, user_conn: %p\n", file_path, user_stream->conn);
 
     /* create buf */
-    user_stream->res.buf = (char*)malloc(READ_FILE_BUF_LEN);
+    user_stream->res.buf = (char *)malloc(READ_FILE_BUF_LEN);
     if (NULL == user_stream->res.buf) {
         printf("error create resource buf\n");
         goto handle_error;
@@ -677,12 +677,12 @@ xqc_demo_svr_set_rsp_header_value_int(xqc_http_headers_t *rsp_hdrs, H3_HDR_TYPE 
 {
     sprintf(rsp_hdrs->headers[hdr_type].value.iov_base, "%d", v);
     rsp_hdrs->headers[hdr_type].value.iov_len = strlen(
-        (char*)rsp_hdrs->headers[hdr_type].value.iov_base);
+        (char *)rsp_hdrs->headers[hdr_type].value.iov_base);
 }
 
 
 int
-xqc_demo_svr_request_send_body(xqc_demo_svr_user_stream_t *user_stream, char* data, ssize_t len,
+xqc_demo_svr_request_send_body(xqc_demo_svr_user_stream_t *user_stream, char *data, ssize_t len,
     int fin)
 {
     ssize_t ret = xqc_h3_request_send_body(user_stream->h3_request, data, len, fin);
@@ -782,7 +782,7 @@ xqc_demo_svr_handle_h3_request(xqc_demo_svr_user_stream_t *user_stream,
     }
 
     /* create buf */
-    user_stream->res.buf = (char*)malloc(READ_FILE_BUF_LEN);
+    user_stream->res.buf = (char *)malloc(READ_FILE_BUF_LEN);
     if (NULL == user_stream->res.buf) {
         printf("error create response buf\n");
         xqc_demo_svr_set_rsp_header_value_int(&rsp_hdrs, H3_HDR_STATUS, 500);
@@ -844,12 +844,12 @@ xqc_demo_svr_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
         /* print headers */
         for (int i = 0; i < headers->count; i++) {
             /* save path */
-            if (strcmp((char*)headers->headers[i].name.iov_base, ":path") == 0) {
-                strncpy(user_stream->recv_buf, (char*)headers->headers[i].value.iov_base,
+            if (strcmp((char *)headers->headers[i].name.iov_base, ":path") == 0) {
+                strncpy(user_stream->recv_buf, (char *)headers->headers[i].value.iov_base,
                     headers->headers[i].value.iov_len);
             }
-            printf("%s = %s\n", (char*)headers->headers[i].name.iov_base,
-                (char*)headers->headers[i].value.iov_base);
+            printf("%s = %s\n", (char *)headers->headers[i].name.iov_base,
+                (char *)headers->headers[i].value.iov_base);
         }
 
         /* TODO: if recv headers once for all? */

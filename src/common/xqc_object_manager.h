@@ -48,7 +48,7 @@ xqc_object_manager_create(size_t object_size, size_t capacity, xqc_allocator_t a
         return NULL;
     }
 
-    manager->object_pool = (char*)(manager + 1);
+    manager->object_pool = (char *)(manager + 1);
     manager->capacity = capacity;
     manager->object_size = object_size;
 

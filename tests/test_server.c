@@ -610,7 +610,7 @@ xqc_server_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
         }
 
         for (int i = 0; i < headers->count; i++) {
-            printf("%s = %s\n", (char*)headers->headers[i].name.iov_base, (char*)headers->headers[i].value.iov_base);
+            printf("%s = %s\n", (char *)headers->headers[i].name.iov_base, (char *)headers->headers[i].value.iov_base);
         }
 
         user_stream->header_recvd++;
@@ -1073,7 +1073,7 @@ xqc_server_write_log(xqc_log_level_t lvl, const void *buf, size_t count, void *e
         return;
     }
 
-    int log_len = snprintf(log_buf, XQC_MAX_LOG_LEN + 1, "%s\n", (char*)buf);
+    int log_len = snprintf(log_buf, XQC_MAX_LOG_LEN + 1, "%s\n", (char *)buf);
     if (log_len < 0) {
         printf("xqc_server_write_log err\n");
         return;

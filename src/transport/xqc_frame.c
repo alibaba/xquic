@@ -45,7 +45,7 @@ static const char * const frame_type_2_str[XQC_FRAME_NUM] = {
 
 static char g_frame_type_buf[128];
 
-const char*
+const char *
 xqc_frame_type_2_str(xqc_frame_type_bit_t type_bit)
 {
     g_frame_type_buf[0] = '\0';

@@ -157,11 +157,11 @@ xqc_log_type_2_level(xqc_log_type_t type);
 xqc_log_type_t
 xqc_log_event_type(xqc_log_level_t level);
 
-const char*
+const char *
 xqc_log_type_str(xqc_log_type_t type);
 
 void
-xqc_log_time(char* buf, size_t buf_len);
+xqc_log_time(char *buf, size_t buf_len);
 
 void
 xqc_log_implement(xqc_log_t *log, xqc_log_type_t type, const char *func, const char *fmt, ...);

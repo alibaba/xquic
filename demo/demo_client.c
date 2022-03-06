@@ -54,7 +54,7 @@ typedef struct xqc_demo_cli_user_stream_s {
 
     /* hq request content */
     xqc_hq_request_t           *hq_request;
-    char*                       send_buf;
+    char                       *send_buf;
     size_t                      send_len;
     size_t                      send_offset;
 
@@ -433,7 +433,7 @@ xqc_demo_cli_write_log_file(xqc_log_level_t lvl, const void *buf, size_t size, v
     if (ctx->log_fd <= 0) {
         return;
     }
-    //printf("%s", (char*)buf);
+    //printf("%s", (char *)buf);
     int write_len = write(ctx->log_fd, buf, size);
     if (write_len < 0) {
         printf("write log failed, errno: %d\n", errno);
@@ -831,8 +831,8 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
         }
 
         for (int i = 0; i < headers->count; i++) {
-            printf("%s = %s\n", (char*)headers->headers[i].name.iov_base,
-                (char*)headers->headers[i].value.iov_base);
+            printf("%s = %s\n", (char *)headers->headers[i].name.iov_base,
+                (char *)headers->headers[i].value.iov_base);
         }
 
         if (fin) {
@@ -1202,7 +1202,7 @@ xqc_demo_cli_parse_urls(char *urls, xqc_demo_cli_client_args_t *args)
 {
     /* split urls */
     int cnt = 0;
-    static char* separator = " ";
+    static char *separator = " ";
     char *token = strtok(urls, separator);
     while (token != NULL) {
         if (token) {
@@ -1399,7 +1399,7 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
 
 #define MAX_REQ_BUF_LEN 1500
 int
-xqc_demo_cli_format_hq_req(char* buf, int len, xqc_demo_cli_request_t* req)
+xqc_demo_cli_format_hq_req(char *buf, int len, xqc_demo_cli_request_t* req)
 {
     return snprintf(buf, len, "%s", req->path);
     // return snprintf(buf, len, "%s %s\r\n", method_s[req->method], req->path);
@@ -1488,7 +1488,7 @@ xqc_demo_cli_send_h3_req(xqc_demo_cli_user_conn_t *user_conn,
 }
 
 void
-xqc_demo_cli_open_file(xqc_demo_cli_user_stream_t *user_stream, const char* save_path,
+xqc_demo_cli_open_file(xqc_demo_cli_user_stream_t *user_stream, const char *save_path,
     const char *req_path)
 {
     char file_path[512] = {0};

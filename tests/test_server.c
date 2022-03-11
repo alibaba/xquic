@@ -854,7 +854,7 @@ xqc_server_socket_read_handler(xqc_server_ctx_t *ctx)
         if (g_test_case == 8) {
             static int loss_num = 0;
             loss_num++;
-            /* continous loss to make server at amplification limit */
+            /* continuous loss to make server at amplification limit */
             if (loss_num >= 2 && loss_num <= 10) {
                 continue;
             }

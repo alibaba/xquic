@@ -228,6 +228,8 @@ xqc_conn_init_key_update_ctx(xqc_connection_t *conn)
     ctx->first_sent_pktno  = 0;
     ctx->first_recv_pktno  = 0;
     ctx->enc_pkt_cnt       = 0;
+
+    ctx->initiate_time_guard   = 0;
 }
 
 xqc_connection_t *
@@ -548,7 +550,7 @@ xqc_conn_server_on_alpn(xqc_connection_t *conn, const unsigned char *alpn, size_
     /* do callback */
     if (conn->app_proto_cbs.conn_cbs.conn_create_notify) {
         if (conn->app_proto_cbs.conn_cbs.conn_create_notify(conn, &conn->scid_set.user_scid,
-            conn->app_proto_user_data))
+            conn->user_data, conn->proto_data))
         {
             XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
             return -TRA_INTERNAL_ERROR;
@@ -608,7 +610,8 @@ xqc_conn_destroy(xqc_connection_t *xc)
         /* ALPN negotiated, notify close through application layer protocol callback function */
         if (xc->app_proto_cbs.conn_cbs.conn_close_notify) {
             xc->app_proto_cbs.conn_cbs.conn_close_notify(xc, &xc->scid_set.user_scid,
-                                                         xc->app_proto_user_data);
+                                                         xc->user_data,
+                                                         xc->proto_data);
 
         } else if (xc->transport_cbs.server_refuse) {
             /* ALPN context is not initialized, ClientHello has not been received */
@@ -673,7 +676,7 @@ xqc_conn_set_transport_user_data(xqc_connection_t *conn, void *user_data)
 void
 xqc_conn_set_alp_user_data(xqc_connection_t *conn, void *user_data)
 {
-    conn->app_proto_user_data = user_data;
+    conn->proto_data = user_data;
 }
 
 xqc_int_t
@@ -1123,6 +1126,7 @@ xqc_conn_enc_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     packet_out->po_pkt.pkt_num = conn->conn_send_ctl->ctl_packet_number[packet_out->po_pkt.pkt_pns]++;
     xqc_write_packet_number(packet_out->po_ppktno, packet_out->po_pkt.pkt_num, XQC_PKTNO_BITS);
     xqc_long_packet_update_length(packet_out);
+    xqc_short_packet_update_key_phase(packet_out, conn->key_update_ctx.cur_out_key_phase);
 
     /* encrypt */
     xqc_int_t ret = xqc_packet_encrypt_buf(conn, packet_out, enc_pkt, enc_pkt_cap, enc_pkt_len);
@@ -2621,7 +2625,7 @@ xqc_conn_check_handshake_complete(xqc_connection_t *conn)
         xqc_conn_handshake_complete(conn);
 
         if (conn->app_proto_cbs.conn_cbs.conn_handshake_finished) {
-            conn->app_proto_cbs.conn_cbs.conn_handshake_finished(conn, conn->app_proto_user_data);
+            conn->app_proto_cbs.conn_cbs.conn_handshake_finished(conn, conn->user_data, conn->proto_data);
         }
     }
 
@@ -2728,6 +2732,15 @@ xqc_conn_confirm_key_update(xqc_connection_t *conn)
     if (!xqc_send_ctl_timer_is_set(conn->conn_send_ctl, XQC_TIMER_KEY_UPDATE)) {
         xqc_send_ctl_timer_set(conn->conn_send_ctl, XQC_TIMER_KEY_UPDATE, now, 3 * pto);
     }
+
+    /*
+     * Endpoints need to allow for the possibility that a peer might not be able to decrypt
+     * packets that initiate a key update during the period when the peer retains old keys.
+     * Endpoints SHOULD wait three times the PTO before initiating a key update after receiving
+     * an acknowledgment that confirms that the previous key update was received.
+     * Failing to allow sufficient time could lead to packets being discarded.
+     */
+    ctx->initiate_time_guard = now + 3 * pto;
 
     return XQC_OK;
 }

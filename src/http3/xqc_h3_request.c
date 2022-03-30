@@ -24,7 +24,7 @@ xqc_h3_request_create(xqc_engine_t *engine, const xqc_cid_t *cid, void *user_dat
         return NULL;
     }
 
-    h3_conn = (xqc_h3_conn_t*)stream->stream_conn->app_proto_user_data;
+    h3_conn = (xqc_h3_conn_t*)stream->stream_conn->proto_data;
 
     h3_stream = xqc_h3_stream_create(h3_conn, stream, XQC_H3_STREAM_TYPE_REQUEST, user_data);
     if (!h3_stream) {

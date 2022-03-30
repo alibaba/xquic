@@ -52,36 +52,18 @@ xqc_int_t
 xqc_ssl_get_certs_array(SSL *ssl, X509_STORE_CTX *store_ctx, unsigned char **certs_array,
     size_t array_cap, size_t *certs_array_len, size_t *certs_len)
 {
-    unsigned char *cert_buf = NULL;
-    X509 *cert = NULL;
-    int cert_size = 0;
+    const STACK_OF(CRYPTO_BUFFER) *chain = SSL_get0_peer_certificates(ssl);
 
-    const STACK_OF(X509) *chain = X509_STORE_CTX_get0_chain(store_ctx);
-    *certs_array_len = sk_X509_num(chain);
-    if (*certs_array_len > XQC_MAX_VERIFY_DEPTH) { /* impossible */
+    *certs_array_len = sk_CRYPTO_BUFFER_num(chain);
+    if (*certs_array_len > XQC_MAX_VERIFY_DEPTH) {
         X509_STORE_CTX_set_error(store_ctx, X509_V_ERR_CERT_CHAIN_TOO_LONG);
         return -XQC_TLS_INTERNAL;
     }
 
     for (int i = 0; i < *certs_array_len; i++) {
-        /* get the size of cert */
-        cert = sk_X509_value(chain, i);
-        cert_size = i2d_X509(cert, NULL);
-        if (cert_size <= 0) {
-            return -XQC_TLS_INTERNAL;
-        }
-
-        /* malloc memory for copy cert */
-        certs_array[i] = xqc_malloc(cert_size);
-        if (certs_array[i] == NULL) {
-            return -XQC_TLS_NOMEM;
-        }
-
-        /* copy cert */
-        certs_len[i] = i2d_X509(cert, &certs_array[i]);
-        if (certs_len[i] <= 0) {
-            return -XQC_TLS_INTERNAL;
-        }
+        CRYPTO_BUFFER * buffer = sk_CRYPTO_BUFFER_value(chain, i);
+        certs_array[i] = (unsigned char *)CRYPTO_BUFFER_data(buffer);
+        certs_len[i] = (size_t)CRYPTO_BUFFER_len(buffer);
     }
 
     return XQC_OK;

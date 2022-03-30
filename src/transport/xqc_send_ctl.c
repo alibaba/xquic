@@ -1550,7 +1550,7 @@ xqc_send_ctl_on_packet_acked(xqc_send_ctl_t *ctl,
                 && (packet_out->po_flag & XQC_POF_NOTIFY))
             {
                 conn->app_proto_cbs.conn_cbs.conn_ping_acked(conn, &conn->scid_set.user_scid,
-                                                        packet_out->po_user_data, conn->app_proto_user_data);
+                                                        packet_out->po_user_data, conn->user_data, conn->proto_data);
             }
         }
 

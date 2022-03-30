@@ -163,17 +163,17 @@ end:
 }
 
 int
-xqc_server_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data)
+xqc_server_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data, void *conn_proto_data)
 {
     DEBUG;
     return 0;
 }
 
 int
-xqc_server_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data)
+xqc_server_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data, void *conn_proto_data)
 {
     DEBUG;
-    user_conn_t *user_conn = (user_conn_t*)user_data;
+    user_conn_t *user_conn = (user_conn_t *)conn_proto_data;
     xqc_conn_stats_t stats = xqc_conn_get_stats(ctx.engine, cid);
     printf("send_count:%u, lost_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" early_data_flag:%d, conn_err:%d, ack_info:%s\n",
            stats.send_count, stats.lost_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.ack_info);
@@ -183,7 +183,7 @@ xqc_server_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void 
 }
 
 void
-xqc_server_conn_handshake_finished(xqc_connection_t *conn, void *user_data)
+xqc_server_conn_handshake_finished(xqc_connection_t *conn, void *user_data, void *conn_proto_data)
 {
     DEBUG;
     user_conn_t *user_conn = (user_conn_t *) user_data;

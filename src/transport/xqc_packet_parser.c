@@ -604,13 +604,15 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     }
 
     /* update enc_pkt_cnt for current 1-rtt key & maybe initiate a key update */
-    if (packet_out->po_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER && level == XQC_ENC_LEV_1RTT) {
+    if (conn->conn_settings.keyupdate_pkt_threshold > 0
+        && packet_out->po_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER && level == XQC_ENC_LEV_1RTT)
+    {
         conn->key_update_ctx.enc_pkt_cnt++;
 
-        if (conn->conn_settings.keyupdate_pkt_threshold > 0
-            && conn->key_update_ctx.enc_pkt_cnt > conn->conn_settings.keyupdate_pkt_threshold
+        if (conn->key_update_ctx.enc_pkt_cnt > conn->conn_settings.keyupdate_pkt_threshold
             && conn->key_update_ctx.first_sent_pktno <=
-                conn->conn_send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA])
+                conn->conn_send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA]
+            && xqc_monotonic_timestamp() > conn->key_update_ctx.initiate_time_guard)
         {
             ret = xqc_tls_update_1rtt_keys(conn->tls, XQC_KEY_TYPE_RX_READ);
             if (ret != XQC_OK) {

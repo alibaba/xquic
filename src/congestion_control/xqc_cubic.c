@@ -100,6 +100,14 @@ xqc_cubic_update(void *cong_ctl, uint32_t acked_bytes, xqc_usec_t now)
     cubic->cwnd = bic_target;
 }
 
+/* https://datatracker.ietf.org/doc/html/rfc9002#appendix-B.5 */
+static int
+xqc_cubic_in_congestion_recovery(void *cong_ctl, xqc_usec_t sent_time)
+{
+    xqc_cubic_t *cubic = (xqc_cubic_t*)(cong_ctl);
+    return sent_time <= cubic->congestion_recovery_start_time;
+}
+
 size_t
 xqc_cubic_size()
 {
@@ -115,6 +123,7 @@ xqc_cubic_init(void *cong_ctl, xqc_send_ctl_t *ctl_ctx, xqc_cc_params_t cc_param
     cubic->tcp_cwnd = XQC_CUBIC_INIT_WIN;
     cubic->last_max_cwnd = XQC_CUBIC_INIT_WIN;
     cubic->ssthresh = XQC_CUBIC_MAX_SSTHRESH;
+    cubic->congestion_recovery_start_time = 0;
 
     if (cc_params.customize_on) {
         cc_params.init_cwnd *= XQC_CUBIC_MSS;
@@ -130,6 +139,12 @@ xqc_cubic_on_lost(void *cong_ctl, xqc_usec_t lost_sent_time)
 {
     xqc_cubic_t *cubic = (xqc_cubic_t*)(cong_ctl);
 
+    /* No reaction if already in a recovery period. */
+    if (xqc_cubic_in_congestion_recovery(cong_ctl, lost_sent_time)) {
+        return;
+    }
+
+    cubic->congestion_recovery_start_time = xqc_monotonic_timestamp();
     cubic->epoch_start = 0;
 
     /* should we make room for others */
@@ -160,6 +175,11 @@ xqc_cubic_on_ack(void *cong_ctl, xqc_packet_out_t *po, xqc_usec_t now)
 
     if (cubic->min_rtt == 0 || rtt < cubic->min_rtt) {
         cubic->min_rtt = rtt;
+    }
+
+    /* Do not increase congestion window in recovery period. */
+    if (xqc_cubic_in_congestion_recovery(cong_ctl, po->po_sent_time)) {
+        return;
     }
 
     if (cubic->cwnd < cubic->ssthresh) {

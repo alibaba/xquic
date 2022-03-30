@@ -208,5 +208,9 @@ In no particular order, thanks to these excellent individuals who contributed co
 * @flx413
 * @robinhzp
 * @contrun
+* @eltociear
+* @happyomg
+* @driventokill
+* @chenzhanfeng
 
 This list will be continuously updated. Contributions are welcome!

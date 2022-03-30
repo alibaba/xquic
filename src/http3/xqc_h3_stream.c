@@ -1162,7 +1162,7 @@ xqc_h3_stream_process_data(xqc_stream_t *stream, xqc_h3_stream_t *h3s, xqc_bool_
 {
     xqc_int_t       ret;
     ssize_t         read;
-    xqc_h3_conn_t  *h3c = (xqc_h3_conn_t *)stream->stream_conn->app_proto_user_data;
+    xqc_h3_conn_t  *h3c = (xqc_h3_conn_t *)stream->stream_conn->proto_data;
     unsigned char   buff[XQC_DATA_BUF_SIZE_4K];
     size_t          buff_size = XQC_DATA_BUF_SIZE_4K;
     uint64_t        insert_cnt = xqc_qpack_get_dec_insert_count(h3s->qpack);
@@ -1290,7 +1290,7 @@ xqc_h3_stream_read_notify(xqc_stream_t *stream, void *user_data)
     xqc_int_t ret;
 
     xqc_h3_stream_t *h3s;
-    xqc_h3_conn_t   *h3c = (xqc_h3_conn_t *)stream->stream_conn->app_proto_user_data;
+    xqc_h3_conn_t   *h3c = (xqc_h3_conn_t *)stream->stream_conn->proto_data;
 
     /* server h3_stream might not be created yet */
     if (!user_data) {

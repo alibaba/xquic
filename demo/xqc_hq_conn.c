@@ -115,7 +115,8 @@ xqc_hq_conn_get_peer_addr(xqc_hq_conn_t *hqc, struct sockaddr *addr, socklen_t a
 }
 
 xqc_int_t
-xqc_hq_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *conn_user_data)
+xqc_hq_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
+    void *conn_user_data, void *conn_proto_data)
 {
     /* here conn_user_data is the app-layer user_data */
     xqc_hq_conn_t *hqc = xqc_hq_conn_create(conn, cid, conn_user_data);
@@ -136,11 +137,12 @@ xqc_hq_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *co
 }
 
 xqc_int_t
-xqc_hq_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *conn_user_data)
+xqc_hq_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
+    void *conn_user_data, void *conn_proto_data)
 {
     xqc_int_t ret = XQC_OK;
 
-    xqc_hq_conn_t *hqc = (xqc_hq_conn_t *)conn_user_data;
+    xqc_hq_conn_t *hqc = (xqc_hq_conn_t *)conn_proto_data;
     if (hqc->hqc_cbs->conn_close_notify) {
         ret = hqc->hqc_cbs->conn_close_notify(hqc, cid, hqc->user_data);
         if (ret != XQC_OK) {
@@ -155,7 +157,8 @@ xqc_hq_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *con
 
 
 void
-xqc_hq_conn_handshake_finished(xqc_connection_t *conn, void *conn_user_data)
+xqc_hq_conn_handshake_finished(xqc_connection_t *conn, void *conn_user_data,
+    void *conn_proto_data)
 {
     return;
 }

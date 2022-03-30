@@ -615,11 +615,11 @@ xqc_client_user_conn_create(const char *server_addr, int server_port,
 
 
 int
-xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data)
+xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data, void *conn_proto_data)
 {
     DEBUG;
 
-    user_conn_t *user_conn = (user_conn_t *) user_data;
+    user_conn_t *user_conn = (user_conn_t *)user_data;
     xqc_conn_set_alp_user_data(conn, user_conn);
 
     printf("xqc_conn_is_ready_to_send_early_data:%d\n", xqc_conn_is_ready_to_send_early_data(conn));
@@ -627,11 +627,11 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
 }
 
 int
-xqc_client_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data)
+xqc_client_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data, void *conn_proto_data)
 {
     DEBUG;
 
-    user_conn_t *user_conn = (user_conn_t *) user_data;
+    user_conn_t *user_conn = (user_conn_t *)conn_proto_data;
 
     xqc_conn_stats_t stats = xqc_conn_get_stats(ctx.engine, cid);
     printf("send_count:%u, lost_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" early_data_flag:%d, conn_err:%d, ack_info:%s\n",
@@ -642,7 +642,7 @@ xqc_client_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void 
 }
 
 void
-xqc_client_conn_ping_acked_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *ping_user_data, void *user_data)
+xqc_client_conn_ping_acked_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *ping_user_data, void *user_data, void *conn_proto_data)
 {
     DEBUG;
     if (ping_user_data) {
@@ -669,7 +669,7 @@ xqc_client_conn_update_cid_notify(xqc_connection_t *conn, const xqc_cid_t *retir
 }
 
 void
-xqc_client_conn_handshake_finished(xqc_connection_t *conn, void *user_data)
+xqc_client_conn_handshake_finished(xqc_connection_t *conn, void *user_data, void *conn_proto_data)
 {
     DEBUG;
     user_conn_t *user_conn = (user_conn_t *) user_data;

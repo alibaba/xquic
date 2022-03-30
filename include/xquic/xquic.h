@@ -164,9 +164,14 @@ typedef ssize_t (*xqc_stateless_reset_pt)(const unsigned char *buf, size_t size,
 
 /**
  * @brief general callback function definition for connection create and close
+ * 
+ * @param conn_user_data the user_data which will be used in callback functions
+ * between xquic transport connection and application
+ * @param conn_proto_data the user_data which will be used in callback functions
+ * between xquic transport connection and application-layer-protocol
  */
 typedef int (*xqc_conn_notify_pt)(xqc_connection_t *conn, const xqc_cid_t *cid,
-    void *conn_user_data);
+    void *conn_user_data, void *conn_proto_data);
 
 /**
  * @brief QUIC connection token callback. REQUIRED for client.
@@ -209,7 +214,8 @@ typedef xqc_save_string_pt xqc_save_trans_param_pt;
  * this will be trigger when the QUIC connection handshake is completed, that is, when the TLS
  * stack has both sent a Finished message and verified the peer's Finished message
  */
-typedef void (*xqc_handshake_finished_pt)(xqc_connection_t *conn, void *conn_user_data);
+typedef void (*xqc_handshake_finished_pt)(xqc_connection_t *conn, void *conn_user_data,
+    void *conn_proto_data);
 
 /**
  * @brief PING acked callback function.
@@ -220,7 +226,7 @@ typedef void (*xqc_handshake_finished_pt)(xqc_connection_t *conn, void *conn_use
  * xquic might send PING frames  will not trigger this callback
  */
 typedef void (*xqc_conn_ping_ack_notify_pt)(xqc_connection_t *conn, const xqc_cid_t *cid,
-    void *ping_user_data, void *conn_user_data);
+    void *ping_user_data, void *conn_user_data, void *conn_proto_data);
 
 /**
  * @brief cid update callback function.
@@ -984,7 +990,7 @@ void xqc_conn_set_transport_user_data(xqc_connection_t *conn, void *user_data);
  * xqc_conn_callbacks_t
  */
 XQC_EXPORT_PUBLIC_API
-void xqc_conn_set_alp_user_data(xqc_connection_t *conn, void *app_proto_user_data);
+void xqc_conn_set_alp_user_data(xqc_connection_t *conn, void *proto_data);
 
 
 /**

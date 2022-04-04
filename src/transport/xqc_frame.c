@@ -211,7 +211,8 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         case 0x05:
             ret = xqc_process_stop_sending_frame(conn, packet_in);
             break;
-        case 0x06:            ret = xqc_process_crypto_frame(conn, packet_in);
+        case 0x06:
+            ret = xqc_process_crypto_frame(conn, packet_in);
             break;
         case 0x07:
             ret = xqc_process_new_token_frame(conn, packet_in);

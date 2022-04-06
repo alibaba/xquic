@@ -13,6 +13,7 @@
 #define FALSE 0
 #define XQC_CLOCK_GRANULARITY_US 1000 /* 1ms */
 #define XQC_PACING_DELAY_US XQC_CLOCK_GRANULARITY_US
+#define XQC_DEFAULT_PACING_RATE (((2 * XQC_QUIC_MSS * 1000000ULL)/(XQC_kInitialRtt * 1000)))
 
 void
 xqc_pacing_init(xqc_pacing_t *pacing, int pacing_on, xqc_send_ctl_t *ctl)
@@ -49,6 +50,11 @@ xqc_pacing_rate_calc(xqc_pacing_t *pacing)
 
     /* bytes can be sent per second */
     pacing_rate = cwnd * 1000000 / srtt;
+    if (pacing_rate == 0) {
+        pacing_rate = XQC_DEFAULT_PACING_RATE;
+        xqc_log(pacing->ctl_ctx->ctl_conn->log, XQC_LOG_ERROR,
+                "|pacing_rate zero|cwnd:%ui|srtt:%ui|", cwnd, srtt);
+    }
 
     if (ctl->ctl_cong_callback->xqc_cong_ctl_in_slow_start 
         && ctl->ctl_cong_callback->xqc_cong_ctl_in_slow_start(ctl->ctl_cong))

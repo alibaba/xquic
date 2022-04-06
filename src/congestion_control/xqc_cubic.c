@@ -158,9 +158,9 @@ xqc_cubic_on_lost(void *cong_ctl, xqc_usec_t lost_sent_time)
 
     /* Multiplicative Decrease */
     cubic->cwnd = cubic->cwnd * XQC_CUBIC_BETA / XQC_CUBIC_BETA_SCALE;
+    cubic->cwnd = xqc_max(cubic->cwnd, XQC_CUBIC_MIN_WIN);
     cubic->tcp_cwnd = cubic->cwnd;
-    /* threshold is at least XQC_CUBIC_MIN_WIN */
-    cubic->ssthresh = xqc_max(cubic->cwnd, XQC_CUBIC_MIN_WIN);
+    cubic->ssthresh = cubic->cwnd;
 }
 
 

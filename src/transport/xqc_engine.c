@@ -196,7 +196,6 @@ xqc_engine_conns_hash_create(xqc_config_t *config)
     return hash_table;
 
 fail:
-    xqc_str_hash_release(hash_table);
     xqc_free(hash_table);
     return NULL;
 }

@@ -202,7 +202,8 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         case 0x01:
             ret = xqc_process_ping_frame(conn, packet_in);
             break;
-        case 0x02 ... 0x03:
+        case 0x02:
+        case 0x03:
             ret = xqc_process_ack_frame(conn, packet_in);
             break;
         case 0x04:
@@ -217,7 +218,14 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         case 0x07:
             ret = xqc_process_new_token_frame(conn, packet_in);
             break;
-        case 0x08 ... 0x0f:
+        case 0x08:
+        case 0x09:
+        case 0x0a:
+        case 0x0b:
+        case 0x0c:
+        case 0x0d:
+        case 0x0e:
+        case 0x0f:
             ret = xqc_process_stream_frame(conn, packet_in);
             break;
         case 0x10:
@@ -226,7 +234,8 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         case 0x11:
             ret = xqc_process_max_stream_data_frame(conn, packet_in);
             break;
-        case 0x12 ... 0x13:
+        case 0x12:
+        case 0x13:
             ret = xqc_process_max_streams_frame(conn, packet_in);
             break;
         case 0x14:
@@ -235,7 +244,8 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         case 0x15:
             ret = xqc_process_stream_data_blocked_frame(conn, packet_in);
             break;
-        case 0x16 ... 0x17:
+        case 0x16: 
+        case 0x17:
             ret = xqc_process_streams_blocked_frame(conn, packet_in);
             break;
         case 0x18:
@@ -244,7 +254,8 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         case 0x19:
             ret = xqc_process_retire_conn_id_frame(conn, packet_in);
             break;
-        case 0x1c ... 0x1d:
+        case 0x1c:
+        case 0x1d:
             ret = xqc_process_conn_close_frame(conn, packet_in);
             break;
         case 0x1e:

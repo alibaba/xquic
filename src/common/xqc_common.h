@@ -10,7 +10,6 @@
 #include <xquic/xqc_errno.h>
 #include <xquic/xquic_typedef.h>
 
-
 #ifndef XQC_LITTLE_ENDIAN
 # define XQC_LITTLE_ENDIAN 1
 #endif

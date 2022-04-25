@@ -17,23 +17,46 @@ if(NOT SSL_TYPE)
     set(SSL_TYPE "babassl")
 endif()
 
-# PATH of ssl
-if(NOT SSL_PATH)
-    set(SSL_PATH "/usr/local/babassl")
+if(${SSL_TYPE} MATCHES "babassl")
+    # PATH of ssl
+    if(NOT SSL_PATH)
+        set(SSL_PATH "/usr/local/babassl")
+    endif()
+
+    # ssl lib denpendency
+    if(NOT SSL_LIB_PATH)
+        set(SSL_LIB_PATH
+            ${SSL_PATH}/lib/libssl.a
+            ${SSL_PATH}/lib/libcrypto.a
+        )
+    endif()
+elseif(${SSL_TYPE} MATCHES "boringssl")
+    # PATH of ssl
+    if(NOT SSL_PATH)
+        set(SSL_PATH ${CMAKE_CURRENT_SOURCE_DIR}/third_party/boringssl)
+    endif()
+
+    # ssl lib denpendency
+    if(NOT SSL_LIB_PATH)
+        if(CMAKE_SYSTEM_NAME MATCHES "Windows")
+            add_definitions(-DNOCRYPT=1)
+            set(SSL_LIB_PATH
+                ${SSL_PATH}/build/ssl/${CMAKE_BUILD_TYPE}/ssl.lib
+                ${SSL_PATH}/build/crypto/${CMAKE_BUILD_TYPE}/crypto.lib
+        )
+        else()
+            set(SSL_LIB_PATH
+                ${SSL_PATH}/build/ssl/libssl.a
+                ${SSL_PATH}/build/crypto/libcrypto.a
+            )
+        endif()
+    endif()
 endif()
 
 # ssl include path
 if(NOT SSL_INC_PATH)
     set(SSL_INC_PATH
         ${SSL_PATH}/include
-    )
-endif()
-
-# ssl lib denpendency
-if(NOT SSL_LIB_PATH)
-    set(SSL_LIB_PATH
-        ${SSL_PATH}/lib/libssl.a
-        ${SSL_PATH}/lib/libcrypto.a
     )
 endif()
 
@@ -65,8 +88,15 @@ endif()
 
 
 # C_FLAGS
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O2 -std=gnu11 -Werror -Wall -Wno-unused -Wno-pointer-sign -Wno-format-security -DNDEBUG_PRINT -DNPRINT_MALLOC ")
-set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -g -O0 -std=gnu11 -Werror -Wall -Wno-unused -Wno-pointer-sign -Wno-format-security -DNDEBUG_PRINT -DNPRINT_MALLOC -DXQC_DEBUG ")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O2 -std=gnu11 -Wall -DNDEBUG_PRINT -DNPRINT_MALLOC ")
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -g -O0 -std=gnu11 -Wall -DNDEBUG_PRINT -DNPRINT_MALLOC -DXQC_DEBUG ")
+
+if(NOT CMAKE_SYSTEM_NAME MATCHES "Windows")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -Wno-unused -Wno-pointer-sign -Wno-format-security ")
+    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -Werror -Wno-unused -Wno-pointer-sign -Wno-format-security ")
+else()
+    add_definitions(-DXQC_SYS_WINDOWS=1)
+endif()
 
 # additional C_FLAGS on mac
 if(PLATFORM STREQUAL "mac32")
@@ -262,11 +292,21 @@ endif()
 include_directories(${SSL_INC_PATH})
 include_directories(${CMAKE_SOURCE_DIR}/)
 
+if(CMAKE_SYSTEM_NAME MATCHES "Windows")
+    # used wingetopt on windows
+    if(NOT GETOPT_INC_PATH)
+        set(GETOPT_INC_PATH
+            ${CMAKE_SOURCE_DIR}/third_party/wingetopt
+        )
+    endif()
+    include_directories(${GETOPT_INC_PATH}/src)
+    set(GETOPT_SOURCES  "{GETOPT_INC_PATH}/src/getopt.c" )
+endif()
 
 
 ##### build unittest, test client/server, demo client/server #####
 if (XQC_ENABLE_TESTING)
-    # CUnit
+    # CUnit TODO: fix test unit on windows
     find_package(CUnit 2.1)
     enable_testing()
     set(HAVE_CUNIT ${CUNIT_FOUND})
@@ -277,8 +317,8 @@ if (XQC_ENABLE_TESTING)
     add_subdirectory(tests)
 
     ### test client/server ###
-    add_executable(test_server tests/test_server.c)
-    add_executable(test_client tests/test_client.c)
+    add_executable(test_server tests/test_server.c ${GETOPT_SOURCES})
+    add_executable(test_client tests/test_client.c ${GETOPT_SOURCES})
 
     ### hq demo client/server ###
     set(
@@ -300,10 +340,24 @@ if (XQC_ENABLE_TESTING)
         "demo/demo_server.c"
     )
 
-    add_executable(demo_server ${DEMO_SERVER_SOURCES})
-    add_executable(demo_client ${DEMO_CLIENT_SOURCES})
+    add_executable(demo_server ${DEMO_SERVER_SOURCES} ${GETOPT_SOURCES})
+    add_executable(demo_client ${DEMO_CLIENT_SOURCES} ${GETOPT_SOURCES})
+    if(CMAKE_SYSTEM_NAME  MATCHES "Windows")
+        if (NOT EVENT_LIB_DIR)
+            message("YOU NEED SET -DEVENT_LIB_DIR=your_event_path, eg:-DEVENT_LIB_DIR=D:/project/vcpkg/packages/libevent_x64-windows-static")
+        endif()
 
-    link_directories(/usr/local/lib)
+        include_directories( ${EVENT_LIB_DIR}/include )
+        link_directories( ${EVENT_LIB_DIR}/lib )
+
+        SET(EVENT_LIB_PATH
+            ${EVENT_LIB_DIR}/lib/event.lib
+            ${EVENT_LIB_DIR}/lib/event_core.lib
+            ${EVENT_LIB_DIR}/lib/event_extra.lib
+        )
+    else()
+        link_directories( /usr/local/lib )
+    endif()
 
     if(PLATFORM STREQUAL "mac32")
         target_link_libraries(test_server xquic  -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
@@ -315,6 +369,11 @@ if (XQC_ENABLE_TESTING)
         target_link_libraries(test_client xquic -lm -L/usr/local/lib -levent)
         target_link_libraries(demo_server xquic -lm -L/usr/local/lib -levent)
         target_link_libraries(demo_client xquic -lm -L/usr/local/lib -levent)
+    elseif(CMAKE_SYSTEM_NAME  MATCHES "Windows")
+        target_link_libraries(test_server xquic ${EVENT_LIB_PATH} -lm)
+        target_link_libraries(test_client xquic ${EVENT_LIB_PATH} -lm)
+        target_link_libraries(demo_server xquic ${EVENT_LIB_PATH} -lm)
+        target_link_libraries(demo_client xquic ${EVENT_LIB_PATH} -lm)
     else()
         target_link_libraries(test_server xquic -levent -lm)
         target_link_libraries(test_client xquic -levent -lm)

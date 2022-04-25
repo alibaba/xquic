@@ -9,6 +9,48 @@
 #include <stddef.h>
 #include "xqc_errno.h"
 
+#define XQC_EXTERN extern
+
+/* defined UNIX system default */
+#ifndef XQC_SYS_WINDOWS
+#   define XQC_SYS_UNIX
+#endif
+
+#if defined(_WIN32) || defined(WIN32) || defined(XQC_SYS_WIN32)
+#  if !defined(XQC_SYS_WIN32)
+#  define XQC_SYS_WIN32
+#  endif
+#endif
+
+#if defined(_WIN64) || defined(WIN64) || defined(XQC_SYS_WIN64)
+#  if !defined(XQC_SYS_WIN64)
+#  define XQC_SYS_WIN64
+#  endif
+#endif
+
+#if defined(XQC_SYS_WIN32) || defined(XQC_SYS_WIN64)
+#undef XQC_SYS_UNIX
+#define XQC_SYS_WINDOWS
+#endif
+
+#if defined(__MINGW64__) || defined(__MINGW32__)
+#  if !defined(XQC_ON_MINGW)
+#  define XQC_ON_MINGW
+#  endif
+#endif
+
+#if defined(XQC_SYS_WINDOWS) && !defined(XQC_ON_MINGW)
+# undef XQC_EXTERN
+# define XQC_EXTERN
+
+#ifdef XQC_SYS_WIN64
+    typedef __int64 ssize_t;
+#elif defined(XQC_SYS_WIN32)
+    typedef __int32 ssize_t;
+#endif
+#endif
+
+
 /* TODO: there may be problems using -o2 under Android platform */
 #if defined(__GNUC__) && !defined(ANDROID)
 #   define XQC_UNLIKELY(cond) __builtin_expect(!!(cond), 0)
@@ -100,13 +142,20 @@ typedef enum {
 #endif
 } xqc_bbr2_optimization_flag_t;
 
-#ifdef WIN32
+#define XQC_EXPORT_PUBLIC_API   __attribute__((visibility("default")))
+
+#ifdef XQC_SYS_WINDOWS
 struct iovec {
     void   *iov_base;   /* [XSI] Base address of I/O memory region */
     size_t  iov_len;    /* [XSI] Size of region iov_base points to */
 };
+
+#if !(defined __MINGW32__) && !(defined __MINGW64__)
+#undef XQC_EXPORT_PUBLIC_API
+#define XQC_EXPORT_PUBLIC_API   _declspec(dllexport) 
 #endif
 
-#define XQC_EXPORT_PUBLIC_API   __attribute__((visibility("default")))
+#endif
+
 
 #endif /*_XQUIC_TYPEDEF_H_INCLUDED_*/

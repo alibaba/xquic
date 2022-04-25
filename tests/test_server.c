@@ -764,10 +764,10 @@ xqc_server_write_socket(const unsigned char *buf, size_t size,
 
 
 ssize_t
-xqc_server_send_stateless_reset(const unsigned char *buf, size_t size,
-    const struct sockaddr *peer_addr, socklen_t peer_addrlen, int fd, void *user)
+xqc_server_stateless_reset(const unsigned char *buf, size_t size,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *user_data)
 {
-    return xqc_server_write_socket(buf, size, peer_addr, peer_addrlen, user);
+    return xqc_server_write_socket(buf, size, peer_addr, peer_addrlen, user_data);
 }
 
 void
@@ -1343,6 +1343,7 @@ int main(int argc, char *argv[]) {
         .server_accept = xqc_server_accept,
         .write_socket = xqc_server_write_socket,
         .conn_update_cid_notify = xqc_server_conn_update_cid_notify,
+        .stateless_reset = xqc_server_stateless_reset,
     };
 
     xqc_cong_ctrl_callback_t cong_ctrl;
@@ -1394,6 +1395,11 @@ int main(int argc, char *argv[]) {
 
     if (g_test_case == 12) {
         conn_settings.linger.linger_on = 1;
+    }
+
+    /* test reset, destroy connection as soon as possible */
+    if (g_test_case == 13) {
+        conn_settings.idle_time_out = 1;
     }
 
     xqc_server_set_conn_settings(&conn_settings);

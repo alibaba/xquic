@@ -499,12 +499,6 @@ void *xqc_h3_get_conn_user_data_by_request(xqc_h3_request_t *h3_request);
 XQC_EXPORT_PUBLIC_API
 xqc_stream_id_t xqc_h3_stream_id(xqc_h3_request_t *h3_request);
 
-/**
- * @brief Get QUIC Transport connection handler
- */
-XQC_EXPORT_PUBLIC_API
-xqc_connection_t *xqc_h3_conn_get_xqc_conn(xqc_h3_conn_t *h3_conn);
-
 
 #ifdef __cplusplus
 }

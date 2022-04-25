@@ -299,7 +299,6 @@ end:
     return ret;
 }
 
-int g_send_total = 0;
 ssize_t 
 xqc_client_write_socket(const unsigned char *buf, size_t size,
     const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *user)
@@ -307,6 +306,14 @@ xqc_client_write_socket(const unsigned char *buf, size_t size,
     user_conn_t *user_conn = (user_conn_t *) user;
     ssize_t res = 0;
     int fd = user_conn->fd;
+
+    if (g_test_case == 41) {
+        /* delay short header packet to make server idle timeout */
+        if ((buf[0] & 0xC0) == 0x40) {
+            sleep(2);
+            g_test_case = -1;
+        }
+    }
 
     /* COPY to run corruption test cases */
     unsigned char send_buf[XQC_PACKET_TMP_BUF_LEN];

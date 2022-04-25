@@ -87,11 +87,10 @@ sh ../scripts/xquic_test.sh
 * 关于API的使用，详见 [API文档](../../docs/API.md)。
 * 关于平台支持的细节，详见 [平台文档](../../docs/Platforms.md)。
 * 关于 IETF QUIC Protocol 的中文翻译，详见翻译文档。
-    - 以下翻译均基于 draft-34，RFC的翻译工作正在进行中。
-    - [draft-ietf-quic-invariants-13-zh](../../docs/translation/draft-ietf-quic-invariants-13-zh.md)
-    - [draft-ietf-quic-transport-34-zh](../../docs/translation/draft-ietf-quic-transport-34-zh.md)
-    - [draft-ietf-quic-recovery-34-zh](../../docs/translation/draft-ietf-quic-recovery-34-zh.md)
-    - [draft-ietf-quic-tls-34-zh](../../docs/translation/draft-ietf-quic-tls-34-zh.md)
+    - [RFC8999-invariants-zh](./docs/translation/rfc8999-invariants-zh.md)
+    - [RFC9000-transport-zh](./docs/translation/rfc9000-transport-zh.md)
+    - [RFC9001-tls-zh](./docs/translation/rfc9001-tls-zh.md)
+    - [RFC9002-recovery-zh](./docs/translation/rfc9002-recovery-zh.md)
     - [draft-ietf-quic-http-34-zh](../../docs/translation/draft-ietf-quic-http-34-zh.md)
     - [draft-ietf-quic-qpack-21-zh](../../docs/translation/draft-ietf-quic-qpack-21-zh.md)
 * 关于event_log模块的使用, 详见 [Event_log module docs](../../docs/docs-zh/Event_log-zh.md)。

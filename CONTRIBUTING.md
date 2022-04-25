@@ -212,5 +212,7 @@ In no particular order, thanks to these excellent individuals who contributed co
 * @happyomg
 * @driventokill
 * @chenzhanfeng
+* @CherylQL
+* @wangweiwei1188
 
 This list will be continuously updated. Contributions are welcome!

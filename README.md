@@ -97,11 +97,10 @@ sh ../scripts/xquic_test.sh
 * For using the API, see the [API docs](./docs/API.md).
 * For platform support details, see the [Platforms docs](./docs/Platforms.md).
 * For Chinese Simplified (zh-CN) translation of the IETF QUIC Protocol, see the Translation docs.
-    - The following translation is based on draft-34 and RFC Translation is Working In Progress.
-    - [draft-ietf-quic-invariants-13-zh](./docs/translation/draft-ietf-quic-invariants-13-zh.md)
+    - [RFC8999-invariants-zh](./docs/translation/rfc8999-invariants-zh.md)
     - [RFC9000-transport-zh](./docs/translation/rfc9000-transport-zh.md)
-    - [draft-ietf-quic-recovery-34-zh](./docs/translation/draft-ietf-quic-recovery-34-zh.md)
-    - [draft-ietf-quic-tls-34-zh](./docs/translation/draft-ietf-quic-tls-34-zh.md)
+    - [RFC9001-tls-zh](./docs/translation/rfc9001-tls-zh.md)
+    - [RFC9002-recovery-zh](./docs/translation/rfc9002-recovery-zh.md)
     - [draft-ietf-quic-http-34-zh](./docs/translation/draft-ietf-quic-http-34-zh.md)
     - [draft-ietf-quic-qpack-21-zh](./docs/translation/draft-ietf-quic-qpack-21-zh.md)
 

@@ -575,7 +575,7 @@ xqc_encoder_insert(xqc_encoder_t *enc, xqc_hdr_enc_rule_t *info, xqc_var_buf_t *
     if (ret != XQC_OK) {
         /* if insertion is failed, will try send as lookup result */
         info->insertion = XQC_INSERT_NONE;
-        xqc_log(enc->log, XQC_LOG_INFO, "|insertion failed|ret:%d|", ret);
+        xqc_log(enc->log, XQC_LOG_DEBUG, "|insertion failed|ret:%d|", ret);
         return XQC_OK;  /* insertion failure is OK */
     }
 
@@ -615,7 +615,7 @@ xqc_encoder_try_duplicate(xqc_encoder_t *enc, xqc_hdr_enc_rule_t *info, xqc_var_
         uint64_t dup_idx;
         ret = xqc_dtable_duplicate(enc->dtable, info->index, &dup_idx);
         if (ret != XQC_OK) {
-            xqc_log(enc->log, XQC_LOG_INFO, "|duplicate entry fail|ret:%d|", ret);
+            xqc_log(enc->log, XQC_LOG_DEBUG, "|duplicate entry fail|ret:%d|", ret);
             return ret;
         }
 
@@ -688,7 +688,7 @@ xqc_encoder_prepare(xqc_encoder_t *enc, xqc_http_headers_t *hdrs, xqc_field_sect
                 /* check and do duplicate, if it fails, send as lookup result */
                 ret = xqc_encoder_try_duplicate(enc, info, ins);
                 if (ret != XQC_OK) {
-                    xqc_log(enc->log, XQC_LOG_INFO, "|try duplicate failed|");
+                    xqc_log(enc->log, XQC_LOG_DEBUG, "|try duplicate failed|");
                 }
             }
         }

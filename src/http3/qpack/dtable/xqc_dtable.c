@@ -408,7 +408,7 @@ xqc_dtable_add(xqc_dtable_t *dt, unsigned char *name, uint64_t nlen, unsigned ch
     /* make space for new entry, old entries will be deleted */
     ret = xqc_dtable_make_space(dt, space);
     if (ret != XQC_OK) {
-        xqc_log(dt->log, XQC_LOG_INFO, "|unable to make space|ret:%d|", ret);
+        xqc_log(dt->log, XQC_LOG_DEBUG, "|unable to make space|ret:%d|", ret);
         return ret;
     }
 
@@ -663,7 +663,7 @@ xqc_dtable_duplicate(xqc_dtable_t *dt, uint64_t idx, uint64_t *new_idx)
     /* check if there is enough space */
     size_t space = xqc_dtable_entry_size(entry->nv.nlen, entry->nv.vlen);
     if (xqc_dtable_prepare_dup(dt, idx, space) != XQC_OK) {
-        xqc_log(dt->log, XQC_LOG_INFO, "|prepare for duplicate failed|");
+        xqc_log(dt->log, XQC_LOG_DEBUG, "|prepare for duplicate failed|");
         return -XQC_ELIMIT;
     }
 

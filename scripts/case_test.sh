@@ -1183,4 +1183,22 @@ grep_err_log
 
 killall test_server
 
+./test_server -l d -x 13 > /dev/null &
+sleep 1
+clear_log
+echo -e "stateless reset...\c"
+./test_client -l d -x 41 -1 >> stdlog
+result=`grep "receive reset, enter draining" clog`
+if [ -n "$result" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "stateless_reset" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "stateless_reset" "fail"
+fi
+
+killall test_server
+
+
+
 cd -

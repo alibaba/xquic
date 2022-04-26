@@ -1,4 +1,0 @@
-# for windows test & demo
-[submodule "third_party/wingetopt"]
-    path = third_party/wingetopt
-    url = https://github.com/alex85k/wingetopt.git

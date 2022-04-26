@@ -303,6 +303,14 @@ if (XQC_ENABLE_TESTING)
     add_executable(demo_server ${DEMO_SERVER_SOURCES})
     add_executable(demo_client ${DEMO_CLIENT_SOURCES})
 
+    ### simple io demo client/server ###
+    add_executable(demo_simple_io_server
+        demo/demo_simple_io_server.c
+        demo/common.c)
+    add_executable(demo_simple_io_client
+        demo/demo_simple_io_client.c
+        demo/common.c)
+
     link_directories(/usr/local/lib)
 
     if(PLATFORM STREQUAL "mac32")
@@ -310,16 +318,22 @@ if (XQC_ENABLE_TESTING)
         target_link_libraries(test_client xquic  -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
         target_link_libraries(demo_server xquic  -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
         target_link_libraries(demo_client xquic  -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
+        target_link_libraries(demo_simple_io_server xquic  -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
+        target_link_libraries(demo_simple_io_client xquic  -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
     elseif(PLATFORM STREQUAL "mac")
         target_link_libraries(test_server xquic -lm -L/usr/local/lib -levent)
         target_link_libraries(test_client xquic -lm -L/usr/local/lib -levent)
         target_link_libraries(demo_server xquic -lm -L/usr/local/lib -levent)
         target_link_libraries(demo_client xquic -lm -L/usr/local/lib -levent)
+        target_link_libraries(demo_simple_io_server xquic -lm -L/usr/local/lib -levent)
+        target_link_libraries(demo_simple_io_client xquic -lm -L/usr/local/lib -levent)
     else()
         target_link_libraries(test_server xquic -levent -lm)
         target_link_libraries(test_client xquic -levent -lm)
         target_link_libraries(demo_server xquic -levent -lm)
         target_link_libraries(demo_client xquic -levent -lm)
+        target_link_libraries(demo_simple_io_server xquic -levent -lm)
+        target_link_libraries(demo_simple_io_client xquic -levent -lm)
     endif()
 
 endif()

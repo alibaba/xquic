@@ -60,6 +60,16 @@ if(NOT SSL_INC_PATH)
     )
 endif()
 
+MESSAGE("SSL_TYPE= ${SSL_TYPE}")
+MESSAGE("SSL_PATH= ${SSL_PATH}")
+MESSAGE("SSL_LIB_PATH= ${SSL_LIB_PATH}")
+MESSAGE("SSL_INC_PATH= ${SSL_INC_PATH}")
+
+MESSAGE("SSL_TYPE= ${SSL_TYPE}")
+MESSAGE("SSL_PATH= ${SSL_PATH}")
+MESSAGE("SSL_LIB_PATH= ${SSL_LIB_PATH}")
+MESSAGE("SSL_INC_PATH= ${SSL_INC_PATH}")
+
 # print tls traffic secret in keylog
 if(XQC_PRINT_SECRET)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DXQC_PRINT_SECRET")
@@ -292,17 +302,6 @@ endif()
 include_directories(${SSL_INC_PATH})
 include_directories(${CMAKE_SOURCE_DIR}/)
 
-if(CMAKE_SYSTEM_NAME MATCHES "Windows")
-    # used wingetopt on windows
-    if(NOT GETOPT_INC_PATH)
-        set(GETOPT_INC_PATH
-            ${CMAKE_SOURCE_DIR}/third_party/wingetopt
-        )
-    endif()
-    include_directories(${GETOPT_INC_PATH}/src)
-    set(GETOPT_SOURCES  "{GETOPT_INC_PATH}/src/getopt.c" )
-endif()
-
 
 ##### build unittest, test client/server, demo client/server #####
 if (XQC_ENABLE_TESTING)
@@ -315,6 +314,20 @@ if (XQC_ENABLE_TESTING)
     endif()
 
     add_subdirectory(tests)
+    include_directories(${CMAKE_CURRENT_BINARY_DIR}/test)
+
+    if(CMAKE_SYSTEM_NAME MATCHES "Windows")
+        # used wingetopt on windows
+        if(NOT GETOPT_INC_PATH)
+            set(GETOPT_INC_PATH
+                ${CMAKE_SOURCE_DIR}/third_party/wingetopt
+            )
+        endif()
+        MESSAGE("GETOPT_INC_PATH= ${GETOPT_INC_PATH}")
+        
+        include_directories(${GETOPT_INC_PATH}/src)        
+        set(GETOPT_SOURCES  "${GETOPT_INC_PATH}/src/getopt.c")
+    endif()
 
     ### test client/server ###
     add_executable(test_server tests/test_server.c ${GETOPT_SOURCES})

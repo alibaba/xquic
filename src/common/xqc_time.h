@@ -13,7 +13,7 @@
 #include <sys/time.h>
 #endif
 
-#ifndef XQC_SYS_WINDOWS
+#ifdef XQC_SYS_WINDOWS
 #ifndef _GETTIMEOFDAY_DEFINED
 int gettimeofday(struct timeval *tv, struct timezone *tz);
 #endif

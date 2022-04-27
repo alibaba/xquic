@@ -49,30 +49,29 @@ make -j
 ```
 
 ## Windows Release (beta)
+xquic possible dependencies for Windows: Perl, Go, BoringSSL, libevent, set after installation to set the corresponding program PATH to the $PATH environment variable
 
-windows平台下编译xquic的依赖项 ：Perl，Go，boringssl，libevent，安装好后设置将对应程序路径设置到 $PATH 环境变量，编译命令行执行建议在powershell 下进行
-
-* 安装GO： https://go.dev/dl/
-* 安装cmake：https://cmake.org/download/
-* 安装NASM ：https://www.nasm.us/ （boringssl windows编译需要）
-* 安装windows包管理器vcpkg：https://github.com/Microsoft/vcpkg
+* install GO： https://go.dev/dl/
+* install cmake：https://cmake.org/download/
+* install NASM ：https://www.nasm.us/ （boringssl build need）
+* install vcpkg：https://github.com/Microsoft/vcpkg
 
 ```bash
 VCPKG_DEFAULT_TRIPLET=x64-windows-static
 
-#安装libevent
+#install libevent
 vcpkg install libevent:x64-windows-static
 ```
 
-编译XQUIC
+build XQUIC
 
 ```bash
-# step 1: 拉取代码仓库
+# step 1: get sourcecode
 git clone git@github.com:alibaba/xquic.git
 cd xquic
 git submodule update --init --recursive
 
-# step 2：编译boringssl
+# step 2：build boringssl
 git clone git@github.com:google/boringssl.git ./third_party/boringssl
 cd ./third_party/boringssl
 mkdir build
@@ -80,11 +79,10 @@ cd build
 
 cmake  -DCMAKE_GENERATOR_PLATFORM=x64 --config Debug -DBUILD_SHARED_LIBS=0 -DCMAKE_C_FLAGS="-fPIC" -DCMAKE_CXX_FLAGS="-fPIC" ..
 
-# 编译 ssl && crypto
+# build ssl && crypto
 MSBuild.exe ALL_BUILD.vcxproj
-# 退回到xquic
-cd ../../../
 
+cd ../../../
 
 # step 3：build xquic
 mkdir build
@@ -96,7 +94,7 @@ MSBuild.exe xquic.vcxproj
 # build demo && test
 git clone https://github.com/alex85k/wingetopt.git third_party/wingetopt
 #eg: cmake -DEVENT_LIB_DIR=D:/project/vcpkg/packages/libevent_x64-windows-static ..
-cmake -DEVENT_LIB_DIR=your_event_path ..
+cmake -DXQC_ENABLE_TESTING=1 -DEVENT_LIB_DIR=your_event_path ..
 
 MSBuild.exe demo_client.vcxproj
 MSBuild.exe demo_server.vcxproj

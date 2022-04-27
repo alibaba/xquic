@@ -13,13 +13,17 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <unistd.h>
 
 #include <xquic/xquic.h>
+#include <xquic/xquic_typedef.h>
 #include "src/common/xqc_config.h"
 #include "src/common/xqc_malloc.h"
 #include "src/common/xqc_str.h"
 #include "src/common/xqc_time.h"
+
+#if !defined(XQC_SYS_WINDOWS) || defined(XQC_ON_MINGW)
+#include <unistd.h>
+#endif
 
 /* max length for log buffer */
 #define XQC_MAX_LOG_LEN 2048

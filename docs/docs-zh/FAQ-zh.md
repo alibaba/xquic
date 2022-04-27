@@ -21,7 +21,7 @@
 
 > XQUIC 还支持什么平台？其他平台如何编译？
 
-XQUIC 支持 Android、iOS、Linux 和 MacOS，编译方法参见 [Platforms](../Platforms.md)。
+XQUIC 支持 Android、iOS、Linux 和 MacOS，对Windows的支持处于beta阶段，编译方法参见 [Platforms](../Platforms.md)。
 
 > 在各平台的编译产物大小
 

@@ -124,8 +124,8 @@ xqc_sample_check_app_limited(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl)
         && xqc_list_empty(&send_ctl->ctl_lost_packets)  /* All lost packets have been retransmitted. */
         && xqc_list_empty(&send_ctl->ctl_pto_probe_packets))
     {
-        send_ctl->ctl_app_limited = (send_ctl->ctl_delivered + 
-                                    send_ctl->ctl_bytes_in_flight) ?: 1;
+        send_ctl->ctl_app_limited = (send_ctl->ctl_delivered + send_ctl->ctl_bytes_in_flight) 
+            ? (send_ctl->ctl_delivered + send_ctl->ctl_bytes_in_flight) : 1;
         if (send_ctl->ctl_app_limited > 0) {
             xqc_log_event(send_ctl->ctl_conn->log, REC_CONGESTION_STATE_UPDATED, "application_limit");
         }

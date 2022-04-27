@@ -8,14 +8,16 @@
 /**
  * Public API for using libxquic
  */
-#ifdef WIN32
+
+#include "xquic_typedef.h"
+
+#if defined(XQC_SYS_WINDOWS) && !defined(XQC_ON_MINGW)
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #endif
-#include "xquic_typedef.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -614,13 +616,13 @@ typedef struct xqc_congestion_control_callback_s {
 } xqc_cong_ctrl_callback_t;
 
 #ifndef XQC_DISABLE_RENO
-XQC_EXPORT_PUBLIC_API extern const xqc_cong_ctrl_callback_t xqc_reno_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_reno_cb;
 #endif
 #ifdef XQC_ENABLE_BBR2
-XQC_EXPORT_PUBLIC_API extern const xqc_cong_ctrl_callback_t xqc_bbr2_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_bbr2_cb;
 #endif
-XQC_EXPORT_PUBLIC_API extern const xqc_cong_ctrl_callback_t xqc_bbr_cb;
-XQC_EXPORT_PUBLIC_API extern const xqc_cong_ctrl_callback_t xqc_cubic_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_bbr_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_cubic_cb;
 
 
 /**
@@ -1104,6 +1106,11 @@ unsigned char *xqc_dcid_str_by_scid(xqc_engine_t *engine, const xqc_cid_t *scid)
 XQC_EXPORT_PUBLIC_API
 uint8_t xqc_engine_config_get_cid_len(xqc_engine_t *engine);
 
+XQC_EXPORT_PUBLIC_API
+xqc_connection_t *xqc_engine_conns_hash_find(xqc_engine_t *engine, const xqc_cid_t *cid, char type);
+
+XQC_EXPORT_PUBLIC_API
+xqc_usec_t xqc_now();
 
 /**
  * User should call xqc_conn_continue_send when write event ready

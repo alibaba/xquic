@@ -1026,7 +1026,7 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *ctl, xqc_ack_info_t *const ack_info
             xqc_log(ctl->ctl_conn->log, XQC_LOG_DEBUG,
                 "|conn:%p|pkt_num:%ui|origin_pktnum:%ui|size:%ud|pkt_type:%s|frame:%s|conn_state:%s|",
                 ctl->ctl_conn, packet_out->po_pkt.pkt_num,
-                (xqc_packet_number_t)packet_out->po_origin ? packet_out->po_origin->po_pkt.pkt_num : 0,
+                (xqc_packet_number_t)(packet_out->po_origin ? packet_out->po_origin->po_pkt.pkt_num : 0),
                 packet_out->po_used_size,
                 xqc_pkt_type_2_str(packet_out->po_pkt.pkt_type),
                 xqc_frame_type_2_str(packet_out->po_frame_types),

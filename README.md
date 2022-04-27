@@ -16,7 +16,7 @@ XQUIC Library released by Alibaba is …
 
 … **a client and server implementation of QUIC and HTTP/3 as specified by the IETF.** Currently supported QUIC versions are v1 and draft-29.
 
-… **OS and platform agnostic.** It currently supports Android, iOS, Linux and macOS. Most of the code is used in our own products, and has been tested at scale on android, iOS apps, as well as servers.
+… **OS and platform agnostic.** It currently supports Android, iOS, Linux, macOS and Windows. Most of the code is used in our own products, and has been tested at scale on android, iOS apps, as well as servers.
 
 … **still in active development.** [Interoperability](https://interop.seemann.io/) is regularly tested with other QUIC implementations.
 

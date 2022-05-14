@@ -276,12 +276,28 @@ if(PLATFORM MATCHES "mac")
         -lpthread
     )
 else()
+    message("target link xquic shared library")
     target_link_libraries(
         xquic
         "-ldl -Wl,--whole-archive -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/scripts/xquic.lds"
         ${SSL_LIB_PATH}
         "-Wl,--no-whole-archive"
         -lpthread
+        -lws2_32
+        -lgdi32
+        -lcrypt32
+    )
+    
+    message("target link xquic static library")
+    target_link_libraries(
+        xquic-static
+        "-ldl -Wl,--whole-archive -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/scripts/xquic.lds"
+        ${SSL_LIB_PATH}
+        "-Wl,--no-whole-archive"
+        -lpthread
+        -lws2_32
+        -lgdi32
+        -lcrypt32
     )
 endif()
 

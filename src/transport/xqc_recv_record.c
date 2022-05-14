@@ -1,7 +1,10 @@
 /**
  * @copyright Copyright (c) 2022, Alibaba Group Holding Limited
  */
-
+#ifdef _WIN32
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
+#endif
 #include "src/transport/xqc_recv_record.h"
 #include "src/transport/xqc_packet.h"
 #include "src/transport/xqc_conn.h"

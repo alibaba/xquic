@@ -79,6 +79,16 @@ cd build
 
 cmake  -DCMAKE_GENERATOR_PLATFORM=x64 --config Debug -DBUILD_SHARED_LIBS=0 -DCMAKE_C_FLAGS="-fPIC" -DCMAKE_CXX_FLAGS="-fPIC" ..
 
+# if you want compile babassl library use msys2.(maybe more suitable for developers)
+git clone git@github.com:google/boringssl.git ./third_party/boringssl
+cd ./third_party/boringssl
+run: x86_Native_Command_prompt console.
+cd C:\msys64\
+run:: msys2_shell.cmd -mingw32 open mingw32 console.
+run: gcc -v && perl -v to checksum environment configuration.
+./config --prefix=${PWD}/install/win32/release
+make clean && make -j4 && make install
+
 # build ssl && crypto
 MSBuild.exe ALL_BUILD.vcxproj
 

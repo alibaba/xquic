@@ -191,6 +191,8 @@ xqc_send_ctl_t *xqc_send_ctl_create (xqc_connection_t *conn);
 
 void xqc_send_ctl_destroy(xqc_send_ctl_t *ctl);
 
+void xqc_send_ctl_reset(xqc_send_ctl_t *send_ctl);
+
 xqc_packet_out_t *xqc_send_ctl_get_packet_out (xqc_send_ctl_t *ctl, unsigned need, xqc_pkt_type_t pkt_type);
 
 void xqc_send_ctl_destroy_packets_list(xqc_list_head_t *head);
@@ -240,6 +242,8 @@ void xqc_send_ctl_insert_buff(xqc_list_head_t *pos, xqc_list_head_t *head);
 void xqc_send_ctl_move_to_head(xqc_list_head_t *pos, xqc_list_head_t *head);
 
 void xqc_send_ctl_move_to_high_pri(xqc_list_head_t *pos, xqc_send_ctl_t *ctl);
+
+void xqc_send_ctl_move_to_send(xqc_list_head_t *pos, xqc_send_ctl_t *ctl);
 
 void xqc_send_ctl_drop_packets(xqc_send_ctl_t *ctl);
 

@@ -435,7 +435,7 @@ xqc_packet_parse_initial(xqc_connection_t *c, xqc_packet_in_t *packet_in)
     packet_in->pi_pkt.pkt_pns = XQC_PNS_INIT;
 
     if (c->conn_state == XQC_CONN_STATE_SERVER_INIT 
-        && !(c->conn_flag & XQC_CONN_FLAG_SVR_INIT_RECVD))
+        && !(c->conn_flag & XQC_CONN_FLAG_INIT_RECVD))
     {
         if (XQC_BUFF_LEFT_SIZE(packet_in->buf, end) < XQC_PACKET_INITIAL_MIN_LENGTH) {
             xqc_log(c->log, XQC_LOG_ERROR, "|initial size too small|%z|",
@@ -443,7 +443,12 @@ xqc_packet_parse_initial(xqc_connection_t *c, xqc_packet_in_t *packet_in)
             XQC_CONN_ERR(c, TRA_PROTOCOL_VIOLATION);
             return -XQC_EILLPKT;
         }
-        c->conn_flag |= XQC_CONN_FLAG_SVR_INIT_RECVD;
+        c->conn_flag |= XQC_CONN_FLAG_INIT_RECVD;
+
+    } else if (c->conn_state == XQC_CONN_STATE_CLIENT_INITIAL_SENT
+               && !(c->conn_flag & XQC_CONN_FLAG_INIT_RECVD))
+    {
+        c->conn_flag |= XQC_CONN_FLAG_INIT_RECVD;
     }
 
     /* Token Length(i) & Token */
@@ -884,55 +889,153 @@ xqc_gen_retry_packet(unsigned char *dst_buf,
     return dst_buf - begin;
 }
 
+/*
+ * https://datatracker.ietf.org/doc/html/rfc9001#section-5.8
+ *
+ *  Retry Pseudo-Packet {
+ *    ODCID Length (8),
+ *    Original Destination Connection ID (0..160),
+ *    Header Form (1) = 1,
+ *    Fixed Bit (1) = 1,
+ *    Long Packet Type (2) = 3,
+ *    Unused (4),
+ *    Version (32),
+ *    DCID Len (8),
+ *    Destination Connection ID (0..160),
+ *    SCID Len (8),
+ *    Source Connection ID (0..160),
+ *    Retry Token (..),
+ *  }
+ *
+ *                      Figure 8: Retry Pseudo-Packet
+ */
+
+#define RETRY_PSEUDO_PACKET_SIZE (3 * (1 + XQC_MAX_CID_LEN) + 1 + 4 + XQC_MAX_TOKEN_LEN)
+
+static xqc_int_t
+xqc_conn_cal_retry_integrity_tag(xqc_connection_t *conn,
+    uint8_t *tag_buf, size_t *tag_len, xqc_packet_in_t *packet_in)
+{
+    xqc_cid_t *odcid = &conn->original_dcid;
+    uint8_t *retry_buf = (uint8_t *)packet_in->buf;
+    size_t retry_len = packet_in->buf_size - XQC_RETRY_INTEGRITY_TAG_LEN;
+
+    uint8_t pseudo_buf[RETRY_PSEUDO_PACKET_SIZE] = {0};
+    size_t pseudo_len = sizeof(uint8_t) + odcid->cid_len + retry_len;
+
+    uint8_t *dst_buf = pseudo_buf;
+    *dst_buf = odcid->cid_len;
+    dst_buf++;
+    memcpy(dst_buf, odcid->cid_buf, odcid->cid_len);
+    dst_buf += odcid->cid_len;
+    xqc_memcpy(dst_buf, retry_buf, retry_len);
+    dst_buf += retry_len;
+
+    xqc_int_t ret = xqc_tls_cal_retry_integrity_tag(conn->tls,
+                                                    pseudo_buf, pseudo_len,
+                                                    tag_buf, XQC_RETRY_INTEGRITY_TAG_LEN, tag_len);
+    if (ret != XQC_OK || *tag_len != XQC_RETRY_INTEGRITY_TAG_LEN) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_tls_cal_retry_integrity_tag error|ret:%d|tag_len:%d|", ret, *tag_len);
+        return ret;
+    } 
+
+    return XQC_OK;
+}
+
+
 xqc_int_t
 xqc_packet_parse_retry(xqc_connection_t *c, xqc_packet_in_t *packet_in)
 {
-    unsigned char *pos = packet_in->pos;
-    xqc_packet_t *packet = &packet_in->pi_pkt;
-
     xqc_log(c->log, XQC_LOG_DEBUG, "|packet parse|retry|");
     packet_in->pi_pkt.pkt_type = XQC_PTYPE_RETRY;
 
-    if (++c->retry_count > 1) {
-        packet_in->pos = packet_in->last;
-        xqc_log(c->log, XQC_LOG_DEBUG, "|retry_count exceed 1 return|");
-        return XQC_OK;
-    }
-
+    /* check conn type, only client can receive a Retry packet */
     if (c->conn_type != XQC_CONN_TYPE_CLIENT) {
+        xqc_log(c->log, XQC_LOG_WARN, "|invalid conn_type|%d|", c->conn_type);
+        return -XQC_EPROTO;
+    }
+
+    /**
+     * client MUST discard a Retry packet that contains a SCID field
+     * that is identical to the DCID field of its Initial packet.
+     */
+    if (xqc_cid_is_equal(&c->original_dcid, &packet_in->pi_pkt.pkt_scid) == XQC_OK) {
+        xqc_log(c->log, XQC_LOG_DEBUG, "|discard|packet SCID error|odcid:%s|scid:%s|",
+                                       xqc_dcid_str(&c->original_dcid),
+                                       xqc_scid_str(&packet_in->pi_pkt.pkt_scid));
         return -XQC_EILLPKT;
     }
 
-    xqc_cid_t odcid;
-    odcid.cid_len = (*pos & 0x0F) + 3;
-    if (odcid.cid_len > XQC_MAX_CID_LEN) {
-        xqc_log(c->log, XQC_LOG_ERROR, "|exceed max cid length|cid_len:%d|", odcid.cid_len);
-        return -XQC_EILLPKT;
-    }
-
-    pos += XQC_PACKET_LONG_HEADER_PREFIX_LENGTH
-           + packet->pkt_dcid.cid_len + packet->pkt_scid.cid_len;
-    packet_in->pos = pos;
-
-    xqc_memcpy(odcid.cid_buf, pos, odcid.cid_len);
-    pos += odcid.cid_len;
-
-    /* determine original_destination_connection_id */
-    if (c->original_dcid.cid_len != odcid.cid_len
-        || memcmp(c->original_dcid.cid_buf, odcid.cid_buf, odcid.cid_len) != 0)
+    /**
+     * A client MUST accept and process at most one Retry packet for each
+     * connection attempt.  After the client has received and processed an
+     * Initial or Retry packet from the server, it MUST discard any
+     * subsequent Retry packets that it receives.
+     */
+    if ((c->conn_flag & XQC_CONN_FLAG_RETRY_RECVD)
+        || (c->conn_flag & XQC_CONN_FLAG_INIT_RECVD))
     {
-        xqc_log(c->log, XQC_LOG_DEBUG, "|packet_parse_retry|original_dcid not match|");
         packet_in->pos = packet_in->last;
+        xqc_log(c->log, XQC_LOG_DEBUG, "|discard|init or retry pkt recvd|flag:%s|",
+                                       xqc_conn_state_2_str(c->conn_state));
         return XQC_OK;
     }
 
-    xqc_memcpy(c->conn_token, pos, packet_in->last - pos);
-    c->conn_token_len = packet_in->last - pos;
+    unsigned char *pos = packet_in->pos;
+    unsigned char *end = packet_in->last;
+
+    /* client MUST discard a Retry packet with a zero-length Retry Token field. */
+    if (XQC_BUFF_LEFT_SIZE(pos, end) < XQC_RETRY_INTEGRITY_TAG_LEN + 1) {
+        xqc_log(c->log, XQC_LOG_ERROR, "|retry token length error|size:%d|", XQC_BUFF_LEFT_SIZE(pos, end));
+        return -XQC_EILLPKT;
+    }
+
+    /* Token (..) */
+    uint8_t retry_token_len = XQC_BUFF_LEFT_SIZE(pos, end) - XQC_RETRY_INTEGRITY_TAG_LEN;
+    if (retry_token_len > XQC_MAX_TOKEN_LEN) {
+        xqc_log(c->log, XQC_LOG_ERROR, "|retry token length exceed XQC_MAX_TOKEN_LEN|%d|", retry_token_len);
+        return -XQC_EILLPKT;
+    }
+    
+    memcpy(c->conn_token, pos, retry_token_len);
+    c->conn_token_len = retry_token_len;
+
+    pos += retry_token_len;
+    xqc_log(c->log, XQC_LOG_DEBUG, "|retry token|length:%d|", retry_token_len);
+
+    /* 
+     * clients MUST discard Retry packets that have a Retry Integrity Tag
+     * that cannot be validated
+     */
+    xqc_int_t ret = XQC_OK;
+    uint8_t retry_integrity_tag[XQC_RETRY_INTEGRITY_TAG_LEN] = {0};
+    size_t retry_integrity_tag_len = 0;
+    ret = xqc_conn_cal_retry_integrity_tag(c, retry_integrity_tag,
+                                           &retry_integrity_tag_len, packet_in);
+    if (ret != XQC_OK) {
+        xqc_log(c->log, XQC_LOG_ERROR, "|calculate retry integrity tag error|ret:%d|", ret);
+        return -XQC_EILLPKT;
+    }
+
+    if (retry_integrity_tag_len != XQC_RETRY_INTEGRITY_TAG_LEN
+        || xqc_memcmp(retry_integrity_tag, pos, XQC_RETRY_INTEGRITY_TAG_LEN) != 0)
+    {
+        packet_in->pos = packet_in->last;
+        xqc_log(c->log, XQC_LOG_DEBUG, "|discard|retry integrity tag cannot be validated|");
+        return XQC_OK;
+    }
+    pos += XQC_RETRY_INTEGRITY_TAG_LEN;
+
+    packet_in->last = pos;
+    if (packet_in->last > end) {
+        xqc_log(c->log, XQC_LOG_ERROR, "|illegal pkt with wrong length");
+        return -XQC_EILLPKT;
+    }
 
     xqc_log(c->log, XQC_LOG_DEBUG, "|packet_parse_retry|success|");
-    packet_in->pos = packet_in->last;
 
-    return xqc_conn_on_recv_retry(c);
+    return xqc_conn_on_recv_retry(c, &packet_in->pi_pkt.pkt_scid);
 }
 
 

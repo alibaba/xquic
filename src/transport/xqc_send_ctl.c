@@ -134,6 +134,99 @@ xqc_send_ctl_destroy(xqc_send_ctl_t *ctl)
     xqc_send_ctl_destroy_packets_lists(ctl);
 }
 
+void
+xqc_send_ctl_reset(xqc_send_ctl_t *send_ctl)
+{
+    uint64_t now = xqc_monotonic_timestamp();
+    xqc_connection_t *conn = send_ctl->ctl_conn;
+
+    send_ctl->ctl_pto_count = 0;
+    send_ctl->ctl_minrtt = XQC_MAX_UINT32_VALUE;
+    send_ctl->ctl_srtt = XQC_kInitialRtt * 1000;
+    send_ctl->ctl_rttvar = XQC_kInitialRtt * 1000 / 2;
+    send_ctl->ctl_max_bytes_in_flight = 0;
+    send_ctl->ctl_reordering_packet_threshold = XQC_kPacketThreshold;
+    send_ctl->ctl_reordering_time_threshold_shift = XQC_kTimeThresholdShift;
+
+    for (size_t i = 0; i < XQC_PNS_N; i++) {
+        send_ctl->ctl_largest_acked[i] = XQC_MAX_UINT64_VALUE;
+        send_ctl->ctl_time_of_last_sent_ack_eliciting_packet[i] = 0;
+        send_ctl->ctl_loss_time[i] = 0;
+    }
+
+    memset(&send_ctl->ctl_largest_acked_sent_time, 0,
+           sizeof(send_ctl->ctl_largest_acked_sent_time));
+
+    send_ctl->ctl_is_cwnd_limited = 0;
+    send_ctl->ctl_delivered = 0;
+    send_ctl->ctl_lost_pkts_number = 0;
+    send_ctl->ctl_last_inflight_pkt_sent_time = 0;
+    send_ctl->ctl_packets_used_max = XQC_CTL_PACKETS_USED_MAX;
+
+    xqc_send_ctl_timer_init(send_ctl);
+
+    xqc_send_ctl_timer_set(send_ctl, XQC_TIMER_IDLE,
+                           now, xqc_conn_get_idle_timeout(conn) * 1000);
+
+    if (conn->conn_settings.ping_on && conn->conn_type == XQC_CONN_TYPE_CLIENT) {
+        xqc_send_ctl_timer_set(send_ctl, XQC_TIMER_PING, now, XQC_PING_TIMEOUT * 1000);
+    }
+
+    if (conn->conn_settings.cong_ctrl_callback.xqc_cong_ctl_init_bbr) {
+        send_ctl->ctl_cong_callback->xqc_cong_ctl_init_bbr(send_ctl->ctl_cong,
+                                                           &send_ctl->sampler, conn->conn_settings.cc_params);
+
+    } else {
+        send_ctl->ctl_cong_callback->xqc_cong_ctl_init(send_ctl->ctl_cong, send_ctl, conn->conn_settings.cc_params);
+    }
+
+    xqc_pacing_init(&send_ctl->ctl_pacing, conn->conn_settings.pacing_on, send_ctl);
+
+    send_ctl->ctl_info.record_interval = XQC_DEFAULT_RECORD_INTERVAL;
+    send_ctl->ctl_info.last_record_time = 0;
+    send_ctl->ctl_info.last_rtt_time = 0;
+    send_ctl->ctl_info.last_lost_time = 0;
+    send_ctl->ctl_info.last_bw_time = 0;
+    send_ctl->ctl_info.rtt_change_threshold = XQC_DEFAULT_RTT_CHANGE_THRESHOLD;
+    send_ctl->ctl_info.bw_change_threshold = XQC_DEFAULT_BW_CHANGE_THRESHOLD;
+
+    send_ctl->sampler.send_ctl = send_ctl;
+
+    /*
+     * Move all sent/unsent packets to the send queue for resending
+     * Initial packets and 0-RTT packets with new packet header.
+     * 
+     * TODO: Refactoring packet generation: generate packet header before sent.
+     * Then all we need to do is move the packets from the unack queue to the
+     * send queue, and the rest of the queues will send normally.
+     */
+
+    xqc_list_head_t *pos, *next;
+    xqc_packet_out_t *packet_out;
+
+    for (xqc_pkt_num_space_t pns = 0; pns < XQC_PNS_N; ++pns) {
+        xqc_list_for_each_safe(pos, next, &send_ctl->ctl_unacked_packets[pns]) {
+            packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+            xqc_send_ctl_move_to_send(&packet_out->po_list, send_ctl);
+            xqc_send_ctl_decrease_inflight(send_ctl, packet_out);
+        }
+    }
+
+    xqc_list_for_each_safe(pos, next, &send_ctl->ctl_send_packets_high_pri) {
+        xqc_send_ctl_move_to_send(pos, send_ctl);
+    }
+
+    xqc_list_for_each_safe(pos, next, &send_ctl->ctl_lost_packets) {
+        xqc_send_ctl_move_to_send(pos, send_ctl);
+    }
+
+    xqc_list_for_each_safe(pos, next, &send_ctl->ctl_pto_probe_packets) {
+        xqc_send_ctl_move_to_send(pos, send_ctl);
+    }
+
+    xqc_log_event(conn->log, REC_PARAMETERS_SET, send_ctl);
+}
+
 xqc_packet_out_t *
 xqc_send_ctl_get_packet_out(xqc_send_ctl_t *ctl, unsigned need, xqc_pkt_type_t pkt_type)
 {
@@ -596,6 +689,13 @@ xqc_send_ctl_move_to_high_pri(xqc_list_head_t *pos, xqc_send_ctl_t *ctl)
 {
     xqc_list_del_init(pos);
     xqc_list_add_tail(pos, &ctl->ctl_send_packets_high_pri);
+}
+
+void
+xqc_send_ctl_move_to_send(xqc_list_head_t *pos, xqc_send_ctl_t *ctl)
+{
+    xqc_list_del_init(pos);
+    xqc_list_add_tail(pos, &ctl->ctl_send_packets);
 }
 
 void

@@ -313,7 +313,7 @@ test_cid_connect(xqc_engine_t *engine)
 {
     xqc_conn_settings_t conn_settings;
     memset(&conn_settings, 0, sizeof(xqc_conn_settings_t));
-    conn_settings.proto_version = XQC_IDRAFT_VER_29;
+    conn_settings.proto_version = XQC_VERSION_V1;
     
     xqc_conn_ssl_config_t conn_ssl_config;
     memset(&conn_ssl_config, 0, sizeof(conn_ssl_config));

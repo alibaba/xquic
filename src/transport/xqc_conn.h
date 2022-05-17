@@ -104,7 +104,7 @@ typedef enum {
     XQC_CONN_FLAG_0RTT_OK_SHIFT,
     XQC_CONN_FLAG_0RTT_REJ_SHIFT,
     XQC_CONN_FLAG_UPPER_CONN_EXIST_SHIFT,
-    XQC_CONN_FLAG_SVR_INIT_RECVD_SHIFT,
+    XQC_CONN_FLAG_INIT_RECVD_SHIFT,
     XQC_CONN_FLAG_NEED_RUN_SHIFT,
     XQC_CONN_FLAG_PING_SHIFT,
     XQC_CONN_FLAG_HSK_ACKED_SHIFT,
@@ -117,7 +117,7 @@ typedef enum {
     XQC_CONN_FLAG_ADDR_VALIDATED_SHIFT,
     XQC_CONN_FLAG_NEW_CID_RECEIVED_SHIFT,
     XQC_CONN_FLAG_LINGER_CLOSING_SHIFT,
-    XQC_CONN_FLAG_RECV_RETRY_SHIFT,
+    XQC_CONN_FLAG_RETRY_RECVD_SHIFT,
     XQC_CONN_FLAG_TLS_HSK_COMPLETED_SHIFT,
     XQC_CONN_FLAG_SHIFT_NUM,
 } xqc_conn_flag_shift_t;
@@ -140,7 +140,7 @@ typedef enum {
     XQC_CONN_FLAG_0RTT_OK               = 1UL << XQC_CONN_FLAG_0RTT_OK_SHIFT,
     XQC_CONN_FLAG_0RTT_REJ              = 1UL << XQC_CONN_FLAG_0RTT_REJ_SHIFT,
     XQC_CONN_FLAG_UPPER_CONN_EXIST      = 1UL << XQC_CONN_FLAG_UPPER_CONN_EXIST_SHIFT,
-    XQC_CONN_FLAG_SVR_INIT_RECVD        = 1UL << XQC_CONN_FLAG_SVR_INIT_RECVD_SHIFT,
+    XQC_CONN_FLAG_INIT_RECVD            = 1UL << XQC_CONN_FLAG_INIT_RECVD_SHIFT,
     XQC_CONN_FLAG_NEED_RUN              = 1UL << XQC_CONN_FLAG_NEED_RUN_SHIFT,
     XQC_CONN_FLAG_PING                  = 1UL << XQC_CONN_FLAG_PING_SHIFT,
     XQC_CONN_FLAG_HSK_ACKED             = 1UL << XQC_CONN_FLAG_HSK_ACKED_SHIFT,
@@ -153,7 +153,7 @@ typedef enum {
     XQC_CONN_FLAG_ADDR_VALIDATED        = 1UL << XQC_CONN_FLAG_ADDR_VALIDATED_SHIFT,
     XQC_CONN_FLAG_NEW_CID_RECEIVED      = 1UL << XQC_CONN_FLAG_NEW_CID_RECEIVED_SHIFT,
     XQC_CONN_FLAG_LINGER_CLOSING        = 1UL << XQC_CONN_FLAG_LINGER_CLOSING_SHIFT,
-    XQC_CONN_FLAG_RECV_RETRY            = 1UL << XQC_CONN_FLAG_RECV_RETRY_SHIFT,
+    XQC_CONN_FLAG_RETRY_RECVD           = 1UL << XQC_CONN_FLAG_RETRY_RECVD_SHIFT,
     XQC_CONN_FLAG_TLS_HSK_COMPLETED     = 1UL << XQC_CONN_FLAG_TLS_HSK_COMPLETED_SHIFT,
 } xqc_conn_flag_t;
 
@@ -312,9 +312,6 @@ struct xqc_connection_s {
     xqc_list_head_t                 hsk_crypto_data_list;
     xqc_list_head_t                 application_crypto_data_list;
 
-    /* only for initial level crypto data */
-    xqc_list_head_t                 retry_crypto_data_buffer;
-
     /* for limit the length of crypto_data */
     size_t                          crypto_data_total_len;
 
@@ -448,7 +445,7 @@ xqc_int_t xqc_conn_set_early_remote_transport_params(xqc_connection_t *conn,
 xqc_int_t xqc_conn_encode_local_tp(xqc_connection_t *conn, uint8_t *dst, size_t dst_cap,
     size_t *dst_len);
 
-xqc_int_t xqc_conn_on_recv_retry(xqc_connection_t *conn);
+xqc_int_t xqc_conn_on_recv_retry(xqc_connection_t *conn, xqc_cid_t *retry_scid);
 
 /* get idle timeout in milliseconds */
 xqc_msec_t xqc_conn_get_idle_timeout(xqc_connection_t *conn);

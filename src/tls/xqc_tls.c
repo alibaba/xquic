@@ -762,6 +762,33 @@ xqc_tls_discard_old_1rtt_keys(xqc_tls_t *tls)
     xqc_crypto_discard_old_keys(tls->crypto[XQC_ENC_LEV_1RTT]);
 }
 
+xqc_int_t
+xqc_tls_cal_retry_integrity_tag(xqc_tls_t *tls,
+    uint8_t *retry_pseudo_packet, size_t retry_pseudo_packet_len,
+    uint8_t *dst, size_t dst_cap, size_t *dst_len)
+{
+    xqc_int_t ret = XQC_OK;
+
+    xqc_crypto_t *crypto = xqc_crypto_create(XQC_TLS13_AES_128_GCM_SHA256, tls->log);
+    if (crypto == NULL) {
+        xqc_log(tls->log, XQC_LOG_ERROR, "|create retry crypto error|");
+        return -XQC_TLS_NOMEM;
+    }
+
+    xqc_proto_version_t ver = tls->version;
+    ret = xqc_crypto_aead_encrypt(crypto, "", 0,
+                                  xqc_crypto_retry_key[ver], strlen(xqc_crypto_retry_key[ver]),
+                                  xqc_crypto_retry_nonce[ver], strlen(xqc_crypto_retry_nonce[ver]),
+                                  retry_pseudo_packet, retry_pseudo_packet_len,
+                                  dst, dst_cap, dst_len);
+    if (ret != XQC_OK) {
+        xqc_log(tls->log, XQC_LOG_ERROR, "|calculate retry integrity tag error|");
+    }
+
+    xqc_crypto_destroy(crypto);
+    return ret;
+}
+
 
 /**
  * ============================================================================

@@ -89,7 +89,7 @@ static const char * const xqc_conn_flag_to_str[XQC_CONN_FLAG_SHIFT_NUM] = {
     [XQC_CONN_FLAG_0RTT_OK_SHIFT]               = "0RTT_OK",
     [XQC_CONN_FLAG_0RTT_REJ_SHIFT]              = "0RTT_REJECT",
     [XQC_CONN_FLAG_UPPER_CONN_EXIST_SHIFT]      = "UPPER_CONN_EXIST",
-    [XQC_CONN_FLAG_SVR_INIT_RECVD_SHIFT]        = "INIT_RECVD",
+    [XQC_CONN_FLAG_INIT_RECVD_SHIFT]            = "INIT_RECVD",
     [XQC_CONN_FLAG_NEED_RUN_SHIFT]              = "NEED_RUN",
     [XQC_CONN_FLAG_PING_SHIFT]                  = "PING",
     [XQC_CONN_FLAG_HSK_ACKED_SHIFT]             = "HSK_ACKED",
@@ -102,7 +102,7 @@ static const char * const xqc_conn_flag_to_str[XQC_CONN_FLAG_SHIFT_NUM] = {
     [XQC_CONN_FLAG_ADDR_VALIDATED_SHIFT]        = "ADDR_VALIDATED",
     [XQC_CONN_FLAG_NEW_CID_RECEIVED_SHIFT]      = "NEW_CID_RECEIVED",
     [XQC_CONN_FLAG_LINGER_CLOSING_SHIFT]        = "LINGER_CLOSING",
-    [XQC_CONN_FLAG_RECV_RETRY_SHIFT]            = "RETRY_RCVD",
+    [XQC_CONN_FLAG_RETRY_RECVD_SHIFT]           = "RETRY_RECVD",
     [XQC_CONN_FLAG_TLS_HSK_COMPLETED_SHIFT]     = "TLS_HSK_CMPTD"
 };
 
@@ -330,7 +330,6 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     xqc_init_list_head(&xc->initial_crypto_data_list);
     xqc_init_list_head(&xc->hsk_crypto_data_list);
     xqc_init_list_head(&xc->application_crypto_data_list);
-    xqc_init_list_head(&xc->retry_crypto_data_buffer);
     for (xqc_encrypt_level_t encrypt_level = XQC_ENC_LEV_INIT; encrypt_level < XQC_ENC_LEV_MAX; encrypt_level++) {
         xqc_init_list_head(&xc->undecrypt_packet_in[encrypt_level]);
     }
@@ -1600,7 +1599,7 @@ xqc_conn_immediate_close(xqc_connection_t *conn)
         return XQC_OK;
     }
 
-    if (!(conn->conn_flag & XQC_CONN_FLAG_SVR_INIT_RECVD)
+    if (!(conn->conn_flag & XQC_CONN_FLAG_INIT_RECVD)
        && conn->conn_type == XQC_CONN_TYPE_SERVER)
     {
         conn->conn_state = XQC_CONN_STATE_CLOSED;
@@ -2857,36 +2856,141 @@ xqc_conn_has_hsk_keys(xqc_connection_t *c)
         && xqc_tls_is_key_ready(c->tls, XQC_ENC_LEV_HSK, XQC_KEY_TYPE_RX_READ);
 }
 
-xqc_int_t
-xqc_conn_on_recv_retry(xqc_connection_t *conn)
+
+static xqc_bool_t
+xqc_need_reassemble_packet(xqc_packet_out_t *packet_out)
 {
-    /* only client will receive retry packet, and can't receive  */
-    if ((conn->conn_type != XQC_CONN_TYPE_CLIENT)
-        || (conn->conn_flag & XQC_CONN_FLAG_RECV_RETRY))
+    if (packet_out->po_pkt.pkt_type == XQC_PTYPE_INIT
+        && packet_out->po_frame_types & XQC_FRAME_BIT_CRYPTO)
     {
-        xqc_log(conn->log, XQC_LOG_ERROR,
-                "|server recv retry or client recv retry two or more times|");
-        XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
-        return -XQC_EPROTO;
+        return XQC_TRUE;
+
+    } else if (packet_out->po_pkt.pkt_type == XQC_PTYPE_0RTT) {
+        return XQC_TRUE;
     }
 
-    /* reset connection state */
-    conn->conn_state = XQC_CONN_STATE_CLIENT_INIT;
-    conn->conn_flag |= XQC_CONN_FLAG_RECV_RETRY;
+    return XQC_FALSE;
+}
+
+static xqc_int_t
+xqc_conn_reassemble_packet(xqc_connection_t *conn, xqc_packet_out_t *ori_po)
+{
+    xqc_packet_out_t *new_po = xqc_write_new_packet(conn, ori_po->po_pkt.pkt_type);
+    if (new_po == NULL) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");
+        return -XQC_EWRITE_PKT;
+    }
+
+    /* copy frame without padding */
+    unsigned int ori_payload_len = 0;
+    if (xqc_need_padding(conn, ori_po) && ori_po->po_padding != NULL) {
+        ori_payload_len = ori_po->po_padding - ori_po->po_payload;
+
+    } else {
+        ori_payload_len = ori_po->po_used_size - (ori_po->po_payload - ori_po->po_buf);
+    }
+
+    new_po->po_payload = new_po->po_buf + new_po->po_used_size;
+    memcpy(new_po->po_payload, ori_po->po_payload, ori_payload_len);
+    new_po->po_used_size += ori_payload_len;
+
+    /* copy packet_out info */
+    new_po->po_frame_types = ori_po->po_frame_types;
+    for (int i = 0; i < XQC_MAX_STREAM_FRAME_IN_PO; i++) {
+        new_po->po_stream_frames[i] = ori_po->po_stream_frames[i];
+    }
+
+    /* set RESEND flag */
+    new_po->po_flag |= XQC_POF_RESEND;
+
+    if (new_po->po_frame_types & XQC_FRAME_BIT_CRYPTO) {
+        xqc_send_ctl_move_to_high_pri(&new_po->po_list, conn->conn_send_ctl);
+    }
+
+    xqc_log(conn->log, XQC_LOG_DEBUG,
+            "|pkt_num:%ui|ptype:%d|frames:%s|",
+            new_po->po_pkt.pkt_num, new_po->po_pkt.pkt_type,
+            xqc_frame_type_2_str(new_po->po_frame_types));
+
+    return XQC_OK;
+}
+
+static xqc_int_t
+xqc_conn_resend_packets(xqc_connection_t *conn)
+{
+    /*
+     * Generate new header and reassemble packet for Initial and 0-RTT packets
+     * that need to be resent, and drop all old packets with the original header.
+     *
+     * TODO: Refactoring packet generation: generate packet header before sent.
+     * Then we don't have to reassemble the packets.
+     */
+
+    xqc_int_t ret;
+    xqc_send_ctl_t *ctl = conn->conn_send_ctl;
+
+    xqc_list_head_t *pos, *next;
+    xqc_packet_out_t *packet_out;
+
+    xqc_list_for_each_safe(pos, next, &ctl->ctl_send_packets) {
+        packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+
+        if (packet_out->po_flag & XQC_POF_RESEND) {
+            continue;
+        }
+
+        /* reassemble new packet with updated header and insert to send queue */
+        if (xqc_need_reassemble_packet(packet_out)) {
+            ret = xqc_conn_reassemble_packet(conn, packet_out);
+            if (ret != XQC_OK) {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_conn_reassemble_packet error|ret:%d|", ret);
+                return ret;
+            }
+        }
+
+        /* drop old packet */
+        xqc_send_ctl_remove_send(pos);
+        xqc_send_ctl_insert_free(pos, &ctl->ctl_free_packets, ctl);
+    }
+
+    return XQC_OK;
+}
+
+xqc_int_t
+xqc_conn_on_recv_retry(xqc_connection_t *conn, xqc_cid_t *retry_scid)
+{
+    xqc_int_t ret;
+
+    conn->conn_flag |= XQC_CONN_FLAG_RETRY_RECVD;
+
+    /* change the DCID it uses for sending packets in response to Retry packet. */
+    xqc_cid_copy(&conn->dcid_set.current_dcid, retry_scid);
 
     /* reset initial keys */
-    xqc_int_t ret = xqc_tls_reset_initial(conn->tls, conn->version, &conn->original_dcid);
+    ret = xqc_tls_reset_initial(conn->tls, conn->version, retry_scid);
     if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_tls_reset_initial error|retry_scid:%s|ret:%d|",
+                xqc_scid_str(retry_scid), ret);
         return ret;
     }
 
-    /* Copy ClientHello to buffer list */
-    xqc_list_head_t *head = &conn->initial_crypto_data_list;
-    xqc_list_head_t *pos, *next;
+    /*
+     * clients that receive a Retry packet reset congestion control and loss
+     * recovery state, including resetting any pending timers.
+     */
+    xqc_send_ctl_reset(conn->conn_send_ctl);
 
-    xqc_list_for_each_safe(pos, next, head) {
-        xqc_list_del(pos);
-        xqc_list_add_tail(pos, &conn->retry_crypto_data_buffer);
+    /*
+     * client responds to a Retry packet with an Initial packet that includes
+     * the provided Retry token to continue connection establishment.
+     * client SHOULD attempt to resend data in 0-RTT packets after it sends a
+     * new Initial packet.
+     */
+    ret = xqc_conn_resend_packets(conn);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_conn_resend_packets error|ret:%d|", ret);
+        return ret;
     }
 
     return XQC_OK;
@@ -3023,6 +3127,18 @@ xqc_conn_check_transport_params(xqc_connection_t *conn, const xqc_transport_para
             || params->retry_source_connection_id_present
             || params->stateless_reset_token_present)
         {
+            return -XQC_TLS_TRANSPORT_PARAM;
+        }
+    }
+
+    if (conn->conn_type == XQC_CONN_TYPE_CLIENT) {
+        /* check retry_source_connection_id parameter if recv retry packet */
+        if (conn->conn_flag & XQC_CONN_FLAG_RETRY_RECVD) {
+            if (!params->retry_source_connection_id_present) {
+                return -XQC_TLS_TRANSPORT_PARAM;
+            }
+
+        } else if (params->retry_source_connection_id_present) {
             return -XQC_TLS_TRANSPORT_PARAM;
         }
     }
@@ -3277,7 +3393,6 @@ xqc_conn_tls_handshake_completed_cb(void *user_data)
 
     conn->conn_flag |= XQC_CONN_FLAG_TLS_HSK_COMPLETED;
     conn->handshake_complete_time = xqc_monotonic_timestamp();
-    xqc_free_crypto_buffer_list(&conn->retry_crypto_data_buffer);
 }
 
 const xqc_tls_callbacks_t xqc_conn_tls_cbs = {

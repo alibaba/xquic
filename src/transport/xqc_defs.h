@@ -44,6 +44,9 @@
 /* max token length supported by xquic */
 #define XQC_MAX_TOKEN_LEN               256
 
+/* length of retry integrity tag */
+#define XQC_RETRY_INTEGRITY_TAG_LEN     16
+
 
 extern const uint32_t       xqc_proto_version_value[];
 extern const unsigned char  xqc_proto_version_field[][XQC_PROTO_VERSION_LEN];

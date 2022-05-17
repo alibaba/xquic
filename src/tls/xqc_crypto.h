@@ -259,4 +259,15 @@ xqc_int_t xqc_crypto_derive_updated_keys(xqc_crypto_t *crypto, xqc_key_type_t ty
 void xqc_crypto_discard_old_keys(xqc_crypto_t *crypto);
 
 
+/**
+ * @brief call aead encrypt callback directly
+ */
+xqc_int_t xqc_crypto_aead_encrypt(xqc_crypto_t *crypto,
+    const uint8_t *plaintext, size_t plaintextlen,
+    const uint8_t *key, size_t keylen,
+    const uint8_t *nonce, size_t noncelen,
+    const uint8_t *ad, size_t adlen,
+    uint8_t *dst, size_t dst_cap, size_t *dst_len);
+
+
 #endif

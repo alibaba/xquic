@@ -165,6 +165,24 @@ typedef ssize_t (*xqc_stateless_reset_pt)(const unsigned char *buf, size_t size,
     const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *user_data);
 
 /**
+ * @brief connection closing notify callback function. will be triggered when a
+ * connection is not available and will not send/receive data any more. this 
+ * callback is helpful to avoid attempts to send data on a closing connection.
+ * NOTICE: this callback function will be triggered at the beginning of
+ * connection close, while the conn_close_notify will be triggered at the end of
+ * connection close.
+ * 
+ * @param conn pointer of connection
+ * @param cid connection id
+ * @param err_code the reason of connection close
+ * @param conn_user_data the user_data which will be used in callback functions
+ * between xquic transport connection and application
+ */
+typedef xqc_int_t (*xqc_conn_closing_notify_pt)(xqc_connection_t *conn,
+    const xqc_cid_t *cid, xqc_int_t err_code, void *conn_user_data);
+
+
+/**
  * @brief general callback function definition for connection create and close
  * 
  * @param conn_user_data the user_data which will be used in callback functions
@@ -471,6 +489,11 @@ typedef struct xqc_transport_callbacks_s {
      * path remove callback function. REQUIRED both for client and server if multi-path is needed
      */
     xqc_path_removed_notify_pt      path_removed_notify;
+
+    /**
+     * connection closing callback function. OPTIONAL for both client and server
+     */
+    xqc_conn_closing_notify_pt      conn_closing;
 
 } xqc_transport_callbacks_t;
 

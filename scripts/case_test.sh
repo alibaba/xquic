@@ -35,6 +35,7 @@ function case_print_result() {
 }
 
 
+
 clear_log
 echo -e "stream read notify fail ...\c"
 ./test_client -s 1024000 -l d -t 1 -E -x 12 >> clog
@@ -300,10 +301,12 @@ else
 fi
 grep_err_log
 
+
+
 clear_log
 echo -e "close connection with error ...\c"
-./test_client -s 1024000 -l d -t 1 -E -x 3 >> clog
-if grep "<==.*CONNECTION_CLOSE" clog >/dev/null && grep "==>.*CONNECTION_CLOSE" clog >/dev/null; then
+./test_client -s 1024000 -l d -t 1 -E -x 3 >> stdlog
+if grep "<==.*CONNECTION_CLOSE" clog >/dev/null && grep "==>.*CONNECTION_CLOSE" clog >/dev/null && grep "conn closing: 1" stdlog >/dev/null; then
     echo ">>>>>>>> pass:1"
     case_print_result "close_connection_with_error" "pass"
 else
@@ -311,6 +314,7 @@ else
     case_print_result "close_connection_with_error" "fail"
 fi
 grep_err_log|grep -v xqc_process_write_streams|grep -v xqc_h3_stream_write_notify|grep -v xqc_process_conn_close_frame
+
 
 
 clear_log
@@ -1183,13 +1187,15 @@ grep_err_log
 
 killall test_server
 
+
 ./test_server -l d -x 13 > /dev/null &
 sleep 1
 clear_log
 echo -e "stateless reset...\c"
 ./test_client -l d -x 41 -1 >> stdlog
 result=`grep "receive reset, enter draining" clog`
-if [ -n "$result" ]; then
+cloing_notify=`grep "conn closing: 641" stdlog`
+if [ -n "$result" ] && [ -n "$cloing_notify" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "stateless_reset" "pass"
 else

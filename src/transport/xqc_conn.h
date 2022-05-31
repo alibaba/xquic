@@ -40,13 +40,14 @@ static const uint32_t MAX_RSP_CONN_CLOSE_CNT = 3;
 #endif
 
 /* send CONNECTION_CLOSE with err */
-#define XQC_CONN_ERR(conn, err) do {            \
-    if ((conn)->conn_err == 0) {                \
-        (conn)->conn_err = (err);               \
-        (conn)->conn_flag |= XQC_CONN_FLAG_ERROR; \
+#define XQC_CONN_ERR(conn, err) do {                \
+    if ((conn)->conn_err == 0) {                    \
+        (conn)->conn_err = (err);                   \
+        (conn)->conn_flag |= XQC_CONN_FLAG_ERROR;   \
+        xqc_conn_closing(conn);                     \
         xqc_log((conn)->log, XQC_LOG_ERROR, "|conn:%p|err:0x%xi|%s|", (conn), (uint64_t)(err), xqc_conn_addr_str(conn)); \
-    }                                       \
-} while(0)                                  \
+    }                                               \
+} while(0)                                          \
 
 extern xqc_conn_settings_t default_conn_settings;
 extern const xqc_tls_callbacks_t xqc_conn_tls_cbs;
@@ -453,5 +454,7 @@ xqc_int_t xqc_conn_on_recv_retry(xqc_connection_t *conn);
 xqc_msec_t xqc_conn_get_idle_timeout(xqc_connection_t *conn);
 
 xqc_int_t xqc_conn_confirm_key_update(xqc_connection_t *conn);
+
+void xqc_conn_closing(xqc_connection_t *conn);
 
 #endif /* _XQC_CONN_H_INCLUDED_ */

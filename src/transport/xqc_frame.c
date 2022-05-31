@@ -749,6 +749,7 @@ xqc_process_conn_close_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         }
     }
     conn->conn_state = XQC_CONN_STATE_DRAINING;
+    xqc_conn_closing(conn);
 
     return XQC_OK;
 }

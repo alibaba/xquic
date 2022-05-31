@@ -955,7 +955,7 @@ xqc_engine_packet_process(xqc_engine_t *engine,
             if (xqc_engine_schedule_reset(engine, peer_addr, peer_addrlen, recv_time) != XQC_OK) {
                 return -XQC_ECONN_NFOUND;
             }
-            xqc_log(engine->log, XQC_LOG_INFO, "|fail to find connection, send reset|size:%uz|scid:%s|",
+            xqc_log(engine->log, XQC_LOG_STATS, "|fail to find connection, send reset|size:%uz|scid:%s|",
                     packet_in_size, xqc_scid_str(&scid));
             ret = xqc_engine_send_reset(engine, &scid, peer_addr, peer_addrlen, user_data);
             if (ret) {
@@ -971,6 +971,7 @@ xqc_engine_packet_process(xqc_engine_t *engine,
                 if (conn->conn_state < XQC_CONN_STATE_DRAINING) {
                     conn->conn_state = XQC_CONN_STATE_DRAINING;
                     conn->conn_err = XQC_ESTATELESS_RESET;  /* remember reset */
+                    xqc_conn_closing(conn);
                     xqc_send_ctl_drop_packets(conn->conn_send_ctl);
                     xqc_usec_t pto = xqc_send_ctl_calc_pto(conn->conn_send_ctl);
                     if (!xqc_send_ctl_timer_is_set(conn->conn_send_ctl, XQC_TIMER_DRAINING)) {

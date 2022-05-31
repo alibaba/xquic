@@ -401,6 +401,14 @@ xqc_client_send_stateless_reset(const unsigned char *buf, size_t size,
     return xqc_client_write_socket(buf, size, peer_addr, peer_addrlen, user);
 }
 
+xqc_int_t 
+xqc_client_conn_closing_notify(xqc_connection_t *conn,
+    const xqc_cid_t *cid, xqc_int_t err_code, void *conn_user_data)
+{
+    printf("conn closing: %d\n", err_code);
+    return XQC_OK;
+}
+
 
 #if defined(XQC_SUPPORT_SENDMMSG) && !defined(XQC_SYS_WINDOWS)
 ssize_t 
@@ -2146,6 +2154,7 @@ int main(int argc, char *argv[]) {
         .save_session_cb = save_session_cb,
         .save_tp_cb = save_tp_cb,
         .cert_verify_cb = xqc_client_cert_verify,
+        .conn_closing = xqc_client_conn_closing_notify,
     };
 
     xqc_cong_ctrl_callback_t cong_ctrl;

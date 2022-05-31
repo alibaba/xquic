@@ -3294,12 +3294,24 @@ const xqc_tls_callbacks_t xqc_conn_tls_cbs = {
 xqc_msec_t
 xqc_conn_get_idle_timeout(xqc_connection_t *conn)
 {
-    if (conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_COMPLETED) {
-        return conn->local_settings.max_idle_timeout == 0
-            ? XQC_CONN_DEFAULT_IDLE_TIMEOUT : conn->local_settings.max_idle_timeout;
-
-    } else {
+    if (conn->conn_type == XQC_CONN_TYPE_SERVER
+        && !(conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_COMPLETED))
+    {
+        /* only server will limit idle timeout to init_idle_time_out before handshake completed */
         return conn->conn_settings.init_idle_time_out == 0
             ? XQC_CONN_INITIAL_IDLE_TIMEOUT : conn->conn_settings.init_idle_time_out;
+
+    } else {
+        return conn->local_settings.max_idle_timeout == 0
+            ? XQC_CONN_DEFAULT_IDLE_TIMEOUT : conn->local_settings.max_idle_timeout;
+    }
+}
+
+
+void
+xqc_conn_closing(xqc_connection_t *conn)
+{
+    if (conn->transport_cbs.conn_closing) {
+        conn->transport_cbs.conn_closing(conn, &conn->scid_set.user_scid, conn->conn_err, conn->user_data);
     }
 }

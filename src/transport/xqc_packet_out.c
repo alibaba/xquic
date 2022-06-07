@@ -58,6 +58,9 @@ xqc_packet_out_copy(xqc_packet_out_t *dst, xqc_packet_out_t *src)
     if (src->po_payload) {
         dst->po_payload = dst->po_buf + (src->po_payload - src->po_buf);
     }
+    if (src->po_padding) {
+        dst->po_padding = dst->po_buf + (src->po_padding - src->po_buf);
+    }
     dst->po_origin = origin;
     origin->po_origin_ref_cnt++;
     dst->po_user_data = src->po_user_data;

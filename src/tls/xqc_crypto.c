@@ -672,3 +672,30 @@ xqc_crypto_discard_old_keys(xqc_crypto_t *crypto)
     xqc_ckm_free(&crypto->keys.rx_ckm[discard_key_phase]);
     xqc_ckm_free(&crypto->keys.tx_ckm[discard_key_phase]);
 }
+
+xqc_int_t
+xqc_crypto_aead_encrypt(xqc_crypto_t *crypto,
+    const uint8_t *plaintext, size_t plaintextlen,
+    const uint8_t *key, size_t keylen,
+    const uint8_t *nonce, size_t noncelen,
+    const uint8_t *ad, size_t adlen,
+    uint8_t *dst, size_t dst_cap, size_t *dst_len)
+{
+    xqc_int_t ret;
+    xqc_pkt_protect_aead_t *pp_aead = &crypto->pp_aead;
+
+    /* do aead encryption */
+    ret = pp_aead->encrypt(pp_aead, dst, dst_cap, dst_len,
+                           plaintext, plaintextlen,
+                           key, keylen,
+                           nonce, noncelen,
+                           ad, adlen);
+
+    if (ret != XQC_OK) {
+        xqc_log(crypto->log, XQC_LOG_ERROR,
+                "|encrypt packet error|ret:%d|nwrite:%z|", ret, *dst_len);
+        return -XQC_TLS_ENCRYPT_DATA_ERROR;
+    }
+
+    return XQC_OK;
+}

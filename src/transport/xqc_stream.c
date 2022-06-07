@@ -825,13 +825,6 @@ xqc_crypto_stream_send(xqc_stream_t *stream,
             }
         }
 
-        /* client buffer initial level crypto data */
-        if (c->conn_type == XQC_CONN_TYPE_CLIENT
-            && stream->stream_encrypt_level == XQC_ENC_LEV_INIT)
-        {
-            xqc_list_add_tail(pos, &c->retry_crypto_data_buffer);
-        }
-
         xqc_list_del(pos);
         xqc_free(buf);
     }

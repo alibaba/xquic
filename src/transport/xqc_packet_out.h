@@ -31,6 +31,7 @@ typedef enum {
     XQC_POF_STREAM_UNACK     = 1 << 5,
     XQC_POF_RETRANSED        = 1 << 6,
     XQC_POF_NOTIFY           = 1 << 7,  /* need to notify user when a packet is acked, lost, etc. */
+    XQC_POF_RESEND           = 1 << 8,
 } xqc_packet_out_flag_t;
 
 typedef struct xqc_po_stream_frame_s {
@@ -50,6 +51,7 @@ typedef struct xqc_packet_out_s {
     unsigned char          *po_payload;
     xqc_packet_out_t       *po_origin;          /* point to original packet before retransmitted */
     void                   *po_user_data;       /* used to differ inner PING and user PING */
+    unsigned char          *po_padding;         /* used to reassemble packets carrying new header */
 
     unsigned int            po_buf_size;
     unsigned int            po_used_size;

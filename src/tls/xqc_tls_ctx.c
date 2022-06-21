@@ -130,7 +130,7 @@ xqc_create_server_ssl_ctx(xqc_tls_ctx_t *ctx)
         goto fail;
     }
 
-    /* sete session ticket key callback */
+    /* set session ticket key callback */
     if (ctx->cfg.session_ticket_key_len == 0
         || ctx->cfg.session_ticket_key_data == NULL)
     {
@@ -410,9 +410,9 @@ xqc_tls_ctx_register_alpn(xqc_tls_ctx_t *ctx, const char *alpn, size_t alpn_len)
         return -XQC_EPARAM;
     }
 
-    if (alpn_len > ctx->alpn_list_sz - ctx->alpn_list_len) {
+    if (alpn_len + 1 > ctx->alpn_list_sz - ctx->alpn_list_len) {
         /* realloc buffer */
-        size_t new_alpn_list_sz = 2 * (ctx->alpn_list_sz + alpn_len);
+        size_t new_alpn_list_sz = 2 * (ctx->alpn_list_sz + alpn_len) + 1;
         char *alpn_list_new = xqc_malloc(new_alpn_list_sz);
         ctx->alpn_list_sz = new_alpn_list_sz;
 
@@ -425,7 +425,7 @@ xqc_tls_ctx_register_alpn(xqc_tls_ctx_t *ctx, const char *alpn, size_t alpn_len)
         ctx->alpn_list = alpn_list_new;
     }
 
-    /* sprintf new alpn to the end of alpn_list buffere */
+    /* sprintf new alpn to the end of alpn_list buffer */
     snprintf(ctx->alpn_list + ctx->alpn_list_len,
              ctx->alpn_list_sz - ctx->alpn_list_len, "%c%s", (uint8_t)alpn_len, alpn);
     ctx->alpn_list_len = strlen(ctx->alpn_list);

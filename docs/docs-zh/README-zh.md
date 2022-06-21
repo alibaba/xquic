@@ -6,7 +6,7 @@
 
 * **是一个遵循IETF标准的QUIC和HTTP/3的客户端和服务端实现。** 目前支持的QUIC版本是v1和draft-29。
 
-* **是跨平台的。** 目前支持Android、iOS、Linux和macOS。绝大部分代码被用于我们自己的产品，并已在安卓、iOS APP以及服务端上进行了大规模测试。
+* **是跨平台的。** 目前支持Android、iOS、Linux、macOS和Windows。绝大部分代码被用于我们自己的产品，并已在安卓、iOS APP以及服务端上进行了大规模测试。
 
 * **目前仍在积极开发中。** 我们定期与其他QUIC实现进行[互通性测试](https://interop.seemann.io/)。
 
@@ -84,18 +84,18 @@ sh ../scripts/xquic_test.sh
 
 ## 文档
 
-* 关于API的使用，详见 [API文档](../../docs/API.md).
-* 关于平台支持的细节，详见 [平台文档](../../docs/Platforms.md).
+* 关于API的使用，详见 [API文档](../../docs/API.md)。
+* 关于平台支持的细节，详见 [平台文档](../../docs/Platforms.md)。
 * 关于 IETF QUIC Protocol 的中文翻译，详见翻译文档。
-    - 以下翻译均基于 draft-34，RFC的翻译工作正在进行中。
-    - [draft-ietf-quic-invariants-13-zh](../../docs/translation/draft-ietf-quic-invariants-13-zh.md)
-    - [draft-ietf-quic-transport-34-zh](../../docs/translation/draft-ietf-quic-transport-34-zh.md)
-    - [draft-ietf-quic-recovery-34-zh](../../docs/translation/draft-ietf-quic-recovery-34-zh.md)
-    - [draft-ietf-quic-tls-34-zh](../../docs/translation/draft-ietf-quic-tls-34-zh.md)
+    - [RFC8999-invariants-zh](../../docs/translation/rfc8999-invariants-zh.md)
+    - [RFC9000-transport-zh](../../docs/translation/rfc9000-transport-zh.md)
+    - [RFC9001-tls-zh](../../docs/translation/rfc9001-tls-zh.md)
+    - [RFC9002-recovery-zh](../../docs/translation/rfc9002-recovery-zh.md)
     - [draft-ietf-quic-http-34-zh](../../docs/translation/draft-ietf-quic-http-34-zh.md)
     - [draft-ietf-quic-qpack-21-zh](../../docs/translation/draft-ietf-quic-qpack-21-zh.md)
-
-* 关于常见问题，参见 [FAQs](../../docs/FAQ.md).
+* 关于event_log模块的使用, 详见 [Event_log module docs](../../docs/docs-zh/Event_log-zh.md)。
+* 关于测试，参见 [测试文档](../../docs/docs-zh/Testing-zh.md)。
+* 关于常见问题，参见 [FAQs](../../docs/docs-zh/FAQ-zh.md) 和 [Trouble Shooting Guide](../../docs/docs-zh/Troubleshooting-zh.md)。
 
 ## Contributing
 

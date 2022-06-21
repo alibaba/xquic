@@ -6,7 +6,7 @@
 
 
 typedef struct xqc_rarray_s {
-    /* continous memory of array, buf_size = cap * esize. this would be NULL if capacity is 0 */
+    /* continuous memory of array, buf_size = cap * esize. this would be NULL if capacity is 0 */
     uint8_t        *buf;
 
     /* size of element */
@@ -73,10 +73,10 @@ xqc_rarray_check_range(xqc_rarray_t *ra, uint64_t offset)
 {
     uint64_t eoffset = (ra->offset + ra->count) & ra->mask; /* end offset of rarray */
     if (ra->offset >= eoffset) {
-        /* 
-         * input offset is always in range [0, capacity),
-         * if rollover, ra->offset equals to eoffset,
-         * only if offset not exceed capacity, it is always in range 
+        /*
+         * input offset is always in range [0, capacity), if rollover,
+         * ra->offset equals to eoffset, only if offset not exceed capacity,
+         * it is always in range.
          */
         return offset >= ra->offset || offset < eoffset;
 

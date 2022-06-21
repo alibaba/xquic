@@ -16,7 +16,7 @@
 #define XQC_PACKET_0RTT_MAX_COUNT           30
 /* max 0rtt packet count buffered by server before Initial packet received */
 #define XQC_UNDECRYPT_0RTT_MAX_BEFORE_INIT  10
-/* max buffered pacekt count */
+/* max buffered packet count */
 #define XQC_UNDECRYPT_PACKET_MAX            100
 
 typedef enum xqc_pkt_num_space {
@@ -62,6 +62,8 @@ struct xqc_packet_s {
 #define XQC_PACKET_LONG_HEADER_PREFIX_LENGTH    (1 + XQC_PACKET_VERSION_LENGTH)
 #define XQC_PACKET_INITIAL_MIN_LENGTH           XQC_QUIC_MSS
 
+#define XQC_PACKET_SHORT_HEADER_PKTNO_LEN(buf)  ((buf[0] & 0x03) + 1)
+#define XQC_PACKET_SHORT_HEADER_KEY_PHASE(buf)  ((buf[0] & 0x04) >> 2)
 
 #define xqc_parse_uint16(p) ((p)[0] << 8 | (p)[1])
 #define xqc_parse_uint32(p) ((p)[0] << 24 | (p)[1] << 16 | (p)[2] << 8 | (p)[3])

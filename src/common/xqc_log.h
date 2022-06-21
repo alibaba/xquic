@@ -13,13 +13,17 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <unistd.h>
 
 #include <xquic/xquic.h>
+#include <xquic/xquic_typedef.h>
 #include "src/common/xqc_config.h"
 #include "src/common/xqc_malloc.h"
 #include "src/common/xqc_str.h"
 #include "src/common/xqc_time.h"
+
+#if !defined(XQC_SYS_WINDOWS) || defined(XQC_ON_MINGW)
+#include <unistd.h>
+#endif
 
 /* max length for log buffer */
 #define XQC_MAX_LOG_LEN 2048
@@ -157,11 +161,11 @@ xqc_log_type_2_level(xqc_log_type_t type);
 xqc_log_type_t
 xqc_log_event_type(xqc_log_level_t level);
 
-const char*
+const char *
 xqc_log_type_str(xqc_log_type_t type);
 
 void
-xqc_log_time(char* buf, size_t buf_len);
+xqc_log_time(char *buf, size_t buf_len);
 
 void
 xqc_log_implement(xqc_log_t *log, xqc_log_type_t type, const char *func, const char *fmt, ...);

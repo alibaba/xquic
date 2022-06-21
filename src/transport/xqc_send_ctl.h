@@ -52,6 +52,7 @@ typedef enum {
     XQC_TIMER_PING,
     XQC_TIMER_RETIRE_CID,
     XQC_TIMER_LINGER_CLOSE,
+    XQC_TIMER_KEY_UPDATE,
     XQC_TIMER_N,
 } xqc_send_ctl_timer_type;
 
@@ -190,6 +191,8 @@ xqc_send_ctl_t *xqc_send_ctl_create (xqc_connection_t *conn);
 
 void xqc_send_ctl_destroy(xqc_send_ctl_t *ctl);
 
+void xqc_send_ctl_reset(xqc_send_ctl_t *send_ctl);
+
 xqc_packet_out_t *xqc_send_ctl_get_packet_out (xqc_send_ctl_t *ctl, unsigned need, xqc_pkt_type_t pkt_type);
 
 void xqc_send_ctl_destroy_packets_list(xqc_list_head_t *head);
@@ -239,6 +242,8 @@ void xqc_send_ctl_insert_buff(xqc_list_head_t *pos, xqc_list_head_t *head);
 void xqc_send_ctl_move_to_head(xqc_list_head_t *pos, xqc_list_head_t *head);
 
 void xqc_send_ctl_move_to_high_pri(xqc_list_head_t *pos, xqc_send_ctl_t *ctl);
+
+void xqc_send_ctl_move_to_send(xqc_list_head_t *pos, xqc_send_ctl_t *ctl);
 
 void xqc_send_ctl_drop_packets(xqc_send_ctl_t *ctl);
 
@@ -294,6 +299,8 @@ float xqc_send_ctl_get_retrans_rate(xqc_send_ctl_t *ctl);
  * @return XQC_FALSE: not at amplification limit, XQC_TRUE: at amplification limit
  */
 xqc_bool_t xqc_send_ctl_check_anti_amplification(xqc_connection_t *conn, size_t byte_cnt);
+
+void xqc_send_ctl_rearm_ld_timer(xqc_send_ctl_t *ctl);
 
 xqc_bool_t xqc_send_ctl_ack_received_in_pns(xqc_send_ctl_t *ctl, xqc_pkt_num_space_t pns);
 

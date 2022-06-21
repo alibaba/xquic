@@ -23,7 +23,7 @@ typedef enum {
     TRA_INVALID_TOKEN               =  0xB,
     TRA_APPLICATION_ERROR           =  0xC,
     TRA_CRYPTO_BUFFER_EXCEEDED      =  0xD,
-    TRA_HS_CERTIFICATE_VERIFY_FAIL  =  0x1FE, /* for handshake certifacate verify error */
+    TRA_HS_CERTIFICATE_VERIFY_FAIL  =  0x1FE, /* for handshake certificate verify error */
     TRA_CRYPTO_ERROR                =  0x1FF, /* 0x1XX */
 } xqc_trans_err_code_t;
 
@@ -108,6 +108,7 @@ typedef enum {
     XQC_EACTIVE_CID_LIMIT               = 638,      /* active cid exceed active_connection_id_limit */
     XQC_EALPN_NOT_SUPPORTED             = 639,      /* alpn is not supported by server */
     XQC_EALPN_NOT_REGISTERED            = 640,      /* alpn is not registered */
+    XQC_ESTATELESS_RESET                = 641,      /* connection is reset by peer */
 
     XQC_EMP_NOT_SUPPORT_MP              = 650,      /* Multipath - don't support multipath */
     XQC_EMP_NO_AVAIL_PATH_ID            = 651,      /* Multipath - no available path id */
@@ -169,6 +170,8 @@ typedef enum {
     XQC_TLS_DERIVE_KEY_ERROR            = 741,
     XQC_TLS_DO_HANDSHAKE_ERROR          = 742,
     XQC_TLS_POST_HANDSHAKE_ERROR        = 743,
+    XQC_TLS_UPDATE_KEY_ERROR            = 744,
+    XQC_TLS_DECRYPT_WHEN_KU_ERROR       = 745,
 
     XQC_TLS_ERR_MAX,
 } xqc_tls_error_t;
@@ -223,11 +226,11 @@ typedef enum {
     XQC_QPACK_DYNAMIC_TABLE_ERROR       = 903,  /* qpack dynamic table error */
     XQC_QPACK_STATIC_TABLE_ERROR        = 904,  /* qpack static table error */
     XQC_QPACK_SET_DTABLE_CAP_ERROR      = 905,  /* set dynamic table capacity error */
-    XQC_QPACK_SEND_ERROR                = 906,  /* send data erro or control message error */
+    XQC_QPACK_SEND_ERROR                = 906,  /* send data error or control message error */
     XQC_QPACK_SAVE_HEADERS_ERROR        = 907,  /* failed to save name-value to header structure */
     XQC_QPACK_UNKNOWN_INSTRUCTION       = 908,  /* unknown encoder/decoder instruction */
     XQC_QPACK_INSTRUCTION_ERROR         = 909,  /* error instruction */
-    XQC_QPACK_DYNAMIC_TABLE_REFFERED    = 910,  /* dynamic table entry is still reffered */
+    XQC_QPACK_DYNAMIC_TABLE_REFERRED    = 910,  /* dynamic table entry is still referred */
     XQC_QPACK_DYNAMIC_TABLE_VOID_ENTRY  = 911,  /* entry inexists in dynamic table */
     XQC_QPACK_STATE_ERROR               = 912,  /* state is error */
     XQC_QPACK_DYNAMIC_TABLE_NOT_ENOUGH  = 913,  /* dynamic table not enough */

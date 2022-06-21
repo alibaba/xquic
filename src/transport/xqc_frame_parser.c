@@ -314,7 +314,8 @@ void
 xqc_gen_padding_frame(xqc_packet_out_t *packet_out)
 {
     if (packet_out->po_used_size < XQC_PACKET_INITIAL_MIN_LENGTH) {
-        memset(packet_out->po_buf + packet_out->po_used_size, 0, XQC_PACKET_INITIAL_MIN_LENGTH - packet_out->po_used_size);
+        packet_out->po_padding = packet_out->po_buf + packet_out->po_used_size;
+        memset(packet_out->po_padding, 0, XQC_PACKET_INITIAL_MIN_LENGTH - packet_out->po_used_size);
         packet_out->po_used_size = XQC_PACKET_INITIAL_MIN_LENGTH;
         packet_out->po_frame_types |= XQC_FRAME_BIT_PADDING;
     }

@@ -7,15 +7,26 @@
 #include <errno.h>
 #include <memory.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/wait.h>
 #include <event2/event.h>
 #include <inttypes.h>
 #include <xquic/xquic_typedef.h>
 #include <xquic/xquic.h>
 #include <xquic/xqc_http3.h>
 #include <time.h>
+#include <fcntl.h>
+#include <signal.h>
+
+#include "platform.h"
+
+#ifndef XQC_SYS_WINDOWS
+#include <unistd.h>
+#include <sys/wait.h>
+#else
+#include <third_party/wingetopt/src/getopt.h>
+#pragma comment(lib,"ws2_32.lib")
+#pragma comment(lib,"event.lib")
+#pragma comment(lib, "Iphlpapi.lib")
+#endif
 
 int
 printf_null(const char *format, ...)
@@ -104,17 +115,6 @@ static uint64_t last_snd_ts;
 #define XQC_TEST_LONG_HEADER_LEN 32769
 char test_long_value[XQC_TEST_LONG_HEADER_LEN] = {'\0'};
 
-
-static inline uint64_t 
-now()
-{
-    /* get microsecond unit time */
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    uint64_t ul = tv.tv_sec * (uint64_t)1000000 + tv.tv_usec;
-    return  ul;
-}
-
 void
 xqc_server_set_event_timer(xqc_msec_t wake_after, void *user_data)
 {
@@ -163,17 +163,17 @@ end:
 }
 
 int
-xqc_server_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data)
+xqc_server_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data, void *conn_proto_data)
 {
     DEBUG;
     return 0;
 }
 
 int
-xqc_server_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data)
+xqc_server_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data, void *conn_proto_data)
 {
     DEBUG;
-    user_conn_t *user_conn = (user_conn_t*)user_data;
+    user_conn_t *user_conn = (user_conn_t *)conn_proto_data;
     xqc_conn_stats_t stats = xqc_conn_get_stats(ctx.engine, cid);
     printf("send_count:%u, lost_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" early_data_flag:%d, conn_err:%d, ack_info:%s\n",
            stats.send_count, stats.lost_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.ack_info);
@@ -183,7 +183,7 @@ xqc_server_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void 
 }
 
 void
-xqc_server_conn_handshake_finished(xqc_connection_t *conn, void *user_data)
+xqc_server_conn_handshake_finished(xqc_connection_t *conn, void *user_data, void *conn_proto_data)
 {
     DEBUG;
     user_conn_t *user_conn = (user_conn_t *) user_data;
@@ -610,7 +610,7 @@ xqc_server_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
         }
 
         for (int i = 0; i < headers->count; i++) {
-            printf("%s = %s\n", (char*)headers->headers[i].name.iov_base, (char*)headers->headers[i].value.iov_base);
+            printf("%s = %s\n", (char *)headers->headers[i].name.iov_base, (char *)headers->headers[i].value.iov_base);
         }
 
         user_stream->header_recvd++;
@@ -739,23 +739,23 @@ xqc_server_write_socket(const unsigned char *buf, size_t size,
     }
 
     do {
-        errno = 0;
+        set_last_sys_errno(0);
         res = sendto(fd, send_buf, send_buf_size, 0, peer_addr, peer_addrlen);
-        //printf("xqc_server_send write %zd, %s\n", res, strerror(errno));
+        printf("xqc_server_send write %zd, %s\n", res, strerror(get_last_sys_errno()));
         if (res < 0) {
-            printf("xqc_server_write_socket err %zd %s\n", res, strerror(errno));
-            if (errno == EAGAIN) {
+            printf("xqc_server_write_socket err %zd %s\n", res, strerror(get_last_sys_errno()));
+            if (get_last_sys_errno() == EAGAIN) {
                 res = XQC_SOCKET_EAGAIN;
             }
 
         } else {
             snd_sum += res;
         }
-    } while ((res < 0) && (errno == EINTR));
+    } while ((res < 0) && (EINTR== get_last_sys_errno()));
 
-    if ((now() - last_snd_ts) > 200000) {
-        printf("sending rate: %.3f Kbps\n", (snd_sum - last_snd_sum) * 8.0 * 1000 / (now() - last_snd_ts));
-        last_snd_ts = now();
+    if ((xqc_now() - last_snd_ts) > 200000) {
+        printf("sending rate: %.3f Kbps\n", (snd_sum - last_snd_sum) * 8.0 * 1000 / (xqc_now() - last_snd_ts));
+        last_snd_ts = xqc_now();
         last_snd_sum = snd_sum;
     }
 
@@ -764,10 +764,10 @@ xqc_server_write_socket(const unsigned char *buf, size_t size,
 
 
 ssize_t
-xqc_server_send_stateless_reset(const unsigned char *buf, size_t size,
-    const struct sockaddr *peer_addr, socklen_t peer_addrlen, int fd, void *user)
+xqc_server_stateless_reset(const unsigned char *buf, size_t size,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *user_data)
 {
-    return xqc_server_write_socket(buf, size, peer_addr, peer_addrlen, user);
+    return xqc_server_write_socket(buf, size, peer_addr, peer_addrlen, user_data);
 }
 
 void
@@ -820,7 +820,7 @@ xqc_server_socket_read_handler(xqc_server_ctx_t *ctx)
                 break;
             }
 
-            uint64_t recv_time = now();
+            uint64_t recv_time = xqc_now();
             for (int i = 0; i < retval; i++) {
                 recv_sum += msgs[i].msg_len;
 
@@ -841,12 +841,12 @@ xqc_server_socket_read_handler(xqc_server_ctx_t *ctx)
     do {
         recv_size = recvfrom(ctx->fd, packet_buf, sizeof(packet_buf), 0, (struct sockaddr *) &peer_addr,
                              &peer_addrlen);
-        if (recv_size < 0 && errno == EAGAIN) {
+        if (recv_size < 0 && get_last_sys_errno() == EAGAIN) {
             break;
         }
 
         if (recv_size < 0) {
-            printf("!!!!!!!!!recvfrom: recvmsg = %zd err=%s\n", recv_size, strerror(errno));
+            printf("!!!!!!!!!recvfrom: recvmsg = %zd err=%s\n", recv_size, strerror(get_last_sys_errno()));
             break;
         }
 
@@ -854,7 +854,7 @@ xqc_server_socket_read_handler(xqc_server_ctx_t *ctx)
         if (g_test_case == 8) {
             static int loss_num = 0;
             loss_num++;
-            /* continous loss to make server at amplification limit */
+            /* continuous loss to make server at amplification limit */
             if (loss_num >= 2 && loss_num <= 10) {
                 continue;
             }
@@ -862,7 +862,7 @@ xqc_server_socket_read_handler(xqc_server_ctx_t *ctx)
 
         recv_sum += recv_size;
 
-        recv_time = now();
+        recv_time = xqc_now();
         //printf("xqc_server_read_handler recv_size=%zd, recv_time=%llu, now=%llu, recv_total=%d\n", recv_size, recv_time, now(), ++g_recv_total);
         /*printf("peer_ip: %s, peer_port: %d\n", inet_ntoa(ctx->peer_addr.sin_addr), ntohs(ctx->peer_addr.sin_port));
         printf("local_ip: %s, local_port: %d\n", inet_ntoa(ctx->local_addr.sin_addr), ntohs(ctx->local_addr.sin_port));*/
@@ -921,9 +921,9 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
     }
 
     if (g_batch) {
-        int ret = connect(ctx.fd, &user_conn->peer_addr, user_conn->peer_addrlen);
+        int ret = connect(ctx.fd, (struct sockaddr *)&user_conn->peer_addr, user_conn->peer_addrlen);
         if (ret != 0) {
-            printf("connect error, errno: %d\n", errno);
+            printf("connect error, errno: %d\n", get_last_sys_errno());
             return ret;
         }
     }
@@ -943,29 +943,35 @@ xqc_server_create_socket(const char *addr, unsigned int port)
 
     fd = socket(type, SOCK_DGRAM, 0);
     if (fd < 0) {
-        printf("create socket failed, errno: %d\n", errno);
+        printf("create socket failed, errno: %d\n", get_last_sys_errno());
         return -1;
     }
 
+#ifdef XQC_SYS_WINDOWS
+    if (ioctlsocket(fd, FIONBIO, &optval) == SOCKET_ERROR) {
+		goto err;
+	}
+#else
     if (fcntl(fd, F_SETFL, O_NONBLOCK) == -1) {
         printf("set socket nonblock failed, errno: %d\n", errno);
         goto err;
     }
+#endif
 
     optval = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) < 0) {
-        printf("setsockopt failed, errno: %d\n", errno);
+        printf("setsockopt failed, errno: %d\n", get_last_sys_errno());
         goto err;
     }
 
     size = 1 * 1024 * 1024;
     if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &size, sizeof(int)) < 0) {
-        printf("setsockopt failed, errno: %d\n", errno);
+        printf("setsockopt failed, errno: %d\n", get_last_sys_errno());
         goto err;
     }
 
     if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &size, sizeof(int)) < 0) {
-        printf("setsockopt failed, errno: %d\n", errno);
+        printf("setsockopt failed, errno: %d\n", get_last_sys_errno());
         goto err;
     }
 
@@ -985,7 +991,7 @@ xqc_server_create_socket(const char *addr, unsigned int port)
     }
 
     if (bind(fd, saddr, ctx.local_addrlen) < 0) {
-        printf("bind socket failed, errno: %d\n", errno);
+        printf("bind socket failed, errno: %d\n", get_last_sys_errno());
         goto err;
     }
 
@@ -1001,7 +1007,7 @@ static void
 xqc_server_engine_callback(int fd, short what, void *arg)
 {
     //DEBUG;
-    printf("timer wakeup now:%"PRIu64"\n", now());
+    printf("timer wakeup now:%"PRIu64"\n", xqc_now());
     xqc_server_ctx_t *ctx = (xqc_server_ctx_t *) arg;
 
     xqc_engine_main_logic(ctx->engine);
@@ -1073,14 +1079,15 @@ xqc_server_write_log(xqc_log_level_t lvl, const void *buf, size_t count, void *e
         return;
     }
 
-    int log_len = snprintf(log_buf, XQC_MAX_LOG_LEN + 1, "%s\n", (char*)buf);
+    int log_len = snprintf(log_buf, XQC_MAX_LOG_LEN + 1, "%s\n", (char *)buf);
     if (log_len < 0) {
         printf("xqc_server_write_log err\n");
         return;
     }
+
     int write_len = write(ctx->log_fd, log_buf, log_len);
     if (write_len < 0) {
-        printf("xqc_server_write_log write failed, errno: %d\n", errno);
+        printf("xqc_server_write_log write failed, errno: %d\n", get_last_sys_errno());
     }
 }
 
@@ -1124,16 +1131,17 @@ xqc_keylog_cb(const char *line, void *user_data)
 
     int write_len = write(ctx->keylog_fd, line, strlen(line));
     if (write_len < 0) {
-        printf("write keys failed, errno: %d\n", errno);
+        printf("write keys failed, errno: %d\n", get_last_sys_errno());
         return;
     }
+
     write_len = write(ctx->keylog_fd, "\n", 1);
     if (write_len < 0) {
-        printf("write keys failed, errno: %d\n", errno);
+        printf("write keys failed, errno: %d\n", get_last_sys_errno());
     }
 }
 
-#if defined(XQC_SUPPORT_SENDMMSG)
+#if defined(XQC_SUPPORT_SENDMMSG) && !defined(XQC_SYS_WINDOWS)
 ssize_t xqc_server_write_mmsg(const struct iovec *msg_iov, unsigned int vlen,
                                 const struct sockaddr *peer_addr,
                                 socklen_t peer_addrlen, void *user)
@@ -1150,7 +1158,7 @@ ssize_t xqc_server_write_mmsg(const struct iovec *msg_iov, unsigned int vlen,
         mmsg[i].msg_hdr.msg_iovlen = 1;
     }
     do {
-        errno = 0;
+        set_last_sys_errno(0);
         res = sendmmsg(fd, mmsg, vlen, 0);
         if (res < 0) {
             printf("sendmmsg err %zd %s\n", res, strerror(errno));
@@ -1308,6 +1316,8 @@ int main(int argc, char *argv[]) {
     xqc_server_open_keylog_file(&ctx);
     xqc_server_open_log_file(&ctx);
 
+    xqc_platform_init_env();
+
     xqc_engine_ssl_config_t  engine_ssl_config;
     memset(&engine_ssl_config, 0, sizeof(engine_ssl_config));
     engine_ssl_config.private_key_file = "./server.key";
@@ -1341,6 +1351,7 @@ int main(int argc, char *argv[]) {
         .server_accept = xqc_server_accept,
         .write_socket = xqc_server_write_socket,
         .conn_update_cid_notify = xqc_server_conn_update_cid_notify,
+        .stateless_reset = xqc_server_stateless_reset,
     };
 
     xqc_cong_ctrl_callback_t cong_ctrl;
@@ -1394,6 +1405,11 @@ int main(int argc, char *argv[]) {
         conn_settings.linger.linger_on = 1;
     }
 
+    /* test reset, destroy connection as soon as possible */
+    if (g_test_case == 13) {
+        conn_settings.idle_time_out = 1;
+    }
+
     xqc_server_set_conn_settings(&conn_settings);
 
     xqc_config_t config;
@@ -1405,7 +1421,7 @@ int main(int argc, char *argv[]) {
     eb = event_base_new();
     ctx.ev_engine = event_new(eb, -1, 0, xqc_server_engine_callback, &ctx);
 
-#if defined(XQC_SUPPORT_SENDMMSG)
+#if defined(XQC_SUPPORT_SENDMMSG) && !defined(XQC_SYS_WINDOWS)
     if (g_batch) {
         tcbs.write_mmsg = xqc_server_write_mmsg,
         config.sendmmsg_on = 1;

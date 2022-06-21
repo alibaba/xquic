@@ -48,7 +48,7 @@ typedef struct xqc_encoder_s {
     size_t                  name_len_limit;
 
     /*
-     * dtable insertion limit for entry. 
+     * dtable insertion limit for entry.
      * insert_limit_entry_size = insert_limit_entry * dtable_cap
      */
     double                  entry_limit;
@@ -197,7 +197,7 @@ xqc_encoder_add_blocked_stream(xqc_encoder_t *enc, uint64_t stream_id, uint64_t 
 
         if (stream->stream_id == stream_id) {
             /*
-             * if stream is alredy blocked before, but refers larger entries this time,
+             * if stream is already blocked before, but refers larger entries this time,
              * update the required insert count
              */
             if (ricnt > stream->rqrd_insert_cnt) {
@@ -377,7 +377,7 @@ xqc_encoder_check_block_stream_limit(xqc_encoder_t *enc, uint64_t stream_id)
             xqc_list_entry(pos, xqc_encoder_blocked_stream_t, head);
         if (bs->stream_id == stream_id) {
             /*
-             * the stream is already blocked, won't increse new blocked stream,
+             * the stream is already blocked, won't increase new blocked stream,
              * so it can insert entries into dtable
              */
             return XQC_FALSE;
@@ -406,12 +406,12 @@ xqc_encoder_check_insert(xqc_encoder_t *enc, xqc_hdr_enc_rule_t *info, xqc_bool_
 
     /*
      * when blocked, refer an entry in dtable with index larger than known received count,
-     * might increse the blocked stream count on decoder, it's better send with literal
+     * might increase the blocked stream count on decoder, it's better send with literal
      */
     if (info->ref_table == XQC_DTABLE_FLAG && info->ref != XQC_NV_REF_NONE
         && info->index >= enc->krc)
     {
-        /* when blocked, it's bettter not refer an entry with index larger than krc */
+        /* when blocked, it's better not refer an entry with index larger than krc */
         xqc_log(enc->log, XQC_LOG_DEBUG, "|dtable shall not return an entry with index >= krc|");
         info->ref = XQC_NV_REF_NONE;
         info->index = XQC_INVALID_INDEX;
@@ -473,7 +473,7 @@ xqc_encoder_check_normal_index_mode(xqc_encoder_t *enc, xqc_hdr_enc_rule_t *info
 
     case XQC_NV_REF_NAME:
         /*
-         * if name is refered in dtable, will try to decide whether an insertion with
+         * if name is referred in dtable, will try to decide whether an insertion with
          * value is worthy, with a more aggressive size restriction
          */
         if (esz <= enc->entry_size_limit /* && info->ref_table == XQC_DTABLE_FLAG */) {
@@ -575,7 +575,7 @@ xqc_encoder_insert(xqc_encoder_t *enc, xqc_hdr_enc_rule_t *info, xqc_var_buf_t *
     if (ret != XQC_OK) {
         /* if insertion is failed, will try send as lookup result */
         info->insertion = XQC_INSERT_NONE;
-        xqc_log(enc->log, XQC_LOG_INFO, "|insertion failed|ret:%d|", ret);
+        xqc_log(enc->log, XQC_LOG_DEBUG, "|insertion failed|ret:%d|", ret);
         return XQC_OK;  /* insertion failure is OK */
     }
 
@@ -615,7 +615,7 @@ xqc_encoder_try_duplicate(xqc_encoder_t *enc, xqc_hdr_enc_rule_t *info, xqc_var_
         uint64_t dup_idx;
         ret = xqc_dtable_duplicate(enc->dtable, info->index, &dup_idx);
         if (ret != XQC_OK) {
-            xqc_log(enc->log, XQC_LOG_INFO, "|duplicate entry fail|ret:%d|", ret);
+            xqc_log(enc->log, XQC_LOG_DEBUG, "|duplicate entry fail|ret:%d|", ret);
             return ret;
         }
 
@@ -658,7 +658,7 @@ xqc_encoder_prepare(xqc_encoder_t *enc, xqc_http_headers_t *hdrs, xqc_field_sect
 
         /*
          * if XQC_HTTP_HEADER_FLAG_NEVER_INDEX is set, header will be sent as Literal Filed Line
-         * With Literal Name, regradless of lookup or insertion operation with stable and dtable
+         * With Literal Name, regardless of lookup or insertion operation with stable and dtable
          */
         if (hdr->flags & XQC_HTTP_HEADER_FLAG_NEVER_INDEX) {
             info->ref = XQC_NV_REF_NONE;
@@ -688,7 +688,7 @@ xqc_encoder_prepare(xqc_encoder_t *enc, xqc_http_headers_t *hdrs, xqc_field_sect
                 /* check and do duplicate, if it fails, send as lookup result */
                 ret = xqc_encoder_try_duplicate(enc, info, ins);
                 if (ret != XQC_OK) {
-                    xqc_log(enc->log, XQC_LOG_INFO, "|try duplicate failed|");
+                    xqc_log(enc->log, XQC_LOG_DEBUG, "|try duplicate failed|");
                 }
             }
         }
@@ -856,7 +856,7 @@ xqc_encoder_save_unacked(xqc_encoder_t *enc, uint64_t stream_id, xqc_field_secti
         /* add to the end of unack list, with the same sequence of sections */
         xqc_list_add_tail(&section->head, &enc->unack_list);
         if (fs->min_ref_idx < enc->min_unack_index) {
-            /* reflash min referred index */
+            /* refresh min referred index */
             enc->min_unack_index = fs->min_ref_idx;
         }
     }
@@ -968,7 +968,7 @@ xqc_encoder_section_ack(xqc_encoder_t *enc, uint64_t stream_id)
 
     xqc_int_t ret = xqc_dtable_set_min_ref(enc->dtable, enc->min_unack_index);
     if (ret != XQC_OK) {
-        xqc_log(enc->log, XQC_LOG_ERROR, "|increse min ref error|ret:%d|", ret);
+        xqc_log(enc->log, XQC_LOG_ERROR, "|increase min ref error|ret:%d|", ret);
         return ret;
     }
 
@@ -995,7 +995,7 @@ xqc_encoder_cancel_stream(xqc_encoder_t *enc, uint64_t stream_id)
 
             /*
              * delete section record, there might be two HEADERS frame in one stream if there is a
-             * trialer header
+             * trailer header
              */
             xqc_encoder_unack_section_free(section);
             continue;

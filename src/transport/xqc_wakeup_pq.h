@@ -40,7 +40,7 @@ xqc_wakeup_pq_revert_cmp(xqc_pq_wakeup_time_t a, xqc_pq_wakeup_time_t b)
 }
 
 typedef struct xqc_wakeup_pq_s {
-    char* elements;         /* elements */
+    char  *elements;         /* elements */
     size_t element_size;    /* memory size of element objects */
     size_t count;           /* number of elements */
     size_t capacity;        /* element capacity */
@@ -94,7 +94,13 @@ xqc_wakeup_pq_destroy(xqc_wakeup_pq_t *pq)
 static inline void
 xqc_wakeup_pq_element_swap(xqc_wakeup_pq_t *pq, size_t i, size_t j)
 {
+
+#if !defined(XQC_SYS_WINDOWS) || defined(XQC_ON_MINGW)
     char buf[pq->element_size];
+#else
+    char *buf = (char *)_alloca(pq->element_size);
+#endif
+
     xqc_wakeup_pq_elem_t* p;
     p = xqc_wakeup_pq_element(pq, i);
     p->conn->wakeup_pq_index = j;

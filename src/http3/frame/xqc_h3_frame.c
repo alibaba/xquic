@@ -140,6 +140,28 @@ xqc_h3_frm_parse_max_push_id(const unsigned char *p, size_t sz, xqc_h3_frame_t *
 }
 
 ssize_t
+xqc_h3_frm_parse_reserved(const unsigned char *p, size_t sz,
+    xqc_h3_frame_t *frame, xqc_bool_t *fin)
+{
+    const unsigned char    *pos  = p;
+    size_t                  read = 0;
+
+    *fin = XQC_FALSE;
+
+    /* skip until all payload read or all bytes consumed */
+    read = xqc_min(frame->len - frame->consumed_len, sz);
+    pos += read;
+    frame->consumed_len += read;
+
+    /* all bytes consumed */
+    if (frame->len == frame->consumed_len) {
+        *fin = XQC_TRUE;
+    }
+
+    return pos - p;
+}
+
+ssize_t
 xqc_h3_frm_parse(const unsigned char *p, size_t sz, xqc_h3_frame_pctx_t *pctx)
 {
     const unsigned char *pos = p;
@@ -208,7 +230,8 @@ xqc_h3_frm_parse(const unsigned char *p, size_t sz, xqc_h3_frame_pctx_t *pctx)
             break;
         }
         default: {
-            return -XQC_H3_INVALID_FRAME_TYPE;
+            XQC_H3_DECODE_FRM(xqc_h3_frm_parse_reserved, pos, sz, pctx->frame, &fin);
+            break;
         }
         }
 

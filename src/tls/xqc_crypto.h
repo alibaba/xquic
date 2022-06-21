@@ -14,8 +14,8 @@
 typedef struct xqc_pkt_protect_aead_s      xqc_pkt_protect_aead_t;
 typedef struct xqc_hdr_protect_cipher_s    xqc_hdr_protect_cipher_t;
 
-#undef  XQC_CRYPTO_PRIVAYE
-#define XQC_CRYPTO_PRIVAYE
+#undef  XQC_CRYPTO_PRIVATE
+#define XQC_CRYPTO_PRIVATE
 
 #ifdef OPENSSL_IS_BORINGSSL
 #include "src/tls/boringssl/xqc_aead_impl.h"
@@ -23,20 +23,20 @@ typedef struct xqc_hdr_protect_cipher_s    xqc_hdr_protect_cipher_t;
 #include "src/tls/babassl/xqc_aead_impl.h"
 #endif
 
-#undef  XQC_CRYPTO_PRIVAYE
+#undef  XQC_CRYPTO_PRIVATE
 
 
 /* aes_d_gcm  d is the length of key */
-#define xqc_aead_init_aes_gcm(aead, d, ...)         XQC_AEAD_INIT_AES_GCM_IMPL(aead, d, __VA_ARGS__)
+#define xqc_aead_init_aes_gcm(aead, d)         XQC_AEAD_INIT_AES_GCM_IMPL(aead, d)
 
 /* chacha20_poly1305 */
-#define xqc_aead_init_chacha20_poly1305(obj, ...)   XQC_AEAD_INIT_CHACHA20_POLY1305_IMPL(obj, __VA_ARGS__)
+#define xqc_aead_init_chacha20_poly1305(obj)   XQC_AEAD_INIT_CHACHA20_POLY1305_IMPL(obj)
 
 /* aes_d_ctr */
-#define xqc_cipher_init_aes_ctr(cipher, d, ...)     XQC_CIPHER_INIT_AES_CTR_IMPL(cipher, d, __VA_ARGS__)
+#define xqc_cipher_init_aes_ctr(cipher, d)     XQC_CIPHER_INIT_AES_CTR_IMPL(cipher, d)
 
 /* chacha20 */
-#define xqc_cipher_init_chacha20(cipher, ...)       XQC_CIPHER_INIT_CHACHA20_IMPL(cipher, __VA_ARGS__)
+#define xqc_cipher_init_chacha20(cipher)       XQC_CIPHER_INIT_CHACHA20_IMPL(cipher)
 
 /* length of aead overhead */
 #define xqc_aead_overhead(obj, cln)                 (XQC_AEAD_OVERHEAD_IMPL((obj), cln))
@@ -106,11 +106,7 @@ typedef struct xqc_digest_s {
 #define xqc_digest_init_to_sha256(obj)  ((obj)->digest = EVP_sha256())
 #define xqc_digest_init_to_sha384(obj)  ((obj)->digest = EVP_sha384())
 
-typedef enum {
-    XQC_CRYPTO_KM_FLAG_NONE,
-    XQC_CRYPTO_KM_FLAG_KEY_PHASE_ONE = 0x01, /* key phase bit is set */
-} xqc_crypto_km_flag;
-
+#define XQC_KEY_PHASE_CNT 2
 
 typedef struct xqc_vec_s {
     uint8_t            *base;     /* pointer of data. */
@@ -121,13 +117,14 @@ typedef struct xqc_crypto_km_s {
     xqc_vec_t           key;
     xqc_vec_t           iv;
 
-    uint8_t             flags;  /* for key update */
+    /* application traffic secrets, only use on 1-rtt, for key update */
+    xqc_vec_t           secret;
 } xqc_crypto_km_t;
 
 typedef struct xqc_crypto_keys_s {
     /* packet payload protect key */
-    xqc_crypto_km_t     rx_ckm;
-    xqc_crypto_km_t     tx_ckm;
+    xqc_crypto_km_t     rx_ckm[XQC_KEY_PHASE_CNT];
+    xqc_crypto_km_t     tx_ckm[XQC_KEY_PHASE_CNT];
 
     /* packet header protect key */
     xqc_vec_t           rx_hp;
@@ -152,6 +149,9 @@ typedef struct xqc_crypto_s {
     /* log handler */
     xqc_log_t                  *log;
 
+    /* key phase, 1-RTT : 1 or 0, others is always 0 */
+    xqc_uint_t                  key_phase;
+
 } xqc_crypto_t;
 
 
@@ -172,6 +172,12 @@ xqc_int_t xqc_crypto_derive_keys(xqc_crypto_t *crypto, const uint8_t *secret, si
     xqc_key_type_t type);
 
 /**
+ * @brief save application traffic secret for key update
+ */
+xqc_int_t xqc_crypto_save_application_traffic_secret_0(xqc_crypto_t *crypto,
+    const uint8_t *secret, size_t secretlen, xqc_key_type_t type);
+
+/**
  * @brief query is protection key is ready
  */
 xqc_bool_t xqc_crypto_is_key_ready(xqc_crypto_t *crypto, xqc_key_type_t type);
@@ -185,7 +191,7 @@ xqc_bool_t xqc_crypto_is_key_ready(xqc_crypto_t *crypto, xqc_key_type_t type);
  * @param dst_len written length
  * @return XQC_OK for success, others for failure
  */
-xqc_int_t xqc_crypto_encrypt_payload(xqc_crypto_t *crypto, uint64_t pktno,
+xqc_int_t xqc_crypto_encrypt_payload(xqc_crypto_t *crypto, uint64_t pktno, xqc_uint_t key_phase,
     uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
     uint8_t *dst, size_t dst_cap, size_t *dst_len);
 
@@ -200,7 +206,7 @@ xqc_int_t xqc_crypto_encrypt_payload(xqc_crypto_t *crypto, uint64_t pktno,
  * @param dst_len length of decrypted payload
  * @return xqc_int_t 
  */
-xqc_int_t xqc_crypto_decrypt_payload(xqc_crypto_t *crypto, uint64_t pktno,
+xqc_int_t xqc_crypto_decrypt_payload(xqc_crypto_t *crypto, uint64_t pktno, xqc_uint_t key_phase,
     uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
     uint8_t *dst, size_t dst_cap, size_t *dst_len);
 
@@ -240,5 +246,28 @@ xqc_int_t xqc_crypto_derive_initial_secret(
 
 
 ssize_t xqc_crypto_aead_tag_len(xqc_crypto_t *crypto);
+
+
+/**
+ * @brief derive updated secrets and read/write keys on 1-RTT
+ */
+xqc_int_t xqc_crypto_derive_updated_keys(xqc_crypto_t *crypto, xqc_key_type_t type);
+
+/**
+ * @brief discard the old read and write keys on 1-RTT
+ */
+void xqc_crypto_discard_old_keys(xqc_crypto_t *crypto);
+
+
+/**
+ * @brief call aead encrypt callback directly
+ */
+xqc_int_t xqc_crypto_aead_encrypt(xqc_crypto_t *crypto,
+    const uint8_t *plaintext, size_t plaintextlen,
+    const uint8_t *key, size_t keylen,
+    const uint8_t *nonce, size_t noncelen,
+    const uint8_t *ad, size_t adlen,
+    uint8_t *dst, size_t dst_cap, size_t *dst_len);
+
 
 #endif

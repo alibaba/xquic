@@ -20,6 +20,7 @@ typedef struct {
     uint64_t        bic_K;              /* time period from W growth to Wmax */
     xqc_usec_t      epoch_start;        /* the moment when congestion switchover begins, in microseconds */
     xqc_usec_t      min_rtt;
+    xqc_usec_t      congestion_recovery_start_time;
 } xqc_cubic_t;
 
 extern const xqc_cong_ctrl_callback_t xqc_cubic_cb;

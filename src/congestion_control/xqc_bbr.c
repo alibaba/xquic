@@ -2,9 +2,17 @@
  * @copyright Copyright (c) 2022, Alibaba Group Holding Limited
  */
 
+#if (defined _WIN32) || (defined _WIN64)
+#define _CRT_RAND_S
+#endif
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <xquic/xquic_typedef.h>
+#if !defined(XQC_SYS_WINDOWS) || defined(XQC_ON_MINGW)
+#include <unistd.h>
+#endif
 #include "src/congestion_control/xqc_bbr.h"
 #include "src/congestion_control/xqc_sample.h"
 #include "src/common/xqc_time.h"
@@ -34,7 +42,7 @@ const uint32_t xqc_bbr_minrtt_win_size = 10;
 const uint32_t xqc_bbr_probertt_time_us = 100000;
 /* Initial rtt before any samples are received, in ms  */
 const uint64_t xqc_bbr_initial_rtt_ms = 100;
-/* The gain of pacing rate for STRAT_UP, 2/(ln2) */
+/* The gain of pacing rate for START_UP, 2/(ln2) */
 const float xqc_bbr_high_gain = 2.885;
 /* Gain in BBR_DRAIN */
 const float xqc_bbr_drain_gain = 1.0 / 2.885;
@@ -45,7 +53,7 @@ const float xqc_bbr_pacing_gain[] = {1.25, 0.75, 1, 1, 1, 1, 1, 1};
 const float xqc_bbr_low_pacing_gain[] = {1.1, 0.9, 1, 1, 1, 1, 1, 1};
 /* Minimum packets that need to ensure ack if there is delayed ack */
 const uint32_t xqc_bbr_min_cwnd = 4 * XQC_BBR_MAX_DATAGRAMSIZE;
-/* If bandwidth has increased by 1.25, there may be more bandwidth avaliable */
+/* If bandwidth has increased by 1.25, there may be more bandwidth available */
 const float xqc_bbr_fullbw_thresh = 1.1;
 /* After 3 rounds bandwidth less than (1.25x), estimate the pipe is full */
 const uint32_t xqc_bbr_fullbw_cnt = 3;
@@ -79,6 +87,21 @@ static const float xqc_bbr_rtt_compensation_startup_thresh = 2;
 static const float xqc_bbr_rtt_compensation_thresh = 1;
 static const float xqc_bbr_rtt_compensation_cwnd_factor = 1;
 #endif
+
+long xqc_random(void) {
+
+#ifdef XQC_SYS_WINDOWS
+    unsigned int  val;
+    if (rand_s(&val)) {
+        val = rand();
+    }
+    return (long)val && 0xFFFFFFFF;
+#else
+    return random();
+#endif
+
+}
+
 
 size_t 
 xqc_bbr_size()
@@ -420,7 +443,7 @@ xqc_bbr_enter_probe_bw(xqc_bbr_t *bbr, xqc_sample_t *sampler)
 {
     bbr->mode = BBR_PROBE_BW;
     bbr->cwnd_gain = xqc_bbr_cwnd_gain;
-    bbr->cycle_idx = random() % (XQC_BBR_CYCLE_LENGTH - 1);
+    bbr->cycle_idx = xqc_random() % (XQC_BBR_CYCLE_LENGTH - 1);
     bbr->cycle_idx = bbr->cycle_idx == 0 ? bbr->cycle_idx : bbr->cycle_idx + 1;
     bbr->pacing_gain = xqc_bbr_get_pacing_gain(bbr, bbr->cycle_idx);
     bbr->cycle_start_stamp = sampler->now;
@@ -555,7 +578,8 @@ xqc_bbr_update_min_rtt(xqc_bbr_t *bbr, xqc_sample_t *sampler)
         /* Ignore low rate samples during this mode. */
         xqc_send_ctl_t *send_ctl = sampler->send_ctl;
         send_ctl->ctl_app_limited = (send_ctl->ctl_delivered 
-            + send_ctl->ctl_bytes_in_flight)? : 1;
+            + send_ctl->ctl_bytes_in_flight)? (send_ctl->ctl_delivered
+                + send_ctl->ctl_bytes_in_flight) : 1;
         xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, 
                 "|BBR PROBE_RTT|inflight:%ud|done_stamp:%ui|done:%ud|"
                 "round_start:%ud|",
@@ -790,7 +814,7 @@ xqc_bbr_on_lost(void *cong_ctl, xqc_usec_t lost_sent_time)
     /* 
      * Unlike the definition of "recovery epoch" for loss-based CCs, 
      * for the sake of resistance to losses, we MUST refresh the end of a 
-     * recovery epoch if further lossess happen in the epoch. Otherwise, the
+     * recovery epoch if further losses happen in the epoch. Otherwise, the
      * ability of BBR to sustain network where high loss rate presents 
      * is hampered because of frequently entering packet conservation state. 
      */

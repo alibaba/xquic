@@ -2,7 +2,6 @@
 
 #!/bin/bash
 
-
 function generate_cert() {
     if [[ ! -f "server.key" || ! -f "server.crt" ]]; then
         keyfile=server.key
@@ -23,7 +22,7 @@ function install_cunit() {
 }
 
 function install_go() {
-    sudo yum -y install go
+    sudo yum -y install golang
 }
 
 function build_babassl() {

@@ -6,9 +6,24 @@
 #define XQC_TLS_H
 
 #include <xquic/xquic_typedef.h>
-#include "xqc_tls_defs.h"
 #include <openssl/err.h>
+
+#include "src/tls/xqc_tls_defs.h"
 #include "src/transport/xqc_packet.h"
+
+#ifdef XQC_SYS_WINDOWS
+// wincrypt.h defines macros which conflict with OpenSSL's types. This header
+// includes wincrypt and undefines the OpenSSL macros which conflict.
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <wincrypt.h>
+// Undefine the macros which conflict with OpenSSL and define replacements. 
+// See http://msdn.microsoft.com/en-us/library/windows/desktop/aa378145(v=vs.85).aspx
+#undef PKCS7_SIGNER_INFO
+#undef X509_CERT_PAIR
+#undef X509_EXTENSIONS
+#undef X509_NAME
+#endif
 
 /**
  * @brief init tls context. MUST be called before any creation of xqc_tls_t
@@ -22,12 +37,12 @@ xqc_tls_ctx_t *xqc_tls_ctx_create(xqc_tls_type_t type, const xqc_engine_ssl_conf
 void xqc_tls_ctx_destroy(xqc_tls_ctx_t *ctx);
 
 /**
- * @brief alpn registeration, which is used for alpn selection
+ * @brief alpn registration, which is used for alpn selection
  */
 xqc_int_t xqc_tls_ctx_register_alpn(xqc_tls_ctx_t *ctx, const char *alpn, size_t alpn_len);
 
 /**
- * @brief alpn unregisteration
+ * @brief alpn unregistration
  */
 xqc_int_t xqc_tls_ctx_unregister_alpn(xqc_tls_ctx_t *ctx, const char *alpn, size_t alpn_len);
 
@@ -163,5 +178,32 @@ ssize_t xqc_tls_aead_tag_len(xqc_tls_t *tls, xqc_encrypt_level_t level);
  * @brief set no crypto on 0-RTT and 1-RTT
  */
 void xqc_tls_set_no_crypto(xqc_tls_t *tls);
+
+/**
+ * @brief update key phase on 1-RTT
+ */
+void xqc_tls_set_1rtt_key_phase(xqc_tls_t *tls, xqc_uint_t key_phase);
+
+/**
+ * @brief check if key update is waiting confirmed
+ */
+xqc_bool_t xqc_tls_is_key_update_confirmed(xqc_tls_t *tls);
+
+/**
+ * @brief derive updated read or write keys on 1-RTT
+ */
+xqc_int_t xqc_tls_update_1rtt_keys(xqc_tls_t *tls, xqc_key_type_t type);
+
+/**
+ * @brief discard the old read and write keys on 1-RTT
+ */
+void xqc_tls_discard_old_1rtt_keys(xqc_tls_t *tls);
+
+/**
+ * @brief encrypt retry pseudo-packet to calculate retry integrity tag
+ */
+xqc_int_t xqc_tls_cal_retry_integrity_tag(xqc_tls_t *tls,
+    uint8_t *retry_pseudo_packet, size_t retry_pseudo_packet_len,
+    uint8_t *dst, size_t dst_cap, size_t *dst_len);
 
 #endif

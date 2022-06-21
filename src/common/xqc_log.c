@@ -107,7 +107,7 @@ xqc_log_type_2_level(xqc_log_type_t type)
 const char *
 xqc_log_type_str(xqc_log_type_t type)
 {
-    static const char* event_type2str[] = {
+    static const char *event_type2str[] = {
             [CON_SERVER_LISTENING]              = "server_listening",
             [CON_CONNECTION_STARTED]            = "connection_started",
             [CON_CONNECTION_CLOSED]             = "connection_closed",
@@ -226,7 +226,7 @@ xqc_log_time(char *buf, size_t buf_len)
 
     struct tm tm;
 
-#ifdef WIN32
+#ifdef XQC_SYS_WINDOWS
     time_t t = tv.tv_sec;
 #ifdef _USE_32BIT_TIME_T
     _localtime32_s(&tm, &t);

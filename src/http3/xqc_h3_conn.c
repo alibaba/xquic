@@ -349,6 +349,7 @@ xqc_h3_conn_destroy(xqc_h3_conn_t *h3_conn)
 xqc_int_t
 xqc_h3_conn_on_uni_stream_created(xqc_h3_conn_t *h3c, uint64_t stype)
 {
+    uint64_t cflag;
     static const uint64_t stype_2_flag_map[] = {
         [XQC_H3_STREAM_TYPE_CONTROL]        = XQC_H3_CONN_FLAG_CONTROL_OPENED,
         [XQC_H3_STREAM_TYPE_PUSH]           = XQC_H3_CONN_FLAG_PUSH_OPENED,
@@ -357,12 +358,12 @@ xqc_h3_conn_on_uni_stream_created(xqc_h3_conn_t *h3c, uint64_t stype)
     };
 
     /* check if control and qpack streams are already created */
-    uint64_t cflag = stype_2_flag_map[stype];   /* stream creation flag */
     switch (stype) {
     case XQC_H3_STREAM_TYPE_CONTROL:
     case XQC_H3_STREAM_TYPE_PUSH:
     case XQC_H3_STREAM_TYPE_QPACK_ENCODER:
     case XQC_H3_STREAM_TYPE_QPACK_DECODER:
+        cflag = stype_2_flag_map[stype];   /* stream creation flag */
         /* if control/encoder/decoder stream has been created, close connection */
         if (h3c->flags & cflag) {
             xqc_log(h3c->log, XQC_LOG_ERROR,
@@ -376,6 +377,7 @@ xqc_h3_conn_on_uni_stream_created(xqc_h3_conn_t *h3c, uint64_t stype)
         break;
 
     default:
+        /* reserved stream type, do nothing */
         break;
     }
 
@@ -512,7 +514,9 @@ xqc_h3_conn_on_settings_entry_received(uint64_t identifier, uint64_t value, void
         break;
 
     default:
-        return XQC_ERROR;
+        xqc_log(h3c->log, XQC_LOG_INFO, "|ignore unknown setting|identifier%ui|value:%ui",
+                identifier, value);
+        break;
     }
 
     return XQC_OK;
@@ -536,7 +540,7 @@ xqc_h3_conn_add_blocked_stream(xqc_h3_conn_t *h3c, xqc_h3_stream_t *h3s, uint64_
 
     xqc_h3_blocked_stream_t *blocked_stream = xqc_h3_blocked_stream_create(h3s, ric);
 
-    /* insert into list order by required inseert count asc */
+    /* insert into list order by required insert count asc */
     xqc_list_head_t *pos, *next;
     xqc_h3_blocked_stream_t *bs;
     xqc_list_for_each_safe(pos, next, &h3c->block_stream_head) {
@@ -599,13 +603,13 @@ xqc_h3_conn_process_blocked_stream(xqc_h3_conn_t *h3c)
     return XQC_OK;
 }
 
-
 xqc_int_t
-xqc_h3_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data)
+xqc_h3_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
+    void *conn_user_data, void *conn_proto_data)
 {
     xqc_int_t ret;
     xqc_h3_conn_t *h3c;
-    h3c = xqc_h3_conn_create(conn, user_data);
+    h3c = xqc_h3_conn_create(conn, conn_user_data);
     if (!h3c) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_h3_conn_create error|");
         return -XQC_H3_ECREATE_CONN;
@@ -645,9 +649,10 @@ xqc_h3_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *us
 
 
 xqc_int_t
-xqc_h3_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data)
+xqc_h3_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
+    void *conn_user_data, void *conn_proto_data)
 {
-    xqc_h3_conn_t *h3c = (xqc_h3_conn_t*)user_data;
+    xqc_h3_conn_t *h3c = (xqc_h3_conn_t*)conn_proto_data;
     xqc_h3_conn_destroy(h3c);
     xqc_log(conn->log, XQC_LOG_DEBUG, "|destroy h3 conn success|");
     return XQC_OK;
@@ -655,9 +660,10 @@ xqc_h3_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *use
 
 
 void
-xqc_h3_conn_handshake_finished(xqc_connection_t *conn, void *user_data)
+xqc_h3_conn_handshake_finished(xqc_connection_t *conn,
+    void *conn_user_data, void *conn_proto_data)
 {
-    xqc_h3_conn_t *h3c = (xqc_h3_conn_t*)user_data;
+    xqc_h3_conn_t *h3c = (xqc_h3_conn_t *)conn_proto_data;
     if (h3c->h3_conn_callbacks.h3_conn_handshake_finished) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|HANDSHAKE_COMPLETED notify|");
 
@@ -667,9 +673,9 @@ xqc_h3_conn_handshake_finished(xqc_connection_t *conn, void *user_data)
 
 void
 xqc_h3_conn_ping_acked_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *ping_user_data,
-    void *user_data)
+    void *conn_user_data, void *conn_proto_data)
 {
-    xqc_h3_conn_t *h3c = (xqc_h3_conn_t*)user_data;
+    xqc_h3_conn_t *h3c = (xqc_h3_conn_t*)conn_proto_data;
 
     if (h3c->h3_conn_callbacks.h3_conn_ping_acked) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|Ping acked notify|");

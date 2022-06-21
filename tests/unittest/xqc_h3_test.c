@@ -14,7 +14,7 @@
 #include "xqc_common_test.h"
 
 
-ssize_t xqc_h3_stream_write_data_to_buffer(xqc_h3_stream_t *h3s, unsigned char* data, uint64_t data_size, uint8_t fin);
+ssize_t xqc_h3_stream_write_data_to_buffer(xqc_h3_stream_t *h3s, unsigned char *data, uint64_t data_size, uint8_t fin);
 xqc_int_t xqc_decoder_copy_header(xqc_http_header_t *hdr, xqc_var_buf_t *name, xqc_var_buf_t *value);
 
 
@@ -151,6 +151,20 @@ xqc_test_frame()
     CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_END);
     buf->consumed_len += processed;
     CU_ASSERT(buf->consumed_len == buf->data_len);
+    xqc_h3_frm_reset_pctx(&pctx);
+
+    /* reserved frame type with 10 bytes */
+    char reserved_frame[] = "\xcf\x25\x7c\x52\x89\x59\xd7\xba\x0a\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff";
+    size_t reserved_frame_len = sizeof(reserved_frame) - 1;
+    size_t reserved_consumed_len = 0;
+    for (size_t i = 0; i < reserved_frame_len; i++) {
+        processed = xqc_h3_frm_parse(reserved_frame + reserved_consumed_len, 1, &pctx);
+        CU_ASSERT(processed > 0);
+        reserved_consumed_len += processed;
+    }
+    CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_END);
+    CU_ASSERT(reserved_consumed_len == reserved_frame_len);
+    CU_ASSERT(pctx.frame.type == 0xf257c528959d7ba)
     xqc_h3_frm_reset_pctx(&pctx);
 
     xqc_var_buf_free(buf);
@@ -345,11 +359,11 @@ xqc_test_rep()
     xqc_rep_ctx_clear_rep(ctx);
     CU_ASSERT(header.name.iov_len == strlen(name));
     for (int i = 0; i < header.name.iov_len; i++) {
-        CU_ASSERT(name[i] == ((char*) header.name.iov_base)[i]);
+        CU_ASSERT(name[i] == ((char *) header.name.iov_base)[i]);
     }
     CU_ASSERT(header.value.iov_len == strlen(value));
     for (int i = 0; i < header.value.iov_len; i++) {
-        CU_ASSERT(value[i] == ((char*) header.value.iov_base)[i]);
+        CU_ASSERT(value[i] == ((char *) header.value.iov_base)[i]);
     }
 
     processed = xqc_rep_decode_field_line(ctx, buf->data + buf->consumed_len, buf->data_len - buf->consumed_len);

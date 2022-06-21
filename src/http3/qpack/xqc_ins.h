@@ -143,7 +143,7 @@ xqc_int_t xqc_ins_write_insert_literal_name(xqc_var_buf_t *buf, unsigned char *n
 xqc_int_t xqc_ins_write_dup(xqc_var_buf_t *buf, uint64_t index);
 
 /**
- * @brief Section Acknoledgement
+ * @brief Section Acknowledgement
  */
 xqc_int_t xqc_ins_write_section_ack(xqc_var_buf_t *buf, uint64_t stream_id);
 

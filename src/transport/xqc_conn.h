@@ -40,13 +40,14 @@ static const uint32_t MAX_RSP_CONN_CLOSE_CNT = 3;
 #endif
 
 /* send CONNECTION_CLOSE with err */
-#define XQC_CONN_ERR(conn, err) do {            \
-    if ((conn)->conn_err == 0) {                \
-        (conn)->conn_err = (err);               \
-        (conn)->conn_flag |= XQC_CONN_FLAG_ERROR; \
+#define XQC_CONN_ERR(conn, err) do {                \
+    if ((conn)->conn_err == 0) {                    \
+        (conn)->conn_err = (err);                   \
+        (conn)->conn_flag |= XQC_CONN_FLAG_ERROR;   \
+        xqc_conn_closing(conn);                     \
         xqc_log((conn)->log, XQC_LOG_ERROR, "|conn:%p|err:0x%xi|%s|", (conn), (uint64_t)(err), xqc_conn_addr_str(conn)); \
-    }                                       \
-} while(0)                                  \
+    }                                               \
+} while(0)                                          \
 
 extern xqc_conn_settings_t default_conn_settings;
 extern const xqc_tls_callbacks_t xqc_conn_tls_cbs;
@@ -103,7 +104,7 @@ typedef enum {
     XQC_CONN_FLAG_0RTT_OK_SHIFT,
     XQC_CONN_FLAG_0RTT_REJ_SHIFT,
     XQC_CONN_FLAG_UPPER_CONN_EXIST_SHIFT,
-    XQC_CONN_FLAG_SVR_INIT_RECVD_SHIFT,
+    XQC_CONN_FLAG_INIT_RECVD_SHIFT,
     XQC_CONN_FLAG_NEED_RUN_SHIFT,
     XQC_CONN_FLAG_PING_SHIFT,
     XQC_CONN_FLAG_HSK_ACKED_SHIFT,
@@ -116,7 +117,7 @@ typedef enum {
     XQC_CONN_FLAG_ADDR_VALIDATED_SHIFT,
     XQC_CONN_FLAG_NEW_CID_RECEIVED_SHIFT,
     XQC_CONN_FLAG_LINGER_CLOSING_SHIFT,
-    XQC_CONN_FLAG_RECV_RETRY_SHIFT,
+    XQC_CONN_FLAG_RETRY_RECVD_SHIFT,
     XQC_CONN_FLAG_TLS_HSK_COMPLETED_SHIFT,
     XQC_CONN_FLAG_SHIFT_NUM,
 } xqc_conn_flag_shift_t;
@@ -139,7 +140,7 @@ typedef enum {
     XQC_CONN_FLAG_0RTT_OK               = 1UL << XQC_CONN_FLAG_0RTT_OK_SHIFT,
     XQC_CONN_FLAG_0RTT_REJ              = 1UL << XQC_CONN_FLAG_0RTT_REJ_SHIFT,
     XQC_CONN_FLAG_UPPER_CONN_EXIST      = 1UL << XQC_CONN_FLAG_UPPER_CONN_EXIST_SHIFT,
-    XQC_CONN_FLAG_SVR_INIT_RECVD        = 1UL << XQC_CONN_FLAG_SVR_INIT_RECVD_SHIFT,
+    XQC_CONN_FLAG_INIT_RECVD            = 1UL << XQC_CONN_FLAG_INIT_RECVD_SHIFT,
     XQC_CONN_FLAG_NEED_RUN              = 1UL << XQC_CONN_FLAG_NEED_RUN_SHIFT,
     XQC_CONN_FLAG_PING                  = 1UL << XQC_CONN_FLAG_PING_SHIFT,
     XQC_CONN_FLAG_HSK_ACKED             = 1UL << XQC_CONN_FLAG_HSK_ACKED_SHIFT,
@@ -152,7 +153,7 @@ typedef enum {
     XQC_CONN_FLAG_ADDR_VALIDATED        = 1UL << XQC_CONN_FLAG_ADDR_VALIDATED_SHIFT,
     XQC_CONN_FLAG_NEW_CID_RECEIVED      = 1UL << XQC_CONN_FLAG_NEW_CID_RECEIVED_SHIFT,
     XQC_CONN_FLAG_LINGER_CLOSING        = 1UL << XQC_CONN_FLAG_LINGER_CLOSING_SHIFT,
-    XQC_CONN_FLAG_RECV_RETRY            = 1UL << XQC_CONN_FLAG_RECV_RETRY_SHIFT,
+    XQC_CONN_FLAG_RETRY_RECVD           = 1UL << XQC_CONN_FLAG_RETRY_RECVD_SHIFT,
     XQC_CONN_FLAG_TLS_HSK_COMPLETED     = 1UL << XQC_CONN_FLAG_TLS_HSK_COMPLETED_SHIFT,
 } xqc_conn_flag_t;
 
@@ -200,6 +201,19 @@ typedef struct {
     size_t          data_len;
     char            data[];
 } xqc_hs_buffer_t;
+
+typedef struct {
+    xqc_uint_t              cur_out_key_phase; /* key phase used in current sent packets */
+    xqc_uint_t              next_in_key_phase; /* key phase expected in next received packets */
+    xqc_uint_t              key_update_cnt;    /* number of key updates per connection */
+
+    /* for current out key phase */
+    xqc_packet_number_t     first_sent_pktno;  /* lowest packet number sent with each key phase */
+    xqc_packet_number_t     first_recv_pktno;  /* lowest packet number recv with each key phase */
+    uint64_t                enc_pkt_cnt;       /* number of packet encrypt with each key phase */
+    xqc_usec_t              initiate_time_guard;  /* time limit for initiating next key update */
+
+} xqc_key_update_ctx_t;
 
 struct xqc_connection_s {
 
@@ -265,7 +279,7 @@ struct xqc_connection_s {
 
     /* callback function and user_data to application-layer-protocol layer */
     xqc_app_proto_callbacks_t       app_proto_cbs;
-    void                           *app_proto_user_data;
+    void                           *proto_data;
 
     xqc_list_head_t                 undecrypt_packet_in[XQC_ENC_LEV_MAX];  /* buffer for reordered packets */
     uint32_t                        undecrypt_count[XQC_ENC_LEV_MAX];
@@ -298,12 +312,11 @@ struct xqc_connection_s {
     xqc_list_head_t                 hsk_crypto_data_list;
     xqc_list_head_t                 application_crypto_data_list;
 
-    /* only for initial level crypto data */
-    xqc_list_head_t                 retry_crypto_data_buffer;
-
     /* for limit the length of crypto_data */
     size_t                          crypto_data_total_len;
 
+    /* for key update */
+    xqc_key_update_ctx_t            key_update_ctx;
 };
 
 const char *xqc_conn_flag_2_str(xqc_conn_flag_t conn_flag);
@@ -432,9 +445,13 @@ xqc_int_t xqc_conn_set_early_remote_transport_params(xqc_connection_t *conn,
 xqc_int_t xqc_conn_encode_local_tp(xqc_connection_t *conn, uint8_t *dst, size_t dst_cap,
     size_t *dst_len);
 
-xqc_int_t xqc_conn_on_recv_retry(xqc_connection_t *conn);
+xqc_int_t xqc_conn_on_recv_retry(xqc_connection_t *conn, xqc_cid_t *retry_scid);
 
 /* get idle timeout in milliseconds */
 xqc_msec_t xqc_conn_get_idle_timeout(xqc_connection_t *conn);
+
+xqc_int_t xqc_conn_confirm_key_update(xqc_connection_t *conn);
+
+void xqc_conn_closing(xqc_connection_t *conn);
 
 #endif /* _XQC_CONN_H_INCLUDED_ */

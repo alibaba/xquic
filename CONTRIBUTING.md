@@ -116,7 +116,7 @@ _Type_:
 _Example_:
 
 ```bash
-[~]: Update CONTRIBUTING.md
+[~] Update CONTRIBUTING.md
 ```
 
 #### Tests
@@ -203,5 +203,17 @@ In no particular order, thanks to these excellent individuals who contributed co
 * 曾柯(毅丝)
 * 徐盟欣(象谦)
 * Bai Shi(白石)
+* @chinsyo
+* @L1MeN9Yu
+* @flx413
+* @robinhzp
+* @contrun
+* @eltociear
+* @happyomg
+* @driventokill
+* @chenzhanfeng
+* @CherylQL
+* @wangweiwei1188
+* @yunwei37
 
 This list will be continuously updated. Contributions are welcome!

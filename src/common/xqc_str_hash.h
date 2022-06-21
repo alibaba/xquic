@@ -32,10 +32,10 @@ xqc_str_hash_init(xqc_str_hash_table_t *hash_tab,  xqc_allocator_t allocator, si
 {
     hash_tab->allocator = allocator;
     hash_tab->list = allocator.malloc(allocator.opaque, sizeof(xqc_str_hash_node_t *) * bucket_num);
-    xqc_memzero(hash_tab->list, sizeof(xqc_str_hash_node_t *) * bucket_num);
     if (hash_tab->list == NULL) {
         return XQC_ERROR;
     }
+    xqc_memzero(hash_tab->list, sizeof(xqc_str_hash_node_t *) * bucket_num);
     hash_tab->count = bucket_num;
     return XQC_OK;
 }

@@ -7,18 +7,29 @@
 #include <errno.h>
 #include <memory.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <fcntl.h>
-#include <sys/wait.h>
 #include <event2/event.h>
 #include <inttypes.h>
 #include <xquic/xquic_typedef.h>
 #include <xquic/xquic.h>
 #include <xquic/xqc_http3.h>
 #include <ctype.h>
+#include "../tests/platform.h"
+
+#ifndef XQC_SYS_WINDOWS
+#include <unistd.h>
+#include <sys/wait.h>
+#else
+#include <third_party/wingetopt/src/getopt.h>
+#pragma comment(lib,"ws2_32.lib")
+#pragma comment(lib,"event.lib")
+#pragma comment(lib, "Iphlpapi.lib")
+#endif
+
 
 #include "common.h"
 #include "xqc_hq.h"
+
 
 
 
@@ -256,12 +267,12 @@ xqc_demo_svr_write_log_file(xqc_log_level_t lvl, const void *buf, size_t size, v
 
     int write_len = write(ctx->log_fd, buf, size);
     if (write_len < 0) {
-        printf("write log failed, errno: %d\n", errno);
+        printf("write log failed, errno: %d\n", get_last_sys_errno());
         return;
     }
     write_len = write(ctx->log_fd, line_break, 1);
     if (write_len < 0) {
-        printf("write log failed, errno: %d\n", errno);
+        printf("write log failed, errno: %d\n", get_last_sys_errno());
     }
 }
 
@@ -302,12 +313,12 @@ xqc_demo_svr_keylog_cb(const char *line, void *eng_user_data)
 
     int write_len = write(ctx->keylog_fd, line, strlen(line));
     if (write_len < 0) {
-        printf("write keys failed, errno: %d\n", errno);
+        printf("write keys failed, errno: %d\n", get_last_sys_errno());
         return;
     }
     write_len = write(ctx->keylog_fd, line_break, 1);
     if (write_len < 0) {
-        printf("write keys failed, errno: %d\n", errno);
+        printf("write keys failed, errno: %d\n", get_last_sys_errno());
     }
 }
 
@@ -408,7 +419,7 @@ xqc_demo_svr_hq_conn_handshake_finished(xqc_hq_conn_t *conn, void *conn_user_dat
 
 
 int
-xqc_demo_svr_send_rsp_resource(xqc_demo_svr_user_stream_t *user_stream, char* data, ssize_t len,
+xqc_demo_svr_send_rsp_resource(xqc_demo_svr_user_stream_t *user_stream, char *data, ssize_t len,
     int fin)
 {
     ssize_t ret = xqc_hq_request_send_rsp(user_stream->hq_request, data, len, fin);
@@ -507,7 +518,7 @@ xqc_demo_svr_handle_hq_request(xqc_demo_svr_user_stream_t *user_stream, xqc_hq_r
     // printf("open file[%s] suc, user_conn: %p\n", file_path, user_stream->conn);
 
     /* create buf */
-    user_stream->res.buf = (char*)malloc(READ_FILE_BUF_LEN);
+    user_stream->res.buf = (char *)malloc(READ_FILE_BUF_LEN);
     if (NULL == user_stream->res.buf) {
         printf("error create resource buf\n");
         goto handle_error;
@@ -677,12 +688,12 @@ xqc_demo_svr_set_rsp_header_value_int(xqc_http_headers_t *rsp_hdrs, H3_HDR_TYPE 
 {
     sprintf(rsp_hdrs->headers[hdr_type].value.iov_base, "%d", v);
     rsp_hdrs->headers[hdr_type].value.iov_len = strlen(
-        (char*)rsp_hdrs->headers[hdr_type].value.iov_base);
+        (char *)rsp_hdrs->headers[hdr_type].value.iov_base);
 }
 
 
 int
-xqc_demo_svr_request_send_body(xqc_demo_svr_user_stream_t *user_stream, char* data, ssize_t len,
+xqc_demo_svr_request_send_body(xqc_demo_svr_user_stream_t *user_stream, char *data, ssize_t len,
     int fin)
 {
     ssize_t ret = xqc_h3_request_send_body(user_stream->h3_request, data, len, fin);
@@ -782,7 +793,7 @@ xqc_demo_svr_handle_h3_request(xqc_demo_svr_user_stream_t *user_stream,
     }
 
     /* create buf */
-    user_stream->res.buf = (char*)malloc(READ_FILE_BUF_LEN);
+    user_stream->res.buf = (char *)malloc(READ_FILE_BUF_LEN);
     if (NULL == user_stream->res.buf) {
         printf("error create response buf\n");
         xqc_demo_svr_set_rsp_header_value_int(&rsp_hdrs, H3_HDR_STATUS, 500);
@@ -844,12 +855,12 @@ xqc_demo_svr_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
         /* print headers */
         for (int i = 0; i < headers->count; i++) {
             /* save path */
-            if (strcmp((char*)headers->headers[i].name.iov_base, ":path") == 0) {
-                strncpy(user_stream->recv_buf, (char*)headers->headers[i].value.iov_base,
+            if (strcmp((char *)headers->headers[i].name.iov_base, ":path") == 0) {
+                strncpy(user_stream->recv_buf, (char *)headers->headers[i].value.iov_base,
                     headers->headers[i].value.iov_len);
             }
-            printf("%s = %s\n", (char*)headers->headers[i].name.iov_base,
-                (char*)headers->headers[i].value.iov_base);
+            printf("%s = %s\n", (char *)headers->headers[i].name.iov_base,
+                (char *)headers->headers[i].value.iov_base);
         }
 
         /* TODO: if recv headers once for all? */
@@ -912,15 +923,16 @@ xqc_demo_svr_write_socket(const unsigned char *buf, size_t size, const struct so
     int fd = svr_ctx.current_fd;
 
     do {
-        errno = 0;
+        set_last_sys_errno(0);
         res = sendto(fd, buf, size, 0, peer_addr, peer_addrlen);
         if (res < 0) {
-            printf("xqc_demo_svr_write_socket err %zd %s, fd: %d\n", res, strerror(errno), fd);
-            if (errno == EAGAIN) {
+            printf("xqc_demo_svr_write_socket err %zd %s, fd: %d\n", 
+                res, strerror(get_last_sys_errno()), fd);
+            if (get_last_sys_errno() == EAGAIN) {
                 res = XQC_SOCKET_EAGAIN;
             }
         }
-    } while ((res < 0) && (errno == EINTR));
+    } while ((res < 0) && (get_last_sys_errno() == EINTR));
 
     return res;
 }
@@ -947,17 +959,17 @@ xqc_demo_svr_socket_read_handler(xqc_demo_svr_ctx_t *ctx, int fd)
     do {
         recv_size = recvfrom(fd, packet_buf, sizeof(packet_buf), 0,
                              (struct sockaddr *) &peer_addr, &peer_addrlen);
-        if (recv_size < 0 && errno == EAGAIN) {
+        if (recv_size < 0 && get_last_sys_errno() == EAGAIN) {
             break;
         }
 
         if (recv_size < 0) {
-            printf("!!!!!!!!!recvfrom: recvmsg = %zd err=%s\n", recv_size, strerror(errno));
+            printf("!!!!!!!!!recvfrom: recvmsg = %zd err=%s\n", recv_size, strerror(get_last_sys_errno()));
             break;
         }
         recv_sum += recv_size;
 
-        uint64_t recv_time = xqc_demo_now();
+        uint64_t recv_time = xqc_now();
         xqc_int_t ret = xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
                                       (struct sockaddr *)(&ctx->local_addr), ctx->local_addrlen,
                                       (struct sockaddr *)(&peer_addr), peer_addrlen,
@@ -998,39 +1010,47 @@ xqc_demo_svr_init_socket(int family, uint16_t port,
 {
     int size;
     int opt_reuseaddr;
+    int flags = 1;
     int fd = socket(family, SOCK_DGRAM, 0);
     if (fd < 0) {
-        printf("create socket failed, errno: %d\n", errno);
+        printf("create socket failed, errno: %d\n", get_last_sys_errno());
         return -1;
     }
 
     /* non-block */
+#ifdef XQC_SYS_WINDOWS
+    if (ioctlsocket(fd, FIONBIO, &flags) == SOCKET_ERROR) {
+		goto err;
+	}
+#else
     if (fcntl(fd, F_SETFL, O_NONBLOCK) == -1) {
-        printf("set socket nonblock failed, errno: %d\n", errno);
+        printf("set socket nonblock failed, errno: %d\n", get_last_sys_errno());
         goto err;
     }
+#endif
 
     /* reuse port */
     opt_reuseaddr = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt_reuseaddr, sizeof(opt_reuseaddr)) < 0) {
-        printf("setsockopt failed, errno: %d\n", errno);
+        printf("setsockopt failed, errno: %d\n", get_last_sys_errno());
         goto err;
     }
 
     /* send/recv buffer size */
     size = 1 * 1024 * 1024;
     if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &size, sizeof(int)) < 0) {
-        printf("setsockopt failed, errno: %d\n", errno);
+        printf("setsockopt failed, errno: %d\n", get_last_sys_errno());
         goto err;
     }
     if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &size, sizeof(int)) < 0) {
-        printf("setsockopt failed, errno: %d\n", errno);
+        printf("setsockopt failed, errno: %d\n", get_last_sys_errno());
         goto err;
     }
 
     /* bind port */
     if (bind(fd, local_addr, local_addrlen) < 0) {
-        printf("bind socket failed, family: %d, errno: %d, %s\n", family, errno, strerror(errno));
+        printf("bind socket failed, family: %d, errno: %d, %s\n", family, 
+            get_last_sys_errno(), strerror(get_last_sys_errno()));
         goto err;
     }
 
@@ -1300,6 +1320,7 @@ xqc_demo_svr_init_conn_settings(xqc_demo_svr_args_t *args)
             .init_cwnd = 32,
         },
         .spurious_loss_detect_on = 1,
+        .init_idle_time_out = 60000,
     };
 
     xqc_server_set_conn_settings(&conn_settings);
@@ -1310,6 +1331,26 @@ int
 xqc_demo_svr_init_alpn_ctx(xqc_demo_svr_ctx_t *ctx)
 {
     int ret = 0;
+
+    xqc_hq_callbacks_t hq_cbs = {
+        .hqc_cbs = {
+            .conn_create_notify = xqc_demo_svr_hq_conn_create_notify,
+            .conn_close_notify = xqc_demo_svr_hq_conn_close_notify,
+        },
+        .hqr_cbs = {
+            .req_create_notify = xqc_demo_svr_hq_req_create_notify,
+            .req_close_notify = xqc_demo_svr_hq_req_close_notify,
+            .req_read_notify = xqc_demo_svr_hq_req_read_notify,
+            .req_write_notify = xqc_demo_svr_hq_req_write_notify,
+        }
+    };
+
+    /* init hq context */
+    ret = xqc_hq_ctx_init(ctx->engine, &hq_cbs);
+    if (ret != XQC_OK) {
+        printf("init hq context error, ret: %d\n", ret);
+        return ret;
+    }
 
     xqc_h3_callbacks_t h3_cbs = {
         .h3c_cbs = {
@@ -1329,26 +1370,6 @@ xqc_demo_svr_init_alpn_ctx(xqc_demo_svr_ctx_t *ctx)
     ret = xqc_h3_ctx_init(ctx->engine, &h3_cbs);
     if (ret != XQC_OK) {
         printf("init h3 context error, ret: %d\n", ret);
-        return ret;
-    }
-
-    xqc_hq_callbacks_t hq_cbs = {
-        .hqc_cbs = {
-            .conn_create_notify = xqc_demo_svr_hq_conn_create_notify,
-            .conn_close_notify = xqc_demo_svr_hq_conn_close_notify,
-        },
-        .hqr_cbs = {
-            .req_create_notify = xqc_demo_svr_hq_req_create_notify,
-            .req_close_notify = xqc_demo_svr_hq_req_close_notify,
-            .req_read_notify = xqc_demo_svr_hq_req_read_notify,
-            .req_write_notify = xqc_demo_svr_hq_req_write_notify,
-        }
-    };
-
-    /* init hq context */
-    ret = xqc_hq_ctx_init(ctx->engine, &hq_cbs);
-    if (ret != XQC_OK) {
-        printf("init hq context error, ret: %d\n", ret);
         return ret;
     }
 
@@ -1444,6 +1465,9 @@ xqc_demo_svr_free_ctx(xqc_demo_svr_ctx_t *ctx)
 int
 main(int argc, char *argv[])
 {
+    /* init env if necessary */
+    xqc_platform_init_env();
+
     /* get input server args */
     xqc_demo_svr_args_t *args = calloc(1, sizeof(xqc_demo_svr_args_t));
     xqc_demo_svr_init_args(args);

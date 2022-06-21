@@ -10,9 +10,9 @@
 
 typedef struct xqc_2d_ht_node_s {
     uint64_t        idx;
-    char*           name;
+    char           *name;
     size_t          nlen;
-    char*           value;
+    char           *value;
     size_t          vlen;
 } xqc_2d_ht_node_t;
 

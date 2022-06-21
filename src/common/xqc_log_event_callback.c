@@ -273,7 +273,7 @@ xqc_log_TRA_FRAMES_PROCESSED_callback(xqc_log_t *log, const char *func, ...)
 
     case XQC_FRAME_NEW_TOKEN: {
         uint64_t length = va_arg(args, uint64_t);
-        unsigned char* token = va_arg(args, unsigned char*);
+        unsigned char *token = va_arg(args, unsigned char *);
         xqc_log_implement(log, TRA_FRAMES_PROCESSED, func,
                           "|type:%d|token_length:%ui|token:%s|", frame_type, length, token);
         break;
@@ -630,9 +630,9 @@ xqc_log_QPACK_DYNAMIC_TABLE_UPDATED_callback(xqc_log_t *log, const char *func, .
 
     } else {
         uint64_t nlen = va_arg(args, uint64_t);
-        char *name = va_arg(args, char*);
+        char *name = va_arg(args, char *);
         uint64_t vlen = va_arg(args, uint64_t);
-        char *value = va_arg(args, char*);
+        char *value = va_arg(args, char *);
         xqc_log_implement(log, QPACK_DYNAMIC_TABLE_UPDATED, func,
                           "|inserted|index:%ui|name:%*s|value:%*s|", index, (size_t) nlen, name, (size_t) vlen, value);
     }
@@ -658,7 +658,7 @@ xqc_log_QPACK_INSTRUCTION_CREATED_callback(xqc_log_t *log, const char *func, ...
             xqc_int_t table_type = va_arg(args, xqc_int_t);
             uint64_t name_index = va_arg(args, uint64_t);
             uint64_t value_len = va_arg(args, uint64_t);
-            char *value = va_arg(args, char*);
+            char *value = va_arg(args, char *);
             xqc_log_implement(log, QPACK_INSTRUCTION_CREATED, func,
                               "|insert_with_name_reference|%s|name_index:%ui|value:%*s|",
                               table_type == XQC_DTABLE_FLAG ? "dtable" : "stable", name_index, (size_t) value_len, value);
@@ -666,9 +666,9 @@ xqc_log_QPACK_INSTRUCTION_CREATED_callback(xqc_log_t *log, const char *func, ...
         }
         case XQC_INS_TYPE_ENC_INSERT_LITERAL: {
             uint64_t name_len = va_arg(args, uint64_t);
-            char *name = va_arg(args, char*);
+            char *name = va_arg(args, char *);
             uint64_t value_len = va_arg(args, uint64_t);
-            char *value = va_arg(args, char*);
+            char *value = va_arg(args, char *);
             xqc_log_implement(log, QPACK_INSTRUCTION_CREATED, func,
                               "|insert_without_name_reference|name:%*s|value:%*s|",
                               (size_t) name_len, name, (size_t) value_len, value);
@@ -690,13 +690,13 @@ xqc_log_QPACK_INSTRUCTION_CREATED_callback(xqc_log_t *log, const char *func, ...
         case XQC_INS_TYPE_DEC_SECTION_ACK: {
             uint64_t stream_id = va_arg(args, uint64_t);
             xqc_log_implement(log, QPACK_INSTRUCTION_CREATED, func,
-                              "|header_acknowledgement|strean_id:%ui|", stream_id);
+                              "|header_acknowledgement|stream_id:%ui|", stream_id);
             break;
         }
         case XQC_INS_TYPE_DEC_STREAM_CANCEL: {
             uint64_t stream_id = va_arg(args, uint64_t);
             xqc_log_implement(log, QPACK_INSTRUCTION_CREATED, func,
-                              "|stream_cancellation|strean_id:%ui|", stream_id);
+                              "|stream_cancellation|stream_id:%ui|", stream_id);
             break;
         }
         case XQC_INS_TYPE_DEC_INSERT_CNT_INC: {
@@ -747,11 +747,11 @@ xqc_log_QPACK_INSTRUCTION_PARSED_callback(xqc_log_t *log, const char *func, ...)
         switch (ctx->type) {
         case XQC_INS_TYPE_DEC_SECTION_ACK:
             xqc_log_implement(log, QPACK_INSTRUCTION_PARSED, func,
-                              "|header_acknowledgement|strean_id:%ui|", ctx->stream_id.value);
+                              "|header_acknowledgement|stream_id:%ui|", ctx->stream_id.value);
             break;
         case XQC_INS_TYPE_DEC_STREAM_CANCEL:
             xqc_log_implement(log, QPACK_INSTRUCTION_PARSED, func,
-                              "|stream_cancellation|strean_id:%ui|", ctx->stream_id.value);
+                              "|stream_cancellation|stream_id:%ui|", ctx->stream_id.value);
             break;
         case XQC_INS_TYPE_DEC_INSERT_CNT_INC:
             xqc_log_implement(log, QPACK_INSTRUCTION_PARSED, func,

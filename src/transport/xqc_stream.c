@@ -121,7 +121,8 @@ xqc_stream_maybe_need_close(xqc_stream_t *stream)
         xqc_usec_t new_expire = 3 * xqc_send_ctl_calc_pto(ctl) + now;
         if ((ctl->ctl_timer[XQC_TIMER_STREAM_CLOSE].ctl_timer_is_set 
             && new_expire < ctl->ctl_timer[XQC_TIMER_STREAM_CLOSE].ctl_expire_time) 
-            || !ctl->ctl_timer[XQC_TIMER_STREAM_CLOSE].ctl_timer_is_set) {
+            || !ctl->ctl_timer[XQC_TIMER_STREAM_CLOSE].ctl_timer_is_set)
+        {
             xqc_send_ctl_timer_set(ctl, XQC_TIMER_STREAM_CLOSE, now, new_expire - now);
         }
         stream->stream_close_time = new_expire;
@@ -824,13 +825,6 @@ xqc_crypto_stream_send(xqc_stream_t *stream,
             }
         }
 
-        /* client buffer initial level crypto data */
-        if (c->conn_type == XQC_CONN_TYPE_CLIENT
-            && stream->stream_encrypt_level == XQC_ENC_LEV_INIT)
-        {
-            xqc_list_add_tail(pos, &c->retry_crypto_data_buffer);
-        }
-
         xqc_list_del(pos);
         xqc_free(buf);
     }
@@ -1052,7 +1046,8 @@ xqc_stream_recv(xqc_stream_t *stream, unsigned char *recv_buf, size_t recv_buf_s
     }
 
     if (stream->stream_data_in.stream_length > 0 
-        && stream->stream_data_in.next_read_offset == stream->stream_data_in.stream_length) {
+        && stream->stream_data_in.next_read_offset == stream->stream_data_in.stream_length)
+    {
         *fin = 1;
         stream->stream_stats.peer_fin_read_time = xqc_monotonic_timestamp();
         if (stream->stream_state_recv == XQC_RECV_STREAM_ST_DATA_RECVD) {
@@ -1114,7 +1109,8 @@ xqc_stream_send(xqc_stream_t *stream, unsigned char *send_data, size_t send_data
     if (!(conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT)) {
         if ((conn->conn_type == XQC_CONN_TYPE_CLIENT) 
             && (conn->conn_state == XQC_CONN_STATE_CLIENT_INITIAL_SENT) 
-            && support_0rtt) {
+            && support_0rtt)
+        {
             pkt_type = XQC_PTYPE_0RTT;
             conn->conn_flag |= XQC_CONN_FLAG_HAS_0RTT;
             stream->stream_flag |= XQC_STREAM_FLAG_HAS_0RTT;

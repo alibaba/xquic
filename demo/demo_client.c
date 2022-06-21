@@ -8,24 +8,36 @@
 #include <xquic/xquic_typedef.h>
 #include <xquic/xqc_http3.h>
 #include <stdio.h>
-#include <event2/event.h>
+
 #include <memory.h>
-#include <sys/socket.h>
-#include <unistd.h>
 #include <errno.h>
 #include <signal.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <time.h>
 #include <inttypes.h>
-#include <netdb.h>
 #include <string.h>
+#include <event2/event.h>
 #include "common.h"
 #include "xqc_hq.h"
+#include "../tests/platform.h"
+
+#ifdef XQC_SYS_WINDOWS
+#pragma comment(lib,"ws2_32.lib")
+#pragma comment(lib,"event.lib")
+#pragma comment(lib, "Iphlpapi.lib")
+#include <third_party/wingetopt/src/getopt.h>
+#else
+#include <sys/socket.h>
+#include <unistd.h>
+#include <netdb.h>
+#endif
 
 
-#define XQC_PACKET_TMP_BUF_LEN 1600
-#define MAX_BUF_SIZE (100*1024*1024)
+#define XQC_PACKET_TMP_BUF_LEN  1600
+#define MAX_BUF_SIZE            (100*1024*1024)
+#define XQC_INTEROP_TLS_GROUPS  "X25519:P-256:P-384:P-521"
+
 
 typedef enum xqc_demo_cli_alpn_type_s {
     ALPN_HQ,
@@ -52,7 +64,7 @@ typedef struct xqc_demo_cli_user_stream_s {
 
     /* hq request content */
     xqc_hq_request_t           *hq_request;
-    char*                       send_buf;
+    char                       *send_buf;
     size_t                      send_len;
     size_t                      send_offset;
 
@@ -138,9 +150,10 @@ typedef struct xqc_demo_cli_quic_config_s {
     int  token_len;                     /* token len */
     char token[XQC_MAX_TOKEN_LEN];      /* token buf */
 
-    char *cipher_suites;                 /* cipher suites */
+    char *cipher_suites;                /* cipher suites */
 
     uint8_t use_0rtt;                   /* 0-rtt switch, default turned off */
+    uint64_t keyupdate_pkt_threshold;   /* packet limit of a single 1-rtt key, 0 for unlimited */
 
 } xqc_demo_cli_quic_config_t;
 
@@ -393,7 +406,7 @@ void
 xqc_demo_cli_set_event_timer(xqc_usec_t wake_after, void *eng_user_data)
 {
     xqc_demo_cli_ctx_t *ctx = (xqc_demo_cli_ctx_t *) eng_user_data;
-    //printf("xqc_engine_wakeup_after %llu us, now %llu\n", wake_after, xqc_demo_now());
+    //printf("xqc_engine_wakeup_after %llu us, now %llu\n", wake_after, xqc_now());
 
     struct timeval tv;
     tv.tv_sec = wake_after / 1000000;
@@ -430,15 +443,15 @@ xqc_demo_cli_write_log_file(xqc_log_level_t lvl, const void *buf, size_t size, v
     if (ctx->log_fd <= 0) {
         return;
     }
-    //printf("%s", (char*)buf);
+    //printf("%s", (char *)buf);
     int write_len = write(ctx->log_fd, buf, size);
     if (write_len < 0) {
-        printf("write log failed, errno: %d\n", errno);
+        printf("write log failed, errno: %d\n", get_last_sys_errno());
         return;
     }
     write_len = write(ctx->log_fd, line_break, 1);
     if (write_len < 0) {
-        printf("write log failed, errno: %d\n", errno);
+        printf("write log failed, errno: %d\n", get_last_sys_errno());
     }
 }
 
@@ -476,12 +489,12 @@ xqc_demo_cli_keylog_cb(const char *line, void *engine_user_data)
 
     int write_len = write(ctx->keylog_fd, line, strlen(line));
     if (write_len < 0) {
-        printf("write keys failed, errno: %d\n", errno);
+        printf("write keys failed, errno: %d\n", get_last_sys_errno());
         return;
     }
     write_len = write(ctx->keylog_fd, line_break, 1);
     if (write_len < 0) {
-        printf("write keys failed, errno: %d\n", errno);
+        printf("write keys failed, errno: %d\n", get_last_sys_errno());
     }
 }
 
@@ -532,7 +545,7 @@ xqc_demo_cli_save_token(const unsigned char *token, uint32_t token_len, void *co
 {
     xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t*)conn_user_data;
 
-    int fd = open(TOKEN_FILE, O_TRUNC | O_CREAT | O_WRONLY, S_IRWXU);
+    int fd = open(TOKEN_FILE, O_TRUNC | O_CREAT | O_WRONLY, 0666);
     if (fd < 0) {
         return;
     }
@@ -566,23 +579,26 @@ xqc_demo_cli_write_socket(const unsigned char *buf, size_t size, const struct so
     xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *)conn_user_data;
     ssize_t res = 0;
     do {
-        errno = 0;
+        set_last_sys_errno(0);
         res = sendto(user_conn->fd, buf, size, 0, peer_addr, peer_addrlen);
         if (res < 0) {
-            printf("xqc_demo_cli_write_socket err %zd %s, fd: %d, buf: %p, size: %Zu, "
-                "server_addr: %s\n", res, strerror(errno), user_conn->fd, buf, size,
-                user_conn->ctx->args->net_cfg.server_addr);
-            if (errno == EAGAIN) {
+            printf("xqc_demo_cli_write_socket err %zd %s, fd: %d, buf: %p, size: %zu, "
+                "server_addr: %s\n", res, strerror(get_last_sys_errno()), user_conn->fd,
+                buf, size, user_conn->ctx->args->net_cfg.server_addr);
+            if (get_last_sys_errno() == EAGAIN) {
                 res = XQC_SOCKET_EAGAIN;
             }
         }
-        user_conn->last_sock_op_time = xqc_demo_now();
-    } while ((res < 0) && (errno == EINTR));
+        user_conn->last_sock_op_time = xqc_now();
+
+    } while ((res < 0) && (get_last_sys_errno() == EINTR));
 
     return res;
 }
 
 
+#ifndef XQC_SYS_WINDOWS
+#if defined(XQC_SUPPORT_SENDMMSG)
 ssize_t
 xqc_demo_cli_write_mmsg(void *conn_user_data, struct iovec *msg_iov, unsigned int vlen, 
     const struct sockaddr *peer_addr, socklen_t peer_addrlen)
@@ -606,10 +622,12 @@ xqc_demo_cli_write_mmsg(void *conn_user_data, struct iovec *msg_iov, unsigned in
                 res = XQC_SOCKET_EAGAIN;
             }
         }
-    } while ((res < 0) && (errno == EINTR));
+
+    } while ((res < 0) && (get_last_sys_errno() == EINTR));
     return res;
 }
-
+#endif
+#endif
 
 void
 xqc_demo_cli_conn_update_cid_notify(xqc_connection_t *conn, const xqc_cid_t *retire_cid,
@@ -663,7 +681,7 @@ xqc_demo_cli_hq_req_send(xqc_hq_request_t *hqr, xqc_demo_cli_user_stream_t *user
     ssize_t ret = 0;
 
     if (user_stream->start_time == 0) {
-        user_stream->start_time = xqc_demo_now();
+        user_stream->start_time = xqc_now();
     }
 
     ret = xqc_hq_request_send_req(hqr, user_stream->send_buf);
@@ -673,7 +691,7 @@ xqc_demo_cli_hq_req_send(xqc_hq_request_t *hqr, xqc_demo_cli_user_stream_t *user
             return 0;
 
         default:
-            printf("send stream failed, ret: %Zd\n", ret);
+            printf("send stream failed, ret: %zd\n", ret);
             return -1;
         }
 
@@ -737,7 +755,7 @@ xqc_demo_cli_hq_req_read_notify(xqc_hq_request_t *hqr, void *req_user_data)
 
     if (fin) {
         user_stream->recv_fin = 1;
-        xqc_msec_t now_us = xqc_demo_now();
+        xqc_msec_t now_us = xqc_now();
         printf("\033[33m>>>>>>>> request time cost:%"PRIu64" us, speed:%"PRIu64" K/s \n"
                ">>>>>>>> user_stream[%p], req: %s, send_body_size:%zu, recv_body_size:%zu \033[0m\n",
                now_us - user_stream->start_time,
@@ -782,7 +800,7 @@ xqc_demo_cli_h3_request_send(xqc_demo_cli_user_stream_t *user_stream)
     if (!user_stream->hdr_sent)
     {
         if (user_stream->start_time == 0) {
-            user_stream->start_time = xqc_demo_now();
+            user_stream->start_time = xqc_now();
         }
 
         ret = xqc_h3_request_send_headers(user_stream->h3_request, &user_stream->h3_hdrs, 1);
@@ -826,8 +844,8 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
         }
 
         for (int i = 0; i < headers->count; i++) {
-            printf("%s = %s\n", (char*)headers->headers[i].name.iov_base,
-                (char*)headers->headers[i].value.iov_base);
+            printf("%s = %s\n", (char *)headers->headers[i].name.iov_base,
+                (char *)headers->headers[i].value.iov_base);
         }
 
         if (fin) {
@@ -867,13 +885,15 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
         user_stream->recv_body_len += read;
     } while (read > 0 && !fin);
 
-    printf("xqc_h3_request_recv_body size %zd, fin:%d\n", read, fin);
+    if (read > 0) {
+        printf("xqc_h3_request_recv_body size %zd, fin:%d\n", read, fin);
+    }
 
     if (fin) {
         user_stream->recv_fin = 1;
         xqc_request_stats_t stats;
         stats = xqc_h3_request_get_stats(h3_request);
-        xqc_msec_t now_us = xqc_demo_now();
+        xqc_msec_t now_us = xqc_now();
         printf("\033[33m>>>>>>>> request time cost:%"PRIu64" us, speed:%"PRIu64" K/s \n"
                ">>>>>>>> send_body_size:%zu, recv_body_size:%zu \033[0m\n",
                now_us - user_stream->start_time,
@@ -939,7 +959,7 @@ xqc_demo_cli_socket_read_handler(xqc_demo_cli_user_conn_t *user_conn)
     do {
         recv_size = recvfrom(user_conn->fd, packet_buf, sizeof(packet_buf), 0,
                             (struct sockaddr *)&addr, &addr_len);
-        if (recv_size < 0 && errno == EAGAIN) {
+        if (recv_size < 0 && get_last_sys_errno() == EAGAIN) {
             break;
         }
 
@@ -951,11 +971,11 @@ xqc_demo_cli_socket_read_handler(xqc_demo_cli_user_conn_t *user_conn)
         xqc_int_t ret = getsockname(user_conn->fd, (struct sockaddr*)&user_conn->local_addr,
                                     &user_conn->local_addrlen);
         if (ret != 0) {
-            printf("getsockname error, errno: %d\n", errno);
+            printf("getsockname error, errno: %d\n", get_last_sys_errno());
         }
 
         recv_sum += recv_size;
-        uint64_t recv_time = xqc_demo_now();
+        uint64_t recv_time = xqc_now();
         user_conn->last_sock_op_time = recv_time;
         if (xqc_engine_packet_process(user_conn->ctx->engine, packet_buf, recv_size,
                                       (struct sockaddr *)(&user_conn->local_addr),
@@ -995,7 +1015,7 @@ xqc_demo_cli_socket_event_callback(int fd, short what, void *arg)
 static void
 xqc_demo_cli_engine_callback(int fd, short what, void *arg)
 {
-    // printf("timer wakeup now:%"PRIu64"\n", xqc_demo_now());
+    // printf("timer wakeup now:%"PRIu64"\n", xqc_now());
     xqc_demo_cli_ctx_t *ctx = (xqc_demo_cli_ctx_t *) arg;
     xqc_engine_main_logic(ctx->engine);
 }
@@ -1006,7 +1026,7 @@ xqc_demo_cli_idle_callback(int fd, short what, void *arg)
 {
     int rc = 0;
     xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *) arg;
-    if (xqc_demo_now() - user_conn->last_sock_op_time < (uint64_t)user_conn->ctx->args->net_cfg.conn_timeout * 1000000) {
+    if (xqc_now() - user_conn->last_sock_op_time < (uint64_t)user_conn->ctx->args->net_cfg.conn_timeout * 1000000) {
         struct timeval tv;
         tv.tv_sec = user_conn->ctx->args->net_cfg.conn_timeout;
         tv.tv_usec = 0;
@@ -1070,7 +1090,7 @@ xqc_demo_cli_init_engine_ssl_config(xqc_engine_ssl_config_t* cfg, xqc_demo_cli_c
         cfg->ciphers = XQC_TLS_CIPHERS;
     }
 
-    cfg->groups = XQC_TLS_GROUPS;
+    cfg->groups = XQC_INTEROP_TLS_GROUPS;
 }
 
 void
@@ -1103,32 +1123,17 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
         break;
 
     case CC_TYPE_CUBIC:
-        cong_ctrl = xqc_reno_cb;
+        cong_ctrl = xqc_cubic_cb;
         break;
 
     case CC_TYPE_RENO:
-        cong_ctrl = xqc_cubic_cb;
+        cong_ctrl = xqc_reno_cb;
         break;
 
     default:
         break;
     }
 
-#if 0
-    xqc_conn_settings_t cs = {
-        .pacing_on  = args->net_cfg.pacing,
-        .ping_on    = 0,
-        .cong_ctrl_callback = cong_ctrl,
-        .cc_params  = {
-            .customize_on = 1,
-            .init_cwnd = 32,
-        },
-        .so_sndbuf  = 1024*1024,
-        .proto_version = XQC_VERSION_V1,
-        .spurious_loss_detect_on = 1,
-    };
-    *settings = cs;
-#endif
     memset(settings, 0, sizeof(xqc_conn_settings_t));
     settings->pacing_on = args->net_cfg.pacing;
     settings->cong_ctrl_callback = cong_ctrl;
@@ -1137,6 +1142,7 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
     settings->so_sndbuf = 1024*1024;
     settings->proto_version = XQC_VERSION_V1;
     settings->spurious_loss_detect_on = 1;
+    settings->keyupdate_pkt_threshold = args->quic_cfg.keyupdate_pkt_threshold;
 }
 
 /* set client args to default values */
@@ -1158,6 +1164,7 @@ xqc_demo_cli_init_args(xqc_demo_cli_client_args_t *args)
     /* quic cfg */
     args->quic_cfg.alpn_type = ALPN_HQ;
     strncpy(args->quic_cfg.alpn, "hq-interop", sizeof(args->quic_cfg.alpn));
+    args->quic_cfg.keyupdate_pkt_threshold = UINT64_MAX;
 }
 
 void
@@ -1208,7 +1215,7 @@ xqc_demo_cli_parse_urls(char *urls, xqc_demo_cli_client_args_t *args)
 {
     /* split urls */
     int cnt = 0;
-    static char* separator = " ";
+    static char *separator = " ";
     char *token = strtok(urls, separator);
     while (token != NULL) {
         if (token) {
@@ -1254,15 +1261,15 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -U    Url. \n"
         "   -k    key out path\n"
         "   -K    Client's life circle time\n"
+        "   -u    key update packet threshold\n"
         , prog);
 }
-
 
 void
 xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:")) != -1) {
         switch (ch) {
         /* server ip */
         case 'a':
@@ -1388,6 +1395,12 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             xqc_demo_cli_parse_urls(optarg, args);
             break;
 
+        /* key update packet threshold */
+        case 'u':
+            printf("key update packet threshold: %s\n", optarg);
+            args->quic_cfg.keyupdate_pkt_threshold = atoi(optarg);
+            break;
+
         default:
             printf("other option :%c\n", ch);
             xqc_demo_cli_usage(argc, argv);
@@ -1398,7 +1411,7 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
 
 #define MAX_REQ_BUF_LEN 1500
 int
-xqc_demo_cli_format_hq_req(char* buf, int len, xqc_demo_cli_request_t* req)
+xqc_demo_cli_format_hq_req(char *buf, int len, xqc_demo_cli_request_t* req)
 {
     return snprintf(buf, len, "%s", req->path);
     // return snprintf(buf, len, "%s %s\r\n", method_s[req->method], req->path);
@@ -1487,7 +1500,7 @@ xqc_demo_cli_send_h3_req(xqc_demo_cli_user_conn_t *user_conn,
 }
 
 void
-xqc_demo_cli_open_file(xqc_demo_cli_user_stream_t *user_stream, const char* save_path,
+xqc_demo_cli_open_file(xqc_demo_cli_user_stream_t *user_stream, const char *save_path,
     const char *req_path)
 {
     char file_path[512] = {0};
@@ -1653,6 +1666,25 @@ xqc_demo_cli_init_alpn_ctx(xqc_demo_cli_ctx_t *ctx)
 {
     int ret = 0;
 
+    xqc_hq_callbacks_t hq_cbs = {
+        .hqc_cbs = {
+            .conn_create_notify = xqc_demo_cli_hq_conn_create_notify,
+            .conn_close_notify = xqc_demo_cli_hq_conn_close_notify,
+        },
+        .hqr_cbs = {
+            .req_close_notify = xqc_demo_cli_hq_req_close_notify,
+            .req_read_notify = xqc_demo_cli_hq_req_read_notify,
+            .req_write_notify = xqc_demo_cli_hq_req_write_notify,
+        }
+    };
+
+    /* init hq context */
+    ret = xqc_hq_ctx_init(ctx->engine, &hq_cbs);
+    if (ret != XQC_OK) {
+        printf("init hq context error, ret: %d\n", ret);
+        return ret;
+    }
+
     xqc_h3_callbacks_t h3_cbs = {
         .h3c_cbs = {
             .h3_conn_create_notify = xqc_demo_cli_h3_conn_create_notify,
@@ -1671,25 +1703,6 @@ xqc_demo_cli_init_alpn_ctx(xqc_demo_cli_ctx_t *ctx)
     ret = xqc_h3_ctx_init(ctx->engine, &h3_cbs);
     if (ret != XQC_OK) {
         printf("init h3 context error, ret: %d\n", ret);
-        return ret;
-    }
-
-    xqc_hq_callbacks_t hq_cbs = {
-        .hqc_cbs = {
-            .conn_create_notify = xqc_demo_cli_hq_conn_create_notify,
-            .conn_close_notify = xqc_demo_cli_hq_conn_close_notify,
-        },
-        .hqr_cbs = {
-            .req_close_notify = xqc_demo_cli_hq_req_close_notify,
-            .req_read_notify = xqc_demo_cli_hq_req_read_notify,
-            .req_write_notify = xqc_demo_cli_hq_req_write_notify,
-        }
-    };
-
-    /* init hq context */
-    ret = xqc_hq_ctx_init(ctx->engine, &hq_cbs);
-    if (ret != XQC_OK) {
-        printf("init hq context error, ret: %d\n", ret);
         return ret;
     }
 
@@ -1866,30 +1879,35 @@ xqc_demo_cli_create_socket(xqc_demo_cli_user_conn_t *user_conn, xqc_demo_cli_net
     int size;
     int fd = 0;
     int ret;
+    int flags = 1;
     struct sockaddr *addr = (struct sockaddr*)&cfg->addr;
     fd = socket(addr->sa_family, SOCK_DGRAM, 0);
     if (fd < 0) {
-        printf("create socket failed, errno: %d\n", errno);
+        printf("create socket failed, errno: %d\n", get_last_sys_errno());
         return -1;
     }
-
+#ifdef XQC_SYS_WINDOWS
+    if (ioctlsocket(fd, FIONBIO, &flags) == SOCKET_ERROR) {
+		goto err;
+	}
+#else
     if (fcntl(fd, F_SETFL, O_NONBLOCK) == -1) {
-        printf("set socket nonblock failed, errno: %d\n", errno);
+        printf("set socket nonblock failed, errno: %d\n", get_last_sys_errno());
         goto err;
     }
-
+#endif
     size = 1 * 1024 * 1024;
     if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &size, sizeof(int)) < 0) {
-        printf("setsockopt failed, errno: %d\n", errno);
+        printf("setsockopt failed, errno: %d\n", get_last_sys_errno());
         goto err;
     }
 
     if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &size, sizeof(int)) < 0) {
-        printf("setsockopt failed, errno: %d\n", errno);
+        printf("setsockopt failed, errno: %d\n", get_last_sys_errno());
         goto err;
     }
 
-    user_conn->last_sock_op_time = xqc_demo_now();
+    user_conn->last_sock_op_time = xqc_now();
 
     return fd;
 
@@ -2120,6 +2138,9 @@ xqc_demo_cli_free_ctx(xqc_demo_cli_ctx_t *ctx)
 int
 main(int argc, char *argv[])
 {
+    /* init env if necessary */
+    xqc_platform_init_env();
+    
     /* get input client args */
     xqc_demo_cli_client_args_t *args = calloc(1, sizeof(xqc_demo_cli_client_args_t));
     xqc_demo_cli_init_args(args);

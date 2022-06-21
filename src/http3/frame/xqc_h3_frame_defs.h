@@ -16,14 +16,16 @@ typedef enum xqc_h3_frm_type_s {
     XQC_H3_FRM_PUSH_PROMISE     = 0x05,
     XQC_H3_FRM_GOAWAY           = 0x07,
     XQC_H3_FRM_MAX_PUSH_ID      = 0x0d,
-    XQC_H3_FRM_UNKNOWN          = 0xff,
+    XQC_H3_FRM_UNKNOWN          = UINT64_MAX,
 } xqc_h3_frm_type_t;
 
 
 typedef struct xqc_h3_frm_data_s {
+    char reserved;
 } xqc_h3_frame_data_t;
 
 typedef struct xqc_h3_frm_headers_s {
+    char reserved;
 } xqc_h3_frame_headers_t;
 
 typedef struct xqc_h3_frm_cancel_push_s {

@@ -58,6 +58,9 @@ xqc_packet_out_copy(xqc_packet_out_t *dst, xqc_packet_out_t *src)
     if (src->po_payload) {
         dst->po_payload = dst->po_buf + (src->po_payload - src->po_buf);
     }
+    if (src->po_padding) {
+        dst->po_padding = dst->po_buf + (src->po_padding - src->po_buf);
+    }
     dst->po_origin = origin;
     origin->po_origin_ref_cnt++;
     dst->po_user_data = src->po_user_data;
@@ -144,7 +147,8 @@ xqc_write_packet_header(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
     if (pkt_type == XQC_PTYPE_SHORT_HEADER && packet_out->po_used_size == 0) {
         ret = xqc_gen_short_packet_header(packet_out,
                                           conn->dcid_set.current_dcid.cid_buf, conn->dcid_set.current_dcid.cid_len,
-                                          XQC_PKTNO_BITS, packet_out->po_pkt.pkt_num);
+                                          XQC_PKTNO_BITS, packet_out->po_pkt.pkt_num,
+                                          conn->key_update_ctx.cur_out_key_phase);
 
     } else if (pkt_type != XQC_PTYPE_SHORT_HEADER && packet_out->po_used_size == 0) {
         ret = xqc_gen_long_packet_header(packet_out,

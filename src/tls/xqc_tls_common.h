@@ -50,6 +50,42 @@ static const char * const (xqc_crypto_initial_salt)[] = {
         "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
 };
 
+static const char * const (xqc_crypto_retry_key)[] = {
+    /* placeholder */
+    [XQC_IDRAFT_INIT_VER] = 
+        "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+
+    /* QUIC v1 */
+    [XQC_VERSION_V1] = 
+        "\xbe\x0c\x69\x0b\x9f\x66\x57\x5a\x1d\x76\x6b\x54\xe3\x68\xc8\x4e",
+
+    /* draft-29 ~ draft-32 */
+    [XQC_IDRAFT_VER_29] = 
+        "\xcc\xce\x18\x7e\xd0\x9a\x09\xd0\x57\x28\x15\x5a\x6c\xb9\x6b\xe1",
+
+    /* version negotiation */
+    [XQC_IDRAFT_VER_NEGOTIATION] = 
+        "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+};
+
+static const char * const (xqc_crypto_retry_nonce)[] = {
+    /* placeholder */
+    [XQC_IDRAFT_INIT_VER] = 
+        "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+
+    /* QUIC v1 */
+    [XQC_VERSION_V1] = 
+        "\x46\x15\x99\xd3\x5d\x63\x2b\xf2\x23\x98\x25\xbb",
+
+    /* draft-29 ~ draft-32 */
+    [XQC_IDRAFT_VER_29] = 
+        "\xe5\x49\x30\xf9\x7f\x21\x36\xf0\x53\x0a\x8c\x1c",
+
+    /* version negotiation */
+    [XQC_IDRAFT_VER_NEGOTIATION] = 
+        "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+};
+
 
 typedef struct xqc_ssl_session_ticket_key_s {
     size_t                      size;

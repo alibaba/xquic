@@ -7,7 +7,11 @@
 
 #include <stdint.h>
 #include "src/common/xqc_str.h"
+#ifdef XQC_SYS_WINDOWS
+#include <ws2tcpip.h>
+#else
 #include <netinet/in.h>
+#endif
 
 #if defined(__FreeBSD__) || defined(__DragonFly__) || defined(__NetBSD__)
 #include <sys/endian.h>
@@ -19,7 +23,7 @@
 #define bswap_16 OSSwapInt16
 #define bswap_32 OSSwapInt32
 #define bswap_64 OSSwapInt64
-#elif defined(WIN32)
+#elif (defined XQC_SYS_WINDOWS)
 #include <stdlib.h>
 #define bswap_16 _byteswap_ushort
 #define bswap_32 _byteswap_ulong

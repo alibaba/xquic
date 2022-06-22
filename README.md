@@ -103,6 +103,7 @@ sh ../scripts/xquic_test.sh
     - [RFC9002-recovery-zh](./docs/translation/rfc9002-recovery-zh.md)
     - [draft-ietf-quic-http-34-zh](./docs/translation/draft-ietf-quic-http-34-zh.md)
     - [draft-ietf-quic-qpack-21-zh](./docs/translation/draft-ietf-quic-qpack-21-zh.md)
+    - [RFC9221-datagram-zh](./docs/translation/rfc9221-datagram-zh.md)
 
 * For using event_log module, see the [Event_log module docs](./docs/docs-zh/Event_log-zh.md)
 * For testing the library, see the [Testing docs](./docs/docs-zh/Testing-zh.md).

@@ -118,18 +118,25 @@ DATAGRAM 帧可能会被路径上能够丢弃数据包的恶意方检测到。 �
 ## 7.1. QUIC传输参数（QUIC Transport Parameter）
 本文在 <https://www.iana.org/assignments/quic> 中 "QUIC Transport Parameters"注册表中添加了1个新值：
 
-Value: 0x20
-Parameter Name: max_datagram_frame_size
+Value: **0x20**
+
+Parameter Name: **max_datagram_frame_size**
+
 Status: permanent
+
 Specification: RFC 9221
 
 ## 7.2. QUIC帧类型（QUIC Frame Types）
 本文在 <https://www.iana.org/assignments/quic> 中 "QUIC Frame Types"注册表中添加了2个新值：
 
-Value: 0x30-0x31
-Frame Name: DATAGRAM
+Value: **0x30-0x31**
+
+Frame Name: **DATAGRAM**
+
 Status: permanent¶
+
 Specification: RFC 9221
+
 
 # 8. 参考资料（References）
 ## 8.1. 规范引用（Normative References）

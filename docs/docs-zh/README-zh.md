@@ -93,6 +93,7 @@ sh ../scripts/xquic_test.sh
     - [RFC9002-recovery-zh](../../docs/translation/rfc9002-recovery-zh.md)
     - [draft-ietf-quic-http-34-zh](../../docs/translation/draft-ietf-quic-http-34-zh.md)
     - [draft-ietf-quic-qpack-21-zh](../../docs/translation/draft-ietf-quic-qpack-21-zh.md)
+    - [RFC9221-datagram-zh](../../docs/translation/rfc9221-datagram-zh.md)
 * 关于event_log模块的使用, 详见 [Event_log module docs](../../docs/docs-zh/Event_log-zh.md)。
 * 关于测试，参见 [测试文档](../../docs/docs-zh/Testing-zh.md)。
 * 关于常见问题，参见 [FAQs](../../docs/docs-zh/FAQ-zh.md) 和 [Trouble Shooting Guide](../../docs/docs-zh/Troubleshooting-zh.md)。

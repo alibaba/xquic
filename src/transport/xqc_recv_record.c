@@ -238,11 +238,11 @@ xqc_maybe_should_ack(xqc_connection_t *conn, xqc_pkt_num_space_t pns, int out_of
                && !xqc_send_ctl_timer_is_set(conn->conn_send_ctl, XQC_TIMER_ACK_INIT + pns))
     {
         xqc_send_ctl_timer_set(conn->conn_send_ctl, XQC_TIMER_ACK_INIT + pns,
-                               now, conn->local_settings.max_ack_delay*1000);
+                               now, conn->local_settings.max_ack_delay * 1000);
 
         xqc_log(conn->log, XQC_LOG_DEBUG,
                 "|set ack timer|ack_eliciting_pkt:%ud|pns:%d|flag:%s|now:%ui|max_ack_delay:%ui|",
                 conn->ack_eliciting_pkt[pns], pns, xqc_conn_flag_2_str(conn->conn_flag),
-                now, conn->local_settings.max_ack_delay*1000);
+                now, conn->local_settings.max_ack_delay * 1000);
     }
 }

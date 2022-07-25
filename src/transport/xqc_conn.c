@@ -1559,12 +1559,12 @@ xqc_conn_close(xqc_engine_t *engine, const xqc_cid_t *cid)
     }
 
     /* close connection after all data sent and acked or XQC_TIMER_LINGER_CLOSE timeout */
+    xqc_usec_t now = xqc_monotonic_timestamp();
+    xqc_usec_t pto = xqc_send_ctl_calc_pto(ctl);
     if (conn->conn_settings.linger.linger_on && !xqc_send_ctl_out_q_empty(ctl)) {
         conn->conn_flag |= XQC_CONN_FLAG_LINGER_CLOSING;
-        xqc_send_ctl_timer_set(ctl, XQC_TIMER_LINGER_CLOSE,
-            xqc_monotonic_timestamp(), (conn->conn_settings.linger.linger_timeout 
-                ? conn->conn_settings.linger.linger_timeout 
-                : 3 * xqc_send_ctl_calc_pto(ctl)));
+        xqc_send_ctl_timer_set(ctl, XQC_TIMER_LINGER_CLOSE, now,
+                              (conn->conn_settings.linger.linger_timeout ? conn->conn_settings.linger.linger_timeout : 3 * pto));
         goto end;
     }
 

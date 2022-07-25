@@ -1336,7 +1336,7 @@ xqc_send_ctl_update_rtt(xqc_send_ctl_t *ctl, xqc_usec_t *latest_rtt, xqc_usec_t 
         ctl->ctl_minrtt = xqc_min(*latest_rtt, ctl->ctl_minrtt);
 
         if (xqc_conn_is_handshake_confirmed(ctl->ctl_conn)) {
-            ack_delay = xqc_min(ack_delay, ctl->ctl_conn->local_settings.max_ack_delay * 1000);
+            ack_delay = xqc_min(ack_delay, ctl->ctl_conn->remote_settings.max_ack_delay * 1000);
         }
 
         /* Adjust for ack delay if it's plausible. */
@@ -1453,11 +1453,6 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *ctl, xqc_pkt_num_space_t pns, xqc_usec_
 
         /* Mark packet as lost, or set time when it should be marked. */
         if (po->po_sent_time <= lost_send_time || po->po_pkt.pkt_num <= lost_pn) {
-            xqc_log(ctl->ctl_conn->log, XQC_LOG_DEBUG, "|mark lost|pns:%d|pkt_num:%ui|"
-                    "lost_pn:%ui|po_sent_time:%ui|lost_send_time:%ui|loss_delay:%ui|frame:%s|repair:%d|",
-                    pns, po->po_pkt.pkt_num, lost_pn, po->po_sent_time, lost_send_time, loss_delay, 
-                    xqc_frame_type_2_str(po->po_frame_types), XQC_NEED_REPAIR(po->po_frame_types));
-            xqc_log_event(ctl->ctl_conn->log, REC_PACKET_LOST, po);
 
             if (po->po_flag & XQC_POF_IN_FLIGHT) {
                 xqc_send_ctl_decrease_inflight(ctl, po);
@@ -1473,10 +1468,17 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *ctl, xqc_pkt_num_space_t pns, xqc_usec_
 
                 lost_n++;
 
+                xqc_log(ctl->ctl_conn->log, XQC_LOG_DEBUG, "|mark lost|pns:%d|pkt_num:%ui|"
+                        "lost_pn:%ui|po_sent_time:%ui|lost_send_time:%ui|loss_delay:%ui|frame:%s|repair:%d|",
+                        pns, po->po_pkt.pkt_num, lost_pn, po->po_sent_time, lost_send_time, loss_delay,
+                        xqc_frame_type_2_str(po->po_frame_types), XQC_NEED_REPAIR(po->po_frame_types));
+                xqc_log_event(ctl->ctl_conn->log, REC_PACKET_LOST, po);
+
             } else {
                 xqc_log(ctl->ctl_conn->log, XQC_LOG_DEBUG, "|it's a copy of origin pkt|acked:%d|origin_acked:%d|origin_ref_cnt:%d|",
                         po->po_acked, po->po_origin ? po->po_origin->po_acked : -1,
                         po->po_origin ? po->po_origin->po_origin_ref_cnt : -1);
+                continue;
             }
 
             /* remember largest_loss for OnPacketsLost */
@@ -1672,12 +1674,6 @@ xqc_send_ctl_on_packet_acked(xqc_send_ctl_t *ctl,
 }
 
 
-
-/* if handshake is not completed, endpoint will try to send something more aggressively */
-static const xqc_usec_t xqc_pto_timeout_threshold_hsk = 2000000;
-
-static const xqc_usec_t xqc_pto_timeout_threshold = 5 * 1000000;
-
 xqc_usec_t
 xqc_send_ctl_get_pto_time_and_space(xqc_send_ctl_t *ctl, xqc_usec_t now, xqc_pkt_num_space_t *pns_ret)
 {
@@ -1734,18 +1730,6 @@ xqc_send_ctl_get_pto_time_and_space(xqc_send_ctl_t *ctl, xqc_usec_t now, xqc_pkt
         }
     }
 
-    /* set a threshold for pto timer in case of very large pto interval */
-    if (!xqc_conn_check_handshake_completed(c)) {
-        if (pto_timeout - now > xqc_pto_timeout_threshold_hsk) {
-            pto_timeout = now + xqc_pto_timeout_threshold_hsk;
-        }
-
-    } else {
-        if (pto_timeout - now > xqc_pto_timeout_threshold) {
-            pto_timeout = now + xqc_pto_timeout_threshold;
-        }
-    }
-
     return pto_timeout;
 }
 
@@ -1757,18 +1741,19 @@ void
 xqc_send_ctl_set_loss_detection_timer(xqc_send_ctl_t *ctl)
 {
     xqc_pkt_num_space_t pns;
-    xqc_usec_t loss_time;
 
     xqc_connection_t *conn = ctl->ctl_conn;
     xqc_usec_t now = xqc_monotonic_timestamp();
+    xqc_usec_t interval = 0;
 
-    loss_time = xqc_send_ctl_get_earliest_loss_time(ctl, &pns);
+    xqc_usec_t loss_time = xqc_send_ctl_get_earliest_loss_time(ctl, &pns);
+    interval = (loss_time > now) ? (loss_time - now) : 0;
     if (loss_time != 0) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_send_ctl_timer_set|earliest losss time|XQC_TIMER_LOSS_DETECTION|"
-                "conn:%p|expire:%ui|now:%ui|interval:%ui|", conn, loss_time, now, loss_time - now);
+                "conn:%p|expire:%ui|now:%ui|interval:%ui|", conn, loss_time, now, interval);
 
         /* Time threshold loss detection. */
-        xqc_send_ctl_timer_set(ctl, XQC_TIMER_LOSS_DETECTION, now, loss_time - now);
+        xqc_send_ctl_timer_set(ctl, XQC_TIMER_LOSS_DETECTION, now, interval);
         return;
     }
 
@@ -1792,11 +1777,12 @@ xqc_send_ctl_set_loss_detection_timer(xqc_send_ctl_t *ctl)
 
     /* get PTO timeout and update loss detection timer */
     xqc_usec_t timeout = xqc_send_ctl_get_pto_time_and_space(ctl, now, &pns);
-    xqc_send_ctl_timer_set(ctl, XQC_TIMER_LOSS_DETECTION, now, timeout - now);
+    interval = (timeout > now) ? (timeout - now) : 0;
+    xqc_send_ctl_timer_set(ctl, XQC_TIMER_LOSS_DETECTION, now, interval);
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_send_ctl_timer_set|update|PTO|XQC_TIMER_LOSS_DETECTION"
             "|conn:%p|expire:%ui|now:%ui|interval:%ui|pto_count:%ud|srtt:%ui",
-            conn, timeout, now, timeout - now, ctl->ctl_pto_count, ctl->ctl_srtt);
+            conn, timeout, now, interval, ctl->ctl_pto_count, ctl->ctl_srtt);
 
 }
 
@@ -1996,7 +1982,7 @@ xqc_send_ctl_stream_close_timeout(xqc_send_ctl_timer_type type, xqc_usec_t now, 
 
     xqc_list_head_t *pos, *next;
     xqc_stream_t *stream;
-    xqc_usec_t min_expire = XQC_MAX_UINT64_VALUE, later = 0;
+    xqc_usec_t min_expire = XQC_MAX_UINT64_VALUE, interval = 0;
     xqc_list_for_each_safe(pos, next, &conn->conn_closing_streams) {
         stream = xqc_list_entry(pos, xqc_stream_t, closing_stream_list);
         if (stream->stream_close_time <= now) {
@@ -2011,7 +1997,8 @@ xqc_send_ctl_stream_close_timeout(xqc_send_ctl_timer_type type, xqc_usec_t now, 
     }
 
     if (min_expire != XQC_MAX_UINT64_VALUE) {
-        xqc_send_ctl_timer_set(ctl, XQC_TIMER_STREAM_CLOSE, now, min_expire - now);
+        interval = (min_expire > now) ? (min_expire - now) : 0;
+        xqc_send_ctl_timer_set(ctl, XQC_TIMER_STREAM_CLOSE, now, interval);
     }
 }
 
@@ -2040,6 +2027,7 @@ xqc_send_ctl_retire_cid_timeout(xqc_send_ctl_timer_type type, xqc_usec_t now, vo
 
     xqc_int_t ret;
     xqc_usec_t next_time = XQC_MAX_UINT64_VALUE;
+    xqc_usec_t interval = 0;
 
     xqc_list_for_each_safe(pos, next, &conn->scid_set.cid_set.list_head) {
         inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
@@ -2076,7 +2064,8 @@ xqc_send_ctl_retire_cid_timeout(xqc_send_ctl_timer_type type, xqc_usec_t now, vo
             xqc_log(conn->log, XQC_LOG_ERROR, "|next_time is not assigned a value|");
             return;
         }
-        xqc_send_ctl_timer_set(ctl, XQC_TIMER_RETIRE_CID, now, next_time - now);
+        interval = (next_time > now) ? (next_time - now) : 0;
+        xqc_send_ctl_timer_set(ctl, XQC_TIMER_RETIRE_CID, now, interval);
     }
 }
 

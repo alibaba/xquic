@@ -66,6 +66,7 @@ XQUIC_VERS_1.0 {
         xqc_conn_set_alp_user_data;
         xqc_h3_request_finish;
         xqc_now;
+        xqc_h3_engine_set_qpack_compat_duplicate;
     local:
         *;
 };

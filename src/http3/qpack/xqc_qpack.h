@@ -162,4 +162,12 @@ ssize_t xqc_qpack_dec_headers(xqc_qpack_t *qpk, xqc_rep_ctx_t *req_ctx, unsigned
 xqc_int_t xqc_qpack_enc_headers(xqc_qpack_t *qpk, uint64_t stream_id,
     xqc_http_headers_t *headers, xqc_var_buf_t *rep_buf);
 
+#ifdef XQC_COMPAT_DUPLICATE
+/**
+ * @brief compat with the duplicate operation on encoder's side, which is wrong.
+ * @deprecated TODO: this function will be deleted in the future.
+ */
+void xqc_qpack_set_compat_dup(xqc_qpack_t *qpk, xqc_bool_t compat);
+#endif
+
 #endif

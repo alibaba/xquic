@@ -138,148 +138,19 @@ xqc_test_ring_mem_basic()
         && xqc_ring_mem_cmp(rm, 16, "16_bytes_string216_bytes_string232_bytes_string2_is_twice_of_16B", 64) == 0);
 
 
-    /* [16, 111] */
-    ret = xqc_ring_mem_duplicate(rm, 48, 32, &idx);
-    CU_ASSERT(ret == XQC_OK && idx == 80);
-    CU_ASSERT(xqc_ring_mem_used_size(rm) == 96);
-    ret = xqc_ring_mem_copy(rm, 80, 32, buf, RING_MEM_TEST_CAP);
-    CU_ASSERT(ret == XQC_OK && memcmp(buf, STR3_32B, 32) == 0 
-        && xqc_ring_mem_cmp(rm, 80, STR3_32B, 32) == 0);
-
-
     /* undo dequeue */
     ret = xqc_ring_mem_dequeue(rm, 16, 32);
-    CU_ASSERT(ret == XQC_OK && xqc_ring_mem_used_size(rm) == 64);
+    CU_ASSERT(ret == XQC_OK && xqc_ring_mem_used_size(rm) == 32);
     ret = xqc_ring_mem_undo(rm, 16, 32);
-    CU_ASSERT(ret == XQC_OK && xqc_ring_mem_used_size(rm) == 96);
+    CU_ASSERT(ret == XQC_OK && xqc_ring_mem_used_size(rm) == 64);
 
     /* illegal undo dequeue */
     ret = xqc_ring_mem_undo(rm, 0, 15);
     CU_ASSERT(ret != XQC_OK);
 
     /* illegal undo enqueue */
-    ret = xqc_ring_mem_undo(rm, 80, 31);
+    ret = xqc_ring_mem_undo(rm, 48, 31);
     CU_ASSERT(ret != XQC_OK);
-
-    xqc_ring_mem_free(rm);
-}
-
-
-
-void
-xqc_test_ring_mem_duplicate_dst_truncated()
-{
-    xqc_int_t ret = XQC_OK;
-    xqc_ring_mem_idx_t idx;
-    size_t used = 0;
-    char buf[RING_MEM_TEST_CAP] = {0};
-
-    /* alloc a ring memory of 64 bytes */
-    xqc_ring_mem_t *rm = xqc_ring_mem_create(RING_MEM_TEST_CAP);
-    CU_ASSERT(rm != NULL);
-
-    /* [0, 15] */
-    ret = xqc_ring_mem_enqueue(rm, "16_bytes_string1", 16, &idx);
-    CU_ASSERT(ret == XQC_OK && idx == 0);
-    used = xqc_ring_mem_used_size(rm);
-    CU_ASSERT(used == 16);
-    ret = xqc_ring_mem_copy(rm, 0, 16, buf, RING_MEM_TEST_CAP);
-    CU_ASSERT(ret == XQC_OK && memcmp(buf, STR1_16B, 16) == 0
-        && xqc_ring_mem_cmp(rm, 0, STR1_16B, 16) == 0);
-
-
-    /* [0, 47] */
-    ret = xqc_ring_mem_enqueue(rm, STR3_32B, 32, &idx);
-    CU_ASSERT(ret == XQC_OK && idx == 16);
-    CU_ASSERT(xqc_ring_mem_used_size(rm) == 48);
-    ret = xqc_ring_mem_copy(rm, 16, 32, buf, RING_MEM_TEST_CAP);
-    CU_ASSERT(ret == XQC_OK && memcmp(buf, STR3_32B, 32) == 0
-        && xqc_ring_mem_cmp(rm, 16, STR3_32B, 32) == 0);
-
-
-    /* [16, 47] */
-    ret = xqc_ring_mem_dequeue(rm, 0, 16);
-    CU_ASSERT(ret == XQC_OK);
-    CU_ASSERT(xqc_ring_mem_used_size(rm) == 32);
-    ret = xqc_ring_mem_copy(rm, 16, 32, buf, RING_MEM_TEST_CAP);
-    CU_ASSERT(ret == XQC_OK && memcmp(buf, STR3_32B, 32) == 0
-        && xqc_ring_mem_cmp(rm, 16, STR3_32B, 32) == 0);
-
-
-    /* [16, 63], [0, 15] */
-    ret = xqc_ring_mem_duplicate(rm, 16, 32, &idx);
-    CU_ASSERT(ret == XQC_OK && idx == 48);
-    CU_ASSERT(xqc_ring_mem_used_size(rm) == 64);
-    ret = xqc_ring_mem_copy(rm, 16, 64, buf, RING_MEM_TEST_CAP);
-    CU_ASSERT(ret == XQC_OK && memcmp(buf, "32_bytes_string2_is_twice_of_16B32_bytes_string2_is_twice_of_16B", 64) == 0
-        && xqc_ring_mem_cmp(rm, 16, "32_bytes_string2_is_twice_of_16B32_bytes_string2_is_twice_of_16B", 64) == 0);
-
-    xqc_ring_mem_free(rm);
-}
-
-
-void
-xqc_test_ring_mem_duplicate_src_truncated()
-{
-    xqc_int_t ret = XQC_OK;
-    xqc_ring_mem_idx_t idx;
-    size_t used = 0;
-    char buf[RING_MEM_TEST_CAP] = {0};
-
-    /* alloc a ring memory of 64 bytes */
-    xqc_ring_mem_t *rm = xqc_ring_mem_create(RING_MEM_TEST_CAP);
-    CU_ASSERT(rm != NULL);
-
-
-    /* [0, 31] */
-    ret = xqc_ring_mem_enqueue(rm, STR3_32B, 32, &idx);
-    CU_ASSERT(ret == XQC_OK && idx == 0);
-    CU_ASSERT(xqc_ring_mem_used_size(rm) == 32);
-    ret = xqc_ring_mem_copy(rm, 0, 32, buf, RING_MEM_TEST_CAP);
-    CU_ASSERT(ret == XQC_OK && memcmp(buf, STR3_32B, 32) == 0
-        && xqc_ring_mem_cmp(rm, 0, STR3_32B, 32) == 0);
-
-
-    /* [0, 47] */
-    ret = xqc_ring_mem_enqueue(rm, "16_bytes_string1", 16, &idx);
-    CU_ASSERT(ret == XQC_OK && idx == 32);
-    used = xqc_ring_mem_used_size(rm);
-    CU_ASSERT(used == 48);
-    ret = xqc_ring_mem_copy(rm, 32, 16, buf, RING_MEM_TEST_CAP);
-    CU_ASSERT(ret == XQC_OK && memcmp(buf, STR1_16B, 16) == 0
-        && xqc_ring_mem_cmp(rm, 32, STR1_16B, 16) == 0);
-
-
-    /* dequeue all */
-    ret = xqc_ring_mem_dequeue(rm, 0, 48);
-    CU_ASSERT(ret == XQC_OK);
-    CU_ASSERT(xqc_ring_mem_used_size(rm) == 0);
-    ret = xqc_ring_mem_copy(rm, 16, 32, buf, RING_MEM_TEST_CAP);
-    CU_ASSERT(ret != XQC_OK);
-
-
-    /* [48, 63], [0, 15] */
-    ret = xqc_ring_mem_enqueue(rm, STR3_32B, 32, &idx);
-    CU_ASSERT(ret == XQC_OK && idx == 48);
-    CU_ASSERT(xqc_ring_mem_used_size(rm) == 32);
-    ret = xqc_ring_mem_copy(rm, 48, 32, buf, RING_MEM_TEST_CAP);
-    CU_ASSERT(ret == XQC_OK && memcmp(buf, STR3_32B, 32) == 0
-        && xqc_ring_mem_cmp(rm, 48, STR3_32B, 32) == 0);
-
-
-    /* [48, 63], [0, 15], [16, 47] */
-    ret = xqc_ring_mem_duplicate(rm, 48, 32, &idx);
-    CU_ASSERT(ret == XQC_OK && idx == 80);
-    CU_ASSERT(xqc_ring_mem_used_size(rm) == 64);
-    memset(buf, 0, 64);
-    ret = xqc_ring_mem_copy(rm, 48, 64, buf, RING_MEM_TEST_CAP);
-    CU_ASSERT(ret == XQC_OK && memcmp(buf, "32_bytes_string2_is_twice_of_16B32_bytes_string2_is_twice_of_16B", 64) == 0
-        && xqc_ring_mem_cmp(rm, 48, "32_bytes_string2_is_twice_of_16B32_bytes_string2_is_twice_of_16B", 64) == 0);
-
-
-    ret = xqc_ring_mem_copy(rm, 48, 64, buf, 32);
-    CU_ASSERT(ret != XQC_OK);
-
 
     xqc_ring_mem_free(rm);
 }
@@ -302,19 +173,10 @@ xqc_test_ring_mem_robust()
     CU_ASSERT(ret != XQC_OK);
 
 
-    /* duplicate inexist */
-    ret = xqc_ring_mem_duplicate(rm, 0, 32, &idx);
-    CU_ASSERT(ret != XQC_OK);
-
-
     /* copy error */
     ret = xqc_ring_mem_enqueue(rm, STR3_32B, 32, &idx);
     CU_ASSERT(ret == XQC_OK && idx == 0);
     ret = xqc_ring_mem_cmp(rm, 32, buf, 32);
-    CU_ASSERT(ret != XQC_OK);
-
-
-    ret = xqc_ring_mem_duplicate(rm, 0, 33, &idx);
     CU_ASSERT(ret != XQC_OK);
 
 
@@ -327,7 +189,5 @@ void
 xqc_test_ring_mem()
 {
     xqc_test_ring_mem_basic();
-    xqc_test_ring_mem_duplicate_dst_truncated();
-    xqc_test_ring_mem_duplicate_src_truncated();
     xqc_test_ring_mem_robust();
 }

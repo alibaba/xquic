@@ -223,6 +223,8 @@ struct xqc_connection_s {
     xqc_proto_version_t             version;
     /* set when client receives a non-VN package from server or receives a VN package and processes it */
     uint32_t                        discard_vn_flag;
+    /* set when server receives a packet from different address (NAT rebinding) */
+    uint32_t                        rebinding_flag;
 
     /* original destination connection id, RFC 9000, Section 7.3. */
     xqc_cid_t                       original_dcid;

@@ -166,6 +166,64 @@ xqc_test_dtable_illegal_call()
     xqc_engine_destroy(engine);
 }
 
+void
+xqc_test_dtable_dulicate()
+{
+    xqc_int_t ret = XQC_OK;
+    xqc_engine_t *engine = test_create_engine();
+    xqc_dtable_t *dt = xqc_dtable_create(256, engine->log);
+
+    char buf[256];
+
+    ret = xqc_dtable_set_capacity(dt, 256);
+    CU_ASSERT(ret == XQC_OK);
+
+    uint64_t idx = XQC_INVALID_INDEX;
+    /* 32+10+214 == 256  */
+    ret = xqc_dtable_add(dt, "test_name0", 10, buf, 214, &idx);    /* 53 */
+    CU_ASSERT(ret == XQC_OK && idx == 0);
+
+    ret = xqc_dtable_duplicate(dt, idx, &idx);
+    CU_ASSERT(ret == XQC_OK && idx == 1);
+
+    ret = xqc_dtable_set_min_ref(dt, idx);
+    CU_ASSERT(ret == XQC_OK);
+    ret = xqc_dtable_duplicate(dt, idx, &idx);
+    CU_ASSERT(ret != XQC_OK);
+
+    xqc_dtable_free(dt);
+    xqc_engine_destroy(engine);
+}
+
+#ifdef XQC_COMPAT_DUPLICATE
+void
+xqc_test_dtable_dulicate_compat()
+{
+    xqc_int_t ret = XQC_OK;
+    xqc_engine_t *engine = test_create_engine();
+    xqc_dtable_t *dt = xqc_dtable_create(256, engine->log);
+
+    char buf[256];
+
+    ret = xqc_dtable_set_capacity(dt, 256);
+    CU_ASSERT(ret == XQC_OK);
+
+    uint64_t idx = XQC_INVALID_INDEX;
+    /* 32+10+200 == 242  */
+    ret = xqc_dtable_add(dt, "test_name0", 10, buf, 200, &idx);    /* 53 */
+    CU_ASSERT(ret == XQC_OK && idx == 0);
+
+    ret = xqc_dtable_duplicate_compat(dt, idx, &idx);
+    CU_ASSERT(ret != XQC_OK);
+
+    ret = xqc_dtable_duplicate(dt, idx, &idx);
+    CU_ASSERT(ret == XQC_OK && idx == 1);
+
+    xqc_dtable_free(dt);
+    xqc_engine_destroy(engine);
+}
+#endif
+
 
 void
 xqc_test_dtable_robust()
@@ -173,6 +231,11 @@ xqc_test_dtable_robust()
     xqc_test_dtable_immediate_free();
     xqc_test_dtable_no_bkt();
     xqc_test_dtable_illegal_call();
+    xqc_test_dtable_dulicate();
+
+#ifdef XQC_COMPAT_DUPLICATE
+    xqc_test_dtable_dulicate_compat();
+#endif
 }
 
 

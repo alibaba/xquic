@@ -288,6 +288,8 @@ xqc_ring_mem_cmp(xqc_ring_mem_t *rmem, xqc_ring_mem_idx_t idx, uint8_t *data, si
     return ret;
 }
 
+#ifdef XQC_COMPAT_DUPLICATE
+
 
 xqc_bool_t
 xqc_ring_mem_can_duplicate(xqc_ring_mem_t *rmem, xqc_ring_mem_idx_t ori_idx, size_t len)
@@ -360,3 +362,6 @@ xqc_ring_mem_duplicate(xqc_ring_mem_t *rmem, xqc_ring_mem_idx_t ori_idx, size_t 
 
     return XQC_OK;
 }
+
+#endif
+

@@ -612,6 +612,51 @@ xqc_engine_send_reset(xqc_engine_t *engine, xqc_cid_t *dcid, const struct sockad
     return XQC_OK;
 }
 
+xqc_bool_t
+xqc_is_same_addr(const struct sockaddr *sa1, const struct sockaddr *sa2)
+{
+    struct sockaddr_in   *sin1, *sin2;
+    struct sockaddr_in6  *sin61, *sin62;
+
+    if (sa1->sa_family != sa2->sa_family) {
+        return XQC_FALSE;
+    }
+
+    switch (sa1->sa_family) {
+
+    case AF_INET6:
+        sin61 = (struct sockaddr_in6 *) sa1;
+        sin62 = (struct sockaddr_in6 *) sa2;
+
+        if (memcmp(&sin61->sin6_addr, &sin62->sin6_addr, 16) != 0) {
+            return XQC_FALSE;
+        }
+
+        if (sin61->sin6_port != sin62->sin6_port) {
+            return XQC_FALSE;
+        }
+
+        break;
+
+    default: /* AF_INET */
+
+        sin1 = (struct sockaddr_in *) sa1;
+        sin2 = (struct sockaddr_in *) sa2;
+
+        if (sin1->sin_addr.s_addr != sin2->sin_addr.s_addr) {
+            return XQC_FALSE;
+        }
+
+        if (sin1->sin_port != sin2->sin_port) {
+            return XQC_FALSE;
+        }
+
+        break;
+    }
+
+    return XQC_TRUE;
+}
+
 
 #define XQC_CHECK_UNDECRYPT_PACKETS() do {                      \
     if (XQC_UNLIKELY(xqc_conn_has_undecrypt_packets(conn))) {   \
@@ -995,6 +1040,12 @@ process:
         xqc_memcpy(conn->local_addr, local_addr, local_addrlen);
         conn->local_addrlen = local_addrlen;
         xqc_log_event(conn->log, CON_CONNECTION_STARTED, conn, XQC_LOG_LOCAL_EVENT);
+    }
+
+    if (conn->rebinding_flag == 0
+        && !xqc_is_same_addr(peer_addr, (struct sockaddr *)conn->peer_addr))
+    {
+        conn->rebinding_flag = 1;
     }
 
     /* process packets */

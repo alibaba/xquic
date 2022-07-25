@@ -117,6 +117,9 @@ typedef enum {
     XQC_EMP_INVALID_FRAME               = 654,      /* Multipath - invalid frame */
     XQC_EMP_INVALID_QOE_SIGNAL          = 660,      /* Multipath - invalid qoe signal */
 
+    XQC_EENCRYPT_LB_CID                 = 670,      /* load balance connection ID encryption error */
+    XQC_EENCRYPT_AES_128_ECB            = 671,      /* aes_128_ecb algorithm error */
+    
     XQC_E_MAX,
 } xqc_transport_error_t;
 

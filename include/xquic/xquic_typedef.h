@@ -109,6 +109,9 @@ typedef uint8_t         xqc_bool_t;
 #define XQC_MAX_CID_LEN 20
 #define XQC_MIN_CID_LEN 4
 
+/* restrictions of key length in lb cid encryption */
+#define XQC_LB_CID_KEY_LEN 16
+
 typedef struct xqc_cid_s {
     uint8_t             cid_len;
     uint8_t             cid_buf[XQC_MAX_CID_LEN];

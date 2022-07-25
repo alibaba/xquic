@@ -97,5 +97,12 @@ ssize_t xqc_gen_retire_conn_id_frame(xqc_packet_out_t *packet_out, uint64_t seq_
 
 xqc_int_t xqc_parse_retire_conn_id_frame(xqc_packet_in_t *packet_in, uint64_t *seq_num);
 
+ssize_t xqc_gen_path_challenge_frame(xqc_packet_out_t *packet_out, unsigned char *data);
+
+xqc_int_t xqc_parse_path_challenge_frame(xqc_packet_in_t *packet_in, unsigned char *data);
+
+ssize_t xqc_gen_path_response_frame(xqc_packet_out_t *packet_out, unsigned char *data);
+
+xqc_int_t xqc_parse_path_response_frame(xqc_packet_in_t *packet_in, unsigned char *data);
 
 #endif /*_XQC_FRAME_PARSER_H_INCLUDED_*/

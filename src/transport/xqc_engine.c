@@ -1042,10 +1042,36 @@ process:
         xqc_log_event(conn->log, CON_CONNECTION_STARTED, conn, XQC_LOG_LOCAL_EVENT);
     }
 
-    if (conn->rebinding_flag == 0
+    /* NAT rebinding */
+    if (engine->eng_type == XQC_ENGINE_SERVER
+        && (peer_addr != NULL && peer_addrlen != 0)
+        && (conn->peer_addr != NULL && conn->peer_addrlen != 0)
         && !xqc_is_same_addr(peer_addr, (struct sockaddr *)conn->peer_addr))
     {
-        conn->rebinding_flag = 1;
+        if (conn->rebinding_addrlen == 0
+            && !xqc_send_ctl_timer_is_set(conn->conn_send_ctl, XQC_TIMER_NAT_REBINDING))
+        {
+            /* set rebinding_addr & send PATH_CHALLENGE */
+            xqc_memcpy(conn->rebinding_addr, peer_addr, peer_addrlen);
+            conn->rebinding_addrlen = peer_addrlen;
+
+            ret = xqc_conn_server_send_path_challenge(conn);
+            if (ret == XQC_OK) {
+                conn->rebinding_count++;
+                xqc_send_ctl_timer_set(conn->conn_send_ctl, XQC_TIMER_NAT_REBINDING,
+                                       recv_time, 3 * xqc_send_ctl_calc_pto(conn->conn_send_ctl));
+
+            } else {
+                xqc_log(engine->log, XQC_LOG_ERROR, "|fail to send path challenge|conn:%p|ret:%d|", conn, ret);
+                conn->rebinding_addrlen = 0;
+            }
+
+        } else if (xqc_is_same_addr(peer_addr, (struct sockaddr *)conn->rebinding_addr)
+                   && !(conn->conn_flag & XQC_CONN_FLAG_VALIDATE_REBINDING))
+        {
+            /* PATH_RESPONSE recv from rebinding_addr */
+            conn->conn_flag |= XQC_CONN_FLAG_VALIDATE_REBINDING;
+        }
     }
 
     /* process packets */

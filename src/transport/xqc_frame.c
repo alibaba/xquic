@@ -254,6 +254,12 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         case 0x19:
             ret = xqc_process_retire_conn_id_frame(conn, packet_in);
             break;
+        case 0x1a:
+            ret = xqc_process_path_challenge_frame(conn, packet_in);
+            break;
+        case 0x1b:
+            ret = xqc_process_path_response_frame(conn, packet_in);
+            break;
         case 0x1c:
         case 0x1d:
             ret = xqc_process_conn_close_frame(conn, packet_in);
@@ -1141,3 +1147,73 @@ xqc_process_handshake_done_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
     return ret;
 }
 
+
+xqc_int_t
+xqc_process_path_challenge_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
+{
+    /* for NAT rebinding (client) */
+
+    xqc_int_t ret = XQC_ERROR;
+    unsigned char path_challenge_data[XQC_PATH_CHALLENGE_DATA_LEN];
+
+    ret = xqc_parse_path_challenge_frame(packet_in, path_challenge_data);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_parse_path_challenge_frame error|");
+        return ret;
+    }
+
+    ret = xqc_write_path_response_frame_to_packet(conn, path_challenge_data);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_path_response_frame_to_packet error|%d|", ret);
+        return ret;
+    }
+
+    return XQC_OK;
+}
+
+
+xqc_int_t
+xqc_process_path_response_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
+{
+    /* for NAT rebinding (server) */
+    xqc_int_t ret = XQC_ERROR;
+    unsigned char path_response_data[XQC_PATH_CHALLENGE_DATA_LEN];
+
+    ret = xqc_parse_path_response_frame(packet_in, path_response_data);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_parse_path_response_frame error|");
+        return ret;
+    }
+
+    if (conn->rebinding_addrlen == 0) {
+        xqc_log(conn->log, XQC_LOG_INFO, "|REBINDING|rebinding_addr NULL|duplicate path response|");
+        return XQC_OK;
+    }
+
+    if (!(conn->conn_flag & XQC_CONN_FLAG_VALIDATE_REBINDING)) {
+        xqc_log(conn->log, XQC_LOG_INFO, "|REBINDING|path response not from rebinding addr|");
+        return XQC_OK;
+    }
+
+    if (memcmp(conn->path_challenge_data, path_response_data, XQC_PATH_CHALLENGE_DATA_LEN) == 0) {
+        /* successfully validate rebinding addr */
+        xqc_memcpy(conn->peer_addr, conn->rebinding_addr, conn->rebinding_addrlen);
+        conn->peer_addrlen = conn->rebinding_addrlen;
+
+        conn->addr_str_len = 0;
+        xqc_log(conn->log, XQC_LOG_INFO, "|REBINDING|validate NAT rebinding addr|%s|", xqc_conn_addr_str(conn));
+
+        conn->rebinding_valid++;
+
+        if (conn->transport_cbs.conn_peer_addr_changed_notify) {
+            conn->transport_cbs.conn_peer_addr_changed_notify(conn, xqc_conn_get_user_data(conn));
+        }
+
+        /* unset timer and clean rebinding addr */
+        conn->rebinding_addrlen = 0;
+        xqc_send_ctl_timer_unset(conn->conn_send_ctl, XQC_TIMER_NAT_REBINDING); 
+        conn->conn_flag &= ~XQC_CONN_FLAG_VALIDATE_REBINDING;
+    }
+
+    return XQC_OK;
+}

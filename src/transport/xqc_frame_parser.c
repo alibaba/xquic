@@ -1489,3 +1489,117 @@ xqc_parse_retire_conn_id_frame(xqc_packet_in_t *packet_in, uint64_t *seq_num)
     return XQC_OK;
 }
 
+
+/*
+ * https://datatracker.ietf.org/doc/html/rfc9000#section-19.17
+ *
+ * PATH_CHALLENGE Frame {
+ *    Type (i) = 0x1a,
+ *    Data (64),
+ * }
+ *
+ *               Figure 41: PATH_CHALLENGE Frame Format
+ */
+
+ssize_t
+xqc_gen_path_challenge_frame(xqc_packet_out_t *packet_out, unsigned char *data)
+{
+    unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
+    const unsigned char *begin = dst_buf;
+    unsigned need = 0;
+
+    uint64_t frame_type = 0x1a;
+    unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
+    need = xqc_vint_len(frame_type_bits) + XQC_PATH_CHALLENGE_DATA_LEN;
+
+    /* check packout_out have enough buffer length */
+    if (need > packet_out->po_buf_size - packet_out->po_used_size) {
+        return -XQC_ENOBUF;
+    }
+
+    /* Type(i) */
+    xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
+    dst_buf += xqc_vint_len(frame_type_bits);
+
+    /* Data (64) */
+    xqc_memcpy(dst_buf, data, XQC_PATH_CHALLENGE_DATA_LEN);
+    dst_buf += XQC_PATH_CHALLENGE_DATA_LEN;
+
+    packet_out->po_frame_types |= XQC_FRAME_BIT_PATH_CHALLENGE;
+
+    return dst_buf - begin;
+}
+
+xqc_int_t
+xqc_parse_path_challenge_frame(xqc_packet_in_t *packet_in, unsigned char *data)
+{
+    unsigned char *p = packet_in->pos;
+    const unsigned char *end = packet_in->last;
+    const unsigned char first_byte = *p++;
+
+    xqc_memcpy(data, p, XQC_PATH_CHALLENGE_DATA_LEN);
+    p += XQC_PATH_CHALLENGE_DATA_LEN;
+
+    packet_in->pos = p;
+
+    packet_in->pi_frame_types |= XQC_FRAME_BIT_PATH_CHALLENGE;
+
+    return XQC_OK;
+}
+
+/*
+ * https://datatracker.ietf.org/doc/html/rfc9000#section-19.18
+ *
+ * PATH_RESPONSE Frame {
+ *    Type (i) = 0x1b,
+ *    Data (64),
+ * }
+ *
+ *               Figure 42: PATH_RESPONSE Frame Format
+ */
+
+ssize_t
+xqc_gen_path_response_frame(xqc_packet_out_t *packet_out, unsigned char *data)
+{
+    unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
+    const unsigned char *begin = dst_buf;
+    unsigned need = 0;
+
+    uint64_t frame_type = 0x1b;
+    unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
+    need = xqc_vint_len(frame_type_bits) + XQC_PATH_CHALLENGE_DATA_LEN;
+
+    /* check packout_out have enough buffer length */
+    if (need > packet_out->po_buf_size - packet_out->po_used_size) {
+        return -XQC_ENOBUF;
+    }
+
+    /* Type(i) */
+    xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
+    dst_buf += xqc_vint_len(frame_type_bits);
+
+    /* Data (64) */
+    xqc_memcpy(dst_buf, data, XQC_PATH_CHALLENGE_DATA_LEN);
+    dst_buf += XQC_PATH_CHALLENGE_DATA_LEN;
+
+    packet_out->po_frame_types |= XQC_FRAME_BIT_PATH_RESPONSE;
+
+    return dst_buf - begin;
+}
+
+xqc_int_t
+xqc_parse_path_response_frame(xqc_packet_in_t *packet_in, unsigned char *data)
+{
+    unsigned char *p = packet_in->pos;
+    const unsigned char *end = packet_in->last;
+    const unsigned char first_byte = *p++;
+
+    xqc_memcpy(data, p, XQC_PATH_CHALLENGE_DATA_LEN);
+    p += XQC_PATH_CHALLENGE_DATA_LEN;
+
+    packet_in->pos = p;
+
+    packet_in->pi_frame_types |= XQC_FRAME_BIT_PATH_RESPONSE;
+
+    return XQC_OK;
+}

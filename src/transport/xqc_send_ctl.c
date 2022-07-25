@@ -1874,6 +1874,7 @@ static const char * const timer_type_2_str[XQC_TIMER_N] = {
     [XQC_TIMER_RETIRE_CID]      = "RETIRE_CID",
     [XQC_TIMER_LINGER_CLOSE]    = "LINGER_CLOSE",
     [XQC_TIMER_KEY_UPDATE]      = "KEY_UPDATE",
+    [XQC_TIMER_NAT_REBINDING]   = "NAT_REBINDING",
 };
 
 const char *
@@ -2094,6 +2095,16 @@ xqc_send_ctl_key_update_timeout(xqc_send_ctl_timer_type type, xqc_usec_t now, vo
     xqc_tls_discard_old_1rtt_keys(conn->tls);
 }
 
+void
+xqc_send_ctl_nat_rebinding_timeout(xqc_send_ctl_timer_type type, xqc_usec_t now, void *ctx)
+{
+    xqc_send_ctl_t *ctl = (xqc_send_ctl_t *) ctx;
+    xqc_connection_t *conn = ctl->ctl_conn;
+
+    conn->rebinding_addrlen = 0;
+    conn->conn_flag &= ~XQC_CONN_FLAG_VALIDATE_REBINDING;
+}
+
 /* timer callbacks end */
 
 void
@@ -2141,6 +2152,10 @@ xqc_send_ctl_timer_init(xqc_send_ctl_t *ctl)
 
         } else if (type == XQC_TIMER_KEY_UPDATE) {
             timer->ctl_timer_callback = xqc_send_ctl_key_update_timeout;
+            timer->ctl_ctx = ctl;
+
+        } else if (type == XQC_TIMER_NAT_REBINDING) {
+            timer->ctl_timer_callback = xqc_send_ctl_nat_rebinding_timeout;
             timer->ctl_ctx = ctl;
         }
     }

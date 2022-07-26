@@ -118,12 +118,13 @@ xqc_stream_maybe_need_close(xqc_stream_t *stream)
         }
 
         xqc_send_ctl_t *ctl = stream->stream_conn->conn_send_ctl;
-        xqc_usec_t new_expire = 3 * xqc_send_ctl_calc_pto(ctl) + now;
+        xqc_usec_t pto = xqc_send_ctl_calc_pto(ctl);
+        xqc_usec_t new_expire = now + 3 * pto;
         if ((ctl->ctl_timer[XQC_TIMER_STREAM_CLOSE].ctl_timer_is_set 
             && new_expire < ctl->ctl_timer[XQC_TIMER_STREAM_CLOSE].ctl_expire_time) 
             || !ctl->ctl_timer[XQC_TIMER_STREAM_CLOSE].ctl_timer_is_set)
         {
-            xqc_send_ctl_timer_set(ctl, XQC_TIMER_STREAM_CLOSE, now, new_expire - now);
+            xqc_send_ctl_timer_set(ctl, XQC_TIMER_STREAM_CLOSE, now, 3 * pto);
         }
         stream->stream_close_time = new_expire;
         xqc_list_add_tail(&stream->closing_stream_list, &stream->stream_conn->conn_closing_streams);

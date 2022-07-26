@@ -102,6 +102,9 @@ typedef struct user_conn_s {
     struct event       *ev_timeout;
 
     int                 h3;
+
+    int                 rebinding_fd;
+    struct event       *rebinding_ev_socket;
 } user_conn_t;
 
 #define XQC_DEMO_INTERFACE_MAX_LEN 64
@@ -168,6 +171,7 @@ char g_header_value[MAX_HEADER_VALUE_LEN];
 char g_multi_interface[XQC_DEMO_MAX_PATH_COUNT][64];
 xqc_user_path_t g_client_path[XQC_DEMO_MAX_PATH_COUNT];
 int g_multi_interface_cnt = 0;
+int hsk_completed = 0;
 
 #define XQC_TEST_LONG_HEADER_LEN 32769
 char test_long_value[XQC_TEST_LONG_HEADER_LEN] = {'\0'};
@@ -327,6 +331,10 @@ xqc_client_write_socket(const unsigned char *buf, size_t size,
             sleep(2);
             g_test_case = -1;
         }
+    }
+
+    if (g_test_case == 42 && hsk_completed == 1) {
+        fd = user_conn->rebinding_fd;
     }
 
     /* COPY to run corruption test cases */
@@ -647,6 +655,18 @@ xqc_client_user_conn_create(const char *server_addr, int server_port,
                                      xqc_client_socket_event_callback, user_conn);
     event_add(user_conn->ev_socket, NULL);
 
+
+    user_conn->rebinding_fd = xqc_client_create_socket(ip_type, 
+                                                       user_conn->peer_addr, user_conn->peer_addrlen);
+    if (user_conn->rebinding_fd < 0) {
+        printf("|rebinding|xqc_create_socket error\n");
+        return NULL;
+    }
+
+    user_conn->rebinding_ev_socket = event_new(eb, user_conn->rebinding_fd, EV_READ | EV_PERSIST,
+                                               xqc_client_socket_event_callback, user_conn);
+    event_add(user_conn->rebinding_ev_socket, NULL);
+
     return user_conn;
 }
 
@@ -715,6 +735,8 @@ xqc_client_conn_handshake_finished(xqc_connection_t *conn, void *user_data, void
 
     printf("====>DCID:%s\n", xqc_dcid_str_by_scid(ctx.engine, &user_conn->cid));
     printf("====>SCID:%s\n", xqc_scid_str(&user_conn->cid));
+
+    hsk_completed = 1;
 }
 
 int
@@ -782,6 +804,8 @@ xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
 
     printf("====>DCID:%s\n", xqc_dcid_str_by_scid(ctx.engine, &user_conn->cid));
     printf("====>SCID:%s\n", xqc_scid_str(&user_conn->cid));
+
+    hsk_completed = 1;
 }
 
 void
@@ -1565,7 +1589,7 @@ xqc_client_socket_write_handler(user_conn_t *user_conn)
 
 
 void
-xqc_client_socket_read_handler(user_conn_t *user_conn)
+xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
 {
     //DEBUG;
 
@@ -1599,7 +1623,7 @@ xqc_client_socket_read_handler(user_conn_t *user_conn)
             timeout.tv_sec = TIMEOUT;
             timeout.tv_nsec = 0;
 
-            retval = recvmmsg(user_conn->fd, msgs, VLEN, 0, &timeout);
+            retval = recvmmsg(fd, msgs, VLEN, 0, &timeout);
             if (retval == -1) {
                 break;
             }
@@ -1628,7 +1652,7 @@ xqc_client_socket_read_handler(user_conn_t *user_conn)
     static ssize_t rcv_sum = 0;
 
     do {
-        recv_size = recvfrom(user_conn->fd, 
+        recv_size = recvfrom(fd, 
                              packet_buf, sizeof(packet_buf), 0, 
                              user_conn->peer_addr, &user_conn->peer_addrlen);
         if (recv_size < 0 && get_last_sys_errno() == EAGAIN) {
@@ -1738,7 +1762,7 @@ xqc_client_socket_event_callback(int fd, short what, void *arg)
         xqc_client_socket_write_handler(user_conn);
 
     } else if (what & EV_READ) {
-        xqc_client_socket_read_handler(user_conn);
+        xqc_client_socket_read_handler(user_conn, fd);
 
     } else {
         printf("event callback: what=%d\n", what);
@@ -2391,6 +2415,7 @@ int main(int argc, char *argv[]) {
 
     event_free(user_conn->ev_socket);
     event_free(user_conn->ev_timeout);
+    event_free(user_conn->rebinding_ev_socket);
 
     free(user_conn->peer_addr);
     free(user_conn->local_addr);

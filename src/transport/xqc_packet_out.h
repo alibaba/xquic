@@ -135,5 +135,8 @@ xqc_int_t xqc_write_retire_conn_id_frame_to_packet(xqc_connection_t *conn, uint6
 
 xqc_int_t xqc_write_path_status_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path);
 
+xqc_int_t xqc_write_path_response_frame_to_packet(xqc_connection_t *conn,
+    unsigned char *path_response_data);
+
 
 #endif /* _XQC_PACKET_OUT_H_INCLUDED_ */

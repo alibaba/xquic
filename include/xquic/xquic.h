@@ -275,6 +275,17 @@ typedef int (*xqc_cert_verify_pt)(const unsigned char *certs[], const size_t cer
 
 
 /**
+ * @brief server peer addr changed notify
+ *
+ * this function will be trigger after receive peer's changed addr.
+ *
+ * @param conn connection handler
+ * @param conn_user_data connection level user_data
+ */
+typedef void (*xqc_conn_peer_addr_changed_nofity_pt)(xqc_connection_t *conn, void *conn_user_data);
+
+
+/**
  * @brief return value of xqc_socket_write_pt and xqc_send_mmsg_pt callback function
  */
 #define XQC_SOCKET_ERROR                -1
@@ -494,6 +505,11 @@ typedef struct xqc_transport_callbacks_s {
      * connection closing callback function. OPTIONAL for both client and server
      */
     xqc_conn_closing_notify_pt      conn_closing;
+
+    /**
+     * QUIC connection peer addr changed callback, REQUIRED for server.
+     */
+    xqc_conn_peer_addr_changed_nofity_pt    conn_peer_addr_changed_notify;
 
 } xqc_transport_callbacks_t;
 

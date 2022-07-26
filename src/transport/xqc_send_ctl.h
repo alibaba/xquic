@@ -53,6 +53,7 @@ typedef enum {
     XQC_TIMER_RETIRE_CID,
     XQC_TIMER_LINGER_CLOSE,
     XQC_TIMER_KEY_UPDATE,
+    XQC_TIMER_NAT_REBINDING,
     XQC_TIMER_N,
 } xqc_send_ctl_timer_type;
 

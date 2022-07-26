@@ -30,6 +30,8 @@
 
 #define XQC_MAX_RECV_WINDOW (16 * 1024 * 1024)
 
+#define XQC_PATH_CHALLENGE_DATA_LEN  8
+
 static const uint32_t MAX_RSP_CONN_CLOSE_CNT = 3;
 
 /* for debugging, will be deleted later */
@@ -119,6 +121,7 @@ typedef enum {
     XQC_CONN_FLAG_LINGER_CLOSING_SHIFT,
     XQC_CONN_FLAG_RETRY_RECVD_SHIFT,
     XQC_CONN_FLAG_TLS_HSK_COMPLETED_SHIFT,
+    XQC_CONN_FLAG_VALIDATE_REBINDING_SHIFT,
     XQC_CONN_FLAG_SHIFT_NUM,
 } xqc_conn_flag_shift_t;
 
@@ -155,6 +158,7 @@ typedef enum {
     XQC_CONN_FLAG_LINGER_CLOSING        = 1UL << XQC_CONN_FLAG_LINGER_CLOSING_SHIFT,
     XQC_CONN_FLAG_RETRY_RECVD           = 1UL << XQC_CONN_FLAG_RETRY_RECVD_SHIFT,
     XQC_CONN_FLAG_TLS_HSK_COMPLETED     = 1UL << XQC_CONN_FLAG_TLS_HSK_COMPLETED_SHIFT,
+    XQC_CONN_FLAG_VALIDATE_REBINDING    = 1UL << XQC_CONN_FLAG_VALIDATE_REBINDING_SHIFT,
 } xqc_conn_flag_t;
 
 
@@ -223,8 +227,6 @@ struct xqc_connection_s {
     xqc_proto_version_t             version;
     /* set when client receives a non-VN package from server or receives a VN package and processes it */
     uint32_t                        discard_vn_flag;
-    /* set when server receives a packet from different address (NAT rebinding) */
-    uint32_t                        rebinding_flag;
 
     /* original destination connection id, RFC 9000, Section 7.3. */
     xqc_cid_t                       original_dcid;
@@ -242,6 +244,16 @@ struct xqc_connection_s {
 
     char                            addr_str[2 * (XQC_MAX_CID_LEN + INET6_ADDRSTRLEN) + 10];
     size_t                          addr_str_len;
+
+    /* server receives a packet from different address (NAT rebinding) */
+    uint32_t                        rebinding_count;
+    /* server validate NAT rebinding (PATH_CHALLENGE & PATH_RESPONSE) */
+    uint32_t                        rebinding_valid;
+
+    unsigned char                   rebinding_addr[sizeof(struct sockaddr_in6)];
+    socklen_t                       rebinding_addrlen;
+
+    unsigned char                   path_challenge_data[XQC_PATH_CHALLENGE_DATA_LEN];
 
     unsigned char                   conn_token[XQC_MAX_TOKEN_LEN];
     unsigned char                   enc_pkt[XQC_PACKET_OUT_SIZE_EXT];
@@ -374,6 +386,8 @@ xqc_usec_t xqc_conn_next_wakeup_time(xqc_connection_t *conn);
 char *xqc_conn_local_addr_str(const struct sockaddr *local_addr, socklen_t local_addrlen);
 char *xqc_conn_peer_addr_str(const struct sockaddr *peer_addr, socklen_t peer_addrlen);
 char *xqc_conn_addr_str(xqc_connection_t *conn);
+
+xqc_int_t xqc_conn_server_send_path_challenge(xqc_connection_t *conn);
 
 static inline void
 xqc_conn_process_undecrypt_packets(xqc_connection_t *conn)

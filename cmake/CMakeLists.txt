@@ -172,6 +172,7 @@ set(
     "src/transport/xqc_utils.c"
     "src/transport/xqc_defs.c"
     "src/transport/xqc_transport_params.c"
+    "src/transport/xqc_quic_lb.c"
 )
 
 # TLS source

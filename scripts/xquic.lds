@@ -67,6 +67,7 @@ XQUIC_VERS_1.0 {
         xqc_h3_request_finish;
         xqc_now;
         xqc_h3_engine_set_qpack_compat_duplicate;
+        xqc_lb_cid_encryption;
     local:
         *;
 };

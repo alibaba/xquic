@@ -1035,6 +1035,21 @@ else
     case_print_result "load_balancer_cid_generate" "fail"
 fi
 
+clear_log
+killall test_server 2> /dev/null
+echo -e "load balancer cid generate with encryption...\c"
+./test_server -l d -e -S "server_id_0" -E > /dev/null &
+sleep 1
+./test_client -s 1024000 -l d -t 1 >> clog
+result=`grep "|lb cid encrypted|" slog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" != "" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "load_balancer_cid_generate_with_encryption" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "load_balancer_cid_generate_with_encryption" "fail"
+fi
 
 clear_log
 echo -e "set cipher suites ...\c"

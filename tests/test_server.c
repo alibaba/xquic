@@ -28,6 +28,7 @@
 #pragma comment(lib, "Iphlpapi.lib")
 #endif
 
+#define XQC_FIRST_OCTET 1
 int
 printf_null(const char *format, ...)
 {
@@ -47,12 +48,15 @@ printf_null(const char *format, ...)
 
 #define XQC_MAX_LOG_LEN 2048
 
+
 typedef struct xqc_quic_lb_ctx_s {
     uint8_t    sid_len;
     uint8_t    sid_buf[XQC_MAX_CID_LEN];
     uint8_t    conf_id;
     uint8_t    cid_len;
     uint8_t    cid_buf[XQC_MAX_CID_LEN];
+    uint8_t    lb_cid_key[XQC_LB_CID_KEY_LEN];
+    int        lb_cid_enc_on;
 } xqc_quic_lb_ctx_t;
 
 
@@ -100,6 +104,7 @@ int g_spec_url;
 int g_test_case;
 int g_ipv6;
 int g_batch=0;
+int g_lb_cid_encryption_on = 0;
 char g_write_file[256];
 char g_read_file[256];
 char g_log_path[256];
@@ -108,7 +113,9 @@ char g_path[256] = "/path/resource";
 char g_scheme[8] = "https";
 char g_url[256];
 char g_sid[XQC_MAX_CID_LEN];
+char g_lb_cid_enc_key[XQC_LB_CID_KEY_LEN];
 size_t g_sid_len = 0;
+size_t g_lb_cid_enc_key_len = 0;
 static uint64_t last_snd_ts;
 
 
@@ -1017,20 +1024,21 @@ static ssize_t
 xqc_server_cid_generate(const xqc_cid_t *ori_cid, uint8_t *cid_buf, size_t cid_buflen, void *engine_user_data)
 {
     ssize_t              cid_buf_index = 0, i;
-    ssize_t              cid_len, sid_len;
+    ssize_t              cid_len, sid_len, nonce_len;
     xqc_quic_lb_ctx_t   *quic_lb_ctx;
-
+    xqc_flag_t           encrypt_cid_on;
+    uint8_t              out_buf[XQC_MAX_CID_LEN];
     quic_lb_ctx = &(ctx.quic_lb_ctx);
-
     cid_len = quic_lb_ctx->cid_len;
     sid_len = quic_lb_ctx->sid_len;
+    nonce_len = cid_len - sid_len - XQC_FIRST_OCTET;
 
     if (sid_len < 0 || sid_len > cid_len || cid_len > cid_buflen) {
         return XQC_ERROR;
     }
 
     cid_buf[cid_buf_index] = quic_lb_ctx->conf_id;
-    cid_buf_index += 1;
+    cid_buf_index += XQC_FIRST_OCTET;
 
     memcpy(cid_buf + cid_buf_index, quic_lb_ctx->sid_buf, sid_len);
     cid_buf_index += sid_len;
@@ -1039,8 +1047,21 @@ xqc_server_cid_generate(const xqc_cid_t *ori_cid, uint8_t *cid_buf, size_t cid_b
         cid_buf[i] = (uint8_t)rand();
     }
 
-    /* xqc_log(engine->log, XQC_LOG_DEBUG, "|cid:%s|cid_len:%ud|", xqc_scid_str(cid), cid->cid_len); */
+    memcpy(out_buf, cid_buf, cid_len);
+
+    encrypt_cid_on = quic_lb_ctx->lb_cid_enc_on;
+    if (encrypt_cid_on) {
+        int res = xqc_lb_cid_encryption(cid_buf, sid_len + nonce_len, out_buf, XQC_MAX_CID_LEN, quic_lb_ctx->lb_cid_key, XQC_LB_CID_KEY_LEN, ctx.engine);
+        if (res != XQC_OK) {
+            printf("|xquic|lb-cid encryption error|");
+            return -XQC_EENCRYPT_LB_CID;
+        }
+    }
+    
+    memcpy(cid_buf, out_buf, cid_len);
+
     return cid_len;
+
 }
 
 
@@ -1052,7 +1073,7 @@ xqc_server_open_log_file(void *engine_user_data)
     ctx->log_fd = open(g_log_path, (O_WRONLY | O_APPEND | O_CREAT), 0644);
     if (ctx->log_fd <= 0) {
         return -1;
-    }
+    }  
     return 0;
 }
 
@@ -1203,6 +1224,8 @@ void usage(int argc, char *argv[]) {
 "   -6    IPv6\n"
 "   -b    batch\n"
 "   -S    server sid\n"
+"   -E    load balance id encryption on\n"
+"   -K    load balance id encryption key\n"
 "   -o    Output log file path, default ./slog\n"
 , prog);
 }
@@ -1226,7 +1249,7 @@ int main(int argc, char *argv[]) {
     strncpy(g_log_path, "./slog", sizeof(g_log_path));
 
     int ch = 0;
-    while ((ch = getopt(argc, argv, "p:ec:Cs:w:r:l:u:x:6bS:o:")) != -1) {
+    while ((ch = getopt(argc, argv, "p:ec:Cs:w:r:l:u:x:6bS:o:EK:")) != -1) {
         switch (ch) {
         case 'p': /* Server port. */
             printf("option port :%s\n", optarg);
@@ -1301,6 +1324,15 @@ int main(int argc, char *argv[]) {
         case 'o':
             printf("option log path :%s\n", optarg);
             snprintf(g_log_path, sizeof(g_log_path), optarg);
+            break;
+        case 'K': /* set lb cid generator's key */
+            printf("set lb-cid-generator key \n");
+            snprintf(g_lb_cid_enc_key, sizeof(g_lb_cid_enc_key), optarg);
+            g_lb_cid_enc_key_len = strlen(g_lb_cid_enc_key);
+            break;
+        case 'E': /* set lb_cid encryption on */
+            printf("set lb-cid encryption on \n");
+            g_lb_cid_encryption_on = 1;
             break;
         default:
             printf("other option :%c\n", ch);
@@ -1431,6 +1463,14 @@ int main(int argc, char *argv[]) {
     /* test server cid negotiate */
     if (g_test_case == 1 || g_test_case == 5 || g_test_case == 6 || g_sid_len != 0) {
 
+        if (g_lb_cid_enc_key_len == 0) {
+            int i = 0;
+            for (i = 0; i < XQC_LB_CID_KEY_LEN; i++) {
+                g_lb_cid_enc_key[i] = (uint8_t)rand();
+            }
+            
+        }
+        
         callback.cid_generate_cb = xqc_server_cid_generate;
         config.cid_negotiate = 1;
         config.cid_len = XQC_MAX_CID_LEN;
@@ -1494,6 +1534,8 @@ int main(int argc, char *argv[]) {
 
     /* for lb cid generate */
     memcpy(ctx.quic_lb_ctx.sid_buf, g_sid, g_sid_len);
+    memcpy(ctx.quic_lb_ctx.lb_cid_key, g_lb_cid_enc_key, XQC_LB_CID_KEY_LEN);
+    ctx.quic_lb_ctx.lb_cid_enc_on = g_lb_cid_encryption_on;
     ctx.quic_lb_ctx.sid_len = g_sid_len;
     ctx.quic_lb_ctx.conf_id = 0;
     ctx.quic_lb_ctx.cid_len = XQC_MAX_CID_LEN;

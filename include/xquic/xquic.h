@@ -1163,6 +1163,23 @@ xqc_int_t xqc_conn_continue_send(xqc_engine_t *engine, const xqc_cid_t *cid);
 XQC_EXPORT_PUBLIC_API
 xqc_conn_stats_t xqc_conn_get_stats(xqc_engine_t *engine, const xqc_cid_t *cid);
 
+/**
+ * @brief load balance cid encryption.
+ * According to Draft : https://datatracker.ietf.org/doc/html/draft-ietf-quic-load-balancers-13#section-4.3.2
+ * @param enc_len plaintext length.
+ * @param cid_buf the plaintext to be encrypted.
+ * @param out_buf the ciphertext of the plaintext encrypted.
+ * @param out_buf_len the length of the ciphertext to be encrypted.
+ * @param lb_cid_key  encryption secret.
+ * @param lb_cid_key_len secret length.
+ * @param engine engine from `xqc_engine_create`
+ * @return negative for failed, 0 for the success.
+ * 
+ * The length of cid_buf must not exceed the maximum length of the cid (20 byte), the length of out_buf should be no less than cid_buf_length.
+ * The length of lb_cid_key should be exactly 16 bytes.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_lb_cid_encryption(uint8_t *cid_buf, size_t enc_len, uint8_t *out_buf, size_t out_buf_len, uint8_t *lb_cid_key, size_t lb_cid_key_len, xqc_engine_t *engine);
 
 #ifdef __cplusplus
 }

@@ -74,4 +74,6 @@ openssl req -newkey rsa:2048 -x509 -nodes -keyout "$keyfile" -new -out "$certfil
 |   -6   | IPv6 |
 |   -b   | batch |
 |   -S   | server sid |
+|   -E   | load balance id encryption on |
+|   -K   | load balance id encryption key |
 |   -o   | Output log file path, default ./slog |

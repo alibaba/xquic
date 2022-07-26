@@ -34,9 +34,7 @@ HTTP/3提供了通过QUIC传输协议来传输HTTP语义的功能，和类似HTT
 QUIC提供了协议协商，基于流的多路复用，以及流控制。3.1节中描述了如何发现HTTP/3终端。
 
 在每条流中，HTTP/3通信的基本单元是帧（frame，参考7.2节）。出于不同目的，定义了每个帧的类型。
-比如，HEADERS和DATA帧是HTTP请求和响应的基础（参考4.1节）。
-Frames that apply to the entire connection are conveyed on a dedicated control stream.
-适用于整个连接的帧在专用的控制流上传输。
+比如，HTTP请求和响应由HEADERS和DATA帧承载（参考4.1节），适用于整个连接的帧在专用的控制流上传输。
 
 [QUIC-TRANSPORT]的第2章中，描述了使用QUIC流的抽象概念来实现请求的多路复用。
 每个请求-响应对预设了一个QUIC流。每个流之间都是独立的，因此一个发生阻塞、丢包的流不会影响其他流的进展。
@@ -84,11 +82,9 @@ QPACK使用了隔离的单向流来修改和追踪字段表状态，而编码后
 当引用[QUIC-TRANSPORT]中的帧时，帧的名字之前会添加引语“QUIC”。比如，“QUIC CONNECTION_CLOSE 帧”。
 没有这个引语的引用（帧）指7.2节中定义的帧。
 
-  HTTP/3 connection: A QUIC connection where the negotiated
-   application protocol is HTTP/3.
 HTTP/3连接（HTTP/3 connection）：一个QUIC连接，其协商的应用协议是HTTP/3。
 
-对端（peer）：一个终端。在讨论某个终端时，"对端 "指的是与主要讨论对象相距较远的终端。
+对端（peer）：一个终端。在讨论某个终端时，"对端"指的是与当前讨论对象相距较远的终端。
 
 接收端（receiver）：一个正在接收帧的终端。
 
@@ -96,7 +92,7 @@ HTTP/3连接（HTTP/3 connection）：一个QUIC连接，其协商的应用协�
 
 服务端：接受一个HTTP/3连接的端点。 服务端接收HTTP请求，并发送HTTP响应。
 
-流（stream）：QUIC传输提供的一个双向或者单向的字节流。一个HTTP/3连接内的所有流都可以被认为是 "HTTP/3流"，但HTTP/3内定义了多种流类型。
+流（stream）：QUIC传输提供的一个双向或者单向的字节流。一个HTTP/3连接内的所有流都可以被认为是"HTTP/3流"，但HTTP/3内定义了多种流类型。
 
 流错误（stream error）：个别HTTP/3流上的应用级（application-level）错误。
 
@@ -155,7 +151,7 @@ QUIC连接的建立如 [QUIC-TRANSPORT] 中所述。在建立连接的过程中�
 
 ## 3.3. Connection Reuse
 
-HTTP/3连接可用于多个请求。为了达到最好的性能，如果客户端一般不会关闭连接，除非客户端认为不再需要继续和服务端进行通信（比如，用户离开指定web页），或者知道服务端关闭了连接。
+HTTP/3连接可用于多个请求。为了达到最好的性能，客户端一般不会主动关闭连接，除非客户端认为不再需要继续和服务端进行通信（比如，用户离开指定web页），或者知道服务端已经关闭了连接。
 
 一旦建立上和服务端的连接，该连接可以（MAY）用于请求其他URI，只要服务端是经过认证的。
 要将现有连接用于新的源，客户端必须通过 [SEMANTICS] 第4.3.4节中所述的过程，来验证服务端为新的源服务端提供的证书。 这意味着客户端将需要保留服务端证书以及验证该证书所需的任何其他信息，不这样做的客户端将无法为其他的源重用该连接。
@@ -173,13 +169,13 @@ HTTP/3连接可用于多个请求。为了达到最好的性能，如果客户�
 ## 4.1. HTTP Message Exchanges
 
 客户端在客户端发起的双向QUIC流上发送HTTP请求。客户端必须（MUST）在一个指定的流上发送单个请求。
-服务端在和请求相同的流上发送0到多个临时的HTTP响应，然后再发单个最终的HTTP响应，详见下文。关于临时和最终HTTP响应的描述，请参见[SEMANTICS]的第15章。
+服务端在和请求相同的流上发送0到多个中间HTTP响应，然后再发单个最终HTTP响应，详见下文。关于中间和最终HTTP响应的描述，请参见[SEMANTICS]的第15章。
 
 推送的响应在一个服务端发起的单向QUIC流上进行发送；参考6.2.2小节。
-和标准的响应方式一样，服务端发送0到多个临时的HTTP响应，然后发送单个最终的HTTP响应。
+和标准的响应方式一样，服务端发送0到多个中间HTTP响应，然后发送单个最终HTTP响应。
 在4.4节中对推送进行了更加详细的描述。
 
-在指定的流上，收到多个请求，或者在一个最终的HTTP响应之后再收到一个HTTP响应，必须（MUST）把这种情况当成是异常。
+在指定的流上，收到多个请求，或者在一个最终HTTP响应之后再收到一个HTTP响应，必须（MUST）把这种情况当成是异常。
 
 一个HTTP消息（请求或响应）由以下内容组成：
 
@@ -198,10 +194,9 @@ HTTP/3连接可用于多个请求。为了达到最好的性能，如果客户�
 
 HEADERS和PUSH_PROMISE帧可能引用QPACK动态表的更新。虽然这些更新不是消息交换的直接部分，但是他们必须在消息可以被销毁前被接收并处理，详情参考4.1.1.
 
-Transfer codings (see Section 6.1 of [HTTP11]) are not defined for HTTP/3; the Transfer-Encoding header field MUST NOT be used.
-未为HTTP/3定义传输编码（请参见[HTTP11]的6.1节），不得（MUST NOT）使用Transfer-Encoding标头字段。
+未为HTTP/3定义传输编码（请参见[HTTP11]的6.1节），因此不得（MUST NOT）使用Transfer-Encoding标头字段。
 
-当且只当同一个请求的最终响应之前有一个或多个信息响应（1xx，参考 [SEMANTICS] 第15.2节），响应才可以（MAY）包括多个消息。临时响应不包含载荷体或尾部。
+当且只当同一个请求的最终响应之前有一个或多个信息响应（1xx，参考 [SEMANTICS] 第15.2节），响应才可以（MAY）包括多个消息。中间响应不包含载荷体或尾部。
 
 一个HTTP请求/响应交换完全占用了客户端发起的双向QUIC流。在发送请求之后，客户端必须（MUST）关闭流的发送。除非使用了CONNECT方法（参考4.2节），客户端不得（MUST NOT）根据收到的响应来关闭流。在发送最终响应之后，服务端必须（MUST）关闭流的发送。此刻，QUIC流就完全关闭了。
 
@@ -237,7 +232,7 @@ HTTP消息以 一系列被称为HTTP字段的 key-value对的形式 携带了元
 这些为头部字段携带了目标URI，请求的方法，以及响应的状态码。
 
 伪头部字段不是HTTP字段。除了本文中定义的，终端不得（MUST NOT）生成其他的伪头部字段；
-然而，一个扩展可以协商修改此限制（参见第9节）。
+不过，一个扩展可以协商修改此限制（参见第9节）。
 
 伪头部字段只在它们定义的上下文中有效。
 为请求定义的伪头部字段不得（MUST NOT）出现在响应中；为响应定义的伪头部字段不得（MUST NOT）出现在请求中。
@@ -306,17 +301,17 @@ HTTP/3没有定义像HTTP/1.1请求行一样携带版本或者原因的方式。
 
 实现应该（SHOULD）通过 突然终止仍然打开的流的任何方向 来取消请求，这意味着重置流的发送部分和中止流的接收部分的读取（参见第2.4节[QUIC-TRANSPORT]）。
 
-当服务端在没有执行任何应用处理的情况下取消请求时，该请求被视为 "已拒绝 "。 服务端应该以错误码H3_REQUEST_REJECTED中止其响应流。
+当服务端在没有执行任何应用处理的情况下取消请求时，该请求被视为 "已拒绝"。 服务端应该以错误码H3_REQUEST_REJECTED中止其响应流。
 在这种情况下，"已处理 "意味着流中的一些数据被传递给了一些更高一层的软件，而这些软件可能因此采取了一些行动。 客户端可以把被服务端拒绝的请求当作根本没有发送过，从而可以在以后重试。
 
-对于服务端已经部分或全部处理的request，不得（MUST NOT）用H3_REQUEST_REJECTED错误码。
-当服务端在部分处理之后放弃响应，它应当（SHOULD）以H3_REQUEST_CANCELLED错误码退出响应流。
-when a server has requested closure of the request stream with this error code.
+对于服务端已经部分或全部处理的request，不得（MUST NOT）以H3_REQUEST_REJECTED错误码响应。
+当服务端在部分处理之后放弃响应，其应当（SHOULD）以H3_REQUEST_CANCELLED错误码退出响应流。
+
 客户端应该使用错误码H3_REQUEST_CANCELLED来取消请求。 
 收到这个错误码后，如果没有进行任何处理，服务端可以使用错误代码H3_REQUEST_REJECTED突然终止响应。
 客户端不能使用H3_REQUEST_REJECTED错误码，除非服务端用这个错误码要求关闭请求流。
 
-如果一个stream在接收到完整的response之后被取消，客户端可以忽略取消，使用这个response。然而，如果一个stream在接收到部分response之后被取消，这个response不应当被使用。
+如果一个stream在接收到完整的response之后被取消，客户端可以忽略此取消消息而使用这个response。但是，如果一个stream在接收到部分response之后被取消，这个response不应当被使用。
 
 只有像GET、PUT或DELETE这样的幂等操作才可以安全地重试；客户端不应该自动重试一个非幂等方法的请求，除非它有办法知道请求语义是独立于方法的幂等操作，或者有办法检测到原始请求从未被应用（详见[SEMANTICS]第9.2.2节）。
 
@@ -475,7 +470,6 @@ HTTP/3的实现可以在任何时候关闭QUIC connection。这会向对端发�
 
 在关闭connection之前，发送GOAWAY允许客户端重试一些requests。将GOAWAY帧和QUIC CONNECTION_CLOSE帧合并到同一个包能够增加帧被客户端接收的几率。
 
-If there are open streams that have not been explicitly closed, they are implicitly closed when the connection is closed; see Section 10.2 of [QUIC-TRANSPORT].
 如果有打开的流没有被显式关闭，那么当连接关闭时，它们会被隐式关闭；参见 [QUIC-TRANSPORT] 的 10.2 节。
 
 ## 5.4 Transport Closure
@@ -520,9 +514,9 @@ HTTP/3不使用服务器初始化的双向流，尽管扩展可以定义这些�
 过度限制这些流的数量和流控窗口的终端，会增加远端很早就达到限制并阻塞的风险。
 
 实际上，实现应该考虑远端可能希望在它们允许使用的单向流上进行预留的流操作（6.2.3小节）。
-为了避免阻塞，客户端和服务端发送的传输参数都必须（MUST）允许对端创建至少一个用于HTTP控制流的单向流，以及强制扩展要求的单向流（基础HTTP/3协议和QPACK要求最少3个），同时应当（SHOULD）在每个流上提供最少1024个字节的流控信用。
+为了避免阻塞，客户端和服务端发送的传输参数都必须（MUST）允许对端创建至少一个用于HTTP控制流的单向流，以及强制扩展要求的单向流（基础HTTP/3协议和QPACK要求最少3个），同时应当（SHOULD）在每个流上提供最少1024个字节的流控credit。
 
-值得注意的是，如果对端在创建关键的单向流之前耗尽了初始的流控信用，不要求终端生成额外的流控窗口来创建更多的单向流。终端应当（SHOULD）和创建强制扩展要求的单向流（比如QPACK编、解码流）一样，先创建HTTP控制流，再在它们对端允许的前提下创建额外的流。
+值得注意的是，如果对端在创建关键的单向流之前耗尽了初始的流控credit，不要求终端生成额外的流控窗口来创建更多的单向流。终端应当（SHOULD）和创建强制扩展要求的单向流（比如QPACK编、解码流）一样，先创建HTTP控制流，再在它们对端允许的前提下创建额外的流。
 
 如果接收者不支持流头部指示的流类型，流中剩余的数据会因为语义未知而不能被消费。
 收到未知流类型，可以（MAY）以一个H3_STREAM_CREATION_ERROR错误码终止流的读取。但是不得（MUST NOT）认为这个流是哪种类型的连接错误。
@@ -537,8 +531,7 @@ HTTP/3不使用服务器初始化的双向流，尽管扩展可以定义这些�
 
 两端必须在连接开始时发起一个crontrol stream，并且发送SETTINGS frame作为这个stream的第一帧。如果这个control stream的第一帧不是SETTINGS frame，必须被视作连接错误H3_MISSING_SETTINGS。两端各自只允许发送一个crontrol stream；接收到第二个control stream必须被视作连接错误H3_STREAM_CREATE_ERROR。发送者不得（MUST NOT）关闭控制流，接收者不得（MUST NOT）请求发送者关闭控制流。如果crontrol stream被关闭，必须被视为连接错误H3_CLOSED_CRITICAL_STREAM。连接错误在第8章中介绍。
 
-Because the contents of the control stream are used to manage the behavior of other streams, endpoints SHOULD provide enough flow control credit to keep the peer's control stream from becoming blocked.
-因为控制流的内容被用来管理其他流的行为，所以终端应该提供足够的流控信用，以防止对端的控制流被阻塞。
+因为控制流的内容被用来管理其他流的行为，所以终端应该提供足够的流控credit，以防止对端的控制流被阻塞。
 
 使用一对单向流而不是一个双向流，是为了两端都能尽快发送自己的数据。根据QUIC连接上0-RTT的使能情况，客户端或服务端可以先发送流数据。
 
@@ -546,7 +539,7 @@ Because the contents of the control stream are used to manage the behavior of ot
 
 服务端推送是一种在HTTP/2引入的可选的特性，允许服务端在尚未请求之前先发起响应，详情参考4.4节。
 
-推送流的流类型为0x01，紧接着为Push ID，编码为可变长数字。剩下的数据由HTTP/3帧组成（见7.2），通过0个或多个临时HTTP响应，后跟一个最终的HTTP响应，从而兑现了承诺。Server Push和Push ID详见4.1节。
+推送流的流类型为0x01，紧接着为Push ID，编码为可变长数字。剩下的数据由HTTP/3帧组成（见7.2），通过0个或多个中间HTTP响应，后跟一个最终HTTP响应，从而兑现了承诺。Server Push和Push ID详见4.1节。
 
 只有服务端才能push，收到客户端发起的推送流，服务端应当视为H3_STREAM_CREATION_ERROR类型的连接错误。
 
@@ -632,7 +625,6 @@ Length：表示帧载荷长度的变长整数，
 Frame Payload：载荷，语意由Type字段决定
 
 每个帧必须恰好包含以上定义的字段， payload实际长度和length不符合的情况，必须被当成H3_FRAME_ERROR类型的连接错误（见第8章）。
-In particular, redundant length encodings MUST be verified to be self-consistent; see Section 10.8.
 特别是，必须验证冗余长度编码是自洽的，参见10.8节。
 
 文明终止一个流，如果流的最后一个帧被截断，必须（MUST）把这种情况当成是H3_FRAME_ERROR类型的连接错误（第8章）。可以在粗暴终止的流

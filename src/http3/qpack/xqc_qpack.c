@@ -534,3 +534,11 @@ xqc_qpack_set_enc_insert_limit(xqc_qpack_t *qpk, double name_limit, double entry
 {
     xqc_encoder_set_insert_limit(qpk->enc, name_limit, entry_limit);
 }
+
+#ifdef XQC_COMPAT_DUPLICATE
+void
+xqc_qpack_set_compat_dup(xqc_qpack_t *qpk, xqc_bool_t compat)
+{
+    xqc_encoder_compat_dup(qpk->enc, compat);
+}
+#endif

@@ -145,6 +145,11 @@ typedef struct xqc_h3_conn_settings_s {
     /* MAX_BLOCKED_STREAMS */
     uint64_t qpack_blocked_streams;
 
+#ifdef XQC_COMPAT_DUPLICATE
+    /* compat with the original qpack encoder's duplicate strategy */
+    xqc_bool_t  qpack_compat_duplicate;
+#endif
+
 } xqc_h3_conn_settings_t;
 
 
@@ -249,7 +254,11 @@ void xqc_h3_engine_set_enc_max_dtable_capacity(xqc_engine_t *engine, size_t valu
 XQC_EXPORT_PUBLIC_API
 void xqc_h3_engine_set_max_field_section_size(xqc_engine_t *engine, size_t size);
 
-
+#ifdef XQC_COMPAT_DUPLICATE
+XQC_EXPORT_PUBLIC_API
+void xqc_h3_engine_set_qpack_compat_duplicate(xqc_engine_t *engine,
+    xqc_bool_t cmpt);
+#endif
 
 /**
  * @brief create and http3 connection

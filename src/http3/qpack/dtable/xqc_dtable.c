@@ -609,8 +609,10 @@ xqc_dtable_set_capacity(xqc_dtable_t *dt, uint64_t capacity)
 }
 
 
+#ifdef XQC_COMPAT_DUPLICATE
+
 xqc_int_t
-xqc_dtable_prepare_dup(xqc_dtable_t *dt, uint64_t idx, size_t space)
+xqc_dtable_prepare_dup_compat(xqc_dtable_t *dt, uint64_t idx, size_t space)
 {
     xqc_int_t ret = XQC_OK; /* for make space */
     xqc_int_t res = XQC_OK; /* for set min_ref */
@@ -646,7 +648,7 @@ xqc_dtable_prepare_dup(xqc_dtable_t *dt, uint64_t idx, size_t space)
 
 
 xqc_int_t
-xqc_dtable_duplicate(xqc_dtable_t *dt, uint64_t idx, uint64_t *new_idx)
+xqc_dtable_duplicate_compat(xqc_dtable_t *dt, uint64_t idx, uint64_t *new_idx)
 {
     xqc_int_t ret = XQC_OK;
 
@@ -662,7 +664,7 @@ xqc_dtable_duplicate(xqc_dtable_t *dt, uint64_t idx, uint64_t *new_idx)
 
     /* check if there is enough space */
     size_t space = xqc_dtable_entry_size(entry->nv.nlen, entry->nv.vlen);
-    if (xqc_dtable_prepare_dup(dt, idx, space) != XQC_OK) {
+    if (xqc_dtable_prepare_dup_compat(dt, idx, space) != XQC_OK) {
         xqc_log(dt->log, XQC_LOG_DEBUG, "|prepare for duplicate failed|");
         return -XQC_ELIMIT;
     }
@@ -713,6 +715,74 @@ xqc_dtable_duplicate(xqc_dtable_t *dt, uint64_t idx, uint64_t *new_idx)
 
     return XQC_OK;
 }
+
+#endif
+
+
+xqc_int_t
+xqc_dtable_prepare_dup(xqc_dtable_t *dt, size_t space)
+{
+    xqc_int_t ret = XQC_OK; /* for make space */
+
+    /* make space for new entry, entries that are not referred will be deleted */
+    ret = xqc_dtable_make_space(dt, space);
+    if (ret != XQC_OK) {
+        /* if make space fails, dtalbe shall recover its min_ref */
+        xqc_log(dt->log, XQC_LOG_DEBUG, "|unable to make space for duplicate|ret:%d|", ret);
+    }
+
+    return ret;
+}
+
+
+xqc_int_t
+xqc_dtable_duplicate(xqc_dtable_t *dt, uint64_t idx, uint64_t *new_idx)
+{
+    xqc_int_t       ret     = XQC_OK;
+    xqc_var_buf_t   name    = {0};
+    xqc_var_buf_t   value   = {0};
+    unsigned char  *nbuf    = NULL;
+    unsigned char  *vbuf    = NULL;
+
+    xqc_log(dt->log, XQC_LOG_DEBUG, "|dup|idx:%ui|min_ref:%ui|", idx, dt->min_ref);
+
+
+    /* get name-value of entry */
+    ret = xqc_dtable_get_nv(dt, idx, &name, &value);
+    if (ret != XQC_OK) {
+        xqc_log(dt->log, XQC_LOG_ERROR, "|can't get entry with idx|idx:%ui|first:%ui|end:%ui|",
+                idx, dt->first_idx, dt->insert_cnt);
+        ret = -XQC_QPACK_DYNAMIC_TABLE_VOID_ENTRY;
+        goto end;
+    }
+
+    /* check if there is enough space */
+    size_t space = xqc_dtable_entry_size(name.data_len, value.data_len);
+    if (xqc_dtable_prepare_dup(dt, space) != XQC_OK) {
+        xqc_log(dt->log, XQC_LOG_DEBUG, "|prepare for duplicate failed|");
+        ret = -XQC_ELIMIT;
+        goto end;
+    }
+
+    ret = xqc_dtable_add(dt, name.data, name.data_len, value.data, value.data_len, new_idx);
+    if (ret != XQC_OK) {
+        xqc_log(dt->log, XQC_LOG_ERROR, "|duplicate error|ret:%d|");
+    }
+
+end:
+    nbuf = xqc_var_buf_take_over(&name);
+    if (nbuf) {
+        xqc_free(nbuf);
+    }
+
+    vbuf = xqc_var_buf_take_over(&value);
+    if (vbuf) {
+        xqc_free(vbuf);
+    }
+
+    return ret;
+}
+
 
 
 uint64_t

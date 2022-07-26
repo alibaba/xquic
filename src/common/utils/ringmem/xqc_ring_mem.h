@@ -101,6 +101,7 @@ xqc_int_t xqc_ring_mem_undo(xqc_ring_mem_t *rmem, xqc_ring_mem_idx_t idx, size_t
 int xqc_ring_mem_cmp(xqc_ring_mem_t *rmem, xqc_ring_mem_idx_t idx, uint8_t *data, size_t len);
 
 
+#ifdef XQC_COMPAT_DUPLICATE
 /**
  * @brief duplicate a memory block to the end of ring memory
  * @param rmem ring memory
@@ -111,5 +112,6 @@ int xqc_ring_mem_cmp(xqc_ring_mem_t *rmem, xqc_ring_mem_idx_t idx, uint8_t *data
  */
 xqc_int_t xqc_ring_mem_duplicate(xqc_ring_mem_t *rmem, xqc_ring_mem_idx_t ori_idx, size_t len,
     xqc_ring_mem_idx_t *new_idx);
+#endif
 
 #endif

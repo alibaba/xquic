@@ -65,4 +65,8 @@ xqc_int_t xqc_encoder_set_max_blocked_stream(xqc_encoder_t *enc, size_t max_bloc
  */
 void xqc_encoder_set_insert_limit(xqc_encoder_t *enc, double nlimit, double vlimit);
 
+#ifdef XQC_COMPAT_DUPLICATE
+void xqc_encoder_compat_dup(xqc_encoder_t *enc, xqc_bool_t compat);
+#endif
+
 #endif

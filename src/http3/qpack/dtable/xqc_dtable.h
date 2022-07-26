@@ -46,6 +46,10 @@ xqc_int_t xqc_dtable_set_capacity(xqc_dtable_t *dt, uint64_t capacity);
 xqc_int_t xqc_dtable_add(xqc_dtable_t *dt, unsigned char *name, uint64_t nlen,
     unsigned char *value, uint64_t vlen, uint64_t *idx);
 
+#ifdef XQC_COMPAT_DUPLICATE
+xqc_int_t xqc_dtable_duplicate_compat(xqc_dtable_t *dt, uint64_t idx, uint64_t *new_idx);
+#endif
+
 
 /**
  * @brief duplicate an entry from the dynamic table with ABSOLUTE INDEX

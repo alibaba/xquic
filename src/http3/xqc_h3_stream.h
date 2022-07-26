@@ -120,6 +120,9 @@ typedef struct xqc_h3_stream_s {
 
     xqc_log_t                      *log;
 
+   /* referred count of h3 stream */
+    uint32_t                        ref_cnt;
+
 } xqc_h3_stream_t;
 
 

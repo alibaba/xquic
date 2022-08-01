@@ -111,7 +111,7 @@ xqc_crypto_create(uint32_t cipher_id, xqc_log_t *log)
         break;
 
     default: /* TLS_AES_128_CCM_SHA256、TLS_AES_128_CCM_8_SHA256 not support */
-        xqc_log(log, XQC_LOG_ERROR, "|not supoort cipher_id|%u|", cipher_id);
+        xqc_log(log, XQC_LOG_ERROR, "|not support cipher_id|%u|", cipher_id);
         xqc_free(crypto);
         return NULL;
     }

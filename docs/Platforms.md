@@ -7,8 +7,9 @@ XQUIC currently supports `Android` , `iOS` , `Linux` and `macOS` .
 The Android and iOS use `.so` files, there is a [ `xqc_build.sh` ](../xqc_build.sh) script in the XQUIC library directory, execute the script to compile to complete the corresponding compilation.
 
 ```bash
-sh xqc_build.sh ios/android <build_dir> <artifact_dir>
+sh xqc_build.sh ios/android <build_dir> <artifact_dir> <ssl_path>
 ```
+specially, `<ssl_path> can be ${PWD}/third_party/boringssl or ${PWD}/third_party/babassl`
 
 > Note: You need to specify the IOS/android build toolchain before compiling, download and set the environment variable IOS_CMAKE_TOOLCHAIN or ANDROID_NDK, or directly modify CMAKE_TOOLCHAIN_FILE in `xqc_build.sh` .
 

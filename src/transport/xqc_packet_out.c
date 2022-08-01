@@ -672,7 +672,7 @@ xqc_write_new_token_to_packet(xqc_connection_t *conn)
     xqc_conn_gen_token(conn, token, &token_len);
 
     need = 1 /* type */
-            + xqc_vint_get_2bit(token_len) /* token len */
+            + xqc_vint_len_by_val(token_len) /* token len */
             + token_len; /* token */
 
     packet_out = xqc_write_packet(conn, XQC_PTYPE_SHORT_HEADER, need);

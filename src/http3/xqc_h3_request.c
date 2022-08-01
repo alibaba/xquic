@@ -264,7 +264,7 @@ xqc_h3_request_send_headers(xqc_h3_request_t *h3_request, xqc_http_headers_t *he
         return -XQC_EMALLOC;
     }
 
-    /*  malloc a new  move pesudo headers in the front of list */
+    /*  malloc a new  move pseudo headers in the front of list */
     xqc_http_headers_t new_headers;
     xqc_http_headers_t *headers_in = &new_headers;
     headers_in->headers = xqc_malloc(headers->count * sizeof(xqc_http_header_t));
@@ -277,7 +277,7 @@ xqc_h3_request_send_headers(xqc_h3_request_t *h3_request, xqc_http_headers_t *he
     headers_in->capacity = headers->count;
     headers_in->total_len = 0;
 
-    /* make pesudo headers first */
+    /* make pseudo headers first */
     for (i = 0; i < headers->count; i++) {
         if (headers->headers[i].name.iov_len > 0
             && *((unsigned char *)headers->headers[i].name.iov_base) == ':')

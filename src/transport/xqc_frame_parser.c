@@ -1204,7 +1204,7 @@ xqc_parse_max_streams_frame(xqc_packet_in_t *packet_in, uint64_t *max_streams, i
 
     packet_in->pi_frame_types |= XQC_FRAME_BIT_MAX_STREAMS;
 
-    xqc_log_event(conn->log, TRA_FRAMES_PROCESSED, XQC_FRAME_MAX_STREAM_DATA, *bidirectional, *max_streams);
+    xqc_log_event(conn->log, TRA_FRAMES_PROCESSED, XQC_FRAME_MAX_STREAMS, *bidirectional, *max_streams);
     return XQC_OK;
 }
 

@@ -418,7 +418,7 @@ xqc_log_REC_METRICS_UPDATED_callback(xqc_log_t *log, const char *func, xqc_send_
                           "|cwnd:%ui|inflight:%ud|mode:%ud|applimit:%ud|pacing_rate:%ui|bw:%ui|srtt:%ui|"
                           "latest_rtt:%ui|ctl_rttvar:%ui|pto_count:%ud|min_rtt:%ui|send:%ud|lost:%ud|tlp:%ud|recv:%ud|",
                           cwnd, ctl->ctl_bytes_in_flight, mode, ctl->ctl_app_limited, pacing_rate, bw, ctl->ctl_srtt,
-                          ctl->ctl_latest_rtt, ctl->ctl_pto_count, min_rtt, ctl->ctl_send_count, ctl->ctl_lost_count,
+                          ctl->ctl_latest_rtt, ctl->ctl_rttvar, ctl->ctl_pto_count, min_rtt, ctl->ctl_send_count, ctl->ctl_lost_count,
                           ctl->ctl_tlp_count, ctl->ctl_recv_count);
 
     } else {

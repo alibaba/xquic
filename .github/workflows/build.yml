@@ -8,9 +8,15 @@ on:
 
 jobs:
 
-  ubuntu-latest:
+  build-ubuntu:
 
-    runs-on: ubuntu-latest
+    name: Build on Ubuntu
+
+    runs-on: ${{ matrix.runs-on }}
+
+    strategy:
+      matrix:
+        runs-on: [ubuntu-18.04, ubuntu-20.04, ubuntu-latest]
 
     steps:
     - name: Checkout repository
@@ -99,4 +105,46 @@ jobs:
         else
           echo "No CODACY_PROJECT_TOKEN provided for Codacy report"
         fi
+
+  build-macos:
+
+    name: Build on macOS
+
+    runs-on: ${{ matrix.runs-on }}
+
+    strategy:
+      matrix:
+        runs-on: [macos-11, macos-latest]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 2
+        submodules: 'recursive'
+
+    - name: Update Submodule
+      run: |
+        git submodule update --init --recursive
+
+    - name: Build BoringSSL
+      run: |
+        git clone https://github.com/google/boringssl.git ./third_party/boringssl
+        cd ./third_party/boringssl
+        mkdir -p build
+        cd build
+        cmake -DBUILD_SHARED_LIBS=0 -DCMAKE_C_FLAGS="-fPIC" -DCMAKE_CXX_FLAGS="-fPIC" ..
+        make ssl crypto
+
+    - name: Build XQUIC
+      run: |
+        SSL_TYPE_STR="boringssl"
+        SSL_PATH_STR="${PWD}/third_party/boringssl"
+        SSL_INC_PATH_STR="${PWD}/third_party/boringssl/include"
+        SSL_LIB_PATH_STR="${PWD}/third_party/boringssl/build/ssl/libssl.a;${PWD}/third_party/boringssl/build/crypto/libcrypto.a"
+        mkdir -p build
+        cd build
+        cmake -DPLATFORM=mac -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} -DSSL_INC_PATH=${SSL_INC_PATH_STR} -DSSL_LIB_PATH=${SSL_LIB_PATH_STR} ..
+        make -j
+
 

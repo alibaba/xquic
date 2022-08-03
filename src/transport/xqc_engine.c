@@ -1045,7 +1045,7 @@ process:
     /* NAT rebinding */
     if (engine->eng_type == XQC_ENGINE_SERVER
         && (peer_addr != NULL && peer_addrlen != 0)
-        && (conn->peer_addr != NULL && conn->peer_addrlen != 0)
+        && (conn->peer_addrlen != 0)
         && !xqc_is_same_addr(peer_addr, (struct sockaddr *)conn->peer_addr))
     {
         if (conn->rebinding_addrlen == 0

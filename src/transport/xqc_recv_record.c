@@ -66,7 +66,7 @@ xqc_pktno_range_can_merge(xqc_pktno_range_node_t *node, xqc_packet_number_t pack
  * insert into range list when receive a new packet
  */
 xqc_pkt_range_status
-xqc_recv_record_add(xqc_recv_record_t *recv_record, xqc_packet_number_t packet_number, xqc_usec_t recv_time)
+xqc_recv_record_add(xqc_recv_record_t *recv_record, xqc_packet_number_t packet_number)
 {
     xqc_list_head_t *pos, *prev, *next;
     xqc_pktno_range_node_t *pnode, *prev_node;
@@ -79,13 +79,6 @@ xqc_recv_record_add(xqc_recv_record_t *recv_record, xqc_packet_number_t packet_n
     xqc_list_for_each_safe(pos, next, &recv_record->list_head) {
         first = xqc_list_entry(pos, xqc_pktno_range_node_t, list);
         break;
-    }
-
-    if (first && packet_number > first->pktno_range.high) {
-        recv_record->largest_pkt_recv_time = recv_time;
-
-    } else if (!first) {
-        recv_record->largest_pkt_recv_time = recv_time;
     }
 
     xqc_list_for_each_safe(pos, next, &recv_record->list_head) {
@@ -182,6 +175,26 @@ xqc_recv_record_destroy(xqc_recv_record_t *recv_record)
     }
 }
 
+void 
+xqc_recv_record_move(xqc_recv_record_t *dst, xqc_recv_record_t *src)
+{
+    if (!dst || !src)
+        return;
+    
+    xqc_recv_record_destroy(dst);
+
+    if (!xqc_list_empty(&src->list_head)) {
+        src->list_head.next->prev = &dst->list_head;
+        dst->list_head.next = src->list_head.next;
+        src->list_head.prev->next = &dst->list_head;
+        dst->list_head.prev = src->list_head.prev;
+        xqc_init_list_head(&src->list_head);
+    }
+
+    dst->rr_del_from = src->rr_del_from;
+    src->rr_del_from = 0;
+}
+
 xqc_packet_number_t
 xqc_recv_record_largest(xqc_recv_record_t *recv_record)
 {
@@ -201,7 +214,7 @@ xqc_recv_record_largest(xqc_recv_record_t *recv_record)
 }
 
 void
-xqc_maybe_should_ack(xqc_connection_t *conn, xqc_pkt_num_space_t pns, int out_of_order, xqc_usec_t now)
+xqc_maybe_should_ack(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_pn_ctl_t *pn_ctl, xqc_pkt_num_space_t pns, int out_of_order, xqc_usec_t now)
 {
     /*
      * Generating Acknowledgements
@@ -223,26 +236,30 @@ xqc_maybe_should_ack(xqc_connection_t *conn, xqc_pkt_num_space_t pns, int out_of
         return;
     }
 
-    if (conn->ack_eliciting_pkt[pns] >= 2
-        || (pns <= XQC_PNS_HSK && conn->ack_eliciting_pkt[pns] >= 1)
-        || (out_of_order && conn->ack_eliciting_pkt[pns] >= 1))
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+
+    if (send_ctl->ctl_ack_eliciting_pkt[pns] >= 2
+        || (pns <= XQC_PNS_HSK && send_ctl->ctl_ack_eliciting_pkt[pns] >= 1)
+        || (out_of_order && send_ctl->ctl_ack_eliciting_pkt[pns] >= 1))
     {
         conn->conn_flag |= XQC_CONN_FLAG_SHOULD_ACK_INIT << pns;
-        xqc_send_ctl_timer_unset(conn->conn_send_ctl, XQC_TIMER_ACK_INIT + pns);
+        conn->should_ack_path_id = path->path_id;
+        
+        xqc_timer_unset(&send_ctl->path_timer_manager, XQC_TIMER_ACK_INIT + pns);
 
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|yes|out_of_order:%d|ack_eliciting_pkt:%ud|"
-                "pns:%d|flag:%s|", out_of_order, conn->ack_eliciting_pkt[pns],
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|yes|path:%ui|out_of_order:%d|ack_eliciting_pkt:%ud|"
+                "pns:%d|flag:%s|", path->path_id, out_of_order, send_ctl->ctl_ack_eliciting_pkt[pns],
                 pns, xqc_conn_flag_2_str(conn->conn_flag));
 
-    } else if (conn->ack_eliciting_pkt[pns] > 0
-               && !xqc_send_ctl_timer_is_set(conn->conn_send_ctl, XQC_TIMER_ACK_INIT + pns))
+    } else if (send_ctl->ctl_ack_eliciting_pkt[pns] > 0
+               && !xqc_timer_is_set(&send_ctl->path_timer_manager, XQC_TIMER_ACK_INIT + pns))
     {
-        xqc_send_ctl_timer_set(conn->conn_send_ctl, XQC_TIMER_ACK_INIT + pns,
-                               now, conn->local_settings.max_ack_delay * 1000);
+        xqc_timer_set(&send_ctl->path_timer_manager, XQC_TIMER_ACK_INIT + pns,
+                      now, conn->local_settings.max_ack_delay * 1000);
 
         xqc_log(conn->log, XQC_LOG_DEBUG,
                 "|set ack timer|ack_eliciting_pkt:%ud|pns:%d|flag:%s|now:%ui|max_ack_delay:%ui|",
-                conn->ack_eliciting_pkt[pns], pns, xqc_conn_flag_2_str(conn->conn_flag),
+                send_ctl->ctl_ack_eliciting_pkt[pns], pns, xqc_conn_flag_2_str(conn->conn_flag),
                 now, conn->local_settings.max_ack_delay * 1000);
     }
 }

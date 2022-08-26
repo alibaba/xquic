@@ -66,7 +66,7 @@ xqc_int_t xqc_cid_set_delete_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid);
 
 xqc_cid_t *xqc_get_cid_by_seq(xqc_cid_set_t *cid_set, uint64_t seq_num);
 xqc_cid_inner_t *xqc_get_inner_cid_by_seq(xqc_cid_set_t *cid_set, uint64_t seq_num);
-xqc_cid_inner_t *xqc_cid_in_cid_set(const xqc_cid_set_t *cid_set, const xqc_cid_t *cid);
+xqc_cid_inner_t *xqc_cid_in_cid_set(const xqc_cid_set_t *cid_set, xqc_cid_t *cid);
 
 xqc_int_t xqc_cid_switch_to_next_state(xqc_cid_set_t *cid_set, xqc_cid_inner_t *cid, xqc_cid_state_t state);
 xqc_int_t xqc_get_unused_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid);

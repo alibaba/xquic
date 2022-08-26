@@ -16,14 +16,14 @@ xqc_log_CON_CONNECTION_STARTED_callback(xqc_log_t *log, const char *func, xqc_co
         struct sockaddr_in *sa_local = (struct sockaddr_in *)conn->local_addr;
         xqc_log_implement(log, CON_CONNECTION_STARTED, func,
                           "|local|src_ip:%s|src_port:%d|",
-                          xqc_conn_local_addr_str((struct sockaddr*)sa_local,
-                                                  conn->local_addrlen), ntohs(sa_local->sin_port));
+                          xqc_local_addr_str((struct sockaddr*)sa_local, conn->local_addrlen),
+                          ntohs(sa_local->sin_port));
 
     } else {
         struct sockaddr_in *sa_peer = (struct sockaddr_in *)conn->peer_addr;
         xqc_log_implement(log, CON_CONNECTION_STARTED, func,
                           "|remote|dst_ip:%s|dst_port:%d|scid:%s|dcid:%s|",
-                          xqc_conn_peer_addr_str((struct sockaddr*)sa_peer, conn->peer_addrlen),
+                          xqc_peer_addr_str((struct sockaddr*)sa_peer, conn->peer_addrlen),
                           ntohs(sa_peer->sin_port), log->scid, xqc_dcid_str(&conn->dcid_set.current_dcid));
     }
 }
@@ -378,9 +378,8 @@ xqc_log_TRA_FRAMES_PROCESSED_callback(xqc_log_t *log, const char *func, ...)
     case XQC_FRAME_RETIRE_CONNECTION_ID:
     case XQC_FRAME_PATH_CHALLENGE:
     case XQC_FRAME_PATH_RESPONSE:
-    case XQC_FRAME_PATH_STATUS:
     case XQC_FRAME_ACK_MP:
-    case XQC_FRAME_QOE_CONTROL_SIGNAL:
+    case XQC_FRAME_PATH_ABANDON:
     case XQC_FRAME_Extension:
         break;
 
@@ -391,42 +390,42 @@ xqc_log_TRA_FRAMES_PROCESSED_callback(xqc_log_t *log, const char *func, ...)
 }
 
 void
-xqc_log_REC_PARAMETERS_SET_callback(xqc_log_t *log, const char *func, xqc_send_ctl_t *ctl)
+xqc_log_REC_PARAMETERS_SET_callback(xqc_log_t *log, const char *func, xqc_send_ctl_t *send_ctl)
 {
     xqc_log_implement(log, REC_PARAMETERS_SET, func,
                       "|reordering_packet_threshold:%d|reordering_time_threshold_shift:%d|",
-                      ctl->ctl_reordering_packet_threshold, ctl->ctl_reordering_time_threshold_shift);
+                      send_ctl->ctl_reordering_packet_threshold, send_ctl->ctl_reordering_time_threshold_shift);
 }
 
 void
-xqc_log_REC_METRICS_UPDATED_callback(xqc_log_t *log, const char *func, xqc_send_ctl_t *ctl)
+xqc_log_REC_METRICS_UPDATED_callback(xqc_log_t *log, const char *func, xqc_send_ctl_t *send_ctl)
 {
-    uint64_t cwnd = ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(ctl->ctl_cong);
+    uint64_t cwnd = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong);
     int64_t bw = 0;
     uint64_t pacing_rate = 0;
     int mode = 0;
     xqc_usec_t min_rtt = 0;
 
-    if (ctl->ctl_cong_callback->xqc_cong_ctl_init_bbr) {
-        bw = ctl->ctl_cong_callback->
-                xqc_cong_ctl_get_bandwidth_estimate(ctl->ctl_cong);
-        pacing_rate = ctl->ctl_cong_callback->
-                xqc_cong_ctl_get_pacing_rate(ctl->ctl_cong);
-        mode = ctl->ctl_cong_callback->xqc_cong_ctl_info_cb->mode(ctl->ctl_cong);
-        min_rtt = ctl->ctl_cong_callback-> xqc_cong_ctl_info_cb->min_rtt(ctl->ctl_cong);
+    if (send_ctl->ctl_cong_callback->xqc_cong_ctl_init_bbr) {
+        bw = send_ctl->ctl_cong_callback->
+                xqc_cong_ctl_get_bandwidth_estimate(send_ctl->ctl_cong);
+        pacing_rate = send_ctl->ctl_cong_callback->
+                xqc_cong_ctl_get_pacing_rate(send_ctl->ctl_cong);
+        mode = send_ctl->ctl_cong_callback->xqc_cong_ctl_info_cb->mode(send_ctl->ctl_cong);
+        min_rtt = send_ctl->ctl_cong_callback-> xqc_cong_ctl_info_cb->min_rtt(send_ctl->ctl_cong);
         xqc_log_implement(log, REC_METRICS_UPDATED, func,
                           "|cwnd:%ui|inflight:%ud|mode:%ud|applimit:%ud|pacing_rate:%ui|bw:%ui|srtt:%ui|"
                           "latest_rtt:%ui|ctl_rttvar:%ui|pto_count:%ud|min_rtt:%ui|send:%ud|lost:%ud|tlp:%ud|recv:%ud|",
-                          cwnd, ctl->ctl_bytes_in_flight, mode, ctl->ctl_app_limited, pacing_rate, bw, ctl->ctl_srtt,
-                          ctl->ctl_latest_rtt, ctl->ctl_rttvar, ctl->ctl_pto_count, min_rtt, ctl->ctl_send_count, ctl->ctl_lost_count,
-                          ctl->ctl_tlp_count, ctl->ctl_recv_count);
+                          cwnd, send_ctl->ctl_bytes_in_flight, mode, send_ctl->ctl_app_limited, pacing_rate, bw, send_ctl->ctl_srtt,
+                          send_ctl->ctl_latest_rtt, send_ctl->ctl_pto_count, min_rtt, send_ctl->ctl_send_count, send_ctl->ctl_lost_count,
+                          send_ctl->ctl_tlp_count, send_ctl->ctl_recv_count);
 
     } else {
         xqc_log_implement(log, REC_METRICS_UPDATED, func,
                           "|cwnd:%ui|inflight:%ud|applimit:%ud|srtt:%ui|latest_rtt:%ui|pto_count:%ud|"
                           "send:%ud|lost:%ud|tlp:%ud|recv:%ud|",
-                          cwnd, ctl->ctl_bytes_in_flight, ctl->ctl_app_limited, ctl->ctl_srtt, ctl->ctl_latest_rtt, ctl->ctl_pto_count,
-                          ctl->ctl_send_count, ctl->ctl_lost_count, ctl->ctl_tlp_count, ctl->ctl_recv_count);
+                          cwnd, send_ctl->ctl_bytes_in_flight, send_ctl->ctl_app_limited, send_ctl->ctl_srtt, send_ctl->ctl_latest_rtt, send_ctl->ctl_pto_count,
+                          send_ctl->ctl_send_count, send_ctl->ctl_lost_count, send_ctl->ctl_tlp_count, send_ctl->ctl_recv_count);
     }
 }
 
@@ -438,18 +437,18 @@ xqc_log_REC_CONGESTION_STATE_UPDATED_callback(xqc_log_t *log, const char *func, 
 }
 
 void
-xqc_log_REC_LOSS_TIMER_UPDATED_callback(xqc_log_t *log, const char *func, xqc_send_ctl_t *ctl,
-                                        xqc_usec_t inter_time, xqc_int_t type, xqc_int_t event)
+xqc_log_REC_LOSS_TIMER_UPDATED_callback(xqc_log_t *log, const char *func,
+    xqc_timer_manager_t *timer_manager, xqc_usec_t inter_time, xqc_int_t type, xqc_int_t event)
 {
     if (event == XQC_LOG_TIMER_SET) {
         xqc_log_implement(log, REC_LOSS_TIMER_UPDATED, func,
                           "|set|type:%s|expire:%ui|interv:%ui|",
-                          xqc_timer_type_2_str(type), ctl->ctl_timer[type].ctl_expire_time, inter_time);
+                          xqc_timer_type_2_str(type), timer_manager->timer[type].expire_time, inter_time);
 
     } else if (event == XQC_LOG_TIMER_EXPIRE) {
         xqc_log_implement(log, REC_LOSS_TIMER_UPDATED, func,
                           "|expired|type:%s|expire_time:%ui|",
-                          xqc_timer_type_2_str(type), ctl->ctl_timer[type].ctl_expire_time);
+                          xqc_timer_type_2_str(type), timer_manager->timer[type].expire_time);
 
     } else if (event == XQC_LOG_TIMER_CANCEL) {
         xqc_log_implement(log, REC_LOSS_TIMER_UPDATED, func,

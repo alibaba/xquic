@@ -124,6 +124,7 @@ xqc_int_t xqc_tls_decrypt_header(xqc_tls_t *tls, xqc_encrypt_level_t level,
  * @brief encrypt packet payload
  * 
  * @param pktno packet number, MUST be the original uncoded packet number
+ * @param path_id path identifier, to calculate the nonce
  * @param header position of packet header, will be used as ad, MUST be plaintext
  * @param header_len length of packet header
  * @param payload packet payload plaintext to be encrypted
@@ -134,13 +135,15 @@ xqc_int_t xqc_tls_decrypt_header(xqc_tls_t *tls, xqc_encrypt_level_t level,
  * @return XQC_OK for success, others for failure
  */
 xqc_int_t xqc_tls_encrypt_payload(xqc_tls_t *tls, xqc_encrypt_level_t level,
-    uint64_t pktno, uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
+    uint64_t pktno, uint32_t path_id,
+    uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
     uint8_t *dst, size_t dst_cap, size_t *dst_len);
 
 /**
  * @brief decrypt packet payload
  * 
  * @param pktno packet number, MUST be the original uncoded packet number
+ * @param path_id path identifier, to calculate the nonce
  * @param header position of packet header, will be used as ad, MUST be plaintext
  * @param header_len length of packet header
  * @param payload packet payload plaintext to be encrypted
@@ -151,7 +154,8 @@ xqc_int_t xqc_tls_encrypt_payload(xqc_tls_t *tls, xqc_encrypt_level_t level,
  * @return XQC_OK for success, others for failure
  */
 xqc_int_t xqc_tls_decrypt_payload(xqc_tls_t *tls, xqc_encrypt_level_t level,
-    uint64_t pktno, uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
+    uint64_t pktno, uint32_t path_id,
+    uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
     uint8_t *dst, size_t dst_cap, size_t *dst_len);
 
 /**

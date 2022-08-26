@@ -594,7 +594,8 @@ xqc_tls_encrypt_header(xqc_tls_t *tls, xqc_encrypt_level_t level,
 
 xqc_int_t
 xqc_tls_encrypt_payload(xqc_tls_t *tls, xqc_encrypt_level_t level,
-    uint64_t pktno, uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
+    uint64_t pktno, uint32_t path_id,
+    uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
     uint8_t *dst, size_t dst_cap, size_t *dst_len)
 {
     xqc_crypto_t *crypto = tls->crypto[level];
@@ -612,8 +613,9 @@ xqc_tls_encrypt_payload(xqc_tls_t *tls, xqc_encrypt_level_t level,
         }
     }
 
-    return xqc_crypto_encrypt_payload(crypto, pktno, key_phase, header, header_len,
-                                      payload, payload_len, dst, dst_cap, dst_len);
+    return xqc_crypto_encrypt_payload(crypto, pktno, key_phase, path_id,
+                                      header, header_len, payload, payload_len,
+                                      dst, dst_cap, dst_len);
 }
 
 xqc_int_t
@@ -632,7 +634,8 @@ xqc_tls_decrypt_header(xqc_tls_t *tls, xqc_encrypt_level_t level,
 
 xqc_int_t
 xqc_tls_decrypt_payload(xqc_tls_t *tls, xqc_encrypt_level_t level,
-    uint64_t pktno, uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
+    uint64_t pktno, uint32_t path_id,
+    uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
     uint8_t *dst, size_t dst_cap, size_t *dst_len)
 {
     xqc_crypto_t *crypto = tls->crypto[level];
@@ -650,8 +653,9 @@ xqc_tls_decrypt_payload(xqc_tls_t *tls, xqc_encrypt_level_t level,
         }
     }
 
-    return xqc_crypto_decrypt_payload(crypto, pktno, key_phase, header, header_len,
-                                      payload, payload_len, dst, dst_cap, dst_len);
+    return xqc_crypto_decrypt_payload(crypto, pktno, key_phase, path_id,
+                                      header, header_len, payload, payload_len,
+                                      dst, dst_cap, dst_len);
 }
 
 

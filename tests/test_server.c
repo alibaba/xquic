@@ -105,6 +105,10 @@ int g_test_case;
 int g_ipv6;
 int g_batch=0;
 int g_lb_cid_encryption_on = 0;
+int g_enable_multipath = 0;
+int g_enable_reinjection = 0;
+int g_spec_local_addr = 0;
+int g_mpshell = 0;
 char g_write_file[256];
 char g_read_file[256];
 char g_log_path[256];
@@ -186,6 +190,12 @@ xqc_server_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void 
            stats.send_count, stats.lost_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.ack_info);
 
     free(user_conn);
+
+    if (g_mpshell) {
+        event_base_loopbreak(eb);
+        printf("xqc_server_conn_close_notify\n");
+    }
+
     return 0;
 }
 
@@ -397,7 +407,12 @@ xqc_server_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, vo
            stats.send_count, stats.lost_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.ack_info);
 
     free(user_conn);
-    //event_base_loopbreak(eb);
+
+    if (g_mpshell) {
+        event_base_loopbreak(eb);
+        printf("xqc_server_h3_conn_close_notify\n");
+    }
+
     return 0;
 }
 
@@ -769,6 +784,14 @@ xqc_server_write_socket(const unsigned char *buf, size_t size,
     return res;
 }
 
+ssize_t
+xqc_server_write_socket_ex(uint64_t path_id,
+    const unsigned char *buf, size_t size,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *user_data)
+{
+    return xqc_server_write_socket(buf, size, peer_addr, peer_addrlen, user_data);
+}
+
 
 ssize_t
 xqc_server_stateless_reset(const unsigned char *buf, size_t size,
@@ -995,7 +1018,11 @@ xqc_server_create_socket(const char *addr, unsigned int port)
         struct sockaddr_in *addr_v4 = (struct sockaddr_in *)saddr;
         addr_v4->sin_family = type;
         addr_v4->sin_port = htons(port);
-        addr_v4->sin_addr.s_addr = htonl(INADDR_ANY);
+        if (g_spec_local_addr) {
+            addr_v4->sin_addr.s_addr = inet_addr(addr);
+        } else {
+            addr_v4->sin_addr.s_addr = htonl(INADDR_ANY);
+        }
     }
 
     if (bind(fd, saddr, ctx.local_addrlen) < 0) {
@@ -1191,6 +1218,13 @@ ssize_t xqc_server_write_mmsg(const struct iovec *msg_iov, unsigned int vlen,
     } while ((res < 0) && (errno == EINTR));
     return res;
 }
+
+ssize_t xqc_server_mp_write_mmsg(uint64_t path_id,
+    const struct iovec *msg_iov, unsigned int vlen,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *user)
+{
+    return xqc_server_write_mmsg(msg_iov, vlen, peer_addr, peer_addrlen, user);
+}
 #endif
 
 void
@@ -1242,6 +1276,7 @@ int main(int argc, char *argv[]) {
     g_spec_url = 0;
     g_ipv6 = 0;
 
+    char server_addr[64] = TEST_ADDR;
     int server_port = TEST_PORT;
     char c_cong_ctl = 'b';
     char c_log_level = 'd';
@@ -1250,8 +1285,13 @@ int main(int argc, char *argv[]) {
     strncpy(g_log_path, "./slog", sizeof(g_log_path));
 
     int ch = 0;
-    while ((ch = getopt(argc, argv, "p:ec:Cs:w:r:l:u:x:6bS:o:EK:")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:ec:Cs:w:r:l:u:x:6bS:M:Ro:EK:m")) != -1) {
         switch (ch) {
+        case 'a':
+            printf("option addr :%s\n", optarg);
+            snprintf(server_addr, sizeof(server_addr), optarg);
+            g_spec_local_addr = 1;
+            break;
         case 'p': /* Server port. */
             printf("option port :%s\n", optarg);
             server_port = atoi(optarg);
@@ -1322,6 +1362,14 @@ int main(int argc, char *argv[]) {
             snprintf(g_sid, sizeof(g_sid), optarg);
             g_sid_len = strlen(g_sid);
             break;
+        case 'M':
+            printf("option enable multi-path: %s\n", optarg);
+            g_enable_multipath = atoi(optarg);
+            break;
+        case 'R':
+            printf("option enable reinjection: %s\n", "on");
+            g_enable_reinjection = 1;
+            break;
         case 'o':
             printf("option log path :%s\n", optarg);
             snprintf(g_log_path, sizeof(g_log_path), optarg);
@@ -1334,6 +1382,11 @@ int main(int argc, char *argv[]) {
         case 'E': /* set lb_cid encryption on */
             printf("set lb-cid encryption on \n");
             g_lb_cid_encryption_on = 1;
+            break;
+        case 'm':
+            printf("option mpshell on\n");
+            /* mpshell 限定 */
+            g_mpshell = 1;
             break;
         default:
             printf("other option :%c\n", ch);
@@ -1383,6 +1436,7 @@ int main(int argc, char *argv[]) {
     xqc_transport_callbacks_t tcbs = {
         .server_accept = xqc_server_accept,
         .write_socket = xqc_server_write_socket,
+        .write_socket_ex = xqc_server_write_socket_ex,
         .conn_update_cid_notify = xqc_server_conn_update_cid_notify,
         .stateless_reset = xqc_server_stateless_reset,
     };
@@ -1427,11 +1481,22 @@ int main(int argc, char *argv[]) {
         .pacing_on  =   pacing_on,
         .cong_ctrl_callback = cong_ctrl,
         .cc_params  =   {.customize_on = 1, .init_cwnd = 32, .cc_optimization_flags = cong_flags},
+        .enable_multipath = 0,
         .spurious_loss_detect_on = 0,
     };
 
     if (g_test_case == 6) {
         conn_settings.idle_time_out = 10000;
+    }
+
+    /* enable_multipath */
+    if (g_enable_multipath) {
+        conn_settings.enable_multipath = g_enable_multipath;
+    }
+
+    /* enable_reinjection */
+    if (g_enable_reinjection) {
+        conn_settings.mp_enable_reinjection = 1;
     }
 
     if (g_test_case == 12) {
@@ -1457,6 +1522,7 @@ int main(int argc, char *argv[]) {
 #if defined(XQC_SUPPORT_SENDMMSG) && !defined(XQC_SYS_WINDOWS)
     if (g_batch) {
         tcbs.write_mmsg = xqc_server_write_mmsg,
+        tcbs.write_mmsg_ex = xqc_server_mp_write_mmsg;
         config.sendmmsg_on = 1;
     }
 #endif
@@ -1541,7 +1607,7 @@ int main(int argc, char *argv[]) {
     ctx.quic_lb_ctx.conf_id = 0;
     ctx.quic_lb_ctx.cid_len = XQC_MAX_CID_LEN;
 
-    ctx.fd = xqc_server_create_socket(TEST_ADDR, server_port);
+    ctx.fd = xqc_server_create_socket(server_addr, server_port);
     if (ctx.fd < 0) {
         printf("xqc_create_socket error\n");
         return 0;

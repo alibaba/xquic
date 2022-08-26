@@ -191,7 +191,8 @@ xqc_bool_t xqc_crypto_is_key_ready(xqc_crypto_t *crypto, xqc_key_type_t type);
  * @param dst_len written length
  * @return XQC_OK for success, others for failure
  */
-xqc_int_t xqc_crypto_encrypt_payload(xqc_crypto_t *crypto, uint64_t pktno, xqc_uint_t key_phase,
+xqc_int_t xqc_crypto_encrypt_payload(xqc_crypto_t *crypto,
+    uint64_t pktno, xqc_uint_t key_phase, uint32_t path_id,
     uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
     uint8_t *dst, size_t dst_cap, size_t *dst_len);
 
@@ -206,7 +207,8 @@ xqc_int_t xqc_crypto_encrypt_payload(xqc_crypto_t *crypto, uint64_t pktno, xqc_u
  * @param dst_len length of decrypted payload
  * @return xqc_int_t 
  */
-xqc_int_t xqc_crypto_decrypt_payload(xqc_crypto_t *crypto, uint64_t pktno, xqc_uint_t key_phase,
+xqc_int_t xqc_crypto_decrypt_payload(xqc_crypto_t *crypto,
+    uint64_t pktno, xqc_uint_t key_phase, uint32_t path_id,
     uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
     uint8_t *dst, size_t dst_cap, size_t *dst_len);
 

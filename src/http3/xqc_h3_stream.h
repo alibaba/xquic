@@ -120,6 +120,8 @@ typedef struct xqc_h3_stream_s {
 
     xqc_log_t                      *log;
 
+    xqc_path_metrics_t              paths_info[XQC_MAX_PATHS_COUNT];
+
    /* referred count of h3 stream */
     uint32_t                        ref_cnt;
 
@@ -157,5 +159,7 @@ xqc_int_t xqc_h3_stream_process_blocked_stream(xqc_h3_stream_t *h3s);
 xqc_var_buf_t *xqc_h3_stream_get_send_buf(xqc_h3_stream_t *h3s);
 
 uint64_t xqc_h3_stream_get_err(xqc_h3_stream_t *h3s);
+
+void xqc_h3_stream_get_path_info(xqc_h3_stream_t *h3s);
 
 #endif

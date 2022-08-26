@@ -128,6 +128,8 @@ typedef struct xqc_request_stats_s {
     xqc_msec_t  h3r_end_time;           /* time of request fin */
     xqc_msec_t  h3r_header_begin_time;  /* time of receiving HEADERS frame */
     xqc_msec_t  h3r_header_end_time;    /* time of finishing processing HEADERS frame */
+
+    int         mp_state;
 } xqc_request_stats_t;
 
 

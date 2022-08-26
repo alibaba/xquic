@@ -332,7 +332,7 @@ grep_err_log|grep -v stream
 clear_log
 echo -e "Reset stream when receiving...\c"
 ./test_client -s 1024000 -l d -t 1 -E -x 21 > stdlog
-result=`grep "xqc_send_ctl_drop_stream_frame_packets" slog`
+result=`grep "xqc_send_queue_drop_stream_frame_packets" slog`
 flag=`grep "send_state:5|recv_state:5" clog`
 errlog=`grep_err_log|grep -v stream`
 if [ -n "$flag" ] && [ -z "$errlog" ] && [ -n "$result" ]; then
@@ -1244,6 +1244,148 @@ else
     case_print_result "stateless_reset" "fail"
 fi
 
+
+killall test_server
+./test_server -l d -e -M 2 > /dev/null &
+sleep 1
+
+clear_log
+echo -e "enable multipath negotiate fail ...\c"
+result=`sudo ./test_client -s 1024000 -l d -t 1 -M 1 -i lo | grep "enable_multipath=0"`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" != "" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "enable_multipath_negotiate_fail" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "enable_multipath_negotiate_fail" "fail"
+fi
+grep_err_log
+
+
+clear_log
+echo -e "MPNS enable multipath negotiate ...\c"
+result=`sudo ./test_client -s 1024000 -l d -t 1 -M 2 -i lo | grep "enable_multipath=2"`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" != "" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MPNS_enable_multipath_negotiate" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MPNS_enable_multipath_negotiate" "fail"
+fi
+grep_err_log
+
+clear_log
+echo -e "MPNS send 1M data on multiple paths ...\c"
+result=`sudo ./test_client -s 1024000 -l d -t 1 -M 2 -i lo -i lo -E|grep ">>>>>>>> pass"`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MPNS_send_1M_data_on_multiple_paths" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MPNS_send_1M_data_on_multiple_paths" "fail"
+fi
+grep_err_log
+
+clear_log
+echo -e "MPNS multipath close initial path ...\c"
+sudo ./test_client -s 1024000 -l d -t 3 -M 2 -i lo -i lo -E -x 100 >> clog
+result=`grep ">>>>>>>> pass" clog`
+svr_res=`grep "|xqc_path_closing|path:0|" slog`
+cli_res=`grep "|xqc_path_closing|path:0|" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MPNS_multipath_close_initial_path" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MPNS_multipath_close_initial_path" "fail"
+fi
+grep_err_log
+
+
+clear_log
+echo -e "MPNS multipath close new path ...\c"
+sudo ./test_client -s 1024000 -l d -t 3 -M 2 -i lo -i lo -E -x 101 >> clog
+result=`grep ">>>>>>>> pass" clog`
+svr_res=`grep "|xqc_path_closing|path:1|" slog`
+cli_res=`grep "|xqc_path_closing|path:1|" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MPNS_multipath_close_new_path" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MPNS_multipath_close_new_path" "fail"
+fi
+grep_err_log
+
+
+killall test_server
+./test_server -l d -e -M 1 > /dev/null &
+sleep 1
+
+
+clear_log
+echo -e "SPNS enable multipath negotiate ...\c"
+result=`sudo ./test_client -s 1024000 -l d -t 1 -M 1 -i lo | grep "enable_multipath=1"`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" != "" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "SPNS_enable_multipath_negotiate" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "SPNS_enable_multipath_negotiate" "fail"
+fi
+grep_err_log
+
+clear_log
+echo -e "SPNS send 1M data on multiple paths ...\c"
+result=`sudo ./test_client -s 1024000 -l d -t 1 -M 1 -i lo -i lo -E|grep ">>>>>>>> pass"`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "SPNS_send_1M_data_on_multiple_paths" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "SPNS_send_1M_data_on_multiple_paths" "fail"
+fi
+grep_err_log
+
+clear_log
+echo -e "SPNS multipath close initial path ...\c"
+sudo ./test_client -s 1024000 -l d -t 3 -M 1 -i lo -i lo -E -x 100 >> clog
+result=`grep ">>>>>>>> pass" clog`
+svr_res=`grep "|xqc_path_closing|path:0|" slog`
+cli_res=`grep "|xqc_path_closing|path:0|" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "SPNS_multipath_close_initial_path" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "SPNS_multipath_close_initial_path" "fail"
+fi
+grep_err_log
+
+
+clear_log
+echo -e "SPNS multipath close new path ...\c"
+sudo ./test_client -s 1024000 -l d -t 3 -M 1 -i lo -i lo -E -x 101 >> clog
+result=`grep ">>>>>>>> pass" clog`
+svr_res=`grep "|xqc_path_closing|path:1|" slog`
+cli_res=`grep "|xqc_path_closing|path:1|" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "SPNS_multipath_close_new_path" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "SPNS_multipath_close_new_path" "fail"
+fi
+grep_err_log
 
 killall test_server
 

@@ -143,7 +143,7 @@ xqc_test_recv_retire_cid()
     CU_ASSERT(xqc_cid_is_equal(&conn->scid_set.user_scid, &test_scid) == XQC_OK);
 
     /* retired timer */
-    CU_ASSERT(xqc_send_ctl_timer_is_set(conn->conn_send_ctl, XQC_TIMER_RETIRE_CID));
+    CU_ASSERT(xqc_timer_is_set(&conn->conn_timer_manager, XQC_TIMER_RETIRE_CID));
 
     xqc_engine_destroy(conn->engine);
 }

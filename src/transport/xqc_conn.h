@@ -17,6 +17,8 @@
 #include "src/transport/xqc_recv_record.h"
 #include "src/transport/xqc_defs.h"
 #include "src/transport/xqc_transport_params.h"
+#include "src/transport/xqc_timer.h"
+#include "src/transport/xqc_multipath.h"
 #include "src/tls/xqc_tls.h"
 
 
@@ -29,8 +31,6 @@
 #define XQC_MAX_PACKET_PROCESS_BATCH 100
 
 #define XQC_MAX_RECV_WINDOW (16 * 1024 * 1024)
-
-#define XQC_PATH_CHALLENGE_DATA_LEN  8
 
 static const uint32_t MAX_RSP_CONN_CLOSE_CNT = 3;
 
@@ -116,6 +116,7 @@ typedef enum {
     XQC_CONN_FLAG_LINGER_CLOSING_SHIFT,
     XQC_CONN_FLAG_RETRY_RECVD_SHIFT,
     XQC_CONN_FLAG_TLS_HSK_COMPLETED_SHIFT,
+    XQC_CONN_FLAG_RECV_NEW_PATH_SHIFT,
     XQC_CONN_FLAG_VALIDATE_REBINDING_SHIFT,
     XQC_CONN_FLAG_CONN_CLOSING_NOTIFY_SHIFT,
     XQC_CONN_FLAG_CONN_CLOSING_NOTIFIED_SHIFT,
@@ -155,6 +156,7 @@ typedef enum {
     XQC_CONN_FLAG_LINGER_CLOSING        = 1ULL << XQC_CONN_FLAG_LINGER_CLOSING_SHIFT,
     XQC_CONN_FLAG_RETRY_RECVD           = 1ULL << XQC_CONN_FLAG_RETRY_RECVD_SHIFT,
     XQC_CONN_FLAG_TLS_HSK_COMPLETED     = 1ULL << XQC_CONN_FLAG_TLS_HSK_COMPLETED_SHIFT,
+    XQC_CONN_FLAG_RECV_NEW_PATH         = 1ULL << XQC_CONN_FLAG_RECV_NEW_PATH_SHIFT,
     XQC_CONN_FLAG_VALIDATE_REBINDING    = 1ULL << XQC_CONN_FLAG_VALIDATE_REBINDING_SHIFT,
     XQC_CONN_FLAG_CLOSING_NOTIFY        = 1ULL << XQC_CONN_FLAG_CONN_CLOSING_NOTIFY_SHIFT,
     XQC_CONN_FLAG_CLOSING_NOTIFIED      = 1ULL << XQC_CONN_FLAG_CONN_CLOSING_NOTIFIED_SHIFT,
@@ -179,6 +181,7 @@ typedef struct {
     xqc_flag_t              disable_active_migration;
     uint64_t                active_connection_id_limit;
     uint64_t                no_crypto;
+    uint64_t                enable_multipath;
 } xqc_trans_settings_t;
 
 
@@ -219,6 +222,11 @@ typedef struct {
 
 } xqc_key_update_ctx_t;
 
+typedef struct {
+    xqc_path_info_t                 path_info[XQC_MAX_PATHS_COUNT];
+    size_t                          path_cnt;
+} xqc_conn_path_history_t;
+
 struct xqc_connection_s {
 
     xqc_conn_settings_t             conn_settings;
@@ -244,16 +252,6 @@ struct xqc_connection_s {
 
     char                            addr_str[2 * (XQC_MAX_CID_LEN + INET6_ADDRSTRLEN) + 10];
     size_t                          addr_str_len;
-
-    /* server receives a packet from different address (NAT rebinding) */
-    uint32_t                        rebinding_count;
-    /* server validate NAT rebinding (PATH_CHALLENGE & PATH_RESPONSE) */
-    uint32_t                        rebinding_valid;
-
-    unsigned char                   rebinding_addr[sizeof(struct sockaddr_in6)];
-    socklen_t                       rebinding_addrlen;
-
-    unsigned char                   path_challenge_data[XQC_PATH_CHALLENGE_DATA_LEN];
 
     unsigned char                   conn_token[XQC_MAX_TOKEN_LEN];
     unsigned char                  *enc_pkt;
@@ -299,12 +297,11 @@ struct xqc_connection_s {
     xqc_list_head_t                 undecrypt_packet_in[XQC_ENC_LEV_MAX];  /* buffer for reordered packets */
     uint32_t                        undecrypt_count[XQC_ENC_LEV_MAX];
 
-    xqc_recv_record_t               recv_record[XQC_PNS_N]; /* record received pkt number range in a list */
-    uint32_t                        ack_eliciting_pkt[XQC_PNS_N]; /* Ack-eliciting Packets received since last ack sent */
-
     xqc_log_t                      *log;
 
-    xqc_send_ctl_t                 *conn_send_ctl;
+    xqc_send_queue_t               *conn_send_queue;
+
+    xqc_timer_manager_t             conn_timer_manager;
 
     xqc_usec_t                      last_ticked_time;
     xqc_usec_t                      next_tick_time;
@@ -319,8 +316,18 @@ struct xqc_connection_s {
     uint64_t                        conn_err;
 
     /* for multi-path */
+    xqc_multipath_mode_t            enable_multipath;
     xqc_path_ctx_t                 *conn_initial_path;
     xqc_list_head_t                 conn_paths_list;
+    uint64_t                        validating_path_id;
+    uint64_t                        should_ack_path_id;     /* 此参数必须跟随 XQC_CONN_FLAG_SHOULD_ACK 系列标志位被设置 */
+    uint32_t                        create_path_count;
+    uint32_t                        active_path_count;
+    uint8_t                         switch_initial;
+
+    const
+    xqc_scheduler_callback_t       *scheduler_callback;
+    void                           *scheduler;
 
     /* xqc_hs_buffer_t data buffer for crypto data from tls */
     xqc_list_head_t                 initial_crypto_data_list;
@@ -336,6 +343,20 @@ struct xqc_connection_s {
     /* for data callback mode, instead of write_socket/write_mmsg */
     xqc_conn_pkt_filter_callback_pt pkt_filter_cb;
     void                           *pkt_filter_cb_user_data;
+
+    /* report data */
+    uint32_t                        ack_frame_count;
+    uint64_t                        ack_frame_size_sum;
+    uint32_t                        ack_frame_size_min;
+    uint32_t                        ack_frame_size_max;
+
+    uint32_t                        ack_mp_frame_count;
+    uint64_t                        ack_mp_frame_size_sum;
+    uint32_t                        ack_mp_frame_size_min;
+    uint32_t                        ack_mp_frame_size_max;
+
+    /* history path */
+    xqc_conn_path_history_t        *history_path;
 };
 
 const char *xqc_conn_flag_2_str(xqc_conn_flag_t conn_flag);
@@ -354,11 +375,12 @@ void xqc_conn_destroy(xqc_connection_t *xc);
 xqc_int_t xqc_conn_client_on_alpn(xqc_connection_t *conn, const unsigned char *alpn, size_t alpn_len);
 xqc_int_t xqc_conn_server_on_alpn(xqc_connection_t *conn, const unsigned char *alpn, size_t alpn_len);
 
-ssize_t xqc_conn_send_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
+ssize_t xqc_path_send_one_packet(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_packet_out_t *packet_out);
 void xqc_conn_send_packets(xqc_connection_t *conn);
 void xqc_conn_send_packets_batch(xqc_connection_t *conn);
 
-xqc_int_t xqc_conn_enc_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out, 
+xqc_int_t xqc_conn_enc_packet(xqc_connection_t *conn,
+    xqc_path_ctx_t *path, xqc_packet_out_t *packet_out,
     char *enc_pkt, size_t enc_pkt_cap, size_t *enc_pkt_len, xqc_usec_t current_time);
 
 void xqc_conn_transmit_pto_probe_packets(xqc_connection_t *conn);
@@ -388,11 +410,10 @@ void xqc_conn_buff_1rtt_packets(xqc_connection_t *conn);
 void xqc_conn_write_buffed_1rtt_packets(xqc_connection_t *conn);
 xqc_usec_t xqc_conn_next_wakeup_time(xqc_connection_t *conn);
 
-char *xqc_conn_local_addr_str(const struct sockaddr *local_addr, socklen_t local_addrlen);
-char *xqc_conn_peer_addr_str(const struct sockaddr *peer_addr, socklen_t peer_addrlen);
+char *xqc_local_addr_str(const struct sockaddr *local_addr, socklen_t local_addrlen);
+char *xqc_peer_addr_str(const struct sockaddr *peer_addr, socklen_t peer_addrlen);
 char *xqc_conn_addr_str(xqc_connection_t *conn);
-
-xqc_int_t xqc_conn_server_send_path_challenge(xqc_connection_t *conn);
+char *xqc_path_addr_str(xqc_path_ctx_t *path);
 
 static inline void
 xqc_conn_process_undecrypt_packets(xqc_connection_t *conn)
@@ -442,12 +463,14 @@ xqc_conn_should_ack(xqc_connection_t *conn)
 xqc_int_t xqc_conn_process_packet(xqc_connection_t *c, const unsigned char *packet_in_buf,
     size_t packet_in_size, xqc_usec_t recv_time);
 
+void xqc_conn_process_packet_recved_path(xqc_connection_t *conn, xqc_cid_t *scid,
+    size_t packet_in_size, xqc_usec_t recv_time);
+
 xqc_int_t xqc_conn_check_handshake_complete(xqc_connection_t *conn);
 
 
 xqc_int_t xqc_conn_check_unused_cids(xqc_connection_t *conn);
 xqc_int_t xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to);
-xqc_int_t xqc_conn_try_retire_conn_id(xqc_connection_t *conn, uint64_t seq_num);
 xqc_int_t xqc_conn_check_dcid(xqc_connection_t *conn, xqc_cid_t *dcid);
 void xqc_conn_destroy_cids(xqc_connection_t *conn);
 xqc_int_t xqc_conn_update_user_scid(xqc_connection_t *conn, xqc_scid_set_t *scid_set);
@@ -473,8 +496,24 @@ xqc_msec_t xqc_conn_get_idle_timeout(xqc_connection_t *conn);
 
 xqc_int_t xqc_conn_confirm_key_update(xqc_connection_t *conn);
 
+/* from send_ctl */
+void xqc_conn_decrease_unacked_stream_ref(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
+void xqc_conn_increase_unacked_stream_ref(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
+void xqc_conn_update_stream_stats_on_sent(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec_t now);
+
+xqc_usec_t xqc_conn_get_max_pto(xqc_connection_t *conn);
+xqc_usec_t xqc_conn_get_min_srtt(xqc_connection_t *conn);
+
+void xqc_conn_check_app_limit(xqc_connection_t *conn);
+
+void xqc_conn_timer_expire(xqc_connection_t *conn, xqc_usec_t now);
+
 void xqc_conn_closing(xqc_connection_t *conn);
 
 void xqc_conn_closing_notify(xqc_connection_t *conn);
+
+void xqc_conn_record_histroy_path(xqc_connection_t *conn, xqc_path_ctx_t *path);
+
+xqc_int_t xqc_conn_send_path_challenge(xqc_connection_t *conn, xqc_path_ctx_t *path);
 
 #endif /* _XQC_CONN_H_INCLUDED_ */

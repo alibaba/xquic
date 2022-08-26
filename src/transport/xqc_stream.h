@@ -135,6 +135,8 @@ struct xqc_stream_s {
         xqc_usec_t          local_reset_time;       /* socket snd reset */
         xqc_usec_t          peer_reset_time;        /* quic stack rcv reset */
     } stream_stats;
+
+    xqc_path_metrics_t      paths_info[XQC_MAX_PATHS_COUNT];
 };
 
 static inline xqc_stream_type_t

@@ -136,16 +136,28 @@ xqc_crypto_destroy(xqc_crypto_t *crypto)
 }
 
 void
-xqc_crypto_create_nonce(uint8_t *dest, const uint8_t *iv, size_t ivlen, uint64_t pktno)
+xqc_crypto_create_nonce(uint8_t *dest, const uint8_t *iv, size_t ivlen, uint64_t pktno, uint32_t path_id)
 {
     size_t i;
 
     memcpy(dest, iv, ivlen);
-    pktno = bswap64(pktno);
 
-    /* nonce is formed by combining the packet protection IV with the packet number */
+    /* To calculate the nonce, a 96 bit path-and-packet-number is composed of the
+     * 32 bit Connection ID Sequence Number in byte order, two zero bits, and the
+     * 62 bits of the reconstructed QUIC packet number in network byte order.
+     * If the IV is larger than 96 bits, the path-and-packet-number is left-padded
+     * with zeros to the size of the IV. 
+     * The exclusive OR of the padded packet number and the IV forms the AEAD nonce.
+     */
+
+    pktno = bswap64(pktno);
     for (i = 0; i < 8; ++i) {
         dest[ivlen - 8 + i] ^= ((uint8_t *)&pktno)[i];
+    }
+
+    // path_id = ntohl(path_id);
+    for (i = 0; i < 4; ++i) {
+        dest[ivlen - 12 + i] ^= ((uint8_t *)&path_id)[i];
     }
 }
 
@@ -260,7 +272,8 @@ xqc_crypto_decrypt_header(xqc_crypto_t *crypto, xqc_pkt_type_t pkt_type, uint8_t
 
 
 xqc_int_t
-xqc_crypto_encrypt_payload(xqc_crypto_t *crypto, uint64_t pktno, xqc_uint_t key_phase,
+xqc_crypto_encrypt_payload(xqc_crypto_t *crypto,
+    uint64_t pktno, xqc_uint_t key_phase, uint32_t path_id,
     uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
     uint8_t *dst, size_t dst_cap, size_t *dst_len)
 {
@@ -278,7 +291,7 @@ xqc_crypto_encrypt_payload(xqc_crypto_t *crypto, uint64_t pktno, xqc_uint_t key_
     }
 
     /* generate nonce for aead encryption with original packet number */
-    xqc_crypto_create_nonce(nonce, ckm->iv.base, ckm->iv.len, pktno);
+    xqc_crypto_create_nonce(nonce, ckm->iv.base, ckm->iv.len, pktno, path_id);
 
     /* do aead encryption */
     ret = pp_aead->encrypt(pp_aead, dst, dst_cap, dst_len,         /* dest */
@@ -299,7 +312,8 @@ xqc_crypto_encrypt_payload(xqc_crypto_t *crypto, uint64_t pktno, xqc_uint_t key_
 
 
 xqc_int_t
-xqc_crypto_decrypt_payload(xqc_crypto_t *crypto, uint64_t pktno, xqc_uint_t key_phase,
+xqc_crypto_decrypt_payload(xqc_crypto_t *crypto,
+    uint64_t pktno, xqc_uint_t key_phase, uint32_t path_id,
     uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
     uint8_t *dst, size_t dst_cap, size_t *dst_len)
 {
@@ -317,7 +331,7 @@ xqc_crypto_decrypt_payload(xqc_crypto_t *crypto, uint64_t pktno, xqc_uint_t key_
     }
 
     /* create nonce */
-    xqc_crypto_create_nonce(nonce, ckm->iv.base, ckm->iv.len, pktno);
+    xqc_crypto_create_nonce(nonce, ckm->iv.base, ckm->iv.len, pktno, path_id);
 
     /* do aead decryption */
     ret = pp_aead->decrypt(pp_aead,

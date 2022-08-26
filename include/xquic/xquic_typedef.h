@@ -75,6 +75,8 @@ typedef struct xqc_priority_queue_s         xqc_pq_t;
 typedef struct xqc_wakeup_pq_s              xqc_wakeup_pq_t;
 typedef struct xqc_log_s                    xqc_log_t;
 typedef struct xqc_send_ctl_s               xqc_send_ctl_t;
+typedef struct xqc_send_queue_s             xqc_send_queue_t;
+typedef struct xqc_pn_ctl_s                 xqc_pn_ctl_t;
 typedef struct xqc_packet_s                 xqc_packet_t;
 typedef struct xqc_packet_in_s              xqc_packet_in_t;
 typedef struct xqc_packet_out_s             xqc_packet_out_t;
@@ -89,6 +91,7 @@ typedef struct xqc_sample_s                 xqc_sample_t;
 typedef struct xqc_memory_pool_s            xqc_memory_pool_t;
 typedef struct xqc_bbr_info_interface_s     xqc_bbr_info_interface_t;
 typedef struct xqc_path_ctx_s               xqc_path_ctx_t;
+typedef struct xqc_timer_manager_s          xqc_timer_manager_t;
 
 typedef uint64_t        xqc_msec_t; /* store millisecond values */
 typedef uint64_t        xqc_usec_t; /* store microsecond values */

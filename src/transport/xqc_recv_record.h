@@ -24,13 +24,13 @@ typedef struct xqc_pktno_range_node_s {
 
 typedef struct xqc_recv_record_s {
     xqc_list_head_t         list_head;  /* xqc_pktno_range_node_t */
-    xqc_usec_t              largest_pkt_recv_time;
     xqc_packet_number_t     rr_del_from;
 } xqc_recv_record_t;
 
 #define XQC_MAX_ACK_RANGE_CNT 64
 typedef struct xqc_ack_info_s {
     xqc_pkt_num_space_t     pns;
+    uint64_t                path_id;
     unsigned                n_ranges;  /* must > 0 */
     xqc_pktno_range_t       ranges[XQC_MAX_ACK_RANGE_CNT];
     xqc_usec_t              ack_delay;
@@ -44,12 +44,13 @@ void xqc_recv_record_del(xqc_recv_record_t *recv_record, xqc_packet_number_t del
 
 void xqc_recv_record_destroy(xqc_recv_record_t *recv_record);
 
-xqc_pkt_range_status xqc_recv_record_add(xqc_recv_record_t *recv_record, xqc_packet_number_t packet_number,
-    xqc_usec_t recv_time);
+void xqc_recv_record_move(xqc_recv_record_t *dst, xqc_recv_record_t *src);
+
+xqc_pkt_range_status xqc_recv_record_add(xqc_recv_record_t *recv_record, xqc_packet_number_t packet_number);
 
 xqc_packet_number_t xqc_recv_record_largest(xqc_recv_record_t *recv_record);
 
-void xqc_maybe_should_ack(xqc_connection_t *conn, xqc_pkt_num_space_t pns, int out_of_order, xqc_usec_t now);
+void xqc_maybe_should_ack(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_pn_ctl_t *pn_ctl, xqc_pkt_num_space_t pns, int out_of_order, xqc_usec_t now);
 
 
 #endif /* _XQC_RECV_RECORD_H_INCLUDED_ */

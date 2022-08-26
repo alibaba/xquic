@@ -109,7 +109,7 @@ xqc_update_sample(xqc_sample_t *sampler, xqc_packet_out_t *packet,
 }
 
 xqc_bool_t
-xqc_sample_check_app_limited(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl)
+xqc_sample_check_app_limited(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue)
 {
     uint8_t not_cwnd_limited = 0;
     uint32_t cwnd = send_ctl->ctl_cong_callback->
@@ -120,12 +120,12 @@ xqc_sample_check_app_limited(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl)
     }
 
     if (not_cwnd_limited    /* We are not limited by CWND. */
-        && xqc_list_empty(&send_ctl->ctl_send_packets)  /* We have no packet to send. */
-        && xqc_list_empty(&send_ctl->ctl_lost_packets)  /* All lost packets have been retransmitted. */
-        && xqc_list_empty(&send_ctl->ctl_pto_probe_packets))
+        && xqc_list_empty(&send_queue->sndq_send_packets)  /* We have no packet to send. */
+        && xqc_list_empty(&send_queue->sndq_lost_packets)  /* All lost packets have been retransmitted. */
+        && xqc_list_empty(&send_queue->sndq_pto_probe_packets))
     {
-        send_ctl->ctl_app_limited = (send_ctl->ctl_delivered + send_ctl->ctl_bytes_in_flight) 
-            ? (send_ctl->ctl_delivered + send_ctl->ctl_bytes_in_flight) : 1;
+        send_ctl->ctl_app_limited = (send_ctl->ctl_delivered + 
+                                    send_ctl->ctl_bytes_in_flight) ?: 1;
         if (send_ctl->ctl_app_limited > 0) {
             xqc_log_event(send_ctl->ctl_conn->log, REC_CONGESTION_STATE_UPDATED, "application_limit");
         }
@@ -136,17 +136,17 @@ xqc_sample_check_app_limited(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl)
 }
 
 void 
-xqc_sample_on_sent(xqc_packet_out_t *packet_out, xqc_send_ctl_t *ctl, 
+xqc_sample_on_sent(xqc_packet_out_t *packet_out, xqc_send_ctl_t *send_ctl, 
     xqc_usec_t now)
 {
-    if (ctl->ctl_bytes_in_flight == 0) {
-        ctl->ctl_delivered_time = ctl->ctl_first_sent_time = now;
+    if (send_ctl->ctl_bytes_in_flight == 0) {
+        send_ctl->ctl_delivered_time = send_ctl->ctl_first_sent_time = now;
     }
-    packet_out->po_delivered_time = ctl->ctl_delivered_time;
-    packet_out->po_first_sent_time = ctl->ctl_first_sent_time;
-    packet_out->po_delivered = ctl->ctl_delivered;
-    packet_out->po_is_app_limited = ctl->ctl_app_limited > 0 ? XQC_TRUE : XQC_FALSE;
-    packet_out->po_lost = ctl->ctl_lost_pkts_number;
-    packet_out->po_tx_in_flight = ctl->ctl_bytes_in_flight + 
+    packet_out->po_delivered_time = send_ctl->ctl_delivered_time;
+    packet_out->po_first_sent_time = send_ctl->ctl_first_sent_time;
+    packet_out->po_delivered = send_ctl->ctl_delivered;
+    packet_out->po_is_app_limited = send_ctl->ctl_app_limited > 0 ? XQC_TRUE : XQC_FALSE;
+    packet_out->po_lost = send_ctl->ctl_lost_pkts_number;
+    packet_out->po_tx_in_flight = send_ctl->ctl_bytes_in_flight + 
                                   packet_out->po_used_size;
 }

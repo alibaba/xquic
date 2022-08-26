@@ -58,6 +58,8 @@ XQUIC_VERS_1.0 {
         xqc_h3_conn_send_ping;
         xqc_conn_send_ping;
         xqc_engine_conns_hash_find;
+        xqc_conn_create_path;
+        xqc_conn_close_path;
         xqc_dcid_str_by_scid;
         xqc_h3_ctx_init;
         xqc_h3_ctx_destroy;
@@ -69,6 +71,8 @@ XQUIC_VERS_1.0 {
         xqc_now;
         xqc_h3_engine_set_qpack_compat_duplicate;
         xqc_lb_cid_encryption;
+        xqc_path_get_peer_addr;
+        xqc_path_get_local_addr;
     local:
         *;
 };

@@ -32,6 +32,11 @@ typedef enum {
     XQC_POF_RETRANSED        = 1 << 6,
     XQC_POF_NOTIFY           = 1 << 7,  /* need to notify user when a packet is acked, lost, etc. */
     XQC_POF_RESEND           = 1 << 8,
+    XQC_POF_REINJECTED_ORIGIN   = 1 << 9,
+    XQC_POF_REINJECTED_REPLICA  = 1 << 10,
+    XQC_POF_SUPPORT_MULTIPATH   = 1 << 11,
+    XQC_POF_IN_SCHEDULE_BUF     = 1 << 12,
+    XQC_POF_MOVE_TO_HEAD        = 1 << 13,
 } xqc_packet_out_flag_t;
 
 typedef struct xqc_po_stream_frame_s {
@@ -78,16 +83,25 @@ typedef struct xqc_packet_out_s {
     /* how many packets have been lost when the packet is sent */
     uint32_t                po_lost; 
 
+    /* Multipath */
     uint64_t                po_path_id;
+    uint64_t                po_abandon_path_id;
+    unsigned int            po_cc_size; /* TODO: check cc size != send size */
+
+    /* Reinjection */
+    uint64_t                po_stream_offset;
+    uint64_t                po_stream_id;
+    xqc_packet_out_t       *po_reinj_origin;
+    xqc_packet_out_t       *po_reinj_replica;
 } xqc_packet_out_t;
 
 xqc_packet_out_t *xqc_packet_out_create(size_t po_buf_cap);
 
 void xqc_packet_out_copy(xqc_packet_out_t *dst, xqc_packet_out_t *src);
 
-xqc_packet_out_t *xqc_packet_out_get(xqc_send_ctl_t *ctl);
+xqc_packet_out_t *xqc_packet_out_get(xqc_send_queue_t *send_queue);
 
-xqc_packet_out_t *xqc_packet_out_get_and_insert_send(xqc_send_ctl_t *ctl, enum xqc_pkt_type pkt_type);
+xqc_packet_out_t *xqc_packet_out_get_and_insert_send(xqc_send_queue_t *send_queue, enum xqc_pkt_type pkt_type);
 
 void xqc_packet_out_destroy(xqc_packet_out_t *packet_out);
 
@@ -134,10 +148,17 @@ xqc_int_t xqc_write_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t
 
 xqc_int_t xqc_write_retire_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t seq_num);
 
-xqc_int_t xqc_write_path_status_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path);
+xqc_int_t xqc_write_path_challenge_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path);
 
-xqc_int_t xqc_write_path_response_frame_to_packet(xqc_connection_t *conn,
+xqc_int_t xqc_write_path_response_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path,
     unsigned char *path_response_data);
+
+int xqc_write_ack_mp_to_packets(xqc_connection_t *conn);
+
+int xqc_write_ack_mp_to_one_packet(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    xqc_packet_out_t *packet_out, xqc_pkt_num_space_t pns);
+
+xqc_int_t xqc_write_path_abandon_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path);
 
 
 #endif /* _XQC_PACKET_OUT_H_INCLUDED_ */

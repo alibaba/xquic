@@ -10,6 +10,7 @@
 #include "src/transport/xqc_cid.h"
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_stream.h"
+#include "src/transport/xqc_multipath.h"
 #include "src/transport/xqc_utils.h"
 #include "src/transport/xqc_defs.h"
 #include "src/tls/xqc_tls.h"
@@ -60,6 +61,10 @@ xqc_client_connect(xqc_engine_t *engine, const xqc_conn_settings_t *conn_setting
     if (peer_addr && peer_addrlen > 0) {
         xc->peer_addrlen = peer_addrlen;
         memcpy(xc->peer_addr, peer_addr, peer_addrlen);
+    }
+
+    if (xqc_conn_client_init_path_addr(xc) != XQC_OK) {
+        return NULL;
     }
 
     xqc_log(engine->log, XQC_LOG_DEBUG, "|xqc_connect|");
@@ -250,7 +255,7 @@ xqc_client_create_connection(xqc_engine_t *engine, xqc_cid_t dcid, xqc_cid_t sci
     {
         xqc_memzero(&tp, sizeof(xqc_transport_params_t));
         ret = xqc_read_transport_params(conn_ssl_config->transport_parameter_data,
-                                                  conn_ssl_config->transport_parameter_data_len, &tp);
+                                        conn_ssl_config->transport_parameter_data_len, &tp);
         if (ret == XQC_OK) {
             xqc_conn_set_early_remote_transport_params(xc, &tp);
         }

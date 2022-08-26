@@ -51,15 +51,20 @@ xqc_h3_request_destroy(xqc_h3_request_t *h3_request)
 
     /* print request statistic log */
     xqc_request_stats_t stats = xqc_h3_request_get_stats(h3_request);
+    char path_info_buff[100 * XQC_MAX_PATHS_COUNT] = {'\0'};
+    xqc_h3s_path_metrics_print(h3s, path_info_buff, 50 * XQC_MAX_PATHS_COUNT);
     xqc_log(h3_request->h3_stream->log, XQC_LOG_REPORT, "|stream_id:%ui|err:%ui"
             "|rcvd_bdy_sz:%uz|snd_bdy_sz:%uz|rcvd_hdr_sz:%uz|snd_hdr_sz:%uz"
             "|blkd_tm:%ui|nblkd_tm:%ui|strm_fin_tm:%ui|h3r_s_tm:%ui|h3r_e_tm:%ui"
-            "|h3r_hdr_s_tm:%ui|h3r_hdr_e_tm:%ui|", h3s->stream_id,
+            "|h3r_hdr_s_tm:%ui|h3r_hdr_e_tm:%ui"
+            "|mp_state:%d|path_info:%s|",
+            h3s->stream_id,
             stats.stream_err, stats.recv_body_size, stats.send_body_size,
             stats.recv_header_size, stats.send_header_size,
             stats.blocked_time, stats.unblocked_time, stats.stream_fin_time,
             stats.h3r_begin_time, stats.h3r_end_time,
-            stats.h3r_header_begin_time, stats.h3r_header_end_time);
+            stats.h3r_header_begin_time, stats.h3r_header_end_time,
+            stats.mp_state, path_info_buff);
 
     if (h3_request->request_if->h3_request_close_notify) {
         h3_request->request_if->h3_request_close_notify(h3_request, h3_request->user_data);
@@ -167,6 +172,9 @@ xqc_h3_request_get_stats(xqc_h3_request_t *h3_request)
     stats.h3r_end_time      = h3_request->h3r_end_time;
     stats.h3r_header_begin_time = h3_request->h3r_header_begin_time;
     stats.h3r_header_end_time   = h3_request->h3r_header_end_time;
+
+    xqc_request_path_metrics_print(h3_request->h3_stream->h3c->conn,
+                                   h3_request->h3_stream, &stats);
 
     return stats;
 }

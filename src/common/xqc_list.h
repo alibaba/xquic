@@ -150,4 +150,9 @@ xqc_list_is_inited(const xqc_list_head_t *head)
         pos != (head); \
         pos = n, n = pos->next)
 
+#define xqc_list_for_each_reverse_safe(pos, n, head) \
+    for (pos = (head)->prev, n = pos->prev; \
+    pos != (head); \
+    pos = n, n = pos->prev)
+
 #endif /*_XQC_H_LIST_INCLUDE_*/

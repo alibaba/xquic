@@ -263,7 +263,6 @@ xqc_packet_parse_short_header(xqc_connection_t *c, xqc_packet_in_t *packet_in)
 
     xqc_uint_t spin_bit = (pos[0] & 0x20) >> 5;
     pos += 1;
-    xqc_log(c->log, XQC_LOG_DEBUG, "|parse short header|spin_bit:%ud|", spin_bit);
 
     /* check dcid */
     xqc_cid_set(&(packet->pkt_dcid), pos, cid_len);
@@ -274,6 +273,10 @@ xqc_packet_parse_short_header(xqc_connection_t *c, xqc_packet_in_t *packet_in)
                 xqc_dcid_str(&packet->pkt_dcid), xqc_scid_str(&c->scid_set.user_scid));
         return -XQC_EILLPKT;
     }
+
+    packet_in->pi_path_id = packet->pkt_dcid.cid_seq_num;
+    xqc_log(c->log, XQC_LOG_DEBUG, "|parse short header|path:%ui|pkt_dcid:%s|spin_bit:%ud|",
+            packet_in->pi_path_id, xqc_scid_str(&(packet->pkt_dcid)), spin_bit);
 
     /* packet number */
     packet_in->pi_pkt.length = packet_in->last - pos;
@@ -316,11 +319,13 @@ xqc_short_packet_update_key_phase(xqc_packet_out_t *packet_out, xqc_uint_t key_p
 }
 
 void
-xqc_short_packet_update_dcid(xqc_packet_out_t *packet_out, xqc_connection_t *conn)
+xqc_short_packet_update_dcid(xqc_packet_out_t *packet_out, xqc_cid_t dcid)
 {
-    unsigned char *dst = packet_out->po_buf + 1;
-    /* dcid len can't be changed */
-    xqc_memcpy(dst, conn->dcid_set.current_dcid.cid_buf, conn->dcid_set.current_dcid.cid_len);
+    if (packet_out->po_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER) {
+        unsigned char *dst = packet_out->po_buf + 1;
+        /* dcid len can't be changed */
+        xqc_memcpy(dst, dcid.cid_buf, dcid.cid_len);
+    }
 }
 
 int
@@ -591,7 +596,10 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     }
 
     /* do packet protection */
-    ret = xqc_tls_encrypt_payload(conn->tls, level, packet_out->po_pkt.pkt_num,
+    uint32_t nonce_path_id = (conn->enable_multipath == XQC_CONN_MULTIPATH_MULTIPLE_PNS) ? 
+                             (uint32_t)packet_out->po_path_id : 0;
+    ret = xqc_tls_encrypt_payload(conn->tls, level,
+                                  packet_out->po_pkt.pkt_num, nonce_path_id,
                                   dst_header, header_len, payload, payload_len,
                                   dst_payload, enc_pkt_cap - header_len, &enc_payload_len);
     if (ret != XQC_OK) {
@@ -619,7 +627,7 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
 
         if (conn->key_update_ctx.enc_pkt_cnt > conn->conn_settings.keyupdate_pkt_threshold
             && conn->key_update_ctx.first_sent_pktno <=
-                conn->conn_send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA]
+                conn->conn_initial_path->path_send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA]
             && xqc_monotonic_timestamp() > conn->key_update_ctx.initiate_time_guard)
         {
             ret = xqc_tls_update_1rtt_keys(conn->tls, XQC_KEY_TYPE_RX_READ);
@@ -696,8 +704,14 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     xqc_packet_parse_packet_number(pktno, pktno_len, &truncated_pn);
 
     /* decode packet number */
+    xqc_path_ctx_t *path = xqc_conn_find_path_by_path_id(conn, packet_in->pi_path_id);
+    if (path == NULL) {
+        path = conn->conn_initial_path;
+    }
+    xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path);
+
     xqc_pkt_num_space_t pns = packet_in->pi_pkt.pkt_pns;
-    xqc_packet_number_t largest_pn = conn->conn_send_ctl->ctl_largest_recvd[pns];
+    xqc_packet_number_t largest_pn = xqc_recv_record_largest(&pn_ctl->ctl_recv_record[pns]);
     packet_in->pi_pkt.pkt_num =
         xqc_packet_decode_packet_number(largest_pn, truncated_pn, pktno_len * 8);
 
@@ -716,7 +730,10 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     }
 
     /* decrypt packet payload */
-    ret = xqc_tls_decrypt_payload(conn->tls, level, packet_in->pi_pkt.pkt_num,
+    uint32_t nonce_path_id = (conn->enable_multipath == XQC_CONN_MULTIPATH_MULTIPLE_PNS) ? 
+                             (uint32_t)packet_in->pi_path_id : 0;
+    ret = xqc_tls_decrypt_payload(conn->tls, level,
+                                  packet_in->pi_pkt.pkt_num, nonce_path_id,
                                   header, header_len, payload, payload_len,
                                   dst, dst_cap, &packet_in->decode_payload_len);
     if (ret != XQC_OK) {

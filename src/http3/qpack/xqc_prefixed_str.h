@@ -7,7 +7,6 @@
 
 
 #include "src/common/xqc_common_inc.h"
-#include "src/http3/xqc_var_buf.h"
 #include "xqc_prefixed_int.h"
 
 

@@ -160,5 +160,16 @@ struct iovec {
 
 #endif
 
+typedef enum {
+    XQC_CONN_TYPE_CLIENT,
+    XQC_CONN_TYPE_SERVER,
+} xqc_conn_type_t;
+
+
+typedef enum {
+    XQC_STREAM_BIDI,
+    XQC_STREAM_UNI
+} xqc_stream_direction_t;
+
 
 #endif /*_XQUIC_TYPEDEF_H_INCLUDED_*/

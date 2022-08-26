@@ -5,7 +5,7 @@
 #ifndef _XQC_H3_FRAME_DEFS_H_
 #define _XQC_H3_FRAME_DEFS_H_
 
-#include "src/http3/xqc_var_buf.h"
+#include "src/common/utils/var_buf/xqc_var_buf.h"
 
 
 typedef enum xqc_h3_frm_type_s {
@@ -29,12 +29,12 @@ typedef struct xqc_h3_frm_headers_s {
 } xqc_h3_frame_headers_t;
 
 typedef struct xqc_h3_frm_cancel_push_s {
-    xqc_discrete_vint_pctx_t push_id;
+    xqc_discrete_int_pctx_t push_id;
 }xqc_h3_frame_cancel_push_t;
 
 typedef struct xqc_h3_setting_s {
-    xqc_discrete_vint_pctx_t identifier;
-    xqc_discrete_vint_pctx_t value;
+    xqc_discrete_int_pctx_t identifier;
+    xqc_discrete_int_pctx_t value;
 } xqc_h3_setting_t;
 
 #define MAX_SETTING_ENTRY 16
@@ -44,17 +44,17 @@ typedef struct xqc_h3_frm_settings_s {
 } xqc_h3_frame_settings_t;
 
 typedef struct xqc_h3_frm_push_promise_t {
-    xqc_discrete_vint_pctx_t push_id;
+    xqc_discrete_int_pctx_t  push_id;
     xqc_var_buf_t           *encoded_field_section;
     uint8_t                  count;
 } xqc_h3_frame_push_promise_t;
 
 typedef struct xqc_h3_frm_goaway_t {
-    xqc_discrete_vint_pctx_t stream_id;
+    xqc_discrete_int_pctx_t stream_id;
 } xqc_h3_frame_goaway_t;
 
 typedef struct xqc_h3_frm_max_push_id_t {
-    xqc_discrete_vint_pctx_t push_id;
+    xqc_discrete_int_pctx_t push_id;
 } xqc_h3_frame_max_push_id_t;
 
 #endif

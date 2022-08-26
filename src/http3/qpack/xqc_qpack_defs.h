@@ -6,7 +6,7 @@
 #define _XQC_QPACK_DEFS_H_
 
 #include <xquic/xqc_http3.h>
-#include "src/http3/xqc_var_buf.h"
+#include "src/common/utils/var_buf/xqc_var_buf.h"
 #include "src/http3/xqc_h3_defs.h"
 
 #define XQC_QPACK_MAX_TABLE_CAPACITY            (16 * 1024)

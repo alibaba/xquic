@@ -162,7 +162,9 @@ typedef void (*xqc_server_refuse_pt)(xqc_engine_t *engine, xqc_connection_t *con
  * xqc_engine_packet_process
  */
 typedef ssize_t (*xqc_stateless_reset_pt)(const unsigned char *buf, size_t size,
-    const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *user_data);
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    const struct sockaddr *local_addr, socklen_t local_addrlen,
+    void *user_data);
 
 /**
  * @brief connection closing notify callback function. will be triggered when a
@@ -324,6 +326,22 @@ typedef ssize_t (*xqc_socket_write_pt)(const unsigned char *buf, size_t size,
  */
 typedef ssize_t (*xqc_send_mmsg_pt)(const struct iovec *msg_iov, unsigned int vlen,
     const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *conn_user_data);
+
+
+/**
+ * @brief set data callback mode for a transport connection. this mode differs 
+ * from write_socket, which has a different user_data, once this callback
+ * function is set, write_socket will be not functional until it is unset.
+ * 
+ * @param buf packet buffer
+ * @param size packet size
+ * @param peer_addr peer address
+ * @param peer_addrlen peer address length
+ * @param cb_user_data user_data of xqc_conn_pkt_filter_callback_pt
+ */
+typedef ssize_t (*xqc_conn_pkt_filter_callback_pt)(const unsigned char *buf,
+    size_t size, const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    void *cb_user_data);
 
 
 /**
@@ -826,6 +844,7 @@ typedef struct xqc_conn_settings_s {
     int32_t                     spurious_loss_detect_on;
     uint32_t                    anti_amplification_limit;   /* limit of anti-amplification, default 3 */
     uint64_t                    keyupdate_pkt_threshold;    /* packet limit of a single 1-rtt key, 0 for unlimited */
+    size_t                      max_pkt_out_size;
 } xqc_conn_settings_t;
 
 
@@ -976,6 +995,9 @@ void xqc_engine_finish_recv(xqc_engine_t *engine);
 XQC_EXPORT_PUBLIC_API
 void xqc_engine_recv_batch(xqc_engine_t *engine, xqc_connection_t *conn);
 
+XQC_EXPORT_PUBLIC_API
+xqc_connection_t *xqc_engine_get_conn_by_scid(xqc_engine_t *engine,
+    const xqc_cid_t *cid);
 
 /*************************************************************
  *  QUIC layer APIs
@@ -1012,6 +1034,12 @@ const xqc_cid_t *xqc_connect(xqc_engine_t *engine,
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_conn_close(xqc_engine_t *engine, const xqc_cid_t *cid);
+
+/**
+ * @brief close connection with error code
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_conn_close_with_error(xqc_connection_t *conn, uint64_t err_code);
 
 /**
  * Get errno when conn_close_notify, 0 For no-error
@@ -1066,11 +1094,33 @@ XQC_EXPORT_PUBLIC_API
 xqc_bool_t xqc_conn_is_ready_to_send_early_data(xqc_connection_t *conn);
 
 /**
+ * @brief set the packet filter callback function, and replace write_socket.
+ * NOTICE: this function is not conflict with send_mmsg.
+ */
+XQC_EXPORT_PUBLIC_API
+void xqc_conn_set_pkt_filter_callback(xqc_connection_t *conn,
+    xqc_conn_pkt_filter_callback_pt pf_cb, void *pf_cb_user_data);
+
+/**
+ * @brief unset the packet filter callback function, and restore write_socket
+ */
+XQC_EXPORT_PUBLIC_API
+void xqc_conn_unset_pkt_filter_callback(xqc_connection_t *conn);
+
+
+/**
  * Create new stream in quic connection.
  * @param user_data  user_data for this stream
  */
 XQC_EXPORT_PUBLIC_API
 xqc_stream_t *xqc_stream_create(xqc_engine_t *engine, const xqc_cid_t *cid, void *user_data);
+
+XQC_EXPORT_PUBLIC_API
+xqc_stream_t *xqc_stream_create_with_direction(xqc_connection_t *conn,
+    xqc_stream_direction_t dir, void *user_data);
+
+XQC_EXPORT_PUBLIC_API
+xqc_stream_direction_t xqc_stream_get_direction(xqc_stream_t *strm);
 
 /**
  * Server should set user_data when stream_create_notify callbacks
@@ -1083,6 +1133,13 @@ void xqc_stream_set_user_data(xqc_stream_t *stream, void *user_data);
  */
 XQC_EXPORT_PUBLIC_API
 void *xqc_get_conn_user_data_by_stream(xqc_stream_t *stream);
+
+/**
+ * Get connection's app_proto_user_data by stream
+ */
+XQC_EXPORT_PUBLIC_API
+void *xqc_get_conn_alp_user_data_by_stream(xqc_stream_t *stream);
+
 
 /**
  * Get stream ID
@@ -1162,6 +1219,9 @@ xqc_int_t xqc_conn_continue_send(xqc_engine_t *engine, const xqc_cid_t *cid);
  */
 XQC_EXPORT_PUBLIC_API
 xqc_conn_stats_t xqc_conn_get_stats(xqc_engine_t *engine, const xqc_cid_t *cid);
+
+XQC_EXPORT_PUBLIC_API
+xqc_conn_type_t xqc_conn_get_type(xqc_connection_t *conn);
 
 /**
  * @brief load balance cid encryption.

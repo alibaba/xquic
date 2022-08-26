@@ -68,6 +68,8 @@ xqc_client_connect(xqc_engine_t *engine, const xqc_conn_settings_t *conn_setting
     /* conn_create callback */
     if (xc->app_proto_cbs.conn_cbs.conn_create_notify) {
         if (xc->app_proto_cbs.conn_cbs.conn_create_notify(xc, &xc->scid_set.user_scid, user_data, NULL)) {
+            xqc_log(engine->log, XQC_LOG_INFO, "|destroy conn as create_notify return failure|conn:%p|%s",
+                    xc, xqc_conn_addr_str(xc));
             xqc_conn_destroy(xc);
             return NULL;
         }
@@ -261,6 +263,8 @@ xqc_client_create_connection(xqc_engine_t *engine, xqc_cid_t dcid, xqc_cid_t sci
     return xc;
 
 fail:
+    xqc_log(xc->log, XQC_LOG_INFO, "|destroy conn as create failure|conn:%p|%s",
+            xc, xqc_conn_addr_str(xc));
     xqc_conn_destroy(xc);
     return NULL;
 }

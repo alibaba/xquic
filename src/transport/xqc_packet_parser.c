@@ -648,7 +648,7 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
 xqc_int_t
 xqc_packet_encrypt(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
 {
-    return xqc_packet_encrypt_buf(conn, packet_out, conn->enc_pkt, sizeof(conn->enc_pkt),
+    return xqc_packet_encrypt_buf(conn, packet_out, conn->enc_pkt, conn->enc_pkt_cap,
                                   &conn->enc_pkt_len);
 }
 
@@ -992,7 +992,7 @@ xqc_packet_parse_retry(xqc_connection_t *c, xqc_packet_in_t *packet_in)
     }
 
     /* Token (..) */
-    int retry_token_len = XQC_BUFF_LEFT_SIZE(pos, end) - XQC_RETRY_INTEGRITY_TAG_LEN;
+    uint32_t retry_token_len = XQC_BUFF_LEFT_SIZE(pos, end) - XQC_RETRY_INTEGRITY_TAG_LEN;
     if (retry_token_len > XQC_MAX_TOKEN_LEN) {
         xqc_log(c->log, XQC_LOG_ERROR, "|retry token length exceed XQC_MAX_TOKEN_LEN|%d|", retry_token_len);
         return -XQC_EILLPKT;

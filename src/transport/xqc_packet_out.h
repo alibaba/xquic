@@ -16,9 +16,9 @@
  * datagrams larger than the smallest allowed maximum datagram size.
  */
 #define XQC_PACKET_OUT_SIZE         XQC_QUIC_MSS  /* without XQC_EXTRA_SPACE & XQC_ACK_SPACE */
-#define XQC_EXTRA_SPACE             XQC_TLS_AEAD_OVERHEAD_MAX_LEN
+#define XQC_EXTRA_SPACE             XQC_TLS_AEAD_OVERHEAD_MAX_LEN   /* AEAD tag length */
 #define XQC_ACK_SPACE               16
-#define XQC_PACKET_OUT_SIZE_EXT     (XQC_PACKET_OUT_SIZE + XQC_EXTRA_SPACE + XQC_ACK_SPACE)
+#define XQC_PACKET_OUT_EXT_SPACE    (XQC_TLS_AEAD_OVERHEAD_MAX_LEN + XQC_ACK_SPACE)
 
 #define XQC_MAX_STREAM_FRAME_IN_PO  3
 
@@ -53,7 +53,8 @@ typedef struct xqc_packet_out_s {
     void                   *po_user_data;       /* used to differ inner PING and user PING */
     unsigned char          *po_padding;         /* used to reassemble packets carrying new header */
 
-    unsigned int            po_buf_size;
+    size_t                  po_buf_cap;         /* capcacity of po_buf */
+    unsigned int            po_buf_size;        /* size of po_buf can be used */
     unsigned int            po_used_size;
     unsigned int            po_ack_offset;
     xqc_packet_out_flag_t   po_flag;
@@ -80,7 +81,7 @@ typedef struct xqc_packet_out_s {
     uint64_t                po_path_id;
 } xqc_packet_out_t;
 
-xqc_packet_out_t *xqc_packet_out_create();
+xqc_packet_out_t *xqc_packet_out_create(size_t po_buf_cap);
 
 void xqc_packet_out_copy(xqc_packet_out_t *dst, xqc_packet_out_t *src);
 

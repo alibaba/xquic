@@ -631,6 +631,13 @@ xqc_h3_conn_process_blocked_stream(xqc_h3_conn_t *h3c)
     return XQC_OK;
 }
 
+void *
+xqc_h3_conn_get_user_data(xqc_h3_conn_t *h3_conn)
+{
+    return h3_conn->user_data;
+}
+
+
 xqc_int_t
 xqc_h3_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
     void *conn_user_data, void *conn_proto_data)

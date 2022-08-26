@@ -13,8 +13,10 @@
 #include "src/common/xqc_log.h"
 #include "src/common/xqc_log_event_callback.h"
 #include "src/common/utils/vint/xqc_variable_len_int.h"
-#include "src/common/utils/vint/xqc_discrete_vint_parser.h"
+#include "src/common/utils/vint/xqc_discrete_int_parser.h"
 #include "src/common/utils/huffman/xqc_huffman.h"
+#include "src/common/utils/var_buf/xqc_var_buf.h"
+
 
 #include <stdio.h>
 #include <stdint.h>

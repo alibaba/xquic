@@ -35,7 +35,6 @@ function case_print_result() {
 }
 
 
-
 clear_log
 echo -e "stream read notify fail ...\c"
 ./test_client -s 1024000 -l d -t 1 -E -x 12 >> clog
@@ -502,6 +501,7 @@ else
 fi
 rm -f test_session
 
+
 clear_log
 echo -e "no crypto without 0RTT ...\c"
 rm -f test_session
@@ -518,8 +518,8 @@ fi
 
 clear_log
 echo -e "no crypto with 0RTT ...\c"
-./test_client -s 1024000 -l d -N -t 1 -E >> clog
-if grep "early_data_flag:1" clog >/dev/null && grep ">>>>>>>> pass:1" clog >/dev/null; then
+./test_client -s 1024000 -l d -N -t 1 -E > stdlog
+if grep "early_data_flag:1" stdlog >/dev/null && grep ">>>>>>>> pass:1" stdlog >/dev/null; then
     echo ">>>>>>>> pass:1"
     case_print_result "no_crypto_with_0RTT" "pass"
 else
@@ -531,8 +531,8 @@ grep_err_log
 
 clear_log
 echo -e "no crypto with 0RTT twice ...\c"
-./test_client -s 1024000 -l d -N -t 1 -E >> clog
-if grep "early_data_flag:1" clog >/dev/null && grep ">>>>>>>> pass:1" clog >/dev/null; then
+./test_client -s 1024000 -l d -N -t 1 -E > stdlog
+if grep "early_data_flag:1" stdlog >/dev/null && grep ">>>>>>>> pass:1" stdlog >/dev/null; then
     echo ">>>>>>>> pass:1"
     case_print_result "no_crypto_with_0RTT_twice" "pass"
 else
@@ -1052,6 +1052,22 @@ else
 fi
 
 clear_log
+killall test_server 2> /dev/null
+echo -e "load balancer cid generate ...\c"
+./test_server -l d -e -S "server_id_0" > /dev/null &
+sleep 1
+./test_client -s 1024000 -l d -t 1 >> clog
+result=`grep "|xqc_conn_confirm_cid|dcid change|" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" != "" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "load_balancer_cid_generate" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "load_balancer_cid_generate" "fail"
+fi
+
+clear_log
 echo -e "set cipher suites ...\c"
 ./test_client -s 1024 -l d -t 1 -x 27 >> clog
 result=`grep "set cipher suites suc|ciphers:TLS_CHACHA20_POLY1305_SHA256" clog`
@@ -1200,9 +1216,19 @@ else
 fi
 grep_err_log
 
+
+echo -e "max pkt out size...\c"
+result=`./test_client -l d -x 42 -1 -E | grep ">>>>>>>> pass"`
+if [ -n "$result" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "max_pkt_out_size" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "max_pkt_out_size" "fail"
+fi
+
+
 killall test_server
-
-
 ./test_server -l d -x 13 > /dev/null &
 sleep 1
 clear_log
@@ -1217,6 +1243,7 @@ else
     echo ">>>>>>>> pass:0"
     case_print_result "stateless_reset" "fail"
 fi
+
 
 killall test_server
 

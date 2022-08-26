@@ -130,6 +130,12 @@ xqc_list_empty(const xqc_list_head_t *head)
     return head->next == head;
 }
 
+static inline xqc_bool_t
+xqc_list_is_inited(const xqc_list_head_t *head)
+{
+    return head->next != NULL;
+}
+
 #define xqc_list_for_each(pos, head) \
     for (pos = (head)->next; pos != (head); pos = pos->next)
 

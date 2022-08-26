@@ -123,6 +123,8 @@ xqc_send_ctl_create(xqc_connection_t *conn)
 
     send_ctl->sampler.send_ctl = send_ctl;
 
+    send_ctl->pkt_out_size = conn->conn_settings.max_pkt_out_size;
+
     xqc_log_event(conn->log, REC_PARAMETERS_SET, send_ctl);
     return send_ctl;
 }
@@ -1956,6 +1958,8 @@ xqc_send_ctl_idle_timeout(xqc_send_ctl_timer_type type, xqc_usec_t now, void *ct
     xqc_connection_t *conn = ctl->ctl_conn;
 
     conn->conn_flag |= XQC_CONN_FLAG_TIME_OUT;
+    xqc_log(ctl->ctl_conn->log, XQC_LOG_INFO, "|conn idle timeout|flags:%s|state:%s",
+            xqc_conn_flag_2_str(conn->conn_flag), xqc_conn_state_2_str(conn->conn_state));
 }
 
 void
@@ -1965,6 +1969,9 @@ xqc_send_ctl_draining_timeout(xqc_send_ctl_timer_type type, xqc_usec_t now, void
     xqc_connection_t *conn = ctl->ctl_conn;
 
     conn->conn_flag |= XQC_CONN_FLAG_TIME_OUT;
+    xqc_log(ctl->ctl_conn->log, XQC_LOG_INFO, "|conn draining timeout|flags:%s|state:%s",
+            xqc_conn_flag_2_str(conn->conn_flag), xqc_conn_state_2_str(conn->conn_state));
+
 }
 
 void

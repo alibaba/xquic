@@ -17,7 +17,7 @@
 
 
 xqc_packet_out_t *
-xqc_packet_out_create()
+xqc_packet_out_create(size_t po_buf_size)
 {
     xqc_packet_out_t *packet_out;
     packet_out = xqc_calloc(1, sizeof(xqc_packet_out_t));
@@ -25,10 +25,13 @@ xqc_packet_out_create()
         goto error;
     }
 
-    packet_out->po_buf = xqc_malloc(XQC_PACKET_OUT_SIZE + XQC_EXTRA_SPACE + XQC_ACK_SPACE);
+    packet_out->po_buf = xqc_malloc(po_buf_size + XQC_PACKET_OUT_EXT_SPACE);
     if (!packet_out->po_buf) {
         goto error;
     }
+
+    packet_out->po_buf_cap = po_buf_size + XQC_PACKET_OUT_EXT_SPACE;
+    packet_out->po_buf_size = po_buf_size;
 
     return packet_out;
 
@@ -44,6 +47,8 @@ void
 xqc_packet_out_copy(xqc_packet_out_t *dst, xqc_packet_out_t *src)
 {
     unsigned char *po_buf = dst->po_buf;
+    size_t cap = dst->po_buf_cap;
+    unsigned int size = dst->po_buf_size;
     xqc_memcpy(dst, src, sizeof(xqc_packet_out_t));
     dst->po_origin_ref_cnt = 0;
 
@@ -72,6 +77,7 @@ xqc_packet_out_get(xqc_send_ctl_t *ctl)
 {
     xqc_packet_out_t *packet_out;
     unsigned int buf_size;
+    size_t buf_cap;
     xqc_list_head_t *pos, *next;
 
     xqc_list_for_each_safe(pos, next, &ctl->ctl_free_packets) {
@@ -81,13 +87,15 @@ xqc_packet_out_get(xqc_send_ctl_t *ctl)
 
         unsigned char *tmp = packet_out->po_buf;
         buf_size = packet_out->po_buf_size;
+        buf_cap = packet_out->po_buf_cap;
         memset(packet_out, 0, sizeof(xqc_packet_out_t));
         packet_out->po_buf = tmp;
         packet_out->po_buf_size = buf_size;
+        packet_out->po_buf_cap = buf_cap;
         return packet_out;
     }
 
-    packet_out = xqc_packet_out_create();
+    packet_out = xqc_packet_out_create(ctl->pkt_out_size);
     if (!packet_out) {
         return NULL;
     }
@@ -104,7 +112,6 @@ xqc_packet_out_get_and_insert_send(xqc_send_ctl_t *ctl, enum xqc_pkt_type pkt_ty
         return NULL;
     }
 
-    packet_out->po_buf_size = XQC_PACKET_OUT_SIZE;
     packet_out->po_pkt.pkt_type = pkt_type;
     packet_out->po_pkt.pkt_pns = xqc_packet_type_to_pns(pkt_type);
 

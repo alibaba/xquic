@@ -713,12 +713,9 @@ xqc_decode_transport_params(xqc_transport_params_t *params,
 xqc_int_t
 xqc_read_transport_params(char *tp_data, size_t tp_data_len, xqc_transport_params_t *params)
 {
-    if (strlen(tp_data) != tp_data_len) {
-        tp_data[tp_data_len] = '\0';
-    }
-
     char *p = tp_data;
-    while (*p != '\0') {
+    char *e = p + tp_data_len;
+    while (*p != '\0' && p < e) {
         if (*p == ' ') {
             p++;
         }

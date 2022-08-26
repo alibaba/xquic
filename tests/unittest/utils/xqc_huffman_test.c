@@ -6,7 +6,7 @@
 #include "xqc_huffman_test.h"
 #include "src/common/utils/huffman/xqc_huffman.h"
 #include "src/common/utils/huffman/xqc_huffman_code.h"
-#include "src/http3/xqc_var_buf.h"
+#include "src/common/utils/var_buf/xqc_var_buf.h"
 #include <inttypes.h>
 #include <stdlib.h>
 #include <time.h>

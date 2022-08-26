@@ -5,7 +5,6 @@
 #ifndef _XQC_INSTRUCTION_H_
 #define _XQC_INSTRUCTION_H_
 
-#include "src/http3/xqc_var_buf.h"
 #include "src/http3/qpack/xqc_prefixed_int.h"
 #include "src/http3/qpack/xqc_prefixed_str.h"
 #include "src/common/xqc_common_inc.h"

@@ -167,6 +167,8 @@ typedef struct xqc_send_ctl_s {
     xqc_sample_t                sampler;
 
     xqc_send_ctl_info_t         ctl_info;
+
+    size_t                      pkt_out_size;
 } xqc_send_ctl_t;
 
 

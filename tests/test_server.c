@@ -772,7 +772,8 @@ xqc_server_write_socket(const unsigned char *buf, size_t size,
 
 ssize_t
 xqc_server_stateless_reset(const unsigned char *buf, size_t size,
-    const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *user_data)
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    const struct sockaddr *local_addr, socklen_t local_addrlen, void *user_data)
 {
     return xqc_server_write_socket(buf, size, peer_addr, peer_addrlen, user_data);
 }

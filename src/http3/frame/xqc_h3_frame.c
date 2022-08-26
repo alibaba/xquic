@@ -175,7 +175,7 @@ xqc_h3_frm_parse(const unsigned char *p, size_t sz, xqc_h3_frame_pctx_t *pctx)
         XQC_H3_DECODE_DISCRETE_VINT_VALUE(pos, sz, pctx->pctx, &fin);
         if (fin) {
             pctx->frame.type = pctx->pctx.vi;
-            xqc_h3_vint_pctx_clear(&pctx->pctx);
+            xqc_discrete_int_pctx_clear(&pctx->pctx);
             pctx->state = XQC_H3_FRM_STATE_LEN;
             fin = 0;
         }
@@ -190,7 +190,7 @@ xqc_h3_frm_parse(const unsigned char *p, size_t sz, xqc_h3_frame_pctx_t *pctx)
         if (fin) {
             pctx->frame.len = pctx->pctx.vi;
             pctx->frame.consumed_len = 0;
-            xqc_h3_vint_pctx_clear(&pctx->pctx);
+            xqc_discrete_int_pctx_clear(&pctx->pctx);
             pctx->state = XQC_H3_FRM_STATE_PAYLOAD;
             memset(&pctx->frame.frame_payload, 0, sizeof(xqc_h3_frame_pl_t));
             fin = 0;
@@ -249,9 +249,9 @@ xqc_h3_frm_parse_setting(xqc_var_buf_t *data, void *user_data)
     while (data->consumed_len < data->data_len)
     {
         xqc_bool_t fin;
-        xqc_discrete_vint_pctx_t identifier, value;
-        memset(&identifier, 0, sizeof(xqc_discrete_vint_pctx_t));
-        memset(&value, 0, sizeof(xqc_discrete_vint_pctx_t));
+        xqc_discrete_int_pctx_t identifier, value;
+        memset(&identifier, 0, sizeof(xqc_discrete_int_pctx_t));
+        memset(&value, 0, sizeof(xqc_discrete_int_pctx_t));
 
         ssize_t read = xqc_discrete_vint_parse(data->data + data->consumed_len, 
                                                data->data_len - data->consumed_len,

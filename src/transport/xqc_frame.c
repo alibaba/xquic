@@ -244,7 +244,7 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         case 0x15:
             ret = xqc_process_stream_data_blocked_frame(conn, packet_in);
             break;
-        case 0x16: 
+        case 0x16:
         case 0x17:
             ret = xqc_process_streams_blocked_frame(conn, packet_in);
             break;
@@ -1211,7 +1211,7 @@ xqc_process_path_response_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_
 
         /* unset timer and clean rebinding addr */
         conn->rebinding_addrlen = 0;
-        xqc_send_ctl_timer_unset(conn->conn_send_ctl, XQC_TIMER_NAT_REBINDING); 
+        xqc_send_ctl_timer_unset(conn->conn_send_ctl, XQC_TIMER_NAT_REBINDING);
         conn->conn_flag &= ~XQC_CONN_FLAG_VALIDATE_REBINDING;
     }
 

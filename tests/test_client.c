@@ -1652,7 +1652,7 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
     static ssize_t rcv_sum = 0;
 
     do {
-        recv_size = recvfrom(fd, 
+        recv_size = recvfrom(fd,
                              packet_buf, sizeof(packet_buf), 0, 
                              user_conn->peer_addr, &user_conn->peer_addrlen);
         if (recv_size < 0 && get_last_sys_errno() == EAGAIN) {
@@ -2265,6 +2265,10 @@ int main(int argc, char *argv[]) {
     /* test key update */
     if (g_test_case == 40) {
         conn_settings.keyupdate_pkt_threshold = 30;
+    }
+
+    if (g_test_case == 42) {
+        conn_settings.max_pkt_out_size = 1400;
     }
 
     eb = event_base_new();

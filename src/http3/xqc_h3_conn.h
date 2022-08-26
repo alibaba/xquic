@@ -5,7 +5,7 @@
 #ifndef _XQC_H3_CONN_H_INCLUDED_
 #define _XQC_H3_CONN_H_INCLUDED_
 
-#include "src/http3/xqc_var_buf.h"
+#include "src/common/utils/var_buf/xqc_var_buf.h"
 #include "src/http3/xqc_h3_defs.h"
 #include "src/http3/xqc_h3_stream.h"
 #include "src/transport/xqc_conn.h"

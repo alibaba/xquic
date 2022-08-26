@@ -87,6 +87,8 @@ void xqc_engine_config_destroy(xqc_config_t *config);
  */
 xqc_usec_t xqc_engine_wakeup_after(xqc_engine_t *engine);
 
+void xqc_engine_wakeup_once(xqc_engine_t *engine);
+
 xqc_connection_t *xqc_engine_conns_hash_find(xqc_engine_t *engine, const xqc_cid_t *cid, char type);
 
 void xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now);

@@ -5,7 +5,7 @@
 #ifndef _XQC_H3_STREAM_H_
 #define _XQC_H3_STREAM_H_
 
-#include "src/http3/xqc_var_buf.h"
+#include "src/common/utils/var_buf/xqc_var_buf.h"
 #include "src/http3/xqc_h3_defs.h"
 #include "src/http3/qpack/xqc_qpack.h"
 #include "src/http3/frame/xqc_h3_frame.h"
@@ -70,7 +70,7 @@ typedef enum {
 
 typedef struct xqc_h3_stream_pctx_s {
     /* parsing context for uni-stream type */
-    xqc_discrete_vint_pctx_t        type;
+    xqc_discrete_int_pctx_t         type;
 
     /* parsing context for control-stream */
     xqc_h3_frame_pctx_t             frame_pctx;

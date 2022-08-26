@@ -30,7 +30,7 @@ xqc_h3_stream_create(xqc_h3_conn_t *h3c, xqc_stream_t *stream, xqc_h3_stream_typ
     h3s->type = type;
     h3s->qpack = xqc_h3_conn_get_qpack(h3c);
     h3s->flags = XQC_HTTP3_STREAM_FLAG_NONE;
-    xqc_h3_vint_pctx_clear(&h3s->pctx.type);
+    xqc_discrete_int_pctx_clear(&h3s->pctx.type);
     memset(&h3s->pctx.frame_pctx, 0, sizeof(xqc_h3_frame_pctx_t));
     h3s->blocked_stream = NULL;
     xqc_init_list_head(&h3s->send_buf);
@@ -52,6 +52,8 @@ xqc_int_t
 xqc_h3_stream_close(xqc_h3_stream_t *h3s)
 {
     h3s->flags |= XQC_HTTP3_STREAM_FLAG_ACTIVELY_CLOSED;
+
+    xqc_log(h3s->log, XQC_LOG_DEBUG, "|h3s close");
 
     if (h3s->flags & XQC_HTTP3_STREAM_FLAG_CLOSED) {
         /*
@@ -860,7 +862,7 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
 
 ssize_t
 xqc_h3_stream_process_uni_stream_type(const uint8_t *data, size_t data_len, 
-    xqc_discrete_vint_pctx_t *vctx, xqc_bool_t *fin)
+    xqc_discrete_int_pctx_t *vctx, xqc_bool_t *fin)
 {
     /* parse stream type */
     ssize_t nread = xqc_discrete_vint_parse(data, data_len, vctx, fin);
@@ -935,7 +937,7 @@ xqc_h3_stream_process_uni(xqc_h3_stream_t *h3s, unsigned char *data, size_t data
             /* check legitimation of uni-stream */
             h3s->type = h3s->pctx.type.vi;
             h3s->flags |= XQC_HTTP3_STREAM_FLAG_TYPE_IDENTIFIED;
-            xqc_h3_vint_pctx_clear(&h3s->pctx.type);
+            xqc_discrete_int_pctx_clear(&h3s->pctx.type);
             xqc_log_event(h3s->log, HTTP_STREAM_TYPE_SET, h3s, XQC_LOG_REMOTE_EVENT);
 
             if (xqc_h3_conn_on_uni_stream_created(h3s->h3c, h3s->type) != XQC_OK) {

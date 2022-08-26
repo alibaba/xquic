@@ -48,6 +48,7 @@ xqc_stream_ready_to_write(xqc_stream_t *stream)
                           stream->stream_conn, stream->stream_conn->last_ticked_time) != 0) {
             return;
         }
+
         stream->stream_conn->conn_flag |= XQC_CONN_FLAG_TICKING;
     }
 }
@@ -78,9 +79,9 @@ xqc_stream_ready_to_read(xqc_stream_t *stream)
                               stream->stream_conn, stream->stream_conn->last_ticked_time) != 0) {
             return;
         }
+
         stream->stream_conn->conn_flag |= XQC_CONN_FLAG_TICKING;
     }
-
 }
 
 void
@@ -398,7 +399,8 @@ xqc_stream_create(xqc_engine_t *engine, const xqc_cid_t *cid, void *user_data)
 
     conn = xqc_engine_conns_hash_find(engine, cid, 's');
     if (!conn) {
-        xqc_log(engine->log, XQC_LOG_ERROR, "|can not find connection|");
+        xqc_log(engine->log, XQC_LOG_ERROR, "|can not find connection|cid:%s",
+                xqc_scid_str(cid));
         return NULL;
     }
 
@@ -410,6 +412,36 @@ xqc_stream_create(xqc_engine_t *engine, const xqc_cid_t *cid, void *user_data)
 
     return stream;
 }
+
+xqc_stream_t *
+xqc_stream_create_with_direction(xqc_connection_t *conn,
+    xqc_stream_direction_t dir, void *user_data)
+{
+    xqc_stream_type_t type;
+
+    /* get stream type */
+    if (XQC_CONN_TYPE_CLIENT == xqc_conn_get_type(conn)) {
+        if (XQC_STREAM_BIDI == dir) {
+            type = XQC_CLI_BID;
+
+        } else {
+            type = XQC_CLI_UNI;
+        }
+
+    } else {
+        if (XQC_STREAM_BIDI == dir) {
+            type = XQC_SVR_BID;
+
+        } else {
+            type = XQC_SVR_UNI;
+        }
+    }
+
+    /* create stream */
+    return xqc_create_stream_with_conn(conn, XQC_UNDEFINE_STREAM_ID, type,
+                                       user_data);
+}
+
 
 xqc_stream_t *
 xqc_create_stream_with_conn(xqc_connection_t *conn, xqc_stream_id_t stream_id,
@@ -493,6 +525,12 @@ void*
 xqc_get_conn_user_data_by_stream(xqc_stream_t *stream)
 {
     return stream->stream_conn->user_data;
+}
+
+void *
+xqc_get_conn_alp_user_data_by_stream(xqc_stream_t *stream)
+{
+    return stream->stream_conn->proto_data;
 }
 
 xqc_stream_id_t
@@ -1197,7 +1235,7 @@ do_buff:
     }
 
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|ret:%d|stream_id:%ui|stream_send_offset:%ui|pkt_type:%s|buff_1rtt:%d|"
+    xqc_log(conn->log, XQC_LOG_INFO, "|ret:%d|stream_id:%ui|stream_send_offset:%ui|pkt_type:%s|buff_1rtt:%d|"
                                       "send_data_size:%uz|offset:%uz|fin:%d|stream_flag:%d|conn:%p|conn_state:%s|flag:%s|",
             ret, stream->stream_id, stream->stream_send_offset, xqc_pkt_type_2_str(pkt_type), buff_1rtt,
             send_data_size, offset, fin, stream->stream_flag, conn, xqc_conn_state_2_str(conn->conn_state),
@@ -1466,4 +1504,11 @@ xqc_stream_recv_state_update(xqc_stream_t *stream, xqc_recv_stream_state_t state
 {
     xqc_log_event(stream->stream_conn->log, TRA_STREAM_STATE_UPDATED, stream, XQC_LOG_STREAM_RECV, state);
     stream->stream_state_recv = state;
+}
+
+xqc_stream_direction_t
+xqc_stream_get_direction(xqc_stream_t *strm)
+{
+    return xqc_stream_is_uni(strm->stream_id)
+        ? XQC_STREAM_UNI : XQC_STREAM_BIDI;
 }

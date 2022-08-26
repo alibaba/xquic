@@ -41,7 +41,7 @@ typedef struct xqc_h3_frame_pctx_s {
 
     /* frame temp/final result */
     xqc_h3_frame_t              frame;
-    xqc_discrete_vint_pctx_t    pctx;
+    xqc_discrete_int_pctx_t     pctx;
 } xqc_h3_frame_pctx_t;
 
 

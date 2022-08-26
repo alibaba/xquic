@@ -283,6 +283,11 @@ xqc_engine_conns_hash_find(xqc_engine_t *engine, const xqc_cid_t *cid, char type
     }
 }
 
+xqc_connection_t *
+xqc_engine_get_conn_by_scid(xqc_engine_t *engine, const xqc_cid_t *cid)
+{
+    return xqc_engine_conns_hash_find(engine, cid, 's');
+}
 
 void
 xqc_engine_conns_pq_destroy(xqc_pq_t *q)
@@ -309,6 +314,15 @@ xqc_engine_wakeup_after(xqc_engine_t *engine)
     }
 
     return 0;
+}
+
+void
+xqc_engine_wakeup_once(xqc_engine_t *engine)
+{
+    /* if interval is smaller, trigger the event with the new interval */
+    if (engine->eng_callback.set_event_timer) {
+        engine->eng_callback.set_event_timer(1, engine->user_data);
+    }
 }
 
 
@@ -589,8 +603,9 @@ xqc_engine_destroy(xqc_engine_t *engine)
 
 
 xqc_int_t
-xqc_engine_send_reset(xqc_engine_t *engine, xqc_cid_t *dcid, const struct sockaddr *peer_addr,
-    socklen_t peer_addrlen, void *user_data)
+xqc_engine_send_reset(xqc_engine_t *engine, xqc_cid_t *dcid,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    const struct sockaddr *local_addr, socklen_t local_addrlen, void *user_data)
 {
     unsigned char buf[XQC_PACKET_OUT_SIZE];
     xqc_int_t size = xqc_gen_reset_packet(dcid, buf,
@@ -602,7 +617,8 @@ xqc_engine_send_reset(xqc_engine_t *engine, xqc_cid_t *dcid, const struct sockad
 
     xqc_stateless_reset_pt stateless_cb = engine->transport_cbs.stateless_reset;
     if (stateless_cb) {
-        size = (xqc_int_t)stateless_cb(buf, (size_t)size, peer_addr, peer_addrlen, user_data);
+        size = (xqc_int_t)stateless_cb(buf, (size_t)size, peer_addr, peer_addrlen,
+                                       local_addr, local_addrlen, user_data);
         if (size < 0) {
             return size;
         }
@@ -682,6 +698,9 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
     int ret;
 
     xqc_send_ctl_timer_expire(conn->conn_send_ctl, now);
+
+    /* notify closing event as soon as possible */
+    xqc_conn_closing_notify(conn);
 
     if (XQC_UNLIKELY(conn->conn_flag & XQC_CONN_FLAG_TIME_OUT)) {
         conn->conn_state = XQC_CONN_STATE_CLOSED;
@@ -851,15 +870,14 @@ xqc_engine_main_logic(xqc_engine_t *engine)
             continue;
         }
 
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|ticking|conn:%p|state:%s|flag:%s|now:%ui|",
-                conn, xqc_conn_state_2_str(conn->conn_state), xqc_conn_flag_2_str(conn->conn_flag), now);
-
         now = xqc_monotonic_timestamp();
         xqc_engine_process_conn(conn, now);
 
         if (XQC_UNLIKELY(conn->conn_state == XQC_CONN_STATE_CLOSED)) {
             conn->conn_flag &= ~XQC_CONN_FLAG_TICKING;
             if (!(conn->conn_flag & XQC_CONN_FLAG_CANNOT_DESTROY)) {
+                xqc_log(engine->log, XQC_LOG_INFO, "|destroy conn from conns_active_pq while closed|"
+                        "conn:%p|%s", conn, xqc_conn_addr_str(conn));
                 xqc_conn_destroy(conn);
 
             } else {
@@ -888,6 +906,9 @@ xqc_engine_main_logic(xqc_engine_t *engine)
             if (XQC_UNLIKELY(conn->conn_state == XQC_CONN_STATE_CLOSED)) {
                 conn->conn_flag &= ~XQC_CONN_FLAG_TICKING;
                 if (!(conn->conn_flag & XQC_CONN_FLAG_CANNOT_DESTROY)) {
+                    xqc_log(engine->log, XQC_LOG_INFO, "|destroy conn from conns_active_pq after sending|"
+                            "conn:%p|%s", conn, xqc_conn_addr_str(conn));
+
                     xqc_conn_destroy(conn);
 
                 } else {
@@ -919,6 +940,8 @@ xqc_engine_main_logic(xqc_engine_t *engine)
                 conn->conn_flag &= ~XQC_CONN_FLAG_TICKING;
 
                 if (!(conn->conn_flag & XQC_CONN_FLAG_CANNOT_DESTROY)) {
+                    xqc_log(conn->log, XQC_LOG_ERROR, "|destroy unexpected conn with tick timer unset|");
+
                     xqc_conn_destroy(conn);
 
                 } else {
@@ -1002,7 +1025,8 @@ xqc_engine_packet_process(xqc_engine_t *engine,
             }
             xqc_log(engine->log, XQC_LOG_STATS, "|fail to find connection, send reset|size:%uz|scid:%s|",
                     packet_in_size, xqc_scid_str(&scid));
-            ret = xqc_engine_send_reset(engine, &scid, peer_addr, peer_addrlen, user_data);
+            ret = xqc_engine_send_reset(engine, &scid, peer_addr, peer_addrlen,
+                                        local_addr, local_addrlen, user_data);
             if (ret) {
                 xqc_log(engine->log, XQC_LOG_ERROR, "|fail to send reset|");
             }
@@ -1011,8 +1035,8 @@ xqc_engine_packet_process(xqc_engine_t *engine,
             /* reset is associated with peer's cid */
             conn = xqc_engine_conns_hash_find(engine, &scid, 'd');
             if (conn) {
-                xqc_log(engine->log, XQC_LOG_WARN, "|====>|receive reset, enter draining|size:%uz|scid:%s|",
-                        packet_in_size, xqc_scid_str(&scid));
+                xqc_log(engine->log, XQC_LOG_WARN, "|====>|receive reset, enter draining|size:%uz|scid:%s|state:%s|flags:%s",
+                        packet_in_size, xqc_scid_str(&scid), xqc_conn_state_2_str(conn->conn_state), xqc_conn_flag_2_str(conn->conn_flag));
                 if (conn->conn_state < XQC_CONN_STATE_DRAINING) {
                     conn->conn_state = XQC_CONN_STATE_DRAINING;
                     conn->conn_err = XQC_ESTATELESS_RESET;  /* remember reset */
@@ -1021,6 +1045,9 @@ xqc_engine_packet_process(xqc_engine_t *engine,
                     xqc_usec_t pto = xqc_send_ctl_calc_pto(conn->conn_send_ctl);
                     if (!xqc_send_ctl_timer_is_set(conn->conn_send_ctl, XQC_TIMER_DRAINING)) {
                         xqc_send_ctl_timer_set(conn->conn_send_ctl, XQC_TIMER_DRAINING, recv_time, 3 * pto);
+                        xqc_log(conn->log, XQC_LOG_INFO, "|DOUBLE_FREE_DEBUG|draing timer set on reset|state:%s|flags:%s",
+                                xqc_conn_state_2_str(conn->conn_state), xqc_conn_flag_2_str(conn->conn_flag));
+
                     }
                 }
                 goto after_process;

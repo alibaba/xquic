@@ -1,27 +1,7 @@
 #include "src/transport/scheduler/xqc_scheduler_otias_xlink.h"
 
-#include "src/transport/xqc_reinjection.h"
-#include "src/transport/xqc_multipath.h"
-#include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_send_ctl.h"
-#include "src/transport/xqc_engine.h"
-#include "src/transport/xqc_cid.h"
-#include "src/transport/xqc_stream.h"
-#include "src/transport/xqc_utils.h"
-#include "src/transport/xqc_wakeup_pq.h"
-#include "src/transport/xqc_packet_out.h"
 
-#include "src/common/xqc_common.h"
-#include "src/common/xqc_malloc.h"
-#include "src/common/xqc_str_hash.h"
-#include "src/common/xqc_hash.h"
-#include "src/common/xqc_priority_q.h"
-#include "src/common/xqc_memory_pool.h"
-#include "src/common/xqc_random.h"
-
-#include "xquic/xqc_errno.h"
-
-#include "xqc_scheduler_otias_xlink.h"
 
 static size_t
 xqc_otias_scheduler_size()
@@ -66,24 +46,7 @@ xqc_path_otias_schedule_check_can_send(xqc_path_ctx_t *path, xqc_packet_out_t *p
     xqc_send_ctl_t *send_ctl = path->path_send_ctl;
     uint32_t total_bytes = path->path_schedule_bytes;
 
-    /* check the anti-amplification limit, will allow a bit larger than 3x received */
-    if (xqc_send_ctl_check_anti_amplification(send_ctl, total_bytes)) {
-        xqc_log(send_ctl->ctl_conn->log, XQC_LOG_INFO,
-                "|blocked by anti amplification limit|total_sent:%ui|3*total_recv:%ui|",
-                send_ctl->ctl_bytes_send + total_bytes, 3 * send_ctl->ctl_bytes_recv);
-        return XQC_FALSE;
-    }
-
-    // /* normal packets in send list will be blocked by cc */
-    // if (!xqc_send_packet_check_cc(send_ctl, packet_out, total_bytes))
-    // {
-    //     xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, "|path:%ui|blocked by cc|", path->path_id);
-    //     return XQC_FALSE;
-    // }
-
-    /* marked by wh:pkts in path level send queue will also block send */
-    // uint32_t inflight = send_ctl->ctl_bytes_in_flight;
-    // uint32_t cwnd = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong);
+    /* normal packets in send list will be blocked by cc */
     if (!xqc_path_otias_schedule_cwnd_test2(path)) {
         xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, "|path:%ui|sendq already fills the cwnd", path->path_id);
         return XQC_FALSE;
@@ -92,6 +55,21 @@ xqc_path_otias_schedule_check_can_send(xqc_path_ctx_t *path, xqc_packet_out_t *p
     return XQC_TRUE;
 }
 
+/**
+ * @brief Check out if it is allowed to reinject this packet on path
+ * 
+ * @param path The target path
+ * @param packet_out Packet that need to be reinjected
+ * @return xqc_bool_t 
+ */
+static xqc_bool_t
+xqc_path_dont_reinject_packet(xqc_path_ctx_t *path, xqc_packet_out_t *packet_out)
+{
+    if (packet_out && packet_out->po_path_id == path->path_id) {
+        return XQC_TRUE;
+    }
+    return XQC_FALSE;
+}
 
 /**
  * @brief calculate the metric of a path
@@ -129,29 +107,46 @@ static xqc_path_ctx_t *
 xqc_otias_scheduler_get_path(void *scheduler,
     xqc_connection_t *conn, xqc_packet_out_t *packet_out, int check, int reinject)
 {
-    uint64_t min_T = XQC_MAX_UINT64_VALUE;
+    uint64_t best_metric = XQC_MAX_UINT64_VALUE;
     uint64_t metric;
     xqc_list_head_t *pos, *next;
     xqc_path_ctx_t *path;
     xqc_path_ctx_t *best_path = NULL;
-    xqc_path_ctx_t *backup_path = NULL;       /* backup path */ 
-    uint64_t backup_metric;                   /* backup path's metric */
-    xqc_bool_t blocked;
+    xqc_path_ctx_t *backup_path = NULL;                     /* backup path */ 
+    uint64_t backup_metric = XQC_MAX_UINT64_VALUE;          /* backup path's metric */
+    xqc_bool_t cwnd_has_space;
 
     xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
+
         path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
-        if (reinject && (packet_out->po_path_id == path->path_id)) {
-            continue;
-        }
-        blocked = xqc_path_otias_schedule_cwnd_test2(path);
+        cwnd_has_space = xqc_path_otias_schedule_cwnd_test2(path);
         metric = xqc_otias_scheduler_calc_metric(path);
-        if (metric < min_T) {
-            min_T = metric;
-            best_path = path;
+
+        if (reinject && xqc_path_dont_reinject_packet(path, packet_out)) {
+            if (!backup_path || metric < backup_metric) {
+                if (cwnd_has_space) {
+                    backup_metric = metric;
+                    backup_path = path;
+                }
+            }
+        }
+        else {
+            if (!best_path || metric < best_metric) {
+                if (!packet_out->po_origin || cwnd_has_space) {
+                    best_metric = metric;
+                    best_path = path;
+                }
+            }
         }
     }
 
-    if (best_path == NULL) {
+    if (!best_path) {
+        if (backup_path) {
+            best_path = backup_path;
+        }
+    }
+
+    if (!best_path) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|No available paths to schedule|conn:%p|", conn);
 
     } else {

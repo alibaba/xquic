@@ -1,26 +1,7 @@
-
 #include "src/transport/scheduler/xqc_scheduler_ecf_xlink.h"
 
-#include "src/transport/xqc_reinjection.h"
-#include "src/transport/xqc_multipath.h"
-#include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_send_ctl.h"
-#include "src/transport/xqc_engine.h"
-#include "src/transport/xqc_cid.h"
-#include "src/transport/xqc_stream.h"
-#include "src/transport/xqc_utils.h"
-#include "src/transport/xqc_wakeup_pq.h"
-#include "src/transport/xqc_packet_out.h"
 
-#include "src/common/xqc_common.h"
-#include "src/common/xqc_malloc.h"
-#include "src/common/xqc_str_hash.h"
-#include "src/common/xqc_hash.h"
-#include "src/common/xqc_priority_q.h"
-#include "src/common/xqc_memory_pool.h"
-#include "src/common/xqc_random.h"
-
-#include "xquic/xqc_errno.h"
 
 static size_t
 xqc_ecf_scheduler_size()
@@ -62,21 +43,6 @@ xqc_path_ecf_schedule_check_can_send(xqc_path_ctx_t *path, xqc_packet_out_t *pac
     xqc_send_ctl_t *send_ctl = path->path_send_ctl;
     uint32_t total_bytes = path->path_schedule_bytes;
 
-    /* check the anti-amplification limit, will allow a bit larger than 3x received */
-    if (xqc_send_ctl_check_anti_amplification(send_ctl, total_bytes)) {
-        xqc_log(send_ctl->ctl_conn->log, XQC_LOG_INFO,
-                "|blocked by anti amplification limit|total_sent:%ui|3*total_recv:%ui|",
-                send_ctl->ctl_bytes_send + total_bytes, 3 * send_ctl->ctl_bytes_recv);
-        return XQC_FALSE;
-    }
-
-    /* normal packets in send list will be blocked by cc */
-    // if (!xqc_send_packet_check_cc(send_ctl, packet_out, total_bytes))
-    // {
-    //     xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, "|path:%ui|blocked by cc|", path->path_id);
-    //     return XQC_FALSE;
-    // }
-
     /* marked by wh:pkts in path level send queue will also block send */
     if (cwnd_check && !xqc_path_ecf_schedule_cwnd_test2(path)) {
         xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, "|path:%ui|sendq already fills the cwnd", path->path_id);
@@ -105,8 +71,6 @@ xqc_ecf_scheduler_get_path(void *scheduler,
     xqc_usec_t rttvar_f = 0;                               /* fast path rttvar */
     xqc_usec_t rttvar_s = 0;                               /* slow path rttvar */
 
-    // uint32_t total_bytes;
-
     uint64_t min_rtt = XQC_MAX_UINT64_VALUE;
     /* marked by wh: find the overall best (fastest) path */
     xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
@@ -117,10 +81,6 @@ xqc_ecf_scheduler_get_path(void *scheduler,
         if (reinject && (packet_out->po_path_id == path->path_id)) {
             continue;
         }
-        /* delete cc send limited check */
-        // if (check && (!xqc_path_schedule_ecf_check_can_send(path, packet_out))) {
-        //     continue;
-        // }
         /* get fastest path */
         if (path->path_send_ctl->ctl_srtt < min_rtt) {
             min_path = path;
@@ -128,7 +88,6 @@ xqc_ecf_scheduler_get_path(void *scheduler,
         }
     }
 
-    // min_path = xqc_xlink_scheduler_get_path()
     uint64_t curr_min_rtt = XQC_MAX_UINT64_VALUE;
     /* marked by wh: find the current best subflow according to the default scheduler */
     xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
@@ -165,18 +124,17 @@ xqc_ecf_scheduler_get_path(void *scheduler,
         rttvar_s = best_path->path_send_ctl->ctl_rttvar;
 
         xqc_usec_t delta = xqc_max(rttvar_f, rttvar_s);
-        // uint64_t k = packet_out->po_used_size;    /* data size need to be scheduled */
+
         /* consider queue delay: min_path has queued bytes, best_path has no queued bytes */
         uint64_t k = xqc_max(packet_out->po_used_size + min_path->path_schedule_bytes, cwnd_f);
         uint64_t lhs = srtt_f * (k + cwnd_f);
         uint64_t rhs = cwnd_f * (srtt_s + delta);
 
         if (ecf->r_beta * lhs < ecf->r_beta * rhs + ecf->waiting * rhs) {
-            /* when cwnd_s == 0? */
+
             if (k * srtt_s > (2 * srtt_f + delta) * cwnd_s) {
                 ecf->waiting = 1; 
-                best_path = NULL;                     /* need to waiting for fast subflow not blocked */
-                // printf("debug2\n");
+                best_path = min_path;                     /* need to waiting for fast subflow not blocked */
             }
         }
         else {
@@ -184,6 +142,7 @@ xqc_ecf_scheduler_get_path(void *scheduler,
         }
         
     }
+
     if (best_path == NULL) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|No available paths to schedule|conn:%p|", conn);
         // printf("debug2");
@@ -192,6 +151,7 @@ xqc_ecf_scheduler_get_path(void *scheduler,
         xqc_log(conn->log, XQC_LOG_DEBUG, "|best path:%ui|frame_type:%s|",
                 best_path->path_id, xqc_frame_type_2_str(packet_out->po_frame_types));
     }
+
     return best_path;
 }
 

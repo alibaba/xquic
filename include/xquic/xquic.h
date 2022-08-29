@@ -730,6 +730,8 @@ typedef struct xqc_scheduler_callback_s {
 } xqc_scheduler_callback_t;
 
 XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_scheduler_callback_t xqc_minrtt_scheduler_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_scheduler_callback_t xqc_ecf_scheduler_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_scheduler_callback_t xqc_otias_scheduler_cb;
 
 
 /**

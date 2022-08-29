@@ -177,6 +177,8 @@ set(
     "src/transport/xqc_timer.c"
     "src/transport/xqc_reinjection.c"
     "src/transport/scheduler/xqc_scheduler_minrtt.c"
+    "src/transport/scheduler/xqc_scheduler_ecf_xlink.c"
+    "src/transport/scheduler/xqc_scheduler_otias_xlink.c"
 )
 
 # TLS source

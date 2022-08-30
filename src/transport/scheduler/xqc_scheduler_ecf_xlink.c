@@ -9,12 +9,6 @@ xqc_ecf_scheduler_size()
     return sizeof(xqc_ecf_scheduler_t);
 }
 
-/**
- * @brief Initialize the ECF parameters
- * 
- * @param scheduler 
- * @param log 
- */
 static void
 xqc_ecf_scheduler_init(void *scheduler, xqc_log_t *log)
 {
@@ -71,6 +65,8 @@ xqc_ecf_scheduler_get_path(void *scheduler,
     xqc_usec_t rttvar_f = 0;                               /* fast path rttvar */
     xqc_usec_t rttvar_s = 0;                               /* slow path rttvar */
 
+    uint64_t sub_sndbuf = 0;
+
     uint64_t min_rtt = XQC_MAX_UINT64_VALUE;
     /* marked by wh: find the overall best (fastest) path */
     xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
@@ -78,9 +74,13 @@ xqc_ecf_scheduler_get_path(void *scheduler,
         if (path->path_state != XQC_PATH_STATE_ACTIVE) {
             continue;
         }
+
         if (reinject && (packet_out->po_path_id == path->path_id)) {
             continue;
         }
+
+        sub_sndbuf += path->path_schedule_bytes + path->path_send_ctl->ctl_bytes_in_flight;
+
         /* get fastest path */
         if (path->path_send_ctl->ctl_srtt < min_rtt) {
             min_path = path;
@@ -116,6 +116,9 @@ xqc_ecf_scheduler_get_path(void *scheduler,
     /* marked by wh:best_path->path_id != min_path->path_id */
     if (best_path && min_path && best_path->path_id != min_path->path_id) {
 
+        uint64_t sndbuf_meta = conn->conn_send_queue->sndq_packets_used;
+        uint64_t sndbuf = 0;
+
         cwnd_f = min_path->path_send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(min_path->path_send_ctl->ctl_cong);
         cwnd_s = best_path->path_send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(best_path->path_send_ctl->ctl_cong);
         srtt_f = min_path->path_send_ctl->ctl_srtt;
@@ -125,16 +128,22 @@ xqc_ecf_scheduler_get_path(void *scheduler,
 
         xqc_usec_t delta = xqc_max(rttvar_f, rttvar_s);
 
+        if (sndbuf_meta > sub_sndbuf) {
+            sndbuf = sndbuf_meta - sub_sndbuf;
+        }
+        
         /* consider queue delay: min_path has queued bytes, best_path has no queued bytes */
-        uint64_t k = xqc_max(packet_out->po_used_size + min_path->path_schedule_bytes, cwnd_f);
-        uint64_t lhs = srtt_f * (k + cwnd_f);
+        uint64_t k_f = xqc_max(sndbuf + min_path->path_schedule_bytes, cwnd_f);
+        uint64_t lhs = srtt_f * (k_f + cwnd_f);
         uint64_t rhs = cwnd_f * (srtt_s + delta);
 
         if (ecf->r_beta * lhs < ecf->r_beta * rhs + ecf->waiting * rhs) {
 
-            if (k * srtt_s > (2 * srtt_f + delta) * cwnd_s) {
+            uint64_t k_s = xqc_max(sndbuf + best_path->path_schedule_bytes, cwnd_s);
+
+            if (k_s * srtt_s >= (2 * srtt_f + delta) * cwnd_s) {
                 ecf->waiting = 1; 
-                best_path = min_path;                     /* need to waiting for fast subflow not blocked */
+                best_path = NULL;                     /* need to waiting for fast subflow not blocked */
             }
         }
         else {

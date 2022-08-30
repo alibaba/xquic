@@ -132,7 +132,7 @@ xqc_otias_scheduler_get_path(void *scheduler,
         }
         else {
             if (!best_path || metric < best_metric) {
-                if (!packet_out->po_origin || cwnd_has_space) {
+                if (!(packet_out->po_flag & XQC_POF_RETRANSED) || cwnd_has_space) {
                     best_metric = metric;
                     best_path = path;
                 }

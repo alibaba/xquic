@@ -20,6 +20,38 @@ XQUIC Library released by Alibaba is …
 
 … **still in active development.** [Interoperability](https://interop.seemann.io/) is regularly tested with other QUIC implementations.
 
+### Features
+
+[![](https://img.shields.io/static/v1?label=RFC&message=9000&color=brightgreen)](https://tools.ietf.org/html/rfc9000)
+[![](https://img.shields.io/static/v1?label=RFC&message=9001&color=brightgreen)](https://tools.ietf.org/html/rfc9001)
+[![](https://img.shields.io/static/v1?label=RFC&message=9002&color=brightgreen)](https://tools.ietf.org/html/rfc9002)
+[![](https://img.shields.io/static/v1?label=RFC&message=9114&color=brightgreen)](https://tools.ietf.org/html/rfc9114)
+[![](https://img.shields.io/static/v1?label=RFC&message=9204&color=brightgreen)](https://tools.ietf.org/html/rfc9204)
+
+
+[![](https://img.shields.io/static/v1?label=draft-13&message=QUIC-LB&color=9cf)](https://tools.ietf.org/html/draft-ietf-quic-load-balancers-13)
+[![](https://img.shields.io/static/v1?label=draft-01&message=Multipath-QUIC&color=9cf)](https://tools.ietf.org/html/draft-ietf-quic-multipath-01)
+
+#### Standardized Features
+
+* All big features conforming with [RFC 9000](https://www.rfc-editor.org/rfc/rfc9000), [RFC9001](https://www.rfc-editor.org/rfc/rfc9001), [RFC9002](https://www.rfc-editor.org/rfc/rfc9002), [RFC9114](https://www.rfc-editor.org/rfc/rfc9114) and [RFC9204](https://www.rfc-editor.org/rfc/rfc9204), including the interface between QUIC and TLS, 0-RTT connection establishment, HTTP/3 and QPACK.
+
+* ALPN Extension conforming with [RFC7301](https://www.rfc-editor.org/rfc/rfc7301)
+
+#### Not Yet Standardized Features
+
+* [Multipath QUIC](https://tools.ietf.org/html/draft-ietf-quic-multipath-01) (beta version)
+
+* [QUIC-LB](https://tools.ietf.org/html/draft-ietf-quic-load-balancers-13)
+
+#### Library Features
+
+* Pluggable congestion control: NewReno, Cubic, BBR and BBRv2, ...
+
+* Pluggable cryptography, integration with BoringSSL and BabaSSL
+
+* Cross-platform implementation, support Android, iOS, Linux, macOS and Windows
+
 ## Requirements
 
 To build XQUIC, you need 

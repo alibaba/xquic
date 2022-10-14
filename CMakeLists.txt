@@ -14,13 +14,13 @@ endif()
 
 # SSL lib type, xquic support babassl and boringssl interfaces
 if(NOT SSL_TYPE)
-    set(SSL_TYPE "babassl")
+    set(SSL_TYPE "tongsuo")
 endif()
 
-if(${SSL_TYPE} MATCHES "babassl")
+if(${SSL_TYPE} MATCHES "tongsuo")
     # PATH of ssl
     if(NOT SSL_PATH)
-        set(SSL_PATH "/usr/local/babassl")
+        set(SSL_PATH "/usr/local/tongsuo")
     endif()
 
     # ssl lib denpendency
@@ -102,8 +102,8 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O2 -std=gnu11 -Wall -DNDEBUG_PRINT -DNPR
 set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -g -O0 -std=gnu11 -Wall -DNDEBUG_PRINT -DNPRINT_MALLOC -DXQC_DEBUG ")
 
 if(NOT CMAKE_SYSTEM_NAME MATCHES "Windows")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -Wno-unused -Wno-pointer-sign -Wno-format-security ")
-    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -Werror -Wno-unused -Wno-pointer-sign -Wno-format-security ")
+    # set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -Wno-unused -Wno-pointer-sign -Wno-format-security ")
+    # set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -Werror -Wno-unused -Wno-pointer-sign -Wno-format-security ")
 else()
     add_definitions(-DXQC_SYS_WINDOWS=1)
 endif()
@@ -191,13 +191,13 @@ if(${SSL_TYPE} MATCHES "boringssl")
         "src/tls/boringssl/xqc_crypto.c"
         "src/tls/boringssl/xqc_ssl_if.c"
     )
-elseif(${SSL_TYPE} MATCHES "babassl")
+elseif(${SSL_TYPE} MATCHES "tongsuo")
     set(
         TLS_SOURCE
         ${TLS_SOURCE}
-        "src/tls/babassl/xqc_hkdf.c"
-        "src/tls/babassl/xqc_crypto.c"
-        "src/tls/babassl/xqc_ssl_if.c"
+        "src/tls/tongsuo/xqc_hkdf.c"
+        "src/tls/tongsuo/xqc_crypto.c"
+        "src/tls/tongsuo/xqc_ssl_if.c"
     )
 endif()
 

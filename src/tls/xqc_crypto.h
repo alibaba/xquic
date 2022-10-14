@@ -20,7 +20,7 @@ typedef struct xqc_hdr_protect_cipher_s    xqc_hdr_protect_cipher_t;
 #ifdef OPENSSL_IS_BORINGSSL
 #include "src/tls/boringssl/xqc_aead_impl.h"
 #else
-#include "src/tls/babassl/xqc_aead_impl.h"
+#include "src/tls/tongsuo/xqc_aead_impl.h"
 #endif
 
 #undef  XQC_CRYPTO_PRIVATE

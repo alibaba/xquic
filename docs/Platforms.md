@@ -18,7 +18,7 @@ specially, `<ssl_path> can be ${PWD}/third_party/boringssl or ${PWD}/third_party
 The default `CMAKE_BUILD_TYPE` is `Release` , so you only need to compile BoringSSL or BabaSSL, and then build XQUIC.
 
 ```bash
-# build XQUIC with BabaSSL
+# build XQUIC with Tongsuo
 git submodule update --init --recursive
 mkdir build; cd build
 cmake ..
@@ -36,7 +36,7 @@ make -j
 You can use the cmake variables `-DPLATFORM=mac` to build XQUIC on macOS.
 
 ```bash
-# build XQUIC with BabaSSL
+# build XQUIC with Tongsuo
 git submodule update --init --recursive
 mkdir build; cd build
 cmake -DPLATFORM=mac ..

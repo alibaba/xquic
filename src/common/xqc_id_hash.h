@@ -36,14 +36,14 @@ static inline int
 xqc_pow2(unsigned int n)
 {
   
-    int clz , power = sizeof(n), count1 = 0;
+    int clz , power = sizeof(n), count1 = 0, temp = n;
 
 #ifdef __GNUC__
     count1 = __builtin_popcount(n) ;
 #else
-    while (n) {
-		count1 += n & 1;
-		n >>= 1;
+    while (temp) {
+		count1 += temp & 1;
+		temp >>= 1;
 	}
 #endif
 

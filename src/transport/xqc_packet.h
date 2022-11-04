@@ -9,8 +9,9 @@
 #include "src/common/xqc_list.h"
 #include "src/tls/xqc_tls_defs.h"
 
-#define XQC_MSS                             1460
-#define XQC_QUIC_MSS                        1200
+#define XQC_ACK_SPACE                       16
+#define XQC_QUIC_MIN_MSS                    1200
+#define XQC_MSS                             (XQC_QUIC_MIN_MSS + XQC_ACK_SPACE)
 
 /* max 0rtt packet count sent by client */
 #define XQC_PACKET_0RTT_MAX_COUNT           30
@@ -60,7 +61,7 @@ struct xqc_packet_s {
 
 #define XQC_PACKET_VERSION_LENGTH               4
 #define XQC_PACKET_LONG_HEADER_PREFIX_LENGTH    (1 + XQC_PACKET_VERSION_LENGTH)
-#define XQC_PACKET_INITIAL_MIN_LENGTH           XQC_QUIC_MSS
+#define XQC_PACKET_INITIAL_MIN_LENGTH           XQC_QUIC_MIN_MSS
 
 #define XQC_PACKET_SHORT_HEADER_PKTNO_LEN(buf)  ((buf[0] & 0x03) + 1)
 #define XQC_PACKET_SHORT_HEADER_KEY_PHASE(buf)  ((buf[0] & 0x04) >> 2)

@@ -9,7 +9,7 @@
 
 /* https://tools.ietf.org/html/draft-ietf-quic-recovery-19#appendix-B */
 
-#define XQC_kMaxDatagramSize XQC_QUIC_MSS
+#define XQC_kMaxDatagramSize XQC_MSS
 #define XQC_kMinimumWindow (2 * XQC_kMaxDatagramSize)
 /* 
  * The RECOMMENDED value is the minimum of

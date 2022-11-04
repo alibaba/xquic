@@ -16,12 +16,6 @@ xqc_bool_t
 xqc_generate_sample(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl, 
     xqc_usec_t now)
 {
-    /* Clear app-limited field if bubble is ACKed and gone. */
-    if (send_ctl->ctl_app_limited 
-        && send_ctl->ctl_delivered > send_ctl->ctl_app_limited)
-    {
-        send_ctl->ctl_app_limited = 0;
-    }
 
     /* we do NOT have a valid sample yet. */
     if (sampler->prior_time == 0) {
@@ -122,7 +116,7 @@ xqc_sample_check_app_limited(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl)
                     xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong);
     if (send_ctl->ctl_bytes_in_flight < cwnd) {
         /* QUIC MSS */
-        not_cwnd_limited = (cwnd - send_ctl->ctl_bytes_in_flight) >= XQC_QUIC_MSS; 
+        not_cwnd_limited = (cwnd - send_ctl->ctl_bytes_in_flight) >= XQC_MSS; 
     }
 
     if (not_cwnd_limited    /* We are not limited by CWND. */

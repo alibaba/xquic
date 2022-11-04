@@ -7,13 +7,13 @@
 #include "src/transport/xqc_packet.h"
 #include "src/common/xqc_log.h"
 
-#define XQC_MIN_BURST_NUM (2 * XQC_QUIC_MSS)
-#define XQC_MAX_BURST_NUM (10 * XQC_QUIC_MSS)
+#define XQC_MIN_BURST_NUM (2 * XQC_MSS)
+#define XQC_MAX_BURST_NUM (10 * XQC_MSS)
 #define TRUE 1
 #define FALSE 0
 #define XQC_CLOCK_GRANULARITY_US 1000 /* 1ms */
 #define XQC_PACING_DELAY_US XQC_CLOCK_GRANULARITY_US
-#define XQC_DEFAULT_PACING_RATE (((2 * XQC_QUIC_MSS * 1000000ULL)/(XQC_kInitialRtt * 1000)))
+#define XQC_DEFAULT_PACING_RATE (((2 * XQC_MSS * 1000000ULL)/(XQC_kInitialRtt * 1000)))
 
 void
 xqc_pacing_init(xqc_pacing_t *pacing, int pacing_on, xqc_send_ctl_t *ctl)

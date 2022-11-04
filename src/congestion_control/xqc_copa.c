@@ -11,7 +11,7 @@
 #include "src/congestion_control/xqc_copa.h"
 #include "src/transport/xqc_send_ctl.h"
 
-#define XQC_COPA_MSS                   (XQC_QUIC_MSS)
+#define XQC_COPA_MSS                   (XQC_MSS)
 #define XQC_COPA_MIN_WIN               (4 * XQC_COPA_MSS)
 #define XQC_COPA_MAX_INIT_WIN          (100 * XQC_COPA_MSS)
 #define XQC_COPA_INIT_WIN              (32 * XQC_COPA_MSS)

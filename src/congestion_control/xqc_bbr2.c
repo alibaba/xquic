@@ -12,7 +12,7 @@
 #include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_packet.h"
 
-#define XQC_BBR2_MAX_DATAGRAM_SIZE XQC_QUIC_MSS
+#define XQC_BBR2_MAX_DATAGRAM_SIZE XQC_MSS
 #define XQC_BBR2_MIN_WINDOW (4 * XQC_BBR2_MAX_DATAGRAM_SIZE)
 /* The RECOMMENDED value is the minimum of 10 * kMaxDatagramSize and max(2* kMaxDatagramSize, 14720)). */
 #define XQC_BBR2_INITIAL_WINDOW (32 * XQC_BBR2_MAX_DATAGRAM_SIZE)

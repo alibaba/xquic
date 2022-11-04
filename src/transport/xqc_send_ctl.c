@@ -935,7 +935,7 @@ xqc_send_ctl_update_cwnd_limited(xqc_send_ctl_t *ctl)
     uint32_t cwnd_bytes = ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(ctl->ctl_cong);
     /* If we can not send the next full-size packet, we are CWND limited. */
     ctl->ctl_is_cwnd_limited = 0;
-    if ((ctl->ctl_bytes_in_flight + XQC_QUIC_MSS) > cwnd_bytes) {
+    if ((ctl->ctl_bytes_in_flight + XQC_MSS) > cwnd_bytes) {
         ctl->ctl_is_cwnd_limited = 1;
     }
 }
@@ -1200,6 +1200,15 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *ctl, xqc_ack_info_t *const ack_info
 
     xqc_log(ctl->ctl_conn->log, XQC_LOG_DEBUG, "|xqc_send_ctl_set_loss_detection_timer|acked|pto_count:%ud|", ctl->ctl_pto_count);
     xqc_send_ctl_set_loss_detection_timer(ctl);
+
+
+    /* Clear app-limited field if the bubble is gone. */
+    /* @NOTE: we need to clear it for Cubic/Reno as well. */
+    if (ctl->ctl_app_limited 
+        && ctl->ctl_delivered > ctl->ctl_app_limited)
+    {
+        ctl->ctl_app_limited = 0;
+    }
 
     /* BBR */
     if (ctl->ctl_cong_callback->xqc_cong_ctl_init_bbr /* && stream_frame_acked */) {
@@ -1590,7 +1599,7 @@ xqc_send_ctl_congestion_event(xqc_send_ctl_t *ctl, xqc_usec_t sent_time)
 int
 xqc_send_ctl_is_app_limited(xqc_send_ctl_t *ctl)
 {
-    return 0;
+    return ctl->ctl_app_limited > 0;
 }
 
 /* This function is called inside cc's on_ack callbacks if needed */

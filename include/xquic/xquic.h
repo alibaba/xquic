@@ -627,6 +627,15 @@ typedef struct xqc_cc_params_s {
     uint32_t    expect_bw;
     uint32_t    max_expect_bw;
     uint32_t    cc_optimization_flags;
+    /* 0 < delta <= delta_max, default 0.05, ->0 = more throughput-oriented */
+    double      copa_delta_base; 
+    /* 0 < delta_max <= 1.0, default 0.5 */
+    double      copa_delta_max;
+    /* 
+     * 1.0 <= delta_ai_unit, default 1.0, greater values mean more aggressive
+     * when Copa competes with loss-based CCAs.
+     */
+    double      copa_delta_ai_unit;
 } xqc_cc_params_t;
 
 typedef struct xqc_congestion_control_callback_s {
@@ -657,8 +666,8 @@ typedef struct xqc_congestion_control_callback_s {
     /* This function is used by BBR and Cubic*/
     void (*xqc_cong_ctl_restart_from_idle)(void *cong_ctl, uint64_t arg);
 
-    /* For BBR */
-    void (*xqc_cong_ctl_bbr)(void *cong_ctl, xqc_sample_t *sampler);
+    /* For BBR & Copa */
+    void (*xqc_cong_ctl_on_ack_multiple_pkts)(void *cong_ctl, xqc_sample_t *sampler);
 
     /* initialize bbr */
     void (*xqc_cong_ctl_init_bbr)(void *cong_ctl, xqc_sample_t *sampler, xqc_cc_params_t cc_params);
@@ -680,6 +689,7 @@ XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_bbr2_cb;
 #endif
 XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_bbr_cb;
 XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_cubic_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_copa_cb;
 
 
 /**

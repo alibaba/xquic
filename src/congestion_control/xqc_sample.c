@@ -38,6 +38,17 @@ xqc_generate_sample(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl,
     sampler->lost_pkts = send_ctl->ctl_lost_pkts_number - sampler->prior_lost;
 
     /* 
+     * Even if the interval is too small, 
+     * we need to update these data for Copa. 
+     */
+    sampler->now = now;
+    sampler->rtt = send_ctl->ctl_latest_rtt;
+    sampler->srtt = send_ctl->ctl_srtt;
+    sampler->bytes_inflight = send_ctl->ctl_bytes_in_flight;
+    sampler->prior_inflight = send_ctl->ctl_prior_bytes_in_flight;
+    sampler->total_acked = send_ctl->ctl_delivered;
+
+    /* 
      * Normally we expect interval >= MinRTT.
      * Note that rate may still be over-estimated when a spuriously
      * retransmitted skb was first (s)acked because "interval"
@@ -53,12 +64,6 @@ xqc_generate_sample(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl,
         /* unit of interval is us */
         sampler->delivery_rate = (uint64_t)(1e6 * sampler->delivered / sampler->interval);
     }
-    sampler->now = now;
-    sampler->rtt = send_ctl->ctl_latest_rtt;
-    sampler->srtt = send_ctl->ctl_srtt;
-    sampler->bytes_inflight = send_ctl->ctl_bytes_in_flight;
-    sampler->prior_inflight = send_ctl->ctl_prior_bytes_in_flight;
-    sampler->total_acked = send_ctl->ctl_delivered;
 
     xqc_log(sampler->send_ctl->ctl_conn->log, XQC_LOG_DEBUG, 
             "|sampler: send_elapse %ui, ack_elapse %ui, "
@@ -99,8 +104,9 @@ xqc_update_sample(xqc_sample_t *sampler, xqc_packet_out_t *packet,
                               packet->po_delivered_time;
         send_ctl->ctl_first_sent_time = packet->po_sent_time;
         sampler->lagest_ack_time = now;
-        sampler->po_sent_time = packet->po_sent_time; /* always keep it updated */
     }
+
+    sampler->po_sent_time = packet->po_sent_time; /* always keep it updated */
     /* 
      * Mark the packet as delivered once it's SACKed to
      * avoid being used again when it's cumulatively acked.

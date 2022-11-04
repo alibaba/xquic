@@ -23,7 +23,7 @@ xqc_pacing_init(xqc_pacing_t *pacing, int pacing_on, xqc_send_ctl_t *ctl)
     pacing->ctl_ctx = ctl;
     pacing->pacing_on = pacing_on;
     pacing->pending_budget = 0;
-    if (ctl->ctl_cong_callback->xqc_cong_ctl_bbr) {
+    if (ctl->ctl_cong_callback->xqc_cong_ctl_on_ack_multiple_pkts) {
         pacing->pacing_on = 1;
     }
 }
@@ -35,7 +35,7 @@ xqc_pacing_rate_calc(xqc_pacing_t *pacing)
     uint64_t pacing_rate;
     uint64_t cwnd;
     xqc_send_ctl_t *ctl = pacing->ctl_ctx;
-    if (ctl->ctl_cong_callback->xqc_cong_ctl_bbr) {
+    if (ctl->ctl_cong_callback->xqc_cong_ctl_on_ack_multiple_pkts) {
         pacing_rate = ctl->ctl_cong_callback->
                       xqc_cong_ctl_get_pacing_rate(ctl->ctl_cong);
         return pacing_rate;

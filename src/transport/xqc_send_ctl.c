@@ -1201,15 +1201,16 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *ctl, xqc_ack_info_t *const ack_info
     xqc_log(ctl->ctl_conn->log, XQC_LOG_DEBUG, "|xqc_send_ctl_set_loss_detection_timer|acked|pto_count:%ud|", ctl->ctl_pto_count);
     xqc_send_ctl_set_loss_detection_timer(ctl);
 
-    /* CCC */
-    if (ctl->ctl_cong_callback->xqc_cong_ctl_bbr /* && stream_frame_acked */) {
+    /* BBR */
+    if (ctl->ctl_cong_callback->xqc_cong_ctl_init_bbr /* && stream_frame_acked */) {
 
         uint64_t bw_before = 0, bw_after = 0;
         int bw_record_flag = 0;
         xqc_usec_t now = ack_recv_time;
+        xqc_bool_t valid_for_bbr = xqc_generate_sample(&ctl->sampler, ctl, ack_recv_time);
 
         /* Make sure that we do not call BBR with a invalid sampler. */
-        if (xqc_generate_sample(&ctl->sampler, ctl, ack_recv_time)) {
+        if (valid_for_bbr) {
             if ((ctl->ctl_cong_callback->xqc_cong_ctl_get_bandwidth_estimate != NULL)
                 && (ctl->ctl_info.last_bw_time + ctl->ctl_info.record_interval <= now))
             {
@@ -1219,7 +1220,7 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *ctl, xqc_ack_info_t *const ack_info
                 }
             }
 
-            ctl->ctl_cong_callback->xqc_cong_ctl_bbr(ctl->ctl_cong, &ctl->sampler);
+            ctl->ctl_cong_callback->xqc_cong_ctl_on_ack_multiple_pkts(ctl->ctl_cong, &ctl->sampler);
         }
         uint8_t mode, full_bw_reached;
         uint8_t recovery_mode, round_start;
@@ -1287,6 +1288,10 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *ctl, xqc_ack_info_t *const ack_info
         }
 
         ctl->sampler.prior_time = 0;
+    } else if (ctl->ctl_cong_callback->xqc_cong_ctl_on_ack_multiple_pkts) {
+        /* Currently, this is only the case for Copa. */
+        xqc_generate_sample(&ctl->sampler, ctl, ack_recv_time);
+        ctl->ctl_cong_callback->xqc_cong_ctl_on_ack_multiple_pkts(ctl->ctl_cong, &ctl->sampler);
     }
 
     xqc_send_ctl_info_circle_record(ctl->ctl_conn);

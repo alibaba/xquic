@@ -787,6 +787,32 @@ fi
 
 
 clear_log
+echo -e "Copa with default parameters (delta=0.05, ai_unit=1.0) ...\c"
+result=`./test_client -s 10240000 -l e -t 1 -E -c P|grep ">>>>>>>> pass"`
+errlog=`grep_err_log`
+echo "$result"
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    case_print_result "copa_with_default_parameters" "pass"
+else
+    case_print_result "copa_with_default_parameters" "fail"
+    echo "$errlog"
+fi
+
+clear_log
+echo -e "Copa with customized parameters (delta=0.5, ai_unit=5.0) ...\c"
+result=`./test_client -s 10240000 -l e -t 1 -E -c P -A 5.0 -D 0.5|grep ">>>>>>>> pass"`
+errlog=`grep_err_log`
+echo "$result"
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    case_print_result "copa_with_customized_parameters" "pass"
+else
+    case_print_result "copa_with_customized_parameters" "fail"
+    echo "$errlog"
+fi
+
+
+
+clear_log
 result=`./test_client -s 10240000 -l e -t 1 -E -x 26|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then

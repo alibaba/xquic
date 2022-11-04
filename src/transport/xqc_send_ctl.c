@@ -933,9 +933,10 @@ xqc_send_ctl_update_cwnd_limited(xqc_send_ctl_t *ctl)
         ctl->ctl_max_bytes_in_flight = ctl->ctl_bytes_in_flight;
     }
     uint32_t cwnd_bytes = ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(ctl->ctl_cong);
+    uint32_t actual_mss = xqc_conn_get_mss(ctl->ctl_conn);
     /* If we can not send the next full-size packet, we are CWND limited. */
     ctl->ctl_is_cwnd_limited = 0;
-    if ((ctl->ctl_bytes_in_flight + XQC_MSS) > cwnd_bytes) {
+    if ((ctl->ctl_bytes_in_flight + actual_mss) > cwnd_bytes) {
         ctl->ctl_is_cwnd_limited = 1;
     }
 }

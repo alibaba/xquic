@@ -121,9 +121,11 @@ xqc_sample_check_app_limited(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl)
     uint8_t not_cwnd_limited = 0;
     uint32_t cwnd = send_ctl->ctl_cong_callback->
                     xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong);
+    uint32_t actual_mss = xqc_conn_get_mss(send_ctl->ctl_conn);
+
     if (send_ctl->ctl_bytes_in_flight < cwnd) {
         /* QUIC MSS */
-        not_cwnd_limited = (cwnd - send_ctl->ctl_bytes_in_flight) >= XQC_MSS; 
+        not_cwnd_limited = (cwnd - send_ctl->ctl_bytes_in_flight) >= actual_mss; 
     }
 
     if (not_cwnd_limited    /* We are not limited by CWND. */

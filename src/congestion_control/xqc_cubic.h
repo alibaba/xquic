@@ -14,6 +14,7 @@ typedef struct {
     uint64_t        init_cwnd;          /* initial window size in MSS */
     uint64_t        cwnd;               /* current window size in bytes */
     uint64_t        tcp_cwnd;           /* cwnd calculated according to Reno's algorithm */
+    uint64_t        tcp_cwnd_cnt;       /* Linear increase counter */
     uint64_t        last_max_cwnd;      /* last max window size */
     uint64_t        ssthresh;           /* slow start threshold */
     uint64_t        bic_origin_point;   /* Wmax origin point */

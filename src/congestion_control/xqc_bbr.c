@@ -147,10 +147,12 @@ xqc_bbr_init(void *cong_ctl, xqc_sample_t *sampler, xqc_cc_params_t cc_params)
         bbr->rttvar_compensation_on = 1;
     }
 #endif
+#ifndef XQC_BBR_DISABLE_CWND_AI
     bbr->beyond_target_cwnd = 0;
     bbr->snd_cwnd_cnt_bytes = 0;
     bbr->ai_scale = 1;
     bbr->ai_scale_accumulated_bytes = 0;
+#endif
     bbr->min_rtt = sampler->srtt ? sampler->srtt : XQC_BBR_INF;
     bbr->min_rtt_stamp = now;
     bbr->probe_rtt_min_us = sampler->srtt ? sampler->srtt : XQC_BBR_INF;
@@ -546,6 +548,8 @@ xqc_bbr_update_min_rtt(xqc_bbr_t *bbr, xqc_sample_t *sampler)
         xqc_log(sampler->send_ctl->ctl_conn->log, XQC_LOG_DEBUG, "|minrtt expire|rtt:%ui, old_rtt:%ui|",
                 bbr->probe_rtt_min_us,
                 bbr->min_rtt);
+
+#ifndef XQC_BBR_DISABLE_CWND_AI
         if (bbr->probe_rtt_min_us_stamp != bbr->min_rtt_stamp
             || min_rtt_expired)
         {
@@ -562,6 +566,8 @@ xqc_bbr_update_min_rtt(xqc_bbr_t *bbr, xqc_sample_t *sampler)
                 bbr->ai_scale_accumulated_bytes = 0;
             }
         }
+#endif
+
         bbr->min_rtt = bbr->probe_rtt_min_us;
         bbr->min_rtt_stamp = bbr->probe_rtt_min_us_stamp;
     }
@@ -712,14 +718,16 @@ xqc_bbr_reset_cwnd(void *cong_ctl)
     }
     /* reset recovery start time in any case */
     bbr->recovery_start_time = 0;
+#ifndef XQC_BBR_DISABLE_CWND_AI
     /* If losses happened, we do not increase cwnd beyond target_cwnd. */
     bbr->snd_cwnd_cnt_bytes = 0;
     bbr->beyond_target_cwnd = 0;
     bbr->ai_scale = 1;
     bbr->ai_scale_accumulated_bytes = 0;
+#endif
 }
 
-
+#ifndef XQC_BBR_DISABLE_CWND_AI
 static void
 xqc_bbr_cong_avoid_ai(xqc_bbr_t *bbr, uint32_t cwnd, uint32_t acked)
 {
@@ -744,6 +752,7 @@ xqc_bbr_cong_avoid_ai(xqc_bbr_t *bbr, uint32_t cwnd, uint32_t acked)
         bbr->ai_scale_accumulated_bytes -= delta * cwnd_thresh;
     }
 }
+#endif
 
 static void 
 xqc_bbr_set_cwnd(xqc_bbr_t *bbr, xqc_sample_t *sampler)
@@ -772,6 +781,7 @@ xqc_bbr_set_cwnd(xqc_bbr_t *bbr, xqc_sample_t *sampler)
         xqc_bbr_modulate_cwnd_for_recovery(bbr, sampler);
         if (!bbr->packet_conservation) {
             if (bbr->full_bandwidth_reached) {
+#ifndef XQC_BBR_DISABLE_CWND_AI
                 if ((bbr->congestion_window + sampler->acked 
                     >= (target_cwnd + bbr->beyond_target_cwnd))
                     && sampler->send_ctl->ctl_is_cwnd_limited)
@@ -789,6 +799,7 @@ xqc_bbr_set_cwnd(xqc_bbr_t *bbr, xqc_sample_t *sampler)
                             sampler->acked,
                             bbr->snd_cwnd_cnt_bytes,
                             bbr->beyond_target_cwnd);
+#endif
                 bbr->congestion_window = xqc_min(target_cwnd, 
                                                 bbr->congestion_window + 
                                                 sampler->acked);
@@ -820,11 +831,13 @@ xqc_bbr_on_lost(void *cong_ctl, xqc_usec_t lost_sent_time)
      */
     xqc_bbr_save_cwnd(bbr);
     bbr->recovery_start_time = xqc_monotonic_timestamp();
+#ifndef XQC_BBR_DISABLE_CWND_AI
     /* If losses happened, we do not increase cwnd beyond target_cwnd. */
     bbr->snd_cwnd_cnt_bytes = 0;
     bbr->beyond_target_cwnd = 0;
     bbr->ai_scale = 1;
     bbr->ai_scale_accumulated_bytes = 0;
+#endif
 }
 
 static void 

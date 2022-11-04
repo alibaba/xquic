@@ -1103,6 +1103,8 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *ctl, xqc_ack_info_t *const ack_info
         return -XQC_EPROTO;
     }
 
+    xqc_init_sample_before_ack(&ctl->sampler);
+
     /* detect and remove acked packets */
     xqc_list_for_each_safe(pos, next, &ctl->ctl_unacked_packets[pns]) {
         packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
@@ -1216,10 +1218,10 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *ctl, xqc_ack_info_t *const ack_info
         uint64_t bw_before = 0, bw_after = 0;
         int bw_record_flag = 0;
         xqc_usec_t now = ack_recv_time;
-        xqc_bool_t valid_for_bbr = xqc_generate_sample(&ctl->sampler, ctl, ack_recv_time);
+        xqc_sample_type_t sample_type = xqc_generate_sample(&ctl->sampler, ctl, ack_recv_time);
 
         /* Make sure that we do not call BBR with a invalid sampler. */
-        if (valid_for_bbr) {
+        if (sample_type == XQC_RATE_SAMPLE_VALID) {
             if ((ctl->ctl_cong_callback->xqc_cong_ctl_get_bandwidth_estimate != NULL)
                 && (ctl->ctl_info.last_bw_time + ctl->ctl_info.record_interval <= now))
             {
@@ -1298,9 +1300,11 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *ctl, xqc_ack_info_t *const ack_info
 
         ctl->sampler.prior_time = 0;
     } else if (ctl->ctl_cong_callback->xqc_cong_ctl_on_ack_multiple_pkts) {
+        xqc_sample_type_t sample_type = xqc_generate_sample(&ctl->sampler, ctl, ack_recv_time);
         /* Currently, this is only the case for Copa. */
-        xqc_generate_sample(&ctl->sampler, ctl, ack_recv_time);
-        ctl->ctl_cong_callback->xqc_cong_ctl_on_ack_multiple_pkts(ctl->ctl_cong, &ctl->sampler);
+        if (sample_type != XQC_RATE_SAMPLE_ACK_NOTHING) {
+            ctl->ctl_cong_callback->xqc_cong_ctl_on_ack_multiple_pkts(ctl->ctl_cong, &ctl->sampler);
+        }
     }
 
     xqc_send_ctl_info_circle_record(ctl->ctl_conn);

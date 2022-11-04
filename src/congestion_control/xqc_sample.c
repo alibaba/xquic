@@ -8,11 +8,19 @@
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_packet.h"
 
+void 
+xqc_init_sample_before_ack(xqc_sample_t *sampler)
+{
+    xqc_send_ctl_t *ctl = sampler->send_ctl;
+    memset(sampler, 0, sizeof(xqc_sample_t));
+    sampler->send_ctl = ctl;
+}
+
 /**
  * see https://tools.ietf.org/html/draft-cheng-iccrg-delivery-rate-estimation-00#section-3.3
  */
 /* Upon receiving ACK, fill in delivery rate sample rs. */
-xqc_bool_t 
+xqc_sample_type_t 
 xqc_generate_sample(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl, 
     xqc_usec_t now)
 {
@@ -20,7 +28,7 @@ xqc_generate_sample(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl,
     /* we do NOT have a valid sample yet. */
     if (sampler->prior_time == 0) {
         sampler->interval = 0;
-        return XQC_FALSE;
+        return XQC_RATE_SAMPLE_ACK_NOTHING;
     }
 
     sampler->acked = send_ctl->ctl_delivered - send_ctl->ctl_prior_delivered;
@@ -52,7 +60,7 @@ xqc_generate_sample(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl,
      */
     if (sampler->interval < send_ctl->ctl_minrtt) {
         sampler->interval = 0;
-        return XQC_FALSE;
+        return XQC_RATE_SAMPLE_INTERVAL_TOO_SMALL;
     }
     if (sampler->interval != 0) {
         /* unit of interval is us */
@@ -64,7 +72,7 @@ xqc_generate_sample(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl,
             "delivered %ud|",
             sampler->send_elapse, sampler->ack_elapse,
             sampler->delivered);
-    return XQC_TRUE;
+    return XQC_RATE_SAMPLE_VALID;
 }
 
 /* Update rs when packet is SACKed or ACKed. */
@@ -83,10 +91,9 @@ xqc_update_sample(xqc_sample_t *sampler, xqc_packet_out_t *packet,
     /* Update info using the newest packet: */
     /* if it's the ACKs from the first RTT round, we use the sample anyway */
 
-    if ((!sampler->is_initialized)
+    if ((sampler->prior_delivered == 0)
         || (packet->po_delivered > sampler->prior_delivered)) 
     {
-        sampler->is_initialized = 1;
         sampler->prior_lost = packet->po_lost;
         sampler->tx_in_flight = packet->po_tx_in_flight;
         sampler->prior_delivered = packet->po_delivered;

@@ -15,6 +15,7 @@ typedef char bool;
 #define TRUE 1
 #define FALSE 0
 #define MSEC2SEC 1000000
+#define XQC_BBR_DISABLE_CWND_AI
 
 typedef enum {
     /* Start phase quickly to fill pipe */
@@ -127,10 +128,12 @@ typedef struct xqc_bbr_s {
     uint64_t               probe_rtt_min_us;
     uint64_t               probe_rtt_min_us_stamp;
 
+#ifndef XQC_BBR_DISABLE_CWND_AI
     uint32_t               snd_cwnd_cnt_bytes; /* For AI */
     uint32_t               beyond_target_cwnd; /* To compete with buffer fillers */
     uint32_t               ai_scale_accumulated_bytes;
     uint32_t               ai_scale;
+#endif
 
 #if XQC_BBR_RTTVAR_COMPENSATION_ENABLED
     /* CWND compensation for RTT variation+ */

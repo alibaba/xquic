@@ -12,7 +12,7 @@
 #include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_packet.h"
 
-#define XQC_BBR2_MAX_DATAGRAM_SIZE XQC_QUIC_MSS
+#define XQC_BBR2_MAX_DATAGRAM_SIZE XQC_MSS
 #define XQC_BBR2_MIN_WINDOW (4 * XQC_BBR2_MAX_DATAGRAM_SIZE)
 /* The RECOMMENDED value is the minimum of 10 * kMaxDatagramSize and max(2* kMaxDatagramSize, 14720)). */
 #define XQC_BBR2_INITIAL_WINDOW (32 * XQC_BBR2_MAX_DATAGRAM_SIZE)
@@ -151,7 +151,7 @@ xqc_bbr2_init(void *cong_ctl, xqc_sample_t *sampler, xqc_cc_params_t cc_params)
     memset(bbr2, 0, sizeof(*bbr2));
 
 #if XQC_BBR2_PLUS_ENABLED
-    xqc_win_filter_reset_u64(&bbr2->max_rtt, 0, 0);
+    xqc_win_filter_reset(&bbr2->max_rtt, 0, 0);
     bbr2->max_rtt_win_len = xqc_bbr2_windowed_max_rtt_win_size;
     if (cc_params.cc_optimization_flags & XQC_BBR2_FLAG_RTTVAR_COMPENSATION) {
         bbr2->rtt_compensation_on = 1;
@@ -1102,7 +1102,7 @@ static uint32_t
 xqc_bbr2_compensate_cwnd_for_rttvar(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
 {
     xqc_usec_t srtt = sampler->srtt;
-    xqc_usec_t recent_max_rtt = xqc_win_filter_get_u64(&bbr2->max_rtt);
+    xqc_usec_t recent_max_rtt = xqc_win_filter_get(&bbr2->max_rtt);
     xqc_usec_t compensation_thresh = (1 + bbr2->rtt_compensation_thresh) * 
                                      bbr2->min_rtt;
     uint32_t cwnd_addition = 0;
@@ -1422,14 +1422,14 @@ xqc_bbr2_on_ack(void *cong_ctl, xqc_sample_t *sampler)
     /* maintain windowed max rtt here */
     if (bbr2->rtt_compensation_on) {
         if (sampler->rtt >= 0) {
-            xqc_usec_t last_max_rtt = xqc_win_filter_get_u64(&bbr2->max_rtt);
-            xqc_win_filter_max_u64(&bbr2->max_rtt, bbr2->max_rtt_win_len,
+            xqc_usec_t last_max_rtt = xqc_win_filter_get(&bbr2->max_rtt);
+            xqc_win_filter_max(&bbr2->max_rtt, bbr2->max_rtt_win_len,
                                 bbr2->round_cnt, sampler->rtt);
             xqc_log(sampler->send_ctl->ctl_conn->log, XQC_LOG_DEBUG, 
                     "|BBRv2 Plus|windowed max rtt info: rtt %ui, "
                     "last_max %ui, max %ui|",
                     sampler->rtt, last_max_rtt, 
-                    xqc_win_filter_get_u64(&bbr2->max_rtt));
+                    xqc_win_filter_get(&bbr2->max_rtt));
         }
     }
 #endif
@@ -1611,7 +1611,7 @@ static xqc_bbr_info_interface_t xqc_bbr2_info_cb = {
 const xqc_cong_ctrl_callback_t xqc_bbr2_cb = {
     .xqc_cong_ctl_size                   = xqc_bbr2_size,
     .xqc_cong_ctl_init_bbr               = xqc_bbr2_init,
-    .xqc_cong_ctl_bbr                    = xqc_bbr2_on_ack,
+    .xqc_cong_ctl_on_ack_multiple_pkts   = xqc_bbr2_on_ack,
     .xqc_cong_ctl_get_cwnd               = xqc_bbr2_get_cwnd,
     .xqc_cong_ctl_get_pacing_rate        = xqc_bbr2_get_pacing_rate,
     .xqc_cong_ctl_get_bandwidth_estimate = xqc_bbr2_get_bandwidth,

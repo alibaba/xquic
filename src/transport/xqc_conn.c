@@ -2163,7 +2163,7 @@ xqc_conn_buff_undecrypt_packet_in(xqc_packet_in_t *packet_in,
     xqc_connection_t *conn, xqc_encrypt_level_t encrypt_level)
 {
     if (conn->undecrypt_count[encrypt_level] >= XQC_UNDECRYPT_PACKET_MAX
-        || packet_in->buf_size > XQC_MSS)
+        || packet_in->buf_size > XQC_MAX_PACKET_IN_LEN)
     {
         xqc_log(conn->log, XQC_LOG_WARN,
                 "|delay|XQC_ELIMIT|undecrypt_count:%ud|encrypt_level:%d|buf_size:%uz|",
@@ -2186,7 +2186,7 @@ xqc_conn_buff_undecrypt_packet_in(xqc_packet_in_t *packet_in,
         return -XQC_EMALLOC;
     }
 
-    new_packet->buf = xqc_malloc(XQC_MSS);
+    new_packet->buf = xqc_malloc(XQC_MAX_PACKET_IN_LEN);
     if (new_packet->buf == NULL) {
         xqc_free(new_packet);
         return -XQC_EMALLOC;
@@ -2642,7 +2642,7 @@ xqc_conn_process_packet(xqc_connection_t *c,
     const unsigned char *pos = packet_in_buf;                   /* start of QUIC pkt */
     const unsigned char *end = packet_in_buf + packet_in_size;  /* end of udp datagram */
     xqc_packet_in_t packet;
-    unsigned char decrypt_payload[XQC_MAX_PACKET_LEN];
+    unsigned char decrypt_payload[XQC_MAX_PACKET_IN_LEN];
 
     xqc_send_ctl_on_dgram_received(c->conn_send_ctl, packet_in_size, recv_time);
 
@@ -2653,7 +2653,7 @@ xqc_conn_process_packet(xqc_connection_t *c,
         /* init packet in */
         xqc_packet_in_t *packet_in = &packet;
         memset(packet_in, 0, sizeof(*packet_in));
-        xqc_packet_in_init(packet_in, pos, end - pos, decrypt_payload, XQC_MAX_PACKET_LEN, recv_time);
+        xqc_packet_in_init(packet_in, pos, end - pos, decrypt_payload, XQC_MAX_PACKET_IN_LEN, recv_time);
 
         /* packet_in->pos will update inside */
         ret = xqc_packet_process_single(c, packet_in);

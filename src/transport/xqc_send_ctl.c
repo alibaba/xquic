@@ -933,9 +933,10 @@ xqc_send_ctl_update_cwnd_limited(xqc_send_ctl_t *ctl)
         ctl->ctl_max_bytes_in_flight = ctl->ctl_bytes_in_flight;
     }
     uint32_t cwnd_bytes = ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(ctl->ctl_cong);
+    uint32_t actual_mss = xqc_conn_get_mss(ctl->ctl_conn);
     /* If we can not send the next full-size packet, we are CWND limited. */
     ctl->ctl_is_cwnd_limited = 0;
-    if ((ctl->ctl_bytes_in_flight + XQC_QUIC_MSS) > cwnd_bytes) {
+    if ((ctl->ctl_bytes_in_flight + actual_mss) > cwnd_bytes) {
         ctl->ctl_is_cwnd_limited = 1;
     }
 }
@@ -1103,6 +1104,8 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *ctl, xqc_ack_info_t *const ack_info
         return -XQC_EPROTO;
     }
 
+    xqc_init_sample_before_ack(&ctl->sampler);
+
     /* detect and remove acked packets */
     xqc_list_for_each_safe(pos, next, &ctl->ctl_unacked_packets[pns]) {
         packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
@@ -1201,15 +1204,25 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *ctl, xqc_ack_info_t *const ack_info
     xqc_log(ctl->ctl_conn->log, XQC_LOG_DEBUG, "|xqc_send_ctl_set_loss_detection_timer|acked|pto_count:%ud|", ctl->ctl_pto_count);
     xqc_send_ctl_set_loss_detection_timer(ctl);
 
-    /* CCC */
-    if (ctl->ctl_cong_callback->xqc_cong_ctl_bbr /* && stream_frame_acked */) {
+
+    /* Clear app-limited field if the bubble is gone. */
+    /* @NOTE: we need to clear it for Cubic/Reno as well. */
+    if (ctl->ctl_app_limited 
+        && ctl->ctl_delivered > ctl->ctl_app_limited)
+    {
+        ctl->ctl_app_limited = 0;
+    }
+
+    /* BBR */
+    if (ctl->ctl_cong_callback->xqc_cong_ctl_init_bbr /* && stream_frame_acked */) {
 
         uint64_t bw_before = 0, bw_after = 0;
         int bw_record_flag = 0;
         xqc_usec_t now = ack_recv_time;
+        xqc_sample_type_t sample_type = xqc_generate_sample(&ctl->sampler, ctl, ack_recv_time);
 
         /* Make sure that we do not call BBR with a invalid sampler. */
-        if (xqc_generate_sample(&ctl->sampler, ctl, ack_recv_time)) {
+        if (sample_type == XQC_RATE_SAMPLE_VALID) {
             if ((ctl->ctl_cong_callback->xqc_cong_ctl_get_bandwidth_estimate != NULL)
                 && (ctl->ctl_info.last_bw_time + ctl->ctl_info.record_interval <= now))
             {
@@ -1219,7 +1232,7 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *ctl, xqc_ack_info_t *const ack_info
                 }
             }
 
-            ctl->ctl_cong_callback->xqc_cong_ctl_bbr(ctl->ctl_cong, &ctl->sampler);
+            ctl->ctl_cong_callback->xqc_cong_ctl_on_ack_multiple_pkts(ctl->ctl_cong, &ctl->sampler);
         }
         uint8_t mode, full_bw_reached;
         uint8_t recovery_mode, round_start;
@@ -1287,6 +1300,12 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *ctl, xqc_ack_info_t *const ack_info
         }
 
         ctl->sampler.prior_time = 0;
+    } else if (ctl->ctl_cong_callback->xqc_cong_ctl_on_ack_multiple_pkts) {
+        xqc_sample_type_t sample_type = xqc_generate_sample(&ctl->sampler, ctl, ack_recv_time);
+        /* Currently, this is only the case for Copa. */
+        if (sample_type != XQC_RATE_SAMPLE_ACK_NOTHING) {
+            ctl->ctl_cong_callback->xqc_cong_ctl_on_ack_multiple_pkts(ctl->ctl_cong, &ctl->sampler);
+        }
     }
 
     xqc_send_ctl_info_circle_record(ctl->ctl_conn);
@@ -1585,7 +1604,7 @@ xqc_send_ctl_congestion_event(xqc_send_ctl_t *ctl, xqc_usec_t sent_time)
 int
 xqc_send_ctl_is_app_limited(xqc_send_ctl_t *ctl)
 {
-    return 0;
+    return ctl->ctl_app_limited > 0;
 }
 
 /* This function is called inside cc's on_ack callbacks if needed */

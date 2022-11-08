@@ -8,25 +8,27 @@
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_packet.h"
 
+void 
+xqc_init_sample_before_ack(xqc_sample_t *sampler)
+{
+    xqc_send_ctl_t *ctl = sampler->send_ctl;
+    memset(sampler, 0, sizeof(xqc_sample_t));
+    sampler->send_ctl = ctl;
+}
+
 /**
  * see https://tools.ietf.org/html/draft-cheng-iccrg-delivery-rate-estimation-00#section-3.3
  */
 /* Upon receiving ACK, fill in delivery rate sample rs. */
-xqc_bool_t 
+xqc_sample_type_t 
 xqc_generate_sample(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl, 
     xqc_usec_t now)
 {
-    /* Clear app-limited field if bubble is ACKed and gone. */
-    if (send_ctl->ctl_app_limited 
-        && send_ctl->ctl_delivered > send_ctl->ctl_app_limited)
-    {
-        send_ctl->ctl_app_limited = 0;
-    }
 
     /* we do NOT have a valid sample yet. */
     if (sampler->prior_time == 0) {
         sampler->interval = 0;
-        return XQC_FALSE;
+        return XQC_RATE_SAMPLE_ACK_NOTHING;
     }
 
     sampler->acked = send_ctl->ctl_delivered - send_ctl->ctl_prior_delivered;
@@ -38,6 +40,17 @@ xqc_generate_sample(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl,
     sampler->lost_pkts = send_ctl->ctl_lost_pkts_number - sampler->prior_lost;
 
     /* 
+     * Even if the interval is too small, 
+     * we need to update these data for Copa. 
+     */
+    sampler->now = now;
+    sampler->rtt = send_ctl->ctl_latest_rtt;
+    sampler->srtt = send_ctl->ctl_srtt;
+    sampler->bytes_inflight = send_ctl->ctl_bytes_in_flight;
+    sampler->prior_inflight = send_ctl->ctl_prior_bytes_in_flight;
+    sampler->total_acked = send_ctl->ctl_delivered;
+
+    /* 
      * Normally we expect interval >= MinRTT.
      * Note that rate may still be over-estimated when a spuriously
      * retransmitted skb was first (s)acked because "interval"
@@ -47,25 +60,19 @@ xqc_generate_sample(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl,
      */
     if (sampler->interval < send_ctl->ctl_minrtt) {
         sampler->interval = 0;
-        return XQC_FALSE;
+        return XQC_RATE_SAMPLE_INTERVAL_TOO_SMALL;
     }
     if (sampler->interval != 0) {
         /* unit of interval is us */
         sampler->delivery_rate = (uint64_t)(1e6 * sampler->delivered / sampler->interval);
     }
-    sampler->now = now;
-    sampler->rtt = send_ctl->ctl_latest_rtt;
-    sampler->srtt = send_ctl->ctl_srtt;
-    sampler->bytes_inflight = send_ctl->ctl_bytes_in_flight;
-    sampler->prior_inflight = send_ctl->ctl_prior_bytes_in_flight;
-    sampler->total_acked = send_ctl->ctl_delivered;
 
     xqc_log(sampler->send_ctl->ctl_conn->log, XQC_LOG_DEBUG, 
             "|sampler: send_elapse %ui, ack_elapse %ui, "
             "delivered %ud|",
             sampler->send_elapse, sampler->ack_elapse,
             sampler->delivered);
-    return XQC_TRUE;
+    return XQC_RATE_SAMPLE_VALID;
 }
 
 /* Update rs when packet is SACKed or ACKed. */
@@ -84,10 +91,9 @@ xqc_update_sample(xqc_sample_t *sampler, xqc_packet_out_t *packet,
     /* Update info using the newest packet: */
     /* if it's the ACKs from the first RTT round, we use the sample anyway */
 
-    if ((!sampler->is_initialized)
+    if ((sampler->prior_delivered == 0)
         || (packet->po_delivered > sampler->prior_delivered)) 
     {
-        sampler->is_initialized = 1;
         sampler->prior_lost = packet->po_lost;
         sampler->tx_in_flight = packet->po_tx_in_flight;
         sampler->prior_delivered = packet->po_delivered;
@@ -99,8 +105,9 @@ xqc_update_sample(xqc_sample_t *sampler, xqc_packet_out_t *packet,
                               packet->po_delivered_time;
         send_ctl->ctl_first_sent_time = packet->po_sent_time;
         sampler->lagest_ack_time = now;
-        sampler->po_sent_time = packet->po_sent_time; /* always keep it updated */
     }
+
+    sampler->po_sent_time = packet->po_sent_time; /* always keep it updated */
     /* 
      * Mark the packet as delivered once it's SACKed to
      * avoid being used again when it's cumulatively acked.
@@ -114,9 +121,11 @@ xqc_sample_check_app_limited(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl)
     uint8_t not_cwnd_limited = 0;
     uint32_t cwnd = send_ctl->ctl_cong_callback->
                     xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong);
+    uint32_t actual_mss = xqc_conn_get_mss(send_ctl->ctl_conn);
+
     if (send_ctl->ctl_bytes_in_flight < cwnd) {
         /* QUIC MSS */
-        not_cwnd_limited = (cwnd - send_ctl->ctl_bytes_in_flight) >= XQC_QUIC_MSS; 
+        not_cwnd_limited = (cwnd - send_ctl->ctl_bytes_in_flight) >= actual_mss; 
     }
 
     if (not_cwnd_limited    /* We are not limited by CWND. */

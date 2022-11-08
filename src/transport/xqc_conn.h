@@ -477,4 +477,9 @@ void xqc_conn_closing(xqc_connection_t *conn);
 
 void xqc_conn_closing_notify(xqc_connection_t *conn);
 
+static inline xqc_uint_t 
+xqc_conn_get_mss(xqc_connection_t *conn) {
+    return conn->conn_settings.max_pkt_out_size + XQC_ACK_SPACE;
+}
+
 #endif /* _XQC_CONN_H_INCLUDED_ */

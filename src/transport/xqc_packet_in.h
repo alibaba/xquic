@@ -9,6 +9,8 @@
 #include "src/transport/xqc_packet.h"
 #include "src/transport/xqc_frame.h"
 
+/* 1518 - ether_hdr - ip_hdr (20) - udp_hdr (8) = 1472 */
+#define XQC_MAX_PACKET_IN_LEN 1500 
 
 struct xqc_packet_in_s {
     xqc_packet_t            pi_pkt;

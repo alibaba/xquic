@@ -35,7 +35,9 @@ openssl req -newkey rsa:2048 -x509 -nodes -keyout "$keyfile" -new -out "$certfil
 |   -p   | Server port. |
 |   -P   | Number of Parallel requests per single connection. Default 1. |
 |   -n   | Total number of requests to send. Defaults 1. |
-|   -c   | Congestion Control Algorithm. r:reno b:bbr c:cubic B:bbr2 bbr+ bbr2+ |
+|   -c   | Congestion Control Algorithm. r:reno b:bbr c:cubic B:bbr2 bbr+ bbr2+ P:Copa |
+|   -A   | Copa: the addtive increasing coefficient of 1/delta, default:1.0 |
+|   -D   | Copa: the delta paramter, default:0.05 |
 |   -C   | Pacing on. |
 |   -t   | Connection timeout. Default 3 seconds. |
 |   -T   | Transport layer. No HTTP3. |
@@ -63,7 +65,9 @@ openssl req -newkey rsa:2048 -x509 -nodes -keyout "$keyfile" -new -out "$certfil
 | :----: | ----  |
 |   -p   | Server port. |
 |   -e   | Echo. Send received body. |
-|   -c   | Congestion Control Algorithm. r:reno b:bbr c:cubic B:bbr2 bbr+ bbr2+ |
+|   -c   | Congestion Control Algorithm. r:reno b:bbr c:cubic B:bbr2 bbr+ bbr2+ P:Copa |
+|   -A   | Copa: the addtive increasing coefficient of 1/delta, default:1.0 |
+|   -D   | Copa: the delta paramter, default:0.05 |
 |   -C   | Pacing on. |
 |   -s   | Body size to send. |
 |   -w   | Write received body to file. |

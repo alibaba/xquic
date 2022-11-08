@@ -9,7 +9,7 @@
 #include <math.h>
 
 #define XQC_CUBIC_FAST_CONVERGENCE  1
-#define XQC_CUBIC_MSS               1460
+#define XQC_CUBIC_MSS               XQC_MSS
 #define XQC_CUBIC_BETA              718     /* 718/1024=0.7 */
 #define XQC_CUBIC_BETA_SCALE        1024
 #define XQC_CUBIC_C                 410     /* 410/1024=0.4 */
@@ -67,7 +67,8 @@ xqc_cubic_update(void *cong_ctl, uint32_t acked_bytes, xqc_usec_t now)
      * t = elapsed_time * 1024 / 1000000, convert microseconds to milliseconds,
      * multiply by 1024 in order to be able to use bit operations later.
      */
-    t = (now + cubic->min_rtt - cubic->epoch_start) << XQC_CUBIC_TIME_SCALE / XQC_MICROS_PER_SECOND;
+    t = (now + cubic->min_rtt - cubic->epoch_start) << XQC_CUBIC_TIME_SCALE;
+    t /= XQC_MICROS_PER_SECOND;
 
     /* calculate |t - K| */
     if (t < cubic->bic_K) {
@@ -78,7 +79,8 @@ xqc_cubic_update(void *cong_ctl, uint32_t acked_bytes, xqc_usec_t now)
     }
 
     /* 410/1024 * off/1024 * off/1024 * off/1024 * MSS */
-    delta = (XQC_CUBIC_C * offs * offs * offs * XQC_CUBIC_MSS) >> XQC_CUBE_SCALE;
+    delta = (XQC_CUBIC_C * offs * offs * offs) >> XQC_CUBE_SCALE;
+    delta *= XQC_CUBIC_MSS;
 
     if (t < cubic->bic_K) {
         bic_target = cubic->bic_origin_point - delta;
@@ -121,6 +123,7 @@ xqc_cubic_init(void *cong_ctl, xqc_send_ctl_t *ctl_ctx, xqc_cc_params_t cc_param
     cubic->epoch_start = 0;
     cubic->cwnd = XQC_CUBIC_INIT_WIN;
     cubic->tcp_cwnd = XQC_CUBIC_INIT_WIN;
+    cubic->tcp_cwnd_cnt = 0;
     cubic->last_max_cwnd = XQC_CUBIC_INIT_WIN;
     cubic->ssthresh = XQC_CUBIC_MAX_SSTHRESH;
     cubic->congestion_recovery_start_time = 0;
@@ -138,6 +141,8 @@ static void
 xqc_cubic_on_lost(void *cong_ctl, xqc_usec_t lost_sent_time)
 {
     xqc_cubic_t *cubic = (xqc_cubic_t*)(cong_ctl);
+
+    cubic->tcp_cwnd_cnt = 0;
 
     /* No reaction if already in a recovery period. */
     if (xqc_cubic_in_congestion_recovery(cong_ctl, lost_sent_time)) {
@@ -189,7 +194,11 @@ xqc_cubic_on_ack(void *cong_ctl, xqc_packet_out_t *po, xqc_usec_t now)
 
     } else {
         /* congestion avoidance */
-        cubic->tcp_cwnd += XQC_CUBIC_MSS * XQC_CUBIC_MSS / cubic->tcp_cwnd;
+        cubic->tcp_cwnd_cnt += acked_bytes;
+        if (cubic->tcp_cwnd_cnt >= cubic->tcp_cwnd) {
+            cubic->tcp_cwnd += XQC_CUBIC_MSS;
+            cubic->tcp_cwnd_cnt = 0;
+        }
         xqc_cubic_update(cong_ctl, acked_bytes, now);
     }
 }

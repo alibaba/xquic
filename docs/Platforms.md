@@ -68,12 +68,12 @@ build XQUIC
 
 ```bash
 # step 1: get sourcecode
-git clone git@github.com:alibaba/xquic.git
+git clone https://github.com/alibaba/xquic.git
 cd xquic
 git submodule update --init --recursive
 
 # step 2：build boringssl
-git clone git@github.com:google/boringssl.git ./third_party/boringssl
+git clone https://github.com/google/boringssl.git ./third_party/boringssl
 cd ./third_party/boringssl
 mkdir build
 cd build

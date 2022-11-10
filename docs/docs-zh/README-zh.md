@@ -28,11 +28,11 @@ XQUIC 支持 BoringSSL 和 BabaSSL。
 
 ```bash
 # 获取 XQUIC 源码
-git clone git@github.com:alibaba/xquic.git
+git clone https://github.com/alibaba/xquic.git
 cd xquic
 
 # 编译 BabaSSL
-git clone git@github.com:BabaSSL/BabaSSL.git ./third_party/babassl
+git clone -b 8.3-stable https://github.com/Tongsuo-Project/Tongsuo.git ./third_party/babassl
 cd ./third_party/babassl/
 ./config --prefix=/usr/local/babassl
 make -j
@@ -53,11 +53,11 @@ make -j
 
 ```bash
 # 获取 XQUIC 源码
-git clone git@github.com:alibaba/xquic.git
+git clone https://github.com/alibaba/xquic.git
 cd xquic
 
 # 编译 BoringSSL
-git clone git@github.com:google/boringssl.git ./third_party/boringssl
+git clone https://github.com/google/boringssl.git ./third_party/boringssl
 cd ./third_party/boringssl
 mkdir -p build && cd build
 cmake -DBUILD_SHARED_LIBS=0 -DCMAKE_C_FLAGS="-fPIC" -DCMAKE_CXX_FLAGS="-fPIC" ..

@@ -341,13 +341,13 @@ xqc_lb_cid_encryption(uint8_t *cid_buf, size_t enc_len, uint8_t *out_buf, size_t
     if (enc_len == XQC_EN_SINGLE_PASS_ENCRYPTION_LEN) {
         xqc_int_t res = xqc_cid_encryption_aes_128_ecb(cid_buf + XQC_FIRST_OCTET, enc_len, out_buf + XQC_FIRST_OCTET, enc_len, lb_cid_key, lb_cid_key_len, engine);
         if (res < XQC_OK) {
-            xqc_log(log, XQC_LOG_ERROR, "|lb-cid aes_128_ecb encryption error|%d｜", res);
+            xqc_log(log, XQC_LOG_ERROR, "|lb-cid aes_128_ecb encryption error|%d|", res);
             return -XQC_EENCRYPT_LB_CID;
         }
     } else {
         xqc_int_t res = xqc_cid_encryption_four_pass(cid_buf + XQC_FIRST_OCTET, enc_len, out_buf + XQC_FIRST_OCTET, enc_len, lb_cid_key, lb_cid_key_len, engine);
         if (res < XQC_OK) {
-            xqc_log(log, XQC_LOG_ERROR, "|lb-cid four-pass encryption error|%d｜", res);
+            xqc_log(log, XQC_LOG_ERROR, "|lb-cid four-pass encryption error|%d|", res);
             return -XQC_EENCRYPT_LB_CID;
         }
     }

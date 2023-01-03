@@ -83,6 +83,9 @@ xqc_var_buf_realloc(xqc_var_buf_t *buf, size_t cap)
     }
 
     uint64_t capacity = xqc_pow2_upper(cap);
+    if (capacity == XQC_POW2_UPPER_ERROR) {
+        return -XQC_EMALLOC;
+    }
     if (capacity > buf->limit) {
         capacity = buf->limit;
     }
@@ -111,6 +114,9 @@ xqc_int_t
 xqc_var_buf_reduce(xqc_var_buf_t *buf)
 {
     uint64_t capacity = xqc_pow2_upper(buf->data_len - buf->consumed_len);
+    if (capacity == XQC_POW2_UPPER_ERROR) {
+        return -XQC_EPARAM;
+    }
     if (capacity > buf->limit) {
         return -XQC_EMALLOC;
     }

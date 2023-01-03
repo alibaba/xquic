@@ -39,6 +39,10 @@ xqc_rarray_create(size_t cap, size_t esize)
     uint64_t array_cap = 0;
     if (esize != 0) {
         array_cap = xqc_pow2_upper(cap);
+        if (array_cap == XQC_POW2_UPPER_ERROR) {
+            xqc_free(ra);
+            return NULL;
+        }
         ra->buf = xqc_malloc(array_cap * esize);
         if (ra->buf == NULL) {
             xqc_free(ra);
@@ -78,6 +82,9 @@ xqc_rarray_check_range(xqc_rarray_t *ra, uint64_t offset)
          * ra->offset equals to eoffset, only if offset not exceed capacity,
          * it is always in range.
          */
+        if (ra->count == 0) {
+            return XQC_FALSE;
+        }
         return offset >= ra->offset || offset < eoffset;
 
     } else {
@@ -175,6 +182,9 @@ xqc_rarray_resize(xqc_rarray_t *ra, uint64_t cap)
     }
 
     uint64_t array_cap = xqc_pow2_upper(cap);
+    if (array_cap == XQC_POW2_UPPER_ERROR) {
+        return -XQC_EMALLOC;
+    }
     uint8_t *buf = xqc_malloc(array_cap * ra->esize);
     if (buf == NULL) {
         return -XQC_EMALLOC;

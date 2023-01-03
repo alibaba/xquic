@@ -57,6 +57,10 @@ xqc_2d_hash_table_create(size_t bkt_cnt, xqc_2d_hash_table_data_cmp dcmp,
 
     /* make bucket count the least upper power of 2 */
     uint64_t bcnt = xqc_pow2_upper(bkt_cnt);
+    if (bcnt == XQC_POW2_UPPER_ERROR) {
+        xqc_free(ht);
+        return NULL;
+    }
     xqc_list_head_t *list = (xqc_list_head_t *)xqc_malloc(bcnt * sizeof(xqc_list_head_t));
     if (NULL == list) {
         xqc_free(ht);

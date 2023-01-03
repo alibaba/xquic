@@ -200,8 +200,13 @@ xqc_qpack_test_basic()
     /* decode stream 1, shall not be blocked */
     xqc_bool_t blocked2 = XQC_FALSE;
     void *req_ctx2 = xqc_qpack_create_req_ctx(1);
-    read = xqc_qpack_dec_headers(qpk_server, req_ctx2, efs_buf_server->data + efs_buf_server->consumed_len, efs_buf_server->data_len - efs_buf_server->consumed_len, &hdrs_out2, 1, &blocked);
-    CU_ASSERT(read == efs_buf_server->data_len && blocked2 == XQC_FALSE);
+    while (efs_buf_server->consumed_len < efs_buf_server->data_len) {
+        read = xqc_qpack_dec_headers(qpk_server, req_ctx2, efs_buf_server->data + efs_buf_server->consumed_len, 1, &hdrs_out2, 1, &blocked);
+
+        CU_ASSERT(read == 1);
+        efs_buf_server->consumed_len += read;
+    }
+    CU_ASSERT(efs_buf_server->data_len == efs_buf_server->data_len && blocked2 == XQC_FALSE);
     efs_buf_server->consumed_len += read;
     xqc_qpack_destroy_req_ctx(req_ctx2);
 

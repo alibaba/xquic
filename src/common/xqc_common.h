@@ -22,10 +22,16 @@
 typedef unsigned char   u_char;
 
 
+#define XQC_POW2_UPPER_ERROR 0
+
 static inline uint64_t
 xqc_pow2_upper(uint64_t n)
 {
-    size_t m = 1;
+    if (n > 0x8000000000000000) {
+        /* return zero mean error */
+        return XQC_POW2_UPPER_ERROR;
+    }
+    uint64_t m = 1;
     for(; m < n; m = m << 1);
     return m;
 }

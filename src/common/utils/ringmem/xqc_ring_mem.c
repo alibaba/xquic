@@ -45,6 +45,10 @@ xqc_ring_mem_create(size_t sz)
     uint64_t msize = 0;
     if (sz != 0) {
         msize = xqc_pow2_upper(sz);
+        if (msize == XQC_POW2_UPPER_ERROR) {
+            xqc_free(rmem);
+            return NULL;
+        }
         rmem->buf = (uint8_t *)xqc_malloc(msize);
         if (rmem->buf == NULL) {
             xqc_free(rmem);
@@ -87,6 +91,9 @@ xqc_ring_mem_resize(xqc_ring_mem_t *rmem, size_t cap)
     }
 
     uint64_t mcap = xqc_pow2_upper(cap);
+    if (mcap == XQC_POW2_UPPER_ERROR) {
+        return -XQC_EPARAM;
+    }
     uint8_t *buf = (uint8_t *)xqc_malloc(mcap);
     if (buf == NULL) {
         return -XQC_EMALLOC;

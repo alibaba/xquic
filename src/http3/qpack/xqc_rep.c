@@ -132,12 +132,19 @@ xqc_rep_decode_prefix(xqc_rep_ctx_t *ctx, size_t max_ents, uint64_t icnt, unsign
 
         if (fin) {
             ctx->state = XQC_REP_DECODE_STATE_BASE_SIGN;
+            /* finish parsing the Required Insert Count field */
             xqc_int_t ret = xqc_rep_reconstruct_ric(ctx, max_ents, icnt);
             if (ret < 0) {
                 return ret;
             }
 
+            /* if all bytes are consumed now, return and wait more bytes */
+            if (pos >= end) {
+                break;
+            }
+
         } else {
+            /* the Required Insert Count field need more bytes */
             break;
         }
 

@@ -9,48 +9,6 @@
 #include <stddef.h>
 #include "xqc_errno.h"
 
-#define XQC_EXTERN extern
-
-/* defined UNIX system default */
-#ifndef XQC_SYS_WINDOWS
-#   define XQC_SYS_UNIX
-#endif
-
-#if defined(_WIN32) || defined(WIN32) || defined(XQC_SYS_WIN32)
-#  if !defined(XQC_SYS_WIN32)
-#  define XQC_SYS_WIN32
-#  endif
-#endif
-
-#if defined(_WIN64) || defined(WIN64) || defined(XQC_SYS_WIN64)
-#  if !defined(XQC_SYS_WIN64)
-#  define XQC_SYS_WIN64
-#  endif
-#endif
-
-#if defined(XQC_SYS_WIN32) || defined(XQC_SYS_WIN64)
-#undef XQC_SYS_UNIX
-#define XQC_SYS_WINDOWS
-#endif
-
-#if defined(__MINGW64__) || defined(__MINGW32__)
-#  if !defined(XQC_ON_MINGW)
-#  define XQC_ON_MINGW
-#  endif
-#endif
-
-#if defined(XQC_SYS_WINDOWS) && !defined(XQC_ON_MINGW)
-# undef XQC_EXTERN
-# define XQC_EXTERN
-
-#ifdef XQC_SYS_WIN64
-    typedef __int64 ssize_t;
-#elif defined(XQC_SYS_WIN32)
-    typedef __int32 ssize_t;
-#endif
-#endif
-
-
 /* TODO: there may be problems using -o2 under Android platform */
 #if defined(__GNUC__) && !defined(ANDROID)
 #   define XQC_UNLIKELY(cond) __builtin_expect(!!(cond), 0)
@@ -75,6 +33,8 @@ typedef struct xqc_priority_queue_s         xqc_pq_t;
 typedef struct xqc_wakeup_pq_s              xqc_wakeup_pq_t;
 typedef struct xqc_log_s                    xqc_log_t;
 typedef struct xqc_send_ctl_s               xqc_send_ctl_t;
+typedef struct xqc_send_queue_s             xqc_send_queue_t;
+typedef struct xqc_pn_ctl_s                 xqc_pn_ctl_t;
 typedef struct xqc_packet_s                 xqc_packet_t;
 typedef struct xqc_packet_in_s              xqc_packet_in_t;
 typedef struct xqc_packet_out_s             xqc_packet_out_t;
@@ -89,6 +49,7 @@ typedef struct xqc_sample_s                 xqc_sample_t;
 typedef struct xqc_memory_pool_s            xqc_memory_pool_t;
 typedef struct xqc_bbr_info_interface_s     xqc_bbr_info_interface_t;
 typedef struct xqc_path_ctx_s               xqc_path_ctx_t;
+typedef struct xqc_timer_manager_s          xqc_timer_manager_t;
 
 typedef uint64_t        xqc_msec_t; /* store millisecond values */
 typedef uint64_t        xqc_usec_t; /* store microsecond values */
@@ -145,20 +106,15 @@ typedef enum {
 #endif
 } xqc_bbr2_optimization_flag_t;
 
-#define XQC_EXPORT_PUBLIC_API   __attribute__((visibility("default")))
-
-#ifdef XQC_SYS_WINDOWS
+#ifdef WIN32
 struct iovec {
     void   *iov_base;   /* [XSI] Base address of I/O memory region */
     size_t  iov_len;    /* [XSI] Size of region iov_base points to */
 };
-
-#if !(defined __MINGW32__) && !(defined __MINGW64__)
-#undef XQC_EXPORT_PUBLIC_API
-#define XQC_EXPORT_PUBLIC_API   _declspec(dllexport) 
 #endif
 
-#endif
+#define XQC_EXPORT_PUBLIC_API   __attribute__((visibility("default")))
+
 
 typedef enum {
     XQC_CONN_TYPE_CLIENT,
@@ -170,6 +126,17 @@ typedef enum {
     XQC_STREAM_BIDI,
     XQC_STREAM_UNI
 } xqc_stream_direction_t;
+
+#define XQC_DEFAULT_HTTP_PRIORITY_URGENCY 3
+#define XQC_HIGHEST_HTTP_PRIORITY_URGENCY 0
+#define XQC_LOWEST_HTTP_PRIORITY_URGENCY  7
+
+typedef struct xqc_http_priority_s {
+    uint8_t                 urgency;
+    uint8_t                 incremental;
+    uint8_t                 schedule;
+    uint8_t                 reinject;
+} xqc_h3_priority_t;
 
 
 #endif /*_XQUIC_TYPEDEF_H_INCLUDED_*/

@@ -12,22 +12,24 @@
 
 
 xqc_h3_conn_settings_t default_local_h3_conn_settings = {
-    .max_pushes                 = 0,
-    .max_field_section_size     = XQC_H3_MAX_FIELD_SECTION_SIZE,
-    .qpack_blocked_streams      = XQC_QPACK_MAX_BLOCK_STREAM,
-    .qpack_max_table_capacity   = XQC_QPACK_MAX_TABLE_CAPACITY,
+    .max_pushes                     = 0,
+    .max_field_section_size         = XQC_H3_MAX_FIELD_SECTION_SIZE,
+    .qpack_blocked_streams          = XQC_QPACK_MAX_BLOCK_STREAM,
+    .qpack_enc_max_table_capacity   = XQC_QPACK_MAX_TABLE_CAPACITY,
+    .qpack_dec_max_table_capacity   = XQC_QPACK_MAX_TABLE_CAPACITY,
 #ifdef XQC_COMPAT_DUPLICATE
-    .qpack_compat_duplicate     = XQC_FALSE,
+    .qpack_compat_duplicate         = XQC_FALSE,
 #endif
 };
 
 xqc_h3_conn_settings_t default_peer_h3_conn_settings = {
-    .max_pushes                 = XQC_H3_SETTINGS_UNSET,
-    .max_field_section_size     = XQC_H3_SETTINGS_UNSET,
-    .qpack_blocked_streams      = XQC_H3_SETTINGS_UNSET,
-    .qpack_max_table_capacity   = XQC_H3_SETTINGS_UNSET,
+    .max_pushes                     = XQC_H3_SETTINGS_UNSET,
+    .max_field_section_size         = XQC_H3_SETTINGS_UNSET,
+    .qpack_blocked_streams          = XQC_H3_SETTINGS_UNSET,
+    .qpack_enc_max_table_capacity   = XQC_H3_SETTINGS_UNSET,
+    .qpack_dec_max_table_capacity   = XQC_H3_SETTINGS_UNSET,
 #ifdef XQC_COMPAT_DUPLICATE
-    .qpack_compat_duplicate     = XQC_FALSE,
+    .qpack_compat_duplicate         = XQC_FALSE,
 #endif
 };
 
@@ -45,6 +47,9 @@ xqc_h3_blocked_stream_t *
 xqc_h3_blocked_stream_create(xqc_h3_stream_t *h3s, uint64_t ricnt)
 {
     xqc_h3_blocked_stream_t *blocked_stream = xqc_malloc(sizeof(xqc_h3_blocked_stream_t));
+    if (blocked_stream == NULL) {
+        return NULL;
+    }
     xqc_init_list_head(&blocked_stream->head);
     blocked_stream->h3s = h3s;
     blocked_stream->ricnt = ricnt;
@@ -69,19 +74,20 @@ xqc_h3_conn_destroy_blocked_stream_list(xqc_h3_conn_t *h3c);
 void
 xqc_h3_engine_set_dec_max_dtable_capacity(xqc_engine_t *engine, size_t value)
 {
-    default_local_h3_conn_settings.qpack_max_table_capacity = value;
+    default_local_h3_conn_settings.qpack_dec_max_table_capacity = value;
 }
 
 void
 xqc_h3_engine_set_enc_max_dtable_capacity(xqc_engine_t *engine, size_t value)
 {
-    default_local_h3_conn_settings.qpack_max_table_capacity = value;
+    default_local_h3_conn_settings.qpack_enc_max_table_capacity = value;
 }
 
 void
 xqc_h3_engine_set_max_dtable_capacity(xqc_engine_t *engine, size_t capacity)
 {
-    default_local_h3_conn_settings.qpack_max_table_capacity = capacity;
+    default_local_h3_conn_settings.qpack_dec_max_table_capacity = capacity;
+    default_local_h3_conn_settings.qpack_enc_max_table_capacity = capacity;
 }
 
 void
@@ -162,8 +168,12 @@ xqc_h3_conn_set_settings(xqc_h3_conn_t *h3_conn, const xqc_h3_conn_settings_t *h
         settings->max_pushes = h3_conn_settings->max_pushes;
     }
 
-    if (h3_conn_settings->qpack_max_table_capacity) {
-        settings->qpack_max_table_capacity = h3_conn_settings->qpack_max_table_capacity;
+    if (h3_conn_settings->qpack_enc_max_table_capacity) {
+        settings->qpack_enc_max_table_capacity = h3_conn_settings->qpack_enc_max_table_capacity;
+    }
+
+    if (h3_conn_settings->qpack_dec_max_table_capacity) {
+        settings->qpack_dec_max_table_capacity = h3_conn_settings->qpack_dec_max_table_capacity;
     }
 
     if (h3_conn_settings->qpack_blocked_streams) {
@@ -317,7 +327,8 @@ xqc_h3_conn_create(xqc_connection_t *conn, void *user_data)
     h3c->peer_h3_conn_settings = default_peer_h3_conn_settings;
 
     /* create qpack */
-    h3c->qpack = xqc_qpack_create(h3c->local_h3_conn_settings.qpack_max_table_capacity, 
+    h3c->qpack = xqc_qpack_create(h3c->local_h3_conn_settings.qpack_enc_max_table_capacity,
+                                  h3c->local_h3_conn_settings.qpack_dec_max_table_capacity,
                                   h3c->log, &xqc_h3_qpack_ins_cb, h3c);
     if (NULL == h3c->qpack) {
         xqc_log(h3c->log, XQC_LOG_ERROR, "|create qpack failed");
@@ -403,7 +414,12 @@ xqc_h3_conn_on_uni_stream_created(xqc_h3_conn_t *h3c, uint64_t stype)
 
         h3c->flags |= cflag;
         break;
+    case XQC_H3_STREAM_TYPE_REQUEST:
+        xqc_log(h3c->log, XQC_LOG_ERROR,
+                "|h3 uni-stream can not be used by request stream|type:%ui|", stype);
 
+        XQC_H3_CONN_ERR(h3c, H3_FRAME_ERROR, -XQC_H3_INVALID_STREAM);
+        return -XQC_H3_INVALID_STREAM;
     default:
         /* reserved stream type, do nothing */
         break;
@@ -425,7 +441,7 @@ xqc_h3_conn_send_settings(xqc_h3_conn_t *h3c)
 
     xqc_log(h3c->log, XQC_LOG_DEBUG, "|write settings success|qpack_blocked_streams:%ui|"
             "qpack_max_table_capacity:%ui|max_field_section_size:%ui|max_pushes:%ui|",
-            settings->qpack_blocked_streams, settings->qpack_max_table_capacity,
+            settings->qpack_blocked_streams, settings->qpack_dec_max_table_capacity,
             settings->max_field_section_size, settings->max_pushes);
 
     return XQC_OK;
@@ -510,7 +526,7 @@ xqc_h3_conn_on_settings_entry_received(uint64_t identifier, uint64_t value, void
         break;
 
     case XQC_H3_SETTINGS_QPACK_MAX_TABLE_CAPACITY:
-        h3c->peer_h3_conn_settings.qpack_max_table_capacity = value;
+        h3c->peer_h3_conn_settings.qpack_dec_max_table_capacity = value;
 
         /* 
          * set peer's max dtable cap of decoder to qpack's encoder, 
@@ -524,7 +540,7 @@ xqc_h3_conn_on_settings_entry_received(uint64_t identifier, uint64_t value, void
 
         /* dtable cap is the actual size set on local */
         ret = xqc_qpack_set_dtable_cap(h3c->qpack, xqc_min(
-            value, h3c->local_h3_conn_settings.qpack_max_table_capacity));
+            value, h3c->local_h3_conn_settings.qpack_enc_max_table_capacity));
         if (ret != XQC_OK) {
             xqc_log(h3c->log, XQC_LOG_ERROR, "|set dtable capacity error|ret:%d", ret);
             return ret;
@@ -560,7 +576,7 @@ xqc_h3_conn_get_qpack(xqc_h3_conn_t *h3c)
 xqc_h3_blocked_stream_t *
 xqc_h3_conn_add_blocked_stream(xqc_h3_conn_t *h3c, xqc_h3_stream_t *h3s, uint64_t ric)
 {
-    if (h3c->block_stream_count == h3c->local_h3_conn_settings.qpack_blocked_streams) {
+    if (h3c->block_stream_count >= h3c->peer_h3_conn_settings.qpack_blocked_streams) {
         xqc_log(h3c->log, XQC_LOG_ERROR, "|exceed max blocked stream limit|limit:%ui",
                 h3c->local_h3_conn_settings.qpack_blocked_streams);
         return NULL;

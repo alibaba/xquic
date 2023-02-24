@@ -8,16 +8,14 @@
 /**
  * Public API for using libxquic
  */
-
-#include "xquic_typedef.h"
-
-#if defined(XQC_SYS_WINDOWS) && !defined(XQC_ON_MINGW)
+#ifdef WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #endif
+#include "xquic_typedef.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -66,6 +64,9 @@ typedef enum xqc_proto_version_s {
  * the max message count of iovec in sendmmsg
  */
 #define XQC_MAX_SEND_MSG_ONCE           32
+
+
+#define XQC_INITIAL_PATH_ID             0
 
 
 /**
@@ -288,6 +289,18 @@ typedef void (*xqc_conn_peer_addr_changed_nofity_pt)(xqc_connection_t *conn, voi
 
 
 /**
+ * @brief server peer addr changed notify
+ *
+ * this function will be trigger after receive peer's changed addr.
+ *
+ * @param conn connection handler
+ * @param path_id id of path
+ * @param conn_user_data connection level user_data
+ */
+typedef void (*xqc_path_peer_addr_changed_nofity_pt)(xqc_connection_t *conn, uint64_t path_id, void *conn_user_data);
+
+
+/**
  * @brief return value of xqc_socket_write_pt and xqc_send_mmsg_pt callback function
  */
 #define XQC_SOCKET_ERROR                -1
@@ -329,10 +342,10 @@ typedef ssize_t (*xqc_send_mmsg_pt)(const struct iovec *msg_iov, unsigned int vl
 
 
 /**
- * @brief set data callback mode for a transport connection. this mode differs 
+ * @brief set data callback mode for a transport connection. this mode differs
  * from write_socket, which has a different user_data, once this callback
  * function is set, write_socket will be not functional until it is unset.
- * 
+ *
  * @param buf packet buffer
  * @param size packet size
  * @param peer_addr peer address
@@ -357,23 +370,50 @@ typedef void (*xqc_conn_ready_to_create_path_notify_pt)(const xqc_cid_t *scid,
     void *conn_user_data);
 
 /**
+ * @brief get chain certs and key by sin
+ */
+typedef xqc_int_t (*xqc_conn_cert_cb_pt)(const char *sni,
+    void **chain, void **crt, void **key, void *user_data);
+
+/**
  * @brief multi-path create callback function
  *
+ * @param conn connection handler
  * @param scid source connection id of endpoint
  * @param path_id id of path
  * @param conn_user_data user_data of connection
  */
-typedef void (*xqc_path_created_notify_pt)(const xqc_cid_t *scid, uint64_t path_id,
-    void *conn_user_data);
+typedef int (*xqc_path_created_notify_pt)(xqc_connection_t *conn,
+    const xqc_cid_t *scid, uint64_t path_id, void *conn_user_data);
 
 /**
- * @brief multi-path remove path callback function. will be triggered when path is destroyed
+ * @brief multi-path remove path callback function.
+ *
+ * this callback function will be triggered when path is closing
+ * and then the application-layer can release related resource.
  *
  * @param scid source connection id of endpoint
  * @param path_id id of path
  * @param conn_user_data user_data of connection
  */
 typedef void (*xqc_path_removed_notify_pt)(const xqc_cid_t *scid, uint64_t path_id,
+    void *conn_user_data);
+
+typedef enum {
+    XQC_PATH_DEGRADE,
+    XQC_PATH_RECOVERY,
+} xqc_path_status_change_type_t;
+
+/**
+ * @brief multi-path quality callback function
+ *
+ * @param conn connection handler
+ * @param scid source connection id of endpoint
+ * @param path_id id of path
+ * @param conn_user_data user_data of connection
+ */
+typedef xqc_bool_t (*xqc_path_status_controller_pt)(xqc_connection_t *conn,
+    const xqc_cid_t *scid, xqc_path_status_change_type_t type, uint64_t path_id,
     void *conn_user_data);
 
 /**
@@ -391,8 +431,10 @@ typedef void (*xqc_path_removed_notify_pt)(const xqc_cid_t *scid, uint64_t path_
  * XQC_SOCKET_EAGAIN for EAGAIN, we should call xqc_conn_continue_send when socket is ready to write
  * Warning: server's user_data is what passed in xqc_engine_packet_process when send a reset packet
  */
-typedef ssize_t (*xqc_mp_socket_write_pt)(uint64_t path_id, const unsigned char *buf, size_t size,
-    const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *conn_user_data);
+typedef ssize_t (*xqc_socket_write_ex_pt)(uint64_t path_id,
+    const unsigned char *buf, size_t size,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    void *conn_user_data);
 
 /**
  * @brief multi-path write socket callback function with sendmmsg
@@ -409,8 +451,9 @@ typedef ssize_t (*xqc_mp_socket_write_pt)(uint64_t path_id, const unsigned char 
  * XQC_SOCKET_EAGAIN for EAGAIN, we should call xqc_conn_continue_send when socket is ready to write
  * Warning: server's user_data is what passed in xqc_engine_packet_process when send a reset packet
  */
-typedef ssize_t (*xqc_mp_send_mmsg_pt)(uint64_t path_id, const struct iovec *msg_iov,
-    unsigned int vlen, const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+typedef ssize_t (*xqc_send_mmsg_ex_pt)(uint64_t path_id,
+    const struct iovec *msg_iov, unsigned int vlen,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen,
     void *conn_user_data);
 
 
@@ -480,6 +523,16 @@ typedef struct xqc_transport_callbacks_s {
     xqc_send_mmsg_pt                write_mmsg;
 
     /**
+     * write socket callback, ALTERNATIVE with write_mmsg
+     */
+    xqc_socket_write_ex_pt          write_socket_ex;
+
+    /**
+     * write socket with send_mmsg callback, ALTERNATIVE with write_socket
+     */
+    xqc_send_mmsg_ex_pt             write_mmsg_ex;
+
+    /**
      * QUIC connection cid update callback, REQUIRED for both server and client
      */
     xqc_conn_update_cid_notify_pt   conn_update_cid_notify;
@@ -505,12 +558,12 @@ typedef struct xqc_transport_callbacks_s {
     xqc_cert_verify_pt              cert_verify_cb;
 
     /**
-     * multi-path available callback. REQUIRED both for client and server if multi-path is needed
+     * multi-path available callback. REQUIRED for client if multi-path is needed
      */
     xqc_conn_ready_to_create_path_notify_pt ready_to_create_path_notify;
 
     /**
-     * path create callback function. REQUIRED both for client and server if multi-path is needed
+     * path create callback function. REQUIRED for server if multi-path is needed
      */
     xqc_path_created_notify_pt      path_created_notify;
 
@@ -518,6 +571,11 @@ typedef struct xqc_transport_callbacks_s {
      * path remove callback function. REQUIRED both for client and server if multi-path is needed
      */
     xqc_path_removed_notify_pt      path_removed_notify;
+
+    /*
+     * Decision function for path status change. OPTIONAL for both client and server
+     */
+    xqc_path_status_controller_pt   path_status_controller;
 
     /**
      * connection closing callback function. OPTIONAL for both client and server
@@ -528,6 +586,16 @@ typedef struct xqc_transport_callbacks_s {
      * QUIC connection peer addr changed callback, REQUIRED for server.
      */
     xqc_conn_peer_addr_changed_nofity_pt    conn_peer_addr_changed_notify;
+
+    /**
+     * QUIC path peer addr changed callback, REQUIRED for server.
+     */
+    xqc_path_peer_addr_changed_nofity_pt    path_peer_addr_changed_notify;
+
+    /**
+     * @brief cert callback
+     */
+    xqc_conn_cert_cb_pt                     conn_cert_cb;
 
 } xqc_transport_callbacks_t;
 
@@ -627,16 +695,24 @@ typedef struct xqc_cc_params_s {
     uint32_t    expect_bw;
     uint32_t    max_expect_bw;
     uint32_t    cc_optimization_flags;
-    /* 0 < delta <= delta_max, default 0.05, ->0 = more throughput-oriented */
-    double      copa_delta_base; 
-    /* 0 < delta_max <= 1.0, default 0.5 */
-    double      copa_delta_max;
-    /* 
-     * 1.0 <= delta_ai_unit, default 1.0, greater values mean more aggressive
-     * when Copa competes with loss-based CCAs.
-     */
-    double      copa_delta_ai_unit;
 } xqc_cc_params_t;
+
+typedef struct xqc_scheduler_params_u {
+    uint8_t customize_on;
+    union {
+        struct {
+            double lambda_max;
+            double lambda_min;
+            double lambda_init;
+            double lambda_inc;
+            double lambda_dec;
+        } blest_params;
+
+        struct {
+            double beta;
+        } ecf_params;
+    };
+} xqc_scheduler_params_t;
 
 typedef struct xqc_congestion_control_callback_s {
     /* Callback on initialization, for memory allocation */
@@ -666,7 +742,7 @@ typedef struct xqc_congestion_control_callback_s {
     /* This function is used by BBR and Cubic*/
     void (*xqc_cong_ctl_restart_from_idle)(void *cong_ctl, uint64_t arg);
 
-    /* For BBR & Copa */
+    /* For BBR */
     void (*xqc_cong_ctl_on_ack_multiple_pkts)(void *cong_ctl, xqc_sample_t *sampler);
 
     /* initialize bbr */
@@ -682,14 +758,62 @@ typedef struct xqc_congestion_control_callback_s {
 } xqc_cong_ctrl_callback_t;
 
 #ifndef XQC_DISABLE_RENO
-XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_reno_cb;
+XQC_EXPORT_PUBLIC_API extern const xqc_cong_ctrl_callback_t xqc_reno_cb;
 #endif
 #ifdef XQC_ENABLE_BBR2
-XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_bbr2_cb;
+XQC_EXPORT_PUBLIC_API extern const xqc_cong_ctrl_callback_t xqc_bbr2_cb;
 #endif
-XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_bbr_cb;
-XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_cubic_cb;
-XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_copa_cb;
+XQC_EXPORT_PUBLIC_API extern const xqc_cong_ctrl_callback_t xqc_bbr_cb;
+XQC_EXPORT_PUBLIC_API extern const xqc_cong_ctrl_callback_t xqc_cubic_cb;
+
+typedef enum xqc_scheduler_path_event_e {
+    XQC_SCHED_EVENT_PATH_NOT_FULL = 0,
+} xqc_scheduler_path_event_t;
+
+typedef enum xqc_scheduler_conn_event_e {
+    XQC_SCHED_EVENT_CONN_ROUND_START = 0,
+    XQC_SCHED_EVENT_CONN_ROUND_FIN   = 1,
+} xqc_scheduler_conn_event_t;
+
+typedef struct xqc_scheduler_callback_s {
+
+    size_t (*xqc_scheduler_size)(void);
+
+    void (*xqc_scheduler_init)(void *scheduler, xqc_log_t *log, xqc_scheduler_params_t *params);
+
+    xqc_path_ctx_t * (*xqc_scheduler_get_path)(void *scheduler,
+        xqc_connection_t *conn, xqc_packet_out_t *packet_out,
+        int check_cwnd, int reinject);
+
+    void (*xqc_scheduler_handle_path_event)(void *scheduler, 
+        xqc_path_ctx_t *path, xqc_scheduler_path_event_t event, void *event_arg);
+
+    void (*xqc_scheduler_handle_conn_event)(void *scheduler, 
+        xqc_connection_t *conn, xqc_scheduler_conn_event_t event, void *event_arg);
+
+} xqc_scheduler_callback_t;
+
+XQC_EXPORT_PUBLIC_API extern const xqc_scheduler_callback_t xqc_minrtt_scheduler_cb;
+XQC_EXPORT_PUBLIC_API extern const xqc_scheduler_callback_t xqc_backup_scheduler_cb;
+
+
+typedef struct xqc_reinj_ctl_callback_s {
+
+    size_t (*xqc_reinj_ctl_size)(void);
+
+    void (*xqc_reinj_ctl_init)(void *reinj_ctl, const xqc_conn_settings_t *settings, xqc_log_t *log);
+
+    xqc_bool_t (*xqc_reinj_ctl_lost_queue)(void *reinj_ctl, void *qoe_ctx, xqc_connection_t *conn);
+
+    xqc_bool_t (*xqc_reinj_ctl_unack_queue)(void *reinj_ctl, void *qoe_ctx, xqc_connection_t *conn);
+
+    xqc_bool_t (*xqc_reinj_ctl_send_queue)(void *reinj_ctl, void *qoe_ctx, xqc_connection_t *conn);
+
+    xqc_bool_t (*xqc_reinj_ctl_single_packet)(void *reinj_ctl, void *qoe_ctx, xqc_connection_t *conn, xqc_packet_out_t *po);
+
+} xqc_reinj_ctl_callback_t;
+
+XQC_EXPORT_PUBLIC_API extern const xqc_reinj_ctl_callback_t xqc_xlink_reinj_ctl_cb;
 
 
 /**
@@ -847,6 +971,7 @@ typedef struct xqc_conn_settings_s {
     xqc_cong_ctrl_callback_t    cong_ctrl_callback; /* default: xqc_cubic_cb */
     xqc_cc_params_t             cc_params;
     uint32_t                    so_sndbuf;          /* socket option SO_SNDBUF, 0 for unlimited */
+    uint64_t                    sndq_packets_used_max;  /* default: XQC_SNDQ_PACKETS_USED_MAX */
     xqc_linger_t                linger;
     xqc_proto_version_t         proto_version;      /* QUIC protocol version */
     xqc_msec_t                  init_idle_time_out; /* initial idle timeout interval, effective before handshake completion */
@@ -855,6 +980,47 @@ typedef struct xqc_conn_settings_s {
     uint32_t                    anti_amplification_limit;   /* limit of anti-amplification, default 3 */
     uint64_t                    keyupdate_pkt_threshold;    /* packet limit of a single 1-rtt key, 0 for unlimited */
     size_t                      max_pkt_out_size;
+
+    /* 
+     * multipath option:
+     * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-02#section-3
+     * 0: don't support multipath
+     * 1: supports multipath (unified solution) - multiple PN spaces
+     */
+    uint64_t                    enable_multipath;
+    /*
+     * reinjection option:
+     * 0: default, no reinjection
+     * bit0 = 1: 
+     *    try to reinject unacked packets if paths still have cwnd.
+     *    the current reinjection mode is very aggressive, please use with caution.
+     * bit1 = 1: 
+     *    try to reinject unacked packets if they have missed the deadline.
+     *    The deadline is controlled by the following three parameters.
+     */
+    int                         mp_enable_reinjection;
+    /*
+     * deadline = max(low_bound, min(hard_deadline, srtt * srtt_factor))
+     * default values:
+     *   low_bound = 0
+     *   hard_deadline = INF
+     *   srtt_factor = 2.0
+     */
+    double                      reinj_flexible_deadline_srtt_factor;
+    uint64_t                    reinj_hard_deadline;
+    uint64_t                    reinj_deadline_lower_bound;
+    
+    /* scheduler callback, default: xqc_minrtt_scheduler_cb */
+    xqc_scheduler_callback_t    scheduler_callback;
+    xqc_scheduler_params_t      scheduler_params;
+
+    /* reinj_ctl callback, default: xqc_xlink_reinj_ctl_cb */
+    xqc_reinj_ctl_callback_t    reinj_ctl_callback;
+
+    /* mark path unreachable if ctl_pto_count > path_unreachable_pto_count */
+    uint64_t                    path_unreachable_pto_count;
+
+    xqc_msec_t                  standby_path_probe_timeout;
 } xqc_conn_settings_t;
 
 
@@ -863,6 +1029,26 @@ typedef enum {
     XQC_0RTT_ACCEPT,    /* 0-RTT was accepted */
     XQC_0RTT_REJECT,    /* 0-RTT was rejected */
 } xqc_0rtt_flag_t;
+
+
+#define XQC_MAX_PATHS_COUNT 8
+#define XQC_CONN_INFO_LEN 400
+
+typedef struct xqc_path_metrics_s {
+    uint64_t            path_id;
+
+    uint64_t            path_pkt_recv_count;
+    uint64_t            path_pkt_send_count;
+
+    uint64_t            path_send_bytes;
+    uint64_t            path_send_reinject_bytes;
+
+    uint64_t            path_recv_bytes;
+    uint64_t            path_recv_reinject_bytes;
+    uint64_t            path_recv_effective_bytes;
+    uint64_t            path_recv_effective_reinject_bytes;
+} xqc_path_metrics_t;
+
 
 typedef struct xqc_conn_stats_s {
     uint32_t            send_count;
@@ -875,7 +1061,34 @@ typedef struct xqc_conn_stats_s {
     int                 spurious_loss_detect_on;
     int                 conn_err;
     char                ack_info[50];
+
+    /**
+     * @brief enable_multipath: 表示MP参数协商结果
+     * 0: 不支持MP
+     * 1: 支持MP, 采用 Single PNS
+     * 2: 支持MP, 采用 Multiple PNS
+     */
+    int                 enable_multipath;
+
+    /**
+     * @brief 连接级别MP状态
+     * 0: 未尝试建立过双路 (create_path_count <= 1)
+     * 1: 成功建立起双路，对端验证成功 (create_path_count > 1 && validated_path_count > 1)
+     * 2: 尝试建立过双路，但没有探测成功 (create_path_count > 1 && validated_path_count <= 1)
+     */
+    int                 mp_state;
+
+    xqc_path_metrics_t  paths_info[XQC_MAX_PATHS_COUNT];
+    char                conn_info[XQC_CONN_INFO_LEN];
 } xqc_conn_stats_t;
+
+typedef struct xqc_path_stats_s {
+    uint8_t             get_stats_success;
+
+    xqc_usec_t          last_tra_path_status_changed_time;
+    uint32_t            send_count_since_last_tra_path_status_changed;
+    uint32_t            pto_count_since_last_tra_path_status_changed;
+} xqc_path_stats_t;
 
 
 /*************************************************************
@@ -997,13 +1210,6 @@ void xqc_engine_set_log_level(xqc_engine_t *engine, xqc_log_level_t log_level);
  */
 XQC_EXPORT_PUBLIC_API
 void xqc_engine_finish_recv(xqc_engine_t *engine);
-
-
-/**
- * call after recv a batch packets, do not destroy connection
- */
-XQC_EXPORT_PUBLIC_API
-void xqc_engine_recv_batch(xqc_engine_t *engine, xqc_connection_t *conn);
 
 XQC_EXPORT_PUBLIC_API
 xqc_connection_t *xqc_engine_get_conn_by_scid(xqc_engine_t *engine,
@@ -1212,11 +1418,6 @@ unsigned char *xqc_dcid_str_by_scid(xqc_engine_t *engine, const xqc_cid_t *scid)
 XQC_EXPORT_PUBLIC_API
 uint8_t xqc_engine_config_get_cid_len(xqc_engine_t *engine);
 
-XQC_EXPORT_PUBLIC_API
-xqc_connection_t *xqc_engine_conns_hash_find(xqc_engine_t *engine, const xqc_cid_t *cid, char type);
-
-XQC_EXPORT_PUBLIC_API
-xqc_usec_t xqc_now();
 
 /**
  * User should call xqc_conn_continue_send when write event ready
@@ -1230,8 +1431,76 @@ xqc_int_t xqc_conn_continue_send(xqc_engine_t *engine, const xqc_cid_t *cid);
 XQC_EXPORT_PUBLIC_API
 xqc_conn_stats_t xqc_conn_get_stats(xqc_engine_t *engine, const xqc_cid_t *cid);
 
+/**
+ * create new path for client
+ * @param cid scid for connection
+ * @param new_path_id if new path is created successfully, return new_path_id in this param
+ * @return XQC_OK (0) when success, <0 for error
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_conn_create_path(xqc_engine_t *engine,
+    const xqc_cid_t *cid, uint64_t *new_path_id);
+
+
+/**
+ * Close a path
+ * @param cid scid for connection
+ * @param close_path_id path identifier for the closing path
+ * @return XQC_OK (0) when success, <0 for error
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_conn_close_path(xqc_engine_t *engine, const xqc_cid_t *cid, uint64_t closed_path_id);
+
+
+/**
+ * Mark a path as "standby", i.e., suggest that no traffic should be sent
+ * on that path if another path is available.
+ * @param cid scid for connection
+ * @param path_id path identifier for the path
+ * @return XQC_OK (0) when success, <0 for error
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_conn_mark_path_standby(xqc_engine_t *engine, const xqc_cid_t *cid, uint64_t path_id);
+
+
+/**
+ * Mark a path as "available", i.e., allow the peer to use its own logic
+ * to split traffic among available paths.
+ * @param cid scid for connection
+ * @param path_id path identifier for the path
+ * @return XQC_OK (0) when success, <0 for error
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_conn_mark_path_available(xqc_engine_t *engine, const xqc_cid_t *cid, uint64_t path_id);
+
+
 XQC_EXPORT_PUBLIC_API
 xqc_conn_type_t xqc_conn_get_type(xqc_connection_t *conn);
+
+/**
+ * Server should get peer addr when path_create_notify callbacks
+ * @param peer_addr_len is a return value
+ * @return XQC_OK for success, others for failure
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_path_get_peer_addr(xqc_connection_t *conn, uint64_t path_id,
+    struct sockaddr *addr, socklen_t addr_cap, socklen_t *peer_addr_len);
+
+/**
+ * Server should get local addr when path_create_notify callbacks
+ * @param local_addr_len is a return value
+ * @return XQC_OK for success, others for failure
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_path_get_local_addr(xqc_connection_t *conn, uint64_t path_id,
+    struct sockaddr *addr, socklen_t addr_cap, socklen_t *local_addr_len);
+
+/**
+ * User can get xqc_path_stats_t by path_id
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_path_stats_t xqc_path_get_stats(xqc_engine_t *engine, const xqc_cid_t *cid,
+    uint64_t path_id);
 
 /**
  * @brief load balance cid encryption.
@@ -1244,7 +1513,7 @@ xqc_conn_type_t xqc_conn_get_type(xqc_connection_t *conn);
  * @param lb_cid_key_len secret length.
  * @param engine engine from `xqc_engine_create`
  * @return negative for failed, 0 for the success.
- * 
+ *
  * The length of cid_buf must not exceed the maximum length of the cid (20 byte), the length of out_buf should be no less than cid_buf_length.
  * The length of lb_cid_key should be exactly 16 bytes.
  */

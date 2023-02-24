@@ -232,17 +232,5 @@ xqc_packet_process_single(xqc_connection_t *c,
 }
 
 
-/* check if the packet has packet number */
-uint8_t
-xqc_has_packet_number(xqc_packet_t *pkt)
-{
-    /* VERSION_NEGOTIATION/RETRY packet don't have packet number */
-    if (XQC_UNLIKELY(XQC_PTYPE_VERSION_NEGOTIATION == pkt->pkt_type
-                     || XQC_PTYPE_RETRY == pkt->pkt_type))
-    {
-        return XQC_FALSE;
-    }
 
-    return XQC_TRUE;
-}
 

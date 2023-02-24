@@ -21,6 +21,7 @@
 
 typedef unsigned char   u_char;
 
+#define xqc_calc_delay(a, b) ((a) ? (a) - (b) : 0)
 
 #define XQC_POW2_UPPER_ERROR 0
 

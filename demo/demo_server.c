@@ -7,29 +7,19 @@
 #include <errno.h>
 #include <memory.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <fcntl.h>
+#include <sys/wait.h>
 #include <event2/event.h>
 #include <inttypes.h>
 #include <xquic/xquic_typedef.h>
 #include <xquic/xquic.h>
 #include <xquic/xqc_http3.h>
 #include <ctype.h>
-#include "../tests/platform.h"
-
-#ifndef XQC_SYS_WINDOWS
-#include <unistd.h>
-#include <sys/wait.h>
-#else
-#include <third_party/wingetopt/src/getopt.h>
-#pragma comment(lib,"ws2_32.lib")
-#pragma comment(lib,"event.lib")
-#pragma comment(lib, "Iphlpapi.lib")
-#endif
-
+#include <signal.h>
 
 #include "common.h"
 #include "xqc_hq.h"
-
 
 
 
@@ -142,6 +132,8 @@ typedef struct xqc_demo_svr_args_s {
 
 
 typedef struct xqc_demo_svr_ctx_s {
+    struct event_base   *eb;
+
     xqc_engine_t        *engine;
     struct event        *ev_engine;
 
@@ -267,12 +259,12 @@ xqc_demo_svr_write_log_file(xqc_log_level_t lvl, const void *buf, size_t size, v
 
     int write_len = write(ctx->log_fd, buf, size);
     if (write_len < 0) {
-        printf("write log failed, errno: %d\n", get_last_sys_errno());
+        printf("write log failed, errno: %d\n", errno);
         return;
     }
     write_len = write(ctx->log_fd, line_break, 1);
     if (write_len < 0) {
-        printf("write log failed, errno: %d\n", get_last_sys_errno());
+        printf("write log failed, errno: %d\n", errno);
     }
 }
 
@@ -313,12 +305,12 @@ xqc_demo_svr_keylog_cb(const char *line, void *eng_user_data)
 
     int write_len = write(ctx->keylog_fd, line, strlen(line));
     if (write_len < 0) {
-        printf("write keys failed, errno: %d\n", get_last_sys_errno());
+        printf("write keys failed, errno: %d\n", errno);
         return;
     }
     write_len = write(ctx->keylog_fd, line_break, 1);
     if (write_len < 0) {
-        printf("write keys failed, errno: %d\n", get_last_sys_errno());
+        printf("write keys failed, errno: %d\n", errno);
     }
 }
 
@@ -923,16 +915,15 @@ xqc_demo_svr_write_socket(const unsigned char *buf, size_t size, const struct so
     int fd = svr_ctx.current_fd;
 
     do {
-        set_last_sys_errno(0);
+        errno = 0;
         res = sendto(fd, buf, size, 0, peer_addr, peer_addrlen);
         if (res < 0) {
-            printf("xqc_demo_svr_write_socket err %zd %s, fd: %d\n", 
-                res, strerror(get_last_sys_errno()), fd);
-            if (get_last_sys_errno() == EAGAIN) {
+            printf("xqc_demo_svr_write_socket err %zd %s, fd: %d\n", res, strerror(errno), fd);
+            if (errno == EAGAIN) {
                 res = XQC_SOCKET_EAGAIN;
             }
         }
-    } while ((res < 0) && (get_last_sys_errno() == EINTR));
+    } while ((res < 0) && (errno == EINTR));
 
     return res;
 }
@@ -959,17 +950,17 @@ xqc_demo_svr_socket_read_handler(xqc_demo_svr_ctx_t *ctx, int fd)
     do {
         recv_size = recvfrom(fd, packet_buf, sizeof(packet_buf), 0,
                              (struct sockaddr *) &peer_addr, &peer_addrlen);
-        if (recv_size < 0 && get_last_sys_errno() == EAGAIN) {
+        if (recv_size < 0 && errno == EAGAIN) {
             break;
         }
 
         if (recv_size < 0) {
-            printf("!!!!!!!!!recvfrom: recvmsg = %zd err=%s\n", recv_size, strerror(get_last_sys_errno()));
+            printf("!!!!!!!!!recvfrom: recvmsg = %zd err=%s\n", recv_size, strerror(errno));
             break;
         }
         recv_sum += recv_size;
 
-        uint64_t recv_time = xqc_now();
+        uint64_t recv_time = xqc_demo_now();
         xqc_int_t ret = xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
                                       (struct sockaddr *)(&ctx->local_addr), ctx->local_addrlen,
                                       (struct sockaddr *)(&peer_addr), peer_addrlen,
@@ -1010,47 +1001,39 @@ xqc_demo_svr_init_socket(int family, uint16_t port,
 {
     int size;
     int opt_reuseaddr;
-    int flags = 1;
     int fd = socket(family, SOCK_DGRAM, 0);
     if (fd < 0) {
-        printf("create socket failed, errno: %d\n", get_last_sys_errno());
+        printf("create socket failed, errno: %d\n", errno);
         return -1;
     }
 
     /* non-block */
-#ifdef XQC_SYS_WINDOWS
-    if (ioctlsocket(fd, FIONBIO, &flags) == SOCKET_ERROR) {
-		goto err;
-	}
-#else
     if (fcntl(fd, F_SETFL, O_NONBLOCK) == -1) {
-        printf("set socket nonblock failed, errno: %d\n", get_last_sys_errno());
+        printf("set socket nonblock failed, errno: %d\n", errno);
         goto err;
     }
-#endif
 
     /* reuse port */
     opt_reuseaddr = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt_reuseaddr, sizeof(opt_reuseaddr)) < 0) {
-        printf("setsockopt failed, errno: %d\n", get_last_sys_errno());
+        printf("setsockopt failed, errno: %d\n", errno);
         goto err;
     }
 
     /* send/recv buffer size */
     size = 1 * 1024 * 1024;
     if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &size, sizeof(int)) < 0) {
-        printf("setsockopt failed, errno: %d\n", get_last_sys_errno());
+        printf("setsockopt failed, errno: %d\n", errno);
         goto err;
     }
     if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &size, sizeof(int)) < 0) {
-        printf("setsockopt failed, errno: %d\n", get_last_sys_errno());
+        printf("setsockopt failed, errno: %d\n", errno);
         goto err;
     }
 
     /* bind port */
     if (bind(fd, local_addr, local_addrlen) < 0) {
-        printf("bind socket failed, family: %d, errno: %d, %s\n", family, 
-            get_last_sys_errno(), strerror(get_last_sys_errno()));
+        printf("bind socket failed, family: %d, errno: %d, %s\n", family, errno, strerror(errno));
         goto err;
     }
 
@@ -1462,11 +1445,20 @@ xqc_demo_svr_free_ctx(xqc_demo_svr_ctx_t *ctx)
 }
 
 
+void
+th3_demo_proxy_sig_hndlr(int signo)
+{
+    if (signo == SIGTERM) {
+        xqc_demo_svr_ctx_t *ctx = &svr_ctx;
+        event_base_loopbreak(ctx->eb);
+    }
+}
+
+
 int
 main(int argc, char *argv[])
 {
-    /* init env if necessary */
-    xqc_platform_init_env();
+    signal(SIGTERM, th3_demo_proxy_sig_hndlr);
 
     /* get input server args */
     xqc_demo_svr_args_t *args = calloc(1, sizeof(xqc_demo_svr_args_t));
@@ -1480,6 +1472,7 @@ main(int argc, char *argv[])
     /* engine event */
     struct event_base *eb = event_base_new();
     ctx->ev_engine = event_new(eb, -1, 0, xqc_demo_svr_engine_callback, ctx);
+    ctx->eb = eb;
 
     if (xqc_demo_svr_init_xquic_engine(ctx, args) < 0) {
         return -1;

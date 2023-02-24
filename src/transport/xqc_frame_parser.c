@@ -12,6 +12,7 @@
 #include "src/transport/xqc_stream.h"
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_packet_parser.h"
+#include "src/transport/xqc_reinjection.h"
 
 
 
@@ -51,7 +52,50 @@ xqc_gen_stream_frame(xqc_packet_out_t *packet_out,
     unsigned stream_id_len, offset_len, length_len;
     /* 0b00001XXX point to second byte */
     unsigned char *p = dst_buf + 1;
+    /* fin_only means there is no stream data */
+    uint8_t fin_only = (fin && !size);
 
+    unsigned int idx = packet_out->po_stream_frames_idx;
+    unsigned int prev_idx = idx - 1;
+    if (idx >= XQC_MAX_STREAM_FRAME_IN_PO) {
+        return -XQC_ELIMIT;
+    }
+
+    /* Try to combine with previous stream frame */
+    if (idx > 0 && packet_out->po_frame_types == XQC_FRAME_BIT_STREAM /* No other frames */
+        && packet_out->po_stream_frames[prev_idx].ps_stream_id == stream_id
+        && packet_out->po_stream_frames[prev_idx].ps_offset + packet_out->po_stream_frames[prev_idx].ps_length == offset
+        && packet_out->po_stream_frames[prev_idx].ps_length_offset > 0 /* Length field is present */)
+    {
+        unsigned char *p_type = packet_out->po_buf + packet_out->po_stream_frames[prev_idx].ps_type_offset;
+        unsigned char *p_length = packet_out->po_buf + packet_out->po_stream_frames[prev_idx].ps_length_offset;
+        size_t append_size = 0;
+
+        /* Length is 2 Bytes */
+        if ((*p_length & 0xC0) != 0x40) {
+            goto new_frame;
+        }
+
+        if (!fin_only) {
+            append_size = xqc_min(size, dst_buf_len);
+            memcpy(dst_buf, payload, append_size);
+            xqc_vint_write(p_length, packet_out->po_stream_frames[prev_idx].ps_length + append_size, 1, 2);
+            packet_out->po_stream_frames[prev_idx].ps_length += append_size;
+            if (append_size != size) {
+                fin = 0;
+            }
+        }
+
+        if (fin) {
+            *p_type |= 0x01;
+            packet_out->po_stream_frames[prev_idx].ps_has_fin = fin;
+        }
+
+        *written_size = append_size;
+        return append_size;
+    }
+
+new_frame:
     stream_id_bits = xqc_vint_get_2bit(stream_id);
     stream_id_len = xqc_vint_len(stream_id_bits);
     if (offset) {
@@ -61,9 +105,6 @@ xqc_gen_stream_frame(xqc_packet_out_t *packet_out,
     } else {
         offset_len = 0;
     }
-
-    /* fin_only means there is no stream data */
-    uint8_t fin_only = (fin && !size);
 
     if (!fin_only) {
         ssize_t n_avail;
@@ -75,8 +116,9 @@ xqc_gen_stream_frame(xqc_packet_out_t *packet_out,
          * length.
          */
         if (size <= n_avail) {
-            length_bits = xqc_vint_get_2bit(size);
-            length_len = xqc_vint_len(length_bits);
+            /* length_len set to 2 bytes, easy to combine with other stream frame */
+            length_bits = 1;
+            length_len = 2;
             n_avail -= length_len;
             if (size > n_avail) {
                 size = n_avail;
@@ -84,10 +126,11 @@ xqc_gen_stream_frame(xqc_packet_out_t *packet_out,
             }
 
         } else {
-            /* length_len = 0; reserve ACK, must have length. */
+            /* reserve ACK, must have length. */
             size = n_avail;
-            length_bits = xqc_vint_get_2bit(size);
-            length_len = xqc_vint_len(length_bits);
+            length_bits = 1;
+            length_len = 2;
+            size -= length_len;
             fin = 0;
         }
 
@@ -108,6 +151,7 @@ xqc_gen_stream_frame(xqc_packet_out_t *packet_out,
 
         if (length_len) {
             xqc_vint_write(p, size, length_bits, length_len);
+            packet_out->po_stream_frames[idx].ps_length_offset = (unsigned int)(p - packet_out->po_buf);
         }
 
         p += length_len + size;
@@ -135,6 +179,14 @@ xqc_gen_stream_frame(xqc_packet_out_t *packet_out,
                  | (!!offset_len << 2)
                  | (!!length_len << 1)
                  | (!!fin << 0);
+
+    packet_out->po_stream_frames[idx].ps_type_offset = (unsigned int)(dst_buf - packet_out->po_buf);
+    packet_out->po_stream_frames[idx].ps_offset = offset;
+    packet_out->po_stream_frames[idx].ps_length = (unsigned int)size;
+    packet_out->po_stream_frames[idx].ps_is_used = 1;
+    packet_out->po_stream_frames[idx].ps_stream_id = stream_id;
+    packet_out->po_stream_frames[idx].ps_has_fin = fin;
+    packet_out->po_stream_frames_idx++;
 
     packet_out->po_frame_types |= XQC_FRAME_BIT_STREAM;
 
@@ -292,7 +344,9 @@ xqc_parse_crypto_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
     }
     frame->data_length = length;
     p += vlen;
-
+    if (p + length > end) {
+        return -XQC_EILLEGAL_FRAME;;
+    }
     if (frame->data_length > 0) {
         frame->data = xqc_malloc(frame->data_length);
         if (!frame->data) {
@@ -396,8 +450,8 @@ xqc_parse_ping_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn)
     Gap 1 Ack Range 2
  */
 ssize_t
-xqc_gen_ack_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
-    xqc_usec_t now, int ack_delay_exponent, xqc_recv_record_t *recv_record,
+xqc_gen_ack_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec_t now, 
+    int ack_delay_exponent, xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, 
     int *has_gap, xqc_packet_number_t *largest_ack)
 {
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
@@ -425,13 +479,13 @@ xqc_gen_ack_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
         return -XQC_ENULLPTR;
     }
 
-    ack_delay = (now - recv_record->largest_pkt_recv_time);
+    ack_delay = (now - largest_pkt_recv_time);
     lagest_recv = first_range->pktno_range.high;
     first_ack_range = lagest_recv - first_range->pktno_range.low;
     prev_low = first_range->pktno_range.low;
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|lagest_recv:%ui|ack_delay:%ui|first_ack_range:%ud|largest_pkt_recv_time:%ui|",
-            lagest_recv, ack_delay, first_ack_range, recv_record->largest_pkt_recv_time);
+            lagest_recv, ack_delay, first_ack_range, largest_pkt_recv_time);
 
     ack_delay = ack_delay >> ack_delay_exponent;
 
@@ -513,6 +567,142 @@ xqc_gen_ack_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     return dst_buf - begin;
 }
 
+ssize_t 
+xqc_gen_ack_frame_for_spns(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec_t now, int ack_delay_exponent,
+                           xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, int *has_gap, 
+                           xqc_packet_number_t *largest_ack, xqc_packet_number_t must_ack)
+{
+    unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
+    size_t dst_buf_len = packet_out->po_buf_size - packet_out->po_used_size + XQC_ACK_SPACE;
+
+    xqc_packet_number_t lagest_recv, prev_low;
+    xqc_usec_t ack_delay;
+
+    const unsigned char *begin = dst_buf;
+    const unsigned char *end = dst_buf + dst_buf_len;
+    unsigned char *p_range_count;
+    unsigned range_count = 0, first_ack_range, gap, acks, gap_bits, acks_bits, need;
+
+    xqc_list_head_t *pos, *next;
+    xqc_pktno_range_node_t *range_node;
+    xqc_pktno_range_node_t *first_range = NULL;
+    xqc_list_head_t *pos_lowest_range;
+    xqc_bool_t cover_lowest_range = 0;
+
+    /* 根据传入的最大ack来写ack frame */
+    pos = xqc_recv_record_get_pos(recv_record, *largest_ack);
+    if (pos == NULL) {
+        xqc_log(conn->log, XQC_LOG_WARN, "|get_largest_ack_pos error|largest_ack:%ui|record_largest:%ui|", *largest_ack, xqc_recv_record_largest(recv_record));
+        return -XQC_ENULLPTR;
+    }
+    pos_lowest_range = xqc_recv_record_get_pos(recv_record, must_ack);
+    if (pos_lowest_range == NULL) {
+        xqc_log(conn->log, XQC_LOG_WARN, "|get_lowest_range_pos error|must_ack:%ui|", must_ack);
+        return -XQC_ENULLPTR;
+    }
+
+    first_range = xqc_list_entry(pos, xqc_pktno_range_node_t, list);
+    if (first_range == NULL) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|first_range empty|");
+        return -XQC_ENULLPTR;
+    }
+
+    ack_delay = (now - largest_pkt_recv_time);
+    lagest_recv = first_range->pktno_range.high;
+    first_ack_range = lagest_recv - first_range->pktno_range.low;
+    prev_low = first_range->pktno_range.low;
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|lagest_recv:%ui|ack_delay:%ui|first_ack_range:%ud|largest_pkt_recv_time:%ui|",
+            lagest_recv, ack_delay, first_ack_range, largest_pkt_recv_time);
+
+    ack_delay = ack_delay >> ack_delay_exponent;
+
+    unsigned lagest_recv_bits = xqc_vint_get_2bit(lagest_recv);
+    unsigned ack_delay_bits = xqc_vint_get_2bit(ack_delay);
+    unsigned first_ack_range_bits = xqc_vint_get_2bit(first_ack_range);
+
+    need = 1    /* type */
+            + xqc_vint_len(lagest_recv_bits)
+            + xqc_vint_len(ack_delay_bits)
+            + 1 /* range_count */
+            + xqc_vint_len(first_ack_range_bits);
+
+    if (dst_buf + need > end) {
+        return -XQC_ENOBUF;
+    }
+
+    *dst_buf++ = 0x02;
+
+    xqc_vint_write(dst_buf, lagest_recv, lagest_recv_bits, xqc_vint_len(lagest_recv_bits));
+    dst_buf += xqc_vint_len(lagest_recv_bits);
+
+    *largest_ack = lagest_recv;
+
+    xqc_vint_write(dst_buf, ack_delay, ack_delay_bits, xqc_vint_len(ack_delay_bits));
+    dst_buf += xqc_vint_len(ack_delay_bits);
+
+    p_range_count = dst_buf;
+    dst_buf += 1;   /* max range_count 63, 1 byte */
+
+    xqc_vint_write(dst_buf, first_ack_range, first_ack_range_bits, xqc_vint_len(first_ack_range_bits));
+    dst_buf += xqc_vint_len(first_ack_range_bits);
+
+    int is_first = 1;
+    xqc_list_for_each_from(pos, &recv_record->list_head) {    /* from second node */
+        range_node = xqc_list_entry(pos, xqc_pktno_range_node_t, list);
+
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|high:%ui|low:%ui|pkt_pns:%d|",
+                range_node->pktno_range.high, range_node->pktno_range.low, packet_out->po_pkt.pkt_pns);
+        
+        if (pos_lowest_range == NULL || pos_lowest_range == pos) {
+            cover_lowest_range = 1;
+        }
+
+        if (is_first) {
+            is_first = 0;
+            continue;
+        }
+
+        gap = prev_low - range_node->pktno_range.high - 2;
+        acks = range_node->pktno_range.high - range_node->pktno_range.low;
+
+        gap_bits = xqc_vint_get_2bit(gap);
+        acks_bits = xqc_vint_get_2bit(acks);
+
+        need = xqc_vint_len(gap_bits) + xqc_vint_len(acks_bits);
+        if (dst_buf + need > end) {
+            return -XQC_ENOBUF;
+        }
+
+        xqc_vint_write(dst_buf, gap, gap_bits, xqc_vint_len(gap_bits));
+        dst_buf += xqc_vint_len(gap_bits);
+
+        xqc_vint_write(dst_buf, acks, acks_bits, xqc_vint_len(acks_bits));
+        dst_buf += xqc_vint_len(acks_bits);
+
+        prev_low = range_node->pktno_range.low;
+
+        ++range_count;
+        if (range_count >= XQC_MAX_ACK_RANGE_CNT - 1) {
+            break;
+        }
+        if (cover_lowest_range == 1 && range_count >= XQC_DEFAULT_ACK_RANGE_CNT - 1) {
+            break;
+        }
+    }
+
+    if (range_count > 0) {
+        *has_gap = 1;
+
+    } else {
+        *has_gap = 0;
+    }
+    xqc_vint_write(p_range_count, range_count, 0, 1);
+
+    packet_out->po_frame_types |= XQC_FRAME_BIT_ACK;
+    return dst_buf - begin;
+}
+
 /**
  * parse ack frame to ack_info
  */
@@ -531,6 +721,7 @@ xqc_parse_ack_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_ack_
 
     unsigned n_ranges = 0;      /* the range cnt stored */
 
+    ack_info->path_id = packet_in->pi_path_id;
     ack_info->pns = packet_in->pi_pkt.pkt_pns;
 
     vlen = xqc_vint_read(p, end, &largest_acked);
@@ -1204,7 +1395,7 @@ xqc_parse_max_streams_frame(xqc_packet_in_t *packet_in, uint64_t *max_streams, i
 
     packet_in->pi_frame_types |= XQC_FRAME_BIT_MAX_STREAMS;
 
-    xqc_log_event(conn->log, TRA_FRAMES_PROCESSED, XQC_FRAME_MAX_STREAMS, *bidirectional, *max_streams);
+    xqc_log_event(conn->log, TRA_FRAMES_PROCESSED, XQC_FRAME_MAX_STREAM_DATA, *bidirectional, *max_streams);
     return XQC_OK;
 }
 
@@ -1437,7 +1628,6 @@ xqc_parse_new_conn_id_frame(xqc_packet_in_t *packet_in, xqc_cid_t *new_cid, uint
     return XQC_OK;
 }
 
-
 /*
  * https://datatracker.ietf.org/doc/html/rfc9000#section-19.16
  *
@@ -1600,6 +1790,530 @@ xqc_parse_path_response_frame(xqc_packet_in_t *packet_in, unsigned char *data)
     packet_in->pos = p;
 
     packet_in->pi_frame_types |= XQC_FRAME_BIT_PATH_RESPONSE;
+
+    return XQC_OK;
+}
+
+/*
+ * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath#section-10.2
+ *
+ * ACK_MP Frame {
+ *    Type (i) = TBD-00..TBD-01 (experiments use 0xbaba00..0xbaba01),
+ *    Packet Number Space Identifier (i),
+ *    Largest Acknowledged (i),
+ *    ACK Delay (i),
+ *    ACK Range Count (i),
+ *    First ACK Range (i),
+ *    ACK Range (..) ...,
+ *    [ECN Counts (..)],
+ * }
+ *
+ *               Figure 6: ACK_MP Frame Format
+ */
+
+ssize_t
+xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id,
+    xqc_packet_out_t *packet_out, xqc_usec_t now, int ack_delay_exponent,
+    xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, 
+    int *has_gap, xqc_packet_number_t *largest_ack)
+{
+    uint64_t frame_type = 0xbaba00;
+    unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
+    size_t dst_buf_len = packet_out->po_buf_size - packet_out->po_used_size + XQC_ACK_SPACE;
+
+    xqc_packet_number_t lagest_recv, prev_low;
+    xqc_usec_t ack_delay;
+
+    const unsigned char *begin = dst_buf;
+    const unsigned char *end = dst_buf + dst_buf_len;
+    unsigned char *p_range_count;
+    unsigned range_count = 0, first_ack_range, gap, acks, gap_bits, acks_bits, need;
+
+    xqc_list_head_t *pos, *next;
+    xqc_pktno_range_node_t *range_node;
+
+    xqc_pktno_range_node_t *first_range = NULL;
+    xqc_list_for_each_safe(pos, next, &recv_record->list_head) {
+        first_range = xqc_list_entry(pos, xqc_pktno_range_node_t, list);
+        break;
+    }
+
+    if (first_range == NULL) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|recv_record empty|");
+        return -XQC_ENULLPTR;
+    }
+
+    ack_delay = (now - largest_pkt_recv_time);
+    /*
+     * Because the receiver doesn't use the ACK Delay for Initial and Handshake packets,
+     * a sender SHOULD send a value of 0.
+     */
+    if (packet_out->po_pkt.pkt_pns == XQC_PNS_INIT || packet_out->po_pkt.pkt_pns == XQC_PNS_HSK) {
+        ack_delay = 0;
+    }
+
+    lagest_recv = first_range->pktno_range.high;
+    first_ack_range = lagest_recv - first_range->pktno_range.low;
+    prev_low = first_range->pktno_range.low;
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|lagest_recv:%ui|ack_delay:%ui|first_ack_range:%ud|largest_pkt_recv_time:%ui|",
+            lagest_recv, ack_delay, first_ack_range, largest_pkt_recv_time);
+
+    ack_delay = ack_delay >> ack_delay_exponent;
+
+    unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
+    unsigned path_id_bits = xqc_vint_get_2bit(path_id);
+    unsigned lagest_recv_bits = xqc_vint_get_2bit(lagest_recv);
+    unsigned ack_delay_bits = xqc_vint_get_2bit(ack_delay);
+    unsigned first_ack_range_bits = xqc_vint_get_2bit(first_ack_range);
+
+    need = + xqc_vint_len(frame_type_bits)
+           + xqc_vint_len(path_id_bits)
+           + xqc_vint_len(lagest_recv_bits)
+           + xqc_vint_len(ack_delay_bits)
+           + 1  /* range_count */
+           + xqc_vint_len(first_ack_range_bits);
+
+    if (dst_buf + need > end) {
+        return -XQC_ENOBUF;
+    }
+
+    xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
+    dst_buf += xqc_vint_len(frame_type_bits);
+
+    xqc_vint_write(dst_buf, path_id, path_id_bits, xqc_vint_len(path_id_bits));
+    dst_buf += xqc_vint_len(path_id_bits);
+
+    xqc_vint_write(dst_buf, lagest_recv, lagest_recv_bits, xqc_vint_len(lagest_recv_bits));
+    dst_buf += xqc_vint_len(lagest_recv_bits);
+
+    *largest_ack = lagest_recv;
+
+    xqc_vint_write(dst_buf, ack_delay, ack_delay_bits, xqc_vint_len(ack_delay_bits));
+    dst_buf += xqc_vint_len(ack_delay_bits);
+
+    p_range_count = dst_buf;
+    dst_buf += 1;   /* max range_count 63, 1 byte */
+
+    xqc_vint_write(dst_buf, first_ack_range, first_ack_range_bits, xqc_vint_len(first_ack_range_bits));
+    dst_buf += xqc_vint_len(first_ack_range_bits);
+
+    int is_first = 1;
+    xqc_list_for_each_safe(pos, next, &recv_record->list_head) {    /* from second node */
+        range_node = xqc_list_entry(pos, xqc_pktno_range_node_t, list);
+
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|high:%ui|low:%ui|pkt_pns:%d|",
+                range_node->pktno_range.high, range_node->pktno_range.low,
+                packet_out->po_pkt.pkt_pns);
+
+        if (is_first) {
+            is_first = 0;
+            continue;
+        }
+
+        gap = prev_low - range_node->pktno_range.high - 2;
+        acks = range_node->pktno_range.high - range_node->pktno_range.low;
+
+        gap_bits = xqc_vint_get_2bit(gap);
+        acks_bits = xqc_vint_get_2bit(acks);
+
+        need = xqc_vint_len(gap_bits) + xqc_vint_len(acks_bits);
+        if (dst_buf + need > end) {
+            return -XQC_ENOBUF;
+        }
+
+        xqc_vint_write(dst_buf, gap, gap_bits, xqc_vint_len(gap_bits));
+        dst_buf += xqc_vint_len(gap_bits);
+
+        xqc_vint_write(dst_buf, acks, acks_bits, xqc_vint_len(acks_bits));
+        dst_buf += xqc_vint_len(acks_bits);
+
+        prev_low = range_node->pktno_range.low;
+
+        ++range_count;
+
+        if (range_count >= XQC_MAX_ACK_RANGE_CNT - 1) {
+            break;
+        }
+    }
+
+    if (range_count > 0) {
+        *has_gap = 1;
+    } else {
+        *has_gap = 0;
+    }
+    xqc_vint_write(p_range_count, range_count, 0, 1);
+
+    packet_out->po_frame_types |= XQC_FRAME_BIT_ACK_MP;
+    return dst_buf - begin;
+}
+
+xqc_int_t
+xqc_parse_ack_mp_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
+    uint64_t *path_id, xqc_ack_info_t *ack_info)
+{
+    unsigned char *p = packet_in->pos;
+    const unsigned char *end = packet_in->last;
+    uint64_t frame_type = 0;
+
+    int vlen;
+    uint64_t largest_acked;
+    uint64_t ack_range_count;   /* the actual range cnt */
+    uint64_t first_ack_range;
+    uint64_t range, gap;
+
+    unsigned n_ranges = 0;      /* the range cnt stored */
+
+    vlen = xqc_vint_read(p, end, &frame_type);  /* get frame_type */
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    vlen = xqc_vint_read(p, end, path_id);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    ack_info->path_id = *path_id;
+    ack_info->pns = packet_in->pi_pkt.pkt_pns;
+
+    vlen = xqc_vint_read(p, end, &largest_acked);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    vlen = xqc_vint_read(p, end, &ack_info->ack_delay);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    ack_info->ack_delay = ack_info->ack_delay << conn->remote_settings.ack_delay_exponent;
+
+    vlen = xqc_vint_read(p, end, &ack_range_count);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    vlen = xqc_vint_read(p, end, &first_ack_range);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    ack_info->ranges[n_ranges].high = largest_acked;
+    ack_info->ranges[n_ranges].low = largest_acked - first_ack_range;
+    n_ranges++;
+
+    for (int i = 0; i < ack_range_count; ++i) {
+        vlen = xqc_vint_read(p, end, &gap);
+        if (vlen < 0) {
+            return -XQC_EVINTREAD;
+        }
+        p += vlen;
+
+        vlen = xqc_vint_read(p, end, &range);
+        if (vlen < 0) {
+            return -XQC_EVINTREAD;
+        }
+        p += vlen;
+
+        if (n_ranges < XQC_MAX_ACK_RANGE_CNT) {
+            ack_info->ranges[n_ranges].high = ack_info->ranges[n_ranges - 1].low - gap - 2;
+            ack_info->ranges[n_ranges].low = ack_info->ranges[n_ranges].high - range;
+            n_ranges++;
+        }
+    }
+
+    /* 
+     * if the actual ack_range_count plus first ack_range is larger than
+     * the XQC_MAX_ACK_RANGE_CNT, ack_info don't have enough space to store
+     *  all the ack_ranges
+     */
+    if (ack_range_count + 1 > XQC_MAX_ACK_RANGE_CNT) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|ACK range exceed XQC_MAX_ACK_RANGE_CNT|");
+    }
+
+    ack_info->n_ranges = n_ranges;
+    packet_in->pos = p;
+    packet_in->pi_frame_types |= XQC_FRAME_BIT_ACK_MP;
+
+    xqc_log_event(conn->log, TRA_FRAMES_PROCESSED, XQC_FRAME_ACK_MP, ack_info);
+    return XQC_OK;
+}
+
+
+/*
+ * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath#section-10.1
+ *
+ * PATH_ABANDON Frame {
+ *    Type (i) = TBD-03 (experiments use 0xbaba05),
+ *    Path Identifier (..),
+ *    Error Code (i),
+ *    Reason Phrase Length (i),
+ *    Reason Phrase (..),
+ * }
+ *
+ *               Figure 4: PATH_ABANDON Frame Format
+ *
+ * Path Identifier {
+ *    Identifier Type (i) = 0x00..0x02,
+ *    [Path Identifier Content (i)],
+ * }
+ *
+ *               Figure 5: Path Identifier Format
+ */
+
+ssize_t
+xqc_gen_path_abandon_frame(xqc_packet_out_t *packet_out,
+    uint64_t path_id_type, uint64_t path_id_content, uint64_t error_code)
+{
+    unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
+    const unsigned char *begin = dst_buf;
+    unsigned need = 0;
+
+    uint64_t frame_type = 0xbaba05;
+    uint64_t reason_len = 0;
+    uint8_t *reason = NULL;
+
+    unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
+    unsigned path_id_type_bits = xqc_vint_get_2bit(path_id_type);
+    unsigned path_id_content_bits = xqc_vint_get_2bit(path_id_content);
+    unsigned error_code_bits = xqc_vint_get_2bit(error_code);
+    unsigned reason_len_bits = xqc_vint_get_2bit(reason_len);
+
+    need = xqc_vint_len(frame_type_bits)
+           + xqc_vint_len(path_id_type_bits)
+           + xqc_vint_len(path_id_content_bits)
+           + xqc_vint_len(error_code_bits)
+           + xqc_vint_len(reason_len_bits)
+           + reason_len;
+
+    /* check packout_out have enough buffer length */
+    if (need > packet_out->po_buf_size - packet_out->po_used_size) {
+        return -XQC_ENOBUF;
+    }
+
+    /* Type(i) */
+    xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
+    dst_buf += xqc_vint_len(frame_type_bits);
+
+    /* Path Identifier Type (i) */
+    xqc_vint_write(dst_buf, path_id_type, path_id_type_bits, xqc_vint_len(path_id_type_bits));
+    dst_buf += xqc_vint_len(path_id_type_bits);
+
+    /* Path Identifier Content (i) */
+    /* If Identifier Type is 2, the Path Identifier Content MUST be empty */
+    if (path_id_type != 0x02) {
+        xqc_vint_write(dst_buf, path_id_content, path_id_content_bits, xqc_vint_len(path_id_content_bits));
+        dst_buf += xqc_vint_len(path_id_content_bits);
+    }
+
+    /* Error Code (i) */
+    xqc_vint_write(dst_buf, error_code, error_code_bits, xqc_vint_len(error_code_bits));
+    dst_buf += xqc_vint_len(error_code_bits);
+
+    /* Reason Phrase Length (i) */
+    xqc_vint_write(dst_buf, reason_len, reason_len_bits, xqc_vint_len(reason_len_bits));
+    dst_buf += xqc_vint_len(reason_len_bits);
+
+    /* Reason Phrase (..) */
+    if (reason_len > 0) {
+        xqc_memcpy(dst_buf, reason, reason_len);
+        dst_buf += reason_len;
+    }
+
+    packet_out->po_frame_types |= XQC_FRAME_BIT_PATH_ABANDON;
+
+    return dst_buf - begin;
+}
+
+xqc_int_t
+xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
+    uint64_t *path_id_type, uint64_t *path_id_content, uint64_t *error_code)
+{
+    unsigned char *p = packet_in->pos;
+    const unsigned char *end = packet_in->last;
+
+    int vlen;
+
+    uint64_t frame_type = 0;
+    vlen = xqc_vint_read(p, end, &frame_type);  /* get frame_type */
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    /* Path Identifier Type (i) */
+    vlen = xqc_vint_read(p, end, path_id_type);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    /* Path Identifier Content (i) */
+    /* If Identifier Type is 2, the Path Identifier Content MUST be empty */
+    if (*path_id_type != 0x02) {
+        vlen = xqc_vint_read(p, end, path_id_content);
+        if (vlen < 0) {
+            return -XQC_EVINTREAD;
+        }
+        p += vlen;
+    }
+
+    /* Error Code (i) */
+    vlen = xqc_vint_read(p, end, error_code);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    // /* Reason Phrase Length (i) */
+    // vlen = xqc_vint_read(p, end, reason_len);
+    // if (vlen < 0) {
+    //     return -XQC_EVINTREAD;
+    // }
+    // p += vlen;
+
+    //  /* Reason Phrase (..) */
+    // if (*reason_len > 0) {
+    //     xqc_memcpy(reason, p, *reason_len);
+    //     p += *reason_len;
+    // }
+
+    packet_in->pos = p;
+
+    packet_in->pi_frame_types |= XQC_FRAME_BIT_PATH_ABANDON;
+
+    return XQC_OK;
+}
+
+
+/*
+ * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-02#section-12.2
+ *
+ *    PATH_STATUS Frame {
+ *      Type (i) = TBD-03 (experiments use 0xbaba06),
+ *      Path Identifier (..),
+ *      Path Status sequence number (i),
+ *      Path Status (i),
+ *    }
+ *
+ *                    Figure 7: PATH_STATUS Frame Format
+ */
+
+ssize_t
+xqc_gen_path_status_frame(xqc_packet_out_t *packet_out,
+    uint64_t path_id_type, uint64_t path_id_content,
+    uint64_t path_status_seq_num, uint64_t path_status)
+{
+    unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
+    const unsigned char *begin = dst_buf;
+    unsigned need = 0;
+
+    uint64_t frame_type = 0xbaba06;
+
+    unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
+    unsigned path_id_type_bits = xqc_vint_get_2bit(path_id_type);
+    unsigned path_id_content_bits = xqc_vint_get_2bit(path_id_content);
+    unsigned path_status_seq_num_bits = xqc_vint_get_2bit(path_status_seq_num);
+    unsigned path_status_bits = xqc_vint_get_2bit(path_status);
+
+    need = xqc_vint_len(frame_type_bits)
+           + xqc_vint_len(path_id_type_bits)
+           + xqc_vint_len(path_id_content_bits)
+           + xqc_vint_len(path_status_seq_num_bits)
+           + xqc_vint_len(path_status_bits);
+
+    /* check packout_out have enough buffer length */
+    if (need > packet_out->po_buf_size - packet_out->po_used_size) {
+        return -XQC_ENOBUF;
+    }
+
+    /* Type(i) */
+    xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
+    dst_buf += xqc_vint_len(frame_type_bits);
+
+    /* Path Identifier Type (i) */
+    xqc_vint_write(dst_buf, path_id_type, path_id_type_bits, xqc_vint_len(path_id_type_bits));
+    dst_buf += xqc_vint_len(path_id_type_bits);
+
+    /* Path Identifier Content (i) */
+    /* If Identifier Type is 2, the Path Identifier Content MUST be empty */
+    if (path_id_type != 0x02) {
+        xqc_vint_write(dst_buf, path_id_content, path_id_content_bits, xqc_vint_len(path_id_content_bits));
+        dst_buf += xqc_vint_len(path_id_content_bits);
+    }
+
+    /* Path Status sequence number (i) */
+    xqc_vint_write(dst_buf, path_status_seq_num, path_status_seq_num_bits, xqc_vint_len(path_status_seq_num_bits));
+    dst_buf += xqc_vint_len(path_status_seq_num_bits);
+
+    /* Path Status (i) */
+    xqc_vint_write(dst_buf, path_status, path_status_bits, xqc_vint_len(path_status_bits));
+    dst_buf += xqc_vint_len(path_status_bits);
+
+    packet_out->po_frame_types |= XQC_FRAME_BIT_PATH_STATUS;
+
+    return dst_buf - begin;
+
+}
+
+xqc_int_t
+xqc_parse_path_status_frame(xqc_packet_in_t *packet_in,
+    uint64_t *path_id_type, uint64_t *path_id_content,
+    uint64_t *path_status_seq_num, uint64_t *path_status)
+{
+    unsigned char *p = packet_in->pos;
+    const unsigned char *end = packet_in->last;
+
+    int vlen;
+
+    uint64_t frame_type = 0;
+    vlen = xqc_vint_read(p, end, &frame_type);  /* get frame_type */
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    /* Path Identifier Type (i) */
+    vlen = xqc_vint_read(p, end, path_id_type);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    /* Path Identifier Content (i) */
+    /* If Identifier Type is 2, the Path Identifier Content MUST be empty */
+    if (*path_id_type != 0x02) {
+        vlen = xqc_vint_read(p, end, path_id_content);
+        if (vlen < 0) {
+            return -XQC_EVINTREAD;
+        }
+        p += vlen;
+    }
+
+    /* Path Status sequence number (i) */
+    vlen = xqc_vint_read(p, end, path_status_seq_num);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    /* Path Status (i) */
+    vlen = xqc_vint_read(p, end, path_status);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    packet_in->pos = p;
+
+    packet_in->pi_frame_types |= XQC_FRAME_BIT_PATH_STATUS;
 
     return XQC_OK;
 }

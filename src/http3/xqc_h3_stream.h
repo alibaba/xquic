@@ -53,10 +53,9 @@ typedef enum {
        blocked because the corresponding PUSH_PROMISE has not been
        received yet. */
     XQC_HTTP3_STREAM_FLAG_PUSH_PROMISE_BLOCKED  = 0x0080,
-    /* XQC_HTTP3_STREAM_FLAG_CTRL_PRIORITY_APPLIED indicates that stream
-       has been prioritized by PRIORITY frame received in control
-       stream. */
-    XQC_HTTP3_STREAM_FLAG_CTRL_PRIORITY_APPLIED = 0x0100,
+    /* XQC_HTTP3_STREAM_FLAG_PRIORITY_SET indicates that stream
+       has been prioritized. */
+    XQC_HTTP3_STREAM_FLAG_PRIORITY_SET          = 0x0100,
     /* XQC_HTTP3_STREAM_FLAG_RESET indicates that stream is reset. */
     XQC_HTTP3_STREAM_FLAG_RESET                 = 0x0200,
     XQC_HTTP3_STREAM_NEED_WRITE_NOTIFY          = 0x0400,
@@ -110,6 +109,17 @@ typedef struct xqc_h3_stream_s {
     /* stream send buffer */
     xqc_list_head_t                 send_buf;
 
+    /* stream priority (RFC9218) */
+    xqc_h3_priority_t               priority;
+
+    struct {
+        size_t                      header_len;
+        size_t                      header_sent;
+        size_t                      data_len;
+        size_t                      data_sent;
+        unsigned char               header_buf[16];
+    } data_frame;
+
     /* blocked data buffer, used to store request
        stream data when stream is blocked */
     xqc_list_head_t                 blocked_buf;
@@ -119,6 +129,8 @@ typedef struct xqc_h3_stream_s {
     xqc_rep_ctx_t                  *ctx;
 
     xqc_log_t                      *log;
+
+    xqc_path_metrics_t              paths_info[XQC_MAX_PATHS_COUNT];
 
    /* referred count of h3 stream */
     uint32_t                        ref_cnt;
@@ -157,5 +169,9 @@ xqc_int_t xqc_h3_stream_process_blocked_stream(xqc_h3_stream_t *h3s);
 xqc_var_buf_t *xqc_h3_stream_get_send_buf(xqc_h3_stream_t *h3s);
 
 uint64_t xqc_h3_stream_get_err(xqc_h3_stream_t *h3s);
+
+void xqc_h3_stream_get_path_info(xqc_h3_stream_t *h3s);
+
+void xqc_h3_stream_set_priority(xqc_h3_stream_t *h3s, xqc_h3_priority_t *prio);
 
 #endif

@@ -37,10 +37,20 @@ xqc_vec_free(xqc_vec_t *vec)
 static inline xqc_int_t
 xqc_vec_assign(xqc_vec_t * vec, const uint8_t * data, size_t data_len)
 {
-    vec->base = xqc_malloc(data_len);
-    if (vec->base == NULL) {
-        return -XQC_EMALLOC;
+    /* Try to reuse memory and we don't need to free memory before xqc_vec_assign */
+    if (!vec->base) {
+        vec->base = xqc_malloc(data_len);
+        if (!vec->base) {
+            return -XQC_EMALLOC;
+        }
+    } else if (vec->base && vec->len != data_len) {
+        xqc_free(vec->base);
+        vec->base = xqc_malloc(data_len);
+        if (!vec->base) {
+            return -XQC_EMALLOC;
+        }
     }
+
     memcpy(vec->base, data, data_len);
     vec->len = data_len;
     return XQC_OK;
@@ -52,6 +62,8 @@ xqc_ckm_init(xqc_crypto_km_t *ckm)
     xqc_vec_init(&ckm->secret);
     xqc_vec_init(&ckm->key);
     xqc_vec_init(&ckm->iv);
+
+    ckm->aead_ctx = NULL;
 }
 
 static inline void
@@ -60,6 +72,9 @@ xqc_ckm_free(xqc_crypto_km_t *ckm)
     xqc_vec_free(&ckm->secret);
     xqc_vec_free(&ckm->key);
     xqc_vec_free(&ckm->iv);
+
+    xqc_aead_ctx_free(ckm->aead_ctx);
+    ckm->aead_ctx = NULL;
 }
 
 /* set aead suites, cipher suites and digest suites */
@@ -76,6 +91,8 @@ xqc_crypto_create(uint32_t cipher_id, xqc_log_t *log)
 
     xqc_vec_init(&crypto->keys.tx_hp);
     xqc_vec_init(&crypto->keys.rx_hp);
+    crypto->keys.tx_hp_ctx = NULL;
+    crypto->keys.rx_hp_ctx = NULL;
 
     for (int i = 0; i < XQC_KEY_PHASE_CNT; i++) {
         xqc_ckm_init(&crypto->keys.tx_ckm[i]);
@@ -111,7 +128,7 @@ xqc_crypto_create(uint32_t cipher_id, xqc_log_t *log)
         break;
 
     default: /* TLS_AES_128_CCM_SHA256、TLS_AES_128_CCM_8_SHA256 not support */
-        xqc_log(log, XQC_LOG_ERROR, "|not support cipher_id|%u|", cipher_id);
+        xqc_log(log, XQC_LOG_ERROR, "|not supoort cipher_id|%u|", cipher_id);
         xqc_free(crypto);
         return NULL;
     }
@@ -126,6 +143,11 @@ xqc_crypto_destroy(xqc_crypto_t *crypto)
         xqc_vec_free(&crypto->keys.tx_hp);
         xqc_vec_free(&crypto->keys.rx_hp);
 
+        xqc_hp_ctx_free(crypto->keys.tx_hp_ctx);
+        crypto->keys.tx_hp_ctx = NULL;
+        xqc_hp_ctx_free(crypto->keys.rx_hp_ctx);
+        crypto->keys.rx_hp_ctx = NULL;
+
         for (int i = 0; i < XQC_KEY_PHASE_CNT; i++) {
             xqc_ckm_free(&crypto->keys.tx_ckm[i]);
             xqc_ckm_free(&crypto->keys.rx_ckm[i]);
@@ -136,16 +158,28 @@ xqc_crypto_destroy(xqc_crypto_t *crypto)
 }
 
 void
-xqc_crypto_create_nonce(uint8_t *dest, const uint8_t *iv, size_t ivlen, uint64_t pktno)
+xqc_crypto_create_nonce(uint8_t *dest, const uint8_t *iv, size_t ivlen, uint64_t pktno, uint32_t path_id)
 {
     size_t i;
 
     memcpy(dest, iv, ivlen);
-    pktno = bswap64(pktno);
 
-    /* nonce is formed by combining the packet protection IV with the packet number */
+    /* To calculate the nonce, a 96 bit path-and-packet-number is composed of the
+     * 32 bit Connection ID Sequence Number in byte order, two zero bits, and the
+     * 62 bits of the reconstructed QUIC packet number in network byte order.
+     * If the IV is larger than 96 bits, the path-and-packet-number is left-padded
+     * with zeros to the size of the IV. 
+     * The exclusive OR of the padded packet number and the IV forms the AEAD nonce.
+     */
+
+    pktno = bswap64(pktno);
     for (i = 0; i < 8; ++i) {
         dest[ivlen - 8 + i] ^= ((uint8_t *)&pktno)[i];
+    }
+
+    path_id = ntohl(path_id);
+    for (i = 0; i < 4; ++i) {
+        dest[ivlen - 12 + i] ^= ((uint8_t *)&path_id)[i];
     }
 }
 
@@ -178,7 +212,7 @@ xqc_crypto_encrypt_header(xqc_crypto_t *crypto, xqc_pkt_type_t pkt_type, uint8_t
     }
 
     /* generate header protection mask */
-    ret = hp_cipher->hp_mask(hp_cipher,
+    ret = hp_cipher->hp_mask(hp_cipher, crypto->keys.tx_hp_ctx,
                              mask, XQC_HP_MASKLEN, &nwrite,                  /* mask */
                              XQC_FAKE_HP_MASK, sizeof(XQC_FAKE_HP_MASK) - 1, /* plaintext */
                              hp->base, hp->len,                              /* key */
@@ -224,7 +258,7 @@ xqc_crypto_decrypt_header(xqc_crypto_t *crypto, xqc_pkt_type_t pkt_type, uint8_t
     /* generate hp mask */
     uint8_t mask[XQC_HP_MASKLEN];
     uint8_t *sample = pktno + 4;
-    ret = hp_cipher->hp_mask(hp_cipher,
+    ret = hp_cipher->hp_mask(hp_cipher, crypto->keys.rx_hp_ctx,
                              mask, XQC_HP_MASKLEN, &nwrite,                     /* mask */
                              XQC_FAKE_HP_MASK, sizeof(XQC_FAKE_HP_MASK) - 1,    /* ciphertext */
                              hp->base, hp->len,                                 /* key */
@@ -260,7 +294,8 @@ xqc_crypto_decrypt_header(xqc_crypto_t *crypto, xqc_pkt_type_t pkt_type, uint8_t
 
 
 xqc_int_t
-xqc_crypto_encrypt_payload(xqc_crypto_t *crypto, uint64_t pktno, xqc_uint_t key_phase,
+xqc_crypto_encrypt_payload(xqc_crypto_t *crypto,
+    uint64_t pktno, xqc_uint_t key_phase, uint32_t path_id,
     uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
     uint8_t *dst, size_t dst_cap, size_t *dst_len)
 {
@@ -278,10 +313,11 @@ xqc_crypto_encrypt_payload(xqc_crypto_t *crypto, uint64_t pktno, xqc_uint_t key_
     }
 
     /* generate nonce for aead encryption with original packet number */
-    xqc_crypto_create_nonce(nonce, ckm->iv.base, ckm->iv.len, pktno);
+    xqc_crypto_create_nonce(nonce, ckm->iv.base, ckm->iv.len, pktno, path_id);
 
     /* do aead encryption */
-    ret = pp_aead->encrypt(pp_aead, dst, dst_cap, dst_len,         /* dest */
+    ret = pp_aead->encrypt(pp_aead, ckm->aead_ctx,
+                           dst, dst_cap, dst_len,         /* dest */
                            payload, payload_len,          /* plaintext */
                            ckm->key.base, ckm->key.len,   /* tx key */
                            nonce, ckm->iv.len,            /* nonce and iv */
@@ -299,7 +335,8 @@ xqc_crypto_encrypt_payload(xqc_crypto_t *crypto, uint64_t pktno, xqc_uint_t key_
 
 
 xqc_int_t
-xqc_crypto_decrypt_payload(xqc_crypto_t *crypto, uint64_t pktno, xqc_uint_t key_phase,
+xqc_crypto_decrypt_payload(xqc_crypto_t *crypto,
+    uint64_t pktno, xqc_uint_t key_phase, uint32_t path_id,
     uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
     uint8_t *dst, size_t dst_cap, size_t *dst_len)
 {
@@ -317,10 +354,10 @@ xqc_crypto_decrypt_payload(xqc_crypto_t *crypto, uint64_t pktno, xqc_uint_t key_
     }
 
     /* create nonce */
-    xqc_crypto_create_nonce(nonce, ckm->iv.base, ckm->iv.len, pktno);
+    xqc_crypto_create_nonce(nonce, ckm->iv.base, ckm->iv.len, pktno, path_id);
 
     /* do aead decryption */
-    ret = pp_aead->decrypt(pp_aead,
+    ret = pp_aead->decrypt(pp_aead, ckm->aead_ctx,
                            dst, dst_cap, dst_len,       /* dest */
                            payload, payload_len,        /* ciphertext */
                            ckm->key.base, ckm->key.len, /* rx key */
@@ -446,36 +483,25 @@ xqc_crypto_derive_keys(xqc_crypto_t *crypto, const uint8_t *secret, size_t secre
     /* store keys */
     xqc_crypto_km_t *p_ckm = NULL;
     xqc_vec_t *p_hp = NULL;
+    void **p_hp_ctx = NULL;
 
     switch (type) {
     case XQC_KEY_TYPE_RX_READ:
         p_ckm = &crypto->keys.rx_ckm[crypto->key_phase];
         p_hp = &crypto->keys.rx_hp;
+        p_hp_ctx = &crypto->keys.rx_hp_ctx;
         break;
 
     case XQC_KEY_TYPE_TX_WRITE:
         p_ckm = &crypto->keys.tx_ckm[crypto->key_phase];
         p_hp = &crypto->keys.tx_hp;
+        p_hp_ctx = &crypto->keys.tx_hp_ctx;
         break;
 
     default:
         xqc_log(crypto->log, XQC_LOG_ERROR, "|illegal crypto secret type|type:%d|", type);
         return -XQC_TLS_INVALID_ARGUMENT;
     }
-
-    /* if already have keys, delete them and use new one */
-    if (p_ckm->key.base != NULL && p_ckm->key.len > 0) {
-        xqc_vec_free(&p_ckm->key);
-    }
-
-    if (p_ckm->iv.base != NULL && p_ckm->iv.len > 0) {
-        xqc_vec_free(&p_ckm->iv);
-    }
-
-    if (p_hp->base != NULL && p_hp->len > 0) {
-        xqc_vec_free(p_hp);
-    }
-
 
     if (xqc_vec_assign(&p_ckm->key, key, keylen) != XQC_OK) {
         return -XQC_TLS_DERIVE_KEY_ERROR;
@@ -487,6 +513,22 @@ xqc_crypto_derive_keys(xqc_crypto_t *crypto, const uint8_t *secret, size_t secre
 
     if (xqc_vec_assign(p_hp, hp, hplen) != XQC_OK) {
         return -XQC_TLS_DERIVE_KEY_ERROR;
+    }
+
+    if (crypto->pp_aead.aead) {
+        xqc_aead_ctx_free(p_ckm->aead_ctx);
+        p_ckm->aead_ctx = xqc_aead_ctx_new(&crypto->pp_aead, type, key, ivlen);
+        if (!p_ckm->aead_ctx) {
+            return -XQC_TLS_DERIVE_KEY_ERROR;
+        }
+    }
+
+    if (crypto->hp_cipher.cipher) {
+        xqc_hp_ctx_free(*p_hp_ctx);
+        *p_hp_ctx = xqc_hp_ctx_new(&crypto->hp_cipher, hp);
+        if (!(*p_hp_ctx)) {
+            return -XQC_TLS_DERIVE_KEY_ERROR;
+        }
     }
 
     return XQC_OK;
@@ -661,6 +703,13 @@ xqc_crypto_derive_updated_keys(xqc_crypto_t *crypto, xqc_key_type_t type)
         return -XQC_TLS_UPDATE_KEY_ERROR;
     }
 
+    if (crypto->pp_aead.aead) {
+        xqc_aead_ctx_free(updated_ckm->aead_ctx);
+        updated_ckm->aead_ctx = xqc_aead_ctx_new(&crypto->pp_aead, type, key, ivlen);
+        if (!updated_ckm->aead_ctx) {
+            return -XQC_TLS_UPDATE_KEY_ERROR;
+        }
+    }
     return XQC_OK;
 }
 
@@ -684,8 +733,13 @@ xqc_crypto_aead_encrypt(xqc_crypto_t *crypto,
     xqc_int_t ret;
     xqc_pkt_protect_aead_t *pp_aead = &crypto->pp_aead;
 
+    void *aead_ctx = xqc_aead_ctx_new(&crypto->pp_aead, XQC_KEY_TYPE_TX_WRITE, key, noncelen);
+    if (!aead_ctx) {
+        return -XQC_TLS_INVALID_ARGUMENT;
+    }
+
     /* do aead encryption */
-    ret = pp_aead->encrypt(pp_aead, dst, dst_cap, dst_len,
+    ret = pp_aead->encrypt(pp_aead, aead_ctx, dst, dst_cap, dst_len,
                            plaintext, plaintextlen,
                            key, keylen,
                            nonce, noncelen,
@@ -694,8 +748,10 @@ xqc_crypto_aead_encrypt(xqc_crypto_t *crypto,
     if (ret != XQC_OK) {
         xqc_log(crypto->log, XQC_LOG_ERROR,
                 "|encrypt packet error|ret:%d|nwrite:%z|", ret, *dst_len);
-        return -XQC_TLS_ENCRYPT_DATA_ERROR;
+        goto end;
     }
 
-    return XQC_OK;
+end:
+    xqc_aead_ctx_free(aead_ctx);
+    return ret;
 }

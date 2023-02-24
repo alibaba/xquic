@@ -146,7 +146,7 @@ xqc_dtable_compare_nv(void *data, void *v1, size_t len1, void *v2, size_t len2,
 
 
 xqc_dtable_t *
-xqc_dtable_create(size_t htable_buckets, xqc_log_t *log)
+xqc_dtable_create(size_t htable_buckets, xqc_log_t *log, size_t need_hash)
 {
     if (htable_buckets == 0) {
         return NULL;
@@ -159,13 +159,15 @@ xqc_dtable_create(size_t htable_buckets, xqc_log_t *log)
     }
     dt->log = log;
 
-    /* create 2d hash table */
-    dt->ht2d = xqc_2d_hash_table_create(htable_buckets, xqc_dtable_compare_entry,
-                                        xqc_dtable_compare_nv, dt);
-    if (dt->ht2d == NULL) {
-        xqc_log(log, XQC_LOG_ERROR, "|create 2d hash table error|");
-        xqc_free(dt);
-        return NULL;
+    /* encoder will create 2d hash table */
+    if (need_hash) {
+        dt->ht2d = xqc_2d_hash_table_create(htable_buckets, xqc_dtable_compare_entry,
+                                            xqc_dtable_compare_nv, dt);
+        if (dt->ht2d == NULL) {
+            xqc_log(log, XQC_LOG_ERROR, "|create 2d hash table error|");
+            xqc_free(dt);
+            return NULL;
+        }
     }
 
     /* make the capacity of ring memory same with dtable, initialized to be 0 */
@@ -295,10 +297,12 @@ xqc_dtable_pop_entry(xqc_dtable_t *dt)
     }
 
     /* remove from 2d hash table */
-    ret = xqc_2d_hash_table_remove(dt->ht2d, entry->nv.nidx, entry->nv.vidx, entry);
-    if (ret != XQC_OK) {
-        xqc_log(dt->log, XQC_LOG_ERROR, "|remove from 2d hash error|ret:%d|", ret);
-        return ret;
+    if (dt->ht2d) {
+        ret = xqc_2d_hash_table_remove(dt->ht2d, entry->nv.nidx, entry->nv.vidx, entry);
+        if (ret != XQC_OK) {
+            xqc_log(dt->log, XQC_LOG_ERROR, "|remove from 2d hash error|ret:%d|", ret);
+            return ret;
+        }
     }
 
     /* pop entry from ring array */
@@ -429,12 +433,14 @@ xqc_dtable_add(xqc_dtable_t *dt, unsigned char *name, uint64_t nlen, unsigned ch
     }
 
     /* insert into 2d hash table.  */
-    uint64_t nhash = xqc_hash_string(name, nlen);
+    uint64_t nhash = xqc_murmur_hash2(name, nlen);
     uint64_t vhash = xqc_dtable_make_value_hash(value, vlen);
-    ret = xqc_2d_hash_table_add(dt->ht2d, nhash, vhash, entry);
-    if (ret != XQC_OK) {
-        xqc_log(dt->log, XQC_LOG_ERROR, "|add entry to 2dht error|ret:%d|", ret);
-        return ret;
+    if (dt->ht2d) {
+        ret = xqc_2d_hash_table_add(dt->ht2d, nhash, vhash, entry);
+        if (ret != XQC_OK) {
+            xqc_log(dt->log, XQC_LOG_ERROR, "|add entry to 2dht error|ret:%d|", ret);
+            return ret;
+        }
     }
 
     entry->nhash = nhash;
@@ -530,11 +536,14 @@ xqc_dtable_lookup(xqc_dtable_t *dt, unsigned char *name, size_t nlen,
         return XQC_NV_REF_NONE;
     }
 
-    uint64_t nhash = xqc_hash_string(name, nlen);
+    uint64_t nhash = xqc_murmur_hash2(name, nlen);
     uint64_t vhash = xqc_dtable_make_value_hash(value, vlen);
 
     /* lookup name-value from 2d hash table */
     xqc_dtable_entry_t *entry = NULL;
+    if (dt->ht2d == NULL) {
+        return XQC_NV_ERROR;
+    }
     xqc_nv_ref_type_t ret = (xqc_nv_ref_type_t)xqc_2d_hash_lookup(dt->ht2d, nhash, name,
         nlen, vhash, value, vlen, (void **)&entry);
     if (ret != XQC_NV_REF_NONE) {

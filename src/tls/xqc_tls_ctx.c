@@ -140,6 +140,8 @@ xqc_create_server_ssl_ctx(xqc_tls_ctx_t *ctx)
         SSL_CTX_set_tlsext_ticket_key_cb(ssl_ctx, xqc_ssl_session_ticket_key_cb);
     }
 
+    SSL_CTX_set_cert_cb(ssl_ctx, xqc_ssl_cert_cb, ctx);
+
     SSL_CTX_set_default_verify_paths(ssl_ctx);
     SSL_CTX_set_alpn_select_cb(ssl_ctx, xqc_ssl_alpn_select_cb, ctx);
 
@@ -195,11 +197,19 @@ xqc_tls_ctx_set_config(xqc_tls_ctx_t *ctx, const xqc_engine_ssl_config_t *src)
     if (src->ciphers && *src->ciphers) {
         int len = strlen(src->ciphers) + 1;
         dst->ciphers = (char *)xqc_malloc(len);
+        if (dst->ciphers == NULL) {
+            xqc_log(ctx->log, XQC_LOG_ERROR, "|ciphers malloc error|");
+            return -XQC_EMALLOC;
+        }
         memcpy(dst->ciphers, src->ciphers, len);
 
     } else {
         int len = sizeof(XQC_TLS_CIPHERS);
         dst->ciphers = (char *)xqc_malloc(len);
+        if (dst->ciphers == NULL) {
+            xqc_log(ctx->log, XQC_LOG_ERROR, "|ciphers malloc error|");
+            return -XQC_EMALLOC;
+        }
         memcpy(dst->ciphers, XQC_TLS_CIPHERS, len);
     }
 
@@ -207,11 +217,19 @@ xqc_tls_ctx_set_config(xqc_tls_ctx_t *ctx, const xqc_engine_ssl_config_t *src)
     if (src->groups && *src->groups) {
         int len = strlen(src->groups) + 1;
         dst->groups = (char *)xqc_malloc(len);
+        if (dst->groups == NULL) {
+            xqc_log(ctx->log, XQC_LOG_ERROR, "|groups malloc error|");
+            return -XQC_EMALLOC;
+        }
         memcpy(dst->groups, src->groups, len);
 
     } else {
         int len = sizeof(XQC_TLS_GROUPS);
         dst->groups = (char *)xqc_malloc(len);
+        if (dst->groups == NULL) {
+            xqc_log(ctx->log, XQC_LOG_ERROR, "|groups malloc error|");
+            return -XQC_EMALLOC;
+        } 
         memcpy(dst->groups, XQC_TLS_GROUPS, len);
     }
 
@@ -220,6 +238,10 @@ xqc_tls_ctx_set_config(xqc_tls_ctx_t *ctx, const xqc_engine_ssl_config_t *src)
         if (src->private_key_file && *src->private_key_file) {
             int len = strlen(src->private_key_file) + 1;
             dst->private_key_file = (char *)xqc_malloc(len);
+            if (dst->private_key_file == NULL) {
+                xqc_log(ctx->log, XQC_LOG_ERROR, "|private_key_file malloc error|");
+                return -XQC_EMALLOC;
+            }
             memcpy(dst->private_key_file, src->private_key_file, len);
 
         } else {
@@ -231,6 +253,10 @@ xqc_tls_ctx_set_config(xqc_tls_ctx_t *ctx, const xqc_engine_ssl_config_t *src)
         if (src->cert_file && *src->cert_file) {
             int len = strlen(src->cert_file) + 1;
             dst->cert_file = (char *)xqc_malloc(len);
+            if (dst->cert_file == NULL) {
+                xqc_log(ctx->log, XQC_LOG_ERROR, "|cert_file malloc error|");
+                return -XQC_EMALLOC;
+            }
             memcpy(dst->cert_file, src->cert_file, len);
 
         } else {
@@ -242,6 +268,10 @@ xqc_tls_ctx_set_config(xqc_tls_ctx_t *ctx, const xqc_engine_ssl_config_t *src)
         if (src->session_ticket_key_len > 0) {
             dst->session_ticket_key_len = src->session_ticket_key_len;
             dst->session_ticket_key_data = (char *)xqc_malloc(src->session_ticket_key_len);
+            if (dst->session_ticket_key_data == NULL) {
+                xqc_log(ctx->log, XQC_LOG_ERROR, "|session ticket key data malloc error|");
+                return -XQC_EMALLOC;
+            }
             memcpy(dst->session_ticket_key_data, src->session_ticket_key_data,
                 src->session_ticket_key_len);
 
@@ -414,6 +444,10 @@ xqc_tls_ctx_register_alpn(xqc_tls_ctx_t *ctx, const char *alpn, size_t alpn_len)
         /* realloc buffer */
         size_t new_alpn_list_sz = 2 * (ctx->alpn_list_sz + alpn_len) + 1;
         char *alpn_list_new = xqc_malloc(new_alpn_list_sz);
+        if (alpn_list_new == NULL) {
+            xqc_log(ctx->log, XQC_LOG_ERROR, "|alpn list malloc error|");
+            return -XQC_EMALLOC;
+        }
         ctx->alpn_list_sz = new_alpn_list_sz;
 
         /* copy alpn_list */

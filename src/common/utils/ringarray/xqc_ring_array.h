@@ -40,6 +40,7 @@ void *xqc_rarray_get(xqc_rarray_t *ra, uint64_t idx);
  */
 size_t xqc_rarray_size(xqc_rarray_t *ra);
 
+xqc_int_t xqc_rarray_full(xqc_rarray_t *ra);
 
 /**
  * @brief get front element
@@ -55,6 +56,13 @@ void *xqc_rarray_front(xqc_rarray_t *ra);
  */
 void *xqc_rarray_push(xqc_rarray_t *ra);
 
+/**
+ * @brief push element to the front of array
+ * @param ra pointer of ring array
+ * @param element pointer of element, will be copy to ring array with esize
+ * @return xqc_int_t XQC_OK for success, others for failure
+ */
+void *xqc_rarray_push_front(xqc_rarray_t *ra);
 
 /**
  * @brief pop element from the front of array
@@ -66,6 +74,10 @@ xqc_int_t xqc_rarray_pop_front(xqc_rarray_t *ra);
  */
 xqc_int_t xqc_rarray_pop_back(xqc_rarray_t *ra);
 
+/**
+ * @brief pop element from idx to the end
+ */
+xqc_int_t xqc_rarray_pop_from(xqc_rarray_t *ra, uint64_t idx);
 
 /**
  * @brief resize ring array

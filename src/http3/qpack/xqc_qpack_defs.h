@@ -56,6 +56,7 @@ typedef struct xqc_nv_t {
 
 /* lookup reference result */
 typedef enum xqc_nv_ref_type_s {
+    XQC_NV_ERROR = -1,          /* error during lookup */
     XQC_NV_REF_NONE = 0,        /* none is matched */
     XQC_NV_REF_NAME,            /* only name is matched */
     XQC_NV_REF_NAME_AND_VALUE,  /* both name and value are matched */

@@ -56,7 +56,7 @@ void xqc_init_sample_before_ack(xqc_sample_t *sampler);
 typedef enum {
     XQC_RATE_SAMPLE_VALID = 0,
     XQC_RATE_SAMPLE_ACK_NOTHING = 1,
-    XQC_RATE_SAMPLE_INTERVAL_TOO_SMALL = 2,
+    XQC_RATE_SAMPLE_INTERVAL_TOO_SAMLL = 2,
 } xqc_sample_type_t;
 
 xqc_sample_type_t xqc_generate_sample(xqc_sample_t *sampler, 
@@ -64,8 +64,8 @@ xqc_sample_type_t xqc_generate_sample(xqc_sample_t *sampler,
 void xqc_update_sample(xqc_sample_t *sample, xqc_packet_out_t *packet, 
     xqc_send_ctl_t *send_ctl, xqc_usec_t now);
 xqc_bool_t xqc_sample_check_app_limited(xqc_sample_t *sampler, 
-    xqc_send_ctl_t *send_ctl);
-void xqc_sample_on_sent(xqc_packet_out_t *packet_out, xqc_send_ctl_t *ctl, 
+    xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue);
+void xqc_sample_on_sent(xqc_packet_out_t *packet_out, xqc_send_ctl_t *send_ctl, 
     xqc_usec_t now);
 
 #endif

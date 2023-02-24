@@ -100,7 +100,7 @@ xqc_ring_mem_resize(xqc_ring_mem_t *rmem, size_t cap)
     }
 
     /* copy data if there are used bytes */
-    if (rmem->capacity != 0) {
+    if (rmem->used != 0) {
         uint64_t mask_new = mcap - 1;
         uint64_t soffset_new = rmem->sidx & mask_new;
         uint64_t eoffset_new = rmem->eidx & mask_new;

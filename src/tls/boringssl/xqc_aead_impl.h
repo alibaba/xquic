@@ -25,62 +25,61 @@
 #define XQC_AEAD_OVERHEAD_IMPL(obj,cln)             (0) + (obj)->taglen
 
 /* inner definition, MUST NOT be called directly */
-#define DO_NOT_CALL_XQC_AEAD_INIT(obj,a) do {                               \
+#define DO_NOT_CALL_XQC_AEAD_INIT(obj,a) ({                                 \
     obj->aead           = a;                                                \
     obj->taglen         = EVP_AEAD_max_tag_len(obj->aead);                  \
     obj->keylen         = EVP_AEAD_key_length(obj->aead);                   \
     obj->noncelen       = EVP_AEAD_nonce_length(obj->aead);                 \
     obj->encrypt        = xqc_bssl_aead_encrypt;                            \
     obj->decrypt        = xqc_bssl_aead_decrypt;                            \
-    } while (0)
-    
+    0;})
 
 /* inner definition, MUST NOT be called directly */
-#define DO_NOT_CALL_XQC_CIPHER_INIT(obj, c) do {                            \
+#define DO_NOT_CALL_XQC_CIPHER_INIT(obj, c) ({                              \
     obj->cipher         = c;                                                \
     obj->keylen         = EVP_CIPHER_key_length(obj->cipher);               \
     obj->noncelen       = EVP_CIPHER_iv_length(obj->cipher);                \
-    } while (0)
-
+    0;})
 
 /* aes gcm initialization */
-#define XQC_AEAD_INIT_AES_GCM_IMPL(obj, d) do {                             \
+#define XQC_AEAD_INIT_AES_GCM_IMPL(obj, d, ...) ({                          \
     xqc_pkt_protect_aead_t *___aead = (obj);                                \
     DO_NOT_CALL_XQC_AEAD_INIT(___aead, EVP_aead_aes_##d##_gcm());           \
-    } while (0)
+    0;})
 
 /* chacha20 initialization */
-#define XQC_AEAD_INIT_CHACHA20_POLY1305_IMPL(obj) do {                      \
+#define XQC_AEAD_INIT_CHACHA20_POLY1305_IMPL(obj, ...) ({                   \
     xqc_pkt_protect_aead_t *___aead = (obj);                                \
     DO_NOT_CALL_XQC_AEAD_INIT(___aead, EVP_aead_chacha20_poly1305());       \
-    } while(0)
+    0;})
 
 /* aes cipher initialization */
-#define XQC_CIPHER_INIT_AES_CTR_IMPL(obj, d) do {                           \
+#define XQC_CIPHER_INIT_AES_CTR_IMPL(obj, d, ...) ({                        \
     xqc_hdr_protect_cipher_t *___cipher = (obj);                            \
     DO_NOT_CALL_XQC_CIPHER_INIT(___cipher, EVP_aes_##d##_ctr());            \
     ___cipher->hp_mask = xqc_bssl_hp_mask;                                  \
-    } while(0)
+    0;})
 
 /* chacha20 follow openssl impl */
-#define XQC_CIPHER_INIT_CHACHA20_IMPL(obj) do {                             \
+#define XQC_CIPHER_INIT_CHACHA20_IMPL(obj, ...) ({                          \
     xqc_hdr_protect_cipher_t *___cipher = (obj);                            \
+    ___cipher->cipher   = NULL;                                             \
     ___cipher->keylen   = 32;                                               \
     ___cipher->noncelen = 16;                                               \
     ___cipher->hp_mask = xqc_bssl_hp_mask_chacha20;                         \
-    } while(0)
+    0;})
 
 
 /* extern */
 
-xqc_int_t xqc_bssl_aead_encrypt(const xqc_pkt_protect_aead_t *pp_aead,
+xqc_int_t xqc_bssl_aead_encrypt(const xqc_pkt_protect_aead_t *pp_aead, void *aead_ctx,
     uint8_t *dest, size_t destcap, size_t *destlen,
     const uint8_t *plaintext, size_t plaintextlen,
     const uint8_t *key, size_t keylen,
     const uint8_t *nonce, size_t noncelen,
     const uint8_t *ad, size_t adlen);
 
-xqc_int_t xqc_bssl_aead_decrypt(const xqc_pkt_protect_aead_t *pp_aead,
+xqc_int_t xqc_bssl_aead_decrypt(const xqc_pkt_protect_aead_t *pp_aead, void *aead_ctx,
     uint8_t *dest, size_t destcap, size_t *destlen,
     const uint8_t *ciphertext, size_t ciphertextlen,
     const uint8_t *key, size_t keylen,
@@ -88,13 +87,13 @@ xqc_int_t xqc_bssl_aead_decrypt(const xqc_pkt_protect_aead_t *pp_aead,
     const uint8_t *ad, size_t adlen);
 
 
-xqc_int_t xqc_bssl_hp_mask(const xqc_hdr_protect_cipher_t *hp_cipher,
+xqc_int_t xqc_bssl_hp_mask(const xqc_hdr_protect_cipher_t *hp_cipher, void *aead_ctx,
     uint8_t *dest, size_t destcap, size_t *destlen,
     const uint8_t *plaintext, size_t plaintextlen,
     const uint8_t *key, size_t keylen,
     const uint8_t *sample, size_t samplelen);
 
-xqc_int_t xqc_bssl_hp_mask_chacha20(const xqc_hdr_protect_cipher_t *hp_cipher,
+xqc_int_t xqc_bssl_hp_mask_chacha20(const xqc_hdr_protect_cipher_t *hp_cipher, void *hp_ctx,
     uint8_t *dest, size_t destcap, size_t *destlen,
     const uint8_t *plaintext, size_t plaintextlen,
     const uint8_t *key, size_t keylen,

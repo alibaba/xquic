@@ -71,7 +71,11 @@ xqc_h3_frm_parse_settings(const unsigned char *p, size_t sz, xqc_h3_frame_t *fra
     *fin = XQC_FALSE;
     xqc_h3_frame_settings_t *settings = &frame->frame_payload.settings;
     if (settings->setting == NULL) {
-        settings->setting = xqc_var_buf_create(frame->len);
+        if (frame->len > XQC_VAR_BUF_INIT_SIZE) {
+            settings->setting = xqc_var_buf_create(XQC_VAR_BUF_INIT_SIZE);
+        } else {
+            settings->setting = xqc_var_buf_create(frame->len);
+        }
         if (settings->setting == NULL) {
             return -XQC_H3_EMALLOC;
         }
@@ -102,13 +106,21 @@ xqc_h3_frm_parse_push_promise(const unsigned char *p, size_t sz, xqc_h3_frame_t 
         }
     }
     if (push_promise->count == 1 && sz > 0) {
+        if (frame->len < xqc_vint_len_by_val(push_promise->push_id.vi)) {
+            return -XQC_EVINTREAD;
+        }
+        ssize_t payload_len = frame->len - xqc_vint_len_by_val(push_promise->push_id.vi);
         if (push_promise->encoded_field_section == NULL) {
-            push_promise->encoded_field_section = xqc_var_buf_create(frame->len - xqc_vint_len_by_val(push_promise->push_id.vi));
+            if (payload_len > XQC_VAR_BUF_INIT_SIZE) {
+                push_promise->encoded_field_section = xqc_var_buf_create(XQC_VAR_BUF_INIT_SIZE);
+            } else {
+                push_promise->encoded_field_section = xqc_var_buf_create(payload_len);
+            }
             if (push_promise->encoded_field_section == NULL) {
                 return -XQC_H3_EMALLOC;
             }
         }
-        ssize_t len = xqc_min(sz, frame->len - xqc_vint_len_by_val(push_promise->push_id.vi) - push_promise->encoded_field_section->data_len);
+        ssize_t len = xqc_min(sz, payload_len - push_promise->encoded_field_section->data_len);
         xqc_int_t ret = xqc_var_buf_save_data(push_promise->encoded_field_section, pos, len);
         if (ret != XQC_OK) {
             return ret;
@@ -376,7 +388,7 @@ xqc_h3_frm_write_settings(xqc_list_head_t *send_buf, xqc_h3_conn_settings_t *set
     ++count;
 
     settings[count].identifier.vi = XQC_H3_SETTINGS_QPACK_MAX_TABLE_CAPACITY;
-    settings[count].value.vi = setting->qpack_max_table_capacity;
+    settings[count].value.vi = setting->qpack_dec_max_table_capacity;
     len += xqc_put_varint_len(settings[count].identifier.vi);
     len += xqc_put_varint_len(settings[count].value.vi);
     ++count;

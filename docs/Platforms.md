@@ -49,7 +49,13 @@ cmake -DPLATFORM=mac -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} -DSSL
 make -j
 ```
 
-## Windows Release (beta)
+## Windows Release
+
+```bash
+Warning: Versions that support Windows platform: v1.1.0 ～ v1.3.0.
+XQUIC v1.4.0 does not support Windows platform temporarily, it is expected to restore in v1.5.0.
+```
+
 xquic possible dependencies for Windows: Perl, Go, BoringSSL, libevent, set after installation to set the corresponding program PATH to the $PATH environment variable
 
 * install GO： https://go.dev/dl/

@@ -115,6 +115,12 @@ xqc_rarray_size(xqc_rarray_t *ra)
     return ra->count;
 }
 
+xqc_int_t
+xqc_rarray_full(xqc_rarray_t *ra)
+{
+    return ra->count >= ra->cap;
+}
+
 
 void *
 xqc_rarray_front(xqc_rarray_t *ra)
@@ -137,6 +143,18 @@ xqc_rarray_push(xqc_rarray_t *ra)
     void *buf = ra->buf + ((ra->offset + ra->count) & ra->mask) * ra->esize;
     ra->count++;
     return buf;
+}
+
+void *
+xqc_rarray_push_front(xqc_rarray_t *ra)
+{
+    if (ra->count >= ra->cap) {
+        return NULL;
+    }
+
+    ra->count++;
+    ra->offset = (ra->offset -1) & ra->mask;
+    return ra->buf + ra->offset * ra->esize;
 }
 
 
@@ -169,6 +187,16 @@ xqc_rarray_pop_back(xqc_rarray_t *ra)
     return XQC_OK;
 }
 
+xqc_int_t
+xqc_rarray_pop_from(xqc_rarray_t *ra, uint64_t idx)
+{
+    if (ra->count <= idx) {
+        return XQC_ERROR;
+    }
+
+    ra->count = idx;
+    return XQC_OK;
+}
 
 xqc_int_t
 xqc_rarray_resize(xqc_rarray_t *ra, uint64_t cap)

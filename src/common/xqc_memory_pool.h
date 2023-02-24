@@ -149,7 +149,7 @@ xqc_palloc(xqc_memory_pool_t *pool, size_t size)
 
         do {
             char *p = xqc_align_ptr(block->last, XQC_ALIGNMENT);
-            if ((size_t)(block->end - p) >= size) {
+            if (block->end > p && (size_t)(block->end - p) >= size) {
                 block->last = p + size;
                 return p;
             }
@@ -172,7 +172,7 @@ xqc_pnalloc(xqc_memory_pool_t *pool, size_t size)
 
         do {
             char *p = block->last;
-            if ((size_t)(block->end - p) >= size) {
+            if (block->end > p && (size_t)(block->end - p) >= size) {
                 block->last = p + size;
                 return p;
             }
@@ -197,6 +197,8 @@ xqc_pcalloc(xqc_memory_pool_t *pool, size_t size)
     }
     return NULL;
 }
+
+/* TODO: xqc_pfree is needed */
 
 #endif /*_XQC_MEMORY_POOL_H_INCLUDED_*/
 

@@ -1,7 +1,7 @@
 /**
  * @copyright Copyright (c) 2022, Alibaba Group Holding Limited
  */
-
+#include <inttypes.h>
 #include "src/http3/xqc_h3_request.h"
 #include "src/transport/xqc_stream.h"
 #include "src/transport/xqc_engine.h"
@@ -51,15 +51,34 @@ xqc_h3_request_destroy(xqc_h3_request_t *h3_request)
 
     /* print request statistic log */
     xqc_request_stats_t stats = xqc_h3_request_get_stats(h3_request);
-    xqc_log(h3_request->h3_stream->log, XQC_LOG_REPORT, "|stream_id:%ui|err:%ui"
+    char path_info_buff[100 * XQC_MAX_PATHS_COUNT] = {'\0'};
+    xqc_h3s_path_metrics_print(h3s, path_info_buff, 50 * XQC_MAX_PATHS_COUNT);
+
+    xqc_usec_t create_time = h3_request->h3r_begin_time;
+
+    xqc_log(h3_request->h3_stream->log, XQC_LOG_REPORT, "|stream_id:%ui|close_msg:%s|err:%d"
             "|rcvd_bdy_sz:%uz|snd_bdy_sz:%uz|rcvd_hdr_sz:%uz|snd_hdr_sz:%uz"
-            "|blkd_tm:%ui|nblkd_tm:%ui|strm_fin_tm:%ui|h3r_s_tm:%ui|h3r_e_tm:%ui"
-            "|h3r_hdr_s_tm:%ui|h3r_hdr_e_tm:%ui|", h3s->stream_id,
+            "|create:%ui|blkd:%ui|nblkd:%ui|hdr_b:%ui|hdr_e:%ui|bdy_b:%ui|fin:%ui|recv_end:%ui"
+            "|hrd_send:%ui|bdy_send:%ui|fin_send:%ui|fin_ack:%ui|last_send:%ui|last_recv:%ui"
+            "|mp_state:%d|path_info:%s|",
+            h3s->stream_id, stats.stream_close_msg ? : "",
             stats.stream_err, stats.recv_body_size, stats.send_body_size,
             stats.recv_header_size, stats.send_header_size,
-            stats.blocked_time, stats.unblocked_time, stats.stream_fin_time,
-            stats.h3r_begin_time, stats.h3r_end_time,
-            stats.h3r_header_begin_time, stats.h3r_header_end_time);
+            create_time,
+            xqc_calc_delay(stats.blocked_time, create_time),
+            xqc_calc_delay(stats.unblocked_time, create_time),
+            xqc_calc_delay(stats.h3r_header_begin_time, create_time),
+            xqc_calc_delay(stats.h3r_header_end_time, create_time),
+            xqc_calc_delay(stats.h3r_body_begin_time, create_time),
+            xqc_calc_delay(stats.stream_fin_time, create_time),
+            xqc_calc_delay(stats.h3r_end_time, create_time),
+            xqc_calc_delay(stats.h3r_header_send_time, create_time),
+            xqc_calc_delay(stats.h3r_body_send_time, create_time),
+            xqc_calc_delay(stats.stream_fin_send_time, create_time),
+            xqc_calc_delay(stats.stream_fin_ack_time, create_time),
+            xqc_calc_delay(h3_request->h3_stream->h3c->conn->conn_last_send_time, create_time),
+            xqc_calc_delay(h3_request->h3_stream->h3c->conn->conn_last_recv_time, create_time),
+            stats.mp_state, path_info_buff);
 
     if (h3_request->request_if->h3_request_close_notify) {
         h3_request->request_if->h3_request_close_notify(h3_request, h3_request->user_data);
@@ -149,10 +168,44 @@ xqc_h3_request_create_inner(xqc_h3_conn_t *h3_conn, xqc_h3_stream_t *h3_stream, 
     return h3_request;
 }
 
+void
+xqc_stream_info_print(xqc_h3_stream_t *h3_stream, xqc_request_stats_t *stats)
+{
+    char *buff = stats->stream_info;
+    size_t buff_size = XQC_STREAM_INFO_LEN;
+
+    size_t cursor = 0, ret = 0;
+
+    for (int i = 0; i < XQC_MAX_PATHS_COUNT; ++i) {
+        if ((h3_stream->paths_info[i].path_send_bytes > 0)
+            || (h3_stream->paths_info[i].path_recv_bytes > 0))
+        {
+            /* check buffer size */
+            if (cursor + 100 >= buff_size) {
+                break;
+            }
+
+            ret = snprintf(buff + cursor, buff_size - cursor, 
+                            "#%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64,
+                            h3_stream->paths_info[i].path_id,
+                            h3_stream->paths_info[i].path_pkt_send_count,
+                            h3_stream->paths_info[i].path_pkt_recv_count,
+                            h3_stream->paths_info[i].path_send_bytes,
+                            h3_stream->paths_info[i].path_send_reinject_bytes,
+                            h3_stream->paths_info[i].path_recv_bytes,
+                            h3_stream->paths_info[i].path_recv_reinject_bytes,
+                            h3_stream->paths_info[i].path_recv_effective_bytes,
+                            h3_stream->paths_info[i].path_recv_effective_reinject_bytes);
+            cursor += ret;
+        }
+    }
+}
+
 xqc_request_stats_t
 xqc_h3_request_get_stats(xqc_h3_request_t *h3_request)
 {
     xqc_request_stats_t stats;
+    xqc_memzero(&stats, sizeof(stats));
 
     uint64_t conn_err       = h3_request->h3_stream->h3c->conn->conn_err;
     stats.recv_body_size    = h3_request->body_recvd;
@@ -167,8 +220,38 @@ xqc_h3_request_get_stats(xqc_h3_request_t *h3_request)
     stats.h3r_end_time      = h3_request->h3r_end_time;
     stats.h3r_header_begin_time = h3_request->h3r_header_begin_time;
     stats.h3r_header_end_time   = h3_request->h3r_header_end_time;
+    stats.h3r_body_begin_time   = h3_request->h3r_body_begin_time;
+    stats.h3r_header_send_time  = h3_request->h3r_header_send_time;
+    stats.h3r_body_send_time    = h3_request->h3r_body_send_time;
+    stats.stream_fin_send_time  = h3_request->stream_fin_send_time;
+    stats.stream_fin_ack_time   = h3_request->stream_fin_ack_time;
+    stats.stream_close_msg      = h3_request->stream_close_msg;
+
+    xqc_h3_stream_get_path_info(h3_request->h3_stream);
+    xqc_request_path_metrics_print(h3_request->h3_stream->h3c->conn,
+                                   h3_request->h3_stream, &stats);
+    xqc_stream_info_print(h3_request->h3_stream, &stats);
 
     return stats;
+}
+
+xqc_int_t
+xqc_h3_request_stats_print(xqc_h3_request_t *h3_request, char *str, size_t size)
+{
+    xqc_request_stats_t stats = xqc_h3_request_get_stats(h3_request);
+    xqc_usec_t create_time = h3_request->h3r_begin_time;
+    return snprintf(str, size, "%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64
+                    ",%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64,
+                    h3_request->h3_stream->stream_id,
+                    xqc_calc_delay(stats.h3r_header_begin_time, create_time) / 1000,
+                    xqc_calc_delay(stats.h3r_header_end_time, create_time) / 1000,
+                    xqc_calc_delay(stats.h3r_body_begin_time, create_time) / 1000,
+                    xqc_calc_delay(stats.stream_fin_time, create_time) / 1000,
+                    xqc_calc_delay(stats.h3r_end_time, create_time) / 1000,
+                    xqc_calc_delay(stats.h3r_header_send_time, create_time) / 1000,
+                    xqc_calc_delay(stats.h3r_body_send_time, create_time) / 1000,
+                    xqc_calc_delay(stats.stream_fin_send_time, create_time) / 1000,
+                    xqc_calc_delay(stats.stream_fin_ack_time, create_time) / 1000);
 }
 
 void
@@ -319,6 +402,7 @@ xqc_h3_request_send_headers(xqc_h3_request_t *h3_request, xqc_http_headers_t *he
 
     headers_in->count = pt;
     sent = xqc_h3_stream_send_headers(h3_request->h3_stream, headers_in, fin);
+    xqc_h3_request_on_header_send(h3_request);
 
 end:
     /* free headers_in->headers */
@@ -356,6 +440,8 @@ xqc_h3_request_send_body(xqc_h3_request_t *h3_request, unsigned char *data, size
     if (fin && sent == data_size) {
         h3_request->body_sent_final_size = h3_request->body_sent;
     }
+
+    xqc_h3_request_on_body_send(h3_request);
 
     xqc_log(h3_request->h3_stream->h3c->log, XQC_LOG_DEBUG, "|stream_id:%ui|data_size:%uz|sent:%z|"
             "body_sent:%uz|body_sent_final_size:%uz|fin:%ud|conn:%p|",
@@ -641,6 +727,24 @@ xqc_h3_request_header_end(xqc_h3_request_t *h3r)
 }
 
 void
+xqc_h3_request_body_begin(xqc_h3_request_t *h3r)
+{
+    XQC_H3_REQUEST_RECORD_TIME(h3r->h3r_body_begin_time);
+}
+
+void
+xqc_h3_request_on_header_send(xqc_h3_request_t *h3r)
+{
+    XQC_H3_REQUEST_RECORD_TIME(h3r->h3r_header_send_time);
+}
+
+void
+xqc_h3_request_on_body_send(xqc_h3_request_t *h3r)
+{
+    XQC_H3_REQUEST_RECORD_TIME(h3r->h3r_body_send_time);
+}
+
+void
 xqc_h3_request_stream_fin(xqc_h3_request_t *h3r)
 {
     XQC_H3_REQUEST_RECORD_TIME(h3r->stream_fin_time);
@@ -656,4 +760,157 @@ void
 xqc_h3_request_end(xqc_h3_request_t *h3r)
 {
     XQC_H3_REQUEST_RECORD_TIME(h3r->h3r_end_time);
+}
+
+#define XQC_PRIORITY_URGENCY "u="
+#define XQC_PRIORITY_URGENCY_LEN 2
+
+#define XQC_PRIORITY_INCREMENTAL ", i"
+#define XQC_PRIORITY_INCREMENTAL_LEN 3
+
+#define XQC_PRIORITY_SCHEDULE ", s="
+#define XQC_PRIORITY_SCHEDULE_LEN 4
+
+#define XQC_PRIORITY_REINJECT ", r="
+#define XQC_PRIORITY_REINJECT_LEN 4
+
+void
+xqc_h3_priority_init(xqc_h3_priority_t *prio)
+{
+    prio->urgency = XQC_DEFAULT_HTTP_PRIORITY_URGENCY;
+    prio->incremental = XQC_FALSE;
+    prio->schedule = 0;
+    prio->reinject = 0;
+}
+
+size_t
+xqc_write_http_priority(xqc_h3_priority_t *prio,
+    uint8_t *dst, size_t dstcap)
+{
+    uint8_t *begin = dst;
+
+    size_t need = XQC_PRIORITY_URGENCY_LEN + 1
+                + XQC_PRIORITY_INCREMENTAL_LEN
+                + XQC_PRIORITY_SCHEDULE_LEN + 1
+                + XQC_PRIORITY_REINJECT_LEN + 1;
+    if (need > dstcap) {
+        return -XQC_H3_BUFFER_EXCEED;
+    }
+
+    xqc_memcpy(dst, XQC_PRIORITY_URGENCY, XQC_PRIORITY_URGENCY_LEN);
+    dst += XQC_PRIORITY_URGENCY_LEN;
+    *dst++ = '0' + prio->urgency;
+
+    if (prio->incremental) {
+        xqc_memcpy(dst, XQC_PRIORITY_INCREMENTAL, XQC_PRIORITY_INCREMENTAL_LEN);
+        dst += XQC_PRIORITY_INCREMENTAL_LEN;
+    }
+
+    xqc_memcpy(dst, XQC_PRIORITY_SCHEDULE, XQC_PRIORITY_SCHEDULE_LEN);
+    dst += XQC_PRIORITY_SCHEDULE_LEN;
+    *dst++ = '0' + prio->schedule;
+
+    xqc_memcpy(dst, XQC_PRIORITY_REINJECT, XQC_PRIORITY_REINJECT_LEN);
+    dst += XQC_PRIORITY_REINJECT_LEN;
+    *dst++ = '0' + prio->reinject;
+
+    return dst - begin;
+}
+
+
+xqc_int_t
+xqc_parse_http_priority(xqc_h3_priority_t *dst,
+    const uint8_t *str, size_t str_len)
+{
+    xqc_h3_priority_t prio;
+    xqc_h3_priority_init(&prio);
+
+    uint8_t *p = (uint8_t *)str;
+    uint8_t *e = p + str_len;
+
+    uint8_t *v, *next_k;
+
+    while (*p != '\0' && p < e) {
+        if (*p == ' ') {
+            p++;
+            continue;
+        }
+
+        if (strncmp(p, "u=", xqc_lengthof("u=")) == 0) {
+            p += xqc_lengthof("u=");
+            prio.urgency = strtoul(p, NULL, 10);
+
+        } else if (strncmp(p, "i", xqc_lengthof("i")) == 0) {
+            v = strchr(p, '=');
+            next_k =  strchr(p, ',');
+
+            if ((v == NULL) || (next_k != NULL && v > next_k)) {
+                p += xqc_lengthof("i");
+                prio.incremental = XQC_TRUE;
+
+            } else if (strncmp(p, "i=?", xqc_lengthof("i=?")) == 0) {
+                p += xqc_lengthof("i=?");
+                prio.incremental = strtoul(p, NULL, 10);
+
+            } else {
+                return -XQC_H3_INVALID_PRIORITY;
+            }
+
+        } else if (strncmp(p, "s=", xqc_lengthof("s=")) == 0) {
+            p += xqc_lengthof("s=");
+            prio.schedule = strtoul(p, NULL, 10);
+
+        } else if (strncmp(p, "r=", xqc_lengthof("r=")) == 0) {
+            p += xqc_lengthof("r=");
+            prio.reinject = strtoul(p, NULL, 10);
+
+        }
+
+        p = strchr(p, ',');
+        if (p == NULL) {
+            goto end;
+        }
+        p++;
+    }
+
+end:
+    *dst = prio;
+    return XQC_OK;
+}
+
+xqc_int_t
+xqc_h3_request_check_priority(xqc_h3_priority_t *prio)
+{
+    if (prio->urgency < XQC_HIGHEST_HTTP_PRIORITY_URGENCY
+        || prio->urgency > XQC_LOWEST_HTTP_PRIORITY_URGENCY)
+    {
+        return -XQC_H3_INVALID_PRIORITY;
+    }
+
+    if ((prio->incremental != XQC_FALSE) && (prio->incremental != XQC_TRUE)) {
+        return -XQC_H3_INVALID_PRIORITY;
+    }
+
+    return XQC_OK;
+}
+
+xqc_int_t
+xqc_h3_request_set_priority(xqc_h3_request_t *h3r, xqc_h3_priority_t *prio)
+{
+    xqc_int_t ret = xqc_h3_request_check_priority(prio);
+    if (ret != XQC_OK) {
+        xqc_log(h3r->h3_stream->log, XQC_LOG_ERROR,
+                "|xqc_h3_request_check_priority error|%d|stream_id:%ui|conn:%p|",
+                ret, h3r->h3_stream->stream_id, h3r->h3_stream->h3c->conn);
+        return ret;
+    }
+
+    xqc_h3_stream_set_priority(h3r->h3_stream, prio);
+    xqc_log(h3r->h3_stream->log, XQC_LOG_INFO,
+            "|urgency:%ui|incremental:%ui|schedule:%ui|reinject:%ui|"
+            "stream_id:%ui|conn:%p|",
+            prio->urgency, prio->incremental, prio->schedule, prio->reinject,
+            h3r->h3_stream->stream_id, h3r->h3_stream->h3c->conn);
+
+    return XQC_OK;
 }

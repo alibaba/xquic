@@ -112,6 +112,8 @@ typedef struct xqc_http_headers_s {
 } xqc_http_headers_t;
 
 
+#define XQC_STREAM_INFO_LEN 400
+
 /**
  * @brief request statistics structure
  */
@@ -121,13 +123,31 @@ typedef struct xqc_request_stats_s {
     size_t      send_header_size;       /* compressed header size */
     size_t      recv_header_size;       /* compressed header size */
     int         stream_err;             /* QUIC layer error code, 0 for no error */
-    xqc_msec_t  blocked_time;           /* time of h3 stream being blocked */
-    xqc_msec_t  unblocked_time;         /* time of h3 stream being unblocked */
-    xqc_msec_t  stream_fin_time;        /* time of receiving transport fin */
-    xqc_msec_t  h3r_begin_time;         /* time of creating request */
-    xqc_msec_t  h3r_end_time;           /* time of request fin */
-    xqc_msec_t  h3r_header_begin_time;  /* time of receiving HEADERS frame */
-    xqc_msec_t  h3r_header_end_time;    /* time of finishing processing HEADERS frame */
+    xqc_usec_t  blocked_time;           /* time of h3 stream being blocked */
+    xqc_usec_t  unblocked_time;         /* time of h3 stream being unblocked */
+    xqc_usec_t  stream_fin_time;        /* time of receiving transport fin */
+    xqc_usec_t  h3r_begin_time;         /* time of creating request */
+    xqc_usec_t  h3r_end_time;           /* time of request fin */
+    xqc_usec_t  h3r_header_begin_time;  /* time of receiving HEADERS frame */
+    xqc_usec_t  h3r_header_end_time;    /* time of finishing processing HEADERS frame */
+    xqc_usec_t  h3r_body_begin_time;    /* time of receiving DATA frame */
+    xqc_usec_t  h3r_header_send_time;
+    xqc_usec_t  h3r_body_send_time;
+    xqc_usec_t  stream_fin_send_time;
+    xqc_usec_t  stream_fin_ack_time;
+    const char *stream_close_msg;
+
+    /**
+     * @brief 请求级别MP状态
+     * 0: 该请求所在连接未成功建立起双路 (validated_path_count <= 1)
+     * 1: 该请求是通过2条路径传输(发包or收包 任意方向，包括重注入数据) (validated_path_count > 1 && aggregate_cnt > 1)
+     * 2: 该请求所在连接有成功建立起双路，但请求在单条路径上传输 (validated_path_count > 1 && aggregate_cnt <= 1)
+     */
+    int         mp_state;
+    float       mp_default_path_send_weight;
+    float       mp_default_path_recv_weight;
+
+    char        stream_info[XQC_STREAM_INFO_LEN];
 } xqc_request_stats_t;
 
 
@@ -139,8 +159,11 @@ typedef struct xqc_h3_conn_settings_s {
     /* MAX_PUSH_STREAMS */
     uint64_t max_pushes;
 
-    /* MAX_DYNAMIC_TABLE_CAPACITY */
-    uint64_t qpack_max_table_capacity;
+    /* ENC_MAX_DYNAMIC_TABLE_CAPACITY */
+    uint64_t qpack_enc_max_table_capacity;
+
+    /* DEC_MAX_DYNAMIC_TABLE_CAPACITY */
+    uint64_t qpack_dec_max_table_capacity;
 
     /* MAX_BLOCKED_STREAMS */
     uint64_t qpack_blocked_streams;
@@ -415,6 +438,13 @@ XQC_EXPORT_PUBLIC_API
 xqc_request_stats_t xqc_h3_request_get_stats(xqc_h3_request_t *h3_request);
 
 /**
+ * @brief write important information into str
+ * @return the number of characters printed
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_h3_request_stats_print(xqc_h3_request_t *h3_request, char *str, size_t size);
+
+/**
  * @brief set user_data of a http3 request, which will be used as parameter of request
  * callback functions. server should set user_data when h3_request_create_notify triggers
  * 
@@ -507,6 +537,22 @@ void *xqc_h3_get_conn_user_data_by_request(xqc_h3_request_t *h3_request);
  */
 XQC_EXPORT_PUBLIC_API
 xqc_stream_id_t xqc_h3_stream_id(xqc_h3_request_t *h3_request);
+
+
+/**
+ * @brief RFC 9218 HTTP Priority
+ */
+XQC_EXPORT_PUBLIC_API
+size_t xqc_write_http_priority(xqc_h3_priority_t *prio,
+    uint8_t *dst, size_t dstcap);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_parse_http_priority(xqc_h3_priority_t *dst,
+    const uint8_t *str, size_t str_len);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_h3_request_set_priority(xqc_h3_request_t *h3r,
+    xqc_h3_priority_t *prio);
 
 #ifdef __cplusplus
 }

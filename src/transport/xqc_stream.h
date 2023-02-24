@@ -12,6 +12,12 @@
 
 #define XQC_UNDEFINE_STREAM_ID XQC_MAX_UINT64_VALUE
 
+#define XQC_STREAM_CLOSE_MSG(stream, msg) do {      \
+    if ((stream)->stream_close_msg == NULL) {       \
+        (stream)->stream_close_msg = (msg);         \
+    }                                               \
+} while(0)                                          \
+
 typedef enum {
     XQC_CLI_BID = 0,
     XQC_SVR_BID = 1,
@@ -119,6 +125,7 @@ struct xqc_stream_s {
     xqc_recv_stream_state_t stream_state_recv;
     xqc_usec_t              stream_close_time;
     uint64_t                stream_err;
+    const char             *stream_close_msg;
 
     struct {
         xqc_usec_t          create_time;
@@ -135,6 +142,10 @@ struct xqc_stream_s {
         xqc_usec_t          local_reset_time;       /* socket snd reset */
         xqc_usec_t          peer_reset_time;        /* quic stack rcv reset */
     } stream_stats;
+
+    xqc_path_metrics_t      paths_info[XQC_MAX_PATHS_COUNT];
+    uint8_t                 stream_mp_usage_schedule;
+    uint8_t                 stream_mp_usage_reinject;
 };
 
 static inline xqc_stream_type_t
@@ -190,9 +201,11 @@ int xqc_stream_do_create_flow_ctl(xqc_connection_t *conn, xqc_stream_id_t stream
 
 uint64_t xqc_stream_get_init_max_stream_data(xqc_stream_t *stream);
 
-xqc_stream_t* xqc_passive_create_stream(xqc_connection_t *conn, xqc_stream_id_t stream_id, void *user_data);
+xqc_stream_t *xqc_passive_create_stream(xqc_connection_t *conn, xqc_stream_id_t stream_id, void *user_data);
 
-xqc_stream_t* xqc_create_crypto_stream(xqc_connection_t *conn, xqc_encrypt_level_t encrypt_level, void *user_data);
+xqc_stream_t *xqc_create_crypto_stream(xqc_connection_t *conn, xqc_encrypt_level_t encrypt_level, void *user_data);
+
+void xqc_destroy_crypto_stream(xqc_connection_t *conn, xqc_stream_t *stream);
 
 int xqc_crypto_stream_on_write(xqc_stream_t *stream, void *user_data);
 
@@ -218,6 +231,8 @@ xqc_stream_send_state_update(xqc_stream_t *stream, xqc_send_stream_state_t state
 
 void
 xqc_stream_recv_state_update(xqc_stream_t *stream, xqc_recv_stream_state_t state);
+
+void xqc_stream_set_multipath_usage(xqc_stream_t *stream, uint8_t schedule, uint8_t reinject);
 
 
 #endif /* _XQC_STREAM_H_INCLUDED_ */

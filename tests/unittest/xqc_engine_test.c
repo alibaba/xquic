@@ -10,7 +10,6 @@
 #include "src/transport/xqc_cid.h"
 #include "xquic/xquic_typedef.h"
 #include "src/common/xqc_str.h"
-#include "src/common/xqc_timer.h"
 #include "src/transport/xqc_conn.h"
 #include "src/congestion_control/xqc_new_reno.h"
 #include "src/transport/xqc_packet_parser.h"

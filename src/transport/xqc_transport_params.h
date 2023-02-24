@@ -64,6 +64,8 @@ typedef enum {
 
     /* do no cryption on 0-RTT and 1-RTT packets */
     XQC_TRANSPORT_PARAM_NO_CRYPTO                           = 0x1000,
+    /* multipath quic attributes */
+    XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH                    = 0xbabf,
 
     /* upper limit of params defined by xquic */
     XQC_TRANSPORT_PARAM_UNKNOWN,
@@ -117,6 +119,16 @@ typedef struct {
      * NOTICE: no_crypto MIGHT be modified or removed as it is not an official parameter.
      */
     uint64_t                no_crypto;
+
+    /**
+     * enable_multipath is a self-defined experimental transport parameter by xquic, which will
+     * enable multipath quic if enable_multipath is set to be 1.
+     * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-02#section-3
+     * enable_multipath is designed to be effective only on current connection and do not apply to
+     * future connections, storing this parameter and recover on future connections is prohibited.
+     * NOTICE: enable_multipath MIGHT be modified or removed as it is not an official parameter
+     */
+    uint64_t                enable_multipath;
 
 } xqc_transport_params_t;
 

@@ -5,17 +5,13 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <unistd.h>
 #include <assert.h>
 #include <errno.h>
 
-#include <include/xquic/xquic_typedef.h>
 #include "src/common/xqc_random.h"
 #include "src/common/xqc_str.h"
 #include "src/common/xqc_log.h"
-
-#if !defined(XQC_SYS_WINDOWS) || defined(XQC_ON_MINGW)
-#include <unistd.h>
-#endif
 
 #define XQC_RANDOM_BUFFER_SIZE 4096
 
@@ -36,7 +32,7 @@ xqc_random_generator_create(xqc_log_t *log)
     rand_gen->rand_buf_size = XQC_RANDOM_BUFFER_SIZE;
     rand_gen->rand_fd = -1;
     rand_gen->log = log;
-#ifdef XQC_SYS_WINDOWS
+#ifdef WIN32
     rand_gen->hProvider = 0;
     int res = CryptAcquireContextW(&rand_gen->hProvider, 0, 0, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT | CRYPT_SILENT);
     assert(res);
@@ -47,8 +43,12 @@ xqc_random_generator_create(xqc_log_t *log)
 void 
 xqc_random_generator_destroy(xqc_random_generator_t *rand_gen)
 {
-#ifdef XQC_SYS_WINDOWS
+#ifdef WIN32
     CryptReleaseContext(rand_gen->hProvider, 0);
+#else
+    if (rand_gen->rand_fd != -1) {
+        close(rand_gen->rand_fd);
+    }
 #endif
     xqc_free(rand_gen->rand_buf.data);
     xqc_free(rand_gen);
@@ -57,7 +57,7 @@ xqc_random_generator_destroy(xqc_random_generator_t *rand_gen)
 xqc_int_t
 xqc_get_random(xqc_random_generator_t *rand_gen, u_char *buf, size_t need_len)
 {
-#ifndef XQC_SYS_WINDOWS 
+#ifndef WIN32
     size_t total_read = 0;
     ssize_t bytes_read = 0;
 

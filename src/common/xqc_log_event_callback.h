@@ -55,15 +55,15 @@ void xqc_log_TRA_STREAM_STATE_UPDATED_callback(xqc_log_t *log, const char *func,
 
 void xqc_log_TRA_FRAMES_PROCESSED_callback(xqc_log_t *log, const char *func, ...);
 
-void xqc_log_REC_PARAMETERS_SET_callback(xqc_log_t *log, const char *func, xqc_send_ctl_t *ctl);
+void xqc_log_REC_PARAMETERS_SET_callback(xqc_log_t *log, const char *func, xqc_send_ctl_t *send_ctl);
 
-void xqc_log_REC_METRICS_UPDATED_callback(xqc_log_t *log, const char *func, xqc_send_ctl_t *ctl);
+void xqc_log_REC_METRICS_UPDATED_callback(xqc_log_t *log, const char *func, xqc_send_ctl_t *send_ctl);
 
 void xqc_log_REC_CONGESTION_STATE_UPDATED_callback(xqc_log_t *log, const char *func,
     char *new_state);
 
-void xqc_log_REC_LOSS_TIMER_UPDATED_callback(xqc_log_t *log, const char *func, xqc_send_ctl_t *ctl,
-    xqc_usec_t inter_time, xqc_int_t type, xqc_int_t event);
+void xqc_log_REC_LOSS_TIMER_UPDATED_callback(xqc_log_t *log, const char *func,
+    xqc_timer_manager_t *timer_manager, xqc_usec_t inter_time, xqc_int_t type, xqc_int_t event);
 
 void xqc_log_REC_PACKET_LOST_callback(xqc_log_t *log, const char *func,
     xqc_packet_out_t *packet_out);

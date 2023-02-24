@@ -17,7 +17,7 @@ xqc_test_dtable_basic()
     xqc_var_buf_t *nbuf = xqc_var_buf_create(1024);
     xqc_var_buf_t *vbuf = xqc_var_buf_create(1024);
 
-    xqc_dtable_t *dt = xqc_dtable_create(2, engine->log);
+    xqc_dtable_t *dt = xqc_dtable_create(2, engine->log, 1);
     CU_ASSERT(dt != NULL);
 
     xqc_int_t ret = xqc_dtable_set_capacity(dt, 256);
@@ -127,7 +127,7 @@ xqc_test_dtable_immediate_free()
 {
     xqc_engine_t *engine = test_create_engine();
 
-    xqc_dtable_t *dt = xqc_dtable_create(256, engine->log);
+    xqc_dtable_t *dt = xqc_dtable_create(256, engine->log, 1);
     CU_ASSERT(dt != NULL);
     xqc_dtable_free(dt);    /* shall not crash */
     xqc_engine_destroy(engine);
@@ -138,7 +138,7 @@ void
 xqc_test_dtable_no_bkt()
 {
     xqc_engine_t *engine = test_create_engine();
-    xqc_dtable_t *dt = xqc_dtable_create(0, engine->log);
+    xqc_dtable_t *dt = xqc_dtable_create(0, engine->log, 1);
     CU_ASSERT(dt == NULL);
 
     xqc_engine_destroy(engine);
@@ -149,7 +149,7 @@ xqc_test_dtable_illegal_call()
 {
     xqc_int_t ret = XQC_OK;
     xqc_engine_t *engine = test_create_engine();
-    xqc_dtable_t *dt = xqc_dtable_create(256, engine->log);
+    xqc_dtable_t *dt = xqc_dtable_create(256, engine->log, 1);
 
     ret = xqc_dtable_set_min_ref(dt, 2);
     CU_ASSERT(ret != XQC_OK);
@@ -171,7 +171,7 @@ xqc_test_dtable_dulicate()
 {
     xqc_int_t ret = XQC_OK;
     xqc_engine_t *engine = test_create_engine();
-    xqc_dtable_t *dt = xqc_dtable_create(256, engine->log);
+    xqc_dtable_t *dt = xqc_dtable_create(256, engine->log, 1);
 
     char buf[256];
 
@@ -201,7 +201,7 @@ xqc_test_dtable_dulicate_compat()
 {
     xqc_int_t ret = XQC_OK;
     xqc_engine_t *engine = test_create_engine();
-    xqc_dtable_t *dt = xqc_dtable_create(256, engine->log);
+    xqc_dtable_t *dt = xqc_dtable_create(256, engine->log, 1);
 
     char buf[256];
 
@@ -248,7 +248,7 @@ xqc_test_dtable_set_capacity()
     xqc_var_buf_t *vbuf = xqc_var_buf_create(1024);
     uint64_t idx = XQC_INVALID_INDEX;
 
-    xqc_dtable_t *dt = xqc_dtable_create(32, engine->log);
+    xqc_dtable_t *dt = xqc_dtable_create(32, engine->log, 1);
     CU_ASSERT(dt != NULL);
 
 

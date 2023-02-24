@@ -23,6 +23,8 @@
  * xqc_list_empty()
  * xqc_list_for_each(), xqc_list_for_each_safe()
  * xqc_list_entry()
+ * xqc_list_splice(), xqc_list_splice_init()
+ * xqc_list_splice_tail(), xqc_list_splice_tail_init()
  */
 
 typedef struct xqc_list_head_s {
@@ -136,6 +138,56 @@ xqc_list_is_inited(const xqc_list_head_t *head)
     return head->next != NULL;
 }
 
+
+static inline void
+__xqc_list_splice(const xqc_list_head_t *list,
+    xqc_list_head_t *prev, xqc_list_head_t *next)
+{
+    xqc_list_head_t *first = list->next;
+    xqc_list_head_t *last = list->prev;
+
+    first->prev = prev;
+    prev->next = first;
+
+    last->next = next;
+    next->prev = last;
+}
+
+static inline void
+xqc_list_splice(const xqc_list_head_t *list, xqc_list_head_t *head)
+{
+    if (!xqc_list_empty(list)) {
+        __xqc_list_splice(list, head, head->next);
+    }
+}
+
+static inline void
+xqc_list_splice_tail(xqc_list_head_t *list, xqc_list_head_t *head)
+{
+    if (!xqc_list_empty(list)) {
+        __xqc_list_splice(list, head->prev, head);
+    }
+}
+
+static inline void
+xqc_list_splice_init(xqc_list_head_t *list, xqc_list_head_t *head)
+{
+    if (!xqc_list_empty(list)) {
+        __xqc_list_splice(list, head, head->next);
+        xqc_init_list_head(list);
+    }
+}
+
+static inline void 
+xqc_list_splice_tail_init(xqc_list_head_t *list, xqc_list_head_t *head)
+{
+    if (!xqc_list_empty(list)) {
+        __xqc_list_splice(list, head->prev, head);
+        xqc_init_list_head(list);
+    }
+}
+
+
 #define xqc_list_for_each(pos, head) \
     for (pos = (head)->next; pos != (head); pos = pos->next)
 
@@ -149,5 +201,10 @@ xqc_list_is_inited(const xqc_list_head_t *head)
     for (pos = (head)->next, n = pos->next; \
         pos != (head); \
         pos = n, n = pos->next)
+
+#define xqc_list_for_each_reverse_safe(pos, n, head) \
+    for (pos = (head)->prev, n = pos->prev; \
+        pos != (head); \
+        pos = n, n = pos->prev)
 
 #endif /*_XQC_H_LIST_INCLUDE_*/

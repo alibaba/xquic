@@ -17,6 +17,7 @@
 
 typedef enum {
     XQC_ENG_FLAG_RUNNING    = 1 << 0,
+    XQC_ENG_FLAG_NO_DESTROY = 1 << 1,
 } xqc_engine_flag_t;
 
 
@@ -93,7 +94,7 @@ xqc_connection_t *xqc_engine_conns_hash_find(xqc_engine_t *engine, const xqc_cid
 
 void xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now);
 
-void xqc_engine_main_logic_internal(xqc_engine_t *engine, xqc_connection_t * conn);
+void xqc_engine_main_logic_internal(xqc_engine_t *engine);
 
 xqc_int_t xqc_engine_get_alpn_callbacks(xqc_engine_t *engine, const char *alpn,
     size_t alpn_len, xqc_app_proto_callbacks_t *cbs);

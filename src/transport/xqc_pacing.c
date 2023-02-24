@@ -16,14 +16,14 @@
 #define XQC_DEFAULT_PACING_RATE (((2 * XQC_MSS * 1000000ULL)/(XQC_kInitialRtt * 1000)))
 
 void
-xqc_pacing_init(xqc_pacing_t *pacing, int pacing_on, xqc_send_ctl_t *ctl)
+xqc_pacing_init(xqc_pacing_t *pacing, int pacing_on, xqc_send_ctl_t *send_ctl)
 {
     pacing->bytes_budget = XQC_MAX_BURST_NUM;
     pacing->last_sent_time = 0;
-    pacing->ctl_ctx = ctl;
+    pacing->ctl_ctx = send_ctl;
     pacing->pacing_on = pacing_on;
     pacing->pending_budget = 0;
-    if (ctl->ctl_cong_callback->xqc_cong_ctl_on_ack_multiple_pkts) {
+    if (send_ctl->ctl_cong_callback->xqc_cong_ctl_on_ack_multiple_pkts) {
         pacing->pacing_on = 1;
     }
 }
@@ -34,16 +34,16 @@ xqc_pacing_rate_calc(xqc_pacing_t *pacing)
     /* see linux kernel tcp_update_pacing_rate(struct sock *sk) */
     uint64_t pacing_rate;
     uint64_t cwnd;
-    xqc_send_ctl_t *ctl = pacing->ctl_ctx;
-    if (ctl->ctl_cong_callback->xqc_cong_ctl_on_ack_multiple_pkts) {
-        pacing_rate = ctl->ctl_cong_callback->
-                      xqc_cong_ctl_get_pacing_rate(ctl->ctl_cong);
+    xqc_send_ctl_t *send_ctl = pacing->ctl_ctx;
+    if (send_ctl->ctl_cong_callback->xqc_cong_ctl_get_pacing_rate) {
+        pacing_rate = send_ctl->ctl_cong_callback->
+                      xqc_cong_ctl_get_pacing_rate(send_ctl->ctl_cong);
         return pacing_rate;
     }
 
-    cwnd = ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(ctl->ctl_cong);
+    cwnd = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong);
 
-    xqc_usec_t srtt = ctl->ctl_srtt;
+    xqc_usec_t srtt = send_ctl->ctl_srtt;
     if (srtt == 0) {
         srtt = XQC_kInitialRtt * 1000;
     }
@@ -56,8 +56,8 @@ xqc_pacing_rate_calc(xqc_pacing_t *pacing)
                 "|pacing_rate zero|cwnd:%ui|srtt:%ui|", cwnd, srtt);
     }
 
-    if (ctl->ctl_cong_callback->xqc_cong_ctl_in_slow_start 
-        && ctl->ctl_cong_callback->xqc_cong_ctl_in_slow_start(ctl->ctl_cong))
+    if (send_ctl->ctl_cong_callback->xqc_cong_ctl_in_slow_start 
+        && send_ctl->ctl_cong_callback->xqc_cong_ctl_in_slow_start(send_ctl->ctl_cong))
     {
         pacing_rate *= 2;
 
@@ -134,18 +134,18 @@ xqc_pacing_time_until_send(xqc_pacing_t *pacing, uint32_t bytes)
 int 
 xqc_pacing_can_write(xqc_pacing_t *pacing, uint32_t total_bytes)
 {
-    xqc_send_ctl_t *ctl = pacing->ctl_ctx;
-    if (xqc_send_pacing_timer_isset(ctl, XQC_TIMER_PACING)) {
-        xqc_log(ctl->ctl_conn->log, XQC_LOG_DEBUG, "|waiting for pacing timer to expire!|");
+    xqc_send_ctl_t *send_ctl = pacing->ctl_ctx;
+    if (xqc_timer_is_set(&send_ctl->path_timer_manager, XQC_TIMER_PACING)) {
+        xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, "|waiting for pacing timer to expire!|");
         return FALSE;
     }
 
     uint64_t delay = xqc_pacing_time_until_send(pacing, total_bytes);
-    xqc_log(ctl->ctl_conn->log, XQC_LOG_DEBUG, "|pacing_delay: %ui!", delay);
+    xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, "|pacing_delay: %ui!", delay);
 
     if (delay != 0) {
-        xqc_send_pacing_timer_update(ctl, XQC_TIMER_PACING, xqc_monotonic_timestamp() + delay);
-        xqc_log(ctl->ctl_conn->log, XQC_LOG_DEBUG, "|PACING timer update|delay:%ui|", 
+        xqc_timer_update(&send_ctl->path_timer_manager, XQC_TIMER_PACING, xqc_monotonic_timestamp(), delay);
+        xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, "|PACING timer update|delay:%ui|", 
                 delay);
         return FALSE;
     }

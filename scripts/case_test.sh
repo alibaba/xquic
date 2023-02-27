@@ -332,7 +332,7 @@ grep_err_log|grep -v stream
 clear_log
 echo -e "Reset stream when receiving...\c"
 ./test_client -s 1024000 -l d -t 1 -E -x 21 > stdlog
-result=`grep "xqc_send_ctl_drop_stream_frame_packets" slog`
+result=`grep "xqc_send_queue_drop_stream_frame_packets" slog`
 flag=`grep "send_state:5|recv_state:5" clog`
 errlog=`grep_err_log|grep -v stream`
 if [ -n "$flag" ] && [ -z "$errlog" ] && [ -n "$result" ]; then
@@ -390,6 +390,21 @@ else
     echo "$flag"
     echo "$errlog"
 fi
+
+
+clear_log
+echo -e "alp negotiation failure ...\c"
+rm -f test_session
+./test_client -l e -t 1 -T -x 43 > stdlog
+alpn_res=`grep "xqc_ssl_alpn_select_cb|select proto error" slog`
+if [ -n "$alpn_res" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "alp_negotiation_failure" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "alp_negotiation_failure" "fail"
+fi
+
 
 clear_log
 echo -e "without session ticket ...\c"
@@ -689,6 +704,18 @@ else
 fi
 
 clear_log
+echo -e "send 4K every time ...\c"
+result=`./test_client -s 10240000 -l e -E -x 49|grep ">>>>>>>> pass"`
+errlog=`grep_err_log`
+echo "$result"
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    case_print_result "send_4K_every_time" "pass"
+else
+    case_print_result "send_4K_every_time" "fail"
+    echo "$errlog"
+fi
+
+clear_log
 echo -e "BBR ...\c"
 result=`./test_client -s 10240000 -l e -E -c bbr|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
@@ -784,33 +811,6 @@ else
     case_print_result "cubic_without_pacing" "fail"
     echo "$errlog"
 fi
-
-
-clear_log
-echo -e "Copa with default parameters (delta=0.05, ai_unit=1.0) ...\c"
-result=`./test_client -s 10240000 -l e -t 1 -E -c P|grep ">>>>>>>> pass"`
-errlog=`grep_err_log`
-echo "$result"
-if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
-    case_print_result "copa_with_default_parameters" "pass"
-else
-    case_print_result "copa_with_default_parameters" "fail"
-    echo "$errlog"
-fi
-
-clear_log
-echo -e "Copa with customized parameters (delta=0.5, ai_unit=5.0) ...\c"
-result=`./test_client -s 10240000 -l e -t 1 -E -c P -A 5.0 -D 0.5|grep ">>>>>>>> pass"`
-errlog=`grep_err_log`
-echo "$result"
-if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
-    case_print_result "copa_with_customized_parameters" "pass"
-else
-    case_print_result "copa_with_customized_parameters" "fail"
-    echo "$errlog"
-fi
-
-
 
 clear_log
 result=`./test_client -s 10240000 -l e -t 1 -E -x 26|grep ">>>>>>>> pass"`
@@ -1044,23 +1044,7 @@ else
     echo "$errlog"
 fi
 
-
-clear_log
-killall test_server 2> /dev/null
-echo -e "load balancer cid generate ...\c"
-./test_server -l d -e -S "server_id_0" > /dev/null &
-sleep 1
-./test_client -s 1024000 -l d -t 1 >> clog
-result=`grep "|xqc_conn_confirm_cid|dcid change|" clog`
-errlog=`grep_err_log`
-if [ -z "$errlog" ] && [ "$result" != "" ]; then
-    echo ">>>>>>>> pass:1"
-    case_print_result "load_balancer_cid_generate" "pass"
-else
-    echo ">>>>>>>> pass:0"
-    case_print_result "load_balancer_cid_generate" "fail"
-fi
-
+# ./test_server should be killed after this case, since some of the test case requires ./test_server without param `-E`
 clear_log
 killall test_server 2> /dev/null
 echo -e "load balancer cid generate with encryption...\c"
@@ -1269,6 +1253,219 @@ else
     echo ">>>>>>>> pass:0"
     case_print_result "stateless_reset" "fail"
 fi
+
+
+killall test_server
+./test_server -l d -e -M > /dev/null &
+sleep 1
+
+
+clear_log
+echo -e "MPNS enable multipath negotiate ...\c"
+result=`sudo ./test_client -s 1024000 -l d -t 1 -M -A -i lo | grep "enable_multipath=2"`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" != "" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MPNS_enable_multipath_negotiate" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MPNS_enable_multipath_negotiate" "fail"
+fi
+grep_err_log
+
+clear_log
+echo -e "MPNS send 1M data on multiple paths ...\c"
+result=`sudo ./test_client -s 1024000 -l d -t 1 -M -A -i lo -i lo -E|grep ">>>>>>>> pass"`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MPNS_send_1M_data_on_multiple_paths" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MPNS_send_1M_data_on_multiple_paths" "fail"
+fi
+grep_err_log
+
+clear_log
+echo -e "MPNS multipath 30 percent loss ...\c"
+result=`sudo ./test_client -s 10240000 -t 5 -l e -E -d 300 -M -A -i lo -i lo|grep ">>>>>>>> pass"`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"  
+    case_print_result "MPNS_multipath_30_percent_loss" "pass"
+else
+    echo ">>>>>>>> pass:0"  
+    case_print_result "MPNS_multipath_30_percent_loss" "fail"
+fi
+grep_err_log
+
+clear_log
+echo -e "MPNS multipath close initial path ...\c"
+sudo ./test_client -s 1024000 -l d -t 3 -M -A -i lo -i lo -E -x 100 >> clog
+result=`grep ">>>>>>>> pass" clog`
+svr_res=`grep "|path closed|path:0|" slog`
+cli_res=`grep "|path closed|path:0|" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MPNS_multipath_close_initial_path" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MPNS_multipath_close_initial_path" "fail"
+fi
+grep_err_log
+
+clear_log
+echo -e "MPNS multipath 30 percent loss close initial path ...\c"
+result=`sudo ./test_client -s 10240000 -t 5 -l d -E -d 300 -M -A -i lo -i lo -x 100|grep ">>>>>>>> pass"`
+svr_res=`grep "|path closed|path:0|" slog`
+cli_res=`grep "|path closed|path:0|" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ "$svr_res" != "" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MPNS_multipath_10_percent_loss_close_initial_path" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MPNS_multipath_10_percent_loss_close_initial_path" "fail"
+fi
+grep_err_log
+
+clear_log
+echo -e "MPNS multipath close new path ...\c"
+sudo ./test_client -s 1024000 -l d -t 3 -M -A -i lo -i lo -E -x 101 >> clog
+result=`grep ">>>>>>>> pass" clog`
+svr_res=`grep "|path closed|path:1|" slog`
+cli_res=`grep "|path closed|path:1|" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MPNS_multipath_close_new_path" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MPNS_multipath_close_new_path" "fail"
+fi
+grep_err_log
+
+clear_log
+echo -e "MPNS multipath 30 percent loss close new path ...\c"
+result=`sudo ./test_client -s 10240000 -t 5 -l d -E -d 300 -M -A -i lo -i lo -x 101|grep ">>>>>>>> pass"`
+svr_res=`grep "|path closed|path:1|" slog`
+cli_res=`grep "|path closed|path:1|" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ "$svr_res" != "" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MPNS_multipath_30_percent_loss_close_new_path" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MPNS_multipath_30_percent_loss_close_new_path" "fail"
+fi
+grep_err_log
+
+killall test_server
+./test_server -l d -e -M -R 1 > /dev/null &
+sleep 1
+
+clear_log
+echo -e "MPNS reinject unack packets by capacity ...\c"
+result=`sudo ./test_client -s 1024000 -l d -t 1 -M -A -i lo -i lo -E -R 1 |grep ">>>>>>>> pass"`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MPNS_reinject_unack_packets_by_capacity" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MPNS_reinject_unack_packets_by_capacity" "fail"
+fi
+grep_err_log
+
+
+killall test_server
+./test_server -l d -e -M -R 2 > /dev/null &
+sleep 1
+
+clear_log
+echo -e "MPNS reinject unack packets by deadline ...\c"
+result=`sudo ./test_client -s 1024000 -l d -t 1 -M -A -i lo -i lo -E -R 2 |grep ">>>>>>>> pass"`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MPNS_reinject_unack_packets_by_deadline" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MPNS_reinject_unack_packets_by_deadline" "fail"
+fi
+grep_err_log
+
+
+killall test_server
+./test_server -l d -e -M > /dev/null &
+sleep 1
+
+clear_log
+echo -e "NAT rebinding path 0 ...\c"
+result=`sudo ./test_client -s 102400 -l d -t 3 -M -A -i lo -i lo -E -n 2 -x 103 |grep ">>>>>>>> pass:0"`
+errlog=`grep_err_log`
+rebind=`grep "|path:0|REBINDING|validate NAT rebinding addr|" slog`
+if [ -z "$errlog" ] && [ -z "$result" ] && [ "$rebind" != "" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "NAT_rebinding_path_0" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    echo $errlog
+    echo $result
+    echo $rebind
+    case_print_result "NAT_rebinding_path_0" "fail"
+fi
+grep_err_log
+
+clear_log
+echo -e "NAT rebinding path 1 ...\c"
+result=`sudo ./test_client -s 102400 -l d -t 3 -M -A -i lo -i lo -E -n 2 -x 104 |grep ">>>>>>>> pass:0"`
+errlog=`grep_err_log`
+rebind=`grep "|path:1|REBINDING|validate NAT rebinding addr|" slog`
+if [ -z "$errlog" ] && [ -z "$result" ] && [ "$rebind" != "" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "NAT_rebinding_path_1" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "NAT_rebinding_path_1" "fail"
+fi
+grep_err_log
+
+killall test_server
+./test_server -l d -e -M -Q > /dev/null &
+sleep 1
+
+clear_log
+echo -e "Multipath Compensate and Accelerate ...\c"
+sudo ./test_client -s 102400 -l d -t 3 -M -A -i lo -i lo -E -P 2 -Q > ccfc.log
+errlog=`grep_err_log`
+svr_res=`grep "path_status:2->1" slog`
+cli_res=`grep "path_status:2->1" clog`
+if [ -z "$errlog" ] && [ `grep ">>>>>>>> pass:1" ccfc.log|wc -l` -eq 2 ] && [ "$svr_res" != "" ] &&  [ "$cli_res" != "" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "Multipath_Compensate_and_Accelerate" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "Multipath_Compensate_and_Accelerate" "fail"
+fi
+grep_err_log
+
+clear_log
+echo -e "Multipath Compensate but not Accelerate ...\c"
+sudo ./test_client -s 102400 -l d -t 3 -M -i lo -i lo -E -P 2 -Q > ccfc.log
+errlog=`grep_err_log`
+svr_res=`grep "path_status:2->1" slog`
+cli_res=`grep "path_status:2->1" clog`
+if [ -z "$errlog" ] && [ `grep ">>>>>>>> pass:1" ccfc.log|wc -l` -eq 2 ] && [ "$svr_res" != "" ] &&  [ "$cli_res" != "" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "Multipath_Compensate_and_Accelerate" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "Multipath_Compensate_and_Accelerate" "fail"
+fi
+grep_err_log
+
 
 
 killall test_server

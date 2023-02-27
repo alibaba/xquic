@@ -11,7 +11,7 @@
 #include "src/common/xqc_str.h"
 #include "src/common/xqc_log.h"
 #include "src/common/xqc_common.h"
-#ifdef XQC_SYS_WINDOWS
+#ifdef WIN32
 #include <wincrypt.h>
 #endif
 
@@ -24,7 +24,8 @@ typedef struct xqc_random_generator_s {
     xqc_str_t               rand_buf;          /* buffer for random bytes*/
 
     xqc_log_t              *log;
-#ifdef XQC_SYS_WINDOWS
+
+#ifdef WIN32
     HCRYPTPROV              hProvider;
 #endif
 } xqc_random_generator_t;

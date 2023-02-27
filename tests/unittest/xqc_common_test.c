@@ -204,6 +204,15 @@ null_socket_write(const unsigned char *buf, size_t size,
     return size;
 }
 
+static ssize_t
+null_socket_write_ex(uint64_t path_id,
+    const unsigned char *buf, size_t size,
+    const struct sockaddr *peer_addr,
+    socklen_t peer_addrlen, void *conn_user_data)
+{
+    return size;
+}
+
 static void
 null_set_event_timer(xqc_msec_t wake_after, void *engine_user_data)
 {
@@ -230,6 +239,7 @@ test_create_engine()
     };
     xqc_transport_callbacks_t tcbs = {
         .write_socket = null_socket_write,
+        .write_socket_ex = null_socket_write_ex,
     };
 
     xqc_conn_settings_t conn_settings;

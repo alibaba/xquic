@@ -34,7 +34,6 @@ extern const char *const xqc_h3_alpn[];
 
 #define XQC_H3_MAX_BUFFER_COUNT_SIZE        (100)
 
-
 /* setting options */
 typedef enum {
     /* h3 settings */

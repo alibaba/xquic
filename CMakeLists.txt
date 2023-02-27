@@ -163,14 +163,22 @@ set(
     "src/transport/xqc_packet_out.c"
     "src/transport/xqc_packet_in.c"
     "src/transport/xqc_send_ctl.c"
+    "src/transport/xqc_send_queue.c"
     "src/transport/xqc_packet.c"
     "src/transport/xqc_frame.c"
     "src/transport/xqc_recv_record.c"
     "src/transport/xqc_pacing.c"
     "src/transport/xqc_utils.c"
+    "src/transport/xqc_multipath.c"
     "src/transport/xqc_defs.c"
     "src/transport/xqc_transport_params.c"
     "src/transport/xqc_quic_lb.c"
+    "src/transport/xqc_timer.c"
+    "src/transport/xqc_reinjection.c"
+    "src/transport/reinjection_control/xqc_reinj_xlink.c"
+    "src/transport/scheduler/xqc_scheduler_minrtt.c"
+    "src/transport/scheduler/xqc_scheduler_common.c"
+    "src/transport/scheduler/xqc_scheduler_backup.c"
 )
 
 # TLS source
@@ -225,7 +233,6 @@ set(
     CONGESTION_CONTROL_SOURCES
     "src/congestion_control/xqc_cubic.c"
     "src/congestion_control/xqc_bbr.c"
-    "src/congestion_control/xqc_copa.c"
     "src/congestion_control/xqc_window_filter.c"
     "src/congestion_control/xqc_sample.c"
 )

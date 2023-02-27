@@ -28,9 +28,9 @@ typedef enum {
     XQC_FRAME_PATH_RESPONSE,
     XQC_FRAME_CONNECTION_CLOSE,
     XQC_FRAME_HANDSHAKE_DONE,
-    XQC_FRAME_PATH_STATUS,
     XQC_FRAME_ACK_MP,
-    XQC_FRAME_QOE_CONTROL_SIGNAL,
+    XQC_FRAME_PATH_ABANDON,
+    XQC_FRAME_PATH_STATUS,
     XQC_FRAME_Extension,
     XQC_FRAME_NUM,
 } xqc_frame_type_t;
@@ -56,9 +56,9 @@ typedef enum {
     XQC_FRAME_BIT_PATH_RESPONSE         = 1 << XQC_FRAME_PATH_RESPONSE,
     XQC_FRAME_BIT_CONNECTION_CLOSE      = 1 << XQC_FRAME_CONNECTION_CLOSE,
     XQC_FRAME_BIT_HANDSHAKE_DONE        = 1 << XQC_FRAME_HANDSHAKE_DONE,
-    XQC_FRAME_BIT_PATH_STATUS           = 1 << XQC_FRAME_PATH_STATUS,
     XQC_FRAME_BIT_ACK_MP                = 1 << XQC_FRAME_ACK_MP,
-    XQC_FRAME_BIT_QOE_CONTROL_SIGNAL    = 1 << XQC_FRAME_QOE_CONTROL_SIGNAL,
+    XQC_FRAME_BIT_PATH_ABANDON          = 1 << XQC_FRAME_PATH_ABANDON,
+    XQC_FRAME_BIT_PATH_STATUS           = 1 << XQC_FRAME_PATH_STATUS,
     XQC_FRAME_BIT_Extension             = 1 << XQC_FRAME_Extension,
     XQC_FRAME_BIT_NUM                   = 1 << XQC_FRAME_NUM,
 } xqc_frame_type_bit_t;
@@ -73,7 +73,7 @@ typedef enum {
       CONNECTION_CLOSE frames, are not sent again when packet loss is
       detected, but as described in Section 10.
  */
-#define XQC_IS_ACK_ELICITING(types) ((types) & ~(XQC_FRAME_BIT_ACK | XQC_FRAME_BIT_PADDING | XQC_FRAME_BIT_CONNECTION_CLOSE))
+#define XQC_IS_ACK_ELICITING(types) ((types) & ~(XQC_FRAME_BIT_ACK | XQC_FRAME_BIT_ACK_MP| XQC_FRAME_BIT_PADDING | XQC_FRAME_BIT_CONNECTION_CLOSE))
 
 /*
  * https://tools.ietf.org/html/draft-ietf-quic-recovery-24#section-3
@@ -84,7 +84,7 @@ typedef enum {
    PADDING frames cause packets to contribute toward bytes in flight
       without directly causing an acknowledgment to be sent.
  */
-#define XQC_CAN_IN_FLIGHT(types) ((types) & ~(XQC_FRAME_BIT_ACK | XQC_FRAME_BIT_CONNECTION_CLOSE))
+#define XQC_CAN_IN_FLIGHT(types) ((types) & ~(XQC_FRAME_BIT_ACK | XQC_FRAME_BIT_ACK_MP | XQC_FRAME_BIT_CONNECTION_CLOSE))
 
 
 /*
@@ -144,5 +144,10 @@ xqc_int_t xqc_process_path_challenge_frame(xqc_connection_t *conn, xqc_packet_in
 
 xqc_int_t xqc_process_path_response_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
+xqc_int_t xqc_process_ack_mp_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
+
+xqc_int_t xqc_process_path_abandon_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
+
+xqc_int_t xqc_process_path_status_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 #endif /* _XQC_FRAME_H_INCLUDED_ */

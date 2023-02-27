@@ -16,7 +16,7 @@ typedef struct xqc_dtable_s xqc_dtable_t;
  * @brief create a dynamic table object
  * @param htable_buckets the bucket count of 2d hash table
  */
-xqc_dtable_t *xqc_dtable_create(size_t htable_buckets, xqc_log_t *log);
+xqc_dtable_t *xqc_dtable_create(size_t htable_buckets, xqc_log_t *log, size_t need_hash);
 
 
 /**

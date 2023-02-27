@@ -135,6 +135,9 @@ typedef void (*xqc_tls_error_pt)(xqc_int_t tls_err, void *user_data);
  */
 typedef void (*xqc_tls_handshake_completed_pt)(void *user_data);
 
+typedef xqc_int_t (*xqc_tls_cert_cb_pt)(const char *sni,
+    void **chain, void **crt, void **key, void *user_data);
+
 /**
  * @brief definition of callback functions to upper layer
  */
@@ -164,6 +167,8 @@ typedef struct xqc_tls_callbacks_s {
 
     /* for notify tls handshake completed, which is equivalent to QUIC handshake completed */
     xqc_tls_handshake_completed_pt  hsk_completed_cb;
+
+    xqc_tls_cert_cb_pt              cert_cb;
 } xqc_tls_callbacks_t;
 
 

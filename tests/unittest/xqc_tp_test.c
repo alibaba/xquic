@@ -94,6 +94,7 @@ xqc_test_encrypted_extensions()
     params.max_ack_delay = XQC_DEFAULT_MAX_ACK_DELAY + 1;
     params.active_connection_id_limit = XQC_DEFAULT_ACTIVE_CONNECTION_ID_LIMIT + 1;
     params.no_crypto = 1;
+    params.enable_multipath = 1;
 
     xqc_cid_set(&params.preferred_address.cid, test_pacid.cid_buf, test_pacid.cid_len);
     memcpy(params.preferred_address.stateless_reset_token, test_stateless_reset_token, sizeof(params.stateless_reset_token));

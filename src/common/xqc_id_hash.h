@@ -35,31 +35,12 @@ typedef struct xqc_id_hash_table_s {
 static inline int
 xqc_pow2(unsigned int n)
 {
-  
-    int clz , power = sizeof(n), count1 = 0;
-
-#ifdef __GNUC__
-    count1 = __builtin_popcount(n) ;
-#else
-    while (n) {
-		count1 += n & 1;
-		n >>= 1;
-	}
-#endif
-
-    if (count1 <= 1) {
+    int clz , power = sizeof(n);
+    if (__builtin_popcount(n) <= 1) {
         return n ;
     }
-
-#if defined(XQC_SYS_WINDOWS) && defined(_MSC_VER)
-    /* __lzcnt available beginning VS2008 or up*/
-    _BitScanReverse(&clz, n);
-#else
-    clz = __builtin_clz(n);
-#endif  
-
-    power = (power << 3) - clz ;
-
+    clz     = __builtin_clz(n);
+    power   = (power << 3) - clz ;
     return pow(2 , power);
 }
 

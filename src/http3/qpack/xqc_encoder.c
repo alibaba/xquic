@@ -250,7 +250,7 @@ xqc_encoder_create(xqc_log_t *log)
     }
 
     /* init dynamic table */
-    enc->dtable = xqc_dtable_create(XQC_QPACK_DEFAULT_HASH_TABLE_SIZE, log);
+    enc->dtable = xqc_dtable_create(XQC_QPACK_DEFAULT_HASH_TABLE_SIZE, log, 1);
     if (enc->dtable == NULL) {
         xqc_free(enc);
         return NULL;
@@ -311,7 +311,7 @@ xqc_encoder_destroy(xqc_encoder_t *enc)
 }
 
 
-void
+xqc_int_t
 xqc_encoder_lookup_nv(xqc_encoder_t *enc, xqc_hdr_enc_rule_t *info)
 {
     xqc_http_header_t *hdr = info->hdr;
@@ -334,6 +334,9 @@ xqc_encoder_lookup_nv(xqc_encoder_t *enc, xqc_hdr_enc_rule_t *info)
     xqc_nv_ref_type_t dtable_ref = XQC_NV_REF_NONE;
     if (stable_ref != XQC_NV_REF_NAME_AND_VALUE) {
         dtable_ref = xqc_dtable_lookup(enc->dtable, name, nlen, value, vlen, &dtable_idx);
+        if (dtable_ref == XQC_NV_ERROR) {
+            return XQC_ERROR;
+        }
     }
 
     if (stable_ref != XQC_NV_REF_NONE || dtable_ref != XQC_NV_REF_NONE) {
@@ -349,6 +352,7 @@ xqc_encoder_lookup_nv(xqc_encoder_t *enc, xqc_hdr_enc_rule_t *info)
             info->index = dtable_idx;
         }
     }
+    return XQC_OK;
 }
 
 
@@ -689,7 +693,11 @@ xqc_encoder_prepare(xqc_encoder_t *enc, xqc_http_headers_t *hdrs, xqc_field_sect
         }
 
         /* lookup nv from static table and dynamic table */
-        xqc_encoder_lookup_nv(enc, info);
+        ret = xqc_encoder_lookup_nv(enc, info);
+        if (ret != XQC_OK) {
+            xqc_log(enc->log, XQC_LOG_ERROR, "|lookup failed|");
+            return ret;
+        }
 
         /* decide dynamic table strategy, including never flag and insertion */
         xqc_encoder_check_index_mode(enc, info, limited);

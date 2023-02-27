@@ -54,7 +54,8 @@ xqc_test_frame()
     settings.max_field_section_size = 10;
     settings.max_pushes = 20;
     settings.qpack_blocked_streams = 30;
-    settings.qpack_max_table_capacity = 40;
+    settings.qpack_enc_max_table_capacity = 40;
+    settings.qpack_dec_max_table_capacity = 40;
 
     xqc_list_head_t send_buf;
     xqc_init_list_head(&send_buf);
@@ -438,11 +439,9 @@ xqc_test_stream()
     xqc_h3_stream_t *h3s = xqc_h3_stream_create(h3c, stream, XQC_H3_STREAM_TYPE_CONTROL, NULL);
     CU_ASSERT(h3s != NULL);
 
-    conn->engine->eng_flag &= XQC_CONN_FLAG_CANNOT_DESTROY;
-
     char data[] = {"sdfjldksjf ldsjflkejwrfmmsldfpodsjcdsl;ml;fdsl;fkdlk"};
     size_t data_size = strlen(data);
-    conn->conn_flag &= XQC_CONN_FLAG_CANNOT_DESTROY;
+
     ssize_t n_write = xqc_h3_stream_write_data_to_buffer(h3s, data, data_size, XQC_TRUE);
     CU_ASSERT(n_write == data_size);
 

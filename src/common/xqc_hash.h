@@ -325,5 +325,32 @@ xqc_md5_body(xqc_md5_t *ctx, const u_char *data, size_t size)
     return p;
 }
 
+/* 
+ * hash function optimization
+ * this function for performance, hash effect may be not good
+ */
+static inline uint64_t 
+xqc_hash_optimize(const u_char *data, size_t len)
+{
+    uint64_t *pos = (uint64_t *)data;
+    uint64_t *end = pos + (len / sizeof(uint64_t));
+    uint64_t v = 0;
+    uint64_t h = len;
+
+    while (pos < end) {
+        v = *pos++;
+        h = h ^ v;
+    }
+    size_t left_len = len % (sizeof(uint64_t));
+    if (left_len) {
+        h = h ^ xqc_hash_string((const u_char *)end, left_len); 
+    }
+
+    return h;
+}
+
+
+
+
 #endif /* _XQC_HASH_H_INCLUDED_ */
 

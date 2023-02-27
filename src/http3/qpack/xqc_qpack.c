@@ -31,13 +31,16 @@ typedef struct xqc_qpack_s {
     /* user_data for xqc_qpack_ins_cb_t */
     void                   *user_data;
 
-    /* max dynamic table capacity configured by local */
-    uint64_t                max_cap;
+    /* max decoder's dynamic table capacity configured by local */
+    uint64_t                dec_max_cap;
+
+    /* max encoder's dynamic table capacity configured by local */
+    uint64_t                enc_max_cap;
 } xqc_qpack_s;
 
 
 xqc_qpack_t *
-xqc_qpack_create(uint64_t max_cap, xqc_log_t *log, const xqc_qpack_ins_cb_t *ins_cb,
+xqc_qpack_create(uint64_t enc_max_cap, uint64_t dec_max_cap, xqc_log_t *log, const xqc_qpack_ins_cb_t *ins_cb,
     void *user_data)
 {
     if (NULL == ins_cb) {
@@ -49,7 +52,7 @@ xqc_qpack_create(uint64_t max_cap, xqc_log_t *log, const xqc_qpack_ins_cb_t *ins
         return NULL;
     }
 
-    qpk->dec = xqc_decoder_create(log, max_cap);
+    qpk->dec = xqc_decoder_create(log, dec_max_cap);
     if (NULL == qpk->dec) {
         goto fail;
     }
@@ -72,7 +75,8 @@ xqc_qpack_create(uint64_t max_cap, xqc_log_t *log, const xqc_qpack_ins_cb_t *ins
     qpk->ins_cb = *ins_cb;
     qpk->log = log;
     qpk->user_data = user_data;
-    qpk->max_cap = max_cap;
+    qpk->enc_max_cap = enc_max_cap;
+    qpk->dec_max_cap = dec_max_cap;
 
     return qpk;
 
@@ -209,7 +213,7 @@ xqc_int_t
 xqc_qpack_set_dtable_cap(xqc_qpack_t *qpk, size_t cap)
 {
     /* set encoder's dtable capacity, which is the minor of max_cap and cap */
-    uint64_t min_cap = xqc_min(cap, qpk->max_cap);
+    uint64_t min_cap = xqc_min(cap, qpk->enc_max_cap);
     xqc_int_t ret = xqc_encoder_set_dtable_cap(qpk->enc, min_cap);
     if (ret != XQC_OK) {
         xqc_log(qpk->log, XQC_LOG_WARN, "|set encoder dynamic table cap error|ret:%d|", ret);
@@ -248,6 +252,12 @@ xqc_qpack_on_encoder_ins(xqc_qpack_t *qpk, xqc_ins_enc_ctx_t *ctx)
 
     switch (ctx->type) {
     case XQC_INS_TYPE_ENC_SET_DTABLE_CAP:
+        if (ctx->capacity.value > qpk->dec_max_cap) {
+            xqc_log(qpk->log, XQC_LOG_ERROR,
+                    "|set dtable capacity error|capacity value:%u, max capacity:%u|",
+                    ctx->capacity.value, qpk->dec_max_cap);
+            return -XQC_QPACK_SET_DTABLE_CAP_ERROR;
+        }
         ret = xqc_decoder_set_dtable_cap(qpk->dec, ctx->capacity.value);
         break;
 

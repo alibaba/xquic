@@ -29,7 +29,9 @@ void xqc_long_packet_update_length(xqc_packet_out_t *packet_out);
 
 void xqc_short_packet_update_key_phase(xqc_packet_out_t *packet_out, xqc_uint_t key_phase);
 
-void xqc_short_packet_update_dcid(xqc_packet_out_t *packet_out, xqc_connection_t *conn);
+void xqc_short_packet_update_dcid(xqc_packet_out_t *packet_out, xqc_cid_t dcid);
+
+void xqc_short_packet_update_custom_spin_bit(xqc_packet_out_t *packet_out);
 
 int xqc_gen_long_packet_header(xqc_packet_out_t *packet_out,
     const unsigned char *dcid, unsigned char dcid_len,

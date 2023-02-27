@@ -101,8 +101,6 @@ static void xqc_bbr2_enter_probe_rtt(xqc_bbr2_t *bbr2);
 static void xqc_bbr2_save_cwnd(xqc_bbr2_t *bbr2);
 static bool xqc_bbr2_is_probing_bandwidth(xqc_bbr2_t *bbr2);
 
-extern long xqc_random(void);
-
 size_t
 xqc_bbr2_size()
 {
@@ -873,19 +871,19 @@ xqc_bbr2_enter_drain(xqc_bbr2_t *bbr2)
 static void 
 xqc_bbr2_pick_probe_wait(xqc_bbr2_t *bbr2)
 {
-    bbr2->rounds_since_probe = xqc_random() % xqc_bbr2_bw_probe_rand_rounds;
+    bbr2->rounds_since_probe = random() % xqc_bbr2_bw_probe_rand_rounds;
 #if XQC_BBR2_PLUS_ENABLED
     if (bbr2->fast_convergence_on) {
-        uint32_t rand_rtt_rounds = xqc_random() % 
+        uint32_t rand_rtt_rounds = random() % 
                                    xqc_bbr2_fast_convergence_probe_round_rand;
         rand_rtt_rounds += (1 + xqc_bbr2_fast_convergence_probe_round_base);
     } else {
         bbr2->probe_wait_us = xqc_bbr2_bw_probe_base_us + 
-                              (xqc_random() % xqc_bbr2_bw_probe_rand_us);
+                              (random() % xqc_bbr2_bw_probe_rand_us);
     }
 #else
     bbr2->probe_wait_us = xqc_bbr2_bw_probe_base_us + 
-                          (xqc_random() % xqc_bbr2_bw_probe_rand_us);
+                          (random() % xqc_bbr2_bw_probe_rand_us);
 #endif
 }
 
@@ -993,8 +991,7 @@ xqc_bbr2_update_min_rtt(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
         /* Ignore low rate samples during this mode. */
         xqc_send_ctl_t *send_ctl = sampler->send_ctl;
         send_ctl->ctl_app_limited = (send_ctl->ctl_delivered 
-            + send_ctl->ctl_bytes_in_flight) 
-            ? (send_ctl->ctl_delivered + send_ctl->ctl_bytes_in_flight) : 1;
+            + send_ctl->ctl_bytes_in_flight)? : 1;
         xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, 
                 "|BBR PROBE_RTT|inflight:%ud|done_stamp:%ui|done:%ud|"
                 "round_start:%ud|",
@@ -1608,6 +1605,14 @@ static xqc_bbr_info_interface_t xqc_bbr2_info_cb = {
     .cwnd_gain              = xqc_bbr2_info_cwnd_gain,
 };
 
+
+static int
+xqc_bbr2_in_slow_start(void *cong)
+{
+    xqc_bbr2_t *bbr2 = (xqc_bbr2_t*)cong;
+    return bbr2->mode == BBR2_STARTUP;
+}
+
 const xqc_cong_ctrl_callback_t xqc_bbr2_cb = {
     .xqc_cong_ctl_size                   = xqc_bbr2_size,
     .xqc_cong_ctl_init_bbr               = xqc_bbr2_init,
@@ -1620,4 +1625,5 @@ const xqc_cong_ctrl_callback_t xqc_bbr2_cb = {
     .xqc_cong_ctl_reset_cwnd             = xqc_bbr2_reset_cwnd,
     .xqc_cong_ctl_info_cb                = &xqc_bbr2_info_cb,
     .xqc_cong_ctl_in_recovery            = xqc_bbr2_in_recovery,
+    .xqc_cong_ctl_in_slow_start          = xqc_bbr2_in_slow_start,
 };

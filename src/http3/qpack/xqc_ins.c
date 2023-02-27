@@ -12,6 +12,9 @@ xqc_ins_enc_ctx_t *
 xqc_ins_encoder_ctx_create()
 {
     xqc_ins_enc_ctx_t *ctx = xqc_malloc(sizeof(xqc_ins_enc_ctx_t));
+    if (ctx == NULL) {
+        return NULL;
+    }
     xqc_memset(ctx, 0, sizeof(xqc_ins_enc_ctx_t));
     ctx->name = xqc_prefixed_str_pctx_create(XQC_VAR_BUF_INIT_SIZE);
     ctx->value = xqc_prefixed_str_pctx_create(XQC_H3_MAX_FIELD_SECTION_SIZE);
@@ -34,6 +37,9 @@ xqc_ins_dec_ctx_t *
 xqc_ins_decoder_ctx_create()
 {
     xqc_ins_dec_ctx_t *ctx = xqc_malloc(sizeof(xqc_ins_dec_ctx_t));
+    if (ctx == NULL) {
+        return NULL;
+    }
     xqc_memset(ctx, 0, sizeof(xqc_ins_dec_ctx_t));
     return ctx;
 }

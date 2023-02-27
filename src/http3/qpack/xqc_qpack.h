@@ -46,13 +46,14 @@ typedef struct xqc_qpack_ins_cb_s {
  * @brief create qpack handler, qpack module is responsible for:
  * 1. write and parse encode/decode instruction,
  * 2. encoding http headers, decoding encoded field sections
- * @param max_cap the local configured max capacity of dtable. this value is effective for DECODER
+ * @param enc_max_cap the local configured max capacity of dtable. this value is effective for ENCODER
+ * @param dec_max_cap the local configured max capacity of dtable. this value is effective for DECODER
  * @param ins_cb the callback for encoder/decoder instruction buffer and send
  * @param user_data callback user data in ins_cb
  * @param log log handler for log print
  * @return qpack handler, will be used when qpack functions called
  */
-xqc_qpack_t *xqc_qpack_create(uint64_t max_cap, xqc_log_t *log, const xqc_qpack_ins_cb_t *ins_cb,
+xqc_qpack_t *xqc_qpack_create(uint64_t enc_max_cap, uint64_t dec_max_cap, xqc_log_t *log, const xqc_qpack_ins_cb_t *ins_cb,
     void *user_data);
 
 /**

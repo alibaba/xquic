@@ -143,7 +143,7 @@ xqc_test_recv_retire_cid()
     CU_ASSERT(xqc_cid_is_equal(&conn->scid_set.user_scid, &test_scid) == XQC_OK);
 
     /* retired timer */
-    CU_ASSERT(xqc_send_ctl_timer_is_set(conn->conn_send_ctl, XQC_TIMER_RETIRE_CID));
+    CU_ASSERT(xqc_timer_is_set(&conn->conn_timer_manager, XQC_TIMER_RETIRE_CID));
 
     xqc_engine_destroy(conn->engine);
 }
@@ -174,6 +174,7 @@ xqc_test_retire_cid_with_odcid_in_set()
     /* generate new cid with default cid_len:8 */
     xqc_cid_t test_scid;
     conn->engine->config->cid_len = XQC_DEFAULT_CID_LEN;
+    conn->remote_settings.active_connection_id_limit = XQC_CONN_ACTIVE_CID_LIMIT;
 
     ret = xqc_write_new_conn_id_frame_to_packet(conn, 0);
     CU_ASSERT(ret == XQC_OK);

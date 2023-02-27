@@ -43,7 +43,15 @@ int xqc_ssl_session_ticket_key_cb(SSL *ssl, unsigned char *key_name, unsigned ch
  */
 int xqc_ssl_new_session_cb(SSL *ssl, SSL_SESSION *session);
 
-
+/**
+ * @brief be called when server need to verify client's certificate
+ */
 int xqc_ssl_cert_verify_cb(int ok, X509_STORE_CTX *store_ctx);
+
+
+/**
+ * @brief certificate callback
+ */
+int xqc_ssl_cert_cb(SSL *ssl, void *arg);
 
 #endif

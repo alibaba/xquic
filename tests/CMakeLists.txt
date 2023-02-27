@@ -9,7 +9,6 @@ if(HAVE_CUNIT)
     set(test_SOURCES
         ${UNIT_TEST_DIR}/main.c
         ${UNIT_TEST_DIR}/xqc_random_test.c
-        ${UNIT_TEST_DIR}/xqc_timer_test.c
         ${UNIT_TEST_DIR}/xqc_pq_test.c
         ${UNIT_TEST_DIR}/xqc_common_test.c
         ${UNIT_TEST_DIR}/xqc_conn_test.c
@@ -38,6 +37,7 @@ if(HAVE_CUNIT)
         ${UNIT_TEST_DIR}/xqc_prefixed_str_test.c
         ${UNIT_TEST_DIR}/xqc_cid_test.c
         ${UNIT_TEST_DIR}/xqc_id_hash_test.c
+        ${UNIT_TEST_DIR}/xqc_sent_record_test.c
         ${UNIT_TEST_DIR}/xqc_retry_test.c
     )
 

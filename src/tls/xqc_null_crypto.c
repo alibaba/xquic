@@ -6,7 +6,7 @@
 
 
 static xqc_int_t
-xqc_null_aead_encrypt(const xqc_pkt_protect_aead_t *pp_aead,
+xqc_null_aead_encrypt(const xqc_pkt_protect_aead_t *pp_aead, void *aead_ctx,
     uint8_t *dest, size_t destcap, size_t *destlen,
     const uint8_t *plaintext, size_t plaintextlen,
     const uint8_t *key, size_t keylen,
@@ -25,7 +25,7 @@ xqc_null_aead_encrypt(const xqc_pkt_protect_aead_t *pp_aead,
 }
 
 static xqc_int_t
-xqc_null_aead_decrypt(const xqc_pkt_protect_aead_t *pp_aead,
+xqc_null_aead_decrypt(const xqc_pkt_protect_aead_t *pp_aead, void *aead_ctx,
     uint8_t *dest, size_t destcap, size_t *destlen,
     const uint8_t *ciphertext, size_t ciphertextlen,
     const uint8_t *key, size_t keylen,
@@ -47,7 +47,7 @@ xqc_null_aead_decrypt(const xqc_pkt_protect_aead_t *pp_aead,
 }
 
 static xqc_int_t
-xqc_null_hp_mask(const xqc_hdr_protect_cipher_t *hp_cipher,
+xqc_null_hp_mask(const xqc_hdr_protect_cipher_t *hp_cipher, void *hp_ctx,
     uint8_t *dest, size_t destcap, size_t *destlen,
     const uint8_t *plaintext, size_t plaintextlen,
     const uint8_t *key, size_t keylen,
@@ -73,6 +73,7 @@ xqc_aead_init_null(xqc_pkt_protect_aead_t *pp_aead, size_t taglen)
     pp_aead->keylen     = 1;
     pp_aead->noncelen   = 1;
     pp_aead->taglen     = taglen;
+    pp_aead->aead       = NULL;
 
     pp_aead->encrypt    = xqc_null_aead_encrypt;
     pp_aead->decrypt    = xqc_null_aead_decrypt;
@@ -83,6 +84,7 @@ xqc_cipher_init_null(xqc_hdr_protect_cipher_t *hp_cipher)
 {
     hp_cipher->keylen   = 1;
     hp_cipher->noncelen = 1;
+    hp_cipher->cipher   = NULL;
 
     hp_cipher->hp_mask  = xqc_null_hp_mask;
 }

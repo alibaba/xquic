@@ -114,9 +114,10 @@ typedef enum {
     XQC_EMP_NOT_SUPPORT_MP              = 650,      /* Multipath - don't support multipath */
     XQC_EMP_NO_AVAIL_PATH_ID            = 651,      /* Multipath - no available path id */
     XQC_EMP_CREATE_PATH                 = 652,      /* Multipath - create path error */
-    XQC_EMP_INVALID_PATH_ID             = 653,      /* Multipath - invalid path id error */
-    XQC_EMP_INVALID_FRAME               = 654,      /* Multipath - invalid frame */
-    XQC_EMP_INVALID_QOE_SIGNAL          = 660,      /* Multipath - invalid qoe signal */
+    XQC_EMP_PATH_NOT_FOUND              = 653,      /* Multipath - can't find path in paths_list */
+    XQC_EMP_PATH_STATE_ERROR            = 654,      /* Multipath - abnormal path status */
+    XQC_EMP_SCHEDULE_PATH               = 655,      /* Multipath - fail to schedule path for sending */
+    XQC_EMP_NO_ACTIVE_PATH              = 656,      /* Multipath - no another active path */
 
     XQC_EENCRYPT_LB_CID                 = 670,      /* load balance connection ID encryption error */
     XQC_EENCRYPT_AES_128_ECB            = 671,      /* aes_128_ecb algorithm error */
@@ -214,6 +215,7 @@ typedef enum {
     XQC_H3_SETTING_ERROR                = 824,  /* SETTING error */
     XQC_H3_BLOCKED_STREAM_EXCEED        = 825,  /* blocked_stream exceed limit */
     XQC_H3_STREAM_RECV_ERROR            = 826,  /* call xqc_stream_recv error */
+    XQC_H3_INVALID_PRIORITY             = 827,  /* invalid http priority params or values */
 
     XQC_H3_ERR_MAX,
 } xqc_h3_error_t;

@@ -6,24 +6,9 @@
 #define XQC_TLS_H
 
 #include <xquic/xquic_typedef.h>
+#include "xqc_tls_defs.h"
 #include <openssl/err.h>
-
-#include "src/tls/xqc_tls_defs.h"
 #include "src/transport/xqc_packet.h"
-
-#ifdef XQC_SYS_WINDOWS
-// wincrypt.h defines macros which conflict with OpenSSL's types. This header
-// includes wincrypt and undefines the OpenSSL macros which conflict.
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <wincrypt.h>
-// Undefine the macros which conflict with OpenSSL and define replacements. 
-// See http://msdn.microsoft.com/en-us/library/windows/desktop/aa378145(v=vs.85).aspx
-#undef PKCS7_SIGNER_INFO
-#undef X509_CERT_PAIR
-#undef X509_EXTENSIONS
-#undef X509_NAME
-#endif
 
 /**
  * @brief init tls context. MUST be called before any creation of xqc_tls_t
@@ -124,6 +109,7 @@ xqc_int_t xqc_tls_decrypt_header(xqc_tls_t *tls, xqc_encrypt_level_t level,
  * @brief encrypt packet payload
  * 
  * @param pktno packet number, MUST be the original uncoded packet number
+ * @param path_id path identifier, to calculate the nonce
  * @param header position of packet header, will be used as ad, MUST be plaintext
  * @param header_len length of packet header
  * @param payload packet payload plaintext to be encrypted
@@ -134,13 +120,15 @@ xqc_int_t xqc_tls_decrypt_header(xqc_tls_t *tls, xqc_encrypt_level_t level,
  * @return XQC_OK for success, others for failure
  */
 xqc_int_t xqc_tls_encrypt_payload(xqc_tls_t *tls, xqc_encrypt_level_t level,
-    uint64_t pktno, uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
+    uint64_t pktno, uint32_t path_id,
+    uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
     uint8_t *dst, size_t dst_cap, size_t *dst_len);
 
 /**
  * @brief decrypt packet payload
  * 
  * @param pktno packet number, MUST be the original uncoded packet number
+ * @param path_id path identifier, to calculate the nonce
  * @param header position of packet header, will be used as ad, MUST be plaintext
  * @param header_len length of packet header
  * @param payload packet payload plaintext to be encrypted
@@ -151,7 +139,8 @@ xqc_int_t xqc_tls_encrypt_payload(xqc_tls_t *tls, xqc_encrypt_level_t level,
  * @return XQC_OK for success, others for failure
  */
 xqc_int_t xqc_tls_decrypt_payload(xqc_tls_t *tls, xqc_encrypt_level_t level,
-    uint64_t pktno, uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
+    uint64_t pktno, uint32_t path_id,
+    uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
     uint8_t *dst, size_t dst_cap, size_t *dst_len);
 
 /**
@@ -205,5 +194,8 @@ void xqc_tls_discard_old_1rtt_keys(xqc_tls_t *tls);
 xqc_int_t xqc_tls_cal_retry_integrity_tag(xqc_tls_t *tls,
     uint8_t *retry_pseudo_packet, size_t retry_pseudo_packet_len,
     uint8_t *dst, size_t dst_cap, size_t *dst_len);
+
+void xqc_tls_get_selected_alpn(xqc_tls_t *tls, const char **out_alpn,
+                               size_t *out_len);
 
 #endif

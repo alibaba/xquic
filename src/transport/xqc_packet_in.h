@@ -12,6 +12,10 @@
 /* 1518 - ether_hdr - ip_hdr (20) - udp_hdr (8) = 1472 */
 #define XQC_MAX_PACKET_IN_LEN 1500 
 
+typedef enum {
+    XQC_PIF_REINJECTED_REPLICA  = 1 << 0,
+} xqc_packet_in_flag_t;
+
 struct xqc_packet_in_s {
     xqc_packet_t            pi_pkt;
     xqc_list_head_t         pi_list;
@@ -24,6 +28,9 @@ struct xqc_packet_in_s {
     unsigned char          *last;
     xqc_usec_t              pkt_recv_time;  /* microsecond */
     xqc_frame_type_bit_t    pi_frame_types;
+
+    uint64_t                pi_path_id;
+    xqc_packet_in_flag_t    pi_flag;
 };
 
 

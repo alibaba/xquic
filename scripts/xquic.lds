@@ -14,6 +14,7 @@ XQUIC_VERS_1.0 {
         xqc_h3_conn_is_ready_to_send_early_data;
         xqc_h3_request_create;
         xqc_h3_request_get_stats;
+        xqc_h3_request_stats_print;
         xqc_h3_request_set_user_data;
         xqc_h3_conn_set_settings;
         xqc_h3_get_conn_user_data_by_request;
@@ -23,8 +24,12 @@ XQUIC_VERS_1.0 {
         xqc_h3_request_send_body;
         xqc_h3_request_recv_headers;
         xqc_h3_request_recv_body;
+        xqc_write_http_priority;
+        xqc_parse_http_priority;
+        xqc_h3_request_set_priority;
         xqc_h3_engine_set_dec_max_dtable_capacity;
         xqc_h3_engine_set_enc_max_dtable_capacity;
+        xqc_h3_engine_set_max_dtable_capacity;
         xqc_h3_engine_set_max_field_section_size;
         xqc_connect;
         xqc_conn_close;
@@ -54,11 +59,16 @@ XQUIC_VERS_1.0 {
         xqc_bbr2_cb;
         xqc_reno_cb;
         xqc_cubic_cb;
-        xqc_copa_cb;
+        xqc_minrtt_scheduler_cb;
+        xqc_backup_scheduler_cb;
         xqc_conn_is_ready_to_send_early_data;
         xqc_h3_conn_send_ping;
         xqc_conn_send_ping;
         xqc_engine_conns_hash_find;
+        xqc_conn_create_path;
+        xqc_conn_close_path;
+        xqc_conn_mark_path_standby;
+        xqc_conn_mark_path_available;
         xqc_dcid_str_by_scid;
         xqc_h3_ctx_init;
         xqc_h3_ctx_destroy;
@@ -66,10 +76,13 @@ XQUIC_VERS_1.0 {
         xqc_engine_unregister_alpn;
         xqc_conn_set_alp_user_data;
         xqc_h3_request_finish;
-	xqc_conn_close_with_error;
-        xqc_now;
+        xqc_conn_close_with_error;
         xqc_h3_engine_set_qpack_compat_duplicate;
         xqc_lb_cid_encryption;
+        xqc_path_get_peer_addr;
+        xqc_path_get_local_addr;
+        xqc_xlink_reinj_ctl_cb;
+        xqc_path_get_stats;
     local:
         *;
 };

@@ -28,7 +28,7 @@ xqc_decoder_create(xqc_log_t *log, size_t max_dtable_cap)
         return NULL;
     }
 
-    dec->dtable = xqc_dtable_create(XQC_QPACK_DEFAULT_HASH_TABLE_SIZE, log);
+    dec->dtable = xqc_dtable_create(XQC_QPACK_DEFAULT_HASH_TABLE_SIZE, log, 0);
     if (dec->dtable == NULL) {
         xqc_free(dec);
         return NULL;

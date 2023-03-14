@@ -2895,7 +2895,7 @@ void usage(int argc, char *argv[]) {
 "   -D    Process num. default is 2.\n"
 "   -b    Create connection per second. default is 100.\n"
 "   -B    Max connection num. default is 1000.\n"
-"   -j    Random CID. default is 0.\n"
+"   -J    Random CID. default is 0.\n"
 "   -Q    Multipath backup path standby, set backup_mode on(1). default backup_mode is 0(off).\n"
 "   -A    Multipath request accelerate on. default is 0(off).\n"
 , prog);

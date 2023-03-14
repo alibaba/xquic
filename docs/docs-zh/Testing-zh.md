@@ -65,7 +65,7 @@ openssl req -newkey rsa:2048 -x509 -nodes -keyout "$keyfile" -new -out "$certfil
 |   -D   | Process num. default is 2. |
 |   -b   | Create connection per second. default is 100. |
 |   -B   | Max connection num. default is 1000. |
-|   -j   | Random CID. default is 0. |
+|   -J   | Random CID. default is 0. |
 |   -Q   | Multipath backup path standby, set backup_mode on(1). default backup_mode is 0(off). |
 |   -A   | Multipath request accelerate on. default is 0(off). |
 

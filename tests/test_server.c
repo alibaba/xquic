@@ -1383,10 +1383,12 @@ void usage(int argc, char *argv[]) {
 "Usage: %s [Options]\n"
 "\n"
 "Options:\n"
+"   -a    Server addr.\n"
 "   -p    Server port.\n"
 "   -e    Echo. Send received body.\n"
 "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic B:bbr2 bbr+ bbr2+\n"
 "   -C    Pacing on.\n"
+"   -L    Endless_sending. default is 0(off).\n"
 "   -s    Body size to send.\n"
 "   -w    Write received body to file.\n"
 "   -r    Read sending body from file. priority e > s > r\n"
@@ -1396,9 +1398,13 @@ void usage(int argc, char *argv[]) {
 "   -6    IPv6\n"
 "   -b    batch\n"
 "   -S    server sid\n"
+"   -M    Enable multi-path on.\n"
+"   -R    Enable reinjection. Default is 0, no reinjection.\n"
 "   -E    load balance id encryption on\n"
 "   -K    load balance id encryption key\n"
 "   -o    Output log file path, default ./slog\n"
+"   -m    Set mpshell on.\n"
+"   -Q    Multipath backup path standby, set backup_mode on(1). default backup_mode is 0(off).\n"
 , prog);
 }
 

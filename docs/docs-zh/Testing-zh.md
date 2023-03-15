@@ -41,6 +41,7 @@ openssl req -newkey rsa:2048 -x509 -nodes -keyout "$keyfile" -new -out "$certfil
 |   -T   | Transport layer. No HTTP3. |
 |   -1   | Force 1RTT. |
 |   -s   | Body size to send. |
+|   -F   | Abs_timeout to close conn. >=0. |
 |   -w   | Write received body to file. |
 |   -r   | Read sending body from file. priority s > r |
 |   -l   | Log level. e:error d:debug. |
@@ -53,18 +54,31 @@ openssl req -newkey rsa:2048 -x509 -nodes -keyout "$keyfile" -new -out "$certfil
 |   -x   | Test case ID |
 |   -N   | No encryption |
 |   -6   | IPv6 |
+|   -M   | Enable multi-path on. |
+|   -i   | Multi-path interface. e.g. -i interface1 -i interface2. |
+|   -R   | Enable reinjection. Default is 0, no reinjection |
 |   -V   | Force cert verification. 0: don't allow self-signed cert. 1: allow self-signed cert. |
 |   -q   | name-value pair num of request header, default and larger than 6 |
 |   -o   | Output log file path, default ./clog |
+|   -f   | Debug endless loop. |
+|   -e   | Epoch, default is 0. |
+|   -D   | Process num. default is 2. |
+|   -b   | Create connection per second. default is 100. |
+|   -B   | Max connection num. default is 1000. |
+|   -J   | Random CID. default is 0. |
+|   -Q   | Multipath backup path standby, set backup_mode on(1). default backup_mode is 0(off). |
+|   -A   | Multipath request accelerate on. default is 0(off). |
 
 ### test_server
 
 | Option | Usage |
 | :----: | ----  |
+|   -a   | Server addr. |
 |   -p   | Server port. |
 |   -e   | Echo. Send received body. |
 |   -c   | Congestion Control Algorithm. r:reno b:bbr c:cubic B:bbr2 bbr+ bbr2+ |
 |   -C   | Pacing on. |
+|   -L   | Endless_sending on. default is off. |
 |   -s   | Body size to send. |
 |   -w   | Write received body to file. |
 |   -r   | Read sending body from file. priority e > s > r |
@@ -74,6 +88,10 @@ openssl req -newkey rsa:2048 -x509 -nodes -keyout "$keyfile" -new -out "$certfil
 |   -6   | IPv6 |
 |   -b   | batch |
 |   -S   | server sid |
+|   -M   | Enable multi-path on. |
+|   -R   | Enable reinjection. Default is 0, no reinjection |
 |   -E   | load balance id encryption on |
 |   -K   | load balance id encryption key |
 |   -o   | Output log file path, default ./slog |
+|   -m   | Set mpshell on |
+|   -Q   | Multipath backup path standby, set backup_mode on(1). default backup_mode is 0(off). |

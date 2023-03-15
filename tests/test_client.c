@@ -2871,6 +2871,7 @@ void usage(int argc, char *argv[]) {
 "   -T    Transport layer. No HTTP3.\n"
 "   -1    Force 1RTT.\n"
 "   -s    Body size to send.\n"
+"   -F    Abs_timeout to close conn. >=0.\n"
 "   -w    Write received body to file.\n"
 "   -r    Read sending body from file. priority s > r\n"
 "   -l    Log level. e:error d:debug.\n"
@@ -2883,9 +2884,20 @@ void usage(int argc, char *argv[]) {
 "   -x    Test case ID\n"
 "   -N    No encryption\n"
 "   -6    IPv6\n"
+"   -M    Enable multi-path on. |\n"
+"   -i    Multi-path interface. e.g. -i interface1 -i interface2.\n"
+"   -R    Enable reinjection. Default is 0, no reinjection.\n"
 "   -V    Force cert verification. 0: don't allow self-signed cert. 1: allow self-signed cert.\n"
 "   -q    name-value pair num of request header, default and larger than 6\n"
 "   -o    Output log file path, default ./clog\n"
+"   -f    Debug endless loop.\n"
+"   -e    Epoch, default is 0.\n"
+"   -D    Process num. default is 2.\n"
+"   -b    Create connection per second. default is 100.\n"
+"   -B    Max connection num. default is 1000.\n"
+"   -J    Random CID. default is 0.\n"
+"   -Q    Multipath backup path standby, set backup_mode on(1). default backup_mode is 0(off).\n"
+"   -A    Multipath request accelerate on. default is 0(off).\n"
 , prog);
 }
 

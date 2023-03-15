@@ -29,4 +29,4 @@ jobs:
       with:
         context: interop
         push: true
-        tags: ghcr.io/xquic/xquic-interop:latest
+        tags: ghcr.io/privatezrq/xquic/xquic-interop:latest

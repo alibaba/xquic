@@ -229,11 +229,11 @@ xqc_conn_init_trans_settings(xqc_connection_t *conn)
     xqc_conn_set_default_settings(rs);
 
     /* set local default setting values */
-    ls->max_streams_bidi = 1024;
+    ls->max_streams_bidi = 128;
     ls->max_stream_data_bidi_remote = 16 * 1024 * 1024;
     ls->max_stream_data_bidi_local = 16 * 1024 * 1024;
 
-    ls->max_streams_uni = 1024;
+    ls->max_streams_uni = 128;
     ls->max_stream_data_uni = 16 * 1024 * 1024;
 
     /* max_data is the sum of stream_data on all uni and bidi streams */
@@ -257,11 +257,14 @@ xqc_conn_init_flow_ctl(xqc_connection_t *conn)
 {
     xqc_conn_flow_ctl_t *flow_ctl = &conn->conn_flow_ctl;
     xqc_trans_settings_t * settings = & conn->local_settings;
-    flow_ctl->fc_max_data_can_send = settings->max_data; /* replace with the value specified by peer after handshake */
+
+    /* TODO: send params are inited to be zero, until zerortt inited or handshake done */
+    flow_ctl->fc_max_data_can_send = 1024 * 1024; /* replace with the value specified by peer after handshake */
+    flow_ctl->fc_max_streams_bidi_can_send = 16; /* replace with the value specified by peer after handshake */
+    flow_ctl->fc_max_streams_uni_can_send = 16; /* replace with the value specified by peer after handshake */
+
     flow_ctl->fc_max_data_can_recv = settings->max_data;
-    flow_ctl->fc_max_streams_bidi_can_send = settings->max_streams_bidi; /* replace with the value specified by peer after handshake */
     flow_ctl->fc_max_streams_bidi_can_recv = settings->max_streams_bidi;
-    flow_ctl->fc_max_streams_uni_can_send = settings->max_streams_uni; /* replace with the value specified by peer after handshake */
     flow_ctl->fc_max_streams_uni_can_recv = settings->max_streams_uni;
     flow_ctl->fc_data_sent = 0;
     flow_ctl->fc_data_recved = 0;
@@ -1067,7 +1070,7 @@ xqc_on_packets_send_burst(xqc_connection_t *conn, xqc_path_ctx_t *path, ssize_t 
                 xqc_pacing_on_packet_sent(&send_ctl->ctl_pacing, packet_out->po_used_size);
             }
 
-            xqc_send_ctl_on_packet_sent(send_ctl, pn_ctl, packet_out, now);
+            xqc_send_ctl_on_packet_sent(send_ctl, pn_ctl, packet_out, now, sent);
             xqc_path_send_buffer_remove(path, packet_out);
             if (XQC_IS_ACK_ELICITING(packet_out->po_frame_types)) {
                 xqc_send_queue_insert_unacked(packet_out,
@@ -1523,7 +1526,7 @@ xqc_send_packet_with_pn(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_packet
     /* deliver packet to send control */
     xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path);
     pn_ctl->ctl_packet_number[packet_out->po_pkt.pkt_pns]++;
-    xqc_send_ctl_on_packet_sent(path->path_send_ctl, pn_ctl, packet_out, now);
+    xqc_send_ctl_on_packet_sent(path->path_send_ctl, pn_ctl, packet_out, now, sent);
     return sent;
 }
 

@@ -14,7 +14,7 @@
 #define XQC_MSS                             (XQC_QUIC_MIN_MSS + XQC_ACK_SPACE)
 
 /* max 0rtt packet count sent by client */
-#define XQC_PACKET_0RTT_MAX_COUNT           30
+#define XQC_PACKET_0RTT_MAX_COUNT           64
 /* max 0rtt packet count buffered by server before Initial packet received */
 #define XQC_UNDECRYPT_0RTT_MAX_BEFORE_INIT  10
 /* max buffered packet count */

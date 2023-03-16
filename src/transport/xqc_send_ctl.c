@@ -559,7 +559,7 @@ xqc_send_ctl_update_cwnd_limited(xqc_send_ctl_t *send_ctl)
  * OnPacketSent
  */
 void
-xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_packet_out_t *packet_out, xqc_usec_t now)
+xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_packet_out_t *packet_out, xqc_usec_t now, ssize_t sent)
 {
     xqc_pkt_num_space_t pns = packet_out->po_pkt.pkt_pns;
 
@@ -603,7 +603,7 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
         pn_ctl->ctl_largest_sent[pns] = packet_out->po_pkt.pkt_num;
     }
 
-    send_ctl->ctl_bytes_send += packet_out->po_used_size;
+    send_ctl->ctl_bytes_send += sent;
 
     if (packet_out->po_largest_ack > 0) {
         xqc_ack_sent_record_add(&pn_ctl->ack_sent_record[pns], packet_out, send_ctl->ctl_srtt, now);

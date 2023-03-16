@@ -203,7 +203,7 @@ void xqc_send_ctl_decrease_inflight(xqc_connection_t *conn, xqc_packet_out_t *pa
 
 void xqc_send_ctl_on_pns_discard(xqc_send_ctl_t *send_ctl, xqc_pkt_num_space_t pns);
 
-void xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_packet_out_t *packet_out, xqc_usec_t now);
+void xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_packet_out_t *packet_out, xqc_usec_t now, ssize_t sent);
 
 int xqc_send_ctl_on_ack_received_spns(xqc_connection_t *conn, xqc_ack_info_t *const ack_info, xqc_usec_t ack_recv_time);
 

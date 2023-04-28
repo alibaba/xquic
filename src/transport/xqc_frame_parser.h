@@ -20,13 +20,13 @@
  * @return size of stream frame
  */
 ssize_t xqc_gen_stream_frame(xqc_packet_out_t *packet_out,
-    xqc_stream_id_t stream_id, size_t offset, uint8_t fin,
+    xqc_stream_id_t stream_id, uint64_t offset, uint8_t fin,
     const unsigned char *payload, size_t size, size_t *written_size);
 
 xqc_int_t xqc_parse_stream_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
     xqc_stream_frame_t *frame, xqc_stream_id_t *stream_id);
 
-ssize_t xqc_gen_crypto_frame(xqc_packet_out_t *packet_out, size_t offset,
+ssize_t xqc_gen_crypto_frame(xqc_packet_out_t *packet_out, uint64_t offset,
     const unsigned char *payload, size_t payload_size, size_t *written_size);
 
 xqc_int_t xqc_parse_crypto_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_stream_frame_t * frame);

@@ -16,7 +16,7 @@ jobs:
 
     strategy:
       matrix:
-        runs-on: [ubuntu-18.04, ubuntu-20.04, ubuntu-latest]
+        runs-on: [ubuntu-20.04, ubuntu-latest]
 
     steps:
     - name: Checkout repository

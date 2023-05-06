@@ -160,7 +160,7 @@ xqc_destroy_cid_set(xqc_cid_set_t *cid_set)
 xqc_int_t
 xqc_cid_set_insert_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid, xqc_cid_state_t state, uint64_t limit)
 {
-    if (cid_set->unused_cnt + cid_set->used_cnt >= limit) {
+    if (cid_set->unused_cnt + cid_set->used_cnt > limit) {
         return -XQC_EACTIVE_CID_LIMIT;
     }
 

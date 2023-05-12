@@ -361,7 +361,7 @@ xqc_parse_stream_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
                       Figure 19: CRYPTO Frame Format
  */
 ssize_t
-xqc_gen_crypto_frame(xqc_packet_out_t *packet_out, size_t offset,
+xqc_gen_crypto_frame(xqc_packet_out_t *packet_out, uint64_t offset,
     const unsigned char *payload, uint64_t payload_size, size_t *written_size)
 {
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;

@@ -469,7 +469,7 @@ xqc_demo_cli_close_keylog_file(xqc_demo_cli_ctx_t *ctx)
 }
 
 void
-xqc_demo_cli_keylog_cb(const char *line, void *engine_user_data)
+xqc_demo_cli_keylog_cb(const xqc_cid_t *scid, const char *line, void *engine_user_data)
 {
     xqc_demo_cli_ctx_t *ctx = (xqc_demo_cli_ctx_t*)engine_user_data;
     if (ctx->keylog_fd <= 0) {
@@ -583,6 +583,13 @@ xqc_demo_cli_write_socket(const unsigned char *buf, size_t size, const struct so
     } while ((res < 0) && (errno == EINTR));
 
     return res;
+}
+
+ssize_t
+xqc_demo_cli_write_socket_ex(uint64_t path_id, const unsigned char *buf, size_t size,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *conn_user_data)
+{
+    return xqc_demo_cli_write_socket(buf, size, peer_addr, peer_addrlen, conn_user_data);
 }
 
 
@@ -1638,6 +1645,7 @@ xqc_demo_cli_init_callback(xqc_engine_callback_t *cb, xqc_transport_callbacks_t 
 
     static xqc_transport_callbacks_t tcb = {
         .write_socket = xqc_demo_cli_write_socket,
+        .write_socket_ex = xqc_demo_cli_write_socket_ex,
         .save_token = xqc_demo_cli_save_token, /* save token */
         .save_session_cb = xqc_demo_cli_save_session_cb,
         .save_tp_cb = xqc_demo_cli_save_tp_cb,

@@ -57,38 +57,44 @@ typedef enum {
        the upper layer of h3 connection creation */
     XQC_H3_CONN_FLAG_UPPER_CONN_EXIST           = 1 << 7,
 
+    /* is h3 ext enabled ? */
+    XQC_H3_CONN_FLAG_EXT_ENABLED                = 1 << 8,
+
 } xqc_http3_conn_flag;
 
 typedef struct xqc_h3_conn_s {
     /* transport contexts */
-    xqc_connection_t           *conn;
-    xqc_log_t                  *log;
-    void                       *user_data;
+    xqc_connection_t            *conn;
+    xqc_log_t                   *log;
+    void                        *user_data;
 
     /* h3 connection state flags */
-    uint64_t                    flags;
+    uint64_t                     flags;
 
     /* h3 connection callback functions for user */
-    xqc_h3_conn_callbacks_t     h3_conn_callbacks;
+    xqc_h3_conn_callbacks_t      h3_conn_callbacks;
 
-    uint64_t                    max_stream_id_recvd;
-    uint64_t                    goaway_stream_id;
+    /* h3 datagram callback functions for user */
+    xqc_h3_ext_dgram_callbacks_t h3_ext_dgram_callbacks;
+
+    uint64_t                     max_stream_id_recvd;
+    uint64_t                     goaway_stream_id;
 
     /* qpack context */
-    xqc_qpack_t                *qpack;
+    xqc_qpack_t                 *qpack;
 
     /* uni-streams */
-    xqc_h3_stream_t            *qdec_stream;
-    xqc_h3_stream_t            *qenc_stream;
-    xqc_h3_stream_t            *control_stream_out;
+    xqc_h3_stream_t             *qdec_stream;
+    xqc_h3_stream_t             *qenc_stream;
+    xqc_h3_stream_t             *control_stream_out;
 
     /* blocked streams */
-    xqc_list_head_t             block_stream_head;
-    uint64_t                    block_stream_count;
+    xqc_list_head_t              block_stream_head;
+    uint64_t                     block_stream_count;
 
     /* h3 settings */
-    xqc_h3_conn_settings_t      local_h3_conn_settings; /* set by user for sending to the peer */
-    xqc_h3_conn_settings_t      peer_h3_conn_settings;  /* receive from peer */
+    xqc_h3_conn_settings_t       local_h3_conn_settings; /* set by user for sending to the peer */
+    xqc_h3_conn_settings_t       peer_h3_conn_settings;  /* receive from peer */
 } xqc_h3_conn_t;
 
 

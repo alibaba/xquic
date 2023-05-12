@@ -311,6 +311,21 @@ end:
     return ret;
 }
 
+xqc_int_t 
+xqc_tls_update_tp(xqc_tls_t *tls, uint8_t *tp_buf, size_t tp_len)
+{
+    xqc_int_t ret = XQC_OK;
+    int ssl_ret;
+    /* set local transport parameter */
+    ssl_ret = SSL_set_quic_transport_params(tls->ssl, tp_buf, tp_len);
+    if (ssl_ret != XQC_SSL_SUCCESS) {
+        xqc_log(tls->log, XQC_LOG_ERROR, "|set transport params error|%s|",
+                ERR_error_string(ERR_get_error(), NULL));
+        ret = -XQC_TLS_INTERNAL;
+    }
+    return ret;
+}
+
 
 xqc_tls_t *
 xqc_tls_create(xqc_tls_ctx_t *ctx, xqc_tls_config_t *cfg, xqc_log_t *log, void *user_data)

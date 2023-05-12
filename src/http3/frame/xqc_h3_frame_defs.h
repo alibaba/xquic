@@ -9,14 +9,18 @@
 
 
 typedef enum xqc_h3_frm_type_s {
-    XQC_H3_FRM_DATA             = 0x00,
-    XQC_H3_FRM_HEADERS          = 0x01,
-    XQC_H3_FRM_CANCEL_PUSH      = 0x03,
-    XQC_H3_FRM_SETTINGS         = 0x04,
-    XQC_H3_FRM_PUSH_PROMISE     = 0x05,
-    XQC_H3_FRM_GOAWAY           = 0x07,
-    XQC_H3_FRM_MAX_PUSH_ID      = 0x0d,
-    XQC_H3_FRM_UNKNOWN          = UINT64_MAX,
+    XQC_H3_FRM_DATA                 = 0x00,
+    XQC_H3_FRM_HEADERS              = 0x01,
+    XQC_H3_FRM_CANCEL_PUSH          = 0x03,
+    XQC_H3_FRM_SETTINGS             = 0x04,
+    XQC_H3_FRM_PUSH_PROMISE         = 0x05,
+    XQC_H3_FRM_GOAWAY               = 0x07,
+    XQC_H3_FRM_MAX_PUSH_ID          = 0x0d,
+
+    /* extension */
+    XQC_H3_EXT_FRM_BIDI_STREAM_TYPE = 0x20,
+
+    XQC_H3_FRM_UNKNOWN              = UINT64_MAX,
 } xqc_h3_frm_type_t;
 
 
@@ -54,5 +58,9 @@ typedef struct xqc_h3_frm_goaway_t {
 typedef struct xqc_h3_frm_max_push_id_t {
     xqc_discrete_int_pctx_t push_id;
 } xqc_h3_frame_max_push_id_t;
+
+typedef struct xqc_h3_ext_frm_bidi_stream_type_s {
+    xqc_discrete_int_pctx_t stream_type;
+} xqc_h3_ext_frame_bidi_stream_type_t;
 
 #endif

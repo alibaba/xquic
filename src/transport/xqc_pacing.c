@@ -141,7 +141,7 @@ xqc_pacing_can_write(xqc_pacing_t *pacing, uint32_t total_bytes)
     }
 
     uint64_t delay = xqc_pacing_time_until_send(pacing, total_bytes);
-    xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, "|pacing_delay: %ui!", delay);
+    xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, "|pacing_delay: %ui|", delay);
 
     if (delay != 0) {
         xqc_timer_update(&send_ctl->path_timer_manager, XQC_TIMER_PACING, xqc_monotonic_timestamp(), delay);

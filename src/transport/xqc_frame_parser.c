@@ -14,6 +14,88 @@
 #include "src/transport/xqc_packet_parser.h"
 #include "src/transport/xqc_reinjection.h"
 
+/**
+ * generate datagram frame
+ */
+xqc_int_t xqc_gen_datagram_frame(xqc_packet_out_t *packet_out, 
+    const unsigned char *payload, size_t size)
+{
+    if (packet_out == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
+    size_t dst_buf_len = packet_out->po_buf_size - packet_out->po_used_size;
+    unsigned char *p = dst_buf + 1;
+
+    if ((size + 1 + XQC_DATAGRAM_LENGTH_FIELD_BYTES) > dst_buf_len) {
+        return -XQC_ENOBUF;
+    }
+
+    xqc_vint_write(p, size, XQC_DATAGRAM_LENGTH_FIELD_BYTES - 1, XQC_DATAGRAM_LENGTH_FIELD_BYTES);
+    p += XQC_DATAGRAM_LENGTH_FIELD_BYTES;
+
+    if (size > 0) {
+        xqc_memcpy(p, payload, size);
+    }
+
+    p += size;
+    
+    dst_buf[0] = 0x31;
+
+    packet_out->po_frame_types |= XQC_FRAME_BIT_DATAGRAM;
+    packet_out->po_used_size += p - dst_buf;
+
+    return XQC_OK;
+}
+
+xqc_int_t xqc_parse_datagram_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
+    unsigned char **buffer, size_t *size)
+{
+    uint64_t length;
+    int vlen = 0;
+    const unsigned char *p = packet_in->pos;
+    const unsigned char *end = packet_in->last;
+    /* skip frame type */
+    const unsigned char first_byte = *p++;
+    xqc_bool_t has_length = (first_byte & 0x1);
+
+    if (has_length) {
+        /*currently, the length of length field is 2 bytes*/
+        vlen = xqc_vint_read(p, end, &length);
+        if (vlen < 0) {
+            return -XQC_EVINTREAD;
+        }
+
+        p += vlen;
+        
+        if (length > (end - p)) {
+            return -XQC_EILLEGAL_FRAME;
+        }
+        
+    } else {
+        length = end - p;
+    }
+
+    /* recv a DATAGRAM frame larger than max_datagram_frame_size */
+    if ((length + 1 + vlen) > conn->local_settings.max_datagram_frame_size) {
+        return -XQC_EPROTO;
+    }
+
+    *size = length;
+    *buffer = (unsigned char *)p;
+    
+    p += length;
+
+    packet_in->pos = (unsigned char *)p;
+    packet_in->pi_frame_types |= XQC_FRAME_BIT_DATAGRAM;
+
+    xqc_log_event(conn->log, TRA_FRAMES_PROCESSED, XQC_FRAME_DATAGRAM, length);
+
+    return XQC_OK;
+}
+
+
 
 
 ssize_t
@@ -230,10 +312,10 @@ xqc_parse_stream_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
             return -XQC_EVINTREAD;
         }
 
+        p += vlen;
         if (length > end - p) {
             return -XQC_EILLEGAL_FRAME;
         }
-        p += vlen;
         frame->data_length = length;
 
     } else {
@@ -279,8 +361,8 @@ xqc_parse_stream_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
                       Figure 19: CRYPTO Frame Format
  */
 ssize_t
-xqc_gen_crypto_frame(xqc_packet_out_t *packet_out, uint64_t offset,
-    const unsigned char *payload, size_t payload_size, size_t *written_size)
+xqc_gen_crypto_frame(xqc_packet_out_t *packet_out, size_t offset,
+    const unsigned char *payload, uint64_t payload_size, size_t *written_size)
 {
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
     size_t dst_buf_len = packet_out->po_buf_size - packet_out->po_used_size;
@@ -1727,6 +1809,9 @@ xqc_parse_path_challenge_frame(xqc_packet_in_t *packet_in, unsigned char *data)
     const unsigned char *end = packet_in->last;
     const unsigned char first_byte = *p++;
 
+    if (p + XQC_PATH_CHALLENGE_DATA_LEN > end) {
+        return -XQC_EVINTREAD;
+    }
     xqc_memcpy(data, p, XQC_PATH_CHALLENGE_DATA_LEN);
     p += XQC_PATH_CHALLENGE_DATA_LEN;
 
@@ -1783,6 +1868,10 @@ xqc_parse_path_response_frame(xqc_packet_in_t *packet_in, unsigned char *data)
     unsigned char *p = packet_in->pos;
     const unsigned char *end = packet_in->last;
     const unsigned char first_byte = *p++;
+
+    if (p + XQC_PATH_CHALLENGE_DATA_LEN > end) {
+        return -XQC_EVINTREAD;
+    }
 
     xqc_memcpy(data, p, XQC_PATH_CHALLENGE_DATA_LEN);
     p += XQC_PATH_CHALLENGE_DATA_LEN;

@@ -155,18 +155,9 @@ xqc_backup_probe_standby_path(xqc_connection_t *conn,
             if ((now - last_time) >= conn->conn_settings.standby_path_probe_timeout * 1000) {
                 ret = xqc_path_standby_probe(path);
                 if (ret != XQC_OK) {
-                    xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_path_standby_probe error|ret:%d|path%ui|", ret, path->path_id);
+                    xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_path_standby_probe error|");
                     return ret;
                 }
-
-                xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_path_standby_probe ret:%d|"
-                        "path:%ui|state:%d|app_path_status:%d|tra_path_status:%d|last_time:%ui|now:%ui|now-last_time:%ui|cwnd:%ui|srtt:%ui|retrans:%.4f|spurious:%.4f|\n",
-                        ret, path->path_id, path->path_state, path->app_path_status, path->tra_path_status,
-                        last_time, now, (now - last_time),
-                        send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong),
-                        xqc_send_ctl_get_srtt(send_ctl),
-                        xqc_send_ctl_get_retrans_rate(send_ctl),
-                        xqc_send_ctl_get_spurious_loss_rate(send_ctl));
             }
 
         }
@@ -199,8 +190,8 @@ xqc_default_path_need_degrade(xqc_connection_t *conn,
                                                           xqc_conn_get_user_data(conn));
     }
 
-
-    if (default_path->path_send_ctl->ctl_pto_count_since_last_tra_path_status_changed > conn->conn_settings.path_unreachable_pto_count) {
+    xqc_send_ctl_t *send_ctl = default_path->path_send_ctl;
+    if (send_ctl->ctl_pto_count_since_last_tra_path_status_changed > conn->conn_settings.path_unreachable_pto_count) {
         return XQC_TRUE;
     }
 
@@ -243,7 +234,7 @@ xqc_probe_before_use(xqc_connection_t *conn,
     } else if ((now - last_send_time) >= BACKUP_PATH_PROBE_TIMEOUT) {
         xqc_int_t ret = xqc_path_standby_probe(next_in_use_path);
         if (ret != XQC_OK) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_path_standby_probe error|ret:%d|path%ui|", ret, next_in_use_path->path_id);
+            xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_path_standby_probe error|");
             return;
         }
     }
@@ -291,10 +282,7 @@ xqc_backup_scheduler_handle_conn_event(void *scheduler,
             }
 
         } else {
-            xqc_log(conn->log, XQC_LOG_ERROR,
-                    "|path status error|default_path:%ui|app_path_status:%d|tra_path_status:%d|standby_path:%ui|app_path_status:%d|tra_path_status:%d|",
-                    default_path->path_id, default_path->app_path_status, default_path->tra_path_status,
-                    standby_path->path_id, standby_path->app_path_status, standby_path->tra_path_status);
+            xqc_log(conn->log, XQC_LOG_ERROR, "|path status error|");
             return;
         }
     }

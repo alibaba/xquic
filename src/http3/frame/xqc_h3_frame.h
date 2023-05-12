@@ -9,13 +9,14 @@
 #include "src/http3/frame/xqc_h3_frame_defs.h"
 
 typedef union xqc_h3_frame_payload_s {
-    xqc_h3_frame_headers_t        headers;
-    xqc_h3_frame_data_t           data;
-    xqc_h3_frame_cancel_push_t    cancel_push;
-    xqc_h3_frame_settings_t       settings;
-    xqc_h3_frame_push_promise_t   push_promise;
-    xqc_h3_frame_goaway_t         goaway;
-    xqc_h3_frame_max_push_id_t    max_push_id;
+    xqc_h3_frame_headers_t              headers;
+    xqc_h3_frame_data_t                 data;
+    xqc_h3_frame_cancel_push_t          cancel_push;
+    xqc_h3_frame_settings_t             settings;
+    xqc_h3_frame_push_promise_t         push_promise;
+    xqc_h3_frame_goaway_t               goaway;
+    xqc_h3_frame_max_push_id_t          max_push_id;
+    xqc_h3_ext_frame_bidi_stream_type_t stream_type;
 } xqc_h3_frame_pl_t;
 
 
@@ -85,6 +86,8 @@ xqc_int_t xqc_h3_frm_write_push_promise(xqc_list_head_t *send_buf, uint64_t push
 xqc_int_t xqc_h3_frm_write_goaway(xqc_list_head_t *send_buf, uint64_t push_id, uint8_t fin);
 
 xqc_int_t xqc_h3_frm_write_max_push_id(xqc_list_head_t *send_buf, uint64_t push_id, uint8_t fin);
+
+xqc_int_t xqc_h3_ext_frm_write_bidi_stream_type(xqc_list_head_t *send_buf, uint64_t stream_type, uint8_t fin);
 
 void xqc_h3_frm_reset_pctx(xqc_h3_frame_pctx_t *pctx);
 

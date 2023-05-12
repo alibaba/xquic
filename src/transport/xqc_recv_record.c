@@ -283,7 +283,7 @@ xqc_maybe_should_ack(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_pn_ctl_t 
 
     xqc_send_ctl_t *send_ctl = path->path_send_ctl;
 
-    if (send_ctl->ctl_ack_eliciting_pkt[pns] >= 2
+    if (send_ctl->ctl_ack_eliciting_pkt[pns] >= conn->conn_settings.ack_frequency
         || (pns <= XQC_PNS_HSK && send_ctl->ctl_ack_eliciting_pkt[pns] >= 1)
         || (out_of_order && send_ctl->ctl_ack_eliciting_pkt[pns] >= 1))
     {
@@ -293,8 +293,11 @@ xqc_maybe_should_ack(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_pn_ctl_t 
         xqc_timer_unset(&send_ctl->path_timer_manager, XQC_TIMER_ACK_INIT + pns);
 
         xqc_log(conn->log, XQC_LOG_DEBUG, "|yes|path:%ui|out_of_order:%d|ack_eliciting_pkt:%ud|"
-                "pns:%d|flag:%s|", path->path_id, out_of_order, send_ctl->ctl_ack_eliciting_pkt[pns],
-                pns, xqc_conn_flag_2_str(conn->conn_flag));
+                "pns:%d|flag:%s|ack_freq:%ud|", 
+                path->path_id, out_of_order, 
+                send_ctl->ctl_ack_eliciting_pkt[pns],
+                pns, xqc_conn_flag_2_str(conn->conn_flag),
+                conn->conn_settings.ack_frequency);
 
     } else if (send_ctl->ctl_ack_eliciting_pkt[pns] > 0
                && !xqc_timer_is_set(&send_ctl->path_timer_manager, XQC_TIMER_ACK_INIT + pns))

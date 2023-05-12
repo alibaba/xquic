@@ -363,6 +363,86 @@ xqc_timer_init(xqc_timer_manager_t *manager, xqc_log_t *log, void *user_data)
             timer->user_data = user_data;
         }
     }
+
+    /* init gp timer list */
+    xqc_init_list_head(&manager->gp_timer_list);
+    manager->next_gp_timer_id = 0;
+}
+
+xqc_gp_timer_id_t xqc_timer_register_gp_timer(xqc_timer_manager_t *manager, 
+    char *timer_name, xqc_gp_timer_timeout_pt cb, void *user_data)
+{
+    if (timer_name == NULL
+        || manager == NULL
+        || cb == NULL)
+    {
+        return -XQC_EPARAM;
+    }
+
+    if (manager->next_gp_timer_id == XQC_GP_TIMER_ID_MAX) {
+        return XQC_ERROR;
+    }
+
+    xqc_gp_timer_t *timer = (xqc_gp_timer_t*)xqc_calloc(1, sizeof(xqc_gp_timer_t));
+    if (timer == NULL) {
+        return -XQC_EMALLOC;
+    }
+
+    size_t name_len = strnlen(timer_name, 1024);
+    timer->name = (char*)xqc_calloc(1, name_len + 1);
+    if (timer->name == NULL) {
+        xqc_free(timer);
+        return -XQC_EMALLOC;
+    }
+    xqc_memcpy(timer->name, timer_name, name_len);
+    
+    timer->timer_is_set = XQC_FALSE;
+    timer->id = manager->next_gp_timer_id++;
+    timer->timeout_cb = cb;
+    timer->user_data = user_data;
+
+    xqc_list_add_tail(&timer->list, &manager->gp_timer_list);
+    return timer->id;
+}
+
+xqc_int_t 
+xqc_timer_unregister_gp_timer(xqc_timer_manager_t *manager, xqc_gp_timer_id_t gp_timer_id)
+{
+    if (!manager || gp_timer_id >= manager->next_gp_timer_id) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_list_head_t *pos, *next;
+    xqc_gp_timer_t *gp_timer;
+
+    xqc_list_for_each_safe(pos, next, &manager->gp_timer_list) {
+        gp_timer = xqc_list_entry(pos, xqc_gp_timer_t, list);
+        if (gp_timer->id == gp_timer_id) {
+            xqc_timer_destroy_gp_timer(gp_timer);
+            return XQC_OK;
+        }
+    }
+    return XQC_ERROR;
+}
+
+void 
+xqc_timer_destroy_gp_timer(xqc_gp_timer_t *gp_timer)
+{
+    xqc_list_del_init(&gp_timer->list);
+    xqc_free(gp_timer->name);
+    xqc_free(gp_timer);
+}
+
+void 
+xqc_timer_destroy_gp_timer_list(xqc_timer_manager_t *manager)
+{
+    xqc_list_head_t *pos, *next;
+    xqc_gp_timer_t *gp_timer;
+
+    xqc_list_for_each_safe(pos, next, &manager->gp_timer_list) {
+        gp_timer = xqc_list_entry(pos, xqc_gp_timer_t, list);
+        xqc_timer_destroy_gp_timer(gp_timer);
+    }
 }
 
 /*

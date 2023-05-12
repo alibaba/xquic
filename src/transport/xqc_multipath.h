@@ -31,6 +31,7 @@ typedef enum {
     XQC_PATH_STATE_DRAINING   = 4,    /* PATH_ABANDONED received */
     XQC_PATH_STATE_CLOSED     = 5,    /* PATH_ABANDONED acked or draining timeout */
 } xqc_path_state_t;
+
 /* application layer path status */
 typedef enum {
     /* suggest that no traffic should be sent on that path if another path is available */
@@ -38,6 +39,7 @@ typedef enum {
     /* allow the peer to use its own logic to split traffic among available paths */
     XQC_APP_PATH_STATUS_AVAILABLE = 2,
 } xqc_app_path_status_t;
+
 /* transport layer path status */
 typedef enum {
     XQC_TRA_PATH_STATUS_BACKUP   = 1,

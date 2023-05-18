@@ -1057,8 +1057,8 @@ echo -e "test client long header ...\c"
 ./test_client -l d -x 29 >> clog
 #clog_res=`grep "xqc_process_conn_close_frame|with err:" clog`
 #slog_res=`grep "READ_VALUE error" slog`
-slog_res=`grep "large nv|conn" slog`
-clog_res=`grep "xqc_process_conn_close_frame|with err:" clog`
+slog_res=`grep -a "large nv|conn" slog`
+clog_res=`grep -a "xqc_process_conn_close_frame|with err:" clog`
 if [ -n "$clog_res" ] && [ -n "$slog_res" ]; then
     case_print_result "test_client_long_header" "pass"
 else
@@ -1678,7 +1678,7 @@ echo -e "datagram_get_mss(no_saved_transport_params)...\c"
 ./test_client -l d -T 1 -x 200 -Q 1000 -s 1 -U 1 > stdlog
 cli_res1=`grep "\[dgram-200\]|.*|initial_mss:0|" stdlog`
 cli_res2=`grep "\[dgram-200\]|.*|updated_mss:997|" stdlog`
-svr_res=`grep "\[dgram-200\]|.*|initial_mss:997|" svr_stdlog`
+svr_res=`grep -a "\[dgram-200\]|.*|initial_mss:997|" svr_stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -1694,7 +1694,7 @@ echo -e "datagram_get_mss(saved_transport_params)...\c"
 ./test_client -l d -T 1 -x 200 -Q 1000 -s 1 -U 1 > stdlog
 cli_res1=`grep "\[dgram-200\]|.*|initial_mss:997|" stdlog`
 cli_res2=`grep "\[dgram-200\]|.*|updated_mss:997|" stdlog`
-svr_res=`grep "\[dgram-200\]|.*|initial_mss:997|" svr_stdlog`
+svr_res=`grep -a "\[dgram-200\]|.*|initial_mss:997|" svr_stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -1721,7 +1721,7 @@ echo -e "datagram_mss_limited_by_MTU...\c"
 ./test_client -l d -T 1 -x 201 -Q 65535 -s 1 -U 1 > stdlog
 cli_res1=`grep "\[dgram-200\]|.*|initial_mss:0|" stdlog`
 cli_res2=`grep "\[dgram-200\]|.*|updated_mss:1200|" stdlog`
-svr_res=`grep "\[dgram-200\]|.*|initial_mss:1200|" svr_stdlog`
+svr_res=`grep -a "\[dgram-200\]|.*|initial_mss:1200|" svr_stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -1750,7 +1750,7 @@ echo -e "timer_based_dgram_probe...\c"
 ./test_client -l d -T 1 -x 209 -s 1000 -U 1 -Q 65535 -x 209 > stdlog
 killall test_server
 cli_res1=`grep "|recv_dgram_bytes:3000|sent_dgram_bytes:1000|" stdlog`
-svr_res=`grep "|recv_dgram_bytes:2000|sent_dgram_bytes:2000|" svr_stdlog`
+svr_res=`grep -a "|recv_dgram_bytes:2000|sent_dgram_bytes:2000|" svr_stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -1778,7 +1778,7 @@ echo -e "datagram_mss_limited_by_max_datagram_frame_size...\c"
 ./test_client -l d -T 1 -x 200 -s 1 -U 1 -Q 1000 > stdlog
 cli_res1=`grep "\[dgram-200\]|.*|initial_mss:0|" stdlog`
 cli_res2=`grep "\[dgram-200\]|.*|updated_mss:997|" stdlog`
-svr_res=`grep "\[dgram-200\]|.*|initial_mss:997|" svr_stdlog`
+svr_res=`grep -a "\[dgram-200\]|.*|initial_mss:997|" svr_stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -2386,7 +2386,7 @@ echo -e "h3_ext_datagram_get_mss(no_saved_transport_params)...\c"
 ./test_client -l d -T 2 -x 200 -Q 1000 -s 1 -U 1 > stdlog
 cli_res1=`grep "\[h3-dgram-200\]|.*|initial_mss:0|" stdlog`
 cli_res2=`grep "\[h3-dgram-200\]|.*|updated_mss:997|" stdlog`
-svr_res=`grep "\[h3-dgram-200\]|.*|initial_mss:997|" svr_stdlog`
+svr_res=`grep -a "\[h3-dgram-200\]|.*|initial_mss:997|" svr_stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -2402,7 +2402,7 @@ echo -e "h3_ext_datagram_get_mss(saved_transport_params)...\c"
 ./test_client -l d -T 2 -x 200 -Q 1000 -s 1 -U 1 > stdlog
 cli_res1=`grep "\[h3-dgram-200\]|.*|initial_mss:997|" stdlog`
 cli_res2=`grep "\[h3-dgram-200\]|.*|updated_mss:997|" stdlog`
-svr_res=`grep "\[h3-dgram-200\]|.*|initial_mss:997|" svr_stdlog`
+svr_res=`grep -a "\[h3-dgram-200\]|.*|initial_mss:997|" svr_stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -2429,7 +2429,7 @@ echo -e "h3_ext_datagram_mss_limited_by_MTU...\c"
 ./test_client -l d -T 2 -x 201 -Q 65535 -s 1 -U 1 > stdlog
 cli_res1=`grep "\[h3-dgram-200\]|.*|initial_mss:0|" stdlog`
 cli_res2=`grep "\[h3-dgram-200\]|.*|updated_mss:1200|" stdlog`
-svr_res=`grep "\[h3-dgram-200\]|.*|initial_mss:1200|" svr_stdlog`
+svr_res=`grep -a "\[h3-dgram-200\]|.*|initial_mss:1200|" svr_stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -2456,7 +2456,7 @@ echo -e "h3_ext_datagram_mss_limited_by_max_datagram_frame_size...\c"
 ./test_client -l d -T 2 -x 200 -s 1 -U 1 -Q 1000 > stdlog
 cli_res1=`grep "\[h3-dgram-200\]|.*|initial_mss:0|" stdlog`
 cli_res2=`grep "\[h3-dgram-200\]|.*|updated_mss:997|" stdlog`
-svr_res=`grep "\[h3-dgram-200\]|.*|initial_mss:997|" svr_stdlog`
+svr_res=`grep -a "\[h3-dgram-200\]|.*|initial_mss:997|" svr_stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"

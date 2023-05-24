@@ -37,6 +37,7 @@ typedef enum {
     XQC_POF_IN_UNACK_LIST       = 1 << 12, /* FIXED: reset when copy */
     XQC_POF_NOT_SCHEDULE        = 1 << 13,
     XQC_POF_NOT_REINJECT        = 1 << 14,
+    XQC_POF_DROPPED_DGRAM       = 1 << 15,
 } xqc_packet_out_flag_t;
 
 typedef struct xqc_po_stream_frame_s {
@@ -88,6 +89,9 @@ typedef struct xqc_packet_out_s {
     uint64_t                po_tx_in_flight; 
     /* how many packets have been lost when the packet is sent */
     uint32_t                po_lost; 
+
+    /* only meaningful if it contains a DATAGRAM frame */
+    uint64_t                po_dgram_id;
 
     /* Multipath */
     xqc_bool_t              po_is_path_specified;
@@ -151,6 +155,9 @@ int xqc_write_new_token_to_packet(xqc_connection_t *conn);
 
 int xqc_write_stream_frame_to_packet(xqc_connection_t *conn, xqc_stream_t *stream, xqc_pkt_type_t pkt_type,
     uint8_t fin, const unsigned char *payload, size_t payload_size, size_t *send_data_written);
+
+int xqc_write_datagram_frame_to_packet(xqc_connection_t *conn, xqc_pkt_type_t pkt_type, 
+    const unsigned char *data, size_t data_len, uint64_t *dgram_id, xqc_bool_t use_supplied_dgram_id);
 
 int xqc_write_handshake_done_frame_to_packet(xqc_connection_t *conn);
 

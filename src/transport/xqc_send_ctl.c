@@ -18,6 +18,43 @@
 #include "src/congestion_control/xqc_sample.h"
 #include "src/transport/xqc_pacing.h"
 #include "src/transport/xqc_utils.h"
+#include "src/transport/xqc_datagram.h"
+
+int 
+xqc_send_ctl_may_remove_unacked_dgram(xqc_connection_t *conn, xqc_packet_out_t *po)
+{
+    // it is only called from loss detection function
+    // po must not be inflight
+    // po must be in unacked list
+    po->po_flag |= XQC_POF_DROPPED_DGRAM;
+    if (po->po_origin == NULL) {
+        if (po->po_origin_ref_cnt == 0) {
+            xqc_send_queue_remove_unacked(po, conn->conn_send_queue);
+            xqc_send_queue_insert_free(po, &conn->conn_send_queue->sndq_free_packets, conn->conn_send_queue);
+            return 1;
+        }
+        return 0;
+    }
+
+    po->po_origin->po_flag |= XQC_POF_DROPPED_DGRAM;
+    if (po->po_origin->po_origin_ref_cnt >= 1) {
+        po->po_origin->po_origin_ref_cnt--;
+    }
+
+    if (po->po_origin->po_origin_ref_cnt == 0) {
+        // po_origin must be in unacked list && po_origin must be ahead of po in unacked list
+        // if po_origin is still inflight, it will be removed when it is detected as lost
+        if (!(po->po_origin->po_flag & XQC_POF_IN_FLIGHT)) {
+            xqc_send_queue_remove_unacked(po->po_origin, conn->conn_send_queue);
+            xqc_send_queue_insert_free(po->po_origin, &conn->conn_send_queue->sndq_free_packets, conn->conn_send_queue);
+        } 
+    }
+    // remove po: it must not be inflight
+    xqc_send_queue_remove_unacked(po, conn->conn_send_queue);
+    xqc_send_queue_insert_free(po, &conn->conn_send_queue->sndq_free_packets, conn->conn_send_queue);
+        
+    return 1;
+}
 
 int
 xqc_send_ctl_indirectly_ack_po(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
@@ -63,8 +100,9 @@ xqc_send_ctl_create(xqc_path_ctx_t *path)
     send_ctl->ctl_minrtt = XQC_MAX_UINT32_VALUE;
     send_ctl->ctl_srtt = XQC_kInitialRtt * 1000;
     send_ctl->ctl_rttvar = XQC_kInitialRtt * 1000 / 2;
+    send_ctl->ctl_latest_rtt = 0;
     send_ctl->ctl_max_bytes_in_flight = 0;
-    send_ctl->ctl_reordering_packet_threshold = XQC_kPacketThreshold;
+    send_ctl->ctl_reordering_packet_threshold = conn->conn_settings.loss_detection_pkt_thresh;
     send_ctl->ctl_reordering_time_threshold_shift = XQC_kTimeThresholdShift;
 
     for (size_t i = 0; i < XQC_PNS_N; i++) {
@@ -394,7 +432,7 @@ xqc_send_packet_cwnd_allows(xqc_send_ctl_t *send_ctl,
         /* packet with high priority first */
         if (!xqc_send_ctl_can_send(send_ctl, packet_out, schedule_bytes)) {
             xqc_log(conn->log, XQC_LOG_DEBUG, 
-                    "|blocked by congestion control|");
+                    "|blocked by congestion control|po_sz:%ud|", packet_out->po_used_size);
             return XQC_FALSE;
         }
     }
@@ -876,6 +914,10 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
                 }
             }
 
+            if (packet_out->po_frame_types & XQC_FRAME_BIT_DATAGRAM) {
+                xqc_datagram_notify_ack(conn, packet_out);
+            }
+
             xqc_send_ctl_on_packet_acked(send_ctl, packet_out, ack_recv_time, 1);
 
             xqc_send_queue_maybe_remove_unacked(packet_out, send_queue, NULL);
@@ -1194,8 +1236,12 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
     /* 若 lost_pn == XQC_MAX_UINT64_VALUE, 无丢包 */
     xqc_packet_number_t lost_pn = xqc_send_ctl_get_lost_sent_pn(send_ctl, pns);
 
+    xqc_int_t repair_dgram = 0;
+
     xqc_list_for_each_safe(pos, next, &send_queue->sndq_unacked_packets[pns]) {
         po = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+
+        repair_dgram = 0;
 
         if (po->po_path_id != send_ctl->ctl_path->path_id) {
             continue;
@@ -1210,6 +1256,18 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
             continue;
         }
 
+        if (po->po_frame_types & XQC_FRAME_BIT_DATAGRAM) {
+            if (!(po->po_flag & XQC_POF_IN_FLIGHT)) {
+                if ((po->po_flag & XQC_POF_DROPPED_DGRAM)
+                    || (po->po_origin && (po->po_origin->po_flag & XQC_POF_DROPPED_DGRAM)))
+                {
+                    if (xqc_send_ctl_may_remove_unacked_dgram(conn, po)) {
+                        continue;
+                    }
+                }
+            }
+        }
+
         /* Mark packet as lost, or set time when it should be marked. */
         if (po->po_sent_time <= lost_send_time
 			|| (lost_pn != XQC_MAX_UINT64_VALUE && po->po_pkt.pkt_num <= lost_pn))
@@ -1217,13 +1275,28 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
             if (po->po_flag & XQC_POF_IN_FLIGHT) {
                 xqc_send_ctl_decrease_inflight(conn, po);
 
-                /* if a packet don't need to be repair, don't retransmit it */
-                if (!XQC_NEED_REPAIR(po->po_frame_types)) {
-                    xqc_send_queue_remove_unacked(po, send_queue);
-                    xqc_send_queue_insert_free(po, &send_queue->sndq_free_packets, send_queue);
+                if (po->po_frame_types & XQC_FRAME_BIT_DATAGRAM) {
+                    send_ctl->ctl_lost_dgram_cnt++;
+                    repair_dgram = xqc_datagram_notify_loss(conn, po);
+                    if (conn->conn_settings.datagram_force_retrans_on) {
+                        repair_dgram = XQC_DGRAM_RETX_ASKED_BY_APP;
+                    }
+                }
+
+                if (XQC_NEED_REPAIR(po->po_frame_types) 
+                    || repair_dgram == XQC_DGRAM_RETX_ASKED_BY_APP) 
+                {
+                    xqc_send_queue_copy_to_lost(po, send_queue);
 
                 } else {
-                    xqc_send_queue_copy_to_lost(po, send_queue);
+                    if (po->po_frame_types & XQC_FRAME_BIT_DATAGRAM) {
+                        xqc_send_ctl_may_remove_unacked_dgram(conn, po);
+
+                    } else {
+                        /* if a packet does't need to be repair, don't retransmit it */
+                        xqc_send_queue_remove_unacked(po, send_queue);
+                        xqc_send_queue_insert_free(po, &send_queue->sndq_free_packets, send_queue);
+                    }
                 }
 
                 lost_n++;
@@ -1469,10 +1542,16 @@ xqc_send_ctl_get_pto_time_and_space(xqc_send_ctl_t *send_ctl, xqc_usec_t now, xq
     xqc_usec_t pto_timeout = XQC_MAX_UINT64_VALUE;
     xqc_connection_t *c = send_ctl->ctl_conn;
     xqc_int_t pto_cnt = send_ctl->ctl_pto_count;
+    double  backoff = xqc_send_ctl_pow_x(c->conn_settings.pto_backoff_factor, send_ctl->ctl_pto_count);
 
     /* get pto duration */
     xqc_usec_t duration = (send_ctl->ctl_srtt
-        + xqc_max(4 * send_ctl->ctl_rttvar, XQC_kGranularity * 1000)) * xqc_send_ctl_pow(pto_cnt);
+        + xqc_max(4 * send_ctl->ctl_rttvar, XQC_kGranularity * 1000)) * backoff;
+    
+    xqc_log(c->log, XQC_LOG_DEBUG, 
+            "|srtt:%ud|rtt_var:%ud|pto_duration:%ud|backoff_factor:%.2f|backoff:%.2f|pto_cnt:%d|max_ack_delay:%d|",
+            send_ctl->ctl_srtt, send_ctl->ctl_rttvar, duration, 
+            c->conn_settings.pto_backoff_factor, backoff, pto_cnt, c->remote_settings.max_ack_delay);
 
     /* Arm PTO from now when there are no inflight packets */
     if (send_ctl->ctl_bytes_in_flight == 0) {
@@ -1506,7 +1585,7 @@ xqc_send_ctl_get_pto_time_and_space(xqc_send_ctl_t *send_ctl, xqc_usec_t now, xq
                         break;
                     }
 
-                    duration += c->remote_settings.max_ack_delay * 1000 * xqc_send_ctl_pow(send_ctl->ctl_pto_count);
+                    duration += c->remote_settings.max_ack_delay * 1000 * backoff;
                 }
 
                 t = send_ctl->ctl_time_of_last_sent_ack_eliciting_packet[pns] + duration;
@@ -1696,6 +1775,10 @@ xqc_send_ctl_get_lost_sent_pn(xqc_send_ctl_t *send_ctl, xqc_pkt_num_space_t pns)
             lost_pn = largest_acked - threshold;
         }
     }
+
+    xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, 
+            "|largest_acked:%ui|lost_pn:%ui|thresh:%ui|",
+            largest_acked, lost_pn, threshold);
 
     return lost_pn;
 }

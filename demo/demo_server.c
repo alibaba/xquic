@@ -276,6 +276,7 @@ int
 xqc_demo_svr_open_keylog_file(xqc_demo_svr_ctx_t *ctx)
 {
     ctx->keylog_fd = open(ctx->args->env_cfg.key_out_path, (O_WRONLY | O_APPEND | O_CREAT), 0644);
+    printf("%s %d\n", ctx->args->env_cfg.key_out_path, ctx->keylog_fd);
     if (ctx->keylog_fd <= 0) {
         return -1;
     }
@@ -295,7 +296,7 @@ xqc_demo_svr_close_keylog_file(xqc_demo_svr_ctx_t *ctx)
 }
 
 void
-xqc_demo_svr_keylog_cb(const char *line, void *eng_user_data)
+xqc_demo_svr_keylog_cb(const xqc_cid_t *scid, const char *line, void *eng_user_data)
 {
     xqc_demo_svr_ctx_t *ctx = (xqc_demo_svr_ctx_t*)eng_user_data;
     if (ctx->keylog_fd <= 0) {
@@ -928,6 +929,12 @@ xqc_demo_svr_write_socket(const unsigned char *buf, size_t size, const struct so
     return res;
 }
 
+ssize_t
+xqc_demo_svr_write_socket_ex(uint64_t path_id, const unsigned char *buf, size_t size, 
+    const struct sockaddr *peer_addr,socklen_t peer_addrlen, void *conn_user_data)
+{
+    return xqc_demo_svr_write_socket(buf, size, peer_addr, peer_addrlen, conn_user_data);
+}
 
 void
 xqc_demo_svr_socket_write_handler(xqc_demo_svr_ctx_t *ctx, int fd)
@@ -1136,6 +1143,7 @@ xqc_demo_svr_init_args(xqc_demo_svr_args_t *args)
     args->env_cfg.log_level = XQC_LOG_DEBUG;
     strncpy(args->env_cfg.log_path, LOG_PATH, TLS_GROUPS_LEN - 1);
     strncpy(args->env_cfg.source_file_dir, SOURCE_DIR, RESOURCE_LEN - 1);
+    strncpy(args->env_cfg.key_out_path, KEY_PATH, PATH_LEN - 1);
     strncpy(args->env_cfg.priv_key_path, PRIV_KEY_PATH, PATH_LEN - 1);
     strncpy(args->env_cfg.cert_pem_path, CERT_PEM_PATH, PATH_LEN - 1);
 }
@@ -1239,6 +1247,7 @@ xqc_demo_svr_init_callback(xqc_engine_callback_t *cb, xqc_transport_callbacks_t 
     static xqc_transport_callbacks_t tcb = {
         .server_accept = xqc_demo_svr_accept,
         .write_socket = xqc_demo_svr_write_socket,
+        .write_socket_ex = xqc_demo_svr_write_socket_ex,
         .conn_update_cid_notify = xqc_demo_svr_conn_update_cid_notify,
     };
 

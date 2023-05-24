@@ -37,6 +37,8 @@
 #include "xqc_cid_test.h"
 #include "xqc_id_hash_test.h"
 #include "xqc_retry_test.h"
+#include "xqc_datagram_test.h"
+#include "xqc_h3_ext_test.h"
 
 
 static int xqc_init_suite(void) { return 0; }
@@ -97,6 +99,8 @@ main()
         || !CU_add_test(pSuite, "xqc_cid_test", xqc_test_cid)
         || !CU_add_test(pSuite, "xqc_test_id_hash", xqc_test_id_hash)
         || !CU_add_test(pSuite, "xqc_test_retry", xqc_test_retry)
+        || !CU_add_test(pSuite, "xqc_test_receive_invalid_dgram", xqc_test_receive_invalid_dgram)
+        || !CU_add_test(pSuite, "xqc_test_h3_ext_frame", xqc_test_h3_ext_frame)
         /* ADD TESTS HERE */) 
     {
         CU_cleanup_registry();

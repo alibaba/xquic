@@ -5,7 +5,8 @@
 #include "src/transport/xqc_conn.h"
 
 
-#define XQC_SNDQ_PACKETS_USED_MAX            16000
+#define XQC_SNDQ_PACKETS_USED_MAX            18000
+#define XQC_SNDQ_RELEASE_ENOUGH_SPACE_TH     10  /* 1 / 10*/
 
 typedef struct xqc_send_queue_s {
 
@@ -29,6 +30,8 @@ typedef struct xqc_send_queue_s {
 
     size_t                      pkt_out_size;
 
+    xqc_bool_t                  sndq_full;
+
 } xqc_send_queue_t;
 
 
@@ -41,6 +44,12 @@ xqc_send_queue_can_write(xqc_send_queue_t *send_queue)
     return XQC_FALSE;
 }
 
+static inline xqc_bool_t
+xqc_send_queue_release_enough_space(xqc_send_queue_t *send_queue)
+{
+    return (send_queue->sndq_packets_used_max - send_queue->sndq_packets_used)
+            >= (send_queue->sndq_packets_used_max / XQC_SNDQ_RELEASE_ENOUGH_SPACE_TH);
+}
 uint64_t xqc_send_queue_get_unsent_packets_num(xqc_send_queue_t *send_queue);
 
 

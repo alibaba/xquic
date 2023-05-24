@@ -1096,8 +1096,8 @@ xqc_stream_recv(xqc_stream_t *stream, unsigned char *recv_buf, size_t recv_buf_s
 
     }
 
-    if (stream->stream_data_in.stream_length > 0 
-        && stream->stream_data_in.next_read_offset == stream->stream_data_in.stream_length)
+    if (stream->stream_data_in.stream_determined
+        && stream->stream_data_in.next_read_offset == stream->stream_data_in.stream_length) 
     {
         *fin = 1;
         stream->stream_stats.peer_fin_read_time = xqc_monotonic_timestamp();
@@ -1167,6 +1167,7 @@ xqc_stream_send(xqc_stream_t *stream, unsigned char *send_data, size_t send_data
             stream->stream_flag |= XQC_STREAM_FLAG_HAS_0RTT;
 
         } else {
+            xqc_log(conn->log, XQC_LOG_DEBUG, "|blocked by no 0RTT support|");
             ret = -XQC_EAGAIN;
             goto do_buff;
         }
@@ -1183,6 +1184,7 @@ xqc_stream_send(xqc_stream_t *stream, unsigned char *send_data, size_t send_data
         }
 
         if (!xqc_send_queue_can_write(conn->conn_send_queue)) {
+            conn->conn_send_queue->sndq_full = XQC_TRUE;
             xqc_log(conn->log, XQC_LOG_DEBUG, "|too many packets used|sndq_packets_used:%ud|", conn->conn_send_queue->sndq_packets_used);
             ret = -XQC_EAGAIN;
             goto do_buff;
@@ -1332,6 +1334,9 @@ xqc_stream_write_buffed_data_to_packets(xqc_stream_t *stream)
                 return ret;
             }
             offset += send_data_written;
+            xqc_log(conn->log, XQC_LOG_DEBUG, 
+                    "|resend 1RTT stream packets|stream_id:%ui|offset:%uz|fin:%d|",
+                    stream->stream_id, offset, fin);
             if (fin_only) {
                 break;
             }
@@ -1351,6 +1356,7 @@ xqc_process_write_streams(xqc_connection_t *conn)
     xqc_int_t ret;
     xqc_stream_t *stream;
     xqc_list_head_t *pos, *next;
+    int cnt = 0;
 
     xqc_list_for_each_safe(pos, next, &conn->conn_write_streams) {
         stream = xqc_list_entry(pos, xqc_stream_t, write_stream_list);
@@ -1361,8 +1367,8 @@ xqc_process_write_streams(xqc_connection_t *conn)
                     stream->stream_id, stream->stream_conn);
             continue;
         }
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|stream_write_notify|flag:%d|stream_id:%ui|conn:%p|",
-                stream->stream_flag, stream->stream_id, stream->stream_conn);
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|stream_write_notify|flag:%d|stream_id:%ui|conn:%p|cnt:%d|",
+                stream->stream_flag, stream->stream_id, stream->stream_conn, cnt++);
         if (stream->stream_if->stream_write_notify == NULL) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|stream_write_notify is NULL|flag:%d|stream_id:%ui|conn:%p|",
                     stream->stream_flag, stream->stream_id, stream->stream_conn);

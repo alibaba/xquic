@@ -9,6 +9,14 @@ FILE *g_malloc_info_fp;
 #endif
 
 
+static xqc_bool_t xqc_log_switch = XQC_TRUE;
+
+void
+xqc_log_enable(xqc_bool_t enable)
+{
+    xqc_log_switch = enable;
+}
+
 void
 xqc_log_level_set(xqc_log_t *log, xqc_log_level_t level)
 {
@@ -166,12 +174,17 @@ xqc_log_type_str(xqc_log_type_t type)
 void
 xqc_log_implement(xqc_log_t *log, xqc_log_type_t type, const char *func, const char *fmt, ...)
 {
+    /* do nothing if switch is off */
+    if (!xqc_log_switch) {
+        return;
+    }
+
     xqc_log_level_t level = xqc_log_type_2_level(type);
     if (level > log->log_level) {
         return;
     }
 
-    unsigned char   buf[XQC_MAX_LOG_LEN];
+    unsigned char   buf[XQC_MAX_LOG_LEN] = {0};
     unsigned char  *p = buf;
     unsigned char  *last = buf + sizeof(buf);
 

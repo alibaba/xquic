@@ -81,6 +81,7 @@ typedef struct xqc_stream_data_in_s {
     uint64_t                merged_offset_end;  /* [0,end) */
     uint64_t                next_read_offset;   /* next offset in stream */
     uint64_t                stream_length;
+    xqc_bool_t              stream_determined;
 } xqc_stream_data_in_t;
 
 

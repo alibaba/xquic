@@ -14,6 +14,7 @@
 #include "src/transport/xqc_utils.h"
 #include "src/transport/xqc_engine.h"
 #include "src/transport/xqc_multipath.h"
+#include "src/transport/xqc_datagram.h"
 
 
 xqc_packet_out_t *
@@ -391,7 +392,9 @@ xqc_write_ack_to_packets(xqc_connection_t *conn)
 path_buffer:
         xqc_list_for_each_safe(pos, next, &conn->conn_initial_path->path_schedule_buf[XQC_SEND_TYPE_NORMAL]) {
             packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-            if (packet_out->po_pkt.pkt_type == pkt_type) {
+            if (packet_out->po_pkt.pkt_type == pkt_type
+                && !(packet_out->po_frame_types & XQC_FRAME_BIT_ACK)) 
+            {
                 ret = xqc_write_ack_to_one_packet(conn, packet_out, pns);
                 if (ret == -XQC_ENOBUF) {
                     xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_write_ack_to_one_packet try conn buffer|");
@@ -410,7 +413,10 @@ path_buffer:
 conn_buffer:
         xqc_list_for_each_safe(pos, next, &conn->conn_send_queue->sndq_send_packets) {
             packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-            if (packet_out->po_pkt.pkt_type == pkt_type && !packet_out->po_is_path_specified) {
+            if (packet_out->po_pkt.pkt_type == pkt_type 
+                && !packet_out->po_is_path_specified
+                && !(packet_out->po_frame_types & XQC_FRAME_BIT_ACK)) 
+            {
                 ret = xqc_write_ack_to_one_packet(conn, packet_out, pns);
                 if (ret == -XQC_ENOBUF) {
                     xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_write_ack_to_one_packet try new packet|");
@@ -867,6 +873,42 @@ xqc_write_stream_frame_to_packet(xqc_connection_t *conn,
     return XQC_OK;
 }
 
+int 
+xqc_write_datagram_frame_to_packet(xqc_connection_t *conn, xqc_pkt_type_t pkt_type, 
+    const unsigned char *data, size_t data_len, uint64_t *dgram_id, xqc_bool_t use_supplied_dgram_id)
+{
+    xqc_packet_out_t *packet_out;
+    packet_out = xqc_write_new_packet(conn, pkt_type);
+    if (packet_out == NULL) {
+        return -XQC_EWRITE_PKT;
+    }
+
+    int ret;
+    ret = xqc_gen_datagram_frame(packet_out, data, data_len);
+
+    if (ret < 0) {
+        xqc_maybe_recycle_packet_out(packet_out, conn);
+        return ret;
+    }
+
+    if (use_supplied_dgram_id) {
+        packet_out->po_dgram_id = *dgram_id;
+
+    } else {
+        packet_out->po_dgram_id = conn->next_dgram_id++;
+    }
+    
+    if (dgram_id) {
+        *dgram_id = packet_out->po_dgram_id;
+    }
+
+    if (pkt_type == XQC_PTYPE_0RTT) {
+        conn->zero_rtt_count++;
+    }
+
+    return XQC_OK;
+}
+
 
 /* [Transport] 12.4, HANDSHAKE_DONE only send in 1-RTT packet */
 int
@@ -957,12 +999,14 @@ xqc_write_retire_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t seq_nu
     xqc_int_t ret = XQC_ERROR;
 
 	/* select new current_dcid to replace the cid to be retired */		
-    if (seq_num == conn->dcid_set.current_dcid.cid_seq_num) {		
+    if (seq_num == conn->dcid_set.current_dcid.cid_seq_num) {	
+        // TODO: DCID changes	
         ret = xqc_get_unused_cid(&conn->dcid_set.cid_set, &conn->dcid_set.current_dcid);		
         if (ret != XQC_OK) {		
             xqc_log(conn->log, XQC_LOG_ERROR, "|conn don't have available dcid|");		
             return ret;		
-        }		
+        }
+        xqc_datagram_record_mss(conn);		
     }		
     xqc_log(conn->log, XQC_LOG_DEBUG, "|get_new_dcid:%s|seq_num:%ui|",		
             xqc_dcid_str(&conn->dcid_set.current_dcid), conn->dcid_set.current_dcid.cid_seq_num);
@@ -1103,7 +1147,8 @@ xqc_write_ack_mp_to_packets(xqc_connection_t *conn)
 path_buffer:
         xqc_list_for_each_safe(pos, next, &path->path_schedule_buf[XQC_SEND_TYPE_NORMAL]) {
             packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-            if (packet_out->po_pkt.pkt_type == pkt_type) {
+            if (packet_out->po_pkt.pkt_type == pkt_type
+                && !(packet_out->po_frame_types & XQC_FRAME_BIT_ACK_MP)) {
                 ret = xqc_write_ack_mp_to_one_packet(conn, path, packet_out, pns);
                 if (ret == -XQC_ENOBUF) {
                     xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_write_ack_to_one_packet try new packet|");
@@ -1244,11 +1289,7 @@ xqc_write_path_status_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *pa
     }
 
     packet_out->po_used_size += ret;
-
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
-
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|path_status_seq_num:%ui|app_path_status:%d|tra_path_status:%d|",
-            path->path_id, path->app_path_status_send_seq_num, path->app_path_status, path->tra_path_status);
 
     return XQC_OK;
 

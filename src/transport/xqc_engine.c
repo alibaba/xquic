@@ -21,8 +21,10 @@
 #include "src/transport/xqc_wakeup_pq.h"
 #include "src/transport/xqc_utils.h"
 #include "src/transport/xqc_timer.h"
+#include "src/transport/xqc_datagram.h"
 #include "src/http3/xqc_h3_conn.h"
 #include "src/tls/xqc_tls.h"
+#include "src/transport/xqc_datagram.h"
 
 
 extern const xqc_qpack_ins_cb_t xqc_h3_qpack_ins_cb;
@@ -44,6 +46,7 @@ xqc_config_t default_client_config = {
     .reset_token_key           = {0},
     .reset_token_keylen        = 0,
     .sendmmsg_on               = 0,
+    .enable_h3_ext             = 0,
 };
 
 
@@ -64,6 +67,7 @@ xqc_config_t default_server_config = {
     .reset_token_key           = {0},
     .reset_token_keylen        = 0,
     .sendmmsg_on               = 0,
+    .enable_h3_ext             = 0,
 };
 
 
@@ -125,6 +129,7 @@ xqc_set_config(xqc_config_t *dst, const xqc_config_t *src)
     dst->cfg_log_timestamp = src->cfg_log_timestamp;
     dst->cfg_log_level_name = src->cfg_log_level_name;
     dst->sendmmsg_on = src->sendmmsg_on;
+    dst->enable_h3_ext = src->enable_h3_ext;
 
     return XQC_OK;
 }
@@ -692,7 +697,21 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
     if (conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT) {
         xqc_process_read_streams(conn);
         if (xqc_send_queue_can_write(conn->conn_send_queue)) {
-            xqc_process_write_streams(conn);
+            if (conn->conn_send_queue->sndq_full) {
+                if (xqc_send_queue_release_enough_space(conn->conn_send_queue)) {
+                    conn->conn_send_queue->sndq_full = XQC_FALSE;
+                    xqc_process_write_streams(conn);
+                    xqc_datagram_notify_write(conn);
+                }
+
+            } else {
+                xqc_process_write_streams(conn);
+                if (conn->conn_flag & XQC_CONN_FLAG_DGRAM_WAIT_FOR_1RTT) {
+                    xqc_datagram_notify_write(conn);
+                    conn->conn_flag &= ~XQC_CONN_FLAG_DGRAM_WAIT_FOR_1RTT;
+                }
+            }
+
         } else {
             xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_send_queue_can_write false|");
         }
@@ -785,7 +804,7 @@ xqc_engine_main_logic(xqc_engine_t *engine)
     }
     engine->eng_flag |= XQC_ENG_FLAG_RUNNING;
 
-    xqc_log(engine->log, XQC_LOG_DEBUG, "|");
+    xqc_log(engine->log, XQC_LOG_DEBUG, "|BEGIN|");
 
     xqc_usec_t now = xqc_monotonic_timestamp();
     xqc_connection_t *conn;
@@ -926,6 +945,8 @@ xqc_engine_main_logic(xqc_engine_t *engine)
     }
 
     engine->eng_flag &= ~XQC_ENG_FLAG_RUNNING;
+
+    xqc_log(engine->log, XQC_LOG_DEBUG, "|END|");
     return;
 }
 

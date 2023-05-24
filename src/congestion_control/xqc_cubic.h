@@ -11,6 +11,7 @@
 #include "src/transport/xqc_packet_out.h"
 
 typedef struct {
+    uint32_t        min_cwnd;
     uint64_t        init_cwnd;          /* initial window size in MSS */
     uint64_t        cwnd;               /* current window size in bytes */
     uint64_t        tcp_cwnd;           /* cwnd calculated according to Reno's algorithm */

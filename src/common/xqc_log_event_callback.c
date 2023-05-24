@@ -287,6 +287,13 @@ xqc_log_TRA_FRAMES_PROCESSED_callback(xqc_log_t *log, const char *func, ...)
         break;
     }
 
+    case XQC_FRAME_DATAGRAM: {
+        uint64_t length = va_arg(args, uint64_t);
+        xqc_log_implement(log, TRA_FRAMES_PROCESSED, func,
+                          "|type:%d|data_length:%ui|", frame_type, length);
+        break;
+    }
+
     case XQC_FRAME_MAX_DATA: {
         uint64_t max_data = va_arg(args, uint64_t);
         xqc_log_implement(log, TRA_FRAMES_PROCESSED, func,

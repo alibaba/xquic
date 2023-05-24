@@ -62,6 +62,9 @@ typedef enum {
     /* upper limit of params defined in [Transport] */
     XQC_TRANSPORT_PARAM_PROTOCOL_MAX,
 
+    /* max datagram frame size */
+    XQC_TRANSPORT_PARAM_MAX_DATAGRAM_FRAME_SIZE             = 0x0020,
+
     /* do no cryption on 0-RTT and 1-RTT packets */
     XQC_TRANSPORT_PARAM_NO_CRYPTO                           = 0x1000,
     /* multipath quic attributes */
@@ -110,6 +113,13 @@ typedef struct {
 
     xqc_cid_t               retry_source_connection_id;
     uint8_t                 retry_source_connection_id_present;
+
+    /* 
+    * support for datagram (RFC 9221).
+    * default: 0, not supported
+    * special: 65535, accept datagram frames with any length in a QUIC packet
+    */
+    uint64_t                max_datagram_frame_size;
 
     /**
      * no_crypto is a self-defined experimental transport parameter by xquic, xquic will do no
@@ -164,6 +174,8 @@ xqc_int_t xqc_read_transport_params(char *tp_data, size_t tp_data_len,
 
 ssize_t xqc_write_transport_params(char *tp_buf, size_t cap,
     const xqc_transport_params_t *params);
+
+void xqc_init_transport_params(xqc_transport_params_t *params);
 
 
 #endif /* XQC_TRANSPORT_PARAMS_H_ */

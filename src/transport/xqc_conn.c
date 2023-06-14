@@ -2156,6 +2156,16 @@ xqc_conn_get_errno(xqc_connection_t *conn)
     return conn->conn_err;
 }
 
+SSL *
+xqc_conn_get_ssl(xqc_connection_t *conn)
+{
+    if (conn->tls) {
+        return xqc_tls_get_ssl(conn->tls);
+    }
+
+    return NULL;
+}
+
 xqc_int_t
 xqc_conn_immediate_close(xqc_connection_t *conn)
 {

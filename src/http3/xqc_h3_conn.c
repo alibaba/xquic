@@ -146,6 +146,17 @@ xqc_h3_conn_get_errno(xqc_h3_conn_t *h3_conn)
 }
 
 
+SSL *
+xqc_h3_conn_get_ssl(xqc_h3_conn_t *h3_conn)
+{
+    if (h3_conn->conn) {
+        return xqc_conn_get_ssl(h3_conn->conn);
+    }
+
+   return NULL;
+}
+
+
 void
 xqc_h3_conn_set_user_data(xqc_h3_conn_t *h3_conn,
                           void *user_data)

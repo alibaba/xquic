@@ -15,6 +15,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #endif
+#include <openssl/ssl.h>
 #include "xquic_typedef.h"
 
 #ifdef __cplusplus
@@ -1425,6 +1426,13 @@ xqc_int_t xqc_conn_close_with_error(xqc_connection_t *conn, uint64_t err_code);
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_conn_get_errno(xqc_connection_t *conn);
+
+
+/**
+ * Get ssl handler of specified connection
+ */
+XQC_EXPORT_PUBLIC_API
+SSL *xqc_conn_get_ssl(xqc_connection_t *conn);
 
 
 /**

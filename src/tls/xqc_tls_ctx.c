@@ -7,7 +7,8 @@
 #include "xqc_ssl_cbs.h"
 #include "xqc_ssl_if.h"
 #include "src/common/xqc_malloc.h"
-
+#include <openssl/ssl.h>
+#include <zlib.h>
 
 typedef struct xqc_tls_ctx_s {
     xqc_tls_type_t                  type;
@@ -33,7 +34,47 @@ typedef struct xqc_tls_ctx_s {
     size_t                          alpn_list_len;
 } xqc_tls_ctx_t;
 
+static int zlib_compress(SSL *s,
+                     const unsigned char *in, size_t inlen,
+                     unsigned char *out, size_t *outlen)
+{
 
+    if (out == NULL) {
+        *outlen = compressBound(inlen);
+        return 1;
+    }
+
+    if (compress2(out, outlen, in, inlen, Z_DEFAULT_COMPRESSION) != Z_OK)
+        return 0;
+
+    return 1;
+}
+
+static int zlib_decompress(SSL *s,
+                        const unsigned char *in, size_t inlen,
+                        unsigned char *out, size_t outlen)
+{
+    size_t len = outlen;
+
+    if (uncompress(out, &len, in, inlen) != Z_OK)
+        return 0;
+
+    if (len != outlen)
+        return 0;
+
+    return 1;
+}
+
+typedef int (*SSL_cert_compress_cb_fn)(SSL *s,
+                                       const unsigned char *in, size_t inlen,
+                                       unsigned char *out, size_t *outlen);
+typedef int (*SSL_cert_decompress_cb_fn)(SSL *s,
+                                         const unsigned char *in, size_t inlen,
+                                         unsigned char *out, size_t outlen);
+
+int SSL_add_cert_compression_alg(SSL *s, int alg_id,
+                                  SSL_cert_compress_cb_fn compress,
+                                  SSL_cert_decompress_cb_fn decompress);
 
 xqc_int_t
 xqc_create_client_ssl_ctx(xqc_tls_ctx_t *ctx)
@@ -307,7 +348,7 @@ xqc_tls_ctx_create(xqc_tls_type_t type, const xqc_engine_ssl_config_t *cfg,
     ctx->type = type;
     ctx->tls_cbs = *cbs;
     ctx->log = log;
-
+    
     /* copy config */
     xqc_int_t ret = xqc_tls_ctx_set_config(ctx, cfg);
     if (ret != XQC_OK) {
@@ -325,7 +366,10 @@ xqc_tls_ctx_create(xqc_tls_type_t type, const xqc_engine_ssl_config_t *cfg,
     if (ret != XQC_OK) {
         goto fail;
     }
-
+    if (cfg->cert_comp) {
+        SSL_CTX_add_cert_compression_alg(ctx->ssl_ctx, TLSEXT_cert_compression_zlib,
+                                    zlib_compress, zlib_decompress);
+    }
     /* set cipher suites */
     if (cfg->ciphers) {
         ret = xqc_ssl_ctx_set_cipher_suites(ctx->ssl_ctx, cfg->ciphers);

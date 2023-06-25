@@ -148,8 +148,6 @@ set(
     "src/http3/qpack/xqc_ins.c"
     "src/http3/qpack/stable/xqc_stable.c"
     "src/http3/qpack/dtable/xqc_dtable.c"
-    "src/http3/xqc_h3_ext_dgram.c"
-    "src/http3/xqc_h3_ext_bytestream.c"
 )
 
 # Transport source
@@ -162,7 +160,6 @@ set(
     "src/transport/xqc_packet_parser.c"
     "src/transport/xqc_frame_parser.c"
     "src/transport/xqc_stream.c"
-    "src/transport/xqc_datagram.c"
     "src/transport/xqc_packet_out.c"
     "src/transport/xqc_packet_in.c"
     "src/transport/xqc_send_ctl.c"
@@ -236,8 +233,6 @@ set(
     CONGESTION_CONTROL_SOURCES
     "src/congestion_control/xqc_cubic.c"
     "src/congestion_control/xqc_bbr.c"
-    "src/congestion_control/xqc_unlimited_cc.c"
-    "src/congestion_control/xqc_copa.c"
     "src/congestion_control/xqc_window_filter.c"
     "src/congestion_control/xqc_sample.c"
 )
@@ -264,7 +259,7 @@ endif()
 
 # xquic source
 set (
-    XQC_SOURCE
+    XQC_SOURCE 
     ${HTTP3_SOURCES}
     ${TRANSPORT_SOURCES}
     ${TLS_SOURCE}
@@ -287,6 +282,11 @@ add_library(
     ${XQC_SOURCE}
 )
 
+target_link_libraries(
+        xquic-static
+	z
+    )
+
 if(PLATFORM MATCHES "mac")
     target_link_libraries(
         xquic
@@ -294,6 +294,7 @@ if(PLATFORM MATCHES "mac")
         ${SSL_LIB_PATH}
         "-Wl"
         -lpthread
+	z
     )
 else()
     target_link_libraries(
@@ -302,6 +303,7 @@ else()
         ${SSL_LIB_PATH}
         "-Wl,--no-whole-archive"
         -lpthread
+	z
     )
 endif()
 

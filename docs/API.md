@@ -466,7 +466,7 @@ Get error code of specified connection.
 
 #### xqc_conn_get_ssl
 ```
-SSL *xqc_conn_get_ssl(xqc_connection_t *conn);
+void *xqc_conn_get_ssl(xqc_connection_t *conn);
 ```
 Get ssl handler of specified connection.
 
@@ -848,7 +848,7 @@ Get connection error code.
 
 #### xqc_h3_conn_get_ssl
 ```
-SSL *xqc_h3_conn_get_ssl(xqc_h3_conn_t *h3c);
+void *xqc_h3_conn_get_ssl(xqc_h3_conn_t *h3c);
 ```
 Get ssl handler of http3 connection.
 

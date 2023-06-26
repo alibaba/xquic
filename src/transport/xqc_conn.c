@@ -2156,7 +2156,7 @@ xqc_conn_get_errno(xqc_connection_t *conn)
     return conn->conn_err;
 }
 
-SSL *
+void *
 xqc_conn_get_ssl(xqc_connection_t *conn)
 {
     if (conn->tls) {

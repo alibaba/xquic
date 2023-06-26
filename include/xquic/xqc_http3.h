@@ -5,7 +5,6 @@
 #ifndef XQC_H3_H
 #define XQC_H3_H
 
-#include <openssl/ssl.h>
 #include "xquic.h"
 
 
@@ -469,7 +468,7 @@ xqc_int_t xqc_h3_conn_get_errno(xqc_h3_conn_t *h3c);
  * @return ssl handler of http3 connection
  */
 XQC_EXPORT_PUBLIC_API
-SSL *xqc_h3_conn_get_ssl(xqc_h3_conn_t *h3c);
+void* xqc_h3_conn_get_ssl(xqc_h3_conn_t *h3c);
 
 
 /**

@@ -146,7 +146,7 @@ xqc_h3_conn_get_errno(xqc_h3_conn_t *h3_conn)
 }
 
 
-SSL *
+void *
 xqc_h3_conn_get_ssl(xqc_h3_conn_t *h3_conn)
 {
     if (h3_conn->conn) {

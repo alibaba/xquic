@@ -1620,7 +1620,7 @@ void xqc_datagram_set_user_data(xqc_connection_t *conn, void *dgram_data);
  * @dgram_data: the user_data of all datagram callbacks
  */
 XQC_EXPORT_PUBLIC_API
-void* xqc_datagram_get_user_data(xqc_connection_t *conn);
+void *xqc_datagram_get_user_data(xqc_connection_t *conn);
 
 /**
  * @brief the API to send a datagram over the QUIC connection

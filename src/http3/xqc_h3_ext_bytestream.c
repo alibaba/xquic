@@ -388,7 +388,7 @@ xqc_h3_ext_bytestream_set_user_data(xqc_h3_ext_bytestream_t *h3_ext_bs,
 
 
 
-void* 
+void *
 xqc_h3_ext_bytestream_get_user_data(xqc_h3_ext_bytestream_t *h3_ext_bs)
 {
     return h3_ext_bs->user_data;

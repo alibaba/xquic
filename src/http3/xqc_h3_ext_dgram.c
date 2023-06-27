@@ -82,7 +82,7 @@ xqc_h3_ext_datagram_set_user_data(xqc_h3_conn_t *conn, void *user_data)
     xqc_datagram_set_user_data(conn->conn, user_data);
 }
 
-void* 
+void *
 xqc_h3_ext_datagram_get_user_data(xqc_h3_conn_t *conn)
 {
     return xqc_datagram_get_user_data(conn->conn);

@@ -1124,6 +1124,16 @@ xqc_tls_get_selected_alpn(xqc_tls_t *tls, const char **out_alpn,
                            (unsigned *)out_len);
 }
 
+void *
+xqc_tls_get_ssl(xqc_tls_t *tls)
+{
+    if (!tls) {
+        return NULL;
+    }
+
+    return tls->ssl;
+}
+
 
 /**
  * ============================================================================

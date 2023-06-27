@@ -493,7 +493,7 @@ xqc_datagram_set_user_data(xqc_connection_t *conn, void *dgram_data)
     conn->dgram_data = dgram_data;
 }
 
-void* 
+void *
 xqc_datagram_get_user_data(xqc_connection_t *conn)
 {
     return conn->dgram_data;

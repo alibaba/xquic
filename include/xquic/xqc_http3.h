@@ -462,6 +462,16 @@ xqc_int_t xqc_h3_conn_get_errno(xqc_h3_conn_t *h3c);
 
 
 /**
+ * @brief get ssl handler of http3 connection
+ * 
+ * @param h3c handler of http3 connection
+ * @return ssl handler of http3 connection
+ */
+XQC_EXPORT_PUBLIC_API
+void *xqc_h3_conn_get_ssl(xqc_h3_conn_t *h3c);
+
+
+/**
  * @brief set user_data for http3 connection, user_data could be the application layer context of 
  * http3 connection
  * 
@@ -480,7 +490,7 @@ void xqc_h3_conn_set_user_data(xqc_h3_conn_t *h3c, void *user_data);
  * @return user_data 
  */
 XQC_EXPORT_PUBLIC_API
-void* xqc_h3_conn_get_user_data(xqc_h3_conn_t *h3_conn);
+void *xqc_h3_conn_get_user_data(xqc_h3_conn_t *h3_conn);
 
 
 /**
@@ -742,7 +752,7 @@ void xqc_h3_ext_bytestream_set_user_data(xqc_h3_ext_bytestream_t *h3_ext_bs,
  * @return the pointer of user data
  */
 XQC_EXPORT_PUBLIC_API
-void* xqc_h3_ext_bytestream_get_user_data(xqc_h3_ext_bytestream_t *h3_ext_bs);
+void *xqc_h3_ext_bytestream_get_user_data(xqc_h3_ext_bytestream_t *h3_ext_bs);
 
 /**
  * @brief get statistics of a bytestream
@@ -809,7 +819,7 @@ void xqc_h3_ext_datagram_set_user_data(xqc_h3_conn_t *conn, void *user_data);
  * @return the user_data of all datagram callbacks
  */
 XQC_EXPORT_PUBLIC_API
-void* xqc_h3_ext_datagram_get_user_data(xqc_h3_conn_t *conn);
+void *xqc_h3_ext_datagram_get_user_data(xqc_h3_conn_t *conn);
 
 
 /**

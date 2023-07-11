@@ -92,5 +92,6 @@ void xqc_h3_request_on_body_send(xqc_h3_request_t *h3r);
 void xqc_h3_request_stream_fin(xqc_h3_request_t *h3r);
 void xqc_h3_request_begin(xqc_h3_request_t *h3r);
 void xqc_h3_request_end(xqc_h3_request_t *h3r);
+void xqc_h3_request_closing(xqc_h3_request_t *h3r, xqc_int_t err);
 
 #endif /* _XQC_H3_REQUEST_H_INCLUDED_ */

@@ -555,7 +555,10 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     }
 
     /* insert into engine's conns_hash */
-    if (xqc_insert_conns_hash(engine->conns_hash, xc, &xc->scid_set.user_scid)) {
+    if (xqc_insert_conns_hash(engine->conns_hash, xc,
+                              xc->scid_set.user_scid.cid_buf,
+                              xc->scid_set.user_scid.cid_len))
+    {
         goto fail;
     }
 
@@ -684,6 +687,12 @@ xqc_conn_server_create(xqc_engine_t *engine, const struct sockaddr *local_addr,
         }
     }
 
+    /* generate sr token for server's initial cid */
+    xqc_gen_reset_token(&new_scid, new_scid.sr_token,
+                        XQC_STATELESS_RESET_TOKENLEN,
+                        engine->config->reset_token_key,
+                        engine->config->reset_token_keylen);
+
     conn = xqc_conn_create(engine, dcid, &new_scid, settings, user_data, XQC_CONN_TYPE_SERVER);
     if (conn == NULL) {
         xqc_log(engine->log, XQC_LOG_ERROR, "|fail to create connection|");
@@ -698,7 +707,10 @@ xqc_conn_server_create(xqc_engine_t *engine, const struct sockaddr *local_addr,
          * and if client Initial retransmit, server might use odcid to
          * find the created conn
          */
-        if (xqc_insert_conns_hash(engine->conns_hash, conn, &conn->original_dcid)) {
+        if (xqc_insert_conns_hash(engine->conns_hash, conn,
+                                  conn->original_dcid.cid_buf,
+                                  conn->original_dcid.cid_len))
+        {
             goto fail;
         }
 
@@ -2166,9 +2178,37 @@ xqc_conn_get_ssl(xqc_connection_t *conn)
     return NULL;
 }
 
+/* cleanup connection and wait for draining */
+void
+xqc_conn_shutdown(xqc_connection_t *conn)
+{
+    xqc_path_ctx_t     *path;
+    xqc_list_head_t    *pos, *next;
+    xqc_send_ctl_t     *send_ctl;
+    xqc_usec_t          now;
+
+    now = xqc_monotonic_timestamp();
+    xqc_usec_t pto = xqc_conn_get_max_pto(conn);
+    if (!xqc_timer_is_set(&conn->conn_timer_manager, XQC_TIMER_CONN_DRAINING)) {
+        xqc_timer_set(&conn->conn_timer_manager, XQC_TIMER_CONN_DRAINING, now, 3 * pto);
+    }
+
+    xqc_send_queue_drop_packets(conn);
+
+    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
+        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+        for (int i = 0; i <= XQC_TIMER_LOSS_DETECTION; i++) {
+            xqc_timer_unset(&path->path_send_ctl->path_timer_manager, i);
+        }
+    }
+}
+
+
 xqc_int_t
 xqc_conn_immediate_close(xqc_connection_t *conn)
 {
+    int ret;
+
     if (conn->conn_state >= XQC_CONN_STATE_DRAINING) {
         return XQC_OK;
     }
@@ -2181,34 +2221,14 @@ xqc_conn_immediate_close(xqc_connection_t *conn)
         return XQC_OK;
     }
 
-    int ret;
-    xqc_send_ctl_t *send_ctl;
-    xqc_usec_t now;
-
     if (conn->conn_state < XQC_CONN_STATE_CLOSING) {
+        xqc_conn_shutdown(conn);
 
+        /* convert state to CLOSING */
         xqc_log(conn->log, XQC_LOG_INFO, "|state to closing|state:%s|flags:%s",
-                xqc_conn_state_2_str(conn->conn_state), xqc_conn_flag_2_str(conn->conn_flag));
-
+                xqc_conn_state_2_str(conn->conn_state),
+                xqc_conn_flag_2_str(conn->conn_flag));
         conn->conn_state = XQC_CONN_STATE_CLOSING;
-
-        xqc_send_queue_drop_packets(conn);
-
-        now = xqc_monotonic_timestamp();
-        xqc_usec_t pto = xqc_conn_get_max_pto(conn);
-        if (!xqc_timer_is_set(&conn->conn_timer_manager, XQC_TIMER_CONN_DRAINING)) {
-            xqc_timer_set(&conn->conn_timer_manager, XQC_TIMER_CONN_DRAINING, now, 3 * pto);
-        }
-
-
-        xqc_path_ctx_t *path = NULL;
-        xqc_list_head_t *pos, *next;
-        xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
-            path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
-            for (int i = 0; i <= XQC_TIMER_LOSS_DETECTION; i++) {
-                xqc_timer_unset(&path->path_send_ctl->path_timer_manager, i);
-            }
-        }
     }
 
     /*
@@ -3185,7 +3205,10 @@ xqc_conn_confirm_cid(xqc_connection_t *c, xqc_packet_t *pkt)
             xqc_datagram_record_mss(c);
         }
 
-        if (xqc_insert_conns_hash(c->engine->conns_hash_dcid, c, &c->dcid_set.current_dcid)) {
+        if (xqc_insert_conns_hash(c->engine->conns_hash_dcid, c,
+                                  c->dcid_set.current_dcid.cid_buf,
+                                  c->dcid_set.current_dcid.cid_len))
+        {
             xqc_log(c->log, XQC_LOG_ERROR, "|insert conn hash error");
             return -XQC_EMALLOC;
         }
@@ -3371,7 +3394,9 @@ xqc_conn_on_pkt_processed(xqc_connection_t *c, xqc_packet_in_t *pi, xqc_usec_t n
 uint8_t
 xqc_conn_tolerant_error(xqc_int_t ret)
 {
-    if (-XQC_EVERSION == ret || -XQC_EILLPKT == ret || -XQC_EWAITING == ret || -XQC_EIGNORE_PKT == ret) {
+    if (-XQC_EVERSION == ret || -XQC_EILLPKT == ret || -XQC_EWAITING == ret
+        || -XQC_EIGNORE_PKT == ret || -XQC_EDECRYPT == ret)
+    {
         return XQC_TRUE;
     }
 
@@ -3406,8 +3431,10 @@ xqc_conn_process_packet(xqc_connection_t *c,
             }
 
         } else if (xqc_conn_tolerant_error(ret)) {
+            /* ignore the remain bytes */
             xqc_log(c->log, XQC_LOG_INFO, "|ignore err|%d|", ret);
             packet_in->pos = packet_in->last;
+
             return XQC_OK;
         }
 
@@ -3501,14 +3528,22 @@ xqc_conn_destroy_cids(xqc_connection_t *conn)
     xqc_list_head_t *pos, *next;
 
     if (conn->engine->conns_hash) {
-        if (xqc_find_conns_hash(conn->engine->conns_hash, conn, &conn->original_dcid)) {
-            xqc_remove_conns_hash(conn->engine->conns_hash, conn, &conn->original_dcid);
+        if (xqc_find_conns_hash(conn->engine->conns_hash, conn,
+                                conn->original_dcid.cid_buf,
+                                conn->original_dcid.cid_len))
+        {
+            xqc_remove_conns_hash(conn->engine->conns_hash, conn,
+                                  conn->original_dcid.cid_buf,
+                                  conn->original_dcid.cid_len);
         }
 
         xqc_list_for_each_safe(pos, next, &conn->scid_set.cid_set.list_head) {
             cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
-            if (xqc_find_conns_hash(conn->engine->conns_hash, conn, &cid->cid)) {
-                xqc_remove_conns_hash(conn->engine->conns_hash, conn, &cid->cid);
+            if (xqc_find_conns_hash(conn->engine->conns_hash, conn,
+                                    cid->cid.cid_buf, cid->cid.cid_len))
+            {
+                xqc_remove_conns_hash(conn->engine->conns_hash, conn,
+                                      cid->cid.cid_buf, cid->cid.cid_len);
             }
         }
     }
@@ -3516,8 +3551,23 @@ xqc_conn_destroy_cids(xqc_connection_t *conn)
     if (conn->engine->conns_hash_dcid && (conn->conn_flag & XQC_CONN_FLAG_DCID_OK)) {
         xqc_list_for_each_safe(pos, next, &conn->dcid_set.cid_set.list_head) {
             cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
-            if (xqc_find_conns_hash(conn->engine->conns_hash_dcid, conn, &cid->cid)) {
-                xqc_remove_conns_hash(conn->engine->conns_hash_dcid, conn, &cid->cid);
+
+            /* delete relationship from conns_hash_dcid */
+            if (xqc_find_conns_hash(conn->engine->conns_hash_dcid, conn,
+                                    cid->cid.cid_buf, cid->cid.cid_len))
+            {
+                xqc_remove_conns_hash(conn->engine->conns_hash_dcid, conn,
+                                      cid->cid.cid_buf, cid->cid.cid_len);
+            }
+
+            /* delete relationship from conns_hash_sr_token */
+            if (xqc_find_conns_hash(conn->engine->conns_hash_sr_token, conn,
+                                    cid->cid.sr_token,
+                                    XQC_STATELESS_RESET_TOKENLEN))
+            {
+                xqc_remove_conns_hash(conn->engine->conns_hash_sr_token, conn,
+                                      cid->cid.sr_token,
+                                      XQC_STATELESS_RESET_TOKENLEN);
             }
         }
     }
@@ -3938,6 +3988,17 @@ xqc_conn_get_local_transport_params(xqc_connection_t *conn, xqc_transport_params
                      conn->original_dcid.cid_buf, conn->original_dcid.cid_len);
         params->original_dest_connection_id_present = 1;
 
+        xqc_gen_reset_token(&conn->original_dcid, 
+                            params->stateless_reset_token,
+                            XQC_STATELESS_RESET_TOKENLEN, 
+                            conn->engine->config->reset_token_key, 
+                            conn->engine->config->reset_token_keylen);
+        params->stateless_reset_token_present = 1;
+
+        xqc_log(conn->log, XQC_LOG_INFO, "|generate sr_token[%s] for cid[%s]",
+                xqc_sr_token_str(params->stateless_reset_token),
+                xqc_scid_str(&conn->original_dcid));
+
     } else {
         params->original_dest_connection_id_present = 0;
     }
@@ -3994,8 +4055,11 @@ xqc_conn_check_transport_params(xqc_connection_t *conn, const xqc_transport_para
 void
 xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
 {
-    xqc_int_t ret;
-    xqc_transport_params_t params;
+    xqc_int_t                ret;
+    xqc_transport_params_t   params;
+    xqc_list_head_t         *node;
+    xqc_cid_inner_t         *cid_node;
+    xqc_cid_t               *cid;
 
     xqc_connection_t *conn = (xqc_connection_t *)user_data;
     xqc_transport_params_type_t tp_type = (conn->conn_type == XQC_CONN_TYPE_CLIENT 
@@ -4042,6 +4106,37 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
         conn->remote_settings.no_crypto = 1;
         conn->local_settings.no_crypto = 1;
         xqc_tls_set_no_crypto(conn->tls);
+    }
+
+    /* sr token will only present in server's transport parameter, it means
+       client have already confirmed server's cid, associate the sr token with
+       server's cid */
+    if (params.stateless_reset_token_present) {
+        /* it is supposed to be only one existing cid in the dcid set, find the
+           first node and copy the sr token to that cid */
+        node = conn->dcid_set.cid_set.list_head.next;
+        if (NULL != node) {
+            cid_node = xqc_list_entry(node, xqc_cid_inner_t, list);
+            xqc_memcpy(cid_node->cid.sr_token, params.stateless_reset_token,
+                       XQC_STATELESS_RESET_TOKENLEN);
+
+            xqc_log(conn->log, XQC_LOG_INFO, "|store sr_token with cid: %s"
+                    "|token:%s", xqc_dcid_str(&cid_node->cid),
+                    xqc_sr_token_str(params.stateless_reset_token));
+
+
+            if (xqc_insert_conns_hash(conn->engine->conns_hash_sr_token, conn,
+                                      cid_node->cid.sr_token,
+                                      XQC_STATELESS_RESET_TOKENLEN))
+            {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|insert sr conn hash error");
+            }
+
+        } else {
+            /* it's weired if sr token present while cid not confirmed */
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|cid not confirmed while sr token present");
+        }
     }
 
     /* notify application layer to save transport parameter */
@@ -4780,3 +4875,85 @@ xqc_conn_set_public_remote_trans_settings(xqc_connection_t *conn,
 {
     conn->remote_settings.max_datagram_frame_size = settings->max_datagram_frame_size;
 }
+
+void
+xqc_conn_reset(xqc_connection_t *conn)
+{
+    xqc_conn_shutdown(conn);
+
+    /* set error code and close message, notify to application */
+    conn->conn_state = XQC_CONN_STATE_DRAINING;
+    conn->conn_err = XQC_ESTATELESS_RESET;
+    XQC_CONN_CLOSE_MSG(conn, "stateless reset");
+    xqc_conn_closing(conn);
+}
+
+xqc_int_t
+xqc_conn_handle_stateless_reset(xqc_connection_t *conn,
+    const uint8_t *sr_token)
+{
+    xqc_int_t           ret;
+    int                 res;
+    xqc_list_head_t    *pos, *next;
+    xqc_cid_inner_t    *cid;
+
+    if (NULL == conn || NULL == sr_token) {
+        return -XQC_EPARAM;
+    }
+
+    if (conn->conn_state >= XQC_CONN_STATE_DRAINING) {
+        xqc_log(conn->log, XQC_LOG_INFO, "|conn closing, ignore pkt");
+        return XQC_OK;
+    }
+
+    /* compare received stateless reset token with the ones peer sent */
+    xqc_list_for_each_safe(pos, next, &conn->dcid_set.cid_set.list_head) {
+        cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
+
+        res = xqc_memcmp(sr_token, cid->cid.sr_token,
+                         XQC_STATELESS_RESET_TOKENLEN);
+        if (0 == res) {
+            xqc_log(conn->log, XQC_LOG_INFO, "|====>|receive stateless reset"
+                    "|cid:%s", xqc_dcid_str(&cid->cid));
+            xqc_log_event(conn->log, TRA_STATELESS_RESET, conn);
+
+            /* stateless reset received, close connection */
+            xqc_conn_reset(conn);
+
+            goto end;
+        }
+    }
+
+    /* sr_token not matched */
+    return -XQC_ERROR;
+
+end:
+    return XQC_OK;
+}
+
+
+#ifdef XQC_COMPAT_GENERATE_SR_PKT
+
+xqc_int_t
+xqc_conn_handle_deprecated_stateless_reset(xqc_connection_t *conn,
+    const xqc_cid_t *scid)
+{
+    if (NULL == conn) {
+        return -XQC_EPARAM;
+    }
+
+    if (conn->conn_state >= XQC_CONN_STATE_DRAINING) {
+        xqc_log(conn->log, XQC_LOG_INFO, "|conn closing, ignore pkt");
+        return XQC_OK;
+    }
+
+    xqc_log(conn->log, XQC_LOG_INFO, "|====>|receive stateless reset"
+            "|deprecated|cid:%s", xqc_dcid_str(scid));
+
+    /* reset state of connection */
+    xqc_conn_reset(conn);
+
+    return XQC_OK;
+}
+
+#endif

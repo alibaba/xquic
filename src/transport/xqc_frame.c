@@ -645,7 +645,8 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
         return ret;
     }
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|new_conn_id|%s|", xqc_scid_str(&new_conn_cid));
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|new_conn_id|%s|sr_token:%s",
+            xqc_scid_str(&new_conn_cid), xqc_sr_token_str(new_conn_cid.sr_token));
 
     if (retire_prior_to > new_conn_cid.cid_seq_num) {
         /*
@@ -711,9 +712,24 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
         return XQC_OK;
     }
 
-    ret = xqc_insert_conns_hash(conn->engine->conns_hash_dcid, conn, &new_conn_cid);
+    /* insert into dcid-connection hash, for processing the deprecated stateless
+       reset packet */
+    ret = xqc_insert_conns_hash(conn->engine->conns_hash_dcid, conn, 
+                                new_conn_cid.cid_buf, new_conn_cid.cid_len);
     if (ret < 0) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|insert new_cid into conns_hash_dcid failed|");
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|insert new_cid into conns_hash_dcid failed|");
+        return ret;
+    }
+
+    /* insert into sr_token-connection hash, for processing stateless reset
+       packet */
+    ret = xqc_insert_conns_hash(conn->engine->conns_hash_sr_token, conn,
+                                new_conn_cid.sr_token,
+                                XQC_STATELESS_RESET_TOKENLEN);
+    if (ret < 0) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|insert new_cid into conns_hash_sr_token failed|");
         return ret;
     }
 
@@ -874,6 +890,8 @@ xqc_process_reset_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|stream_id:%ui|stream_state_recv:%d|stream_state_send:%d|",
             stream->stream_id, stream->stream_state_recv, stream->stream_state_send);
+
+    xqc_stream_closing(stream, err_code);
 
     if (stream->stream_state_send < XQC_SEND_STREAM_ST_RESET_SENT) {
         xqc_send_queue_drop_stream_frame_packets(conn, stream_id);

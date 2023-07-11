@@ -480,6 +480,19 @@ typedef xqc_int_t (*xqc_stream_notify_pt)(xqc_stream_t *stream,
     void *strm_user_data);
 
 /**
+ * @brief stream closing callback function, this will be triggered when some
+ * error on a stream happens.
+ *
+ * @param stream QUIC stream handler
+ * @param err_code error code
+ * @param strm_user_data stream level user_data, which was the parameter of xqc_stream_create set by
+ * client, or the parameter of xqc_stream_set_user_data set by server
+ * @return 0 for success, -1 for failure
+ */
+typedef void (*xqc_stream_closing_notify_pt)(xqc_stream_t *stream,
+    xqc_int_t err_code, void *strm_user_data);
+
+/**
  * @brief the callback API to notify application that there is a datagram to be read
  *
  * @param conn the connection handle
@@ -708,7 +721,7 @@ typedef struct xqc_stream_callbacks_s {
      * this will be triggered when QUIC stream data is ready for read. application layer could read
      * data when xqc_stream_recv interface.
      */
-    xqc_stream_notify_pt        stream_read_notify;
+    xqc_stream_notify_pt            stream_read_notify;
 
     /**
      * stream write callback function. REQUIRED for both client and server
@@ -716,7 +729,7 @@ typedef struct xqc_stream_callbacks_s {
      * when sending data with xqc_stream_send, xquic might be blocked or send part of the data. if
      * this callback function is triggered, applications can continue to send the rest data.
      */
-    xqc_stream_notify_pt        stream_write_notify;
+    xqc_stream_notify_pt            stream_write_notify;
 
     /**
      * stream create callback function. REQUIRED for server, OPTIONAL for client.
@@ -724,7 +737,7 @@ typedef struct xqc_stream_callbacks_s {
      * this will be triggered when QUIC stream is created. applications can create its own stream
      * context in this callback function.
      */
-    xqc_stream_notify_pt        stream_create_notify;
+    xqc_stream_notify_pt            stream_create_notify;
 
     /**
      * stream close callback function. REQUIRED for both server and client.
@@ -733,7 +746,14 @@ typedef struct xqc_stream_callbacks_s {
      * sending or receiving RESET_STREAM frame after 3 times of PTO, or when connection is closed.
      * Applications can free the context which was created in stream_create_notify here.
      */
-    xqc_stream_notify_pt        stream_close_notify;
+    xqc_stream_notify_pt            stream_close_notify;
+
+    /**
+     * @brief stream reset callback function. OPTIONAL for both server and client
+     * 
+     * this function will be triggered when a RESET_STREAM frame is received.
+     */
+    xqc_stream_closing_notify_pt    stream_closing_notify;
 
 } xqc_stream_callbacks_t;
 

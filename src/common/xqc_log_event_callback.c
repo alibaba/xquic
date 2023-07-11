@@ -398,6 +398,14 @@ xqc_log_TRA_FRAMES_PROCESSED_callback(xqc_log_t *log, const char *func, ...)
     va_end(args);
 }
 
+
+void
+xqc_log_TRA_STATELESS_RESET_callback(xqc_log_t *log, const char *func, xqc_connection_t *conn)
+{
+    xqc_log_implement(log, TRA_DATAGRAMS_SENT, func, "|stateless reset|cid:%s",
+                      log->scid);
+}
+
 void
 xqc_log_REC_PARAMETERS_SET_callback(xqc_log_t *log, const char *func, xqc_send_ctl_t *send_ctl)
 {
@@ -504,7 +512,7 @@ xqc_log_HTTP_STREAM_TYPE_SET_callback(xqc_log_t *log, const char *func, xqc_h3_s
 {
     xqc_log_implement(log, HTTP_STREAM_TYPE_SET, func,
                       "|%s|stream_id:%ui|stream_type:%d|",
-                      local == XQC_LOG_LOCAL_EVENT ? "local" : "remote", h3_stream->stream->stream_id, h3_stream->type);
+                      local == XQC_LOG_LOCAL_EVENT ? "local" : "remote", h3_stream->stream_id, h3_stream->type);
 }
 
 void
@@ -514,7 +522,7 @@ xqc_log_HTTP_FRAME_CREATED_callback(xqc_log_t *log, const char *func, ...)
     va_list args;
     va_start(args, func);
     xqc_h3_stream_t *h3_stream = va_arg(args, xqc_h3_stream_t*);
-    xqc_stream_id_t stream_id = h3_stream->stream->stream_id;
+    xqc_stream_id_t stream_id = h3_stream->stream_id;
     xqc_h3_frm_type_t type = va_arg(args, xqc_h3_frm_type_t);
     switch (type) {
     case XQC_H3_FRM_DATA: {
@@ -574,7 +582,7 @@ void
 xqc_log_HTTP_FRAME_PARSED_callback(xqc_log_t *log, const char *func, xqc_h3_stream_t *h3_stream)
 {
     xqc_h3_frame_t *frame = &h3_stream->pctx.frame_pctx.frame;
-    xqc_stream_id_t stream_id = h3_stream->stream->stream_id;
+    xqc_stream_id_t stream_id = h3_stream->stream_id;
     switch (frame->type) {
     case XQC_H3_FRM_DATA:
     case XQC_H3_FRM_HEADERS:
@@ -621,7 +629,7 @@ void
 xqc_log_QPACK_STREAM_STATE_UPDATED_callback(xqc_log_t *log, const char *func, xqc_h3_stream_t *h3_stream)
 {
     xqc_log_implement(log, QPACK_STREAM_STATE_UPDATED, func,
-                      "|stream_id:%ui|%s|", h3_stream->stream->stream_id,
+                      "|stream_id:%ui|%s|", h3_stream->stream_id,
                       h3_stream->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED ? "blocked" : "unblocked");
 }
 

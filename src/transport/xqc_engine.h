@@ -46,6 +46,7 @@ typedef struct xqc_engine_s {
     xqc_config_t                   *config;
     xqc_str_hash_table_t           *conns_hash;             /* scid */
     xqc_str_hash_table_t           *conns_hash_dcid;        /* For reset packet */
+    xqc_str_hash_table_t           *conns_hash_sr_token;    /* For stateless reset */
     xqc_pq_t                       *conns_active_pq;        /* In process */
     xqc_wakeup_pq_t                *conns_wait_wakeup_pq;   /* Need wakeup after next tick time */
     uint8_t                         reset_sent_cnt[XQC_RESET_CNT_ARRAY_LEN]; /* remote addr hash */

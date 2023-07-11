@@ -10,6 +10,7 @@ XQUIC_VERS_1.0 {
         xqc_h3_conn_get_errno;
         xqc_h3_conn_get_ssl;
         xqc_h3_conn_set_user_data;
+        xqc_h3_conn_get_user_data;
         xqc_h3_conn_get_peer_addr;
         xqc_h3_conn_get_local_addr;
         xqc_h3_conn_is_ready_to_send_early_data;

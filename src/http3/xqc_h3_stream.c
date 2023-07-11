@@ -1883,13 +1883,33 @@ xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data)
 }
 
 
+void
+xqc_h3_stream_closing_notify(xqc_stream_t *stream,
+    xqc_int_t err_code, void *strm_user_data)
+{
+    xqc_h3_stream_t *h3s;
+
+    h3s = (xqc_h3_stream_t *)strm_user_data;
+    if (NULL == h3s) {
+        return;
+    }
+
+    /* only http3 request shall be notified */
+    if (h3s->type == XQC_H3_STREAM_TYPE_REQUEST
+        && h3s->h3r)
+    {
+        xqc_h3_request_closing(h3s->h3r, err_code);
+    }
+}
+
 /**
  * transport callback
  */
 const xqc_stream_callbacks_t h3_stream_callbacks = {
-    .stream_write_notify  = xqc_h3_stream_write_notify,
-    .stream_read_notify   = xqc_h3_stream_read_notify,
-    .stream_close_notify  = xqc_h3_stream_close_notify,
+    .stream_write_notify   = xqc_h3_stream_write_notify,
+    .stream_read_notify    = xqc_h3_stream_read_notify,
+    .stream_close_notify   = xqc_h3_stream_close_notify,
+    .stream_closing_notify = xqc_h3_stream_closing_notify,
 };
 
 

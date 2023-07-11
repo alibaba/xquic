@@ -630,6 +630,18 @@ xqc_stream_close(xqc_stream_t *stream)
         XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
     }
 
+    /* A STOP_SENDING frame can be sent for streams in the "Recv" or "Size
+       Known" states */
+    if (stream->stream_state_recv == XQC_RECV_STREAM_ST_RECV
+        || stream->stream_state_recv == XQC_RECV_STREAM_ST_SIZE_KNOWN)
+    {
+        ret = xqc_write_stop_sending_to_packet(conn, stream, H3_REQUEST_CANCELLED);
+        if (ret < 0) {
+            xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_stop_sending_to_packet error|%d|", ret);
+            XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+        }
+    }
+
     if (!(conn->conn_flag & XQC_CONN_FLAG_TICKING)) {
         if (0 == xqc_conns_pq_push(conn->engine->conns_active_pq, conn, conn->last_ticked_time)) {
             conn->conn_flag |= XQC_CONN_FLAG_TICKING;
@@ -1538,4 +1550,13 @@ xqc_stream_set_multipath_usage(xqc_stream_t *stream, uint8_t schedule, uint8_t r
 {
     stream->stream_mp_usage_schedule = schedule;
     stream->stream_mp_usage_reinject = reinject;
+}
+
+void
+xqc_stream_closing(xqc_stream_t *stream, xqc_int_t err)
+{
+    if (stream->stream_if->stream_closing_notify) {
+        stream->stream_if->stream_closing_notify(stream, err,
+                                                 stream->user_data);
+    }
 }

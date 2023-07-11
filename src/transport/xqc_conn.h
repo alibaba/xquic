@@ -574,4 +574,10 @@ xqc_conn_get_mss(xqc_connection_t *conn) {
     return conn->conn_settings.max_pkt_out_size + XQC_ACK_SPACE;
 }
 
+xqc_int_t xqc_conn_handle_stateless_reset(xqc_connection_t *conn,
+    const uint8_t *sr_token);
+
+xqc_int_t xqc_conn_handle_deprecated_stateless_reset(xqc_connection_t *conn,
+    const xqc_cid_t *scid);
+
 #endif /* _XQC_CONN_H_INCLUDED_ */

@@ -74,6 +74,7 @@ typedef enum {
     TRA_STREAM_STATE_UPDATED,
     TRA_FRAMES_PROCESSED,
     TRA_DATA_MOVED,
+    TRA_STATELESS_RESET,
 
     /* recovery event */
     REC_PARAMETERS_SET,

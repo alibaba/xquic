@@ -762,6 +762,15 @@ xqc_h3_request_end(xqc_h3_request_t *h3r)
     XQC_H3_REQUEST_RECORD_TIME(h3r->h3r_end_time);
 }
 
+void
+xqc_h3_request_closing(xqc_h3_request_t *h3r, xqc_int_t err)
+{
+    if (h3r->request_if->h3_request_closing_notify) {
+        h3r->request_if->h3_request_closing_notify(h3r, err, h3r->user_data);
+    }
+}
+
+
 #define XQC_PRIORITY_URGENCY "u="
 #define XQC_PRIORITY_URGENCY_LEN 2
 

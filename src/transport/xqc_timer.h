@@ -43,6 +43,7 @@ typedef enum xqc_timer_type {
     XQC_TIMER_RETIRE_CID,
     XQC_TIMER_LINGER_CLOSE,
     XQC_TIMER_KEY_UPDATE,
+    XQC_TIMER_PMTUD_PROBING,
 
     XQC_TIMER_N,
 

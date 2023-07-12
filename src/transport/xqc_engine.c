@@ -25,6 +25,8 @@
 #include "src/http3/xqc_h3_conn.h"
 #include "src/tls/xqc_tls.h"
 #include "src/transport/xqc_datagram.h"
+#include "src/transport/xqc_reinjection.h"
+#include "src/transport/xqc_packet_out.h"
 
 
 extern const xqc_qpack_ins_cb_t xqc_h3_qpack_ins_cb;
@@ -623,7 +625,7 @@ xqc_engine_send_reset(xqc_engine_t *engine, xqc_cid_t *dcid,
     const struct sockaddr *local_addr, socklen_t local_addrlen,
     size_t input_pkt_size, void *user_data)
 {
-    unsigned char           buf[XQC_PACKET_OUT_SIZE];
+    unsigned char           buf[XQC_PACKET_OUT_BUF_CAP];
     xqc_int_t               size;
     size_t                  max_sr_pkt_len;
     xqc_stateless_reset_pt  stateless_cb;
@@ -793,6 +795,11 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
         }
     }
 
+    /* PMTUD probing */
+    if (XQC_UNLIKELY(conn->conn_flag & XQC_CONN_FLAG_PMTUD_PROBING)) {
+        xqc_conn_ptmud_probing(conn);
+    }
+
 end:
     conn->packet_need_process_count = 0;
     conn->conn_flag &= ~XQC_CONN_FLAG_NEED_RUN;
@@ -901,6 +908,11 @@ xqc_engine_main_logic(xqc_engine_t *engine)
             } else {
                 xqc_conn_transmit_pto_probe_packets(conn);
                 xqc_conn_retransmit_lost_packets(conn);
+                xqc_conn_send_packets(conn);
+            }
+
+            if (conn->conn_settings.mp_enable_reinjection & XQC_REINJ_UNACK_AFTER_SEND) {
+                xqc_conn_reinject_unack_packets(conn, XQC_REINJ_UNACK_AFTER_SEND);
                 xqc_conn_send_packets(conn);
             }
 

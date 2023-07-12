@@ -130,6 +130,9 @@ typedef enum {
     XQC_CONN_FLAG_CONN_CLOSING_NOTIFIED_SHIFT,
     XQC_CONN_FLAG_DGRAM_WAIT_FOR_1RTT_SHIFT,
     XQC_CONN_FLAG_LOCAL_TP_UPDATED_SHIFT,
+    XQC_CONN_FLAG_PMTUD_PROBING_SHIFT,
+    XQC_CONN_FLAG_NO_DGRAM_NOTIFIED_SHIFT,
+    XQC_CONN_FLAG_DGRAM_MSS_NOTIFY_SHIFT,
     XQC_CONN_FLAG_SHIFT_NUM,
 } xqc_conn_flag_shift_t;
 
@@ -172,6 +175,9 @@ typedef enum {
     XQC_CONN_FLAG_CLOSING_NOTIFIED      = 1ULL << XQC_CONN_FLAG_CONN_CLOSING_NOTIFIED_SHIFT,
     XQC_CONN_FLAG_DGRAM_WAIT_FOR_1RTT   = 1ULL << XQC_CONN_FLAG_DGRAM_WAIT_FOR_1RTT_SHIFT,
     XQC_CONN_FLAG_LOCAL_TP_UPDATED      = 1ULL << XQC_CONN_FLAG_LOCAL_TP_UPDATED_SHIFT,
+    XQC_CONN_FLAG_PMTUD_PROBING         = 1ULL << XQC_CONN_FLAG_PMTUD_PROBING_SHIFT,
+    XQC_CONN_FLAG_NO_DGRAM_NOTIFIED     = 1ULL << XQC_CONN_FLAG_NO_DGRAM_NOTIFIED_SHIFT,
+    XQC_CONN_FLAG_DGRAM_MSS_NOTIFY      = 1ULL << XQC_CONN_FLAG_DGRAM_MSS_NOTIFY_SHIFT,
 
 } xqc_conn_flag_t;
 
@@ -234,11 +240,6 @@ typedef struct {
     xqc_usec_t              initiate_time_guard;  /* time limit for initiating next key update */
 
 } xqc_key_update_ctx_t;
-
-typedef struct {
-    xqc_path_info_t                 path_info[XQC_MAX_PATHS_COUNT];
-    size_t                          path_cnt;
-} xqc_conn_path_history_t;
 
 struct xqc_connection_s {
 
@@ -341,7 +342,6 @@ struct xqc_connection_s {
     xqc_path_ctx_t                 *conn_initial_path;
     xqc_list_head_t                 conn_paths_list;
     uint64_t                        validating_path_id;
-    uint64_t                        should_ack_path_id;     /* 此参数必须跟随 XQC_CONN_FLAG_SHOULD_ACK 系列标志位被设置 */
     uint32_t                        create_path_count;
     uint32_t                        validated_path_count;
     uint32_t                        active_path_count;
@@ -376,10 +376,22 @@ struct xqc_connection_s {
     xqc_list_head_t                 dgram_0rtt_buffer_list;
     uint16_t                        dgram_mss;
 
+    struct {
+        uint32_t                    total_dgram;
+        uint32_t                    hp_dgram;
+        uint32_t                    hp_red_dgram;
+        uint32_t                    hp_red_dgram_mp;
+        uint32_t                    timer_red_dgram;
+    } dgram_stats;            
+
     xqc_gp_timer_id_t               dgram_probe_timer;
     xqc_var_buf_t                  *last_dgram;
-    /* history path */
-    xqc_conn_path_history_t        *history_path;
+
+    /* min pkt_out_size across all paths */
+    size_t                          pkt_out_size;
+    size_t                          max_pkt_out_size;
+    size_t                          probing_pkt_out_size;
+    uint32_t                        probing_cnt;
 };
 
 const char *xqc_conn_flag_2_str(xqc_conn_flag_t conn_flag);
@@ -536,6 +548,8 @@ void xqc_conn_update_stream_stats_on_sent(xqc_connection_t *conn, xqc_packet_out
  */
 xqc_usec_t xqc_conn_get_max_pto(xqc_connection_t *conn);
 
+void xqc_conn_ptmud_probing(xqc_connection_t *conn);
+
 /* 用于流控 */
 xqc_usec_t xqc_conn_get_min_srtt(xqc_connection_t *conn);
 
@@ -547,11 +561,9 @@ void xqc_conn_closing(xqc_connection_t *conn);
 
 void xqc_conn_closing_notify(xqc_connection_t *conn);
 
-void xqc_conn_record_histroy_path(xqc_connection_t *conn, xqc_path_ctx_t *path);
-
 xqc_int_t xqc_conn_send_path_challenge(xqc_connection_t *conn, xqc_path_ctx_t *path);
 
-int xqc_conn_buff_0rtt_datagram(xqc_connection_t *conn, void *data, size_t data_len, uint64_t dgram_id);
+int xqc_conn_buff_0rtt_datagram(xqc_connection_t *conn, void *data, size_t data_len, uint64_t dgram_id, xqc_data_qos_level_t qos_level);
 
 void xqc_conn_destroy_0rtt_datagram_buffer_list(xqc_connection_t *conn);
 void xqc_conn_resend_0rtt_datagram(xqc_connection_t *conn);
@@ -571,7 +583,7 @@ void xqc_conn_schedule_packets_to_paths(xqc_connection_t *conn);
 
 static inline xqc_uint_t 
 xqc_conn_get_mss(xqc_connection_t *conn) {
-    return conn->conn_settings.max_pkt_out_size + XQC_ACK_SPACE;
+    return conn->pkt_out_size + XQC_ACK_SPACE;
 }
 
 xqc_int_t xqc_conn_handle_stateless_reset(xqc_connection_t *conn,
@@ -579,5 +591,9 @@ xqc_int_t xqc_conn_handle_stateless_reset(xqc_connection_t *conn,
 
 xqc_int_t xqc_conn_handle_deprecated_stateless_reset(xqc_connection_t *conn,
     const xqc_cid_t *scid);
+
+void xqc_conn_try_to_update_mss(xqc_connection_t *conn);
+
+void xqc_conn_get_stats_internal(xqc_connection_t *conn, xqc_conn_stats_t *stats);
 
 #endif /* _XQC_CONN_H_INCLUDED_ */

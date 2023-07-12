@@ -63,11 +63,26 @@ xqc_h3_ext_datagram_acked_notify(xqc_connection_t *conn,
     }
 }
 
+void
+xqc_h3_ext_datagram_mss_updated_notify(xqc_connection_t *conn,
+    size_t mss, void *user_data)
+{
+    xqc_h3_conn_t *h3c = (xqc_h3_conn_t*)conn->proto_data;
+    if (h3c->h3_ext_dgram_callbacks.dgram_mss_updated_notify
+        && (h3c->flags & XQC_H3_CONN_FLAG_UPPER_CONN_EXIST)) 
+    {
+        h3c->h3_ext_dgram_callbacks.dgram_mss_updated_notify(h3c, mss, user_data);
+        xqc_log(h3c->log, XQC_LOG_DEBUG, 
+                "|notify datagram mss to app|mss:%z|", mss);
+    }
+}
+
 const xqc_datagram_callbacks_t h3_ext_datagram_callbacks = {
-    .datagram_read_notify  = xqc_h3_ext_datagram_read_notify,
-    .datagram_write_notify = xqc_h3_ext_datagram_write_notify,
-    .datagram_lost_notify  = xqc_h3_ext_datagram_lost_notify,
-    .datagram_acked_notify = xqc_h3_ext_datagram_acked_notify,
+    .datagram_read_notify        = xqc_h3_ext_datagram_read_notify,
+    .datagram_write_notify       = xqc_h3_ext_datagram_write_notify,
+    .datagram_lost_notify        = xqc_h3_ext_datagram_lost_notify,
+    .datagram_acked_notify       = xqc_h3_ext_datagram_acked_notify,
+    .datagram_mss_updated_notify = xqc_h3_ext_datagram_mss_updated_notify,
 };
 
 size_t 

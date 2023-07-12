@@ -265,19 +265,33 @@ typedef void (*xqc_h3_ext_datagram_acked_notify_pt)(xqc_h3_conn_t *conn,
     uint64_t dgram_id, void *user_data);
 
 
+/**
+ * @brief the callback to notify application the MSS of QUIC datagrams. Note, 
+ *        the MSS of QUIC datagrams will never shrink. If the MSS is zero, it 
+ *        means this connection does not support sending QUIC datagrams.
+ * 
+ * @param conn the connection handle
+ * @param user_data the dgram_data set by xqc_h3_ext_datagram_set_user_data
+ * @param mss the MSS of QUIC datagrams
+ */
+typedef void (*xqc_h3_ext_datagram_mss_updated_notify_pt)(xqc_h3_conn_t *conn,
+    size_t mss, void *user_data);
+
+
 typedef struct xqc_h3_ext_dgram_callbacks_s {
 
     /* the return value is ignored by XQUIC stack */
-    xqc_h3_ext_datagram_read_notify_pt  dgram_read_notify;
+    xqc_h3_ext_datagram_read_notify_pt          dgram_read_notify;
 
     /* the return value is ignored by XQUIC stack */
-    xqc_h3_ext_datagram_write_notify_pt dgram_write_notify;
+    xqc_h3_ext_datagram_write_notify_pt         dgram_write_notify;
 
     /* the return value is ignored by XQUIC stack */
-    xqc_h3_ext_datagram_acked_notify_pt dgram_acked_notify;
+    xqc_h3_ext_datagram_acked_notify_pt         dgram_acked_notify;
 
     /* the return value is ignored by XQUIC stack */
-    xqc_h3_ext_datagram_lost_notify_pt  dgram_lost_notify;
+    xqc_h3_ext_datagram_lost_notify_pt          dgram_lost_notify;
+    xqc_h3_ext_datagram_mss_updated_notify_pt   dgram_mss_updated_notify;
 
 } xqc_h3_ext_dgram_callbacks_t;
 

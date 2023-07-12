@@ -30,10 +30,10 @@ typedef struct xqc_recv_record_s {
 } xqc_recv_record_t;
 
 #define XQC_MAX_ACK_RANGE_CNT 64
-#define XQC_DEFAULT_ACK_RANGE_CNT 4
+
 typedef struct xqc_ack_info_s {
     xqc_pkt_num_space_t     pns;
-    uint64_t                path_id;
+    uint64_t                dcid_seq_num;
     unsigned                n_ranges;  /* must > 0 */
     xqc_pktno_range_t       ranges[XQC_MAX_ACK_RANGE_CNT];
     xqc_usec_t              ack_delay;
@@ -62,8 +62,6 @@ void xqc_recv_record_move(xqc_recv_record_t *dst, xqc_recv_record_t *src);
 xqc_pkt_range_status xqc_recv_record_add(xqc_recv_record_t *recv_record, xqc_packet_number_t packet_number);
 
 xqc_packet_number_t xqc_recv_record_largest(xqc_recv_record_t *recv_record);
-
-xqc_list_head_t *xqc_recv_record_get_pos(xqc_recv_record_t *recv_record, xqc_packet_number_t packet_number);
 
 void xqc_maybe_should_ack(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_pn_ctl_t *pn_ctl, xqc_pkt_num_space_t pns, int out_of_order, xqc_usec_t now);
 

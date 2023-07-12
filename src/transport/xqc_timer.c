@@ -27,6 +27,7 @@ static const char * const timer_type_2_str[XQC_TIMER_N] = {
     [XQC_TIMER_RETIRE_CID]      = "RETIRE_CID",
     [XQC_TIMER_LINGER_CLOSE]    = "LINGER_CLOSE",
     [XQC_TIMER_KEY_UPDATE]      = "KEY_UPDATE",
+    [XQC_TIMER_PMTUD_PROBING]   = "PMTUD_PROBING",
 };
 
 const char *
@@ -44,7 +45,6 @@ xqc_timer_ack_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_data)
     xqc_connection_t *conn = send_ctl->ctl_conn;
     xqc_pkt_num_space_t pns = type - XQC_TIMER_ACK_INIT;
     conn->conn_flag |= XQC_CONN_FLAG_SHOULD_ACK_INIT << pns;
-    conn->should_ack_path_id = send_ctl->ctl_path->path_id;
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|pns:%d|path:%ui|", pns, send_ctl->ctl_path->path_id);
 }
@@ -301,6 +301,13 @@ xqc_timer_key_update_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_d
     xqc_tls_discard_old_1rtt_keys(conn->tls);
 }
 
+void
+xqc_timer_pmtud_probing_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_data)
+{
+    xqc_connection_t *conn = (xqc_connection_t *)user_data;
+    conn->conn_flag |= XQC_CONN_FLAG_PMTUD_PROBING;
+}
+
 
 /* timer callbacks end */
 
@@ -363,6 +370,10 @@ xqc_timer_init(xqc_timer_manager_t *manager, xqc_log_t *log, void *user_data)
 
         } else if (type == XQC_TIMER_KEY_UPDATE) {
             timer->timeout_cb = xqc_timer_key_update_timeout;
+            timer->user_data = user_data;
+            
+        } else if (type == XQC_TIMER_PMTUD_PROBING) {
+            timer->timeout_cb = xqc_timer_pmtud_probing_timeout;
             timer->user_data = user_data;
         }
     }

@@ -12,7 +12,8 @@
 
 
 xqc_datagram_0rtt_buffer_t* 
-xqc_datagram_create_0rtt_buffer(void *data, size_t data_len, uint64_t dgram_id)
+xqc_datagram_create_0rtt_buffer(void *data, size_t data_len, 
+    uint64_t dgram_id, xqc_data_qos_level_t qos_level)
 {
     xqc_datagram_0rtt_buffer_t *buffer = xqc_malloc(sizeof(xqc_datagram_0rtt_buffer_t));
     if (buffer == NULL) {
@@ -32,6 +33,7 @@ xqc_datagram_create_0rtt_buffer(void *data, size_t data_len, uint64_t dgram_id)
 
     buffer->iov.iov_len = data_len;
     buffer->dgram_id = dgram_id;
+    buffer->qos_level = qos_level;
     xqc_init_list_head(&buffer->list);
     return buffer;
 }
@@ -52,6 +54,7 @@ xqc_datagram_record_mss(xqc_connection_t *conn)
 {
     size_t udp_payload_limit = 0, dgram_frame_limit = 0, mtu_limit = 0;
     size_t quic_header_size, headroom;
+    size_t old_mss = conn->dgram_mss;
 
     if (conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT) {
         quic_header_size = xqc_short_packet_header_size(conn->dcid_set.current_dcid.cid_len, XQC_PKTNO_BITS);
@@ -62,7 +65,7 @@ xqc_datagram_record_mss(xqc_connection_t *conn)
 
         } else {
             conn->dgram_mss = 0;
-            return;
+            goto end;
         }
     }
 
@@ -75,8 +78,8 @@ xqc_datagram_record_mss(xqc_connection_t *conn)
     }
 
     headroom = quic_header_size + XQC_DATAGRAM_HEADER_BYTES;
-    if (conn->conn_settings.max_pkt_out_size >= headroom) {
-        mtu_limit = conn->conn_settings.max_pkt_out_size - headroom;
+    if (conn->pkt_out_size >= headroom) {
+        mtu_limit = conn->pkt_out_size - headroom;
 
     } else {
         mtu_limit = 0;
@@ -86,7 +89,29 @@ xqc_datagram_record_mss(xqc_connection_t *conn)
                         conn->remote_settings.max_datagram_frame_size - XQC_DATAGRAM_HEADER_BYTES : 
                         0;
     
-    conn->dgram_mss = xqc_min(xqc_min(dgram_frame_limit, udp_payload_limit), mtu_limit);   
+    conn->dgram_mss = xqc_min(xqc_min(dgram_frame_limit, udp_payload_limit), mtu_limit);
+end:
+    if (conn->dgram_mss > old_mss) {
+        conn->conn_flag |= XQC_CONN_FLAG_DGRAM_MSS_NOTIFY;
+
+    } else {
+        if ((conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT)
+            && (conn->dgram_mss == 0)
+            && ~(conn->conn_flag & XQC_CONN_FLAG_NO_DGRAM_NOTIFIED)) 
+        {
+            conn->conn_flag |= XQC_CONN_FLAG_DGRAM_MSS_NOTIFY;
+            conn->conn_flag |= XQC_CONN_FLAG_NO_DGRAM_NOTIFIED;
+        }
+    }
+
+    if ((conn->conn_flag & XQC_CONN_FLAG_DGRAM_MSS_NOTIFY) 
+        && conn->app_proto_cbs.dgram_cbs.datagram_mss_updated_notify
+        && (conn->conn_flag & XQC_CONN_FLAG_UPPER_CONN_EXIST)
+        && conn->dgram_data) 
+    {
+        conn->conn_flag &= ~XQC_CONN_FLAG_DGRAM_MSS_NOTIFY;
+        conn->app_proto_cbs.dgram_cbs.datagram_mss_updated_notify(conn, conn->dgram_mss, conn->dgram_data);
+    }
 }
 
 
@@ -183,7 +208,7 @@ xqc_int_t xqc_datagram_send(xqc_connection_t *conn, void *data,
 
     xqc_conn_check_app_limit(conn);
 
-    ret = xqc_write_datagram_frame_to_packet(conn, pkt_type, data, data_len, &dg_id, XQC_FALSE);
+    ret = xqc_write_datagram_frame_to_packet(conn, pkt_type, data, data_len, &dg_id, XQC_FALSE, qos_level);
 
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|write_datagram_frame_to_packet_error|");
@@ -194,7 +219,7 @@ xqc_int_t xqc_datagram_send(xqc_connection_t *conn, void *data,
     /* 0RTT failure requires fallback to 1RTT, save the original send data */
     if (pkt_type == XQC_PTYPE_0RTT) {
         /* buffer 0RTT packet */
-        ret = xqc_conn_buff_0rtt_datagram(conn, data, data_len, dg_id);
+        ret = xqc_conn_buff_0rtt_datagram(conn, data, data_len, dg_id, qos_level);
         if (ret < 0) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|unable_to_buffer_0rtt_datagram_data_error|");
             XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
@@ -204,42 +229,6 @@ xqc_int_t xqc_datagram_send(xqc_connection_t *conn, void *data,
 
     if (dgram_id) {
         *dgram_id = dg_id;
-    }
-
-    if (qos_level <= XQC_DATA_QOS_HIGH) {
-        int red;
-        for (red = 0; red < conn->conn_settings.datagram_redundancy; red++) {
-            if (!xqc_send_queue_can_write(conn->conn_send_queue)) {
-                conn->conn_send_queue->sndq_full = XQC_TRUE;
-                xqc_log(conn->log, XQC_LOG_DEBUG, "|red_dgram|too many packets used|ctl_packets_used:%ud|", conn->conn_send_queue->sndq_packets_used);
-                break;
-            }
-
-            if (pkt_type == XQC_PTYPE_0RTT && conn->zero_rtt_count >= XQC_PACKET_0RTT_MAX_COUNT) {
-                conn->conn_flag |= XQC_CONN_FLAG_DGRAM_WAIT_FOR_1RTT;
-                xqc_log(conn->log, XQC_LOG_DEBUG, "|red_dgram|too many 0rtt packets|zero_rtt_count:%ud|", conn->zero_rtt_count);
-                break;
-            }
-
-            ret = xqc_write_datagram_frame_to_packet(conn, pkt_type, data, data_len, &dg_id, XQC_FALSE);
-
-            if (ret < 0) {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|red_dgram|write_datagram_frame_to_packet_error|");
-                XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
-                return ret;
-            }
-
-            /* 0RTT failure requires fallback to 1RTT, save the original send data */
-            if (pkt_type == XQC_PTYPE_0RTT) {
-                /* buffer 0RTT packet */
-                ret = xqc_conn_buff_0rtt_datagram(conn, data, data_len, dg_id);
-                if (ret < 0) {
-                    xqc_log(conn->log, XQC_LOG_ERROR, "|red_dgram|unable_to_buffer_0rtt_datagram_data_error|");
-                    XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
-                    return ret;
-                }
-            }
-        }
     }
 
     if (!(conn->conn_flag & XQC_CONN_FLAG_TICKING)) {
@@ -283,14 +272,14 @@ xqc_datagram_send_multiple(xqc_connection_t *conn,
     struct iovec *iov, uint64_t *dgram_id_list, size_t iov_size, 
     size_t *sent_cnt, size_t *sent_bytes, xqc_data_qos_level_t qos_level)
 {
-    return xqc_datagram_send_multiple_internal(conn, iov, dgram_id_list, iov_size, sent_cnt, sent_bytes, qos_level, XQC_FALSE, XQC_FALSE);
+    return xqc_datagram_send_multiple_internal(conn, iov, dgram_id_list, iov_size, sent_cnt, sent_bytes, qos_level, XQC_FALSE);
 }
 
 xqc_int_t 
 xqc_datagram_send_multiple_internal(xqc_connection_t *conn, 
     struct iovec *iov, uint64_t *dgram_id_list, size_t iov_size, 
     size_t *sent_cnt, size_t *sent_bytes, xqc_data_qos_level_t qos_level, 
-    xqc_bool_t use_supplied_dgram_id, xqc_bool_t disable_redundancy)
+    xqc_bool_t use_supplied_dgram_id)
 {
     if (sent_cnt) {
         *sent_cnt = 0;
@@ -388,7 +377,9 @@ xqc_datagram_send_multiple_internal(xqc_connection_t *conn,
             dgram_id = dgram_id_list[i];
         }
 
-        ret = xqc_write_datagram_frame_to_packet(conn, pkt_type, data, data_len, &dgram_id, use_supplied_dgram_id);
+        ret = xqc_write_datagram_frame_to_packet(conn, pkt_type, data, data_len, 
+                                                 &dgram_id, use_supplied_dgram_id, 
+                                                 qos_level);
 
         if (ret < 0) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|write_datagram_frame_to_packet_error|");
@@ -399,7 +390,7 @@ xqc_datagram_send_multiple_internal(xqc_connection_t *conn,
         /* 0RTT failure requires fallback to 1RTT, save the original send data */
         if (pkt_type == XQC_PTYPE_0RTT) {
             /* buffer 0RTT packet */
-            ret = xqc_conn_buff_0rtt_datagram(conn, data, data_len, dgram_id);
+            ret = xqc_conn_buff_0rtt_datagram(conn, data, data_len, dgram_id, qos_level);
             if (ret < 0) {
                 xqc_log(conn->log, XQC_LOG_ERROR, "|unable_to_buffer_0rtt_datagram_data_error|");
                 XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
@@ -412,51 +403,6 @@ xqc_datagram_send_multiple_internal(xqc_connection_t *conn,
         }
 
         *sent_bytes += data_len;
-    }
-
-    /* send redundant datagram packets */
-    if (disable_redundancy == XQC_FALSE 
-        && (*sent_cnt > 0)
-        && (qos_level <= XQC_DATA_QOS_HIGH)) 
-    {
-        int red;
-        for (red = 0; red < conn->conn_settings.datagram_redundancy; red++) {
-            for (i = 0; i < iov_size; i++) {
-                data = iov[i].iov_base;
-                data_len = iov[i].iov_len;
-
-                if (!xqc_send_queue_can_write(conn->conn_send_queue)) {
-                    conn->conn_send_queue->sndq_full = XQC_TRUE;
-                    xqc_log(conn->log, XQC_LOG_DEBUG, "|red_dgram|too many packets used|ctl_packets_used:%ud|", conn->conn_send_queue->sndq_packets_used);
-                    break;
-                }
-
-                if (pkt_type == XQC_PTYPE_0RTT && conn->zero_rtt_count >= XQC_PACKET_0RTT_MAX_COUNT) {
-                    conn->conn_flag |= XQC_CONN_FLAG_DGRAM_WAIT_FOR_1RTT;
-                    xqc_log(conn->log, XQC_LOG_DEBUG, "|red_dgram|too many 0rtt packets|zero_rtt_count:%ud|", conn->zero_rtt_count);
-                    break;
-                }
-
-                ret = xqc_write_datagram_frame_to_packet(conn, pkt_type, data, data_len, &dgram_id, XQC_FALSE);
-
-                if (ret < 0) {
-                    xqc_log(conn->log, XQC_LOG_ERROR, "|red_dgram|write_datagram_frame_to_packet_error|");
-                    XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
-                    return ret;
-                }
-
-                /* 0RTT failure requires fallback to 1RTT, save the original send data */
-                if (pkt_type == XQC_PTYPE_0RTT) {
-                    /* buffer 0RTT packet */
-                    ret = xqc_conn_buff_0rtt_datagram(conn, data, data_len, dgram_id);
-                    if (ret < 0) {
-                        xqc_log(conn->log, XQC_LOG_ERROR, "|red_dgram|unable_to_buffer_0rtt_datagram_data_error|");
-                        XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
-                        return ret;
-                    }
-                }
-            }
-        }
     }
 
     if (*sent_cnt > 0) {
@@ -491,6 +437,8 @@ void
 xqc_datagram_set_user_data(xqc_connection_t *conn, void *dgram_data)
 {
     conn->dgram_data = dgram_data;
+    /* notify to the upper layer */
+    xqc_datagram_record_mss(conn);
 }
 
 void *

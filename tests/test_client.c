@@ -67,6 +67,7 @@ typedef struct user_datagram_block_s {
     size_t         data_recv;
     size_t         data_lost;
     size_t         dgram_lost;
+    uint32_t       dgram_id;
 } user_dgram_blk_t;
 typedef struct client_ctx_s {
     xqc_engine_t   *engine;
@@ -188,6 +189,7 @@ int g_conn_num = 100;
 int g_process_num = 2;
 int g_test_qch_mode = 0;
 int g_random_cid = 0;
+xqc_data_qos_level_t g_dgram_qos_level;
 xqc_conn_settings_t *g_conn_settings;
 
 unsigned char *sock_op_buffer[2000];
@@ -228,7 +230,7 @@ int g_no_crypt;
 int g_conn_timeout = 1;
 int g_conn_abs_timeout = 0;
 int g_path_timeout = 700000; /* 300ms */
-int g_epoch_timeout = 200000; /* us */
+int g_epoch_timeout = 1000000; /* us */
 char g_write_file[256];
 char g_read_file[256];
 char g_log_path[256];
@@ -250,6 +252,7 @@ int g_mp_backup_mode = 0;
 int g_mp_request_accelerate = 0;
 double g_copa_ai = 1.0;
 double g_copa_delta = 0.05;
+int g_pmtud_on = 0;
 char g_header_key[MAX_HEADER_KEY_LEN];
 char g_header_value[MAX_HEADER_VALUE_LEN];
 
@@ -272,6 +275,86 @@ int hsk_completed = 0;
 int g_periodically_request = 0;
 
 static uint64_t last_recv_ts = 0;
+
+/*
+ CDF file format:
+ N (N lines)
+ p1(0) v1(0)
+ p2 v2
+ ....
+ pN(1.0) vN
+*/
+static int
+load_cdf(char *cdf_file)
+{
+    FILE *fp = fopen(cdf_file, "r");
+    if (fp == NULL) {
+        return -1;
+    }
+    int n;
+    fscanf(fp, "%d", &n);
+    cdf_list_size = n;
+    cdf_list = malloc(sizeof(cdf_entry_t) * cdf_list_size);
+    while (n--) {
+        fscanf(fp, "%lf%d", &cdf_list[cdf_list_size - n - 1].p, &cdf_list[cdf_list_size - n - 1].val);
+    }
+    return 0;
+}
+
+static void
+destroy_cdf()
+{
+    if (cdf_list != NULL) {
+        free(cdf_list);
+        cdf_list = NULL;
+    }
+}
+
+static int
+get_val_from_cdf_by_p(double p)
+{
+    int last_entry_id = -1, i;
+    double p0 = 0, p1 = 0;
+    int v0 = 0, v1 = 0;
+    int v = 0;
+    for (i = 0; i < cdf_list_size; i++) {
+        if (p > cdf_list[i].p) {
+            last_entry_id = i;
+            p0 = cdf_list[i].p;
+            v0 = cdf_list[i].val;
+        } else {
+            //linear interpolation
+            p1 = cdf_list[i].p;
+            v1 = cdf_list[i].val;
+            v = v0 + (int)(((v1 - v0) / (p1 - p0)) * (p - p0));
+            break;
+        }
+    }
+    if (v == 0) {
+        v = 1;
+    }
+    return v;
+}
+
+static int
+get_random_from_cdf()
+{
+    int r = 1 + (random() % 1000);
+    double p = r * 1.0 / 1000; // 0.001 ~ 1
+    return get_val_from_cdf_by_p(p);
+}
+
+
+static inline uint64_t 
+now()
+{
+    /* get microsecond unit time */
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    uint64_t ul = tv.tv_sec * (uint64_t)1000000 + tv.tv_usec;
+    return  ul;
+}
+
 
 static void xqc_client_socket_event_callback(int fd, short what, void *arg);
 static void xqc_client_timeout_callback(int fd, short what, void *arg);
@@ -322,7 +405,7 @@ xqc_client_datagram_send(user_conn_t *user_conn)
                 dgram_size = user_conn->dgram_mss;
             }
             dgram_blk->data[dgram_blk->data_sent] = 0x31;
-            ret = xqc_datagram_send(user_conn->quic_conn, dgram_blk->data + dgram_blk->data_sent, dgram_size, &dgram_id, XQC_DATA_QOS_HIGH);
+            ret = xqc_datagram_send(user_conn->quic_conn, dgram_blk->data + dgram_blk->data_sent, dgram_size, &dgram_id, g_dgram_qos_level);
             if (ret == -XQC_EAGAIN) {
                 printf("[dgram]|retry_datagram_send_later|\n");
                 return;
@@ -335,8 +418,12 @@ xqc_client_datagram_send(user_conn_t *user_conn)
                 xqc_conn_close(ctx.engine, &user_conn->cid);
                 return;
             }
-            //printf("[dgram]|send_one_datagram|id:%"PRIu64"|size:%zu|\n", dgram_id, dgram_size);
+            // printf("[dgram]|send_one_datagram|id:%"PRIu64"|size:%zu|\n", dgram_id, dgram_size);
             dgram_blk->data_sent += dgram_size;
+
+            if (g_epoch) {
+                break;
+            }
         }
     } else if (g_send_dgram == 2) {
         struct iovec iov[XQC_TEST_DGRAM_BATCH_SZ];
@@ -363,7 +450,7 @@ xqc_client_datagram_send(user_conn_t *user_conn)
             if ((bytes_in_batch + dgram_blk->data_sent) == dgram_blk->data_len
                 || batch_cnt == XQC_TEST_DGRAM_BATCH_SZ) 
             {
-                ret = xqc_datagram_send_multiple(user_conn->quic_conn, iov, dgram_id_list, batch_cnt, &succ_sent, &succ_sent_bytes, XQC_DATA_QOS_HIGH);
+                ret = xqc_datagram_send_multiple(user_conn->quic_conn, iov, dgram_id_list, batch_cnt, &succ_sent, &succ_sent_bytes, g_dgram_qos_level);
                 if (ret == -XQC_EDGRAM_TOO_LARGE) {
                     printf("[dgram]|trying_to_send_an_oversized_datagram|recorded_mss:%zu|send_size:%zu|current_mss:%zu|\n", user_conn->dgram_mss, iov[succ_sent].iov_len, xqc_datagram_get_mss(user_conn->quic_conn));
                     printf("[dgram]|partially_sent_pkts_in_a_batch|cnt:%zu|\n", succ_sent);
@@ -396,6 +483,13 @@ xqc_client_datagram_send(user_conn_t *user_conn)
     }
 }
 
+static void
+xqc_client_datagram_mss_updated_callback(xqc_connection_t *conn, size_t mss, void *user_data)
+{
+    user_conn_t *user_conn = (user_conn_t*)user_data;
+    user_conn->dgram_mss = mss;
+    printf("[dgram]|mss_callback|updated_mss:%zu|\n", mss);
+}
 
 static void
 xqc_client_datagram_read_callback(xqc_connection_t *conn, void *user_data, const void *data, size_t data_len, uint64_t dgram_ts)
@@ -488,8 +582,21 @@ xqc_client_h3_ext_datagram_send(user_conn_t *user_conn)
             if (dgram_size > user_conn->dgram_mss) {
                 dgram_size = user_conn->dgram_mss;
             }
-            dgram_blk->data[dgram_blk->data_sent] = 0x31;
-            ret = xqc_h3_ext_datagram_send(user_conn->h3_conn, dgram_blk->data + dgram_blk->data_sent, dgram_size, &dgram_id, XQC_DATA_QOS_HIGH);
+
+            if (g_epoch) {
+                if (dgram_blk->data_len - dgram_blk->data_sent < 13) {
+                    dgram_blk->data_sent = dgram_blk->data_len;
+                    break;
+                }
+                dgram_blk->data[dgram_blk->data_sent] = 0x32;
+                *(uint32_t*)(dgram_blk->data + dgram_blk->data_sent + 1) = dgram_blk->dgram_id++;
+                *(uint64_t*)(dgram_blk->data + dgram_blk->data_sent + 5) = now();
+
+            } else {
+                dgram_blk->data[dgram_blk->data_sent] = 0x31;
+            }
+            
+            ret = xqc_h3_ext_datagram_send(user_conn->h3_conn, dgram_blk->data + dgram_blk->data_sent, dgram_size, &dgram_id, g_dgram_qos_level);
             if (ret == -XQC_EAGAIN) {
                 printf("[h3-dgram]|retry_datagram_send_later|\n");
                 return;
@@ -504,6 +611,10 @@ xqc_client_h3_ext_datagram_send(user_conn_t *user_conn)
             }
             //printf("[dgram]|send_one_datagram|id:%"PRIu64"|size:%zu|\n", dgram_id, dgram_size);
             dgram_blk->data_sent += dgram_size;
+            
+            if (g_epoch) {
+                break;
+            }
         }
     } else if (g_send_dgram == 2) {
         struct iovec iov[XQC_TEST_DGRAM_BATCH_SZ];
@@ -530,7 +641,7 @@ xqc_client_h3_ext_datagram_send(user_conn_t *user_conn)
             if ((bytes_in_batch + dgram_blk->data_sent) == dgram_blk->data_len
                 || batch_cnt == XQC_TEST_DGRAM_BATCH_SZ) 
             {
-                ret = xqc_h3_ext_datagram_send_multiple(user_conn->h3_conn, iov, dgram_id_list, batch_cnt, &succ_sent, &succ_sent_bytes, XQC_DATA_QOS_HIGH);
+                ret = xqc_h3_ext_datagram_send_multiple(user_conn->h3_conn, iov, dgram_id_list, batch_cnt, &succ_sent, &succ_sent_bytes, g_dgram_qos_level);
                 if (ret == -XQC_EDGRAM_TOO_LARGE) {
                     printf("[h3-dgram]|trying_to_send_an_oversized_datagram|recorded_mss:%zu|send_size:%zu|current_mss:%zu|\n", user_conn->dgram_mss, iov[succ_sent].iov_len, xqc_h3_ext_datagram_get_mss(user_conn->h3_conn));
                     printf("[h3-dgram]|partially_sent_pkts_in_a_batch|cnt:%zu|\n", succ_sent);
@@ -561,6 +672,15 @@ xqc_client_h3_ext_datagram_send(user_conn_t *user_conn)
         }
 
     }
+}
+
+
+static void
+xqc_client_h3_ext_datagram_mss_updated_callback(xqc_h3_conn_t *conn, size_t mss, void *user_data)
+{
+    user_conn_t *user_conn = (user_conn_t*)user_data;
+    user_conn->dgram_mss = mss;
+    printf("[h3-dgram]|callback|updated_mss:%zu|\n", mss);
 }
 
 static void
@@ -619,84 +739,6 @@ xqc_client_h3_ext_datagram_lost_callback(xqc_h3_conn_t *conn, uint64_t dgram_id,
 
 
 static void xqc_client_timeout_multi_process_callback(int fd, short what, void *arg);
-/*
- CDF file format:
- N (N lines)
- p1(0) v1(0)
- p2 v2
- ....
- pN(1.0) vN
-*/
-static int
-load_cdf(char *cdf_file)
-{
-    FILE *fp = fopen(cdf_file, "r");
-    if (fp == NULL) {
-        return -1;
-    }
-    int n;
-    fscanf(fp, "%d", &n);
-    cdf_list_size = n;
-    cdf_list = malloc(sizeof(cdf_entry_t) * cdf_list_size);
-    while (n--) {
-        fscanf(fp, "%lf%d", &cdf_list[cdf_list_size - n - 1].p, &cdf_list[cdf_list_size - n - 1].val);
-    }
-    return 0;
-}
-
-static void
-destroy_cdf()
-{
-    if (cdf_list != NULL) {
-        free(cdf_list);
-        cdf_list = NULL;
-    }
-}
-
-static int
-get_val_from_cdf_by_p(double p)
-{
-    int last_entry_id = -1, i;
-    double p0 = 0, p1 = 0;
-    int v0 = 0, v1 = 0;
-    int v = 0;
-    for (i = 0; i < cdf_list_size; i++) {
-        if (p > cdf_list[i].p) {
-            last_entry_id = i;
-            p0 = cdf_list[i].p;
-            v0 = cdf_list[i].val;
-        } else {
-            //linear interpolation
-            p1 = cdf_list[i].p;
-            v1 = cdf_list[i].val;
-            v = v0 + (int)(((v1 - v0) / (p1 - p0)) * (p - p0));
-            break;
-        }
-    }
-    if (v == 0) {
-        v = 1;
-    }
-    return v;
-}
-
-static int
-get_random_from_cdf()
-{
-    int r = 1 + (random() % 1000);
-    double p = r * 1.0 / 1000; // 0.001 ~ 1
-    return get_val_from_cdf_by_p(p);
-}
-
-
-static inline uint64_t 
-now()
-{
-    /* get microsecond unit time */
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    uint64_t ul = tv.tv_sec * (uint64_t)1000000 + tv.tv_usec;
-    return  ul;
-}
 
 
 void
@@ -923,6 +965,9 @@ xqc_client_write_socket(const unsigned char *buf, size_t size,
             if (errno == EAGAIN) {
                 res = XQC_SOCKET_EAGAIN;
             }
+            if (errno == EMSGSIZE) {
+                res = send_buf_size;
+            }
         }
 
         if (sock_op_buffer_len) {
@@ -1045,8 +1090,6 @@ xqc_client_write_socket_ex(uint64_t path_id,
         }
     }
 
-    // printf("... sent:%zu\n", size);
-
     /* get path fd */
     fd = xqc_client_get_path_fd_by_id(user_conn, path_id);
 
@@ -1081,7 +1124,7 @@ xqc_client_write_socket_ex(uint64_t path_id,
         if (g_test_case == 103 && path_id == 0 && g_client_path[0].send_size > g_send_body_size/10) {
             fd = g_client_path[0].rebinding_path_fd;
         }
-        else if (g_test_case == 104 && path_id == 1 && g_client_path[1].send_size > g_send_body_size/10) {
+        else if (g_test_case == 104 && path_id == 1 && g_client_path[1].send_size > 10240) {
             fd = g_client_path[1].rebinding_path_fd;
         }
     }
@@ -1154,11 +1197,14 @@ xqc_client_write_socket_ex(uint64_t path_id,
 
         res = sendto(fd, send_buf, send_buf_size, 0, peer_addr, peer_addrlen);
         if (res < 0) {
-            printf("xqc_client_write_socket_ex path:%lu err %zd %s\n", path_id, res, strerror(errno));
+            printf("xqc_client_write_socket_ex path:%lu err %zd %s %zu\n", path_id, res, strerror(errno), send_buf_size);
             if (errno == EAGAIN) {
                 res = XQC_SOCKET_EAGAIN;
             } else {
                 res = XQC_SOCKET_ERROR;
+            }
+            if (errno == EMSGSIZE) {
+                res = send_buf_size;
             }
         }
 
@@ -1340,6 +1386,9 @@ xqc_client_create_socket(int type,
         printf("setsockopt failed, errno: %d\n", errno);
         goto err;
     }
+
+    int val = IP_PMTUDISC_DO;
+    setsockopt(fd, IPPROTO_IP, IP_MTU_DISCOVER, &val, sizeof(val));
 
     g_last_sock_op_time = now();
 
@@ -1707,7 +1756,6 @@ xqc_client_conn_handshake_finished(xqc_connection_t *conn, void *user_data, void
             user_conn->dgram_mss = 1000;
         }
     }
-
     if (g_test_case == 200 || g_test_case == 201) {
         printf("[dgram-200]|1RTT|updated_mss:%zu|\n", user_conn->dgram_mss);
     }
@@ -2133,7 +2181,7 @@ xqc_client_bytestream_send(xqc_h3_ext_bytestream_t *h3_bs, user_stream_t *user_s
 
     if (g_test_case == 303) {
         //send pure fin on bytestream
-        xqc_h3_ext_bytestream_send(h3_bs, NULL, 0, 1, XQC_DATA_QOS_HIGH);
+        xqc_h3_ext_bytestream_send(h3_bs, NULL, 0, 1, g_dgram_qos_level);
         return 0;
     }
 
@@ -2163,7 +2211,7 @@ xqc_client_bytestream_send(xqc_h3_ext_bytestream_t *h3_bs, user_stream_t *user_s
 
     /* send body */
     if (user_stream->send_offset < user_stream->send_body_len) {
-        ret = xqc_h3_ext_bytestream_send(h3_bs, user_stream->send_body + user_stream->send_offset, user_stream->send_body_len - user_stream->send_offset, fin, XQC_DATA_QOS_HIGH);
+        ret = xqc_h3_ext_bytestream_send(h3_bs, user_stream->send_body + user_stream->send_offset, user_stream->send_body_len - user_stream->send_offset, fin, g_dgram_qos_level);
 
         if (ret == -XQC_EAGAIN) {
             printf("xqc_h3_ext_bytestream_send eagain %zd\n", ret);
@@ -3375,28 +3423,40 @@ xqc_client_epoch_callback(int fd, short what, void *arg)
     g_cur_epoch++;
     printf("|xqc_client_epoch_callback|epoch:%d|\n", g_cur_epoch);
 
-    for (int i = 0; i < g_req_paral; i++) {
-        g_req_cnt++;
-        user_stream_t *user_stream = calloc(1, sizeof(user_stream_t));
-        user_stream->user_conn = user_conn;
-        user_stream->last_recv_log_time = now();
-        user_stream->recv_log_bytes = 0;
-        if (user_conn->h3 == 0 || user_conn->h3 == 2) {
-            user_stream->h3_request = xqc_h3_request_create(ctx.engine, &user_conn->cid, user_stream);
-            if (user_stream->h3_request == NULL) {
-                printf("xqc_h3_request_create error\n");
-                continue;
+    if (g_send_dgram) {
+        if (user_conn->h3 == 1) {
+            xqc_client_datagram_send(user_conn);
+
+        } else if (user_conn->h3 == 2) {
+            xqc_client_h3_ext_datagram_send(user_conn);
+        }
+
+    } else {
+        for (int i = 0; i < g_req_paral; i++) {
+            g_req_cnt++;
+            user_stream_t *user_stream = calloc(1, sizeof(user_stream_t));
+            user_stream->user_conn = user_conn;
+            user_stream->last_recv_log_time = now();
+            user_stream->recv_log_bytes = 0;
+            if (user_conn->h3 == 0 || user_conn->h3 == 2) {
+                user_stream->h3_request = xqc_h3_request_create(ctx.engine, &user_conn->cid, user_stream);
+                if (user_stream->h3_request == NULL) {
+                    printf("xqc_h3_request_create error\n");
+                    continue;
+                }
+                xqc_client_request_send(user_stream->h3_request, user_stream);
+            } else {
+                user_stream->stream = xqc_stream_create(ctx.engine, &user_conn->cid, user_stream);
+                if (user_stream->stream == NULL) {
+                    printf("xqc_stream_create error\n");
+                    continue;
+                }
+                xqc_client_stream_send(user_stream->stream, user_stream);
             }
-            xqc_client_request_send(user_stream->h3_request, user_stream);
-        } else {
-            user_stream->stream = xqc_stream_create(ctx.engine, &user_conn->cid, user_stream);
-            if (user_stream->stream == NULL) {
-                printf("xqc_stream_create error\n");
-                continue;
-            }
-            xqc_client_stream_send(user_stream->stream, user_stream);
         }
     }
+
+
 
     if (g_cur_epoch < g_epoch) {
         struct timeval tv;
@@ -3833,6 +3893,8 @@ int main(int argc, char *argv[]) {
     g_req_paral = 1;
     g_copa_ai = 1.0;
     g_copa_delta = 0.05;
+    g_dgram_qos_level = XQC_DATA_QOS_HIGH;
+    g_pmtud_on = 0;
 
     char server_addr[64] = TEST_SERVER_ADDR;
     g_server_addr = server_addr;
@@ -3853,6 +3915,9 @@ int main(int argc, char *argv[]) {
     const struct option long_opts[] = {
         {"copa_delta", required_argument, &long_opt_index, 1},
         {"copa_ai_unit", required_argument, &long_opt_index, 2},
+        {"epoch_timeout", required_argument, &long_opt_index, 3},
+        {"dgram_qos", required_argument, &long_opt_index, 4},
+        {"pmtud", required_argument, &long_opt_index, 5},
         {0, 0, 0, 0}
     };
 
@@ -4085,6 +4150,31 @@ int main(int argc, char *argv[]) {
                     printf("option g_copa_ai: %.4lf\n", g_copa_ai);
                 }
                 break;
+            
+            case 3:
+                g_epoch_timeout = atoi(optarg);
+                if (g_epoch_timeout <= 0) {
+                    printf("invalid epoch_timeout!\n");
+                    exit(0);
+                } else {
+                    printf("option g_epoch_timeout: %d\n", g_epoch_timeout);
+                }
+                break;
+
+            case 4:
+                g_dgram_qos_level = atoi(optarg);
+                if (g_dgram_qos_level < XQC_DATA_QOS_HIGHEST || g_dgram_qos_level > XQC_DATA_QOS_LOWEST) {
+                    printf("invalid qos level!\n");
+                    exit(0);
+                } else {
+                    printf("option g_dgram_qos_level: %d\n", g_dgram_qos_level);
+                }
+                break;
+
+            case 5:
+                g_pmtud_on = atoi(optarg);
+                printf("option g_pmtud_on: %d\n", g_pmtud_on);
+                break;
 
             default:
                 break;
@@ -4201,12 +4291,17 @@ int main(int argc, char *argv[]) {
         .keyupdate_pkt_threshold = 0,
         .max_datagram_frame_size = g_max_dgram_size,
         .enable_multipath = g_enable_multipath,
+        .marking_reinjection = 1,
     };
 
     
     if (g_test_case == 400) {
         //low_delay
         conn_settings = xqc_conn_get_conn_settings_template(XQC_CONN_SETTINGS_LOW_DELAY);
+    }
+
+    if (g_pmtud_on) {
+        conn_settings.enable_pmtud = 1;
     }
 
     conn_settings.pacing_on = pacing_on;
@@ -4219,6 +4314,15 @@ int main(int argc, char *argv[]) {
     }
 
     if (g_test_case == 209) {
+        conn_settings.datagram_redundant_probe = 30000;
+    }
+
+    if (g_test_case == 210) {
+        conn_settings.datagram_redundancy = 2;
+    }
+
+    if (g_test_case == 211) {
+        conn_settings.datagram_redundancy = 2;
         conn_settings.datagram_redundant_probe = 30000;
     }
 
@@ -4341,6 +4445,7 @@ int main(int argc, char *argv[]) {
             .dgram_write_notify = xqc_client_h3_ext_datagram_write_callback,
             .dgram_acked_notify = xqc_client_h3_ext_datagram_acked_callback,
             .dgram_lost_notify = xqc_client_h3_ext_datagram_lost_callback,
+            .dgram_mss_updated_notify = xqc_client_h3_ext_datagram_mss_updated_callback,
         },
         .h3_ext_bs_cbs = {
             .bs_read_notify = xqc_h3_ext_bytestream_read_callback,
@@ -4375,6 +4480,7 @@ int main(int argc, char *argv[]) {
             .datagram_read_notify = xqc_client_datagram_read_callback,
             .datagram_acked_notify = xqc_client_datagram_acked_callback,
             .datagram_lost_notify = xqc_client_datagram_lost_callback,
+            .datagram_mss_updated_notify = xqc_client_datagram_mss_updated_callback,
         }
     };
 
@@ -4417,9 +4523,18 @@ int main(int argc, char *argv[]) {
     }
 
     /* enable_reinjection */
-    if (g_enable_reinjection) {
-        conn_settings.reinj_ctl_callback    = xqc_xlink_reinj_ctl_cb;
-        conn_settings.mp_enable_reinjection = g_enable_reinjection;
+    if (g_enable_reinjection == 1) {
+        conn_settings.reinj_ctl_callback    = xqc_default_reinj_ctl_cb;
+        conn_settings.mp_enable_reinjection = 1;
+
+    } else if (g_enable_reinjection == 2) {
+        conn_settings.reinj_ctl_callback    = xqc_deadline_reinj_ctl_cb;
+        conn_settings.mp_enable_reinjection = 2;
+
+    } else if (g_enable_reinjection == 3) {
+        conn_settings.reinj_ctl_callback    = xqc_dgram_reinj_ctl_cb;
+        conn_settings.mp_enable_reinjection = 4;
+        conn_settings.scheduler_callback    = xqc_rap_scheduler_cb;
     }
 
     if (g_mp_backup_mode) {
@@ -4504,6 +4619,7 @@ int main(int argc, char *argv[]) {
     user_conn->dgram_blk = calloc(1, sizeof(user_dgram_blk_t));
     user_conn->dgram_blk->data_sent = 0;
     user_conn->dgram_blk->data_recv = 0;
+    user_conn->dgram_blk->dgram_id = 1;
     if (user_conn->quic_conn) {
         printf("[dgram]|prepare_dgram_user_data|\n");
         xqc_datagram_set_user_data(user_conn->quic_conn, user_conn);
@@ -4565,7 +4681,7 @@ int main(int argc, char *argv[]) {
                 user_conn->dgram_blk->data[0] = 0x1;
                 user_conn->dgram_blk->data_len = g_send_body_size;
                 if (g_echo_check) {
-                    user_conn->dgram_blk->recv_data = calloc(1, g_send_body_size);
+                    user_conn->dgram_blk->recv_data = calloc(1, g_send_body_size << 4);
                     user_conn->dgram_blk->recv_data[0] = 0x2;
                 }
                 xqc_client_h3_ext_datagram_send(user_conn);
@@ -4630,7 +4746,7 @@ int main(int argc, char *argv[]) {
         user_conn->dgram_blk->data = calloc(1, g_send_body_size);
         user_conn->dgram_blk->data_len = g_send_body_size;
         if (g_echo_check) {
-            user_conn->dgram_blk->recv_data = calloc(1, g_send_body_size);
+            user_conn->dgram_blk->recv_data = calloc(1, g_send_body_size << 4);
         }
         if (user_conn->h3 == 2) {
             xqc_client_h3_ext_datagram_send(user_conn);

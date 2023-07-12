@@ -15,6 +15,8 @@
 #include "src/transport/xqc_engine.h"
 #include "src/transport/xqc_multipath.h"
 #include "src/transport/xqc_datagram.h"
+#include "src/transport/xqc_reinjection.h"
+#include "src/transport/xqc_packet_out.h"
 
 
 xqc_packet_out_t *
@@ -26,12 +28,12 @@ xqc_packet_out_create(size_t po_buf_size)
         goto error;
     }
 
-    packet_out->po_buf = xqc_malloc(po_buf_size + XQC_PACKET_OUT_EXT_SPACE);
+    packet_out->po_buf = xqc_malloc(XQC_PACKET_OUT_BUF_CAP);
     if (!packet_out->po_buf) {
         goto error;
     }
 
-    packet_out->po_buf_cap = po_buf_size + XQC_PACKET_OUT_EXT_SPACE;
+    packet_out->po_buf_cap = XQC_PACKET_OUT_BUF_CAP;
     packet_out->po_buf_size = po_buf_size;
 
     return packet_out;
@@ -42,6 +44,88 @@ error:
         xqc_free(packet_out);
     }
     return NULL;
+}
+
+
+ xqc_bool_t 
+ xqc_packet_out_on_specific_path(xqc_connection_t *conn, 
+    xqc_packet_out_t *po, xqc_path_ctx_t **path)
+{
+    xqc_bool_t ret = XQC_FALSE;
+    if (po->po_path_flag) {
+        *path = xqc_conn_find_path_by_path_id(conn, po->po_path_id);
+
+        /* no packets can be sent on a closing/closed path */
+        if ((*path == NULL) || ((*path)->path_state >= XQC_PATH_STATE_CLOSING)) {
+            
+            po->po_path_flag &= ~(XQC_PATH_SPECIFIED_BY_ACK | XQC_PATH_SPECIFIED_BY_PTO);
+
+            if (po->po_path_flag & XQC_PATH_SPECIFIED_BY_REINJ) {
+                if (po->po_flag & XQC_POF_REINJECTED_REPLICA) {
+                    /* replicated packets should be removed */
+                    xqc_disassociate_packet_with_reinjection(po->po_origin, po);
+
+                } else {
+                    /* the origin packet can be rescheduled */
+                    po->po_path_flag &= ~XQC_PATH_SPECIFIED_BY_REINJ;
+                } 
+            }
+
+            /* if the packet can not be rescheduled, we remove it. */
+            if (po->po_path_flag) {
+                xqc_send_queue_remove_send(&po->po_list);
+                xqc_send_queue_insert_free(po, &conn->conn_send_queue->sndq_free_packets, conn->conn_send_queue);
+                ret = XQC_TRUE;
+            }
+            *path = NULL;
+
+        } else {
+            ret = XQC_TRUE;
+        }
+    }
+    return ret;
+}
+
+xqc_bool_t 
+xqc_packet_out_can_attach_ack(xqc_packet_out_t *po, 
+    xqc_path_ctx_t *path, xqc_pkt_type_t pkt_type)
+{
+    if (po->po_pkt.pkt_type != pkt_type) {
+        return XQC_FALSE;
+    }
+
+    if (po->po_frame_types & (XQC_FRAME_BIT_ACK | XQC_FRAME_BIT_ACK_MP)) {
+        return XQC_FALSE;
+    }
+
+    if (path->path_flag && path->path_id != po->po_path_id) {
+        return XQC_FALSE;
+    }
+
+    return XQC_TRUE;
+}
+
+xqc_bool_t 
+xqc_packet_out_can_pto_probe(xqc_packet_out_t *po, uint64_t path_id)
+{
+    if ((po->po_path_flag & (XQC_PATH_SPECIFIED_BY_PCPR | XQC_PATH_SPECIFIED_BY_REINJ | XQC_PATH_SPECIFIED_BY_PTMUD))
+        && path_id != po->po_path_id)
+    {
+        return XQC_FALSE;
+    }
+    return XQC_TRUE;
+}
+
+void 
+xqc_packet_out_remove_ack_frame(xqc_packet_out_t *po)
+{
+    if (po->po_frame_types & XQC_FRAME_BIT_ACK 
+        || po->po_frame_types & XQC_FRAME_BIT_ACK_MP)
+    {
+        po->po_used_size = po->po_ack_offset;
+        po->po_frame_types &= ~(XQC_FRAME_BIT_ACK | XQC_FRAME_BIT_ACK_MP);
+        po->po_path_flag &= ~(XQC_PATH_SPECIFIED_BY_ACK);
+    }
 }
 
 void
@@ -72,7 +156,6 @@ xqc_packet_out_copy(xqc_packet_out_t *dst, xqc_packet_out_t *src)
     dst->po_user_data = src->po_user_data;
 
     dst->po_path_id = src->po_path_id;
-    dst->po_abandon_path_id = src->po_abandon_path_id;
 
     dst->po_flag &= ~XQC_POF_IN_UNACK_LIST;
     dst->po_flag &= ~XQC_POF_IN_PATH_BUF_LIST;
@@ -93,7 +176,7 @@ xqc_packet_out_get(xqc_send_queue_t *send_queue)
         xqc_send_queue_remove_free(pos, send_queue);
 
         unsigned char *tmp = packet_out->po_buf;
-        buf_size = packet_out->po_buf_size;
+        buf_size = send_queue->sndq_conn->pkt_out_size;
         buf_cap = packet_out->po_buf_cap;
         memset(packet_out, 0, sizeof(xqc_packet_out_t));
         packet_out->po_buf = tmp;
@@ -102,7 +185,7 @@ xqc_packet_out_get(xqc_send_queue_t *send_queue)
         return packet_out;
     }
 
-    packet_out = xqc_packet_out_create(send_queue->pkt_out_size);
+    packet_out = xqc_packet_out_create(send_queue->sndq_conn->pkt_out_size);
     if (!packet_out) {
         return NULL;
     }
@@ -199,7 +282,6 @@ xqc_write_new_packet(xqc_connection_t *conn, xqc_pkt_type_t pkt_type)
     }
 
     packet_out->po_path_id = XQC_INITIAL_PATH_ID;
-    packet_out->po_abandon_path_id = XQC_MAX_UINT64_VALUE;
 
     if (packet_out->po_used_size == 0) {
         ret = xqc_write_packet_header(conn, packet_out);
@@ -233,7 +315,6 @@ xqc_write_packet(xqc_connection_t *conn, xqc_pkt_type_t pkt_type, unsigned need)
     }
 
     packet_out->po_path_id = XQC_INITIAL_PATH_ID;
-    packet_out->po_abandon_path_id = XQC_MAX_UINT64_VALUE;
 
     if (packet_out->po_used_size == 0) {
         ret = xqc_write_packet_header(conn, packet_out);
@@ -267,7 +348,6 @@ xqc_write_packet_for_stream(xqc_connection_t *conn, xqc_pkt_type_t pkt_type, uns
     }
 
     packet_out->po_path_id = XQC_INITIAL_PATH_ID;
-    packet_out->po_abandon_path_id = XQC_MAX_UINT64_VALUE;
 
     if (packet_out->po_used_size == 0) {
         ret = xqc_write_packet_header(conn, packet_out);
@@ -293,36 +373,7 @@ xqc_write_ack_to_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out
     xqc_usec_t now = xqc_monotonic_timestamp();
 
     xqc_path_ctx_t *path = conn->conn_initial_path;
-
-    if (conn->enable_multipath == XQC_CONN_MULTIPATH_SINGLE_PNS
-        && conn->conn_flag & (XQC_CONN_FLAG_SHOULD_ACK_INIT << pns))
-    {
-        path = xqc_conn_find_path_by_path_id(conn, conn->should_ack_path_id);
-        if (path == NULL) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_conn_find_path_by_path_id error|should_ack_path_id:%ui|", conn->should_ack_path_id);
-            path = conn->conn_initial_path;
-        }
-    }
-    
     xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path);
-
-    if (conn->enable_multipath == XQC_CONN_MULTIPATH_SINGLE_PNS) {
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|gen_ack_frame|path:%ui|path_largest_recv:%ui|path_must_ack:%ui|", 
-                path->path_id, path->path_send_ctl->ctl_largest_received[pns], path->path_send_ctl->ctl_unack_received[pns]);
-        if (path->path_send_ctl->ctl_largest_received[pns] < path->path_send_ctl->ctl_unack_received[pns]) {
-            xqc_log(conn->log, XQC_LOG_WARN, "|!|");
-        }
-
-        largest_ack = path->path_send_ctl->ctl_largest_received[pns];
-
-        ret = xqc_gen_ack_frame_for_spns(conn, packet_out, now, conn->local_settings.ack_delay_exponent,
-                                &pn_ctl->ctl_recv_record[pns], path->path_send_ctl->ctl_largest_recv_time[pns],
-                                &has_gap, &largest_ack, path->path_send_ctl->ctl_unack_received[pns]);
-        if (ret >= 0) {
-            path->path_send_ctl->ctl_unack_received[pns] = XQC_MAX_UINT64_VALUE;
-            goto done;
-        }
-    }
 
     ret = xqc_gen_ack_frame(conn, packet_out, now, conn->local_settings.ack_delay_exponent,
                             &pn_ctl->ctl_recv_record[pns], path->path_send_ctl->ctl_largest_recv_time[pns],
@@ -331,7 +382,6 @@ xqc_write_ack_to_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out
         goto error;
     }
 
-done:
     xqc_log(conn->log, XQC_LOG_DEBUG, "|ack_size:%ui|path:%ui|path_largest_recv:%ui|frame_largest_recv:%ui|", 
                 ret, path->path_id, path->path_send_ctl->ctl_largest_received[pns], xqc_recv_record_largest(&pn_ctl->ctl_recv_record[pns]));
 
@@ -339,7 +389,7 @@ done:
     packet_out->po_used_size += ret;
     packet_out->po_largest_ack = largest_ack;
 
-    packet_out->po_is_path_specified = XQC_TRUE;
+    packet_out->po_path_flag = XQC_PATH_SPECIFIED_BY_ACK;
     packet_out->po_path_id = path->path_id;
 
     path->path_send_ctl->ctl_ack_eliciting_pkt[pns] = 0;
@@ -384,17 +434,10 @@ xqc_write_ack_to_packets(xqc_connection_t *conn)
             pkt_type = XQC_PTYPE_SHORT_HEADER;
         }
 
-        /* TODO: 暂时让SPNS的ACK全部write new packet，等待能解决发ACK包时path不可用问题的新方案 */
-        if (conn->enable_multipath == XQC_CONN_MULTIPATH_SINGLE_PNS) {
-            goto write_new;
-        }
-
 path_buffer:
         xqc_list_for_each_safe(pos, next, &conn->conn_initial_path->path_schedule_buf[XQC_SEND_TYPE_NORMAL]) {
             packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-            if (packet_out->po_pkt.pkt_type == pkt_type
-                && !(packet_out->po_frame_types & XQC_FRAME_BIT_ACK)) 
-            {
+            if (xqc_packet_out_can_attach_ack(packet_out, conn->conn_initial_path, pkt_type)) {
                 ret = xqc_write_ack_to_one_packet(conn, packet_out, pns);
                 if (ret == -XQC_ENOBUF) {
                     xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_write_ack_to_one_packet try conn buffer|");
@@ -413,10 +456,7 @@ path_buffer:
 conn_buffer:
         xqc_list_for_each_safe(pos, next, &conn->conn_send_queue->sndq_send_packets) {
             packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-            if (packet_out->po_pkt.pkt_type == pkt_type 
-                && !packet_out->po_is_path_specified
-                && !(packet_out->po_frame_types & XQC_FRAME_BIT_ACK)) 
-            {
+            if (xqc_packet_out_can_attach_ack(packet_out, conn->conn_initial_path, pkt_type)) {
                 ret = xqc_write_ack_to_one_packet(conn, packet_out, pns);
                 if (ret == -XQC_ENOBUF) {
                     xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_write_ack_to_one_packet try new packet|");
@@ -485,6 +525,50 @@ xqc_write_ping_to_packet(xqc_connection_t *conn, void *po_user_data, xqc_bool_t 
     }
 
     conn->conn_flag &= ~XQC_CONN_FLAG_PING;
+
+    xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
+    return XQC_OK;
+
+error:
+    xqc_maybe_recycle_packet_out(packet_out, conn);
+    return ret;
+}
+
+
+int
+xqc_write_pmtud_ping_to_packet(xqc_path_ctx_t *path, 
+    size_t probing_size, xqc_pkt_type_t pkt_type)
+{
+    int ret;
+    xqc_packet_out_t *packet_out;
+    xqc_connection_t *conn = path->parent_conn;
+
+    packet_out = xqc_write_new_packet(conn, pkt_type);
+    if (packet_out == NULL) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");
+        return -XQC_EWRITE_PKT;
+    }
+
+    packet_out->po_buf_size = probing_size;
+    if (packet_out->po_buf_size > packet_out->po_buf_cap
+        || packet_out->po_buf_size < packet_out->po_used_size)
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|invalid PMTUD probing size|");
+        ret = -XQC_EPMTUD_PROBING_SIZE;
+        goto error;
+    }
+
+    ret = xqc_gen_ping_frame(packet_out);
+    if (ret < 0) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_ping_frame error|");
+        goto error;
+    }
+
+    packet_out->po_used_size += ret;
+    packet_out->po_path_id = path->path_id;
+    packet_out->po_path_flag |= XQC_PATH_SPECIFIED_BY_PTMUD;
+    packet_out->po_flag |= XQC_POF_PMTUD_PROBING;
+    packet_out->po_max_pkt_out_size = conn->max_pkt_out_size;
 
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
     return XQC_OK;
@@ -875,7 +959,8 @@ xqc_write_stream_frame_to_packet(xqc_connection_t *conn,
 
 int 
 xqc_write_datagram_frame_to_packet(xqc_connection_t *conn, xqc_pkt_type_t pkt_type, 
-    const unsigned char *data, size_t data_len, uint64_t *dgram_id, xqc_bool_t use_supplied_dgram_id)
+    const unsigned char *data, size_t data_len, uint64_t *dgram_id, xqc_bool_t use_supplied_dgram_id,
+    xqc_data_qos_level_t qos_level)
 {
     xqc_packet_out_t *packet_out;
     packet_out = xqc_write_new_packet(conn, pkt_type);
@@ -904,6 +989,20 @@ xqc_write_datagram_frame_to_packet(xqc_connection_t *conn, xqc_pkt_type_t pkt_ty
 
     if (pkt_type == XQC_PTYPE_0RTT) {
         conn->zero_rtt_count++;
+    }
+
+    if (qos_level > XQC_DATA_QOS_HIGH) {
+        if (qos_level == XQC_DATA_QOS_PROBING) {
+            /* must reinject the packet on a different path */
+            packet_out->po_flag |= XQC_POF_REINJECT_DIFF_PATH;
+            packet_out->po_flag |= XQC_POF_QOS_PROBING;
+
+        } else {
+            packet_out->po_flag |= XQC_POF_NOT_REINJECT;
+        }
+
+    } else {
+        packet_out->po_flag |= XQC_POF_QOS_HIGH;
     }
 
     return XQC_OK;
@@ -1055,7 +1154,7 @@ xqc_write_path_challenge_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t 
 
     packet_out->po_used_size += ret;
 
-    packet_out->po_is_path_specified = XQC_TRUE;
+    packet_out->po_path_flag |= XQC_PATH_SPECIFIED_BY_PCPR;
     packet_out->po_path_id = path->path_id;
 
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
@@ -1088,7 +1187,7 @@ xqc_write_path_response_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *
 
     packet_out->po_used_size += ret;
 
-    packet_out->po_is_path_specified = XQC_TRUE;
+    packet_out->po_path_flag |= XQC_PATH_SPECIFIED_BY_PCPR;
     packet_out->po_path_id = path->path_id;
 
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
@@ -1151,43 +1250,42 @@ xqc_write_ack_mp_to_packets(xqc_connection_t *conn)
             }
 
 path_buffer:
-        xqc_list_for_each_safe(pos, next, &path->path_schedule_buf[XQC_SEND_TYPE_NORMAL]) {
-            packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-            if (packet_out->po_pkt.pkt_type == pkt_type
-                && !(packet_out->po_frame_types & XQC_FRAME_BIT_ACK_MP)) {
-                ret = xqc_write_ack_mp_to_one_packet(conn, path, packet_out, pns);
-                if (ret == -XQC_ENOBUF) {
-                    xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_write_ack_to_one_packet try new packet|");
-                    goto write_new;
+            xqc_list_for_each_safe(pos, next, &path->path_schedule_buf[XQC_SEND_TYPE_NORMAL]) {
+                packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+                if (xqc_packet_out_can_attach_ack(packet_out, path, pkt_type)) {
+                    ret = xqc_write_ack_mp_to_one_packet(conn, path, packet_out, pns);
+                    if (ret == -XQC_ENOBUF) {
+                        xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_write_ack_mp_to_one_packet try new packet|");
+                        goto write_new;
 
-                } else if (ret == XQC_OK) {
-                    goto done;
+                    } else if (ret == XQC_OK) {
+                        goto done;
 
-                } else {
-                    return ret;
+                    } else {
+                        return ret;
+                    }
                 }
+                goto write_new;
             }
-            goto write_new;
-        }
 
 write_new:
-        /* 指定 MP_ACK 从原路径发送 */
-        packet_out = xqc_write_new_packet(conn, pkt_type);
-        if (packet_out == NULL) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");
-            return -XQC_EWRITE_PKT;
-        }
+            /* 指定 MP_ACK 从原路径发送 */
+            packet_out = xqc_write_new_packet(conn, pkt_type);
+            if (packet_out == NULL) {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");
+                return -XQC_EWRITE_PKT;
+            }
 
-        ret = xqc_write_ack_mp_to_one_packet(conn, path, packet_out, pns);
-        if (ret != XQC_OK) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_ack_mp_to_one_packet error|ret:%d|", ret);
-            return ret;
-        }
+            ret = xqc_write_ack_mp_to_one_packet(conn, path, packet_out, pns);
+            if (ret != XQC_OK) {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_ack_mp_to_one_packet error|ret:%d|", ret);
+                return ret;
+            }
 pure_ack:
-        /* send ack packet first */
-        xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
+            /* send ack packet first */
+            xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
 done:
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|pns:%d|", path->path_id, pns);
+            xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|pns:%d|", path->path_id, pns);
 
         }
     }
@@ -1219,7 +1317,7 @@ xqc_write_ack_mp_to_one_packet(xqc_connection_t *conn, xqc_path_ctx_t *path,
     packet_out->po_used_size += ret;
     packet_out->po_largest_ack = largest_ack;
 
-    packet_out->po_is_path_specified = XQC_TRUE;
+    packet_out->po_path_flag |= XQC_PATH_SPECIFIED_BY_ACK;
     packet_out->po_path_id = path->path_id;
 
     path->path_send_ctl->ctl_ack_eliciting_pkt[pns] = 0;
@@ -1250,23 +1348,21 @@ xqc_write_path_abandon_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *p
         return -XQC_EWRITE_PKT;
     }
 
-    uint64_t path_id_type = 0x00;
-    uint64_t path_id_content = path->path_id;
+    /* dcid_seq_num = path->scid.cid_seq_num */
+    uint64_t dcid_seq_num = path->path_id;
 
-    ret = xqc_gen_path_abandon_frame(packet_out, path_id_type, path_id_content, 0);
+    ret = xqc_gen_path_abandon_frame(packet_out, dcid_seq_num, 0);
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_path_abandon_frame error|%d|", ret);
         goto error;
     }
 
-    packet_out->po_abandon_path_id = path->path_id;
-
     packet_out->po_used_size += ret;
 
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|path_id_type:%ui|path_id_content:%ui|",
-            path->path_id, path_id_type, path_id_content);
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|dcid_seq_num:%ui|",
+            path->path_id, dcid_seq_num);
 
     return XQC_OK;
 
@@ -1287,7 +1383,7 @@ xqc_write_path_status_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *pa
     }
 
     path->app_path_status_send_seq_num++;
-    ret = xqc_gen_path_status_frame(packet_out, 0, path->path_dcid.cid_seq_num,
+    ret = xqc_gen_path_status_frame(packet_out, path->path_id,
                                     path->app_path_status_send_seq_num, (uint64_t)path->app_path_status);
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_path_status_frame error|%d|", ret);

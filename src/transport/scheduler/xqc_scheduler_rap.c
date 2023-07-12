@@ -3,28 +3,29 @@
  */
 
 
-#include "src/transport/scheduler/xqc_scheduler_minrtt.h"
+#include "src/transport/scheduler/xqc_scheduler_rap.h"
 #include "src/transport/scheduler/xqc_scheduler_common.h"
 #include "src/transport/xqc_send_ctl.h"
 
 
 static size_t
-xqc_minrtt_scheduler_size()
+xqc_rap_scheduler_size()
 {
     return 0;
 }
 
 static void
-xqc_minrtt_scheduler_init(void *scheduler, xqc_log_t *log, xqc_scheduler_params_t *param)
+xqc_rap_scheduler_init(void *scheduler, xqc_log_t *log, xqc_scheduler_params_t *param)
 {
     return;
 }
 
 xqc_path_ctx_t *
-xqc_minrtt_scheduler_get_path(void *scheduler,
+xqc_rap_scheduler_get_path(void *scheduler,
     xqc_connection_t *conn, xqc_packet_out_t *packet_out, int check_cwnd, int reinject)
 {
     xqc_path_ctx_t *best_path = NULL;
+    xqc_path_ctx_t *original_path = NULL;
 
     xqc_list_head_t *pos, *next;
     xqc_path_ctx_t *path;
@@ -41,16 +42,12 @@ xqc_minrtt_scheduler_get_path(void *scheduler,
             continue;
         }
 
-        if (reinject && (packet_out->po_path_id == path->path_id)) {
+        if (!xqc_scheduler_check_path_can_send(path, packet_out, check_cwnd)) {
             continue;
         }
 
-        /* @TODO: It is not correct for BBR/BBRv2, as they do not used cwnd to decide
-        *        how much data can be sent in one RTT. But, currently, BBR does not 
-        *        work well for MPQUIC due to the problem of applimit. We may adapt this
-        *        to BBR in the future, if we manage to fix the applimit problem of BBR. 
-        */
-        if (!xqc_scheduler_check_path_can_send(path, packet_out, check_cwnd)) {
+        if (reinject && (packet_out->po_path_id == path->path_id)) {
+            original_path = path;
             continue;
         }
 
@@ -65,8 +62,19 @@ xqc_minrtt_scheduler_get_path(void *scheduler,
     }
 
     if (best_path == NULL) {
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|No available paths to schedule|conn:%p|", conn);
+        if (original_path == NULL) {
+            xqc_log(conn->log, XQC_LOG_DEBUG, "|No available paths to schedule|conn:%p|", conn);
 
+        } else {
+            if (!(packet_out->po_flag & XQC_POF_REINJECT_DIFF_PATH)) {
+                best_path = original_path;
+                xqc_log(conn->log, XQC_LOG_DEBUG, "|the original path is selected|conn:%p|", conn);
+
+            } else {
+                xqc_log(conn->log, XQC_LOG_DEBUG, "|the packet must be reinjected on a different path|conn:%p|", conn);
+            }
+        }
+    
     } else {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|best path:%ui|frame_type:%s|",
                 best_path->path_id, xqc_frame_type_2_str(packet_out->po_frame_types));
@@ -75,8 +83,8 @@ xqc_minrtt_scheduler_get_path(void *scheduler,
     return best_path;
 }
 
-const xqc_scheduler_callback_t xqc_minrtt_scheduler_cb = {
-    .xqc_scheduler_size             = xqc_minrtt_scheduler_size,
-    .xqc_scheduler_init             = xqc_minrtt_scheduler_init,
-    .xqc_scheduler_get_path         = xqc_minrtt_scheduler_get_path,
+const xqc_scheduler_callback_t xqc_rap_scheduler_cb = {
+    .xqc_scheduler_size             = xqc_rap_scheduler_size,
+    .xqc_scheduler_init             = xqc_rap_scheduler_init,
+    .xqc_scheduler_get_path         = xqc_rap_scheduler_get_path,
 };

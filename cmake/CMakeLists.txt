@@ -184,10 +184,13 @@ set(
     "src/transport/xqc_quic_lb.c"
     "src/transport/xqc_timer.c"
     "src/transport/xqc_reinjection.c"
-    "src/transport/reinjection_control/xqc_reinj_xlink.c"
+    "src/transport/reinjection_control/xqc_reinj_default.c"
+    "src/transport/reinjection_control/xqc_reinj_deadline.c"
+    "src/transport/reinjection_control/xqc_reinj_dgram.c"
     "src/transport/scheduler/xqc_scheduler_minrtt.c"
     "src/transport/scheduler/xqc_scheduler_common.c"
     "src/transport/scheduler/xqc_scheduler_backup.c"
+    "src/transport/scheduler/xqc_scheduler_rap.c"
 )
 
 # TLS source

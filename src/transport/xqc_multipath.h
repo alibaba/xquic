@@ -18,8 +18,7 @@
 /* enable multipath */
 typedef enum {
     XQC_CONN_NOT_SUPPORT_MULTIPATH      = 0,    /* 00 */
-    XQC_CONN_MULTIPATH_SINGLE_PNS       = 1,    /* 01 */
-    XQC_CONN_MULTIPATH_MULTIPLE_PNS     = 2,    /* 10 */
+    XQC_CONN_MULTIPATH_MULTIPLE_PNS     = 1,    /* 01 */
 } xqc_multipath_mode_t;
 
 /* path state */
@@ -27,9 +26,8 @@ typedef enum {
     XQC_PATH_STATE_INIT       = 0,    /* initial state */
     XQC_PATH_STATE_VALIDATING = 1,    /* PATH_CHALLENGE sent/received on new path */
     XQC_PATH_STATE_ACTIVE     = 2,    /* PATH_RESPONSE received */
-    XQC_PATH_STATE_CLOSING    = 3,    /* PATH_ABANDONED sent */
-    XQC_PATH_STATE_DRAINING   = 4,    /* PATH_ABANDONED received */
-    XQC_PATH_STATE_CLOSED     = 5,    /* PATH_ABANDONED acked or draining timeout */
+    XQC_PATH_STATE_CLOSING    = 3,    /* PATH_ABANDONED sent or received */
+    XQC_PATH_STATE_CLOSED     = 4,    /* PATH_ABANDONED acked or draining timeout */
 } xqc_path_state_t;
 
 /* application layer path status */
@@ -63,6 +61,14 @@ typedef enum {
 typedef enum {
     XQC_PATH_FLAG_SEND_STATUS       = 1 << 0,
 } xqc_path_flag_t;
+
+typedef enum {
+    XQC_PATH_SPECIFIED_BY_ACK       = 1 << 0,  /* ack */
+    XQC_PATH_SPECIFIED_BY_PCPR      = 1 << 1,  /* path challenge & response */
+    XQC_PATH_SPECIFIED_BY_PTO       = 1 << 2,  /* PTO probe */
+    XQC_PATH_SPECIFIED_BY_REINJ     = 1 << 3,  /* reinjection on a specific path */
+    XQC_PATH_SPECIFIED_BY_PTMUD     = 1 << 4,  /* PMTUD Probe */
+} xqc_path_specified_flag_t;
 
 /* path context */
 struct xqc_path_ctx_s {
@@ -128,6 +134,10 @@ struct xqc_path_ctx_s {
     uint32_t            standby_probe_count;
     uint32_t            app_path_status_changed_count;
     uint32_t            tra_path_status_changed_count;
+
+    /* PTMUD */
+    size_t              curr_pkt_out_size;
+    size_t              path_max_pkt_out_size;
 };
 
 /* 埋点路径信息 */
@@ -144,9 +154,15 @@ typedef struct {
     uint64_t            path_create_time;
     uint64_t            path_destroy_time;
     
-    uint64_t            update_rtt_count;
-    uint64_t            mean_latest_rtt;
-    uint32_t            cv_latest_rtt;
+    uint64_t            srtt;
+    uint32_t            loss_cnt;
+    uint32_t            tlp_cnt;
+    uint32_t            pkt_send_cnt;
+    uint32_t            pkt_recv_cnt;
+    uint32_t            dgram_send_cnt;
+    uint32_t            dgram_recv_cnt;
+    uint32_t            red_dgram_send_cnt;
+    uint32_t            red_dgram_recv_cnt;
 
     uint32_t            standby_probe_count;
     uint32_t            app_path_status_changed_count;
@@ -189,12 +205,11 @@ xqc_int_t xqc_path_immediate_close(xqc_path_ctx_t *path);
 /* path state: "ACTIVE/CLOSING/DRAINING" -> "CLOSED" */
 xqc_int_t xqc_path_closed(xqc_path_ctx_t *path);
 
-void xqc_path_abandon_acked(xqc_connection_t *conn, uint64_t path_id);
-
 /* find path */
 xqc_path_ctx_t *xqc_conn_find_path_by_path_id(xqc_connection_t *conn, uint64_t path_id);
 xqc_path_ctx_t *xqc_conn_find_path_by_scid(xqc_connection_t *conn, xqc_cid_t *scid);
 xqc_path_ctx_t *xqc_conn_find_path_by_dcid(xqc_connection_t *conn, xqc_cid_t *dcid);
+xqc_path_ctx_t *xqc_conn_find_path_by_dcid_seq(xqc_connection_t *conn, uint64_t dcid_seq);
 
 void xqc_path_send_buffer_append(xqc_path_ctx_t *path, xqc_packet_out_t *packet_out, xqc_list_head_t *head);
 void xqc_path_send_buffer_remove(xqc_path_ctx_t *path, xqc_packet_out_t *packet_out);
@@ -221,8 +236,6 @@ void xqc_path_validate(xqc_path_ctx_t *path);
 xqc_bool_t xqc_path_is_initial_path(xqc_path_ctx_t *path);
 
 void xqc_path_record_info(xqc_path_ctx_t *path, xqc_path_info_t *path_info);
-
-size_t xqc_path_info_print(xqc_path_info_t *path_info, char **buff, size_t *buff_size);
 
 xqc_bool_t xqc_path_is_full(xqc_path_ctx_t *path);
 

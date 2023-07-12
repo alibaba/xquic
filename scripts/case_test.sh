@@ -1402,7 +1402,7 @@ sleep 1
 clear_log
 echo -e "MPNS enable multipath negotiate ...\c"
 sudo ./test_client -s 1024000 -l d -t 1 -M -i lo > stdlog
-result=` grep "enable_multipath=2" stdlog`
+result=` grep "enable_multipath=1" stdlog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" != "" ]; then
     echo ">>>>>>>> pass:1"
@@ -1567,7 +1567,7 @@ grep_err_log
 
 clear_log
 echo -e "NAT rebinding path 1 ...\c"
-sudo ./test_client -s 102400 -l d -t 3 -M -i lo -i lo -E -n 2 -x 104 > stdlog
+sudo ./test_client -s 1024000 -l d -t 3 -M -i lo -i lo -E -n 2 -x 104 > stdlog
 result=`grep ">>>>>>>> pass:0" stdlog`
 errlog=`grep_err_log`
 rebind=`grep "|path:1|REBINDING|validate NAT rebinding addr|" slog`
@@ -2380,6 +2380,43 @@ else
     echo ">>>>>>>> pass:0"
     case_print_result "0RTT_datagram_send_multiple_redundancy" "fail"
 fi
+
+
+killall test_server
+./test_server -l d -e -x 208 -Q 65535 -U 1 --dgram_qos 3 > /dev/null &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "No reinjection for normal datagrams...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 1 --dgram_qos 3 > stdlog
+result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "No_reinjection_for_normal_datagrams" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "No_reinjection_for_normal_datagrams" "fail"
+fi
+grep_err_log
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "No reinjection for normal h3-ext datagrams...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 2 --dgram_qos 3 > stdlog
+result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "No_reinjection_for_normal_h3_ext_datagrams" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "No_reinjection_for_normal_h3_ext_datagrams" "fail"
+fi
+grep_err_log
 
 
 # h3 ext datagram
@@ -3624,6 +3661,307 @@ else
     echo ">>>>>>>> pass:0"
     case_print_result "request_closing_notify" "fail"
 fi
+
+
+killall test_server
+./test_server -l d -e -M -R 3 -Q 65535 -U 1 > /dev/null &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "SP reinject datagrams ...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -R 3 -Q 65535 -U 1 -T 1 > stdlog
+result=`grep "\[dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "SP_reinject_datagrams" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "SP_reinject_datagrams" "fail"
+fi
+grep_err_log
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "SP reinject h3-ext datagrams ...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -R 3 -Q 65535 -U 1 -T 2 > stdlog
+result=`grep "\[h3-dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "SP_reinject_h3_ext_datagrams" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "SP_reinject_h3_ext_datagrams" "fail"
+fi
+grep_err_log
+
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "MP reinject datagrams ...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -R 3 -Q 65535 -U 1 -T 1 -M -i lo -i lo > stdlog
+result=`grep "\[dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MP_reinject_datagrams" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MP_reinject_datagrams" "fail"
+fi
+grep_err_log
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "MP reinject h3-ext datagrams ...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -R 3 -Q 65535 -U 1 -T 2 -M -i lo -i lo > stdlog
+result=`grep "\[h3-dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MP_reinject_h3_ext_datagrams" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MP_reinject_h3_ext_datagrams" "fail"
+fi
+grep_err_log
+
+
+killall test_server
+./test_server -l d -e -M -x 208 -Q 65535 -U 1 > /dev/null &
+sleep 1
+
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "MP datagrams redundancy...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 1 -M -i lo -i lo > stdlog
+result=`grep "\[dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MP_datagrams_redundancy" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MP_datagrams_redundancy" "fail"
+fi
+grep_err_log
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "MP h3-ext datagrams redundancy...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 2 -M -i lo -i lo > stdlog
+result=`grep "\[h3-dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MP_h3_ext_datagrams_redundancy" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MP_h3_ext_datagrams_redundancy" "fail"
+fi
+grep_err_log
+
+
+killall test_server
+./test_server -l d -e -M -x 208 -Q 65535 -U 1 --dgram_qos 3 > /dev/null &
+sleep 1
+
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "MP no reinjection for normal datagrams...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 1 -M -i lo -i lo --dgram_qos 3 > stdlog
+result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MP_no_reinjection_for_normal_datagrams" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MP_no_reinjection_for_normal_datagrams" "fail"
+fi
+grep_err_log
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "MP no reinjection for normal h3-ext datagrams...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 2 -M -i lo -i lo --dgram_qos 3 > stdlog
+result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MP_no_reinjection_for_normal_h3_ext_datagrams" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MP_no_reinjection_for_normal_h3_ext_datagrams" "fail"
+fi
+grep_err_log
+
+
+killall test_server
+stdbuf -oL ./test_server -l d -e -M -Q 65535 -U 1 --pmtud 1 -x 200 > svr_stdlog &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+> svr_stdlog
+clear_log
+echo -e "SP datagram PMTUD 1RTT...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 1 --pmtud 1 > stdlog
+result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+mtu_res1=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
+mtu_res2=`grep -a "\[dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "SP_datagram_PMTUD_1RTT" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "SP_datagram_PMTUD_1RTT" "fail"
+fi
+grep_err_log
+
+> svr_stdlog
+clear_log
+echo -e "SP datagram PMTUD 0RTT...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 1 --pmtud 1 > stdlog
+result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+mtu_res1=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
+mtu_res2=`grep -a "\[dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "SP_datagram_PMTUD_0RTT" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "SP_datagram_PMTUD_0RTT" "fail"
+fi
+grep_err_log
+
+rm -rf tp_localhost test_session xqc_token
+> svr_stdlog
+clear_log
+echo -e "SP h3-ext datagram PMTUD 1RTT...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 2 --pmtud 1 > stdlog
+result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+mtu_res1=`grep "\[h3-dgram\]|callback|updated_mss:1404|" stdlog`
+mtu_res2=`grep -a "\[h3-dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "SP_h3_ext_datagram_PMTUD_1RTT" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "SP_h3_ext_datagram_PMTUD_1RTT" "fail"
+fi
+grep_err_log
+
+> svr_stdlog
+clear_log
+echo -e "SP h3-ext datagram PMTUD 0RTT...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 2 --pmtud 1 > stdlog
+result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+mtu_res1=`grep "\[h3-dgram\]|callback|updated_mss:1404|" stdlog`
+mtu_res2=`grep -a "\[h3-dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "SP_h3_ext_datagram_PMTUD_0RTT" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "SP_h3_ext_datagram_PMTUD_0RTT" "fail"
+fi
+grep_err_log
+
+
+rm -rf tp_localhost test_session xqc_token
+> svr_stdlog
+clear_log
+echo -e "MP datagram PMTUD 1RTT...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 1 --pmtud 1 -M -i lo -i lo > stdlog
+result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+mtu_res1=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
+mtu_res2=`grep -a "\[dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MP_datagram_PMTUD_1RTT" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MP_datagram_PMTUD_1RTT" "fail"
+fi
+grep_err_log
+
+> svr_stdlog
+clear_log
+echo -e "MP datagram PMTUD 0RTT...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 1 --pmtud 1 -M -i lo -i lo > stdlog
+result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+mtu_res1=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
+mtu_res2=`grep -a "\[dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MP_datagram_PMTUD_0RTT" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MP_datagram_PMTUD_0RTT" "fail"
+fi
+grep_err_log
+
+rm -rf tp_localhost test_session xqc_token
+> svr_stdlog
+clear_log
+echo -e "MP h3-ext datagram PMTUD 1RTT...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 2 --pmtud 1 -M -i lo -i lo > stdlog
+result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+mtu_res1=`grep "\[h3-dgram\]|callback|updated_mss:1404|" stdlog`
+mtu_res2=`grep -a "\[h3-dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MP_h3_ext_datagram_PMTUD_1RTT" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MP_h3_ext_datagram_PMTUD_1RTT" "fail"
+fi
+grep_err_log
+
+> svr_stdlog
+clear_log
+echo -e "MP h3-ext datagram PMTUD 0RTT...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 2 --pmtud 1 -M -i lo -i lo > stdlog
+result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+mtu_res1=`grep "\[h3-dgram\]|callback|updated_mss:1404|" stdlog`
+mtu_res2=`grep -a "\[h3-dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MP_h3_ext_datagram_PMTUD_0RTT" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MP_h3_ext_datagram_PMTUD_0RTT" "fail"
+fi
+grep_err_log
+
 
 killall test_server
 

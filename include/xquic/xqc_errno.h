@@ -126,6 +126,8 @@ typedef enum {
     XQC_EDGRAM_NOT_SUPPORTED            = 680,      /* Datagram - not supported */
     XQC_EDGRAM_TOO_LARGE                = 681,      /* Datagram - payload size too large */
 
+    XQC_EPMTUD_PROBING_SIZE             = 682,      /* PMTUD - probing size error */
+
     XQC_E_MAX,
 } xqc_transport_error_t;
 

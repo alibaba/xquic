@@ -1216,6 +1216,13 @@ xqc_server_request_create_notify(xqc_h3_request_t *h3_request, void *strm_user_d
         xqc_h3_request_finish(h3_request);
     }
 
+
+    if (g_test_case == 14) {
+        xqc_h3_request_close(h3_request);
+        return -1;
+    }
+
+
     return 0;
 }
 
@@ -1488,6 +1495,7 @@ xqc_server_socket_read_handler(xqc_server_ctx_t *ctx)
     ssize_t recv_size = 0;
     unsigned char packet_buf[XQC_PACKET_TMP_BUF_LEN];
     uint64_t recv_time;
+    xqc_int_t ret;
 
 #ifdef __linux__
     int batch = 0; /* packets are not necessarily on the same connection */
@@ -1528,7 +1536,7 @@ xqc_server_socket_read_handler(xqc_server_ctx_t *ctx)
                 if (xqc_engine_packet_process(ctx->engine, iovecs[i].iov_base, msgs[i].msg_len,
                                               (struct sockaddr *) (&ctx->local_addr), ctx->local_addrlen,
                                               (struct sockaddr *) (&pa[i]), peer_addrlen,
-                                              (xqc_msec_t) recv_time, NULL) != XQC_OK)
+                                              (xqc_msec_t)recv_time, NULL) != XQC_OK)
                 {
                     printf("xqc_server_read_handler: packet process err\n");
                     return;
@@ -1567,12 +1575,14 @@ xqc_server_socket_read_handler(xqc_server_ctx_t *ctx)
         //printf("xqc_server_read_handler recv_size=%zd, recv_time=%llu, now=%llu, recv_total=%d\n", recv_size, recv_time, now(), ++g_recv_total);
         /*printf("peer_ip: %s, peer_port: %d\n", inet_ntoa(ctx->peer_addr.sin_addr), ntohs(ctx->peer_addr.sin_port));
         printf("local_ip: %s, local_port: %d\n", inet_ntoa(ctx->local_addr.sin_addr), ntohs(ctx->local_addr.sin_port));*/
-        if (xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
-                                      (struct sockaddr *) (&ctx->local_addr), ctx->local_addrlen,
-                                      (struct sockaddr *) (&peer_addr), peer_addrlen,
-                                      (xqc_msec_t) recv_time, NULL) != XQC_OK)
+
+        ret = xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
+                                        (struct sockaddr *) (&ctx->local_addr), ctx->local_addrlen,
+                                        (struct sockaddr *) (&peer_addr), peer_addrlen,
+                                        (xqc_msec_t) recv_time, NULL);
+        if (ret != XQC_OK)
         {
-            printf("xqc_server_read_handler: packet process err\n");
+            printf("xqc_server_read_handler: packet process err: %d\n", ret);
             return;
         }
     } while (recv_size > 0);
@@ -2283,7 +2293,7 @@ int main(int argc, char *argv[]) {
 
     /* test reset, destroy connection as soon as possible */
     if (g_test_case == 13) {
-        conn_settings.idle_time_out = 1;
+        conn_settings.idle_time_out = 1000;
     }
 
     if (g_test_case == 201) {

@@ -63,6 +63,7 @@ xqc_cid_copy(xqc_cid_t *dst, xqc_cid_t *src)
     dst->cid_len = src->cid_len;
     xqc_memcpy(dst->cid_buf, src->cid_buf, dst->cid_len);
     dst->cid_seq_num = src->cid_seq_num;
+    xqc_memcpy(dst->sr_token, src->sr_token, XQC_STATELESS_RESET_TOKENLEN);
 }
 
 void
@@ -83,6 +84,7 @@ xqc_cid_set(xqc_cid_t *cid, const unsigned char *data, uint8_t len)
 
 static unsigned char g_scid_buf[XQC_MAX_CID_LEN * 2 + 1];
 static unsigned char g_dcid_buf[XQC_MAX_CID_LEN * 2 + 1];
+static unsigned char g_sr_token_buf[XQC_STATELESS_RESET_TOKENLEN * 2 + 1];
 
 unsigned char *
 xqc_dcid_str(const xqc_cid_t *dcid)
@@ -98,6 +100,14 @@ xqc_scid_str(const xqc_cid_t *scid)
     xqc_hex_dump(g_scid_buf, scid->cid_buf, scid->cid_len);
     g_scid_buf[scid->cid_len * 2] = '\0';
     return g_scid_buf;
+}
+
+unsigned char *
+xqc_sr_token_str(const char *sr_token)
+{
+    xqc_hex_dump(g_sr_token_buf, sr_token, XQC_STATELESS_RESET_TOKENLEN);
+    g_sr_token_buf[XQC_STATELESS_RESET_TOKENLEN * 2] = '\0';
+    return g_sr_token_buf;
 }
 
 unsigned char *
@@ -160,7 +170,7 @@ xqc_destroy_cid_set(xqc_cid_set_t *cid_set)
 xqc_int_t
 xqc_cid_set_insert_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid, xqc_cid_state_t state, uint64_t limit)
 {
-    if (cid_set->unused_cnt + cid_set->used_cnt >= limit) {
+    if (cid_set->unused_cnt + cid_set->used_cnt > limit) {
         return -XQC_EACTIVE_CID_LIMIT;
     }
 

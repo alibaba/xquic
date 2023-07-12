@@ -1367,8 +1367,8 @@ killall test_server
 sleep 1
 clear_log
 echo -e "stateless reset...\c"
-./test_client -l d -x 41 -1 > stdlog
-result=`grep "receive reset, enter draining" clog`
+./test_client -l d -x 41 -1 -t 5 > stdlog
+result=`grep "|====>|receive stateless reset" clog`
 cloing_notify=`grep "conn closing: 641" stdlog`
 if [ -n "$result" ] && [ -n "$cloing_notify" ]; then
     echo ">>>>>>>> pass:1"
@@ -1378,6 +1378,21 @@ else
     case_print_result "stateless_reset" "fail"
 fi
 
+
+clear_log
+echo -e "stateless reset during hsk...\c"
+./test_client -l d  -t 5 -x 45 -1 -s 100 -G > stdlog
+result=`grep "|====>|receive stateless reset" clog`
+cloing_notify=`grep "conn closing: 641" stdlog`
+svr_hsk=`grep "handshake_time:0" slog`
+if [ -n "$result" ] && [ -n "$cloing_notify" ] && [ -n "$svr_hsk" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "stateless_reset_during_hsk" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "stateless_reset_during_hsk" "fail"
+    exit
+fi
 
 killall test_server
 ./test_server -l d -e -M > /dev/null &
@@ -1611,7 +1626,7 @@ if [ -f xqc_token ]; then
     rm -f xqc_token
 fi
 if [ -f stdlog ]; then
-.   rm -f stdlog
+    rm -f stdlog
 fi
 ./test_server -l d -Q 9000 > /dev/null &
 sleep 1
@@ -3594,6 +3609,22 @@ else
 fi
 
 rm -rf tp_localhost test_session xqc_token
+killall test_server
+
+clear_log
+echo -e "request_closing_notify...\c"
+./test_server -l d -x 14 > /dev/null &
+sleep 1
+./test_client -l d >> stdlog
+res=`grep "request closing notify triggered" stdlog`
+if [ -n "$res" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "request_closing_notify" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "request_closing_notify" "fail"
+fi
+
 killall test_server
 
 cd -

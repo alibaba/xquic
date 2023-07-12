@@ -74,6 +74,7 @@ xqc_log_type_2_level(xqc_log_type_t type)
     case TRA_DATAGRAMS_SENT:
     case TRA_DATAGRAMS_RECEIVED:
     case TRA_STREAM_STATE_UPDATED:
+    case TRA_STATELESS_RESET:
     case REC_METRICS_UPDATED:
     case REC_PARAMETERS_SET:
     case REC_CONGESTION_STATE_UPDATED:
@@ -139,6 +140,7 @@ xqc_log_type_str(xqc_log_type_t type)
             [TRA_STREAM_STATE_UPDATED]          = "stream_state_updated",
             [TRA_FRAMES_PROCESSED]              = "frames_processed",
             [TRA_DATA_MOVED]                    = "data_moved",
+            [TRA_STATELESS_RESET]               = "stateless_reset",
             [REC_PARAMETERS_SET]                = "rec_parameters_set",
             [REC_METRICS_UPDATED]               = "rec_metrics_updated",
             [REC_CONGESTION_STATE_UPDATED]      = "congestion_state_updated",

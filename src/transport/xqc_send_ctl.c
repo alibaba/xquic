@@ -1227,7 +1227,7 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
     loss_delay += loss_delay >> send_ctl->ctl_reordering_time_threshold_shift;
 
     /* Minimum time of kGranularity before packets are deemed lost. */
-    loss_delay = xqc_max(loss_delay, XQC_kGranularity);
+    loss_delay = xqc_max(loss_delay, XQC_kGranularity * 1000);
 
     /* Packets sent before this time are deemed lost. */
     xqc_usec_t lost_send_time = now - loss_delay;
@@ -1388,7 +1388,7 @@ xqc_bool_t
 xqc_send_ctl_in_persistent_congestion(xqc_send_ctl_t *send_ctl, xqc_packet_out_t *largest_lost, xqc_usec_t now)
 {
     if (send_ctl->ctl_pto_count >= XQC_CONSECUTIVE_PTO_THRESH) {
-        xqc_usec_t duration = (send_ctl->ctl_srtt + xqc_max(send_ctl->ctl_rttvar << 2, XQC_kGranularity)
+        xqc_usec_t duration = (send_ctl->ctl_srtt + xqc_max(send_ctl->ctl_rttvar << 2, XQC_kGranularity * 1000)
             + send_ctl->ctl_conn->remote_settings.max_ack_delay * 1000) * XQC_kPersistentCongestionThreshold;
         if (now - largest_lost->po_sent_time > duration) {
             return XQC_TRUE;

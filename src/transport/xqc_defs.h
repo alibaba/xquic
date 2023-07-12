@@ -38,8 +38,14 @@
 
 #define XQC_CONN_MAX_CRYPTO_DATA_TOTAL_LEN (10*1024*1024)
 
-/* length of stateless reset token */
-#define XQC_STATELESS_RESET_TOKENLEN    16
+
+/* xquic will not send stateless reset to packets which are smaller than
+   XQC_STATELESS_RESET_PKT_MIN_LEN */
+#define XQC_STATELESS_RESET_PKT_MIN_LEN 21
+#define XQC_STATELESS_RESET_PKT_MAX_LEN 43
+
+/* xquic will  */
+#define XQC_STATELESS_RESET_PKT_SUBTRAHEND 2
 
 /* max token length supported by xquic */
 #define XQC_MAX_TOKEN_LEN               256

@@ -57,6 +57,8 @@ typedef int (*xqc_h3_request_notify_pt)(xqc_h3_request_t *h3_request, void *h3s_
 typedef int (*xqc_h3_request_read_notify_pt)(xqc_h3_request_t *h3_request, 
     xqc_request_notify_flag_t flag, void *h3s_user_data);
 
+typedef void (*xqc_h3_request_closing_notify_pt)(xqc_h3_request_t *h3_request, 
+    xqc_int_t err, void *h3s_user_data);
 
 /**
  * @brief encode flags of http headers
@@ -304,16 +306,19 @@ typedef struct xqc_h3_conn_callbacks_s {
 typedef struct xqc_h3_request_callbacks_s {
     /* request creation notify. it will be triggered after a request was created, and is required
        for server, optional for client */
-    xqc_h3_request_notify_pt        h3_request_create_notify;
+    xqc_h3_request_notify_pt            h3_request_create_notify;
 
     /* request close notify. which will be triggered after a request was closed */
-    xqc_h3_request_notify_pt        h3_request_close_notify;
+    xqc_h3_request_notify_pt            h3_request_close_notify;
 
     /* request read notify callback. which will be triggered after received http headers or body */
-    xqc_h3_request_read_notify_pt   h3_request_read_notify;
+    xqc_h3_request_read_notify_pt       h3_request_read_notify;
 
     /* request write notify callback. when triggered, users can continue to send headers or body */
-    xqc_h3_request_notify_pt        h3_request_write_notify;
+    xqc_h3_request_notify_pt            h3_request_write_notify;
+
+    /* request closing notify callback, will be triggered when request is closing */
+    xqc_h3_request_closing_notify_pt    h3_request_closing_notify;
 
 } xqc_h3_request_callbacks_t;
 

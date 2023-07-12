@@ -17,7 +17,7 @@
 #include "src/transport/xqc_utils.h"
 #include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_defs.h"
-#include "src/http3/xqc_h3_conn.h"
+#include "src/common/xqc_random.h"
 
 #define xqc_packet_number_bits2len(b) ((b) + 1)
 
@@ -270,8 +270,8 @@ xqc_packet_parse_short_header(xqc_connection_t *c, xqc_packet_in_t *packet_in)
     xqc_cid_set(&(packet->pkt_dcid), pos, cid_len);
     pos += cid_len;
     if (xqc_conn_check_dcid(c, &(packet->pkt_dcid)) != XQC_OK) {
-        /* log & ignore */
-        xqc_log(c->log, XQC_LOG_ERROR, "|parse short header|invalid destination cid, pkt dcid: %s, conn scid: %s|",
+        /* log & ignore, the pkt might be corrupted or stateless reset */
+        xqc_log(c->log, XQC_LOG_WARN, "|parse short header|invalid destination cid, pkt dcid: %s, conn scid: %s|",
                 xqc_dcid_str(&packet->pkt_dcid), xqc_scid_str(&c->scid_set.user_scid));
         return -XQC_EILLPKT;
     }
@@ -1357,15 +1357,21 @@ xqc_gen_reset_token(xqc_cid_t *cid, unsigned char *token, int token_len, char *k
                      Figure 6: Stateless Reset Packet
  */
 xqc_int_t
-xqc_gen_reset_packet(xqc_cid_t *cid, unsigned char *dst_buf, char *key, size_t keylen)
+xqc_gen_reset_packet(xqc_cid_t *cid, unsigned char *dst_buf, char *key,
+    size_t keylen, size_t max_len, xqc_random_generator_t *rand_generator)
 {
-    const unsigned char *begin = dst_buf;
-    const int unpredictable_len = 23;
-    int padding_len;
-    unsigned char token[XQC_RESET_TOKEN_LEN] = {0};
+    static const char    sr_first_byte_mask = 0x3f;
+    static const char    sr_fixed_bits      = 0x40;
 
+    const unsigned char *begin = dst_buf;
+    size_t               unpredictable_len;
+    unsigned char        token[XQC_RESET_TOKEN_LEN] = {0};
+
+#ifdef XQC_COMPAT_GENERATE_SR_PKT
+    int padding_len;
     dst_buf[0] = 0x40;
     dst_buf++;
+    unpredictable_len = 23;
 
     if (cid->cid_len > 0) {
         memcpy(dst_buf, cid->cid_buf, cid->cid_len);
@@ -1383,6 +1389,17 @@ xqc_gen_reset_packet(xqc_cid_t *cid, unsigned char *dst_buf, char *key, size_t k
     memset(dst_buf, 0, padding_len);
     dst_buf += padding_len;
 
+#else
+    /* write unpredictable bits */
+    unpredictable_len = max_len - XQC_RESET_TOKEN_LEN;
+    xqc_get_random(rand_generator, dst_buf, unpredictable_len);
+
+    /* write fixed bits */
+    dst_buf[0] = (dst_buf[0] & sr_first_byte_mask) | sr_fixed_bits;
+    dst_buf += unpredictable_len;
+#endif
+
+    /* write sr token */
     xqc_gen_reset_token(cid, token, XQC_RESET_TOKEN_LEN, key, keylen);
     memcpy(dst_buf, token, sizeof(token));
     dst_buf += sizeof(token);
@@ -1390,8 +1407,22 @@ xqc_gen_reset_packet(xqc_cid_t *cid, unsigned char *dst_buf, char *key, size_t k
     return dst_buf - begin;
 }
 
+xqc_int_t
+xqc_packet_parse_stateless_reset(const unsigned char *buf, size_t buf_size,
+    const uint8_t **sr_token)
+{
+    if (buf_size <= XQC_STATELESS_RESET_PKT_MIN_LEN) {
+        return -XQC_EILLPKT;
+    }
+
+    *sr_token = buf + buf_size - XQC_STATELESS_RESET_TOKENLEN;
+    return XQC_OK;
+}
+
+#ifdef XQC_COMPAT_GENERATE_SR_PKT
 int
-xqc_is_reset_packet(xqc_cid_t *cid, const unsigned char *buf, unsigned buf_size, char *key, size_t keylen)
+xqc_is_deprecated_reset_packet(xqc_cid_t *cid, const unsigned char *buf,
+    unsigned buf_size, char *key, size_t keylen)
 {
     if (XQC_PACKET_IS_LONG_HEADER(buf)) {
         return 0;
@@ -1412,3 +1443,4 @@ xqc_is_reset_packet(xqc_cid_t *cid, const unsigned char *buf, unsigned buf_size,
     }
     return 0;
 }
+#endif

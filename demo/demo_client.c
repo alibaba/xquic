@@ -974,7 +974,8 @@ xqc_demo_cli_socket_read_handler(xqc_demo_cli_user_conn_t *user_conn)
         if (xqc_engine_packet_process(user_conn->ctx->engine, packet_buf, recv_size,
                                       (struct sockaddr *)(&user_conn->local_addr),
                                       user_conn->local_addrlen, (struct sockaddr *)(&addr),
-                                      addr_len, (xqc_msec_t)recv_time, user_conn) != XQC_OK)
+                                      addr_len, (xqc_msec_t)recv_time,
+                                      user_conn) != XQC_OK)
         {
             return;
         }

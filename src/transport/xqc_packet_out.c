@@ -935,10 +935,10 @@ xqc_write_handshake_done_frame_to_packet(xqc_connection_t *conn)
 xqc_int_t
 xqc_write_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire_prior_to)
 {
-    xqc_int_t ret = XQC_ERROR;
-    xqc_packet_out_t *packet_out = NULL;
-
-    xqc_cid_t new_conn_cid;
+    xqc_int_t           ret = XQC_ERROR;
+    xqc_packet_out_t   *packet_out = NULL;
+    xqc_cid_t           new_conn_cid;
+    uint8_t             sr_token[XQC_STATELESS_RESET_TOKENLEN];
 
     /* only reserve bits for server side */
     ++conn->scid_set.largest_scid_seq_num;
@@ -948,6 +948,11 @@ xqc_write_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire_pr
         xqc_log(conn->log, XQC_LOG_WARN, "|generate cid error|");
         return -XQC_EGENERATE_CID;
     }
+
+    /* generate stateless reset token */
+    xqc_gen_reset_token(&new_conn_cid, sr_token, XQC_STATELESS_RESET_TOKENLEN,
+                        conn->engine->config->reset_token_key,
+                        conn->engine->config->reset_token_keylen);
 
     /* insert to scid_set & add scid_unused_cnt */
     ret = xqc_cid_set_insert_cid(&conn->scid_set.cid_set, &new_conn_cid, XQC_CID_UNUSED,
@@ -960,7 +965,8 @@ xqc_write_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire_pr
         return ret;
     }
 
-    ret = xqc_insert_conns_hash(conn->engine->conns_hash, conn, &new_conn_cid);
+    ret = xqc_insert_conns_hash(conn->engine->conns_hash, conn,
+                                new_conn_cid.cid_buf, new_conn_cid.cid_len);
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|insert new_cid into conns_hash failed|");
         return ret;
@@ -973,16 +979,16 @@ xqc_write_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire_pr
     }
 
     ret = xqc_gen_new_conn_id_frame(packet_out, &new_conn_cid, retire_prior_to,
-                                    conn->engine->config->reset_token_key,
-                                    conn->engine->config->reset_token_keylen);
+                                    sr_token);
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_new_conn_id_frame error|");
         goto error;
     }
     packet_out->po_used_size += ret;
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|gen_new_scid:%s|seq_num:%ui|",
-            xqc_scid_str(&new_conn_cid), new_conn_cid.cid_seq_num);
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|gen_new_scid|cid:%s|sr_token:%s|seq_num:%ui",
+            xqc_scid_str(&new_conn_cid), xqc_sr_token_str(new_conn_cid.sr_token),
+            new_conn_cid.cid_seq_num);
 
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
     return XQC_OK;

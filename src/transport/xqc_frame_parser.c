@@ -1600,7 +1600,8 @@ xqc_parse_handshake_done_frame(xqc_packet_in_t *packet_in, xqc_connection_t *con
  *               Figure 39: NEW_CONNECTION_ID Frame Format
  * */
 ssize_t
-xqc_gen_new_conn_id_frame(xqc_packet_out_t *packet_out, xqc_cid_t *new_cid, uint64_t retire_prior_to, char *key, size_t keylen)
+xqc_gen_new_conn_id_frame(xqc_packet_out_t *packet_out, xqc_cid_t *new_cid,
+    uint64_t retire_prior_to, const uint8_t *sr_token)
 {
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
     const unsigned char *begin = dst_buf;
@@ -1632,9 +1633,10 @@ xqc_gen_new_conn_id_frame(xqc_packet_out_t *packet_out, xqc_cid_t *new_cid, uint
     xqc_memcpy(dst_buf, new_cid->cid_buf, new_cid->cid_len);
     dst_buf += new_cid->cid_len;
 
-    xqc_gen_reset_token(new_cid, stateless_reset_token, XQC_STATELESS_RESET_TOKENLEN, key, keylen);
-    xqc_memcpy(dst_buf, stateless_reset_token, XQC_STATELESS_RESET_TOKENLEN);
-    dst_buf += XQC_STATELESS_RESET_TOKENLEN;
+    if (sr_token) {
+        xqc_memcpy(dst_buf, sr_token, XQC_STATELESS_RESET_TOKENLEN);
+        dst_buf += XQC_STATELESS_RESET_TOKENLEN;
+    }
 
     packet_out->po_frame_types |= XQC_FRAME_BIT_NEW_CONNECTION_ID;
 
@@ -1663,7 +1665,6 @@ xqc_parse_new_conn_id_frame(xqc_packet_in_t *packet_in, xqc_cid_t *new_cid, uint
     const unsigned char first_byte = *p++;
 
     int vlen;
-    unsigned char stateless_reset_token[XQC_STATELESS_RESET_TOKENLEN];
 
     /* Sequence Number (i) */
     vlen = xqc_vint_read(p, end, &new_cid->cid_seq_num);
@@ -1699,7 +1700,7 @@ xqc_parse_new_conn_id_frame(xqc_packet_in_t *packet_in, xqc_cid_t *new_cid, uint
     if (p + XQC_STATELESS_RESET_TOKENLEN > end) {
         return -XQC_EPROTO;
     }
-    xqc_memcpy(stateless_reset_token, p, XQC_STATELESS_RESET_TOKENLEN);
+    xqc_memcpy(new_cid->sr_token, p, XQC_STATELESS_RESET_TOKENLEN);
     p += XQC_STATELESS_RESET_TOKENLEN;
 
     packet_in->pos = p;

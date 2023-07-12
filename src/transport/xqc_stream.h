@@ -235,6 +235,7 @@ xqc_stream_recv_state_update(xqc_stream_t *stream, xqc_recv_stream_state_t state
 
 void xqc_stream_set_multipath_usage(xqc_stream_t *stream, uint8_t schedule, uint8_t reinject);
 
+void xqc_stream_closing(xqc_stream_t *stream, xqc_int_t err);
 
 #endif /* _XQC_STREAM_H_INCLUDED_ */
 

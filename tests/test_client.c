@@ -131,6 +131,9 @@ typedef struct user_conn_s {
     struct event       *ev_path;
     struct event       *ev_epoch;
 
+    struct event       *ev_request;
+
+
     int                 h3;
 
     user_dgram_blk_t   *dgram_blk;
@@ -141,7 +144,10 @@ typedef struct user_conn_s {
     xqc_connection_t   *quic_conn;
     xqc_h3_conn_t      *h3_conn;
     client_ctx_t       *ctx;
-    int                 cur_stream_num; 
+    int                 cur_stream_num;
+
+    uint64_t            black_hole_start_time;
+    int                 tracked_pkt_cnt;
 } user_conn_t;
 
 #define XQC_DEMO_INTERFACE_MAX_LEN 64
@@ -263,6 +269,8 @@ char test_long_value[XQC_TEST_LONG_HEADER_LEN] = {'\0'};
 int hsk_completed = 0;
 
 
+int g_periodically_request = 0;
+
 static uint64_t last_recv_ts = 0;
 
 static void xqc_client_socket_event_callback(int fd, short what, void *arg);
@@ -378,7 +386,7 @@ xqc_client_datagram_send(user_conn_t *user_conn)
                 if (ret == -XQC_EAGAIN) {
                     printf("[dgram]|retry_datagram_send_multiple_later|\n");
                     return;
-                } 
+                }
 
                 bytes_in_batch = 0;
                 batch_cnt = 0;
@@ -820,14 +828,6 @@ xqc_client_write_socket(const unsigned char *buf, size_t size,
     ssize_t res = 0;
     int fd = user_conn->fd;
 
-    if (g_test_case == 41) {
-        /* delay short header packet to make server idle timeout */
-        if ((buf[0] & 0xC0) == 0x40) {
-            sleep(2);
-            g_test_case = -1;
-        }
-    }
-
     /* COPY to run corruption test cases */
     unsigned char send_buf[XQC_PACKET_TMP_BUF_LEN];
     size_t send_buf_size = 0;
@@ -984,6 +984,68 @@ xqc_client_write_socket_ex(uint64_t path_id,
     user_conn_t *user_conn = (user_conn_t *)user_data;
     ssize_t res;
     int fd = 0;
+
+
+    /* test stateless reset after handshake completed */
+    if (g_test_case == 41) {
+        if (hsk_completed && ((buf[0] & 0xC0) == 0x40)) {
+            if (user_conn->tracked_pkt_cnt < 2) {
+                /* send 10 pkts first */
+                user_conn->tracked_pkt_cnt++;
+
+            } else {
+                /* delay short header packet to make server idle timeout */
+                uint64_t nowtime = now();
+
+                if (user_conn->black_hole_start_time == 0) {
+                    user_conn->black_hole_start_time = nowtime;
+                    printf("   blackhole start: %"PRIu64"\n", nowtime);
+                }
+
+                if (nowtime - user_conn->black_hole_start_time <= 3000000) {
+                    return size;
+                }
+
+                /* keep blackhole more than 2 seconds, turn off */
+                printf("   blackhole end: %"PRIu64"\n", nowtime);
+                g_test_case = -1;
+            }
+        }
+    }
+
+    /* test stateless rset during handshake */
+    if (g_test_case == 45) {
+        uint64_t nowtime = now();
+        if (user_conn->black_hole_start_time == 0) {
+
+            if ((((buf[0] & 0x80) == 0x80) && ((buf[0] & 0x30) >> 4) == 2)
+                || ((buf[0] & 0xC0) == 0x40))
+            {
+                if (user_conn->black_hole_start_time == 0) {
+                    user_conn->black_hole_start_time = nowtime;
+                    printf("   blackhole start: %"PRIu64"\n", nowtime);
+                }
+
+                printf("... block:%zu\n", size);
+                return size;
+            }
+
+        } else {
+            /* drop all client's packet */
+
+            if (nowtime - user_conn->black_hole_start_time <= 10000000) {
+                printf("... block:%zu\n", size);
+                return size;
+            }
+
+            /* keep blackhole more than 2 seconds, turn off */
+            printf("   blackhole end: %"PRIu64"\n", nowtime);
+            g_test_case = -1;
+
+        }
+    }
+
+    // printf("... sent:%zu\n", size);
 
     /* get path fd */
     fd = xqc_client_get_path_fd_by_id(user_conn, path_id);
@@ -2628,7 +2690,7 @@ xqc_client_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
                 .iov_len = sizeof("value")
             },
         };
-
+ 
         xqc_http_headers_t headers = {
             .headers = &header,
             .count = 1,
@@ -2868,6 +2930,15 @@ xqc_client_request_close_notify(xqc_h3_request_t *h3_request, void *user_data)
 }
 
 void
+xqc_client_request_closing_notify(xqc_h3_request_t *h3_request, 
+    xqc_int_t err, void *h3s_user_data)
+{
+    user_stream_t *user_stream = (user_stream_t *)h3s_user_data;
+
+    printf("***** request closing notify triggered\n");
+}
+
+void
 xqc_client_socket_write_handler(user_conn_t *user_conn)
 {
     DEBUG
@@ -2886,6 +2957,7 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
 {
     //DEBUG;
 
+    xqc_int_t ret;
     ssize_t recv_size = 0;
     ssize_t recv_sum = 0;
 
@@ -2932,12 +3004,13 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
             for (int i = 0; i < retval; i++) {
                 recv_sum += msgs[i].msg_len;
 
-                if (xqc_engine_packet_process(p_ctx->engine, iovecs[i].iov_base, msgs[i].msg_len,
+                ret = xqc_engine_packet_process(p_ctx->engine, iovecs[i].iov_base, msgs[i].msg_len,
                                               user_conn->local_addr, user_conn->local_addrlen,
                                               user_conn->peer_addr, user_conn->peer_addrlen,
-                                              (xqc_msec_t)recv_time, user_conn) != XQC_OK) 
+                                              (xqc_msec_t)recv_time, user_conn);
+                if (ret != XQC_OK)
                 {
-                    printf("xqc_server_read_handler: packet process err\n");
+                    printf("xqc_server_read_handler: packet process err, ret: %d\n", ret);
                     return;
                 }
             }
@@ -3023,12 +3096,12 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
             }
         }
 
-        if (xqc_engine_packet_process(p_ctx->engine, packet_buf, recv_size,
+        ret = xqc_engine_packet_process(p_ctx->engine, packet_buf, recv_size,
                                       user_conn->local_addr, user_conn->local_addrlen,
                                       user_conn->peer_addr, user_conn->peer_addrlen,
-                                      (xqc_msec_t)recv_time, user_conn) != XQC_OK)
-        {
-            printf("xqc_client_read_handler: packet process err\n");
+                                      (xqc_msec_t)recv_time, user_conn);
+        if (ret != XQC_OK) {
+            printf("xqc_client_read_handler: packet process err, ret: %d\n", ret);
             return;
         }
 
@@ -3144,6 +3217,33 @@ static void xqc_client_timeout_multi_process_callback(int fd, short what, void *
     ctx->cur_conn_num--;
 
     printf("xqc_conn_close, %d connetion rest\n", ctx->cur_conn_num);
+}
+
+static void
+xqc_client_request_callback(int fd, short what, void *arg)
+{
+    user_conn_t *user_conn = (user_conn_t *) arg;
+    int rc;
+    client_ctx_t *ctx = user_conn->ctx;
+
+    printf("--- xqc_client_request_callback\n");
+
+    user_stream_t *user_stream = calloc(1, sizeof(user_stream_t));
+    user_stream->user_conn = user_conn;
+    if (user_conn->h3 == 0 || user_conn->h3 == 2) {
+        user_stream->h3_request = xqc_h3_request_create(ctx->engine, &user_conn->cid, user_stream);
+        if (user_stream->h3_request == NULL) {
+            printf("xqc_h3_request_create error\n");
+            return;
+        }
+
+        xqc_client_request_send(user_stream->h3_request, user_stream);
+    }
+
+    struct timeval tv;
+    tv.tv_sec = 10;
+    tv.tv_usec = 0;
+    int ret = event_add(user_conn->ev_request, &tv);
 }
 
 static void
@@ -3486,6 +3586,7 @@ static void xqc_client_concurrent_callback(int fd, short what, void *arg){
             .h3_request_close_notify = xqc_client_request_close_notify,
             .h3_request_read_notify = xqc_client_request_read_notify,
             .h3_request_write_notify = xqc_client_request_write_notify,
+            .h3_request_closing_notify = xqc_client_request_closing_notify,
         }
     };
 
@@ -3559,7 +3660,6 @@ static void xqc_client_concurrent_callback(int fd, short what, void *arg){
         ctx->cur_conn_num++;
         memcpy(&user_conn->cid, cid, sizeof(*cid));
 
-        
         while (user_conn->cur_stream_num < g_req_paral) {
         
             user_stream_t *user_stream = calloc(1, sizeof(user_stream_t));
@@ -3575,8 +3675,8 @@ static void xqc_client_concurrent_callback(int fd, short what, void *arg){
 
             } 
             user_conn->cur_stream_num++;
-
         }
+
 
     }
     return;
@@ -3757,7 +3857,7 @@ int main(int argc, char *argv[]) {
     };
 
     int ch = 0;
-    while ((ch = getopt_long(argc, argv, "a:p:P:n:c:Ct:T:1s:w:r:l:Ed:u:H:h:Gx:6NMR:i:V:q:o:fe:F:D:b:B:J:Q:U:Ay", long_opts, NULL)) != -1) {
+    while ((ch = getopt_long(argc, argv, "a:p:P:n:c:Ct:T:1s:w:r:l:Ed:u:H:h:Gx:6NMR:i:V:q:o:fe:F:D:b:B:J:Q:U:Ayz", long_opts, NULL)) != -1) {
         switch (ch) {
         case 'U':
             printf("option send_datagram 0 (off), 1 (on), 2(on + batch): %s\n", optarg);
@@ -3955,6 +4055,10 @@ int main(int argc, char *argv[]) {
         case 'A':
             printf("option multipath request accelerate :%s\n", "on");
             g_mp_request_accelerate = 1;
+            break;
+        case 'z':
+            printf("option periodically send request :%s\n", "on");
+            g_periodically_request = 1;
             break;
         /* long options */
         case 0:
@@ -4230,6 +4334,7 @@ int main(int argc, char *argv[]) {
             .h3_request_close_notify = xqc_client_request_close_notify,
             .h3_request_read_notify = xqc_client_request_read_notify,
             .h3_request_write_notify = xqc_client_request_write_notify,
+            .h3_request_closing_notify = xqc_client_request_closing_notify,
         },
         .h3_ext_dgram_cbs = {
             .dgram_read_notify = xqc_client_h3_ext_datagram_read_callback,
@@ -4362,6 +4467,8 @@ int main(int argc, char *argv[]) {
 
     printf("conn type: %d\n", user_conn->h3);
 
+    user_conn->ctx = &ctx;
+
     if (user_conn->h3 == 0) {
         if (g_test_case == 7) {user_conn->token_len = -1;} /* create connection fail */
         cid = xqc_h3_connect(ctx.engine, &conn_settings, user_conn->token, user_conn->token_len,
@@ -4466,35 +4573,54 @@ int main(int argc, char *argv[]) {
         }
 
     } else if (!g_send_dgram && g_test_case != 500) {
-        for (int i = 0; i < g_req_paral; i++) {
-            g_req_cnt++;
-            user_stream_t *user_stream = calloc(1, sizeof(user_stream_t));
-            user_stream->user_conn = user_conn;
-            user_stream->last_recv_log_time = now();
-            user_stream->recv_log_bytes = 0;
-            if (user_conn->h3 == 0 || user_conn->h3 == 2) {
-                if (g_test_case == 11) { /* create stream fail */
-                    xqc_cid_t tmp;
-                    xqc_h3_request_create(ctx.engine, &tmp, user_stream);
-                    continue;
-                }
 
-                user_stream->h3_request = xqc_h3_request_create(ctx.engine, cid, user_stream);
-                if (user_stream->h3_request == NULL) {
-                    printf("xqc_h3_request_create error\n");
-                    continue;
-                }
+        if (g_periodically_request) {
+            user_conn->ev_request = event_new(eb, -1, 0, xqc_client_request_callback, user_conn);
 
-                xqc_client_request_send(user_stream->h3_request, user_stream);
+            /* request once every 1 second */
+            struct timeval tv;
+            tv.tv_sec = 0;
+            tv.tv_usec = 500000;
+            int ret = event_add(user_conn->ev_request, &tv);
+            if (ret != 0) {
+                printf("[ERROR] add request event ret: %d\n", ret);
+            }
+            
 
-            } else {
-                user_stream->stream = xqc_stream_create(ctx.engine, cid, user_stream);
-                if (user_stream->stream == NULL) {
-                    printf("xqc_stream_create error\n");
-                    continue;
+            printf("-----------  g_periodically_request: %d\n", g_periodically_request);
+
+        } else {
+
+            for (int i = 0; i < g_req_paral; i++) {
+                g_req_cnt++;
+                user_stream_t *user_stream = calloc(1, sizeof(user_stream_t));
+                user_stream->user_conn = user_conn;
+                user_stream->last_recv_log_time = now();
+                user_stream->recv_log_bytes = 0;
+                if (user_conn->h3 == 0 || user_conn->h3 == 2) {
+                    if (g_test_case == 11) { /* create stream fail */
+                        xqc_cid_t tmp;
+                        xqc_h3_request_create(ctx.engine, &tmp, user_stream);
+                        continue;
+                    }
+
+                    user_stream->h3_request = xqc_h3_request_create(ctx.engine, cid, user_stream);
+                    if (user_stream->h3_request == NULL) {
+                        printf("xqc_h3_request_create error\n");
+                        continue;
+                    }
+
+                    xqc_client_request_send(user_stream->h3_request, user_stream);
+
+                } else {
+                    user_stream->stream = xqc_stream_create(ctx.engine, cid, user_stream);
+                    if (user_stream->stream == NULL) {
+                        printf("xqc_stream_create error\n");
+                        continue;
+                    }
+                    printf("[qperf]|ts:%"PRIu64"|test_start|\n", now());
+                    xqc_client_stream_send(user_stream->stream, user_stream);
                 }
-                printf("[qperf]|ts:%"PRIu64"|test_start|\n", now());
-                xqc_client_stream_send(user_stream->stream, user_stream);
             }
         }
 

@@ -3866,6 +3866,8 @@ void usage(int argc, char *argv[]) {
 "   -J    Random CID. default is 0.\n"
 "   -Q    Multipath backup path standby, set backup_mode on(1). default backup_mode is 0(off).\n"
 "   -A    Multipath request accelerate on. default is 0(off).\n"
+"   -y    multipath backup path standby.\n"
+"   -z    periodically send request.\n"
 , prog);
 }
 

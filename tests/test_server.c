@@ -1999,7 +1999,10 @@ void usage(int argc, char *argv[]) {
 "   -K    load balance id encryption key\n"
 "   -o    Output log file path, default ./slog\n"
 "   -m    Set mpshell on.\n"
+"   -y    Multipath backup path standby.\n"
 "   -Q    Multipath backup path standby, set backup_mode on(1). default backup_mode is 0(off).\n"
+"   -H    Disable h3_ext.\n"
+"   -U    Send_datagram 0 (off), 1 (on), 2(on + batch).\n"
 , prog);
 }
 
@@ -2049,7 +2052,7 @@ int main(int argc, char *argv[]) {
     };
 
     int ch = 0;
-    while ((ch = getopt_long(argc, argv, "a:p:ec:Cs:w:r:l:u:x:6bS:MR:o:EK:mLQ:U:yH", long_opts, NULL)) != -1) {
+    while ((ch = getopt_long(argc, argv, "a:p:ec:LCs:w:r:l:u:x:6bS:MR:o:K:EmQ:U:yH", long_opts, NULL)) != -1) {
         switch (ch) {
         case 'H':
             printf("option disable h3_ext\n");
@@ -2153,7 +2156,7 @@ int main(int argc, char *argv[]) {
             g_sid_len = strlen(g_sid);
             break;
         case 'M':
-            printf("option enable multi-path: %s\n", optarg);
+            printf("option enable multi-path: %s\n",  "on");
             g_enable_multipath = 1;
             break;
         case 'R':

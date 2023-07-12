@@ -160,7 +160,7 @@ xqc_client_create_tls(xqc_connection_t *conn, const xqc_conn_ssl_config_t *conn_
         ret = -XQC_EMALLOC;
         goto end;
     }
-    strncpy(cfg.alpn, alpn, alpn_cap);
+    memcpy(cfg.alpn, alpn, alpn_cap);
 
     /* copy hostname */
     host_cap = strlen(hostname) + 1;
@@ -170,7 +170,7 @@ xqc_client_create_tls(xqc_connection_t *conn, const xqc_conn_ssl_config_t *conn_
         ret = -XQC_EMALLOC;
         goto end;
     }
-    strncpy(cfg.hostname, hostname, host_cap);
+    memcpy(cfg.hostname, hostname, host_cap);
 
     /* encode local transport parameters, and set to tls config */
     cfg.trans_params = tp_buf;

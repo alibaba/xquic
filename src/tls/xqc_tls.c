@@ -169,7 +169,7 @@ xqc_tls_set_alpn(SSL *ssl, const char *alpn)
      * the rest bytes, set the last byte with '\0'
      */
     p_alpn[0] = alpn_len;
-    strncpy(&p_alpn[1], alpn, protos_len);
+    memcpy(&p_alpn[1], alpn, alpn_len);
     p_alpn[protos_len] = '\0';
     SSL_set_alpn_protos(ssl, p_alpn, protos_len);
 

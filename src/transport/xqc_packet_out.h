@@ -16,8 +16,10 @@
  * datagrams larger than the smallest allowed maximum datagram size.
  */
 /* without XQC_EXTRA_SPACE & XQC_ACK_SPACE */
+#define XQC_MAX_PACKET_OUT_SIZE  XQC_QUIC_MAX_MSS
 #define XQC_PACKET_OUT_SIZE      XQC_QUIC_MIN_MSS  
 #define XQC_PACKET_OUT_EXT_SPACE (XQC_TLS_AEAD_OVERHEAD_MAX_LEN + XQC_ACK_SPACE)
+#define XQC_PACKET_OUT_BUF_CAP   (XQC_MAX_PACKET_OUT_SIZE + XQC_PACKET_OUT_EXT_SPACE)
 
 #define XQC_MAX_STREAM_FRAME_IN_PO  3
 
@@ -38,6 +40,10 @@ typedef enum {
     XQC_POF_NOT_SCHEDULE        = 1 << 13,
     XQC_POF_NOT_REINJECT        = 1 << 14,
     XQC_POF_DROPPED_DGRAM       = 1 << 15,
+    XQC_POF_REINJECT_DIFF_PATH  = 1 << 16,
+    XQC_POF_PMTUD_PROBING       = 1 << 17,
+    XQC_POF_QOS_HIGH            = 1 << 18,
+    XQC_POF_QOS_PROBING         = 1 << 19,
 } xqc_packet_out_flag_t;
 
 typedef struct xqc_po_stream_frame_s {
@@ -94,17 +100,27 @@ typedef struct xqc_packet_out_s {
     uint64_t                po_dgram_id;
 
     /* Multipath */
-    xqc_bool_t              po_is_path_specified;
+    uint8_t                 po_path_flag;
     uint64_t                po_path_id;
-    uint64_t                po_abandon_path_id;
     unsigned int            po_cc_size; /* TODO: check cc size != send size */
 
     /* Reinjection */
     uint64_t                po_stream_offset;
     uint64_t                po_stream_id;
-    xqc_packet_out_t       *po_reinj_origin;
-    xqc_packet_out_t       *po_reinj_replica;
+
+    /* PMTUD Probing */
+    size_t                  po_max_pkt_out_size;
 } xqc_packet_out_t;
+
+xqc_bool_t xqc_packet_out_on_specific_path(xqc_connection_t *conn, 
+    xqc_packet_out_t *po, xqc_path_ctx_t **path);
+
+xqc_bool_t xqc_packet_out_can_attach_ack(xqc_packet_out_t *po, 
+    xqc_path_ctx_t *path, xqc_pkt_type_t pkt_type);
+
+xqc_bool_t xqc_packet_out_can_pto_probe(xqc_packet_out_t *po, uint64_t path_id);
+
+void xqc_packet_out_remove_ack_frame(xqc_packet_out_t *po);
 
 xqc_packet_out_t *xqc_packet_out_create(size_t po_buf_cap);
 
@@ -157,7 +173,8 @@ int xqc_write_stream_frame_to_packet(xqc_connection_t *conn, xqc_stream_t *strea
     uint8_t fin, const unsigned char *payload, size_t payload_size, size_t *send_data_written);
 
 int xqc_write_datagram_frame_to_packet(xqc_connection_t *conn, xqc_pkt_type_t pkt_type, 
-    const unsigned char *data, size_t data_len, uint64_t *dgram_id, xqc_bool_t use_supplied_dgram_id);
+    const unsigned char *data, size_t data_len, uint64_t *dgram_id, xqc_bool_t use_supplied_dgram_id,
+    xqc_data_qos_level_t qos_level);
 
 int xqc_write_handshake_done_frame_to_packet(xqc_connection_t *conn);
 
@@ -178,6 +195,8 @@ int xqc_write_ack_mp_to_one_packet(xqc_connection_t *conn, xqc_path_ctx_t *path,
 xqc_int_t xqc_write_path_abandon_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path);
 
 xqc_int_t xqc_write_path_status_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path);
+
+int xqc_write_pmtud_ping_to_packet(xqc_path_ctx_t *path, size_t probing_size, xqc_pkt_type_t pkt_type);
 
 
 #endif /* _XQC_PACKET_OUT_H_INCLUDED_ */

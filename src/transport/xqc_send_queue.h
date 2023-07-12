@@ -28,8 +28,6 @@ typedef struct xqc_send_queue_s {
     uint64_t                    sndq_packets_free;
     uint64_t                    sndq_packets_used_max;
 
-    size_t                      pkt_out_size;
-
     xqc_bool_t                  sndq_full;
 
 } xqc_send_queue_t;

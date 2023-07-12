@@ -41,7 +41,7 @@ ssize_t xqc_gen_crypto_frame(xqc_packet_out_t *packet_out, uint64_t offset,
 
 xqc_int_t xqc_parse_crypto_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_stream_frame_t * frame);
 
-void xqc_gen_padding_frame(xqc_packet_out_t *packet_out);
+void xqc_gen_padding_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
 
 xqc_int_t xqc_parse_padding_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn);
 
@@ -51,9 +51,6 @@ xqc_int_t xqc_parse_ping_frame(xqc_packet_in_t *packet_in, xqc_connection_t *con
 
 ssize_t xqc_gen_ack_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec_t now, int ack_delay_exponent,
     xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, int *has_gap, xqc_packet_number_t *largest_ack);
-
-ssize_t xqc_gen_ack_frame_for_spns(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec_t now, int ack_delay_exponent,
-    xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, int *has_gap, xqc_packet_number_t *largest_ack, xqc_packet_number_t must_ack);
 
 xqc_int_t xqc_parse_ack_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_ack_info_t *ack_info);
 
@@ -126,20 +123,20 @@ ssize_t xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id, xqc_packe
     int ack_delay_exponent, xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, int *has_gap, xqc_packet_number_t *largest_ack);
 
 xqc_int_t xqc_parse_ack_mp_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
-    uint64_t *path_id, xqc_ack_info_t *ack_info);
+    uint64_t *dcid_seq_num, xqc_ack_info_t *ack_info);
 
 ssize_t xqc_gen_path_abandon_frame(xqc_packet_out_t *packet_out,
-    uint64_t path_id_type, uint64_t path_id_content, uint64_t error_code);
+    uint64_t dcid_seq_num, uint64_t error_code);
 
 xqc_int_t xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
-    uint64_t *path_id_type, uint64_t *path_id_content, uint64_t *error_code);
+    uint64_t *dcid_seq_num, uint64_t *error_code);
 
 ssize_t xqc_gen_path_status_frame(xqc_packet_out_t *packet_out,
-    uint64_t path_id_type, uint64_t path_id_content,
+    uint64_t dcid_seq_num,
     uint64_t path_status_seq_num, uint64_t path_status);
 
 xqc_int_t xqc_parse_path_status_frame(xqc_packet_in_t *packet_in,
-    uint64_t *path_id_type, uint64_t *path_id_content,
+    uint64_t *dcid_seq_num,
     uint64_t *path_status_seq_num, uint64_t *path_status);
 
 #endif /*_XQC_FRAME_PARSER_H_INCLUDED_*/

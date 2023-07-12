@@ -7,6 +7,7 @@
 #include "src/transport/xqc_multipath.h"
 #include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_stream.h"
+#include "src/transport/xqc_reinjection.h"
 
 
 xqc_send_queue_t *
@@ -33,8 +34,6 @@ xqc_send_queue_create(xqc_connection_t *conn)
     } else {
         send_queue->sndq_packets_used_max = XQC_SNDQ_PACKETS_USED_MAX;
     }
-
-    send_queue->pkt_out_size = conn->conn_settings.max_pkt_out_size;
 
     send_queue->sndq_conn = conn;
 
@@ -338,32 +337,17 @@ xqc_send_queue_copy_to_lost(xqc_packet_out_t *packet_out, xqc_send_queue_t *send
     }
 
     xqc_packet_out_copy(new_po, packet_out);
+    xqc_packet_out_remove_ack_frame(new_po);
 
-    /* 重注入包应在原路径重传，其余情况可以自由调度 */
-    if (packet_out->po_flag & (XQC_POF_REINJECTED_ORIGIN | XQC_POF_REINJECTED_REPLICA)) {
-        new_po->po_is_path_specified = XQC_TRUE;
+    if (new_po->po_path_flag & XQC_PATH_SPECIFIED_BY_PTO) {
+        new_po->po_path_flag &= ~XQC_PATH_SPECIFIED_BY_PTO;
     }
 
-    int ret;
-
-    if ((new_po->po_ack_offset > 0) && (new_po->po_frame_types & XQC_FRAME_BIT_ACK)) {
-        new_po->po_frame_types &= ~XQC_FRAME_BIT_ACK;
-        new_po->po_used_size = new_po->po_ack_offset;
-        ret = xqc_write_ack_to_one_packet(conn, new_po, new_po->po_pkt.pkt_pns);
-        if (ret < 0) {
-            xqc_log(conn->log, XQC_LOG_WARN, "|xqc_write_ack_to_one_packet error|");
-        }
-
-    } else if ((new_po->po_ack_offset > 0) && (new_po->po_frame_types & XQC_FRAME_BIT_ACK_MP)) {
-        new_po->po_frame_types &= ~XQC_FRAME_BIT_ACK_MP;
-        new_po->po_used_size = new_po->po_ack_offset;
-        xqc_path_ctx_t *path = xqc_conn_find_path_by_path_id(conn, new_po->po_path_id);
-        if (path != NULL) {
-            ret = xqc_write_ack_mp_to_one_packet(conn, path, new_po, new_po->po_pkt.pkt_pns);
-            if (ret < 0) {
-                xqc_log(conn->log, XQC_LOG_WARN, "|xqc_write_ack_mp_to_one_packet error|");
-            }
-        }
+    /* clear the flag if the packet is not a reinjected packet anymore */
+    if ((new_po->po_flag & XQC_POF_REINJECTED_ORIGIN)
+        && (new_po->po_origin && !(new_po->po_origin->po_flag & XQC_POF_REINJECTED_ORIGIN))) {
+        new_po->po_flag &= ~XQC_POF_REINJECTED_ORIGIN;
+        new_po->po_path_flag &= ~XQC_PATH_SPECIFIED_BY_REINJ;
     }
 
     xqc_send_queue_insert_lost(&new_po->po_list, &send_queue->sndq_lost_packets);
@@ -383,27 +367,16 @@ xqc_send_queue_copy_to_probe(xqc_packet_out_t *packet_out, xqc_send_queue_t *sen
     }
 
     xqc_packet_out_copy(new_po, packet_out);
+    xqc_packet_out_remove_ack_frame(new_po);
 
-    new_po->po_is_path_specified = XQC_TRUE;
+    new_po->po_path_flag |= XQC_PATH_SPECIFIED_BY_PTO;
     new_po->po_path_id = path->path_id;
 
-    int ret;
-
-    if ((new_po->po_ack_offset > 0) && (new_po->po_frame_types & XQC_FRAME_BIT_ACK)) {
-        new_po->po_frame_types &= ~XQC_FRAME_BIT_ACK;
-        new_po->po_used_size = new_po->po_ack_offset;
-        ret = xqc_write_ack_to_one_packet(conn, new_po, new_po->po_pkt.pkt_pns);
-        if (ret < 0) {
-            xqc_log(conn->log, XQC_LOG_WARN, "|xqc_write_ack_to_one_packet error|");
-        }
-
-    } else if ((new_po->po_ack_offset > 0) && (new_po->po_frame_types & XQC_FRAME_BIT_ACK_MP)) {
-        new_po->po_frame_types &= ~XQC_FRAME_BIT_ACK_MP;
-        new_po->po_used_size = new_po->po_ack_offset;
-        ret = xqc_write_ack_mp_to_one_packet(conn, path, new_po, new_po->po_pkt.pkt_pns);
-        if (ret < 0) {
-            xqc_log(conn->log, XQC_LOG_WARN, "|xqc_write_ack_mp_to_one_packet error|");
-        }
+    /* clear the flag if the packet is not a reinjected packet anymore */
+    if ((new_po->po_flag & XQC_POF_REINJECTED_ORIGIN)
+        && (new_po->po_origin && !(new_po->po_origin->po_flag & XQC_POF_REINJECTED_ORIGIN))) {
+        new_po->po_flag &= ~XQC_POF_REINJECTED_ORIGIN;
+        new_po->po_path_flag &= ~XQC_PATH_SPECIFIED_BY_REINJ;
     }
 
     xqc_send_queue_insert_probe(&new_po->po_list, &send_queue->sndq_pto_probe_packets);

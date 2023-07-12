@@ -270,7 +270,7 @@ xqc_client_create_connection(xqc_engine_t *engine, xqc_cid_t dcid, xqc_cid_t sci
     }
 
     xqc_datagram_record_mss(xc);
-
+    
     return xc;
 
 fail:

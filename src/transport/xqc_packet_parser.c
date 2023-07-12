@@ -261,11 +261,6 @@ xqc_packet_parse_short_header(xqc_connection_t *c, xqc_packet_in_t *packet_in)
     xqc_uint_t spin_bit = (pos[0] & 0x20) >> 5;
     pos += 1;
 
-    /* TODO: remove custom logic and disable spin bit */
-    if (spin_bit == 0x00) {
-        packet_in->pi_flag |= XQC_PIF_REINJECTED_REPLICA;
-    }
-
     /* check dcid */
     xqc_cid_set(&(packet->pkt_dcid), pos, cid_len);
     pos += cid_len;
@@ -331,14 +326,23 @@ xqc_short_packet_update_dcid(xqc_packet_out_t *packet_out, xqc_cid_t dcid)
 }
 
 /* TODO: remove custom logic and disable spin bit */
-void xqc_short_packet_update_custom_spin_bit(xqc_packet_out_t *packet_out)
+void xqc_packet_update_reserved_bits(xqc_packet_out_t *packet_out)
 {
     if (packet_out->po_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER
         && packet_out->po_flag & XQC_POF_REINJECTED_REPLICA)
     {
         unsigned char *dst_buf = packet_out->po_buf;
-        dst_buf[0] &= (~(1<<5));
+        /* reserved bits 10 */
+        dst_buf[0] |= (1 << 4);
     }
+
+    if (packet_out->po_pkt.pkt_type == XQC_PTYPE_0RTT
+        && packet_out->po_flag & XQC_POF_REINJECTED_REPLICA)
+    {
+        /* reserved bits 10 */
+        unsigned char *dst_buf = packet_out->po_buf;
+        dst_buf[0] |= (1 << 3);
+    } 
 }
 
 int
@@ -594,6 +598,14 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     uint8_t *dst_pktno = dst_header + (pktno - header);
     uint8_t *dst_payload = dst_header + header_len;
     uint8_t *dst_end = dst_payload;
+    xqc_path_ctx_t *path = xqc_conn_find_path_by_path_id(conn, packet_out->po_path_id);
+
+    if (path == NULL) {
+        XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+        xqc_log(conn->log, XQC_LOG_ERROR, "|path:%ui|does not exist|",
+                packet_out->po_path_id);
+        return XQC_EMP_PATH_NOT_FOUND;
+    }
 
     /* copy header to dest */
     xqc_memcpy(dst_header, header, header_len);
@@ -609,8 +621,8 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     }
 
     /* do packet protection */
-    uint32_t nonce_path_id = (conn->enable_multipath == XQC_CONN_MULTIPATH_MULTIPLE_PNS) ? 
-                             (uint32_t)packet_out->po_path_id : 0;
+    uint32_t nonce_path_id = (conn->enable_multipath) ? 
+                             (uint32_t)path->path_dcid.cid_seq_num : 0;
     ret = xqc_tls_encrypt_payload(conn->tls, level,
                                   packet_out->po_pkt.pkt_num, nonce_path_id,
                                   dst_header, header_len, payload, payload_len,
@@ -712,6 +724,17 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     size_t header_len = packet_in->pi_pkt.pkt_num_offset + pktno_len;
     uint8_t *payload = header + header_len;
     size_t payload_len = packet_in->pi_pkt.length - pktno_len;
+    uint8_t reserved_bits = 0;
+
+    if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_0RTT) {
+        reserved_bits = (header[0] & 0x0c) >> 2;
+    } else if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER) {
+        reserved_bits = (header[0] & 0x18) >> 3;
+    }
+
+    if (reserved_bits == 0x02 && conn->conn_settings.marking_reinjection) {
+        packet_in->pi_flag |= XQC_PIF_REINJECTED_REPLICA;
+    }
 
     /* parse packet number from header */
     xqc_packet_number_t truncated_pn;
@@ -744,7 +767,7 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     }
 
     /* decrypt packet payload */
-    uint32_t nonce_path_id = (conn->enable_multipath == XQC_CONN_MULTIPATH_MULTIPLE_PNS) ? 
+    uint32_t nonce_path_id = (conn->enable_multipath) ? 
                              (uint32_t)packet_in->pi_path_id : 0;
     ret = xqc_tls_decrypt_payload(conn->tls, level,
                                   packet_in->pi_pkt.pkt_num, nonce_path_id,

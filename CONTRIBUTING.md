@@ -204,6 +204,7 @@ In no particular order, thanks to these excellent individuals who contributed co
 * 徐盟欣(象谦)
 * Bai Shi(白石)
 * 周瑞琪(凼凼)
+* 李亮(海苍)
 * @chinsyo
 * @L1MeN9Yu
 * @flx413

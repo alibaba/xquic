@@ -544,6 +544,18 @@ typedef void (*xqc_datagram_acked_notify_pt)(xqc_connection_t *conn,
     uint64_t dgram_id, void *user_data);
 
 
+/**
+ * @brief the callback to notify application the MSS of QUIC datagrams. Note, 
+ *        the MSS of QUIC datagrams will never shrink. If the MSS is zero, it 
+ *        means this connection does not support sending QUIC datagrams.
+ * 
+ * @param conn the connection handle
+ * @param user_data the dgram_data set by xqc_datagram_set_user_data
+ * @param mss the MSS of QUIC datagrams
+ */
+typedef void (*xqc_datagram_mss_updated_notify_pt)(xqc_connection_t *conn,
+    size_t mss, void *user_data);
+
 
 /**
  * @brief callback functions which are more related to attributes of QUIC [Transport] but not ALPN.
@@ -765,7 +777,7 @@ typedef struct xqc_datagram_callbacks_s {
      * this will be triggered when a QUIC datagram is received. application layer could read
      * data from the arguments of this callback.
      */
-    xqc_datagram_read_notify_pt        datagram_read_notify;
+    xqc_datagram_read_notify_pt         datagram_read_notify;
 
     /**
      * datagram write callback function. REQUIRED for both client and server if they want to use datagram
@@ -773,21 +785,23 @@ typedef struct xqc_datagram_callbacks_s {
      * when sending data with xqc_datagram_send or xqc_datagram_send_multiple, xquic might be blocked or send part of the data. if
      * this callback function is triggered, applications can continue to send the rest data.
      */
-    xqc_datagram_write_notify_pt       datagram_write_notify;
+    xqc_datagram_write_notify_pt        datagram_write_notify;
 
     /**
      * datagram acked callback function. OPTIONAL for server and client.
      *
      * this will be triggered when a QUIC packet containing a DATAGRAM frame is acked. 
      */
-    xqc_datagram_acked_notify_pt       datagram_acked_notify;
+    xqc_datagram_acked_notify_pt        datagram_acked_notify;
 
     /**
      * datagram lost callback function. OPTIONAL for server and client.
      *
      * this will be triggered when a QUIC packet containing a DATAGRAM frame is lost. 
      */
-    xqc_datagram_lost_notify_pt       datagram_lost_notify;
+    xqc_datagram_lost_notify_pt         datagram_lost_notify;
+
+    xqc_datagram_mss_updated_notify_pt  datagram_mss_updated_notify;
 
 } xqc_datagram_callbacks_t;
 
@@ -816,6 +830,7 @@ typedef enum {
     XQC_DATA_QOS_NORMAL  = 4,
     XQC_DATA_QOS_LOW     = 5,
     XQC_DATA_QOS_LOWEST  = 6,
+    XQC_DATA_QOS_PROBING = 7,
 } xqc_data_qos_level_t;
 
 typedef struct xqc_cc_params_s {
@@ -936,25 +951,31 @@ typedef struct xqc_scheduler_callback_s {
 
 XQC_EXPORT_PUBLIC_API extern const xqc_scheduler_callback_t xqc_minrtt_scheduler_cb;
 XQC_EXPORT_PUBLIC_API extern const xqc_scheduler_callback_t xqc_backup_scheduler_cb;
+XQC_EXPORT_PUBLIC_API extern const xqc_scheduler_callback_t xqc_rap_scheduler_cb;
 
+typedef enum {
+    XQC_REINJ_UNACK_AFTER_SCHED   = 1 << 0,
+    XQC_REINJ_UNACK_BEFORE_SCHED  = 1 << 1,
+    XQC_REINJ_UNACK_AFTER_SEND    = 1 << 2,
+} xqc_reinjection_mode_t;
 
 typedef struct xqc_reinj_ctl_callback_s {
 
     size_t (*xqc_reinj_ctl_size)(void);
 
-    void (*xqc_reinj_ctl_init)(void *reinj_ctl, const xqc_conn_settings_t *settings, xqc_log_t *log);
+    void (*xqc_reinj_ctl_init)(void *reinj_ctl, xqc_connection_t *conn);
 
-    xqc_bool_t (*xqc_reinj_ctl_lost_queue)(void *reinj_ctl, void *qoe_ctx, xqc_connection_t *conn);
+    void (*xqc_reinj_ctl_update)(void *reinj_ctl, void *qoe_info);
 
-    xqc_bool_t (*xqc_reinj_ctl_unack_queue)(void *reinj_ctl, void *qoe_ctx, xqc_connection_t *conn);
+    void (*xqc_reinj_ctl_reset)(void *reinj_ctl, void *qoe_info);
 
-    xqc_bool_t (*xqc_reinj_ctl_send_queue)(void *reinj_ctl, void *qoe_ctx, xqc_connection_t *conn);
-
-    xqc_bool_t (*xqc_reinj_ctl_single_packet)(void *reinj_ctl, void *qoe_ctx, xqc_connection_t *conn, xqc_packet_out_t *po);
+    xqc_bool_t (*xqc_reinj_ctl_can_reinject)(void *reinj_ctl, xqc_packet_out_t *po, xqc_reinjection_mode_t mode);
 
 } xqc_reinj_ctl_callback_t;
 
-XQC_EXPORT_PUBLIC_API extern const xqc_reinj_ctl_callback_t xqc_xlink_reinj_ctl_cb;
+XQC_EXPORT_PUBLIC_API extern const xqc_reinj_ctl_callback_t xqc_default_reinj_ctl_cb;
+XQC_EXPORT_PUBLIC_API extern const xqc_reinj_ctl_callback_t xqc_deadline_reinj_ctl_cb;
+XQC_EXPORT_PUBLIC_API extern const xqc_reinj_ctl_callback_t xqc_dgram_reinj_ctl_cb;
 
 
 /**
@@ -1152,11 +1173,11 @@ typedef struct xqc_conn_settings_s {
      * reinjection option:
      * 0: default, no reinjection
      * bit0 = 1: 
-     *    try to reinject unacked packets if paths still have cwnd.
-     *    the current reinjection mode is very aggressive, please use with caution.
+     *    reinject unacked packets after scheduling packets to paths.
      * bit1 = 1: 
-     *    try to reinject unacked packets if they have missed the deadline.
-     *    The deadline is controlled by the following three parameters.
+     *    reinject unacked packets before scheduling packets to paths.
+     * bit2 = 1
+     *    reinject unacked packets after sending packets.
      */
     int                         mp_enable_reinjection;
     /*
@@ -1174,7 +1195,7 @@ typedef struct xqc_conn_settings_s {
     xqc_scheduler_callback_t    scheduler_callback;
     xqc_scheduler_params_t      scheduler_params;
 
-    /* reinj_ctl callback, default: xqc_xlink_reinj_ctl_cb */
+    /* reinj_ctl callback, default: xqc_default_reinj_ctl_cb */
     xqc_reinj_ctl_callback_t    reinj_ctl_callback;
 
     /* mark path unreachable if ctl_pto_count > path_unreachable_pto_count */
@@ -1190,10 +1211,18 @@ typedef struct xqc_conn_settings_s {
     uint64_t                    loss_detection_pkt_thresh;
     double                      pto_backoff_factor;
 
-    /* datagram redundancy */
+    /* datagram redundancy: 0 disable, 1 enable, 2 only enable multipath redundancy */
     uint8_t                     datagram_redundancy;
     uint8_t                     datagram_force_retrans_on;
     uint64_t                    datagram_redundant_probe;
+
+    /* enable PMTUD */
+    uint8_t                     enable_pmtud;
+    /* probing interval (us), default: 500000 */
+    uint64_t                    pmtud_probing_interval; 
+
+    /* enable marking reinjected packets with reserved bits */
+    uint8_t                     marking_reinjection;
 
 } xqc_conn_settings_t;
 
@@ -1230,7 +1259,9 @@ typedef struct xqc_conn_stats_s {
     uint32_t            tlp_count;
     uint32_t            spurious_loss_count;
     uint32_t            lost_dgram_count; /*how many datagram frames (pkts) are lost*/
-    xqc_usec_t          srtt;
+    xqc_usec_t          srtt;            /* smoothed SRTT at present: initial value = 250000 */
+    xqc_usec_t          min_rtt;         /* minimum RTT until now: initial value = 0xFFFFFFFF */
+    uint64_t            inflight_bytes;  /* initial value = 0 */
     xqc_0rtt_flag_t     early_data_flag;
     uint32_t            recv_count;
     int                 spurious_loss_detect_on;

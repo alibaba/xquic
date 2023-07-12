@@ -14,7 +14,6 @@
 #include "xqc_common_test.h"
 #include "xqc_vint_test.h"
 #include "xqc_recv_record_test.h"
-#include "xqc_sent_record_test.h"
 #include "xqc_reno_test.h"
 #include "xqc_cubic_test.h"
 #include "xqc_packet_test.h"
@@ -62,8 +61,6 @@ main()
     }     
 
     if (!CU_add_test(pSuite, "xqc_test_get_random", xqc_test_get_random)
-        || !CU_add_test(pSuite, "xqc_test_sent_record", xqc_test_sent_record)
-        || !CU_add_test(pSuite, "xqc_test_sent_record_get_largest_pn_in_ack", xqc_test_sent_record_get_largest_pn_in_ack)
         || !CU_add_test(pSuite, "xqc_test_engine_create", xqc_test_engine_create)
         || !CU_add_test(pSuite, "xqc_test_conn_create", xqc_test_conn_create)
         || !CU_add_test(pSuite, "xqc_test_pq", xqc_test_pq)

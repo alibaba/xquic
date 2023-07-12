@@ -68,7 +68,7 @@ typedef enum {
     /* do no cryption on 0-RTT and 1-RTT packets */
     XQC_TRANSPORT_PARAM_NO_CRYPTO                           = 0x1000,
     /* multipath quic attributes */
-    XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH                    = 0xbabf,
+    XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH                    = 0x0f739bbc1b666d04,
 
     /* upper limit of params defined by xquic */
     XQC_TRANSPORT_PARAM_UNKNOWN,

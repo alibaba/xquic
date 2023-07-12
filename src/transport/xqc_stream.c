@@ -244,7 +244,7 @@ xqc_stream_do_send_flow_ctl(xqc_stream_t *stream)
 {
     int ret = XQC_OK;
     /* connection level */
-    if (stream->stream_conn->conn_flow_ctl.fc_data_sent + XQC_PACKET_OUT_SIZE > stream->stream_conn->conn_flow_ctl.fc_max_data_can_send) {
+    if (stream->stream_conn->conn_flow_ctl.fc_data_sent + stream->stream_conn->pkt_out_size > stream->stream_conn->conn_flow_ctl.fc_max_data_can_send) {
         xqc_log(stream->stream_conn->log, XQC_LOG_INFO, "|xqc_stream_send|exceed max_data:%ui|",
                 stream->stream_conn->conn_flow_ctl.fc_max_data_can_send);
 
@@ -254,7 +254,7 @@ xqc_stream_do_send_flow_ctl(xqc_stream_t *stream)
     }
 
     /* stream level */
-    if (stream->stream_send_offset + XQC_PACKET_OUT_SIZE > stream->stream_flow_ctl.fc_max_stream_data_can_send) {
+    if (stream->stream_send_offset + stream->stream_conn->pkt_out_size > stream->stream_flow_ctl.fc_max_stream_data_can_send) {
         xqc_log(stream->stream_conn->log, XQC_LOG_INFO, "|xqc_stream_send|exceed max_stream_data:%ui|",
                 stream->stream_flow_ctl.fc_max_stream_data_can_send);
 
@@ -841,10 +841,6 @@ xqc_crypto_stream_send(xqc_stream_t *stream,
             while (stream->stream_send_offset < send_data_num) {
                 unsigned int header_size = xqc_crypto_frame_header_size(stream->stream_send_offset,
                                                                         buf->data_len - offset);
-
-                int need = 0;
-                need = ((buf->data_len - offset + header_size) > XQC_PACKET_OUT_SIZE) ?
-                    (header_size + MIN_CRYPTO_FRAME_SIZE) : (buf->data_len - offset + header_size);
                 packet_out = xqc_write_new_packet(c, pkt_type);
                 if (packet_out == NULL) {
                     return -XQC_EWRITE_PKT;

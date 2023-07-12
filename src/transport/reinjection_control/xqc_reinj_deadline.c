@@ -1,0 +1,99 @@
+/**
+ * @copyright Copyright (c) 2022, Alibaba Group Holding Limited
+ */
+
+
+#include "src/transport/reinjection_control/xqc_reinj_deadline.h"
+
+#include "src/transport/xqc_reinjection.h"
+#include "src/transport/xqc_multipath.h"
+#include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_send_ctl.h"
+#include "src/transport/xqc_engine.h"
+#include "src/transport/xqc_cid.h"
+#include "src/transport/xqc_stream.h"
+#include "src/transport/xqc_utils.h"
+#include "src/transport/xqc_wakeup_pq.h"
+#include "src/transport/xqc_packet_out.h"
+
+#include "src/common/xqc_common.h"
+#include "src/common/xqc_malloc.h"
+#include "src/common/xqc_str_hash.h"
+#include "src/common/xqc_hash.h"
+#include "src/common/xqc_priority_q.h"
+#include "src/common/xqc_memory_pool.h"
+#include "src/common/xqc_random.h"
+
+#include "xquic/xqc_errno.h"
+
+
+static size_t
+xqc_deadline_reinj_ctl_size()
+{
+    return sizeof(xqc_deadline_reinj_ctl_t);
+}
+
+static void
+xqc_deadline_reinj_ctl_init(void *reinj_ctl, xqc_connection_t *conn)
+{
+    xqc_deadline_reinj_ctl_t *rctl = (xqc_deadline_reinj_ctl_t *)reinj_ctl;
+
+    rctl->log = conn->log;
+    rctl->conn = conn;
+}
+
+static xqc_bool_t
+xqc_deadline_reinj_can_reinject_before_sched(xqc_deadline_reinj_ctl_t *rctl, 
+    xqc_packet_out_t *po)
+{
+    xqc_connection_t *conn = rctl->conn;
+    xqc_usec_t now = xqc_monotonic_timestamp();
+    xqc_usec_t min_srtt = xqc_conn_get_min_srtt(conn);
+
+    double   factor      = conn->conn_settings.reinj_flexible_deadline_srtt_factor;
+    double   flexible    = factor * min_srtt;
+    uint64_t hard        = conn->conn_settings.reinj_hard_deadline;
+    uint64_t lower_bound = conn->conn_settings.reinj_deadline_lower_bound;
+    double   deadline    = xqc_max(xqc_min(flexible, (double)hard), (double)lower_bound);
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|deadline:%f|factor:%.4f|min_srtt:%ui|flexible:%f|hard:%ui|lower_bound:%ui|",
+                                      deadline, factor, min_srtt, flexible, hard, lower_bound);
+
+    if ((po->po_frame_types & XQC_FRAME_BIT_STREAM)
+        && !(po->po_flag & XQC_POF_NOT_REINJECT)
+        && !(XQC_MP_PKT_REINJECTED(po)
+             && (po->po_origin? XQC_MP_PKT_REINJECTED(po->po_origin): XQC_TRUE))
+        && (po->po_flag & XQC_POF_IN_FLIGHT)
+        && ((double)(now - po->po_sent_time) >= deadline)) 
+    {   
+        return XQC_TRUE;
+    }
+
+    return XQC_FALSE;
+}
+
+static xqc_bool_t
+xqc_deadline_reinj_can_reinject(void *ctl, 
+    xqc_packet_out_t *po, xqc_reinjection_mode_t mode)
+{
+    xqc_bool_t can_reinject = XQC_FALSE;
+    xqc_deadline_reinj_ctl_t *rctl = (xqc_deadline_reinj_ctl_t*)ctl;
+
+    switch (mode) {
+    case XQC_REINJ_UNACK_BEFORE_SCHED:
+        can_reinject = xqc_deadline_reinj_can_reinject_before_sched(rctl, po);
+        break;
+    default:
+        can_reinject = XQC_FALSE;
+        break;
+    }
+
+    return can_reinject;
+}
+
+
+const xqc_reinj_ctl_callback_t xqc_deadline_reinj_ctl_cb = {
+    .xqc_reinj_ctl_size             = xqc_deadline_reinj_ctl_size,
+    .xqc_reinj_ctl_init             = xqc_deadline_reinj_ctl_init,
+    .xqc_reinj_ctl_can_reinject     = xqc_deadline_reinj_can_reinject,
+};

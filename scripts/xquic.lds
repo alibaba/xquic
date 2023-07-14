@@ -63,6 +63,7 @@ XQUIC_VERS_1.0 {
         xqc_reno_cb;
         xqc_cubic_cb;
         xqc_minrtt_scheduler_cb;
+        xqc_interop_scheduler_cb;
         xqc_backup_scheduler_cb;
         xqc_rap_scheduler_cb;
         xqc_conn_is_ready_to_send_early_data;

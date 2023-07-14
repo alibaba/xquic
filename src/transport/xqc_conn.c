@@ -47,6 +47,7 @@ xqc_conn_settings_t default_conn_settings = {
     .max_pkt_out_size           = XQC_PACKET_OUT_SIZE,
     .max_datagram_frame_size    = 0,
     .mp_enable_reinjection      = 0,
+    .mp_ack_on_any_path         = 0,
     .max_ack_delay              = XQC_DEFAULT_MAX_ACK_DELAY,
     .ack_frequency              = 2,
     .loss_detection_pkt_thresh  = XQC_kPacketThreshold,
@@ -97,6 +98,7 @@ xqc_server_set_conn_settings(const xqc_conn_settings_t *settings)
     default_conn_settings.datagram_force_retrans_on = settings->datagram_force_retrans_on;
     default_conn_settings.enable_pmtud = settings->enable_pmtud;
     default_conn_settings.marking_reinjection = settings->marking_reinjection;
+    default_conn_settings.mp_ack_on_any_path = settings->mp_ack_on_any_path;
 
     if (settings->pmtud_probing_interval) {
         default_conn_settings.pmtud_probing_interval = settings->pmtud_probing_interval;

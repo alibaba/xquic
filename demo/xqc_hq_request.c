@@ -315,13 +315,61 @@ xqc_hq_request_recv_req(xqc_hq_request_t *hqr, char *res_buf, size_t buf_sz, uin
 ssize_t
 xqc_hq_request_recv_rsp(xqc_hq_request_t *hqr, char *res_buf, size_t buf_sz, uint8_t *fin)
 {
-    return xqc_stream_recv(hqr->stream, res_buf, buf_sz, fin);
+    ssize_t ret = xqc_stream_recv(hqr->stream, res_buf, buf_sz, fin);
+    if (ret > 0) {
+        hqr->recv_cnt += ret;
+    }
+    return ret;
 }
 
 void
 xqc_hq_request_set_user_data(xqc_hq_request_t *hqr, void *user_data)
 {
     hqr->user_data = user_data;
+}
+
+xqc_request_stats_t
+xqc_hq_request_get_stats(xqc_hq_request_t *hqr)
+{
+    xqc_request_stats_t stats;
+    xqc_memzero(&stats, sizeof(stats));
+
+    xqc_stream_t *stream    = hqr->stream;
+    uint64_t conn_err       = hqr->stream->stream_conn->conn_err;
+
+    stats.recv_body_size    = hqr->recv_cnt;
+    stats.send_body_size    = hqr->sent_cnt;
+    stats.stream_err        = conn_err != 0 ? conn_err : hqr->stream->stream_err;
+
+    char *buff = stats.stream_info;
+    size_t buff_size = XQC_STREAM_INFO_LEN;
+    size_t cursor = 0, ret = 0;
+
+    for (int i = 0; i < XQC_MAX_PATHS_COUNT; ++i) {
+        if ((stream->paths_info[i].path_send_bytes > 0)
+            || (stream->paths_info[i].path_recv_bytes > 0))
+        {
+            /* check buffer size */
+            if (cursor + 100 >= buff_size) {
+                break;
+            }
+
+            ret = snprintf(buff + cursor, buff_size - cursor, 
+                            "#%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64,
+                            stream->paths_info[i].path_id,
+                            stream->paths_info[i].path_pkt_send_count,
+                            stream->paths_info[i].path_pkt_recv_count,
+                            stream->paths_info[i].path_send_bytes,
+                            stream->paths_info[i].path_send_reinject_bytes,
+                            stream->paths_info[i].path_recv_bytes,
+                            stream->paths_info[i].path_recv_reinject_bytes,
+                            stream->paths_info[i].path_recv_effective_bytes,
+                            stream->paths_info[i].path_recv_effective_reinject_bytes);
+            cursor += ret;
+        }
+    }
+
+    return stats;
 }
 
 

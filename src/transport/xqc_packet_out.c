@@ -53,6 +53,20 @@ error:
 {
     xqc_bool_t ret = XQC_FALSE;
     if (po->po_path_flag) {
+
+        if (po->po_path_flag == XQC_PATH_SPECIFIED_BY_ACK
+            && conn->conn_settings.mp_ack_on_any_path
+            && po->po_frame_types & XQC_FRAME_BIT_ACK_MP)
+        {
+            /* 
+             * if the path is specified only due to ACK_MP, 
+             * we force the packet to be re-scheduled.
+             */
+            po->po_path_flag &= ~XQC_PATH_SPECIFIED_BY_ACK;
+            *path = NULL;
+            return XQC_FALSE;
+        }
+
         *path = xqc_conn_find_path_by_path_id(conn, po->po_path_id);
 
         /* no packets can be sent on a closing/closed path */
@@ -389,7 +403,7 @@ xqc_write_ack_to_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out
     packet_out->po_used_size += ret;
     packet_out->po_largest_ack = largest_ack;
 
-    packet_out->po_path_flag = XQC_PATH_SPECIFIED_BY_ACK;
+    packet_out->po_path_flag |= XQC_PATH_SPECIFIED_BY_ACK;
     packet_out->po_path_id = path->path_id;
 
     path->path_send_ctl->ctl_ack_eliciting_pkt[pns] = 0;

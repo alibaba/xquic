@@ -1110,6 +1110,10 @@ xqc_path_validate(xqc_path_ctx_t *path)
         xqc_set_path_state(path, XQC_PATH_STATE_ACTIVE);
         path->parent_conn->validated_path_count++;
 
+        xqc_log(conn->log, XQC_LOG_DEBUG, 
+                "|path validated|path_id:%ui|validated_path_count:%ud|", 
+                path->path_id, path->parent_conn->validated_path_count);
+
         if (path->path_flag & XQC_PATH_FLAG_SEND_STATUS) {
             path->path_flag &= ~XQC_PATH_FLAG_SEND_STATUS;
 

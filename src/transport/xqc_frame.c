@@ -1417,6 +1417,13 @@ xqc_process_ack_mp_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         return XQC_OK;
     }
 
+    if (path_to_be_acked->path_id != packet_in->pi_path_id) {
+        xqc_log(conn->log, XQC_LOG_DEBUG, 
+                "|ACK_MP received on a different path|ack_path_id:%ui|recv_path_id:%ui|",
+                path_to_be_acked->path_id,
+                packet_in->pi_path_id);
+    }
+
     for (int i = 0; i < ack_info.n_ranges; i++) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|high:%ui|low:%ui|pkt_pns:%d|", path_to_be_acked->path_id,
                 ack_info.ranges[i].high, ack_info.ranges[i].low, packet_in->pi_pkt.pkt_pns);

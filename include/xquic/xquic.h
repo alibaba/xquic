@@ -952,6 +952,7 @@ typedef struct xqc_scheduler_callback_s {
 XQC_EXPORT_PUBLIC_API extern const xqc_scheduler_callback_t xqc_minrtt_scheduler_cb;
 XQC_EXPORT_PUBLIC_API extern const xqc_scheduler_callback_t xqc_backup_scheduler_cb;
 XQC_EXPORT_PUBLIC_API extern const xqc_scheduler_callback_t xqc_rap_scheduler_cb;
+XQC_EXPORT_PUBLIC_API extern const xqc_scheduler_callback_t xqc_interop_scheduler_cb;
 
 typedef enum {
     XQC_REINJ_UNACK_AFTER_SCHED   = 1 << 0,
@@ -1190,6 +1191,15 @@ typedef struct xqc_conn_settings_s {
     double                      reinj_flexible_deadline_srtt_factor;
     uint64_t                    reinj_hard_deadline;
     uint64_t                    reinj_deadline_lower_bound;
+
+    /*
+     * By default, XQUIC returns ACK_MPs on the path where the data 
+     * is received unless the path is not avaliable anymore. 
+     * 
+     * Setting mp_ack_on_any_path to 1 can enable XQUIC to return ACK_MPs on any
+     * paths according to the scheduler.
+     */
+    uint8_t                     mp_ack_on_any_path;
     
     /* scheduler callback, default: xqc_minrtt_scheduler_cb */
     xqc_scheduler_callback_t    scheduler_callback;

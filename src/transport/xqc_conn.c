@@ -2490,10 +2490,24 @@ xqc_conn_info_print(xqc_connection_t *conn, xqc_conn_stats_t *conn_stats)
     xqc_list_head_t *pos, *next;
     xqc_path_ctx_t *path = NULL;
     xqc_path_info_t path_info;
+    uint32_t mp_settings = 0;
+
+    if (conn->enable_multipath) {
+        mp_settings |= 1;
+    }
+
+    if (conn->local_settings.enable_multipath) {
+        mp_settings |= (1 << 1);
+    }
+
+    if (conn->remote_settings.enable_multipath) {
+        mp_settings |= (1 << 2);
+    }
 
     /* conn info */
-    ret = snprintf(buff, buff_size, "%u,%u,%u,%u,"
+    ret = snprintf(buff, buff_size, "%u,%u,%u,%u,%u,"
                    "%u,%u,",
+                   mp_settings,
                    conn->create_path_count,
                    conn->dgram_stats.total_dgram,
                    conn->dgram_stats.hp_dgram,

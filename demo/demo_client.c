@@ -160,6 +160,8 @@ typedef struct xqc_demo_cli_quic_config_s {
 
     uint64_t close_path;
 
+    uint8_t no_encryption;
+
 } xqc_demo_cli_quic_config_t;
 
 
@@ -229,6 +231,9 @@ typedef struct xqc_demo_cli_requests_s {
 
     /* delay X us to start reqs */
     uint64_t req_start_delay; 
+
+    /* serial requests */
+    uint8_t serial;
 
 } xqc_demo_cli_requests_t;
 
@@ -1274,8 +1279,12 @@ static void
 xqc_demo_cli_delayed_req_start(int fd, short what, void *arg)
 {
     xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *) arg;
+    int req_cnt = user_conn->task->req_cnt;
+    if (user_conn->ctx->args->req_cfg.serial) {
+        req_cnt = req_cnt > 1 ? 1 : req_cnt;
+    }
     xqc_demo_cli_send_requests(user_conn, user_conn->ctx->args,
-                               user_conn->task->reqs, user_conn->task->req_cnt);
+                               user_conn->task->reqs, req_cnt);
 }
 
 static void
@@ -1517,6 +1526,8 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -s    multipath scheduler (interop, minrtt), default: interop\n"
         "   -b    set the second path as a backup path\n"
         "   -Z    close one path after X ms\n"
+        "   -N    No encryption (default disabled)\n"
+        "   -Q    Send requests one by one (default disabled)\n"
         , prog);
 }
 
@@ -1525,7 +1536,7 @@ void
 xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMi:w:Ps:bZ:")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMi:w:Ps:bZ:NQ")) != -1) {
         switch (ch) {
         /* server ip */
         case 'a':
@@ -1702,6 +1713,16 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             args->quic_cfg.close_path = atoi(optarg);
             break;
 
+        case 'N':
+            printf("option no encryption on\n");
+            args->quic_cfg.no_encryption = 1;
+            break;
+
+        case 'Q':
+            printf("option serial requests on\n");
+            args->req_cfg.serial = 1;
+            break;
+
         default:
             printf("other option :%c\n", ch);
             xqc_demo_cli_usage(argc, argv);
@@ -1870,6 +1891,9 @@ xqc_demo_cli_continue_send_reqs(xqc_demo_cli_user_conn_t *user_conn)
     int task_idx = user_conn->task->task_idx;
     int req_create_cnt = ctx->task_ctx.schedule.schedule_info[task_idx].req_create_cnt;
     int req_cnt = user_conn->task->req_cnt - req_create_cnt;
+    if (ctx->args->req_cfg.serial) {
+        req_cnt = req_cnt > 1 ? 1 : req_cnt;
+    }
     if (req_cnt > 0) {
         xqc_demo_cli_request_t *reqs = user_conn->task->reqs + req_create_cnt;
         xqc_demo_cli_send_requests(user_conn, ctx->args, reqs, req_cnt);
@@ -2088,7 +2112,7 @@ xqc_demo_cli_init_xquic_connection(xqc_demo_cli_user_conn_t *user_conn,
 
     if (args->quic_cfg.alpn_type == ALPN_H3) {
         const xqc_cid_t *cid = xqc_h3_connect(user_conn->ctx->engine, &conn_settings,
-            args->quic_cfg.token, args->quic_cfg.token_len, args->net_cfg.host, 0, &conn_ssl_config, 
+            args->quic_cfg.token, args->quic_cfg.token_len, args->net_cfg.host, args->quic_cfg.no_encryption, &conn_ssl_config, 
             (struct sockaddr*)&args->net_cfg.addr, args->net_cfg.addr_len, user_conn);
         if (cid == NULL) {
             return -1;
@@ -2098,7 +2122,7 @@ xqc_demo_cli_init_xquic_connection(xqc_demo_cli_user_conn_t *user_conn,
 
     } else {
         user_conn->hqc_handle = xqc_hq_connect(user_conn->ctx->engine, &conn_settings,
-            args->quic_cfg.token, args->quic_cfg.token_len, args->net_cfg.host, 0, &conn_ssl_config, 
+            args->quic_cfg.token, args->quic_cfg.token_len, args->net_cfg.host, args->quic_cfg.no_encryption, &conn_ssl_config, 
             (struct sockaddr*)&args->net_cfg.addr, args->net_cfg.addr_len, user_conn);
         if (user_conn->hqc_handle == NULL) {
             return -1;
@@ -2155,7 +2179,13 @@ xqc_demo_cli_start(xqc_demo_cli_user_conn_t *user_conn, xqc_demo_cli_client_args
 
     } else {
         /* TODO: fix MAX_STREAMS bug */
-        xqc_demo_cli_send_requests(user_conn, args, reqs, req_cnt);
+        if (args->req_cfg.serial) {
+            xqc_demo_cli_send_requests(user_conn, args, reqs, req_cnt > 1 ? 1 : req_cnt);
+
+        } else {
+            xqc_demo_cli_send_requests(user_conn, args, reqs, req_cnt);
+        }
+        
     }
 }
 

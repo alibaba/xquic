@@ -268,13 +268,13 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         case 0x30 ... 0x31:
             ret = xqc_process_datagram_frame(conn, packet_in);
             break;
-        case 0xbaba00 ... 0xbaba01:
+        case 0x15228c00 ... 0x15228c01:
             ret = xqc_process_ack_mp_frame(conn, packet_in);
             break;
-        case 0xbaba05:
+        case 0x15228c05:
             ret = xqc_process_path_abandon_frame(conn, packet_in);
             break;
-        case 0xbaba06:
+        case 0x15228c06:
             ret = xqc_process_path_status_frame(conn, packet_in);
             break;
         default:

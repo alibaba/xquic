@@ -1165,7 +1165,7 @@ typedef struct xqc_conn_settings_s {
     
     /* 
      * multipath option:
-     * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-02#section-3
+     * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-04#section-3
      * 0: don't support multipath
      * 1: supports multipath (unified solution) - multiple PN spaces
      */

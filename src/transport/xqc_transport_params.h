@@ -133,7 +133,7 @@ typedef struct {
     /**
      * enable_multipath is a self-defined experimental transport parameter by xquic, which will
      * enable multipath quic if enable_multipath is set to be 1.
-     * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-02#section-3
+     * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-04#section-3
      * enable_multipath is designed to be effective only on current connection and do not apply to
      * future connections, storing this parameter and recover on future connections is prohibited.
      * NOTICE: enable_multipath MIGHT be modified or removed as it is not an official parameter

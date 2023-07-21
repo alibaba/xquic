@@ -30,7 +30,7 @@ XQUIC Library released by Alibaba is …
 
 
 [![](https://img.shields.io/static/v1?label=draft-13&message=QUIC-LB&color=9cf)](https://tools.ietf.org/html/draft-ietf-quic-load-balancers-13)
-[![](https://img.shields.io/static/v1?label=draft-01&message=Multipath-QUIC&color=9cf)](https://tools.ietf.org/html/draft-ietf-quic-multipath-01)
+[![](https://img.shields.io/static/v1?label=draft-04&message=Multipath-QUIC&color=9cf)](https://tools.ietf.org/html/draft-ietf-quic-multipath-04)
 
 #### Standardized Features
 
@@ -40,7 +40,7 @@ XQUIC Library released by Alibaba is …
 
 #### Not Yet Standardized Features
 
-* [Multipath QUIC](https://tools.ietf.org/html/draft-ietf-quic-multipath-02)
+* [Multipath QUIC](https://tools.ietf.org/html/draft-ietf-quic-multipath-04)
 
 * [QUIC-LB](https://tools.ietf.org/html/draft-ietf-quic-load-balancers-13)
 

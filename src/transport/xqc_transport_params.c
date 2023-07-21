@@ -158,8 +158,7 @@ xqc_transport_params_calc_length(const xqc_transport_params_t *params,
 
     if (params->enable_multipath) {
         len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH) +
-               xqc_put_varint_len(xqc_put_varint_len(params->enable_multipath)) +
-               xqc_put_varint_len(params->enable_multipath);
+               xqc_put_varint_len(0);   /* enable_multipath (-draft05) is zero-length transport parameter */
     }
 
     if (params->max_datagram_frame_size) {
@@ -332,8 +331,7 @@ xqc_encode_transport_params(const xqc_transport_params_t *params,
     }
 
     if (params->enable_multipath) {
-        p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH,
-                                 params->enable_multipath);
+        p = xqc_put_zero_length_param(p, XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH);
     }
 
     if ((size_t)(p - out) != len) {

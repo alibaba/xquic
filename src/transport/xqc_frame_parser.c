@@ -1764,10 +1764,10 @@ xqc_parse_path_response_frame(xqc_packet_in_t *packet_in, unsigned char *data)
 }
 
 /*
- * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath#name-ack_mp-frame
+ * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-04#name-ack_mp-frame
  *
  * ACK_MP Frame {
- *    Type (i) = TBD-00..TBD-01 (experiments use 0xbaba00..0xbaba01),
+ *    Type (i) = TBD-00..TBD-01 ,
  *    Destination Connection ID Sequence Number (i),
  *    Largest Acknowledged (i),
  *    ACK Delay (i),
@@ -1786,7 +1786,7 @@ xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id,
     xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, 
     int *has_gap, xqc_packet_number_t *largest_ack)
 {
-    uint64_t frame_type = 0xbaba00;
+    uint64_t frame_type = 0x15228c00;
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
     size_t dst_buf_len = packet_out->po_buf_size - packet_out->po_used_size + XQC_ACK_SPACE;
 
@@ -2017,10 +2017,10 @@ xqc_parse_ack_mp_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
 
 
 /*
- * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath#name-path_abandon-frame
+ * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-04#name-path_abandon-frame
  *
  * PATH_ABANDON Frame {
- *    Type (i) = TBD-03 (experiments use 0xbaba05),
+ *    Type (i) = TBD-03,
  *    DCID Sequence Number (i),
  *    Error Code (i),
  *    Reason Phrase Length (i),
@@ -2038,7 +2038,7 @@ xqc_gen_path_abandon_frame(xqc_packet_out_t *packet_out,
     const unsigned char *begin = dst_buf;
     unsigned need = 0;
 
-    uint64_t frame_type = 0xbaba05;
+    uint64_t frame_type = 0x15228c05;
     uint64_t reason_len = 0;
     uint8_t *reason = NULL;
 
@@ -2137,10 +2137,10 @@ xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
 
 
 /*
- * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath#name-path_status-frame
+ * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-04#name-path_status-frame
  *
  *    PATH_STATUS Frame {
- *      Type (i) = TBD-03 (experiments use 0xbaba06),
+ *      Type (i) = TBD-03,
  *      DCID Sequence Number (i),
  *      Path Status sequence number (i),
  *      Path Status (i),
@@ -2158,7 +2158,7 @@ xqc_gen_path_status_frame(xqc_packet_out_t *packet_out,
     const unsigned char *begin = dst_buf;
     unsigned need = 0;
 
-    uint64_t frame_type = 0xbaba06;
+    uint64_t frame_type = 0x15228c06;
 
     unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
     unsigned dcid_seq_num_bits = xqc_vint_get_2bit(dcid_seq_num);

@@ -1513,7 +1513,7 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -A    alpn selection: h3/hq\n"
         "   -D    save request body directory\n"
         "   -l    Log level. e:error d:debug.\n"
-        "   -L    xuqic log directory.\n"
+        "   -L    xquic log directory.\n"
         "   -U    Url. \n"
         "   -k    key out path\n"
         "   -K    Client's life circle time\n"

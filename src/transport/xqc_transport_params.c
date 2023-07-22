@@ -574,7 +574,10 @@ static xqc_int_t
 xqc_decode_enable_multipath(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
     const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
 {
-    XQC_DECODE_VINT_VALUE(&params->enable_multipath, p, end);
+    /* enable_multipath param is a zero-length value, presentation means enable */
+    params->enable_multipath = 1;
+
+    return XQC_OK;
 }
 
 static xqc_int_t

@@ -1160,7 +1160,7 @@ xqc_demo_svr_usage(int argc, char *argv[])
             "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic\n"
             "   -C    Pacing on.\n"
             "   -l    Log level. e:error d:debug.\n"
-            "   -L    xuqic log directory.\n"
+            "   -L    xquic log directory.\n"
             "   -6    IPv6\n"
             "   -k    Key output file path\n"
             "   -r    retry\n"

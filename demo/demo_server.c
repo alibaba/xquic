@@ -182,8 +182,8 @@ typedef struct xqc_demo_svr_user_conn_s {
 
 typedef struct xqc_demo_svr_resource_s {
     FILE       *fp;
-    int         total_len;      /* total len of file */
-    int         total_offset;   /* total sent offset of file */
+    off_t       total_len;      /* total len of file */
+    off_t       total_offset;   /* total sent offset of file */
     char       *buf;            /* send buf */
     int         buf_size;       /* send buf size */
     int         buf_len;        /* send buf len */
@@ -539,7 +539,7 @@ xqc_demo_svr_handle_hq_request(xqc_demo_svr_user_stream_t *user_stream, xqc_hq_r
         }
         /* get total len */
         fseek(user_stream->res.fp, 0, SEEK_END);
-        user_stream->res.total_len = ftell(user_stream->res.fp);
+        user_stream->res.total_len = ftello(user_stream->res.fp);
         fseek(user_stream->res.fp, 0, SEEK_SET);
 
     } else {
@@ -832,7 +832,7 @@ xqc_demo_svr_handle_h3_request(xqc_demo_svr_user_stream_t *user_stream,
         }
         /* get total len */
         fseek(user_stream->res.fp, 0, SEEK_END);
-        user_stream->res.total_len = ftell(user_stream->res.fp);
+        user_stream->res.total_len = ftello(user_stream->res.fp);
         fseek(user_stream->res.fp, 0, SEEK_SET);
 
     } else {

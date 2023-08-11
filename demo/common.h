@@ -23,9 +23,6 @@
 #define AUTHORITY_LEN       128
 #define URL_LEN             512
 
-#define RING_QUEUE_ELE_MAX_NUM      (2 * 1024)
-#define RING_QUEUE_ELE_BUF_SIZE     (2 * 1024)
-
 /* the congestion control types */
 typedef enum cc_type_s {
     CC_TYPE_BBR,
@@ -114,46 +111,5 @@ xqc_demo_now()
     uint64_t ul = tv.tv_sec * (uint64_t)1000000 + tv.tv_usec;
     return  ul;
 }
-
-typedef struct {
-    struct sockaddr_storage addr;
-    socklen_t addr_len;
-} xqc_demo_addr_info_t;
-
-typedef struct {
-    size_t data_size;
-    uint8_t data_buf[0];
-} xqc_demo_ring_queue_element_t;
-
-typedef struct {
-    void **p;
-    size_t element_max_num;
-    size_t element_buf_size;
-    size_t element_num;
-    size_t read_idx;
-    size_t write_idx;
-} xqc_demo_ring_queue_t;
-
-void
-xqc_demo_ring_queue_init(xqc_demo_ring_queue_t *ring_queue,
-                         size_t element_max_num, size_t element_buf_size);
-void
-xqc_demo_ring_queue_free(xqc_demo_ring_queue_t *ring_queue);
-
-/* return: 0, ok; 1, queue full; -1 error */
-int
-xqc_demo_ring_queue_push(xqc_demo_ring_queue_t* ring_queue,
-                         uint8_t* data_buf, size_t data_size);
-
-/* return: 0, ok; 1, queue full; -1 error */
-int
-xqc_demo_ring_queue_push2(xqc_demo_ring_queue_t* ring_queue,
-                          uint8_t* data_hdr, size_t data_hdr_size,
-                          uint8_t* data_body, size_t data_body_size);
-
-/* return: 0, ok; 1, queue empty; -1 error */
-int
-xqc_demo_ring_queue_pop(xqc_demo_ring_queue_t *ring_queue,
-                        uint8_t* data_buf, size_t buf_size, size_t *out_data_size);
 
 #endif

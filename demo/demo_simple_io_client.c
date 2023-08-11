@@ -34,7 +34,6 @@
 
 #define DATA_SEND_BUF_SIZE          10 * 1024 * 1024
 #define DATA_SEND_BUF_SEND_TIMES    99999
-#define DATA_SEND_TIME_S            15
 
 /* network arguments */
 typedef struct {
@@ -135,18 +134,16 @@ typedef struct xqc_simple_io_cli_ctx_s {
     struct event_base   *eb;
     struct event        *ev_engine;
     struct event        *ev_socket_r;
-    struct event        *ev_socket_w;
     struct event        *ev_add_w_timer;
 
     xqc_cid_t           cid;
     xqc_data_send_t     data_send;
 
-    xqc_demo_ring_queue_t   send_pkt_ring_queue;
-
 } xqc_simple_io_cli_ctx_t;
 
 /* the global unique client context */
 static xqc_simple_io_cli_ctx_t gs_cli_ctx;
+unsigned int gs_data_send_time_s = 15;
 
 
 /**
@@ -187,24 +184,20 @@ static ssize_t
 xqc_simple_io_cli_write_socket(const unsigned char* buf, size_t size, const struct sockaddr* peer_addr,
                                socklen_t peer_addrlen, void* conn_user_data)
 {
-    xqc_simple_io_cli_ctx_t *ctx = (xqc_simple_io_cli_ctx_t *)conn_user_data;
     int ret;
-    xqc_demo_addr_info_t addr_info;
+    xqc_simple_io_cli_ctx_t *ctx = (xqc_simple_io_cli_ctx_t*)conn_user_data;
 
-    memcpy(&addr_info.addr, peer_addr, peer_addrlen);
-    addr_info.addr_len = peer_addrlen;
+    ret = sendto(ctx->transport_fd, buf, size, 0,
+                 peer_addr, peer_addrlen);
+    if (ret < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return XQC_SOCKET_EAGAIN;
+        } else {
+            printf("sendto failed! ret: %d, err: %s\n", ret, strerror(errno));
+            return -1;
+        }
+    }
 
-    ret = xqc_demo_ring_queue_push2(&ctx->send_pkt_ring_queue,
-                                    (uint8_t*)&addr_info, sizeof(xqc_demo_addr_info_t),
-                                    (uint8_t*)buf, size);
-    if (1 == ret) {
-        printf("ring queue full, can't write.\n");
-        return XQC_SOCKET_EAGAIN;
-    }
-    if (0 != ret) {
-        printf("xqc_demo_ring_queue_push failed!\n");
-        return -1;
-    }
     return (ssize_t)size;
 }
 
@@ -322,7 +315,7 @@ xqc_simple_io_cli_stream_write_notify(xqc_stream_t *stream, void *user_data)
     }
 
     /* End sending data after 10s */
-    if (cur_ts > (data_send->start_ts + DATA_SEND_TIME_S * 1000000)) {
+    if (cur_ts > (data_send->start_ts + gs_data_send_time_s * 1000000)) {
         data_send->fin_flag = 1;
     }
 
@@ -479,33 +472,6 @@ xqc_simple_io_cli_event_engine_callback(int fd, short what, void *arg)
 }
 
 static void
-xqc_simple_io_cli_event_socket_write_callback(int fd, short what, void *arg)
-{
-    xqc_simple_io_cli_ctx_t *ctx = (xqc_simple_io_cli_ctx_t *)arg;
-    int ret;
-    size_t data_size;
-    size_t send_data_size;
-    xqc_demo_addr_info_t *addr_info;
-    uint8_t packet_buf[2048];
-
-    ret = xqc_demo_ring_queue_pop(&ctx->send_pkt_ring_queue, packet_buf, sizeof(packet_buf), &data_size);
-    if (1 == ret) {
-        return;
-    } else if (ret != 0) {
-        printf("xqc_demo_ring_queue_pop failed!\n");
-        return;
-    }
-
-    send_data_size = data_size - sizeof(xqc_demo_addr_info_t);
-    addr_info = (xqc_demo_addr_info_t *)packet_buf;
-    ret = sendto(fd, (uint8_t*)(addr_info + 1), send_data_size, 0,
-                 (struct sockaddr*)(&addr_info->addr), addr_info->addr_len);
-    if (ret != send_data_size) {
-        printf("sendto failed! ret: %d, err: %s\n", ret, strerror(errno));
-    }
-}
-
-static void
 xqc_simple_io_cli_event_socket_read_callback(int fd, short what, void *arg)
 {
     xqc_simple_io_cli_ctx_t *ctx = (xqc_simple_io_cli_ctx_t *)arg;
@@ -542,12 +508,6 @@ xqc_simple_io_cli_event_socket_read_callback(int fd, short what, void *arg)
     xqc_engine_finish_recv(ctx->engine);
 }
 
-static void
-xqc_simple_io_cli_event_add_write_callback(int fd, short what, void *arg)
-{
-    event_add(((xqc_simple_io_cli_ctx_t *)arg)->ev_socket_w, NULL);
-}
-
 static int
 xqc_simple_io_cli_event_setup(xqc_simple_io_cli_ctx_t *ctx)
 {
@@ -557,12 +517,6 @@ xqc_simple_io_cli_event_setup(xqc_simple_io_cli_ctx_t *ctx)
     ctx->ev_socket_r = event_new(ctx->eb, ctx->transport_fd, EV_READ | EV_PERSIST,
                                  xqc_simple_io_cli_event_socket_read_callback, ctx);
     event_add(ctx->ev_socket_r, NULL);
-    ctx->ev_socket_w = event_new(ctx->eb, ctx->transport_fd, EV_WRITE | EV_PERSIST,
-                                 xqc_simple_io_cli_event_socket_write_callback, ctx);
-    event_add(ctx->ev_socket_w, NULL);
-
-    ctx->ev_add_w_timer = event_new(ctx->eb, -1, 0,
-                                    xqc_simple_io_cli_event_add_write_callback, ctx);
     return 0;
 }
 
@@ -581,8 +535,8 @@ xqc_simple_io_cli_usage(int argc, char *argv[])
             "Usage: %s [Options]\n"
             "\n"
             "Options:\n"
-            "   -a    Server addr.\n"
-            "   -p    Server port.\n"
+            "   -a    Server addr. Default: 127.0.0.1\n"
+            "   -p    Server port. Default: 8443\n"
             "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic B:bbr2\n"
             "   -C    Pacing on.\n"
             "   -S    cipher suites\n"
@@ -593,6 +547,7 @@ xqc_simple_io_cli_usage(int argc, char *argv[])
             "   -N    No encryption\n"
             "   -u    key update packet threshold\n"
             "   -6    IPv6\n"
+            "   -t    Data send time in seconds. Default: 15\n"
             , prog);
 }
 
@@ -624,7 +579,7 @@ static void
 xqc_simple_io_cli_parse_args(int argc, char *argv[], xqc_simple_io_cli_client_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "a:p:c:CS:0D:l:L:Nu:6")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:c:CS:0D:l:L:Nu:6t:")) != -1) {
         switch (ch) {
             /* server ip */
             case 'a':
@@ -717,6 +672,12 @@ xqc_simple_io_cli_parse_args(int argc, char *argv[], xqc_simple_io_cli_client_ar
             case '6':
                 printf("option IPv6: %s\n", "on");
                 args->net_cfg.ipv6 = 1;
+                break;
+
+                /* data send time */
+            case 't':
+                printf("option data send time: %s\n", optarg);
+                gs_data_send_time_s = (unsigned int)atoi(optarg);
                 break;
 
             default:
@@ -899,8 +860,6 @@ static void xqc_simple_io_cli_free_data_sent(xqc_simple_io_cli_ctx_t *ctx)
 static void
 xqc_simple_io_cli_init_ctx(xqc_simple_io_cli_ctx_t *ctx)
 {
-    xqc_demo_ring_queue_init(&ctx->send_pkt_ring_queue,
-                             RING_QUEUE_ELE_MAX_NUM, RING_QUEUE_ELE_BUF_SIZE);
     xqc_simple_io_cli_init_data_sent(ctx);
     xqc_simple_io_cli_open_log_file(ctx);
 }
@@ -908,7 +867,6 @@ xqc_simple_io_cli_init_ctx(xqc_simple_io_cli_ctx_t *ctx)
 static void
 xqc_simple_io_cli_free_ctx(xqc_simple_io_cli_ctx_t *ctx)
 {
-    xqc_demo_ring_queue_free(&ctx->send_pkt_ring_queue);
     xqc_simple_io_cli_free_data_sent(ctx);
     xqc_simple_io_cli_close_log_file(ctx);
 }

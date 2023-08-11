@@ -113,13 +113,10 @@ typedef struct {
     struct event_base   *eb;
     struct event        *ev_engine;
     struct event        *ev_socket_r;
-    struct event        *ev_socket_w;
     struct event        *ev_add_w_timer;
 
     xqc_cid_t           cid;
     xqc_data_recv_t     data_recv;
-
-    xqc_demo_ring_queue_t   send_pkt_ring_queue;
 
 } xqc_simple_io_svr_ctx_t;
 
@@ -175,23 +172,20 @@ static ssize_t
 xqc_simple_io_svr_write_socket(const unsigned char* buf, size_t size, const struct sockaddr* peer_addr,
                                socklen_t peer_addrlen, void* conn_user_data)
 {
-    xqc_simple_io_svr_ctx_t *ctx = (xqc_simple_io_svr_ctx_t *)conn_user_data;
     int ret;
-    xqc_demo_addr_info_t addr_info;
+    xqc_simple_io_svr_ctx_t *ctx = (xqc_simple_io_svr_ctx_t*)conn_user_data;
 
-    memcpy(&addr_info.addr, peer_addr, peer_addrlen);
-    addr_info.addr_len = peer_addrlen;
+    ret = sendto(ctx->transport_fd, buf, size, 0,
+                 peer_addr, peer_addrlen);
+    if (ret < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return XQC_SOCKET_EAGAIN;
+        } else {
+            printf("sendto failed! ret: %d, err: %s\n", ret, strerror(errno));
+            return -1;
+        }
+    }
 
-    ret = xqc_demo_ring_queue_push2(&ctx->send_pkt_ring_queue,
-                                    (uint8_t*)&addr_info, sizeof(xqc_demo_addr_info_t),
-                                    (uint8_t*)buf, size);
-    if (1 == ret) {
-        return XQC_SOCKET_EAGAIN;
-    }
-    if (0 != ret) {
-        printf("xqc_demo_ring_queue_push failed!\n");
-        return -1;
-    }
     return (ssize_t)size;
 }
 
@@ -426,31 +420,6 @@ xqc_simple_io_svr_event_engine_callback(int fd, short what, void *arg)
 }
 
 static void
-xqc_simple_io_svr_event_socket_write_callback(int fd, short what, void *arg)
-{
-    xqc_simple_io_svr_ctx_t *ctx = (xqc_simple_io_svr_ctx_t *)arg;
-    int ret;
-    size_t data_size;
-    xqc_demo_addr_info_t *addr_info;
-    uint8_t packet_buf[2048];
-
-    ret = xqc_demo_ring_queue_pop(&ctx->send_pkt_ring_queue, packet_buf, sizeof(packet_buf), &data_size);
-    if (1 == ret) {
-        return;
-    } else if (ret != 0) {
-        printf("xqc_demo_ring_queue_pop failed!\n");
-        return;
-    }
-
-    addr_info = (xqc_demo_addr_info_t *)packet_buf;
-    ret = sendto(fd, (uint8_t*)(addr_info + 1), data_size - sizeof(xqc_demo_addr_info_t), 0,
-           (struct sockaddr*)(&addr_info->addr), addr_info->addr_len);
-    if (ret < 0) {
-        printf("sendto failed! err: %s\n", strerror(errno));
-    }
-}
-
-static void
 xqc_simple_io_svr_event_socket_read_callback(int fd, short what, void *arg)
 {
     xqc_simple_io_svr_ctx_t *ctx = (xqc_simple_io_svr_ctx_t *)arg;
@@ -486,12 +455,6 @@ xqc_simple_io_svr_event_socket_read_callback(int fd, short what, void *arg)
     xqc_engine_finish_recv(ctx->engine);
 }
 
-static void
-xqc_simple_io_svr_event_add_write_callback(int fd, short what, void *arg)
-{
-    event_add(((xqc_simple_io_svr_ctx_t *)arg)->ev_socket_w, NULL);
-}
-
 static int
 xqc_simple_io_svr_event_setup(xqc_simple_io_svr_ctx_t *ctx)
 {
@@ -501,12 +464,6 @@ xqc_simple_io_svr_event_setup(xqc_simple_io_svr_ctx_t *ctx)
     ctx->ev_socket_r = event_new(ctx->eb, ctx->transport_fd, EV_READ | EV_PERSIST,
                                  xqc_simple_io_svr_event_socket_read_callback, ctx);
     event_add(ctx->ev_socket_r, NULL);
-    ctx->ev_socket_w = event_new(ctx->eb, ctx->transport_fd, EV_WRITE | EV_PERSIST,
-                                 xqc_simple_io_svr_event_socket_write_callback, ctx);
-    event_add(ctx->ev_socket_w, NULL);
-
-    ctx->ev_add_w_timer = event_new(ctx->eb, -1, 0,
-                                    xqc_simple_io_svr_event_add_write_callback, ctx);
     return 0;
 }
 
@@ -525,7 +482,7 @@ xqc_simple_io_svr_usage(int argc, char *argv[])
             "Usage: %s [Options]\n"
             "\n"
             "Options:\n"
-            "   -p    Server port.\n"
+            "   -p    Server port. Default: 8443\n"
             "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic B:bbr2\n"
             "   -C    Pacing on.\n"
             "   -D    Server resource directory.\n"
@@ -684,8 +641,6 @@ xqc_simple_io_svr_free_data_recv(xqc_simple_io_svr_ctx_t *ctx)
 static void
 xqc_simple_io_svr_init_ctx(xqc_simple_io_svr_ctx_t *ctx)
 {
-    xqc_demo_ring_queue_init(&ctx->send_pkt_ring_queue,
-                             RING_QUEUE_ELE_MAX_NUM, RING_QUEUE_ELE_BUF_SIZE);
     xqc_simple_io_svr_init_data_recv(ctx);
     xqc_simple_io_svr_open_log_file(ctx);
 }
@@ -693,7 +648,6 @@ xqc_simple_io_svr_init_ctx(xqc_simple_io_svr_ctx_t *ctx)
 static void
 xqc_simple_io_svr_free_ctx(xqc_simple_io_svr_ctx_t *ctx)
 {
-    xqc_demo_ring_queue_free(&ctx->send_pkt_ring_queue);
     xqc_simple_io_svr_free_data_recv(ctx);
     xqc_simple_io_svr_close_log_file(ctx);
 }

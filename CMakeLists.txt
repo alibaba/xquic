@@ -376,8 +376,8 @@ if (XQC_ENABLE_TESTING)
     add_executable(demo_client ${DEMO_CLIENT_SOURCES} ${GETOPT_SOURCES})
 
     ### simple io demo client/server ###
-    add_executable(demo_simple_io_server demo/demo_simple_io_server.c demo/common.c)
-    add_executable(demo_simple_io_client demo/demo_simple_io_client.c demo/common.c)
+    add_executable(demo_simple_io_server demo/demo_simple_io_server.c)
+    add_executable(demo_simple_io_client demo/demo_simple_io_client.c)
 
     if(CMAKE_SYSTEM_NAME  MATCHES "Windows")
         if (NOT EVENT_LIB_DIR)

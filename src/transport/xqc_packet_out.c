@@ -1311,7 +1311,8 @@ xqc_write_ack_mp_to_one_packet(xqc_connection_t *conn, xqc_path_ctx_t *path,
     xqc_packet_out_t *packet_out, xqc_pkt_num_space_t pns)
 {
     if (pns == XQC_PNS_INIT || pns == XQC_PNS_HSK) {
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|mp_ack frame should not be written in %s packet", pns == XQC_PNS_INIT ? "PNS_INIT" : "XQC_PNS_HSK");
+        xqc_log(conn->log, XQC_LOG_WARN, "|mp_ack frame should not be written in %s packet", pns == XQC_PNS_INIT ? "PNS_INIT" : "XQC_PNS_HSK");
+        return XQC_EPACKET_ACK_FRAME_TYPE;
     }
 
     ssize_t ret;

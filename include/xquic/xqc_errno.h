@@ -111,6 +111,7 @@ typedef enum {
     XQC_EALPN_NOT_REGISTERED            = 640,      /* alpn is not registered */
     XQC_ESTATELESS_RESET                = 641,      /* connection is reset by peer */
     XQC_EPACKET_FILETER_CALLBACK        = 642,      /* error with packet filter callback function */
+    XQC_EPACKET_ACK_FRAME_TYPE          = 643,      /* write mp_ack frame into ack of initial packet or handshake packet */
 
     XQC_EMP_NOT_SUPPORT_MP              = 650,      /* Multipath - don't support multipath */
     XQC_EMP_NO_AVAIL_PATH_ID            = 651,      /* Multipath - no available path id */

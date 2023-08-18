@@ -145,6 +145,8 @@ int xqc_write_packet_header(xqc_connection_t *conn, xqc_packet_out_t *packet_out
 
 int xqc_write_ack_to_packets(xqc_connection_t *conn);
 
+int xqc_write_ack_to_packets_with_pns(xqc_connection_t *conn);
+
 int xqc_write_ack_to_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_pkt_num_space_t pns);
 
 int xqc_write_ping_to_packet(xqc_connection_t *conn, void *po_user_data, xqc_bool_t notify);

@@ -745,22 +745,10 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
     XQC_CHECK_IMMEDIATE_CLOSE();
 
     if (xqc_conn_should_ack(conn)) {
-        if (conn->enable_multipath == XQC_CONN_MULTIPATH_MULTIPLE_PNS
-            && conn->conn_state >= XQC_CONN_STATE_ESTABED
-            && (conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_DONE_ACKED))
-        {
-            ret = xqc_write_ack_mp_to_packets(conn);
-            if (ret) {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_ack_mp_to_packets error|");
-                XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
-            }
-
-        } else {
-            ret = xqc_write_ack_to_packets(conn);
-            if (ret) {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_ack_to_packets error|");
-                XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
-            }
+        ret = xqc_write_ack_to_packets_with_pns(conn);
+        if (ret) {
+            xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_ack_to_packets error|");
+            XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
         }
     }
     XQC_CHECK_IMMEDIATE_CLOSE();

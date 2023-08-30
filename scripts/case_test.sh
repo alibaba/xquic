@@ -107,7 +107,6 @@ if [ -z "$errlog" ] && [ -n "$clog_res" ] && [ -n "$slog_res" ] ; then
 else
     echo ">>>>>>>> pass:0"
     case_print_result "h3_stream_send_pure_fin" "fail"
-    exit
 fi
 
 rm -f test_session

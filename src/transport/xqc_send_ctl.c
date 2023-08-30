@@ -1460,6 +1460,7 @@ xqc_send_ctl_on_packet_acked(xqc_send_ctl_t *send_ctl,
     xqc_stream_t *stream;
     xqc_packet_out_t *packet_out = acked_packet;
     xqc_connection_t *conn = send_ctl->ctl_conn;
+    xqc_bool_t notify_ping;
 
     if ((conn->conn_type == XQC_CONN_TYPE_SERVER) && (acked_packet->po_frame_types & XQC_FRAME_BIT_HANDSHAKE_DONE)) {
         conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_DONE_ACKED;
@@ -1483,8 +1484,19 @@ xqc_send_ctl_on_packet_acked(xqc_send_ctl_t *send_ctl,
             if (conn->app_proto_cbs.conn_cbs.conn_ping_acked
                 && (packet_out->po_flag & XQC_POF_NOTIFY))
             {
-                conn->app_proto_cbs.conn_cbs.conn_ping_acked(conn, &conn->scid_set.user_scid,
+                notify_ping = XQC_TRUE;
+                if (packet_out->po_pr && packet_out->po_pr->notified) {
+                    notify_ping = XQC_FALSE;
+                }
+
+                if (notify_ping) {
+                    conn->app_proto_cbs.conn_cbs.conn_ping_acked(conn, &conn->scid_set.user_scid,
                                                         packet_out->po_user_data, conn->user_data, conn->proto_data);
+                    if (packet_out->po_pr) {
+                        packet_out->po_pr->notified = XQC_TRUE;
+                    }
+                }
+
             }
             /* PTMUD probing success */
             if (packet_out->po_flag & XQC_POF_PMTUD_PROBING) {

@@ -201,6 +201,11 @@ xqc_path_init(xqc_path_ctx_t *path, xqc_connection_t *conn)
         xqc_set_path_state(path, XQC_PATH_STATE_VALIDATING);
     }
 
+    xqc_log(conn->log, XQC_LOG_DEBUG, 
+            "|path:%ui|conn_addr:%s|cp_addr_len:%d|path_addr:%s|pp_addr_len:%d|",
+            path->path_id, xqc_conn_addr_str(conn), conn->peer_addrlen, 
+            xqc_path_addr_str(path), path->peer_addrlen);
+
     xqc_log(conn->engine->log, XQC_LOG_DEBUG, "|path:%ui|dcid:%s|scid:%s|state:%d|",
             path->path_id, xqc_dcid_str(&path->path_dcid), xqc_scid_str(&path->path_scid), path->path_state);
 
@@ -250,7 +255,7 @@ xqc_path_move_unack_packets_from_conn(xqc_path_ctx_t *path, xqc_connection_t *co
                         xqc_send_queue_maybe_remove_unacked(po, conn->conn_send_queue, NULL);
 
                     } else {
-                        /* if a packet don't need to be repair, don't retransmit it */
+                        /* if a packet needs no retransmission, we remove it. */
                         xqc_send_queue_remove_unacked(po, conn->conn_send_queue);
                         xqc_send_queue_insert_free(po, &conn->conn_send_queue->sndq_free_packets, conn->conn_send_queue);
                     }
@@ -922,11 +927,7 @@ xqc_path_send_buffer_clear(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_lis
         packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
         xqc_path_send_buffer_remove(path, packet_out);
 
-        if (packet_out->po_flag & XQC_POF_REINJECTED_REPLICA) {
-            xqc_disassociate_packet_with_reinjection(packet_out->po_origin, packet_out);
-            xqc_send_queue_insert_free(packet_out, &send_queue->sndq_free_packets, send_queue);
-
-        } else if (head != NULL) {
+        if (head != NULL) {
              /* remove from path scheduled buffer & add to the head of conn send queue */
             xqc_send_queue_move_to_head(&packet_out->po_list, head);
 
@@ -1029,13 +1030,28 @@ xqc_conn_server_init_path_addr(xqc_connection_t *conn, uint64_t path_id,
     }
 
     if (local_addr && local_addrlen > 0) {
-        xqc_memcpy(path->local_addr, local_addr, local_addrlen);
-        path->local_addrlen = local_addrlen;
+        ret = xqc_memcpy_with_cap(path->local_addr, sizeof(path->local_addr), local_addr, local_addrlen);
+        if (ret == XQC_OK) {
+            path->local_addrlen = local_addrlen;
+
+        } else {
+            xqc_log(conn->log, XQC_LOG_ERROR, 
+                    "|local addr too large|addr_len:%d|", (int)local_addrlen);
+            return -XQC_ENOBUF;
+        }
+        
     }
 
     if (peer_addr && peer_addrlen > 0) {
-        xqc_memcpy(path->peer_addr, peer_addr, peer_addrlen);
-        path->peer_addrlen = peer_addrlen;
+        ret = xqc_memcpy_with_cap(path->peer_addr, sizeof(path->peer_addr), peer_addr, peer_addrlen);
+        if (ret == XQC_OK) {
+            path->peer_addrlen = peer_addrlen;
+
+        } else {
+            xqc_log(conn->log, XQC_LOG_ERROR, 
+                    "|peer addr too large|addr_len:%d|", (int)peer_addrlen);
+            return -XQC_ENOBUF;
+        }
     }
 
     if (path_id != XQC_INITIAL_PATH_ID) {
@@ -1091,6 +1107,11 @@ xqc_conn_client_init_path_addr(xqc_connection_t *conn)
         path->local_addrlen = conn->local_addrlen;
     }
 
+    xqc_log(conn->log, XQC_LOG_DEBUG, 
+            "|path:%ui|conn_addr:%s|cp_addr_len:%d|path_addr:%s|pp_addr_len:%d|",
+            path->path_id, xqc_conn_addr_str(conn), conn->peer_addrlen, 
+            xqc_path_addr_str(path), path->peer_addrlen);
+
     return XQC_OK;
 }
 
@@ -1116,17 +1137,19 @@ xqc_path_validate(xqc_path_ctx_t *path)
 
         if (path->path_flag & XQC_PATH_FLAG_SEND_STATUS) {
             path->path_flag &= ~XQC_PATH_FLAG_SEND_STATUS;
-
-            xqc_int_t ret = xqc_write_path_status_frame_to_packet(conn, path);
+            xqc_int_t ret = xqc_set_application_path_status(path, path->next_app_path_state, XQC_TRUE);
             if (ret != XQC_OK) {
                 xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_path_status_frame_to_packet error|");
             }
         }
 
-        /* PMTUD: reset probing info & launch probing immediately */
+        if (path->path_flag & XQC_PATH_FLAG_RECV_STATUS) {
+            path->path_flag &= ~XQC_PATH_FLAG_RECV_STATUS;
+            xqc_set_application_path_status(path, path->next_app_path_state, XQC_FALSE);
+        }
+
+        /* PMTUD: launch probing immediately */
         if (conn->conn_settings.enable_pmtud) {
-            conn->max_pkt_out_size = path->path_max_pkt_out_size;
-            conn->probing_pkt_out_size = path->path_max_pkt_out_size;
             conn->probing_cnt = 0;
             conn->conn_flag |= XQC_CONN_FLAG_PMTUD_PROBING;
             xqc_timer_unset(&conn->conn_timer_manager, XQC_TIMER_PMTUD_PROBING);
@@ -1228,24 +1251,49 @@ xqc_path_is_full(xqc_path_ctx_t *path)
     uint64_t cwnd = ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(ctl->ctl_cong);
     return (bytes_on_path + xqc_conn_get_mss(path->parent_conn)) > cwnd;
 }
-void
-xqc_set_application_path_status(xqc_path_ctx_t *path, xqc_app_path_status_t status, xqc_usec_t now)
+
+xqc_int_t
+xqc_set_application_path_status(xqc_path_ctx_t *path, xqc_app_path_status_t status, xqc_bool_t is_tx)
 {
-    if (path->app_path_status == status) {
-        return;
+    if (path->app_path_status != status
+        && status > XQC_APP_PATH_STATUS_NONE
+        && status < XQC_APP_PATH_STATUS_MAX)
+    {
+        xqc_app_path_status_t last_status = path->app_path_status;
+        xqc_connection_t *conn = path->parent_conn;
+
+        path->app_path_status = status;
+
+        if (is_tx) {
+            xqc_int_t ret = xqc_write_path_status_frame_to_packet(conn, path);
+            if (ret != XQC_OK) {
+                path->app_path_status = last_status;
+                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_path_status_frame_to_packet error|%d|", ret);
+                return ret;
+            }
+        }
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|app_path_status:%d->%d|", path->path_id, last_status, status);
+        path->app_path_status_changed_count++;
+        path->last_app_path_status_changed_time = xqc_monotonic_timestamp();
+        xqc_set_transport_path_status(path, (xqc_tra_path_status_t)status, path->last_app_path_status_changed_time);
+
+        if (status == XQC_APP_PATH_STATUS_FROZEN) {
+            xqc_path_move_unack_packets_from_conn(path, conn);
+            for (xqc_send_type_t type = 0; type < XQC_SEND_TYPE_N; type++) {
+                xqc_path_send_buffer_clear(conn, path, NULL, type);
+            }
+        }        
     }
-
-    xqc_log(path->parent_conn->log, XQC_LOG_DEBUG, "|path:%ui|app_path_status:%d->%d|", path->path_id, path->app_path_status, status);
-    path->app_path_status = status;
-
-    path->app_path_status_changed_count++;
-    path->last_app_path_status_changed_time = now;
-    xqc_set_transport_path_status(path, (xqc_tra_path_status_t)status, now);
+    
+    return XQC_OK;
 }
 
 void xqc_set_transport_path_status(xqc_path_ctx_t *path, xqc_tra_path_status_t status, xqc_usec_t now)
 {
-    if (path->tra_path_status == status) {
+    if (path->tra_path_status == status
+        || status <= XQC_TRA_PATH_STATUS_NONE
+        || status >= XQC_TRA_PATH_STATUS_MAX) 
+    {
         return;
     }
 
@@ -1309,21 +1357,64 @@ xqc_conn_mark_path_standby(xqc_engine_t *engine, const xqc_cid_t *cid, uint64_t 
         return -XQC_EMP_PATH_NOT_FOUND;
     }
 
-    xqc_usec_t now = xqc_monotonic_timestamp();
-    xqc_set_application_path_status(path, XQC_APP_PATH_STATUS_STANDBY, now);
+    path->next_app_path_state = XQC_APP_PATH_STATUS_STANDBY;
 
     if (path->path_state < XQC_PATH_STATE_ACTIVE) {
         path->path_flag |= XQC_PATH_FLAG_SEND_STATUS;
         return XQC_OK;
     }
 
-    xqc_int_t ret = xqc_write_path_status_frame_to_packet(conn, path);
-    if (ret != XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_path_status_frame_to_packet error|%d|", ret);
-        return ret;
+    return xqc_set_application_path_status(path, path->next_app_path_state, XQC_TRUE);
+}
+
+xqc_int_t 
+xqc_conn_mark_path_frozen(xqc_engine_t *engine, const xqc_cid_t *cid, uint64_t path_id)
+{
+    xqc_connection_t *conn = NULL;
+    xqc_path_ctx_t *path = NULL;
+
+    conn = xqc_engine_conns_hash_find(engine, cid, 's');
+    if (!conn) {
+        xqc_log(engine->log, XQC_LOG_ERROR, "|can not find connection|");
+        return -XQC_ECONN_NFOUND;
+    }
+    if (conn->conn_state >= XQC_CONN_STATE_CLOSING) {
+        return -XQC_CLOSING;
     }
 
-    return XQC_OK;
+    /* check mp-support */
+    if (!conn->enable_multipath) {
+        xqc_log(engine->log, XQC_LOG_WARN,
+                "|Multipath is not supported in connection|%p|", conn);
+        return -XQC_EMP_NOT_SUPPORT_MP;
+    }
+
+    /* find path */
+    path = xqc_conn_find_path_by_path_id(conn, path_id);
+    if (path == NULL) {
+        xqc_log(engine->log, XQC_LOG_WARN,
+                "|path is not found by path_id in connection|%p|%ui|", 
+                conn, path_id);
+        return -XQC_EMP_PATH_NOT_FOUND;
+    }
+
+    /* do not freeze the only active path */
+    if (path->path_state == XQC_PATH_STATE_ACTIVE 
+        && conn->active_path_count == 1)
+    {
+        xqc_log(conn->log, XQC_LOG_WARN, 
+                "|can not freeze the only active path|path:%ui", path_id);
+        return -XQC_EMP_NO_ACTIVE_PATH;
+    }
+
+    path->next_app_path_state = XQC_APP_PATH_STATUS_FROZEN;
+
+    if (path->path_state < XQC_PATH_STATE_ACTIVE) {
+        path->path_flag |= XQC_PATH_FLAG_SEND_STATUS;
+        return XQC_OK;
+    }
+
+    return xqc_set_application_path_status(path, path->next_app_path_state, XQC_TRUE);
 }
 
 
@@ -1358,21 +1449,14 @@ xqc_conn_mark_path_available(xqc_engine_t *engine, const xqc_cid_t *cid, uint64_
         return -XQC_EMP_PATH_NOT_FOUND;
     }
 
-    xqc_usec_t now = xqc_monotonic_timestamp();
-    xqc_set_application_path_status(path, XQC_APP_PATH_STATUS_AVAILABLE, now);
+    path->next_app_path_state = XQC_APP_PATH_STATUS_AVAILABLE;
 
     if (path->path_state < XQC_PATH_STATE_ACTIVE) {
         path->path_flag |= XQC_PATH_FLAG_SEND_STATUS;
         return XQC_OK;
     }
 
-    xqc_int_t ret = xqc_write_path_status_frame_to_packet(conn, path);
-    if (ret != XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_path_status_frame_to_packet error|%d|", ret);
-        return ret;
-    }
-
-    return XQC_OK;
+    return xqc_set_application_path_status(path, path->next_app_path_state, XQC_TRUE);
 }
 
 
@@ -1381,7 +1465,8 @@ xqc_path_standby_probe(xqc_path_ctx_t *path)
 {
     xqc_connection_t *conn = path->parent_conn;
 
-    xqc_int_t ret = xqc_path_send_ping_to_probe(path, XQC_PNS_APP_DATA);
+    xqc_int_t ret = xqc_path_send_ping_to_probe(path, XQC_PNS_APP_DATA, 
+                                                XQC_PATH_SPECIFIED_BY_PQP);
     if (ret != XQC_OK) {
         return ret;
     }

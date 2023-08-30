@@ -134,6 +134,44 @@ xqc_stream_maybe_need_close(xqc_stream_t *stream)
     }
 }
 
+void
+xqc_stream_close_discarded_stream(xqc_stream_t *stream)
+{
+    xqc_timer_manager_t    *timer_manager;
+    xqc_usec_t              now;
+    xqc_usec_t              pto;
+    xqc_usec_t              new_expire;
+
+    if (stream->stream_flag & XQC_STREAM_FLAG_NEED_CLOSE) {
+        return;
+    }
+
+    xqc_log(stream->stream_conn->log, XQC_LOG_DEBUG, 
+            "|stream_id:%ui|stream_type:%d|",
+            stream->stream_id, stream->stream_type);
+
+    stream->stream_flag |= XQC_STREAM_FLAG_NEED_CLOSE;
+
+    now = xqc_monotonic_timestamp();
+    pto = xqc_conn_get_max_pto(stream->stream_conn);
+    new_expire = now + 3 * pto;
+
+    timer_manager = &stream->stream_conn->conn_timer_manager;
+
+    if ((timer_manager->timer[XQC_TIMER_STREAM_CLOSE].timer_is_set 
+        && new_expire < timer_manager->timer[XQC_TIMER_STREAM_CLOSE].expire_time) 
+        || !timer_manager->timer[XQC_TIMER_STREAM_CLOSE].timer_is_set)
+    {
+        xqc_timer_set(timer_manager, XQC_TIMER_STREAM_CLOSE, now, 3 * pto);
+    }
+
+    stream->stream_close_time = new_expire;
+
+    xqc_list_add_tail(&stream->closing_stream_list, &stream->stream_conn->conn_closing_streams);
+    xqc_stream_shutdown_read(stream);
+    xqc_stream_shutdown_write(stream);
+}
+
 xqc_stream_t *
 xqc_find_stream_by_id(xqc_stream_id_t stream_id, xqc_id_hash_table_t *streams_hash)
 {
@@ -432,6 +470,8 @@ xqc_stream_t *
 xqc_create_stream_with_conn(xqc_connection_t *conn, xqc_stream_id_t stream_id,
     xqc_stream_type_t stream_type, void *user_data)
 {
+    xqc_int_t   ret;
+
     if (conn->conn_state >= XQC_CONN_STATE_CLOSING) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|conn closing, cannot create stream|type:%d|state:%d|flag:%s|",
                 conn->conn_type, conn->conn_state, xqc_conn_flag_2_str(conn->conn_flag));
@@ -494,7 +534,12 @@ xqc_create_stream_with_conn(xqc_connection_t *conn, xqc_stream_id_t stream_id,
     }
 
     if (stream->stream_if->stream_create_notify) {
-        stream->stream_if->stream_create_notify(stream, stream->user_data);
+        ret = stream->stream_if->stream_create_notify(stream, stream->user_data);
+        if (XQC_OK != ret) {
+            xqc_log(conn->log, XQC_LOG_WARN, "|stream create notify error|"
+                    "|stream_id:%ui", stream->stream_id);
+            stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+        }
     }
 
     return stream;
@@ -535,7 +580,9 @@ xqc_destroy_stream(xqc_stream_t *stream)
     xqc_log(stream->stream_conn->log, XQC_LOG_DEBUG, "|send_state:%d|recv_state:%d|stream_id:%ui|stream_type:%d|",
             stream->stream_state_send, stream->stream_state_recv, stream->stream_id, stream->stream_type);
 
-    if (stream->stream_if->stream_close_notify) {
+    if (stream->stream_if->stream_close_notify
+        && !(stream->stream_flag & XQC_STREAM_FLAG_DISCARDED))
+    {
         stream->stream_if->stream_close_notify(stream, stream->user_data);
     }
 

@@ -12,10 +12,10 @@
 #define CIPHER_SUIT_LEN     256
 #define TLS_GROUPS_LEN      64
 
-#define PATH_LEN            512
-#define RESOURCE_LEN        256
+#define PATH_LEN            1024
+#define RESOURCE_LEN        1024
 #define AUTHORITY_LEN       128
-#define URL_LEN             512
+#define URL_LEN             1024
 
 /* the congestion control types */
 typedef enum cc_type_s {

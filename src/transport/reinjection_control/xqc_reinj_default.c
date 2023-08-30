@@ -51,8 +51,7 @@ xqc_default_reinj_can_reinject_after_sched(xqc_default_reinj_ctl_t *rctl,
     if (xqc_list_empty(&conn->conn_send_queue->sndq_send_packets)
         && (po->po_frame_types & XQC_FRAME_BIT_STREAM)
         && !(po->po_flag & XQC_POF_NOT_REINJECT)
-        && !(XQC_MP_PKT_REINJECTED(po)
-             && (po->po_origin? XQC_MP_PKT_REINJECTED(po->po_origin): XQC_TRUE))
+        && !(XQC_MP_PKT_REINJECTED(po))
         && (po->po_flag & XQC_POF_IN_FLIGHT)) 
     {   
         return XQC_TRUE;

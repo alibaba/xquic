@@ -53,8 +53,31 @@ fi
 rm -f test_session tp_localhost xqc_token
 
 killall test_server 2> /dev/null
+./test_server -l d -e -x 17 > /dev/null &
+
+clear_log
+echo -e "server-inited stream ...\c"
+./test_client -l d -E -t 3 >> stdlog
+client_refuse=`grep "ignore server initiated bidi-streams at client" clog`
+client_discard=`grep "data discarded" clog`
+client_check=`grep "xqc_h3_stream_close_notify" clog | grep "|stream_id:1|"`
+client_std_res=`grep ">>>>>>>> pass" stdlog`
+clog_res=`grep "xqc_destroy_stream" clog | grep "close_msg:finished" | grep "stream_id:1"`
+if [ -n "$client_refuse" ] && [ -n "$client_discard" ] && [ -n "$client_std_res" ] && [ -n "$clog_res" ] && [ -z "$client_check" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "server_inited_stream" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "server_inited_stream" "fail"
+fi
+
+
+
+killall test_server 2> /dev/null
 ./test_server -l d -e -x 99 > /dev/null &
 sleep 1
+
+rm -f test_session tp_localhost xqc_token
 
 clear_log
 echo -e "stream send pure fin ...\c"
@@ -75,7 +98,7 @@ rm -f test_session
 clear_log
 echo -e "h3 stream send pure fin ...\c"
 ./test_client -s 1024 -l d -t 1 -E -x 99 >> clog
-errlog=`grep_err_log`
+errlog=`grep_err_log | grep -v "send data after fin sent"`
 clog_res=`cat clog | grep "|send_state:3|recv_state:3|stream_id:0|stream_type:0|send_bytes:0|read_bytes:0|recv_bytes:0|stream_len:0|"`
 slog_res=`cat slog | grep "|send_state:3|recv_state:3|stream_id:0|stream_type:0|send_bytes:0|read_bytes:0|recv_bytes:0|stream_len:0|"`
 if [ -z "$errlog" ] && [ -n "$clog_res" ] && [ -n "$slog_res" ] ; then
@@ -84,6 +107,7 @@ if [ -z "$errlog" ] && [ -n "$clog_res" ] && [ -n "$slog_res" ] ; then
 else
     echo ">>>>>>>> pass:0"
     case_print_result "h3_stream_send_pure_fin" "fail"
+    exit
 fi
 
 rm -f test_session
@@ -254,6 +278,43 @@ else
     case_print_result "fin_only" "fail"
     echo "$errlog"
 fi
+
+clear_log
+echo -e "send data after fin ...\c"
+result=`./test_client -s 5120 -l d -t 1 -E -x 50 |grep ">>>>>>>> pass"`
+errlog=`grep_err_log | grep -v "send data after fin sent"`
+echo "$result"
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    case_print_result "send_data_after_fin" "pass"
+else
+    case_print_result "send_data_after_fin" "fail"
+    echo "$errlog"
+fi
+
+clear_log
+echo -e "send header after fin ...\c"
+result=`./test_client -s 5120 -l d -t 1 -E -x 51 |grep ">>>>>>>> pass"`
+errlog=`grep_err_log | grep -v "send data after fin sent"`
+echo "$result"
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    case_print_result "send_header_after_fin" "pass"
+else
+    case_print_result "send_header_after_fin" "fail"
+    echo "$errlog"
+fi
+
+clear_log
+echo -e "send fin after fin ...\c"
+result=`./test_client -s 5120 -l d -t 1 -E -x 52 |grep ">>>>>>>> pass"`
+errlog=`grep_err_log | grep -v "send data after fin sent"`
+echo "$result"
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    case_print_result "send_fin_after_fin" "pass"
+else
+    case_print_result "send_fin_after_fin" "fail"
+    echo "$errlog"
+fi
+
 
 clear_log
 echo -e "header header data ...\c"
@@ -3373,7 +3434,7 @@ cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|los
 cli_res4=`grep "\[bytestream\]|bytes_sent:102400|bytes_rcvd:102400|recv_fin:1|" stdlog`
 cli_res5=`grep "\[bytestream\]|same_content:yes|" stdlog | wc -l`
 cli_res6=`grep "send pure fin" clog`
-errlog=`grep_err_log`
+errlog=`grep_err_log | grep -v "send data after fin sent"`
 if [ "$cli_res1" == "1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "1" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "h3_ext_finish_bytestream_during_transmission" "pass"
@@ -3962,6 +4023,80 @@ else
 fi
 grep_err_log
 
+
+killall test_server
+stdbuf -oL ./test_server -l d -e -M > /dev/null &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "transport MP ping ...\c"
+sudo ./test_client -s 1024 -l d -E -T 1 -e 1 --epoch_timeout 2000000 -t 3 --mp_ping 1 -M -i lo -i lo >> clog
+ret_ping_id=`grep "====>ping_id:" clog`
+ret_no_ping_id=`grep "====>no ping_id" clog`
+path0_ping=`grep -E "xqc_send_packet_with_pn.*path:0.*PING" clog`
+path1_ping=`grep -E "xqc_send_packet_with_pn.*path:1.*PING" clog`
+if [ -n "$ret_ping_id" ] && [ -n "$ret_no_ping_id" ] && [ -n "$path0_ping" ] && [ -n "$path1_ping" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "transport_MP_ping" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "transport_MP_ping" "fail"
+fi
+
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "h3 MP ping ...\c"
+sudo ./test_client -s 1024 -l d -E -e 1 --epoch_timeout 2000000 -t 3 --mp_ping 1 -M -i lo -i lo >> clog
+ret_ping_id=`grep "====>ping_id:" clog`
+ret_no_ping_id=`grep "====>no ping_id" clog`
+path0_ping=`grep -E "xqc_send_packet_with_pn.*path:0.*PING" clog`
+path1_ping=`grep -E "xqc_send_packet_with_pn.*path:1.*PING" clog`
+if [ -n "$ret_ping_id" ] && [ -n "$ret_no_ping_id" ] && [ -n "$path0_ping" ] && [ -n "$path1_ping" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_MP_ping" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_MP_ping" "fail"
+fi
+
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "freeze path0 ...\c"
+sudo ./test_client -s 1024000 -l d -E -e 4 -T 2 --epoch_timeout 2000000 -t 4 -M -i lo -i lo -x 107 > stdlog
+stream_info3=`grep "stream_info:" stdlog | head -n 3 | tail -n 1 | grep -v "#0" | grep "#1"`
+stream_info5=`grep "stream_info:" stdlog | tail -n 1 | grep -E "#0.*#1"`
+clog_res1=`grep -E "path:0.*app_path_status:2->3" clog`
+clog_res2=`grep -E "path:0.*app_path_status:3->1" clog`
+slog_res1=`grep -E "path:0.*app_path_status:2->3" slog`
+slog_res2=`grep -E "path:0.*app_path_status:3->1" slog`
+if [ -n "$stream_info3" ] && [ -n "$stream_info5" ] && [ -n "$clog_res1" ] && [ -n "$clog_res2" ] && [ -n "$slog_res1" ] && [ -n "$slog_res2" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "freeze_path0" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "freeze_path0" "fail"
+fi
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "freeze path1 ...\c"
+sudo ./test_client -s 1024000 -l d -E -e 4 -T 2 --epoch_timeout 2000000 -t 4 -M -i lo -i lo -x 108 > stdlog
+stream_info3=`grep "stream_info:" stdlog | head -n 3 | tail -n 1 | grep -v "#1" | grep "#0"`
+stream_info5=`grep "stream_info:" stdlog | tail -n 1 | grep -E "#0.*#1"`
+clog_res1=`grep -E "path:1.*app_path_status:2->3" clog`
+clog_res2=`grep -E "path:1.*app_path_status:3->1" clog`
+slog_res1=`grep -E "path:1.*app_path_status:2->3" slog`
+slog_res2=`grep -E "path:1.*app_path_status:3->1" slog`
+if [ -n "$stream_info3" ] && [ -n "$stream_info5" ] && [ -n "$clog_res1" ] && [ -n "$clog_res2" ] && [ -n "$slog_res1" ] && [ -n "$slog_res2" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "freeze_path1" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "freeze_path1" "fail"
+fi
 
 killall test_server
 

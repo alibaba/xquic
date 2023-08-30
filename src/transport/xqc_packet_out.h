@@ -110,6 +110,9 @@ typedef struct xqc_packet_out_s {
 
     /* PMTUD Probing */
     size_t                  po_max_pkt_out_size;
+
+    /* ping notification */
+    xqc_ping_record_t      *po_pr;
 } xqc_packet_out_t;
 
 xqc_bool_t xqc_packet_out_on_specific_path(xqc_connection_t *conn, 
@@ -147,7 +150,8 @@ int xqc_write_ack_to_packets(xqc_connection_t *conn);
 
 int xqc_write_ack_to_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_pkt_num_space_t pns);
 
-int xqc_write_ping_to_packet(xqc_connection_t *conn, void *po_user_data, xqc_bool_t notify);
+int xqc_write_ping_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path, 
+    void *po_user_data, xqc_bool_t notify, xqc_ping_record_t *pr);
 
 int xqc_write_conn_close_to_packet(xqc_connection_t *conn, uint64_t err_code);
 

@@ -127,9 +127,9 @@ typedef struct xqc_demo_cli_net_config_s {
  */
 
 /* definition for quic */
-#define MAX_SESSION_TICKET_LEN      2048    /* session ticket len */
-#define MAX_TRANSPORT_PARAMS_LEN    2048    /* transport parameter len */
-#define XQC_MAX_TOKEN_LEN           256     /* token len */
+#define MAX_SESSION_TICKET_LEN      8192    /* session ticket len */
+#define MAX_TRANSPORT_PARAMS_LEN    8192    /* transport parameter len */
+#define XQC_MAX_TOKEN_LEN           8192     /* token len */
 
 #define SESSION_TICKET_FILE         "session_ticket"
 #define TRANSPORT_PARAMS_FILE       "transport_params"
@@ -794,6 +794,11 @@ xqc_demo_cli_path_removed(const xqc_cid_t *scid, uint64_t path_id,
         {
             user_conn->paths[i].is_active = 0;
             user_conn->active_path_cnt--;
+            /* remove event handle */
+            event_del(user_conn->paths[i].ev_socket);
+            event_del(user_conn->paths[i].ev_timeout);
+            /* close socket */
+            close(user_conn->paths[i].fd);
             printf("No.%d path removed id = %"PRIu64"\n", i, path_id);   
         }
     }
@@ -1366,23 +1371,27 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
         break;
 
     case CC_TYPE_CUBIC:
-        cong_ctrl = xqc_reno_cb;
-        break;
-
-    case CC_TYPE_RENO:
         cong_ctrl = xqc_cubic_cb;
         break;
+
+#ifdef XQC_ENABLE_RENO
+    case CC_TYPE_RENO:
+        cong_ctrl = xqc_reno_cb;
+        break;
+#endif
 
     default:
         break;
     }
 
-    xqc_scheduler_callback_t sched;
+    xqc_scheduler_callback_t sched = xqc_minrtt_scheduler_cb;
     if (strncmp(args->quic_cfg.mp_sched, "minrtt", strlen("minrtt")) == 0) {
         sched = xqc_minrtt_scheduler_cb;
 
     } else {
+#ifdef XQC_ENABLE_MP_INTEROP
         sched = xqc_interop_scheduler_cb;
+#endif
     }
 
     memset(settings, 0, sizeof(xqc_conn_settings_t));
@@ -2278,11 +2287,14 @@ xqc_demo_cli_create_socket(xqc_demo_cli_user_path_t *user_path,
         memset(&ifr, 0x00, sizeof(ifr));
         strncpy(ifr.ifr_name, cfg->iflist[path_seq], sizeof(ifr.ifr_name) - 1);
 
+#if !defined(__APPLE__)
         printf("fd: %d. bind to nic: %s\n", fd, cfg->iflist[path_seq]);
         if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (char *)&ifr, sizeof(ifr)) < 0) {
             printf("bind to nic error: %d, try use sudo\n", errno);
             goto err;
         }
+#endif
+
     }
 
     user_path->last_sock_op_time = xqc_demo_now();
@@ -2301,7 +2313,7 @@ xqc_demo_cli_init_user_path(xqc_demo_cli_user_conn_t *user_conn, int path_seq, u
     xqc_demo_cli_user_path_t *user_path = &user_conn->paths[path_seq];
 
     /* create the initial path */
-    user_path->fd = xqc_demo_cli_create_socket(user_path, &ctx->args->net_cfg, 0);
+    user_path->fd = xqc_demo_cli_create_socket(user_path, &ctx->args->net_cfg, path_seq);
     if (user_path->fd < 0) {
         printf("xqc_create_socket error\n");
         return -1;

@@ -35,6 +35,8 @@ typedef enum {
     XQC_STREAM_FLAG_NEED_CLOSE      = 1 << 5,
     XQC_STREAM_FLAG_FIN_WRITE       = 1 << 6,
     XQC_STREAM_FLAG_CLOSED          = 1 << 7,
+    XQC_STREAM_FLAG_UNEXPECTED      = 1 << 8,
+    XQC_STREAM_FLAG_DISCARDED       = 1 << 9,   /* stream create_notify with error, all stream data will be discarded */
 } xqc_stream_flag_t;
 
 typedef enum {
@@ -236,6 +238,8 @@ xqc_stream_recv_state_update(xqc_stream_t *stream, xqc_recv_stream_state_t state
 void xqc_stream_set_multipath_usage(xqc_stream_t *stream, uint8_t schedule, uint8_t reinject);
 
 void xqc_stream_closing(xqc_stream_t *stream, xqc_int_t err);
+
+void xqc_stream_close_discarded_stream(xqc_stream_t *stream);
 
 #endif /* _XQC_STREAM_H_INCLUDED_ */
 

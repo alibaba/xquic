@@ -74,6 +74,15 @@ if(XQC_COMPAT_DUPLICATE)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DXQC_COMPAT_DUPLICATE")
 endif()
 
+if(XQC_COMPAT_GENERATE_SR_PKT)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DXQC_COMPAT_GENERATE_SR_PKT")
+endif()
+
+if(XQC_NO_MPINTEROP)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DNXQC_MPQUIC_INTEROP")
+else()
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DXQC_MPQUIC_INTEROP")
+endif()
 
 # print only error log
 if(XQC_ONLY_ERROR_LOG)
@@ -185,8 +194,15 @@ set(
     "src/transport/scheduler/xqc_scheduler_common.c"
     "src/transport/scheduler/xqc_scheduler_backup.c"
     "src/transport/scheduler/xqc_scheduler_rap.c"
-    "src/transport/scheduler/xqc_scheduler_interop.c"
 )
+
+if(XQC_ENABLE_MP_INTEROP)
+    set(
+        TRANSPORT_SOURCES
+        ${TRANSPORT_SOURCES}
+        "src/transport/scheduler/xqc_scheduler_interop.c"
+    )
+endif()
 
 # TLS source
 set (
@@ -240,15 +256,11 @@ set(
     CONGESTION_CONTROL_SOURCES
     "src/congestion_control/xqc_cubic.c"
     "src/congestion_control/xqc_bbr.c"
-    "src/congestion_control/xqc_unlimited_cc.c"
-    "src/congestion_control/xqc_copa.c"
     "src/congestion_control/xqc_window_filter.c"
     "src/congestion_control/xqc_sample.c"
 )
 
-if(XQC_DISABLE_RENO)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DXQC_DISABLE_RENO ")
-else()
+if(XQC_ENABLE_RENO)
     set(
         CONGESTION_CONTROL_SOURCES
         ${CONGESTION_CONTROL_SOURCES}
@@ -257,14 +269,29 @@ else()
 endif()
 
 if(XQC_ENABLE_BBR2)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DXQC_ENABLE_BBR2 ")
     set(
         CONGESTION_CONTROL_SOURCES
-
         ${CONGESTION_CONTROL_SOURCES}
         "src/congestion_control/xqc_bbr2.c"
     )
 endif()
+
+if(XQC_ENABLE_COPA)
+    set(
+        CONGESTION_CONTROL_SOURCES
+        ${CONGESTION_CONTROL_SOURCES}
+        "src/congestion_control/xqc_copa.c"
+    )
+endif()
+
+if(XQC_ENABLE_UNLIMITED)
+    set(
+        CONGESTION_CONTROL_SOURCES
+        ${CONGESTION_CONTROL_SOURCES}
+        "src/congestion_control/xqc_unlimited_cc.c"
+    )
+endif()
+
 
 # xquic source
 set (
@@ -392,13 +419,13 @@ if (XQC_ENABLE_TESTING)
     endif()
 
     if(PLATFORM STREQUAL "mac32")
-        target_link_libraries(test_server xquic  -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
-        target_link_libraries(test_client xquic  -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
+        target_link_libraries(test_server xquic-static ${SSL_LIB_PATH} -ldl -lpthread -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
+        target_link_libraries(test_client xquic-static ${SSL_LIB_PATH} -ldl -lpthread -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
         target_link_libraries(demo_server xquic  -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
         target_link_libraries(demo_client xquic  -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
     elseif(PLATFORM STREQUAL "mac")
-        target_link_libraries(test_server xquic -lm -L/usr/local/lib -levent)
-        target_link_libraries(test_client xquic -lm -L/usr/local/lib -levent)
+        target_link_libraries(test_server xquic-static ${SSL_LIB_PATH} -ldl -lpthread -lm -L/usr/local/lib -levent)
+        target_link_libraries(test_client xquic-static ${SSL_LIB_PATH} -ldl -lpthread -lm -L/usr/local/lib -levent)
         target_link_libraries(demo_server xquic -lm -L/usr/local/lib -levent)
         target_link_libraries(demo_client xquic -lm -L/usr/local/lib -levent)
     elseif(CMAKE_SYSTEM_NAME  MATCHES "Windows")
@@ -407,8 +434,8 @@ if (XQC_ENABLE_TESTING)
         target_link_libraries(demo_server xquic ${EVENT_LIB_PATH} -lm)
         target_link_libraries(demo_client xquic ${EVENT_LIB_PATH} -lm)
     else()
-        target_link_libraries(test_server xquic -levent -lm)
-        target_link_libraries(test_client xquic -levent -lm)
+        target_link_libraries(test_server xquic-static ${SSL_LIB_PATH} -ldl -lpthread -levent -lm)
+        target_link_libraries(test_client xquic-static ${SSL_LIB_PATH} -ldl -lpthread -levent -lm)
         target_link_libraries(demo_server xquic -levent -lm)
         target_link_libraries(demo_client xquic -levent -lm)
     endif()

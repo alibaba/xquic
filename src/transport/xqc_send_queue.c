@@ -8,6 +8,7 @@
 #include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_stream.h"
 #include "src/transport/xqc_reinjection.h"
+#include "src/transport/xqc_conn.h"
 
 
 xqc_send_queue_t *
@@ -225,6 +226,15 @@ xqc_send_queue_remove_lost(xqc_list_head_t *pos)
 void
 xqc_send_queue_insert_free(xqc_packet_out_t *po, xqc_list_head_t *head, xqc_send_queue_t *send_queue)
 {
+    if (po->po_pr) {
+        if (po->po_pr->ref_cnt <= 1) {
+            xqc_conn_destroy_ping_record(po->po_pr);
+
+        } else {
+            po->po_pr->ref_cnt--;
+            po->po_pr = NULL;
+        }
+    }
     xqc_list_add_tail(&po->po_list, head);
     send_queue->sndq_packets_free++;
     send_queue->sndq_packets_used--;
@@ -343,13 +353,6 @@ xqc_send_queue_copy_to_lost(xqc_packet_out_t *packet_out, xqc_send_queue_t *send
         new_po->po_path_flag &= ~XQC_PATH_SPECIFIED_BY_PTO;
     }
 
-    /* clear the flag if the packet is not a reinjected packet anymore */
-    if ((new_po->po_flag & XQC_POF_REINJECTED_ORIGIN)
-        && (new_po->po_origin && !(new_po->po_origin->po_flag & XQC_POF_REINJECTED_ORIGIN))) {
-        new_po->po_flag &= ~XQC_POF_REINJECTED_ORIGIN;
-        new_po->po_path_flag &= ~XQC_PATH_SPECIFIED_BY_REINJ;
-    }
-
     xqc_send_queue_insert_lost(&new_po->po_list, &send_queue->sndq_lost_packets);
     send_queue->sndq_packets_used++;
     packet_out->po_flag |= XQC_POF_RETRANSED;
@@ -371,13 +374,6 @@ xqc_send_queue_copy_to_probe(xqc_packet_out_t *packet_out, xqc_send_queue_t *sen
 
     new_po->po_path_flag |= XQC_PATH_SPECIFIED_BY_PTO;
     new_po->po_path_id = path->path_id;
-
-    /* clear the flag if the packet is not a reinjected packet anymore */
-    if ((new_po->po_flag & XQC_POF_REINJECTED_ORIGIN)
-        && (new_po->po_origin && !(new_po->po_origin->po_flag & XQC_POF_REINJECTED_ORIGIN))) {
-        new_po->po_flag &= ~XQC_POF_REINJECTED_ORIGIN;
-        new_po->po_path_flag &= ~XQC_PATH_SPECIFIED_BY_REINJ;
-    }
 
     xqc_send_queue_insert_probe(&new_po->po_list, &send_queue->sndq_pto_probe_packets);
     send_queue->sndq_packets_used++;

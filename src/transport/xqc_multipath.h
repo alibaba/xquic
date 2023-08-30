@@ -32,16 +32,24 @@ typedef enum {
 
 /* application layer path status */
 typedef enum {
+    /* max */
+    XQC_APP_PATH_STATUS_NONE,
     /* suggest that no traffic should be sent on that path if another path is available */
     XQC_APP_PATH_STATUS_STANDBY   = 1,
     /* allow the peer to use its own logic to split traffic among available paths */
     XQC_APP_PATH_STATUS_AVAILABLE = 2,
+    /* freeze a path */
+    XQC_APP_PATH_STATUS_FROZEN    = 3,
+    /* max */
+    XQC_APP_PATH_STATUS_MAX,
 } xqc_app_path_status_t;
 
 /* transport layer path status */
 typedef enum {
+    XQC_TRA_PATH_STATUS_NONE,
     XQC_TRA_PATH_STATUS_BACKUP   = 1,
     XQC_TRA_PATH_STATUS_IN_USE   = 2,
+    XQC_TRA_PATH_STATUS_MAX,
 } xqc_tra_path_status_t;
 
 /* path close mode: passive & proactive */
@@ -60,6 +68,7 @@ typedef enum {
 
 typedef enum {
     XQC_PATH_FLAG_SEND_STATUS       = 1 << 0,
+    XQC_PATH_FLAG_RECV_STATUS       = 1 << 1,
 } xqc_path_flag_t;
 
 typedef enum {
@@ -68,6 +77,8 @@ typedef enum {
     XQC_PATH_SPECIFIED_BY_PTO       = 1 << 2,  /* PTO probe */
     XQC_PATH_SPECIFIED_BY_REINJ     = 1 << 3,  /* reinjection on a specific path */
     XQC_PATH_SPECIFIED_BY_PTMUD     = 1 << 4,  /* PMTUD Probe */
+    XQC_PATH_SPECIFIED_BY_KAP       = 1 << 5,  /* Keepalive Probe */
+    XQC_PATH_SPECIFIED_BY_PQP       = 1 << 6,  /* Path Quality Probe */
 } xqc_path_specified_flag_t;
 
 /* path context */
@@ -106,6 +117,7 @@ struct xqc_path_ctx_s {
     xqc_tra_path_status_t   tra_path_status;
     /* application layer path status, sync via PATH_STATUS frame */
     xqc_app_path_status_t   app_path_status;
+    xqc_app_path_status_t   next_app_path_state;
     uint64_t                app_path_status_send_seq_num;
     uint64_t                app_path_status_recv_seq_num;
 
@@ -215,7 +227,7 @@ void xqc_path_send_buffer_append(xqc_path_ctx_t *path, xqc_packet_out_t *packet_
 void xqc_path_send_buffer_remove(xqc_path_ctx_t *path, xqc_packet_out_t *packet_out);
 void xqc_path_send_buffer_clear(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_list_head_t *head, xqc_send_type_t send_type);
 
-void xqc_set_application_path_status(xqc_path_ctx_t *path, xqc_app_path_status_t status, xqc_usec_t now);
+xqc_int_t xqc_set_application_path_status(xqc_path_ctx_t *path, xqc_app_path_status_t status, xqc_bool_t is_tx);
 void xqc_set_transport_path_status(xqc_path_ctx_t *path, xqc_tra_path_status_t status, xqc_usec_t now);
 
 /* path statistics */

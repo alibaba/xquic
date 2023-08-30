@@ -51,6 +51,21 @@ unsigned char *xqc_vsprintf(unsigned char *buf, unsigned char *last, const char 
 unsigned char *xqc_sprintf_num(unsigned char *buf, unsigned char *last,
     uint64_t ui64, unsigned char zero, uintptr_t hexadecimal, uintptr_t width);
 
+static inline int
+xqc_memcpy_with_cap(void *dst, size_t cap, const void *src, size_t n)
+{
+    if (n == 0) {
+        return XQC_OK;
+    }
+
+    if (n <= cap) {
+        xqc_memcpy(dst, src, n);
+        return XQC_OK;
+    }
+
+    return -XQC_ENOBUF;
+}
+
 static inline void
 xqc_str_tolower(unsigned char *dst, unsigned char *src, size_t n)
 {

@@ -125,7 +125,11 @@ else()
 endif()
 
 
-configure_file (xqc_configure.h.in include/xquic/xqc_configure.h  @ONLY)
+configure_file (
+    "${CMAKE_CURRENT_SOURCE_DIR}/xqc_configure.h.in"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/xquic/xqc_configure.h"
+    @ONLY
+)
 
 include_directories(
     include/

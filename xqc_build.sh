@@ -53,7 +53,13 @@ if [ x"$platform" == xios ] ; then
                 -DGCOV=OFF
                 -DCMAKE_TOOLCHAIN_FILE=${IOS_CMAKE_TOOLCHAIN}
                 -DENABLE_BITCODE=0
-                -DXQC_NO_SHARED=1"
+                -DXQC_NO_SHARED=1
+                -DXQC_COMPAT_GENERATE_SR_PKT=1
+                -DXQC_ENABLE_RENO=0
+                -DXQC_ENABLE_BBR2=0
+                -DXQC_ENABLE_COPA=0
+                -DXQC_ENABLE_UNLIMITED=0
+                -DXQC_ENABLE_MP_INTEROP=0"
 
 elif [ x"$platform" == xandroid ] ; then
     if [ x"$ANDROID_NDK" == x ] ; then
@@ -72,11 +78,15 @@ elif [ x"$platform" == xandroid ] ; then
                 -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake
                 -DANDROID_STL=c++_shared
                 -DANDROID_NATIVE_API_LEVEL=android-19
-                -DXQC_DISABLE_RENO=OFF
-                -DXQC_ENABLE_BBR2=ON
+                -DXQC_ENABLE_RENO=OFF
+                -DXQC_ENABLE_BBR2=OFF
+                -DXQC_ENABLE_COPA=OFF
+                -DXQC_ENABLE_UNLIMITED=OFF
+                -DXQC_ENABLE_MP_INTEROP=OFF
                 -DXQC_DISABLE_LOG=OFF
-                -DXQC_ONLY_ERROR_LOG=ON"
-else 
+                -DXQC_ONLY_ERROR_LOG=ON
+                -DXQC_COMPAT_GENERATE_SR_PKT=ON"
+else
     echo "no support platform"
     exit 0
 fi

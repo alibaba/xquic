@@ -63,6 +63,10 @@ if (XQC_DISABLE_LOG)
     set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -DXQC_DISABLE_LOG")
 endif()
 
+if(XQC_COMPAT_GENERATE_SR_PKT)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DXQC_COMPAT_GENERATE_SR_PKT")
+endif()
+
 if (XQC_ONLY_ERROR_LOG)
     set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -DXQC_ONLY_ERROR_LOG")
 endif()
@@ -70,11 +74,6 @@ endif()
 if (XQC_ENABLE_EVENT_LOG)
     set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -DXQC_ENABLE_EVENT_LOG ")
 endif()
-
-if(XQC_COMPAT_GENERATE_SR_PKT)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DXQC_COMPAT_GENERATE_SR_PKT")
-endif()
-
 
 if(ANDROID)
     set(DYMAMIC_LINK_OPTION 
@@ -126,7 +125,11 @@ else()
 endif()
 
 
-configure_file (xqc_configure.h.in include/xquic/xqc_configure.h  @ONLY)
+configure_file (
+    "${CMAKE_CURRENT_SOURCE_DIR}/xqc_configure.h.in"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/xquic/xqc_configure.h"
+    @ONLY
+)
 
 include_directories(
     include/
@@ -191,8 +194,15 @@ set(
     "src/transport/scheduler/xqc_scheduler_common.c"
     "src/transport/scheduler/xqc_scheduler_backup.c"
     "src/transport/scheduler/xqc_scheduler_rap.c"
-    "src/transport/scheduler/xqc_scheduler_interop.c"
 )
+
+if(XQC_ENABLE_MP_INTEROP)
+    set(
+        TRANSPORT_SOURCES
+        ${TRANSPORT_SOURCES}
+        "src/transport/scheduler/xqc_scheduler_interop.c"
+    )
+endif()
 
 # TLS source
 set (
@@ -246,15 +256,11 @@ set(
     CONGESTION_CONTROL_SOURCES
     "src/congestion_control/xqc_cubic.c"
     "src/congestion_control/xqc_bbr.c"
-    "src/congestion_control/xqc_unlimited_cc.c"
-    "src/congestion_control/xqc_copa.c"
     "src/congestion_control/xqc_window_filter.c"
     "src/congestion_control/xqc_sample.c"
 )
 
-if (XQC_DISABLE_RENO)
-    set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -DXQC_DISABLE_RENO")
-else()
+if(XQC_ENABLE_RENO)
     set(
         CONGESTION_CONTROL_SOURCES
         ${CONGESTION_CONTROL_SOURCES}
@@ -262,12 +268,40 @@ else()
     )
 endif()
 
-if (XQC_ENABLE_BBR2)
-    set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -DXQC_ENABLE_BBR2")
+if(XQC_ENABLE_BBR2)
     set(
         CONGESTION_CONTROL_SOURCES
         ${CONGESTION_CONTROL_SOURCES}
         "src/congestion_control/xqc_bbr2.c"
+    )
+endif()
+
+if(XQC_ENABLE_COPA)
+    set(
+        CONGESTION_CONTROL_SOURCES
+        ${CONGESTION_CONTROL_SOURCES}
+        "src/congestion_control/xqc_copa.c"
+    )
+endif()
+
+if(XQC_ENABLE_UNLIMITED)
+    set(
+        CONGESTION_CONTROL_SOURCES
+        ${CONGESTION_CONTROL_SOURCES}
+        "src/congestion_control/xqc_unlimited_cc.c"
+    )
+endif()
+
+
+if(XQC_ENABLE_TH3)
+    set(XQC_ENABLE_TUNNEL 1)
+    set(
+        TH3_SOURCES
+        "tunnel/tunnel_h3/th3_ctx.c"
+        "tunnel/tunnel_h3/th3_vconn.c"
+    )
+endif()
+
     )
 endif()
 
@@ -312,3 +346,4 @@ if (XQC_BUILD_SAMPLE)
     target_link_libraries(test_client xquic event)
     target_link_libraries(test_server xquic event)
 endif()
+

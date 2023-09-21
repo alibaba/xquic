@@ -219,5 +219,7 @@ In no particular order, thanks to these excellent individuals who contributed co
 * @yunwei37
 * @keengo99
 * @ruanshanshan
+* @alagoutte
+* @MPK1
 
 This list will be continuously updated. Contributions are welcome!

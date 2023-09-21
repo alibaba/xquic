@@ -779,7 +779,7 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
     }
 
     if (XQC_UNLIKELY(conn->conn_flag & XQC_CONN_FLAG_PING)) {
-        ret = xqc_write_ping_to_packet(conn, NULL, XQC_FALSE);
+        ret = xqc_conn_send_ping_internal(conn, NULL, XQC_FALSE);
         if (ret) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_ping_to_packet error|");
             XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
@@ -1179,8 +1179,15 @@ process:
             conn, packet_in_size, xqc_conn_state_2_str(conn->conn_state), recv_time);
 
     if (XQC_UNLIKELY(conn->local_addrlen == 0)) {
-        xqc_memcpy(conn->local_addr, local_addr, local_addrlen);
-        conn->local_addrlen = local_addrlen;
+        ret = xqc_memcpy_with_cap(conn->local_addr, sizeof(conn->local_addr), 
+                                  local_addr, local_addrlen);
+        if (ret == XQC_OK) {
+            conn->local_addrlen = local_addrlen;
+
+        } else {
+            xqc_log(conn->log, XQC_LOG_ERROR, 
+                    "|local addr too large|addr_len:%d|", (int)local_addrlen);
+        }
         xqc_log_event(conn->log, CON_CONNECTION_STARTED, conn, XQC_LOG_LOCAL_EVENT);
     }
 
@@ -1196,9 +1203,16 @@ process:
                 && !xqc_timer_is_set(&path->path_send_ctl->path_timer_manager, XQC_TIMER_NAT_REBINDING))
             {
                 /* set rebinding_addr & send PATH_CHALLENGE */
-                xqc_memcpy(path->rebinding_addr, peer_addr, peer_addrlen);
-                path->rebinding_addrlen = peer_addrlen;
+                ret = xqc_memcpy_with_cap(path->rebinding_addr, sizeof(path->rebinding_addr), 
+                                          peer_addr, peer_addrlen);
+                if (ret == XQC_OK) {
+                    path->rebinding_addrlen = peer_addrlen;
 
+                } else {
+                    xqc_log(conn->log, XQC_LOG_ERROR, 
+                            "|REBINDING|peer addr too large|addr_len:%d|", (int)peer_addrlen);
+                }
+            
                 ret = xqc_conn_send_path_challenge(conn, path);
                 if (ret == XQC_OK) {
                     xqc_log(conn->log, XQC_LOG_INFO, "|REBINDING|path:%ui|send PATH_CHALLENGE|", path->path_id);

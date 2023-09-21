@@ -71,6 +71,8 @@ typedef enum {
        blocked and waiting for encoder stream insertions while Transport stream
        notify its close */
     XQC_HTTP3_STREAM_FLAG_ACTIVELY_CLOSED       = 0x1000,
+    /* FIN was sent and no data will be sent any more */
+    XQC_HTTP3_STREAM_FLAG_FIN_SENT              = 0x2000,
 } xqc_h3_stream_flag;
 
 typedef struct xqc_h3_stream_pctx_s {

@@ -241,6 +241,12 @@ typedef struct {
 
 } xqc_key_update_ctx_t;
 
+typedef struct xqc_ping_record_s {
+    xqc_list_head_t list;
+    uint8_t         notified;
+    uint32_t        ref_cnt;
+} xqc_ping_record_t;
+
 struct xqc_connection_s {
 
     xqc_conn_settings_t             conn_settings;
@@ -392,6 +398,13 @@ struct xqc_connection_s {
     size_t                          max_pkt_out_size;
     size_t                          probing_pkt_out_size;
     uint32_t                        probing_cnt;
+
+    /* pending ping notification */
+    xqc_list_head_t                 ping_notification_list;
+
+    /* cc blocking stats */
+    uint32_t                        sched_cc_blocked;
+    uint32_t                        send_cc_blocked;
 };
 
 const char *xqc_conn_flag_2_str(xqc_conn_flag_t conn_flag);
@@ -425,7 +438,7 @@ void xqc_conn_transmit_pto_probe_packets(xqc_connection_t *conn);
 void xqc_conn_transmit_pto_probe_packets_batch(xqc_connection_t *conn);
 void xqc_conn_retransmit_lost_packets(xqc_connection_t *conn);
 void xqc_conn_retransmit_lost_packets_batch(xqc_connection_t *conn);
-xqc_int_t xqc_path_send_ping_to_probe(xqc_path_ctx_t *path, xqc_pkt_num_space_t pns);
+xqc_int_t xqc_path_send_ping_to_probe(xqc_path_ctx_t *path, xqc_pkt_num_space_t pns, xqc_path_specified_flag_t flag);
 void xqc_path_send_one_or_two_ack_elicit_pkts(xqc_path_ctx_t *path, xqc_pkt_num_space_t pns);
 void xqc_conn_send_one_ack_eliciting_pkt(xqc_connection_t *conn, xqc_pkt_num_space_t pns);
 
@@ -595,5 +608,13 @@ xqc_int_t xqc_conn_handle_deprecated_stateless_reset(xqc_connection_t *conn,
 void xqc_conn_try_to_update_mss(xqc_connection_t *conn);
 
 void xqc_conn_get_stats_internal(xqc_connection_t *conn, xqc_conn_stats_t *stats);
+
+xqc_ping_record_t* xqc_conn_create_ping_record(xqc_connection_t *conn);
+
+void xqc_conn_destroy_ping_record(xqc_ping_record_t *pr);
+
+void xqc_conn_destroy_ping_notification_list(xqc_connection_t *conn);
+
+xqc_int_t xqc_conn_send_ping_internal(xqc_connection_t *conn, void *ping_user_data, xqc_bool_t notify);
 
 #endif /* _XQC_CONN_H_INCLUDED_ */

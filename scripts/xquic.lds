@@ -74,6 +74,7 @@ XQUIC_VERS_1.0 {
         xqc_conn_close_path;
         xqc_conn_mark_path_standby;
         xqc_conn_mark_path_available;
+        xqc_conn_mark_path_frozen;
         xqc_dcid_str_by_scid;
         xqc_h3_ctx_init;
         xqc_h3_ctx_destroy;

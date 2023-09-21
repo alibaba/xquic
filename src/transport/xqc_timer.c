@@ -143,8 +143,13 @@ xqc_timer_path_idle_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_da
         return;
     }
 
+    if (path->path_state < XQC_PATH_STATE_CLOSING) {
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|closing path:%ui|", path->path_id);
+        xqc_path_immediate_close(path);
+    }
+
     if (path->path_state < XQC_PATH_STATE_CLOSED) {
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|close path:%ui|", path->path_id);
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|closed path:%ui|", path->path_id);
         xqc_path_closed(path);
     }
 

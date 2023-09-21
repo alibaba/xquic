@@ -211,6 +211,7 @@ int g_send_body_size_from_cdf;
 cdf_entry_t *cdf_list;
 int cdf_list_size;
 int g_req_paral = 1;
+int g_recovery = 0;
 int g_save_body;
 int g_read_body;
 int g_echo_check;
@@ -229,7 +230,7 @@ int g_ipv6;
 int g_no_crypt;
 int g_conn_timeout = 1;
 int g_conn_abs_timeout = 0;
-int g_path_timeout = 700000; /* 300ms */
+int g_path_timeout = 5000000; /* 5s */
 int g_epoch_timeout = 1000000; /* us */
 char g_write_file[256];
 char g_read_file[256];
@@ -253,6 +254,7 @@ int g_mp_request_accelerate = 0;
 double g_copa_ai = 1.0;
 double g_copa_delta = 0.05;
 int g_pmtud_on = 0;
+int g_mp_ping_on = 0;
 char g_header_key[MAX_HEADER_KEY_LEN];
 char g_header_value[MAX_HEADER_VALUE_LEN];
 
@@ -1197,7 +1199,7 @@ xqc_client_write_socket_ex(uint64_t path_id,
 
         res = sendto(fd, send_buf, send_buf_size, 0, peer_addr, peer_addrlen);
         if (res < 0) {
-            printf("xqc_client_write_socket_ex path:%lu err %zd %s %zu\n", path_id, res, strerror(errno), send_buf_size);
+            printf("xqc_client_write_socket_ex path:%"PRIu64" err %zd %s %zu\n", path_id, res, strerror(errno), send_buf_size);
             if (errno == EAGAIN) {
                 res = XQC_SOCKET_EAGAIN;
             } else {
@@ -1346,6 +1348,7 @@ xqc_client_bind_to_interface(int fd,
     memset(&ifr, 0x00, sizeof(ifr));
     strncpy(ifr.ifr_name, interface_name, sizeof(ifr.ifr_name) - 1);
 
+#if !defined(__APPLE__)
 // #if (XQC_TEST_MP)
     printf("fd: %d. bind to nic: %s\n", fd, interface_name);
     if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (char *)&ifr, sizeof(ifr)) < 0) {
@@ -1353,6 +1356,7 @@ xqc_client_bind_to_interface(int fd,
         return XQC_ERROR;
     }
 // #endif
+#endif
 
     return XQC_OK;
 }
@@ -1387,8 +1391,10 @@ xqc_client_create_socket(int type,
         goto err;
     }
 
+#if !defined(__APPLE__)
     int val = IP_PMTUDISC_DO;
     setsockopt(fd, IPPROTO_IP, IP_MTU_DISCOVER, &val, sizeof(val));
+#endif
 
     g_last_sock_op_time = now();
 
@@ -1610,14 +1616,14 @@ xqc_client_create_conn_socket(user_conn_t *user_conn)
 void
 xqc_client_set_path_debug_timer(user_conn_t *user_conn)
 {
-    if (g_debug_path) {
+    if (g_debug_path || g_test_case == 110) {
         if (user_conn->ev_path == NULL) {
             user_conn->ev_path = event_new(eb, -1, 0, xqc_client_path_callback, user_conn);
         }
 
         struct timeval tv;
-        tv.tv_sec = 0;
-        tv.tv_usec = g_path_timeout;
+        tv.tv_sec = g_path_timeout / 1000000;
+        tv.tv_usec = g_path_timeout % 1000000;
         event_add(user_conn->ev_path, &tv);
     }
 }
@@ -1684,8 +1690,8 @@ xqc_client_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void 
     printf("should_clear_0rtt_ticket, conn_err:%d, clear_0rtt_ticket:%d\n", err, xqc_conn_should_clear_0rtt_ticket(err));
 
     xqc_conn_stats_t stats = xqc_conn_get_stats(p_ctx->engine, cid);
-    printf("send_count:%u, lost_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" early_data_flag:%d, conn_err:%d, mp_state:%d, ack_info:%s\n",
-           stats.send_count, stats.lost_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.mp_state, stats.ack_info);
+    printf("send_count:%u, lost_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" early_data_flag:%d, conn_err:%d, mp_state:%d, ack_info:%s, alpn:%s\n",
+           stats.send_count, stats.lost_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.mp_state, stats.ack_info, stats.alpn);
 
     printf("conn_info: \"%s\"\n", stats.conn_info);
 
@@ -1739,8 +1745,10 @@ xqc_client_conn_handshake_finished(xqc_connection_t *conn, void *user_data, void
     DEBUG;
     user_conn_t *user_conn = (user_conn_t *) user_data;
     if (!g_test_qch_mode) {
-        xqc_conn_send_ping(ctx.engine, &user_conn->cid, NULL);
-        xqc_conn_send_ping(ctx.engine, &user_conn->cid, &g_ping_id);
+        if (!g_mp_ping_on) {
+            xqc_conn_send_ping(ctx.engine, &user_conn->cid, NULL);
+            xqc_conn_send_ping(ctx.engine, &user_conn->cid, &g_ping_id);
+        }  
 
         printf("====>DCID:%s\n", xqc_dcid_str_by_scid(ctx.engine, &user_conn->cid));
         printf("====>SCID:%s\n", xqc_scid_str(&user_conn->cid));
@@ -1829,8 +1837,8 @@ xqc_client_h3_conn_close_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void 
     printf("should_clear_0rtt_ticket, conn_err:%d, clear_0rtt_ticket:%d\n", err, xqc_conn_should_clear_0rtt_ticket(err));
 
     xqc_conn_stats_t stats = xqc_conn_get_stats(p_ctx->engine, cid);
-    printf("send_count:%u, lost_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" early_data_flag:%d, conn_err:%d, mp_state:%d, ack_info:%s,  conn_info:%s\n",
-           stats.send_count, stats.lost_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.mp_state, stats.ack_info, stats.conn_info);
+    printf("send_count:%u, lost_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" early_data_flag:%d, conn_err:%d, mp_state:%d, ack_info:%s, alpn:%s, conn_info:%s\n",
+           stats.send_count, stats.lost_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.mp_state, stats.ack_info, stats.alpn, stats.conn_info);
 
     if (!g_test_qch_mode) {
         printf("[h3-dgram]|recv_dgram_bytes:%zu|sent_dgram_bytes:%zu|lost_dgram_bytes:%zu|lost_cnt:%zu|\n", 
@@ -1861,8 +1869,10 @@ xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
         p_ctx = &ctx;
     }
 
-    xqc_h3_conn_send_ping(p_ctx->engine, &user_conn->cid, NULL);
-    xqc_h3_conn_send_ping(p_ctx->engine, &user_conn->cid, &g_ping_id);
+    if (!g_mp_ping_on) {
+        xqc_h3_conn_send_ping(p_ctx->engine, &user_conn->cid, NULL);
+        xqc_h3_conn_send_ping(p_ctx->engine, &user_conn->cid, &g_ping_id);
+    }
 
     xqc_conn_stats_t stats = xqc_conn_get_stats(p_ctx->engine, &user_conn->cid);
     printf("0rtt_flag:%d\n", stats.early_data_flag);
@@ -2686,6 +2696,22 @@ next:
             printf("xqc_h3_request_send_body sent:%zd, offset=%"PRIu64", fin=1\n", ret, user_stream->send_offset);
         }
     }
+
+    if (g_test_case == 50) {
+        ret = xqc_h3_request_send_body(h3_request, user_stream->send_body, 10, 0);
+        printf("xqc_h3_request_send_body sent:%zd\n", ret);
+    }
+
+    if (g_test_case == 51) {
+        ret = xqc_h3_request_send_headers(h3_request, &headers, 1);
+        printf("xqc_h3_request_send_headers sent:%zd\n", ret);
+    }
+
+    if (g_test_case == 52) {
+        ret = xqc_h3_request_finish(h3_request);
+    }
+
+
     return 0;
 }
 
@@ -3378,6 +3404,9 @@ xqc_client_path_callback(int fd, short what, void *arg)
 
     // 判断conn状态
     // TODO
+    if (g_test_case == 110) {
+        g_test_case = -1;
+    }
 
     int b_add_path = 0;
 
@@ -3419,6 +3448,7 @@ static void
 xqc_client_epoch_callback(int fd, short what, void *arg)
 {
     user_conn_t *user_conn = (user_conn_t *) arg;
+    int ret;
 
     g_cur_epoch++;
     printf("|xqc_client_epoch_callback|epoch:%d|\n", g_cur_epoch);
@@ -3456,7 +3486,52 @@ xqc_client_epoch_callback(int fd, short what, void *arg)
         }
     }
 
+    if (g_mp_ping_on) {
+        if (user_conn->h3 == 1) {
+            xqc_conn_send_ping(ctx.engine, &user_conn->cid, NULL);
+            xqc_conn_send_ping(ctx.engine, &user_conn->cid, &g_ping_id);
 
+        } else {
+            xqc_h3_conn_send_ping(ctx.engine, &user_conn->cid, NULL);
+            xqc_h3_conn_send_ping(ctx.engine, &user_conn->cid, &g_ping_id);
+        }
+    }
+
+    if (g_test_case == 107 && !g_recovery) {
+        /* freeze the first path */
+        ret = xqc_conn_mark_path_frozen(ctx.engine, &(user_conn->cid), 0);
+        if (ret < 0) {
+            printf("xqc_conn_mark_path_frozen err = %d\n", ret);
+        }
+        g_recovery = g_cur_epoch + 2;
+    }
+
+    if (g_test_case == 108 && !g_recovery) {
+        /* freeze the second path */
+        ret = xqc_conn_mark_path_frozen(ctx.engine, &(user_conn->cid), 1);
+        if (ret < 0) {
+            printf("xqc_conn_mark_path_frozen err = %d\n", ret);
+        }
+        g_recovery = g_cur_epoch + 2;
+    }
+
+    if (g_test_case == 107 && g_recovery == g_cur_epoch) {
+        g_test_case = -1;
+        /* freeze the first path */
+        ret = xqc_conn_mark_path_standby(ctx.engine, &(user_conn->cid), 0);
+        if (ret < 0) {
+            printf("xqc_conn_mark_path_standby err = %d\n", ret);
+        }
+    }
+
+    if (g_test_case == 108 && g_recovery == g_cur_epoch) {
+        g_test_case = -1;
+        /* freeze the second path */
+        ret = xqc_conn_mark_path_standby(ctx.engine, &(user_conn->cid), 1);
+        if (ret < 0) {
+            printf("xqc_conn_mark_path_standby err = %d\n", ret);
+        }
+    }
 
     if (g_cur_epoch < g_epoch) {
         struct timeval tv;
@@ -3588,44 +3663,48 @@ xqc_client_ready_to_create_path(const xqc_cid_t *cid,
         return;
     }
 
-    for (int i = 0; i < g_multi_interface_cnt; i++) {
-        if (g_client_path[i].is_in_used == 1) {
-            continue;
-        }
-    
-        int ret = xqc_conn_create_path(ctx.engine, &(user_conn->cid), &path_id);
-
-        if (ret < 0) {
-            printf("not support mp, xqc_conn_create_path err = %d\n", ret);
-            return;
-        }
-
-        printf("***** create a new path. index: %d, path_id: %" PRIu64 "\n", i, path_id);
-        g_client_path[i].path_id = path_id;
-        g_client_path[i].is_in_used = 1;
-
-        if (g_test_case == 104) {
-            ret = xqc_conn_mark_path_standby(ctx.engine, &(user_conn->cid), 0);
-            if (ret < 0) {
-                printf("xqc_conn_mark_path_standby err = %d\n", ret);
+    if (g_test_case != 110) {
+        for (int i = 0; i < g_multi_interface_cnt; i++) {
+            if (g_client_path[i].is_in_used == 1) {
+                continue;
             }
-            ret = xqc_conn_mark_path_available(ctx.engine, &(user_conn->cid), 1);
-            if (ret < 0) {
-                printf("xqc_conn_mark_path_available err = %d\n", ret);
-            }
-        }
+        
+            int ret = xqc_conn_create_path(ctx.engine, &(user_conn->cid), &path_id);
 
-        if (g_mp_backup_mode) {
-            ret = xqc_conn_mark_path_standby(ctx.engine, &(user_conn->cid), path_id);
             if (ret < 0) {
-                printf("xqc_conn_mark_path_standby err = %d\n", ret);
+                printf("not support mp, xqc_conn_create_path err = %d\n", ret);
+                return;
             }
-        }
 
+            printf("***** create a new path. index: %d, path_id: %" PRIu64 "\n", i, path_id);
+            g_client_path[i].path_id = path_id;
+            g_client_path[i].is_in_used = 1;
+
+            if (g_test_case == 104) {
+                ret = xqc_conn_mark_path_standby(ctx.engine, &(user_conn->cid), 0);
+                if (ret < 0) {
+                    printf("xqc_conn_mark_path_standby err = %d\n", ret);
+                }
+                ret = xqc_conn_mark_path_available(ctx.engine, &(user_conn->cid), 1);
+                if (ret < 0) {
+                    printf("xqc_conn_mark_path_available err = %d\n", ret);
+                }
+            }
+
+            if (g_mp_backup_mode) {
+                ret = xqc_conn_mark_path_standby(ctx.engine, &(user_conn->cid), path_id);
+                if (ret < 0) {
+                    printf("xqc_conn_mark_path_standby err = %d\n", ret);
+                }
+            }
+
+            xqc_client_set_path_debug_timer(user_conn);
+
+        }
+        
+    } else {
         xqc_client_set_path_debug_timer(user_conn);
-
     }
-
 }
 
 static void xqc_client_concurrent_callback(int fd, short what, void *arg){
@@ -3920,6 +3999,7 @@ int main(int argc, char *argv[]) {
         {"epoch_timeout", required_argument, &long_opt_index, 3},
         {"dgram_qos", required_argument, &long_opt_index, 4},
         {"pmtud", required_argument, &long_opt_index, 5},
+        {"mp_ping", required_argument, &long_opt_index, 6},
         {0, 0, 0, 0}
     };
 
@@ -4178,6 +4258,11 @@ int main(int argc, char *argv[]) {
                 printf("option g_pmtud_on: %d\n", g_pmtud_on);
                 break;
 
+            case 6:
+                g_mp_ping_on = atoi(optarg);
+                printf("option g_mp_ping_on: %d\n", g_mp_ping_on);
+                break;
+
             default:
                 break;
             }
@@ -4246,7 +4331,7 @@ int main(int argc, char *argv[]) {
         }
 #endif
     }
-#ifndef XQC_DISABLE_RENO
+#ifdef XQC_ENABLE_RENO
     else if (c_cong_ctl == 'r') {
         cong_ctrl = xqc_reno_cb;
     }
@@ -4266,13 +4351,19 @@ int main(int argc, char *argv[]) {
 #endif
     }
 #endif
+#ifdef XQC_ENABLE_UNLIMITED
     else if (c_cong_ctl == 'u') {
         cong_ctrl = xqc_unlimited_cc_cb;
 
-    } else if (c_cong_ctl == 'P') {
+    }
+#endif
+#ifdef XQC_ENABLE_COPA
+    else if (c_cong_ctl == 'P') {
         cong_ctrl = xqc_copa_cb;
 
-    } else {
+    } 
+#endif
+    else {
         printf("unknown cong_ctrl, option is b, r, c, B, bbr+, bbr2+, u\n");
         return -1;
     }
@@ -4294,6 +4385,7 @@ int main(int argc, char *argv[]) {
         .max_datagram_frame_size = g_max_dgram_size,
         .enable_multipath = g_enable_multipath,
         .marking_reinjection = 1,
+        .mp_ping_on = g_mp_ping_on,
     };
 
     
@@ -4537,6 +4629,11 @@ int main(int argc, char *argv[]) {
         conn_settings.reinj_ctl_callback    = xqc_dgram_reinj_ctl_cb;
         conn_settings.mp_enable_reinjection = 4;
         conn_settings.scheduler_callback    = xqc_rap_scheduler_cb;
+    } else if (g_enable_reinjection == 4) {
+        conn_settings.reinj_ctl_callback    = xqc_dgram_reinj_ctl_cb;
+        conn_settings.mp_enable_reinjection = 4;
+        conn_settings.scheduler_callback    = xqc_rap_scheduler_cb;
+        conn_settings.datagram_redundant_probe = 30000;
     }
 
     if (g_mp_backup_mode) {

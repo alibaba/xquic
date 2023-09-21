@@ -69,28 +69,24 @@ error:
 
         *path = xqc_conn_find_path_by_path_id(conn, po->po_path_id);
 
-        /* no packets can be sent on a closing/closed path */
-        if ((*path == NULL) || ((*path)->path_state >= XQC_PATH_STATE_CLOSING)) {
-            
-            po->po_path_flag &= ~(XQC_PATH_SPECIFIED_BY_ACK | XQC_PATH_SPECIFIED_BY_PTO);
+        /* no packets can be sent on a closing/closed/frozen path */
+        if ((*path == NULL) 
+            || ((*path)->path_state >= XQC_PATH_STATE_CLOSING)
+            || (*path)->app_path_status == XQC_APP_PATH_STATUS_FROZEN) 
+        {
+            po->po_path_flag &= ~(XQC_PATH_SPECIFIED_BY_ACK | XQC_PATH_SPECIFIED_BY_PTO | XQC_PATH_SPECIFIED_BY_REINJ);
 
-            if (po->po_path_flag & XQC_PATH_SPECIFIED_BY_REINJ) {
-                if (po->po_flag & XQC_POF_REINJECTED_REPLICA) {
-                    /* replicated packets should be removed */
-                    xqc_disassociate_packet_with_reinjection(po->po_origin, po);
-
-                } else {
-                    /* the origin packet can be rescheduled */
-                    po->po_path_flag &= ~XQC_PATH_SPECIFIED_BY_REINJ;
-                } 
-            }
-
-            /* if the packet can not be rescheduled, we remove it. */
             if (po->po_path_flag) {
-                xqc_send_queue_remove_send(&po->po_list);
-                xqc_send_queue_insert_free(po, &conn->conn_send_queue->sndq_free_packets, conn->conn_send_queue);
+                if ((*path == NULL) 
+                    || ((*path)->path_state >= XQC_PATH_STATE_CLOSING)) 
+                {
+                    /* if the packet can not be rescheduled and the path is closed, we remove it. */
+                    xqc_send_queue_remove_send(&po->po_list);
+                    xqc_send_queue_insert_free(po, &conn->conn_send_queue->sndq_free_packets, conn->conn_send_queue);
+                }
                 ret = XQC_TRUE;
             }
+
             *path = NULL;
 
         } else {
@@ -509,7 +505,8 @@ done:
 }
 
 int
-xqc_write_ping_to_packet(xqc_connection_t *conn, void *po_user_data, xqc_bool_t notify)
+xqc_write_ping_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path, 
+    void *po_user_data, xqc_bool_t notify, xqc_ping_record_t *pr)
 {
     ssize_t ret;
     xqc_packet_out_t *packet_out;
@@ -536,6 +533,15 @@ xqc_write_ping_to_packet(xqc_connection_t *conn, void *po_user_data, xqc_bool_t 
      */
     if (notify) {
         packet_out->po_flag |= XQC_POF_NOTIFY;
+        if (pr) {
+            packet_out->po_pr = pr;
+            pr->ref_cnt++;
+        }
+    }
+
+    if (path) {
+        packet_out->po_path_id = path->path_id;
+        packet_out->po_path_flag |= XQC_PATH_SPECIFIED_BY_KAP;
     }
 
     conn->conn_flag &= ~XQC_CONN_FLAG_PING;

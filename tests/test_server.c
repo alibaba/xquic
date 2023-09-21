@@ -81,6 +81,7 @@ typedef struct user_stream_s {
 
     int                      snd_times;
     int                      rcv_times;
+    struct event            *ev_timeout;
 } user_stream_t;
 
 typedef struct user_conn_s {
@@ -675,8 +676,8 @@ xqc_server_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void 
     DEBUG;
     user_conn_t *user_conn = (user_conn_t *)user_data;
     xqc_conn_stats_t stats = xqc_conn_get_stats(ctx.engine, cid);
-    printf("send_count:%u, lost_count:%u, lost_dgram_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" early_data_flag:%d, conn_err:%d, ack_info:%s\n",
-           stats.send_count, stats.lost_count, stats.lost_dgram_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.ack_info);
+    printf("send_count:%u, lost_count:%u, lost_dgram_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" early_data_flag:%d, conn_err:%d, ack_info:%s, alpn:%s\n",
+           stats.send_count, stats.lost_count, stats.lost_dgram_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.ack_info, stats.alpn);
 
     printf("[dgram]|recv_dgram_bytes:%zu|sent_dgram_bytes:%zu|lost_dgram_bytes:%zu|lost_cnt:%zu|\n", 
            user_conn->dgram_blk->data_recv, user_conn->dgram_blk->data_sent,
@@ -772,7 +773,7 @@ xqc_server_stream_send(xqc_stream_t *stream, void *user_data)
                 return 0;
 
             } else {
-                printf("xqc_stream_send sent_bytes=%"PRIu64"\n", ret);
+                printf("xqc_stream_send sent_bytes=%zd\n", ret);
             }
         } else {
             ret = xqc_stream_send(stream, user_stream->send_body + user_stream->send_offset, user_stream->send_body_len - user_stream->send_offset, 1);
@@ -810,6 +811,10 @@ xqc_server_stream_create_notify(xqc_stream_t *stream, void *user_data)
 
     if (g_test_case == 99) {
         xqc_stream_send(stream, NULL, 0, 1);
+    }
+
+    if (g_test_case == 15) {
+        return -1;
     }
 
     return 0;
@@ -941,8 +946,8 @@ xqc_server_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, vo
     DEBUG;
     user_conn_t *user_conn = (user_conn_t*)conn_user_data;
     xqc_conn_stats_t stats = xqc_conn_get_stats(ctx.engine, cid);
-    printf("send_count:%u, lost_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" early_data_flag:%d, conn_err:%d, ack_info:%s, conn_info:%s\n",
-           stats.send_count, stats.lost_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.ack_info, stats.conn_info);
+    printf("send_count:%u, lost_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" early_data_flag:%d, conn_err:%d, ack_info:%s, conn_info:%s, alpn:%s\n",
+           stats.send_count, stats.lost_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.ack_info, stats.conn_info, stats.alpn);
 
     printf("[h3-dgram]|recv_dgram_bytes:%zu|sent_dgram_bytes:%zu|lost_dgram_bytes:%zu|lost_cnt:%zu|\n", 
            user_conn->dgram_blk->data_recv, user_conn->dgram_blk->data_sent,
@@ -973,6 +978,19 @@ xqc_server_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *conn_user_da
     xqc_conn_stats_t stats = xqc_conn_get_stats(ctx.engine, &user_conn->cid);
     printf("0rtt_flag:%d\n", stats.early_data_flag);
     printf("h3_datagram_mss:%zd\n", xqc_h3_ext_datagram_get_mss(h3_conn));
+
+
+    /* pretend to create a server-inited http3 stream */
+    if (g_test_case == 17) {
+        xqc_stream_t * stream = xqc_stream_create_with_direction(
+            xqc_h3_conn_get_xqc_conn(h3_conn), XQC_STREAM_BIDI, NULL);
+        printf("--- server create stream\n");
+
+        unsigned char szbuf[4096] = {0};
+        xqc_stream_send(stream, szbuf, 4096, 1);
+
+    }
+
 }
 
 void
@@ -1114,6 +1132,13 @@ int xqc_h3_ext_bytestream_write_callback(xqc_h3_ext_bytestream_t *h3_ext_bs,
     return 0;
 }
 
+void
+xqc_client_h3_send_pure_fin(int fd, short what, void *arg)
+{
+    user_stream_t *user_stream = arg;
+    xqc_h3_request_finish(user_stream->h3_request);
+}
+
 
 
 #define MAX_HEADER 100
@@ -1175,12 +1200,23 @@ xqc_server_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
     };
 
     int header_only = 0;
+    int send_fin = 1;
+
     if (g_echo && user_stream->recv_body_len == 0) {
         header_only = 1;
     }
 
+    if (g_test_case == 100) {
+        user_stream->ev_timeout = event_new(eb, -1, 0, xqc_client_h3_send_pure_fin, user_stream);
+        struct timeval tv;
+        tv.tv_sec = 1;
+        tv.tv_usec = 0;
+        event_add(user_stream->ev_timeout, &tv);
+        send_fin = 0;
+    }
+
     if (user_stream->header_sent == 0) {
-        ret = xqc_h3_request_send_headers(h3_request, &headers, header_only);
+        ret = xqc_h3_request_send_headers(h3_request, &headers, header_only && send_fin);
         if (ret < 0) {
             printf("xqc_h3_request_send_headers error %zd\n", ret);
             return ret;
@@ -1234,7 +1270,7 @@ xqc_server_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
 
     if (user_stream->send_offset < user_stream->send_body_len) {
         ret = xqc_h3_request_send_body(h3_request, user_stream->send_body + user_stream->send_offset,
-                                       user_stream->send_body_len - user_stream->send_offset, 1);
+                                       user_stream->send_body_len - user_stream->send_offset, send_fin);
         if (ret < 0) {
             printf("xqc_h3_request_send_body error %zd\n", ret);
             return 0;
@@ -1286,6 +1322,13 @@ xqc_server_request_close_notify(xqc_h3_request_t *h3_request, void *user_data)
 {
     DEBUG;
     user_stream_t *user_stream = (user_stream_t*)user_data;
+
+    if (g_test_case == 100) {
+        if (user_stream->ev_timeout) {
+            event_free(user_stream->ev_timeout);
+        }
+    }
+
     free(user_stream->send_body);
     free(user_stream->recv_body);
     free(user_stream);
@@ -2298,7 +2341,7 @@ int main(int argc, char *argv[]) {
         }
 #endif
     }
-#ifndef XQC_DISABLE_RENO
+#ifdef XQC_ENABLE_RENO
     else if (c_cong_ctl == 'r') {
         cong_ctrl = xqc_reno_cb;
     }
@@ -2317,13 +2360,19 @@ int main(int argc, char *argv[]) {
 #endif
     }
 #endif
+#ifdef XQC_ENABLE_UNLIMITED
     else if (c_cong_ctl == 'u') {
         cong_ctrl = xqc_unlimited_cc_cb;
 
-    } else if (c_cong_ctl == 'P') {
+    } 
+#endif
+#ifdef XQC_ENABLE_COPA
+    else if (c_cong_ctl == 'P') {
         cong_ctrl = xqc_copa_cb;
 
-    } else {
+    }
+#endif
+    else {
         printf("unknown cong_ctrl, option is b, r, c, u\n");
         return -1;
     }

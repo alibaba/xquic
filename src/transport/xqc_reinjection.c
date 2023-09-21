@@ -70,25 +70,6 @@ xqc_associate_packet_with_reinjection(xqc_packet_out_t *reinj_origin,
     }
 }
 
-void
-xqc_disassociate_packet_with_reinjection(xqc_packet_out_t *reinj_origin,
-    xqc_packet_out_t *reinj_replica)
-{
-    if (reinj_origin) {
-        reinj_origin->po_flag &= ~XQC_POF_REINJECTED_ORIGIN;
-        reinj_origin->po_path_flag &= ~XQC_PATH_SPECIFIED_BY_REINJ;
-    }
-
-    if (reinj_replica) {
-        reinj_replica->po_flag &= ~XQC_POF_REINJECTED_REPLICA;
-        reinj_origin->po_path_flag &= ~XQC_PATH_SPECIFIED_BY_REINJ;
-        if (reinj_replica->po_origin) {
-            reinj_replica->po_origin->po_origin_ref_cnt--;
-            reinj_replica->po_origin = NULL;
-        }
-    }
-}
-
 
 static void
 xqc_packet_out_replicate(xqc_packet_out_t *dst, xqc_packet_out_t *src)
@@ -116,7 +97,7 @@ xqc_packet_out_replicate(xqc_packet_out_t *dst, xqc_packet_out_t *src)
 static xqc_int_t
 xqc_conn_try_reinject_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
 {
-    xqc_path_ctx_t *path = conn->scheduler_callback->xqc_scheduler_get_path(conn->scheduler, conn, packet_out, 1, 1);
+    xqc_path_ctx_t *path = conn->scheduler_callback->xqc_scheduler_get_path(conn->scheduler, conn, packet_out, 1, 1, NULL);
     if (path == NULL) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|MP|REINJ|fail to schedule a path|reinject|");
         return -XQC_EMP_SCHEDULE_PATH;

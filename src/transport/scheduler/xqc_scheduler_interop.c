@@ -2,7 +2,6 @@
  * @copyright Copyright (c) 2022, Alibaba Group Holding Limited
  */
 
-
 #include "src/transport/scheduler/xqc_scheduler_interop.h"
 #include "src/transport/scheduler/xqc_scheduler_common.h"
 #include "src/transport/xqc_send_ctl.h"
@@ -22,7 +21,8 @@ xqc_interop_scheduler_init(void *scheduler, xqc_log_t *log, xqc_scheduler_params
 
 xqc_path_ctx_t *
 xqc_interop_scheduler_get_path(void *scheduler,
-    xqc_connection_t *conn, xqc_packet_out_t *packet_out, int check_cwnd, int reinject)
+    xqc_connection_t *conn, xqc_packet_out_t *packet_out, int check_cwnd, int reinject,
+    xqc_bool_t *cc_blocked)
 {
     xqc_path_ctx_t *best_path = NULL;
     xqc_path_ctx_t *best_standby_path = NULL;
@@ -37,6 +37,11 @@ xqc_interop_scheduler_get_path(void *scheduler,
     uint64_t min_rtt_standby = XQC_MAX_UINT64_VALUE;
     uint64_t path_srtt;
     uint32_t avail_path_cnt = 0;
+    xqc_bool_t reached_cwnd_check = XQC_FALSE;
+
+    if (cc_blocked) {
+        *cc_blocked = XQC_FALSE;
+    }
 
     xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
         path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
@@ -53,8 +58,19 @@ xqc_interop_scheduler_get_path(void *scheduler,
             continue;
         }
 
+        if (!reached_cwnd_check) {
+            reached_cwnd_check = XQC_TRUE;
+            if (cc_blocked) {
+                *cc_blocked = XQC_TRUE;
+            }
+        }
+
         if (!xqc_scheduler_check_path_can_send(path, packet_out, check_cwnd)) {
             continue;
+        }
+
+        if (cc_blocked) {
+            *cc_blocked = XQC_FALSE;
         }
 
         path_srtt = xqc_send_ctl_get_srtt(path->path_send_ctl);

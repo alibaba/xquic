@@ -1764,10 +1764,10 @@ xqc_parse_path_response_frame(xqc_packet_in_t *packet_in, unsigned char *data)
 }
 
 /*
- * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath#name-ack_mp-frame
+ * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-05#name-ack_mp-frame
  *
  * ACK_MP Frame {
- *    Type (i) = TBD-00..TBD-01 (experiments use 0xbaba00..0xbaba01),
+ *    Type (i) = TBD-00..TBD-01 ,
  *    Destination Connection ID Sequence Number (i),
  *    Largest Acknowledged (i),
  *    ACK Delay (i),
@@ -1781,12 +1781,22 @@ xqc_parse_path_response_frame(xqc_packet_in_t *packet_in, unsigned char *data)
  */
 
 ssize_t
-xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id,
+xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t dcid_seq,
     xqc_packet_out_t *packet_out, xqc_usec_t now, int ack_delay_exponent,
     xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, 
     int *has_gap, xqc_packet_number_t *largest_ack)
 {
-    uint64_t frame_type = 0xbaba00;
+    uint64_t frame_type;
+    if (conn->conn_settings.multipath_version == XQC_MULTIPATH_04) {
+        frame_type = 0xbaba00;
+
+    } else if (conn->conn_settings.multipath_version == XQC_MULTIPATH_05) {
+        frame_type = 0x15228c00;
+
+    } else {
+        return -XQC_EMP_INVALID_MP_VERTION;
+    }
+
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
     size_t dst_buf_len = packet_out->po_buf_size - packet_out->po_used_size + XQC_ACK_SPACE;
 
@@ -1831,13 +1841,13 @@ xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id,
     ack_delay = ack_delay >> ack_delay_exponent;
 
     unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
-    unsigned path_id_bits = xqc_vint_get_2bit(path_id);
+    unsigned dcid_seq_bits = xqc_vint_get_2bit(dcid_seq);
     unsigned lagest_recv_bits = xqc_vint_get_2bit(lagest_recv);
     unsigned ack_delay_bits = xqc_vint_get_2bit(ack_delay);
     unsigned first_ack_range_bits = xqc_vint_get_2bit(first_ack_range);
 
     need = + xqc_vint_len(frame_type_bits)
-           + xqc_vint_len(path_id_bits)
+           + xqc_vint_len(dcid_seq_bits)
            + xqc_vint_len(lagest_recv_bits)
            + xqc_vint_len(ack_delay_bits)
            + 1  /* range_count */
@@ -1850,8 +1860,8 @@ xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id,
     xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
     dst_buf += xqc_vint_len(frame_type_bits);
 
-    xqc_vint_write(dst_buf, path_id, path_id_bits, xqc_vint_len(path_id_bits));
-    dst_buf += xqc_vint_len(path_id_bits);
+    xqc_vint_write(dst_buf, dcid_seq, dcid_seq_bits, xqc_vint_len(dcid_seq_bits));
+    dst_buf += xqc_vint_len(dcid_seq_bits);
 
     xqc_vint_write(dst_buf, lagest_recv, lagest_recv_bits, xqc_vint_len(lagest_recv_bits));
     dst_buf += xqc_vint_len(lagest_recv_bits);
@@ -2017,10 +2027,10 @@ xqc_parse_ack_mp_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
 
 
 /*
- * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath#name-path_abandon-frame
+ * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-05#name-path_abandon-frame
  *
  * PATH_ABANDON Frame {
- *    Type (i) = TBD-03 (experiments use 0xbaba05),
+ *    Type (i) = TBD-03,
  *    DCID Sequence Number (i),
  *    Error Code (i),
  *    Reason Phrase Length (i),
@@ -2031,14 +2041,24 @@ xqc_parse_ack_mp_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
  */
 
 ssize_t
-xqc_gen_path_abandon_frame(xqc_packet_out_t *packet_out,
+xqc_gen_path_abandon_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     uint64_t dcid_seq_num, uint64_t error_code)
 {
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
     const unsigned char *begin = dst_buf;
     unsigned need = 0;
+    uint64_t frame_type;
 
-    uint64_t frame_type = 0xbaba05;
+    if (conn->conn_settings.multipath_version == XQC_MULTIPATH_04) {
+        frame_type = 0xbaba05;
+
+    } else if (conn->conn_settings.multipath_version == XQC_MULTIPATH_05) {
+        frame_type = 0x15228c05;
+
+    } else {
+        return -XQC_EMP_INVALID_MP_VERTION;
+    }
+
     uint64_t reason_len = 0;
     uint8_t *reason = NULL;
 
@@ -2137,10 +2157,10 @@ xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
 
 
 /*
- * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath#name-path_status-frame
+ * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-05#name-path_status-frame
  *
  *    PATH_STATUS Frame {
- *      Type (i) = TBD-03 (experiments use 0xbaba06),
+ *      Type (i) = TBD-03,
  *      DCID Sequence Number (i),
  *      Path Status sequence number (i),
  *      Path Status (i),
@@ -2150,7 +2170,8 @@ xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
  */
 
 ssize_t
-xqc_gen_path_status_frame(xqc_packet_out_t *packet_out,
+xqc_gen_path_status_frame(xqc_connection_t *conn,
+    xqc_packet_out_t *packet_out,
     uint64_t dcid_seq_num,
     uint64_t path_status_seq_num, uint64_t path_status)
 {
@@ -2158,7 +2179,16 @@ xqc_gen_path_status_frame(xqc_packet_out_t *packet_out,
     const unsigned char *begin = dst_buf;
     unsigned need = 0;
 
-    uint64_t frame_type = 0xbaba06;
+    uint64_t frame_type;
+    if (conn->conn_settings.multipath_version == XQC_MULTIPATH_04) {
+        frame_type = 0xbaba06;
+
+    } else if (conn->conn_settings.multipath_version == XQC_MULTIPATH_05) {
+        frame_type = 0x15228c06;
+        
+    } else {
+        return -XQC_EMP_INVALID_MP_VERTION;
+    }
 
     unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
     unsigned dcid_seq_num_bits = xqc_vint_get_2bit(dcid_seq_num);

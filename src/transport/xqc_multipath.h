@@ -44,13 +44,6 @@ typedef enum {
     XQC_APP_PATH_STATUS_MAX,
 } xqc_app_path_status_t;
 
-/* transport layer path status */
-typedef enum {
-    XQC_TRA_PATH_STATUS_NONE,
-    XQC_TRA_PATH_STATUS_BACKUP   = 1,
-    XQC_TRA_PATH_STATUS_IN_USE   = 2,
-    XQC_TRA_PATH_STATUS_MAX,
-} xqc_tra_path_status_t;
 
 /* path close mode: passive & proactive */
 typedef enum {
@@ -69,6 +62,7 @@ typedef enum {
 typedef enum {
     XQC_PATH_FLAG_SEND_STATUS       = 1 << 0,
     XQC_PATH_FLAG_RECV_STATUS       = 1 << 1,
+    XQC_PATH_FLAG_SOCKET_ERROR      = 1 << 2,
 } xqc_path_flag_t;
 
 typedef enum {
@@ -88,6 +82,7 @@ struct xqc_path_ctx_s {
     uint64_t            path_id;    /* path identifier */
     xqc_cid_t           path_scid;
     xqc_cid_t           path_dcid;
+    xqc_cid_t           path_last_scid;
 
     /* Path_address: 4-tuple */
     unsigned char       peer_addr[sizeof(struct sockaddr_in6)],
@@ -113,8 +108,6 @@ struct xqc_path_ctx_s {
 
     xqc_path_flag_t     path_flag;
 
-    /* transport layer path status */
-    xqc_tra_path_status_t   tra_path_status;
     /* application layer path status, sync via PATH_STATUS frame */
     xqc_app_path_status_t   app_path_status;
     xqc_app_path_status_t   next_app_path_state;
@@ -122,7 +115,6 @@ struct xqc_path_ctx_s {
     uint64_t                app_path_status_recv_seq_num;
 
     xqc_usec_t              last_app_path_status_changed_time;
-    xqc_usec_t              last_tra_path_status_changed_time;
 
     /* Path cc & ack tracking */
     xqc_send_ctl_t     *path_send_ctl;
@@ -145,7 +137,6 @@ struct xqc_path_ctx_s {
     /* path backup mode */
     uint32_t            standby_probe_count;
     uint32_t            app_path_status_changed_count;
-    uint32_t            tra_path_status_changed_count;
 
     /* PTMUD */
     size_t              curr_pkt_out_size;
@@ -158,7 +149,6 @@ typedef struct {
     uint64_t            path_id;
     uint8_t             path_state;
     uint8_t             app_path_status;
-    uint8_t             tra_path_status;
 
     uint64_t            path_bytes_send;
     uint64_t            path_bytes_recv;
@@ -178,7 +168,6 @@ typedef struct {
 
     uint32_t            standby_probe_count;
     uint32_t            app_path_status_changed_count;
-    uint32_t            tra_path_status_changed_count;
 
 } xqc_path_info_t;
 
@@ -190,6 +179,9 @@ xqc_int_t xqc_generate_path_challenge_data(xqc_connection_t *conn, xqc_path_ctx_
 /* check mp support */
 xqc_multipath_mode_t xqc_conn_enable_multipath(xqc_connection_t *conn);
 
+/* check multipath version negotiation */
+xqc_multipath_version_t xqc_conn_multipath_version_negotiation(xqc_connection_t *conn);
+
 /* init path_list & initial path for connection */
 xqc_int_t xqc_conn_init_paths_list(xqc_connection_t *conn);
 
@@ -200,7 +192,8 @@ void xqc_path_schedule_buf_destroy(xqc_path_ctx_t *path);
 void xqc_path_schedule_buf_pre_destroy(xqc_send_queue_t *send_queue, xqc_path_ctx_t *path);
 
 /* create path inner */
-xqc_path_ctx_t *xqc_conn_create_path_inner(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid);
+xqc_path_ctx_t *xqc_conn_create_path_inner(xqc_connection_t *conn, 
+    xqc_cid_t *scid, xqc_cid_t *dcid, xqc_app_path_status_t path_status);
 
 /* server update client addr when recv path_challenge frame */
 xqc_int_t xqc_conn_server_init_path_addr(xqc_connection_t *conn, uint64_t path_id,
@@ -228,7 +221,6 @@ void xqc_path_send_buffer_remove(xqc_path_ctx_t *path, xqc_packet_out_t *packet_
 void xqc_path_send_buffer_clear(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_list_head_t *head, xqc_send_type_t send_type);
 
 xqc_int_t xqc_set_application_path_status(xqc_path_ctx_t *path, xqc_app_path_status_t status, xqc_bool_t is_tx);
-void xqc_set_transport_path_status(xqc_path_ctx_t *path, xqc_tra_path_status_t status, xqc_usec_t now);
 
 /* path statistics */
 void xqc_conn_path_metrics_print(xqc_connection_t *conn, xqc_conn_stats_t *stats);
@@ -239,11 +231,12 @@ void xqc_stream_path_metrics_on_send(xqc_connection_t *conn, xqc_packet_out_t *p
 void xqc_stream_path_metrics_on_recv(xqc_connection_t *conn, xqc_stream_t *stream, xqc_packet_in_t *pi);
 
 void xqc_path_metrics_print(xqc_connection_t *conn, char *buff, unsigned buff_size);
-void xqc_h3s_path_metrics_print(xqc_h3_stream_t *h3_stream, char *buff, unsigned buff_size);
 
 xqc_msec_t xqc_path_get_idle_timeout(xqc_path_ctx_t *path);
 
 void xqc_path_validate(xqc_path_ctx_t *path);
+
+xqc_int_t xqc_conn_is_current_mp_version_supported(xqc_multipath_version_t mp_version);
 
 xqc_bool_t xqc_path_is_initial_path(xqc_path_ctx_t *path);
 

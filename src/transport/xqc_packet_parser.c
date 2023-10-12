@@ -241,6 +241,7 @@ xqc_packet_parse_short_header(xqc_connection_t *c, xqc_packet_in_t *packet_in)
     unsigned char *pos = packet_in->pos;
     unsigned char *end = packet_in->last;
     xqc_packet_t *packet = &packet_in->pi_pkt;
+    xqc_path_ctx_t *path = NULL;
     uint8_t cid_len = c->scid_set.user_scid.cid_len;
 
     packet_in->pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
@@ -271,7 +272,43 @@ xqc_packet_parse_short_header(xqc_connection_t *c, xqc_packet_in_t *packet_in)
         return -XQC_EILLPKT;
     }
 
-    packet_in->pi_path_id = packet->pkt_dcid.cid_seq_num;
+    //TODO: MPQUIC fix migration
+    if (c->enable_multipath) {
+        /* try to find the path */
+        path = xqc_conn_find_path_by_scid(c, &packet_in->pi_pkt.pkt_dcid);
+#ifndef XQC_NO_PID_PACKET_PROCESS
+        /* Note: to handle the case in which the server changes CID upon NAT rebinding */
+        if (path == NULL && packet_in->pi_path_id != XQC_UNKNOWN_PATH_ID) {
+            path = xqc_conn_find_path_by_path_id(c, packet_in->pi_path_id);
+
+            if (path == NULL) {
+                xqc_log(c->log, XQC_LOG_ERROR, "|can not find path|dcid:%s|path_id:%ui|",
+                        xqc_dcid_str(&packet_in->pi_pkt.pkt_dcid), packet_in->pi_path_id);
+                return -XQC_EILLPKT;
+            }
+
+            /* update the cid to a newer one */
+            if (xqc_cid_is_equal(&path->path_last_scid, &packet_in->pi_pkt.pkt_dcid) != XQC_OK) {
+                xqc_cid_copy(&path->path_last_scid, &path->path_scid);
+                xqc_cid_copy(&path->path_scid, &packet_in->pi_pkt.pkt_dcid);
+                xqc_log(c->log, XQC_LOG_DEBUG, "|update_path_scid|%s->%s|",
+                        xqc_scid_str(&path->path_last_scid), 
+                        xqc_dcid_str(&path->path_scid));
+            }
+        }
+#endif
+
+    } else {
+        path = c->conn_initial_path;
+    }
+
+    if (path != NULL) {
+        packet_in->pi_path_id = path->path_id;
+
+    } else {
+        packet_in->pi_path_id = XQC_UNKNOWN_PATH_ID;
+    }
+    
     xqc_log(c->log, XQC_LOG_DEBUG, "|parse short header|path:%ui|pkt_dcid:%s|spin_bit:%ud|",
             packet_in->pi_path_id, xqc_scid_str(&(packet->pkt_dcid)), spin_bit);
 
@@ -621,6 +658,7 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     }
 
     /* do packet protection */
+    //TODO: MPQUIC fix migration
     uint32_t nonce_path_id = (conn->enable_multipath) ? 
                              (uint32_t)path->path_dcid.cid_seq_num : 0;
     ret = xqc_tls_encrypt_payload(conn->tls, level,
@@ -741,16 +779,25 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     xqc_packet_parse_packet_number(pktno, pktno_len, &truncated_pn);
 
     /* decode packet number */
-    xqc_path_ctx_t *path = xqc_conn_find_path_by_path_id(conn, packet_in->pi_path_id);
-    if (path == NULL) {
-        path = conn->conn_initial_path;
+    // TODO: MPQUIC fix migration
+    xqc_packet_number_t largest_pn = 0;
+    if (packet_in->pi_path_id != XQC_UNKNOWN_PATH_ID) {
+        xqc_path_ctx_t *path = xqc_conn_find_path_by_path_id(conn, packet_in->pi_path_id);
+        if (path == NULL) {
+            xqc_log(conn->log, XQC_LOG_ERROR, 
+                    "|canno find the path|path_id:%ui|", 
+                    packet_in->pi_path_id);
+            return -XQC_EMP_PATH_NOT_FOUND;
+        }
+        xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path);
+        xqc_pkt_num_space_t pns = packet_in->pi_pkt.pkt_pns;
+        largest_pn = xqc_recv_record_largest(&pn_ctl->ctl_recv_record[pns]);
     }
-    xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path);
-
-    xqc_pkt_num_space_t pns = packet_in->pi_pkt.pkt_pns;
-    xqc_packet_number_t largest_pn = xqc_recv_record_largest(&pn_ctl->ctl_recv_record[pns]);
+    
     packet_in->pi_pkt.pkt_num =
         xqc_packet_decode_packet_number(largest_pn, truncated_pn, pktno_len * 8);
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|largest_pn:%ui|", largest_pn);
 
     /* check key phase, determine weather to update read keys */
     xqc_uint_t key_phase = XQC_PACKET_SHORT_HEADER_KEY_PHASE(header);
@@ -767,8 +814,9 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     }
 
     /* decrypt packet payload */
+    // TODO: MPQUIC fix migration
     uint32_t nonce_path_id = (conn->enable_multipath) ? 
-                             (uint32_t)packet_in->pi_path_id : 0;
+                             (uint32_t)packet_in->pi_pkt.pkt_dcid.cid_seq_num : 0;
     ret = xqc_tls_decrypt_payload(conn->tls, level,
                                   packet_in->pi_pkt.pkt_num, nonce_path_id,
                                   header, header_len, payload, payload_len,
@@ -1236,6 +1284,8 @@ xqc_packet_parse_long_header(xqc_connection_t *c,
     unsigned char *end = packet_in->last;
     xqc_packet_t  *packet = &packet_in->pi_pkt;
     xqc_int_t ret = XQC_ERROR;
+
+    packet_in->pi_path_id = XQC_INITIAL_PATH_ID;
 
     if (XQC_BUFF_LEFT_SIZE(pos, end) < XQC_PACKET_LONG_HEADER_PREFIX_LENGTH + 2) {
         return -XQC_EILLPKT;

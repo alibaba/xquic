@@ -114,7 +114,7 @@ typedef struct xqc_http_headers_s {
 } xqc_http_headers_t;
 
 
-#define XQC_STREAM_INFO_LEN 400
+#define XQC_STREAM_INFO_LEN 100
 
 /**
  * @brief request statistics structure
@@ -122,8 +122,10 @@ typedef struct xqc_http_headers_s {
 typedef struct xqc_request_stats_s {
     size_t      send_body_size;
     size_t      recv_body_size;
-    size_t      send_header_size;       /* compressed header size */
-    size_t      recv_header_size;       /* compressed header size */
+    size_t      send_header_size;       /* plaintext header size */
+    size_t      recv_header_size;       /* plaintext header size */
+    size_t      send_hdr_compressed;    /* compressed header size */
+    size_t      recv_hdr_compressed;    /* compressed header size */
     int         stream_err;             /* QUIC layer error code, 0 for no error */
     xqc_usec_t  blocked_time;           /* time of h3 stream being blocked */
     xqc_usec_t  unblocked_time;         /* time of h3 stream being unblocked */
@@ -151,6 +153,8 @@ typedef struct xqc_request_stats_s {
     float       mp_default_path_recv_weight;
     float       mp_standby_path_send_weight;
     float       mp_standby_path_recv_weight;
+
+    uint64_t    rate_limit;
 
     char        stream_info[XQC_STREAM_INFO_LEN];
 } xqc_request_stats_t;
@@ -585,11 +589,12 @@ xqc_int_t xqc_h3_conn_set_qpack_dtable_cap(xqc_h3_conn_t *h3c, size_t capacity);
  * @param engine handler created by xqc_engine_create
  * @param cid connection id of http3 connection
  * @param user_data For request
+ * @param settings stream settings
  * @return handler of http3 request
  */
 XQC_EXPORT_PUBLIC_API
 xqc_h3_request_t *xqc_h3_request_create(xqc_engine_t *engine, const xqc_cid_t *cid, 
-    void *user_data);
+    xqc_stream_settings_t *settings, void *user_data);
 
 /**
  * @brief get statistics of a http3 request user can get it before request destroyed
@@ -626,6 +631,10 @@ void xqc_h3_request_set_user_data(xqc_h3_request_t *h3_request, void *user_data)
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_h3_request_close(xqc_h3_request_t *h3_request);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_h3_request_update_settings(xqc_h3_request_t *h3_request, 
+    xqc_stream_settings_t *settings);
 
 /**
  * @brief send http headers to peer

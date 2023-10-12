@@ -11,14 +11,15 @@
 
 
 xqc_h3_request_t *
-xqc_h3_request_create(xqc_engine_t *engine, const xqc_cid_t *cid, void *user_data)
+xqc_h3_request_create(xqc_engine_t *engine, 
+    const xqc_cid_t *cid, xqc_stream_settings_t *settings, void *user_data)
 {
     xqc_stream_t       *stream;
     xqc_h3_stream_t    *h3_stream;
     xqc_h3_request_t   *h3_request;
     xqc_h3_conn_t      *h3_conn;
 
-    stream = xqc_stream_create(engine, cid, NULL);
+    stream = xqc_stream_create(engine, cid, settings, NULL);
     if (!stream) {
         xqc_log(engine->log, XQC_LOG_ERROR, "|xqc_stream_create error|");
         return NULL;
@@ -51,8 +52,6 @@ xqc_h3_request_destroy(xqc_h3_request_t *h3_request)
 
     /* print request statistic log */
     xqc_request_stats_t stats = xqc_h3_request_get_stats(h3_request);
-    char path_info_buff[100 * XQC_MAX_PATHS_COUNT] = {'\0'};
-    xqc_h3s_path_metrics_print(h3s, path_info_buff, 50 * XQC_MAX_PATHS_COUNT);
 
     xqc_usec_t create_time = h3_request->h3r_begin_time;
 
@@ -60,7 +59,7 @@ xqc_h3_request_destroy(xqc_h3_request_t *h3_request)
             "|rcvd_bdy_sz:%uz|snd_bdy_sz:%uz|rcvd_hdr_sz:%uz|snd_hdr_sz:%uz"
             "|create:%ui|blkd:%ui|nblkd:%ui|hdr_b:%ui|hdr_e:%ui|bdy_b:%ui|fin:%ui|recv_end:%ui"
             "|hrd_send:%ui|bdy_send:%ui|fin_send:%ui|fin_ack:%ui|last_send:%ui|last_recv:%ui"
-            "|mp_state:%d|path_info:%s|",
+            "|mp_state:%d|path_info:%s|comp_hdr_s:%uz|comp_hdr_r:%uz|",
             h3s->stream_id, stats.stream_close_msg ? : "",
             stats.stream_err, stats.recv_body_size, stats.send_body_size,
             stats.recv_header_size, stats.send_header_size,
@@ -78,7 +77,8 @@ xqc_h3_request_destroy(xqc_h3_request_t *h3_request)
             xqc_calc_delay(stats.stream_fin_ack_time, create_time),
             xqc_calc_delay(h3_request->h3_stream->h3c->conn->conn_last_send_time, create_time),
             xqc_calc_delay(h3_request->h3_stream->h3c->conn->conn_last_recv_time, create_time),
-            stats.mp_state, path_info_buff);
+            stats.mp_state, stats.stream_info, stats.send_hdr_compressed,
+            stats.recv_hdr_compressed);
 
     if (h3_request->request_if->h3_request_close_notify) {
         h3_request->request_if->h3_request_close_notify(h3_request, h3_request->user_data);
@@ -171,34 +171,104 @@ xqc_h3_request_create_inner(xqc_h3_conn_t *h3_conn, xqc_h3_stream_t *h3_stream, 
 void
 xqc_stream_info_print(xqc_h3_stream_t *h3_stream, xqc_request_stats_t *stats)
 {
+    xqc_h3_conn_t *h3c = h3_stream->h3c;
     char *buff = stats->stream_info;
     size_t buff_size = XQC_STREAM_INFO_LEN;
-
     size_t cursor = 0, ret = 0;
+    int i;
+    int flag = 0;
+    uint32_t mp_settings = 0;
+
+    if (h3c->conn->handshake_complete_time > 0) {
+        flag = 1;
+    }
+
+    if (h3c->conn->conn_settings.enable_stream_rate_limit) {
+        flag |= 1 << 1;
+    }
+
+    if (h3c->conn->enable_multipath) {
+        mp_settings |= 1;
+    }
+
+    if (h3c->conn->local_settings.enable_multipath) {
+        mp_settings |= (1 << 1);
+    }
+
+    if (h3c->conn->remote_settings.enable_multipath) {
+        mp_settings |= (1 << 2);
+    }
+
+    if (h3c->conn->conn_settings.multipath_version == XQC_MULTIPATH_05) {
+        mp_settings |= (1 << 3);
+    }
+
+    if (h3c->conn->local_settings.multipath_version == XQC_MULTIPATH_05) {
+        mp_settings |= (1 << 4);
+    }
+
+    if (h3c->conn->remote_settings.multipath_version == XQC_MULTIPATH_05) {
+        mp_settings |= (1 << 5);
+    }
+
+    ret = snprintf(buff, buff_size, "(%d,%"PRIu64",%d)#", 
+                   flag, h3_stream->recv_rate_limit, mp_settings);
+
+    cursor += ret;
+
+    if (cursor >= buff_size) {
+        goto full;
+    }
 
     for (int i = 0; i < XQC_MAX_PATHS_COUNT; ++i) {
         if ((h3_stream->paths_info[i].path_send_bytes > 0)
             || (h3_stream->paths_info[i].path_recv_bytes > 0))
         {
-            /* check buffer size */
-            if (cursor + 100 >= buff_size) {
-                break;
-            }
-
             ret = snprintf(buff + cursor, buff_size - cursor, 
-                            "#%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64,
+                            "%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%d#",
                             h3_stream->paths_info[i].path_id,
                             h3_stream->paths_info[i].path_pkt_send_count,
                             h3_stream->paths_info[i].path_pkt_recv_count,
                             h3_stream->paths_info[i].path_send_bytes,
-                            h3_stream->paths_info[i].path_send_reinject_bytes,
                             h3_stream->paths_info[i].path_recv_bytes,
-                            h3_stream->paths_info[i].path_recv_reinject_bytes,
-                            h3_stream->paths_info[i].path_recv_effective_bytes,
-                            h3_stream->paths_info[i].path_recv_effective_reinject_bytes);
+                            h3_stream->paths_info[i].path_srtt,
+                            h3_stream->paths_info[i].path_app_status);
             cursor += ret;
+
+            if (cursor >= buff_size) {
+                goto full;
+            }
         }
     }
+
+full:
+    cursor = xqc_min(cursor, buff_size);
+    for (i = cursor - 1; i >= 0; i--) {
+        if (buff[i] == '-' || buff[i] == '#') {
+            buff[i] = '\0';
+            break;
+        }
+    }
+    buff[buff_size - 1] = '\0';
+}
+
+
+xqc_int_t 
+xqc_h3_request_update_settings(xqc_h3_request_t *h3_request, 
+    xqc_stream_settings_t *settings)
+{
+    if (h3_request && settings 
+        && h3_request->h3_stream && h3_request->h3_stream->stream)
+    {
+        if (xqc_stream_update_settings(h3_request->h3_stream->stream, 
+                                       settings) == XQC_OK) 
+        {
+            h3_request->h3_stream->recv_rate_limit = settings->recv_rate_bytes_per_sec;
+            return XQC_OK;
+        }
+    }
+    
+    return -XQC_EPARAM;
 }
 
 xqc_request_stats_t
@@ -226,6 +296,9 @@ xqc_h3_request_get_stats(xqc_h3_request_t *h3_request)
     stats.stream_fin_send_time  = h3_request->stream_fin_send_time;
     stats.stream_fin_ack_time   = h3_request->stream_fin_ack_time;
     stats.stream_close_msg      = h3_request->stream_close_msg;
+    stats.send_hdr_compressed = h3_request->compressed_header_sent;
+    stats.recv_hdr_compressed = h3_request->compressed_header_recvd;
+    stats.rate_limit = h3_request->h3_stream->recv_rate_limit;
 
     xqc_h3_stream_get_path_info(h3_request->h3_stream);
     xqc_request_path_metrics_print(h3_request->h3_stream->h3c->conn,

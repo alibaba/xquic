@@ -152,6 +152,8 @@ typedef struct xqc_http_priority_s {
 /* max alpn buffer length */
 #define XQC_MAX_ALPN_BUF_LEN    256
 
+#define XQC_UNKNOWN_PATH_ID ((uint64_t)-1)
+
 typedef enum xqc_conn_settings_type_e {
     XQC_CONN_SETTINGS_DEFAULT,
     XQC_CONN_SETTINGS_LOW_DELAY,
@@ -165,5 +167,9 @@ typedef struct xqc_conn_public_local_trans_settings_s {
 typedef struct xqc_conn_public_remote_trans_settings_s {
     uint16_t max_datagram_frame_size;
 } xqc_conn_public_remote_trans_settings_t;
+
+typedef struct xqc_stream_settings_s {
+    uint64_t recv_rate_bytes_per_sec;
+} xqc_stream_settings_t;
 
 #endif /*_XQUIC_TYPEDEF_H_INCLUDED_*/

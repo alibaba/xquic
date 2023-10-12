@@ -95,7 +95,6 @@ XQUIC_VERS_1.0 {
         xqc_datagram_send_multiple;
         xqc_datagram_set_user_data;
         xqc_datagram_get_user_data;
-        xqc_path_get_stats;
         xqc_h3_ext_datagram_get_mss;
         xqc_h3_ext_datagram_set_user_data;
         xqc_h3_ext_datagram_get_user_data;
@@ -116,6 +115,8 @@ XQUIC_VERS_1.0 {
         xqc_conn_get_conn_settings_template;
         xqc_conn_get_lastest_rtt;
         xqc_log_enable;
+	xqc_h3_request_update_settings;
+  	xqc_stream_update_settings;
     local:
         *;
 };

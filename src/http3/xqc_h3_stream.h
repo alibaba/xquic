@@ -147,6 +147,8 @@ typedef struct xqc_h3_stream_s {
    /* referred count of h3 stream */
     uint32_t                        ref_cnt;
 
+    uint64_t                        recv_rate_limit;
+
 } xqc_h3_stream_t;
 
 

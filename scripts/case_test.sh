@@ -1022,8 +1022,9 @@ fi
 
 clear_log
 echo -e "connection level flow control ...\c"
-./test_client -s 512000 -l e -E -n 10 >> clog
-if [[ `grep ">>>>>>>> pass:1" clog|wc -l` -eq 10 ]]; then
+./test_client -s 512000 -l e -E -n 10 > stdlog
+sleep 1
+if [[ `grep ">>>>>>>> pass:1" stdlog|wc -l` -eq 10 ]]; then
     echo ">>>>>>>> pass:1"
     case_print_result "connection_level_flow_control" "pass"
 else
@@ -1564,6 +1565,37 @@ else
     case_print_result "MPNS_multipath_30_percent_loss_close_new_path" "fail"
 fi
 grep_err_log
+
+killall test_server
+./test_server -l d -e -M > /dev/null &
+sleep 1
+
+
+clear_log
+echo -e "send 1M data on multiple paths with multipath vertion 04"
+sudo ./test_client -s 1024000 -l d -t 1 -M -i lo -i lo -E -v 4 > stdlog
+cli_result=`grep "multipath version negotiation succeed on multipath 04" clog`
+if [ -n "$cli_result" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MPNS_send_data_with_multipath_04" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MPNS_send_data_with_multipath_04" "fail"
+fi
+rm -f test_session tp_localhost xqc_token
+
+clear_log
+echo -e "send 1M data on multiple paths with multipath vertion 05"
+sudo ./test_client -s 1024000 -l d -t 1 -M -i lo -i lo -E -v 5 > stdlog
+cli_result=`grep "multipath version negotiation succeed on multipath 05" clog`
+if [ -n "$cli_result" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MPNS_send_data_with_multipath_05" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MPNS_send_data_with_multipath_05" "fail"
+fi
+rm -f test_session tp_localhost xqc_token
 
 killall test_server
 ./test_server -l d -e -M -R 1 > /dev/null &
@@ -4095,6 +4127,49 @@ if [ -n "$stream_info3" ] && [ -n "$stream_info5" ] && [ -n "$clog_res1" ] && [ 
 else
     echo ">>>>>>>> pass:0"
     case_print_result "freeze_path1" "fail"
+fi
+
+killall test_server
+stdbuf -oL ./test_server -l d -e -M > /dev/null &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "probing standby paths ...\c"
+sudo ./test_client -s 1024000 -l d -E -e 1 --epoch_timeout 2000000 -t 4 -M -i lo -i lo -x 501 -y > stdlog
+clog_res1=`grep -E "|xqc_path_standby_probe|PING|path:1|" clog`
+if [ -n "$clog_res1" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "probing_standby_path" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "probing_standby_path" "fail"
+fi
+
+
+sudo rm -rf tp_localhost test_session xqc_token clog stdlog ckeys.log
+clear_log
+echo -e "conn_rate_throttling ...\c"
+result=`./test_client -s 1024000 -l d -E --rate_limit 1000000 |grep ">>>>>>>> pass"`
+errlog=`grep_err_log`
+echo "$result"
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    case_print_result "conn_rate_throttling" "pass"
+else
+    case_print_result "conn_rate_throttling" "fail"
+    echo "$errlog"
+fi
+
+clear_log
+echo -e "stream_rate_throttling ...\c"
+result=`./test_client -s 1024000 -l d -E -x 109 |grep ">>>>>>>> pass"`
+errlog=`grep_err_log`
+echo "$result"
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    case_print_result "stream_rate_throttling" "pass"
+else
+    case_print_result "stream_rate_throttling" "fail"
+    echo "$errlog"
 fi
 
 killall test_server

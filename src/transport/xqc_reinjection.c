@@ -23,32 +23,6 @@
 
 #include "xquic/xqc_errno.h"
 
-xqc_bool_t
-xqc_packet_can_reinject(xqc_packet_out_t *packet_out)
-{
-    if (!(packet_out->po_frame_types & XQC_FRAME_BIT_STREAM)) {
-        return XQC_FALSE;
-    }
-
-    if (packet_out->po_flag & XQC_POF_NOT_REINJECT) {
-        return XQC_FALSE;
-    }
-
-    if (XQC_MP_PKT_REINJECTED(packet_out)
-        && (packet_out->po_origin? XQC_MP_PKT_REINJECTED(packet_out->po_origin): XQC_TRUE)) 
-    {
-        return XQC_FALSE;
-    }
-
-    /* DO NOT reinject non-inflight packets (those were old copies of retx pkts) */
-    if (!(packet_out->po_flag & XQC_POF_IN_FLIGHT)) {
-        return XQC_FALSE;
-    }
-
-    return XQC_TRUE;
-}
-
-
 void
 xqc_associate_packet_with_reinjection(xqc_packet_out_t *reinj_origin,
     xqc_packet_out_t *reinj_replica)
@@ -94,7 +68,7 @@ xqc_packet_out_replicate(xqc_packet_out_t *dst, xqc_packet_out_t *src)
     dst->po_user_data = src->po_user_data;
 }
 
-static xqc_int_t
+xqc_int_t
 xqc_conn_try_reinject_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
 {
     xqc_path_ctx_t *path = conn->scheduler_callback->xqc_scheduler_get_path(conn->scheduler, conn, packet_out, 1, 1, NULL);
@@ -146,7 +120,7 @@ xqc_conn_reinject_unack_packets(xqc_connection_t *conn, xqc_reinjection_mode_t m
             && conn->reinj_callback->xqc_reinj_ctl_can_reinject
             && conn->reinj_callback->xqc_reinj_ctl_can_reinject(conn->reinj_ctl, packet_out, mode))
         {
-            
+                    
             if (xqc_conn_try_reinject_packet(conn, packet_out) != XQC_OK) {
                 continue;
             }

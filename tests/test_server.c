@@ -136,6 +136,7 @@ int g_ipv6;
 int g_batch=0;
 int g_lb_cid_encryption_on = 0;
 int g_enable_multipath = 0;
+// xqc_multipath_version_t g_multipath_version = XQC_MULTIPATH_05;
 int g_enable_reinjection = 0;
 int g_spec_local_addr = 0;
 int g_mpshell = 0;
@@ -1630,11 +1631,17 @@ xqc_server_socket_read_handler(xqc_server_ctx_t *ctx)
             uint64_t recv_time = now();
             for (int i = 0; i < retval; i++) {
                 recv_sum += msgs[i].msg_len;
-
+#ifdef XQC_NO_PID_PACKET_PROCESS
                 if (xqc_engine_packet_process(ctx->engine, iovecs[i].iov_base, msgs[i].msg_len,
                                               (struct sockaddr *) (&ctx->local_addr), ctx->local_addrlen,
                                               (struct sockaddr *) (&pa[i]), peer_addrlen,
                                               (xqc_msec_t)recv_time, NULL) != XQC_OK)
+#else
+                if (xqc_engine_packet_process(ctx->engine, iovecs[i].iov_base, msgs[i].msg_len,
+                                              (struct sockaddr *) (&ctx->local_addr), ctx->local_addrlen,
+                                              (struct sockaddr *) (&pa[i]), peer_addrlen,
+                                              XQC_UNKNOWN_PATH_ID, (xqc_msec_t)recv_time, NULL) != XQC_OK)
+#endif                                              
                 {
                     printf("xqc_server_read_handler: packet process err\n");
                     return;
@@ -1674,10 +1681,17 @@ xqc_server_socket_read_handler(xqc_server_ctx_t *ctx)
         /*printf("peer_ip: %s, peer_port: %d\n", inet_ntoa(ctx->peer_addr.sin_addr), ntohs(ctx->peer_addr.sin_port));
         printf("local_ip: %s, local_port: %d\n", inet_ntoa(ctx->local_addr.sin_addr), ntohs(ctx->local_addr.sin_port));*/
 
+#ifdef XQC_NO_PID_PACKET_PROCESS
         ret = xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
                                         (struct sockaddr *) (&ctx->local_addr), ctx->local_addrlen,
                                         (struct sockaddr *) (&peer_addr), peer_addrlen,
                                         (xqc_msec_t) recv_time, NULL);
+#else
+        ret = xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
+                                        (struct sockaddr *) (&ctx->local_addr), ctx->local_addrlen,
+                                        (struct sockaddr *) (&peer_addr), peer_addrlen,
+                                        XQC_UNKNOWN_PATH_ID, (xqc_msec_t) recv_time, NULL);
+#endif
         if (ret != XQC_OK)
         {
             printf("xqc_server_read_handler: packet process err: %d\n", ret);
@@ -2095,7 +2109,7 @@ int main(int argc, char *argv[]) {
     };
 
     int ch = 0;
-    while ((ch = getopt_long(argc, argv, "a:p:ec:LCs:w:r:l:u:x:6bS:MR:o:K:EmQ:U:yH", long_opts, NULL)) != -1) {
+    while ((ch = getopt_long(argc, argv, "a:p:ec:Cs:w:r:l:u:x:6bS:MR:o:EK:mLQ:U:yH", long_opts, NULL)) != -1) {
         switch (ch) {
         case 'H':
             printf("option disable h3_ext\n");
@@ -2389,6 +2403,7 @@ int main(int argc, char *argv[]) {
             .copa_delta_base = g_copa_delta,
         },
         .enable_multipath = g_enable_multipath,
+        // .multipath_version = g_multipath_version,
         .spurious_loss_detect_on = 0,
         .max_datagram_frame_size = g_max_dgram_size,
         // .datagram_force_retrans_on = 1,

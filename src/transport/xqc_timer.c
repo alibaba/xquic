@@ -102,7 +102,6 @@ xqc_timer_loss_detection_timeout(xqc_timer_type_t type, xqc_usec_t now, void *us
     }
 
     send_ctl->ctl_pto_count++;
-    send_ctl->ctl_pto_count_since_last_tra_path_status_changed++;
     xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_send_ctl_set_loss_detection_timer|PTO|conn:%p|pto_count:%ud", 
             conn, send_ctl->ctl_pto_count);
     xqc_send_ctl_set_loss_detection_timer(send_ctl);
@@ -260,6 +259,12 @@ xqc_timer_retire_cid_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_d
                     xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_cid_switch_to_next_state error|");
                     return;
                 }
+
+                xqc_log(conn->log, XQC_LOG_DEBUG, 
+                        "|retired->removed|cid:%s|seq:%ui|len:%d|", 
+                        xqc_scid_str(&inner_cid->cid), 
+                        inner_cid->cid.cid_seq_num,
+                        inner_cid->cid.cid_len);
 
                 // xqc_list_del(pos);
                 // xqc_free(inner_cid);

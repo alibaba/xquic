@@ -18,13 +18,14 @@
 #define XQC_MP_FIRST_FRAME_OFFSET 128 * 1024 /* 128k */
 #define XQC_MP_PKT_REINJECTED(po) (po->po_flag & (XQC_POF_REINJECTED_ORIGIN | XQC_POF_REINJECTED_REPLICA))
 
-xqc_bool_t xqc_packet_can_reinject(xqc_packet_out_t *packet_out);
-
 void xqc_associate_packet_with_reinjection(xqc_packet_out_t *reinj_origin,
     xqc_packet_out_t *reinj_replica);
 
 void xqc_conn_reinject_unack_packets(xqc_connection_t *conn, 
     xqc_reinjection_mode_t mode);
+
+xqc_int_t xqc_conn_try_reinject_packet(xqc_connection_t *conn, 
+    xqc_packet_out_t *packet_out);
 
 #endif /* XQC_REINJECTION_H */
 

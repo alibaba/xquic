@@ -269,13 +269,55 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
             ret = xqc_process_datagram_frame(conn, packet_in);
             break;
         case 0xbaba00 ... 0xbaba01:
-            ret = xqc_process_ack_mp_frame(conn, packet_in);
+            if (conn->conn_settings.multipath_version == XQC_MULTIPATH_04) {
+                ret = xqc_process_ack_mp_frame(conn, packet_in);
+            } else {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|receive wrong mp version mp_ack frame or cannot process frame in mp version 04|");
+                ret = -XQC_EMP_INVALID_MP_VERTION;
+            }
+            break;
+        case 0x15228c00 ... 0x15228c01:
+            if (conn->conn_settings.multipath_version == XQC_MULTIPATH_05) {
+                ret = xqc_process_ack_mp_frame(conn, packet_in);
+
+            } else {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|receive wrong mp version mp_ack frame or cannot process frame in mp version 05|");
+                ret = -XQC_EMP_INVALID_MP_VERTION;
+            }
             break;
         case 0xbaba05:
-            ret = xqc_process_path_abandon_frame(conn, packet_in);
+            if (conn->conn_settings.multipath_version == XQC_MULTIPATH_04) {
+                ret = xqc_process_path_abandon_frame(conn, packet_in);
+            } else {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|receive wrong mp version path_abandon frame or cannot process frame in mp version 04|");
+                ret = -XQC_EMP_INVALID_MP_VERTION;
+            }
+            break;
+        case 0x15228c05:
+            if (conn->conn_settings.multipath_version == XQC_MULTIPATH_05) {
+                ret = xqc_process_path_abandon_frame(conn, packet_in);
+
+            } else {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|receive wrong mp version path_abandon frame or cannot process frame in mp version 05|");
+                ret = -XQC_EMP_INVALID_MP_VERTION;
+            }
             break;
         case 0xbaba06:
-            ret = xqc_process_path_status_frame(conn, packet_in);
+            if (conn->conn_settings.multipath_version == XQC_MULTIPATH_04) {
+                ret = xqc_process_path_status_frame(conn, packet_in);
+            } else {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|receive wrong mp version path_status frame or cannot process frame in mp version 04|");
+                ret = -XQC_EMP_INVALID_MP_VERTION;
+            }
+            break;
+        case 0x15228c06:
+            if (conn->conn_settings.multipath_version == XQC_MULTIPATH_05) {
+                ret = xqc_process_path_status_frame(conn, packet_in);
+                
+            } else {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|receive wrong mp version path_status frame or cannot process frame in mp version 05|");
+                ret = -XQC_EMP_INVALID_MP_VERTION;
+            }
             break;
         default:
             xqc_log(conn->log, XQC_LOG_ERROR, "|unknown frame type|");
@@ -345,8 +387,8 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 
     stream_type = xqc_get_stream_type(stream_id);
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|offset:%ui|data_length:%ud|fin:%ud|stream_id:%ui|",
-            stream_frame->data_offset, stream_frame->data_length, stream_frame->fin, stream_id);
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|offset:%ui|data_length:%ud|fin:%ud|stream_id:%ui|path:%ui|",
+            stream_frame->data_offset, stream_frame->data_length, stream_frame->fin, stream_id, packet_in->pi_path_id);
 
     stream = xqc_find_stream_by_id(stream_id, conn->streams_hash);
     if (!stream) {
@@ -364,6 +406,10 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
             goto error;
         }
     }
+
+    conn->stream_stats.recv_bytes += stream_frame->data_length;
+
+    xqc_stream_path_metrics_on_recv(conn, stream, packet_in);
 
     if (packet_in->pi_path_id < XQC_MAX_PATHS_COUNT) {
         stream->paths_info[packet_in->pi_path_id].path_recv_bytes += stream_frame->data_length;
@@ -476,7 +522,6 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         xqc_stream_ready_to_read(stream);
     }
 
-    xqc_stream_path_metrics_on_recv(conn, stream, packet_in);
     if (packet_in->pi_path_id < XQC_MAX_PATHS_COUNT) {
         stream->paths_info[packet_in->pi_path_id].path_recv_effective_bytes += stream_frame->data_length;
     }
@@ -819,10 +864,10 @@ xqc_process_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
     }
 
     /* TODO: 如果对应 “Active” Path 则需要替换 CID */
-    xqc_path_ctx_t *path = xqc_conn_find_path_by_scid(conn, &inner_cid->cid);
-    if (path != NULL) {
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|state:%d|", path->path_id, path->path_state);
-    }
+    // xqc_path_ctx_t *path = xqc_conn_find_path_by_scid(conn, &inner_cid->cid);
+    // if (path != NULL) {
+    //     xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|state:%d|", path->path_id, path->path_state);
+    // }
 
     return XQC_OK;
 }
@@ -1047,7 +1092,7 @@ xqc_process_stream_data_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *p
 
     stream->stream_flow_ctl.fc_max_stream_data_can_recv = stream->stream_data_in.next_read_offset + stream->stream_flow_ctl.fc_stream_recv_window_size;
 
-    ret = xqc_write_max_stream_data_to_packet(conn, stream_id, stream->stream_flow_ctl.fc_max_stream_data_can_recv);
+    ret = xqc_write_max_stream_data_to_packet(conn, stream_id, stream->stream_flow_ctl.fc_max_stream_data_can_recv, XQC_PTYPE_SHORT_HEADER);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_max_stream_data_to_packet error|");
         return ret;
@@ -1316,21 +1361,40 @@ xqc_process_path_challenge_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         return ret;
     }
 
-    xqc_path_ctx_t *path = xqc_conn_find_path_by_scid(conn, &packet_in->pi_pkt.pkt_dcid);
-    if (path == NULL) {
-        /* try to create new path */
-        path = xqc_conn_create_path_inner(conn, &packet_in->pi_pkt.pkt_dcid, NULL);
-        if (path == NULL) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_conn_create_path_inner err|");
-            return -XQC_EMP_CREATE_PATH;
-        }
+    //TODO: MPQUIC fix migration
+    xqc_path_ctx_t *path = NULL;
+    if (conn->enable_multipath) {
+        path = xqc_conn_find_path_by_scid(conn, &packet_in->pi_pkt.pkt_dcid);
 
-        conn->validating_path_id = path->path_id;
-        conn->conn_flag |= XQC_CONN_FLAG_RECV_NEW_PATH;
+    } else {
+        path = conn->conn_initial_path;
+    }
+    
+    if (path == NULL) {
+        if (conn->conn_type == XQC_CONN_TYPE_SERVER) {
+            /* try to create new path */
+            path = xqc_conn_create_path_inner(conn, &packet_in->pi_pkt.pkt_dcid, NULL, XQC_APP_PATH_STATUS_AVAILABLE);
+            if (path == NULL) {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_conn_create_path_inner err|");
+                return -XQC_EMP_CREATE_PATH;
+            }
+            packet_in->pi_path_id = path->path_id;
+            conn->validating_path_id = path->path_id;
+            conn->conn_flag |= XQC_CONN_FLAG_RECV_NEW_PATH;
+
+        } else {
+            xqc_log(conn->log, XQC_LOG_ERROR, 
+                    "|no path to challenge|dcid:%s|path_id:%ui|", 
+                    xqc_dcid_str(&packet_in->pi_pkt.pkt_dcid),
+                    packet_in->pi_path_id);
+            return XQC_OK;
+        }
     }
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|state:%d|RECV path_challenge_data:%s|",
-            path->path_id, path->path_state, path_challenge_data);
+    xqc_log(conn->log, XQC_LOG_DEBUG, 
+            "|path:%ui|state:%d|RECV path_challenge_data:%s|cid:%s|",
+            path->path_id, path->path_state, 
+            path_challenge_data, xqc_dcid_str(&packet_in->pi_pkt.pkt_dcid));
 
     ret = xqc_write_path_response_frame_to_packet(conn, path, path_challenge_data);
     if (ret != XQC_OK) {
@@ -1354,12 +1418,22 @@ xqc_process_path_response_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_
         return ret;
     }
 
-    xqc_path_ctx_t *path = xqc_conn_find_path_by_scid(conn, &packet_in->pi_pkt.pkt_dcid);
-    if (path == NULL) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|can't find path|pkt_dcid:%s|", xqc_scid_str(&packet_in->pi_pkt.pkt_dcid));
-        return -XQC_EMP_PATH_NOT_FOUND;
-    }
+    //TODO: MPQUIC fix migration
+    xqc_path_ctx_t *path = NULL;
+    if (conn->enable_multipath) {
+        path = xqc_conn_find_path_by_scid(conn, &packet_in->pi_pkt.pkt_dcid);
+        if (path == NULL) {
+            xqc_log(conn->log, XQC_LOG_ERROR, 
+                    "|ingnore path response|pkt_dcid:%s|path_id:%ui|", 
+                    xqc_scid_str(&packet_in->pi_pkt.pkt_dcid),
+                    packet_in->pi_path_id);
+            return XQC_OK;
+        }
 
+    } else {
+        path = conn->conn_initial_path;
+    }
+    
     xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|state:%d|RECV path_response_data:%s|",
             path->path_id, path->path_state, path_response_data);
 
@@ -1477,7 +1551,7 @@ xqc_process_path_abandon_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
 
     if (path == NULL) {
         xqc_log(conn->log, XQC_LOG_WARN,
-                "|invalid path|dcid_seq_num:%ui|",
+                "|invalid path|dcid_seq_num:%ui|path_id:%ui|",
                 dcid_seq_num, packet_in->pi_path_id);
         return XQC_OK; /* ignore */
     }

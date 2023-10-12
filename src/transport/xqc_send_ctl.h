@@ -105,14 +105,12 @@ typedef struct xqc_send_ctl_s {
     xqc_timer_manager_t         path_timer_manager;
 
     unsigned                    ctl_pto_count;
-    unsigned                    ctl_pto_count_since_last_tra_path_status_changed;
 
     unsigned                    ctl_send_count;
     unsigned                    ctl_lost_count;
     unsigned                    ctl_tlp_count;
     unsigned                    ctl_spurious_loss_count;
     unsigned                    ctl_lost_dgram_cnt;
-    unsigned                    ctl_send_count_at_last_tra_path_status_changed_time;
 
     unsigned                    ctl_recv_count;
 

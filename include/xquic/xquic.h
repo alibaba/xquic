@@ -417,17 +417,6 @@ typedef enum {
     XQC_PATH_RECOVERY,
 } xqc_path_status_change_type_t;
 
-/**
- * @brief multi-path quality callback function
- *
- * @param conn connection handler
- * @param scid source connection id of endpoint
- * @param path_id id of path
- * @param conn_user_data user_data of connection
- */
-typedef xqc_bool_t (*xqc_path_status_controller_pt)(xqc_connection_t *conn,
-    const xqc_cid_t *scid, xqc_path_status_change_type_t type, uint64_t path_id,
-    void *conn_user_data);
 
 /**
  * @brief multi-path write socket callback function
@@ -662,11 +651,6 @@ typedef struct xqc_transport_callbacks_s {
      * path remove callback function. REQUIRED both for client and server if multi-path is needed
      */
     xqc_path_removed_notify_pt      path_removed_notify;
-
-    /*
-     * Decision function for path status change. OPTIONAL for both client and server
-     */
-    xqc_path_status_controller_pt   path_status_controller;
 
     /**
      * connection closing callback function. OPTIONAL for both client and server
@@ -1142,6 +1126,13 @@ typedef struct xqc_linger_s {
     xqc_usec_t                  linger_timeout;     /* 3*PTO if linger_timeout is 0 */
 } xqc_linger_t;
 
+typedef enum {
+    XQC_ERR_MULTIPATH_VERSION   = 0x00,
+    XQC_MULTIPATH_04            = 0x04,
+    XQC_MULTIPATH_05            = 0x05,
+} xqc_multipath_version_t;
+
+
 typedef struct xqc_conn_settings_s {
     int                         pacing_on;          /* default: 0 */
     int                         ping_on;            /* client sends PING to keepalive, default:0 */
@@ -1173,11 +1164,14 @@ typedef struct xqc_conn_settings_s {
     
     /* 
      * multipath option:
-     * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-04#section-3
+     * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-05#section-3
      * 0: don't support multipath
      * 1: supports multipath (unified solution) - multiple PN spaces
      */
     uint64_t                    enable_multipath;
+    xqc_multipath_version_t     multipath_version;
+
+
     /*
      * reinjection option:
      * 0: default, no reinjection
@@ -1223,9 +1217,7 @@ typedef struct xqc_conn_settings_s {
     /* reinj_ctl callback, default: xqc_default_reinj_ctl_cb */
     xqc_reinj_ctl_callback_t    reinj_ctl_callback;
 
-    /* mark path unreachable if ctl_pto_count > path_unreachable_pto_count */
-    uint64_t                    path_unreachable_pto_count;
-
+    /* ms */
     xqc_msec_t                  standby_path_probe_timeout;
 
     /* params for performance tuning */
@@ -1248,6 +1240,25 @@ typedef struct xqc_conn_settings_s {
 
     /* enable marking reinjected packets with reserved bits */
     uint8_t                     marking_reinjection;
+
+    /* 
+     * The limitation on conn recv rate (only applied to stream data) in bytes per second.
+     * NOTE: the minimal rate limitation is (63000/RTT) Bps. For instance, if RTT is 60ms,
+     * the minimal valid rate limitation is about 1MBps. Any recv_rate_bytes_per_sec less
+     * than the minimal valid rate limitation will not be guaranteed.
+     * default: 0 (no limitation).
+     */
+    uint64_t                    recv_rate_bytes_per_sec;
+
+    /*
+     * The switch to enable stream-level recv rate throttling. Default: off (0)
+     */
+    uint8_t                     enable_stream_rate_limit;
+
+    /*
+     * initial recv window. Default: 0 (use the internal default value)
+     */
+    uint32_t                    init_recv_window;
 
 } xqc_conn_settings_t;
 
@@ -1275,6 +1286,9 @@ typedef struct xqc_path_metrics_s {
     uint64_t            path_recv_reinject_bytes;
     uint64_t            path_recv_effective_bytes;
     uint64_t            path_recv_effective_reinject_bytes;
+
+    uint64_t            path_srtt;
+    uint8_t             path_app_status;
 } xqc_path_metrics_t;
 
 
@@ -1314,13 +1328,6 @@ typedef struct xqc_conn_stats_s {
 
     char                alpn[XQC_MAX_ALPN_BUF_LEN];
 } xqc_conn_stats_t;
-
-typedef struct xqc_path_stats_s {
-    uint8_t             get_stats_success;
-    xqc_usec_t          last_tra_path_status_changed_time;
-    uint32_t            send_count_since_last_tra_path_status_changed;
-    uint32_t            pto_count_since_last_tra_path_status_changed;
-} xqc_path_stats_t;
 
 
 /*************************************************************
@@ -1387,13 +1394,28 @@ xqc_int_t xqc_engine_unregister_alpn(xqc_engine_t *engine, const char *alpn, siz
  * Pass received UDP packet payload into xquic engine.
  * @param recv_time   UDP packet received time in microsecond
  * @param user_data   connection user_data, server is NULL
+ * @param path_id     XQC_UNKNOWN_PATH_ID = unknown path (only use cid to identify the path)
  */
+
+#ifdef XQC_NO_PID_PACKET_PROCESS
+
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_engine_packet_process(xqc_engine_t *engine,
     const unsigned char *packet_in_buf, size_t packet_in_size,
     const struct sockaddr *local_addr, socklen_t local_addrlen,
     const struct sockaddr *peer_addr, socklen_t peer_addrlen,
     xqc_usec_t recv_time, void *user_data);
+
+#else
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_engine_packet_process(xqc_engine_t *engine,
+    const unsigned char *packet_in_buf, size_t packet_in_size,
+    const struct sockaddr *local_addr, socklen_t local_addrlen,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    uint64_t path_id, xqc_usec_t recv_time, void *user_data);
+
+#endif
 
 
 /**
@@ -1614,7 +1636,8 @@ void xqc_conn_set_public_remote_trans_settings(xqc_connection_t *conn,
  * @param user_data  user_data for this stream
  */
 XQC_EXPORT_PUBLIC_API
-xqc_stream_t *xqc_stream_create(xqc_engine_t *engine, const xqc_cid_t *cid, void *user_data);
+xqc_stream_t *xqc_stream_create(xqc_engine_t *engine, 
+    const xqc_cid_t *cid, xqc_stream_settings_t *settings, void *user_data);
 
 XQC_EXPORT_PUBLIC_API
 xqc_stream_t *xqc_stream_create_with_direction(xqc_connection_t *conn,
@@ -1628,6 +1651,11 @@ xqc_stream_direction_t xqc_stream_get_direction(xqc_stream_t *strm);
  */
 XQC_EXPORT_PUBLIC_API
 void xqc_stream_set_user_data(xqc_stream_t *stream, void *user_data);
+
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_stream_update_settings(xqc_stream_t *stream, 
+    xqc_stream_settings_t *settings);
 
 /**
  * Get connection's user_data by stream
@@ -1788,11 +1816,13 @@ xqc_conn_stats_t xqc_conn_get_stats(xqc_engine_t *engine, const xqc_cid_t *cid);
  * create new path for client
  * @param cid scid for connection
  * @param new_path_id if new path is created successfully, return new_path_id in this param
+ * @param path_status the initial status of the new path (1 = STANDBY, other values = AVAILABLE)
  * @return XQC_OK (0) when success, <0 for error
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_conn_create_path(xqc_engine_t *engine,
-    const xqc_cid_t *cid, uint64_t *new_path_id);
+    const xqc_cid_t *cid, uint64_t *new_path_id,
+    int path_status);
 
 
 /**
@@ -1857,12 +1887,7 @@ XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_path_get_local_addr(xqc_connection_t *conn, uint64_t path_id,
     struct sockaddr *addr, socklen_t addr_cap, socklen_t *local_addr_len);
 
-/**
- * User can get xqc_path_stats_t by path_id
- */
-XQC_EXPORT_PUBLIC_API
-xqc_path_stats_t xqc_path_get_stats(xqc_engine_t *engine, const xqc_cid_t *cid,
-    uint64_t path_id);
+    
 
 /**
  * @brief load balance cid encryption.

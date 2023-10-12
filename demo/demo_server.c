@@ -93,6 +93,8 @@ typedef struct xqc_demo_svr_quic_config_s {
     /* scheduler */
     char mp_sched[32];
 
+    uint32_t reinjection;
+
 } xqc_demo_svr_quic_config_t;
 
 
@@ -354,8 +356,8 @@ void
 xqc_demo_svr_conn_update_cid_notify(xqc_connection_t *conn, const xqc_cid_t *retire_cid,
     const xqc_cid_t *new_cid, void *user_data)
 {
-    xqc_demo_svr_user_conn_t *user_conn = (xqc_demo_svr_user_conn_t *)user_data;
-    memcpy(&user_conn->cid, new_cid, sizeof(*new_cid));
+    // xqc_demo_svr_user_conn_t *user_conn = (xqc_demo_svr_user_conn_t *)user_data;
+    // memcpy(&user_conn->cid, new_cid, sizeof(*new_cid));
 }
 
 /******************************************************************************
@@ -1021,10 +1023,17 @@ xqc_demo_svr_socket_read_handler(xqc_demo_svr_ctx_t *ctx, int fd)
         recv_sum += recv_size;
 
         uint64_t recv_time = xqc_demo_now();
+#ifdef  XQC_NO_PID_PACKET_PROCESS
         xqc_int_t ret = xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
                                       (struct sockaddr *)(&ctx->local_addr), ctx->local_addrlen,
                                       (struct sockaddr *)(&peer_addr), peer_addrlen,
                                       (xqc_usec_t)recv_time, ctx);
+#else
+        xqc_int_t ret = xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
+                                      (struct sockaddr *)(&ctx->local_addr), ctx->local_addrlen,
+                                      (struct sockaddr *)(&peer_addr), peer_addrlen, XQC_UNKNOWN_PATH_ID,
+                                      (xqc_usec_t)recv_time, ctx);
+#endif
         if (ret != XQC_OK) {
             printf("server_read_handler: packet process err, ret: %d\n", ret);
             return;
@@ -1167,7 +1176,8 @@ xqc_demo_svr_usage(int argc, char *argv[])
             "   -d    do not read responses from files\n"
             "   -M    enable MPQUIC.\n"
             "   -P    enable MPQUIC to return ACK_MPs on any paths.\n"
-            "   -s    multipath scheduler (interop, minrtt), default: interop\n"
+            "   -s    multipath scheduler (interop, minrtt, backup), default: interop\n"
+            "   -R    Reinjection (1,2,4) \n"
             , prog);
 }
 
@@ -1209,7 +1219,7 @@ void
 xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:rdMPs:")) != -1) {
+    while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:rdMPs:R:")) != -1) {
         switch (ch) {
         /* listen port */
         case 'p':
@@ -1299,6 +1309,11 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
             strncpy(args->quic_cfg.mp_sched, optarg, 32);
             break;
 
+        case 'R':
+            printf("option reinjection: %s\n", optarg);
+            args->quic_cfg.reinjection = atoi(optarg);
+            break;
+
         default:
             printf("other option :%c\n", ch);
             xqc_demo_svr_usage(argc, argv);
@@ -1386,6 +1401,9 @@ xqc_demo_svr_init_conn_settings(xqc_demo_svr_args_t *args)
     if (strncmp(args->quic_cfg.mp_sched, "minrtt", strlen("minrtt")) == 0) {
         sched = xqc_minrtt_scheduler_cb;
 
+    } if (strncmp(args->quic_cfg.mp_sched, "backup", strlen("backup")) == 0) {
+        sched = xqc_backup_scheduler_cb;
+
     } else {
 #ifdef XQC_ENABLE_MP_INTEROP
         sched = xqc_interop_scheduler_cb;
@@ -1405,6 +1423,9 @@ xqc_demo_svr_init_conn_settings(xqc_demo_svr_args_t *args)
         .enable_multipath = args->quic_cfg.multipath,
         .mp_ack_on_any_path = args->quic_cfg.mp_ack_on_any_path,
         .scheduler_callback = sched,
+        .reinj_ctl_callback = xqc_deadline_reinj_ctl_cb,
+        .mp_enable_reinjection = args->quic_cfg.reinjection,
+        .standby_path_probe_timeout = 1000,
     };
 
     xqc_server_set_conn_settings(&conn_settings);

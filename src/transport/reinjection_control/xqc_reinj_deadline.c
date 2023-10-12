@@ -48,7 +48,7 @@ xqc_deadline_reinj_can_reinject_before_sched(xqc_deadline_reinj_ctl_t *rctl,
 {
     xqc_connection_t *conn = rctl->conn;
     xqc_usec_t now = xqc_monotonic_timestamp();
-    xqc_usec_t min_srtt = xqc_conn_get_min_srtt(conn);
+    xqc_usec_t min_srtt = xqc_conn_get_min_srtt(conn, 0);
 
     double   factor      = conn->conn_settings.reinj_flexible_deadline_srtt_factor;
     double   flexible    = factor * min_srtt;
@@ -56,10 +56,11 @@ xqc_deadline_reinj_can_reinject_before_sched(xqc_deadline_reinj_ctl_t *rctl,
     uint64_t lower_bound = conn->conn_settings.reinj_deadline_lower_bound;
     double   deadline    = xqc_max(xqc_min(flexible, (double)hard), (double)lower_bound);
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|deadline:%f|factor:%.4f|min_srtt:%ui|flexible:%f|hard:%ui|lower_bound:%ui|",
-                                      deadline, factor, min_srtt, flexible, hard, lower_bound);
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|deadline:%f|factor:%.4f|min_srtt:%ui|flexible:%f|hard:%ui|lower_bound:%ui|now:%ui|sent_time:%ui|frame:%s|",
+                                      deadline, factor, min_srtt, flexible, hard, lower_bound, now, po->po_sent_time, xqc_frame_type_2_str(po->po_frame_types));
 
-    if ((po->po_frame_types & XQC_FRAME_BIT_STREAM)
+    if (((po->po_frame_types & XQC_FRAME_BIT_STREAM) 
+         || (po->po_frame_types & XQC_FRAME_BIT_MAX_STREAM_DATA))
         && !(po->po_flag & XQC_POF_NOT_REINJECT)
         && !(XQC_MP_PKT_REINJECTED(po))
         && (po->po_flag & XQC_POF_IN_FLIGHT)

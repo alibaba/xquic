@@ -116,6 +116,9 @@ typedef struct xqc_demo_cli_net_config_s {
     
     int multipath;
 
+    uint8_t rebind_p0;
+    uint8_t rebind_p1;
+
 } xqc_demo_cli_net_config_t;
 
 /**
@@ -161,6 +164,12 @@ typedef struct xqc_demo_cli_quic_config_s {
     uint64_t close_path;
 
     uint8_t no_encryption;
+
+    uint64_t recv_rate;
+
+    uint32_t reinjection;
+
+    uint8_t mp_version;
 
 } xqc_demo_cli_quic_config_t;
 
@@ -232,8 +241,12 @@ typedef struct xqc_demo_cli_requests_s {
     /* delay X us to start reqs */
     uint64_t req_start_delay; 
 
+    uint64_t idle_gap;
+
     /* serial requests */
     uint8_t serial;
+
+    int throttled_req;
 
 } xqc_demo_cli_requests_t;
 
@@ -346,6 +359,7 @@ typedef struct xqc_demo_cli_user_path_s {
     uint8_t                 is_active;
 
     int                     fd;
+    int                     rebind_fd;
 
     struct sockaddr_in6     local_addr;
     socklen_t               local_addrlen;
@@ -353,6 +367,7 @@ typedef struct xqc_demo_cli_user_path_s {
     socklen_t               peer_addrlen;
     
     struct event           *ev_socket;
+    struct event           *ev_rebind_socket;
     struct event           *ev_timeout;
 
     uint64_t                last_sock_op_time;
@@ -372,11 +387,17 @@ typedef struct xqc_demo_cli_user_conn_s {
     int                      total_path_cnt;
 
     struct event            *ev_delay_req;
+    struct event            *ev_idle_restart;
     struct event            *ev_close_path;
+    struct event            *ev_rebinding_p0;
+    struct event            *ev_rebinding_p1;
 
     xqc_demo_cli_ctx_t      *ctx;
     xqc_demo_cli_task_t     *task;
 } xqc_demo_cli_user_conn_t;
+
+static void
+xqc_demo_cli_delayed_idle_restart(int fd, short what, void *arg);
 
 void
 xqc_demo_cli_continue_send_reqs(xqc_demo_cli_user_conn_t *user_conn);
@@ -401,10 +422,21 @@ xqc_demo_cli_close_task(xqc_demo_cli_task_t *task)
             user_conn->paths[i].is_active = 0;
             user_conn->active_path_cnt--;
             /* remove event handle */
-            event_del(user_conn->paths[i].ev_socket);
+            if (user_conn->paths[i].ev_socket) {
+                event_del(user_conn->paths[i].ev_socket);
+            }
+            
             event_del(user_conn->paths[i].ev_timeout);
             /* close socket */
             close(user_conn->paths[i].fd);
+
+            if (user_conn->paths[i].ev_rebind_socket) {
+                event_del(user_conn->paths[i].ev_rebind_socket);
+            }
+
+            if (user_conn->paths[i].rebind_fd != -1) {
+                close(user_conn->paths[i].rebind_fd);
+            }
         }
     }
 
@@ -413,9 +445,24 @@ xqc_demo_cli_close_task(xqc_demo_cli_task_t *task)
         user_conn->ev_delay_req = NULL;
     }
 
+    if (user_conn->ev_idle_restart) {
+        event_del(user_conn->ev_idle_restart);
+        user_conn->ev_idle_restart = NULL;
+    }
+
     if (user_conn->ev_close_path) {
         event_del(user_conn->ev_close_path);
         user_conn->ev_close_path = NULL;
+    }
+
+    if (user_conn->ev_rebinding_p0) {
+        event_del(user_conn->ev_rebinding_p0);
+        user_conn->ev_rebinding_p0 =  NULL;
+    }
+
+    if (user_conn->ev_rebinding_p1) {
+        event_del(user_conn->ev_rebinding_p1);
+        user_conn->ev_rebinding_p1 =  NULL;
     }
 
     return 0;
@@ -449,13 +496,6 @@ xqc_demo_cli_on_stream_fin(xqc_demo_cli_user_stream_t *user_stream)
     printf("task[%d], fin_cnt: %d, fin_flag: %d\n", task_idx, 
         ctx->schedule.schedule_info[task_idx].req_fin_cnt,
         ctx->schedule.schedule_info[task_idx].fin_flag);
-
-    /* TODO: fix MAX_STREAMS */
-    if (ctx->schedule.schedule_info[task_idx].req_create_cnt
-        < ctx->tasks[task_idx].user_conn->task->req_cnt)
-    {
-        xqc_demo_cli_continue_send_reqs(ctx->tasks[task_idx].user_conn);
-    }
 }
 
 /* directly finish a task */
@@ -685,9 +725,11 @@ xqc_demo_cli_write_socket_ex(uint64_t path_id, const unsigned char *buf, size_t 
     }
 
     if (user_path == NULL) {
-        printf("path %"PRIu64" is not avaliable!\n", path_id);
+        // printf("path %"PRIu64" is not avaliable!\n", path_id);
         return XQC_SOCKET_ERROR;
     }
+
+    // printf("path %"PRIu64" with fd:%d\n", path_id, user_path->fd);
 
     do {
         errno = 0;
@@ -760,14 +802,25 @@ xqc_demo_cli_conn_create_path(const xqc_cid_t *cid, void *conn_user_data)
     xqc_demo_cli_ctx_t *ctx = user_conn->ctx;
     uint64_t path_id;
     int ret;
+    int backup = 0;
     if (user_conn->total_path_cnt < ctx->args->net_cfg.ifcnt
         && user_conn->total_path_cnt < MAX_PATH_CNT) 
     {
-        ret = xqc_conn_create_path(ctx->engine, &(user_conn->cid), &path_id);
+
+        if (user_conn->total_path_cnt == 1 && ctx->args->quic_cfg.mp_backup) {
+            backup = 1;
+        }
+
+        ret = xqc_conn_create_path(ctx->engine, &(user_conn->cid), &path_id, backup);
         if (ret < 0) {
             printf("not support mp, xqc_conn_create_path err = %d\n", ret);
             return;
         }
+
+        if (backup == 1) {
+            printf("Init No.%d path (id = %"PRIu64") to STANDBY state\n", 1, path_id);
+        }
+
         ret = xqc_demo_cli_init_user_path(user_conn, user_conn->total_path_cnt, path_id);
         if (ret < 0) {
             xqc_conn_close_path(ctx->engine, &(user_conn->cid), path_id);
@@ -795,10 +848,21 @@ xqc_demo_cli_path_removed(const xqc_cid_t *scid, uint64_t path_id,
             user_conn->paths[i].is_active = 0;
             user_conn->active_path_cnt--;
             /* remove event handle */
-            event_del(user_conn->paths[i].ev_socket);
+            if (user_conn->paths[i].ev_socket) {
+                event_del(user_conn->paths[i].ev_socket);
+            }
             event_del(user_conn->paths[i].ev_timeout);
             /* close socket */
             close(user_conn->paths[i].fd);
+
+            if (user_conn->paths[i].ev_rebind_socket) {
+                event_del(user_conn->paths[i].ev_rebind_socket);
+            }
+
+            if (user_conn->paths[i].rebind_fd != -1) {
+                close(user_conn->paths[i].rebind_fd);
+            }
+
             printf("No.%d path removed id = %"PRIu64"\n", i, path_id);   
         }
     }
@@ -1013,6 +1077,9 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
     DEBUG;
     unsigned char fin = 0;
     xqc_demo_cli_user_stream_t *user_stream = (xqc_demo_cli_user_stream_t *) user_data;
+    xqc_demo_cli_task_ctx_t *ctx = &user_stream->user_conn->ctx->task_ctx;
+    xqc_demo_cli_user_conn_t *user_conn = user_stream->user_conn;
+    uint32_t task_idx = user_conn->task->task_idx;
     // printf("xqc_demo_cli_h3_request_read_notify, h3_request: %p, user_stream: %p\n", h3_request, user_stream);
     if (flag & XQC_REQ_NOTIFY_READ_HEADER) {
         xqc_http_headers_t *headers;
@@ -1086,6 +1153,26 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
             user_stream->recv_body_fp = NULL;
         }
         // xqc_demo_cli_on_stream_fin(user_stream);
+        task_idx = user_stream->user_conn->task->task_idx;
+        if (ctx->schedule.schedule_info[task_idx].req_create_cnt
+            < ctx->tasks[task_idx].user_conn->task->req_cnt)
+        {
+            if (user_conn->ctx->args->req_cfg.idle_gap) {
+
+                user_conn->ev_idle_restart = event_new(user_conn->ctx->eb, -1, 0, 
+                                                       xqc_demo_cli_delayed_idle_restart, 
+                                                       user_conn);
+                struct timeval tv = {
+                    .tv_sec = user_conn->ctx->args->req_cfg.idle_gap / 1000,
+                    .tv_usec = (user_conn->ctx->args->req_cfg.idle_gap % 1000) * 1000,
+                };
+                event_add(user_conn->ev_idle_restart, &tv);  
+
+            } else {
+                xqc_demo_cli_continue_send_reqs(ctx->tasks[task_idx].user_conn);
+            }
+            
+        }
     }
 
     return 0;
@@ -1113,8 +1200,10 @@ xqc_demo_cli_h3_request_close_notify(xqc_h3_request_t *h3_request, void *user_da
     xqc_request_stats_t stats;
     stats = xqc_h3_request_get_stats(h3_request);
     printf("send_body_size:%zu, recv_body_size:%zu, send_header_size:%zu, recv_header_size:%zu, "
-           "recv_fin:%d, err:%d\n", stats.send_body_size, stats.recv_body_size,
-           stats.send_header_size, stats.recv_header_size, user_stream->recv_fin, stats.stream_err);
+           "recv_fin:%d, err:%d, rate_limit:%"PRIu64", mp_state:%d, avail_send_weight:%.3lf, avail_recv_weight:%.3lf\n", 
+           stats.send_body_size, stats.recv_body_size, stats.send_header_size, stats.recv_header_size, 
+           user_stream->recv_fin, stats.stream_err, stats.rate_limit, stats.mp_state,
+           stats.mp_default_path_send_weight, stats.mp_default_path_recv_weight);
     
     printf("\033[33m[H3-req] send_bytes:%zu, recv_bytes:%zu, path_info:%s\n\033[0m", 
            stats.send_body_size + stats.send_header_size, 
@@ -1160,6 +1249,8 @@ xqc_demo_cli_socket_read_handler(xqc_demo_cli_user_conn_t *user_conn, int fd)
         return;
     }
 
+    // printf("socket read: path%"PRIu64" fd:%d\n", user_path->path_id, user_path->fd);
+
     do {
         recv_size = recvfrom(user_path->fd, packet_buf, sizeof(packet_buf), 0,
                             (struct sockaddr *)&addr, &addr_len);
@@ -1181,11 +1272,19 @@ xqc_demo_cli_socket_read_handler(xqc_demo_cli_user_conn_t *user_conn, int fd)
         recv_sum += recv_size;
         uint64_t recv_time = xqc_demo_now();
         user_path->last_sock_op_time = recv_time;
+#ifdef XQC_NO_PID_PACKET_PROCESS
         if (xqc_engine_packet_process(user_conn->ctx->engine, packet_buf, recv_size,
                                       (struct sockaddr *)(&user_path->local_addr),
                                       user_path->local_addrlen, (struct sockaddr *)(&addr),
                                       addr_len, (xqc_msec_t)recv_time,
                                       user_conn) != XQC_OK)
+#else
+        if (xqc_engine_packet_process(user_conn->ctx->engine, packet_buf, recv_size,
+                                      (struct sockaddr *)(&user_path->local_addr),
+                                      user_path->local_addrlen, (struct sockaddr *)(&addr),
+                                      addr_len, user_path->path_id, (xqc_msec_t)recv_time,
+                                      user_conn) != XQC_OK)
+#endif
         {
             return;
         }
@@ -1204,8 +1303,10 @@ xqc_demo_cli_socket_event_callback(int fd, short what, void *arg)
 
     if (what & EV_WRITE) {
         xqc_demo_cli_socket_write_handler(user_conn, fd);
+
     } else if (what & EV_READ) {
         xqc_demo_cli_socket_read_handler(user_conn, fd);
+
     } else {
         printf("event callback: what=%d\n", what);
         exit(1);
@@ -1260,9 +1361,24 @@ xqc_demo_cli_idle_callback(int fd, short what, void *arg)
                 user_conn->ev_delay_req = NULL;
             }
 
+            if (user_conn->ev_idle_restart) {
+                event_del(user_conn->ev_idle_restart);
+                user_conn->ev_idle_restart = NULL;
+            }
+
             if (user_conn->ev_close_path) {
                 event_del(user_conn->ev_close_path);
                 user_conn->ev_close_path = NULL;
+            }
+
+            if (user_conn->ev_rebinding_p0) {
+                event_del(user_conn->ev_rebinding_p0);
+                user_conn->ev_rebinding_p0 =  NULL;
+            }
+
+            if (user_conn->ev_rebinding_p1) {
+                event_del(user_conn->ev_rebinding_p1);
+                user_conn->ev_rebinding_p1 =  NULL;
             }
 
             printf("socket idle timeout, task failed, total task_cnt: %d, req_fin_cnt: %d, req_sent_cnt: %d, req_create_cnt: %d\n",
@@ -1293,12 +1409,56 @@ xqc_demo_cli_delayed_req_start(int fd, short what, void *arg)
 }
 
 static void
+xqc_demo_cli_delayed_idle_restart(int fd, short what, void *arg) 
+{
+    xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *)arg;
+    xqc_demo_cli_task_ctx_t *ctx = &user_conn->ctx->task_ctx;
+    int task_idx = user_conn->task->task_idx;
+    xqc_demo_cli_continue_send_reqs(ctx->tasks[task_idx].user_conn);
+}
+
+static void
 xqc_demo_cli_close_path_timeout(int fd, short what, void *arg)
 {
     xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *) arg;
     if (user_conn->active_path_cnt > 1) 
     {
         xqc_conn_close_path(user_conn->ctx->engine, &(user_conn->cid), user_conn->paths[1].path_id);
+    }
+}
+
+static void
+xqc_demo_cli_rebind_path0(int fd, short what, void *arg)
+{
+    xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *) arg;
+    if (user_conn->paths[0].is_active) {
+        // change fd
+        int temp = user_conn->paths[0].fd;
+        user_conn->paths[0].fd = user_conn->paths[0].rebind_fd;
+        user_conn->paths[0].rebind_fd = user_conn->paths[0].fd;
+
+        //stop read from the old socket
+        event_del(user_conn->paths[0].ev_socket);
+        user_conn->paths[0].ev_socket = NULL;
+
+        xqc_h3_conn_send_ping(user_conn->ctx->engine, &user_conn->cid, NULL);
+    }
+}
+
+static void
+xqc_demo_cli_rebind_path1(int fd, short what, void *arg)
+{
+    xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *) arg;
+    if (user_conn->paths[1].is_active) {
+        // change fd
+        int temp = user_conn->paths[1].fd;
+        user_conn->paths[1].fd = user_conn->paths[1].rebind_fd;
+        user_conn->paths[1].rebind_fd = user_conn->paths[1].fd;
+
+        event_del(user_conn->paths[1].ev_socket);
+        user_conn->paths[1].ev_socket = NULL;
+
+        xqc_h3_conn_send_ping(user_conn->ctx->engine, &user_conn->cid, NULL);
     }
 }
 
@@ -1388,6 +1548,9 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
     if (strncmp(args->quic_cfg.mp_sched, "minrtt", strlen("minrtt")) == 0) {
         sched = xqc_minrtt_scheduler_cb;
 
+    } if (strncmp(args->quic_cfg.mp_sched, "backup", strlen("backup")) == 0) {
+        sched = xqc_backup_scheduler_cb;
+
     } else {
 #ifdef XQC_ENABLE_MP_INTEROP
         sched = xqc_interop_scheduler_cb;
@@ -1406,6 +1569,16 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
     settings->enable_multipath = args->net_cfg.multipath;
     settings->mp_ack_on_any_path = args->quic_cfg.mp_ack_on_any_path;
     settings->scheduler_callback = sched;
+    settings->recv_rate_bytes_per_sec = args->quic_cfg.recv_rate;
+    settings->mp_enable_reinjection = args->quic_cfg.reinjection;
+    settings->reinj_ctl_callback = xqc_deadline_reinj_ctl_cb;
+    settings->standby_path_probe_timeout = 1000;
+    settings->multipath_version = args->quic_cfg.mp_version;
+    settings->mp_ping_on = 1;
+    if (args->req_cfg.throttled_req != -1) {
+        settings->enable_stream_rate_limit = 1;
+        settings->recv_rate_bytes_per_sec = 0;
+    }
 }
 
 /* set client args to default values */
@@ -1429,6 +1602,10 @@ xqc_demo_cli_init_args(xqc_demo_cli_client_args_t *args)
     args->quic_cfg.alpn_type = ALPN_HQ;
     strncpy(args->quic_cfg.alpn, "hq-interop", sizeof(args->quic_cfg.alpn));
     args->quic_cfg.keyupdate_pkt_threshold = UINT64_MAX;
+    /* default 04 */
+    args->quic_cfg.mp_version = XQC_MULTIPATH_04;
+
+    args->req_cfg.throttled_req = -1;
 
 }
 
@@ -1532,20 +1709,26 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -i    interface to create a path. For instance, we can use '-i lo -i lo' to create two paths via lo.\n"
         "   -w    waiting N ms to start the first request.\n"
         "   -P    enable MPQUIC to return ACK_MPs on any paths.\n"
-        "   -s    multipath scheduler (interop, minrtt), default: interop\n"
+        "   -s    multipath scheduler (interop, minrtt, backup), default: interop\n"
         "   -b    set the second path as a backup path\n"
         "   -Z    close one path after X ms\n"
         "   -N    No encryption (default disabled)\n"
         "   -Q    Send requests one by one (default disabled)\n"
+        "   -T    Throttle recving rate (Bps)\n"
+        "   -R    Reinjection (1,2,4) \n"
+        "   -V    Multipath Version (4,5)\n"
+        "   -I    Idle interval between requests (ms)\n"
+        "   -n    Throttling the {1,2,...}xn-th requests\n"
+        "   -e    NAT rebinding on path 0\n"
+        "   -E    NAT rebinding on path 1\n"
         , prog);
 }
-
 
 void
 xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMi:w:Ps:bZ:NQ")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMi:w:Ps:bZ:NQT:R:V:I:n:eE")) != -1) {
         switch (ch) {
         /* server ip */
         case 'a':
@@ -1732,6 +1915,41 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             args->req_cfg.serial = 1;
             break;
 
+        case 'T':
+            printf("option recv rate limit: %s\n", optarg);
+            args->quic_cfg.recv_rate = atoi(optarg);
+            break;
+
+        case 'R':
+            printf("option reinjection: %s\n", optarg);
+            args->quic_cfg.reinjection = atoi(optarg);
+            break;
+        
+        case 'V':
+            printf("option multipath version: %s\n", optarg);
+            args->quic_cfg.mp_version = atoi(optarg);
+            break;    
+
+        case 'I':
+            printf("option idle gap: %s\n", optarg);
+            args->req_cfg.idle_gap = atoi(optarg);
+            break;
+
+        case 'n':
+            printf("option throttled reqs: %s\n", optarg);
+            args->req_cfg.throttled_req = atoi(optarg);
+            break;
+
+        case 'e':
+            printf("option rebinding path0 after 2s\n");
+            args->net_cfg.rebind_p0 = 1;
+            break;
+
+        case 'E':
+            printf("option rebinding path1 after 3s\n");
+            args->net_cfg.rebind_p1 = 1;
+            break;     
+
         default:
             printf("other option :%c\n", ch);
             xqc_demo_cli_usage(argc, argv);
@@ -1812,8 +2030,24 @@ int
 xqc_demo_cli_send_h3_req(xqc_demo_cli_user_conn_t *user_conn,
     xqc_demo_cli_user_stream_t *user_stream, xqc_demo_cli_request_t *req)
 {
+    xqc_stream_settings_t settings = { .recv_rate_bytes_per_sec = 0 };
+    int task_idx = user_conn->task->task_idx;
+    int req_create_cnt = user_conn->ctx->task_ctx.schedule.schedule_info[task_idx].req_create_cnt;
+    if (user_conn->ctx->args->req_cfg.throttled_req != -1) {
+        if (req_create_cnt == user_conn->ctx->args->req_cfg.throttled_req) {
+            settings.recv_rate_bytes_per_sec = user_conn->ctx->args->quic_cfg.recv_rate;
+        }
+        
+        if (req_create_cnt != 0
+            && user_conn->ctx->args->req_cfg.throttled_req != 0 
+            && (req_create_cnt % user_conn->ctx->args->req_cfg.throttled_req) == 0)
+        {
+            settings.recv_rate_bytes_per_sec = user_conn->ctx->args->quic_cfg.recv_rate;
+        }
+    }
+
     user_stream->h3_request = xqc_h3_request_create(user_conn->ctx->engine, &user_conn->cid,
-        user_stream);
+        &settings, user_stream);
     if (user_stream->h3_request == NULL) {
         printf("xqc_h3_request_create error\n");
         return -1;
@@ -1938,9 +2172,9 @@ xqc_demo_cli_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, 
     xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *)user_data;
     xqc_conn_stats_t stats = xqc_conn_get_stats(user_conn->ctx->engine, cid);
     printf("send_count:%u, lost_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" "
-           "early_data_flag:%d, conn_err:%d, ack_info:%s\n", stats.send_count, stats.lost_count,
+           "early_data_flag:%d, conn_err:%d, ack_info:%s conn_info:%s\n", stats.send_count, stats.lost_count,
            stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err,
-           stats.ack_info);
+           stats.ack_info, stats.conn_info);
 
     xqc_demo_cli_on_task_finish(user_conn->ctx, user_conn->task);
     free(user_conn);
@@ -2176,6 +2410,28 @@ xqc_demo_cli_start(xqc_demo_cli_user_conn_t *user_conn, xqc_demo_cli_client_args
         event_add(user_conn->ev_close_path, &tv);
     }
 
+    if (args->net_cfg.rebind_p0) {
+        user_conn->ev_rebinding_p0 = event_new(user_conn->ctx->eb, -1, 0, 
+                                               xqc_demo_cli_rebind_path0, 
+                                               user_conn);
+        struct timeval tv = {
+            .tv_sec = 2,
+            .tv_usec = 0,
+        };
+        event_add(user_conn->ev_rebinding_p0, &tv);
+    }
+
+    if (args->net_cfg.rebind_p1) {
+        user_conn->ev_rebinding_p1 = event_new(user_conn->ctx->eb, -1, 0, 
+                                               xqc_demo_cli_rebind_path1, 
+                                               user_conn);
+        struct timeval tv = {
+            .tv_sec = 3,
+            .tv_usec = 0,
+        };
+        event_add(user_conn->ev_rebinding_p1, &tv);
+    }
+
     if (args->req_cfg.req_start_delay) {
         user_conn->ev_delay_req = event_new(user_conn->ctx->eb, -1, 0, 
                                             xqc_demo_cli_delayed_req_start, 
@@ -2319,10 +2575,35 @@ xqc_demo_cli_init_user_path(xqc_demo_cli_user_conn_t *user_conn, int path_seq, u
         return -1;
     }
 
+    user_path->rebind_fd = -1;
+    user_path->ev_rebind_socket = NULL;
+
+    if (ctx->args->net_cfg.rebind_p0 && path_seq == 0) {
+        user_path->rebind_fd = xqc_demo_cli_create_socket(user_path, &ctx->args->net_cfg, path_seq);
+        if (user_path->rebind_fd < 0) {
+            printf("xqc_create_rebind_socket error\n");
+            return -1;
+        }
+    }
+
+    if (ctx->args->net_cfg.rebind_p1 && path_seq == 1) {
+        user_path->rebind_fd = xqc_demo_cli_create_socket(user_path, &ctx->args->net_cfg, path_seq);
+        if (user_path->rebind_fd < 0) {
+            printf("xqc_create_rebind_socket error\n");
+            return -1;
+        }
+    }
+
     /* socket event */
     user_path->ev_socket = event_new(ctx->eb, user_path->fd, EV_READ | EV_PERSIST,
                                      xqc_demo_cli_socket_event_callback, user_conn);
     event_add(user_path->ev_socket, NULL);
+
+    if (user_path->rebind_fd != -1) {
+        user_path->ev_rebind_socket = event_new(ctx->eb, user_path->rebind_fd, EV_READ | EV_PERSIST,
+                                                xqc_demo_cli_socket_event_callback, user_conn);
+        event_add(user_path->ev_rebind_socket, NULL);
+    }
 
     /* xquic timer */
     user_path->ev_timeout = event_new(ctx->eb, -1, 0, xqc_demo_cli_idle_callback, user_path);

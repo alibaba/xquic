@@ -36,6 +36,7 @@ xqc_h3_stream_create(xqc_h3_conn_t *h3c, xqc_stream_t *stream, xqc_h3_stream_typ
     xqc_init_list_head(&h3s->blocked_buf);
     h3s->ctx = xqc_qpack_create_req_ctx(stream->stream_id);
     h3s->log = h3c->log;
+    h3s->recv_rate_limit = stream->recv_rate_bytes_per_sec;
 
     stream->user_data = h3s;
     stream->stream_flag |= XQC_STREAM_FLAG_HAS_H3;
@@ -379,8 +380,10 @@ xqc_h3_stream_send_headers(xqc_h3_stream_t *h3s, xqc_http_headers_t *headers, ui
         xqc_log(h3c->log, XQC_LOG_ERROR, "|xqc_h3_stream_write_headers error|ret:%z||stream_id:%ui",
                 write, h3s->stream_id);
         XQC_H3_CONN_ERR(h3c, H3_INTERNAL_ERROR, write);
-    }
 
+    } else {
+        h3s->h3r->compressed_header_sent += write;
+    }
     /* header_sent is the sum of plaintext header name value length */
     h3s->h3r->header_sent += headers->total_len;
 
@@ -964,6 +967,7 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 if (pctx->frame.len == pctx->frame.consumed_len) {
                     xqc_log_event(h3s->log, HTTP_FRAME_PARSED, h3s);
                     fin = 1;
+                    h3s->h3r->compressed_header_recvd += pctx->frame.len;
                     xqc_h3_frm_reset_pctx(pctx);
                     xqc_qpack_clear_req_ctx(h3s->ctx);
                     if (fin_flag && processed == data_len) {

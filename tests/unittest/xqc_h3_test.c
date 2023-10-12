@@ -430,7 +430,7 @@ xqc_test_stream()
     xqc_connection_t *conn = test_engine_connect();
     CU_ASSERT(conn != NULL);
 
-    xqc_stream_t *stream = xqc_create_stream_with_conn(conn, XQC_UNDEFINE_STREAM_ID, XQC_CLI_UNI, NULL);
+    xqc_stream_t *stream = xqc_create_stream_with_conn(conn, XQC_UNDEFINE_STREAM_ID, XQC_CLI_UNI, NULL, NULL);
     CU_ASSERT(stream != NULL);
 
     xqc_h3_conn_t *h3c = xqc_h3_conn_create(conn, NULL);

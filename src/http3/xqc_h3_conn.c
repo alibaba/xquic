@@ -483,7 +483,7 @@ xqc_h3_conn_create_uni_stream(xqc_h3_conn_t *h3c, xqc_h3_stream_type_t h3s_type)
 
     /* create transport stream */
     xqc_stream_t *stream = xqc_create_stream_with_conn(
-        h3c->conn, XQC_UNDEFINE_STREAM_ID, stream_type, NULL);
+        h3c->conn, XQC_UNDEFINE_STREAM_ID, stream_type, NULL, NULL);
     if (!stream) {
         xqc_log(h3c->log, XQC_LOG_ERROR, "|xqc_create_stream_with_conn error|type:%d|", h3s_type);
         goto error;

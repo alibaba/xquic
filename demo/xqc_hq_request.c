@@ -85,7 +85,7 @@ xqc_hq_request_create(xqc_engine_t *engine, xqc_hq_conn_t *hqc, const xqc_cid_t 
     }
 
     /* create stream, make hqr the user_data of xqc_stream_t */
-    stream = xqc_stream_create(engine, cid, hqr);
+    stream = xqc_stream_create(engine, cid, NULL, hqr);
     if (NULL == stream) {
         PRINT_LOG("create transport-level stream error");
         goto fail;
@@ -344,30 +344,37 @@ xqc_hq_request_get_stats(xqc_hq_request_t *hqr)
     char *buff = stats.stream_info;
     size_t buff_size = XQC_STREAM_INFO_LEN;
     size_t cursor = 0, ret = 0;
+    int i;
 
     for (int i = 0; i < XQC_MAX_PATHS_COUNT; ++i) {
         if ((stream->paths_info[i].path_send_bytes > 0)
             || (stream->paths_info[i].path_recv_bytes > 0))
         {
-            /* check buffer size */
-            if (cursor + 100 >= buff_size) {
-                break;
-            }
 
             ret = snprintf(buff + cursor, buff_size - cursor, 
-                            "#%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64,
+                            "%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"#",
                             stream->paths_info[i].path_id,
                             stream->paths_info[i].path_pkt_send_count,
                             stream->paths_info[i].path_pkt_recv_count,
                             stream->paths_info[i].path_send_bytes,
-                            stream->paths_info[i].path_send_reinject_bytes,
-                            stream->paths_info[i].path_recv_bytes,
-                            stream->paths_info[i].path_recv_reinject_bytes,
-                            stream->paths_info[i].path_recv_effective_bytes,
-                            stream->paths_info[i].path_recv_effective_reinject_bytes);
+                            stream->paths_info[i].path_recv_bytes);
             cursor += ret;
+
+            if (cursor >= buff_size) {
+                goto full;
+            }
         }
     }
+
+full:
+    cursor = xqc_min(cursor, buff_size);
+    for (i = cursor - 1; i >= 0; i--) {
+        if (buff[i] == '-' || buff[i] == '#') {
+            buff[i] = '\0';
+            break;
+        }
+    }
+    buff[buff_size - 1] = '\0';
 
     return stats;
 }

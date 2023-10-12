@@ -146,7 +146,10 @@ xqc_packet_out_t *xqc_write_packet_for_stream(xqc_connection_t *conn, xqc_pkt_ty
 
 int xqc_write_packet_header(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
 
-int xqc_write_ack_to_packets(xqc_connection_t *conn);
+xqc_int_t xqc_write_ack_or_mp_ack_to_packets(xqc_connection_t *conn);
+
+xqc_int_t xqc_write_ack_or_mp_ack_to_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out, 
+    xqc_pkt_num_space_t pns, xqc_path_ctx_t *path, xqc_bool_t is_mp_ack);
 
 int xqc_write_ack_to_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_pkt_num_space_t pns);
 
@@ -167,7 +170,8 @@ int xqc_write_streams_blocked_to_packet(xqc_connection_t *conn, uint64_t stream_
 
 int xqc_write_max_data_to_packet(xqc_connection_t *conn, uint64_t max_data);
 
-int xqc_write_max_stream_data_to_packet(xqc_connection_t *conn, xqc_stream_id_t stream_id, uint64_t max_stream_data);
+int xqc_write_max_stream_data_to_packet(xqc_connection_t *conn, 
+xqc_stream_id_t stream_id, uint64_t max_stream_data, xqc_pkt_type_t xqc_pkt_type);
 
 int xqc_write_max_streams_to_packet(xqc_connection_t *conn, uint64_t max_stream, int bidirectional);
 
@@ -186,12 +190,11 @@ xqc_int_t xqc_write_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t
 
 xqc_int_t xqc_write_retire_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t seq_num);
 
-xqc_int_t xqc_write_path_challenge_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path);
+xqc_int_t xqc_write_path_challenge_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path, 
+    xqc_bool_t attach_path_status);
 
 xqc_int_t xqc_write_path_response_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path,
     unsigned char *path_response_data);
-
-int xqc_write_ack_mp_to_packets(xqc_connection_t *conn);
 
 int xqc_write_ack_mp_to_one_packet(xqc_connection_t *conn, xqc_path_ctx_t *path,
     xqc_packet_out_t *packet_out, xqc_pkt_num_space_t pns);

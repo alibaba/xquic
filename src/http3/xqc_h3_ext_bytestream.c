@@ -208,7 +208,7 @@ xqc_h3_ext_bytestream_create(xqc_engine_t *engine,
     xqc_h3_conn_t             *h3_conn;
     int                        ret;
 
-    stream = xqc_stream_create(engine, cid, NULL);
+    stream = xqc_stream_create(engine, cid, NULL, NULL);
     if (!stream) {
         xqc_log(engine->log, XQC_LOG_ERROR, "|xqc_stream_create error|");
         return NULL;

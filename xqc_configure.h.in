@@ -7,3 +7,4 @@
 #cmakedefine XQC_ENABLE_COPA
 #cmakedefine XQC_ENABLE_UNLIMITED
 #cmakedefine XQC_ENABLE_MP_INTEROP
+#cmakedefine XQC_NO_PID_PACKET_PROCESS

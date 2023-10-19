@@ -1922,7 +1922,7 @@ xqc_send_packet_with_pn(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_packet
     pn_ctl->ctl_packet_number[packet_out->po_pkt.pkt_pns]++;
 
     xqc_conn_log_sent_packet(conn, packet_out, now);
-    xqc_send_ctl_on_packet_sent(path->path_send_ctl, pn_ctl, packet_out, now);
+    xqc_send_ctl_on_packet_sent(path->path_send_ctl, pn_ctl, packet_out, now, sent);
     return sent;
 }
 

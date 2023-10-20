@@ -332,6 +332,13 @@ xqc_conn_init_trans_settings(xqc_connection_t *conn)
         ls->max_stream_data_bidi_local = conn->conn_settings.init_recv_window;
 
     } else {
+        ls->max_stream_data_bidi_local = 16 * 1024 * 1024;
+    }
+
+    if (conn->conn_settings.enable_stream_rate_limit) {
+        ls->max_stream_data_bidi_local = conn->conn_settings.init_recv_window;
+
+    } else {
         ls->max_stream_data_bidi_local = XQC_MAX_RECV_WINDOW;
     }
 

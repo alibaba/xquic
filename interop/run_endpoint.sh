@@ -4,7 +4,7 @@
 /setup.sh
 
 case $TESTCASE in
-    versionnegotiation|handshake|longrtt|transfer|zerortt|multiconnect|chacha20|resumption|http3|retry|keyupdate)
+    versionnegotiation|handshake|longrtt|transfer|zerortt|multiconnect|chacha20|resumption|http3|retry|keyupdate|mphandshake|mptransfer|mppathabandon|mppathstatus)
         :
         ;;
     *)
@@ -62,7 +62,19 @@ if [ "$ROLE" == "client" ]; then
     elif [ "$TESTCASE" == "keyupdate" ]; then
         echo "./demo_client $ARGS -U $REQUESTS -u 30"
         ./demo_client $ARGS -U "$REQUESTS" -u 30
+    
+    elif [ "$TESTCASE" == "mphandshake" ] || [ "$TESTCASE" == "mptransfer" ]; then
+        echo "./demo_client $ARGS -U $REQUESTS -M -i eth0 -i eth0 -w 3000"
+        ./demo_client $ARGS -U "$REQUESTS" -M -i eth0 -i eth0 -w 3000
 
+    elif [ "$TESTCASE" == "mppathabandon" ]; then
+        echo "./demo_client $ARGS -U $REQUESTS -M -i eth0 -i eth0 -w 3000 -Z 1000"
+        ./demo_client $ARGS -U "$REQUESTS" -M -i eth0 -i eth0 -w 3000 -Z 1000
+    
+    elif [ "$TESTCASE" == "mppathstatus" ]; then
+        echo "./demo_client $ARGS -U $REQUESTS -M -i eth0 -i eth0 -w 3000 -b"
+        ./demo_client $ARGS -U "$REQUESTS" -M -i eth0 -i eth0 -w 3000 -b
+    
     # common testcase
     else
         echo -e "./demo_client $ARGS -U \"$REQUESTS\"\n"

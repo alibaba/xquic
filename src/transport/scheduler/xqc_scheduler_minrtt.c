@@ -22,7 +22,8 @@ xqc_minrtt_scheduler_init(void *scheduler, xqc_log_t *log, xqc_scheduler_params_
 
 xqc_path_ctx_t *
 xqc_minrtt_scheduler_get_path(void *scheduler,
-    xqc_connection_t *conn, xqc_packet_out_t *packet_out, int check_cwnd, int reinject)
+    xqc_connection_t *conn, xqc_packet_out_t *packet_out, int check_cwnd, int reinject,
+    xqc_bool_t *cc_blocked)
 {
     xqc_path_ctx_t *best_path = NULL;
 
@@ -33,6 +34,11 @@ xqc_minrtt_scheduler_get_path(void *scheduler,
     /* min RTT */
     uint64_t min_rtt = XQC_MAX_UINT64_VALUE;
     uint64_t path_srtt;
+    xqc_bool_t reached_cwnd_check = XQC_FALSE;
+    
+    if (cc_blocked) {
+        *cc_blocked = XQC_FALSE;
+    }
 
     xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
         path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
@@ -41,12 +47,20 @@ xqc_minrtt_scheduler_get_path(void *scheduler,
             continue;
         }
 
-        if ((path->tra_path_status != XQC_TRA_PATH_STATUS_IN_USE) && (conn->in_use_active_path_count > 0)) {
+        /* skip the frozen path */
+        if (path->app_path_status == XQC_APP_PATH_STATUS_FROZEN) {
             continue;
         }
 
         if (reinject && (packet_out->po_path_id == path->path_id)) {
             continue;
+        }
+
+        if (!reached_cwnd_check) {
+            reached_cwnd_check = XQC_TRUE;
+            if (cc_blocked) {
+                *cc_blocked = XQC_TRUE;
+            }
         }
 
         /* @TODO: It is not correct for BBR/BBRv2, as they do not used cwnd to decide
@@ -56,6 +70,10 @@ xqc_minrtt_scheduler_get_path(void *scheduler,
         */
         if (!xqc_scheduler_check_path_can_send(path, packet_out, check_cwnd)) {
             continue;
+        }
+
+        if (cc_blocked) {
+            *cc_blocked = XQC_FALSE;
         }
 
         path_srtt = xqc_send_ctl_get_srtt(path->path_send_ctl);

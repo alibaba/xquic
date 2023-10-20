@@ -146,6 +146,17 @@ xqc_h3_conn_get_errno(xqc_h3_conn_t *h3_conn)
 }
 
 
+void *
+xqc_h3_conn_get_ssl(xqc_h3_conn_t *h3_conn)
+{
+    if (h3_conn->conn) {
+        return xqc_conn_get_ssl(h3_conn->conn);
+    }
+
+   return NULL;
+}
+
+
 void
 xqc_h3_conn_set_user_data(xqc_h3_conn_t *h3_conn,
                           void *user_data)
@@ -296,10 +307,13 @@ xqc_h3_conn_init_callbacks(xqc_h3_conn_t *h3c)
     xqc_int_t ret = xqc_h3_ctx_get_app_callbacks(&h3_cbs);
     if (XQC_OK != ret || h3_cbs == NULL) {
         xqc_log(h3c->log, XQC_LOG_ERROR, "|can't get app callbacks, not initialized?");
-        return ret;
+        return -XQC_EFATAL;
     }
 
     h3c->h3_conn_callbacks = h3_cbs->h3c_cbs;
+    if (h3c->flags & XQC_H3_CONN_FLAG_EXT_ENABLED) {
+        h3c->h3_ext_dgram_callbacks = h3_cbs->h3_ext_dgram_cbs;
+    }
 
     return XQC_OK;
 }
@@ -320,8 +334,14 @@ xqc_h3_conn_create(xqc_connection_t *conn, void *user_data)
 
     h3c->control_stream_out = NULL;
 
+    if (conn->engine->config->enable_h3_ext) {
+        h3c->flags |= XQC_H3_CONN_FLAG_EXT_ENABLED;
+    }
+
     /* set callback functions from application layer to http3 layer */
-    xqc_h3_conn_init_callbacks(h3c);
+    if (xqc_h3_conn_init_callbacks(h3c) != XQC_OK) {
+        h3c->flags &= ~XQC_H3_CONN_FLAG_EXT_ENABLED;
+    }
 
     h3c->local_h3_conn_settings = default_local_h3_conn_settings;
     h3c->peer_h3_conn_settings = default_peer_h3_conn_settings;
@@ -463,7 +483,7 @@ xqc_h3_conn_create_uni_stream(xqc_h3_conn_t *h3c, xqc_h3_stream_type_t h3s_type)
 
     /* create transport stream */
     xqc_stream_t *stream = xqc_create_stream_with_conn(
-        h3c->conn, XQC_UNDEFINE_STREAM_ID, stream_type, NULL);
+        h3c->conn, XQC_UNDEFINE_STREAM_ID, stream_type, NULL, NULL);
     if (!stream) {
         xqc_log(h3c->log, XQC_LOG_ERROR, "|xqc_create_stream_with_conn error|type:%d|", h3s_type);
         goto error;
@@ -744,3 +764,4 @@ const xqc_conn_callbacks_t h3_conn_callbacks = {
     .conn_handshake_finished    = xqc_h3_conn_handshake_finished,
     .conn_ping_acked            = xqc_h3_conn_ping_acked_notify,
 };
+

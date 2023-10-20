@@ -55,6 +55,8 @@ void xqc_log_TRA_STREAM_STATE_UPDATED_callback(xqc_log_t *log, const char *func,
 
 void xqc_log_TRA_FRAMES_PROCESSED_callback(xqc_log_t *log, const char *func, ...);
 
+void xqc_log_TRA_STATELESS_RESET_callback(xqc_log_t *log, const char *func, xqc_connection_t *c);
+
 void xqc_log_REC_PARAMETERS_SET_callback(xqc_log_t *log, const char *func, xqc_send_ctl_t *send_ctl);
 
 void xqc_log_REC_METRICS_UPDATED_callback(xqc_log_t *log, const char *func, xqc_send_ctl_t *send_ctl);

@@ -23,8 +23,11 @@ typedef enum {
     TRA_INVALID_TOKEN               =  0xB,
     TRA_APPLICATION_ERROR           =  0xC,
     TRA_CRYPTO_BUFFER_EXCEEDED      =  0xD,
+    TRA_0RTT_TRANS_PARAMS_ERROR     =  0xE,   /* MUST delete the current saved 0RTT transport parameters */
     TRA_HS_CERTIFICATE_VERIFY_FAIL  =  0x1FE, /* for handshake certificate verify error */
     TRA_CRYPTO_ERROR                =  0x1FF, /* 0x1XX */
+    TRA_MP_PROTOCOL_VIOLATION_04    =  0xba01,
+    TRA_MP_PROTOCOL_VIOLATION_05    =  0x1001d76d3ded42f3,
 } xqc_trans_err_code_t;
 
 #define TRA_CRYPTO_ERROR_BASE   0x100
@@ -118,10 +121,16 @@ typedef enum {
     XQC_EMP_PATH_STATE_ERROR            = 654,      /* Multipath - abnormal path status */
     XQC_EMP_SCHEDULE_PATH               = 655,      /* Multipath - fail to schedule path for sending */
     XQC_EMP_NO_ACTIVE_PATH              = 656,      /* Multipath - no another active path */
+    XQC_EMP_INVALID_MP_VERTION          = 657,      /* Multipath - the multipath version value is invalid */
 
     XQC_EENCRYPT_LB_CID                 = 670,      /* load balance connection ID encryption error */
     XQC_EENCRYPT_AES_128_ECB            = 671,      /* aes_128_ecb algorithm error */
-    
+
+    XQC_EDGRAM_NOT_SUPPORTED            = 680,      /* Datagram - not supported */
+    XQC_EDGRAM_TOO_LARGE                = 681,      /* Datagram - payload size too large */
+
+    XQC_EPMTUD_PROBING_SIZE             = 682,      /* PMTUD - probing size error */
+
     XQC_E_MAX,
 } xqc_transport_error_t;
 
@@ -216,6 +225,11 @@ typedef enum {
     XQC_H3_BLOCKED_STREAM_EXCEED        = 825,  /* blocked_stream exceed limit */
     XQC_H3_STREAM_RECV_ERROR            = 826,  /* call xqc_stream_recv error */
     XQC_H3_INVALID_PRIORITY             = 827,  /* invalid http priority params or values */
+    XQC_H3_INVALID_BIDI_STREAM_TYPE     = 828,  /* invalid bidi stream type */
+    XQC_H3_ECREATE_BYTESTREAM           = 829,  /* fail to create a bytestream */
+    XQC_H3_EPROC_BYTESTREAM             = 830,  /* fail to process bytestream */
+    XQC_H3_BYTESTREAM_FIN_SENT          = 831,  /* try to send data on a bytestream that already sent FIN */
+    XQC_H3_BYTESTREAM_MSG_BUF_EXIST     = 832,  /* try to create a msg buf while it already exists */
 
     XQC_H3_ERR_MAX,
 } xqc_h3_error_t;

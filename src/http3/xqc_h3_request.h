@@ -27,6 +27,7 @@ typedef struct xqc_h3_request_s {
     xqc_request_notify_flag_t       read_flag;
 
     /* compressed header size recved */
+    size_t                          compressed_header_recvd;
     size_t                          header_recvd;
     /* received header buf */
     xqc_http_headers_t              h3_header[XQC_H3_REQUEST_MAX_HEADERS_CNT];
@@ -40,6 +41,7 @@ typedef struct xqc_h3_request_s {
     size_t                          body_recvd_final_size;
 
     /* compressed header size sent */
+    size_t                          compressed_header_sent;
     size_t                          header_sent;
 
     /* send body statistic information */
@@ -62,10 +64,6 @@ typedef struct xqc_h3_request_s {
     const char                     *stream_close_msg;
 
 } xqc_h3_request_t;
-
-
-xqc_h3_request_t *xqc_h3_request_create(xqc_engine_t *engine, const xqc_cid_t *cid,
-    void *user_data);
 
 xqc_h3_request_t *xqc_h3_request_create_inner(xqc_h3_conn_t *h3_conn, xqc_h3_stream_t *h3_stream,
     void *user_data);
@@ -92,5 +90,6 @@ void xqc_h3_request_on_body_send(xqc_h3_request_t *h3r);
 void xqc_h3_request_stream_fin(xqc_h3_request_t *h3r);
 void xqc_h3_request_begin(xqc_h3_request_t *h3r);
 void xqc_h3_request_end(xqc_h3_request_t *h3r);
+void xqc_h3_request_closing(xqc_h3_request_t *h3r, xqc_int_t err);
 
 #endif /* _XQC_H3_REQUEST_H_INCLUDED_ */

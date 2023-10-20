@@ -63,6 +63,10 @@ if (XQC_DISABLE_LOG)
     set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -DXQC_DISABLE_LOG")
 endif()
 
+if(XQC_COMPAT_GENERATE_SR_PKT)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DXQC_COMPAT_GENERATE_SR_PKT")
+endif()
+
 if (XQC_ONLY_ERROR_LOG)
     set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -DXQC_ONLY_ERROR_LOG")
 endif()
@@ -121,7 +125,11 @@ else()
 endif()
 
 
-configure_file (xqc_configure.h.in include/xquic/xqc_configure.h  @ONLY)
+configure_file (
+    "${CMAKE_CURRENT_SOURCE_DIR}/xqc_configure.h.in"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/xquic/xqc_configure.h"
+    @ONLY
+)
 
 include_directories(
     include/
@@ -149,6 +157,8 @@ set(
     "src/http3/qpack/xqc_ins.c"
     "src/http3/qpack/stable/xqc_stable.c"
     "src/http3/qpack/dtable/xqc_dtable.c"
+    "src/http3/xqc_h3_ext_dgram.c"
+    "src/http3/xqc_h3_ext_bytestream.c"
 )
 
 # Transport source
@@ -161,6 +171,7 @@ set(
     "src/transport/xqc_packet_parser.c"
     "src/transport/xqc_frame_parser.c"
     "src/transport/xqc_stream.c"
+    "src/transport/xqc_datagram.c"
     "src/transport/xqc_packet_out.c"
     "src/transport/xqc_packet_in.c"
     "src/transport/xqc_send_ctl.c"
@@ -176,11 +187,22 @@ set(
     "src/transport/xqc_quic_lb.c"
     "src/transport/xqc_timer.c"
     "src/transport/xqc_reinjection.c"
-    "src/transport/reinjection_control/xqc_reinj_xlink.c"
+    "src/transport/reinjection_control/xqc_reinj_default.c"
+    "src/transport/reinjection_control/xqc_reinj_deadline.c"
+    "src/transport/reinjection_control/xqc_reinj_dgram.c"
     "src/transport/scheduler/xqc_scheduler_minrtt.c"
     "src/transport/scheduler/xqc_scheduler_common.c"
     "src/transport/scheduler/xqc_scheduler_backup.c"
+    "src/transport/scheduler/xqc_scheduler_rap.c"
 )
+
+if(XQC_ENABLE_MP_INTEROP)
+    set(
+        TRANSPORT_SOURCES
+        ${TRANSPORT_SOURCES}
+        "src/transport/scheduler/xqc_scheduler_interop.c"
+    )
+endif()
 
 # TLS source
 set (
@@ -238,9 +260,7 @@ set(
     "src/congestion_control/xqc_sample.c"
 )
 
-if (XQC_DISABLE_RENO)
-    set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -DXQC_DISABLE_RENO")
-else()
+if(XQC_ENABLE_RENO)
     set(
         CONGESTION_CONTROL_SOURCES
         ${CONGESTION_CONTROL_SOURCES}
@@ -248,12 +268,40 @@ else()
     )
 endif()
 
-if (XQC_ENABLE_BBR2)
-    set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -DXQC_ENABLE_BBR2")
+if(XQC_ENABLE_BBR2)
     set(
         CONGESTION_CONTROL_SOURCES
         ${CONGESTION_CONTROL_SOURCES}
         "src/congestion_control/xqc_bbr2.c"
+    )
+endif()
+
+if(XQC_ENABLE_COPA)
+    set(
+        CONGESTION_CONTROL_SOURCES
+        ${CONGESTION_CONTROL_SOURCES}
+        "src/congestion_control/xqc_copa.c"
+    )
+endif()
+
+if(XQC_ENABLE_UNLIMITED)
+    set(
+        CONGESTION_CONTROL_SOURCES
+        ${CONGESTION_CONTROL_SOURCES}
+        "src/congestion_control/xqc_unlimited_cc.c"
+    )
+endif()
+
+
+if(XQC_ENABLE_TH3)
+    set(XQC_ENABLE_TUNNEL 1)
+    set(
+        TH3_SOURCES
+        "tunnel/tunnel_h3/th3_ctx.c"
+        "tunnel/tunnel_h3/th3_vconn.c"
+    )
+endif()
+
     )
 endif()
 
@@ -298,3 +346,4 @@ if (XQC_BUILD_SAMPLE)
     target_link_libraries(test_client xquic event)
     target_link_libraries(test_server xquic event)
 endif()
+

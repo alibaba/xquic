@@ -80,6 +80,21 @@ typedef struct xqc_demo_svr_quic_config_s {
 
     /* retry */
     int  retry_on;
+
+    /* dummy mode */
+    int  dummy_mode;
+
+    /* multipath */
+    int  multipath;
+
+    /* ack on any path */
+    int  mp_ack_on_any_path;
+
+    /* scheduler */
+    char mp_sched[32];
+
+    uint32_t reinjection;
+
 } xqc_demo_svr_quic_config_t;
 
 
@@ -160,7 +175,7 @@ typedef struct xqc_demo_svr_ctx_s {
 
 
 typedef struct xqc_demo_svr_user_conn_s {
-    struct event          *ev_timeout;
+    struct event           *ev_timeout;
     struct sockaddr_in6     peer_addr;
     socklen_t               peer_addrlen;
     xqc_cid_t               cid;
@@ -169,9 +184,9 @@ typedef struct xqc_demo_svr_user_conn_s {
 
 typedef struct xqc_demo_svr_resource_s {
     FILE       *fp;
-    int         total_len;      /* total len of file */
-    int         total_offset;   /* total sent offset of file */
-    char       *buf;           /* send buf */
+    off_t       total_len;      /* total len of file */
+    off_t       total_offset;   /* total sent offset of file */
+    char       *buf;            /* send buf */
     int         buf_size;       /* send buf size */
     int         buf_len;        /* send buf len */
     int         buf_offset;     /* send buf offset */
@@ -276,6 +291,7 @@ int
 xqc_demo_svr_open_keylog_file(xqc_demo_svr_ctx_t *ctx)
 {
     ctx->keylog_fd = open(ctx->args->env_cfg.key_out_path, (O_WRONLY | O_APPEND | O_CREAT), 0644);
+    printf("%s %d\n", ctx->args->env_cfg.key_out_path, ctx->keylog_fd);
     if (ctx->keylog_fd <= 0) {
         return -1;
     }
@@ -295,7 +311,7 @@ xqc_demo_svr_close_keylog_file(xqc_demo_svr_ctx_t *ctx)
 }
 
 void
-xqc_demo_svr_keylog_cb(const char *line, void *eng_user_data)
+xqc_demo_svr_keylog_cb(const xqc_cid_t *scid, const char *line, void *eng_user_data)
 {
     xqc_demo_svr_ctx_t *ctx = (xqc_demo_svr_ctx_t*)eng_user_data;
     if (ctx->keylog_fd <= 0) {
@@ -340,8 +356,8 @@ void
 xqc_demo_svr_conn_update_cid_notify(xqc_connection_t *conn, const xqc_cid_t *retire_cid,
     const xqc_cid_t *new_cid, void *user_data)
 {
-    xqc_demo_svr_user_conn_t *user_conn = (xqc_demo_svr_user_conn_t *)user_data;
-    memcpy(&user_conn->cid, new_cid, sizeof(*new_cid));
+    // xqc_demo_svr_user_conn_t *user_conn = (xqc_demo_svr_user_conn_t *)user_data;
+    // memcpy(&user_conn->cid, new_cid, sizeof(*new_cid));
 }
 
 /******************************************************************************
@@ -396,8 +412,14 @@ xqc_demo_svr_hq_conn_close_notify(xqc_hq_conn_t *conn, const xqc_cid_t *cid, voi
     }
 
     xqc_demo_svr_user_conn_t *user_conn = (xqc_demo_svr_user_conn_t*)conn_user_data;
+    xqc_conn_stats_t stats = xqc_conn_get_stats(user_conn->ctx->engine, cid);
+    printf("send_count:%u, lost_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" "
+            "early_data_flag:%d, conn_err:%d, ack_info:%s, path_info:%s\n", stats.send_count,
+            stats.lost_count, stats.tlp_count, stats.recv_count, stats.srtt,
+            stats.early_data_flag, stats.conn_err, stats.ack_info, stats.conn_info);
     free(user_conn);
     user_conn = NULL;
+
     return 0;
 }
 
@@ -465,10 +487,19 @@ xqc_demo_svr_hq_send_file(xqc_hq_request_t *hqr, xqc_demo_svr_user_stream_t *use
         } else {
             /* prev buf sent, read new buf and send */
             res->buf_offset = 0;
-            res->buf_len = fread(res->buf, 1, res->buf_size, res->fp);
-            if (res->buf_len <= 0) {
-                return -1;
+
+            if (!svr_ctx.args->quic_cfg.dummy_mode) {
+                res->buf_len = fread(res->buf, 1, res->buf_size, res->fp);
+                if (res->buf_len <= 0) {
+                    return -1;
+                }
+                
+            } else {
+                res->buf_len = res->total_len - res->total_offset;
+                res->buf_len = res->buf_len > res->buf_size ? res->buf_size : res->buf_len;
+                memset(res->buf, 'D', res->buf_len);
             }
+
             send_buf = res->buf;
             send_len = res->buf_len;
         }
@@ -499,14 +530,27 @@ xqc_demo_svr_handle_hq_request(xqc_demo_svr_user_stream_t *user_stream, xqc_hq_r
 {
     int ret = 0;
 
-    /* format file path */
-    char file_path[PATH_LEN] = {0};
-    snprintf(file_path, sizeof(file_path), "%s%s", svr_ctx.args->env_cfg.source_file_dir, resource);
-    user_stream->res.fp = fopen(file_path, "rb");
-    if (NULL == user_stream->res.fp) {
-        printf("error open file [%s]\n", file_path);
-        goto handle_error;
+    if (!svr_ctx.args->quic_cfg.dummy_mode) {
+        /* format file path */
+        char file_path[PATH_LEN] = {0};
+        snprintf(file_path, sizeof(file_path), "%s%s", svr_ctx.args->env_cfg.source_file_dir, resource);
+        user_stream->res.fp = fopen(file_path, "rb");
+        if (NULL == user_stream->res.fp) {
+            printf("error open file [%s]\n", file_path);
+            goto handle_error;
+        }
+        /* get total len */
+        fseek(user_stream->res.fp, 0, SEEK_END);
+        user_stream->res.total_len = ftello(user_stream->res.fp);
+        fseek(user_stream->res.fp, 0, SEEK_SET);
+
+    } else {
+        user_stream->res.total_len = atoi(resource + 1);
+        if (user_stream->res.total_len == 0) {
+            user_stream->res.total_len = 1;
+        }
     }
+
     // printf("open file[%s] suc, user_conn: %p\n", file_path, user_stream->conn);
 
     /* create buf */
@@ -517,10 +561,6 @@ xqc_demo_svr_handle_hq_request(xqc_demo_svr_user_stream_t *user_stream, xqc_hq_r
     }
     user_stream->res.buf_size = READ_FILE_BUF_LEN;
 
-    /* get total len */
-    fseek(user_stream->res.fp, 0, SEEK_END);
-    user_stream->res.total_len = ftell(user_stream->res.fp);
-    fseek(user_stream->res.fp, 0, SEEK_SET);
 
     /* begin to send file */
     ret = xqc_demo_svr_hq_send_file(hqr, user_stream);
@@ -616,9 +656,9 @@ xqc_demo_svr_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid,
     xqc_demo_svr_user_conn_t *user_conn = (xqc_demo_svr_user_conn_t*)conn_user_data;
     xqc_conn_stats_t stats = xqc_conn_get_stats(user_conn->ctx->engine, cid);
     printf("send_count:%u, lost_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" "
-            "early_data_flag:%d, conn_err:%d, ack_info:%s\n", stats.send_count,
+            "early_data_flag:%d, conn_err:%d, ack_info:%s, path_info:%s\n", stats.send_count,
             stats.lost_count, stats.tlp_count, stats.recv_count, stats.srtt,
-            stats.early_data_flag, stats.conn_err, stats.ack_info);
+            stats.early_data_flag, stats.conn_err, stats.ack_info, stats.conn_info);
 
     free(user_conn);
     user_conn = NULL;
@@ -713,10 +753,18 @@ xqc_demo_svr_send_body(xqc_demo_svr_user_stream_t *user_stream)
         } else {
             /* prev buf sent, read new buf and send */
             res->buf_offset = 0;
-            res->buf_len = fread(res->buf, 1, res->buf_size, res->fp);
-            if (res->buf_len <= 0) {
-                return -1;
+            if (!svr_ctx.args->quic_cfg.dummy_mode) {
+                res->buf_len = fread(res->buf, 1, res->buf_size, res->fp);
+                if (res->buf_len <= 0) {
+                    return -1;
+                }
+
+            } else {
+                res->buf_len = res->total_len - res->total_offset;
+                res->buf_len = res->buf_len > res->buf_size ? res->buf_size : res->buf_len;
+                memset(res->buf, 'D', res->buf_len);
             }
+
             send_buf = res->buf;
             send_len = res->buf_len;
         }
@@ -773,15 +821,27 @@ xqc_demo_svr_handle_h3_request(xqc_demo_svr_user_stream_t *user_stream,
     rsp_hdrs.headers = rsp_hdr;
     rsp_hdrs.count = sizeof(rsp_hdr) / sizeof(rsp_hdr[0]);
 
-    /* format file path */
-    char file_path[PATH_LEN] = {0};
-    snprintf(file_path, sizeof(file_path), "%s%s", 
-             svr_ctx.args->env_cfg.source_file_dir, user_stream->recv_buf);
-    user_stream->res.fp = fopen(file_path, "rb");
-    if (NULL == user_stream->res.fp) {
-        printf("error open file [%s]\n", file_path);
-        xqc_demo_svr_set_rsp_header_value_int(&rsp_hdrs, H3_HDR_STATUS, 404);
-        goto h3_handle_error;
+    if (!svr_ctx.args->quic_cfg.dummy_mode) {
+        /* format file path */
+        char file_path[PATH_LEN] = {0};
+        snprintf(file_path, sizeof(file_path), "%s%s", 
+                svr_ctx.args->env_cfg.source_file_dir, user_stream->recv_buf);
+        user_stream->res.fp = fopen(file_path, "rb");
+        if (NULL == user_stream->res.fp) {
+            printf("error open file [%s]\n", file_path);
+            xqc_demo_svr_set_rsp_header_value_int(&rsp_hdrs, H3_HDR_STATUS, 404);
+            goto h3_handle_error;
+        }
+        /* get total len */
+        fseek(user_stream->res.fp, 0, SEEK_END);
+        user_stream->res.total_len = ftello(user_stream->res.fp);
+        fseek(user_stream->res.fp, 0, SEEK_SET);
+
+    } else {
+        user_stream->res.total_len = atoi(user_stream->recv_buf + 1);
+        if (user_stream->res.total_len == 0) {
+            user_stream->res.total_len = 1;
+        }
     }
 
     /* create buf */
@@ -793,10 +853,6 @@ xqc_demo_svr_handle_h3_request(xqc_demo_svr_user_stream_t *user_stream,
     }
     user_stream->res.buf_size = READ_FILE_BUF_LEN;
 
-    /* get total len */
-    fseek(user_stream->res.fp, 0, SEEK_END);
-    user_stream->res.total_len = ftell(user_stream->res.fp);
-    fseek(user_stream->res.fp, 0, SEEK_SET);
 
     xqc_demo_svr_set_rsp_header_value_int(&rsp_hdrs, H3_HDR_CONTENT_LENGTH,
         user_stream->res.total_len);
@@ -928,6 +984,12 @@ xqc_demo_svr_write_socket(const unsigned char *buf, size_t size, const struct so
     return res;
 }
 
+ssize_t
+xqc_demo_svr_write_socket_ex(uint64_t path_id, const unsigned char *buf, size_t size, 
+    const struct sockaddr *peer_addr,socklen_t peer_addrlen, void *conn_user_data)
+{
+    return xqc_demo_svr_write_socket(buf, size, peer_addr, peer_addrlen, conn_user_data);
+}
 
 void
 xqc_demo_svr_socket_write_handler(xqc_demo_svr_ctx_t *ctx, int fd)
@@ -961,10 +1023,17 @@ xqc_demo_svr_socket_read_handler(xqc_demo_svr_ctx_t *ctx, int fd)
         recv_sum += recv_size;
 
         uint64_t recv_time = xqc_demo_now();
+#ifdef  XQC_NO_PID_PACKET_PROCESS
         xqc_int_t ret = xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
                                       (struct sockaddr *)(&ctx->local_addr), ctx->local_addrlen,
                                       (struct sockaddr *)(&peer_addr), peer_addrlen,
                                       (xqc_usec_t)recv_time, ctx);
+#else
+        xqc_int_t ret = xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
+                                      (struct sockaddr *)(&ctx->local_addr), ctx->local_addrlen,
+                                      (struct sockaddr *)(&peer_addr), peer_addrlen, XQC_UNKNOWN_PATH_ID,
+                                      (xqc_usec_t)recv_time, ctx);
+#endif
         if (ret != XQC_OK) {
             printf("server_read_handler: packet process err, ret: %d\n", ret);
             return;
@@ -1100,10 +1169,15 @@ xqc_demo_svr_usage(int argc, char *argv[])
             "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic\n"
             "   -C    Pacing on.\n"
             "   -l    Log level. e:error d:debug.\n"
-            "   -L    xuqic log directory.\n"
+            "   -L    xquic log directory.\n"
             "   -6    IPv6\n"
             "   -k    Key output file path\n"
             "   -r    retry\n"
+            "   -d    do not read responses from files\n"
+            "   -M    enable MPQUIC.\n"
+            "   -P    enable MPQUIC to return ACK_MPs on any paths.\n"
+            "   -s    multipath scheduler (interop, minrtt, backup), default: interop\n"
+            "   -R    Reinjection (1,2,4) \n"
             , prog);
 }
 
@@ -1136,6 +1210,7 @@ xqc_demo_svr_init_args(xqc_demo_svr_args_t *args)
     args->env_cfg.log_level = XQC_LOG_DEBUG;
     strncpy(args->env_cfg.log_path, LOG_PATH, TLS_GROUPS_LEN - 1);
     strncpy(args->env_cfg.source_file_dir, SOURCE_DIR, RESOURCE_LEN - 1);
+    strncpy(args->env_cfg.key_out_path, KEY_PATH, PATH_LEN - 1);
     strncpy(args->env_cfg.priv_key_path, PRIV_KEY_PATH, PATH_LEN - 1);
     strncpy(args->env_cfg.cert_pem_path, CERT_PEM_PATH, PATH_LEN - 1);
 }
@@ -1144,7 +1219,7 @@ void
 xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:r")) != -1) {
+    while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:rdMPs:R:")) != -1) {
         switch (ch) {
         /* listen port */
         case 'p':
@@ -1214,6 +1289,31 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
             args->quic_cfg.retry_on = 1;
             break;
 
+        case 'd':
+            printf("option dummpy mode on\n");
+            args->quic_cfg.dummy_mode = 1;
+            break;
+
+        case 'M':
+            printf("option multipath enabled\n");
+            args->quic_cfg.multipath = 1;
+            break;
+        
+        case 'P':
+            printf("option ACK_MP on any path enabled\n");
+            args->quic_cfg.mp_ack_on_any_path = 1;
+            break;
+
+        case 's':
+            printf("option scheduler: %s\n", optarg);
+            strncpy(args->quic_cfg.mp_sched, optarg, 32);
+            break;
+
+        case 'R':
+            printf("option reinjection: %s\n", optarg);
+            args->quic_cfg.reinjection = atoi(optarg);
+            break;
+
         default:
             printf("other option :%c\n", ch);
             xqc_demo_svr_usage(argc, argv);
@@ -1239,6 +1339,7 @@ xqc_demo_svr_init_callback(xqc_engine_callback_t *cb, xqc_transport_callbacks_t 
     static xqc_transport_callbacks_t tcb = {
         .server_accept = xqc_demo_svr_accept,
         .write_socket = xqc_demo_svr_write_socket,
+        .write_socket_ex = xqc_demo_svr_write_socket_ex,
         .conn_update_cid_notify = xqc_demo_svr_conn_update_cid_notify,
     };
 
@@ -1287,11 +1388,26 @@ xqc_demo_svr_init_conn_settings(xqc_demo_svr_args_t *args)
     case CC_TYPE_CUBIC:
         ccc = xqc_cubic_cb;
         break;
+#ifdef XQC_ENABLE_RENO
     case CC_TYPE_RENO:
         ccc = xqc_reno_cb;
         break;
+#endif
     default:
         break;
+    }
+
+    xqc_scheduler_callback_t sched;
+    if (strncmp(args->quic_cfg.mp_sched, "minrtt", strlen("minrtt")) == 0) {
+        sched = xqc_minrtt_scheduler_cb;
+
+    } if (strncmp(args->quic_cfg.mp_sched, "backup", strlen("backup")) == 0) {
+        sched = xqc_backup_scheduler_cb;
+
+    } else {
+#ifdef XQC_ENABLE_MP_INTEROP
+        sched = xqc_interop_scheduler_cb;
+#endif
     }
 
     /* init connection settings */
@@ -1304,6 +1420,12 @@ xqc_demo_svr_init_conn_settings(xqc_demo_svr_args_t *args)
         },
         .spurious_loss_detect_on = 1,
         .init_idle_time_out = 60000,
+        .enable_multipath = args->quic_cfg.multipath,
+        .mp_ack_on_any_path = args->quic_cfg.mp_ack_on_any_path,
+        .scheduler_callback = sched,
+        .reinj_ctl_callback = xqc_deadline_reinj_ctl_cb,
+        .mp_enable_reinjection = args->quic_cfg.reinjection,
+        .standby_path_probe_timeout = 1000,
     };
 
     xqc_server_set_conn_settings(&conn_settings);

@@ -7,7 +7,7 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
-void*
+void *
 xqc_aead_ctx_new(const xqc_pkt_protect_aead_t *pp_aead, xqc_key_type_t type,
     const uint8_t *key, size_t noncelen)
 {
@@ -176,7 +176,7 @@ err:
     return -XQC_TLS_DECRYPT_DATA_ERROR;
 }
 
-void*
+void *
 xqc_hp_ctx_new(const xqc_hdr_protect_cipher_t *hp_cipher, const uint8_t *key)
 {
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();

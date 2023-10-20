@@ -14,6 +14,88 @@
 #include "src/transport/xqc_packet_parser.h"
 #include "src/transport/xqc_reinjection.h"
 
+/**
+ * generate datagram frame
+ */
+xqc_int_t xqc_gen_datagram_frame(xqc_packet_out_t *packet_out, 
+    const unsigned char *payload, size_t size)
+{
+    if (packet_out == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
+    size_t dst_buf_len = packet_out->po_buf_size - packet_out->po_used_size;
+    unsigned char *p = dst_buf + 1;
+
+    if ((size + 1 + XQC_DATAGRAM_LENGTH_FIELD_BYTES) > dst_buf_len) {
+        return -XQC_ENOBUF;
+    }
+
+    xqc_vint_write(p, size, XQC_DATAGRAM_LENGTH_FIELD_BYTES - 1, XQC_DATAGRAM_LENGTH_FIELD_BYTES);
+    p += XQC_DATAGRAM_LENGTH_FIELD_BYTES;
+
+    if (size > 0) {
+        xqc_memcpy(p, payload, size);
+    }
+
+    p += size;
+    
+    dst_buf[0] = 0x31;
+
+    packet_out->po_frame_types |= XQC_FRAME_BIT_DATAGRAM;
+    packet_out->po_used_size += p - dst_buf;
+
+    return XQC_OK;
+}
+
+xqc_int_t xqc_parse_datagram_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
+    unsigned char **buffer, size_t *size)
+{
+    uint64_t length;
+    int vlen = 0;
+    const unsigned char *p = packet_in->pos;
+    const unsigned char *end = packet_in->last;
+    /* skip frame type */
+    const unsigned char first_byte = *p++;
+    xqc_bool_t has_length = (first_byte & 0x1);
+
+    if (has_length) {
+        /*currently, the length of length field is 2 bytes*/
+        vlen = xqc_vint_read(p, end, &length);
+        if (vlen < 0) {
+            return -XQC_EVINTREAD;
+        }
+
+        p += vlen;
+        
+        if (length > (end - p)) {
+            return -XQC_EILLEGAL_FRAME;
+        }
+        
+    } else {
+        length = end - p;
+    }
+
+    /* recv a DATAGRAM frame larger than max_datagram_frame_size */
+    if ((length + 1 + vlen) > conn->local_settings.max_datagram_frame_size) {
+        return -XQC_EPROTO;
+    }
+
+    *size = length;
+    *buffer = (unsigned char *)p;
+    
+    p += length;
+
+    packet_in->pos = (unsigned char *)p;
+    packet_in->pi_frame_types |= XQC_FRAME_BIT_DATAGRAM;
+
+    xqc_log_event(conn->log, TRA_FRAMES_PROCESSED, XQC_FRAME_DATAGRAM, length);
+
+    return XQC_OK;
+}
+
+
 
 
 ssize_t
@@ -230,10 +312,10 @@ xqc_parse_stream_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
             return -XQC_EVINTREAD;
         }
 
+        p += vlen;
         if (length > end - p) {
             return -XQC_EILLEGAL_FRAME;
         }
-        p += vlen;
         frame->data_length = length;
 
     } else {
@@ -280,7 +362,7 @@ xqc_parse_stream_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
  */
 ssize_t
 xqc_gen_crypto_frame(xqc_packet_out_t *packet_out, uint64_t offset,
-    const unsigned char *payload, size_t payload_size, size_t *written_size)
+    const unsigned char *payload, uint64_t payload_size, size_t *written_size)
 {
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
     size_t dst_buf_len = packet_out->po_buf_size - packet_out->po_used_size;
@@ -365,12 +447,22 @@ xqc_parse_crypto_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
 }
 
 void
-xqc_gen_padding_frame(xqc_packet_out_t *packet_out)
+xqc_gen_padding_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
 {
-    if (packet_out->po_used_size < XQC_PACKET_INITIAL_MIN_LENGTH) {
+    size_t total_len = XQC_PACKET_INITIAL_MIN_LENGTH;
+    
+    if (conn->conn_settings.enable_pmtud) {
+        if ((packet_out->po_frame_types & (XQC_FRAME_BIT_PATH_CHALLENGE | XQC_FRAME_BIT_PATH_RESPONSE))
+            || (packet_out->po_flag & XQC_POF_PMTUD_PROBING)) 
+        {
+            total_len = packet_out->po_buf_size + XQC_ACK_SPACE;
+        }
+    }
+
+    if (packet_out->po_used_size < total_len) {
         packet_out->po_padding = packet_out->po_buf + packet_out->po_used_size;
-        memset(packet_out->po_padding, 0, XQC_PACKET_INITIAL_MIN_LENGTH - packet_out->po_used_size);
-        packet_out->po_used_size = XQC_PACKET_INITIAL_MIN_LENGTH;
+        memset(packet_out->po_padding, 0, total_len - packet_out->po_used_size);
+        packet_out->po_used_size = total_len;
         packet_out->po_frame_types |= XQC_FRAME_BIT_PADDING;
     }
 }
@@ -567,142 +659,6 @@ xqc_gen_ack_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec
     return dst_buf - begin;
 }
 
-ssize_t 
-xqc_gen_ack_frame_for_spns(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec_t now, int ack_delay_exponent,
-                           xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, int *has_gap, 
-                           xqc_packet_number_t *largest_ack, xqc_packet_number_t must_ack)
-{
-    unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
-    size_t dst_buf_len = packet_out->po_buf_size - packet_out->po_used_size + XQC_ACK_SPACE;
-
-    xqc_packet_number_t lagest_recv, prev_low;
-    xqc_usec_t ack_delay;
-
-    const unsigned char *begin = dst_buf;
-    const unsigned char *end = dst_buf + dst_buf_len;
-    unsigned char *p_range_count;
-    unsigned range_count = 0, first_ack_range, gap, acks, gap_bits, acks_bits, need;
-
-    xqc_list_head_t *pos, *next;
-    xqc_pktno_range_node_t *range_node;
-    xqc_pktno_range_node_t *first_range = NULL;
-    xqc_list_head_t *pos_lowest_range;
-    xqc_bool_t cover_lowest_range = 0;
-
-    /* 根据传入的最大ack来写ack frame */
-    pos = xqc_recv_record_get_pos(recv_record, *largest_ack);
-    if (pos == NULL) {
-        xqc_log(conn->log, XQC_LOG_WARN, "|get_largest_ack_pos error|largest_ack:%ui|record_largest:%ui|", *largest_ack, xqc_recv_record_largest(recv_record));
-        return -XQC_ENULLPTR;
-    }
-    pos_lowest_range = xqc_recv_record_get_pos(recv_record, must_ack);
-    if (pos_lowest_range == NULL) {
-        xqc_log(conn->log, XQC_LOG_WARN, "|get_lowest_range_pos error|must_ack:%ui|", must_ack);
-        return -XQC_ENULLPTR;
-    }
-
-    first_range = xqc_list_entry(pos, xqc_pktno_range_node_t, list);
-    if (first_range == NULL) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|first_range empty|");
-        return -XQC_ENULLPTR;
-    }
-
-    ack_delay = (now - largest_pkt_recv_time);
-    lagest_recv = first_range->pktno_range.high;
-    first_ack_range = lagest_recv - first_range->pktno_range.low;
-    prev_low = first_range->pktno_range.low;
-
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|lagest_recv:%ui|ack_delay:%ui|first_ack_range:%ud|largest_pkt_recv_time:%ui|",
-            lagest_recv, ack_delay, first_ack_range, largest_pkt_recv_time);
-
-    ack_delay = ack_delay >> ack_delay_exponent;
-
-    unsigned lagest_recv_bits = xqc_vint_get_2bit(lagest_recv);
-    unsigned ack_delay_bits = xqc_vint_get_2bit(ack_delay);
-    unsigned first_ack_range_bits = xqc_vint_get_2bit(first_ack_range);
-
-    need = 1    /* type */
-            + xqc_vint_len(lagest_recv_bits)
-            + xqc_vint_len(ack_delay_bits)
-            + 1 /* range_count */
-            + xqc_vint_len(first_ack_range_bits);
-
-    if (dst_buf + need > end) {
-        return -XQC_ENOBUF;
-    }
-
-    *dst_buf++ = 0x02;
-
-    xqc_vint_write(dst_buf, lagest_recv, lagest_recv_bits, xqc_vint_len(lagest_recv_bits));
-    dst_buf += xqc_vint_len(lagest_recv_bits);
-
-    *largest_ack = lagest_recv;
-
-    xqc_vint_write(dst_buf, ack_delay, ack_delay_bits, xqc_vint_len(ack_delay_bits));
-    dst_buf += xqc_vint_len(ack_delay_bits);
-
-    p_range_count = dst_buf;
-    dst_buf += 1;   /* max range_count 63, 1 byte */
-
-    xqc_vint_write(dst_buf, first_ack_range, first_ack_range_bits, xqc_vint_len(first_ack_range_bits));
-    dst_buf += xqc_vint_len(first_ack_range_bits);
-
-    int is_first = 1;
-    xqc_list_for_each_from(pos, &recv_record->list_head) {    /* from second node */
-        range_node = xqc_list_entry(pos, xqc_pktno_range_node_t, list);
-
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|high:%ui|low:%ui|pkt_pns:%d|",
-                range_node->pktno_range.high, range_node->pktno_range.low, packet_out->po_pkt.pkt_pns);
-        
-        if (pos_lowest_range == NULL || pos_lowest_range == pos) {
-            cover_lowest_range = 1;
-        }
-
-        if (is_first) {
-            is_first = 0;
-            continue;
-        }
-
-        gap = prev_low - range_node->pktno_range.high - 2;
-        acks = range_node->pktno_range.high - range_node->pktno_range.low;
-
-        gap_bits = xqc_vint_get_2bit(gap);
-        acks_bits = xqc_vint_get_2bit(acks);
-
-        need = xqc_vint_len(gap_bits) + xqc_vint_len(acks_bits);
-        if (dst_buf + need > end) {
-            return -XQC_ENOBUF;
-        }
-
-        xqc_vint_write(dst_buf, gap, gap_bits, xqc_vint_len(gap_bits));
-        dst_buf += xqc_vint_len(gap_bits);
-
-        xqc_vint_write(dst_buf, acks, acks_bits, xqc_vint_len(acks_bits));
-        dst_buf += xqc_vint_len(acks_bits);
-
-        prev_low = range_node->pktno_range.low;
-
-        ++range_count;
-        if (range_count >= XQC_MAX_ACK_RANGE_CNT - 1) {
-            break;
-        }
-        if (cover_lowest_range == 1 && range_count >= XQC_DEFAULT_ACK_RANGE_CNT - 1) {
-            break;
-        }
-    }
-
-    if (range_count > 0) {
-        *has_gap = 1;
-
-    } else {
-        *has_gap = 0;
-    }
-    xqc_vint_write(p_range_count, range_count, 0, 1);
-
-    packet_out->po_frame_types |= XQC_FRAME_BIT_ACK;
-    return dst_buf - begin;
-}
-
 /**
  * parse ack frame to ack_info
  */
@@ -721,7 +677,12 @@ xqc_parse_ack_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_ack_
 
     unsigned n_ranges = 0;      /* the range cnt stored */
 
-    ack_info->path_id = packet_in->pi_path_id;
+    /* 
+     * mpquic draft-04: If the multipath extension has been successfully 
+     * negotiated, ACK frames in 1-RTT packets acknowledge packets sent 
+     * with the Connection ID having sequence number 0.
+     */
+    ack_info->dcid_seq_num = 0;
     ack_info->pns = packet_in->pi_pkt.pkt_pns;
 
     vlen = xqc_vint_read(p, end, &largest_acked);
@@ -1518,7 +1479,8 @@ xqc_parse_handshake_done_frame(xqc_packet_in_t *packet_in, xqc_connection_t *con
  *               Figure 39: NEW_CONNECTION_ID Frame Format
  * */
 ssize_t
-xqc_gen_new_conn_id_frame(xqc_packet_out_t *packet_out, xqc_cid_t *new_cid, uint64_t retire_prior_to, char *key, size_t keylen)
+xqc_gen_new_conn_id_frame(xqc_packet_out_t *packet_out, xqc_cid_t *new_cid,
+    uint64_t retire_prior_to, const uint8_t *sr_token)
 {
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
     const unsigned char *begin = dst_buf;
@@ -1550,9 +1512,10 @@ xqc_gen_new_conn_id_frame(xqc_packet_out_t *packet_out, xqc_cid_t *new_cid, uint
     xqc_memcpy(dst_buf, new_cid->cid_buf, new_cid->cid_len);
     dst_buf += new_cid->cid_len;
 
-    xqc_gen_reset_token(new_cid, stateless_reset_token, XQC_STATELESS_RESET_TOKENLEN, key, keylen);
-    xqc_memcpy(dst_buf, stateless_reset_token, XQC_STATELESS_RESET_TOKENLEN);
-    dst_buf += XQC_STATELESS_RESET_TOKENLEN;
+    if (sr_token) {
+        xqc_memcpy(dst_buf, sr_token, XQC_STATELESS_RESET_TOKENLEN);
+        dst_buf += XQC_STATELESS_RESET_TOKENLEN;
+    }
 
     packet_out->po_frame_types |= XQC_FRAME_BIT_NEW_CONNECTION_ID;
 
@@ -1581,7 +1544,6 @@ xqc_parse_new_conn_id_frame(xqc_packet_in_t *packet_in, xqc_cid_t *new_cid, uint
     const unsigned char first_byte = *p++;
 
     int vlen;
-    unsigned char stateless_reset_token[XQC_STATELESS_RESET_TOKENLEN];
 
     /* Sequence Number (i) */
     vlen = xqc_vint_read(p, end, &new_cid->cid_seq_num);
@@ -1617,7 +1579,7 @@ xqc_parse_new_conn_id_frame(xqc_packet_in_t *packet_in, xqc_cid_t *new_cid, uint
     if (p + XQC_STATELESS_RESET_TOKENLEN > end) {
         return -XQC_EPROTO;
     }
-    xqc_memcpy(stateless_reset_token, p, XQC_STATELESS_RESET_TOKENLEN);
+    xqc_memcpy(new_cid->sr_token, p, XQC_STATELESS_RESET_TOKENLEN);
     p += XQC_STATELESS_RESET_TOKENLEN;
 
     packet_in->pos = p;
@@ -1727,6 +1689,9 @@ xqc_parse_path_challenge_frame(xqc_packet_in_t *packet_in, unsigned char *data)
     const unsigned char *end = packet_in->last;
     const unsigned char first_byte = *p++;
 
+    if (p + XQC_PATH_CHALLENGE_DATA_LEN > end) {
+        return -XQC_EVINTREAD;
+    }
     xqc_memcpy(data, p, XQC_PATH_CHALLENGE_DATA_LEN);
     p += XQC_PATH_CHALLENGE_DATA_LEN;
 
@@ -1784,6 +1749,10 @@ xqc_parse_path_response_frame(xqc_packet_in_t *packet_in, unsigned char *data)
     const unsigned char *end = packet_in->last;
     const unsigned char first_byte = *p++;
 
+    if (p + XQC_PATH_CHALLENGE_DATA_LEN > end) {
+        return -XQC_EVINTREAD;
+    }
+
     xqc_memcpy(data, p, XQC_PATH_CHALLENGE_DATA_LEN);
     p += XQC_PATH_CHALLENGE_DATA_LEN;
 
@@ -1795,11 +1764,11 @@ xqc_parse_path_response_frame(xqc_packet_in_t *packet_in, unsigned char *data)
 }
 
 /*
- * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath#section-10.2
+ * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-05#name-ack_mp-frame
  *
  * ACK_MP Frame {
- *    Type (i) = TBD-00..TBD-01 (experiments use 0xbaba00..0xbaba01),
- *    Packet Number Space Identifier (i),
+ *    Type (i) = TBD-00..TBD-01 ,
+ *    Destination Connection ID Sequence Number (i),
  *    Largest Acknowledged (i),
  *    ACK Delay (i),
  *    ACK Range Count (i),
@@ -1812,12 +1781,22 @@ xqc_parse_path_response_frame(xqc_packet_in_t *packet_in, unsigned char *data)
  */
 
 ssize_t
-xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id,
+xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t dcid_seq,
     xqc_packet_out_t *packet_out, xqc_usec_t now, int ack_delay_exponent,
     xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, 
     int *has_gap, xqc_packet_number_t *largest_ack)
 {
-    uint64_t frame_type = 0xbaba00;
+    uint64_t frame_type;
+    if (conn->conn_settings.multipath_version == XQC_MULTIPATH_04) {
+        frame_type = 0xbaba00;
+
+    } else if (conn->conn_settings.multipath_version == XQC_MULTIPATH_05) {
+        frame_type = 0x15228c00;
+
+    } else {
+        return -XQC_EMP_INVALID_MP_VERTION;
+    }
+
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
     size_t dst_buf_len = packet_out->po_buf_size - packet_out->po_used_size + XQC_ACK_SPACE;
 
@@ -1862,13 +1841,13 @@ xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id,
     ack_delay = ack_delay >> ack_delay_exponent;
 
     unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
-    unsigned path_id_bits = xqc_vint_get_2bit(path_id);
+    unsigned dcid_seq_bits = xqc_vint_get_2bit(dcid_seq);
     unsigned lagest_recv_bits = xqc_vint_get_2bit(lagest_recv);
     unsigned ack_delay_bits = xqc_vint_get_2bit(ack_delay);
     unsigned first_ack_range_bits = xqc_vint_get_2bit(first_ack_range);
 
     need = + xqc_vint_len(frame_type_bits)
-           + xqc_vint_len(path_id_bits)
+           + xqc_vint_len(dcid_seq_bits)
            + xqc_vint_len(lagest_recv_bits)
            + xqc_vint_len(ack_delay_bits)
            + 1  /* range_count */
@@ -1881,8 +1860,8 @@ xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id,
     xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
     dst_buf += xqc_vint_len(frame_type_bits);
 
-    xqc_vint_write(dst_buf, path_id, path_id_bits, xqc_vint_len(path_id_bits));
-    dst_buf += xqc_vint_len(path_id_bits);
+    xqc_vint_write(dst_buf, dcid_seq, dcid_seq_bits, xqc_vint_len(dcid_seq_bits));
+    dst_buf += xqc_vint_len(dcid_seq_bits);
 
     xqc_vint_write(dst_buf, lagest_recv, lagest_recv_bits, xqc_vint_len(lagest_recv_bits));
     dst_buf += xqc_vint_len(lagest_recv_bits);
@@ -1950,7 +1929,7 @@ xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id,
 
 xqc_int_t
 xqc_parse_ack_mp_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
-    uint64_t *path_id, xqc_ack_info_t *ack_info)
+    uint64_t *dcid_seq_num, xqc_ack_info_t *ack_info)
 {
     unsigned char *p = packet_in->pos;
     const unsigned char *end = packet_in->last;
@@ -1970,13 +1949,13 @@ xqc_parse_ack_mp_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
     }
     p += vlen;
 
-    vlen = xqc_vint_read(p, end, path_id);
+    vlen = xqc_vint_read(p, end, dcid_seq_num);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }
     p += vlen;
 
-    ack_info->path_id = *path_id;
+    ack_info->dcid_seq_num = *dcid_seq_num;
     ack_info->pns = packet_in->pi_pkt.pkt_pns;
 
     vlen = xqc_vint_read(p, end, &largest_acked);
@@ -2048,47 +2027,48 @@ xqc_parse_ack_mp_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
 
 
 /*
- * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath#section-10.1
+ * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-05#name-path_abandon-frame
  *
  * PATH_ABANDON Frame {
- *    Type (i) = TBD-03 (experiments use 0xbaba05),
- *    Path Identifier (..),
+ *    Type (i) = TBD-03,
+ *    DCID Sequence Number (i),
  *    Error Code (i),
  *    Reason Phrase Length (i),
  *    Reason Phrase (..),
  * }
  *
- *               Figure 4: PATH_ABANDON Frame Format
- *
- * Path Identifier {
- *    Identifier Type (i) = 0x00..0x02,
- *    [Path Identifier Content (i)],
- * }
- *
- *               Figure 5: Path Identifier Format
+ *               Figure 6: PATH_ABANDON Frame Format
  */
 
 ssize_t
-xqc_gen_path_abandon_frame(xqc_packet_out_t *packet_out,
-    uint64_t path_id_type, uint64_t path_id_content, uint64_t error_code)
+xqc_gen_path_abandon_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
+    uint64_t dcid_seq_num, uint64_t error_code)
 {
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
     const unsigned char *begin = dst_buf;
     unsigned need = 0;
+    uint64_t frame_type;
 
-    uint64_t frame_type = 0xbaba05;
+    if (conn->conn_settings.multipath_version == XQC_MULTIPATH_04) {
+        frame_type = 0xbaba05;
+
+    } else if (conn->conn_settings.multipath_version == XQC_MULTIPATH_05) {
+        frame_type = 0x15228c05;
+
+    } else {
+        return -XQC_EMP_INVALID_MP_VERTION;
+    }
+
     uint64_t reason_len = 0;
     uint8_t *reason = NULL;
 
     unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
-    unsigned path_id_type_bits = xqc_vint_get_2bit(path_id_type);
-    unsigned path_id_content_bits = xqc_vint_get_2bit(path_id_content);
+    unsigned dcid_seq_num_bits = xqc_vint_get_2bit(dcid_seq_num);
     unsigned error_code_bits = xqc_vint_get_2bit(error_code);
     unsigned reason_len_bits = xqc_vint_get_2bit(reason_len);
 
     need = xqc_vint_len(frame_type_bits)
-           + xqc_vint_len(path_id_type_bits)
-           + xqc_vint_len(path_id_content_bits)
+           + xqc_vint_len(dcid_seq_num_bits)
            + xqc_vint_len(error_code_bits)
            + xqc_vint_len(reason_len_bits)
            + reason_len;
@@ -2102,16 +2082,9 @@ xqc_gen_path_abandon_frame(xqc_packet_out_t *packet_out,
     xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
     dst_buf += xqc_vint_len(frame_type_bits);
 
-    /* Path Identifier Type (i) */
-    xqc_vint_write(dst_buf, path_id_type, path_id_type_bits, xqc_vint_len(path_id_type_bits));
-    dst_buf += xqc_vint_len(path_id_type_bits);
-
-    /* Path Identifier Content (i) */
-    /* If Identifier Type is 2, the Path Identifier Content MUST be empty */
-    if (path_id_type != 0x02) {
-        xqc_vint_write(dst_buf, path_id_content, path_id_content_bits, xqc_vint_len(path_id_content_bits));
-        dst_buf += xqc_vint_len(path_id_content_bits);
-    }
+    /* DCID Sequence Number (i) */
+    xqc_vint_write(dst_buf, dcid_seq_num, dcid_seq_num_bits, xqc_vint_len(dcid_seq_num_bits));
+    dst_buf += xqc_vint_len(dcid_seq_num_bits);
 
     /* Error Code (i) */
     xqc_vint_write(dst_buf, error_code, error_code_bits, xqc_vint_len(error_code_bits));
@@ -2134,12 +2107,13 @@ xqc_gen_path_abandon_frame(xqc_packet_out_t *packet_out,
 
 xqc_int_t
 xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
-    uint64_t *path_id_type, uint64_t *path_id_content, uint64_t *error_code)
+    uint64_t *dcid_seq_num, uint64_t *error_code)
 {
     unsigned char *p = packet_in->pos;
     const unsigned char *end = packet_in->last;
 
     int vlen;
+    uint64_t reason_len = 0;
 
     uint64_t frame_type = 0;
     vlen = xqc_vint_read(p, end, &frame_type);  /* get frame_type */
@@ -2148,22 +2122,12 @@ xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
     }
     p += vlen;
 
-    /* Path Identifier Type (i) */
-    vlen = xqc_vint_read(p, end, path_id_type);
+    /* DCID Sequence Number (i) */
+    vlen = xqc_vint_read(p, end, dcid_seq_num);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }
     p += vlen;
-
-    /* Path Identifier Content (i) */
-    /* If Identifier Type is 2, the Path Identifier Content MUST be empty */
-    if (*path_id_type != 0x02) {
-        vlen = xqc_vint_read(p, end, path_id_content);
-        if (vlen < 0) {
-            return -XQC_EVINTREAD;
-        }
-        p += vlen;
-    }
 
     /* Error Code (i) */
     vlen = xqc_vint_read(p, end, error_code);
@@ -2172,18 +2136,17 @@ xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
     }
     p += vlen;
 
-    // /* Reason Phrase Length (i) */
-    // vlen = xqc_vint_read(p, end, reason_len);
-    // if (vlen < 0) {
-    //     return -XQC_EVINTREAD;
-    // }
-    // p += vlen;
+    /* Reason Phrase Length (i) */
+    vlen = xqc_vint_read(p, end, &reason_len);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
 
-    //  /* Reason Phrase (..) */
-    // if (*reason_len > 0) {
-    //     xqc_memcpy(reason, p, *reason_len);
-    //     p += *reason_len;
-    // }
+     /* Reason Phrase (..) */
+    if (reason_len > 0) {
+        p += reason_len;
+    }
 
     packet_in->pos = p;
 
@@ -2194,11 +2157,11 @@ xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
 
 
 /*
- * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-02#section-12.2
+ * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-05#name-path_status-frame
  *
  *    PATH_STATUS Frame {
- *      Type (i) = TBD-03 (experiments use 0xbaba06),
- *      Path Identifier (..),
+ *      Type (i) = TBD-03,
+ *      DCID Sequence Number (i),
  *      Path Status sequence number (i),
  *      Path Status (i),
  *    }
@@ -2207,25 +2170,33 @@ xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
  */
 
 ssize_t
-xqc_gen_path_status_frame(xqc_packet_out_t *packet_out,
-    uint64_t path_id_type, uint64_t path_id_content,
+xqc_gen_path_status_frame(xqc_connection_t *conn,
+    xqc_packet_out_t *packet_out,
+    uint64_t dcid_seq_num,
     uint64_t path_status_seq_num, uint64_t path_status)
 {
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
     const unsigned char *begin = dst_buf;
     unsigned need = 0;
 
-    uint64_t frame_type = 0xbaba06;
+    uint64_t frame_type;
+    if (conn->conn_settings.multipath_version == XQC_MULTIPATH_04) {
+        frame_type = 0xbaba06;
+
+    } else if (conn->conn_settings.multipath_version == XQC_MULTIPATH_05) {
+        frame_type = 0x15228c06;
+        
+    } else {
+        return -XQC_EMP_INVALID_MP_VERTION;
+    }
 
     unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
-    unsigned path_id_type_bits = xqc_vint_get_2bit(path_id_type);
-    unsigned path_id_content_bits = xqc_vint_get_2bit(path_id_content);
+    unsigned dcid_seq_num_bits = xqc_vint_get_2bit(dcid_seq_num);
     unsigned path_status_seq_num_bits = xqc_vint_get_2bit(path_status_seq_num);
     unsigned path_status_bits = xqc_vint_get_2bit(path_status);
 
     need = xqc_vint_len(frame_type_bits)
-           + xqc_vint_len(path_id_type_bits)
-           + xqc_vint_len(path_id_content_bits)
+           + xqc_vint_len(dcid_seq_num_bits)
            + xqc_vint_len(path_status_seq_num_bits)
            + xqc_vint_len(path_status_bits);
 
@@ -2238,16 +2209,9 @@ xqc_gen_path_status_frame(xqc_packet_out_t *packet_out,
     xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
     dst_buf += xqc_vint_len(frame_type_bits);
 
-    /* Path Identifier Type (i) */
-    xqc_vint_write(dst_buf, path_id_type, path_id_type_bits, xqc_vint_len(path_id_type_bits));
-    dst_buf += xqc_vint_len(path_id_type_bits);
-
-    /* Path Identifier Content (i) */
-    /* If Identifier Type is 2, the Path Identifier Content MUST be empty */
-    if (path_id_type != 0x02) {
-        xqc_vint_write(dst_buf, path_id_content, path_id_content_bits, xqc_vint_len(path_id_content_bits));
-        dst_buf += xqc_vint_len(path_id_content_bits);
-    }
+    /* DCID Sequence Number (i) */
+    xqc_vint_write(dst_buf, dcid_seq_num, dcid_seq_num_bits, xqc_vint_len(dcid_seq_num_bits));
+    dst_buf += xqc_vint_len(dcid_seq_num_bits);
 
     /* Path Status sequence number (i) */
     xqc_vint_write(dst_buf, path_status_seq_num, path_status_seq_num_bits, xqc_vint_len(path_status_seq_num_bits));
@@ -2265,7 +2229,7 @@ xqc_gen_path_status_frame(xqc_packet_out_t *packet_out,
 
 xqc_int_t
 xqc_parse_path_status_frame(xqc_packet_in_t *packet_in,
-    uint64_t *path_id_type, uint64_t *path_id_content,
+    uint64_t *dcid_seq_num,
     uint64_t *path_status_seq_num, uint64_t *path_status)
 {
     unsigned char *p = packet_in->pos;
@@ -2280,22 +2244,12 @@ xqc_parse_path_status_frame(xqc_packet_in_t *packet_in,
     }
     p += vlen;
 
-    /* Path Identifier Type (i) */
-    vlen = xqc_vint_read(p, end, path_id_type);
+    /* DCID Sequence Number (i) */
+    vlen = xqc_vint_read(p, end, dcid_seq_num);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }
     p += vlen;
-
-    /* Path Identifier Content (i) */
-    /* If Identifier Type is 2, the Path Identifier Content MUST be empty */
-    if (*path_id_type != 0x02) {
-        vlen = xqc_vint_read(p, end, path_id_content);
-        if (vlen < 0) {
-            return -XQC_EVINTREAD;
-        }
-        p += vlen;
-    }
 
     /* Path Status sequence number (i) */
     vlen = xqc_vint_read(p, end, path_status_seq_num);

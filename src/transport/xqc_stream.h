@@ -35,6 +35,8 @@ typedef enum {
     XQC_STREAM_FLAG_NEED_CLOSE      = 1 << 5,
     XQC_STREAM_FLAG_FIN_WRITE       = 1 << 6,
     XQC_STREAM_FLAG_CLOSED          = 1 << 7,
+    XQC_STREAM_FLAG_UNEXPECTED      = 1 << 8,
+    XQC_STREAM_FLAG_DISCARDED       = 1 << 9,   /* stream create_notify with error, all stream data will be discarded */
 } xqc_stream_flag_t;
 
 typedef enum {
@@ -81,6 +83,7 @@ typedef struct xqc_stream_data_in_s {
     uint64_t                merged_offset_end;  /* [0,end) */
     uint64_t                next_read_offset;   /* next offset in stream */
     uint64_t                stream_length;
+    xqc_bool_t              stream_determined;
 } xqc_stream_data_in_t;
 
 
@@ -146,6 +149,8 @@ struct xqc_stream_s {
     xqc_path_metrics_t      paths_info[XQC_MAX_PATHS_COUNT];
     uint8_t                 stream_mp_usage_schedule;
     uint8_t                 stream_mp_usage_reinject;
+
+    uint64_t                recv_rate_bytes_per_sec;
 };
 
 static inline xqc_stream_type_t
@@ -167,7 +172,7 @@ xqc_stream_is_uni(xqc_stream_id_t stream_id)
 }
 
 xqc_stream_t *xqc_create_stream_with_conn (xqc_connection_t *conn, xqc_stream_id_t stream_id,
-    xqc_stream_type_t stream_type, void *user_data);
+    xqc_stream_type_t stream_type, xqc_stream_settings_t *settings, void *user_data);
 
 void xqc_destroy_stream(xqc_stream_t *stream);
 
@@ -193,13 +198,13 @@ xqc_stream_t *xqc_find_stream_by_id(xqc_stream_id_t stream_id, xqc_id_hash_table
 
 void xqc_stream_set_flow_ctl(xqc_stream_t *stream);
 
+void xqc_stream_update_flow_ctl(xqc_stream_t *stream);
+
 int xqc_stream_do_send_flow_ctl(xqc_stream_t *stream);
 
 int xqc_stream_do_recv_flow_ctl(xqc_stream_t *stream);
 
 int xqc_stream_do_create_flow_ctl(xqc_connection_t *conn, xqc_stream_id_t stream_id, xqc_stream_type_t stream_type);
-
-uint64_t xqc_stream_get_init_max_stream_data(xqc_stream_t *stream);
 
 xqc_stream_t *xqc_passive_create_stream(xqc_connection_t *conn, xqc_stream_id_t stream_id, void *user_data);
 
@@ -234,6 +239,9 @@ xqc_stream_recv_state_update(xqc_stream_t *stream, xqc_recv_stream_state_t state
 
 void xqc_stream_set_multipath_usage(xqc_stream_t *stream, uint8_t schedule, uint8_t reinject);
 
+void xqc_stream_closing(xqc_stream_t *stream, xqc_int_t err);
+
+void xqc_stream_close_discarded_stream(xqc_stream_t *stream);
 
 #endif /* _XQC_STREAM_H_INCLUDED_ */
 

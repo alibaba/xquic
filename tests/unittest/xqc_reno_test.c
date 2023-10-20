@@ -20,7 +20,7 @@ print_reno(xqc_new_reno_t *reno)
 void
 xqc_test_reno()
 {
-#ifdef XQC_DISABLE_RENO
+#ifndef XQC_ENABLE_RENO
     return;
 #endif
     xqc_msec_t now = xqc_monotonic_timestamp();

@@ -464,6 +464,13 @@ xqc_int_t xqc_conn_get_errno(xqc_connection_t *conn);
 Get error code of specified connection.
 
 
+#### xqc_conn_get_ssl
+```
+void *xqc_conn_get_ssl(xqc_connection_t *conn);
+```
+Get ssl handler of specified connection.
+
+
 #### xqc_conn_set_transport_user_data
 ```
 void xqc_conn_set_transport_user_data(xqc_connection_t *conn, void *user_data);
@@ -837,6 +844,13 @@ Get instance of xquic's Transport connection, on which the instance of h3 is rel
 xqc_int_t xqc_h3_conn_get_errno(xqc_h3_conn_t *h3c);
 ```
 Get connection error code.
+
+
+#### xqc_h3_conn_get_ssl
+```
+void *xqc_h3_conn_get_ssl(xqc_h3_conn_t *h3c);
+```
+Get ssl handler of http3 connection.
 
 
 #### xqc_h3_conn_set_user_data

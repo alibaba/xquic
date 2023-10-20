@@ -27,6 +27,7 @@ static const char * const timer_type_2_str[XQC_TIMER_N] = {
     [XQC_TIMER_RETIRE_CID]      = "RETIRE_CID",
     [XQC_TIMER_LINGER_CLOSE]    = "LINGER_CLOSE",
     [XQC_TIMER_KEY_UPDATE]      = "KEY_UPDATE",
+    [XQC_TIMER_PMTUD_PROBING]   = "PMTUD_PROBING",
 };
 
 const char *
@@ -44,7 +45,6 @@ xqc_timer_ack_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_data)
     xqc_connection_t *conn = send_ctl->ctl_conn;
     xqc_pkt_num_space_t pns = type - XQC_TIMER_ACK_INIT;
     conn->conn_flag |= XQC_CONN_FLAG_SHOULD_ACK_INIT << pns;
-    conn->should_ack_path_id = send_ctl->ctl_path->path_id;
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|pns:%d|path:%ui|", pns, send_ctl->ctl_path->path_id);
 }
@@ -102,7 +102,6 @@ xqc_timer_loss_detection_timeout(xqc_timer_type_t type, xqc_usec_t now, void *us
     }
 
     send_ctl->ctl_pto_count++;
-    send_ctl->ctl_pto_count_since_last_tra_path_status_changed++;
     xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_send_ctl_set_loss_detection_timer|PTO|conn:%p|pto_count:%ud", 
             conn, send_ctl->ctl_pto_count);
     xqc_send_ctl_set_loss_detection_timer(send_ctl);
@@ -143,8 +142,13 @@ xqc_timer_path_idle_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_da
         return;
     }
 
+    if (path->path_state < XQC_PATH_STATE_CLOSING) {
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|closing path:%ui|", path->path_id);
+        xqc_path_immediate_close(path);
+    }
+
     if (path->path_state < XQC_PATH_STATE_CLOSED) {
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|close path:%ui|", path->path_id);
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|closed path:%ui|", path->path_id);
         xqc_path_closed(path);
     }
 
@@ -243,8 +247,11 @@ xqc_timer_retire_cid_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_d
                 /* MP关闭主路后如果删除对应的cid映射，对外接口通过engine和cid无法找到conn，暂时注释掉 */
                 /* TODO: 1. MP切换主路后通知上层更换cid; 2. 重新设计接口，改用conn而不是engine和cid */
                 // /* switch state to REMOVED & delete from cid_set */
-                // if (xqc_find_conns_hash(conn->engine->conns_hash, conn, &inner_cid->cid)) {
-                //     xqc_remove_conns_hash(conn->engine->conns_hash, conn, &inner_cid->cid);
+                // if (xqc_find_conns_hash(conn->engine->conns_hash, conn,
+                //                         inner_cid->cid.cid_buf, inner_cid->cid.cid_len))
+                //  {
+                //     xqc_remove_conns_hash(conn->engine->conns_hash, conn,
+                //                           inner_cid->cid.cid_buf, inner_cid->cid.cid_len);
                 // }
 
                 ret = xqc_cid_switch_to_next_state(&conn->scid_set.cid_set, inner_cid, XQC_CID_REMOVED);
@@ -252,6 +259,12 @@ xqc_timer_retire_cid_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_d
                     xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_cid_switch_to_next_state error|");
                     return;
                 }
+
+                xqc_log(conn->log, XQC_LOG_DEBUG, 
+                        "|retired->removed|cid:%s|seq:%ui|len:%d|", 
+                        xqc_scid_str(&inner_cid->cid), 
+                        inner_cid->cid.cid_seq_num,
+                        inner_cid->cid.cid_len);
 
                 // xqc_list_del(pos);
                 // xqc_free(inner_cid);
@@ -296,6 +309,13 @@ xqc_timer_key_update_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_d
     xqc_connection_t *conn = (xqc_connection_t *)user_data;
 
     xqc_tls_discard_old_1rtt_keys(conn->tls);
+}
+
+void
+xqc_timer_pmtud_probing_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_data)
+{
+    xqc_connection_t *conn = (xqc_connection_t *)user_data;
+    conn->conn_flag |= XQC_CONN_FLAG_PMTUD_PROBING;
 }
 
 
@@ -361,7 +381,91 @@ xqc_timer_init(xqc_timer_manager_t *manager, xqc_log_t *log, void *user_data)
         } else if (type == XQC_TIMER_KEY_UPDATE) {
             timer->timeout_cb = xqc_timer_key_update_timeout;
             timer->user_data = user_data;
+            
+        } else if (type == XQC_TIMER_PMTUD_PROBING) {
+            timer->timeout_cb = xqc_timer_pmtud_probing_timeout;
+            timer->user_data = user_data;
         }
+    }
+
+    /* init gp timer list */
+    xqc_init_list_head(&manager->gp_timer_list);
+    manager->next_gp_timer_id = 0;
+}
+
+xqc_gp_timer_id_t xqc_timer_register_gp_timer(xqc_timer_manager_t *manager, 
+    char *timer_name, xqc_gp_timer_timeout_pt cb, void *user_data)
+{
+    if (timer_name == NULL
+        || manager == NULL
+        || cb == NULL)
+    {
+        return -XQC_EPARAM;
+    }
+
+    if (manager->next_gp_timer_id == XQC_GP_TIMER_ID_MAX) {
+        return XQC_ERROR;
+    }
+
+    xqc_gp_timer_t *timer = (xqc_gp_timer_t*)xqc_calloc(1, sizeof(xqc_gp_timer_t));
+    if (timer == NULL) {
+        return -XQC_EMALLOC;
+    }
+
+    size_t name_len = strnlen(timer_name, 1024);
+    timer->name = (char*)xqc_calloc(1, name_len + 1);
+    if (timer->name == NULL) {
+        xqc_free(timer);
+        return -XQC_EMALLOC;
+    }
+    xqc_memcpy(timer->name, timer_name, name_len);
+    
+    timer->timer_is_set = XQC_FALSE;
+    timer->id = manager->next_gp_timer_id++;
+    timer->timeout_cb = cb;
+    timer->user_data = user_data;
+
+    xqc_list_add_tail(&timer->list, &manager->gp_timer_list);
+    return timer->id;
+}
+
+xqc_int_t 
+xqc_timer_unregister_gp_timer(xqc_timer_manager_t *manager, xqc_gp_timer_id_t gp_timer_id)
+{
+    if (!manager || gp_timer_id >= manager->next_gp_timer_id) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_list_head_t *pos, *next;
+    xqc_gp_timer_t *gp_timer;
+
+    xqc_list_for_each_safe(pos, next, &manager->gp_timer_list) {
+        gp_timer = xqc_list_entry(pos, xqc_gp_timer_t, list);
+        if (gp_timer->id == gp_timer_id) {
+            xqc_timer_destroy_gp_timer(gp_timer);
+            return XQC_OK;
+        }
+    }
+    return XQC_ERROR;
+}
+
+void 
+xqc_timer_destroy_gp_timer(xqc_gp_timer_t *gp_timer)
+{
+    xqc_list_del_init(&gp_timer->list);
+    xqc_free(gp_timer->name);
+    xqc_free(gp_timer);
+}
+
+void 
+xqc_timer_destroy_gp_timer_list(xqc_timer_manager_t *manager)
+{
+    xqc_list_head_t *pos, *next;
+    xqc_gp_timer_t *gp_timer;
+
+    xqc_list_for_each_safe(pos, next, &manager->gp_timer_list) {
+        gp_timer = xqc_list_entry(pos, xqc_gp_timer_t, list);
+        xqc_timer_destroy_gp_timer(gp_timer);
     }
 }
 

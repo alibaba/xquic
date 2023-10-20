@@ -57,6 +57,8 @@ typedef int (*xqc_h3_request_notify_pt)(xqc_h3_request_t *h3_request, void *h3s_
 typedef int (*xqc_h3_request_read_notify_pt)(xqc_h3_request_t *h3_request, 
     xqc_request_notify_flag_t flag, void *h3s_user_data);
 
+typedef void (*xqc_h3_request_closing_notify_pt)(xqc_h3_request_t *h3_request, 
+    xqc_int_t err, void *h3s_user_data);
 
 /**
  * @brief encode flags of http headers
@@ -112,7 +114,7 @@ typedef struct xqc_http_headers_s {
 } xqc_http_headers_t;
 
 
-#define XQC_STREAM_INFO_LEN 400
+#define XQC_STREAM_INFO_LEN 100
 
 /**
  * @brief request statistics structure
@@ -120,8 +122,10 @@ typedef struct xqc_http_headers_s {
 typedef struct xqc_request_stats_s {
     size_t      send_body_size;
     size_t      recv_body_size;
-    size_t      send_header_size;       /* compressed header size */
-    size_t      recv_header_size;       /* compressed header size */
+    size_t      send_header_size;       /* plaintext header size */
+    size_t      recv_header_size;       /* plaintext header size */
+    size_t      send_hdr_compressed;    /* compressed header size */
+    size_t      recv_hdr_compressed;    /* compressed header size */
     int         stream_err;             /* QUIC layer error code, 0 for no error */
     xqc_usec_t  blocked_time;           /* time of h3 stream being blocked */
     xqc_usec_t  unblocked_time;         /* time of h3 stream being unblocked */
@@ -139,17 +143,39 @@ typedef struct xqc_request_stats_s {
 
     /**
      * @brief 请求级别MP状态
-     * 0: 该请求所在连接未成功建立起双路 (validated_path_count <= 1)
-     * 1: 该请求是通过2条路径传输(发包or收包 任意方向，包括重注入数据) (validated_path_count > 1 && aggregate_cnt > 1)
-     * 2: 该请求所在连接有成功建立起双路，但请求在单条路径上传输 (validated_path_count > 1 && aggregate_cnt <= 1)
+     * 0: 该请求所在连接当前仅有一条可用路径
+     * 1: 该请求所在连接当前有多条可用路径，该请求同时在 Available 和 Standby 路径传输
+     * 2: 该请求所在连接当前有多条可用路径，但该请求仅在  Standby  路径传输
+     * 3: 该请求所在连接当前有多条可用路径，但该请求仅在 Available 路径传输
      */
     int         mp_state;
     float       mp_default_path_send_weight;
     float       mp_default_path_recv_weight;
+    float       mp_standby_path_send_weight;
+    float       mp_standby_path_recv_weight;
+
+    uint64_t    rate_limit;
 
     char        stream_info[XQC_STREAM_INFO_LEN];
 } xqc_request_stats_t;
 
+/**
+ * @brief bytestream statistics
+ * 
+ */
+typedef struct xqc_h3_ext_bytestream_stats_s {
+    size_t      bytes_sent;
+    size_t      bytes_rcvd;
+    int         stream_err;
+    const char *stream_close_msg;
+    xqc_usec_t  create_time;
+    xqc_usec_t  fin_rcvd_time;
+    xqc_usec_t  fin_read_time;
+    xqc_usec_t  fin_sent_time;
+    xqc_usec_t  fin_acked_time;
+    xqc_usec_t  first_byte_sent_time;
+    xqc_usec_t  first_byte_rcvd_time;
+} xqc_h3_ext_bytestream_stats_t;
 
 /* connection settings for http3 */
 typedef struct xqc_h3_conn_settings_s {
@@ -175,7 +201,103 @@ typedef struct xqc_h3_conn_settings_s {
 
 } xqc_h3_conn_settings_t;
 
+/**
+ * @brief callback for h3 bytestream read
+ * @param h3_ext_bs bytestream
+ * @param data data to be read. NOTE, this could be a NULL pointer, please ONLY read it if data_len > 0.
+ * @param data_len length of data to be read
+ * @param fin the bytestream is finished
+ * @param bs_user_data bytestream user data
+ * @param data_recv_time time spent for receiving data
+ */
+typedef int (*xqc_h3_ext_bytestream_read_notify_pt)(xqc_h3_ext_bytestream_t *h3_ext_bs, 
+    const void *data, size_t data_len, uint8_t fin, void *bs_user_data, uint64_t data_recv_time);
 
+/**
+ * @brief callbacks for extended h3 bytestream
+ */
+typedef int (*xqc_h3_ext_bytestream_notify_pt)(xqc_h3_ext_bytestream_t *h3_ext_bs, 
+    void *bs_user_data);
+
+
+/**
+ * @brief the callback API to notify the application that there is a datagram to be read
+ *
+ * @param conn the connection handle
+ * @param user_data the user_data set by xqc_h3_ext_datagram_set_user_data
+ * @param data the data delivered by this callback
+ * @param data_len the length of the delivered data
+ * @param data_recv_time time spent for receiving data
+ */
+typedef void (*xqc_h3_ext_datagram_read_notify_pt)(xqc_h3_conn_t *conn,
+    const void *data, size_t data_len, void *user_data, uint64_t data_recv_time);
+
+/**
+ * @brief the callback API to notify the application that datagrams can be sent
+ *
+ * @param conn the connection handle
+ * @param user_data the user_data set by xqc_h3_ext_datagram_set_user_data
+ */
+typedef void (*xqc_h3_ext_datagram_write_notify_pt)(xqc_h3_conn_t *conn,
+    void *user_data);
+
+/**
+ * @brief the callback API to notify the application that a datagram is declared lost.
+ * However, the datagram could also be acknowledged later, as the underlying
+ * loss detection is not fully accurate. Applications should handle this type of
+ * spurious loss. The return value is used to ask the QUIC stack to retransmit the lost 
+ * datagram packet.
+ *
+ * @param conn the connection handle
+ * @param user_data the user_data set by xqc_h3_ext_datagram_set_user_data
+ * @param dgram_id the id of the lost datagram
+ * @return 0, do not retransmit;
+ *         XQC_DGRAM_RETX_ASKED_BY_APP, retransmit;
+ *         others, ignored by the QUIC stack.
+ */
+typedef int (*xqc_h3_ext_datagram_lost_notify_pt)(xqc_h3_conn_t *conn, 
+    uint64_t dgram_id, void *user_data);
+
+/**
+ * @brief the callback API to notify the application that a datagram is acked
+ * 
+ * @param conn the connection handle
+ * @param user_data the user_data set by xqc_h3_ext_datagram_set_user_data
+ * @param dgram_id the id of the acked datagram
+ */
+typedef void (*xqc_h3_ext_datagram_acked_notify_pt)(xqc_h3_conn_t *conn,
+    uint64_t dgram_id, void *user_data);
+
+
+/**
+ * @brief the callback to notify application the MSS of QUIC datagrams. Note, 
+ *        the MSS of QUIC datagrams will never shrink. If the MSS is zero, it 
+ *        means this connection does not support sending QUIC datagrams.
+ * 
+ * @param conn the connection handle
+ * @param user_data the dgram_data set by xqc_h3_ext_datagram_set_user_data
+ * @param mss the MSS of QUIC datagrams
+ */
+typedef void (*xqc_h3_ext_datagram_mss_updated_notify_pt)(xqc_h3_conn_t *conn,
+    size_t mss, void *user_data);
+
+
+typedef struct xqc_h3_ext_dgram_callbacks_s {
+
+    /* the return value is ignored by XQUIC stack */
+    xqc_h3_ext_datagram_read_notify_pt          dgram_read_notify;
+
+    /* the return value is ignored by XQUIC stack */
+    xqc_h3_ext_datagram_write_notify_pt         dgram_write_notify;
+
+    /* the return value is ignored by XQUIC stack */
+    xqc_h3_ext_datagram_acked_notify_pt         dgram_acked_notify;
+
+    /* the return value is ignored by XQUIC stack */
+    xqc_h3_ext_datagram_lost_notify_pt          dgram_lost_notify;
+    xqc_h3_ext_datagram_mss_updated_notify_pt   dgram_mss_updated_notify;
+
+} xqc_h3_ext_dgram_callbacks_t;
 
 /**
  * @brief http3 connection callbacks for application layer
@@ -202,27 +324,52 @@ typedef struct xqc_h3_conn_callbacks_s {
 typedef struct xqc_h3_request_callbacks_s {
     /* request creation notify. it will be triggered after a request was created, and is required
        for server, optional for client */
-    xqc_h3_request_notify_pt        h3_request_create_notify;
+    xqc_h3_request_notify_pt            h3_request_create_notify;
 
     /* request close notify. which will be triggered after a request was closed */
-    xqc_h3_request_notify_pt        h3_request_close_notify;
+    xqc_h3_request_notify_pt            h3_request_close_notify;
 
     /* request read notify callback. which will be triggered after received http headers or body */
-    xqc_h3_request_read_notify_pt   h3_request_read_notify;
+    xqc_h3_request_read_notify_pt       h3_request_read_notify;
 
     /* request write notify callback. when triggered, users can continue to send headers or body */
-    xqc_h3_request_notify_pt        h3_request_write_notify;
+    xqc_h3_request_notify_pt            h3_request_write_notify;
+
+    /* request closing notify callback, will be triggered when request is closing */
+    xqc_h3_request_closing_notify_pt    h3_request_closing_notify;
 
 } xqc_h3_request_callbacks_t;
+
+typedef struct xqc_h3_ext_bytestream_callbacks_s {
+
+    /* the return value is ignored by XQUIC stack */
+    xqc_h3_ext_bytestream_notify_pt       bs_create_notify;
+
+    /* the return value is ignored by XQUIC stack */
+    xqc_h3_ext_bytestream_notify_pt       bs_close_notify;
+
+    /* negative return values will cause the connection to be closed */
+    xqc_h3_ext_bytestream_read_notify_pt  bs_read_notify;
+
+    /* negative return values will cause the connection to be closed */
+    xqc_h3_ext_bytestream_notify_pt       bs_write_notify;
+
+} xqc_h3_ext_bytestream_callbacks_t;
 
 
 typedef struct xqc_h3_callbacks_s {
 
     /* http3 connection callbacks */
-    xqc_h3_conn_callbacks_t     h3c_cbs;
+    xqc_h3_conn_callbacks_t           h3c_cbs;
 
     /* http3 request callbacks */
-    xqc_h3_request_callbacks_t  h3r_cbs;
+    xqc_h3_request_callbacks_t        h3r_cbs;
+
+    /* datagram callbacks */
+    xqc_h3_ext_dgram_callbacks_t      h3_ext_dgram_cbs;
+
+    /* bytestream callbacks */
+    xqc_h3_ext_bytestream_callbacks_t h3_ext_bs_cbs;
 
 } xqc_h3_callbacks_t;
 
@@ -338,6 +485,16 @@ xqc_int_t xqc_h3_conn_get_errno(xqc_h3_conn_t *h3c);
 
 
 /**
+ * @brief get ssl handler of http3 connection
+ * 
+ * @param h3c handler of http3 connection
+ * @return ssl handler of http3 connection
+ */
+XQC_EXPORT_PUBLIC_API
+void *xqc_h3_conn_get_ssl(xqc_h3_conn_t *h3c);
+
+
+/**
  * @brief set user_data for http3 connection, user_data could be the application layer context of 
  * http3 connection
  * 
@@ -347,6 +504,16 @@ xqc_int_t xqc_h3_conn_get_errno(xqc_h3_conn_t *h3c);
  */
 XQC_EXPORT_PUBLIC_API
 void xqc_h3_conn_set_user_data(xqc_h3_conn_t *h3c, void *user_data);
+
+/**
+ * @brief get user_data for http3 connection, user_data could be the application layer context of 
+ * http3 connection
+ * 
+ * @param h3c handler of http3 connection
+ * @return user_data 
+ */
+XQC_EXPORT_PUBLIC_API
+void *xqc_h3_conn_get_user_data(xqc_h3_conn_t *h3_conn);
 
 
 /**
@@ -422,11 +589,12 @@ xqc_int_t xqc_h3_conn_set_qpack_dtable_cap(xqc_h3_conn_t *h3c, size_t capacity);
  * @param engine handler created by xqc_engine_create
  * @param cid connection id of http3 connection
  * @param user_data For request
+ * @param settings stream settings
  * @return handler of http3 request
  */
 XQC_EXPORT_PUBLIC_API
 xqc_h3_request_t *xqc_h3_request_create(xqc_engine_t *engine, const xqc_cid_t *cid, 
-    void *user_data);
+    xqc_stream_settings_t *settings, void *user_data);
 
 /**
  * @brief get statistics of a http3 request user can get it before request destroyed
@@ -463,6 +631,10 @@ void xqc_h3_request_set_user_data(xqc_h3_request_t *h3_request, void *user_data)
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_h3_request_close(xqc_h3_request_t *h3_request);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_h3_request_update_settings(xqc_h3_request_t *h3_request, 
+    xqc_stream_settings_t *settings);
 
 /**
  * @brief send http headers to peer
@@ -553,6 +725,166 @@ xqc_int_t xqc_parse_http_priority(xqc_h3_priority_t *dst,
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_h3_request_set_priority(xqc_h3_request_t *h3r,
     xqc_h3_priority_t *prio);
+
+/****************************/
+/* New APIs for extended H3 */
+/****************************/
+
+/**
+ * @brief create a bytestream based on extended H3
+ * @param engine handler created by xqc_engine_create
+ * @param cid connection id of http3 connection
+ * @param user_data For bytestream
+ * @return handler of bytestream
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_h3_ext_bytestream_t *xqc_h3_ext_bytestream_create(xqc_engine_t *engine, 
+    const xqc_cid_t *cid, void *user_data);
+
+/**
+ * @brief close bytestream, send QUIC RESET_STREAM frame to peer. h3_ext_bytestream_close_notify will 
+ * triggered when bytestream is finally destroyed
+ * 
+ * @param xqc_h3_ext_bytestream_t handler of bytestream
+ * @return XQC_OK for success, others for error
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_h3_ext_bytestream_close(xqc_h3_ext_bytestream_t *h3_ext_bs);
+
+/**
+ * @brief finish bytestream. if fin is not sent yet, and application has nothing to send anymore, call
+ * this function to send a QUIC STREAM frame with only fin
+ *
+ * @return > 0 for Bytes sent，-XQC_EAGAIN try next time, < 0 for error, 0 for bytestream finished
+ */
+XQC_EXPORT_PUBLIC_API
+ssize_t xqc_h3_ext_bytestream_finish(xqc_h3_ext_bytestream_t *h3_ext_bs);
+
+/**
+ * @brief set user_data of a bytestream, which will be used as the parameter of the bytestream
+ * callback functions. server should set user_data when h3_ext_bytestream_create_notify triggers
+ * 
+ * @param xqc_h3_ext_bytestream_t handler of the bytestream
+ * @param user_data user data of the bytestream callback functions
+ */
+XQC_EXPORT_PUBLIC_API
+void xqc_h3_ext_bytestream_set_user_data(xqc_h3_ext_bytestream_t *h3_ext_bs, 
+    void *user_data);
+
+
+/**
+ * @brief get the user data associcated with the bytestream object
+ * 
+ * @param xqc_h3_ext_bytestream_t handler of the bytestream
+ * @param user_data user data of the bytestream callback functions
+ * @return the pointer of user data
+ */
+XQC_EXPORT_PUBLIC_API
+void *xqc_h3_ext_bytestream_get_user_data(xqc_h3_ext_bytestream_t *h3_ext_bs);
+
+/**
+ * @brief get statistics of a bytestream
+ * 
+ * @param xqc_h3_ext_bytestream_t handler of the bytestream
+ * @return statistics information of the bytestream
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_h3_ext_bytestream_stats_t xqc_h3_ext_bytestream_get_stats(
+    xqc_h3_ext_bytestream_t *h3_ext_bs);
+
+/**
+ * @brief send data
+ * 
+ * @param xqc_h3_ext_bytestream_t handler of the bytestream
+ * @param data content
+ * @param data_size data length
+ * @param fin request finish flag, 1 for finish.
+ * @param qos level (must be the values defined in xqc_data_qos_level_t)
+ * @return > 0 for bytes sent，-XQC_EAGAIN try next time, < 0 for error, 0 for bytestream finished
+ */
+XQC_EXPORT_PUBLIC_API
+ssize_t xqc_h3_ext_bytestream_send(xqc_h3_ext_bytestream_t *h3_ext_bs, 
+    unsigned char *data, size_t data_size, uint8_t fin, 
+    xqc_data_qos_level_t qos_level);
+
+/**
+ * @brief Get QUIC stream ID by a bytestream
+ * 
+ * @param xqc_h3_ext_bytestream_t handler of a bytestream
+ * @return QUIC stream id
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_stream_id_t xqc_h3_ext_bytestream_id(xqc_h3_ext_bytestream_t *h3_ext_bs);
+
+/**
+ * @brief get the h3 connection associated with a bytestream
+ * 
+ * @param xqc_h3_ext_bytestream_t handler of a bytestream
+ * @return an h3 connection
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_h3_conn_t *xqc_h3_ext_bytestream_get_h3_conn(
+    xqc_h3_ext_bytestream_t *h3_ext_bs);
+
+/**
+ * @brief the API to get the max length of the data that can be sent 
+ *        via a single call of xqc_datagram_send
+ * 
+ * @param conn the connection handle 
+ * @return 0 = the peer does not support datagram, >0 = the max length
+ */
+XQC_EXPORT_PUBLIC_API
+size_t xqc_h3_ext_datagram_get_mss(xqc_h3_conn_t *conn);
+
+/**
+ * Server should set datagram user_data when datagram callbacks
+ * @dgram_data: the user_data of all datagram callbacks
+ */
+XQC_EXPORT_PUBLIC_API
+void xqc_h3_ext_datagram_set_user_data(xqc_h3_conn_t *conn, void *user_data);
+
+/**
+ * @return the user_data of all datagram callbacks
+ */
+XQC_EXPORT_PUBLIC_API
+void *xqc_h3_ext_datagram_get_user_data(xqc_h3_conn_t *conn);
+
+
+/**
+ * @brief the API to send a datagram over the h3 connection
+ * 
+ * @param conn the connection handle 
+ * @param data the data to be sent
+ * @param data_len the length of the data
+ * @param *dgram_id the pointer to return the id the datagram
+ * @param qos level (must be the values defined in xqc_data_qos_level_t)
+ * @return <0 = error (-XQC_EAGAIN, -XQC_CLOSING, -XQC_DGRAM_NOT_SUPPORTED, -XQC_DGRAM_TOO_LARGE, ...), 
+ *         0 success
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_h3_ext_datagram_send(xqc_h3_conn_t *conn, void *data, 
+    size_t data_len, uint64_t *dgram_id, 
+    xqc_data_qos_level_t qos_level);
+
+/**
+ * @brief the API to send a datagram over the h3 connection
+ * 
+ * @param conn the connection handle 
+ * @param iov multiple data buffers need to be sent 
+ * @param *dgram_id the pointer to return the list of dgram_id 
+ * @param iov_size the size of iov list 
+ * @param *sent_cnt the number of successfully sent datagrams
+ * @param *sent_bytes the total bytes of successfully sent datagrams
+ * @param qos level (must be the values defined in xqc_data_qos_level_t)
+ * @return <0 = error (-XQC_EAGAIN, -XQC_CLOSING, -XQC_DGRAM_NOT_SUPPORTED, -XQC_DGRAM_TOO_LARGE, ...), 
+ *         0 success
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_h3_ext_datagram_send_multiple(xqc_h3_conn_t *conn, 
+    struct iovec *iov, uint64_t *dgram_id_list, size_t iov_size, 
+    size_t *sent_cnt, size_t *sent_bytes,
+    xqc_data_qos_level_t qos_level);
+
 
 #ifdef __cplusplus
 }

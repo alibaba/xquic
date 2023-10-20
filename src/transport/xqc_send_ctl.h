@@ -12,6 +12,7 @@
 #include "src/transport/xqc_send_queue.h"
 #include "src/transport/xqc_timer.h"
 #include "src/transport/xqc_multipath.h"
+#include <math.h>
 
 #define XQC_kPacketThreshold                3
 #define XQC_kTimeThresholdShift             3
@@ -28,6 +29,7 @@
 
 /* 2^n */
 #define xqc_send_ctl_pow(n)                 (1 << n)
+#define xqc_send_ctl_pow_x(x, n)            (fabs(x - 2) < 1e-7) ? xqc_send_ctl_pow(n) : pow(x, n)
 
 
 #define XQC_DEFAULT_RECORD_INTERVAL         (100000)    /* 100ms record interval */
@@ -65,28 +67,9 @@ typedef struct xqc_pn_ctl_s {
 
 } xqc_pn_ctl_t;
 
-
-/* node of path packet number list (single pns only) */
-typedef struct xqc_packet_number_node_s {
-    xqc_packet_number_t     pkt_num;
-    xqc_usec_t              pkt_sent_time;
-    xqc_list_head_t         pn_list;
-} xqc_packet_number_node_t;
-
-
-typedef struct xqc_sent_record_s {
-    xqc_list_head_t             sent_pn_list;  /* xqc_packet_number_node_t */
-
-    /* the latest rtt was updated when this packet was acked in a same-path round trip */
-    xqc_packet_number_t         latest_rtt_pn;
-} xqc_sent_record_t;
-
-
 typedef struct xqc_send_ctl_s {
     xqc_connection_t            *ctl_conn;
     xqc_path_ctx_t              *ctl_path;
-
-    xqc_sent_record_t           ctl_sent_record[XQC_PNS_N];
 
     /* largest packet number of the acked packets in packet_out */
     xqc_packet_number_t         ctl_largest_acked[XQC_PNS_N];
@@ -102,7 +85,6 @@ typedef struct xqc_send_ctl_s {
 
     /* Ack-eliciting Packets received since last ack sent */
     uint32_t                    ctl_ack_eliciting_pkt[XQC_PNS_N];
-    xqc_packet_number_t         ctl_unack_received[XQC_PNS_N];
 
     xqc_usec_t                  ctl_loss_time[XQC_PNS_N];
 
@@ -123,15 +105,20 @@ typedef struct xqc_send_ctl_s {
     xqc_timer_manager_t         path_timer_manager;
 
     unsigned                    ctl_pto_count;
-    unsigned                    ctl_pto_count_since_last_tra_path_status_changed;
 
     unsigned                    ctl_send_count;
     unsigned                    ctl_lost_count;
     unsigned                    ctl_tlp_count;
     unsigned                    ctl_spurious_loss_count;
-    unsigned                    ctl_send_count_at_last_tra_path_status_changed_time;
+    unsigned                    ctl_lost_dgram_cnt;
 
     unsigned                    ctl_recv_count;
+
+    /* for QUIC datagrams */
+    uint32_t                    ctl_dgram_send_count;
+    uint32_t                    ctl_dgram_recv_count;
+    uint32_t                    ctl_reinj_dgram_send_count;
+    uint32_t                    ctl_reinj_dgram_recv_count;
 
     uint32_t                    ctl_max_bytes_in_flight;
     uint8_t                     ctl_is_cwnd_limited;
@@ -173,7 +160,12 @@ xqc_send_ctl_calc_pto(xqc_send_ctl_t *send_ctl)
         + send_ctl->ctl_conn->local_settings.max_ack_delay * 1000;
 }
 
-int xqc_send_ctl_indirectly_ack_po(xqc_connection_t *conn, xqc_packet_out_t *po);
+
+void xqc_send_ctl_on_dgram_dropped(xqc_connection_t *conn, xqc_packet_out_t *po);
+
+int xqc_send_ctl_may_remove_unacked_dgram(xqc_connection_t *conn, xqc_packet_out_t *po);
+
+int xqc_send_ctl_indirectly_ack_or_drop_po(xqc_connection_t *conn, xqc_packet_out_t *po);
 
 xqc_send_ctl_t *xqc_send_ctl_create(xqc_path_ctx_t *path);
 
@@ -205,9 +197,7 @@ void xqc_send_ctl_on_pns_discard(xqc_send_ctl_t *send_ctl, xqc_pkt_num_space_t p
 
 void xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_packet_out_t *packet_out, xqc_usec_t now, ssize_t sent);
 
-int xqc_send_ctl_on_ack_received_spns(xqc_connection_t *conn, xqc_ack_info_t *const ack_info, xqc_usec_t ack_recv_time);
-
-int xqc_send_ctl_on_ack_received (xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_send_queue_t *send_queue, xqc_ack_info_t *const ack_info, xqc_usec_t ack_recv_time);
+int xqc_send_ctl_on_ack_received (xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_send_queue_t *send_queue, xqc_ack_info_t *const ack_info, xqc_usec_t ack_recv_time, xqc_bool_t ack_on_same_path);
 
 void xqc_send_ctl_on_dgram_received(xqc_send_ctl_t *send_ctl, size_t dgram_size);
 
@@ -263,30 +253,5 @@ xqc_bool_t xqc_send_ctl_ack_received_in_pns(xqc_send_ctl_t *send_ctl, xqc_pkt_nu
 xqc_packet_number_t xqc_send_ctl_get_lost_sent_pn(xqc_send_ctl_t *send_ctl, xqc_pkt_num_space_t pns);
 
 xqc_packet_number_t xqc_send_ctl_get_pkt_num_gap(xqc_send_ctl_t *send_ctl, xqc_pkt_num_space_t pns, xqc_packet_number_t front, xqc_packet_number_t back);
-
-
-/* sent record (single pns only) */
-void xqc_sent_record_init(xqc_sent_record_t *sent_record);
-
-void xqc_sent_record_release(xqc_sent_record_t *sent_record);
-
-/* 决定发包路径后，把pn添加到path里 */
-xqc_int_t xqc_sent_record_add(xqc_sent_record_t *sent_record, xqc_packet_number_t pkt_num, xqc_usec_t sent_time);
-
-/* 在ack received响应之后，移除已全部确认的前排pn */
-void xqc_sent_record_del(xqc_sent_record_t *sent_record);
-
-/* 计算视作丢包的pn */
-xqc_int_t xqc_sent_record_lost_sent_pn(xqc_sent_record_t *sent_record, xqc_packet_number_t largest_acked, xqc_packet_number_t threshold, xqc_packet_number_t *lost_pn);
-
-/* 计算两个pn的间隔 */
-xqc_int_t xqc_sent_record_pn_gap(xqc_sent_record_t *sent_record, xqc_packet_number_t front, xqc_packet_number_t back, xqc_packet_number_t *gap);
-
-/* 找到ack info里属于sent record的最大pn */
-xqc_int_t xqc_sent_record_get_largest_pn_in_ack(xqc_sent_record_t *sent_record, xqc_ack_info_t *const ack_info, xqc_packet_number_node_t **largest_pn_node);
-
-/* Temp */
-/* void xqc_sent_record_log(xqc_send_ctl_t *send_ctl, xqc_packet_out_t *packet_out); */
-
 
 #endif /* _XQC_SEND_CTL_H_INCLUDED_ */

@@ -198,4 +198,12 @@ xqc_int_t xqc_tls_cal_retry_integrity_tag(xqc_tls_t *tls,
 void xqc_tls_get_selected_alpn(xqc_tls_t *tls, const char **out_alpn,
                                size_t *out_len);
 
+xqc_int_t xqc_tls_update_tp(xqc_tls_t *tls, uint8_t *tp_buf, size_t tp_len);
+
+/**
+ * @brief get SSL handler
+ */
+void *xqc_tls_get_ssl(xqc_tls_t *tls);
+
+
 #endif

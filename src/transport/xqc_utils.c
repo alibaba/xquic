@@ -36,14 +36,15 @@ xqc_conns_pq_top(xqc_pq_t *pq)
 }
 
 int
-xqc_insert_conns_hash(xqc_str_hash_table_t *conns_hash, xqc_connection_t *conn, xqc_cid_t *cid)
+xqc_insert_conns_hash(xqc_str_hash_table_t *conns_hash, xqc_connection_t *conn,
+    const uint8_t *data, size_t len)
 {
-    uint64_t hash = xqc_hash_string(cid->cid_buf, cid->cid_len);
+    uint64_t hash = xqc_hash_string(data, len);
 
     xqc_str_hash_element_t c = {
         .str    = {
-            .data = cid->cid_buf,
-            .len = cid->cid_len
+            .data = (unsigned char *)data,
+            .len = len
         },
         .hash   = hash,
         .value  = conn
@@ -56,12 +57,13 @@ xqc_insert_conns_hash(xqc_str_hash_table_t *conns_hash, xqc_connection_t *conn, 
 }
 
 int
-xqc_remove_conns_hash(xqc_str_hash_table_t *conns_hash, xqc_connection_t *conn, xqc_cid_t *cid)
+xqc_remove_conns_hash(xqc_str_hash_table_t *conns_hash, xqc_connection_t *conn,
+    const uint8_t *data, size_t len)
 {
-    uint64_t hash = xqc_hash_string(cid->cid_buf, cid->cid_len);
+    uint64_t hash = xqc_hash_string(data, len);
     xqc_str_t str = {
-        .data   = cid->cid_buf,
-        .len    = cid->cid_len,
+        .data   = (unsigned char *)data,
+        .len    = len,
     };
 
     if (xqc_str_hash_delete(conns_hash, hash, str)) {
@@ -93,12 +95,13 @@ xqc_insert_conns_addr_hash(xqc_str_hash_table_t *conns_hash, xqc_connection_t *c
 
 
 void *
-xqc_find_conns_hash(xqc_str_hash_table_t *conns_hash, xqc_connection_t *conn, xqc_cid_t *cid)
+xqc_find_conns_hash(xqc_str_hash_table_t *conns_hash, xqc_connection_t *conn,
+    const uint8_t *data, size_t len)
 {
-    uint64_t hash = xqc_hash_string(cid->cid_buf, cid->cid_len);
+    uint64_t hash = xqc_hash_string(data, len);
     xqc_str_t str = {
-        .data   = cid->cid_buf,
-        .len    = cid->cid_len,
+        .data   = (unsigned char *)data,
+        .len    = len,
     };
 
     return xqc_str_hash_find(conns_hash, hash, str);

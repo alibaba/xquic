@@ -19,10 +19,13 @@ void xqc_conns_pq_pop(xqc_pq_t *pq);
 
 xqc_conns_pq_elem_t *xqc_conns_pq_top(xqc_pq_t *pq);
 
-int xqc_insert_conns_hash(xqc_str_hash_table_t *conns_hash, xqc_connection_t *conn, xqc_cid_t *cid);
+int xqc_insert_conns_hash(xqc_str_hash_table_t *conns_hash,
+    xqc_connection_t *conn, const uint8_t *data, size_t len);
 
-int xqc_remove_conns_hash(xqc_str_hash_table_t *conns_hash, xqc_connection_t *conn, xqc_cid_t *cid);
+int xqc_remove_conns_hash(xqc_str_hash_table_t *conns_hash,
+    xqc_connection_t *conn, const uint8_t *data, size_t len);
 
-void *xqc_find_conns_hash(xqc_str_hash_table_t *conns_hash, xqc_connection_t *conn, xqc_cid_t *cid);
+void *xqc_find_conns_hash(xqc_str_hash_table_t *conns_hash,
+    xqc_connection_t *conn, const uint8_t *data, size_t len);
 
 #endif /* _XQC_UTILS_H_INCLUDED_ */

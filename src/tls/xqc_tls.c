@@ -169,7 +169,7 @@ xqc_tls_set_alpn(SSL *ssl, const char *alpn)
      * the rest bytes, set the last byte with '\0'
      */
     p_alpn[0] = alpn_len;
-    strncpy(&p_alpn[1], alpn, protos_len);
+    memcpy(&p_alpn[1], alpn, alpn_len);
     p_alpn[protos_len] = '\0';
     SSL_set_alpn_protos(ssl, p_alpn, protos_len);
 
@@ -308,6 +308,21 @@ xqc_tls_create_ssl(xqc_tls_t *tls, xqc_tls_config_t *cfg)
     }
 
 end:
+    return ret;
+}
+
+xqc_int_t 
+xqc_tls_update_tp(xqc_tls_t *tls, uint8_t *tp_buf, size_t tp_len)
+{
+    xqc_int_t ret = XQC_OK;
+    int ssl_ret;
+    /* set local transport parameter */
+    ssl_ret = SSL_set_quic_transport_params(tls->ssl, tp_buf, tp_len);
+    if (ssl_ret != XQC_SSL_SUCCESS) {
+        xqc_log(tls->log, XQC_LOG_ERROR, "|set transport params error|%s|",
+                ERR_error_string(ERR_get_error(), NULL));
+        ret = -XQC_TLS_INTERNAL;
+    }
     return ret;
 }
 
@@ -1107,6 +1122,16 @@ xqc_tls_get_selected_alpn(xqc_tls_t *tls, const char **out_alpn,
 
     SSL_get0_alpn_selected(tls->ssl, (const uint8_t **)out_alpn,
                            (unsigned *)out_len);
+}
+
+void *
+xqc_tls_get_ssl(xqc_tls_t *tls)
+{
+    if (!tls) {
+        return NULL;
+    }
+
+    return tls->ssl;
 }
 
 

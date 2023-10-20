@@ -85,7 +85,7 @@ xqc_hq_request_create(xqc_engine_t *engine, xqc_hq_conn_t *hqc, const xqc_cid_t 
     }
 
     /* create stream, make hqr the user_data of xqc_stream_t */
-    stream = xqc_stream_create(engine, cid, hqr);
+    stream = xqc_stream_create(engine, cid, NULL, hqr);
     if (NULL == stream) {
         PRINT_LOG("create transport-level stream error");
         goto fail;
@@ -315,13 +315,68 @@ xqc_hq_request_recv_req(xqc_hq_request_t *hqr, char *res_buf, size_t buf_sz, uin
 ssize_t
 xqc_hq_request_recv_rsp(xqc_hq_request_t *hqr, char *res_buf, size_t buf_sz, uint8_t *fin)
 {
-    return xqc_stream_recv(hqr->stream, res_buf, buf_sz, fin);
+    ssize_t ret = xqc_stream_recv(hqr->stream, res_buf, buf_sz, fin);
+    if (ret > 0) {
+        hqr->recv_cnt += ret;
+    }
+    return ret;
 }
 
 void
 xqc_hq_request_set_user_data(xqc_hq_request_t *hqr, void *user_data)
 {
     hqr->user_data = user_data;
+}
+
+xqc_request_stats_t
+xqc_hq_request_get_stats(xqc_hq_request_t *hqr)
+{
+    xqc_request_stats_t stats;
+    xqc_memzero(&stats, sizeof(stats));
+
+    xqc_stream_t *stream    = hqr->stream;
+    uint64_t conn_err       = hqr->stream->stream_conn->conn_err;
+
+    stats.recv_body_size    = hqr->recv_cnt;
+    stats.send_body_size    = hqr->sent_cnt;
+    stats.stream_err        = conn_err != 0 ? conn_err : hqr->stream->stream_err;
+
+    char *buff = stats.stream_info;
+    size_t buff_size = XQC_STREAM_INFO_LEN;
+    size_t cursor = 0, ret = 0;
+    int i;
+
+    for (int i = 0; i < XQC_MAX_PATHS_COUNT; ++i) {
+        if ((stream->paths_info[i].path_send_bytes > 0)
+            || (stream->paths_info[i].path_recv_bytes > 0))
+        {
+
+            ret = snprintf(buff + cursor, buff_size - cursor, 
+                            "%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"-%"PRIu64"#",
+                            stream->paths_info[i].path_id,
+                            stream->paths_info[i].path_pkt_send_count,
+                            stream->paths_info[i].path_pkt_recv_count,
+                            stream->paths_info[i].path_send_bytes,
+                            stream->paths_info[i].path_recv_bytes);
+            cursor += ret;
+
+            if (cursor >= buff_size) {
+                goto full;
+            }
+        }
+    }
+
+full:
+    cursor = xqc_min(cursor, buff_size);
+    for (i = cursor - 1; i >= 0; i--) {
+        if (buff[i] == '-' || buff[i] == '#') {
+            buff[i] = '\0';
+            break;
+        }
+    }
+    buff[buff_size - 1] = '\0';
+
+    return stats;
 }
 
 

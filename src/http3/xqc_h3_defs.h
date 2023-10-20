@@ -5,13 +5,14 @@
 #ifndef _XQC_H3_DEFS_H_
 #define _XQC_H3_DEFS_H_
 
+#include <xquic/xquic_typedef.h>
+
 /**
  * ALPN definitions
  */
-#define XQC_ALPN_H3         "h3"
-#define XQC_ALPN_H3_LEN     2
-#define XQC_ALPN_H3_29      "h3-29"
-#define XQC_ALPN_H3_29_LEN  5
+#define XQC_ALPN_H3         XQC_DEFINED_ALPN_H3
+#define XQC_ALPN_H3_29      XQC_DEFINED_ALPN_H3_29
+#define XQC_ALPN_H3_EXT     XQC_DEFINED_ALPN_H3_EXT
 
 extern const char *const xqc_h3_alpn[];
 

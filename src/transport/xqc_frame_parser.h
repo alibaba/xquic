@@ -12,7 +12,17 @@
 #include "src/transport/xqc_recv_record.h"
 
 #define XQC_PATH_CHALLENGE_DATA_LEN  8
+#define XQC_DATAGRAM_LENGTH_FIELD_BYTES 2
+#define XQC_DATAGRAM_HEADER_BYTES (XQC_DATAGRAM_LENGTH_FIELD_BYTES + 1)
 
+/**
+ * generate datagram frame
+ */
+xqc_int_t xqc_gen_datagram_frame(xqc_packet_out_t *packet_out, 
+    const unsigned char *payload, size_t size);
+
+xqc_int_t xqc_parse_datagram_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
+    unsigned char **buffer, size_t *size);
 
 /**
  * generate stream frame
@@ -27,11 +37,11 @@ xqc_int_t xqc_parse_stream_frame(xqc_packet_in_t *packet_in, xqc_connection_t *c
     xqc_stream_frame_t *frame, xqc_stream_id_t *stream_id);
 
 ssize_t xqc_gen_crypto_frame(xqc_packet_out_t *packet_out, uint64_t offset,
-    const unsigned char *payload, size_t payload_size, size_t *written_size);
+    const unsigned char *payload, uint64_t payload_size, size_t *written_size);
 
 xqc_int_t xqc_parse_crypto_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_stream_frame_t * frame);
 
-void xqc_gen_padding_frame(xqc_packet_out_t *packet_out);
+void xqc_gen_padding_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
 
 xqc_int_t xqc_parse_padding_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn);
 
@@ -41,9 +51,6 @@ xqc_int_t xqc_parse_ping_frame(xqc_packet_in_t *packet_in, xqc_connection_t *con
 
 ssize_t xqc_gen_ack_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec_t now, int ack_delay_exponent,
     xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, int *has_gap, xqc_packet_number_t *largest_ack);
-
-ssize_t xqc_gen_ack_frame_for_spns(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec_t now, int ack_delay_exponent,
-    xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, int *has_gap, xqc_packet_number_t *largest_ack, xqc_packet_number_t must_ack);
 
 xqc_int_t xqc_parse_ack_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_ack_info_t *ack_info);
 
@@ -95,7 +102,8 @@ ssize_t xqc_gen_handshake_done_frame(xqc_packet_out_t *packet_out);
 
 xqc_int_t xqc_parse_handshake_done_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn);
 
-ssize_t xqc_gen_new_conn_id_frame(xqc_packet_out_t *packet_out, xqc_cid_t *new_cid, uint64_t retire_prior_to, char *key, size_t keylen);
+ssize_t xqc_gen_new_conn_id_frame(xqc_packet_out_t *packet_out, xqc_cid_t *new_cid,
+    uint64_t retire_prior_to, const uint8_t *sr_token);
 
 xqc_int_t xqc_parse_new_conn_id_frame(xqc_packet_in_t *packet_in, xqc_cid_t *new_cid, uint64_t *retire_prior_to, xqc_connection_t *conn);
 
@@ -115,20 +123,21 @@ ssize_t xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id, xqc_packe
     int ack_delay_exponent, xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, int *has_gap, xqc_packet_number_t *largest_ack);
 
 xqc_int_t xqc_parse_ack_mp_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
-    uint64_t *path_id, xqc_ack_info_t *ack_info);
+    uint64_t *dcid_seq_num, xqc_ack_info_t *ack_info);
 
-ssize_t xqc_gen_path_abandon_frame(xqc_packet_out_t *packet_out,
-    uint64_t path_id_type, uint64_t path_id_content, uint64_t error_code);
+ssize_t xqc_gen_path_abandon_frame(xqc_connection_t *conn, 
+    xqc_packet_out_t *packet_out, uint64_t dcid_seq_num, uint64_t error_code);
 
 xqc_int_t xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
-    uint64_t *path_id_type, uint64_t *path_id_content, uint64_t *error_code);
+    uint64_t *dcid_seq_num, uint64_t *error_code);
 
-ssize_t xqc_gen_path_status_frame(xqc_packet_out_t *packet_out,
-    uint64_t path_id_type, uint64_t path_id_content,
+ssize_t xqc_gen_path_status_frame(xqc_connection_t *conn,
+    xqc_packet_out_t *packet_out,
+    uint64_t dcid_seq_num,
     uint64_t path_status_seq_num, uint64_t path_status);
 
 xqc_int_t xqc_parse_path_status_frame(xqc_packet_in_t *packet_in,
-    uint64_t *path_id_type, uint64_t *path_id_content,
+    uint64_t *dcid_seq_num,
     uint64_t *path_status_seq_num, uint64_t *path_status);
 
 #endif /*_XQC_FRAME_PARSER_H_INCLUDED_*/

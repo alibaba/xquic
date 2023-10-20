@@ -22,10 +22,16 @@ typedef enum {
 
     /* bidi stream type */
     XQC_H3_STREAM_TYPE_REQUEST          = 0x10,
+    XQC_H3_STREAM_TYPE_BYTESTEAM        = 0x20,
 
     /* reserved stream type or others */
     XQC_H3_STREAM_TYPE_UNKNOWN          = 0xFFFFFFFFFFFFFFFFull,
 } xqc_h3_stream_type_t;
+
+typedef enum {
+   XQC_H3_BIDI_STREAM_TYPE_REQUEST    = 0,
+   XQC_H3_BIDI_STREAM_TYPE_BYTESTREAM = 1,
+} xqc_h3_bidi_stream_type_t;
 
 typedef enum {
     XQC_HTTP3_STREAM_FLAG_NONE                  = 0x0000,
@@ -65,6 +71,8 @@ typedef enum {
        blocked and waiting for encoder stream insertions while Transport stream
        notify its close */
     XQC_HTTP3_STREAM_FLAG_ACTIVELY_CLOSED       = 0x1000,
+    /* FIN was sent and no data will be sent any more */
+    XQC_HTTP3_STREAM_FLAG_FIN_SENT              = 0x2000,
 } xqc_h3_stream_flag;
 
 typedef struct xqc_h3_stream_pctx_s {
@@ -92,7 +100,11 @@ typedef struct xqc_h3_stream_s {
      * available only in request streams, create or dereference in control or
      * reserved streams is forbidden.
      */
-    xqc_h3_request_t               *h3r;
+    union {
+      xqc_h3_request_t               *h3r;
+      xqc_h3_ext_bytestream_t        *h3_ext_bs;
+    };
+    
 
     /* stream type */
     xqc_h3_stream_type_t            type;
@@ -135,6 +147,8 @@ typedef struct xqc_h3_stream_s {
    /* referred count of h3 stream */
     uint32_t                        ref_cnt;
 
+    uint64_t                        recv_rate_limit;
+
 } xqc_h3_stream_t;
 
 
@@ -173,5 +187,8 @@ uint64_t xqc_h3_stream_get_err(xqc_h3_stream_t *h3s);
 void xqc_h3_stream_get_path_info(xqc_h3_stream_t *h3s);
 
 void xqc_h3_stream_set_priority(xqc_h3_stream_t *h3s, xqc_h3_priority_t *prio);
+
+xqc_int_t xqc_h3_stream_send_bidi_stream_type(xqc_h3_stream_t *h3s, 
+   xqc_h3_bidi_stream_type_t stype, uint8_t fin);
 
 #endif

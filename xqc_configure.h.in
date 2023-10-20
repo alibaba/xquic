@@ -1,4 +1,10 @@
-
 /* the configured options and settings for xquic */
 #define xquic_VERSION_MAJOR @xquic_VERSION_MAJOR@
 #define xquic_VERSION_MINOR @xquic_VERSION_MINOR@
+
+#cmakedefine XQC_ENABLE_BBR2
+#cmakedefine XQC_ENABLE_RENO
+#cmakedefine XQC_ENABLE_COPA
+#cmakedefine XQC_ENABLE_UNLIMITED
+#cmakedefine XQC_ENABLE_MP_INTEROP
+#cmakedefine XQC_NO_PID_PACKET_PROCESS

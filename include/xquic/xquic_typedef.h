@@ -50,6 +50,8 @@ typedef struct xqc_memory_pool_s            xqc_memory_pool_t;
 typedef struct xqc_bbr_info_interface_s     xqc_bbr_info_interface_t;
 typedef struct xqc_path_ctx_s               xqc_path_ctx_t;
 typedef struct xqc_timer_manager_s          xqc_timer_manager_t;
+typedef struct xqc_h3_ext_bytestream_s      xqc_h3_ext_bytestream_t;
+typedef struct xqc_ping_record_s            xqc_ping_record_t;
 
 typedef uint64_t        xqc_msec_t; /* store millisecond values */
 typedef uint64_t        xqc_usec_t; /* store microsecond values */
@@ -73,10 +75,14 @@ typedef uint8_t         xqc_bool_t;
 /* restrictions of key length in lb cid encryption */
 #define XQC_LB_CID_KEY_LEN 16
 
+/* length of stateless reset token */
+#define XQC_STATELESS_RESET_TOKENLEN    16
+
 typedef struct xqc_cid_s {
     uint8_t             cid_len;
     uint8_t             cid_buf[XQC_MAX_CID_LEN];
     uint64_t            cid_seq_num;
+    uint8_t             sr_token[XQC_STATELESS_RESET_TOKENLEN];
 } xqc_cid_t;
 
 typedef enum xqc_log_level_s {
@@ -138,5 +144,32 @@ typedef struct xqc_http_priority_s {
     uint8_t                 reinject;
 } xqc_h3_priority_t;
 
+/* ALPN definition */
+#define XQC_DEFINED_ALPN_H3      "h3"
+#define XQC_DEFINED_ALPN_H3_29   "h3-29"
+#define XQC_DEFINED_ALPN_H3_EXT  "h3-ext"
+
+/* max alpn buffer length */
+#define XQC_MAX_ALPN_BUF_LEN    256
+
+#define XQC_UNKNOWN_PATH_ID ((uint64_t)-1)
+
+typedef enum xqc_conn_settings_type_e {
+    XQC_CONN_SETTINGS_DEFAULT,
+    XQC_CONN_SETTINGS_LOW_DELAY,
+} xqc_conn_settings_type_t;
+
+typedef struct xqc_conn_public_local_trans_settings_s {
+    uint16_t max_datagram_frame_size;
+    uint8_t  datagram_redundancy;
+} xqc_conn_public_local_trans_settings_t;
+
+typedef struct xqc_conn_public_remote_trans_settings_s {
+    uint16_t max_datagram_frame_size;
+} xqc_conn_public_remote_trans_settings_t;
+
+typedef struct xqc_stream_settings_s {
+    uint64_t recv_rate_bytes_per_sec;
+} xqc_stream_settings_t;
 
 #endif /*_XQUIC_TYPEDEF_H_INCLUDED_*/

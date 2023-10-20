@@ -18,6 +18,7 @@
 #define XQC_CUBIC_MAX_SSTHRESH      0xFFFFFFFF
 
 #define XQC_CUBIC_MIN_WIN           (4 * XQC_CUBIC_MSS)
+#define XQC_CUBIC_MAX_MIN_WIN       (16 * XQC_CUBIC_MSS)
 #define XQC_CUBIC_MAX_INIT_WIN      (100 * XQC_CUBIC_MSS)
 #define XQC_CUBIC_INIT_WIN          (32 * XQC_CUBIC_MSS)
 
@@ -127,12 +128,18 @@ xqc_cubic_init(void *cong_ctl, xqc_send_ctl_t *ctl_ctx, xqc_cc_params_t cc_param
     cubic->last_max_cwnd = XQC_CUBIC_INIT_WIN;
     cubic->ssthresh = XQC_CUBIC_MAX_SSTHRESH;
     cubic->congestion_recovery_start_time = 0;
+    cubic->init_cwnd = XQC_CUBIC_INIT_WIN;
+    cubic->min_cwnd = XQC_CUBIC_MIN_WIN;
 
     if (cc_params.customize_on) {
+        cc_params.min_cwnd *= XQC_CUBIC_MSS;
         cc_params.init_cwnd *= XQC_CUBIC_MSS;
         cubic->init_cwnd =
                 cc_params.init_cwnd >= XQC_CUBIC_MIN_WIN && cc_params.init_cwnd <= XQC_CUBIC_MAX_INIT_WIN ?
                 cc_params.init_cwnd : XQC_CUBIC_INIT_WIN;
+        cubic->min_cwnd = 
+                cc_params.min_cwnd >= XQC_CUBIC_MIN_WIN && cc_params.min_cwnd <= XQC_CUBIC_MAX_MIN_WIN ?
+                cc_params.min_cwnd : XQC_CUBIC_MIN_WIN;
     }
 }
 
@@ -163,7 +170,7 @@ xqc_cubic_on_lost(void *cong_ctl, xqc_usec_t lost_sent_time)
 
     /* Multiplicative Decrease */
     cubic->cwnd = cubic->cwnd * XQC_CUBIC_BETA / XQC_CUBIC_BETA_SCALE;
-    cubic->cwnd = xqc_max(cubic->cwnd, XQC_CUBIC_MIN_WIN);
+    cubic->cwnd = xqc_max(cubic->cwnd, cubic->min_cwnd);
     cubic->tcp_cwnd = cubic->cwnd;
     cubic->ssthresh = cubic->cwnd;
 }
@@ -215,9 +222,9 @@ xqc_cubic_reset_cwnd(void *cong_ctl)
 {
     xqc_cubic_t *cubic = (xqc_cubic_t *)(cong_ctl);
     cubic->epoch_start = 0;
-    cubic->cwnd = XQC_CUBIC_MIN_WIN;
-    cubic->tcp_cwnd = XQC_CUBIC_MIN_WIN;
-    cubic->last_max_cwnd = XQC_CUBIC_MIN_WIN;
+    cubic->cwnd = cubic->min_cwnd;
+    cubic->tcp_cwnd = cubic->min_cwnd;
+    cubic->last_max_cwnd = cubic->min_cwnd;
 }
 
 int32_t

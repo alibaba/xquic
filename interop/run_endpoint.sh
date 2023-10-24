@@ -97,7 +97,7 @@ elif [ "$ROLE" == "server" ]; then
 
     #cp -r /www /logs
 
-    ARGS="-l d -L "$LOG_DIR/server.log" -p 443 -D "/www" -k $SSLKEYLOGFILE"
+    ARGS="-l d -L "$LOG_DIR/server.log" -p 443 -D "/www" -k $SSLKEYLOGFILE -M"
     echo "./demo_server $ARGS"
     ./demo_server $ARGS
 fi

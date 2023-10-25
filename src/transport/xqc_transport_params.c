@@ -157,7 +157,12 @@ xqc_transport_params_calc_length(const xqc_transport_params_t *params,
     }
 
     if (params->enable_multipath) {
-        if (params->multipath_version == XQC_MULTIPATH_05) {
+        if (params->multipath_version == XQC_MULTIPATH_06) {
+            /* enable_multipath (-draft06) is zero-length transport parameter */
+            len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_06) +
+                   xqc_put_varint_len(0);
+
+        } else if (params->multipath_version == XQC_MULTIPATH_05) {
             /* enable_multipath (-draft05) is zero-length transport parameter */
             len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_05) +
                    xqc_put_varint_len(0);
@@ -339,7 +344,10 @@ xqc_encode_transport_params(const xqc_transport_params_t *params,
     }
 
     if (params->enable_multipath) {
-        if (params->multipath_version == XQC_MULTIPATH_05) {
+        if (params->multipath_version == XQC_MULTIPATH_06) {
+            p = xqc_put_zero_length_param(p, XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_06);
+
+        } else if (params->multipath_version == XQC_MULTIPATH_05) {
             p = xqc_put_zero_length_param(p, XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_05);
 
         } else {
@@ -587,7 +595,12 @@ static xqc_int_t
 xqc_decode_enable_multipath(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
     const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
 {
-    if (param_type == XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_05) {
+    if (param_type == XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_06) {
+        /* enable_multipath param is a zero-length value, presentation means enable */
+        params->enable_multipath = 1;
+        params->multipath_version = XQC_MULTIPATH_06;
+        return XQC_OK;
+    } else if (param_type == XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_05) {
         /* enable_multipath param is a zero-length value, presentation means enable */
         params->enable_multipath = 1;
         params->multipath_version = XQC_MULTIPATH_05;

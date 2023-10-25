@@ -72,6 +72,7 @@ typedef enum {
     /* multipath quic attributes */
     XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_04                 = 0x0f739bbc1b666d04,
     XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_05                 = 0x0f739bbc1b666d05,
+    XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_06                 = 0x0f739bbc1b666d06,
 
     /* upper limit of params defined by xquic */
     XQC_TRANSPORT_PARAM_UNKNOWN,

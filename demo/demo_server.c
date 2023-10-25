@@ -87,6 +87,9 @@ typedef struct xqc_demo_svr_quic_config_s {
     /* multipath */
     int  multipath;
 
+    /* multipath version */
+    int  multipath_version;
+
     /* ack on any path */
     int  mp_ack_on_any_path;
 
@@ -1298,7 +1301,12 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
             printf("option multipath enabled\n");
             args->quic_cfg.multipath = 1;
             break;
-        
+
+        case 'V':
+            printf("option multipath version: %s\n", optarg);
+            args->quic_cfg.multipath_version = atoi(optarg);
+            break;
+
         case 'P':
             printf("option ACK_MP on any path enabled\n");
             args->quic_cfg.mp_ack_on_any_path = 1;
@@ -1421,6 +1429,7 @@ xqc_demo_svr_init_conn_settings(xqc_demo_svr_args_t *args)
         .spurious_loss_detect_on = 1,
         .init_idle_time_out = 60000,
         .enable_multipath = args->quic_cfg.multipath,
+        .multipath_version = args->quic_cfg.multipath_version,
         .mp_ack_on_any_path = args->quic_cfg.mp_ack_on_any_path,
         .scheduler_callback = sched,
         .reinj_ctl_callback = xqc_deadline_reinj_ctl_cb,

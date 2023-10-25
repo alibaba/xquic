@@ -323,17 +323,17 @@ xqc_conn_init_trans_settings(xqc_connection_t *conn)
 
     /* set local default setting values */
     ls->max_streams_bidi = 128;
-    ls->max_stream_data_bidi_remote = 16 * 1024 * 1024;
+    ls->max_stream_data_bidi_remote = XQC_MAX_RECV_WINDOW;
 
     if (conn->conn_settings.enable_stream_rate_limit) {
         ls->max_stream_data_bidi_local = conn->conn_settings.init_recv_window;
 
     } else {
-        ls->max_stream_data_bidi_local = 16 * 1024 * 1024;
+        ls->max_stream_data_bidi_local = XQC_MAX_RECV_WINDOW;
     }
 
     ls->max_streams_uni = 128;
-    ls->max_stream_data_uni = 16 * 1024 * 1024;
+    ls->max_stream_data_uni = XQC_MAX_RECV_WINDOW;
 
     if (conn->conn_settings.recv_rate_bytes_per_sec) {
         ls->max_data = conn->conn_settings.recv_rate_bytes_per_sec * XQC_FC_INIT_RTT / 1000000;

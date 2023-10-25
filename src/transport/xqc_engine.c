@@ -754,12 +754,11 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
     }
     XQC_CHECK_IMMEDIATE_CLOSE();
 
-#if 0
+
     ret = xqc_conn_try_add_new_conn_id(conn, 0);
     if (ret) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_conn_try_add_new_conn_id error|");
     }
-#endif
 
     if (conn->enable_multipath) {
 

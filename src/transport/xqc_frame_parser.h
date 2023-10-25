@@ -140,4 +140,12 @@ xqc_int_t xqc_parse_path_status_frame(xqc_packet_in_t *packet_in,
     uint64_t *dcid_seq_num,
     uint64_t *path_status_seq_num, uint64_t *path_status);
 
+xqc_int_t xqc_parse_path_standby_frame(xqc_packet_in_t *packet_in,
+    uint64_t *dcid_seq_num,
+    uint64_t *path_status_seq_num, uint64_t *path_status);
+
+xqc_int_t xqc_parse_path_available_frame(xqc_packet_in_t *packet_in,
+    uint64_t *dcid_seq_num,
+    uint64_t *path_status_seq_num, uint64_t *path_status);
+
 #endif /*_XQC_FRAME_PARSER_H_INCLUDED_*/

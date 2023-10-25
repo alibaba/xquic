@@ -2271,3 +2271,83 @@ xqc_parse_path_status_frame(xqc_packet_in_t *packet_in,
 
     return XQC_OK;
 }
+
+xqc_int_t
+xqc_parse_path_standby_frame(xqc_packet_in_t *packet_in,
+    uint64_t *dcid_seq_num,
+    uint64_t *path_status_seq_num, uint64_t *path_status)
+{
+    unsigned char *p = packet_in->pos;
+    const unsigned char *end = packet_in->last;
+
+    int vlen;
+
+    uint64_t frame_type = 0;
+    vlen = xqc_vint_read(p, end, &frame_type);  /* get frame_type */
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    /* DCID Sequence Number (i) */
+    vlen = xqc_vint_read(p, end, dcid_seq_num);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    /* Path Status sequence number (i) */
+    vlen = xqc_vint_read(p, end, path_status_seq_num);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    *path_status = 1; /* 1 - Standby */
+
+    packet_in->pos = p;
+
+    packet_in->pi_frame_types |= XQC_FRAME_BIT_PATH_STANDBY;
+
+    return XQC_OK;
+}
+
+xqc_int_t
+xqc_parse_path_available_frame(xqc_packet_in_t *packet_in,
+    uint64_t *dcid_seq_num,
+    uint64_t *path_status_seq_num, uint64_t *path_status)
+{
+    unsigned char *p = packet_in->pos;
+    const unsigned char *end = packet_in->last;
+
+    int vlen;
+
+    uint64_t frame_type = 0;
+    vlen = xqc_vint_read(p, end, &frame_type);  /* get frame_type */
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    /* DCID Sequence Number (i) */
+    vlen = xqc_vint_read(p, end, dcid_seq_num);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    *path_status = 2; /* 2 - available */
+
+    /* Path Status sequence number (i) */
+    vlen = xqc_vint_read(p, end, path_status_seq_num);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    packet_in->pos = p;
+
+    packet_in->pi_frame_types |= XQC_FRAME_BIT_PATH_STANDBY;
+
+    return XQC_OK;
+}

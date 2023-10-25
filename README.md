@@ -65,7 +65,7 @@ To run test cases, you need
 
 ## QuickStart Guide
 
-XQUIC supports both BabaSSL and BoringSSL.
+XQUIC can be built with Tongsuo(BabaSSL) or BoringSSL.
 
 ### Build with BoringSSL
 
@@ -86,6 +86,7 @@ SSL_PATH_STR="${PWD}"
 SSL_INC_PATH_STR="${PWD}/include"
 SSL_LIB_PATH_STR="${PWD}/build/ssl/libssl.a;${PWD}/build/crypto/libcrypto.a"
 cd ../..
+## Note: if you don’t have golang in your environment, please install [golang](https://go.dev/doc/install) first. 
 
 # build XQUIC with BoringSSL
 git submodule update --init --recursive

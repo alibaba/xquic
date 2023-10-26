@@ -1439,3 +1439,33 @@ error:
     return ret;
 }
 
+
+xqc_int_t
+xqc_write_path_standby_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path)
+{
+    xqc_int_t ret = XQC_ERROR;
+
+    xqc_packet_out_t *packet_out = xqc_write_new_packet(conn, XQC_PTYPE_SHORT_HEADER);
+    if (packet_out == NULL) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");
+        return -XQC_EWRITE_PKT;
+    }
+
+    path->app_path_status_send_seq_num++;
+
+    ret = xqc_gen_path_status_frame(conn, packet_out, path->path_scid.cid_seq_num,
+                                    path->app_path_status_send_seq_num, (uint64_t)path->app_path_status);
+    if (ret < 0) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_path_status_frame error|%d|", ret);
+        goto error;
+    }
+
+    packet_out->po_used_size += ret;
+    xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
+
+    return XQC_OK;
+
+    error:
+    xqc_maybe_recycle_packet_out(packet_out, conn);
+    return ret;
+}

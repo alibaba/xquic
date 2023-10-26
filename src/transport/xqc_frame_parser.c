@@ -2272,6 +2272,62 @@ xqc_parse_path_status_frame(xqc_packet_in_t *packet_in,
     return XQC_OK;
 }
 
+/*
+ *  PATH_STANDBY Frame {
+ *    Type (i) = TBD-03 (experiments use 0x15228c07)
+ *    Destination Connection ID Sequence Number (i),
+ *    Path Status sequence number (i),
+ *  }
+ *
+ *  https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-06#section-8.3
+ * */
+ssize_t
+xqc_gen_path_standby_frame(xqc_connection_t *conn,
+    xqc_packet_out_t *packet_out,
+    uint64_t dcid_seq_num,
+    uint64_t path_status_seq_num)
+{
+    unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
+    const unsigned char *begin = dst_buf;
+    unsigned need = 0;
+
+    uint64_t frame_type;
+    if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_06) {
+        frame_type = 0x15228c07;
+    } else {
+        return -XQC_EMP_INVALID_MP_VERTION;
+    }
+
+    unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
+    unsigned dcid_seq_num_bits = xqc_vint_get_2bit(dcid_seq_num);
+    unsigned path_status_seq_num_bits = xqc_vint_get_2bit(path_status_seq_num);
+
+    need = xqc_vint_len(frame_type_bits)
+           + xqc_vint_len(dcid_seq_num_bits)
+           + xqc_vint_len(path_status_seq_num_bits);
+
+    /* check packout_out have enough buffer length */
+    if (need > packet_out->po_buf_size - packet_out->po_used_size) {
+        return -XQC_ENOBUF;
+    }
+
+    /* Type(i) */
+    xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
+    dst_buf += xqc_vint_len(frame_type_bits);
+
+    /* DCID Sequence Number (i) */
+    xqc_vint_write(dst_buf, dcid_seq_num, dcid_seq_num_bits, xqc_vint_len(dcid_seq_num_bits));
+    dst_buf += xqc_vint_len(dcid_seq_num_bits);
+
+    /* Path Status sequence number (i) */
+    xqc_vint_write(dst_buf, path_status_seq_num, path_status_seq_num_bits, xqc_vint_len(path_status_seq_num_bits));
+    dst_buf += xqc_vint_len(path_status_seq_num_bits);
+
+    packet_out->po_frame_types |= XQC_FRAME_BIT_PATH_STANDBY;
+
+    return dst_buf - begin;
+}
+
 xqc_int_t
 xqc_parse_path_standby_frame(xqc_packet_in_t *packet_in,
     uint64_t *dcid_seq_num,
@@ -2310,6 +2366,64 @@ xqc_parse_path_standby_frame(xqc_packet_in_t *packet_in,
     packet_in->pi_frame_types |= XQC_FRAME_BIT_PATH_STANDBY;
 
     return XQC_OK;
+}
+
+/*
+ *
+ *  PATH_AVAILABLE Frame {
+ *    Type (i) = TBD-03 (experiments use 0x15228c08),
+ *    Destination Connection ID Sequence Number (i),
+ *    Path Status sequence number (i),
+ *  }
+ *
+ *
+ *  https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-06#section-8.4
+ * */
+ssize_t
+xqc_gen_path_available_frame(xqc_connection_t *conn,
+    xqc_packet_out_t *packet_out,
+    uint64_t dcid_seq_num,
+    uint64_t path_status_seq_num)
+{
+    unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
+    const unsigned char *begin = dst_buf;
+    unsigned need = 0;
+
+    uint64_t frame_type;
+    if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_06) {
+        frame_type = 0x15228c08;
+    } else {
+        return -XQC_EMP_INVALID_MP_VERTION;
+    }
+
+    unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
+    unsigned dcid_seq_num_bits = xqc_vint_get_2bit(dcid_seq_num);
+    unsigned path_status_seq_num_bits = xqc_vint_get_2bit(path_status_seq_num);
+
+    need = xqc_vint_len(frame_type_bits)
+           + xqc_vint_len(dcid_seq_num_bits)
+           + xqc_vint_len(path_status_seq_num_bits);
+
+    /* check packout_out have enough buffer length */
+    if (need > packet_out->po_buf_size - packet_out->po_used_size) {
+        return -XQC_ENOBUF;
+    }
+
+    /* Type(i) */
+    xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
+    dst_buf += xqc_vint_len(frame_type_bits);
+
+    /* DCID Sequence Number (i) */
+    xqc_vint_write(dst_buf, dcid_seq_num, dcid_seq_num_bits, xqc_vint_len(dcid_seq_num_bits));
+    dst_buf += xqc_vint_len(dcid_seq_num_bits);
+
+    /* Path Status sequence number (i) */
+    xqc_vint_write(dst_buf, path_status_seq_num, path_status_seq_num_bits, xqc_vint_len(path_status_seq_num_bits));
+    dst_buf += xqc_vint_len(path_status_seq_num_bits);
+
+    packet_out->po_frame_types |= XQC_FRAME_BIT_PATH_AVAILABLE;
+
+    return dst_buf - begin;
 }
 
 xqc_int_t

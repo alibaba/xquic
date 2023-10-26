@@ -1283,7 +1283,13 @@ xqc_set_application_path_status(xqc_path_ctx_t *path, xqc_app_path_status_t stat
         path->app_path_status = status;
 
         if (is_tx) {
-            xqc_int_t ret = xqc_write_path_status_frame_to_packet(conn, path);
+            xqc_int_t ret = XQC_ERROR;
+            if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_06) {
+                ret = xqc_write_path_standby_or_available_frame_to_packet(conn, path);
+            } else {
+                ret = xqc_write_path_status_frame_to_packet(conn, path);
+            }
+
             if (ret != XQC_OK) {
                 path->app_path_status = last_status;
                 xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_path_status_frame_to_packet error|%d|", ret);

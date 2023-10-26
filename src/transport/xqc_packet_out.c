@@ -1268,8 +1268,23 @@ xqc_write_path_challenge_frame_to_packet(xqc_connection_t *conn,
     if (attach_path_status) {
         path->app_path_status_send_seq_num++;
         //TODO: MPQUIC fix migration
-        ret = xqc_gen_path_status_frame(conn, packet_out, path->path_scid.cid_seq_num,
-                                        path->app_path_status_send_seq_num, (uint64_t)path->app_path_status);
+
+        if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_06) {
+            if (path->app_path_status == XQC_APP_PATH_STATUS_STANDBY) {
+                ret = xqc_gen_path_standby_frame(conn, packet_out, path->path_scid.cid_seq_num,
+                                                 path->app_path_status_send_seq_num);
+            } else if (path->app_path_status == XQC_APP_PATH_STATUS_AVAILABLE) {
+                ret = xqc_gen_path_available_frame(conn, packet_out, path->path_scid.cid_seq_num,
+                                                   path->app_path_status_send_seq_num);
+            } else {
+                ret = -XQC_EMP_PATH_STATE_ERROR;
+                xqc_log(conn->log, XQC_LOG_WARN, "|xqc_write_path_challenge_frame_to_packet path_status error|%d|", path->app_path_status);
+            }
+        } else {
+            ret = xqc_gen_path_status_frame(conn, packet_out, path->path_scid.cid_seq_num,
+                                            path->app_path_status_send_seq_num, (uint64_t)path->app_path_status);
+        }
+
         if (ret < 0) {
             /* ignore */
             xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_path_status_frame error|%d|", ret);

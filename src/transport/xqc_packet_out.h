@@ -203,6 +203,8 @@ xqc_int_t xqc_write_path_abandon_frame_to_packet(xqc_connection_t *conn, xqc_pat
 
 xqc_int_t xqc_write_path_status_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path);
 
+xqc_int_t xqc_write_path_standby_or_available_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path);
+
 int xqc_write_pmtud_ping_to_packet(xqc_path_ctx_t *path, size_t probing_size, xqc_pkt_type_t pkt_type);
 
 

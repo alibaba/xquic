@@ -3461,8 +3461,6 @@ echo -e "h3_ext_finish_bytestream_during_transmission...\c"
 ./test_client -l d -T 2 -s 102400 -U 1 -Q 65535 -E -x 304 > stdlog
 cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
-#cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
-#cli_res4=`grep "\[bytestream\]|bytes_sent:102400|bytes_rcvd:102400|recv_fin:1|" stdlog`
 cli_res3=(`grep "\[h3-dgram\]|recv_dgram_bytes:" stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
 cli_res4=(`grep "\[bytestream\]|bytes_sent:" stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
 cli_res5=`grep "\[bytestream\]|same_content:yes|" stdlog | wc -l`
@@ -3487,8 +3485,6 @@ echo -e "h3_ext_close_bytestream_during_transmission...\c"
 ./test_client -l d -T 2 -s 102400 -U 1 -Q 65535 -E -x 305 > stdlog
 cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
-#cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
-#cli_res4=`grep "\[bytestream\]|bytes_sent:102400|.*|recv_fin:0|" stdlog`
 cli_res3=(`grep "\[h3-dgram\]|recv_dgram_bytes:" stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
 cli_res4=(`grep "\[bytestream\]|bytes_sent:" stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
 cli_res5=`grep "\[bytestream\]|same_content:.*|" stdlog | wc -l`

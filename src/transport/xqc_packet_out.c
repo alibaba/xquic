@@ -1278,7 +1278,8 @@ xqc_write_path_challenge_frame_to_packet(xqc_connection_t *conn,
                                                    path->app_path_status_send_seq_num);
             } else {
                 ret = -XQC_EMP_PATH_STATE_ERROR;
-                xqc_log(conn->log, XQC_LOG_WARN, "|xqc_write_path_challenge_frame_to_packet path_status error|%d|", path->app_path_status);
+                xqc_log(conn->log, XQC_LOG_DEBUG,
+                        "|xqc_write_path_challenge_frame_to_packet path_status didn't set|%d|", path->app_path_status);
             }
         } else {
             ret = xqc_gen_path_status_frame(conn, packet_out, path->path_scid.cid_seq_num,
@@ -1476,7 +1477,8 @@ xqc_write_path_standby_or_available_frame_to_packet(xqc_connection_t *conn, xqc_
                                          path->app_path_status_send_seq_num);
     } else {
         xqc_log(conn->log, XQC_LOG_WARN, "|xqc_write_path_standby_or_available_frame_to_packet status error|%d|", path->app_path_status);
-        return -XQC_EMP_PATH_STATE_ERROR;
+        ret = -XQC_EMP_PATH_STATE_ERROR;
+        goto error;
     }
 
     if (ret < 0) {

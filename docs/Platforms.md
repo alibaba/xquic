@@ -35,19 +35,28 @@ make -j
 
 You can use the cmake variables `-DPLATFORM=mac` to build XQUIC on macOS.
 
+Remember you still need to install BoringSSL or Tongsuo(BabaSSL) first, please follow to the guidance [get and build BoringSSL](https://github.com/alibaba/xquic#build-with-boringssl) / [get and build BabaSSL](https://github.com/alibaba/xquic#build-with-babassl).
+
 ```bash
+
+# build XQUIC with BoringSSL
+
+git submodule update --init --recursive
+mkdir build; cd build
+cmake -DPLATFORM=mac -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} -DSSL_INC_PATH=${SSL_INC_PATH_STR} -DSSL_LIB_PATH=${SSL_LIB_PATH_STR} -DXQC_SUPPORT_SENDMMSG_BUILD=0 ..
+make -j
+
+
 # build XQUIC with BabaSSL
 git submodule update --init --recursive
 mkdir build; cd build
-cmake -DPLATFORM=mac ..
+cmake -DPLATFORM=mac -DXQC_SUPPORT_SENDMMSG_BUILD=0 ..
 make -j
 
-# build XQUIC with BoringSSL
-git submodule update --init --recursive
-mkdir build; cd build
-cmake -DPLATFORM=mac -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} -DSSL_INC_PATH=${SSL_INC_PATH_STR} -DSSL_LIB_PATH=${SSL_LIB_PATH_STR} ..
-make -j
 ```
+
+Troubleshooting:
+> Note: sendmmsg is not supported on MacOS, make sure you add -DXQC\_SUPPORT\_SENDMMSG\_BUILD=0 to turn off the feature 
 
 ## Windows Release
 

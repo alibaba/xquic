@@ -2462,7 +2462,7 @@ xqc_parse_path_available_frame(xqc_packet_in_t *packet_in,
 
     packet_in->pos = p;
 
-    packet_in->pi_frame_types |= XQC_FRAME_BIT_PATH_STANDBY;
+    packet_in->pi_frame_types |= XQC_FRAME_BIT_PATH_AVAILABLE;
 
     return XQC_OK;
 }

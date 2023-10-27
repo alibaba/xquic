@@ -1790,7 +1790,8 @@ xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t dcid_seq,
     if (conn->conn_settings.multipath_version == XQC_MULTIPATH_04) {
         frame_type = 0xbaba00;
 
-    } else if (conn->conn_settings.multipath_version == XQC_MULTIPATH_05) {
+    } else if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_05) {
+        /* 06 is the same with 05 */
         frame_type = 0x15228c00;
 
     } else {

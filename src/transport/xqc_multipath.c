@@ -356,6 +356,9 @@ xqc_path_closed(xqc_path_ctx_t *path)
 xqc_multipath_mode_t
 xqc_conn_enable_multipath(xqc_connection_t *conn)
 {
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_conn_enable_multipath|%d|%d|",
+            conn->local_settings.enable_multipath, conn->remote_settings.enable_multipath);
+
     if ((conn->local_settings.enable_multipath == 1)
         && (conn->remote_settings.enable_multipath == 1))
     {

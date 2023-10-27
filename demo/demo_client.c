@@ -171,6 +171,8 @@ typedef struct xqc_demo_cli_quic_config_s {
 
     uint8_t mp_version;
 
+    uint8_t path_standby;
+
 } xqc_demo_cli_quic_config_t;
 
 
@@ -394,6 +396,8 @@ typedef struct xqc_demo_cli_user_conn_s {
 
     xqc_demo_cli_ctx_t      *ctx;
     xqc_demo_cli_task_t     *task;
+
+    int                     send_path_available;
 } xqc_demo_cli_user_conn_t;
 
 static void
@@ -1716,7 +1720,8 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -Q    Send requests one by one (default disabled)\n"
         "   -T    Throttle recving rate (Bps)\n"
         "   -R    Reinjection (1,2,4) \n"
-        "   -V    Multipath Version (4,5)\n"
+        "   -V    Multipath Version (4,5,6)\n"
+        "   -B    Set path B standby after 600ms\n"
         "   -I    Idle interval between requests (ms)\n"
         "   -n    Throttling the {1,2,...}xn-th requests\n"
         "   -e    NAT rebinding on path 0\n"
@@ -1728,7 +1733,7 @@ void
 xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMi:w:Ps:bZ:NQT:R:V:I:n:eE")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMi:w:Ps:bZ:NQT:R:V:B:I:n:eE")) != -1) {
         switch (ch) {
         /* server ip */
         case 'a':
@@ -1928,7 +1933,12 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
         case 'V':
             printf("option multipath version: %s\n", optarg);
             args->quic_cfg.mp_version = atoi(optarg);
-            break;    
+            break;
+
+        case 'B':
+            printf("option multipath set path standby: %s\n", optarg);
+            args->quic_cfg.path_standby = atoi(optarg);
+            break;
 
         case 'I':
             printf("option idle gap: %s\n", optarg);
@@ -2188,6 +2198,12 @@ xqc_demo_cli_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
     xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *) user_data;
     xqc_conn_stats_t stats = xqc_conn_get_stats(user_conn->ctx->engine, &user_conn->cid);
     printf("0rtt_flag:%d\n", stats.early_data_flag);
+
+    if (user_conn->send_path_available) {
+        /* set initial path available here */
+        xqc_conn_mark_path_available(user_conn->ctx->engine, &user_conn->cid, 0);
+    }
+
 }
 
 void
@@ -2370,6 +2386,10 @@ xqc_demo_cli_init_xquic_connection(xqc_demo_cli_user_conn_t *user_conn,
         if (user_conn->hqc_handle == NULL) {
             return -1;
         }
+    }
+
+    if (conn_settings.enable_multipath && conn_settings.multipath_version >= XQC_MULTIPATH_06) {
+        user_conn->send_path_available = 1;
     }
 
     return 0;

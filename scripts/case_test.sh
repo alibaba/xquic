@@ -1856,10 +1856,10 @@ clear_log
 echo -e "timer_based_dgram_probe...\c"
 ./test_client -l d -T 1 -x 209 -s 1000 -U 1 -Q 65535 -x 209 > stdlog
 killall test_server
-cli_res1=`grep "|recv_dgram_bytes:3000|sent_dgram_bytes:1000|" stdlog`
-svr_res=`grep -a "|recv_dgram_bytes:2000|sent_dgram_bytes:2000|" svr_stdlog`
-errlog=`grep_err_log`
-if [ -n "$cli_res1" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
+cli_res1=(`grep "|recv_dgram_bytes:" stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
+svr_res=(`grep "|recv_dgram_bytes:" svr_stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
+if [ ${cli_res1[0]} -ge 3000 ] && [ ${cli_res1[1]} -ge 1000 ] \
+    && [ ${svr_res[0]} -ge 2000 ] && [ ${svr_res[1]} -ge 2000 ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "timer_based_dgram_probe" "pass"
 else

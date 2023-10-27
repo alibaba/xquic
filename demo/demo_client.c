@@ -171,7 +171,7 @@ typedef struct xqc_demo_cli_quic_config_s {
 
     uint8_t mp_version;
 
-    uint8_t path_standby;
+    uint8_t test_path_status;
 
 } xqc_demo_cli_quic_config_t;
 
@@ -1936,8 +1936,8 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             break;
 
         case 'B':
-            printf("option multipath set path standby: %s\n", optarg);
-            args->quic_cfg.path_standby = atoi(optarg);
+            printf("option multipath set path status: %s\n", optarg);
+            args->quic_cfg.test_path_status = 1;
             break;
 
         case 'I':
@@ -2201,6 +2201,7 @@ xqc_demo_cli_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
 
     if (user_conn->send_path_available) {
         /* set initial path available here */
+        xqc_conn_mark_path_standby(user_conn->ctx->engine, &user_conn->cid, 0);
         xqc_conn_mark_path_available(user_conn->ctx->engine, &user_conn->cid, 0);
     }
 
@@ -2388,7 +2389,10 @@ xqc_demo_cli_init_xquic_connection(xqc_demo_cli_user_conn_t *user_conn,
         }
     }
 
-    if (conn_settings.enable_multipath && conn_settings.multipath_version >= XQC_MULTIPATH_06) {
+    if (conn_settings.enable_multipath
+        && conn_settings.multipath_version >= XQC_MULTIPATH_06
+        && args->quic_cfg.test_path_status == 1)
+    {
         user_conn->send_path_available = 1;
     }
 

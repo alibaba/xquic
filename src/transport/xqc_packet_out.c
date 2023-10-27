@@ -1490,6 +1490,8 @@ xqc_write_path_standby_or_available_frame_to_packet(xqc_connection_t *conn, xqc_
     packet_out->po_used_size += ret;
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
 
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_write_path_standby_or_available_frame_to_packet|status=%d|", path->app_path_status);
+
     return XQC_OK;
 
     error:

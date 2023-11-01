@@ -5,6 +5,10 @@ find_path     (LIBEVENT_INCLUDE_DIR     NAMES event.h)
 
 # find dynamic library
 find_library  (LIBEVENT_LIBRARY         NAMES event)
+find_library  (LIBEVENT_SSL             NAMES event_openssl)
+find_library  (LIBEVENT_CORE            NAMES event_core)
+find_library  (LIBEVENT_EXTRA           NAMES event_extra)
+find_library  (LIBEVENT_THREAD          NAMES event_pthreads)
 
 # find version
 if(LIBEVENT_INCLUDE_DIR)
@@ -24,8 +28,7 @@ set (LIBEVENT_LIBRARIES
     ${LIBEVENT_SSL}
     ${LIBEVENT_CORE}
     ${LIBEVENT_EXTRA}
-    ${LIBEVENT_THREAD}
-    ${LIBEVENT_EXTRA})
+    ${LIBEVENT_THREAD})
 
 find_package_handle_standard_args(LibEvent
     REQUIRED_VARS

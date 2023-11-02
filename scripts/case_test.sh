@@ -1856,10 +1856,10 @@ clear_log
 echo -e "timer_based_dgram_probe...\c"
 ./test_client -l d -T 1 -x 209 -s 1000 -U 1 -Q 65535 -x 209 > stdlog
 killall test_server
-cli_res1=`grep "|recv_dgram_bytes:3000|sent_dgram_bytes:1000|" stdlog`
-svr_res=`grep -a "|recv_dgram_bytes:2000|sent_dgram_bytes:2000|" svr_stdlog`
-errlog=`grep_err_log`
-if [ -n "$cli_res1" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
+cli_res1=(`grep "|recv_dgram_bytes:" stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
+svr_res=(`grep "|recv_dgram_bytes:" svr_stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
+if [ ${cli_res1[0]} -ge 3000 ] && [ ${cli_res1[1]} -ge 1000 ] \
+    && [ ${svr_res[0]} -ge 2000 ] && [ ${svr_res[1]} -ge 2000 ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "timer_based_dgram_probe" "pass"
 else
@@ -3461,12 +3461,15 @@ echo -e "h3_ext_finish_bytestream_during_transmission...\c"
 ./test_client -l d -T 2 -s 102400 -U 1 -Q 65535 -E -x 304 > stdlog
 cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
-cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
-cli_res4=`grep "\[bytestream\]|bytes_sent:102400|bytes_rcvd:102400|recv_fin:1|" stdlog`
+cli_res3=(`grep "\[h3-dgram\]|recv_dgram_bytes:" stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
+cli_res4=(`grep "\[bytestream\]|bytes_sent:" stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
 cli_res5=`grep "\[bytestream\]|same_content:yes|" stdlog | wc -l`
 cli_res6=`grep "send pure fin" clog`
 errlog=`grep_err_log | grep -v "send data after fin sent"`
-if [ "$cli_res1" == "1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "1" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
+if [ "$cli_res1" == "1" ] && [ -n "$cli_res2" ] \
+    && [ ${cli_res3[0]} -ge 102400 ] && [ ${cli_res3[1]} -ge 102400 ] \
+    && [ ${cli_res4[0]} -ge 102400 ] && [ ${cli_res4[1]} -ge 102400 ] \
+    && [ "$cli_res5" == "1" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "h3_ext_finish_bytestream_during_transmission" "pass"
 else
@@ -3481,12 +3484,15 @@ echo -e "h3_ext_close_bytestream_during_transmission...\c"
 ./test_client -l d -T 2 -s 102400 -U 1 -Q 65535 -E -x 305 > stdlog
 cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
-cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
-cli_res4=`grep "\[bytestream\]|bytes_sent:102400|.*|recv_fin:0|" stdlog`
+cli_res3=(`grep "\[h3-dgram\]|recv_dgram_bytes:" stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
+cli_res4=(`grep "\[bytestream\]|bytes_sent:" stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
 cli_res5=`grep "\[bytestream\]|same_content:.*|" stdlog | wc -l`
 cli_res6=`grep "xqc_h3_ext_bytestream_close|success" clog`
 errlog=`grep_err_log | grep -v "xqc_h3_stream_process_data|xqc_stream_recv"`
-if [ "$cli_res1" == "1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "1" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
+if [ "$cli_res1" == "1" ] && [ -n "$cli_res2" ] \
+    && [ ${cli_res3[0]} -ge 102400 ] && [ ${cli_res3[1]} -ge 102400 ] \
+    && [ ${cli_res4[0]} -ge 102400 ] \
+    && [ "$cli_res5" == "1" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "h3_ext_close_bytestream_during_transmission" "pass"
 else

@@ -277,7 +277,7 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
             }
             break;
         case 0x15228c00 ... 0x15228c01:
-            if (conn->conn_settings.multipath_version == XQC_MULTIPATH_05) {
+            if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_05) {
                 ret = xqc_process_ack_mp_frame(conn, packet_in);
 
             } else {
@@ -316,6 +316,24 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
                 
             } else {
                 xqc_log(conn->log, XQC_LOG_ERROR, "|receive wrong mp version path_status frame or cannot process frame in mp version 05|");
+                ret = -XQC_EMP_INVALID_MP_VERTION;
+            }
+            break;
+        case 0x15228c07:
+            if (conn->conn_settings.multipath_version == XQC_MULTIPATH_06) {
+                ret = xqc_process_path_standby_frame(conn, packet_in);
+
+            } else {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|receive wrong mp version path_status frame or cannot process frame in mp version 06|");
+                ret = -XQC_EMP_INVALID_MP_VERTION;
+            }
+            break;
+        case 0x15228c08:
+            if (conn->conn_settings.multipath_version == XQC_MULTIPATH_06) {
+                ret = xqc_process_path_available_frame(conn, packet_in);
+
+            } else {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|receive wrong mp version path_status frame or cannot process frame in mp version 06|");
                 ret = -XQC_EMP_INVALID_MP_VERTION;
             }
             break;
@@ -1618,5 +1636,81 @@ xqc_process_path_status_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
     return XQC_OK;
 }
 
+xqc_int_t
+xqc_process_path_standby_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
+{
+    xqc_int_t ret = XQC_ERROR;
+
+    uint64_t dcid_seq_num;
+    uint64_t path_status_seq_num;
+    uint64_t path_status;
+
+    ret = xqc_parse_path_standby_frame(packet_in, &dcid_seq_num, &path_status_seq_num, &path_status);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_parse_path_status_frame error|");
+        return ret;
+    }
+
+    xqc_path_ctx_t *path = xqc_conn_find_path_by_dcid_seq(conn, dcid_seq_num);
+
+    if (path == NULL) {
+        xqc_log(conn->log, XQC_LOG_WARN,
+                "|invalid path|dcid_seq_num:%ui|pi_path_id:%ui|",
+                dcid_seq_num, packet_in->pi_path_id);
+        return XQC_OK; /* ignore */
+    }
+
+    if (path_status_seq_num > path->app_path_status_recv_seq_num) {
+        path->app_path_status_recv_seq_num = path_status_seq_num;
+        path->next_app_path_state = path_status;
+
+        if (path->path_state < XQC_PATH_STATE_ACTIVE) {
+            path->path_flag |= XQC_PATH_FLAG_RECV_STATUS;
+
+        } else {
+            xqc_set_application_path_status(path, path->next_app_path_state, XQC_FALSE);
+        }
+    }
+
+    return XQC_OK;
+}
 
 
+xqc_int_t
+xqc_process_path_available_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
+{
+    xqc_int_t ret = XQC_ERROR;
+
+    uint64_t dcid_seq_num;
+    uint64_t path_status_seq_num;
+    uint64_t path_status;
+
+    ret = xqc_parse_path_available_frame(packet_in, &dcid_seq_num, &path_status_seq_num, &path_status);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_parse_path_status_frame error|");
+        return ret;
+    }
+
+    xqc_path_ctx_t *path = xqc_conn_find_path_by_dcid_seq(conn, dcid_seq_num);
+
+    if (path == NULL) {
+        xqc_log(conn->log, XQC_LOG_WARN,
+                "|invalid path|dcid_seq_num:%ui|pi_path_id:%ui|",
+                dcid_seq_num, packet_in->pi_path_id);
+        return XQC_OK; /* ignore */
+    }
+
+    if (path_status_seq_num > path->app_path_status_recv_seq_num) {
+        path->app_path_status_recv_seq_num = path_status_seq_num;
+        path->next_app_path_state = path_status;
+
+        if (path->path_state < XQC_PATH_STATE_ACTIVE) {
+            path->path_flag |= XQC_PATH_FLAG_RECV_STATUS;
+
+        } else {
+            xqc_set_application_path_status(path, path->next_app_path_state, XQC_FALSE);
+        }
+    }
+
+    return XQC_OK;
+}

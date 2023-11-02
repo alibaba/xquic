@@ -1753,5 +1753,2389 @@ fi
 killall test_server
 
 
+> svr_stdlog
+clear_log
+echo -e "datagram_get_mss(saved_transport_params)...\c"
+./test_client -l d -T 1 -x 200 -Q 1000 -s 1 -U 1 > stdlog
+cli_res1=`grep "\[dgram-200\]|.*|initial_mss:997|" stdlog`
+cli_res2=`grep "\[dgram-200\]|.*|updated_mss:997|" stdlog`
+svr_res=`grep -a "\[dgram-200\]|.*|initial_mss:997|" svr_stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "datagram_get_mss_saved_transport_params" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "datagram_get_mss_saved_transport_params" "fail"
+fi
+
+killall test_server
+if [ -f test_session ]; then
+    rm -f test_session
+fi
+if [ -f tp_localhost ]; then
+    rm -f tp_localhost
+fi
+if [ -f xqc_token ]; then
+    rm -f xqc_token
+fi
+stdbuf -oL  ./test_server -l d -Q 65535 -x 201 > svr_stdlog &
+sleep 1
+clear_log
+echo -e "datagram_mss_limited_by_MTU...\c"
+./test_client -l d -T 1 -x 201 -Q 65535 -s 1 -U 1 > stdlog
+cli_res1=`grep "\[dgram-200\]|.*|initial_mss:0|" stdlog`
+cli_res2=`grep "\[dgram-200\]|.*|updated_mss:1200|" stdlog`
+svr_res=`grep -a "\[dgram-200\]|.*|initial_mss:1200|" svr_stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "datagram_mss_limited_by_MTU" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "datagram_mss_limited_by_MTU" "fail"
+fi
+
+killall test_server
+if [ -f test_session ]; then
+    rm -f test_session
+fi
+if [ -f tp_localhost ]; then
+    rm -f tp_localhost
+fi
+if [ -f xqc_token ]; then
+    rm -f xqc_token
+fi
+
+# timer-based dgram probe
+stdbuf -oL ./test_server -l d -Q 65535 -x 209 -e -U 2 > svr_stdlog &
+sleep 1
+clear_log
+echo -e "timer_based_dgram_probe...\c"
+./test_client -l d -T 1 -x 209 -s 1000 -U 1 -Q 65535 -x 209 > stdlog
+killall test_server
+cli_res1=(`grep "|recv_dgram_bytes:" stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
+svr_res=(`grep "|recv_dgram_bytes:" svr_stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
+if [ ${cli_res1[0]} -ge 3000 ] && [ ${cli_res1[1]} -ge 1000 ] \
+    && [ ${svr_res[0]} -ge 2000 ] && [ ${svr_res[1]} -ge 2000 ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "timer_based_dgram_probe" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "timer_based_dgram_probe" "fail"
+fi
+
+killall test_server &> /dev/null
+if [ -f test_session ]; then
+    rm -f test_session
+fi
+if [ -f tp_localhost ]; then
+    rm -f tp_localhost
+fi
+if [ -f xqc_token ]; then
+    rm -f xqc_token
+fi
+
+stdbuf -oL ./test_server -l d -Q 1000 -x 200 > svr_stdlog &
+sleep 1
+clear_log
+echo -e "datagram_mss_limited_by_max_datagram_frame_size...\c"
+./test_client -l d -T 1 -x 200 -s 1 -U 1 -Q 1000 > stdlog
+cli_res1=`grep "\[dgram-200\]|.*|initial_mss:0|" stdlog`
+cli_res2=`grep "\[dgram-200\]|.*|updated_mss:997|" stdlog`
+svr_res=`grep -a "\[dgram-200\]|.*|initial_mss:997|" svr_stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "datagram_mss_limited_by_max_datagram_frame_size" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "datagram_mss_limited_by_max_datagram_frame_size" "fail"
+fi
+rm -f test_session tp_localhost xqc_token
+
+killall test_server
+
+./test_server -l e -Q 65535 -e -U 1 > /dev/null &
+sleep 1
+clear_log
+#generate 0rtt data
+./test_client -l e -T 1 -s 1 -U 1 -Q 65535 > stdlog
+clear_log
+echo -e "send_0RTT_datagram_100KB...\c"
+./test_client -l e -T 1 -s 102400 -U 1 -Q 65535 -E > stdlog
+cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_0RTT_datagram_100KB" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_0RTT_datagram_100KB" "fail"
+fi
+
+if [ $LOCAL_TEST -ne 0 ]; then
+    clear_log
+    echo -e "send_0RTT_datagram_1MB...\c"
+    ./test_client -l e -T 1 -s 1048576 -U 1 -Q 65535 -E > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_0RTT_datagram_1MB" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_0RTT_datagram_1MB" "fail"
+    fi
+
+    clear_log
+    echo -e "send_0RTT_datagram_10MB...\c"
+    ./test_client -l e -T 1 -s 10485760 -U 1 -Q 65535 -E > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_0RTT_datagram_10MB" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_0RTT_datagram_10MB" "fail"
+    fi
+
+    clear_log
+    echo -e "send_0RTT_datagram_100MB...\c"
+    ./test_client -l e -T 1 -s 104857600 -U 1 -Q 65535 -E > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_0RTT_datagram_100MB" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_0RTT_datagram_100MB" "fail"
+    fi
+
+fi
+rm -f test_session tp_localhost xqc_token
+
+
+killall test_server
+
+./test_server -l e -Q 65535 -e -U 2 > /dev/null &
+sleep 1
+clear_log
+#generate 0rtt data
+./test_client -l e -T 1 -s 1 -U 2 -Q 65535 > stdlog
+clear_log
+echo -e "send_0RTT_datagram_100KB_batch...\c"
+./test_client -l e -T 1 -s 102400 -U 2 -Q 65535 -E > stdlog
+cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_0RTT_datagram_100KB_batch" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_0RTT_datagram_100KB_batch" "fail"
+fi
+
+if [ $LOCAL_TEST -ne 0 ]; then
+    clear_log
+    echo -e "send_0RTT_datagram_1MB_batch...\c"
+    ./test_client -l e -T 1 -s 1048576 -U 2 -Q 65535 -E > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_0RTT_datagram_1MB_batch" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_0RTT_datagram_1MB_batch" "fail"
+    fi
+
+    clear_log
+    echo -e "send_0RTT_datagram_10MB_batch...\c"
+    ./test_client -l e -T 1 -s 10485760 -U 2 -Q 65535 -E > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_0RTT_datagram_10MB_batch" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_0RTT_datagram_10MB_batch" "fail"
+    fi
+
+    clear_log
+    echo -e "send_0RTT_datagram_100MB_batch...\c"
+    ./test_client -l e -T 1 -s 104857600 -U 2 -Q 65535 -E > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_0RTT_datagram_100MB_batch" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_0RTT_datagram_100MB_batch" "fail"
+    fi
+
+fi
+rm -f test_session tp_localhost xqc_token
+
+
+killall test_server
+./test_server -l e -Q 65535 -e -U 1 > /dev/null &
+sleep 1
+clear_log
+echo -e "send_1RTT_datagram_100KB...\c"
+./test_client -l e -T 1 -s 102400 -U 1 -Q 65535 -E -1 > stdlog
+cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_1RTT_datagram_100KB" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_1RTT_datagram_100KB" "fail"
+fi
+
+if [ $LOCAL_TEST -ne 0 ]; then
+    clear_log
+    echo -e "send_1RTT_datagram_1MB...\c"
+    ./test_client -l e -T 1 -s 1048576 -U 1 -Q 65535 -E -1 > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_1RTT_datagram_1MB" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_1RTT_datagram_1MB" "fail"
+    fi
+
+    clear_log
+    echo -e "send_1RTT_datagram_10MB...\c"
+    ./test_client -l e -T 1 -s 10485760 -U 1 -Q 65535 -E -1 > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_1RTT_datagram_10MB" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_1RTT_datagram_10MB" "fail"
+    fi
+
+    clear_log
+    echo -e "send_1RTT_datagram_100MB...\c"
+    ./test_client -l e -T 1 -s 104857600 -U 1 -Q 65535 -E -1 > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_1RTT_datagram_100MB" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_1RTT_datagram_100MB" "fail"
+    fi
+fi
+rm -f test_session tp_localhost xqc_token
+
+
+killall test_server
+./test_server -l e -Q 65535 -e -U 2 > /dev/null &
+sleep 1
+clear_log
+echo -e "send_1RTT_datagram_100KB_batch...\c"
+./test_client -l e -T 1 -s 102400 -U 2 -Q 65535 -E -1 > stdlog
+cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_1RTT_datagram_100KB_batch" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_1RTT_datagram_100KB_batch" "fail"
+fi
+
+if [ $LOCAL_TEST -ne 0 ]; then
+    clear_log
+    echo -e "send_1RTT_datagram_1MB_batch...\c"
+    ./test_client -l e -T 1 -s 1048576 -U 2 -Q 65535 -E -1 > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_1RTT_datagram_1MB_batch" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_1RTT_datagram_1MB_batch" "fail"
+    fi
+
+    clear_log
+    echo -e "send_1RTT_datagram_10MB_batch...\c"
+    ./test_client -l e -T 1 -s 10485760 -U 2 -Q 65535 -E -1 > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_1RTT_datagram_10MB_batch" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_1RTT_datagram_10MB_batch" "fail"
+    fi
+
+    clear_log
+    echo -e "send_1RTT_datagram_100MB_batch...\c"
+    ./test_client -l e -T 1 -s 104857600 -U 2 -Q 65535 -E -1 > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_1RTT_datagram_100MB_batch" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_1RTT_datagram_100MB_batch" "fail"
+    fi
+fi
+rm -f test_session tp_localhost xqc_token
+
+killall test_server
+./test_server -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
+sleep 1
+clear_log
+echo -e "send_queue_full...\c"
+./test_client -l d -T 1 -s 40000000 -U 1 -Q 65535 -1 > stdlog
+cli_res1=`grep "\[dgram\]|retry_datagram_send_later|" stdlog`
+cli_res2=`grep "|too many packets used|ctl_packets_used:" clog`
+cli_res3=`grep "\[dgram\]|dgram_write|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_queue_full" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_queue_full" "fail"
+fi
+
+clear_log
+echo -e "send_queue_full_batch...\c"
+./test_client -l d -T 1 -s 40000000 -U 2 -Q 65535 -1 > stdlog
+cli_res1=`grep "\[dgram\]|retry_datagram_send_multiple_later|" stdlog`
+cli_res2=`grep "|too many packets used|ctl_packets_used:" clog`
+cli_res3=`grep "\[dgram\]|dgram_write|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_queue_full_batch" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_queue_full_batch" "fail"
+fi
+
+clear_log
+echo -e "send_0rtt_datagram_without_saved_datagram_tp...\c"
+./test_client -l d -T 1 -s 999 -U 1 -Q 65535 -1 -E -x 202 > stdlog
+cli_res1=`grep "\[dgram\]|retry_datagram_send_later|" stdlog`
+cli_res2=`grep "|waiting_for_max_datagram_frame_size_from_peer|" clog`
+cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res4=`grep "\[dgram\]|dgram_write|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_0rtt_datagram_without_saved_datagram_tp" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_0rtt_datagram_without_saved_datagram_tp" "fail"
+fi
+
+clear_log
+echo -e "send_0rtt_datagram_without_saved_datagram_tp_batch...\c"
+./test_client -l d -T 1 -s 999 -U 2 -Q 65535 -1 -E -x 202 > stdlog
+cli_res1=`grep "\[dgram\]|retry_datagram_send_multiple_later|" stdlog`
+cli_res2=`grep "|waiting_for_max_datagram_frame_size_from_peer|" clog`
+cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res4=`grep "\[dgram\]|dgram_write|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_0rtt_datagram_without_saved_datagram_tp_batch" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_0rtt_datagram_without_saved_datagram_tp_batch" "fail"
+fi
+
+
+clear_log
+echo -e "send_too_many_0rtt_datagrams...\c"
+./test_client -l d -T 1 -s 40000 -U 1 -Q 65535 -E > stdlog
+cli_res1=`grep "\[dgram\]|retry_datagram_send_later|" stdlog`
+cli_res2=`grep "|too many 0rtt packets|" clog`
+cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res4=`grep "\[dgram\]|dgram_write|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_too_many_0rtt_datagrams" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_too_many_0rtt_datagrams" "fail"
+fi
+
+clear_log
+echo -e "send_too_many_0rtt_datagrams_batch...\c"
+./test_client -l d -T 1 -s 40000 -U 2 -Q 65535 -E > stdlog
+cli_res1=`grep "\[dgram\]|retry_datagram_send_multiple_later|" stdlog`
+cli_res2=`grep "|too many 0rtt packets|" clog`
+cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res4=`grep "\[dgram\]|dgram_write|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_too_many_0rtt_datagrams_batch" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_too_many_0rtt_datagrams_batch" "fail"
+fi
+
+killall test_server
+./test_server -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
+sleep 1
+clear_log
+echo -e "send_0rtt_datagram_reject...\c"
+./test_client -l d -T 1 -s 4800 -U 1 -Q 65535 -E > stdlog
+cli_res1=`grep "xqc_conn_early_data_reject" clog`
+cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_0rtt_datagram_reject" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_0rtt_datagram_reject" "fail"
+fi
+
+
+killall test_server
+./test_server -l d -Q 1000 -e -U 1 -s 1 > /dev/null &
+sleep 1
+clear_log
+echo -e "send_oversized_datagram...\c"
+./test_client -l d -T 1 -s 4800 -U 1 -Q 65535 -E -1 -x 203 > stdlog
+cli_res1=`grep "datagram_is_too_large" clog`
+cli_res2=`grep "trying_to_send_an_oversized_datagram" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_oversized_datagram" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_oversized_datagram" "fail"
+fi
+
+clear_log
+echo -e "send_oversized_datagram_batch...\c"
+./test_client -l d -T 1 -s 4800 -U 2 -Q 65535 -E -1 -x 203 > stdlog
+cli_res1=`grep "datagram_is_too_large" clog`
+cli_res2=`grep "trying_to_send_an_oversized_datagram" stdlog`
+cli_res3=`grep "|partially_sent_pkts_in_a_batch|cnt:1|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_oversized_datagram_batch" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_oversized_datagram_batch" "fail"
+fi
+rm -rf tp_localhost test_session xqc_token
+
+killall test_server
+./test_server -l d -Q 0 -e -U 1 -s 1 > /dev/null &
+sleep 1
+clear_log
+echo -e "send_datagram_while_peer_does_not_support...\c"
+./test_client -l d -T 1 -s 4800 -U 1 -Q 65535 -E -1 -x 204 > stdlog
+cli_res1=`grep "|does not support datagram|" clog`
+cli_res2=`grep "\[dgram\]|send_datagram_error|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_datagram_while_peer_does_not_support" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_datagram_while_peer_does_not_support" "fail"
+fi
+
+clear_log
+echo -e "send_datagram_batch_while_peer_does_not_support...\c"
+./test_client -l d -T 1 -s 4800 -U 2 -Q 65535 -E -1 -x 204 > stdlog
+cli_res1=`grep "|does not support datagram|" clog`
+cli_res2=`grep "\[dgram\]|send_datagram_multiple_error|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_datagram_batch_while_peer_does_not_support" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_datagram_batch_while_peer_does_not_support" "fail"
+fi
+
+killall test_server
+./test_server -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
+sleep 1
+./test_client -l d -T 1 -s 1 -U 1 -Q 65535 -E -N > stdlog
+clear_log
+echo -e "send_0rtt_datagram_dgram1_lost...\c"
+./test_client -l d -T 1 -s 4800 -U 1 -Q 65535 -E -x 205 -N > stdlog
+cli_res1=`grep "\[dgram\]|dgram_lost|dgram_id:0|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_0rtt_datagram_dgram1_lost" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_0rtt_datagram_dgram1_lost" "fail"
+fi
+
+clear_log
+echo -e "send_1rtt_datagram_dgram1_lost...\c"
+./test_client -l d -T 1 -s 4800 -U 1 -Q 65535 -E -x 205 -N -1 > stdlog
+cli_res1=`grep "\[dgram\]|dgram_lost|dgram_id:0|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_1rtt_datagram_dgram1_lost" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_1rtt_datagram_dgram1_lost" "fail"
+fi
+
+clear_log
+echo -e "send_0rtt_datagram_reorder...\c"
+./test_client -l d -T 1 -s 1800 -U 1 -Q 65535 -E -x 206 -N > stdlog
+cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_0rtt_datagram_reorder" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_0rtt_datagram_reorder" "fail"
+fi
+
+clear_log
+echo -e "send_1rtt_datagram_reorder...\c"
+./test_client -l d -T 1 -s 1800 -U 1 -Q 65535 -E -x 206 -N -1 > stdlog
+cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_1rtt_datagram_reorder" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_1rtt_datagram_reorder" "fail"
+fi
+
+clear_log
+echo -e "datagram_lost_callback...\c"
+./test_client -l d -T 1 -s 1000 -U 1 -Q 65535 -E -x 205 -N -1 > stdlog
+cli_res1=`grep "\[dgram\]|dgram_lost|dgram_id:0|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "datagram_lost_callback" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "datagram_lost_callback" "fail"
+fi
+
+clear_log
+echo -e "datagram_acked_callback...\c"
+./test_client -l d -T 1 -s 1000 -U 1 -Q 65535 -E -x 207 > stdlog
+cli_res1=`grep "\[dgram\]|dgram_acked|dgram_id:0|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "datagram_acked_callback" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "datagram_acked_callback" "fail"
+fi
+
+killall test_server
+if [ -f test_session ]; then
+    rm -f test_session
+fi
+if [ -f tp_localhost ]; then
+    rm -f tp_localhost
+fi
+if [ -f xqc_token ]; then
+    rm -f xqc_token
+fi
+stdbuf -oL ./test_server -l d -Q 65535 -x 208 -e -U 1 > svr_stdlog &
+sleep 1
+
+clear_log
+echo -e "1RTT_datagram_send_redundancy...\c"
+./test_client -l d -T 1 -s 2000 -U 1 -Q 65535 -x 208 > stdlog
+cli_res1=`grep "\[dgram\]|recv_dgram_bytes:8000" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "1RTT_datagram_send_redundancy" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "1RTT_datagram_send_redundancy" "fail"
+fi
+
+if [ -f test_session ]; then
+    rm -f test_session
+fi
+
+clear_log
+echo -e "1RTT_datagram_send_multiple_redundancy...\c"
+./test_client -l d -T 1 -s 2000 -U 2 -Q 65535 -x 208 > stdlog
+cli_res1=`grep "\[dgram\]|recv_dgram_bytes:8000" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "1RTT_datagram_send_multiple_redundancy" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "1RTT_datagram_send_multiple_redundancy" "fail"
+fi
+
+
+clear_log
+echo -e "0RTT_datagram_send_redundancy...\c"
+./test_client -l d -T 1 -s 2000 -U 1 -Q 65535 -x 208 > stdlog
+cli_res1=`grep "\[dgram\]|recv_dgram_bytes:8000" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "0RTT_datagram_send_redundancy" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "0RTT_datagram_send_redundancy" "fail"
+fi
+
+clear_log
+echo -e "0RTT_datagram_send_multiple_redundancy...\c"
+./test_client -l d -T 1 -s 2000 -U 2 -Q 65535 -x 208 > stdlog
+cli_res1=`grep "\[dgram\]|recv_dgram_bytes:8000" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "0RTT_datagram_send_multiple_redundancy" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "0RTT_datagram_send_multiple_redundancy" "fail"
+fi
+
+
+killall test_server
+./test_server -l d -e -x 208 -Q 65535 -U 1 --dgram_qos 3 > /dev/null &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "No reinjection for normal datagrams...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 1 --dgram_qos 3 > stdlog
+result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "No_reinjection_for_normal_datagrams" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "No_reinjection_for_normal_datagrams" "fail"
+fi
+grep_err_log
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "No reinjection for normal h3-ext datagrams...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 2 --dgram_qos 3 > stdlog
+result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "No_reinjection_for_normal_h3_ext_datagrams" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "No_reinjection_for_normal_h3_ext_datagrams" "fail"
+fi
+grep_err_log
+
+
+# h3 ext datagram
+
+killall test_server
+if [ -f test_session ]; then
+    rm -f test_session
+fi
+if [ -f tp_localhost ]; then
+    rm -f tp_localhost
+fi
+if [ -f xqc_token ]; then
+    rm -f xqc_token
+fi
+stdbuf -oL ./test_server -l d -Q 1000 -x 200 > svr_stdlog &
+sleep 1
+clear_log
+echo -e "h3_ext_datagram_get_mss(no_saved_transport_params)...\c"
+./test_client -l d -T 2 -x 200 -Q 1000 -s 1 -U 1 > stdlog
+cli_res1=`grep "\[h3-dgram-200\]|.*|initial_mss:0|" stdlog`
+cli_res2=`grep "\[h3-dgram-200\]|.*|updated_mss:997|" stdlog`
+svr_res=`grep -a "\[h3-dgram-200\]|.*|initial_mss:997|" svr_stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_datagram_get_mss_no_saved_transport_params" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_datagram_get_mss_no_saved_transport_params" "fail"
+fi
+
+> svr_stdlog
+clear_log
+echo -e "h3_ext_datagram_get_mss(saved_transport_params)...\c"
+./test_client -l d -T 2 -x 200 -Q 1000 -s 1 -U 1 > stdlog
+cli_res1=`grep "\[h3-dgram-200\]|.*|initial_mss:997|" stdlog`
+cli_res2=`grep "\[h3-dgram-200\]|.*|updated_mss:997|" stdlog`
+svr_res=`grep -a "\[h3-dgram-200\]|.*|initial_mss:997|" svr_stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_datagram_get_mss_saved_transport_params" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_datagram_get_mss_saved_transport_params" "fail"
+fi
+
+killall test_server
+if [ -f test_session ]; then
+    rm -f test_session
+fi
+if [ -f tp_localhost ]; then
+    rm -f tp_localhost
+fi
+if [ -f xqc_token ]; then
+    rm -f xqc_token
+fi
+stdbuf -oL  ./test_server -l d -Q 65535 -x 201 > svr_stdlog &
+sleep 1
+clear_log
+echo -e "h3_ext_datagram_mss_limited_by_MTU...\c"
+./test_client -l d -T 2 -x 201 -Q 65535 -s 1 -U 1 > stdlog
+cli_res1=`grep "\[h3-dgram-200\]|.*|initial_mss:0|" stdlog`
+cli_res2=`grep "\[h3-dgram-200\]|.*|updated_mss:1200|" stdlog`
+svr_res=`grep -a "\[h3-dgram-200\]|.*|initial_mss:1200|" svr_stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_datagram_mss_limited_by_MTU" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_datagram_mss_limited_by_MTU" "fail"
+fi
+
+killall test_server
+if [ -f test_session ]; then
+    rm -f test_session
+fi
+if [ -f tp_localhost ]; then
+    rm -f tp_localhost
+fi
+if [ -f xqc_token ]; then
+    rm -f xqc_token
+fi
+stdbuf -oL ./test_server -l d -Q 1000 -x 200 > svr_stdlog &
+sleep 1
+clear_log
+echo -e "h3_ext_datagram_mss_limited_by_max_datagram_frame_size...\c"
+./test_client -l d -T 2 -x 200 -s 1 -U 1 -Q 1000 > stdlog
+cli_res1=`grep "\[h3-dgram-200\]|.*|initial_mss:0|" stdlog`
+cli_res2=`grep "\[h3-dgram-200\]|.*|updated_mss:997|" stdlog`
+svr_res=`grep -a "\[h3-dgram-200\]|.*|initial_mss:997|" svr_stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_datagram_mss_limited_by_max_datagram_frame_size" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_datagram_mss_limited_by_max_datagram_frame_size" "fail"
+fi
+rm -f test_session tp_localhost xqc_token
+
+killall test_server
+
+./test_server -l e -Q 65535 -e -U 1 > /dev/null &
+sleep 1
+clear_log
+#generate 0rtt data
+./test_client -l e -T 2 -s 1 -U 1 -Q 65535 > stdlog
+clear_log
+echo -e "send_0RTT_h3_ext_datagram_100KB...\c"
+./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E > stdlog
+cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_0RTT_h3_ext_datagram_100KB" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_0RTT_h3_ext_datagram_100KB" "fail"
+fi
+
+if [ $LOCAL_TEST -ne 0 ]; then
+    clear_log
+    echo -e "send_0RTT_h3_ext_datagram_1MB...\c"
+    ./test_client -l e -T 2 -s 1048576 -U 1 -Q 65535 -E > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_0RTT_h3_ext_datagram_1MB" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_0RTT_h3_ext_datagram_1MB" "fail"
+    fi
+
+    clear_log
+    echo -e "send_0RTT_h3_ext_datagram_10MB...\c"
+    ./test_client -l e -T 2 -s 10485760 -U 1 -Q 65535 -E > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_0RTT_h3_ext_datagram_10MB" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_0RTT_h3_ext_datagram_10MB" "fail"
+    fi
+
+    clear_log
+    echo -e "send_0RTT_h3_ext_datagram_100MB...\c"
+    ./test_client -l e -T 2 -s 104857600 -U 1 -Q 65535 -E > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_0RTT_h3_ext_datagram_100MB" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_0RTT_h3_ext_datagram_100MB" "fail"
+    fi
+
+fi
+rm -f test_session tp_localhost xqc_token
+
+
+killall test_server
+
+./test_server -l e -Q 65535 -e -U 2 > /dev/null &
+sleep 1
+clear_log
+#generate 0rtt data
+./test_client -l e -T 2 -s 1 -U 2 -Q 65535 > stdlog
+clear_log
+echo -e "send_0RTT_h3_ext_datagram_100KB_batch...\c"
+./test_client -l e -T 2 -s 102400 -U 2 -Q 65535 -E > stdlog
+cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_0RTT_h3_ext_datagram_100KB_batch" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_0RTT_h3_ext_datagram_100KB_batch" "fail"
+fi
+
+if [ $LOCAL_TEST -ne 0 ]; then
+    clear_log
+    echo -e "send_0RTT_h3_ext_datagram_1MB_batch...\c"
+    ./test_client -l e -T 2 -s 1048576 -U 2 -Q 65535 -E > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_0RTT_h3_ext_datagram_1MB_batch" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_0RTT_h3_ext_datagram_1MB_batch" "fail"
+    fi
+
+    clear_log
+    echo -e "send_0RTT_h3_ext_datagram_10MB_batch...\c"
+    ./test_client -l e -T 2 -s 10485760 -U 2 -Q 65535 -E > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_0RTT_h3_ext_datagram_10MB_batch" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_0RTT_h3_ext_datagram_10MB_batch" "fail"
+    fi
+
+    clear_log
+    echo -e "send_0RTT_h3_ext_datagram_100MB_batch...\c"
+    ./test_client -l e -T 2 -s 104857600 -U 2 -Q 65535 -E > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_0RTT_h3_ext_datagram_100MB_batch" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_0RTT_h3_ext_datagram_100MB_batch" "fail"
+    fi
+
+fi
+rm -f test_session tp_localhost xqc_token
+
+
+killall test_server
+./test_server -l e -Q 65535 -e -U 1 > /dev/null &
+sleep 1
+clear_log
+echo -e "send_1RTT_h3_ext_datagram_100KB...\c"
+./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -1 > stdlog
+cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_1RTT_h3_ext_datagram_100KB" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_1RTT_h3_ext_datagram_100KB" "fail"
+fi
+
+if [ $LOCAL_TEST -ne 0 ]; then
+    clear_log
+    echo -e "send_1RTT_h3_ext_datagram_1MB...\c"
+    ./test_client -l e -T 2 -s 1048576 -U 1 -Q 65535 -E -1 > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_1RTT_h3_ext_datagram_1MB" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_1RTT_h3_ext_datagram_1MB" "fail"
+    fi
+
+    clear_log
+    echo -e "send_1RTT_h3_ext_datagram_10MB...\c"
+    ./test_client -l e -T 2 -s 10485760 -U 1 -Q 65535 -E -1 > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_1RTT_h3_ext_datagram_10MB" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_1RTT_h3_ext_datagram_10MB" "fail"
+    fi
+
+    clear_log
+    echo -e "send_1RTT_h3_ext_datagram_100MB...\c"
+    ./test_client -l e -T 2 -s 104857600 -U 1 -Q 65535 -E -1 > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_1RTT_h3_ext_datagram_100MB" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_1RTT_h3_ext_datagram_100MB" "fail"
+    fi
+fi
+rm -f test_session tp_localhost xqc_token
+
+
+killall test_server
+./test_server -l e -Q 65535 -e -U 2 > /dev/null &
+sleep 1
+clear_log
+echo -e "send_1RTT_h3_ext_datagram_100KB_batch...\c"
+./test_client -l e -T 2 -s 102400 -U 2 -Q 65535 -E -1 > stdlog
+cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_1RTT_h3_ext_datagram_100KB_batch" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_1RTT_h3_ext_datagram_100KB_batch" "fail"
+fi
+
+if [ $LOCAL_TEST -ne 0 ]; then
+    clear_log
+    echo -e "send_1RTT_h3_ext_datagram_1MB_batch...\c"
+    ./test_client -l e -T 2 -s 1048576 -U 2 -Q 65535 -E -1 > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_1RTT_h3_ext_datagram_1MB_batch" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_1RTT_h3_ext_datagram_1MB_batch" "fail"
+    fi
+
+    clear_log
+    echo -e "send_1RTT_h3_ext_datagram_10MB_batch...\c"
+    ./test_client -l e -T 2 -s 10485760 -U 2 -Q 65535 -E -1 > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_1RTT_h3_ext_datagram_10MB_batch" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_1RTT_h3_ext_datagram_10MB_batch" "fail"
+    fi
+
+    clear_log
+    echo -e "send_1RTT_h3_ext_datagram_100MB_batch...\c"
+    ./test_client -l e -T 2 -s 104857600 -U 2 -Q 65535 -E -1 > stdlog
+    cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "send_1RTT_h3_ext_datagram_100MB_batch" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "send_1RTT_h3_ext_datagram_100MB_batch" "fail"
+    fi
+fi
+rm -f test_session tp_localhost xqc_token
+
+killall test_server
+./test_server -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
+sleep 1
+clear_log
+echo -e "h3_ext_dgram_send_queue_full...\c"
+./test_client -l d -T 2 -s 40000000 -U 1 -Q 65535 -1 > stdlog
+cli_res1=`grep "\[h3-dgram\]|retry_datagram_send_later|" stdlog`
+cli_res2=`grep "|too many packets used|ctl_packets_used:" clog`
+cli_res3=`grep "\[h3-dgram\]|dgram_write|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_dgram_send_queue_full" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_dgram_send_queue_full" "fail"
+fi
+
+clear_log
+echo -e "h3_ext_dgram_send_queue_full_batch...\c"
+./test_client -l d -T 2 -s 40000000 -U 2 -Q 65535 -1 > stdlog
+cli_res1=`grep "\[h3-dgram\]|retry_datagram_send_multiple_later|" stdlog`
+cli_res2=`grep "|too many packets used|ctl_packets_used:" clog`
+cli_res3=`grep "\[h3-dgram\]|dgram_write|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_dgram_send_queue_full_batch" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_dgram_send_queue_full_batch" "fail"
+fi
+
+clear_log
+echo -e "send_0rtt_h3_ext_datagram_without_saved_datagram_tp...\c"
+./test_client -l d -T 2 -s 999 -U 1 -Q 65535 -1 -E -x 202 > stdlog
+cli_res1=`grep "\[h3-dgram\]|retry_datagram_send_later|" stdlog`
+cli_res2=`grep "|waiting_for_max_datagram_frame_size_from_peer|" clog`
+cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res4=`grep "\[h3-dgram\]|dgram_write|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_0rtt_h3_ext_datagram_without_saved_datagram_tp" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_0rtt_h3_ext_datagram_without_saved_datagram_tp" "fail"
+fi
+
+clear_log
+echo -e "send_0rtt_h3_ext_datagram_without_saved_datagram_tp_batch...\c"
+./test_client -l d -T 2 -s 999 -U 2 -Q 65535 -1 -E -x 202 > stdlog
+cli_res1=`grep "\[h3-dgram\]|retry_datagram_send_multiple_later|" stdlog`
+cli_res2=`grep "|waiting_for_max_datagram_frame_size_from_peer|" clog`
+cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res4=`grep "\[h3-dgram\]|dgram_write|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_0rtt_h3_ext_datagram_without_saved_datagram_tp_batch" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_0rtt_h3_ext_datagram_without_saved_datagram_tp_batch" "fail"
+fi
+
+
+clear_log
+echo -e "send_too_many_0rtt_h3_ext_datagrams...\c"
+./test_client -l d -T 2 -s 40000 -U 1 -Q 65535 -E > stdlog
+cli_res1=`grep "\[h3-dgram\]|retry_datagram_send_later|" stdlog`
+cli_res2=`grep "|too many 0rtt packets|" clog`
+cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res4=`grep "\[h3-dgram\]|dgram_write|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_too_many_0rtt_h3_ext_datagrams" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_too_many_0rtt_h3_ext_datagrams" "fail"
+fi
+
+clear_log
+echo -e "send_too_many_0rtt_h3_ext_datagrams_batch...\c"
+./test_client -l d -T 2 -s 40000 -U 2 -Q 65535 -E > stdlog
+cli_res1=`grep "\[h3-dgram\]|retry_datagram_send_multiple_later|" stdlog`
+cli_res2=`grep "|too many 0rtt packets|" clog`
+cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res4=`grep "\[h3-dgram\]|dgram_write|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_too_many_0rtt_h3_ext_datagrams_batch" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_too_many_0rtt_h3_ext_datagrams_batch" "fail"
+fi
+
+killall test_server
+./test_server -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
+sleep 1
+clear_log
+echo -e "send_0rtt_h3_ext_datagram_reject...\c"
+./test_client -l d -T 2 -s 4800 -U 1 -Q 65535 -E > stdlog
+cli_res1=`grep "xqc_conn_early_data_reject" clog`
+cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_0rtt_h3_ext_datagram_reject" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_0rtt_h3_ext_datagram_reject" "fail"
+fi
+
+
+killall test_server
+./test_server -l d -Q 1000 -e -U 1 -s 1 > /dev/null &
+sleep 1
+clear_log
+echo -e "send_oversized_h3_ext_datagram...\c"
+./test_client -l d -T 2 -s 4800 -U 1 -Q 65535 -E -1 -x 203 > stdlog
+cli_res1=`grep "datagram_is_too_large" clog`
+cli_res2=`grep "trying_to_send_an_oversized_datagram" stdlog`
+#errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_oversized_h3_ext_datagram" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_oversized_h3_ext_datagram" "fail"
+fi
+
+clear_log
+echo -e "send_oversized_h3_ext_datagram_batch...\c"
+./test_client -l d -T 2 -s 4800 -U 2 -Q 65535 -E -1 -x 203 > stdlog
+cli_res1=`grep "datagram_is_too_large" clog`
+cli_res2=`grep "trying_to_send_an_oversized_datagram" stdlog`
+cli_res3=`grep "|partially_sent_pkts_in_a_batch|cnt:1|" stdlog`
+#errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_oversized_h3_ext_datagram_batch" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_oversized_h3_ext_datagram_batch" "fail"
+fi
+rm -rf tp_localhost test_session xqc_token
+
+killall test_server
+./test_server -l d -Q 0 -e -U 1 -s 1 > /dev/null &
+sleep 1
+clear_log
+echo -e "send_h3_ext_datagram_while_peer_does_not_support...\c"
+./test_client -l d -T 2 -s 4800 -U 1 -Q 65535 -E -1 -x 204 > stdlog
+cli_res1=`grep "|does not support datagram|" clog`
+cli_res2=`grep "\[h3-dgram\]|send_datagram_error|" stdlog`
+#errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_h3_ext_datagram_while_peer_does_not_support" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_h3_ext_datagram_while_peer_does_not_support" "fail"
+fi
+
+clear_log
+echo -e "send_h3_ext_datagram_batch_while_peer_does_not_support...\c"
+./test_client -l d -T 2 -s 4800 -U 2 -Q 65535 -E -1 -x 204 > stdlog
+cli_res1=`grep "|does not support datagram|" clog`
+cli_res2=`grep "\[h3-dgram\]|send_datagram_multiple_error|" stdlog`
+#errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_h3_ext_datagram_batch_while_peer_does_not_support" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_h3_ext_datagram_batch_while_peer_does_not_support" "fail"
+fi
+
+killall test_server
+./test_server -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
+sleep 1
+./test_client -l d -T 2 -s 1 -U 1 -Q 65535 -E -N > stdlog
+clear_log
+echo -e "send_0rtt_h3_ext_datagram_dgram1_lost...\c"
+./test_client -l d -T 2 -s 4800 -U 1 -Q 65535 -E -x 205 -N > stdlog
+cli_res1=`grep "\[h3-dgram\]|dgram_lost|dgram_id:0|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_0rtt_h3_ext_datagram_dgram1_lost" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_0rtt_h3_ext_datagram_dgram1_lost" "fail"
+fi
+
+clear_log
+echo -e "send_1rtt_h3_ext_datagram_dgram1_lost...\c"
+./test_client -l d -T 2 -s 4800 -U 1 -Q 65535 -E -x 205 -N -1 > stdlog
+cli_res1=`grep "\[h3-dgram\]|dgram_lost|dgram_id:0|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_1rtt_h3_ext_datagram_dgram1_lost" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_1rtt_h3_ext_datagram_dgram1_lost" "fail"
+fi
+
+clear_log
+echo -e "send_0rtt_h3_ext_datagram_reorder...\c"
+./test_client -l d -T 2 -s 1800 -U 1 -Q 65535 -E -x 206 -N > stdlog
+cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_0rtt_h3_ext_datagram_reorder" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_0rtt_h3_ext_datagram_reorder" "fail"
+fi
+
+clear_log
+echo -e "send_1rtt_h3_ext_datagram_reorder...\c"
+./test_client -l d -T 2 -s 1800 -U 1 -Q 65535 -E -x 206 -N -1 > stdlog
+cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "send_1rtt_h3_ext_datagram_reorder" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "send_1rtt_h3_ext_datagram_reorder" "fail"
+fi
+
+clear_log
+echo -e "h3_ext_datagram_lost_callback...\c"
+./test_client -l d -T 2 -s 1000 -U 1 -Q 65535 -E -x 205 -N -1 > stdlog
+cli_res1=`grep "\[h3-dgram\]|dgram_lost|dgram_id:0|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_datagram_lost_callback" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_datagram_lost_callback" "fail"
+fi
+
+clear_log
+echo -e "h3_ext_datagram_acked_callback...\c"
+./test_client -l d -T 2 -s 1000 -U 1 -Q 65535 -E -x 207 > stdlog
+cli_res1=`grep "\[h3-dgram\]|dgram_acked|dgram_id:0|" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_datagram_acked_callback" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_datagram_acked_callback" "fail"
+fi
+
+rm -f test_session tp_localhost xqc_token
+
+killall test_server
+
+./test_server -l e -Q 65535 -e -U 1 -x 208 > /dev/null &
+sleep 1
+
+clear_log
+echo -e "1RTT_h3_ext_datagram_send_redundancy...\c"
+./test_client -l d -T 2 -s 2000 -U 1 -Q 65535 -x 208 > stdlog
+cli_res1=`grep "\[h3-dgram\]|recv_dgram_bytes:8000" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "1RTT_h3_ext_datagram_send_redundancy" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "1RTT_h3_ext_datagram_send_redundancy" "fail"
+fi
+
+rm -f test_session tp_localhost xqc_token
+
+clear_log
+echo -e "1RTT_h3_ext_datagram_send_multiple_redundancy...\c"
+./test_client -l d -T 2 -s 2000 -U 2 -Q 65535 -x 208 > stdlog
+cli_res1=`grep "\[h3-dgram\]|recv_dgram_bytes:8000" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "1RTT_h3_ext_datagram_send_multiple_redundancy" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "1RTT_h3_ext_datagram_send_multiple_redundancy" "fail"
+fi
+
+clear_log
+echo -e "0RTT_h3_ext_datagram_send_redundancy...\c"
+./test_client -l d -T 2 -s 2000 -U 1 -Q 65535 -x 208 > stdlog
+cli_res1=`grep "\[h3-dgram\]|recv_dgram_bytes:8000" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "0RTT_h3_ext_datagram_send_redundancy" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "0RTT_h3_ext_datagram_send_redundancy" "fail"
+fi
+
+clear_log
+echo -e "0RTT_h3_ext_datagram_send_multiple_redundancy...\c"
+./test_client -l d -T 2 -s 2000 -U 2 -Q 65535 -x 208 > stdlog
+cli_res1=`grep "\[h3-dgram\]|recv_dgram_bytes:8000" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "0RTT_h3_ext_datagram_send_multiple_redundancy" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "0RTT_h3_ext_datagram_send_multiple_redundancy" "fail"
+fi
+
+
+# send h3 request / bytestream / datagram in one h3_conn (-x 300)
+
+rm -f test_session tp_localhost xqc_token
+
+killall test_server
+
+./test_server -l e -Q 65535 -e -U 1 > /dev/null &
+sleep 1
+
+
+## 1RTT
+clear_log
+echo -e "h3_ext_1RTT_send_test...\c"
+./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 300 -1 > stdlog
+cli_res1=`grep ">>>>>>>> pass:1" stdlog`
+cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
+cli_res4=`grep "\[bytestream\]|bytes_sent:102400|bytes_rcvd:102400|recv_fin:1|" stdlog`
+cli_res5=`grep "\[bytestream\]|same_content:yes|" stdlog`
+cli_res6=`grep "early_data_flag:0" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ -n "$cli_res5" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_1RTT_send_test" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_1RTT_send_test" "fail"
+fi
+
+## 0RTT
+clear_log
+echo -e "h3_ext_0RTT_accept_send_test...\c"
+./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 300 > stdlog
+cli_res1=`grep ">>>>>>>> pass:1" stdlog`
+cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
+cli_res4=`grep "\[bytestream\]|bytes_sent:102400|bytes_rcvd:102400|recv_fin:1|" stdlog`
+cli_res5=`grep "\[bytestream\]|same_content:yes|" stdlog`
+cli_res6=`grep "early_data_flag:1" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ -n "$cli_res5" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_0RTT_accept_send_test" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_0RTT_accept_send_test" "fail"
+fi
+
+## 0RTT reject
+
+killall test_server
+
+./test_server -l e -Q 65535 -e -U 1 > /dev/null &
+sleep 1
+
+clear_log
+echo -e "h3_ext_0RTT_reject_send_test...\c"
+./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 300 > stdlog
+cli_res1=`grep ">>>>>>>> pass:1" stdlog`
+cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
+cli_res4=`grep "\[bytestream\]|bytes_sent:102400|bytes_rcvd:102400|recv_fin:1|" stdlog`
+cli_res5=`grep "\[bytestream\]|same_content:yes|" stdlog`
+cli_res6=`grep "early_data_flag:2" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ -n "$cli_res5" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_0RTT_reject_send_test" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_0RTT_reject_send_test" "fail"
+fi
+
+# send concurrent h3 req / open concurrent bytestreams / send datagrams in one h3_conn (-x 301)
+
+## 1RTT
+clear_log
+echo -e "h3_ext_1RTT_concurrent_send_test...\c"
+./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 301 -P 2 -1 > stdlog
+cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
+cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
+cli_res4=`grep "\[bytestream\]|bytes_sent:102400|bytes_rcvd:102400|recv_fin:1|" stdlog`
+cli_res5=`grep "\[bytestream\]|same_content:yes|" stdlog | wc -l`
+cli_res6=`grep "early_data_flag:0" stdlog`
+
+errlog=`grep_err_log`
+if [ "$cli_res1" == "2" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "2" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_1RTT_concurrent_send_test" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_1RTT_concurrent_send_test" "fail"
+fi
+
+## 0RTT
+clear_log
+echo -e "h3_ext_0RTT_accept_concurrent_send_test...\c"
+./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 301 -P 2 > stdlog
+cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
+cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
+cli_res4=`grep "\[bytestream\]|bytes_sent:102400|bytes_rcvd:102400|recv_fin:1|" stdlog`
+cli_res5=`grep "\[bytestream\]|same_content:yes|" stdlog | wc -l`
+cli_res6=`grep "early_data_flag:1" stdlog`
+
+errlog=`grep_err_log`
+if [ "$cli_res1" == "2" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "2" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_0RTT_accept_concurrent_send_test" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_0RTT_accept_concurrent_send_test" "fail"
+fi
+
+## 0RTT reject
+
+killall test_server
+
+./test_server -l e -Q 65535 -e -U 1 > /dev/null &
+sleep 1
+
+clear_log
+echo -e "h3_ext_0RTT_reject_concurrent_send_test...\c"
+./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 301 -P 2 > stdlog
+cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
+cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
+cli_res4=`grep "\[bytestream\]|bytes_sent:102400|bytes_rcvd:102400|recv_fin:1|" stdlog`
+cli_res5=`grep "\[bytestream\]|same_content:yes|" stdlog | wc -l`
+cli_res6=`grep "early_data_flag:2" stdlog`
+
+errlog=`grep_err_log`
+if [ "$cli_res1" == "2" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "2" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_0RTT_reject_concurrent_send_test" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_0RTT_reject_concurrent_send_test" "fail"
+fi
+
+
+# send bytestream with pure fin (-x 302 -x 303)
+
+## 1RTT
+
+clear_log
+echo -e "h3_ext_1RTT_send_pure_fin1...\c"
+./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 302 -1 > stdlog
+cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
+cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
+cli_res4=`grep "\[bytestream\]|bytes_sent:0|bytes_rcvd:0|recv_fin:1|" stdlog`
+cli_res5=`grep "\[bytestream\]|same_content:no|" stdlog | wc -l`
+cli_res6=`grep "early_data_flag:0" stdlog`
+
+errlog=`grep_err_log`
+if [ "$cli_res1" == "1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "1" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_1RTT_send_pure_fin1" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_1RTT_send_pure_fin1" "fail"
+fi
+
+clear_log
+echo -e "h3_ext_1RTT_send_pure_fin2...\c"
+./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 303 -1 > stdlog
+cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
+cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
+cli_res4=`grep "\[bytestream\]|bytes_sent:0|bytes_rcvd:0|recv_fin:1|" stdlog`
+cli_res5=`grep "\[bytestream\]|same_content:no|" stdlog | wc -l`
+cli_res6=`grep "early_data_flag:0" stdlog`
+
+errlog=`grep_err_log`
+if [ "$cli_res1" == "1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "1" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_1RTT_send_pure_fin2" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_1RTT_send_pure_fin2" "fail"
+fi
+
+## 0RTT
+
+clear_log
+echo -e "h3_ext_0RTT_accept_send_pure_fin1...\c"
+./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 302 > stdlog
+cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
+cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
+cli_res4=`grep "\[bytestream\]|bytes_sent:0|bytes_rcvd:0|recv_fin:1|" stdlog`
+cli_res5=`grep "\[bytestream\]|same_content:no|" stdlog | wc -l`
+cli_res6=`grep "early_data_flag:1" stdlog`
+
+errlog=`grep_err_log`
+if [ "$cli_res1" == "1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "1" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_0RTT_accept_send_pure_fin1" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_0RTT_accept_send_pure_fin1" "fail"
+fi
+
+clear_log
+echo -e "h3_ext_0RTT_accept_send_pure_fin2...\c"
+./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 303 > stdlog
+cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
+cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
+cli_res4=`grep "\[bytestream\]|bytes_sent:0|bytes_rcvd:0|recv_fin:1|" stdlog`
+cli_res5=`grep "\[bytestream\]|same_content:no|" stdlog | wc -l`
+cli_res6=`grep "early_data_flag:1" stdlog`
+
+errlog=`grep_err_log`
+if [ "$cli_res1" == "1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "1" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_0RTT_accept_send_pure_fin2" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_0RTT_accept_send_pure_fin2" "fail"
+fi
+
+## 0RTT reject
+
+killall test_server
+
+./test_server -l e -Q 65535 -e -U 1 > /dev/null &
+sleep 1
+
+clear_log
+echo -e "h3_ext_0RTT_reject_send_pure_fin1...\c"
+./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 302 > stdlog
+cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
+cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
+cli_res4=`grep "\[bytestream\]|bytes_sent:0|bytes_rcvd:0|recv_fin:1|" stdlog`
+cli_res5=`grep "\[bytestream\]|same_content:no|" stdlog | wc -l`
+cli_res6=`grep "early_data_flag:2" stdlog`
+
+errlog=`grep_err_log`
+if [ "$cli_res1" == "1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "1" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_0RTT_reject_send_pure_fin1" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_0RTT_reject_send_pure_fin1" "fail"
+fi
+
+killall test_server
+
+./test_server -l e -Q 65535 -e -U 1 > /dev/null &
+sleep 1
+
+clear_log
+echo -e "h3_ext_0RTT_reject_send_pure_fin2...\c"
+./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 303 > stdlog
+cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
+cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
+cli_res4=`grep "\[bytestream\]|bytes_sent:0|bytes_rcvd:0|recv_fin:1|" stdlog`
+cli_res5=`grep "\[bytestream\]|same_content:no|" stdlog | wc -l`
+cli_res6=`grep "early_data_flag:2" stdlog`
+
+errlog=`grep_err_log`
+if [ "$cli_res1" == "1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "1" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_0RTT_reject_send_pure_fin2" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_0RTT_reject_send_pure_fin2" "fail"
+fi
+
+# finish bytestream during transmission (-x 304)
+
+clear_log
+echo -e "h3_ext_finish_bytestream_during_transmission...\c"
+./test_client -l d -T 2 -s 102400 -U 1 -Q 65535 -E -x 304 > stdlog
+cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
+cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res3=(`grep "\[h3-dgram\]|recv_dgram_bytes:" stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
+cli_res4=(`grep "\[bytestream\]|bytes_sent:" stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
+cli_res5=`grep "\[bytestream\]|same_content:yes|" stdlog | wc -l`
+cli_res6=`grep "send pure fin" clog`
+errlog=`grep_err_log | grep -v "send data after fin sent"`
+if [ "$cli_res1" == "1" ] && [ -n "$cli_res2" ] \
+    && [ ${cli_res3[0]} -ge 102400 ] && [ ${cli_res3[1]} -ge 102400 ] \
+    && [ ${cli_res4[0]} -ge 102400 ] && [ ${cli_res4[1]} -ge 102400 ] \
+    && [ "$cli_res5" == "1" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_finish_bytestream_during_transmission" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_finish_bytestream_during_transmission" "fail"
+fi
+
+# close bytestream during transmission (-x 305)
+
+clear_log
+echo -e "h3_ext_close_bytestream_during_transmission...\c"
+./test_client -l d -T 2 -s 102400 -U 1 -Q 65535 -E -x 305 > stdlog
+cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
+cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_res3=(`grep "\[h3-dgram\]|recv_dgram_bytes:" stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
+cli_res4=(`grep "\[bytestream\]|bytes_sent:" stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
+cli_res5=`grep "\[bytestream\]|same_content:.*|" stdlog | wc -l`
+cli_res6=`grep "xqc_h3_ext_bytestream_close|success" clog`
+errlog=`grep_err_log | grep -v "xqc_h3_stream_process_data|xqc_stream_recv"`
+if [ "$cli_res1" == "1" ] && [ -n "$cli_res2" ] \
+    && [ ${cli_res3[0]} -ge 102400 ] && [ ${cli_res3[1]} -ge 102400 ] \
+    && [ ${cli_res4[0]} -ge 102400 ] \
+    && [ "$cli_res5" == "1" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_close_bytestream_during_transmission" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_close_bytestream_during_transmission" "fail"
+fi
+
+# bytestream write blocked by streamlevel flowctl (-x 306)
+
+clear_log
+echo -e "h3_ext_bytestream_blocked_by_stream_flowctl...\c"
+./test_client -l d -T 2 -s 32000000 -U 1 -Q 65535 -E -x 306 > stdlog
+cli_res2=`grep "|xqc_stream_send|exceed max_stream_data" clog`
+cli_res3=`grep "|h3_ext_bytestream_write_notify|success|" clog`
+cli_res4=`grep "\[bytestream\]|bytes_sent:32000000|bytes_rcvd:32000000|recv_fin:1|" stdlog`
+cli_res5=`grep "\[bytestream\]|same_content:yes|" stdlog | wc -l`
+errlog=`grep_err_log`
+if [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_bytestream_blocked_by_stream_flowctl" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_bytestream_blocked_by_stream_flowctl" "fail"
+fi
+
+# bytestream write blocked by 0RTT limit (-x 307)
+
+clear_log
+echo -e "h3_ext_bytestream_blocked_by_0RTT_limit...\c"
+./test_client -l d -T 2 -s 10000000 -U 1 -Q 65535 -E -x 307 > stdlog
+cli_res2=`grep "|too many 0rtt packets|" clog`
+cli_res3=`grep "|h3_ext_bytestream_write_notify|success|" clog`
+cli_res4=`grep "\[bytestream\]|bytes_sent:10000000|bytes_rcvd:10000000|recv_fin:1|" stdlog`
+cli_res5=`grep "\[bytestream\]|same_content:yes|" stdlog | wc -l`
+errlog=`grep_err_log`
+if [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_bytestream_blocked_by_0RTT_limit" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_bytestream_blocked_by_0RTT_limit" "fail"
+fi
+
+# bytestream 0RTT write blocked by no 0RTT support (-x 308)
+
+clear_log
+echo -e "h3_ext_bytestream_blocked_by_no_0RTT_support...\c"
+./test_client -l d -T 2 -s 1024 -U 1 -Q 65535 -E -x 308 -1 > stdlog
+cli_res2=`grep "|blocked by no 0RTT support|" clog`
+cli_res3=`grep "|h3_ext_bytestream_write_notify|success|" clog`
+cli_res4=`grep "\[bytestream\]|bytes_sent:1024|bytes_rcvd:1024|recv_fin:1|" stdlog`
+cli_res5=`grep "\[bytestream\]|same_content:yes|" stdlog | wc -l`
+errlog=`grep_err_log`
+if [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_bytestream_blocked_by_no_0RTT_support" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_bytestream_blocked_by_no_0RTT_support" "fail"
+fi
+
+# bytestream/h3_request/datagram all blocked by sndq size (-x 309)
+
+clear_log
+echo -e "h3_ext_bytestream_blocked_by_sndq_full...\c"
+./test_client -l e -T 2 -s 16000000 -U 1 -Q 65535 -E -x 309 > stdlog
+cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
+cli_res2=`grep "\[dgram\]|echo_check|same_content:.*|" stdlog`
+cli_res4=`grep "\[bytestream\]|bytes_sent:16000000|bytes_rcvd:16000000|recv_fin:1|" stdlog`
+cli_res5=`grep "\[bytestream\]|same_content:yes|" stdlog | wc -l`
+errlog=`grep_err_log`
+
+if [ "$cli_res1" == "1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_bytestream_blocked_by_sndq_full" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_bytestream_blocked_by_sndq_full" "fail"
+fi
+
+# read / write full messages even if blocking happens
+
+clear_log
+echo -e "h3_ext_bytestream_full_message_flow_ctrl...\c"
+./test_client -l d -T 2 -s 32000000 -U 1 -Q 65535 -E -x 311 > stdlog
+cli_res2=`grep "|xqc_stream_send|exceed max_stream_data" clog`
+cli_res3=`grep "|h3_ext_bytestream_write_notify|success|" clog`
+cli_res4=`grep "\[bytestream\]|bytes_sent:32001000|bytes_rcvd:32001000|recv_fin:1|snd_times:2|rcv_times:2|" stdlog`
+cli_res5=`grep "\[bytestream\]|same_content:yes|" stdlog | wc -l`
+errlog=`grep_err_log`
+if [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_bytestream_full_message_under_flow_ctrl" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_bytestream_full_message_under_flow_ctrl" "fail"
+fi
+
+clear_log
+echo -e "h3_ext_bytestream_full_message_0RTT_blocking...\c"
+./test_client -l d -T 2 -s 10000000 -U 1 -Q 65535 -E -x 312 > stdlog
+cli_res2=`grep "|too many 0rtt packets|" clog`
+cli_res3=`grep "|h3_ext_bytestream_write_notify|success|" clog`
+cli_res4=`grep "\[bytestream\]|bytes_sent:10001000|bytes_rcvd:10001000|recv_fin:1|snd_times:2|rcv_times:2|" stdlog`
+cli_res5=`grep "\[bytestream\]|same_content:yes|" stdlog | wc -l`
+errlog=`grep_err_log`
+if [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_bytestream_full_message_0RTT_blocking" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_bytestream_full_message_0RTT_blocking" "fail"
+fi
+
+clear_log
+echo -e "h3_ext_bytestream_full_message_no_0RTT_suppport...\c"
+./test_client -l d -T 2 -s 1024 -U 1 -Q 65535 -E -x 313 -1 > stdlog
+cli_res2=`grep "|blocked by no 0RTT support|" clog`
+cli_res3=`grep "|h3_ext_bytestream_write_notify|success|" clog`
+cli_res4=`grep "\[bytestream\]|bytes_sent:2024|bytes_rcvd:2024|recv_fin:1|snd_times:2|rcv_times:2|" stdlog`
+cli_res5=`grep "\[bytestream\]|same_content:yes|" stdlog | wc -l`
+errlog=`grep_err_log`
+if [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_bytestream_full_message_no_0RTT_suppport" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_bytestream_full_message_no_0RTT_suppport" "fail"
+fi
+
+clear_log
+echo -e "h3_ext_bytestream_full_message_sndq_full...\c"
+./test_client -l e -T 2 -s 16000000 -U 1 -Q 65535 -E -x 314 > stdlog
+cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
+cli_res2=`grep "\[dgram\]|echo_check|same_content:.*|" stdlog`
+cli_res4=`grep "\[bytestream\]|bytes_sent:16001000|bytes_rcvd:16001000|recv_fin:1|snd_times:2|rcv_times:2|" stdlog`
+cli_res5=`grep "\[bytestream\]|same_content:yes|" stdlog | wc -l`
+errlog=`grep_err_log`
+
+if [ "$cli_res1" == "1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "1" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_bytestream_full_message_sndq_full" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_bytestream_full_message_sndq_full" "fail"
+fi
+
+killall test_server
+
+./test_server -l e -Q 65535 -e -U 1 -H > /dev/null &
+sleep 1
+
+clear_log
+echo -e "connect to an h3_ext disabled server...\c"
+./test_client -l e -T 2 -s 1024 -U 1 -Q 65535 -E > stdlog
+svr_log=`grep "select proto error" slog`
+
+if [ -n "$svr_log" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "connect_to_an_h3_ext_disabled_server" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "connect_to_an_h3_ext_disabled_server" "fail"
+fi
+
+killall test_server
+
+./test_server -l e -Q 65535 -e -U 1 > /dev/null &
+sleep 1
+
+clear_log
+echo -e "h3_ext is disabled on the client...\c"
+./test_client -l e -T 2 -s 1024 -U 1 -Q 65535 -E -x 315 > stdlog
+cli_res1=`grep "can't get application layer callback" clog`
+
+if [ -n "$cli_res1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_ext_is_disabled_on_the_client" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_ext_is_disabled_on_the_client" "fail"
+fi
+
+rm -rf tp_localhost test_session xqc_token
+killall test_server
+
+
+./test_server -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
+sleep 1
+./test_client -l d -T 1 -s 4800 -U 1 -Q 65535 -E &> /dev/null #generate 0rtt ticket
+killall test_server
+./test_server -l d -e -s 1 > /dev/null & #disable datagram
+sleep 1
+clear_log
+echo -e "check_clear_0rtt_ticket_flag_in_close_notify...\c"
+./test_client -l d -T 1 -s 4800 -U 1 -Q 65535 -E > stdlog
+cli_res2=`grep "should_clear_0rtt_ticket, conn_err:14, clear_0rtt_ticket:1" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res2" ] && [ -n "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "check_clear_0rtt_ticket_flag_in_close_notify" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "check_clear_0rtt_ticket_flag_in_close_notify" "fail"
+fi
+
+rm -rf tp_localhost test_session xqc_token
+killall test_server
+
+./test_server -l d -Q 65535 -e -s 1 > /dev/null &
+sleep 1
+./test_client -l d -s 4800 -Q 65535 -E &> /dev/null #generate 0rtt ticket
+killall test_server
+./test_server -l d -e -s 1 > /dev/null & #disable datagram
+sleep 1
+clear_log
+echo -e "check_clear_0rtt_ticket_flag_in_h3_close_notify...\c"
+./test_client -l d -s 4800 -Q 65535 -E > stdlog
+cli_res2=`grep "should_clear_0rtt_ticket, conn_err:14, clear_0rtt_ticket:1" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res2" ] && [ -n "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "check_clear_0rtt_ticket_flag_in_h3_close_notify" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "check_clear_0rtt_ticket_flag_in_h3_close_notify" "fail"
+fi
+
+rm -rf tp_localhost test_session xqc_token
+killall test_server
+
+./test_server -l d -Q 65535 -e -s 1 > /dev/null &
+sleep 1
+./test_client -l d -s 4800 -Q 65535 -E &> /dev/null #generate 0rtt ticket
+killall test_server
+./test_server -l d -e -s 1 > /dev/null & #disable datagram
+sleep 1
+clear_log
+echo -e "check_clear_0rtt_ticket_flag_in_h3_close_notify...\c"
+./test_client -l d -s 4800 -Q 65535 -E > stdlog
+cli_res2=`grep "should_clear_0rtt_ticket, conn_err:14, clear_0rtt_ticket:1" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res2" ] && [ -n "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "check_clear_0rtt_ticket_flag_in_h3_close_notify" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "check_clear_0rtt_ticket_flag_in_h3_close_notify" "fail"
+fi
+
+rm -rf tp_localhost test_session xqc_token
+killall test_server
+
+clear_log
+echo -e "request_closing_notify...\c"
+./test_server -l d -x 14 > /dev/null &
+sleep 1
+./test_client -l d >> stdlog
+res=`grep "request closing notify triggered" stdlog`
+if [ -n "$res" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "request_closing_notify" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "request_closing_notify" "fail"
+fi
+
+
+killall test_server
+./test_server -l d -e -M -R 3 -Q 65535 -U 1 > /dev/null &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "SP reinject datagrams ...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -R 3 -Q 65535 -U 1 -T 1 > stdlog
+result=`grep "\[dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "SP_reinject_datagrams" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "SP_reinject_datagrams" "fail"
+fi
+grep_err_log
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "SP reinject h3-ext datagrams ...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -R 3 -Q 65535 -U 1 -T 2 > stdlog
+result=`grep "\[h3-dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "SP_reinject_h3_ext_datagrams" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "SP_reinject_h3_ext_datagrams" "fail"
+fi
+grep_err_log
+
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "MP reinject datagrams ...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -R 3 -Q 65535 -U 1 -T 1 -M -i lo -i lo > stdlog
+result=`grep "\[dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MP_reinject_datagrams" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MP_reinject_datagrams" "fail"
+fi
+grep_err_log
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "MP reinject h3-ext datagrams ...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -R 3 -Q 65535 -U 1 -T 2 -M -i lo -i lo > stdlog
+result=`grep "\[h3-dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MP_reinject_h3_ext_datagrams" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MP_reinject_h3_ext_datagrams" "fail"
+fi
+grep_err_log
+
+
+killall test_server
+./test_server -l d -e -M -x 208 -Q 65535 -U 1 > /dev/null &
+sleep 1
+
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "MP datagrams redundancy...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 1 -M -i lo -i lo > stdlog
+result=`grep "\[dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MP_datagrams_redundancy" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MP_datagrams_redundancy" "fail"
+fi
+grep_err_log
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "MP h3-ext datagrams redundancy...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 2 -M -i lo -i lo > stdlog
+result=`grep "\[h3-dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MP_h3_ext_datagrams_redundancy" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MP_h3_ext_datagrams_redundancy" "fail"
+fi
+grep_err_log
+
+
+killall test_server
+./test_server -l d -e -M -x 208 -Q 65535 -U 1 --dgram_qos 3 > /dev/null &
+sleep 1
+
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "MP no reinjection for normal datagrams...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 1 -M -i lo -i lo --dgram_qos 3 > stdlog
+result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MP_no_reinjection_for_normal_datagrams" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MP_no_reinjection_for_normal_datagrams" "fail"
+fi
+grep_err_log
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "MP no reinjection for normal h3-ext datagrams...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 2 -M -i lo -i lo --dgram_qos 3 > stdlog
+result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MP_no_reinjection_for_normal_h3_ext_datagrams" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MP_no_reinjection_for_normal_h3_ext_datagrams" "fail"
+fi
+grep_err_log
+
+
+killall test_server
+stdbuf -oL ./test_server -l d -e -M -Q 65535 -U 1 --pmtud 1 -x 200 > svr_stdlog &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+> svr_stdlog
+clear_log
+echo -e "SP datagram PMTUD 1RTT...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 1 --pmtud 1 > stdlog
+result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+mtu_res1=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
+mtu_res2=`grep -a "\[dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "SP_datagram_PMTUD_1RTT" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "SP_datagram_PMTUD_1RTT" "fail"
+fi
+grep_err_log
+
+> svr_stdlog
+clear_log
+echo -e "SP datagram PMTUD 0RTT...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 1 --pmtud 1 > stdlog
+result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+mtu_res1=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
+mtu_res2=`grep -a "\[dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "SP_datagram_PMTUD_0RTT" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "SP_datagram_PMTUD_0RTT" "fail"
+fi
+grep_err_log
+
+rm -rf tp_localhost test_session xqc_token
+> svr_stdlog
+clear_log
+echo -e "SP h3-ext datagram PMTUD 1RTT...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 2 --pmtud 1 > stdlog
+result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+mtu_res1=`grep "\[h3-dgram\]|callback|updated_mss:1404|" stdlog`
+mtu_res2=`grep -a "\[h3-dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "SP_h3_ext_datagram_PMTUD_1RTT" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "SP_h3_ext_datagram_PMTUD_1RTT" "fail"
+fi
+grep_err_log
+
+> svr_stdlog
+clear_log
+echo -e "SP h3-ext datagram PMTUD 0RTT...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 2 --pmtud 1 > stdlog
+result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+mtu_res1=`grep "\[h3-dgram\]|callback|updated_mss:1404|" stdlog`
+mtu_res2=`grep -a "\[h3-dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "SP_h3_ext_datagram_PMTUD_0RTT" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "SP_h3_ext_datagram_PMTUD_0RTT" "fail"
+fi
+grep_err_log
+
+
+rm -rf tp_localhost test_session xqc_token
+> svr_stdlog
+clear_log
+echo -e "MP datagram PMTUD 1RTT...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 1 --pmtud 1 -M -i lo -i lo > stdlog
+result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+mtu_res1=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
+mtu_res2=`grep -a "\[dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MP_datagram_PMTUD_1RTT" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MP_datagram_PMTUD_1RTT" "fail"
+fi
+grep_err_log
+
+> svr_stdlog
+clear_log
+echo -e "MP datagram PMTUD 0RTT...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 1 --pmtud 1 -M -i lo -i lo > stdlog
+result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+mtu_res1=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
+mtu_res2=`grep -a "\[dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MP_datagram_PMTUD_0RTT" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MP_datagram_PMTUD_0RTT" "fail"
+fi
+grep_err_log
+
+rm -rf tp_localhost test_session xqc_token
+> svr_stdlog
+clear_log
+echo -e "MP h3-ext datagram PMTUD 1RTT...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 2 --pmtud 1 -M -i lo -i lo > stdlog
+result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+mtu_res1=`grep "\[h3-dgram\]|callback|updated_mss:1404|" stdlog`
+mtu_res2=`grep -a "\[h3-dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MP_h3_ext_datagram_PMTUD_1RTT" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MP_h3_ext_datagram_PMTUD_1RTT" "fail"
+fi
+grep_err_log
+
+> svr_stdlog
+clear_log
+echo -e "MP h3-ext datagram PMTUD 0RTT...\c"
+sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 2 --pmtud 1 -M -i lo -i lo > stdlog
+result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+mtu_res1=`grep "\[h3-dgram\]|callback|updated_mss:1404|" stdlog`
+mtu_res2=`grep -a "\[h3-dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MP_h3_ext_datagram_PMTUD_0RTT" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MP_h3_ext_datagram_PMTUD_0RTT" "fail"
+fi
+grep_err_log
+
+
+killall test_server
+stdbuf -oL ./test_server -l d -e -M > /dev/null &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "transport MP ping ...\c"
+sudo ./test_client -s 1024 -l d -E -T 1 -e 1 --epoch_timeout 2000000 -t 3 --mp_ping 1 -M -i lo -i lo >> clog
+ret_ping_id=`grep "====>ping_id:" clog`
+ret_no_ping_id=`grep "====>no ping_id" clog`
+path0_ping=`grep -E "xqc_send_packet_with_pn.*path:0.*PING" clog`
+path1_ping=`grep -E "xqc_send_packet_with_pn.*path:1.*PING" clog`
+if [ -n "$ret_ping_id" ] && [ -n "$ret_no_ping_id" ] && [ -n "$path0_ping" ] && [ -n "$path1_ping" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "transport_MP_ping" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "transport_MP_ping" "fail"
+fi
+
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "h3 MP ping ...\c"
+sudo ./test_client -s 1024 -l d -E -e 1 --epoch_timeout 2000000 -t 3 --mp_ping 1 -M -i lo -i lo >> clog
+ret_ping_id=`grep "====>ping_id:" clog`
+ret_no_ping_id=`grep "====>no ping_id" clog`
+path0_ping=`grep -E "xqc_send_packet_with_pn.*path:0.*PING" clog`
+path1_ping=`grep -E "xqc_send_packet_with_pn.*path:1.*PING" clog`
+if [ -n "$ret_ping_id" ] && [ -n "$ret_no_ping_id" ] && [ -n "$path0_ping" ] && [ -n "$path1_ping" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_MP_ping" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_MP_ping" "fail"
+fi
+
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "freeze path0 ...\c"
+sudo ./test_client -s 1024000 -l d -E -e 4 -T 2 --epoch_timeout 2000000 -t 4 -M -i lo -i lo -x 107 > stdlog
+stream_info3=`grep "stream_info:" stdlog | head -n 3 | tail -n 1 | grep -v "#0" | grep "#1"`
+stream_info5=`grep "stream_info:" stdlog | tail -n 1 | grep -E "#0.*#1"`
+clog_res1=`grep -E "path:0.*app_path_status:2->3" clog`
+clog_res2=`grep -E "path:0.*app_path_status:3->1" clog`
+slog_res1=`grep -E "path:0.*app_path_status:2->3" slog`
+slog_res2=`grep -E "path:0.*app_path_status:3->1" slog`
+if [ -n "$stream_info3" ] && [ -n "$stream_info5" ] && [ -n "$clog_res1" ] && [ -n "$clog_res2" ] && [ -n "$slog_res1" ] && [ -n "$slog_res2" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "freeze_path0" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "freeze_path0" "fail"
+fi
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "freeze path1 ...\c"
+sudo ./test_client -s 1024000 -l d -E -e 4 -T 2 --epoch_timeout 2000000 -t 4 -M -i lo -i lo -x 108 > stdlog
+stream_info3=`grep "stream_info:" stdlog | head -n 3 | tail -n 1 | grep -v "#1" | grep "#0"`
+stream_info5=`grep "stream_info:" stdlog | tail -n 1 | grep -E "#0.*#1"`
+clog_res1=`grep -E "path:1.*app_path_status:2->3" clog`
+clog_res2=`grep -E "path:1.*app_path_status:3->1" clog`
+slog_res1=`grep -E "path:1.*app_path_status:2->3" slog`
+slog_res2=`grep -E "path:1.*app_path_status:3->1" slog`
+if [ -n "$stream_info3" ] && [ -n "$stream_info5" ] && [ -n "$clog_res1" ] && [ -n "$clog_res2" ] && [ -n "$slog_res1" ] && [ -n "$slog_res2" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "freeze_path1" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "freeze_path1" "fail"
+fi
+
+killall test_server
+stdbuf -oL ./test_server -l d -e -M > /dev/null &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "probing standby paths ...\c"
+sudo ./test_client -s 1024000 -l d -E -e 1 --epoch_timeout 2000000 -t 4 -M -i lo -i lo -x 501 -y > stdlog
+clog_res1=`grep -E "|xqc_path_standby_probe|PING|path:1|" clog`
+if [ -n "$clog_res1" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "probing_standby_path" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "probing_standby_path" "fail"
+fi
+
+
+sudo rm -rf tp_localhost test_session xqc_token clog stdlog ckeys.log
+clear_log
+echo -e "conn_rate_throttling ...\c"
+result=`./test_client -s 1024000 -l d -E --rate_limit 1000000 |grep ">>>>>>>> pass"`
+errlog=`grep_err_log`
+echo "$result"
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    case_print_result "conn_rate_throttling" "pass"
+else
+    case_print_result "conn_rate_throttling" "fail"
+    echo "$errlog"
+fi
+
+clear_log
+echo -e "stream_rate_throttling ...\c"
+result=`./test_client -s 1024000 -l d -E -x 109 |grep ">>>>>>>> pass"`
+errlog=`grep_err_log`
+echo "$result"
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    case_print_result "stream_rate_throttling" "pass"
+else
+    case_print_result "stream_rate_throttling" "fail"
+    echo "$errlog"
+fi
+
+killall test_server
 
 cd -

@@ -921,11 +921,6 @@ xqc_engine_main_logic(xqc_engine_t *engine)
                 xqc_conn_send_packets(conn);
             }
 
-            if (conn->conn_settings.mp_enable_reinjection & XQC_REINJ_UNACK_AFTER_SEND) {
-                xqc_conn_reinject_unack_packets(conn, XQC_REINJ_UNACK_AFTER_SEND);
-                xqc_conn_send_packets(conn);
-            }
-
             if (XQC_UNLIKELY(conn->conn_state == XQC_CONN_STATE_CLOSED)) {
                 conn->conn_flag &= ~XQC_CONN_FLAG_TICKING;
                 if (!(engine->eng_flag & XQC_ENG_FLAG_NO_DESTROY)) {

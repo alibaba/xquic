@@ -280,10 +280,6 @@ xqc_hq_request_recv_req(xqc_hq_request_t *hqr, char *res_buf, size_t buf_sz, uin
 
     } while (read > 0 && !hqr->fin);
 
-    /* return until all request bytes are received */
-    if (!hqr->fin) {
-        return XQC_OK;
-    }
 
     if (NULL == hqr->resource_buf) {
         hqr->resource_buf = xqc_malloc(XQC_HQ_REQUEST_RESOURCE_MAX_LEN);
@@ -294,9 +290,29 @@ xqc_hq_request_recv_req(xqc_hq_request_t *hqr, char *res_buf, size_t buf_sz, uin
         hqr->resource_buf_sz = XQC_HQ_REQUEST_RESOURCE_MAX_LEN;
     }
 
+    uint8_t req_fin = 0;
     read = xqc_hq_parse_req(hqr, hqr->resource_buf, XQC_HQ_REQUEST_RESOURCE_MAX_LEN);
     if (read <= 0) {
-        return -XQC_EPROTO;
+        if (!hqr->fin) {
+            return -XQC_EAGAIN;
+        } else {
+            return -XQC_EPROTO;
+        }
+    }
+
+    if (read > 0
+        && read + 2 <= hqr->recv_buf_len
+        && (*(hqr->req_recv_buf + read) == '\r')
+        && (*(hqr->req_recv_buf + read + 1) == '\n'))
+    {
+        /* check CR LF for hq request line */
+        req_fin = 1;
+        PRINT_LOG("|hq recv CR LF|%zd|", read);
+    }
+
+    /* return until all request bytes are received in the current request */
+    if (!hqr->fin && !req_fin) {
+        return XQC_OK;
     }
 
     if (buf_sz < hqr->resource_read_offset) {
@@ -306,7 +322,7 @@ xqc_hq_request_recv_req(xqc_hq_request_t *hqr, char *res_buf, size_t buf_sz, uin
     if (hqr->resource_read_offset < strlen(hqr->resource_buf)) {
         read = (ssize_t)strncpy(res_buf, hqr->resource_buf, buf_sz);
         hqr->resource_read_offset += read;
-        *fin = hqr->fin;
+        *fin = (hqr->fin || req_fin);
     }
 
     return read;

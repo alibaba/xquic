@@ -294,7 +294,7 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
             }
             break;
         case 0x15228c05:
-            if (conn->conn_settings.multipath_version == XQC_MULTIPATH_05) {
+            if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_05) {
                 ret = xqc_process_path_abandon_frame(conn, packet_in);
 
             } else {

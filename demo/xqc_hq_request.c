@@ -244,9 +244,10 @@ xqc_hq_parse_req(xqc_hq_request_t *hqr, char *res, size_t sz, uint8_t *fin)
         return -XQC_EPROTO;
     }
 
-    if (ret + 2 <= hqr->recv_buf_len
-        && (*(hqr->req_recv_buf + ret) == '\r')
-        && (*(hqr->req_recv_buf + ret + 1) == '\n'))
+    int request_line_len = strlen(method) + strlen(res) + 1; /* method + ' ' + path */
+    if (request_line_len + 2 <= hqr->recv_buf_len
+        && (*(hqr->req_recv_buf + request_line_len) == '\r')
+        && (*(hqr->req_recv_buf + request_line_len + 1) == '\n'))
     {
         /* check CR LF for hq request line */
         *fin = 1;

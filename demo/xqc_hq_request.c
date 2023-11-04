@@ -250,7 +250,7 @@ xqc_hq_parse_req(xqc_hq_request_t *hqr, char *res, size_t sz, uint8_t *fin)
     {
         /* check CR LF for hq request line */
         *fin = 1;
-        PRINT_LOG("|hq recv CR LF|%zd|", read);
+        PRINT_LOG("|hq recv CR LF|");
     }
 
     return strlen(res);

@@ -199,6 +199,9 @@ xqc_server_set_conn_settings(const xqc_conn_settings_t *settings)
         default_conn_settings.standby_path_probe_timeout = xqc_max(settings->standby_path_probe_timeout, XQC_MIN_STANDBY_RPOBE_TIMEOUT);
     }
 
+    if (settings->keyupdate_pkt_threshold != UINT64_MAX) {
+        default_conn_settings.keyupdate_pkt_threshold = settings->keyupdate_pkt_threshold;
+    }
 }
 
 static const char * const xqc_conn_flag_to_str[XQC_CONN_FLAG_SHIFT_NUM] = {

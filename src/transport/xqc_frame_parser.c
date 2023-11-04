@@ -2053,7 +2053,8 @@ xqc_gen_path_abandon_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     if (conn->conn_settings.multipath_version == XQC_MULTIPATH_04) {
         frame_type = 0xbaba05;
 
-    } else if (conn->conn_settings.multipath_version == XQC_MULTIPATH_05) {
+    } else if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_05) {
+        /* same frame type in 05 and 06 */
         frame_type = 0x15228c05;
 
     } else {

@@ -1088,7 +1088,7 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
     xqc_demo_cli_task_ctx_t *ctx = &user_stream->user_conn->ctx->task_ctx;
     xqc_demo_cli_user_conn_t *user_conn = user_stream->user_conn;
     uint32_t task_idx = user_conn->task->task_idx;
-    xqc_msec_t ts_now = 0;
+    xqc_msec_t ts_now = 0, path_status_time = 0;
 
     if (user_conn->send_path_standby) {
         /* set initial path standby here */
@@ -1099,7 +1099,6 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
             if (ts_now > user_conn->path_status_time + user_conn->path_status_timer_threshold) {
                 xqc_conn_mark_path_standby(user_conn->ctx->engine, &user_conn->cid, 0);
                 user_conn->path_status = 1; /* 1:standby */
-                printf("mark initial path standby: now="PRIu64"\n", user_conn->path_status_time);
 
                 user_conn->path_status_time = ts_now;
             }
@@ -1109,8 +1108,6 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
             if (ts_now > user_conn->path_status_time + user_conn->path_status_timer_threshold) {
                 xqc_conn_mark_path_available(user_conn->ctx->engine, &user_conn->cid, 0);
                 user_conn->path_status = 0; /* 0:available */
-                printf("mark initial path available: now="PRIu64", threshold="PRIu64"\n",
-                            user_conn->path_status_time, user_conn->path_status_timer_threshold);
 
                 user_conn->path_status_time = ts_now;
             }

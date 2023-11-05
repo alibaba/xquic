@@ -5596,7 +5596,7 @@ end:
 
 
 xqc_int_t
-xqc_conn_available_paths(xqc_engine_t *engine, xqc_cid_t *cid)
+xqc_conn_available_paths(xqc_engine_t *engine, const xqc_cid_t *cid)
 {
     xqc_int_t available_paths = 0;
     xqc_connection_t *conn = xqc_engine_conns_hash_find(engine, cid, 's');

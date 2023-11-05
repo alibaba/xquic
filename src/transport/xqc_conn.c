@@ -5595,6 +5595,34 @@ end:
 }
 
 
+xqc_int_t
+xqc_conn_available_paths(xqc_engine_t *engine, const xqc_cid_t *cid)
+{
+    xqc_int_t available_paths = 0;
+    xqc_connection_t *conn = xqc_engine_conns_hash_find(engine, cid, 's');
+    if (conn == NULL) {
+        /* no connection found */
+        return available_paths;
+    }
+
+    xqc_path_ctx_t *path;
+    xqc_list_head_t *path_pos, *path_next;
+
+    xqc_list_for_each_safe(path_pos, path_next, &conn->conn_paths_list) {
+        path = xqc_list_entry(path_pos, xqc_path_ctx_t, path_list);
+        if (path->path_state < XQC_PATH_STATE_VALIDATING) {
+            continue;
+        }
+        if (path->path_state == XQC_PATH_STATE_ACTIVE) {
+            available_paths++;
+        }
+    }
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_conn_available_paths|%" PRId32 "|", available_paths);
+    return available_paths;
+}
+
+
 #ifdef XQC_COMPAT_GENERATE_SR_PKT
 
 xqc_int_t

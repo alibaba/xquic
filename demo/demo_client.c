@@ -1104,7 +1104,7 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
                 user_conn->path_status = 1; /* 1:standby */
 
                 user_conn->path_status_time = ts_now;
-                printf("mark_path_standby: path_id=0");
+                printf("mark_path_standby: path_id=0\n");
             }
 
         } else if (user_conn->path_status == 1) {
@@ -1114,7 +1114,7 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
                 user_conn->path_status = 0; /* 0:available */
 
                 user_conn->path_status_time = ts_now;
-                printf("mark_path_available: path_id=0");
+                printf("mark_path_available: path_id=0\n");
             }
         }
     }

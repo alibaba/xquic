@@ -1088,28 +1088,33 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
     xqc_demo_cli_task_ctx_t *ctx = &user_stream->user_conn->ctx->task_ctx;
     xqc_demo_cli_user_conn_t *user_conn = user_stream->user_conn;
     uint32_t task_idx = user_conn->task->task_idx;
-    xqc_msec_t ts_now = 0, path_status_time = 0;
+    xqc_msec_t ts_now = xqc_demo_now(), path_status_time = 0;
 
     if (user_conn->send_path_standby) {
         /* set initial path standby here */
         if (user_conn->path_status == 0
             && xqc_conn_available_paths(user_conn->ctx->engine, &user_conn->cid) >= 2)
         {
-            ts_now = xqc_demo_now();
+            printf("try mark_path_standby: now=%"PRIu64" pre=%"PRIu64" threshold=%"PRIu64"\n",
+                        ts_now, user_conn->path_status_time, user_conn->path_status_timer_threshold);
             if (ts_now > user_conn->path_status_time + user_conn->path_status_timer_threshold) {
                 xqc_conn_mark_path_standby(user_conn->ctx->engine, &user_conn->cid, 0);
                 user_conn->path_status = 1; /* 1:standby */
 
                 user_conn->path_status_time = ts_now;
+                printf("mark_path_standby: path_id=0");
             }
 
         } else if (user_conn->path_status == 1) {
-            ts_now = xqc_demo_now();
+            printf("try mark_path_available: now=%"PRIu64" pre=%"PRIu64" threshold=%"PRIu64"\n",
+                   ts_now, user_conn->path_status_time, user_conn->path_status_timer_threshold);
+
             if (ts_now > user_conn->path_status_time + user_conn->path_status_timer_threshold) {
                 xqc_conn_mark_path_available(user_conn->ctx->engine, &user_conn->cid, 0);
                 user_conn->path_status = 0; /* 0:available */
 
                 user_conn->path_status_time = ts_now;
+                printf("mark_path_available: path_id=0");
             }
         }
     }

@@ -172,6 +172,7 @@ typedef struct xqc_demo_cli_quic_config_s {
     uint8_t mp_version;
 
     uint8_t send_path_standby;
+    xqc_msec_t path_status_timer_threshold;
 
 } xqc_demo_cli_quic_config_t;
 
@@ -399,6 +400,8 @@ typedef struct xqc_demo_cli_user_conn_s {
 
     int                     send_path_standby;
     int                     path_status; /* 0:available 1:standby */
+    xqc_msec_t              path_status_time;
+    xqc_msec_t              path_status_timer_threshold;
 } xqc_demo_cli_user_conn_t;
 
 static void
@@ -1093,12 +1096,16 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
         {
             xqc_conn_mark_path_standby(user_conn->ctx->engine, &user_conn->cid, 0);
             user_conn->path_status = 1; /* 1:standby */
+            user_conn->path_status_time = xqc_demo_now();
             printf("mark initial path standby\n");
 
         } else if (user_conn->path_status == 1) {
-            xqc_conn_mark_path_available(user_conn->ctx->engine, &user_conn->cid, 0);
-            user_conn->path_status = 0; /* 0:available */
-            printf("mark initial path available\n");
+            xqc_msec_t ts_now = xqc_demo_now();
+            if (ts_now > user_conn->path_status_time + user_conn->path_status_timer_threshold) {
+                xqc_conn_mark_path_available(user_conn->ctx->engine, &user_conn->cid, 0);
+                user_conn->path_status = 0; /* 0:available */
+                printf("mark initial path available\n");
+            }
         }
     }
 
@@ -1739,7 +1746,7 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -T    Throttle recving rate (Bps)\n"
         "   -R    Reinjection (1,2,4) \n"
         "   -V    Multipath Version (4,5,6)\n"
-        "   -B    Set path B standby after 600ms\n"
+        "   -B    Set initial path standby after recvd first application data, and set initial path available after X ms\n"
         "   -I    Idle interval between requests (ms)\n"
         "   -n    Throttling the {1,2,...}xn-th requests\n"
         "   -e    NAT rebinding on path 0\n"
@@ -1956,6 +1963,7 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
         case 'B':
             printf("option multipath set path status: %s\n", optarg);
             args->quic_cfg.send_path_standby = 1;
+            args->quic_cfg.path_status_timer_threshold = atoi(optarg);
             break;
 
         case 'I':
@@ -2407,6 +2415,7 @@ xqc_demo_cli_init_xquic_connection(xqc_demo_cli_user_conn_t *user_conn,
     {
         user_conn->send_path_standby = 1;
         user_conn->path_status = 0;
+        user_conn->path_status_timer_threshold = args->quic_cfg.path_status_timer_threshold;
     }
 
     return 0;

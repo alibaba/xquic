@@ -1867,6 +1867,15 @@ XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_conn_mark_path_frozen(xqc_engine_t *engine, const xqc_cid_t *cid, uint64_t path_id);
 
 
+/**
+ * Calculate how many available paths on the current connection, i.e., paths which finished validation and is marked "available" status.
+ * @param engine xquic engine ctx
+ * @param cid scid for connection
+ * @return number of available paths when success, <0 for error
+ */
+XQC_EXPORT_PUBLIC_API xqc_int_t xqc_conn_available_paths(xqc_engine_t *engine, const xqc_cid_t *cid);
+
+
 XQC_EXPORT_PUBLIC_API
 xqc_conn_type_t xqc_conn_get_type(xqc_connection_t *conn);
 

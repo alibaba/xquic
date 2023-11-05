@@ -171,7 +171,7 @@ typedef struct xqc_demo_cli_quic_config_s {
 
     uint8_t mp_version;
 
-    uint8_t test_path_status;
+    uint8_t send_path_standby;
 
 } xqc_demo_cli_quic_config_t;
 
@@ -397,7 +397,8 @@ typedef struct xqc_demo_cli_user_conn_s {
     xqc_demo_cli_ctx_t      *ctx;
     xqc_demo_cli_task_t     *task;
 
-    int                     send_path_available;
+    int                     send_path_standby;
+    int                     path_status; /* 0:available 1:standby */
 } xqc_demo_cli_user_conn_t;
 
 static void
@@ -1084,6 +1085,23 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
     xqc_demo_cli_task_ctx_t *ctx = &user_stream->user_conn->ctx->task_ctx;
     xqc_demo_cli_user_conn_t *user_conn = user_stream->user_conn;
     uint32_t task_idx = user_conn->task->task_idx;
+
+    if (user_conn->send_path_standby) {
+        /* set initial path standby here */
+        if (user_conn->path_status == 0
+            && xqc_conn_available_paths(user_conn->ctx->engine, &user_conn->cid) >= 2)
+        {
+            xqc_conn_mark_path_standby(user_conn->ctx->engine, &user_conn->cid, 0);
+            user_conn->path_status = 1; /* 1:standby */
+            printf("mark initial path standby\n");
+
+        } else if (user_conn->path_status == 1) {
+            xqc_conn_mark_path_available(user_conn->ctx->engine, &user_conn->cid, 0);
+            user_conn->path_status = 0; /* 0:available */
+            printf("mark initial path available\n");
+        }
+    }
+
     // printf("xqc_demo_cli_h3_request_read_notify, h3_request: %p, user_stream: %p\n", h3_request, user_stream);
     if (flag & XQC_REQ_NOTIFY_READ_HEADER) {
         xqc_http_headers_t *headers;
@@ -1937,7 +1955,7 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
 
         case 'B':
             printf("option multipath set path status: %s\n", optarg);
-            args->quic_cfg.test_path_status = 1;
+            args->quic_cfg.send_path_standby = 1;
             break;
 
         case 'I':
@@ -2199,12 +2217,6 @@ xqc_demo_cli_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
     xqc_conn_stats_t stats = xqc_conn_get_stats(user_conn->ctx->engine, &user_conn->cid);
     printf("0rtt_flag:%d\n", stats.early_data_flag);
 
-    if (user_conn->send_path_available) {
-        /* set initial path available here */
-        xqc_conn_mark_path_standby(user_conn->ctx->engine, &user_conn->cid, 0);
-        xqc_conn_mark_path_available(user_conn->ctx->engine, &user_conn->cid, 0);
-    }
-
 }
 
 void
@@ -2391,9 +2403,10 @@ xqc_demo_cli_init_xquic_connection(xqc_demo_cli_user_conn_t *user_conn,
 
     if (conn_settings.enable_multipath
         && conn_settings.multipath_version >= XQC_MULTIPATH_06
-        && args->quic_cfg.test_path_status == 1)
+        && args->quic_cfg.send_path_standby == 1)
     {
-        user_conn->send_path_available = 1;
+        user_conn->send_path_standby = 1;
+        user_conn->path_status = 0;
     }
 
     return 0;

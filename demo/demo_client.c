@@ -962,6 +962,41 @@ xqc_demo_cli_hq_req_write_notify(xqc_hq_request_t *hqr, void *req_user_data)
     return 0;
 }
 
+void
+xqc_demo_path_status_trigger(xqc_demo_cli_user_conn_t *user_conn)
+{
+    xqc_msec_t ts_now = xqc_demo_now(), path_status_time = 0;
+
+    if (user_conn->send_path_standby) {
+
+        printf("try set path status: path_status=%d now=%"PRIu64" pre=%"PRIu64" threshold=%"PRIu64"\n",
+               user_conn->path_status, ts_now, user_conn->path_status_time, user_conn->path_status_timer_threshold);
+
+        /* set initial path standby here */
+        if (user_conn->path_status == 0
+            && xqc_conn_available_paths(user_conn->ctx->engine, &user_conn->cid) >= 2)
+        {
+            if (ts_now > user_conn->path_status_time + user_conn->path_status_timer_threshold) {
+                xqc_conn_mark_path_standby(user_conn->ctx->engine, &user_conn->cid, 0);
+                user_conn->path_status = 1; /* 1:standby */
+
+                user_conn->path_status_time = ts_now;
+                printf("mark_path_standby: path_id=0\n");
+            }
+
+        } else if (user_conn->path_status == 1) {
+
+            if (ts_now > user_conn->path_status_time + user_conn->path_status_timer_threshold) {
+                xqc_conn_mark_path_available(user_conn->ctx->engine, &user_conn->cid, 0);
+                user_conn->path_status = 0; /* 0:available */
+
+                user_conn->path_status_time = ts_now;
+                printf("mark_path_available: path_id=0\n");
+            }
+        }
+    }
+}
+
 int
 xqc_demo_cli_hq_req_read_notify(xqc_hq_request_t *hqr, void *req_user_data)
 {
@@ -970,6 +1005,8 @@ xqc_demo_cli_hq_req_read_notify(xqc_hq_request_t *hqr, void *req_user_data)
     xqc_demo_cli_user_stream_t *user_stream = (xqc_demo_cli_user_stream_t *)req_user_data;
     char buff[4096] = {0};
     size_t buff_size = 4096;
+
+    xqc_demo_path_status_trigger(user_stream->user_conn);
 
     ssize_t read = 0;
     ssize_t read_sum = 0;
@@ -1078,6 +1115,7 @@ xqc_demo_cli_h3_request_write_notify(xqc_h3_request_t *h3_request, void *user_da
     return 0;
 }
 
+
 int
 xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_flag_t flag,
     void *user_data)
@@ -1088,36 +1126,8 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
     xqc_demo_cli_task_ctx_t *ctx = &user_stream->user_conn->ctx->task_ctx;
     xqc_demo_cli_user_conn_t *user_conn = user_stream->user_conn;
     uint32_t task_idx = user_conn->task->task_idx;
-    xqc_msec_t ts_now = xqc_demo_now(), path_status_time = 0;
 
-    if (user_conn->send_path_standby) {
-
-        printf("try set path status: path_status=%d now=%"PRIu64" pre=%"PRIu64" threshold=%"PRIu64"\n",
-               user_conn->path_status, ts_now, user_conn->path_status_time, user_conn->path_status_timer_threshold);
-
-        /* set initial path standby here */
-        if (user_conn->path_status == 0
-            && xqc_conn_available_paths(user_conn->ctx->engine, &user_conn->cid) >= 2)
-        {
-            if (ts_now > user_conn->path_status_time + user_conn->path_status_timer_threshold) {
-                xqc_conn_mark_path_standby(user_conn->ctx->engine, &user_conn->cid, 0);
-                user_conn->path_status = 1; /* 1:standby */
-
-                user_conn->path_status_time = ts_now;
-                printf("mark_path_standby: path_id=0\n");
-            }
-
-        } else if (user_conn->path_status == 1) {
-
-            if (ts_now > user_conn->path_status_time + user_conn->path_status_timer_threshold) {
-                xqc_conn_mark_path_available(user_conn->ctx->engine, &user_conn->cid, 0);
-                user_conn->path_status = 0; /* 0:available */
-
-                user_conn->path_status_time = ts_now;
-                printf("mark_path_available: path_id=0\n");
-            }
-        }
-    }
+    xqc_demo_path_status_trigger(user_conn);
 
     // printf("xqc_demo_cli_h3_request_read_notify, h3_request: %p, user_stream: %p\n", h3_request, user_stream);
     if (flag & XQC_REQ_NOTIFY_READ_HEADER) {

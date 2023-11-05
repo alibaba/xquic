@@ -1971,9 +1971,9 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             break;
 
         case 'B':
-            printf("option multipath set path status: %s\n", optarg);
+            printf("option multipath set path status: %s ms\n", optarg);
             args->quic_cfg.send_path_standby = 1;
-            args->quic_cfg.path_status_timer_threshold = atoi(optarg);
+            args->quic_cfg.path_status_timer_threshold = atoi(optarg) * 1000;
             break;
 
         case 'I':

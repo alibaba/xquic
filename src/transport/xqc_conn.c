@@ -5617,6 +5617,8 @@ xqc_conn_available_paths(xqc_engine_t *engine, const xqc_cid_t *cid)
             available_paths++;
         }
     }
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_conn_available_paths|%" PRId32 "|", available_paths);
     return available_paths;
 }
 

@@ -98,6 +98,7 @@ typedef struct xqc_demo_svr_quic_config_s {
 
     uint32_t reinjection;
 
+    uint64_t keyupdate_pkt_threshold;
 } xqc_demo_svr_quic_config_t;
 
 
@@ -1181,6 +1182,7 @@ xqc_demo_svr_usage(int argc, char *argv[])
             "   -P    enable MPQUIC to return ACK_MPs on any paths.\n"
             "   -s    multipath scheduler (interop, minrtt, backup), default: interop\n"
             "   -R    Reinjection (1,2,4) \n"
+            "   -u    Keyupdate packet threshold\n"
             , prog);
 }
 
@@ -1216,13 +1218,15 @@ xqc_demo_svr_init_args(xqc_demo_svr_args_t *args)
     strncpy(args->env_cfg.key_out_path, KEY_PATH, PATH_LEN - 1);
     strncpy(args->env_cfg.priv_key_path, PRIV_KEY_PATH, PATH_LEN - 1);
     strncpy(args->env_cfg.cert_pem_path, CERT_PEM_PATH, PATH_LEN - 1);
+
+    args->quic_cfg.keyupdate_pkt_threshold = UINT64_MAX;
 }
 
 void
 xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:rdMPs:R:")) != -1) {
+    while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:rdMPs:R:u:")) != -1) {
         switch (ch) {
         /* listen port */
         case 'p':
@@ -1320,6 +1324,11 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
         case 'R':
             printf("option reinjection: %s\n", optarg);
             args->quic_cfg.reinjection = atoi(optarg);
+            break;
+
+        case 'u': /* key update packet threshold */
+            printf("key update packet threshold: %s\n", optarg);
+            args->quic_cfg.keyupdate_pkt_threshold = atoi(optarg);
             break;
 
         default:
@@ -1435,6 +1444,7 @@ xqc_demo_svr_init_conn_settings(xqc_demo_svr_args_t *args)
         .reinj_ctl_callback = xqc_deadline_reinj_ctl_cb,
         .mp_enable_reinjection = args->quic_cfg.reinjection,
         .standby_path_probe_timeout = 1000,
+        .keyupdate_pkt_threshold = args->quic_cfg.keyupdate_pkt_threshold,
     };
 
     xqc_server_set_conn_settings(&conn_settings);

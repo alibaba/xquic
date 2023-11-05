@@ -99,6 +99,7 @@ typedef struct xqc_demo_svr_quic_config_s {
     uint32_t reinjection;
 
     uint64_t keyupdate_pkt_threshold;
+    uint64_t least_available_cid_count;
 } xqc_demo_svr_quic_config_t;
 
 
@@ -1220,13 +1221,14 @@ xqc_demo_svr_init_args(xqc_demo_svr_args_t *args)
     strncpy(args->env_cfg.cert_pem_path, CERT_PEM_PATH, PATH_LEN - 1);
 
     args->quic_cfg.keyupdate_pkt_threshold = UINT64_MAX;
+    args->quic_cfg.least_available_cid_count = 1;
 }
 
 void
 xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:rdMPs:R:u:")) != -1) {
+    while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:rdMPs:R:u:a:")) != -1) {
         switch (ch) {
         /* listen port */
         case 'p':
@@ -1329,6 +1331,11 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
         case 'u': /* key update packet threshold */
             printf("key update packet threshold: %s\n", optarg);
             args->quic_cfg.keyupdate_pkt_threshold = atoi(optarg);
+            break;
+
+        case 'a': /* key update packet threshold */
+            printf("least Available cid counts: %s\n", optarg);
+            args->quic_cfg.least_available_cid_count = atoi(optarg);
             break;
 
         default:
@@ -1445,6 +1452,7 @@ xqc_demo_svr_init_conn_settings(xqc_demo_svr_args_t *args)
         .mp_enable_reinjection = args->quic_cfg.reinjection,
         .standby_path_probe_timeout = 1000,
         .keyupdate_pkt_threshold = args->quic_cfg.keyupdate_pkt_threshold,
+        .least_available_cid_count = args->quic_cfg.least_available_cid_count,
     };
 
     xqc_server_set_conn_settings(&conn_settings);

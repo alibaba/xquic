@@ -174,6 +174,8 @@ typedef struct xqc_demo_cli_quic_config_s {
     uint8_t send_path_standby;
     xqc_msec_t path_status_timer_threshold;
 
+    uint64_t least_available_cid_count;
+
 } xqc_demo_cli_quic_config_t;
 
 

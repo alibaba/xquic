@@ -4108,6 +4108,9 @@ xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
     uint64_t unused_limit = 1;
 #else
     uint64_t unused_limit = conn->enable_multipath ? 2 : 1;
+    if (conn->enable_multipath) {
+        unused_limit = xqc_max(unused_limit, conn->conn_settings.least_available_cid_count);
+    }
 #endif
     if (xqc_conn_is_handshake_confirmed(conn)) {
         while (active_cid_cnt < conn->remote_settings.active_connection_id_limit

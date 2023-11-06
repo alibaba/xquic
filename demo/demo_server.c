@@ -89,6 +89,8 @@ typedef struct xqc_demo_svr_quic_config_s {
 
     /* multipath version */
     int  multipath_version;
+    /* support interop test */
+    int is_interop_mode;
 
     /* ack on any path */
     int  mp_ack_on_any_path;
@@ -1179,6 +1181,7 @@ xqc_demo_svr_usage(int argc, char *argv[])
             "   -k    Key output file path\n"
             "   -r    retry\n"
             "   -d    do not read responses from files\n"
+            "   -i    use interop mode\n"
             "   -M    enable MPQUIC.\n"
             "   -P    enable MPQUIC to return ACK_MPs on any paths.\n"
             "   -s    multipath scheduler (interop, minrtt, backup), default: interop\n"
@@ -1229,6 +1232,7 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
 {
     int ch = 0;
     while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:rdMPs:R:u:a:")) != -1) {
+    while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:rdiMPs:R:")) != -1) {
         switch (ch) {
         /* listen port */
         case 'p':
@@ -1302,6 +1306,10 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
             printf("option dummpy mode on\n");
             args->quic_cfg.dummy_mode = 1;
             break;
+
+        case 'i':
+            printf("set interop mode\n");
+            args->quic_cfg.is_interop_mode = 1;
 
         case 'M':
             printf("option multipath enabled\n");
@@ -1453,6 +1461,7 @@ xqc_demo_svr_init_conn_settings(xqc_demo_svr_args_t *args)
         .standby_path_probe_timeout = 1000,
         .keyupdate_pkt_threshold = args->quic_cfg.keyupdate_pkt_threshold,
         .least_available_cid_count = args->quic_cfg.least_available_cid_count,
+        .is_interop_mode = args->quic_cfg.is_interop_mode,
     };
 
     xqc_server_set_conn_settings(&conn_settings);

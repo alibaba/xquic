@@ -610,7 +610,7 @@ xqc_send_ctl_update_cwnd_limited(xqc_send_ctl_t *send_ctl)
  * OnPacketSent
  */
 void
-xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_packet_out_t *packet_out, xqc_usec_t now, ssize_t sent)
+xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_packet_out_t *packet_out, xqc_usec_t now)
 {
     xqc_pkt_num_space_t pns = packet_out->po_pkt.pkt_pns;
 
@@ -618,8 +618,8 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
 
     xqc_packet_number_t orig_pktnum = packet_out->po_origin ? packet_out->po_origin->po_pkt.pkt_num : 0;
     xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG,
-            "|conn:%p|path:%ui|pkt_num:%ui|origin_pktnum:%ui|size:%ud|pkt_type:%s|frame:%s|conn_state:%s|po_in_flight:%d|",
-            send_ctl->ctl_conn, send_ctl->ctl_path->path_id, packet_out->po_pkt.pkt_num, orig_pktnum, packet_out->po_used_size,
+            "|conn:%p|path:%ui|pkt_num:%ui|origin_pktnum:%ui|size:%ud|enc_size:%ud|pkt_type:%s|frame:%s|conn_state:%s|po_in_flight:%d|",
+            send_ctl->ctl_conn, send_ctl->ctl_path->path_id, packet_out->po_pkt.pkt_num, orig_pktnum, packet_out->po_used_size, packet_out->po_enc_size,
             xqc_pkt_type_2_str(packet_out->po_pkt.pkt_type),
             xqc_frame_type_2_str(packet_out->po_frame_types),
             xqc_conn_state_2_str(send_ctl->ctl_conn->conn_state),
@@ -646,7 +646,7 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
         pn_ctl->ctl_largest_sent[pns] = packet_out->po_pkt.pkt_num;
     }
 
-    send_ctl->ctl_bytes_send += sent;
+    send_ctl->ctl_bytes_send += packet_out->po_enc_size;
 
     if (packet_out->po_largest_ack > 0) {
         xqc_ack_sent_record_add(&pn_ctl->ack_sent_record[pns], packet_out, send_ctl->ctl_srtt, now);

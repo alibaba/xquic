@@ -70,6 +70,8 @@ xqc_conn_settings_t default_conn_settings = {
 
     .recv_rate_bytes_per_sec    = 0,
     .enable_stream_rate_limit   = 0,
+    
+    .is_interop_mode            = 0,
 };
 
 
@@ -325,35 +327,38 @@ xqc_conn_init_trans_settings(xqc_connection_t *conn)
     xqc_conn_set_default_settings(rs);
 
     /* set local default setting values */
-    ls->max_streams_bidi = 128;
+    if (conn->conn_settings.is_interop_mode) {
+        ls->max_streams_bidi = 16;
+        ls->max_streams_uni = 16;
+
+    } else {
+        ls->max_streams_bidi = 1024;
+        ls->max_streams_uni = 1024;
+    }
     ls->max_stream_data_bidi_remote = XQC_MAX_RECV_WINDOW;
-
-    if (conn->conn_settings.enable_stream_rate_limit) {
-        ls->max_stream_data_bidi_local = conn->conn_settings.init_recv_window;
-
-    } else {
-        ls->max_stream_data_bidi_local = XQC_MAX_RECV_WINDOW;
-    }
-
-    if (conn->conn_settings.enable_stream_rate_limit) {
-        ls->max_stream_data_bidi_local = conn->conn_settings.init_recv_window;
-
-    } else {
-        ls->max_stream_data_bidi_local = XQC_MAX_RECV_WINDOW;
-    }
-
-    ls->max_streams_uni = 128;
     ls->max_stream_data_uni = XQC_MAX_RECV_WINDOW;
-
-    if (conn->conn_settings.recv_rate_bytes_per_sec) {
-        ls->max_data = conn->conn_settings.recv_rate_bytes_per_sec * XQC_FC_INIT_RTT / 1000000;
-        ls->max_data = xqc_max(XQC_MIN_RECV_WINDOW, ls->max_data);
-        ls->max_data = xqc_min(XQC_MAX_RECV_WINDOW, ls->max_data);
+    
+    if (conn->conn_settings.enable_stream_rate_limit) {
+        ls->max_stream_data_bidi_local = conn->conn_settings.init_recv_window;
 
     } else {
-        /* max_data is the sum of stream_data on all uni and bidi streams */
-        ls->max_data = ls->max_streams_bidi * ls->max_stream_data_bidi_local
-            + ls->max_streams_uni * ls->max_stream_data_uni;
+        ls->max_stream_data_bidi_local = XQC_MAX_RECV_WINDOW;
+    }
+
+    if (conn->conn_settings.is_interop_mode) {
+        ls->max_data = 1024 * 1024;
+        
+    } else {
+        if (conn->conn_settings.recv_rate_bytes_per_sec) {
+            ls->max_data = conn->conn_settings.recv_rate_bytes_per_sec * XQC_FC_INIT_RTT / 1000000;
+            ls->max_data = xqc_max(XQC_MIN_RECV_WINDOW, ls->max_data);
+            ls->max_data = xqc_min(XQC_MAX_RECV_WINDOW, ls->max_data);
+
+        } else {
+            /* max_data is the sum of stream_data on all uni and bidi streams */
+            ls->max_data = ls->max_streams_bidi * ls->max_stream_data_bidi_local
+                + ls->max_streams_uni * ls->max_stream_data_uni;
+        }
     }
 
     ls->max_idle_timeout = conn->conn_settings.idle_time_out;
@@ -380,12 +385,11 @@ xqc_conn_init_flow_ctl(xqc_connection_t *conn)
     xqc_trans_settings_t * settings = & conn->local_settings;
 
     /* TODO: send params are inited to be zero, until zerortt inited or handshake done */
-    flow_ctl->fc_max_data_can_send = 1024 * 1024; /* replace with the value specified by peer after handshake */
-    flow_ctl->fc_max_streams_bidi_can_send = 16; /* replace with the value specified by peer after handshake */
-    flow_ctl->fc_max_streams_uni_can_send = 16; /* replace with the value specified by peer after handshake */
-
+    flow_ctl->fc_max_data_can_send = settings->max_data; /* replace with the value specified by peer after handshake */
     flow_ctl->fc_max_data_can_recv = settings->max_data;
+    flow_ctl->fc_max_streams_bidi_can_send = settings->max_streams_bidi; /* replace with the value specified by peer after handshake */
     flow_ctl->fc_max_streams_bidi_can_recv = settings->max_streams_bidi;
+    flow_ctl->fc_max_streams_uni_can_send = settings->max_streams_uni; /* replace with the value specified by peer after handshake */
     flow_ctl->fc_max_streams_uni_can_recv = settings->max_streams_uni;
     flow_ctl->fc_data_sent = 0;
     flow_ctl->fc_data_recved = 0;
@@ -1441,7 +1445,7 @@ xqc_on_packets_send_burst(xqc_connection_t *conn, xqc_path_ctx_t *path, ssize_t 
                 xqc_pacing_on_packet_sent(&send_ctl->ctl_pacing, packet_out->po_used_size);
             }
 
-            xqc_send_ctl_on_packet_sent(send_ctl, pn_ctl, packet_out, now, sent);
+            xqc_send_ctl_on_packet_sent(send_ctl, pn_ctl, packet_out, now);
             xqc_path_send_buffer_remove(path, packet_out);
             if (XQC_IS_ACK_ELICITING(packet_out->po_frame_types)) {
                 xqc_send_queue_insert_unacked(packet_out,
@@ -1815,7 +1819,7 @@ xqc_conn_enc_packet(xqc_connection_t *conn,
         conn->conn_state = XQC_CONN_STATE_CLOSED;
         return -XQC_EENCRYPT;
     }
-
+    
     packet_out->po_sent_time = current_time;
     return XQC_OK;
 }
@@ -1932,7 +1936,7 @@ xqc_send_packet_with_pn(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_packet
     pn_ctl->ctl_packet_number[packet_out->po_pkt.pkt_pns]++;
 
     xqc_conn_log_sent_packet(conn, packet_out, now);
-    xqc_send_ctl_on_packet_sent(path->path_send_ctl, pn_ctl, packet_out, now, sent);
+    xqc_send_ctl_on_packet_sent(path->path_send_ctl, pn_ctl, packet_out, now);
     return sent;
 }
 

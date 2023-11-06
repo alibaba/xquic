@@ -663,7 +663,7 @@ xqc_crypto_derive_updated_keys(xqc_crypto_t *crypto, xqc_key_type_t type)
     static uint8_t LABEL[] = "quic ku";
     uint8_t dest_buf[XQC_MAX_KNP_LEN];
 
-    ret = xqc_hkdf_expand_label(dest_buf, current_ckm->secret.len,
+    ret = xqc_hkdf_expand_label(dest_buf, XQC_MAX_KNP_LEN,
                                 current_ckm->secret.base, current_ckm->secret.len,
                                 LABEL, xqc_lengthof(LABEL), &crypto->md);
     if (ret != XQC_OK) {

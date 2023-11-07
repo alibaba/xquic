@@ -1751,7 +1751,49 @@ else
 fi
 
 killall test_server
+./test_server -l d -Q 8000 > /dev/null &
+sleep 1
+clear_log
+echo -e "0RTT max_datagram_frame_size is invalid...\c"
+./test_client -l d >> stdlog
+cli_result=`grep "|0RTT_transport_params|max_datagram_frame_size:9000|" clog`
+cli_err=`grep "[error].*err:0xe" clog`
+svr_err=`grep "[error].*err:0xe" slog`
+if [ -n "$cli_result" ] && [ -n "$cli_err" ] && [ -n "$svr_err" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "0rtt_max_datagram_frame_size_is_invalid" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "0rtt_max_datagram_frame_size_is_invalid" "fail"
+fi
+rm -f test_session tp_localhost xqc_token
 
+killall test_server
+if [ -f test_session ]; then
+    rm -f test_session
+fi
+if [ -f tp_localhost ]; then
+    rm -f tp_localhost
+fi
+if [ -f xqc_token ]; then
+    rm -f xqc_token
+fi
+stdbuf -oL ./test_server -l d -Q 1000 -x 200 > svr_stdlog &
+sleep 1
+clear_log
+echo -e "datagram_get_mss(no_saved_transport_params)...\c"
+./test_client -l d -T 1 -x 200 -Q 1000 -s 1 -U 1 > stdlog
+cli_res1=`grep "\[dgram-200\]|.*|initial_mss:0|" stdlog`
+cli_res2=`grep "\[dgram-200\]|.*|updated_mss:997|" stdlog`
+svr_res=`grep -a "\[dgram-200\]|.*|initial_mss:997|" svr_stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "datagram_get_mss_no_saved_transport_params" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "datagram_get_mss_no_saved_transport_params" "fail"
+fi
 
 > svr_stdlog
 clear_log

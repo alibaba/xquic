@@ -328,8 +328,8 @@ xqc_conn_init_trans_settings(xqc_connection_t *conn)
 
     /* set local default setting values */
     if (conn->conn_settings.is_interop_mode) {
-        ls->max_streams_bidi = 16;
-        ls->max_streams_uni = 16;
+        ls->max_streams_bidi = 128;
+        ls->max_streams_uni = 128;
 
     } else {
         ls->max_streams_bidi = 1024;

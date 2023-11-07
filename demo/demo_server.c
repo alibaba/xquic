@@ -1310,6 +1310,7 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
         case 'i':
             printf("set interop mode\n");
             args->quic_cfg.is_interop_mode = 1;
+            break;
 
         case 'M':
             printf("option multipath enabled\n");

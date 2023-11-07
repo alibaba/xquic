@@ -20,7 +20,7 @@ if [ "$ROLE" == "client" ]; then
     /wait-for-it.sh sim:57832 -s -t 30
 
     # client args
-    ARGS="-l d  -L "$LOG_DIR/client.log" -D "/downloads" -k $SSLKEYLOGFILE -K 30"
+    ARGS="-l d  -L "$LOG_DIR/client.log" -D "/downloads" -k $SSLKEYLOGFILE -K 30 -o"
 
     # zerortt
     if [ "$TESTCASE" == "zerortt" ]; then
@@ -97,7 +97,7 @@ elif [ "$ROLE" == "server" ]; then
 
     #cp -r /www /logs
 
-    ARGS="-l d -L "$LOG_DIR/server.log" -p 443 -D "/www" -k $SSLKEYLOGFILE -M"
+    ARGS="-l d -L "$LOG_DIR/server.log" -p 443 -D "/www" -k $SSLKEYLOGFILE -i -M"
     echo "./demo_server $ARGS"
     ./demo_server $ARGS
 fi

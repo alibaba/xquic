@@ -12,7 +12,8 @@ find_library  (LIBEVENT_THREAD          NAMES event_pthreads)
 
 # find version
 if(LIBEVENT_INCLUDE_DIR)
-    set(_version_regex "^#define[ ]+[EVENT__VERSION|_EVENT_VERSION]+[ ]+\"([^\"]+)\"")
+    set(_version_regex
+        "^#define[ ]+[EVENT__VERSION|_EVENT_VERSION]+[ ]+\"([^\"]+)\"")
     file(STRINGS "${LIBEVENT_INCLUDE_DIR}/event2/event-config.h"
         LIBEVENT_VERSION REGEX "${_version_regex}")
     string(REGEX REPLACE "${_version_regex}" "\\1"

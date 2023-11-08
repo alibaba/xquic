@@ -199,6 +199,9 @@ xqc_server_set_conn_settings(const xqc_conn_settings_t *settings)
         default_conn_settings.standby_path_probe_timeout = xqc_max(settings->standby_path_probe_timeout, XQC_MIN_STANDBY_RPOBE_TIMEOUT);
     }
 
+    if (settings->keyupdate_pkt_threshold != UINT64_MAX) {
+        default_conn_settings.keyupdate_pkt_threshold = settings->keyupdate_pkt_threshold;
+    }
 }
 
 static const char * const xqc_conn_flag_to_str[XQC_CONN_FLAG_SHIFT_NUM] = {
@@ -4105,6 +4108,9 @@ xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
     uint64_t unused_limit = 1;
 #else
     uint64_t unused_limit = conn->enable_multipath ? 2 : 1;
+    if (conn->enable_multipath) {
+        unused_limit = xqc_max(unused_limit, conn->conn_settings.least_available_cid_count);
+    }
 #endif
     if (xqc_conn_is_handshake_confirmed(conn)) {
         while (active_cid_cnt < conn->remote_settings.active_connection_id_limit
@@ -5589,6 +5595,34 @@ xqc_conn_handle_stateless_reset(xqc_connection_t *conn,
 
 end:
     return XQC_OK;
+}
+
+
+xqc_int_t
+xqc_conn_available_paths(xqc_engine_t *engine, const xqc_cid_t *cid)
+{
+    xqc_int_t available_paths = 0;
+    xqc_connection_t *conn = xqc_engine_conns_hash_find(engine, cid, 's');
+    if (conn == NULL) {
+        /* no connection found */
+        return available_paths;
+    }
+
+    xqc_path_ctx_t *path;
+    xqc_list_head_t *path_pos, *path_next;
+
+    xqc_list_for_each_safe(path_pos, path_next, &conn->conn_paths_list) {
+        path = xqc_list_entry(path_pos, xqc_path_ctx_t, path_list);
+        if (path->path_state < XQC_PATH_STATE_VALIDATING) {
+            continue;
+        }
+        if (path->path_state == XQC_PATH_STATE_ACTIVE) {
+            available_paths++;
+        }
+    }
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_conn_available_paths|%" PRId32 "|", available_paths);
+    return available_paths;
 }
 
 

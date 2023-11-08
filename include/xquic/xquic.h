@@ -1130,6 +1130,7 @@ typedef enum {
     XQC_ERR_MULTIPATH_VERSION   = 0x00,
     XQC_MULTIPATH_04            = 0x04,
     XQC_MULTIPATH_05            = 0x05,
+    XQC_MULTIPATH_06            = 0x06,
 } xqc_multipath_version_t;
 
 
@@ -1170,7 +1171,7 @@ typedef struct xqc_conn_settings_s {
      */
     uint64_t                    enable_multipath;
     xqc_multipath_version_t     multipath_version;
-
+    uint64_t                    least_available_cid_count;
 
     /*
      * reinjection option:
@@ -1864,6 +1865,15 @@ xqc_int_t xqc_conn_mark_path_available(xqc_engine_t *engine, const xqc_cid_t *ci
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_conn_mark_path_frozen(xqc_engine_t *engine, const xqc_cid_t *cid, uint64_t path_id);
+
+
+/**
+ * Calculate how many available paths on the current connection, i.e., paths which finished validation and is marked "available" status.
+ * @param engine xquic engine ctx
+ * @param cid scid for connection
+ * @return number of available paths when success, <0 for error
+ */
+XQC_EXPORT_PUBLIC_API xqc_int_t xqc_conn_available_paths(xqc_engine_t *engine, const xqc_cid_t *cid);
 
 
 XQC_EXPORT_PUBLIC_API

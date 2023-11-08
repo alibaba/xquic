@@ -356,6 +356,9 @@ xqc_path_closed(xqc_path_ctx_t *path)
 xqc_multipath_mode_t
 xqc_conn_enable_multipath(xqc_connection_t *conn)
 {
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_conn_enable_multipath|%d|%d|",
+            conn->local_settings.enable_multipath, conn->remote_settings.enable_multipath);
+
     if ((conn->local_settings.enable_multipath == 1)
         && (conn->remote_settings.enable_multipath == 1))
     {
@@ -400,6 +403,9 @@ xqc_conn_is_current_mp_version_supported(xqc_multipath_version_t mp_version)
         ret = XQC_OK;
         break;
     case XQC_MULTIPATH_05:
+        ret = XQC_OK;
+        break;
+    case XQC_MULTIPATH_06:
         ret = XQC_OK;
         break;
     default:
@@ -1283,7 +1289,13 @@ xqc_set_application_path_status(xqc_path_ctx_t *path, xqc_app_path_status_t stat
         path->app_path_status = status;
 
         if (is_tx) {
-            xqc_int_t ret = xqc_write_path_status_frame_to_packet(conn, path);
+            xqc_int_t ret = XQC_ERROR;
+            if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_06) {
+                ret = xqc_write_path_standby_or_available_frame_to_packet(conn, path);
+            } else {
+                ret = xqc_write_path_status_frame_to_packet(conn, path);
+            }
+
             if (ret != XQC_OK) {
                 path->app_path_status = last_status;
                 xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_path_status_frame_to_packet error|%d|", ret);

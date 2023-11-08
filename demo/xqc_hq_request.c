@@ -235,13 +235,23 @@ xqc_hq_request_send_rsp(xqc_hq_request_t *hqr, const uint8_t *res_buf, size_t re
 
 
 ssize_t
-xqc_hq_parse_req(xqc_hq_request_t *hqr, char *res, size_t sz)
+xqc_hq_parse_req(xqc_hq_request_t *hqr, char *res, size_t sz, uint8_t *fin)
 {
     char method[16] = {0};
     int ret = sscanf(hqr->req_recv_buf, "%s %s", method, res);
     if (ret <= 0) {
         PRINT_LOG("|parse hq request failed: %s", hqr->req_recv_buf);
         return -XQC_EPROTO;
+    }
+
+    int request_line_len = strlen(method) + strlen(res) + 1; /* method + ' ' + path */
+    if (request_line_len + 2 <= hqr->recv_buf_len
+        && (*(hqr->req_recv_buf + request_line_len) == '\r')
+        && (*(hqr->req_recv_buf + request_line_len + 1) == '\n'))
+    {
+        /* check CR LF for hq request line */
+        *fin = 1;
+        PRINT_LOG("|hq recv CR LF|");
     }
 
     return strlen(res);
@@ -280,10 +290,6 @@ xqc_hq_request_recv_req(xqc_hq_request_t *hqr, char *res_buf, size_t buf_sz, uin
 
     } while (read > 0 && !hqr->fin);
 
-    /* return until all request bytes are received */
-    if (!hqr->fin) {
-        return XQC_OK;
-    }
 
     if (NULL == hqr->resource_buf) {
         hqr->resource_buf = xqc_malloc(XQC_HQ_REQUEST_RESOURCE_MAX_LEN);
@@ -294,9 +300,20 @@ xqc_hq_request_recv_req(xqc_hq_request_t *hqr, char *res_buf, size_t buf_sz, uin
         hqr->resource_buf_sz = XQC_HQ_REQUEST_RESOURCE_MAX_LEN;
     }
 
-    read = xqc_hq_parse_req(hqr, hqr->resource_buf, XQC_HQ_REQUEST_RESOURCE_MAX_LEN);
+    uint8_t req_fin = 0;
+    read = xqc_hq_parse_req(hqr, hqr->resource_buf, XQC_HQ_REQUEST_RESOURCE_MAX_LEN, &req_fin);
     if (read <= 0) {
-        return -XQC_EPROTO;
+        if (!hqr->fin) {
+            /* return until all request bytes are received in the current request */
+            return XQC_OK;
+        } else {
+            return -XQC_EPROTO;
+        }
+    }
+
+    /* return until all request bytes are received in the current request */
+    if (!hqr->fin && !req_fin) {
+        return XQC_OK;
     }
 
     if (buf_sz < hqr->resource_read_offset) {
@@ -306,7 +323,7 @@ xqc_hq_request_recv_req(xqc_hq_request_t *hqr, char *res_buf, size_t buf_sz, uin
     if (hqr->resource_read_offset < strlen(hqr->resource_buf)) {
         read = (ssize_t)strncpy(res_buf, hqr->resource_buf, buf_sz);
         hqr->resource_read_offset += read;
-        *fin = hqr->fin;
+        *fin = (hqr->fin || req_fin);
     }
 
     return read;

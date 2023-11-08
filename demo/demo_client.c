@@ -171,6 +171,11 @@ typedef struct xqc_demo_cli_quic_config_s {
 
     uint8_t mp_version;
 
+    uint8_t send_path_standby;
+    xqc_msec_t path_status_timer_threshold;
+
+    uint64_t least_available_cid_count;
+
 } xqc_demo_cli_quic_config_t;
 
 
@@ -394,6 +399,11 @@ typedef struct xqc_demo_cli_user_conn_s {
 
     xqc_demo_cli_ctx_t      *ctx;
     xqc_demo_cli_task_t     *task;
+
+    int                     send_path_standby;
+    int                     path_status; /* 0:available 1:standby */
+    xqc_msec_t              path_status_time;
+    xqc_msec_t              path_status_timer_threshold;
 } xqc_demo_cli_user_conn_t;
 
 static void
@@ -954,6 +964,40 @@ xqc_demo_cli_hq_req_write_notify(xqc_hq_request_t *hqr, void *req_user_data)
     return 0;
 }
 
+void
+xqc_demo_path_status_trigger(xqc_demo_cli_user_conn_t *user_conn)
+{
+    xqc_msec_t ts_now = xqc_demo_now(), path_status_time = 0;
+
+    if (user_conn->send_path_standby) {
+
+        /* set initial path standby here */
+        if (user_conn->path_status == 0
+            && xqc_conn_available_paths(user_conn->ctx->engine, &user_conn->cid) >= 2)
+        {
+            if (ts_now > user_conn->path_status_time + user_conn->path_status_timer_threshold) {
+                xqc_conn_mark_path_standby(user_conn->ctx->engine, &user_conn->cid, 0);
+                user_conn->path_status = 1; /* 1:standby */
+
+                user_conn->path_status_time = ts_now;
+                printf("mark_path_standby: path_id=0 path_status=%d now=%"PRIu64" pre=%"PRIu64" threshold=%"PRIu64"\n",
+                            user_conn->path_status, ts_now, user_conn->path_status_time, user_conn->path_status_timer_threshold);
+            }
+
+        } else if (user_conn->path_status == 1) {
+
+            if (ts_now > user_conn->path_status_time + user_conn->path_status_timer_threshold) {
+                xqc_conn_mark_path_available(user_conn->ctx->engine, &user_conn->cid, 0);
+                user_conn->path_status = 0; /* 0:available */
+
+                user_conn->path_status_time = ts_now;
+                printf("mark_path_available: path_id=0 path_status=%d now=%"PRIu64" pre=%"PRIu64" threshold=%"PRIu64"\n",
+                       user_conn->path_status, ts_now, user_conn->path_status_time, user_conn->path_status_timer_threshold);
+            }
+        }
+    }
+}
+
 int
 xqc_demo_cli_hq_req_read_notify(xqc_hq_request_t *hqr, void *req_user_data)
 {
@@ -962,6 +1006,8 @@ xqc_demo_cli_hq_req_read_notify(xqc_hq_request_t *hqr, void *req_user_data)
     xqc_demo_cli_user_stream_t *user_stream = (xqc_demo_cli_user_stream_t *)req_user_data;
     char buff[4096] = {0};
     size_t buff_size = 4096;
+
+    xqc_demo_path_status_trigger(user_stream->user_conn);
 
     ssize_t read = 0;
     ssize_t read_sum = 0;
@@ -1070,6 +1116,7 @@ xqc_demo_cli_h3_request_write_notify(xqc_h3_request_t *h3_request, void *user_da
     return 0;
 }
 
+
 int
 xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_flag_t flag,
     void *user_data)
@@ -1080,6 +1127,9 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
     xqc_demo_cli_task_ctx_t *ctx = &user_stream->user_conn->ctx->task_ctx;
     xqc_demo_cli_user_conn_t *user_conn = user_stream->user_conn;
     uint32_t task_idx = user_conn->task->task_idx;
+
+    xqc_demo_path_status_trigger(user_conn);
+
     // printf("xqc_demo_cli_h3_request_read_notify, h3_request: %p, user_stream: %p\n", h3_request, user_stream);
     if (flag & XQC_REQ_NOTIFY_READ_HEADER) {
         xqc_http_headers_t *headers;
@@ -1716,7 +1766,8 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -Q    Send requests one by one (default disabled)\n"
         "   -T    Throttle recving rate (Bps)\n"
         "   -R    Reinjection (1,2,4) \n"
-        "   -V    Multipath Version (4,5)\n"
+        "   -V    Multipath Version (4,5,6)\n"
+        "   -B    Set initial path standby after recvd first application data, and set initial path available after X ms\n"
         "   -I    Idle interval between requests (ms)\n"
         "   -n    Throttling the {1,2,...}xn-th requests\n"
         "   -e    NAT rebinding on path 0\n"
@@ -1728,7 +1779,7 @@ void
 xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMi:w:Ps:bZ:NQT:R:V:I:n:eE")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMi:w:Ps:bZ:NQT:R:V:B:I:n:eE")) != -1) {
         switch (ch) {
         /* server ip */
         case 'a':
@@ -1928,7 +1979,13 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
         case 'V':
             printf("option multipath version: %s\n", optarg);
             args->quic_cfg.mp_version = atoi(optarg);
-            break;    
+            break;
+
+        case 'B':
+            printf("option multipath set path status: %s ms\n", optarg);
+            args->quic_cfg.send_path_standby = 1;
+            args->quic_cfg.path_status_timer_threshold = atoi(optarg) * 1000;
+            break;
 
         case 'I':
             printf("option idle gap: %s\n", optarg);
@@ -2188,6 +2245,7 @@ xqc_demo_cli_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
     xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *) user_data;
     xqc_conn_stats_t stats = xqc_conn_get_stats(user_conn->ctx->engine, &user_conn->cid);
     printf("0rtt_flag:%d\n", stats.early_data_flag);
+
 }
 
 void
@@ -2370,6 +2428,16 @@ xqc_demo_cli_init_xquic_connection(xqc_demo_cli_user_conn_t *user_conn,
         if (user_conn->hqc_handle == NULL) {
             return -1;
         }
+    }
+
+    if (conn_settings.enable_multipath
+        && conn_settings.multipath_version >= XQC_MULTIPATH_06
+        && args->quic_cfg.send_path_standby == 1)
+    {
+        user_conn->send_path_standby = 1;
+        user_conn->path_status = 0;
+        user_conn->path_status_timer_threshold = args->quic_cfg.path_status_timer_threshold;
+        user_conn->path_status_time = 0;
     }
 
     return 0;

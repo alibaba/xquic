@@ -1073,6 +1073,7 @@ xqc_demo_cli_hq_req_close_notify(xqc_hq_request_t *hqr, void *req_user_data)
            stats.send_body_size, stats.recv_body_size, stats.stream_info);
 
     /* task schedule */
+    xqc_demo_cli_continue_send_reqs(user_stream->user_conn);
     xqc_demo_cli_on_stream_fin(user_stream);
 
     free(user_stream->send_buf);

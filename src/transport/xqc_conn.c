@@ -160,6 +160,7 @@ xqc_server_set_conn_settings(const xqc_conn_settings_t *settings)
     }
 
     default_conn_settings.enable_multipath = settings->enable_multipath;
+    default_conn_settings.is_interop_mode = settings->is_interop_mode;
 
     if (xqc_conn_is_current_mp_version_supported(settings->multipath_version) == XQC_OK) {
         default_conn_settings.multipath_version = settings->multipath_version;

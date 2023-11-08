@@ -45,9 +45,9 @@ if [ "$ROLE" == "client" ]; then
         for REQ in $REQUESTS; do
             echo -e "\nstart requesty[$i]: $REQ"
 
-            echo -e "./demo_client -l d  -L \"/logs/log_$i.log\" -D \"/downloads\" -k $SSLKEYLOGFILE -U \"$REQ\" -K 60\n"
+            echo -e "./demo_client -l d  -L \"/logs/log_$i.log\" -D \"/downloads\" -k $SSLKEYLOGFILE -U \"$REQ\" -K 90 -o\n"
 #            ./demo_client -l d  -L "/logs/log_$i.log" -D "/downloads" -k $SSLKEYLOGFILE -U "$REQ" -A "h3" -0 -K 90
-            ./demo_client -l d  -L "/logs/log_$i.log" -D "/downloads" -k $SSLKEYLOGFILE -U "$REQ" -0 -K 90
+            ./demo_client -l d  -L "/logs/log_$i.log" -D "/downloads" -k $SSLKEYLOGFILE -U "$REQ" -0 -K 90 -o
             i=`expr $i + 1`
         done
 

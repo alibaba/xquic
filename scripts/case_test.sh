@@ -3475,7 +3475,6 @@ if [ "$cli_res1" == "1" ] && [ -n "$cli_res2" ] \
 else
     echo ">>>>>>>> pass:0"
     case_print_result "h3_ext_finish_bytestream_during_transmission" "fail"
-    exit
 fi
 
 # close bytestream during transmission (-x 305)

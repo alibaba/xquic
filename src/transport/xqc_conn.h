@@ -666,5 +666,4 @@ void xqc_conn_destroy_ping_notification_list(xqc_connection_t *conn);
 
 xqc_int_t xqc_conn_send_ping_internal(xqc_connection_t *conn, void *ping_user_data, xqc_bool_t notify);
 
-
 #endif /* _XQC_CONN_H_INCLUDED_ */

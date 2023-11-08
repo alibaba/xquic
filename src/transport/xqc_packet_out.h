@@ -72,6 +72,7 @@ typedef struct xqc_packet_out_s {
     size_t                  po_buf_cap;         /* capcacity of po_buf */
     unsigned int            po_buf_size;        /* size of po_buf can be used */
     unsigned int            po_used_size;
+    unsigned int            po_enc_size;        /* size of po after being encrypted */
     unsigned int            po_ack_offset;
     xqc_packet_out_flag_t   po_flag;
     /* Largest Acknowledged in ACK frame, initiated to be 0 */

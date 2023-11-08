@@ -171,6 +171,9 @@ typedef struct xqc_demo_cli_quic_config_s {
 
     uint8_t mp_version;
 
+    /* support interop test */
+    int is_interop_mode;
+
     uint8_t send_path_standby;
     xqc_msec_t path_status_timer_threshold;
 
@@ -1070,6 +1073,7 @@ xqc_demo_cli_hq_req_close_notify(xqc_hq_request_t *hqr, void *req_user_data)
            stats.send_body_size, stats.recv_body_size, stats.stream_info);
 
     /* task schedule */
+    xqc_demo_cli_continue_send_reqs(user_stream->user_conn);
     xqc_demo_cli_on_stream_fin(user_stream);
 
     free(user_stream->send_buf);
@@ -1625,6 +1629,7 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
     settings->standby_path_probe_timeout = 1000;
     settings->multipath_version = args->quic_cfg.mp_version;
     settings->mp_ping_on = 1;
+    settings->is_interop_mode = args->quic_cfg.is_interop_mode;
     if (args->req_cfg.throttled_req != -1) {
         settings->enable_stream_rate_limit = 1;
         settings->recv_rate_bytes_per_sec = 0;
@@ -1756,6 +1761,7 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -u    key update packet threshold\n"
         "   -d    do not save responses to files\n"
         "   -M    enable multipath\n"
+        "   -o    use interop mode\n"
         "   -i    interface to create a path. For instance, we can use '-i lo -i lo' to create two paths via lo.\n"
         "   -w    waiting N ms to start the first request.\n"
         "   -P    enable MPQUIC to return ACK_MPs on any paths.\n"
@@ -1779,7 +1785,7 @@ void
 xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMi:w:Ps:bZ:NQT:R:V:B:I:n:eE")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:bZ:NQT:R:V:B:I:n:eE")) != -1) {
         switch (ch) {
         /* server ip */
         case 'a':
@@ -1920,7 +1926,11 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             printf("option multipath on\n");
             args->net_cfg.multipath = 1;
             break;
-
+        
+         case 'o':
+            printf("set interop mode\n");
+            args->quic_cfg.is_interop_mode = 1;
+            break;
         case 'i':
             printf("option adding interface: %s\n", optarg);
             if (args->net_cfg.ifcnt < MAX_PATH_CNT) {

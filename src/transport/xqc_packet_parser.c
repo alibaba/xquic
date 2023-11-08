@@ -714,6 +714,7 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
         }
     }
 
+    packet_out->po_enc_size = *enc_pkt_len;
     return XQC_OK;
 }
 

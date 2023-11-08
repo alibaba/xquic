@@ -70,6 +70,8 @@ xqc_conn_settings_t default_conn_settings = {
 
     .recv_rate_bytes_per_sec    = 0,
     .enable_stream_rate_limit   = 0,
+    
+    .is_interop_mode            = 0,
 };
 
 
@@ -158,6 +160,7 @@ xqc_server_set_conn_settings(const xqc_conn_settings_t *settings)
     }
 
     default_conn_settings.enable_multipath = settings->enable_multipath;
+    default_conn_settings.is_interop_mode = settings->is_interop_mode;
 
     if (xqc_conn_is_current_mp_version_supported(settings->multipath_version) == XQC_OK) {
         default_conn_settings.multipath_version = settings->multipath_version;
@@ -325,9 +328,17 @@ xqc_conn_init_trans_settings(xqc_connection_t *conn)
     xqc_conn_set_default_settings(rs);
 
     /* set local default setting values */
-    ls->max_streams_bidi = 1024;
-    ls->max_stream_data_bidi_remote = XQC_MAX_RECV_WINDOW;
+    if (conn->conn_settings.is_interop_mode) {
+        ls->max_streams_bidi = 128;
+        ls->max_streams_uni = 128;
 
+    } else {
+        ls->max_streams_bidi = 1024;
+        ls->max_streams_uni = 1024;
+    }
+    ls->max_stream_data_bidi_remote = XQC_MAX_RECV_WINDOW;
+    ls->max_stream_data_uni = XQC_MAX_RECV_WINDOW;
+    
     if (conn->conn_settings.enable_stream_rate_limit) {
         ls->max_stream_data_bidi_local = conn->conn_settings.init_recv_window;
 
@@ -335,18 +346,20 @@ xqc_conn_init_trans_settings(xqc_connection_t *conn)
         ls->max_stream_data_bidi_local = XQC_MAX_RECV_WINDOW;
     }
 
-    ls->max_streams_uni = 1024;
-    ls->max_stream_data_uni = XQC_MAX_RECV_WINDOW;
-
-    if (conn->conn_settings.recv_rate_bytes_per_sec) {
-        ls->max_data = conn->conn_settings.recv_rate_bytes_per_sec * XQC_FC_INIT_RTT / 1000000;
-        ls->max_data = xqc_max(XQC_MIN_RECV_WINDOW, ls->max_data);
-        ls->max_data = xqc_min(XQC_MAX_RECV_WINDOW, ls->max_data);
-
+    if (conn->conn_settings.is_interop_mode) {
+        ls->max_data = 1024 * 1024;
+        
     } else {
-        /* max_data is the sum of stream_data on all uni and bidi streams */
-        ls->max_data = ls->max_streams_bidi * ls->max_stream_data_bidi_local
-            + ls->max_streams_uni * ls->max_stream_data_uni;
+        if (conn->conn_settings.recv_rate_bytes_per_sec) {
+            ls->max_data = conn->conn_settings.recv_rate_bytes_per_sec * XQC_FC_INIT_RTT / 1000000;
+            ls->max_data = xqc_max(XQC_MIN_RECV_WINDOW, ls->max_data);
+            ls->max_data = xqc_min(XQC_MAX_RECV_WINDOW, ls->max_data);
+
+        } else {
+            /* max_data is the sum of stream_data on all uni and bidi streams */
+            ls->max_data = ls->max_streams_bidi * ls->max_stream_data_bidi_local
+                + ls->max_streams_uni * ls->max_stream_data_uni;
+        }
     }
 
     ls->max_idle_timeout = conn->conn_settings.idle_time_out;
@@ -371,6 +384,8 @@ xqc_conn_init_flow_ctl(xqc_connection_t *conn)
 {
     xqc_conn_flow_ctl_t *flow_ctl = &conn->conn_flow_ctl;
     xqc_trans_settings_t * settings = & conn->local_settings;
+
+    /* TODO: send params are inited to be zero, until zerortt inited or handshake done */
     flow_ctl->fc_max_data_can_send = settings->max_data; /* replace with the value specified by peer after handshake */
     flow_ctl->fc_max_data_can_recv = settings->max_data;
     flow_ctl->fc_max_streams_bidi_can_send = settings->max_streams_bidi; /* replace with the value specified by peer after handshake */
@@ -1805,7 +1820,7 @@ xqc_conn_enc_packet(xqc_connection_t *conn,
         conn->conn_state = XQC_CONN_STATE_CLOSED;
         return -XQC_EENCRYPT;
     }
-
+    
     packet_out->po_sent_time = current_time;
     return XQC_OK;
 }

@@ -65,10 +65,10 @@ if(NOT SSL_INC_PATH)
     )
 endif()
 
-MESSAGE("SSL_TYPE= ${SSL_TYPE}")
-MESSAGE("SSL_PATH= ${SSL_PATH}")
-MESSAGE("SSL_LIB_PATH= ${SSL_LIB_PATH}")
-MESSAGE("SSL_INC_PATH= ${SSL_INC_PATH}")
+MESSAGE("-- SSL_TYPE: ${SSL_TYPE}")
+MESSAGE("-- SSL_PATH: ${SSL_PATH}")
+MESSAGE("-- SSL_LIB_PATH: ${SSL_LIB_PATH}")
+MESSAGE("-- SSL_INC_PATH: ${SSL_INC_PATH}")
 
 # print tls traffic secret in keylog
 if(XQC_PRINT_SECRET)
@@ -130,7 +130,6 @@ configure_file (
 
 include_directories(
     include
-    /usr/local/include
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_BINARY_DIR}/include"
 )
@@ -334,7 +333,6 @@ else()
 endif()
 
 
-
 # Strip binary for release builds
 if(CMAKE_BUILD_TYPE STREQUAL MinSizeRel)
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
@@ -348,6 +346,7 @@ include_directories(${CMAKE_SOURCE_DIR}/)
 
 ##### build unittest, test client/server, demo client/server #####
 if (XQC_ENABLE_TESTING)
+
     # CUnit TODO: fix test unit on windows
     find_package(CUnit 2.1)
     enable_testing()
@@ -356,6 +355,14 @@ if (XQC_ENABLE_TESTING)
         add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
     endif()
 
+    # find LibEvent include and library path
+    find_package(LibEvent 2.0.21)
+    if(NOT LIBEVENT_FOUND)
+        message(FATAL_ERROR "libevent with required version not found")
+    endif()
+    include_directories(${LIBEVENT_INCLUDE_DIR})
+
+    # add tests
     add_subdirectory(tests)
     include_directories(${CMAKE_CURRENT_BINARY_DIR}/test)
 
@@ -398,6 +405,7 @@ if (XQC_ENABLE_TESTING)
 
     add_executable(demo_server ${DEMO_SERVER_SOURCES} ${GETOPT_SOURCES})
     add_executable(demo_client ${DEMO_CLIENT_SOURCES} ${GETOPT_SOURCES})
+
     if(CMAKE_SYSTEM_NAME  MATCHES "Windows")
         if (NOT EVENT_LIB_DIR)
             message("YOU NEED SET -DEVENT_LIB_DIR=your_event_path, eg:-DEVENT_LIB_DIR=D:/project/vcpkg/packages/libevent_x64-windows-static")
@@ -411,30 +419,28 @@ if (XQC_ENABLE_TESTING)
             ${EVENT_LIB_DIR}/lib/event_core.lib
             ${EVENT_LIB_DIR}/lib/event_extra.lib
         )
-    else()
-        link_directories( /usr/local/lib )
     endif()
 
     if(PLATFORM STREQUAL "mac32")
-        target_link_libraries(test_server xquic-static ${SSL_LIB_PATH} -ldl -lpthread -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
-        target_link_libraries(test_client xquic-static ${SSL_LIB_PATH} -ldl -lpthread -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
-        target_link_libraries(demo_server xquic  -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
-        target_link_libraries(demo_client xquic  -lm ${CMAKE_CURRENT_SOURCE_DIR}/../libevent32/lib/libevent.dylib)
+        target_link_libraries(test_server xquic-static ${SSL_LIB_PATH} -ldl -lpthread -lm ${LIBEVENT_LIBRARY})
+        target_link_libraries(test_client xquic-static ${SSL_LIB_PATH} -ldl -lpthread -lm ${LIBEVENT_LIBRARY})
+        target_link_libraries(demo_server xquic  -lm ${LIBEVENT_LIBRARY})
+        target_link_libraries(demo_client xquic  -lm ${LIBEVENT_LIBRARY})
     elseif(PLATFORM STREQUAL "mac")
-        target_link_libraries(test_server xquic-static ${SSL_LIB_PATH} -ldl -lpthread -lm -L/usr/local/lib -levent)
-        target_link_libraries(test_client xquic-static ${SSL_LIB_PATH} -ldl -lpthread -lm -L/usr/local/lib -levent)
-        target_link_libraries(demo_server xquic -lm -L/usr/local/lib -levent)
-        target_link_libraries(demo_client xquic -lm -L/usr/local/lib -levent)
+        target_link_libraries(test_server xquic-static ${SSL_LIB_PATH} -ldl -lpthread -lm ${LIBEVENT_LIBRARY})
+        target_link_libraries(test_client xquic-static ${SSL_LIB_PATH} -ldl -lpthread -lm ${LIBEVENT_LIBRARY})
+        target_link_libraries(demo_server xquic -lm ${LIBEVENT_LIBRARY})
+        target_link_libraries(demo_client xquic -lm ${LIBEVENT_LIBRARY})
     elseif(CMAKE_SYSTEM_NAME  MATCHES "Windows")
         target_link_libraries(test_server xquic ${EVENT_LIB_PATH} -lm)
         target_link_libraries(test_client xquic ${EVENT_LIB_PATH} -lm)
         target_link_libraries(demo_server xquic ${EVENT_LIB_PATH} -lm)
         target_link_libraries(demo_client xquic ${EVENT_LIB_PATH} -lm)
     else()
-        target_link_libraries(test_server xquic-static ${SSL_LIB_PATH} -ldl -lpthread -levent -lm)
-        target_link_libraries(test_client xquic-static ${SSL_LIB_PATH} -ldl -lpthread -levent -lm)
-        target_link_libraries(demo_server xquic -levent -lm)
-        target_link_libraries(demo_client xquic -levent -lm)
+        target_link_libraries(test_server xquic-static ${SSL_LIB_PATH} -ldl -lpthread -lm ${LIBEVENT_LIBRARY})
+        target_link_libraries(test_client xquic-static ${SSL_LIB_PATH} -ldl -lpthread -lm ${LIBEVENT_LIBRARY})
+        target_link_libraries(demo_server xquic ${LIBEVENT_LIBRARY} -lm)
+        target_link_libraries(demo_client xquic ${LIBEVENT_LIBRARY} -lm)
     endif()
 
 endif()

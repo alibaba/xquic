@@ -1,5 +1,5 @@
 # XQUIC
-<img src="docs/images/xquic_logo.png" alt="xquic logo" width=434 height=229/>
+<img src="docs/images/xquic_logo.png" alt="xquic logo" width=651 height=343.5/>
 
 ![GitHub](https://img.shields.io/github/license/alibaba/xquic)
 [![Build](https://github.com/alibaba/xquic/actions/workflows/build.yml/badge.svg)](https://github.com/alibaba/xquic/actions/workflows/build.yml)

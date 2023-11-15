@@ -1,5 +1,5 @@
 # XQUIC
-<img src="docs/images/xquic_logo.png" alt="xquic logo"/>
+<img src="docs/images/xquic_logo.png" alt="xquic logo" width=585.9 height=309.1/>
 
 ![GitHub](https://img.shields.io/github/license/alibaba/xquic)
 [![Build](https://github.com/alibaba/xquic/actions/workflows/build.yml/badge.svg)](https://github.com/alibaba/xquic/actions/workflows/build.yml)
@@ -27,11 +27,12 @@ XQUIC Library released by Alibaba is …
 [![](https://img.shields.io/static/v1?label=RFC&message=9002&color=brightgreen)](https://tools.ietf.org/html/rfc9002)
 [![](https://img.shields.io/static/v1?label=RFC&message=9114&color=brightgreen)](https://tools.ietf.org/html/rfc9114)
 [![](https://img.shields.io/static/v1?label=RFC&message=9204&color=brightgreen)](https://tools.ietf.org/html/rfc9204)
+[![](https://img.shields.io/static/v1?label=RFC&message=9221&color=brightgreen)](https://datatracker.ietf.org/doc/html/rfc9221)
 
 
 [![](https://img.shields.io/static/v1?label=draft-13&message=QUIC-LB&color=9cf)](https://tools.ietf.org/html/draft-ietf-quic-load-balancers-13)
-[![](https://img.shields.io/static/v1?label=draft-04&message=Multipath-QUIC&color=9cf)](https://tools.ietf.org/html/draft-ietf-quic-multipath-04)
 [![](https://img.shields.io/static/v1?label=draft-05&message=Multipath-QUIC&color=9cf)](https://tools.ietf.org/html/draft-ietf-quic-multipath-05)
+[![](https://img.shields.io/static/v1?label=draft-06&message=Multipath-QUIC&color=9cf)](https://tools.ietf.org/html/draft-ietf-quic-multipath-06)
 
 #### Standardized Features
 

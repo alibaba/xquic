@@ -64,6 +64,7 @@ xqc_cid_copy(xqc_cid_t *dst, xqc_cid_t *src)
     xqc_memcpy(dst->cid_buf, src->cid_buf, dst->cid_len);
     dst->cid_seq_num = src->cid_seq_num;
     xqc_memcpy(dst->sr_token, src->sr_token, XQC_STATELESS_RESET_TOKENLEN);
+    dst->path_id = src->path_id;
 }
 
 void

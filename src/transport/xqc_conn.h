@@ -203,6 +203,7 @@ typedef struct {
     uint64_t                enable_multipath;
     xqc_multipath_version_t multipath_version;
     uint16_t                max_datagram_frame_size;
+    uint64_t                max_concurrent_paths;
 } xqc_trans_settings_t;
 
 

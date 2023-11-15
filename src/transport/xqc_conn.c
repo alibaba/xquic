@@ -321,6 +321,7 @@ xqc_conn_set_default_settings(xqc_trans_settings_t *settings)
     settings->ack_delay_exponent         = XQC_DEFAULT_ACK_DELAY_EXPONENT;
     settings->max_udp_payload_size       = XQC_DEFAULT_MAX_UDP_PAYLOAD_SIZE;
     settings->active_connection_id_limit = XQC_DEFAULT_ACTIVE_CONNECTION_ID_LIMIT;
+    settings->max_concurrent_paths       = XQC_DEFAULT_MAX_CONCURRENT_PATHS;
 }
 
 static inline void
@@ -4621,6 +4622,7 @@ xqc_conn_set_remote_transport_params(xqc_connection_t *conn,
 
     settings->enable_multipath = params->enable_multipath;
     settings->multipath_version = params->multipath_version;
+    settings->max_concurrent_paths = params->max_concurrent_paths;
     settings->max_datagram_frame_size = params->max_datagram_frame_size;
 
     return XQC_OK;
@@ -4658,6 +4660,7 @@ xqc_conn_get_local_transport_params(xqc_connection_t *conn, xqc_transport_params
     params->no_crypto = settings->no_crypto;
     params->enable_multipath = settings->enable_multipath;
     params->multipath_version = settings->multipath_version;
+    params->max_concurrent_paths = settings->max_concurrent_paths;
     params->max_datagram_frame_size = settings->max_datagram_frame_size;
 
     /* set other transport parameters */
@@ -4958,6 +4961,7 @@ xqc_settings_copy_from_transport_params(xqc_trans_settings_t *dest,
     dest->active_connection_id_limit = src->active_connection_id_limit;
 
     dest->enable_multipath = src->enable_multipath;
+    dest->max_concurrent_paths = src->max_concurrent_paths;
     dest->max_datagram_frame_size = src->max_datagram_frame_size;
 }
 

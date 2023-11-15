@@ -150,6 +150,11 @@ typedef struct xqc_send_ctl_s {
     xqc_sample_t                sampler;
 
     xqc_send_ctl_info_t         ctl_info;
+
+    unsigned                    ctl_recent_send_count[2];
+    unsigned                    ctl_recent_lost_count[2];
+    xqc_usec_t                  ctl_recent_stats_timestamp;
+
 } xqc_send_ctl_t;
 
 
@@ -253,5 +258,8 @@ xqc_bool_t xqc_send_ctl_ack_received_in_pns(xqc_send_ctl_t *send_ctl, xqc_pkt_nu
 xqc_packet_number_t xqc_send_ctl_get_lost_sent_pn(xqc_send_ctl_t *send_ctl, xqc_pkt_num_space_t pns);
 
 xqc_packet_number_t xqc_send_ctl_get_pkt_num_gap(xqc_send_ctl_t *send_ctl, xqc_pkt_num_space_t pns, xqc_packet_number_t front, xqc_packet_number_t back);
+
+/* bytes per second */
+uint64_t xqc_send_ctl_get_est_bw(xqc_send_ctl_t *send_ctl);
 
 #endif /* _XQC_SEND_CTL_H_INCLUDED_ */

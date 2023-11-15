@@ -745,13 +745,14 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
     }
     XQC_CHECK_IMMEDIATE_CLOSE();
 
-    if (xqc_conn_should_ack(conn)) {
+    if (conn->ack_flag) {
         ret = xqc_write_ack_or_mp_ack_to_packets(conn);
         if (ret) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_ack_or_mp_ack_to_packets error|");
             XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
         }
     }
+    
     XQC_CHECK_IMMEDIATE_CLOSE();
 
 
@@ -1127,6 +1128,8 @@ xqc_engine_packet_process(xqc_engine_t *engine,
     xqc_int_t ret;
     xqc_connection_t *conn = NULL;
     xqc_cid_t dcid, scid;   /* dcid: cid of peer; scid: cid of endpoint */
+    xqc_log_level_t lvl;
+
     xqc_cid_init_zero(&dcid);
     xqc_cid_init_zero(&scid);
 
@@ -1180,8 +1183,16 @@ xqc_engine_packet_process(xqc_engine_t *engine,
             return -XQC_ECONN_NFOUND;
         }
 
-        xqc_log(engine->log, XQC_LOG_STATS, "|fail to find connection, send "
-                "reset|size:%uz|scid:%s|", packet_in_size, xqc_scid_str(&scid));
+        lvl = XQC_LOG_STATS;
+        if (engine->eng_type == XQC_ENGINE_CLIENT) {
+            lvl = XQC_LOG_REPORT;
+        }
+
+        xqc_log(engine->log, lvl, "|fail to find connection, send reset|"
+                "size:%uz|scid:%s|recv_time:%ui|peer_addr:%s|local_addr:%s",
+                packet_in_size, xqc_scid_str(&scid), recv_time,
+                xqc_peer_addr_str(peer_addr, peer_addrlen),
+                xqc_local_addr_str(local_addr, local_addrlen));
 
         ret = xqc_engine_send_reset(engine, &scid, peer_addr, peer_addrlen,
                                     local_addr, local_addrlen, packet_in_size,

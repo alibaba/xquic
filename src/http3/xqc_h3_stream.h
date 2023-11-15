@@ -148,6 +148,8 @@ typedef struct xqc_h3_stream_s {
     uint32_t                        ref_cnt;
 
     uint64_t                        recv_rate_limit;
+    uint64_t                        send_offset;
+    uint64_t                        recv_offset;
 
 } xqc_h3_stream_t;
 

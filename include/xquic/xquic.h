@@ -838,20 +838,12 @@ typedef struct xqc_cc_params_s {
 } xqc_cc_params_t;
 
 typedef struct xqc_scheduler_params_u {
-    uint8_t customize_on;
-    union {
-        struct {
-            double lambda_max;
-            double lambda_min;
-            double lambda_init;
-            double lambda_inc;
-            double lambda_dec;
-        } blest_params;
-
-        struct {
-            double beta;
-        } ecf_params;
-    };
+    uint64_t    rtt_us_thr_high;
+    uint64_t    rtt_us_thr_low;
+    uint64_t    bw_Bps_thr;
+    double      loss_percent_thr_high;
+    double      loss_percent_thr_low;
+    uint32_t    pto_cnt_thr;
 } xqc_scheduler_params_t;
 
 typedef struct xqc_congestion_control_callback_s {
@@ -1329,6 +1321,9 @@ typedef struct xqc_conn_stats_s {
      * 2: 尝试建立过双路，但没有探测成功 (create_path_count > 1 && validated_path_count <= 1)
      */
     int                 mp_state;
+
+    int                 total_rebind_count;
+    int                 total_rebind_valid;
 
     xqc_path_metrics_t  paths_info[XQC_MAX_PATHS_COUNT];
     char                conn_info[XQC_CONN_INFO_LEN];

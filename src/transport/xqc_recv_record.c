@@ -197,6 +197,7 @@ xqc_recv_record_destroy(xqc_recv_record_t *recv_record)
         xqc_free(pnode);
     }
     recv_record->node_count = 0;
+    recv_record->rr_del_from = 0;
 }
 
 /* 把src的链表逐个节点移动到dst */
@@ -247,7 +248,7 @@ xqc_maybe_should_ack(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_pn_ctl_t 
      * Generating Acknowledgements
      */
 
-    if (conn->conn_flag & (XQC_CONN_FLAG_SHOULD_ACK_INIT << pns)) {
+    if (path->path_flag & (XQC_PATH_FLAG_SHOULD_ACK_INIT << pns)) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|already yes|");
         return;
     }
@@ -269,7 +270,8 @@ xqc_maybe_should_ack(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_pn_ctl_t 
         || (pns <= XQC_PNS_HSK && send_ctl->ctl_ack_eliciting_pkt[pns] >= 1)
         || (out_of_order && send_ctl->ctl_ack_eliciting_pkt[pns] >= 1))
     {
-        conn->conn_flag |= XQC_CONN_FLAG_SHOULD_ACK_INIT << pns;
+        path->path_flag |= XQC_PATH_FLAG_SHOULD_ACK_INIT << pns;
+        conn->ack_flag |= (1 << (pns + path->path_id * XQC_PNS_N));
         
         xqc_timer_unset(&send_ctl->path_timer_manager, XQC_TIMER_ACK_INIT + pns);
 
@@ -303,6 +305,13 @@ xqc_ack_sent_record_init(xqc_ack_sent_record_t *record)
         return XQC_ERROR;
     }
     return XQC_OK;
+}
+
+void 
+xqc_ack_sent_record_reset(xqc_ack_sent_record_t *record)
+{
+    record->last_add_time = 0;
+    xqc_rarray_reinit(record->ack_sent);
 }
 
 void

@@ -239,3 +239,11 @@ xqc_rarray_resize(xqc_rarray_t *ra, uint64_t cap)
 
     return XQC_OK;
 }
+
+void 
+xqc_rarray_reinit(xqc_rarray_t *ra)
+{
+    xqc_memzero(ra->buf, ra->cap * ra->esize);
+    ra->count = 0;
+    ra->offset = 0;
+}

@@ -177,7 +177,7 @@ xqc_stream_info_print(xqc_h3_stream_t *h3_stream, xqc_request_stats_t *stats)
     size_t cursor = 0, ret = 0;
     int i;
     int flag = 0;
-    uint32_t mp_settings = 0;
+    char mp_settings[XQC_MP_SETTINGS_STR_LEN] = {0};
 
     if (h3c->conn->handshake_complete_time > 0) {
         flag = 1;
@@ -187,32 +187,11 @@ xqc_stream_info_print(xqc_h3_stream_t *h3_stream, xqc_request_stats_t *stats)
         flag |= 1 << 1;
     }
 
-    if (h3c->conn->enable_multipath) {
-        mp_settings |= 1;
-    }
+    xqc_conn_encode_mp_settings(h3c->conn, mp_settings, XQC_MP_SETTINGS_STR_LEN);
 
-    if (h3c->conn->local_settings.enable_multipath) {
-        mp_settings |= (1 << 1);
-    }
-
-    if (h3c->conn->remote_settings.enable_multipath) {
-        mp_settings |= (1 << 2);
-    }
-
-    if (h3c->conn->conn_settings.multipath_version == XQC_MULTIPATH_05) {
-        mp_settings |= (1 << 3);
-    }
-
-    if (h3c->conn->local_settings.multipath_version == XQC_MULTIPATH_05) {
-        mp_settings |= (1 << 4);
-    }
-
-    if (h3c->conn->remote_settings.multipath_version == XQC_MULTIPATH_05) {
-        mp_settings |= (1 << 5);
-    }
-
-    ret = snprintf(buff, buff_size, "(%d,%"PRIu64",%d)#", 
-                   flag, h3_stream->recv_rate_limit, mp_settings);
+    ret = snprintf(buff, buff_size, "(%d,%"PRIu64",%s,%"PRIu64",%"PRIu64")#", 
+                   flag, h3_stream->recv_rate_limit, mp_settings,
+                   h3_stream->send_offset, h3_stream->recv_offset);
 
     cursor += ret;
 

@@ -76,6 +76,12 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid)
 {
     xqc_path_ctx_t *path = NULL;
 
+    if (conn->create_path_count >= XQC_MAX_PATHS_COUNT) {
+        xqc_log(conn->log, XQC_LOG_ERROR, 
+                "|too many paths|current maximum:%d|", XQC_MAX_PATHS_COUNT);
+        return NULL;
+    }
+
     path = xqc_calloc(1, sizeof(xqc_path_ctx_t));
     if (path == NULL) {
         return NULL;
@@ -837,10 +843,10 @@ xqc_stream_path_metrics_on_send(xqc_connection_t *conn, xqc_packet_out_t *po)
             if (stream != NULL && po->po_path_id < XQC_MAX_PATHS_COUNT) {
                 stream->paths_info[po->po_path_id].path_id = po->po_path_id;
                 stream->paths_info[po->po_path_id].path_pkt_send_count += 1;
-                stream->paths_info[po->po_path_id].path_send_bytes += po->po_used_size;
+                stream->paths_info[po->po_path_id].path_send_bytes += po->po_stream_frames[i].ps_length;
 
                 if (po->po_flag & XQC_POF_REINJECTED_REPLICA) {
-                    stream->paths_info[po->po_path_id].path_send_reinject_bytes += po->po_used_size;
+                    stream->paths_info[po->po_path_id].path_send_reinject_bytes += po->po_stream_frames[i].ps_length;
                 }
             }
 
@@ -1466,4 +1472,71 @@ xqc_path_standby_probe(xqc_path_ctx_t *path)
     xqc_log(conn->log, XQC_LOG_DEBUG, "|PING|path:%ui|", path->path_id);
     path->standby_probe_count++;
     return XQC_OK;
+}
+
+xqc_path_perf_class_t 
+xqc_path_get_perf_class(xqc_path_ctx_t *path)
+{
+    xqc_connection_t *conn = path->parent_conn;
+    xqc_scheduler_params_t *param = &conn->conn_settings.scheduler_params;
+    xqc_usec_t path_srtt = xqc_send_ctl_get_srtt(path->path_send_ctl);
+    xqc_usec_t min_srtt = xqc_conn_get_min_srtt(path->parent_conn, 0);
+    uint64_t path_bw = xqc_send_ctl_get_est_bw(path->path_send_ctl);
+    double loss_rate = xqc_path_recent_loss_rate(path);
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|conn:%p|path_id:%ui|"
+            "path_srtt:%ui|min_srtt:%ui|path_bw:%ui|loss_rate:%.2f|"
+            "path_pto:%ud|", 
+            conn, path->path_id, path_srtt, min_srtt, path_bw, loss_rate,
+            path->path_send_ctl->ctl_pto_count);
+
+    // low 
+    if (path_srtt > param->rtt_us_thr_high
+        || path->path_send_ctl->ctl_pto_count >= param->pto_cnt_thr
+        || loss_rate > param->loss_percent_thr_high) 
+    {
+        if (path->app_path_status == XQC_APP_PATH_STATUS_AVAILABLE) {
+            return XQC_PATH_CLASS_AVAILABLE_LOW;
+
+        } else {
+            return XQC_PATH_CLASS_STANDBY_LOW;
+        }
+    }
+
+    // mid 
+    if ((path_srtt <= param->rtt_us_thr_high && (path_srtt > xqc_min(param->rtt_us_thr_low, 3 * min_srtt)))
+        || path_bw < param->bw_Bps_thr
+        || (loss_rate <= param->loss_percent_thr_high && loss_rate > param->loss_percent_thr_low))
+    {
+        if (path->app_path_status == XQC_APP_PATH_STATUS_AVAILABLE) {
+            return XQC_PATH_CLASS_AVAILABLE_MID;
+
+        } else {
+            return XQC_PATH_CLASS_STANDBY_MID;
+        }
+    }
+
+    // high
+    if (path->app_path_status == XQC_APP_PATH_STATUS_AVAILABLE) {
+        return XQC_PATH_CLASS_AVAILABLE_HIGH;
+    }
+
+    return XQC_PATH_CLASS_STANDBY_HIGH;
+}
+
+
+double 
+xqc_path_recent_loss_rate(xqc_path_ctx_t *path)
+{
+    double loss_rate0 = 0, loss_rate1 = 0;
+    
+    if (path->path_send_ctl->ctl_recent_send_count[0]) {
+        loss_rate0 = 100.0 * path->path_send_ctl->ctl_recent_lost_count[0] / path->path_send_ctl->ctl_recent_send_count[0];
+    }
+
+    if (path->path_send_ctl->ctl_recent_send_count[1]) {
+        loss_rate1 = 100.0 * path->path_send_ctl->ctl_recent_lost_count[1] / path->path_send_ctl->ctl_recent_send_count[1];
+    }
+
+    return xqc_max(loss_rate0, loss_rate1);
 }

@@ -60,9 +60,21 @@ typedef enum {
 } xqc_send_type_t;
 
 typedef enum {
-    XQC_PATH_FLAG_SEND_STATUS       = 1 << 0,
-    XQC_PATH_FLAG_RECV_STATUS       = 1 << 1,
-    XQC_PATH_FLAG_SOCKET_ERROR      = 1 << 2,
+    XQC_PATH_FLAG_SEND_STATUS_SHIFT,
+    XQC_PATH_FLAG_RECV_STATUS_SHIFT,
+    XQC_PATH_FLAG_SOCKET_ERROR_SHIFT,
+    XQC_PATH_FLAG_SHOULD_ACK_INIT_SHIFT,
+    XQC_PATH_FLAG_SHOULD_ACK_HSK_SHIFT,
+    XQC_PATH_FLAG_SHOULD_ACK_01RTT_SHIFT,
+} xqc_path_flag_shift_t;
+
+typedef enum {
+    XQC_PATH_FLAG_SEND_STATUS       = 1 << XQC_PATH_FLAG_SEND_STATUS_SHIFT,
+    XQC_PATH_FLAG_RECV_STATUS       = 1 << XQC_PATH_FLAG_RECV_STATUS_SHIFT,
+    XQC_PATH_FLAG_SOCKET_ERROR      = 1 << XQC_PATH_FLAG_SOCKET_ERROR_SHIFT,
+    XQC_PATH_FLAG_SHOULD_ACK_INIT   = 1 << XQC_PATH_FLAG_SHOULD_ACK_INIT_SHIFT,
+    XQC_PATH_FLAG_SHOULD_ACK_HSK    = 1 << XQC_PATH_FLAG_SHOULD_ACK_HSK_SHIFT,
+    XQC_PATH_FLAG_SHOULD_ACK_01RTT  = 1 << XQC_PATH_FLAG_SHOULD_ACK_01RTT_SHIFT,
 } xqc_path_flag_t;
 
 typedef enum {
@@ -74,6 +86,16 @@ typedef enum {
     XQC_PATH_SPECIFIED_BY_KAP       = 1 << 5,  /* Keepalive Probe */
     XQC_PATH_SPECIFIED_BY_PQP       = 1 << 6,  /* Path Quality Probe */
 } xqc_path_specified_flag_t;
+
+typedef enum {
+    XQC_PATH_CLASS_AVAILABLE_HIGH,
+    XQC_PATH_CLASS_STANDBY_HIGH,
+    XQC_PATH_CLASS_AVAILABLE_MID,
+    XQC_PATH_CLASS_STANDBY_MID,
+    XQC_PATH_CLASS_AVAILABLE_LOW,
+    XQC_PATH_CLASS_STANDBY_LOW,
+    XQC_PATH_CLASS_PERF_CLASS_SIZE,
+} xqc_path_perf_class_t;
 
 /* path context */
 struct xqc_path_ctx_s {
@@ -245,6 +267,10 @@ void xqc_path_record_info(xqc_path_ctx_t *path, xqc_path_info_t *path_info);
 xqc_bool_t xqc_path_is_full(xqc_path_ctx_t *path);
 
 xqc_int_t xqc_path_standby_probe(xqc_path_ctx_t *path);
+
+xqc_path_perf_class_t xqc_path_get_perf_class(xqc_path_ctx_t *path);
+
+double xqc_path_recent_loss_rate(xqc_path_ctx_t *path);
 
 #endif /* XQC_MULTIPATH_H */
 

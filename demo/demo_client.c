@@ -1926,7 +1926,7 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             printf("option multipath on\n");
             args->net_cfg.multipath = 1;
             break;
-        
+
          case 'o':
             printf("set interop mode\n");
             args->quic_cfg.is_interop_mode = 1;

@@ -23,7 +23,8 @@
 /* max buffer length of encoded transport parameter */
 #define XQC_MAX_TRANSPORT_PARAM_BUF_LEN         512
 
-
+/* default value for max_concurrent_paths */
+#define XQC_DEFAULT_MAX_CONCURRENT_PATHS        4
 
 /**
  * @brief transport parameter type
@@ -73,6 +74,9 @@ typedef enum {
     XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_04                 = 0x0f739bbc1b666d04,
     XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_05                 = 0x0f739bbc1b666d05,
     XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_06                 = 0x0f739bbc1b666d06,
+
+    /* multipath max concurrent paths */
+    XQC_TRANSPORT_PARAM_MAX_CONCURRENT_PATHS                = 0x0f739bbc1b666df1,
 
     /* upper limit of params defined by xquic */
     XQC_TRANSPORT_PARAM_UNKNOWN,
@@ -146,7 +150,9 @@ typedef struct {
     uint64_t                enable_multipath;
 
 
-    xqc_multipath_version_t   multipath_version;
+    xqc_multipath_version_t multipath_version;
+
+    uint64_t                max_concurrent_paths;
 
 } xqc_transport_params_t;
 

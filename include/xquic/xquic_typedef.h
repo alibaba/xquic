@@ -83,6 +83,7 @@ typedef struct xqc_cid_s {
     uint8_t             cid_buf[XQC_MAX_CID_LEN];
     uint64_t            cid_seq_num;
     uint8_t             sr_token[XQC_STATELESS_RESET_TOKENLEN];
+    uint64_t            path_id;    /* preallocate for multi-path */
 } xqc_cid_t;
 
 typedef enum xqc_log_level_s {

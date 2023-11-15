@@ -171,6 +171,8 @@ typedef struct xqc_demo_cli_quic_config_s {
 
     uint8_t mp_version;
 
+    uint64_t max_concurrent_paths;
+
     /* support interop test */
     int is_interop_mode;
 
@@ -1629,6 +1631,7 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
     settings->standby_path_probe_timeout = 1000;
     settings->multipath_version = args->quic_cfg.mp_version;
     settings->mp_ping_on = 1;
+    settings->max_concurrent_paths = args->quic_cfg.max_concurrent_paths;
     settings->is_interop_mode = args->quic_cfg.is_interop_mode;
     if (args->req_cfg.throttled_req != -1) {
         settings->enable_stream_rate_limit = 1;
@@ -1659,6 +1662,7 @@ xqc_demo_cli_init_args(xqc_demo_cli_client_args_t *args)
     args->quic_cfg.keyupdate_pkt_threshold = UINT64_MAX;
     /* default 04 */
     args->quic_cfg.mp_version = XQC_MULTIPATH_04;
+    args->quic_cfg.max_concurrent_paths = UINT64_MAX;
 
     args->req_cfg.throttled_req = -1;
 
@@ -1774,6 +1778,7 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -R    Reinjection (1,2,4) \n"
         "   -V    Multipath Version (4,5,6)\n"
         "   -B    Set initial path standby after recvd first application data, and set initial path available after X ms\n"
+        "   -f    Max concurrent paths\n"
         "   -I    Idle interval between requests (ms)\n"
         "   -n    Throttling the {1,2,...}xn-th requests\n"
         "   -e    NAT rebinding on path 0\n"
@@ -1785,7 +1790,7 @@ void
 xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:bZ:NQT:R:V:B:I:n:eE")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:bZ:NQT:R:V:B:I:n:eEf:")) != -1) {
         switch (ch) {
         /* server ip */
         case 'a':
@@ -2015,7 +2020,13 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
         case 'E':
             printf("option rebinding path1 after 3s\n");
             args->net_cfg.rebind_p1 = 1;
-            break;     
+            break;
+
+        /* key update packet threshold */
+        case 'f':
+            printf("max concurrent paths: %s\n", optarg);
+            args->quic_cfg.max_concurrent_paths = atoi(optarg);
+            break;
 
         default:
             printf("other option :%c\n", ch);

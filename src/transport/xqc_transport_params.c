@@ -173,6 +173,12 @@ xqc_transport_params_calc_length(const xqc_transport_params_t *params,
                    xqc_put_varint_len(xqc_put_varint_len(params->enable_multipath)) +
                    xqc_put_varint_len(params->enable_multipath);
         }
+
+        if (params->max_concurrent_paths != XQC_DEFAULT_MAX_CONCURRENT_PATHS) {
+            len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_MAX_CONCURRENT_PATHS) +
+                   xqc_put_varint_len(xqc_put_varint_len(params->max_concurrent_paths)) +
+                   xqc_put_varint_len(params->max_concurrent_paths);
+        }
     }
 
     if (params->close_dgram_redundancy == XQC_RED_SET_CLOSE) {
@@ -414,6 +420,11 @@ xqc_encode_transport_params(const xqc_transport_params_t *params,
 
         } else {
             p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_04, params->enable_multipath);
+        }
+
+        if (params->max_concurrent_paths != XQC_DEFAULT_MAX_CONCURRENT_PATHS) {
+            p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_MAX_CONCURRENT_PATHS,
+                                     params->max_concurrent_paths);
         }
     }
 
@@ -864,6 +875,8 @@ xqc_decode_decoder_schemes(xqc_transport_params_t *params, xqc_transport_params_
     return XQC_OK;
 }
 #endif
+
+
 static xqc_int_t
 xqc_decode_max_datagram_frame_size(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
     const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
@@ -967,6 +980,9 @@ xqc_trans_param_get_index(uint64_t param_type)
     case XQC_TRANSPORT_PARAM_NO_CRYPTO:
         return XQC_TRANSPORT_PARAM_PROTOCOL_MAX;
 
+    case XQC_TRANSPORT_PARAM_MAX_CONCURRENT_PATHS:
+        return XQC_TRANSPORT_PARAM_PROTOCOL_MAX + 3;
+
     default:
         break;
     }
@@ -1059,6 +1075,7 @@ xqc_decode_transport_params(xqc_transport_params_t *params,
 
     params->enable_multipath = 0;
     params->multipath_version = XQC_ERR_MULTIPATH_VERSION;
+    params->max_concurrent_paths = XQC_DEFAULT_MAX_CONCURRENT_PATHS;
 
     /* init fec params value */
     params->enable_encode_fec = 0;
@@ -1200,4 +1217,5 @@ xqc_init_transport_params(xqc_transport_params_t *params)
     params->ack_delay_exponent = XQC_DEFAULT_ACK_DELAY_EXPONENT;
     params->max_udp_payload_size = XQC_DEFAULT_MAX_UDP_PAYLOAD_SIZE;
     params->active_connection_id_limit = XQC_DEFAULT_ACTIVE_CONNECTION_ID_LIMIT;
+    params->max_concurrent_paths = XQC_DEFAULT_MAX_CONCURRENT_PATHS;
 }

@@ -220,6 +220,7 @@ typedef struct {
     xqc_int_t               fec_encoder_schemes_num;
     xqc_int_t               fec_decoder_schemes_num;
     xqc_dgram_red_setting_e close_dgram_redundancy;
+    uint64_t                max_concurrent_paths;
 } xqc_trans_settings_t;
  
 

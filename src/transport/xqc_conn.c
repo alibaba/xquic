@@ -377,6 +377,7 @@ xqc_conn_init_trans_settings(xqc_connection_t *conn)
     ls->enable_multipath = conn->conn_settings.enable_multipath;
     
     ls->multipath_version = conn->conn_settings.multipath_version;
+    ls->max_concurrent_paths = conn->conn_settings.max_concurrent_paths;
 
     ls->max_datagram_frame_size = conn->conn_settings.max_datagram_frame_size;
     ls->disable_active_migration = ls->enable_multipath ? 0 : 1;
@@ -4784,6 +4785,8 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
     xqc_log(conn->log, XQC_LOG_DEBUG, "|1RTT_transport_params|max_datagram_frame_size:%ud|",
             conn->remote_settings.max_datagram_frame_size);
 
+    conn->max_concurrent_paths = xqc_min(conn->local_settings.max_concurrent_paths,
+                                         conn->remote_settings.max_concurrent_paths);
 
     /* save no crypto flag */
     if (params.no_crypto == 1) {

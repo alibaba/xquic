@@ -380,8 +380,9 @@ struct xqc_connection_s {
     /* for qlog */
     uint32_t                        MTU_updated_count;    
     uint32_t                        packet_dropped_count;
-    
-    
+
+    uint64_t                        max_concurrent_paths;
+
     const
     xqc_scheduler_callback_t       *scheduler_callback;
     void                           *scheduler;

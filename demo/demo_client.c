@@ -1696,7 +1696,7 @@ xqc_demo_cli_init_args(xqc_demo_cli_client_args_t *args)
 
     args->quic_cfg.max_pkt_sz = 1200;
 
-    args->quic_cfg.max_concurrent_paths = UINT64_MAX;
+    args->quic_cfg.max_concurrent_paths = 4;
 
     args->req_cfg.throttled_req = -1;
 

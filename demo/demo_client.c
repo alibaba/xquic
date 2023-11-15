@@ -1662,7 +1662,7 @@ xqc_demo_cli_init_args(xqc_demo_cli_client_args_t *args)
     args->quic_cfg.keyupdate_pkt_threshold = UINT64_MAX;
     /* default 04 */
     args->quic_cfg.mp_version = XQC_MULTIPATH_04;
-    args->quic_cfg.max_concurrent_paths = UINT64_MAX;
+    args->quic_cfg.max_concurrent_paths = 4;
 
     args->req_cfg.throttled_req = -1;
 

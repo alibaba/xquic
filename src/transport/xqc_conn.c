@@ -4586,17 +4586,42 @@ xqc_int_t
 xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
 {
     uint64_t active_cid_cnt = conn->scid_set.cid_set.unused_cnt + conn->scid_set.cid_set.used_cnt;
+
+    xqc_int_t ret = XQC_OK;
+
     uint64_t unused_limit = 1;
     if (xqc_conn_is_handshake_confirmed(conn)) {
-        while (active_cid_cnt < conn->remote_settings.active_connection_id_limit
-               && conn->scid_set.cid_set.unused_cnt < unused_limit) 
-        {
-            xqc_int_t ret = xqc_write_new_conn_id_frame_to_packet(conn, retire_prior_to);
-            if (ret != XQC_OK) {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_conn_id_frame_to_packet error|");
-                return ret;
+        if (conn->enable_multipath && xqc_conn_multipath_version_negotiation(conn) >= XQC_MULTIPATH_06) {
+
+            xqc_path_ctx_t *path;
+            xqc_list_head_t *path_pos, *path_next;
+
+            xqc_list_for_each_safe(path_pos, path_next, &conn->conn_paths_list) {
+                path = xqc_list_entry(path_pos, xqc_path_ctx_t, path_list);
+
+                if (path->scid_set.cid_set.unused_cnt < 2
+                    && conn->active_cid_cnt < conn->remote_settings.active_connection_id_limit)
+                {
+                    ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, retire_prior_to, path->path_id);
+                    if (ret != XQC_OK) {
+                        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_conn_id_frame_to_packet error|");
+                        return ret;
+                    }
+                }
             }
-            active_cid_cnt++;
+
+        } else {
+            /* origin logic for new connection id */
+            while (active_cid_cnt < conn->remote_settings.active_connection_id_limit
+                   && conn->scid_set.cid_set.unused_cnt < unused_limit)
+            {
+                ret = xqc_write_new_conn_id_frame_to_packet(conn, retire_prior_to);
+                if (ret != XQC_OK) {
+                    xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_conn_id_frame_to_packet error|");
+                    return ret;
+                }
+                active_cid_cnt++;
+            }
         }
     }
     

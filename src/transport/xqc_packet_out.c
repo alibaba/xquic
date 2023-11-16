@@ -1726,6 +1726,8 @@ xqc_write_mp_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire
             xqc_scid_str(&new_conn_cid), xqc_sr_token_str(new_conn_cid.sr_token),
             new_conn_cid.cid_seq_num);
 
+    conn->active_cid_cnt++;
+
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
     return XQC_OK;
 
@@ -1736,7 +1738,7 @@ xqc_write_mp_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire
 
 
 xqc_int_t
-xqc_write_mp_retire_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t seq_num)
+xqc_write_mp_retire_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t seq_num, uint64_t path_id)
 {
     xqc_int_t ret = XQC_ERROR;
 
@@ -1759,9 +1761,9 @@ xqc_write_mp_retire_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t seq
         return -XQC_EWRITE_PKT;
     }
 
-    ret = xqc_gen_retire_conn_id_frame(packet_out, seq_num);
+    ret = xqc_gen_mp_retire_conn_id_frame(packet_out, seq_num, path_id);
     if (ret < 0) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_retire_conn_id_frame error|");
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_mp_retire_conn_id_frame error|");
         xqc_maybe_recycle_packet_out(packet_out, conn);
         return ret;
     }

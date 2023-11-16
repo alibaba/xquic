@@ -283,6 +283,7 @@ struct xqc_connection_s {
 
     xqc_dcid_set_t                  dcid_set;
     xqc_scid_set_t                  scid_set;
+    uint64_t                        active_cid_cnt;
 
     unsigned char                   peer_addr[sizeof(struct sockaddr_in6)];
     socklen_t                       peer_addrlen;

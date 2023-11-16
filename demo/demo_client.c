@@ -2061,7 +2061,7 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             args->net_cfg.rebind_p1 = 1;
             break;
 
-        /* key update packet threshold */
+        /* max concurrent paths */
         case 'f':
             printf("max concurrent paths: %s\n", optarg);
             args->quic_cfg.max_concurrent_paths = atoi(optarg);

@@ -419,3 +419,20 @@ xqc_get_inner_cid_count_by_path_id(xqc_cid_set_t *cid_set, uint64_t path_id)
 
     return count;
 }
+
+
+void
+xqc_move_cid_to_path(xqc_cid_set_t *conn_cid_set, xqc_cid_set_t *path_cid_set, uint64_t path_id)
+{
+    xqc_cid_inner_t *inner_cid;
+    xqc_list_head_t *pos, *next;
+
+    xqc_list_for_each_safe(pos, next, &conn_cid_set->list_head) {
+        inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
+
+        if (inner_cid->cid.path_id == path_id) {
+            xqc_cid_set_insert_cid(path_cid_set, &inner_cid->cid, inner_cid->state, UINT64_MAX);
+        }
+    }
+}
+

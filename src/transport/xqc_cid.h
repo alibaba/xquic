@@ -81,5 +81,7 @@ unsigned char *xqc_sr_token_str(xqc_engine_t *engine, const char *sr_token);
 
 uint64_t xqc_get_inner_cid_count_by_path_id(xqc_cid_set_t *cid_set, uint64_t path_id);
 
+void xqc_move_cid_to_path(xqc_cid_set_t *conn_cid_set, xqc_cid_set_t *path_cid_set, uint64_t path_id);
+
 #endif /* _XQC_CID_H_INCLUDED_ */
 

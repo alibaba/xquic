@@ -93,6 +93,8 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid)
     path->app_path_status_send_seq_num = 0;
     path->app_path_status_recv_seq_num = 0;
 
+    path->path_id = conn->create_path_count;
+
     path->path_pn_ctl = xqc_pn_ctl_create(conn);
     if (path->path_pn_ctl == NULL) {
         goto err;
@@ -108,17 +110,21 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid)
     }
     xqc_init_list_head(&path->path_reinj_tmp_buf);
 
+    /* move all the available cids from connection to path */
+    xqc_move_cid_to_path(&conn->scid_set.cid_set, &path->scid_set.cid_set, path->path_id);
+    xqc_move_cid_to_path(&conn->dcid_set.cid_set, &path->dcid_set.cid_set, path->path_id);
+
     /* cid & path_id init */
 
     if (scid == NULL) {
-        if (xqc_get_unused_cid(&conn->scid_set.cid_set, &path->path_scid) != XQC_OK) {
+        if (xqc_get_unused_cid(&path->scid_set.cid_set, &path->path_scid) != XQC_OK) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|conn don't have available scid|");
             goto err;
         }
 
     } else {
         /* already have scid */
-        xqc_cid_inner_t *inner_cid = xqc_cid_in_cid_set(&conn->scid_set.cid_set, scid);
+        xqc_cid_inner_t *inner_cid = xqc_cid_in_cid_set(&path->scid_set.cid_set, scid);
         if (inner_cid == NULL) {
             xqc_log(conn->log, XQC_LOG_DEBUG, "|invalid scid:%s|", xqc_scid_str(conn->engine, scid));
             goto err;
@@ -128,7 +134,7 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid)
     }
 
     if (dcid == NULL) {
-        if (xqc_get_unused_cid(&(conn->dcid_set.cid_set), &(path->path_dcid)) != XQC_OK) {
+        if (xqc_get_unused_cid(&(path->dcid_set.cid_set), &(path->path_dcid)) != XQC_OK) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|MP|conn don't have available dcid|");
             goto err;
         }
@@ -139,7 +145,6 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid)
     }
 
     //TODO: MPQUIC fix migration
-    path->path_id = conn->create_path_count;
     path->path_create_time = xqc_monotonic_timestamp();
     path->curr_pkt_out_size = conn->pkt_out_size;
     path->path_max_pkt_out_size = conn->max_pkt_out_size;

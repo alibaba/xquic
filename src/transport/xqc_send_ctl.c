@@ -711,12 +711,14 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
 
         if (packet_out->po_flag & XQC_POF_LOST) {
             ++send_ctl->ctl_lost_count;
+            send_ctl->ctl_recent_lost_count[0]++;
             packet_out->po_flag &= ~XQC_POF_LOST;
 
         }
         
         if (packet_out->po_flag & XQC_POF_TLP) {
             ++send_ctl->ctl_tlp_count;
+            send_ctl->ctl_recent_lost_count[0]++;
             packet_out->po_flag &= ~XQC_POF_TLP;
         }
 
@@ -746,6 +748,7 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
         }
 
         ++send_ctl->ctl_send_count;
+        send_ctl->ctl_recent_send_count[0]++;
         xqc_stream_path_metrics_on_send(send_ctl->ctl_conn, packet_out);
 
         send_ctl->ctl_last_inflight_pkt_sent_time = now;
@@ -760,6 +763,17 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
 
     send_ctl->ctl_conn->conn_last_send_time = now;
 
+    if (!send_ctl->ctl_recent_stats_timestamp) {
+        send_ctl->ctl_recent_stats_timestamp = now;
+    }
+
+    if (now >= send_ctl->ctl_recent_stats_timestamp + (5 * send_ctl->ctl_srtt)) {
+        send_ctl->ctl_recent_stats_timestamp = now;
+        send_ctl->ctl_recent_lost_count[1] = send_ctl->ctl_recent_lost_count[0];
+        send_ctl->ctl_recent_send_count[1] = send_ctl->ctl_recent_send_count[0];
+        send_ctl->ctl_recent_lost_count[0] = 0;
+        send_ctl->ctl_recent_send_count[0] = 0;
+    }
 }
 
 /**
@@ -1782,4 +1796,21 @@ xqc_packet_number_t
 xqc_send_ctl_get_pkt_num_gap(xqc_send_ctl_t *send_ctl, xqc_pkt_num_space_t pns, xqc_packet_number_t front, xqc_packet_number_t back)
 {
     return back - front;
+}
+
+uint64_t 
+xqc_send_ctl_get_est_bw(xqc_send_ctl_t *send_ctl)
+{
+    if (send_ctl->ctl_cong && send_ctl->ctl_cong_callback) {
+        if (send_ctl->ctl_cong_callback->xqc_cong_ctl_get_bandwidth_estimate) {
+            return send_ctl->ctl_cong_callback->xqc_cong_ctl_get_bandwidth_estimate(send_ctl->ctl_cong);
+
+        } else if (send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd) {
+            uint64_t cwnd = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong);
+            xqc_usec_t srtt = send_ctl->ctl_srtt ? send_ctl->ctl_srtt : XQC_kInitialRtt * 1000;
+            return (cwnd * 1000000) / srtt;
+        }
+    }
+    
+    return 0;
 }

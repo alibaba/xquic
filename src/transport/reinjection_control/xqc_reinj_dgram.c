@@ -48,7 +48,7 @@ xqc_dgram_reinj_can_reinject_after_send(xqc_dgram_reinj_ctl_t *rctl,
 {
     xqc_connection_t *conn = rctl->conn;
 
-    if ((po->po_frame_types & XQC_FRAME_BIT_DATAGRAM)
+    if ((po->po_frame_types & (XQC_FRAME_BIT_DATAGRAM | XQC_FRAME_BIT_CONNECTION_CLOSE))
         && !(po->po_flag & XQC_POF_NOT_REINJECT)
         && !(XQC_MP_PKT_REINJECTED(po))
         && (po->po_flag & XQC_POF_IN_FLIGHT)) 

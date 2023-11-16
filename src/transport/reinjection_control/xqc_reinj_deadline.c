@@ -42,10 +42,37 @@ xqc_deadline_reinj_ctl_init(void *reinj_ctl, xqc_connection_t *conn)
     rctl->conn = conn;
 }
 
+static inline xqc_bool_t
+xqc_deadline_reinj_check_packet(xqc_packet_out_t *po)
+{
+    if (((po->po_frame_types & XQC_FRAME_BIT_STREAM) 
+         || (po->po_frame_types & XQC_FRAME_BIT_MAX_STREAM_DATA)
+         || (po->po_frame_types & XQC_FRAME_BIT_RESET_STREAM)
+         || (po->po_frame_types & XQC_FRAME_BIT_STOP_SENDING)
+         || (po->po_frame_types & XQC_FRAME_BIT_MAX_STREAMS)
+         || (po->po_frame_types & XQC_FRAME_BIT_MAX_DATA)
+         || (po->po_frame_types & XQC_FRAME_BIT_DATA_BLOCKED)
+         || (po->po_frame_types & XQC_FRAME_BIT_STREAM_DATA_BLOCKED)
+         || (po->po_frame_types & XQC_FRAME_BIT_STREAMS_BLOCKED)
+         || (po->po_frame_types & XQC_FRAME_BIT_CONNECTION_CLOSE))
+        && !(po->po_flag & XQC_POF_NOT_REINJECT)
+        && !(XQC_MP_PKT_REINJECTED(po))
+        && (po->po_flag & XQC_POF_IN_FLIGHT)) 
+    {   
+        return XQC_TRUE;
+    }
+
+    return XQC_FALSE;
+}
+
 static xqc_bool_t
 xqc_deadline_reinj_can_reinject_before_sched(xqc_deadline_reinj_ctl_t *rctl, 
     xqc_packet_out_t *po)
 {
+    if (!xqc_deadline_reinj_check_packet(po)) {
+        return XQC_FALSE;
+    }
+
     xqc_connection_t *conn = rctl->conn;
     xqc_usec_t now = xqc_monotonic_timestamp();
     xqc_usec_t min_srtt = xqc_conn_get_min_srtt(conn, 0);
@@ -56,19 +83,44 @@ xqc_deadline_reinj_can_reinject_before_sched(xqc_deadline_reinj_ctl_t *rctl,
     uint64_t lower_bound = conn->conn_settings.reinj_deadline_lower_bound;
     double   deadline    = xqc_max(xqc_min(flexible, (double)hard), (double)lower_bound);
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|deadline:%f|factor:%.4f|min_srtt:%ui|flexible:%f|hard:%ui|lower_bound:%ui|now:%ui|sent_time:%ui|frame:%s|",
-                                      deadline, factor, min_srtt, flexible, hard, lower_bound, now, po->po_sent_time, xqc_frame_type_2_str(po->po_frame_types));
+    xqc_log(conn->log, XQC_LOG_DEBUG, 
+            "|deadline:%f|factor:%.4f|min_srtt:%ui|flexible:%f|hard:%ui|"
+            "lower_bound:%ui|now:%ui|sent_time:%ui|frame:%s|",
+            deadline, factor, min_srtt, flexible, hard, 
+            lower_bound, now, po->po_sent_time, 
+            xqc_frame_type_2_str(po->po_frame_types));
 
-    if (((po->po_frame_types & XQC_FRAME_BIT_STREAM) 
-         || (po->po_frame_types & XQC_FRAME_BIT_MAX_STREAM_DATA))
-        && !(po->po_flag & XQC_POF_NOT_REINJECT)
-        && !(XQC_MP_PKT_REINJECTED(po))
-        && (po->po_flag & XQC_POF_IN_FLIGHT)
-        && ((double)(now - po->po_sent_time) >= deadline)) 
-    {   
+    if ((double)(now - po->po_sent_time) >= deadline) {   
         return XQC_TRUE;
     }
 
+    return XQC_FALSE;
+}
+
+
+static xqc_bool_t
+xqc_deadline_reinj_can_reinject_after_send(xqc_deadline_reinj_ctl_t *rctl, 
+    xqc_packet_out_t *po)
+{
+    if (!xqc_deadline_reinj_check_packet(po)) {
+        return XQC_FALSE;
+    }
+
+    xqc_connection_t *conn = rctl->conn;
+    xqc_path_ctx_t *path = NULL;
+    xqc_path_perf_class_t path_class;
+
+    path = xqc_conn_find_path_by_path_id(conn, po->po_path_id);
+    
+    if (path) {
+        path_class = xqc_path_get_perf_class(path);
+        if (path_class == XQC_PATH_CLASS_STANDBY_LOW 
+            || path_class == XQC_PATH_CLASS_AVAILABLE_LOW)
+        {
+            return XQC_TRUE;
+        }
+    }
+    
     return XQC_FALSE;
 }
 
@@ -82,6 +134,9 @@ xqc_deadline_reinj_can_reinject(void *ctl,
     switch (mode) {
     case XQC_REINJ_UNACK_BEFORE_SCHED:
         can_reinject = xqc_deadline_reinj_can_reinject_before_sched(rctl, po);
+        break;
+    case XQC_REINJ_UNACK_AFTER_SEND:
+        can_reinject = xqc_deadline_reinj_can_reinject_after_send(rctl, po);
         break;
     default:
         can_reinject = XQC_FALSE;

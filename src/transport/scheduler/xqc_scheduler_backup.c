@@ -22,47 +22,48 @@ xqc_backup_scheduler_init(void *scheduler, xqc_log_t *log, xqc_scheduler_params_
 
 
 xqc_path_ctx_t *
-xqc_backup_scheduler_get_path(void *scheduler,
-    xqc_connection_t *conn, xqc_packet_out_t *packet_out, int check_cwnd, int reinject,
+xqc_backup_scheduler_get_path(void *scheduler, xqc_connection_t *conn, 
+    xqc_packet_out_t *packet_out, int check_cwnd, int reinject, 
     xqc_bool_t *cc_blocked)
 {
-    xqc_path_ctx_t *best_path = NULL;
-    xqc_path_ctx_t *best_standby_path = NULL;
+    xqc_path_ctx_t *best_path[XQC_PATH_CLASS_PERF_CLASS_SIZE];
+    xqc_bool_t has_path[XQC_PATH_CLASS_PERF_CLASS_SIZE];
+    xqc_path_perf_class_t path_class;
+    xqc_bool_t available_path_exists;
 
     xqc_list_head_t *pos, *next;
     xqc_path_ctx_t *path;
     xqc_send_ctl_t *send_ctl;
+    xqc_bool_t path_can_send;
 
     /* min RTT */
-    uint64_t min_rtt = XQC_MAX_UINT64_VALUE;
-    uint64_t min_rtt_standby = XQC_MAX_UINT64_VALUE;
     uint64_t path_srtt;
-    uint32_t avail_path_cnt = 0;
     xqc_bool_t reached_cwnd_check = XQC_FALSE;
 
     if (cc_blocked) {
         *cc_blocked = XQC_FALSE;
     }
 
+    for (path_class = XQC_PATH_CLASS_AVAILABLE_HIGH; 
+         path_class < XQC_PATH_CLASS_PERF_CLASS_SIZE; 
+         path_class++)
+    {
+        best_path[path_class] = NULL;
+        has_path[path_class] = XQC_FALSE;
+    }
+
     xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
         path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
 
+        path_class = xqc_path_get_perf_class(path);
+
         /* skip inactive paths */
-        if (path->path_state != XQC_PATH_STATE_ACTIVE) {
-            continue;
-        }
-
         /* skip frozen paths */
-        if (path->app_path_status == XQC_APP_PATH_STATUS_FROZEN) {
-            continue;
-        }
-
-        if (path->app_path_status == XQC_APP_PATH_STATUS_AVAILABLE) {
-            avail_path_cnt++;
-        }
-
-        if (reinject && (packet_out->po_path_id == path->path_id)) {
-            continue;
+        if (path->path_state != XQC_PATH_STATE_ACTIVE
+            || path->app_path_status == XQC_APP_PATH_STATUS_FROZEN
+            || (reinject && (packet_out->po_path_id == path->path_id))) 
+        {
+            goto skip_path;
         }
 
         if (!reached_cwnd_check) {
@@ -72,8 +73,11 @@ xqc_backup_scheduler_get_path(void *scheduler,
             }
         }
 
-        if (!xqc_scheduler_check_path_can_send(path, packet_out, check_cwnd)) {
-            continue;
+        has_path[path_class] = XQC_TRUE;
+        path_can_send = xqc_scheduler_check_path_can_send(path, packet_out, check_cwnd);
+
+        if (!path_can_send) {
+            goto skip_path;
         }
 
         if (cc_blocked) {
@@ -81,41 +85,62 @@ xqc_backup_scheduler_get_path(void *scheduler,
         }
 
         path_srtt = xqc_send_ctl_get_srtt(path->path_send_ctl);
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|path srtt|conn:%p|path_id:%ui|path_srtt:%ui|", 
-                conn, path->path_id, path_srtt);
+        
+        if (best_path[path_class] == NULL 
+            || path_srtt < best_path[path_class]->path_send_ctl->ctl_srtt)
+        {
+            best_path[path_class] = path;
+        }
 
-        if (path_srtt < min_rtt) {
-            if (path->app_path_status == XQC_APP_PATH_STATUS_AVAILABLE) {
-                best_path = path;
-                min_rtt = path_srtt;
-                
+skip_path:
+        xqc_log(conn->log, XQC_LOG_DEBUG, 
+                "|path srtt|conn:%p|path_id:%ui|path_srtt:%ui|path_class:%d|"
+                "can_send:%d|path_status:%d|path_state:%d|reinj:%d|"
+                "pkt_path_id:%ui|best_path:%i|", 
+                conn, path->path_id, path_srtt, path_class, path_can_send,
+                path->app_path_status, path->path_state, reinject, 
+                packet_out->po_path_id,
+                best_path[path_class] ? best_path[path_class]->path_id : -1);
+    }
+
+    available_path_exists = XQC_FALSE;
+
+    for (path_class = XQC_PATH_CLASS_AVAILABLE_HIGH; 
+         path_class < XQC_PATH_CLASS_PERF_CLASS_SIZE; 
+         path_class++)
+    {
+        if (has_path[path_class] && ((path_class & 1) == 0)) {
+            available_path_exists = XQC_TRUE;
+        }
+
+        /* 
+         * do not use a standby path if there 
+         * is an available path with higher performence level
+         */
+        if (best_path[path_class] != NULL) {
+
+            if (available_path_exists && (path_class & 1) && !reinject) {
+                /* skip standby path*/
+                xqc_log(conn->log, XQC_LOG_DEBUG, 
+                        "|skip_standby_path|path_class:%d|path_id:%ui|",
+                        path_class, best_path[path_class]->path_id);
+                continue;
+
             } else {
-                best_standby_path = path;
-                min_rtt_standby = path_srtt;
+                xqc_log(conn->log, XQC_LOG_DEBUG, "|best path:%ui|frame_type:%s|"
+                        "pn:%ui|size:%ud|reinj:%d|path_class:%d|",
+                        best_path[path_class]->path_id, 
+                        xqc_frame_type_2_str(packet_out->po_frame_types),
+                        packet_out->po_pkt.pkt_num,
+                        packet_out->po_used_size, reinject, path_class);
+                return best_path[path_class];
             }
         }
     }
 
-
-    if (best_path == NULL) {
-        if (best_standby_path != NULL
-            && (avail_path_cnt == 0 || reinject)) 
-        {
-            best_path = best_standby_path;
-
-        } else {
-            xqc_log(conn->log, XQC_LOG_DEBUG, "|No available paths to schedule|conn:%p|", conn);
-        }
-    }
-
-
-    if (best_path) {
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|best path:%ui|frame_type:%s|app_status:%d|",
-                best_path->path_id, xqc_frame_type_2_str(packet_out->po_frame_types),
-                best_path->app_path_status);
-    }
-
-    return best_path;
+    xqc_log(conn->log, XQC_LOG_DEBUG, 
+            "|No available paths to schedule|conn:%p|", conn);
+    return NULL;
 }
 
 void 

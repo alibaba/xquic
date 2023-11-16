@@ -126,10 +126,11 @@ xqc_conn_reinject_unack_packets(xqc_connection_t *conn, xqc_reinjection_mode_t m
             }
 
             xqc_log(conn->log, XQC_LOG_DEBUG, "|MP|REINJ|reinject unacked packets|"
-                    "pkt_num:%ui|size:%ud|pkt_type:%s|frame:%s|",
+                    "pkt_num:%ui|size:%ud|pkt_type:%s|frame:%s|mode:%d|",
                     packet_out->po_pkt.pkt_num, packet_out->po_used_size,
                     xqc_pkt_type_2_str(packet_out->po_pkt.pkt_type),
-                    xqc_frame_type_2_str(packet_out->po_frame_types));
+                    xqc_frame_type_2_str(packet_out->po_frame_types),
+                    mode);
         }
     }
 

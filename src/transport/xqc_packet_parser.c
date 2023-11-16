@@ -294,6 +294,11 @@ xqc_packet_parse_short_header(xqc_connection_t *c, xqc_packet_in_t *packet_in)
                 xqc_log(c->log, XQC_LOG_DEBUG, "|update_path_scid|%s->%s|",
                         xqc_scid_str(&path->path_last_scid), 
                         xqc_dcid_str(&path->path_scid));
+                /* clear recv record and reset packet number */
+                path->path_pn_ctl->ctl_largest_acked_ack[XQC_PNS_APP_DATA] = 0;
+                path->path_send_ctl->ctl_largest_received[XQC_PNS_APP_DATA] = XQC_MAX_UINT64_VALUE;
+                xqc_ack_sent_record_reset(&path->path_pn_ctl->ack_sent_record[XQC_PNS_APP_DATA]);
+                xqc_recv_record_destroy(&path->path_pn_ctl->ctl_recv_record[XQC_PNS_APP_DATA]);
             }
         }
 #endif

@@ -1908,6 +1908,8 @@ xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data)
         h3s->h3r->stream_fin_send_time = h3s->stream->stream_stats.local_fin_snd_time;
         h3s->h3r->stream_fin_ack_time = h3s->stream->stream_stats.first_fin_ack_time;
         h3s->h3r->stream_close_msg = h3s->stream->stream_close_msg;
+        h3s->send_offset = h3s->stream->stream_send_offset;
+        h3s->recv_offset = h3s->stream->stream_data_in.merged_offset_end;
     }
 
     if (h3s->h3_ext_bs && h3s->type == XQC_H3_STREAM_TYPE_BYTESTEAM) {

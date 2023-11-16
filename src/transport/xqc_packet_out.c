@@ -409,7 +409,8 @@ xqc_write_ack_to_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out
     } else {
         conn->conn_flag &= ~XQC_CONN_FLAG_ACK_HAS_GAP;
     }
-    conn->conn_flag &= ~(XQC_CONN_FLAG_SHOULD_ACK_INIT << pns);
+    path->path_flag &= ~(XQC_PATH_FLAG_SHOULD_ACK_INIT << pns);
+    conn->ack_flag &= ~(1 << (pns + path->path_id * XQC_PNS_N));
 
     return XQC_OK;
 
@@ -439,22 +440,23 @@ xqc_write_ack_or_mp_ack_to_packets(xqc_connection_t *conn)
     xqc_pkt_type_t pkt_type;
     xqc_list_head_t *pos, *next;
     xqc_bool_t is_mp_ack = 0;       /* Send ack in default case */
-
-    int ret;
-    
+    int ret = XQC_OK;
     xqc_path_ctx_t *path;
     xqc_list_head_t *path_pos, *path_next;
     
-    for (pns = 0; pns < XQC_PNS_N; ++pns) {
-        
-        /* If there's no such pns in the connection, continue the loop */
-        if (!(conn->conn_flag & (XQC_CONN_FLAG_SHOULD_ACK_INIT << pns))) {
+    xqc_list_for_each_safe(path_pos, path_next, &conn->conn_paths_list) {
+        path = xqc_list_entry(path_pos, xqc_path_ctx_t, path_list);
+
+        if (path->path_state < XQC_PATH_STATE_VALIDATING
+            || path->path_state >= XQC_PATH_STATE_CLOSED) 
+        {
             continue;
         }
 
-        xqc_list_for_each_safe(path_pos, path_next, &conn->conn_paths_list) {
-            path = xqc_list_entry(path_pos, xqc_path_ctx_t, path_list);       
-            if (path->path_state < XQC_PATH_STATE_VALIDATING) {
+        for (pns = 0; pns < XQC_PNS_N; ++pns) {
+
+            /* If there's no such pns in the connection, continue the loop */
+            if (!(path->path_flag & (XQC_PATH_FLAG_SHOULD_ACK_INIT << pns))) {
                 continue;
             }
 
@@ -466,6 +468,7 @@ xqc_write_ack_or_mp_ack_to_packets(xqc_connection_t *conn)
                 first_range = xqc_list_entry(tmp_pos, xqc_pktno_range_node_t, list);
                 break;
             }
+            
             if (first_range == NULL) {
                 continue;
             }
@@ -541,13 +544,9 @@ pure_ack:
 
 done:
             xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|pns:%d|", path->path_id, pns);
-            
-            /* Ack frame should only be sent on initial path */
-            if (!is_mp_ack) {
-                break;
-            }
         }
     }
+
     return XQC_OK;
 }
 
@@ -686,8 +685,25 @@ xqc_write_reset_stream_to_packet(xqc_connection_t *conn, xqc_stream_t *stream,
 {
     ssize_t ret;
     xqc_packet_out_t *packet_out;
+    xqc_pkt_type_t pkt_type = XQC_PTYPE_SHORT_HEADER;
+    int support_0rtt = xqc_conn_is_ready_to_send_early_data(conn);
+    xqc_bool_t buff_reset = XQC_FALSE;
 
-    packet_out = xqc_write_new_packet(conn, XQC_PTYPE_NUM);
+    if (!(conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT)) {
+        if ((conn->conn_type == XQC_CONN_TYPE_CLIENT) 
+            && (conn->conn_state == XQC_CONN_STATE_CLIENT_INITIAL_SENT) 
+            && support_0rtt)
+        {
+            pkt_type = XQC_PTYPE_0RTT;
+            conn->conn_flag |= XQC_CONN_FLAG_HAS_0RTT;
+            stream->stream_flag |= XQC_STREAM_FLAG_HAS_0RTT;
+
+        } else {
+            buff_reset = XQC_TRUE;
+        }
+    }
+
+    packet_out = xqc_write_new_packet(conn, pkt_type);
     if (packet_out == NULL) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");
         return -XQC_EWRITE_PKT;
@@ -715,6 +731,10 @@ xqc_write_reset_stream_to_packet(xqc_connection_t *conn, xqc_stream_t *stream,
         stream->stream_stats.app_reset_time = xqc_monotonic_timestamp();
     }
 
+    if (buff_reset) {
+        xqc_conn_buff_1rtt_packet(conn, packet_out);
+    }
+
     xqc_log(conn->log, XQC_LOG_DEBUG, "|stream_id:%ui|stream_state_send:%d|", stream->stream_id, stream->stream_state_send);
     return XQC_OK;
 
@@ -739,7 +759,25 @@ xqc_write_stop_sending_to_packet(xqc_connection_t *conn, xqc_stream_t *stream,
         return XQC_OK;
     }
 
-    packet_out = xqc_write_new_packet(conn, XQC_PTYPE_NUM);
+    xqc_pkt_type_t pkt_type = XQC_PTYPE_SHORT_HEADER;
+    int support_0rtt = xqc_conn_is_ready_to_send_early_data(conn);
+    xqc_bool_t buff_pkt = XQC_FALSE;
+
+    if (!(conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT)) {
+        if ((conn->conn_type == XQC_CONN_TYPE_CLIENT) 
+            && (conn->conn_state == XQC_CONN_STATE_CLIENT_INITIAL_SENT) 
+            && support_0rtt)
+        {
+            pkt_type = XQC_PTYPE_0RTT;
+            conn->conn_flag |= XQC_CONN_FLAG_HAS_0RTT;
+            stream->stream_flag |= XQC_STREAM_FLAG_HAS_0RTT;
+
+        } else {
+            buff_pkt = XQC_TRUE;
+        }
+    }
+
+    packet_out = xqc_write_new_packet(conn, pkt_type);
     if (packet_out == NULL) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");
         return -XQC_EWRITE_PKT;
@@ -752,6 +790,10 @@ xqc_write_stop_sending_to_packet(xqc_connection_t *conn, xqc_stream_t *stream,
     }
 
     packet_out->po_used_size += ret;
+
+    if (buff_pkt) {
+        xqc_conn_buff_1rtt_packet(conn, packet_out);
+    }
 
     return XQC_OK;
 
@@ -969,6 +1011,7 @@ xqc_write_new_token_to_packet(xqc_connection_t *conn)
     }
 
     packet_out->po_used_size += ret;
+    xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
 
     return XQC_OK;
 
@@ -1134,6 +1177,7 @@ xqc_write_handshake_done_frame_to_packet(xqc_connection_t *conn)
     }
 
     packet_out->po_used_size += n_written;
+    xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
 
     return XQC_OK;
 }
@@ -1238,6 +1282,7 @@ xqc_write_retire_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t seq_nu
     }
 
     packet_out->po_used_size += ret;
+    xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
 
     return XQC_OK;
 }
@@ -1381,7 +1426,8 @@ xqc_write_ack_mp_to_one_packet(xqc_connection_t *conn, xqc_path_ctx_t *path,
     } else {
         conn->conn_flag &= ~XQC_CONN_FLAG_ACK_HAS_GAP;
     }
-    conn->conn_flag &= ~(XQC_CONN_FLAG_SHOULD_ACK_INIT << pns);
+    path->path_flag &= ~(XQC_PATH_FLAG_SHOULD_ACK_INIT << pns);
+    conn->ack_flag &= ~(1 << (pns + path->path_id * XQC_PNS_N));
 
     return XQC_OK;
 

@@ -36,6 +36,8 @@
 
 #define XQC_MAX_RECV_WINDOW (16 * 1024 * 1024)
 
+#define XQC_MP_SETTINGS_STR_LEN (30)
+
 static const uint32_t MAX_RSP_CONN_CLOSE_CNT = 3;
 
 /* for debugging, will be deleted later */
@@ -87,10 +89,6 @@ typedef enum {
     XQC_CONN_STATE_N,
 } xqc_conn_state_t;
 
-#define XQC_CONN_FLAG_SHOULD_ACK (XQC_CONN_FLAG_SHOULD_ACK_INIT     \
-                                  | XQC_CONN_FLAG_SHOULD_ACK_HSK    \
-                                  | XQC_CONN_FLAG_SHOULD_ACK_01RTT) \
-
 #define XQC_CONN_IMMEDIATE_CLOSE_FLAGS (XQC_CONN_FLAG_ERROR)
 
 /* !!WARNING: to add flag, please update conn_flag_2_str */
@@ -99,9 +97,6 @@ typedef enum {
     XQC_CONN_FLAG_HANDSHAKE_COMPLETED_SHIFT,
     XQC_CONN_FLAG_CAN_SEND_1RTT_SHIFT,
     XQC_CONN_FLAG_TICKING_SHIFT,
-    XQC_CONN_FLAG_SHOULD_ACK_INIT_SHIFT,
-    XQC_CONN_FLAG_SHOULD_ACK_HSK_SHIFT      = (XQC_CONN_FLAG_SHOULD_ACK_INIT_SHIFT + XQC_PNS_HSK),
-    XQC_CONN_FLAG_SHOULD_ACK_01RTT_SHIFT    = (XQC_CONN_FLAG_SHOULD_ACK_INIT_SHIFT + XQC_PNS_APP_DATA),
     XQC_CONN_FLAG_ACK_HAS_GAP_SHIFT,
     XQC_CONN_FLAG_TIME_OUT_SHIFT,
     XQC_CONN_FLAG_ERROR_SHIFT,
@@ -147,9 +142,6 @@ typedef enum {
     XQC_CONN_FLAG_HANDSHAKE_COMPLETED   = 1ULL << XQC_CONN_FLAG_HANDSHAKE_COMPLETED_SHIFT,
     XQC_CONN_FLAG_CAN_SEND_1RTT         = 1ULL << XQC_CONN_FLAG_CAN_SEND_1RTT_SHIFT,
     XQC_CONN_FLAG_TICKING               = 1ULL << XQC_CONN_FLAG_TICKING_SHIFT,
-    XQC_CONN_FLAG_SHOULD_ACK_INIT       = 1ULL << XQC_CONN_FLAG_SHOULD_ACK_INIT_SHIFT,
-    XQC_CONN_FLAG_SHOULD_ACK_HSK        = 1ULL << XQC_CONN_FLAG_SHOULD_ACK_HSK_SHIFT,
-    XQC_CONN_FLAG_SHOULD_ACK_01RTT      = 1ULL << XQC_CONN_FLAG_SHOULD_ACK_01RTT_SHIFT,
     XQC_CONN_FLAG_ACK_HAS_GAP           = 1ULL << XQC_CONN_FLAG_ACK_HAS_GAP_SHIFT,
     XQC_CONN_FLAG_TIME_OUT              = 1ULL << XQC_CONN_FLAG_TIME_OUT_SHIFT,
     XQC_CONN_FLAG_ERROR                 = 1ULL << XQC_CONN_FLAG_ERROR_SHIFT,
@@ -313,6 +305,9 @@ struct xqc_connection_s {
 
     xqc_trans_settings_t            local_settings;
     xqc_trans_settings_t            remote_settings;
+
+    /* a bitmap to record if ACKs should be generated for path[pns] */
+    uint64_t                        ack_flag;
     xqc_conn_flag_t                 conn_flag;
     xqc_conn_type_t                 conn_type;
 
@@ -426,7 +421,7 @@ struct xqc_connection_s {
         xqc_frame_type_bit_t        pkt_frames[3];
         uint32_t                    pkt_size[3];
         uint32_t                    pkt_udp_size[3];
-        uint64_t                    pkt_err[3];
+        int                         pkt_err[3];
         xqc_usec_t                  pkt_timestamp[3];
         xqc_packet_number_t         pkt_pn[3];
         uint8_t                     curr_index;
@@ -496,6 +491,7 @@ xqc_int_t xqc_conn_handshake_complete(xqc_connection_t *conn);
 xqc_int_t xqc_conn_buff_undecrypt_packet_in(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
     xqc_encrypt_level_t encrypt_level);
 xqc_int_t xqc_conn_process_undecrypt_packet_in(xqc_connection_t *conn, xqc_encrypt_level_t encrypt_level);
+void xqc_conn_buff_1rtt_packet(xqc_connection_t *conn, xqc_packet_out_t *po);
 void xqc_conn_buff_1rtt_packets(xqc_connection_t *conn);
 void xqc_conn_write_buffed_1rtt_packets(xqc_connection_t *conn);
 xqc_usec_t xqc_conn_next_wakeup_time(xqc_connection_t *conn);
@@ -536,17 +532,6 @@ xqc_conn_has_undecrypt_packets(xqc_connection_t *conn)
     return conn->undecrypt_count[XQC_ENC_LEV_1RTT]
         || conn->undecrypt_count[XQC_ENC_LEV_0RTT]
         || conn->undecrypt_count[XQC_ENC_LEV_HSK];
-}
-
-static inline xqc_int_t
-xqc_conn_should_ack(xqc_connection_t *conn)
-{
-    if (conn->conn_flag & XQC_CONN_FLAG_SHOULD_ACK) {
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|should_generate_ack yes|flag:%s|",
-                xqc_conn_flag_2_str(conn->conn_flag));
-        return 1;
-    }
-    return 0;
 }
 
 /* process an UDP datagram */
@@ -665,5 +650,7 @@ void xqc_conn_destroy_ping_record(xqc_ping_record_t *pr);
 void xqc_conn_destroy_ping_notification_list(xqc_connection_t *conn);
 
 xqc_int_t xqc_conn_send_ping_internal(xqc_connection_t *conn, void *ping_user_data, xqc_bool_t notify);
+
+void xqc_conn_encode_mp_settings(xqc_connection_t *conn, char *buf, size_t buf_sz);
 
 #endif /* _XQC_CONN_H_INCLUDED_ */

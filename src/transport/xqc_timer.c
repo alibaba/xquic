@@ -44,7 +44,8 @@ xqc_timer_ack_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_data)
 
     xqc_connection_t *conn = send_ctl->ctl_conn;
     xqc_pkt_num_space_t pns = type - XQC_TIMER_ACK_INIT;
-    conn->conn_flag |= XQC_CONN_FLAG_SHOULD_ACK_INIT << pns;
+    send_ctl->ctl_path->path_flag |= XQC_PATH_FLAG_SHOULD_ACK_INIT << pns;
+    conn->ack_flag |= (1 << (pns + send_ctl->ctl_path->path_id * XQC_PNS_N));
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|pns:%d|path:%ui|", pns, send_ctl->ctl_path->path_id);
 }

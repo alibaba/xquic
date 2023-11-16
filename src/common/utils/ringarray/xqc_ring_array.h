@@ -84,4 +84,6 @@ xqc_int_t xqc_rarray_pop_from(xqc_rarray_t *ra, uint64_t idx);
  */
 xqc_int_t xqc_rarray_resize(xqc_rarray_t *ra, uint64_t cap);
 
+void xqc_rarray_reinit(xqc_rarray_t *ra);
+
 #endif

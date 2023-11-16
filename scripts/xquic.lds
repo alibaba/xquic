@@ -116,8 +116,8 @@ XQUIC_VERS_1.0 {
         xqc_conn_get_conn_settings_template;
         xqc_conn_get_lastest_rtt;
         xqc_log_enable;
-	xqc_h3_request_update_settings;
-  	xqc_stream_update_settings;
+        xqc_h3_request_update_settings;
+        xqc_stream_update_settings;
     local:
         *;
 };

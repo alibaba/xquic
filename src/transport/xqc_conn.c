@@ -101,6 +101,7 @@ xqc_conn_settings_t internal_default_conn_settings = {
                                     .fec_encoder_scheme             = 0,
                                     .fec_decoder_scheme             = 0,
                                   },
+    .max_concurrent_paths       = 4,
 };
 
 

@@ -35,6 +35,8 @@ xqc_generate_cid(xqc_engine_t *engine, xqc_cid_t *ori_cid, xqc_cid_t *cid,
         return -XQC_EGENERATE_CID;
     }
 
+    cid->path_id = 0; /* default initial path_id = 0 */
+
     return XQC_OK;
 }
 

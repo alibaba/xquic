@@ -169,4 +169,14 @@ xqc_int_t xqc_gen_repair_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_
     xqc_int_t repair_idx, xqc_int_t repair_key_size);
 xqc_int_t xqc_parse_repair_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
+ssize_t xqc_gen_mp_new_conn_id_frame(xqc_packet_out_t *packet_out, xqc_cid_t *new_cid,
+    uint64_t retire_prior_to, const uint8_t *sr_token, uint64_t path_id);
+
+xqc_int_t xqc_parse_mp_new_conn_id_frame(xqc_packet_in_t *packet_in,
+    xqc_cid_t *new_cid, uint64_t *retire_prior_to, uint64_t *path_id, xqc_connection_t *conn);
+
+ssize_t xqc_gen_mp_retire_conn_id_frame(xqc_packet_out_t *packet_out, uint64_t seq_num, uint64_t path_id);
+
+xqc_int_t xqc_parse_mp_retire_conn_id_frame(xqc_packet_in_t *packet_in, uint64_t *seq_num, uint64_t *path_id);
+
 #endif /*_XQC_FRAME_PARSER_H_INCLUDED_*/

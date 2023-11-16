@@ -13,6 +13,7 @@
 #include "src/transport/xqc_packet.h"
 #include "src/transport/xqc_recv_record.h"
 #include "src/transport/xqc_frame_parser.h"
+#include "src/transport/xqc_cid.h"
 
 
 /* enable multipath */
@@ -104,6 +105,9 @@ struct xqc_path_ctx_s {
     uint64_t            path_id;    /* path identifier */
     xqc_cid_t           path_scid;
     xqc_cid_t           path_dcid;
+
+    xqc_dcid_set_t      dcid_set;
+    xqc_scid_set_t      scid_set;
 
     /* Path_address: 4-tuple */
     unsigned char       peer_addr[sizeof(struct sockaddr_in6)],

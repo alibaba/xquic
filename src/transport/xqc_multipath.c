@@ -182,6 +182,8 @@ xqc_path_init(xqc_path_ctx_t *path, xqc_connection_t *conn)
         path->local_addrlen = conn->local_addrlen;
     }
 
+    xqc_init_dcid_set(&path->dcid_set);
+    xqc_init_scid_set(&path->scid_set);
 
     if (path->path_id == XQC_INITIAL_PATH_ID) {
         xqc_set_path_state(path, XQC_PATH_STATE_ACTIVE);

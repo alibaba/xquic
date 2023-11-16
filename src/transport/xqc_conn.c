@@ -4591,7 +4591,7 @@ xqc_conn_get_unused_cid_count_for_path(xqc_connection_t *conn, uint64_t path_id)
         return path->scid_set.cid_set.unused_cnt;
     }
 
-    return xqc_get_inner_cid_count_by_path_id(&conn->scid_set, path_id);
+    return xqc_get_inner_cid_count_by_path_id(&conn->scid_set.cid_set, path_id);
 }
 
 

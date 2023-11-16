@@ -1578,7 +1578,7 @@ void
 xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
     xqc_demo_cli_client_args_t *args)
 {
-    xqc_cong_ctrl_callback_t cong_ctrl;
+    xqc_cong_ctrl_callback_t cong_ctrl = xqc_bbr_cb;
     switch (args->net_cfg.cc) {
     case CC_TYPE_BBR:
         cong_ctrl = xqc_bbr_cb;

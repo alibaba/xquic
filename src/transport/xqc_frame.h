@@ -168,6 +168,10 @@ xqc_int_t xqc_process_path_standby_frame(xqc_connection_t *conn, xqc_packet_in_t
 
 xqc_int_t xqc_process_path_available_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
+xqc_int_t xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
+
+xqc_int_t xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
+
 xqc_int_t xqc_process_datagram_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 xqc_int_t xqc_process_sid_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);

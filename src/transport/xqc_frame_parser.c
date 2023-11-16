@@ -2966,6 +2966,7 @@ xqc_parse_mp_new_conn_id_frame(xqc_packet_in_t *packet_in,
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }
+    new_cid->path_id = *path_id;
     p += vlen;
 
     packet_in->pos = p;

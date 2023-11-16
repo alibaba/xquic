@@ -79,5 +79,7 @@ xqc_bool_t xqc_validate_retire_cid_frame(xqc_cid_set_t *cid_set, xqc_cid_inner_t
 
 unsigned char *xqc_sr_token_str(xqc_engine_t *engine, const char *sr_token);
 
+uint64_t xqc_get_inner_cid_count_by_path_id(xqc_cid_set_t *cid_set, uint64_t path_id);
+
 #endif /* _XQC_CID_H_INCLUDED_ */
 

@@ -111,6 +111,8 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid)
     xqc_init_list_head(&path->path_reinj_tmp_buf);
 
     /* move all the available cids from connection to path */
+    xqc_init_dcid_set(&path->dcid_set);
+    xqc_init_scid_set(&path->scid_set);
     xqc_move_cid_to_path(&conn->scid_set.cid_set, &path->scid_set.cid_set, path->path_id);
     xqc_move_cid_to_path(&conn->dcid_set.cid_set, &path->dcid_set.cid_set, path->path_id);
 
@@ -186,9 +188,6 @@ xqc_path_init(xqc_path_ctx_t *path, xqc_connection_t *conn)
         xqc_memcpy(path->local_addr, conn->local_addr, conn->local_addrlen);
         path->local_addrlen = conn->local_addrlen;
     }
-
-    xqc_init_dcid_set(&path->dcid_set);
-    xqc_init_scid_set(&path->scid_set);
 
     if (path->path_id == XQC_INITIAL_PATH_ID) {
         xqc_set_path_state(path, XQC_PATH_STATE_ACTIVE);

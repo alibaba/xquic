@@ -759,6 +759,11 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     }
 
 #endif
+
+    if (xc->conn_settings.max_concurrent_paths == 0) {
+        xc->conn_settings.max_concurrent_paths = XQC_DEFAULT_MAX_CONCURRENT_PATHS;
+    }
+
     xqc_conn_init_trans_settings(xc);
     xqc_conn_init_flow_ctl(xc);
     xqc_conn_init_key_update_ctx(xc);

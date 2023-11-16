@@ -232,6 +232,16 @@ xqc_server_set_conn_settings(xqc_engine_t *engine, const xqc_conn_settings_t *se
     engine->default_conn_settings.reinj_ctl_callback = settings->reinj_ctl_callback;
     engine->default_conn_settings.mp_enable_reinjection = settings->mp_enable_reinjection;
 
+    if (settings->max_concurrent_paths == UINT64_MAX) {
+        default_conn_settings.max_concurrent_paths = XQC_DEFAULT_MAX_CONCURRENT_PATHS;
+    } else {
+        default_conn_settings.max_concurrent_paths = settings->max_concurrent_paths;
+    }
+
+    default_conn_settings.scheduler_callback = settings->scheduler_callback;
+    default_conn_settings.reinj_ctl_callback = settings->reinj_ctl_callback;
+    default_conn_settings.mp_enable_reinjection = settings->mp_enable_reinjection;
+
     if (settings->ack_frequency > 0) {
         engine->default_conn_settings.ack_frequency = settings->ack_frequency;
     }
@@ -4611,6 +4621,8 @@ xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
             xqc_list_head_t *path_pos, *path_next;
             uint64_t path_id = 0;
 
+            xqc_log(conn->log, XQC_LOG_DEBUG, "|max_concurrent_paths|%ui|", conn->max_concurrent_paths);
+
             for (path_id = 0; path_id < conn->max_concurrent_paths; path_id++) {
 
                 if (xqc_conn_get_unused_cid_count_for_path(conn, path_id) < 2
@@ -5293,6 +5305,9 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|1RTT_transport_params|max_datagram_frame_size:%ud|",
             conn->remote_settings.max_datagram_frame_size);
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|1RTT_transport_params|max_concurrent_paths:local:%ui|max_concurrent_paths:remote:%ui|",
+            conn->local_settings.max_concurrent_paths, conn->remote_settings.max_concurrent_paths);
 
     conn->max_concurrent_paths = xqc_min(conn->local_settings.max_concurrent_paths,
                                          conn->remote_settings.max_concurrent_paths);

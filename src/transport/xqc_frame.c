@@ -1880,8 +1880,8 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         return ret;
     }
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|new_conn_id|%s|sr_token:%s",
-            xqc_scid_str(&new_conn_cid), xqc_sr_token_str(new_conn_cid.sr_token));
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|new_conn_id|%s|path_id:%ui|sr_token:%s",
+            xqc_scid_str(&new_conn_cid), path_id, xqc_sr_token_str(new_conn_cid.sr_token));
 
     if (retire_prior_to > new_conn_cid.cid_seq_num) {
         /*

@@ -74,6 +74,7 @@ xqc_cid_init_zero(xqc_cid_t *cid)
 {
     cid->cid_len = 0;
     cid->cid_seq_num = 0;
+    cid->path_id = 0;
 }
 
 void

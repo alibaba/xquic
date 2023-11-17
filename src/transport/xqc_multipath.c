@@ -350,13 +350,24 @@ xqc_path_closed(xqc_path_ctx_t *path)
         xqc_timer_unset(&path->path_send_ctl->path_timer_manager, i);
     }
 
+    /* send retire cid on another path after waiting for 3 pto */
+    if (xqc_conn_multipath_version_negotiation(conn) > XQC_MULTIPATH_06) {
+        uint64_t seq_num = path->path_dcid.cid_seq_num;
+        uint64_t path_id = path->path_dcid.path_id;
+        xqc_int_t ret = xqc_write_mp_retire_conn_id_frame_to_packet(conn, seq_num, path_id);
+        if (ret != XQC_OK) {
+            xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_retire_conn_id_frame_to_packet error|");
+            /* It's ok here. Still need to notify and release resource */
+        }
+    }
+
     /* remove path notify */
     if (conn->transport_cbs.path_removed_notify) {
         conn->transport_cbs.path_removed_notify(&conn->scid_set.user_scid, path->path_id,
                                                 xqc_conn_get_user_data(conn));
     }
 
-    /* TODO: releadse path recource */
+    /* TODO: release path resource */
     return XQC_OK;
 }
 

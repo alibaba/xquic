@@ -283,6 +283,7 @@ xqc_cid_in_cid_set(const xqc_cid_set_t *cid_set, xqc_cid_t *cid)
         inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
         if (xqc_cid_is_equal(cid, &inner_cid->cid) == XQC_OK) {
             cid->cid_seq_num = inner_cid->cid.cid_seq_num;
+            cid->path_id = inner_cid->cid.path_id;
             return inner_cid;
         }
     }

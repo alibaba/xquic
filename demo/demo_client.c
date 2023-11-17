@@ -190,6 +190,8 @@ typedef struct xqc_demo_cli_quic_config_s {
     xqc_msec_t path_status_timer_threshold;
 
     uint64_t least_available_cid_count;
+    uint64_t remove_path_id;
+    uint8_t  remove_path_flag;
 
     size_t max_pkt_sz;
 
@@ -423,6 +425,10 @@ typedef struct xqc_demo_cli_user_conn_s {
     int                     path_status; /* 0:available 1:standby */
     xqc_msec_t              path_status_time;
     xqc_msec_t              path_status_timer_threshold;
+
+    xqc_msec_t              path_create_time;
+    xqc_flag_t              remove_path_flag;
+    uint64_t                remove_path_id;
 } xqc_demo_cli_user_conn_t;
 
 static void
@@ -876,6 +882,8 @@ xqc_demo_cli_conn_create_path(const xqc_cid_t *cid, void *conn_user_data)
             return;
         }
 
+        user_conn->path_create_time = xqc_demo_now();
+
         if (user_conn->total_path_cnt == 2 && ctx->args->quic_cfg.mp_backup) {
             printf("set No.%d path (id = %"PRIu64") to STANDBY state\n", 1, path_id);
             xqc_conn_mark_path_standby(ctx->engine, &(user_conn->cid), path_id);
@@ -1033,6 +1041,13 @@ xqc_demo_path_status_trigger(xqc_demo_cli_user_conn_t *user_conn)
                 printf("mark_path_available: path_id=0 path_status=%d now=%"PRIu64" pre=%"PRIu64" threshold=%"PRIu64"\n",
                        user_conn->path_status, ts_now, user_conn->path_status_time, user_conn->path_status_timer_threshold);
             }
+        }
+    }
+
+    if (user_conn->remove_path_flag) {
+        if (ts_now > user_conn->path_create_time + 500000 /* 500ms */) {
+            printf("Path closing... path_id:%"PRIu64" \n", user_conn->remove_path_id);
+            xqc_conn_close_path(user_conn->ctx->engine, &(user_conn->cid), user_conn->remove_path_id);
         }
     }
 }
@@ -1786,42 +1801,43 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "\n"
         "Options:\n"
         "   -a    Server addr.\n"
-        "   -p    Server port.\n"
+        "   -A    alpn selection: h3/hq\n"
+        "   -b    set the second path as a backup path\n"
+        "   -B    Set initial path standby after recvd first application data, and set initial path available after X ms\n"
         "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic P:copa\n"
         "   -C    Pacing on.\n"
-        "   -t    Connection timeout. Default 3 seconds.\n"
-        "   -S    cipher suites\n"
-        "   -0    use 0-RTT\n"
-        "   -A    alpn selection: h3/hq\n"
-        "   -D    save request body directory\n"
-        "   -l    Log level. e:error d:debug.\n"
-        "   -L    xquic log directory.\n"
-        "   -U    Url. \n"
-        "   -k    key out path\n"
-        "   -K    Client's life circle time\n"
-        "   -u    key update packet threshold\n"
         "   -d    do not save responses to files\n"
-        "   -M    enable multipath\n"
-        "   -o    use interop mode\n"
-        "   -i    interface to create a path. For instance, we can use '-i lo -i lo' to create two paths via lo.\n"
-        "   -w    waiting N ms to start the first request.\n"
-        "   -P    enable MPQUIC to return ACK_MPs on any paths.\n"
-        "   -s    multipath scheduler (interop, minrtt, backup), default: interop\n"
-        "   -b    set the second path as a backup path\n"
-        "   -Z    close one path after X ms\n"
-        "   -N    No encryption (default disabled)\n"
-        "   -Q    Send requests one by one (default disabled)\n"
-        "   -T    Throttle recving rate (Bps)\n"
-        "   -R    Reinjection (1,2,4) \n"
-        "   -V    Multipath Version (4,5,6)\n"
-        "   -B    Set initial path standby after recvd first application data, and set initial path available after X ms\n"
-        "   -f    Max concurrent paths\n"
-        "   -I    Idle interval between requests (ms)\n"
-        "   -n    Throttling the {1,2,...}xn-th requests\n"
+        "   -D    save request body directory\n"
         "   -e    NAT rebinding on path 0\n"
         "   -E    NAT rebinding on path 1\n"
+        "   -f    Max concurrent paths\n"
         "   -F    MTU size (default: 1200)\n"
         "   -G    Google connection options (e.g. CBBR,TBBR)\n"
+        "   -i    interface to create a path. For instance, we can use '-i lo -i lo' to create two paths via lo.\n"
+        "   -I    Idle interval between requests (ms)\n"
+        "   -k    key out path\n"
+        "   -K    Client's life circle time\n"
+        "   -l    Log level. e:error d:debug.\n"
+        "   -L    xquic log directory.\n"
+        "   -M    enable multipath\n"
+        "   -n    Throttling the {1,2,...}xn-th requests\n"
+        "   -N    No encryption (default disabled)\n"
+        "   -o    use interop mode\n"
+        "   -p    Server port.\n"
+        "   -P    enable MPQUIC to return ACK_MPs on any paths.\n"
+        "   -Q    Send requests one by one (default disabled)\n"
+        "   -r    Remove path by path id X (send abandon) \n"
+        "   -R    Reinjection (1,2,4) \n"
+        "   -s    multipath scheduler (interop, minrtt, backup), default: interop\n"
+        "   -S    cipher suites\n"
+        "   -t    Connection timeout. Default 3 seconds.\n"
+        "   -T    Throttle recving rate (Bps)\n"
+        "   -U    Url. \n"
+        "   -u    key update packet threshold\n"
+        "   -V    Multipath Version (4,5,6)\n"
+        "   -w    waiting N ms to start the first request.\n"
+        "   -Z    close one path after X ms\n"
+        "   -0    use 0-RTT\n"
         , prog);
 }
 
@@ -1829,7 +1845,7 @@ void
 xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:bZ:NQT:R:V:B:I:n:eEF:f:G:")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:bZ:NQT:r:R:V:B:I:n:eEf:F:G:")) != -1) {
         switch (ch) {
         /* server ip */
         case 'a':
@@ -2028,11 +2044,17 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             args->quic_cfg.recv_rate = atoi(optarg);
             break;
 
+        case 'r':
+            printf("option remove path id: %s\n", optarg);
+            args->quic_cfg.remove_path_id = atoi(optarg);
+            args->quic_cfg.remove_path_flag = 1;
+            break;
+
         case 'R':
             printf("option reinjection: %s\n", optarg);
             args->quic_cfg.reinjection = atoi(optarg);
             break;
-        
+
         case 'V':
             printf("option multipath version: %s\n", optarg);
             args->quic_cfg.mp_version = atoi(optarg);
@@ -2515,6 +2537,14 @@ xqc_demo_cli_init_xquic_connection(xqc_demo_cli_user_conn_t *user_conn,
         user_conn->path_status = 0;
         user_conn->path_status_timer_threshold = args->quic_cfg.path_status_timer_threshold;
         user_conn->path_status_time = 0;
+    }
+
+    if (conn_settings.enable_multipath
+        && conn_settings.multipath_version >= XQC_MULTIPATH_06
+        && args->quic_cfg.remove_path_flag == 1)
+    {
+        user_conn->remove_path_flag = 1;
+        user_conn->remove_path_id = args->quic_cfg.remove_path_id;
     }
 
     return 0;

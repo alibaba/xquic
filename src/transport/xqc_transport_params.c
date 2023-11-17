@@ -422,7 +422,7 @@ xqc_encode_transport_params(const xqc_transport_params_t *params,
             p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_04, params->enable_multipath);
         }
 
-        if (params->max_concurrent_paths != XQC_DEFAULT_MAX_CONCURRENT_PATHS) {
+        if (params->max_concurrent_paths) {
             p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_MAX_CONCURRENT_PATHS,
                                      params->max_concurrent_paths);
         }

@@ -2772,7 +2772,7 @@ xqc_gen_path_available_frame(xqc_connection_t *conn,
     xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
     dst_buf += xqc_vint_len(frame_type_bits);
 
-    /* DCID Sequence Number (i) */
+    /* Path ID (i) */
     xqc_vint_write(dst_buf, dcid_seq_num, dcid_seq_num_bits, xqc_vint_len(dcid_seq_num_bits));
     dst_buf += xqc_vint_len(dcid_seq_num_bits);
 

@@ -1408,10 +1408,10 @@ xqc_write_path_challenge_frame_to_packet(xqc_connection_t *conn,
 
         if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_06) {
             if (path->app_path_status == XQC_APP_PATH_STATUS_STANDBY) {
-                ret = xqc_gen_path_standby_frame(conn, packet_out, path->path_scid.cid_seq_num,
+                ret = xqc_gen_path_standby_frame(conn, packet_out, path->path_scid.path_id,
                                                  path->app_path_status_send_seq_num);
             } else if (path->app_path_status == XQC_APP_PATH_STATUS_AVAILABLE) {
-                ret = xqc_gen_path_available_frame(conn, packet_out, path->path_scid.cid_seq_num,
+                ret = xqc_gen_path_available_frame(conn, packet_out, path->path_scid.path_id,
                                                    path->app_path_status_send_seq_num);
             } else {
                 ret = -XQC_EMP_PATH_STATE_ERROR;
@@ -1610,10 +1610,10 @@ xqc_write_path_standby_or_available_frame_to_packet(xqc_connection_t *conn, xqc_
     path->app_path_status_send_seq_num++;
 
     if (path->app_path_status == XQC_APP_PATH_STATUS_STANDBY) {
-        ret = xqc_gen_path_standby_frame(conn, packet_out, path->path_scid.cid_seq_num,
+        ret = xqc_gen_path_standby_frame(conn, packet_out, path->path_scid.path_id,
                                          path->app_path_status_send_seq_num);
     } else if (path->app_path_status == XQC_APP_PATH_STATUS_AVAILABLE) {
-        ret = xqc_gen_path_available_frame(conn, packet_out, path->path_scid.cid_seq_num,
+        ret = xqc_gen_path_available_frame(conn, packet_out, path->path_scid.path_id,
                                          path->app_path_status_send_seq_num);
     } else {
         xqc_log(conn->log, XQC_LOG_WARN, "|xqc_write_path_standby_or_available_frame_to_packet status error|%d|", path->app_path_status);

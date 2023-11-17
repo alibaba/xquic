@@ -1745,6 +1745,8 @@ xqc_write_mp_retire_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t seq
 {
     xqc_int_t ret = XQC_ERROR;
 
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|mp retire conn id|seq:%ui|path_id:%ui|", seq_num, path_id);
+
     /* select new current_dcid to replace the cid to be retired */
     if (seq_num == conn->dcid_set.current_dcid.cid_seq_num) {
         // TODO: DCID changes
@@ -1754,9 +1756,10 @@ xqc_write_mp_retire_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t seq
             return ret;
         }
         xqc_datagram_record_mss(conn);
+
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|get_new_dcid:%s|seq_num:%ui|",
+                xqc_dcid_str(&conn->dcid_set.current_dcid), conn->dcid_set.current_dcid.cid_seq_num);
     }
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|get_new_dcid:%s|seq_num:%ui|",
-            xqc_dcid_str(&conn->dcid_set.current_dcid), conn->dcid_set.current_dcid.cid_seq_num);
 
     xqc_packet_out_t *packet_out = xqc_write_new_packet(conn, XQC_PTYPE_SHORT_HEADER);
     if (packet_out == NULL) {

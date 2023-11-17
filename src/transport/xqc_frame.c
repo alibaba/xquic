@@ -2000,7 +2000,9 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
 xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
     xqc_int_t ret = XQC_ERROR;
-    uint64_t seq_num = 0, path_id = 0;
+    uint64_t seq_num = 0, path_id = 0, retire_prior_to = 0;
+    xqc_path_ctx_t *path = NULL;
+    xqc_cid_inner_t *inner_cid = NULL;
 
     ret = xqc_parse_mp_retire_conn_id_frame(packet_in, &seq_num, &path_id);
     if (ret != XQC_OK) {
@@ -2009,7 +2011,8 @@ xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
         return ret;
     }
 
-#if 0
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|retire conn id|seq:%ui|path_id:%ui|", seq_num, path_id);
+
     if (seq_num > conn->scid_set.largest_scid_seq_num) {
         /*
          * Receipt of a RETIRE_CONNECTION_ID frame containing a sequence number
@@ -2021,12 +2024,23 @@ xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
         return -XQC_EPROTO;
     }
 
-    xqc_cid_inner_t *inner_cid = xqc_get_inner_cid_by_seq(&conn->scid_set.cid_set, seq_num);
+    path = xqc_conn_find_path_by_path_id(conn, path_id);
+
+    /* try to get scid from path ctx first */
+    if (path != NULL) {
+        inner_cid = xqc_get_inner_cid_by_seq(&path->scid_set.cid_set, seq_num);
+    }
+    /* if failed finding cid from path ctx, try conn scid set again */
+    if (inner_cid == NULL) {
+        inner_cid = xqc_get_inner_cid_by_seq(&conn->scid_set.cid_set, seq_num);
+    }
+    /* all failed */
     if (inner_cid == NULL) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|can't find scid with seq_num:%ui|", seq_num);
         return XQC_OK;
     }
 
+    /* find cid successfully */
     if (XQC_OK == xqc_cid_is_equal(&inner_cid->cid, &packet_in->pi_pkt.pkt_dcid)) {
         /*
          * The sequence number specified in a RETIRE_CONNECTION_ID frame MUST NOT refer to
@@ -2055,12 +2069,19 @@ xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
         xqc_log(conn->log, XQC_LOG_DEBUG, "|switch scid to %ui|", conn->scid_set.user_scid.cid_seq_num);
     }
 
-    /* TODO: 如果对应 “Active” Path 则需要替换 CID */
-    // xqc_path_ctx_t *path = xqc_conn_find_path_by_scid(conn, &inner_cid->cid);
-    // if (path != NULL) {
-    //     xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|state:%d|", path->path_id, path->path_state);
-    // }
-#endif
+    /* sending new cid for path */
+    if (path->path_state < XQC_PATH_STATE_CLOSING) {
+
+        ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, retire_prior_to, path_id);
+        if (ret != XQC_OK) {
+            xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_conn_id_frame_to_packet error|");
+            return ret;
+        }
+
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|write mp new connection id frame|retire_prior_to:%ui|path_id:%ui|",
+                retire_prior_to, path_id);
+    }
+
     return XQC_OK;
 }
 

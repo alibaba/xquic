@@ -1754,22 +1754,22 @@ xqc_process_path_standby_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
 {
     xqc_int_t ret = XQC_ERROR;
 
-    uint64_t dcid_seq_num;
+    uint64_t path_id = 0;
     uint64_t path_status_seq_num;
     uint64_t path_status;
 
-    ret = xqc_parse_path_standby_frame(packet_in, &dcid_seq_num, &path_status_seq_num, &path_status);
+    ret = xqc_parse_path_standby_frame(packet_in, &path_id, &path_status_seq_num, &path_status);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_parse_path_status_frame error|");
         return ret;
     }
 
-    xqc_path_ctx_t *path = xqc_conn_find_path_by_dcid_seq(conn, dcid_seq_num);
+    xqc_path_ctx_t *path = xqc_conn_find_path_by_path_id(conn, path_id);
 
     if (path == NULL) {
         xqc_log(conn->log, XQC_LOG_WARN,
-                "|invalid path|dcid_seq_num:%ui|pi_path_id:%ui|",
-                dcid_seq_num, packet_in->pi_path_id);
+                "|invalid path|path_id:%ui|pi_path_id:%ui|",
+                path_id, packet_in->pi_path_id);
         return XQC_OK; /* ignore */
     }
 
@@ -1794,22 +1794,22 @@ xqc_process_path_available_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
 {
     xqc_int_t ret = XQC_ERROR;
 
-    uint64_t dcid_seq_num;
+    uint64_t path_id = 0;
     uint64_t path_status_seq_num;
     uint64_t path_status;
 
-    ret = xqc_parse_path_available_frame(packet_in, &dcid_seq_num, &path_status_seq_num, &path_status);
+    ret = xqc_parse_path_available_frame(packet_in, &path_id, &path_status_seq_num, &path_status);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_parse_path_status_frame error|");
         return ret;
     }
 
-    xqc_path_ctx_t *path = xqc_conn_find_path_by_dcid_seq(conn, dcid_seq_num);
+    xqc_path_ctx_t *path = xqc_conn_find_path_by_path_id(conn, path_id);
 
     if (path == NULL) {
         xqc_log(conn->log, XQC_LOG_WARN,
-                "|invalid path|dcid_seq_num:%ui|pi_path_id:%ui|",
-                dcid_seq_num, packet_in->pi_path_id);
+                "|invalid path|path_id:%ui|pi_path_id:%ui|",
+                path_id, packet_in->pi_path_id);
         return XQC_OK; /* ignore */
     }
 

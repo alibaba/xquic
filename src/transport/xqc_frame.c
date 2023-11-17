@@ -387,7 +387,7 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
             break;
         case XQC_TRANS_FRAME_TYPE_MP_RETIRE_CONN_ID:
             if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_06) {
-                ret = xqc_process_retire_conn_id_frame(conn, packet_in);
+                ret = xqc_process_mp_retire_conn_id_frame(conn, packet_in);
 
             } else {
                 xqc_log(conn->log, XQC_LOG_ERROR, "|receive wrong mp version path_status frame or cannot process frame in mp version 06|");

@@ -385,7 +385,7 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
                 ret = -XQC_EMP_INVALID_MP_VERTION;
             }
             break;
-        case 0x15228c0a:
+        case XQC_TRANS_FRAME_TYPE_MP_RETIRE_CONN_ID:
             if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_06) {
                 ret = xqc_process_retire_conn_id_frame(conn, packet_in);
 

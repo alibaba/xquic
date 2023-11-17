@@ -16,9 +16,6 @@
 #define XQC_DATAGRAM_HEADER_BYTES (XQC_DATAGRAM_LENGTH_FIELD_BYTES + 1)
 
 
-#define XQC_TRANS_FRAME_TYPE_MP_NEW_CONN_ID             0x15228c09
-#define XQC_TRANS_FRAME_TYPE_MP_RETIRE_CONN_ID          0x15228c0a
-
 /**
  * generate datagram frame
  */

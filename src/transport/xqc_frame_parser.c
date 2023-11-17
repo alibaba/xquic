@@ -2833,10 +2833,10 @@ xqc_parse_path_available_frame(xqc_packet_in_t *packet_in,
  *    Type (i) = 0x15228c09,
  *    Sequence Number (i),
  *    Retire Prior To (i),
+ *    Path Identifier (i),
  *    Length (8),
  *    Connection ID (8..160),
  *    Stateless Reset Token (128),
- *    Path Identifier (i),
  * }
  *
  *               Figure 39: MP_NEW_CONNECTION_ID Frame Format
@@ -2849,7 +2849,7 @@ xqc_gen_mp_new_conn_id_frame(xqc_packet_out_t *packet_out, xqc_cid_t *new_cid,
     const unsigned char *begin = dst_buf;
 
     /* write frame type */
-    uint64_t frame_type = XQC_TRANS_FRAME_TYPE_MP_NEW_CONN_ID;
+    uint64_t frame_type = 0x15228c09;
     unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
     xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
     dst_buf += xqc_vint_len(frame_type_bits);
@@ -2996,7 +2996,7 @@ xqc_gen_mp_retire_conn_id_frame(xqc_packet_out_t *packet_out, uint64_t seq_num, 
     const unsigned char *begin = dst_buf;
 
     /* write frame type */
-    uint64_t frame_type = XQC_TRANS_FRAME_TYPE_MP_RETIRE_CONN_ID;
+    uint64_t frame_type = 0x15228c0a;
     unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
     xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
     dst_buf += xqc_vint_len(frame_type_bits);

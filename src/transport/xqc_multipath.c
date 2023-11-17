@@ -606,6 +606,25 @@ xqc_conn_find_path_by_path_id(xqc_connection_t *conn, uint64_t path_id)
     return NULL;
 }
 
+/* Address the path by Path ID allocated in DCID, for receiver side */
+xqc_path_ctx_t *
+xqc_conn_find_path_by_dcid_path_id(xqc_connection_t *conn, uint64_t path_id)
+{
+    xqc_path_ctx_t *path = NULL;
+    xqc_list_head_t *pos, *next;
+
+    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
+        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+
+        if (path->path_dcid.path_id == path_id) {
+            return path;
+        }
+    }
+
+    return NULL;
+}
+
+
 xqc_path_ctx_t *
 xqc_conn_find_path_by_scid(xqc_connection_t *conn, xqc_cid_t *scid)
 {

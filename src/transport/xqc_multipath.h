@@ -239,6 +239,7 @@ xqc_path_ctx_t *xqc_conn_find_path_by_path_id(xqc_connection_t *conn, uint64_t p
 xqc_path_ctx_t *xqc_conn_find_path_by_scid(xqc_connection_t *conn, xqc_cid_t *scid);
 xqc_path_ctx_t *xqc_conn_find_path_by_dcid(xqc_connection_t *conn, xqc_cid_t *dcid);
 xqc_path_ctx_t *xqc_conn_find_path_by_dcid_seq(xqc_connection_t *conn, uint64_t dcid_seq);
+xqc_path_ctx_t *xqc_conn_find_path_by_dcid_path_id(xqc_connection_t *conn, uint64_t path_id);
 
 void xqc_path_send_buffer_append(xqc_path_ctx_t *path, xqc_packet_out_t *packet_out, xqc_list_head_t *head);
 void xqc_path_send_buffer_remove(xqc_path_ctx_t *path, xqc_packet_out_t *packet_out);

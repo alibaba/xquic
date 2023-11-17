@@ -1766,7 +1766,7 @@ xqc_process_path_standby_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|path standby|path_id:%ui|", path_id);
 
-    xqc_path_ctx_t *path = xqc_conn_find_path_by_path_id(conn, path_id);
+    xqc_path_ctx_t *path = xqc_conn_find_path_by_dcid_path_id(conn, path_id);
 
     if (path == NULL) {
         xqc_log(conn->log, XQC_LOG_WARN,
@@ -1808,7 +1808,7 @@ xqc_process_path_available_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|path available|path_id:%ui|", path_id);
 
-    xqc_path_ctx_t *path = xqc_conn_find_path_by_path_id(conn, path_id);
+    xqc_path_ctx_t *path = xqc_conn_find_path_by_dcid_path_id(conn, path_id);
 
     if (path == NULL) {
         xqc_log(conn->log, XQC_LOG_WARN,

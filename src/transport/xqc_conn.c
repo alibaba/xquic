@@ -4532,6 +4532,25 @@ xqc_conn_check_handshake_complete(xqc_connection_t *conn)
 xqc_int_t
 xqc_conn_check_unused_cids(xqc_connection_t *conn)
 {
+    /* check if there are unused cid for the new path */
+    if (xqc_conn_multipath_version_negotiation(conn) >= XQC_MULTIPATH_06) {
+        uint64_t new_path_id = conn->create_path_count;
+        uint64_t active_dcid_count = xqc_get_inner_cid_count_by_path_id(&conn->dcid_set.cid_set, new_path_id);
+        uint64_t active_scid_count = xqc_get_inner_cid_count_by_path_id(&conn->scid_set.cid_set, new_path_id);
+
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|check unused cid count|path_id:%ui|dcid_set:%ui|scid_set:%ui|",
+                                    new_path_id, active_dcid_count, active_scid_count);
+
+        if (active_dcid_count == 0 || active_scid_count == 0) {
+            xqc_log(conn->log, XQC_LOG_DEBUG, "|don't have available unused cid|path_id:%ui|%ui|%ui|",
+                    new_path_id, active_dcid_count, active_scid_count);
+            return -XQC_EMP_NO_AVAIL_PATH_ID;
+        }
+
+        return XQC_OK;
+    }
+
+    /* old logic */
     if (conn->dcid_set.cid_set.unused_cnt == 0 || conn->scid_set.cid_set.unused_cnt == 0) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|don't have available unused cid|%ui|%ui|", 
                 conn->dcid_set.cid_set.unused_cnt, conn->scid_set.cid_set.unused_cnt);

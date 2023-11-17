@@ -849,6 +849,9 @@ xqc_demo_cli_conn_create_path(const xqc_cid_t *cid, void *conn_user_data)
     uint64_t path_id;
     int ret;
     int backup = 0;
+
+    printf("ready to create path notify\n");
+
     if (user_conn->total_path_cnt < ctx->args->net_cfg.ifcnt
         && user_conn->total_path_cnt < MAX_PATH_CNT) 
     {

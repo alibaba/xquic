@@ -2396,7 +2396,7 @@ xqc_parse_ack_mp_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
 
 ssize_t
 xqc_gen_path_abandon_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
-    uint64_t dcid_seq_num, uint64_t error_code)
+    uint64_t path_id, uint64_t error_code)
 {
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
     const unsigned char *begin = dst_buf;
@@ -2420,7 +2420,7 @@ xqc_gen_path_abandon_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     uint8_t *reason = NULL;
 
     unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
-    unsigned dcid_seq_num_bits = xqc_vint_get_2bit(dcid_seq_num);
+    unsigned dcid_seq_num_bits = xqc_vint_get_2bit(path_id);
     unsigned error_code_bits = xqc_vint_get_2bit(error_code);
     unsigned reason_len_bits = xqc_vint_get_2bit(reason_len);
 
@@ -2441,8 +2441,8 @@ xqc_gen_path_abandon_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
     dst_buf += xqc_vint_len(frame_type_bits);
 
-    /* DCID Sequence Number (i) */
-    xqc_vint_write(dst_buf, dcid_seq_num, dcid_seq_num_bits, xqc_vint_len(dcid_seq_num_bits));
+    /* Path ID (i) */
+    xqc_vint_write(dst_buf, path_id, dcid_seq_num_bits, xqc_vint_len(dcid_seq_num_bits));
     dst_buf += xqc_vint_len(dcid_seq_num_bits);
 
     /* Error Code (i) */

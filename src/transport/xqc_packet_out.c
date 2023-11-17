@@ -1543,9 +1543,9 @@ xqc_write_path_abandon_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *p
 
     /* dcid_seq_num = path->scid.cid_seq_num */
     //TODO: MPQUIC fix migration
-    uint64_t dcid_seq_num = path->path_scid.cid_seq_num;
+    uint64_t path_id = path->path_scid.path_id;
 
-    ret = xqc_gen_path_abandon_frame(conn, packet_out, dcid_seq_num, 0);
+    ret = xqc_gen_path_abandon_frame(conn, packet_out, path_id, 0);
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_path_abandon_frame error|%d|", ret);
         goto error;
@@ -1555,8 +1555,8 @@ xqc_write_path_abandon_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *p
 
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|dcid_seq_num:%ui|",
-            path->path_id, dcid_seq_num);
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|scid_path_id:%ui|",
+            path->path_id, path_id);
 
     return XQC_OK;
 

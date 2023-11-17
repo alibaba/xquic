@@ -2466,7 +2466,7 @@ xqc_gen_path_abandon_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
 
 xqc_int_t
 xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
-    uint64_t *dcid_seq_num, uint64_t *error_code)
+    uint64_t *path_id, uint64_t *error_code)
 {
     unsigned char *p = packet_in->pos;
     const unsigned char *end = packet_in->last;
@@ -2482,7 +2482,7 @@ xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
     p += vlen;
 
     /* DCID Sequence Number (i) */
-    vlen = xqc_vint_read(p, end, dcid_seq_num);
+    vlen = xqc_vint_read(p, end, path_id);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }

@@ -2041,6 +2041,7 @@ xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
     }
 
     /* find cid successfully */
+
     if (XQC_OK == xqc_cid_is_equal(&inner_cid->cid, &packet_in->pi_pkt.pkt_dcid)) {
         /*
          * The sequence number specified in a RETIRE_CONNECTION_ID frame MUST NOT refer to
@@ -2070,8 +2071,9 @@ xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
     }
 
     /* sending new cid for path */
-    if (path->path_state < XQC_PATH_STATE_CLOSING) {
-
+    if (path != NULL
+        && path->path_state < XQC_PATH_STATE_CLOSING)
+    {
         ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, retire_prior_to, path_id);
         if (ret != XQC_OK) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_conn_id_frame_to_packet error|");

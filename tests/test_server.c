@@ -601,7 +601,7 @@ xqc_server_h3_ext_datagram_lost_callback(xqc_h3_conn_t *conn, uint64_t dgram_id,
 }
 
 void
-xqc_server_set_event_timer(xqc_msec_t wake_after, void *user_data)
+xqc_server_set_event_timer(xqc_usec_t wake_after, void *user_data)
 {
     xqc_server_ctx_t *ctx = (xqc_server_ctx_t *) user_data;
 
@@ -1635,12 +1635,12 @@ xqc_server_socket_read_handler(xqc_server_ctx_t *ctx)
                 if (xqc_engine_packet_process(ctx->engine, iovecs[i].iov_base, msgs[i].msg_len,
                                               (struct sockaddr *) (&ctx->local_addr), ctx->local_addrlen,
                                               (struct sockaddr *) (&pa[i]), peer_addrlen,
-                                              (xqc_msec_t)recv_time, NULL) != XQC_OK)
+                                              (xqc_usec_t)recv_time, NULL) != XQC_OK)
 #else
                 if (xqc_engine_packet_process(ctx->engine, iovecs[i].iov_base, msgs[i].msg_len,
                                               (struct sockaddr *) (&ctx->local_addr), ctx->local_addrlen,
                                               (struct sockaddr *) (&pa[i]), peer_addrlen,
-                                              XQC_UNKNOWN_PATH_ID, (xqc_msec_t)recv_time, NULL) != XQC_OK)
+                                              XQC_UNKNOWN_PATH_ID, (xqc_usec_t)recv_time, NULL) != XQC_OK)
 #endif                                              
                 {
                     printf("xqc_server_read_handler: packet process err\n");
@@ -1685,12 +1685,12 @@ xqc_server_socket_read_handler(xqc_server_ctx_t *ctx)
         ret = xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
                                         (struct sockaddr *) (&ctx->local_addr), ctx->local_addrlen,
                                         (struct sockaddr *) (&peer_addr), peer_addrlen,
-                                        (xqc_msec_t) recv_time, NULL);
+                                        (xqc_usec_t) recv_time, NULL);
 #else
         ret = xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
                                         (struct sockaddr *) (&ctx->local_addr), ctx->local_addrlen,
                                         (struct sockaddr *) (&peer_addr), peer_addrlen,
-                                        XQC_UNKNOWN_PATH_ID, (xqc_msec_t) recv_time, NULL);
+                                        XQC_UNKNOWN_PATH_ID, (xqc_usec_t) recv_time, NULL);
 #endif
         if (ret != XQC_OK)
         {

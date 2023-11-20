@@ -3941,7 +3941,7 @@ void usage(int argc, char *argv[]) {
 "   -p    Server port.\n"
 "   -P    Number of Parallel requests per single connection. Default 1.\n"
 "   -n    Total number of requests to send. Defaults 1.\n"
-"   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic B:bbr2 bbr+ bbr2+\n"
+"   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic B:bbr2 bbr+ bbr2+ P:copa\n"
 "   -C    Pacing on.\n"
 "   -t    Connection timeout. Default 3 seconds.\n"
 "   -T    Transport protocol: 0 H3 (default), 1 Transport layer, 2 H3-ext.\n"
@@ -4064,7 +4064,7 @@ int main(int argc, char *argv[]) {
             printf("option req_max :%s\n", optarg);
             g_req_max = atoi(optarg);
             break;
-        case 'c': /* Congestion Control Algorithm. r:reno b:bbr c:cubic B:bbr2 bbr+ bbr2+ */
+        case 'c': /* Congestion Control Algorithm. r:reno b:bbr c:cubic B:bbr2 bbr+ bbr2+ P:copa */
             c_cong_ctl = optarg[0];
             if (strncmp("bbr2", optarg, 4) == 0) {
                 c_cong_ctl = 'B';

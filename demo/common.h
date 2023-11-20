@@ -21,7 +21,8 @@
 typedef enum cc_type_s {
     CC_TYPE_BBR,
     CC_TYPE_CUBIC,
-    CC_TYPE_RENO
+    CC_TYPE_RENO,
+    CC_TYPE_COPA
 } CC_TYPE;
 
 

@@ -1587,7 +1587,11 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
     case CC_TYPE_CUBIC:
         cong_ctrl = xqc_cubic_cb;
         break;
-
+#ifdef XQC_ENABLE_COPA
+    case CC_TYPE_COPA:
+        cong_ctrl = xqc_copa_cb;
+        break;
+#endif
 #ifdef XQC_ENABLE_RENO
     case CC_TYPE_RENO:
         cong_ctrl = xqc_reno_cb;
@@ -1746,7 +1750,7 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "Options:\n"
         "   -a    Server addr.\n"
         "   -p    Server port.\n"
-        "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic\n"
+        "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic P:copa\n"
         "   -C    Pacing on.\n"
         "   -t    Connection timeout. Default 3 seconds.\n"
         "   -S    cipher suites\n"
@@ -1802,7 +1806,7 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
         /* congestion control */
         case 'c':
             printf("option cong_ctl :%s\n", optarg);
-            /* r:reno b:bbr c:cubic */
+            /* r:reno b:bbr c:cubic p:copa */
             switch (*optarg) {
             case 'b':
                 args->net_cfg.cc = CC_TYPE_BBR;
@@ -1812,6 +1816,9 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
                 break;
             case 'r':
                 args->net_cfg.cc = CC_TYPE_RENO;
+                break;
+            case 'P':
+                args->net_cfg.cc = CC_TYPE_COPA;
                 break;
             default:
                 break;

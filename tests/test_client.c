@@ -94,12 +94,12 @@ typedef struct user_stream_s {
     size_t                   recv_body_len;
     FILE                    *recv_body_fp;
     int                      recv_fin;
-    xqc_msec_t               start_time;
-    xqc_msec_t               first_frame_time;   /* first frame download time */
-    xqc_msec_t               last_read_time;
+    xqc_usec_t               start_time;
+    xqc_usec_t               first_frame_time;   /* first frame download time */
+    xqc_usec_t               last_read_time;
     int                      abnormal_count;
     int                      body_read_notify_cnt;
-    xqc_msec_t               last_recv_log_time;
+    xqc_usec_t               last_recv_log_time;
     uint64_t                 recv_log_bytes;
 
     xqc_h3_ext_bytestream_t *h3_ext_bs;
@@ -745,7 +745,7 @@ static void xqc_client_timeout_multi_process_callback(int fd, short what, void *
 
 
 void
-xqc_client_set_event_timer(xqc_msec_t wake_after, void *user_data)
+xqc_client_set_event_timer(xqc_usec_t wake_after, void *user_data)
 {
     client_ctx_t *ctx = (client_ctx_t *) user_data;
     //printf("xqc_engine_wakeup_after %llu us, now %llu\n", wake_after, now());
@@ -2079,7 +2079,7 @@ xqc_client_stream_read_notify(xqc_stream_t *stream, void *user_data)
         user_stream->recv_body_len += read;
         user_stream->recv_log_bytes += read;
 
-        xqc_msec_t curr_time = now();
+        xqc_usec_t curr_time = now();
         if ((curr_time - user_stream->last_recv_log_time) >= 200000) {
             printf("[qperf]|ts:%"PRIu64"|recv_size:%"PRIu64"|\n", curr_time, user_stream->recv_log_bytes);
             user_stream->last_recv_log_time = curr_time;
@@ -2098,7 +2098,7 @@ xqc_client_stream_read_notify(xqc_stream_t *stream, void *user_data)
 
     /* test abnormal rate */
     if (g_test_case == 14) {
-        xqc_msec_t tmp = now();
+        xqc_usec_t tmp = now();
         if (tmp - user_stream->last_read_time > 150*1000 && user_stream->last_read_time != 0 ) {
             user_stream->abnormal_count++;
             printf("\033[33m!!!!!!!!!!!!!!!!!!!!abnormal!!!!!!!!!!!!!!!!!!!!!!!!\033[0m\n");
@@ -2108,15 +2108,15 @@ xqc_client_stream_read_notify(xqc_stream_t *stream, void *user_data)
 
     if (fin) {
         user_stream->recv_fin = 1;
-        xqc_msec_t now_us = now();
-        printf("\033[33m>>>>>>>> request time cost:%"PRIu64" us, speed:%"PRIu64" K/s \n"
+        xqc_usec_t now_us = now();
+        printf("\033[33m>>>>>>>> request time cost:%"PRIu64" us, speed:%"PRIu64" Kbit/s \n"
                ">>>>>>>> send_body_size:%zu, recv_body_size:%zu \033[0m\n",
                now_us - user_stream->start_time,
-               (user_stream->send_body_len + user_stream->recv_body_len)*1000/(now_us - user_stream->start_time),
+               (user_stream->send_body_len + user_stream->recv_body_len)*8000/(now_us - user_stream->start_time),
                user_stream->send_body_len, user_stream->recv_body_len);
         
-        printf("test_result_speed: %"PRIu64" K/s\n", 
-                (user_stream->send_body_len + user_stream->recv_body_len)*1000/(now_us - user_stream->start_time));
+        printf("test_result_speed: %"PRIu64" Kbit/s\n", 
+                (user_stream->send_body_len + user_stream->recv_body_len)*8000/(now_us - user_stream->start_time));
 
         printf("[rr_benchmark]|request_time:%"PRIu64"|"
                "request_size:%zu|response_size:%zu|\n",
@@ -2161,7 +2161,7 @@ xqc_client_stream_close_notify(xqc_stream_t *stream, void *user_data)
     /* test first frame rendering time */
     if (g_test_case == 14) {
         printf("first_frame_time: %"PRIu64", start_time: %"PRIu64"\n", user_stream->first_frame_time, user_stream->start_time);
-        xqc_msec_t t = user_stream->first_frame_time - user_stream->start_time + 200000 /* server-side time consumption */;
+        xqc_usec_t t = user_stream->first_frame_time - user_stream->start_time + 200000 /* server-side time consumption */;
         printf("\033[33m>>>>>>>> first_frame pass:%d time:%"PRIu64"\033[0m\n", t <= 1000000 ? 1 : 0, t);
     }
 
@@ -2905,13 +2905,13 @@ xqc_client_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
         user_stream->recv_fin = 1;
         xqc_request_stats_t stats;
         stats = xqc_h3_request_get_stats(h3_request);
-        xqc_msec_t now_us = now();
-        printf("\033[33m>>>>>>>> request time cost:%"PRIu64" us, speed:%"PRIu64" K/s \n"
+        xqc_usec_t now_us = now();
+        printf("\033[33m>>>>>>>> request time cost:%"PRIu64" us, speed:%"PRIu64" Kbit/s \n"
                ">>>>>>>> send_body_size:%zu, recv_body_size:%zu \033[0m\n",
                now_us - user_stream->start_time,
-               (stats.send_body_size + stats.recv_body_size)*1000/(now_us - user_stream->start_time),
+               (stats.send_body_size + stats.recv_body_size)*8000/(now_us - user_stream->start_time),
                stats.send_body_size, stats.recv_body_size);
-        printf("test_result_speed: %"PRIu64" K/s. request_cnt: %d.\n", (stats.send_body_size + stats.recv_body_size)*1000/(now_us - user_stream->start_time), g_req_cnt);
+        printf("test_result_speed: %"PRIu64" Kbit/s. request_cnt: %d.\n", (stats.send_body_size + stats.recv_body_size)*8000/(now_us - user_stream->start_time), g_req_cnt);
 
         printf("[rr_benchmark]|request_time:%"PRIu64"|"
                "request_size:%zu|response_size:%zu|\n",
@@ -3098,12 +3098,12 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
                 ret = xqc_engine_packet_process(p_ctx->engine, iovecs[i].iov_base, msgs[i].msg_len,
                                               user_conn->local_addr, user_conn->local_addrlen,
                                               user_conn->peer_addr, user_conn->peer_addrlen,
-                                              (xqc_msec_t)recv_time, user_conn);
+                                              (xqc_usec_t)recv_time, user_conn);
 #else
                 ret = xqc_engine_packet_process(p_ctx->engine, iovecs[i].iov_base, msgs[i].msg_len,
                                               user_conn->local_addr, user_conn->local_addrlen,
                                               user_conn->peer_addr, user_conn->peer_addrlen,
-                                              path_id, (xqc_msec_t)recv_time, user_conn);
+                                              path_id, (xqc_usec_t)recv_time, user_conn);
 #endif                                              
                 if (ret != XQC_OK)
                 {
@@ -3196,12 +3196,12 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
         ret = xqc_engine_packet_process(p_ctx->engine, packet_buf, recv_size,
                                       user_conn->local_addr, user_conn->local_addrlen,
                                       user_conn->peer_addr, user_conn->peer_addrlen,
-                                      (xqc_msec_t)recv_time, user_conn);
+                                      (xqc_usec_t)recv_time, user_conn);
 #else
         ret = xqc_engine_packet_process(p_ctx->engine, packet_buf, recv_size,
                                       user_conn->local_addr, user_conn->local_addrlen,
                                       user_conn->peer_addr, user_conn->peer_addrlen,
-                                      path_id, (xqc_msec_t)recv_time, user_conn);
+                                      path_id, (xqc_usec_t)recv_time, user_conn);
 #endif                                      
         if (ret != XQC_OK) {
             printf("xqc_client_read_handler: packet process err, ret: %d\n", ret);

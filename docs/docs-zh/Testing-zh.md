@@ -35,7 +35,7 @@ openssl req -newkey rsa:2048 -x509 -nodes -keyout "$keyfile" -new -out "$certfil
 |   -p   | Server port. |
 |   -P   | Number of Parallel requests per single connection. Default 1. |
 |   -n   | Total number of requests to send. Defaults 1. |
-|   -c   | Congestion Control Algorithm. r:reno b:bbr c:cubic B:bbr2 bbr+ bbr2+ |
+|   -c   | Congestion Control Algorithm. r:reno b:bbr c:cubic B:bbr2 bbr+ bbr2+ P:copa |
 |   -C   | Pacing on. |
 |   -t   | Connection timeout. Default 3 seconds. |
 |   -T   | Transport layer. No HTTP3. |
@@ -76,7 +76,7 @@ openssl req -newkey rsa:2048 -x509 -nodes -keyout "$keyfile" -new -out "$certfil
 |   -a   | Server addr. |
 |   -p   | Server port. |
 |   -e   | Echo. Send received body. |
-|   -c   | Congestion Control Algorithm. r:reno b:bbr c:cubic B:bbr2 bbr+ bbr2+ |
+|   -c   | Congestion Control Algorithm. r:reno b:bbr c:cubic B:bbr2 bbr+ bbr2+ P:copa |
 |   -C   | Pacing on. |
 |   -L   | Endless_sending on. default is off. |
 |   -s   | Body size to send. |

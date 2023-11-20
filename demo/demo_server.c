@@ -1173,7 +1173,7 @@ xqc_demo_svr_usage(int argc, char *argv[])
             "\n"
             "Options:\n"
             "   -p    Server port.\n"
-            "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic\n"
+            "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic P:copa \n"
             "   -C    Pacing on.\n"
             "   -l    Log level. e:error d:debug.\n"
             "   -L    xquic log directory.\n"
@@ -1242,7 +1242,7 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
         /* congestion control */
         case 'c':
             printf("option cong_ctl :%s\n", optarg);
-            /* r:reno b:bbr c:cubic */
+            /* r:reno b:bbr c:cubic P:copa */
             switch (*optarg) {
             case 'b':
                 args->net_cfg.cc = CC_TYPE_BBR;
@@ -1252,6 +1252,9 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
                 break;
             case 'r':
                 args->net_cfg.cc = CC_TYPE_RENO;
+                break;
+            case 'P':
+                args->net_cfg.cc = CC_TYPE_COPA;
                 break;
             default:
                 break;
@@ -1420,6 +1423,11 @@ xqc_demo_svr_init_conn_settings(xqc_demo_svr_args_t *args)
     case CC_TYPE_CUBIC:
         ccc = xqc_cubic_cb;
         break;
+#ifdef XQC_ENABLE_COPA
+    case CC_TYPE_COPA:
+        ccc = xqc_copa_cb;
+        break;
+#endif
 #ifdef XQC_ENABLE_RENO
     case CC_TYPE_RENO:
         ccc = xqc_reno_cb;

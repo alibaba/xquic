@@ -35,6 +35,8 @@ xqc_generate_cid(xqc_engine_t *engine, xqc_cid_t *ori_cid, xqc_cid_t *cid,
         return -XQC_EGENERATE_CID;
     }
 
+    cid->path_id = 0; /* default initial path_id = 0 */
+
     return XQC_OK;
 }
 
@@ -64,6 +66,7 @@ xqc_cid_copy(xqc_cid_t *dst, xqc_cid_t *src)
     xqc_memcpy(dst->cid_buf, src->cid_buf, dst->cid_len);
     dst->cid_seq_num = src->cid_seq_num;
     xqc_memcpy(dst->sr_token, src->sr_token, XQC_STATELESS_RESET_TOKENLEN);
+    dst->path_id = src->path_id;
 }
 
 void
@@ -71,6 +74,7 @@ xqc_cid_init_zero(xqc_cid_t *cid)
 {
     cid->cid_len = 0;
     cid->cid_seq_num = 0;
+    cid->path_id = 0;
 }
 
 void
@@ -238,6 +242,7 @@ xqc_cid_in_cid_set(const xqc_cid_set_t *cid_set, xqc_cid_t *cid)
         inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
         if (xqc_cid_is_equal(cid, &inner_cid->cid) == XQC_OK) {
             cid->cid_seq_num = inner_cid->cid.cid_seq_num;
+            cid->path_id = inner_cid->cid.path_id;
             return inner_cid;
         }
     }
@@ -341,3 +346,38 @@ xqc_get_inner_cid_by_seq(xqc_cid_set_t *cid_set, uint64_t seq_num)
 
     return NULL;
 }
+
+
+uint64_t
+xqc_get_inner_cid_count_by_path_id(xqc_cid_set_t *cid_set, uint64_t path_id)
+{
+    xqc_cid_inner_t *inner_cid = NULL;
+    xqc_list_head_t *pos, *next;
+    uint64_t count = 0;
+
+    xqc_list_for_each_safe(pos, next, &cid_set->list_head) {
+        inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
+
+        if (inner_cid->cid.path_id == path_id) {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+void
+xqc_move_cid_to_path(xqc_cid_set_t *conn_cid_set, xqc_cid_set_t *path_cid_set, uint64_t path_id)
+{
+    xqc_cid_inner_t *inner_cid;
+    xqc_list_head_t *pos, *next;
+
+    xqc_list_for_each_safe(pos, next, &conn_cid_set->list_head) {
+        inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
+
+        if (inner_cid->cid.path_id == path_id) {
+            xqc_cid_set_insert_cid(path_cid_set, &inner_cid->cid, inner_cid->state, UINT64_MAX);
+        }
+    }
+}
+

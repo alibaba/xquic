@@ -1539,6 +1539,11 @@ xqc_send_ctl_on_packet_acked(xqc_send_ctl_t *send_ctl,
             conn->conn_flag |= XQC_CONN_FLAG_NEW_CID_ACKED;
         }
 
+        if (packet_out->po_frame_types & XQC_FRAME_BIT_MP_NEW_CONNECTION_ID) {
+            packet_out->po_frame_types &= ~XQC_FRAME_BIT_MP_NEW_CONNECTION_ID;
+            conn->conn_flag |= XQC_CONN_FLAG_NEW_CID_ACKED;
+        }
+
         if (do_cc) {
             xqc_send_ctl_cc_on_ack(send_ctl, packet_out, now);
         }

@@ -80,6 +80,7 @@ xqc_conn_settings_t default_conn_settings = {
                                     .rtt_us_thr_low = 500000
                                   },
     .is_interop_mode            = 0,
+    .max_concurrent_paths       = 4,
 };
 
 
@@ -175,6 +176,12 @@ xqc_server_set_conn_settings(const xqc_conn_settings_t *settings)
 
     } else {
         default_conn_settings.multipath_version = XQC_MULTIPATH_04;
+    }
+
+    if (settings->max_concurrent_paths == UINT64_MAX) {
+        default_conn_settings.max_concurrent_paths = XQC_DEFAULT_MAX_CONCURRENT_PATHS;
+    } else {
+        default_conn_settings.max_concurrent_paths = settings->max_concurrent_paths;
     }
 
     default_conn_settings.scheduler_callback = settings->scheduler_callback;
@@ -321,6 +328,7 @@ xqc_conn_set_default_settings(xqc_trans_settings_t *settings)
     settings->ack_delay_exponent         = XQC_DEFAULT_ACK_DELAY_EXPONENT;
     settings->max_udp_payload_size       = XQC_DEFAULT_MAX_UDP_PAYLOAD_SIZE;
     settings->active_connection_id_limit = XQC_DEFAULT_ACTIVE_CONNECTION_ID_LIMIT;
+    settings->max_concurrent_paths       = XQC_DEFAULT_MAX_CONCURRENT_PATHS;
 }
 
 static inline void
@@ -376,6 +384,7 @@ xqc_conn_init_trans_settings(xqc_connection_t *conn)
     ls->enable_multipath = conn->conn_settings.enable_multipath;
     
     ls->multipath_version = conn->conn_settings.multipath_version;
+    ls->max_concurrent_paths = conn->conn_settings.max_concurrent_paths;
 
     ls->max_datagram_frame_size = conn->conn_settings.max_datagram_frame_size;
     ls->disable_active_migration = ls->enable_multipath ? 0 : 1;
@@ -560,6 +569,10 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
 
     if (xqc_conn_is_current_mp_version_supported(xc->conn_settings.multipath_version) != XQC_OK) {
         xc->conn_settings.multipath_version = XQC_MULTIPATH_04;
+    }
+
+    if (xc->conn_settings.max_concurrent_paths == 0) {
+        xc->conn_settings.max_concurrent_paths = XQC_DEFAULT_MAX_CONCURRENT_PATHS;
     }
 
     xqc_conn_init_trans_settings(xc);
@@ -4097,6 +4110,25 @@ xqc_conn_check_handshake_complete(xqc_connection_t *conn)
 xqc_int_t
 xqc_conn_check_unused_cids(xqc_connection_t *conn)
 {
+    /* check if there are unused cid for the new path */
+    if (xqc_conn_multipath_version_negotiation(conn) >= XQC_MULTIPATH_06) {
+        uint64_t new_path_id = conn->create_path_count;
+        uint64_t active_dcid_count = xqc_get_inner_cid_count_by_path_id(&conn->dcid_set.cid_set, new_path_id);
+        uint64_t active_scid_count = xqc_get_inner_cid_count_by_path_id(&conn->scid_set.cid_set, new_path_id);
+
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|check unused cid count|path_id:%ui|dcid_set:%ui|scid_set:%ui|",
+                                    new_path_id, active_dcid_count, active_scid_count);
+
+        if (active_dcid_count == 0 || active_scid_count == 0) {
+            xqc_log(conn->log, XQC_LOG_DEBUG, "|don't have available unused cid|path_id:%ui|%ui|%ui|",
+                    new_path_id, active_dcid_count, active_scid_count);
+            return -XQC_EMP_NO_AVAIL_PATH_ID;
+        }
+
+        return XQC_OK;
+    }
+
+    /* old logic */
     if (conn->dcid_set.cid_set.unused_cnt == 0 || conn->scid_set.cid_set.unused_cnt == 0) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|don't have available unused cid|%ui|%ui|", 
                 conn->dcid_set.cid_set.unused_cnt, conn->scid_set.cid_set.unused_cnt);
@@ -4162,10 +4194,25 @@ xqc_conn_destroy_cids(xqc_connection_t *conn)
 }
 
 
+uint64_t
+xqc_conn_get_unused_cid_count_for_path(xqc_connection_t *conn, uint64_t path_id)
+{
+    xqc_path_ctx_t *path = xqc_conn_find_path_by_path_id(conn, path_id);
+
+    if (path != NULL) {
+        return path->scid_set.cid_set.unused_cnt;
+    }
+
+    return xqc_get_inner_cid_count_by_path_id(&conn->scid_set.cid_set, path_id);
+}
+
+
+
 xqc_int_t
 xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
 {
     uint64_t active_cid_cnt = conn->scid_set.cid_set.unused_cnt + conn->scid_set.cid_set.used_cnt;
+    xqc_int_t ret = XQC_OK;
 #ifdef XQC_NO_PID_PACKET_PROCESS
     uint64_t unused_limit = 1;
 #else
@@ -4175,15 +4222,39 @@ xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
     }
 #endif
     if (xqc_conn_is_handshake_confirmed(conn)) {
-        while (active_cid_cnt < conn->remote_settings.active_connection_id_limit
-               && conn->scid_set.cid_set.unused_cnt < unused_limit) 
-        {
-            xqc_int_t ret = xqc_write_new_conn_id_frame_to_packet(conn, retire_prior_to);
-            if (ret != XQC_OK) {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_conn_id_frame_to_packet error|");
-                return ret;
+        if (conn->enable_multipath && xqc_conn_multipath_version_negotiation(conn) >= XQC_MULTIPATH_06) {
+
+            xqc_path_ctx_t *path;
+            xqc_list_head_t *path_pos, *path_next;
+            uint64_t path_id = 0;
+
+            xqc_log(conn->log, XQC_LOG_DEBUG, "|max_concurrent_paths|%ui|", conn->max_concurrent_paths);
+
+            for (path_id = 0; path_id < conn->max_concurrent_paths; path_id++) {
+
+                if (xqc_conn_get_unused_cid_count_for_path(conn, path_id) < 2
+                    && conn->active_cid_cnt < conn->remote_settings.active_connection_id_limit)
+                {
+                    ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, retire_prior_to, path_id);
+                    if (ret != XQC_OK) {
+                        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_conn_id_frame_to_packet error|");
+                        return ret;
+                    }
+                }
             }
-            active_cid_cnt++;
+
+        } else {
+            /* origin logic for new connection id */
+            while (active_cid_cnt < conn->remote_settings.active_connection_id_limit
+                   && conn->scid_set.cid_set.unused_cnt < unused_limit)
+            {
+                ret = xqc_write_new_conn_id_frame_to_packet(conn, retire_prior_to);
+                if (ret != XQC_OK) {
+                    xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_conn_id_frame_to_packet error|");
+                    return ret;
+                }
+                active_cid_cnt++;
+            }
         }
     }
     
@@ -4621,6 +4692,7 @@ xqc_conn_set_remote_transport_params(xqc_connection_t *conn,
 
     settings->enable_multipath = params->enable_multipath;
     settings->multipath_version = params->multipath_version;
+    settings->max_concurrent_paths = params->max_concurrent_paths;
     settings->max_datagram_frame_size = params->max_datagram_frame_size;
 
     return XQC_OK;
@@ -4658,6 +4730,7 @@ xqc_conn_get_local_transport_params(xqc_connection_t *conn, xqc_transport_params
     params->no_crypto = settings->no_crypto;
     params->enable_multipath = settings->enable_multipath;
     params->multipath_version = settings->multipath_version;
+    params->max_concurrent_paths = settings->max_concurrent_paths;
     params->max_datagram_frame_size = settings->max_datagram_frame_size;
 
     /* set other transport parameters */
@@ -4781,6 +4854,11 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
     xqc_log(conn->log, XQC_LOG_DEBUG, "|1RTT_transport_params|max_datagram_frame_size:%ud|",
             conn->remote_settings.max_datagram_frame_size);
 
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|1RTT_transport_params|max_concurrent_paths:local:%ui|max_concurrent_paths:remote:%ui|",
+            conn->local_settings.max_concurrent_paths, conn->remote_settings.max_concurrent_paths);
+
+    conn->max_concurrent_paths = xqc_min(conn->local_settings.max_concurrent_paths,
+                                         conn->remote_settings.max_concurrent_paths);
 
     /* save no crypto flag */
     if (params.no_crypto == 1) {
@@ -4958,6 +5036,7 @@ xqc_settings_copy_from_transport_params(xqc_trans_settings_t *dest,
     dest->active_connection_id_limit = src->active_connection_id_limit;
 
     dest->enable_multipath = src->enable_multipath;
+    dest->max_concurrent_paths = src->max_concurrent_paths;
     dest->max_datagram_frame_size = src->max_datagram_frame_size;
 }
 

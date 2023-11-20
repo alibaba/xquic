@@ -665,7 +665,10 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     /* do packet protection */
     //TODO: MPQUIC fix migration
     uint32_t nonce_path_id = (conn->enable_multipath) ? 
-                             (uint32_t)path->path_dcid.cid_seq_num : 0;
+                             (uint32_t)path->path_dcid.path_id : 0;
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|encryption nonce|path_id:%ui|pn:%ui|", nonce_path_id, packet_out->po_pkt.pkt_num);
+
     ret = xqc_tls_encrypt_payload(conn->tls, level,
                                   packet_out->po_pkt.pkt_num, nonce_path_id,
                                   dst_header, header_len, payload, payload_len,
@@ -822,7 +825,10 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     /* decrypt packet payload */
     // TODO: MPQUIC fix migration
     uint32_t nonce_path_id = (conn->enable_multipath) ? 
-                             (uint32_t)packet_in->pi_pkt.pkt_dcid.cid_seq_num : 0;
+                             (uint32_t)packet_in->pi_pkt.pkt_dcid.path_id : 0;
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|decryption nonce|path_id:%ui|pn:%ui|", nonce_path_id, packet_in->pi_pkt.pkt_num);
+
     ret = xqc_tls_decrypt_payload(conn->tls, level,
                                   packet_in->pi_pkt.pkt_num, nonce_path_id,
                                   header, header_len, payload, payload_len,

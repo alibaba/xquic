@@ -764,6 +764,7 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
     if (conn->enable_multipath) {
 
         if (conn->conn_flag & XQC_CONN_FLAG_MP_WAIT_SCID) {
+            /* TODO: need to change the logic per path */
             if (conn->conn_flag & XQC_CONN_FLAG_NEW_CID_ACKED) {
                 conn->conn_flag &= ~XQC_CONN_FLAG_MP_WAIT_SCID;
                 conn->conn_flag &= ~XQC_CONN_FLAG_NEW_CID_ACKED;

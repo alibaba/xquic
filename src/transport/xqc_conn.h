@@ -203,6 +203,7 @@ typedef struct {
     uint64_t                enable_multipath;
     xqc_multipath_version_t multipath_version;
     uint16_t                max_datagram_frame_size;
+    uint64_t                max_concurrent_paths;
 } xqc_trans_settings_t;
 
 
@@ -265,6 +266,7 @@ struct xqc_connection_s {
 
     xqc_dcid_set_t                  dcid_set;
     xqc_scid_set_t                  scid_set;
+    uint64_t                        active_cid_cnt;
 
     unsigned char                   peer_addr[sizeof(struct sockaddr_in6)];
     socklen_t                       peer_addrlen;
@@ -356,7 +358,9 @@ struct xqc_connection_s {
     uint32_t                        create_path_count;
     uint32_t                        validated_path_count;
     uint32_t                        active_path_count;
-    
+
+    uint64_t                        max_concurrent_paths;
+
     const
     xqc_scheduler_callback_t       *scheduler_callback;
     void                           *scheduler;

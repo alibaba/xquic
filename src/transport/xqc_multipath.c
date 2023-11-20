@@ -94,6 +94,8 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid)
     path->app_path_status_send_seq_num = 0;
     path->app_path_status_recv_seq_num = 0;
 
+    path->path_id = conn->create_path_count;
+
     path->path_pn_ctl = xqc_pn_ctl_create(conn);
     if (path->path_pn_ctl == NULL) {
         goto err;
@@ -109,17 +111,23 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid)
     }
     xqc_init_list_head(&path->path_reinj_tmp_buf);
 
+    /* move all the available cids from connection to path */
+    xqc_init_dcid_set(&path->dcid_set);
+    xqc_init_scid_set(&path->scid_set);
+    xqc_move_cid_to_path(&conn->scid_set.cid_set, &path->scid_set.cid_set, path->path_id);
+    xqc_move_cid_to_path(&conn->dcid_set.cid_set, &path->dcid_set.cid_set, path->path_id);
+
     /* cid & path_id init */
 
     if (scid == NULL) {
-        if (xqc_get_unused_cid(&conn->scid_set.cid_set, &path->path_scid) != XQC_OK) {
+        if (xqc_get_unused_cid(&path->scid_set.cid_set, &path->path_scid) != XQC_OK) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|conn don't have available scid|");
             goto err;
         }
 
     } else {
         /* already have scid */
-        xqc_cid_inner_t *inner_cid = xqc_cid_in_cid_set(&conn->scid_set.cid_set, scid);
+        xqc_cid_inner_t *inner_cid = xqc_cid_in_cid_set(&path->scid_set.cid_set, scid);
         if (inner_cid == NULL) {
             xqc_log(conn->log, XQC_LOG_DEBUG, "|invalid scid:%s|", xqc_scid_str(scid));
             goto err;
@@ -129,7 +137,7 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid)
     }
 
     if (dcid == NULL) {
-        if (xqc_get_unused_cid(&(conn->dcid_set.cid_set), &(path->path_dcid)) != XQC_OK) {
+        if (xqc_get_unused_cid(&(path->dcid_set.cid_set), &(path->path_dcid)) != XQC_OK) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|MP|conn don't have available dcid|");
             goto err;
         }
@@ -140,7 +148,6 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid)
     }
 
     //TODO: MPQUIC fix migration
-    path->path_id = conn->create_path_count;
     path->path_create_time = xqc_monotonic_timestamp();
     path->curr_pkt_out_size = conn->pkt_out_size;
     path->path_max_pkt_out_size = conn->max_pkt_out_size;
@@ -182,7 +189,6 @@ xqc_path_init(xqc_path_ctx_t *path, xqc_connection_t *conn)
         xqc_memcpy(path->local_addr, conn->local_addr, conn->local_addrlen);
         path->local_addrlen = conn->local_addrlen;
     }
-
 
     if (path->path_id == XQC_INITIAL_PATH_ID) {
         xqc_set_path_state(path, XQC_PATH_STATE_ACTIVE);
@@ -344,13 +350,24 @@ xqc_path_closed(xqc_path_ctx_t *path)
         xqc_timer_unset(&path->path_send_ctl->path_timer_manager, i);
     }
 
+    /* send retire cid on another path after waiting for 3 pto */
+    if (xqc_conn_multipath_version_negotiation(conn) >= XQC_MULTIPATH_06) {
+        uint64_t seq_num = path->path_dcid.cid_seq_num;
+        uint64_t path_id = path->path_dcid.path_id;
+        xqc_int_t ret = xqc_write_mp_retire_conn_id_frame_to_packet(conn, seq_num, path_id);
+        if (ret != XQC_OK) {
+            xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_retire_conn_id_frame_to_packet error|");
+            /* It's ok here. Still need to notify and release resource */
+        }
+    }
+
     /* remove path notify */
     if (conn->transport_cbs.path_removed_notify) {
         conn->transport_cbs.path_removed_notify(&conn->scid_set.user_scid, path->path_id,
                                                 xqc_conn_get_user_data(conn));
     }
 
-    /* TODO: releadse path recource */
+    /* TODO: release path resource */
     return XQC_OK;
 }
 
@@ -599,6 +616,25 @@ xqc_conn_find_path_by_path_id(xqc_connection_t *conn, uint64_t path_id)
 
     return NULL;
 }
+
+/* Address the path by Path ID allocated in DCID, for receiver side */
+xqc_path_ctx_t *
+xqc_conn_find_path_by_dcid_path_id(xqc_connection_t *conn, uint64_t path_id)
+{
+    xqc_path_ctx_t *path = NULL;
+    xqc_list_head_t *pos, *next;
+
+    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
+        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+
+        if (path->path_dcid.path_id == path_id) {
+            return path;
+        }
+    }
+
+    return NULL;
+}
+
 
 xqc_path_ctx_t *
 xqc_conn_find_path_by_scid(xqc_connection_t *conn, xqc_cid_t *scid)

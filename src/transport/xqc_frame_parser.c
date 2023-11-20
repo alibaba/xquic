@@ -2043,7 +2043,7 @@ xqc_parse_ack_mp_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
 
 ssize_t
 xqc_gen_path_abandon_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
-    uint64_t dcid_seq_num, uint64_t error_code)
+    uint64_t path_id, uint64_t error_code)
 {
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
     const unsigned char *begin = dst_buf;
@@ -2065,7 +2065,7 @@ xqc_gen_path_abandon_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     uint8_t *reason = NULL;
 
     unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
-    unsigned dcid_seq_num_bits = xqc_vint_get_2bit(dcid_seq_num);
+    unsigned dcid_seq_num_bits = xqc_vint_get_2bit(path_id);
     unsigned error_code_bits = xqc_vint_get_2bit(error_code);
     unsigned reason_len_bits = xqc_vint_get_2bit(reason_len);
 
@@ -2084,8 +2084,8 @@ xqc_gen_path_abandon_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
     dst_buf += xqc_vint_len(frame_type_bits);
 
-    /* DCID Sequence Number (i) */
-    xqc_vint_write(dst_buf, dcid_seq_num, dcid_seq_num_bits, xqc_vint_len(dcid_seq_num_bits));
+    /* Path ID (i) */
+    xqc_vint_write(dst_buf, path_id, dcid_seq_num_bits, xqc_vint_len(dcid_seq_num_bits));
     dst_buf += xqc_vint_len(dcid_seq_num_bits);
 
     /* Error Code (i) */
@@ -2109,7 +2109,7 @@ xqc_gen_path_abandon_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
 
 xqc_int_t
 xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
-    uint64_t *dcid_seq_num, uint64_t *error_code)
+    uint64_t *path_id, uint64_t *error_code)
 {
     unsigned char *p = packet_in->pos;
     const unsigned char *end = packet_in->last;
@@ -2125,7 +2125,7 @@ xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
     p += vlen;
 
     /* DCID Sequence Number (i) */
-    vlen = xqc_vint_read(p, end, dcid_seq_num);
+    vlen = xqc_vint_read(p, end, path_id);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }
@@ -2286,7 +2286,7 @@ xqc_parse_path_status_frame(xqc_packet_in_t *packet_in,
 ssize_t
 xqc_gen_path_standby_frame(xqc_connection_t *conn,
     xqc_packet_out_t *packet_out,
-    uint64_t dcid_seq_num,
+    uint64_t path_id,
     uint64_t path_status_seq_num)
 {
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
@@ -2301,7 +2301,7 @@ xqc_gen_path_standby_frame(xqc_connection_t *conn,
     }
 
     unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
-    unsigned dcid_seq_num_bits = xqc_vint_get_2bit(dcid_seq_num);
+    unsigned dcid_seq_num_bits = xqc_vint_get_2bit(path_id);
     unsigned path_status_seq_num_bits = xqc_vint_get_2bit(path_status_seq_num);
 
     need = xqc_vint_len(frame_type_bits)
@@ -2318,7 +2318,7 @@ xqc_gen_path_standby_frame(xqc_connection_t *conn,
     dst_buf += xqc_vint_len(frame_type_bits);
 
     /* DCID Sequence Number (i) */
-    xqc_vint_write(dst_buf, dcid_seq_num, dcid_seq_num_bits, xqc_vint_len(dcid_seq_num_bits));
+    xqc_vint_write(dst_buf, path_id, dcid_seq_num_bits, xqc_vint_len(dcid_seq_num_bits));
     dst_buf += xqc_vint_len(dcid_seq_num_bits);
 
     /* Path Status sequence number (i) */
@@ -2332,7 +2332,7 @@ xqc_gen_path_standby_frame(xqc_connection_t *conn,
 
 xqc_int_t
 xqc_parse_path_standby_frame(xqc_packet_in_t *packet_in,
-    uint64_t *dcid_seq_num,
+    uint64_t *path_id,
     uint64_t *path_status_seq_num, uint64_t *path_status)
 {
     unsigned char *p = packet_in->pos;
@@ -2348,7 +2348,7 @@ xqc_parse_path_standby_frame(xqc_packet_in_t *packet_in,
     p += vlen;
 
     /* DCID Sequence Number (i) */
-    vlen = xqc_vint_read(p, end, dcid_seq_num);
+    vlen = xqc_vint_read(p, end, path_id);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }
@@ -2384,7 +2384,7 @@ xqc_parse_path_standby_frame(xqc_packet_in_t *packet_in,
 ssize_t
 xqc_gen_path_available_frame(xqc_connection_t *conn,
     xqc_packet_out_t *packet_out,
-    uint64_t dcid_seq_num,
+    uint64_t path_id,
     uint64_t path_status_seq_num)
 {
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
@@ -2399,7 +2399,7 @@ xqc_gen_path_available_frame(xqc_connection_t *conn,
     }
 
     unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
-    unsigned dcid_seq_num_bits = xqc_vint_get_2bit(dcid_seq_num);
+    unsigned dcid_seq_num_bits = xqc_vint_get_2bit(path_id);
     unsigned path_status_seq_num_bits = xqc_vint_get_2bit(path_status_seq_num);
 
     need = xqc_vint_len(frame_type_bits)
@@ -2415,8 +2415,8 @@ xqc_gen_path_available_frame(xqc_connection_t *conn,
     xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
     dst_buf += xqc_vint_len(frame_type_bits);
 
-    /* DCID Sequence Number (i) */
-    xqc_vint_write(dst_buf, dcid_seq_num, dcid_seq_num_bits, xqc_vint_len(dcid_seq_num_bits));
+    /* Path ID (i) */
+    xqc_vint_write(dst_buf, path_id, dcid_seq_num_bits, xqc_vint_len(dcid_seq_num_bits));
     dst_buf += xqc_vint_len(dcid_seq_num_bits);
 
     /* Path Status sequence number (i) */
@@ -2430,7 +2430,7 @@ xqc_gen_path_available_frame(xqc_connection_t *conn,
 
 xqc_int_t
 xqc_parse_path_available_frame(xqc_packet_in_t *packet_in,
-    uint64_t *dcid_seq_num,
+    uint64_t *path_id,
     uint64_t *path_status_seq_num, uint64_t *path_status)
 {
     unsigned char *p = packet_in->pos;
@@ -2446,7 +2446,7 @@ xqc_parse_path_available_frame(xqc_packet_in_t *packet_in,
     p += vlen;
 
     /* DCID Sequence Number (i) */
-    vlen = xqc_vint_read(p, end, dcid_seq_num);
+    vlen = xqc_vint_read(p, end, path_id);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }
@@ -2464,6 +2464,230 @@ xqc_parse_path_available_frame(xqc_packet_in_t *packet_in,
     packet_in->pos = p;
 
     packet_in->pi_frame_types |= XQC_FRAME_BIT_PATH_AVAILABLE;
+
+    return XQC_OK;
+}
+
+
+/*
+ * https://tools.ietf.org/html/draft-ietf-quic-transport-34#section-19.15
+ *
+ * MP_NEW_CONNECTION_ID Frame {
+ *    Type (i) = 0x15228c09,
+ *    Sequence Number (i),
+ *    Retire Prior To (i),
+ *    Path Identifier (i),
+ *    Length (8),
+ *    Connection ID (8..160),
+ *    Stateless Reset Token (128),
+ * }
+ *
+ *               Figure 39: MP_NEW_CONNECTION_ID Frame Format
+ * */
+ssize_t
+xqc_gen_mp_new_conn_id_frame(xqc_packet_out_t *packet_out, xqc_cid_t *new_cid,
+    uint64_t retire_prior_to, const uint8_t *sr_token, uint64_t path_id)
+{
+    unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
+    const unsigned char *begin = dst_buf;
+
+    /* write frame type */
+    uint64_t frame_type = XQC_TRANS_FRAME_TYPE_MP_NEW_CONN_ID;
+    unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
+    xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
+    dst_buf += xqc_vint_len(frame_type_bits);
+
+    unsigned char stateless_reset_token[XQC_STATELESS_RESET_TOKENLEN] = {0};
+
+    unsigned sequence_number_bits = xqc_vint_get_2bit(new_cid->cid_seq_num);
+    unsigned retire_prior_to_bits = xqc_vint_get_2bit(retire_prior_to);
+    uint64_t cid_len = new_cid->cid_len;
+    uint8_t cid_len_bits = xqc_vint_get_2bit(cid_len);
+
+    /* make sure cid_len won't exceed XQC_MAX_CID_LEN */
+    if (cid_len > XQC_MAX_CID_LEN) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_vint_write(dst_buf, new_cid->cid_seq_num,
+                   sequence_number_bits, xqc_vint_len(sequence_number_bits));
+    dst_buf += xqc_vint_len(sequence_number_bits);
+
+    xqc_vint_write(dst_buf, retire_prior_to, retire_prior_to_bits, xqc_vint_len(retire_prior_to_bits));
+    dst_buf += xqc_vint_len(retire_prior_to_bits);
+
+    /* Path ID (i) */
+    unsigned path_id_bits = xqc_vint_get_2bit(path_id);
+    xqc_vint_write(dst_buf, path_id, path_id_bits, xqc_vint_len(path_id_bits));
+    dst_buf += xqc_vint_len(path_id_bits);
+
+    xqc_vint_write(dst_buf, cid_len, cid_len_bits, xqc_vint_len(cid_len_bits));
+    dst_buf += xqc_vint_len(cid_len_bits);
+
+    xqc_memcpy(dst_buf, new_cid->cid_buf, new_cid->cid_len);
+    dst_buf += new_cid->cid_len;
+
+    if (sr_token) {
+        xqc_memcpy(dst_buf, sr_token, XQC_STATELESS_RESET_TOKENLEN);
+        dst_buf += XQC_STATELESS_RESET_TOKENLEN;
+    }
+
+    packet_out->po_frame_types |= XQC_FRAME_BIT_MP_NEW_CONNECTION_ID;
+
+    return dst_buf - begin;
+}
+
+/*
+ * https://datatracker.ietf.org/doc/html/rfc9000#section-19.15
+ *
+ * MP_NEW_CONNECTION_ID Frame {
+ *    Type (i) = 0x15228c09,
+ *    Sequence Number (i),
+ *    Retire Prior To (i),
+ *    Path Identifier(i),
+ *    Length (8),
+ *    Connection ID (8..160),
+ *    Stateless Reset Token (128),
+ * }
+ *
+ *               Figure 39: MP_NEW_CONNECTION_ID Frame Format
+ * */
+xqc_int_t
+xqc_parse_mp_new_conn_id_frame(xqc_packet_in_t *packet_in,
+    xqc_cid_t *new_cid, uint64_t *retire_prior_to, uint64_t *path_id, xqc_connection_t *conn)
+{
+    unsigned char *p = packet_in->pos;
+    const unsigned char *end = packet_in->last;
+    int vlen;
+
+    /* frame type */
+    uint64_t frame_type = 0;
+    vlen = xqc_vint_read(p, end, &frame_type);  /* get frame_type */
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    /* Sequence Number (i) */
+    vlen = xqc_vint_read(p, end, &new_cid->cid_seq_num);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    /* Retire Prior To (i) */
+    vlen = xqc_vint_read(p, end, retire_prior_to);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    /* Path ID (i) */
+    vlen = xqc_vint_read(p, end, path_id);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    new_cid->path_id = *path_id;
+    p += vlen;
+
+    /* Length (8) */
+    if (p >= end) {
+        return -XQC_EPROTO;
+    }
+    new_cid->cid_len = *p++;
+    if (new_cid->cid_len > XQC_MAX_CID_LEN) {
+        return -XQC_EPROTO;
+    }
+
+    /* Connection ID (8..160) */
+    if (p + new_cid->cid_len > end) {
+        return -XQC_EPROTO;
+    }
+    xqc_memcpy(new_cid->cid_buf, p, new_cid->cid_len);
+    p += new_cid->cid_len;
+
+    /* Stateless Reset Token (128) */
+    if (p + XQC_STATELESS_RESET_TOKENLEN > end) {
+        return -XQC_EPROTO;
+    }
+    xqc_memcpy(new_cid->sr_token, p, XQC_STATELESS_RESET_TOKENLEN);
+    p += XQC_STATELESS_RESET_TOKENLEN;
+
+    packet_in->pos = p;
+
+    packet_in->pi_frame_types |= XQC_FRAME_BIT_MP_NEW_CONNECTION_ID;
+
+    xqc_log_event(conn->log, TRA_FRAMES_PROCESSED, XQC_FRAME_NEW_CONNECTION_ID, new_cid, retire_prior_to);
+    return XQC_OK;
+}
+
+/*
+ * https://datatracker.ietf.org/doc/html/rfc9000#section-19.16
+ *
+ * MP_RETIRE_CONNECTION_ID Frame {
+ *    Type (i) = 0x15228c0a,
+ *    Sequence Number (i),
+ *    Path ID (i),
+ * }
+ *
+ *               Figure 40: MP_RETIRE_CONNECTION_ID Frame Format
+ * */
+ssize_t
+xqc_gen_mp_retire_conn_id_frame(xqc_packet_out_t *packet_out, uint64_t seq_num, uint64_t path_id)
+{
+    unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
+    const unsigned char *begin = dst_buf;
+
+    /* write frame type */
+    uint64_t frame_type = XQC_TRANS_FRAME_TYPE_MP_RETIRE_CONN_ID;
+    unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
+    xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
+    dst_buf += xqc_vint_len(frame_type_bits);
+
+    unsigned sequence_number_bits = xqc_vint_get_2bit(seq_num);
+    xqc_vint_write(dst_buf, seq_num, sequence_number_bits, xqc_vint_len(sequence_number_bits));
+    dst_buf += xqc_vint_len(sequence_number_bits);
+
+    unsigned path_id_bits = xqc_vint_get_2bit(path_id);
+    xqc_vint_write(dst_buf, path_id, path_id_bits, xqc_vint_len(path_id_bits));
+    dst_buf += xqc_vint_len(path_id_bits);
+
+    packet_out->po_frame_types |= XQC_FRAME_BIT_MP_RETIRE_CONNECTION_ID;
+
+    return dst_buf - begin;
+}
+
+
+xqc_int_t
+xqc_parse_mp_retire_conn_id_frame(xqc_packet_in_t *packet_in, uint64_t *seq_num, uint64_t *path_id)
+{
+    unsigned char *p = packet_in->pos;
+    const unsigned char *end = packet_in->last;
+    int vlen;
+
+    /* frame type */
+    uint64_t frame_type = 0;
+    vlen = xqc_vint_read(p, end, &frame_type);  /* get frame_type */
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    vlen = xqc_vint_read(p, end, seq_num);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    vlen = xqc_vint_read(p, end, path_id);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    packet_in->pos = p;
+
+    packet_in->pi_frame_types |= XQC_FRAME_BIT_MP_RETIRE_CONNECTION_ID;
 
     return XQC_OK;
 }

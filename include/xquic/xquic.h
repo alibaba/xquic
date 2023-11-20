@@ -1163,6 +1163,7 @@ typedef struct xqc_conn_settings_s {
      */
     uint64_t                    enable_multipath;
     xqc_multipath_version_t     multipath_version;
+    uint64_t                    max_concurrent_paths;
     uint64_t                    least_available_cid_count;
 
     /*

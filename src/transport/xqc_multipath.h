@@ -13,6 +13,7 @@
 #include "src/transport/xqc_packet.h"
 #include "src/transport/xqc_recv_record.h"
 #include "src/transport/xqc_frame_parser.h"
+#include "src/transport/xqc_cid.h"
 
 
 /* enable multipath */
@@ -105,6 +106,9 @@ struct xqc_path_ctx_s {
     xqc_cid_t           path_scid;
     xqc_cid_t           path_dcid;
     xqc_cid_t           path_last_scid;
+
+    xqc_dcid_set_t      dcid_set;
+    xqc_scid_set_t      scid_set;
 
     /* Path_address: 4-tuple */
     unsigned char       peer_addr[sizeof(struct sockaddr_in6)],
@@ -237,6 +241,7 @@ xqc_path_ctx_t *xqc_conn_find_path_by_path_id(xqc_connection_t *conn, uint64_t p
 xqc_path_ctx_t *xqc_conn_find_path_by_scid(xqc_connection_t *conn, xqc_cid_t *scid);
 xqc_path_ctx_t *xqc_conn_find_path_by_dcid(xqc_connection_t *conn, xqc_cid_t *dcid);
 xqc_path_ctx_t *xqc_conn_find_path_by_dcid_seq(xqc_connection_t *conn, uint64_t dcid_seq);
+xqc_path_ctx_t *xqc_conn_find_path_by_dcid_path_id(xqc_connection_t *conn, uint64_t path_id);
 
 void xqc_path_send_buffer_append(xqc_path_ctx_t *path, xqc_packet_out_t *packet_out, xqc_list_head_t *head);
 void xqc_path_send_buffer_remove(xqc_path_ctx_t *path, xqc_packet_out_t *packet_out);

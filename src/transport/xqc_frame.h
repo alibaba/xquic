@@ -33,6 +33,8 @@ typedef enum {
     XQC_FRAME_PATH_STATUS,
     XQC_FRAME_PATH_STANDBY,
     XQC_FRAME_PATH_AVAILABLE,
+    XQC_FRAME_MP_NEW_CONNECTION_ID,
+    XQC_FRAME_MP_RETIRE_CONNECTION_ID,
     XQC_FRAME_DATAGRAM,
     XQC_FRAME_Extension,
     XQC_FRAME_NUM,
@@ -64,6 +66,8 @@ typedef enum {
     XQC_FRAME_BIT_PATH_STATUS           = 1 << XQC_FRAME_PATH_STATUS,
     XQC_FRAME_BIT_PATH_STANDBY          = 1 << XQC_FRAME_PATH_STANDBY,
     XQC_FRAME_BIT_PATH_AVAILABLE        = 1 << XQC_FRAME_PATH_AVAILABLE,
+    XQC_FRAME_BIT_MP_NEW_CONNECTION_ID  = 1 << XQC_FRAME_MP_NEW_CONNECTION_ID,
+    XQC_FRAME_BIT_MP_RETIRE_CONNECTION_ID = 1 << XQC_FRAME_MP_RETIRE_CONNECTION_ID,
     XQC_FRAME_BIT_DATAGRAM              = 1 << XQC_FRAME_DATAGRAM,
     XQC_FRAME_BIT_Extension             = 1 << XQC_FRAME_Extension,
     XQC_FRAME_BIT_NUM                   = 1 << XQC_FRAME_NUM,
@@ -159,6 +163,10 @@ xqc_int_t xqc_process_path_status_frame(xqc_connection_t *conn, xqc_packet_in_t 
 xqc_int_t xqc_process_path_standby_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 xqc_int_t xqc_process_path_available_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
+
+xqc_int_t xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
+
+xqc_int_t xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 xqc_int_t xqc_process_datagram_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 

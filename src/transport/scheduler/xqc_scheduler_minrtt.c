@@ -52,7 +52,8 @@ xqc_minrtt_scheduler_get_path(void *scheduler,
         path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
 
         path_class = xqc_path_get_perf_class(path);
-        
+        path_srtt = xqc_send_ctl_get_srtt(path->path_send_ctl);
+        path_can_send = xqc_scheduler_check_path_can_send(path, packet_out, check_cwnd);
         /* skip inactive paths */
         /* skip frozen paths */
         if (path->path_state != XQC_PATH_STATE_ACTIVE
@@ -74,7 +75,6 @@ xqc_minrtt_scheduler_get_path(void *scheduler,
          *        work well for MPQUIC due to the problem of applimit. We may adapt this
          *        to BBR in the future, if we manage to fix the applimit problem of BBR. 
          */
-        path_can_send = xqc_scheduler_check_path_can_send(path, packet_out, check_cwnd);
 
         if (!path_can_send) {
             goto skip_path;
@@ -84,7 +84,6 @@ xqc_minrtt_scheduler_get_path(void *scheduler,
             *cc_blocked = XQC_FALSE;
         }
 
-        path_srtt = xqc_send_ctl_get_srtt(path->path_send_ctl);
         
         if (best_path[path_class] == NULL 
             || path_srtt < best_path[path_class]->path_send_ctl->ctl_srtt)

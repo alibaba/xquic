@@ -5,17 +5,18 @@
 #ifndef _XQC_TIME_H_INCLUDED_
 #define _XQC_TIME_H_INCLUDED_
 
-#ifndef WIN32
-#include <sys/time.h>
-#endif
-#ifdef MINGW_HAS_SECURE_API
-#include <sec_api/time_s.h>
-#endif
 #include <time.h>
 #include <xquic/xquic.h>
+#include <xquic/xquic_typedef.h>
 
-#ifdef WIN32
+#if !defined(XQC_SYS_WINDOWS) || defined(XQC_ON_MINGW)
+#include <sys/time.h>
+#endif
+
+#ifdef XQC_SYS_WINDOWS
+#ifndef _GETTIMEOFDAY_DEFINED
 int gettimeofday(struct timeval *tv, struct timezone *tz);
+#endif
 #endif
 
 

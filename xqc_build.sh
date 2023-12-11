@@ -13,25 +13,24 @@ artifact_dir=$3
 
 # boringssl is used as default
 ssl_type="boringssl"
-ssl_path=$4
-ssl_lib_path="${ssl_path}/"
+ssl_path=third_party/boringssl
 
-if [ -z "$ssl_path" ] || [ -z "$ssl_lib_path" ] ; then
+
+if [ -z "$ssl_path" ] ; then
     echo "ssl environment not specified"
     exit 0
 fi
 
-create_dir_or_exit() {
+create_dir_force() {
     if [ x"$2" == x ] ; then
         echo "$1 MUST NOT be empty"
         exit 1
     fi
     if [ -d $2 ] ; then
-        echo "directory already exists"
-    else
-        mkdir $2
-        echo "create $1 directory($2) suc"
+        rm -rf $2
     fi
+    mkdir $2
+    echo "create $1 directory($2) suc"
 }
 
 platform=$(echo $platform | tr A-Z a-z )
@@ -45,7 +44,6 @@ if [ x"$platform" == xios ] ; then
     archs=${ios_archs[@]} 
     configures="-DSSL_TYPE=${ssl_type}
                 -DSSL_PATH=${ssl_path}
-                -DSSL_LIB_PATH=${ssl_lib_path}
                 -DDEPLOYMENT_TARGET=10.0
                 -DCMAKE_BUILD_TYPE=Minsizerel
                 -DXQC_ENABLE_TESTING=OFF
@@ -55,9 +53,9 @@ if [ x"$platform" == xios ] ; then
                 -DENABLE_BITCODE=0
                 -DXQC_NO_SHARED=1
                 -DXQC_COMPAT_GENERATE_SR_PKT=1
-                -DXQC_ENABLE_RENO=0
-                -DXQC_ENABLE_BBR2=0
-                -DXQC_ENABLE_COPA=0
+                -DXQC_ENABLE_RENO=1
+                -DXQC_ENABLE_BBR2=1
+                -DXQC_ENABLE_COPA=1
                 -DXQC_ENABLE_UNLIMITED=0
                 -DXQC_ENABLE_MP_INTEROP=0"
 
@@ -70,7 +68,6 @@ elif [ x"$platform" == xandroid ] ; then
     archs=${android_archs[@]}
     configures="-DSSL_TYPE=${ssl_type}
                 -DSSL_PATH=${ssl_path}
-                -DSSL_LIB_PATH=${ssl_lib_path}
                 -DCMAKE_BUILD_TYPE=Minsizerel
                 -DXQC_ENABLE_TESTING=OFF
                 -DXQC_BUILD_SAMPLE=OFF
@@ -79,7 +76,7 @@ elif [ x"$platform" == xandroid ] ; then
                 -DANDROID_STL=c++_shared
                 -DANDROID_NATIVE_API_LEVEL=android-19
                 -DXQC_ENABLE_RENO=OFF
-                -DXQC_ENABLE_BBR2=OFF
+                -DXQC_ENABLE_BBR2=ON
                 -DXQC_ENABLE_COPA=OFF
                 -DXQC_ENABLE_UNLIMITED=OFF
                 -DXQC_ENABLE_MP_INTEROP=OFF
@@ -107,11 +104,11 @@ generate_plat_spec() {
     echo $plat_spec
 }
 
-create_dir_or_exit build $build_dir
+create_dir_force build $build_dir
 # to absoulute path 
 build_dir=$cur_dir/$build_dir
 
-create_dir_or_exit artifact $artifact_dir
+create_dir_force artifact $artifact_dir
 artifact_dir=$cur_dir/$artifact_dir
 
 cd $build_dir 

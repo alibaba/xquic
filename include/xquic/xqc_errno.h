@@ -26,9 +26,17 @@ typedef enum {
     TRA_0RTT_TRANS_PARAMS_ERROR     =  0xE,   /* MUST delete the current saved 0RTT transport parameters */
     TRA_HS_CERTIFICATE_VERIFY_FAIL  =  0x1FE, /* for handshake certificate verify error */
     TRA_CRYPTO_ERROR                =  0x1FF, /* 0x1XX */
+} xqc_trans_err_code_t;
+
+
+/*
+ * Multipath error codes
+ */
+typedef enum {
     TRA_MP_PROTOCOL_VIOLATION_04    =  0xba01,
     TRA_MP_PROTOCOL_VIOLATION_05    =  0x1001d76d3ded42f3,
-} xqc_trans_err_code_t;
+} xqc_mp_err_code_t;
+
 
 #define TRA_CRYPTO_ERROR_BASE   0x100
 

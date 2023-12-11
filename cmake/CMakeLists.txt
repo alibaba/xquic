@@ -102,8 +102,8 @@ if (XQC_BUILD_OPENSSL)
         endif()
 
     else()
-        #set(EXTRA_CONFIGURE_OPENSSL_PARAMS "${EXTRA_CONFIGURE_OPENSSL_PARAMS} ${DYNAMIC_COMPILE_FLAGS} ")
-        #add_subdirectory(external/openssl-cmake)
+        set(EXTRA_CONFIGURE_OPENSSL_PARAMS "${EXTRA_CONFIGURE_OPENSSL_PARAMS} ${DYNAMIC_COMPILE_FLAGS} ")
+        add_subdirectory(external/openssl-cmake)
     endif()
 
     set(DYMAMIC_LINK_OPTION 

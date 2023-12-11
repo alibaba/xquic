@@ -310,7 +310,7 @@ xqc_h3_ext_bytestream_destroy(xqc_h3_ext_bytestream_t *bs)
     xqc_log(h3s->log, XQC_LOG_REPORT, "|stream_id:%ui|close_msg:%s|err:%d"
             "|bytes_sent:%uz|bytes_rcvd:%uz|create_time:%ui|fb_sent_delay:%ui|fb_rcvd_delay:%ui"
             "|fin_sent_delay:%ui|fin_acked_delay:%ui|fin_rcvd_delay:%ui|",
-            xqc_h3_ext_bytestream_id(bs), stats.stream_close_msg ? : "",
+            xqc_h3_ext_bytestream_id(bs), stats.stream_close_msg ? stats.stream_close_msg : "",
             stats.stream_err, stats.bytes_sent, stats.bytes_rcvd,
             stats.create_time, 
             xqc_calc_delay(stats.first_byte_sent_time, stats.create_time),

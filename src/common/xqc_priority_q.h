@@ -97,7 +97,12 @@ xqc_pq_destroy(xqc_pq_t *pq)
 static inline void
 xqc_pq_element_swap(xqc_pq_t *pq, size_t i, size_t j)
 {
+#if !defined(XQC_SYS_WINDOWS) || defined(XQC_ON_MINGW)
     char buf[pq->element_size];
+#else
+    char *buf = (char *)_alloca(pq->element_size);
+#endif
+
     memcpy(buf, xqc_pq_element(pq, j), pq->element_size);
     memcpy(xqc_pq_element(pq, j), xqc_pq_element(pq, i), pq->element_size);
     memcpy(xqc_pq_element(pq, i), buf, pq->element_size);

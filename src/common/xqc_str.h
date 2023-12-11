@@ -9,15 +9,15 @@
 #include <stdint.h>
 #include <stdarg.h>
 #include <time.h>
-#ifndef WIN32
-#include <sys/resource.h>
-#endif
 #include <stddef.h>
 #include <sys/types.h>
 
+#include <include/xquic/xquic_typedef.h>
 #include "src/common/xqc_config.h"
-#include "include/xquic/xquic_typedef.h"
 
+#ifndef  XQC_SYS_WINDOWS
+#include <sys/resource.h>
+#endif
 
 typedef struct xqc_str_s {
     size_t          len;

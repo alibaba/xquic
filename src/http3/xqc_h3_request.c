@@ -60,7 +60,7 @@ xqc_h3_request_destroy(xqc_h3_request_t *h3_request)
             "|create:%ui|blkd:%ui|nblkd:%ui|hdr_b:%ui|hdr_e:%ui|bdy_b:%ui|fin:%ui|recv_end:%ui"
             "|hrd_send:%ui|bdy_send:%ui|fin_send:%ui|fin_ack:%ui|last_send:%ui|last_recv:%ui"
             "|mp_state:%d|path_info:%s|comp_hdr_s:%uz|comp_hdr_r:%uz|",
-            h3s->stream_id, stats.stream_close_msg ? : "",
+            h3s->stream_id, stats.stream_close_msg ? stats.stream_close_msg : "",
             stats.stream_err, stats.recv_body_size, stats.send_body_size,
             stats.recv_header_size, stats.send_header_size,
             create_time,

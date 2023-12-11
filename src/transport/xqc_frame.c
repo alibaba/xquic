@@ -211,7 +211,8 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         case 0x01:
             ret = xqc_process_ping_frame(conn, packet_in);
             break;
-        case 0x02 ... 0x03:
+        case 0x02:
+        case 0x03:
             ret = xqc_process_ack_frame(conn, packet_in);
             break;
         case 0x04:
@@ -226,7 +227,14 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         case 0x07:
             ret = xqc_process_new_token_frame(conn, packet_in);
             break;
-        case 0x08 ... 0x0f:
+        case 0x08:
+        case 0x09:
+        case 0x0a:
+        case 0x0b:
+        case 0x0c:
+        case 0x0d:
+        case 0x0e:
+        case 0x0f:
             ret = xqc_process_stream_frame(conn, packet_in);
             break;
         case 0x10:
@@ -235,7 +243,8 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         case 0x11:
             ret = xqc_process_max_stream_data_frame(conn, packet_in);
             break;
-        case 0x12 ... 0x13:
+        case 0x12:
+        case 0x13:
             ret = xqc_process_max_streams_frame(conn, packet_in);
             break;
         case 0x14:
@@ -244,7 +253,8 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         case 0x15:
             ret = xqc_process_stream_data_blocked_frame(conn, packet_in);
             break;
-        case 0x16 ... 0x17:
+        case 0x16: 
+        case 0x17:
             ret = xqc_process_streams_blocked_frame(conn, packet_in);
             break;
         case 0x18:
@@ -259,16 +269,19 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         case 0x1b:
             ret = xqc_process_path_response_frame(conn, packet_in);
             break;
-        case 0x1c ... 0x1d:
+        case 0x1c:
+        case 0x1d:
             ret = xqc_process_conn_close_frame(conn, packet_in);
             break;
         case 0x1e:
             ret = xqc_process_handshake_done_frame(conn, packet_in);
             break;
-        case 0x30 ... 0x31:
+        case 0x30:
+        case 0x31:
             ret = xqc_process_datagram_frame(conn, packet_in);
             break;
-        case 0xbaba00 ... 0xbaba01:
+        case 0xbaba00:
+        case 0xbaba01:
             if (conn->conn_settings.multipath_version == XQC_MULTIPATH_04) {
                 ret = xqc_process_ack_mp_frame(conn, packet_in);
             } else {
@@ -276,7 +289,8 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
                 ret = -XQC_EMP_INVALID_MP_VERTION;
             }
             break;
-        case 0x15228c00 ... 0x15228c01:
+        case 0x15228c00:
+        case 0x15228c01:
             if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_05) {
                 ret = xqc_process_ack_mp_frame(conn, packet_in);
 

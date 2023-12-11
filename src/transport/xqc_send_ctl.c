@@ -1215,6 +1215,7 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
 
     xqc_int_t repair_dgram = 0;
     xqc_reinjection_mode_t mode = conn->conn_settings.mp_enable_reinjection & XQC_REINJ_UNACK_BEFORE_SCHED;
+    int has_reinjection = 0;
 
     xqc_list_for_each_safe(pos, next, &send_queue->sndq_unacked_packets[pns]) {
         po = xqc_list_entry(pos, xqc_packet_out_t, po_list);
@@ -1252,6 +1253,7 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
                                 po->po_pkt.pkt_num, po->po_used_size,
                                 xqc_pkt_type_2_str(po->po_pkt.pkt_type),
                                 xqc_frame_type_2_str(po->po_frame_types));
+                        has_reinjection = 1;
                     }   
                 }
                 
@@ -1311,6 +1313,15 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
             } else {
                 send_ctl->ctl_loss_time[pns] = xqc_min(send_ctl->ctl_loss_time[pns], po->po_sent_time + loss_delay);
             }
+        }
+    }
+
+    if (has_reinjection) {
+        xqc_path_ctx_t *path;
+        xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
+            path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+            xqc_list_splice_tail_init(&path->path_reinj_tmp_buf,
+                                    &path->path_schedule_buf[XQC_SEND_TYPE_NORMAL]);
         }
     }
 

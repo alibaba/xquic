@@ -25,49 +25,51 @@
 #define XQC_AEAD_OVERHEAD_IMPL(obj,cln)             (0) + (obj)->taglen
 
 /* inner definition, MUST NOT be called directly */
-#define DO_NOT_CALL_XQC_AEAD_INIT(obj,a) ({                                 \
+#define DO_NOT_CALL_XQC_AEAD_INIT(obj,a) do {                               \
     obj->aead           = a;                                                \
     obj->taglen         = EVP_AEAD_max_tag_len(obj->aead);                  \
     obj->keylen         = EVP_AEAD_key_length(obj->aead);                   \
     obj->noncelen       = EVP_AEAD_nonce_length(obj->aead);                 \
     obj->encrypt        = xqc_bssl_aead_encrypt;                            \
     obj->decrypt        = xqc_bssl_aead_decrypt;                            \
-    0;})
+    } while (0)
+    
 
 /* inner definition, MUST NOT be called directly */
-#define DO_NOT_CALL_XQC_CIPHER_INIT(obj, c) ({                              \
+#define DO_NOT_CALL_XQC_CIPHER_INIT(obj, c) do {                            \
     obj->cipher         = c;                                                \
     obj->keylen         = EVP_CIPHER_key_length(obj->cipher);               \
     obj->noncelen       = EVP_CIPHER_iv_length(obj->cipher);                \
-    0;})
+    } while (0)
+
 
 /* aes gcm initialization */
-#define XQC_AEAD_INIT_AES_GCM_IMPL(obj, d, ...) ({                          \
+#define XQC_AEAD_INIT_AES_GCM_IMPL(obj, d) do {                             \
     xqc_pkt_protect_aead_t *___aead = (obj);                                \
     DO_NOT_CALL_XQC_AEAD_INIT(___aead, EVP_aead_aes_##d##_gcm());           \
-    0;})
+    } while (0)
 
 /* chacha20 initialization */
-#define XQC_AEAD_INIT_CHACHA20_POLY1305_IMPL(obj, ...) ({                   \
+#define XQC_AEAD_INIT_CHACHA20_POLY1305_IMPL(obj) do {                      \
     xqc_pkt_protect_aead_t *___aead = (obj);                                \
     DO_NOT_CALL_XQC_AEAD_INIT(___aead, EVP_aead_chacha20_poly1305());       \
-    0;})
+    } while(0)
 
 /* aes cipher initialization */
-#define XQC_CIPHER_INIT_AES_CTR_IMPL(obj, d, ...) ({                        \
+#define XQC_CIPHER_INIT_AES_CTR_IMPL(obj, d) do {                           \
     xqc_hdr_protect_cipher_t *___cipher = (obj);                            \
     DO_NOT_CALL_XQC_CIPHER_INIT(___cipher, EVP_aes_##d##_ctr());            \
     ___cipher->hp_mask = xqc_bssl_hp_mask;                                  \
-    0;})
+    } while(0)
 
 /* chacha20 follow openssl impl */
-#define XQC_CIPHER_INIT_CHACHA20_IMPL(obj, ...) ({                          \
+#define XQC_CIPHER_INIT_CHACHA20_IMPL(obj) do {                             \
     xqc_hdr_protect_cipher_t *___cipher = (obj);                            \
     ___cipher->cipher   = NULL;                                             \
     ___cipher->keylen   = 32;                                               \
     ___cipher->noncelen = 16;                                               \
     ___cipher->hp_mask = xqc_bssl_hp_mask_chacha20;                         \
-    0;})
+    } while(0)
 
 
 /* extern */

@@ -1,8 +1,80 @@
+##### build test_client/test_server, demo_client/demo_server #####
+# CUnit TODO: fix test unit on windows
+find_package(CUnit 2.1)
+enable_testing()
+set(HAVE_CUNIT ${CUNIT_FOUND})
 if(HAVE_CUNIT)
-    include_directories(
-        ${CMAKE_SOURCE_DIR}
-        ${CUNIT_INCLUDE_DIRS}
+    add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
+endif()
+
+# find LibEvent include and library path
+find_package(LibEvent 2.0.21)
+if(NOT LIBEVENT_FOUND)
+    message(FATAL_ERROR "libevent with required version not found")
+endif()
+
+include_directories(
+    "${CMAKE_SOURCE_DIR}/"
+    "${CMAKE_SOURCE_DIR}/include"
+    ${CMAKE_SOURCE_DIR}
+    ${CUNIT_INCLUDE_DIRS}
+    ${LIBEVENT_INCLUDE_DIR}
+)
+
+set(TEST_SERVER_SOURCES
+    test_server.c
+)
+
+set(TEST_CLIENT_SOURCES
+    test_client.c
+)
+
+if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+    set(GETOPT_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/getopt.c
+        CACHE STRING "xquic windows getopt source")
+
+    set(TEST_SERVER_SOURCES
+        ${TEST_SERVER_SOURCES}
+        ${GETOPT_SOURCES}
     )
+
+    set(TEST_CLIENT_SOURCES
+        ${TEST_CLIENT_SOURCES}
+        ${GETOPT_SOURCES}
+    )
+endif()
+
+
+### test client/server ###
+add_executable(test_server ${TEST_SERVER_SOURCES})
+add_executable(test_client ${TEST_CLIENT_SOURCES})
+
+# link libraries
+if(CMAKE_SYSTEM_NAME MATCHES "Windows")
+    set(APP_DEPEND_LIBS
+        xquic-static
+        ${SSL_LIB_PATH}
+        ${LIBEVENT_LIBRARY}
+        -lm
+        CACHE STRING "xquic app depend libs")
+else()
+    set(APP_DEPEND_LIBS
+        xquic-static
+        ${SSL_LIB_PATH}
+        ${LIBEVENT_LIBRARY}
+        -lm
+        dl
+        pthread
+        CACHE STRING "xquic app depend libs")
+endif()
+
+target_link_libraries(test_server ${APP_DEPEND_LIBS})
+target_link_libraries(test_client ${APP_DEPEND_LIBS})
+
+
+# build run_tests
+if(HAVE_CUNIT)
 
     set (UNIT_TEST_DIR unittest)
 
@@ -47,18 +119,34 @@ if(HAVE_CUNIT)
         ${test_SOURCES}
     )
 
-    target_include_directories(run_tests PRIVATE ${CUNIT_INCLUDE_DIRS})
+    target_include_directories(run_tests
+        PRIVATE
+        ${INCLUDE_DIRECTORIES}
+        ${CUNIT_INCLUDE_DIRS})
+
+    if(CMAKE_SYSTEM_NAME MATCHES "Windows")
+        set(CUTEST_DEPEND_LIBS
+            xquic-static
+            ${CUNIT_LIBRARIES}
+            ${SSL_LIB_PATH}
+            m
+            CACHE STRING "xquic unit test depend libs")
+    else()
+        set(CUTEST_DEPEND_LIBS
+            xquic-static
+            ${CUNIT_LIBRARIES}
+            ${SSL_LIB_PATH}
+            m
+            dl
+            pthread
+            CACHE STRING "xquic unit test depend libs")
+    endif()
+    
     target_link_libraries(run_tests
-        xquic-static
-        ${CUNIT_LIBRARIES}
-        ${SSL_LIB_PATH}
-        m
-        dl
-        pthread
+        ${CUTEST_DEPEND_LIBS}
     )
 
     add_test(run_tests run_tests)
     add_dependencies(check run_tests)
-    include_directories(${SSL_INC_PATH})
-
 endif()
+

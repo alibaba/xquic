@@ -30,6 +30,7 @@ typedef struct xqc_id_hash_table_s {
     xqc_allocator_t             allocator;
 } xqc_id_hash_table_t;
 
+
 static inline xqc_int_t
 xqc_id_hash_init(xqc_id_hash_table_t *hash_tab,  xqc_allocator_t allocator, size_t bucket_num)
 {

@@ -61,6 +61,10 @@ typedef enum h3_hdr_type {
 } H3_HDR_TYPE;
 
 
+extern long xqc_random(void);
+extern xqc_usec_t xqc_now();
+
+
 int
 xqc_demo_read_file_data(char * data, size_t data_len, char *filename)
 {
@@ -94,17 +98,5 @@ end:
     }
     return ret;
 }
-
-
-static inline uint64_t
-xqc_demo_now()
-{
-    /* get microsecond unit time */
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    uint64_t ul = tv.tv_sec * (uint64_t)1000000 + tv.tv_usec;
-    return  ul;
-}
-
 
 #endif

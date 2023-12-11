@@ -1654,6 +1654,8 @@ xqc_h3_stream_process_data(xqc_stream_t *stream, xqc_h3_stream_t *h3s, xqc_bool_
             if (h3s->type == XQC_H3_STREAM_TYPE_REQUEST) {
                 /* only request stream will be blocked */
                 xqc_h3_request_stream_fin(h3s->h3r);
+                h3s->send_offset = h3s->stream->stream_send_offset;
+                h3s->recv_offset = h3s->stream->stream_data_in.merged_offset_end;
             }
         }
 

@@ -241,7 +241,7 @@ xqc_log_time(char *buf, size_t buf_len)
 
     struct tm tm;
 
-#ifdef WIN32
+#ifdef XQC_SYS_WINDOWS
     time_t t = tv.tv_sec;
 #ifdef _USE_32BIT_TIME_T
     _localtime32_s(&tm, &t);

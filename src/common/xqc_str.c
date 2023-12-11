@@ -218,7 +218,7 @@ xqc_vsprintf(unsigned char *buf, unsigned char *last, const char *fmt, va_list a
                 fmt++;
 
                 continue;
-#ifndef WIN32
+#ifndef XQC_SYS_WINDOWS
             case 'r':
                 i64 = (int64_t) va_arg(args, rlim_t);
                 sign = 1;

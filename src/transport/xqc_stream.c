@@ -719,7 +719,7 @@ xqc_destroy_stream(xqc_stream_t *stream)
             "firstfinack_dely:%ui|close_delay:%ui|"
             "apprst_delay:%ui|rstsnd_delay:%ui|rstrcv_delay:%ui|%s|"
             "path_info:%s|",
-            stream->stream_err, stream->stream_close_msg ? : "",
+            stream->stream_err, stream->stream_close_msg ? stream->stream_close_msg : "",
             stream->stream_conn->enable_multipath ? 1:0,
             stream->stream_state_send, stream->stream_state_recv, 
             stream->stream_id, stream->stream_type,

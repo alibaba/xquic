@@ -8,16 +8,16 @@
 /**
  * Public API for using libxquic
  */
-#ifdef WIN32
+#include "xqc_configure.h"
+#include "xquic_typedef.h"
+
+#if defined(XQC_SYS_WINDOWS) && !defined(XQC_ON_MINGW)
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #endif
-
-#include "xqc_configure.h"
-#include "xquic_typedef.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -66,7 +66,6 @@ typedef enum xqc_proto_version_s {
  * the max message count of iovec in sendmmsg
  */
 #define XQC_MAX_SEND_MSG_ONCE           32
-
 
 #define XQC_INITIAL_PATH_ID             0
 
@@ -890,18 +889,18 @@ typedef struct xqc_congestion_control_callback_s {
 } xqc_cong_ctrl_callback_t;
 
 #ifdef XQC_ENABLE_RENO
-XQC_EXPORT_PUBLIC_API extern const xqc_cong_ctrl_callback_t xqc_reno_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_reno_cb;
 #endif
 #ifdef XQC_ENABLE_BBR2
-XQC_EXPORT_PUBLIC_API extern const xqc_cong_ctrl_callback_t xqc_bbr2_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_bbr2_cb;
 #endif
-XQC_EXPORT_PUBLIC_API extern const xqc_cong_ctrl_callback_t xqc_bbr_cb;
-XQC_EXPORT_PUBLIC_API extern const xqc_cong_ctrl_callback_t xqc_cubic_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_bbr_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_cubic_cb;
 #ifdef XQC_ENABLE_UNLIMITED
-XQC_EXPORT_PUBLIC_API extern const xqc_cong_ctrl_callback_t xqc_unlimited_cc_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_unlimited_cc_cb;
 #endif
 #ifdef XQC_ENABLE_COPA
-XQC_EXPORT_PUBLIC_API extern const xqc_cong_ctrl_callback_t xqc_copa_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_copa_cb;
 #endif
 
 typedef enum xqc_scheduler_path_event_e {
@@ -931,11 +930,11 @@ typedef struct xqc_scheduler_callback_s {
 
 } xqc_scheduler_callback_t;
 
-XQC_EXPORT_PUBLIC_API extern const xqc_scheduler_callback_t xqc_minrtt_scheduler_cb;
-XQC_EXPORT_PUBLIC_API extern const xqc_scheduler_callback_t xqc_backup_scheduler_cb;
-XQC_EXPORT_PUBLIC_API extern const xqc_scheduler_callback_t xqc_rap_scheduler_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_scheduler_callback_t xqc_minrtt_scheduler_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_scheduler_callback_t xqc_backup_scheduler_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_scheduler_callback_t xqc_rap_scheduler_cb;
 #ifdef XQC_ENABLE_MP_INTEROP
-XQC_EXPORT_PUBLIC_API extern const xqc_scheduler_callback_t xqc_interop_scheduler_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_scheduler_callback_t xqc_interop_scheduler_cb;
 #endif
 
 typedef enum {
@@ -958,9 +957,9 @@ typedef struct xqc_reinj_ctl_callback_s {
 
 } xqc_reinj_ctl_callback_t;
 
-XQC_EXPORT_PUBLIC_API extern const xqc_reinj_ctl_callback_t xqc_default_reinj_ctl_cb;
-XQC_EXPORT_PUBLIC_API extern const xqc_reinj_ctl_callback_t xqc_deadline_reinj_ctl_cb;
-XQC_EXPORT_PUBLIC_API extern const xqc_reinj_ctl_callback_t xqc_dgram_reinj_ctl_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_reinj_ctl_callback_t xqc_default_reinj_ctl_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_reinj_ctl_callback_t xqc_deadline_reinj_ctl_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_reinj_ctl_callback_t xqc_dgram_reinj_ctl_cb;
 
 
 /**
@@ -1794,7 +1793,6 @@ unsigned char *xqc_dcid_str_by_scid(xqc_engine_t *engine, const xqc_cid_t *scid)
 
 XQC_EXPORT_PUBLIC_API
 uint8_t xqc_engine_config_get_cid_len(xqc_engine_t *engine);
-
 
 /**
  * User should call xqc_conn_continue_send when write event ready

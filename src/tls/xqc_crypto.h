@@ -27,16 +27,16 @@ typedef struct xqc_hdr_protect_cipher_s    xqc_hdr_protect_cipher_t;
 
 
 /* aes_d_gcm  d is the length of key */
-#define xqc_aead_init_aes_gcm(aead, d, ...)         XQC_AEAD_INIT_AES_GCM_IMPL(aead, d, __VA_ARGS__)
+#define xqc_aead_init_aes_gcm(aead, d)              XQC_AEAD_INIT_AES_GCM_IMPL(aead, d)
 
 /* chacha20_poly1305 */
-#define xqc_aead_init_chacha20_poly1305(obj, ...)   XQC_AEAD_INIT_CHACHA20_POLY1305_IMPL(obj, __VA_ARGS__)
+#define xqc_aead_init_chacha20_poly1305(obj)        XQC_AEAD_INIT_CHACHA20_POLY1305_IMPL(obj)
 
 /* aes_d_ctr */
-#define xqc_cipher_init_aes_ctr(cipher, d, ...)     XQC_CIPHER_INIT_AES_CTR_IMPL(cipher, d, __VA_ARGS__)
+#define xqc_cipher_init_aes_ctr(cipher, d)          XQC_CIPHER_INIT_AES_CTR_IMPL(cipher, d)
 
 /* chacha20 */
-#define xqc_cipher_init_chacha20(cipher, ...)       XQC_CIPHER_INIT_CHACHA20_IMPL(cipher, __VA_ARGS__)
+#define xqc_cipher_init_chacha20(cipher)            XQC_CIPHER_INIT_CHACHA20_IMPL(cipher)
 
 /* length of aead overhead */
 #define xqc_aead_overhead(obj, cln)                 (XQC_AEAD_OVERHEAD_IMPL((obj), cln))

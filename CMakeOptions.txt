@@ -2,7 +2,7 @@
 
 option(ENABLE_DEBUG                     "Turn on debug output"  ON)
 option(XQC_BUILD_OPENSSL                "Turn on OpenSSL"       ON)
-option(XQC_OPENSSL_IS_BORINGSSL         "Using BoringSSL"       ON)
+option(SSL_TYPE                         "Using BoringSSL"       boringssl)
 option(XQC_ENABLE_TESTING               "Enable Testing"        OFF)
 option(XQC_BUILD_SAMPLE                 "Build Sample"          OFF)
 option(GCOV                             "Test Coverage"         OFF)

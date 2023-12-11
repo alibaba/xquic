@@ -111,7 +111,7 @@ install_cunit
 install_go
 
 #run boringssl
-do_compile "XQC_OPENSSL_IS_BORINGSSL"
+do_compile "boringssl"
 run_test_case
 
 #run babassl

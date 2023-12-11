@@ -444,6 +444,34 @@ xqc_conn_init_timer_manager(xqc_connection_t *conn)
     }
 }
 
+void
+xqc_conn_set_default_sched_params(xqc_conn_settings_t *settings)
+{
+    if (settings->scheduler_params.bw_Bps_thr == 0) {
+        settings->scheduler_params.bw_Bps_thr = default_conn_settings.scheduler_params.bw_Bps_thr;
+    }
+
+    if (settings->scheduler_params.loss_percent_thr_high == 0) {
+        settings->scheduler_params.loss_percent_thr_high = default_conn_settings.scheduler_params.loss_percent_thr_high;
+    }
+
+    if (settings->scheduler_params.loss_percent_thr_low == 0) {
+        settings->scheduler_params.loss_percent_thr_low = default_conn_settings.scheduler_params.loss_percent_thr_low;
+    }
+
+    if (settings->scheduler_params.pto_cnt_thr == 0) {
+        settings->scheduler_params.pto_cnt_thr = default_conn_settings.scheduler_params.pto_cnt_thr;
+    }
+
+    if (settings->scheduler_params.rtt_us_thr_high == 0) {
+        settings->scheduler_params.rtt_us_thr_high = default_conn_settings.scheduler_params.rtt_us_thr_high;
+    }
+
+    if (settings->scheduler_params.rtt_us_thr_low == 0) {
+        settings->scheduler_params.rtt_us_thr_low = default_conn_settings.scheduler_params.rtt_us_thr_low;
+    }
+}
+
 xqc_connection_t *
 xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     const xqc_conn_settings_t *settings, void *user_data, xqc_conn_type_t type)
@@ -460,6 +488,8 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     }
 
     xc->conn_settings = *settings;
+
+    xqc_conn_set_default_sched_params(&xc->conn_settings);
 
     if (xc->conn_settings.max_ack_delay == 0) {
         xc->conn_settings.max_ack_delay = XQC_DEFAULT_MAX_ACK_DELAY;
@@ -1023,7 +1053,7 @@ xqc_conn_destroy(xqc_connection_t *xc)
             (xc->handshake_complete_time > xc->conn_create_time) ? (xc->handshake_complete_time - xc->conn_create_time) : 0,
             (xc->first_data_send_time > xc->conn_create_time) ? (xc->first_data_send_time - xc->conn_create_time) : 0,
             xqc_monotonic_timestamp() - xc->conn_create_time, xc->key_update_ctx.key_update_cnt,
-            xc->conn_err, xc->conn_close_msg ? : "", xqc_conn_addr_str(xc),
+            xc->conn_err, xc->conn_close_msg ? xc->conn_close_msg : "", xqc_conn_addr_str(xc),
             xqc_calc_delay(xc->conn_hsk_recv_time, xc->conn_create_time),
             xqc_calc_delay(xc->conn_close_recv_time, xc->conn_create_time),
             xqc_calc_delay(xc->conn_close_send_time, xc->conn_create_time),
@@ -2240,11 +2270,12 @@ xqc_path_send_ping_to_probe(xqc_path_ctx_t *path, xqc_pkt_num_space_t pns,
     return XQC_OK;
 }
 
-void
+int
 xqc_conn_send_probe_pkt(xqc_connection_t *c, xqc_path_ctx_t *path,
     xqc_packet_out_t *packet_out)
 {
     xqc_reinjection_mode_t  mode;
+    int reinject = 0;
 
     mode = c->conn_settings.mp_enable_reinjection & XQC_REINJ_UNACK_BEFORE_SCHED;
 
@@ -2269,6 +2300,7 @@ xqc_conn_send_probe_pkt(xqc_connection_t *c, xqc_path_ctx_t *path,
                     packet_out->po_pkt.pkt_num, packet_out->po_used_size,
                     xqc_pkt_type_2_str(packet_out->po_pkt.pkt_type),
                     xqc_frame_type_2_str(packet_out->po_frame_types));
+            reinject = 1;
         }
     }
 
@@ -2280,6 +2312,8 @@ xqc_conn_send_probe_pkt(xqc_connection_t *c, xqc_path_ctx_t *path,
     if (packet_out->po_frame_types & XQC_FRAME_BIT_DATAGRAM) {
         path->path_send_ctl->ctl_lost_dgram_cnt++;
     }
+
+    return reinject;
 }
 
 void
@@ -2296,6 +2330,7 @@ xqc_path_send_one_or_two_ack_elicit_pkts(xqc_path_ctx_t *path,
     xqc_int_t               probe_num;
     xqc_bool_t              send_hsd;
     xqc_bool_t              send_hsd_next;
+    int                     has_reinjection = 0;
 
     c       = path->parent_conn;
     sndq    = &c->conn_send_queue->sndq_unacked_packets[pns];
@@ -2350,7 +2385,7 @@ xqc_path_send_one_or_two_ack_elicit_pkts(xqc_path_ctx_t *path,
                 continue;
             }
 
-            xqc_conn_send_probe_pkt(c, path, packet_out);
+            has_reinjection = has_reinjection || xqc_conn_send_probe_pkt(c, path, packet_out);
             packet_out_last_sent = packet_out;
 
             if (--probe_num == 0) {
@@ -2367,7 +2402,7 @@ xqc_path_send_one_or_two_ack_elicit_pkts(xqc_path_ctx_t *path,
                 /* try to send the first ack-eliciting pkt do not contain
                    HSK_DONE frame */
                 if (packet_out_later_send) {
-                    xqc_conn_send_probe_pkt(c, path, packet_out_later_send);
+                    has_reinjection = has_reinjection || xqc_conn_send_probe_pkt(c, path, packet_out_later_send);
                     packet_out_last_sent = packet_out_later_send;
                     packet_out_later_send = NULL;
 
@@ -2386,7 +2421,7 @@ xqc_path_send_one_or_two_ack_elicit_pkts(xqc_path_ctx_t *path,
             while (probe_num > 0) {
                 xqc_log(c->log, XQC_LOG_DEBUG, "|dup pkt on PTO, pkt_num:%ui|",
                         packet_out_last_sent->po_pkt.pkt_num);
-                xqc_conn_send_probe_pkt(c, path, packet_out_last_sent);
+                has_reinjection = has_reinjection || xqc_conn_send_probe_pkt(c, path, packet_out_last_sent);
                 probe_num--;
             }
 
@@ -2397,6 +2432,15 @@ xqc_path_send_one_or_two_ack_elicit_pkts(xqc_path_ctx_t *path,
                 xqc_path_send_ping_to_probe(path, pns, XQC_PATH_SPECIFIED_BY_PTO);
                 probe_num--;
             }
+        }
+    }
+
+    if (has_reinjection) {
+        xqc_path_ctx_t *path;
+        xqc_list_for_each_safe(pos, next, &c->conn_paths_list) {
+            path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+            xqc_list_splice_tail_init(&path->path_reinj_tmp_buf,
+                                    &path->path_schedule_buf[XQC_SEND_TYPE_NORMAL]);
         }
     }
 }
@@ -2448,10 +2492,12 @@ xqc_conn_close(xqc_engine_t *engine, const xqc_cid_t *cid)
     /* close connection after all data sent and acked or XQC_TIMER_LINGER_CLOSE timeout */
     xqc_usec_t now = xqc_monotonic_timestamp();
     xqc_usec_t pto = xqc_conn_get_max_pto(conn);
+
     if (conn->conn_settings.linger.linger_on && !xqc_send_queue_out_queue_empty(conn->conn_send_queue)) {
         conn->conn_flag |= XQC_CONN_FLAG_LINGER_CLOSING;
+        xqc_usec_t linger_timeout = conn->conn_settings.linger.linger_timeout;
         xqc_timer_set(&conn->conn_timer_manager, XQC_TIMER_LINGER_CLOSE, now,
-                      (conn->conn_settings.linger.linger_timeout ? : 3 * pto));
+                      (linger_timeout ? linger_timeout : 3 * pto));
         goto end;
     }
 

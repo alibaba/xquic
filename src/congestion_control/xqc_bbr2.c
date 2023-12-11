@@ -8,6 +8,7 @@
 #include "src/congestion_control/xqc_bbr2.h"
 #include "src/congestion_control/xqc_sample.h"
 #include "src/common/xqc_time.h"
+#include "src/common/xqc_random.h"
 #include "src/common/xqc_config.h"
 #include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_packet.h"
@@ -871,19 +872,19 @@ xqc_bbr2_enter_drain(xqc_bbr2_t *bbr2)
 static void 
 xqc_bbr2_pick_probe_wait(xqc_bbr2_t *bbr2)
 {
-    bbr2->rounds_since_probe = random() % xqc_bbr2_bw_probe_rand_rounds;
+    bbr2->rounds_since_probe = xqc_random() % xqc_bbr2_bw_probe_rand_rounds;
 #if XQC_BBR2_PLUS_ENABLED
     if (bbr2->fast_convergence_on) {
-        uint32_t rand_rtt_rounds = random() % 
+        uint32_t rand_rtt_rounds = xqc_random() % 
                                    xqc_bbr2_fast_convergence_probe_round_rand;
         rand_rtt_rounds += (1 + xqc_bbr2_fast_convergence_probe_round_base);
     } else {
         bbr2->probe_wait_us = xqc_bbr2_bw_probe_base_us + 
-                              (random() % xqc_bbr2_bw_probe_rand_us);
+                              (xqc_random() % xqc_bbr2_bw_probe_rand_us);
     }
 #else
     bbr2->probe_wait_us = xqc_bbr2_bw_probe_base_us + 
-                          (random() % xqc_bbr2_bw_probe_rand_us);
+                          (xqc_random() % xqc_bbr2_bw_probe_rand_us);
 #endif
 }
 
@@ -991,7 +992,8 @@ xqc_bbr2_update_min_rtt(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
         /* Ignore low rate samples during this mode. */
         xqc_send_ctl_t *send_ctl = sampler->send_ctl;
         send_ctl->ctl_app_limited = (send_ctl->ctl_delivered 
-            + send_ctl->ctl_bytes_in_flight)? : 1;
+            + send_ctl->ctl_bytes_in_flight) 
+            ? (send_ctl->ctl_delivered + send_ctl->ctl_bytes_in_flight) : 1;
         xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, 
                 "|BBR PROBE_RTT|inflight:%ud|done_stamp:%ui|done:%ud|"
                 "round_start:%ud|",

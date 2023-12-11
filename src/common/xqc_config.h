@@ -5,13 +5,21 @@
 #ifndef _XQC_H_CONFIG_INCLUDED_
 #define _XQC_H_CONFIG_INCLUDED_
 
+#include <xquic/xquic_typedef.h>
+
 #define xqc_min(a, b) ((a) < (b) ? (a) : (b))
 #define xqc_max(a, b) ((a) > (b) ? (a) : (b))
 #define xqc_sub_abs(a, b) ((a) > (b) ? ((a) - (b)): ((b) - (a)))
 #define xqc_clamp(a, min, max) xqc_max(xqc_min(a, max), min)
 
+#ifdef XQC_SYS_WINDOWS
+static const unsigned char LF = '\n';
+static const unsigned char CR = '\r';
+#else
 #define LF     (unsigned char) '\n'
 #define CR     (unsigned char) '\r'
+#endif
+
 #define CRLF   "\r\n"
 
 #define XQC_PTR_SIZE 8

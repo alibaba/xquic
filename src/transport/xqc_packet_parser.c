@@ -3,6 +3,9 @@
  */
 
 #include <string.h>
+#ifdef XQC_SYS_WINDOWS
+#include <openssl/x509.h>
+#endif
 #include <openssl/hmac.h>
 #include "src/transport/xqc_packet_parser.h"
 #include "src/transport/xqc_cid.h"

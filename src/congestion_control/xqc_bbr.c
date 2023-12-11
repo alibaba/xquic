@@ -2,12 +2,18 @@
  * @copyright Copyright (c) 2022, Alibaba Group Holding Limited
  */
 
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <xquic/xquic_typedef.h>
+#if !defined(XQC_SYS_WINDOWS) || defined(XQC_ON_MINGW)
+#include <unistd.h>
+#endif
 #include "src/congestion_control/xqc_bbr.h"
 #include "src/congestion_control/xqc_sample.h"
 #include "src/common/xqc_time.h"
+#include "src/common/xqc_random.h"
 #include "src/common/xqc_config.h"
 #include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_packet.h"
@@ -422,7 +428,7 @@ xqc_bbr_enter_probe_bw(xqc_bbr_t *bbr, xqc_sample_t *sampler)
 {
     bbr->mode = BBR_PROBE_BW;
     bbr->cwnd_gain = xqc_bbr_cwnd_gain;
-    bbr->cycle_idx = random() % (XQC_BBR_CYCLE_LENGTH - 1);
+    bbr->cycle_idx = xqc_random() % (XQC_BBR_CYCLE_LENGTH - 1);
     bbr->cycle_idx = bbr->cycle_idx == 0 ? bbr->cycle_idx : bbr->cycle_idx + 1;
     bbr->pacing_gain = xqc_bbr_get_pacing_gain(bbr, bbr->cycle_idx);
     bbr->cycle_start_stamp = sampler->now;
@@ -561,7 +567,8 @@ xqc_bbr_update_min_rtt(xqc_bbr_t *bbr, xqc_sample_t *sampler)
         /* Ignore low rate samples during this mode. */
         xqc_send_ctl_t *send_ctl = sampler->send_ctl;
         send_ctl->ctl_app_limited = (send_ctl->ctl_delivered 
-            + send_ctl->ctl_bytes_in_flight)? : 1;
+            + send_ctl->ctl_bytes_in_flight)? (send_ctl->ctl_delivered
+                + send_ctl->ctl_bytes_in_flight) : 1;
         xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, 
                 "|BBR PROBE_RTT|inflight:%ud|done_stamp:%ui|done:%ud|"
                 "round_start:%ud|",

@@ -10,9 +10,13 @@ LOCAL_TEST=0
 
 cd ../build
 
+CLIENT_BIN="tests/test_client"
+SERVER_BIN="tests/test_server"
+
+
 # start test_server
 killall test_server 2> /dev/null
-./test_server -l d -e > /dev/null &
+${SERVER_BIN} -l d -e > /dev/null &
 sleep 1
 
 clear_log() {
@@ -40,7 +44,7 @@ function case_print_result() {
 
 clear_log
 echo -e "log switch off ...\c"
-./test_client -s 1024000 -l d -t 1 -E -x 44 >> stdlog
+${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 44 >> stdlog
 log_size=`wc -c clog | awk -F ' ' '{print $1}'`
 if [ $log_size -eq 0 ]; then
     echo ">>>>>>>> pass:1"
@@ -50,14 +54,27 @@ else
     case_print_result "log_switch_off" "fail"
 fi
 
+clear_log
+echo -e "server refuse ...\c"
+${CLIENT_BIN} -x 46 -t 10 >> stdlog
+result=`grep "conn close notified by refuse" slog`
+if [ -n "$result" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "server_refuse" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "server_refuse" "fail"
+fi
+
+
 rm -f test_session tp_localhost xqc_token
 
 killall test_server 2> /dev/null
-./test_server -l d -e -x 17 > /dev/null &
+${SERVER_BIN} -l d -e -x 17 > /dev/null &
 
 clear_log
 echo -e "server-inited stream ...\c"
-./test_client -l d -E -t 3 >> stdlog
+${CLIENT_BIN} -l d -E -t 3 >> stdlog
 client_refuse=`grep "ignore server initiated bidi-streams at client" clog`
 client_discard=`grep "data discarded" clog`
 client_check=`grep "xqc_h3_stream_close_notify" clog | grep "|stream_id:1|"`
@@ -74,14 +91,14 @@ fi
 
 
 killall test_server 2> /dev/null
-./test_server -l d -e -x 99 > /dev/null &
+${SERVER_BIN} -l d -e -x 99 > /dev/null &
 sleep 1
 
 rm -f test_session tp_localhost xqc_token
 
 clear_log
 echo -e "stream send pure fin ...\c"
-./test_client -s 1024 -l d -t 1 -E -x 99 -T 1 >> clog
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 99 -T 1 >> clog
 errlog=`grep_err_log`
 clog_res=`cat clog | grep "|send_state:3|recv_state:3|stream_id:0|stream_type:0|send_bytes:0|read_bytes:0|recv_bytes:0|stream_len:0|"`
 slog_res=`cat slog | grep "|send_state:3|recv_state:3|stream_id:0|stream_type:0|send_bytes:0|read_bytes:0|recv_bytes:0|stream_len:0|"`
@@ -97,7 +114,7 @@ rm -f test_session
 
 clear_log
 echo -e "h3 stream send pure fin ...\c"
-./test_client -s 1024 -l d -t 1 -E -x 99 >> clog
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 99 >> clog
 errlog=`grep_err_log | grep -v "send data after fin sent"`
 clog_res=`cat clog | grep "|send_state:3|recv_state:3|stream_id:0|stream_type:0|send_bytes:0|read_bytes:0|recv_bytes:0|stream_len:0|"`
 slog_res=`cat slog | grep "|send_state:3|recv_state:3|stream_id:0|stream_type:0|send_bytes:0|read_bytes:0|recv_bytes:0|stream_len:0|"`
@@ -113,7 +130,7 @@ rm -f test_session
 
 clear_log
 echo -e "h3_ext_bytestream send pure fin ...\c"
-./test_client -s 1024 -l d -t 1 -E -x 310 -T 2 >> clog
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 310 -T 2 >> clog
 errlog=`grep_err_log`
 clog_res=`cat clog | grep "|send_state:3|recv_state:3|stream_id:0|stream_type:0|send_bytes:5|read_bytes:2|recv_bytes:2|stream_len:2|"`
 slog_res=`cat slog | grep "|send_state:3|recv_state:3|stream_id:0|stream_type:0|send_bytes:2|read_bytes:5|recv_bytes:5|stream_len:5|"`
@@ -128,12 +145,12 @@ fi
 rm -rf test_session
 
 killall test_server 2> /dev/null
-./test_server -l d -e > /dev/null &
+${SERVER_BIN} -l d -e > /dev/null &
 sleep 1
 
 clear_log
 echo -e "stream read notify fail ...\c"
-./test_client -s 1024000 -l d -t 1 -E -x 12 >> clog
+${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 12 >> clog
 result=`grep_err_log|grep -v xqc_h3_request_on_recv|grep -v xqc_h3_stream_process_in|grep -v xqc_h3_stream_read_notify|grep -v xqc_process_read_streams|grep -v xqc_process_conn_close_frame|grep -v xqc_h3_stream_process_request`
 if [ -z "$result" ]; then
     echo ">>>>>>>> pass:1"
@@ -146,7 +163,7 @@ fi
 
 clear_log
 echo -e "create stream fail ...\c"
-./test_client -s 1024000 -l d -t 1 -E -x 11 >> clog
+${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 11 >> clog
 result=`grep_err_log|grep -v xqc_stream_create`
 if [ -z "$result" ]; then
     echo ">>>>>>>> pass:1"
@@ -158,7 +175,7 @@ fi
 
 clear_log
 echo -e "illegal packet ...\c"
-result=`./test_client -s 1024000 -l d -t 1 -E -x 10|grep ">>>>>>>> pass" `
+result=`${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 10|grep ">>>>>>>> pass" `
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -170,7 +187,7 @@ fi
 
 clear_log
 echo -e "duplicate packet ...\c"
-result=`./test_client -s 1024000 -l d -t 1 -E -x 9|grep ">>>>>>>> pass" `
+result=`${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 9|grep ">>>>>>>> pass" `
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -182,7 +199,7 @@ fi
 
 clear_log
 echo -e "packet with wrong cid ...\c"
-result=`./test_client -s 1024000 -l d -t 1 -E -x 8|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 8|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -194,7 +211,7 @@ fi
 
 clear_log
 echo -e "create connection fail ...\c"
-./test_client -s 1024000 -l d -t 1 -E -x 7 >> clog
+${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 7 >> clog
 result=`grep_err_log|grep -v xqc_client_connect`
 if [ -z "$result" ]; then
     echo ">>>>>>>> pass:1"
@@ -206,7 +223,7 @@ fi
 
 clear_log
 echo -e "socket recv fail ...\c"
-result=`./test_client -s 1024000 -l d -t 1 -E -x 6|grep ">>>>>>>> pass" `
+result=`${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 6|grep ">>>>>>>> pass" `
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -218,7 +235,7 @@ fi
 
 clear_log
 echo -e "socket send fail ...\c"
-result=`./test_client -s 1024000 -l d -t 1 -E -x 5|grep ">>>>>>>> pass" `
+result=`${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 5|grep ">>>>>>>> pass" `
 errlog=`grep_err_log|grep -v "write_socket error"`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -231,7 +248,7 @@ fi
 clear_log
 echo -e "verify Token fail ...\c"
 rm -f xqc_token
-result=`./test_client -s 1024000 -l d -t 1 -E|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 1024000 -l d -t 1 -E|grep ">>>>>>>> pass"`
 errlog=`grep_err_log|grep -v xqc_conn_check_token`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -243,7 +260,7 @@ fi
 
 clear_log
 echo -e "verify Token success ...\c"
-result=`./test_client -s 1024000 -l d -t 1 -E|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 1024000 -l d -t 1 -E|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -256,7 +273,7 @@ fi
 clear_log
 echo -e "test application delay ...\c"
 rm -f xqc_token
-./test_client -s 5120 -l d -t 1 -E -x 16 >> clog
+${CLIENT_BIN} -s 5120 -l d -t 1 -E -x 16 >> clog
 if test "$(grep -e "|====>|.*NEW_TOKEN" clog |wc -l)" -gt 1 >/dev/null && grep ">>>>>>>> pass:1" clog >/dev/null; then
     echo ">>>>>>>> pass:1"
     case_print_result "test_application_delay" "pass"
@@ -268,7 +285,7 @@ grep_err_log
 
 clear_log
 echo -e "fin only ...\c"
-result=`./test_client -s 5120 -l d -t 1 -E -x 4 |grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 5120 -l d -t 1 -E -x 4 |grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -280,7 +297,7 @@ fi
 
 clear_log
 echo -e "send data after fin ...\c"
-result=`./test_client -s 5120 -l d -t 1 -E -x 50 |grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 5120 -l d -t 1 -E -x 50 |grep ">>>>>>>> pass"`
 errlog=`grep_err_log | grep -v "send data after fin sent"`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -292,7 +309,7 @@ fi
 
 clear_log
 echo -e "send header after fin ...\c"
-result=`./test_client -s 5120 -l d -t 1 -E -x 51 |grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 5120 -l d -t 1 -E -x 51 |grep ">>>>>>>> pass"`
 errlog=`grep_err_log | grep -v "send data after fin sent"`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -304,7 +321,7 @@ fi
 
 clear_log
 echo -e "send fin after fin ...\c"
-result=`./test_client -s 5120 -l d -t 1 -E -x 52 |grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 5120 -l d -t 1 -E -x 52 |grep ">>>>>>>> pass"`
 errlog=`grep_err_log | grep -v "send data after fin sent"`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -317,7 +334,7 @@ fi
 
 clear_log
 echo -e "header header data ...\c"
-./test_client -s 5120 -l d -t 1 -E -x 30 >> clog
+${CLIENT_BIN} -s 5120 -l d -t 1 -E -x 30 >> clog
 header_res=`grep "recv header" slog`
 trailer_res=`grep "recv tailer header" slog`
 if [ -n "$header_res" ] && [ -n "$trailer_res" ]; then
@@ -331,7 +348,7 @@ grep_err_log
 
 clear_log
 echo -e "header data header ...\c"
-./test_client -s 5120 -l d -t 1 -E -x 31 >> clog
+${CLIENT_BIN} -s 5120 -l d -t 1 -E -x 31 >> clog
 header_res=`grep "recv header" slog`
 trailer_res=`grep "recv tailer header" slog`
 if [ -n "$header_res" ] && [ -n "$trailer_res" ]; then
@@ -346,7 +363,7 @@ grep_err_log
 
 clear_log
 echo -e "header data fin ...\c"
-./test_client  -l d -t 2 -s 100 -E -x 35 >> clog
+${CLIENT_BIN}  -l d -t 2 -s 100 -E -x 35 >> clog
 result=`grep ">>>>>>>> pass" clog`
 sres=`grep "|recv_fin|" slog`
 errlog=`grep_err_log`
@@ -362,7 +379,7 @@ grep_err_log
 
 clear_log
 echo -e "header data immediate fin ...\c"
-./test_client  -l d -t 2 -s 100 -E -x 36 >> clog
+${CLIENT_BIN}  -l d -t 2 -s 100 -E -x 36 >> clog
 result=`grep ">>>>>>>> pass" clog`
 sres=`grep "h3 fin only received" slog`
 errlog=`grep_err_log`
@@ -378,7 +395,7 @@ grep_err_log
 
 clear_log
 echo -e "header fin ...\c"
-./test_client  -l d -t 2 -x 37 >> clog
+${CLIENT_BIN}  -l d -t 2 -x 37 >> clog
 sres=`grep "|recv_fin|" slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$sres" ]; then
@@ -393,7 +410,7 @@ grep_err_log
 
 clear_log
 echo -e "header immediate fin ...\c"
-./test_client  -l d -t 2 -x 38 >> clog
+${CLIENT_BIN}  -l d -t 2 -x 38 >> clog
 sres=`grep "h3 fin only received" slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -z "$sres" ]; then
@@ -409,7 +426,7 @@ grep_err_log
 
 clear_log
 echo -e "uppercase header ...\c"
-./test_client -s 5120 -l d -t 1 -E -x 34 >> clog
+${CLIENT_BIN} -s 5120 -l d -t 1 -E -x 34 >> clog
 result=`grep ">>>>>>>> pass" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -423,7 +440,7 @@ fi
 
 clear_log
 echo -e "user close connection ...\c"
-./test_client -s 1024000 -l d -t 1 -E -x 2 >> clog
+${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 2 >> clog
 if grep "<==.*CONNECTION_CLOSE" clog >/dev/null && grep "==>.*CONNECTION_CLOSE" clog >/dev/null; then
     echo ">>>>>>>> pass:1"
     case_print_result "user_close_connection" "pass"
@@ -437,7 +454,7 @@ grep_err_log
 
 clear_log
 echo -e "close connection with error ...\c"
-./test_client -s 1024000 -l d -t 1 -E -x 3 >> stdlog
+${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 3 >> stdlog
 if grep "<==.*CONNECTION_CLOSE" clog >/dev/null && grep "==>.*CONNECTION_CLOSE" clog >/dev/null && grep "conn closing: 1" stdlog >/dev/null; then
     echo ">>>>>>>> pass:1"
     case_print_result "close_connection_with_error" "pass"
@@ -451,7 +468,7 @@ grep_err_log|grep -v xqc_process_write_streams|grep -v xqc_h3_stream_write_notif
 
 clear_log
 echo -e "Reset stream when sending...\c"
-./test_client -s 1024000 -l d -t 1 -E -x 1 >> clog
+${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 1 >> clog
 if grep "send_state:5|recv_state:5" clog >/dev/null; then
     echo ">>>>>>>> pass:1"
     case_print_result "reset_stream" "pass"
@@ -464,7 +481,7 @@ grep_err_log|grep -v stream
 
 clear_log
 echo -e "Reset stream when receiving...\c"
-./test_client -s 1024000 -l d -t 1 -E -x 21 > stdlog
+${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 21 > stdlog
 result=`grep "xqc_send_queue_drop_stream_frame_packets" slog`
 flag=`grep "send_state:5|recv_state:5" clog`
 errlog=`grep_err_log|grep -v stream`
@@ -480,7 +497,7 @@ fi
 
 clear_log
 echo -e "Send header after reset stream...\c"
-./test_client -s 1024000 -l d -t 1 -E -x 28 > stdlog
+${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 28 > stdlog
 result=`grep "xqc_conn_destroy.*err:0x0" clog`
 flag=`grep "send_state:5|recv_state:5" clog`
 errlog=`grep_err_log|grep -v stream`
@@ -496,7 +513,7 @@ fi
 
 
 clear_log
-./test_client -s 1024000 -l e -t 1 -E -1 -V 1 > stdlog
+${CLIENT_BIN} -s 1024000 -l e -t 1 -E -1 -V 1 > stdlog
 echo -e "Cert verify ...\c"
 result=`grep ">>>>>>>> pass:" stdlog`
 echo "$result"
@@ -511,7 +528,7 @@ fi
 
 clear_log
 echo -e "1RTT ...\c"
-./test_client -s 1024000 -l e -t 1 -E -1 > stdlog
+${CLIENT_BIN} -s 1024000 -l e -t 1 -E -1 > stdlog
 result=`grep ">>>>>>>> pass:" stdlog`
 echo "$result"
 flag=`grep "early_data_flag:0" stdlog`
@@ -528,7 +545,7 @@ fi
 clear_log
 echo -e "alp negotiation failure ...\c"
 rm -f test_session
-./test_client -l e -t 1 -T 1 -x 43 > stdlog
+${CLIENT_BIN} -l e -t 1 -T 1 -x 43 > stdlog
 alpn_res=`grep "xqc_ssl_alpn_select_cb|select proto error" slog`
 if [ -n "$alpn_res" ]; then
     echo ">>>>>>>> pass:1"
@@ -542,7 +559,7 @@ fi
 clear_log
 echo -e "without session ticket ...\c"
 rm -f test_session
-./test_client -s 1024000 -l e -t 1 -E > stdlog
+${CLIENT_BIN} -s 1024000 -l e -t 1 -E > stdlog
 result=`grep ">>>>>>>> pass:" stdlog`
 echo "$result"
 flag=`grep "early_data_flag:0" stdlog`
@@ -559,7 +576,7 @@ fi
 clear_log
 rm -f test_session xqc_token tp_localhost
 echo -e "transport ping ...\c"
-./test_client -s 1024 -l d -E -x 28 -T 1 >> clog
+${CLIENT_BIN} -s 1024 -l d -E -x 28 -T 1 >> clog
 ret_ping_id=`grep "====>ping_id:" clog`
 ret_no_ping_id=`grep "====>no ping_id" clog`
 if [ -n "$ret_ping_id" ] && [ -n "$ret_no_ping_id" ]; then
@@ -574,7 +591,7 @@ fi
 clear_log
 rm -f test_session xqc_token tp_localhost
 echo -e "h3 ping ...\c"
-./test_client -s 1024 -l d -E -x 28 >> clog
+${CLIENT_BIN} -s 1024 -l d -E -x 28 >> clog
 ret_ping_id=`grep "====>ping_id:" clog`
 ret_no_ping_id=`grep "====>no ping_id" clog`
 if [ -n "$ret_ping_id" ] && [ -n "$ret_no_ping_id" ]; then
@@ -588,7 +605,7 @@ fi
 
 clear_log
 echo -e "0RTT accept ...\c"
-./test_client -s 1024000 -l e -t 1 -E > stdlog
+${CLIENT_BIN} -s 1024000 -l e -t 1 -E > stdlog
 result=`grep ">>>>>>>> pass:" stdlog`
 echo "$result"
 flag=`grep "early_data_flag:1" stdlog`
@@ -605,9 +622,9 @@ fi
 clear_log
 echo -e "0RTT reject. restart server ....\c"
 killall test_server
-./test_server -l i -e > /dev/null &
+${SERVER_BIN} -l i -e > /dev/null &
 sleep 1
-./test_client -s 1024000 -l d -t 1 -E > stdlog
+${CLIENT_BIN} -s 1024000 -l d -t 1 -E > stdlog
 result=`grep ">>>>>>>> pass:" stdlog`
 echo "$result"
 flag=`grep "early_data_flag:2" stdlog`
@@ -623,7 +640,7 @@ fi
 clear_log
 echo -e "transport only ...\c"
 rm -f test_session
-result=`./test_client -s 1024000 -l d -T 1 -t 1 -E|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 1024000 -l d -T 1 -t 1 -E|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -635,7 +652,7 @@ fi
 
 clear_log
 echo -e "transport 0RTT ...\c"
-./test_client -s 1024000 -l e -T 1 -t 1 -E > stdlog
+${CLIENT_BIN} -s 1024000 -l e -T 1 -t 1 -E > stdlog
 result=`grep ">>>>>>>> pass:" stdlog`
 echo "$result"
 flag=`grep "early_data_flag:1" stdlog`
@@ -653,7 +670,7 @@ rm -f test_session
 clear_log
 echo -e "no crypto without 0RTT ...\c"
 rm -f test_session
-result=`./test_client -s 1024000 -l d -N -t 1 -E|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 1024000 -l d -N -t 1 -E|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -666,7 +683,7 @@ fi
 
 clear_log
 echo -e "no crypto with 0RTT ...\c"
-./test_client -s 1024000 -l d -N -t 1 -E > stdlog
+${CLIENT_BIN} -s 1024000 -l d -N -t 1 -E > stdlog
 if grep "early_data_flag:1" stdlog >/dev/null && grep ">>>>>>>> pass:1" stdlog >/dev/null; then
     echo ">>>>>>>> pass:1"
     case_print_result "no_crypto_with_0RTT" "pass"
@@ -679,7 +696,7 @@ grep_err_log
 
 clear_log
 echo -e "no crypto with 0RTT twice ...\c"
-./test_client -s 1024000 -l d -N -t 1 -E > stdlog
+${CLIENT_BIN} -s 1024000 -l d -N -t 1 -E > stdlog
 if grep "early_data_flag:1" stdlog >/dev/null && grep ">>>>>>>> pass:1" stdlog >/dev/null; then
     echo ">>>>>>>> pass:1"
     case_print_result "no_crypto_with_0RTT_twice" "pass"
@@ -692,7 +709,7 @@ grep_err_log
 
 clear_log
 echo -e "0RTT buffer limit before Initial ...\c"
-./test_client -l d -t 1 -x 39 -E >> clog
+${CLIENT_BIN} -l d -t 1 -x 39 -E >> clog
 limit_log=`grep "0RTT reach buffer limit before DCID confirmed" slog`
 clog_res=`grep ">>>>>>>> pass:1" clog`
 errlog=`grep_err_log`
@@ -710,9 +727,9 @@ clear_log
 rm -f test_session
 echo -e "NULL stream callback ...\c"
 killall test_server
-./test_server -l i -e -x 2 > /dev/null &
+${SERVER_BIN} -l i -e -x 2 > /dev/null &
 sleep 1
-./test_client -l d -T 1 -E >> clog
+${CLIENT_BIN} -l d -T 1 -E >> clog
 if grep "stream_read_notify is NULL" slog >/dev/null; then
     echo ">>>>>>>> pass:1"
     case_print_result "NULL_stream_callback" "pass"
@@ -726,9 +743,9 @@ rm -f test_session
 clear_log
 echo -e "server cid negotiate ...\c"
 killall test_server
-./test_server -l d -e -x 1 > /dev/null &
+${SERVER_BIN} -l d -e -x 1 > /dev/null &
 sleep 1
-./test_client -s 1024000 -l d -t 1 -E >> clog
+${CLIENT_BIN} -s 1024000 -l d -t 1 -E >> clog
 result=`grep ">>>>>>>> pass:1" clog`
 dcid=`grep "====>DCID" clog | awk -F ":" '{print $2}'`
 dcid_res=`grep "new:$dcid" clog`
@@ -744,7 +761,7 @@ fi
 
 clear_log
 echo -e "GET request ...\c"
-result=`./test_client -l d -t 1 -E -G|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -l d -t 1 -E -G|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 alpn_res=`grep "|select alpn|h3|" slog`
 echo "$result"
@@ -758,7 +775,7 @@ fi
 clear_log
 rm -f test_session xqc_token tp_localhost
 echo -e "new client 29 - new server ...\c"
-result=`./test_client -s 1024 -l d -t 1 -E -x 17 |grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 17 |grep ">>>>>>>> pass"`
 alpn_res=`grep "select alpn|h3-29|" slog`
 errlog=`grep_err_log`
 echo "$result"
@@ -773,7 +790,7 @@ rm -f test_session xqc_token tp_localhost
 
 clear_log
 echo -e "set h3 settings ...\c"
-./test_client -s 1024 -l d -t 1 -E -x 18 >> clog
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 18 >> clog
 if grep ">>>>>>>> pass:1" clog >/dev/null && \
     grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog >/dev/null && \
     grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog >/dev/null && \
@@ -789,7 +806,7 @@ grep_err_log
 
 clear_log
 echo -e "header size constraints ...\c"
-./test_client -s 1024 -l d -t 1 -E -x 19 -n 2 >> clog
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 19 -n 2 >> clog
 if grep -e "xqc_h3_stream_send_headers.*fields_size.*exceed.*SETTINGS_MAX_FIELD_SECTION_SIZE.*" slog >/dev/null; then
     echo ">>>>>>>> pass:1"
     case_print_result "header_size_constraints" "pass"
@@ -802,7 +819,7 @@ grep_err_log|grep -v xqc_h3_stream_send_headers
 
 clear_log
 echo -e "send 1K data ...\c"
-result=`./test_client -s 1024 -l d -t 1 -E|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 1024 -l d -t 1 -E|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -814,7 +831,7 @@ fi
 
 clear_log
 echo -e "send 1M data ...\c"
-result=`./test_client -s 1024000 -l d -t 1 -E|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 1024000 -l d -t 1 -E|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -826,7 +843,7 @@ fi
 
 clear_log
 echo -e "send 10M data ...\c"
-result=`./test_client -s 10240000 -l e -E|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 10240000 -l e -E|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -838,7 +855,7 @@ fi
 
 clear_log
 echo -e "send 4K every time ...\c"
-result=`./test_client -s 10240000 -l e -E -x 49|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 10240000 -l e -E -x 49|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -850,7 +867,7 @@ fi
 
 clear_log
 echo -e "BBR ...\c"
-result=`./test_client -s 10240000 -l e -E -c bbr|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 10240000 -l e -E -c bbr|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -862,7 +879,7 @@ fi
 
 clear_log
 echo -e "BBR with cwnd compensation ...\c"
-result=`./test_client -s 10240000 -l e -E -c bbr+|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 10240000 -l e -E -c bbr+|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -874,7 +891,7 @@ fi
 
 clear_log
 echo -e "BBRv2 ...\c"
-result=`./test_client -s 10240000 -l e -E -c bbr2|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 10240000 -l e -E -c bbr2|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -886,7 +903,7 @@ fi
 
 clear_log
 echo -e "BBRv2+ ...\c"
-result=`./test_client -s 10240000 -l e -E -c bbr2+|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 10240000 -l e -E -c bbr2+|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -898,7 +915,7 @@ fi
 
 clear_log
 echo -e "Reno with pacing ...\c"
-result=`./test_client -s 10240000 -l e -E -c reno -C|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 10240000 -l e -E -c reno -C|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -910,7 +927,7 @@ fi
 
 clear_log
 echo -e "Reno without pacing ...\c"
-result=`./test_client -s 10240000 -l e -E -c reno|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 10240000 -l e -E -c reno|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -923,7 +940,7 @@ fi
 
 clear_log
 echo -e "Cubic with pacing ...\c"
-result=`./test_client -s 10240000 -l e -E -c cubic -C|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 10240000 -l e -E -c cubic -C|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -935,7 +952,7 @@ fi
 
 clear_log
 echo -e "Cubic without pacing ...\c"
-result=`./test_client -s 10240000 -l e -E -c cubic|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 10240000 -l e -E -c cubic|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -947,7 +964,7 @@ fi
 
 clear_log
 echo -e "unlimited_cc...\c"
-result=`./test_client -s 102400 -l e -t 1 -E -c u|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 102400 -l e -t 1 -E -c u|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -959,7 +976,7 @@ fi
 
 clear_log
 echo -e "Copa with default parameters (delta=0.05, ai_unit=1.0) ...\c"
-result=`./test_client -s 10240000 -l e -t 1 -E -c P|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 10240000 -l e -t 1 -E -c P|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -971,7 +988,7 @@ fi
 
 clear_log
 echo -e "Copa with customized parameters (delta=0.5, ai_unit=5.0) ...\c"
-result=`./test_client -s 10240000 -l e -t 1 -E -c P --copa_delta 0.5 --copa_ai_unit 5.0 |grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 10240000 -l e -t 1 -E -c P --copa_delta 0.5 --copa_ai_unit 5.0 |grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -984,7 +1001,7 @@ fi
 
 clear_log
 echo -e "low_delay_settings...\c"
-result=`./test_client -s 102400 -l e -t 1 -E -x 400|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 102400 -l e -t 1 -E -x 400|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -996,7 +1013,7 @@ fi
 
 
 clear_log
-result=`./test_client -s 10240000 -l e -t 1 -E -x 26|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 10240000 -l e -t 1 -E -x 26|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
     case_print_result "spurious_loss_detect_on" "pass"
@@ -1010,7 +1027,7 @@ echo "$result"
 
 clear_log
 echo -e "stream level flow control ...\c"
-result=`./test_client -s 10240000 -l e -E|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 10240000 -l e -E|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -1022,7 +1039,7 @@ fi
 
 clear_log
 echo -e "connection level flow control ...\c"
-./test_client -s 512000 -l e -E -n 10 > stdlog
+${CLIENT_BIN} -s 512000 -l e -E -n 10 > stdlog
 sleep 1
 if [[ `grep ">>>>>>>> pass:1" stdlog|wc -l` -eq 10 ]]; then
     echo ">>>>>>>> pass:1"
@@ -1035,7 +1052,7 @@ grep_err_log
 
 clear_log
 echo -e "stream concurrency flow control ...\c"
-./test_client -s 1 -l e -t 1 -E -P 1025 -G > ccfc.log
+${CLIENT_BIN} -s 1 -l e -t 1 -E -P 1025 -G > ccfc.log
 if [[ `grep ">>>>>>>> pass:1" ccfc.log|wc -l` -eq 1024 ]]; then
     echo ">>>>>>>> pass:1"
     case_print_result "stream_concurrency_flow_control" "pass"
@@ -1048,7 +1065,7 @@ rm -f ccfc.log
 
 clear_log
 echo -e "1% loss ...\c"
-result=`./test_client -s 10240000 -l e -E -d 10|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 10240000 -l e -E -d 10|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -1060,7 +1077,7 @@ fi
 
 clear_log
 echo -e "3% loss ...\c"
-result=`./test_client -s 10240000 -l e -E -d 30|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 10240000 -l e -E -d 30|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -1071,7 +1088,7 @@ else
 fi
 
 clear_log
-result=`./test_client -s 10240000 -t 5 -l e -E -d 100|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 10240000 -t 5 -l e -E -d 100|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
     case_print_result "10_percent_loss" "pass"
@@ -1084,12 +1101,12 @@ echo "$result"
 
 
 killall test_server 2> /dev/null
-./test_server -l e -e > /dev/null &
+${SERVER_BIN} -l e -e > /dev/null &
 sleep 1
 
 clear_log
 echo -e "sendmmsg with 10% loss ...\c"
-result=`./test_client -s 10240000 -t 5 -l e -E -d 100 -x 20 -c c|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 10240000 -t 5 -l e -E -d 100 -x 20 -c c|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -1101,7 +1118,7 @@ fi
 
 
 clear_log
-result=`./test_client -s 2048000 -l e -t 5 -E -d 300|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 2048000 -l e -t 5 -E -d 300|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
     case_print_result "large_ack_range_with_30_percent_loss" "pass"
@@ -1115,7 +1132,7 @@ echo "$result"
 
 clear_log
 echo -e "test client long header ...\c"
-./test_client -l d -x 29 >> clog
+${CLIENT_BIN} -l d -x 29 >> clog
 #clog_res=`grep "xqc_process_conn_close_frame|with err:" clog`
 #slog_res=`grep "READ_VALUE error" slog`
 slog_res=`grep -a "large nv|conn" slog`
@@ -1128,13 +1145,13 @@ fi
 
 
 killall test_server 2> /dev/null
-./test_server -l d -x 9 > /dev/null &
+${SERVER_BIN} -l d -x 9 > /dev/null &
 sleep 1
 
 
 clear_log
 echo -e "test server long header ...\c"
-./test_client -l d >> clog
+${CLIENT_BIN} -l d >> clog
 #slog_res=`grep "xqc_process_conn_close_frame|with err:" slog`
 #clog_res=`grep "READ_VALUE error" clog`
 slog_res=`grep "large nv|conn" slog`
@@ -1149,9 +1166,9 @@ fi
 clear_log
 killall test_server
 echo -e "client Initial dcid corruption ...\c"
-./test_server -l d -e > /dev/null &
+${SERVER_BIN} -l d -e > /dev/null &
 sleep 1
-client_print_res=`./test_client -s 1024000 -l d -t 1 -x 22 -E | grep ">>>>>>>> pass"`
+client_print_res=`${CLIENT_BIN} -s 1024000 -l d -t 1 -x 22 -E | grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 server_log_res=`grep "decrypt payload error" slog`
 server_conn_cnt=`grep "xqc_conn_create" slog | grep -v "tra_parameters_set" | wc -l`
@@ -1167,9 +1184,9 @@ fi
 clear_log
 killall test_server
 echo -e "client Initial scid corruption ...\c"
-./test_server -l d -e > /dev/null &
+${SERVER_BIN} -l d -e > /dev/null &
 sleep 1
-client_print_res=`./test_client -s 1024000 -l d -t 1 -x 23 -E | grep ">>>>>>>> pass"`
+client_print_res=`${CLIENT_BIN} -s 1024000 -l d -t 1 -x 23 -E | grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 server_log_res=`grep "decrypt data error" slog`
 server_dcid_res=`grep "dcid change" slog`
@@ -1185,9 +1202,9 @@ fi
 clear_log
 killall test_server
 echo -e "server Initial dcid corruption ...\c"
-./test_server -l d -e -x 3 > /dev/null &
+${SERVER_BIN} -l d -e -x 3 > /dev/null &
 sleep 1
-client_print_res=`./test_client -s 1024000 -l d -t 1 -E |grep ">>>>>>>> pass"`
+client_print_res=`${CLIENT_BIN} -s 1024000 -l d -t 1 -E |grep ">>>>>>>> pass"`
 client_log_res=`grep "fail to find connection" clog`
 echo "$client_print_res"
 if [ "$client_print_res" != "" ] && [ "$client_log_res" != "" ]; then
@@ -1201,9 +1218,9 @@ fi
 clear_log
 killall test_server
 echo -e "server Initial scid corruption ...\c"
-./test_server -l d -e -x 4 > /dev/null &
+${SERVER_BIN} -l d -e -x 4 > /dev/null &
 sleep 1
-client_print_res=`./test_client -s 1024000 -l d -t 1 -E |grep ">>>>>>>> pass"`
+client_print_res=`${CLIENT_BIN} -s 1024000 -l d -t 1 -E |grep ">>>>>>>> pass"`
 client_log_res=`grep "decrypt data error" clog`
 echo "$client_print_res"
 if [ "$client_print_res" != "" ] && [ "$client_log_res" != "" ]; then
@@ -1216,9 +1233,9 @@ fi
 clear_log
 killall test_server
 echo -e "server odcid hash ...\c"
-./test_server -l d -e -x 5 > /dev/null &
+${SERVER_BIN} -l d -e -x 5 > /dev/null &
 sleep 1
-result=`./test_client -s 1024000 -l d -t 1 -E | grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 1024000 -l d -t 1 -E | grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -1228,13 +1245,13 @@ else
     echo "$errlog"
 fi
 
-# ./test_server should be killed after this case, since some of the test case requires ./test_server without param `-E`
+# ${SERVER_BIN} should be killed after this case, since some of the test case requires ${SERVER_BIN} without param `-E`
 clear_log
 killall test_server 2> /dev/null
 echo -e "load balancer cid generate with encryption...\c"
-./test_server -l d -e -S "server_id_0" -E > /dev/null &
+${SERVER_BIN} -l d -e -S "server_id_0" -E > /dev/null &
 sleep 1
-./test_client -s 1024000 -l d -t 1 >> clog
+${CLIENT_BIN} -s 1024000 -l d -t 1 >> clog
 result=`grep "|lb cid encrypted|" slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" != "" ]; then
@@ -1248,9 +1265,9 @@ fi
 clear_log
 killall test_server 2> /dev/null
 echo -e "load balancer cid generate ...\c"
-./test_server -l d -e -S "server_id_0" > /dev/null &
+${SERVER_BIN} -l d -e -S "server_id_0" > /dev/null &
 sleep 1
-./test_client -s 1024000 -l d -t 1 >> clog
+${CLIENT_BIN} -s 1024000 -l d -t 1 >> clog
 result=`grep "|xqc_conn_confirm_cid|dcid change|" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" != "" ]; then
@@ -1263,7 +1280,7 @@ fi
 
 clear_log
 echo -e "set cipher suites ...\c"
-./test_client -s 1024 -l d -t 1 -x 27 >> clog
+${CLIENT_BIN} -s 1024 -l d -t 1 -x 27 >> clog
 result=`grep "set cipher suites suc|ciphers:TLS_CHACHA20_POLY1305_SHA256" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" != "" ]; then
@@ -1276,13 +1293,13 @@ fi
 
 
 killall test_server 2> /dev/null
-./test_server -l d -e -x 8 > /dev/null &
+${SERVER_BIN} -l d -e -x 8 > /dev/null &
 sleep 1
 
 clear_log
 rm -f test_session xqc_token tp_localhost
 echo -e "server amplification limit ...\c"
-./test_client -s 1024 -l d -t 3 -x 25 -1 >> clog
+${CLIENT_BIN} -s 1024 -l d -t 3 -x 25 -1 >> clog
 enter_aal=`grep "amplification limit" slog`
 aal=`grep "blocked by anti amplification limit" slog`
 leave_aal=`grep "anti-amplification state unlock" slog`
@@ -1296,11 +1313,11 @@ fi
 
 
 killall test_server 2> /dev/null
-./test_server -l e -e -x 10 > /dev/null &
+${SERVER_BIN} -l e -e -x 10 > /dev/null &
 sleep 1
 clear_log
 echo -e "massive requests with massive header ...\c"
-./test_client -l e -q 50 -n 100 -x 32 -E >> clog
+${CLIENT_BIN} -l e -q 50 -n 100 -x 32 -E >> clog
 result=`grep ">>>>>>>> pass:1" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" != "" ]; then
@@ -1312,12 +1329,12 @@ else
 fi
 
 killall test_server 2> /dev/null
-./test_server -l d -e -b > /dev/null &
+${SERVER_BIN} -l d -e -b > /dev/null &
 sleep 1
 
 clear_log
 echo -e "version negotiation ...\c"
-./test_client -l d -E -x 33 >> clog
+${CLIENT_BIN} -l d -E -x 33 >> clog
 result=`grep -e "|====>|.*VERSION_NEGOTIATION" clog`
 if [ -n "$result" ]; then
     echo ">>>>>>>> pass:1"
@@ -1329,12 +1346,12 @@ fi
 
 
 killall test_server
-./test_server -l d -e -x 11 > /dev/null &
+${SERVER_BIN} -l d -e -x 11 > /dev/null &
 sleep 1
 
 clear_log
 echo -e "server refuse connection ...\c"
-./test_client -l d -E >> clog
+${CLIENT_BIN} -l d -E >> clog
 svr_result=`grep "server_accept callback return error" slog`
 if [ -n "$svr_result" ] ; then
     echo ">>>>>>>> pass:1"
@@ -1345,13 +1362,13 @@ else
 fi
 
 killall test_server
-./test_server -l e -e -x 12 > /dev/null &
+${SERVER_BIN} -l e -e -x 12 > /dev/null &
 sleep 1
 
 clear_log
 echo -e "linger close transport ...\c"
 rm -f test_session xqc_token tp_localhost
-result=`./test_client -l e -T 1 -t 1 -E|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -l e -T 1 -t 1 -E|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -1364,7 +1381,7 @@ rm -f test_session xqc_token tp_localhost
 
 clear_log
 echo -e "linger close h3 ...\c"
-result=`./test_client -l e -t 1 -E|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -l e -t 1 -E|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -1375,12 +1392,12 @@ else
 fi
 
 killall test_server
-./test_server -l d -e > /dev/null &
+${SERVER_BIN} -l d -e > /dev/null &
 sleep 1
 
 clear_log
 echo -e "key update ...\c"
-./test_client -s 102400 -l d -E -x 40 >> clog
+${CLIENT_BIN} -s 102400 -l d -E -x 40 >> clog
 result=`grep ">>>>>>>> pass" clog`
 svr_res=`grep "key phase changed to" slog`
 cli_res=`grep "key phase changed to" clog`
@@ -1396,7 +1413,7 @@ grep_err_log
 
 clear_log
 echo -e "key update 0RTT...\c"
-./test_client -s 102400 -l d -E -x 40 >> clog
+${CLIENT_BIN} -s 102400 -l d -E -x 40 >> clog
 result=`grep ">>>>>>>> pass" clog`
 svr_res=`grep "key phase changed to" slog`
 cli_res=`grep "key phase changed to" clog`
@@ -1412,7 +1429,7 @@ grep_err_log
 
 
 echo -e "max pkt out size...\c"
-./test_client -l d -x 42 -1 -E > stdlog
+${CLIENT_BIN} -l d -x 42 -1 -E > stdlog
 result=`grep ">>>>>>>> pass" stdlog`
 if [ -n "$result" ]; then
     echo ">>>>>>>> pass:1"
@@ -1424,11 +1441,11 @@ fi
 
 
 killall test_server
-./test_server -l d -x 13 > /dev/null &
+${SERVER_BIN} -l d -x 13 > /dev/null &
 sleep 1
 clear_log
 echo -e "stateless reset...\c"
-./test_client -l d -x 41 -1 -t 5 > stdlog
+${CLIENT_BIN} -l d -x 41 -1 -t 5 > stdlog
 result=`grep "|====>|receive stateless reset" clog`
 cloing_notify=`grep "conn closing: 641" stdlog`
 if [ -n "$result" ] && [ -n "$cloing_notify" ]; then
@@ -1442,7 +1459,7 @@ fi
 
 clear_log
 echo -e "stateless reset during hsk...\c"
-./test_client -l d  -t 5 -x 45 -1 -s 100 -G > stdlog
+${CLIENT_BIN} -l d  -t 5 -x 45 -1 -s 100 -G > stdlog
 result=`grep "|====>|receive stateless reset" clog`
 cloing_notify=`grep "conn closing: 641" stdlog`
 svr_hsk=`grep "handshake_time:0" slog`
@@ -1456,13 +1473,13 @@ else
 fi
 
 killall test_server
-./test_server -l d -e -M > /dev/null &
+${SERVER_BIN} -l d -e -M > /dev/null &
 sleep 1
 
 
 clear_log
 echo -e "MPNS enable multipath negotiate ...\c"
-sudo ./test_client -s 1024000 -l d -t 1 -M -i lo > stdlog
+sudo ${CLIENT_BIN} -s 1024000 -l d -t 1 -M -i lo > stdlog
 result=` grep "enable_multipath=1" stdlog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" != "" ]; then
@@ -1476,7 +1493,7 @@ grep_err_log
 
 clear_log
 echo -e "MPNS send 1M data on multiple paths ...\c"
-sudo ./test_client -s 1024000 -l d -t 1 -M -i lo -i lo -E > stdlog
+sudo ${CLIENT_BIN} -s 1024000 -l d -t 1 -M -i lo -i lo -E > stdlog
 result=`grep ">>>>>>>> pass" stdlog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -1490,7 +1507,7 @@ grep_err_log
 
 clear_log
 echo -e "MPNS multipath 30 percent loss ...\c"
-sudo ./test_client -s 10240000 -t 5 -l e -E -d 300 -M -i lo -i lo > stdlog
+sudo ${CLIENT_BIN} -s 10240000 -t 5 -l e -E -d 300 -M -i lo -i lo > stdlog
 result=`grep ">>>>>>>> pass" stdlog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -1504,7 +1521,7 @@ grep_err_log
 
 clear_log
 echo -e "MPNS multipath close initial path ...\c"
-sudo ./test_client -s 1024000 -l d -t 3 -M -i lo -i lo -E -x 100 > stdlog
+sudo ${CLIENT_BIN} -s 1024000 -l d -t 3 -M -i lo -i lo -E -x 100 > stdlog
 result=`grep ">>>>>>>> pass" stdlog`
 svr_res=`grep "|path closed|path:0|" slog`
 cli_res=`grep "|path closed|path:0|" clog`
@@ -1520,7 +1537,7 @@ grep_err_log
 
 clear_log
 echo -e "MPNS multipath 30 percent loss close initial path ...\c"
-sudo ./test_client -s 10240000 -t 5 -l d -E -d 300 -M -i lo -i lo -x 100 > stdlog
+sudo ${CLIENT_BIN} -s 10240000 -t 5 -l d -E -d 300 -M -i lo -i lo -x 100 > stdlog
 result=`grep ">>>>>>>> pass" stdlog`
 svr_res=`grep "|path closed|path:0|" slog`
 cli_res=`grep "|path closed|path:0|" clog`
@@ -1536,7 +1553,7 @@ grep_err_log
 
 clear_log
 echo -e "MPNS multipath close new path ...\c"
-sudo ./test_client -s 1024000 -l d -t 3 -M -A -i lo -i lo -E -x 101 >> clog
+sudo ${CLIENT_BIN} -s 1024000 -l d -t 3 -M -A -i lo -i lo -E -x 101 >> clog
 result=`grep ">>>>>>>> pass" clog`
 svr_res=`grep "|path closed|path:1|" slog`
 cli_res=`grep "|path closed|path:1|" clog`
@@ -1552,7 +1569,7 @@ grep_err_log
 
 clear_log
 echo -e "MPNS multipath 30 percent loss close new path ...\c"
-sudo ./test_client -s 10240000 -t 5 -l d -E -d 300 -M -i lo -i lo -x 101 > stdlog
+sudo ${CLIENT_BIN} -s 10240000 -t 5 -l d -E -d 300 -M -i lo -i lo -x 101 > stdlog
 result=`grep ">>>>>>>> pass" stdlog`
 svr_res=`grep "|path closed|path:1|" slog`
 cli_res=`grep "|path closed|path:1|" clog`
@@ -1567,13 +1584,13 @@ fi
 grep_err_log
 
 killall test_server
-./test_server -l d -e -M > /dev/null &
+${SERVER_BIN} -l d -e -M > /dev/null &
 sleep 1
 
 
 clear_log
 echo -e "send 1M data on multiple paths with multipath vertion 04"
-sudo ./test_client -s 1024000 -l d -t 1 -M -i lo -i lo -E -v 4 > stdlog
+sudo ${CLIENT_BIN} -s 1024000 -l d -t 1 -M -i lo -i lo -E -v 4 > stdlog
 cli_result=`grep "multipath version negotiation succeed on multipath 04" clog`
 if [ -n "$cli_result" ]; then
     echo ">>>>>>>> pass:1"
@@ -1586,7 +1603,7 @@ rm -f test_session tp_localhost xqc_token
 
 clear_log
 echo -e "send 1M data on multiple paths with multipath vertion 05"
-sudo ./test_client -s 1024000 -l d -t 1 -M -i lo -i lo -E -v 5 > stdlog
+sudo ${CLIENT_BIN} -s 1024000 -l d -t 1 -M -i lo -i lo -E -v 5 > stdlog
 cli_result=`grep "multipath version negotiation succeed on multipath 05" clog`
 if [ -n "$cli_result" ]; then
     echo ">>>>>>>> pass:1"
@@ -1598,12 +1615,12 @@ fi
 rm -f test_session tp_localhost xqc_token
 
 killall test_server
-./test_server -l d -e -M -R 1 > /dev/null &
+${SERVER_BIN} -l d -e -M -R 1 > /dev/null &
 sleep 1
 
 clear_log
 echo -e "MPNS reinject unack packets by capacity ...\c"
-sudo ./test_client -s 1024000 -l d -t 1 -M -i lo -i lo -E -R 1 > stdlog
+sudo ${CLIENT_BIN} -s 1024000 -l d -t 1 -M -i lo -i lo -E -R 1 > stdlog
 result=`grep ">>>>>>>> pass" stdlog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -1617,12 +1634,12 @@ grep_err_log
 
 
 killall test_server
-./test_server -l d -e -M -R 2 > /dev/null &
+${SERVER_BIN} -l d -e -M -R 2 > /dev/null &
 sleep 1
 
 clear_log
 echo -e "MPNS reinject unack packets by deadline ...\c"
-sudo ./test_client -s 1024000 -l d -t 1 -M -i lo -i lo -E -R 2 > stdlog
+sudo ${CLIENT_BIN} -s 1024000 -l d -t 1 -M -i lo -i lo -E -R 2 > stdlog
 result=`grep ">>>>>>>> pass" stdlog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -1636,12 +1653,12 @@ grep_err_log
 
 
 killall test_server
-./test_server -l d -e -M > /dev/null &
+${SERVER_BIN} -l d -e -M > /dev/null &
 sleep 1
 
 clear_log
 echo -e "NAT rebinding path 0 ...\c"
-sudo ./test_client -s 102400 -l d -t 3 -M -i lo -i lo -E -n 2 -x 103 > stdlog
+sudo ${CLIENT_BIN} -s 102400 -l d -t 3 -M -i lo -i lo -E -n 2 -x 103 > stdlog
 result=`grep ">>>>>>>> pass:0" stdlog`
 errlog=`grep_err_log`
 rebind=`grep "|path:0|REBINDING|validate NAT rebinding addr|" slog`
@@ -1659,7 +1676,7 @@ grep_err_log
 
 clear_log
 echo -e "NAT rebinding path 1 ...\c"
-sudo ./test_client -s 1024000 -l d -t 3 -M -i lo -i lo -E -n 2 -x 104 > stdlog
+sudo ${CLIENT_BIN} -s 1024000 -l d -t 3 -M -i lo -i lo -E -n 2 -x 104 > stdlog
 result=`grep ">>>>>>>> pass:0" stdlog`
 errlog=`grep_err_log`
 rebind=`grep "|path:1|REBINDING|validate NAT rebinding addr|" slog`
@@ -1673,12 +1690,12 @@ fi
 grep_err_log
 
 killall test_server
-./test_server -l d -e -M -y > /dev/null &
+${SERVER_BIN} -l d -e -M -y > /dev/null &
 sleep 1
 
 clear_log
 echo -e "Multipath Compensate and Accelerate ...\c"
-sudo ./test_client -s 102400 -l d -t 3 -M -A -i lo -i lo -E -P 2 -y > ccfc.log
+sudo ${CLIENT_BIN} -s 102400 -l d -t 3 -M -A -i lo -i lo -E -P 2 -y > ccfc.log
 errlog=`grep_err_log`
 svr_res=`grep "path_status:2->1" slog`
 cli_res=`grep "path_status:2->1" clog`
@@ -1693,7 +1710,7 @@ grep_err_log
 
 clear_log
 echo -e "Multipath Compensate but not Accelerate ...\c"
-sudo ./test_client -s 102400 -l d -t 3 -M -i lo -i lo -E -P 2 -y > ccfc.log
+sudo ${CLIENT_BIN} -s 102400 -l d -t 3 -M -i lo -i lo -E -P 2 -y > ccfc.log
 errlog=`grep_err_log`
 svr_res=`grep "path_status:2->1" slog`
 cli_res=`grep "path_status:2->1" clog`
@@ -1720,11 +1737,11 @@ fi
 if [ -f stdlog ]; then
     rm -f stdlog
 fi
-./test_server -l d -Q 9000 > /dev/null &
+${SERVER_BIN} -l d -Q 9000 > /dev/null &
 sleep 1
 clear_log
 echo -e "datagram frame size negotiation...\c"
-./test_client -l d -Q 9000 >> stdlog
+${CLIENT_BIN} -l d -Q 9000 >> stdlog
 cli_result=`grep "|1RTT_transport_params|max_datagram_frame_size:9000|" clog`
 svr_result=`grep "|1RTT_transport_params|max_datagram_frame_size:9000|" slog`
 errlog=`grep_err_log`
@@ -1738,7 +1755,7 @@ fi
 
 clear_log
 echo -e "0RTT max_datagram_frame_size is valid...\c"
-./test_client -l d >> stdlog
+${CLIENT_BIN} -l d >> stdlog
 cli_result=`grep "|0RTT_transport_params|max_datagram_frame_size:9000|" clog`
 cli_result2=`grep "|1RTT_transport_params|max_datagram_frame_size:9000|" clog`
 errlog=`grep_err_log`
@@ -1751,11 +1768,11 @@ else
 fi
 
 killall test_server
-./test_server -l d -Q 8000 > /dev/null &
+${SERVER_BIN} -l d -Q 8000 > /dev/null &
 sleep 1
 clear_log
 echo -e "0RTT max_datagram_frame_size is invalid...\c"
-./test_client -l d >> stdlog
+${CLIENT_BIN} -l d >> stdlog
 cli_result=`grep "|0RTT_transport_params|max_datagram_frame_size:9000|" clog`
 cli_err=`grep "[error].*err:0xe" clog`
 svr_err=`grep "[error].*err:0xe" slog`
@@ -1778,11 +1795,11 @@ fi
 if [ -f xqc_token ]; then
     rm -f xqc_token
 fi
-stdbuf -oL ./test_server -l d -Q 1000 -x 200 > svr_stdlog &
+stdbuf -oL ${SERVER_BIN} -l d -Q 1000 -x 200 > svr_stdlog &
 sleep 1
 clear_log
 echo -e "datagram_get_mss(no_saved_transport_params)...\c"
-./test_client -l d -T 1 -x 200 -Q 1000 -s 1 -U 1 > stdlog
+${CLIENT_BIN} -l d -T 1 -x 200 -Q 1000 -s 1 -U 1 > stdlog
 cli_res1=`grep "\[dgram-200\]|.*|initial_mss:0|" stdlog`
 cli_res2=`grep "\[dgram-200\]|.*|updated_mss:997|" stdlog`
 svr_res=`grep -a "\[dgram-200\]|.*|initial_mss:997|" svr_stdlog`
@@ -1798,7 +1815,7 @@ fi
 > svr_stdlog
 clear_log
 echo -e "datagram_get_mss(saved_transport_params)...\c"
-./test_client -l d -T 1 -x 200 -Q 1000 -s 1 -U 1 > stdlog
+${CLIENT_BIN} -l d -T 1 -x 200 -Q 1000 -s 1 -U 1 > stdlog
 cli_res1=`grep "\[dgram-200\]|.*|initial_mss:997|" stdlog`
 cli_res2=`grep "\[dgram-200\]|.*|updated_mss:997|" stdlog`
 svr_res=`grep -a "\[dgram-200\]|.*|initial_mss:997|" svr_stdlog`
@@ -1821,11 +1838,11 @@ fi
 if [ -f xqc_token ]; then
     rm -f xqc_token
 fi
-stdbuf -oL  ./test_server -l d -Q 65535 -x 201 > svr_stdlog &
+stdbuf -oL  ${SERVER_BIN} -l d -Q 65535 -x 201 > svr_stdlog &
 sleep 1
 clear_log
 echo -e "datagram_mss_limited_by_MTU...\c"
-./test_client -l d -T 1 -x 201 -Q 65535 -s 1 -U 1 > stdlog
+${CLIENT_BIN} -l d -T 1 -x 201 -Q 65535 -s 1 -U 1 > stdlog
 cli_res1=`grep "\[dgram-200\]|.*|initial_mss:0|" stdlog`
 cli_res2=`grep "\[dgram-200\]|.*|updated_mss:1200|" stdlog`
 svr_res=`grep -a "\[dgram-200\]|.*|initial_mss:1200|" svr_stdlog`
@@ -1850,11 +1867,11 @@ if [ -f xqc_token ]; then
 fi
 
 # timer-based dgram probe
-stdbuf -oL ./test_server -l d -Q 65535 -x 209 -e -U 2 > svr_stdlog &
+stdbuf -oL ${SERVER_BIN} -l d -Q 65535 -x 209 -e -U 2 > svr_stdlog &
 sleep 1
 clear_log
 echo -e "timer_based_dgram_probe...\c"
-./test_client -l d -T 1 -x 209 -s 1000 -U 1 -Q 65535 -x 209 > stdlog
+${CLIENT_BIN} -l d -T 1 -x 209 -s 1000 -U 1 -Q 65535 -x 209 > stdlog
 killall test_server
 cli_res1=(`grep "|recv_dgram_bytes:" stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
 svr_res=(`grep "|recv_dgram_bytes:" svr_stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
@@ -1878,11 +1895,11 @@ if [ -f xqc_token ]; then
     rm -f xqc_token
 fi
 
-stdbuf -oL ./test_server -l d -Q 1000 -x 200 > svr_stdlog &
+stdbuf -oL ${SERVER_BIN} -l d -Q 1000 -x 200 > svr_stdlog &
 sleep 1
 clear_log
 echo -e "datagram_mss_limited_by_max_datagram_frame_size...\c"
-./test_client -l d -T 1 -x 200 -s 1 -U 1 -Q 1000 > stdlog
+${CLIENT_BIN} -l d -T 1 -x 200 -s 1 -U 1 -Q 1000 > stdlog
 cli_res1=`grep "\[dgram-200\]|.*|initial_mss:0|" stdlog`
 cli_res2=`grep "\[dgram-200\]|.*|updated_mss:997|" stdlog`
 svr_res=`grep -a "\[dgram-200\]|.*|initial_mss:997|" svr_stdlog`
@@ -1898,14 +1915,14 @@ rm -f test_session tp_localhost xqc_token
 
 killall test_server
 
-./test_server -l e -Q 65535 -e -U 1 > /dev/null &
+${SERVER_BIN} -l e -Q 65535 -e -U 1 > /dev/null &
 sleep 1
 clear_log
 #generate 0rtt data
-./test_client -l e -T 1 -s 1 -U 1 -Q 65535 > stdlog
+${CLIENT_BIN} -l e -T 1 -s 1 -U 1 -Q 65535 > stdlog
 clear_log
 echo -e "send_0RTT_datagram_100KB...\c"
-./test_client -l e -T 1 -s 102400 -U 1 -Q 65535 -E > stdlog
+${CLIENT_BIN} -l e -T 1 -s 102400 -U 1 -Q 65535 -E > stdlog
 cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -1919,7 +1936,7 @@ fi
 if [ $LOCAL_TEST -ne 0 ]; then
     clear_log
     echo -e "send_0RTT_datagram_1MB...\c"
-    ./test_client -l e -T 1 -s 1048576 -U 1 -Q 65535 -E > stdlog
+    ${CLIENT_BIN} -l e -T 1 -s 1048576 -U 1 -Q 65535 -E > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -1932,7 +1949,7 @@ if [ $LOCAL_TEST -ne 0 ]; then
 
     clear_log
     echo -e "send_0RTT_datagram_10MB...\c"
-    ./test_client -l e -T 1 -s 10485760 -U 1 -Q 65535 -E > stdlog
+    ${CLIENT_BIN} -l e -T 1 -s 10485760 -U 1 -Q 65535 -E > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -1945,7 +1962,7 @@ if [ $LOCAL_TEST -ne 0 ]; then
 
     clear_log
     echo -e "send_0RTT_datagram_100MB...\c"
-    ./test_client -l e -T 1 -s 104857600 -U 1 -Q 65535 -E > stdlog
+    ${CLIENT_BIN} -l e -T 1 -s 104857600 -U 1 -Q 65535 -E > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -1962,14 +1979,14 @@ rm -f test_session tp_localhost xqc_token
 
 killall test_server
 
-./test_server -l e -Q 65535 -e -U 2 > /dev/null &
+${SERVER_BIN} -l e -Q 65535 -e -U 2 > /dev/null &
 sleep 1
 clear_log
 #generate 0rtt data
-./test_client -l e -T 1 -s 1 -U 2 -Q 65535 > stdlog
+${CLIENT_BIN} -l e -T 1 -s 1 -U 2 -Q 65535 > stdlog
 clear_log
 echo -e "send_0RTT_datagram_100KB_batch...\c"
-./test_client -l e -T 1 -s 102400 -U 2 -Q 65535 -E > stdlog
+${CLIENT_BIN} -l e -T 1 -s 102400 -U 2 -Q 65535 -E > stdlog
 cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -1983,7 +2000,7 @@ fi
 if [ $LOCAL_TEST -ne 0 ]; then
     clear_log
     echo -e "send_0RTT_datagram_1MB_batch...\c"
-    ./test_client -l e -T 1 -s 1048576 -U 2 -Q 65535 -E > stdlog
+    ${CLIENT_BIN} -l e -T 1 -s 1048576 -U 2 -Q 65535 -E > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -1996,7 +2013,7 @@ if [ $LOCAL_TEST -ne 0 ]; then
 
     clear_log
     echo -e "send_0RTT_datagram_10MB_batch...\c"
-    ./test_client -l e -T 1 -s 10485760 -U 2 -Q 65535 -E > stdlog
+    ${CLIENT_BIN} -l e -T 1 -s 10485760 -U 2 -Q 65535 -E > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2009,7 +2026,7 @@ if [ $LOCAL_TEST -ne 0 ]; then
 
     clear_log
     echo -e "send_0RTT_datagram_100MB_batch...\c"
-    ./test_client -l e -T 1 -s 104857600 -U 2 -Q 65535 -E > stdlog
+    ${CLIENT_BIN} -l e -T 1 -s 104857600 -U 2 -Q 65535 -E > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2025,11 +2042,11 @@ rm -f test_session tp_localhost xqc_token
 
 
 killall test_server
-./test_server -l e -Q 65535 -e -U 1 > /dev/null &
+${SERVER_BIN} -l e -Q 65535 -e -U 1 > /dev/null &
 sleep 1
 clear_log
 echo -e "send_1RTT_datagram_100KB...\c"
-./test_client -l e -T 1 -s 102400 -U 1 -Q 65535 -E -1 > stdlog
+${CLIENT_BIN} -l e -T 1 -s 102400 -U 1 -Q 65535 -E -1 > stdlog
 cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2043,7 +2060,7 @@ fi
 if [ $LOCAL_TEST -ne 0 ]; then
     clear_log
     echo -e "send_1RTT_datagram_1MB...\c"
-    ./test_client -l e -T 1 -s 1048576 -U 1 -Q 65535 -E -1 > stdlog
+    ${CLIENT_BIN} -l e -T 1 -s 1048576 -U 1 -Q 65535 -E -1 > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2056,7 +2073,7 @@ if [ $LOCAL_TEST -ne 0 ]; then
 
     clear_log
     echo -e "send_1RTT_datagram_10MB...\c"
-    ./test_client -l e -T 1 -s 10485760 -U 1 -Q 65535 -E -1 > stdlog
+    ${CLIENT_BIN} -l e -T 1 -s 10485760 -U 1 -Q 65535 -E -1 > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2069,7 +2086,7 @@ if [ $LOCAL_TEST -ne 0 ]; then
 
     clear_log
     echo -e "send_1RTT_datagram_100MB...\c"
-    ./test_client -l e -T 1 -s 104857600 -U 1 -Q 65535 -E -1 > stdlog
+    ${CLIENT_BIN} -l e -T 1 -s 104857600 -U 1 -Q 65535 -E -1 > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2084,11 +2101,11 @@ rm -f test_session tp_localhost xqc_token
 
 
 killall test_server
-./test_server -l e -Q 65535 -e -U 2 > /dev/null &
+${SERVER_BIN} -l e -Q 65535 -e -U 2 > /dev/null &
 sleep 1
 clear_log
 echo -e "send_1RTT_datagram_100KB_batch...\c"
-./test_client -l e -T 1 -s 102400 -U 2 -Q 65535 -E -1 > stdlog
+${CLIENT_BIN} -l e -T 1 -s 102400 -U 2 -Q 65535 -E -1 > stdlog
 cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2102,7 +2119,7 @@ fi
 if [ $LOCAL_TEST -ne 0 ]; then
     clear_log
     echo -e "send_1RTT_datagram_1MB_batch...\c"
-    ./test_client -l e -T 1 -s 1048576 -U 2 -Q 65535 -E -1 > stdlog
+    ${CLIENT_BIN} -l e -T 1 -s 1048576 -U 2 -Q 65535 -E -1 > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2115,7 +2132,7 @@ if [ $LOCAL_TEST -ne 0 ]; then
 
     clear_log
     echo -e "send_1RTT_datagram_10MB_batch...\c"
-    ./test_client -l e -T 1 -s 10485760 -U 2 -Q 65535 -E -1 > stdlog
+    ${CLIENT_BIN} -l e -T 1 -s 10485760 -U 2 -Q 65535 -E -1 > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2128,7 +2145,7 @@ if [ $LOCAL_TEST -ne 0 ]; then
 
     clear_log
     echo -e "send_1RTT_datagram_100MB_batch...\c"
-    ./test_client -l e -T 1 -s 104857600 -U 2 -Q 65535 -E -1 > stdlog
+    ${CLIENT_BIN} -l e -T 1 -s 104857600 -U 2 -Q 65535 -E -1 > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2142,11 +2159,11 @@ fi
 rm -f test_session tp_localhost xqc_token
 
 killall test_server
-./test_server -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
+${SERVER_BIN} -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
 sleep 1
 clear_log
 echo -e "send_queue_full...\c"
-./test_client -l d -T 1 -s 40000000 -U 1 -Q 65535 -1 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 40000000 -U 1 -Q 65535 -1 > stdlog
 cli_res1=`grep "\[dgram\]|retry_datagram_send_later|" stdlog`
 cli_res2=`grep "|too many packets used|ctl_packets_used:" clog`
 cli_res3=`grep "\[dgram\]|dgram_write|" stdlog`
@@ -2161,7 +2178,7 @@ fi
 
 clear_log
 echo -e "send_queue_full_batch...\c"
-./test_client -l d -T 1 -s 40000000 -U 2 -Q 65535 -1 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 40000000 -U 2 -Q 65535 -1 > stdlog
 cli_res1=`grep "\[dgram\]|retry_datagram_send_multiple_later|" stdlog`
 cli_res2=`grep "|too many packets used|ctl_packets_used:" clog`
 cli_res3=`grep "\[dgram\]|dgram_write|" stdlog`
@@ -2176,7 +2193,7 @@ fi
 
 clear_log
 echo -e "send_0rtt_datagram_without_saved_datagram_tp...\c"
-./test_client -l d -T 1 -s 999 -U 1 -Q 65535 -1 -E -x 202 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 999 -U 1 -Q 65535 -1 -E -x 202 > stdlog
 cli_res1=`grep "\[dgram\]|retry_datagram_send_later|" stdlog`
 cli_res2=`grep "|waiting_for_max_datagram_frame_size_from_peer|" clog`
 cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
@@ -2192,7 +2209,7 @@ fi
 
 clear_log
 echo -e "send_0rtt_datagram_without_saved_datagram_tp_batch...\c"
-./test_client -l d -T 1 -s 999 -U 2 -Q 65535 -1 -E -x 202 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 999 -U 2 -Q 65535 -1 -E -x 202 > stdlog
 cli_res1=`grep "\[dgram\]|retry_datagram_send_multiple_later|" stdlog`
 cli_res2=`grep "|waiting_for_max_datagram_frame_size_from_peer|" clog`
 cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
@@ -2209,7 +2226,7 @@ fi
 
 clear_log
 echo -e "send_too_many_0rtt_datagrams...\c"
-./test_client -l d -T 1 -s 40000 -U 1 -Q 65535 -E > stdlog
+${CLIENT_BIN} -l d -T 1 -s 40000 -U 1 -Q 65535 -E > stdlog
 cli_res1=`grep "\[dgram\]|retry_datagram_send_later|" stdlog`
 cli_res2=`grep "|too many 0rtt packets|" clog`
 cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
@@ -2225,7 +2242,7 @@ fi
 
 clear_log
 echo -e "send_too_many_0rtt_datagrams_batch...\c"
-./test_client -l d -T 1 -s 40000 -U 2 -Q 65535 -E > stdlog
+${CLIENT_BIN} -l d -T 1 -s 40000 -U 2 -Q 65535 -E > stdlog
 cli_res1=`grep "\[dgram\]|retry_datagram_send_multiple_later|" stdlog`
 cli_res2=`grep "|too many 0rtt packets|" clog`
 cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
@@ -2240,11 +2257,11 @@ else
 fi
 
 killall test_server
-./test_server -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
+${SERVER_BIN} -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
 sleep 1
 clear_log
 echo -e "send_0rtt_datagram_reject...\c"
-./test_client -l d -T 1 -s 4800 -U 1 -Q 65535 -E > stdlog
+${CLIENT_BIN} -l d -T 1 -s 4800 -U 1 -Q 65535 -E > stdlog
 cli_res1=`grep "xqc_conn_early_data_reject" clog`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 errlog=`grep_err_log`
@@ -2258,11 +2275,11 @@ fi
 
 
 killall test_server
-./test_server -l d -Q 1000 -e -U 1 -s 1 > /dev/null &
+${SERVER_BIN} -l d -Q 1000 -e -U 1 -s 1 > /dev/null &
 sleep 1
 clear_log
 echo -e "send_oversized_datagram...\c"
-./test_client -l d -T 1 -s 4800 -U 1 -Q 65535 -E -1 -x 203 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 4800 -U 1 -Q 65535 -E -1 -x 203 > stdlog
 cli_res1=`grep "datagram_is_too_large" clog`
 cli_res2=`grep "trying_to_send_an_oversized_datagram" stdlog`
 errlog=`grep_err_log`
@@ -2276,7 +2293,7 @@ fi
 
 clear_log
 echo -e "send_oversized_datagram_batch...\c"
-./test_client -l d -T 1 -s 4800 -U 2 -Q 65535 -E -1 -x 203 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 4800 -U 2 -Q 65535 -E -1 -x 203 > stdlog
 cli_res1=`grep "datagram_is_too_large" clog`
 cli_res2=`grep "trying_to_send_an_oversized_datagram" stdlog`
 cli_res3=`grep "|partially_sent_pkts_in_a_batch|cnt:1|" stdlog`
@@ -2291,11 +2308,11 @@ fi
 rm -rf tp_localhost test_session xqc_token
 
 killall test_server
-./test_server -l d -Q 0 -e -U 1 -s 1 > /dev/null &
+${SERVER_BIN} -l d -Q 0 -e -U 1 -s 1 > /dev/null &
 sleep 1
 clear_log
 echo -e "send_datagram_while_peer_does_not_support...\c"
-./test_client -l d -T 1 -s 4800 -U 1 -Q 65535 -E -1 -x 204 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 4800 -U 1 -Q 65535 -E -1 -x 204 > stdlog
 cli_res1=`grep "|does not support datagram|" clog`
 cli_res2=`grep "\[dgram\]|send_datagram_error|" stdlog`
 errlog=`grep_err_log`
@@ -2309,7 +2326,7 @@ fi
 
 clear_log
 echo -e "send_datagram_batch_while_peer_does_not_support...\c"
-./test_client -l d -T 1 -s 4800 -U 2 -Q 65535 -E -1 -x 204 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 4800 -U 2 -Q 65535 -E -1 -x 204 > stdlog
 cli_res1=`grep "|does not support datagram|" clog`
 cli_res2=`grep "\[dgram\]|send_datagram_multiple_error|" stdlog`
 errlog=`grep_err_log`
@@ -2322,12 +2339,12 @@ else
 fi
 
 killall test_server
-./test_server -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
+${SERVER_BIN} -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
 sleep 1
-./test_client -l d -T 1 -s 1 -U 1 -Q 65535 -E -N > stdlog
+${CLIENT_BIN} -l d -T 1 -s 1 -U 1 -Q 65535 -E -N > stdlog
 clear_log
 echo -e "send_0rtt_datagram_dgram1_lost...\c"
-./test_client -l d -T 1 -s 4800 -U 1 -Q 65535 -E -x 205 -N > stdlog
+${CLIENT_BIN} -l d -T 1 -s 4800 -U 1 -Q 65535 -E -x 205 -N > stdlog
 cli_res1=`grep "\[dgram\]|dgram_lost|dgram_id:0|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2340,7 +2357,7 @@ fi
 
 clear_log
 echo -e "send_1rtt_datagram_dgram1_lost...\c"
-./test_client -l d -T 1 -s 4800 -U 1 -Q 65535 -E -x 205 -N -1 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 4800 -U 1 -Q 65535 -E -x 205 -N -1 > stdlog
 cli_res1=`grep "\[dgram\]|dgram_lost|dgram_id:0|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2353,7 +2370,7 @@ fi
 
 clear_log
 echo -e "send_0rtt_datagram_reorder...\c"
-./test_client -l d -T 1 -s 1800 -U 1 -Q 65535 -E -x 206 -N > stdlog
+${CLIENT_BIN} -l d -T 1 -s 1800 -U 1 -Q 65535 -E -x 206 -N > stdlog
 cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2366,7 +2383,7 @@ fi
 
 clear_log
 echo -e "send_1rtt_datagram_reorder...\c"
-./test_client -l d -T 1 -s 1800 -U 1 -Q 65535 -E -x 206 -N -1 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 1800 -U 1 -Q 65535 -E -x 206 -N -1 > stdlog
 cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2379,7 +2396,7 @@ fi
 
 clear_log
 echo -e "datagram_lost_callback...\c"
-./test_client -l d -T 1 -s 1000 -U 1 -Q 65535 -E -x 205 -N -1 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 1000 -U 1 -Q 65535 -E -x 205 -N -1 > stdlog
 cli_res1=`grep "\[dgram\]|dgram_lost|dgram_id:0|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2392,7 +2409,7 @@ fi
 
 clear_log
 echo -e "datagram_acked_callback...\c"
-./test_client -l d -T 1 -s 1000 -U 1 -Q 65535 -E -x 207 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 1000 -U 1 -Q 65535 -E -x 207 > stdlog
 cli_res1=`grep "\[dgram\]|dgram_acked|dgram_id:0|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2413,12 +2430,12 @@ fi
 if [ -f xqc_token ]; then
     rm -f xqc_token
 fi
-stdbuf -oL ./test_server -l d -Q 65535 -x 208 -e -U 1 > svr_stdlog &
+stdbuf -oL ${SERVER_BIN} -l d -Q 65535 -x 208 -e -U 1 > svr_stdlog &
 sleep 1
 
 clear_log
 echo -e "1RTT_datagram_send_redundancy...\c"
-./test_client -l d -T 1 -s 2000 -U 1 -Q 65535 -x 208 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 2000 -U 1 -Q 65535 -x 208 > stdlog
 cli_res1=`grep "\[dgram\]|recv_dgram_bytes:8000" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2435,7 +2452,7 @@ fi
 
 clear_log
 echo -e "1RTT_datagram_send_multiple_redundancy...\c"
-./test_client -l d -T 1 -s 2000 -U 2 -Q 65535 -x 208 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 2000 -U 2 -Q 65535 -x 208 > stdlog
 cli_res1=`grep "\[dgram\]|recv_dgram_bytes:8000" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2449,7 +2466,7 @@ fi
 
 clear_log
 echo -e "0RTT_datagram_send_redundancy...\c"
-./test_client -l d -T 1 -s 2000 -U 1 -Q 65535 -x 208 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 2000 -U 1 -Q 65535 -x 208 > stdlog
 cli_res1=`grep "\[dgram\]|recv_dgram_bytes:8000" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2462,7 +2479,7 @@ fi
 
 clear_log
 echo -e "0RTT_datagram_send_multiple_redundancy...\c"
-./test_client -l d -T 1 -s 2000 -U 2 -Q 65535 -x 208 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 2000 -U 2 -Q 65535 -x 208 > stdlog
 cli_res1=`grep "\[dgram\]|recv_dgram_bytes:8000" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2475,13 +2492,13 @@ fi
 
 
 killall test_server
-./test_server -l d -e -x 208 -Q 65535 -U 1 --dgram_qos 3 > /dev/null &
+${SERVER_BIN} -l d -e -x 208 -Q 65535 -U 1 --dgram_qos 3 > /dev/null &
 sleep 1
 
 rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "No reinjection for normal datagrams...\c"
-sudo ./test_client -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 1 --dgram_qos 3 > stdlog
+sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 1 --dgram_qos 3 > stdlog
 result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
 errlog=`grep_err_log`
@@ -2497,7 +2514,7 @@ grep_err_log
 rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "No reinjection for normal h3-ext datagrams...\c"
-sudo ./test_client -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 2 --dgram_qos 3 > stdlog
+sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 2 --dgram_qos 3 > stdlog
 result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
 errlog=`grep_err_log`
@@ -2523,11 +2540,11 @@ fi
 if [ -f xqc_token ]; then
     rm -f xqc_token
 fi
-stdbuf -oL ./test_server -l d -Q 1000 -x 200 > svr_stdlog &
+stdbuf -oL ${SERVER_BIN} -l d -Q 1000 -x 200 > svr_stdlog &
 sleep 1
 clear_log
 echo -e "h3_ext_datagram_get_mss(no_saved_transport_params)...\c"
-./test_client -l d -T 2 -x 200 -Q 1000 -s 1 -U 1 > stdlog
+${CLIENT_BIN} -l d -T 2 -x 200 -Q 1000 -s 1 -U 1 > stdlog
 cli_res1=`grep "\[h3-dgram-200\]|.*|initial_mss:0|" stdlog`
 cli_res2=`grep "\[h3-dgram-200\]|.*|updated_mss:997|" stdlog`
 svr_res=`grep -a "\[h3-dgram-200\]|.*|initial_mss:997|" svr_stdlog`
@@ -2543,7 +2560,7 @@ fi
 > svr_stdlog
 clear_log
 echo -e "h3_ext_datagram_get_mss(saved_transport_params)...\c"
-./test_client -l d -T 2 -x 200 -Q 1000 -s 1 -U 1 > stdlog
+${CLIENT_BIN} -l d -T 2 -x 200 -Q 1000 -s 1 -U 1 > stdlog
 cli_res1=`grep "\[h3-dgram-200\]|.*|initial_mss:997|" stdlog`
 cli_res2=`grep "\[h3-dgram-200\]|.*|updated_mss:997|" stdlog`
 svr_res=`grep -a "\[h3-dgram-200\]|.*|initial_mss:997|" svr_stdlog`
@@ -2566,11 +2583,11 @@ fi
 if [ -f xqc_token ]; then
     rm -f xqc_token
 fi
-stdbuf -oL  ./test_server -l d -Q 65535 -x 201 > svr_stdlog &
+stdbuf -oL  ${SERVER_BIN} -l d -Q 65535 -x 201 > svr_stdlog &
 sleep 1
 clear_log
 echo -e "h3_ext_datagram_mss_limited_by_MTU...\c"
-./test_client -l d -T 2 -x 201 -Q 65535 -s 1 -U 1 > stdlog
+${CLIENT_BIN} -l d -T 2 -x 201 -Q 65535 -s 1 -U 1 > stdlog
 cli_res1=`grep "\[h3-dgram-200\]|.*|initial_mss:0|" stdlog`
 cli_res2=`grep "\[h3-dgram-200\]|.*|updated_mss:1200|" stdlog`
 svr_res=`grep -a "\[h3-dgram-200\]|.*|initial_mss:1200|" svr_stdlog`
@@ -2593,11 +2610,11 @@ fi
 if [ -f xqc_token ]; then
     rm -f xqc_token
 fi
-stdbuf -oL ./test_server -l d -Q 1000 -x 200 > svr_stdlog &
+stdbuf -oL ${SERVER_BIN} -l d -Q 1000 -x 200 > svr_stdlog &
 sleep 1
 clear_log
 echo -e "h3_ext_datagram_mss_limited_by_max_datagram_frame_size...\c"
-./test_client -l d -T 2 -x 200 -s 1 -U 1 -Q 1000 > stdlog
+${CLIENT_BIN} -l d -T 2 -x 200 -s 1 -U 1 -Q 1000 > stdlog
 cli_res1=`grep "\[h3-dgram-200\]|.*|initial_mss:0|" stdlog`
 cli_res2=`grep "\[h3-dgram-200\]|.*|updated_mss:997|" stdlog`
 svr_res=`grep -a "\[h3-dgram-200\]|.*|initial_mss:997|" svr_stdlog`
@@ -2613,14 +2630,14 @@ rm -f test_session tp_localhost xqc_token
 
 killall test_server
 
-./test_server -l e -Q 65535 -e -U 1 > /dev/null &
+${SERVER_BIN} -l e -Q 65535 -e -U 1 > /dev/null &
 sleep 1
 clear_log
 #generate 0rtt data
-./test_client -l e -T 2 -s 1 -U 1 -Q 65535 > stdlog
+${CLIENT_BIN} -l e -T 2 -s 1 -U 1 -Q 65535 > stdlog
 clear_log
 echo -e "send_0RTT_h3_ext_datagram_100KB...\c"
-./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E > stdlog
+${CLIENT_BIN} -l e -T 2 -s 102400 -U 1 -Q 65535 -E > stdlog
 cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2634,7 +2651,7 @@ fi
 if [ $LOCAL_TEST -ne 0 ]; then
     clear_log
     echo -e "send_0RTT_h3_ext_datagram_1MB...\c"
-    ./test_client -l e -T 2 -s 1048576 -U 1 -Q 65535 -E > stdlog
+    ${CLIENT_BIN} -l e -T 2 -s 1048576 -U 1 -Q 65535 -E > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2647,7 +2664,7 @@ if [ $LOCAL_TEST -ne 0 ]; then
 
     clear_log
     echo -e "send_0RTT_h3_ext_datagram_10MB...\c"
-    ./test_client -l e -T 2 -s 10485760 -U 1 -Q 65535 -E > stdlog
+    ${CLIENT_BIN} -l e -T 2 -s 10485760 -U 1 -Q 65535 -E > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2660,7 +2677,7 @@ if [ $LOCAL_TEST -ne 0 ]; then
 
     clear_log
     echo -e "send_0RTT_h3_ext_datagram_100MB...\c"
-    ./test_client -l e -T 2 -s 104857600 -U 1 -Q 65535 -E > stdlog
+    ${CLIENT_BIN} -l e -T 2 -s 104857600 -U 1 -Q 65535 -E > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2677,14 +2694,14 @@ rm -f test_session tp_localhost xqc_token
 
 killall test_server
 
-./test_server -l e -Q 65535 -e -U 2 > /dev/null &
+${SERVER_BIN} -l e -Q 65535 -e -U 2 > /dev/null &
 sleep 1
 clear_log
 #generate 0rtt data
-./test_client -l e -T 2 -s 1 -U 2 -Q 65535 > stdlog
+${CLIENT_BIN} -l e -T 2 -s 1 -U 2 -Q 65535 > stdlog
 clear_log
 echo -e "send_0RTT_h3_ext_datagram_100KB_batch...\c"
-./test_client -l e -T 2 -s 102400 -U 2 -Q 65535 -E > stdlog
+${CLIENT_BIN} -l e -T 2 -s 102400 -U 2 -Q 65535 -E > stdlog
 cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2698,7 +2715,7 @@ fi
 if [ $LOCAL_TEST -ne 0 ]; then
     clear_log
     echo -e "send_0RTT_h3_ext_datagram_1MB_batch...\c"
-    ./test_client -l e -T 2 -s 1048576 -U 2 -Q 65535 -E > stdlog
+    ${CLIENT_BIN} -l e -T 2 -s 1048576 -U 2 -Q 65535 -E > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2711,7 +2728,7 @@ if [ $LOCAL_TEST -ne 0 ]; then
 
     clear_log
     echo -e "send_0RTT_h3_ext_datagram_10MB_batch...\c"
-    ./test_client -l e -T 2 -s 10485760 -U 2 -Q 65535 -E > stdlog
+    ${CLIENT_BIN} -l e -T 2 -s 10485760 -U 2 -Q 65535 -E > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2724,7 +2741,7 @@ if [ $LOCAL_TEST -ne 0 ]; then
 
     clear_log
     echo -e "send_0RTT_h3_ext_datagram_100MB_batch...\c"
-    ./test_client -l e -T 2 -s 104857600 -U 2 -Q 65535 -E > stdlog
+    ${CLIENT_BIN} -l e -T 2 -s 104857600 -U 2 -Q 65535 -E > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2740,11 +2757,11 @@ rm -f test_session tp_localhost xqc_token
 
 
 killall test_server
-./test_server -l e -Q 65535 -e -U 1 > /dev/null &
+${SERVER_BIN} -l e -Q 65535 -e -U 1 > /dev/null &
 sleep 1
 clear_log
 echo -e "send_1RTT_h3_ext_datagram_100KB...\c"
-./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -1 > stdlog
+${CLIENT_BIN} -l e -T 2 -s 102400 -U 1 -Q 65535 -E -1 > stdlog
 cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2758,7 +2775,7 @@ fi
 if [ $LOCAL_TEST -ne 0 ]; then
     clear_log
     echo -e "send_1RTT_h3_ext_datagram_1MB...\c"
-    ./test_client -l e -T 2 -s 1048576 -U 1 -Q 65535 -E -1 > stdlog
+    ${CLIENT_BIN} -l e -T 2 -s 1048576 -U 1 -Q 65535 -E -1 > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2771,7 +2788,7 @@ if [ $LOCAL_TEST -ne 0 ]; then
 
     clear_log
     echo -e "send_1RTT_h3_ext_datagram_10MB...\c"
-    ./test_client -l e -T 2 -s 10485760 -U 1 -Q 65535 -E -1 > stdlog
+    ${CLIENT_BIN} -l e -T 2 -s 10485760 -U 1 -Q 65535 -E -1 > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2784,7 +2801,7 @@ if [ $LOCAL_TEST -ne 0 ]; then
 
     clear_log
     echo -e "send_1RTT_h3_ext_datagram_100MB...\c"
-    ./test_client -l e -T 2 -s 104857600 -U 1 -Q 65535 -E -1 > stdlog
+    ${CLIENT_BIN} -l e -T 2 -s 104857600 -U 1 -Q 65535 -E -1 > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2799,11 +2816,11 @@ rm -f test_session tp_localhost xqc_token
 
 
 killall test_server
-./test_server -l e -Q 65535 -e -U 2 > /dev/null &
+${SERVER_BIN} -l e -Q 65535 -e -U 2 > /dev/null &
 sleep 1
 clear_log
 echo -e "send_1RTT_h3_ext_datagram_100KB_batch...\c"
-./test_client -l e -T 2 -s 102400 -U 2 -Q 65535 -E -1 > stdlog
+${CLIENT_BIN} -l e -T 2 -s 102400 -U 2 -Q 65535 -E -1 > stdlog
 cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2817,7 +2834,7 @@ fi
 if [ $LOCAL_TEST -ne 0 ]; then
     clear_log
     echo -e "send_1RTT_h3_ext_datagram_1MB_batch...\c"
-    ./test_client -l e -T 2 -s 1048576 -U 2 -Q 65535 -E -1 > stdlog
+    ${CLIENT_BIN} -l e -T 2 -s 1048576 -U 2 -Q 65535 -E -1 > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2830,7 +2847,7 @@ if [ $LOCAL_TEST -ne 0 ]; then
 
     clear_log
     echo -e "send_1RTT_h3_ext_datagram_10MB_batch...\c"
-    ./test_client -l e -T 2 -s 10485760 -U 2 -Q 65535 -E -1 > stdlog
+    ${CLIENT_BIN} -l e -T 2 -s 10485760 -U 2 -Q 65535 -E -1 > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2843,7 +2860,7 @@ if [ $LOCAL_TEST -ne 0 ]; then
 
     clear_log
     echo -e "send_1RTT_h3_ext_datagram_100MB_batch...\c"
-    ./test_client -l e -T 2 -s 104857600 -U 2 -Q 65535 -E -1 > stdlog
+    ${CLIENT_BIN} -l e -T 2 -s 104857600 -U 2 -Q 65535 -E -1 > stdlog
     cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
     errlog=`grep_err_log`
     if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -2857,11 +2874,11 @@ fi
 rm -f test_session tp_localhost xqc_token
 
 killall test_server
-./test_server -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
+${SERVER_BIN} -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
 sleep 1
 clear_log
 echo -e "h3_ext_dgram_send_queue_full...\c"
-./test_client -l d -T 2 -s 40000000 -U 1 -Q 65535 -1 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 40000000 -U 1 -Q 65535 -1 > stdlog
 cli_res1=`grep "\[h3-dgram\]|retry_datagram_send_later|" stdlog`
 cli_res2=`grep "|too many packets used|ctl_packets_used:" clog`
 cli_res3=`grep "\[h3-dgram\]|dgram_write|" stdlog`
@@ -2876,7 +2893,7 @@ fi
 
 clear_log
 echo -e "h3_ext_dgram_send_queue_full_batch...\c"
-./test_client -l d -T 2 -s 40000000 -U 2 -Q 65535 -1 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 40000000 -U 2 -Q 65535 -1 > stdlog
 cli_res1=`grep "\[h3-dgram\]|retry_datagram_send_multiple_later|" stdlog`
 cli_res2=`grep "|too many packets used|ctl_packets_used:" clog`
 cli_res3=`grep "\[h3-dgram\]|dgram_write|" stdlog`
@@ -2891,7 +2908,7 @@ fi
 
 clear_log
 echo -e "send_0rtt_h3_ext_datagram_without_saved_datagram_tp...\c"
-./test_client -l d -T 2 -s 999 -U 1 -Q 65535 -1 -E -x 202 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 999 -U 1 -Q 65535 -1 -E -x 202 > stdlog
 cli_res1=`grep "\[h3-dgram\]|retry_datagram_send_later|" stdlog`
 cli_res2=`grep "|waiting_for_max_datagram_frame_size_from_peer|" clog`
 cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
@@ -2907,7 +2924,7 @@ fi
 
 clear_log
 echo -e "send_0rtt_h3_ext_datagram_without_saved_datagram_tp_batch...\c"
-./test_client -l d -T 2 -s 999 -U 2 -Q 65535 -1 -E -x 202 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 999 -U 2 -Q 65535 -1 -E -x 202 > stdlog
 cli_res1=`grep "\[h3-dgram\]|retry_datagram_send_multiple_later|" stdlog`
 cli_res2=`grep "|waiting_for_max_datagram_frame_size_from_peer|" clog`
 cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
@@ -2924,7 +2941,7 @@ fi
 
 clear_log
 echo -e "send_too_many_0rtt_h3_ext_datagrams...\c"
-./test_client -l d -T 2 -s 40000 -U 1 -Q 65535 -E > stdlog
+${CLIENT_BIN} -l d -T 2 -s 40000 -U 1 -Q 65535 -E > stdlog
 cli_res1=`grep "\[h3-dgram\]|retry_datagram_send_later|" stdlog`
 cli_res2=`grep "|too many 0rtt packets|" clog`
 cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
@@ -2940,7 +2957,7 @@ fi
 
 clear_log
 echo -e "send_too_many_0rtt_h3_ext_datagrams_batch...\c"
-./test_client -l d -T 2 -s 40000 -U 2 -Q 65535 -E > stdlog
+${CLIENT_BIN} -l d -T 2 -s 40000 -U 2 -Q 65535 -E > stdlog
 cli_res1=`grep "\[h3-dgram\]|retry_datagram_send_multiple_later|" stdlog`
 cli_res2=`grep "|too many 0rtt packets|" clog`
 cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
@@ -2955,11 +2972,11 @@ else
 fi
 
 killall test_server
-./test_server -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
+${SERVER_BIN} -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
 sleep 1
 clear_log
 echo -e "send_0rtt_h3_ext_datagram_reject...\c"
-./test_client -l d -T 2 -s 4800 -U 1 -Q 65535 -E > stdlog
+${CLIENT_BIN} -l d -T 2 -s 4800 -U 1 -Q 65535 -E > stdlog
 cli_res1=`grep "xqc_conn_early_data_reject" clog`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 errlog=`grep_err_log`
@@ -2973,11 +2990,11 @@ fi
 
 
 killall test_server
-./test_server -l d -Q 1000 -e -U 1 -s 1 > /dev/null &
+${SERVER_BIN} -l d -Q 1000 -e -U 1 -s 1 > /dev/null &
 sleep 1
 clear_log
 echo -e "send_oversized_h3_ext_datagram...\c"
-./test_client -l d -T 2 -s 4800 -U 1 -Q 65535 -E -1 -x 203 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 4800 -U 1 -Q 65535 -E -1 -x 203 > stdlog
 cli_res1=`grep "datagram_is_too_large" clog`
 cli_res2=`grep "trying_to_send_an_oversized_datagram" stdlog`
 #errlog=`grep_err_log`
@@ -2991,7 +3008,7 @@ fi
 
 clear_log
 echo -e "send_oversized_h3_ext_datagram_batch...\c"
-./test_client -l d -T 2 -s 4800 -U 2 -Q 65535 -E -1 -x 203 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 4800 -U 2 -Q 65535 -E -1 -x 203 > stdlog
 cli_res1=`grep "datagram_is_too_large" clog`
 cli_res2=`grep "trying_to_send_an_oversized_datagram" stdlog`
 cli_res3=`grep "|partially_sent_pkts_in_a_batch|cnt:1|" stdlog`
@@ -3006,11 +3023,11 @@ fi
 rm -rf tp_localhost test_session xqc_token
 
 killall test_server
-./test_server -l d -Q 0 -e -U 1 -s 1 > /dev/null &
+${SERVER_BIN} -l d -Q 0 -e -U 1 -s 1 > /dev/null &
 sleep 1
 clear_log
 echo -e "send_h3_ext_datagram_while_peer_does_not_support...\c"
-./test_client -l d -T 2 -s 4800 -U 1 -Q 65535 -E -1 -x 204 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 4800 -U 1 -Q 65535 -E -1 -x 204 > stdlog
 cli_res1=`grep "|does not support datagram|" clog`
 cli_res2=`grep "\[h3-dgram\]|send_datagram_error|" stdlog`
 #errlog=`grep_err_log`
@@ -3024,7 +3041,7 @@ fi
 
 clear_log
 echo -e "send_h3_ext_datagram_batch_while_peer_does_not_support...\c"
-./test_client -l d -T 2 -s 4800 -U 2 -Q 65535 -E -1 -x 204 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 4800 -U 2 -Q 65535 -E -1 -x 204 > stdlog
 cli_res1=`grep "|does not support datagram|" clog`
 cli_res2=`grep "\[h3-dgram\]|send_datagram_multiple_error|" stdlog`
 #errlog=`grep_err_log`
@@ -3037,12 +3054,12 @@ else
 fi
 
 killall test_server
-./test_server -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
+${SERVER_BIN} -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
 sleep 1
-./test_client -l d -T 2 -s 1 -U 1 -Q 65535 -E -N > stdlog
+${CLIENT_BIN} -l d -T 2 -s 1 -U 1 -Q 65535 -E -N > stdlog
 clear_log
 echo -e "send_0rtt_h3_ext_datagram_dgram1_lost...\c"
-./test_client -l d -T 2 -s 4800 -U 1 -Q 65535 -E -x 205 -N > stdlog
+${CLIENT_BIN} -l d -T 2 -s 4800 -U 1 -Q 65535 -E -x 205 -N > stdlog
 cli_res1=`grep "\[h3-dgram\]|dgram_lost|dgram_id:0|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -3055,7 +3072,7 @@ fi
 
 clear_log
 echo -e "send_1rtt_h3_ext_datagram_dgram1_lost...\c"
-./test_client -l d -T 2 -s 4800 -U 1 -Q 65535 -E -x 205 -N -1 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 4800 -U 1 -Q 65535 -E -x 205 -N -1 > stdlog
 cli_res1=`grep "\[h3-dgram\]|dgram_lost|dgram_id:0|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -3068,7 +3085,7 @@ fi
 
 clear_log
 echo -e "send_0rtt_h3_ext_datagram_reorder...\c"
-./test_client -l d -T 2 -s 1800 -U 1 -Q 65535 -E -x 206 -N > stdlog
+${CLIENT_BIN} -l d -T 2 -s 1800 -U 1 -Q 65535 -E -x 206 -N > stdlog
 cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -3081,7 +3098,7 @@ fi
 
 clear_log
 echo -e "send_1rtt_h3_ext_datagram_reorder...\c"
-./test_client -l d -T 2 -s 1800 -U 1 -Q 65535 -E -x 206 -N -1 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 1800 -U 1 -Q 65535 -E -x 206 -N -1 > stdlog
 cli_res1=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -3094,7 +3111,7 @@ fi
 
 clear_log
 echo -e "h3_ext_datagram_lost_callback...\c"
-./test_client -l d -T 2 -s 1000 -U 1 -Q 65535 -E -x 205 -N -1 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 1000 -U 1 -Q 65535 -E -x 205 -N -1 > stdlog
 cli_res1=`grep "\[h3-dgram\]|dgram_lost|dgram_id:0|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -3107,7 +3124,7 @@ fi
 
 clear_log
 echo -e "h3_ext_datagram_acked_callback...\c"
-./test_client -l d -T 2 -s 1000 -U 1 -Q 65535 -E -x 207 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 1000 -U 1 -Q 65535 -E -x 207 > stdlog
 cli_res1=`grep "\[h3-dgram\]|dgram_acked|dgram_id:0|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -3122,12 +3139,12 @@ rm -f test_session tp_localhost xqc_token
 
 killall test_server
 
-./test_server -l e -Q 65535 -e -U 1 -x 208 > /dev/null &
+${SERVER_BIN} -l e -Q 65535 -e -U 1 -x 208 > /dev/null &
 sleep 1
 
 clear_log
 echo -e "1RTT_h3_ext_datagram_send_redundancy...\c"
-./test_client -l d -T 2 -s 2000 -U 1 -Q 65535 -x 208 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 2000 -U 1 -Q 65535 -x 208 > stdlog
 cli_res1=`grep "\[h3-dgram\]|recv_dgram_bytes:8000" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -3142,7 +3159,7 @@ rm -f test_session tp_localhost xqc_token
 
 clear_log
 echo -e "1RTT_h3_ext_datagram_send_multiple_redundancy...\c"
-./test_client -l d -T 2 -s 2000 -U 2 -Q 65535 -x 208 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 2000 -U 2 -Q 65535 -x 208 > stdlog
 cli_res1=`grep "\[h3-dgram\]|recv_dgram_bytes:8000" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -3155,7 +3172,7 @@ fi
 
 clear_log
 echo -e "0RTT_h3_ext_datagram_send_redundancy...\c"
-./test_client -l d -T 2 -s 2000 -U 1 -Q 65535 -x 208 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 2000 -U 1 -Q 65535 -x 208 > stdlog
 cli_res1=`grep "\[h3-dgram\]|recv_dgram_bytes:8000" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -3168,7 +3185,7 @@ fi
 
 clear_log
 echo -e "0RTT_h3_ext_datagram_send_multiple_redundancy...\c"
-./test_client -l d -T 2 -s 2000 -U 2 -Q 65535 -x 208 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 2000 -U 2 -Q 65535 -x 208 > stdlog
 cli_res1=`grep "\[h3-dgram\]|recv_dgram_bytes:8000" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
@@ -3186,14 +3203,14 @@ rm -f test_session tp_localhost xqc_token
 
 killall test_server
 
-./test_server -l e -Q 65535 -e -U 1 > /dev/null &
+${SERVER_BIN} -l e -Q 65535 -e -U 1 > /dev/null &
 sleep 1
 
 
 ## 1RTT
 clear_log
 echo -e "h3_ext_1RTT_send_test...\c"
-./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 300 -1 > stdlog
+${CLIENT_BIN} -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 300 -1 > stdlog
 cli_res1=`grep ">>>>>>>> pass:1" stdlog`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
@@ -3212,7 +3229,7 @@ fi
 ## 0RTT
 clear_log
 echo -e "h3_ext_0RTT_accept_send_test...\c"
-./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 300 > stdlog
+${CLIENT_BIN} -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 300 > stdlog
 cli_res1=`grep ">>>>>>>> pass:1" stdlog`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
@@ -3232,12 +3249,12 @@ fi
 
 killall test_server
 
-./test_server -l e -Q 65535 -e -U 1 > /dev/null &
+${SERVER_BIN} -l e -Q 65535 -e -U 1 > /dev/null &
 sleep 1
 
 clear_log
 echo -e "h3_ext_0RTT_reject_send_test...\c"
-./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 300 > stdlog
+${CLIENT_BIN} -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 300 > stdlog
 cli_res1=`grep ">>>>>>>> pass:1" stdlog`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
@@ -3258,7 +3275,7 @@ fi
 ## 1RTT
 clear_log
 echo -e "h3_ext_1RTT_concurrent_send_test...\c"
-./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 301 -P 2 -1 > stdlog
+${CLIENT_BIN} -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 301 -P 2 -1 > stdlog
 cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
@@ -3278,7 +3295,7 @@ fi
 ## 0RTT
 clear_log
 echo -e "h3_ext_0RTT_accept_concurrent_send_test...\c"
-./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 301 -P 2 > stdlog
+${CLIENT_BIN} -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 301 -P 2 > stdlog
 cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
@@ -3299,12 +3316,12 @@ fi
 
 killall test_server
 
-./test_server -l e -Q 65535 -e -U 1 > /dev/null &
+${SERVER_BIN} -l e -Q 65535 -e -U 1 > /dev/null &
 sleep 1
 
 clear_log
 echo -e "h3_ext_0RTT_reject_concurrent_send_test...\c"
-./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 301 -P 2 > stdlog
+${CLIENT_BIN} -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 301 -P 2 > stdlog
 cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
@@ -3328,7 +3345,7 @@ fi
 
 clear_log
 echo -e "h3_ext_1RTT_send_pure_fin1...\c"
-./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 302 -1 > stdlog
+${CLIENT_BIN} -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 302 -1 > stdlog
 cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
@@ -3347,7 +3364,7 @@ fi
 
 clear_log
 echo -e "h3_ext_1RTT_send_pure_fin2...\c"
-./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 303 -1 > stdlog
+${CLIENT_BIN} -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 303 -1 > stdlog
 cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
@@ -3368,7 +3385,7 @@ fi
 
 clear_log
 echo -e "h3_ext_0RTT_accept_send_pure_fin1...\c"
-./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 302 > stdlog
+${CLIENT_BIN} -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 302 > stdlog
 cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
@@ -3387,7 +3404,7 @@ fi
 
 clear_log
 echo -e "h3_ext_0RTT_accept_send_pure_fin2...\c"
-./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 303 > stdlog
+${CLIENT_BIN} -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 303 > stdlog
 cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
@@ -3408,12 +3425,12 @@ fi
 
 killall test_server
 
-./test_server -l e -Q 65535 -e -U 1 > /dev/null &
+${SERVER_BIN} -l e -Q 65535 -e -U 1 > /dev/null &
 sleep 1
 
 clear_log
 echo -e "h3_ext_0RTT_reject_send_pure_fin1...\c"
-./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 302 > stdlog
+${CLIENT_BIN} -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 302 > stdlog
 cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
@@ -3432,12 +3449,12 @@ fi
 
 killall test_server
 
-./test_server -l e -Q 65535 -e -U 1 > /dev/null &
+${SERVER_BIN} -l e -Q 65535 -e -U 1 > /dev/null &
 sleep 1
 
 clear_log
 echo -e "h3_ext_0RTT_reject_send_pure_fin2...\c"
-./test_client -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 303 > stdlog
+${CLIENT_BIN} -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 303 > stdlog
 cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
@@ -3458,7 +3475,7 @@ fi
 
 clear_log
 echo -e "h3_ext_finish_bytestream_during_transmission...\c"
-./test_client -l d -T 2 -s 102400 -U 1 -Q 65535 -E -x 304 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 102400 -U 1 -Q 65535 -E -x 304 > stdlog
 cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
 cli_res4=(`grep "\[bytestream\]|bytes_sent:" stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
 cli_res5=`grep "\[bytestream\]|same_content:yes|" stdlog | wc -l`
@@ -3478,7 +3495,7 @@ fi
 
 clear_log
 echo -e "h3_ext_close_bytestream_during_transmission...\c"
-./test_client -l d -T 2 -s 102400 -U 1 -Q 65535 -E -x 305 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 102400 -U 1 -Q 65535 -E -x 305 > stdlog
 cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
 cli_res4=(`grep "\[bytestream\]|bytes_sent:" stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
 cli_res5=`grep "\[bytestream\]|same_content:.*|" stdlog | wc -l`
@@ -3497,7 +3514,7 @@ fi
 
 clear_log
 echo -e "h3_ext_bytestream_blocked_by_stream_flowctl...\c"
-./test_client -l d -T 2 -s 32000000 -U 1 -Q 65535 -E -x 306 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 32000000 -U 1 -Q 65535 -E -x 306 > stdlog
 cli_res2=`grep "|xqc_stream_send|exceed max_stream_data" clog`
 cli_res3=`grep "|h3_ext_bytestream_write_notify|success|" clog`
 cli_res4=`grep "\[bytestream\]|bytes_sent:32000000|bytes_rcvd:32000000|recv_fin:1|" stdlog`
@@ -3515,7 +3532,7 @@ fi
 
 clear_log
 echo -e "h3_ext_bytestream_blocked_by_0RTT_limit...\c"
-./test_client -l d -T 2 -s 10000000 -U 1 -Q 65535 -E -x 307 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 10000000 -U 1 -Q 65535 -E -x 307 > stdlog
 cli_res2=`grep "|too many 0rtt packets|" clog`
 cli_res3=`grep "|h3_ext_bytestream_write_notify|success|" clog`
 cli_res4=`grep "\[bytestream\]|bytes_sent:10000000|bytes_rcvd:10000000|recv_fin:1|" stdlog`
@@ -3533,7 +3550,7 @@ fi
 
 clear_log
 echo -e "h3_ext_bytestream_blocked_by_no_0RTT_support...\c"
-./test_client -l d -T 2 -s 1024 -U 1 -Q 65535 -E -x 308 -1 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 1024 -U 1 -Q 65535 -E -x 308 -1 > stdlog
 cli_res2=`grep "|blocked by no 0RTT support|" clog`
 cli_res3=`grep "|h3_ext_bytestream_write_notify|success|" clog`
 cli_res4=`grep "\[bytestream\]|bytes_sent:1024|bytes_rcvd:1024|recv_fin:1|" stdlog`
@@ -3551,7 +3568,7 @@ fi
 
 clear_log
 echo -e "h3_ext_bytestream_blocked_by_sndq_full...\c"
-./test_client -l e -T 2 -s 16000000 -U 1 -Q 65535 -E -x 309 > stdlog
+${CLIENT_BIN} -l e -T 2 -s 16000000 -U 1 -Q 65535 -E -x 309 > stdlog
 cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:.*|" stdlog`
 cli_res4=`grep "\[bytestream\]|bytes_sent:16000000|bytes_rcvd:16000000|recv_fin:1|" stdlog`
@@ -3570,7 +3587,7 @@ fi
 
 clear_log
 echo -e "h3_ext_bytestream_full_message_flow_ctrl...\c"
-./test_client -l d -T 2 -s 32000000 -U 1 -Q 65535 -E -x 311 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 32000000 -U 1 -Q 65535 -E -x 311 > stdlog
 cli_res2=`grep "|xqc_stream_send|exceed max_stream_data" clog`
 cli_res3=`grep "|h3_ext_bytestream_write_notify|success|" clog`
 cli_res4=`grep "\[bytestream\]|bytes_sent:32001000|bytes_rcvd:32001000|recv_fin:1|snd_times:2|rcv_times:2|" stdlog`
@@ -3586,7 +3603,7 @@ fi
 
 clear_log
 echo -e "h3_ext_bytestream_full_message_0RTT_blocking...\c"
-./test_client -l d -T 2 -s 10000000 -U 1 -Q 65535 -E -x 312 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 10000000 -U 1 -Q 65535 -E -x 312 > stdlog
 cli_res2=`grep "|too many 0rtt packets|" clog`
 cli_res3=`grep "|h3_ext_bytestream_write_notify|success|" clog`
 cli_res4=`grep "\[bytestream\]|bytes_sent:10001000|bytes_rcvd:10001000|recv_fin:1|snd_times:2|rcv_times:2|" stdlog`
@@ -3602,7 +3619,7 @@ fi
 
 clear_log
 echo -e "h3_ext_bytestream_full_message_no_0RTT_suppport...\c"
-./test_client -l d -T 2 -s 1024 -U 1 -Q 65535 -E -x 313 -1 > stdlog
+${CLIENT_BIN} -l d -T 2 -s 1024 -U 1 -Q 65535 -E -x 313 -1 > stdlog
 cli_res2=`grep "|blocked by no 0RTT support|" clog`
 cli_res3=`grep "|h3_ext_bytestream_write_notify|success|" clog`
 cli_res4=`grep "\[bytestream\]|bytes_sent:2024|bytes_rcvd:2024|recv_fin:1|snd_times:2|rcv_times:2|" stdlog`
@@ -3618,7 +3635,7 @@ fi
 
 clear_log
 echo -e "h3_ext_bytestream_full_message_sndq_full...\c"
-./test_client -l e -T 2 -s 16000000 -U 1 -Q 65535 -E -x 314 > stdlog
+${CLIENT_BIN} -l e -T 2 -s 16000000 -U 1 -Q 65535 -E -x 314 > stdlog
 cli_res1=`grep ">>>>>>>> pass:1" stdlog | wc -l`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:.*|" stdlog`
 cli_res4=`grep "\[bytestream\]|bytes_sent:16001000|bytes_rcvd:16001000|recv_fin:1|snd_times:2|rcv_times:2|" stdlog`
@@ -3635,12 +3652,12 @@ fi
 
 killall test_server
 
-./test_server -l e -Q 65535 -e -U 1 -H > /dev/null &
+${SERVER_BIN} -l e -Q 65535 -e -U 1 -H > /dev/null &
 sleep 1
 
 clear_log
 echo -e "connect to an h3_ext disabled server...\c"
-./test_client -l e -T 2 -s 1024 -U 1 -Q 65535 -E > stdlog
+${CLIENT_BIN} -l e -T 2 -s 1024 -U 1 -Q 65535 -E > stdlog
 svr_log=`grep "select proto error" slog`
 
 if [ -n "$svr_log" ]; then
@@ -3653,12 +3670,12 @@ fi
 
 killall test_server
 
-./test_server -l e -Q 65535 -e -U 1 > /dev/null &
+${SERVER_BIN} -l e -Q 65535 -e -U 1 > /dev/null &
 sleep 1
 
 clear_log
 echo -e "h3_ext is disabled on the client...\c"
-./test_client -l e -T 2 -s 1024 -U 1 -Q 65535 -E -x 315 > stdlog
+${CLIENT_BIN} -l e -T 2 -s 1024 -U 1 -Q 65535 -E -x 315 > stdlog
 cli_res1=`grep "can't get application layer callback" clog`
 
 if [ -n "$cli_res1" ]; then
@@ -3673,15 +3690,15 @@ rm -rf tp_localhost test_session xqc_token
 killall test_server
 
 
-./test_server -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
+${SERVER_BIN} -l d -Q 65535 -e -U 1 -s 1 > /dev/null &
 sleep 1
-./test_client -l d -T 1 -s 4800 -U 1 -Q 65535 -E &> /dev/null #generate 0rtt ticket
+${CLIENT_BIN} -l d -T 1 -s 4800 -U 1 -Q 65535 -E &> /dev/null #generate 0rtt ticket
 killall test_server
-./test_server -l d -e -s 1 > /dev/null & #disable datagram
+${SERVER_BIN} -l d -e -s 1 > /dev/null & #disable datagram
 sleep 1
 clear_log
 echo -e "check_clear_0rtt_ticket_flag_in_close_notify...\c"
-./test_client -l d -T 1 -s 4800 -U 1 -Q 65535 -E > stdlog
+${CLIENT_BIN} -l d -T 1 -s 4800 -U 1 -Q 65535 -E > stdlog
 cli_res2=`grep "should_clear_0rtt_ticket, conn_err:14, clear_0rtt_ticket:1" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res2" ] && [ -n "$errlog" ]; then
@@ -3695,15 +3712,15 @@ fi
 rm -rf tp_localhost test_session xqc_token
 killall test_server
 
-./test_server -l d -Q 65535 -e -s 1 > /dev/null &
+${SERVER_BIN} -l d -Q 65535 -e -s 1 > /dev/null &
 sleep 1
-./test_client -l d -s 4800 -Q 65535 -E &> /dev/null #generate 0rtt ticket
+${CLIENT_BIN} -l d -s 4800 -Q 65535 -E &> /dev/null #generate 0rtt ticket
 killall test_server
-./test_server -l d -e -s 1 > /dev/null & #disable datagram
+${SERVER_BIN} -l d -e -s 1 > /dev/null & #disable datagram
 sleep 1
 clear_log
 echo -e "check_clear_0rtt_ticket_flag_in_h3_close_notify...\c"
-./test_client -l d -s 4800 -Q 65535 -E > stdlog
+${CLIENT_BIN} -l d -s 4800 -Q 65535 -E > stdlog
 cli_res2=`grep "should_clear_0rtt_ticket, conn_err:14, clear_0rtt_ticket:1" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res2" ] && [ -n "$errlog" ]; then
@@ -3717,15 +3734,15 @@ fi
 rm -rf tp_localhost test_session xqc_token
 killall test_server
 
-./test_server -l d -Q 65535 -e -s 1 > /dev/null &
+${SERVER_BIN} -l d -Q 65535 -e -s 1 > /dev/null &
 sleep 1
-./test_client -l d -s 4800 -Q 65535 -E &> /dev/null #generate 0rtt ticket
+${CLIENT_BIN} -l d -s 4800 -Q 65535 -E &> /dev/null #generate 0rtt ticket
 killall test_server
-./test_server -l d -e -s 1 > /dev/null & #disable datagram
+${SERVER_BIN} -l d -e -s 1 > /dev/null & #disable datagram
 sleep 1
 clear_log
 echo -e "check_clear_0rtt_ticket_flag_in_h3_close_notify...\c"
-./test_client -l d -s 4800 -Q 65535 -E > stdlog
+${CLIENT_BIN} -l d -s 4800 -Q 65535 -E > stdlog
 cli_res2=`grep "should_clear_0rtt_ticket, conn_err:14, clear_0rtt_ticket:1" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res2" ] && [ -n "$errlog" ]; then
@@ -3741,9 +3758,9 @@ killall test_server
 
 clear_log
 echo -e "request_closing_notify...\c"
-./test_server -l d -x 14 > /dev/null &
+${SERVER_BIN} -l d -x 14 > /dev/null &
 sleep 1
-./test_client -l d >> stdlog
+${CLIENT_BIN} -l d >> stdlog
 res=`grep "request closing notify triggered" stdlog`
 if [ -n "$res" ]; then
     echo ">>>>>>>> pass:1"
@@ -3755,13 +3772,13 @@ fi
 
 
 killall test_server
-./test_server -l d -e -M -R 3 -Q 65535 -U 1 > /dev/null &
+${SERVER_BIN} -l d -e -M -R 3 -Q 65535 -U 1 > /dev/null &
 sleep 1
 
 rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "SP reinject datagrams ...\c"
-sudo ./test_client -s 1024 -l d -t 1 -E -R 3 -Q 65535 -U 1 -T 1 > stdlog
+sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -R 3 -Q 65535 -U 1 -T 1 > stdlog
 result=`grep "\[dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
 cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
 errlog=`grep_err_log`
@@ -3777,7 +3794,7 @@ grep_err_log
 rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "SP reinject h3-ext datagrams ...\c"
-sudo ./test_client -s 1024 -l d -t 1 -E -R 3 -Q 65535 -U 1 -T 2 > stdlog
+sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -R 3 -Q 65535 -U 1 -T 2 > stdlog
 result=`grep "\[h3-dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
 cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
 errlog=`grep_err_log`
@@ -3794,7 +3811,7 @@ grep_err_log
 rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "MP reinject datagrams ...\c"
-sudo ./test_client -s 1024 -l d -t 1 -E -R 3 -Q 65535 -U 1 -T 1 -M -i lo -i lo > stdlog
+sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -R 3 -Q 65535 -U 1 -T 1 -M -i lo -i lo > stdlog
 result=`grep "\[dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
 cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
 errlog=`grep_err_log`
@@ -3810,7 +3827,7 @@ grep_err_log
 rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "MP reinject h3-ext datagrams ...\c"
-sudo ./test_client -s 1024 -l d -t 1 -E -R 3 -Q 65535 -U 1 -T 2 -M -i lo -i lo > stdlog
+sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -R 3 -Q 65535 -U 1 -T 2 -M -i lo -i lo > stdlog
 result=`grep "\[h3-dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
 cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
 errlog=`grep_err_log`
@@ -3825,14 +3842,14 @@ grep_err_log
 
 
 killall test_server
-./test_server -l d -e -M -x 208 -Q 65535 -U 1 > /dev/null &
+${SERVER_BIN} -l d -e -M -x 208 -Q 65535 -U 1 > /dev/null &
 sleep 1
 
 
 rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "MP datagrams redundancy...\c"
-sudo ./test_client -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 1 -M -i lo -i lo > stdlog
+sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 1 -M -i lo -i lo > stdlog
 result=`grep "\[dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
 cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
 errlog=`grep_err_log`
@@ -3848,7 +3865,7 @@ grep_err_log
 rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "MP h3-ext datagrams redundancy...\c"
-sudo ./test_client -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 2 -M -i lo -i lo > stdlog
+sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 2 -M -i lo -i lo > stdlog
 result=`grep "\[h3-dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
 cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
 errlog=`grep_err_log`
@@ -3863,14 +3880,14 @@ grep_err_log
 
 
 killall test_server
-./test_server -l d -e -M -x 208 -Q 65535 -U 1 --dgram_qos 3 > /dev/null &
+${SERVER_BIN} -l d -e -M -x 208 -Q 65535 -U 1 --dgram_qos 3 > /dev/null &
 sleep 1
 
 
 rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "MP no reinjection for normal datagrams...\c"
-sudo ./test_client -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 1 -M -i lo -i lo --dgram_qos 3 > stdlog
+sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 1 -M -i lo -i lo --dgram_qos 3 > stdlog
 result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
 errlog=`grep_err_log`
@@ -3886,7 +3903,7 @@ grep_err_log
 rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "MP no reinjection for normal h3-ext datagrams...\c"
-sudo ./test_client -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 2 -M -i lo -i lo --dgram_qos 3 > stdlog
+sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 2 -M -i lo -i lo --dgram_qos 3 > stdlog
 result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
 errlog=`grep_err_log`
@@ -3901,14 +3918,14 @@ grep_err_log
 
 
 killall test_server
-stdbuf -oL ./test_server -l d -e -M -Q 65535 -U 1 --pmtud 1 -x 200 > svr_stdlog &
+stdbuf -oL ${SERVER_BIN} -l d -e -M -Q 65535 -U 1 --pmtud 1 -x 200 > svr_stdlog &
 sleep 1
 
 rm -rf tp_localhost test_session xqc_token
 > svr_stdlog
 clear_log
 echo -e "SP datagram PMTUD 1RTT...\c"
-sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 1 --pmtud 1 > stdlog
+sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 1 --pmtud 1 > stdlog
 result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 mtu_res1=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
 mtu_res2=`grep -a "\[dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
@@ -3926,7 +3943,7 @@ grep_err_log
 > svr_stdlog
 clear_log
 echo -e "SP datagram PMTUD 0RTT...\c"
-sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 1 --pmtud 1 > stdlog
+sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 1 --pmtud 1 > stdlog
 result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 mtu_res1=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
 mtu_res2=`grep -a "\[dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
@@ -3945,7 +3962,7 @@ rm -rf tp_localhost test_session xqc_token
 > svr_stdlog
 clear_log
 echo -e "SP h3-ext datagram PMTUD 1RTT...\c"
-sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 2 --pmtud 1 > stdlog
+sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 2 --pmtud 1 > stdlog
 result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 mtu_res1=`grep "\[h3-dgram\]|callback|updated_mss:1404|" stdlog`
 mtu_res2=`grep -a "\[h3-dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
@@ -3963,7 +3980,7 @@ grep_err_log
 > svr_stdlog
 clear_log
 echo -e "SP h3-ext datagram PMTUD 0RTT...\c"
-sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 2 --pmtud 1 > stdlog
+sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 2 --pmtud 1 > stdlog
 result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 mtu_res1=`grep "\[h3-dgram\]|callback|updated_mss:1404|" stdlog`
 mtu_res2=`grep -a "\[h3-dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
@@ -3983,7 +4000,7 @@ rm -rf tp_localhost test_session xqc_token
 > svr_stdlog
 clear_log
 echo -e "MP datagram PMTUD 1RTT...\c"
-sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 1 --pmtud 1 -M -i lo -i lo > stdlog
+sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 1 --pmtud 1 -M -i lo -i lo > stdlog
 result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 mtu_res1=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
 mtu_res2=`grep -a "\[dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
@@ -4001,7 +4018,7 @@ grep_err_log
 > svr_stdlog
 clear_log
 echo -e "MP datagram PMTUD 0RTT...\c"
-sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 1 --pmtud 1 -M -i lo -i lo > stdlog
+sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 1 --pmtud 1 -M -i lo -i lo > stdlog
 result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 mtu_res1=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
 mtu_res2=`grep -a "\[dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
@@ -4020,7 +4037,7 @@ rm -rf tp_localhost test_session xqc_token
 > svr_stdlog
 clear_log
 echo -e "MP h3-ext datagram PMTUD 1RTT...\c"
-sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 2 --pmtud 1 -M -i lo -i lo > stdlog
+sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 2 --pmtud 1 -M -i lo -i lo > stdlog
 result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 mtu_res1=`grep "\[h3-dgram\]|callback|updated_mss:1404|" stdlog`
 mtu_res2=`grep -a "\[h3-dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
@@ -4038,7 +4055,7 @@ grep_err_log
 > svr_stdlog
 clear_log
 echo -e "MP h3-ext datagram PMTUD 0RTT...\c"
-sudo ./test_client -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 2 --pmtud 1 -M -i lo -i lo > stdlog
+sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 2 --pmtud 1 -M -i lo -i lo > stdlog
 result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 mtu_res1=`grep "\[h3-dgram\]|callback|updated_mss:1404|" stdlog`
 mtu_res2=`grep -a "\[h3-dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
@@ -4055,13 +4072,13 @@ grep_err_log
 
 
 killall test_server
-stdbuf -oL ./test_server -l d -e -M > /dev/null &
+stdbuf -oL ${SERVER_BIN} -l d -e -M > /dev/null &
 sleep 1
 
 rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "transport MP ping ...\c"
-sudo ./test_client -s 1024 -l d -E -T 1 -e 1 --epoch_timeout 2000000 -t 3 --mp_ping 1 -M -i lo -i lo >> clog
+sudo ${CLIENT_BIN} -s 1024 -l d -E -T 1 -e 1 --epoch_timeout 2000000 -t 3 --mp_ping 1 -M -i lo -i lo >> clog
 ret_ping_id=`grep "====>ping_id:" clog`
 ret_no_ping_id=`grep "====>no ping_id" clog`
 path0_ping=`grep -E "xqc_send_packet_with_pn.*path:0.*PING" clog`
@@ -4078,7 +4095,7 @@ fi
 rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "h3 MP ping ...\c"
-sudo ./test_client -s 1024 -l d -E -e 1 --epoch_timeout 2000000 -t 3 --mp_ping 1 -M -i lo -i lo >> clog
+sudo ${CLIENT_BIN} -s 1024 -l d -E -e 1 --epoch_timeout 2000000 -t 3 --mp_ping 1 -M -i lo -i lo >> clog
 ret_ping_id=`grep "====>ping_id:" clog`
 ret_no_ping_id=`grep "====>no ping_id" clog`
 path0_ping=`grep -E "xqc_send_packet_with_pn.*path:0.*PING" clog`
@@ -4095,7 +4112,7 @@ fi
 rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "freeze path0 ...\c"
-sudo ./test_client -s 1024000 -l d -E -e 4 -T 2 --epoch_timeout 2000000 -t 4 -M -i lo -i lo -x 107 > stdlog
+sudo ${CLIENT_BIN} -s 1024000 -l d -E -e 4 -T 2 --epoch_timeout 2000000 -t 4 -M -i lo -i lo -x 107 > stdlog
 stream_info3=`grep "stream_info:" stdlog | head -n 3 | tail -n 1 | grep -v "#0" | grep "#1"`
 stream_info5=`grep "stream_info:" stdlog | tail -n 1 | grep -E "#0.*#1"`
 clog_res1=`grep -E "path:0.*app_path_status:2->3" clog`
@@ -4113,7 +4130,7 @@ fi
 rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "freeze path1 ...\c"
-sudo ./test_client -s 1024000 -l d -E -e 4 -T 2 --epoch_timeout 2000000 -t 4 -M -i lo -i lo -x 108 > stdlog
+sudo ${CLIENT_BIN} -s 1024000 -l d -E -e 4 -T 2 --epoch_timeout 2000000 -t 4 -M -i lo -i lo -x 108 > stdlog
 stream_info3=`grep "stream_info:" stdlog | head -n 3 | tail -n 1 | grep -v "#1" | grep "#0"`
 stream_info5=`grep "stream_info:" stdlog | tail -n 1 | grep -E "#0.*#1"`
 clog_res1=`grep -E "path:1.*app_path_status:2->3" clog`
@@ -4129,13 +4146,13 @@ else
 fi
 
 killall test_server
-stdbuf -oL ./test_server -l d -e -M > /dev/null &
+stdbuf -oL ${SERVER_BIN} -l d -e -M > /dev/null &
 sleep 1
 
 rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "probing standby paths ...\c"
-sudo ./test_client -s 1024000 -l d -E -e 1 --epoch_timeout 2000000 -t 4 -M -i lo -i lo -x 501 -y > stdlog
+sudo ${CLIENT_BIN} -s 1024000 -l d -E -e 1 --epoch_timeout 2000000 -t 4 -M -i lo -i lo -x 501 -y > stdlog
 clog_res1=`grep -E "|xqc_path_standby_probe|PING|path:1|" clog`
 if [ -n "$clog_res1" ] ; then
     echo ">>>>>>>> pass:1"
@@ -4149,7 +4166,7 @@ fi
 sudo rm -rf tp_localhost test_session xqc_token clog stdlog ckeys.log
 clear_log
 echo -e "conn_rate_throttling ...\c"
-result=`./test_client -s 1024000 -l d -E --rate_limit 1000000 |grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 1024000 -l d -E --rate_limit 1000000 |grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -4161,7 +4178,7 @@ fi
 
 clear_log
 echo -e "stream_rate_throttling ...\c"
-result=`./test_client -s 1024000 -l d -E -x 109 |grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 1024000 -l d -E -x 109 |grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then

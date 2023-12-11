@@ -3,12 +3,23 @@
 # find include dir
 find_path(CUNIT_INCLUDE_DIR
   NAMES CUnit/CUnit.h
+  PATHS ${CUNIT_DIR}
+  PATH_SUFFIXES include
 )
 
 # find lib dir
 find_library(CUNIT_LIBRARY
   NAMES cunit
+  PATHS ${CUNIT_DIR}
+  PATH_SUFFIXES lib lib64
 )
+
+if(${CUNIT_LIBRARY} MATCHES "CUNIT_LIBRARY-NOTFOUND")
+  find_library(CUNIT_LIBRARY
+  NAMES libcunit
+  PATHS ${CUNIT_DIR}
+  PATH_SUFFIXES lib lib64)
+endif()
 
 # find version
 if(CUNIT_INCLUDE_DIR)

@@ -6,9 +6,27 @@
 #define XQC_TLS_H
 
 #include <xquic/xquic_typedef.h>
-#include "xqc_tls_defs.h"
 #include <openssl/err.h>
+
+#include "src/tls/xqc_tls_defs.h"
 #include "src/transport/xqc_packet.h"
+
+
+
+#ifdef XQC_SYS_WINDOWS
+// wincrypt.h defines macros which conflict with OpenSSL's types. This header
+// includes wincrypt and undefines the OpenSSL macros which conflict.
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <wincrypt.h>
+// Undefine the macros which conflict with OpenSSL and define replacements. 
+// See http://msdn.microsoft.com/en-us/library/windows/desktop/aa378145(v=vs.85).aspx
+#undef PKCS7_SIGNER_INFO
+#undef X509_CERT_PAIR
+#undef X509_EXTENSIONS
+#undef X509_NAME
+#endif
+
 
 /**
  * @brief init tls context. MUST be called before any creation of xqc_tls_t

@@ -214,12 +214,6 @@ xqc_test_empty_pkt()
     test_ctx         svr_tctx   = {0};
     test_ctx         cli_tctx   = {0};
 
-    xqc_engine_t     *svr_eng   = NULL;
-    xqc_engine_t     *cli_eng   = NULL;
-
-    xqc_connection_t *svr_conn  = NULL;
-    xqc_connection_t *cli_conn  = NULL;
-
     svr_tctx.engine = test_create_engine_buf_server(&svr_tctx);
     cli_tctx.engine = test_create_engine_buf_client(&cli_tctx);
 
@@ -248,8 +242,7 @@ xqc_test_empty_pkt()
 
 
     /* generate an Initial pkt with no payload */
-    xqc_packet_out_t   *po;
-    po = xqc_packet_out_create(2048);
+    xqc_packet_out_t   *po = xqc_packet_out_create(2048);
     CU_ASSERT(po != NULL);
 
     memcpy(po->po_pkt.pkt_scid.cid_buf, cli_tctx.c->scid_set.user_scid.cid_buf,
@@ -275,5 +268,13 @@ xqc_test_empty_pkt()
     ret = xqc_conn_process_packet(svr_tctx.c, cli_tctx.c->enc_pkt,
                                   cli_tctx.c->enc_pkt_len, 0, xqc_now());
     CU_ASSERT(svr_tctx.c->conn_err == TRA_PROTOCOL_VIOLATION);
+
+
+    xqc_packet_out_destroy(po);
+    xqc_conn_close(cli_tctx.engine, &cli_tctx.cid);
+    xqc_engine_destroy(cli_tctx.engine);
+
+    xqc_conn_close(svr_tctx.engine, &svr_tctx.cid);
+    xqc_engine_destroy(svr_tctx.engine);
 }
 

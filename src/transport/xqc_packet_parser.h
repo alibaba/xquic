@@ -33,7 +33,7 @@ void xqc_short_packet_update_dcid(xqc_packet_out_t *packet_out, xqc_cid_t dcid);
 
 void xqc_packet_update_reserved_bits(xqc_packet_out_t *packet_out);
 
-int xqc_gen_long_packet_header(xqc_packet_out_t *packet_out,
+ssize_t xqc_gen_long_packet_header(xqc_packet_out_t *packet_out,
     const unsigned char *dcid, unsigned char dcid_len,
     const unsigned char *scid, unsigned char scid_len,
     const unsigned char *token, uint32_t token_len,

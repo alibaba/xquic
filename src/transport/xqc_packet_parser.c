@@ -390,7 +390,7 @@ void xqc_packet_update_reserved_bits(xqc_packet_out_t *packet_out)
     } 
 }
 
-int
+ssize_t
 xqc_gen_long_packet_header (xqc_packet_out_t *packet_out,
     const unsigned char *dcid, unsigned char dcid_len,
     const unsigned char *scid, unsigned char scid_len,

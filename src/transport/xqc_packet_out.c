@@ -247,7 +247,7 @@ xqc_write_packet_header(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
         return XQC_OK;
     }
 
-    int ret = XQC_OK;
+    ssize_t ret = XQC_OK;
 
     xqc_pkt_type_t pkt_type = packet_out->po_pkt.pkt_type;
 
@@ -266,7 +266,7 @@ xqc_write_packet_header(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
     }
 
     if (ret < 0) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|gen header error|%d|", ret);
+        xqc_log(conn->log, XQC_LOG_ERROR, "|gen header error|%z|", ret);
         return ret;
     }
     packet_out->po_used_size += ret;

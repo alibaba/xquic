@@ -367,6 +367,16 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         }
     }
 
+    /*
+     * An endpoint MUST treat receipt of a packet containing no frames as a
+     * connection error of type PROTOCOL_VIOLATION
+     */
+    if (packet_in->pi_frame_types == 0) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|receive packet with no frame, close"
+                "with PROTOCOL_VIOLATION|");
+        XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
+    }
+
     xqc_path_ctx_t *path = xqc_conn_find_path_by_path_id(conn, packet_in->pi_path_id);
     if (path != NULL 
         && (packet_in->pi_frame_types & XQC_FRAME_BIT_DATAGRAM)) 

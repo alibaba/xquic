@@ -293,17 +293,6 @@ if(XQC_ENABLE_UNLIMITED)
 endif()
 
 
-if(XQC_ENABLE_TH3)
-    set(XQC_ENABLE_TUNNEL 1)
-    set(
-        TH3_SOURCES
-        "tunnel/tunnel_h3/th3_ctx.c"
-        "tunnel/tunnel_h3/th3_vconn.c"
-    )
-endif()
-
-    )
-endif()
 
 if (XQC_NO_SHARED)
     set(XQC_BINARY_TYPE STATIC)

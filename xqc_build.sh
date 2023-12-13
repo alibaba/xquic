@@ -13,11 +13,16 @@ artifact_dir=$3
 
 # boringssl is used as default
 ssl_type="boringssl"
-ssl_path=third_party/boringssl
+ssl_path=$4
 
-
+# if ssl_path is not defined, try to use the default path
 if [ -z "$ssl_path" ] ; then
-    echo "ssl environment not specified"
+    ssl_path="`pwd`/third_party/boringssl"
+    echo "use default ssl path: $ssl_path"
+fi
+
+if [ ! -d "$ssl_path" ] ; then
+    echo "ssl environment not exists"
     exit 0
 fi
 
@@ -44,6 +49,8 @@ if [ x"$platform" == xios ] ; then
     archs=${ios_archs[@]} 
     configures="-DSSL_TYPE=${ssl_type}
                 -DSSL_PATH=${ssl_path}
+                -DBORINGSSL_PREFIX=bs
+                -DBORINGSSL_PREFIX_SYMBOLS=$cur_dir/bssl_symbols.txt
                 -DDEPLOYMENT_TARGET=10.0
                 -DCMAKE_BUILD_TYPE=Minsizerel
                 -DXQC_ENABLE_TESTING=OFF

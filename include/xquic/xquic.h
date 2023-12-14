@@ -1257,6 +1257,9 @@ typedef struct xqc_conn_settings_s {
      */
     xqc_bool_t                  is_interop_mode;
 
+#ifdef XQC_PROTECT_POOL_MEM
+    uint8_t                     protect_pool_mem;
+#endif
 
 } xqc_conn_settings_t;
 

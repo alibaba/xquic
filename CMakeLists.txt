@@ -13,6 +13,7 @@ option (XQC_ENABLE_RENO "enable reno" OFF)
 option (XQC_ENABLE_UNLIMITED "enable unlimited cc" OFF)
 option (XQC_ENABLE_MP_INTEROP "enable MPQUIC interop" OFF)
 option (XQC_NO_PID_PACKET_PROCESS "do not expose path_id in xqc_engine_packet_process" OFF)
+option (XQC_PROTECT_POOL_MEM "enable write protection for pool memory (for debug)" OFF)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)

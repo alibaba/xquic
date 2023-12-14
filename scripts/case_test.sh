@@ -854,6 +854,18 @@ else
 fi
 
 clear_log
+echo -e "send 10M data (mempool protected) ...\c"
+result=`${CLIENT_BIN}  -s 10240000 -l e -E -x 600 |grep ">>>>>>>> pass"`
+errlog=`grep_err_log`
+echo "$result"
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    case_print_result "send_10M_data_mempool_protected" "pass"
+else
+    case_print_result "send_10M_data_mempool_protected" "fail"
+    echo "$errlog"
+fi
+
+clear_log
 echo -e "send 4K every time ...\c"
 result=`${CLIENT_BIN} -s 10240000 -l e -E -x 49|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
@@ -1166,12 +1178,13 @@ fi
 clear_log
 killall test_server
 echo -e "client Initial dcid corruption ...\c"
+sleep 1
 ${SERVER_BIN} -l d -e > /dev/null &
 sleep 1
 client_print_res=`${CLIENT_BIN} -s 1024000 -l d -t 1 -x 22 -E | grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 server_log_res=`grep "decrypt payload error" slog`
-server_conn_cnt=`grep "xqc_conn_create" slog | grep -v "tra_parameters_set" | wc -l`
+server_conn_cnt=`grep "xqc_conn_create" slog | grep -v "tra_parameters_set" | grep -v "mempool" | wc -l`
 echo "$client_print_res"
 if [ "$client_print_res" != "" ] && [ "$server_log_res" != "" ] && [ $server_conn_cnt -eq 2 ]; then
     case_print_result "client_initial_dcid_corruption" "pass"

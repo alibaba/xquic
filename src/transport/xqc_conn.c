@@ -80,6 +80,9 @@ xqc_conn_settings_t default_conn_settings = {
                                     .rtt_us_thr_low = 500000
                                   },
     .is_interop_mode            = 0,
+#ifdef XQC_PROTECT_POOL_MEM
+    .protect_pool_mem           = 0,
+#endif
 };
 
 
@@ -118,6 +121,9 @@ xqc_server_set_conn_settings(const xqc_conn_settings_t *settings)
     default_conn_settings.recv_rate_bytes_per_sec = settings->recv_rate_bytes_per_sec;
     default_conn_settings.enable_stream_rate_limit = settings->enable_stream_rate_limit;
     default_conn_settings.init_recv_window = settings->init_recv_window;
+#ifdef XQC_PROTECT_POOL_MEM
+    default_conn_settings.protect_pool_mem = settings->protect_pool_mem;
+#endif
 
     if (default_conn_settings.init_recv_window) {
         default_conn_settings.init_recv_window = xqc_max(default_conn_settings.init_recv_window, XQC_QUIC_MAX_MSS);
@@ -477,10 +483,19 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     const xqc_conn_settings_t *settings, void *user_data, xqc_conn_type_t type)
 {
     xqc_connection_t *xc = NULL;
+#ifdef XQC_PROTECT_POOL_MEM
+    xqc_memory_pool_t *pool = xqc_create_pool(engine->config->conn_pool_size, settings->protect_pool_mem);
+#else
     xqc_memory_pool_t *pool = xqc_create_pool(engine->config->conn_pool_size);
+#endif
     if (pool == NULL) {
         return NULL;
     }
+
+#ifdef XQC_PROTECT_POOL_MEM
+    xqc_log(engine->log, XQC_LOG_DEBUG, "|mempool|protect:%d|page_sz:%z|",
+            pool->protect_block, pool->page_size);
+#endif
 
     xc = xqc_pcalloc(pool, sizeof(xqc_connection_t));
     if (xc == NULL) {

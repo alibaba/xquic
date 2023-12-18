@@ -4477,6 +4477,12 @@ int main(int argc, char *argv[]) {
         .recv_rate_bytes_per_sec = rate_limit,
     };
 
+#ifdef XQC_PROTECT_POOL_MEM
+    if (g_test_case == 600) {
+        conn_settings.protect_pool_mem = 1;
+    }
+#endif
+
     xqc_stream_settings_t stream_settings = { .recv_rate_bytes_per_sec = 0 };
 
     if (g_test_case == 109) {

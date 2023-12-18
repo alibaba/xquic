@@ -55,20 +55,34 @@ if(NOT SSL_DIR)
 endif()
 
 
-# find ssl module from SSL_DIR.
-find_package(SSL)
+# find ssl module from SSL_DIR if SSL_INC_PATH AND SSL_LIB_PATH not set.
+if(NOT SSL_INC_PATH AND NOT SSL_LIB_PATH)
+    find_package(SSL)
 
-if(NOT SSL_FOUND)
-    message(FATAL_ERROR "ssl moudle not found")
-endif(NOT SSL_FOUND)
+    if(NOT SSL_FOUND)
+        message(FATAL_ERROR "ssl moudle not found")
+    endif(NOT SSL_FOUND)
 
-if(NOT SSL_LIBRARIES_STATIC)
-    message(FATAL_ERROR "ssl/crypto static library not found")
-endif(NOT SSL_LIBRARIES_STATIC)
+    if(NOT SSL_LIBRARIES_STATIC)
+        message(FATAL_ERROR "ssl/crypto static library not found")
+    endif(NOT SSL_LIBRARIES_STATIC)
 
-# compat with elder macros
-set(SSL_LIB_PATH ${SSL_LIBRARIES_STATIC})
-set(SSL_INC_PATH ${SSL_INCLUDE_DIR})
+    # compat with elder macros
+    set(SSL_LIB_PATH ${SSL_LIBRARIES_STATIC})
+    set(SSL_INC_PATH ${SSL_INCLUDE_DIR})
+
+else()
+    if(NOT EXISTS ${SSL_INC_PATH})
+        message(FATAL_ERROR "ssl include path not found")
+    endif()
+
+    foreach(LIB IN LISTS SSL_LIB_PATH)
+        if(NOT EXISTS ${LIB})
+            message(FATAL_ERROR "ssl lib not found ${LIB}")
+        endif()
+    endforeach()
+
+endif()
 
 MESSAGE("-- SSL_TYPE: ${SSL_TYPE}")
 MESSAGE("-- SSL_PATH: ${SSL_PATH}")

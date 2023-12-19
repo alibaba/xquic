@@ -113,6 +113,8 @@ typedef struct xqc_demo_svr_quic_config_s {
 
     uint64_t keyupdate_pkt_threshold;
     uint64_t least_available_cid_count;
+
+    size_t max_pkt_sz;
 } xqc_demo_svr_quic_config_t;
 
 
@@ -1215,6 +1217,7 @@ xqc_demo_svr_usage(int argc, char *argv[])
             "   -s    multipath scheduler (interop, minrtt, backup), default: interop\n"
             "   -R    Reinjection (1,2,4) \n"
             "   -u    Keyupdate packet threshold\n"
+            "   -F    MTU size (default: 1200)\n"
             , prog);
 }
 
@@ -1253,13 +1256,14 @@ xqc_demo_svr_init_args(xqc_demo_svr_args_t *args)
 
     args->quic_cfg.keyupdate_pkt_threshold = UINT64_MAX;
     args->quic_cfg.least_available_cid_count = 1;
+    args->quic_cfg.max_pkt_sz = 1200;
 }
 
 void
 xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:rdMiPs:R:u:a:")) != -1) {
+    while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:rdMiPs:R:u:a:F:")) != -1) {
         switch (ch) {
         /* listen port */
         case 'p':
@@ -1375,6 +1379,11 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
         case 'a': /* key update packet threshold */
             printf("least Available cid counts: %s\n", optarg);
             args->quic_cfg.least_available_cid_count = atoi(optarg);
+            break;
+
+        case 'F':
+            printf("MTU size: %s\n", optarg);
+            args->quic_cfg.max_pkt_sz = atoi(optarg);
             break;
 
         default:
@@ -1498,6 +1507,7 @@ xqc_demo_svr_init_conn_settings(xqc_demo_svr_args_t *args)
         .keyupdate_pkt_threshold = args->quic_cfg.keyupdate_pkt_threshold,
         .least_available_cid_count = args->quic_cfg.least_available_cid_count,
         .is_interop_mode = args->quic_cfg.is_interop_mode,
+        .max_pkt_out_size = args->quic_cfg.max_pkt_sz,
     };
 
     xqc_server_set_conn_settings(&conn_settings);

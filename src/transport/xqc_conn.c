@@ -124,6 +124,7 @@ xqc_server_set_conn_settings(const xqc_conn_settings_t *settings)
 #ifdef XQC_PROTECT_POOL_MEM
     default_conn_settings.protect_pool_mem = settings->protect_pool_mem;
 #endif
+    default_conn_settings.adaptive_ack_frequency = settings->adaptive_ack_frequency;
 
     if (default_conn_settings.init_recv_window) {
         default_conn_settings.init_recv_window = xqc_max(default_conn_settings.init_recv_window, XQC_QUIC_MAX_MSS);

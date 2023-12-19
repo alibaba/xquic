@@ -212,6 +212,7 @@ xqc_send_ctl_reset(xqc_send_ctl_t *send_ctl)
     send_ctl->ctl_max_bytes_in_flight = 0;
     send_ctl->ctl_reordering_packet_threshold = XQC_kPacketThreshold;
     send_ctl->ctl_reordering_time_threshold_shift = XQC_kTimeThresholdShift;
+    send_ctl->ctl_ack_sent_cnt = 0;
 
     for (size_t i = 0; i < XQC_PNS_N; i++) {
         send_ctl->ctl_largest_acked[i] = XQC_MAX_UINT64_VALUE;

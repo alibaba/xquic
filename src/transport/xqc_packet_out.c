@@ -412,6 +412,8 @@ xqc_write_ack_to_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out
     path->path_flag &= ~(XQC_PATH_FLAG_SHOULD_ACK_INIT << pns);
     conn->ack_flag &= ~(1 << (pns + path->path_id * XQC_PNS_N));
 
+    path->path_send_ctl->ctl_ack_sent_cnt++;
+
     return XQC_OK;
 
 error:
@@ -1428,6 +1430,8 @@ xqc_write_ack_mp_to_one_packet(xqc_connection_t *conn, xqc_path_ctx_t *path,
     }
     path->path_flag &= ~(XQC_PATH_FLAG_SHOULD_ACK_INIT << pns);
     conn->ack_flag &= ~(1 << (pns + path->path_id * XQC_PNS_N));
+
+    path->path_send_ctl->ctl_ack_sent_cnt++;
 
     return XQC_OK;
 

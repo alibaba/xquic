@@ -1646,6 +1646,7 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
     settings->mp_ping_on = 1;
     settings->is_interop_mode = args->quic_cfg.is_interop_mode;
     settings->max_pkt_out_size = args->quic_cfg.max_pkt_sz;
+    settings->adaptive_ack_frequency = 1;
     if (args->req_cfg.throttled_req != -1) {
         settings->enable_stream_rate_limit = 1;
         settings->recv_rate_bytes_per_sec = 0;

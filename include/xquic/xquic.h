@@ -1217,6 +1217,7 @@ typedef struct xqc_conn_settings_s {
     uint32_t                    max_ack_delay;
     /* generate an ACK if received ack-eliciting pkts >= ack_frequency */
     uint32_t                    ack_frequency; 
+    uint8_t                     adaptive_ack_frequency;
     uint64_t                    loss_detection_pkt_thresh;
     double                      pto_backoff_factor;
 

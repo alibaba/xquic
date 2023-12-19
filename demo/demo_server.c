@@ -1508,6 +1508,7 @@ xqc_demo_svr_init_conn_settings(xqc_demo_svr_args_t *args)
         .least_available_cid_count = args->quic_cfg.least_available_cid_count,
         .is_interop_mode = args->quic_cfg.is_interop_mode,
         .max_pkt_out_size = args->quic_cfg.max_pkt_sz,
+        .adaptive_ack_frequency = 1,
     };
 
     xqc_server_set_conn_settings(&conn_settings);

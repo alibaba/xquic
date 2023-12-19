@@ -103,14 +103,13 @@ cd ../../../
 # step 3：build xquic
 mkdir build
 cd build
-cmake -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} -DSSL_INC_PATH=${SSL_INC_PATH_STR} -DSSL_LIB_PATH=${SSL_LIB_PATH_STR} ..
+cmake -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} ..
 
 MSBuild.exe xquic.vcxproj
 
 # build demo && test
-git clone https://github.com/alex85k/wingetopt.git third_party/wingetopt
 #eg: cmake -DEVENT_LIB_DIR=D:/project/vcpkg/packages/libevent_x64-windows-static ..
-cmake -DXQC_ENABLE_TESTING=1 -DEVENT_LIB_DIR=your_event_path ..
+cmake -DXQC_ENABLE_TESTING=1 -DLIBEVENT_DIR=your_event_path ..
 
 MSBuild.exe demo_client.vcxproj
 MSBuild.exe demo_server.vcxproj

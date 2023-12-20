@@ -60,15 +60,17 @@ if(NOT SSL_INC_PATH AND NOT SSL_LIB_PATH)
     find_package(SSL)
 
     if(NOT SSL_FOUND)
-        message(FATAL_ERROR "ssl moudle not found")
+        message(FATAL_ERROR "ssl module not found")
     endif(NOT SSL_FOUND)
 
-    if(NOT SSL_LIBRARIES_STATIC)
-        message(FATAL_ERROR "ssl/crypto static library not found")
-    endif(NOT SSL_LIBRARIES_STATIC)
-
     # compat with elder macros
-    set(SSL_LIB_PATH ${SSL_LIBRARIES_STATIC})
+    if(SSL_DYNAMIC)
+        message(NOTICE "-- Building with dynamic libssl")
+        set(SSL_LIB_PATH ${SSL_LIBRARIES})
+    else()
+        message(NOTICE "-- Building with static libssl")
+        set(SSL_LIB_PATH ${SSL_LIBRARIES_STATIC})
+    endif()
     set(SSL_INC_PATH ${SSL_INCLUDE_DIR})
 
 else()
@@ -338,11 +340,13 @@ set (
 
 
 # target
-add_library(
-    xquic-static
-    STATIC
-    ${XQC_SOURCE}
-)
+if(NOT SSL_DYNAMIC)
+    add_library(
+        xquic-static
+        STATIC
+        ${XQC_SOURCE}
+    )
+endif()
 
 add_library(
     xquic

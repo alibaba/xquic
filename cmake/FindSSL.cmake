@@ -4,20 +4,20 @@
 
 # find include dir
 find_path(SSL_INCLUDE_DIR           NAMES openssl/ssl.h
-    PATHS ${SSL_DIR} 
+    PATHS ${SSL_DIR}
     PATH_SUFFIXES include
     NO_DEFAULT_PATH)
 
 # find ssl library
 find_library(SSL_LIBRARY            NAMES ssl
-    PATHS ${SSL_DIR} 
-    PATH_SUFFIXES lib64 lib build
+    PATHS ${SSL_DIR}
+    PATH_SUFFIXES lib64 lib build build/ssl
     NO_DEFAULT_PATH)
 
 # find crypto library
 find_library(CRYPTO_LIBRARY         NAMES crypto
-    PATHS ${SSL_DIR} 
-    PATH_SUFFIXES lib64 lib build
+    PATHS ${SSL_DIR}
+    PATH_SUFFIXES lib64 lib build build/crypto
     NO_DEFAULT_PATH)
 
 
@@ -32,7 +32,7 @@ endif()
 
 # find ssl static library
 find_library(SSL_LIBRARY_STATIC     NAMES ${SSL_LIBRARY_STATIC_NAME}
-    PATHS ${SSL_DIR} 
+    PATHS ${SSL_DIR}
     PATH_SUFFIXES lib64 lib build/ssl build/ssl/${CMAKE_BUILD_TYPE}
     NO_DEFAULT_PATH)
 
@@ -43,12 +43,21 @@ find_library(CRYPTO_LIBRARY_STATIC  NAMES ${CRYPTO_LIBRARY_STATIC_NAME}
     NO_DEFAULT_PATH)
 
 include (FindPackageHandleStandardArgs)
-find_package_handle_standard_args(SSL
-    REQUIRED_VARS
-    SSL_INCLUDE_DIR
-    SSL_LIBRARY_STATIC
-    CRYPTO_LIBRARY_STATIC
-)
+if(SSL_DYNAMIC)
+    find_package_handle_standard_args(SSL
+        REQUIRED_VARS
+        SSL_INCLUDE_DIR
+        SSL_LIBRARY
+        CRYPTO_LIBRARY
+    )
+else()
+    find_package_handle_standard_args(SSL
+        REQUIRED_VARS
+        SSL_INCLUDE_DIR
+        SSL_LIBRARY_STATIC
+        CRYPTO_LIBRARY_STATIC
+    )
+endif()
 
 set (SSL_LIBRARIES
     ${SSL_LIBRARY}

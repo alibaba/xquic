@@ -26,13 +26,11 @@ function install_go() {
 }
 
 function build_babassl() {
-    git clone https://github.com/BabaSSL/BabaSSL.git ../third_party/babassl
+    git clone https://github.com/Tongsuo-Project/Tongsuo.git ../third_party/babassl
     cd ../third_party/babassl/
-    ./config --prefix=/usr/local/babassl
+    ./config --prefix=/usr/local/babassl --api=1.1.1 no-deprecated
     make -j
     SSL_PATH_STR="${PWD}"
-    SSL_INC_PATH_STR="${PWD}/include"
-    SSL_LIB_PATH_STR="${PWD}/libssl.a;${PWD}/libcrypto.a"
     cd -
 }
 
@@ -44,14 +42,12 @@ function build_boringssl() {
     make ssl crypto
     cd ..
     SSL_PATH_STR="${PWD}"
-    SSL_INC_PATH_STR="${PWD}/include"
-    SSL_LIB_PATH_STR="${PWD}/build/ssl/libssl.a;${PWD}/build/crypto/libcrypto.a"
     cd ../../build/
 }
 
 function do_compile() {
     rm -f CMakeCache.txt
-    if [[ $1 == "XQC_OPENSSL_IS_BORINGSSL" ]]; then
+    if [[ $1 == "boringssl" ]]; then
         build_boringssl
         SSL_TYPE_STR="boringssl"
 
@@ -61,9 +57,13 @@ function do_compile() {
     fi
 
     #turn on Code Coverage
-    cmake -DGCOV=on -DCMAKE_BUILD_TYPE=Debug -DXQC_ENABLE_TESTING=1 -DXQC_PRINT_SECRET=1 -DXQC_SUPPORT_SENDMMSG_BUILD=1 -DXQC_ENABLE_EVENT_LOG=1 -DXQC_ENABLE_BBR2=1 -DXQC_ENABLE_RENO=1 -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} -DSSL_INC_PATH=${SSL_INC_PATH_STR} -DSSL_LIB_PATH=${SSL_LIB_PATH_STR} ..
+    cmake -DGCOV=on -DCMAKE_BUILD_TYPE=Debug -DXQC_ENABLE_TESTING=1 -DXQC_PRINT_SECRET=1 -DXQC_SUPPORT_SENDMMSG_BUILD=1 -DXQC_ENABLE_EVENT_LOG=1 -DXQC_ENABLE_BBR2=1 -DXQC_ENABLE_RENO=1 -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} ..
     make -j
 
+    if [ $? -ne 0 ]; then
+        echo "cmake failed"
+        exit 1
+    fi
     rm -f CMakeCache.txt
 }
 

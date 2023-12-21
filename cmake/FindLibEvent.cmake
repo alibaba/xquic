@@ -29,6 +29,13 @@ if(LIBEVENT_INCLUDE_DIR)
         "^#define[ ]+[EVENT__VERSION|_EVENT_VERSION]+[ ]+\"([^\"]+)\"")
     file(STRINGS "${LIBEVENT_INCLUDE_DIR}/event2/event-config.h"
         LIBEVENT_VERSION REGEX "${_version_regex}")
+
+    # if event-config.h not found, try find event-config-64.h
+    if(NOT LIBEVENT_VERSION)
+        file(STRINGS "${LIBEVENT_INCLUDE_DIR}/event2/event-config-64.h"
+            LIBEVENT_VERSION REGEX "${_version_regex}")
+    endif()
+    
     string(REGEX REPLACE "${_version_regex}" "\\1"
         LIBEVENT_VERSION "${LIBEVENT_VERSION}")
     unset(_version_regex)

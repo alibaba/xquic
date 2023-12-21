@@ -340,13 +340,11 @@ set (
 
 
 # target
-if(NOT SSL_DYNAMIC)
-    add_library(
-        xquic-static
-        STATIC
-        ${XQC_SOURCE}
-    )
-endif()
+add_library(
+    xquic-static
+    STATIC
+    ${XQC_SOURCE}
+)
 
 add_library(
     xquic

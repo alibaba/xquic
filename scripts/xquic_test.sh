@@ -37,7 +37,7 @@ function build_babassl() {
 function build_boringssl() {
     git clone https://github.com/google/boringssl.git ../third_party/boringssl
     mkdir -p ../third_party/boringssl/build
-    cd ../third_party/boringssl//build
+    cd ../third_party/boringssl/build
     cmake -DBUILD_SHARED_LIBS=0 -DCMAKE_C_FLAGS="-fPIC" -DCMAKE_CXX_FLAGS="-fPIC" ..
     make ssl crypto
     cd ..

@@ -8,3 +8,4 @@
 #cmakedefine XQC_ENABLE_UNLIMITED
 #cmakedefine XQC_ENABLE_MP_INTEROP
 #cmakedefine XQC_NO_PID_PACKET_PROCESS
+#cmakedefine XQC_PROTECT_POOL_MEM

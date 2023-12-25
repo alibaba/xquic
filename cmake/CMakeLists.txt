@@ -218,17 +218,17 @@ if(${SSL_TYPE} MATCHES "boringssl")
     set(
         TLS_SOURCE
         ${TLS_SOURCE}
-        "src/tls/boringssl/xqc_hkdf.c"
-        "src/tls/boringssl/xqc_crypto.c"
-        "src/tls/boringssl/xqc_ssl_if.c"
+        "src/tls/boringssl/xqc_hkdf_impl.c"
+        "src/tls/boringssl/xqc_crypto_impl.c"
+        "src/tls/boringssl/xqc_ssl_if_impl.c"
     )
 elseif(${SSL_TYPE} MATCHES "babassl")
     set(
         TLS_SOURCE
         ${TLS_SOURCE}
-        "src/tls/babassl/xqc_hkdf.c"
-        "src/tls/babassl/xqc_crypto.c"
-        "src/tls/babassl/xqc_ssl_if.c"
+        "src/tls/babassl/xqc_hkdf_impl.c"
+        "src/tls/babassl/xqc_crypto_impl.c"
+        "src/tls/babassl/xqc_ssl_if_impl.c"
     )
 endif()
 

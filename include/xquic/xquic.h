@@ -824,6 +824,7 @@ typedef struct xqc_cc_params_s {
     uint32_t    min_cwnd;
     uint32_t    expect_bw;
     uint32_t    max_expect_bw;
+    uint8_t     bbr_enable_lt_bw;
     uint32_t    cc_optimization_flags;
     /* 0 < delta <= delta_max, default 0.05, ->0 = more throughput-oriented */
     double      copa_delta_base; 
@@ -1217,6 +1218,7 @@ typedef struct xqc_conn_settings_s {
     uint32_t                    max_ack_delay;
     /* generate an ACK if received ack-eliciting pkts >= ack_frequency */
     uint32_t                    ack_frequency; 
+    uint8_t                     adaptive_ack_frequency;
     uint64_t                    loss_detection_pkt_thresh;
     double                      pto_backoff_factor;
 

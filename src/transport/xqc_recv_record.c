@@ -241,6 +241,20 @@ xqc_recv_record_largest(xqc_recv_record_t *recv_record)
     }
 }
 
+uint32_t
+xqc_get_ack_frequency(xqc_connection_t *conn, xqc_path_ctx_t *path)
+{
+    if(xqc_conn_is_handshake_confirmed(conn)
+       && conn->conn_settings.adaptive_ack_frequency
+       && path->path_send_ctl->ctl_ack_sent_cnt >= 100)
+    {
+        // slow down ack rate if we have sent more than 100 ACKs
+        return xqc_max(conn->conn_settings.ack_frequency, 10);
+    }
+
+    return conn->conn_settings.ack_frequency; 
+}
+
 void
 xqc_maybe_should_ack(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_pn_ctl_t *pn_ctl, xqc_pkt_num_space_t pns, int out_of_order, xqc_usec_t now)
 {
@@ -265,8 +279,9 @@ xqc_maybe_should_ack(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_pn_ctl_t 
     }
 
     xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    uint32_t ack_frequency = xqc_get_ack_frequency(conn, path);
 
-    if (send_ctl->ctl_ack_eliciting_pkt[pns] >= conn->conn_settings.ack_frequency
+    if (send_ctl->ctl_ack_eliciting_pkt[pns] >= ack_frequency
         || (pns <= XQC_PNS_HSK && send_ctl->ctl_ack_eliciting_pkt[pns] >= 1)
         || (out_of_order && send_ctl->ctl_ack_eliciting_pkt[pns] >= 1))
     {
@@ -280,7 +295,7 @@ xqc_maybe_should_ack(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_pn_ctl_t 
                 path->path_id, out_of_order, 
                 send_ctl->ctl_ack_eliciting_pkt[pns],
                 pns, xqc_conn_flag_2_str(conn->conn_flag),
-                conn->conn_settings.ack_frequency);
+                ack_frequency);
 
     } else if (send_ctl->ctl_ack_eliciting_pkt[pns] > 0
                && !xqc_timer_is_set(&send_ctl->path_timer_manager, XQC_TIMER_ACK_INIT + pns))

@@ -188,6 +188,8 @@ typedef struct xqc_demo_cli_quic_config_s {
 
     uint64_t least_available_cid_count;
 
+    size_t max_pkt_sz;
+
 } xqc_demo_cli_quic_config_t;
 
 
@@ -1643,6 +1645,8 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
     settings->multipath_version = args->quic_cfg.mp_version;
     settings->mp_ping_on = 1;
     settings->is_interop_mode = args->quic_cfg.is_interop_mode;
+    settings->max_pkt_out_size = args->quic_cfg.max_pkt_sz;
+    settings->adaptive_ack_frequency = 1;
     if (args->req_cfg.throttled_req != -1) {
         settings->enable_stream_rate_limit = 1;
         settings->recv_rate_bytes_per_sec = 0;
@@ -1672,6 +1676,7 @@ xqc_demo_cli_init_args(xqc_demo_cli_client_args_t *args)
     args->quic_cfg.keyupdate_pkt_threshold = UINT64_MAX;
     /* default 04 */
     args->quic_cfg.mp_version = XQC_MULTIPATH_04;
+    args->quic_cfg.max_pkt_sz = 1200;
 
     args->req_cfg.throttled_req = -1;
 
@@ -1791,6 +1796,7 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -n    Throttling the {1,2,...}xn-th requests\n"
         "   -e    NAT rebinding on path 0\n"
         "   -E    NAT rebinding on path 1\n"
+        "   -F    MTU size (default: 1200)\n"
         , prog);
 }
 
@@ -1798,7 +1804,7 @@ void
 xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:bZ:NQT:R:V:B:I:n:eE")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:bZ:NQT:R:V:B:I:n:eEF:")) != -1) {
         switch (ch) {
         /* server ip */
         case 'a':
@@ -2032,6 +2038,11 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             printf("option rebinding path1 after 3s\n");
             args->net_cfg.rebind_p1 = 1;
             break;     
+
+        case 'F':
+            printf("MTU size: %s\n", optarg);
+            args->quic_cfg.max_pkt_sz = atoi(optarg);
+            break;
 
         default:
             printf("other option :%c\n", ch);

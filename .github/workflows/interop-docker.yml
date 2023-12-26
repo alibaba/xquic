@@ -2,7 +2,7 @@ name: Build interop Docker image
 
 on:
   push:
-    branches: [ main, interop, interop_main ]
+    branches: [ main, interop ]
 
 permissions: read-all
 

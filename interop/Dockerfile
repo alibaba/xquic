@@ -1,36 +1,27 @@
 FROM martenseemann/quic-network-simulator-endpoint:latest
 
-ENV XQC_PATH /xquic \
-    SSL_PATH $XQC_PATH/third_party/boringssl \
-    SSL_INC_PATH $SSL_PATH/include \
-    SSL_LIB_PATH $SSL_PATH/build/ssl/libssl.a;$SSL_PATH/build/crypto/libcrypto.a
-
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive \
     apt-get install -y --no-install-recommends build-essential \
         git cmake golang make autoconf automake libtool \
         libevent-dev net-tools && \
     go env -w GOPROXY=https://goproxy.cn && \
-    git clone --depth 1 --branch interop https://github.com/alibaba/xquic.git && \
-    git clone --depth 1 https://github.com/google/boringssl.git xquic/third_party/boringssl && \
-    cd xquic/third_party/boringssl/ && \
-    if [ ! -d build ]; then mkdir build; else rm -rf build; mkdir build; fi && \
-    cd build && \
-    cmake -DBUILD_SHARED_LIBS=0 -DCMAKE_C_FLAGS="-fPIC" -DCMAKE_CXX_FLAGS="-fPIC" .. && \
-    make ssl crypto && \
-    cd ../../../../ && \
+    git clone --depth 1 https://github.com/alibaba/xquic.git && \
+    git clone --depth 1 https://github.com/Tongsuo-Project/Tongsuo.git xquic/third_party/babassl && \
+    cd xquic/third_party/babassl/ && \
+    ./Configure --api=1.1.1 no-deprecated && make -j && \
+    cd ../../../ && \
     mkdir xquic_bin && \
     cd xquic_bin && \
-    cmake -DSSL_TYPE="boringssl" \
-        -DSSL_PATH="$SSL_PATH" \
-        -DSSL_INC_PATH="$SSL_INC_PATH" \
-        -DSSL_LIB_PATH="$SSL_LIB_PATH" \
+    cmake -DSSL_TYPE="babassl" \
+        -DSSL_PATH="/xquic/third_party/babassl" \
         -DCMAKE_BUILD_TYPE=DEBUG \
         -DXQC_PRINT_SECRET=1 \
         -DXQC_ENABLE_TESTING=1 \
         ../xquic/ && \
     make -j && \
     rm -rf CMake* Makefile *.cmake tests xqc_configure.h test_client test_server && \
+    mv demo/demo_* . && \
     cd .. && rm -rf xquic/ && \
     apt-get -y purge \
         git cmake golang make autoconf automake libtool && \

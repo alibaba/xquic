@@ -1494,6 +1494,7 @@ xqc_demo_svr_init_conn_settings(xqc_demo_svr_args_t *args)
         .cc_params = {
             .customize_on = 1,
             .init_cwnd = 32,
+            .bbr_enable_lt_bw = 1,
         },
         .spurious_loss_detect_on = 1,
         .init_idle_time_out = 60000,

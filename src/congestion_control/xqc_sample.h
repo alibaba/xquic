@@ -45,6 +45,8 @@ typedef struct xqc_sample_s {
     uint64_t         tx_in_flight;
     uint32_t         lost_pkts;
 
+    uint32_t         total_lost_pkts;
+
 } xqc_sample_t;
 
 void xqc_init_sample_before_ack(xqc_sample_t *sampler);

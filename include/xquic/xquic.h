@@ -824,6 +824,7 @@ typedef struct xqc_cc_params_s {
     uint32_t    min_cwnd;
     uint32_t    expect_bw;
     uint32_t    max_expect_bw;
+    uint8_t     bbr_enable_lt_bw;
     uint32_t    cc_optimization_flags;
     /* 0 < delta <= delta_max, default 0.05, ->0 = more throughput-oriented */
     double      copa_delta_base; 

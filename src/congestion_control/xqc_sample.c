@@ -51,6 +51,7 @@ xqc_generate_sample(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl,
     sampler->bytes_inflight = send_ctl->ctl_bytes_in_flight;
     sampler->prior_inflight = send_ctl->ctl_prior_bytes_in_flight;
     sampler->total_acked = send_ctl->ctl_delivered;
+    sampler->total_lost_pkts = send_ctl->ctl_lost_pkts_number;
 
     /* 
      * Normally we expect interval >= MinRTT.
@@ -71,9 +72,10 @@ xqc_generate_sample(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl,
 
     xqc_log(sampler->send_ctl->ctl_conn->log, XQC_LOG_DEBUG, 
             "|sampler: send_elapse %ui, ack_elapse %ui, "
-            "delivered %ud|",
+            "delivered %ud|rate %ui|lost %ud|",
             sampler->send_elapse, sampler->ack_elapse,
-            sampler->delivered);
+            sampler->delivered, sampler->delivery_rate,
+            sampler->total_lost_pkts);
             
     return XQC_RATE_SAMPLE_VALID;
 }
@@ -102,7 +104,14 @@ xqc_update_sample(xqc_sample_t *sampler, xqc_packet_out_t *packet,
         sampler->tx_in_flight = packet->po_tx_in_flight;
         sampler->prior_delivered = packet->po_delivered;
         sampler->prior_time = packet->po_delivered_time;
-        sampler->is_app_limited = packet->po_is_app_limited;
+
+        if (xqc_conn_is_handshake_confirmed(send_ctl->ctl_conn)) {
+            sampler->is_app_limited = packet->po_is_app_limited;
+
+        } else {
+            sampler->is_app_limited = 1;
+        }
+        
         sampler->send_elapse = packet->po_sent_time - 
                                packet->po_first_sent_time;
         sampler->ack_elapse = send_ctl->ctl_delivered_time - 

@@ -1,8 +1,5 @@
 FROM martenseemann/quic-network-simulator-endpoint:latest
 
-ENV XQC_PATH /xquic \
-    SSL_PATH $XQC_PATH/third_party/babassl
-
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive \
     apt-get install -y --no-install-recommends build-essential \
@@ -17,7 +14,7 @@ RUN apt-get update && \
     mkdir xquic_bin && \
     cd xquic_bin && \
     cmake -DSSL_TYPE="babassl" \
-        -DSSL_PATH="$SSL_PATH" \
+        -DSSL_PATH="/xquic/third_party/babassl" \
         -DCMAKE_BUILD_TYPE=DEBUG \
         -DXQC_PRINT_SECRET=1 \
         -DXQC_ENABLE_TESTING=1 \

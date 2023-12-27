@@ -8,6 +8,7 @@ permissions: read-all
 
 jobs:
   build:
+    if: github.repository == 'alibaba/xquic'
     permissions:
       packages: write
 

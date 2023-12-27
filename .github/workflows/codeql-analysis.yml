@@ -13,7 +13,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@4
       with:
         fetch-depth: 2
         submodules: 'recursive'

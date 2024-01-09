@@ -14,6 +14,8 @@ esac
 
 LOG_DIR="/logs"
 cd /xquic_bin/
+ulimit -c unlimited
+
 
 if [ "$ROLE" == "client" ]; then
     # Wait for the simulator to start up.
@@ -100,4 +102,11 @@ elif [ "$ROLE" == "server" ]; then
     ARGS="-l d -L "$LOG_DIR/server.log" -p 443 -D "/www" -k $SSLKEYLOGFILE -i -M"
     echo "./demo_server $ARGS"
     ./demo_server $ARGS
+fi
+
+# debug for coredump
+core_res=`find . -name "core*"`
+if [ "$core_res" != "" ]; then
+    tar -zcvf core.tar.gz *
+    cp core.tar.gz /logs/
 fi

@@ -1474,7 +1474,7 @@ xqc_demo_svr_init_conn_settings(xqc_demo_svr_args_t *args)
         break;
     }
 
-    xqc_scheduler_callback_t sched;
+    xqc_scheduler_callback_t sched = {0};
     if (strncmp(args->quic_cfg.mp_sched, "minrtt", strlen("minrtt")) == 0) {
         sched = xqc_minrtt_scheduler_cb;
 

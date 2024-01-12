@@ -140,7 +140,7 @@ void
 xqc_log_TRA_PACKET_RECEIVED_callback(xqc_log_t *log, const char *func, xqc_packet_in_t *packet_in)
 {
     xqc_log_implement(log, TRA_PACKET_RECEIVED, func,
-                      "|pkt_pns:%d|pkt_type:%d|pkt_num:%d|len:%d|frame_flag:%s|",
+                      "|pkt_pns:%d|pkt_type:%d|pkt_num:%ui|len:%uz|frame_flag:%s|",
                       packet_in->pi_pkt.pkt_pns, packet_in->pi_pkt.pkt_type, packet_in->pi_pkt.pkt_num,
                       packet_in->buf_size, xqc_frame_type_2_str(packet_in->pi_frame_types));
 }
@@ -149,7 +149,7 @@ void
 xqc_log_TRA_PACKET_SENT_callback(xqc_log_t *log, const char *func, xqc_packet_out_t *packet_out)
 {
     xqc_log_implement(log, TRA_PACKET_SENT, func,
-                      "|pkt_pns:%d|pkt_type:%d|pkt_num:%d|size:%d|frame_flag:%s|",
+                      "|pkt_pns:%d|pkt_type:%d|pkt_num:%ui|size:%d|frame_flag:%s|",
                       packet_out->po_pkt.pkt_pns, packet_out->po_pkt.pkt_type, packet_out->po_pkt.pkt_num,
                       packet_out->po_used_size, xqc_frame_type_2_str(packet_out->po_frame_types));
 }
@@ -175,7 +175,7 @@ void
 xqc_log_TRA_DATAGRAMS_SENT_callback(xqc_log_t *log, const char *func, ssize_t size)
 {
     xqc_log_implement(log, TRA_DATAGRAMS_SENT, func,
-                      "|size:%d|", size);
+                      "|size:%z|", size);
 }
 
 void

@@ -671,20 +671,21 @@ xqc_log_QPACK_INSTRUCTION_CREATED_callback(xqc_log_t *log, const char *func, ...
             break;
         }
         case XQC_INS_TYPE_ENC_INSERT_NAME_REF: {
-            xqc_int_t table_type = va_arg(args, xqc_int_t);
-            uint64_t name_index = va_arg(args, uint64_t);
-            uint64_t value_len = va_arg(args, uint64_t);
-            char *value = va_arg(args, char *);
+            xqc_flag_t  table_type  = va_arg(args, xqc_flag_t);
+            uint64_t    name_index  = va_arg(args, uint64_t);
+            size_t      value_len   = va_arg(args, size_t);
+            char       *value       = va_arg(args, char *);
             xqc_log_implement(log, QPACK_INSTRUCTION_CREATED, func,
                               "|insert_with_name_reference|%s|name_index:%ui|value:%*s|",
-                              table_type == XQC_DTABLE_FLAG ? "dtable" : "stable", name_index, (size_t) value_len, value);
+                              table_type == XQC_DTABLE_FLAG ? "dtable" : "stable",
+                              name_index, (size_t) value_len, value);
             break;
         }
         case XQC_INS_TYPE_ENC_INSERT_LITERAL: {
-            uint64_t name_len = va_arg(args, uint64_t);
-            char *name = va_arg(args, char *);
-            uint64_t value_len = va_arg(args, uint64_t);
-            char *value = va_arg(args, char *);
+            size_t  name_len    = va_arg(args, size_t);
+            char   *name        = va_arg(args, char *);
+            size_t  value_len   = va_arg(args, size_t);
+            char   *value       = va_arg(args, char *);
             xqc_log_implement(log, QPACK_INSTRUCTION_CREATED, func,
                               "|insert_without_name_reference|name:%*s|value:%*s|",
                               (size_t) name_len, name, (size_t) value_len, value);

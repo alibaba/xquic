@@ -140,7 +140,7 @@ void
 xqc_log_TRA_PACKET_RECEIVED_callback(xqc_log_t *log, const char *func, xqc_packet_in_t *packet_in)
 {
     xqc_log_implement(log, TRA_PACKET_RECEIVED, func,
-                      "|pkt_pns:%d|pkt_type:%d|pkt_num:%d|len:%d|frame_flag:%s|",
+                      "|pkt_pns:%d|pkt_type:%d|pkt_num:%ui|len:%uz|frame_flag:%s|",
                       packet_in->pi_pkt.pkt_pns, packet_in->pi_pkt.pkt_type, packet_in->pi_pkt.pkt_num,
                       packet_in->buf_size, xqc_frame_type_2_str(packet_in->pi_frame_types));
 }
@@ -149,7 +149,7 @@ void
 xqc_log_TRA_PACKET_SENT_callback(xqc_log_t *log, const char *func, xqc_packet_out_t *packet_out)
 {
     xqc_log_implement(log, TRA_PACKET_SENT, func,
-                      "|pkt_pns:%d|pkt_type:%d|pkt_num:%d|size:%d|frame_flag:%s|",
+                      "|pkt_pns:%d|pkt_type:%d|pkt_num:%ui|size:%d|frame_flag:%s|",
                       packet_out->po_pkt.pkt_pns, packet_out->po_pkt.pkt_type, packet_out->po_pkt.pkt_num,
                       packet_out->po_used_size, xqc_frame_type_2_str(packet_out->po_frame_types));
 }
@@ -175,7 +175,7 @@ void
 xqc_log_TRA_DATAGRAMS_SENT_callback(xqc_log_t *log, const char *func, ssize_t size)
 {
     xqc_log_implement(log, TRA_DATAGRAMS_SENT, func,
-                      "|size:%d|", size);
+                      "|size:%z|", size);
 }
 
 void
@@ -671,20 +671,21 @@ xqc_log_QPACK_INSTRUCTION_CREATED_callback(xqc_log_t *log, const char *func, ...
             break;
         }
         case XQC_INS_TYPE_ENC_INSERT_NAME_REF: {
-            xqc_int_t table_type = va_arg(args, xqc_int_t);
-            uint64_t name_index = va_arg(args, uint64_t);
-            uint64_t value_len = va_arg(args, uint64_t);
-            char *value = va_arg(args, char *);
+            xqc_flag_t  table_type  = va_arg(args, xqc_flag_t);
+            uint64_t    name_index  = va_arg(args, uint64_t);
+            size_t      value_len   = va_arg(args, size_t);
+            char       *value       = va_arg(args, char *);
             xqc_log_implement(log, QPACK_INSTRUCTION_CREATED, func,
                               "|insert_with_name_reference|%s|name_index:%ui|value:%*s|",
-                              table_type == XQC_DTABLE_FLAG ? "dtable" : "stable", name_index, (size_t) value_len, value);
+                              table_type == XQC_DTABLE_FLAG ? "dtable" : "stable",
+                              name_index, (size_t) value_len, value);
             break;
         }
         case XQC_INS_TYPE_ENC_INSERT_LITERAL: {
-            uint64_t name_len = va_arg(args, uint64_t);
-            char *name = va_arg(args, char *);
-            uint64_t value_len = va_arg(args, uint64_t);
-            char *value = va_arg(args, char *);
+            size_t  name_len    = va_arg(args, size_t);
+            char   *name        = va_arg(args, char *);
+            size_t  value_len   = va_arg(args, size_t);
+            char   *value       = va_arg(args, char *);
             xqc_log_implement(log, QPACK_INSTRUCTION_CREATED, func,
                               "|insert_without_name_reference|name:%*s|value:%*s|",
                               (size_t) name_len, name, (size_t) value_len, value);

@@ -279,32 +279,6 @@ xqc_packet_parse_short_header(xqc_connection_t *c, xqc_packet_in_t *packet_in)
     if (c->enable_multipath) {
         /* try to find the path */
         path = xqc_conn_find_path_by_scid(c, &packet_in->pi_pkt.pkt_dcid);
-#ifndef XQC_NO_PID_PACKET_PROCESS
-        /* Note: to handle the case in which the server changes CID upon NAT rebinding */
-        if (path == NULL && packet_in->pi_path_id != XQC_UNKNOWN_PATH_ID) {
-            path = xqc_conn_find_path_by_path_id(c, packet_in->pi_path_id);
-
-            if (path == NULL) {
-                xqc_log(c->log, XQC_LOG_ERROR, "|can not find path|dcid:%s|path_id:%ui|",
-                        xqc_dcid_str(&packet_in->pi_pkt.pkt_dcid), packet_in->pi_path_id);
-                return -XQC_EILLPKT;
-            }
-
-            /* update the cid to a newer one */
-            if (xqc_cid_is_equal(&path->path_last_scid, &packet_in->pi_pkt.pkt_dcid) != XQC_OK) {
-                xqc_cid_copy(&path->path_last_scid, &path->path_scid);
-                xqc_cid_copy(&path->path_scid, &packet_in->pi_pkt.pkt_dcid);
-                xqc_log(c->log, XQC_LOG_DEBUG, "|update_path_scid|%s->%s|",
-                        xqc_scid_str(&path->path_last_scid), 
-                        xqc_dcid_str(&path->path_scid));
-                /* clear recv record and reset packet number */
-                path->path_pn_ctl->ctl_largest_acked_ack[XQC_PNS_APP_DATA] = 0;
-                path->path_send_ctl->ctl_largest_received[XQC_PNS_APP_DATA] = XQC_MAX_UINT64_VALUE;
-                xqc_ack_sent_record_reset(&path->path_pn_ctl->ack_sent_record[XQC_PNS_APP_DATA]);
-                xqc_recv_record_destroy(&path->path_pn_ctl->ctl_recv_record[XQC_PNS_APP_DATA]);
-            }
-        }
-#endif
 
     } else {
         path = c->conn_initial_path;

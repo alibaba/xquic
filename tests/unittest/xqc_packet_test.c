@@ -237,8 +237,7 @@ xqc_test_empty_pkt()
     /* server will process the initial packet and get the secret of initial pns */
     xqc_engine_packet_process(svr_tctx.engine, cli_tctx.buf, cli_tctx.buf_len,
                               (struct sockaddr *)&local_addr, local_addrlen,
-                              (struct sockaddr *)&peer_addr, peer_addrlen,
-                              0, xqc_now(), &svr_tctx);
+                              (struct sockaddr *)&peer_addr, peer_addrlen, xqc_now(), &svr_tctx);
 
 
     /* generate an Initial pkt with no payload */
@@ -266,7 +265,7 @@ xqc_test_empty_pkt()
 
     /* server decrypt the Initial pkt */
     ret = xqc_conn_process_packet(svr_tctx.c, cli_tctx.c->enc_pkt,
-                                  cli_tctx.c->enc_pkt_len, 0, xqc_now());
+                                  cli_tctx.c->enc_pkt_len, xqc_now());
     CU_ASSERT(svr_tctx.c->conn_err == TRA_PROTOCOL_VIOLATION);
 
 

@@ -263,7 +263,6 @@ xqc_bbr_init(void *cong_ctl, xqc_sample_t *sampler, xqc_cc_params_t cc_params)
     bbr->packet_conservation = FALSE;
     bbr->prior_cwnd = 0;
     bbr->initial_congestion_window = XQC_BBR_INITIAL_WINDOW;
-    bbr->congestion_window = bbr->initial_congestion_window;
     bbr->has_srtt = 0;
     bbr->idle_restart = 0;
     bbr->packet_conservation = 0;
@@ -304,8 +303,8 @@ xqc_bbr_init(void *cong_ctl, xqc_sample_t *sampler, xqc_cc_params_t cc_params)
         }
     }
 
+    bbr->congestion_window = bbr->initial_congestion_window;
     xqc_bbr_reset_lt_bw_sampling(bbr);
-
     xqc_bbr_enter_startup(bbr);
     xqc_bbr_init_pacing_rate(bbr, sampler);
 }

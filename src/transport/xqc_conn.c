@@ -3501,11 +3501,7 @@ xqc_conn_process_undecrypt_packet_in(xqc_connection_t *conn, xqc_encrypt_level_t
         packet_in = xqc_list_entry(pos, xqc_packet_in_t, pi_list);
         xqc_log(conn->log, XQC_LOG_DEBUG, "|delay|undecrypt_count:%ud|encrypt_level:%d|",
                 conn->undecrypt_count[encrypt_level], encrypt_level);
-#ifdef XQC_NO_PID_PACKET_PROCESS
-        ret = xqc_conn_process_packet(conn, packet_in->buf, packet_in->buf_size, packet_in->pkt_recv_time);
-#else
-        ret = xqc_conn_process_packet(conn, packet_in->buf, packet_in->buf_size, XQC_UNKNOWN_PATH_ID, packet_in->pkt_recv_time);
-#endif        
+        ret = xqc_conn_process_packet(conn, packet_in->buf, packet_in->buf_size, packet_in->pkt_recv_time);       
         if (ret) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_packet_process error|ret:%d|", ret);
             return ret;
@@ -4020,17 +4016,11 @@ xqc_conn_log_recvd_packet(xqc_connection_t *c, xqc_packet_in_t *pi,
     c->rcv_pkt_stats.curr_index = (index + 1) % 3;
 }
 
-#ifdef XQC_NO_PID_PACKET_PROCESS
+
 xqc_int_t
 xqc_conn_process_packet(xqc_connection_t *c,
     const unsigned char *packet_in_buf, size_t packet_in_size, 
     xqc_usec_t recv_time)
-#else
-xqc_int_t
-xqc_conn_process_packet(xqc_connection_t *c,
-    const unsigned char *packet_in_buf, size_t packet_in_size, 
-    uint64_t path_id, xqc_usec_t recv_time)
-#endif
 {
     xqc_int_t ret = XQC_OK;
     const unsigned char *last_pos = NULL;
@@ -4047,11 +4037,8 @@ xqc_conn_process_packet(xqc_connection_t *c,
         xqc_packet_in_t *packet_in = &packet;
         memset(packet_in, 0, sizeof(*packet_in));
         xqc_packet_in_init(packet_in, pos, end - pos, decrypt_payload, XQC_MAX_PACKET_IN_LEN, recv_time);
-#ifndef XQC_NO_PID_PACKET_PROCESS
-        packet_in->pi_path_id = path_id;
-#else
+
         packet_in->pi_path_id = XQC_UNKNOWN_PATH_ID;
-#endif
 
         /* packet_in->pos will update inside */
         ret = xqc_packet_process_single(c, packet_in);
@@ -4085,24 +4072,15 @@ end:
     return ret;
 }
 
-#ifdef XQC_NO_PID_PACKET_PROCESS
+
 void
 xqc_conn_process_packet_recved_path(xqc_connection_t *conn, xqc_cid_t *scid, 
     size_t packet_in_size, xqc_usec_t recv_time)
-#else
-void
-xqc_conn_process_packet_recved_path(xqc_connection_t *conn, xqc_cid_t *scid, 
-    uint64_t path_id, size_t packet_in_size, xqc_usec_t recv_time)
-#endif
 {
     xqc_path_ctx_t *path = NULL;
     if (conn->enable_multipath) {
         path = xqc_conn_find_path_by_scid(conn, scid);
-#ifndef XQC_NO_PID_PACKET_PROCESS
-        if (path == NULL && path_id != XQC_UNKNOWN_PATH_ID) {
-            path = xqc_conn_find_path_by_path_id(conn, path_id);
-        }
-#endif
+
     } else {
         path = conn->conn_initial_path;
     }
@@ -4228,14 +4206,7 @@ xqc_int_t
 xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
 {
     uint64_t active_cid_cnt = conn->scid_set.cid_set.unused_cnt + conn->scid_set.cid_set.used_cnt;
-#ifdef XQC_NO_PID_PACKET_PROCESS
     uint64_t unused_limit = 1;
-#else
-    uint64_t unused_limit = conn->enable_multipath ? 2 : 1;
-    if (conn->enable_multipath) {
-        unused_limit = xqc_max(unused_limit, conn->conn_settings.least_available_cid_count);
-    }
-#endif
     if (xqc_conn_is_handshake_confirmed(conn)) {
         while (active_cid_cnt < conn->remote_settings.active_connection_id_limit
                && conn->scid_set.cid_set.unused_cnt < unused_limit) 

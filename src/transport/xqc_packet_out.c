@@ -655,9 +655,12 @@ xqc_write_conn_close_to_packet(xqc_connection_t *conn, uint64_t err_code)
     xqc_pkt_type_t pkt_type = XQC_PTYPE_INIT;
 
     /* peer may not have received the handshake packet */
-    if (conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_COMPLETED && conn->conn_flag & XQC_CONN_FLAG_HSK_ACKED) {
+    if ((conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_COMPLETED && conn->conn_flag & XQC_CONN_FLAG_HSK_ACKED)
+        || (conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_CONFIRMED)) 
+    {
         pkt_type = XQC_PTYPE_SHORT_HEADER;
     }
+
     packet_out = xqc_write_new_packet(conn, pkt_type);
     if (packet_out == NULL) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");

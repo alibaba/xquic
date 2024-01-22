@@ -1337,19 +1337,11 @@ xqc_demo_cli_socket_read_handler(xqc_demo_cli_user_conn_t *user_conn, int fd)
         recv_sum += recv_size;
         uint64_t recv_time = xqc_now();
         user_path->last_sock_op_time = recv_time;
-#ifdef XQC_NO_PID_PACKET_PROCESS
         if (xqc_engine_packet_process(user_conn->ctx->engine, packet_buf, recv_size,
                                       (struct sockaddr *)(&user_path->local_addr),
                                       user_path->local_addrlen, (struct sockaddr *)(&addr),
                                       addr_len, (xqc_msec_t)recv_time,
                                       user_conn) != XQC_OK)
-#else
-        if (xqc_engine_packet_process(user_conn->ctx->engine, packet_buf, recv_size,
-                                      (struct sockaddr *)(&user_path->local_addr),
-                                      user_path->local_addrlen, (struct sockaddr *)(&addr),
-                                      addr_len, user_path->path_id, (xqc_msec_t)recv_time,
-                                      user_conn) != XQC_OK)
-#endif
         {
             return;
         }

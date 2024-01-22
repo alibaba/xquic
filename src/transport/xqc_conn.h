@@ -535,21 +535,11 @@ xqc_conn_has_undecrypt_packets(xqc_connection_t *conn)
 }
 
 /* process an UDP datagram */
-#ifdef XQC_NO_PID_PACKET_PROCESS
 xqc_int_t xqc_conn_process_packet(xqc_connection_t *c, const unsigned char *packet_in_buf,
     size_t packet_in_size, xqc_usec_t recv_time);
-#else
-xqc_int_t xqc_conn_process_packet(xqc_connection_t *c, const unsigned char *packet_in_buf,
-    size_t packet_in_size, uint64_t path_id, xqc_usec_t recv_time);
-#endif
 
-#ifdef XQC_NO_PID_PACKET_PROCESS
 void xqc_conn_process_packet_recved_path(xqc_connection_t *conn, xqc_cid_t *scid, 
     size_t packet_in_size, xqc_usec_t recv_time);
-#else
-void xqc_conn_process_packet_recved_path(xqc_connection_t *conn, xqc_cid_t *scid, 
-    uint64_t path_id, size_t packet_in_size, xqc_usec_t recv_time);
-#endif
 
 xqc_int_t xqc_conn_check_handshake_complete(xqc_connection_t *conn);
 

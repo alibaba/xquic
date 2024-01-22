@@ -1109,21 +1109,12 @@ xqc_engine_process_sr_pkt(xqc_engine_t *engine, const unsigned char *buf,
  * Pass received UDP packet payload into xquic engine.
  * @param recv_time   UDP packet received time in microsecond
  */
-#ifdef XQC_NO_PID_PACKET_PROCESS
 xqc_int_t
 xqc_engine_packet_process(xqc_engine_t *engine,
     const unsigned char *packet_in_buf, size_t packet_in_size,
     const struct sockaddr *local_addr, socklen_t local_addrlen,
     const struct sockaddr *peer_addr, socklen_t peer_addrlen,
     xqc_usec_t recv_time, void *user_data)
-#else
-xqc_int_t
-xqc_engine_packet_process(xqc_engine_t *engine,
-    const unsigned char *packet_in_buf, size_t packet_in_size,
-    const struct sockaddr *local_addr, socklen_t local_addrlen,
-    const struct sockaddr *peer_addr, socklen_t peer_addrlen,
-    uint64_t path_id, xqc_usec_t recv_time, void *user_data)
-#endif
 {
     xqc_int_t ret;
     xqc_connection_t *conn = NULL;
@@ -1269,11 +1260,7 @@ process:
     }
 
     /* process packets */
-#ifdef XQC_NO_PID_PACKET_PROCESS 
     ret = xqc_conn_process_packet(conn, packet_in_buf, packet_in_size, recv_time);
-#else
-    ret = xqc_conn_process_packet(conn, packet_in_buf, packet_in_size, path_id, recv_time);
-#endif
 
     conn->rcv_pkt_stats.conn_udp_pkts++;
 
@@ -1300,11 +1287,8 @@ process:
             goto after_process;
         }
     }
-#ifdef XQC_NO_PID_PACKET_PROCESS
+
     xqc_conn_process_packet_recved_path(conn, &scid, packet_in_size, recv_time);
-#else
-    xqc_conn_process_packet_recved_path(conn, &scid, path_id, packet_in_size, recv_time);
-#endif
 
     xqc_timer_set(&conn->conn_timer_manager, XQC_TIMER_CONN_IDLE,
                   recv_time, xqc_conn_get_idle_timeout(conn) * 1000);

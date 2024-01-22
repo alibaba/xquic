@@ -3133,17 +3133,10 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
             for (int i = 0; i < retval; i++) {
                 recv_sum += msgs[i].msg_len;
 
-#ifdef XQC_NO_PID_PACKET_PROCESS
                 ret = xqc_engine_packet_process(p_ctx->engine, iovecs[i].iov_base, msgs[i].msg_len,
                                               user_conn->local_addr, user_conn->local_addrlen,
                                               user_conn->peer_addr, user_conn->peer_addrlen,
-                                              (xqc_usec_t)recv_time, user_conn);
-#else
-                ret = xqc_engine_packet_process(p_ctx->engine, iovecs[i].iov_base, msgs[i].msg_len,
-                                              user_conn->local_addr, user_conn->local_addrlen,
-                                              user_conn->peer_addr, user_conn->peer_addrlen,
-                                              path_id, (xqc_usec_t)recv_time, user_conn);
-#endif                                              
+                                              (xqc_usec_t)recv_time, user_conn);                                             
                 if (ret != XQC_OK)
                 {
                     printf("xqc_server_read_handler: packet process err, ret: %d\n", ret);
@@ -3231,17 +3224,11 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
                 continue;
             }
         }
-#ifdef XQC_NO_PID_PACKET_PROCESS
+
         ret = xqc_engine_packet_process(p_ctx->engine, packet_buf, recv_size,
                                       user_conn->local_addr, user_conn->local_addrlen,
                                       user_conn->peer_addr, user_conn->peer_addrlen,
-                                      (xqc_usec_t)recv_time, user_conn);
-#else
-        ret = xqc_engine_packet_process(p_ctx->engine, packet_buf, recv_size,
-                                      user_conn->local_addr, user_conn->local_addrlen,
-                                      user_conn->peer_addr, user_conn->peer_addrlen,
-                                      path_id, (xqc_usec_t)recv_time, user_conn);
-#endif                                      
+                                      (xqc_usec_t)recv_time, user_conn);                                     
         if (ret != XQC_OK) {
             printf("xqc_client_read_handler: packet process err, ret: %d\n", ret);
             return;

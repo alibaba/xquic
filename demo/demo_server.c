@@ -1052,17 +1052,10 @@ xqc_demo_svr_socket_read_handler(xqc_demo_svr_ctx_t *ctx, int fd)
         recv_sum += recv_size;
 
         uint64_t recv_time = xqc_now();
-#ifdef  XQC_NO_PID_PACKET_PROCESS
         xqc_int_t ret = xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
                                       (struct sockaddr *)(&ctx->local_addr), ctx->local_addrlen,
                                       (struct sockaddr *)(&peer_addr), peer_addrlen,
                                       (xqc_usec_t)recv_time, ctx);
-#else
-        xqc_int_t ret = xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
-                                      (struct sockaddr *)(&ctx->local_addr), ctx->local_addrlen,
-                                      (struct sockaddr *)(&peer_addr), peer_addrlen, XQC_UNKNOWN_PATH_ID,
-                                      (xqc_usec_t)recv_time, ctx);
-#endif
         if (ret != XQC_OK) {
             printf("server_read_handler: packet process err, ret: %d\n", ret);
             return;

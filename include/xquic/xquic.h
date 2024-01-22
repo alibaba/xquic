@@ -1400,28 +1400,13 @@ xqc_int_t xqc_engine_unregister_alpn(xqc_engine_t *engine, const char *alpn, siz
  * Pass received UDP packet payload into xquic engine.
  * @param recv_time   UDP packet received time in microsecond
  * @param user_data   connection user_data, server is NULL
- * @param path_id     XQC_UNKNOWN_PATH_ID = unknown path (only use cid to identify the path)
  */
-
-#ifdef XQC_NO_PID_PACKET_PROCESS
-
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_engine_packet_process(xqc_engine_t *engine,
     const unsigned char *packet_in_buf, size_t packet_in_size,
     const struct sockaddr *local_addr, socklen_t local_addrlen,
     const struct sockaddr *peer_addr, socklen_t peer_addrlen,
     xqc_usec_t recv_time, void *user_data);
-
-#else
-
-XQC_EXPORT_PUBLIC_API
-xqc_int_t xqc_engine_packet_process(xqc_engine_t *engine,
-    const unsigned char *packet_in_buf, size_t packet_in_size,
-    const struct sockaddr *local_addr, socklen_t local_addrlen,
-    const struct sockaddr *peer_addr, socklen_t peer_addrlen,
-    uint64_t path_id, xqc_usec_t recv_time, void *user_data);
-
-#endif
 
 
 /**

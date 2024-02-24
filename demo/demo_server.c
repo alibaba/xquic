@@ -101,6 +101,10 @@ typedef struct xqc_demo_svr_quic_config_s {
 
     /* multipath version */
     int  multipath_version;
+
+    /* multipath version */
+    int  max_inital_paths;
+
     /* support interop test */
     int is_interop_mode;
 
@@ -1363,11 +1367,12 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
         case 'M':
             printf("option multipath enabled\n");
             args->quic_cfg.multipath = 1;
+            args->quic_cfg.multipath_version = XQC_MULTIPATH_07;
             break;
 
         case 'V':
-            printf("option multipath version: %s\n", optarg);
-            args->quic_cfg.multipath_version = atoi(optarg);
+            printf("option multipath max_initial_paths: %s\n", optarg);
+            args->quic_cfg.max_inital_paths = atoi(optarg);
             break;
 
         case 'P':
@@ -1515,6 +1520,7 @@ xqc_demo_svr_init_conn_settings(xqc_engine_t *engine, xqc_demo_svr_args_t *args)
         .init_idle_time_out = 60000,
         .enable_multipath = args->quic_cfg.multipath,
         .multipath_version = args->quic_cfg.multipath_version,
+        .max_concurrent_paths = args->quic_cfg.max_inital_paths,
         .mp_ack_on_any_path = args->quic_cfg.mp_ack_on_any_path,
         .scheduler_callback = sched,
         .reinj_ctl_callback = xqc_deadline_reinj_ctl_cb,

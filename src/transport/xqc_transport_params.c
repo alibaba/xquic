@@ -178,12 +178,7 @@ xqc_transport_params_calc_length(const xqc_transport_params_t *params,
                    xqc_put_varint_len(xqc_put_varint_len(params->enable_multipath)) +
                    xqc_put_varint_len(params->enable_multipath);
         }
-
-        if (params->max_concurrent_paths) {
-            len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_MAX_CONCURRENT_PATHS) +
-                   xqc_put_varint_len(xqc_put_varint_len(params->max_concurrent_paths)) +
-                   xqc_put_varint_len(params->max_concurrent_paths);
-        }
+        
     }
 
     if (params->close_dgram_redundancy == XQC_RED_SET_CLOSE) {

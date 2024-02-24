@@ -1710,12 +1710,11 @@ xqc_demo_cli_init_args(xqc_demo_cli_client_args_t *args)
     args->quic_cfg.alpn_type = ALPN_HQ;
     strncpy(args->quic_cfg.alpn, "hq-interop", sizeof(args->quic_cfg.alpn));
     args->quic_cfg.keyupdate_pkt_threshold = UINT64_MAX;
-    /* default 04 */
-    args->quic_cfg.mp_version = XQC_MULTIPATH_04;
 
     args->quic_cfg.max_pkt_sz = 1200;
-
-    args->quic_cfg.max_concurrent_paths = 4;
+    
+    args->quic_cfg.mp_version = XQC_MULTIPATH_07;
+    args->quic_cfg.max_concurrent_paths = 2;
 
     args->req_cfg.throttled_req = -1;
 

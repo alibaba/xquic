@@ -178,7 +178,7 @@ xqc_transport_params_calc_length(const xqc_transport_params_t *params,
                    xqc_put_varint_len(xqc_put_varint_len(params->enable_multipath)) +
                    xqc_put_varint_len(params->enable_multipath);
         }
-        
+
     }
 
     if (params->close_dgram_redundancy == XQC_RED_SET_CLOSE) {

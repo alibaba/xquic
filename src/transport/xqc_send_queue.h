@@ -86,7 +86,7 @@ void xqc_send_queue_move_to_head(xqc_list_head_t *pos, xqc_list_head_t *head);
 void xqc_send_queue_move_to_tail(xqc_list_head_t *pos, xqc_list_head_t *head);
 void xqc_send_queue_move_to_high_pri(xqc_list_head_t *pos, xqc_send_queue_t *send_queue);
 
-void xqc_send_queue_copy_to_lost(xqc_packet_out_t *packet_out, xqc_send_queue_t *send_queue);
+void xqc_send_queue_copy_to_lost(xqc_packet_out_t *packet_out, xqc_send_queue_t *send_queue, xqc_bool_t mark_retrans);
 void xqc_send_queue_copy_to_probe(xqc_packet_out_t *packet_out, xqc_send_queue_t *send_queue, xqc_path_ctx_t *path);
 
 

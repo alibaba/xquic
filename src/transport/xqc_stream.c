@@ -1347,9 +1347,8 @@ xqc_stream_send(xqc_stream_t *stream, unsigned char *send_data, size_t send_data
 
 
     if (!(conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT)) {
-        if ((conn->conn_type == XQC_CONN_TYPE_CLIENT) 
-            && (conn->conn_state == XQC_CONN_STATE_CLIENT_INITIAL_SENT) 
-            && support_0rtt)
+        if ((conn->conn_type == XQC_CONN_TYPE_CLIENT) && support_0rtt
+            && xqc_conn_is_ready_to_send_early_data(conn))
         {
             pkt_type = XQC_PTYPE_0RTT;
             conn->conn_flag |= XQC_CONN_FLAG_HAS_0RTT;

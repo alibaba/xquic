@@ -180,6 +180,12 @@ xqc_transport_params_calc_length(const xqc_transport_params_t *params,
                xqc_put_varint_len(params->max_datagram_frame_size);
     }
 
+    if (params->conn_option_num) {
+        len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_GOOGLE_CO) + 
+               xqc_put_varint_len(params->conn_option_num * sizeof(uint32_t)) +
+               params->conn_option_num * sizeof(uint32_t);
+    }
+
     return len;
 }
 
@@ -215,6 +221,7 @@ xqc_encode_transport_params(const xqc_transport_params_t *params,
     uint8_t *p = out;
     size_t len = 0;
     size_t preferred_addrlen = 0;
+    int i;
 
     /* calculate encoding length */
     len += xqc_transport_params_calc_length(params, exttype);
@@ -352,6 +359,14 @@ xqc_encode_transport_params(const xqc_transport_params_t *params,
 
         } else {
             p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_04, params->enable_multipath);
+        }
+    }
+
+    if (params->conn_option_num) {
+        p = xqc_put_varint(p, XQC_TRANSPORT_PARAM_GOOGLE_CO);
+        p = xqc_put_varint(p, sizeof(uint32_t) * params->conn_option_num);
+        for (i = 0; i < params->conn_option_num; i++) {
+            p = xqc_put_uint32be(p, params->conn_options[i]);
         }
     }
 

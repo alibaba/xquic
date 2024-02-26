@@ -44,6 +44,7 @@ typedef enum {
     XQC_POF_PMTUD_PROBING       = 1 << 17,
     XQC_POF_QOS_HIGH            = 1 << 18,
     XQC_POF_QOS_PROBING         = 1 << 19,
+    XQC_POF_SPURIOUS_LOSS       = 1 << 20,
 } xqc_packet_out_flag_t;
 
 typedef struct xqc_po_stream_frame_s {

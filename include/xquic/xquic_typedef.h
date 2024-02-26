@@ -221,4 +221,61 @@ typedef struct xqc_stream_settings_s {
     uint64_t recv_rate_bytes_per_sec;
 } xqc_stream_settings_t;
 
+#define XQC_CO_TAG(a, b, c, d) (uint32_t)((a << 24) + (b << 16) + (c << 8) + d)
+
+typedef enum xqc_conn_option_e {
+    XQC_CO_TBBR = XQC_CO_TAG('T', 'B', 'B', 'R'),    // Reduced Buffer Bloat TCP
+    XQC_CO_1RTT = XQC_CO_TAG('1', 'R', 'T', 'T'),    // STARTUP in BBR for 1 RTT
+    XQC_CO_2RTT = XQC_CO_TAG('2', 'R', 'T', 'T'),    // STARTUP in BBR for 2 RTTs
+    XQC_CO_BBR4 = XQC_CO_TAG('B', 'B', 'R', '4'),    // 20 RTT ack aggregation
+    XQC_CO_BBR5 = XQC_CO_TAG('B', 'B', 'R', '5'),    // 40 RTT ack aggregation
+    XQC_CO_IW03 = XQC_CO_TAG('I', 'W', '0', '3'),    // Force ICWND to 3
+    XQC_CO_IW10 = XQC_CO_TAG('I', 'W', '1', '0'),    // Force ICWND to 10
+    XQC_CO_IW20 = XQC_CO_TAG('I', 'W', '2', '0'),    // Force ICWND to 20
+    XQC_CO_IW50 = XQC_CO_TAG('I', 'W', '5', '0'),    // Force ICWND to 50
+    XQC_CO_B2ON = XQC_CO_TAG('B', '2', 'O', 'N'),    // Enable BBRv2
+    XQC_CO_COPA = XQC_CO_TAG('C', 'O', 'P', 'A'),    // Enable COPA
+    XQC_CO_C2ON = XQC_CO_TAG('C', '2', 'O', 'N'),    // Enable CopaV2
+    XQC_CO_QBIC = XQC_CO_TAG('Q', 'B', 'I', 'C'),    // TCP Cubic
+    XQC_CO_RENO = XQC_CO_TAG('R', 'E', 'N', 'O'),    // Enable reno
+    XQC_CO_SPRI = XQC_CO_TAG('S', 'P', 'R', 'I'),    // enable stream priority by streamid
+    XQC_CO_9218 = XQC_CO_TAG('9', '2', '1', '8'),    // enable stream priority by rfc9218
+    XQC_CO_D218 = XQC_CO_TAG('D', '2', '1', '8'),    // disable rfc9218
+    XQC_CO_DRST = XQC_CO_TAG('D', 'R', 'S', 'T'),    // disable cease sending stream
+    XQC_CO_CBBR = XQC_CO_TAG('C', 'B', 'B', 'R'),    // A global option to enable all the following options (Customized BBR)
+    XQC_CO_BNLS = XQC_CO_TAG('B', 'N', 'L', 'S'),    // Force BBR not to respond on losses during STARTUP
+    XQC_CO_BACG = XQC_CO_TAG('B', 'A', 'C', 'G'),    // Use Adaptive CWND_GAIN in BBR
+    XQC_CO_CG03 = XQC_CO_TAG('C', 'G', '0', '3'),    // Use 3 for CWND_GAIN in BBR
+    XQC_CO_CG05 = XQC_CO_TAG('C', 'G', '0', '5'),    // Use 5 for CWND_GAIN in BBR
+    XQC_CO_CG10 = XQC_CO_TAG('C', 'G', '1', '0'),    // Use 10 for CWND_GAIN in BBR
+    XQC_CO_CG20 = XQC_CO_TAG('C', 'G', '2', '0'),    // Use 20 for CWND_GAIN in BBR
+    XQC_CO_PG11 = XQC_CO_TAG('P', 'G', '1', '1'),    // Use 1.1 for PACING_GAIN in BBR PROBE_UP
+    XQC_CO_PG15 = XQC_CO_TAG('P', 'G', '1', '5'),    // Use 1.5 for PACING_GAIN in BBR PROBE_UP
+    XQC_CO_BNLR = XQC_CO_TAG('B', 'N', 'L', 'R'),    // Disable BBR's loss recovery state
+    XQC_CO_MW10 = XQC_CO_TAG('M', 'W', '1', '0'),    // Set min CWND to 10
+    XQC_CO_MW20 = XQC_CO_TAG('M', 'W', '2', '0'),    // Set min CWND to 20
+    XQC_CO_MW32 = XQC_CO_TAG('M', 'W', '3', '2'),    // Set min CWND to 32
+    XQC_CO_MW50 = XQC_CO_TAG('M', 'W', '5', '0'),    // Set min CWND to 50
+    XQC_CO_WL20 = XQC_CO_TAG('W', 'L', '2', '0'),    // Set BW window length to 20 (RTTs)
+    XQC_CO_WL30 = XQC_CO_TAG('W', 'L', '3', '0'),    // Set BW window length to 30 (RTTs)
+    XQC_CO_WL40 = XQC_CO_TAG('W', 'L', '4', '0'),    // Set BW window length to 40 (RTTs)
+    XQC_CO_WL50 = XQC_CO_TAG('W', 'L', '5', '0'),    // Set BW window length to 50 (RTTs)
+    XQC_CO_PR02 = XQC_CO_TAG('P', 'R', '0', '2'),    // Set the target CWND in ProbeRTT to 0.2xBDP
+    XQC_CO_PR03 = XQC_CO_TAG('P', 'R', '0', '3'),    // Set the target CWND in ProbeRTT to 0.3xBDP
+    XQC_CO_PR04 = XQC_CO_TAG('P', 'R', '0', '4'),    // Set the target CWND in ProbeRTT to 0.4xBDP
+    XQC_CO_PR05 = XQC_CO_TAG('P', 'R', '0', '5'),    // Set the target CWND in ProbeRTT to 0.5xBDP
+    XQC_CO_PR06 = XQC_CO_TAG('P', 'R', '0', '6'),    // Set the target CWND in ProbeRTT to 0.6xBDP
+    XQC_CO_PR07 = XQC_CO_TAG('P', 'R', '0', '7'),    // Set the target CWND in ProbeRTT to 0.7xBDP
+    XQC_CO_ENWC = XQC_CO_TAG('E', 'N', 'W', 'C'),    // Enable CWND compensation according to jitter
+    XQC_CO_JW10 = XQC_CO_TAG('J', 'W', '1', '0'),    // Set the window length of max jitter filter to 10xRTT (default)
+    XQC_CO_JW20 = XQC_CO_TAG('J', 'W', '2', '0'),    // Set the window length of max jitter filter to 20xRTT
+    XQC_CO_JW30 = XQC_CO_TAG('J', 'W', '3', '0'),    // Set the window length of max jitter filter to 30xRTT
+    XQC_CO_JW40 = XQC_CO_TAG('J', 'W', '4', '0'),    // Set the window length of max jitter filter to 40xRTT
+    XQC_CO_JW50 = XQC_CO_TAG('J', 'W', '5', '0'),    // Set the window length of max jitter filter to 50xRTT
+    XQC_CO_SL03 = XQC_CO_TAG('S', 'L', '0', '3'),    // Set the STARTUP loss rate threshold to 0.03
+    XQC_CO_SL04 = XQC_CO_TAG('S', 'L', '0', '4'),    // Set the STARTUP loss rate threshold to 0.04
+    XQC_CO_SL05 = XQC_CO_TAG('S', 'L', '0', '5'),    // Set the STARTUP loss rate threshold to 0.05
+    XQC_CO_SL10 = XQC_CO_TAG('S', 'L', '1', '0'),    // Set the STARTUP loss rate threshold to 0.05    
+} xqc_conn_option_t;
+
 #endif /*_XQUIC_TYPEDEF_H_INCLUDED_*/

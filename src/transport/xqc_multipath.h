@@ -251,8 +251,6 @@ void xqc_stream_path_metrics_print(xqc_connection_t *conn, xqc_stream_t *stream,
 void xqc_stream_path_metrics_on_send(xqc_connection_t *conn, xqc_packet_out_t *po);
 void xqc_stream_path_metrics_on_recv(xqc_connection_t *conn, xqc_stream_t *stream, xqc_packet_in_t *pi);
 
-void xqc_path_metrics_print(xqc_connection_t *conn, char *buff, unsigned buff_size);
-
 xqc_msec_t xqc_path_get_idle_timeout(xqc_path_ctx_t *path);
 
 void xqc_path_validate(xqc_path_ctx_t *path);

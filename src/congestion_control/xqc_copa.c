@@ -62,6 +62,7 @@ xqc_copa_set_pacing_rate(xqc_copa_t *copa)
 {
     /* 2*cwnd / rtt_standing */
     xqc_usec_t rtt_standing = xqc_win_filter_get(&copa->rtt_standing);
+    xqc_usec_t initial_rtt = copa->ctl_ctx->ctl_conn->conn_settings.initial_rtt;
     if (rtt_standing == XQC_COPA_INF_U64) {
         /* initialization */
         rtt_standing = copa->ctl_ctx->ctl_srtt;
@@ -70,7 +71,7 @@ xqc_copa_set_pacing_rate(xqc_copa_t *copa)
         xqc_log(copa->ctl_ctx->ctl_conn->log, XQC_LOG_WARN, 
                 "|copa|rtt_standing_error:%ui|", rtt_standing);
         /* initialization */
-        rtt_standing = XQC_kInitialRtt * 1000;
+        rtt_standing = initial_rtt;
         xqc_win_filter_reset(&copa->rtt_standing, 0, XQC_COPA_INF_U64);
     }
     copa->pacing_rate = ((copa->cwnd_bytes) * XQC_COPA_USEC2SEC) << 1;

@@ -267,7 +267,7 @@ xqc_ring_mem_undo(xqc_ring_mem_t *rmem, xqc_ring_mem_idx_t idx, size_t len)
 int
 xqc_ring_mem_cmp(xqc_ring_mem_t *rmem, xqc_ring_mem_idx_t idx, uint8_t *data, size_t len)
 {
-    if (idx < rmem->sidx || idx + len > rmem->eidx) {
+    if (idx < rmem->sidx || idx + len > rmem->eidx || len == 0) {
         return -XQC_EPARAM;
     }
 

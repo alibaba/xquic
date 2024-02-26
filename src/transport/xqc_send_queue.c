@@ -336,7 +336,7 @@ xqc_send_queue_move_to_high_pri(xqc_list_head_t *pos, xqc_send_queue_t *send_que
 
 
 void
-xqc_send_queue_copy_to_lost(xqc_packet_out_t *packet_out, xqc_send_queue_t *send_queue)
+xqc_send_queue_copy_to_lost(xqc_packet_out_t *packet_out, xqc_send_queue_t *send_queue, xqc_bool_t mark_retrans)
 {
     xqc_connection_t *conn = send_queue->sndq_conn;
 
@@ -355,7 +355,11 @@ xqc_send_queue_copy_to_lost(xqc_packet_out_t *packet_out, xqc_send_queue_t *send
 
     xqc_send_queue_insert_lost(&new_po->po_list, &send_queue->sndq_lost_packets);
     send_queue->sndq_packets_used++;
-    packet_out->po_flag |= XQC_POF_RETRANSED;
+    if (mark_retrans) {
+        packet_out->po_flag |= XQC_POF_RETRANSED;
+    }
+    new_po->po_flag &= ~XQC_POF_RETRANSED;
+    new_po->po_flag &= ~XQC_POF_SPURIOUS_LOSS;
 }
 
 void
@@ -378,6 +382,8 @@ xqc_send_queue_copy_to_probe(xqc_packet_out_t *packet_out, xqc_send_queue_t *sen
     xqc_send_queue_insert_probe(&new_po->po_list, &send_queue->sndq_pto_probe_packets);
     send_queue->sndq_packets_used++;
     packet_out->po_flag |= XQC_POF_RETRANSED;
+    new_po->po_flag &= ~XQC_POF_RETRANSED;
+    new_po->po_flag &= ~XQC_POF_SPURIOUS_LOSS;
 }
 
 /* Called when conn is ready to close */

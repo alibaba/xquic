@@ -2492,6 +2492,14 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
         },
     };
 
+    if (g_test_case == 47) {
+        header[header_size].name.iov_base = "test_null_hdr";
+        header[header_size].name.iov_len = 13;
+        header[header_size].value.iov_base = "";
+        header[header_size].value.iov_len = 0;
+        header_size++;
+    }
+
     if (g_mp_request_accelerate) {
         /* set local h3 priority */
         xqc_h3_priority_t h3_prio = {
@@ -4042,6 +4050,7 @@ int main(int argc, char *argv[]) {
     int transport = 0;
     int use_1rtt = 0;
     uint64_t rate_limit = 0;
+    char conn_options[XQC_CO_STR_MAX_LEN] = {0};
 
     strcpy(g_log_path, "./clog");
 
@@ -4057,6 +4066,7 @@ int main(int argc, char *argv[]) {
         {"pmtud", required_argument, &long_opt_index, 5},
         {"mp_ping", required_argument, &long_opt_index, 6},
         {"rate_limit", required_argument, &long_opt_index, 7},
+        {"conn_options", required_argument, &long_opt_index, 8},
         {0, 0, 0, 0}
     };
 
@@ -4335,6 +4345,11 @@ int main(int argc, char *argv[]) {
                 printf("option rate_limit: %"PRIu64" Bps\n", rate_limit);
                 break;
 
+            case 8:
+                strncpy(conn_options, optarg, XQC_CO_STR_MAX_LEN);
+                printf("option conn_options: %s\n", conn_options);
+                break;
+
             default:
                 break;
             }
@@ -4463,6 +4478,8 @@ int main(int argc, char *argv[]) {
         .mp_ping_on = g_mp_ping_on,
         .recv_rate_bytes_per_sec = rate_limit,
     };
+
+    strncpy(conn_settings.conn_option_str, conn_options, XQC_CO_STR_MAX_LEN);
 
 #ifdef XQC_PROTECT_POOL_MEM
     if (g_test_case == 600) {

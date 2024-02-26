@@ -25,7 +25,7 @@
  */
 #define XQC_kGranularity                    2
 
-#define XQC_kInitialRtt                     250
+#define XQC_kInitialRtt_us                  250000
 
 /* 2^n */
 #define xqc_send_ctl_pow(n)                 (1 << n)

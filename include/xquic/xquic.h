@@ -71,6 +71,9 @@ typedef enum xqc_proto_version_s {
 
 #define XQC_DGRAM_RETX_ASKED_BY_APP     1
 
+#define XQC_CO_MAX_NUM                  16
+#define XQC_CO_STR_MAX_LEN              (5 * XQC_CO_MAX_NUM)
+
 
 /**
  * @brief get timestamp callback function. this might be useful on different platforms
@@ -1263,6 +1266,19 @@ typedef struct xqc_conn_settings_s {
     uint8_t                     protect_pool_mem;
 #endif
 
+    char                        conn_option_str[XQC_CO_STR_MAX_LEN];
+
+    /**
+     * @brief intial_rtt (us). Default: 0 (use the internal default value -- 250000)
+     * 
+     */
+    xqc_usec_t                  initial_rtt;
+    /**
+     * @brief initial pto duration (us). Default: 0 (use the internal default value -- 3xinitial_rtt)
+     * 
+     */
+    xqc_usec_t                  initial_pto_duration;
+    
 } xqc_conn_settings_t;
 
 

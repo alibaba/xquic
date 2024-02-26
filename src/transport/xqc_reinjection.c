@@ -92,6 +92,9 @@ xqc_conn_try_reinject_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_ou
         po_copy->po_path_flag &= ~XQC_PATH_SPECIFIED_BY_PTO;
     }
 
+    po_copy->po_flag &= ~XQC_POF_RETRANSED;
+    po_copy->po_flag &= ~XQC_POF_SPURIOUS_LOSS;
+
     xqc_associate_packet_with_reinjection(packet_out, po_copy);
 
     xqc_send_queue_insert_send(po_copy, &send_queue->sndq_send_packets, send_queue);

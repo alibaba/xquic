@@ -121,6 +121,8 @@ xqc_server_set_conn_settings(const xqc_conn_settings_t *settings)
     default_conn_settings.recv_rate_bytes_per_sec = settings->recv_rate_bytes_per_sec;
     default_conn_settings.enable_stream_rate_limit = settings->enable_stream_rate_limit;
     default_conn_settings.init_recv_window = settings->init_recv_window;
+    default_conn_settings.initial_rtt = settings->initial_rtt;
+    default_conn_settings.initial_pto_duration = settings->initial_pto_duration;
 #ifdef XQC_PROTECT_POOL_MEM
     default_conn_settings.protect_pool_mem = settings->protect_pool_mem;
 #endif
@@ -336,6 +338,9 @@ xqc_conn_init_trans_settings(xqc_connection_t *conn)
     /* set local and remote settings to default */
     xqc_trans_settings_t *ls = &conn->local_settings;
     xqc_trans_settings_t *rs = &conn->remote_settings;
+    uint32_t i, co_bytes;
+    char *co_str = conn->conn_settings.conn_option_str;
+
     xqc_conn_set_default_settings(ls);
     xqc_conn_set_default_settings(rs);
 
@@ -388,6 +393,30 @@ xqc_conn_init_trans_settings(xqc_connection_t *conn)
     ls->disable_active_migration = ls->enable_multipath ? 0 : 1;
 
     ls->max_ack_delay = conn->conn_settings.max_ack_delay;
+
+    /* init local conn options */
+    for (i = 0, co_bytes = 0; i < XQC_CO_STR_MAX_LEN; i++) {
+        if (co_bytes == 4) {
+            if ((co_str[i] != ',' && co_str[i] != '\0')) {
+                // invalid CO. Stop decoding.
+                break;
+
+            } else {
+                ls->conn_options[ls->conn_option_num++] = XQC_CO_TAG(co_str[i - 4], co_str[i - 3], co_str[i - 2], co_str[i - 1]);
+            }
+
+            co_bytes = 0;
+
+        } else {
+            if (xqc_char_is_letter_or_number(co_str[i])) {
+                co_bytes++;
+
+            } else {
+                // invalid CO. Stop decoding.
+                break;
+            }
+        }
+    }
 }
 
 
@@ -505,7 +534,12 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
 
     xc->conn_settings = *settings;
 
+    xqc_memcpy(xc->conn_settings.conn_option_str, settings->conn_option_str, XQC_CO_STR_MAX_LEN);
     xqc_conn_set_default_sched_params(&xc->conn_settings);
+
+    if (xc->conn_settings.initial_rtt == 0) {
+        xc->conn_settings.initial_rtt = XQC_kInitialRtt_us;
+    }
 
     if (xc->conn_settings.max_ack_delay == 0) {
         xc->conn_settings.max_ack_delay = XQC_DEFAULT_MAX_ACK_DELAY;
@@ -1061,7 +1095,7 @@ xqc_conn_destroy(xqc_connection_t *xc)
             "first_send_delay:%ui|conn_persist:%ui|keyupdate_cnt:%d|err:0x%xi|close_msg:%s|%s|"
             "hsk_recv:%ui|close_recv:%ui|close_send:%ui|last_recv:%ui|last_send:%ui|"
             "mp_enable:%ud|create:%ud|validated:%ud|active:%ud|path_info:%s|alpn:%*s|rebind_count:%d|"
-            "rebind_valid:%d|",
+            "rebind_valid:%d|rtx_pkt:%ud|tlp_pkt:%ud|snd_pkt:%ud|spurious_loss:%ud|detected_loss:%ud|",
             xc,
             xc->conn_flag & XQC_CONN_FLAG_HAS_0RTT ? 1:0,
             xc->conn_flag & XQC_CONN_FLAG_0RTT_OK ? 1:0,
@@ -1077,7 +1111,8 @@ xqc_conn_destroy(xqc_connection_t *xc)
             xqc_calc_delay(xc->conn_last_send_time, xc->conn_create_time),
             xc->enable_multipath, xc->create_path_count, xc->validated_path_count, xc->active_path_count,
             conn_stats.conn_info, out_alpn_len, out_alpn, conn_stats.total_rebind_count,
-            conn_stats.total_rebind_valid);
+            conn_stats.total_rebind_valid, conn_stats.lost_count, conn_stats.tlp_count,
+            conn_stats.send_count, conn_stats.spurious_loss_count, xc->detected_loss_cnt);
     xqc_log_event(xc->log, CON_CONNECTION_CLOSED, xc);
 
     if (xc->conn_flag & XQC_CONN_FLAG_WAIT_WAKEUP) {
@@ -2318,6 +2353,10 @@ xqc_conn_send_probe_pkt(xqc_connection_t *c, xqc_path_ctx_t *path,
                     xqc_frame_type_2_str(packet_out->po_frame_types));
             reinject = 1;
         }
+    }
+
+    if (packet_out->po_flag & XQC_POF_IN_FLIGHT) {
+        c->detected_loss_cnt++;
     }
 
     xqc_send_ctl_decrease_inflight(c, packet_out);
@@ -4723,6 +4762,10 @@ xqc_conn_get_local_transport_params(xqc_connection_t *conn, xqc_transport_params
     params->retry_source_connection_id.cid_len = 0;
     params->retry_source_connection_id_present = 0;
 
+    params->conn_option_num = settings->conn_option_num;
+    xqc_memcpy(params->conn_options, settings->conn_options, 
+               sizeof(uint32_t) * settings->conn_option_num);
+
     return XQC_OK;
 }
 
@@ -5719,7 +5762,6 @@ xqc_conn_available_paths(xqc_engine_t *engine, const xqc_cid_t *cid)
     xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_conn_available_paths|%" PRId32 "|", available_paths);
     return available_paths;
 }
-
 
 #ifdef XQC_COMPAT_GENERATE_SR_PKT
 

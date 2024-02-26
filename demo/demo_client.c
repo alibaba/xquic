@@ -190,6 +190,8 @@ typedef struct xqc_demo_cli_quic_config_s {
 
     size_t max_pkt_sz;
 
+    char co_str[XQC_CO_STR_MAX_LEN];
+
 } xqc_demo_cli_quic_config_t;
 
 
@@ -1265,9 +1267,9 @@ xqc_demo_cli_h3_request_close_notify(xqc_h3_request_t *h3_request, void *user_da
     xqc_request_stats_t stats;
     stats = xqc_h3_request_get_stats(h3_request);
     printf("send_body_size:%zu, recv_body_size:%zu, send_header_size:%zu, recv_header_size:%zu, "
-           "recv_fin:%d, err:%d, rate_limit:%"PRIu64", mp_state:%d, avail_send_weight:%.3lf, avail_recv_weight:%.3lf\n", 
+           "recv_fin:%d, err:%d, rate_limit:%"PRIu64", mp_state:%d, early_data:%d, avail_send_weight:%.3lf, avail_recv_weight:%.3lf\n", 
            stats.send_body_size, stats.recv_body_size, stats.send_header_size, stats.recv_header_size, 
-           user_stream->recv_fin, stats.stream_err, stats.rate_limit, stats.mp_state,
+           user_stream->recv_fin, stats.stream_err, stats.rate_limit, stats.mp_state, stats.early_data_state,
            stats.mp_default_path_send_weight, stats.mp_default_path_recv_weight);
     
     printf("\033[33m[H3-req] send_bytes:%zu, recv_bytes:%zu, path_info:%s\n\033[0m", 
@@ -1643,6 +1645,7 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
         settings->enable_stream_rate_limit = 1;
         settings->recv_rate_bytes_per_sec = 0;
     }
+    strncpy(settings->conn_option_str, args->quic_cfg.co_str, XQC_CO_STR_MAX_LEN);
 }
 
 /* set client args to default values */
@@ -1789,6 +1792,7 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -e    NAT rebinding on path 0\n"
         "   -E    NAT rebinding on path 1\n"
         "   -F    MTU size (default: 1200)\n"
+        "   -G    Google connection options (e.g. CBBR,TBBR)\n"
         , prog);
 }
 
@@ -1796,7 +1800,7 @@ void
 xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:bZ:NQT:R:V:B:I:n:eEF:")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:bZ:NQT:R:V:B:I:n:eEF:G:")) != -1) {
         switch (ch) {
         /* server ip */
         case 'a':
@@ -2034,6 +2038,11 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
         case 'F':
             printf("MTU size: %s\n", optarg);
             args->quic_cfg.max_pkt_sz = atoi(optarg);
+            break;
+        
+        case 'G':
+            printf("Google connection options: %s\n", optarg);
+            strncpy(args->quic_cfg.co_str, optarg, XQC_CO_STR_MAX_LEN);
             break;
 
         default:

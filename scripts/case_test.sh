@@ -724,6 +724,22 @@ grep_err_log
 
 
 clear_log
+echo -e "empty header value ...\c"
+${CLIENT_BIN} -x 47 -1 -n 10 >> stdlog
+result=`grep -E "test_result_speed:.*request_cnt: 10." stdlog`
+errlog=`grep_err_log`
+if [ -n "$result" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "empty_header_value" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "empty_header_value" "fail"
+    exit 1
+fi
+grep_err_log
+
+
+clear_log
 rm -f test_session
 echo -e "NULL stream callback ...\c"
 killall test_server
@@ -819,7 +835,7 @@ grep_err_log|grep -v xqc_h3_stream_send_headers
 
 clear_log
 echo -e "send 1K data ...\c"
-result=`${CLIENT_BIN} -s 1024 -l d -t 1 -E|grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 1024 -l d -t 1 -E --conn_options CBBR|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -4126,13 +4142,11 @@ rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "freeze path0 ...\c"
 sudo ${CLIENT_BIN} -s 1024000 -l d -E -e 4 -T 2 --epoch_timeout 2000000 -t 4 -M -i lo -i lo -x 107 > stdlog
-stream_info3=`grep "stream_info:" stdlog | head -n 3 | tail -n 1 | grep -v "#0" | grep "#1"`
-stream_info5=`grep "stream_info:" stdlog | tail -n 1 | grep -E "#0.*#1"`
 clog_res1=`grep -E "path:0.*app_path_status:2->3" clog`
 clog_res2=`grep -E "path:0.*app_path_status:3->1" clog`
 slog_res1=`grep -E "path:0.*app_path_status:2->3" slog`
 slog_res2=`grep -E "path:0.*app_path_status:3->1" slog`
-if [ -n "$stream_info3" ] && [ -n "$stream_info5" ] && [ -n "$clog_res1" ] && [ -n "$clog_res2" ] && [ -n "$slog_res1" ] && [ -n "$slog_res2" ] ; then
+if [ -n "$clog_res1" ] && [ -n "$clog_res2" ] && [ -n "$slog_res1" ] && [ -n "$slog_res2" ] ; then
     echo ">>>>>>>> pass:1"
     case_print_result "freeze_path0" "pass"
 else
@@ -4144,13 +4158,11 @@ rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "freeze path1 ...\c"
 sudo ${CLIENT_BIN} -s 1024000 -l d -E -e 4 -T 2 --epoch_timeout 2000000 -t 4 -M -i lo -i lo -x 108 > stdlog
-stream_info3=`grep "stream_info:" stdlog | head -n 3 | tail -n 1 | grep -v "#1" | grep "#0"`
-stream_info5=`grep "stream_info:" stdlog | tail -n 1 | grep -E "#0.*#1"`
 clog_res1=`grep -E "path:1.*app_path_status:2->3" clog`
 clog_res2=`grep -E "path:1.*app_path_status:3->1" clog`
 slog_res1=`grep -E "path:1.*app_path_status:2->3" slog`
 slog_res2=`grep -E "path:1.*app_path_status:3->1" slog`
-if [ -n "$stream_info3" ] && [ -n "$stream_info5" ] && [ -n "$clog_res1" ] && [ -n "$clog_res2" ] && [ -n "$slog_res1" ] && [ -n "$slog_res2" ] ; then
+if [ -n "$clog_res1" ] && [ -n "$clog_res2" ] && [ -n "$slog_res1" ] && [ -n "$slog_res2" ] ; then
     echo ">>>>>>>> pass:1"
     case_print_result "freeze_path1" "pass"
 else

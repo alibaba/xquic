@@ -279,6 +279,13 @@ xqc_h3_request_get_stats(xqc_h3_request_t *h3_request)
     stats.recv_hdr_compressed = h3_request->compressed_header_recvd;
     stats.rate_limit = h3_request->h3_stream->recv_rate_limit;
 
+    /* try to update early data state */
+    if (h3_request->h3_stream->stream) {
+        xqc_h3_stream_update_early_data_state(h3_request->h3_stream);
+    }
+
+    stats.early_data_state = h3_request->h3_stream->early_data_state;
+
     xqc_h3_stream_get_path_info(h3_request->h3_stream);
     xqc_request_path_metrics_print(h3_request->h3_stream->h3c->conn,
                                    h3_request->h3_stream, &stats);

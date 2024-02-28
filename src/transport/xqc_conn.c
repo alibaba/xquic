@@ -4646,7 +4646,7 @@ xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
             xqc_list_head_t *path_pos, *path_next;
             uint64_t path_id = 0;
 
-            xqc_log(conn->log, XQC_LOG_DEBUG, "|max_concurrent_paths|%ui|", conn->max_concurrent_paths);
+            // xqc_log(conn->log, XQC_LOG_DEBUG, "|max_concurrent_paths|%ui|", conn->max_concurrent_paths);
 
             for (path_id = 0; path_id < conn->max_concurrent_paths; path_id++) {
 

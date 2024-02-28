@@ -1666,20 +1666,20 @@ xqc_write_mp_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire
     xqc_cid_t           new_conn_cid;
     uint8_t             sr_token[XQC_STATELESS_RESET_TOKENLEN];
     xqc_path_ctx_t     *path = NULL;
-    xqc_cid_set_t      *cid_set = NULL;
+    xqc_scid_set_t      *scid_set = NULL;
 
     path = xqc_conn_find_path_by_path_id(conn, path_id);
 
     if (path == NULL) {
-        cid_set = &conn->scid_set.cid_set;
+        scid_set = &conn->scid_set;
     } else {
-        cid_set = &path->scid_set.cid_set;
+        scid_set = &path->scid_set;
     }
 
     /* only reserve bits for server side */
-    ++conn->scid_set.largest_scid_seq_num;
+    ++scid_set->largest_scid_seq_num;
     if (XQC_OK != xqc_generate_cid(conn->engine, &conn->scid_set.user_scid, &new_conn_cid,
-                                   conn->scid_set.largest_scid_seq_num))
+                                   scid_set->largest_scid_seq_num))
     {
         xqc_log(conn->log, XQC_LOG_WARN, "|generate cid error|");
         return -XQC_EGENERATE_CID;
@@ -1694,7 +1694,7 @@ xqc_write_mp_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire
 
     /* insert to scid_set & add scid_unused_cnt */
 
-    ret = xqc_cid_set_insert_cid(cid_set, &new_conn_cid, XQC_CID_UNUSED,
+    ret = xqc_cid_set_insert_cid(&(scid_set->cid_set), &new_conn_cid, XQC_CID_UNUSED,
                                  conn->remote_settings.active_connection_id_limit);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR,

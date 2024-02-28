@@ -2854,6 +2854,11 @@ xqc_gen_mp_new_conn_id_frame(xqc_packet_out_t *packet_out, xqc_cid_t *new_cid,
     xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
     dst_buf += xqc_vint_len(frame_type_bits);
 
+    /* Path ID (i) */
+    unsigned path_id_bits = xqc_vint_get_2bit(path_id);
+    xqc_vint_write(dst_buf, path_id, path_id_bits, xqc_vint_len(path_id_bits));
+    dst_buf += xqc_vint_len(path_id_bits);
+
     unsigned char stateless_reset_token[XQC_STATELESS_RESET_TOKENLEN] = {0};
 
     unsigned sequence_number_bits = xqc_vint_get_2bit(new_cid->cid_seq_num);
@@ -2870,13 +2875,10 @@ xqc_gen_mp_new_conn_id_frame(xqc_packet_out_t *packet_out, xqc_cid_t *new_cid,
                    sequence_number_bits, xqc_vint_len(sequence_number_bits));
     dst_buf += xqc_vint_len(sequence_number_bits);
 
+
+
     xqc_vint_write(dst_buf, retire_prior_to, retire_prior_to_bits, xqc_vint_len(retire_prior_to_bits));
     dst_buf += xqc_vint_len(retire_prior_to_bits);
-
-    /* Path ID (i) */
-    unsigned path_id_bits = xqc_vint_get_2bit(path_id);
-    xqc_vint_write(dst_buf, path_id, path_id_bits, xqc_vint_len(path_id_bits));
-    dst_buf += xqc_vint_len(path_id_bits);
 
     xqc_vint_write(dst_buf, cid_len, cid_len_bits, xqc_vint_len(cid_len_bits));
     dst_buf += xqc_vint_len(cid_len_bits);
@@ -2925,6 +2927,14 @@ xqc_parse_mp_new_conn_id_frame(xqc_packet_in_t *packet_in,
     }
     p += vlen;
 
+    /* Path ID (i) */
+    vlen = xqc_vint_read(p, end, path_id);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    new_cid->path_id = *path_id;
+    p += vlen;
+
     /* Sequence Number (i) */
     vlen = xqc_vint_read(p, end, &new_cid->cid_seq_num);
     if (vlen < 0) {
@@ -2937,14 +2947,6 @@ xqc_parse_mp_new_conn_id_frame(xqc_packet_in_t *packet_in,
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }
-    p += vlen;
-
-    /* Path ID (i) */
-    vlen = xqc_vint_read(p, end, path_id);
-    if (vlen < 0) {
-        return -XQC_EVINTREAD;
-    }
-    new_cid->path_id = *path_id;
     p += vlen;
 
     /* Length (8) */

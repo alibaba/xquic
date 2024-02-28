@@ -917,7 +917,7 @@ xqc_int_t
 xqc_process_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
     xqc_int_t ret = XQC_ERROR;
-    uint64_t seq_num;
+    uint64_t seq_num = 0, largest_scid_seq_num = 0;
 
     ret = xqc_parse_retire_conn_id_frame(packet_in, &seq_num);
     if (ret != XQC_OK) {
@@ -1996,9 +1996,10 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
 xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
     xqc_int_t ret = XQC_ERROR;
-    uint64_t seq_num = 0, path_id = 0, retire_prior_to = 0;
+    uint64_t seq_num = 0, path_id = 0, retire_prior_to = 0, largest_scid_seq_num = 0;
     xqc_path_ctx_t *path = NULL;
     xqc_cid_inner_t *inner_cid = NULL;
+    xqc_scid_set_t *scid_set = NULL;
 
     ret = xqc_parse_mp_retire_conn_id_frame(packet_in, &seq_num, &path_id);
     if (ret != XQC_OK) {
@@ -2009,7 +2010,16 @@ xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|retire conn id|seq:%ui|path_id:%ui|", seq_num, path_id);
 
-    if (seq_num > conn->scid_set.largest_scid_seq_num) {
+    path = xqc_conn_find_path_by_path_id(conn, path_id);
+
+    if (path == NULL) {
+        scid_set = &conn->scid_set;
+    } else {
+        scid_set = &path->scid_set;
+    }
+
+    largest_scid_seq_num = xqc_cid_get_largest_seq_number_by_path_id(&scid_set->cid_set, path_id);
+    if (seq_num > largest_scid_seq_num) {
         /*
          * Receipt of a RETIRE_CONNECTION_ID frame containing a sequence number
          * greater than any previously sent to the peer MUST be treated as a
@@ -2024,11 +2034,11 @@ xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
 
     /* try to get scid from path ctx first */
     if (path != NULL) {
-        inner_cid = xqc_get_inner_cid_by_seq(&path->scid_set.cid_set, seq_num);
+        inner_cid = xqc_get_inner_cid_by_seq(&scid_set->cid_set, seq_num);
     }
     /* if failed finding cid from path ctx, try conn scid set again */
     if (inner_cid == NULL) {
-        inner_cid = xqc_get_inner_cid_by_seq(&conn->scid_set.cid_set, seq_num);
+        inner_cid = xqc_get_inner_cid_by_seq(&scid_set->cid_set, seq_num);
     }
     /* all failed */
     if (inner_cid == NULL) {
@@ -2056,8 +2066,8 @@ xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
     }
 
     /* update SCID */
-    if (XQC_OK == xqc_cid_is_equal(&conn->scid_set.user_scid, &inner_cid->cid)) {
-        ret = xqc_conn_update_user_scid(conn, &conn->scid_set);
+    if (XQC_OK == xqc_cid_is_equal(&scid_set->user_scid, &inner_cid->cid)) {
+        ret = xqc_conn_update_user_scid(conn, scid_set);
         if (ret != XQC_OK) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|conn don't have other used scid, can't retire user_scid|");
             return ret;

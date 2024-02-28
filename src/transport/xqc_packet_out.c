@@ -1666,7 +1666,8 @@ xqc_write_mp_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire
     xqc_cid_t           new_conn_cid;
     uint8_t             sr_token[XQC_STATELESS_RESET_TOKENLEN];
     xqc_path_ctx_t     *path = NULL;
-    xqc_scid_set_t      *scid_set = NULL;
+    xqc_scid_set_t     *scid_set = NULL;
+    uint64_t            largest_scid_seq_num = 0;
 
     path = xqc_conn_find_path_by_path_id(conn, path_id);
 
@@ -1677,9 +1678,10 @@ xqc_write_mp_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire
     }
 
     /* only reserve bits for server side */
-    ++scid_set->largest_scid_seq_num;
+    largest_scid_seq_num = xqc_cid_get_largest_seq_number_by_path_id(&scid_set->cid_set, path_id);
+    ++largest_scid_seq_num;
     if (XQC_OK != xqc_generate_cid(conn->engine, &conn->scid_set.user_scid, &new_conn_cid,
-                                   scid_set->largest_scid_seq_num))
+                                   largest_scid_seq_num))
     {
         xqc_log(conn->log, XQC_LOG_WARN, "|generate cid error|");
         return -XQC_EGENERATE_CID;

@@ -405,6 +405,25 @@ xqc_validate_retire_cid_frame(xqc_cid_set_t *cid_set, xqc_cid_inner_t *cid)
 }
 
 uint64_t
+xqc_cid_get_largest_seq_number_by_path_id(xqc_cid_set_t *cid_set, uint64_t path_id)
+{
+    xqc_cid_inner_t *inner_cid = NULL;
+    xqc_list_head_t *pos, *next;
+    uint64_t largest_seq_number = 0;
+
+    xqc_list_for_each_safe(pos, next, &cid_set->list_head) {
+        inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
+
+        if (inner_cid->cid.path_id == path_id) {
+            largest_seq_number = xqc_max(largest_seq_number, inner_cid->cid.cid_seq_num);
+        }
+    }
+
+    return largest_seq_number;
+}
+
+
+uint64_t
 xqc_get_inner_cid_count_by_path_id(xqc_cid_set_t *cid_set, uint64_t path_id)
 {
     xqc_cid_inner_t *inner_cid = NULL;

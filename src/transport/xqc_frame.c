@@ -1878,6 +1878,7 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
     xqc_cid_inner_t *inner_cid;
     xqc_list_head_t *pos, *next;
     xqc_path_ctx_t *path = NULL;
+    xqc_dcid_set_t *dcid_set = NULL;
 
     ret = xqc_parse_mp_new_conn_id_frame(packet_in, &new_conn_cid, &retire_prior_to, &path_id, conn);
     if (ret != XQC_OK) {
@@ -1886,8 +1887,16 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         return ret;
     }
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|new_conn_id|%s|path_id:%ui|sr_token:%s",
-            xqc_scid_str(&new_conn_cid), path_id, xqc_sr_token_str(new_conn_cid.sr_token));
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|new_conn_id|%s|path_id:%ui|retire_prior_to:%ui|seq:%ui|sr_token:%s",
+            xqc_scid_str(&new_conn_cid), path_id, retire_prior_to, new_conn_cid.cid_seq_num, xqc_sr_token_str(new_conn_cid.sr_token));
+
+    path = xqc_conn_find_path_by_path_id(conn, path_id);
+
+    if (path == NULL) {
+        dcid_set = &conn->dcid_set;
+    } else {
+        dcid_set = &path->dcid_set;
+    }
 
     if (retire_prior_to > new_conn_cid.cid_seq_num) {
         /*
@@ -1903,7 +1912,7 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
 
     /* TODO: write_retire_conn_id_frame 可能涉及到 替换 path.dcid (当前无 retire_prior_to 因此不涉及) */
 
-    if (new_conn_cid.cid_seq_num < conn->dcid_set.largest_retire_prior_to) {
+    if (new_conn_cid.cid_seq_num < dcid_set->largest_retire_prior_to) {
         /*
          * An endpoint that receives a NEW_CONNECTION_ID frame with a sequence number smaller
          * than the Retire Prior To field of a previously received NEW_CONNECTION_ID frame
@@ -1922,18 +1931,18 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         return XQC_OK;
     }
 
-    if (retire_prior_to > conn->dcid_set.largest_retire_prior_to) {
+    if (retire_prior_to > dcid_set->largest_retire_prior_to) {
         /*
          * Upon receipt of an increased Retire Prior To field, the peer MUST stop using the
          * corresponding connection IDs and retire them with RETIRE_CONNECTION_ID frames before
          * adding the newly provided connection ID to the set of active connection IDs.
          */
 
-        xqc_list_for_each_safe(pos, next, &conn->dcid_set.cid_set.list_head) {
+        xqc_list_for_each_safe(pos, next, &dcid_set->cid_set.list_head) {
             inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
             uint64_t seq_num = inner_cid->cid.cid_seq_num;
             if ((inner_cid->state == XQC_CID_UNUSED || inner_cid->state == XQC_CID_USED)
-                && (seq_num >= conn->dcid_set.largest_retire_prior_to && seq_num < retire_prior_to))
+                && (seq_num >= dcid_set->largest_retire_prior_to && seq_num < retire_prior_to))
             {
                 ret = xqc_write_mp_retire_conn_id_frame_to_packet(conn, seq_num, path_id);
                 if (ret != XQC_OK) {
@@ -1943,34 +1952,21 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
             }
         }
 
-        conn->dcid_set.largest_retire_prior_to = retire_prior_to;
+        dcid_set->largest_retire_prior_to = retire_prior_to;
         xqc_log(conn->log, XQC_LOG_DEBUG, "|retire_prior_to|%ui|increase to|%ui|",
-                conn->dcid_set.largest_retire_prior_to, retire_prior_to);
+                dcid_set->largest_retire_prior_to, retire_prior_to);
     }
 
-    path = xqc_conn_find_path_by_path_id(conn, path_id);
-    if (path == NULL) {
-        /* could happen when path is not initialized */
-        /* store the cid in conn->dcid_set temporarily */
-        ret = xqc_cid_set_insert_cid(&conn->dcid_set.cid_set, &new_conn_cid, XQC_CID_UNUSED, conn->local_settings.active_connection_id_limit);
-        if (ret != XQC_OK) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_cid_set_insert_cid error|limit:%ui|unused:%ui|used:%ui|",
-                    conn->local_settings.active_connection_id_limit, conn->dcid_set.cid_set.unused_cnt, conn->dcid_set.cid_set.used_cnt);
-            return ret;
-        }
+    /* store dcid & add unused_dcid_count */
+    if (xqc_cid_in_cid_set(&dcid_set->cid_set, &new_conn_cid) != NULL) {
+        return XQC_OK;
+    }
 
-    } else {
-        /* store dcid & add unused_dcid_count */
-        if (xqc_cid_in_cid_set(&path->dcid_set.cid_set, &new_conn_cid) != NULL) {
-            return XQC_OK;
-        }
-
-        ret = xqc_cid_set_insert_cid(&path->dcid_set.cid_set, &new_conn_cid, XQC_CID_UNUSED, conn->local_settings.active_connection_id_limit);
-        if (ret != XQC_OK) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_cid_set_insert_cid error|limit:%ui|unused:%ui|used:%ui|",
-                    conn->local_settings.active_connection_id_limit, conn->dcid_set.cid_set.unused_cnt, conn->dcid_set.cid_set.used_cnt);
-            return ret;
-        }
+    ret = xqc_cid_set_insert_cid(&dcid_set->cid_set, &new_conn_cid, XQC_CID_UNUSED, conn->local_settings.active_connection_id_limit);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_cid_set_insert_cid error|limit:%ui|unused:%ui|used:%ui|",
+                conn->local_settings.active_connection_id_limit, conn->dcid_set.cid_set.unused_cnt, conn->dcid_set.cid_set.used_cnt);
+        return ret;
     }
 
     /* insert into dcid-connection hash, for processing the deprecated stateless

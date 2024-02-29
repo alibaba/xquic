@@ -1622,8 +1622,8 @@ xqc_process_ack_mp_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     xqc_int_t ret;
 
     xqc_ack_info_t ack_info;
-    uint64_t dcid_seq_num;
-    ret = xqc_parse_ack_mp_frame(packet_in, conn, &dcid_seq_num, &ack_info);
+    uint64_t path_id = 0;
+    ret = xqc_parse_ack_mp_frame(packet_in, conn, &path_id, &ack_info);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_parse_ack_mp_frame error|");
         return ret;
@@ -1633,9 +1633,9 @@ xqc_process_ack_mp_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         return XQC_OK;
     }
 
-    xqc_path_ctx_t *path_to_be_acked = xqc_conn_find_path_by_dcid_seq(conn, dcid_seq_num);
+    xqc_path_ctx_t *path_to_be_acked = xqc_conn_find_path_by_path_id(conn, path_id);
     if (path_to_be_acked == NULL) {
-        xqc_log(conn->log, XQC_LOG_INFO, "|ignore unknown path|dcid_seq:%ui|", dcid_seq_num);
+        xqc_log(conn->log, XQC_LOG_INFO, "|ignore unknown path|path:%ui|", path_id);
         return XQC_OK;
     }
 

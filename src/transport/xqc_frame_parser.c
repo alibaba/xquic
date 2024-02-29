@@ -1035,7 +1035,7 @@ xqc_parse_ack_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_ack_
      * negotiated, ACK frames in 1-RTT packets acknowledge packets sent 
      * with the Connection ID having sequence number 0.
      */
-    ack_info->dcid_seq_num = 0;
+    ack_info->path_id = 0;
     ack_info->pns = packet_in->pi_pkt.pkt_pns;
 
     vlen = xqc_vint_read(p, end, &largest_acked);
@@ -2133,7 +2133,7 @@ xqc_parse_path_response_frame(xqc_packet_in_t *packet_in, unsigned char *data)
  */
 
 ssize_t
-xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t dcid_seq,
+xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id,
     xqc_packet_out_t *packet_out, xqc_usec_t now, int ack_delay_exponent,
     xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, 
     int *has_gap, xqc_packet_number_t *largest_ack)
@@ -2195,13 +2195,13 @@ xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t dcid_seq,
     ack_delay = ack_delay >> ack_delay_exponent;
 
     unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
-    unsigned dcid_seq_bits = xqc_vint_get_2bit(dcid_seq);
+    unsigned path_id_bits = xqc_vint_get_2bit(path_id);
     unsigned lagest_recv_bits = xqc_vint_get_2bit(lagest_recv);
     unsigned ack_delay_bits = xqc_vint_get_2bit(ack_delay);
     unsigned first_ack_range_bits = xqc_vint_get_2bit(first_ack_range);
 
     need = + xqc_vint_len(frame_type_bits)
-           + xqc_vint_len(dcid_seq_bits)
+           + xqc_vint_len(path_id_bits)
            + xqc_vint_len(lagest_recv_bits)
            + xqc_vint_len(ack_delay_bits)
            + 1  /* range_count */
@@ -2214,8 +2214,8 @@ xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t dcid_seq,
     xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
     dst_buf += xqc_vint_len(frame_type_bits);
 
-    xqc_vint_write(dst_buf, dcid_seq, dcid_seq_bits, xqc_vint_len(dcid_seq_bits));
-    dst_buf += xqc_vint_len(dcid_seq_bits);
+    xqc_vint_write(dst_buf, path_id, path_id_bits, xqc_vint_len(path_id_bits));
+    dst_buf += xqc_vint_len(path_id_bits);
 
     xqc_vint_write(dst_buf, lagest_recv, lagest_recv_bits, xqc_vint_len(lagest_recv_bits));
     dst_buf += xqc_vint_len(lagest_recv_bits);
@@ -2283,7 +2283,7 @@ xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t dcid_seq,
 
 xqc_int_t
 xqc_parse_ack_mp_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
-    uint64_t *dcid_seq_num, xqc_ack_info_t *ack_info)
+    uint64_t *path_id, xqc_ack_info_t *ack_info)
 {
     unsigned char *p = packet_in->pos;
     const unsigned char *end = packet_in->last;
@@ -2303,13 +2303,13 @@ xqc_parse_ack_mp_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
     }
     p += vlen;
 
-    vlen = xqc_vint_read(p, end, dcid_seq_num);
+    vlen = xqc_vint_read(p, end, path_id);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }
     p += vlen;
 
-    ack_info->dcid_seq_num = *dcid_seq_num;
+    ack_info->path_id = *path_id;
     ack_info->pns = packet_in->pi_pkt.pkt_pns;
 
     vlen = xqc_vint_read(p, end, &largest_acked);

@@ -130,7 +130,7 @@ ssize_t xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id, xqc_packe
     int ack_delay_exponent, xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, int *has_gap, xqc_packet_number_t *largest_ack);
 
 xqc_int_t xqc_parse_ack_mp_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
-    uint64_t *dcid_seq_num, xqc_ack_info_t *ack_info);
+    uint64_t *path_id, xqc_ack_info_t *ack_info);
 
 ssize_t xqc_gen_path_abandon_frame(xqc_connection_t *conn, 
     xqc_packet_out_t *packet_out, uint64_t path_id, uint64_t error_code);

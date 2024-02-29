@@ -33,7 +33,7 @@ typedef struct xqc_recv_record_s {
 
 typedef struct xqc_ack_info_s {
     xqc_pkt_num_space_t     pns;
-    uint64_t                dcid_seq_num;
+    uint64_t                path_id;
     unsigned                n_ranges;  /* must > 0 */
     xqc_pktno_range_t       ranges[XQC_MAX_ACK_RANGE_CNT];
     xqc_usec_t              ack_delay;

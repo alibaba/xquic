@@ -1493,7 +1493,7 @@ xqc_write_ack_mp_to_one_packet(xqc_connection_t *conn, xqc_path_ctx_t *path,
     xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path);
 
     //TODO: MPQUIC fix migration
-    ret = xqc_gen_ack_mp_frame(conn, path->path_scid.cid_seq_num, packet_out, now,
+    ret = xqc_gen_ack_mp_frame(conn, path->path_id, packet_out, now,
 	                           conn->local_settings.ack_delay_exponent,
                                &pn_ctl->ctl_recv_record[packet_out->po_pkt.pkt_pns],
 							   path->path_send_ctl->ctl_largest_recv_time[pns],

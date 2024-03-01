@@ -4647,8 +4647,8 @@ xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
             uint64_t path_id = 0;
 
             // xqc_log(conn->log, XQC_LOG_DEBUG, "|max_concurrent_paths|%ui|", conn->max_concurrent_paths);
-
-            for (path_id = 0; path_id < conn->max_concurrent_paths; path_id++) {
+            path_id = conn->current_max_paths > conn->max_paths? (conn->current_max_paths - conn->max_paths) : 0;
+            for (; path_id < conn->current_max_paths; path_id++) {
 
                 if (xqc_conn_get_unused_cid_count_for_path(conn, path_id) < 2
                     && conn->active_cid_cnt < conn->remote_settings.active_connection_id_limit)
@@ -5334,8 +5334,8 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
     xqc_log(conn->log, XQC_LOG_DEBUG, "|1RTT_transport_params|max_concurrent_paths:local:%ui|max_concurrent_paths:remote:%ui|",
             conn->local_settings.max_concurrent_paths, conn->remote_settings.max_concurrent_paths);
 
-    conn->max_concurrent_paths = xqc_min(conn->local_settings.max_concurrent_paths,
-                                         conn->remote_settings.max_concurrent_paths);
+    conn->max_paths = xqc_min(conn->local_settings.max_concurrent_paths, conn->remote_settings.max_concurrent_paths);
+    conn->current_max_paths = conn->max_paths;
 
     /* save no crypto flag */
     if (params.no_crypto == 1) {

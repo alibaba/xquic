@@ -1781,3 +1781,39 @@ xqc_write_mp_retire_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t seq
 
     return XQC_OK;
 }
+
+
+int
+xqc_write_max_paths_to_packet(xqc_connection_t *conn, uint64_t max_paths)
+{
+    ssize_t ret = XQC_ERROR;
+    xqc_packet_out_t *packet_out;
+
+    if (max_paths > XQC_MAX_PATHS) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_max_paths_to_packet error|set max_paths:%ui|", max_paths);
+        return -XQC_EPARAM;
+    }
+
+    packet_out = xqc_write_new_packet(conn, XQC_PTYPE_NUM);
+    if (packet_out == NULL) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");
+        return -XQC_EWRITE_PKT;
+    }
+
+    ret = xqc_gen_max_paths_frame(packet_out, max_paths);
+    if (ret < 0) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_max_streams_frame error|");
+        goto error;
+    }
+
+    packet_out->po_used_size += ret;
+
+    xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|max_paths:%ui|", max_paths);
+    return XQC_OK;
+
+    error:
+    xqc_maybe_recycle_packet_out(packet_out, conn);
+    return -XQC_EWRITE_PKT;
+}

@@ -394,6 +394,15 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
                 ret = -XQC_EMP_INVALID_MP_VERTION;
             }
             break;
+        case XQC_TRANS_FRAME_TYPE_MAX_PATHS:
+            if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_07) {
+                ret = xqc_process_max_paths_frame(conn, packet_in);
+
+            } else {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|receive max paths frame in mp version lower than 07|%ui|", conn->conn_settings.multipath_version);
+                ret = -XQC_EMP_INVALID_MP_VERTION;
+            }
+            break;
         default:
             xqc_log(conn->log, XQC_LOG_ERROR, "|unknown frame type|");
             return -XQC_EIGNORE_PKT;
@@ -2093,3 +2102,23 @@ xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
     return XQC_OK;
 }
 
+
+xqc_int_t
+xqc_process_max_paths_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
+{
+    xqc_int_t ret = XQC_ERROR;
+    uint64_t max_paths = 0;
+
+    ret = xqc_parse_max_paths_frame(packet_in, &max_paths);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_process_max_paths_frame error|");
+        return ret;
+    }
+
+    if (conn->max_paths < max_paths) {
+        conn->max_paths = max_paths;
+    }
+
+    return ret;
+}

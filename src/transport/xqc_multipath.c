@@ -1113,7 +1113,12 @@ xqc_conn_server_init_path_addr(xqc_connection_t *conn, uint64_t path_id,
             }
         }
     }
-    
+
+    if (path_id >= conn->current_max_paths - conn->max_paths / 2) {
+        conn->current_max_paths += (conn->max_paths + 1) >> 1;
+        xqc_write_max_paths_to_packet(conn, conn->current_max_paths);
+    }
+
     xqc_log(conn->engine->log, XQC_LOG_STATS, "|path:%ui|%s|", path_id, xqc_path_addr_str(path));
 
     return XQC_OK;

@@ -1789,10 +1789,7 @@ xqc_write_max_paths_to_packet(xqc_connection_t *conn, uint64_t max_paths)
     ssize_t ret = XQC_ERROR;
     xqc_packet_out_t *packet_out;
 
-    if (max_paths > XQC_MAX_PATHS) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_max_paths_to_packet error|set max_paths:%ui|", max_paths);
-        return -XQC_EPARAM;
-    }
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_write_max_paths_to_packet|set max_paths:%ui|", max_paths);
 
     packet_out = xqc_write_new_packet(conn, XQC_PTYPE_NUM);
     if (packet_out == NULL) {

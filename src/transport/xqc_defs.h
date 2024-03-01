@@ -36,8 +36,6 @@
 /* the value of max_streams transport parameter or MAX_STREAMS frame must <= 2^60 */
 #define XQC_MAX_STREAMS                 ((uint64_t)1 << 60)
 
-#define XQC_MAX_PATHS                   ((uint64_t)1 << 60)
-
 #define XQC_CONN_MAX_CRYPTO_DATA_TOTAL_LEN (10*1024*1024)
 
 

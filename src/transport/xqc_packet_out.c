@@ -1727,9 +1727,9 @@ xqc_write_mp_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire
     }
     packet_out->po_used_size += ret;
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|gen_new_scid|cid:%s|sr_token:%s|seq_num:%ui",
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|gen_new_scid|cid:%s|sr_token:%s|seq_num:%ui|path_id:%ui|",
             xqc_scid_str(&new_conn_cid), xqc_sr_token_str(new_conn_cid.sr_token),
-            new_conn_cid.cid_seq_num);
+            new_conn_cid.cid_seq_num, new_conn_cid.path_id);
 
     conn->active_cid_cnt++;
 

@@ -61,7 +61,7 @@ void xqc_init_scid_set(xqc_scid_set_t *scid_set);
 void xqc_init_dcid_set(xqc_dcid_set_t *dcid_set);
 void xqc_destroy_cid_set(xqc_cid_set_t *cid_set);
 
-xqc_int_t xqc_cid_set_insert_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid, xqc_cid_state_t state, uint64_t limit);
+xqc_int_t xqc_cid_set_insert_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid, xqc_cid_state_t state, uint64_t limit, uint64_t path_id);
 xqc_int_t xqc_cid_set_delete_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid);
 
 xqc_cid_t *xqc_get_cid_by_seq(xqc_cid_set_t *cid_set, uint64_t seq_num);

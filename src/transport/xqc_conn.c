@@ -588,7 +588,7 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     xqc_hex_dump(xc->dcid_set.current_dcid_str, dcid->cid_buf, dcid->cid_len);
     xc->dcid_set.current_dcid_str[dcid->cid_len * 2] = '\0';
     if (xqc_cid_set_insert_cid(&xc->dcid_set.cid_set, dcid, XQC_CID_USED,
-                               xc->local_settings.active_connection_id_limit))
+                               xc->local_settings.active_connection_id_limit, 0))
     {
         goto fail;
     }
@@ -598,7 +598,7 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     xc->scid_set.original_scid_str[scid->cid_len * 2] = '\0';
     xc->scid_set.largest_scid_seq_num = scid->cid_seq_num;
     if (xqc_cid_set_insert_cid(&xc->scid_set.cid_set, scid, XQC_CID_USED,
-                               xc->remote_settings.active_connection_id_limit))
+                               xc->remote_settings.active_connection_id_limit, 0))
     {
         goto fail;
     }
@@ -3736,7 +3736,7 @@ xqc_conn_confirm_cid(xqc_connection_t *c, xqc_packet_t *pkt)
 
         if (xqc_cid_in_cid_set(&c->dcid_set.cid_set, &pkt->pkt_scid) == NULL) {
             ret = xqc_cid_set_insert_cid(&c->dcid_set.cid_set, &pkt->pkt_scid, XQC_CID_USED,
-                                         c->local_settings.active_connection_id_limit);
+                                         c->local_settings.active_connection_id_limit, 0);
             if (ret != XQC_OK) {
                 xqc_log(c->log, XQC_LOG_ERROR,
                         "|xqc_cid_set_insert_cid error|limit:%ui|unused:%ui|used:%ui|",

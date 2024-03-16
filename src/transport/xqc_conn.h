@@ -39,6 +39,7 @@
 #define XQC_MAX_RECV_WINDOW (16 * 1024 * 1024)
 
 #define XQC_MP_SETTINGS_STR_LEN (30)
+#define XQC_MP_ACTIVE_CIDS_EACH_PATH (3)
 
 static const uint32_t MAX_RSP_CONN_CLOSE_CNT = 3;
 

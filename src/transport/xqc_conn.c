@@ -4644,14 +4644,22 @@ xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
 
             xqc_path_ctx_t *path;
             xqc_list_head_t *path_pos, *path_next;
-            uint64_t path_id = 0;
+            uint64_t path_id = 0, count = 0;
 
-            // xqc_log(conn->log, XQC_LOG_DEBUG, "|max_concurrent_paths|%ui|", conn->max_concurrent_paths);
             path_id = conn->current_max_paths > conn->max_paths? (conn->current_max_paths - conn->max_paths) : 0;
             for (; path_id < conn->current_max_paths; path_id++) {
 
-                if (xqc_conn_get_unused_cid_count_for_path(conn, path_id) < 2
-                    && conn->active_cid_cnt < conn->remote_settings.active_connection_id_limit)
+                count = xqc_get_inner_cid_count_by_path_id(&conn->scid_set.cid_set, path_id);
+                path = xqc_conn_find_path_by_path_id(conn, path_id);
+                if (path != NULL) {
+                    count = xqc_max(count, xqc_get_inner_cid_count_by_path_id(&path->scid_set.cid_set, path_id));
+                }
+
+                /* xqc_log(conn->log, XQC_LOG_DEBUG, "|max_concurrent_paths|count:%ui|active_connection_id_limit:%ui|",
+                            count, conn->remote_settings.active_connection_id_limit); */
+
+                if (xqc_conn_get_unused_cid_count_for_path(conn, path_id) < XQC_MP_ACTIVE_CIDS_EACH_PATH
+                    && count < conn->remote_settings.active_connection_id_limit)
                 {
                     ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, retire_prior_to, path_id);
                     if (ret != XQC_OK) {

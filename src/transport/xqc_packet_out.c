@@ -1296,7 +1296,7 @@ xqc_write_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire_pr
 
     /* insert to scid_set & add scid_unused_cnt */
     ret = xqc_cid_set_insert_cid(&conn->scid_set.cid_set, &new_conn_cid, XQC_CID_UNUSED,
-                                 conn->remote_settings.active_connection_id_limit);
+                                 conn->remote_settings.active_connection_id_limit, 0);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR,
                 "|xqc_cid_set_insert_cid error|limit:%ui|unused:%ui|used:%ui|",
@@ -1697,7 +1697,7 @@ xqc_write_mp_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire
     /* insert to scid_set & add scid_unused_cnt */
 
     ret = xqc_cid_set_insert_cid(&(scid_set->cid_set), &new_conn_cid, XQC_CID_UNUSED,
-                                 conn->remote_settings.active_connection_id_limit);
+                                 conn->remote_settings.active_connection_id_limit, path_id);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR,
                 "|xqc_cid_set_insert_cid error|limit:%ui|unused:%ui|used:%ui|",

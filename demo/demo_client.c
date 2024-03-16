@@ -1045,7 +1045,7 @@ xqc_demo_path_status_trigger(xqc_demo_cli_user_conn_t *user_conn)
     }
 
     if (user_conn->remove_path_flag) {
-        if (ts_now > user_conn->path_create_time + 500000 /* 500ms */) {
+        if (ts_now > user_conn->path_create_time + 1000000 /* 1000ms */) {
             printf("Path closing... path_id:%"PRIu64" \n", user_conn->remove_path_id);
             xqc_conn_close_path(user_conn->ctx->engine, &(user_conn->cid), user_conn->remove_path_id);
             user_conn->remove_path_flag = 0;

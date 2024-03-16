@@ -213,9 +213,11 @@ xqc_cid_set_validate_new_cid_limit(xqc_cid_set_t *cid_set,
 
 
 xqc_int_t
-xqc_cid_set_insert_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid, xqc_cid_state_t state, uint64_t limit)
+xqc_cid_set_insert_cid(xqc_cid_set_t *cid_set,
+    xqc_cid_t *cid, xqc_cid_state_t state, uint64_t limit, uint64_t path_id)
 {
-    if (cid_set->unused_cnt + cid_set->used_cnt > limit) {
+    uint64_t cid_count_for_path = xqc_get_inner_cid_count_by_path_id(cid_set, path_id);
+    if (cid_count_for_path > limit) {
         return -XQC_EACTIVE_CID_LIMIT;
     }
 
@@ -433,7 +435,7 @@ xqc_get_inner_cid_count_by_path_id(xqc_cid_set_t *cid_set, uint64_t path_id)
     xqc_list_for_each_safe(pos, next, &cid_set->list_head) {
         inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
 
-        if (inner_cid->cid.path_id == path_id) {
+        if (inner_cid->cid.path_id == path_id && inner_cid->state < XQC_CID_RETIRED) {
             count++;
         }
     }
@@ -452,7 +454,7 @@ xqc_move_cid_to_path(xqc_cid_set_t *conn_cid_set, xqc_cid_set_t *path_cid_set, u
         inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
 
         if (inner_cid->cid.path_id == path_id) {
-            xqc_cid_set_insert_cid(path_cid_set, &inner_cid->cid, inner_cid->state, UINT64_MAX);
+            xqc_cid_set_insert_cid(path_cid_set, &inner_cid->cid, inner_cid->state, UINT64_MAX, path_id);
         }
     }
 }

@@ -893,12 +893,9 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
         return ret;
     }
 
-    /* An endpoint MAY send connection IDs that temporarily exceed a peer's 
-     * limit if the NEW_CONNECTION_ID frame also requires the retirement of any
-     * excess, by including a sufficiently large value in the Retire Prior To
-     * field. Hence it is not reasonable to consider it as an error */
-    ret = xqc_cid_set_insert_cid(&conn->dcid_set.cid_set, &new_conn_cid,
-                                 XQC_CID_UNUSED, cid_limit);
+    ret = xqc_cid_set_insert_cid(&conn->dcid_set.cid_set, &new_conn_cid, XQC_CID_UNUSED,
+                                 conn->local_settings.active_connection_id_limit, 0);
+
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_cid_set_insert_cid error"
                 "|local_limit:%ui|largest_limit:%ui|retire_prior_to:%ui|"
@@ -1971,7 +1968,8 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         return XQC_OK;
     }
 
-    ret = xqc_cid_set_insert_cid(&dcid_set->cid_set, &new_conn_cid, XQC_CID_UNUSED, conn->local_settings.active_connection_id_limit);
+    ret = xqc_cid_set_insert_cid(&dcid_set->cid_set, &new_conn_cid, XQC_CID_UNUSED,
+                                 conn->local_settings.active_connection_id_limit, path_id);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_cid_set_insert_cid error|limit:%ui|unused:%ui|used:%ui|",
                 conn->local_settings.active_connection_id_limit, conn->dcid_set.cid_set.unused_cnt, conn->dcid_set.cid_set.used_cnt);

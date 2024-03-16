@@ -65,7 +65,7 @@ uint64_t xqc_cid_set_cnt(xqc_cid_set_t *cid_set);
 xqc_bool_t xqc_cid_set_validate_new_cid_limit(xqc_cid_set_t *cid_set,
     uint64_t max_retire_prior_to, uint64_t *active_cid_limit);
 
-xqc_int_t xqc_cid_set_insert_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid, xqc_cid_state_t state, uint64_t limit);
+xqc_int_t xqc_cid_set_insert_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid, xqc_cid_state_t state, uint64_t limit, uint64_t path_id);
 xqc_int_t xqc_cid_set_delete_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid);
 
 xqc_cid_t *xqc_get_cid_by_seq(xqc_cid_set_t *cid_set, uint64_t seq_num);

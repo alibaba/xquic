@@ -275,7 +275,6 @@ double xqc_path_recent_loss_rate(xqc_path_ctx_t *path);
 
 xqc_cid_inner_t * xqc_cid_find_next_in_path_cid_set(const xqc_cid_set_t *cid_set, uint64_t path_id);
 
-xqc_int_t xqc_conn_trigger_cid_rotation_on_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t path_id);
 
 #endif /* XQC_MULTIPATH_H */
 

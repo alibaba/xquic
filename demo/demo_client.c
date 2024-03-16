@@ -1542,7 +1542,7 @@ xqc_demo_cli_trigger_path_cid_rotation(int fd, short what, void *arg)
     if (user_conn->active_path_cnt > 1)
     {
         printf("trigger cid rotation on path: path_id %"PRIu64"\n", user_conn->paths[1].path_id);
-        xqc_conn_close_path(user_conn->ctx->engine, &(user_conn->cid), user_conn->paths[1].path_id);
+        xqc_conn_trigger_cid_rotation_on_path(user_conn->ctx->engine, &(user_conn->cid), 0);
     }
 }
 

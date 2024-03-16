@@ -1503,10 +1503,15 @@ xqc_process_path_challenge_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
     xqc_path_ctx_t *path = NULL;
     if (conn->enable_multipath) {
         path = xqc_conn_find_path_by_scid(conn, &packet_in->pi_pkt.pkt_dcid);
-        path_id = path->path_id;
+        if (path != NULL) {
+            path_id = path->path_id;
+        } else {
+            path_id = xqc_cid_get_path_id(&conn->scid_set.cid_set, &packet_in->pi_pkt.pkt_dcid);
+        }
+
     } else {
         path = conn->conn_initial_path;
-        path_id = xqc_cid_get_path_id(&conn->scid_set.cid_set, &packet_in->pi_pkt.pkt_dcid);
+        path_id = 0;
     }
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|path_id=%ui|", path_id);

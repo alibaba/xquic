@@ -4647,9 +4647,10 @@ xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
 
             xqc_path_ctx_t *path;
             xqc_list_head_t *path_pos, *path_next;
-            uint64_t path_id = 0, count = 0;
+            uint64_t path_id = 0, count = 0, max_path_id = 0;
 
             path_id = conn->current_max_paths > conn->max_paths? (conn->current_max_paths - conn->max_paths) : 0;
+            max_path_id = xqc_min(conn->current_max_paths, conn->remote_current_max_paths);
             for (; path_id < conn->current_max_paths; path_id++) {
 
                 count = xqc_get_inner_cid_count_by_path_id(&conn->scid_set.cid_set, path_id);
@@ -5347,6 +5348,7 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
 
     conn->max_paths = xqc_min(conn->local_settings.max_concurrent_paths, conn->remote_settings.max_concurrent_paths);
     conn->current_max_paths = conn->max_paths;
+    conn->remote_current_max_paths = conn->remote_settings.max_concurrent_paths;
 
     /* save no crypto flag */
     if (params.no_crypto == 1) {

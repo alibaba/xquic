@@ -1117,7 +1117,7 @@ xqc_conn_server_init_path_addr(xqc_connection_t *conn, uint64_t path_id,
         && path_id >= conn->current_max_paths - conn->max_paths / 2)
     {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|current_max_paths:%ui|max_paths:%ui|", conn->current_max_paths, conn->max_paths);
-        conn->current_max_paths += (conn->max_paths + 1) / 2;
+        conn->current_max_paths += (conn->current_max_paths + 1) / 2;
         xqc_write_max_paths_to_packet(conn, conn->current_max_paths);
     }
 

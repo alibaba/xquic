@@ -1867,7 +1867,8 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
 {
     int ch = 0;
 
-    while ((ch = getopt(argc, argv, "a:A:bB:c:CdD:eEf:F:G:p:t:S:0m:Ml:L:k:K:U:u:oi:w:Ps:Z:NQT:r:R:V:I:n:")) != -1) {
+    while ((ch = getopt(argc, argv, "a:A:bB:c:CdD:eEf:F:g:G:p:t:S:0m:Ml:L:k:K:U:u:oi:w:Ps:Z:NQT:r:R:V:I:n:")) != -1) {
+
         switch (ch) {
         /* server ip */
         case 'a':
@@ -2051,7 +2052,7 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             args->quic_cfg.close_path = atoi(optarg);
             break;
 
-        case 'F':
+        case 'g':
             printf("option force a cid rotation after %s ms\n", optarg);
             args->quic_cfg.path_cid_rotation = atoi(optarg);
             break;

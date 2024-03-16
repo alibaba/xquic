@@ -2131,8 +2131,8 @@ xqc_process_max_paths_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         return ret;
     }
 
-    if (conn->max_paths < max_paths) {
-        conn->max_paths = max_paths;
+    if (conn->remote_current_max_paths < max_paths) {
+        conn->remote_current_max_paths = max_paths;
     }
 
     return ret;

@@ -385,6 +385,7 @@ struct xqc_connection_s {
 
     uint64_t                        max_paths;
     uint64_t                        current_max_paths;
+    uint64_t                        remote_current_max_paths;
 
     const
     xqc_scheduler_callback_t       *scheduler_callback;

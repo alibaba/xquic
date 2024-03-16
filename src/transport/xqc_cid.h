@@ -77,6 +77,7 @@ unsigned char *xqc_sr_token_str(const char *sr_token);
 
 uint64_t xqc_cid_get_largest_seq_number_by_path_id(xqc_cid_set_t *cid_set, uint64_t path_id);
 uint64_t xqc_get_inner_cid_count_by_path_id(xqc_cid_set_t *cid_set, uint64_t path_id);
+uint64_t xqc_cid_get_path_id(xqc_cid_set_t *cid_set, xqc_cid_t *cid);
 
 void xqc_move_cid_to_path(xqc_cid_set_t *conn_cid_set, xqc_cid_set_t *path_cid_set, uint64_t path_id);
 

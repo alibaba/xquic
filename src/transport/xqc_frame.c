@@ -332,7 +332,7 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
             }
             break;
         case 0x15228c07:
-            if (conn->conn_settings.multipath_version == XQC_MULTIPATH_06) {
+            if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_06) {
                 ret = xqc_process_path_standby_frame(conn, packet_in);
 
             } else {
@@ -341,7 +341,7 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
             }
             break;
         case 0x15228c08:
-            if (conn->conn_settings.multipath_version == XQC_MULTIPATH_06) {
+            if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_06) {
                 ret = xqc_process_path_available_frame(conn, packet_in);
 
             } else {

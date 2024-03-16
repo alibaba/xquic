@@ -847,6 +847,7 @@ xqc_demo_cli_conn_update_cid_notify(xqc_connection_t *conn, const xqc_cid_t *ret
     memcpy(&user_conn->cid, new_cid, sizeof(*new_cid));
 }
 
+
 void
 xqc_demo_cli_conn_create_path(const xqc_cid_t *cid, void *conn_user_data)
 {
@@ -1044,13 +1045,6 @@ xqc_demo_path_status_trigger(xqc_demo_cli_user_conn_t *user_conn)
         }
     }
 
-    if (user_conn->remove_path_flag) {
-        if (ts_now > user_conn->path_create_time + 1000000 /* 1000ms */) {
-            printf("Path closing... path_id:%"PRIu64" \n", user_conn->remove_path_id);
-            xqc_conn_close_path(user_conn->ctx->engine, &(user_conn->cid), user_conn->remove_path_id);
-            user_conn->remove_path_flag = 0;
-        }
-    }
 }
 
 int
@@ -1522,6 +1516,7 @@ xqc_demo_cli_close_path_timeout(int fd, short what, void *arg)
     xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *) arg;
     if (user_conn->active_path_cnt > 1) 
     {
+        printf("closing path, path_id %"PRIu64"\n", user_conn->paths[1].path_id);
         xqc_conn_close_path(user_conn->ctx->engine, &(user_conn->cid), user_conn->paths[1].path_id);
     }
 }

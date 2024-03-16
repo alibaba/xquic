@@ -1831,7 +1831,7 @@ void
 xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "a:A:bB:c:CdD:eEf:p:t:S:0m:Ml:L:k:K:U:u:oi:w:Ps:Z:NQT:r:R:V:I:n:")) != -1) {
+    while ((ch = getopt(argc, argv, "a:A:bB:c:CdD:eEf:F:p:t:S:0m:Ml:L:k:K:U:u:oi:w:Ps:Z:NQT:r:R:V:I:n:")) != -1) {
         switch (ch) {
         /* server ip */
         case 'a':

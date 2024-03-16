@@ -173,6 +173,8 @@ typedef struct xqc_demo_cli_quic_config_s {
 
     uint64_t close_path;
 
+    uint64_t path_cid_rotation;
+
     uint8_t no_encryption;
 
     uint64_t recv_rate;
@@ -415,6 +417,7 @@ typedef struct xqc_demo_cli_user_conn_s {
     struct event            *ev_delay_req;
     struct event            *ev_idle_restart;
     struct event            *ev_close_path;
+    struct event            *ev_path_cid_rotation;
     struct event            *ev_rebinding_p0;
     struct event            *ev_rebinding_p1;
 
@@ -488,6 +491,11 @@ xqc_demo_cli_close_task(xqc_demo_cli_task_t *task)
     if (user_conn->ev_close_path) {
         event_del(user_conn->ev_close_path);
         user_conn->ev_close_path = NULL;
+    }
+
+    if (user_conn->ev_path_cid_rotation) {
+        event_del(user_conn->ev_path_cid_rotation);
+        user_conn->ev_path_cid_rotation = NULL;
     }
 
     if (user_conn->ev_rebinding_p0) {
@@ -860,7 +868,7 @@ xqc_demo_cli_conn_create_path(const xqc_cid_t *cid, void *conn_user_data)
     printf("ready to create path notify\n");
 
     if (user_conn->total_path_cnt < ctx->args->net_cfg.ifcnt
-        && user_conn->total_path_cnt < MAX_PATH_CNT) 
+        && user_conn->total_path_cnt < ctx->args->quic_cfg.max_concurrent_paths)
     {
 
         if (user_conn->total_path_cnt == 1 && ctx->args->quic_cfg.mp_backup) {
@@ -1464,6 +1472,11 @@ xqc_demo_cli_idle_callback(int fd, short what, void *arg)
                 user_conn->ev_close_path = NULL;
             }
 
+            if (user_conn->ev_path_cid_rotation) {
+                event_del(user_conn->ev_path_cid_rotation);
+                user_conn->ev_path_cid_rotation = NULL;
+            }
+
             if (user_conn->ev_rebinding_p0) {
                 event_del(user_conn->ev_rebinding_p0);
                 user_conn->ev_rebinding_p0 =  NULL;
@@ -1520,6 +1533,19 @@ xqc_demo_cli_close_path_timeout(int fd, short what, void *arg)
         xqc_conn_close_path(user_conn->ctx->engine, &(user_conn->cid), user_conn->paths[1].path_id);
     }
 }
+
+
+static void
+xqc_demo_cli_trigger_path_cid_rotation(int fd, short what, void *arg)
+{
+    xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *) arg;
+    if (user_conn->active_path_cnt > 1)
+    {
+        printf("trigger cid rotation on path: path_id %"PRIu64"\n", user_conn->paths[1].path_id);
+        xqc_conn_close_path(user_conn->ctx->engine, &(user_conn->cid), user_conn->paths[1].path_id);
+    }
+}
+
 
 static void
 xqc_demo_cli_rebind_path0(int fd, short what, void *arg)
@@ -1840,7 +1866,8 @@ void
 xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:bZ:NQT:r:R:V:B:I:n:eEf:F:G:")) != -1) {
+
+    while ((ch = getopt(argc, argv, "a:A:bB:c:CdD:eEf:F:G:p:t:S:0m:Ml:L:k:K:U:u:oi:w:Ps:Z:NQT:r:R:V:I:n:")) != -1) {
         switch (ch) {
         /* server ip */
         case 'a':
@@ -2022,6 +2049,11 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
         case 'Z':
             printf("option close a path after %s ms\n", optarg);
             args->quic_cfg.close_path = atoi(optarg);
+            break;
+
+        case 'F':
+            printf("option force a cid rotation after %s ms\n", optarg);
+            args->quic_cfg.path_cid_rotation = atoi(optarg);
             break;
 
         case 'N':
@@ -2578,6 +2610,17 @@ xqc_demo_cli_start(xqc_demo_cli_user_conn_t *user_conn, xqc_demo_cli_client_args
             .tv_usec = (args->quic_cfg.close_path % 1000) * 1000,
         };
         event_add(user_conn->ev_close_path, &tv);
+    }
+
+    if (args->quic_cfg.path_cid_rotation) {
+        user_conn->ev_path_cid_rotation = event_new(user_conn->ctx->eb, -1, 0,
+                                                    xqc_demo_cli_trigger_path_cid_rotation,
+                                                    user_conn);
+        struct timeval tv = {
+                .tv_sec = args->quic_cfg.path_cid_rotation / 1000,
+                .tv_usec = (args->quic_cfg.path_cid_rotation % 1000) * 1000,
+        };
+        event_add(user_conn->ev_path_cid_rotation, &tv);
     }
 
     if (args->net_cfg.rebind_p0) {

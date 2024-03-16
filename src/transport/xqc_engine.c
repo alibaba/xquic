@@ -811,8 +811,8 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
     }
 
     /* for multi-path */
-    if ((conn->conn_flag & XQC_CONN_FLAG_MP_READY_NOTIFY)
-        && xqc_conn_check_unused_cids(conn) == XQC_OK)
+    if (/* (conn->conn_flag & XQC_CONN_FLAG_MP_READY_NOTIFY) && */
+        xqc_conn_check_unused_cids(conn) >= XQC_OK)
     {
         if (conn->transport_cbs.ready_to_create_path_notify) {
             conn->transport_cbs.ready_to_create_path_notify(&conn->scid_set.user_scid,

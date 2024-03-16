@@ -3003,13 +3003,13 @@ xqc_gen_mp_retire_conn_id_frame(xqc_packet_out_t *packet_out, uint64_t seq_num, 
     xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
     dst_buf += xqc_vint_len(frame_type_bits);
 
-    unsigned sequence_number_bits = xqc_vint_get_2bit(seq_num);
-    xqc_vint_write(dst_buf, seq_num, sequence_number_bits, xqc_vint_len(sequence_number_bits));
-    dst_buf += xqc_vint_len(sequence_number_bits);
-
     unsigned path_id_bits = xqc_vint_get_2bit(path_id);
     xqc_vint_write(dst_buf, path_id, path_id_bits, xqc_vint_len(path_id_bits));
     dst_buf += xqc_vint_len(path_id_bits);
+
+    unsigned sequence_number_bits = xqc_vint_get_2bit(seq_num);
+    xqc_vint_write(dst_buf, seq_num, sequence_number_bits, xqc_vint_len(sequence_number_bits));
+    dst_buf += xqc_vint_len(sequence_number_bits);
 
     packet_out->po_frame_types |= XQC_FRAME_BIT_MP_RETIRE_CONNECTION_ID;
 

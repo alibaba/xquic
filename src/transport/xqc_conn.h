@@ -697,4 +697,5 @@ void xqc_path_send_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
 void xqc_insert_fec_packets(xqc_connection_t *conn, xqc_list_head_t *head);
 void xqc_insert_fec_packets_all(xqc_connection_t *conn);
 #endif
+
 #endif /* _XQC_CONN_H_INCLUDED_ */

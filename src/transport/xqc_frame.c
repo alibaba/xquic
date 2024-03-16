@@ -45,6 +45,11 @@ static const char * const frame_type_2_str[XQC_FRAME_NUM] = {
     [XQC_FRAME_ACK_MP]               = "ACK_MP",
     [XQC_FRAME_PATH_ABANDON]         = "PATH_ABANDON",
     [XQC_FRAME_PATH_STATUS]          = "PATH_STATUS",
+    [XQC_FRAME_PATH_AVAILABLE]       = "PATH_AVAILABLE",
+    [XQC_FRAME_PATH_STANDBY]         = "PATH_STANDBY",
+    [XQC_FRAME_MP_NEW_CONNECTION_ID] = "MP_NEW_CONN_ID",
+    [XQC_FRAME_MP_RETIRE_CONNECTION_ID] = "MP_RETIRE_CONN_ID",
+    [XQC_FRAME_MAX_PATHS]            = "MAX_PATHS",
     [XQC_FRAME_DATAGRAM]             = "DATAGRAM",
     [XQC_FRAME_Extension]            = "Extension",
 };
@@ -185,8 +190,10 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         if (conn->conn_state == XQC_CONN_STATE_CLOSING) {
             xqc_log(conn->log, XQC_LOG_DEBUG, "|closing state|frame_type:%ui|",
                     frame_type);
-            /* respond connection close when recv any packet */
-            if (frame_type != 0x1c && frame_type != 0x1d) {
+            /* respond connection close when recv any packet except conn_close and ack / ack_mp */
+            if (frame_type != 0x1c && frame_type != 0x1d
+                && frame_type != 0x15228c00 && frame_type != 0x15228c01)
+            {
                 xqc_conn_immediate_close(conn);
                 packet_in->pos = packet_in->last;
                 return XQC_OK;
@@ -1480,6 +1487,7 @@ xqc_process_path_challenge_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
 {
     xqc_int_t ret = XQC_ERROR;
     unsigned char path_challenge_data[XQC_PATH_CHALLENGE_DATA_LEN];
+    uint64_t path_id = 0;
 
     ret = xqc_parse_path_challenge_frame(packet_in, path_challenge_data);
     if (ret != XQC_OK) {
@@ -1495,17 +1503,21 @@ xqc_process_path_challenge_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
     xqc_path_ctx_t *path = NULL;
     if (conn->enable_multipath) {
         path = xqc_conn_find_path_by_scid(conn, &packet_in->pi_pkt.pkt_dcid);
-
+        path_id = path->path_id;
     } else {
         path = conn->conn_initial_path;
+        path_id = xqc_cid_get_path_id(&conn->scid_set.cid_set, &packet_in->pi_pkt.pkt_dcid);
     }
-    
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|path_id=%ui|", path_id);
+
     if (path == NULL) {
         if (conn->conn_type == XQC_CONN_TYPE_SERVER) {
             /* try to create new path */
-            path = xqc_conn_create_path_inner(conn, &packet_in->pi_pkt.pkt_dcid, NULL, XQC_APP_PATH_STATUS_AVAILABLE);
+
+            path = xqc_conn_create_path_inner(conn, &packet_in->pi_pkt.pkt_dcid, NULL, XQC_APP_PATH_STATUS_AVAILABLE, path_id);
             if (path == NULL) {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_conn_create_path_inner err|");
+                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_conn_create_path_inner err|%ui|", path_id);
                 return -XQC_EMP_CREATE_PATH;
             }
             packet_in->pi_path_id = path->path_id;

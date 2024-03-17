@@ -930,7 +930,7 @@ xqc_int_t
 xqc_process_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
     xqc_int_t ret = XQC_ERROR;
-    uint64_t seq_num = 0, largest_scid_seq_num = 0;
+    uint64_t seq_num = 0, largest_scid_seq_num = 0, largest_scid_seq_num_inside_path = 0;
 
     ret = xqc_parse_retire_conn_id_frame(packet_in, &seq_num);
     if (ret != XQC_OK) {
@@ -943,13 +943,20 @@ xqc_process_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         return XQC_OK;
     }
 
-    if (seq_num > conn->scid_set.largest_scid_seq_num) {
+    largest_scid_seq_num = xqc_cid_get_largest_seq_number_by_path_id(&conn->scid_set.cid_set, XQC_INITIAL_PATH_ID);
+    if (conn->conn_initial_path != NULL) {
+        largest_scid_seq_num_inside_path = xqc_cid_get_largest_seq_number_by_path_id(
+                &(conn->conn_initial_path->scid_set.cid_set), XQC_INITIAL_PATH_ID);
+    }
+    largest_scid_seq_num = xqc_max(largest_scid_seq_num_inside_path, largest_scid_seq_num);
+
+    if (seq_num > largest_scid_seq_num) {
         /* 
          * Receipt of a RETIRE_CONNECTION_ID frame containing a sequence number
          * greater than any previously sent to the peer MUST be treated as a
          * connection error of type PROTOCOL_VIOLATION.
          */
-        xqc_log(conn->log, XQC_LOG_ERROR, "|no match seq_num|");
+        xqc_log(conn->log, XQC_LOG_ERROR, "|no match seq_num|seq:%ui|", seq_num);
         XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
         return -XQC_EPROTO;
     }

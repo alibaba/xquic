@@ -1750,7 +1750,9 @@ xqc_write_mp_retire_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t seq
     xqc_log(conn->log, XQC_LOG_DEBUG, "|mp retire conn id|seq:%ui|path_id:%ui|", seq_num, path_id);
 
     /* select new current_dcid to replace the cid to be retired */
-    if (seq_num == conn->dcid_set.current_dcid.cid_seq_num) {
+    if (path_id == 0
+        && seq_num == conn->dcid_set.current_dcid.cid_seq_num)
+    {
         // TODO: DCID changes
         ret = xqc_get_unused_cid(&conn->dcid_set.cid_set, &conn->dcid_set.current_dcid);
         if (ret != XQC_OK) {

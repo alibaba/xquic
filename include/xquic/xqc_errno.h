@@ -122,6 +122,7 @@ typedef enum {
     XQC_EMP_SCHEDULE_PATH               = 655,      /* Multipath - fail to schedule path for sending */
     XQC_EMP_NO_ACTIVE_PATH              = 656,      /* Multipath - no another active path */
     XQC_EMP_INVALID_MP_VERTION          = 657,      /* Multipath - the multipath version value is invalid */
+    XQC_EMP_NO_AVAILABLE_CID_FOR_PATH   = 658,      /* Multipath - there's no available unused cid for this path */
 
     XQC_EENCRYPT_LB_CID                 = 670,      /* load balance connection ID encryption error */
     XQC_EENCRYPT_AES_128_ECB            = 671,      /* aes_128_ecb algorithm error */

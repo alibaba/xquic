@@ -4651,7 +4651,7 @@ xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
 
             path_id = conn->current_max_paths > conn->max_paths? (conn->current_max_paths - conn->max_paths) : 0;
             max_path_id = xqc_min(conn->current_max_paths, conn->remote_current_max_paths);
-            for (; path_id < conn->current_max_paths; path_id++) {
+            for (; path_id < max_path_id; path_id++) {
 
                 count = xqc_get_inner_cid_count_by_path_id(&conn->scid_set.cid_set, path_id);
                 path = xqc_conn_find_path_by_path_id(conn, path_id);

@@ -106,6 +106,11 @@ struct xqc_path_ctx_s {
     xqc_cid_t           path_scid;
     xqc_cid_t           path_dcid;
 
+    xqc_cid_t           path_last_scid;
+    xqc_cid_t           path_last_dcid;
+
+    xqc_flag_t          path_dcid_acked;
+
     xqc_dcid_set_t      dcid_set;
     xqc_scid_set_t      scid_set;
 

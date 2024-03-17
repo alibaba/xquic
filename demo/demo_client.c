@@ -175,6 +175,8 @@ typedef struct xqc_demo_cli_quic_config_s {
 
     uint64_t path_cid_rotation;
 
+    uint64_t path_cid_retirement;
+
     uint8_t no_encryption;
 
     uint64_t recv_rate;
@@ -418,8 +420,11 @@ typedef struct xqc_demo_cli_user_conn_s {
     struct event            *ev_idle_restart;
     struct event            *ev_close_path;
     struct event            *ev_path_cid_rotation;
+    struct event            *ev_path_cid_retirement;
     struct event            *ev_rebinding_p0;
     struct event            *ev_rebinding_p1;
+
+    xqc_flag_t              trigger_cid_rotation;
 
     xqc_demo_cli_ctx_t      *ctx;
     xqc_demo_cli_task_t     *task;
@@ -496,6 +501,11 @@ xqc_demo_cli_close_task(xqc_demo_cli_task_t *task)
     if (user_conn->ev_path_cid_rotation) {
         event_del(user_conn->ev_path_cid_rotation);
         user_conn->ev_path_cid_rotation = NULL;
+    }
+
+    if (user_conn->ev_path_cid_retirement) {
+        event_del(user_conn->ev_path_cid_retirement);
+        user_conn->ev_path_cid_retirement = NULL;
     }
 
     if (user_conn->ev_rebinding_p0) {
@@ -1477,6 +1487,11 @@ xqc_demo_cli_idle_callback(int fd, short what, void *arg)
                 user_conn->ev_path_cid_rotation = NULL;
             }
 
+            if (user_conn->ev_path_cid_retirement) {
+                event_del(user_conn->ev_path_cid_retirement);
+                user_conn->ev_path_cid_retirement = NULL;
+            }
+
             if (user_conn->ev_rebinding_p0) {
                 event_del(user_conn->ev_rebinding_p0);
                 user_conn->ev_rebinding_p0 =  NULL;
@@ -1539,11 +1554,30 @@ static void
 xqc_demo_cli_trigger_path_cid_rotation(int fd, short what, void *arg)
 {
     xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *) arg;
-    if (user_conn->active_path_cnt > 1)
-    {
-        printf("trigger cid rotation on path: path_id %"PRIu64"\n", user_conn->paths[1].path_id);
-        xqc_conn_trigger_cid_rotation_on_path(user_conn->ctx->engine, &(user_conn->cid), 0);
+    uint64_t path_id = 1;
+    printf("trigger cid rotation on path: path_id %"PRIu64"\n", path_id);
+    int ret = xqc_conn_trigger_cid_rotation_on_path(user_conn->ctx->engine, &(user_conn->cid), path_id);
+    if (ret != XQC_OK) {
+        printf("trigger cid rotation on path: path_id %"PRIu64" failed\n", path_id);
+    } else {
+        user_conn->trigger_cid_rotation = XQC_TRUE;
     }
+}
+
+
+static void
+xqc_demo_cli_trigger_path_cid_retirment(int fd, short what, void *arg)
+{
+    xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *) arg;
+    uint64_t path_id = 1;
+
+    if (!user_conn->trigger_cid_rotation) {
+        printf("can't trigger cid retirement on path: path_id %"PRIu64" because the cid rotation failed\n", path_id);
+        return;
+    }
+
+    printf("trigger cid retirement on path: path_id %"PRIu64"\n", path_id);
+    xqc_conn_trigger_cid_retirement_on_path(user_conn->ctx->engine, &(user_conn->cid), path_id);
 }
 
 
@@ -1868,7 +1902,6 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
     int ch = 0;
 
     while ((ch = getopt(argc, argv, "a:A:bB:c:CdD:eEf:F:g:G:p:t:S:0m:Ml:L:k:K:U:u:oi:w:Ps:Z:NQT:r:R:V:I:n:")) != -1) {
-
         switch (ch) {
         /* server ip */
         case 'a':
@@ -2055,6 +2088,11 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
         case 'g':
             printf("option force a cid rotation after %s ms\n", optarg);
             args->quic_cfg.path_cid_rotation = atoi(optarg);
+            break;
+
+        case 'G':
+            printf("option force a cid retirement after %s ms\n", optarg);
+            args->quic_cfg.path_cid_retirement = atoi(optarg);
             break;
 
         case 'N':
@@ -2622,6 +2660,17 @@ xqc_demo_cli_start(xqc_demo_cli_user_conn_t *user_conn, xqc_demo_cli_client_args
                 .tv_usec = (args->quic_cfg.path_cid_rotation % 1000) * 1000,
         };
         event_add(user_conn->ev_path_cid_rotation, &tv);
+    }
+
+    if (args->quic_cfg.path_cid_retirement) {
+        user_conn->ev_path_cid_retirement = event_new(user_conn->ctx->eb, -1, 0,
+                                                      xqc_demo_cli_trigger_path_cid_retirment,
+                                                      user_conn);
+        struct timeval tv = {
+                .tv_sec = args->quic_cfg.path_cid_retirement / 1000,
+                .tv_usec = (args->quic_cfg.path_cid_retirement % 1000) * 1000,
+        };
+        event_add(user_conn->ev_path_cid_retirement, &tv);
     }
 
     if (args->net_cfg.rebind_p0) {

@@ -146,6 +146,8 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid, uint64
         xqc_cid_copy(&(path->path_dcid), dcid);
     }
 
+    xqc_cid_copy(&path->path_last_dcid, &path->path_dcid);
+
     //TODO: MPQUIC fix migration
     path->path_create_time = xqc_monotonic_timestamp();
     path->curr_pkt_out_size = conn->pkt_out_size;
@@ -642,12 +644,27 @@ xqc_conn_find_path_by_scid(xqc_connection_t *conn, xqc_cid_t *scid)
 {
     xqc_path_ctx_t *path = NULL;
     xqc_list_head_t *pos, *next;
+    xqc_cid_inner_t *inner_cid = NULL;
+    xqc_list_head_t *cid_pos, *cid_next;
+    xqc_cid_set_t *cid_set = NULL;
 
     xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
         path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
 
         if (xqc_cid_is_equal(&path->path_scid, scid) == XQC_OK) {
             return path;
+        }
+
+        cid_set = &path->scid_set.cid_set;
+
+        xqc_list_for_each_safe(cid_pos, cid_next, &cid_set->list_head) {
+            inner_cid = xqc_list_entry(cid_pos, xqc_cid_inner_t, list);
+
+            if (inner_cid->cid.cid_len == scid->cid_len
+                && strncmp(inner_cid->cid.cid_buf, scid->cid_buf, scid->cid_len) == 0)
+            {
+                return path;
+            }
         }
     }
 
@@ -1545,13 +1562,27 @@ xqc_path_recent_loss_rate(xqc_path_ctx_t *path)
 }
 
 
-/* check whether if the dcid is valid for the connection */
 xqc_int_t
-xqc_path_cid_rotate(xqc_path_ctx_t *path, xqc_cid_t *dcid)
+xqc_path_cid_rotate(xqc_path_ctx_t *path, uint64_t path_id)
 {
     xqc_int_t ret = XQC_ERROR;
+    xqc_cid_inner_t *new_dcid = xqc_cid_find_next_in_path_cid_set(&path->dcid_set.cid_set, path_id);
+    if (path_id == XQC_INITIAL_PATH_ID && new_dcid == NULL) {
+        new_dcid = xqc_cid_find_next_in_path_cid_set(&path->parent_conn->dcid_set.cid_set, path_id);
+    }
 
+    if (new_dcid == NULL) {
+        return -XQC_EMP_NO_AVAILABLE_CID_FOR_PATH;
+    }
 
+    xqc_log(path->parent_conn->log, XQC_LOG_DEBUG, "|xqc_conn_trigger_cid_rotation_on_path|path_id:%ui|new_dcid:%s|old_dcid:%s|", path_id,
+            xqc_dcid_str(&new_dcid->cid), xqc_scid_str(&path->path_dcid));
+
+    xqc_cid_copy(&path->path_last_dcid, &path->path_dcid);
+    xqc_cid_copy(&path->path_dcid, &new_dcid->cid);
+    xqc_cid_switch_to_next_state(&path->dcid_set.cid_set, new_dcid, XQC_CID_USED);
+
+    /* path->path_dcid_acked = XQC_FALSE;*/
 
     return XQC_OK;
 }
@@ -1562,6 +1593,8 @@ xqc_conn_trigger_cid_rotation_on_path(xqc_engine_t *engine, const xqc_cid_t *sci
 {
     xqc_connection_t *conn = NULL;
     xqc_path_ctx_t *path = NULL;
+
+    xqc_log(engine->log, XQC_LOG_DEBUG, "|scid:%s|path_id:%ui|", xqc_scid_str(scid), path_id);
 
     conn = xqc_engine_conns_hash_find(engine, scid, 's');
     if (!conn) {
@@ -1588,5 +1621,88 @@ xqc_conn_trigger_cid_rotation_on_path(xqc_engine_t *engine, const xqc_cid_t *sci
         return -XQC_EMP_PATH_NOT_FOUND;
     }
 
+    xqc_int_t ret = xqc_path_cid_rotate(path, path_id);
+    if (ret != XQC_OK) {
+        xqc_log(engine->log, XQC_LOG_WARN,
+                "|xqc_path_cid_rotate error|scid:%s|path_id:%ui|", xqc_scid_str(scid), path_id);
+    }
+
+    return ret;
+}
+
+
+xqc_int_t
+xqc_path_last_cid_retirement(xqc_path_ctx_t *path, uint64_t path_id)
+{
+    xqc_int_t ret = XQC_ERROR;
+    if (path->path_last_dcid.cid_seq_num == path->path_dcid.cid_seq_num) {
+        xqc_log(path->parent_conn->log, XQC_LOG_ERROR, "|retiring the same dcid which path is still using|path_id:%ui|new_dcid:%s|old_dcid:%s|", path_id,
+                xqc_dcid_str(&path->path_dcid), xqc_scid_str(&path->path_last_dcid));
+        return XQC_ERROR;
+    }
+
+    xqc_log(path->parent_conn->log, XQC_LOG_DEBUG, "|xqc_conn_trigger_cid_retirement_on_path|path_id:%ui|new_dcid:%s|old_dcid:%s|old_seq:%ui|", path_id,
+            xqc_dcid_str(&path->path_dcid), xqc_scid_str(&path->path_last_dcid), path->path_last_dcid.cid_seq_num);
+
+    ret = xqc_write_mp_retire_conn_id_frame_to_packet(path->parent_conn, path->path_last_dcid.cid_seq_num, path_id);
+    if (ret != XQC_OK) {
+        xqc_log(path->parent_conn->log, XQC_LOG_ERROR, "|xqc_write_retire_conn_id_frame_to_packet error|");
+        return ret;
+    }
+
+    xqc_cid_inner_t *last_dcid = xqc_get_inner_cid_by_seq(&path->dcid_set.cid_set, path->path_last_dcid.cid_seq_num);
+    if (last_dcid == NULL) {
+        xqc_log(path->parent_conn->log, XQC_LOG_ERROR, "|can't get inner cid by seq|path_id:%ui|seq:%ui|", path_id, path->path_last_dcid.cid_seq_num);
+        return ret;
+    }
+
+    xqc_cid_switch_to_next_state(&path->dcid_set.cid_set, last_dcid, XQC_CID_RETIRED);
+
+    /* path->path_dcid_acked = XQC_FALSE;*/
+
     return XQC_OK;
+}
+
+
+/* trigger the last dcid to be retired */
+xqc_int_t
+xqc_conn_trigger_cid_retirement_on_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t path_id)
+{
+    xqc_connection_t *conn = NULL;
+    xqc_path_ctx_t *path = NULL;
+
+    xqc_log(engine->log, XQC_LOG_DEBUG, "|scid:%s|path_id:%ui|", xqc_scid_str(scid), path_id);
+
+    conn = xqc_engine_conns_hash_find(engine, scid, 's');
+    if (!conn) {
+        xqc_log(engine->log, XQC_LOG_ERROR, "|can not find connection|");
+        return -XQC_ECONN_NFOUND;
+    }
+    if (conn->conn_state >= XQC_CONN_STATE_CLOSING) {
+        return -XQC_CLOSING;
+    }
+
+    /* check mp-support */
+    if (!conn->enable_multipath) {
+        xqc_log(engine->log, XQC_LOG_WARN,
+                "|Multipath is not supported in connection|%p|", conn);
+        return -XQC_EMP_NOT_SUPPORT_MP;
+    }
+
+    /* abandon path */
+    path = xqc_conn_find_path_by_path_id(conn, path_id);
+    if (path == NULL) {
+        xqc_log(engine->log, XQC_LOG_WARN,
+                "|path is not found by path_id in connection|%p|%ui|",
+                conn, path_id);
+        return -XQC_EMP_PATH_NOT_FOUND;
+    }
+
+    xqc_int_t ret = xqc_path_last_cid_retirement(path, path_id);
+    if (ret != XQC_OK) {
+        xqc_log(engine->log, XQC_LOG_WARN,
+                "|xqc_path_last_cid_retirement error|scid:%s|path_id:%ui|", xqc_scid_str(scid), path_id);
+    }
+
+    return ret;
 }

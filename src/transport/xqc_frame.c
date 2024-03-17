@@ -2100,6 +2100,8 @@ xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
         xqc_log(conn->log, XQC_LOG_DEBUG, "|switch scid to %ui|", conn->scid_set.user_scid.cid_seq_num);
     }
 
+    retire_prior_to = seq_num;
+
     /* sending new cid for path */
     if (path != NULL
         && path->path_state < XQC_PATH_STATE_CLOSING)

@@ -2028,6 +2028,8 @@ xqc_int_t xqc_path_get_local_addr(xqc_connection_t *conn, uint64_t path_id,
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_conn_trigger_cid_rotation_on_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t path_id);
 
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_conn_trigger_cid_retirement_on_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t path_id);
 
 /**
  * @brief load balance cid encryption.

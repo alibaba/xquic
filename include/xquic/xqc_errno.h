@@ -130,6 +130,7 @@ typedef enum {
     XQC_EMP_SCHEDULE_PATH               = 655,      /* Multipath - fail to schedule path for sending */
     XQC_EMP_NO_ACTIVE_PATH              = 656,      /* Multipath - no another active path */
     XQC_EMP_INVALID_MP_VERTION          = 657,      /* Multipath - the multipath version value is invalid */
+    XQC_EMP_NO_AVAILABLE_CID_FOR_PATH   = 658,      /* Multipath - there's no available unused cid for this path */
 
     XQC_EFEC_NOT_SUPPORT_FEC            = 660,      /* FEC - fec not supported */
     XQC_EFEC_SCHEME_ERROR               = 661,      /* FEC - no available scheme */

@@ -50,6 +50,9 @@ endif()
 add_executable(test_server ${TEST_SERVER_SOURCES})
 add_executable(test_client ${TEST_CLIENT_SOURCES})
 
+
+MESSAGE("-- ####### CMAKE_SYSTEM_NAME: ${CMAKE_SYSTEM_NAME}")
+
 # link libraries
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
     set(APP_DEPEND_LIBS
@@ -57,6 +60,15 @@ if(CMAKE_SYSTEM_NAME MATCHES "Windows")
         ${SSL_LIB_PATH}
         ${LIBEVENT_LIBRARY}
         -lm
+        CACHE STRING "xquic app depend libs")
+elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+    set(APP_DEPEND_LIBS
+        xquic-static
+        ${SSL_LIB_PATH}
+        ${LIBEVENT_LIBRARY}
+        m
+        dl
+        pthread
         CACHE STRING "xquic app depend libs")
 else()
     set(APP_DEPEND_LIBS

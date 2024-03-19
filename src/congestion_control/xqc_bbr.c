@@ -263,7 +263,7 @@ xqc_bbr_init(void *cong_ctl, xqc_sample_t *sampler, xqc_cc_params_t cc_params)
     bbr->packet_conservation = FALSE;
     bbr->prior_cwnd = 0;
     bbr->initial_congestion_window = XQC_BBR_INITIAL_WINDOW;
-    bbr->congestion_window = bbr->initial_congestion_window;
+    bbr->min_cwnd = xqc_bbr_min_cwnd;
     bbr->has_srtt = 0;
     bbr->idle_restart = 0;
     bbr->packet_conservation = 0;
@@ -286,10 +286,14 @@ xqc_bbr_init(void *cong_ctl, xqc_sample_t *sampler, xqc_cc_params_t cc_params)
 
     if (cc_params.customize_on) {
         cc_params.init_cwnd *= XQC_BBR_MAX_DATAGRAMSIZE;
+        cc_params.min_cwnd *= XQC_BBR_MAX_DATAGRAMSIZE;
         bbr->initial_congestion_window =
             cc_params.init_cwnd >= XQC_BBR_MIN_WINDOW 
             && cc_params.init_cwnd <= XQC_BBR_MAX_WINDOW 
             ? cc_params.init_cwnd : XQC_BBR_INITIAL_WINDOW;
+        bbr->min_cwnd = cc_params.min_cwnd >= XQC_BBR_MIN_WINDOW 
+            && cc_params.min_cwnd <= XQC_BBR_MAX_WINDOW 
+            ? cc_params.min_cwnd : xqc_bbr_min_cwnd;
 
         if (cc_params.expect_bw > 0) {
             bbr->enable_expect_bw = TRUE;
@@ -304,8 +308,8 @@ xqc_bbr_init(void *cong_ctl, xqc_sample_t *sampler, xqc_cc_params_t cc_params)
         }
     }
 
+    bbr->congestion_window = bbr->initial_congestion_window;
     xqc_bbr_reset_lt_bw_sampling(bbr);
-
     xqc_bbr_enter_startup(bbr);
     xqc_bbr_init_pacing_rate(bbr, sampler);
 }
@@ -409,7 +413,7 @@ xqc_bbr_target_cwnd(xqc_bbr_t *bbr, float gain, uint64_t bw)
         return bbr->initial_congestion_window;
     }
     uint32_t cwnd = gain * xqc_bbr_bdp(bbr, bw);
-    return xqc_max(cwnd, XQC_BBR_MIN_WINDOW);
+    return xqc_max(cwnd, bbr->min_cwnd);
 }
 
 static bool 
@@ -646,10 +650,10 @@ static uint32_t
 xqc_bbr_probe_rtt_cwnd(xqc_bbr_t *bbr)
 {
     if (xqc_bbr_probe_rtt_gain == 0) {
-        return xqc_bbr_min_cwnd;
+        return bbr->min_cwnd;
     }
 
-    return xqc_max(xqc_bbr_min_cwnd, 
+    return xqc_max(bbr->min_cwnd, 
                    xqc_bbr_target_cwnd(bbr, 
                                        xqc_bbr_probe_rtt_gain, 
                                        xqc_bbr_max_bw(bbr)));
@@ -844,7 +848,7 @@ xqc_bbr_reset_cwnd(void *cong_ctl)
     xqc_bbr_t *bbr = (xqc_bbr_t *)cong_ctl;
     xqc_bbr_save_cwnd(bbr);
     /* reduce cwnd to the minimal value */
-    bbr->congestion_window = XQC_BBR_MIN_WINDOW;
+    bbr->congestion_window = bbr->min_cwnd;
     /* cancel recovery state */
     if (bbr->recovery_mode == BBR_IN_RECOVERY) {
         bbr->recovery_mode = BBR_NOT_IN_RECOVERY;
@@ -950,7 +954,7 @@ xqc_bbr_set_cwnd(xqc_bbr_t *bbr, xqc_sample_t *sampler)
                 bbr->congestion_window += sampler->acked;
             }
         }
-        bbr->congestion_window = xqc_max(bbr->congestion_window, xqc_bbr_min_cwnd);
+        bbr->congestion_window = xqc_max(bbr->congestion_window, bbr->min_cwnd);
     }
     if (bbr->mode == BBR_PROBE_RTT) {
         bbr->congestion_window = xqc_min(bbr->congestion_window, 
@@ -1070,8 +1074,9 @@ static uint32_t
 xqc_bbr_get_pacing_rate(void *cong_ctl)
 {
     xqc_bbr_t *bbr = (xqc_bbr_t *)(cong_ctl);
-
-    return bbr->pacing_rate;
+    xqc_usec_t min_rtt = (bbr->min_rtt && (bbr->min_rtt != XQC_BBR_INF) ? bbr->min_rtt : 10000);
+    uint32_t min_pacing_rate = bbr->min_cwnd * (uint64_t)MSEC2SEC / min_rtt;
+    return xqc_max(bbr->pacing_rate, bbr->pacing_gain * min_pacing_rate);
 }
 
 static uint32_t 

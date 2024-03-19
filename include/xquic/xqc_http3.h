@@ -156,6 +156,14 @@ typedef struct xqc_request_stats_s {
 
     uint64_t    rate_limit;
 
+    /**
+     * @brief 0RTT state
+     * 0: no 0RTT
+     * 1: 0RTT accept
+     * 2: 0RTT reject
+     */
+    uint8_t     early_data_state;
+
     char        stream_info[XQC_STREAM_INFO_LEN];
 } xqc_request_stats_t;
 

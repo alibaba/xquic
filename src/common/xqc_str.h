@@ -95,5 +95,16 @@ xqc_memeq(const void *s1, const void *s2, size_t n)
     return n == 0 || memcmp(s1, s2, n) == 0;
 }
 
+inline static xqc_bool_t
+xqc_char_is_letter_or_number(char c)
+{
+    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') 
+        || (c >= '0' && c <= '9'))
+    {
+        return XQC_TRUE;
+    }
+    return XQC_FALSE;
+}
+
 
 #endif /*_XQC_STR_H_INCLUDED_*/

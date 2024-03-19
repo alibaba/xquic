@@ -1014,17 +1014,6 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                     if (fin_flag && processed == data_len) {
                         h3s->h3r->fin_flag = fin_flag;
                     }
-
-                    /*
-                     * when all bytes of DATA frame is read, notify to
-                     * application to make sure it is notified before Trailer
-                     */
-                    ret = xqc_h3_request_on_recv_body(h3s->h3r);
-                    if (ret != XQC_OK) {
-                        xqc_log(h3s->log, XQC_LOG_ERROR, "|recv body error|%d|", ret);
-                        return ret;
-                    }
-                    xqc_log(h3s->log, XQC_LOG_DEBUG, "|notify body on DATA frame end");
                 }
                 break;
 
@@ -1656,6 +1645,7 @@ xqc_h3_stream_process_data(xqc_stream_t *stream, xqc_h3_stream_t *h3s, xqc_bool_
                 xqc_h3_request_stream_fin(h3s->h3r);
                 h3s->send_offset = h3s->stream->stream_send_offset;
                 h3s->recv_offset = h3s->stream->stream_data_in.merged_offset_end;
+                xqc_h3_stream_update_early_data_state(h3s);
             }
         }
 
@@ -1891,6 +1881,18 @@ xqc_h3_stream_read_notify(xqc_stream_t *stream, void *user_data)
     return XQC_OK;
 }
 
+void
+xqc_h3_stream_update_early_data_state(xqc_h3_stream_t *h3s)
+{
+    if (h3s->stream->stream_flag & XQC_STREAM_FLAG_HAS_0RTT) {
+        if (h3s->h3c->conn->conn_flag & XQC_CONN_FLAG_0RTT_OK) {
+            h3s->early_data_state = 1;
+
+        } else {
+            h3s->early_data_state = 2;
+        }
+    }
+}
 
 int
 xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data)
@@ -1912,6 +1914,7 @@ xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data)
         h3s->h3r->stream_close_msg = h3s->stream->stream_close_msg;
         h3s->send_offset = h3s->stream->stream_send_offset;
         h3s->recv_offset = h3s->stream->stream_data_in.merged_offset_end;
+        xqc_h3_stream_update_early_data_state(h3s);
     }
 
     if (h3s->h3_ext_bs && h3s->type == XQC_H3_STREAM_TYPE_BYTESTEAM) {

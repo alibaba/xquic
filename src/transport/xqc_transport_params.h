@@ -74,6 +74,9 @@ typedef enum {
     XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_05                 = 0x0f739bbc1b666d05,
     XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_06                 = 0x0f739bbc1b666d06,
 
+    /* google connection options */
+    XQC_TRANSPORT_PARAM_GOOGLE_CO                           = 0x3128,
+
     /* upper limit of params defined by xquic */
     XQC_TRANSPORT_PARAM_UNKNOWN,
 } xqc_transport_param_id_t;
@@ -147,6 +150,9 @@ typedef struct {
 
 
     xqc_multipath_version_t   multipath_version;
+
+    uint32_t                  conn_options[XQC_CO_MAX_NUM];
+    uint8_t                   conn_option_num;
 
 } xqc_transport_params_t;
 

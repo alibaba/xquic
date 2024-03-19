@@ -121,13 +121,7 @@ static void
 xqc_cubic_init(void *cong_ctl, xqc_send_ctl_t *ctl_ctx, xqc_cc_params_t cc_params)
 {
     xqc_cubic_t *cubic = (xqc_cubic_t *)(cong_ctl);
-    cubic->epoch_start = 0;
-    cubic->cwnd = XQC_CUBIC_INIT_WIN;
-    cubic->tcp_cwnd = XQC_CUBIC_INIT_WIN;
-    cubic->tcp_cwnd_cnt = 0;
-    cubic->last_max_cwnd = XQC_CUBIC_INIT_WIN;
-    cubic->ssthresh = XQC_CUBIC_MAX_SSTHRESH;
-    cubic->congestion_recovery_start_time = 0;
+
     cubic->init_cwnd = XQC_CUBIC_INIT_WIN;
     cubic->min_cwnd = XQC_CUBIC_MIN_WIN;
 
@@ -141,6 +135,14 @@ xqc_cubic_init(void *cong_ctl, xqc_send_ctl_t *ctl_ctx, xqc_cc_params_t cc_param
                 cc_params.min_cwnd >= XQC_CUBIC_MIN_WIN && cc_params.min_cwnd <= XQC_CUBIC_MAX_MIN_WIN ?
                 cc_params.min_cwnd : XQC_CUBIC_MIN_WIN;
     }
+
+    cubic->epoch_start = 0;
+    cubic->cwnd = cubic->init_cwnd;
+    cubic->tcp_cwnd = cubic->init_cwnd;
+    cubic->tcp_cwnd_cnt = 0;
+    cubic->last_max_cwnd = cubic->init_cwnd;
+    cubic->ssthresh = XQC_CUBIC_MAX_SSTHRESH;
+    cubic->congestion_recovery_start_time = 0;
 }
 
 

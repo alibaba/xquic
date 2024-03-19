@@ -169,6 +169,12 @@ xqc_packet_out_copy(xqc_packet_out_t *dst, xqc_packet_out_t *src)
 
     dst->po_flag &= ~XQC_POF_IN_UNACK_LIST;
     dst->po_flag &= ~XQC_POF_IN_PATH_BUF_LIST;
+
+    dst->po_pr = src->po_pr;
+
+    if (dst->po_pr) {
+        dst->po_pr->ref_cnt++;
+    }
 }
 
 
@@ -655,9 +661,12 @@ xqc_write_conn_close_to_packet(xqc_connection_t *conn, uint64_t err_code)
     xqc_pkt_type_t pkt_type = XQC_PTYPE_INIT;
 
     /* peer may not have received the handshake packet */
-    if (conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_COMPLETED && conn->conn_flag & XQC_CONN_FLAG_HSK_ACKED) {
+    if ((conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_COMPLETED && conn->conn_flag & XQC_CONN_FLAG_HSK_ACKED)
+        || (conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_CONFIRMED)) 
+    {
         pkt_type = XQC_PTYPE_SHORT_HEADER;
     }
+
     packet_out = xqc_write_new_packet(conn, pkt_type);
     if (packet_out == NULL) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");

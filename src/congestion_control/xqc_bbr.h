@@ -62,6 +62,7 @@ typedef struct xqc_bbr_s {
     uint32_t               prior_cwnd;
     /* Initial congestion window of connection */
     uint32_t               initial_congestion_window;
+    uint32_t               min_cwnd;
     /* Current pacing rate */
     uint32_t               pacing_rate;
     /* Gain currently applied to pacing rate */

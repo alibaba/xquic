@@ -71,6 +71,9 @@ typedef enum xqc_proto_version_s {
 
 #define XQC_DGRAM_RETX_ASKED_BY_APP     1
 
+#define XQC_CO_MAX_NUM                  16
+#define XQC_CO_STR_MAX_LEN              (5 * XQC_CO_MAX_NUM)
+
 
 /**
  * @brief get timestamp callback function. this might be useful on different platforms
@@ -1263,6 +1266,19 @@ typedef struct xqc_conn_settings_s {
     uint8_t                     protect_pool_mem;
 #endif
 
+    char                        conn_option_str[XQC_CO_STR_MAX_LEN];
+
+    /**
+     * @brief intial_rtt (us). Default: 0 (use the internal default value -- 250000)
+     * 
+     */
+    xqc_usec_t                  initial_rtt;
+    /**
+     * @brief initial pto duration (us). Default: 0 (use the internal default value -- 3xinitial_rtt)
+     * 
+     */
+    xqc_usec_t                  initial_pto_duration;
+    
 } xqc_conn_settings_t;
 
 
@@ -1335,6 +1351,11 @@ typedef struct xqc_conn_stats_s {
     char                alpn[XQC_MAX_ALPN_BUF_LEN];
 } xqc_conn_stats_t;
 
+typedef struct xqc_conn_qos_stats_s {
+    xqc_usec_t          srtt;            /* smoothed SRTT at present: initial value = 250000 */
+    xqc_usec_t          min_rtt;         /* minimum RTT until now: initial value = 0xFFFFFFFF */
+    uint64_t            inflight_bytes;  /* initial value = 0 */
+} xqc_conn_qos_stats_t;
 
 /*************************************************************
  *  engine layer APIs
@@ -1400,28 +1421,13 @@ xqc_int_t xqc_engine_unregister_alpn(xqc_engine_t *engine, const char *alpn, siz
  * Pass received UDP packet payload into xquic engine.
  * @param recv_time   UDP packet received time in microsecond
  * @param user_data   connection user_data, server is NULL
- * @param path_id     XQC_UNKNOWN_PATH_ID = unknown path (only use cid to identify the path)
  */
-
-#ifdef XQC_NO_PID_PACKET_PROCESS
-
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_engine_packet_process(xqc_engine_t *engine,
     const unsigned char *packet_in_buf, size_t packet_in_size,
     const struct sockaddr *local_addr, socklen_t local_addrlen,
     const struct sockaddr *peer_addr, socklen_t peer_addrlen,
     xqc_usec_t recv_time, void *user_data);
-
-#else
-
-XQC_EXPORT_PUBLIC_API
-xqc_int_t xqc_engine_packet_process(xqc_engine_t *engine,
-    const unsigned char *packet_in_buf, size_t packet_in_size,
-    const struct sockaddr *local_addr, socklen_t local_addrlen,
-    const struct sockaddr *peer_addr, socklen_t peer_addrlen,
-    uint64_t path_id, xqc_usec_t recv_time, void *user_data);
-
-#endif
 
 
 /**
@@ -1816,6 +1822,13 @@ void xqc_conn_continue_send_by_conn(xqc_connection_t *conn);
  */
 XQC_EXPORT_PUBLIC_API
 xqc_conn_stats_t xqc_conn_get_stats(xqc_engine_t *engine, const xqc_cid_t *cid);
+
+
+/**
+ * User can get xqc_conn_qos_stats_t by cid
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_conn_qos_stats_t xqc_conn_get_qos_stats(xqc_engine_t *engine, const xqc_cid_t *cid);
 
 /**
  * create new path for client

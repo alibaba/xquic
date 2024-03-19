@@ -151,11 +151,15 @@ typedef struct xqc_h3_stream_s {
     uint64_t                        send_offset;
     uint64_t                        recv_offset;
 
+    uint8_t                         early_data_state;
+
 } xqc_h3_stream_t;
 
 
 /* transport layer callback hook */
 extern const xqc_stream_callbacks_t h3_stream_callbacks;
+
+void xqc_h3_stream_update_early_data_state(xqc_h3_stream_t *h3s);
 
 xqc_h3_stream_t *xqc_h3_stream_create(xqc_h3_conn_t *h3c, xqc_stream_t *stream,
    xqc_h3_stream_type_t type, void *user_data);

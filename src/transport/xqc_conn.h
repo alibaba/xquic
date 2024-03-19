@@ -203,6 +203,8 @@ typedef struct {
     uint64_t                enable_multipath;
     xqc_multipath_version_t multipath_version;
     uint16_t                max_datagram_frame_size;
+    uint32_t                conn_options[XQC_CO_MAX_NUM];
+    uint8_t                 conn_option_num;
 } xqc_trans_settings_t;
 
 
@@ -415,6 +417,9 @@ struct xqc_connection_s {
     uint32_t                        sched_cc_blocked;
     uint32_t                        send_cc_blocked;
 
+    /* internal loss detection stats */
+    uint32_t                        detected_loss_cnt;
+
     /* receved pkts stats */
     struct {
         xqc_pkt_type_t              pkt_types[3];
@@ -535,21 +540,11 @@ xqc_conn_has_undecrypt_packets(xqc_connection_t *conn)
 }
 
 /* process an UDP datagram */
-#ifdef XQC_NO_PID_PACKET_PROCESS
 xqc_int_t xqc_conn_process_packet(xqc_connection_t *c, const unsigned char *packet_in_buf,
     size_t packet_in_size, xqc_usec_t recv_time);
-#else
-xqc_int_t xqc_conn_process_packet(xqc_connection_t *c, const unsigned char *packet_in_buf,
-    size_t packet_in_size, uint64_t path_id, xqc_usec_t recv_time);
-#endif
 
-#ifdef XQC_NO_PID_PACKET_PROCESS
 void xqc_conn_process_packet_recved_path(xqc_connection_t *conn, xqc_cid_t *scid, 
     size_t packet_in_size, xqc_usec_t recv_time);
-#else
-void xqc_conn_process_packet_recved_path(xqc_connection_t *conn, xqc_cid_t *scid, 
-    uint64_t path_id, size_t packet_in_size, xqc_usec_t recv_time);
-#endif
 
 xqc_int_t xqc_conn_check_handshake_complete(xqc_connection_t *conn);
 

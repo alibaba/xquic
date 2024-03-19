@@ -249,9 +249,10 @@ xqc_path_move_unack_packets_from_conn(xqc_path_ctx_t *path, xqc_connection_t *co
                 }
                 
                 if (XQC_NEED_REPAIR(po->po_frame_types) 
+                    || (po->po_flag & XQC_POF_NOTIFY)
                     || repair_dgram == XQC_DGRAM_RETX_ASKED_BY_APP) 
                 {
-                    xqc_send_queue_copy_to_lost(po, conn->conn_send_queue);
+                    xqc_send_queue_copy_to_lost(po, conn->conn_send_queue, XQC_FALSE);
 
                 } else {
                     /* for datagram, we should remove all copies in the unacked list */
@@ -864,49 +865,6 @@ xqc_stream_path_metrics_on_recv(xqc_connection_t *conn, xqc_stream_t *stream, xq
     if (pi->pi_path_id < XQC_MAX_PATHS_COUNT) {
         stream->paths_info[pi->pi_path_id].path_id = pi->pi_path_id;
         stream->paths_info[pi->pi_path_id].path_pkt_recv_count += 1;
-    }
-}
-
-
-void
-xqc_path_metrics_print(xqc_connection_t *conn, char *buff, unsigned buff_size)
-{
-    xqc_list_head_t *pos, *next;
-    xqc_path_ctx_t  *path;
-
-    int cursor = 0;
-    int ret = 0;
-    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
-        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
-        if (path->path_state >= XQC_PATH_STATE_VALIDATING) {
-            if (cursor >= (buff_size - 100)) {  // enough space
-                break;
-            }
-
-            // TODO 关于数据抓取说明
-            ret = snprintf(buff + cursor, buff_size - cursor,
-                           "#%"PRIu64"-%d-%d-%"PRIu64"-%.4f-%"PRIu32"-%"PRIu32"-%"PRIu32"-%"PRIu32"-%"PRIu32""
-                           "-%"PRIu32"-%"PRIu32"-%"PRIu32"-%"PRIu64"-%"PRIu64"-%"PRIu32"-%"PRIu32,
-                           path->path_id,
-                           path->path_state,
-                           path->app_path_status,
-                           xqc_send_ctl_get_srtt(path->path_send_ctl),
-                           xqc_send_ctl_get_retrans_rate(path->path_send_ctl),
-                           path->path_send_ctl->ctl_send_count,
-                           path->path_send_ctl->ctl_lost_count,
-                           path->path_send_ctl->ctl_tlp_count,
-                           path->path_send_ctl->ctl_spurious_loss_count,
-                           path->path_send_ctl->ctl_recv_count,
-                           path->path_send_ctl->ctl_update_latest_rtt_count,
-                           path->rebinding_count,
-                           path->rebinding_valid,
-                           path->path_send_ctl->ctl_bytes_send,
-                           path->path_send_ctl->ctl_bytes_recv,
-                           path->standby_probe_count,
-                           path->app_path_status_changed_count);
-
-            cursor += ret;
-        }
     }
 }
 

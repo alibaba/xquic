@@ -51,8 +51,6 @@ add_executable(test_server ${TEST_SERVER_SOURCES})
 add_executable(test_client ${TEST_CLIENT_SOURCES})
 
 
-MESSAGE("-- ####### CMAKE_SYSTEM_NAME: ${CMAKE_SYSTEM_NAME}")
-
 # link libraries
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
     set(APP_DEPEND_LIBS

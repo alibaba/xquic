@@ -63,7 +63,8 @@ else()
         xquic-static
         ${SSL_LIB_PATH}
         ${LIBEVENT_LIBRARY}
-        -lm
+        stdc++
+        m
         dl
         pthread
         CACHE STRING "xquic app depend libs")
@@ -136,6 +137,7 @@ if(HAVE_CUNIT)
             xquic-static
             ${CUNIT_LIBRARIES}
             ${SSL_LIB_PATH}
+            stdc++
             m
             dl
             pthread

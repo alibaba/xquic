@@ -15,6 +15,7 @@
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_stream.h"
 #include "src/common/xqc_memory_pool.h"
+#include "src/common/xqc_algorithm.h"
 #include "src/congestion_control/xqc_sample.h"
 #include "src/transport/xqc_pacing.h"
 #include "src/transport/xqc_utils.h"
@@ -128,6 +129,7 @@ xqc_send_ctl_create(xqc_path_ctx_t *path)
     send_ctl->ctl_max_bytes_in_flight = 0;
     send_ctl->ctl_reordering_packet_threshold = conn->conn_settings.loss_detection_pkt_thresh;
     send_ctl->ctl_reordering_time_threshold_shift = XQC_kTimeThresholdShift;
+    send_ctl->ctl_first_rtt_sample_time = 0;
 
     for (size_t i = 0; i < XQC_PNS_N; i++) {
         send_ctl->ctl_largest_acked[i] = XQC_MAX_UINT64_VALUE;
@@ -213,6 +215,7 @@ xqc_send_ctl_reset(xqc_send_ctl_t *send_ctl)
     send_ctl->ctl_reordering_packet_threshold = XQC_kPacketThreshold;
     send_ctl->ctl_reordering_time_threshold_shift = XQC_kTimeThresholdShift;
     send_ctl->ctl_ack_sent_cnt = 0;
+    send_ctl->ctl_first_rtt_sample_time = 0;
 
     for (size_t i = 0; i < XQC_PNS_N; i++) {
         send_ctl->ctl_largest_acked[i] = XQC_MAX_UINT64_VALUE;
@@ -563,15 +566,8 @@ xqc_send_ctl_decrease_inflight(xqc_connection_t *conn, xqc_packet_out_t *packet_
     xqc_send_ctl_t *send_ctl = path->path_send_ctl;
     if (packet_out->po_flag & XQC_POF_IN_FLIGHT) {
         if (XQC_IS_ACK_ELICITING(packet_out->po_frame_types)) {
-            if (send_ctl->ctl_bytes_ack_eliciting_inflight[packet_out->po_pkt.pkt_pns] < packet_out->po_used_size) {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|ctl_bytes_in_flight too small|");
-                send_ctl->ctl_bytes_ack_eliciting_inflight[packet_out->po_pkt.pkt_pns] = 0;
-                send_ctl->ctl_bytes_in_flight = 0;
-
-            } else {
-                send_ctl->ctl_bytes_ack_eliciting_inflight[packet_out->po_pkt.pkt_pns] -= packet_out->po_used_size;
-                send_ctl->ctl_bytes_in_flight -= packet_out->po_used_size;
-            }
+            send_ctl->ctl_bytes_ack_eliciting_inflight[packet_out->po_pkt.pkt_pns] = xqc_uint32_bounded_subtract(send_ctl->ctl_bytes_ack_eliciting_inflight[packet_out->po_pkt.pkt_pns], packet_out->po_used_size);
+            send_ctl->ctl_bytes_in_flight = xqc_uint32_bounded_subtract(send_ctl->ctl_bytes_in_flight, packet_out->po_used_size);
             packet_out->po_flag &= ~XQC_POF_IN_FLIGHT;
         }
     }
@@ -619,12 +615,14 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
 
     xqc_packet_number_t orig_pktnum = packet_out->po_origin ? packet_out->po_origin->po_pkt.pkt_num : 0;
     xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG,
-            "|conn:%p|path:%ui|pkt_num:%ui|origin_pktnum:%ui|size:%ud|enc_size:%ud|pkt_type:%s|frame:%s|conn_state:%s|po_in_flight:%d|",
+            "|conn:%p|path:%ui|pkt_num:%ui|origin_pktnum:%ui|size:%ud|enc_size:%ud|pkt_type:%s|frame:%s|conn_state:%s|po_in_flight:%d|"
+            "|retrans:%d|",
             send_ctl->ctl_conn, send_ctl->ctl_path->path_id, packet_out->po_pkt.pkt_num, orig_pktnum, packet_out->po_used_size, packet_out->po_enc_size,
             xqc_pkt_type_2_str(packet_out->po_pkt.pkt_type),
             xqc_frame_type_2_str(packet_out->po_frame_types),
             xqc_conn_state_2_str(send_ctl->ctl_conn->conn_state),
-            packet_out->po_flag & XQC_POF_IN_FLIGHT ? 1: 0);
+            packet_out->po_flag & XQC_POF_IN_FLIGHT ? 1: 0,
+            packet_out->po_flag & (XQC_POF_LOST | XQC_POF_TLP));
     
     if (packet_out->po_frame_types 
         & (XQC_FRAME_BIT_DATA_BLOCKED 
@@ -661,39 +659,23 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
             send_ctl->ctl_last_sent_ack_eliciting_packet_number[pns] =
             packet_out->po_pkt.pkt_num;
         }
+
         xqc_conn_update_stream_stats_on_sent(send_ctl->ctl_conn, packet_out, now);
 
         xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG,
                 "|path:%ui|inflight:%ud|applimit:%ui|",
                 send_ctl->ctl_path->path_id, send_ctl->ctl_bytes_in_flight, send_ctl->ctl_app_limited);
+
         if (send_ctl->ctl_bytes_in_flight == 0) {
+
             if (send_ctl->ctl_cong_callback->xqc_cong_ctl_init_bbr
                 && send_ctl->ctl_app_limited > 0)
             {
-                uint8_t mode, idle_restart;
-                mode = send_ctl->ctl_cong_callback->
-                    xqc_cong_ctl_info_cb->mode(send_ctl->ctl_cong);
-                idle_restart = send_ctl->ctl_cong_callback->
-                            xqc_cong_ctl_info_cb->
-                            idle_restart(send_ctl->ctl_cong);
-                xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG,
-                        "|BeforeRestartFromIdle|mode %ud|idle %ud"
-                        "|bw %ud|pacing rate %ud|",
-                        (unsigned int)mode, (unsigned int)idle_restart, send_ctl->ctl_cong_callback->
-                        xqc_cong_ctl_get_bandwidth_estimate(send_ctl->ctl_cong),
-                        send_ctl->ctl_cong_callback->
-                        xqc_cong_ctl_get_pacing_rate(send_ctl->ctl_cong));
 
                 send_ctl->ctl_cong_callback->xqc_cong_ctl_restart_from_idle(send_ctl->ctl_cong, send_ctl->ctl_delivered);
                 xqc_log_event(send_ctl->ctl_conn->log, REC_CONGESTION_STATE_UPDATED, "restart");
-
-                xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG,
-                        "|AfterRestartFromIdle|mode %ud|"
-                        "idle %ud|bw %ud|pacing rate %ud|",
-                        (unsigned int)mode, (unsigned int)idle_restart, send_ctl->ctl_cong_callback->
-                        xqc_cong_ctl_get_bandwidth_estimate(send_ctl->ctl_cong),
-                        send_ctl->ctl_cong_callback->xqc_cong_ctl_get_pacing_rate(send_ctl->ctl_cong));
             }
+
             if (!send_ctl->ctl_cong_callback->xqc_cong_ctl_init_bbr) {
                 xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, "|Restart from idle|");
                 send_ctl->ctl_cong_callback->xqc_cong_ctl_restart_from_idle(send_ctl->ctl_cong, send_ctl->ctl_last_inflight_pkt_sent_time);
@@ -1270,6 +1252,7 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
                 }
 
                 if (XQC_NEED_REPAIR(po->po_frame_types) 
+                    || (po->po_flag & XQC_POF_NOTIFY)
                     || repair_dgram == XQC_DGRAM_RETX_ASKED_BY_APP) 
                 {
                     xqc_send_queue_copy_to_lost(po, send_queue, XQC_TRUE);

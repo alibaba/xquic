@@ -1014,17 +1014,6 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                     if (fin_flag && processed == data_len) {
                         h3s->h3r->fin_flag = fin_flag;
                     }
-
-                    /*
-                     * when all bytes of DATA frame is read, notify to
-                     * application to make sure it is notified before Trailer
-                     */
-                    ret = xqc_h3_request_on_recv_body(h3s->h3r);
-                    if (ret != XQC_OK) {
-                        xqc_log(h3s->log, XQC_LOG_ERROR, "|recv body error|%d|", ret);
-                        return ret;
-                    }
-                    xqc_log(h3s->log, XQC_LOG_DEBUG, "|notify body on DATA frame end");
                 }
                 break;
 

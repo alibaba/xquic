@@ -627,7 +627,17 @@ xqc_h3_request_on_recv_header(xqc_h3_request_t *h3r)
         XQC_REQ_NOTIFY_READ_TRAILER
     };
 
+    xqc_int_t ret;
     xqc_http_headers_t *headers;
+
+    if (h3r->current_header == 1) {
+        /* notify data before trailer headers*/
+        ret = xqc_h3_request_on_recv_body(h3r);
+        if (ret != XQC_OK) {
+            xqc_log(h3r->h3_stream->log, XQC_LOG_ERROR, "|xqc_h3_request_on_recv_body error|%d|", ret);
+            return ret;
+        }
+    }
 
     /* header section and trailer section are all processed */
     if (h3r->current_header >= XQC_H3_REQUEST_MAX_HEADERS_CNT) {
@@ -660,7 +670,7 @@ xqc_h3_request_on_recv_header(xqc_h3_request_t *h3r)
     h3r->current_header++;
 
     /* header notify callback */
-    xqc_int_t ret = h3r->request_if->h3_request_read_notify(h3r, h3r->read_flag, h3r->user_data);
+    ret = h3r->request_if->h3_request_read_notify(h3r, h3r->read_flag, h3r->user_data);
     if (ret < 0) {
         xqc_log(h3r->h3_stream->log, XQC_LOG_ERROR, "|h3_request_read_notify error|%d|"
                 "stream_id:%ui|conn:%p|", ret, h3r->h3_stream->stream_id,
@@ -674,12 +684,10 @@ xqc_h3_request_on_recv_header(xqc_h3_request_t *h3r)
 xqc_int_t
 xqc_h3_request_on_recv_body(xqc_h3_request_t *h3r)
 {
-    /* there might be a fin only operation, which shall be notified to user */
-    if (!xqc_list_empty(&h3r->body_buf) || (h3r->fin_flag == XQC_TRUE)) {
+    /* Note, the case of empty fin is already handled at another place. */
+    if (!xqc_list_empty(&h3r->body_buf)) {
 
-        if (!xqc_list_empty(&h3r->body_buf)) {
-            h3r->read_flag |= XQC_REQ_NOTIFY_READ_BODY;
-        }
+        h3r->read_flag |= XQC_REQ_NOTIFY_READ_BODY;
 
         xqc_int_t ret = h3r->request_if->h3_request_read_notify(h3r, h3r->read_flag, h3r->user_data);
         if (ret < 0) {

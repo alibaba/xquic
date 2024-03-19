@@ -1624,7 +1624,7 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
     settings->pacing_on = args->net_cfg.pacing;
     settings->cong_ctrl_callback = cong_ctrl;
     settings->cc_params.customize_on = 1,
-    settings->cc_params.init_cwnd = 32,
+    settings->cc_params.init_cwnd = 96,
     settings->so_sndbuf = 1024*1024;
     settings->proto_version = XQC_VERSION_V1;
     settings->spurious_loss_detect_on = 1;
@@ -2267,7 +2267,7 @@ xqc_demo_cli_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, 
     xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *)user_data;
     xqc_conn_stats_t stats = xqc_conn_get_stats(user_conn->ctx->engine, cid);
     printf("send_count:%u, lost_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" "
-           "early_data_flag:%d, conn_err:%d, ack_info:%s conn_info:%s\n", stats.send_count, stats.lost_count,
+           "early_data_flag:%d, conn_err:%d, ack_info:%s, conn_info:%s\n", stats.send_count, stats.lost_count,
            stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err,
            stats.ack_info, stats.conn_info);
 

@@ -1351,6 +1351,11 @@ typedef struct xqc_conn_stats_s {
     char                alpn[XQC_MAX_ALPN_BUF_LEN];
 } xqc_conn_stats_t;
 
+typedef struct xqc_conn_qos_stats_s {
+    xqc_usec_t          srtt;            /* smoothed SRTT at present: initial value = 250000 */
+    xqc_usec_t          min_rtt;         /* minimum RTT until now: initial value = 0xFFFFFFFF */
+    uint64_t            inflight_bytes;  /* initial value = 0 */
+} xqc_conn_qos_stats_t;
 
 /*************************************************************
  *  engine layer APIs
@@ -1817,6 +1822,13 @@ void xqc_conn_continue_send_by_conn(xqc_connection_t *conn);
  */
 XQC_EXPORT_PUBLIC_API
 xqc_conn_stats_t xqc_conn_get_stats(xqc_engine_t *engine, const xqc_cid_t *cid);
+
+
+/**
+ * User can get xqc_conn_qos_stats_t by cid
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_conn_qos_stats_t xqc_conn_get_qos_stats(xqc_engine_t *engine, const xqc_cid_t *cid);
 
 /**
  * create new path for client

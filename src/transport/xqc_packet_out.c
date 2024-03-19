@@ -169,6 +169,12 @@ xqc_packet_out_copy(xqc_packet_out_t *dst, xqc_packet_out_t *src)
 
     dst->po_flag &= ~XQC_POF_IN_UNACK_LIST;
     dst->po_flag &= ~XQC_POF_IN_PATH_BUF_LIST;
+
+    dst->po_pr = src->po_pr;
+
+    if (dst->po_pr) {
+        dst->po_pr->ref_cnt++;
+    }
 }
 
 

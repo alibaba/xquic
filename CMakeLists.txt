@@ -170,6 +170,11 @@ if(XQC_ENABLE_TESTING)
     add_subdirectory(demo)
 endif(XQC_ENABLE_TESTING)
 
+# documentation
+if(XQC_ENABLE_DOCUMENTATION)
+    add_subdirectory(doc)
+endif(XQC_ENABLE_DOCUMENTATION)
+
 
 # http3/qpack source
 set(

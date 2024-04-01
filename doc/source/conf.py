@@ -11,7 +11,7 @@
 # All configuration values have a default; values that are commented out
 # serve to show the default.
 
-import sys, os
+import subprocess, sys, os
 
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
@@ -87,11 +87,50 @@ pygments_style = 'sphinx'
 # A list of ignored prefixes for module index sorting.
 #modindex_common_prefix = []
 
-breathe_projects = {
-  "cid":    "../../build/doc/doxygen/cid/xml/",
-  "conn":   "../../build/doc/doxygen/conn/xml/",
-  "xquic":   "../../build/doc/doxygen/xquic/xml/",
-}
+def configureDoxyfile(input_dir, output_dir, cfg):
+    with open(os.path.abspath('../cfg') + '/' + cfg, 'r') as file :
+        filedata = file.read()
+
+    filedata = filedata.replace('@DOXYGEN_INPUT_DIR@', input_dir)
+    filedata = filedata.replace('@DOXYGEN_OUTPUT_DIR@', output_dir + '/xml')
+
+    
+    with open(output_dir + '/cfg/' + cfg, 'w') as file:
+        file.write(filedata)
+       
+def processDoxyfileList(input_dir, output_dir):
+    for cfg in os.listdir(os.path.abspath('../cfg')):
+      # loop for each cfg:
+      # 1. 获取cfg name
+      # 2. 更改cfg 中input与output路径内容
+      # 3. 写出新的doxyfile至指定地址
+      # 4. 执行生成的doxyfile, 生成xml
+      cfg_name = cfg.split('.')[0]
+      configureDoxyfile(input_dir, output_dir, cfg)
+
+      os.makedirs(output_dir + '/xml' + '/' + cfg_name)
+      subprocess.call('cd '+ output_dir + '/cfg' + '; doxygen ' + cfg, shell=True)
+      breathe_projects[cfg_name] = output_dir + '/xml/' + cfg_name + '/xml'
+
+# Check if we're running on Read the Docs' servers
+read_the_docs_build = os.environ.get('READTHEDOCS', None) == 'True'
+
+if read_the_docs_build:
+    input_dir = '../../src'
+    output_dir = '../../build/doc'
+    breathe_projects = {}
+    if not os.path.exists(output_dir):
+       os.makedirs(output_dir)
+       os.makedirs(output_dir + '/cfg')
+    processDoxyfileList(os.path.abspath(input_dir), os.path.abspath(output_dir))
+    print(breathe_projects)
+
+else:
+  breathe_projects = {
+    "cid":    "../../build/doc/doxygen/cid/xml/",
+    "conn":   "../../build/doc/doxygen/conn/xml/",
+    "xquic":   "../../build/doc/doxygen/xquic/xml/",
+  }
 
 breathe_projects_source = {"xquic": ("../../", [])}
 
@@ -256,5 +295,3 @@ texinfo_documents = [
 
 # How to display URL addresses: 'footnote', 'no', or 'inline'.
 #texinfo_show_urls = 'footnote'
-
-

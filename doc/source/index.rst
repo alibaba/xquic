@@ -3,11 +3,9 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-XQUIC's documentation
+XQUIC
 =================================
 
-Introduction
-------------
 XQUIC Library released by Alibaba is …
 
 … a client and server implementation of QUIC and HTTP/3 as specified by the IETF. Currently supported QUIC versions are v1 and draft-29.
@@ -16,44 +14,32 @@ XQUIC Library released by Alibaba is …
 
 … still in active development. Interoperability is regularly tested with other QUIC implementations.
 
+Feature
+~~~~~~~
+
+Standardized Features
+---------------------
+
+- All big features conforming with RFC 9000, RFC9001, RFC9002, RFC9114 and RFC9204, including the interface between QUIC and TLS, 0-RTT connection establishment, HTTP/3 and QPACK.
+- ALPN Extension conforming with RFC7301
+
+
 Redirection TEST
 ----------------
 .. toctree::
    :maxdepth: 1
 
    quickstart
+   api_refer
 
-Struct TEST
------------
+Requirements
+~~~~~~~~~~~~
+To build XQUIC, you need
 
-.. toctree::
-   :maxdepth: 2
+- CMake
+- BoringSSL or BabaSSL
 
-.. doxygenstruct:: xqc_scid_set_s
-   :project: cid
-   :members:
+To run test cases, you need
 
-.. doxygenstruct:: xqc_connection_s
-   :project: conn
-   :members:
-
-Fuction TEST
--------------
-.. doxygenfunction:: xqc_engine_create
-   :project: xquic
-
-.. doxygenfunction:: xqc_engine_destroy
-   :project: xquic
-
-Typedef TEST
-------------
-.. doxygentypedef:: xqc_datagram_write_notify_pt
-   :project: xquic
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
-
+- libevent
+- CUnit

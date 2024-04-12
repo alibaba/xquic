@@ -623,7 +623,7 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
             xqc_conn_state_2_str(send_ctl->ctl_conn->conn_state),
             packet_out->po_flag & XQC_POF_IN_FLIGHT ? 1: 0,
             packet_out->po_flag & (XQC_POF_LOST | XQC_POF_TLP));
-    
+
     if (packet_out->po_frame_types 
         & (XQC_FRAME_BIT_DATA_BLOCKED 
            | XQC_FRAME_BIT_STREAM_DATA_BLOCKED 
@@ -742,6 +742,10 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
         if (send_ctl->ctl_conn->conn_close_send_time == 0) {
             send_ctl->ctl_conn->conn_close_send_time = now;
         }
+    }
+
+    if (packet_out->po_frame_types & XQC_FRAME_BIT_HANDSHAKE_DONE) {
+        send_ctl->ctl_conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_DONE_SENT;
     }
 
     send_ctl->ctl_conn->conn_last_send_time = now;

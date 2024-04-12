@@ -1095,7 +1095,8 @@ xqc_conn_destroy(xqc_connection_t *xc)
             "first_send_delay:%ui|conn_persist:%ui|keyupdate_cnt:%d|err:0x%xi|close_msg:%s|%s|"
             "hsk_recv:%ui|close_recv:%ui|close_send:%ui|last_recv:%ui|last_send:%ui|"
             "mp_enable:%ud|create:%ud|validated:%ud|active:%ud|path_info:%s|alpn:%*s|rebind_count:%d|"
-            "rebind_valid:%d|rtx_pkt:%ud|tlp_pkt:%ud|snd_pkt:%ud|spurious_loss:%ud|detected_loss:%ud|",
+            "rebind_valid:%d|rtx_pkt:%ud|tlp_pkt:%ud|snd_pkt:%ud|spurious_loss:%ud|detected_loss:%ud|"
+            "max_pto:%ud|finished_streams:%ud|cli_bidi_s:%ud|svr_bidi_s:%ud|",
             xc,
             xc->conn_flag & XQC_CONN_FLAG_HAS_0RTT ? 1:0,
             xc->conn_flag & XQC_CONN_FLAG_0RTT_OK ? 1:0,
@@ -1112,7 +1113,8 @@ xqc_conn_destroy(xqc_connection_t *xc)
             xc->enable_multipath, xc->create_path_count, xc->validated_path_count, xc->active_path_count,
             conn_stats.conn_info, out_alpn_len, out_alpn, conn_stats.total_rebind_count,
             conn_stats.total_rebind_valid, conn_stats.lost_count, conn_stats.tlp_count,
-            conn_stats.send_count, conn_stats.spurious_loss_count, xc->detected_loss_cnt);
+            conn_stats.send_count, conn_stats.spurious_loss_count, xc->detected_loss_cnt,
+            xc->max_pto_cnt, xc->finished_streams, xc->cli_bidi_streams, xc->svr_bidi_streams);
     xqc_log_event(xc->log, CON_CONNECTION_CLOSED, xc);
 
     if (xc->conn_flag & XQC_CONN_FLAG_WAIT_WAKEUP) {
@@ -2394,7 +2396,6 @@ xqc_path_send_one_or_two_ack_elicit_pkts(xqc_path_ctx_t *path,
     xqc_list_head_t        *sndq;
     xqc_int_t               probe_num;
     xqc_bool_t              send_hsd;
-    xqc_bool_t              send_hsd_next;
     int                     has_reinjection = 0;
 
     c       = path->parent_conn;
@@ -2404,7 +2405,6 @@ xqc_path_send_one_or_two_ack_elicit_pkts(xqc_path_ctx_t *path,
        shall send HANDSHAKE_DONE on PTO as it has not been acknowledged. */
     probe_num        = XQC_CONN_PTO_PKT_CNT_MAX;
     send_hsd         = XQC_FALSE;
-    send_hsd_next    = XQC_FALSE;
 
     packet_out_last_sent  = NULL;
     packet_out_later_send = NULL;
@@ -2412,9 +2412,11 @@ xqc_path_send_one_or_two_ack_elicit_pkts(xqc_path_ctx_t *path,
     xqc_log(c->log, XQC_LOG_DEBUG, "|send two ack-eliciting pkts"
             "|path:%ui|pns:%d|", path->path_id, pns);
 
-    /* if server's HANDSHAKE_DONE frame has not been acked, try to send it */
+    /* if server's HANDSHAKE_DONE frame was sent and has not been acked, try to
+       send it */
     if ((c->conn_type == XQC_CONN_TYPE_SERVER)
-        && !(c->conn_flag & XQC_CONN_FLAG_HANDSHAKE_DONE_ACKED))
+        && !(c->conn_flag & XQC_CONN_FLAG_HANDSHAKE_DONE_ACKED)
+        &&  c->conn_flag & XQC_CONN_FLAG_HANDSHAKE_DONE_SENT)
     {
         send_hsd = XQC_TRUE;
     }

@@ -4,7 +4,15 @@
    contain the root `toctree` directive.
 
 XQUIC
-=================================
+=======
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   quickstart
+   api_refer
+   test_xquic
 
 XQUIC Library released by Alibaba is …
 
@@ -15,31 +23,33 @@ XQUIC Library released by Alibaba is …
 … still in active development. Interoperability is regularly tested with other QUIC implementations.
 
 Feature
-~~~~~~~
+-------
 
-Standardized Features
----------------------
+**Standardized Features**
 
 - All big features conforming with RFC 9000, RFC9001, RFC9002, RFC9114 and RFC9204, including the interface between QUIC and TLS, 0-RTT connection establishment, HTTP/3 and QPACK.
 - ALPN Extension conforming with RFC7301
 
 
-Redirection TEST
-----------------
-.. toctree::
-   :maxdepth: 1
+**Not Yet Standardized Features**
 
-   quickstart
-   api_refer
+- `Multipath QUIC <https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-04>`_
+- `QUIC-LB <https://datatracker.ietf.org/doc/html/draft-ietf-quic-load-balancers-13>`_
 
-Requirements
-~~~~~~~~~~~~
-To build XQUIC, you need
+**Library Features**
 
-- CMake
-- BoringSSL or BabaSSL
+- Pluggable congestion control: NewReno, Cubic, BBR and BBRv2, ...
+- Pluggable cryptography, integration with BoringSSL and BabaSSL
+- Cross-platform implementation, support Android, iOS, Linux, macOS and Windows(v1.2.0)
 
-To run test cases, you need
 
-- libevent
-- CUnit
+Learn more about XQUIC
+----------------------
+
+If you want to try running and testing XQUIC, the following documentation can be of great assistance to you.
+
++ :doc:`quickstart`
+
+Looking to view the API documentation? Use the link below.
+
++ :doc:`api_refer`

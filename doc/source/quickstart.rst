@@ -1,10 +1,38 @@
 Quick Start
 ===========
 
-XQUIC can be built with Tongsuo(BabaSSL) or BoringSSL.
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   platform
+
+Requirements
+------------
+
+The following environment should be prepared before building XQUIC.
+
+To build XQUIC, you need
+
+- CMake
+- BoringSSL or BabaSSL
+
+To run test cases, you need
+
+- libevent
+- CUnit
+
+
+Build XQUIC
+------------
+XQUIC supports various systems such as ``Android`` , ``iOS`` , ``Linux`` and ``macOS``, with the default option being for ``Linux``.
+
+On this page, we will demonstrate the compilation process on ``Linux``.
+
+If you would like to compile on other systems, please proceed to page :doc:`platform` as needed. 
 
 Build with BoringSSL
-~~~~~~~~~~~~~~~~~~~~
+""""""""""""""""""""""""
 
 .. code-block:: sh
 
@@ -41,7 +69,7 @@ Build with BoringSSL
    make -j
 
 Build with BabaSSL(Tongsuo)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+"""""""""""""""""""""""""""
 
 .. code-block:: sh
    
@@ -73,3 +101,29 @@ Build with BabaSSL(Tongsuo)
    fi
 
    make -j
+
+
+Run XQUIC
+---------
+
+After successfully building XQUIC, we can obtain ``test_client`` and ``test_server`` for testing in the ``./build`` directory.
+
+Before running the executable files, make sure the certificates have been generated on the same directory:
+
+.. code-block:: sh
+
+   cd build
+   keyfile=server.key
+   certfile=server.crt
+   openssl req -newkey rsa:2048 -x509 -nodes -keyout "$keyfile" -new -out "$certfile" -subj /CN=test.xquic.com
+
+Then runing test_client and test_server to check if everything looks good.
+
+.. code-block:: sh
+
+   ./test_server -l d > /dev/null &
+   ./test_client -a 127.0.0.1 -p 8443 -s 1024000 -E
+
+Want to test XQUIC Further?
+"""""""""""""""""""""""""""
+Use :doc:`test_xquic` to test XQUIC features, and hopefully understand XQUIC better.

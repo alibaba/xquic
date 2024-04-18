@@ -7,7 +7,6 @@
 #include "src/transport/scheduler/xqc_scheduler_common.h"
 #include "src/transport/xqc_send_ctl.h"
 
-
 static size_t
 xqc_minrtt_scheduler_size()
 {
@@ -25,8 +24,8 @@ xqc_minrtt_scheduler_get_path(void *scheduler,
     xqc_connection_t *conn, xqc_packet_out_t *packet_out, int check_cwnd, int reinject,
     xqc_bool_t *cc_blocked)
 {
-    xqc_path_ctx_t *best_path[XQC_PATH_CLASS_PERF_CLASS_SIZE];
     xqc_path_perf_class_t path_class;
+    xqc_path_ctx_t *best_path[XQC_PATH_CLASS_PERF_CLASS_SIZE] = { NULL };
 
     xqc_list_head_t *pos, *next;
     xqc_path_ctx_t *path;
@@ -37,13 +36,6 @@ xqc_minrtt_scheduler_get_path(void *scheduler,
     xqc_bool_t reached_cwnd_check = XQC_FALSE;
     xqc_bool_t path_can_send;
 
-    for (path_class = XQC_PATH_CLASS_AVAILABLE_HIGH; 
-         path_class < XQC_PATH_CLASS_PERF_CLASS_SIZE; 
-         path_class++)
-    {
-        best_path[path_class] = NULL;
-    }
-    
     if (cc_blocked) {
         *cc_blocked = XQC_FALSE;
     }
@@ -102,7 +94,6 @@ skip_path:
                 packet_out->po_path_id,
                 best_path[path_class] ? best_path[path_class]->path_id : -1);
     }
-
 
     for (path_class = XQC_PATH_CLASS_AVAILABLE_HIGH; 
          path_class < XQC_PATH_CLASS_PERF_CLASS_SIZE; 

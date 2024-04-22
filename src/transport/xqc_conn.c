@@ -4475,7 +4475,7 @@ xqc_conn_set_cid_retired_ts(xqc_connection_t *conn, xqc_cid_inner_t *inner_cid)
 
     ret = xqc_cid_switch_to_next_state(&conn->scid_set.cid_set, inner_cid, XQC_CID_RETIRED);
     if (ret != XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|set cid retired error|");
+        xqc_log(conn->log, XQC_LOG_ERROR, "|set cid retired error|ret:%d", ret);
         return ret;
     }
 

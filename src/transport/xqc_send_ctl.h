@@ -239,7 +239,9 @@ void xqc_send_ctl_set_loss_detection_timer(xqc_send_ctl_t *send_ctl);
 
 xqc_usec_t xqc_send_ctl_get_earliest_loss_time(xqc_send_ctl_t *send_ctl, xqc_pkt_num_space_t *pns_ret);
 
-xqc_usec_t xqc_send_ctl_get_srtt(xqc_send_ctl_t *send_ctl);
+static inline xqc_usec_t xqc_send_ctl_get_srtt(xqc_send_ctl_t *send_ctl) {
+    return send_ctl->ctl_srtt;
+}
 
 float xqc_send_ctl_get_retrans_rate(xqc_send_ctl_t *send_ctl);
 

@@ -437,38 +437,52 @@ xqc_engine_create(xqc_engine_type_t engine_type,
                                engine->config->cfg_log_event,
                                engine->config->cfg_log_timestamp,
                                engine->config->cfg_log_level_name,
-                               &engine->eng_callback.log_callbacks, engine->user_data);
+                               &engine->eng_callback.log_callbacks,
+                               engine->user_data);
+
     if (engine->log == NULL) {
         goto fail;
     }
 
     engine->rand_generator = xqc_random_generator_create(engine->log);
     if (engine->rand_generator == NULL) {
+        xqc_log(engine->log, XQC_LOG_ERROR,
+                "|unable to initialize random generator in engine|");
         goto fail;
     }
 
     engine->conns_hash = xqc_engine_conns_hash_create(engine->config);
     if (engine->conns_hash == NULL) {
+        xqc_log(engine->log, XQC_LOG_ERROR,
+                "|unable to create connections hash|");
         goto fail;
     }
 
     engine->conns_hash_dcid = xqc_engine_conns_hash_create(engine->config);
     if (engine->conns_hash_dcid == NULL) {
+        xqc_log(engine->log, XQC_LOG_ERROR,
+                "|unable to create connections hash for reset packets|");
         goto fail;
     }
 
     engine->conns_hash_sr_token = xqc_engine_conns_hash_create(engine->config);
     if (engine->conns_hash_sr_token == NULL) {
+        xqc_log(engine->log, XQC_LOG_ERROR,
+                "|unable to create connections hash for stateless reset|");
         goto fail;
     }
 
     engine->conns_active_pq = xqc_engine_conns_pq_create(engine->config);
     if (engine->conns_active_pq == NULL) {
+        xqc_log(engine->log, XQC_LOG_ERROR,
+                "|unable to create priority queue|");
         goto fail;
     }
 
     engine->conns_wait_wakeup_pq = xqc_engine_wakeup_pq_create(engine->config);
     if (engine->conns_wait_wakeup_pq == NULL) {
+        xqc_log(engine->log, XQC_LOG_ERROR,
+                "|unable to create wakeup priority queue|");
         goto fail;
     }
 
@@ -477,11 +491,12 @@ xqc_engine_create(xqc_engine_type_t engine_type,
         engine->tls_ctx = xqc_tls_ctx_create((xqc_tls_type_t)engine->eng_type, ssl_config,
                                              &xqc_conn_tls_cbs, engine->log);
         if (NULL == engine->tls_ctx) {
-            xqc_log(engine->log, XQC_LOG_ERROR, "|create tls context error");
+            xqc_log(engine->log, XQC_LOG_ERROR, "|create tls context error|");
             goto fail;
         }
 
     } else {
+        xqc_log(engine->log, XQC_LOG_ERROR, "|invalid SSL configuration|");
         goto fail;
     }
 
@@ -1319,12 +1334,6 @@ after_process:
 
     return ret;
 }
-
-
-
-
-
-
 
 
 uint8_t

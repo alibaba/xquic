@@ -71,6 +71,7 @@ xqc_cid_inner_t *xqc_cid_in_cid_set(const xqc_cid_set_t *cid_set, xqc_cid_t *cid
 xqc_int_t xqc_cid_switch_to_next_state(xqc_cid_set_t *cid_set, xqc_cid_inner_t *cid, xqc_cid_state_t state);
 xqc_int_t xqc_get_unused_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid);
 
+xqc_bool_t xqc_validate_retire_cid_frame(xqc_cid_set_t *cid_set, xqc_cid_inner_t *cid);
 
 unsigned char *xqc_sr_token_str(const char *sr_token);
 

@@ -250,7 +250,7 @@ xqc_int_t
 xqc_cid_switch_to_next_state(xqc_cid_set_t *cid_set, xqc_cid_inner_t *cid, xqc_cid_state_t next_state)
 {
     if (xqc_cid_in_cid_set(cid_set, &cid->cid) == NULL) {
-        return XQC_OK;
+        return -XQC_ECONN_CID_NOT_FOUND;
     }
 
     xqc_cid_state_t current_state = cid->state;
@@ -259,7 +259,7 @@ xqc_cid_switch_to_next_state(xqc_cid_set_t *cid_set, xqc_cid_inner_t *cid, xqc_c
         return XQC_OK;
 
     } else if (current_state > next_state) {
-        return XQC_OK;
+        return -XQC_ECID_STATE;
     }
 
     /* current_state < next_state */
@@ -340,4 +340,20 @@ xqc_get_inner_cid_by_seq(xqc_cid_set_t *cid_set, uint64_t seq_num)
     }
 
     return NULL;
+}
+
+xqc_bool_t
+xqc_validate_retire_cid_frame(xqc_cid_set_t *cid_set, xqc_cid_inner_t *cid)
+{
+    /* maybe retired already */
+    if (xqc_cid_in_cid_set(cid_set, &cid->cid) == NULL) {
+        return XQC_FALSE;
+    }
+
+    /* the cid is retired already */
+    if (cid->state >= XQC_CID_RETIRED) {
+        return XQC_FALSE;
+    }
+
+    return XQC_TRUE;
 }

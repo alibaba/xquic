@@ -341,3 +341,19 @@ xqc_get_inner_cid_by_seq(xqc_cid_set_t *cid_set, uint64_t seq_num)
 
     return NULL;
 }
+
+xqc_bool_t
+xqc_validate_retire_cid_frame(xqc_cid_set_t *cid_set, xqc_cid_inner_t *cid)
+{
+    /* maybe retired already */
+    if (xqc_cid_in_cid_set(cid_set, &cid->cid) == NULL) {
+        return XQC_FALSE;
+    }
+
+    /* the cid is retired already */
+    if (cid->state >= XQC_CID_RETIRED) {
+        return XQC_FALSE;
+    }
+
+    return XQC_TRUE;
+}

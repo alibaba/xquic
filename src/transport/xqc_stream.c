@@ -517,6 +517,8 @@ xqc_stream_create(xqc_engine_t *engine, const xqc_cid_t *cid, xqc_stream_setting
         return NULL;
     }
 
+    conn->cli_bidi_streams++;
+
     return stream;
 }
 
@@ -673,6 +675,14 @@ xqc_destroy_stream(xqc_stream_t *stream)
 {
     xqc_log(stream->stream_conn->log, XQC_LOG_DEBUG, "|send_state:%d|recv_state:%d|stream_id:%ui|stream_type:%d|",
             stream->stream_state_send, stream->stream_state_recv, stream->stream_id, stream->stream_type);
+
+    if ((stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_RECVD)
+        && (stream->stream_state_recv == XQC_RECV_STREAM_ST_DATA_READ))
+    {
+        if(stream->stream_conn) {
+            stream->stream_conn->finished_streams++;
+        }
+    }
 
     if (stream->stream_if->stream_close_notify
         && !(stream->stream_flag & XQC_STREAM_FLAG_DISCARDED))
@@ -837,6 +847,16 @@ xqc_passive_create_stream(xqc_connection_t *conn, xqc_stream_id_t stream_id, voi
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_create_stream_with_conn error|stream_id:%ui|", stream_id);
         XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
         return NULL;
+    }
+
+    xqc_stream_type_t stream_type;
+    stream_type = xqc_get_stream_type(stream_id);
+
+    if (stream_type == XQC_CLI_BID) {
+        conn->cli_bidi_streams++;
+        
+    } else if (stream_type == XQC_SVR_BID) {
+        conn->svr_bidi_streams++;
     }
 
     return stream;

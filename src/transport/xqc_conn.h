@@ -134,6 +134,7 @@ typedef enum {
     XQC_CONN_FLAG_MP_WAIT_SCID_SHIFT,
     XQC_CONN_FLAG_MP_WAIT_DCID_SHIFT,
     XQC_CONN_FLAG_MP_READY_NOTIFY_SHIFT,
+    XQC_CONN_FLAG_HANDSHAKE_DONE_SENT_SHIFT,
     XQC_CONN_FLAG_SHIFT_NUM,
 } xqc_conn_flag_shift_t;
 
@@ -179,6 +180,7 @@ typedef enum {
     XQC_CONN_FLAG_MP_WAIT_SCID          = 1ULL << XQC_CONN_FLAG_MP_WAIT_SCID_SHIFT,
     XQC_CONN_FLAG_MP_WAIT_DCID          = 1ULL << XQC_CONN_FLAG_MP_WAIT_DCID_SHIFT,
     XQC_CONN_FLAG_MP_READY_NOTIFY       = 1ULL << XQC_CONN_FLAG_MP_READY_NOTIFY_SHIFT,
+    XQC_CONN_FLAG_HANDSHAKE_DONE_SENT   = 1ULL << XQC_CONN_FLAG_HANDSHAKE_DONE_SENT_SHIFT,
 
 } xqc_conn_flag_t;
 
@@ -419,6 +421,12 @@ struct xqc_connection_s {
 
     /* internal loss detection stats */
     uint32_t                        detected_loss_cnt;
+
+    /* max consecutive PTO cnt among all paths */
+    uint16_t                        max_pto_cnt;
+    uint32_t                        finished_streams;
+    uint32_t                        cli_bidi_streams;
+    uint32_t                        svr_bidi_streams;
 
     /* receved pkts stats */
     struct {

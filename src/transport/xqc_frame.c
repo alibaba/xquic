@@ -877,6 +877,13 @@ xqc_process_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         return XQC_OK;
     }
 
+    /* skip if cid not available anymore */
+    if (!xqc_validate_retire_cid_frame(&conn->scid_set.cid_set, inner_cid)) {
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|cid not valid any more|seq_num:%ui",
+                seq_num);
+        return XQC_OK;
+    }
+
     if (XQC_OK == xqc_cid_is_equal(&inner_cid->cid, &packet_in->pi_pkt.pkt_dcid)) {
         /* 
          * The sequence number specified in a RETIRE_CONNECTION_ID frame MUST NOT refer to

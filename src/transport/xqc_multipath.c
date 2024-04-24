@@ -86,7 +86,6 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid)
     if (path == NULL) {
         return NULL;
     }
-    xqc_memzero(path, sizeof(xqc_path_ctx_t));
 
     path->path_state = XQC_PATH_STATE_INIT;
     path->parent_conn = conn;
@@ -466,7 +465,7 @@ xqc_conn_create_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t *new_
 
     path = xqc_conn_create_path_inner(conn, NULL, NULL, ps_inner);
     if (path == NULL) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_path_create error|");
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_conn_create_path_inner error|");
         return -XQC_EMP_CREATE_PATH;
     }
 

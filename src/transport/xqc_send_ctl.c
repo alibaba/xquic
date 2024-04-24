@@ -1703,13 +1703,6 @@ xqc_send_ctl_get_earliest_loss_time(xqc_send_ctl_t *send_ctl, xqc_pkt_num_space_
     return time;
 }
 
-
-xqc_usec_t
-xqc_send_ctl_get_srtt(xqc_send_ctl_t *send_ctl)
-{
-    return send_ctl->ctl_srtt;
-}
-
 float
 xqc_send_ctl_get_retrans_rate(xqc_send_ctl_t *send_ctl)
 {

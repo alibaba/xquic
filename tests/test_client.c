@@ -1461,7 +1461,6 @@ xqc_convert_addr_text_to_sockaddr(int type,
 {
     if (type == AF_INET6) {
         *saddr = calloc(1, sizeof(struct sockaddr_in6));
-        memset(*saddr, 0, sizeof(struct sockaddr_in6));
         struct sockaddr_in6 *addr_v6 = (struct sockaddr_in6 *)(*saddr);
         inet_pton(type, addr_text, &(addr_v6->sin6_addr.s6_addr));
         addr_v6->sin6_family = type;
@@ -1470,7 +1469,6 @@ xqc_convert_addr_text_to_sockaddr(int type,
 
     } else {
         *saddr = calloc(1, sizeof(struct sockaddr_in));
-        memset(*saddr, 0, sizeof(struct sockaddr_in));
         struct sockaddr_in *addr_v4 = (struct sockaddr_in *)(*saddr);
         inet_pton(type, addr_text, &(addr_v4->sin_addr.s_addr));
         addr_v4->sin_family = type;
@@ -1491,12 +1489,10 @@ xqc_client_init_addr(user_conn_t *user_conn,
 
     if (ip_type == AF_INET6) {
         user_conn->local_addr = (struct sockaddr *)calloc(1, sizeof(struct sockaddr_in6));
-        memset(user_conn->local_addr, 0, sizeof(struct sockaddr_in6));
         user_conn->local_addrlen = sizeof(struct sockaddr_in6);
 
     } else {
         user_conn->local_addr = (struct sockaddr *)calloc(1, sizeof(struct sockaddr_in));
-        memset(user_conn->local_addr, 0, sizeof(struct sockaddr_in));
         user_conn->local_addrlen = sizeof(struct sockaddr_in);
     }
 }
@@ -1512,13 +1508,6 @@ xqc_client_create_path_socket(xqc_user_path_t *path,
         return XQC_ERROR;
     }
 #ifndef XQC_SYS_WINDOWS
-    if (path_interface != NULL
-        && xqc_client_bind_to_interface(path->path_fd, path_interface) < 0) 
-    {
-        printf("|xqc_client_bind_to_interface error|");
-        return XQC_ERROR;
-    }
-
     if (g_test_case == 103 || g_test_case == 104) {
         path->rebinding_path_fd = xqc_client_create_socket((g_ipv6 ? AF_INET6 : AF_INET), 
                                         path->peer_addr, path->peer_addrlen, path_interface);
@@ -3418,7 +3407,6 @@ xqc_client_timeout_callback(int fd, short what, void *arg)
         restart_after_a_while--;
         //we don't care the memory leak caused by user_stream. It's just for one-shot testing. :D
         user_stream_t *user_stream = calloc(1, sizeof(user_stream_t));
-        memset(user_stream, 0, sizeof(user_stream_t));
         user_stream->user_conn = user_conn;
         printf("gtest 15: restart from idle!\n");
         user_stream->stream = xqc_stream_create(ctx.engine, &(user_conn->cid), NULL, user_stream);

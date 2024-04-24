@@ -26,8 +26,8 @@ xqc_backup_scheduler_get_path(void *scheduler, xqc_connection_t *conn,
     xqc_packet_out_t *packet_out, int check_cwnd, int reinject, 
     xqc_bool_t *cc_blocked)
 {
-    xqc_path_ctx_t *best_path[XQC_PATH_CLASS_PERF_CLASS_SIZE];
-    xqc_bool_t has_path[XQC_PATH_CLASS_PERF_CLASS_SIZE];
+    xqc_path_ctx_t *best_path[XQC_PATH_CLASS_PERF_CLASS_SIZE] = { NULL };
+    xqc_bool_t has_path[XQC_PATH_CLASS_PERF_CLASS_SIZE] = { XQC_FALSE };
     xqc_path_perf_class_t path_class;
     xqc_bool_t available_path_exists;
 
@@ -42,14 +42,6 @@ xqc_backup_scheduler_get_path(void *scheduler, xqc_connection_t *conn,
 
     if (cc_blocked) {
         *cc_blocked = XQC_FALSE;
-    }
-
-    for (path_class = XQC_PATH_CLASS_AVAILABLE_HIGH; 
-         path_class < XQC_PATH_CLASS_PERF_CLASS_SIZE; 
-         path_class++)
-    {
-        best_path[path_class] = NULL;
-        has_path[path_class] = XQC_FALSE;
     }
 
     xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
@@ -87,7 +79,7 @@ xqc_backup_scheduler_get_path(void *scheduler, xqc_connection_t *conn,
         path_srtt = xqc_send_ctl_get_srtt(path->path_send_ctl);
         
         if (best_path[path_class] == NULL 
-            || path_srtt < best_path[path_class]->path_send_ctl->ctl_srtt)
+            || path_srtt < xqc_send_ctl_get_srtt(best_path[path_class]->path_send_ctl))
         {
             best_path[path_class] = path;
         }

@@ -16,4 +16,4 @@
 
 extern const xqc_scheduler_callback_t xqc_rap_scheduler_cb;
 
-#endif
+#endif /* _XQC_SCHEDULER_MINRTT_H_INCLUDED_ */

@@ -59,7 +59,10 @@ xqc_h3_request_destroy(xqc_h3_request_t *h3_request)
             "|rcvd_bdy_sz:%uz|snd_bdy_sz:%uz|rcvd_hdr_sz:%uz|snd_hdr_sz:%uz"
             "|create:%ui|blkd:%ui|nblkd:%ui|hdr_b:%ui|hdr_e:%ui|bdy_b:%ui|fin:%ui|recv_end:%ui"
             "|hrd_send:%ui|bdy_send:%ui|fin_send:%ui|fin_ack:%ui|last_send:%ui|last_recv:%ui"
-            "|mp_state:%d|path_info:%s|comp_hdr_s:%uz|comp_hdr_r:%uz|",
+            "|mp_state:%d|path_info:%s|comp_hdr_s:%uz|comp_hdr_r:%uz|fst_fin_snd:%ui|"
+            "sched_blk:%ud|sched_blk_time:%ui|"
+            "cwnd_blk:%ud|cwnd_blk_time:%ui|"
+            "pacing_blk:%ud|pacing_blk_time:%ui|begin_state:%s|end_state:%s|",
             h3s->stream_id, stats.stream_close_msg ? stats.stream_close_msg : "",
             stats.stream_err, stats.recv_body_size, stats.send_body_size,
             stats.recv_header_size, stats.send_header_size,
@@ -78,7 +81,16 @@ xqc_h3_request_destroy(xqc_h3_request_t *h3_request)
             xqc_calc_delay(h3_request->h3_stream->h3c->conn->conn_last_send_time, create_time),
             xqc_calc_delay(h3_request->h3_stream->h3c->conn->conn_last_recv_time, create_time),
             stats.mp_state, stats.stream_info, stats.send_hdr_compressed,
-            stats.recv_hdr_compressed);
+            stats.recv_hdr_compressed,
+            xqc_calc_delay(stats.stream_fst_fin_snd_time, create_time),
+            h3_request->sched_cwnd_blk_cnt, 
+            h3_request->sched_cwnd_blk_duration / 1000,
+            h3_request->send_cwnd_blk_cnt, 
+            h3_request->send_cwnd_blk_duration/ 1000,
+            h3_request->send_pacing_blk_cnt, 
+            h3_request->send_pacing_blk_duration / 1000,
+            h3s->begin_trans_state,
+            h3s->end_trans_state);
 
     if (h3_request->request_if->h3_request_close_notify) {
         h3_request->request_if->h3_request_close_notify(h3_request, h3_request->user_data);
@@ -168,6 +180,37 @@ xqc_h3_request_create_inner(xqc_h3_conn_t *h3_conn, xqc_h3_stream_t *h3_stream, 
     return h3_request;
 }
 
+void 
+xqc_h3_request_encode_rtts(xqc_h3_request_t *h3r, char *buff, size_t buff_size)
+{
+    xqc_h3_stream_t *h3_stream = h3r->h3_stream;
+    size_t cursor = 0;
+    int ret, i;
+
+    for (int i = 0; i < XQC_MAX_PATHS_COUNT; ++i) {
+        if ((h3_stream->paths_info[i].path_send_bytes > 0)
+            || (h3_stream->paths_info[i].path_recv_bytes > 0))
+        {
+            ret = snprintf(buff + cursor, buff_size - cursor, 
+                           "%"PRIu64"-", h3_stream->paths_info[i].path_srtt / 1000);
+            cursor += ret;
+
+            if (cursor >= buff_size) {
+                break;
+            }
+        }
+    }
+
+    cursor = xqc_min(cursor, buff_size);
+    for (i = cursor - 1; i >= 0; i--) {
+        if (buff[i] == '-') {
+            buff[i] = '\0';
+            break;
+        }
+    }
+    buff[buff_size - 1] = '\0';
+}
+
 void
 xqc_stream_info_print(xqc_h3_stream_t *h3_stream, xqc_request_stats_t *stats)
 {
@@ -189,9 +232,10 @@ xqc_stream_info_print(xqc_h3_stream_t *h3_stream, xqc_request_stats_t *stats)
 
     xqc_conn_encode_mp_settings(h3c->conn, mp_settings, XQC_MP_SETTINGS_STR_LEN);
 
-    ret = snprintf(buff, buff_size, "(%d,%"PRIu64",%s,%"PRIu64",%"PRIu64")#", 
+    ret = snprintf(buff, buff_size, "(%d,%"PRIu64",%s,%"PRIu64",%"PRIu64",%"PRIu64",%u)#", 
                    flag, h3_stream->recv_rate_limit, mp_settings,
-                   h3_stream->send_offset, h3_stream->recv_offset);
+                   h3_stream->send_offset, h3_stream->recv_offset,
+                   stats->cwnd_blocked_ms, stats->retrans_cnt);
 
     cursor += ret;
 
@@ -256,6 +300,9 @@ xqc_h3_request_get_stats(xqc_h3_request_t *h3_request)
     xqc_request_stats_t stats;
     xqc_memzero(&stats, sizeof(stats));
 
+    /* try to update stats */
+    xqc_h3_stream_update_stats(h3_request->h3_stream);
+
     uint64_t conn_err       = h3_request->h3_stream->h3c->conn->conn_err;
     stats.recv_body_size    = h3_request->body_recvd;
     stats.send_body_size    = h3_request->body_sent;
@@ -273,18 +320,17 @@ xqc_h3_request_get_stats(xqc_h3_request_t *h3_request)
     stats.h3r_header_send_time  = h3_request->h3r_header_send_time;
     stats.h3r_body_send_time    = h3_request->h3r_body_send_time;
     stats.stream_fin_send_time  = h3_request->stream_fin_send_time;
+    stats.stream_fst_fin_snd_time = h3_request->stream_fst_fin_snd_time;
     stats.stream_fin_ack_time   = h3_request->stream_fin_ack_time;
     stats.stream_close_msg      = h3_request->stream_close_msg;
     stats.send_hdr_compressed = h3_request->compressed_header_sent;
     stats.recv_hdr_compressed = h3_request->compressed_header_recvd;
     stats.rate_limit = h3_request->h3_stream->recv_rate_limit;
-
-    /* try to update early data state */
-    if (h3_request->h3_stream->stream) {
-        xqc_h3_stream_update_early_data_state(h3_request->h3_stream);
-    }
-
+    stats.cwnd_blocked_ms = (h3_request->sched_cwnd_blk_duration + h3_request->send_cwnd_blk_duration) / 1000;
     stats.early_data_state = h3_request->h3_stream->early_data_state;
+    stats.retrans_cnt = h3_request->retrans_pkt_cnt;
+    stats.stream_fst_pkt_snd_time = h3_request->stream_fst_pkt_snd_time;
+    stats.stream_fst_pkt_rcv_time = h3_request->stream_fst_pkt_rcv_time;
 
     xqc_h3_stream_get_path_info(h3_request->h3_stream);
     xqc_request_path_metrics_print(h3_request->h3_stream->h3c->conn,
@@ -299,8 +345,11 @@ xqc_h3_request_stats_print(xqc_h3_request_t *h3_request, char *str, size_t size)
 {
     xqc_request_stats_t stats = xqc_h3_request_get_stats(h3_request);
     xqc_usec_t create_time = h3_request->h3r_begin_time;
+    char rtt_str[32] = {0};
+    xqc_h3_request_encode_rtts(h3_request, rtt_str, 32);
     return snprintf(str, size, "%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64
-                    ",%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64,
+                    ",%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64",cc:%"PRIu64
+                    ",rtx:%u,rtt:%s",
                     h3_request->h3_stream->stream_id,
                     xqc_calc_delay(stats.h3r_header_begin_time, create_time) / 1000,
                     xqc_calc_delay(stats.h3r_header_end_time, create_time) / 1000,
@@ -310,7 +359,8 @@ xqc_h3_request_stats_print(xqc_h3_request_t *h3_request, char *str, size_t size)
                     xqc_calc_delay(stats.h3r_header_send_time, create_time) / 1000,
                     xqc_calc_delay(stats.h3r_body_send_time, create_time) / 1000,
                     xqc_calc_delay(stats.stream_fin_send_time, create_time) / 1000,
-                    xqc_calc_delay(stats.stream_fin_ack_time, create_time) / 1000);
+                    xqc_calc_delay(stats.stream_fin_ack_time, create_time) / 1000,
+                    stats.cwnd_blocked_ms, stats.retrans_cnt, rtt_str);
 }
 
 void
@@ -383,7 +433,6 @@ xqc_h3_request_copy_header(xqc_http_header_t *dst, xqc_http_header_t *src, xqc_v
 
     return XQC_OK;
 }
-
 
 ssize_t
 xqc_h3_request_send_headers(xqc_h3_request_t *h3_request, xqc_http_headers_t *headers, uint8_t fin)
@@ -634,7 +683,7 @@ xqc_h3_request_on_recv_header(xqc_h3_request_t *h3r)
         /* notify data before trailer headers*/
         ret = xqc_h3_request_on_recv_body(h3r);
         if (ret != XQC_OK) {
-            xqc_log(h3r->h3_stream->log, XQC_LOG_ERROR, "|xqc_h3_request_on_recv_body error|%d|", ret);
+            xqc_log(h3r->h3_stream->log, XQC_LOG_ERROR, "|recv body error|%d|", ret);
             return ret;
         }
     }

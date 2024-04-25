@@ -115,6 +115,10 @@ typedef struct xqc_packet_out_s {
 
     /* ping notification */
     xqc_ping_record_t      *po_pr;
+
+    xqc_usec_t              po_sched_cwnd_blk_ts;
+    xqc_usec_t              po_send_cwnd_blk_ts;
+    xqc_usec_t              po_send_pacing_blk_ts;
 } xqc_packet_out_t;
 
 xqc_bool_t xqc_packet_out_on_specific_path(xqc_connection_t *conn, 

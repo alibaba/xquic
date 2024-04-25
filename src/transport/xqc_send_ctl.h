@@ -189,12 +189,12 @@ xqc_pn_ctl_t *xqc_get_pn_ctl(xqc_connection_t *conn, xqc_path_ctx_t *path);
 int xqc_send_ctl_can_send(xqc_send_ctl_t *send_ctl, xqc_packet_out_t *packet_out, uint32_t schedule_bytes);
 
 xqc_bool_t xqc_send_packet_cwnd_allows(xqc_send_ctl_t *send_ctl, 
-    xqc_packet_out_t *packet_out, uint32_t schedule_bytes);
+    xqc_packet_out_t *packet_out, uint32_t schedule_bytes, xqc_usec_t now);
 
 xqc_bool_t xqc_send_packet_pacer_allows(xqc_send_ctl_t *send_ctl, 
-    xqc_packet_out_t *packet_out, uint32_t schedule_bytes);
+    xqc_packet_out_t *packet_out, uint32_t schedule_bytes, xqc_usec_t now);
 
-xqc_bool_t xqc_send_packet_check_cc(xqc_send_ctl_t *send_ctl, xqc_packet_out_t *packet_out, uint32_t schedule_bytes);
+xqc_bool_t xqc_send_packet_check_cc(xqc_send_ctl_t *send_ctl, xqc_packet_out_t *packet_out, uint32_t schedule_bytes, xqc_usec_t now);
 
 void xqc_send_ctl_increase_inflight(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
 
@@ -239,9 +239,7 @@ void xqc_send_ctl_set_loss_detection_timer(xqc_send_ctl_t *send_ctl);
 
 xqc_usec_t xqc_send_ctl_get_earliest_loss_time(xqc_send_ctl_t *send_ctl, xqc_pkt_num_space_t *pns_ret);
 
-static inline xqc_usec_t xqc_send_ctl_get_srtt(xqc_send_ctl_t *send_ctl) {
-    return send_ctl->ctl_srtt;
-}
+xqc_usec_t xqc_send_ctl_get_srtt(xqc_send_ctl_t *send_ctl);
 
 float xqc_send_ctl_get_retrans_rate(xqc_send_ctl_t *send_ctl);
 
@@ -265,5 +263,6 @@ xqc_packet_number_t xqc_send_ctl_get_pkt_num_gap(xqc_send_ctl_t *send_ctl, xqc_p
 
 /* bytes per second */
 uint64_t xqc_send_ctl_get_est_bw(xqc_send_ctl_t *send_ctl);
+uint64_t xqc_send_ctl_get_pacing_rate(xqc_send_ctl_t *send_ctl);
 
 #endif /* _XQC_SEND_CTL_H_INCLUDED_ */

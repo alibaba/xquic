@@ -66,6 +66,9 @@ xqc_packet_out_replicate(xqc_packet_out_t *dst, xqc_packet_out_t *src)
     dst->po_flag &= ~XQC_POF_IN_UNACK_LIST;
     dst->po_flag &= ~XQC_POF_IN_PATH_BUF_LIST;
     dst->po_user_data = src->po_user_data;
+    dst->po_sched_cwnd_blk_ts = 0;
+    dst->po_send_cwnd_blk_ts = 0;
+    dst->po_send_pacing_blk_ts = 0;
 }
 
 xqc_int_t

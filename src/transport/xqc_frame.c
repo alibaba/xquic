@@ -449,6 +449,10 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         }
     }
 
+    if (!stream->stream_stats.first_rcv_time) {
+        stream->stream_stats.first_rcv_time = xqc_monotonic_timestamp();
+    }
+
     conn->stream_stats.recv_bytes += stream_frame->data_length;
 
     xqc_stream_path_metrics_on_recv(conn, stream, packet_in);

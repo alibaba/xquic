@@ -1643,9 +1643,7 @@ xqc_h3_stream_process_data(xqc_stream_t *stream, xqc_h3_stream_t *h3s, xqc_bool_
             if (h3s->type == XQC_H3_STREAM_TYPE_REQUEST) {
                 /* only request stream will be blocked */
                 xqc_h3_request_stream_fin(h3s->h3r);
-                h3s->send_offset = h3s->stream->stream_send_offset;
-                h3s->recv_offset = h3s->stream->stream_data_in.merged_offset_end;
-                xqc_h3_stream_update_early_data_state(h3s);
+                xqc_h3_stream_update_stats(h3s);
             }
         }
 
@@ -1882,10 +1880,42 @@ xqc_h3_stream_read_notify(xqc_stream_t *stream, void *user_data)
 }
 
 void
-xqc_h3_stream_update_early_data_state(xqc_h3_stream_t *h3s)
+xqc_h3_stream_update_stats(xqc_h3_stream_t *h3s)
 {
+    if (h3s->stream == NULL) {
+        return;
+    }
+
+    if (h3s->type == XQC_H3_STREAM_TYPE_REQUEST) {
+        h3s->h3r->stream_fin_send_time = h3s->stream->stream_stats.local_fin_snd_time;
+        h3s->h3r->stream_fst_fin_snd_time = h3s->stream->stream_stats.local_fst_fin_snd_time;
+        h3s->h3r->stream_fin_ack_time = h3s->stream->stream_stats.first_fin_ack_time;
+        h3s->h3r->send_cwnd_blk_cnt = h3s->stream->stream_stats.send_cwnd_blk_cnt;
+        h3s->h3r->sched_cwnd_blk_cnt = h3s->stream->stream_stats.sched_cwnd_blk_cnt;
+        h3s->h3r->send_pacing_blk_cnt = h3s->stream->stream_stats.send_pacing_blk_cnt;
+        h3s->h3r->send_cwnd_blk_duration = h3s->stream->stream_stats.send_cwnd_blk_duration;
+        h3s->h3r->sched_cwnd_blk_duration = h3s->stream->stream_stats.sched_cwnd_blk_duration;
+        h3s->h3r->send_pacing_blk_duration = h3s->stream->stream_stats.send_pacing_blk_duration;
+        h3s->h3r->retrans_pkt_cnt = h3s->stream->stream_stats.retrans_pkt_cnt;
+        h3s->h3r->stream_fst_pkt_snd_time = h3s->stream->stream_stats.first_snd_time;
+        h3s->h3r->stream_fst_pkt_rcv_time = h3s->stream->stream_stats.first_rcv_time;
+    }
+
+    h3s->send_offset = h3s->stream->stream_send_offset;
+    h3s->recv_offset = h3s->stream->stream_data_in.merged_offset_end;
+
+    if (h3s->h3c == NULL) {
+        return;
+    }
+
+    xqc_connection_t *conn = xqc_h3_conn_get_xqc_conn(h3s->h3c);
+
+    if (conn == NULL) {
+        return;
+    }
+    
     if (h3s->stream->stream_flag & XQC_STREAM_FLAG_HAS_0RTT) {
-        if (h3s->h3c->conn->conn_flag & XQC_CONN_FLAG_0RTT_OK) {
+        if (conn->conn_flag & XQC_CONN_FLAG_0RTT_OK) {
             h3s->early_data_state = 1;
 
         } else {
@@ -1909,18 +1939,17 @@ xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data)
     xqc_h3_stream_get_path_info(h3s);
 
     if (h3s->h3r && h3s->type == XQC_H3_STREAM_TYPE_REQUEST) {
-        h3s->h3r->stream_fin_send_time = h3s->stream->stream_stats.local_fin_snd_time;
-        h3s->h3r->stream_fin_ack_time = h3s->stream->stream_stats.first_fin_ack_time;
         h3s->h3r->stream_close_msg = h3s->stream->stream_close_msg;
-        h3s->send_offset = h3s->stream->stream_send_offset;
-        h3s->recv_offset = h3s->stream->stream_data_in.merged_offset_end;
-        xqc_h3_stream_update_early_data_state(h3s);
+        xqc_h3_stream_update_stats(h3s);
     }
 
     if (h3s->h3_ext_bs && h3s->type == XQC_H3_STREAM_TYPE_BYTESTEAM) {
         //TODO: record stats info
         xqc_h3_ext_bytestream_save_stats_from_stream(h3s->h3_ext_bs, h3s->stream);
     }
+
+    xqc_memcpy(h3s->begin_trans_state, stream->begin_trans_state, XQC_STREAM_TRANSPORT_STATE_SZ);
+    xqc_memcpy(h3s->end_trans_state, stream->end_trans_state, XQC_STREAM_TRANSPORT_STATE_SZ);
 
     h3s->stream = NULL;     /* stream closed, MUST NOT use it any more */
 

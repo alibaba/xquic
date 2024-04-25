@@ -631,6 +631,8 @@ xqc_int_t xqc_conn_gp_timer_get_info(xqc_connection_t *conn, xqc_gp_timer_id_t g
 
 void xqc_conn_schedule_packets_to_paths(xqc_connection_t *conn);
 
+void xqc_conn_encode_transport_state(xqc_connection_t *conn, char *buf, size_t buf_sz);
+
 static inline xqc_uint_t 
 xqc_conn_get_mss(xqc_connection_t *conn) {
     return conn->pkt_out_size + XQC_ACK_SPACE;

@@ -175,6 +175,10 @@ xqc_packet_out_copy(xqc_packet_out_t *dst, xqc_packet_out_t *src)
     if (dst->po_pr) {
         dst->po_pr->ref_cnt++;
     }
+
+    dst->po_send_cwnd_blk_ts = 0;
+    dst->po_sched_cwnd_blk_ts = 0;
+    dst->po_send_pacing_blk_ts = 0;
 }
 
 

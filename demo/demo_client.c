@@ -1268,10 +1268,10 @@ xqc_demo_cli_h3_request_close_notify(xqc_h3_request_t *h3_request, void *user_da
     xqc_request_stats_t stats;
     stats = xqc_h3_request_get_stats(h3_request);
     printf("send_body_size:%zu, recv_body_size:%zu, send_header_size:%zu, recv_header_size:%zu, "
-           "recv_fin:%d, err:%d, rate_limit:%"PRIu64", mp_state:%d, early_data:%d, avail_send_weight:%.3lf, avail_recv_weight:%.3lf\n", 
+           "recv_fin:%d, err:%d, rate_limit:%"PRIu64", mp_state:%d, early_data:%d, avail_send_weight:%.3lf, avail_recv_weight:%.3lf, cwnd_blk:%"PRIu64"\n", 
            stats.send_body_size, stats.recv_body_size, stats.send_header_size, stats.recv_header_size, 
            user_stream->recv_fin, stats.stream_err, stats.rate_limit, stats.mp_state, stats.early_data_state,
-           stats.mp_default_path_send_weight, stats.mp_default_path_recv_weight);
+           stats.mp_default_path_send_weight, stats.mp_default_path_recv_weight, stats.cwnd_blocked_ms);
     
     printf("\033[33m[H3-req] send_bytes:%zu, recv_bytes:%zu, path_info:%s\n\033[0m", 
            stats.send_body_size + stats.send_header_size, 

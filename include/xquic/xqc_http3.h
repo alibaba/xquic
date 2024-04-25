@@ -114,7 +114,7 @@ typedef struct xqc_http_headers_s {
 } xqc_http_headers_t;
 
 
-#define XQC_STREAM_INFO_LEN 100
+#define XQC_STREAM_INFO_LEN 128
 
 /**
  * @brief request statistics structure
@@ -165,6 +165,21 @@ typedef struct xqc_request_stats_s {
     uint8_t     early_data_state;
 
     char        stream_info[XQC_STREAM_INFO_LEN];
+
+    xqc_usec_t  stream_fst_fin_snd_time;
+    
+    /**
+     * @brief how long the request was blocked by congestion control (ms)
+     */
+    xqc_msec_t  cwnd_blocked_ms;  
+    /**
+     * @brief the number of packet has been retransmitted
+     */
+    uint32_t    retrans_cnt;
+
+    xqc_usec_t  stream_fst_pkt_snd_time;
+    xqc_usec_t  stream_fst_pkt_rcv_time;
+    
 } xqc_request_stats_t;
 
 /**

@@ -27,4 +27,6 @@ void xqc_pacing_on_app_limit(xqc_pacing_t *pacing);
 
 int xqc_pacing_can_write(xqc_pacing_t *pacing, uint32_t total_bytes);
 
+uint64_t xqc_pacing_rate_calc(xqc_pacing_t *pacing);
+
 #endif /* _XQC_PACING_H_INCLUDED_ */

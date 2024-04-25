@@ -442,7 +442,7 @@ xqc_send_ctl_can_send(xqc_send_ctl_t *send_ctl, xqc_packet_out_t *packet_out, ui
 
 xqc_bool_t
 xqc_send_packet_cwnd_allows(xqc_send_ctl_t *send_ctl, 
-    xqc_packet_out_t *packet_out, uint32_t schedule_bytes)
+    xqc_packet_out_t *packet_out, uint32_t schedule_bytes, xqc_usec_t now)
 {
     xqc_connection_t *conn = send_ctl->ctl_conn;
 
@@ -451,6 +451,9 @@ xqc_send_packet_cwnd_allows(xqc_send_ctl_t *send_ctl,
         if (!xqc_send_ctl_can_send(send_ctl, packet_out, schedule_bytes)) {
             xqc_log(conn->log, XQC_LOG_DEBUG, 
                     "|blocked by congestion control|po_sz:%ud|", packet_out->po_used_size);
+            if (packet_out->po_send_cwnd_blk_ts == 0) {
+                packet_out->po_send_cwnd_blk_ts = now;
+            }
             return XQC_FALSE;
         }
     }
@@ -460,7 +463,7 @@ xqc_send_packet_cwnd_allows(xqc_send_ctl_t *send_ctl,
 
 xqc_bool_t
 xqc_send_packet_pacer_allows(xqc_send_ctl_t *send_ctl, 
-    xqc_packet_out_t *packet_out, uint32_t schedule_bytes)
+    xqc_packet_out_t *packet_out, uint32_t schedule_bytes, xqc_usec_t now)
 {
     xqc_connection_t *conn = send_ctl->ctl_conn;
 
@@ -471,6 +474,9 @@ xqc_send_packet_pacer_allows(xqc_send_ctl_t *send_ctl,
                     schedule_bytes + packet_out->po_used_size)) 
             {
                 xqc_log(conn->log, XQC_LOG_DEBUG, "|pacing blocked|");
+                if (packet_out->po_send_pacing_blk_ts == 0) {
+                    packet_out->po_send_pacing_blk_ts = now;
+                }
                 return XQC_FALSE;
             }
         }
@@ -481,10 +487,10 @@ xqc_send_packet_pacer_allows(xqc_send_ctl_t *send_ctl,
 
 xqc_bool_t
 xqc_send_packet_check_cc(xqc_send_ctl_t *send_ctl, 
-    xqc_packet_out_t *po, uint32_t schedule_bytes)
+    xqc_packet_out_t *po, uint32_t schedule_bytes, xqc_usec_t now)
 {
-    return xqc_send_packet_cwnd_allows(send_ctl, po, schedule_bytes)
-           && xqc_send_packet_pacer_allows(send_ctl, po, schedule_bytes);
+    return xqc_send_packet_cwnd_allows(send_ctl, po, schedule_bytes, now)
+           && xqc_send_packet_pacer_allows(send_ctl, po, schedule_bytes, now);
 }
 
 
@@ -1703,6 +1709,13 @@ xqc_send_ctl_get_earliest_loss_time(xqc_send_ctl_t *send_ctl, xqc_pkt_num_space_
     return time;
 }
 
+
+xqc_usec_t
+xqc_send_ctl_get_srtt(xqc_send_ctl_t *send_ctl)
+{
+    return send_ctl->ctl_srtt;
+}
+
 float
 xqc_send_ctl_get_retrans_rate(xqc_send_ctl_t *send_ctl)
 {
@@ -1816,4 +1829,9 @@ xqc_send_ctl_get_est_bw(xqc_send_ctl_t *send_ctl)
     }
     
     return 0;
+}
+
+uint64_t
+xqc_send_ctl_get_pacing_rate(xqc_send_ctl_t *send_ctl) {
+    return xqc_pacing_rate_calc(&send_ctl->ctl_pacing);
 }

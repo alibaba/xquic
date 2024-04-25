@@ -25,6 +25,7 @@
 #pragma comment(lib,"ws2_32.lib")
 #pragma comment(lib,"event.lib")
 #pragma comment(lib, "Iphlpapi.lib")
+#pragma comment(lib, "Bcrypt.lib")
 #endif
 
 

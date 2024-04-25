@@ -11,6 +11,7 @@
 #include "src/transport/xqc_packet.h"
 
 #define XQC_UNDEFINE_STREAM_ID XQC_MAX_UINT64_VALUE
+#define XQC_STREAM_TRANSPORT_STATE_SZ 128
 
 #define XQC_STREAM_CLOSE_MSG(stream, msg) do {      \
     if ((stream)->stream_close_msg == NULL) {       \
@@ -136,6 +137,7 @@ struct xqc_stream_s {
         xqc_usec_t          peer_fin_read_time;     /* app read fin */
         xqc_usec_t          local_fin_write_time;   /* app send fin */
         xqc_usec_t          local_fin_snd_time;     /* socket send fin */
+        xqc_usec_t          local_fst_fin_snd_time; 
         xqc_usec_t          first_write_time;       /* app send data */
         xqc_usec_t          first_snd_time;         /* socket send data */
         xqc_usec_t          first_fin_ack_time;
@@ -144,6 +146,14 @@ struct xqc_stream_s {
         xqc_usec_t          app_reset_time;         /* app snd reset */
         xqc_usec_t          local_reset_time;       /* socket snd reset */
         xqc_usec_t          peer_reset_time;        /* quic stack rcv reset */
+        xqc_usec_t          first_rcv_time;         /* recv the first udp packet */
+        uint32_t            sched_cwnd_blk_cnt;  
+        uint32_t            send_cwnd_blk_cnt;
+        uint32_t            send_pacing_blk_cnt;  
+        xqc_usec_t          sched_cwnd_blk_duration;
+        xqc_usec_t          send_cwnd_blk_duration;
+        xqc_usec_t          send_pacing_blk_duration;  
+        uint32_t            retrans_pkt_cnt;
     } stream_stats;
 
     xqc_path_metrics_t      paths_info[XQC_MAX_PATHS_COUNT];
@@ -151,6 +161,9 @@ struct xqc_stream_s {
     uint8_t                 stream_mp_usage_reinject;
 
     uint64_t                recv_rate_bytes_per_sec;
+
+    char                    begin_trans_state[XQC_STREAM_TRANSPORT_STATE_SZ];
+    char                    end_trans_state[XQC_STREAM_TRANSPORT_STATE_SZ];
 };
 
 static inline xqc_stream_type_t
@@ -173,6 +186,8 @@ xqc_stream_is_uni(xqc_stream_id_t stream_id)
 
 xqc_stream_t *xqc_create_stream_with_conn (xqc_connection_t *conn, xqc_stream_id_t stream_id,
     xqc_stream_type_t stream_type, xqc_stream_settings_t *settings, void *user_data);
+
+void xqc_stream_record_trans_state(xqc_stream_t *stream, xqc_bool_t begin);
 
 void xqc_destroy_stream(xqc_stream_t *stream);
 

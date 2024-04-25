@@ -10,7 +10,7 @@ xqc_scheduler_check_path_can_send(xqc_path_ctx_t *path, xqc_packet_out_t *packet
     uint32_t schedule_bytes = path->path_schedule_bytes;
 
     /* normal packets in send list will be blocked by cc */
-    if (check_cwnd && (!xqc_send_packet_cwnd_allows(send_ctl, packet_out, schedule_bytes)))
+    if (check_cwnd && (!xqc_send_packet_cwnd_allows(send_ctl, packet_out, schedule_bytes, 0)))
     {
         xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, "|path:%ui|blocked by cwnd|", path->path_id);
         return XQC_FALSE;

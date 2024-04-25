@@ -724,6 +724,9 @@ int
 xqc_demo_svr_h3_request_close_notify(xqc_h3_request_t *h3_request, void *strm_user_data)
 {
     DEBUG;
+    xqc_request_stats_t stats = xqc_h3_request_get_stats(h3_request);
+    printf("cwnd_blocked:%"PRIu64"\n", stats.cwnd_blocked_ms);
+
     xqc_demo_svr_user_stream_t *user_stream = (xqc_demo_svr_user_stream_t*)strm_user_data;
     xqc_demo_svr_close_user_stream_resource(user_stream);
     free(user_stream);
@@ -757,7 +760,6 @@ xqc_demo_svr_request_send_body(xqc_demo_svr_user_stream_t *user_stream, char *da
     if (ret == -XQC_EAGAIN) {
         ret = 0;
     }
-
     return ret;
 }
 

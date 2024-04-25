@@ -222,6 +222,7 @@ int g_send_body_size_from_cdf;
 cdf_entry_t *cdf_list;
 int cdf_list_size;
 int g_req_paral = 1;
+int g_req_per_time = 0;
 int g_recovery = 0;
 int g_save_body;
 int g_read_body;
@@ -1508,6 +1509,13 @@ xqc_client_create_path_socket(xqc_user_path_t *path,
         return XQC_ERROR;
     }
 #ifndef XQC_SYS_WINDOWS
+    if (path_interface != NULL
+        && xqc_client_bind_to_interface(path->path_fd, path_interface) < 0) 
+    {
+        printf("|xqc_client_bind_to_interface error|");
+        return XQC_ERROR;
+    }
+
     if (g_test_case == 103 || g_test_case == 104) {
         path->rebinding_path_fd = xqc_client_create_socket((g_ipv6 ? AF_INET6 : AF_INET), 
                                         path->peer_addr, path->peer_addrlen, path_interface);
@@ -3759,6 +3767,47 @@ xqc_client_ready_to_create_path(const xqc_cid_t *cid,
     }
 }
 
+
+
+
+static void
+xqc_client_create_req_callback(int fd, short what, void *arg)
+{
+    user_conn_t *user_conn = (user_conn_t *)arg;
+    if (user_conn->cur_stream_num < g_req_paral) {
+        int i = 0;
+        for (i = 0; i < g_req_per_time; i++) {
+            user_stream_t *user_stream = calloc(1, sizeof(user_stream_t));
+            //user_stream_t * user_stream = client_create_user_stream(user_conn->ctx->engine, user_conn, &user_conn->cid);
+            if (user_stream == NULL) {
+                printf("error create user_stream\n");
+                return;
+            }
+
+            if (user_conn->h3 == 0 || user_conn->h3 == 2) {
+                user_stream->h3_request = xqc_h3_request_create(user_conn->ctx->engine, &user_conn->cid, NULL, user_stream);
+                if (user_stream->h3_request == NULL) {
+                    printf("xqc_h3_request_create error\n");
+                    free(user_stream);
+                    continue;
+                }
+            }
+            user_stream->user_conn = user_conn;
+            xqc_client_request_send(user_stream->h3_request, user_stream);
+            user_conn->cur_stream_num++;
+            if (user_conn->cur_stream_num >= g_req_paral) {
+                break;
+            }
+        }
+    }
+    if (user_conn->cur_stream_num < g_req_paral) {
+        struct timeval tv;
+        tv.tv_sec = 1;
+        tv.tv_usec = 0;
+        event_add(user_conn->ev_request, &tv);
+    }
+}
+
 static void xqc_client_concurrent_callback(int fd, short what, void *arg){
     client_ctx_t *ctx = (client_ctx_t *)arg;
     struct timeval tv;
@@ -3850,22 +3899,32 @@ static void xqc_client_concurrent_callback(int fd, short what, void *arg){
         g_conn_count++;
         ctx->cur_conn_num++;
         memcpy(&user_conn->cid, cid, sizeof(*cid));
+          
 
-        while (user_conn->cur_stream_num < g_req_paral) {
+        if (g_req_per_time) {
+            user_conn->ev_request = event_new(ctx->eb, -1, 0, xqc_client_create_req_callback, user_conn);
+            struct timeval tv;
+            tv.tv_sec = 0;
+            tv.tv_usec = 500000;
+            event_add(user_conn->ev_request, &tv);
+
+        } else {
+            while (user_conn->cur_stream_num < g_req_paral) {
         
-            user_stream_t *user_stream = calloc(1, sizeof(user_stream_t));
-            user_stream->user_conn = user_conn;
-            if (user_conn->h3 == 0 || user_conn->h3 == 2) {
-                user_stream->h3_request = xqc_h3_request_create(ctx->engine, cid, NULL, user_stream);
-                if (user_stream->h3_request == NULL) {
-                    printf("xqc_h3_request_create error\n");
-                    continue;
-                }
+                user_stream_t *user_stream = calloc(1, sizeof(user_stream_t));
+                user_stream->user_conn = user_conn;
+                if (user_conn->h3 == 0 || user_conn->h3 == 2) {
+                    user_stream->h3_request = xqc_h3_request_create(ctx->engine, cid, NULL, user_stream);
+                    if (user_stream->h3_request == NULL) {
+                        printf("xqc_h3_request_create error\n");
+                        continue;
+                    }
 
-                xqc_client_request_send(user_stream->h3_request, user_stream);
+                    xqc_client_request_send(user_stream->h3_request, user_stream);
 
-            } 
-            user_conn->cur_stream_num++;
+                } 
+                user_conn->cur_stream_num++;
+            }
         }
     }
     return;
@@ -3998,6 +4057,7 @@ void usage(int argc, char *argv[]) {
 "   -A    Multipath request accelerate on. default is 0(off).\n"
 "   -y    multipath backup path standby.\n"
 "   -z    periodically send request.\n"
+"   -S    request per second.\n"
 , prog);
 }
 
@@ -4059,7 +4119,7 @@ int main(int argc, char *argv[]) {
     };
 
     int ch = 0;
-    while ((ch = getopt_long(argc, argv, "a:p:P:n:c:Ct:T:1s:w:r:l:Ed:u:H:h:Gx:6NMR:i:V:v:q:o:fe:F:D:b:B:J:Q:U:Ayz", long_opts, NULL)) != -1) {
+    while ((ch = getopt_long(argc, argv, "a:p:P:n:c:Ct:T:1s:w:r:l:Ed:u:H:h:Gx:6NMR:i:V:v:q:o:fe:F:D:b:B:J:Q:U:AyzS:", long_opts, NULL)) != -1) {
         switch (ch) {
         case 'U':
             printf("option send_datagram 0 (off), 1 (on), 2(on + batch): %s\n", optarg);
@@ -4271,6 +4331,10 @@ int main(int argc, char *argv[]) {
         case 'z':
             printf("option periodically send request :%s\n", "on");
             g_periodically_request = 1;
+            break;
+        case 'S':
+            printf("option stream per second:%s\n", optarg);
+            g_req_per_time = atoi(optarg);
             break;
         /* long options */
         case 0:

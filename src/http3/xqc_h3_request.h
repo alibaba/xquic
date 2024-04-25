@@ -61,7 +61,19 @@ typedef struct xqc_h3_request_s {
     xqc_usec_t                      h3r_body_send_time;
     xqc_usec_t                      stream_fin_send_time;
     xqc_usec_t                      stream_fin_ack_time;
+    xqc_usec_t                      stream_fst_fin_snd_time;
+    xqc_usec_t                      stream_fst_pkt_snd_time;
+    xqc_usec_t                      stream_fst_pkt_rcv_time;
     const char                     *stream_close_msg;
+
+    uint32_t                        sched_cwnd_blk_cnt;  
+    uint32_t                        send_cwnd_blk_cnt;
+    uint32_t                        send_pacing_blk_cnt;  
+    xqc_usec_t                      sched_cwnd_blk_duration;
+    xqc_usec_t                      send_cwnd_blk_duration;
+    xqc_usec_t                      send_pacing_blk_duration;
+
+    uint32_t                        retrans_pkt_cnt;
 
 } xqc_h3_request_t;
 

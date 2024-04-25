@@ -1260,6 +1260,56 @@ xqc_conn_get_local_addr(xqc_connection_t *conn, struct sockaddr *addr, socklen_t
     return XQC_OK;
 }
 
+void 
+xqc_conn_encode_transport_state(xqc_connection_t *conn, char *buf, size_t buf_sz)
+{
+    xqc_path_ctx_t *path;
+    xqc_list_head_t *pos, *next;
+    xqc_send_ctl_t *send_ctl;
+    int ret, i;
+    size_t cursor;
+    uint64_t cwnd, inflight, sched_queue, pacing_rate, est_bw;
+    xqc_usec_t srtt_ms;
+
+    cursor = 0;
+
+    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
+        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+        send_ctl = path->path_send_ctl;
+        if (path->path_state == XQC_PATH_STATE_ACTIVE) {
+            //KB
+            cwnd = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong) >> 10;
+            //KBps
+            est_bw = xqc_send_ctl_get_est_bw(send_ctl) >> 10;
+            srtt_ms = send_ctl->ctl_srtt / 1000;
+            //KB
+            inflight = send_ctl->ctl_bytes_in_flight >> 10;
+            //KB
+            sched_queue = path->path_schedule_bytes >> 10;
+            //KBps
+            pacing_rate = xqc_send_ctl_get_pacing_rate(send_ctl) >> 10;
+            ret = snprintf(buf + cursor, buf_sz - cursor, 
+                           "(%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64"),",
+                           path->path_id, cwnd, inflight, sched_queue, est_bw, pacing_rate, srtt_ms);
+
+            cursor += ret;
+
+            if (cursor >= buf_sz) {
+                break;
+            }
+        }
+    }
+
+    cursor = xqc_min(cursor, buf_sz);
+    for (i = cursor - 1; i >= 0; i--) {
+        if (buf[i] == ',') {
+            buf[i] = '\0';
+            break;
+        }
+    }
+    buf[buf_sz - 1] = '\0';
+}
+
 xqc_int_t 
 xqc_conn_send_ping_internal(xqc_connection_t *conn, void *ping_user_data, xqc_bool_t notify)
 {
@@ -1477,6 +1527,10 @@ xqc_conn_schedule_packets(xqc_connection_t *conn,  xqc_list_head_t *head,
     xqc_packet_out_t *packet_out;
     xqc_bool_t cc_blocked;
 
+    xqc_usec_t now;
+
+    now = xqc_monotonic_timestamp();
+
     xqc_list_for_each_safe(pos, next, head) {
         packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
 
@@ -1500,6 +1554,9 @@ xqc_conn_schedule_packets(xqc_connection_t *conn,  xqc_list_head_t *head,
             if (path == NULL) {
                 if (cc_blocked) {
                     conn->sched_cc_blocked++;
+                    if (packet_out->po_sched_cwnd_blk_ts == 0) {
+                        packet_out->po_sched_cwnd_blk_ts = now;
+                    }
                 }
                 break;
             }
@@ -1667,7 +1724,7 @@ xqc_path_send_burst_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
 
             /* check cc limit */
             if (congest
-                && !xqc_send_packet_check_cc(send_ctl, packet_out, total_bytes_to_send))
+                && !xqc_send_packet_check_cc(send_ctl, packet_out, total_bytes_to_send, now))
             {
                 send_ctl->ctl_conn->send_cc_blocked++;
                 break;
@@ -1777,6 +1834,8 @@ xqc_path_send_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
     xqc_send_ctl_t *send_ctl = path->path_send_ctl;
     xqc_send_queue_t *send_queue = conn->conn_send_queue;
 
+    xqc_usec_t now = xqc_monotonic_timestamp();
+
     xqc_list_for_each_safe(pos, next, &path->path_schedule_buf[send_type]) {
         packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
 
@@ -1795,7 +1854,7 @@ xqc_path_send_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
 
         /* check cc limit */
         if (congest
-            && !xqc_send_packet_check_cc(send_ctl, packet_out, 0))
+            && !xqc_send_packet_check_cc(send_ctl, packet_out, 0, now))
         {
             send_ctl->ctl_conn->send_cc_blocked++;
             break;
@@ -5307,26 +5366,56 @@ void
 xqc_conn_update_stream_stats_on_sent(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec_t now)
 {
     xqc_stream_id_t stream_id;
-    xqc_stream_t *stream;
-    if (packet_out->po_frame_types & XQC_FRAME_BIT_STREAM) {
-        for (int i = 0; i < XQC_MAX_STREAM_FRAME_IN_PO; i++) {
+    xqc_stream_t *stream[XQC_MAX_STREAM_FRAME_IN_PO] = {0};
+    int stream_cnt = 0;
+    int i, j;
+
+    if (packet_out->po_frame_types & (XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_RESET_STREAM)) {
+        for (i = 0; i < XQC_MAX_STREAM_FRAME_IN_PO; i++) {
             if (packet_out->po_stream_frames[i].ps_is_used == 0) {
                 break;
             }
             stream_id = packet_out->po_stream_frames[i].ps_stream_id;
-            stream = xqc_find_stream_by_id(stream_id, conn->streams_hash);
-            if (stream) {
-                if (stream->stream_stats.first_snd_time == 0) {
-                    stream->stream_stats.first_snd_time = now;
-                }
-                if (packet_out->po_stream_frames[i].ps_has_fin) {
-                    stream->stream_stats.local_fin_snd_time = now;
-                }
-                if (packet_out->po_stream_frames[i].ps_is_reset) {
-                    stream->stream_stats.local_reset_time = now;
+            stream[stream_cnt] = xqc_find_stream_by_id(stream_id, conn->streams_hash);
+            for (j = 0; j < stream_cnt; j++) {
+                if (stream[j] == stream[stream_cnt]) {
+                    break;
                 }
             }
 
+            if (stream[stream_cnt]) {
+                if (stream[stream_cnt]->stream_stats.first_snd_time == 0) {
+                    stream[stream_cnt]->stream_stats.first_snd_time = now;
+                }
+                if (packet_out->po_stream_frames[i].ps_has_fin) {
+                    stream[stream_cnt]->stream_stats.local_fin_snd_time = now;
+                    if (stream[stream_cnt]->stream_stats.local_fst_fin_snd_time == 0) {
+                        stream[stream_cnt]->stream_stats.local_fst_fin_snd_time = now;
+                    }
+                }
+                if (packet_out->po_stream_frames[i].ps_is_reset) {
+                    stream[stream_cnt]->stream_stats.local_reset_time = now;
+                }
+                // do not repeatedly count
+                if (j == stream_cnt) {
+                    if (packet_out->po_sched_cwnd_blk_ts) {
+                        stream[stream_cnt]->stream_stats.sched_cwnd_blk_duration += now - packet_out->po_sched_cwnd_blk_ts;
+                        stream[stream_cnt]->stream_stats.sched_cwnd_blk_cnt++;
+                    }
+                    if (packet_out->po_send_cwnd_blk_ts) {
+                        stream[stream_cnt]->stream_stats.send_cwnd_blk_duration += now - packet_out->po_send_cwnd_blk_ts;
+                        stream[stream_cnt]->stream_stats.send_cwnd_blk_cnt++;
+                    }
+                    if (packet_out->po_send_pacing_blk_ts) {
+                        stream[stream_cnt]->stream_stats.send_pacing_blk_duration += now - packet_out->po_send_pacing_blk_ts;
+                        stream[stream_cnt]->stream_stats.send_pacing_blk_cnt++; 
+                    }
+                    if (packet_out->po_flag & (XQC_POF_TLP | XQC_POF_LOST)) {
+                        stream[stream_cnt]->stream_stats.retrans_pkt_cnt++;
+                    }
+                    stream_cnt++;
+                }
+            }   
         }
     }
 }

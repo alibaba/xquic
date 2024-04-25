@@ -108,6 +108,12 @@ xqc_stream_maybe_need_close(xqc_stream_t *stream)
         stream->stream_stats.all_data_acked_time = xqc_monotonic_timestamp();
     }
 
+    if (stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_RECVD 
+        || stream->stream_state_send == XQC_SEND_STREAM_ST_RESET_RECVD)
+    {
+        xqc_stream_record_trans_state(stream, XQC_FALSE);
+    }
+
     if ((stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_RECVD || stream->stream_state_send == XQC_SEND_STREAM_ST_RESET_RECVD)
         && (stream->stream_state_recv == XQC_RECV_STREAM_ST_DATA_READ || stream->stream_state_recv == XQC_RECV_STREAM_ST_RESET_READ))
     {
@@ -684,6 +690,8 @@ xqc_destroy_stream(xqc_stream_t *stream)
         }
     }
 
+    xqc_stream_record_trans_state(stream, XQC_FALSE);
+
     if (stream->stream_if->stream_close_notify
         && !(stream->stream_flag & XQC_STREAM_FLAG_DISCARDED))
     {
@@ -755,6 +763,20 @@ xqc_destroy_stream(xqc_stream_t *stream)
 #undef __calc_delay
 
     xqc_free(stream);
+}
+
+void 
+xqc_stream_record_trans_state(xqc_stream_t *stream, xqc_bool_t begin)
+{
+    xqc_connection_t *conn = stream->stream_conn;
+
+    if (begin && stream->begin_trans_state[0] == 0) {
+        xqc_conn_encode_transport_state(conn, stream->begin_trans_state, XQC_STREAM_TRANSPORT_STATE_SZ);
+    }
+
+    if (!begin && stream->end_trans_state[0] == 0) {
+        xqc_conn_encode_transport_state(conn, stream->end_trans_state, XQC_STREAM_TRANSPORT_STATE_SZ);
+    }
 }
 
 xqc_int_t
@@ -1460,6 +1482,8 @@ do_buff:
             conn->conn_flag |= XQC_CONN_FLAG_TICKING;
         }
     }
+
+    xqc_stream_record_trans_state(stream, XQC_TRUE);
 
     /* application layer call the main logic */
     if (!(stream->stream_flag & XQC_STREAM_FLAG_HAS_H3)) {

@@ -9,6 +9,7 @@
 #include "src/http3/xqc_h3_defs.h"
 #include "src/http3/qpack/xqc_qpack.h"
 #include "src/http3/frame/xqc_h3_frame.h"
+#include "src/transport/xqc_stream.h"
 
 typedef struct xqc_h3_conn_s    xqc_h3_conn_t;
 typedef struct xqc_h3_stream_s  xqc_h3_stream_t;
@@ -153,13 +154,16 @@ typedef struct xqc_h3_stream_s {
 
     uint8_t                         early_data_state;
 
+    char                            begin_trans_state[XQC_STREAM_TRANSPORT_STATE_SZ];
+    char                            end_trans_state[XQC_STREAM_TRANSPORT_STATE_SZ];
+
 } xqc_h3_stream_t;
 
 
 /* transport layer callback hook */
 extern const xqc_stream_callbacks_t h3_stream_callbacks;
 
-void xqc_h3_stream_update_early_data_state(xqc_h3_stream_t *h3s);
+void xqc_h3_stream_update_stats(xqc_h3_stream_t *h3s);
 
 xqc_h3_stream_t *xqc_h3_stream_create(xqc_h3_conn_t *h3c, xqc_stream_t *stream,
    xqc_h3_stream_type_t type, void *user_data);

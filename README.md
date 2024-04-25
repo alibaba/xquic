@@ -178,4 +178,4 @@ Feel free to contact us in the following ways:
 * Dingtalk group: 34059705
 * slack channel: #xquic in quicdev group
 
-  <img src="docs/images/dingtalk_group.png" width=200 alt="dingtalk group"/>
+  <img src="docs/images/dingtalk_group.JPG" width=200 alt="dingtalk group"/>

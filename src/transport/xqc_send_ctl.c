@@ -1833,5 +1833,6 @@ xqc_send_ctl_get_est_bw(xqc_send_ctl_t *send_ctl)
 
 uint64_t
 xqc_send_ctl_get_pacing_rate(xqc_send_ctl_t *send_ctl) 
+{
     return xqc_pacing_rate_calc(&send_ctl->ctl_pacing);
 }

@@ -13,6 +13,10 @@
 #include "src/common/xqc_common.h"
 #ifdef XQC_SYS_WINDOWS
 #include <wincrypt.h>
+#undef PKCS7_SIGNER_INFO
+#undef X509_CERT_PAIR
+#undef X509_EXTENSIONS
+#undef X509_NAME
 #endif
 
 

@@ -324,6 +324,9 @@ xqc_hq_request_recv_req(xqc_hq_request_t *hqr, char *res_buf, size_t buf_sz, uin
         read = (ssize_t)strncpy(res_buf, hqr->resource_buf, buf_sz);
         hqr->resource_read_offset += read;
         *fin = (hqr->fin || req_fin);
+
+    } else {
+        read = 0;
     }
 
     return read;

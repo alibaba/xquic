@@ -27,6 +27,7 @@
 #include "getopt.h"
 #pragma comment(lib,"ws2_32.lib")
 #pragma comment(lib, "Iphlpapi.lib")
+#pragma comment(lib, "Bcrypt.lib")
 #endif
 
 #define XQC_FIRST_OCTET 1

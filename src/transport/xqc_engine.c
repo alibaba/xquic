@@ -500,6 +500,19 @@ xqc_engine_create(xqc_engine_type_t engine_type,
         goto fail;
     }
 
+    srand(time(NULL));
+
+    uint8_t tmp = 0;
+    uint8_t length_iv = (rand() % (XQC_MAX_LEN_IV - XQC_MIN_BLOCK_LEN)) +
+                         XQC_MIN_BLOCK_LEN;
+    for (uint8_t i = 0; i < length_iv; ++i) {
+        /* range of symbols: [33, 127) */
+        engine->init_vector[i] = (rand() % (XQC_ASCII_UPPER_BOUND -
+                                            XQC_ASCII_LOWER_BOUND) +
+                                  XQC_ASCII_LOWER_BOUND);
+    }
+    engine->init_vector[length_iv] = '\0';
+
     return engine;
 
 fail:

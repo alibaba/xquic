@@ -428,6 +428,9 @@ struct xqc_connection_s {
     uint32_t                        cli_bidi_streams;
     uint32_t                        svr_bidi_streams;
 
+    uint8_t                         conn_secret_len;
+    uint8_t                         conn_secret[XQC_MAX_TOKEN_LEN];
+
     /* receved pkts stats */
     struct {
         xqc_pkt_type_t              pkt_types[3];
@@ -494,7 +497,7 @@ xqc_int_t xqc_conn_immediate_close(xqc_connection_t *conn);
 xqc_int_t xqc_conn_send_retry(xqc_connection_t *conn, unsigned char *token, unsigned token_len);
 xqc_int_t xqc_conn_version_check(xqc_connection_t *c, uint32_t version);
 xqc_int_t xqc_conn_send_version_negotiation(xqc_connection_t *c);
-xqc_int_t xqc_conn_check_token(xqc_connection_t *conn, const unsigned char *token, unsigned token_len);
+xqc_int_t xqc_conn_check_token(xqc_connection_t *conn, const unsigned char *enc_token, unsigned token_len);
 void xqc_conn_gen_token(xqc_connection_t *conn, unsigned char *token, unsigned *token_len);
 xqc_int_t xqc_conn_early_data_reject(xqc_connection_t *conn);
 xqc_int_t xqc_conn_early_data_accept(xqc_connection_t *conn);

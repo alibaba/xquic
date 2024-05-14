@@ -658,4 +658,6 @@ xqc_int_t xqc_conn_send_ping_internal(xqc_connection_t *conn, void *ping_user_da
 
 void xqc_conn_encode_mp_settings(xqc_connection_t *conn, char *buf, size_t buf_sz);
 
+xqc_int_t xqc_conn_retire_dcid_prior_to(xqc_connection_t *conn, uint64_t retire_prior_to);
+
 #endif /* _XQC_CONN_H_INCLUDED_ */

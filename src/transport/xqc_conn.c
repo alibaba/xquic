@@ -3944,6 +3944,13 @@ xqc_conn_confirm_cid(xqc_connection_t *c, xqc_packet_t *pkt)
     if (!(c->conn_flag & XQC_CONN_FLAG_DCID_OK)) {
 
         if (xqc_cid_in_cid_set(&c->dcid_set.cid_set, &pkt->pkt_scid) == NULL) {
+            /* delete original cid which is not chosen by peer */
+            ret = xqc_cid_set_delete_cid(&c->dcid_set.cid_set, &c->original_dcid);
+            if (ret != XQC_OK) {
+                xqc_log(c->log, XQC_LOG_WARN, "|delete original dcid error");
+            }
+
+            /* insert peer's first dcid */
             ret = xqc_cid_set_insert_cid(&c->dcid_set.cid_set, &pkt->pkt_scid, XQC_CID_USED,
                                          c->local_settings.active_connection_id_limit);
             if (ret != XQC_OK) {
@@ -5943,3 +5950,68 @@ xqc_conn_handle_deprecated_stateless_reset(xqc_connection_t *conn,
 }
 
 #endif
+
+
+/* Retire DCID on initial path. this is called when NEW_CONNECTION_ID frame with
+   Retire Prior To field is received. */
+xqc_int_t
+xqc_conn_retire_dcid_prior_to(xqc_connection_t *conn, uint64_t retire_prior_to)
+{
+    xqc_int_t           ret;
+    uint64_t            seq_num;
+    xqc_cid_inner_t    *inner_cid;
+    xqc_list_head_t    *pos, *next;
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|retire cid prior to:%ui|current "
+            "largest_retire_prior_to:%ui|", retire_prior_to,
+            conn->dcid_set.largest_retire_prior_to);
+
+    xqc_list_for_each_safe(pos, next, &conn->dcid_set.cid_set.list_head) {
+
+        inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
+        seq_num = inner_cid->cid.cid_seq_num;
+
+        if ((inner_cid->state == XQC_CID_UNUSED
+                || inner_cid->state == XQC_CID_USED)
+            && (seq_num >= conn->dcid_set.largest_retire_prior_to
+                && seq_num < retire_prior_to))
+        {
+            ret = xqc_write_retire_conn_id_frame_to_packet(conn, seq_num);
+            if (ret != XQC_OK) {
+                xqc_log(conn->log, XQC_LOG_ERROR,
+                        "|xqc_write_retire_conn_id_frame_to_packet error|");
+                return ret;
+            }
+
+            /* change state */
+            ret = xqc_cid_switch_to_next_state(&conn->dcid_set.cid_set,
+                                               inner_cid, XQC_CID_RETIRED);
+            if (ret != XQC_OK) {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|switch cid state to "
+                        "RETIRED error|seq_num:%ui|cur_state:%d|", seq_num,
+                        inner_cid->state);
+            }
+
+            /* immediately delete cid */
+            xqc_list_del(pos);
+            xqc_free(inner_cid);
+
+            xqc_log(conn->log, XQC_LOG_INFO, "|cid[%ui] retired", seq_num);
+        }
+    }
+
+    conn->dcid_set.largest_retire_prior_to = retire_prior_to;
+
+    /* path dcid retired */
+    if (conn->conn_initial_path->path_dcid.cid_seq_num < retire_prior_to) {
+        xqc_log(conn->log, XQC_LOG_DEBUG, "");
+        xqc_cid_copy(&conn->conn_initial_path->path_dcid,
+                     &conn->dcid_set.current_dcid);
+    }
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|retire_prior_to|%ui|increase to %ui"
+            "|cnt:%ui", conn->dcid_set.largest_retire_prior_to,
+            retire_prior_to, xqc_cid_set_cnt(&conn->dcid_set.cid_set));
+
+    return XQC_OK;
+}

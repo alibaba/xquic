@@ -167,6 +167,49 @@ xqc_destroy_cid_set(xqc_cid_set_t *cid_set)
     xqc_init_cid_set(cid_set);
 }
 
+uint64_t
+xqc_cid_set_cnt(xqc_cid_set_t *cid_set)
+{
+    return cid_set->unused_cnt + cid_set->used_cnt;
+}
+
+xqc_bool_t
+xqc_cid_set_validate_new_cid_limit(xqc_cid_set_t *cid_set,
+    uint64_t max_retire_prior_to, uint64_t *active_cid_limit)
+{
+    xqc_list_head_t *pos, *next;
+    xqc_cid_inner_t *cid = NULL;
+    uint64_t         retire_cnt = 0;
+
+    if (xqc_cid_set_cnt(cid_set) + 1 <= *active_cid_limit) {
+        return XQC_TRUE;
+    }
+
+    /* the new cid might exceed the active_cid_limit, but will not retire any
+       cid, shall not be inserted */
+    if (max_retire_prior_to == 0) {
+        return XQC_FALSE;
+    }
+
+    /* validate if cid cnt is legal after to be retired */
+    xqc_list_for_each_safe(pos, next, &cid_set->list_head) {
+        cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
+        if (cid->cid.cid_seq_num < max_retire_prior_to) {
+            retire_cnt++;
+        }
+    }
+
+    if (xqc_cid_set_cnt(cid_set) + 1 - retire_cnt > *active_cid_limit) {
+        return XQC_FALSE;
+    }
+
+    /* allow the new connection id */
+    *active_cid_limit = xqc_cid_set_cnt(cid_set) + 1;
+
+    return XQC_TRUE;
+}
+
+
 xqc_int_t
 xqc_cid_set_insert_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid, xqc_cid_state_t state, uint64_t limit)
 {

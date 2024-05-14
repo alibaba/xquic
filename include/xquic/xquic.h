@@ -1145,7 +1145,7 @@ typedef struct xqc_conn_settings_s {
     xqc_msec_t                  init_idle_time_out; /* initial idle timeout interval, effective before handshake completion */
     xqc_msec_t                  idle_time_out;      /* idle timeout interval, effective after handshake completion */
     int32_t                     spurious_loss_detect_on;
-    uint32_t                    anti_amplification_limit;   /* limit of anti-amplification, default 3 */
+    uint32_t                    anti_amplification_limit;   /* limit of anti-amplification, default 5 */
     uint64_t                    keyupdate_pkt_threshold;    /* packet limit of a single 1-rtt key, 0 for unlimited */
     size_t                      max_pkt_out_size;
 

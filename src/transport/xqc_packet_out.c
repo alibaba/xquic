@@ -1270,18 +1270,21 @@ xqc_write_retire_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t seq_nu
 {
     xqc_int_t ret = XQC_ERROR;
 
-	/* select new current_dcid to replace the cid to be retired */		
-    if (seq_num == conn->dcid_set.current_dcid.cid_seq_num) {	
-        // TODO: DCID changes	
-        ret = xqc_get_unused_cid(&conn->dcid_set.cid_set, &conn->dcid_set.current_dcid);		
-        if (ret != XQC_OK) {		
-            xqc_log(conn->log, XQC_LOG_ERROR, "|conn don't have available dcid|");		
-            return ret;		
+    /* select new current_dcid to replace the cid to be retired */
+    if (seq_num == conn->dcid_set.current_dcid.cid_seq_num) {
+        // TODO: DCID changes
+        ret = xqc_get_unused_cid(&conn->dcid_set.cid_set, &conn->dcid_set.current_dcid);
+        if (ret != XQC_OK) {
+            xqc_log(conn->log, XQC_LOG_ERROR, "|conn don't have available dcid"
+                    "|seq_num:%ui|cur_cid_seq_num:%ui", seq_num,
+                    conn->dcid_set.current_dcid.cid_seq_num);
+            return ret;
         }
-        xqc_datagram_record_mss(conn);		
-    }		
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|get_new_dcid:%s|seq_num:%ui|",		
-            xqc_dcid_str(&conn->dcid_set.current_dcid), conn->dcid_set.current_dcid.cid_seq_num);
+        xqc_datagram_record_mss(conn);
+    }
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|get_new_dcid:%s|seq_num:%ui|",
+            xqc_dcid_str(&conn->dcid_set.current_dcid),
+            conn->dcid_set.current_dcid.cid_seq_num);
 
     xqc_packet_out_t *packet_out = xqc_write_new_packet(conn, XQC_PTYPE_SHORT_HEADER);
     if (packet_out == NULL) {

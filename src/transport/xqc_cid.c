@@ -82,9 +82,11 @@ xqc_cid_set(xqc_cid_t *cid, const unsigned char *data, uint8_t len)
     }
 }
 
+static unsigned char g_token_buf[XQC_MAX_TOKEN_LEN];
 static unsigned char g_scid_buf[XQC_MAX_CID_LEN * 2 + 1];
 static unsigned char g_dcid_buf[XQC_MAX_CID_LEN * 2 + 1];
 static unsigned char g_sr_token_buf[XQC_STATELESS_RESET_TOKENLEN * 2 + 1];
+
 
 unsigned char *
 xqc_dcid_str(const xqc_cid_t *dcid)
@@ -108,6 +110,13 @@ xqc_sr_token_str(const char *sr_token)
     xqc_hex_dump(g_sr_token_buf, sr_token, XQC_STATELESS_RESET_TOKENLEN);
     g_sr_token_buf[XQC_STATELESS_RESET_TOKENLEN * 2] = '\0';
     return g_sr_token_buf;
+}
+
+unsigned char *
+xqc_token_str(const char *token, size_t token_len) {
+    xqc_hex_dump(g_token_buf, token, token_len);
+    g_token_buf[token_len] = '\0';
+    return g_token_buf;
 }
 
 unsigned char *

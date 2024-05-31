@@ -12,6 +12,14 @@
 #include "src/tls/xqc_tls.h"
 #include "src/common/xqc_list.h"
 
+/* follow "XQC_MAX_TOKEN_LEN" from xqc_defs.h */
+#define XQC_MAX_LEN_IV        (256)
+/* follow "XQC_MAX_CID_LEN" xquic_typedef.h */
+#define XQC_MIN_BLOCK_LEN     (XQC_MAX_CID_LEN + 1)
+
+#define XQC_ASCII_LOWER_BOUND (33)
+#define XQC_ASCII_UPPER_BOUND (127)
+
 #define XQC_RESET_CNT_ARRAY_LEN 16384
 
 
@@ -68,6 +76,9 @@ typedef struct xqc_engine_s {
     /* list of xqc_alpn_registration_t */
     xqc_list_head_t                 alpn_reg_list;
 
+    /* engine initialization vector for token encryption */
+    uint8_t                         init_vector[XQC_MAX_LEN_IV];
+    
 } xqc_engine_t;
 
 

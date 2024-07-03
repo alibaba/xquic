@@ -75,6 +75,10 @@ if (XQC_ENABLE_EVENT_LOG)
     set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -DXQC_ENABLE_EVENT_LOG ")
 endif()
 
+if (DISABLE_WARNINGS)
+    add_compile_options("-Wno-error")
+endif ()
+
 if(ANDROID)
     set(DYMAMIC_LINK_OPTION 
         ${DYMAMIC_LINK_OPTION}

@@ -3,6 +3,8 @@
 
 android_archs=(armeabi-v7a arm64-v8a)
 ios_archs=(armv7 arm64 x86_64)
+hmos_archs=(arm64-v8a)
+CMAKE_CMD="cmake"
 cur_dir=$(cd "$(dirname "$0")";pwd)
 
 cp -f $cur_dir/cmake/CMakeLists.txt  $cur_dir/CMakeLists.txt
@@ -57,14 +59,16 @@ if [ x"$platform" == xios ] ; then
                 -DXQC_BUILD_SAMPLE=OFF
                 -DGCOV=OFF
                 -DCMAKE_TOOLCHAIN_FILE=${IOS_CMAKE_TOOLCHAIN}
-                -DENABLE_BITCODE=0
-                -DXQC_NO_SHARED=1
-                -DXQC_COMPAT_GENERATE_SR_PKT=1
-                -DXQC_ENABLE_RENO=1
-                -DXQC_ENABLE_BBR2=1
-                -DXQC_ENABLE_COPA=1
-                -DXQC_ENABLE_UNLIMITED=0
-                -DXQC_ENABLE_MP_INTEROP=0"
+                -DENABLE_BITCODE=OFF
+                -DXQC_NO_SHARED=ON
+                -DXQC_ENABLE_RENO=OFF
+                -DXQC_ENABLE_BBR2=ON
+                -DXQC_ENABLE_COPA=OFF
+                -DXQC_ENABLE_UNLIMITED=OFF
+                -DXQC_ENABLE_MP_INTEROP=OFF
+                -DXQC_DISABLE_LOG=OFF
+                -DXQC_ONLY_ERROR_LOG=ON
+                -DXQC_COMPAT_GENERATE_SR_PKT=ON"
 
 elif [ x"$platform" == xandroid ] ; then
     if [ x"$ANDROID_NDK" == x ] ; then
@@ -90,6 +94,37 @@ elif [ x"$platform" == xandroid ] ; then
                 -DXQC_DISABLE_LOG=OFF
                 -DXQC_ONLY_ERROR_LOG=ON
                 -DXQC_COMPAT_GENERATE_SR_PKT=ON"
+elif [ x"$platform" == xharmony ] ; then
+    if [ x"$HMOS_CMAKE_TOOLCHAIN" == x ] ; then
+        echo "HMOS_CMAKE_TOOLCHAIN MUST be defined"
+        exit 0
+    fi
+    echo "HMOS_CMAKE_TOOLCHAIN: ${HMOS_CMAKE_TOOLCHAIN}"
+
+    if [ x"$HMOS_CMAKE_PATH" == x ] ; then
+        echo "HMOS_CMAKE_PATH MUST be defined"
+        exit 0
+    fi
+    echo "HMOS_CMAKE_PATH: ${HMOS_CMAKE_PATH}"
+    CMAKE_CMD=${HMOS_CMAKE_PATH}
+
+    archs=${hmos_archs[@]}
+    configures="-DSSL_TYPE=${ssl_type}
+                -DSSL_PATH=${ssl_path}
+                -DCMAKE_BUILD_TYPE=Release
+                -DXQC_ENABLE_TESTING=OFF
+                -DXQC_BUILD_SAMPLE=OFF
+                -DGCOV=OFF
+                -DCMAKE_TOOLCHAIN_FILE=${HMOS_CMAKE_TOOLCHAIN}
+                -DXQC_ENABLE_RENO=OFF
+                -DXQC_ENABLE_BBR2=ON
+                -DXQC_ENABLE_COPA=OFF
+                -DXQC_ENABLE_UNLIMITED=OFF
+                -DXQC_ENABLE_MP_INTEROP=OFF
+                -DXQC_DISABLE_LOG=OFF
+                -DXQC_ONLY_ERROR_LOG=ON
+                -DXQC_COMPAT_GENERATE_SR_PKT=ON
+                -DDISABLE_WARNINGS=ON"
 else
     echo "no support platform"
     exit 0
@@ -105,6 +140,8 @@ generate_plat_spec() {
         elif [ x"$1" == xi386 ] ; then
             plat_spec="$plat_spec -DPLATFORM=SIMULATOR"
         fi
+    elif [ x"$platform" == xharmony ] ; then
+        plat_spec="-DOHOS_ARCH=$1"
     else
         plat_spec="-DANDROID_ABI=$1"
     fi
@@ -131,7 +168,7 @@ do
     rm -rf third_party
 
     echo "compiling xquic on $i arch"
-    cmake  $configures  $(generate_plat_spec $i ) -DLIBRARY_OUTPUT_PATH=`pwd`/outputs/ ..
+    "${CMAKE_CMD}"  $configures  $(generate_plat_spec $i ) -DLIBRARY_OUTPUT_PATH=`pwd`/outputs/ ..
     make -j 4
     if [ $? != 0 ] ; then
         exit 0

@@ -610,6 +610,24 @@ xqc_demo_cli_write_log_file(xqc_log_level_t lvl, const void *buf, size_t size, v
     }
 }
 
+void
+xqc_demo_cli_write_qlog_file(qlog_event_importance_t imp, const void *buf, size_t size, void *engine_user_data)
+{
+    xqc_demo_cli_ctx_t *ctx = (xqc_demo_cli_ctx_t*)engine_user_data;
+    if (ctx->log_fd <= 0) {
+        return;
+    }
+    int write_len = write(ctx->log_fd, buf, size);
+    if (write_len < 0) {
+        printf("write qlog failed, errno: %d\n", get_sys_errno());
+        return;
+    }
+    write_len = write(ctx->log_fd, line_break, 1);
+    if (write_len < 0) {
+        printf("write qlog failed, errno: %d\n", get_sys_errno());
+    }
+}
+
 
 int
 xqc_demo_cli_open_keylog_file(xqc_demo_cli_ctx_t *ctx)
@@ -2314,7 +2332,8 @@ xqc_demo_cli_init_callback(xqc_engine_callback_t *cb, xqc_transport_callbacks_t 
     static xqc_engine_callback_t callback = {
         .log_callbacks = {
             .xqc_log_write_err = xqc_demo_cli_write_log_file,
-            .xqc_log_write_stat = xqc_demo_cli_write_log_file
+            .xqc_log_write_stat = xqc_demo_cli_write_log_file,
+            .xqc_qlog_event_write = xqc_demo_cli_write_qlog_file,
         },
         .keylog_cb = xqc_demo_cli_keylog_cb,
         .set_event_timer = xqc_demo_cli_set_event_timer,
@@ -2461,12 +2480,15 @@ xqc_demo_cli_init_xquic_connection(xqc_demo_cli_user_conn_t *user_conn,
         memcpy(&user_conn->cid, cid, sizeof(xqc_cid_t));
 
     } else {
-        user_conn->hqc_handle = xqc_hq_connect(user_conn->ctx->engine, &conn_settings,
+        const xqc_cid_t *cid = xqc_hq_connect(user_conn->ctx->engine, &conn_settings,
             args->quic_cfg.token, args->quic_cfg.token_len, args->net_cfg.host, args->quic_cfg.no_encryption, &conn_ssl_config, 
             (struct sockaddr*)&args->net_cfg.addr, args->net_cfg.addr_len, user_conn);
-        if (user_conn->hqc_handle == NULL) {
+
+        if (cid == NULL) {
             return -1;
         }
+
+        memcpy(&user_conn->cid, cid, sizeof(xqc_cid_t));
     }
 
     if (conn_settings.enable_multipath

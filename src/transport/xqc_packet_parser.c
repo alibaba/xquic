@@ -271,7 +271,7 @@ xqc_packet_parse_short_header(xqc_connection_t *c, xqc_packet_in_t *packet_in)
     if (xqc_conn_check_dcid(c, &(packet->pkt_dcid)) != XQC_OK) {
         /* log & ignore, the pkt might be corrupted or stateless reset */
         xqc_log(c->log, XQC_LOG_WARN, "|parse short header|invalid destination cid, pkt dcid: %s, conn scid: %s|",
-                xqc_dcid_str(&packet->pkt_dcid), xqc_scid_str(&c->scid_set.user_scid));
+                xqc_dcid_str(c->engine, &packet->pkt_dcid), xqc_scid_str(c->engine, &c->scid_set.user_scid));
         return -XQC_EILLPKT;
     }
 
@@ -292,7 +292,7 @@ xqc_packet_parse_short_header(xqc_connection_t *c, xqc_packet_in_t *packet_in)
     }
     
     xqc_log(c->log, XQC_LOG_DEBUG, "|parse short header|path:%ui|pkt_dcid:%s|spin_bit:%ud|",
-            packet_in->pi_path_id, xqc_scid_str(&(packet->pkt_dcid)), spin_bit);
+            packet_in->pi_path_id, xqc_scid_str(c->engine, &(packet->pkt_dcid)), spin_bit);
 
     /* packet number */
     packet_in->pi_pkt.length = packet_in->last - pos;
@@ -1047,8 +1047,8 @@ xqc_packet_parse_retry(xqc_connection_t *c, xqc_packet_in_t *packet_in)
      */
     if (xqc_cid_is_equal(&c->original_dcid, &packet_in->pi_pkt.pkt_scid) == XQC_OK) {
         xqc_log(c->log, XQC_LOG_DEBUG, "|discard|packet SCID error|odcid:%s|scid:%s|",
-                                       xqc_dcid_str(&c->original_dcid),
-                                       xqc_scid_str(&packet_in->pi_pkt.pkt_scid));
+                                       xqc_dcid_str(c->engine, &c->original_dcid),
+                                       xqc_scid_str(c->engine, &packet_in->pi_pkt.pkt_scid));
         return -XQC_EILLPKT;
     }
 
@@ -1142,7 +1142,7 @@ xqc_packet_parse_version_negotiation(xqc_connection_t *c, xqc_packet_in_t *packe
     /* check original DCID */
     if (xqc_cid_is_equal(&c->original_dcid, &packet_in->pi_pkt.pkt_scid) != XQC_OK) {
         xqc_log(c->log, XQC_LOG_ERROR, "|version negotiation pkt SCID error|original_dcid:%s|scid:%s|", 
-                xqc_dcid_str(&c->original_dcid), xqc_scid_str(&packet_in->pi_pkt.pkt_scid));
+                xqc_dcid_str(c->engine, &c->original_dcid), xqc_scid_str(c->engine, &packet_in->pi_pkt.pkt_scid));
         return -XQC_EILLPKT;
     }
 

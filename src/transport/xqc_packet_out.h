@@ -113,6 +113,8 @@ typedef struct xqc_packet_out_s {
     /* PMTUD Probing */
     size_t                  po_max_pkt_out_size;
 
+    size_t                  po_reserved_size;
+
     /* ping notification */
     xqc_ping_record_t      *po_pr;
 
@@ -211,7 +213,20 @@ xqc_int_t xqc_write_path_status_frame_to_packet(xqc_connection_t *conn, xqc_path
 
 xqc_int_t xqc_write_path_standby_or_available_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path);
 
+xqc_int_t xqc_write_sid_frame_to_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
+
+xqc_int_t xqc_write_repair_packets(xqc_connection_t *conn, xqc_int_t fss_esi, xqc_list_head_t *prev);
+
 int xqc_write_pmtud_ping_to_packet(xqc_path_ctx_t *path, size_t probing_size, xqc_pkt_type_t pkt_type);
 
+/**
+ * @brief Get remained space size in packet out buff.
+ * 
+ * @param conn 
+ * @param po 
+ * @return size_t 
+ */
+size_t xqc_get_po_remained_size(xqc_packet_out_t *po);
+size_t xqc_get_po_remained_size_with_ack_spc(xqc_packet_out_t *po);
 
 #endif /* _XQC_PACKET_OUT_H_INCLUDED_ */

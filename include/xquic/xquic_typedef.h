@@ -138,6 +138,15 @@ typedef enum xqc_log_level_s {
     XQC_LOG_DEBUG,
 } xqc_log_level_t;
 
+/* qlog Importance level definition */
+typedef enum qlog_event_importance_s {
+    EVENT_IMPORTANCE_SELECTED,   /* qlog will be emitted selectly */
+    EVENT_IMPORTANCE_CORE,
+    EVENT_IMPORTANCE_BASE,
+    EVENT_IMPORTANCE_EXTRA,
+    EVENT_IMPORTANCE_REMOVED,   /* Currently, some events have been removed in the latest qlog draft. But old qvis need them! */
+} qlog_event_importance_t;
+
 #define XQC_BBR_RTTVAR_COMPENSATION_ENABLED 0
 typedef enum {
     XQC_BBR_FLAG_NONE = 0x00,

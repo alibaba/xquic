@@ -49,25 +49,23 @@ static const char * const frame_type_2_str[XQC_FRAME_NUM] = {
     [XQC_FRAME_Extension]            = "Extension",
 };
 
-static char g_frame_type_buf[128];
-
 const char *
-xqc_frame_type_2_str(xqc_frame_type_bit_t type_bit)
+xqc_frame_type_2_str(xqc_engine_t *engine, xqc_frame_type_bit_t type_bit)
 {
-    g_frame_type_buf[0] = '\0';
+    engine->frame_type_buf[0] = '\0';
     size_t pos = 0;
     int wsize;
     for (int i = 0; i < XQC_FRAME_NUM; i++) {
         if (type_bit & 1 << i) {
-            wsize = snprintf(g_frame_type_buf + pos, sizeof(g_frame_type_buf) - pos, "%s ",
+            wsize = snprintf(engine->frame_type_buf + pos, sizeof(engine->frame_type_buf) - pos, "%s ",
                              frame_type_2_str[i]);
-            if (wsize < 0 || wsize >= sizeof(g_frame_type_buf) - pos) {
+            if (wsize < 0 || wsize >= sizeof(engine->frame_type_buf) - pos) {
                 break;
             }
             pos += wsize;
         }
     }
-    return g_frame_type_buf;
+    return engine->frame_type_buf;
 }
 
 unsigned int
@@ -351,6 +349,32 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
                 ret = -XQC_EMP_INVALID_MP_VERTION;
             }
             break;
+
+#ifdef XQC_ENABLE_FEC
+        case 0xfec5:
+            if (conn->conn_settings.enable_decode_fec
+                && conn->conn_settings.fec_params.fec_decoder_scheme != 0)
+            {
+                ret = xqc_process_sid_frame(conn, packet_in);
+            
+            } else {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|fec negotiation failed but still received fec packet.");
+                ret = -XQC_EFEC_NOT_SUPPORT_FEC;
+            }
+            break;
+
+        case 0xfec6:
+            if (conn->conn_settings.enable_decode_fec
+                && conn->conn_settings.fec_params.fec_decoder_scheme != 0)
+            {
+                ret = xqc_process_repair_frame(conn, packet_in);
+
+            } else {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|fec negotiation failed but still received fec packet.");
+                ret = -XQC_EFEC_NOT_SUPPORT_FEC;
+            }
+            break;
+#endif
         default:
             xqc_log(conn->log, XQC_LOG_ERROR, "|unknown frame type|");
             return -XQC_EIGNORE_PKT;
@@ -432,6 +456,7 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     xqc_log(conn->log, XQC_LOG_DEBUG, "|offset:%ui|data_length:%ud|fin:%ud|stream_id:%ui|path:%ui|",
             stream_frame->data_offset, stream_frame->data_length, stream_frame->fin, stream_id, packet_in->pi_path_id);
 
+    /* TODOfec: which step should be skip considering current packet is fec recovered？ */
     stream = xqc_find_stream_by_id(stream_id, conn->streams_hash);
     if (!stream) {
         if ((conn->conn_type == XQC_CONN_TYPE_SERVER && (stream_type == XQC_CLI_BID || stream_type == XQC_CLI_UNI))
@@ -455,10 +480,11 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 
     conn->stream_stats.recv_bytes += stream_frame->data_length;
 
-    xqc_stream_path_metrics_on_recv(conn, stream, packet_in);
-
-    if (packet_in->pi_path_id < XQC_MAX_PATHS_COUNT) {
-        stream->paths_info[packet_in->pi_path_id].path_recv_bytes += stream_frame->data_length;
+    if (!(packet_in->pi_flag & XQC_PIF_FEC_RECOVERED)) {
+        xqc_stream_path_metrics_on_recv(conn, stream, packet_in);
+        if (packet_in->pi_path_id < XQC_MAX_PATHS_COUNT) {
+            stream->paths_info[packet_in->pi_path_id].path_recv_bytes += stream_frame->data_length;
+        }
     }
 
     if (stream->stream_state_recv >= XQC_RECV_STREAM_ST_RESET_RECVD) {
@@ -568,7 +594,9 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         xqc_stream_ready_to_read(stream);
     }
 
-    if (packet_in->pi_path_id < XQC_MAX_PATHS_COUNT) {
+    if (!(packet_in->pi_flag & XQC_PIF_FEC_RECOVERED)
+        && packet_in->pi_path_id < XQC_MAX_PATHS_COUNT)
+    {
         stream->paths_info[packet_in->pi_path_id].path_recv_effective_bytes += stream_frame->data_length;
     }
 
@@ -698,11 +726,13 @@ xqc_process_ack_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_parse_ack_frame error|");
         return ret;
     }
+    if ((packet_in->pi_flag & XQC_PIF_FEC_RECOVERED) != 0) {
+        return XQC_OK;
+    }
 
     for (int i = 0; i < ack_info.n_ranges; i++) {
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|high:%ui|low:%ui|pkt_pns:%d|",
-                ack_info.ranges[i].high, ack_info.ranges[i].low, packet_in->pi_pkt.pkt_pns);
-        xqc_log_event(conn->log, TRA_PACKETS_ACKED, packet_in, ack_info.ranges[i].high, ack_info.ranges[i].low);
+        xqc_log_event(conn->log, TRA_PACKETS_ACKED, packet_in, ack_info.ranges[i].high,
+            ack_info.ranges[i].low, packet_in->pi_path_id);
     }
 
     /* 对端还不支持MP，或还未握手确认时，使用 initial path */
@@ -756,7 +786,7 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
     }
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|new_conn_id|%s|sr_token:%s",
-            xqc_scid_str(&new_conn_cid), xqc_sr_token_str(new_conn_cid.sr_token));
+            xqc_scid_str(conn->engine, &new_conn_cid), xqc_sr_token_str(conn->engine, new_conn_cid.sr_token));
 
     if (retire_prior_to > new_conn_cid.cid_seq_num) {
         /*
@@ -874,6 +904,10 @@ xqc_process_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
                 "|xqc_parse_retire_conn_id_frame error|");
         return ret;
     }
+    
+    if ((packet_in->pi_flag & XQC_PIF_FEC_RECOVERED) != 0) {
+        return XQC_OK;
+    }
 
     if (seq_num > conn->scid_set.largest_scid_seq_num) {
         /* 
@@ -971,6 +1005,7 @@ xqc_process_conn_close_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         }
     }
     conn->conn_state = XQC_CONN_STATE_DRAINING;
+    xqc_log_event(conn->log, CON_CONNECTION_STATE_UPDATED, conn);
     xqc_conn_closing(conn);
 
     return XQC_OK;
@@ -1425,6 +1460,10 @@ xqc_process_path_challenge_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         return ret;
     }
 
+    if ((packet_in->pi_flag & XQC_PIF_FEC_RECOVERED) != 0) {
+        return XQC_OK;
+    }
+
     //TODO: MPQUIC fix migration
     xqc_path_ctx_t *path = NULL;
     if (conn->enable_multipath) {
@@ -1449,7 +1488,7 @@ xqc_process_path_challenge_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         } else {
             xqc_log(conn->log, XQC_LOG_ERROR, 
                     "|no path to challenge|dcid:%s|path_id:%ui|", 
-                    xqc_dcid_str(&packet_in->pi_pkt.pkt_dcid),
+                    xqc_dcid_str(conn->engine, &packet_in->pi_pkt.pkt_dcid),
                     packet_in->pi_path_id);
             return XQC_OK;
         }
@@ -1458,7 +1497,7 @@ xqc_process_path_challenge_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
     xqc_log(conn->log, XQC_LOG_DEBUG, 
             "|path:%ui|state:%d|RECV path_challenge_data:%s|cid:%s|",
             path->path_id, path->path_state, 
-            path_challenge_data, xqc_dcid_str(&packet_in->pi_pkt.pkt_dcid));
+            path_challenge_data, xqc_dcid_str(conn->engine, &packet_in->pi_pkt.pkt_dcid));
 
     ret = xqc_write_path_response_frame_to_packet(conn, path, path_challenge_data);
     if (ret != XQC_OK) {
@@ -1482,6 +1521,10 @@ xqc_process_path_response_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_
         return ret;
     }
 
+    if ((packet_in->pi_flag & XQC_PIF_FEC_RECOVERED) != 0) {
+        return XQC_OK;
+    }
+
     //TODO: MPQUIC fix migration
     xqc_path_ctx_t *path = NULL;
     if (conn->enable_multipath) {
@@ -1489,7 +1532,7 @@ xqc_process_path_response_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_
         if (path == NULL) {
             xqc_log(conn->log, XQC_LOG_ERROR, 
                     "|ingnore path response|pkt_dcid:%s|path_id:%ui|", 
-                    xqc_scid_str(&packet_in->pi_pkt.pkt_dcid),
+                    xqc_scid_str(conn->engine, &packet_in->pi_pkt.pkt_dcid),
                     packet_in->pi_path_id);
             return XQC_OK;
         }
@@ -1565,6 +1608,10 @@ xqc_process_ack_mp_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         return ret;
     }
 
+    if ((packet_in->pi_flag & XQC_PIF_FEC_RECOVERED) != 0) {
+        return XQC_OK;
+    }
+
     xqc_path_ctx_t *path_to_be_acked = xqc_conn_find_path_by_dcid_seq(conn, dcid_seq_num);
     if (path_to_be_acked == NULL) {
         xqc_log(conn->log, XQC_LOG_INFO, "|ignore unknown path|dcid_seq:%ui|", dcid_seq_num);
@@ -1579,9 +1626,8 @@ xqc_process_ack_mp_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     }
 
     for (int i = 0; i < ack_info.n_ranges; i++) {
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|high:%ui|low:%ui|pkt_pns:%d|", path_to_be_acked->path_id,
-                ack_info.ranges[i].high, ack_info.ranges[i].low, packet_in->pi_pkt.pkt_pns);
-        xqc_log_event(conn->log, TRA_PACKETS_ACKED, packet_in, ack_info.ranges[i].high, ack_info.ranges[i].low);
+        xqc_log_event(conn->log, TRA_PACKETS_ACKED, packet_in, ack_info.ranges[i].high, 
+            ack_info.ranges[i].low, path_to_be_acked->path_id);
     }
 
     xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path_to_be_acked);
@@ -1760,3 +1806,37 @@ xqc_process_path_available_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
 
     return XQC_OK;
 }
+
+#ifdef XQC_ENABLE_FEC
+xqc_int_t
+xqc_process_sid_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
+{
+    xqc_int_t ret;
+
+    ret = xqc_parse_sid_frame(conn, packet_in);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_parse_sid_frame err|ret:%d|", ret);
+    }
+    if (ret == -XQC_EVINTREAD) {
+        return ret;
+    }
+    /* if there's error, just ignore fec module */
+    return XQC_OK;
+}
+
+xqc_int_t
+xqc_process_repair_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
+{
+    xqc_int_t ret;
+    
+    ret = xqc_parse_repair_frame(conn, packet_in);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_parse_repair_frame err|ret:%d|", ret);
+    }
+    if (ret == -XQC_EVINTREAD) {
+        return ret;
+    }
+    /* if there's error, just ignore fec module */
+    return XQC_OK;
+}
+#endif

@@ -167,7 +167,7 @@ test_create_engine_buf_server(test_ctx *tctx)
                                              &callback, &tcbs, tctx);
 
     /* transport ALPN */
-    xqc_engine_register_alpn(engine, "transport", 9, &transport_cbs);
+    xqc_engine_register_alpn(engine, "transport", 9, &transport_cbs, NULL);
 
     return engine;
 }
@@ -202,7 +202,7 @@ test_create_engine_buf_client(test_ctx *tctx)
                                              &callback, &tcbs, tctx);
 
     /* transport ALPN */
-    xqc_engine_register_alpn(engine, "transport", 9, &transport_cbs);
+    xqc_engine_register_alpn(engine, "transport", 9, &transport_cbs, NULL);
 
     return engine;
 }

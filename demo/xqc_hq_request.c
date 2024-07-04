@@ -78,11 +78,7 @@ xqc_hq_request_create(xqc_engine_t *engine, xqc_hq_conn_t *hqc, const xqc_cid_t 
         return NULL;
     }
 
-    /* init app-level callbacks */
-    if (xqc_hq_ctx_get_request_callbacks(&hqr->hqr_cbs) != XQC_OK) {
-        PRINT_LOG("get app-level request callbacks error\n");
-        goto fail;
-    }
+    hqr->hqr_cbs = &hqc->hqr_cbs;
 
     /* create stream, make hqr the user_data of xqc_stream_t */
     stream = xqc_stream_create(engine, cid, NULL, hqr);
@@ -114,12 +110,9 @@ xqc_hq_request_create_passive(xqc_stream_t *stream)
         return NULL;
     }
 
-    /* init app-level callbacks */
-    if (xqc_hq_ctx_get_request_callbacks(&hqr->hqr_cbs) != XQC_OK) {
-        PRINT_LOG("get app-level request callbacks error");
-        xqc_hq_request_destroy(hqr);
-        return NULL;
-    }
+    xqc_hq_conn_t *hqc = xqc_get_conn_alp_user_data_by_stream(stream);
+
+    hqr->hqr_cbs = &hqc->hqr_cbs;
 
     /* make hqr the user_data of xqc_stream_t */
     xqc_stream_set_user_data(stream, hqr);

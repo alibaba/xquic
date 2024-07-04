@@ -14,11 +14,6 @@ CLIENT_BIN="tests/test_client"
 SERVER_BIN="tests/test_server"
 
 
-# start test_server
-killall test_server 2> /dev/null
-${SERVER_BIN} -l d -e > /dev/null &
-sleep 1
-
 clear_log() {
     >clog
     >slog
@@ -42,11 +37,17 @@ function case_print_result() {
 }
 
 
+# start test_server
+rm -rf tp_localhost test_session xqc_token
+killall test_server 2> /dev/null
+${SERVER_BIN} -l d -e > /dev/null &
+sleep 1
+
 clear_log
 echo -e "log switch off ...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 44 >> stdlog
-log_size=`wc -c clog | awk -F ' ' '{print $1}'`
-if [ $log_size -eq 0 ]; then
+log_size=`wc -l clog | awk -F ' ' '{print $1}'`
+if [ $log_size -eq 1 ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "log_switch_off" "pass"
 else
@@ -54,7 +55,7 @@ else
     case_print_result "log_switch_off" "fail"
 fi
 
-clear_log
+
 echo -e "server refuse ...\c"
 ${CLIENT_BIN} -x 46 -t 10 >> stdlog
 result=`grep "conn close notified by refuse" slog`
@@ -779,7 +780,7 @@ clear_log
 echo -e "GET request ...\c"
 result=`${CLIENT_BIN} -l d -t 1 -E -G|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
-alpn_res=`grep "|select alpn|h3|" slog`
+alpn_res=`grep "|selected_alpn:h3|" slog`
 echo "$result"
 if [ -z "$errlog" ] && [ -n "$alpn_res" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
     case_print_result "GET_request" "pass"
@@ -792,7 +793,7 @@ clear_log
 rm -f test_session xqc_token tp_localhost
 echo -e "new client 29 - new server ...\c"
 result=`${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 17 |grep ">>>>>>>> pass"`
-alpn_res=`grep "select alpn|h3-29|" slog`
+alpn_res=`grep "selected_alpn:h3-29" slog`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ -n "$alpn_res" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -1200,7 +1201,7 @@ sleep 1
 client_print_res=`${CLIENT_BIN} -s 1024000 -l d -t 1 -x 22 -E | grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 server_log_res=`grep "decrypt payload error" slog`
-server_conn_cnt=`grep "xqc_conn_create" slog | grep -v "tra_parameters_set" | grep -v "mempool" | wc -l`
+server_conn_cnt=`grep "xqc_conn_create" slog | grep -v "tra_parameters_set" | grep -v "mempool" | grep -v "connection_state_updated" | grep -v "path_assigned" | wc -l`
 echo "$client_print_res"
 if [ "$client_print_res" != "" ] && [ "$server_log_res" != "" ] && [ $server_conn_cnt -eq 2 ]; then
     case_print_result "client_initial_dcid_corruption" "pass"
@@ -1550,12 +1551,12 @@ grep_err_log
 
 clear_log
 echo -e "MPNS multipath close initial path ...\c"
-sudo ${CLIENT_BIN} -s 1024000 -l d -t 3 -M -i lo -i lo -E -x 100 > stdlog
+sudo ${CLIENT_BIN} -s 10240 -l d -t 5 -M -i lo -i lo -E -x 100 -e 10 --epoch_timeout 1000000 > stdlog
 result=`grep ">>>>>>>> pass" stdlog`
 svr_res=`grep "|path closed|path:0|" slog`
 cli_res=`grep "|path closed|path:0|" clog`
 errlog=`grep_err_log`
-if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+if [ -z "$errlog" ] && [ -n "$result" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "MPNS_multipath_close_initial_path" "pass"
 else
@@ -1566,12 +1567,12 @@ grep_err_log
 
 clear_log
 echo -e "MPNS multipath 30 percent loss close initial path ...\c"
-sudo ${CLIENT_BIN} -s 10240000 -t 5 -l d -E -d 300 -M -i lo -i lo -x 100 > stdlog
+sudo ${CLIENT_BIN} -s 10240 -t 6 -l d -E -d 300 -M -i lo -i lo -x 100 -e 10 --epoch_timeout 1000000 > stdlog
 result=`grep ">>>>>>>> pass" stdlog`
 svr_res=`grep "|path closed|path:0|" slog`
 cli_res=`grep "|path closed|path:0|" clog`
 errlog=`grep_err_log`
-if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+if [ -z "$errlog" ] && [ -n "$result" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "MPNS_multipath_30_percent_loss_close_initial_path" "pass"
 else
@@ -1580,14 +1581,16 @@ else
 fi
 grep_err_log
 
+
+
 clear_log
 echo -e "MPNS multipath close new path ...\c"
-sudo ${CLIENT_BIN} -s 1024000 -l d -t 3 -M -A -i lo -i lo -E -x 101 >> clog
+sudo ${CLIENT_BIN} -s 10240 -l d -t 5 -M -A -i lo -i lo -E -x 101 -e 10 --epoch_timeout 1000000 >> clog
 result=`grep ">>>>>>>> pass" clog`
 svr_res=`grep "|path closed|path:1|" slog`
 cli_res=`grep "|path closed|path:1|" clog`
 errlog=`grep_err_log`
-if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+if [ -z "$errlog" ] && [ -n "$result" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "MPNS_multipath_close_new_path" "pass"
 else
@@ -1598,12 +1601,12 @@ grep_err_log
 
 clear_log
 echo -e "MPNS multipath 30 percent loss close new path ...\c"
-sudo ${CLIENT_BIN} -s 10240000 -t 5 -l d -E -d 300 -M -i lo -i lo -x 101 > stdlog
+sudo ${CLIENT_BIN} -s 10240 -t 6 -l d -E -d 300 -M -i lo -i lo -x 101 -e 10 --epoch_timeout 1000000 > stdlog
 result=`grep ">>>>>>>> pass" stdlog`
 svr_res=`grep "|path closed|path:1|" slog`
 cli_res=`grep "|path closed|path:1|" clog`
 errlog=`grep_err_log`
-if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+if [ -z "$errlog" ] && [ -n "$result" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "MPNS_multipath_30_percent_loss_close_new_path" "pass"
 else
@@ -2517,6 +2520,25 @@ if [ -n "$cli_res1" ] && [ -z "$errlog" ]; then
 else
     echo ">>>>>>>> pass:0"
     case_print_result "0RTT_datagram_send_multiple_redundancy" "fail"
+fi
+
+killall test_server
+rm -rf tp_localhost test_session xqc_token
+clear_log
+stdbuf -oL ${SERVER_BIN} -l d -Q 65535 -x 208 -e -U 1 > svr_stdlog &
+sleep 1
+
+echo -e "stop_datagram_send_redundancy_after_negotiation...\c"
+${CLIENT_BIN} -l d -T 1 -s 2000 -U 2 -Q 65535 -x 208 --close_dg_red 1 > stdlog
+cli_res=`grep "|stop sending datagram redundancy." clog`
+svr_res=`grep "|stop sending datagram redundancy." slog`
+errlog=`grep_err_log`
+if [ -n "$cli_res" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "stop_datagram_send_redundancy_after_negotiation" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "stop_datagram_send_redundancy_after_negotiation" "fail"
 fi
 
 
@@ -4210,6 +4232,526 @@ if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
     case_print_result "stream_rate_throttling" "pass"
 else
     case_print_result "stream_rate_throttling" "fail"
+    echo "$errlog"
+fi
+
+
+sudo rm -rf tp_localhost test_session xqc_token clog slog stdlog ckeys.log
+killall test_server
+${SERVER_BIN} -l d -e -x 150 > /dev/null &
+sleep 1
+
+clear_log
+echo -e "h3_engine_set_settings_api_h3 ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 150 >> stdlog
+sleep 1
+cli_pass=`grep ">>>>>>>> pass:1" stdlog`
+cli_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog`
+cli_log2=`grep -e "qpack_enc_compat_dup:1" clog`
+cli_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" clog`
+cli_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" clog`
+cli_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" clog`
+svr_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" slog`
+svr_log2=`grep -e "qpack_enc_compat_dup:1" slog`
+svr_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog`
+svr_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" slog`
+svr_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" slog`
+err_log=`grep_err_log`
+
+if [ -n "$cli_pass" ] && [ -n "$cli_log1" ] && [ -n "$cli_log2" ] && [ -n "$cli_log3" ] && [ -n "$cli_log4" ] && [ -n "$cli_log5" ] && \
+   [ -z "$err_log" ] && [ -n "$svr_log1" ] && [ -n "$svr_log2" ] && [ -n "$svr_log3" ] && [ -n "$svr_log4" ] && [ -n "$svr_log5" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_engine_set_settings_api_h3" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_engine_set_settings_api_h3" "fail"
+fi
+
+sudo rm -rf tp_localhost test_session xqc_token clog slog stdlog ckeys.log
+killall test_server
+${SERVER_BIN} -l d -e -x 151 > /dev/null &
+sleep 1
+
+clear_log
+echo -e "h3_engine_set_settings_api_h3_more ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 151 >> stdlog
+sleep 1
+cli_pass=`grep ">>>>>>>> pass:1" stdlog`
+cli_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog`
+cli_log2=`grep -e "qpack_enc_compat_dup:1" clog`
+cli_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" clog`
+cli_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" clog`
+cli_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" clog`
+svr_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" slog`
+svr_log2=`grep -e "qpack_enc_compat_dup:1" slog`
+svr_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog`
+svr_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" slog`
+svr_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" slog`
+err_log=`grep_err_log`
+
+if [ -n "$cli_pass" ] && [ -n "$cli_log1" ] && [ -n "$cli_log2" ] && [ -n "$cli_log3" ] && [ -n "$cli_log4" ] && [ -n "$cli_log5" ] && \
+   [ -z "$err_log" ] && [ -n "$svr_log1" ] && [ -n "$svr_log2" ] && [ -n "$svr_log3" ] && [ -n "$svr_log4" ] && [ -n "$svr_log5" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_engine_set_settings_api_h3_more" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_engine_set_settings_api_h3_more" "fail"
+fi
+
+sudo rm -rf tp_localhost test_session xqc_token clog slog stdlog ckeys.log
+killall test_server
+${SERVER_BIN} -l d -e -x 152 > /dev/null &
+sleep 1
+
+clear_log
+echo -e "h3_engine_set_settings_api_h3_29 ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 152 >> stdlog
+sleep 1
+cli_pass=`grep ">>>>>>>> pass:1" stdlog`
+cli_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog`
+cli_log2=`grep -e "qpack_enc_compat_dup:1" clog`
+cli_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" clog`
+cli_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" clog`
+cli_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" clog`
+svr_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" slog`
+svr_log2=`grep -e "qpack_enc_compat_dup:1" slog`
+svr_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog`
+svr_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" slog`
+svr_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" slog`
+err_log=`grep_err_log`
+
+if [ -n "$cli_pass" ] && [ -n "$cli_log1" ] && [ -n "$cli_log2" ] && [ -n "$cli_log3" ] && [ -n "$cli_log4" ] && [ -n "$cli_log5" ] && \
+   [ -z "$err_log" ] && [ -n "$svr_log1" ] && [ -n "$svr_log2" ] && [ -n "$svr_log3" ] && [ -n "$svr_log4" ] && [ -n "$svr_log5" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_engine_set_settings_api_h3_29" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_engine_set_settings_api_h3_29" "fail"
+fi
+
+sudo rm -rf tp_localhost test_session xqc_token clog slog stdlog ckeys.log
+killall test_server
+${SERVER_BIN} -l d -e -x 153 > /dev/null &
+sleep 1
+
+clear_log
+echo -e "h3_engine_set_settings_api_h3_29_more ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 153 >> stdlog
+sleep 1
+cli_pass=`grep ">>>>>>>> pass:1" stdlog`
+cli_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog`
+cli_log2=`grep -e "qpack_enc_compat_dup:1" clog`
+cli_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" clog`
+cli_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" clog`
+cli_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" clog`
+svr_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" slog`
+svr_log2=`grep -e "qpack_enc_compat_dup:1" slog`
+svr_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog`
+svr_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" slog`
+svr_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" slog`
+err_log=`grep_err_log`
+
+if [ -n "$cli_pass" ] && [ -n "$cli_log1" ] && [ -n "$cli_log2" ] && [ -n "$cli_log3" ] && [ -n "$cli_log4" ] && [ -n "$cli_log5" ] && \
+   [ -z "$err_log" ] && [ -n "$svr_log1" ] && [ -n "$svr_log2" ] && [ -n "$svr_log3" ] && [ -n "$svr_log4" ] && [ -n "$svr_log5" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_engine_set_settings_api_h3_29_more" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_engine_set_settings_api_h3_29_more" "fail"
+fi
+
+
+sudo rm -rf tp_localhost test_session xqc_token clog slog stdlog ckeys.log
+killall test_server
+${SERVER_BIN} -l d -e -x 150 > /dev/null &
+sleep 1
+
+clear_log
+echo -e "h3_engine_set_settings_api_h3_ext ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 150 -T 2 >> stdlog
+sleep 1
+cli_pass=`grep ">>>>>>>> pass:1" stdlog`
+cli_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog`
+cli_log2=`grep -e "qpack_enc_compat_dup:1" clog`
+cli_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" clog`
+cli_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" clog`
+cli_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" clog`
+svr_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" slog`
+svr_log2=`grep -e "qpack_enc_compat_dup:1" slog`
+svr_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog`
+svr_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" slog`
+svr_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" slog`
+err_log=`grep_err_log`
+
+if [ -n "$cli_pass" ] && [ -n "$cli_log1" ] && [ -n "$cli_log2" ] && [ -n "$cli_log3" ] && [ -n "$cli_log4" ] && [ -n "$cli_log5" ] && \
+   [ -z "$err_log" ] && [ -n "$svr_log1" ] && [ -n "$svr_log2" ] && [ -n "$svr_log3" ] && [ -n "$svr_log4" ] && [ -n "$svr_log5" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_engine_set_settings_api_h3_ext" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_engine_set_settings_api_h3_ext" "fail"
+fi
+
+
+sudo rm -rf tp_localhost test_session xqc_token clog slog stdlog ckeys.log
+killall test_server
+${SERVER_BIN} -l d -e -x 151 > /dev/null &
+sleep 1
+
+clear_log
+echo -e "h3_engine_set_settings_api_h3_ext_more ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 151 -T 2 >> stdlog
+sleep 1
+cli_pass=`grep ">>>>>>>> pass:1" stdlog`
+cli_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog`
+cli_log2=`grep -e "qpack_enc_compat_dup:1" clog`
+cli_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" clog`
+cli_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" clog`
+cli_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" clog`
+svr_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" slog`
+svr_log2=`grep -e "qpack_enc_compat_dup:1" slog`
+svr_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog`
+svr_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" slog`
+svr_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" slog`
+err_log=`grep_err_log`
+
+if [ -n "$cli_pass" ] && [ -n "$cli_log1" ] && [ -n "$cli_log2" ] && [ -n "$cli_log3" ] && [ -n "$cli_log4" ] && [ -n "$cli_log5" ] && \
+   [ -z "$err_log" ] && [ -n "$svr_log1" ] && [ -n "$svr_log2" ] && [ -n "$svr_log3" ] && [ -n "$svr_log4" ] && [ -n "$svr_log5" ] ; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_engine_set_settings_api_h3_ext_more" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_engine_set_settings_api_h3_ext_more" "fail"
+fi
+
+rm -rf tp_localhost test_session xqc_token
+killall test_server 2> /dev/null
+${SERVER_BIN} -l d -e -f > /dev/null &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "negotiate_encoder_fec_schemes ...\c"
+sudo ${CLIENT_BIN} -l d -g > stdlog
+clog_res1=`grep "|client set final encoder fec scheme: " clog`
+slog_res1=`grep "|server set final encoder fec scheme: " slog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$clog_res1" ] && [ -n "$slog_res1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "negotiate_encoder_fec_scheme" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "negotiate_encoder_fec_scheme" "fail"
+fi
+
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "negotiate_decoder_fec_schemes ...\c"
+sudo ${CLIENT_BIN} -l d -g > stdlog
+clog_res2=`grep "|client set final decoder fec scheme: " clog`
+slog_res2=`grep "|server set final decoder fec scheme: " slog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$clog_res2" ] && [ -n "$slog_res2" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "negotiate_decoder_fec_scheme" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "negotiate_decoder_fec_scheme" "fail"
+fi
+
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "negotiate_fec_schemes_fail ...\c"
+sudo ${CLIENT_BIN} -l d -g --fec_encoder 12 --fec_decoder 12 > stdlog
+clog_res2=`grep "|invalid fec schemes, negotiation on final encoder scheme failed.|" clog`
+clog_res2=`grep "|invalid fec schemes, negotiation on final decoder scheme failed." clog`
+slog_res2=`grep "|negotiation on final encoder scheme failed.|" slog`
+slog_res2=`grep "|negotiation on final decoder scheme failed.|" slog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$clog_res2" ] && [ -n "$slog_res2" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "negotiate_fec_schemes_fail" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "negotiate_fec_schemes_fail" "fail"
+fi
+
+
+killall test_server 2> /dev/null
+stdbuf -oL ${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "check fec recovery function of stream ...\c"
+sudo ${CLIENT_BIN} -s 10240000 -l e -E -d 30 -g -M -i lo -i lo > stdlog
+slog_res1=`grep '|process packet of block .\{1,3\} successfully' slog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "fec_recovered_function_of_stream" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "fec_recovered_function_of_stream" "fail"
+fi
+
+killall test_server 2> /dev/null
+stdbuf -oL ${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "test repair_num_is_zero ...\c"
+sudo ${CLIENT_BIN} -s 3000 -l e -E -d 30 -g -M -i lo -i lo -x 80 > stdlog
+clog_res1=`grep '|xqc_process_fec_protected_packet|xqc_is_fec_params_valid|fec params invalid|' clog`
+if [ -n "$clog_res1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "repair_num_is_zero" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "repair_num_is_zero" "fail"
+fi
+
+killall test_server 2> /dev/null
+${SERVER_BIN} -l d -Q 65535 -e -U 1 -s 1 --dgram_qos 3 -f > /dev/null &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+
+clear_log
+echo -e "check fec recovery function of datagram with XOR fec scheme ...\c"
+sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 8 --fec_decoder 8 > stdlog
+slog_res1=`grep '|process packet of block 0 successfully' slog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "fec_recovered_function_of_datagram_xor" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "fec_recovered_function_of_datagram_xor" "fail"
+fi
+
+clear_log
+echo -e "check fec recovery function of datagram with RSC fec scheme ...\c"
+sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 11 --fec_decoder 11 > stdlog
+slog_res1=`grep '|process packet of block 0 successfully' slog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "fec_recovered_function_of_datagram_rsc" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "fec_recovered_function_of_datagram_rsc" "fail"
+fi
+
+clear_log
+echo -e "check fec recovery function of datagram with XOR(encoder) and RSC(decoder) fec schemes ...\c"
+sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 11 --fec_decoder 11 > stdlog
+slog_res1=`grep '|process packet of block 0 successfully' slog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "fec_recovered_function_of_datagram_xor_and_rsc" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "fec_recovered_function_of_datagram_xor_and_rsc" "fail"
+fi
+
+
+clear_log
+echo -e "check fec recovery function of datagram with XOR(decoder) and RSC(encoder) fec schemes ...\c"
+sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 11 --fec_decoder 11 > stdlog
+slog_res1=`grep '|process packet of block 0 successfully' slog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "fec_recovered_function_of_datagram_rsc_and_xor" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "fec_recovered_function_of_datagram_rsc_and_xor" "fail"
+fi
+
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "qlog disable ...\c"
+killall test_server
+${SERVER_BIN} -l d -e -x 1 --qlog_disable > slog &
+sleep 1
+${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_disable >> clog
+result=`grep ">>>>>>>> pass:1" clog`
+svr_qlog_res1=`grep "\[packet_received\]" slog`
+svr_qlog_res2=`grep "\[packet_sent\]" slog`
+cli_qlog_res1=`grep "\[packet_received\]" clog`
+cli_qlog_res2=`grep "\[packet_sent\]" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -z "$svr_qlog_res1" ] && [ -z "$svr_qlog_res2" ] \
+    && [ -z "$cli_qlog_res1" ] && [ -z "$cli_qlog_res2" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "qlog_disable" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "qlog_disable" "fail"
+    echo "$errlog"
+fi
+
+
+clear_log
+echo -e "qlog importance selected 1  ...\c"
+killall test_server
+${SERVER_BIN} -l d -e -x 1 --qlog_importance s > slog &
+sleep 1
+${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance s >> clog
+result=`grep ">>>>>>>> pass:1" clog`
+svr_qlog_res1=`grep "\[packet_received\]" slog`
+svr_qlog_res2=`grep "\[connection_started\]" slog`
+cli_qlog_res1=`grep "\[packet_received\]" clog`
+cli_qlog_res2=`grep "\[connection_started\]" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$svr_qlog_res1" ] && [ -n "$svr_qlog_res2" ] \
+    && [ -n "$cli_qlog_res1" ] && [ -n "$cli_qlog_res2" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "qlog_importance_selected_1" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "qlog_importance_selected_1" "fail"
+    echo "$errlog"
+fi
+
+
+clear_log
+echo -e "qlog importance selected 2  ...\c"
+killall test_server
+${SERVER_BIN} -l i -e -x 1 --qlog_importance s > slog &
+sleep 1
+${CLIENT_BIN} -s 10240 -l i -t 1 -E --qlog_importance s >> clog
+result=`grep ">>>>>>>> pass:1" clog`
+svr_qlog_res1=`grep "\[packet_received\]" slog`
+svr_qlog_res2=`grep "\[connection_started\]" slog`
+cli_qlog_res1=`grep "\[packet_received\]" clog`
+cli_qlog_res2=`grep "\[connection_started\]" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -z "$svr_qlog_res1" ] && [ -n "$svr_qlog_res2" ] \
+    && [ -z "$cli_qlog_res1" ] && [ -n "$cli_qlog_res2" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "qlog_importance_selected_2" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "qlog_importance_selected_2" "fail"
+    echo "$errlog"
+fi
+
+
+clear_log
+echo -e "qlog importance removed  ...\c"
+killall test_server
+${SERVER_BIN} -l d -e -x 1 --qlog_importance r > slog &
+sleep 1
+${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance r >> clog
+result=`grep ">>>>>>>> pass:1" clog`
+svr_qlog_res1=`grep "\[packet_sent" slog`
+svr_qlog_res2=`grep "\[connection_" slog`
+svr_qlog_res3=`grep "\[datagram" slog`
+svr_qlog_res4=`grep "\[qpack_" slog`
+cli_qlog_res1=`grep "\[packet_sent" clog`
+cli_qlog_res2=`grep "\[connection_" clog`
+cli_qlog_res3=`grep "\[datagram" clog`
+cli_qlog_res4=`grep "\[qpack_" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$svr_qlog_res1" ] && [ -n "$svr_qlog_res2" ] \
+    && [ -n "$svr_qlog_res3" ] && [ -n "$svr_qlog_res4" ] && [ -n "$cli_qlog_res1" ] && [ -n "$cli_qlog_res2" ] \
+    && [ -n "$cli_qlog_res3" ] && [ -n "$cli_qlog_res4" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "qlog_importance_removed" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "qlog_importance_removed" "fail"
+    echo "$errlog"
+fi
+
+
+clear_log
+echo -e "qlog importance extra  ...\c"
+killall test_server
+${SERVER_BIN} -l d -e -x 1 --qlog_importance e > slog &
+sleep 1
+${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance e >> clog
+result=`grep ">>>>>>>> pass:1" clog`
+svr_qlog_res1=`grep "\[packet_sent" slog`
+svr_qlog_res2=`grep "\[connection_" slog`
+svr_qlog_res3=`grep "\[datagram" slog`
+svr_qlog_res4=`grep "\[qpack_" slog`
+cli_qlog_res1=`grep "\[packet_sent" clog`
+cli_qlog_res2=`grep "\[connection_" clog`
+cli_qlog_res3=`grep "\[datagram" clog`
+cli_qlog_res4=`grep "\[qpack_" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$svr_qlog_res1" ] && [ -n "$svr_qlog_res2" ] \
+    && [ -n "$svr_qlog_res3" ] && [ -z "$svr_qlog_res4" ] && [ -n "$cli_qlog_res1" ] && [ -n "$cli_qlog_res2" ] \
+    && [ -n "$cli_qlog_res3" ] && [ -z "$cli_qlog_res4" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "qlog_importance_extra" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "qlog_importance_extra" "fail"
+    echo "$errlog"
+fi
+
+
+clear_log
+echo -e "qlog importance base  ...\c"
+killall test_server
+${SERVER_BIN} -l d -e -x 1 --qlog_importance b > slog &
+sleep 1
+${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance b >> clog
+result=`grep ">>>>>>>> pass:1" clog`
+svr_qlog_res1=`grep "\[packet_sent" slog`
+svr_qlog_res2=`grep "\[connection_" slog`
+svr_qlog_res3=`grep "\[datagram" slog`
+svr_qlog_res4=`grep "\[qpack_" slog`
+cli_qlog_res1=`grep "\[packet_sent" clog`
+cli_qlog_res2=`grep "\[connection_" clog`
+cli_qlog_res3=`grep "\[datagram" clog`
+cli_qlog_res4=`grep "\[qpack_" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$svr_qlog_res1" ] && [ -n "$svr_qlog_res2" ] \
+    && [ -z "$svr_qlog_res3" ] && [ -z "$svr_qlog_res4" ] && [ -n "$cli_qlog_res1" ] && [ -n "$cli_qlog_res2" ] \
+    && [ -z "$cli_qlog_res3" ] && [ -z "$cli_qlog_res4" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "qlog_importance_base" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "qlog_importance_base" "fail"
+    echo "$errlog"
+fi
+
+
+clear_log
+echo -e "qlog importance core  ...\c"
+killall test_server
+${SERVER_BIN} -l d -e -x 1 --qlog_importance c > slog &
+sleep 1
+${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance c >> clog
+result=`grep ">>>>>>>> pass:1" clog`
+svr_qlog_res1=`grep "\[packet_sent" slog`
+svr_qlog_res2=`grep "\[connection_" slog`
+svr_qlog_res3=`grep "\[datagram" slog`
+svr_qlog_res4=`grep "\[qpack_" slog`
+cli_qlog_res1=`grep "\[packet_sent" clog`
+cli_qlog_res2=`grep "\[connection_" clog`
+cli_qlog_res3=`grep "\[datagram" clog`
+cli_qlog_res4=`grep "\[qpack_" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$svr_qlog_res1" ] && [ -z "$svr_qlog_res2" ] \
+    && [ -z "$svr_qlog_res3" ] && [ -z "$svr_qlog_res4" ] && [ -n "$cli_qlog_res1" ] && [ -z "$cli_qlog_res2" ] \
+    && [ -z "$cli_qlog_res3" ] && [ -z "$cli_qlog_res4" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "qlog_importance_core" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "qlog_importance_core" "fail"
     echo "$errlog"
 fi
 

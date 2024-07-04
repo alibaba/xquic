@@ -412,7 +412,8 @@ xqc_int_t xqc_h3_ctx_destroy(xqc_engine_t *engine);
 
 
 /**
- * @brief set max h3 max dynamic table capacity
+ * @brief set max h3 max dynamic table capacity. It MUST only be called after 
+ *        xqc_h3_ctx_init.
  * 
  * @param engine the engine handler created by xqc_engine_create
  * @param value capacity of dynamic table, 0 for disable dynamic table 
@@ -421,7 +422,8 @@ XQC_EXPORT_PUBLIC_API
 void xqc_h3_engine_set_max_dtable_capacity(xqc_engine_t *engine, size_t capacity);
 
 /**
- * @brief @deprecated use xqc_h3_engine_set_max_dtable_capacity instead
+ * @brief @deprecated use xqc_h3_engine_set_max_dtable_capacity instead. 
+ *        It MUST only be called after xqc_h3_ctx_init.
  * 
  * @param engine the engine handler created by xqc_engine_create
  * @param value 0:disable dynamic table
@@ -430,7 +432,8 @@ XQC_EXPORT_PUBLIC_API
 void xqc_h3_engine_set_dec_max_dtable_capacity(xqc_engine_t *engine, size_t value);
 
 /**
- * @brief @deprecated use xqc_h3_engine_set_max_dtable_capacity instead
+ * @brief @deprecated use xqc_h3_engine_set_max_dtable_capacity instead.
+ *        It MUST only be called after xqc_h3_ctx_init.
  * 
  * @param engine the engine handler created by xqc_engine_create
  * @param value 0:disable dynamic table
@@ -439,7 +442,8 @@ XQC_EXPORT_PUBLIC_API
 void xqc_h3_engine_set_enc_max_dtable_capacity(xqc_engine_t *engine, size_t value);
 
 /**
- * @brief set max h3 field section size
+ * @brief set max h3 field section size.
+ *        It MUST only be called after xqc_h3_ctx_init.
  * 
  * @param engine the engine handler created by xqc_engine_create
  * @param size size of field section size
@@ -447,11 +451,37 @@ void xqc_h3_engine_set_enc_max_dtable_capacity(xqc_engine_t *engine, size_t valu
 XQC_EXPORT_PUBLIC_API
 void xqc_h3_engine_set_max_field_section_size(xqc_engine_t *engine, size_t size);
 
+/**
+ * @brief set the limit for qpack blocked streams. 
+ *        It MUST only be called after xqc_h3_ctx_init.
+ * 
+ * @param engine 
+ * @param value 
+ * @return XQC_EXPORT_PUBLIC_API 
+ */
+XQC_EXPORT_PUBLIC_API
+void xqc_h3_engine_set_qpack_blocked_streams(xqc_engine_t *engine, size_t value);
+
 #ifdef XQC_COMPAT_DUPLICATE
+/**
+ * @brief It MUST only be called after xqc_h3_ctx_init.
+ * 
+ * @param engine the engine handler created by xqc_engine_create
+ * @param cmpt value
+ * @return XQC_EXPORT_PUBLIC_API 
+ */
 XQC_EXPORT_PUBLIC_API
 void xqc_h3_engine_set_qpack_compat_duplicate(xqc_engine_t *engine,
     xqc_bool_t cmpt);
 #endif
+
+
+/**
+ * User can set h3 settings when h3_conn_create_notify callbacks
+ */
+XQC_EXPORT_PUBLIC_API
+void xqc_h3_engine_set_local_settings(xqc_engine_t *engine, 
+    const xqc_h3_conn_settings_t *h3_conn_settings);
 
 /**
  * @brief create and http3 connection
@@ -538,13 +568,6 @@ void xqc_h3_conn_set_user_data(xqc_h3_conn_t *h3c, void *user_data);
 XQC_EXPORT_PUBLIC_API
 void *xqc_h3_conn_get_user_data(xqc_h3_conn_t *h3_conn);
 
-
-/**
- * User can set h3 settings when h3_conn_create_notify callbacks
- */
-XQC_EXPORT_PUBLIC_API
-void xqc_h3_conn_set_settings(xqc_h3_conn_t *h3c,
-    const xqc_h3_conn_settings_t *h3_conn_settings);
 
 
 /**

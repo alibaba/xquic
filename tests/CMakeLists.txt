@@ -125,6 +125,15 @@ if(HAVE_CUNIT)
         ${UNIT_TEST_DIR}/xqc_h3_ext_test.c
     )
 
+    if(XQC_ENABLE_FEC)
+        set(
+            test_SOURCES
+            ${test_SOURCES}
+            ${UNIT_TEST_DIR}/xqc_galois_test.c
+            ${UNIT_TEST_DIR}/xqc_fec_scheme_test.c
+            ${UNIT_TEST_DIR}/xqc_fec_test.c
+        )
+    endif()
 
     add_executable(run_tests
         ${test_SOURCES}

@@ -7,11 +7,7 @@
 
 #include "xqc_hq.h"
 
-xqc_int_t
-xqc_hq_ctx_get_conn_callbacks(xqc_hq_conn_callbacks_t **hqc_cbs);
-
-xqc_int_t
-xqc_hq_ctx_get_request_callbacks(xqc_hq_request_callbacks_t **hqr_cbs);
+xqc_int_t xqc_hq_ctx_get_callbacks(xqc_engine_t *engine, char *alpn, size_t alpn_len, xqc_hq_callbacks_t **hq_cbs);
 
 
 #endif

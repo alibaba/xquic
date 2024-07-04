@@ -131,6 +131,10 @@ typedef enum {
     XQC_EMP_NO_ACTIVE_PATH              = 656,      /* Multipath - no another active path */
     XQC_EMP_INVALID_MP_VERTION          = 657,      /* Multipath - the multipath version value is invalid */
 
+    XQC_EFEC_NOT_SUPPORT_FEC            = 660,      /* FEC - fec not supported */
+    XQC_EFEC_SCHEME_ERROR               = 661,      /* FEC - no available scheme */
+    XQC_EFEC_SYMBOL_ERROR               = 662,      /* FEC - symbol value error */
+    
     XQC_EENCRYPT_LB_CID                 = 670,      /* load balance connection ID encryption error */
     XQC_EENCRYPT_AES_128_ECB            = 671,      /* aes_128_ecb algorithm error */
 

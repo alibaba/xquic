@@ -120,7 +120,7 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid)
         /* already have scid */
         xqc_cid_inner_t *inner_cid = xqc_cid_in_cid_set(&conn->scid_set.cid_set, scid);
         if (inner_cid == NULL) {
-            xqc_log(conn->log, XQC_LOG_DEBUG, "|invalid scid:%s|", xqc_scid_str(scid));
+            xqc_log(conn->log, XQC_LOG_DEBUG, "|invalid scid:%s|", xqc_scid_str(conn->engine, scid));
             goto err;
         }
 
@@ -149,7 +149,7 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid)
     conn->create_path_count++;
 
     xqc_log(conn->engine->log, XQC_LOG_DEBUG, "|path:%ui|dcid:%s|scid:%s|create_path_count:%ud|",
-            path->path_id, xqc_dcid_str(&path->path_dcid), xqc_scid_str(&path->path_scid), conn->create_path_count);
+            path->path_id, xqc_dcid_str(conn->engine, &path->path_dcid), xqc_scid_str(conn->engine, &path->path_scid), conn->create_path_count);
 
     return path;
 
@@ -211,7 +211,7 @@ xqc_path_init(xqc_path_ctx_t *path, xqc_connection_t *conn)
             xqc_path_addr_str(path), path->peer_addrlen);
 
     xqc_log(conn->engine->log, XQC_LOG_DEBUG, "|path:%ui|dcid:%s|scid:%s|state:%d|",
-            path->path_id, xqc_dcid_str(&path->path_dcid), xqc_scid_str(&path->path_scid), path->path_state);
+            path->path_id, xqc_dcid_str(conn->engine, &path->path_dcid), xqc_scid_str(path->parent_conn->engine, &path->path_scid), path->path_state);
 
     return XQC_OK;
 }
@@ -660,7 +660,7 @@ xqc_conn_create_path_inner(xqc_connection_t *conn,
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_path_init error|%d|", ret);
         return NULL;
     }
-
+    xqc_log_event(conn->log, CON_PATH_ASSIGNED, path, conn);
     return path;
 }
 
@@ -778,7 +778,7 @@ xqc_stream_path_metrics_print(xqc_connection_t *conn, xqc_stream_t *stream, char
 
     if (!conn->enable_multipath) {
         snprintf(buff, buff_size, "mp is not supported in connection scid:%s", 
-                                  xqc_scid_str(&conn->scid_set.user_scid));
+                                  xqc_scid_str(conn->engine, &conn->scid_set.user_scid));
         return;
     }
 
@@ -1058,8 +1058,8 @@ xqc_conn_server_init_path_addr(xqc_connection_t *conn, uint64_t path_id,
                 xqc_path_immediate_close(path);
                 xqc_log(conn->engine->log, XQC_LOG_STATS, "|MP|path:%ui|conn:%s|cannot activate this path, due to the same IP|curIP:%s|conflictIP:%s|",
                         path_id, xqc_conn_addr_str(conn),
-                        xqc_peer_addr_str((struct sockaddr*)peer_addr, conn->peer_addrlen),
-                        xqc_local_addr_str((struct sockaddr*)active_path->peer_addr, active_path->peer_addrlen));
+                        xqc_peer_addr_str(conn->engine, (struct sockaddr*)peer_addr, conn->peer_addrlen),
+                        xqc_local_addr_str(conn->engine, (struct sockaddr*)active_path->peer_addr, active_path->peer_addrlen));
                 return XQC_OK;
             }
         }

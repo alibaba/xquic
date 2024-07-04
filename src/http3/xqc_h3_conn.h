@@ -73,7 +73,8 @@ typedef struct xqc_h3_conn_s {
 
     /* h3 connection callback functions for user */
     xqc_h3_conn_callbacks_t      h3_conn_callbacks;
-
+    xqc_h3_request_callbacks_t   h3_request_callbacks;
+    xqc_h3_ext_bytestream_callbacks_t h3_ext_bs_callbacks;
     /* h3 datagram callback functions for user */
     xqc_h3_ext_dgram_callbacks_t h3_ext_dgram_callbacks;
 

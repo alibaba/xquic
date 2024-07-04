@@ -1216,5 +1216,6 @@ void
 xqc_encoder_compat_dup(xqc_encoder_t *enc, xqc_bool_t compat)
 {
     enc->compat_dup = compat;
+    xqc_log(enc->log, XQC_LOG_DEBUG, "|qpack_enc_compat_dup:%d|", compat);
 }
 #endif

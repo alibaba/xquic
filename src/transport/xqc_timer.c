@@ -264,7 +264,7 @@ xqc_timer_retire_cid_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_d
 
                 xqc_log(conn->log, XQC_LOG_DEBUG, 
                         "|retired->removed|cid:%s|seq:%ui|len:%d|", 
-                        xqc_scid_str(&inner_cid->cid), 
+                        xqc_scid_str(conn->engine, &inner_cid->cid), 
                         inner_cid->cid.cid_seq_num,
                         inner_cid->cid.cid_len);
 

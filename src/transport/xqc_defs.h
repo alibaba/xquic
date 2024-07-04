@@ -68,4 +68,6 @@ extern const unsigned char  xqc_proto_version_field[][XQC_PROTO_VERSION_LEN];
 /* limit of anti-amplification */
 #define XQC_DEFAULT_ANTI_AMPLIFICATION_LIMIT    5
 
+#define XQC_MAX_MT_ROW                          256
+
 #endif

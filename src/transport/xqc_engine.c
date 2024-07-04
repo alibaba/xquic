@@ -34,6 +34,7 @@ extern const xqc_qpack_ins_cb_t xqc_h3_qpack_ins_cb;
 xqc_config_t default_client_config = {
     .cfg_log_level             = XQC_LOG_WARN,
     .cfg_log_event             = 1,
+    .cfg_qlog_importance       = EVENT_IMPORTANCE_EXTRA,
     .cfg_log_timestamp         = 1,
     .cfg_log_level_name        = 1,
     .conn_pool_size            = 4096,
@@ -49,12 +50,14 @@ xqc_config_t default_client_config = {
     .reset_token_keylen        = 0,
     .sendmmsg_on               = 0,
     .enable_h3_ext             = 0,
+    .log_disable               = 0,
 };
 
 
 xqc_config_t default_server_config = {
     .cfg_log_level             = XQC_LOG_WARN,
     .cfg_log_event             = 1,
+    .cfg_qlog_importance       = EVENT_IMPORTANCE_EXTRA,
     .cfg_log_timestamp         = 1,
     .cfg_log_level_name        = 1,
     .conn_pool_size            = 4096,
@@ -70,6 +73,7 @@ xqc_config_t default_server_config = {
     .reset_token_keylen        = 0,
     .sendmmsg_on               = 0,
     .enable_h3_ext             = 0,
+    .log_disable               = 0,
 };
 
 
@@ -128,10 +132,12 @@ xqc_set_config(xqc_config_t *dst, const xqc_config_t *src)
     dst->cid_negotiate = src->cid_negotiate;
     dst->cfg_log_level = src->cfg_log_level;
     dst->cfg_log_event = src->cfg_log_event;
+    dst->cfg_qlog_importance = src->cfg_qlog_importance;
     dst->cfg_log_timestamp = src->cfg_log_timestamp;
     dst->cfg_log_level_name = src->cfg_log_level_name;
     dst->sendmmsg_on = src->sendmmsg_on;
     dst->enable_h3_ext = src->enable_h3_ext;
+    dst->log_disable = src->log_disable;
 
     return XQC_OK;
 }
@@ -271,6 +277,7 @@ fail:
 xqc_connection_t *
 xqc_engine_conns_hash_find(xqc_engine_t *engine, const xqc_cid_t *cid, char type)
 {
+    xqc_connection_t    *xqc_conn;
     if (cid == NULL || cid->cid_len == 0) {
         return NULL;
     }
@@ -286,7 +293,12 @@ xqc_engine_conns_hash_find(xqc_engine_t *engine, const xqc_cid_t *cid, char type
 
     } else {
         /* search by peer's cid */
-        return xqc_str_hash_find(engine->conns_hash_dcid, hash, str);
+        xqc_conn = xqc_str_hash_find(engine->conns_hash_dcid, hash, str);
+        if (xqc_conn == NULL) {
+            xqc_log(engine->log, XQC_LOG_ERROR, "|xquic find dcid error|dcid:%s|",
+                    xqc_dcid_str(engine, cid));
+        }
+        return xqc_conn;
     }
 }
 
@@ -432,11 +444,12 @@ xqc_engine_create(xqc_engine_type_t engine_type,
 
     xqc_engine_set_callback(engine, engine_callback, transport_cbs);
     engine->user_data = user_data;
-
+    engine->log_disable = engine->config->log_disable;
     engine->log = xqc_log_init(engine->config->cfg_log_level,
                                engine->config->cfg_log_event,
+                               engine->config->cfg_qlog_importance,
                                engine->config->cfg_log_timestamp,
-                               engine->config->cfg_log_level_name,
+                               engine->config->cfg_log_level_name, engine,
                                &engine->eng_callback.log_callbacks,
                                engine->user_data);
 
@@ -499,6 +512,8 @@ xqc_engine_create(xqc_engine_type_t engine_type,
         xqc_log(engine->log, XQC_LOG_ERROR, "|invalid SSL configuration|");
         goto fail;
     }
+
+    engine->default_conn_settings = internal_default_conn_settings;
 
     return engine;
 
@@ -693,7 +708,7 @@ void
 xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
 {
     xqc_log(conn->log, XQC_LOG_DEBUG, "|conn:%p|state:%s|flag:%s|now:%ui|",
-            conn, xqc_conn_state_2_str(conn->conn_state), xqc_conn_flag_2_str(conn->conn_flag), now);
+            conn, xqc_conn_state_2_str(conn->conn_state), xqc_conn_flag_2_str(conn, conn->conn_flag), now);
 
     int ret;
     xqc_bool_t wait_scid, wait_dcid;
@@ -705,6 +720,7 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
 
     if (XQC_UNLIKELY(conn->conn_flag & XQC_CONN_FLAG_TIME_OUT)) {
         conn->conn_state = XQC_CONN_STATE_CLOSED;
+        xqc_log_event(conn->log, CON_CONNECTION_STATE_UPDATED, conn);
         return;
     }
     XQC_CHECK_IMMEDIATE_CLOSE();
@@ -767,9 +783,8 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
             XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
         }
     }
-    
-    XQC_CHECK_IMMEDIATE_CLOSE();
 
+    XQC_CHECK_IMMEDIATE_CLOSE();
 
     ret = xqc_conn_try_add_new_conn_id(conn, 0);
     if (ret) {
@@ -876,8 +891,6 @@ xqc_engine_main_logic(xqc_engine_t *engine)
         }
         conn = el->conn;
 
-        /* xqc_log(conn->log, XQC_LOG_DEBUG, "|wakeup|conn:%p|state:%s|flag:%s|now:%ui|wakeup:%ui|",
-                conn, xqc_conn_state_2_str(conn->conn_state), xqc_conn_flag_2_str(conn->conn_flag), now, el->wakeup_time); */
         if (el->wakeup_time <= now) {
             xqc_wakeup_pq_pop(engine->conns_wait_wakeup_pq);
             conn->conn_flag &= ~XQC_CONN_FLAG_WAIT_WAKEUP;
@@ -924,7 +937,14 @@ xqc_engine_main_logic(xqc_engine_t *engine)
 
         } else {
             conn->last_ticked_time = now;
-
+#ifdef XQC_ENABLE_FEC
+            if (conn->conn_settings.enable_encode_fec
+                && conn->conn_settings.fec_params.fec_encoder_scheme)
+            {
+                xqc_insert_fec_packets_all(conn);
+            }
+            
+#endif
             xqc_conn_schedule_packets_to_paths(conn);
 
             if (xqc_engine_is_sendmmsg_on(engine)) {
@@ -1048,7 +1068,7 @@ xqc_engine_handle_stateless_reset(xqc_engine_t *engine,
     if (NULL == conn) {
         /* can't find connection with sr_token */
         xqc_log(engine->log, XQC_LOG_DEBUG, "|can't find conn with sr|sr:%s",
-                xqc_sr_token_str(sr_token));
+                xqc_sr_token_str(engine, sr_token));
         return -XQC_ERROR;
     }
 
@@ -1143,7 +1163,7 @@ xqc_engine_packet_process(xqc_engine_t *engine,
     ret = xqc_packet_parse_cid(&scid, &dcid, engine->config->cid_len,
                                (unsigned char *)packet_in_buf, packet_in_size);
     if (XQC_UNLIKELY(ret != XQC_OK)) {
-        xqc_log(engine->log, XQC_LOG_INFO, "|fail to parse cid|ret:%d|", ret);
+        xqc_log_event(engine->log, TRA_PACKET_DROPPED, "fail to parse cid", ret, "unknown", 0);
         return -XQC_EILLPKT;
     }
 
@@ -1161,7 +1181,8 @@ xqc_engine_packet_process(xqc_engine_t *engine,
             {
                 conn = xqc_conn_server_create(engine, local_addr, local_addrlen,
                                             peer_addr, peer_addrlen, &dcid, &scid,
-                                            &default_conn_settings, user_data);
+                                            &engine->default_conn_settings, user_data);
+                xqc_log_event(engine->log, CON_SERVER_LISTENING, peer_addr, peer_addrlen);
                 if (conn == NULL) {
                     xqc_log(engine->log, XQC_LOG_ERROR, "|fail to create connection|");
                     return -XQC_ECREATE_CONN;
@@ -1196,9 +1217,9 @@ xqc_engine_packet_process(xqc_engine_t *engine,
 
         xqc_log(engine->log, lvl, "|fail to find connection, send reset|"
                 "size:%uz|scid:%s|recv_time:%ui|peer_addr:%s|local_addr:%s",
-                packet_in_size, xqc_scid_str(&scid), recv_time,
-                xqc_peer_addr_str(peer_addr, peer_addrlen),
-                xqc_local_addr_str(local_addr, local_addrlen));
+                packet_in_size, xqc_scid_str(engine, &scid), recv_time,
+                xqc_peer_addr_str(engine, peer_addr, peer_addrlen),
+                xqc_local_addr_str(engine, local_addr, local_addrlen));
 
         ret = xqc_engine_send_reset(engine, &scid, peer_addr, peer_addrlen,
                                     local_addr, local_addrlen, packet_in_size,
@@ -1211,7 +1232,6 @@ xqc_engine_packet_process(xqc_engine_t *engine,
     }
 
 process:
-    xqc_log_event(conn->log, TRA_DATAGRAMS_RECEIVED, packet_in_size);
     xqc_log(engine->log, XQC_LOG_INFO, "|==>|conn:%p|size:%uz|state:%s|recv_time:%ui|",
             conn, packet_in_size, xqc_conn_state_2_str(conn->conn_state), recv_time);
 
@@ -1345,7 +1365,7 @@ xqc_engine_config_get_cid_len(xqc_engine_t *engine)
 
 xqc_int_t
 xqc_engine_add_alpn(xqc_engine_t *engine, const char *alpn, size_t alpn_len,
-    xqc_app_proto_callbacks_t *ap_cbs)
+    xqc_app_proto_callbacks_t *ap_cbs, void *alp_ctx)
 {
     /* register alpn in tls context */
     xqc_int_t ret = xqc_tls_ctx_register_alpn(engine->tls_ctx, alpn, alpn_len);
@@ -1353,7 +1373,7 @@ xqc_engine_add_alpn(xqc_engine_t *engine, const char *alpn, size_t alpn_len,
         return ret;
     }
 
-    xqc_alpn_registration_t *registration = xqc_malloc(sizeof(xqc_alpn_registration_t));
+    xqc_alpn_registration_t *registration = xqc_calloc(1, sizeof(xqc_alpn_registration_t));
     if (NULL == registration) {
         xqc_log(engine->log, XQC_LOG_ERROR, "|create alpn registration error!");
         return -XQC_EMALLOC;
@@ -1371,6 +1391,7 @@ xqc_engine_add_alpn(xqc_engine_t *engine, const char *alpn, size_t alpn_len,
     registration->alpn[alpn_len] = '\0';
     registration->alpn_len = alpn_len;
     registration->ap_cbs = *ap_cbs;
+    registration->alp_ctx = alp_ctx;
 
     xqc_list_add_tail(&registration->head, &engine->alpn_reg_list);
 
@@ -1381,7 +1402,7 @@ xqc_engine_add_alpn(xqc_engine_t *engine, const char *alpn, size_t alpn_len,
 
 xqc_int_t
 xqc_engine_register_alpn(xqc_engine_t *engine, const char *alpn, size_t alpn_len,
-    xqc_app_proto_callbacks_t *ap_cbs)
+    xqc_app_proto_callbacks_t *ap_cbs, void *alp_ctx)
 {
     xqc_list_head_t *pos, *next;
     xqc_alpn_registration_t *alpn_reg;
@@ -1398,12 +1419,31 @@ xqc_engine_register_alpn(xqc_engine_t *engine, const char *alpn, size_t alpn_len
         {
             /* if found registration, update */
             alpn_reg->ap_cbs = *ap_cbs;
+            alpn_reg->alp_ctx = alp_ctx;
             return XQC_OK;
         }
     }
 
     /* not registered, add into alpn_reg_list */
-    return xqc_engine_add_alpn(engine, alpn, alpn_len, ap_cbs);
+    return xqc_engine_add_alpn(engine, alpn, alpn_len, ap_cbs, alp_ctx);
+}
+
+void* 
+xqc_engine_get_alpn_ctx(xqc_engine_t *engine, const char *alpn, size_t alpn_len)
+{
+    xqc_list_head_t *pos, *next;
+    xqc_alpn_registration_t *alpn_reg;
+
+    xqc_list_for_each_safe(pos, next, &engine->alpn_reg_list) {
+        alpn_reg = xqc_list_entry(pos, xqc_alpn_registration_t, head);
+        if (alpn_reg && alpn_len == alpn_reg->alpn_len
+            && xqc_memcmp(alpn, alpn_reg->alpn, alpn_len) == 0)
+        {
+            return alpn_reg->alp_ctx;
+        }
+    }
+
+    return NULL; 
 }
 
 
@@ -1485,4 +1525,23 @@ xqc_engine_is_sendmmsg_on(xqc_engine_t *engine)
 {
     return engine->config->sendmmsg_on
         && (engine->transport_cbs.write_mmsg || engine->transport_cbs.write_mmsg_ex);
+}
+
+
+void* 
+xqc_engine_get_priv_ctx(xqc_engine_t *engine)
+{
+    return engine->priv_ctx;
+}
+
+
+xqc_int_t 
+xqc_engine_set_priv_ctx(xqc_engine_t *engine, void *priv_ctx)
+{
+    if (engine->priv_ctx) {
+        return -XQC_ESTATE;
+    }
+
+    engine->priv_ctx = priv_ctx;
+    return XQC_OK;
 }

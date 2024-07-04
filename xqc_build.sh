@@ -61,11 +61,16 @@ if [ x"$platform" == xios ] ; then
                 -DCMAKE_TOOLCHAIN_FILE=${IOS_CMAKE_TOOLCHAIN}
                 -DENABLE_BITCODE=OFF
                 -DXQC_NO_SHARED=ON
+				-DXQC_ENABLE_TH3=ON
+                -DXQC_COMPAT_GENERATE_SR_PKT=ON
                 -DXQC_ENABLE_RENO=OFF
                 -DXQC_ENABLE_BBR2=ON
                 -DXQC_ENABLE_COPA=OFF
                 -DXQC_ENABLE_UNLIMITED=OFF
                 -DXQC_ENABLE_MP_INTEROP=OFF
+				-DXQC_ENABLE_FEC=OFF
+                -DXQC_ENABLE_XOR=OFF
+                -DXQC_ENABLE_RSC=OFF
                 -DXQC_DISABLE_LOG=OFF
                 -DXQC_ONLY_ERROR_LOG=ON
                 -DXQC_COMPAT_GENERATE_SR_PKT=ON"
@@ -93,7 +98,11 @@ elif [ x"$platform" == xandroid ] ; then
                 -DXQC_ENABLE_MP_INTEROP=OFF
                 -DXQC_DISABLE_LOG=OFF
                 -DXQC_ONLY_ERROR_LOG=ON
-                -DXQC_COMPAT_GENERATE_SR_PKT=ON"
+				-DXQC_ENABLE_TH3=ON
+                -DXQC_COMPAT_GENERATE_SR_PKT=ON
+				-DXQC_ENABLE_FEC=OFF
+                -DXQC_ENABLE_XOR=OFF
+                -DXQC_ENABLE_RSC=OFF"
 elif [ x"$platform" == xharmony ] ; then
     if [ x"$HMOS_CMAKE_TOOLCHAIN" == x ] ; then
         echo "HMOS_CMAKE_TOOLCHAIN MUST be defined"

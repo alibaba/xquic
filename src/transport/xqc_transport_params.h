@@ -60,8 +60,22 @@ typedef enum {
     XQC_TRANSPORT_PARAM_INITIAL_SOURCE_CONNECTION_ID        = 0x000f,
     XQC_TRANSPORT_PARAM_RETRY_SOURCE_CONNECTION_ID          = 0x0010,
 
+    XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_PARSER             = 0x0011,
+    XQC_TRANSPORT_PARAM_MAX_DATAGRAM_FRAME_SIZE_PARSER      = 0x0012,
+    
+    /* whether enable datagram reduncy */
+    XQC_TRANSPORT_PARAM_CLOSE_DGRAM_REDUNDANCY             = 0x0013,
+#ifdef XQC_ENABLE_FEC
+    /* fec attributes' parser */
+    XQC_TRANSPORT_PARAM_FEC_VERSION_PARSER                  = 0x0014,
+    XQC_TRANSPORT_PARAM_FEC_ENCODER_SCHEMES_PARSER          = 0x0015,
+    XQC_TRANSPORT_PARAM_FEC_DECODER_SCHEMES_PARSER          = 0x0016,
+    XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_SIZE_PARSER          = 0x0017,
+    XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_NUM_PARSER           = 0x0018,
+#endif
     /* upper limit of params defined in [Transport] */
     XQC_TRANSPORT_PARAM_PROTOCOL_MAX,
+
 
     /* max datagram frame size */
     XQC_TRANSPORT_PARAM_MAX_DATAGRAM_FRAME_SIZE             = 0x0020,
@@ -76,7 +90,14 @@ typedef enum {
 
     /* google connection options */
     XQC_TRANSPORT_PARAM_GOOGLE_CO                           = 0x3128,
-
+#ifdef XQC_ENABLE_FEC
+    /* fec attributes */
+    XQC_TRANSPORT_PARAM_FEC_VERSION                         = 0xfec001,
+    XQC_TRANSPORT_PARAM_FEC_ENCODER_SCHEMES                 = 0xfece01,
+    XQC_TRANSPORT_PARAM_FEC_DECODER_SCHEMES                 = 0xfecd02,
+    XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_SIZE                 = 0xfecb01,
+    XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_NUM                  = 0xfecb02,
+#endif
     /* upper limit of params defined by xquic */
     XQC_TRANSPORT_PARAM_UNKNOWN,
 } xqc_transport_param_id_t;
@@ -154,6 +175,17 @@ typedef struct {
     uint32_t                  conn_options[XQC_CO_MAX_NUM];
     uint8_t                   conn_option_num;
 
+    xqc_fec_version_t       fec_version;
+    uint64_t                enable_encode_fec;
+    uint64_t                enable_decode_fec;
+    uint64_t                fec_max_symbol_size;
+    uint64_t                fec_max_symbols_num;
+    xqc_fec_schemes_e       fec_encoder_schemes[XQC_FEC_MAX_SCHEME_NUM];
+    xqc_fec_schemes_e       fec_decoder_schemes[XQC_FEC_MAX_SCHEME_NUM];
+    xqc_int_t               fec_encoder_schemes_num;
+    xqc_int_t               fec_decoder_schemes_num;
+
+    xqc_dgram_red_setting_e close_dgram_redundancy;
 } xqc_transport_params_t;
 
 

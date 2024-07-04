@@ -57,6 +57,9 @@ typedef enum {
     CON_CONNECTION_ID_UPDATED,
     CON_SPIN_BIM_UPDATED,
     CON_CONNECTION_STATE_UPDATED,
+    CON_PATH_ASSIGNED,
+    CON_MTU_UPDATED,
+
 
     /* security event */
     SEC_KEY_UPDATED,
@@ -77,7 +80,8 @@ typedef enum {
     TRA_DATAGRAM_DROPPED,
     TRA_STREAM_STATE_UPDATED,
     TRA_FRAMES_PROCESSED,
-    TRA_DATA_MOVED,
+    TRA_STREAM_DATA_MOVED,
+    TRA_DATAGRAM_DATA_MOVED,
     TRA_STATELESS_RESET,
 
     /* recovery event */
@@ -92,10 +96,10 @@ typedef enum {
     HTTP_PARAMETERS_SET,
     HTTP_PARAMETERS_RESTORED,
     HTTP_STREAM_TYPE_SET,
+    HTTP_PRIORITY_UPDATED,
     HTTP_FRAME_CREATED,
     HTTP_FRAME_PARSED,
     HTTP_PUSH_RESOLVED,
-    HTTP_SETTING_PARSED,
 
     /* qpack event */
     QPACK_STATE_UPDATED,
@@ -119,17 +123,19 @@ typedef enum {
 
 typedef struct xqc_log_s {
     xqc_log_level_t                 log_level;
+    qlog_event_importance_t         qlog_importance;
     xqc_flag_t                      log_event; /* 1:enable log event, 0:disable log event */
     xqc_flag_t                      log_timestamp; /* 1:add timestamp before log, 0:don't need timestamp */
     xqc_flag_t                      log_level_name; /* 1:add level name before log, 0:don't need level name */
     unsigned char                  *scid;
+    xqc_engine_t                   *engine;
     xqc_log_callbacks_t            *log_callbacks;
     void                           *user_data;
 } xqc_log_t;
 
 static inline xqc_log_t *
-xqc_log_init(xqc_log_level_t log_level, xqc_flag_t log_event, xqc_flag_t log_timestamp, xqc_flag_t log_level_name,
-    xqc_log_callbacks_t *log_callbacks, void *user_data)
+xqc_log_init(xqc_log_level_t log_level, xqc_flag_t log_event, qlog_event_importance_t qlog_imp, xqc_flag_t log_timestamp, xqc_flag_t log_level_name,
+    xqc_engine_t *engine, xqc_log_callbacks_t *log_callbacks, void *user_data)
 {
     xqc_log_t* log = xqc_malloc(sizeof(xqc_log_t));
     if (log == NULL) {
@@ -143,6 +149,8 @@ xqc_log_init(xqc_log_level_t log_level, xqc_flag_t log_event, xqc_flag_t log_tim
     log->log_timestamp = log_timestamp;
     log->log_level_name = log_level_name;
     log->log_callbacks = log_callbacks;
+    log->qlog_importance = qlog_imp;
+    log->engine = engine;
     return log;
 }
 
@@ -159,6 +167,12 @@ xqc_log_level_set(xqc_log_t *log, xqc_log_level_t level);
 xqc_log_level_t
 xqc_log_type_2_level(xqc_log_type_t type);
 
+qlog_event_importance_t
+xqc_qlog_event_2_level(xqc_log_type_t type);
+
+xqc_log_level_t
+qlog_importance_2_log_level(xqc_log_type_t type);
+
 xqc_log_type_t
 xqc_log_event_type(xqc_log_level_t level);
 
@@ -171,6 +185,8 @@ xqc_log_time(char *buf, size_t buf_len);
 void
 xqc_log_implement(xqc_log_t *log, xqc_log_type_t type, const char *func, const char *fmt, ...);
 
+void
+xqc_qlog_implement(xqc_log_t *log, xqc_log_type_t type, const char *func, const char *fmt, ...);
 
 #ifndef XQC_DISABLE_LOG
     #ifndef XQC_ONLY_ERROR_LOG
@@ -193,7 +209,9 @@ xqc_log_implement(xqc_log_t *log, xqc_log_type_t type, const char *func, const c
     #define xqc_log_event(log, type, ...) \
     do {                                  \
         if ((log)->log_event) {           \
-            if ((log)->log_level >= xqc_log_type_2_level(type)) { \
+            if ((log)->qlog_importance >= xqc_qlog_event_2_level(type) || \
+                ((log)->qlog_importance == EVENT_IMPORTANCE_SELECTED && \
+                (log)->log_level >= qlog_importance_2_log_level(type))) { \
                 xqc_log_##type##_callback(log, __FUNCTION__, __VA_ARGS__); \
             }                             \
         }                                 \

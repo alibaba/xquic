@@ -304,6 +304,24 @@ xqc_demo_svr_write_log_file(xqc_log_level_t lvl, const void *buf, size_t size, v
     }
 }
 
+void
+xqc_demo_svr_write_qlog_file(qlog_event_importance_t imp, const void *buf, size_t size, void *eng_user_data)
+{
+    xqc_demo_svr_ctx_t *ctx = (xqc_demo_svr_ctx_t*)eng_user_data;
+    if (ctx->log_fd <= 0) {
+        return;
+    }
+
+    int write_len = write(ctx->log_fd, buf, size);
+    if (write_len < 0) {
+        printf("write qlog failed, errno: %d\n", get_sys_errno());
+        return;
+    }
+    write_len = write(ctx->log_fd, line_break, 1);
+    if (write_len < 0) {
+        printf("write qlog failed, errno: %d\n", get_sys_errno());
+    }
+}
 
 /**
  * start of server keylog functions
@@ -1398,7 +1416,8 @@ xqc_demo_svr_init_callback(xqc_engine_callback_t *cb, xqc_transport_callbacks_t 
         .set_event_timer = xqc_demo_svr_set_event_timer,
         .log_callbacks = {
             .xqc_log_write_err = xqc_demo_svr_write_log_file,
-            .xqc_log_write_stat = xqc_demo_svr_write_log_file
+            .xqc_log_write_stat = xqc_demo_svr_write_log_file,
+            .xqc_qlog_event_write = xqc_demo_svr_write_qlog_file
         },
         .keylog_cb = xqc_demo_svr_keylog_cb,
     };
@@ -1446,7 +1465,7 @@ xqc_demo_svr_init_ssl_config(xqc_engine_ssl_config_t *cfg, xqc_demo_svr_args_t *
 }
 
 void
-xqc_demo_svr_init_conn_settings(xqc_demo_svr_args_t *args)
+xqc_demo_svr_init_conn_settings(xqc_engine_t *engine, xqc_demo_svr_args_t *args)
 {
     xqc_cong_ctrl_callback_t ccc = {0};
     switch (args->net_cfg.cc) {
@@ -1509,7 +1528,7 @@ xqc_demo_svr_init_conn_settings(xqc_demo_svr_args_t *args)
         .anti_amplification_limit = 3,
     };
 
-    xqc_server_set_conn_settings(&conn_settings);
+    xqc_server_set_conn_settings(engine, &conn_settings);
 }
 
 
@@ -1576,9 +1595,6 @@ xqc_demo_svr_init_xquic_engine(xqc_demo_svr_ctx_t *ctx, xqc_demo_svr_args_t *arg
     xqc_transport_callbacks_t transport_cbs;
     xqc_demo_svr_init_callback(&callback, &transport_cbs, args);
 
-    /* init server connection settings */
-    xqc_demo_svr_init_conn_settings(args);
-
     /* init engine config */
     xqc_config_t config;
     if (xqc_engine_get_default_config(&config, XQC_ENGINE_CLIENT) < 0) {
@@ -1612,6 +1628,9 @@ xqc_demo_svr_init_xquic_engine(xqc_demo_svr_ctx_t *ctx, xqc_demo_svr_args_t *arg
         printf("xqc_engine_create error\n");
         return -1;
     }
+
+    /* init server connection settings */
+    xqc_demo_svr_init_conn_settings(ctx->engine, args);
 
     if (xqc_demo_svr_init_alpn_ctx(ctx) < 0) {
         printf("init alpn ctx error!");

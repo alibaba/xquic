@@ -4,6 +4,8 @@ XQUIC_VERS_1.0 {
         xqc_server_set_conn_settings;
         xqc_engine_create;
         xqc_engine_destroy;
+        xqc_engine_set_priv_ctx;
+        xqc_engine_get_priv_ctx;
         xqc_h3_connect;
         xqc_h3_conn_close;
         xqc_scid_str;
@@ -18,7 +20,7 @@ XQUIC_VERS_1.0 {
         xqc_h3_request_get_stats;
         xqc_h3_request_stats_print;
         xqc_h3_request_set_user_data;
-        xqc_h3_conn_set_settings;
+        xqc_h3_engine_set_local_settings;
         xqc_h3_get_conn_user_data_by_request;
         xqc_h3_stream_id;
         xqc_h3_request_close;
@@ -33,6 +35,7 @@ XQUIC_VERS_1.0 {
         xqc_h3_engine_set_enc_max_dtable_capacity;
         xqc_h3_engine_set_max_dtable_capacity;
         xqc_h3_engine_set_max_field_section_size;
+        xqc_h3_engine_set_qpack_blocked_streams;
         xqc_connect;
         xqc_conn_close;
         xqc_conn_get_errno;
@@ -81,6 +84,7 @@ XQUIC_VERS_1.0 {
         xqc_h3_ctx_destroy;
         xqc_engine_register_alpn;
         xqc_engine_unregister_alpn;
+        xqc_engine_get_alpn_ctx;
         xqc_conn_set_alp_user_data;
         xqc_h3_request_finish;
         xqc_conn_close_with_error;
@@ -115,9 +119,11 @@ XQUIC_VERS_1.0 {
         xqc_copa_cb;
         xqc_conn_get_conn_settings_template;
         xqc_conn_get_lastest_rtt;
-        xqc_log_enable;
+        xqc_log_disable;
         xqc_h3_request_update_settings;
         xqc_stream_update_settings;
+        xqc_reed_solomon_code_cb;
+        xqc_xor_code_cb;
     local:
         *;
 };

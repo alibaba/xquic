@@ -74,6 +74,8 @@ typedef enum xqc_proto_version_s {
 #define XQC_CO_MAX_NUM                  16
 #define XQC_CO_STR_MAX_LEN              (5 * XQC_CO_MAX_NUM)
 
+#define XQC_FEC_MAX_SCHEME_NUM          5
+
 
 /**
  * @brief get timestamp callback function. this might be useful on different platforms
@@ -129,7 +131,8 @@ typedef struct xqc_log_callbacks_s {
      *
      * trace log including XQC_LOG_FATAL, XQC_LOG_ERROR, XQC_LOG_WARN, XQC_LOG_STATS, XQC_LOG_INFO,
      * XQC_LOG_DEBUG, xquic will output logs with the level higher or equal to the level configured
-     * in xqc_congit_t.
+     * in xqc_log_init. Besides, when qlog enable and EVENT_IMPORTANCE_SELECTED importance is set, some
+     * event log will output log by xqc_log_write_err callback.
      */
     void (*xqc_log_write_err)(xqc_log_level_t lvl, const void *buf, size_t size, void *engine_user_data);
 
@@ -140,6 +143,18 @@ typedef struct xqc_log_callbacks_s {
      * mainly when connection close, stream close.
      */
     void (*xqc_log_write_stat)(xqc_log_level_t lvl, const void *buf, size_t size, void *engine_user_data);
+
+    /**
+     * qlog event callback function
+     *
+     * qlog event importance including EVENT_IMPORTANCE_SELECTED, EVENT_IMPORTANCE_CORE, EVENT_IMPORTANCE_BASE,
+     * EVENT_IMPORTANCE_EXTRA and EVENT_IMPORTANCE_REMOVED.
+     * EVENT_IMPORTANCE_CORE, EVENT_IMPORTANCE_BASE and EVENT_IMPORTANCE_EXTRA follow the defination of qlog draft.
+     * EVENT_IMPORTANCE_SELECTED works by xqc_log_write_err
+     * EVENT_IMPORTANCE_REMOVED exits, because the last qlog draft remove some qlog event, but the current qvis tool
+     * still need them.
+     */
+    void (*xqc_qlog_event_write)(qlog_event_importance_t imp, const void *buf, size_t size, void *engine_user_data);
 
 } xqc_log_callbacks_t;
 
@@ -849,6 +864,29 @@ typedef struct xqc_scheduler_params_u {
     uint32_t    pto_cnt_thr;
 } xqc_scheduler_params_t;
 
+typedef enum {
+    XQC_REED_SOLOMON_CODE  = 8,
+    XQC_XOR_CODE = 11, /* 测试用，没有在IANA登记过*/
+    XQC_PACKET_MASK = 12,
+} xqc_fec_schemes_e;
+
+typedef struct xqc_fec_params_s {
+    float                   fec_code_rate;                                  /* code rate represents the source symbol percents in total symbols */
+    xqc_int_t               fec_ele_bit_size;                               /* element bit size of current fec finite filed */
+    uint64_t                fec_protected_frames;                           /* frame type that should be protected by fec */
+    uint64_t                fec_max_window_size;                            /* maximum number of block that current host can store */
+    uint64_t                fec_max_symbol_size;                            /* (E) maximum symbol size of each symbol */
+    uint64_t                fec_max_symbol_num_per_block;                   /* (B) maximum symbol number of each block */
+    
+    xqc_int_t               fec_encoder_schemes_num;
+    xqc_int_t               fec_decoder_schemes_num;
+    xqc_fec_schemes_e       fec_encoder_schemes[XQC_FEC_MAX_SCHEME_NUM];    /* fec schemes supported by current host as encoder */
+    xqc_fec_schemes_e       fec_decoder_schemes[XQC_FEC_MAX_SCHEME_NUM];    /* fec schemes supported by current host as decoder */
+
+    xqc_int_t               fec_encoder_scheme;                             /* final fec scheme as encoder after negotiation */
+    xqc_int_t               fec_decoder_scheme;                             /* final fec scheme as decoder after negotiation */
+} xqc_fec_params_t;
+
 typedef struct xqc_congestion_control_callback_s {
     /* Callback on initialization, for memory allocation */
     size_t (*xqc_cong_ctl_size)(void);
@@ -965,6 +1003,15 @@ XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_reinj_ctl_callback_t xqc_default_rein
 XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_reinj_ctl_callback_t xqc_deadline_reinj_ctl_cb;
 XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_reinj_ctl_callback_t xqc_dgram_reinj_ctl_cb;
 
+typedef struct xqc_fec_code_callback_s {
+    void (*xqc_fec_init)(xqc_connection_t *conn);
+    xqc_int_t (*xqc_fec_encode)(xqc_connection_t *conn, unsigned char *unit_data, unsigned char **outputs);
+    xqc_int_t (*xqc_fec_decode)(xqc_connection_t *conn, unsigned char **recovered_symbols_buff, xqc_int_t block_idx,
+                                xqc_int_t *loss_symbols_idx, xqc_int_t loss_symbols_len);
+} xqc_fec_code_callback_t;
+
+XQC_EXPORT_PUBLIC_API extern const xqc_fec_code_callback_t xqc_xor_code_cb;
+XQC_EXPORT_PUBLIC_API extern const xqc_fec_code_callback_t xqc_reed_solomon_code_cb;
 
 /**
  * @struct xqc_config_t
@@ -976,6 +1023,9 @@ typedef struct xqc_config_s {
 
     /* enable log based on event or not, non-zero for enable, 0 for not */
     xqc_flag_t      cfg_log_event;
+
+    /* qlog evnet importance */
+    qlog_event_importance_t cfg_qlog_importance;
 
     /* print timestamp in log or not, non-zero for print, 0 for not */
     xqc_flag_t      cfg_log_timestamp;
@@ -1034,6 +1084,12 @@ typedef struct xqc_config_s {
      * 
      */
     uint8_t         enable_h3_ext;
+
+    /**
+     * @brief disable or enable logging (default: 0, enable)
+     * 
+     */
+    xqc_bool_t      log_disable;
 } xqc_config_t;
 
 
@@ -1083,6 +1139,11 @@ typedef enum {
     XQC_TLS_CERT_FLAG_ALLOW_SELF_SIGNED  = 1 << 1,
 } xqc_cert_verify_flag_e;
 
+typedef enum {
+    XQC_RED_NOT_USE             = 0,
+    XQC_RED_SET_CLOSE           = 1,
+} xqc_dgram_red_setting_e;
+
 /**
  * @brief connection tls config for client
  */
@@ -1128,6 +1189,10 @@ typedef enum {
     XQC_MULTIPATH_06            = 0x06,
 } xqc_multipath_version_t;
 
+typedef enum {
+    XQC_ERR_FEC_VERSION         = 0x00,
+    XQC_FEC_01                  = 0x01,
+} xqc_fec_version_t;
 
 typedef struct xqc_conn_settings_s {
     int                         pacing_on;          /* default: 0 */
@@ -1279,6 +1344,19 @@ typedef struct xqc_conn_settings_s {
      */
     xqc_usec_t                  initial_pto_duration;
     
+    /* 
+     * fec option:
+     * 0: don't support fec
+     * 1: supports fec 
+     */
+    uint64_t                    enable_encode_fec;
+    uint64_t                    enable_decode_fec;
+    xqc_fec_params_t            fec_params;
+    xqc_fec_code_callback_t     fec_encode_callback;
+    xqc_fec_code_callback_t     fec_decode_callback;
+
+    xqc_dgram_red_setting_e     close_dgram_redundancy;
+
 } xqc_conn_settings_t;
 
 
@@ -1316,10 +1394,10 @@ typedef struct xqc_conn_stats_s {
     uint32_t            lost_count;
     uint32_t            tlp_count;
     uint32_t            spurious_loss_count;
-    uint32_t            lost_dgram_count; /*how many datagram frames (pkts) are lost*/
-    xqc_usec_t          srtt;            /* smoothed SRTT at present: initial value = 250000 */
-    xqc_usec_t          min_rtt;         /* minimum RTT until now: initial value = 0xFFFFFFFF */
-    uint64_t            inflight_bytes;  /* initial value = 0 */
+    uint32_t            lost_dgram_count;       /* how many datagram frames (pkts) are lost */
+    xqc_usec_t          srtt;                   /* smoothed SRTT at present: initial value = 250000 */
+    xqc_usec_t          min_rtt;                /* minimum RTT until now: initial value = 0xFFFFFFFF */
+    uint64_t            inflight_bytes;         /* initial value = 0 */
     xqc_0rtt_flag_t     early_data_flag;
     uint32_t            recv_count;
     int                 spurious_loss_detect_on;
@@ -1398,11 +1476,12 @@ void xqc_engine_destroy(xqc_engine_t *engine);
  * @param alpn Application-Layer-Protocol, for example, h3, hq-interop, or self-defined
  * @param alpn_len length of Application-Layer-Protocol string
  * @param ap_cbs connection and stream event callback functions for application-layer-protocol
+ * @param alp_ctx the context of the upper layer protocol (e.g. the callback functions and default settings of the upper layer protocol)
  * @return XQC_EXPORT_PUBLIC_API
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_engine_register_alpn(xqc_engine_t *engine, const char *alpn, size_t alpn_len,
-    xqc_app_proto_callbacks_t *ap_cbs);
+    xqc_app_proto_callbacks_t *ap_cbs, void *alp_ctx);
 
 
 /**
@@ -1416,6 +1495,35 @@ xqc_int_t xqc_engine_register_alpn(xqc_engine_t *engine, const char *alpn, size_
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_engine_unregister_alpn(xqc_engine_t *engine, const char *alpn, size_t alpn_len);
 
+/**
+ * @brief get the context an application layer protocol
+ * 
+ * @param engine engine handler
+ * @param alpn Application-Layer-Protocol, for example, h3, hq-interop, or self-defined
+ * @param alpn_len length of alpn
+ * @return the context
+ */
+XQC_EXPORT_PUBLIC_API
+void* xqc_engine_get_alpn_ctx(xqc_engine_t *engine, const char *alpn, size_t alpn_len);
+
+/**
+ * @brief get the private context
+ * 
+ * @param engine 
+ * @return XQC_EXPORT_PUBLIC_API* 
+ */
+XQC_EXPORT_PUBLIC_API
+void* xqc_engine_get_priv_ctx(xqc_engine_t *engine);
+
+/**
+ * @brief save the private context
+ * 
+ * @param engine 
+ * @param priv_ctx 
+ * @return XQC_EXPORT_PUBLIC_API 
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_engine_set_priv_ctx(xqc_engine_t *engine, void *priv_ctx);
 
 /**
  * Pass received UDP packet payload into xquic engine.
@@ -1458,7 +1566,7 @@ xqc_int_t xqc_engine_set_config(xqc_engine_t *engine, const xqc_config_t *engine
  * new created connections
  */
 XQC_EXPORT_PUBLIC_API
-void xqc_server_set_conn_settings(const xqc_conn_settings_t *settings);
+void xqc_server_set_conn_settings(xqc_engine_t *engine, const xqc_conn_settings_t *settings);
 
 
 /**
@@ -1473,10 +1581,10 @@ void xqc_engine_set_log_level(xqc_engine_t *engine, xqc_log_level_t log_level);
 /**
  * @brief enable/disable the log module of xquic
  *
- * @param enable XQC_TRUE for enable, XQC_FALSE for disable
+ * @param enable XQC_TRUE for disable, XQC_FALSE for enable
  */
 XQC_EXPORT_PUBLIC_API
-void xqc_log_enable(xqc_bool_t enable);
+void xqc_log_disable(xqc_engine_t *engine, xqc_bool_t disable);
 
 
 /**
@@ -1794,10 +1902,10 @@ xqc_int_t xqc_cid_is_equal(const xqc_cid_t *dst, const xqc_cid_t *src);
  * @return user should copy return buffer to your own memory if you will access in the future
  */
 XQC_EXPORT_PUBLIC_API
-unsigned char *xqc_scid_str(const xqc_cid_t *scid);
+unsigned char *xqc_scid_str(xqc_engine_t *engine, const xqc_cid_t *scid);
 
 XQC_EXPORT_PUBLIC_API
-unsigned char *xqc_dcid_str(const xqc_cid_t *dcid);
+unsigned char *xqc_dcid_str(xqc_engine_t *engine, const xqc_cid_t *dcid);
 
 XQC_EXPORT_PUBLIC_API
 unsigned char *xqc_dcid_str_by_scid(xqc_engine_t *engine, const xqc_cid_t *scid);

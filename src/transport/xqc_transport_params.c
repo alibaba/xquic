@@ -7,6 +7,7 @@
 #include "src/common/xqc_str.h"
 #include "src/transport/xqc_defs.h"
 #include "src/transport/xqc_cid.h"
+#include "src/transport/xqc_fec.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <inttypes.h>
@@ -34,7 +35,7 @@ xqc_transport_params_calc_length(const xqc_transport_params_t *params,
     xqc_transport_params_type_t exttype) 
 {
     size_t len = 0;
-    size_t preferred_addrlen = 0;
+    size_t preferred_addrlen = 0, preferred_fec_paramslen = 0;
 
     if (params->original_dest_connection_id_present) {
         len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_ORIGINAL_DEST_CONNECTION_ID) +
@@ -169,10 +170,64 @@ xqc_transport_params_calc_length(const xqc_transport_params_t *params,
         
         } else {
             len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_04) +
-                xqc_put_varint_len(xqc_put_varint_len(params->enable_multipath)) +
-                xqc_put_varint_len(params->enable_multipath);
+                   xqc_put_varint_len(xqc_put_varint_len(params->enable_multipath)) +
+                   xqc_put_varint_len(params->enable_multipath);
         }
     }
+
+    if (params->close_dgram_redundancy == XQC_RED_SET_CLOSE) {
+        len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_CLOSE_DGRAM_REDUNDANCY) +
+           xqc_put_varint_len(xqc_put_varint_len(params->close_dgram_redundancy)) +
+           xqc_put_varint_len(params->close_dgram_redundancy);  
+    }          
+
+#ifdef XQC_ENABLE_FEC
+    if (params->enable_encode_fec || params->enable_decode_fec) {
+        len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_FEC_VERSION) + 
+            xqc_put_varint_len(0);
+    }
+
+    /*
+     * if enable_encode_fec, add fec related params' length:
+     * max_symbol_size; max_src_symbol_len; max_encoder_schemes;
+     */
+    if (params->enable_encode_fec
+        && params->fec_encoder_schemes_num > 0
+        && params->fec_encoder_schemes_num <= XQC_FEC_MAX_SCHEME_NUM)
+    {
+        preferred_fec_paramslen += xqc_put_varint_len(params->fec_encoder_schemes_num);
+
+        for (xqc_int_t i = 0; i < params->fec_encoder_schemes_num; i++) {
+            preferred_fec_paramslen += xqc_put_varint_len(params->fec_encoder_schemes[i]);
+        }
+        len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_FEC_ENCODER_SCHEMES) +
+                xqc_put_varint_len(preferred_fec_paramslen) + preferred_fec_paramslen;
+
+        len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_SIZE) +
+               xqc_put_varint_len(xqc_put_varint_len(params->fec_max_symbol_size)) +
+               xqc_put_varint_len(params->fec_max_symbol_size);
+
+        len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_NUM) +
+               xqc_put_varint_len(xqc_put_varint_len(params->fec_max_symbols_num)) +
+               xqc_put_varint_len(params->fec_max_symbols_num);
+    }
+    /*
+     * if enable_decode_fec, add fec related params' length:
+     * max_decoder_schemes;
+     */
+    if (params->enable_decode_fec
+        && params->fec_decoder_schemes_num > 0
+        && params->fec_decoder_schemes_num <= XQC_FEC_MAX_SCHEME_NUM)
+    {
+        preferred_fec_paramslen = 0;
+        preferred_fec_paramslen += xqc_put_varint_len(params->fec_decoder_schemes_num);
+        for (xqc_int_t i = 0; i < params->fec_decoder_schemes_num; i++) {
+            preferred_fec_paramslen += xqc_put_varint_len(params->fec_decoder_schemes[i]);
+        }
+        len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_FEC_DECODER_SCHEMES) +
+                xqc_put_varint_len(preferred_fec_paramslen) + preferred_fec_paramslen;
+    }
+#endif
 
     if (params->max_datagram_frame_size) {
         len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_MAX_DATAGRAM_FRAME_SIZE) +
@@ -220,7 +275,7 @@ xqc_encode_transport_params(const xqc_transport_params_t *params,
 {
     uint8_t *p = out;
     size_t len = 0;
-    size_t preferred_addrlen = 0;
+    size_t preferred_addrlen = 0, preferred_fec_paramslen = 0;
     int i;
 
     /* calculate encoding length */
@@ -362,6 +417,12 @@ xqc_encode_transport_params(const xqc_transport_params_t *params,
         }
     }
 
+    if (params->close_dgram_redundancy == XQC_RED_SET_CLOSE) {
+        p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_CLOSE_DGRAM_REDUNDANCY,
+                                 params->close_dgram_redundancy);
+    }
+
+
     if (params->conn_option_num) {
         p = xqc_put_varint(p, XQC_TRANSPORT_PARAM_GOOGLE_CO);
         p = xqc_put_varint(p, sizeof(uint32_t) * params->conn_option_num);
@@ -369,6 +430,55 @@ xqc_encode_transport_params(const xqc_transport_params_t *params,
             p = xqc_put_uint32be(p, params->conn_options[i]);
         }
     }
+
+#ifdef XQC_ENABLE_FEC
+    if (params->enable_encode_fec || params->enable_decode_fec) {
+        p = xqc_put_zero_length_param(p, XQC_TRANSPORT_PARAM_FEC_VERSION);
+    }
+
+    if (params->enable_encode_fec
+        && params->fec_encoder_schemes_num > 0
+        && params->fec_encoder_schemes_num <= XQC_FEC_MAX_SCHEME_NUM)
+    {
+        preferred_fec_paramslen = 0;
+        p = xqc_put_varint(p, XQC_TRANSPORT_PARAM_FEC_ENCODER_SCHEMES);
+        preferred_fec_paramslen = xqc_put_varint_len(params->fec_encoder_schemes_num);
+        for (xqc_int_t i = 0; i < params->fec_encoder_schemes_num; i++) {
+            preferred_fec_paramslen += xqc_put_varint_len(params->fec_encoder_schemes[i]);
+        }
+        p = xqc_put_varint(p, preferred_fec_paramslen);
+
+        p = xqc_put_varint(p, params->fec_encoder_schemes_num);
+        for (xqc_int_t i = 0; i < params->fec_encoder_schemes_num; i++) {
+            p = xqc_put_varint(p, params->fec_encoder_schemes[i]);
+        }
+        p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_SIZE,
+                                 params->fec_max_symbol_size);
+
+        p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_NUM,
+                                 params->fec_max_symbols_num);
+    }
+
+    if (params->enable_decode_fec
+        && params->fec_decoder_schemes_num > 0
+        && params->fec_decoder_schemes_num <= XQC_FEC_MAX_SCHEME_NUM)
+    {
+        preferred_fec_paramslen = 0;
+        if (params->fec_decoder_schemes_num > 0 && params->fec_encoder_schemes_num <= XQC_FEC_MAX_SCHEME_NUM) {
+            p = xqc_put_varint(p, XQC_TRANSPORT_PARAM_FEC_DECODER_SCHEMES);
+            preferred_fec_paramslen = xqc_put_varint_len(params->fec_decoder_schemes_num);
+            for (xqc_int_t i = 0; i < params->fec_decoder_schemes_num; i++) {
+                preferred_fec_paramslen += xqc_put_varint_len(params->fec_decoder_schemes[i]);
+            }
+            p = xqc_put_varint(p, preferred_fec_paramslen);
+
+            p = xqc_put_varint(p, params->fec_decoder_schemes_num);
+            for (xqc_int_t i = 0; i < params->fec_decoder_schemes_num; i++) {
+                p = xqc_put_varint(p, params->fec_decoder_schemes[i]);
+            }
+        }
+    }
+#endif    
 
     if ((size_t)(p - out) != len) {
         return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
@@ -631,6 +741,130 @@ xqc_decode_enable_multipath(xqc_transport_params_t *params, xqc_transport_params
 }
 
 static xqc_int_t
+xqc_decode_close_dgram_redundancy(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
+    const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
+{
+    uint64_t ret = 0;
+    ssize_t nread = xqc_vint_read(p, end, &ret);
+
+    switch (ret) {
+    case XQC_RED_SET_CLOSE:
+        params->close_dgram_redundancy = XQC_RED_SET_CLOSE;
+        break;
+
+    default:
+        params->close_dgram_redundancy = XQC_RED_NOT_USE;
+        break;
+    }
+    return XQC_OK;
+}
+
+#ifdef XQC_ENABLE_FEC
+static xqc_int_t
+xqc_decode_fec_version(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
+    const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
+{
+    switch (param_type) {
+    case XQC_TRANSPORT_PARAM_FEC_VERSION:
+        params->fec_version = XQC_FEC_01;
+        break;
+
+    default:
+        params->fec_version = XQC_ERR_FEC_VERSION;
+        break;
+    }
+
+    return XQC_OK;
+}
+
+static xqc_int_t
+xqc_decode_fec_max_symbol_size(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
+    const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
+{
+    XQC_DECODE_VINT_VALUE(&params->fec_max_symbol_size, p, end);
+}
+
+static xqc_int_t
+xqc_decode_fec_max_symbols_num(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
+    const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
+{
+    XQC_DECODE_VINT_VALUE(&params->fec_max_symbols_num, p, end);
+}
+
+static xqc_int_t
+xqc_decode_encoder_schemes(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
+    const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
+{
+    int         vlen;
+    uint64_t    schemes_len, curr_scheme;
+    xqc_int_t   i, tmp_len;
+    
+    tmp_len = 0;
+    schemes_len = curr_scheme = 0;
+    vlen = xqc_vint_read(p, end, &schemes_len);
+    
+    if (schemes_len < 0) {
+        return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+    }
+
+    params->fec_encoder_schemes_num = schemes_len;
+    p += vlen;
+
+    for (i = 0; i < schemes_len && tmp_len < XQC_FEC_MAX_SCHEME_NUM; i++) {
+        vlen = xqc_vint_read(p, end, &curr_scheme);
+        if (xqc_set_fec_scheme(curr_scheme, &params->fec_encoder_schemes[tmp_len]) == XQC_OK) {
+            tmp_len++;
+        }
+        p += vlen;
+    }
+
+    for (i; i < schemes_len; i++) {
+        p += xqc_vint_read(p, end, &curr_scheme);
+    }
+
+    params->enable_encode_fec = 1;
+    params->fec_encoder_schemes_num = tmp_len;
+    return XQC_OK;
+}
+
+static xqc_int_t
+xqc_decode_decoder_schemes(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
+    const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
+{
+    int      vlen;
+    uint64_t schemes_len, curr_scheme;
+    xqc_int_t i, tmp_len;
+
+    tmp_len = 0;
+    schemes_len = curr_scheme = 0;
+    vlen = xqc_vint_read(p, end, &schemes_len);
+
+    if (schemes_len < 0) {
+        return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+    }
+
+    params->fec_decoder_schemes_num = schemes_len;
+    p += vlen;
+
+    for (i = 0; i < schemes_len && tmp_len < XQC_FEC_MAX_SCHEME_NUM; i++) {
+        vlen = xqc_vint_read(p, end, &curr_scheme);
+        if (xqc_set_fec_scheme(curr_scheme, &params->fec_decoder_schemes[tmp_len]) == XQC_OK) {
+            tmp_len++;
+        }
+        p += vlen;
+    }
+
+    for (i; i < schemes_len; i++) {
+        p += xqc_vint_read(p, end, &curr_scheme);
+    }
+
+    params->enable_decode_fec = 1;
+    params->fec_decoder_schemes_num = tmp_len;
+
+    return XQC_OK;
+}
+#endif
+static xqc_int_t
 xqc_decode_max_datagram_frame_size(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
     const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
 {
@@ -661,9 +895,17 @@ xqc_trans_param_decode_func xqc_trans_param_decode_func_list[] = {
     xqc_decode_active_cid_limit,
     xqc_decode_initial_scid,
     xqc_decode_retry_scid,
-    xqc_decode_no_crypto,
     xqc_decode_enable_multipath,
     xqc_decode_max_datagram_frame_size,
+    xqc_decode_close_dgram_redundancy,
+#ifdef XQC_ENABLE_FEC
+    xqc_decode_fec_version,
+    xqc_decode_encoder_schemes,
+    xqc_decode_decoder_schemes,
+    xqc_decode_fec_max_symbol_size,
+    xqc_decode_fec_max_symbols_num,
+#endif
+    xqc_decode_no_crypto,
 };
 
 
@@ -691,17 +933,39 @@ xqc_trans_param_get_index(uint64_t param_type)
     case XQC_TRANSPORT_PARAM_INITIAL_SOURCE_CONNECTION_ID:
     case XQC_TRANSPORT_PARAM_RETRY_SOURCE_CONNECTION_ID:
         return param_type;
-
-    case XQC_TRANSPORT_PARAM_NO_CRYPTO:
-        return XQC_TRANSPORT_PARAM_PROTOCOL_MAX;
     
     case XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_04:
     case XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_05:
     case XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_06:
-        return XQC_TRANSPORT_PARAM_PROTOCOL_MAX + 1;
+        return XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_PARSER;
 
     case XQC_TRANSPORT_PARAM_MAX_DATAGRAM_FRAME_SIZE:
-        return XQC_TRANSPORT_PARAM_PROTOCOL_MAX + 2;
+        return XQC_TRANSPORT_PARAM_MAX_DATAGRAM_FRAME_SIZE_PARSER;
+    
+    case XQC_TRANSPORT_PARAM_CLOSE_DGRAM_REDUNDANCY:
+        return param_type;
+
+#ifdef XQC_ENABLE_FEC
+    case XQC_TRANSPORT_PARAM_FEC_VERSION:
+        return XQC_TRANSPORT_PARAM_FEC_VERSION_PARSER;
+
+    case XQC_TRANSPORT_PARAM_FEC_ENCODER_SCHEMES:
+        return XQC_TRANSPORT_PARAM_FEC_ENCODER_SCHEMES_PARSER;
+
+    case XQC_TRANSPORT_PARAM_FEC_DECODER_SCHEMES:
+        return XQC_TRANSPORT_PARAM_FEC_DECODER_SCHEMES_PARSER;
+
+    case XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_SIZE:
+        return XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_SIZE_PARSER;
+
+    case XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_NUM:
+        return XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_NUM_PARSER;
+
+#endif
+
+    // 验证一下编译开关关闭时候是否有问题
+    case XQC_TRANSPORT_PARAM_NO_CRYPTO:
+        return XQC_TRANSPORT_PARAM_PROTOCOL_MAX;
 
     default:
         break;
@@ -795,6 +1059,17 @@ xqc_decode_transport_params(xqc_transport_params_t *params,
 
     params->enable_multipath = 0;
     params->multipath_version = XQC_ERR_MULTIPATH_VERSION;
+
+    /* init fec params value */
+    params->enable_encode_fec = 0;
+    params->enable_decode_fec = 0;
+    params->fec_version = XQC_ERR_FEC_VERSION;
+    params->fec_max_symbol_size = 0;
+    params->fec_max_symbols_num = 0;
+    params->fec_encoder_schemes_num = 0;
+    params->fec_decoder_schemes_num = 0;
+
+    params->close_dgram_redundancy = XQC_RED_NOT_USE;
 
     while (p < end) {
         ret = xqc_decode_one_transport_param(params, exttype, &p, end);

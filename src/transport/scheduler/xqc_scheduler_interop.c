@@ -100,7 +100,7 @@ xqc_interop_scheduler_get_path(void *scheduler,
 
     if (best_path) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|best path:%ui|frame_type:%s|app_status:%d|",
-                best_path->path_id, xqc_frame_type_2_str(packet_out->po_frame_types),
+                best_path->path_id, xqc_frame_type_2_str(conn->engine, packet_out->po_frame_types),
                 best_path->app_path_status);
     }
 

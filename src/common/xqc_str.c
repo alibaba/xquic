@@ -288,8 +288,8 @@ xqc_sprintf_num(unsigned char *buf, unsigned char *last, uint64_t ui64, unsigned
      */
     size_t          len;
     uint32_t        ui32;
-    static unsigned char   hex[] = "0123456789abcdef";
-    static unsigned char   HEX[] = "0123456789ABCDEF";
+    static const unsigned char   hex[] = "0123456789abcdef";
+    static const unsigned char   HEX[] = "0123456789ABCDEF";
 
     p = temp + XQC_INT64_LEN;
 

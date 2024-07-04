@@ -17,5 +17,4 @@ xqc_connection_t *test_engine_connect();
 xqc_engine_t *test_create_engine();
 xqc_engine_t *test_create_engine_server();
 
-
 #endif

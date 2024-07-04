@@ -137,10 +137,6 @@ if(XQC_PRINT_SECRET)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DXQC_PRINT_SECRET")
 endif()
 
-# compat with the duplicate instruction of HTTP/3 module before version v1.1.0
-if(XQC_COMPAT_DUPLICATE)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DXQC_COMPAT_DUPLICATE")
-endif()
 
 # compat with the stateless reset before version v1.6.0
 if(XQC_COMPAT_GENERATE_SR_PKT)

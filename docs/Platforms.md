@@ -2,7 +2,7 @@
 
 XQUIC currently supports `Android` , `iOS` , `HarmonyOS` , `Linux` , `macOS` and `Windows` .
 
-## Android/iOS/Harmony Compile Script
+## Android/iOS/HarmonyOS Compile Script
 
 The Android, iOS and HarmonyOS use `.so` files, there is a [ `xqc_build.sh` ](../xqc_build.sh) script in the XQUIC library directory, execute the script to compile to complete the corresponding compilation.
 

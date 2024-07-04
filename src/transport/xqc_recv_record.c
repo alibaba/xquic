@@ -294,7 +294,7 @@ xqc_maybe_should_ack(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_pn_ctl_t 
                 "pns:%d|flag:%s|ack_freq:%ud|", 
                 path->path_id, out_of_order, 
                 send_ctl->ctl_ack_eliciting_pkt[pns],
-                pns, xqc_conn_flag_2_str(conn->conn_flag),
+                pns, xqc_conn_flag_2_str(conn, conn->conn_flag),
                 ack_frequency);
 
     } else if (send_ctl->ctl_ack_eliciting_pkt[pns] > 0
@@ -306,7 +306,7 @@ xqc_maybe_should_ack(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_pn_ctl_t 
         xqc_log(conn->log, XQC_LOG_DEBUG,
                 "|path:%ui|set ack timer|ack_eliciting_pkt:%ud|pns:%d|flag:%s|now:%ui|max_ack_delay:%ui|",
                 path->path_id,
-                send_ctl->ctl_ack_eliciting_pkt[pns], pns, xqc_conn_flag_2_str(conn->conn_flag),
+                send_ctl->ctl_ack_eliciting_pkt[pns], pns, xqc_conn_flag_2_str(conn, conn->conn_flag),
                 now, conn->local_settings.max_ack_delay * 1000);
     }
 }

@@ -269,7 +269,7 @@ test_create_engine()
 
     /* transport ALPN */
     xqc_app_proto_callbacks_t transport_cbs = {{NULL}, {NULL}};
-    xqc_engine_register_alpn(engine, "transport", 9, &transport_cbs);
+    xqc_engine_register_alpn(engine, "transport", 9, &transport_cbs, NULL);
 
     return engine;
 }
@@ -313,7 +313,7 @@ test_create_engine_server()
 
     /* transport ALPN */
     xqc_app_proto_callbacks_t transport_cbs = {{NULL}, {NULL}};
-    xqc_engine_register_alpn(engine, "transport", 9, &transport_cbs);
+    xqc_engine_register_alpn(engine, "transport", 9, &transport_cbs, NULL);
 
     return engine;
 }

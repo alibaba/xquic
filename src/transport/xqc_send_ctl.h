@@ -112,6 +112,10 @@ typedef struct xqc_send_ctl_s {
     unsigned                    ctl_spurious_loss_count;
     unsigned                    ctl_lost_dgram_cnt;
 
+    /* record time for last three cwnd limitation and rtt mutation*/
+    xqc_msec_t                  ctl_recent_cwnd_limitation_time[3];
+    uint8_t                     ctl_cwndlim_update_idx;
+    
     unsigned                    ctl_recv_count;
 
     /* for QUIC datagrams */

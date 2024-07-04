@@ -68,7 +68,6 @@ xqc_client_connect(xqc_engine_t *engine, const xqc_conn_settings_t *conn_setting
         return NULL;
     }
 
-    xqc_log(engine->log, XQC_LOG_DEBUG, "|xqc_connect|");
     xqc_log_event(xc->log, CON_CONNECTION_STARTED, xc, XQC_LOG_REMOTE_EVENT);
 
     /* conn_create callback */

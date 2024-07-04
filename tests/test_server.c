@@ -156,6 +156,7 @@ int g_enable_reinjection = 0;
 int g_spec_local_addr = 0;
 int g_mpshell = 0;
 int g_endless_sending = 0;
+int g_enable_fec = 0;
 double g_copa_ai = 1.0;
 double g_copa_delta = 0.05;
 int g_enable_h3_ext = 1;
@@ -720,8 +721,8 @@ xqc_server_conn_update_cid_notify(xqc_connection_t *conn, const xqc_cid_t *retir
 
     memcpy(&user_conn->cid, new_cid, sizeof(*new_cid));
 
-    printf("====>RETIRE SCID:%s\n", xqc_scid_str(retire_cid));
-    printf("====>SCID:%s\n", xqc_scid_str(new_cid));
+    printf("====>RETIRE SCID:%s\n", xqc_scid_str(ctx.engine, retire_cid));
+    printf("====>SCID:%s\n", xqc_scid_str(ctx.engine, new_cid));
     printf("====>DCID:%s\n", xqc_dcid_str_by_scid(ctx.engine, new_cid));
 
 }
@@ -1007,8 +1008,8 @@ xqc_server_h3_conn_update_cid_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *re
 
     memcpy(&user_conn->cid, new_cid, sizeof(*new_cid));
 
-    printf("====>RETIRE SCID:%s\n", xqc_scid_str(retire_cid));
-    printf("====>SCID:%s\n", xqc_scid_str(new_cid));
+    printf("====>RETIRE SCID:%s\n", xqc_scid_str(ctx.engine, retire_cid));
+    printf("====>SCID:%s\n", xqc_scid_str(ctx.engine, new_cid));
     printf("====>DCID:%s\n", xqc_dcid_str_by_scid(ctx.engine, new_cid));
 
 }
@@ -1515,7 +1516,7 @@ xqc_server_write_socket(const unsigned char *buf, size_t size,
     do {
         set_sys_errno(0);
         res = sendto(fd, send_buf, send_buf_size, 0, peer_addr, peer_addrlen);
-        printf("xqc_server_send write %zd, %s\n", res, strerror(get_sys_errno()));
+        // printf("xqc_server_send write %zd, %s\n", res, strerror(get_sys_errno()));
         if (res < 0) {
             printf("xqc_server_write_socket err %zd %s\n", res, strerror(get_sys_errno()));
             if (get_sys_errno() == EAGAIN) {
@@ -1935,6 +1936,29 @@ xqc_server_write_log(xqc_log_level_t lvl, const void *buf, size_t count, void *e
     }
 }
 
+void 
+xqc_server_write_qlog(qlog_event_importance_t imp, const void *buf, size_t count, void *engine_user_data)
+{
+    unsigned char log_buf[XQC_MAX_LOG_LEN + 1];
+
+    xqc_server_ctx_t *ctx = (xqc_server_ctx_t*)engine_user_data;
+    if (ctx->log_fd <= 0) {
+        printf("xqc_server_write_qlog fd err\n");
+        return;
+    }
+
+    int log_len = snprintf(log_buf, XQC_MAX_LOG_LEN + 1, "%s\n", (char *)buf);
+    if (log_len < 0) {
+        printf("xqc_server_write_qlog err\n");
+        return;
+    }
+
+    int write_len = write(ctx->log_fd, log_buf, log_len);
+    if (write_len < 0) {
+        printf("xqc_server_write_log write failed, errno: %d\n", get_sys_errno());
+    }
+}
+
 
 /**
  * key log functions
@@ -1973,7 +1997,7 @@ xqc_keylog_cb(const xqc_cid_t *scid, const char *line, void *user_data)
         return;
     }
     
-    printf("scid:%s\n", xqc_scid_str(scid));
+    printf("scid:%s\n", xqc_scid_str(ctx->engine, scid));
     int write_len = write(ctx->keylog_fd, line, strlen(line));
     if (write_len < 0) {
         printf("write keys failed, errno: %d\n", get_sys_errno());
@@ -2099,6 +2123,8 @@ int main(int argc, char *argv[]) {
     char c_cong_ctl = 'b';
     char c_log_level = 'd';
     int c_cong_plus = 0;
+    uint8_t c_qlog_disable = 0;
+    char c_qlog_importance = 'r';
     int pacing_on = 0;
     strncpy(g_log_path, "./slog", sizeof(g_log_path));
 
@@ -2112,11 +2138,13 @@ int main(int argc, char *argv[]) {
         {"copa_ai_unit", required_argument, &long_opt_index, 2},
         {"dgram_qos", required_argument, &long_opt_index, 3},
         {"pmtud", required_argument, &long_opt_index, 4},
+        {"qlog_disable", no_argument, &long_opt_index, 5},
+        {"qlog_importance", required_argument, &long_opt_index, 6},
         {0, 0, 0, 0}
     };
 
     int ch = 0;
-    while ((ch = getopt_long(argc, argv, "a:p:ec:Cs:w:r:l:u:x:6bS:MR:o:EK:mLQ:U:yH", long_opts, NULL)) != -1) {
+    while ((ch = getopt_long(argc, argv, "a:p:efc:Cs:w:r:l:u:x:6bS:MR:o:EK:mLQ:U:yH", long_opts, NULL)) != -1) {
         switch (ch) {
         case 'H':
             printf("option disable h3_ext\n");
@@ -2143,6 +2171,10 @@ int main(int argc, char *argv[]) {
         case 'e': /* Echo. Send received body. */
             printf("option echo :%s\n", "on");
             g_echo = 1;
+            break;
+        case 'f':
+            printf("option fec: on\n");
+            g_enable_fec = 1;
             break;
         case 'c': /* Congestion Control Algorithm. r:reno b:bbr c:cubic B:bbr2 bbr+ bbr2+ */
             c_cong_ctl = optarg[0];
@@ -2290,6 +2322,16 @@ int main(int argc, char *argv[]) {
                 printf("option g_pmtud_on: %d\n", g_pmtud_on);
                 break;
 
+            case 5:
+                c_qlog_disable = 1;
+                printf("option disable qlog\n");
+                break;
+            
+            case 6:
+                c_qlog_importance = optarg[0];
+                printf("option qlog importance :%s\n", optarg);
+                break;
+
             default:
                 break;
             }
@@ -2337,6 +2379,7 @@ int main(int argc, char *argv[]) {
         .log_callbacks = {
             .xqc_log_write_err = xqc_server_write_log,
             .xqc_log_write_stat = xqc_server_write_log,
+            .xqc_qlog_event_write = xqc_server_write_qlog,
         },
         .keylog_cb = xqc_keylog_cb,
 
@@ -2414,10 +2457,13 @@ int main(int argc, char *argv[]) {
         },
         .enable_multipath = g_enable_multipath,
         // .multipath_version = g_multipath_version,
+        .enable_encode_fec = g_enable_fec,
+        .enable_decode_fec = g_enable_fec,
         .spurious_loss_detect_on = 0,
         .max_datagram_frame_size = g_max_dgram_size,
         // .datagram_force_retrans_on = 1,
         .marking_reinjection = 1,
+        .close_dgram_redundancy = XQC_RED_NOT_USE,
     };
 
     if (g_pmtud_on) {
@@ -2452,6 +2498,19 @@ int main(int argc, char *argv[]) {
         conn_settings.scheduler_callback = xqc_backup_scheduler_cb;
     }
 
+    if (g_enable_fec) {
+        xqc_fec_params_t fec_params;
+        xqc_fec_schemes_e fec_schemes[XQC_FEC_MAX_SCHEME_NUM] = {XQC_XOR_CODE, XQC_REED_SOLOMON_CODE};
+        for (xqc_int_t i = 0; i < XQC_FEC_MAX_SCHEME_NUM; i++) {
+            fec_params.fec_encoder_schemes[i] = fec_schemes[i];
+            fec_params.fec_decoder_schemes[i] = fec_schemes[i];
+        }
+        fec_params.fec_encoder_schemes_num = 2;
+        fec_params.fec_decoder_schemes_num = 2;
+        fec_params.fec_max_window_size = 8;
+        conn_settings.fec_params = fec_params;
+    }
+
     if (g_test_case == 12) {
         conn_settings.linger.linger_on = 1;
     }
@@ -2482,8 +2541,6 @@ int main(int argc, char *argv[]) {
         conn_settings.datagram_redundant_probe = 30000;
     }
 
-    xqc_server_set_conn_settings(&conn_settings);
-
     xqc_config_t config;
     if (xqc_engine_get_default_config(&config, XQC_ENGINE_SERVER) < 0) {
         return -1;
@@ -2498,6 +2555,18 @@ int main(int argc, char *argv[]) {
         case 's': config.cfg_log_level = XQC_LOG_STATS; break;
         case 'd': config.cfg_log_level = XQC_LOG_DEBUG; break;
         default: config.cfg_log_level = XQC_LOG_DEBUG;
+    }
+
+    if (c_qlog_disable) {
+        config.cfg_log_event = 0;
+    }
+    switch(c_qlog_importance) {
+        case 's': config.cfg_qlog_importance = EVENT_IMPORTANCE_SELECTED; break;
+        case 'c': config.cfg_qlog_importance = EVENT_IMPORTANCE_CORE; break;
+        case 'b': config.cfg_qlog_importance = EVENT_IMPORTANCE_BASE; break;
+        case 'e': config.cfg_qlog_importance = EVENT_IMPORTANCE_EXTRA; break;
+        case 'r': config.cfg_qlog_importance = EVENT_IMPORTANCE_REMOVED; break;
+        default: config.cfg_qlog_importance = EVENT_IMPORTANCE_EXTRA;
     }
 
     eb = event_base_new();
@@ -2533,6 +2602,8 @@ int main(int argc, char *argv[]) {
         printf("error create engine\n");
         return -1;
     }
+
+    xqc_server_set_conn_settings(ctx.engine, &conn_settings);
 
     /* register http3 callbacks */
     xqc_h3_callbacks_t h3_cbs = {
@@ -2597,7 +2668,27 @@ int main(int argc, char *argv[]) {
         return ret;
     }
 
-    xqc_engine_register_alpn(ctx.engine, XQC_ALPN_TRANSPORT, 9, &ap_cbs);
+        /* modify h3 default settings */
+    if (g_test_case == 150 || g_test_case == 152) {
+        xqc_h3_engine_set_dec_max_dtable_capacity(ctx.engine, 4096);
+        xqc_h3_engine_set_enc_max_dtable_capacity(ctx.engine, 4096);
+        xqc_h3_engine_set_max_field_section_size(ctx.engine, 512);
+        xqc_h3_engine_set_qpack_blocked_streams(ctx.engine, 32);
+#ifdef XQC_COMPAT_DUPLICATE
+        xqc_h3_engine_set_qpack_compat_duplicate(ctx.engine, 1);
+#endif
+    }
+
+    if (g_test_case == 151 || g_test_case == 153) {
+        xqc_h3_engine_set_max_dtable_capacity(ctx.engine, 4096);
+        xqc_h3_engine_set_max_field_section_size(ctx.engine, 512);
+        xqc_h3_engine_set_qpack_blocked_streams(ctx.engine, 32);
+#ifdef XQC_COMPAT_DUPLICATE
+        xqc_h3_engine_set_qpack_compat_duplicate(ctx.engine, 1);
+#endif
+    }
+
+    xqc_engine_register_alpn(ctx.engine, XQC_ALPN_TRANSPORT, 9, &ap_cbs, NULL);
 
     if (g_test_case == 10) {
         xqc_h3_engine_set_max_field_section_size(ctx.engine, 10000000);

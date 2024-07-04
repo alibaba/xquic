@@ -188,8 +188,7 @@ typedef struct {
     uint32_t            red_dgram_recv_cnt;
 
     uint32_t            standby_probe_count;
-    uint32_t            app_path_status_changed_count;
-
+    uint32_t            app_path_status_changed_count;    
 } xqc_path_info_t;
 
 xqc_bool_t xqc_is_same_addr(const struct sockaddr *sa1, const struct sockaddr *sa2);

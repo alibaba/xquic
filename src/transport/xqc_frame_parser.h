@@ -43,6 +43,9 @@ xqc_int_t xqc_parse_crypto_frame(xqc_packet_in_t *packet_in, xqc_connection_t *c
 
 void xqc_gen_padding_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
 
+xqc_int_t xqc_gen_padding_frame_with_len(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
+    size_t padding_len, size_t limit);
+
 xqc_int_t xqc_parse_padding_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn);
 
 ssize_t xqc_gen_ping_frame(xqc_packet_out_t *packet_out);
@@ -157,5 +160,13 @@ ssize_t xqc_gen_path_available_frame(xqc_connection_t *conn,
 xqc_int_t xqc_parse_path_available_frame(xqc_packet_in_t *packet_in,
     uint64_t *dcid_seq_num,
     uint64_t *path_status_seq_num, uint64_t *path_status);
+
+ssize_t xqc_gen_sid_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
+
+xqc_int_t xqc_parse_sid_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
+
+xqc_int_t xqc_gen_repair_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_int_t fss_esi,
+    xqc_int_t repair_idx, xqc_int_t repair_key_size);
+xqc_int_t xqc_parse_repair_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 #endif /*_XQC_FRAME_PARSER_H_INCLUDED_*/

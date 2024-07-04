@@ -857,8 +857,8 @@ xqc_ssl_alpn_select_cb(SSL *ssl, const unsigned char **out, unsigned char *outle
     if (XQC_OK != ret) {
         return SSL_TLSEXT_ERR_ALERT_FATAL;
     }
-
-    xqc_log(tls->log, XQC_LOG_DEBUG, "|select alpn|%*s|", alpn_len, alpn);
+    xqc_log_event(tls->log, TRA_ALPN_INFORMATION, alpn_list, alpn_list_len, in,
+        inlen, alpn, alpn_len);
     return SSL_TLSEXT_ERR_OK;
 }
 

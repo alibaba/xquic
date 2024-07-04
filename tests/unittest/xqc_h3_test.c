@@ -430,6 +430,14 @@ xqc_test_stream()
     xqc_connection_t *conn = test_engine_connect();
     CU_ASSERT(conn != NULL);
 
+    /* set alpn to H3 */
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+
     xqc_stream_t *stream = xqc_create_stream_with_conn(conn, XQC_UNDEFINE_STREAM_ID, XQC_CLI_UNI, NULL, NULL);
     CU_ASSERT(stream != NULL);
 
@@ -448,4 +456,8 @@ xqc_test_stream()
     xqc_h3_stream_destroy(h3s);
     xqc_h3_conn_destroy(h3c);
     xqc_destroy_stream(stream);
+
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
 }

@@ -156,16 +156,9 @@ xqc_h3_ext_bytestream_data_buf_merge(xqc_h3_ext_bytestream_data_buf_t *buf)
 }
 
 xqc_int_t 
-xqc_h3_ext_bytestream_init_callbacks(xqc_h3_ext_bytestream_t *bs)
+xqc_h3_ext_bytestream_init_callbacks(xqc_h3_conn_t *h3c, xqc_h3_ext_bytestream_t *bs)
 {
-    xqc_h3_callbacks_t *h3_cbs = NULL;
-    xqc_int_t ret = xqc_h3_ctx_get_app_callbacks(&h3_cbs);
-    if (XQC_OK != ret || h3_cbs == NULL) {
-        xqc_log(bs->h3_stream->log, XQC_LOG_ERROR, "|can't get app callbacks, not registered ?|");
-        return ret;
-    }
-
-    bs->bs_callbacks = &h3_cbs->h3_ext_bs_cbs;
+    bs->bs_callbacks = &h3c->h3_ext_bs_callbacks;
     return XQC_OK;
 }
 
@@ -180,7 +173,7 @@ xqc_h3_ext_bytestream_create_inner(xqc_h3_conn_t *h3_conn,
         return NULL;
     }
 
-    if (xqc_h3_ext_bytestream_init_callbacks(bs) != XQC_OK) {
+    if (xqc_h3_ext_bytestream_init_callbacks(h3_conn, bs) != XQC_OK) {
         xqc_free(bs);
         return NULL;
     }
@@ -266,7 +259,7 @@ xqc_h3_ext_bytestream_create(xqc_engine_t *engine,
 
     xqc_log(engine->log, XQC_LOG_DEBUG, "|success|stream_id:%ui|conn:%p|conn_state:%s|flag:%s|",
             h3_stream->stream_id, h3_conn->conn, xqc_conn_state_2_str(h3_conn->conn->conn_state),
-            xqc_conn_flag_2_str(h3_conn->conn->conn_flag));
+            xqc_conn_flag_2_str(h3_conn->conn, h3_conn->conn->conn_flag));
 
     return h3_ext_bs;
 }
@@ -350,13 +343,13 @@ xqc_h3_ext_bytestream_close(xqc_h3_ext_bytestream_t *h3_ext_bs)
     if (ret) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|fail|ret:%d|stream_id:%ui|conn:%p|conn_state:%s|"
                 "flag:%s|", ret, h3s->stream_id, conn, xqc_conn_state_2_str(conn->conn_state),
-                xqc_conn_flag_2_str(conn->conn_flag));
+                xqc_conn_flag_2_str(conn, conn->conn_flag));
         return ret;
     }
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|success|stream_id:%ui|conn:%p|conn_state:%s|flag:%s|",
             h3s->stream_id, conn, xqc_conn_state_2_str(conn->conn_state),
-            xqc_conn_flag_2_str(conn->conn_flag));
+            xqc_conn_flag_2_str(conn, conn->conn_flag));
 
     return XQC_OK;
 }

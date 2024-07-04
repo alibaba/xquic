@@ -70,6 +70,11 @@ xqc_datagram_record_mss(xqc_connection_t *conn)
     }
 
     headroom = XQC_ACK_SPACE + XQC_TLS_AEAD_OVERHEAD_MAX_LEN + quic_header_size + XQC_DATAGRAM_HEADER_BYTES;
+    
+    if (conn->conn_settings.fec_params.fec_encoder_scheme) {
+        headroom += XQC_FEC_SPACE;
+    }
+
     if (conn->remote_settings.max_udp_payload_size >= headroom) {
         udp_payload_limit = conn->remote_settings.max_udp_payload_size - headroom;
 
@@ -78,6 +83,9 @@ xqc_datagram_record_mss(xqc_connection_t *conn)
     }
 
     headroom = quic_header_size + XQC_DATAGRAM_HEADER_BYTES;
+    if (conn->conn_settings.fec_params.fec_encoder_scheme) {
+        headroom += XQC_FEC_SPACE;
+    }
     if (conn->pkt_out_size >= headroom) {
         mtu_limit = conn->pkt_out_size - headroom;
 

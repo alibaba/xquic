@@ -388,7 +388,7 @@ xqc_h3_stream_send_headers(xqc_h3_stream_t *h3s, xqc_http_headers_t *headers, ui
     h3s->h3r->header_sent += headers->total_len;
 
     xqc_log(h3c->log, XQC_LOG_DEBUG, "|write:%z|stream_id:%ui|fin:%ud|conn:%p|flag:%s|", write,
-            h3s->stream_id, (unsigned int)fin, h3c->conn, xqc_conn_flag_2_str(h3c->conn->conn_flag));
+            h3s->stream_id, (unsigned int)fin, h3c->conn, xqc_conn_flag_2_str(h3c->conn, h3c->conn->conn_flag));
 
     h3s->flags &= ~XQC_HTTP3_STREAM_NEED_WRITE_NOTIFY;
 
@@ -682,13 +682,15 @@ xqc_h3_stream_write_notify(xqc_stream_t *stream, void *user_data)
     if (h3s->type == XQC_H3_STREAM_TYPE_REQUEST
         && (h3s->flags & XQC_HTTP3_STREAM_NEED_WRITE_NOTIFY))
     {
-        ret = h3s->h3r->request_if->h3_request_write_notify(h3s->h3r, h3s->h3r->user_data);
-        if (ret < 0) {
-            xqc_log(stream->stream_conn->log, XQC_LOG_ERROR,
-                    "|h3_request_write_notify error|%d|", ret);
-            return ret;
+        if (h3s->h3r->request_if->h3_request_write_notify) {
+            ret = h3s->h3r->request_if->h3_request_write_notify(h3s->h3r, h3s->h3r->user_data);
+            if (ret < 0) {
+                xqc_log(stream->stream_conn->log, XQC_LOG_ERROR,
+                        "|h3_request_write_notify error|%d|", ret);
+                return ret;
+            }
+            xqc_log(h3s->log, XQC_LOG_DEBUG, "|h3_request_write_notify|success|");
         }
-        xqc_log(h3s->log, XQC_LOG_DEBUG, "|h3_request_write_notify|success|");
     }
 
     //TODO: implement the notification of bytestream writable event

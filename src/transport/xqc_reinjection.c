@@ -107,7 +107,7 @@ xqc_conn_try_reinject_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_ou
             "path:%ui|stream_id:%ui|stream_offset:%ui|"
             "pkt_type:%s|origin_pkt_path:%ui|origin_pkt_num:%ui|",
             po_copy->po_path_id, po_copy->po_stream_id, po_copy->po_stream_offset,
-            xqc_frame_type_2_str(packet_out->po_frame_types),
+            xqc_frame_type_2_str(conn->engine, packet_out->po_frame_types),
             packet_out->po_path_id, packet_out->po_pkt.pkt_num);
 
     return XQC_OK;
@@ -135,7 +135,7 @@ xqc_conn_reinject_unack_packets(xqc_connection_t *conn, xqc_reinjection_mode_t m
                     "pkt_num:%ui|size:%ud|pkt_type:%s|frame:%s|mode:%d|",
                     packet_out->po_pkt.pkt_num, packet_out->po_used_size,
                     xqc_pkt_type_2_str(packet_out->po_pkt.pkt_type),
-                    xqc_frame_type_2_str(packet_out->po_frame_types),
+                    xqc_frame_type_2_str(conn->engine, packet_out->po_frame_types),
                     mode);
         }
     }

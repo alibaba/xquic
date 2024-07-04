@@ -208,6 +208,39 @@ if(XQC_ENABLE_MP_INTEROP)
     )
 endif()
 
+
+# fec framework
+set(
+    FEC_FRAMEWORK_SOURCE
+    "src/transport/xqc_fec.c"
+    "src/transport/xqc_fec_scheme.c"
+    "src/transport/fec_schemes/xqc_galois_calculation.c"
+)
+
+if(XQC_ENABLE_XOR)
+    set(
+        FEC_FRAMEWORK_SOURCE
+        ${FEC_FRAMEWORK_SOURCE}
+        "src/transport/fec_schemes/xqc_xor.c"
+    )
+endif()
+
+if(XQC_ENABLE_RSC)
+    set(
+        FEC_FRAMEWORK_SOURCE
+        ${FEC_FRAMEWORK_SOURCE}
+        "src/transport/fec_schemes/xqc_reed_solomon.c"
+    )
+endif()
+
+if(XQC_ENABLE_FEC)
+    set(
+        TRANSPORT_SOURCES
+        ${TRANSPORT_SOURCES}
+        ${FEC_FRAMEWORK_SOURCE}
+    )
+endif()
+
 # TLS source
 set (
     TLS_SOURCE

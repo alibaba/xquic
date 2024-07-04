@@ -88,7 +88,7 @@ xqc_deadline_reinj_can_reinject_before_sched(xqc_deadline_reinj_ctl_t *rctl,
             "lower_bound:%ui|now:%ui|sent_time:%ui|frame:%s|",
             deadline, factor, min_srtt, flexible, hard, 
             lower_bound, now, po->po_sent_time, 
-            xqc_frame_type_2_str(po->po_frame_types));
+            xqc_frame_type_2_str(conn->engine, po->po_frame_types));
 
     if ((double)(now - po->po_sent_time) >= deadline) {   
         return XQC_TRUE;

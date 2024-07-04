@@ -14,6 +14,10 @@ option (XQC_ENABLE_UNLIMITED "enable unlimited cc" OFF)
 option (XQC_ENABLE_MP_INTEROP "enable MPQUIC interop" OFF)
 option (XQC_NO_PID_PACKET_PROCESS "do not expose path_id in xqc_engine_packet_process" OFF)
 option (XQC_PROTECT_POOL_MEM "enable write protection for pool memory (for debug)" OFF)
+option (XQC_COMPAT_DUPLICATE "qpack compat dup" OFF)
+option (XQC_ENABLE_FEC "enable fec" OFF)
+option (XQC_ENABLE_XOR "enable fec scheme xor" OFF)
+option (XQC_ENABLE_RSC "enable fec scheme reed-solomon code" OFF)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
@@ -133,10 +137,6 @@ if(XQC_PRINT_SECRET)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DXQC_PRINT_SECRET")
 endif()
 
-# compat with the duplicate instruction of HTTP/3 module before version v1.1.0
-if(XQC_COMPAT_DUPLICATE)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DXQC_COMPAT_DUPLICATE")
-endif()
 
 # compat with the stateless reset before version v1.6.0
 if(XQC_COMPAT_GENERATE_SR_PKT)
@@ -235,6 +235,38 @@ if(XQC_ENABLE_MP_INTEROP)
         TRANSPORT_SOURCES
         ${TRANSPORT_SOURCES}
         "src/transport/scheduler/xqc_scheduler_interop.c"
+    )
+endif()
+
+# fec framework
+set(
+    FEC_FRAMEWORK_SOURCE
+    "src/transport/xqc_fec.c"
+    "src/transport/xqc_fec_scheme.c"
+    "src/transport/fec_schemes/xqc_galois_calculation.c"
+)
+
+if(XQC_ENABLE_XOR)
+    set(
+        FEC_FRAMEWORK_SOURCE
+        ${FEC_FRAMEWORK_SOURCE}
+        "src/transport/fec_schemes/xqc_xor.c"
+    )
+endif()
+
+if(XQC_ENABLE_RSC)
+    set(
+        FEC_FRAMEWORK_SOURCE
+        ${FEC_FRAMEWORK_SOURCE}
+        "src/transport/fec_schemes/xqc_reed_solomon.c"
+    )
+endif()
+
+if(XQC_ENABLE_FEC)
+    set(
+        TRANSPORT_SOURCES
+        ${TRANSPORT_SOURCES}
+        ${FEC_FRAMEWORK_SOURCE}
     )
 endif()
 

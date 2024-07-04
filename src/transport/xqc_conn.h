@@ -19,6 +19,8 @@
 #include "src/transport/xqc_transport_params.h"
 #include "src/transport/xqc_timer.h"
 #include "src/transport/xqc_multipath.h"
+#include "src/transport/xqc_fec.h"
+#include "src/transport/xqc_fec_scheme.h"
 #include "src/tls/xqc_tls.h"
 #include "src/common/xqc_list.h"
 
@@ -64,7 +66,7 @@ static const uint32_t MAX_RSP_CONN_CLOSE_CNT = 3;
     }                                               \
 } while(0)                                          \
 
-extern xqc_conn_settings_t default_conn_settings;
+extern xqc_conn_settings_t internal_default_conn_settings;
 extern const xqc_tls_callbacks_t xqc_conn_tls_cbs;
 
 /* !!WARNING: to add state, please update conn_state_2_str */
@@ -207,8 +209,17 @@ typedef struct {
     uint16_t                max_datagram_frame_size;
     uint32_t                conn_options[XQC_CO_MAX_NUM];
     uint8_t                 conn_option_num;
+    uint64_t                enable_encode_fec;
+    uint64_t                enable_decode_fec;
+    uint64_t                fec_max_symbol_size;
+    uint64_t                fec_max_symbols_num;
+    xqc_fec_schemes_e       fec_encoder_schemes[XQC_FEC_MAX_SCHEME_NUM];
+    xqc_fec_schemes_e       fec_decoder_schemes[XQC_FEC_MAX_SCHEME_NUM];
+    xqc_int_t               fec_encoder_schemes_num;
+    xqc_int_t               fec_decoder_schemes_num;
+    xqc_dgram_red_setting_e close_dgram_redundancy;
 } xqc_trans_settings_t;
-
+ 
 
 typedef struct {
     /* flow control limit */
@@ -320,6 +331,8 @@ struct xqc_connection_s {
     void                           *user_data;      /* user_data for application layer */
 
     /* callback function and user_data to application-layer-protocol layer */
+    char                           *alpn;
+    size_t                          alpn_len;
     xqc_app_proto_callbacks_t       app_proto_cbs;
     void                           *proto_data;
 
@@ -360,6 +373,11 @@ struct xqc_connection_s {
     uint32_t                        create_path_count;
     uint32_t                        validated_path_count;
     uint32_t                        active_path_count;
+
+    /* for qlog */
+    uint32_t                        MTU_updated_count;    
+    uint32_t                        packet_dropped_count;
+    
     
     const
     xqc_scheduler_callback_t       *scheduler_callback;
@@ -428,6 +446,10 @@ struct xqc_connection_s {
     uint32_t                        cli_bidi_streams;
     uint32_t                        svr_bidi_streams;
 
+    /* for fec */
+    xqc_fec_ctl_t                  *fec_ctl;
+    
+
     /* receved pkts stats */
     struct {
         xqc_pkt_type_t              pkt_types[3];
@@ -453,7 +475,9 @@ struct xqc_connection_s {
     } snd_pkt_stats;
 };
 
-const char *xqc_conn_flag_2_str(xqc_conn_flag_t conn_flag);
+extern const xqc_h3_conn_settings_t default_local_h3_conn_settings;
+
+const char *xqc_conn_flag_2_str(xqc_connection_t *conn, xqc_conn_flag_t conn_flag);
 const char *xqc_conn_state_2_str(xqc_conn_state_t state);
 void xqc_conn_init_flow_ctl(xqc_connection_t *conn);
 
@@ -509,8 +533,8 @@ void xqc_conn_buff_1rtt_packets(xqc_connection_t *conn);
 void xqc_conn_write_buffed_1rtt_packets(xqc_connection_t *conn);
 xqc_usec_t xqc_conn_next_wakeup_time(xqc_connection_t *conn);
 
-char *xqc_local_addr_str(const struct sockaddr *local_addr, socklen_t local_addrlen);
-char *xqc_peer_addr_str(const struct sockaddr *peer_addr, socklen_t peer_addrlen);
+char *xqc_local_addr_str(xqc_engine_t *engine, const struct sockaddr *local_addr, socklen_t local_addrlen);
+char *xqc_peer_addr_str(xqc_engine_t *engine, const struct sockaddr *peer_addr, socklen_t peer_addrlen);
 char *xqc_conn_addr_str(xqc_connection_t *conn);
 char *xqc_path_addr_str(xqc_path_ctx_t *path);
 
@@ -659,5 +683,11 @@ xqc_int_t xqc_conn_send_ping_internal(xqc_connection_t *conn, void *ping_user_da
 void xqc_conn_encode_mp_settings(xqc_connection_t *conn, char *buf, size_t buf_sz);
 
 xqc_int_t xqc_conn_retire_dcid_prior_to(xqc_connection_t *conn, uint64_t retire_prior_to);
+void xqc_path_send_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    xqc_list_head_t *head, int congest, xqc_send_type_t send_type);
 
+#ifdef XQC_ENABLE_FEC
+void xqc_insert_fec_packets(xqc_connection_t *conn, xqc_list_head_t *head);
+void xqc_insert_fec_packets_all(xqc_connection_t *conn);
+#endif
 #endif /* _XQC_CONN_H_INCLUDED_ */

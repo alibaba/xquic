@@ -34,10 +34,10 @@ xqc_backup_scheduler_get_path(void *scheduler, xqc_connection_t *conn,
     xqc_list_head_t *pos, *next;
     xqc_path_ctx_t *path;
     xqc_send_ctl_t *send_ctl;
-    xqc_bool_t path_can_send;
+    xqc_bool_t path_can_send = XQC_FALSE;
 
     /* min RTT */
-    uint64_t path_srtt;
+    uint64_t path_srtt = 0;
     xqc_bool_t reached_cwnd_check = XQC_FALSE;
 
     if (cc_blocked) {
@@ -122,7 +122,7 @@ skip_path:
                 xqc_log(conn->log, XQC_LOG_DEBUG, "|best path:%ui|frame_type:%s|"
                         "pn:%ui|size:%ud|reinj:%d|path_class:%d|",
                         best_path[path_class]->path_id, 
-                        xqc_frame_type_2_str(packet_out->po_frame_types),
+                        xqc_frame_type_2_str(conn->engine, packet_out->po_frame_types),
                         packet_out->po_pkt.pkt_num,
                         packet_out->po_used_size, reinject, path_class);
                 return best_path[path_class];

@@ -77,7 +77,7 @@ xqc_int_t xqc_get_unused_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid);
 
 xqc_bool_t xqc_validate_retire_cid_frame(xqc_cid_set_t *cid_set, xqc_cid_inner_t *cid);
 
-unsigned char *xqc_sr_token_str(const char *sr_token);
+unsigned char *xqc_sr_token_str(xqc_engine_t *engine, const char *sr_token);
 
 #endif /* _XQC_CID_H_INCLUDED_ */
 

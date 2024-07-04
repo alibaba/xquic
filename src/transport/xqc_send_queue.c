@@ -203,7 +203,7 @@ xqc_send_queue_insert_send(xqc_packet_out_t *po, xqc_list_head_t *head, xqc_send
 {
     xqc_list_add_tail(&po->po_list, head);
     send_queue->sndq_packets_used++;
- }
+}
 
 void
 xqc_send_queue_remove_send(xqc_list_head_t *pos)
@@ -508,7 +508,7 @@ xqc_send_queue_drop_packets_from_list_with_type(xqc_send_ctl_t *send_ctl, xqc_se
         xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, "|drop pkt from %s list|inflight:%ud|cwnd:%ui|"
                 "pkt_num:%ui|ptype:%d|frames:%s|len:%ud|", list_name, send_ctl->ctl_bytes_in_flight,
                 send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong), packet_out->po_pkt.pkt_num, 
-                packet_out->po_pkt.pkt_type, xqc_frame_type_2_str(packet_out->po_frame_types),
+                packet_out->po_pkt.pkt_type, xqc_frame_type_2_str(send_ctl->ctl_conn->engine, packet_out->po_frame_types),
                 packet_out->po_used_size);
         }
     }
@@ -537,7 +537,7 @@ xqc_send_queue_drop_packets_with_type(xqc_send_ctl_t *send_ctl, xqc_send_queue_t
         xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, "|drop pkt from unacked|inflight:%ud|cwnd:%ui|"
                 "pkt_num:%ui|ptype:%d|frames:%s|", send_ctl->ctl_bytes_in_flight, 
             send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong), packet_out->po_pkt.pkt_num, 
-            packet_out->po_pkt.pkt_type, xqc_frame_type_2_str(packet_out->po_frame_types));
+            packet_out->po_pkt.pkt_type, xqc_frame_type_2_str(send_ctl->ctl_conn->engine, packet_out->po_frame_types));
     }
 
     xqc_send_queue_drop_packets_from_list_with_type(send_ctl, send_queue, type, &send_queue->sndq_send_packets_high_pri, "high_pri", XQC_FALSE);
@@ -592,7 +592,7 @@ xqc_send_ctl_stream_frame_can_drop(xqc_packet_out_t *packet_out, xqc_stream_id_t
      * removing R may also free N via xqc_send_ctl_indirectly_ack_or_drop_po. If that
      * happens, an infinite loop that traversing the free_packets list is triggered.
      */
-    uint64_t mask = ~(XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_ACK | XQC_FRAME_BIT_ACK_MP);
+    uint64_t mask = ~(XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_ACK | XQC_FRAME_BIT_ACK_MP | XQC_FRAME_BIT_SID | XQC_FRAME_BIT_REPAIR_SYMBOL);
     if ((packet_out->po_frame_types & mask) == 0) {
         drop = 0;
         for (int i = 0; i < XQC_MAX_STREAM_FRAME_IN_PO; i++) {

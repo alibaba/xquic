@@ -1,6 +1,6 @@
 # Platforms docs
 
-XQUIC currently supports `Android` , `iOS` , `Harmony` , `Linux` , `macOS` and `Windows` .
+XQUIC currently supports `Android` , `iOS` , `HarmonyOS` , `Linux` , `macOS` and `Windows` .
 
 ## Android/iOS/Harmony Compile Script
 

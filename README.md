@@ -33,6 +33,7 @@ XQUIC Library released by Alibaba is …
 [![](https://img.shields.io/static/v1?label=draft-13&message=QUIC-LB&color=9cf)](https://tools.ietf.org/html/draft-ietf-quic-load-balancers-13)
 [![](https://img.shields.io/static/v1?label=draft-05&message=Multipath-QUIC&color=9cf)](https://tools.ietf.org/html/draft-ietf-quic-multipath-05)
 [![](https://img.shields.io/static/v1?label=draft-06&message=Multipath-QUIC&color=9cf)](https://tools.ietf.org/html/draft-ietf-quic-multipath-06)
+[![](https://img.shields.io/static/v1?label=draft-07&message=QUIC-Qlog&color=9cf)](https://datatracker.ietf.org/doc/html/draft-ietf-quic-qlog-main-schema-07)
 
 #### Standardized Features
 
@@ -156,7 +157,7 @@ sh ../scripts/xquic_test.sh
     - [draft-ietf-quic-qpack-21-zh](./docs/translation/draft-ietf-quic-qpack-21-zh.md)
     - [RFC9221-datagram-zh](./docs/translation/rfc9221-datagram-zh.md)
 
-* For using event_log module, see the [Event_log module docs](./docs/docs-zh/Event_log-zh.md)
+* For using quic-qlog, see the [Features: qlog](./docs/Features.md)
 * For testing the library, see the [Testing docs](./docs/docs-zh/Testing-zh.md).
 * For other frequently asked questions, see the [FAQs](./docs/docs-zh/FAQ-zh.md) and [Trouble Shooting Guide](./docs/docs-zh/Troubleshooting-zh.md).
 

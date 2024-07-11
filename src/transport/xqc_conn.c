@@ -2243,7 +2243,7 @@ xqc_process_packet_without_pn(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_
     ssize_t sent = xqc_send(conn, path, packet_out->po_buf, packet_out->po_used_size);
     xqc_log(conn->log, XQC_LOG_INFO, "|<==|conn:%p|size:%ud|sent:%z|pkt_type:%s|",
             conn, packet_out->po_used_size, sent, xqc_pkt_type_2_str(packet_out->po_pkt.pkt_type));
-    xqc_log_event(conn->log, TRA_PACKET_SENT, conn, packet_out, NULL, 0, sent, 0);
+    xqc_log_event(conn->log, TRA_PACKET_SENT, conn, packet_out, path, 0, sent, 0);
     if (sent > 0) {
         xqc_conn_log_sent_packet(conn, packet_out, xqc_monotonic_timestamp());
     }

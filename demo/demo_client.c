@@ -1889,7 +1889,7 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -T    Throttle recving rate (Bps)\n"
         "   -U    Url. \n"
         "   -u    key update packet threshold\n"
-        "   -V    Multipath Version (4,5,6)\n"
+        "   -V    Multipath Version (4,5,6,10)\n"
         "   -w    waiting N ms to start the first request.\n"
         "   -Z    close one path after X ms\n"
         "   -0    use 0-RTT\n"

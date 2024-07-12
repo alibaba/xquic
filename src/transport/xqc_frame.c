@@ -2141,7 +2141,7 @@ xqc_process_max_path_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
     }
 
     xqc_log(conn->log, XQC_LOG_DEBUG,
-            "|max_paths:%ui|prev_max_paths:%ui|", max_path_id, conn->remote_current_max_paths);
+            "|max_path_id:%ui|prev_max_path_id:%ui|", max_path_id, conn->remote_current_max_paths);
 
     if (conn->remote_current_max_paths < max_path_id) {
         conn->remote_current_max_paths = max_path_id;

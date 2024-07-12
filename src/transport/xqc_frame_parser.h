@@ -19,6 +19,7 @@
 #define XQC_TRANS_FRAME_TYPE_MP_NEW_CONN_ID             0x15228c09
 #define XQC_TRANS_FRAME_TYPE_MP_RETIRE_CONN_ID          0x15228c0a
 #define XQC_TRANS_FRAME_TYPE_MAX_PATHS                  0x15228c0b
+#define XQC_TRANS_FRAME_TYPE_MAX_PATH_ID                0x15228c0c
 
 /**
  * generate datagram frame
@@ -184,7 +185,7 @@ ssize_t xqc_gen_mp_retire_conn_id_frame(xqc_packet_out_t *packet_out, uint64_t s
 
 xqc_int_t xqc_parse_mp_retire_conn_id_frame(xqc_packet_in_t *packet_in, uint64_t *seq_num, uint64_t *path_id);
 
-ssize_t xqc_gen_max_paths_frame(xqc_packet_out_t *packet_out, uint64_t max_paths);
-xqc_int_t xqc_parse_max_paths_frame(xqc_packet_in_t *packet_in, uint64_t *max_paths);
+ssize_t xqc_gen_max_path_id_frame(xqc_packet_out_t *packet_out, uint64_t max_path_id);
+xqc_int_t xqc_parse_max_path_id_frame(xqc_packet_in_t *packet_in, uint64_t *max_path_id);
 
 #endif /*_XQC_FRAME_PARSER_H_INCLUDED_*/

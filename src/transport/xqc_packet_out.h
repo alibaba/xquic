@@ -221,7 +221,7 @@ xqc_int_t xqc_write_mp_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint6
 
 xqc_int_t xqc_write_mp_retire_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t seq_num, uint64_t path_id);
 
-int xqc_write_max_paths_to_packet(xqc_connection_t *conn, uint64_t max_paths);
+int xqc_write_max_path_id_to_packet(xqc_connection_t *conn, uint64_t max_paths);
 
 int xqc_write_pmtud_ping_to_packet(xqc_path_ctx_t *path, size_t probing_size, xqc_pkt_type_t pkt_type);
 

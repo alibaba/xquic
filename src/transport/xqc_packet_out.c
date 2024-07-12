@@ -1786,12 +1786,12 @@ xqc_write_mp_retire_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t seq
 
 
 int
-xqc_write_max_paths_to_packet(xqc_connection_t *conn, uint64_t max_paths)
+xqc_write_max_path_id_to_packet(xqc_connection_t *conn, uint64_t max_path_id)
 {
     ssize_t ret = XQC_ERROR;
     xqc_packet_out_t *packet_out;
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_write_max_paths_to_packet|set max_paths:%ui|", max_paths);
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_write_max_path_id_to_packet|set max_path_id:%ui|", max_path_id);
 
     packet_out = xqc_write_new_packet(conn, XQC_PTYPE_NUM);
     if (packet_out == NULL) {
@@ -1799,7 +1799,7 @@ xqc_write_max_paths_to_packet(xqc_connection_t *conn, uint64_t max_paths)
         return -XQC_EWRITE_PKT;
     }
 
-    ret = xqc_gen_max_paths_frame(packet_out, max_paths);
+    ret = xqc_gen_max_path_id_frame(packet_out, max_path_id);
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_max_streams_frame error|");
         goto error;
@@ -1809,7 +1809,7 @@ xqc_write_max_paths_to_packet(xqc_connection_t *conn, uint64_t max_paths)
 
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|max_paths:%ui|", max_paths);
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|max_path_id:%ui|", max_path_id);
     return XQC_OK;
 
     error:

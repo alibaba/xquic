@@ -3054,37 +3054,37 @@ xqc_parse_mp_retire_conn_id_frame(xqc_packet_in_t *packet_in, uint64_t *seq_num,
 
 /*
  *
- * MAX_PATHS Frame {
- *   Type (i) = 0x15228c0b,
- *   Maximum Paths (i),
+ * MAX_PATH_ID Frame {
+ *   Type (i) = 0x15228c0c,
+ *   Maximum Path Identifier (i),
  * }
  *
- *               Figure: MAX_PATHS Frame Format
+ *               Figure: MAX_PATH_ID Frame Format
  * */
 ssize_t
-xqc_gen_max_paths_frame(xqc_packet_out_t *packet_out, uint64_t max_paths)
+xqc_gen_max_path_id_frame(xqc_packet_out_t *packet_out, uint64_t max_path_id)
 {
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
     const unsigned char *begin = dst_buf;
 
     /* write frame type */
-    uint64_t frame_type = XQC_TRANS_FRAME_TYPE_MAX_PATHS;
+    uint64_t frame_type = XQC_TRANS_FRAME_TYPE_MAX_PATH_ID;
     unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
     xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
     dst_buf += xqc_vint_len(frame_type_bits);
 
-    unsigned max_paths_bits = xqc_vint_get_2bit(max_paths);
-    xqc_vint_write(dst_buf, max_paths, max_paths_bits, xqc_vint_len(max_paths_bits));
+    unsigned max_paths_bits = xqc_vint_get_2bit(max_path_id);
+    xqc_vint_write(dst_buf, max_path_id, max_paths_bits, xqc_vint_len(max_paths_bits));
     dst_buf += xqc_vint_len(max_paths_bits);
 
-    packet_out->po_frame_types |= XQC_FRAME_BIT_MAX_PATHS;
+    packet_out->po_frame_types |= XQC_FRAME_BIT_MAX_PATH_ID;
 
     return dst_buf - begin;
 }
 
 
 xqc_int_t
-xqc_parse_max_paths_frame(xqc_packet_in_t *packet_in, uint64_t *max_paths)
+xqc_parse_max_path_id_frame(xqc_packet_in_t *packet_in, uint64_t *max_path_id)
 {
     unsigned char *p = packet_in->pos;
     const unsigned char *end = packet_in->last;
@@ -3098,7 +3098,7 @@ xqc_parse_max_paths_frame(xqc_packet_in_t *packet_in, uint64_t *max_paths)
     }
     p += vlen;
 
-    vlen = xqc_vint_read(p, end, max_paths);
+    vlen = xqc_vint_read(p, end, max_path_id);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }
@@ -3106,7 +3106,7 @@ xqc_parse_max_paths_frame(xqc_packet_in_t *packet_in, uint64_t *max_paths)
 
     packet_in->pos = p;
 
-    packet_in->pi_frame_types |= XQC_FRAME_BIT_MAX_PATHS;
+    packet_in->pi_frame_types |= XQC_FRAME_BIT_MAX_PATH_ID;
 
     return XQC_OK;
 }

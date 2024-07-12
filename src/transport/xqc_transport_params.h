@@ -89,6 +89,7 @@ typedef enum {
     XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_05                 = 0x0f739bbc1b666d05,
     XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_06                 = 0x0f739bbc1b666d06,
     XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_07                 = 0x0f739bbc1b666d07,
+    XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_10                 = 0x0f739bbc1b666d09,
 
     /* google connection options */
     XQC_TRANSPORT_PARAM_GOOGLE_CO                           = 0x3128,

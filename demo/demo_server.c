@@ -1368,7 +1368,7 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
         case 'M':
             printf("option multipath enabled\n");
             args->quic_cfg.multipath = 1;
-            args->quic_cfg.multipath_version = XQC_MULTIPATH_07;
+            args->quic_cfg.multipath_version = XQC_MULTIPATH_10;
             break;
 
         case 'V':

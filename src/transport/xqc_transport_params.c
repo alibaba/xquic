@@ -417,7 +417,10 @@ xqc_encode_transport_params(const xqc_transport_params_t *params,
     }
 
     if (params->enable_multipath) {
-        if (params->multipath_version == XQC_MULTIPATH_07) {
+        if (params->multipath_version == XQC_MULTIPATH_10) {
+            p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_10, params->max_concurrent_paths);
+
+        } else if (params->multipath_version == XQC_MULTIPATH_07) {
             p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_07, params->max_concurrent_paths);
 
         } else if (params->multipath_version == XQC_MULTIPATH_06) {

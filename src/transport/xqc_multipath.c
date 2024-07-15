@@ -430,7 +430,7 @@ xqc_conn_is_current_mp_version_supported(xqc_multipath_version_t mp_version)
     case XQC_MULTIPATH_05:
         ret = XQC_OK;
         break;
-    case XQC_MULTIPATH_06:
+    case XQC_MULTIPATH_09:
         ret = XQC_OK;
         break;
     case XQC_MULTIPATH_10:
@@ -468,7 +468,7 @@ xqc_conn_create_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t *new_
     }
 
     /* must have at least one available unused scid & dcid */
-    path_id = xqc_conn_check_unused_cids(conn);
+    path_id = xqc_conn_check_unused_cids_for_explicit_pathid(conn);
 
     if (path_id < 0) {
         xqc_log(conn->log, XQC_LOG_WARN,

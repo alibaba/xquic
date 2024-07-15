@@ -4528,12 +4528,17 @@ xqc_conn_check_handshake_complete(xqc_connection_t *conn)
 }
 
 
-/* should have at lease one unused dcid & one unused scid */
+/**
+ * @brief conn check if there is available path id which have unused CIDs for both endpoints
+ *
+ * @param conn connection ctx pointer
+ * @return available path id if founded; <0 for not found; XQC_OK for not supporting multipath
+ */
 xqc_int_t
-xqc_conn_check_unused_cids(xqc_connection_t *conn)
+xqc_conn_check_unused_cids_for_explicit_pathid(xqc_connection_t *conn)
 {
-    /* check if there are unused cid for the new path */
-    if (xqc_conn_multipath_version_negotiation(conn) >= XQC_MULTIPATH_06) {
+    /* check if there are unused cid for the new explicit path id */
+    if (xqc_conn_multipath_version_negotiation(conn) >= XQC_MULTIPATH_09) {
         uint64_t new_path_id = conn->create_path_count;
 
         while (new_path_id < conn->current_max_paths) {
@@ -4553,12 +4558,6 @@ xqc_conn_check_unused_cids(xqc_connection_t *conn)
         return -XQC_EMP_NO_AVAIL_PATH_ID;
     }
 
-    /* old logic */
-    if (conn->dcid_set.cid_set.unused_cnt == 0 || conn->scid_set.cid_set.unused_cnt == 0) {
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|don't have available unused cid|%ui|%ui|", 
-                conn->dcid_set.cid_set.unused_cnt, conn->scid_set.cid_set.unused_cnt);
-        return -XQC_EMP_NO_AVAIL_PATH_ID;
-    }
     return XQC_OK;
 }
 

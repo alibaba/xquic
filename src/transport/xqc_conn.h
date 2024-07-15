@@ -589,7 +589,7 @@ void xqc_conn_process_packet_recved_path(xqc_connection_t *conn, xqc_cid_t *scid
 xqc_int_t xqc_conn_check_handshake_complete(xqc_connection_t *conn);
 
 
-xqc_int_t xqc_conn_check_unused_cids(xqc_connection_t *conn);
+xqc_int_t xqc_conn_check_unused_cids_for_explicit_pathid(xqc_connection_t *conn);
 xqc_int_t xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to);
 xqc_int_t xqc_conn_check_dcid(xqc_connection_t *conn, xqc_cid_t *dcid);
 void xqc_conn_destroy_cids(xqc_connection_t *conn);

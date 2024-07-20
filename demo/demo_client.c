@@ -1043,6 +1043,7 @@ xqc_demo_path_status_trigger(xqc_demo_cli_user_conn_t *user_conn)
         {
             if (ts_now > user_conn->path_status_time + user_conn->path_status_timer_threshold) {
                 xqc_conn_mark_path_standby(user_conn->ctx->engine, &user_conn->cid, 0);
+                xqc_conn_mark_path_available(user_conn->ctx->engine, &user_conn->cid, 1);
                 user_conn->path_status = 1; /* 1:standby */
 
                 user_conn->path_status_time = ts_now;

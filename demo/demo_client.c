@@ -194,7 +194,7 @@ typedef struct xqc_demo_cli_quic_config_s {
     xqc_msec_t path_status_timer_threshold;
 
     uint64_t least_available_cid_count;
-    uint64_t remove_path_id;
+    uint64_t idle_timeout;
     uint8_t  remove_path_flag;
 
     size_t max_pkt_sz;
@@ -436,7 +436,7 @@ typedef struct xqc_demo_cli_user_conn_s {
 
     xqc_msec_t              path_create_time;
     xqc_flag_t              remove_path_flag;
-    uint64_t                remove_path_id;
+    xqc_msec_t              idle_timeout;
 } xqc_demo_cli_user_conn_t;
 
 static void
@@ -1902,7 +1902,7 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
 {
     int ch = 0;
 
-    while ((ch = getopt(argc, argv, "a:A:bB:c:CdD:eEf:F:g:G:p:t:S:0m:Ml:L:k:K:U:u:oi:w:Ps:Z:NQT:r:R:V:I:n:")) != -1) {
+    while ((ch = getopt(argc, argv, "a:A:bB:c:CdD:eEf:F:g:G:i:I:k:K:l:L:m:MNn:op:PQr:R:s:S:t:T:U:u:V:w:Z:0")) != -1) {
         switch (ch) {
         /* server ip */
         case 'a':
@@ -2112,8 +2112,8 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             break;
 
         case 'r':
-            printf("option remove path id: %s\n", optarg);
-            args->quic_cfg.remove_path_id = atoi(optarg);
+            printf("option remove path after idle: %s\n", optarg);
+            args->quic_cfg.idle_timeout = atoi(optarg);
             args->quic_cfg.remove_path_flag = 1;
             break;
 
@@ -2611,7 +2611,7 @@ xqc_demo_cli_init_xquic_connection(xqc_demo_cli_user_conn_t *user_conn,
         && args->quic_cfg.remove_path_flag == 1)
     {
         user_conn->remove_path_flag = 1;
-        user_conn->remove_path_id = args->quic_cfg.remove_path_id;
+        user_conn->idle_timeout = args->quic_cfg.idle_timeout;
     }
 
     return 0;

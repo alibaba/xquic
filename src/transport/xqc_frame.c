@@ -682,6 +682,8 @@ xqc_process_crypto_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         }
     }
 
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|level:%d|", encrypt_level);
+
     xqc_stream_t *stream = conn->crypto_stream[encrypt_level];
 
     ret = xqc_insert_crypto_frame(conn, stream, stream_frame);

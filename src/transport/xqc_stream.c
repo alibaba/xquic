@@ -1118,6 +1118,8 @@ xqc_crypto_stream_on_write(xqc_stream_t *stream, void *user_data)
     xqc_connection_t *conn = stream->stream_conn;
     xqc_list_head_t *crypto_data_list = NULL;
 
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|enc_level|%d|", encrypt_level);
+
     if (encrypt_level == XQC_ENC_LEV_INIT) {
         pns = XQC_PNS_INIT;
         pkt_type = XQC_PTYPE_INIT;
@@ -1130,6 +1132,13 @@ xqc_crypto_stream_on_write(xqc_stream_t *stream, void *user_data)
 
         case XQC_CONN_STATE_SERVER_INIT:
         case XQC_CONN_STATE_SERVER_INITIAL_RECVD:
+
+            xqc_log(stream->stream_conn->log, XQC_LOG_DEBUG, "|cur_state:%d|switch|", cur_state);
+            /* haven't recved enough data for client hello */
+            if (conn->conn_type == XQC_CONN_TYPE_SERVER && !(conn->conn_flag & XQC_CONN_FLAG_TLS_CH_RECVD)) {
+                return XQC_OK;
+            }
+
             crypto_data_list = &conn->initial_crypto_data_list;
             if (conn->crypto_stream[XQC_ENC_LEV_HSK] != NULL) {
                 xqc_stream_ready_to_write(conn->crypto_stream[XQC_ENC_LEV_HSK]);

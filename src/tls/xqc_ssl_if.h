@@ -37,6 +37,6 @@ xqc_int_t xqc_ssl_get_certs_array(SSL *ssl, X509_STORE_CTX *store_ctx, unsigned 
     size_t array_cap, size_t *certs_array_len, size_t *certs_len);
 void xqc_ssl_free_certs_array(unsigned char **certs_array, size_t certs_array_len);
 
-xqc_ssl_handshake_res_t xqc_ssl_do_handshake(SSL *ssl);
+xqc_ssl_handshake_res_t xqc_ssl_do_handshake(SSL *ssl, xqc_connection_t *conn, xqc_log_t *log);
 
 #endif

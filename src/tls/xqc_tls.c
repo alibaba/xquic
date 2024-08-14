@@ -391,7 +391,9 @@ xqc_tls_process_trans_param(xqc_tls_t *tls)
 xqc_int_t
 xqc_tls_do_handshake(xqc_tls_t *tls)
 {
-    xqc_ssl_handshake_res_t res = xqc_ssl_do_handshake(tls->ssl);
+    xqc_ssl_handshake_res_t res = xqc_ssl_do_handshake(tls->ssl, tls->user_data, tls->log);
+    xqc_log(tls->log, XQC_LOG_DEBUG, "|TLS handshake|ret:%d|", res);
+
     if (res == XQC_SSL_HSK_RES_FAIL) {
         xqc_log(tls->log, XQC_LOG_ERROR, "|TLS handshake error:%s|",
                 ERR_error_string(ERR_get_error(), NULL));
@@ -554,6 +556,8 @@ xqc_tls_process_crypto_data(xqc_tls_t *tls, xqc_encrypt_level_t level,
     SSL *ssl = tls->ssl;
     int ret;
     int err;
+
+    xqc_log(tls->log, XQC_LOG_DEBUG, "|xqc_tls_process_crypto_data|level:%d|%zu|", level, data_len);
 
     if (SSL_provide_quic_data(ssl, (enum ssl_encryption_level_t)level, crypto_data, data_len)
         != XQC_SSL_SUCCESS)

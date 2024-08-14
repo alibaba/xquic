@@ -6,6 +6,7 @@
 #include <openssl/ssl.h>
 #include "src/tls/xqc_ssl_if.h"
 #include "src/tls/xqc_tls_common.h"
+#include "src/transport/xqc_conn.h"
 
 
 void
@@ -83,13 +84,26 @@ xqc_ssl_is_early_data_accepted(SSL *ssl)
 
 
 xqc_ssl_handshake_res_t
-xqc_ssl_do_handshake(SSL *ssl)
+xqc_ssl_do_handshake(SSL *ssl, xqc_connection_t *conn, xqc_log_t *log)
 {
     int ret;
 
 again:
     ERR_clear_error();
     ret = SSL_do_handshake(ssl);
+
+    /* check if client hello is received completely */
+    if (SSL_quic_read_level(ssl) > 0
+        && conn != NULL
+        && !(conn->conn_flag & XQC_CONN_FLAG_TLS_CH_RECVD))
+    {
+        conn->conn_flag |= XQC_CONN_FLAG_TLS_CH_RECVD;
+    }
+    xqc_log(log, XQC_LOG_DEBUG, "|ssl_do_handshake|SSL_quic_read_level:%d|SSL_quic_write_level:%d|rv:%d|",
+            (int) SSL_quic_read_level(ssl),
+            (int) SSL_quic_write_level(ssl),
+            ret);
+
     if (ret <= 0) {
         switch (SSL_get_error(ssl, ret)) {
         case SSL_ERROR_WANT_READ:

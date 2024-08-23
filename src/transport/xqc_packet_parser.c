@@ -1037,8 +1037,8 @@ xqc_packet_parse_retry(xqc_connection_t *c, xqc_packet_in_t *packet_in)
 
     /* check conn type, only client can receive a Retry packet */
     if (c->conn_type != XQC_CONN_TYPE_CLIENT) {
-        xqc_log(c->log, XQC_LOG_WARN, "|invalid conn_type|%d|", c->conn_type);
-        return -XQC_EPROTO;
+        xqc_log(c->log, XQC_LOG_WARN, "|invalid conn_type recvd retry packet|%d|ignored|", c->conn_type);
+        return -XQC_EIGNORE_PKT;
     }
 
     /**

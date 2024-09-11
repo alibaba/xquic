@@ -176,10 +176,8 @@ xqc_server_set_conn_settings(xqc_engine_t *engine, const xqc_conn_settings_t *se
     }
 
     /* default value: 5x, it could be set to meet application need */
-    if (settings->anti_amplification_limit != 0) {
+    if (settings->anti_amplification_limit > 0) {
         engine->default_conn_settings.anti_amplification_limit = settings->anti_amplification_limit;
-    } else {
-        engine->default_conn_settings.anti_amplification_limit = XQC_DEFAULT_ANTI_AMPLIFICATION_LIMIT;
     }
 
     if (xqc_check_proto_version_valid(settings->proto_version)) {
@@ -695,7 +693,7 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
         xc->conn_settings.idle_time_out = XQC_CONN_DEFAULT_IDLE_TIMEOUT;
     }
 
-    if (xc->conn_settings.anti_amplification_limit < XQC_DEFAULT_ANTI_AMPLIFICATION_LIMIT) {
+    if (xc->conn_settings.anti_amplification_limit == 0) {
         xc->conn_settings.anti_amplification_limit = XQC_DEFAULT_ANTI_AMPLIFICATION_LIMIT;
     }
 

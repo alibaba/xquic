@@ -233,7 +233,7 @@ xqc_server_set_conn_settings(xqc_engine_t *engine, const xqc_conn_settings_t *se
     engine->default_conn_settings.reinj_ctl_callback = settings->reinj_ctl_callback;
     engine->default_conn_settings.mp_enable_reinjection = settings->mp_enable_reinjection;
 
-    if (settings->max_concurrent_paths == UINT64_MAX) {
+    if (settings->max_concurrent_paths == 0) {
         default_conn_settings.max_concurrent_paths = XQC_DEFAULT_MAX_CONCURRENT_PATHS;
     } else {
         default_conn_settings.max_concurrent_paths = settings->max_concurrent_paths;

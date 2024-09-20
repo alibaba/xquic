@@ -35,8 +35,8 @@ typedef enum {
     XQC_FRAME_PATH_AVAILABLE,
     XQC_FRAME_MP_NEW_CONNECTION_ID,
     XQC_FRAME_MP_RETIRE_CONNECTION_ID,
-    XQC_FRAME_MAX_PATHS,
     XQC_FRAME_MAX_PATH_ID,
+    XQC_FRAME_PATH_FROZEN,
     XQC_FRAME_DATAGRAM,
     XQC_FRAME_Extension,
     XQC_FRAME_NUM,
@@ -45,40 +45,40 @@ typedef enum {
 } xqc_frame_type_t;
 
 typedef enum {
-    XQC_FRAME_BIT_PADDING               = 1 << XQC_FRAME_PADDING,
-    XQC_FRAME_BIT_PING                  = 1 << XQC_FRAME_PING,
-    XQC_FRAME_BIT_ACK                   = 1 << XQC_FRAME_ACK,
-    XQC_FRAME_BIT_RESET_STREAM          = 1 << XQC_FRAME_RESET_STREAM,
-    XQC_FRAME_BIT_STOP_SENDING          = 1 << XQC_FRAME_STOP_SENDING,
-    XQC_FRAME_BIT_CRYPTO                = 1 << XQC_FRAME_CRYPTO,
-    XQC_FRAME_BIT_NEW_TOKEN             = 1 << XQC_FRAME_NEW_TOKEN,
-    XQC_FRAME_BIT_STREAM                = 1 << XQC_FRAME_STREAM,
-    XQC_FRAME_BIT_MAX_DATA              = 1 << XQC_FRAME_MAX_DATA,
-    XQC_FRAME_BIT_MAX_STREAM_DATA       = 1 << XQC_FRAME_MAX_STREAM_DATA,
-    XQC_FRAME_BIT_MAX_STREAMS           = 1 << XQC_FRAME_MAX_STREAMS,
-    XQC_FRAME_BIT_DATA_BLOCKED          = 1 << XQC_FRAME_DATA_BLOCKED,
-    XQC_FRAME_BIT_STREAM_DATA_BLOCKED   = 1 << XQC_FRAME_STREAM_DATA_BLOCKED,
-    XQC_FRAME_BIT_STREAMS_BLOCKED       = 1 << XQC_FRAME_STREAMS_BLOCKED,
-    XQC_FRAME_BIT_NEW_CONNECTION_ID     = 1 << XQC_FRAME_NEW_CONNECTION_ID,
-    XQC_FRAME_BIT_RETIRE_CONNECTION_ID  = 1 << XQC_FRAME_RETIRE_CONNECTION_ID,
-    XQC_FRAME_BIT_PATH_CHALLENGE        = 1 << XQC_FRAME_PATH_CHALLENGE,
-    XQC_FRAME_BIT_PATH_RESPONSE         = 1 << XQC_FRAME_PATH_RESPONSE,
-    XQC_FRAME_BIT_CONNECTION_CLOSE      = 1 << XQC_FRAME_CONNECTION_CLOSE,
-    XQC_FRAME_BIT_HANDSHAKE_DONE        = 1 << XQC_FRAME_HANDSHAKE_DONE,
-    XQC_FRAME_BIT_ACK_MP                = 1 << XQC_FRAME_ACK_MP,
-    XQC_FRAME_BIT_PATH_ABANDON          = 1 << XQC_FRAME_PATH_ABANDON,
-    XQC_FRAME_BIT_PATH_STATUS           = 1 << XQC_FRAME_PATH_STATUS,
-    XQC_FRAME_BIT_PATH_STANDBY          = 1 << XQC_FRAME_PATH_STANDBY,
-    XQC_FRAME_BIT_PATH_AVAILABLE        = 1 << XQC_FRAME_PATH_AVAILABLE,
-    XQC_FRAME_BIT_MP_NEW_CONNECTION_ID  = 1 << XQC_FRAME_MP_NEW_CONNECTION_ID,
-    XQC_FRAME_BIT_MP_RETIRE_CONNECTION_ID = 1 << XQC_FRAME_MP_RETIRE_CONNECTION_ID,
-    XQC_FRAME_BIT_MAX_PATHS             = 1 << XQC_FRAME_MAX_PATHS,
-    XQC_FRAME_BIT_MAX_PATH_ID           = 1 << XQC_FRAME_MAX_PATH_ID,
-    XQC_FRAME_BIT_DATAGRAM              = 1 << XQC_FRAME_DATAGRAM,
-    XQC_FRAME_BIT_Extension             = 1 << XQC_FRAME_Extension,
-    XQC_FRAME_BIT_NUM                   = 1 << XQC_FRAME_NUM,
-    XQC_FRAME_BIT_SID                   = 1 << XQC_FRAME_SID,
-    XQC_FRAME_BIT_REPAIR_SYMBOL         = 1 << XQC_FRAME_REPAIR_SYMBOL,
+    XQC_FRAME_BIT_PADDING               = 1ULL << XQC_FRAME_PADDING,
+    XQC_FRAME_BIT_PING                  = 1ULL << XQC_FRAME_PING,
+    XQC_FRAME_BIT_ACK                   = 1ULL << XQC_FRAME_ACK,
+    XQC_FRAME_BIT_RESET_STREAM          = 1ULL << XQC_FRAME_RESET_STREAM,
+    XQC_FRAME_BIT_STOP_SENDING          = 1ULL << XQC_FRAME_STOP_SENDING,
+    XQC_FRAME_BIT_CRYPTO                = 1ULL << XQC_FRAME_CRYPTO,
+    XQC_FRAME_BIT_NEW_TOKEN             = 1ULL << XQC_FRAME_NEW_TOKEN,
+    XQC_FRAME_BIT_STREAM                = 1ULL << XQC_FRAME_STREAM,
+    XQC_FRAME_BIT_MAX_DATA              = 1ULL << XQC_FRAME_MAX_DATA,
+    XQC_FRAME_BIT_MAX_STREAM_DATA       = 1ULL << XQC_FRAME_MAX_STREAM_DATA,
+    XQC_FRAME_BIT_MAX_STREAMS           = 1ULL << XQC_FRAME_MAX_STREAMS,
+    XQC_FRAME_BIT_DATA_BLOCKED          = 1ULL << XQC_FRAME_DATA_BLOCKED,
+    XQC_FRAME_BIT_STREAM_DATA_BLOCKED   = 1ULL << XQC_FRAME_STREAM_DATA_BLOCKED,
+    XQC_FRAME_BIT_STREAMS_BLOCKED       = 1ULL << XQC_FRAME_STREAMS_BLOCKED,
+    XQC_FRAME_BIT_NEW_CONNECTION_ID     = 1ULL << XQC_FRAME_NEW_CONNECTION_ID,
+    XQC_FRAME_BIT_RETIRE_CONNECTION_ID  = 1ULL << XQC_FRAME_RETIRE_CONNECTION_ID,
+    XQC_FRAME_BIT_PATH_CHALLENGE        = 1ULL << XQC_FRAME_PATH_CHALLENGE,
+    XQC_FRAME_BIT_PATH_RESPONSE         = 1ULL << XQC_FRAME_PATH_RESPONSE,
+    XQC_FRAME_BIT_CONNECTION_CLOSE      = 1ULL << XQC_FRAME_CONNECTION_CLOSE,
+    XQC_FRAME_BIT_HANDSHAKE_DONE        = 1ULL << XQC_FRAME_HANDSHAKE_DONE,
+    XQC_FRAME_BIT_ACK_MP                = 1ULL << XQC_FRAME_ACK_MP,
+    XQC_FRAME_BIT_PATH_ABANDON          = 1ULL << XQC_FRAME_PATH_ABANDON,
+    XQC_FRAME_BIT_PATH_STATUS           = 1ULL << XQC_FRAME_PATH_STATUS,
+    XQC_FRAME_BIT_PATH_STANDBY          = 1ULL << XQC_FRAME_PATH_STANDBY,
+    XQC_FRAME_BIT_PATH_AVAILABLE        = 1ULL << XQC_FRAME_PATH_AVAILABLE,
+    XQC_FRAME_BIT_MP_NEW_CONNECTION_ID  = 1ULL << XQC_FRAME_MP_NEW_CONNECTION_ID,
+    XQC_FRAME_BIT_MP_RETIRE_CONNECTION_ID = 1ULL << XQC_FRAME_MP_RETIRE_CONNECTION_ID,
+    XQC_FRAME_BIT_MAX_PATH_ID           = 1ULL << XQC_FRAME_MAX_PATH_ID,
+    XQC_FRAME_BIT_PATH_FROZEN           = 1ULL << XQC_FRAME_PATH_FROZEN,
+    XQC_FRAME_BIT_DATAGRAM              = 1ULL << XQC_FRAME_DATAGRAM,
+    XQC_FRAME_BIT_Extension             = 1ULL << XQC_FRAME_Extension,
+    XQC_FRAME_BIT_NUM                   = 1ULL << XQC_FRAME_NUM,
+    XQC_FRAME_BIT_SID                   = 1ULL << XQC_FRAME_SID,
+    XQC_FRAME_BIT_REPAIR_SYMBOL         = 1ULL << XQC_FRAME_REPAIR_SYMBOL,
 } xqc_frame_type_bit_t;
 
 
@@ -168,20 +168,16 @@ xqc_int_t xqc_process_path_abandon_frame(xqc_connection_t *conn, xqc_packet_in_t
 
 xqc_int_t xqc_process_path_status_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
-xqc_int_t xqc_process_path_standby_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
+xqc_int_t xqc_process_datagram_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
-xqc_int_t xqc_process_path_available_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
+xqc_int_t xqc_process_sid_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
+
+xqc_int_t xqc_process_repair_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 xqc_int_t xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 xqc_int_t xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 xqc_int_t xqc_process_max_path_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
-
-xqc_int_t xqc_process_datagram_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
-
-xqc_int_t xqc_process_sid_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
-
-xqc_int_t xqc_process_repair_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 #endif /* _XQC_FRAME_H_INCLUDED_ */

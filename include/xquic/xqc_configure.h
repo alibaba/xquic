@@ -4,7 +4,7 @@
 
 /* #undef XQC_ENABLE_BBR2 */
 /* #undef XQC_ENABLE_RENO */
-#define XQC_ENABLE_COPA
+/* #undef XQC_ENABLE_COPA */
 /* #undef XQC_ENABLE_UNLIMITED */
 /* #undef XQC_ENABLE_MP_INTEROP */
 /* #undef XQC_NO_PID_PACKET_PROCESS */

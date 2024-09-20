@@ -126,7 +126,7 @@ typedef struct xqc_cid_s {
     uint8_t             cid_buf[XQC_MAX_CID_LEN];
     uint64_t            cid_seq_num;
     uint8_t             sr_token[XQC_STATELESS_RESET_TOKENLEN];
-    uint64_t            path_id;    /* preallocate for multi-path */
+    uint64_t            path_id; /* preallocate for multi-path */
 } xqc_cid_t;
 
 typedef enum xqc_log_level_s {
@@ -202,6 +202,7 @@ typedef struct xqc_http_priority_s {
     uint8_t                 incremental;
     uint8_t                 schedule;
     uint8_t                 reinject;
+    uint8_t                 fec;
 } xqc_h3_priority_t;
 
 /* ALPN definition */
@@ -288,5 +289,19 @@ typedef enum xqc_conn_option_e {
     XQC_CO_SL05 = XQC_CO_TAG('S', 'L', '0', '5'),    // Set the STARTUP loss rate threshold to 0.05
     XQC_CO_SL10 = XQC_CO_TAG('S', 'L', '1', '0'),    // Set the STARTUP loss rate threshold to 0.05    
 } xqc_conn_option_t;
+
+/* application layer path status */
+typedef enum {
+    /* max */
+    XQC_APP_PATH_STATUS_NONE,
+    /* suggest that no traffic should be sent on that path if another path is available */
+    XQC_APP_PATH_STATUS_STANDBY   = 1,
+    /* allow the peer to use its own logic to split traffic among available paths */
+    XQC_APP_PATH_STATUS_AVAILABLE = 2,
+    /* freeze a path */
+    XQC_APP_PATH_STATUS_FROZEN    = 3,
+    /* max */
+    XQC_APP_PATH_STATUS_MAX,
+} xqc_app_path_status_t;
 
 #endif /*_XQUIC_TYPEDEF_H_INCLUDED_*/

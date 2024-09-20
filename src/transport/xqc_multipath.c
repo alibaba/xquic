@@ -9,7 +9,6 @@
 #include "src/transport/xqc_cid.h"
 #include "src/transport/xqc_stream.h"
 #include "src/transport/xqc_utils.h"
-#include "src/transport/xqc_wakeup_pq.h"
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_reinjection.h"
 #include "src/transport/xqc_frame_parser.h"
@@ -86,13 +85,13 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid, uint64
     if (path == NULL) {
         return NULL;
     }
+    xqc_memzero(path, sizeof(xqc_path_ctx_t));
 
     path->path_state = XQC_PATH_STATE_INIT;
     path->parent_conn = conn;
     path->app_path_status = XQC_APP_PATH_STATUS_AVAILABLE;
     path->app_path_status_send_seq_num = 0;
     path->app_path_status_recv_seq_num = 0;
-
     path->path_id = path_id;
 
     path->path_pn_ctl = xqc_pn_ctl_create(conn);
@@ -110,23 +109,16 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid, uint64
     }
     xqc_init_list_head(&path->path_reinj_tmp_buf);
 
-    /* move all the available cids from connection to path */
-    xqc_init_dcid_set(&path->dcid_set);
-    xqc_init_scid_set(&path->scid_set);
-    xqc_move_cid_to_path(&conn->scid_set.cid_set, &path->scid_set.cid_set, path->path_id);
-    xqc_move_cid_to_path(&conn->dcid_set.cid_set, &path->dcid_set.cid_set, path->path_id);
-
     /* cid & path_id init */
-
     if (scid == NULL) {
-        if (xqc_get_unused_cid(&path->scid_set.cid_set, &path->path_scid) != XQC_OK) {
+        if (xqc_get_unused_cid(&conn->scid_set, &path->path_scid, path_id) != XQC_OK) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|conn don't have available scid|");
             goto err;
         }
 
     } else {
         /* already have scid */
-        xqc_cid_inner_t *inner_cid = xqc_cid_in_cid_set(&path->scid_set.cid_set, scid);
+        xqc_cid_inner_t *inner_cid = xqc_cid_in_cid_set(&conn->scid_set, scid, path_id);
         if (inner_cid == NULL) {
             xqc_log(conn->log, XQC_LOG_DEBUG, "|invalid scid:%s|", xqc_scid_str(conn->engine, scid));
             goto err;
@@ -136,19 +128,20 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid, uint64
     }
 
     if (dcid == NULL) {
-        if (xqc_get_unused_cid(&(path->dcid_set.cid_set), &(path->path_dcid)) != XQC_OK) {
+        if (xqc_get_unused_cid(&conn->dcid_set, &(path->path_dcid), path_id) != XQC_OK) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|MP|conn don't have available dcid|");
             goto err;
         }
 
     } else {
+        //TODO: risky code
         /* already have dcid */
         xqc_cid_copy(&(path->path_dcid), dcid);
     }
 
-    xqc_cid_copy(&path->path_last_dcid, &path->path_dcid);
+    xqc_cid_set_update_state(&conn->dcid_set, path_id, XQC_CID_SET_USED);
+    xqc_cid_set_update_state(&conn->scid_set, path_id, XQC_CID_SET_USED);
 
-    //TODO: MPQUIC fix migration
     path->path_create_time = xqc_monotonic_timestamp();
     path->curr_pkt_out_size = conn->pkt_out_size;
     path->path_max_pkt_out_size = conn->max_pkt_out_size;
@@ -191,6 +184,7 @@ xqc_path_init(xqc_path_ctx_t *path, xqc_connection_t *conn)
         path->local_addrlen = conn->local_addrlen;
     }
 
+
     if (path->path_id == XQC_INITIAL_PATH_ID) {
         xqc_set_path_state(path, XQC_PATH_STATE_ACTIVE);
         conn->validated_path_count++;
@@ -219,7 +213,9 @@ xqc_path_init(xqc_path_ctx_t *path, xqc_connection_t *conn)
             xqc_path_addr_str(path), path->peer_addrlen);
 
     xqc_log(conn->engine->log, XQC_LOG_DEBUG, "|path:%ui|dcid:%s|scid:%s|state:%d|",
-            path->path_id, xqc_dcid_str(conn->engine, &path->path_dcid), xqc_scid_str(path->parent_conn->engine, &path->path_scid), path->path_state);
+            path->path_id, xqc_dcid_str(conn->engine, &path->path_dcid), 
+            xqc_scid_str(conn->engine, &path->path_scid), 
+            path->path_state);
 
     return XQC_OK;
 }
@@ -333,6 +329,9 @@ xqc_path_immediate_close(xqc_path_ctx_t *path)
         xqc_timer_set(&path->path_send_ctl->path_timer_manager, XQC_TIMER_PATH_DRAINING, now, 3 * pto);
     }
 
+    xqc_cid_set_update_state(&conn->scid_set, path->path_id, XQC_CID_SET_ABANDONED);
+    xqc_cid_set_update_state(&conn->dcid_set, path->path_id, XQC_CID_SET_ABANDONED);
+
     return XQC_OK;
 }
 
@@ -352,24 +351,13 @@ xqc_path_closed(xqc_path_ctx_t *path)
         xqc_timer_unset(&path->path_send_ctl->path_timer_manager, i);
     }
 
-    /* send retire cid on another path after waiting for 3 pto */
-    if (xqc_conn_multipath_version_negotiation(conn) >= XQC_MULTIPATH_06) {
-        uint64_t seq_num = path->path_dcid.cid_seq_num;
-        uint64_t path_id = path->path_dcid.path_id;
-        xqc_int_t ret = xqc_write_mp_retire_conn_id_frame_to_packet(conn, seq_num, path_id);
-        if (ret != XQC_OK) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_retire_conn_id_frame_to_packet error|");
-            /* It's ok here. Still need to notify and release resource */
-        }
-    }
-
     /* remove path notify */
     if (conn->transport_cbs.path_removed_notify) {
         conn->transport_cbs.path_removed_notify(&conn->scid_set.user_scid, path->path_id,
                                                 xqc_conn_get_user_data(conn));
     }
 
-    /* TODO: release path resource */
+    /* TODO: release path recource */
     return XQC_OK;
 }
 
@@ -390,20 +378,20 @@ xqc_conn_enable_multipath(xqc_connection_t *conn)
         if (conn->dcid_set.current_dcid.cid_len == 0
             || conn->scid_set.user_scid.cid_len == 0) 
         {
-            xqc_log(conn->log, XQC_LOG_ERROR, 
-                    "|mutlipath is not possible for connections"
-                    " with zero-length DCID|");
-            if (conn->conn_settings.multipath_version == XQC_MULTIPATH_04) {
-                XQC_CONN_ERR(conn, TRA_TRANSPORT_PARAMETER_ERROR);
-                
-            } else {
-                XQC_CONN_ERR(conn, TRA_MP_PROTOCOL_VIOLATION_05);
-            }
-            return XQC_CONN_NOT_SUPPORT_MULTIPATH;
+            xqc_log(conn->log, XQC_LOG_ERROR, "|zero-length DCID|");
+            XQC_CONN_ERR(conn, TRA_MP_PROTOCOL_VIOLATION);
+            return XQC_CONN_MP_DISABLED;
         }
-        return XQC_CONN_MULTIPATH_MULTIPLE_PNS;
+
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|1RTT_transport_params|max_path_id:local:%ui|max_path_id:remote:%ui|",
+                conn->local_settings.init_max_path_id, conn->remote_settings.init_max_path_id);
+        conn->local_max_path_id = conn->local_settings.init_max_path_id;
+        conn->remote_max_path_id = conn->remote_settings.init_max_path_id;
+        conn->curr_max_path_id = xqc_min(conn->local_max_path_id, conn->remote_max_path_id);
+
+        return XQC_CONN_MP_ENABLED;
     }
-    return XQC_CONN_NOT_SUPPORT_MULTIPATH;
+    return XQC_CONN_MP_DISABLED;
 }
 
 xqc_multipath_version_t
@@ -424,15 +412,6 @@ xqc_conn_is_current_mp_version_supported(xqc_multipath_version_t mp_version)
 {
     xqc_int_t ret;
     switch (mp_version) {
-    case XQC_MULTIPATH_04:
-        ret = XQC_OK;
-        break;
-    case XQC_MULTIPATH_05:
-        ret = XQC_OK;
-        break;
-    case XQC_MULTIPATH_09:
-        ret = XQC_OK;
-        break;
     case XQC_MULTIPATH_10:
         ret = XQC_OK;
         break;
@@ -467,10 +446,8 @@ xqc_conn_create_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t *new_
         return -XQC_EMP_NOT_SUPPORT_MP;
     }
 
-    /* must have at least one available unused scid & dcid */
-    path_id = xqc_conn_check_unused_cids_for_explicit_pathid(conn);
-
-    if (path_id < 0) {
+    if (xqc_conn_get_available_path_id(conn, &path_id) != XQC_OK) {
+        conn->conn_flag |= XQC_CONN_FLAG_MP_WAIT_MP_READY;
         xqc_log(conn->log, XQC_LOG_WARN,
                 "|don't have available cid for new path|");
         return -XQC_EMP_NO_AVAIL_PATH_ID;
@@ -489,11 +466,10 @@ xqc_conn_create_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t *new_
         return -XQC_EMP_CREATE_PATH;
     }
 
-    if (!(conn->conn_flag & XQC_CONN_FLAG_TICKING)) {
-        if (0 == xqc_conns_pq_push(conn->engine->conns_active_pq, conn, conn->last_ticked_time)) {
-            conn->conn_flag |= XQC_CONN_FLAG_TICKING;
-        }
-    }
+    xqc_engine_remove_wakeup_queue(engine, conn);
+    xqc_engine_add_active_queue(engine, conn);
+
+    xqc_engine_wakeup_once(engine);
 
     *new_path_id = path->path_id;
 
@@ -545,13 +521,10 @@ xqc_conn_close_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t closed
         return ret;
     }
 
-    if (!(conn->conn_flag & XQC_CONN_FLAG_TICKING)) {
-        if (0 == xqc_conns_pq_push(conn->engine->conns_active_pq, conn, conn->last_ticked_time)) {
-            conn->conn_flag |= XQC_CONN_FLAG_TICKING;
-        }
-    }
+    xqc_engine_remove_wakeup_queue(engine, conn);
+    xqc_engine_add_active_queue(engine, conn);
 
-    xqc_engine_main_logic_internal(engine);
+    xqc_engine_conn_logic(engine, conn);
 
     return XQC_OK;
 }
@@ -586,24 +559,6 @@ xqc_conn_destroy_paths_list(xqc_connection_t *conn)
 }
 
 xqc_path_ctx_t *
-xqc_conn_find_path_by_dcid_seq(xqc_connection_t *conn, uint64_t dcid_seq_num)
-{
-    xqc_path_ctx_t *path = NULL;
-    xqc_list_head_t *pos, *next;
-
-    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
-        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
-
-        if (path->path_dcid.cid_seq_num == dcid_seq_num) {
-            return path;
-        }
-    }
-
-    return NULL;
-}
-
-
-xqc_path_ctx_t *
 xqc_conn_find_path_by_path_id(xqc_connection_t *conn, uint64_t path_id)
 {
     xqc_path_ctx_t *path = NULL;
@@ -620,24 +575,6 @@ xqc_conn_find_path_by_path_id(xqc_connection_t *conn, uint64_t path_id)
     return NULL;
 }
 
-/* Address the path by Path ID allocated in DCID, for receiver side */
-xqc_path_ctx_t *
-xqc_conn_find_path_by_dcid_path_id(xqc_connection_t *conn, uint64_t path_id)
-{
-    xqc_path_ctx_t *path = NULL;
-    xqc_list_head_t *pos, *next;
-
-    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
-        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
-
-        if (path->path_dcid.path_id == path_id) {
-            return path;
-        }
-    }
-
-    return NULL;
-}
-
 
 xqc_path_ctx_t *
 xqc_conn_find_path_by_scid(xqc_connection_t *conn, xqc_cid_t *scid)
@@ -645,53 +582,20 @@ xqc_conn_find_path_by_scid(xqc_connection_t *conn, xqc_cid_t *scid)
     xqc_path_ctx_t *path = NULL;
     xqc_list_head_t *pos, *next;
     xqc_cid_inner_t *inner_cid = NULL;
-    xqc_list_head_t *cid_pos, *cid_next;
-    xqc_cid_set_t *cid_set = NULL;
 
-    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
-        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
-
-        if (xqc_cid_is_equal(&path->path_scid, scid) == XQC_OK) {
-            return path;
-        }
-
-        cid_set = &path->scid_set.cid_set;
-
-        xqc_list_for_each_safe(cid_pos, cid_next, &cid_set->list_head) {
-            inner_cid = xqc_list_entry(cid_pos, xqc_cid_inner_t, list);
-
-            if (inner_cid->cid.cid_len == scid->cid_len
-                && strncmp(inner_cid->cid.cid_buf, scid->cid_buf, scid->cid_len) == 0)
-            {
-                return path;
-            }
-        }
+    inner_cid = xqc_cid_set_search_cid(&conn->scid_set, scid);
+    if (inner_cid != NULL) {
+        return xqc_conn_find_path_by_path_id(conn, inner_cid->cid.path_id);
     }
 
-    if (xqc_cid_is_equal(&conn->original_dcid, scid) == XQC_OK) {
+    if (conn->conn_type == XQC_CONN_TYPE_SERVER 
+        && xqc_cid_is_equal(&conn->original_dcid, scid) == XQC_OK) 
+    {
         return conn->conn_initial_path;
     }
 
     return NULL;
 }
-
-xqc_path_ctx_t *
-xqc_conn_find_path_by_dcid(xqc_connection_t *conn, xqc_cid_t *dcid)
-{
-    xqc_path_ctx_t *path = NULL;
-    xqc_list_head_t *pos, *next;
-
-    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
-        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
-
-        if (xqc_cid_is_equal(&path->path_dcid, dcid) == XQC_OK) {
-            return path;
-        }
-    }
-
-    return NULL;
-}
-
 
 
 xqc_path_ctx_t *
@@ -977,7 +881,7 @@ xqc_path_send_buffer_clear(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_lis
             if (packet_out->po_flag & XQC_POF_TLP) {
                 xqc_send_queue_move_to_head(&packet_out->po_list, &send_queue->sndq_pto_probe_packets);
 
-            } else if (packet_out->po_flag & XQC_POF_RETRANSED) {
+            } else if (packet_out->po_flag & XQC_POF_LOST) {
                 xqc_send_queue_move_to_head(&packet_out->po_list, &send_queue->sndq_lost_packets);
 
             } else {
@@ -1110,7 +1014,8 @@ xqc_conn_server_init_path_addr(xqc_connection_t *conn, uint64_t path_id,
             /* check if ip address is same with sub-connections created */
             if (xqc_is_same_addr(peer_addr, (struct sockaddr *)active_path->peer_addr)) {
                 xqc_path_immediate_close(path);
-                xqc_log(conn->engine->log, XQC_LOG_STATS, "|MP|path:%ui|conn:%s|cannot activate this path, due to the same IP|curIP:%s|conflictIP:%s|",
+                xqc_log(conn->engine->log, XQC_LOG_STATS, "|MP|path:%ui|conn:%s|"
+                        "cannot activate this path, due to the same IP|curIP:%s|conflictIP:%s|",
                         path_id, xqc_conn_addr_str(conn),
                         xqc_peer_addr_str(conn->engine, (struct sockaddr*)peer_addr, conn->peer_addrlen),
                         xqc_local_addr_str(conn->engine, (struct sockaddr*)active_path->peer_addr, active_path->peer_addrlen));
@@ -1128,16 +1033,7 @@ xqc_conn_server_init_path_addr(xqc_connection_t *conn, uint64_t path_id,
             }
         }
     }
-
-    /* not enough path id */
-    if (conn->max_paths > 0
-        && path_id >= conn->current_max_paths - conn->max_paths / 2)
-    {
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|current_max_paths:%ui|max_paths:%ui|", conn->current_max_paths, conn->max_paths);
-        conn->current_max_paths += (conn->current_max_paths + 1) / 2;
-        xqc_write_max_path_id_to_packet(conn, conn->current_max_paths);
-    }
-
+    
     xqc_log(conn->engine->log, XQC_LOG_STATS, "|path:%ui|%s|", path_id, xqc_path_addr_str(path));
 
     return XQC_OK;
@@ -1191,7 +1087,7 @@ xqc_path_validate(xqc_path_ctx_t *path)
             path->path_flag &= ~XQC_PATH_FLAG_SEND_STATUS;
             xqc_int_t ret = xqc_set_application_path_status(path, path->next_app_path_state, XQC_TRUE);
             if (ret != XQC_OK) {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_path_status_frame_to_packet error|");
+                xqc_log(conn->log, XQC_LOG_ERROR, "|error|");
             }
         }
 
@@ -1316,18 +1212,16 @@ xqc_set_application_path_status(xqc_path_ctx_t *path, xqc_app_path_status_t stat
 
         if (is_tx) {
             xqc_int_t ret = XQC_ERROR;
-            if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_06) {
-                ret = xqc_write_path_standby_or_available_frame_to_packet(conn, path);
-            } else {
-                ret = xqc_write_path_status_frame_to_packet(conn, path);
-            }
+
+            ret = xqc_write_path_status_frame_to_packet(conn, path);
 
             if (ret != XQC_OK) {
                 path->app_path_status = last_status;
-                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_path_status_frame_to_packet error|%d|", ret);
+                xqc_log(conn->log, XQC_LOG_ERROR, "|error|%d|", ret);
                 return ret;
             }
         }
+
         xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|app_path_status:%d->%d|", path->path_id, last_status, status);
         path->app_path_status_changed_count++;
         path->last_app_path_status_changed_time = xqc_monotonic_timestamp();
@@ -1344,11 +1238,12 @@ xqc_set_application_path_status(xqc_path_ctx_t *path, xqc_app_path_status_t stat
 }
 
 
+
 xqc_int_t
 xqc_conn_mark_path_standby(xqc_engine_t *engine, const xqc_cid_t *cid, uint64_t path_id)
 {
-    xqc_connection_t *conn = NULL;
     xqc_path_ctx_t *path = NULL;
+    xqc_connection_t *conn = NULL;
 
     conn = xqc_engine_conns_hash_find(engine, cid, 's');
     if (!conn) {
@@ -1544,6 +1439,35 @@ xqc_path_get_perf_class(xqc_path_ctx_t *path)
     return XQC_PATH_CLASS_STANDBY_HIGH;
 }
 
+double
+xqc_conn_recent_loss_rate(xqc_connection_t *conn)
+{
+    double loss_rate0 = 0, loss_rate1 = 0;
+    unsigned lost_cnt0, lost_cnt1, send_cnt0, send_cnt1;
+    xqc_path_ctx_t *path;
+    xqc_list_head_t *pos, *next;
+
+    lost_cnt0 = lost_cnt1 = send_cnt0 = send_cnt1 = 0;
+
+    // TODOfec 遍历path队列
+    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
+        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+        lost_cnt0 += path->path_send_ctl->ctl_recent_lost_count[0];
+        send_cnt0 += path->path_send_ctl->ctl_recent_send_count[0];
+        lost_cnt1 += path->path_send_ctl->ctl_recent_lost_count[1];
+        send_cnt1 += path->path_send_ctl->ctl_recent_send_count[1];
+    }
+
+    if (send_cnt0) {
+        loss_rate0 = 100.0 * lost_cnt0 / send_cnt0;
+    }
+
+    if (send_cnt1) {
+        loss_rate1 = 100.0 * lost_cnt1 / send_cnt1;
+    }
+
+    return xqc_max(loss_rate0, loss_rate1);
+}
 
 double 
 xqc_path_recent_loss_rate(xqc_path_ctx_t *path)
@@ -1559,150 +1483,4 @@ xqc_path_recent_loss_rate(xqc_path_ctx_t *path)
     }
 
     return xqc_max(loss_rate0, loss_rate1);
-}
-
-
-xqc_int_t
-xqc_path_cid_rotate(xqc_path_ctx_t *path, uint64_t path_id)
-{
-    xqc_int_t ret = XQC_ERROR;
-    xqc_cid_inner_t *new_dcid = xqc_cid_find_next_in_path_cid_set(&path->dcid_set.cid_set, path_id);
-    if (path_id == XQC_INITIAL_PATH_ID && new_dcid == NULL) {
-        new_dcid = xqc_cid_find_next_in_path_cid_set(&path->parent_conn->dcid_set.cid_set, path_id);
-    }
-
-    if (new_dcid == NULL) {
-        return -XQC_EMP_NO_AVAILABLE_CID_FOR_PATH;
-    }
-
-    xqc_log(path->parent_conn->log, XQC_LOG_DEBUG, "|xqc_conn_trigger_cid_rotation_on_path|path_id:%ui|new_dcid:%s|old_dcid:%s|", path_id,
-            xqc_dcid_str(&new_dcid->cid), xqc_scid_str(&path->path_dcid));
-
-    xqc_cid_copy(&path->path_last_dcid, &path->path_dcid);
-    xqc_cid_copy(&path->path_dcid, &new_dcid->cid);
-    xqc_cid_switch_to_next_state(&path->dcid_set.cid_set, new_dcid, XQC_CID_USED);
-
-    /* path->path_dcid_acked = XQC_FALSE;*/
-
-    return XQC_OK;
-}
-
-
-xqc_int_t
-xqc_conn_trigger_cid_rotation_on_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t path_id)
-{
-    xqc_connection_t *conn = NULL;
-    xqc_path_ctx_t *path = NULL;
-
-    xqc_log(engine->log, XQC_LOG_DEBUG, "|scid:%s|path_id:%ui|", xqc_scid_str(scid), path_id);
-
-    conn = xqc_engine_conns_hash_find(engine, scid, 's');
-    if (!conn) {
-        xqc_log(engine->log, XQC_LOG_ERROR, "|can not find connection|");
-        return -XQC_ECONN_NFOUND;
-    }
-    if (conn->conn_state >= XQC_CONN_STATE_CLOSING) {
-        return -XQC_CLOSING;
-    }
-
-    /* check mp-support */
-    if (!conn->enable_multipath) {
-        xqc_log(engine->log, XQC_LOG_WARN,
-                "|Multipath is not supported in connection|%p|", conn);
-        return -XQC_EMP_NOT_SUPPORT_MP;
-    }
-
-    /* abandon path */
-    path = xqc_conn_find_path_by_path_id(conn, path_id);
-    if (path == NULL) {
-        xqc_log(engine->log, XQC_LOG_WARN,
-                "|path is not found by path_id in connection|%p|%ui|",
-                conn, path_id);
-        return -XQC_EMP_PATH_NOT_FOUND;
-    }
-
-    xqc_int_t ret = xqc_path_cid_rotate(path, path_id);
-    if (ret != XQC_OK) {
-        xqc_log(engine->log, XQC_LOG_WARN,
-                "|xqc_path_cid_rotate error|scid:%s|path_id:%ui|", xqc_scid_str(scid), path_id);
-    }
-
-    return ret;
-}
-
-
-xqc_int_t
-xqc_path_last_cid_retirement(xqc_path_ctx_t *path, uint64_t path_id)
-{
-    xqc_int_t ret = XQC_ERROR;
-    if (path->path_last_dcid.cid_seq_num == path->path_dcid.cid_seq_num) {
-        xqc_log(path->parent_conn->log, XQC_LOG_ERROR, "|retiring the same dcid which path is still using|path_id:%ui|new_dcid:%s|old_dcid:%s|", path_id,
-                xqc_dcid_str(&path->path_dcid), xqc_scid_str(&path->path_last_dcid));
-        return XQC_ERROR;
-    }
-
-    xqc_log(path->parent_conn->log, XQC_LOG_DEBUG, "|xqc_conn_trigger_cid_retirement_on_path|path_id:%ui|new_dcid:%s|old_dcid:%s|old_seq:%ui|", path_id,
-            xqc_dcid_str(&path->path_dcid), xqc_scid_str(&path->path_last_dcid), path->path_last_dcid.cid_seq_num);
-
-    ret = xqc_write_mp_retire_conn_id_frame_to_packet(path->parent_conn, path->path_last_dcid.cid_seq_num, path_id);
-    if (ret != XQC_OK) {
-        xqc_log(path->parent_conn->log, XQC_LOG_ERROR, "|xqc_write_retire_conn_id_frame_to_packet error|");
-        return ret;
-    }
-
-    xqc_cid_inner_t *last_dcid = xqc_get_inner_cid_by_seq(&path->dcid_set.cid_set, path->path_last_dcid.cid_seq_num);
-    if (last_dcid == NULL) {
-        xqc_log(path->parent_conn->log, XQC_LOG_ERROR, "|can't get inner cid by seq|path_id:%ui|seq:%ui|", path_id, path->path_last_dcid.cid_seq_num);
-        return ret;
-    }
-
-    xqc_cid_switch_to_next_state(&path->dcid_set.cid_set, last_dcid, XQC_CID_RETIRED);
-
-    /* path->path_dcid_acked = XQC_FALSE;*/
-
-    return XQC_OK;
-}
-
-
-/* trigger the last dcid to be retired */
-xqc_int_t
-xqc_conn_trigger_cid_retirement_on_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t path_id)
-{
-    xqc_connection_t *conn = NULL;
-    xqc_path_ctx_t *path = NULL;
-
-    xqc_log(engine->log, XQC_LOG_DEBUG, "|scid:%s|path_id:%ui|", xqc_scid_str(scid), path_id);
-
-    conn = xqc_engine_conns_hash_find(engine, scid, 's');
-    if (!conn) {
-        xqc_log(engine->log, XQC_LOG_ERROR, "|can not find connection|");
-        return -XQC_ECONN_NFOUND;
-    }
-    if (conn->conn_state >= XQC_CONN_STATE_CLOSING) {
-        return -XQC_CLOSING;
-    }
-
-    /* check mp-support */
-    if (!conn->enable_multipath) {
-        xqc_log(engine->log, XQC_LOG_WARN,
-                "|Multipath is not supported in connection|%p|", conn);
-        return -XQC_EMP_NOT_SUPPORT_MP;
-    }
-
-    /* abandon path */
-    path = xqc_conn_find_path_by_path_id(conn, path_id);
-    if (path == NULL) {
-        xqc_log(engine->log, XQC_LOG_WARN,
-                "|path is not found by path_id in connection|%p|%ui|",
-                conn, path_id);
-        return -XQC_EMP_PATH_NOT_FOUND;
-    }
-
-    xqc_int_t ret = xqc_path_last_cid_retirement(path, path_id);
-    if (ret != XQC_OK) {
-        xqc_log(engine->log, XQC_LOG_WARN,
-                "|xqc_path_last_cid_retirement error|scid:%s|path_id:%ui|", xqc_scid_str(scid), path_id);
-    }
-
-    return ret;
 }

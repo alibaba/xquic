@@ -9,54 +9,61 @@
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_send_queue.h"
 #include "src/transport/xqc_packet_out.h"
-#include "src/transport/xqc_fec_scheme.h"
 
 
 #define XQC_FEC_MAX_SCHEME_VAL 32
 
 
 xqc_int_t
-xqc_is_fec_scheme_valid(xqc_fec_schemes_e scheme, xqc_fec_schemes_e *supported_schemes_buff,
-    xqc_int_t supported_schemes_buff_len)
-{
-    for (xqc_int_t i = 0; i < supported_schemes_buff_len; i++) {
-        if (scheme == supported_schemes_buff[i]
-            && xqc_is_fec_cb_exist(scheme) == XQC_OK)
-        {
-            return XQC_OK;
-        }
-    }
-    return -XQC_EFEC_NOT_SUPPORT_FEC;
-}
-
-xqc_int_t
-xqc_is_fec_cb_exist(xqc_fec_schemes_e scheme)
+xqc_set_valid_encoder_scheme_cb(xqc_fec_code_callback_t *callback, xqc_int_t scheme)
 {
     switch (scheme) {
+#ifdef XQC_ENABLE_RSC
     case XQC_REED_SOLOMON_CODE:
+        callback->xqc_fec_init = xqc_reed_solomon_code_cb.xqc_fec_init;
+        callback->xqc_fec_encode = xqc_reed_solomon_code_cb.xqc_fec_encode;
+        return XQC_OK;
+#endif
+#ifdef XQC_ENABLE_XOR
     case XQC_XOR_CODE:
+        callback->xqc_fec_init = xqc_xor_code_cb.xqc_fec_init;
+        callback->xqc_fec_encode = xqc_xor_code_cb.xqc_fec_encode;
         return XQC_OK;
-    
-    default:
-        return -XQC_EFEC_NOT_SUPPORT_FEC;
-    }
-}
-
-xqc_int_t
-xqc_set_valid_scheme_cb(xqc_fec_code_callback_t *callback, xqc_int_t scheme)
-{
-    switch (scheme) {
-    case XQC_REED_SOLOMON_CODE:
-        *callback = xqc_reed_solomon_code_cb;
+#endif
+#ifdef XQC_ENABLE_PKM
+    case XQC_PACKET_MASK_CODE:
+        callback->xqc_fec_init = xqc_packet_mask_code_cb.xqc_fec_init;
+        callback->xqc_fec_encode = xqc_packet_mask_code_cb.xqc_fec_encode;
         return XQC_OK;
-    case XQC_XOR_CODE:
-        *callback = xqc_xor_code_cb;
-        return XQC_OK;
+#endif
     }
 
     return -XQC_EFEC_SCHEME_ERROR;
 }
 
+xqc_int_t
+xqc_set_valid_decoder_scheme_cb(xqc_fec_code_callback_t *callback, xqc_int_t scheme)
+{
+    switch (scheme) {
+#ifdef XQC_ENABLE_RSC
+    case XQC_REED_SOLOMON_CODE:
+        callback->xqc_fec_decode = xqc_reed_solomon_code_cb.xqc_fec_decode;
+        return XQC_OK;
+#endif
+#ifdef XQC_ENABLE_XOR
+    case XQC_XOR_CODE:
+        callback->xqc_fec_decode = xqc_xor_code_cb.xqc_fec_decode;
+        return XQC_OK;
+#endif
+#ifdef XQC_ENABLE_PKM
+    case XQC_PACKET_MASK_CODE:
+        callback->xqc_fec_decode_one = xqc_packet_mask_code_cb.xqc_fec_decode_one;
+        return XQC_OK;
+#endif
+    }
+
+    return -XQC_EFEC_SCHEME_ERROR;
+}
 
 unsigned char *
 xqc_get_fec_scheme_str(xqc_fec_schemes_e scheme)
@@ -66,26 +73,42 @@ xqc_get_fec_scheme_str(xqc_fec_schemes_e scheme)
         return "Reed-Solomon";
     case XQC_XOR_CODE:
         return "XOR";
-    case XQC_PACKET_MASK:
+    case XQC_PACKET_MASK_CODE:
         return "Packet-Mask";
     default:
-        return "Unknown";
+        return "NO_FEC";
     }
+}
+
+unsigned char *
+xqc_get_fec_mp_mode_str(xqc_fec_ctl_t *fec_ctl)
+{
+    if (fec_ctl == NULL) {
+        return "NO_FEC";
+    }
+    if (fec_ctl->fec_mp_mode == XQC_FEC_MP_USE_STB) {
+        if (fec_ctl->fec_rep_path_id != XQC_MAX_UINT64_VALUE) {
+            return "USE_STB_PATH"; 
+        } else {
+            return "NO_AVAI_STB_PATH";
+        }
+    }
+    return "DEFAULT";
 }
 
 xqc_int_t
 xqc_set_final_scheme(xqc_connection_t *conn, xqc_fec_schemes_e *local_fec_schemes_buff, xqc_int_t *local_fec_schemes_buff_len,
-    xqc_fec_schemes_e *remote_fec_schemes_buff, xqc_int_t remote_fec_schemes_buff_len, xqc_int_t *final_scheme, xqc_fec_code_callback_t *callback)
+    xqc_fec_schemes_e *remote_fec_schemes_buff, xqc_int_t remote_fec_schemes_buff_len)
 {
     uint32_t   p, schemes_flag;
-    xqc_int_t  i;
+    xqc_int_t  i, ret;
     
     if (*local_fec_schemes_buff_len == 0 || remote_fec_schemes_buff_len == 0) {
-        return -XQC_EFEC_NOT_SUPPORT_FEC;
+        return 0;
     }
 
     p = schemes_flag = 0;
-    *final_scheme = 0;
+    ret = 0;
 
     for (i = 0; i < remote_fec_schemes_buff_len; i++) {
         if (remote_fec_schemes_buff[i] > XQC_FEC_MAX_SCHEME_VAL) {
@@ -98,25 +121,12 @@ xqc_set_final_scheme(xqc_connection_t *conn, xqc_fec_schemes_e *local_fec_scheme
     /* 初始化schemes_flag */
     for (i = 0; i < *local_fec_schemes_buff_len; i++) {
         if (schemes_flag & (1 << local_fec_schemes_buff[i])) {
-            *final_scheme = local_fec_schemes_buff[i];
+            ret = local_fec_schemes_buff[i];
             break;
         }
     }
 
-    if (*final_scheme == 0) {
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|Neither of the client and server have the same FEC scheme.|");
-        return -XQC_EFEC_NOT_SUPPORT_FEC;
-    }
-
-    if (xqc_set_valid_scheme_cb(callback, *final_scheme) != XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_set_final_scheme|set valid scheme cb error|scheme_str: %s|scheme_num:%d|", xqc_get_fec_scheme_str(*final_scheme), *final_scheme);
-        return -XQC_EFEC_SCHEME_ERROR;
-    }
-
-    local_fec_schemes_buff[0] = *final_scheme;
-    *local_fec_schemes_buff_len = 1;
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|set final fec scheme: %s", xqc_get_fec_scheme_str(*final_scheme));
-    return XQC_OK;
+    return ret;
 }
 
 xqc_int_t
@@ -129,8 +139,8 @@ xqc_set_fec_scheme(uint64_t in, xqc_fec_schemes_e *out)
     case XQC_XOR_CODE:
         *out = XQC_XOR_CODE;
         return XQC_OK;
-    case XQC_PACKET_MASK:
-        *out = XQC_PACKET_MASK;
+    case XQC_PACKET_MASK_CODE:
+        *out = XQC_PACKET_MASK_CODE;
         return XQC_OK;
     default:
         break;
@@ -161,12 +171,11 @@ xqc_set_fec_schemes(const xqc_fec_schemes_e *schemes, xqc_int_t schemes_len,
             fec_schemes_buff[j] = XQC_REED_SOLOMON_CODE;
             j++;
             break;
-        case XQC_PACKET_MASK:
-            fec_schemes_buff[j] = XQC_PACKET_MASK;
+        case XQC_PACKET_MASK_CODE:
+            fec_schemes_buff[j] = XQC_PACKET_MASK_CODE;
             j++;
             break;
         default:
-            /* TODOfec: 失败报错, 缺少报错途径 */
             break;
         }
 
@@ -177,26 +186,116 @@ xqc_set_fec_schemes(const xqc_fec_schemes_e *schemes, xqc_int_t schemes_len,
     return XQC_OK;
 }
 
+/**
+ * @brief 
+ * return XQC_TRUE if obj and cmp_buff has SAME payload content,
+ * otherwise return XQC_FALSE
+ * @param obj 
+ * @param cmp_buff 
+ * @return xqc_bool_t 
+ */
+xqc_bool_t
+xqc_fec_object_compare(xqc_fec_object_t *obj, unsigned char *cmp_buff)
+{
+    size_t  obj_size;
+    unsigned char *obj_buff;
+
+    if (!obj->is_valid) {
+        return XQC_FALSE;
+    }
+    obj_size = obj->payload_size;
+    obj_buff = obj->payload;
+    return xqc_memcmp(obj_buff, cmp_buff, obj_size) == 0 ? XQC_TRUE : XQC_FALSE;
+}
+xqc_int_t
+xqc_send_repair_packets(xqc_connection_t *conn, xqc_fec_schemes_e scheme, xqc_list_head_t *prev,
+    xqc_bool_t *has_send_repair)
+{
+    uint32_t i, fss_esi, repair_num, pm_size;
+    xqc_int_t ret;
+    unsigned char *rpr_key_p, *pm_p;
+
+    *has_send_repair = XQC_FALSE;
+    repair_num = conn->fec_ctl->fec_send_required_repair_num;
+    fss_esi = conn->fec_ctl->fec_send_block_num;
+
+    if (repair_num > XQC_REPAIR_LEN) {
+        xqc_log(conn->log ,XQC_LOG_ERROR, "|quic_fec|repair number exceeds buff size");
+        return -XQC_EFEC_SYMBOL_ERROR;
+    }
+
+    switch (scheme) {
+    case XQC_REED_SOLOMON_CODE:
+    case XQC_XOR_CODE:
+        // for block code, all repair packet (in one block) is generated in one time;
+        conn->fec_ctl->fec_send_repair_symbols_num = repair_num;
+        /* Generate repair packets. */
+        ret = xqc_write_repair_packets(conn, fss_esi, prev);
+        if (ret != XQC_OK) {
+            xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_process_fec_protected_packet|xqc_gen_repair_packet error|");
+            return -XQC_EWRITE_PKT;
+        }
+        *has_send_repair = XQC_TRUE;
+        break;
+    case XQC_PACKET_MASK_CODE:
+        for (i = 0; i < repair_num; i++) {
+            pm_p = conn->fec_ctl->decode_matrix[i];
+            if (xqc_fec_object_compare(&conn->fec_ctl->fec_send_repair_key[i], pm_p)) {
+                xqc_packet_out_t *packet_out = xqc_write_one_repair_packet(conn, fss_esi, conn->fec_ctl->fec_send_repair_symbols_num);
+                if (packet_out == NULL) {
+                    xqc_log(conn->log ,XQC_LOG_ERROR, "|quic_fec|generate one repair packet error");
+                    continue;
+                }
+                conn->fec_ctl->fec_send_repair_symbols_num++;
+                xqc_send_queue_move_to_head(&packet_out->po_list, prev);
+                *has_send_repair = XQC_TRUE;
+                prev = &packet_out->po_list;
+            }
+        }
+        break;
+    default:
+        xqc_log(conn->log ,XQC_LOG_ERROR, "|quic_fec|error type of fec scheme");
+        return -XQC_EFEC_SCHEME_ERROR;
+    }
+
+    return XQC_OK;
+}
+
 xqc_int_t
 xqc_is_packet_fec_protected(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
 {
+    // if (packet_out->po_flag & XQC_POF_USE_FEC
+    //     && packet_out->po_frame_types & conn->conn_settings.fec_params.fec_protected_frames) {
     if (packet_out->po_frame_types & conn->conn_settings.fec_params.fec_protected_frames) {
         return XQC_OK;
     }
+
     return -XQC_EFEC_NOT_SUPPORT_FEC;
 }
 
 xqc_int_t
-xqc_is_fec_params_valid(xqc_int_t src_symbol_num, xqc_int_t total_symbol_num,
-    xqc_int_t max_window_size)
+xqc_check_fec_params(xqc_connection_t *conn, xqc_int_t src_symbol_num, xqc_int_t repair_symbol_num,
+    xqc_int_t max_window_size, xqc_int_t symbol_size)
 {
-    if (src_symbol_num <= 0 || src_symbol_num > XQC_FEC_MAX_SYMBOL_NUM_PBLOCK) {
+    if (repair_symbol_num < 0 || repair_symbol_num > XQC_REPAIR_LEN) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_fec_encoder|fec repair symbol number exceeds maximum symbols number per block");
+        return -XQC_EFEC_SCHEME_ERROR;
+    }
+
+    if (repair_symbol_num == 0) {
+        xqc_log(conn->log, XQC_LOG_WARN, "|quic_fec|xqc_fec_encoder|current code rate is too low to generate repair packets.");
         return -XQC_EFEC_SYMBOL_ERROR;
     }
-    if (total_symbol_num <= src_symbol_num) {
+    if (src_symbol_num <= 0 || src_symbol_num > XQC_FEC_MAX_SYMBOL_NUM_PBLOCK) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|src_symbol_num invalid|%d|", src_symbol_num);
         return -XQC_EFEC_SYMBOL_ERROR;
     }
     if (max_window_size <= 0 || max_window_size > XQC_SYMBOL_CACHE_LEN) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|max_window_size invalid|%d|", max_window_size);
+        return -XQC_EFEC_SYMBOL_ERROR;
+    }
+    if (symbol_size < 0 || symbol_size > XQC_MAX_SYMBOL_SIZE) {
+        xqc_log(conn->log, XQC_LOG_WARN, "|quic_fec|symbol_size invalid|%d|", symbol_size);
         return -XQC_EFEC_SYMBOL_ERROR;
     }
 
@@ -205,82 +304,48 @@ xqc_is_fec_params_valid(xqc_int_t src_symbol_num, xqc_int_t total_symbol_num,
 
 /* process fec protected packet with stream mode */
 xqc_int_t
-xqc_process_fec_protected_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
+xqc_process_fec_protected_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_bool_t *if_add_repair)
 {
-    xqc_int_t i, ret, fss_esi, header_len, payload_len, symbol_idx, max_src_symbol_num, max_total_symbol_num, max_symbol_size;
+    xqc_int_t i, ret, fss_esi, header_len, payload_len, max_src_symbol_num, repair_symbol_num;
     unsigned char *p;
 
-    symbol_idx = 0;
-    max_src_symbol_num = conn->local_settings.fec_max_symbols_num;
-    max_total_symbol_num = conn->conn_settings.fec_params.fec_max_symbol_num_per_block;
-    max_symbol_size = conn->conn_settings.fec_params.fec_max_symbol_size;
-    
-    if (xqc_is_packet_fec_protected(conn, packet_out) != XQC_OK) {
-        return -XQC_EFEC_NOT_SUPPORT_FEC;
-    }
+    repair_symbol_num = conn->fec_ctl->fec_send_required_repair_num;
+    max_src_symbol_num = conn->conn_settings.fec_params.fec_max_symbol_num_per_block;
+    header_len = packet_out->po_payload - packet_out->po_buf;
+    payload_len = packet_out->po_used_size - header_len;
 
-    if (xqc_is_fec_params_valid(max_src_symbol_num, max_total_symbol_num, conn->conn_settings.fec_params.fec_max_window_size) != XQC_OK) {
+    ret = xqc_check_fec_params(conn, max_src_symbol_num, repair_symbol_num, conn->conn_settings.fec_params.fec_max_window_size, payload_len);
+    if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_process_fec_protected_packet|xqc_is_fec_params_valid|fec params invalid|");
         return -XQC_EFEC_SYMBOL_ERROR;
     }
 
-    if (packet_out->po_frame_types & XQC_FRAME_BIT_SID
-        || packet_out->po_frame_types & XQC_FRAME_BIT_REPAIR_SYMBOL)
-    {
-        return XQC_OK;
-    }
-
-    header_len = packet_out->po_payload - packet_out->po_buf;
-    payload_len = packet_out->po_used_size - header_len;
-    if (max_symbol_size < payload_len) {
-        return -XQC_EFEC_NOT_SUPPORT_FEC;
-    }
-    /* padding symbol to max symbol size */
-    ret = xqc_gen_padding_frame_with_len(conn, packet_out, max_symbol_size - payload_len,
-                                         XQC_PACKET_OUT_SIZE + XQC_ACK_SPACE - XQC_FEC_SPACE);
-    if (ret != XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_WARN, "|quic_fec|xqc_process_fec_protected_packet|packet header is larger than expected(32 bytes)");
-        return -XQC_EFEC_SYMBOL_ERROR;
-    }
-
-    symbol_idx = conn->fec_ctl->fec_send_src_symbols_num % max_src_symbol_num;
-    payload_len = packet_out->po_used_size - header_len;
-    if (payload_len != max_symbol_size) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_process_fec_protected_packet|payload len is not equal to fec max symbol size|");
-        return -XQC_EFEC_SYMBOL_ERROR;
-    }
-
-    /* 为当前packet 生成SID Frame */
+    /* attach sid frame to current packet */
     ret = xqc_write_sid_frame_to_one_packet(conn, packet_out);
-    if (ret != XQC_OK) {
+    if (ret == -XQC_EFEC_TOLERABLE_ERROR) {
+        return XQC_OK;
+
+    } else if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_process_fec_protected_packet|xqc_write_sid_frame_to_one_packet error|");
         return -XQC_EFEC_SYMBOL_ERROR;
     }
+
     /* FEC encoder */
-    ret = xqc_fec_encoder(conn, packet_out->po_payload);
+    ret = xqc_fec_encoder(conn, packet_out->po_payload, payload_len);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_process_fec_protected_packet|xqc_fec_encoder error|");
+        xqc_fec_ctl_init_send_params(conn);
         return ret;
     }
+    conn->fec_ctl->fec_send_symbol_num += 1;
 
-    conn->fec_ctl->fec_send_src_symbols_num += 1;
-    /* Whether current symbol is the final of one block. */
-    symbol_idx = conn->fec_ctl->fec_send_src_symbols_num % max_src_symbol_num;
-    if (symbol_idx == 0) {
-        fss_esi = conn->fec_ctl->fec_send_src_symbols_num - max_src_symbol_num;
-
-        /* Generate repair packets. */
-        ret = xqc_write_repair_packets(conn, fss_esi, &packet_out->po_list);
+    /* Try to generate repair packets, only succeed when send_symbol_numbers satisfy the limits */
+    if (conn->fec_ctl->fec_send_symbol_num == max_src_symbol_num) {
+        ret = xqc_send_repair_packets(conn, conn->conn_settings.fec_params.fec_encoder_scheme, &packet_out->po_list, if_add_repair);
         if (ret != XQC_OK) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_process_fec_protected_packet|xqc_gen_repair_packet error|");
-            return -XQC_EWRITE_PKT;
+            xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_process_fec_protected_packet|xqc_send_repair_packets error: %d|", ret);
         }
-        /* Free the src symbol buff after we've finished the process of the block. */
-        xqc_fec_ctl_init_send_params(conn->fec_ctl);
-        if (conn->fec_ctl->fec_send_src_symbols_num >= XQC_FEC_MAX_SYMBOL_PAYLOAD_ID) {
-            conn->fec_ctl->fec_send_src_symbols_num = 0;
-            fss_esi = 0;
-        }
+        xqc_fec_ctl_init_send_params(conn);
     }
 
     return XQC_OK;
@@ -291,10 +356,11 @@ xqc_int_t
 xqc_gen_src_payload_id(xqc_fec_ctl_t *fec_ctl, uint64_t *payload_id)
 {
     xqc_connection_t *conn = fec_ctl->conn;
-    if (fec_ctl->fec_send_src_symbols_num < 0 || fec_ctl->fec_send_src_symbols_num >= XQC_FEC_MAX_SYMBOL_PAYLOAD_ID) {
+
+    if (fec_ctl->fec_send_block_num > XQC_FEC_MAX_BLOCK_NUM || fec_ctl->fec_send_symbol_num > XQC_FEC_MAX_SYMBOL_NUM) {
         return -XQC_EFEC_SYMBOL_ERROR;
     }
-    *payload_id = fec_ctl->fec_send_src_symbols_num;
+    *payload_id = fec_ctl->fec_send_block_num << 8 | fec_ctl->fec_send_symbol_num;
     return XQC_OK;
 }
 
@@ -304,56 +370,68 @@ xqc_fec_ctl_create(xqc_connection_t *conn)
     xqc_int_t       i, j;
     xqc_fec_ctl_t  *fec_ctl = NULL;
     
-    fec_ctl = xqc_malloc(sizeof(xqc_fec_ctl_t));
+    fec_ctl = xqc_calloc(1, sizeof(xqc_fec_ctl_t));
     if (fec_ctl == NULL) {
         return NULL;
     }
 
     fec_ctl->conn = conn;
-    fec_ctl->fec_flow_id = 0;
-    fec_ctl->fec_recover_pkt_cnt = 0;
-    fec_ctl->fec_processed_blk_num = 0;
-    fec_ctl->fec_flush_blk_cnt = 0;
-    fec_ctl->fec_recover_failed_cnt = 0;
-    fec_ctl->fec_ignore_blk_cnt = 0;
-    fec_ctl->fec_recv_repair_num = 0;
+    if (conn->conn_settings.fec_params.fec_code_rate == 0) {
+        fec_ctl->fec_send_required_repair_num = 1;
 
-    fec_ctl->fec_send_src_symbols_num = 0;
-    fec_ctl->fec_send_repair_symbols_num = 0;
+    } else {
+        fec_ctl->fec_send_required_repair_num = xqc_min(conn->conn_settings.fec_params.fec_max_symbol_num_per_block * conn->conn_settings.fec_params.fec_code_rate, XQC_REPAIR_LEN);
+    }
 
+    if (conn->conn_settings.enable_multipath) {
+        fec_ctl->fec_mp_mode = conn->conn_settings.fec_params.fec_mp_mode;
+    }
+    fec_ctl->fec_rep_path_id = XQC_MAX_UINT64_VALUE;
 
     for (i = 0; i < XQC_REPAIR_LEN; i++) {
-        unsigned char *key_p = xqc_calloc(1, XQC_FEC_MAX_SYMBOL_NUM_PBLOCK);
+        unsigned char *key_p = xqc_calloc(XQC_MAX_RPR_KEY_SIZE, sizeof(unsigned char));
+        if (key_p == NULL) {
+            goto process_emalloc;
+        }
         xqc_set_object_value(&fec_ctl->fec_send_repair_key[i], 0, key_p, 0);
 
-        unsigned char *syb_p = xqc_calloc(1, XQC_PACKET_OUT_SIZE + XQC_ACK_SPACE - XQC_HEADER_SPACE - XQC_FEC_SPACE);
+        unsigned char *syb_p = xqc_calloc(XQC_MAX_SYMBOL_SIZE, sizeof(unsigned char));
+        if (syb_p == NULL) {
+            goto process_emalloc;
+        }
         xqc_set_object_value(&fec_ctl->fec_send_repair_symbols_buff[i], 0, syb_p, 0);
+        
+        unsigned char *recv_syb_p = xqc_calloc(XQC_MAX_SYMBOL_SIZE, sizeof(unsigned char));
+        if (recv_syb_p == NULL) {
+            goto process_emalloc;
+        }
+        xqc_set_object_value(&fec_ctl->fec_gen_repair_symbols_buff[i], 0, recv_syb_p, 0);
     }
 
-    for (i = 0; i < XQC_SYMBOL_CACHE_LEN; i++) {
-        fec_ctl->fec_recv_block_idx[i] = -1;
-        fec_ctl->fec_recv_symbols_num[i] = 0;
-        fec_ctl->fec_recv_repair_symbols_num[i] = 0;
-        fec_ctl->fec_recv_symbols_flag[i] = 0;
-        for (j = 0; j < XQC_FEC_MAX_SYMBOL_NUM_PBLOCK; j++) {
-            unsigned char *syb_p = xqc_calloc(1, XQC_PACKET_OUT_SIZE + XQC_ACK_SPACE - XQC_HEADER_SPACE - XQC_FEC_SPACE);
-            xqc_set_object_value(&fec_ctl->fec_recv_symbols_buff[i][j], 0, syb_p, 0);
-        }
-        for (j = 0; j < XQC_REPAIR_LEN; j++) {
-            unsigned char *key_p = xqc_calloc(1, XQC_FEC_MAX_SYMBOL_NUM_PBLOCK);
-            xqc_set_object_value(&fec_ctl->fec_recv_repair_key[i][j], 0, key_p, 0);
-        }
-    }
+    // FEC 2.0: init repair symbols list and source symbols list
+    fec_ctl->fec_src_syb_num = 0;
+    fec_ctl->fec_rpr_syb_num = 0;
+    xqc_init_list_head(&fec_ctl->fec_recv_rpr_syb_list);
+    xqc_init_list_head(&fec_ctl->fec_recv_src_syb_list);
+    xqc_init_list_head(&fec_ctl->fec_free_src_list);
+    xqc_init_list_head(&fec_ctl->fec_free_rpr_list);
 
     return fec_ctl;
+process_emalloc:
+    xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|create_fec_ctl fail to malloc for params");
+    xqc_fec_ctl_destroy(fec_ctl);
+    return NULL;
 }
 
 void
 xqc_fec_ctl_destroy(xqc_fec_ctl_t *fec_ctl)
 {
     xqc_int_t i, j;
+    xqc_list_head_t *pos, *next;
+
     fec_ctl->fec_flow_id = 0;
-    fec_ctl->fec_send_src_symbols_num = 0;
+    fec_ctl->fec_send_block_num = 0;
+    fec_ctl->fec_send_symbol_num = 0;
     fec_ctl->fec_send_repair_symbols_num = 0;
     for (i = 0; i < XQC_REPAIR_LEN; i++) {
         if (fec_ctl->fec_send_repair_key[i].payload != NULL) {
@@ -364,27 +442,38 @@ xqc_fec_ctl_destroy(xqc_fec_ctl_t *fec_ctl)
             xqc_free(fec_ctl->fec_send_repair_symbols_buff[i].payload);
             fec_ctl->fec_send_repair_symbols_buff[i].is_valid = 0;
         }
-    }
-
-    for (i = 0; i < XQC_SYMBOL_CACHE_LEN; i++) {
-        fec_ctl->fec_recv_symbols_flag[i] = 0;
-        fec_ctl->fec_recv_symbols_num[i] = 0;
-        fec_ctl->fec_recv_block_idx[i] = 0;
-
-        for (j = 0; j < XQC_FEC_MAX_SYMBOL_NUM_PBLOCK; j++) {
-            if (fec_ctl->fec_recv_symbols_buff[i][j].payload != NULL) {
-                xqc_free(fec_ctl->fec_recv_symbols_buff[i][j].payload);
-                fec_ctl->fec_recv_symbols_buff[i][j].is_valid = 0;
-            }
-        }
-        for (j = 0; j < XQC_REPAIR_LEN; j++) {
-            if (fec_ctl->fec_recv_repair_key[i][j].payload != NULL) {
-                xqc_free(fec_ctl->fec_recv_repair_key[i][j].payload);
-                fec_ctl->fec_recv_repair_key[i][j].is_valid = 0;
-            }
+        if (fec_ctl->fec_gen_repair_symbols_buff[i].payload != NULL) {
+            xqc_free(fec_ctl->fec_gen_repair_symbols_buff[i].payload);
+            fec_ctl->fec_gen_repair_symbols_buff[i].is_valid = 0;
         }
     }
 
+    xqc_list_for_each_safe(pos, next, &fec_ctl->fec_recv_src_syb_list) {
+        xqc_fec_src_syb_t *symbol = xqc_list_entry(pos, xqc_fec_src_syb_t, fec_list);
+        xqc_free(symbol->payload);
+        xqc_free(symbol);
+    }
+
+    xqc_list_for_each_safe(pos, next, &fec_ctl->fec_recv_rpr_syb_list) {
+        xqc_fec_rpr_syb_t *symbol = xqc_list_entry(pos, xqc_fec_rpr_syb_t, fec_list);
+        xqc_free(symbol->payload);
+        xqc_free(symbol);
+    }
+
+    xqc_list_for_each_safe(pos, next, &fec_ctl->fec_free_src_list) {
+        xqc_fec_src_syb_t *symbol = xqc_list_entry(pos, xqc_fec_src_syb_t, fec_list);
+        xqc_free(symbol->payload);
+        xqc_free(symbol);
+    }
+
+    xqc_list_for_each_safe(pos, next, &fec_ctl->fec_free_rpr_list) {
+        xqc_fec_rpr_syb_t *symbol = xqc_list_entry(pos, xqc_fec_rpr_syb_t, fec_list);
+        xqc_free(symbol->payload);
+        xqc_free(symbol->repair_key);
+        xqc_free(symbol->recv_mask);
+        xqc_free(symbol);
+    }
+    
     xqc_free(fec_ctl);
 }
 
@@ -402,23 +491,46 @@ xqc_fec_ctl_save_symbol(unsigned char **symbol_buff_addr, const unsigned char *d
 }
 
 xqc_int_t
-xqc_fec_ctl_init_send_params(xqc_fec_ctl_t *fec_ctl)
+xqc_fec_ctl_init_send_params(xqc_connection_t *conn)
 {
+    double loss_rate;
+    uint32_t send_repair_num, src_syb_num;
     xqc_int_t i, symbol_size, key_size;
-    
+    xqc_fec_ctl_t *fec_ctl = conn->fec_ctl;
+
     symbol_size = key_size = 0;
     fec_ctl->fec_send_repair_symbols_num = 0;
+    fec_ctl->fec_send_symbol_num = 0;
 
     for (i = 0 ; i < XQC_REPAIR_LEN; i++) {
-        if (fec_ctl->fec_send_repair_key[i].is_valid) {
-            xqc_init_object_value(&fec_ctl->fec_send_repair_key[i]);
+        if (conn->conn_settings.fec_params.fec_encoder_scheme != XQC_REED_SOLOMON_CODE) {
+            if (fec_ctl->fec_send_repair_key[i].is_valid) {
+                xqc_init_object_value(&fec_ctl->fec_send_repair_key[i]);
+            }
         }
 
         if (fec_ctl->fec_send_repair_symbols_buff[i].is_valid) {
             xqc_init_object_value(&fec_ctl->fec_send_repair_symbols_buff[i]);
         }
     }
+    // each time init send param, add 1 to send_block_num, so that symbol from different block won't be mixed
+    if (conn->fec_ctl->fec_send_block_num == XQC_FEC_MAX_BLOCK_NUM) {
+        conn->fec_ctl->fec_send_block_num = 0;
 
+    } else {
+        conn->fec_ctl->fec_send_block_num++;
+    }
+
+    if (conn->conn_settings.fec_params.fec_code_rate == 0 && conn->conn_settings.fec_params.fec_encoder_scheme != XQC_XOR_CODE) {
+        loss_rate = xqc_conn_recent_loss_rate(conn);
+        send_repair_num = xqc_min(XQC_REPAIR_LEN, xqc_max(1, (int)(loss_rate * conn->conn_settings.fec_params.fec_max_symbol_num_per_block / 100)));
+        if (conn->fec_ctl->fec_send_required_repair_num != send_repair_num) {
+            // edit encode repair key
+            conn->fec_ctl->fec_send_required_repair_num = send_repair_num;
+            src_syb_num = conn->local_settings.fec_max_symbols_num;
+            conn->conn_settings.fec_callback.xqc_fec_init(conn, src_syb_num, src_syb_num + send_repair_num);
+        }
+    }
     return XQC_OK;
 }
 
@@ -428,7 +540,7 @@ xqc_set_object_value(xqc_fec_object_t *object, xqc_int_t is_valid,
 {
     object->is_valid = is_valid;
     object->payload = payload;
-    object->payload_size = size;
+    object->payload_size = xqc_min(XQC_MAX_SYMBOL_SIZE, size);
 }
 
 void
@@ -439,24 +551,72 @@ xqc_init_object_value(xqc_fec_object_t *object)
     object->payload_size = 0;
 }
 
+void
+xqc_init_src_symbol_value(xqc_fec_src_syb_t *symbol)
+{
+    symbol->block_id = 0;
+    symbol->symbol_idx = 0;
+    xqc_memset(symbol->payload, 0, xqc_min(XQC_MAX_SYMBOL_SIZE, symbol->payload_size));
+    symbol->payload_size = 0;
+}
+
+void
+xqc_init_rpr_symbol_value(xqc_fec_rpr_syb_t *symbol)
+{
+    symbol->block_id = 0;
+    symbol->symbol_idx = 0;
+    xqc_memset(symbol->payload, 0, XQC_MAX_SYMBOL_SIZE);
+    symbol->payload_size = 0;
+    xqc_memset(symbol->repair_key, 0, XQC_MAX_RPR_KEY_SIZE);
+    xqc_memset(symbol->recv_mask, 0, XQC_MAX_RPR_KEY_SIZE);
+    symbol->repair_key_size = 0;
+}
+
+void
+xqc_remove_src_symbol_from_list(xqc_fec_ctl_t *fec_ctl, xqc_fec_src_syb_t *src_symbol)
+{
+    xqc_list_del_init(&src_symbol->fec_list);
+    xqc_init_src_symbol_value(src_symbol);
+    // save payload for further uses
+    xqc_list_add_tail(&src_symbol->fec_list, &fec_ctl->fec_free_src_list);
+    fec_ctl->fec_src_syb_num--;
+}
+
+void
+xqc_remove_rpr_symbol_from_list(xqc_fec_ctl_t *fec_ctl, xqc_fec_rpr_syb_t *rpr_symbol)
+{
+    xqc_list_del_init(&rpr_symbol->fec_list);
+    xqc_init_rpr_symbol_value(rpr_symbol);
+    // save payload for further uses
+    xqc_list_add_tail(&rpr_symbol->fec_list, &fec_ctl->fec_free_rpr_list);
+    fec_ctl->fec_rpr_syb_num--;
+}
+
 xqc_int_t
-xqc_fec_ctl_init_recv_params(xqc_fec_ctl_t *fec_ctl, xqc_int_t block_idx)
+xqc_fec_ctl_init_recv_params(xqc_fec_ctl_t *fec_ctl, uint64_t block_id)
 {
     xqc_int_t j, symbol_size, key_size;
+    xqc_list_head_t *pos, *next;
 
-    fec_ctl->fec_recv_symbols_num[block_idx] = 0;
-    fec_ctl->fec_recv_repair_symbols_num[block_idx] = 0;
-    fec_ctl->fec_recv_symbols_flag[block_idx] = 0;
 
-    for (j = 0; j < XQC_FEC_MAX_SYMBOL_NUM_PBLOCK; j++) {
-        if (fec_ctl->fec_recv_symbols_buff[block_idx][j].is_valid) {
-            xqc_init_object_value(&fec_ctl->fec_recv_symbols_buff[block_idx][j]);
+    // FEC 2.0 update symbols list
+    xqc_list_for_each_safe(pos, next, &fec_ctl->fec_recv_src_syb_list) {
+        xqc_fec_src_syb_t *src_symbol = xqc_list_entry(pos, xqc_fec_src_syb_t, fec_list);
+        if (src_symbol->block_id > block_id) {
+            break;
+        }
+        if (src_symbol->block_id == block_id) {
+            xqc_remove_src_symbol_from_list(fec_ctl, src_symbol);
         }
     }
 
-    for (j = 0; j < XQC_REPAIR_LEN; j++) {
-        if (fec_ctl->fec_recv_repair_key[block_idx][j].is_valid) {
-            xqc_init_object_value(&fec_ctl->fec_recv_repair_key[block_idx][j]);
+    xqc_list_for_each_safe(pos, next, &fec_ctl->fec_recv_rpr_syb_list) {
+        xqc_fec_rpr_syb_t *rpr_symbol = xqc_list_entry(pos, xqc_fec_rpr_syb_t, fec_list);
+        if (rpr_symbol->block_id > block_id) {
+            break;
+        }
+        if (rpr_symbol->block_id == block_id) {
+            xqc_remove_rpr_symbol_from_list(fec_ctl, rpr_symbol);
         }
     }
 
@@ -466,8 +626,8 @@ xqc_fec_ctl_init_recv_params(xqc_fec_ctl_t *fec_ctl, xqc_int_t block_idx)
 xqc_int_t
 xqc_negotiate_fec_schemes(xqc_connection_t *conn, xqc_transport_params_t params)
 {
-    xqc_int_t ret;
-
+    xqc_int_t ret, encode_scheme, decode_scheme;
+    xqc_trans_settings_t *ls = &conn->local_settings;
     ret = -XQC_EFEC_NOT_SUPPORT_FEC;
     /*
      * 如果对端发来了多种FEC schemes选择，接收端需要选择其中的一种FEC schemes并重新encode local_settings
@@ -479,185 +639,695 @@ xqc_negotiate_fec_schemes(xqc_connection_t *conn, xqc_transport_params_t params)
      */
     if (params.fec_version == XQC_ERR_FEC_VERSION) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|remote fec version is not supported.");
-        conn->conn_settings.enable_encode_fec = 0;
-        conn->conn_settings.enable_decode_fec = 0;
+        conn->fec_neg_fail_reason |= XQC_OLD_FEC_VERSION;
         return ret;
     }
 
-    if (conn->conn_type == XQC_CONN_TYPE_SERVER) {
-        /* server as encoder */
-        if (params.enable_decode_fec
-            && params.fec_decoder_schemes_num > 0
-            && conn->local_settings.enable_encode_fec
-            && conn->local_settings.fec_encoder_schemes_num > 0
-            && xqc_set_final_scheme(conn, conn->local_settings.fec_encoder_schemes, &conn->local_settings.fec_encoder_schemes_num, params.fec_decoder_schemes,
-                                    params.fec_decoder_schemes_num, &conn->conn_settings.fec_params.fec_encoder_scheme, &conn->conn_settings.fec_encode_callback) == XQC_OK)
+    if (ls->enable_encode_fec && params.enable_decode_fec) {
+        // server should provide only 1 scheme if negotiation success;
+        if (conn->conn_type == XQC_CONN_TYPE_CLIENT
+            && params.fec_decoder_schemes_num > 1) 
         {
-            /* TODOfec:变长数组/单测 */
-            /* 设置重新编码至transport param的flag */
-            xqc_log(conn->log, XQC_LOG_DEBUG, "|server set final encoder fec scheme: %s",
-                    xqc_get_fec_scheme_str(conn->conn_settings.fec_params.fec_encoder_scheme));
-            ret = XQC_OK;
+            conn->fec_neg_fail_reason |= XQC_CLIENT_RECEIVE_INV_DEC;
+            goto set_decoder;
+        }
 
-        } else {
-            conn->local_settings.enable_encode_fec = 0;
-            conn->local_settings.fec_encoder_schemes_num = 0;
+        encode_scheme = xqc_set_final_scheme(conn, ls->fec_encoder_schemes, &ls->fec_encoder_schemes_num,
+                                             params.fec_decoder_schemes, params.fec_decoder_schemes_num);
+        if (encode_scheme == 0) {
+            ls->enable_encode_fec = 0;
             conn->conn_settings.enable_encode_fec = 0;
-            conn->conn_settings.fec_params.fec_encoder_scheme = 0;
-            xqc_log(conn->log, XQC_LOG_DEBUG, "|negotiation on final encoder scheme failed.|");
+            conn->fec_neg_fail_reason |= XQC_NO_COMMON_FEC_ENC;
+            xqc_log(conn->log, XQC_LOG_DEBUG, "|quic_fec|negotiate fec encoder schemes failed.");
+            goto set_decoder;
         }
+        // set valid encoder scheme
+        ret = xqc_set_valid_encoder_scheme_cb(&conn->conn_settings.fec_callback, encode_scheme);
+        if (ret != XQC_OK) {
+            ls->enable_encode_fec = 0;
+            conn->conn_settings.enable_encode_fec = 0;
+            xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|set fec encoder cb failed with scheme num: %d", encode_scheme);
+            goto set_decoder;
+        }
+        conn->conn_settings.fec_params.fec_encoder_scheme = encode_scheme;
+        // change fec scheme in local_settings
+        ls->fec_encoder_schemes[0] = conn->conn_settings.fec_params.fec_encoder_scheme;
+        ls->fec_encoder_schemes_num = 1;
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|set final encoder fec scheme: %s",
+                xqc_get_fec_scheme_str(conn->conn_settings.fec_params.fec_encoder_scheme));
+        ret = XQC_OK;
+    }
 
-        /* server as encoder */
-        if (params.enable_encode_fec
-            && params.fec_encoder_schemes_num > 0
-            && conn->local_settings.enable_decode_fec
-            && conn->local_settings.fec_decoder_schemes_num > 0
-            && xqc_set_final_scheme(conn, conn->local_settings.fec_decoder_schemes, &conn->local_settings.fec_decoder_schemes_num, params.fec_encoder_schemes,
-                                    params.fec_encoder_schemes_num, &conn->conn_settings.fec_params.fec_decoder_scheme, &conn->conn_settings.fec_decode_callback) == XQC_OK)
+set_decoder:
+    if (ls->enable_decode_fec && params.enable_encode_fec) {
+        // server should provide only 1 scheme if negotiation success;
+        if (conn->conn_type == XQC_CONN_TYPE_CLIENT
+            && params.fec_encoder_schemes_num > 1) 
         {
-            xqc_log(conn->log, XQC_LOG_DEBUG, "|server set final decoder fec scheme: %s",
-                    xqc_get_fec_scheme_str(conn->conn_settings.fec_params.fec_decoder_scheme));
-            ret = XQC_OK;
-
-        } else {
-            conn->local_settings.enable_decode_fec = 0;
-            conn->local_settings.fec_decoder_schemes_num = 0;
-            conn->conn_settings.enable_decode_fec = 0;
-            conn->conn_settings.fec_params.fec_decoder_scheme = 0;
-            xqc_log(conn->log, XQC_LOG_DEBUG, "|negotiation on final decoder scheme failed.|");
+            conn->fec_neg_fail_reason |= XQC_CLIENT_RECEIVE_INV_ENC;
+            goto end;
         }
+
+        decode_scheme = xqc_set_final_scheme(conn, ls->fec_decoder_schemes, &ls->fec_decoder_schemes_num,
+                                             params.fec_encoder_schemes, params.fec_encoder_schemes_num);
+        if (decode_scheme == 0) {
+            ls->enable_decode_fec = 0;
+            conn->conn_settings.enable_decode_fec = 0;
+            conn->fec_neg_fail_reason |= XQC_NO_COMMON_FEC_DEC;
+            xqc_log(conn->log, XQC_LOG_DEBUG, "|quic_fec|negotiate fec decoder schemes failed.");
+            goto end;
+        }
+        // set valid encoder scheme
+        ret = xqc_set_valid_decoder_scheme_cb(&conn->conn_settings.fec_callback, decode_scheme);
+        if (ret != XQC_OK) {
+            ls->enable_decode_fec = 0;
+            conn->conn_settings.enable_decode_fec = 0;
+            xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|set fec decoder cb failed with scheme num: %d", decode_scheme);
+            goto end;
+        }
+        conn->conn_settings.fec_params.fec_decoder_scheme = decode_scheme;
+        // change fec scheme in local_settings
+        ls->fec_decoder_schemes[0] = conn->conn_settings.fec_params.fec_decoder_scheme;
+        ls->fec_decoder_schemes_num = 1;
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|set final decoder fec scheme: %s",
+                xqc_get_fec_scheme_str(conn->conn_settings.fec_params.fec_decoder_scheme));
+        ret = XQC_OK;
+    }
+end:
+    if (conn->conn_type == XQC_CONN_TYPE_CLIENT) {
+        if (conn->conn_settings.fec_params.fec_encoder_scheme == 0) {
+            conn->conn_settings.enable_encode_fec = 0;
+            xqc_log(conn->log, XQC_LOG_DEBUG, "|quic_fec|negotiate fec encoder schemes failed.");
+        }
+        if (conn->conn_settings.fec_params.fec_decoder_scheme == 0) {
+            conn->conn_settings.enable_decode_fec = 0;
+            xqc_log(conn->log, XQC_LOG_DEBUG, "|quic_fec|negotiate fec decoder schemes failed.");
+        }
+    }
+    return ret;
+}
+xqc_int_t
+xqc_insert_src_symbol_by_seq(xqc_connection_t *conn, xqc_list_head_t *symbol_list, 
+    uint64_t block_id, uint64_t symbol_idx, xqc_int_t *blk_output,
+    unsigned char *symbol, xqc_int_t symbol_size)
+{
+    xqc_list_head_t *pos, *next;
+    xqc_int_t        ret, blk_num_flag, window_limit;
+    xqc_fec_src_syb_t *src_symbol;
+    
+    ret = 0;
+    blk_num_flag = 1;
+    window_limit = conn->conn_settings.fec_params.fec_max_window_size;
+    src_symbol = NULL;
+
+    xqc_list_for_each_reverse_safe(pos, next, symbol_list) {
+            xqc_fec_src_syb_t *cur_symbol = xqc_list_entry(pos, xqc_fec_src_syb_t, fec_list);
+            if (block_id < cur_symbol->block_id) {
+                continue;
+            }
+            if (block_id == cur_symbol->block_id) {
+                if (symbol_idx < cur_symbol->symbol_idx) {
+                    continue;
+
+                } else if (cur_symbol->symbol_idx == symbol_idx) {
+                    // current symbol already exists.
+                    return -XQC_EFEC_TOLERABLE_ERROR;
+                }   
+            }
+            break;
+
+    }
+
+    // push into src symbol list;
+    src_symbol = xqc_build_src_symbol(conn, block_id, symbol_idx, symbol, symbol_size);
+    if (src_symbol == NULL) {
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|quic_fec|build source symbol error|block_id:%d|symbol_idx:%d|symbol_size:%d", block_id, symbol_idx, symbol_size);
+        return -XQC_EMALLOC;
+    }
+
+    // insert into proper position
+    xqc_list_add(&src_symbol->fec_list, pos);
+    *blk_output += 1;
+    return XQC_OK;
+}
+
+xqc_int_t
+xqc_insert_rpr_symbol_by_seq(xqc_connection_t *conn, xqc_list_head_t *symbol_list, 
+    xqc_fec_rpr_syb_t *tmp_rpr_symbol, xqc_int_t *blk_output, xqc_fec_rpr_syb_t **rpr_symbol)
+{
+    xqc_list_head_t *pos, *next;
+    xqc_int_t        ret, blk_num_flag, window_limit, block_id, symbol_idx;
+
+    ret = 0;
+    blk_num_flag = 1;
+    window_limit = conn->conn_settings.fec_params.fec_max_window_size;
+    *rpr_symbol = NULL;
+    block_id = tmp_rpr_symbol->block_id;
+    symbol_idx = tmp_rpr_symbol->symbol_idx;
+
+    if (block_id < 0) {
+        return -XQC_EFEC_SYMBOL_ERROR;
+    }
+
+    xqc_list_for_each_reverse_safe(pos, next, symbol_list) {
+        xqc_fec_rpr_syb_t *cur_symbol = xqc_list_entry(pos, xqc_fec_rpr_syb_t, fec_list);
+        if (block_id < cur_symbol->block_id) {
+            continue;
+        }
+
+        if (block_id == cur_symbol->block_id) {
+            if (symbol_idx < cur_symbol->symbol_idx) {
+                continue;
+
+            } else if (cur_symbol->symbol_idx == symbol_idx) {
+                // current symbol already exists.
+                return -XQC_EFEC_TOLERABLE_ERROR;
+            }
+        }
+        if (*blk_output >= window_limit) {
+            // flush the smallest old syb
+            if (symbol_list->next == symbol_list) {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|no symbol in the repair list|record syb len:%d|syb window list:%d", *blk_output, window_limit);
+                break;
+            }
+            xqc_fec_rpr_syb_t *front_syb = xqc_list_entry(symbol_list->next, xqc_fec_rpr_syb_t, fec_list);
+            xqc_remove_rpr_symbol_from_list(conn->fec_ctl, front_syb);
+        }
+        break;
+    }
+
+    // insert into rpr symbol list;
+    *rpr_symbol = xqc_build_rpr_symbol(conn, tmp_rpr_symbol);
+    if (*rpr_symbol == NULL) {
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|quic_fec|build repair symbol error|block_id:%d|symbol_idx:%d|symbol_size:%d", block_id, symbol_idx, tmp_rpr_symbol->payload_size);
+        return -XQC_EMALLOC;
+    }
+
+    // insert into proper position
+    xqc_list_add(&(*rpr_symbol)->fec_list, pos);
+    *blk_output += 1;
+    return XQC_OK;
+}
+
+
+xqc_fec_src_syb_t *
+xqc_create_src_symbol()
+{
+    xqc_fec_src_syb_t *src_symbol = (xqc_fec_src_syb_t *)xqc_calloc(1, sizeof(xqc_fec_src_syb_t));
+    if (src_symbol == NULL) {
+        return NULL;
+    }
+
+    src_symbol->payload = xqc_calloc(XQC_MAX_SYMBOL_SIZE, sizeof(unsigned char));
+    if (src_symbol->payload == NULL) {
+        xqc_free(src_symbol);
+        return NULL;
+    }
+
+    return src_symbol;
+}
+
+xqc_fec_rpr_syb_t *
+xqc_create_rpr_symbol()
+{
+    xqc_fec_rpr_syb_t *rpr_symbol = (xqc_fec_rpr_syb_t *)xqc_calloc(1, sizeof(xqc_fec_rpr_syb_t));
+    if (rpr_symbol == NULL) {
+        return NULL;
+    }
+    rpr_symbol->payload = xqc_calloc(XQC_MAX_SYMBOL_SIZE, sizeof(unsigned char));
+    rpr_symbol->repair_key = xqc_calloc(XQC_MAX_RPR_KEY_SIZE, sizeof(unsigned char));
+    rpr_symbol->recv_mask = xqc_calloc(XQC_MAX_RPR_KEY_SIZE, sizeof(unsigned char));
+    if (rpr_symbol->payload == NULL || rpr_symbol->repair_key == NULL || rpr_symbol->recv_mask == NULL) {
+        if (rpr_symbol->payload != NULL) {
+            xqc_free(rpr_symbol->payload);
+        }
+        if (rpr_symbol->repair_key != NULL) {
+            xqc_free(rpr_symbol->repair_key);
+        }
+        if (rpr_symbol->recv_mask != NULL) {
+            xqc_free(rpr_symbol->recv_mask);
+        }
+        xqc_free(rpr_symbol);
+        return NULL;
+    }
+    return rpr_symbol;
+}
+
+xqc_fec_src_syb_t *
+xqc_new_src_symbol(xqc_list_head_t *fec_free_list)
+{
+    // try to fetch an available symbol in free list, otherwise malloc a new space
+    xqc_list_head_t *pos, *next;
+    xqc_fec_src_syb_t *src_symbol;
+
+    xqc_list_for_each_safe(pos, next, fec_free_list) {
+        src_symbol = xqc_list_entry(pos, xqc_fec_src_syb_t, fec_list);
+        xqc_list_del_init(&src_symbol->fec_list);
+        if (src_symbol->payload == NULL) {
+            xqc_free(src_symbol);
+            return NULL;
+        }
+        return src_symbol;
+    }
+    return xqc_create_src_symbol();
+}
+
+xqc_fec_rpr_syb_t *
+xqc_new_rpr_symbol(xqc_list_head_t *fec_free_list)
+{
+    // try to fetch an available symbol in free list, otherwise malloc a new space
+    xqc_list_head_t *pos, *next;
+    xqc_fec_rpr_syb_t *rpr_symbol;
+
+    xqc_list_for_each_safe(pos, next, fec_free_list) {
+        rpr_symbol = xqc_list_entry(pos, xqc_fec_rpr_syb_t, fec_list);
+        xqc_list_del_init(&rpr_symbol->fec_list);
+        return rpr_symbol;
+    }
+    return xqc_create_rpr_symbol();
+}
+
+xqc_fec_rpr_syb_t *
+xqc_get_rpr_symbol(xqc_list_head_t *head, uint64_t block_id, uint64_t symbol_id)
+{
+    xqc_list_head_t *pos, *next;
+
+    xqc_list_for_each_safe(pos, next, head) {
+        xqc_fec_rpr_syb_t *symbol = xqc_list_entry(pos, xqc_fec_rpr_syb_t, fec_list);
+        if (symbol->block_id > block_id) {
+            break;
+        }
+        if (symbol->block_id == block_id) {
+            if (symbol->symbol_idx > symbol_id) {
+                break;
+            }
+            if (symbol->symbol_idx == symbol_id){
+                return symbol;
+            }
+        }
+    }
+    return NULL;
+}
+
+void
+xqc_update_rpr_symbol_mask_on_src(xqc_list_head_t *head, xqc_int_t block_id,
+    xqc_int_t pi_sym_idx)
+{
+    xqc_list_head_t *pos, *next;
+    xqc_int_t mask_offset;
+
+    mask_offset = pi_sym_idx / 8;
+
+    if (mask_offset >= XQC_MAX_RPR_KEY_SIZE) {
+        return;
+    }
+
+    // traverse rpr list
+    xqc_list_for_each_safe(pos, next, head) {
+        xqc_fec_rpr_syb_t *symbol = xqc_list_entry(pos, xqc_fec_rpr_syb_t, fec_list);
+        if (symbol->block_id > block_id) {
+            break;
+        }
+
+        if (symbol->block_id == block_id
+            && *(symbol->repair_key + mask_offset) & (1 << (7 - pi_sym_idx % 8)))
+        {
+            *(symbol->recv_mask + mask_offset) |= (1 << (7 - pi_sym_idx % 8));
+        }
+    }
+}
+
+void
+xqc_update_rpr_symbol_mask_on_rpr(xqc_list_head_t *head, xqc_fec_rpr_syb_t *rpr_symbol)
+{
+    xqc_list_head_t *pos, *next;
+    
+    // traverse src list
+    xqc_list_for_each_safe(pos, next, head) {
+        xqc_fec_src_syb_t *symbol = xqc_list_entry(pos, xqc_fec_src_syb_t, fec_list);
+        xqc_int_t block_id, symbol_idx, mask_offset;
+
+        block_id = symbol->block_id;
+        symbol_idx = symbol->symbol_idx;
+        mask_offset = symbol_idx / 8;
+
+        if (mask_offset >= XQC_MAX_RPR_KEY_SIZE) {
+            continue;
+        }
+
+        if (block_id > rpr_symbol->block_id) {
+            break;
+        }
+
+        if (block_id == rpr_symbol->block_id
+            && *(rpr_symbol->repair_key + mask_offset) & (1 << (7 - symbol_idx % 8)))
+        {
+            *(rpr_symbol->recv_mask + mask_offset) |= (1 << (7 - symbol_idx % 8));
+        }
+    }
+}
+
+
+xqc_fec_src_syb_t *
+xqc_build_src_symbol(xqc_connection_t *conn, uint64_t block_id, uint64_t symbol_idx,
+    unsigned char *symbol, xqc_int_t symbol_size)
+{
+    xqc_int_t is_repair_symbol = 0, ret;
+    xqc_list_head_t *fec_free_src_list;
+    xqc_fec_src_syb_t *src_symbol = NULL;
+    
+    if (symbol_size > XQC_MAX_SYMBOL_SIZE) {
+        return src_symbol;
+    }
+
+    fec_free_src_list = &conn->fec_ctl->fec_free_src_list;
+    src_symbol = xqc_new_src_symbol(fec_free_src_list);
+    if (src_symbol == NULL) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|get src symbol error|");
+        return NULL;
+    }
+    src_symbol->block_id = block_id;
+    src_symbol->symbol_idx = symbol_idx;
+    xqc_memcpy(src_symbol->payload, symbol, symbol_size);
+    src_symbol->payload_size = symbol_size;
+    xqc_init_list_head(&src_symbol->fec_list);
+
+    return src_symbol;
+}
+
+
+xqc_fec_rpr_syb_t *
+xqc_build_rpr_symbol(xqc_connection_t *conn, xqc_fec_rpr_syb_t *tmp_rpr_symbol)
+{
+    size_t symbol_size, repair_key_size;
+    xqc_int_t is_repair_symbol = 1, ret;
+    xqc_list_head_t *fec_free_rpr_list;
+    xqc_fec_rpr_syb_t *rpr_symbol = NULL;
+
+    symbol_size = tmp_rpr_symbol->payload_size;
+    repair_key_size = tmp_rpr_symbol->repair_key_size;
+
+    if (symbol_size > XQC_MAX_SYMBOL_SIZE || repair_key_size > XQC_MAX_RPR_KEY_SIZE) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|invalid symbol params|symbol_size:%d|symbol_key_size:%d|", symbol_size, repair_key_size);
+        return rpr_symbol;
+    }
+
+    fec_free_rpr_list = &conn->fec_ctl->fec_free_rpr_list;
+    rpr_symbol = xqc_new_rpr_symbol(fec_free_rpr_list);
+
+    if (rpr_symbol == NULL || rpr_symbol->payload == NULL) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|get rpr symbol error|");
+        return rpr_symbol;
+    }
+    rpr_symbol->block_id = tmp_rpr_symbol->block_id;
+    rpr_symbol->symbol_idx = tmp_rpr_symbol->symbol_idx;
+    xqc_memcpy(rpr_symbol->payload, tmp_rpr_symbol->payload, symbol_size);
+    rpr_symbol->payload_size = symbol_size;
+    xqc_memcpy(rpr_symbol->repair_key, tmp_rpr_symbol->repair_key, repair_key_size);
+    rpr_symbol->repair_key_size = repair_key_size;
+    xqc_init_list_head(&rpr_symbol->fec_list);
+
+    return rpr_symbol;
+}
+
+xqc_int_t
+xqc_get_min_src_blk_num(xqc_connection_t *conn)
+{   
+    xqc_fec_ctl_t *fec_ctl = conn->fec_ctl;
+    if (!xqc_list_empty(&fec_ctl->fec_recv_src_syb_list)) {
+        xqc_fec_src_syb_t *src_symbol = xqc_list_entry(fec_ctl->fec_recv_src_syb_list.next, xqc_fec_src_syb_t, fec_list);
+        return src_symbol->block_id;
+    }
+    return -1;
+}
+
+xqc_int_t
+xqc_get_min_rpr_blk_num(xqc_connection_t *conn)
+{   
+    xqc_fec_ctl_t *fec_ctl = conn->fec_ctl;
+    if (!xqc_list_empty(&fec_ctl->fec_recv_rpr_syb_list)) {
+        xqc_fec_rpr_syb_t *rpr_symbol = xqc_list_entry(fec_ctl->fec_recv_rpr_syb_list.next, xqc_fec_rpr_syb_t, fec_list);
+        return rpr_symbol->block_id;
+    }
+    return -1;
+}
+
+
+xqc_bool_t
+xqc_if_src_blk_exists(xqc_fec_ctl_t *fec_ctl, uint64_t block_id)
+{
+    xqc_list_head_t  *pos, *next;
+
+    xqc_list_for_each_safe(pos, next, &fec_ctl->fec_recv_src_syb_list) {
+        xqc_fec_src_syb_t *src_symbol = xqc_list_entry(pos, xqc_fec_src_syb_t, fec_list);
+        if (src_symbol->block_id == block_id) {
+            return XQC_TRUE;
+        }
+    }
+    return XQC_FALSE;
+}
+
+
+xqc_bool_t
+xqc_if_rpr_blk_exists(xqc_fec_ctl_t *fec_ctl, uint64_t block_id)
+{
+    xqc_list_head_t  *pos, *next;
+
+    xqc_list_for_each_safe(pos, next, &fec_ctl->fec_recv_rpr_syb_list) {
+        xqc_fec_rpr_syb_t *rpr_symbol = xqc_list_entry(pos, xqc_fec_rpr_syb_t, fec_list);
+        if (rpr_symbol->block_id == block_id) {
+            return XQC_TRUE;
+        }
+    }
+    return XQC_FALSE;
+}
+
+
+xqc_int_t
+xqc_process_src_symbol(xqc_connection_t *conn, uint64_t block_id, uint64_t symbol_idx,
+    unsigned char *symbol, xqc_int_t symbol_size)
+{
+    xqc_int_t           ret, window_size, min_block_id;
+    xqc_fec_ctl_t       *fec_ctl;
+    xqc_list_head_t     *symbol_list, *rpr_list;
+    xqc_fec_src_syb_t   *src_symbol;
+    
+    window_size = conn->conn_settings.fec_params.fec_max_window_size;
+    fec_ctl = conn->fec_ctl;
+    symbol_list = &conn->fec_ctl->fec_recv_src_syb_list;
+    src_symbol = NULL;
+
+    if (block_id != 0
+        && !xqc_if_src_blk_exists(conn->fec_ctl, block_id)
+        && block_id <= conn->fec_ctl->fec_max_fin_blk_id)
+    {
+        return -XQC_EFEC_TOLERABLE_ERROR;
+    }
+
+    if (conn->fec_ctl->fec_src_syb_num > window_size
+        && !xqc_if_src_blk_exists(conn->fec_ctl, block_id))
+    {
+        while (conn->fec_ctl->fec_src_syb_num > window_size) {
+            min_block_id = xqc_get_min_src_blk_num(conn);
+            if (min_block_id == -1) {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|window_size and symbol_list length is not matsh");
+                return -XQC_EFEC_TOLERABLE_ERROR;
+            }
+            // flush the smallest old block
+            xqc_fec_ctl_init_recv_params(conn->fec_ctl, min_block_id);
+        }
+    }
+
+    // insert into src symbol_list according to block id and symbol idx
+    ret = xqc_insert_src_symbol_by_seq(conn, symbol_list, block_id, symbol_idx, &conn->fec_ctl->fec_src_syb_num, symbol, symbol_size);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|quic_fec|current symbol is already exists|block_id:%d|symbol_idx:%d", block_id, symbol_idx);
         return ret;
     }
 
-    /* client端接收fec schemes逻辑 */
-    if (conn->conn_type == XQC_CONN_TYPE_CLIENT
-        && params.enable_decode_fec
-        && params.fec_decoder_schemes_num == 1
-        && conn->local_settings.enable_encode_fec
-        && xqc_is_fec_scheme_valid(params.fec_decoder_schemes[0], conn->local_settings.fec_encoder_schemes, conn->local_settings.fec_encoder_schemes_num) == XQC_OK)
-    {
-        conn->conn_settings.fec_params.fec_encoder_scheme = params.fec_decoder_schemes[0];
-        ret = xqc_set_valid_scheme_cb(&conn->conn_settings.fec_encode_callback, conn->conn_settings.fec_params.fec_encoder_scheme);
-        if (ret == XQC_OK) {
-            xqc_log(conn->log, XQC_LOG_DEBUG, "|client set final encoder fec scheme: %s",
-                    xqc_get_fec_scheme_str(conn->conn_settings.fec_params.fec_encoder_scheme));
-
-        } else {
-            conn->conn_settings.enable_encode_fec = 0;
-            conn->conn_settings.fec_params.fec_encoder_scheme = 0;
-            xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|set valid scheme %s error|ret:%d|",
-                    conn->conn_settings.fec_params.fec_encoder_scheme, ret);
-        }
-
-    } else {
-        conn->conn_settings.enable_encode_fec = 0;
-        conn->conn_settings.fec_params.fec_encoder_scheme = 0;
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|invalid fec schemes, negotiation on final encoder scheme failed.");
+    // update repair symbol recv_mask
+    if (conn->conn_settings.fec_params.fec_decoder_scheme == XQC_PACKET_MASK_CODE) {
+        rpr_list = &conn->fec_ctl->fec_recv_rpr_syb_list;
+        xqc_update_rpr_symbol_mask_on_src(rpr_list, block_id, symbol_idx);
     }
 
-    if (conn->conn_type == XQC_CONN_TYPE_CLIENT
-        && params.enable_encode_fec
-        && params.fec_encoder_schemes_num == 1
-        && conn->local_settings.enable_decode_fec
-        && xqc_is_fec_scheme_valid(params.fec_encoder_schemes[0], conn->local_settings.fec_decoder_schemes, conn->local_settings.fec_decoder_schemes_num) == XQC_OK)
-    {
-        conn->conn_settings.fec_params.fec_decoder_scheme = params.fec_encoder_schemes[0];
-        ret = xqc_set_valid_scheme_cb(&conn->conn_settings.fec_decode_callback, conn->conn_settings.fec_params.fec_decoder_scheme);
-        if (ret == XQC_OK) {
-            xqc_log(conn->log, XQC_LOG_DEBUG, "|client set final decoder fec scheme: %s",
-                    xqc_get_fec_scheme_str(conn->conn_settings.fec_params.fec_decoder_scheme));
+    return XQC_OK;
+} 
 
-        } else {
-            conn->conn_settings.enable_decode_fec = 0;
-            conn->conn_settings.fec_params.fec_decoder_scheme = 0;
-            xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|set valid scheme scheme error|ret:%d|", ret);
+
+xqc_int_t
+xqc_process_rpr_symbol(xqc_connection_t *conn, xqc_fec_rpr_syb_t *tmp_rpr_symbol)
+{
+    xqc_int_t           ret, window_size, min_block_id, block_id;
+    xqc_fec_ctl_t       *fec_ctl;
+    xqc_list_head_t     *symbol_list, *src_list;
+    xqc_fec_rpr_syb_t   *rpr_symbol;
+
+    window_size = conn->conn_settings.fec_params.fec_max_window_size;
+    fec_ctl = conn->fec_ctl;
+    symbol_list = &conn->fec_ctl->fec_recv_rpr_syb_list;
+    rpr_symbol = NULL;
+    min_block_id = xqc_get_min_rpr_blk_num(conn);
+    block_id = tmp_rpr_symbol->block_id;
+
+    if (block_id != 0
+        && !xqc_if_src_blk_exists(conn->fec_ctl, block_id)
+        && block_id <= conn->fec_ctl->fec_max_fin_blk_id)
+    {
+        return -XQC_EFEC_TOLERABLE_ERROR;
+    }
+
+    if (conn->fec_ctl->fec_rpr_syb_num > window_size) {
+        if (min_block_id == -1) {
+            return -XQC_EFEC_SYMBOL_ERROR;
         }
 
-    } else {
-        conn->conn_settings.enable_decode_fec = 0;
-        conn->conn_settings.fec_params.fec_decoder_scheme = 0;
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|invalid fec schemes, negotiation on final decoder scheme failed.");
+        if (!xqc_if_rpr_blk_exists(conn->fec_ctl, block_id))
+        {
+            // flush the smallest old block]
+            xqc_fec_ctl_init_recv_params(conn->fec_ctl, min_block_id);
+        }
+    }
+
+    // insert into src symbol_list according to block id and symbol idx
+    ret = xqc_insert_rpr_symbol_by_seq(conn, symbol_list, tmp_rpr_symbol, &conn->fec_ctl->fec_rpr_syb_num, &rpr_symbol);
+    if (ret < 0) {
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|quic_fec|current symbol is already exists|block_id:%d|symbol_idx:%d", block_id, tmp_rpr_symbol->symbol_idx);
+        return ret;
+    }
+
+    // link src symbols to the rpr symbols using pkt mask
+    if (conn->conn_settings.fec_params.fec_decoder_scheme == XQC_PACKET_MASK_CODE) {
+        src_list = &conn->fec_ctl->fec_recv_src_syb_list;
+        xqc_update_rpr_symbol_mask_on_rpr(src_list, rpr_symbol);
+    }
+    return XQC_OK;
+}
+
+xqc_int_t
+xqc_get_symbol_flag(xqc_connection_t *conn, uint64_t block_id)
+{
+    xqc_list_head_t *pos, *next;
+    xqc_int_t symbol_flag, max_src_symbol_num;
+    
+    symbol_flag = 0;
+    max_src_symbol_num = conn->remote_settings.fec_max_symbols_num;
+
+    xqc_list_for_each_safe(pos, next, &conn->fec_ctl->fec_recv_src_syb_list) {
+        xqc_fec_src_syb_t *src_symbol = xqc_list_entry(pos, xqc_fec_src_syb_t, fec_list);
+        if (src_symbol->block_id > block_id) {
+            break;
+        }
+        if (src_symbol->block_id == block_id) {
+            symbol_flag |= (1 << src_symbol->symbol_idx);
+        }
+    }
+    xqc_list_for_each_safe(pos, next, &conn->fec_ctl->fec_recv_rpr_syb_list) {
+        xqc_fec_rpr_syb_t *rpr_symbol = xqc_list_entry(pos, xqc_fec_rpr_syb_t, fec_list);
+        if (rpr_symbol->block_id > block_id) {
+            break;
+        }
+        if (rpr_symbol->block_id == block_id) {
+            symbol_flag |= (1 << (rpr_symbol->symbol_idx + max_src_symbol_num));
+        }
+    }
+    return symbol_flag;
+}
+
+xqc_int_t
+xqc_get_symbols_buff(unsigned char **output, xqc_fec_ctl_t *fec_ctl, uint64_t block_id, size_t *size)
+{
+    xqc_list_head_t *pos, *next, *fec_recv_src_syb_list, *fec_recv_rpr_syb_list;
+    xqc_int_t i = 0;
+
+    fec_recv_src_syb_list = &fec_ctl->fec_recv_src_syb_list;
+    fec_recv_rpr_syb_list = &fec_ctl->fec_recv_rpr_syb_list;
+    *size = 0;
+
+    // check 一下当前block idx能否成功被flush
+
+    xqc_list_for_each_safe(pos, next, fec_recv_src_syb_list) {
+        xqc_fec_src_syb_t *src_syb = xqc_list_entry(pos, xqc_fec_src_syb_t, fec_list);
+        if (src_syb->block_id == block_id) {
+            xqc_memcpy(output[i++], src_syb->payload, xqc_min(XQC_MAX_SYMBOL_SIZE, src_syb->payload_size));
+        }
+    }
+
+    xqc_list_for_each_safe(pos, next, fec_recv_rpr_syb_list) {
+        xqc_fec_rpr_syb_t *rpr_syb = xqc_list_entry(pos, xqc_fec_rpr_syb_t, fec_list);
+        if (rpr_syb->block_id == block_id) {
+            if (rpr_syb->payload_size > XQC_MAX_SYMBOL_SIZE) {
+                return -XQC_EPARAM;   
+            }
+            xqc_memcpy(output[i++], rpr_syb->payload, xqc_min(XQC_MAX_SYMBOL_SIZE, rpr_syb->payload_size));
+            if (rpr_syb->payload_size > *size) {
+                *size = rpr_syb->payload_size;
+            }
+        }
+    }
+    return i;
+}
+
+xqc_int_t
+xqc_cnt_blk_num(xqc_fec_ctl_t *fec_ctl)
+{
+    xqc_int_t ret = 0, block_id = -1;
+    xqc_list_head_t *pos, *next;
+ 
+    xqc_list_for_each_safe(pos, next, &fec_ctl->fec_recv_src_syb_list) {
+        xqc_fec_src_syb_t *src_symbol = xqc_list_entry(pos, xqc_fec_src_syb_t, fec_list);
+
+        if (src_symbol->block_id != block_id) {
+            ret++;
+            block_id = src_symbol->block_id;
+        }
     }
     return ret;
 }
 
-void
-xqc_fec_record_flush_blk(xqc_connection_t *conn, xqc_int_t block_id)
+xqc_int_t
+xqc_cnt_src_symbols_num(xqc_fec_ctl_t *fec_ctl, uint64_t block_id)
 {
-    xqc_int_t skip_block, window_size, block_cache_idx;
-
-    window_size = conn->conn_settings.fec_params.fec_max_window_size;
-    block_cache_idx = block_id % window_size;
-
-    if (conn->fec_ctl->fec_recv_symbols_num[block_cache_idx] != 0) {
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|block_%d will be flushed by block_%d|", conn->fec_ctl->fec_recv_block_idx[block_cache_idx], block_id);
-        if (conn->fec_ctl->fec_flush_blk_cnt == XQC_MAX_UINT32_VALUE) {
-            xqc_log(conn->log, XQC_LOG_WARN, "|fec flushed block count exceeds maximum.");
-            conn->fec_ctl->fec_flush_blk_cnt = 0;
+    xqc_int_t ret = 0;
+    xqc_list_head_t *pos, *next;
+ 
+    xqc_list_for_each_safe(pos, next, &fec_ctl->fec_recv_src_syb_list) {
+        xqc_fec_src_syb_t *src_symbol = xqc_list_entry(pos, xqc_fec_src_syb_t, fec_list);
+        if (src_symbol->block_id > block_id) {
+            break;
         }
-        conn->fec_ctl->fec_flush_blk_cnt++;
-
-        /* record the number of blocks that is skipped */
-        if (block_id - conn->fec_ctl->fec_recv_block_idx[block_cache_idx] > window_size) {
-            xqc_log(conn->log, XQC_LOG_DEBUG, "|block_%d skipped to block_%d|", conn->fec_ctl->fec_recv_block_idx[block_cache_idx], block_id);
-            if (conn->fec_ctl->fec_ignore_blk_cnt == XQC_MAX_UINT32_VALUE) {
-                xqc_log(conn->log, XQC_LOG_WARN, "|fec ignored block count exceeds maximum.");
-                conn->fec_ctl->fec_ignore_blk_cnt = 0;
-            }
-            skip_block = (block_id - conn->fec_ctl->fec_recv_block_idx[block_cache_idx]) / window_size - 1;
-            conn->fec_ctl->fec_ignore_blk_cnt += skip_block;
+        if (src_symbol->block_id == block_id) {
+            ret++;
         }
     }
+    return ret;
 }
 
 xqc_int_t
-xqc_process_valid_symbol(xqc_connection_t *conn, xqc_int_t block_id, xqc_int_t symbol_idx,
-    unsigned char *symbol, xqc_int_t symbol_size)
+xqc_cnt_rpr_symbols_num(xqc_fec_ctl_t *fec_ctl, uint64_t block_id)
 {
-    xqc_int_t           ret, block_cache_idx, window_size;
-    unsigned char      *tmp_payload_p;
+    xqc_int_t ret = 0;
+    xqc_list_head_t *pos, *next;
 
-    window_size = conn->conn_settings.fec_params.fec_max_window_size;
-    block_cache_idx = block_id % window_size;
-
-    /* if block_id exceeds the older block id, flush the old block */
-    if (block_id > conn->fec_ctl->fec_recv_block_idx[block_cache_idx]) {
-        /* record the number of non-empty older blocks */
-        xqc_fec_record_flush_blk(conn, block_id);
-        /* flush the old block */
-        xqc_fec_ctl_init_recv_params(conn->fec_ctl, block_cache_idx);
-        conn->fec_ctl->fec_recv_block_idx[block_cache_idx] = block_id;
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|init fec block id: %d|", conn->fec_ctl->fec_recv_block_idx[block_cache_idx]);
-
-    } else if (block_id != conn->fec_ctl->fec_recv_block_idx[block_cache_idx]) {
-        /* receive block idx smaller than current block idx. */
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|fec window is taken by other block|block_id:%d|", conn->fec_ctl->fec_recv_block_idx[block_cache_idx]);
-        return -XQC_EFEC_SYMBOL_ERROR;
-
-    } else if (conn->fec_ctl->fec_recv_symbols_num[block_cache_idx] == 0) {
-        return XQC_OK;
+    xqc_list_for_each_safe(pos, next, &fec_ctl->fec_recv_rpr_syb_list) {
+        xqc_fec_rpr_syb_t *rpr_symbol = xqc_list_entry(pos, xqc_fec_rpr_syb_t, fec_list);
+        if (rpr_symbol->block_id > block_id) {
+            break;
+        }
+        if (rpr_symbol->block_id == block_id) {
+            ret++;
+        }
     }
+    return ret;
+}
 
-    if (conn->fec_ctl->fec_recv_symbols_flag[block_cache_idx] & (1 << symbol_idx)
-        || conn->fec_ctl->fec_recv_symbols_buff[block_cache_idx][symbol_idx].is_valid)
-    {
-        /* here the symbol value should not exits，otherwise it means there're some repeated sid in this block. */
-        return -XQC_EFEC_SYMBOL_ERROR;
-    }
+xqc_int_t
+xqc_cnt_symbols_num(xqc_fec_ctl_t *fec_ctl, uint64_t block_id)
+{
+    xqc_int_t ret = 0;
 
-    ret = xqc_fec_ctl_save_symbol(&conn->fec_ctl->fec_recv_symbols_buff[block_cache_idx][symbol_idx].payload,
-                                  symbol, symbol_size);
-    if (ret != XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|save source symbol error|");
-        return -XQC_EFEC_SYMBOL_ERROR;
-    }
-
-    tmp_payload_p = conn->fec_ctl->fec_recv_symbols_buff[block_cache_idx][symbol_idx].payload;
-
-    xqc_set_object_value(&conn->fec_ctl->fec_recv_symbols_buff[block_cache_idx][symbol_idx], 1, tmp_payload_p, symbol_size);
-
-    conn->fec_ctl->fec_recv_symbols_flag[block_cache_idx] ^= (1 << symbol_idx);
-    conn->fec_ctl->fec_recv_symbols_num[block_cache_idx]++;
-
-    return XQC_OK;
+    ret += xqc_cnt_src_symbols_num(fec_ctl, block_id);
+    ret += xqc_cnt_rpr_symbols_num(fec_ctl, block_id);
+    
+    return ret;
 }

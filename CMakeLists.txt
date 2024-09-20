@@ -18,6 +18,7 @@ option (XQC_COMPAT_DUPLICATE "qpack compat dup" OFF)
 option (XQC_ENABLE_FEC "enable fec" OFF)
 option (XQC_ENABLE_XOR "enable fec scheme xor" OFF)
 option (XQC_ENABLE_RSC "enable fec scheme reed-solomon code" OFF)
+option (XQC_ENABLE_PKM "enable fec scheme packet mask" OFF)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
@@ -227,6 +228,7 @@ set(
     "src/transport/scheduler/xqc_scheduler_minrtt.c"
     "src/transport/scheduler/xqc_scheduler_common.c"
     "src/transport/scheduler/xqc_scheduler_backup.c"
+    "src/transport/scheduler/xqc_scheduler_backup_fec.c"
     "src/transport/scheduler/xqc_scheduler_rap.c"
 )
 
@@ -237,6 +239,7 @@ if(XQC_ENABLE_MP_INTEROP)
         "src/transport/scheduler/xqc_scheduler_interop.c"
     )
 endif()
+
 
 # fec framework
 set(
@@ -259,6 +262,14 @@ if(XQC_ENABLE_RSC)
         FEC_FRAMEWORK_SOURCE
         ${FEC_FRAMEWORK_SOURCE}
         "src/transport/fec_schemes/xqc_reed_solomon.c"
+    )
+endif()
+
+if(XQC_ENABLE_PKM)
+    set(
+        FEC_FRAMEWORK_SOURCE
+        ${FEC_FRAMEWORK_SOURCE}
+        "src/transport/fec_schemes/xqc_packet_mask.c"
     )
 endif()
 

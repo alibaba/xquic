@@ -197,6 +197,7 @@ set(
     "src/transport/scheduler/xqc_scheduler_minrtt.c"
     "src/transport/scheduler/xqc_scheduler_common.c"
     "src/transport/scheduler/xqc_scheduler_backup.c"
+    "src/transport/scheduler/xqc_scheduler_backup_fec.c"
     "src/transport/scheduler/xqc_scheduler_rap.c"
 )
 
@@ -230,6 +231,14 @@ if(XQC_ENABLE_RSC)
         FEC_FRAMEWORK_SOURCE
         ${FEC_FRAMEWORK_SOURCE}
         "src/transport/fec_schemes/xqc_reed_solomon.c"
+    )
+endif()
+
+if(XQC_ENABLE_PKM)
+    set(
+        FEC_FRAMEWORK_SOURCE
+        ${FEC_FRAMEWORK_SOURCE}
+        "src/transport/fec_schemes/xqc_packet_mask.c"
     )
 endif()
 
@@ -343,6 +352,7 @@ add_library(
     ${TLS_SOURCE}
     ${COMMON_SOURCES}
     ${CONGESTION_CONTROL_SOURCES}
+    ${XQC_SOURCE}
 )
 
 add_dependencies(xquic xquic_global)

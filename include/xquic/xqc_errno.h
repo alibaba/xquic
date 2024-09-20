@@ -33,8 +33,7 @@ typedef enum {
  * Multipath error codes
  */
 typedef enum {
-    TRA_MP_PROTOCOL_VIOLATION_04    =  0xba01,
-    TRA_MP_PROTOCOL_VIOLATION_05    =  0x1001d76d3ded42f3,
+    TRA_MP_PROTOCOL_VIOLATION       = 0x1001d76d3ded42f3
 } xqc_mp_err_code_t;
 
 
@@ -135,6 +134,7 @@ typedef enum {
     XQC_EFEC_NOT_SUPPORT_FEC            = 660,      /* FEC - fec not supported */
     XQC_EFEC_SCHEME_ERROR               = 661,      /* FEC - no available scheme */
     XQC_EFEC_SYMBOL_ERROR               = 662,      /* FEC - symbol value error */
+    XQC_EFEC_TOLERABLE_ERROR            = 663,      /* FEC - tolerable error */
     
     XQC_EENCRYPT_LB_CID                 = 670,      /* load balance connection ID encryption error */
     XQC_EENCRYPT_AES_128_ECB            = 671,      /* aes_128_ecb algorithm error */

@@ -50,7 +50,7 @@ typedef struct xqc_engine_s {
     xqc_str_hash_table_t           *conns_hash_dcid;        /* For reset packet */
     xqc_str_hash_table_t           *conns_hash_sr_token;    /* For stateless reset */
     xqc_pq_t                       *conns_active_pq;        /* In process */
-    xqc_wakeup_pq_t                *conns_wait_wakeup_pq;   /* Need wakeup after next tick time */
+    xqc_pq_t                       *conns_wait_wakeup_pq;   /* Need wakeup after next tick time */
     uint8_t                         reset_sent_cnt[XQC_RESET_CNT_ARRAY_LEN]; /* remote addr hash */
     xqc_usec_t                      reset_sent_cnt_cleared;
 
@@ -112,9 +112,19 @@ void xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now);
 
 void xqc_engine_main_logic_internal(xqc_engine_t *engine);
 
+void xqc_engine_conn_logic(xqc_engine_t *engine, xqc_connection_t *conn);
+
+xqc_int_t xqc_engine_add_wakeup_queue(xqc_engine_t *engine, xqc_connection_t *conn);
+
+xqc_int_t xqc_engine_remove_wakeup_queue(xqc_engine_t *engine, xqc_connection_t *conn);
+
+xqc_int_t xqc_engine_add_active_queue(xqc_engine_t *engine, xqc_connection_t *conn);
+
+xqc_int_t xqc_engine_remove_active_queue(xqc_engine_t *engine, xqc_connection_t *conn);
+
 xqc_int_t xqc_engine_get_alpn_callbacks(xqc_engine_t *engine, const char *alpn,
     size_t alpn_len, xqc_app_proto_callbacks_t *cbs);
 
-xqc_bool_t xqc_engine_is_sendmmsg_on(xqc_engine_t *engine);
+xqc_bool_t xqc_engine_is_sendmmsg_on(xqc_engine_t *engine, xqc_connection_t *conn);
 
 #endif

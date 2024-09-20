@@ -257,6 +257,8 @@ new_frame:
 
         if (length_len) {
             *p++ = 0;
+        } else {
+            packet_out->po_flag |= XQC_POF_STREAM_NO_LEN;
         }
     }
 
@@ -535,19 +537,144 @@ xqc_parse_ping_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn)
 }
 
 #ifdef XQC_ENABLE_FEC
+
+
+void
+xqc_get_lack_src_syb(unsigned char* pm, unsigned char* recv_mask, xqc_int_t m_size,
+    uint8_t *syb_idx, uint8_t *syb_num)
+{
+    uint8_t i, flag, cur_syb_id;
+
+    *syb_idx = XQC_FEC_MAX_SYMBOL_NUM_PBLOCK;
+    *syb_num = 0;
+    flag = 0x80;
+    cur_syb_id = 0;
+
+    if (m_size > XQC_MAX_RPR_KEY_SIZE) {
+        return;
+    }
+
+    for (i = 0; i < m_size; i++) {
+        while (1) {
+            if ((flag & (*(pm + i) ^ *(recv_mask + i)))) {
+                *syb_num = *syb_num + 1;
+                if (*syb_idx == XQC_FEC_MAX_SYMBOL_NUM_PBLOCK) {
+                    *syb_idx = cur_syb_id;
+                }
+            }
+            cur_syb_id++;
+            if (flag == 0x01) {
+                break;
+            }
+            flag = flag >> 1;
+        }
+        flag = 0x80;
+    }
+}
+
+void
+xqc_try_process_fec_decode(xqc_connection_t *conn, xqc_int_t block_id)
+{
+    xqc_int_t ret, max_src_symbol_num, recv_src_num, recv_rpr_num;
+    xqc_list_head_t *pos, *next;
+    xqc_fec_schemes_e fec_scheme;
+
+    max_src_symbol_num = conn->remote_settings.fec_max_symbols_num;
+    fec_scheme = conn->conn_settings.fec_params.fec_decoder_scheme;
+    recv_src_num = xqc_cnt_src_symbols_num(conn->fec_ctl, block_id);
+    recv_rpr_num = xqc_cnt_rpr_symbols_num(conn->fec_ctl, block_id);
+
+    switch (fec_scheme) {
+    case XQC_REED_SOLOMON_CODE:
+    case XQC_XOR_CODE:
+        if (recv_src_num + recv_rpr_num >= max_src_symbol_num) {
+            /* FEC decode/flush buffer */
+            if (recv_src_num >= max_src_symbol_num) {
+                xqc_fec_ctl_init_recv_params(conn->fec_ctl, block_id);
+                goto after_decoder;
+
+            } else if (recv_rpr_num > 0) {
+                ret = xqc_fec_bc_decoder(conn, block_id, max_src_symbol_num - recv_src_num);
+                if (ret != XQC_OK) {
+                    xqc_log(conn->log, XQC_LOG_ERROR, "|fec xqc_fec_bc_decoder error|");
+                }
+                xqc_fec_ctl_init_recv_params(conn->fec_ctl, block_id);
+                goto after_decoder;
+            }
+        }
+        return;
+    case XQC_PACKET_MASK_CODE:
+        // check each recv mask in rpr symbol, if only lack one src symbol
+        xqc_list_for_each_safe(pos, next, &conn->fec_ctl->fec_recv_rpr_syb_list) {
+            xqc_fec_rpr_syb_t *symbol = xqc_list_entry(pos, xqc_fec_rpr_syb_t, fec_list);
+            uint8_t lack_syb_num, fst_lack_syb_id;
+            lack_syb_num = fst_lack_syb_id = 0;
+
+            if (symbol->block_id < block_id) {
+                continue;
+            }
+            if (symbol->block_id > block_id) {
+                break;
+            }
+            xqc_get_lack_src_syb(symbol->repair_key, symbol->recv_mask, symbol->repair_key_size,
+                                 &fst_lack_syb_id, &lack_syb_num);
+            if (lack_syb_num == 0) {
+                xqc_remove_rpr_symbol_from_list(conn->fec_ctl, symbol);
+
+            } else if (lack_syb_num == 1) {
+                // current repair packet satisfy the conditions of decoding
+                ret = xqc_fec_cc_decoder(conn, symbol, fst_lack_syb_id);
+                if (ret != XQC_OK) {
+                    xqc_log(conn->log, XQC_LOG_ERROR, "|fec xqc_fec_cc_decoder error|");
+                }
+                xqc_remove_rpr_symbol_from_list(conn->fec_ctl, symbol);
+            }
+        }
+        return;
+    default:
+        return;
+    }
+after_decoder:
+    if (block_id > conn->fec_ctl->fec_max_fin_blk_id) {
+        conn->fec_ctl->fec_max_fin_blk_id = block_id;
+    }
+}
+xqc_int_t
+xqc_check_gen_sid_param(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
+{
+    xqc_int_t po_remained_size;
+
+    if (packet_out->po_flag & XQC_POF_STREAM_NO_LEN) {
+        xqc_log(conn->log, XQC_LOG_WARN, "|quic_fec|packet_out stream frame have no LEN bit, cannot support superaddition of other frame.|");
+        return -XQC_EFEC_TOLERABLE_ERROR;
+    }
+    po_remained_size = packet_out->po_buf_size - packet_out->po_used_size + (packet_out->po_frame_types & XQC_FRAME_BIT_ACK ? XQC_ACK_SPACE : 0);
+    if (po_remained_size < packet_out->po_reserved_size || packet_out->po_reserved_size == 0) {
+        if (packet_out->po_reserved_size != 0) {
+            xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|packet_out reserved buff are taken|po_frame:%d|po_buf_size:%d|po_used_size:%d|po_reserved_size:%d",
+                    packet_out->po_frame_types, packet_out->po_buf_size, packet_out->po_used_size, packet_out->po_reserved_size);
+
+        } else if (conn->conn_settings.fec_params.fec_encoder_scheme != 0){
+            xqc_log(conn->log, XQC_LOG_WARN, "|quic_fec|reserved size is zero");
+        }
+        return -XQC_EFEC_TOLERABLE_ERROR;
+    }
+    return XQC_OK;
+}
+
 ssize_t
 xqc_gen_sid_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
-{   
-    size_t                   dst_buf_len = XQC_FEC_SPACE;
+{
+    size_t                   dst_buf_len = packet_out->po_reserved_size;
     uint64_t                 flow_id = 0, src_payload_id = 0, frame_type = 0xfec5;
     unsigned                 need, frame_type_bits, flow_id_bits, src_payload_id_bits;
     xqc_int_t                ret = 0;
     unsigned char           *dst_buf = packet_out->po_buf + packet_out->po_used_size;
     const unsigned char     *begin = dst_buf, *end = dst_buf + dst_buf_len;
 
-    if (packet_out->po_used_size > XQC_QUIC_MAX_MSS) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|packet_out too large|");
-        return -XQC_ENOBUF;
+    ret = xqc_check_gen_sid_param(conn, packet_out);
+    if (ret != XQC_OK) {
+        return ret;
     }
 
     /* gen src_payload_id and save src symbol */
@@ -564,9 +691,6 @@ xqc_gen_sid_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
            + xqc_vint_len(flow_id_bits)
            + xqc_vint_len(src_payload_id_bits);    /* Explicit Source Payload ID */
 
-    // xqc_log(conn->log, XQC_LOG_DEBUG, "|src_payload_id: %d, len: %d, sid_frame_len: %d",
-    //         src_payload_id, xqc_vint_len(src_payload_id_bits), need);
-    
     if (dst_buf + need > end) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|data length exceed packetout buffer.");
         return -XQC_ENOBUF;
@@ -580,82 +704,43 @@ xqc_gen_sid_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
 
     xqc_vint_write(dst_buf, src_payload_id, src_payload_id_bits, xqc_vint_len(src_payload_id_bits));
     dst_buf += xqc_vint_len(src_payload_id_bits);
-    
+
     packet_out->po_frame_types |= XQC_FRAME_BIT_SID;
     return dst_buf - begin;
 }
 
 xqc_int_t
-xqc_parse_sid_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
+xqc_parse_sid_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in, uint64_t *src_payload_id, xqc_int_t *symbol_size)
 {
     int                     vlen;
-    uint64_t                frame_type, flow_id, src_payload_id;
-    xqc_int_t               ret, sid_frame_len, symbol_size, symbol_idx, max_src_symbol_num, tmp_block_idx, block_cache_idx, window_size;
+    uint64_t                frame_type, flow_id;
+    xqc_int_t               ret, remain_frame_len, tmp_len;
     unsigned char          *p = packet_in->pos, *tmp_payload_p;
     const unsigned char    *end = packet_in->last;
 
-    ret = sid_frame_len = symbol_size = symbol_idx = tmp_block_idx = block_cache_idx = 0;
-    max_src_symbol_num = conn->remote_settings.fec_max_symbols_num;
-    window_size = conn->conn_settings.fec_params.fec_max_window_size;
+    ret = *symbol_size = *src_payload_id = 0;
+    remain_frame_len = packet_in->last - packet_in->pos;
 
     vlen = xqc_vint_read(p, end, &frame_type);
     if (vlen < 0 || frame_type != 0xfec5) {
         return -XQC_EVINTREAD;
     }
     p += vlen;
-    sid_frame_len += vlen;
 
+    // TODOfec: flow_id is to be connected to stream
     vlen = xqc_vint_read(p, end, &flow_id);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }
     p += vlen;
-    sid_frame_len += vlen;
 
-    vlen = xqc_vint_read(p, end, &src_payload_id);
+    vlen = xqc_vint_read(p, end, src_payload_id);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }
     p += vlen;
 
-    if ((packet_in->pi_flag & XQC_PIF_FEC_RECOVERED) != 0) {
-        goto end_parse;
-    }
-
-    sid_frame_len += vlen;
-    tmp_block_idx = (int)src_payload_id / max_src_symbol_num;
-    block_cache_idx = tmp_block_idx % window_size;
-
-    if (max_src_symbol_num <= 0
-        || max_src_symbol_num > XQC_FEC_MAX_SYMBOL_NUM_PBLOCK)
-    {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|remote max_src_symbol_num invalid|");
-        ret = -XQC_EPARAM;
-        goto end_parse;
-    }
-
-    symbol_size = packet_in->decode_payload_len - sid_frame_len;
-    if (symbol_size != conn->remote_settings.fec_max_symbol_size) {
-        /* symbol size is different from the declared one */
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|fec symbol size error, src_payload_id: %d, remote declared size: %d, received size: %d, sid_frame_len: %d, packet_num: %d",
-                src_payload_id, conn->remote_settings.fec_max_symbol_size, symbol_size, sid_frame_len, packet_in->pi_pkt.pkt_num);
-        goto end_parse;
-    }
-
-    symbol_idx = src_payload_id % max_src_symbol_num;
-    if (xqc_process_valid_symbol(conn, tmp_block_idx, symbol_idx, packet_in->decode_payload, symbol_size) != XQC_OK) {
-        goto end_parse;
-    }
-
-    if (conn->fec_ctl->fec_recv_symbols_num[block_cache_idx] >= max_src_symbol_num) {
-        /* FEC解码操作/flush缓存 */
-        ret = xqc_fec_decoder(conn, block_cache_idx);
-        xqc_fec_ctl_init_recv_params(conn->fec_ctl, block_cache_idx);
-        if (ret != XQC_OK) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|fec decode error|");
-            goto end_parse;
-        }
-    }
+    *symbol_size = packet_in->decode_payload_len - remain_frame_len;
 
 end_parse:
     packet_in->pos = (unsigned char *)p;
@@ -664,7 +749,7 @@ end_parse:
 }
 
 xqc_int_t
-xqc_gen_repair_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_int_t fss_esi,
+xqc_gen_repair_frame_check_param(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     xqc_int_t repair_idx, xqc_int_t repair_key_size)
 {
     if (packet_out == NULL
@@ -678,20 +763,33 @@ xqc_gen_repair_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_i
 
     if (conn->conn_settings.fec_params.fec_ele_bit_size <= 0
         || (!conn->fec_ctl->fec_send_repair_key[repair_idx].is_valid && conn->conn_settings.fec_params.fec_encoder_scheme != XQC_XOR_CODE)
-        || conn->conn_settings.fec_params.fec_max_symbol_size <= 0
         || !conn->fec_ctl->fec_send_repair_symbols_buff[repair_idx].is_valid)
     {
         xqc_log(conn->log, XQC_LOG_WARN, "No available repair key or repair symbol");
         return -XQC_EFEC_SYMBOL_ERROR;
     }
 
+    return XQC_OK;
+}
+
+xqc_int_t
+xqc_gen_repair_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_int_t fss_esi,
+    xqc_int_t repair_idx)
+{
     size_t               dst_buf_len;
     uint64_t             flow_id, frame_type, repair_payload_id;
-    unsigned             need, frame_type_bits, flow_id_bits, fss_esi_bits, repair_key_bits, repair_payload_id_bits;
-    xqc_int_t            ret, repair_symbol_size;
+    unsigned             need, frame_type_bits, flow_id_bits, fss_esi_bits, repair_key_bits, repair_payload_id_bits, repair_key_size_bits, repair_symbol_size_bits;
+    xqc_int_t            ret, repair_symbol_size, repair_key_size;
     unsigned char       *dst_buf, *repair_symbol_p, *repair_key_p;
-
     const unsigned char *begin, *end;
+
+    repair_key_p = conn->fec_ctl->fec_send_repair_key[repair_idx].payload;
+    repair_key_size = conn->fec_ctl->fec_send_repair_key[repair_idx].payload_size;
+
+    ret = xqc_gen_repair_frame_check_param(conn, packet_out, repair_idx, repair_key_size);
+    if (ret != XQC_OK) {
+        return ret;
+    }
 
     dst_buf_len = xqc_get_po_remained_size_with_ack_spc(packet_out) + XQC_FEC_SPACE;
     dst_buf = packet_out->po_buf + packet_out->po_used_size;
@@ -700,30 +798,28 @@ xqc_gen_repair_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_i
     frame_type = 0xfec6;
     flow_id = conn->fec_ctl->fec_flow_id;
     repair_payload_id = repair_idx;
-    repair_symbol_size = conn->local_settings.fec_max_symbol_size;
+    repair_symbol_p = conn->fec_ctl->fec_send_repair_symbols_buff[repair_idx].payload;
+    repair_symbol_size = conn->fec_ctl->fec_send_repair_symbols_buff[repair_idx].payload_size;
 
     frame_type_bits = xqc_vint_get_2bit(frame_type);
     flow_id_bits = xqc_vint_get_2bit(flow_id);
     fss_esi_bits = xqc_vint_get_2bit(fss_esi);
     repair_payload_id_bits = xqc_vint_get_2bit(repair_payload_id);
-    repair_key_p = conn->fec_ctl->fec_send_repair_key[repair_idx].payload;
-    repair_symbol_p = conn->fec_ctl->fec_send_repair_symbols_buff[repair_idx].payload;
-
-    if (conn->conn_settings.fec_params.fec_encoder_scheme == XQC_XOR_CODE) {
-        repair_key_size = 0;
-    }
+    repair_key_size_bits = xqc_vint_get_2bit(repair_key_size);
+    repair_symbol_size_bits = xqc_vint_get_2bit(repair_symbol_size);
 
     need = xqc_vint_len(frame_type_bits)
            + xqc_vint_len(flow_id_bits)
            + xqc_vint_len(fss_esi_bits)
            + xqc_vint_len(repair_payload_id_bits)
+           + xqc_vint_len(repair_key_size_bits)
            + repair_key_size
+           + xqc_vint_len(repair_symbol_size_bits)
            + repair_symbol_size;
 
     if (dst_buf + need > end) {
         return -XQC_ENOBUF;
     }
-
 
     xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
     dst_buf += xqc_vint_len(frame_type_bits);
@@ -737,124 +833,88 @@ xqc_gen_repair_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_i
     xqc_vint_write(dst_buf, repair_payload_id, repair_payload_id_bits, xqc_vint_len(repair_payload_id_bits));
     dst_buf += xqc_vint_len(repair_payload_id_bits);
 
+    xqc_vint_write(dst_buf, repair_key_size, repair_key_size_bits, xqc_vint_len(repair_key_size_bits));
+    dst_buf += xqc_vint_len(repair_key_size_bits);
+
     xqc_memcpy(dst_buf, repair_key_p, repair_key_size);
     dst_buf += repair_key_size;
+
+    xqc_vint_write(dst_buf, repair_symbol_size, repair_symbol_size_bits, xqc_vint_len(repair_symbol_size_bits));
+    dst_buf += xqc_vint_len(repair_symbol_size_bits);
 
     xqc_memcpy(dst_buf, repair_symbol_p, repair_symbol_size);
     dst_buf += repair_symbol_size;
 
-    
     packet_out->po_frame_types |= XQC_FRAME_BIT_REPAIR_SYMBOL;
     packet_out->po_used_size += dst_buf - begin;
     return XQC_OK;
 }
 
 xqc_int_t
-xqc_parse_repair_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
+xqc_parse_repair_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in,
+    xqc_fec_rpr_syb_t *rpr_symbol)
 {
     int                  vlen = 0;
-    uint64_t             frame_type, flow_id, fss_esi, repair_payload_id, repair_payload_len, symbol_idx, symbol_size;
-    xqc_int_t            ret, repair_symbol_size, repair_key_size, src_symbol_num, tmp_block_idx, block_cache_idx, window_size;
+    uint64_t             frame_type, flow_id, fss_esi, repair_payload_id, repair_symbol_size, repair_key_size;
+    xqc_int_t            ret;
     unsigned char       *p = packet_in->pos, *end = packet_in->last, *tmp_payload_p, *repair_key_p, *repair_symbol_p;
 
-    frame_type = flow_id = fss_esi = repair_payload_id = symbol_idx = 0;
-    ret = tmp_block_idx = 0;
-    repair_symbol_size = conn->remote_settings.fec_max_symbol_size;
-    symbol_size = repair_payload_len = block_cache_idx = 0;
-    src_symbol_num = conn->remote_settings.fec_max_symbols_num;
-    window_size = conn->conn_settings.fec_params.fec_max_window_size;
-    if (conn->conn_settings.fec_params.fec_decoder_scheme == XQC_XOR_CODE) {
-        repair_key_size = 0;
-    } else {
-        repair_key_size = ((conn->conn_settings.fec_params.fec_ele_bit_size - 1) / 8 + 1) * src_symbol_num;
-    }
+    frame_type = flow_id = fss_esi = repair_payload_id = 0;
+    ret = 0;
 
     vlen = xqc_vint_read(p, end, &frame_type);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }
     p += vlen;
-    repair_payload_len += vlen;
 
     vlen = xqc_vint_read(p, end, &flow_id);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }
     p += vlen;
-    repair_payload_len += vlen;
+
     vlen = xqc_vint_read(p, end, &fss_esi);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }
     p += vlen;
-    repair_payload_len += vlen;
-    tmp_block_idx = (int)fss_esi / src_symbol_num;
-    block_cache_idx = tmp_block_idx % window_size;
+    rpr_symbol->block_id = fss_esi;
 
     vlen = xqc_vint_read(p, end, &repair_payload_id);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }
     p += vlen;
-    repair_payload_len += vlen;
+    rpr_symbol->symbol_idx = repair_payload_id;
 
-    repair_key_p = p;
-    repair_symbol_p = p + repair_key_size;
-    p += repair_key_size + repair_symbol_size;
+    vlen = xqc_vint_read(p, end, &repair_key_size);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+    rpr_symbol->repair_key_size = repair_key_size;
+    rpr_symbol->repair_key = p;
+
+    p = p + rpr_symbol->repair_key_size;
+    vlen = xqc_vint_read(p, end, &repair_symbol_size);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+    rpr_symbol->payload_size = repair_symbol_size;
+    rpr_symbol->payload = p;
+
+    p += rpr_symbol->payload_size;
 
     if ((packet_in->pi_flag & XQC_PIF_FEC_RECOVERED) != 0) {
+        ret = -XQC_EFEC_TOLERABLE_ERROR;
         goto end_parse_repair;
     }
-
-    if (conn->fec_ctl->fec_recv_repair_num == XQC_MAX_UINT32_VALUE) {
-        xqc_log(conn->log, XQC_LOG_WARN, "|fec recovered packet number exceeds maximum.\n");
-        conn->fec_ctl->fec_recv_repair_num = 0;
-    }
-    conn->fec_ctl->fec_recv_repair_num++;
-
-    if (conn->remote_settings.fec_max_symbol_size <= 0
-        || conn->remote_settings.fec_max_symbols_num <= 0)
-    {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|repair symbol size error or repair symbol len error|fec_max_symbol_size:%d|fec_max_symbols_num:%d|",
-            conn->remote_settings.fec_max_symbol_size, conn->remote_settings.fec_max_symbols_num);
-        ret = -XQC_EFEC_SYMBOL_ERROR;
+    if (rpr_symbol->payload_size > XQC_MAX_SYMBOL_SIZE) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|received repair symbol size is too large");
+        ret = -XQC_EIGNORE_PKT;
         goto end_parse_repair;
-    }
-    
-    symbol_size = packet_in->decode_payload_len - repair_payload_len - repair_key_size;
-    if (symbol_size != conn->remote_settings.fec_max_symbol_size) {
-        /* symbol size is different from the declared one */
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|fec symbol size error, fss_esi: %d, remote declared size: %d, received size: %d, repair_payload_id: %d, repair_key_size:%d, packet_num: %d",
-                fss_esi, conn->remote_settings.fec_max_symbol_size, symbol_size, repair_payload_id, repair_key_size, packet_in->pi_pkt.pkt_num);
-        ret = -XQC_EFEC_SYMBOL_ERROR;
-        goto end_parse_repair;
-    }
-
-    symbol_idx = src_symbol_num + repair_payload_id;
-    if (xqc_process_valid_symbol(conn, tmp_block_idx, symbol_idx, repair_symbol_p, repair_symbol_size) != XQC_OK) {
-        goto end_parse_repair;
-    }
-
-    ret = xqc_fec_ctl_save_symbol(&conn->fec_ctl->fec_recv_repair_key[block_cache_idx][repair_payload_id].payload,
-                                  repair_key_p, repair_key_size);
-    if (ret != XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|save repair key error|");
-        goto end_parse_repair;
-    }
-    tmp_payload_p = conn->fec_ctl->fec_recv_repair_key[block_cache_idx][repair_payload_id].payload;
-    xqc_set_object_value(&conn->fec_ctl->fec_recv_repair_key[block_cache_idx][repair_payload_id], 1, tmp_payload_p, repair_key_size);
-
-    conn->fec_ctl->fec_recv_repair_symbols_num[block_cache_idx]++;
-
-    if (conn->fec_ctl->fec_recv_symbols_num[block_cache_idx] >= src_symbol_num) {
-        /* FEC解码操作 */
-        ret = xqc_fec_decoder(conn, block_cache_idx);
-        /* flush symbol缓存 */
-        xqc_fec_ctl_init_recv_params(conn->fec_ctl, block_cache_idx);
-        if (ret != XQC_OK) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|fec decode error|");
-            goto end_parse_repair;
-        }
     }
 
 end_parse_repair:
@@ -1839,8 +1899,6 @@ xqc_gen_new_conn_id_frame(xqc_packet_out_t *packet_out, xqc_cid_t *new_cid,
 
     *dst_buf++ = 0x18;
 
-    unsigned char stateless_reset_token[XQC_STATELESS_RESET_TOKENLEN] = {0};
-
     unsigned sequence_number_bits = xqc_vint_get_2bit(new_cid->cid_seq_num);
     unsigned retire_prior_to_bits = xqc_vint_get_2bit(retire_prior_to);
     uint64_t cid_len = new_cid->cid_len;
@@ -2120,7 +2178,7 @@ xqc_parse_path_response_frame(xqc_packet_in_t *packet_in, unsigned char *data)
  *
  * ACK_MP Frame {
  *    Type (i) = TBD-00..TBD-01 ,
- *    Destination Connection ID Sequence Number (i),
+ *    Path ID (i),
  *    Largest Acknowledged (i),
  *    ACK Delay (i),
  *    ACK Range Count (i),
@@ -2140,12 +2198,8 @@ xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id,
 {
     uint64_t frame_type;
     
-    if (conn->conn_settings.multipath_version == XQC_MULTIPATH_04) {
-        frame_type = 0xbaba00;
-
-    } else if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_05) {
-        /* 06 is the same with 05 */
-        frame_type = 0x15228c00;
+    if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_10) {
+        frame_type = XQC_TRANS_FRAME_TYPE_MP_ACK0;
 
     } else {
         return -XQC_EMP_INVALID_MP_VERTION;
@@ -2381,17 +2435,14 @@ xqc_parse_ack_mp_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
 
 
 /*
- * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-05#name-path_abandon-frame
- *
  * PATH_ABANDON Frame {
  *    Type (i) = TBD-03,
- *    DCID Sequence Number (i),
+ *    Path ID (i),
  *    Error Code (i),
  *    Reason Phrase Length (i),
  *    Reason Phrase (..),
  * }
  *
- *               Figure 6: PATH_ABANDON Frame Format
  */
 
 ssize_t
@@ -2404,13 +2455,10 @@ xqc_gen_path_abandon_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     uint64_t frame_type;
 
     need = po_remained_size = 0;
-
-    if (conn->conn_settings.multipath_version == XQC_MULTIPATH_04) {
-        frame_type = 0xbaba05;
-
-    } else if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_05) {
+    
+    if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_10) {
         /* same frame type in 05 and 06 */
-        frame_type = 0x15228c05;
+        frame_type = XQC_TRANS_FRAME_TYPE_MP_ABANDON;
 
     } else {
         return -XQC_EMP_INVALID_MP_VERTION;
@@ -2420,12 +2468,12 @@ xqc_gen_path_abandon_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     uint8_t *reason = NULL;
 
     unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
-    unsigned dcid_seq_num_bits = xqc_vint_get_2bit(path_id);
+    unsigned path_id_bits = xqc_vint_get_2bit(path_id);
     unsigned error_code_bits = xqc_vint_get_2bit(error_code);
     unsigned reason_len_bits = xqc_vint_get_2bit(reason_len);
 
     need = xqc_vint_len(frame_type_bits)
-           + xqc_vint_len(dcid_seq_num_bits)
+           + xqc_vint_len(path_id_bits)
            + xqc_vint_len(error_code_bits)
            + xqc_vint_len(reason_len_bits)
            + reason_len;
@@ -2442,8 +2490,8 @@ xqc_gen_path_abandon_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     dst_buf += xqc_vint_len(frame_type_bits);
 
     /* Path ID (i) */
-    xqc_vint_write(dst_buf, path_id, dcid_seq_num_bits, xqc_vint_len(dcid_seq_num_bits));
-    dst_buf += xqc_vint_len(dcid_seq_num_bits);
+    xqc_vint_write(dst_buf, path_id, path_id_bits, xqc_vint_len(path_id_bits));
+    dst_buf += xqc_vint_len(path_id_bits);
 
     /* Error Code (i) */
     xqc_vint_write(dst_buf, error_code, error_code_bits, xqc_vint_len(error_code_bits));
@@ -2481,7 +2529,7 @@ xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
     }
     p += vlen;
 
-    /* DCID Sequence Number (i) */
+    /* Path ID (i) */
     vlen = xqc_vint_read(p, end, path_id);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
@@ -2515,252 +2563,48 @@ xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
 }
 
 
-/*
- * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-05#name-path_status-frame
- *
- *    PATH_STATUS Frame {
- *      Type (i) = TBD-03,
- *      DCID Sequence Number (i),
- *      Path Status sequence number (i),
- *      Path Status (i),
- *    }
- *
- *                    Figure 7: PATH_STATUS Frame Format
- */
-
-ssize_t
+ssize_t 
 xqc_gen_path_status_frame(xqc_connection_t *conn,
     xqc_packet_out_t *packet_out,
-    uint64_t dcid_seq_num,
-    uint64_t path_status_seq_num, uint64_t path_status)
+    uint64_t path_id,
+    uint64_t path_status_seq_num,
+    xqc_app_path_status_t status)
 {
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
     const unsigned char *begin = dst_buf;
     unsigned need = 0;
 
     uint64_t frame_type;
-    if (conn->conn_settings.multipath_version == XQC_MULTIPATH_04) {
-        frame_type = 0xbaba06;
+    uint64_t ft_flag;
 
-    } else if (conn->conn_settings.multipath_version == XQC_MULTIPATH_05) {
-        frame_type = 0x15228c06;
+    if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_10) {
+        switch (status) {
+        case XQC_APP_PATH_STATUS_STANDBY: 
+            frame_type = XQC_TRANS_FRAME_TYPE_MP_STANDBY; 
+            ft_flag = XQC_FRAME_BIT_PATH_STANDBY;
+            break;
+        case XQC_APP_PATH_STATUS_AVAILABLE: 
+            frame_type = XQC_TRANS_FRAME_TYPE_MP_AVAILABLE; 
+            ft_flag = XQC_FRAME_BIT_PATH_AVAILABLE;
+            break;
+        case XQC_APP_PATH_STATUS_FROZEN:
+            frame_type = XQC_TRANS_FRAME_TYPE_MP_FROZEN;
+            ft_flag = XQC_FRAME_BIT_PATH_FROZEN;
+            break;
+        default:
+            return -XQC_EMP_PATH_STATE_ERROR;
+        }
         
     } else {
         return -XQC_EMP_INVALID_MP_VERTION;
     }
 
     unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
-    unsigned dcid_seq_num_bits = xqc_vint_get_2bit(dcid_seq_num);
-    unsigned path_status_seq_num_bits = xqc_vint_get_2bit(path_status_seq_num);
-    unsigned path_status_bits = xqc_vint_get_2bit(path_status);
-
-    need = xqc_vint_len(frame_type_bits)
-           + xqc_vint_len(dcid_seq_num_bits)
-           + xqc_vint_len(path_status_seq_num_bits)
-           + xqc_vint_len(path_status_bits);
-
-    /* check packout_out have enough buffer length */
-    if (need > xqc_get_po_remained_size(packet_out)) {
-        return -XQC_ENOBUF;
-    }
-
-    /* Type(i) */
-    xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
-    dst_buf += xqc_vint_len(frame_type_bits);
-
-    /* DCID Sequence Number (i) */
-    xqc_vint_write(dst_buf, dcid_seq_num, dcid_seq_num_bits, xqc_vint_len(dcid_seq_num_bits));
-    dst_buf += xqc_vint_len(dcid_seq_num_bits);
-
-    /* Path Status sequence number (i) */
-    xqc_vint_write(dst_buf, path_status_seq_num, path_status_seq_num_bits, xqc_vint_len(path_status_seq_num_bits));
-    dst_buf += xqc_vint_len(path_status_seq_num_bits);
-
-    /* Path Status (i) */
-    xqc_vint_write(dst_buf, path_status, path_status_bits, xqc_vint_len(path_status_bits));
-    dst_buf += xqc_vint_len(path_status_bits);
-
-    packet_out->po_frame_types |= XQC_FRAME_BIT_PATH_STATUS;
-
-    return dst_buf - begin;
-
-}
-
-xqc_int_t
-xqc_parse_path_status_frame(xqc_packet_in_t *packet_in,
-    uint64_t *dcid_seq_num,
-    uint64_t *path_status_seq_num, uint64_t *path_status)
-{
-    unsigned char *p = packet_in->pos;
-    const unsigned char *end = packet_in->last;
-
-    int vlen;
-
-    uint64_t frame_type = 0;
-    vlen = xqc_vint_read(p, end, &frame_type);  /* get frame_type */
-    if (vlen < 0) {
-        return -XQC_EVINTREAD;
-    }
-    p += vlen;
-
-    /* DCID Sequence Number (i) */
-    vlen = xqc_vint_read(p, end, dcid_seq_num);
-    if (vlen < 0) {
-        return -XQC_EVINTREAD;
-    }
-    p += vlen;
-
-    /* Path Status sequence number (i) */
-    vlen = xqc_vint_read(p, end, path_status_seq_num);
-    if (vlen < 0) {
-        return -XQC_EVINTREAD;
-    }
-    p += vlen;
-
-    /* Path Status (i) */
-    vlen = xqc_vint_read(p, end, path_status);
-    if (vlen < 0) {
-        return -XQC_EVINTREAD;
-    }
-    p += vlen;
-
-    packet_in->pos = p;
-
-    packet_in->pi_frame_types |= XQC_FRAME_BIT_PATH_STATUS;
-
-    return XQC_OK;
-}
-
-/*
- *  PATH_STANDBY Frame {
- *    Type (i) = TBD-03 (experiments use 0x15228c07)
- *    Destination Connection ID Sequence Number (i),
- *    Path Status sequence number (i),
- *  }
- *
- *  https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-06#section-8.3
- * */
-ssize_t
-xqc_gen_path_standby_frame(xqc_connection_t *conn,
-    xqc_packet_out_t *packet_out,
-    uint64_t path_id,
-    uint64_t path_status_seq_num)
-{
-    unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
-    const unsigned char *begin = dst_buf;
-    unsigned need = 0;
-
-    uint64_t frame_type;
-    if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_06) {
-        frame_type = 0x15228c07;
-    } else {
-        return -XQC_EMP_INVALID_MP_VERTION;
-    }
-
-    unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
-    unsigned dcid_seq_num_bits = xqc_vint_get_2bit(path_id);
+    unsigned path_id_bits = xqc_vint_get_2bit(path_id);
     unsigned path_status_seq_num_bits = xqc_vint_get_2bit(path_status_seq_num);
 
     need = xqc_vint_len(frame_type_bits)
-           + xqc_vint_len(dcid_seq_num_bits)
-           + xqc_vint_len(path_status_seq_num_bits);
-
-    /* check packout_out have enough buffer length */
-    if (need > xqc_get_po_remained_size(packet_out)) {
-        return -XQC_ENOBUF;
-    }
-
-    /* Type(i) */
-    xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
-    dst_buf += xqc_vint_len(frame_type_bits);
-
-    /* DCID Sequence Number (i) */
-    xqc_vint_write(dst_buf, path_id, dcid_seq_num_bits, xqc_vint_len(dcid_seq_num_bits));
-    dst_buf += xqc_vint_len(dcid_seq_num_bits);
-
-    /* Path Status sequence number (i) */
-    xqc_vint_write(dst_buf, path_status_seq_num, path_status_seq_num_bits, xqc_vint_len(path_status_seq_num_bits));
-    dst_buf += xqc_vint_len(path_status_seq_num_bits);
-
-    packet_out->po_frame_types |= XQC_FRAME_BIT_PATH_STANDBY;
-
-    return dst_buf - begin;
-}
-
-xqc_int_t
-xqc_parse_path_standby_frame(xqc_packet_in_t *packet_in,
-    uint64_t *path_id,
-    uint64_t *path_status_seq_num, uint64_t *path_status)
-{
-    unsigned char *p = packet_in->pos;
-    const unsigned char *end = packet_in->last;
-
-    int vlen;
-
-    uint64_t frame_type = 0;
-    vlen = xqc_vint_read(p, end, &frame_type);  /* get frame_type */
-    if (vlen < 0) {
-        return -XQC_EVINTREAD;
-    }
-    p += vlen;
-
-    /* DCID Sequence Number (i) */
-    vlen = xqc_vint_read(p, end, path_id);
-    if (vlen < 0) {
-        return -XQC_EVINTREAD;
-    }
-    p += vlen;
-
-    /* Path Status sequence number (i) */
-    vlen = xqc_vint_read(p, end, path_status_seq_num);
-    if (vlen < 0) {
-        return -XQC_EVINTREAD;
-    }
-    p += vlen;
-
-    *path_status = 1; /* 1 - Standby */
-
-    packet_in->pos = p;
-
-    packet_in->pi_frame_types |= XQC_FRAME_BIT_PATH_STANDBY;
-
-    return XQC_OK;
-}
-
-/*
- *
- *  PATH_AVAILABLE Frame {
- *    Type (i) = TBD-03 (experiments use 0x15228c08),
- *    Destination Connection ID Sequence Number (i),
- *    Path Status sequence number (i),
- *  }
- *
- *
- *  https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-06#section-8.4
- * */
-ssize_t
-xqc_gen_path_available_frame(xqc_connection_t *conn,
-    xqc_packet_out_t *packet_out,
-    uint64_t path_id,
-    uint64_t path_status_seq_num)
-{
-    unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
-    const unsigned char *begin = dst_buf;
-    unsigned need = 0;
-
-    uint64_t frame_type;
-    if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_06) {
-        frame_type = 0x15228c08;
-    } else {
-        return -XQC_EMP_INVALID_MP_VERTION;
-    }
-
-    unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
-    unsigned dcid_seq_num_bits = xqc_vint_get_2bit(path_id);
-    unsigned path_status_seq_num_bits = xqc_vint_get_2bit(path_status_seq_num);
-
-    need = xqc_vint_len(frame_type_bits)
-           + xqc_vint_len(dcid_seq_num_bits)
+           + xqc_vint_len(path_id_bits)
            + xqc_vint_len(path_status_seq_num_bits);
 
     /* check packout_out have enough buffer length */
@@ -2773,20 +2617,20 @@ xqc_gen_path_available_frame(xqc_connection_t *conn,
     dst_buf += xqc_vint_len(frame_type_bits);
 
     /* Path ID (i) */
-    xqc_vint_write(dst_buf, path_id, dcid_seq_num_bits, xqc_vint_len(dcid_seq_num_bits));
-    dst_buf += xqc_vint_len(dcid_seq_num_bits);
+    xqc_vint_write(dst_buf, path_id, path_id_bits, xqc_vint_len(path_id_bits));
+    dst_buf += xqc_vint_len(path_id_bits);
 
     /* Path Status sequence number (i) */
     xqc_vint_write(dst_buf, path_status_seq_num, path_status_seq_num_bits, xqc_vint_len(path_status_seq_num_bits));
     dst_buf += xqc_vint_len(path_status_seq_num_bits);
 
-    packet_out->po_frame_types |= XQC_FRAME_BIT_PATH_AVAILABLE;
+    packet_out->po_frame_types |= ft_flag;
 
     return dst_buf - begin;
 }
 
-xqc_int_t
-xqc_parse_path_available_frame(xqc_packet_in_t *packet_in,
+xqc_int_t 
+xqc_parse_path_status_frame(xqc_packet_in_t *packet_in,
     uint64_t *path_id,
     uint64_t *path_status_seq_num, uint64_t *path_status)
 {
@@ -2802,14 +2646,12 @@ xqc_parse_path_available_frame(xqc_packet_in_t *packet_in,
     }
     p += vlen;
 
-    /* DCID Sequence Number (i) */
+    /* Path ID (i) */
     vlen = xqc_vint_read(p, end, path_id);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }
     p += vlen;
-
-    *path_status = 2; /* 2 - available */
 
     /* Path Status sequence number (i) */
     vlen = xqc_vint_read(p, end, path_status_seq_num);
@@ -2820,20 +2662,33 @@ xqc_parse_path_available_frame(xqc_packet_in_t *packet_in,
 
     packet_in->pos = p;
 
-    packet_in->pi_frame_types |= XQC_FRAME_BIT_PATH_AVAILABLE;
+    switch (frame_type) {
+        case XQC_TRANS_FRAME_TYPE_MP_STANDBY: 
+            *path_status = XQC_APP_PATH_STATUS_STANDBY;
+            packet_in->pi_frame_types |= XQC_FRAME_BIT_PATH_STANDBY;
+            break;
+        case XQC_TRANS_FRAME_TYPE_MP_AVAILABLE: 
+            *path_status = XQC_APP_PATH_STATUS_AVAILABLE;
+            packet_in->pi_frame_types |= XQC_FRAME_BIT_PATH_AVAILABLE;
+            break;
+        case XQC_TRANS_FRAME_TYPE_MP_FROZEN:
+            *path_status = XQC_APP_PATH_STATUS_FROZEN;
+            packet_in->pi_frame_types |= XQC_FRAME_BIT_PATH_FROZEN;
+            break;
+        default:
+            return -XQC_EILLEGAL_FRAME;
+    }
 
     return XQC_OK;
 }
 
-
 /*
- * https://tools.ietf.org/html/draft-ietf-quic-transport-34#section-19.15
  *
  * MP_NEW_CONNECTION_ID Frame {
  *    Type (i) = 0x15228c09,
+ *    Path Identifier (i),
  *    Sequence Number (i),
  *    Retire Prior To (i),
- *    Path Identifier (i),
  *    Length (8),
  *    Connection ID (8..160),
  *    Stateless Reset Token (128),
@@ -2859,8 +2714,6 @@ xqc_gen_mp_new_conn_id_frame(xqc_packet_out_t *packet_out, xqc_cid_t *new_cid,
     xqc_vint_write(dst_buf, path_id, path_id_bits, xqc_vint_len(path_id_bits));
     dst_buf += xqc_vint_len(path_id_bits);
 
-    unsigned char stateless_reset_token[XQC_STATELESS_RESET_TOKENLEN] = {0};
-
     unsigned sequence_number_bits = xqc_vint_get_2bit(new_cid->cid_seq_num);
     unsigned retire_prior_to_bits = xqc_vint_get_2bit(retire_prior_to);
     uint64_t cid_len = new_cid->cid_len;
@@ -2874,7 +2727,6 @@ xqc_gen_mp_new_conn_id_frame(xqc_packet_out_t *packet_out, xqc_cid_t *new_cid,
     xqc_vint_write(dst_buf, new_cid->cid_seq_num,
                    sequence_number_bits, xqc_vint_len(sequence_number_bits));
     dst_buf += xqc_vint_len(sequence_number_bits);
-
 
 
     xqc_vint_write(dst_buf, retire_prior_to, retire_prior_to_bits, xqc_vint_len(retire_prior_to_bits));
@@ -2896,24 +2748,11 @@ xqc_gen_mp_new_conn_id_frame(xqc_packet_out_t *packet_out, xqc_cid_t *new_cid,
     return dst_buf - begin;
 }
 
-/*
- * https://datatracker.ietf.org/doc/html/rfc9000#section-19.15
- *
- * MP_NEW_CONNECTION_ID Frame {
- *    Type (i) = 0x15228c09,
- *    Sequence Number (i),
- *    Retire Prior To (i),
- *    Path Identifier(i),
- *    Length (8),
- *    Connection ID (8..160),
- *    Stateless Reset Token (128),
- * }
- *
- *               Figure 39: MP_NEW_CONNECTION_ID Frame Format
- * */
+
 xqc_int_t
 xqc_parse_mp_new_conn_id_frame(xqc_packet_in_t *packet_in,
-    xqc_cid_t *new_cid, uint64_t *retire_prior_to, uint64_t *path_id, xqc_connection_t *conn)
+    xqc_cid_t *new_cid, uint64_t *retire_prior_to, uint64_t *path_id, 
+    xqc_connection_t *conn)
 {
     unsigned char *p = packet_in->pos;
     const unsigned char *end = packet_in->last;
@@ -2981,15 +2820,11 @@ xqc_parse_mp_new_conn_id_frame(xqc_packet_in_t *packet_in,
 }
 
 /*
- * https://datatracker.ietf.org/doc/html/rfc9000#section-19.16
- *
  * MP_RETIRE_CONNECTION_ID Frame {
  *    Type (i) = 0x15228c0a,
- *    Sequence Number (i),
  *    Path ID (i),
+ *    Sequence Number (i),   
  * }
- *
- *               Figure 40: MP_RETIRE_CONNECTION_ID Frame Format
  * */
 ssize_t
 xqc_gen_mp_retire_conn_id_frame(xqc_packet_out_t *packet_out, uint64_t seq_num, uint64_t path_id)
@@ -3032,13 +2867,13 @@ xqc_parse_mp_retire_conn_id_frame(xqc_packet_in_t *packet_in, uint64_t *seq_num,
     }
     p += vlen;
 
-    vlen = xqc_vint_read(p, end, seq_num);
+    vlen = xqc_vint_read(p, end, path_id);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }
     p += vlen;
 
-    vlen = xqc_vint_read(p, end, path_id);
+    vlen = xqc_vint_read(p, end, seq_num);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }

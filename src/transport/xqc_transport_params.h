@@ -23,8 +23,10 @@
 /* max buffer length of encoded transport parameter */
 #define XQC_MAX_TRANSPORT_PARAM_BUF_LEN         512
 
-/* default value for max_concurrent_paths */
-#define XQC_DEFAULT_MAX_CONCURRENT_PATHS        4
+/* default value for max_path_id */
+#define XQC_DEFAULT_INIT_MAX_PATH_ID            8
+
+
 
 /**
  * @brief transport parameter type
@@ -71,8 +73,7 @@ typedef enum {
     XQC_TRANSPORT_PARAM_FEC_VERSION_PARSER                  = 0x0014,
     XQC_TRANSPORT_PARAM_FEC_ENCODER_SCHEMES_PARSER          = 0x0015,
     XQC_TRANSPORT_PARAM_FEC_DECODER_SCHEMES_PARSER          = 0x0016,
-    XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_SIZE_PARSER          = 0x0017,
-    XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_NUM_PARSER           = 0x0018,
+    XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_NUM_PARSER           = 0x0017,
 #endif
     /* upper limit of params defined in [Transport] */
     XQC_TRANSPORT_PARAM_PROTOCOL_MAX,
@@ -85,23 +86,18 @@ typedef enum {
     XQC_TRANSPORT_PARAM_NO_CRYPTO                           = 0x1000,
 
     /* multipath quic attributes */
-    XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_04                 = 0x0f739bbc1b666d04,
-    XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_05                 = 0x0f739bbc1b666d05,
-    XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_06                 = 0x0f739bbc1b666d06,
-    XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_07                 = 0x0f739bbc1b666d07,
-    XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_10                 = 0x0f739bbc1b666d09,
+    XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V10                = 0x0f739bbc1b666d09,
 
     /* google connection options */
     XQC_TRANSPORT_PARAM_GOOGLE_CO                           = 0x3128,
 #ifdef XQC_ENABLE_FEC
     /* fec attributes */
     XQC_TRANSPORT_PARAM_FEC_VERSION                         = 0xfec001,
+    XQC_TRANSPORT_PARAM_FEC_VERSION_02                      = 0xfec002,
     XQC_TRANSPORT_PARAM_FEC_ENCODER_SCHEMES                 = 0xfece01,
     XQC_TRANSPORT_PARAM_FEC_DECODER_SCHEMES                 = 0xfecd02,
-    XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_SIZE                 = 0xfecb01,
     XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_NUM                  = 0xfecb02,
 #endif
-
     /* upper limit of params defined by xquic */
     XQC_TRANSPORT_PARAM_UNKNOWN,
 } xqc_transport_param_id_t;
@@ -172,19 +168,16 @@ typedef struct {
      * NOTICE: enable_multipath MIGHT be modified or removed as it is not an official parameter
      */
     uint64_t                enable_multipath;
-
-
     xqc_multipath_version_t multipath_version;
 
-    uint64_t                max_concurrent_paths;
+    uint64_t                init_max_path_id;
 
-    uint32_t                  conn_options[XQC_CO_MAX_NUM];
-    uint8_t                   conn_option_num;
+    uint32_t                conn_options[XQC_CO_MAX_NUM];
+    uint8_t                 conn_option_num;
 
     xqc_fec_version_t       fec_version;
     uint64_t                enable_encode_fec;
     uint64_t                enable_decode_fec;
-    uint64_t                fec_max_symbol_size;
     uint64_t                fec_max_symbols_num;
     xqc_fec_schemes_e       fec_encoder_schemes[XQC_FEC_MAX_SCHEME_NUM];
     xqc_fec_schemes_e       fec_decoder_schemes[XQC_FEC_MAX_SCHEME_NUM];

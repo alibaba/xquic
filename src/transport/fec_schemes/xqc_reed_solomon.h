@@ -23,9 +23,8 @@ void xqc_build_generator_matrix(unsigned char src_symbol_num, unsigned char tota
 xqc_int_t xqc_rs_code_symbols(unsigned char (*GM_rows)[XQC_MAX_MT_ROW], unsigned char **inputs, xqc_int_t inputs_rows_num,
     unsigned char **outputs, xqc_int_t outputs_rows_num, xqc_int_t item_size);
 
-void xqc_reed_solomon_init();
-xqc_int_t xqc_reed_solomon_decode(xqc_connection_t *conn, unsigned char **recovered_symbols_buff, xqc_int_t block_idx,
-    xqc_int_t *loss_symbols_idx, xqc_int_t loss_symbols_len);
-xqc_int_t xqc_reed_solomon_encode(xqc_connection_t *conn, unsigned char *stream, unsigned char **outputs);
+void xqc_reed_solomon_init(xqc_connection_t *conn, xqc_int_t k, xqc_int_t n);
+xqc_int_t xqc_reed_solomon_decode(xqc_connection_t *conn, unsigned char **outputs, size_t *output_size, xqc_int_t block_idx);
+xqc_int_t xqc_reed_solomon_encode(xqc_connection_t *conn, unsigned char *stream, size_t st_size, unsigned char **outputs);
 
 #endif

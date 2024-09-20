@@ -99,6 +99,7 @@ again:
     {
         conn->conn_flag |= XQC_CONN_FLAG_TLS_CH_RECVD;
     }
+
     xqc_log(log, XQC_LOG_DEBUG, "|ssl_do_handshake|SSL_quic_read_level:%d|SSL_quic_write_level:%d|rv:%d|",
             (int) SSL_quic_read_level(ssl),
             (int) SSL_quic_write_level(ssl),

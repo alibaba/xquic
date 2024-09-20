@@ -669,7 +669,7 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
             packet_out->po_pkt.pkt_num;
         }
 
-        xqc_conn_update_stream_stats_on_sent(send_ctl->ctl_conn, packet_out, now);
+        xqc_conn_update_stream_stats_on_sent(send_ctl->ctl_conn, send_ctl, packet_out, now);
 
         xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG,
                 "|path:%ui|inflight:%ud|applimit:%ui|",
@@ -1320,7 +1320,7 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
         xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
             path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
             xqc_list_splice_tail_init(&path->path_reinj_tmp_buf,
-                                    &path->path_schedule_buf[XQC_SEND_TYPE_NORMAL]);
+                                      &path->path_schedule_buf[XQC_SEND_TYPE_NORMAL]);
         }
     }
 
@@ -1544,15 +1544,10 @@ xqc_send_ctl_on_packet_acked(xqc_send_ctl_t *send_ctl,
         }
 
         /* TODO: fix NEW_CID_RECEIVED */
-        if (packet_out->po_frame_types & XQC_FRAME_BIT_NEW_CONNECTION_ID) {
-            packet_out->po_frame_types &= ~XQC_FRAME_BIT_NEW_CONNECTION_ID;
-            conn->conn_flag |= XQC_CONN_FLAG_NEW_CID_ACKED;
+        if (packet_out->po_frame_types & (XQC_FRAME_BIT_NEW_CONNECTION_ID | XQC_FRAME_BIT_MP_NEW_CONNECTION_ID)) {
+            xqc_cid_set_on_cid_acked(&conn->scid_set, packet_out->po_new_cid_path, packet_out->po_new_cid_seq);
         }
-
-        if (packet_out->po_frame_types & XQC_FRAME_BIT_MP_NEW_CONNECTION_ID) {
-            packet_out->po_frame_types &= ~XQC_FRAME_BIT_MP_NEW_CONNECTION_ID;
-            conn->conn_flag |= XQC_CONN_FLAG_NEW_CID_ACKED;
-        }
+        
 
         if (do_cc) {
             xqc_send_ctl_cc_on_ack(send_ctl, packet_out, now);
@@ -1840,7 +1835,6 @@ xqc_send_ctl_get_est_bw(xqc_send_ctl_t *send_ctl)
 }
 
 uint64_t
-xqc_send_ctl_get_pacing_rate(xqc_send_ctl_t *send_ctl) 
-{
+xqc_send_ctl_get_pacing_rate(xqc_send_ctl_t *send_ctl) {
     return xqc_pacing_rate_calc(&send_ctl->ctl_pacing);
 }

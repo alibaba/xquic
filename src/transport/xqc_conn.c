@@ -207,6 +207,7 @@ xqc_server_set_conn_settings(xqc_engine_t *engine, const xqc_conn_settings_t *se
         engine->default_conn_settings.idle_time_out = settings->idle_time_out;
     }
 
+    /* default value: 5x, it could be set to meet application need */
     if (settings->anti_amplification_limit > 0) {
         engine->default_conn_settings.anti_amplification_limit = settings->anti_amplification_limit;
     }

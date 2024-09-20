@@ -1527,7 +1527,7 @@ xqc_demo_svr_init_conn_settings(xqc_engine_t *engine, xqc_demo_svr_args_t *args)
         .is_interop_mode = args->quic_cfg.is_interop_mode,
         .max_pkt_out_size = args->quic_cfg.max_pkt_sz,
         .adaptive_ack_frequency = 1,
-        .anti_amplification_limit = 3,
+        .anti_amplification_limit = 4,
     };
 
     xqc_server_set_conn_settings(engine, &conn_settings);

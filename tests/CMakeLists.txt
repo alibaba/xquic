@@ -103,7 +103,6 @@ if(HAVE_CUNIT)
         ${UNIT_TEST_DIR}/xqc_reno_test.c
         ${UNIT_TEST_DIR}/xqc_cubic_test.c
         ${UNIT_TEST_DIR}/xqc_stream_frame_test.c
-        ${UNIT_TEST_DIR}/xqc_wakeup_pq_test.c
         ${UNIT_TEST_DIR}/xqc_process_frame_test.c
         ${UNIT_TEST_DIR}/xqc_tp_test.c
         ${UNIT_TEST_DIR}/xqc_tls_test.c

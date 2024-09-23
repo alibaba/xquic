@@ -256,7 +256,7 @@ char g_headers[MAX_HEADER][256];
 int g_header_cnt = 0;
 int g_ping_id = 1;
 int g_enable_multipath = 0;
-xqc_multipath_version_t g_multipath_version = XQC_MULTIPATH_04;
+xqc_multipath_version_t g_multipath_version = XQC_MULTIPATH_10;
 int g_enable_fec = 0;
 int g_enable_reinjection = 0;
 int g_verify_cert = 0;
@@ -1464,6 +1464,7 @@ xqc_convert_addr_text_to_sockaddr(int type,
 {
     if (type == AF_INET6) {
         *saddr = calloc(1, sizeof(struct sockaddr_in6));
+        memset(*saddr, 0, sizeof(struct sockaddr_in6));
         struct sockaddr_in6 *addr_v6 = (struct sockaddr_in6 *)(*saddr);
         inet_pton(type, addr_text, &(addr_v6->sin6_addr.s6_addr));
         addr_v6->sin6_family = type;
@@ -1472,6 +1473,7 @@ xqc_convert_addr_text_to_sockaddr(int type,
 
     } else {
         *saddr = calloc(1, sizeof(struct sockaddr_in));
+        memset(*saddr, 0, sizeof(struct sockaddr_in));
         struct sockaddr_in *addr_v4 = (struct sockaddr_in *)(*saddr);
         inet_pton(type, addr_text, &(addr_v4->sin_addr.s_addr));
         addr_v4->sin_family = type;
@@ -1492,10 +1494,12 @@ xqc_client_init_addr(user_conn_t *user_conn,
 
     if (ip_type == AF_INET6) {
         user_conn->local_addr = (struct sockaddr *)calloc(1, sizeof(struct sockaddr_in6));
+        memset(user_conn->local_addr, 0, sizeof(struct sockaddr_in6));
         user_conn->local_addrlen = sizeof(struct sockaddr_in6);
 
     } else {
         user_conn->local_addr = (struct sockaddr *)calloc(1, sizeof(struct sockaddr_in));
+        memset(user_conn->local_addr, 0, sizeof(struct sockaddr_in));
         user_conn->local_addrlen = sizeof(struct sockaddr_in);
     }
 }
@@ -2473,6 +2477,27 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
         header_size++;
     }
 
+    if (g_enable_fec) {
+        xqc_h3_priority_t h3_prio = {
+            .fec = 1
+        };
+        xqc_h3_request_set_priority(h3_request, &h3_prio);
+
+        ret = xqc_write_http_priority(&h3_prio, g_priority, 64);
+        if (ret < 0) {
+            printf("xqc_write_http_priority error %zd\n", ret);
+            return ret;
+        }
+
+        xqc_http_header_t priority_hdr = {
+            .name   = {.iov_base = "priority", .iov_len = 8},
+            .value  = {.iov_base = g_priority, .iov_len = strlen(g_priority)},
+            .flags  = 0,
+        };
+        header[header_size] = priority_hdr;
+        header_size++;
+    }
+
     if (g_mp_request_accelerate) {
         /* set local h3 priority */
         xqc_h3_priority_t h3_prio = {
@@ -2480,6 +2505,7 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
             .incremental = 1,
             .schedule = 1,
             .reinject = 1,
+            .fec = 1,
         };
         xqc_h3_request_set_priority(h3_request, &h3_prio);
 
@@ -2914,6 +2940,8 @@ xqc_client_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
                stats.send_body_size, stats.recv_body_size);
         printf("test_result_speed: %"PRIu64" Kbit/s. request_cnt: %d.\n", (stats.send_body_size + stats.recv_body_size)*8000/(now_us - user_stream->start_time), g_req_cnt);
 
+        printf("retx:%u, sent:%u, max_pto:%u\n", stats.retrans_cnt, stats.sent_pkt_cnt, stats.max_pto_backoff);
+
         printf("[rr_benchmark]|request_time:%"PRIu64"|"
                "request_size:%zu|response_size:%zu|\n",
                now_us - user_stream->start_time,
@@ -2959,6 +2987,8 @@ xqc_client_request_close_notify(xqc_h3_request_t *h3_request, void *user_data)
            stats.mp_state,
            stats.mp_standby_path_send_weight, stats.mp_standby_path_recv_weight,
            stats.stream_info);
+
+    printf("retx:%u, sent:%u, max_pto:%u\n", stats.retrans_cnt, stats.sent_pkt_cnt, stats.max_pto_backoff);
 
     if (g_echo_check) {
         int pass = 0;
@@ -3360,6 +3390,7 @@ xqc_client_timeout_callback(int fd, short what, void *arg)
         restart_after_a_while--;
         //we don't care the memory leak caused by user_stream. It's just for one-shot testing. :D
         user_stream_t *user_stream = calloc(1, sizeof(user_stream_t));
+        memset(user_stream, 0, sizeof(user_stream_t));
         user_stream->user_conn = user_conn;
         printf("gtest 15: restart from idle!\n");
         user_stream->stream = xqc_stream_create(ctx.engine, &(user_conn->cid), NULL, user_stream);
@@ -3735,7 +3766,7 @@ xqc_client_ready_to_create_path(const xqc_cid_t *cid,
                 }
             }
 
-            if (g_mp_backup_mode) {
+            if (g_mp_backup_mode || g_enable_fec) {
                 ret = xqc_conn_mark_path_standby(ctx.engine, &(user_conn->cid), path_id);
                 if (ret < 0) {
                     printf("xqc_conn_mark_path_standby err = %d\n", ret);
@@ -3952,8 +3983,8 @@ xqc_client_set_fec_scheme(uint64_t in, xqc_fec_schemes_e *out)
     case XQC_XOR_CODE:
         *out = XQC_XOR_CODE;
         return XQC_OK;
-    case XQC_PACKET_MASK:
-        *out = XQC_PACKET_MASK;
+    case XQC_PACKET_MASK_CODE:
+        *out = XQC_PACKET_MASK_CODE;
         return XQC_OK;
     default:
         break;
@@ -4279,11 +4310,8 @@ int main(int argc, char *argv[]) {
 
         case 'v': /* Negotiate multipath version. 4: Multipath-04. 5: Multipath-05*/
             printf("option multipath version: %s\n", optarg);
-            if (atoi(optarg) == 4) {
-                g_multipath_version = XQC_MULTIPATH_04;
-                
-            } else if (atoi(optarg) == 5) {
-                g_multipath_version = XQC_MULTIPATH_05;
+            if (atoi(optarg) == 10) {
+                g_multipath_version = XQC_MULTIPATH_10;
             }
             break;
         case 'R':
@@ -4923,7 +4951,11 @@ int main(int argc, char *argv[]) {
         xqc_fec_params_t fec_params;
         if (xqc_client_set_fec_scheme(fec_encoder_scheme, &fec_params.fec_encoder_schemes[0]) == XQC_OK) {
             fec_params.fec_encoder_schemes_num = 1;
-        
+            // limit repair number if fec scheme is xor
+            fec_params.fec_code_rate = 0.4;
+            fec_params.fec_max_symbol_num_per_block = 3;
+            fec_params.fec_mp_mode = XQC_FEC_MP_USE_STB;
+
         } else {
             conn_settings.enable_encode_fec = 0;
         }
@@ -4954,6 +4986,10 @@ int main(int argc, char *argv[]) {
         conn_settings.scheduler_callback = xqc_backup_scheduler_cb;
         conn_settings.mp_enable_reinjection = 0;
         conn_settings.standby_path_probe_timeout = 500;
+    }
+
+    if (g_enable_fec) {
+        conn_settings.scheduler_callback = xqc_backup_fec_scheduler_cb;
     }
 
     unsigned char token[XQC_MAX_TOKEN_LEN];

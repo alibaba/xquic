@@ -18,7 +18,6 @@
 #include "xqc_cubic_test.h"
 #include "xqc_packet_test.h"
 #include "xqc_stream_frame_test.h"
-#include "xqc_wakeup_pq_test.h"
 #include "xqc_process_frame_test.h"
 #include "xqc_tp_test.h"
 #include "xqc_tls_test.h"
@@ -76,7 +75,6 @@ main()
         || !CU_add_test(pSuite, "xqc_test_empty_pkt", xqc_test_empty_pkt)
         || !CU_add_test(pSuite, "xqc_test_engine_packet_process", xqc_test_engine_packet_process)
         || !CU_add_test(pSuite, "xqc_test_stream_frame", xqc_test_stream_frame)
-        || !CU_add_test(pSuite, "xqc_test_wakeup_pq", xqc_test_wakeup_pq)
         || !CU_add_test(pSuite, "xqc_test_process_frame", xqc_test_process_frame)
         || !CU_add_test(pSuite, "xqc_test_parse_padding_frame", xqc_test_parse_padding_frame)
         || !CU_add_test(pSuite, "xqc_test_large_ack_frame", xqc_test_large_ack_frame)

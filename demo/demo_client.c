@@ -904,7 +904,7 @@ xqc_demo_cli_conn_create_path(const xqc_cid_t *cid, void *conn_user_data)
             return;
         }
 
-        user_conn->path_create_time = xqc_demo_now();
+        user_conn->path_create_time = xqc_now();
 
         if (user_conn->total_path_cnt == 2 && ctx->args->quic_cfg.mp_backup) {
             printf("set No.%d path (id = %"PRIu64") to STANDBY state\n", 1, path_id);
@@ -1066,7 +1066,6 @@ xqc_demo_path_status_trigger(xqc_demo_cli_user_conn_t *user_conn)
             }
         }
     }
-
 }
 
 int

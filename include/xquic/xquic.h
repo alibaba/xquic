@@ -2037,13 +2037,6 @@ XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_path_get_local_addr(xqc_connection_t *conn, uint64_t path_id,
     struct sockaddr *addr, socklen_t addr_cap, socklen_t *local_addr_len);
 
-
-XQC_EXPORT_PUBLIC_API
-xqc_int_t xqc_conn_trigger_cid_rotation_on_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t path_id);
-
-XQC_EXPORT_PUBLIC_API
-xqc_int_t xqc_conn_trigger_cid_retirement_on_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t path_id);
-
 /**
  * @brief load balance cid encryption.
  * According to Draft : https://datatracker.ietf.org/doc/html/draft-ietf-quic-load-balancers-13#section-4.3.2

@@ -2109,11 +2109,6 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             args->quic_cfg.path_cid_rotation = atoi(optarg);
             break;
 
-        case 'G':
-            printf("option force a cid retirement after %s ms\n", optarg);
-            args->quic_cfg.path_cid_retirement = atoi(optarg);
-            break;
-
         case 'N':
             printf("option no encryption on\n");
             args->quic_cfg.no_encryption = 1;

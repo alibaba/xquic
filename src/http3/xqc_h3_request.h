@@ -74,7 +74,11 @@ typedef struct xqc_h3_request_s {
     xqc_usec_t                      send_pacing_blk_duration;
 
     uint32_t                        retrans_pkt_cnt;
-
+    uint32_t                        sent_pkt_cnt;
+    uint8_t                         max_pto_backoff;
+    
+    /* fec */
+    uint32_t                        recov_pkt_cnt;
 } xqc_h3_request_t;
 
 xqc_h3_request_t *xqc_h3_request_create_inner(xqc_h3_conn_t *h3_conn, xqc_h3_stream_t *h3_stream,

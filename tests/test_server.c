@@ -151,7 +151,6 @@ int g_ipv6;
 int g_batch=0;
 int g_lb_cid_encryption_on = 0;
 int g_enable_multipath = 0;
-// xqc_multipath_version_t g_multipath_version = XQC_MULTIPATH_05;
 int g_enable_reinjection = 0;
 int g_spec_local_addr = 0;
 int g_mpshell = 0;
@@ -2499,15 +2498,23 @@ int main(int argc, char *argv[]) {
     }
 
     if (g_enable_fec) {
+        conn_settings.scheduler_callback = xqc_backup_fec_scheduler_cb;
+    }
+
+    if (g_enable_fec) {
         xqc_fec_params_t fec_params;
-        xqc_fec_schemes_e fec_schemes[XQC_FEC_MAX_SCHEME_NUM] = {XQC_XOR_CODE, XQC_REED_SOLOMON_CODE};
-        for (xqc_int_t i = 0; i < XQC_FEC_MAX_SCHEME_NUM; i++) {
+        memset(&fec_params, 0, sizeof(xqc_fec_params_t));
+        xqc_fec_schemes_e fec_schemes[XQC_FEC_MAX_SCHEME_NUM] = {XQC_XOR_CODE, XQC_REED_SOLOMON_CODE, XQC_PACKET_MASK_CODE};
+        for (xqc_int_t i = 0; i < 3; i++) {
             fec_params.fec_encoder_schemes[i] = fec_schemes[i];
             fec_params.fec_decoder_schemes[i] = fec_schemes[i];
         }
-        fec_params.fec_encoder_schemes_num = 2;
-        fec_params.fec_decoder_schemes_num = 2;
+        fec_params.fec_encoder_schemes_num = 3;
+        fec_params.fec_decoder_schemes_num = 3;
         fec_params.fec_max_window_size = 8;
+        fec_params.fec_code_rate = 0.4;
+        fec_params.fec_max_symbol_num_per_block = 3;
+        fec_params.fec_mp_mode = XQC_FEC_MP_USE_STB;
         conn_settings.fec_params = fec_params;
     }
 

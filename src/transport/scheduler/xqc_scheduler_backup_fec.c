@@ -3,26 +3,91 @@
  */
 
 
-#include "src/transport/scheduler/xqc_scheduler_backup.h"
+#include "src/transport/scheduler/xqc_scheduler_backup_fec.h"
 #include "src/transport/scheduler/xqc_scheduler_common.h"
 #include "src/transport/xqc_send_ctl.h"
 
 
 static size_t
-xqc_backup_scheduler_size()
+xqc_backup_fec_scheduler_size()
 {
     return 0;
 }
 
 static void
-xqc_backup_scheduler_init(void *scheduler, xqc_log_t *log, xqc_scheduler_params_t *param)
+xqc_backup_fec_scheduler_init(void *scheduler, xqc_log_t *log, xqc_scheduler_params_t *param)
 {
     return;
 }
 
+xqc_path_ctx_t *
+xqc_send_on_standby_path(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_bool_t *has_path,
+    xqc_path_ctx_t **best_path)
+{
+    xqc_bool_t available_path_exists;
+    xqc_path_ctx_t *ret_path;
+    xqc_path_perf_class_t path_class;
+
+    ret_path = NULL;
+
+    available_path_exists = XQC_FALSE;
+    for (path_class = XQC_PATH_CLASS_AVAILABLE_HIGH; 
+         path_class < XQC_PATH_CLASS_PERF_CLASS_SIZE; 
+         path_class++)
+    {
+        if (has_path[path_class] && (path_class & 1)) {
+            available_path_exists = XQC_TRUE;
+        }
+        if (best_path[path_class] != NULL) {
+            if (ret_path == NULL && (path_class & 1) == 0) {
+                ret_path = best_path[path_class];
+                continue;
+            } else {
+                return best_path[path_class];
+            }
+        }
+    }
+    return ret_path;
+}
 
 xqc_path_ctx_t *
-xqc_backup_scheduler_get_path(void *scheduler, xqc_connection_t *conn, 
+xqc_send_on_normal_path(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_bool_t *has_path,
+    xqc_path_ctx_t **best_path, int reinject)
+{
+    xqc_path_perf_class_t path_class;
+    xqc_bool_t available_path_exists;
+
+    available_path_exists = XQC_FALSE;
+    for (path_class = XQC_PATH_CLASS_AVAILABLE_HIGH; 
+         path_class < XQC_PATH_CLASS_PERF_CLASS_SIZE; 
+         path_class++)
+    {
+        if (has_path[path_class] && ((path_class & 1) == 0)) {
+            available_path_exists = XQC_TRUE;
+        }
+
+        /* 
+         * do not use a standby path if there 
+         * is an available path with higher performence level
+         */
+        if (best_path[path_class] != NULL) {
+            if (available_path_exists && (path_class & 1) && !reinject) {
+                /* skip standby path*/
+                xqc_log(conn->log, XQC_LOG_DEBUG, 
+                        "|skip_standby_path|path_class:%d|path_id:%ui|",
+                        path_class, best_path[path_class]->path_id);
+                continue;
+
+            } else {
+                return best_path[path_class];
+            }
+        }
+    }
+    return NULL;
+}
+
+xqc_path_ctx_t *
+xqc_backup_fec_scheduler_get_path(void *scheduler, xqc_connection_t *conn, 
     xqc_packet_out_t *packet_out, int check_cwnd, int reinject, 
     xqc_bool_t *cc_blocked)
 {
@@ -32,7 +97,7 @@ xqc_backup_scheduler_get_path(void *scheduler, xqc_connection_t *conn,
     xqc_bool_t available_path_exists;
 
     xqc_list_head_t *pos, *next;
-    xqc_path_ctx_t *path;
+    xqc_path_ctx_t *path, *ret_path;
     xqc_send_ctl_t *send_ctl;
     xqc_bool_t path_can_send = XQC_FALSE;
 
@@ -104,38 +169,26 @@ skip_path:
     }
 
     available_path_exists = XQC_FALSE;
+#ifdef XQC_ENABLE_FEC
+    if (conn->fec_ctl && conn->fec_ctl->fec_mp_mode == XQC_FEC_MP_USE_STB && packet_out->po_frame_types & XQC_FRAME_BIT_REPAIR_SYMBOL) {
+        ret_path = xqc_send_on_standby_path(conn, packet_out, has_path, best_path);
 
-    for (path_class = XQC_PATH_CLASS_AVAILABLE_HIGH; 
-         path_class < XQC_PATH_CLASS_PERF_CLASS_SIZE; 
-         path_class++)
-    {
-        if (has_path[path_class] && ((path_class & 1) == 0)) {
-            available_path_exists = XQC_TRUE;
-        }
+    } else {
+        ret_path = xqc_send_on_normal_path(conn, packet_out, has_path, best_path, reinject);
+    }
 
-        /* 
-         * do not use a standby path if there 
-         * is an available path with higher performence level
-         */
-        if (best_path[path_class] != NULL) {
+#else
+    ret_path = xqc_send_on_normal_path(conn, packet_out, has_path, best_path, reinject);
+#endif
 
-            if (available_path_exists && (path_class & 1) && !reinject) {
-                /* skip standby path*/
-                xqc_log(conn->log, XQC_LOG_DEBUG, 
-                        "|skip_standby_path|path_class:%d|path_id:%ui|",
-                        path_class, best_path[path_class]->path_id);
-                continue;
-
-            } else {
-                xqc_log(conn->log, XQC_LOG_DEBUG, "|best path:%ui|frame_type:%s|"
-                        "pn:%ui|size:%ud|reinj:%d|path_class:%d|",
-                        best_path[path_class]->path_id, 
-                        xqc_frame_type_2_str(conn->engine, packet_out->po_frame_types),
-                        packet_out->po_pkt.pkt_num,
-                        packet_out->po_used_size, reinject, path_class);
-                return best_path[path_class];
-            }
-        }
+    if (ret_path != NULL) {
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|best path:%ui|frame_type:%s|"
+                "pn:%ui|size:%ud|reinj:%d|path_class:%d|",
+                ret_path->path_id, 
+                xqc_frame_type_2_str(conn->engine, packet_out->po_frame_types),
+                packet_out->po_pkt.pkt_num,
+                packet_out->po_used_size, reinject, path_class);
+        return ret_path;
     }
 
     xqc_log(conn->log, XQC_LOG_DEBUG, 
@@ -144,7 +197,7 @@ skip_path:
 }
 
 void 
-xqc_backup_scheduler_handle_conn_event(void *scheduler, 
+xqc_backup_fec_scheduler_handle_conn_event(void *scheduler, 
     xqc_connection_t *conn, xqc_scheduler_conn_event_t event, void *event_arg)
 {
     xqc_list_head_t *pos, *next;
@@ -182,9 +235,9 @@ xqc_backup_scheduler_handle_conn_event(void *scheduler,
     }
 }
 
-const xqc_scheduler_callback_t xqc_backup_scheduler_cb = {
-    .xqc_scheduler_size      = xqc_backup_scheduler_size,
-    .xqc_scheduler_init      = xqc_backup_scheduler_init,
-    .xqc_scheduler_get_path  = xqc_backup_scheduler_get_path,
-    .xqc_scheduler_handle_conn_event = xqc_backup_scheduler_handle_conn_event,
+const xqc_scheduler_callback_t xqc_backup_fec_scheduler_cb = {
+    .xqc_scheduler_size      = xqc_backup_fec_scheduler_size,
+    .xqc_scheduler_init      = xqc_backup_fec_scheduler_init,
+    .xqc_scheduler_get_path  = xqc_backup_fec_scheduler_get_path,
+    .xqc_scheduler_handle_conn_event = xqc_backup_fec_scheduler_handle_conn_event,
 };

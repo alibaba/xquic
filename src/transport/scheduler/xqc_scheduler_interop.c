@@ -81,6 +81,7 @@ xqc_interop_scheduler_get_path(void *scheduler,
             if (path->app_path_status == XQC_APP_PATH_STATUS_AVAILABLE) {
                 best_path = path;
                 min_rtt = path_srtt;
+                
             } else {
                 best_standby_path = path;
                 min_rtt_standby = path_srtt;

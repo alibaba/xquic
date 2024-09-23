@@ -13,7 +13,6 @@
 #include "src/transport/xqc_cid.h"
 #include "src/transport/xqc_stream.h"
 #include "src/transport/xqc_utils.h"
-#include "src/transport/xqc_wakeup_pq.h"
 #include "src/transport/xqc_packet_out.h"
 
 #include "src/common/xqc_common.h"

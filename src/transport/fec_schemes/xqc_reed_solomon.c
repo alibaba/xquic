@@ -27,9 +27,31 @@ xqc_build_generator_matrix(unsigned char src_symbol_num, unsigned char total_sym
 }
 
 void
-xqc_reed_solomon_init(xqc_connection_t *conn)
+xqc_reed_solomon_init(xqc_connection_t *conn, xqc_int_t k, xqc_int_t n)
 {
-    xqc_build_generator_matrix(XQC_FEC_MAX_SYMBOL_NUM_PBLOCK - XQC_REPAIR_LEN, XQC_FEC_MAX_SYMBOL_NUM_PBLOCK, conn->fec_ctl->LC_GM);
+    xqc_int_t           i, ret, max_src_symbol_num, repair_symbol_num, symbol_idx;
+    unsigned char       *key_p;
+    xqc_build_generator_matrix(k, n, conn->fec_ctl->decode_matrix);
+    
+    max_src_symbol_num = conn->conn_settings.fec_params.fec_max_symbol_num_per_block;
+    repair_symbol_num = conn->fec_ctl->fec_send_required_repair_num;
+    if (max_src_symbol_num > XQC_REPAIR_LEN) {
+        conn->conn_settings.enable_encode_fec = 0;
+        conn->local_settings.enable_encode_fec = 0;
+        return;
+    }
+    /* If it's the last symbol in block, save it's key; */
+    for (i = 0 ; i < repair_symbol_num; i++) {
+        key_p = conn->fec_ctl->fec_send_repair_key[i].payload;
+        if (key_p == NULL) {
+            xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_reed_solomon_encode|malloc key failed");
+            return;
+        }
+        xqc_memset(key_p, 0, max_src_symbol_num);
+        xqc_memcpy(key_p, conn->fec_ctl->decode_matrix + max_src_symbol_num + i, max_src_symbol_num);
+        xqc_set_object_value(&conn->fec_ctl->fec_send_repair_key[i], 1, key_p, max_src_symbol_num);
+    }
+
 }
 
 xqc_int_t
@@ -89,78 +111,68 @@ xqc_rs_code_symbols(unsigned char (*GM_rows)[XQC_MAX_MT_ROW], unsigned char **in
 }
 
 xqc_int_t
-xqc_reed_solomon_encode(xqc_connection_t *conn, unsigned char *stream, unsigned char **outputs)
+xqc_reed_solomon_encode(xqc_connection_t *conn, unsigned char *stream, size_t st_size, unsigned char **outputs)
 {
-    size_t              stream_size;
-    xqc_int_t           i, ret, max_src_symbol_num, repair_symbol_num, total_symbol_num, symbol_idx;
+    xqc_int_t           ret, max_src_symbol_num, repair_symbol_num, symbol_idx;
     unsigned char       *key_p;
     /* Record multiplication result in galois field. */
 
-    repair_symbol_num = conn->fec_ctl->fec_send_repair_symbols_num;
-    max_src_symbol_num = conn->conn_settings.fec_params.fec_max_symbol_num_per_block * conn->conn_settings.fec_params.fec_code_rate;
-    total_symbol_num = max_src_symbol_num + repair_symbol_num;
-    symbol_idx = conn->fec_ctl->fec_send_src_symbols_num % max_src_symbol_num;
-    stream_size = conn->conn_settings.fec_params.fec_max_symbol_size;
+    max_src_symbol_num = conn->conn_settings.fec_params.fec_max_symbol_num_per_block;
+    symbol_idx = conn->fec_ctl->fec_send_symbol_num;
+    repair_symbol_num = conn->fec_ctl->fec_send_required_repair_num;
 
-    ret = xqc_rs_code_one_symbol(conn->fec_ctl->LC_GM + max_src_symbol_num, stream, outputs,
-                                 repair_symbol_num, stream_size, symbol_idx);
+    ret = xqc_rs_code_one_symbol(conn->fec_ctl->decode_matrix + max_src_symbol_num, stream, outputs,
+                                 repair_symbol_num, st_size, symbol_idx);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_reed_solomon_encode|xqc_rs_code_one_symbol failed");
         return -XQC_EFEC_SCHEME_ERROR;
-    }
-
-    /* If it's the last symbol in block, save it's key; */
-    if (symbol_idx == max_src_symbol_num - 1) {
-        for (i = 0 ; i < repair_symbol_num; i++) {
-            key_p = conn->fec_ctl->fec_send_repair_key[i].payload;
-            if (key_p == NULL) {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_reed_solomon_encode|malloc key failed");
-                return -XQC_EMALLOC;
-            }
-            xqc_memset(key_p, 0, max_src_symbol_num);
-            xqc_memcpy(key_p, conn->fec_ctl->LC_GM + max_src_symbol_num + i, max_src_symbol_num);
-            xqc_set_object_value(&conn->fec_ctl->fec_send_repair_key[i], 1, key_p, max_src_symbol_num);
-        }
     }
 
     return XQC_OK;
 }
 
 void
-xqc_gen_invert_GM(xqc_connection_t *conn, unsigned char (*GM)[XQC_MAX_MT_ROW], xqc_int_t block_idx)
+xqc_gen_invert_GM(xqc_connection_t *conn, unsigned char (*GM)[XQC_MAX_MT_ROW], xqc_int_t block_idx, xqc_int_t symbol_flag)
 {
-    xqc_int_t i, j, k, symbol_num, repair_symbol_num, symbol_idx;
-    symbol_num = conn->fec_ctl->fec_recv_symbols_num[block_idx];
-    repair_symbol_num = conn->fec_ctl->fec_recv_repair_symbols_num[block_idx];
+    xqc_int_t i, j, k, symbol_num, repair_symbol_num, src_symbol_num, symbol_idx, ret;
+    xqc_list_head_t *pos, *next;
+    xqc_fec_rpr_syb_t *rpr_symbol;
+    
+    src_symbol_num = xqc_cnt_src_symbols_num(conn->fec_ctl, block_idx);
+    repair_symbol_num = xqc_cnt_rpr_symbols_num(conn->fec_ctl, block_idx);
+    symbol_num = src_symbol_num + repair_symbol_num;
     symbol_idx = 0;
+    rpr_symbol = NULL;
 
     xqc_memset(GM, 0, XQC_MAX_MT_ROW * XQC_MAX_MT_ROW);
-    for (i = 0, j = 0; i < symbol_num; i++) {
-        if (i < symbol_num - repair_symbol_num) {
-            for (k = symbol_idx; k < symbol_num; k++) {
-                if (conn->fec_ctl->fec_recv_symbols_flag[block_idx] & (1 << k)) {
-                    symbol_idx = k;
-                    GM[i][symbol_idx] = 1;
-                    symbol_idx++;
-                    break;
-                }
-            }
 
-        } else {
-            if (!conn->fec_ctl->fec_recv_repair_key[block_idx][j].is_valid) {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_gen_invert_GM|repair key is null");
-                return;
+    for (i = 0; i < src_symbol_num; i++) {
+        for (k = symbol_idx; k < symbol_num; k++) {
+            if (symbol_flag & (1 << k)) {
+                symbol_idx = k;
+                GM[i][symbol_idx] = 1;
+                symbol_idx++;
+                break;
             }
-            xqc_memcpy(GM[i], conn->fec_ctl->fec_recv_repair_key[block_idx][j].payload, conn->remote_settings.fec_max_symbols_num);
-            j++;
         }
     }
+
+    xqc_list_for_each_safe(pos, next, &conn->fec_ctl->fec_recv_rpr_syb_list) {
+        xqc_fec_rpr_syb_t *rpr_symbol = xqc_list_entry(pos, xqc_fec_rpr_syb_t, fec_list);
+        if (rpr_symbol->block_id > block_idx) {
+            break;
+        }
+        if (rpr_symbol->block_id == block_idx) {
+            xqc_memcpy(GM[i], rpr_symbol->repair_key, rpr_symbol->repair_key_size);
+            i++;
+        }
+    }
+
     xqc_invert_matrix(symbol_num, symbol_num, GM);
 }
 
 xqc_int_t
-xqc_reed_solomon_decode(xqc_connection_t *conn, unsigned char **outputs, xqc_int_t block_idx,
-    xqc_int_t *loss_symbols_idx, xqc_int_t loss_symbols_len)
+xqc_reed_solomon_decode(xqc_connection_t *conn, unsigned char **outputs, size_t *output_size, xqc_int_t block_idx)
 {
     /**
      * 根据fec_recv_symbols_buff和fec_recv_repair_key复原丢失的srcsymbol：
@@ -168,29 +180,37 @@ xqc_reed_solomon_decode(xqc_connection_t *conn, unsigned char **outputs, xqc_int
      * 2. 将recv symbols格式化
      * 3. 逆矩阵 * recv symbols
      */
-    uint64_t            symbol_size;
-    xqc_int_t           i, j, ret, recv_symbols_num, recv_repair_symbols_num;
-    unsigned char       GM[XQC_MAX_MT_ROW][XQC_MAX_MT_ROW], *recv_symbols_buff[XQC_FEC_MAX_SYMBOL_NUM_PBLOCK - XQC_REPAIR_LEN], *recovered_symbols_buff[XQC_FEC_MAX_SYMBOL_NUM_PBLOCK];
-    
+    xqc_int_t           i, j, ret, recv_symbols_num, recv_repair_symbols_num, symbol_flag, max_src_symbol_num, loss_src_num;
+    unsigned char       GM[XQC_MAX_MT_ROW][XQC_MAX_MT_ROW], *recv_symbols_buff[XQC_FEC_MAX_SYMBOL_NUM_PBLOCK], *recovered_symbols_buff[XQC_FEC_MAX_SYMBOL_NUM_PBLOCK];
+    xqc_int_t           loss_symbol_idx[XQC_FEC_MAX_SYMBOL_NUM_PBLOCK] = {-1};
+
+    *output_size = loss_src_num = 0;
+    recv_repair_symbols_num = xqc_cnt_rpr_symbols_num(conn->fec_ctl, block_idx);
+    recv_symbols_num = xqc_cnt_src_symbols_num(conn->fec_ctl, block_idx) + recv_repair_symbols_num;
+    symbol_flag = xqc_get_symbol_flag(conn, block_idx);
+    max_src_symbol_num = conn->remote_settings.fec_max_symbols_num;
+
     for (i = 0; i < XQC_FEC_MAX_SYMBOL_NUM_PBLOCK; i++) {
-        if (i < XQC_FEC_MAX_SYMBOL_NUM_PBLOCK - XQC_REPAIR_LEN) {
-            recv_symbols_buff[i] = NULL;
+        if (i < recv_symbols_num) {
+            recv_symbols_buff[i] = xqc_calloc(XQC_MAX_SYMBOL_SIZE, sizeof(unsigned char));
         }
-        recovered_symbols_buff[i] = xqc_calloc(1, XQC_PACKET_OUT_SIZE + XQC_ACK_SPACE - XQC_HEADER_SPACE - XQC_FEC_SPACE);
+        recovered_symbols_buff[i] = xqc_calloc(XQC_MAX_SYMBOL_SIZE, sizeof(unsigned char));
     }
 
-    recv_symbols_num = conn->fec_ctl->fec_recv_symbols_num[block_idx];
-    recv_repair_symbols_num = conn->fec_ctl->fec_recv_repair_symbols_num[block_idx];
-    symbol_size = conn->remote_settings.fec_max_symbol_size;
-    xqc_gen_invert_GM(conn, GM, block_idx);
-    /* 将收到的symbol整顿为矩阵 */
-    for (i = 0, j = 0; i < recv_symbols_num && j < recv_symbols_num + recv_repair_symbols_num; j++) {
-        if (conn->fec_ctl->fec_recv_symbols_flag[block_idx] & (1 << j)
-            && conn->fec_ctl->fec_recv_symbols_buff[block_idx][j].is_valid)
-        {
-            recv_symbols_buff[i] = conn->fec_ctl->fec_recv_symbols_buff[block_idx][j].payload;
-            i++;
+    for (i = 0; i < max_src_symbol_num; i++) {
+        if ((symbol_flag & (1 << i)) == 0) {
+            loss_symbol_idx[loss_src_num] = i;
+            loss_src_num++;
         }
+    }
+    
+    xqc_gen_invert_GM(conn, GM, block_idx, symbol_flag);
+
+    // get symbols and make them into matrix according to block idx;
+    i = xqc_get_symbols_buff(recv_symbols_buff, conn->fec_ctl, block_idx, output_size);
+    if (i < 0) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_get_symbols_buff|recv invalid symbols");
+        return -XQC_EFEC_SCHEME_ERROR;
     }
     if (i != recv_symbols_num) {
         xqc_log(conn->log, XQC_LOG_WARN, "|quic_fec|xqc_reed_solomon_decode|recv symbols not enouph to recover lost symbols");
@@ -199,14 +219,14 @@ xqc_reed_solomon_decode(xqc_connection_t *conn, unsigned char **outputs, xqc_int
 
     ret = xqc_rs_code_symbols(GM, recv_symbols_buff, recv_symbols_num,
                               recovered_symbols_buff, recv_symbols_num,
-                              symbol_size);
+                              *output_size);
 
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_reed_solomon_decode|reed solomon decode symbols failed");
     }
 
-    for (i = 0; i < loss_symbols_len; i++) {
-        xqc_fec_ctl_save_symbol(&outputs[i], recovered_symbols_buff[loss_symbols_idx[i]], symbol_size);
+    for (i = 0; i < loss_src_num; i++) {
+        xqc_fec_ctl_save_symbol(&outputs[i], recovered_symbols_buff[loss_symbol_idx[i]], *output_size);
     }
 
     for (i = 0; i < recv_symbols_num; i++) {

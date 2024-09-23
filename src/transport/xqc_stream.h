@@ -154,11 +154,15 @@ struct xqc_stream_s {
         xqc_usec_t          send_cwnd_blk_duration;
         xqc_usec_t          send_pacing_blk_duration;  
         uint32_t            retrans_pkt_cnt;
+        uint32_t            sent_pkt_cnt;
+        uint8_t             max_pto_backoff;
+        uint32_t            recov_pkt_cnt;
     } stream_stats;
 
     xqc_path_metrics_t      paths_info[XQC_MAX_PATHS_COUNT];
     uint8_t                 stream_mp_usage_schedule;
     uint8_t                 stream_mp_usage_reinject;
+    uint8_t                 stream_enable_fec;
 
     uint64_t                recv_rate_bytes_per_sec;
 

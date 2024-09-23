@@ -7,4 +7,4 @@
 
 void xqc_test_fec();
 
-#endif /* _XQC_WAKEUP_PQ_TEST_H_INCLUDED_ */
+#endif 

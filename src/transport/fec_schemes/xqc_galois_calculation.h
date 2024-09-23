@@ -131,9 +131,9 @@ xqc_int_t xqc_galois_divide(unsigned char a, unsigned char b, unsigned char *res
 void xqc_build_vandermonde_matrix(unsigned char rows, unsigned char cols,
     unsigned char (*Vandermonde)[XQC_MAX_MT_ROW]);
 
-void xqc_submatrix(uint16_t row_min, uint16_t row_max,
-    uint16_t col_min, uint16_t col_max,
-    uint16_t col_max_sub, uint16_t col_max_matrix,
+void xqc_submatrix(int row_min, int row_max,
+    int col_min, int col_max,
+    int row_max_sub, int row_max_matrix,
     unsigned char *submatrix, unsigned char *matrix);
 
 xqc_int_t xqc_matrix_time(unsigned char left_row, unsigned char left_col,

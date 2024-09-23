@@ -180,6 +180,15 @@ typedef struct xqc_request_stats_s {
     xqc_usec_t  stream_fst_pkt_snd_time;
     xqc_usec_t  stream_fst_pkt_rcv_time;
     
+    uint32_t    sent_pkt_cnt;
+    uint8_t     max_pto_backoff;
+    
+    /**
+     * @brief the number of lost/delayed packets recovered by fec module;
+     */
+    uint32_t    fec_recov_cnt;
+
+    uint8_t     is_fec_protected;
 } xqc_request_stats_t;
 
 /**

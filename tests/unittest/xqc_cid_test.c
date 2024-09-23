@@ -25,35 +25,31 @@ xqc_test_cid_basic()
     ret = xqc_generate_cid(conn->engine, NULL, &test_scid, 1);
     CU_ASSERT(ret == XQC_OK);
 
-    ret = xqc_cid_set_insert_cid(&conn->scid_set.cid_set, &test_scid, XQC_CID_UNUSED, conn->remote_settings.active_connection_id_limit);
+    ret = xqc_cid_set_insert_cid(&conn->scid_set, &test_scid, XQC_CID_UNUSED, conn->remote_settings.active_connection_id_limit, 0);
     CU_ASSERT(ret == XQC_OK);
-    CU_ASSERT(xqc_cid_in_cid_set(&conn->scid_set.cid_set, &test_scid) != NULL);
-    CU_ASSERT(xqc_cid_is_equal(xqc_get_cid_by_seq(&conn->scid_set.cid_set, 1), &test_scid) == XQC_OK)
+    CU_ASSERT(xqc_cid_in_cid_set(&conn->scid_set, &test_scid, 0) != NULL);
 
-    ret = xqc_get_unused_cid(&conn->scid_set.cid_set, &test_scid);
+    ret = xqc_get_unused_cid(&conn->scid_set, &test_scid, 0);
     CU_ASSERT(ret == XQC_OK);
 
-    ret = xqc_cid_set_delete_cid(&conn->scid_set.cid_set, &test_scid);
+    ret = xqc_cid_set_delete_cid(&conn->scid_set, &test_scid, 0);
     CU_ASSERT(ret == XQC_OK);
-    CU_ASSERT(xqc_cid_in_cid_set(&conn->scid_set.cid_set, &test_scid) == NULL);
-    CU_ASSERT(xqc_cid_is_equal(xqc_get_cid_by_seq(&conn->scid_set.cid_set, 1), &test_scid) != XQC_OK)
+    CU_ASSERT(xqc_cid_in_cid_set(&conn->scid_set, &test_scid, 0) == NULL);
 
 
     ret = xqc_generate_cid(conn->engine, NULL, &test_dcid, 1);
     CU_ASSERT(ret == XQC_OK);
 
-    ret = xqc_cid_set_insert_cid(&conn->dcid_set.cid_set, &test_dcid, XQC_CID_UNUSED, conn->local_settings.active_connection_id_limit);
+    ret = xqc_cid_set_insert_cid(&conn->dcid_set, &test_dcid, XQC_CID_UNUSED, conn->local_settings.active_connection_id_limit, 0);
     CU_ASSERT(ret == XQC_OK);
-    CU_ASSERT(xqc_cid_in_cid_set(&conn->dcid_set.cid_set, &test_dcid) != NULL);
-    CU_ASSERT(xqc_cid_is_equal(xqc_get_cid_by_seq(&conn->dcid_set.cid_set, 1), &test_dcid) == XQC_OK)
+    CU_ASSERT(xqc_cid_in_cid_set(&conn->dcid_set, &test_dcid, 0) != NULL);
 
-    ret = xqc_get_unused_cid(&conn->dcid_set.cid_set, &test_dcid);
+    ret = xqc_get_unused_cid(&conn->dcid_set, &test_dcid, 0);
     CU_ASSERT(ret == XQC_OK);
 
-    ret = xqc_cid_set_delete_cid(&conn->dcid_set.cid_set, &test_dcid);
+    ret = xqc_cid_set_delete_cid(&conn->dcid_set, &test_dcid, 0);
     CU_ASSERT(ret == XQC_OK);
-    CU_ASSERT(xqc_cid_in_cid_set(&conn->dcid_set.cid_set, &test_dcid) == NULL);
-    CU_ASSERT(xqc_cid_is_equal(xqc_get_cid_by_seq(&conn->dcid_set.cid_set, 1), &test_dcid) != XQC_OK)
+    CU_ASSERT(xqc_cid_in_cid_set(&conn->dcid_set, &test_dcid, 0) == NULL);
 
     xqc_engine_destroy(conn->engine);
 }
@@ -71,11 +67,11 @@ xqc_test_new_cid()
     /* New Conn ID */
     ret = xqc_write_new_conn_id_frame_to_packet(conn, 0);
     CU_ASSERT(ret == XQC_OK);
-    CU_ASSERT(conn->scid_set.cid_set.unused_cnt == 1);
+    CU_ASSERT(xqc_cid_set_get_unused_cnt(&conn->scid_set, 0) == 1);
 
-    ret = xqc_get_unused_cid(&conn->scid_set.cid_set, &test_scid);
+    ret = xqc_get_unused_cid(&conn->scid_set, &test_scid, 0);
     CU_ASSERT(ret == XQC_OK);
-    CU_ASSERT(conn->scid_set.cid_set.unused_cnt == 0);
+    CU_ASSERT(xqc_cid_set_get_unused_cnt(&conn->scid_set, 0) == 0);
 
     xqc_engine_destroy(conn->engine);
 }
@@ -96,7 +92,7 @@ xqc_test_retire_cid()
 
     ret = xqc_generate_cid(conn->engine, NULL, &test_dcid, 1);
     CU_ASSERT(ret == XQC_OK);
-    ret = xqc_cid_set_insert_cid(&conn->dcid_set.cid_set, &test_dcid, XQC_CID_UNUSED, conn->local_settings.active_connection_id_limit);
+    ret = xqc_cid_set_insert_cid(&conn->dcid_set, &test_dcid, XQC_CID_UNUSED, conn->local_settings.active_connection_id_limit, 0);
     CU_ASSERT(ret == XQC_OK);
     ret = xqc_write_retire_conn_id_frame_to_packet(conn, 0);
     CU_ASSERT(ret == XQC_OK);
@@ -116,7 +112,7 @@ xqc_test_recv_retire_cid()
 
     ret = xqc_write_new_conn_id_frame_to_packet(conn, 0);
     CU_ASSERT(ret == XQC_OK);
-    ret = xqc_get_unused_cid(&conn->scid_set.cid_set, &test_scid);
+    ret = xqc_get_unused_cid(&conn->scid_set, &test_scid, 0);
     CU_ASSERT(ret == XQC_OK);
 
     xqc_cid_t ori_cid;
@@ -135,7 +131,7 @@ xqc_test_recv_retire_cid()
     CU_ASSERT(packet_in.pi_frame_types == XQC_FRAME_BIT_RETIRE_CONNECTION_ID);
 
     /* ori_scid retired */
-    xqc_cid_inner_t *ori_inner_cid = xqc_cid_in_cid_set(&conn->scid_set.cid_set, &ori_cid);
+    xqc_cid_inner_t *ori_inner_cid = xqc_cid_in_cid_set(&conn->scid_set, &ori_cid, 0);
     CU_ASSERT(ori_inner_cid != NULL);
     CU_ASSERT(ori_inner_cid->state == XQC_CID_RETIRED);
 
@@ -168,7 +164,7 @@ xqc_test_retire_cid_with_odcid_in_set()
 
     ret = xqc_generate_cid(conn->engine, NULL, &test_odcid, 0);
     CU_ASSERT(ret == XQC_OK);
-    ret = xqc_cid_set_insert_cid(&conn->scid_set.cid_set, &test_odcid, XQC_CID_USED, conn->remote_settings.active_connection_id_limit);
+    ret = xqc_cid_set_insert_cid(&conn->scid_set, &test_odcid, XQC_CID_USED, conn->remote_settings.active_connection_id_limit, 0);
     CU_ASSERT(ret == XQC_OK);
 
     /* generate new cid with default cid_len:8 */
@@ -178,7 +174,7 @@ xqc_test_retire_cid_with_odcid_in_set()
 
     ret = xqc_write_new_conn_id_frame_to_packet(conn, 0);
     CU_ASSERT(ret == XQC_OK);
-    ret = xqc_get_unused_cid(&conn->scid_set.cid_set, &test_scid);
+    ret = xqc_get_unused_cid(&conn->scid_set, &test_scid, 0);
     CU_ASSERT(ret == XQC_OK);
 
     /* retire user_scid */

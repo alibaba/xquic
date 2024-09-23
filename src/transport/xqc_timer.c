@@ -240,48 +240,56 @@ xqc_timer_retire_cid_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_d
     xqc_usec_t next_time = XQC_MAX_UINT64_VALUE;
     xqc_usec_t interval = 0;
 
-    xqc_list_for_each_safe(pos, next, &conn->scid_set.cid_set.list_head) {
-        inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
+    xqc_cid_set_inner_t *inner_set;
+    xqc_list_head_t *pos_set, *next_set;
+    uint32_t to_be_retired_cnt = 0;
 
-        if (inner_cid->state == XQC_CID_RETIRED) {
+    xqc_list_for_each_safe(pos_set, next_set, &conn->scid_set.cid_set_list) {
+        inner_set = xqc_list_entry(pos_set, xqc_cid_set_inner_t, next);
 
-            if (inner_cid->retired_ts < now) {
-                /* MP关闭主路后如果删除对应的cid映射，对外接口通过engine和cid无法找到conn，暂时注释掉 */
-                /* TODO: 1. MP切换主路后通知上层更换cid; 2. 重新设计接口，改用conn而不是engine和cid */
-                // /* switch state to REMOVED & delete from cid_set */
-                // if (xqc_find_conns_hash(conn->engine->conns_hash, conn,
-                //                         inner_cid->cid.cid_buf, inner_cid->cid.cid_len))
-                //  {
-                //     xqc_remove_conns_hash(conn->engine->conns_hash, conn,
-                //                           inner_cid->cid.cid_buf, inner_cid->cid.cid_len);
-                // }
+        xqc_list_for_each_safe(pos, next, &inner_set->cid_list) {
+            inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
 
-                ret = xqc_cid_switch_to_next_state(&conn->scid_set.cid_set, inner_cid, XQC_CID_REMOVED);
-                if (ret != XQC_OK) {
-                    xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_cid_switch_to_next_state error|");
-                    return;
+            if (inner_cid->state == XQC_CID_RETIRED) {
+
+                if (inner_cid->retired_ts < now) {
+                    /* MP关闭主路后如果删除对应的cid映射，对外接口通过engine和cid无法找到conn，暂时注释掉 */
+                    /* TODO: 1. MP切换主路后通知上层更换cid; 2. 重新设计接口，改用conn而不是engine和cid */
+                    // /* switch state to REMOVED & delete from cid_set */
+                    // if (xqc_find_conns_hash(conn->engine->conns_hash, conn,
+                    //                         inner_cid->cid.cid_buf, inner_cid->cid.cid_len))
+                    //  {
+                    //     xqc_remove_conns_hash(conn->engine->conns_hash, conn,
+                    //                           inner_cid->cid.cid_buf, inner_cid->cid.cid_len);
+                    // }
+
+                    ret = xqc_cid_switch_to_next_state(&conn->scid_set, inner_cid, XQC_CID_REMOVED, inner_cid->cid.path_id);
+                    if (ret != XQC_OK) {
+                        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_cid_switch_to_next_state error|");
+                        continue;
+                    }
+
+                    xqc_log(conn->log, XQC_LOG_DEBUG, 
+                            "|retired->removed|cid:%s|seq:%ui|len:%d|", 
+                            xqc_scid_str(conn->engine, &inner_cid->cid), 
+                            inner_cid->cid.cid_seq_num,
+                            inner_cid->cid.cid_len);
+
+                    // xqc_list_del(pos);
+                    // xqc_free(inner_cid);
+
+                } else {
+                    /* record the earliest time that has not yet expired */
+                    if (inner_cid->retired_ts < next_time) {
+                        next_time = inner_cid->retired_ts;
+                    }
+                    to_be_retired_cnt++;
                 }
-
-                xqc_log(conn->log, XQC_LOG_DEBUG, 
-                        "|retired->removed|cid:%s|seq:%ui|len:%d|", 
-                        xqc_scid_str(conn->engine, &inner_cid->cid), 
-                        inner_cid->cid.cid_seq_num,
-                        inner_cid->cid.cid_len);
-
-                // xqc_list_del(pos);
-                // xqc_free(inner_cid);
-
-            } else {
-                /* record the earliest time that has not yet expired */
-                if (inner_cid->retired_ts < next_time) {
-                    next_time = inner_cid->retired_ts;
-                }
-
             }
         }
     }
 
-    if (conn->scid_set.cid_set.retired_cnt > 0) {
+    if (to_be_retired_cnt > 0) {
         if (next_time == XQC_MAX_UINT64_VALUE) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|next_time is not assigned a value|");
             return;

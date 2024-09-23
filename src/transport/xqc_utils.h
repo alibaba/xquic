@@ -9,15 +9,19 @@
 #include "src/common/xqc_priority_q.h"
 
 typedef struct xqc_conns_pq_elem_s {
-    xqc_pq_key_t        time_ms;
+    xqc_pq_key_t        time_us;
     xqc_connection_t   *conn;
 } xqc_conns_pq_elem_t;
 
-int xqc_conns_pq_push(xqc_pq_t *pq, xqc_connection_t *conn, uint64_t time_ms);
+int xqc_conns_pq_push(xqc_pq_t *pq, xqc_connection_t *conn, uint64_t time_us);
 
 void xqc_conns_pq_pop(xqc_pq_t *pq);
 
 xqc_conns_pq_elem_t *xqc_conns_pq_top(xqc_pq_t *pq);
+
+xqc_connection_t *xqc_conns_pq_pop_top_conn(xqc_pq_t *pq);
+
+void xqc_conns_pq_remove(xqc_pq_t *pq, xqc_connection_t *conn);
 
 int xqc_insert_conns_hash(xqc_str_hash_table_t *conns_hash,
     xqc_connection_t *conn, const uint8_t *data, size_t len);

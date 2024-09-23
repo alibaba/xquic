@@ -8,7 +8,6 @@
 #include <xquic/xquic_typedef.h>
 #include "src/common/xqc_list.h"
 
-
 #define XQC_DEFAULT_CID_LEN 8
 
 typedef enum {
@@ -18,66 +17,101 @@ typedef enum {
     XQC_CID_REMOVED,
 } xqc_cid_state_t;
 
+typedef enum {
+    XQC_CID_SET_UNUSED,
+    XQC_CID_SET_USED,
+    XQC_CID_SET_ABANDONED,
+    XQC_CID_SET_MAX_STATE,
+} xqc_cid_set_state_t;
+
+typedef enum {
+    XQC_CID_UNACKED = 0,
+    XQC_CID_ACKED   = 1
+} xqc_cid_flag_t;
 
 typedef struct xqc_cid_inner_s {
     xqc_list_head_t   list;
-
     xqc_cid_t         cid;
     xqc_cid_state_t   state;
     xqc_usec_t        retired_ts;
+    xqc_cid_flag_t    acked;
 } xqc_cid_inner_t;
 
+typedef struct xqc_cid_set_inner_s {
+    xqc_list_head_t     next;    /* a list of cid inner structures */
+    xqc_list_head_t     cid_list;
+    uint64_t            unused_cnt;
+    uint64_t            used_cnt;
+    uint64_t            retired_cnt;
+    uint64_t            path_id;
+    union {
+    uint64_t            largest_scid_seq_num;    /* for scid set */
+    uint64_t            largest_retire_prior_to; /* for dcid set */
+    };
+    xqc_cid_set_state_t set_state;
+    uint32_t            acked_unused;
+} xqc_cid_set_inner_t;
+
 typedef struct xqc_cid_set_s {
-    xqc_list_head_t   list_head;
-    uint64_t          unused_cnt;
-    uint64_t          used_cnt;
-    uint64_t          retired_cnt;
-} xqc_cid_set_t;
-
-typedef struct xqc_scid_set_s {
-    xqc_cid_t         user_scid; /* one of the USED SCIDs, for create/close notify */
-    xqc_cid_set_t     cid_set;   /* a set of SCID, includes used/unused/retired SCID */
-    uint64_t          largest_scid_seq_num;
+    xqc_list_head_t   cid_set_list; /* a list of xqc_cid_set_inner_t */
+    union {
     unsigned char     original_scid_str[XQC_MAX_CID_LEN * 2 + 1];
-} xqc_scid_set_t;
-
-typedef struct xqc_dcid_set_s {
-    xqc_cid_t         current_dcid; /* one of the USED DCIDs, for send packets */
-    xqc_cid_set_t     cid_set;      /* a set of DCID, includes used/unused/retired DCID */
-    uint64_t          largest_retire_prior_to;
     unsigned char     current_dcid_str[XQC_MAX_CID_LEN * 2 + 1];
-} xqc_dcid_set_t;
+    };
+    union {
+    xqc_cid_t         user_scid;    /* one of the USED SCIDs, for create/close notify */
+    xqc_cid_t         current_dcid; /* one of the USED DCIDs, for send packets */
+    };
+    uint32_t          set_cnt[XQC_CID_SET_MAX_STATE];
+} xqc_cid_set_t;
 
 
 xqc_int_t xqc_generate_cid(xqc_engine_t *engine, xqc_cid_t *ori_cid, xqc_cid_t *cid,
     uint64_t cid_seq_num);
 
-
 void xqc_cid_copy(xqc_cid_t *dst, xqc_cid_t *src);
 void xqc_cid_init_zero(xqc_cid_t *cid);
 void xqc_cid_set(xqc_cid_t *cid, const unsigned char *data, uint8_t len);
 
-void xqc_init_scid_set(xqc_scid_set_t *scid_set);
-void xqc_init_dcid_set(xqc_dcid_set_t *dcid_set);
+void xqc_init_cid_set(xqc_cid_set_t *cid_set);
 void xqc_destroy_cid_set(xqc_cid_set_t *cid_set);
 
-uint64_t xqc_cid_set_cnt(xqc_cid_set_t *cid_set);
-xqc_bool_t xqc_cid_set_validate_new_cid_limit(xqc_cid_set_t *cid_set,
-    uint64_t max_retire_prior_to, uint64_t *active_cid_limit);
+xqc_int_t xqc_cid_set_insert_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid, 
+    xqc_cid_state_t state, uint64_t limit, uint64_t path_id);
+xqc_int_t xqc_cid_set_delete_cid(xqc_cid_set_t *cid_set, 
+    xqc_cid_t *cid, uint64_t path_id);
 
-xqc_int_t xqc_cid_set_insert_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid, xqc_cid_state_t state, uint64_t limit);
-xqc_int_t xqc_cid_set_delete_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid);
+xqc_cid_inner_t *xqc_get_inner_cid_by_seq(xqc_cid_set_t *cid_set, 
+    uint64_t seq_num, uint64_t path_id);
+xqc_cid_inner_t *xqc_cid_in_cid_set(xqc_cid_set_t *cid_set, 
+    xqc_cid_t *cid, uint64_t path_id);
+xqc_cid_inner_t *xqc_cid_set_search_cid(xqc_cid_set_t *cid_set, 
+    xqc_cid_t *cid);
 
-xqc_cid_t *xqc_get_cid_by_seq(xqc_cid_set_t *cid_set, uint64_t seq_num);
-xqc_cid_inner_t *xqc_get_inner_cid_by_seq(xqc_cid_set_t *cid_set, uint64_t seq_num);
-xqc_cid_inner_t *xqc_cid_in_cid_set(const xqc_cid_set_t *cid_set, xqc_cid_t *cid);
+xqc_int_t xqc_cid_switch_to_next_state(xqc_cid_set_t *cid_set, 
+    xqc_cid_inner_t *cid, xqc_cid_state_t state, uint64_t path_id);
 
-xqc_int_t xqc_cid_switch_to_next_state(xqc_cid_set_t *cid_set, xqc_cid_inner_t *cid, xqc_cid_state_t state);
-xqc_int_t xqc_get_unused_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid);
+xqc_int_t xqc_get_unused_cid(xqc_cid_set_t *cid_set, 
+    xqc_cid_t *cid, uint64_t path_id);
 
-xqc_bool_t xqc_validate_retire_cid_frame(xqc_cid_set_t *cid_set, xqc_cid_inner_t *cid);
+void xqc_cid_set_inner_init(xqc_cid_set_inner_t *cid_set_inner);
+void xqc_cid_set_inner_destroy(xqc_cid_set_inner_t *cid_set_inner);
+xqc_cid_set_inner_t* xqc_get_path_cid_set(xqc_cid_set_t *cid_set, uint64_t path_id); 
+int64_t xqc_cid_set_get_unused_cnt(xqc_cid_set_t *cid_set, uint64_t path_id);
+int64_t xqc_cid_set_get_used_cnt(xqc_cid_set_t *cid_set, uint64_t path_id);\
+int64_t xqc_cid_set_get_retired_cnt(xqc_cid_set_t *cid_set, uint64_t path_id);
+int64_t xqc_cid_set_get_largest_seq_or_rpt(xqc_cid_set_t *cid_set, uint64_t path_id);
+xqc_int_t xqc_cid_set_set_largest_seq_or_rpt(xqc_cid_set_t *cid_set, uint64_t path_id, uint64_t val);
 
 unsigned char *xqc_sr_token_str(xqc_engine_t *engine, const char *sr_token);
+
+xqc_int_t xqc_cid_set_add_path(xqc_cid_set_t *cid_set, uint64_t path_id);
+
+void xqc_cid_set_update_state(xqc_cid_set_t *cid_set, uint64_t path_id, xqc_cid_set_state_t state);
+
+xqc_cid_set_inner_t* xqc_get_next_unused_path_cid_set(xqc_cid_set_t *cid_set);
+void xqc_cid_set_on_cid_acked(xqc_cid_set_t *cid_set, uint64_t path_id, uint64_t cid_seq);
+
 
 #endif /* _XQC_CID_H_INCLUDED_ */
 

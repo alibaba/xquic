@@ -8,23 +8,28 @@
 #include "src/transport/xqc_conn.h"
 
 void
-xqc_xor_init(xqc_connection_t *conn)
+xqc_xor_init(xqc_connection_t *conn, xqc_int_t k, xqc_int_t n)
 {
+    if (conn->fec_ctl == NULL) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|fail to malloc space for fec_ctl");
+        return;
+    }
+    conn->fec_ctl->fec_send_required_repair_num = 1;
     return;
 }
 
 xqc_int_t
-xqc_xor_code_one_symbol(unsigned char *input, unsigned char **outputs,
+xqc_xor_code_one_symbol(unsigned char *input, unsigned char *outputs,
     xqc_int_t item_size)
 {
     xqc_int_t i;
     unsigned char *output_p;
 
-    if (*outputs == NULL) {
+    if (outputs == NULL) {
         return -XQC_EMALLOC;
     }
 
-    output_p = *outputs;
+    output_p = outputs;
     for (i = 0; i < item_size; i++) {
         *(output_p + i) ^= *(input + i);
     }
@@ -33,56 +38,56 @@ xqc_xor_code_one_symbol(unsigned char *input, unsigned char **outputs,
 }
 
 xqc_int_t
-xqc_xor_code_symbols(unsigned char **inputs, xqc_int_t inputs_rows_num, unsigned char **outputs,
-    xqc_int_t outputs_rows_num, xqc_int_t item_size)
+xqc_xor_decode(xqc_connection_t *conn, unsigned char **outputs, size_t *output_size, xqc_int_t block_idx)
 {
-    xqc_int_t input_i, output_i, ret;
-    unsigned char *input_p, *output_p;
-    if (outputs_rows_num != 1) {
-        return -XQC_EFEC_SYMBOL_ERROR;
-    }
+    xqc_int_t i, j, ret, recv_repair_symbols_num, output_len;
+    xqc_list_head_t *pos, *next, *fec_recv_src_syb_list, *fec_recv_rpr_syb_list;
+    
+    *output_size = 0;
+    ret = -XQC_EFEC_SYMBOL_ERROR;
+    fec_recv_src_syb_list = &conn->fec_ctl->fec_recv_src_syb_list;
+    fec_recv_rpr_syb_list = &conn->fec_ctl->fec_recv_rpr_syb_list;
 
-    for (input_i = 0; input_i < inputs_rows_num; input_i++) {
-        input_p = inputs[input_i];
-        ret = xqc_xor_code_one_symbol(input_p, &outputs[0], item_size);
-        if (ret != XQC_OK) {
-            return ret;
+    xqc_list_for_each_safe(pos, next, fec_recv_rpr_syb_list) {
+        xqc_fec_rpr_syb_t *rpr_syb = xqc_list_entry(pos, xqc_fec_rpr_syb_t, fec_list);
+        if (rpr_syb->block_id < block_idx) {
+            continue;
+        }
+        if (rpr_syb->block_id == block_idx) {
+            if (rpr_syb->payload_size > XQC_MAX_SYMBOL_SIZE) {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xor decoder can't process rpr symbol with size bigger than XQC_MAX_SYMBOL_SIZE.");
+                return -XQC_EFEC_SCHEME_ERROR;
+            }
+            ret = xqc_xor_code_one_symbol(rpr_syb->payload, outputs[0], rpr_syb->payload_size);
+            if (ret != XQC_OK) {
+                return ret;
+            }
+            *output_size = rpr_syb->payload_size;
+            break;
+        }
+        if (rpr_syb->block_id > block_idx) {
+            return -XQC_EFEC_SCHEME_ERROR;
         }
     }
-
-    return XQC_OK;
-}
-
-xqc_int_t
-xqc_xor_decode(xqc_connection_t *conn, unsigned char **outputs, xqc_int_t block_idx,
-    xqc_int_t *loss_symbols_idx, xqc_int_t loss_symbols_len)
-{
-    xqc_int_t i, j, ret, recv_symbols_num, recv_repair_symbols_num, output_len;
-    unsigned char *recv_symbols_buff[XQC_FEC_MAX_SYMBOL_NUM_PBLOCK - XQC_REPAIR_LEN];
-
-    /* TODOfec: 对xor来说，若XQC_FEC_MAX_SYMBOL_NUM_PBLOCK - XQC_REPAIR_LEN != 1, 不该通过协商*/
-
-    recv_symbols_num = conn->fec_ctl->fec_recv_symbols_num[block_idx];
-    recv_repair_symbols_num = conn->fec_ctl->fec_recv_repair_symbols_num[block_idx];
-    output_len = 1;
-
-    /* 将收到的symbol整顿为矩阵 */
-    for (i = 0, j = 0; i < recv_symbols_num && j < recv_symbols_num + recv_repair_symbols_num; j++) {
-        if (conn->fec_ctl->fec_recv_symbols_flag[block_idx] & (1 << j)
-            && conn->fec_ctl->fec_recv_symbols_buff[block_idx][j].is_valid) 
-        {
-            recv_symbols_buff[i] = conn->fec_ctl->fec_recv_symbols_buff[block_idx][j].payload;
-            i++;
+    xqc_list_for_each_safe(pos, next, fec_recv_src_syb_list) {
+        xqc_fec_src_syb_t *src_syb = xqc_list_entry(pos, xqc_fec_src_syb_t, fec_list);
+        if (src_syb->block_id < block_idx) {
+            continue;
+        }
+        if (src_syb->block_id == block_idx) {
+            if (src_syb->payload_size > XQC_MAX_SYMBOL_SIZE) {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xor decoder can't process src symbol with size bigger than XQC_MAX_SYMBOL_SIZE.");
+                return -XQC_EFEC_SCHEME_ERROR;
+            }
+            ret = xqc_xor_code_one_symbol(src_syb->payload, outputs[0], src_syb->payload_size);
+            if (ret != XQC_OK) {
+                return ret;
+            }
+        }
+        if (src_syb->block_id > block_idx) {
+            break;
         }
     }
-
-    if (i != recv_symbols_num) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_xor_decode|process recv_symbols into matrix failed");
-        return -XQC_EFEC_SCHEME_ERROR;
-    }
-
-    ret = xqc_xor_code_symbols(recv_symbols_buff, recv_symbols_num, outputs,
-                           output_len, conn->remote_settings.fec_max_symbol_size);
 
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_xor_decode|xor decode symbols failed");
@@ -93,14 +98,16 @@ xqc_xor_decode(xqc_connection_t *conn, unsigned char **outputs, xqc_int_t block_
 }
 
 xqc_int_t
-xqc_xor_encode(xqc_connection_t *conn, unsigned char *stream, unsigned char **outputs)
+xqc_xor_encode(xqc_connection_t *conn, unsigned char *stream, size_t st_size, unsigned char **outputs)
 {
-    size_t              stream_size;
     xqc_int_t           ret;
 
-    stream_size = conn->conn_settings.fec_params.fec_max_symbol_size;
+    if (st_size > XQC_MAX_SYMBOL_SIZE) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_xor_encode|invalid input size:%d|", st_size);
+        return -XQC_EFEC_SYMBOL_ERROR;
+    }
 
-    ret = xqc_xor_code_one_symbol(stream, &outputs[0], stream_size);
+    ret = xqc_xor_code_one_symbol(stream, outputs[0], st_size);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_xor_encode|code one symbol failed");
         return -XQC_EFEC_SCHEME_ERROR;

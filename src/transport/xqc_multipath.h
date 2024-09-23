@@ -9,6 +9,7 @@
 #include <xquic/xquic_typedef.h>
 #include <xquic/xquic.h>
 #include <xquic/xqc_http3.h>
+#include "src/transport/xqc_cid.h"
 #include "src/common/xqc_common.h"
 #include "src/transport/xqc_packet.h"
 #include "src/transport/xqc_recv_record.h"
@@ -17,8 +18,8 @@
 
 /* enable multipath */
 typedef enum {
-    XQC_CONN_NOT_SUPPORT_MULTIPATH      = 0,    /* 00 */
-    XQC_CONN_MULTIPATH_MULTIPLE_PNS     = 1,    /* 01 */
+    XQC_CONN_MP_DISABLED      = 0,    /* 00 */
+    XQC_CONN_MP_ENABLED       = 1,    /* 01 */
 } xqc_multipath_mode_t;
 
 /* path state */
@@ -29,21 +30,6 @@ typedef enum {
     XQC_PATH_STATE_CLOSING    = 3,    /* PATH_ABANDONED sent or received */
     XQC_PATH_STATE_CLOSED     = 4,    /* PATH_ABANDONED acked or draining timeout */
 } xqc_path_state_t;
-
-/* application layer path status */
-typedef enum {
-    /* max */
-    XQC_APP_PATH_STATUS_NONE,
-    /* suggest that no traffic should be sent on that path if another path is available */
-    XQC_APP_PATH_STATUS_STANDBY   = 1,
-    /* allow the peer to use its own logic to split traffic among available paths */
-    XQC_APP_PATH_STATUS_AVAILABLE = 2,
-    /* freeze a path */
-    XQC_APP_PATH_STATUS_FROZEN    = 3,
-    /* max */
-    XQC_APP_PATH_STATUS_MAX,
-} xqc_app_path_status_t;
-
 
 /* path close mode: passive & proactive */
 typedef enum {
@@ -85,6 +71,7 @@ typedef enum {
     XQC_PATH_SPECIFIED_BY_PTMUD     = 1 << 4,  /* PMTUD Probe */
     XQC_PATH_SPECIFIED_BY_KAP       = 1 << 5,  /* Keepalive Probe */
     XQC_PATH_SPECIFIED_BY_PQP       = 1 << 6,  /* Path Quality Probe */
+    XQC_PATH_SPECIFIED_BY_FEC       = 1 << 7,  /* FEC repair symbol */
 } xqc_path_specified_flag_t;
 
 typedef enum {
@@ -213,7 +200,7 @@ void xqc_path_schedule_buf_pre_destroy(xqc_send_queue_t *send_queue, xqc_path_ct
 
 /* create path inner */
 xqc_path_ctx_t *xqc_conn_create_path_inner(xqc_connection_t *conn, 
-    xqc_cid_t *scid, xqc_cid_t *dcid, xqc_app_path_status_t path_status);
+    xqc_cid_t *scid, xqc_cid_t *dcid, xqc_app_path_status_t path_status, uint64_t path_id);
 
 /* server update client addr when recv path_challenge frame */
 xqc_int_t xqc_conn_server_init_path_addr(xqc_connection_t *conn, uint64_t path_id,
@@ -233,8 +220,6 @@ xqc_int_t xqc_path_closed(xqc_path_ctx_t *path);
 /* find path */
 xqc_path_ctx_t *xqc_conn_find_path_by_path_id(xqc_connection_t *conn, uint64_t path_id);
 xqc_path_ctx_t *xqc_conn_find_path_by_scid(xqc_connection_t *conn, xqc_cid_t *scid);
-xqc_path_ctx_t *xqc_conn_find_path_by_dcid(xqc_connection_t *conn, xqc_cid_t *dcid);
-xqc_path_ctx_t *xqc_conn_find_path_by_dcid_seq(xqc_connection_t *conn, uint64_t dcid_seq);
 
 void xqc_path_send_buffer_append(xqc_path_ctx_t *path, xqc_packet_out_t *packet_out, xqc_list_head_t *head);
 void xqc_path_send_buffer_remove(xqc_path_ctx_t *path, xqc_packet_out_t *packet_out);
@@ -267,6 +252,8 @@ xqc_int_t xqc_path_standby_probe(xqc_path_ctx_t *path);
 xqc_path_perf_class_t xqc_path_get_perf_class(xqc_path_ctx_t *path);
 
 double xqc_path_recent_loss_rate(xqc_path_ctx_t *path);
+
+double xqc_conn_recent_loss_rate(xqc_connection_t *conn);
 
 #endif /* XQC_MULTIPATH_H */
 

@@ -82,15 +82,13 @@ xqc_client_connect(xqc_engine_t *engine, const xqc_conn_settings_t *conn_setting
         xc->conn_flag |= XQC_CONN_FLAG_UPPER_CONN_EXIST;
     }
 
-    /* xqc_conn_destroy must be called before the connection is inserted into conns_active_pq */
-    if (!(xc->conn_flag & XQC_CONN_FLAG_TICKING)) {
-        if (xqc_conns_pq_push(engine->conns_active_pq, xc, 0)) {
-            return NULL;
-        }
-        xc->conn_flag |= XQC_CONN_FLAG_TICKING;
+    xqc_engine_remove_wakeup_queue(engine, xc);
+
+    if (xqc_engine_add_active_queue(engine, xc) != XQC_OK) {
+        return NULL;
     }
 
-    xqc_engine_main_logic_internal(engine);
+    xqc_engine_conn_logic(engine, xc);
 
     /* when the connection is destroyed in the main logic, we should return error to upper level */
     if (xqc_engine_conns_hash_find(engine, &scid, 's') == NULL) {

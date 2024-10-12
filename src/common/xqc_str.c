@@ -281,11 +281,12 @@ xqc_vsprintf(unsigned char *buf, unsigned char *last, const char *fmt, va_list a
 unsigned char *
 xqc_sprintf_num(unsigned char *buf, unsigned char *last, uint64_t ui64, unsigned char zero, uintptr_t hexadecimal, uintptr_t width)
 {
-    unsigned char         *p, temp[XQC_INT64_LEN + 1];
     /*
-     * we need temp[NGX_INT64_LEN] only,
+     * we need temp[XQC_INT64_LEN] only,
      * but icc issues the warning
      */
+    unsigned char   *p, temp[XQC_INT64_LEN + 1];
+
     size_t          len;
     uint32_t        ui32;
     static const unsigned char   hex[] = "0123456789abcdef";

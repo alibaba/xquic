@@ -120,9 +120,10 @@ xqc_ssl_do_handshake(SSL *ssl, xqc_connection_t *conn, xqc_log_t *log)
     int rv = SSL_do_handshake(ssl);
 
     xqc_log(log, XQC_LOG_DEBUG, "|ssl_do_handshake|SSL_quic_read_level:%d|SSL_quic_write_level:%d|rv:%d|",
-            (int) SSL_quic_read_level(ssl),
-            (int) SSL_quic_write_level(ssl),
-            rv);
+                                (int) SSL_quic_read_level(ssl),
+                                (int) SSL_quic_write_level(ssl),
+                                rv);
+
     /* check if client hello is received completely */
     if (SSL_quic_read_level(ssl) > 0
         && conn != NULL

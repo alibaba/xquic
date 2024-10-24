@@ -12,15 +12,14 @@
 
 
 int
-xqc_conns_pq_push(xqc_pq_t *pq, xqc_connection_t *conn, uint64_t time_ms)
+xqc_conns_pq_push(xqc_pq_t *pq, xqc_connection_t *conn, uint64_t time_us)
 {
-    xqc_conns_pq_elem_t *elem = (xqc_conns_pq_elem_t *)xqc_pq_push(pq, time_ms);
+    xqc_conns_pq_elem_t *elem = (xqc_conns_pq_elem_t *)xqc_pq_push(pq, time_us, &conn);
     if (!elem) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_pq_push error|count:%uz|capacity:%uz|", pq->count, pq->capacity);
         return -XQC_EMALLOC;
     }
-    elem->conn = conn;
-    return 0;
+    return XQC_OK;
 }
 
 void
@@ -33,6 +32,27 @@ xqc_conns_pq_elem_t *
 xqc_conns_pq_top(xqc_pq_t *pq)
 {
     return  (xqc_conns_pq_elem_t *)xqc_pq_top(pq);
+}
+
+xqc_connection_t *
+xqc_conns_pq_pop_top_conn(xqc_pq_t *pq)
+{
+    /* used to traverse conns_pq */
+    xqc_conns_pq_elem_t *el = xqc_conns_pq_top(pq);
+    if (XQC_UNLIKELY(el == NULL || el->conn == NULL)) {
+        xqc_conns_pq_pop(pq);
+        return NULL;
+    }
+
+    xqc_connection_t *conn = el->conn;
+    xqc_conns_pq_pop(pq);
+    return conn;
+}
+
+void 
+xqc_conns_pq_remove(xqc_pq_t *pq, xqc_connection_t *conn)
+{
+    xqc_pq_remove(pq, conn->wakeup_pq_index);
 }
 
 int

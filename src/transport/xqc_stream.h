@@ -154,11 +154,17 @@ struct xqc_stream_s {
         xqc_usec_t          send_cwnd_blk_duration;
         xqc_usec_t          send_pacing_blk_duration;  
         uint32_t            retrans_pkt_cnt;
+        uint32_t            sent_pkt_cnt;
+        uint8_t             max_pto_backoff;
+        uint32_t            recov_pkt_cnt;
+        xqc_usec_t          fst_rpr_time;
+        xqc_usec_t          last_rpr_time;
     } stream_stats;
 
     xqc_path_metrics_t      paths_info[XQC_MAX_PATHS_COUNT];
     uint8_t                 stream_mp_usage_schedule;
     uint8_t                 stream_mp_usage_reinject;
+    uint8_t                 stream_fec_blk_mode;
 
     uint64_t                recv_rate_bytes_per_sec;
 
@@ -206,6 +212,8 @@ void xqc_stream_shutdown_write(xqc_stream_t *stream);
 void xqc_stream_ready_to_read(xqc_stream_t *stream);
 
 void xqc_stream_shutdown_read(xqc_stream_t *stream);
+
+xqc_bool_t xqc_stream_is_terminal_state(xqc_stream_t *stream);
 
 void xqc_stream_maybe_need_close(xqc_stream_t *stream);
 

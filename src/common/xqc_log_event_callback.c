@@ -757,9 +757,9 @@ xqc_log_HTTP_FRAME_PARSED_callback(xqc_log_t *log, const char *func, xqc_h3_stre
 void
 xqc_log_HTTP_PRIORITY_UPDATED_callback(xqc_log_t *log, const char *func, xqc_h3_priority_t *prio, xqc_h3_stream_t *h3s)
 {
-    xqc_qlog_implement(log, HTTP_PRIORITY_UPDATED, func, "|urgency:%ui|incremental:%ui|schedule:%ui|reinject:%ui|"
+    xqc_qlog_implement(log, HTTP_PRIORITY_UPDATED, func, "|urgency:%ui|incremental:%ui|schedule:%ui|reinject:%ui|fec_bm_mode:%ui|"
             "stream_id:%ui|conn:%p|",
-            prio->urgency, prio->incremental, prio->schedule, prio->reinject,
+            prio->urgency, prio->incremental, prio->schedule, prio->reinject, h3s->stream->stream_fec_blk_mode,
             h3s->stream_id, h3s->h3c->conn);
 }
 

@@ -6,7 +6,6 @@
 
 #ifdef XQC_SYS_WINDOWS
 #ifndef _GETTIMEOFDAY_DEFINED
-#define DELTA_EPOCH_IN_TICKS  116444736000000000ULL
 
 struct timezone {
     int tz_minuteswest;     /* minutes west of Greenwich */
@@ -23,8 +22,9 @@ gettimeofday(struct timeval *tv, struct timezone *tz)
         GetSystemTimeAsFileTime(&ft);
         tmpres = ((uint64_t) ft.dwHighDateTime << 32)
                | (ft.dwLowDateTime);
-        tmpres -= DELTA_EPOCH_IN_TICKS;
-        tv->tv_sec = tmpres / 10000000;
+        tmpres /= 10; /* Convert from 100-nanosecond intervals to microseconds */
+        tmpres -= 11644473600000000ULL; /* Convert from Windows epoch (1601-01-01) to Unix epoch (1970-01-01) */
+        tv->tv_sec = tmpres / 1000000;
         tv->tv_usec = tmpres % 1000000;
     }
 

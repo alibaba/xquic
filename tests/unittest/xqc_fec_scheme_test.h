@@ -15,5 +15,6 @@ void xqc_test_fec_scheme();
 const xqc_cid_t *test_cid_connect_fec(xqc_engine_t *engine);
 static xqc_connection_t *test_fec_connect(xqc_engine_t *engine);
 xqc_connection_t *test_engine_connect_fec();
+xqc_connection_t *test_engine_connect_fec_server();
 
-#endif /* _XQC_WAKEUP_PQ_TEST_H_INCLUDED_ */
+#endif 

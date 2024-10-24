@@ -10,4 +10,4 @@
 
 extern const xqc_scheduler_callback_t xqc_interop_scheduler_cb;
 
-#endif /* _XQC_SCHEDULER_INTEROP_H_INCLUDED_ */
+#endif

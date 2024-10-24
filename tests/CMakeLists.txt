@@ -50,7 +50,6 @@ endif()
 add_executable(test_server ${TEST_SERVER_SOURCES})
 add_executable(test_client ${TEST_CLIENT_SOURCES})
 
-
 # link libraries
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
     set(APP_DEPEND_LIBS
@@ -59,21 +58,11 @@ if(CMAKE_SYSTEM_NAME MATCHES "Windows")
         ${LIBEVENT_LIBRARY}
         -lm
         CACHE STRING "xquic app depend libs")
-elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
-    set(APP_DEPEND_LIBS
-        xquic-static
-        ${SSL_LIB_PATH}
-        ${LIBEVENT_LIBRARY}
-        m
-        dl
-        pthread
-        CACHE STRING "xquic app depend libs")
 else()
     set(APP_DEPEND_LIBS
         xquic-static
         ${SSL_LIB_PATH}
         ${LIBEVENT_LIBRARY}
-        stdc++
         m
         dl
         pthread
@@ -103,7 +92,6 @@ if(HAVE_CUNIT)
         ${UNIT_TEST_DIR}/xqc_reno_test.c
         ${UNIT_TEST_DIR}/xqc_cubic_test.c
         ${UNIT_TEST_DIR}/xqc_stream_frame_test.c
-        ${UNIT_TEST_DIR}/xqc_wakeup_pq_test.c
         ${UNIT_TEST_DIR}/xqc_process_frame_test.c
         ${UNIT_TEST_DIR}/xqc_tp_test.c
         ${UNIT_TEST_DIR}/xqc_tls_test.c
@@ -125,7 +113,7 @@ if(HAVE_CUNIT)
         ${UNIT_TEST_DIR}/xqc_h3_ext_test.c
     )
 
-    if(XQC_ENABLE_FEC)
+    if(XQC_ENABLE_FEC AND XQC_ENABLE_PKM)
         set(
             test_SOURCES
             ${test_SOURCES}
@@ -156,7 +144,6 @@ if(HAVE_CUNIT)
             xquic-static
             ${CUNIT_LIBRARIES}
             ${SSL_LIB_PATH}
-            stdc++
             m
             dl
             pthread

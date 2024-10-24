@@ -99,7 +99,7 @@ main()
         || !CU_add_test(pSuite, "xqc_test_retry", xqc_test_retry)
         || !CU_add_test(pSuite, "xqc_test_receive_invalid_dgram", xqc_test_receive_invalid_dgram)
         || !CU_add_test(pSuite, "xqc_test_h3_ext_frame", xqc_test_h3_ext_frame)
-#ifdef XQC_ENABLE_FEC
+#if ( defined XQC_ENABLE_FEC ) && ( defined XQC_ENABLE_PKM )
         || !CU_add_test(pSuite, "xqc_test_galois_calculation", xqc_test_galois_calculation)
         || !CU_add_test(pSuite, "xqc_test_fec_scheme", xqc_test_fec_scheme)
         || !CU_add_test(pSuite, "xqc_test_fec", xqc_test_fec)

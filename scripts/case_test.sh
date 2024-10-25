@@ -4575,9 +4575,7 @@ else
     case_print_result "fec_recovered_function_of_datagram_rsc_and_xor" "fail"
 fi
 
-
-clear_log
-rm -rf tp_localhost test_session xqc_token
+sudo rm -rf tp_localhost test_session xqc_token slog clog
 echo -e "qlog disable ...\c"
 killall test_server
 ${SERVER_BIN} -l d -e -x 1 --qlog_disable > slog &

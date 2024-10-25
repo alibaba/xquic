@@ -4419,7 +4419,7 @@ sleep 1
 
 rm -rf tp_localhost test_session xqc_token
 echo -e "negotiate_encoder_fec_schemes ...\c"
-sudo ${CLIENT_BIN} -l d -g > stdlog
+${CLIENT_BIN} -l d -g >> stdlog
 clog_res1=`grep "|xqc_negotiate_fec_schemes|set final encoder fec scheme: XOR" clog`
 slog_res1=`grep "|xqc_negotiate_fec_schemes|set final encoder fec scheme: XOR" slog`
 errlog=`grep_err_log`
@@ -4434,7 +4434,7 @@ fi
 
 rm -rf tp_localhost test_session xqc_token
 echo -e "negotiate_decoder_fec_schemes ...\c"
-sudo ${CLIENT_BIN} -l d -g > stdlog
+${CLIENT_BIN} -l d -g >> stdlog
 clog_res2=`grep "|xqc_negotiate_fec_schemes|set final decoder fec scheme: XOR" clog`
 slog_res2=`grep "|xqc_negotiate_fec_schemes|set final decoder fec scheme: XOR" slog`
 errlog=`grep_err_log`
@@ -4454,7 +4454,7 @@ sleep 1
 
 rm -rf tp_localhost test_session xqc_token
 echo -e "check fec recovery function of stream using XOR ...\c"
-sudo ${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g -M -i lo -i lo > stdlog
+${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g -M -i lo -i lo >> stdlog
 slog_res1=`grep '|process packet of block .\{1,3\} successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4472,7 +4472,7 @@ sleep 1
 
 rm -rf tp_localhost test_session xqc_token
 echo -e "check fec recovery function of stream using RSC ...\c"
-sudo ${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g -M -i lo -i lo --fec_encoder 8 --fec_decoder 8 > stdlog
+${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g -M -i lo -i lo --fec_encoder 8 --fec_decoder 8 >> stdlog
 slog_res1=`grep '|process packet of block .\{1,3\} successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4490,7 +4490,7 @@ sleep 1
 
 rm -rf tp_localhost test_session xqc_token
 echo -e "check fec recovery function of stream using PM ...\c"
-sudo ${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g -M -i lo -i lo --fec_encoder 12 --fec_decoder 12 > stdlog
+${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g -M -i lo -i lo --fec_encoder 12 --fec_decoder 12 >> stdlog
 slog_res1=`grep '|process packet of block .\{1,3\} successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4508,10 +4508,9 @@ ${SERVER_BIN} -l d -Q 65535 -e -U 1 -s 1 --dgram_qos 3 -f > /dev/null &
 sleep 1
 
 rm -rf tp_localhost test_session xqc_token
-
 clear_log
 echo -e "check fec recovery function of datagram with XOR fec scheme ...\c"
-sudo ${CLIENT_BIN} -l d -T 1 -s 10000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g > stdlog
+${CLIENT_BIN} -l d -T 1 -s 10000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g >> stdlog
 slog_res1=`grep '|process packet of block 0 successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4522,9 +4521,10 @@ else
     case_print_result "fec_recovered_function_of_datagram_xor" "fail"
 fi
 
+rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "check fec recovery function of datagram with RSC fec scheme ...\c"
-sudo ${CLIENT_BIN} -l d -T 1 -s 10000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 8 --fec_decoder 8  > stdlog
+${CLIENT_BIN} -l d -T 1 -s 10000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 8 --fec_decoder 8  >> stdlog
 slog_res1=`grep '|process packet of block 0 successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4537,7 +4537,7 @@ fi
 
 clear_log
 echo -e "check fec recovery function of datagram with Packet Mask scheme ...\c"
-sudo ${CLIENT_BIN} -l d -T 1 -s 10000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 12 --fec_decoder 12  > stdlog
+${CLIENT_BIN} -l d -T 1 -s 10000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 12 --fec_decoder 12  >> stdlog
 slog_res1=`grep '|process packet of block 0 successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4548,9 +4548,10 @@ else
     case_print_result "fec_recovered_function_of_datagram_pm" "fail"
 fi
 
+rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "check fec recovery function of datagram with XOR(encoder) and RSC(decoder) fec schemes ...\c"
-sudo ${CLIENT_BIN} -l d -T 1 -s 10000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 8 --fec_decoder 11 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 10000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 8 --fec_decoder 11 >> stdlog
 slog_res1=`grep '|process packet of block 0 successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4562,9 +4563,10 @@ else
 fi
 
 
+rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "check fec recovery function of datagram with XOR(decoder) and RSC(encoder) fec schemes ...\c"
-sudo ${CLIENT_BIN} -l d -T 1 -s 10000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 11 --fec_decoder 8 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 10000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 11 --fec_decoder 8 >> stdlog
 slog_res1=`grep '|process packet of block 0 successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then

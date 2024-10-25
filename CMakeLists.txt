@@ -402,6 +402,7 @@ if(PLATFORM MATCHES "mac")
         ${SSL_LIB_PATH}
         "-Wl"
         -lpthread
+        -lstdc++
     )
 else()
     target_link_libraries(

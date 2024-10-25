@@ -46,7 +46,7 @@ jobs:
 
     - name: Build BoringSSL
       run: |
-        git clone --depth 1 --branch fips-20220613 https://github.com/google/boringssl.git ./third_party/boringssl
+        git clone https://github.com/google/boringssl.git ./third_party/boringssl
         cd ./third_party/boringssl
         mkdir -p build
         cd build

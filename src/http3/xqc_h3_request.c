@@ -954,12 +954,12 @@ xqc_write_http_priority(xqc_h3_priority_t *prio,
     xqc_memcpy(dst, XQC_PRIORITY_REINJECT, XQC_PRIORITY_REINJECT_LEN);
     dst += XQC_PRIORITY_REINJECT_LEN;
     *dst++ = '0' + prio->reinject;
-
+#ifdef XQC_ENABLE_FEC
     xqc_memcpy(dst, XQC_PRIORITY_FEC, XQC_PRIORITY_FEC_LEN);
     dst += XQC_PRIORITY_FEC_LEN;
     xqc_memcpy(dst, &prio->fec, 4);
     dst += 4;
-
+#endif
     return dst - begin;
 }
 

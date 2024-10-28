@@ -4412,12 +4412,11 @@ else
     case_print_result "h3_engine_set_settings_api_h3_ext_more" "fail"
 fi
 
-sudo rm -rf tp_localhost test_session xqc_token clog slog
+sudo rm -rf tp_localhost test_session xqc_token clog slog stdlog
 killall test_server 2> /dev/null
 ${SERVER_BIN} -l d -e -f > /dev/null &
 sleep 1
 
-rm -rf tp_localhost test_session xqc_token
 echo -e "negotiate_encoder_fec_schemes ...\c"
 ${CLIENT_BIN} -l d -g >> stdlog
 clog_res1=`grep "|xqc_negotiate_fec_schemes|set final encoder fec scheme: XOR" clog`
@@ -4432,7 +4431,7 @@ else
 fi
 
 
-rm -rf tp_localhost test_session xqc_token
+sudo rm -rf tp_localhost test_session xqc_token stdlog
 echo -e "negotiate_decoder_fec_schemes ...\c"
 ${CLIENT_BIN} -l d -g >> stdlog
 clog_res2=`grep "|xqc_negotiate_fec_schemes|set final decoder fec scheme: XOR" clog`
@@ -4452,7 +4451,7 @@ killall test_server 2> /dev/null
 ${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
 sleep 1
 
-rm -rf tp_localhost test_session xqc_token
+sudo rm -rf tp_localhost test_session xqc_token stdlog
 echo -e "check fec recovery function of stream using XOR ...\c"
 ${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g -M -i lo -i lo >> stdlog
 slog_res1=`grep '|process packet of block .\{1,3\} successfully' slog`
@@ -4466,7 +4465,7 @@ else
 fi
 
 clear_log
-rm -rf tp_localhost test_session xqc_token
+sudo rm -rf tp_localhost test_session xqc_token stdlog
 echo -e "check fec recovery function of stream using RSC ...\c"
 ${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g -M -i lo -i lo --fec_encoder 8 --fec_decoder 8 >> stdlog
 slog_res1=`grep '|process packet of block .\{1,3\} successfully' slog`
@@ -4480,7 +4479,7 @@ else
 fi
 
 clear_log
-rm -rf tp_localhost test_session xqc_token
+sudo rm -rf tp_localhost test_session xqc_token stdlog
 echo -e "check fec recovery function of stream using PM ...\c"
 ${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g -M -i lo -i lo --fec_encoder 12 --fec_decoder 12 >> stdlog
 slog_res1=`grep '|process packet of block .\{1,3\} successfully' slog`

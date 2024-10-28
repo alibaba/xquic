@@ -2077,7 +2077,7 @@ xqc_h3_stream_get_path_info(xqc_h3_stream_t *h3s)
         }
     }
 }
-
+#ifdef XQC_ENABLE_FEC
 uint8_t
 xqc_set_stream_fec_block_mode(uint32_t fec_size)
 {
@@ -2097,7 +2097,7 @@ xqc_set_stream_fec_block_mode(uint32_t fec_size)
         return XQC_LARGE_SIZE_REQ;
     }
 }
-
+#endif
 void
 xqc_h3_stream_set_priority(xqc_h3_stream_t *h3s, xqc_h3_priority_t *prio)
 {
@@ -2108,15 +2108,18 @@ xqc_h3_stream_set_priority(xqc_h3_stream_t *h3s, xqc_h3_priority_t *prio)
         h3s->priority.incremental = prio->incremental;
         h3s->priority.schedule    = prio->schedule;
         h3s->priority.reinject    = prio->reinject;
+#ifdef XQC_ENABLE_FEC
         h3s->priority.fec         = prio->fec;
-
+#endif
         if (h3s->stream == NULL) {
             xqc_log(h3s->log, XQC_LOG_ERROR, "|transport stream was NULL|stream_id:%ui|", h3s->stream_id);
             return;
         }
 
         xqc_stream_set_multipath_usage(h3s->stream, h3s->priority.schedule, h3s->priority.reinject);
+#ifdef XQC_ENABLE_FEC
         h3s->stream->stream_fec_blk_mode = xqc_set_stream_fec_block_mode(h3s->priority.fec);
         h3s->h3r->block_size_mode = h3s->stream->stream_fec_blk_mode;
+#endif
     }
 }

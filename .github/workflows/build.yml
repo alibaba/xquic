@@ -72,7 +72,7 @@ jobs:
         openssl req -newkey rsa:2048 -x509 -nodes -keyout "$keyfile" -new -out "$certfile" -subj /CN=test.xquic.com
         ./tests/run_tests | tee -a ../xquic_test.log
         ../scripts/case_test.sh | tee -a ../xquic_test.log
-        gcovr -r .. --xml --gcov-ignore-parse-errors=negative_hits.warn -o ../coverage.xml
+        gcovr -r .. --xml --gcov-ignore-parse-errors -o ../coverage.xml
     
     - name: Check Test Result
       run: |

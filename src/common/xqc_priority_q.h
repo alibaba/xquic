@@ -2,8 +2,8 @@
  * @copyright Copyright (c) 2022, Alibaba Group Holding Limited
  */
 
-#ifndef _NGX_H_PRIORITY_Q_INCLUDED_
-#define _NGX_H_PRIORITY_Q_INCLUDED_
+#ifndef _XQC_H_PRIORITY_Q_INCLUDED_
+#define _XQC_H_PRIORITY_Q_INCLUDED_
 
 #include <string.h>
 #include <stdint.h>
@@ -186,4 +186,4 @@ xqc_pq_pop(xqc_pq_t *pq)
 #undef xqc_pq_element
 #undef xqc_pq_element_copy
 
-#endif /*_NGX_H_PRIORITY_Q_INCLUDED_*/
+#endif /*_XQC_H_PRIORITY_Q_INCLUDED_*/

@@ -115,7 +115,7 @@ set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -g -O0 -std=gnu11 -Wall ${CMAKE_C_FLAG
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
     add_definitions(-DXQC_SYS_WINDOWS=1)
-    set(CMAKE_C_FLAGS_OPTION " ")
+    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} /Zi")
 endif()
 
 

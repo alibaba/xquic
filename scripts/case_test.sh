@@ -4446,14 +4446,14 @@ else
 fi
 
 
-clear_log
+sudo rm -rf clog slog
 killall test_server 2> /dev/null
 ${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
 sleep 1
 
 sudo rm -rf tp_localhost test_session xqc_token stdlog
 echo -e "check fec recovery function of stream using XOR ...\c"
-${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g -M -i lo -i lo >> stdlog
+${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g >> stdlog
 slog_res1=`grep '|process packet of block .\{1,3\} successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4464,10 +4464,14 @@ else
     case_print_result "fec_recovered_function_of_stream_xor" "fail"
 fi
 
-clear_log
+sudo rm -rf clog slog
+killall test_server 2> /dev/null
+${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
+sleep 1
+
 sudo rm -rf tp_localhost test_session xqc_token stdlog
 echo -e "check fec recovery function of stream using RSC ...\c"
-${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g -M -i lo -i lo --fec_encoder 8 --fec_decoder 8 >> stdlog
+${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g --fec_encoder 8 --fec_decoder 8 >> stdlog
 slog_res1=`grep '|process packet of block .\{1,3\} successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4478,10 +4482,14 @@ else
     case_print_result "fec_recovered_function_of_stream_rsc" "fail"
 fi
 
-clear_log
+sudo rm -rf clog slog
+killall test_server 2> /dev/null
+${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
+sleep 1
+
 sudo rm -rf tp_localhost test_session xqc_token stdlog
 echo -e "check fec recovery function of stream using PM ...\c"
-${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g -M -i lo -i lo --fec_encoder 12 --fec_decoder 12 >> stdlog
+${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g --fec_encoder 12 --fec_decoder 12 >> stdlog
 slog_res1=`grep '|process packet of block .\{1,3\} successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then

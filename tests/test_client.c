@@ -780,6 +780,10 @@ save_session_cb(const char * data, size_t data_len, void *user_data)
     printf("save_session_cb use server domain as the key. h3[%d]\n", user_conn->h3);
 
     FILE * fp  = fopen("test_session", "wb");
+    if (fp == NULL) {
+        printf("'test_session' open error");
+        return;
+    }
     int write_size = fwrite(data, 1, data_len, fp);
     if (data_len != write_size) {
         printf("save _session_cb error\n");
@@ -798,6 +802,10 @@ save_tp_cb(const char * data, size_t data_len, void * user_data)
     printf("save_tp_cb use server domain as the key. h3[%d]\n", user_conn->h3);
 
     FILE * fp = fopen("tp_localhost", "wb");
+    if (fp == NULL) {
+        printf("'tp_localhost' open error");
+        return;
+    }
     int write_size = fwrite(data, 1, data_len, fp);
     if (data_len != write_size) {
         printf("save _tp_cb error\n");

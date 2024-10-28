@@ -131,7 +131,7 @@ include_directories(include
     ${CMAKE_SOURCE_DIR}
 )
 
-
+option (XQC_PRINT_SECRET "enable TLS secret printing" OFF)
 
 # print tls traffic secret in keylog
 if(XQC_PRINT_SECRET)

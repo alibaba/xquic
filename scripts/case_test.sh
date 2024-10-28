@@ -4449,7 +4449,7 @@ fi
 
 clear_log
 killall test_server 2> /dev/null
-stdbuf -oL ${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
+${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
 sleep 1
 
 rm -rf tp_localhost test_session xqc_token
@@ -4466,10 +4466,6 @@ else
 fi
 
 clear_log
-killall test_server 2> /dev/null
-stdbuf -oL ${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
-sleep 1
-
 rm -rf tp_localhost test_session xqc_token
 echo -e "check fec recovery function of stream using RSC ...\c"
 ${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g -M -i lo -i lo --fec_encoder 8 --fec_decoder 8 >> stdlog
@@ -4484,10 +4480,6 @@ else
 fi
 
 clear_log
-killall test_server 2> /dev/null
-stdbuf -oL ${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
-sleep 1
-
 rm -rf tp_localhost test_session xqc_token
 echo -e "check fec recovery function of stream using PM ...\c"
 ${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g -M -i lo -i lo --fec_encoder 12 --fec_decoder 12 >> stdlog

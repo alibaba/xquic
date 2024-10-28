@@ -38,21 +38,17 @@ XQUIC Library released by Alibaba is …
 #### Standardized Features
 
 * All big features conforming with [RFC 9000](https://www.rfc-editor.org/rfc/rfc9000), [RFC9001](https://www.rfc-editor.org/rfc/rfc9001), [RFC9002](https://www.rfc-editor.org/rfc/rfc9002), [RFC9114](https://www.rfc-editor.org/rfc/rfc9114) and [RFC9204](https://www.rfc-editor.org/rfc/rfc9204), including the interface between QUIC and TLS, 0-RTT connection establishment, HTTP/3 and QPACK.
-
 * ALPN Extension conforming with [RFC7301](https://www.rfc-editor.org/rfc/rfc7301)
 
 #### Not Yet Standardized Features
 
 * [Multipath QUIC](https://tools.ietf.org/html/draft-ietf-quic-multipath-04)
-
 * [QUIC-LB](https://tools.ietf.org/html/draft-ietf-quic-load-balancers-13)
 
 #### Library Features
 
 * Pluggable congestion control: NewReno, Cubic, BBR and BBRv2, ...
-
 * Pluggable cryptography, integration with BoringSSL and BabaSSL
-
 * Cross-platform implementation, support Android, iOS, HarmonyOS, Linux, macOS and Windows(v1.2.0)
 
 ## Requirements
@@ -67,30 +63,29 @@ To run test cases, you need
 
 ## QuickStart Guide
 
-XQUIC can be built with Tongsuo(BabaSSL) or BoringSSL.
+XQUIC can be built with BabaSSL(Tongsuo) or BoringSSL.
 
 ### Build with BoringSSL
 
 ```bash
+sudo apt-get install -y build-essential libevent-dev
+
 # get XQUIC source code
-git clone https://github.com/alibaba/xquic.git
-cd xquic
+git clone https://github.com/alibaba/xquic.git; cd xquic
 
 # get and build BoringSSL
-git clone https://github.com/google/boringssl.git ./third_party/boringssl
-cd ./third_party/boringssl
+git clone https://github.com/google/boringssl.git ./third_party/boringssl; cd ./third_party/boringssl
 mkdir -p build && cd build
 cmake -DBUILD_SHARED_LIBS=0 -DCMAKE_C_FLAGS="-fPIC" -DCMAKE_CXX_FLAGS="-fPIC" ..
-make ssl crypto
+make -j ssl crypto
 cd ..
 SSL_TYPE_STR="boringssl"
 SSL_PATH_STR="${PWD}"
 cd ../..
-## Note: if you don’t have golang in your environment, please install [golang](https://go.dev/doc/install) first. 
 
 # build XQUIC with BoringSSL
-# When build XQUIC with boringssl, /usr/local/babassl directory will be searched
-# as default. if boringssl is deployed in other directories, SSL_PATH could be 
+# When build XQUIC with boringssl, by default XQUIC will use boringssl
+# in third_party. If boringssl is deployed in other directories, SSL_PATH could be 
 # used to specify the search path of boringssl
 git submodule update --init --recursive
 mkdir -p build; cd build
@@ -108,13 +103,13 @@ make -j
 ### Build with BabaSSL(Tongsuo)
 
 ```bash
+sudo apt-get install -y build-essential libevent-dev
+
 # get XQUIC source code
-git clone https://github.com/alibaba/xquic.git
-cd xquic
+git clone https://github.com/alibaba/xquic.git; cd xquic
 
 # get and build BabaSSL(Tongsuo)
-git clone -b 8.3-stable https://github.com/Tongsuo-Project/Tongsuo.git ./third_party/babassl
-cd ./third_party/babassl/
+git clone -b 8.3-stable https://github.com/Tongsuo-Project/Tongsuo.git ./third_party/babassl; cd ./third_party/babassl/
 ./config --prefix=/usr/local/babassl
 make -j
 SSL_TYPE_STR="babassl"
@@ -122,9 +117,9 @@ SSL_PATH_STR="${PWD}"
 cd -
 
 # build XQUIC with BabaSSL
-# When build XQUIC with boringssl, /usr/local/babassl directory will be searched
-# as default. if boringssl is deployed in other directories, SSL_PATH could be 
-# used to specify the search path of boringssl
+# When build XQUIC with babassl, /usr/local/babassl directory will be searched
+# as default. If babassl is deployed in other directories, SSL_PATH could be 
+# used to specify the search path of babassl
 git submodule update --init --recursive
 mkdir -p build; cd build
 cmake -DGCOV=on -DCMAKE_BUILD_TYPE=Debug -DXQC_ENABLE_TESTING=1 -DXQC_SUPPORT_SENDMMSG_BUILD=1 -DXQC_ENABLE_EVENT_LOG=1 -DXQC_ENABLE_BBR2=1 -DXQC_ENABLE_RENO=1 -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} ..

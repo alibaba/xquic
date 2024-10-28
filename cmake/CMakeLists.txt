@@ -75,9 +75,10 @@ if (XQC_ENABLE_EVENT_LOG)
     set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -DXQC_ENABLE_EVENT_LOG ")
 endif()
 
-if (DISABLE_WARNINGS)
-    add_compile_options("-Wno-error")
-endif ()
+# sendmmsg
+if(XQC_SUPPORT_SENDMMSG_BUILD)
+    add_definitions(-DXQC_SUPPORT_SENDMMSG)
+endif()
 
 if(ANDROID)
     set(DYMAMIC_LINK_OPTION 
@@ -197,6 +198,7 @@ set(
     "src/transport/scheduler/xqc_scheduler_minrtt.c"
     "src/transport/scheduler/xqc_scheduler_common.c"
     "src/transport/scheduler/xqc_scheduler_backup.c"
+    "src/transport/scheduler/xqc_scheduler_backup_fec.c"
     "src/transport/scheduler/xqc_scheduler_rap.c"
 )
 
@@ -230,6 +232,14 @@ if(XQC_ENABLE_RSC)
         FEC_FRAMEWORK_SOURCE
         ${FEC_FRAMEWORK_SOURCE}
         "src/transport/fec_schemes/xqc_reed_solomon.c"
+    )
+endif()
+
+if(XQC_ENABLE_PKM)
+    set(
+        FEC_FRAMEWORK_SOURCE
+        ${FEC_FRAMEWORK_SOURCE}
+        "src/transport/fec_schemes/xqc_packet_mask.c"
     )
 endif()
 
@@ -329,7 +339,16 @@ if(XQC_ENABLE_UNLIMITED)
     )
 endif()
 
-
+# add tunnel
+if(XQC_ENABLE_TH3 OR XQC_ENABLE_TUNNEL)
+    set(
+        XQC_SOURCE
+    )
+    if(XQC_ENABLE_TNL_DG)
+        set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -DXQC_ENABLE_TNL_DG ")
+    endif()
+    add_subdirectory(tunnel)
+endif()
 
 if (XQC_NO_SHARED)
     set(XQC_BINARY_TYPE STATIC)
@@ -343,6 +362,7 @@ add_library(
     ${TLS_SOURCE}
     ${COMMON_SOURCES}
     ${CONGESTION_CONTROL_SOURCES}
+    ${XQC_SOURCE}
 )
 
 add_dependencies(xquic xquic_global)

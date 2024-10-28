@@ -120,7 +120,6 @@ typedef enum {
     XQC_CONN_FLAG_HANDSHAKE_CONFIRMED_SHIFT,
     XQC_CONN_FLAG_HANDSHAKE_DONE_ACKED_SHIFT,
     XQC_CONN_FLAG_ADDR_VALIDATED_SHIFT,
-    XQC_CONN_FLAG_NEW_CID_ACKED_SHIFT,
     XQC_CONN_FLAG_LINGER_CLOSING_SHIFT,
     XQC_CONN_FLAG_RETRY_RECVD_SHIFT,
     XQC_CONN_FLAG_TLS_CH_SHIFT,
@@ -134,8 +133,7 @@ typedef enum {
     XQC_CONN_FLAG_PMTUD_PROBING_SHIFT,
     XQC_CONN_FLAG_NO_DGRAM_NOTIFIED_SHIFT,
     XQC_CONN_FLAG_DGRAM_MSS_NOTIFY_SHIFT,
-    XQC_CONN_FLAG_MP_WAIT_SCID_SHIFT,
-    XQC_CONN_FLAG_MP_WAIT_DCID_SHIFT,
+    XQC_CONN_FLAG_MP_WAIT_MP_READY_SHIFT,
     XQC_CONN_FLAG_MP_READY_NOTIFY_SHIFT,
     XQC_CONN_FLAG_HANDSHAKE_DONE_SENT_SHIFT,
     XQC_CONN_FLAG_SHIFT_NUM,
@@ -167,7 +165,6 @@ typedef enum {
     XQC_CONN_FLAG_HANDSHAKE_CONFIRMED   = 1ULL << XQC_CONN_FLAG_HANDSHAKE_CONFIRMED_SHIFT,
     XQC_CONN_FLAG_HANDSHAKE_DONE_ACKED  = 1ULL << XQC_CONN_FLAG_HANDSHAKE_DONE_ACKED_SHIFT,
     XQC_CONN_FLAG_ADDR_VALIDATED        = 1ULL << XQC_CONN_FLAG_ADDR_VALIDATED_SHIFT,
-    XQC_CONN_FLAG_NEW_CID_ACKED         = 1ULL << XQC_CONN_FLAG_NEW_CID_ACKED_SHIFT,
     XQC_CONN_FLAG_LINGER_CLOSING        = 1ULL << XQC_CONN_FLAG_LINGER_CLOSING_SHIFT,
     XQC_CONN_FLAG_RETRY_RECVD           = 1ULL << XQC_CONN_FLAG_RETRY_RECVD_SHIFT,
     XQC_CONN_FLAG_TLS_CH_RECVD          = 1ULL << XQC_CONN_FLAG_TLS_CH_SHIFT,
@@ -181,8 +178,7 @@ typedef enum {
     XQC_CONN_FLAG_PMTUD_PROBING         = 1ULL << XQC_CONN_FLAG_PMTUD_PROBING_SHIFT,
     XQC_CONN_FLAG_NO_DGRAM_NOTIFIED     = 1ULL << XQC_CONN_FLAG_NO_DGRAM_NOTIFIED_SHIFT,
     XQC_CONN_FLAG_DGRAM_MSS_NOTIFY      = 1ULL << XQC_CONN_FLAG_DGRAM_MSS_NOTIFY_SHIFT,
-    XQC_CONN_FLAG_MP_WAIT_SCID          = 1ULL << XQC_CONN_FLAG_MP_WAIT_SCID_SHIFT,
-    XQC_CONN_FLAG_MP_WAIT_DCID          = 1ULL << XQC_CONN_FLAG_MP_WAIT_DCID_SHIFT,
+    XQC_CONN_FLAG_MP_WAIT_MP_READY      = 1ULL << XQC_CONN_FLAG_MP_WAIT_MP_READY_SHIFT,
     XQC_CONN_FLAG_MP_READY_NOTIFY       = 1ULL << XQC_CONN_FLAG_MP_READY_NOTIFY_SHIFT,
     XQC_CONN_FLAG_HANDSHAKE_DONE_SENT   = 1ULL << XQC_CONN_FLAG_HANDSHAKE_DONE_SENT_SHIFT,
 
@@ -211,15 +207,17 @@ typedef struct {
     uint16_t                max_datagram_frame_size;
     uint32_t                conn_options[XQC_CO_MAX_NUM];
     uint8_t                 conn_option_num;
+
+    xqc_fec_version_t       fec_version;
     uint64_t                enable_encode_fec;
     uint64_t                enable_decode_fec;
-    uint64_t                fec_max_symbol_size;
     uint64_t                fec_max_symbols_num;
     xqc_fec_schemes_e       fec_encoder_schemes[XQC_FEC_MAX_SCHEME_NUM];
     xqc_fec_schemes_e       fec_decoder_schemes[XQC_FEC_MAX_SCHEME_NUM];
     xqc_int_t               fec_encoder_schemes_num;
     xqc_int_t               fec_decoder_schemes_num;
     xqc_dgram_red_setting_e close_dgram_redundancy;
+    uint64_t                init_max_path_id;
 } xqc_trans_settings_t;
  
 
@@ -280,8 +278,8 @@ struct xqc_connection_s {
     /* initial source connection id, RFC 9000, Section 7.3 */
     xqc_cid_t                       initial_scid;
 
-    xqc_dcid_set_t                  dcid_set;
-    xqc_scid_set_t                  scid_set;
+    xqc_cid_set_t                   dcid_set;
+    xqc_cid_set_t                   scid_set;
 
     unsigned char                   peer_addr[sizeof(struct sockaddr_in6)];
     socklen_t                       peer_addrlen;
@@ -376,6 +374,10 @@ struct xqc_connection_s {
     uint32_t                        validated_path_count;
     uint32_t                        active_path_count;
 
+    uint64_t                        curr_max_path_id;
+    uint64_t                        local_max_path_id;
+    uint64_t                        remote_max_path_id;
+
     /* for qlog */
     uint32_t                        MTU_updated_count;    
     uint32_t                        packet_dropped_count;
@@ -450,7 +452,8 @@ struct xqc_connection_s {
 
     /* for fec */
     xqc_fec_ctl_t                  *fec_ctl;
-    
+    uint32_t                        fec_neg_fail_reason;
+
 
     /* receved pkts stats */
     struct {
@@ -583,11 +586,11 @@ void xqc_conn_process_packet_recved_path(xqc_connection_t *conn, xqc_cid_t *scid
 xqc_int_t xqc_conn_check_handshake_complete(xqc_connection_t *conn);
 
 
-xqc_int_t xqc_conn_check_unused_cids(xqc_connection_t *conn);
+xqc_int_t xqc_conn_get_available_path_id(xqc_connection_t *conn, uint64_t *path_id);
 xqc_int_t xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to);
 xqc_int_t xqc_conn_check_dcid(xqc_connection_t *conn, xqc_cid_t *dcid);
 void xqc_conn_destroy_cids(xqc_connection_t *conn);
-xqc_int_t xqc_conn_update_user_scid(xqc_connection_t *conn, xqc_scid_set_t *scid_set);
+xqc_int_t xqc_conn_update_user_scid(xqc_connection_t *conn);
 xqc_int_t xqc_conn_set_cid_retired_ts(xqc_connection_t *conn, xqc_cid_inner_t *inner_cid);
 
 xqc_bool_t xqc_conn_peer_complete_address_validation(xqc_connection_t *c);
@@ -613,7 +616,8 @@ xqc_int_t xqc_conn_confirm_key_update(xqc_connection_t *conn);
 /* from send_ctl */
 void xqc_conn_decrease_unacked_stream_ref(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
 void xqc_conn_increase_unacked_stream_ref(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
-void xqc_conn_update_stream_stats_on_sent(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec_t now);
+void xqc_conn_update_stream_stats_on_sent(xqc_connection_t *conn, xqc_send_ctl_t *ctl, 
+    xqc_packet_out_t *packet_out, xqc_usec_t now);
 
 /* 选择所有path的PTO中最大的那个，作为conn的PTO，用于连接级别的定时器触发:
  * - XQC_TIMER_LINGER_CLOSE
@@ -622,6 +626,8 @@ void xqc_conn_update_stream_stats_on_sent(xqc_connection_t *conn, xqc_packet_out
  * - XQC_TIMER_STREAM_CLOSE
  */
 xqc_usec_t xqc_conn_get_max_pto(xqc_connection_t *conn);
+
+uint32_t xqc_conn_get_max_pto_backoff(xqc_connection_t *conn, uint8_t available_only);
 
 void xqc_conn_ptmud_probing(xqc_connection_t *conn);
 
@@ -684,12 +690,11 @@ xqc_int_t xqc_conn_send_ping_internal(xqc_connection_t *conn, void *ping_user_da
 
 void xqc_conn_encode_mp_settings(xqc_connection_t *conn, char *buf, size_t buf_sz);
 
-xqc_int_t xqc_conn_retire_dcid_prior_to(xqc_connection_t *conn, uint64_t retire_prior_to);
 void xqc_path_send_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
     xqc_list_head_t *head, int congest, xqc_send_type_t send_type);
 
-#ifdef XQC_ENABLE_FEC
-void xqc_insert_fec_packets(xqc_connection_t *conn, xqc_list_head_t *head);
-void xqc_insert_fec_packets_all(xqc_connection_t *conn);
-#endif
+xqc_int_t xqc_conn_try_to_enable_multipath(xqc_connection_t *conn);
+xqc_int_t xqc_conn_add_path_cid_sets(xqc_connection_t *conn, uint32_t start, uint32_t end);
+
+
 #endif /* _XQC_CONN_H_INCLUDED_ */

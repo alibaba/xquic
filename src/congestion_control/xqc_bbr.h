@@ -153,6 +153,8 @@ typedef struct xqc_bbr_s {
     xqc_bool_t             lt_is_sampling;
     xqc_bool_t             lt_use_bw;
     uint16_t               lt_rtt_cnt;
+    
+    xqc_bool_t             ignore_app_limit;
 
 } xqc_bbr_t;
 extern const xqc_cong_ctrl_callback_t xqc_bbr_cb;

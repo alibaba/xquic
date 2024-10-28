@@ -116,7 +116,7 @@ xqc_send_queue_get_packet_out(xqc_send_queue_t *send_queue, unsigned need, xqc_p
     xqc_list_for_each_reverse(pos, &send_queue->sndq_send_packets) {
         packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
         if (packet_out->po_pkt.pkt_type == pkt_type 
-            && packet_out->po_buf_size >= packet_out->po_used_size + need)
+            && xqc_get_po_remained_size(packet_out) >= need)
         {
             return packet_out;
         }
@@ -140,11 +140,13 @@ xqc_send_queue_get_packet_out_for_stream(xqc_send_queue_t *send_queue, unsigned 
     xqc_list_for_each_reverse(pos, &send_queue->sndq_send_packets) {
         packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
         if (packet_out->po_pkt.pkt_type == pkt_type
-            && packet_out->po_buf_size >= packet_out->po_used_size + need
+            && xqc_get_po_remained_size(packet_out) >= need
             && packet_out->po_stream_frames_idx < XQC_MAX_STREAM_FRAME_IN_PO
             && packet_out->po_stream_frames_idx > 0
             /* Avoid Head-of-Line blocking. */
-            && packet_out->po_stream_frames[packet_out->po_stream_frames_idx - 1].ps_stream_id == stream->stream_id)
+            && packet_out->po_stream_frames[packet_out->po_stream_frames_idx - 1].ps_stream_id == stream->stream_id
+            && !(packet_out->po_frame_types & XQC_FRAME_BIT_SID)
+            && !(packet_out->po_frame_types & XQC_FRAME_BIT_REPAIR_SYMBOL))
         {
             return packet_out;
         }
@@ -592,7 +594,7 @@ xqc_send_ctl_stream_frame_can_drop(xqc_packet_out_t *packet_out, xqc_stream_id_t
      * removing R may also free N via xqc_send_ctl_indirectly_ack_or_drop_po. If that
      * happens, an infinite loop that traversing the free_packets list is triggered.
      */
-    uint64_t mask = ~(XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_ACK | XQC_FRAME_BIT_ACK_MP | XQC_FRAME_BIT_SID | XQC_FRAME_BIT_REPAIR_SYMBOL);
+    uint64_t mask = ~(XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_ACK | XQC_FRAME_BIT_ACK_MP | XQC_FRAME_BIT_SID);
     if ((packet_out->po_frame_types & mask) == 0) {
         drop = 0;
         for (int i = 0; i < XQC_MAX_STREAM_FRAME_IN_PO; i++) {

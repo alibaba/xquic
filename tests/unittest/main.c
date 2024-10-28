@@ -18,7 +18,6 @@
 #include "xqc_cubic_test.h"
 #include "xqc_packet_test.h"
 #include "xqc_stream_frame_test.h"
-#include "xqc_wakeup_pq_test.h"
 #include "xqc_process_frame_test.h"
 #include "xqc_tp_test.h"
 #include "xqc_tls_test.h"
@@ -76,7 +75,6 @@ main()
         || !CU_add_test(pSuite, "xqc_test_empty_pkt", xqc_test_empty_pkt)
         || !CU_add_test(pSuite, "xqc_test_engine_packet_process", xqc_test_engine_packet_process)
         || !CU_add_test(pSuite, "xqc_test_stream_frame", xqc_test_stream_frame)
-        || !CU_add_test(pSuite, "xqc_test_wakeup_pq", xqc_test_wakeup_pq)
         || !CU_add_test(pSuite, "xqc_test_process_frame", xqc_test_process_frame)
         || !CU_add_test(pSuite, "xqc_test_parse_padding_frame", xqc_test_parse_padding_frame)
         || !CU_add_test(pSuite, "xqc_test_large_ack_frame", xqc_test_large_ack_frame)
@@ -101,7 +99,7 @@ main()
         || !CU_add_test(pSuite, "xqc_test_retry", xqc_test_retry)
         || !CU_add_test(pSuite, "xqc_test_receive_invalid_dgram", xqc_test_receive_invalid_dgram)
         || !CU_add_test(pSuite, "xqc_test_h3_ext_frame", xqc_test_h3_ext_frame)
-#ifdef XQC_ENABLE_FEC
+#if ( defined XQC_ENABLE_FEC ) && ( defined XQC_ENABLE_PKM )
         || !CU_add_test(pSuite, "xqc_test_galois_calculation", xqc_test_galois_calculation)
         || !CU_add_test(pSuite, "xqc_test_fec_scheme", xqc_test_fec_scheme)
         || !CU_add_test(pSuite, "xqc_test_fec", xqc_test_fec)

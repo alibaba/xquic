@@ -28,6 +28,7 @@ XQUIC_VERS_1.0 {
         xqc_h3_request_send_body;
         xqc_h3_request_recv_headers;
         xqc_h3_request_recv_body;
+        xqc_h3_priority_init;
         xqc_write_http_priority;
         xqc_parse_http_priority;
         xqc_h3_request_set_priority;
@@ -52,6 +53,7 @@ XQUIC_VERS_1.0 {
         xqc_stream_send;
         xqc_engine_packet_process;
         xqc_engine_finish_recv;
+        xqc_engine_finish_send;
         xqc_engine_recv_batch;
         xqc_engine_main_logic;
         xqc_engine_get_default_config;
@@ -68,6 +70,7 @@ XQUIC_VERS_1.0 {
         xqc_minrtt_scheduler_cb;
         xqc_interop_scheduler_cb;
         xqc_backup_scheduler_cb;
+        xqc_backup_fec_scheduler_cb;
         xqc_rap_scheduler_cb;
         xqc_conn_is_ready_to_send_early_data;
         xqc_h3_conn_send_ping;
@@ -124,6 +127,7 @@ XQUIC_VERS_1.0 {
         xqc_stream_update_settings;
         xqc_reed_solomon_code_cb;
         xqc_xor_code_cb;
+        xqc_packet_mask_code_cb;
     local:
         *;
 };

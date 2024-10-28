@@ -26,6 +26,7 @@
 #pragma comment(lib,"event.lib")
 #pragma comment(lib, "Iphlpapi.lib")
 #pragma comment(lib, "Bcrypt.lib")
+#pragma comment(lib, "crypt32")
 #include "../tests/getopt.h"
 #else
 #include <sys/socket.h>
@@ -181,6 +182,8 @@ typedef struct xqc_demo_cli_quic_config_s {
 
     uint8_t mp_version;
 
+    uint64_t init_max_path_id;
+
     /* support interop test */
     int is_interop_mode;
 
@@ -188,6 +191,9 @@ typedef struct xqc_demo_cli_quic_config_s {
     xqc_msec_t path_status_timer_threshold;
 
     uint64_t least_available_cid_count;
+
+    uint64_t idle_timeout;
+    uint8_t  remove_path_flag;
 
     size_t max_pkt_sz;
 
@@ -235,7 +241,7 @@ typedef struct xqc_demo_cli_env_config_s {
  * ============================================================================
  */
 
-#define MAX_REQUEST_CNT 2048    /* client might deal MAX_REQUEST_CNT requests once */
+#define MAX_REQUEST_CNT 20480    /* client might deal MAX_REQUEST_CNT requests once */
 #define MAX_REQUEST_LEN 256     /* the max length of a request */
 #define g_host ""
 
@@ -253,7 +259,6 @@ typedef struct xqc_demo_cli_request_s {
 /* request bundle args */
 typedef struct xqc_demo_cli_requests_s {
     /* requests */
-    char                    urls[MAX_REQUEST_CNT * MAX_REQUEST_LEN];
     int                     request_cnt;    /* requests cnt in urls */
     xqc_demo_cli_request_t  reqs[MAX_REQUEST_CNT];
 
@@ -269,6 +274,9 @@ typedef struct xqc_demo_cli_requests_s {
     uint8_t serial;
 
     int throttled_req;
+
+    int ext_reqn;
+    int batch_cnt;
 
 } xqc_demo_cli_requests_t;
 
@@ -421,6 +429,11 @@ typedef struct xqc_demo_cli_user_conn_s {
     int                     path_status; /* 0:available 1:standby */
     xqc_msec_t              path_status_time;
     xqc_msec_t              path_status_timer_threshold;
+
+
+    xqc_msec_t              path_create_time;
+    xqc_flag_t              remove_path_flag;
+    xqc_msec_t              idle_timeout;
 } xqc_demo_cli_user_conn_t;
 
 static void
@@ -847,8 +860,10 @@ xqc_demo_cli_conn_create_path(const xqc_cid_t *cid, void *conn_user_data)
     uint64_t path_id;
     int ret;
     int backup = 0;
+    printf("ready to create path notify\n");
+
     if (user_conn->total_path_cnt < ctx->args->net_cfg.ifcnt
-        && user_conn->total_path_cnt < MAX_PATH_CNT) 
+        && user_conn->total_path_cnt < ctx->args->quic_cfg.init_max_path_id)
     {
 
         if (user_conn->total_path_cnt == 1 && ctx->args->quic_cfg.mp_backup) {
@@ -870,6 +885,8 @@ xqc_demo_cli_conn_create_path(const xqc_cid_t *cid, void *conn_user_data)
             xqc_conn_close_path(ctx->engine, &(user_conn->cid), path_id);
             return;
         }
+
+        user_conn->path_create_time = xqc_now();
 
         if (user_conn->total_path_cnt == 2 && ctx->args->quic_cfg.mp_backup) {
             printf("set No.%d path (id = %"PRIu64") to STANDBY state\n", 1, path_id);
@@ -1241,7 +1258,8 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
         // xqc_demo_cli_on_stream_fin(user_stream);
         task_idx = user_stream->user_conn->task->task_idx;
         if (ctx->schedule.schedule_info[task_idx].req_create_cnt
-            < ctx->tasks[task_idx].user_conn->task->req_cnt)
+            < ctx->tasks[task_idx].user_conn->task->req_cnt
+            && user_conn->ctx->args->req_cfg.serial)
         {
             if (user_conn->ctx->args->req_cfg.idle_gap) {
 
@@ -1478,12 +1496,28 @@ static void
 xqc_demo_cli_delayed_req_start(int fd, short what, void *arg)
 {
     xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *) arg;
+    int batch_cnt = user_conn->ctx->args->req_cfg.batch_cnt;
     int req_cnt = user_conn->task->req_cnt;
-    if (user_conn->ctx->args->req_cfg.serial) {
-        req_cnt = req_cnt > 1 ? 1 : req_cnt;
+    if (batch_cnt) {
+        req_cnt = req_cnt > batch_cnt ? batch_cnt : req_cnt;
     }
     xqc_demo_cli_send_requests(user_conn, user_conn->ctx->args,
                                user_conn->task->reqs, req_cnt);
+
+    if (req_cnt > user_conn->ctx->task_ctx.schedule.schedule_info[user_conn->task->task_idx].req_create_cnt
+        && user_conn->ctx->args->req_cfg.idle_gap 
+        && user_conn->ctx->args->req_cfg.batch_cnt) 
+    {
+
+        user_conn->ev_idle_restart = event_new(user_conn->ctx->eb, -1, 0, 
+                                                xqc_demo_cli_delayed_idle_restart, 
+                                                user_conn);
+        struct timeval tv = {
+            .tv_sec = user_conn->ctx->args->req_cfg.idle_gap / 1000,
+            .tv_usec = (user_conn->ctx->args->req_cfg.idle_gap % 1000) * 1000,
+        };
+        event_add(user_conn->ev_idle_restart, &tv); 
+    }
 }
 
 static void
@@ -1660,6 +1694,7 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
     settings->is_interop_mode = args->quic_cfg.is_interop_mode;
     settings->max_pkt_out_size = args->quic_cfg.max_pkt_sz;
     settings->adaptive_ack_frequency = 1;
+    settings->init_max_path_id = args->quic_cfg.init_max_path_id;
     if (args->req_cfg.throttled_req != -1) {
         settings->enable_stream_rate_limit = 1;
         settings->recv_rate_bytes_per_sec = 0;
@@ -1688,8 +1723,9 @@ xqc_demo_cli_init_args(xqc_demo_cli_client_args_t *args)
     args->quic_cfg.alpn_type = ALPN_HQ;
     strncpy(args->quic_cfg.alpn, "hq-interop", sizeof(args->quic_cfg.alpn));
     args->quic_cfg.keyupdate_pkt_threshold = UINT64_MAX;
-    /* default 04 */
-    args->quic_cfg.mp_version = XQC_MULTIPATH_04;
+    /* default 10 */
+    args->quic_cfg.mp_version = XQC_MULTIPATH_10;
+    args->quic_cfg.init_max_path_id = 2;
     args->quic_cfg.max_pkt_sz = 1200;
 
     args->req_cfg.throttled_req = -1;
@@ -1812,6 +1848,11 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -E    NAT rebinding on path 1\n"
         "   -F    MTU size (default: 1200)\n"
         "   -G    Google connection options (e.g. CBBR,TBBR)\n"
+        "   -x    Extend the number of requests to X\n"
+        "   -r    Send X requests per batch\n"
+        "   -y    cid rotation after x ms\n"
+        "   -Y    cid retirement after x ms\n"
+        "   -f    max path id\n"
         , prog);
 }
 
@@ -1819,7 +1860,7 @@ void
 xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:bZ:NQT:R:V:B:I:n:eEF:G:")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:bZ:NQT:R:V:B:I:n:eEF:G:r:x:y:Y:f:")) != -1) {
         switch (ch) {
         /* server ip */
         case 'a':
@@ -2064,12 +2105,45 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             strncpy(args->quic_cfg.co_str, optarg, XQC_CO_STR_MAX_LEN);
             break;
 
+        case 'r':
+            printf("Request batch: %s\n", optarg);
+            args->req_cfg.batch_cnt = atoi(optarg);
+            break;
+
+        case 'x':
+            printf("Extend request number: %s\n", optarg);
+            args->req_cfg.ext_reqn = atoi(optarg);
+            break;
+
+        case 'f':
+            printf("max concurrent paths: %s\n", optarg);
+            args->quic_cfg.init_max_path_id = atoi(optarg);
+            break;
+
         default:
             printf("other option :%c\n", ch);
             xqc_demo_cli_usage(argc, argv);
             exit(0);
         }
     }
+
+    if (args->req_cfg.ext_reqn 
+        && args->req_cfg.request_cnt < args->req_cfg.ext_reqn) 
+    {
+        for (ch = args->req_cfg.request_cnt; 
+             ch < args->req_cfg.ext_reqn; ch++) 
+        {
+            memcpy(&args->req_cfg.reqs[ch], 
+                   &args->req_cfg.reqs[ch - 1], 
+                   sizeof(xqc_demo_cli_request_t));
+        }
+        args->req_cfg.request_cnt = args->req_cfg.ext_reqn;
+    }
+
+    if (args->req_cfg.serial) {
+        args->req_cfg.batch_cnt = 1;
+    }
+
 }
 
 #define MAX_REQ_BUF_LEN 1500
@@ -2248,12 +2322,24 @@ xqc_demo_cli_continue_send_reqs(xqc_demo_cli_user_conn_t *user_conn)
     int task_idx = user_conn->task->task_idx;
     int req_create_cnt = ctx->task_ctx.schedule.schedule_info[task_idx].req_create_cnt;
     int req_cnt = user_conn->task->req_cnt - req_create_cnt;
-    if (ctx->args->req_cfg.serial) {
-        req_cnt = req_cnt > 1 ? 1 : req_cnt;
+    if (ctx->args->req_cfg.batch_cnt) {
+        req_cnt = req_cnt > ctx->args->req_cfg.batch_cnt ? ctx->args->req_cfg.batch_cnt : req_cnt;
     }
     if (req_cnt > 0) {
         xqc_demo_cli_request_t *reqs = user_conn->task->reqs + req_create_cnt;
         xqc_demo_cli_send_requests(user_conn, ctx->args, reqs, req_cnt);
+
+        if (user_conn->task->req_cnt > req_create_cnt
+            && ctx->args->req_cfg.idle_gap 
+            && ctx->args->req_cfg.batch_cnt
+            && !ctx->args->req_cfg.serial) 
+        {
+            struct timeval tv = {
+                .tv_sec = ctx->args->req_cfg.idle_gap / 1000,
+                .tv_usec = (ctx->args->req_cfg.idle_gap % 1000) * 1000,
+            };
+            event_add(user_conn->ev_idle_restart, &tv); 
+        } 
     }
 }
 
@@ -2492,7 +2578,7 @@ xqc_demo_cli_init_xquic_connection(xqc_demo_cli_user_conn_t *user_conn,
     }
 
     if (conn_settings.enable_multipath
-        && conn_settings.multipath_version >= XQC_MULTIPATH_06
+        && conn_settings.multipath_version >= XQC_MULTIPATH_10
         && args->quic_cfg.send_path_standby == 1)
     {
         user_conn->send_path_standby = 1;
@@ -2573,13 +2659,28 @@ xqc_demo_cli_start(xqc_demo_cli_user_conn_t *user_conn, xqc_demo_cli_client_args
 
     } else {
         /* TODO: fix MAX_STREAMS bug */
-        if (args->req_cfg.serial) {
-            xqc_demo_cli_send_requests(user_conn, args, reqs, req_cnt > 1 ? 1 : req_cnt);
+        if (args->req_cfg.batch_cnt) {
+            xqc_demo_cli_send_requests(user_conn, args, reqs, req_cnt > args->req_cfg.batch_cnt ? args->req_cfg.batch_cnt : req_cnt);
 
         } else {
             xqc_demo_cli_send_requests(user_conn, args, reqs, req_cnt);
         }
-        
+
+        if (req_cnt > user_conn->ctx->task_ctx.schedule.schedule_info[user_conn->task->task_idx].req_create_cnt
+            && args->req_cfg.idle_gap 
+            && args->req_cfg.batch_cnt
+            && !args->req_cfg.serial) 
+        {
+
+            user_conn->ev_idle_restart = event_new(user_conn->ctx->eb, -1, 0, 
+                                                    xqc_demo_cli_delayed_idle_restart, 
+                                                    user_conn);
+            struct timeval tv = {
+                .tv_sec = args->req_cfg.idle_gap / 1000,
+                .tv_usec = (args->req_cfg.idle_gap % 1000) * 1000,
+            };
+            event_add(user_conn->ev_idle_restart, &tv); 
+        }    
     }
 }
 

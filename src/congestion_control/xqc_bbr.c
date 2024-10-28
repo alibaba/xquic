@@ -283,6 +283,7 @@ xqc_bbr_init(void *cong_ctl, xqc_sample_t *sampler, xqc_cc_params_t cc_params)
     bbr->full_bandwidth_cnt = 0;
     bbr->full_bandwidth_reached = FALSE;
     bbr->lt_bw_enabled = XQC_FALSE;
+    bbr->ignore_app_limit = XQC_FALSE;
 
     if (cc_params.customize_on) {
         cc_params.init_cwnd *= XQC_BBR_MAX_DATAGRAMSIZE;
@@ -305,6 +306,9 @@ xqc_bbr_init(void *cong_ctl, xqc_sample_t *sampler, xqc_cc_params_t cc_params)
         }
         if (cc_params.bbr_enable_lt_bw) {
             bbr->lt_bw_enabled = XQC_TRUE;
+        }
+        if (cc_params.bbr_ignore_app_limit) {
+            bbr->ignore_app_limit = XQC_TRUE;
         }
     }
 
@@ -364,8 +368,12 @@ xqc_bbr_update_bandwidth(xqc_bbr_t *bbr, xqc_sample_t *sampler)
     if (bbr->enable_max_expect_bw && bandwidth >= bbr->max_expect_bw) {
         bandwidth = bbr->max_expect_bw;
     }
-
-    if (!sampler->is_app_limited || bandwidth >= xqc_bbr_max_bw(bbr)) {
+    
+    /*
+     * In a live video scenario, the applimit state often occurs, 
+     * causing the detection bandwidth increases but does not decrease.
+     */
+    if (bbr->ignore_app_limit || !sampler->is_app_limited || bandwidth >= xqc_bbr_max_bw(bbr)) {
         xqc_win_filter_max(&bbr->bandwidth, xqc_bbr_bw_win_size, 
                            bbr->round_cnt, bandwidth);
         xqc_log(sampler->send_ctl->ctl_conn->log, XQC_LOG_DEBUG, 
@@ -536,8 +544,12 @@ xqc_bbr_check_full_bw_reached(xqc_bbr_t *bbr, xqc_sample_t *sampler)
      * Otherwise, startup may end too early due to multiple ACKs arrive in a RTT.
      */
     if (!bbr->round_start || bbr->full_bandwidth_reached 
-        || sampler->is_app_limited)
+        || (!bbr->ignore_app_limit && sampler->is_app_limited))
     {
+        /*
+         * In a live video scenario, the applimit state often occurs, 
+         * causing the startup state to persist for a long time.
+         */
         return;
     }
 

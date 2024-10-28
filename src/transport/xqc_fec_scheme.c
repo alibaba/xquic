@@ -5,170 +5,229 @@
 
 
 #include "src/transport/xqc_fec_scheme.h"
+#include "src/transport/xqc_fec.h"
 #include "src/transport/xqc_conn.h"
 
-
 xqc_int_t
-xqc_fec_encoder(xqc_connection_t *conn, unsigned char *stream)
+xqc_fec_encoder_check_params(xqc_connection_t *conn, xqc_int_t repair_symbol_num, xqc_fec_schemes_e encoder_scheme, size_t st_size)
 {
-    xqc_int_t i, ret, symbol_idx, src_symbol_num, max_symbol_num, repair_symbol_num;
-    unsigned char *repair_symbols_payload_buff[XQC_REPAIR_LEN];
-
-    src_symbol_num =  conn->conn_settings.fec_params.fec_max_symbol_num_per_block * conn->conn_settings.fec_params.fec_code_rate;
-    symbol_idx = conn->fec_ctl->fec_send_src_symbols_num % src_symbol_num;
-    max_symbol_num =  conn->conn_settings.fec_params.fec_max_symbol_num_per_block;
-    repair_symbol_num = max_symbol_num - src_symbol_num;
-
-    if (repair_symbol_num < 0) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_fec_encoder|fec source symbols' number exceeds maximum symbols number per block");
-        return -XQC_EFEC_SCHEME_ERROR;
+    if (encoder_scheme == XQC_XOR_CODE) {
+        if (repair_symbol_num > 1) {
+            xqc_log(conn->log, XQC_LOG_WARN, "|quic_fec|xqc_fec_encoder|xor fec scheme can only maintain one repair symbol");
+            return -XQC_EPARAM;
+        }
     }
 
-    if (repair_symbol_num == 0) {
-        xqc_log(conn->log, XQC_LOG_WARN, "|quic_fec|xqc_fec_encoder|current code rate is too low to generate repair packets.");
-        return XQC_OK;
-    }
-
-    conn->fec_ctl->fec_send_repair_symbols_num = repair_symbol_num;
-
-    if (conn->conn_settings.fec_encode_callback.xqc_fec_encode == NULL) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_fec_encoder|fec encode_uni callback is NULL");
-        return -XQC_EFEC_SCHEME_ERROR;
-    }
-
-    for (i = 0; i < repair_symbol_num; i++) {
-        repair_symbols_payload_buff[i] = conn->fec_ctl->fec_send_repair_symbols_buff[i].payload;
-    }
-
-    ret = conn->conn_settings.fec_encode_callback.xqc_fec_encode(conn, stream, repair_symbols_payload_buff);
-
-    if (ret != XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_WARN, "|quic_fec|xqc_fec_encoder|fec scheme encode_uni error");
-        return -XQC_EFEC_SCHEME_ERROR;
-    }
-
-    for (i = 0; i < repair_symbol_num; i++) {
-        xqc_set_object_value(&conn->fec_ctl->fec_send_repair_symbols_buff[i], 1, repair_symbols_payload_buff[i],
-                             conn->conn_settings.fec_params.fec_max_symbol_size);
+    if (st_size > XQC_MAX_SYMBOL_SIZE) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|stream size is too large to get fec encode|st_size:%zu|", st_size);
+        return -XQC_EPARAM;
     }
 
     return XQC_OK;
 }
 
 xqc_int_t
-xqc_process_recovered_packet(xqc_connection_t *conn, unsigned char **recovered_symbols_buff,
-    xqc_int_t loss_symbol_idx_len)
+xqc_fec_encoder(xqc_connection_t *conn, unsigned char *input, size_t st_size, uint8_t fec_bm_mode)
 {
-    xqc_int_t i, ret, res, symbol_idx, symbol_size;
+    xqc_int_t i, ret, repair_symbol_num;
+    unsigned char *repair_symbols_payload_buff[XQC_REPAIR_LEN];
 
-    symbol_size = conn->remote_settings.fec_max_symbol_size;
-    res = XQC_OK;
 
-    for (i = 0; i < loss_symbol_idx_len; i++) {
-        symbol_idx = i;
-        if (recovered_symbols_buff[symbol_idx] == NULL) {
-            xqc_log(conn->log, XQC_LOG_WARN, "|quic_fec|xqc_process_recovered_packet|symbol %d recover failed", symbol_idx);
-            continue;
-        }
-        xqc_packet_in_t *new_packet = xqc_calloc(1, sizeof(xqc_packet_in_t));
-        if (new_packet == NULL) {
-            return -XQC_EMALLOC;
-        }
+    // validate encode params
+    ret = xqc_fec_encoder_check_params(conn, conn->fec_ctl->fec_send_required_repair_num[fec_bm_mode], conn->conn_settings.fec_params.fec_encoder_scheme, st_size);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+    // in some case fec_code_rate will change in xqc_fec_encoder_check_params
+    repair_symbol_num = conn->fec_ctl->fec_send_required_repair_num[fec_bm_mode];
 
-        new_packet->decode_payload = recovered_symbols_buff[symbol_idx];
-        new_packet->decode_payload_len = symbol_size;
-        new_packet->pos = new_packet->decode_payload;
-        new_packet->last = new_packet->decode_payload + symbol_size;
-        new_packet->pkt_recv_time = xqc_monotonic_timestamp();
-        new_packet->pi_path_id = 0;
-        new_packet->pi_flag |= XQC_PIF_FEC_RECOVERED;
-
-        ret = xqc_process_frames(conn, new_packet);
-        xqc_free(new_packet);
-        if (ret != XQC_OK) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_process_recovered_packet|process recovered packet failed");
-            res = -XQC_EFEC_SCHEME_ERROR;
-
-        } else {
-            if (conn->fec_ctl->fec_recover_pkt_cnt == XQC_MAX_UINT32_VALUE) {
-                xqc_log(conn->log, XQC_LOG_WARN, "|fec recovered packet number exceeds maximum.");
-                conn->fec_ctl->fec_recover_pkt_cnt = 0;
+    if (conn->conn_settings.fec_callback.xqc_fec_encode) {
+        // encode stream value into fec_send_repair_symbols_buff
+        for (i = 0; i < repair_symbol_num; i++) {
+            repair_symbols_payload_buff[i] = conn->fec_ctl->fec_send_repair_symbols_buff[fec_bm_mode][i].payload;
+            if (repair_symbols_payload_buff[i] == NULL) {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|fail to malloc memory for fec_send_repair_symbols_buff");
+                return -XQC_EMALLOC;
             }
-            conn->fec_ctl->fec_recover_pkt_cnt++;
         }
+
+        ret = conn->conn_settings.fec_callback.xqc_fec_encode(conn, input, st_size, repair_symbols_payload_buff, fec_bm_mode);
+        if (ret != XQC_OK) {
+            xqc_log(conn->log, XQC_LOG_WARN, "|quic_fec|xqc_fec_encoder|fec scheme encode_uni error");
+            return -XQC_EFEC_SCHEME_ERROR;
+        }
+
+    } else {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_fec_encoder|fec encode_uni callback is NULL");
+        return -XQC_EFEC_SCHEME_ERROR;
+    }
+
+    return XQC_OK;
+}
+
+xqc_int_t
+xqc_process_recovered_packet(xqc_connection_t *conn, unsigned char *recovered_payload, size_t symbol_size)
+{
+    xqc_int_t i, ret, res;
+
+    res = XQC_OK;
+    xqc_packet_in_t *new_packet = xqc_calloc(1, sizeof(xqc_packet_in_t));
+    if (new_packet == NULL) {
+        return -XQC_EMALLOC;
+    }
+
+    new_packet->decode_payload = recovered_payload;
+    new_packet->decode_payload_len = symbol_size;
+    new_packet->pos = new_packet->decode_payload;
+    new_packet->last = new_packet->decode_payload + symbol_size;
+    new_packet->pkt_recv_time = xqc_monotonic_timestamp();
+    new_packet->pi_path_id = 0;
+    new_packet->pi_flag |= XQC_PIF_FEC_RECOVERED;
+
+    ret = xqc_process_frames(conn, new_packet);
+    xqc_free(new_packet);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|process recovered packet failed|ret:%d", ret);
+        res = -XQC_EFEC_SCHEME_ERROR;
+
+    } else {
+        conn->fec_ctl->fec_recover_pkt_cnt++;
     }
     return res;
 }
 
+
 xqc_int_t
-xqc_fec_decoder(xqc_connection_t *conn, xqc_int_t block_idx)
+xqc_fec_cc_decoder(xqc_connection_t *conn, xqc_fec_rpr_syb_t *rpr_symbol, uint8_t lack_syb_id)
 {
-    xqc_int_t           i, ret, max_src_symbol_num, loss_src_num;
-    xqc_int_t           loss_symbol_idx[XQC_FEC_MAX_SYMBOL_NUM_PBLOCK] = {-1};
-    unsigned char      *recovered_symbols_buff[XQC_FEC_MAX_SYMBOL_NUM_PBLOCK];
+    xqc_int_t ret, block_id, symbol_idx, mask_offset;
+    unsigned char *payload_p;
 
-    ret = loss_src_num = 0;
-    for (i = 0; i < XQC_FEC_MAX_SYMBOL_NUM_PBLOCK; i++) {
-        recovered_symbols_buff[i] = xqc_calloc(1, XQC_PACKET_OUT_SIZE + XQC_ACK_SPACE - XQC_HEADER_SPACE - XQC_FEC_SPACE);
-    }
-    
-    max_src_symbol_num = conn->remote_settings.fec_max_symbols_num;
+    ret = -XQC_EFEC_SYMBOL_ERROR;
+    block_id = rpr_symbol->block_id;
+    symbol_idx = rpr_symbol->symbol_idx;
+    payload_p = conn->fec_ctl->fec_gen_repair_symbols_buff[0].payload;
 
-    if (conn->fec_ctl->fec_recv_symbols_num[block_idx] < max_src_symbol_num) {
-        ret = -XQC_EFEC_SYMBOL_ERROR;
-        goto end;
+    if (payload_p == NULL || rpr_symbol->payload_size > XQC_MAX_SYMBOL_SIZE) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|invalid symbol payload");
+        goto cc_decoder_end;
     }
-    for (i = 0; i < max_src_symbol_num; i++) {
-        if ((conn->fec_ctl->fec_recv_symbols_flag[block_idx] & (1 << i)) == 0) {
-            loss_symbol_idx[loss_src_num] = i;
-            loss_src_num++;
+    if (conn->conn_settings.fec_callback.xqc_fec_decode_one == NULL) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_fec_decode_one doesn't exists");
+        goto cc_decoder_end;
+    }
+
+    ret = conn->conn_settings.fec_callback.xqc_fec_decode_one(conn, payload_p, block_id, symbol_idx);
+    xqc_set_object_value(&conn->fec_ctl->fec_gen_repair_symbols_buff[0], 1, payload_p, rpr_symbol->payload_size);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_fec_decode_one error");
+        goto cc_decoder_end;
+    }
+    ret = xqc_process_recovered_packet(conn, payload_p, rpr_symbol->payload_size);
+    if (ret == XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|process packet of block %d successfully.", block_id);
+        // insert into source list
+        ret = xqc_process_src_symbol(conn, block_id, lack_syb_id, payload_p, rpr_symbol->payload_size);
+        if (ret == -XQC_EFEC_TOLERABLE_ERROR) {
+            ret = XQC_OK;
         }
+        if (ret != XQC_OK) {
+            xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|process source symbol error|ret:%d", ret);
+        }
+    } else {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|process recovered packet error|ret:%d|bid:%d|symbol_size:%d", ret, block_id, rpr_symbol->payload_size);
     }
+
+cc_decoder_end:
+    if (conn->fec_ctl->fec_gen_repair_symbols_buff[0].is_valid) {
+        conn->fec_ctl->fec_gen_repair_symbols_buff[0].payload_size = XQC_MAX_SYMBOL_SIZE;
+        xqc_init_object_value(&conn->fec_ctl->fec_gen_repair_symbols_buff[0]);
+    }
+    conn->fec_ctl->fec_processed_blk_num++;
+
+    if (ret == XQC_OK) {
+        return XQC_OK;
+    }
+
+    conn->fec_ctl->fec_recover_failed_cnt++;
+    return ret;
+}
+
+/**
+ * @brief fec block code decoder;
+ * 
+ * @param conn 
+ * @param block_id 
+ * @return xqc_int_t 
+ */
+xqc_int_t
+xqc_fec_bc_decoder(xqc_connection_t *conn, xqc_int_t block_id, xqc_int_t loss_src_num)
+{
+    size_t              symbol_size;
+    xqc_int_t           i, ret, symbol_flag, rpr_syb_num, src_syb_num, symbol_idx;
+    unsigned char      *recovered_symbols_buff[XQC_REPAIR_LEN];
+    xqc_list_head_t     *pos, *next;
+
+    ret = symbol_size = 0;
     /* proceeds if there's no loss src symbol */
     if (loss_src_num == 0) {
         ret = XQC_OK;
-        goto end;
+        goto bc_decoder_end;
     }
-    
+
+    for (i = 0; i < loss_src_num; i++) {
+        recovered_symbols_buff[i] = conn->fec_ctl->fec_gen_repair_symbols_buff[i].payload;
+        if (recovered_symbols_buff[i] == NULL) {
+            xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|fec_gen_repair_symbols_buff is NULL");
+            ret = -XQC_EMALLOC;
+            goto bc_decoder_end;
+        }
+    }
+
     /* generate loss packets payload */
-    if (conn->conn_settings.fec_decode_callback.xqc_fec_decode == NULL) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_fec_decoder|fec decode callback is NULL");
+    if (conn->conn_settings.fec_callback.xqc_fec_decode) {
+        ret = conn->conn_settings.fec_callback.xqc_fec_decode(conn, recovered_symbols_buff, &symbol_size, block_id);
+        for (i = 0; i < loss_src_num; i++) {
+            xqc_set_object_value(&conn->fec_ctl->fec_gen_repair_symbols_buff[i], 1, recovered_symbols_buff[i],
+                                 symbol_size);
+        }
+        if (ret != XQC_OK) {
+            xqc_log(conn->log, XQC_LOG_WARN, "|quic_fec|fec scheme decode error");
+            ret = -XQC_EFEC_SCHEME_ERROR;
+            goto bc_decoder_end;
+        }
+
+    } else {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_fec_bc_decoder|fec decode callback is NULL");
         ret = -XQC_EFEC_SCHEME_ERROR;
-        goto end;
-    }
-    ret = conn->conn_settings.fec_decode_callback.xqc_fec_decode(conn, recovered_symbols_buff, block_idx, loss_symbol_idx, loss_src_num);
-    if (ret != XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_WARN, "|fec scheme decode error");
-        ret = -XQC_EFEC_SCHEME_ERROR;
-        goto end;
+        goto bc_decoder_end;
     }
 
     /* 封装 new packets并解析数据帧 */
-    ret = xqc_process_recovered_packet(conn, recovered_symbols_buff, loss_src_num);
-    if (ret == XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|process packet of block %d successfully.", conn->fec_ctl->fec_recv_block_idx[block_idx]);
+    for (i = 0; i < loss_src_num; i++) {
+        if (recovered_symbols_buff[i] == NULL) {
+            xqc_log(conn->log, XQC_LOG_WARN, "|quic_fec|xqc_process_recovered_packet|symbol %d recover failed", i);
+            break;
+        }
+        ret = xqc_process_recovered_packet(conn, recovered_symbols_buff[i], symbol_size);
+        if (ret == XQC_OK) {
+            xqc_log(conn->log, XQC_LOG_DEBUG, "|process packet of block %d successfully.", block_id);
+        }
     }
 
-end:
-    if (conn->fec_ctl->fec_processed_blk_num == XQC_MAX_UINT32_VALUE) {
-        xqc_log(conn->log, XQC_LOG_WARN, "|fec processed block number exceeds maximum.");
-        conn->fec_ctl->fec_processed_blk_num = 0;
-    }
+bc_decoder_end:
     conn->fec_ctl->fec_processed_blk_num++;
     /* free recovered symbols buff */
-    for (i = 0; i < XQC_FEC_MAX_SYMBOL_NUM_PBLOCK; i++) {
-        if (recovered_symbols_buff[i] != NULL) {
-            xqc_free(recovered_symbols_buff[i]);
+    for (i = 0; i < loss_src_num; i++) {
+        if (conn->fec_ctl->fec_gen_repair_symbols_buff[i].is_valid) {
+            conn->fec_ctl->fec_gen_repair_symbols_buff[i].payload_size = XQC_MAX_SYMBOL_SIZE;
+            xqc_init_object_value(&conn->fec_ctl->fec_gen_repair_symbols_buff[i]);
         }
     }
     if (ret == XQC_OK) {
         return XQC_OK;
     }
 
-    if (conn->fec_ctl->fec_recover_failed_cnt == XQC_MAX_UINT32_VALUE) {
-        xqc_log(conn->log, XQC_LOG_WARN, "|fec recovered failed number exceeds maximum.");
-        conn->fec_ctl->fec_recover_failed_cnt = 0;
-    }
     conn->fec_ctl->fec_recover_failed_cnt++;
     return ret;
 }

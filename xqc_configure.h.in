@@ -13,3 +13,4 @@
 #cmakedefine XQC_ENABLE_FEC
 #cmakedefine XQC_ENABLE_XOR
 #cmakedefine XQC_ENABLE_RSC
+#cmakedefine XQC_ENABLE_PKM

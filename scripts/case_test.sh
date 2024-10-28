@@ -47,7 +47,7 @@ clear_log
 echo -e "log switch off ...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 44 >> stdlog
 log_size=`wc -l clog | awk -F ' ' '{print $1}'`
-if [ $log_size -eq 1 ]; then
+if [ $log_size -eq 0 ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "log_switch_off" "pass"
 else
@@ -1621,28 +1621,15 @@ sleep 1
 
 
 clear_log
-echo -e "send 1M data on multiple paths with multipath vertion 04"
-sudo ${CLIENT_BIN} -s 1024000 -l d -t 1 -M -i lo -i lo -E -v 4 > stdlog
-cli_result=`grep "multipath version negotiation succeed on multipath 04" clog`
+echo -e "send 1M data on multiple paths with multipath version 10"
+sudo ${CLIENT_BIN} -s 1024000 -l d -t 1 -M -i lo -i lo -E -v 10 > stdlog
+cli_result=`grep "multipath version negotiation succeed on multipath 010" clog`
 if [ -n "$cli_result" ]; then
     echo ">>>>>>>> pass:1"
-    case_print_result "MPNS_send_data_with_multipath_04" "pass"
+    case_print_result "MPNS_send_data_with_multipath_10" "pass"
 else
     echo ">>>>>>>> pass:0"
-    case_print_result "MPNS_send_data_with_multipath_04" "fail"
-fi
-rm -f test_session tp_localhost xqc_token
-
-clear_log
-echo -e "send 1M data on multiple paths with multipath vertion 05"
-sudo ${CLIENT_BIN} -s 1024000 -l d -t 1 -M -i lo -i lo -E -v 5 > stdlog
-cli_result=`grep "multipath version negotiation succeed on multipath 05" clog`
-if [ -n "$cli_result" ]; then
-    echo ">>>>>>>> pass:1"
-    case_print_result "MPNS_send_data_with_multipath_05" "pass"
-else
-    echo ">>>>>>>> pass:0"
-    case_print_result "MPNS_send_data_with_multipath_05" "fail"
+    case_print_result "MPNS_send_data_with_multipath_10" "fail"
 fi
 rm -f test_session tp_localhost xqc_token
 
@@ -1769,6 +1756,7 @@ fi
 if [ -f stdlog ]; then
     rm -f stdlog
 fi
+
 ${SERVER_BIN} -l d -Q 9000 > /dev/null &
 sleep 1
 clear_log
@@ -4424,17 +4412,15 @@ else
     case_print_result "h3_engine_set_settings_api_h3_ext_more" "fail"
 fi
 
-rm -rf tp_localhost test_session xqc_token
+sudo rm -rf tp_localhost test_session xqc_token clog slog stdlog
 killall test_server 2> /dev/null
 ${SERVER_BIN} -l d -e -f > /dev/null &
 sleep 1
 
-rm -rf tp_localhost test_session xqc_token
-clear_log
 echo -e "negotiate_encoder_fec_schemes ...\c"
-sudo ${CLIENT_BIN} -l d -g > stdlog
-clog_res1=`grep "|client set final encoder fec scheme: " clog`
-slog_res1=`grep "|server set final encoder fec scheme: " slog`
+${CLIENT_BIN} -l d -g >> stdlog
+clog_res1=`grep "|xqc_negotiate_fec_schemes|set final encoder fec scheme: XOR" clog`
+slog_res1=`grep "|xqc_negotiate_fec_schemes|set final encoder fec scheme: XOR" slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$clog_res1" ] && [ -n "$slog_res1" ]; then
     echo ">>>>>>>> pass:1"
@@ -4445,12 +4431,11 @@ else
 fi
 
 
-rm -rf tp_localhost test_session xqc_token
-clear_log
+sudo rm -rf tp_localhost test_session xqc_token stdlog
 echo -e "negotiate_decoder_fec_schemes ...\c"
-sudo ${CLIENT_BIN} -l d -g > stdlog
-clog_res2=`grep "|client set final decoder fec scheme: " clog`
-slog_res2=`grep "|server set final decoder fec scheme: " slog`
+${CLIENT_BIN} -l d -g >> stdlog
+clog_res2=`grep "|xqc_negotiate_fec_schemes|set final decoder fec scheme: XOR" clog`
+slog_res2=`grep "|xqc_negotiate_fec_schemes|set final decoder fec scheme: XOR" slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$clog_res2" ] && [ -n "$slog_res2" ]; then
     echo ">>>>>>>> pass:1"
@@ -4461,68 +4446,70 @@ else
 fi
 
 
-rm -rf tp_localhost test_session xqc_token
-clear_log
-echo -e "negotiate_fec_schemes_fail ...\c"
-sudo ${CLIENT_BIN} -l d -g --fec_encoder 12 --fec_decoder 12 > stdlog
-clog_res2=`grep "|invalid fec schemes, negotiation on final encoder scheme failed.|" clog`
-clog_res2=`grep "|invalid fec schemes, negotiation on final decoder scheme failed." clog`
-slog_res2=`grep "|negotiation on final encoder scheme failed.|" slog`
-slog_res2=`grep "|negotiation on final decoder scheme failed.|" slog`
-errlog=`grep_err_log`
-if [ -z "$errlog" ] && [ -n "$clog_res2" ] && [ -n "$slog_res2" ]; then
-    echo ">>>>>>>> pass:1"
-    case_print_result "negotiate_fec_schemes_fail" "pass"
-else
-    echo ">>>>>>>> pass:0"
-    case_print_result "negotiate_fec_schemes_fail" "fail"
-fi
-
-
+sudo rm -rf clog slog
 killall test_server 2> /dev/null
-stdbuf -oL ${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
+${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
 sleep 1
 
-rm -rf tp_localhost test_session xqc_token
-clear_log
-echo -e "check fec recovery function of stream ...\c"
-sudo ${CLIENT_BIN} -s 10240000 -l e -E -d 30 -g -M -i lo -i lo > stdlog
+sudo rm -rf tp_localhost test_session xqc_token stdlog
+echo -e "check fec recovery function of stream using XOR ...\c"
+${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g >> stdlog
 slog_res1=`grep '|process packet of block .\{1,3\} successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
     echo ">>>>>>>> pass:1"
-    case_print_result "fec_recovered_function_of_stream" "pass"
+    case_print_result "fec_recovered_function_of_stream_xor" "pass"
 else
     echo ">>>>>>>> pass:0"
-    case_print_result "fec_recovered_function_of_stream" "fail"
+    case_print_result "fec_recovered_function_of_stream_xor" "fail"
 fi
 
+sudo rm -rf clog slog
 killall test_server 2> /dev/null
-stdbuf -oL ${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
+${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
 sleep 1
 
-rm -rf tp_localhost test_session xqc_token
-clear_log
-echo -e "test repair_num_is_zero ...\c"
-sudo ${CLIENT_BIN} -s 3000 -l e -E -d 30 -g -M -i lo -i lo -x 80 > stdlog
-clog_res1=`grep '|xqc_process_fec_protected_packet|xqc_is_fec_params_valid|fec params invalid|' clog`
-if [ -n "$clog_res1" ]; then
+sudo rm -rf tp_localhost test_session xqc_token stdlog
+echo -e "check fec recovery function of stream using RSC ...\c"
+${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g --fec_encoder 8 --fec_decoder 8 >> stdlog
+slog_res1=`grep '|process packet of block .\{1,3\} successfully' slog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
     echo ">>>>>>>> pass:1"
-    case_print_result "repair_num_is_zero" "pass"
+    case_print_result "fec_recovered_function_of_stream_rsc" "pass"
 else
     echo ">>>>>>>> pass:0"
-    case_print_result "repair_num_is_zero" "fail"
+    case_print_result "fec_recovered_function_of_stream_rsc" "fail"
 fi
+
+sudo rm -rf clog slog
+killall test_server 2> /dev/null
+${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
+sleep 1
+
+sudo rm -rf tp_localhost test_session xqc_token stdlog
+echo -e "check fec recovery function of stream using PM ...\c"
+${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g --fec_encoder 12 --fec_decoder 12 >> stdlog
+slog_res1=`grep '|process packet of block .\{1,3\} successfully' slog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "fec_recovered_function_of_stream_pm" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "fec_recovered_function_of_stream_pm" "fail"
+fi
+
+
 
 killall test_server 2> /dev/null
 ${SERVER_BIN} -l d -Q 65535 -e -U 1 -s 1 --dgram_qos 3 -f > /dev/null &
 sleep 1
 
 rm -rf tp_localhost test_session xqc_token
-
 clear_log
 echo -e "check fec recovery function of datagram with XOR fec scheme ...\c"
-sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 8 --fec_decoder 8 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 10000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g >> stdlog
 slog_res1=`grep '|process packet of block 0 successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4533,9 +4520,10 @@ else
     case_print_result "fec_recovered_function_of_datagram_xor" "fail"
 fi
 
+rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "check fec recovery function of datagram with RSC fec scheme ...\c"
-sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 11 --fec_decoder 11 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 10000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 8 --fec_decoder 8  >> stdlog
 slog_res1=`grep '|process packet of block 0 successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4547,8 +4535,22 @@ else
 fi
 
 clear_log
+echo -e "check fec recovery function of datagram with Packet Mask scheme ...\c"
+${CLIENT_BIN} -l d -T 1 -s 10000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 12 --fec_decoder 12  >> stdlog
+slog_res1=`grep '|process packet of block 0 successfully' slog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "fec_recovered_function_of_datagram_pm" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "fec_recovered_function_of_datagram_pm" "fail"
+fi
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
 echo -e "check fec recovery function of datagram with XOR(encoder) and RSC(decoder) fec schemes ...\c"
-sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 11 --fec_decoder 11 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 10000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 8 --fec_decoder 11 >> stdlog
 slog_res1=`grep '|process packet of block 0 successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4560,9 +4562,10 @@ else
 fi
 
 
+rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "check fec recovery function of datagram with XOR(decoder) and RSC(encoder) fec schemes ...\c"
-sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 11 --fec_decoder 11 > stdlog
+${CLIENT_BIN} -l d -T 1 -s 10000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 11 --fec_decoder 8 >> stdlog
 slog_res1=`grep '|process packet of block 0 successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4573,9 +4576,7 @@ else
     case_print_result "fec_recovered_function_of_datagram_rsc_and_xor" "fail"
 fi
 
-
-clear_log
-rm -rf tp_localhost test_session xqc_token
+sudo rm -rf tp_localhost test_session xqc_token slog clog
 echo -e "qlog disable ...\c"
 killall test_server
 ${SERVER_BIN} -l d -e -x 1 --qlog_disable > slog &

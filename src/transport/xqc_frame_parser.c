@@ -2444,12 +2444,11 @@ xqc_parse_ack_mp_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
 
 
 /*
+ *
  * PATH_ABANDON Frame {
- *    Type (i) = TBD-03,
- *    Path ID (i),
- *    Error Code (i),
- *    Reason Phrase Length (i),
- *    Reason Phrase (..),
+ *   Type (i) = TBD-02 (experiments use 0x15228c05),
+ *   Path Identifier (i),
+ *   Error Code (i),
  * }
  *
  */
@@ -2483,9 +2482,13 @@ xqc_gen_path_abandon_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
 
     need = xqc_vint_len(frame_type_bits)
            + xqc_vint_len(path_id_bits)
-           + xqc_vint_len(error_code_bits)
-           + xqc_vint_len(reason_len_bits)
-           + reason_len;
+           + xqc_vint_len(error_code_bits);
+
+    /* only draft-10 use reason field */
+    if (conn->conn_settings.multipath_version == XQC_MULTIPATH_10) {
+        need += xqc_vint_len(reason_len_bits)
+                + reason_len;
+    }
 
     po_remained_size = xqc_get_po_remained_size(packet_out);
 
@@ -2506,14 +2509,17 @@ xqc_gen_path_abandon_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     xqc_vint_write(dst_buf, error_code, error_code_bits, xqc_vint_len(error_code_bits));
     dst_buf += xqc_vint_len(error_code_bits);
 
-    /* Reason Phrase Length (i) */
-    xqc_vint_write(dst_buf, reason_len, reason_len_bits, xqc_vint_len(reason_len_bits));
-    dst_buf += xqc_vint_len(reason_len_bits);
+    /* only draft-10 use reason field */
+    if (conn->conn_settings.multipath_version == XQC_MULTIPATH_10) {
+        /* Reason Phrase Length (i) */
+        xqc_vint_write(dst_buf, reason_len, reason_len_bits, xqc_vint_len(reason_len_bits));
+        dst_buf += xqc_vint_len(reason_len_bits);
 
-    /* Reason Phrase (..) */
-    if (reason_len > 0) {
-        xqc_memcpy(dst_buf, reason, reason_len);
-        dst_buf += reason_len;
+        /* Reason Phrase (..) */
+        if (reason_len > 0) {
+            xqc_memcpy(dst_buf, reason, reason_len);
+            dst_buf += reason_len;
+        }
     }
 
     packet_out->po_frame_types |= XQC_FRAME_BIT_PATH_ABANDON;
@@ -2523,7 +2529,7 @@ xqc_gen_path_abandon_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
 
 xqc_int_t
 xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
-    uint64_t *path_id, uint64_t *error_code)
+    uint64_t *path_id, uint64_t *error_code, uint8_t has_reason)
 {
     unsigned char *p = packet_in->pos;
     const unsigned char *end = packet_in->last;
@@ -2552,16 +2558,18 @@ xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
     }
     p += vlen;
 
-    /* Reason Phrase Length (i) */
-    vlen = xqc_vint_read(p, end, &reason_len);
-    if (vlen < 0) {
-        return -XQC_EVINTREAD;
-    }
-    p += vlen;
+    if (has_reason) {
+        /* Reason Phrase Length (i) */
+        vlen = xqc_vint_read(p, end, &reason_len);
+        if (vlen < 0) {
+            return -XQC_EVINTREAD;
+        }
+        p += vlen;
 
-     /* Reason Phrase (..) */
-    if (reason_len > 0) {
-        p += reason_len;
+        /* Reason Phrase (..) */
+        if (reason_len > 0) {
+            p += reason_len;
+        }
     }
 
     packet_in->pos = p;

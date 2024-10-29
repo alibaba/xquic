@@ -729,7 +729,7 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     }
 
     if (xqc_conn_is_current_mp_version_supported(xc->conn_settings.multipath_version) != XQC_OK) {
-        xc->conn_settings.multipath_version = XQC_MULTIPATH_10;
+        xc->conn_settings.multipath_version = XQC_MULTIPATH_11;
     }
 
     if (xc->conn_settings.init_max_path_id == 0) {

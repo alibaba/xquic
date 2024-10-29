@@ -2053,10 +2053,16 @@ xqc_process_path_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
     xqc_log(conn->log, XQC_LOG_DEBUG,
             "|max_path_id:%ui|pre_local_max_path_id:%ui|", max_path_id, conn->local_max_path_id);
 
-    if (conn->remote_max_path_id < max_path_id) {
+    if (conn->local_max_path_id < max_path_id) {
         xqc_log(conn->log, XQC_LOG_ERROR,
                 "|invalid path blocked frame|");
         return -XQC_EIGNORE_PKT;
+    }
+
+    if (conn->local_max_path_id > max_path_id) {
+        xqc_log(conn->log, XQC_LOG_DEBUG,
+                "|received out-dated path blocked frame|local_max_path_id:%ui|max_path_id:%ui|", conn->local_max_path_id, max_path_id);
+        return XQC_OK;
     }
 
     conn->local_max_path_id += (conn->local_max_path_id + 1) / 2;

@@ -2962,3 +2962,61 @@ xqc_parse_max_path_id_frame(xqc_packet_in_t *packet_in, uint64_t *max_path_id)
 
     return XQC_OK;
 }
+
+/*
+ *
+ * PATHS_BLOCKED Frame {
+ *   Type (i) = TBD-08 (experiments use 0x15228c0d),
+ *   Maximum Path Identifier (i),
+ * }
+ * Figure 10: MAX_PATH_ID_BLOCKED Frame Format
+ *
+ * */
+ssize_t
+xqc_gen_path_blocked_frame(xqc_packet_out_t *packet_out, uint64_t max_path_id)
+{
+    unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
+    const unsigned char *begin = dst_buf;
+
+    /* write frame type */
+    uint64_t frame_type = XQC_TRANS_FRAME_TYPE_PATH_BLOCKED;
+    unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
+    xqc_vint_write(dst_buf, frame_type, frame_type_bits, xqc_vint_len(frame_type_bits));
+    dst_buf += xqc_vint_len(frame_type_bits);
+
+    unsigned max_paths_bits = xqc_vint_get_2bit(max_path_id);
+    xqc_vint_write(dst_buf, max_path_id, max_paths_bits, xqc_vint_len(max_paths_bits));
+    dst_buf += xqc_vint_len(max_paths_bits);
+
+    packet_out->po_frame_types |= XQC_FRAME_BIT_PATH_BLOCKED;
+
+    return dst_buf - begin;
+}
+
+xqc_int_t
+xqc_parse_path_blocked_frame(xqc_packet_in_t *packet_in, uint64_t *max_path_id)
+{
+    unsigned char *p = packet_in->pos;
+    const unsigned char *end = packet_in->last;
+    int vlen;
+
+    /* frame type */
+    uint64_t frame_type = 0;
+    vlen = xqc_vint_read(p, end, &frame_type);  /* get frame_type */
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    vlen = xqc_vint_read(p, end, max_path_id);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    packet_in->pos = p;
+
+    packet_in->pi_frame_types |= XQC_FRAME_BIT_PATH_BLOCKED;
+
+    return XQC_OK;
+}

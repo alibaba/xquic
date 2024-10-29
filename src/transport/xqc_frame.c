@@ -352,7 +352,16 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
                 ret = -XQC_EMP_INVALID_MP_VERTION;
             }
             break;
+        case XQC_TRANS_FRAME_TYPE_PATH_BLOCKED:
+            if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_11) {
+                ret = xqc_process_path_blocked_frame(conn, packet_in);
 
+            } else {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|mp_version error|v:%ud|f:%xL|",
+                        conn->conn_settings.multipath_version, frame_type);
+                ret = -XQC_EMP_INVALID_MP_VERTION;
+            }
+            break;
 #ifdef XQC_ENABLE_FEC
         case 0xfec5:
             if (conn->conn_settings.enable_decode_fec
@@ -2026,6 +2035,41 @@ xqc_process_max_path_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
 
     return ret;
 }
+
+
+xqc_int_t
+xqc_process_path_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
+{
+    xqc_int_t ret = XQC_ERROR;
+    uint64_t max_path_id, new_max_path_id;
+
+    ret = xqc_parse_path_blocked_frame(packet_in, &max_path_id);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_process_max_paths_frame error|");
+        return ret;
+    }
+
+    xqc_log(conn->log, XQC_LOG_DEBUG,
+            "|max_path_id:%ui|pre_local_max_path_id:%ui|", max_path_id, conn->local_max_path_id);
+
+    if (conn->remote_max_path_id < max_path_id) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|invalid path blocked frame|");
+        return -XQC_EIGNORE_PKT;
+    }
+
+    conn->local_max_path_id += (conn->local_max_path_id + 1) / 2;
+    ret = xqc_write_max_path_id_to_packet(conn, conn->local_max_path_id);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_process_path_blocked_frame error|");
+        return ret;
+    }
+
+    return ret;
+}
+
 
 #ifdef XQC_ENABLE_FEC
 

@@ -739,6 +739,16 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
             conn->conn_flag |= XQC_CONN_FLAG_MP_READY_NOTIFY;
             conn->conn_flag &= ~XQC_CONN_FLAG_MP_WAIT_MP_READY;
         }
+
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|create_path_count:%ui|remote_max_path_id:%ui|",
+                                                conn->create_path_count, conn->remote_max_path_id);
+        if (conn->create_path_count == conn->remote_max_path_id) {
+            conn->remote_max_path_id += (conn->remote_max_path_id + 1) / 2;
+            ret = xqc_write_path_blocked_to_packet(conn, conn->remote_max_path_id);
+            if (ret) {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_path_blocked_to_packet error|");
+            }
+        }
     }
 
     /* for multi-path */

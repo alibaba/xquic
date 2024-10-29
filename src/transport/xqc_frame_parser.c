@@ -2463,14 +2463,14 @@ xqc_gen_path_abandon_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     uint64_t frame_type;
 
     need = po_remained_size = 0;
-    
-    if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_10) {
-        /* same frame type in 05 and 06 */
-        frame_type = XQC_TRANS_FRAME_TYPE_MP_ABANDON;
 
-    } else {
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|multipath_version|%ui|", conn->conn_settings.multipath_version);
+
+    if (conn->conn_settings.multipath_version < XQC_MULTIPATH_10) {
         return -XQC_EMP_INVALID_MP_VERTION;
     }
+
+    frame_type = XQC_TRANS_FRAME_TYPE_MP_ABANDON;
 
     uint64_t reason_len = 0;
     uint8_t *reason = NULL;
@@ -2529,7 +2529,7 @@ xqc_gen_path_abandon_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
 
 xqc_int_t
 xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
-    uint64_t *path_id, uint64_t *error_code, uint8_t has_reason)
+    uint64_t *path_id, uint64_t *error_code, uint64_t has_reason)
 {
     unsigned char *p = packet_in->pos;
     const unsigned char *end = packet_in->last;

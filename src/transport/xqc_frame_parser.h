@@ -144,7 +144,7 @@ ssize_t xqc_gen_path_abandon_frame(xqc_connection_t *conn,
     xqc_packet_out_t *packet_out, uint64_t path_id, uint64_t error_code);
 
 xqc_int_t xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
-    uint64_t *path_id, uint64_t *error_code, uint8_t has_reason);
+    uint64_t *path_id, uint64_t *error_code, uint64_t has_reason);
 
 ssize_t xqc_gen_path_status_frame(xqc_connection_t *conn,
     xqc_packet_out_t *packet_out,

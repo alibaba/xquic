@@ -1680,7 +1680,7 @@ xqc_process_path_abandon_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
     uint64_t error_code;
 
     ret = xqc_parse_path_abandon_frame(packet_in, &path_id, &error_code,
-                                       conn->remote_settings.multipath_version == XQC_MULTIPATH_10? 1 : 0);
+                                       (conn->remote_settings.multipath_version == XQC_MULTIPATH_10? 1 : 0));
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_parse_path_abandon_frame error|");
         return ret;

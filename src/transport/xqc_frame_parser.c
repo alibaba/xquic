@@ -2832,7 +2832,7 @@ xqc_parse_mp_new_conn_id_frame(xqc_packet_in_t *packet_in,
 
     packet_in->pi_frame_types |= XQC_FRAME_BIT_MP_NEW_CONNECTION_ID;
 
-    xqc_log_event(conn->log, TRA_FRAMES_PROCESSED, XQC_FRAME_NEW_CONNECTION_ID, new_cid, retire_prior_to);
+    xqc_log_event(conn->log, TRA_FRAMES_PROCESSED, XQC_FRAME_MP_NEW_CONNECTION_ID, new_cid, retire_prior_to);
     return XQC_OK;
 }
 

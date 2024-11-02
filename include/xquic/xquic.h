@@ -1505,6 +1505,7 @@ typedef struct xqc_conn_stats_s {
      * 0: 不支持MP
      * 1: 支持MP, 采用 Single PNS
      * 2: 支持MP, 采用 Multiple PNS
+     *
      */
     int                 enable_multipath;
 

@@ -75,7 +75,7 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid, uint64
 {
     xqc_path_ctx_t *path = NULL;
 
-    if (conn->create_path_count >= XQC_MAX_PATHS_COUNT) {
+    if (conn->create_path_count > xqc_min(conn->local_max_path_id, conn->remote_max_path_id)) {
         xqc_log(conn->log, XQC_LOG_ERROR, 
                 "|too many paths|current maximum:%d|", XQC_MAX_PATHS_COUNT);
         return NULL;

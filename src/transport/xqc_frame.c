@@ -1781,7 +1781,8 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
 {
     xqc_int_t ret = XQC_ERROR;
     xqc_cid_t new_conn_cid;
-    uint64_t retire_prior_to, curr_rpi;
+    uint64_t retire_prior_to;
+    int64_t curr_rpi;
 
     xqc_cid_inner_t *inner_cid;
     xqc_list_head_t *pos, *next;
@@ -1821,6 +1822,9 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
 
     /* TODO: write_retire_conn_id_frame 可能涉及到 替换 path.dcid (当前无 retire_prior_to 因此不涉及) */
     curr_rpi = xqc_cid_set_get_largest_seq_or_rpt(&conn->dcid_set, path_id);
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|new_conn_id|%s|path_id:%ui|prior:%ui|",
+            xqc_scid_str(conn->engine, &new_conn_cid), path_id, curr_rpi);
+
     if (curr_rpi < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|current retire_prior_to error:%i|path:%ui|",
                 curr_rpi, path_id);

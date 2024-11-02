@@ -142,6 +142,7 @@ xqc_cid_set_inner_init(xqc_cid_set_inner_t *cid_set_inner)
     xqc_memzero(cid_set_inner, sizeof(xqc_cid_set_inner_t));
     xqc_init_list_head(&cid_set_inner->cid_list);
     xqc_init_list_head(&cid_set_inner->next);
+    cid_set_inner->largest_retire_prior_to = 0;
 }
 
 void 

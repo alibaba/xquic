@@ -1803,9 +1803,9 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         return -XQC_EILLEGAL_FRAME;
     }
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|new_conn_id|%s|sr_token:%s",
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|new_conn_id|%s|sr_token:%s|path_id:%ui|",
             xqc_scid_str(conn->engine, &new_conn_cid), 
-            xqc_sr_token_str(conn->engine, new_conn_cid.sr_token));
+            xqc_sr_token_str(conn->engine, new_conn_cid.sr_token), path_id);
 
     if (retire_prior_to > new_conn_cid.cid_seq_num) {
         /*

@@ -1802,7 +1802,7 @@ xqc_write_max_path_id_to_packet(xqc_connection_t *conn, uint64_t max_path_id)
 
     ret = xqc_gen_max_path_id_frame(packet_out, max_path_id);
     if (ret < 0) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_max_streams_frame error|");
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_max_path_id_frame error|");
         goto error;
     }
     packet_out->po_used_size += ret;
@@ -1831,7 +1831,7 @@ xqc_write_path_blocked_to_packet(xqc_connection_t *conn, uint64_t max_path_id)
 
     ret = xqc_gen_path_blocked_frame(packet_out, max_path_id);
     if (ret < 0) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_max_streams_frame error|");
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_path_blocked_frame error|");
         goto error;
     }
     packet_out->po_used_size += ret;

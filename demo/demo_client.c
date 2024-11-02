@@ -1866,6 +1866,12 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
         case 'a':
             printf("option addr :%s\n", optarg);
             snprintf(args->net_cfg.server_addr, sizeof(args->net_cfg.server_addr), optarg);
+
+            /*if (strlen(args->net_cfg.server_addr) != 0) {
+                args->net_cfg.addr_len = strlen(args->net_cfg.server_addr);
+                memcpy(&args->net_cfg.addr, args->net_cfg.server_addr, args->net_cfg.addr_len);
+                printf("using address %s from option -a\n", args->net_cfg.server_addr);
+            }*/
             break;
 
         /* server port */

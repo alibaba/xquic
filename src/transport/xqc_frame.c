@@ -1911,11 +1911,11 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
                                  conn->local_settings.active_connection_id_limit, 
                                  path_id);
     if (ret != XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_cid_set_insert_cid error|limit:%ui|unused:%i|used:%i|path:%ui|",
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_cid_set_insert_cid error|limit:%ui|unused:%i|used:%i|path:%ui|ret:%i|",
                 conn->local_settings.active_connection_id_limit, 
                 xqc_cid_set_get_unused_cnt(&conn->dcid_set, path_id), 
                 xqc_cid_set_get_used_cnt(&conn->dcid_set, path_id),
-                path_id);
+                path_id, ret);
         return ret;
     }
 
@@ -2069,11 +2069,17 @@ xqc_process_path_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
         return XQC_OK;
     }
 
+    uint64_t pre_max_path_id = conn->local_max_path_id;
     conn->local_max_path_id += (conn->local_max_path_id + 1) / 2;
+    if (xqc_conn_add_path_cid_sets(conn, pre_max_path_id + 1, conn->local_max_path_id) != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|add_path_cid_sets_error|");
+        return -XQC_EMALLOC;
+    }
+
     ret = xqc_write_max_path_id_to_packet(conn, conn->local_max_path_id);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR,
-                "|xqc_process_path_blocked_frame error|");
+                "|xqc_write_max_path_id_to_packet error|");
         return ret;
     }
 

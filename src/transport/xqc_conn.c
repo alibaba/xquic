@@ -3790,10 +3790,10 @@ xqc_conn_update_flow_ctl_settings(xqc_connection_t *conn)
 }
 
 xqc_int_t
-xqc_conn_add_path_cid_sets(xqc_connection_t *conn, uint32_t start, uint32_t end)
+xqc_conn_add_path_cid_sets(xqc_connection_t *conn, uint64_t start, uint64_t end)
 {
     if (conn->enable_multipath) {
-        uint32_t path_id;
+        uint64_t path_id;
         xqc_int_t ret;
         /* add cid_set_inner for all paths */
         for (path_id = start; path_id <= end; path_id++) {
@@ -4623,7 +4623,7 @@ xqc_conn_get_available_path_id(xqc_connection_t *conn, uint64_t *path_id)
         /* principle: the next unused path ID has at least one unused DCID and one acked unused SCID */
         xqc_cid_set_inner_t *scid_inner_set = xqc_get_next_unused_path_cid_set(&conn->scid_set);
         if (scid_inner_set) {
-            xqc_cid_set_inner_t *dcid_inner_set = xqc_get_path_cid_set(&conn->scid_set, scid_inner_set->path_id);
+            xqc_cid_set_inner_t *dcid_inner_set = xqc_get_path_cid_set(&conn->dcid_set, scid_inner_set->path_id);
             if (dcid_inner_set) {
                 if (dcid_inner_set->unused_cnt > 0 && scid_inner_set->acked_unused > 0) {
                     if (path_id) {

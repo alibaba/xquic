@@ -21,12 +21,18 @@ include_directories(
     ${LIBEVENT_INCLUDE_DIR}
 )
 
+set(TEST_PLATFORM_SOURCES
+    platform.c
+)
+
 set(TEST_SERVER_SOURCES
     test_server.c
+    ${TEST_PLATFORM_SOURCES}
 )
 
 set(TEST_CLIENT_SOURCES
     test_client.c
+    ${TEST_PLATFORM_SOURCES}
 )
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")

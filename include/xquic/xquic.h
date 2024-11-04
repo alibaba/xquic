@@ -28,8 +28,8 @@ extern "C" {
  * @brief engine type definition
  */
 typedef enum {
-    XQC_ENGINE_SERVER,
-    XQC_ENGINE_CLIENT
+    XQC_ENGINE_SERVER   = 0,
+    XQC_ENGINE_CLIENT   = 1
 } xqc_engine_type_t;
 
 
@@ -38,18 +38,18 @@ typedef enum {
  */
 typedef enum xqc_proto_version_s {
     /* placeholder */
-    XQC_IDRAFT_INIT_VER,
+    XQC_IDRAFT_INIT_VER         = 0,
 
     /* former version of QUIC RFC 9000 */
-    XQC_VERSION_V1,
+    XQC_VERSION_V1              = 1,
 
     /* IETF Draft-29 */
-    XQC_IDRAFT_VER_29,
+    XQC_IDRAFT_VER_29           = 2,
 
      /* Special version for version negotiation. */
-    XQC_IDRAFT_VER_NEGOTIATION,
+    XQC_IDRAFT_VER_NEGOTIATION  = 3,
 
-    XQC_VERSION_MAX
+    XQC_VERSION_MAX             = 4
 } xqc_proto_version_t;
 
 #define XQC_SUPPORT_VERSION_MAX         64
@@ -430,8 +430,8 @@ typedef void (*xqc_path_removed_notify_pt)(const xqc_cid_t *scid, uint64_t path_
     void *conn_user_data);
 
 typedef enum {
-    XQC_PATH_DEGRADE,
-    XQC_PATH_RECOVERY,
+    XQC_PATH_DEGRADE     = 0,
+    XQC_PATH_RECOVERY    = 1,
 } xqc_path_status_change_type_t;
 
 
@@ -866,7 +866,7 @@ typedef struct xqc_scheduler_params_u {
 
 typedef enum {
     XQC_REED_SOLOMON_CODE  = 8,
-    XQC_XOR_CODE = 11, /* 测试用，没有在IANA登记过*/
+    XQC_XOR_CODE = 11, 
     XQC_PACKET_MASK = 12,
 } xqc_fec_schemes_e;
 
@@ -1361,9 +1361,9 @@ typedef struct xqc_conn_settings_s {
 
 
 typedef enum {
-    XQC_0RTT_NONE,      /* without 0-RTT */
-    XQC_0RTT_ACCEPT,    /* 0-RTT was accepted */
-    XQC_0RTT_REJECT,    /* 0-RTT was rejected */
+    XQC_0RTT_NONE       = 0,      /* without 0-RTT */
+    XQC_0RTT_ACCEPT     = 1,    /* 0-RTT was accepted */
+    XQC_0RTT_REJECT     = 2,    /* 0-RTT was rejected */
 } xqc_0rtt_flag_t;
 
 

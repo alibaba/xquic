@@ -322,7 +322,6 @@ xqc_engine_wakeup_pq_destroy(xqc_wakeup_pq_t *q)
     xqc_free(q);
 }
 
-
 xqc_usec_t
 xqc_engine_wakeup_after(xqc_engine_t *engine)
 {

@@ -487,7 +487,7 @@ void xqc_h3_engine_set_local_settings(xqc_engine_t *engine,
  * @brief create and http3 connection
  * 
  * @param engine return from xqc_engine_create
- * @param conn_settings connection settings
+ * @param conn_settings Include all the connection settings, which should be customized according to the actual needs, and will be defaultly set to internal_default_conn_settings if not specified.
  * @param token token receive from server, xqc_save_token_pt callback
  * @param token_len length of token
  * @param server_host server domain

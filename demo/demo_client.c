@@ -2151,7 +2151,7 @@ xqc_demo_cli_send_h3_req(xqc_demo_cli_user_conn_t *user_conn,
         if (req_create_cnt == user_conn->ctx->args->req_cfg.throttled_req) {
             settings.recv_rate_bytes_per_sec = user_conn->ctx->args->quic_cfg.recv_rate;
         }
-        
+
         if (req_create_cnt != 0
             && user_conn->ctx->args->req_cfg.throttled_req != 0 
             && (req_create_cnt % user_conn->ctx->args->req_cfg.throttled_req) == 0)

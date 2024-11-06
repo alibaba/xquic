@@ -274,19 +274,18 @@ err:
 }
 
 static int
-xqc_mini_svr_create_socket(xqc_mini_svr_ctx_t *ctx, xqc_mini_svr_net_config_t* cfg)
+xqc_mini_svr_create_socket(xqc_mini_svr_user_conn_t *user_conn, xqc_mini_svr_net_config_t* cfg)
 {
     /* ipv4 socket */
-    memset(&ctx->local_addr, 0, sizeof(ctx->local_addr));
-    ctx->local_addr.sin_family = AF_INET;
-    ctx->local_addr.sin_port = htons(cfg->port);
-    ctx->local_addr.sin_addr.s_addr = inet_addr(cfg->ip);
-    ctx->local_addrlen = sizeof(ctx->local_addr);
-    ctx->fd = xqc_mini_svr_init_socket(AF_INET, cfg->port, (struct sockaddr*)&ctx->local_addr, 
-        ctx->local_addrlen);
-    printf("[stats] create ipv4 socket fd: %d success, bind socket to ip: %s, port: %d\n", ctx->fd, cfg->ip, cfg->port);
+    user_conn->local_addr->sin_family = AF_INET;
+    user_conn->local_addr->sin_port = htons(cfg->port);
+    user_conn->local_addr->sin_addr.s_addr = htonl(INADDR_ANY);
+    user_conn->local_addrlen = sizeof(struct sockaddr_in);
+    user_conn->fd = xqc_mini_svr_init_socket(AF_INET, cfg->port, (struct sockaddr*)user_conn->local_addr, 
+        user_conn->local_addrlen);
+    printf("[stats] create ipv4 socket fd: %d success, bind socket to ip: %s, port: %d\n", user_conn->fd, cfg->ip, cfg->port);
 
-    if (!ctx->fd) {
+    if (!user_conn->fd) {
         return -1;
     }
 
@@ -338,46 +337,62 @@ xqc_mini_svr_init_engine_ctx(xqc_mini_svr_ctx_t *ctx, xqc_mini_svr_args_t *args)
 }
 
 void
-xqc_mini_svr_socket_write_handler(xqc_mini_svr_ctx_t *ctx, int fd)
+xqc_mini_svr_socket_write_handler(xqc_mini_svr_user_conn_t *user_conn, int fd)
 {
     DEBUG
     printf("[stats] socket write handler\n");
 }
 
 void
-xqc_mini_svr_socket_read_handler(xqc_mini_svr_ctx_t *ctx, int fd)
+xqc_mini_svr_socket_read_handler(xqc_mini_svr_user_conn_t *user_conn, int fd)
 {
     DEBUG;
     ssize_t recv_size, recv_sum;
-    struct sockaddr_in6 peer_addr;
+    struct sockaddr_in peer_addr = {0};
     socklen_t peer_addrlen = sizeof(peer_addr);
+    uint64_t recv_time;
+    xqc_int_t ret;
     unsigned char packet_buf[XQC_PACKET_BUF_LEN];
+    xqc_mini_svr_ctx_t *ctx;
 
+    ctx = user_conn->ctx;
     ctx->current_fd = fd;
     recv_size = recv_sum = 0;
 
     do {
         /* recv quic packet from client */
         recv_size = recvfrom(fd, packet_buf, sizeof(packet_buf), 0,
-                             (struct sockaddr *) &peer_addr, &peer_addrlen);
+                            (struct sockaddr *) &peer_addr, &peer_addrlen);
+                            
         if (recv_size < 0 && get_sys_errno() == EAGAIN) {
             break;
         }
 
+        memcpy(user_conn->peer_addr, &peer_addr, peer_addrlen);
+        user_conn->peer_addrlen = peer_addrlen;
+    
         if (recv_size < 0) {
             printf("recvfrom: recvmsg = %zd err=%s\n", recv_size, strerror(get_sys_errno()));
             break;
         }
-        recv_sum += recv_size;
 
-        uint64_t recv_time = xqc_now();
+        user_conn->local_addrlen = sizeof(struct sockaddr_in6);
+        ret = getsockname(user_conn->fd, (struct sockaddr *)user_conn->local_addr,
+                          &user_conn->local_addrlen);
+        if (ret != 0) {
+            printf("[error] getsockname error, errno: %d\n", get_sys_errno());
+        }
+        // printf("[stats] get sock name %d\n", user_conn->local_addr->sin_family);
+
+        recv_sum += recv_size;
+        recv_time = xqc_now();
         /* process quic packet with xquic engine */
-        xqc_int_t ret = xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
-                                                  (struct sockaddr *)(&ctx->local_addr), ctx->local_addrlen,
-                                                  (struct sockaddr *)(&peer_addr), peer_addrlen,
-                                                  (xqc_usec_t)recv_time, ctx);
+        ret = xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
+                                                  (struct sockaddr *)(user_conn->local_addr), user_conn->local_addrlen,
+                                                  (struct sockaddr *)(user_conn->peer_addr), user_conn->peer_addrlen,
+                                                  (xqc_usec_t)recv_time, user_conn);
         if (ret != XQC_OK) {
-            printf("server_read_handler: packet process err, ret: %d\n", ret);
+            printf("[error] server_read_handler: packet process err, ret: %d\n", ret);
             return;
         }
     } while (recv_size > 0);
@@ -391,12 +406,12 @@ static void
 xqc_mini_svr_socket_event_callback(int fd, short what, void *arg)
 {
     //DEBUG;
-    xqc_mini_svr_ctx_t *ctx = (xqc_mini_svr_ctx_t *)arg;
+    xqc_mini_svr_user_conn_t *user_conn = (xqc_mini_svr_user_conn_t *)arg;
     if (what & EV_WRITE) {
-        xqc_mini_svr_socket_write_handler(ctx, fd);
+        xqc_mini_svr_socket_write_handler(user_conn, fd);
 
     } else if (what & EV_READ) {
-        xqc_mini_svr_socket_read_handler(ctx, fd);
+        xqc_mini_svr_socket_read_handler(user_conn, fd);
 
     } else {
         printf("event callback: fd=%d, what=%d\n", fd, what);
@@ -415,7 +430,40 @@ xqc_mini_svr_free_ctx(xqc_mini_svr_ctx_t *ctx)
         ctx->args = NULL;
     }
 
-    free(ctx);
+    // free(ctx);
+}
+
+xqc_mini_svr_user_conn_t *
+xqc_mini_svr_create_user_conn(xqc_mini_svr_ctx_t *ctx)
+{
+    xqc_mini_svr_user_conn_t *user_conn = calloc(1, sizeof(xqc_mini_svr_user_conn_t));
+
+    user_conn->ctx = ctx;
+
+    user_conn->local_addr = (struct sockaddr_in *)calloc(1, sizeof(struct sockaddr_in));
+    user_conn->peer_addr = (struct sockaddr_in *)calloc(1, sizeof(struct sockaddr_in));
+
+    return user_conn;
+}
+
+void
+xqc_mini_svr_free_user_conn(xqc_mini_svr_user_conn_t *user_conn)
+{
+    free(user_conn->local_addr);
+    free(user_conn->peer_addr);
+}
+void
+xqc_mini_cli_on_connection_finish(xqc_mini_svr_user_conn_t *user_conn)
+{
+    if (user_conn->ev_timeout) {
+        event_del(user_conn->ev_timeout);
+        user_conn->ev_timeout = NULL;
+    }
+
+    if (user_conn->ev_socket) {
+        event_del(user_conn->ev_socket);
+        user_conn->ev_timeout = NULL;
+    }
 }
 int
 main(int argc, char *argv[])
@@ -423,6 +471,7 @@ main(int argc, char *argv[])
     int ret;
     xqc_mini_svr_ctx_t *ctx = &svr_ctx;
     xqc_mini_svr_args_t *args = NULL;
+    xqc_mini_svr_user_conn_t *user_conn = NULL;
 
     args = calloc(1, sizeof(xqc_mini_svr_args_t));
     if (args == NULL) {
@@ -454,17 +503,20 @@ main(int argc, char *argv[])
         goto exit;
     }
 
+    /* initiate user_conn */
+    user_conn = xqc_mini_svr_create_user_conn(ctx);
+
     /* init server socket and save to ctx->fd */
-    ret = xqc_mini_svr_create_socket(ctx, &args->net_cfg);
+    ret = xqc_mini_svr_create_socket(user_conn, &args->net_cfg);
     if (ret < 0) {
         printf("[error] xqc_create_socket error\n");
         goto exit;
     }
 
     /* bind socket event callback to fd event */
-    ctx->ev_socket = event_new(ctx->eb, ctx->fd, EV_READ | EV_PERSIST,
-        xqc_mini_svr_socket_event_callback, ctx);
-    event_add(ctx->ev_socket, NULL);
+    user_conn->ev_socket = event_new(ctx->eb, user_conn->fd, EV_READ | EV_PERSIST,
+        xqc_mini_svr_socket_event_callback, user_conn);
+    event_add(user_conn->ev_socket, NULL);
 
     /* start event loop */
     event_base_dispatch(ctx->eb);
@@ -472,6 +524,7 @@ main(int argc, char *argv[])
 exit:
     xqc_engine_destroy(ctx->engine);
     xqc_mini_svr_free_ctx(ctx);
+    xqc_mini_svr_free_user_conn(user_conn);
 
     return 0;
 }

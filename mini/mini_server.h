@@ -106,12 +106,6 @@ typedef struct xqc_mini_svr_ctx_s {
     /* used to remember fd type to send stateless reset */
     int                 current_fd;
 
-    /* ipv4 server */
-    int                 fd;
-    struct sockaddr_in  local_addr;
-    socklen_t           local_addrlen;
-    struct event        *ev_socket;
-
     xqc_engine_t        *engine;    // xquic engine for current context
     struct event        *ev_engine;
 
@@ -126,10 +120,17 @@ xqc_mini_svr_ctx_t svr_ctx;
 
 typedef struct xqc_mini_svr_user_conn_s {
     struct event           *ev_timeout;
-    struct sockaddr_in      peer_addr;
-    socklen_t               peer_addrlen;
     xqc_cid_t               cid;
     xqc_mini_svr_ctx_t     *ctx;
+
+    /* ipv4 server */
+    int                     fd;
+    struct sockaddr_in     *local_addr;
+    socklen_t               local_addrlen;
+    struct event           *ev_socket;
+    struct sockaddr_in     *peer_addr;
+    socklen_t               peer_addrlen;
+
 } xqc_mini_svr_user_conn_t;
 
 typedef struct xqc_mini_svr_user_stream_s {

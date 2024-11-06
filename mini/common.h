@@ -66,7 +66,6 @@ extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
 
 
-int
-xqc_mini_read_file_data(char * data, size_t data_len, char *filename);
+int xqc_mini_read_file_data(char * data, size_t data_len, char *filename);
 
 #endif

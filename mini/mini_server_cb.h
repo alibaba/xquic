@@ -69,4 +69,6 @@ int xqc_mini_svr_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_reques
 
 int xqc_mini_svr_h3_request_write_notify(xqc_h3_request_t *h3_request, void *strm_user_data);
 
+int xqc_mini_cli_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data, void *conn_proto_data);
+
 #endif

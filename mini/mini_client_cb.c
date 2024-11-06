@@ -113,13 +113,21 @@ xqc_mini_cli_keylog_cb(const xqc_cid_t *scid, const char *line, void *engine_use
 int
 xqc_mini_cli_h3_conn_create_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data)
 {
-    return 0;
+    xqc_mini_cli_user_conn_t *user_conn = (xqc_mini_cli_user_conn_t *)user_data;
+
+    user_conn->h3_conn = conn;
+    memcpy(&user_conn->cid, cid, sizeof(xqc_cid_t));
+
+    return XQC_OK;
 }
 
 int
 xqc_mini_cli_h3_conn_close_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data)
 {
-    return 0;
+    xqc_mini_cli_user_conn_t *user_conn = (xqc_mini_cli_user_conn_t *)user_data;
+
+    event_base_loopbreak(user_conn->ctx->eb);
+    return XQC_OK;
 }
 
 void
@@ -252,7 +260,7 @@ xqc_mini_cli_write_socket_ex(uint64_t path_id, const unsigned char *buf, size_t 
     ssize_t res;
     xqc_mini_cli_user_conn_t *user_conn = (xqc_mini_cli_user_conn_t *)conn_user_data;
     
-    fd = user_conn->ctx->current_fd;
+    fd = user_conn->fd;
     res = 0;
     
     do {
@@ -261,12 +269,128 @@ xqc_mini_cli_write_socket_ex(uint64_t path_id, const unsigned char *buf, size_t 
         if (res < 0) {
             printf("xqc_mini_cli_write_socket err %zd %s, fd: %d, buf: %p, size: %zu, "
                 "server_addr: %s\n", res, strerror(get_sys_errno()), fd, buf, size,
-                user_conn->ctx->args->net_cfg.server_addr);
+                user_conn->peer_addr->sa_data);
             if (get_sys_errno() == EAGAIN) {
                 res = XQC_SOCKET_EAGAIN;
             }
         }
     } while ((res < 0) && (get_sys_errno() == EINTR));
 
+    printf("[stats] xqc_mini_cli_write_socket_ex success size=%lu\n", size);
+
     return res;
+}
+
+int
+xqc_mini_cli_read_token(unsigned char *token, unsigned token_len)
+{
+    int fd = open(TOKEN_FILE, O_RDONLY);
+    if (fd < 0) {
+        return -1;
+    }
+
+    ssize_t n = read(fd, token, token_len);
+    close(fd);
+    return n;
+}
+
+void
+xqc_mini_cli_save_token(const unsigned char *token, unsigned token_len, void *user_data)
+{
+    xqc_mini_cli_user_conn_t *user_conn = (xqc_mini_cli_user_conn_t *)user_data;
+    printf("[stats] start xqc_mini_cli_save_token, use client ip as the key.\n");
+
+    int fd = open(TOKEN_FILE, O_TRUNC | O_CREAT | O_WRONLY, 0666);
+    if (fd < 0) {
+        printf("save token error %s\n", strerror(get_sys_errno()));
+        return;
+    }
+
+    ssize_t n = write(fd, token, token_len);
+    if (n < token_len) {
+        printf("save token error %s\n", strerror(get_sys_errno()));
+        close(fd);
+        return;
+    }
+    close(fd);
+}
+
+void
+xqc_mini_cli_save_session_cb(const char * data, size_t data_len, void *user_data)
+{
+    xqc_mini_cli_user_conn_t *user_conn = (xqc_mini_cli_user_conn_t *)user_data;
+    printf("[stats] start save_session_cb, use server domain as the key.\n");
+
+    FILE * fp  = fopen("test_session", "wb");
+    if (fp < 0) {
+        printf("save session error %s\n", strerror(get_sys_errno()));
+        return;
+    }
+
+    int write_size = fwrite(data, 1, data_len, fp);
+    if (data_len != write_size) {
+        printf("save _session_cb error\n");
+        fclose(fp);
+        return;
+    }
+    fclose(fp);
+    return;
+}
+
+
+void
+xqc_mini_cli_save_tp_cb(const char * data, size_t data_len, void * user_data)
+{
+    xqc_mini_cli_user_conn_t *user_conn = (xqc_mini_cli_user_conn_t *)user_data;
+    printf("[stats] start save_tp_cb, use server domain as the key.\n");
+
+    FILE * fp = fopen("tp_localhost", "wb");
+    if (fp < 0) {
+        printf("save transport callback error %s\n", strerror(get_sys_errno()));
+        return;
+    }
+
+    int write_size = fwrite(data, 1, data_len, fp);
+    if (data_len != write_size) {
+        printf("save _tp_cb error\n");
+        fclose(fp);
+        return;
+    }
+
+    fclose(fp);
+    return;
+}
+
+
+void
+xqc_mini_cli_timeout_callback(int fd, short what, void *arg)
+{
+    int conn_timeout, last_socket_time, ret;
+    xqc_usec_t socket_idle_time;
+    struct timeval tv;
+    xqc_mini_cli_ctx_t *ctx;
+    xqc_mini_cli_user_conn_t *user_conn;
+
+    user_conn = (xqc_mini_cli_user_conn_t *)arg;
+    ctx = user_conn->ctx;
+    conn_timeout = ctx->args->net_cfg.conn_timeout;
+    last_socket_time = ctx->args->net_cfg.last_socket_time;
+    socket_idle_time = xqc_now() - last_socket_time;
+    
+    printf("[stats] client socket read handler \n");
+
+    if (socket_idle_time < conn_timeout * 1000000) {
+        tv.tv_sec = conn_timeout;
+        tv.tv_usec = 0;
+        event_add(user_conn->ev_timeout, &tv);
+        return;
+    }
+
+conn_close:
+    printf("[stats] client process timeout, connection closing... \n");
+    ret = xqc_h3_conn_close(ctx->engine, &user_conn->cid);
+    if (ret) {
+        printf("[error] xqc_conn_close error:%d\n", ret);
+        return;
+    }
 }

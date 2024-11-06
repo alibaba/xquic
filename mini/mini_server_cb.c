@@ -182,18 +182,12 @@ xqc_mini_svr_h3_conn_create_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid,
     void *conn_user_data)
 {
     DEBUG;
-    xqc_mini_svr_ctx_t *ctx = (xqc_mini_svr_ctx_t*)conn_user_data;
-
-    xqc_mini_svr_user_conn_t *user_conn = calloc(1, sizeof(xqc_mini_svr_user_conn_t));
-    user_conn->ctx = &svr_ctx;
+    xqc_mini_svr_user_conn_t *user_conn = (xqc_mini_svr_user_conn_t *)conn_user_data;
     xqc_h3_conn_set_user_data(h3_conn, user_conn);
-    xqc_h3_conn_get_peer_addr(h3_conn, (struct sockaddr *)&user_conn->peer_addr,
-                              sizeof(user_conn->peer_addr), &user_conn->peer_addrlen);
-
+    xqc_h3_conn_get_peer_addr(h3_conn, (struct sockaddr *)user_conn->peer_addr,
+                              sizeof(struct sockaddr_in), &user_conn->peer_addrlen);
+    printf("xqc_mini_svr_h3_conn_create_notify, family: %d, cid: %s\n", user_conn->peer_addr->sin_family, cid->cid_buf);
     memcpy(&user_conn->cid, cid, sizeof(*cid));
-
-    printf("[stats] xqc_mini_svr_h3_conn_create_notify");
-
     return 0;
 }
 
@@ -204,14 +198,7 @@ xqc_mini_svr_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid,
 {
     DEBUG;
     xqc_mini_svr_user_conn_t *user_conn = (xqc_mini_svr_user_conn_t*)conn_user_data;
-    xqc_conn_stats_t stats = xqc_conn_get_stats(user_conn->ctx->engine, cid);
-    printf("send_count:%u, lost_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" "
-            "early_data_flag:%d, conn_err:%d, ack_info:%s, path_info:%s\n", stats.send_count,
-            stats.lost_count, stats.tlp_count, stats.recv_count, stats.srtt,
-            stats.early_data_flag, stats.conn_err, stats.ack_info, stats.conn_info);
 
-    free(user_conn);
-    user_conn = NULL;
 
     printf("[stats] xqc_mini_svr_h3_conn_close_notify");
 
@@ -328,4 +315,16 @@ xqc_mini_svr_h3_request_write_notify(xqc_h3_request_t *h3_request, void *strm_us
     int ret = xqc_mini_svr_send_body(user_stream);
 
     return ret;
+}
+
+int
+xqc_mini_cli_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data, void *conn_proto_data)
+{
+    DEBUG;
+
+    xqc_mini_svr_user_conn_t *user_conn = (xqc_mini_svr_user_conn_t *) user_data;
+    xqc_conn_set_alp_user_data(conn, user_conn);
+
+    printf("[stats] xqc_conn_is_ready_to_send_early_data:%d\n", xqc_conn_is_ready_to_send_early_data(conn));
+    return XQC_OK;
 }

@@ -8,18 +8,6 @@ xqc_mini_cli_init_engine_ssl_config(xqc_engine_ssl_config_t *ssl_cfg, xqc_mini_c
     ssl_cfg->groups = args->quic_cfg.groups;
 }
 
-int
-xqc_mini_cli_read_token(unsigned char *token, unsigned token_len)
-{
-    int fd = open(TOKEN_FILE, O_RDONLY);
-    if (fd < 0) {
-        return -1;
-    }
-
-    ssize_t n = read(fd, token, token_len);
-    close(fd);
-    return n;
-}
 
 void
 xqc_mini_cli_init_callback(xqc_engine_callback_t *cb, xqc_transport_callbacks_t *tcb, xqc_mini_cli_args_t *args)
@@ -35,10 +23,11 @@ xqc_mini_cli_init_callback(xqc_engine_callback_t *cb, xqc_transport_callbacks_t 
     };
 
     static xqc_transport_callbacks_t transport_cbs = {
-        // .server_accept = xqc_mini_cli_accept,
         .write_socket = xqc_mini_cli_write_socket,
         .write_socket_ex = xqc_mini_cli_write_socket_ex,
-        // .conn_update_cid_notify = xqc_mini_cli_conn_update_cid_notify,
+        .save_token = xqc_mini_cli_save_token,
+        .save_session_cb = xqc_mini_cli_save_session_cb,
+        .save_tp_cb = xqc_mini_cli_save_tp_cb,
     };
 
     *cb = callback;
@@ -66,8 +55,8 @@ xqc_mini_cli_init_xquic_engine(xqc_mini_cli_ctx_t *ctx, xqc_mini_cli_args_t *arg
     /* init engine & transport callbacks */
     xqc_mini_cli_init_callback(&callback, &transport_cbs, args);
 
-    /* create server engine */
-    ctx->engine = xqc_engine_create(XQC_ENGINE_SERVER, &egn_cfg, &ssl_cfg,
+    /* create client engine */
+    ctx->engine = xqc_engine_create(XQC_ENGINE_CLIENT, &egn_cfg, &ssl_cfg,
                                     &callback, &transport_cbs, ctx);
     if (ctx->engine == NULL) {
         printf("[error] xqc_engine_create error\n");
@@ -95,11 +84,7 @@ void
 xqc_mini_cli_init_args(xqc_mini_cli_args_t *args)
 {
     /* init network args */
-    // args->net_cfg.conn_timeout = 30;
-    strncpy(args->net_cfg.server_addr, DEFAULT_IP, sizeof(args->net_cfg.server_addr));
-    args->net_cfg.server_port = DEFAULT_PORT;
-    xqc_mini_cli_convert_text_to_sockaddr(AF_INET, DEFAULT_IP, DEFAULT_PORT,
-        (struct sockaddr **)&(args->net_cfg.addr), (socklen_t *)&(args->net_cfg.addr_len));
+    args->net_cfg.conn_timeout = 3;
 
     /**
      * init quic config
@@ -108,6 +93,7 @@ xqc_mini_cli_init_args(xqc_mini_cli_args_t *args)
     strncpy(args->quic_cfg.ciphers, XQC_TLS_CIPHERS, CIPHER_SUIT_LEN - 1);
     strncpy(args->quic_cfg.groups, XQC_TLS_GROUPS, TLS_GROUPS_LEN - 1);
     args->quic_cfg.multipath = 0;
+
 
     /* init environmen args */
     // args->env_cfg.log_level = XQC_LOG_DEBUG;
@@ -155,10 +141,10 @@ xqc_mini_cli_init_env(xqc_mini_cli_ctx_t *ctx, xqc_mini_cli_args_t *args)
 {
     int ret = XQC_OK;
 
-    /* init server args */
+    /* init client args */
     xqc_mini_cli_init_args(args);
     
-    /* init server ctx */
+    /* init client ctx */
     ret = xqc_mini_cli_init_ctx(ctx, args);
 
     return ret;
@@ -176,6 +162,7 @@ xqc_mini_cli_get_sched_cb(xqc_mini_cli_args_t *args)
     }
     return sched;
 }
+
 xqc_cong_ctrl_callback_t
 xqc_mini_cli_get_cc_cb(xqc_mini_cli_args_t *args)
 {
@@ -192,8 +179,9 @@ xqc_mini_cli_get_cc_cb(xqc_mini_cli_args_t *args)
     }
     return ccc;
 }
+
 void
-xqc_mini_cli_init_conn_settings(xqc_conn_settings_t *conn_settings, xqc_mini_cli_args_t *args)
+xqc_mini_cli_init_conn_settings(xqc_conn_settings_t *settings, xqc_mini_cli_args_t *args)
 {
     /* parse congestion control callback */
     xqc_cong_ctrl_callback_t ccc = xqc_mini_cli_get_cc_cb(args);
@@ -201,22 +189,16 @@ xqc_mini_cli_init_conn_settings(xqc_conn_settings_t *conn_settings, xqc_mini_cli
     xqc_scheduler_callback_t sched = xqc_mini_cli_get_sched_cb(args);
 
     /* init connection settings */
-    xqc_conn_settings_t tmp_conn_settings = {
-        .cong_ctrl_callback = ccc,
-        .cc_params = {
-            .customize_on = 1,
-            .init_cwnd = 32,
-            .bbr_enable_lt_bw = 1,
-        },
-        .spurious_loss_detect_on = 1,
-        .init_idle_time_out = 60000,
-        .enable_multipath = args->quic_cfg.multipath,
-        .scheduler_callback = sched,
-        .standby_path_probe_timeout = 1000,
-        .adaptive_ack_frequency = 1,
-        .anti_amplification_limit = 4,
-    };
-    *conn_settings = tmp_conn_settings;
+    memset(settings, 0, sizeof(xqc_conn_settings_t));
+    settings->cong_ctrl_callback = ccc;
+    settings->cc_params.customize_on = 1;
+    settings->cc_params.init_cwnd = 96;
+    settings->so_sndbuf = 1024*1024;
+    settings->proto_version = XQC_VERSION_V1;
+    settings->spurious_loss_detect_on = 1;
+    settings->scheduler_callback = sched;
+    settings->reinj_ctl_callback = xqc_deadline_reinj_ctl_cb;
+    settings->adaptive_ack_frequency = 1;
 }
 
 int
@@ -270,8 +252,6 @@ xqc_mini_cli_free_ctx(xqc_mini_cli_ctx_t *ctx)
         free(ctx->args);
         ctx->args = NULL;
     }
-
-    free(ctx);
 }
 
 void
@@ -380,9 +360,9 @@ xqc_mini_cli_request_send(xqc_h3_request_t *h3_request, xqc_mini_cli_user_stream
         /* send header */
         ret = xqc_h3_request_send_headers(user_stream->h3_request, &user_stream->h3_hdrs, fin);
         if (ret < 0) {
-            printf("[error] xqc_demo_cli_h3_request_send error %d\n", ret);
+            printf("[error] xqc_mini_cli_h3_request_send error %d\n", ret);
         } else {
-            printf("[stats] xqc_demo_cli_h3_request_send success size=%d\n", ret);
+            printf("[stats] xqc_mini_cli_h3_request_send success \n");
             user_stream->hdr_sent = 1;
         }
     }
@@ -391,16 +371,6 @@ xqc_mini_cli_request_send(xqc_h3_request_t *h3_request, xqc_mini_cli_user_stream
         return XQC_OK;
     }
 
-    // /* send body */
-    // ret = xqc_h3_request_send_body(h3_request, user_stream->send_body + user_stream->send_offset, user_stream->send_body_len - user_stream->send_offset, fin);
-    // if (ret < 0) {
-    //     printf("[error] xqc_h3_request_send_body error\n");
-    //     return XQC_OK;
-
-    // } else {
-    //     user_stream->send_offset += ret;
-    //     printf("[stats] xqc_h3_request_send_body sent:%zd, offset=%"PRIu64"\n", ret, user_stream->send_offset);
-    // }
     return XQC_OK;
 }
 
@@ -413,12 +383,11 @@ xqc_mini_cli_send_h3_req(xqc_mini_cli_user_conn_t *user_conn, xqc_mini_cli_user_
     user_stream->h3_request = xqc_h3_request_create(user_conn->ctx->engine, &user_conn->cid,
         &settings, user_stream);
     if (user_stream->h3_request == NULL) {
-        printf("xqc_h3_request_create error\n");
+        printf("[error] xqc_h3_request_create error\n");
         return XQC_ERROR;
     }
 
     xqc_mini_cli_request_send(user_stream->h3_request, user_stream);  
-
     return XQC_OK;
 }
 
@@ -429,11 +398,11 @@ xqc_mini_cli_init_socket(xqc_mini_cli_user_conn_t *user_conn)
     int fd, size;
     xqc_mini_cli_ctx_t *ctx = user_conn->ctx;
     xqc_mini_cli_net_config_t* cfg = &ctx->args->net_cfg;
-    struct sockaddr *addr = (struct sockaddr*)&cfg->addr;
+    struct sockaddr *addr = user_conn->peer_addr;
 
     fd = socket(addr->sa_family, SOCK_DGRAM, 0);
     if (fd < 0) {
-        printf("create socket failed, errno: %d\n", get_sys_errno());
+        printf("[error] create socket failed, errno: %d\n", get_sys_errno());
         return XQC_ERROR;
     }
 
@@ -443,23 +412,38 @@ xqc_mini_cli_init_socket(xqc_mini_cli_user_conn_t *user_conn)
 	}
 #else
     if (fcntl(fd, F_SETFL, O_NONBLOCK) == -1) {
-        printf("set socket nonblock failed, errno: %d\n", get_sys_errno());
+        printf("[error] set socket nonblock failed, errno: %d\n", get_sys_errno());
         goto err;
     }
 #endif
 
     size = 1 * 1024 * 1024;
     if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &size, sizeof(int)) < 0) {
-        printf("setsockopt failed, errno: %d\n", get_sys_errno());
+        printf("[error] setsockopt failed, errno: %d\n", get_sys_errno());
         goto err;
     }
 
     if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &size, sizeof(int)) < 0) {
-        printf("setsockopt failed, errno: %d\n", get_sys_errno());
+        printf("[error] setsockopt failed, errno: %d\n", get_sys_errno());
         goto err;
     }
 
-    ctx->fd = fd;
+#if !defined(__APPLE__)
+    int val = IP_PMTUDISC_DO;
+    setsockopt(fd, IPPROTO_IP, IP_MTU_DISCOVER, &val, sizeof(val));
+#endif
+
+#if !defined(__APPLE__)
+    if (connect(fd, (struct sockaddr *)user_conn->peer_addr, user_conn->peer_addrlen) < 0) {
+        printf("[error] connect socket failed, errno: %d\n", get_sys_errno());
+        goto err;
+    }
+#endif
+
+    ctx->args->net_cfg.last_socket_time = xqc_now();
+    printf("[stats] init socket succesfully \n");
+
+    user_conn->fd = fd;
 
     return XQC_OK;
 err:
@@ -468,29 +452,30 @@ err:
 }
 
 void
-xqc_mini_cli_socket_write_handler(xqc_mini_cli_ctx_t *ctx, int fd)
+xqc_mini_cli_socket_write_handler(xqc_mini_cli_user_conn_t *user_conn, int fd)
 {
     DEBUG
     printf("[stats] socket write handler\n");
 }
 
 void
-xqc_mini_cli_socket_read_handler(xqc_mini_cli_ctx_t *ctx, int fd)
+xqc_mini_cli_socket_read_handler(xqc_mini_cli_user_conn_t *user_conn, int fd)
 {
     DEBUG
     printf("[stats] socket read handler\n");
     ssize_t recv_size, recv_sum;
-    struct sockaddr_in6 peer_addr;
-    socklen_t peer_addrlen = sizeof(peer_addr);
+    uint64_t recv_time;
+    xqc_int_t ret;
     unsigned char packet_buf[XQC_PACKET_BUF_LEN];
+    xqc_mini_cli_ctx_t *ctx;
 
-    ctx->current_fd = fd;
     recv_size = recv_sum = 0;
+    ctx = user_conn->ctx;
 
     do {
         /* recv quic packet from client */
         recv_size = recvfrom(fd, packet_buf, sizeof(packet_buf), 0,
-                             (struct sockaddr *) &peer_addr, &peer_addrlen);
+                             user_conn->peer_addr, &user_conn->peer_addrlen);
         if (recv_size < 0 && get_sys_errno() == EAGAIN) {
             break;
         }
@@ -499,16 +484,31 @@ xqc_mini_cli_socket_read_handler(xqc_mini_cli_ctx_t *ctx, int fd)
             printf("recvfrom: recvmsg = %zd err=%s\n", recv_size, strerror(get_sys_errno()));
             break;
         }
-        recv_sum += recv_size;
 
-        uint64_t recv_time = xqc_now();
+        if (user_conn->get_local_addr == 0) {
+            user_conn->get_local_addr = 1;
+            user_conn->local_addrlen = sizeof(struct sockaddr_in6);
+            ret = getsockname(user_conn->fd, (struct sockaddr*)&user_conn->local_addr,
+                                        &user_conn->local_addrlen);
+            if (ret != 0) {
+                printf("getsockname error, errno: %d\n", get_sys_errno());
+                user_conn->local_addrlen = 0;
+                break;
+            }
+        }
+
+        recv_sum += recv_size;
+        recv_time = xqc_now();
+        ctx->args->net_cfg.last_socket_time = recv_time;
+        printf("[stats] client socket read handler \n");
+
         /* process quic packet with xquic engine */
-        xqc_int_t ret = xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
-                                                  (struct sockaddr *)(&ctx->local_addr), ctx->local_addrlen,
-                                                  (struct sockaddr *)(&peer_addr), peer_addrlen,
-                                                  (xqc_usec_t)recv_time, ctx);
+        ret = xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
+                                        user_conn->local_addr, user_conn->local_addrlen,
+                                        user_conn->peer_addr, user_conn->peer_addrlen,
+                                        (xqc_usec_t)recv_time, user_conn);
         if (ret != XQC_OK) {
-            printf("server_read_handler: packet process err, ret: %d\n", ret);
+            printf("[error] client_read_handler: packet process err, ret: %d\n", ret);
             return;
         }
     } while (recv_size > 0);
@@ -522,12 +522,16 @@ static void
 xqc_mini_cli_socket_event_callback(int fd, short what, void *arg)
 {
     //DEBUG;
-    xqc_mini_cli_ctx_t *ctx = (xqc_mini_cli_ctx_t *)arg;
+    xqc_mini_cli_user_conn_t *user_conn = (xqc_mini_cli_user_conn_t *)arg;
+    xqc_mini_cli_ctx_t *ctx;
+
+    ctx = user_conn->ctx;
+
     if (what & EV_WRITE) {
-        xqc_mini_cli_socket_write_handler(ctx, fd);
+        xqc_mini_cli_socket_write_handler(user_conn, fd);
 
     } else if (what & EV_READ) {
-        xqc_mini_cli_socket_read_handler(ctx, fd);
+        xqc_mini_cli_socket_read_handler(user_conn, fd);
 
     } else {
         printf("event callback: fd=%d, what=%d\n", fd, what);
@@ -557,12 +561,12 @@ xqc_mini_cli_init_xquic_connection(xqc_mini_cli_user_conn_t *user_conn)
     /* build connection */
     const xqc_cid_t *cid = xqc_h3_connect(ctx->engine, &conn_settings, args->quic_cfg.token,
         args->quic_cfg.token_len, args->req_cfg.host, args->quic_cfg.no_encryption, &conn_ssl_config, 
-        (struct sockaddr*)&args->net_cfg.addr, args->net_cfg.addr_len, &user_conn);
+        user_conn->peer_addr, user_conn->peer_addrlen, user_conn);
     if (cid == NULL) {
         return XQC_ERROR;
     }
-
     memcpy(&user_conn->cid, cid, sizeof(xqc_cid_t));
+
     return XQC_OK;
 }
 
@@ -576,16 +580,14 @@ xqc_mini_cli_main_process(xqc_mini_cli_user_conn_t *user_conn, xqc_mini_cli_ctx_
     args = ctx->args;
 
     /* init socket fd */
+    printf("init socket\n");
     ret = xqc_mini_cli_init_socket(user_conn);
     if (ret < 0) {
         printf("[error] mini socket init socket failed\n");
         return XQC_ERROR;
     }
 
-    ctx->ev_socket = event_new(ctx->eb, ctx->fd, EV_READ | EV_PERSIST,
-        xqc_mini_cli_socket_event_callback, ctx);
-    event_add(ctx->ev_socket, NULL);
-
+    printf("init xquic connection \n");
     ret = xqc_mini_cli_init_xquic_connection(user_conn);
     if (ret < 0) {
         printf("[error] mini socket init xquic connection failed\n");
@@ -593,17 +595,69 @@ xqc_mini_cli_main_process(xqc_mini_cli_user_conn_t *user_conn, xqc_mini_cli_ctx_
     }
 
     xqc_mini_cli_user_stream_t *user_stream = calloc(1, sizeof(xqc_mini_cli_user_stream_t));
+    
+    printf("send h3 request \n");
     ret = xqc_mini_cli_send_h3_req(user_conn, user_stream);
+    if (ret < 0) {
+        return XQC_ERROR;
+    }
+
+    xqc_engine_main_logic(ctx->engine);
 
     return XQC_OK;
 }
 
+
 xqc_mini_cli_user_conn_t *
-xqc_mini_cli_user_conn_create()
+xqc_mini_cli_user_conn_create(xqc_mini_cli_ctx_t *ctx)
 {
     xqc_mini_cli_user_conn_t *user_conn = calloc(1, sizeof(xqc_mini_cli_user_conn_t));
 
+    user_conn->ctx = ctx;
+
+    user_conn->ev_socket = event_new(ctx->eb, user_conn->fd, EV_READ | EV_PERSIST,
+        xqc_mini_cli_socket_event_callback, user_conn);
+    event_add(user_conn->ev_socket, NULL);
+
+    /* set connection timeout */
+    struct timeval tv;
+    tv.tv_sec = ctx->args->net_cfg.conn_timeout;
+    tv.tv_usec = 0;
+    user_conn->ev_timeout = event_new(ctx->eb, -1, 0, xqc_mini_cli_timeout_callback, user_conn);
+    event_add(user_conn->ev_timeout, &tv);
+
+    user_conn->local_addr = (struct sockaddr *)calloc(1, sizeof(struct sockaddr_in));
+    user_conn->local_addrlen = sizeof(struct sockaddr_in);
+
+    user_conn->peer_addr = calloc(1, sizeof(struct sockaddr_in));
+    xqc_mini_cli_convert_text_to_sockaddr(AF_INET, DEFAULT_IP, DEFAULT_PORT,
+        &(user_conn->peer_addr), &(user_conn->peer_addrlen));
+
     return user_conn;
+}
+
+void
+xqc_mini_cli_free_user_conn(xqc_mini_cli_user_conn_t *user_conn)
+{
+    free(user_conn->peer_addr);
+    free(user_conn->local_addr);
+    free(user_conn);
+}
+
+void
+xqc_mini_cli_on_connection_finish(xqc_mini_cli_user_conn_t *user_conn)
+{
+    if (user_conn->ev_timeout) {
+        event_del(user_conn->ev_timeout);
+        user_conn->ev_timeout = NULL;
+    }
+
+    if (user_conn->ev_socket) {
+        event_del(user_conn->ev_socket);
+        user_conn->ev_timeout = NULL;
+    }
+
+    close(user_conn->fd);   
 }
 
 int main(int argc, char *argv[])
@@ -642,9 +696,10 @@ int main(int argc, char *argv[])
         goto exit;
     }
 
-    user_conn = xqc_mini_cli_user_conn_create();
+    user_conn = xqc_mini_cli_user_conn_create(ctx);
 
     /* cli main process: build connection, process request, etc. */
+    printf("start main process\n");
     xqc_mini_cli_main_process(user_conn, ctx);
 
     /* start event loop */
@@ -652,8 +707,9 @@ int main(int argc, char *argv[])
 
 exit:
     xqc_engine_destroy(ctx->engine);
+    xqc_mini_cli_on_connection_finish(user_conn);
     xqc_mini_cli_free_ctx(ctx);
-    free(user_conn);
+    xqc_mini_cli_free_user_conn(user_conn);
 
     return 0;
 }

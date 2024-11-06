@@ -875,7 +875,7 @@ xqc_demo_cli_conn_create_path(const xqc_cid_t *cid, void *conn_user_data)
             printf("set No.%d path (id = %"PRIu64") to STANDBY state\n", 1, path_id);
             xqc_conn_mark_path_standby(ctx->engine, &(user_conn->cid), path_id);
         }
-        
+
     }
 }
 

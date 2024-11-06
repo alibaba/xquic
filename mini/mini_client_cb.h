@@ -49,4 +49,14 @@ ssize_t xqc_mini_cli_write_socket(const unsigned char *buf, size_t size, const s
 
 ssize_t xqc_mini_cli_write_socket_ex(uint64_t path_id, const unsigned char *buf, size_t size,
     const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *conn_user_data);
+
+int xqc_mini_cli_read_token(unsigned char *token, unsigned token_len);
+
+void xqc_mini_cli_save_token(const unsigned char *token, unsigned token_len, void *user_data);
+
+void xqc_mini_cli_save_session_cb(const char * data, size_t data_len, void *user_data);
+
+void xqc_mini_cli_save_tp_cb(const char * data, size_t data_len, void * user_data);
+
+void xqc_mini_cli_timeout_callback(int fd, short what, void *arg);
 #endif

@@ -1,5 +1,6 @@
 #include "mini_client.h"
 
+#include <netdb.h>
 
 void
 xqc_mini_cli_init_engine_ssl_config(xqc_engine_ssl_config_t *ssl_cfg, xqc_mini_cli_args_t *args)
@@ -84,7 +85,7 @@ void
 xqc_mini_cli_init_args(xqc_mini_cli_args_t *args)
 {
     /* init network args */
-    args->net_cfg.conn_timeout = 3;
+    args->net_cfg.conn_timeout = 9;
 
     /**
      * init quic config
@@ -398,7 +399,7 @@ xqc_mini_cli_init_socket(xqc_mini_cli_user_conn_t *user_conn)
     int fd, size;
     xqc_mini_cli_ctx_t *ctx = user_conn->ctx;
     xqc_mini_cli_net_config_t* cfg = &ctx->args->net_cfg;
-    struct sockaddr *addr = user_conn->peer_addr;
+    struct sockaddr *addr = user_conn->local_addr;
 
     fd = socket(addr->sa_family, SOCK_DGRAM, 0);
     if (fd < 0) {
@@ -462,7 +463,6 @@ void
 xqc_mini_cli_socket_read_handler(xqc_mini_cli_user_conn_t *user_conn, int fd)
 {
     DEBUG
-    printf("[stats] socket read handler\n");
     ssize_t recv_size, recv_sum;
     uint64_t recv_time;
     xqc_int_t ret;
@@ -488,7 +488,7 @@ xqc_mini_cli_socket_read_handler(xqc_mini_cli_user_conn_t *user_conn, int fd)
         if (user_conn->get_local_addr == 0) {
             user_conn->get_local_addr = 1;
             user_conn->local_addrlen = sizeof(struct sockaddr_in6);
-            ret = getsockname(user_conn->fd, (struct sockaddr*)&user_conn->local_addr,
+            ret = getsockname(user_conn->fd, (struct sockaddr*)user_conn->local_addr,
                                         &user_conn->local_addrlen);
             if (ret != 0) {
                 printf("getsockname error, errno: %d\n", get_sys_errno());
@@ -500,7 +500,6 @@ xqc_mini_cli_socket_read_handler(xqc_mini_cli_user_conn_t *user_conn, int fd)
         recv_sum += recv_size;
         recv_time = xqc_now();
         ctx->args->net_cfg.last_socket_time = recv_time;
-        printf("[stats] client socket read handler \n");
 
         /* process quic packet with xquic engine */
         ret = xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
@@ -514,7 +513,7 @@ xqc_mini_cli_socket_read_handler(xqc_mini_cli_user_conn_t *user_conn, int fd)
     } while (recv_size > 0);
 
 finish_recv:
-    printf("[stats] xqc_mini_cli_socket_read_handler, recv size:%zu\n", recv_sum);
+    // printf("[stats] xqc_mini_cli_socket_read_handler, recv size:%zu\n", recv_sum);
     xqc_engine_finish_recv(ctx->engine);
 }
 
@@ -523,9 +522,6 @@ xqc_mini_cli_socket_event_callback(int fd, short what, void *arg)
 {
     //DEBUG;
     xqc_mini_cli_user_conn_t *user_conn = (xqc_mini_cli_user_conn_t *)arg;
-    xqc_mini_cli_ctx_t *ctx;
-
-    ctx = user_conn->ctx;
 
     if (what & EV_WRITE) {
         xqc_mini_cli_socket_write_handler(user_conn, fd);
@@ -566,6 +562,7 @@ xqc_mini_cli_init_xquic_connection(xqc_mini_cli_user_conn_t *user_conn)
         return XQC_ERROR;
     }
     memcpy(&user_conn->cid, cid, sizeof(xqc_cid_t));
+    printf("[stats] init xquic connection success \n");
 
     return XQC_OK;
 }
@@ -579,15 +576,6 @@ xqc_mini_cli_main_process(xqc_mini_cli_user_conn_t *user_conn, xqc_mini_cli_ctx_
     user_conn->ctx = ctx;
     args = ctx->args;
 
-    /* init socket fd */
-    printf("init socket\n");
-    ret = xqc_mini_cli_init_socket(user_conn);
-    if (ret < 0) {
-        printf("[error] mini socket init socket failed\n");
-        return XQC_ERROR;
-    }
-
-    printf("init xquic connection \n");
     ret = xqc_mini_cli_init_xquic_connection(user_conn);
     if (ret < 0) {
         printf("[error] mini socket init xquic connection failed\n");
@@ -595,8 +583,6 @@ xqc_mini_cli_main_process(xqc_mini_cli_user_conn_t *user_conn, xqc_mini_cli_ctx_
     }
 
     xqc_mini_cli_user_stream_t *user_stream = calloc(1, sizeof(xqc_mini_cli_user_stream_t));
-    
-    printf("send h3 request \n");
     ret = xqc_mini_cli_send_h3_req(user_conn, user_stream);
     if (ret < 0) {
         return XQC_ERROR;
@@ -607,17 +593,35 @@ xqc_mini_cli_main_process(xqc_mini_cli_user_conn_t *user_conn, xqc_mini_cli_ctx_
     return XQC_OK;
 }
 
+void
+xqc_mini_cli_init_local_addr(struct sockaddr *local_addr)
+{
+    char s_port[16] = "8443";
+    struct addrinfo hints = {0};
+    hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
+    hints.ai_socktype = SOCK_DGRAM; /* Datagram socket */
+    hints.ai_flags = AI_PASSIVE;    /* For wildcard IP address */
+    hints.ai_protocol = 0;          /* Any protocol */
+    hints.ai_canonname = NULL;
+    hints.ai_addr = NULL;
+    hints.ai_next = NULL;
+
+    /* resolve server's ip from hostname */
+    struct addrinfo *result = NULL;
+    int rv = getaddrinfo(DEFAULT_IP, s_port, &hints, &result);
+    if (rv != 0) {
+        printf("get addr info from hostname: %s\n", gai_strerror(rv));
+    }
+    memcpy(local_addr, result->ai_addr, result->ai_addrlen);
+}
 
 xqc_mini_cli_user_conn_t *
 xqc_mini_cli_user_conn_create(xqc_mini_cli_ctx_t *ctx)
 {
+    int ret;
     xqc_mini_cli_user_conn_t *user_conn = calloc(1, sizeof(xqc_mini_cli_user_conn_t));
 
     user_conn->ctx = ctx;
-
-    user_conn->ev_socket = event_new(ctx->eb, user_conn->fd, EV_READ | EV_PERSIST,
-        xqc_mini_cli_socket_event_callback, user_conn);
-    event_add(user_conn->ev_socket, NULL);
 
     /* set connection timeout */
     struct timeval tv;
@@ -627,11 +631,23 @@ xqc_mini_cli_user_conn_create(xqc_mini_cli_ctx_t *ctx)
     event_add(user_conn->ev_timeout, &tv);
 
     user_conn->local_addr = (struct sockaddr *)calloc(1, sizeof(struct sockaddr_in));
+    xqc_mini_cli_init_local_addr(user_conn->local_addr);
     user_conn->local_addrlen = sizeof(struct sockaddr_in);
 
     user_conn->peer_addr = calloc(1, sizeof(struct sockaddr_in));
     xqc_mini_cli_convert_text_to_sockaddr(AF_INET, DEFAULT_IP, DEFAULT_PORT,
         &(user_conn->peer_addr), &(user_conn->peer_addrlen));
+
+    /* init socket fd */
+    ret = xqc_mini_cli_init_socket(user_conn);
+    if (ret < 0) {
+        printf("[error] mini socket init socket failed\n");
+        return NULL;
+    }
+
+    user_conn->ev_socket = event_new(ctx->eb, user_conn->fd, EV_READ | EV_PERSIST,
+        xqc_mini_cli_socket_event_callback, user_conn);
+    event_add(user_conn->ev_socket, NULL);
 
     return user_conn;
 }
@@ -697,9 +713,12 @@ int main(int argc, char *argv[])
     }
 
     user_conn = xqc_mini_cli_user_conn_create(ctx);
+    if (user_conn == NULL) {
+        printf("[error] init user_conn failed.\n");
+        goto exit;
+    }
 
     /* cli main process: build connection, process request, etc. */
-    printf("start main process\n");
     xqc_mini_cli_main_process(user_conn, ctx);
 
     /* start event loop */

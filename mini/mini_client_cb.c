@@ -127,6 +127,7 @@ xqc_mini_cli_h3_conn_close_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, voi
     xqc_mini_cli_user_conn_t *user_conn = (xqc_mini_cli_user_conn_t *)user_data;
 
     event_base_loopbreak(user_conn->ctx->eb);
+    printf("[stats] xqc_mini_cli_h3_conn_close_notify success \n");
     return XQC_OK;
 }
 
@@ -141,22 +142,18 @@ xqc_mini_cli_h3_request_create_notify(xqc_h3_request_t *h3_request, void *h3s_us
     return 0;
 }
 
-void
-xqc_mini_cli_h3_request_closing_notify(xqc_h3_request_t *h3_request, 
-    xqc_int_t err, void *h3s_user_data)
-{
-    return;
-}
-
 int
 xqc_mini_cli_h3_request_close_notify(xqc_h3_request_t *h3_request, void *user_data)
 {
     xqc_mini_cli_user_stream_t *user_stream = (xqc_mini_cli_user_stream_t *)user_data;
     xqc_mini_cli_user_conn_t *user_conn = user_stream->user_conn;
     xqc_mini_cli_ctx_t *conn_ctx = user_conn->ctx;
+    xqc_request_stats_t stats = xqc_h3_request_get_stats(h3_request);
 
     xqc_h3_conn_close(conn_ctx->engine, &user_conn->cid);
     free(user_stream);
+
+    printf("[stats] xqc_mini_cli_h3_request_close_notify success, cwnd_blocked:%"PRIu64"\n", stats.cwnd_blocked_ms);
     return 0;
 }
 int
@@ -174,18 +171,19 @@ xqc_mini_cli_h3_request_read_notify(xqc_h3_request_t *h3_request,
         xqc_http_headers_t *headers;
         headers = xqc_h3_request_recv_headers(h3_request, &fin);
         if (headers == NULL) {
-            printf("xqc_h3_request_recv_headers error\n");
+            printf("[error] xqc_h3_request_recv_headers error\n");
             return XQC_ERROR;
         }
 
         for (int i = 0; i < headers->count; i++) {
-            printf("%s = %s\n", (char *)headers->headers[i].name.iov_base,
+            printf("[report] header: %s = %s\n", (char *)headers->headers[i].name.iov_base,
                 (char *)headers->headers[i].value.iov_base);
         }
 
         if (fin) {
             /* only header in request */
             user_stream->recv_fin = 1;
+            printf("[stats] h3 request read header finish \n");
             return XQC_OK;
         }
     }
@@ -207,16 +205,15 @@ xqc_mini_cli_h3_request_read_notify(xqc_h3_request_t *h3_request,
             printf("xqc_h3_request_recv_body error %zd\n", read);
             return XQC_OK;
         }
-        printf("[stats] recv_buff: %s \n", recv_buff);
     
         read_sum += read;
         user_stream->recv_body_len += read;
     } while (read > 0 && !fin);
 
-    printf("[stats] xqc_h3_request_recv_body size %zd, fin:%d\n", read, fin);
+    printf("[report] xqc_h3_request_recv_body size %zd, fin:%d\n", read, fin);
 
     if (fin) {
-        printf("[stats] receive request completed.\n");
+        printf("[stats] read h3 request finish. \n");
     }
 
     return XQC_OK;
@@ -228,8 +225,10 @@ xqc_mini_cli_h3_request_write_notify(xqc_h3_request_t *h3_request, void *h3s_use
     int ret = 0;
     xqc_mini_cli_user_stream_t *user_stream = (xqc_mini_cli_user_stream_t *)h3s_user_data;
 
-    printf("request write notify!:%"PRIu64"\n", xqc_h3_stream_id(h3_request));
     ret = xqc_mini_cli_request_send(h3_request, user_stream);
+    
+    printf("[stats] finish h3 request write notify!:%"PRIu64"\n", xqc_h3_stream_id(h3_request));
+    
     return ret;
 }
 
@@ -276,7 +275,7 @@ xqc_mini_cli_write_socket_ex(uint64_t path_id, const unsigned char *buf, size_t 
         }
     } while ((res < 0) && (get_sys_errno() == EINTR));
 
-    printf("[stats] xqc_mini_cli_write_socket_ex success size=%lu\n", size);
+    // printf("[report] xqc_mini_cli_write_socket_ex success size=%lu\n", size);
 
     return res;
 }
@@ -319,7 +318,7 @@ void
 xqc_mini_cli_save_session_cb(const char * data, size_t data_len, void *user_data)
 {
     xqc_mini_cli_user_conn_t *user_conn = (xqc_mini_cli_user_conn_t *)user_data;
-    printf("[stats] start save_session_cb, use server domain as the key.\n");
+    printf("[stats] start save_session_cb. \n");
 
     FILE * fp  = fopen("test_session", "wb");
     if (fp < 0) {
@@ -342,7 +341,7 @@ void
 xqc_mini_cli_save_tp_cb(const char * data, size_t data_len, void * user_data)
 {
     xqc_mini_cli_user_conn_t *user_conn = (xqc_mini_cli_user_conn_t *)user_data;
-    printf("[stats] start save_tp_cb, use server domain as the key.\n");
+    printf("[stats] start save_tp_cb\n");
 
     FILE * fp = fopen("tp_localhost", "wb");
     if (fp < 0) {
@@ -376,8 +375,6 @@ xqc_mini_cli_timeout_callback(int fd, short what, void *arg)
     conn_timeout = ctx->args->net_cfg.conn_timeout;
     last_socket_time = ctx->args->net_cfg.last_socket_time;
     socket_idle_time = xqc_now() - last_socket_time;
-    
-    printf("[stats] client socket read handler \n");
 
     if (socket_idle_time < conn_timeout * 1000000) {
         tv.tv_sec = conn_timeout;
@@ -393,4 +390,16 @@ conn_close:
         printf("[error] xqc_conn_close error:%d\n", ret);
         return;
     }
+}
+
+int
+xqc_mini_cli_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data, void *conn_proto_data)
+{
+    DEBUG;
+
+    xqc_mini_cli_user_conn_t *user_conn = (xqc_mini_cli_user_conn_t *) user_data;
+    xqc_conn_set_alp_user_data(conn, user_conn);
+
+    printf("[stats] xqc_conn_is_ready_to_send_early_data:%d\n", xqc_conn_is_ready_to_send_early_data(conn));
+    return XQC_OK;
 }

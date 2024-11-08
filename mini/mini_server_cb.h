@@ -20,6 +20,18 @@
 
 #define REQ_BUF_SIZE 2048
 
+typedef struct xqc_mini_svr_user_stream_s {
+    xqc_h3_request_t           *h3_request;
+
+    // uint64_t            send_offset;
+    int                         header_sent;
+    int                         header_recvd;
+    size_t                      send_body_len;
+    size_t                      recv_body_len;
+    char                       *recv_buf;
+} xqc_mini_svr_user_stream_t;
+
+
 /* engine callbacks */
 void xqc_mini_svr_engine_cb(int fd, short what, void *arg);
 
@@ -69,6 +81,5 @@ int xqc_mini_svr_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_reques
 
 int xqc_mini_svr_h3_request_write_notify(xqc_h3_request_t *h3_request, void *strm_user_data);
 
-int xqc_mini_cli_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data, void *conn_proto_data);
-
+int xqc_mini_svr_send_body(xqc_mini_svr_user_stream_t *user_stream);
 #endif

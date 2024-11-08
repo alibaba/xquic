@@ -12,9 +12,25 @@
 #include <xquic/xqc_http3.h>
 #include <xquic/xquic_typedef.h>
 
+#ifdef XQC_SYS_WINDOWS
+#pragma comment(lib,"ws2_32.lib")
+#pragma comment(lib,"event.lib")
+#pragma comment(lib, "Iphlpapi.lib")
+#pragma comment(lib, "Bcrypt.lib")
+#include "../tests/getopt.h"
+#else
+#include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
+#include <unistd.h>
+#include <netdb.h>
+#endif
+
+
 #include "../tests/platform.h"
 #include "common.h"
 #include "mini_client_cb.h"
+
 
 #define DEFAULT_IP   "127.0.0.1"
 #define DEFAULT_PORT 8443

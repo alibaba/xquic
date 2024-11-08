@@ -59,4 +59,7 @@ void xqc_mini_cli_save_session_cb(const char * data, size_t data_len, void *user
 void xqc_mini_cli_save_tp_cb(const char * data, size_t data_len, void * user_data);
 
 void xqc_mini_cli_timeout_callback(int fd, short what, void *arg);
+
+int xqc_mini_cli_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data, void *conn_proto_data);
+
 #endif

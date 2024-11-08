@@ -133,17 +133,6 @@ typedef struct xqc_mini_svr_user_conn_s {
 
 } xqc_mini_svr_user_conn_t;
 
-typedef struct xqc_mini_svr_user_stream_s {
-    xqc_h3_request_t           *h3_request;
-
-    // uint64_t            send_offset;
-    int                         header_sent;
-    int                         header_recvd;
-    size_t                      send_body_len;
-    size_t                      recv_body_len;
-    char                       *recv_buf;
-} xqc_mini_svr_user_stream_t;
-
 
 void xqc_mini_svr_init_ssl_config(xqc_engine_ssl_config_t  *ssl_cfg, xqc_mini_svr_args_t *args);
 

@@ -157,6 +157,7 @@ xqc_mini_svr_write_socket(const unsigned char *buf, size_t size, const struct so
         }
     } while ((res < 0) && (get_sys_errno() == EINTR));
 
+    // printf("[report] xqc_mini_svr_write_socket success size=%lu\n", size);
     return res;
 }
 
@@ -186,8 +187,9 @@ xqc_mini_svr_h3_conn_create_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid,
     xqc_h3_conn_set_user_data(h3_conn, user_conn);
     xqc_h3_conn_get_peer_addr(h3_conn, (struct sockaddr *)user_conn->peer_addr,
                               sizeof(struct sockaddr_in), &user_conn->peer_addrlen);
-    printf("xqc_mini_svr_h3_conn_create_notify, family: %d, cid: %s\n", user_conn->peer_addr->sin_family, cid->cid_buf);
     memcpy(&user_conn->cid, cid, sizeof(*cid));
+
+    printf("[stats] xqc_mini_svr_h3_conn_create_notify \n");
     return 0;
 }
 
@@ -198,10 +200,8 @@ xqc_mini_svr_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid,
 {
     DEBUG;
     xqc_mini_svr_user_conn_t *user_conn = (xqc_mini_svr_user_conn_t*)conn_user_data;
-
-
-    printf("[stats] xqc_mini_svr_h3_conn_close_notify");
-
+    
+    printf("[stats] xqc_mini_svr_h3_conn_close_notify success \n");
     return 0;
 }
 
@@ -219,16 +219,13 @@ int
 xqc_mini_svr_h3_request_create_notify(xqc_h3_request_t *h3_request, void *strm_user_data)
 {
     DEBUG;
-
-    printf("[stats] xqc_mini_svr_h3_request_create_notify, h3_request: %p, strm_user_data: %p\n",
-        h3_request, strm_user_data);
-
     xqc_mini_svr_user_stream_t *user_stream = calloc(1, sizeof(*user_stream));
     user_stream->h3_request = h3_request;
 
     xqc_h3_request_set_user_data(h3_request, user_stream);
     user_stream->recv_buf = calloc(1, REQ_BUF_SIZE);
 
+    printf("[stats] xqc_mini_svr_h3_request_create_notify success \n");
     return 0;
 }
 
@@ -237,14 +234,46 @@ xqc_mini_svr_h3_request_close_notify(xqc_h3_request_t *h3_request, void *strm_us
 {
     DEBUG;
     xqc_request_stats_t stats = xqc_h3_request_get_stats(h3_request);
-    printf("[stats] cwnd_blocked:%"PRIu64"\n", stats.cwnd_blocked_ms);
+    printf("[stats] xqc_mini_svr_h3_request_close_notify success, cwnd_blocked:%"PRIu64"\n", stats.cwnd_blocked_ms);
 
     xqc_mini_svr_user_stream_t *user_stream = (xqc_mini_svr_user_stream_t*)strm_user_data;
     free(user_stream);
 
     return 0;
 }
+int
+xqc_mini_cli_handle_h3_request(xqc_mini_svr_user_stream_t *user_stream)
+{
+    DEBUG;
+    ssize_t ret = 0;
 
+    /* response header buf list */
+    xqc_http_header_t rsp_hdr[] = {
+        {
+            .name = {.iov_base = "content-type", .iov_len = 12},
+            .value = {.iov_base = "text/plain", .iov_len = 10},
+            .flags = 0,
+        }
+    };
+    /* response header */
+    xqc_http_headers_t rsp_hdrs;
+    rsp_hdrs.headers = rsp_hdr;
+    rsp_hdrs.count = sizeof(rsp_hdr) / sizeof(rsp_hdr[0]);
+
+    if (user_stream->header_sent == 0) {
+        ret = xqc_h3_request_send_headers(user_stream->h3_request, &rsp_hdrs, 0);
+        if (ret < 0) {
+            printf("[error] xqc_h3_request_send_headers error %zd\n", ret);
+            return ret;
+        } else {
+            printf("[stats] xqc_h3_request_send_headers success \n");
+            user_stream->header_sent = 1;
+        }
+    }
+
+    ret = xqc_mini_svr_send_body(user_stream);
+    return ret;
+}
 
 int
 xqc_mini_svr_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_flag_t flag,
@@ -287,24 +316,26 @@ xqc_mini_svr_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
             user_stream->recv_body_len += read;
         } while (read > 0 && !fin);
     }
-
     if (fin) {
-        printf("[stats] finish read h3 request\n");
+        printf("[stats] read h3 request finish. \n");
+        xqc_mini_cli_handle_h3_request(user_stream);
     }
-
     return 0;
 }
 
 int
 xqc_mini_svr_send_body(xqc_mini_svr_user_stream_t *user_stream)
 {
-    int fin = 1, send_buf_size;
+    int fin = 1, send_buf_size, ret;
     char send_buf[REQ_BUF_SIZE];
 
     send_buf_size = REQ_BUF_SIZE;
     memset(send_buf, 'D', send_buf_size);
 
-    return xqc_h3_request_send_body(user_stream->h3_request, send_buf, send_buf_size, fin);
+    ret = xqc_h3_request_send_body(user_stream->h3_request, send_buf, send_buf_size, fin);
+    
+    printf("[reports] xqc_mini_svr_send_body success, size:%d \n", ret);
+    return ret;
 }
 
 int
@@ -314,17 +345,6 @@ xqc_mini_svr_h3_request_write_notify(xqc_h3_request_t *h3_request, void *strm_us
     xqc_mini_svr_user_stream_t *user_stream = (xqc_mini_svr_user_stream_t *)strm_user_data;
     int ret = xqc_mini_svr_send_body(user_stream);
 
+    printf("[stats] write h3 request notify finish \n");
     return ret;
-}
-
-int
-xqc_mini_cli_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data, void *conn_proto_data)
-{
-    DEBUG;
-
-    xqc_mini_svr_user_conn_t *user_conn = (xqc_mini_svr_user_conn_t *) user_data;
-    xqc_conn_set_alp_user_data(conn, user_conn);
-
-    printf("[stats] xqc_conn_is_ready_to_send_early_data:%d\n", xqc_conn_is_ready_to_send_early_data(conn));
-    return XQC_OK;
 }

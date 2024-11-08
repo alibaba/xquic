@@ -352,7 +352,7 @@ xqc_mini_svr_socket_read_handler(xqc_mini_svr_user_conn_t *user_conn, int fd)
     socklen_t peer_addrlen = sizeof(peer_addr);
     uint64_t recv_time;
     xqc_int_t ret;
-    unsigned char packet_buf[XQC_PACKET_BUF_LEN];
+    unsigned char packet_buf[XQC_PACKET_BUF_LEN] = {0};
     xqc_mini_svr_ctx_t *ctx;
 
     ctx = user_conn->ctx;
@@ -363,11 +363,9 @@ xqc_mini_svr_socket_read_handler(xqc_mini_svr_user_conn_t *user_conn, int fd)
         /* recv quic packet from client */
         recv_size = recvfrom(fd, packet_buf, sizeof(packet_buf), 0,
                             (struct sockaddr *) &peer_addr, &peer_addrlen);
-                            
         if (recv_size < 0 && get_sys_errno() == EAGAIN) {
             break;
         }
-
         memcpy(user_conn->peer_addr, &peer_addr, peer_addrlen);
         user_conn->peer_addrlen = peer_addrlen;
     
@@ -388,9 +386,9 @@ xqc_mini_svr_socket_read_handler(xqc_mini_svr_user_conn_t *user_conn, int fd)
         recv_time = xqc_now();
         /* process quic packet with xquic engine */
         ret = xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
-                                                  (struct sockaddr *)(user_conn->local_addr), user_conn->local_addrlen,
-                                                  (struct sockaddr *)(user_conn->peer_addr), user_conn->peer_addrlen,
-                                                  (xqc_usec_t)recv_time, user_conn);
+                                        (struct sockaddr *)(user_conn->local_addr), user_conn->local_addrlen,
+                                        (struct sockaddr *)(user_conn->peer_addr), user_conn->peer_addrlen,
+                                        (xqc_usec_t)recv_time, user_conn);
         if (ret != XQC_OK) {
             printf("[error] server_read_handler: packet process err, ret: %d\n", ret);
             return;
@@ -398,7 +396,7 @@ xqc_mini_svr_socket_read_handler(xqc_mini_svr_user_conn_t *user_conn, int fd)
     } while (recv_size > 0);
 
 finish_recv:
-    printf("[stats] xqc_mini_svr_socket_read_handler, recv size:%zu\n", recv_sum);
+    // printf("[stats] xqc_mini_svr_socket_read_handler, recv size:%zu\n", recv_sum);
     xqc_engine_finish_recv(ctx->engine);
 }
 

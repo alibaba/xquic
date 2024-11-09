@@ -1,10 +1,8 @@
 # Copyright (c) 2022, Alibaba Group Holding Limited
 
-cmake_minimum_required (VERSION 2.6)
-project (xquic)
+cmake_minimum_required (VERSION 3.15)
+project (xquic VERSION 1.8.1)
 
-set (xquic_VERSION_MAJOR 0)
-set (xquic_VERSION_MINOR 1)
 set (CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 option (XQC_ENABLE_BBR2 "enable bbr2" OFF)
@@ -388,12 +386,14 @@ add_library(
     STATIC
     ${XQC_SOURCE}
 )
+target_include_directories(xquic-static PUBLIC $<INSTALL_INTERFACE:include>)
 
 add_library(
     xquic
     SHARED
     ${XQC_SOURCE}
 )
+target_include_directories(xquic PUBLIC $<INSTALL_INTERFACE:include>)
 
 if(PLATFORM MATCHES "mac")
     target_link_libraries(
@@ -421,3 +421,45 @@ if(CMAKE_BUILD_TYPE STREQUAL MinSizeRel)
             COMMAND ${CMAKE_STRIP} libxquic.so)
 endif()
 
+#-------------------- install --------------------#
+include(CMakePackageConfigHelpers)
+
+configure_package_config_file(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Config.cmake.in
+    "${CMAKE_CURRENT_BINARY_DIR}/xquicConfig.cmake"
+    INSTALL_DESTINATION "lib/cmake/xquic"
+    NO_SET_AND_CHECK_MACRO
+)
+
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/xquicConfigVersion.cmake"
+    VERSION "${PROJECT_VERSION}"
+    COMPATIBILITY AnyNewerVersion
+)
+
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/xquicConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/xquicConfigVersion.cmake
+    DESTINATION lib/cmake/xquic
+)
+
+install(DIRECTORY include/xquic
+    FILES_MATCHING
+    DESTINATION "include"
+    PATTERN "*.h"
+)
+
+install(TARGETS xquic
+    EXPORT xquicTargets
+    DESTINATION lib
+)
+
+install(EXPORT xquicTargets
+    FILE xquicTargets.cmake
+    NAMESPACE xquic::
+    DESTINATION lib/cmake/xquic
+)
+
+export(EXPORT xquicTargets
+    FILE "${CMAKE_CURRENT_BINARY_DIR}/xquicTargets.cmake"
+    NAMESPACE xquic::
+)

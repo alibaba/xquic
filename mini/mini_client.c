@@ -203,7 +203,7 @@ xqc_mini_cli_init_conn_settings(xqc_conn_settings_t *settings, xqc_mini_cli_args
 }
 
 int
-xqc_mini_cli_init_alph_ctx(xqc_mini_cli_ctx_t *ctx)
+xqc_mini_cli_init_alpn_ctx(xqc_mini_cli_ctx_t *ctx)
 {
     int ret = XQC_OK;
 
@@ -238,7 +238,7 @@ xqc_mini_cli_init_engine_ctx(xqc_mini_cli_ctx_t *ctx)
     int ret;
 
     /* init alpn ctx */
-    ret = xqc_mini_cli_init_alph_ctx(ctx);
+    ret = xqc_mini_cli_init_alpn_ctx(ctx);
 
     return ret;
 }
@@ -380,7 +380,7 @@ xqc_mini_cli_send_h3_req(xqc_mini_cli_user_conn_t *user_conn, xqc_mini_cli_user_
 {
     user_stream->user_conn = user_conn;
 
-    xqc_stream_settings_t settings = { .recv_rate_bytes_per_sec = 0 };    
+    xqc_stream_settings_t settings = { .recv_rate_bytes_per_sec = 0 };
     user_stream->h3_request = xqc_h3_request_create(user_conn->ctx->engine, &user_conn->cid,
         &settings, user_stream);
     if (user_stream->h3_request == NULL) {
@@ -388,7 +388,7 @@ xqc_mini_cli_send_h3_req(xqc_mini_cli_user_conn_t *user_conn, xqc_mini_cli_user_
         return XQC_ERROR;
     }
 
-    xqc_mini_cli_request_send(user_stream->h3_request, user_stream);  
+    xqc_mini_cli_request_send(user_stream->h3_request, user_stream);
     return XQC_OK;
 }
 
@@ -473,7 +473,7 @@ xqc_mini_cli_socket_read_handler(xqc_mini_cli_user_conn_t *user_conn, int fd)
     ctx = user_conn->ctx;
 
     do {
-        /* recv quic packet from client */
+        /* recv quic packet from server */
         recv_size = recvfrom(fd, packet_buf, sizeof(packet_buf), 0,
                              user_conn->peer_addr, &user_conn->peer_addrlen);
         if (recv_size < 0 && get_sys_errno() == EAGAIN) {
@@ -566,7 +566,18 @@ xqc_mini_cli_init_xquic_connection(xqc_mini_cli_user_conn_t *user_conn)
 
     return XQC_OK;
 }
-
+void
+xqc_mini_cli_on_socket_created(xqc_mini_cli_user_conn_t *user_conn)
+{
+    xqc_mini_cli_ctx_t *ctx;
+    
+    ctx = user_conn->ctx;
+    
+    /* init callback function for READ/PERSIST EVENT */
+    user_conn->ev_socket = event_new(ctx->eb, user_conn->fd, EV_READ | EV_PERSIST,
+        xqc_mini_cli_socket_event_callback, user_conn);
+    event_add(user_conn->ev_socket, NULL);
+}
 int
 xqc_mini_cli_main_process(xqc_mini_cli_user_conn_t *user_conn, xqc_mini_cli_ctx_t *ctx)
 {
@@ -634,7 +645,6 @@ xqc_mini_cli_user_conn_create(xqc_mini_cli_ctx_t *ctx)
     xqc_mini_cli_init_local_addr(user_conn->local_addr);
     user_conn->local_addrlen = sizeof(struct sockaddr_in);
 
-    user_conn->peer_addr = calloc(1, sizeof(struct sockaddr_in));
     xqc_mini_cli_convert_text_to_sockaddr(AF_INET, DEFAULT_IP, DEFAULT_PORT,
         &(user_conn->peer_addr), &(user_conn->peer_addrlen));
 

@@ -293,7 +293,7 @@ xqc_mini_svr_create_socket(xqc_mini_svr_user_conn_t *user_conn, xqc_mini_svr_net
 }
 
 int
-xqc_mini_svr_init_alph_ctx(xqc_mini_svr_ctx_t *ctx)
+xqc_mini_svr_init_alpn_ctx(xqc_engine_t *engine)
 {
     int ret = 0;
 
@@ -313,7 +313,7 @@ xqc_mini_svr_init_alph_ctx(xqc_mini_svr_ctx_t *ctx)
     };
 
     /* init http3 context */
-    ret = xqc_h3_ctx_init(ctx->engine, &h3_cbs);
+    ret = xqc_h3_ctx_init(engine, &h3_cbs);
     if (ret != XQC_OK) {
         printf("init h3 context error, ret: %d\n", ret);
         return ret;
@@ -331,7 +331,7 @@ xqc_mini_svr_init_engine_ctx(xqc_mini_svr_ctx_t *ctx, xqc_mini_svr_args_t *args)
     xqc_mini_svr_init_conn_settings(ctx->engine, args);
 
     /* init alpn ctx */
-    ret = xqc_mini_svr_init_alph_ctx(ctx);
+    ret = xqc_mini_svr_init_alpn_ctx(ctx->engine);
 
     return ret;
 }
@@ -431,25 +431,52 @@ xqc_mini_svr_free_ctx(xqc_mini_svr_ctx_t *ctx)
     // free(ctx);
 }
 
+void
+xqc_mini_svr_free_user_conn(xqc_mini_svr_user_conn_t *user_conn)
+{
+    if (user_conn->local_addr) {
+        free(user_conn->local_addr);
+        user_conn->local_addr = NULL;
+    }
+    if (user_conn->peer_addr) {
+        free(user_conn->peer_addr);
+        user_conn->peer_addr = NULL;
+    }
+    if (user_conn) {
+        free(user_conn);
+        user_conn = NULL;
+    }
+}
+
 xqc_mini_svr_user_conn_t *
 xqc_mini_svr_create_user_conn(xqc_mini_svr_ctx_t *ctx)
 {
+    int ret;
     xqc_mini_svr_user_conn_t *user_conn = calloc(1, sizeof(xqc_mini_svr_user_conn_t));
 
     user_conn->ctx = ctx;
 
     user_conn->local_addr = (struct sockaddr_in *)calloc(1, sizeof(struct sockaddr_in));
     user_conn->peer_addr = (struct sockaddr_in *)calloc(1, sizeof(struct sockaddr_in));
+    
+    /* init server socket and save to ctx->fd */
+    ret = xqc_mini_svr_create_socket(user_conn, &ctx->args->net_cfg);
+    if (ret < 0) {
+        printf("[error] xqc_create_socket error\n");
+        goto error;
+    }
+
+    /* bind socket event callback to fd event */
+    user_conn->ev_socket = event_new(ctx->eb, user_conn->fd, EV_READ | EV_PERSIST,
+        xqc_mini_svr_socket_event_callback, user_conn);
+    event_add(user_conn->ev_socket, NULL);
 
     return user_conn;
+error:
+    xqc_mini_svr_free_user_conn(user_conn);
+    return NULL;
 }
 
-void
-xqc_mini_svr_free_user_conn(xqc_mini_svr_user_conn_t *user_conn)
-{
-    free(user_conn->local_addr);
-    free(user_conn->peer_addr);
-}
 void
 xqc_mini_cli_on_connection_finish(xqc_mini_svr_user_conn_t *user_conn)
 {
@@ -504,25 +531,15 @@ main(int argc, char *argv[])
     /* initiate user_conn */
     user_conn = xqc_mini_svr_create_user_conn(ctx);
 
-    /* init server socket and save to ctx->fd */
-    ret = xqc_mini_svr_create_socket(user_conn, &args->net_cfg);
-    if (ret < 0) {
-        printf("[error] xqc_create_socket error\n");
-        goto exit;
-    }
-
-    /* bind socket event callback to fd event */
-    user_conn->ev_socket = event_new(ctx->eb, user_conn->fd, EV_READ | EV_PERSIST,
-        xqc_mini_svr_socket_event_callback, user_conn);
-    event_add(user_conn->ev_socket, NULL);
-
     /* start event loop */
     event_base_dispatch(ctx->eb);
 
 exit:
     xqc_engine_destroy(ctx->engine);
     xqc_mini_svr_free_ctx(ctx);
-    xqc_mini_svr_free_user_conn(user_conn);
+    if (user_conn) {
+        xqc_mini_svr_free_user_conn(user_conn);
+    }
 
     return 0;
 }

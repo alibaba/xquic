@@ -229,7 +229,7 @@ xqc_scheduler_callback_t xqc_mini_cli_get_sched_cb(xqc_mini_cli_args_t *args);
 xqc_cong_ctrl_callback_t xqc_mini_cli_get_cc_cb(xqc_mini_cli_args_t *args);
 void xqc_mini_cli_init_conn_settings(xqc_conn_settings_t *settings, xqc_mini_cli_args_t *args);
 
-int xqc_mini_cli_init_alph_ctx(xqc_mini_cli_ctx_t *ctx);
+int xqc_mini_cli_init_alpn_ctx(xqc_mini_cli_ctx_t *ctx);
 int xqc_mini_cli_init_engine_ctx(xqc_mini_cli_ctx_t *ctx);
 
 void xqc_mini_cli_free_ctx(xqc_mini_cli_ctx_t *ctx);

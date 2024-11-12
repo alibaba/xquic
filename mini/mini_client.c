@@ -389,6 +389,9 @@ xqc_mini_cli_send_h3_req(xqc_mini_cli_user_conn_t *user_conn, xqc_mini_cli_user_
     }
 
     xqc_mini_cli_request_send(user_stream->h3_request, user_stream);
+
+    /* generate engine main log to send packets */
+    xqc_engine_main_logic(user_conn->ctx->engine);
     return XQC_OK;
 }
 
@@ -598,8 +601,6 @@ xqc_mini_cli_main_process(xqc_mini_cli_user_conn_t *user_conn, xqc_mini_cli_ctx_
     if (ret < 0) {
         return XQC_ERROR;
     }
-
-    xqc_engine_main_logic(ctx->engine);
 
     return XQC_OK;
 }

@@ -176,7 +176,7 @@ xqc_mini_cli_h3_request_read_notify(xqc_h3_request_t *h3_request,
         }
 
         for (int i = 0; i < headers->count; i++) {
-            printf("[report] header: %s = %s\n", (char *)headers->headers[i].name.iov_base,
+            printf("[receive report] %s = %s\n", (char *)headers->headers[i].name.iov_base,
                 (char *)headers->headers[i].value.iov_base);
         }
 
@@ -320,7 +320,7 @@ xqc_mini_cli_save_session_cb(const char * data, size_t data_len, void *user_data
     xqc_mini_cli_user_conn_t *user_conn = (xqc_mini_cli_user_conn_t *)user_data;
     printf("[stats] start save_session_cb. \n");
 
-    FILE * fp  = fopen("test_session", "wb");
+    FILE * fp  = fopen(SESSION_TICKET_FILE, "wb");
     if (fp < 0) {
         printf("save session error %s\n", strerror(get_sys_errno()));
         return;
@@ -343,7 +343,7 @@ xqc_mini_cli_save_tp_cb(const char * data, size_t data_len, void * user_data)
     xqc_mini_cli_user_conn_t *user_conn = (xqc_mini_cli_user_conn_t *)user_data;
     printf("[stats] start save_tp_cb\n");
 
-    FILE * fp = fopen("tp_localhost", "wb");
+    FILE * fp = fopen(TRANSPORT_PARAMS_FILE, "wb");
     if (fp < 0) {
         printf("save transport callback error %s\n", strerror(get_sys_errno()));
         return;

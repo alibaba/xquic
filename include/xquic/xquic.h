@@ -843,6 +843,7 @@ typedef struct xqc_cc_params_s {
     uint32_t    expect_bw;
     uint32_t    max_expect_bw;
     uint8_t     bbr_enable_lt_bw;
+    uint8_t     bbr_ignore_app_limit;
     uint32_t    cc_optimization_flags;
     /* 0 < delta <= delta_max, default 0.05, ->0 = more throughput-oriented */
     double      copa_delta_base; 
@@ -866,25 +867,30 @@ typedef struct xqc_scheduler_params_u {
 
 typedef enum {
     XQC_REED_SOLOMON_CODE  = 8,
-    XQC_XOR_CODE = 11, 
-    XQC_PACKET_MASK = 12,
+    XQC_XOR_CODE = 11,
+    XQC_PACKET_MASK_CODE = 12,
 } xqc_fec_schemes_e;
+
+typedef enum {
+    XQC_FEC_MP_DEFAULT,
+    XQC_FEC_MP_USE_STB,
+} xqc_fec_mp_mode_e;
 
 typedef struct xqc_fec_params_s {
     float                   fec_code_rate;                                  /* code rate represents the source symbol percents in total symbols */
     xqc_int_t               fec_ele_bit_size;                               /* element bit size of current fec finite filed */
     uint64_t                fec_protected_frames;                           /* frame type that should be protected by fec */
     uint64_t                fec_max_window_size;                            /* maximum number of block that current host can store */
-    uint64_t                fec_max_symbol_size;                            /* (E) maximum symbol size of each symbol */
     uint64_t                fec_max_symbol_num_per_block;                   /* (B) maximum symbol number of each block */
-    
+    xqc_fec_mp_mode_e       fec_mp_mode;
+
     xqc_int_t               fec_encoder_schemes_num;
     xqc_int_t               fec_decoder_schemes_num;
     xqc_fec_schemes_e       fec_encoder_schemes[XQC_FEC_MAX_SCHEME_NUM];    /* fec schemes supported by current host as encoder */
     xqc_fec_schemes_e       fec_decoder_schemes[XQC_FEC_MAX_SCHEME_NUM];    /* fec schemes supported by current host as decoder */
 
-    xqc_int_t               fec_encoder_scheme;                             /* final fec scheme as encoder after negotiation */
-    xqc_int_t               fec_decoder_scheme;                             /* final fec scheme as decoder after negotiation */
+    xqc_fec_schemes_e       fec_encoder_scheme;                             /* final fec scheme as encoder after negotiation */
+    xqc_fec_schemes_e       fec_decoder_scheme;                             /* final fec scheme as decoder after negotiation */
 } xqc_fec_params_t;
 
 typedef struct xqc_congestion_control_callback_s {
@@ -974,6 +980,7 @@ typedef struct xqc_scheduler_callback_s {
 
 XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_scheduler_callback_t xqc_minrtt_scheduler_cb;
 XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_scheduler_callback_t xqc_backup_scheduler_cb;
+XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_scheduler_callback_t xqc_backup_fec_scheduler_cb;
 XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_scheduler_callback_t xqc_rap_scheduler_cb;
 #ifdef XQC_ENABLE_MP_INTEROP
 XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_scheduler_callback_t xqc_interop_scheduler_cb;
@@ -1005,13 +1012,17 @@ XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_reinj_ctl_callback_t xqc_dgram_reinj_
 
 typedef struct xqc_fec_code_callback_s {
     void (*xqc_fec_init)(xqc_connection_t *conn);
-    xqc_int_t (*xqc_fec_encode)(xqc_connection_t *conn, unsigned char *unit_data, unsigned char **outputs);
-    xqc_int_t (*xqc_fec_decode)(xqc_connection_t *conn, unsigned char **recovered_symbols_buff, xqc_int_t block_idx,
-                                xqc_int_t *loss_symbols_idx, xqc_int_t loss_symbols_len);
+    xqc_int_t (*xqc_fec_encode)(xqc_connection_t *conn, unsigned char *unit_data, size_t un_size, unsigned char **outputs,
+                                uint8_t fec_bm_mode);
+    xqc_int_t (*xqc_fec_decode)(xqc_connection_t *conn, unsigned char **recovered_symbols_buff, size_t *size, xqc_int_t block_idx);
+    xqc_int_t (*xqc_fec_decode_one)(xqc_connection_t *conn, unsigned char *recovered_symbols_buff,
+                                    xqc_int_t block_id, xqc_int_t symbol_idx);
+    void (*xqc_fec_init_one)(xqc_connection_t *conn, uint8_t bm_idx);
 } xqc_fec_code_callback_t;
 
 XQC_EXPORT_PUBLIC_API extern const xqc_fec_code_callback_t xqc_xor_code_cb;
 XQC_EXPORT_PUBLIC_API extern const xqc_fec_code_callback_t xqc_reed_solomon_code_cb;
+XQC_EXPORT_PUBLIC_API extern const xqc_fec_code_callback_t xqc_packet_mask_code_cb;
 
 /**
  * @struct xqc_config_t
@@ -1086,10 +1097,11 @@ typedef struct xqc_config_s {
     uint8_t         enable_h3_ext;
 
     /**
-     * @brief disable or enable logging (default: 0, enable)
+     * @brief manually call mainlogic after stream/request send      
      * 
      */
-    xqc_bool_t      log_disable;
+    uint8_t         manually_triggered_send;
+
 } xqc_config_t;
 
 
@@ -1184,14 +1196,12 @@ typedef struct xqc_linger_s {
 
 typedef enum {
     XQC_ERR_MULTIPATH_VERSION   = 0x00,
-    XQC_MULTIPATH_04            = 0x04,
-    XQC_MULTIPATH_05            = 0x05,
-    XQC_MULTIPATH_06            = 0x06,
+    XQC_MULTIPATH_10            = 0x0a, 
 } xqc_multipath_version_t;
 
 typedef enum {
     XQC_ERR_FEC_VERSION         = 0x00,
-    XQC_FEC_01                  = 0x01,
+    XQC_FEC_02                  = 0x02,
 } xqc_fec_version_t;
 
 typedef struct xqc_conn_settings_s {
@@ -1210,9 +1220,10 @@ typedef struct xqc_conn_settings_s {
     xqc_msec_t                  init_idle_time_out; /* initial idle timeout interval, effective before handshake completion */
     xqc_msec_t                  idle_time_out;      /* idle timeout interval, effective after handshake completion */
     int32_t                     spurious_loss_detect_on;
-    uint32_t                    anti_amplification_limit;   /* limit of anti-amplification, default 5 */
+    uint32_t                    anti_amplification_limit;   /* limit of anti-amplification, default 3 */
     uint64_t                    keyupdate_pkt_threshold;    /* packet limit of a single 1-rtt key, 0 for unlimited */
     size_t                      max_pkt_out_size;
+    size_t                      probing_pkt_out_size;
 
     /*
     * datgram option
@@ -1231,6 +1242,7 @@ typedef struct xqc_conn_settings_s {
      */
     uint64_t                    enable_multipath;
     xqc_multipath_version_t     multipath_version;
+    uint64_t                    init_max_path_id;
     uint64_t                    least_available_cid_count;
 
     /*
@@ -1352,10 +1364,21 @@ typedef struct xqc_conn_settings_s {
     uint64_t                    enable_encode_fec;
     uint64_t                    enable_decode_fec;
     xqc_fec_params_t            fec_params;
+    xqc_fec_code_callback_t     fec_callback;
     xqc_fec_code_callback_t     fec_encode_callback;
     xqc_fec_code_callback_t     fec_decode_callback;
 
     xqc_dgram_red_setting_e     close_dgram_redundancy;
+
+    /**
+     * @brief disable batch sending on the connection (default:0, not disable)
+     */
+    uint8_t                     disable_send_mmsg;
+
+    /**
+     * @brief control PTO value
+     */
+    uint8_t                     control_pto_value;
 
 } xqc_conn_settings_t;
 
@@ -1427,12 +1450,19 @@ typedef struct xqc_conn_stats_s {
     char                conn_info[XQC_CONN_INFO_LEN];
 
     char                alpn[XQC_MAX_ALPN_BUF_LEN];
+
+    uint32_t            send_fec_cnt;
+
+    uint8_t             enable_fec;
+    /* only accounts for stream and datagram packets */
+    uint64_t            total_app_bytes;
+    uint64_t            standby_path_app_bytes;
 } xqc_conn_stats_t;
 
 typedef struct xqc_conn_qos_stats_s {
-    xqc_usec_t          srtt;            /* smoothed SRTT at present: initial value = 250000 */
-    xqc_usec_t          min_rtt;         /* minimum RTT until now: initial value = 0xFFFFFFFF */
-    uint64_t            inflight_bytes;  /* initial value = 0 */
+    xqc_usec_t          srtt;               /* smoothed SRTT at present: initial value = 250000 */
+    xqc_usec_t          min_rtt;            /* minimum RTT until now: initial value = 0xFFFFFFFF */
+    uint64_t            inflight_bytes;     /* initial value = 0 */
 } xqc_conn_qos_stats_t;
 
 /*************************************************************
@@ -1580,11 +1610,12 @@ void xqc_engine_set_log_level(xqc_engine_t *engine, xqc_log_level_t log_level);
 
 /**
  * @brief enable/disable the log module of xquic
+ * @note  This function is not thread-safe. 
  *
  * @param enable XQC_TRUE for disable, XQC_FALSE for enable
  */
 XQC_EXPORT_PUBLIC_API
-void xqc_log_disable(xqc_engine_t *engine, xqc_bool_t disable);
+void xqc_log_disable(xqc_bool_t disable);
 
 
 /**
@@ -1593,6 +1624,17 @@ void xqc_log_disable(xqc_engine_t *engine, xqc_bool_t disable);
  */
 XQC_EXPORT_PUBLIC_API
 void xqc_engine_finish_recv(xqc_engine_t *engine);
+
+
+/**
+ * @brief only useful for manually triggered send mode
+ * 
+ * @param engine 
+ * @return XQC_EXPORT_PUBLIC_API 
+ */
+XQC_EXPORT_PUBLIC_API
+void xqc_engine_finish_send(xqc_engine_t *engine);
+
 
 XQC_EXPORT_PUBLIC_API
 xqc_connection_t *xqc_engine_get_conn_by_scid(xqc_engine_t *engine,

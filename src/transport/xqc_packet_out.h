@@ -45,6 +45,8 @@ typedef enum {
     XQC_POF_QOS_HIGH            = 1 << 18,
     XQC_POF_QOS_PROBING         = 1 << 19,
     XQC_POF_SPURIOUS_LOSS       = 1 << 20,
+    XQC_POF_USE_FEC             = 1 << 21,
+    XQC_POF_STREAM_NO_LEN       = 1 << 22,  /* for stream without LEN bit, shouldn't attach different frame to it */
 } xqc_packet_out_flag_t;
 
 typedef struct xqc_po_stream_frame_s {
@@ -84,6 +86,7 @@ typedef struct xqc_packet_out_s {
     /* the stream related to stream frame */
     xqc_po_stream_frame_t   po_stream_frames[XQC_MAX_STREAM_FRAME_IN_PO];
     unsigned int            po_stream_frames_idx;
+    uint8_t                  po_stream_fec_blk_mode;
 
     uint32_t                po_origin_ref_cnt;  /* reference count of original packet */
     uint32_t                po_acked;
@@ -121,6 +124,9 @@ typedef struct xqc_packet_out_s {
     xqc_usec_t              po_sched_cwnd_blk_ts;
     xqc_usec_t              po_send_cwnd_blk_ts;
     xqc_usec_t              po_send_pacing_blk_ts;
+
+    uint64_t                po_new_cid_seq;
+    uint32_t                po_new_cid_path;
 } xqc_packet_out_t;
 
 xqc_bool_t xqc_packet_out_on_specific_path(xqc_connection_t *conn, 
@@ -211,13 +217,21 @@ xqc_int_t xqc_write_path_abandon_frame_to_packet(xqc_connection_t *conn, xqc_pat
 
 xqc_int_t xqc_write_path_status_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path);
 
-xqc_int_t xqc_write_path_standby_or_available_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path);
-
 xqc_int_t xqc_write_sid_frame_to_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
 
-xqc_int_t xqc_write_repair_packets(xqc_connection_t *conn, xqc_int_t fss_esi, xqc_list_head_t *prev);
+xqc_int_t xqc_write_repair_packets(xqc_connection_t *conn, xqc_int_t fss_esi, xqc_list_head_t *prev, xqc_int_t repair_packet_num,
+    uint8_t bm_idx);
+
+xqc_packet_out_t *xqc_write_one_repair_packet(xqc_connection_t *conn, xqc_int_t fss_esi, xqc_int_t repair_idx,
+    uint8_t bm_idx);
 
 int xqc_write_pmtud_ping_to_packet(xqc_path_ctx_t *path, size_t probing_size, xqc_pkt_type_t pkt_type);
+
+xqc_int_t xqc_write_mp_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire_prior_to, uint64_t path_id);
+
+xqc_int_t xqc_write_mp_retire_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t seq_num, uint64_t path_id);
+
+int xqc_write_max_path_id_to_packet(xqc_connection_t *conn, uint64_t max_path_id);
 
 /**
  * @brief Get remained space size in packet out buff.

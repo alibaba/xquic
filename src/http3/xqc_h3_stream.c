@@ -86,6 +86,7 @@ xqc_h3_stream_destroy(xqc_h3_stream_t *h3s)
     }
 
     if (h3s->h3r && h3s->type == XQC_H3_STREAM_TYPE_REQUEST) {
+        xqc_h3_stream_update_stats(h3s);
         xqc_h3_request_destroy(h3s->h3r);
     }
 
@@ -392,8 +393,10 @@ xqc_h3_stream_send_headers(xqc_h3_stream_t *h3s, xqc_http_headers_t *headers, ui
 
     h3s->flags &= ~XQC_HTTP3_STREAM_NEED_WRITE_NOTIFY;
 
-    xqc_engine_main_logic_internal(h3c->conn->engine);
-
+    if (!h3c->conn->engine->config->manually_triggered_send) {
+        xqc_engine_conn_logic(h3c->conn->engine, h3c->conn);
+    }
+    
     return write;
 }
 
@@ -526,7 +529,9 @@ xqc_h3_stream_send_data(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_s
     xqc_log(h3s->log, XQC_LOG_DEBUG, "|stream_id:%ui|data_size:%uz|write:%z|fin:%ud|conn:%p|",
             h3s->stream_id, data_size, write, (unsigned int)fin, h3s->h3c->conn);
 
-    xqc_engine_main_logic_internal(h3s->h3c->conn->engine);
+    if (!h3s->h3c->conn->engine->config->manually_triggered_send) {
+        xqc_engine_conn_logic(h3s->h3c->conn->engine, h3s->h3c->conn);
+    }
 
     return write;
 }
@@ -570,7 +575,7 @@ xqc_h3_stream_send_finish(xqc_h3_stream_t *h3s)
         return ret;
     }
 
-    xqc_engine_main_logic_internal(h3s->h3c->conn->engine);
+    xqc_engine_conn_logic(h3s->h3c->conn->engine, h3s->h3c->conn);
     return XQC_OK;
 }
 
@@ -630,7 +635,7 @@ xqc_h3_stream_send_goaway(xqc_h3_stream_t *h3s, uint64_t push_id, uint8_t fin)
         return ret;
     }
 
-    xqc_engine_main_logic_internal(h3s->h3c->conn->engine);
+    xqc_engine_conn_logic(h3s->h3c->conn->engine, h3s->h3c->conn);
 
     return XQC_OK;
 }
@@ -644,7 +649,7 @@ xqc_h3_stream_send_bidi_stream_type(xqc_h3_stream_t *h3s,
         return ret;
     }
 
-    xqc_engine_main_logic_internal(h3s->h3c->conn->engine);   
+   xqc_engine_conn_logic(h3s->h3c->conn->engine, h3s->h3c->conn);  
     return XQC_OK;
 }
 
@@ -765,6 +770,12 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 break;
 
             case XQC_H3_FRM_GOAWAY:
+                
+                if (!(h3s->h3c->flags & XQC_H3_CONN_FLAG_GOAWAY_RECVD)) {
+                    h3c->goaway_stream_id = pl->goaway.stream_id.vi;
+                    h3s->h3c->flags |= XQC_H3_CONN_FLAG_GOAWAY_RECVD;
+                }
+
                 if (h3c->goaway_stream_id > pl->goaway.stream_id.vi) {
                     h3c->goaway_stream_id = pl->goaway.stream_id.vi;
 
@@ -773,8 +784,10 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                             " receive bigger push id|push_id:%ui|",
                             pl->goaway.stream_id.vi);
                 }
-                h3s->h3c->flags |= XQC_H3_CONN_FLAG_GOAWAY_RECVD;
+                xqc_log(h3c->log, XQC_LOG_DEBUG, "|H3_GOAWAY|stream_id:%ui|", pl->goaway.stream_id.vi);
+                
                 break;
+
 
             case XQC_H3_FRM_MAX_PUSH_ID:
                 /* PUSH related is not implemented yet */
@@ -1540,6 +1553,10 @@ xqc_h3_stream_get_buf(xqc_h3_stream_t *h3s, xqc_list_head_t *head, size_t expect
 {
     xqc_var_buf_t *buf = NULL;
 
+    if (head->prev == NULL || head->next == NULL) {
+        return NULL;
+    }
+
     if (!xqc_list_empty(head)) {
         /* the last in list */
         xqc_list_buf_t *list_buf = xqc_list_entry(head->prev, xqc_list_buf_t, list_head);
@@ -1901,6 +1918,11 @@ xqc_h3_stream_update_stats(xqc_h3_stream_t *h3s)
         h3s->h3r->retrans_pkt_cnt = h3s->stream->stream_stats.retrans_pkt_cnt;
         h3s->h3r->stream_fst_pkt_snd_time = h3s->stream->stream_stats.first_snd_time;
         h3s->h3r->stream_fst_pkt_rcv_time = h3s->stream->stream_stats.first_rcv_time;
+        h3s->h3r->sent_pkt_cnt = h3s->stream->stream_stats.sent_pkt_cnt;
+        h3s->h3r->max_pto_backoff = h3s->stream->stream_stats.max_pto_backoff;
+        h3s->h3r->recov_pkt_cnt = h3s->stream->stream_stats.recov_pkt_cnt;
+        h3s->h3r->fst_rpr_time = h3s->stream->stream_stats.fst_rpr_time;
+        h3s->h3r->last_rpr_time = h3s->stream->stream_stats.last_rpr_time;
     }
 
     h3s->send_offset = h3s->stream->stream_send_offset;
@@ -1914,6 +1936,11 @@ xqc_h3_stream_update_stats(xqc_h3_stream_t *h3s)
 
     if (conn == NULL) {
         return;
+    }
+
+    if (h3s->type == XQC_H3_STREAM_TYPE_REQUEST) {
+        h3s->stream->stream_stats.max_pto_backoff = xqc_max(h3s->stream->stream_stats.max_pto_backoff, xqc_conn_get_max_pto_backoff(conn, 1));
+        h3s->h3r->max_pto_backoff = h3s->stream->stream_stats.max_pto_backoff;   
     }
     
     if (h3s->stream->stream_flag & XQC_STREAM_FLAG_HAS_0RTT) {
@@ -2050,7 +2077,27 @@ xqc_h3_stream_get_path_info(xqc_h3_stream_t *h3s)
         }
     }
 }
+#ifdef XQC_ENABLE_FEC
+uint8_t
+xqc_set_stream_fec_block_mode(uint32_t fec_size)
+{
+    if (fec_size == 0) {
+        return XQC_DEFAULT_SIZE_REQ;
 
+    } else if (fec_size <= 2 * 1024) {
+        return XQC_SLIM_SIZE_REQ;
+
+    } else if (fec_size <= 4 * 1024) {
+        return XQC_NORMAL_SIZE_REQ;
+
+    } else if (fec_size <= 20 * 1024) {
+        return XQC_MIDDLE_SIZE_REQ;
+
+    } else {
+        return XQC_LARGE_SIZE_REQ;
+    }
+}
+#endif
 void
 xqc_h3_stream_set_priority(xqc_h3_stream_t *h3s, xqc_h3_priority_t *prio)
 {
@@ -2061,12 +2108,18 @@ xqc_h3_stream_set_priority(xqc_h3_stream_t *h3s, xqc_h3_priority_t *prio)
         h3s->priority.incremental = prio->incremental;
         h3s->priority.schedule    = prio->schedule;
         h3s->priority.reinject    = prio->reinject;
-
+#ifdef XQC_ENABLE_FEC
+        h3s->priority.fec         = prio->fec;
+#endif
         if (h3s->stream == NULL) {
             xqc_log(h3s->log, XQC_LOG_ERROR, "|transport stream was NULL|stream_id:%ui|", h3s->stream_id);
             return;
         }
 
         xqc_stream_set_multipath_usage(h3s->stream, h3s->priority.schedule, h3s->priority.reinject);
+#ifdef XQC_ENABLE_FEC
+        h3s->stream->stream_fec_blk_mode = xqc_set_stream_fec_block_mode(h3s->priority.fec);
+        h3s->h3r->block_size_mode = h3s->stream->stream_fec_blk_mode;
+#endif
     }
 }

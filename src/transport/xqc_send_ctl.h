@@ -134,6 +134,10 @@ typedef struct xqc_send_ctl_s {
     uint64_t                    ctl_bytes_send;
     uint64_t                    ctl_bytes_recv;
 
+    /* only accounts for stream and datagram packets */
+    uint64_t                    ctl_app_bytes_send;
+    uint64_t                    ctl_app_bytes_recv;
+
     const
     xqc_cong_ctrl_callback_t    *ctl_cong_callback;
     void                        *ctl_cong;

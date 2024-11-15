@@ -9,11 +9,12 @@
 FILE *g_malloc_info_fp;
 #endif
 
+static xqc_bool_t log_disable = XQC_FALSE;
+
 void
-xqc_log_disable(xqc_engine_t *engine, xqc_bool_t disable)
+xqc_log_disable(xqc_bool_t disable)
 {
-    engine->log_disable = disable;
-    xqc_log(engine->log, XQC_LOG_DEBUG, "|log_disable:%d|", disable);
+    log_disable = disable;
 }
 
 void
@@ -266,7 +267,7 @@ void
 xqc_log_implement(xqc_log_t *log, xqc_log_type_t type, const char *func, const char *fmt, ...)
 {
     /* do nothing if switch is off */
-    if (log->engine && log->engine->log_disable) {
+    if (log_disable) {
         return;
     }
 
@@ -326,7 +327,7 @@ void
 xqc_qlog_implement(xqc_log_t *log, xqc_log_type_t type, const char *func, const char *fmt, ...)
 {
     /* do nothing if switch is off */
-    if (log->engine && log->engine->log_disable) {
+    if (log_disable) {
         return;
     }
 

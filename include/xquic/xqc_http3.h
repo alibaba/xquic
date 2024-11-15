@@ -180,6 +180,15 @@ typedef struct xqc_request_stats_s {
     xqc_usec_t  stream_fst_pkt_snd_time;
     xqc_usec_t  stream_fst_pkt_rcv_time;
     
+    uint32_t    sent_pkt_cnt;
+    uint8_t     max_pto_backoff;
+    
+    /**
+     * @brief the number of lost/delayed packets recovered by fec module;
+     */
+    uint32_t    fec_recov_cnt;
+
+    uint8_t     is_fec_protected;
 } xqc_request_stats_t;
 
 /**
@@ -760,6 +769,9 @@ xqc_stream_id_t xqc_h3_stream_id(xqc_h3_request_t *h3_request);
 /**
  * @brief RFC 9218 HTTP Priority
  */
+XQC_EXPORT_PUBLIC_API
+void xqc_h3_priority_init(xqc_h3_priority_t *prio);
+
 XQC_EXPORT_PUBLIC_API
 size_t xqc_write_http_priority(xqc_h3_priority_t *prio,
     uint8_t *dst, size_t dstcap);

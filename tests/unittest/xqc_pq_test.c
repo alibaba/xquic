@@ -11,14 +11,14 @@ xqc_test_pq()
 {
     xqc_pq_t pq;
     memset(&pq, 0, sizeof(pq));
-    int i = xqc_pq_init(&pq, sizeof(xqc_pq_key_t), 4, xqc_default_allocator, xqc_pq_default_cmp);
+    int i = xqc_pq_init(&pq, sizeof(xqc_pq_key_t), 4, xqc_default_allocator, xqc_pq_default_cmp, NULL);
     CU_ASSERT(i == 0);
 
-    xqc_pq_push(&pq, 4);
-    xqc_pq_push(&pq, 5);
-    xqc_pq_push(&pq, 1);
-    xqc_pq_push(&pq, 3);
-    xqc_pq_push(&pq, 2);
+    xqc_pq_push(&pq, 4, NULL);
+    xqc_pq_push(&pq, 5, NULL);
+    xqc_pq_push(&pq, 1, NULL);
+    xqc_pq_push(&pq, 3, NULL);
+    xqc_pq_push(&pq, 2, NULL);
 
     xqc_pq_key_t key = (xqc_pq_key_t) -1;
     

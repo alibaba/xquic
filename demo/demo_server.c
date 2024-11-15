@@ -26,6 +26,7 @@
 #pragma comment(lib,"event.lib")
 #pragma comment(lib, "Iphlpapi.lib")
 #pragma comment(lib, "Bcrypt.lib")
+#pragma comment(lib, "crypt32")
 #endif
 
 
@@ -101,6 +102,8 @@ typedef struct xqc_demo_svr_quic_config_s {
 
     /* multipath version */
     int  multipath_version;
+    
+    int  max_initial_paths;
     /* support interop test */
     int is_interop_mode;
 
@@ -1277,7 +1280,7 @@ void
 xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:rdMiPs:R:u:a:F:")) != -1) {
+    while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:rdMiPs:R:u:a:F:f:")) != -1) {
         switch (ch) {
         /* listen port */
         case 'p':
@@ -1365,11 +1368,6 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
             args->quic_cfg.multipath = 1;
             break;
 
-        case 'V':
-            printf("option multipath version: %s\n", optarg);
-            args->quic_cfg.multipath_version = atoi(optarg);
-            break;
-
         case 'P':
             printf("option ACK_MP on any path enabled\n");
             args->quic_cfg.mp_ack_on_any_path = 1;
@@ -1398,6 +1396,11 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
         case 'F':
             printf("MTU size: %s\n", optarg);
             args->quic_cfg.max_pkt_sz = atoi(optarg);
+            break;
+
+        case 'f':
+            printf("option init_max_path_id: %s\n", optarg);
+            args->quic_cfg.max_initial_paths = atoi(optarg);
             break;
 
         default:
@@ -1514,7 +1517,7 @@ xqc_demo_svr_init_conn_settings(xqc_engine_t *engine, xqc_demo_svr_args_t *args)
         .spurious_loss_detect_on = 1,
         .init_idle_time_out = 60000,
         .enable_multipath = args->quic_cfg.multipath,
-        .multipath_version = args->quic_cfg.multipath_version,
+        .init_max_path_id = args->quic_cfg.max_initial_paths,
         .mp_ack_on_any_path = args->quic_cfg.mp_ack_on_any_path,
         .scheduler_callback = sched,
         .reinj_ctl_callback = xqc_deadline_reinj_ctl_cb,
@@ -1525,7 +1528,6 @@ xqc_demo_svr_init_conn_settings(xqc_engine_t *engine, xqc_demo_svr_args_t *args)
         .is_interop_mode = args->quic_cfg.is_interop_mode,
         .max_pkt_out_size = args->quic_cfg.max_pkt_sz,
         .adaptive_ack_frequency = 1,
-        .anti_amplification_limit = 4,
     };
 
     xqc_server_set_conn_settings(engine, &conn_settings);

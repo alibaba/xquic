@@ -130,22 +130,24 @@ typedef struct xqc_cid_s {
 } xqc_cid_t;
 
 typedef enum xqc_log_level_s {
-    XQC_LOG_REPORT,
-    XQC_LOG_FATAL,
-    XQC_LOG_ERROR,
-    XQC_LOG_WARN,
-    XQC_LOG_STATS,
-    XQC_LOG_INFO,
-    XQC_LOG_DEBUG,
+    XQC_LOG_REPORT  = 0,
+    XQC_LOG_FATAL   = 1,
+    XQC_LOG_ERROR   = 2,
+    XQC_LOG_WARN    = 3,
+    XQC_LOG_STATS   = 4,
+    XQC_LOG_INFO    = 5,
+    XQC_LOG_DEBUG   = 6,
 } xqc_log_level_t;
 
-/* qlog Importance level definition */
+/**
+ *  qlog Importance level definition
+ */
 typedef enum qlog_event_importance_s {
-    EVENT_IMPORTANCE_SELECTED,   /* qlog will be emitted selectly */
-    EVENT_IMPORTANCE_CORE,
-    EVENT_IMPORTANCE_BASE,
-    EVENT_IMPORTANCE_EXTRA,
-    EVENT_IMPORTANCE_REMOVED,   /* Currently, some events have been removed in the latest qlog draft. But old qvis need them! */
+    EVENT_IMPORTANCE_SELECTED   = 0,   /**< qlog will be emitted selectly */
+    EVENT_IMPORTANCE_CORE       = 1,
+    EVENT_IMPORTANCE_BASE       = 2,
+    EVENT_IMPORTANCE_EXTRA      = 3,
+    EVENT_IMPORTANCE_REMOVED    = 4,   /**< Currently, some events have been removed in the latest qlog draft. But old qvis need them! */
 } qlog_event_importance_t;
 
 #define XQC_BBR_RTTVAR_COMPENSATION_ENABLED 0
@@ -183,14 +185,14 @@ struct iovec {
 
 
 typedef enum {
-    XQC_CONN_TYPE_CLIENT,
-    XQC_CONN_TYPE_SERVER,
+    XQC_CONN_TYPE_CLIENT    = 0,
+    XQC_CONN_TYPE_SERVER    = 1,
 } xqc_conn_type_t;
 
 
 typedef enum {
-    XQC_STREAM_BIDI,
-    XQC_STREAM_UNI
+    XQC_STREAM_BIDI = 0,
+    XQC_STREAM_UNI  = 1
 } xqc_stream_direction_t;
 
 typedef enum {
@@ -224,8 +226,8 @@ typedef struct xqc_http_priority_s {
 #define XQC_UNKNOWN_PATH_ID ((uint64_t)-1)
 
 typedef enum xqc_conn_settings_type_e {
-    XQC_CONN_SETTINGS_DEFAULT,
-    XQC_CONN_SETTINGS_LOW_DELAY,
+    XQC_CONN_SETTINGS_DEFAULT       = 0,
+    XQC_CONN_SETTINGS_LOW_DELAY     = 1,
 } xqc_conn_settings_type_t;
 
 typedef struct xqc_conn_public_local_trans_settings_s {

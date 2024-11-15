@@ -37,18 +37,19 @@ typedef enum {
  * @brief supported versions for IETF drafts
  */
 typedef enum xqc_proto_version_s {
-    /* placeholder */
+    /** placeholder */
     XQC_IDRAFT_INIT_VER         = 0,
 
-    /* former version of QUIC RFC 9000 */
+    /** former version of QUIC RFC 9000 */
     XQC_VERSION_V1              = 1,
 
-    /* IETF Draft-29 */
+    /** IETF Draft-29 */
     XQC_IDRAFT_VER_29           = 2,
 
-     /* Special version for version negotiation. */
+    /** Special version for version negotiation. */
     XQC_IDRAFT_VER_NEGOTIATION  = 3,
 
+    /** max value of proto value. */
     XQC_VERSION_MAX             = 4
 } xqc_proto_version_t;
 
@@ -585,14 +586,14 @@ typedef void (*xqc_datagram_mss_updated_notify_pt)(xqc_connection_t *conn,
  * 3. Callbacks between Transport and Application Protocol:
  * QUIC events that might be more essential to Application-Layer-Protocols, especially stream data
  *
- * +------------------------------------------------------------------------------+
- * |                             Application                                      |
- * |                                 +-- Application Protocol defined callbacks --+
- * |                                 |             Application Protocol           |
- * +-------- transport callbacks ----+--------- app protocol callbacks -----------+
- * |                              Transport                                       |
- * +------------------------------------------------------------------------------+
  */
+//  * +------------------------------------------------------------------------------+
+//  * |                             Application                                      |
+//  * |                                 +-- Application Protocol defined callbacks --+
+//  * |                                 |             Application Protocol           |
+//  * +-------- transport callbacks ----+--------- app protocol callbacks -----------+
+//  * |                              Transport                                       |
+//  * +------------------------------------------------------------------------------+
 typedef struct xqc_transport_callbacks_s {
     /**
      * accept new connection callback. REQUIRED only for server
@@ -606,7 +607,7 @@ typedef struct xqc_transport_callbacks_s {
      */
     xqc_server_refuse_pt            server_refuse;
 
-    /* stateless reset callback */
+    /** stateless reset callback */
     xqc_stateless_reset_pt          stateless_reset;
 
     /**
@@ -728,7 +729,9 @@ typedef struct xqc_conn_callbacks_s {
 } xqc_conn_callbacks_t;
 
 
-/* QUIC layer stream callback functions */
+/**
+ * @brief QUIC layer stream callback functions 
+ */
 typedef struct xqc_stream_callbacks_s {
     /**
      * stream read callback function. REQUIRED for both client and server
@@ -772,7 +775,9 @@ typedef struct xqc_stream_callbacks_s {
 
 } xqc_stream_callbacks_t;
 
-/* QUIC layer datagram callback functions */
+/**
+ * @brief QUIC layer datagram callback functions
+ */
 typedef struct xqc_datagram_callbacks_s {
     /**
      * datagram read callback function. REQUIRED for both client and server if they want to use datagram
@@ -815,13 +820,19 @@ typedef struct xqc_datagram_callbacks_s {
  */
 typedef struct xqc_app_proto_callbacks_s {
 
-    /* QUIC connection callback functions for Application-Layer-Protocol */
+    /**
+     * QUIC connection callback functions for Application-Layer-Protocol 
+     */
     xqc_conn_callbacks_t        conn_cbs;
 
-    /* QUIC stream callback functions */
+    /**
+     * QUIC stream callback functions 
+     */
     xqc_stream_callbacks_t      stream_cbs;
 
-    /* QUIC datagram callback functions */
+    /**
+     *  QUIC datagram callback functions 
+     */
     xqc_datagram_callbacks_t    dgram_cbs;
 
 } xqc_app_proto_callbacks_t;
@@ -845,11 +856,11 @@ typedef struct xqc_cc_params_s {
     uint8_t     bbr_enable_lt_bw;
     uint8_t     bbr_ignore_app_limit;
     uint32_t    cc_optimization_flags;
-    /* 0 < delta <= delta_max, default 0.05, ->0 = more throughput-oriented */
+    /** 0 < delta <= delta_max, default 0.05, ->0 = more throughput-oriented */
     double      copa_delta_base; 
-    /* 0 < delta_max <= 1.0, default 0.5 */
+    /** 0 < delta_max <= 1.0, default 0.5 */
     double      copa_delta_max;
-    /* 
+    /** 
      * 1.0 <= delta_ai_unit, default 1.0, greater values mean more aggressive
      * when Copa competes with loss-based CCAs.
      */
@@ -877,60 +888,70 @@ typedef enum {
 } xqc_fec_mp_mode_e;
 
 typedef struct xqc_fec_params_s {
-    float                   fec_code_rate;                                  /* code rate represents the source symbol percents in total symbols */
-    xqc_int_t               fec_ele_bit_size;                               /* element bit size of current fec finite filed */
-    uint64_t                fec_protected_frames;                           /* frame type that should be protected by fec */
-    uint64_t                fec_max_window_size;                            /* maximum number of block that current host can store */
-    uint64_t                fec_max_symbol_num_per_block;                   /* (B) maximum symbol number of each block */
-    xqc_fec_mp_mode_e       fec_mp_mode;
-
+    /** code rate represents the source symbol percents in total symbols */
+    float                   fec_code_rate;
+    /** element bit size of current fec finite filed */
+    xqc_int_t               fec_ele_bit_size;
+    /** frame type that should be protected by fec */
+    uint64_t                fec_protected_frames;
+    /** maximum number of block that current host can store */
+    uint64_t                fec_max_window_size;
+    /** (E) maximum symbol size of each symbol */
+    uint64_t                fec_max_symbol_size;
+    /** (B) maximum symbol number of each block */
+    uint64_t                fec_max_symbol_num_per_block;
+    
     xqc_int_t               fec_encoder_schemes_num;
     xqc_int_t               fec_decoder_schemes_num;
-    xqc_fec_schemes_e       fec_encoder_schemes[XQC_FEC_MAX_SCHEME_NUM];    /* fec schemes supported by current host as encoder */
-    xqc_fec_schemes_e       fec_decoder_schemes[XQC_FEC_MAX_SCHEME_NUM];    /* fec schemes supported by current host as decoder */
+    /** fec schemes supported by current host as encoder */
+    xqc_fec_schemes_e       fec_encoder_schemes[XQC_FEC_MAX_SCHEME_NUM];
+    /** fec schemes supported by current host as decoder */
+    xqc_fec_schemes_e       fec_decoder_schemes[XQC_FEC_MAX_SCHEME_NUM];
 
-    xqc_fec_schemes_e       fec_encoder_scheme;                             /* final fec scheme as encoder after negotiation */
-    xqc_fec_schemes_e       fec_decoder_scheme;                             /* final fec scheme as decoder after negotiation */
+    /** final fec scheme as encoder after negotiation */
+    xqc_fec_schemes_e       fec_encoder_scheme;
+    /** final fec scheme as decoder after negotiation */
+    xqc_fec_schemes_e       fec_decoder_scheme;
 } xqc_fec_params_t;
 
 typedef struct xqc_congestion_control_callback_s {
-    /* Callback on initialization, for memory allocation */
+    /** Callback on initialization, for memory allocation */
     size_t (*xqc_cong_ctl_size)(void);
 
-    /* Callback on connection initialization, support for passing in congestion algorithm parameters */
+    /** Callback on connection initialization, support for passing in congestion algorithm parameters */
     void (*xqc_cong_ctl_init)(void *cong_ctl, xqc_send_ctl_t *ctl_ctx, xqc_cc_params_t cc_params);
 
-    /* Callback when packet loss is detected, reduce congestion window according to algorithm */
+    /** Callback when packet loss is detected, reduce congestion window according to algorithm */
     void (*xqc_cong_ctl_on_lost)(void *cong_ctl, xqc_usec_t lost_sent_time);
 
-    /* Callback when packet acked, increase congestion window according to algorithm */
+    /** Callback when packet acked, increase congestion window according to algorithm */
     void (*xqc_cong_ctl_on_ack)(void *cong_ctl, xqc_packet_out_t *po, xqc_usec_t now);
 
-    /* Callback when sending a packet, to determine if the packet can be sent */
+    /** Callback when sending a packet, to determine if the packet can be sent */
     uint64_t (*xqc_cong_ctl_get_cwnd)(void *cong_ctl);
 
-    /* Callback when all packets are detected as lost within 1-RTT, reset the congestion window */
+    /** Callback when all packets are detected as lost within 1-RTT, reset the congestion window */
     void (*xqc_cong_ctl_reset_cwnd)(void *cong_ctl);
 
-    /* If the connection is in slow start state */
+    /** If the connection is in slow start state */
     int (*xqc_cong_ctl_in_slow_start)(void *cong_ctl);
 
-    /* If the connection is in recovery state. */
+    /** If the connection is in recovery state. */
     int (*xqc_cong_ctl_in_recovery)(void *cong_ctl);
 
-    /* This function is used by BBR and Cubic*/
+    /** This function is used by BBR and Cubic*/
     void (*xqc_cong_ctl_restart_from_idle)(void *cong_ctl, uint64_t arg);
 
-    /* For BBR */
+    /** For BBR */
     void (*xqc_cong_ctl_on_ack_multiple_pkts)(void *cong_ctl, xqc_sample_t *sampler);
 
-    /* initialize bbr */
+    /** initialize bbr */
     void (*xqc_cong_ctl_init_bbr)(void *cong_ctl, xqc_sample_t *sampler, xqc_cc_params_t cc_params);
 
-    /* get pacing rate */
+    /** get pacing rate */
     uint32_t (*xqc_cong_ctl_get_pacing_rate)(void *cong_ctl);
 
-    /* get estimation of bandwidth */
+    /** get estimation of bandwidth */
     uint32_t (*xqc_cong_ctl_get_bandwidth_estimate)(void *cong_ctl);
 
     xqc_bbr_info_interface_t *xqc_cong_ctl_info_cb;
@@ -1029,43 +1050,43 @@ XQC_EXPORT_PUBLIC_API extern const xqc_fec_code_callback_t xqc_packet_mask_code_
  * QUIC config parameters
  */
 typedef struct xqc_config_s {
-    /* log level */
+    /** log level */
     xqc_log_level_t cfg_log_level;
 
-    /* enable log based on event or not, non-zero for enable, 0 for not */
+    /** enable log based on event or not, non-zero for enable, 0 for not */
     xqc_flag_t      cfg_log_event;
 
-    /* qlog evnet importance */
+    /** qlog evnet importance */
     qlog_event_importance_t cfg_qlog_importance;
 
-    /* print timestamp in log or not, non-zero for print, 0 for not */
+    /** print timestamp in log or not, non-zero for print, 0 for not */
     xqc_flag_t      cfg_log_timestamp;
 
-    /* print level name in log or not, non-zero for print, 0 for not */
+    /** print level name in log or not, non-zero for print, 0 for not */
     xqc_flag_t      cfg_log_level_name;
 
-    /* connection memory pool size, which will be used for congestion control */
+    /** connection memory pool size, which will be used for congestion control */
     size_t          conn_pool_size;
 
-    /* bucket size of stream hash table in xqc_connection_t */
+    /** bucket size of stream hash table in xqc_connection_t */
     size_t          streams_hash_bucket_size;
 
-    /* bucket size of connection hash table in engine */
+    /** bucket size of connection hash table in engine */
     size_t          conns_hash_bucket_size;
 
-    /* capacity of connection priority queue in engine */
+    /** capacity of connection priority queue in engine */
     size_t          conns_active_pq_capacity;
 
-    /* capacity of wakeup connection priority queue in engine */
+    /** capacity of wakeup connection priority queue in engine */
     size_t          conns_wakeup_pq_capacity;
 
-    /* supported quic version list, actually draft-29 and quic-v1 is supported */
+    /** supported quic version list, actually draft-29 and quic-v1 is supported */
     uint32_t        support_version_list[XQC_SUPPORT_VERSION_MAX];
 
-    /* supported quic version count */
+    /** supported quic version count */
     uint32_t        support_version_count;
 
-    /* default connection id length */
+    /** default connection id length */
     uint8_t         cid_len;
 
     /**
@@ -1077,7 +1098,7 @@ typedef struct xqc_config_s {
      */
     uint8_t         cid_negotiate;
 
-    /* used to generate stateless reset token */
+    /** used to generate stateless reset token */
     char            reset_token_key[XQC_RESET_TOKEN_MAX_KEY_LEN];
     size_t          reset_token_keylen;
 
@@ -1109,23 +1130,23 @@ typedef struct xqc_config_s {
  * @brief engine callback functions.
  */
 typedef struct xqc_engine_callback_s {
-    /* timer callback for event loop */
+    /** timer callback for event loop */
     xqc_set_event_timer_pt          set_event_timer;
 
-    /* write log file callback, REQUIRED */
+    /** write log file callback, REQUIRED */
     xqc_log_callbacks_t             log_callbacks;
 
-    /* custom cid generator, OPTIONAL for server */
+    /** custom cid generator, OPTIONAL for server */
     xqc_cid_generate_pt             cid_generate_cb;
 
-    /* tls secret callback, OPTIONAL */
+    /** tls secret callback, OPTIONAL */
     xqc_eng_keylog_pt               keylog_cb;
 
-    /* get realtime timestamp callback function. if not set, xquic will get timestamp with inner
+    /** get realtime timestamp callback function. if not set, xquic will get timestamp with inner
        function xqc_now, which relies on gettimeofday */
     xqc_timestamp_pt                realtime_ts;
 
-    /* get monotonic increasing timestamp callback function. if not set, xquic will get timestamp
+    /** get monotonic increasing timestamp callback function. if not set, xquic will get timestamp
        with inner function xqc_now, which relies on gettimeofday */
     xqc_timestamp_pt                monotonic_ts;
 
@@ -1133,14 +1154,19 @@ typedef struct xqc_engine_callback_s {
 
 
 typedef struct xqc_engine_ssl_config_s {
-    char       *private_key_file;           /* For server */
-    char       *cert_file;                  /* For server */
+    /** private key filefor server */
+    char       *private_key_file;
+    /** certificate file for server */
+    char       *cert_file;
     char       *ciphers;
     char       *groups;
 
-    uint32_t    session_timeout;            /* Session lifetime in second */
-    char       *session_ticket_key_data;    /* For server */
-    size_t      session_ticket_key_len;     /* For server */
+    /** session lifetime in second */
+    uint32_t    session_timeout;
+    /** session ticket key for server */
+    char       *session_ticket_key_data;
+    /** session ticket key length for server */ 
+    size_t      session_ticket_key_len;
 
 } xqc_engine_ssl_config_t;
 
@@ -1190,8 +1216,10 @@ typedef struct xqc_conn_ssl_config_s {
 } xqc_conn_ssl_config_t;
 
 typedef struct xqc_linger_s {
-    uint32_t                    linger_on;          /* close connection after all data sent and acked, default: 0 */
-    xqc_usec_t                  linger_timeout;     /* 3*PTO if linger_timeout is 0 */
+    /** close connection after all data sent and acked, default: 0 */
+    uint32_t                    linger_on; 
+    /** 3*PTO if linger_timeout is 0 */
+    xqc_usec_t                  linger_timeout; 
 } xqc_linger_t;
 
 typedef enum {
@@ -1205,23 +1233,33 @@ typedef enum {
 } xqc_fec_version_t;
 
 typedef struct xqc_conn_settings_s {
-    int                         pacing_on;          /* default: 0 */
-    int                         ping_on;            /* client sends PING to keepalive, default:0 */
-    xqc_cong_ctrl_callback_t    cong_ctrl_callback; /* default: xqc_cubic_cb */
+    /** default: 0 */
+    int                         pacing_on;
+    /** client sends PING to keepalive, default:0 */
+    int                         ping_on;
+    /** default: xqc_cubic_cb */
+    xqc_cong_ctrl_callback_t    cong_ctrl_callback; 
     xqc_cc_params_t             cc_params;
-    uint32_t                    so_sndbuf;          /* socket option SO_SNDBUF, 0 for unlimited */
-    uint64_t                    sndq_packets_used_max;  /* 
-                                                         * default: XQC_SNDQ_PACKETS_USED_MAX. 
-                                                         * It should be set to buffer 2xBDP packets at least for performance consideration. 
-                                                         * The default value is 16000 pkts. 
-                                                         */
+    /** socket option SO_SNDBUF, 0 for unlimited */
+    uint32_t                    so_sndbuf;
+    /** 
+     * default: XQC_SNDQ_PACKETS_USED_MAX. 
+     * It should be set to buffer 2xBDP packets at least for performance consideration. 
+     * The default value is 16000 pkts. 
+     */
+    uint64_t                    sndq_packets_used_max;
     xqc_linger_t                linger;
-    xqc_proto_version_t         proto_version;      /* QUIC protocol version */
-    xqc_msec_t                  init_idle_time_out; /* initial idle timeout interval, effective before handshake completion */
-    xqc_msec_t                  idle_time_out;      /* idle timeout interval, effective after handshake completion */
+    /** QUIC protocol version */
+    xqc_proto_version_t         proto_version;
+    /** initial idle timeout interval, effective before handshake completion */
+    xqc_msec_t                  init_idle_time_out; 
+    /** idle timeout interval, effective after handshake completion */
+    xqc_msec_t                  idle_time_out;
     int32_t                     spurious_loss_detect_on;
-    uint32_t                    anti_amplification_limit;   /* limit of anti-amplification, default 3 */
-    uint64_t                    keyupdate_pkt_threshold;    /* packet limit of a single 1-rtt key, 0 for unlimited */
+    /** limit of anti-amplification, default 5 */
+    uint32_t                    anti_amplification_limit;
+    /** packet limit of a single 1-rtt key, 0 for unlimited */ 
+    uint64_t                    keyupdate_pkt_threshold; 
     size_t                      max_pkt_out_size;
     size_t                      probing_pkt_out_size;
 
@@ -1234,7 +1272,7 @@ typedef struct xqc_conn_settings_s {
     */
     uint16_t                    max_datagram_frame_size;
     
-    /* 
+    /** 
      * multipath option:
      * https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath-05#section-3
      * 0: don't support multipath
@@ -1283,39 +1321,39 @@ typedef struct xqc_conn_settings_s {
      */
     uint8_t                     mp_ping_on;
     
-    /* scheduler callback, default: xqc_minrtt_scheduler_cb */
+    /** scheduler callback, default: xqc_minrtt_scheduler_cb */
     xqc_scheduler_callback_t    scheduler_callback;
     xqc_scheduler_params_t      scheduler_params;
 
-    /* reinj_ctl callback, default: xqc_default_reinj_ctl_cb */
+    /** reinj_ctl callback, default: xqc_default_reinj_ctl_cb */
     xqc_reinj_ctl_callback_t    reinj_ctl_callback;
 
-    /* ms */
+    /** ms */
     xqc_msec_t                  standby_path_probe_timeout;
 
-    /* params for performance tuning */
-    /* max ack delay: ms */
+    /** params for performance tuning */
+    /** max ack delay: ms */
     uint32_t                    max_ack_delay;
-    /* generate an ACK if received ack-eliciting pkts >= ack_frequency */
+    /** generate an ACK if received ack-eliciting pkts >= ack_frequency */
     uint32_t                    ack_frequency; 
     uint8_t                     adaptive_ack_frequency;
     uint64_t                    loss_detection_pkt_thresh;
     double                      pto_backoff_factor;
 
-    /* datagram redundancy: 0 disable, 1 enable, 2 only enable multipath redundancy */
+    /** datagram redundancy: 0 disable, 1 enable, 2 only enable multipath redundancy */
     uint8_t                     datagram_redundancy;
     uint8_t                     datagram_force_retrans_on;
     uint64_t                    datagram_redundant_probe;
 
-    /* enable PMTUD */
+    /** enable PMTUD */
     uint8_t                     enable_pmtud;
-    /* probing interval (us), default: 500000 */
+    /** probing interval (us), default: 500000 */
     uint64_t                    pmtud_probing_interval; 
 
-    /* enable marking reinjected packets with reserved bits */
+    /** enable marking reinjected packets with reserved bits */
     uint8_t                     marking_reinjection;
 
-    /* 
+    /** 
      * The limitation on conn recv rate (only applied to stream data) in bytes per second.
      * NOTE: the minimal rate limitation is (63000/RTT) Bps. For instance, if RTT is 60ms,
      * the minimal valid rate limitation is about 1MBps. Any recv_rate_bytes_per_sec less
@@ -1356,7 +1394,7 @@ typedef struct xqc_conn_settings_s {
      */
     xqc_usec_t                  initial_pto_duration;
     
-    /* 
+    /** 
      * fec option:
      * 0: don't support fec
      * 1: supports fec 
@@ -1384,9 +1422,12 @@ typedef struct xqc_conn_settings_s {
 
 
 typedef enum {
-    XQC_0RTT_NONE       = 0,      /* without 0-RTT */
-    XQC_0RTT_ACCEPT     = 1,    /* 0-RTT was accepted */
-    XQC_0RTT_REJECT     = 2,    /* 0-RTT was rejected */
+    /** without 0-RTT */
+    XQC_0RTT_NONE       = 0,    
+    /** 0-RTT was accepted */  
+    XQC_0RTT_ACCEPT     = 1,   
+    /** 0-RTT was rejected */
+    XQC_0RTT_REJECT     = 2,   
 } xqc_0rtt_flag_t;
 
 
@@ -1417,10 +1458,14 @@ typedef struct xqc_conn_stats_s {
     uint32_t            lost_count;
     uint32_t            tlp_count;
     uint32_t            spurious_loss_count;
-    uint32_t            lost_dgram_count;       /* how many datagram frames (pkts) are lost */
-    xqc_usec_t          srtt;                   /* smoothed SRTT at present: initial value = 250000 */
-    xqc_usec_t          min_rtt;                /* minimum RTT until now: initial value = 0xFFFFFFFF */
-    uint64_t            inflight_bytes;         /* initial value = 0 */
+    /** how many datagram frames (pkts) are lost */
+    uint32_t            lost_dgram_count; 
+    /** smoothed SRTT at present: initial value = 250000 */
+    xqc_usec_t          srtt; 
+    /** minimum RTT until now: initial value = 0xFFFFFFFF */
+    xqc_usec_t          min_rtt;
+    /** initial value = 0 */
+    uint64_t            inflight_bytes; 
     xqc_0rtt_flag_t     early_data_flag;
     uint32_t            recv_count;
     int                 spurious_loss_detect_on;
@@ -1460,9 +1505,12 @@ typedef struct xqc_conn_stats_s {
 } xqc_conn_stats_t;
 
 typedef struct xqc_conn_qos_stats_s {
-    xqc_usec_t          srtt;               /* smoothed SRTT at present: initial value = 250000 */
-    xqc_usec_t          min_rtt;            /* minimum RTT until now: initial value = 0xFFFFFFFF */
-    uint64_t            inflight_bytes;     /* initial value = 0 */
+    /** smoothed SRTT at present: initial value = 250000 */
+    xqc_usec_t          srtt; 
+    /** minimum RTT until now: initial value = 0xFFFFFFFF */ 
+    xqc_usec_t          min_rtt;
+    /** initial value = 0 */
+    uint64_t            inflight_bytes;
 } xqc_conn_qos_stats_t;
 
 /*************************************************************

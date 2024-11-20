@@ -5,8 +5,8 @@
 #ifndef _XQC_ERRNO_H_INCLUDED_
 #define _XQC_ERRNO_H_INCLUDED_
 
-/*
- *  QUIC Transport Protocol error codes
+/**
+ * @brief QUIC Transport Protocol error codes
  */
 typedef enum {
     TRA_NO_ERROR                    =  0x0,
@@ -29,8 +29,8 @@ typedef enum {
 } xqc_trans_err_code_t;
 
 
-/*
- * Multipath error codes
+/**
+ * @brief Multipath error codes
  */
 typedef enum {
     TRA_MP_PROTOCOL_VIOLATION       = 0x1001d76d3ded42f3
@@ -39,8 +39,8 @@ typedef enum {
 
 #define TRA_CRYPTO_ERROR_BASE   0x100
 
-/*
- *  QUIC Http/3 Protocol error codes
+/**
+ * @brief QUIC Http/3 Protocol error codes
  */
 typedef enum {
     H3_NO_ERROR                     = 0x100,
@@ -61,8 +61,8 @@ typedef enum {
     H3_VERSION_FALLBACK             = 0x110,
 } xqc_h3_err_code_t;
 
-/*
- * QUIC QPACK protocol error codes
+/**
+ * @brief QPACK protocol error codes
  */
 typedef enum {
     QPACK_DECOMPRESSION_FAILED = 0x200,
@@ -138,6 +138,8 @@ typedef enum {
     XQC_EFEC_SYMBOL_ERROR               = 662,      /**< FEC - symbol value error */
     XQC_EFEC_TOLERABLE_ERROR            = 663,      /**< FEC - tolerable error */
     
+    XQC_EENCRYPT_LB_CID                 = 670,      /**< load balance connection ID encryption error */
+    XQC_EENCRYPT_AES_128_ECB            = 671,      /**< aes_128_ecb algorithm error */
     XQC_EENCRYPT_LB_CID                 = 670,      /**< load balance connection ID encryption error */
     XQC_EENCRYPT_AES_128_ECB            = 671,      /**< aes_128_ecb algorithm error */
 

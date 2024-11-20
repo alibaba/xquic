@@ -198,9 +198,10 @@ typedef ssize_t (*xqc_stateless_reset_pt)(const unsigned char *buf, size_t size,
     void *user_data);
 
 /**
- * @brief connection closing notify callback function. will be triggered when a
- * connection is not available and will not send/receive data any more. this 
- * callback is helpful to avoid attempts to send data on a closing connection.
+ * @brief connection closing notify callback function.
+ * 
+ * This function will be triggered when a connection is not available and will not send/receive data any more. this 
+ * callback is helpful to avoid attempts to send data on a closing connection. \n
  * NOTICE: this callback function will be triggered at the beginning of
  * connection close, while the conn_close_notify will be triggered at the end of
  * connection close.
@@ -524,6 +525,7 @@ typedef void (*xqc_datagram_write_notify_pt)(xqc_connection_t *conn,
 
 /**
  * @brief the callback API to notify application that a datagram is declared lost.
+ * 
  * However, the datagram could also be acknowledged later, as the underlying
  * loss detection is not fully accurate. Applications should handle this type of
  * spurious loss. The return value indicates how this lost datagram is 
@@ -543,7 +545,7 @@ typedef xqc_int_t (*xqc_datagram_lost_notify_pt)(xqc_connection_t *conn,
 
 /**
  * @brief the callback API to notify application that a datagram is acked. Note,
- *        for every unique dgram_id, this callback will be only called once.
+ * for every unique dgram_id, this callback will be only called once.
  * 
  * @param conn the connection handle
  * @param user_data the dgram_data set by xqc_datagram_set_user_data
@@ -555,8 +557,8 @@ typedef void (*xqc_datagram_acked_notify_pt)(xqc_connection_t *conn,
 
 /**
  * @brief the callback to notify application the MSS of QUIC datagrams. Note, 
- *        the MSS of QUIC datagrams will never shrink. If the MSS is zero, it 
- *        means this connection does not support sending QUIC datagrams.
+ * the MSS of QUIC datagrams will never shrink. If the MSS is zero, it 
+ * means this connection does not support sending QUIC datagrams.
  * 
  * @param conn the connection handle
  * @param user_data the dgram_data set by xqc_datagram_set_user_data
@@ -567,8 +569,9 @@ typedef void (*xqc_datagram_mss_updated_notify_pt)(xqc_connection_t *conn,
 
 
 /**
- * @brief callback functions which are more related to attributes of QUIC [Transport] but not ALPN.
- * In another word, these callback functions are events of QUIC Transport layer, and need to
+ * @brief tranport callback functions are more related to attributes of QUIC [Transport] but not ALPN.
+ * 
+ * These callback functions are events of QUIC Transport layer, and need to
  * interact with application-layer, which have less thing to do with ALPN layer.
  *
  * These callback functions shall directly call back to application layer, with user_data from
@@ -596,7 +599,7 @@ typedef void (*xqc_datagram_mss_updated_notify_pt)(xqc_connection_t *conn,
 //  * +------------------------------------------------------------------------------+
 typedef struct xqc_transport_callbacks_s {
     /**
-     * accept new connection callback. REQUIRED only for server
+     * accept new connection callback. REQUIRED only for server \n
      * NOTICE: this is the headmost callback trigger by xquic, the user_data of server_accept is
      * what was passed into xqc_engine_packet_process
      */
@@ -734,7 +737,7 @@ typedef struct xqc_conn_callbacks_s {
  */
 typedef struct xqc_stream_callbacks_s {
     /**
-     * stream read callback function. REQUIRED for both client and server
+     * @brief stream read callback function. REQUIRED for both client and server
      *
      * this will be triggered when QUIC stream data is ready for read. application layer could read
      * data when xqc_stream_recv interface.
@@ -742,7 +745,7 @@ typedef struct xqc_stream_callbacks_s {
     xqc_stream_notify_pt            stream_read_notify;
 
     /**
-     * stream write callback function. REQUIRED for both client and server
+     * @brief stream write callback function. REQUIRED for both client and server
      *
      * when sending data with xqc_stream_send, xquic might be blocked or send part of the data. if
      * this callback function is triggered, applications can continue to send the rest data.
@@ -750,7 +753,7 @@ typedef struct xqc_stream_callbacks_s {
     xqc_stream_notify_pt            stream_write_notify;
 
     /**
-     * stream create callback function. REQUIRED for server, OPTIONAL for client.
+     * @brief stream create callback function. REQUIRED for server, OPTIONAL for client.
      *
      * this will be triggered when QUIC stream is created. applications can create its own stream
      * context in this callback function.
@@ -758,7 +761,7 @@ typedef struct xqc_stream_callbacks_s {
     xqc_stream_notify_pt            stream_create_notify;
 
     /**
-     * stream close callback function. REQUIRED for both server and client.
+     * @brief stream close callback function. REQUIRED for both server and client.
      *
      * this will be triggered when QUIC stream is finally closed. xquic will close stream after
      * sending or receiving RESET_STREAM frame after 3 times of PTO, or when connection is closed.
@@ -780,7 +783,7 @@ typedef struct xqc_stream_callbacks_s {
  */
 typedef struct xqc_datagram_callbacks_s {
     /**
-     * datagram read callback function. REQUIRED for both client and server if they want to use datagram
+     * @brief datagram read callback function. REQUIRED for both client and server if they want to use datagram
      *
      * this will be triggered when a QUIC datagram is received. application layer could read
      * data from the arguments of this callback.
@@ -788,7 +791,7 @@ typedef struct xqc_datagram_callbacks_s {
     xqc_datagram_read_notify_pt         datagram_read_notify;
 
     /**
-     * datagram write callback function. REQUIRED for both client and server if they want to use datagram
+     * @brief datagram write callback function. REQUIRED for both client and server if they want to use datagram
      *
      * when sending data with xqc_datagram_send or xqc_datagram_send_multiple, xquic might be blocked or send part of the data. if
      * this callback function is triggered, applications can continue to send the rest data.
@@ -796,14 +799,14 @@ typedef struct xqc_datagram_callbacks_s {
     xqc_datagram_write_notify_pt        datagram_write_notify;
 
     /**
-     * datagram acked callback function. OPTIONAL for server and client.
+     * @brief datagram acked callback function. OPTIONAL for server and client.
      *
      * this will be triggered when a QUIC packet containing a DATAGRAM frame is acked. 
      */
     xqc_datagram_acked_notify_pt        datagram_acked_notify;
 
     /**
-     * datagram lost callback function. OPTIONAL for server and client.
+     * @brief datagram lost callback function. OPTIONAL for server and client.
      *
      * this will be triggered when a QUIC packet containing a DATAGRAM frame is lost. 
      */
@@ -821,17 +824,17 @@ typedef struct xqc_datagram_callbacks_s {
 typedef struct xqc_app_proto_callbacks_s {
 
     /**
-     * QUIC connection callback functions for Application-Layer-Protocol 
+     * @brief QUIC connection callback functions for Application-Layer-Protocol 
      */
     xqc_conn_callbacks_t        conn_cbs;
 
     /**
-     * QUIC stream callback functions 
+     * @brief QUIC stream callback functions 
      */
     xqc_stream_callbacks_t      stream_cbs;
 
     /**
-     *  QUIC datagram callback functions 
+     *  @brief QUIC datagram callback functions 
      */
     xqc_datagram_callbacks_t    dgram_cbs;
 
@@ -847,6 +850,9 @@ typedef enum {
     XQC_DATA_QOS_PROBING = 7,
 } xqc_data_qos_level_t;
 
+/**
+ * @brief congestion control algorithm parameters
+ */
 typedef struct xqc_cc_params_s {
     uint32_t    customize_on;
     uint32_t    init_cwnd;
@@ -867,6 +873,9 @@ typedef struct xqc_cc_params_s {
     double      copa_delta_ai_unit;
 } xqc_cc_params_t;
 
+/**
+ * @brief multipath scheduler algorithm parameters
+ */
 typedef struct xqc_scheduler_params_u {
     uint64_t    rtt_us_thr_high;
     uint64_t    rtt_us_thr_low;
@@ -876,6 +885,9 @@ typedef struct xqc_scheduler_params_u {
     uint32_t    pto_cnt_thr;
 } xqc_scheduler_params_t;
 
+/**
+ * @brief FEC schemes type enum
+ */
 typedef enum {
     XQC_REED_SOLOMON_CODE  = 8,
     XQC_XOR_CODE = 11,
@@ -883,10 +895,13 @@ typedef enum {
 } xqc_fec_schemes_e;
 
 typedef enum {
-    XQC_FEC_MP_DEFAULT,
-    XQC_FEC_MP_USE_STB,
+    XQC_FEC_MP_DEFAULT = 0,
+    XQC_FEC_MP_USE_STB = 1,
 } xqc_fec_mp_mode_e;
 
+/**
+ * @brief FEC parameters on connection settings
+ */
 typedef struct xqc_fec_params_s {
     /** code rate represents the source symbol percents in total symbols */
     float                   fec_code_rate;
@@ -914,6 +929,9 @@ typedef struct xqc_fec_params_s {
     xqc_fec_schemes_e       fec_decoder_scheme;
 } xqc_fec_params_t;
 
+/**
+ * @brief congestion control callbacks
+ */
 typedef struct xqc_congestion_control_callback_s {
     /** Callback on initialization, for memory allocation */
     size_t (*xqc_cong_ctl_size)(void);
@@ -981,6 +999,9 @@ typedef enum xqc_scheduler_conn_event_e {
     XQC_SCHED_EVENT_CONN_ROUND_FIN   = 1,
 } xqc_scheduler_conn_event_t;
 
+/**
+ * @brief multipath scheduler callbacks
+ */
 typedef struct xqc_scheduler_callback_s {
 
     size_t (*xqc_scheduler_size)(void);
@@ -1152,7 +1173,9 @@ typedef struct xqc_engine_callback_s {
 
 } xqc_engine_callback_t;
 
-
+/**
+ * @brief engine's ssl config
+ */
 typedef struct xqc_engine_ssl_config_s {
     /** private key filefor server */
     char       *private_key_file;
@@ -1169,7 +1192,6 @@ typedef struct xqc_engine_ssl_config_s {
     size_t      session_ticket_key_len;
 
 } xqc_engine_ssl_config_t;
-
 
 
 typedef enum {
@@ -1232,6 +1254,10 @@ typedef enum {
     XQC_FEC_02                  = 0x02,
 } xqc_fec_version_t;
 
+
+/**
+ * @brief structures of connection settings
+ */
 typedef struct xqc_conn_settings_s {
     /** default: 0 */
     int                         pacing_on;
@@ -1263,13 +1289,12 @@ typedef struct xqc_conn_settings_s {
     size_t                      max_pkt_out_size;
     size_t                      probing_pkt_out_size;
 
-    /*
-    * datgram option
-    * 0: no support for datagram mode (default)
-    * >0: the max size of datagrams that the local end is willing to receive
-    * 65535: the local end is willing to receive a datagram with any length as 
-    *        long as it fits in a QUIC packet
-    */
+    /**
+     * datgram option
+     * 0: no support for datagram mode (default)
+     * >0: the max size of datagrams that the local end is willing to receive
+     * 65535: the local end is willing to receive a datagram with any length as long as it fits in a QUIC packet
+     */
     uint16_t                    max_datagram_frame_size;
     
     /** 
@@ -1283,7 +1308,7 @@ typedef struct xqc_conn_settings_s {
     uint64_t                    init_max_path_id;
     uint64_t                    least_available_cid_count;
 
-    /*
+    /**
      * reinjection option:
      * 0: default, no reinjection
      * bit0 = 1: 
@@ -1294,7 +1319,7 @@ typedef struct xqc_conn_settings_s {
      *    reinject unacked packets after sending packets.
      */
     int                         mp_enable_reinjection;
-    /*
+    /**
      * deadline = max(low_bound, min(hard_deadline, srtt * srtt_factor))
      * default values:
      *   low_bound = 0
@@ -1305,7 +1330,7 @@ typedef struct xqc_conn_settings_s {
     uint64_t                    reinj_hard_deadline;
     uint64_t                    reinj_deadline_lower_bound;
 
-    /*
+    /**
      * By default, XQUIC returns ACK_MPs on the path where the data 
      * is received unless the path is not avaliable anymore. 
      * 
@@ -1314,7 +1339,7 @@ typedef struct xqc_conn_settings_s {
      */
     uint8_t                     mp_ack_on_any_path;
 
-    /*
+    /**
      * When sending a ping packet for connection keep-alive, we replicate the 
      * the packet on all acitve paths to keep all paths alive (disable:0, enable:1).
      * The default value is 0.
@@ -1362,17 +1387,17 @@ typedef struct xqc_conn_settings_s {
      */
     uint64_t                    recv_rate_bytes_per_sec;
 
-    /*
+    /**
      * The switch to enable stream-level recv rate throttling. Default: off (0)
      */
     uint8_t                     enable_stream_rate_limit;
 
-    /*
+    /**
      * initial recv window. Default: 0 (use the internal default value)
      */
     uint32_t                    init_recv_window;
 
-    /*
+    /**
      * initial flow control value
      */
     xqc_bool_t                  is_interop_mode;
@@ -1452,7 +1477,9 @@ typedef struct xqc_path_metrics_s {
     uint8_t             path_app_status;
 } xqc_path_metrics_t;
 
-
+/**
+ * @brief connection stats
+ */
 typedef struct xqc_conn_stats_s {
     uint32_t            send_count;
     uint32_t            lost_count;
@@ -1499,7 +1526,7 @@ typedef struct xqc_conn_stats_s {
     uint32_t            send_fec_cnt;
 
     uint8_t             enable_fec;
-    /* only accounts for stream and datagram packets */
+    /** only accounts for stream and datagram packets */
     uint64_t            total_app_bytes;
     uint64_t            standby_path_app_bytes;
 } xqc_conn_stats_t;
@@ -1537,7 +1564,7 @@ xqc_engine_t *xqc_engine_create(xqc_engine_type_t engine_type,
 
 
 /**
- * @brief destroy engine. this is called after all connections are destroyed
+ * @brief destroy engine. this is called after all connections are destroyed \n
  * NOTICE: MUST NOT be called in any xquic callback functions, for this function will destroy engine
  * immediately, result in segmentation fault.
  */
@@ -1698,11 +1725,11 @@ xqc_connection_t *xqc_engine_get_conn_by_scid(xqc_engine_t *engine,
  * @param token token receive from server, xqc_save_token_pt callback
  * @param token_len
  * @param server_host server domain
- * @param no_crypto_flag 1: without encryption on 0-RTT and 1-RTT packets. this flag will add
- * no_crypto transport parameter when initiating a connection, which is not an official parameter
+ * @param no_crypto_flag 1: stop encrypt 0-RTT and 1-RTT packets. \n
+ * This flag will add no_crypto transport parameter when initiating a connection, which is not an official parameter
  * and might be modified or removed
  * @param conn_ssl_config For handshake
- * @param user_data For connection
+ * @param user_data application data, for connection usage
  * @param peer_addr address of peer
  * @param peer_addrlen length of peer_addr
  * @param alpn Application-Layer-Protocol, MUST NOT be NULL
@@ -1798,7 +1825,7 @@ XQC_EXPORT_PUBLIC_API
 xqc_bool_t xqc_conn_is_ready_to_send_early_data(xqc_connection_t *conn);
 
 /**
- * @brief set the packet filter callback function, and replace write_socket.
+ * @brief set the packet filter callback function, and replace write_socket. \n
  * NOTICE: this function is not conflict with send_mmsg.
  */
 XQC_EXPORT_PUBLIC_API
@@ -1842,7 +1869,7 @@ void xqc_conn_set_public_remote_trans_settings(xqc_connection_t *conn,
 
 
 /**
- * Create new stream in quic connection.
+ * @brief Create new stream in quic connection.
  * @param user_data  user_data for this stream
  */
 XQC_EXPORT_PUBLIC_API
@@ -1912,12 +1939,12 @@ ssize_t xqc_stream_send(xqc_stream_t *stream, unsigned char *send_data, size_t s
 
 /**
  * @brief the API to get the max length of the data that can be sent 
- *        via a single call of xqc_datagram_send; NOTE, if the DCID length could
- *        be changed during the lifetime of the connection, applications is 
- *        suggested to call xqc_datagram_get_mss every time before 
- *        send datagram data or when getting -XQC_EDGRAM_TOO_LARGE error 
- *        from sending datagram data. In MPQUIC cases, the DCID of all paths 
- *        MUST be the same. Otherwise, there might be unexpected errors.
+ *        via a single call of xqc_datagram_send;
+ * 
+ * NOTE: if the DCID length could be changed during the lifetime of the connection, applications is 
+ * suggested to call xqc_datagram_get_mss every time before send datagram data or when 
+ * getting -XQC_EDGRAM_TOO_LARGE error from sending datagram data. In MPQUIC cases, 
+ * the DCID of all paths MUST be the same. Otherwise, there might be unexpected errors.
  * 
  * @param conn the connection handle 
  * @return 0 = the peer does not support datagram, >0 = the max length

@@ -1,6 +1,5 @@
 #include "mini_server.h"
 
-
 void
 xqc_mini_svr_init_ssl_config(xqc_engine_ssl_config_t  *ssl_cfg, xqc_mini_svr_args_t *args)
 {
@@ -428,7 +427,6 @@ xqc_mini_svr_free_ctx(xqc_mini_svr_ctx_t *ctx)
         ctx->args = NULL;
     }
 
-    // free(ctx);
 }
 
 void
@@ -490,11 +488,12 @@ xqc_mini_cli_on_connection_finish(xqc_mini_svr_user_conn_t *user_conn)
         user_conn->ev_timeout = NULL;
     }
 }
+
 int
 main(int argc, char *argv[])
 {
     int ret;
-    xqc_mini_svr_ctx_t *ctx = &svr_ctx;
+    xqc_mini_svr_ctx_t svr_ctx = {0}, *ctx = &svr_ctx;
     xqc_mini_svr_args_t *args = NULL;
     xqc_mini_svr_user_conn_t *user_conn = NULL;
 

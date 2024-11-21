@@ -140,8 +140,6 @@ typedef enum {
     
     XQC_EENCRYPT_LB_CID                 = 670,      /**< load balance connection ID encryption error */
     XQC_EENCRYPT_AES_128_ECB            = 671,      /**< aes_128_ecb algorithm error */
-    XQC_EENCRYPT_LB_CID                 = 670,      /**< load balance connection ID encryption error */
-    XQC_EENCRYPT_AES_128_ECB            = 671,      /**< aes_128_ecb algorithm error */
 
     XQC_EDGRAM_NOT_SUPPORTED            = 680,      /**< Datagram - not supported */
     XQC_EDGRAM_TOO_LARGE                = 681,      /**< Datagram - payload size too large */

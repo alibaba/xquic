@@ -911,8 +911,8 @@ typedef struct xqc_fec_params_s {
     uint64_t                fec_protected_frames;
     /** maximum number of block that current host can store */
     uint64_t                fec_max_window_size;
-    /** (E) maximum symbol size of each symbol */
-    uint64_t                fec_max_symbol_size;
+    /** fec specific mp mode */
+    xqc_fec_mp_mode_e       fec_mp_mode;
     /** (B) maximum symbol number of each block */
     uint64_t                fec_max_symbol_num_per_block;
     

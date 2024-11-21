@@ -115,8 +115,6 @@ typedef struct xqc_mini_svr_ctx_s {
     int                 keylog_fd;
 } xqc_mini_svr_ctx_t;
 
-/* the global unique server context */
-xqc_mini_svr_ctx_t svr_ctx;
 
 typedef struct xqc_mini_svr_user_conn_s {
     struct event           *ev_timeout;

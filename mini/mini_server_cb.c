@@ -141,9 +141,9 @@ ssize_t
 xqc_mini_svr_write_socket(const unsigned char *buf, size_t size, const struct sockaddr *peer_addr,
     socklen_t peer_addrlen, void *arg)
 {
-    int fd = svr_ctx.current_fd;
     ssize_t res = XQC_OK;
     xqc_mini_svr_user_conn_t *user_conn = (xqc_mini_svr_user_conn_t *)arg;
+    int fd = user_conn->ctx->current_fd;
 
     do {
         set_sys_errno(0);

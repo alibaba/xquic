@@ -111,41 +111,46 @@ typedef uint8_t         xqc_bool_t;
 #define XQC_TRUE        1
 #define XQC_FALSE       0
 
-/* restrictions of cid length */
+/** restrictions of cid length */
 #define XQC_MAX_CID_LEN 20
 #define XQC_MIN_CID_LEN 4
 
-/* restrictions of key length in lb cid encryption */
+/** restrictions of key length in lb cid encryption */
 #define XQC_LB_CID_KEY_LEN 16
 
-/* length of stateless reset token */
+/** length of stateless reset token */
 #define XQC_STATELESS_RESET_TOKENLEN    16
 
+/**
+ * @brief cid structure for xquic connection identification
+ */
 typedef struct xqc_cid_s {
     uint8_t             cid_len;
     uint8_t             cid_buf[XQC_MAX_CID_LEN];
     uint64_t            cid_seq_num;
     uint8_t             sr_token[XQC_STATELESS_RESET_TOKENLEN];
-    uint64_t            path_id; /* preallocate for multi-path */
+    uint64_t            path_id; /**< preallocate for multi-path */
 } xqc_cid_t;
 
 typedef enum xqc_log_level_s {
-    XQC_LOG_REPORT,
-    XQC_LOG_FATAL,
-    XQC_LOG_ERROR,
-    XQC_LOG_WARN,
-    XQC_LOG_STATS,
-    XQC_LOG_INFO,
-    XQC_LOG_DEBUG,
+    XQC_LOG_REPORT  = 0,
+    XQC_LOG_FATAL   = 1,
+    XQC_LOG_ERROR   = 2,
+    XQC_LOG_WARN    = 3,
+    XQC_LOG_STATS   = 4,
+    XQC_LOG_INFO    = 5,
+    XQC_LOG_DEBUG   = 6,
 } xqc_log_level_t;
 
-/* qlog Importance level definition */
+/**
+ * @brief qlog Importance level definition
+ */
 typedef enum qlog_event_importance_s {
-    EVENT_IMPORTANCE_SELECTED,   /* qlog will be emitted selectly */
-    EVENT_IMPORTANCE_CORE,
-    EVENT_IMPORTANCE_BASE,
-    EVENT_IMPORTANCE_EXTRA,
-    EVENT_IMPORTANCE_REMOVED,   /* Currently, some events have been removed in the latest qlog draft. But old qvis need them! */
+    EVENT_IMPORTANCE_SELECTED   = 0,   /**< qlog will be emitted selectly */
+    EVENT_IMPORTANCE_CORE       = 1,
+    EVENT_IMPORTANCE_BASE       = 2,
+    EVENT_IMPORTANCE_EXTRA      = 3,
+    EVENT_IMPORTANCE_REMOVED    = 4,   /**< Currently, some events have been removed in the latest qlog draft. But old qvis need them! */
 } qlog_event_importance_t;
 
 #define XQC_BBR_RTTVAR_COMPENSATION_ENABLED 0
@@ -183,22 +188,22 @@ struct iovec {
 
 
 typedef enum {
-    XQC_CONN_TYPE_CLIENT,
-    XQC_CONN_TYPE_SERVER,
+    XQC_CONN_TYPE_CLIENT    = 0,
+    XQC_CONN_TYPE_SERVER    = 1,
 } xqc_conn_type_t;
 
 
 typedef enum {
-    XQC_STREAM_BIDI,
-    XQC_STREAM_UNI
+    XQC_STREAM_BIDI = 0,
+    XQC_STREAM_UNI  = 1
 } xqc_stream_direction_t;
 
 typedef enum {
-    XQC_DEFAULT_SIZE_REQ,
-    XQC_SLIM_SIZE_REQ,
-    XQC_NORMAL_SIZE_REQ,
-    XQC_MIDDLE_SIZE_REQ,
-    XQC_LARGE_SIZE_REQ
+    XQC_DEFAULT_SIZE_REQ    = 0,
+    XQC_SLIM_SIZE_REQ       = 1,
+    XQC_NORMAL_SIZE_REQ     = 2,
+    XQC_MIDDLE_SIZE_REQ     = 3,
+    XQC_LARGE_SIZE_REQ      = 4
 } xqc_stream_size_type_t;
 
 #define XQC_DEFAULT_HTTP_PRIORITY_URGENCY 3
@@ -224,8 +229,8 @@ typedef struct xqc_http_priority_s {
 #define XQC_UNKNOWN_PATH_ID ((uint64_t)-1)
 
 typedef enum xqc_conn_settings_type_e {
-    XQC_CONN_SETTINGS_DEFAULT,
-    XQC_CONN_SETTINGS_LOW_DELAY,
+    XQC_CONN_SETTINGS_DEFAULT       = 0,
+    XQC_CONN_SETTINGS_LOW_DELAY     = 1,
 } xqc_conn_settings_type_t;
 
 typedef struct xqc_conn_public_local_trans_settings_s {
@@ -301,7 +306,7 @@ typedef enum xqc_conn_option_e {
 /* application layer path status */
 typedef enum {
     /* max */
-    XQC_APP_PATH_STATUS_NONE,
+    XQC_APP_PATH_STATUS_NONE      = 0,
     /* suggest that no traffic should be sent on that path if another path is available */
     XQC_APP_PATH_STATUS_STANDBY   = 1,
     /* allow the peer to use its own logic to split traffic among available paths */

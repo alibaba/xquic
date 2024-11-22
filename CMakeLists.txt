@@ -169,6 +169,7 @@ endif()
 if(XQC_ENABLE_TESTING)
     add_subdirectory(tests)
     add_subdirectory(demo)
+    add_subdirectory(mini)
 endif(XQC_ENABLE_TESTING)
 
 

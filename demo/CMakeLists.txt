@@ -5,16 +5,22 @@ set(
     "xqc_hq_conn.c"
     "xqc_hq_request.c"
 )
+set(
+    TEST_PLATFORM_SOURCES
+    "../tests/platform.c"
+)
 
 set(
     DEMO_CLIENT_SOURCES
     ${HQ_SOURCES}
+    ${TEST_PLATFORM_SOURCES}
     "demo_client.c"
 )
 
 set(
     DEMO_SERVER_SOURCES
     ${HQ_SOURCES}
+    ${TEST_PLATFORM_SOURCES}
     "demo_server.c"
 )
 

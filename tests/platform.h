@@ -5,6 +5,8 @@
 #ifndef PLATFORM_H
 #define PLATFORM_H
 
+#include <errno.h>
+
 #if defined(_WIN64) || defined(WIN64) || defined(_WIN32) || defined(WIN32)
 #define XQC_SYS_WINDOWS
 #endif
@@ -20,42 +22,13 @@
  * 
  * @return int 
  */
-static inline int get_sys_errno()
-{
-    int err = 0;
-#ifdef XQC_SYS_WINDOWS
-    err = WSAGetLastError();
-#else
-    err = errno;
-#endif
-    return err;
-}
+int get_sys_errno();
 
-static inline void set_sys_errno(int err)
-{
-#ifdef XQC_SYS_WINDOWS
-    WSASetLastError(err);
-#else
-    errno = err;
-#endif
-}
+void set_sys_errno(int err);
 
 /**
  * @brief init platform env if necessary
  * 
  */
-static inline void xqc_platform_init_env()
-{
-    int result = 0;
-
- #ifdef XQC_SYS_WINDOWS  
-    // Initialize Winsock
-    WSADATA wsaData;
-    if ((result = WSAStartup(MAKEWORD(2, 2), &wsaData)) != 0) {
-        printf("WSAStartup failed with error %d\n", result);
-        exit(1);
-    }
-#endif
-
-}
+void xqc_platform_init_env();
 #endif

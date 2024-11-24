@@ -1,0 +1,23 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+get_filename_component(xquic_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../" ABSOLUTE)
+set(xquic_INCLUDE_DIRS "${xquic_ROOT}/include")
+
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(xquic
+    REQUIRED_VARS xquic_INCLUDE_DIRS
+)
+
+if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/xquicTargets.cmake")
+    include("${CMAKE_CURRENT_LIST_DIR}/xquicTargets.cmake")
+    check_required_components(xquic)
+    message(STATUS "Imported target: xquic::xquic")
+endif()
+
+if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/xquic-staticTargets.cmake")
+    include("${CMAKE_CURRENT_LIST_DIR}/xquic-staticTargets.cmake")
+    check_required_components(xquic-static)
+    message(STATUS "Imported target: xquic::xquic-static")
+endif()

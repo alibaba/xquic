@@ -3,4 +3,5 @@ bss/
 *.swp
 third_party/
 .idea/
+.vscode/
 cmake-build-debug/

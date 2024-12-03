@@ -54,6 +54,7 @@ XQUIC_VERS_1.0 {
         xqc_engine_packet_process;
         xqc_engine_finish_recv;
         xqc_engine_finish_send;
+        xqc_engine_get_conn_by_scid;
         xqc_engine_recv_batch;
         xqc_engine_main_logic;
         xqc_engine_get_default_config;

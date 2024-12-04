@@ -619,6 +619,14 @@ free:
     return ret;
 }
 
+xqc_int_t
+xqc_check_crypto_frame_data_buffer_exceed(xqc_stream_t *stream, xqc_stream_frame_t *stream_frame, uint64_t threshold)
+{
+    if (stream_frame->data_offset + stream_frame->data_length > stream->stream_data_in.next_read_offset + threshold) {
+        return -XQC_ELIMIT; 
+    }
+    return XQC_OK;
+}
 
 xqc_int_t
 xqc_insert_crypto_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream_frame_t *stream_frame)
@@ -626,6 +634,14 @@ xqc_insert_crypto_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream
     unsigned char inserted = 0;
     xqc_list_head_t *pos;
     xqc_stream_frame_t *frame;
+    xqc_int_t ret;
+    ret = xqc_check_crypto_frame_data_buffer_exceed(stream, stream_frame, XQC_CONN_MAX_CRYPTO_DATA_TOTAL_LEN);
+    if (ret != XQC_OK) {
+        XQC_CONN_ERR(conn, TRA_CRYPTO_BUFFER_EXCEEDED);
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|crypto frame data buffer exceed|");
+        return ret;
+    }
     xqc_list_for_each_reverse(pos, &stream->stream_data_in.frames_tailq) {
         frame = xqc_list_entry(pos, xqc_stream_frame_t, sf_list);
 
@@ -697,7 +713,7 @@ xqc_process_crypto_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_insert_crypto_frame error|");
         xqc_destroy_stream_frame(stream_frame);
-        return -1;
+        return ret;
     }
 
     ret = xqc_read_crypto_stream(stream);
@@ -1508,8 +1524,8 @@ xqc_process_path_challenge_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
     }
 
     xqc_log(conn->log, XQC_LOG_DEBUG, 
-            "|path:%ui|state:%d|RECV path_challenge_data:%s|cid:%s|",
-            path->path_id, path->path_state, 
+            "|path:%ui|state:%d|RECV path_challenge_data:%*s|cid:%s|",
+            path->path_id, path->path_state, XQC_PATH_CHALLENGE_DATA_LEN,
             path_challenge_data, xqc_dcid_str(conn->engine, &packet_in->pi_pkt.pkt_dcid));
 
     ret = xqc_write_path_response_frame_to_packet(conn, path, path_challenge_data);

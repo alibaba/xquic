@@ -1246,7 +1246,8 @@ typedef struct xqc_linger_s {
 
 typedef enum {
     XQC_ERR_MULTIPATH_VERSION   = 0x00,
-    XQC_MULTIPATH_10            = 0x0a, 
+    XQC_MULTIPATH_10            = 0x0a,
+    XQC_MULTIPATH_11            = 0x0b,
 } xqc_multipath_version_t;
 
 typedef enum {
@@ -1456,7 +1457,7 @@ typedef enum {
 } xqc_0rtt_flag_t;
 
 
-#define XQC_MAX_PATHS_COUNT 8
+#define XQC_MAX_PATHS_COUNT 32
 #define XQC_CONN_INFO_LEN 400
 
 typedef struct xqc_path_metrics_s {
@@ -1504,6 +1505,7 @@ typedef struct xqc_conn_stats_s {
      * 0: 不支持MP
      * 1: 支持MP, 采用 Single PNS
      * 2: 支持MP, 采用 Multiple PNS
+     *
      */
     int                 enable_multipath;
 
@@ -2139,7 +2141,15 @@ XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_path_get_local_addr(xqc_connection_t *conn, uint64_t path_id,
     struct sockaddr *addr, socklen_t addr_cap, socklen_t *local_addr_len);
 
-    
+
+/*
+ * These 2 APIs below is only used for IETF interop tests. Please don't use them for formal logic!
+ * */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_conn_trigger_cid_rotation_on_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t path_id);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_conn_trigger_cid_retirement_on_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t path_id);
 
 /**
  * @brief load balance cid encryption.

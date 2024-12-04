@@ -2059,7 +2059,9 @@ xqc_process_path_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
     }
 
     xqc_log(conn->log, XQC_LOG_DEBUG,
-            "|max_path_id:%ui|pre_local_max_path_id:%ui|", max_path_id, conn->local_max_path_id);
+            "|max_path_id:%ui|pre_local_max_path_id:%ui|create_path_count:%ui|max_paths_count:%ui|",
+            max_path_id, conn->local_max_path_id,
+            conn->create_path_count, conn->max_paths_count);
 
     if (conn->local_max_path_id < max_path_id) {
         xqc_log(conn->log, XQC_LOG_ERROR,

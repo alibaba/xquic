@@ -742,7 +742,7 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
 
         xqc_log(conn->log, XQC_LOG_DEBUG, "|create_path_count:%ui|remote_max_path_id:%ui|",
                                                 conn->create_path_count, conn->remote_max_path_id);
-        if (conn->create_path_count == conn->remote_max_path_id
+        if (conn->create_path_count >= conn->remote_max_path_id + 1
             && conn->conn_type == XQC_CONN_TYPE_CLIENT)
         {
             ret = xqc_write_path_blocked_to_packet(conn, conn->remote_max_path_id);

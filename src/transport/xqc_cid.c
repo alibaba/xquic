@@ -248,7 +248,6 @@ xqc_cid_set_get_largest_seq_or_rpt(xqc_cid_set_t *cid_set, uint64_t path_id)
     if (inner_set) {
         return inner_set->largest_scid_seq_num;
     }
-    /* if the path id is larger than expected, should return 0 here */
     return XQC_ERROR;
 }
 

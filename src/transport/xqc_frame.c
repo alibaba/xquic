@@ -789,7 +789,8 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
 {
     xqc_int_t ret = XQC_ERROR;
     xqc_cid_t new_conn_cid;
-    uint64_t retire_prior_to, curr_rpi;
+    uint64_t retire_prior_to = 0;
+    int64_t curr_rpi = 0;
 
     xqc_cid_inner_t *inner_cid;
     xqc_list_head_t *pos, *next;
@@ -846,7 +847,7 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
         return XQC_OK;
     }
 
-    if (retire_prior_to > curr_rpi) {
+    if (retire_prior_to > (uint64_t)curr_rpi) {
         /*
          * Upon receipt of an increased Retire Prior To field, the peer MUST stop using the
          * corresponding connection IDs and retire them with RETIRE_CONNECTION_ID frames before
@@ -918,7 +919,8 @@ xqc_int_t
 xqc_process_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
     xqc_int_t ret = XQC_ERROR;
-    uint64_t seq_num = 0, largest_scid_seq_num = 0;
+    uint64_t seq_num = 0;
+    int64_t largest_scid_seq_num = 0;
 
     ret = xqc_parse_retire_conn_id_frame(packet_in, &seq_num);
     if (ret != XQC_OK) {
@@ -939,7 +941,7 @@ xqc_process_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         return -XQC_EPROTO;
     }
 
-    if (seq_num > largest_scid_seq_num) {
+    if (seq_num > (uint64_t)largest_scid_seq_num) {
         /* 
          * Receipt of a RETIRE_CONNECTION_ID frame containing a sequence number
          * greater than any previously sent to the peer MUST be treated as a
@@ -1782,8 +1784,8 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
 {
     xqc_int_t ret = XQC_ERROR;
     xqc_cid_t new_conn_cid;
-    uint64_t retire_prior_to;
-    int64_t curr_rpi;
+    uint64_t retire_prior_to = 0;
+    int64_t curr_rpi = 0;
 
     xqc_cid_inner_t *inner_cid;
     xqc_list_head_t *pos, *next;
@@ -1853,7 +1855,7 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         return XQC_OK;
     }
 
-    if (retire_prior_to > curr_rpi) {
+    if (retire_prior_to > (uint64_t)curr_rpi) {
         /*
          * Upon receipt of an increased Retire Prior To field, the peer MUST stop using the
          * corresponding connection IDs and retire them with RETIRE_CONNECTION_ID frames before
@@ -1927,7 +1929,8 @@ xqc_int_t
 xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
     xqc_int_t ret = XQC_ERROR;
-    uint64_t seq_num = 0, largest_scid_seq_num = 0, path_id;
+    uint64_t seq_num = 0, path_id;
+    int64_t largest_scid_seq_num = 0;
 
     ret = xqc_parse_mp_retire_conn_id_frame(packet_in, &seq_num, &path_id);
     if (ret != XQC_OK) {
@@ -1956,7 +1959,7 @@ xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
         return -XQC_EPROTO;
     }
 
-    if (seq_num > largest_scid_seq_num) {
+    if (seq_num > (uint64_t)largest_scid_seq_num) {
         /* 
          * Receipt of a RETIRE_CONNECTION_ID frame containing a sequence number
          * greater than any previously sent to the peer MUST be treated as a

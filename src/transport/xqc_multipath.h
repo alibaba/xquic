@@ -91,6 +91,9 @@ struct xqc_path_ctx_s {
     uint64_t            path_id;    /* path identifier */
     xqc_cid_t           path_scid;
     xqc_cid_t           path_dcid;
+    xqc_cid_t           path_last_dcid;
+
+    xqc_multipath_error_t path_err_code;
 
     /* Path_address: 4-tuple */
     unsigned char       peer_addr[sizeof(struct sockaddr_in6)],
@@ -254,6 +257,7 @@ xqc_path_perf_class_t xqc_path_get_perf_class(xqc_path_ctx_t *path);
 double xqc_path_recent_loss_rate(xqc_path_ctx_t *path);
 
 double xqc_conn_recent_loss_rate(xqc_connection_t *conn);
+
 
 #endif /* XQC_MULTIPATH_H */
 

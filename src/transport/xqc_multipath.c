@@ -1515,8 +1515,6 @@ xqc_path_cid_rotate(xqc_path_ctx_t *path, uint64_t path_id)
 
     xqc_cid_copy(&path->path_last_dcid, &path->path_dcid);
     xqc_cid_copy(&path->path_dcid, &new_dcid);
-    new_dcid_inner = xqc_cid_in_cid_set(&conn->dcid_set, &new_dcid, path_id);
-    xqc_cid_switch_to_next_state(&conn->dcid_set, new_dcid_inner, XQC_CID_USED, path_id);
 
     return XQC_OK;
 }

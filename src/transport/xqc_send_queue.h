@@ -7,6 +7,7 @@
 
 #define XQC_SNDQ_PACKETS_USED_MAX            18000
 #define XQC_SNDQ_RELEASE_ENOUGH_SPACE_TH     10  /* 1 / 10*/
+#define XQC_SNDQ_MAX_UNACK_PACKETS_LIMIT     (100 * 1000) /* limit unack packets to avoid ddos attack */
 
 typedef struct xqc_send_queue_s {
 

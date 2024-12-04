@@ -1687,8 +1687,10 @@ xqc_h3_stream_process_data(xqc_stream_t *stream, xqc_h3_stream_t *h3s, xqc_bool_
 
         } else if (h3s->type == XQC_H3_STREAM_TYPE_BYTESTEAM) {
             //TODO: mark the fin flag of the bytestream and record time
-            xqc_h3_ext_bytestream_fin_rcvd(h3s->h3_ext_bs);
-            xqc_h3_ext_bytestream_set_fin_rcvd_flag(h3s->h3_ext_bs);
+            if (h3s->h3_ext_bs) {
+                xqc_h3_ext_bytestream_fin_rcvd(h3s->h3_ext_bs);
+                xqc_h3_ext_bytestream_set_fin_rcvd_flag(h3s->h3_ext_bs);
+            }
         }    
     }
 
@@ -1882,6 +1884,7 @@ xqc_h3_stream_read_notify(xqc_stream_t *stream, void *user_data)
 
         /* TODO: BYTESTRAM: notify DATA to application ASAP */
         if (h3s->type == XQC_H3_STREAM_TYPE_BYTESTEAM
+            && h3s->h3_ext_bs
             && xqc_h3_ext_bytestream_should_notify_read(h3s->h3_ext_bs))
         {
             ret = xqc_h3_ext_bytestream_notify_read(h3s->h3_ext_bs);

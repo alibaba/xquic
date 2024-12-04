@@ -22,6 +22,7 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
+find_package(Threads)
 
 # SSL lib type, xquic support babassl and boringssl interfaces
 if(NOT SSL_TYPE)
@@ -386,14 +387,22 @@ add_library(
     STATIC
     ${XQC_SOURCE}
 )
-target_include_directories(xquic-static PUBLIC $<INSTALL_INTERFACE:include>)
+add_library(xquic::xquic-static ALIAS xquic-static)
+target_include_directories(xquic-static PUBLIC 
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>  
+    $<INSTALL_INTERFACE:include>
+)
 
 add_library(
     xquic
     SHARED
     ${XQC_SOURCE}
 )
-target_include_directories(xquic PUBLIC $<INSTALL_INTERFACE:include>)
+add_library(xquic::xquic ALIAS xquic)
+target_include_directories(xquic PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>  
+    $<INSTALL_INTERFACE:include>
+)
 
 if(PLATFORM MATCHES "mac")
     target_link_libraries(
@@ -405,13 +414,26 @@ if(PLATFORM MATCHES "mac")
         -lstdc++
     )
 else()
-    target_link_libraries(
-        xquic
-        "-ldl -Wl,--whole-archive -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/scripts/xquic.lds"
-        ${SSL_LIB_PATH}
-        "-Wl,--no-whole-archive"
-        -lpthread
-    )
+    target_link_libraries(xquic PRIVATE Threads::Threads)
+    target_link_libraries(xquic-static PRIVATE Threads::Threads)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        target_link_options(xquic PRIVATE
+            "-ldl"
+            "-Wl,--whole-archive"
+            "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/scripts/xquic.lds")
+        target_link_libraries(xquic PRIVATE ${SSL_LIB_PATH})
+        target_link_options(xquic PRIVATE "-Wl,--no-whole-archive")
+
+        target_link_options(xquic-static PRIVATE
+            "-ldl"
+            "-Wl,--whole-archive"
+            "--version-script=${CMAKE_CURRENT_SOURCE_DIR}/scripts/xquic.lds")
+        target_link_libraries(xquic-static PRIVATE ${SSL_LIB_PATH})
+        target_link_options(xquic-static PRIVATE "-Wl,--no-whole-archive")
+
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+
+    endif()
 endif()
 
 

@@ -1660,7 +1660,7 @@ xqc_conn_update_max_path_id(xqc_connection_t *conn)
     xqc_int_t ret = XQC_OK;
     uint64_t pre_max_path_id = conn->local_max_path_id;
     conn->local_max_path_id += (conn->local_max_path_id + 1) / 2;
-    conn->local_max_path_id = xqc_max(conn->local_max_path_id, conn->max_paths_count);
+    conn->local_max_path_id = xqc_min(conn->local_max_path_id, conn->max_paths_count);
     if (xqc_conn_add_path_cid_sets(conn, pre_max_path_id + 1, conn->local_max_path_id) != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|add_path_cid_sets_error|");
         return -XQC_EMALLOC;

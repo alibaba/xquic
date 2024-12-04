@@ -3234,7 +3234,7 @@ xqc_conn_info_print(xqc_connection_t *conn, xqc_conn_stats_t *conn_stats)
     init_cwnd = conn->conn_settings.cc_params.customize_on ? conn->conn_settings.cc_params.init_cwnd : 0;
 
     /* conn info */
-    ret = snprintf(buff, buff_size, "%s,%u,%u,%u,%u,%u,%u,"
+    ret = snprintf(buff, buff_size, "%s,%"PRIu64",%"PRIu64",%"PRIu64",%u,%u,%u,"
                    "%u,%u,%u,%u,%u,%u,%u,%"PRIu64",%"PRIu64",%"PRIu64",i%u,"
 #ifdef XQC_ENABLE_FEC
                    "%u,%u,%u,%u,%u,%u,%u,"

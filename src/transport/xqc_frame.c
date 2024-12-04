@@ -2076,7 +2076,7 @@ xqc_process_path_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
     }
 
     if (xqc_conn_check_path_id_blocked(conn)   /* check whether all path ids have been used */
-        && (uint64_t)conn->create_path_count < conn->max_paths_count)  /* check whether touched path resource limit */
+        && conn->create_path_count < conn->max_paths_count)  /* check whether touched path resource limit */
     {
         ret = xqc_conn_update_max_path_id(conn);
     }

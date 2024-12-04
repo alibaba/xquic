@@ -370,9 +370,9 @@ struct xqc_connection_s {
     xqc_path_ctx_t                 *conn_initial_path;
     xqc_list_head_t                 conn_paths_list;
     uint64_t                        validating_path_id;
-    uint32_t                        create_path_count;
-    uint32_t                        validated_path_count;
-    uint32_t                        active_path_count;
+    uint64_t                        create_path_count;
+    uint64_t                        validated_path_count;
+    uint64_t                        active_path_count;
     uint64_t                        max_paths_count;
 
     uint64_t                        curr_max_path_id;

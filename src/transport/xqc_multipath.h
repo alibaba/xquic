@@ -258,6 +258,8 @@ double xqc_path_recent_loss_rate(xqc_path_ctx_t *path);
 
 double xqc_conn_recent_loss_rate(xqc_connection_t *conn);
 
+xqc_bool_t xqc_conn_check_path_id_blocked(xqc_connection_t *conn);
+xqc_int_t xqc_conn_update_max_path_id(xqc_connection_t *conn);
 
 #endif /* XQC_MULTIPATH_H */
 

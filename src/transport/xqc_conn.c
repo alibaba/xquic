@@ -736,6 +736,10 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
         xc->conn_settings.init_max_path_id = XQC_DEFAULT_INIT_MAX_PATH_ID;
     }
 
+    if (xc->max_paths_count == 0) {
+        xc->max_paths_count = XQC_MAX_PATHS_COUNT;
+    }
+
     if (xc->conn_settings.probing_pkt_out_size == 0) {
         xc->conn_settings.probing_pkt_out_size = engine->default_conn_settings.probing_pkt_out_size;
     }

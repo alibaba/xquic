@@ -373,6 +373,7 @@ struct xqc_connection_s {
     uint32_t                        create_path_count;
     uint32_t                        validated_path_count;
     uint32_t                        active_path_count;
+    uint64_t                        max_paths_count;
 
     uint64_t                        curr_max_path_id;
     uint64_t                        local_max_path_id;

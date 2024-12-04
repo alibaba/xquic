@@ -2070,18 +2070,10 @@ xqc_process_path_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
         return XQC_OK;
     }
 
-    uint64_t pre_max_path_id = conn->local_max_path_id;
-    conn->local_max_path_id += (conn->local_max_path_id + 1) / 2;
-    if (xqc_conn_add_path_cid_sets(conn, pre_max_path_id + 1, conn->local_max_path_id) != XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|add_path_cid_sets_error|");
-        return -XQC_EMALLOC;
-    }
-
-    ret = xqc_write_max_path_id_to_packet(conn, conn->local_max_path_id);
-    if (ret != XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_ERROR,
-                "|xqc_write_max_path_id_to_packet error|");
-        return ret;
+    if (xqc_conn_check_path_id_blocked(conn)   /* check whether all path ids have been used */
+        && (uint64_t)conn->create_path_count < conn->max_paths_count)  /* check whether touched path resource limit */
+    {
+        ret = xqc_conn_update_max_path_id(conn);
     }
 
     return ret;

@@ -277,10 +277,19 @@ xqc_send_queue_remove_probe(xqc_list_head_t *pos)
 void
 xqc_send_queue_insert_unacked(xqc_packet_out_t *packet_out, xqc_list_head_t *head, xqc_send_queue_t *send_queue)
 {
+    xqc_connection_t *conn = send_queue->sndq_conn;
     xqc_list_add_tail(&packet_out->po_list, head);
     if (!(packet_out->po_flag & XQC_POF_IN_UNACK_LIST)) {
         send_queue->sndq_packets_in_unacked_list++;
         packet_out->po_flag |= XQC_POF_IN_UNACK_LIST;
+        if (send_queue->sndq_packets_in_unacked_list > XQC_SNDQ_MAX_UNACK_PACKETS_LIMIT) {
+            if (conn) {
+                XQC_CONN_ERR(conn, XQC_ELIMIT);
+                xqc_log(conn->log, XQC_LOG_ERROR,
+                        "|sndq unack packets exceed|sndq_packets_in_unacked_list:%ui|",
+                        send_queue->sndq_packets_in_unacked_list); 
+            }
+        }  
     }
 }
 

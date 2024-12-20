@@ -1367,8 +1367,8 @@ xqc_server_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
 
         for (int i = 0; i < headers->count; i++) {
             printf("%s = %s\n", (char *)headers->headers[i].name.iov_base, (char *)headers->headers[i].value.iov_base);
-
-            if (memcmp((char *)headers->headers[i].name.iov_base, "priority", 8) == 0) {
+            if (headers->headers[i].name.iov_len == 8
+                && memcmp((char *)headers->headers[i].name.iov_base, "priority", 8) == 0) {
                 xqc_h3_priority_t h3_prio;
                 xqc_int_t ret = xqc_parse_http_priority(&h3_prio,
                                                         headers->headers[i].value.iov_base,

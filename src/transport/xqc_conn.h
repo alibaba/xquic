@@ -370,9 +370,10 @@ struct xqc_connection_s {
     xqc_path_ctx_t                 *conn_initial_path;
     xqc_list_head_t                 conn_paths_list;
     uint64_t                        validating_path_id;
-    uint32_t                        create_path_count;
-    uint32_t                        validated_path_count;
-    uint32_t                        active_path_count;
+    uint64_t                        create_path_count;
+    uint64_t                        validated_path_count;
+    uint64_t                        active_path_count;
+    uint64_t                        max_paths_count;
 
     uint64_t                        curr_max_path_id;
     uint64_t                        local_max_path_id;
@@ -694,7 +695,7 @@ void xqc_path_send_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
     xqc_list_head_t *head, int congest, xqc_send_type_t send_type);
 
 xqc_int_t xqc_conn_try_to_enable_multipath(xqc_connection_t *conn);
-xqc_int_t xqc_conn_add_path_cid_sets(xqc_connection_t *conn, uint32_t start, uint32_t end);
+xqc_int_t xqc_conn_add_path_cid_sets(xqc_connection_t *conn, uint64_t start, uint64_t end);
 
 
 #endif /* _XQC_CONN_H_INCLUDED_ */

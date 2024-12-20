@@ -87,6 +87,7 @@ typedef enum {
 
     /* multipath quic attributes */
     XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V10                = 0x0f739bbc1b666d09,
+    XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V11                = 0x0f739bbc1b666d11,
 
     /* google connection options */
     XQC_TRANSPORT_PARAM_GOOGLE_CO                           = 0x3128,

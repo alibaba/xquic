@@ -39,6 +39,7 @@ xqc_config_t default_client_config = {
     .conn_pool_size            = 4096,
     .streams_hash_bucket_size  = 1024,
     .conns_hash_bucket_size    = 1024,
+    .hash_conflict_threshold   = XQC_HASH_DEFAULT_CONFLICT_THRESHOLD,
     .conns_active_pq_capacity  = 128,
     .conns_wakeup_pq_capacity  = 128,
     .support_version_count     = 1,
@@ -62,6 +63,7 @@ xqc_config_t default_server_config = {
     .conn_pool_size            = 4096,
     .streams_hash_bucket_size  = 1024,
     .conns_hash_bucket_size    = 1024*1024, /* too many connections will affect lookup performance */
+    .hash_conflict_threshold   = XQC_HASH_DEFAULT_CONFLICT_THRESHOLD,
     .conns_active_pq_capacity  = 1024,
     .conns_wakeup_pq_capacity  = 16*1024,
     .support_version_count     = 2,
@@ -93,6 +95,9 @@ xqc_set_config(xqc_config_t *dst, const xqc_config_t *src)
 
     if (src->conns_hash_bucket_size > 0) {
         dst->conns_hash_bucket_size = src->conns_hash_bucket_size;
+    }
+    if (src->hash_conflict_threshold > 0) {
+        dst->hash_conflict_threshold = src->hash_conflict_threshold;
     }
 
     if (src->conns_active_pq_capacity > 0) {
@@ -196,14 +201,17 @@ xqc_engine_set_log_level(xqc_engine_t *engine, xqc_log_level_t log_level)
 
 
 xqc_str_hash_table_t *
-xqc_engine_conns_hash_create(xqc_config_t *config)
+xqc_engine_conns_hash_create(xqc_config_t *config, uint8_t *key, size_t key_len, xqc_log_t *log)
 {
     xqc_str_hash_table_t *hash_table = xqc_malloc(sizeof(xqc_str_hash_table_t));
     if (hash_table == NULL) {
         return NULL;
     }
 
-    if (xqc_str_hash_init(hash_table, xqc_default_allocator, config->conns_hash_bucket_size)) {
+    if (xqc_str_hash_init(hash_table, xqc_default_allocator,
+            config->conns_hash_bucket_size, config->hash_conflict_threshold,
+            key, key_len, log))
+    {
         goto fail;
     }
 
@@ -270,17 +278,20 @@ xqc_engine_conns_hash_find(xqc_engine_t *engine, const xqc_cid_t *cid, char type
         return NULL;
     }
 
-    uint64_t hash = xqc_hash_string(cid->cid_buf, cid->cid_len);
+    uint64_t hash;
+
     xqc_str_t str;
     str.data = (unsigned char *)cid->cid_buf;
     str.len = cid->cid_len;
 
     if (type == 's') {
         /* search by endpoint's cid */
+        hash = xqc_siphash_get_hash(&engine->conns_hash->siphash_ctx, cid->cid_buf, cid->cid_len);
         return xqc_str_hash_find(engine->conns_hash, hash, str);
 
     } else {
         /* search by peer's cid */
+        hash = xqc_siphash_get_hash(&engine->conns_hash_dcid->siphash_ctx, cid->cid_buf, cid->cid_len);
         xqc_conn = xqc_str_hash_find(engine->conns_hash_dcid, hash, str);
         if (xqc_conn == NULL) {
             xqc_log(engine->log, XQC_LOG_ERROR, "|xquic find dcid error|dcid:%s|",
@@ -396,6 +407,7 @@ xqc_engine_create(xqc_engine_type_t engine_type,
     void *user_data)
 {
     xqc_engine_t *engine = NULL;
+    uint8_t sipkey[XQC_SIPHASH_KEY_SIZE];
 
     /* check input parameter */
     if (xqc_engine_check_config(engine_type, engine_config, ssl_config, transport_cbs)
@@ -443,17 +455,19 @@ xqc_engine_create(xqc_engine_type_t engine_type,
         goto fail;
     }
 
-    engine->conns_hash = xqc_engine_conns_hash_create(engine->config);
+    xqc_get_random(engine->rand_generator, sipkey, sizeof(sipkey));
+
+    engine->conns_hash = xqc_engine_conns_hash_create(engine->config, sipkey, sizeof(sipkey), engine->log);
     if (engine->conns_hash == NULL) {
         goto fail;
     }
 
-    engine->conns_hash_dcid = xqc_engine_conns_hash_create(engine->config);
+    engine->conns_hash_dcid = xqc_engine_conns_hash_create(engine->config, sipkey, sizeof(sipkey), engine->log);
     if (engine->conns_hash_dcid == NULL) {
         goto fail;
     }
 
-    engine->conns_hash_sr_token = xqc_engine_conns_hash_create(engine->config);
+    engine->conns_hash_sr_token = xqc_engine_conns_hash_create(engine->config, sipkey, sizeof(sipkey), engine->log);
     if (engine->conns_hash_sr_token == NULL) {
         goto fail;
     }
@@ -996,7 +1010,8 @@ xqc_engine_handle_stateless_reset(xqc_engine_t *engine,
         return -XQC_ERROR;
     }
 
-    hash = xqc_hash_string(sr_token, XQC_STATELESS_RESET_TOKENLEN);
+    hash = xqc_siphash_get_hash(&engine->conns_hash_sr_token->siphash_ctx,
+                                sr_token, XQC_STATELESS_RESET_TOKENLEN);
     str.data = (unsigned char *)sr_token;
     str.len = XQC_STATELESS_RESET_TOKENLEN;
 

@@ -1094,6 +1094,8 @@ typedef struct xqc_config_s {
 
     /** bucket size of connection hash table in engine */
     size_t          conns_hash_bucket_size;
+    /* for warning when the number of elements in one bucket exceeds the value of hash_conflict_threshold*/
+    uint32_t        hash_conflict_threshold;
 
     /** capacity of connection priority queue in engine */
     size_t          conns_active_pq_capacity;

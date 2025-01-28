@@ -233,6 +233,8 @@ xqc_int_t xqc_write_mp_retire_conn_id_frame_to_packet(xqc_connection_t *conn, ui
 
 int xqc_write_max_path_id_to_packet(xqc_connection_t *conn, uint64_t max_path_id);
 int xqc_write_path_blocked_to_packet(xqc_connection_t *conn, uint64_t max_path_id);
+int xqc_write_path_cids_blocked_to_packet(xqc_connection_t *conn, uint64_t path_id);
+
 /**
  * @brief Get remained space size in packet out buff.
  * 

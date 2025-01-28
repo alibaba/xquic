@@ -651,7 +651,7 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
     xqc_log(conn->log, XQC_LOG_DEBUG, "|conn:%p|state:%s|flag:%s|now:%ui|",
             conn, xqc_conn_state_2_str(conn->conn_state), xqc_conn_flag_2_str(conn, conn->conn_flag), now);
 
-    int ret;
+    int ret = 0, rc = 0;
     xqc_bool_t wait_scid, wait_dcid;
 
     xqc_conn_timer_expire(conn, now);
@@ -733,11 +733,22 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
     }
 
     if (conn->enable_multipath) {
+        ret = xqc_conn_get_available_path_id(conn, NULL);
         if ((conn->conn_flag & XQC_CONN_FLAG_MP_WAIT_MP_READY)
-            && xqc_conn_get_available_path_id(conn, NULL) == XQC_OK) 
+            && ret == XQC_OK)
         {
             conn->conn_flag |= XQC_CONN_FLAG_MP_READY_NOTIFY;
             conn->conn_flag &= ~XQC_CONN_FLAG_MP_WAIT_MP_READY;
+        } else if (ret != XQC_OK) {
+            /* not enough cid for new path id */
+            uint64_t path_id = conn->create_path_count;
+            xqc_cid_set_inner_t *dcid_inner_set = xqc_get_path_cid_set(&conn->dcid_set, path_id);
+            if (dcid_inner_set && dcid_inner_set->unused_cnt == 0) {
+                rc = xqc_write_path_cids_blocked_to_packet(conn, path_id);
+                if (rc) {
+                    xqc_log(conn->log, XQC_LOG_WARN, "|xqc_write_path_cids_blocked_to_packet error|ret:%ui|", ret);
+                }
+            }
         }
 
         xqc_log(conn->log, XQC_LOG_DEBUG, "|create_path_count:%ui|remote_max_path_id:%ui|",

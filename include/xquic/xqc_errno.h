@@ -283,6 +283,8 @@ typedef enum {
     XQC_PATH_NO_ERROR                   = 0x0,
     XQC_PATH_APPLICATION_ABANDON        = 0x004150504142414E, /* Path abandon error code: APPLICATION_ABANDON */
     XQC_PATH_RESOURCE_LIMIT_REACHED     = 0x0052534C494D4954, /* Path abandon error code: RESOURCE_LIMIT_REACHED */
+    XQC_PATH_UNSTABLE_INTERFACE         = 0x00554e5f494e5446, /* Path abandon error code: UNSTABLE_INTERFACE */
+    XQC_PATH_NO_CID_AVAILABLE           = 0x004e4f5f4349445f, /* Path abandon error code: NO_CID_AVAILABLE */
 } xqc_multipath_error_t;
 
 #define QPACK_ERR_START 900

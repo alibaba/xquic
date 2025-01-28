@@ -36,6 +36,8 @@ typedef enum {
     XQC_FRAME_MP_NEW_CONNECTION_ID,
     XQC_FRAME_MP_RETIRE_CONNECTION_ID,
     XQC_FRAME_MAX_PATH_ID,
+    XQC_FRAME_PATH_BLOCKED,
+    XQC_FRAME_PATH_CIDS_BLOCKED,
     XQC_FRAME_PATH_FROZEN,
     XQC_FRAME_DATAGRAM,
     XQC_FRAME_Extension,
@@ -73,6 +75,8 @@ typedef enum {
     XQC_FRAME_BIT_MP_NEW_CONNECTION_ID  = 1ULL << XQC_FRAME_MP_NEW_CONNECTION_ID,
     XQC_FRAME_BIT_MP_RETIRE_CONNECTION_ID = 1ULL << XQC_FRAME_MP_RETIRE_CONNECTION_ID,
     XQC_FRAME_BIT_MAX_PATH_ID           = 1ULL << XQC_FRAME_MAX_PATH_ID,
+    XQC_FRAME_BIT_PATH_BLOCKED          = 1ULL << XQC_FRAME_PATH_BLOCKED,
+    XQC_FRAME_BIT_PATH_CIDS_BLOCKED     = 1ULL << XQC_FRAME_PATH_CIDS_BLOCKED,
     XQC_FRAME_BIT_PATH_FROZEN           = 1ULL << XQC_FRAME_PATH_FROZEN,
     XQC_FRAME_BIT_DATAGRAM              = 1ULL << XQC_FRAME_DATAGRAM,
     XQC_FRAME_BIT_Extension             = 1ULL << XQC_FRAME_Extension,
@@ -179,5 +183,9 @@ xqc_int_t xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in
 xqc_int_t xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 xqc_int_t xqc_process_max_path_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
+
+xqc_int_t xqc_process_path_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
+
+xqc_int_t xqc_process_path_cids_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 #endif /* _XQC_FRAME_H_INCLUDED_ */

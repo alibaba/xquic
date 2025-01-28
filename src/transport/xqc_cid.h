@@ -50,6 +50,7 @@ typedef struct xqc_cid_set_inner_s {
     };
     xqc_cid_set_state_t set_state;
     uint32_t            acked_unused;
+    uint32_t            cids_blocked_sent;
 } xqc_cid_set_inner_t;
 
 typedef struct xqc_cid_set_s {

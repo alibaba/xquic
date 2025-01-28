@@ -2108,10 +2108,17 @@ xqc_process_path_cids_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
         return ret;
     }
 
+    xqc_cid_set_inner_t* inner_set = xqc_get_path_cid_set(&conn->scid_set, path_id);
+    uint64_t scid_unused_count = 0;
+    if (inner_set) {
+        scid_unused_count = inner_set->unused_cnt;
+    }
+
     xqc_log(conn->log, XQC_LOG_DEBUG,
-            "|path_id:%ui|pre_local_max_path_id:%ui|create_path_count:%ui|max_paths_count:%ui|",
+            "|path_id:%ui|local_max_path_id:%ui|create_path_count:%ui|max_paths_count:%ui|scid_unused_count:%ui|",
             path_id, conn->local_max_path_id,
-            conn->create_path_count, conn->max_paths_count);
+            conn->create_path_count, conn->max_paths_count,
+            scid_unused_count);
 
     if (conn->local_max_path_id < path_id) {
         xqc_log(conn->log, XQC_LOG_ERROR,
@@ -2121,7 +2128,6 @@ xqc_process_path_cids_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
 
     /* try to add one new cid for the path id */
     uint64_t unused_limit = 2;
-    xqc_cid_set_inner_t* inner_set = xqc_get_path_cid_set(&conn->scid_set, path_id);
     if (inner_set
         && (inner_set->unused_cnt + inner_set->used_cnt) < conn->remote_settings.active_connection_id_limit
         && inner_set->unused_cnt < unused_limit)

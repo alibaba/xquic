@@ -1857,7 +1857,7 @@ xqc_write_path_cids_blocked_to_packet(xqc_connection_t *conn, uint64_t path_id)
 
     ssize_t ret = XQC_ERROR;
     xqc_packet_out_t *packet_out;
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|path blocked max_path_id:%ui|", path_id);
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|path_id:%ui|", path_id);
 
     packet_out = xqc_write_new_packet(conn, XQC_PTYPE_SHORT_HEADER);
     if (packet_out == NULL) {

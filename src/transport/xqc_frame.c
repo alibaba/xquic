@@ -364,7 +364,7 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
             break;
         case XQC_TRANS_FRAME_TYPE_PATH_CIDS_BLOCKED:
             if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_12) {
-                ret = xqc_process_path_blocked_frame(conn, packet_in);
+                ret = xqc_process_path_cids_blocked_frame(conn, packet_in);
 
             } else {
                 xqc_log(conn->log, XQC_LOG_ERROR, "|mp_version error|v:%ud|f:%xL|",
@@ -2089,6 +2089,50 @@ xqc_process_path_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
         && conn->create_path_count < conn->max_paths_count)  /* check whether touched path resource limit */
     {
         ret = xqc_conn_update_max_path_id(conn);
+    }
+
+    return ret;
+}
+
+
+xqc_int_t
+xqc_process_path_cids_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
+{
+    xqc_int_t ret = XQC_ERROR;
+    uint64_t path_id, new_max_path_id;
+
+    ret = xqc_parse_path_cids_blocked_frame(packet_in, &path_id);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_process_max_paths_frame error|");
+        return ret;
+    }
+
+    xqc_log(conn->log, XQC_LOG_DEBUG,
+            "|path_id:%ui|pre_local_max_path_id:%ui|create_path_count:%ui|max_paths_count:%ui|",
+            path_id, conn->local_max_path_id,
+            conn->create_path_count, conn->max_paths_count);
+
+    if (conn->local_max_path_id < path_id) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|invalid path cids blocked frame|path_id:%ui|", path_id);
+        return -XQC_EIGNORE_PKT;
+    }
+
+    /* try to add one new cid for the path id */
+    uint64_t unused_limit = 2;
+    xqc_cid_set_inner_t* inner_set = xqc_get_path_cid_set(&conn->scid_set, path_id);
+    if (inner_set
+        && (inner_set->unused_cnt + inner_set->used_cnt) < conn->remote_settings.active_connection_id_limit
+        && inner_set->unused_cnt < unused_limit)
+    {
+        ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, 0, inner_set->path_id);
+        if (ret != XQC_OK) {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|xqc_write_mp_new_conn_id_frame_to_packet error|path_id:%ui|",
+                    inner_set->path_id);
+            return ret;
+        }
     }
 
     return ret;

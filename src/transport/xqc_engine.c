@@ -743,11 +743,12 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
             /* not enough cid for new path id */
             uint64_t path_id = conn->create_path_count;
             xqc_cid_set_inner_t *dcid_inner_set = xqc_get_path_cid_set(&conn->dcid_set, path_id);
-            if (dcid_inner_set && dcid_inner_set->unused_cnt == 0) {
+            if (dcid_inner_set && dcid_inner_set->unused_cnt == 0 && !dcid_inner_set->cids_blocked_sent) {
                 rc = xqc_write_path_cids_blocked_to_packet(conn, path_id);
                 if (rc) {
                     xqc_log(conn->log, XQC_LOG_WARN, "|xqc_write_path_cids_blocked_to_packet error|ret:%ui|", ret);
                 }
+                dcid_inner_set->cids_blocked_sent = 1;
             }
         }
 

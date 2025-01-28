@@ -362,6 +362,16 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
                 ret = -XQC_EMP_INVALID_MP_VERTION;
             }
             break;
+        case XQC_TRANS_FRAME_TYPE_PATH_CIDS_BLOCKED:
+            if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_12) {
+                ret = xqc_process_path_blocked_frame(conn, packet_in);
+
+            } else {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|mp_version error|v:%ud|f:%xL|",
+                        conn->conn_settings.multipath_version, frame_type);
+                ret = -XQC_EMP_INVALID_MP_VERTION;
+            }
+            break;
 #ifdef XQC_ENABLE_FEC
         case 0xfec5:
             if (conn->conn_settings.enable_decode_fec

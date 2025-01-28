@@ -1248,6 +1248,7 @@ typedef enum {
     XQC_ERR_MULTIPATH_VERSION   = 0x00,
     XQC_MULTIPATH_10            = 0x0a,
     XQC_MULTIPATH_11            = 0x0b,
+    XQC_MULTIPATH_12            = 0x0c,
 } xqc_multipath_version_t;
 
 typedef enum {

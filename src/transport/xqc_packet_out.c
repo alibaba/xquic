@@ -1848,6 +1848,13 @@ xqc_write_path_blocked_to_packet(xqc_connection_t *conn, uint64_t max_path_id)
 int
 xqc_write_path_cids_blocked_to_packet(xqc_connection_t *conn, uint64_t path_id)
 {
+    if (conn->conn_settings.multipath_version < XQC_MULTIPATH_12) {
+        /* old version, do nothing here */
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_write_path_cids_blocked_to_packet|old version:%ui|",
+                    conn->conn_settings.multipath_version);
+        return XQC_OK;
+    }
+
     ssize_t ret = XQC_ERROR;
     xqc_packet_out_t *packet_out;
     xqc_log(conn->log, XQC_LOG_DEBUG, "|path blocked max_path_id:%ui|", path_id);

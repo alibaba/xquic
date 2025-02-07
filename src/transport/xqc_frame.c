@@ -62,7 +62,7 @@ xqc_frame_type_2_str(xqc_engine_t *engine, xqc_frame_type_bit_t type_bit)
     size_t pos = 0;
     int wsize;
     for (int i = 0; i < XQC_FRAME_NUM; i++) {
-        if (type_bit & 1 << i) {
+        if (type_bit & 1ULL << i) {
             wsize = snprintf(engine->frame_type_buf + pos, sizeof(engine->frame_type_buf) - pos, "%s ",
                              frame_type_2_str[i]);
             if (wsize < 0 || wsize >= sizeof(engine->frame_type_buf) - pos) {

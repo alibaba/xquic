@@ -183,8 +183,8 @@ xqc_int_t xqc_parse_max_path_id_frame(xqc_packet_in_t *packet_in, uint64_t *max_
 ssize_t xqc_gen_path_blocked_frame(xqc_packet_out_t *packet_out, uint64_t max_path_id);
 xqc_int_t xqc_parse_path_blocked_frame(xqc_packet_in_t *packet_in, uint64_t *max_path_id);
 
-ssize_t xqc_gen_path_cids_blocked_frame(xqc_packet_out_t *packet_out, uint64_t path_id);
-xqc_int_t xqc_parse_path_cids_blocked_frame(xqc_packet_in_t *packet_in, uint64_t *path_id);
+ssize_t xqc_gen_path_cids_blocked_frame(xqc_packet_out_t *packet_out, uint64_t path_id, uint64_t next_cid_seq);
+xqc_int_t xqc_parse_path_cids_blocked_frame(xqc_packet_in_t *packet_in, uint64_t *path_id, uint64_t *next_cid_seq);
 
 void xqc_try_process_fec_decode(xqc_connection_t *conn, xqc_int_t block_id);
 #endif /*_XQC_FRAME_PARSER_H_INCLUDED_*/

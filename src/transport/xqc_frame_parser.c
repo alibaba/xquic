@@ -3033,7 +3033,7 @@ xqc_parse_path_blocked_frame(xqc_packet_in_t *packet_in, uint64_t *max_path_id)
  *
  * */
 ssize_t
-xqc_gen_path_cids_blocked_frame(xqc_packet_out_t *packet_out, uint64_t path_id)
+xqc_gen_path_cids_blocked_frame(xqc_packet_out_t *packet_out, uint64_t path_id, uint64_t next_cid_seq)
 {
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
     const unsigned char *begin = dst_buf;
@@ -3048,13 +3048,17 @@ xqc_gen_path_cids_blocked_frame(xqc_packet_out_t *packet_out, uint64_t path_id)
     xqc_vint_write(dst_buf, path_id, max_paths_bits, xqc_vint_len(max_paths_bits));
     dst_buf += xqc_vint_len(max_paths_bits);
 
+    unsigned cid_seq_bits = xqc_vint_get_2bit(next_cid_seq);
+    xqc_vint_write(dst_buf, next_cid_seq, cid_seq_bits, xqc_vint_len(cid_seq_bits));
+    dst_buf += xqc_vint_len(cid_seq_bits);
+
     packet_out->po_frame_types |= XQC_FRAME_BIT_PATH_CIDS_BLOCKED;
 
     return dst_buf - begin;
 }
 
 xqc_int_t
-xqc_parse_path_cids_blocked_frame(xqc_packet_in_t *packet_in, uint64_t *path_id)
+xqc_parse_path_cids_blocked_frame(xqc_packet_in_t *packet_in, uint64_t *path_id, uint64_t *next_cid_seq)
 {
     unsigned char *p = packet_in->pos;
     const unsigned char *end = packet_in->last;
@@ -3069,6 +3073,12 @@ xqc_parse_path_cids_blocked_frame(xqc_packet_in_t *packet_in, uint64_t *path_id)
     p += vlen;
 
     vlen = xqc_vint_read(p, end, path_id);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    vlen = xqc_vint_read(p, end, next_cid_seq);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }

@@ -89,6 +89,7 @@ typedef enum {
     XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V10                = 0x0f739bbc1b666d09,
     XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V11                = 0x0f739bbc1b666d11,
     XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V12                = 0x0f739bbc1b666d0c,
+    XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V13                = 0x0f739bbc1b666d0d,
 
     /* google connection options */
     XQC_TRANSPORT_PARAM_GOOGLE_CO                           = 0x3128,

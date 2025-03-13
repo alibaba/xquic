@@ -1846,9 +1846,9 @@ xqc_write_path_blocked_to_packet(xqc_connection_t *conn, uint64_t max_path_id)
 
 
 int
-xqc_write_path_cids_blocked_to_packet(xqc_connection_t *conn, uint64_t path_id)
+xqc_write_path_cids_blocked_to_packet(xqc_connection_t *conn, uint64_t path_id, uint64_t next_cid_seq)
 {
-    if (conn->conn_settings.multipath_version < XQC_MULTIPATH_12) {
+    if (conn->conn_settings.multipath_version < XQC_MULTIPATH_13) {
         /* old version, do nothing here */
         xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_write_path_cids_blocked_to_packet|old version:%ui|",
                     conn->conn_settings.multipath_version);
@@ -1856,8 +1856,8 @@ xqc_write_path_cids_blocked_to_packet(xqc_connection_t *conn, uint64_t path_id)
     }
 
     ssize_t ret = XQC_ERROR;
-    xqc_packet_out_t *packet_out;
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|path_id:%ui|", path_id);
+    xqc_packet_out_t *packet_out = NULL;
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|path_id:%ui|next_cid_seq:%ui|", path_id, next_cid_seq);
 
     packet_out = xqc_write_new_packet(conn, XQC_PTYPE_SHORT_HEADER);
     if (packet_out == NULL) {
@@ -1865,7 +1865,7 @@ xqc_write_path_cids_blocked_to_packet(xqc_connection_t *conn, uint64_t path_id)
         return -XQC_EWRITE_PKT;
     }
 
-    ret = xqc_gen_path_cids_blocked_frame(packet_out, path_id);
+    ret = xqc_gen_path_cids_blocked_frame(packet_out, path_id, next_cid_seq);
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_path_blocked_frame error|");
         goto error;

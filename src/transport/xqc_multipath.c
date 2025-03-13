@@ -417,6 +417,7 @@ xqc_conn_is_current_mp_version_supported(xqc_multipath_version_t mp_version)
     case XQC_MULTIPATH_10:
     case XQC_MULTIPATH_11:
     case XQC_MULTIPATH_12:
+    case XQC_MULTIPATH_13:
         ret = XQC_OK;
         break;
     default:

@@ -2099,9 +2099,9 @@ xqc_int_t
 xqc_process_path_cids_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
     xqc_int_t ret = XQC_ERROR;
-    uint64_t path_id, new_max_path_id;
+    uint64_t path_id = 0, new_max_path_id = 0, next_cid_seq = 0;
 
-    ret = xqc_parse_path_cids_blocked_frame(packet_in, &path_id);
+    ret = xqc_parse_path_cids_blocked_frame(packet_in, &path_id, &next_cid_seq);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR,
                 "|xqc_process_max_paths_frame error|");

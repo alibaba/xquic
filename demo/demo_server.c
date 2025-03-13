@@ -1518,6 +1518,7 @@ xqc_demo_svr_init_conn_settings(xqc_engine_t *engine, xqc_demo_svr_args_t *args)
         .init_idle_time_out = 60000,
         .enable_multipath = args->quic_cfg.multipath,
         .init_max_path_id = args->quic_cfg.max_initial_paths,
+        .multipath_version = XQC_MULTIPATH_13,
         .mp_ack_on_any_path = args->quic_cfg.mp_ack_on_any_path,
         .scheduler_callback = sched,
         .reinj_ctl_callback = xqc_deadline_reinj_ctl_cb,

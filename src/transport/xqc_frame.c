@@ -2115,8 +2115,8 @@ xqc_process_path_cids_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
     }
 
     xqc_log(conn->log, XQC_LOG_DEBUG,
-            "|path_id:%ui|local_max_path_id:%ui|create_path_count:%ui|max_paths_count:%ui|scid_unused_count:%ui|",
-            path_id, conn->local_max_path_id,
+            "|path_id:%ui|next_cid_seq:%ui|local_max_path_id:%ui|create_path_count:%ui|max_paths_count:%ui|scid_unused_count:%ui|",
+            path_id, next_cid_seq, conn->local_max_path_id,
             conn->create_path_count, conn->max_paths_count,
             scid_unused_count);
 

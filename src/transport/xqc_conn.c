@@ -44,7 +44,7 @@ xqc_conn_settings_t internal_default_conn_settings = {
     .init_idle_time_out         = XQC_CONN_INITIAL_IDLE_TIMEOUT,
     .idle_time_out              = XQC_CONN_DEFAULT_IDLE_TIMEOUT,
     .enable_multipath           = 0,
-    .multipath_version          = XQC_MULTIPATH_10,
+    .multipath_version          = XQC_MULTIPATH_13,
     .spurious_loss_detect_on    = 0,
     .anti_amplification_limit   = XQC_DEFAULT_ANTI_AMPLIFICATION_LIMIT,
     .keyupdate_pkt_threshold    = 0,
@@ -5213,6 +5213,9 @@ xqc_conn_set_remote_transport_params(xqc_connection_t *conn,
     settings->max_datagram_frame_size = params->max_datagram_frame_size;
     settings->close_dgram_redundancy = params->close_dgram_redundancy;
 
+    xqc_conn_log(conn, XQC_LOG_DEBUG, "|enable_multipath:%ui|multipath_version:%ui|",
+                 params->enable_multipath, params->multipath_version);
+
 #ifdef XQC_ENABLE_FEC
     /*
      * set fec params to remote_settings
@@ -5283,6 +5286,10 @@ xqc_conn_get_local_transport_params(xqc_connection_t *conn, xqc_transport_params
     params->max_datagram_frame_size = settings->max_datagram_frame_size;
 
     params->close_dgram_redundancy = settings->close_dgram_redundancy;
+
+    xqc_conn_log(conn, XQC_LOG_DEBUG, "|enable_multipath:%ui|multipath_version:%ui|",
+                    settings->enable_multipath, settings->multipath_version);
+
 
 #ifdef XQC_ENABLE_FEC
     if (conn->conn_settings.enable_encode_fec) {

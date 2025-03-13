@@ -412,6 +412,9 @@ xqc_encode_transport_params(const xqc_transport_params_t *params,
 
         } else if (params->multipath_version == XQC_MULTIPATH_12) {
             p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V12, params->init_max_path_id);
+
+        } else if (params->multipath_version == XQC_MULTIPATH_13) {
+            p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V13, params->init_max_path_id);
         }
     }
 

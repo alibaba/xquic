@@ -261,6 +261,9 @@ double xqc_conn_recent_loss_rate(xqc_connection_t *conn);
 xqc_bool_t xqc_conn_check_path_id_blocked(xqc_connection_t *conn);
 xqc_int_t xqc_conn_update_max_path_id(xqc_connection_t *conn);
 
+
+#define XQC_PATH_CIDS_BLOCKED_CHECK_INTELVAL 100000 /* 100ms */
+
 #endif /* XQC_MULTIPATH_H */
 
 

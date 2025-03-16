@@ -739,11 +739,16 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
         {
             conn->conn_flag |= XQC_CONN_FLAG_MP_READY_NOTIFY;
             conn->conn_flag &= ~XQC_CONN_FLAG_MP_WAIT_MP_READY;
-        } else if (ret != XQC_OK && xqc_conn_check_handshake_completed(conn)) {
+        } else if (ret != XQC_OK && xqc_conn_check_handshake_completed(conn))
+        {
             /* not enough cid for new path id */
             uint64_t path_id = conn->create_path_count;
             xqc_cid_set_inner_t *dcid_inner_set = xqc_get_path_cid_set(&conn->dcid_set, path_id);
-            if (dcid_inner_set && dcid_inner_set->unused_cnt == 0 && !dcid_inner_set->cids_blocked_sent) {
+            uint64_t time_of_now = xqc_monotonic_timestamp();
+
+            if (dcid_inner_set && dcid_inner_set->unused_cnt == 0 && !dcid_inner_set->cids_blocked_sent
+                && conn->handshake_complete_time + XQC_PATH_CIDS_BLOCKED_CHECK_INTELVAL < time_of_now)
+            {
                 uint64_t next_cid_seq = xqc_cid_set_get_largest_seq_or_rpt(&conn->dcid_set, path_id) + 1;
                 rc = xqc_write_path_cids_blocked_to_packet(conn, path_id, next_cid_seq);
                 if (rc) {

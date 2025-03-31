@@ -1077,7 +1077,7 @@ typedef struct xqc_config_s {
     /** enable log based on event or not, non-zero for enable, 0 for not */
     xqc_flag_t      cfg_log_event;
 
-    /** qlog evnet importance */
+    /** qlog event importance */
     qlog_event_importance_t cfg_qlog_importance;
 
     /** print timestamp in log or not, non-zero for print, 0 for not */
@@ -1179,7 +1179,7 @@ typedef struct xqc_engine_callback_s {
  * @brief engine's ssl config
  */
 typedef struct xqc_engine_ssl_config_s {
-    /** private key filefor server */
+    /** private key file for server */
     char       *private_key_file;
     /** certificate file for server */
     char       *cert_file;

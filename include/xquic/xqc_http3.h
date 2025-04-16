@@ -115,6 +115,15 @@ typedef struct xqc_http_header_s {
 
     /** flags of xqc_http3_nv_flag_t with OR operator */
     uint8_t             flags;
+
+    /** save the nv hit status or not (0 means do not save) */
+    uint8_t             save_nv_hit_flags;
+
+    /** flags of nv hit status (used as return values) */
+    uint8_t             nv_hit_flags;
+
+    /** src header (if this one is copied from another using xqc_h3_request_copy_header) */
+    xqc_http_header_t  *src_header;
 } xqc_http_header_t;
 
 
@@ -390,6 +399,8 @@ typedef struct xqc_h3_conn_callbacks_s {
 
     /** ping callback. which will be triggered when ping is acked */
     xqc_h3_conn_ping_ack_notify_pt      h3_conn_ping_acked;            /* optional */
+
+    xqc_h3_conn_init_settings_pt        h3_conn_init_settings;
 
 } xqc_h3_conn_callbacks_t;
 

@@ -24,6 +24,8 @@ static const unsigned char CR = '\r';
 
 #define XQC_PTR_SIZE 8
 
+#define XQC_DECIMAL 10
+
 #define XQC_INT32_LEN   (sizeof("-2147483648") - 1)
 #define XQC_INT64_LEN   (sizeof("-9223372036854775808") - 1)
 

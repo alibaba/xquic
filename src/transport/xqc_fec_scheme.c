@@ -29,17 +29,17 @@ xqc_fec_encoder_check_params(xqc_connection_t *conn, xqc_int_t repair_symbol_num
 xqc_int_t
 xqc_fec_encoder(xqc_connection_t *conn, unsigned char *input, size_t st_size, uint8_t fec_bm_mode)
 {
-    xqc_int_t i, ret, repair_symbol_num;
-    unsigned char *repair_symbols_payload_buff[XQC_REPAIR_LEN];
+    xqc_int_t i, ret;
+    unsigned char *repair_symbols_payload_buff[XQC_REPAIR_LEN] = {0};
+    xqc_int_t repair_symbol_num;
 
+    repair_symbol_num = conn->fec_ctl->fec_send_required_repair_num[fec_bm_mode];
 
     // validate encode params
-    ret = xqc_fec_encoder_check_params(conn, conn->fec_ctl->fec_send_required_repair_num[fec_bm_mode], conn->conn_settings.fec_params.fec_encoder_scheme, st_size);
+    ret = xqc_fec_encoder_check_params(conn, repair_symbol_num, conn->conn_settings.fec_params.fec_encoder_scheme, st_size);
     if (ret != XQC_OK) {
         return ret;
     }
-    // in some case fec_code_rate will change in xqc_fec_encoder_check_params
-    repair_symbol_num = conn->fec_ctl->fec_send_required_repair_num[fec_bm_mode];
 
     if (conn->conn_settings.fec_callback.xqc_fec_encode) {
         // encode stream value into fec_send_repair_symbols_buff
@@ -66,7 +66,7 @@ xqc_fec_encoder(xqc_connection_t *conn, unsigned char *input, size_t st_size, ui
 }
 
 xqc_int_t
-xqc_process_recovered_packet(xqc_connection_t *conn, unsigned char *recovered_payload, size_t symbol_size)
+xqc_process_recovered_packet(xqc_connection_t *conn, unsigned char *recovered_payload, size_t symbol_size, xqc_usec_t rpr_recv_time)
 {
     xqc_int_t i, ret, res;
 
@@ -83,6 +83,7 @@ xqc_process_recovered_packet(xqc_connection_t *conn, unsigned char *recovered_pa
     new_packet->pkt_recv_time = xqc_monotonic_timestamp();
     new_packet->pi_path_id = 0;
     new_packet->pi_flag |= XQC_PIF_FEC_RECOVERED;
+    new_packet->pi_fec_process_time = rpr_recv_time;
 
     ret = xqc_process_frames(conn, new_packet);
     xqc_free(new_packet);
@@ -108,7 +109,7 @@ xqc_fec_cc_decoder(xqc_connection_t *conn, xqc_fec_rpr_syb_t *rpr_symbol, uint8_
     symbol_idx = rpr_symbol->symbol_idx;
     payload_p = conn->fec_ctl->fec_gen_repair_symbols_buff[0].payload;
 
-    if (payload_p == NULL || rpr_symbol->payload_size > XQC_MAX_SYMBOL_SIZE) {
+    if (payload_p == NULL || (rpr_symbol->payload_size <= 0 && rpr_symbol->payload_size > XQC_MAX_SYMBOL_SIZE)) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|invalid symbol payload");
         goto cc_decoder_end;
     }
@@ -123,7 +124,7 @@ xqc_fec_cc_decoder(xqc_connection_t *conn, xqc_fec_rpr_syb_t *rpr_symbol, uint8_
         xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_fec_decode_one error");
         goto cc_decoder_end;
     }
-    ret = xqc_process_recovered_packet(conn, payload_p, rpr_symbol->payload_size);
+    ret = xqc_process_recovered_packet(conn, payload_p, rpr_symbol->payload_size, rpr_symbol->recv_time);
     if (ret == XQC_OK) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|process packet of block %d successfully.", block_id);
         // insert into source list
@@ -161,7 +162,7 @@ cc_decoder_end:
  * @return xqc_int_t 
  */
 xqc_int_t
-xqc_fec_bc_decoder(xqc_connection_t *conn, xqc_int_t block_id, xqc_int_t loss_src_num)
+xqc_fec_bc_decoder(xqc_connection_t *conn, xqc_int_t block_id, xqc_int_t loss_src_num, xqc_usec_t rpr_time)
 {
     size_t              symbol_size;
     xqc_int_t           i, ret, symbol_flag, rpr_syb_num, src_syb_num, symbol_idx;
@@ -203,13 +204,12 @@ xqc_fec_bc_decoder(xqc_connection_t *conn, xqc_int_t block_id, xqc_int_t loss_sr
         goto bc_decoder_end;
     }
 
-    /* 封装 new packets并解析数据帧 */
     for (i = 0; i < loss_src_num; i++) {
         if (recovered_symbols_buff[i] == NULL) {
             xqc_log(conn->log, XQC_LOG_WARN, "|quic_fec|xqc_process_recovered_packet|symbol %d recover failed", i);
             break;
         }
-        ret = xqc_process_recovered_packet(conn, recovered_symbols_buff[i], symbol_size);
+        ret = xqc_process_recovered_packet(conn, recovered_symbols_buff[i], symbol_size, rpr_time);
         if (ret == XQC_OK) {
             xqc_log(conn->log, XQC_LOG_DEBUG, "|process packet of block %d successfully.", block_id);
         }

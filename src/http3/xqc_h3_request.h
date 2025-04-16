@@ -64,6 +64,7 @@ typedef struct xqc_h3_request_s {
     xqc_usec_t                      stream_fst_fin_snd_time;
     xqc_usec_t                      stream_fst_pkt_snd_time;
     xqc_usec_t                      stream_fst_pkt_rcv_time;
+    xqc_usec_t                      stream_close_delay;
     const char                     *stream_close_msg;
 
     uint32_t                        sched_cwnd_blk_cnt;  
@@ -82,6 +83,10 @@ typedef struct xqc_h3_request_s {
     uint8_t                         block_size_mode;
     xqc_usec_t                      fst_rpr_time;
     xqc_usec_t                      last_rpr_time;
+    xqc_int_t                       fec_blk_lack_num;     /* number of lack source symbol when receive last repair symbol */
+    xqc_usec_t                      fec_blk_lack_time;      /* (first block) block finish time - last received rpr (in block) time */
+    xqc_usec_t                      recv_time_with_fec;
+    xqc_usec_t                      final_packet_time;
 } xqc_h3_request_t;
 
 xqc_h3_request_t *xqc_h3_request_create_inner(xqc_h3_conn_t *h3_conn, xqc_h3_stream_t *h3_stream,

@@ -45,6 +45,13 @@ xqc_h3_request_create(xqc_engine_t *engine,
     return h3_request;
 }
 
+xqc_usec_t
+xqc_get_fec_fin_delay(xqc_usec_t stream_fin_time, xqc_usec_t last_rpr_time)
+{
+    return (last_rpr_time == 0 || last_rpr_time > stream_fin_time) ? 0 : xqc_calc_delay(stream_fin_time, last_rpr_time);
+}
+
+
 void
 xqc_h3_request_destroy(xqc_h3_request_t *h3_request)
 {
@@ -64,7 +71,8 @@ xqc_h3_request_destroy(xqc_h3_request_t *h3_request)
             "cwnd_blk:%ud|cwnd_blk_time:%ui|"
             "pacing_blk:%ud|pacing_blk_time:%ui|begin_state:%s|end_state:%s|"
             "is_fec_protected:%ud|fec_reco_pkt_cnt:%ud|fec_block_size_mode:%ud|"
-            "fst_rpr_ts:%ui|last_rpr_ts:%ui|",
+            "fst_rpr_ts:%ui|last_rpr_ts:%ui|fec_fin_delay:%ui|"
+            "external_stream_info:%s|",
             h3s->stream_id, stats.stream_close_msg ? stats.stream_close_msg : "",
             stats.stream_err, stats.recv_body_size, stats.send_body_size,
             stats.recv_header_size, stats.send_header_size,
@@ -94,7 +102,9 @@ xqc_h3_request_destroy(xqc_h3_request_t *h3_request)
             h3s->begin_trans_state,
             h3s->end_trans_state,
             stats.is_fec_protected, stats.fec_recov_cnt, h3_request->block_size_mode,
-            h3_request->fst_rpr_time, h3_request->last_rpr_time
+            stats.fst_rpr_time, stats.last_rpr_time,
+            stats.fec_req_delay_time,
+            stats.extern_stream_info
             );
 
     if (h3_request->request_if->h3_request_close_notify) {
@@ -278,6 +288,89 @@ full:
     buff[buff_size - 1] = '\0';
 }
 
+#ifdef XQC_ENABLE_FEC
+void
+xqc_fec_stream_info_print(xqc_h3_stream_t *h3_stream, xqc_request_stats_t *stats,
+    char *output, size_t output_size)
+{
+    int32_t i, ret;
+    size_t curr_size;
+    xqc_h3_conn_t *h3c = h3_stream->h3c;
+
+    i = ret = 0;
+    curr_size = 0;
+    xqc_memset(output, 0, output_size);
+#define __calc_delay(a, b) ((a > b && b)? (a) - (b) : 0)
+    ret = snprintf(output, output_size, "%d,%u,%d,%u,%u,%"PRIu64",%"PRIu64",%s,%s,%"PRIu64",%"PRIu64",",
+                   stats->is_fec_protected,
+                   h3c->conn->fec_neg_fail_reason,
+                   stats->block_size_mode,
+                   stats->fec_recov_cnt,
+                   stats->fec_blk_lack_num,
+                   stats->fec_blk_lack_time,
+                   stats->fec_req_delay_time,
+                   xqc_get_fec_scheme_str(h3c->conn->conn_settings.fec_params.fec_encoder_scheme),
+                   xqc_get_fec_scheme_str(h3c->conn->conn_settings.fec_params.fec_decoder_scheme),
+                   __calc_delay(stats->final_packet_time, stats->recv_time_with_fec),
+                   stats->stream_close_delay
+                );
+#undef __calc_delay
+    curr_size += ret;
+
+    if (curr_size >= output_size) {
+        goto full;
+    }
+
+full:
+    curr_size = xqc_min(curr_size, output_size);
+    for (i = curr_size - 1; i >= 0; i--) {
+        if (output[i] == ',') {
+            output[i] = '\0';
+            break;
+        }
+    }
+    output[output_size - 1] = '\0';
+}
+#endif
+
+
+void
+xqc_extern_stream_info_print(xqc_h3_stream_t *h3_stream, xqc_request_stats_t *stats)
+{
+    int32_t i, ret;
+    xqc_h3_conn_t *h3c = h3_stream->h3c;
+    char *buff = stats->extern_stream_info;
+    size_t buff_size, curr_size;
+
+#ifdef XQC_ENABLE_FEC
+    char fec_buf[XQC_MAX_FEC_BUF_LEN];
+    xqc_fec_stream_info_print(h3_stream, stats, fec_buf, XQC_MAX_FEC_BUF_LEN);
+#endif
+    i = ret = 0;
+    curr_size = 0;
+    buff_size = XQC_STREAM_INFO_LEN;
+
+    /* stream info */
+    ret = snprintf(buff, buff_size,
+                   "{"
+#ifdef XQC_ENABLE_FEC
+                   "\"fec\": \"%s\","
+#endif
+                   "}"
+#ifdef XQC_ENABLE_FEC
+                   ,
+                   fec_buf
+#endif
+                   );
+    curr_size += ret;
+    if (curr_size >= buff_size) {
+        goto full;
+    }
+
+full:
+    curr_size = xqc_min(curr_size, buff_size);
+    buff[curr_size] = '\0';
+}
 
 xqc_int_t 
 xqc_h3_request_update_settings(xqc_h3_request_t *h3_request, 
@@ -337,11 +430,21 @@ xqc_h3_request_get_stats(xqc_h3_request_t *h3_request)
     stats.sent_pkt_cnt = h3_request->sent_pkt_cnt;
     stats.max_pto_backoff = h3_request->max_pto_backoff;
     stats.fec_recov_cnt = h3_request->recov_pkt_cnt;
+    stats.fst_rpr_time = h3_request->fst_rpr_time;
+    stats.last_rpr_time = h3_request->last_rpr_time;
     stats.is_fec_protected = h3_request->block_size_mode != XQC_SLIM_SIZE_REQ && h3_request->h3_stream->h3c->conn->conn_settings.fec_params.fec_encoder_scheme != 0 ? 1 : 0;
+    stats.block_size_mode = h3_request->block_size_mode;
+    stats.fec_blk_lack_num = h3_request->fec_blk_lack_num;
+    stats.fec_blk_lack_time = h3_request->fec_blk_lack_time;
+    stats.fec_req_delay_time = xqc_get_fec_fin_delay(stats.stream_fin_time, stats.last_rpr_time);
+    stats.recv_time_with_fec = h3_request->recv_time_with_fec;
+    stats.final_packet_time = h3_request->final_packet_time;
+    stats.stream_close_delay = h3_request->stream_close_delay;
     xqc_h3_stream_get_path_info(h3_request->h3_stream);
     xqc_request_path_metrics_print(h3_request->h3_stream->h3c->conn,
                                    h3_request->h3_stream, &stats);
     xqc_stream_info_print(h3_request->h3_stream, &stats);
+    xqc_extern_stream_info_print(h3_request->h3_stream, &stats);
 
     return stats;
 }
@@ -436,6 +539,8 @@ xqc_h3_request_copy_header(xqc_http_header_t *dst, xqc_http_header_t *src, xqc_v
 
     dst->value = src->value;
     dst->flags = src->flags;
+    dst->save_nv_hit_flags = src->save_nv_hit_flags;
+    dst->src_header = src;
 
     return XQC_OK;
 }
@@ -487,7 +592,6 @@ xqc_h3_request_send_headers(xqc_h3_request_t *h3_request, xqc_http_headers_t *he
                 sent = ret;
                 goto end;
             }
-
             headers_in->total_len +=
                 (headers->headers[pt].name.iov_len + headers->headers[pt].value.iov_len);
             pt++;
@@ -912,6 +1016,7 @@ xqc_h3_request_closing(xqc_h3_request_t *h3r, xqc_int_t err)
 
 #define XQC_PRIORITY_FEC ", f="
 #define XQC_PRIORITY_FEC_LEN 4
+#define XQC_PRIORITY_FEC_VAL_LEN 8
 
 void
 xqc_h3_priority_init(xqc_h3_priority_t *prio)
@@ -928,12 +1033,13 @@ xqc_write_http_priority(xqc_h3_priority_t *prio,
     uint8_t *dst, size_t dstcap)
 {
     uint8_t *begin = dst;
+    char *fec_str = xqc_calloc(1, XQC_PRIORITY_FEC_VAL_LEN);
 
     size_t need = XQC_PRIORITY_URGENCY_LEN + 1
                 + XQC_PRIORITY_INCREMENTAL_LEN
                 + XQC_PRIORITY_SCHEDULE_LEN + 1
                 + XQC_PRIORITY_REINJECT_LEN + 1
-                + XQC_PRIORITY_FEC_LEN + 4;
+                + XQC_PRIORITY_FEC_LEN + XQC_PRIORITY_FEC_VAL_LEN;
     if (need > dstcap) {
         return -XQC_H3_BUFFER_EXCEED;
     }
@@ -954,12 +1060,15 @@ xqc_write_http_priority(xqc_h3_priority_t *prio,
     xqc_memcpy(dst, XQC_PRIORITY_REINJECT, XQC_PRIORITY_REINJECT_LEN);
     dst += XQC_PRIORITY_REINJECT_LEN;
     *dst++ = '0' + prio->reinject;
-#ifdef XQC_ENABLE_FEC
+
     xqc_memcpy(dst, XQC_PRIORITY_FEC, XQC_PRIORITY_FEC_LEN);
     dst += XQC_PRIORITY_FEC_LEN;
-    xqc_memcpy(dst, &prio->fec, 4);
-    dst += 4;
-#endif
+    xqc_int_2_str(fec_str, prio->fec, XQC_PRIORITY_FEC_VAL_LEN);
+    xqc_memcpy(dst, fec_str, XQC_PRIORITY_FEC_VAL_LEN);
+    dst += XQC_PRIORITY_FEC_VAL_LEN;
+
+    xqc_free(fec_str);
+
     return dst - begin;
 }
 
@@ -984,7 +1093,7 @@ xqc_parse_http_priority(xqc_h3_priority_t *dst,
 
         if (strncmp(p, "u=", xqc_lengthof("u=")) == 0) {
             p += xqc_lengthof("u=");
-            prio.urgency = strtoul(p, NULL, 10);
+            prio.urgency = strtoul(p, NULL, XQC_DECIMAL);
 
         } else if (strncmp(p, "i", xqc_lengthof("i")) == 0) {
             v = strchr(p, '=');
@@ -996,7 +1105,7 @@ xqc_parse_http_priority(xqc_h3_priority_t *dst,
 
             } else if (strncmp(p, "i=?", xqc_lengthof("i=?")) == 0) {
                 p += xqc_lengthof("i=?");
-                prio.incremental = strtoul(p, NULL, 10);
+                prio.incremental = strtoul(p, NULL, XQC_DECIMAL);
 
             } else {
                 return -XQC_H3_INVALID_PRIORITY;
@@ -1004,15 +1113,20 @@ xqc_parse_http_priority(xqc_h3_priority_t *dst,
 
         } else if (strncmp(p, "s=", xqc_lengthof("s=")) == 0) {
             p += xqc_lengthof("s=");
-            prio.schedule = strtoul(p, NULL, 10);
+            prio.schedule = strtoul(p, NULL, XQC_DECIMAL);
 
         } else if (strncmp(p, "r=", xqc_lengthof("r=")) == 0) {
             p += xqc_lengthof("r=");
-            prio.reinject = strtoul(p, NULL, 10);
+            prio.reinject = strtoul(p, NULL, XQC_DECIMAL);
 
         } else if (strncmp(p, "f=", xqc_lengthof("f=")) == 0) {
             p += xqc_lengthof("f=");
-            prio.fec = *p | *(p + 1) << 8 | *(p + 2) << 16 | *(p + 3) << 24;
+            // when encounter invalid priority length, set prio.fec to close stats
+            if (p + XQC_PRIORITY_FEC_VAL_LEN > e) {
+                prio.fec = XQC_FEC_CLOSE;
+                goto end;
+            }
+            prio.fec = strtoul(p, NULL, XQC_DECIMAL);
         }
 
         p = strchr(p, ',');

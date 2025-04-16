@@ -21,6 +21,10 @@
 /* ack_delay_exponent above 20 is invalid */
 #define XQC_MAX_ACK_DELAY_EXPONENT          20
 
+/* draft-smith-quic-receive-ts-01: receive_timestamps_exponent above 20 is invalid */
+#define XQC_MAX_RECEIVE_TIMESTAMPS_EXPONENT     20
+#define XQC_MAX_RECEIVE_TIMESTAMPS_PER_ACK      63
+
 static inline uint16_t
 xqc_get_uint16(const uint8_t *p)
 {
@@ -166,6 +170,12 @@ xqc_transport_params_calc_length(const xqc_transport_params_t *params,
         }
     }
 
+    if (params->enable_pmtud > 0) {
+        len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_PMTUD_OPTIONS) +
+               xqc_put_varint_len(xqc_put_varint_len(params->enable_pmtud)) +
+               xqc_put_varint_len(params->enable_pmtud);
+    }
+
     if (params->close_dgram_redundancy == XQC_RED_SET_CLOSE) {
         len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_CLOSE_DGRAM_REDUNDANCY) +
                xqc_put_varint_len(xqc_put_varint_len(params->close_dgram_redundancy)) +
@@ -212,6 +222,22 @@ xqc_transport_params_calc_length(const xqc_transport_params_t *params,
                xqc_put_varint_len(preferred_fec_paramslen) + preferred_fec_paramslen;
     }
 #endif
+
+    if (params->extended_ack_features) {
+        len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_EXTENDED_ACK_FEATURES) +
+               xqc_put_varint_len(xqc_put_varint_len(params->extended_ack_features)) +
+               xqc_put_varint_len(params->extended_ack_features);
+        if (params->max_receive_timestamps_per_ack) {
+            len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_MAX_RECEIVE_TIMESTAMPS_PER_ACK) +
+                    xqc_put_varint_len(xqc_put_varint_len(params->max_receive_timestamps_per_ack)) +
+                    xqc_put_varint_len(params->max_receive_timestamps_per_ack);
+        }
+        if (params->receive_timestamps_exponent) {
+            len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_RECEIVE_TIMESTAMPS_EXPONENT) +
+                    xqc_put_varint_len(xqc_put_varint_len(params->receive_timestamps_exponent)) +
+                    xqc_put_varint_len(params->receive_timestamps_exponent);
+        }
+    }
 
     if (params->max_datagram_frame_size) {
         len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_MAX_DATAGRAM_FRAME_SIZE) +
@@ -396,6 +422,10 @@ xqc_encode_transport_params(const xqc_transport_params_t *params,
         }
     }
 
+    if (params->enable_pmtud) {
+        p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_PMTUD_OPTIONS, params->enable_pmtud);
+    }
+
     if (params->close_dgram_redundancy == XQC_RED_SET_CLOSE) {
         p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_CLOSE_DGRAM_REDUNDANCY,
                                  params->close_dgram_redundancy);
@@ -453,6 +483,19 @@ xqc_encode_transport_params(const xqc_transport_params_t *params,
         }
     }
 #endif    
+
+    if (params->extended_ack_features) {
+        p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_EXTENDED_ACK_FEATURES,
+                                 params->extended_ack_features);
+        if (params->max_receive_timestamps_per_ack) {
+            p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_MAX_RECEIVE_TIMESTAMPS_PER_ACK,
+                                    params->max_receive_timestamps_per_ack);
+        }
+        if (params->receive_timestamps_exponent) {
+            p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_RECEIVE_TIMESTAMPS_EXPONENT,
+                                    params->receive_timestamps_exponent);
+        }
+    }
 
     if ((size_t)(p - out) != len) {
         return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
@@ -704,6 +747,13 @@ xqc_decode_enable_multipath(xqc_transport_params_t *params, xqc_transport_params
 }
 
 static xqc_int_t
+xqc_decode_enable_pmtud(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
+    const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
+{
+    XQC_DECODE_VINT_VALUE(&params->enable_pmtud, p, end);
+}
+
+static xqc_int_t
 xqc_decode_close_dgram_redundancy(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
     const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
 {
@@ -760,23 +810,19 @@ xqc_decode_encoder_schemes(xqc_transport_params_t *params, xqc_transport_params_
     schemes_len = curr_scheme = 0;
     vlen = xqc_vint_read(p, end, &schemes_len);
     
-    if (schemes_len < 0) {
+    if (schemes_len < 0 || schemes_len > XQC_FEC_MAX_SCHEME_NUM) {
         return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
     }
 
     params->fec_encoder_schemes_num = schemes_len;
     p += vlen;
 
-    for (i = 0; i < schemes_len && tmp_len < XQC_FEC_MAX_SCHEME_NUM; i++) {
+    for (i = 0; i < schemes_len; i++) {
         vlen = xqc_vint_read(p, end, &curr_scheme);
         if (xqc_set_fec_scheme(curr_scheme, &params->fec_encoder_schemes[tmp_len]) == XQC_OK) {
             tmp_len++;
         }
         p += vlen;
-    }
-
-    for (i; i < schemes_len; i++) {
-        p += xqc_vint_read(p, end, &curr_scheme);
     }
 
     params->enable_encode_fec = 1;
@@ -796,23 +842,19 @@ xqc_decode_decoder_schemes(xqc_transport_params_t *params, xqc_transport_params_
     schemes_len = curr_scheme = 0;
     vlen = xqc_vint_read(p, end, &schemes_len);
 
-    if (schemes_len < 0) {
+    if (schemes_len < 0 || schemes_len > XQC_FEC_MAX_SCHEME_NUM) {
         return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
     }
 
     params->fec_decoder_schemes_num = schemes_len;
     p += vlen;
 
-    for (i = 0; i < schemes_len && tmp_len < XQC_FEC_MAX_SCHEME_NUM; i++) {
+    for (i = 0; i < schemes_len; i++) {
         vlen = xqc_vint_read(p, end, &curr_scheme);
         if (xqc_set_fec_scheme(curr_scheme, &params->fec_decoder_schemes[tmp_len]) == XQC_OK) {
             tmp_len++;
         }
         p += vlen;
-    }
-
-    for (i; i < schemes_len; i++) {
-        p += xqc_vint_read(p, end, &curr_scheme);
     }
 
     params->enable_decode_fec = 1;
@@ -821,6 +863,35 @@ xqc_decode_decoder_schemes(xqc_transport_params_t *params, xqc_transport_params_
     return XQC_OK;
 }
 #endif
+
+static xqc_int_t xqc_decode_extended_ack_features(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
+    const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
+{
+    XQC_DECODE_VINT_VALUE(&params->extended_ack_features, p, end);
+}
+
+static xqc_int_t xqc_decode_max_receive_timestamps_per_ack(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
+    const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
+{
+    ssize_t nread = xqc_vint_read(p, end, &params->max_receive_timestamps_per_ack);
+    /* [TRANSPORT] Values above 20 are invalid */
+    if (nread < 0 || params->max_receive_timestamps_per_ack > XQC_MAX_RECEIVE_TIMESTAMPS_PER_ACK) {
+        return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+    }
+    return XQC_OK;
+}
+
+static xqc_int_t xqc_decode_receive_timestamps_exponent(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
+    const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
+{
+    size_t nread = xqc_vint_read(p, end, &params->receive_timestamps_exponent);
+    /* [TRANSPORT] Values above 20 are invalid */
+    if (nread < 0 || params->receive_timestamps_exponent > XQC_MAX_RECEIVE_TIMESTAMPS_EXPONENT) {
+        return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+    }
+    return XQC_OK;
+}
+
 static xqc_int_t
 xqc_decode_max_datagram_frame_size(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
     const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
@@ -828,6 +899,44 @@ xqc_decode_max_datagram_frame_size(xqc_transport_params_t *params, xqc_transport
     XQC_DECODE_VINT_VALUE(&params->max_datagram_frame_size, p, end);
 }
 
+typedef enum {
+    XQC_TP_DECODER_ORIGINAL_DEST_CONNECTION_ID = 0x0000,
+    XQC_TP_DECODER_MAX_IDLE_TIMEOUT                    ,
+    XQC_TP_DECODER_STATELESS_RESET_TOKEN               ,
+    XQC_TP_DECODER_MAX_UDP_PAYLOAD_SIZE                ,
+    XQC_TP_DECODER_INITIAL_MAX_DATA                    ,
+    XQC_TP_DECODER_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL  ,
+    XQC_TP_DECODER_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE ,
+    XQC_TP_DECODER_INITIAL_MAX_STREAM_DATA_UNI         ,
+    XQC_TP_DECODER_INITIAL_MAX_STREAMS_BIDI            ,
+    XQC_TP_DECODER_INITIAL_MAX_STREAMS_UNI             ,
+    XQC_TP_DECODER_ACK_DELAY_EXPONENT                  ,
+    XQC_TP_DECODER_MAX_ACK_DELAY                       ,
+    XQC_TP_DECODER_DISABLE_ACTIVE_MIGRATION            ,
+    XQC_TP_DECODER_PREFERRED_ADDRESS                   ,
+    XQC_TP_DECODER_ACTIVE_CONNECTION_ID_LIMIT          ,
+    XQC_TP_DECODER_INITIAL_SOURCE_CONNECTION_ID        ,
+    XQC_TP_DECODER_RETRY_SOURCE_CONNECTION_ID          ,
+
+    XQC_TP_DECODER_ENABLE_MULTIPATH                    ,
+    XQC_TP_DECODER_MAX_DATAGRAM_FRAME_SIZE             ,
+    
+    /* whether enable datagram reduncy */
+    XQC_TP_DECODER_CLOSE_DGRAM_REDUNDANCY              ,
+#ifdef XQC_ENABLE_FEC
+    /* fec attributes' parser */
+    XQC_TP_DECODER_FEC_VERSION_PARSER                  ,
+    XQC_TP_DECODER_FEC_ENCODER_SCHEMES_PARSER          ,
+    XQC_TP_DECODER_FEC_DECODER_SCHEMES_PARSER          ,
+    XQC_TP_DECODER_FEC_MAX_SYMBOL_NUM_PARSER           ,
+#endif
+    XQC_TP_EXTENDED_ACK_FEATURES_PARSER                ,
+    XQC_TP_MAX_RECEIVE_TIMESTAMPS_PER_ACK_PARSER       ,
+    XQC_TP_RECEIVE_TIMESTAMPS_EXPONENT_PARSER          ,
+    XQC_TP_DECODER_NO_CRYPTO                           ,
+    XQC_TP_DECODER_PMTUD_OPTIONS                       ,
+    XQC_TP_DECODER_UNKNOWN                             
+} xqc_tp_decoder_index_t;
 
 /* decode value from p, and store value in the input params */
 typedef xqc_int_t (*xqc_trans_param_decode_func)(
@@ -861,7 +970,11 @@ xqc_trans_param_decode_func xqc_trans_param_decode_func_list[] = {
     xqc_decode_decoder_schemes,
     xqc_decode_fec_max_symbols_num,
 #endif
+    xqc_decode_extended_ack_features,
+    xqc_decode_max_receive_timestamps_per_ack,
+    xqc_decode_receive_timestamps_exponent,
     xqc_decode_no_crypto,
+    xqc_decode_enable_pmtud,
 };
 
 
@@ -888,41 +1001,53 @@ xqc_trans_param_get_index(uint64_t param_type)
     case XQC_TRANSPORT_PARAM_ACTIVE_CONNECTION_ID_LIMIT:
     case XQC_TRANSPORT_PARAM_INITIAL_SOURCE_CONNECTION_ID:
     case XQC_TRANSPORT_PARAM_RETRY_SOURCE_CONNECTION_ID:
-        return param_type;
+        return (xqc_tp_decoder_index_t)param_type;
     
     case XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V10:
-        return XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_PARSER;
+        return XQC_TP_DECODER_ENABLE_MULTIPATH;
 
     case XQC_TRANSPORT_PARAM_MAX_DATAGRAM_FRAME_SIZE:
-        return XQC_TRANSPORT_PARAM_MAX_DATAGRAM_FRAME_SIZE_PARSER;
+        return XQC_TP_DECODER_MAX_DATAGRAM_FRAME_SIZE;
     
     case XQC_TRANSPORT_PARAM_CLOSE_DGRAM_REDUNDANCY:
-        return param_type;
+        return XQC_TP_DECODER_CLOSE_DGRAM_REDUNDANCY;
 
 #ifdef XQC_ENABLE_FEC
     case XQC_TRANSPORT_PARAM_FEC_VERSION:
     case XQC_TRANSPORT_PARAM_FEC_VERSION_02:
-        return XQC_TRANSPORT_PARAM_FEC_VERSION_PARSER;
+        return XQC_TP_DECODER_FEC_VERSION_PARSER;
 
     case XQC_TRANSPORT_PARAM_FEC_ENCODER_SCHEMES:
-        return XQC_TRANSPORT_PARAM_FEC_ENCODER_SCHEMES_PARSER;
+        return XQC_TP_DECODER_FEC_ENCODER_SCHEMES_PARSER;
 
     case XQC_TRANSPORT_PARAM_FEC_DECODER_SCHEMES:
-        return XQC_TRANSPORT_PARAM_FEC_DECODER_SCHEMES_PARSER;
+        return XQC_TP_DECODER_FEC_DECODER_SCHEMES_PARSER;
 
     case XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_NUM:
-        return XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_NUM_PARSER;
+        return XQC_TP_DECODER_FEC_MAX_SYMBOL_NUM_PARSER;
 
 #endif
 
+    case XQC_TRANSPORT_PARAM_EXTENDED_ACK_FEATURES:
+        return XQC_TP_EXTENDED_ACK_FEATURES_PARSER;
+    
+    case XQC_TRANSPORT_PARAM_MAX_RECEIVE_TIMESTAMPS_PER_ACK:
+        return XQC_TP_MAX_RECEIVE_TIMESTAMPS_PER_ACK_PARSER;
+    
+    case XQC_TRANSPORT_PARAM_RECEIVE_TIMESTAMPS_EXPONENT:
+        return XQC_TP_RECEIVE_TIMESTAMPS_EXPONENT_PARSER;
+
     case XQC_TRANSPORT_PARAM_NO_CRYPTO:
-        return XQC_TRANSPORT_PARAM_PROTOCOL_MAX;
+        return XQC_TP_DECODER_NO_CRYPTO;
+
+    case XQC_TRANSPORT_PARAM_PMTUD_OPTIONS:
+        return XQC_TP_DECODER_PMTUD_OPTIONS;
 
     default:
         break;
     }
 
-    return XQC_TRANSPORT_PARAM_UNKNOWN; 
+    return XQC_TP_DECODER_UNKNOWN; 
 }
 
 
@@ -956,7 +1081,7 @@ xqc_decode_one_transport_param(xqc_transport_params_t *params,
      * for example, disable_active_migration. 
      */
     uint64_t param_index = xqc_trans_param_get_index(param_type);
-    if (param_index != XQC_TRANSPORT_PARAM_UNKNOWN) {
+    if (param_index != XQC_TP_DECODER_UNKNOWN) {
         xqc_int_t ret = xqc_trans_param_decode_func_list[param_index](params, exttype, p, end,
                                                                       param_type, param_len);
         if (ret < 0) {
@@ -1020,7 +1145,12 @@ xqc_decode_transport_params(xqc_transport_params_t *params,
     params->fec_encoder_schemes_num = 0;
     params->fec_decoder_schemes_num = 0;
 
+    params->extended_ack_features = 0;
+    params->max_receive_timestamps_per_ack = 0;
+    params->receive_timestamps_exponent = 0;
+
     params->close_dgram_redundancy = XQC_RED_NOT_USE;
+    params->enable_pmtud = 0;
 
     while (p < end) {
         ret = xqc_decode_one_transport_param(params, exttype, &p, end);
@@ -1051,43 +1181,43 @@ xqc_read_transport_params(char *tp_data, size_t tp_data_len, xqc_transport_param
                     xqc_lengthof("initial_max_streams_bidi=")) == 0)
         {
             p += xqc_lengthof("initial_max_streams_bidi=");
-            params->initial_max_streams_bidi = strtoul(p, NULL, 10);
+            params->initial_max_streams_bidi = strtoul(p, NULL, XQC_DECIMAL);
 
         } else if (strncmp(p, "initial_max_streams_uni=",
                            xqc_lengthof("initial_max_streams_uni=")) == 0)
         {
             p += xqc_lengthof("initial_max_streams_uni=");
-            params->initial_max_streams_uni = strtoul(p, NULL, 10);
+            params->initial_max_streams_uni = strtoul(p, NULL, XQC_DECIMAL);
 
         } else if (strncmp(p, "initial_max_stream_data_bidi_local=",
                            xqc_lengthof("initial_max_stream_data_bidi_local=")) == 0)
         {
             p += xqc_lengthof("initial_max_stream_data_bidi_local=");
-            params->initial_max_stream_data_bidi_local = strtoul(p, NULL, 10);
+            params->initial_max_stream_data_bidi_local = strtoul(p, NULL, XQC_DECIMAL);
 
         } else if (strncmp(p, "initial_max_stream_data_bidi_remote=",
                            xqc_lengthof("initial_max_stream_data_bidi_remote=")) == 0)
         {
             p += xqc_lengthof("initial_max_stream_data_bidi_remote=");
-            params->initial_max_stream_data_bidi_remote = strtoul(p, NULL, 10);
+            params->initial_max_stream_data_bidi_remote = strtoul(p, NULL, XQC_DECIMAL);
 
         } else if (strncmp(p, "initial_max_stream_data_uni=",
                            xqc_lengthof("initial_max_stream_data_uni=")) == 0)
         {
             p += xqc_lengthof("initial_max_stream_data_uni=");
-            params->initial_max_stream_data_uni = strtoul(p, NULL, 10);
+            params->initial_max_stream_data_uni = strtoul(p, NULL, XQC_DECIMAL);
 
         } else if (strncmp(p, "initial_max_data=", xqc_lengthof("initial_max_data=")) == 0) {
             p += xqc_lengthof("initial_max_data=");
-            params->initial_max_data = strtoul(p, NULL, 10);
+            params->initial_max_data = strtoul(p, NULL, XQC_DECIMAL);
 
         } else if (strncmp(p, "max_ack_delay=", xqc_lengthof("max_ack_delay=")) == 0) {
             p += xqc_lengthof("max_ack_delay=");
-            params->max_ack_delay = strtoul(p, NULL, 10);
+            params->max_ack_delay = strtoul(p, NULL, XQC_DECIMAL);
 
         } else if (strncmp(p, "max_datagram_frame_size=", xqc_lengthof("max_datagram_frame_size=")) == 0) {
             p += xqc_lengthof("max_datagram_frame_size=");
-            params->max_datagram_frame_size = strtoul(p, NULL, 10);
+            params->max_datagram_frame_size = strtoul(p, NULL, XQC_DECIMAL);
         }
 
         p = strchr(p, '\n');

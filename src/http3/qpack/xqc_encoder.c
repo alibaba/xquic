@@ -682,6 +682,10 @@ xqc_encoder_prepare(xqc_encoder_t *enc, xqc_http_headers_t *hdrs, xqc_field_sect
         xqc_hdr_enc_rule_t *info = &fs->reps[i];
         info->hdr = hdr;
 
+        if (hdr->save_nv_hit_flags && hdr->src_header) {
+            hdr->src_header->nv_hit_flags = 0;
+        }
+
         /*
          * if XQC_HTTP_HEADER_FLAG_NEVER_INDEX is set, header will be sent as Literal Filed Line
          * With Literal Name, regardless of lookup or insertion operation with stable and dtable
@@ -744,6 +748,11 @@ xqc_encoder_prepare(xqc_encoder_t *enc, xqc_http_headers_t *hdrs, xqc_field_sect
             && fs->rqrd_insert_cnt < info->index + 1)
         {
             fs->rqrd_insert_cnt = info->index + 1;
+        }
+
+        if (hdr->save_nv_hit_flags && info->ref != XQC_NV_ERROR
+            && hdr->src_header) {
+            hdr->src_header->nv_hit_flags = info->ref;
         }
     }
 

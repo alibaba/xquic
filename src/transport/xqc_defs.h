@@ -70,4 +70,5 @@ extern const unsigned char  xqc_proto_version_field[][XQC_PROTO_VERSION_LEN];
 
 #define XQC_MAX_MT_ROW                          256
 
+#define XQC_RSM_COL                             48
 #endif

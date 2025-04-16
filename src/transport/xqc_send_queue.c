@@ -136,8 +136,12 @@ xqc_send_queue_get_packet_out_for_stream(xqc_send_queue_t *send_queue, unsigned 
 {
     xqc_packet_out_t *packet_out;
     xqc_list_head_t  *pos;
+    xqc_list_head_t  *list = &send_queue->sndq_send_packets;
+    if (stream->stream_priority == XQC_STREAM_PRI_HIGH) {
+        list = &send_queue->sndq_send_packets_high_pri;
+    }
 
-    xqc_list_for_each_reverse(pos, &send_queue->sndq_send_packets) {
+    xqc_list_for_each_reverse(pos, list) {
         packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
         if (packet_out->po_pkt.pkt_type == pkt_type
             && xqc_get_po_remained_size(packet_out) >= need
@@ -157,6 +161,10 @@ xqc_send_queue_get_packet_out_for_stream(xqc_send_queue_t *send_queue, unsigned 
     packet_out = xqc_packet_out_get_and_insert_send(send_queue, pkt_type);
     if (packet_out == NULL) {
         return NULL;
+    }
+    
+    if (stream->stream_priority == XQC_STREAM_PRI_HIGH) {
+        xqc_send_queue_move_to_high_pri(&packet_out->po_list, send_queue);
     }
 
     if (pkt_type == XQC_PTYPE_0RTT) {
@@ -289,7 +297,7 @@ xqc_send_queue_insert_unacked(xqc_packet_out_t *packet_out, xqc_list_head_t *hea
                         "|sndq unack packets exceed|sndq_packets_in_unacked_list:%ui|",
                         send_queue->sndq_packets_in_unacked_list); 
             }
-        }  
+        } 
     }
 }
 
@@ -575,6 +583,7 @@ void xqc_send_queue_drop_initial_packets(xqc_connection_t *conn)
     xqc_send_queue_t *send_queue = conn->conn_send_queue;
     xqc_send_queue_drop_packets_with_type(send_ctl, send_queue, XQC_PTYPE_INIT);
     xqc_send_ctl_on_pns_discard(send_ctl, XQC_PNS_INIT);
+    conn->max_acked_po_size = XQC_QUIC_MIN_MSS;
 }
 
 

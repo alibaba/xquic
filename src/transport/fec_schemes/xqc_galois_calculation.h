@@ -129,7 +129,7 @@ xqc_int_t xqc_galois_divide(unsigned char a, unsigned char b, unsigned char *res
 
 
 void xqc_build_vandermonde_matrix(unsigned char rows, unsigned char cols,
-    unsigned char (*Vandermonde)[XQC_MAX_MT_ROW]);
+    unsigned char (*Vandermonde)[XQC_RSM_COL]);
 
 void xqc_submatrix(int row_min, int row_max,
     int col_min, int col_max,
@@ -137,25 +137,26 @@ void xqc_submatrix(int row_min, int row_max,
     unsigned char *submatrix, unsigned char *matrix);
 
 xqc_int_t xqc_matrix_time(unsigned char left_row, unsigned char left_col,
-    unsigned char (*left)[XQC_MAX_MT_ROW],
+    unsigned char (*left)[XQC_RSM_COL],
     unsigned char right_row, unsigned char right_col,
-    unsigned char (*right)[XQC_MAX_MT_ROW],
+    unsigned char (*right)[XQC_RSM_COL],
     unsigned char output_row, unsigned char output_col,
-    unsigned char (*output)[XQC_MAX_MT_ROW]);
+    unsigned char (*output)[XQC_RSM_COL]);
 
 
-xqc_int_t xqc_identity_matrix(unsigned char size, unsigned char (*output)[XQC_MAX_MT_ROW]);
+xqc_int_t xqc_identity_matrix(unsigned char size, int output_col, unsigned char (*output)[XQC_RSM_COL]);
 
-xqc_int_t xqc_concatenate_matrix(unsigned char (*left)[XQC_MAX_MT_ROW], unsigned char (*right)[XQC_MAX_MT_ROW],
-    unsigned char left_rows, unsigned char right_rows,
+xqc_int_t
+xqc_concatenate_matrix(unsigned char left_rows, unsigned char right_rows,
     unsigned char left_cols, unsigned char right_cols,
-    unsigned char (*output)[2*XQC_MAX_MT_ROW]);
+    unsigned char (*left)[XQC_RSM_COL], unsigned char (*right)[XQC_RSM_COL],
+    unsigned char (*output)[2 * XQC_RSM_COL]);
 
 
 xqc_int_t xqc_gaussian_elimination(unsigned char rows, unsigned char cols,
-    unsigned char (*output)[2*XQC_MAX_MT_ROW]);
+    unsigned char (*output)[2 * XQC_RSM_COL]);
 
-xqc_int_t xqc_invert_matrix(unsigned char rows, unsigned char cols, unsigned char (*output)[XQC_MAX_MT_ROW]);
+xqc_int_t xqc_invert_matrix(unsigned char rows, unsigned char cols, unsigned char (*output)[XQC_RSM_COL]);
 
 
 #endif

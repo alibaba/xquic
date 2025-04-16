@@ -9,13 +9,25 @@
 #include "src/transport/xqc_fec.h"
 #include "src/transport/xqc_conn.h"
 
+const uint8_t *
+xqc_get_mask_tbl(xqc_connection_t *conn)
+{
+    if (conn->conn_settings.fec_params.fec_packet_mask_mode == XQC_FEC_BURST_TBL)
+    {
+        return xqc_bst_pm_tbl;
+    }
+    return xqc_rnd_pm_tbl;
+}
 
 void
 xqc_lookup_pkm(xqc_connection_t *conn, xqc_int_t src_symbol_num, xqc_int_t rpr_symbol_num, uint8_t *output)
 {
-    const uint8_t *table = xqc_rnd_pm_tbl, *mask_entry = NULL;
+    const uint8_t *table = NULL, *mask_entry = NULL;
     uint8_t increment, count;
     uint16_t tbl_len;
+
+    table = xqc_get_mask_tbl(conn);
+
     if (src_symbol_num > XQC_MAX_LOOKUP_MASK_SIZE) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|invalid symbol number for constant mask tbl|src num:%d|rpr num:%d", src_symbol_num, rpr_symbol_num);
         return;
@@ -148,6 +160,10 @@ xqc_pm_code_symbols(xqc_connection_t *conn, unsigned char *input, size_t in_size
     unsigned char pm_size, pm_offset, symbol_flag, *output_p = NULL, *pm_p = NULL, *rpr_key_p = NULL;
     xqc_int_t ret = XQC_OK;
 
+    if (fec_bm_mode >= XQC_BLOCK_MODE_LEN) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|invalid fec_bm_mode:%d|", fec_bm_mode);
+        return -XQC_EPARAM;
+    }
     src_syb_num = xqc_get_fec_blk_size(conn, fec_bm_mode);
     repair_num = conn->fec_ctl->fec_send_required_repair_num[fec_bm_mode];
     symbol_idx = conn->fec_ctl->fec_send_symbol_num[fec_bm_mode];
@@ -186,7 +202,7 @@ xqc_pm_code_symbols(xqc_connection_t *conn, unsigned char *input, size_t in_size
             if (ret == XQC_OK) {
                 // update repair key value with symbol flag
                 *(rpr_key_p + pm_offset) |= symbol_flag;
-                xqc_set_object_value(&conn->fec_ctl->fec_send_repair_key[fec_bm_mode][i], 1, rpr_key_p, pm_size);        
+                xqc_set_object_value(&conn->fec_ctl->fec_send_repair_key[fec_bm_mode][i], 1, rpr_key_p, pm_size);
             }
         }
     }
@@ -196,9 +212,7 @@ xqc_pm_code_symbols(xqc_connection_t *conn, unsigned char *input, size_t in_size
 /**
  * TODOfec: maybe need a function to update block size/ code rate, 
  *          for packet mask can be changed according to network conditions;
- */ 
-
-
+ */
 
 xqc_int_t
 xqc_packet_mask_encode(xqc_connection_t *conn, unsigned char *stream, size_t st_size, unsigned char **outputs,

@@ -27,7 +27,7 @@
 #define XQC_COPA_MAX_DELTA             (1.0)
 #define XQC_COPA_INF_U64               (~0ULL)
 #define XQC_COPA_INIT_VELOCITY         (1.0)
-#define XQC_COPA_MAX_RATE              (1.0 * (~0ULL))
+#define XQC_COPA_MAX_RATE              (1.8E19)
 #define XQC_COPA_USEC2SEC              (1000000)
 #define XQC_COPA_DEFAULT_DELTA_AI_UNIT (1.0)
 

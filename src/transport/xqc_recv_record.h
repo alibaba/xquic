@@ -37,6 +37,7 @@ typedef struct xqc_ack_info_s {
     unsigned                n_ranges;  /* must > 0 */
     xqc_pktno_range_t       ranges[XQC_MAX_ACK_RANGE_CNT];
     xqc_usec_t              ack_delay;
+    xqc_packet_number_t     largest_acked;
 } xqc_ack_info_t;
 
 typedef struct xqc_ack_sent_entry_s {

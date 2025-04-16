@@ -97,7 +97,7 @@ xqc_submatrix(int row_min, int row_max,
 
 void
 xqc_build_vandermonde_matrix(unsigned char rows, unsigned char cols,
-    unsigned char (*Vandermonde)[XQC_MAX_MT_ROW])
+    unsigned char (*Vandermonde)[XQC_RSM_COL])
 {
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
@@ -110,10 +110,10 @@ xqc_build_vandermonde_matrix(unsigned char rows, unsigned char cols,
 
 /* Generate a identity matrix with given size */
 xqc_int_t
-xqc_identity_matrix(unsigned char size, unsigned char (*output)[XQC_MAX_MT_ROW])
+xqc_identity_matrix(unsigned char size, int output_col, unsigned char (*output)[XQC_RSM_COL])
 {
     for (int i = 0; i < size; i++) {
-        xqc_memset(output[i], 0, XQC_MAX_MT_ROW);
+        xqc_memset(output[i], 0, output_col);
         output[i][i] = 1;
     }
     return XQC_OK;
@@ -121,10 +121,10 @@ xqc_identity_matrix(unsigned char size, unsigned char (*output)[XQC_MAX_MT_ROW])
 
 /* concatenate 2 matrices horizontally */
 xqc_int_t
-xqc_concatenate_matrix(unsigned char (*left)[XQC_MAX_MT_ROW], unsigned char (*right)[XQC_MAX_MT_ROW],
-    unsigned char left_rows, unsigned char right_rows,
+xqc_concatenate_matrix(unsigned char left_rows, unsigned char right_rows,
     unsigned char left_cols, unsigned char right_cols,
-    unsigned char (*output)[2*XQC_MAX_MT_ROW])
+    unsigned char (*left)[XQC_RSM_COL], unsigned char (*right)[XQC_RSM_COL],
+    unsigned char (*output)[2 * XQC_RSM_COL])
 {
     if (left_rows != right_rows) {
         return -XQC_EPARAM;
@@ -144,7 +144,7 @@ xqc_concatenate_matrix(unsigned char (*left)[XQC_MAX_MT_ROW], unsigned char (*ri
 
 xqc_int_t
 xqc_gaussian_elimination(unsigned char rows, unsigned char cols,
-    unsigned char (*output)[2*XQC_MAX_MT_ROW])
+    unsigned char (*output)[2 * XQC_RSM_COL])
 {
     int row_i, col_i, max_row, i, tmp, inv, row_above;
     unsigned char ratio = 0;
@@ -193,18 +193,24 @@ xqc_gaussian_elimination(unsigned char rows, unsigned char cols,
 }
 
 xqc_int_t
-xqc_invert_matrix(unsigned char rows, unsigned char cols, unsigned char (*output)[XQC_MAX_MT_ROW])
+xqc_invert_matrix(unsigned char rows, unsigned char cols, unsigned char (*output)[XQC_RSM_COL])
 {
-    xqc_int_t ret;
     if (rows != cols) {
         return -XQC_EPARAM;
     }
-    unsigned char identity_matrix[XQC_MAX_MT_ROW][XQC_MAX_MT_ROW], tmp_matrix[XQC_MAX_MT_ROW][2 * XQC_MAX_MT_ROW];
-    if (xqc_identity_matrix(rows, identity_matrix) != XQC_OK) {
+
+    int id_mt_col, out_mt_col, tmp_mt_col;
+    xqc_int_t ret; 
+    unsigned char identity_matrix[XQC_RSM_COL][XQC_RSM_COL], tmp_matrix[XQC_RSM_COL][2 * XQC_RSM_COL];
+
+    id_mt_col = out_mt_col = XQC_RSM_COL;
+    tmp_mt_col = 2 * XQC_RSM_COL;
+
+    if (xqc_identity_matrix(rows, id_mt_col, identity_matrix) != XQC_OK) {
         return -XQC_EPARAM;
     }
 
-    if (xqc_concatenate_matrix(output, identity_matrix, rows, rows, cols, rows, tmp_matrix) != XQC_OK) {
+    if (xqc_concatenate_matrix(rows, rows, cols, rows, output, identity_matrix, tmp_matrix) != XQC_OK) {
         return -XQC_EPARAM;
     }
 
@@ -213,18 +219,18 @@ xqc_invert_matrix(unsigned char rows, unsigned char cols, unsigned char (*output
         return ret;
     }
 
-    xqc_submatrix(0, rows, cols, 2 * cols, 256, 512, &output[0][0], &tmp_matrix[0][0]);
+    xqc_submatrix(0, rows, cols, 2 * cols, out_mt_col, tmp_mt_col, &output[0][0], &tmp_matrix[0][0]);
     
     return XQC_OK;
 }
 
 xqc_int_t
 xqc_matrix_time(unsigned char left_row, unsigned char left_col,
-    unsigned char (*left)[XQC_MAX_MT_ROW],
+    unsigned char (*left)[XQC_RSM_COL],
     unsigned char right_row, unsigned char right_col,
-    unsigned char (*right)[XQC_MAX_MT_ROW],
+    unsigned char (*right)[XQC_RSM_COL],
     unsigned char output_row, unsigned char output_col,
-    unsigned char (*output)[XQC_MAX_MT_ROW])
+    unsigned char (*output)[XQC_RSM_COL])
 {
     unsigned char value = 0;
     if (left_col != right_row

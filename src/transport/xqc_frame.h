@@ -7,6 +7,14 @@
 
 #include <xquic/xquic_typedef.h>
 
+/*
+ * draft-smith-quic-receive-ts-01: 
+ *   enable ECN counts (if bit 0 is set in Features)
+ *   enable Receive Timestamps (if bit 1 is set in Features)
+ */
+#define XQC_ACK_EXT_FEATURE_BIT_ENC_COUNT 1
+#define XQC_ACK_EXT_FEATURE_BIT_RECV_TS   2
+
 typedef enum {
     XQC_FRAME_PADDING,
     XQC_FRAME_PING,
@@ -39,9 +47,9 @@ typedef enum {
     XQC_FRAME_PATH_FROZEN,
     XQC_FRAME_DATAGRAM,
     XQC_FRAME_Extension,
-    XQC_FRAME_NUM,
     XQC_FRAME_SID,
     XQC_FRAME_REPAIR_SYMBOL,
+    XQC_FRAME_NUM,
 } xqc_frame_type_t;
 
 typedef enum {
@@ -76,9 +84,9 @@ typedef enum {
     XQC_FRAME_BIT_PATH_FROZEN           = 1ULL << XQC_FRAME_PATH_FROZEN,
     XQC_FRAME_BIT_DATAGRAM              = 1ULL << XQC_FRAME_DATAGRAM,
     XQC_FRAME_BIT_Extension             = 1ULL << XQC_FRAME_Extension,
-    XQC_FRAME_BIT_NUM                   = 1ULL << XQC_FRAME_NUM,
     XQC_FRAME_BIT_SID                   = 1ULL << XQC_FRAME_SID,
     XQC_FRAME_BIT_REPAIR_SYMBOL         = 1ULL << XQC_FRAME_REPAIR_SYMBOL,
+    XQC_FRAME_BIT_NUM                   = 1ULL << XQC_FRAME_NUM,
 } xqc_frame_type_bit_t;
 
 
@@ -129,6 +137,9 @@ xqc_int_t xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *pack
 xqc_int_t xqc_process_crypto_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 xqc_int_t xqc_process_ack_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
+
+/* draft-smith-quic-receive-ts-01: QUIC Extended Acknowledgement for Reporting Packet Receive Timestamps */
+xqc_int_t xqc_process_ack_ext_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 xqc_int_t xqc_process_ping_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 

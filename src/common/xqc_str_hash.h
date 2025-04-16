@@ -19,7 +19,7 @@
  * 1000000 connections, the max conflict is 24
  */
 #define XQC_HASH_DEFAULT_CONFLICT_THRESHOLD     50
-/*10 second, log interval must not less then 10 second*/
+/* 10 second, log interval must not less then 10 second */
 #define XQC_HASH_CONFLICT_LOG_INTERVAL  10
 
 typedef struct xqc_str_hash_element_s {

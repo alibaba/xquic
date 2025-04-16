@@ -700,7 +700,10 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
             xqc_conn_increase_unacked_stream_ref(send_ctl->ctl_conn, packet_out);
         }
 
-        if (XQC_IS_ACK_ELICITING(packet_out->po_frame_types)) {
+        if (XQC_IS_ACK_ELICITING(packet_out->po_frame_types)
+            /* do not set loss detection timer for PMTUD probing */
+            && !(packet_out->po_flag & XQC_POF_PMTUD_PROBING)) 
+        {
             xqc_send_ctl_set_loss_detection_timer(send_ctl);
         }
 
@@ -792,7 +795,7 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
     xqc_pkt_num_space_t pns = ack_info->pns;
 
     /* 标记ack info里是否有这条路径发出的包 */
-    unsigned char has_acked = 0, update_largest_ack = 0;
+    unsigned char has_acked = 0, update_largest_ack = 0, ignore_rtt = 0;
     unsigned char has_ack_eliciting = 0, spurious_loss_detected = 0;
     xqc_packet_number_t frame_largest_ack = ack_info->ranges[0].high;
     xqc_packet_number_t spurious_loss_pktnum = 0;
@@ -856,8 +859,12 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
                 send_ctl->ctl_largest_acked[pns] == XQC_MAX_UINT64_VALUE)
 			{
                 update_largest_ack = 1;
+                ignore_rtt = 0;
                 send_ctl->ctl_largest_acked[pns] = packet_out->po_pkt.pkt_num;
                 send_ctl->ctl_largest_acked_sent_time[pns] = packet_out->po_sent_time;
+                if (packet_out->po_flag & XQC_POF_PMTUD_PROBING) {
+                    ignore_rtt = 1;
+                }
             }
 
             // 更新 largest_ack_both
@@ -895,6 +902,11 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
             }
 
             xqc_send_ctl_on_packet_acked(send_ctl, packet_out, ack_recv_time, 1);
+            
+            if (packet_out->po_used_size > conn->max_acked_po_size) {
+                conn->max_acked_po_size = packet_out->po_used_size + XQC_TLS_AEAD_OVERHEAD_MAX_LEN;
+            }
+            
 
             xqc_send_queue_maybe_remove_unacked(packet_out, send_queue, NULL);
 
@@ -913,10 +925,16 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
     }
 
     if (update_largest_ack && has_ack_eliciting && ack_on_same_path) {
-        /* 更新 ctl_latest_rtt */
-        send_ctl->ctl_latest_rtt = ack_recv_time - send_ctl->ctl_largest_acked_sent_time[pns];
-        /* 更新rtt */
-        xqc_send_ctl_update_rtt(send_ctl, &send_ctl->ctl_latest_rtt, ack_info->ack_delay);
+        if (!ignore_rtt) {
+            /* 更新 ctl_latest_rtt */
+            send_ctl->ctl_latest_rtt = ack_recv_time - send_ctl->ctl_largest_acked_sent_time[pns];
+            /* 更新rtt */
+            xqc_send_ctl_update_rtt(send_ctl, &send_ctl->ctl_latest_rtt, ack_info->ack_delay);
+
+        } else {
+            xqc_log(conn->log, XQC_LOG_DEBUG, "|ignore_rtt:%ui|", ack_recv_time - send_ctl->ctl_largest_acked_sent_time[pns]);
+        }
+
     }
 
     /* TODO: ECN */
@@ -1546,7 +1564,7 @@ xqc_send_ctl_on_packet_acked(xqc_send_ctl_t *send_ctl,
             }
         }
 
-        /* TODO: fix NEW_CID_RECEIVED */
+        
         if (packet_out->po_frame_types & (XQC_FRAME_BIT_NEW_CONNECTION_ID | XQC_FRAME_BIT_MP_NEW_CONNECTION_ID)) {
             xqc_cid_set_on_cid_acked(&conn->scid_set, packet_out->po_new_cid_path, packet_out->po_new_cid_seq);
         }

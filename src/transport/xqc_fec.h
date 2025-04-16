@@ -15,8 +15,10 @@
 // #include "src/transport/xqc_fec_scheme.h"
 #include "src/transport/xqc_transport_params.h"
 #include "src/common/xqc_str.h"
+#include "src/transport/xqc_stream.h"
 
 
+#define XQC_FEC_BLOCK_NUM               10
 #define XQC_FEC_ELE_BIT_SIZE_DEFAULT    8
 #define XQC_FEC_MAX_SYMBOL_NUM_TOTAL    256
 #define XQC_FEC_MAX_SYMBOL_PAYLOAD_ID   0xffffffff - XQC_FEC_MAX_SYMBOL_NUM_TOTAL
@@ -31,7 +33,7 @@
 #define XQC_MAX_SYMBOL_SIZE             XQC_MAX_PACKET_OUT_SIZE + XQC_ACK_SPACE - XQC_FEC_SPACE
 #define XQC_MAX_PM_SIZE                 288
 
-static const uint8_t fec_blk_size_v2[XQC_BLOCK_MODE_LEN] = {0, 0, 4, 5, 20};
+static const uint8_t fec_blk_size_v2[XQC_BLOCK_MODE_LEN] = {0, 0, 4, 10, 20};
 typedef struct xqc_fec_object_s {
     size_t                       payload_size;
     xqc_int_t                    is_valid;
@@ -46,6 +48,7 @@ typedef struct xqc_fec_src_syb_s {
     xqc_list_head_t              fec_list;
     xqc_int_t                    block_id;
     xqc_int_t                    symbol_idx;
+    xqc_stream_id_t              stream_id;
 } xqc_fec_src_syb_t;
 
 typedef struct xqc_fec_rpr_syb_s {
@@ -57,6 +60,7 @@ typedef struct xqc_fec_rpr_syb_s {
     xqc_list_head_t              fec_list;
     xqc_int_t                    block_id;
     xqc_int_t                    symbol_idx;
+    xqc_usec_t                   recv_time;
 } xqc_fec_rpr_syb_t;
 
 typedef struct xqc_fec_payload_s {
@@ -89,7 +93,9 @@ typedef struct xqc_fec_ctl_s {
     uint32_t                     fec_recover_failed_cnt;
     uint32_t                     fec_recv_repair_num_total;
     uint32_t                     fec_send_repair_num_total;
+    uint32_t                     fec_send_ahead;
     xqc_int_t                    fec_max_fin_blk_id;
+    xqc_stream_id_t              latest_stream_id[XQC_FEC_BLOCK_NUM];
 
     xqc_fec_mp_mode_e            fec_mp_mode;
     uint64_t                     fec_rep_path_id;
@@ -101,7 +107,7 @@ typedef struct xqc_fec_ctl_s {
     xqc_fec_object_t             fec_send_repair_key[XQC_BLOCK_MODE_LEN][XQC_REPAIR_LEN];
     xqc_fec_object_t             fec_send_repair_symbols_buff[XQC_BLOCK_MODE_LEN][XQC_REPAIR_LEN];
     uint8_t                      fec_send_decode_matrix[XQC_BLOCK_MODE_LEN][XQC_REPAIR_LEN][XQC_MAX_RPR_KEY_SIZE];
-    unsigned char                decode_matrix[XQC_MAX_MT_ROW][XQC_MAX_MT_ROW];
+    unsigned char                decode_matrix[2 * XQC_RSM_COL][XQC_RSM_COL];
 
     // FEC 2.0 params
     xqc_list_head_t              fec_free_src_list;
@@ -112,6 +118,10 @@ typedef struct xqc_fec_ctl_s {
     xqc_int_t                    fec_src_syb_num;
     xqc_int_t                    fec_rpr_syb_num;
     xqc_fec_object_t             fec_gen_repair_symbols_buff[XQC_REPAIR_LEN];
+
+    xqc_int_t                    fec_enable_stream_num;         /* number of stream that enables fec */
+    xqc_msec_t                   conn_avg_recv_delay;         /* fec averaged one way receive delay time */
+    xqc_msec_t                   fec_avg_opt_time;         /* fec averaged one way receive delay time */
 } xqc_fec_ctl_t;
 
 xqc_int_t xqc_set_fec_scheme(uint64_t in, xqc_fec_schemes_e *out);
@@ -154,7 +164,7 @@ unsigned char *xqc_get_fec_mp_mode_str(xqc_fec_ctl_t *fec_ctl);
 
 xqc_int_t xqc_negotiate_fec_schemes(xqc_connection_t *conn, xqc_transport_params_t params);
 
-xqc_int_t xqc_process_fec_protected_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_bool_t *if_add_repair);
+xqc_int_t xqc_process_fec_protected_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
 
 void xqc_set_object_value(xqc_fec_object_t *object, xqc_int_t is_valid,
     unsigned char *payload, size_t size);
@@ -171,9 +181,9 @@ xqc_int_t xqc_get_symbols_buff(unsigned char **output, xqc_fec_ctl_t *fec_ctl, u
 
 xqc_fec_rpr_syb_t *xqc_get_rpr_symbol(xqc_list_head_t *head, uint64_t block_id, uint64_t symbol_id);
 
-xqc_int_t xqc_cnt_blk_num(xqc_fec_ctl_t *fec_ctl);
-xqc_int_t xqc_cnt_symbols_num(xqc_fec_ctl_t *fec_ctl, uint64_t block_id);
+
 xqc_int_t xqc_cnt_src_symbols_num(xqc_fec_ctl_t *fec_ctl, uint64_t block_id);
+
 xqc_int_t xqc_cnt_rpr_symbols_num(xqc_fec_ctl_t *fec_ctl, uint64_t block_id);
 
 xqc_int_t xqc_get_symbol_flag(xqc_connection_t *conn, uint64_t block_id);
@@ -200,4 +210,14 @@ void xqc_set_fec_blk_size(xqc_connection_t *conn, xqc_transport_params_t params)
 uint8_t xqc_get_fec_blk_size(xqc_connection_t *conn, uint8_t blk_md);
 
 void xqc_on_fec_negotiate_success(xqc_connection_t *conn, xqc_transport_params_t params);
+
+xqc_int_t xqc_send_repair_packets_ahead(xqc_connection_t *conn, xqc_list_head_t *prev, uint8_t fec_bm_mode);
+
+
+xqc_int_t xqc_send_repair_packets(xqc_connection_t *conn, xqc_fec_schemes_e scheme, xqc_list_head_t *prev,
+    uint8_t fec_bm_mode);
+
+xqc_int_t xqc_process_fec_protected_packet_moq(xqc_stream_t *stream);
+
+void xqc_fec_on_stream_size_changed(xqc_stream_t *quic_stream);
 #endif  /* _XQC_FEC_H_INCLUDED_ */

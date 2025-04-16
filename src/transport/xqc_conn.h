@@ -216,8 +216,15 @@ typedef struct {
     xqc_fec_schemes_e       fec_decoder_schemes[XQC_FEC_MAX_SCHEME_NUM];
     xqc_int_t               fec_encoder_schemes_num;
     xqc_int_t               fec_decoder_schemes_num;
+    
     xqc_dgram_red_setting_e close_dgram_redundancy;
     uint64_t                init_max_path_id;
+
+    uint64_t                extended_ack_features;
+    /* Currently, max_receive_timestamps_per_ack must be less than or equal to 63. */
+    uint64_t                max_receive_timestamps_per_ack;
+    uint64_t                receive_timestamps_exponent;
+    uint64_t                enable_pmtud;
 } xqc_trans_settings_t;
  
 
@@ -433,6 +440,7 @@ struct xqc_connection_s {
     size_t                          max_pkt_out_size;
     size_t                          probing_pkt_out_size;
     uint32_t                        probing_cnt;
+    size_t                          max_acked_po_size;
 
     /* pending ping notification */
     xqc_list_head_t                 ping_notification_list;
@@ -478,6 +486,13 @@ struct xqc_connection_s {
         uint8_t                     curr_index;
         uint32_t                    conn_sent_pkts;
     } snd_pkt_stats;
+
+    uint8_t                         enable_pmtud;
+    uint32_t                        burst_loss_cnt;
+    xqc_usec_t                      conn_avg_close_delay;
+    xqc_usec_t                      conn_avg_recv_delay;
+    xqc_usec_t                      conn_latest_close_delay;
+    uint32_t                        conn_video_frames;
 };
 
 extern const xqc_h3_conn_settings_t default_local_h3_conn_settings;
@@ -695,6 +710,7 @@ void xqc_path_send_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
 
 xqc_int_t xqc_conn_try_to_enable_multipath(xqc_connection_t *conn);
 xqc_int_t xqc_conn_add_path_cid_sets(xqc_connection_t *conn, uint32_t start, uint32_t end);
-
+xqc_msec_t xqc_conn_get_queue_fin_timeout(xqc_connection_t *conn);
+void xqc_conn_try_to_enable_pmtud(xqc_connection_t *conn);
 
 #endif /* _XQC_CONN_H_INCLUDED_ */

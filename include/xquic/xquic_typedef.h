@@ -198,12 +198,25 @@ typedef enum {
     XQC_STREAM_UNI  = 1
 } xqc_stream_direction_t;
 
+/**
+ * @brief FEC priority settings decided by h3 requests size
+ */
 typedef enum {
-    XQC_DEFAULT_SIZE_REQ    = 0,
-    XQC_SLIM_SIZE_REQ       = 1,
-    XQC_NORMAL_SIZE_REQ     = 2,
-    XQC_MIDDLE_SIZE_REQ     = 3,
-    XQC_LARGE_SIZE_REQ      = 4
+    XQC_FEC_DEFAULT         = 0,
+    XQC_FEC_CLOSE           = 2 * 1024,
+    XQC_FEC_NORMAL          = 4 * 1024,
+    XQC_FEC_MIDDLE          = 20 * 1024
+} xqc_fec_priority_t;
+
+/**
+ * @brief FEC inner priority types decided by xqc_fec_priority_t
+ */
+typedef enum {
+    XQC_DEFAULT_SIZE_REQ,
+    XQC_SLIM_SIZE_REQ,
+    XQC_NORMAL_SIZE_REQ,
+    XQC_MIDDLE_SIZE_REQ,
+    XQC_LARGE_SIZE_REQ
 } xqc_stream_size_type_t;
 
 #define XQC_DEFAULT_HTTP_PRIORITY_URGENCY 3
@@ -225,6 +238,9 @@ typedef struct xqc_http_priority_s {
 
 /* max alpn buffer length */
 #define XQC_MAX_ALPN_BUF_LEN    256
+
+#define XQC_MAX_FEC_BUF_LEN     64
+#define XQC_MAX_COMMON_BUF_LEN  64
 
 #define XQC_UNKNOWN_PATH_ID ((uint64_t)-1)
 

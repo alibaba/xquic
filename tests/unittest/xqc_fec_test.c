@@ -68,18 +68,39 @@ xqc_test_fec_negotiation()
 void
 xqc_test_write_repair_packet()
 {
+    uint8_t bm_mode;
     xqc_int_t ret;
     xqc_list_head_t *prev = NULL;
     xqc_connection_t *conn = test_engine_connect_fec();
 
-    ret = xqc_write_repair_packets(conn, 0, prev, 0, 0);
+    bm_mode = 0;
+
+    ret = xqc_write_repair_packets(conn, 0, prev, 0, bm_mode);
     CU_ASSERT(ret == XQC_OK);
 
     conn->conn_settings.fec_params.fec_max_symbol_num_per_block = 4;
     conn->conn_settings.fec_params.fec_code_rate = 1;
     conn->fec_ctl->fec_send_symbol_num[0] = 3;
-    ret = xqc_write_repair_packets(conn, 0, prev, 1, 0);
-    CU_ASSERT(ret == XQC_OK);
+    ret = xqc_write_repair_packets(conn, 0, prev, 1, bm_mode);
+    CU_ASSERT(ret == -XQC_EFEC_SCHEME_ERROR);
+
+    /** test repair packets number larger than maximun repair number */
+    conn->fec_ctl->fec_send_required_repair_num[bm_mode] = XQC_REPAIR_LEN + 1;
+    ret = xqc_send_repair_packets(conn, XQC_PACKET_MASK_CODE, prev, bm_mode);
+    CU_ASSERT(ret == -XQC_EFEC_SYMBOL_ERROR);
+
+    /** test repair packets number larger than source symbol number */
+    conn->fec_ctl->fec_send_symbol_num[bm_mode] = 1;
+    conn->fec_ctl->fec_send_required_repair_num[bm_mode] = conn->fec_ctl->fec_send_symbol_num[bm_mode] + 1;
+    ret = xqc_send_repair_packets(conn, XQC_PACKET_MASK_CODE, prev, bm_mode);
+    CU_ASSERT(ret == -XQC_EFEC_SYMBOL_ERROR);
+
+    /** test invalid scheme */
+    conn->fec_ctl->fec_send_symbol_num[bm_mode] = 4;
+    conn->fec_ctl->fec_send_required_repair_num[bm_mode] = 1;
+    ret = xqc_send_repair_packets(conn, 0, prev, bm_mode);
+    CU_ASSERT(ret == -XQC_EFEC_SCHEME_ERROR);
+
 
     xqc_engine_destroy(conn->engine);
 }
@@ -125,16 +146,24 @@ xqc_test_chk_fec_param()
     xqc_int_t ret;
     xqc_connection_t *conn = test_engine_connect_fec();
 
+    /** test invalid repair numbers */
     ret = xqc_check_fec_params(conn, XQC_FEC_MAX_SYMBOL_NUM_PBLOCK, XQC_REPAIR_LEN + 1, XQC_SYMBOL_CACHE_LEN, XQC_MAX_SYMBOL_SIZE);
     CU_ASSERT(ret == -XQC_EFEC_SCHEME_ERROR);
 
+    /** test too low repair number */
+    ret = xqc_check_fec_params(conn, XQC_FEC_MAX_SYMBOL_NUM_PBLOCK, 0, XQC_SYMBOL_CACHE_LEN, XQC_MAX_SYMBOL_SIZE);
+    CU_ASSERT(ret == -XQC_EFEC_SYMBOL_ERROR);
+
+    /** test invalid src symbol number */
     ret = xqc_check_fec_params(conn, XQC_FEC_MAX_SYMBOL_NUM_PBLOCK + 1, XQC_REPAIR_LEN, XQC_SYMBOL_CACHE_LEN, XQC_MAX_SYMBOL_SIZE);
     CU_ASSERT(ret == -XQC_EFEC_SYMBOL_ERROR);
 
+    /** test invalid symbol window */
     ret = xqc_check_fec_params(conn, XQC_FEC_MAX_SYMBOL_NUM_PBLOCK, XQC_REPAIR_LEN, XQC_SYMBOL_CACHE_LEN + 1, XQC_MAX_SYMBOL_SIZE);
     CU_ASSERT(ret == -XQC_EFEC_SYMBOL_ERROR);
 
-    ret = xqc_check_fec_params(conn, XQC_FEC_MAX_SYMBOL_NUM_PBLOCK, XQC_REPAIR_LEN, XQC_SYMBOL_CACHE_LEN + 1, XQC_MAX_SYMBOL_SIZE + 1);
+    /** test invalid symbol size */
+    ret = xqc_check_fec_params(conn, XQC_FEC_MAX_SYMBOL_NUM_PBLOCK, XQC_REPAIR_LEN, XQC_SYMBOL_CACHE_LEN, XQC_MAX_SYMBOL_SIZE + 1);
     CU_ASSERT(ret == -XQC_EFEC_SYMBOL_ERROR);
 
     xqc_engine_destroy(conn->engine);
@@ -156,6 +185,42 @@ xqc_test_encoder_chk_param()
 }
 
 void
+xqc_test_process_src_syb()
+{
+    uint8_t bm_mode;
+    xqc_int_t ret;
+    xqc_connection_t *conn = test_engine_connect_fec();
+    xqc_packet_out_t* packet_out = xqc_packet_out_create(XQC_QUIC_MAX_MSS);
+    
+    /** test invalid fec_params */
+    bm_mode = 0;
+    packet_out->po_stream_fec_blk_mode = bm_mode;
+    conn->fec_ctl->fec_send_required_repair_num[bm_mode] = 0;
+    ret = xqc_process_fec_protected_packet(conn, packet_out);
+    CU_ASSERT(ret == -XQC_EPARAM);
+
+    /** test invalid process of write sid frame */
+    conn->fec_ctl->fec_send_block_mode_size[bm_mode] = 4;
+    conn->fec_ctl->fec_send_required_repair_num[bm_mode] = 1;
+    conn->conn_settings.fec_params.fec_max_window_size = XQC_SYMBOL_CACHE_LEN;
+    packet_out->po_used_size = 1100;
+    packet_out->po_payload = packet_out->po_buf + 16;
+    packet_out->po_flag |= XQC_POF_STREAM_NO_LEN;
+    ret = xqc_process_fec_protected_packet(conn, packet_out);
+    CU_ASSERT(ret == XQC_OK);
+
+    /**  */
+    packet_out->po_flag &= ~XQC_POF_STREAM_NO_LEN;
+    conn->fec_ctl->fec_send_block_num[bm_mode] = XQC_FEC_MAX_BLOCK_NUM + 1;
+    packet_out->po_reserved_size = 12;
+    ret = xqc_process_fec_protected_packet(conn, packet_out);
+    CU_ASSERT(ret == -XQC_EFEC_SYMBOL_ERROR);
+
+    xqc_packet_out_destroy(packet_out);
+    xqc_engine_destroy(conn->engine);
+}
+
+void
 xqc_test_fec()
 {
     xqc_test_fec_scheme_setter();
@@ -164,4 +229,5 @@ xqc_test_fec()
     xqc_test_gen_fec_frames();
     xqc_test_chk_fec_param();
     xqc_test_encoder_chk_param();
+    xqc_test_process_src_syb();
 }

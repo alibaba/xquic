@@ -40,6 +40,7 @@
 #include "xqc_galois_test.h"
 #include "xqc_fec_scheme_test.h"
 #include "xqc_fec_test.h"
+#include "xqc_ack_with_timestamp_test.h"
 
 static int xqc_init_suite(void) { return 0; }
 static int xqc_clean_suite(void) { return 0; }
@@ -99,11 +100,12 @@ main()
         || !CU_add_test(pSuite, "xqc_test_retry", xqc_test_retry)
         || !CU_add_test(pSuite, "xqc_test_receive_invalid_dgram", xqc_test_receive_invalid_dgram)
         || !CU_add_test(pSuite, "xqc_test_h3_ext_frame", xqc_test_h3_ext_frame)
-#if ( defined XQC_ENABLE_FEC ) && ( defined XQC_ENABLE_PKM )
+#ifdef XQC_ENABLE_FEC
         || !CU_add_test(pSuite, "xqc_test_galois_calculation", xqc_test_galois_calculation)
         || !CU_add_test(pSuite, "xqc_test_fec_scheme", xqc_test_fec_scheme)
         || !CU_add_test(pSuite, "xqc_test_fec", xqc_test_fec)
 #endif
+        || !CU_add_test(pSuite, "xqc_test_ack_with_timestamp", xqc_test_ack_with_timestamp)
         /* ADD TESTS HERE */) 
     {
         CU_cleanup_registry();

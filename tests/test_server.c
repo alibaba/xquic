@@ -1367,6 +1367,7 @@ xqc_server_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
 
         for (int i = 0; i < headers->count; i++) {
             printf("%s = %s\n", (char *)headers->headers[i].name.iov_base, (char *)headers->headers[i].value.iov_base);
+
             if (headers->headers[i].name.iov_len == 8
                 && memcmp((char *)headers->headers[i].name.iov_base, "priority", 8) == 0) {
                 xqc_h3_priority_t h3_prio;
@@ -2465,7 +2466,7 @@ int main(int argc, char *argv[]) {
     };
 
     if (g_pmtud_on) {
-        conn_settings.enable_pmtud = 1;
+        conn_settings.enable_pmtud = 3;
     }
 
     if (g_test_case == 6) {
@@ -2511,8 +2512,8 @@ int main(int argc, char *argv[]) {
         fec_params.fec_encoder_schemes_num = 3;
         fec_params.fec_decoder_schemes_num = 3;
         fec_params.fec_max_window_size = 8;
-        fec_params.fec_code_rate = 0.1;
-        fec_params.fec_max_symbol_num_per_block = 39;
+        fec_params.fec_code_rate = 0.2;
+        fec_params.fec_max_symbol_num_per_block = 10;
         fec_params.fec_mp_mode = XQC_FEC_MP_USE_STB;
         conn_settings.fec_params = fec_params;
     }
@@ -2545,6 +2546,31 @@ int main(int argc, char *argv[]) {
     if (g_test_case == 211) {
         conn_settings.datagram_redundancy = 2;
         conn_settings.datagram_redundant_probe = 30000;
+    }
+
+    if (g_test_case == 450) {
+        conn_settings.extended_ack_features = 2;
+        conn_settings.max_receive_timestamps_per_ack = 45;
+        conn_settings.receive_timestamps_exponent = 0;
+    }
+
+    if (g_test_case == 451) {
+        conn_settings.extended_ack_features = 0;
+        conn_settings.max_receive_timestamps_per_ack = 40;
+        conn_settings.receive_timestamps_exponent = 0;
+    }
+
+    if (g_test_case == 452) {
+        conn_settings.extended_ack_features = 2;
+        /* negotiation fail test, because max_receive_timestamps_per_ack > 63 */
+        conn_settings.max_receive_timestamps_per_ack = 64;
+        conn_settings.receive_timestamps_exponent = 0;
+    }
+
+    if (g_test_case == 453) {
+        conn_settings.extended_ack_features = 2;
+        conn_settings.max_receive_timestamps_per_ack = 0;
+        conn_settings.receive_timestamps_exponent = 0;
     }
 
     xqc_config_t config;

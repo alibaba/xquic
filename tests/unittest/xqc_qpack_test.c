@@ -462,6 +462,7 @@ xqc_qpack_test_robust()
     xqc_http_header_t header_in[header_in_cnt];
     for (size_t i = 0; i < header_in_cnt; i++) {
         xqc_http_header_t *hdr = header_in + i;
+        hdr->src_header = NULL;
 
         size_t nlen = (random() & 255) + 1;
         hdr->name.iov_base = calloc(1, nlen + 1);

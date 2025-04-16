@@ -20,7 +20,7 @@
 
 char XQC_TEST_SID_FRAME[] = {0x80, 0x00, 0xfe, 0xc5, 0x00, 0x00, 0x00, 0x00};
 char XQC_TEST_RPR_FRAME[] = {0x80, 0x00, 0xfe, 0xc6, 0x00, 0x00, 0x00, 0x00};
-char XQC_TEST_STREAM[] = {0x01, 0x00, 0x00, 0x00, 0x00};
+char XQC_TEST_STREAM[] = {0x7f, 0x6e, 0x5d, 0x4c, 0x3b};
 char XQC_TEST_REPAIR_KEY[] = {0x00};
 
 
@@ -97,16 +97,42 @@ xqc_test_invalid_encoder_params()
     xqc_connection_t *conn = test_engine_connect_fec();
     CU_ASSERT(conn != NULL);
 
+    /** test invalid fec parameters */
+    conn->conn_settings.fec_params.fec_encoder_scheme = XQC_XOR_CODE;
     conn->conn_settings.fec_params.fec_max_symbol_num_per_block = 4;
-    conn->fec_ctl->fec_send_required_repair_num[0] = 8;
-    ret = xqc_check_fec_params(conn, conn->conn_settings.fec_params.fec_max_symbol_num_per_block,
-                               conn->fec_ctl->fec_send_required_repair_num[0], XQC_SYMBOL_CACHE_LEN, 5);
-    CU_ASSERT(ret == -XQC_EFEC_SCHEME_ERROR);
+    conn->fec_ctl->fec_send_required_repair_num[0] = 2;
+    /** invalid repair numbers for XOR scheme */
+    ret = xqc_fec_encoder(conn, XQC_TEST_STREAM, 5, 0);
+    CU_ASSERT(ret == -XQC_EPARAM);
 
+    /** invalid symbol size */
     conn->fec_ctl->fec_send_required_repair_num[0] = 1;
-    conn->conn_settings.fec_encode_callback.xqc_fec_encode = NULL;
+    ret = xqc_fec_encoder(conn, XQC_TEST_STREAM, XQC_MAX_SYMBOL_SIZE + 1, 0);
+    CU_ASSERT(ret == -XQC_EPARAM);
+    
+    /** test undefined fec encoder */
+    conn->conn_settings.fec_callback.xqc_fec_encode = NULL;
     ret = xqc_fec_encoder(conn, XQC_TEST_STREAM, 5, 0);
     CU_ASSERT(ret == -XQC_EFEC_SCHEME_ERROR);
+
+    /** test null repair symbols buffer */
+    conn->conn_settings.fec_callback = xqc_xor_code_cb;
+    conn->fec_ctl->fec_send_repair_symbols_buff[0][0].payload = NULL;
+    ret = xqc_fec_encoder(conn, XQC_TEST_STREAM, 5, 0);
+    CU_ASSERT(ret == -XQC_EMALLOC);
+
+    /** test fec encoder processing error */
+
+    conn->conn_settings.fec_callback = xqc_packet_mask_code_cb;
+    conn->fec_ctl->fec_send_symbol_num[0] = 16;
+    conn->fec_ctl->fec_send_repair_symbols_buff[0][0].payload = xqc_malloc(5);
+    conn->fec_ctl->fec_send_repair_symbols_buff[0][0].payload_size = 5;
+    conn->fec_ctl->fec_send_repair_symbols_buff[0][0].is_valid = 1;
+    ret = xqc_fec_encoder(conn, XQC_TEST_STREAM, 5, 0);
+    CU_ASSERT(ret == -XQC_EFEC_SCHEME_ERROR);
+    xqc_free(conn->fec_ctl->fec_send_repair_symbols_buff[0][0].payload);
+    xqc_set_object_value(&conn->fec_ctl->fec_send_repair_symbols_buff[0][0], 0, NULL,
+        5);
 
     xqc_engine_destroy(conn->engine);
 }
@@ -114,13 +140,14 @@ xqc_test_invalid_encoder_params()
 void
 xqc_test_invalid_decoder_params()
 {
-    xqc_int_t         ret, symbol_size;
-    xqc_list_head_t  *symbol_list;
-    xqc_connection_t *conn = test_engine_connect_fec();
-    xqc_fec_rpr_syb_t *rpr_symbol;
+    xqc_int_t           ret, symbol_size;
+    xqc_usec_t          now;
+    xqc_list_head_t    *symbol_list;
+    xqc_connection_t   *conn = test_engine_connect_fec();
+    xqc_fec_rpr_syb_t  *rpr_symbol;
 
     CU_ASSERT(conn != NULL);
-
+    now = xqc_monotonic_timestamp();;
     // when fec_recv_symbols_num is smaller than expected, should return error;
     // conn->remote_settings.fec_max_symbols_num = 3;
     // ret = xqc_fec_bc_decoder(conn, 0, 1);
@@ -129,12 +156,12 @@ xqc_test_invalid_decoder_params()
     // when fec_processed_blk_num overflow, it should process it properly;
     conn->remote_settings.fec_max_symbols_num = 0;
     conn->fec_ctl->fec_processed_blk_num = XQC_MAX_UINT32_VALUE;
-    ret = xqc_fec_bc_decoder(conn, 0, 0);
+    ret = xqc_fec_bc_decoder(conn, 0, 0, now);
     CU_ASSERT(ret == XQC_OK && conn->fec_ctl->fec_processed_blk_num == 0);
 
 
     // when decoder function is NULL, should return error;
-    conn->conn_settings.fec_decode_callback.xqc_fec_decode = NULL;
+    conn->conn_settings.fec_callback.xqc_fec_decode = NULL;
     conn->remote_settings.fec_max_symbols_num = 3;
     symbol_size = 5;
     symbol_list = &conn->fec_ctl->fec_recv_src_syb_list;
@@ -155,19 +182,84 @@ xqc_test_invalid_decoder_params()
         rpr_symbol = NULL;
         xqc_insert_rpr_symbol_by_seq(conn, symbol_list, &tmp_rpr_symbol, &conn->fec_ctl->fec_rpr_syb_num, &rpr_symbol);
     }
-    ret = xqc_fec_bc_decoder(conn, 0, 1);
+    ret = xqc_fec_bc_decoder(conn, 0, 1, now);
     CU_ASSERT(ret == -XQC_EFEC_SCHEME_ERROR);
 
 
     // when recovered_failed_cnt overflow, it should process it properly;
-    conn->conn_settings.fec_decode_callback.xqc_fec_decode = xqc_xor_decode;
+    conn->conn_settings.fec_callback.xqc_fec_decode = xqc_xor_decode;
     conn->fec_ctl->fec_recover_failed_cnt = XQC_MAX_UINT32_VALUE;
-    ret = xqc_fec_bc_decoder(conn, 0, 0);
+    ret = xqc_fec_bc_decoder(conn, 0, 0, now);
     CU_ASSERT(ret == XQC_OK);
 
     xqc_engine_destroy(conn->engine);
 }
 
+
+void
+xqc_test_init_repair_syb(xqc_fec_rpr_syb_t *symbol)
+{
+    symbol->block_id = 0;
+    symbol->symbol_idx = 0;
+    symbol->payload = NULL;
+    symbol->payload_size = 0;
+    symbol->repair_key = NULL;
+    symbol->recv_mask = NULL;
+    symbol->repair_key_size = 0;
+}
+
+void
+xqc_test_fec_decode()
+{
+    xqc_int_t           ret, loss_cnt;
+    xqc_connection_t   *conn = test_engine_connect_fec();
+    char* test_buffer;
+
+    /** test failed recover process */
+    ret = xqc_process_recovered_packet(conn, XQC_TEST_STREAM, 5, 0);
+    CU_ASSERT(ret == -XQC_EFEC_SCHEME_ERROR);
+
+
+    /** init repair symbol */
+    xqc_fec_rpr_syb_t symbol;
+    xqc_test_init_repair_syb(&symbol);
+
+    /** Following tests focus on fec_cc_decoder */
+    /** test invalid repair symbol size */
+    test_buffer = conn->fec_ctl->fec_gen_repair_symbols_buff[0].payload;
+    conn->fec_ctl->fec_gen_repair_symbols_buff[0].payload = NULL;
+    ret = xqc_fec_cc_decoder(conn, &symbol, 0);
+    CU_ASSERT(ret == -XQC_EFEC_SYMBOL_ERROR);
+
+    /** test invalid fec_decode_one */
+    conn->fec_ctl->fec_gen_repair_symbols_buff[0].payload = test_buffer;
+    symbol.payload = XQC_TEST_RPR_FRAME;
+    symbol.payload_size = 8;
+    conn->conn_settings.fec_callback.xqc_fec_decode_one = NULL;
+    ret = xqc_fec_cc_decoder(conn, &symbol, 0);
+    CU_ASSERT(ret == -XQC_EFEC_SYMBOL_ERROR);
+
+    /** test invalid fec_decode_one process */
+    conn->conn_settings.fec_callback.xqc_fec_decode_one = xqc_packet_mask_decode_one;
+    ret = xqc_fec_cc_decoder(conn, &symbol, 0);
+    CU_ASSERT(ret == -XQC_EPARAM);
+
+
+    /** Following tests focus on fec_bc_decoder */
+    /** test invalid repair symbol size */
+    conn->fec_ctl->fec_gen_repair_symbols_buff[0].payload = NULL;
+    loss_cnt = 1;
+    ret = xqc_fec_bc_decoder(conn, 0, loss_cnt, 0);
+    CU_ASSERT(ret == -XQC_EMALLOC);
+
+    /** test invlid  decode process */
+    conn->fec_ctl->fec_gen_repair_symbols_buff[0].payload = test_buffer;
+    conn->conn_settings.fec_callback.xqc_fec_decode = xqc_xor_decode;
+    ret = xqc_fec_bc_decoder(conn, 0, loss_cnt, 0);
+    CU_ASSERT(ret == -XQC_EFEC_SCHEME_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
 
 void
 xqc_test_fec_xor_decode()
@@ -277,6 +369,7 @@ void xqc_test_fec_scheme()
     xqc_test_fec_frame_err();
     xqc_test_invalid_encoder_params();
     xqc_test_invalid_decoder_params();
+    xqc_test_fec_decode();
     xqc_test_fec_xor_decode();
     xqc_test_fec_pm_decode();
 }

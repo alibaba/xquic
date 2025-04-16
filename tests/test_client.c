@@ -780,10 +780,6 @@ save_session_cb(const char * data, size_t data_len, void *user_data)
     printf("save_session_cb use server domain as the key. h3[%d]\n", user_conn->h3);
 
     FILE * fp  = fopen("test_session", "wb");
-    if (fp == NULL) {
-        printf("'test_session' open error");
-        return;
-    }
     int write_size = fwrite(data, 1, data_len, fp);
     if (data_len != write_size) {
         printf("save _session_cb error\n");
@@ -802,10 +798,6 @@ save_tp_cb(const char * data, size_t data_len, void * user_data)
     printf("save_tp_cb use server domain as the key. h3[%d]\n", user_conn->h3);
 
     FILE * fp = fopen("tp_localhost", "wb");
-    if (fp == NULL) {
-        printf("'tp_localhost' open error");
-        return;
-    }
     int write_size = fwrite(data, 1, data_len, fp);
     if (data_len != write_size) {
         printf("save _tp_cb error\n");
@@ -1941,6 +1933,13 @@ xqc_client_h3_conn_ping_acked_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, 
 }
 
 void
+xqc_client_h3_conn_init_settings_notify(xqc_h3_conn_t *h3_conn, 
+    xqc_h3_conn_settings_t *current_settings, void *h3c_user_data)
+{
+    current_settings->qpack_dec_max_table_capacity = 64 * 1024;
+}
+
+void
 xqc_client_h3_conn_update_cid_notify(xqc_h3_conn_t *conn, const xqc_cid_t *retire_cid, const xqc_cid_t *new_cid, void *user_data)
 {
     DEBUG;
@@ -2486,19 +2485,20 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
 
     if (g_enable_fec) {
         xqc_h3_priority_t h3_prio = {
-            .fec = XQC_DEFAULT_SIZE_REQ
+            .fec = 4 * 1024
         };
         xqc_h3_request_set_priority(h3_request, &h3_prio);
+
+        h3_prio.fec = 20 * 1024;
 
         ret = xqc_write_http_priority(&h3_prio, g_priority, 64);
         if (ret < 0) {
             printf("xqc_write_http_priority error %zd\n", ret);
             return ret;
         }
-
         xqc_http_header_t priority_hdr = {
             .name   = {.iov_base = "priority", .iov_len = 8},
-            .value  = {.iov_base = g_priority, .iov_len = strlen(g_priority)},
+            .value  = {.iov_base = g_priority, .iov_len = 63},
             .flags  = 0,
         };
         header[header_size] = priority_hdr;
@@ -2525,7 +2525,7 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
 
         xqc_http_header_t priority_hdr = {
             .name   = {.iov_base = "priority", .iov_len = 8},
-            .value  = {.iov_base = g_priority, .iov_len = strlen(g_priority)},
+            .value  = {.iov_base = g_priority, .iov_len = 63},
             .flags  = 0,
         };
         header[header_size] = priority_hdr;
@@ -4147,7 +4147,7 @@ int main(int argc, char *argv[]) {
     xqc_fec_schemes_e fec_decoder_scheme = 11;
     uint8_t c_qlog_disable = 0;
     char c_qlog_importance = 'r';
-
+    xqc_usec_t fec_timeout = 0;
 
     strcpy(g_log_path, "./clog");
 
@@ -4169,6 +4169,7 @@ int main(int argc, char *argv[]) {
         {"close_dg_red", required_argument, &long_opt_index, 11},
         {"qlog_disable", no_argument, &long_opt_index, 12},
         {"qlog_importance", required_argument, &long_opt_index, 13},
+        {"fec_timeout", required_argument, &long_opt_index, 14},
         {0, 0, 0, 0}
     };
 
@@ -4482,6 +4483,11 @@ int main(int argc, char *argv[]) {
                 printf("option qlog importance :%s\n", optarg);
                 break;
 
+            case 14:
+                fec_timeout = atoi(optarg);
+                printf("option fec_timeout: %"PRId64"\n", fec_timeout);
+                break;
+
             default:
                 break;
             }
@@ -4632,7 +4638,32 @@ int main(int argc, char *argv[]) {
     }
 
     if (g_pmtud_on) {
-        conn_settings.enable_pmtud = 1;
+        conn_settings.enable_pmtud = 3;
+    }
+
+    if (g_test_case == 450) {
+        conn_settings.extended_ack_features = 2;
+        conn_settings.max_receive_timestamps_per_ack = 45;
+        conn_settings.receive_timestamps_exponent = 0;
+    }
+
+    if (g_test_case == 451) {
+        conn_settings.extended_ack_features = 0;
+        conn_settings.max_receive_timestamps_per_ack = 40;
+        conn_settings.receive_timestamps_exponent = 0;
+    }
+
+    if (g_test_case == 452) {
+        conn_settings.extended_ack_features = 2;
+        /* negotiation fail test, because max_receive_timestamps_per_ack > 63 */
+        conn_settings.max_receive_timestamps_per_ack = 64;
+        conn_settings.receive_timestamps_exponent = 0;
+    }
+
+    if (g_test_case == 453) {
+        conn_settings.extended_ack_features = 2;
+        conn_settings.max_receive_timestamps_per_ack = 0;
+        conn_settings.receive_timestamps_exponent = 0;
     }
 
     conn_settings.pacing_on = pacing_on;
@@ -4730,6 +4761,7 @@ int main(int argc, char *argv[]) {
     if (g_test_case == 201) {
         conn_settings.max_pkt_out_size = 1216;
     }
+    
 
     if (g_test_qch_mode) {
 #ifndef XQC_SYS_WINDOWS
@@ -4803,6 +4835,11 @@ int main(int argc, char *argv[]) {
             .bs_close_notify = xqc_h3_ext_bytestream_close_callback,
         },
     };
+
+    if (g_test_case == 502) {
+        /* test h3 init settings callback */
+        h3_cbs.h3c_cbs.h3_conn_init_settings = xqc_client_h3_conn_init_settings_notify;
+    }
 
     /* init http3 context */
     int ret = xqc_h3_ctx_init(ctx.engine, &h3_cbs);
@@ -4956,6 +4993,7 @@ int main(int argc, char *argv[]) {
             fec_params.fec_code_rate = 0.1;
             fec_params.fec_max_symbol_num_per_block = 3;
             fec_params.fec_mp_mode = XQC_FEC_MP_USE_STB;
+            conn_settings.fec_conn_queue_rpr_timeout = fec_timeout;
 
         } else {
             conn_settings.enable_encode_fec = 0;

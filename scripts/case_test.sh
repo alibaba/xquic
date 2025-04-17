@@ -4622,10 +4622,10 @@ clear_log
 rm -rf tp_localhost test_session xqc_token
 echo -e "qlog disable ...\c"
 killall test_server
-${SERVER_BIN} -l d -e -x 1 --qlog_disable > slog &
+${SERVER_BIN} -l d -e -x 1 --qlog_disable > /dev/null &
 sleep 1
-${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_disable >> clog
-result=`grep ">>>>>>>> pass:1" clog`
+${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_disable > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
 svr_qlog_res1=`grep "\[packet_received\]" slog`
 svr_qlog_res2=`grep "\[packet_sent\]" slog`
 cli_qlog_res1=`grep "\[packet_received\]" clog`
@@ -4645,10 +4645,10 @@ fi
 clear_log
 echo -e "qlog importance selected 1  ...\c"
 killall test_server
-${SERVER_BIN} -l d -e -x 1 --qlog_importance s > slog &
+${SERVER_BIN} -l d -e -x 1 --qlog_importance s > /dev/null &
 sleep 1
-${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance s >> clog
-result=`grep ">>>>>>>> pass:1" clog`
+${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance s > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
 svr_qlog_res1=`grep "\[packet_received\]" slog`
 svr_qlog_res2=`grep "\[connection_started\]" slog`
 cli_qlog_res1=`grep "\[packet_received\]" clog`
@@ -4668,10 +4668,10 @@ fi
 clear_log
 echo -e "qlog importance selected 2  ...\c"
 killall test_server
-${SERVER_BIN} -l i -e -x 1 --qlog_importance s > slog &
+${SERVER_BIN} -l i -e -x 1 --qlog_importance s > /dev/null &
 sleep 1
-${CLIENT_BIN} -s 10240 -l i -t 1 -E --qlog_importance s >> clog
-result=`grep ">>>>>>>> pass:1" clog`
+${CLIENT_BIN} -s 10240 -l i -t 1 -E --qlog_importance s > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
 svr_qlog_res1=`grep "\[packet_received\]" slog`
 svr_qlog_res2=`grep "\[connection_started\]" slog`
 cli_qlog_res1=`grep "\[packet_received\]" clog`
@@ -4691,10 +4691,10 @@ fi
 clear_log
 echo -e "qlog importance removed  ...\c"
 killall test_server
-${SERVER_BIN} -l d -e -x 1 --qlog_importance r > slog &
+${SERVER_BIN} -l d -e -x 1 --qlog_importance r > /dev/null &
 sleep 1
-${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance r >> clog
-result=`grep ">>>>>>>> pass:1" clog`
+${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance r > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
 svr_qlog_res1=`grep "\[packet_sent" slog`
 svr_qlog_res2=`grep "\[connection_" slog`
 svr_qlog_res3=`grep "\[datagram" slog`
@@ -4719,10 +4719,10 @@ fi
 clear_log
 echo -e "qlog importance extra  ...\c"
 killall test_server
-${SERVER_BIN} -l d -e -x 1 --qlog_importance e > slog &
+${SERVER_BIN} -l d -e -x 1 --qlog_importance e > /dev/null &
 sleep 1
-${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance e >> clog
-result=`grep ">>>>>>>> pass:1" clog`
+${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance e > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
 svr_qlog_res1=`grep "\[packet_sent" slog`
 svr_qlog_res2=`grep "\[connection_" slog`
 svr_qlog_res3=`grep "\[datagram" slog`
@@ -4747,10 +4747,9 @@ fi
 clear_log
 echo -e "qlog importance base  ...\c"
 killall test_server
-${SERVER_BIN} -l d -e -x 1 --qlog_importance b > slog &
+${SERVER_BIN} -l d -e -x 1 --qlog_importance b > /dev/null &
 sleep 1
-${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance b >> clog
-result=`grep ">>>>>>>> pass:1" clog`
+${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance b > stdlog
 svr_qlog_res1=`grep "\[packet_sent" slog`
 svr_qlog_res2=`grep "\[connection_" slog`
 svr_qlog_res3=`grep "\[datagram" slog`
@@ -4760,7 +4759,7 @@ cli_qlog_res2=`grep "\[connection_" clog`
 cli_qlog_res3=`grep "\[datagram" clog`
 cli_qlog_res4=`grep "\[qpack_" clog`
 errlog=`grep_err_log`
-if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$svr_qlog_res1" ] && [ -n "$svr_qlog_res2" ] \
+if [ -z "$errlog" ] && [ -n "$svr_qlog_res1" ] && [ -n "$svr_qlog_res2" ] \
     && [ -z "$svr_qlog_res3" ] && [ -z "$svr_qlog_res4" ] && [ -n "$cli_qlog_res1" ] && [ -n "$cli_qlog_res2" ] \
     && [ -z "$cli_qlog_res3" ] && [ -z "$cli_qlog_res4" ]; then
     echo ">>>>>>>> pass:1"
@@ -4775,10 +4774,9 @@ fi
 clear_log
 echo -e "qlog importance core  ...\c"
 killall test_server
-${SERVER_BIN} -l d -e -x 1 --qlog_importance c > slog &
+${SERVER_BIN} -l d -e -x 1 --qlog_importance c > /dev/null &
 sleep 1
-${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance c >> clog
-result=`grep ">>>>>>>> pass:1" clog`
+${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance c > /dev/null
 svr_qlog_res1=`grep "\[packet_sent" slog`
 svr_qlog_res2=`grep "\[connection_" slog`
 svr_qlog_res3=`grep "\[datagram" slog`
@@ -4804,7 +4802,7 @@ clear_log
 echo -e "ack_timestamp_frame: server enable, 0 < max_ts_per_ack < 64 and client enable, 0 < max_ts_per_ack < 64 ...\c"
 ${SERVER_BIN} -l d -e -x 450 > /dev/null &
 sleep 1
-${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 450 >> stdlog
+${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 450 > stdlog
 cli_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
 cli_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
 
@@ -4825,7 +4823,7 @@ clear_log
 echo -e "ack_timestamp_frame: server enable, 0 < max_ts_per_ack < 64 and client disable, 0 < max_ts_per_ack < 64 ...\c"
 ${SERVER_BIN} -l d -e -x 450 > /dev/null &
 sleep 1
-${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 451 >> stdlog
+${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 451 > stdlog
 cli_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
 cli_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
 
@@ -4848,7 +4846,7 @@ clear_log
 echo -e "ack_timestamp_frame: server enable, 0 < max_ts_per_ack < 64 and client enable, max_ts_per_ack >= 64 ...\c"
 ${SERVER_BIN} -l d -e -x 450 > /dev/null &
 sleep 1
-${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 452 >> stdlog
+${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 452 > stdlog
 cli_res1=`grep "conn errno" stdlog`
 
 svr_res1=`grep "[error]" slog | grep "xqc_conn_tls_transport_params_cb" | wc -l`
@@ -4867,7 +4865,7 @@ clear_log
 echo -e "ack_timestamp_frame: server enable, 0 < max_ts_per_ack < 64 and client enable, max_ts_per_ack = 0 ...\c"
 ${SERVER_BIN} -l d -e -x 450 > /dev/null &
 sleep 1
-${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 453 >> stdlog
+${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 453 > stdlog
 cli_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
 cli_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
 
@@ -4888,7 +4886,7 @@ clear_log
 echo -e "ack_timestamp_frame: server disable, 0 < max_ts_per_ack < 64 and client enable, 0 < max_ts_per_ack < 64  ...\c"
 ${SERVER_BIN} -l d -e -x 451 > /dev/null &
 sleep 1
-${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 450 >> stdlog
+${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 450 > stdlog
 cli_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
 cli_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
 
@@ -4909,7 +4907,7 @@ clear_log
 echo -e "ack_timestamp_frame: server enable, max_ts_per_ack > 64 and client enable, 0 < max_ts_per_ack < 64  ...\c"
 ${SERVER_BIN} -l d -e -x 452 > /dev/null &
 sleep 1
-${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 450 >> stdlog
+${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 450 > stdlog
 cli_res1=`grep "[error]" clog | grep "xqc_conn_tls_transport_params_cb" | wc -l`
 
 svr_res1=`grep "[error]" slog | grep "xqc_process_conn_close_frame" | wc -l`

@@ -65,6 +65,7 @@ else()
         ${LIBEVENT_LIBRARY}
         m
         dl
+        stdc++
         pthread
         CACHE STRING "xquic app depend libs")
 endif()
@@ -146,6 +147,7 @@ if(HAVE_CUNIT)
             ${CUNIT_LIBRARIES}
             ${SSL_LIB_PATH}
             m
+            stdc++
             dl
             pthread
             CACHE STRING "xquic unit test depend libs")

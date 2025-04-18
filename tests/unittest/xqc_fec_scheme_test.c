@@ -318,8 +318,9 @@ xqc_test_fec_pm_decode()
     unsigned char       *output, *pm;
     xqc_connection_t    *conn = test_engine_connect_fec();
 
-    output = xqc_malloc(XQC_MAX_SYMBOL_SIZE);
-    pm = xqc_malloc(XQC_MAX_RPR_KEY_SIZE);
+    output = xqc_calloc(1, XQC_MAX_SYMBOL_SIZE);
+    pm = xqc_calloc(1, XQC_MAX_RPR_KEY_SIZE);
+    *pm |= (1 << 7);
     // output is NULL
     ret = xqc_packet_mask_decode_one(conn, NULL, 0, 0);
     CU_ASSERT(ret == -XQC_EPARAM);

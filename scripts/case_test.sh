@@ -4408,7 +4408,7 @@ else
 fi
 
 
-sudo rm -rf tp_localhost test_session xqc_token clog slog stdlog ckeys.log
+sudo rm -rf tp_localhost test_session xqc_token stdlog ckeys.log
 killall test_server
 ${SERVER_BIN} -l d -e -x 151 > /dev/null &
 sleep 1
@@ -4439,12 +4439,12 @@ else
     case_print_result "h3_engine_set_settings_api_h3_ext_more" "fail"
 fi
 
-sudo rm -rf tp_localhost test_session xqc_token clog slog
+sudo rm -rf tp_localhost test_session xqc_token
 killall test_server 2> /dev/null
 ${SERVER_BIN} -l d -e -f > /dev/null &
 sleep 1
 
-rm -rf tp_localhost test_session xqc_token
+clear_log
 echo -e "negotiate_encoder_fec_schemes ...\c"
 sudo ${CLIENT_BIN} -l d -g > stdlog
 clog_res1=`grep "|xqc_negotiate_fec_schemes|set final encoder fec scheme: XOR" clog`
@@ -4459,7 +4459,7 @@ else
 fi
 
 
-rm -rf tp_localhost test_session xqc_token
+clear_log
 echo -e "negotiate_decoder_fec_schemes ...\c"
 sudo ${CLIENT_BIN} -l d -g > stdlog
 clog_res2=`grep "|xqc_negotiate_fec_schemes|set final decoder fec scheme: XOR" clog`

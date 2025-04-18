@@ -33,13 +33,13 @@ endif()
 # find ssl static library
 find_library(SSL_LIBRARY_STATIC     NAMES ${SSL_LIBRARY_STATIC_NAME}
     PATHS ${SSL_DIR}
-    PATH_SUFFIXES lib64 lib build/ssl build/ssl/${CMAKE_BUILD_TYPE}
+    PATH_SUFFIXES lib64 lib build build/${CMAKE_BUILD_TYPE}
     NO_DEFAULT_PATH)
 
 # find crypto static library
 find_library(CRYPTO_LIBRARY_STATIC  NAMES ${CRYPTO_LIBRARY_STATIC_NAME}
     PATHS ${SSL_DIR}
-    PATH_SUFFIXES lib64 lib build/crypto build/crypto/${CMAKE_BUILD_TYPE}
+    PATH_SUFFIXES lib64 lib build build/${CMAKE_BUILD_TYPE}
     NO_DEFAULT_PATH)
 
 include (FindPackageHandleStandardArgs)

@@ -27,7 +27,7 @@ long xqc_random(void) {
     if (rand_s(&val)) {
         val = rand();
     }
-    return (long)val && 0xFFFFFFFF;
+    return (long)val & 0xFFFFFFFF;
 #else
     return random();
 #endif
@@ -141,4 +141,3 @@ xqc_get_random(xqc_random_generator_t *rand_gen, u_char *buf, size_t need_len)
 #endif
     return XQC_OK;
 }
-

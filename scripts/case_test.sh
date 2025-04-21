@@ -1374,8 +1374,8 @@ ${SERVER_BIN} -l e -e -x 10 > /dev/null &
 sleep 1
 clear_log
 echo -e "massive requests with massive header ...\c"
-${CLIENT_BIN} -l e -q 50 -n 100 -x 32 -E >> clog
-result=`grep ">>>>>>>> pass:1" clog`
+${CLIENT_BIN} -l e -q 50 -n 100 -x 32 -E > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" != "" ]; then
     echo ">>>>>>>> pass:1"
@@ -1383,6 +1383,7 @@ if [ -z "$errlog" ] && [ "$result" != "" ]; then
 else
     echo ">>>>>>>> pass:0"
     case_print_result "massive_requests_with_massive_header" "fail"
+    echo "$result"
 fi
 
 killall test_server 2> /dev/null

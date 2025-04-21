@@ -40,7 +40,7 @@
 #define XQC_PACKET_TMP_BUF_LEN  1600
 #define MAX_BUF_SIZE            (100*1024*1024)
 #define XQC_INTEROP_TLS_GROUPS  "X25519:P-256:P-384:P-521"
-#define MAX_PATH_CNT            2
+#define MAX_PATH_CNT            16
 
 
 typedef enum xqc_demo_cli_alpn_type_s {
@@ -183,12 +183,16 @@ typedef struct xqc_demo_cli_quic_config_s {
     uint8_t mp_version;
 
     uint64_t init_max_path_id;
+    uint64_t extra_paths_num;
 
     /* support interop test */
     int is_interop_mode;
 
     uint8_t send_path_standby;
     xqc_msec_t path_status_timer_threshold;
+
+    xqc_msec_t path_cid_rotation;
+    xqc_msec_t path_cid_retirement;
 
     uint64_t least_available_cid_count;
 
@@ -419,6 +423,8 @@ typedef struct xqc_demo_cli_user_conn_s {
     struct event            *ev_delay_req;
     struct event            *ev_idle_restart;
     struct event            *ev_close_path;
+    struct event            *ev_cid_rotation;
+    struct event            *ev_path_cid_retirement;
     struct event            *ev_rebinding_p0;
     struct event            *ev_rebinding_p1;
 
@@ -430,6 +436,8 @@ typedef struct xqc_demo_cli_user_conn_s {
     xqc_msec_t              path_status_time;
     xqc_msec_t              path_status_timer_threshold;
 
+    int                     trigger_cid_rotation;
+    xqc_msec_t              cid_rotation_timer_threshold;
 
     xqc_msec_t              path_create_time;
     xqc_flag_t              remove_path_flag;
@@ -493,6 +501,11 @@ xqc_demo_cli_close_task(xqc_demo_cli_task_t *task)
     if (user_conn->ev_close_path) {
         event_del(user_conn->ev_close_path);
         user_conn->ev_close_path = NULL;
+    }
+
+    if (user_conn->ev_cid_rotation) {
+        event_del(user_conn->ev_cid_rotation);
+        user_conn->ev_cid_rotation = NULL;
     }
 
     if (user_conn->ev_rebinding_p0) {
@@ -858,16 +871,48 @@ xqc_demo_cli_conn_create_path(const xqc_cid_t *cid, void *conn_user_data)
     xqc_demo_cli_user_conn_t *user_conn = conn_user_data;
     xqc_demo_cli_ctx_t *ctx = user_conn->ctx;
     uint64_t path_id;
-    int ret;
+    int ret, i;
     int backup = 0;
-    printf("ready to create path notify\n");
+    printf("ready to create path notify: trying to create %"PRIu64" paths, current path %i, ifcnt: %i, init_max_path_id: %"PRIu64"\n",
+           ctx->args->quic_cfg.extra_paths_num,
+           user_conn->total_path_cnt,
+           ctx->args->net_cfg.ifcnt,
+           ctx->args->quic_cfg.init_max_path_id);
 
-    if (user_conn->total_path_cnt < ctx->args->net_cfg.ifcnt
-        && user_conn->total_path_cnt < ctx->args->quic_cfg.init_max_path_id)
-    {
+    for (i = 0; i < ctx->args->quic_cfg.extra_paths_num; i++) {
 
-        if (user_conn->total_path_cnt == 1 && ctx->args->quic_cfg.mp_backup) {
-            backup = 1;
+        if (user_conn->total_path_cnt < ctx->args->net_cfg.ifcnt
+            && user_conn->total_path_cnt <= ctx->args->quic_cfg.init_max_path_id)
+        {
+
+            if (user_conn->total_path_cnt == 1 && ctx->args->quic_cfg.mp_backup) {
+                backup = 1;
+            }
+
+            ret = xqc_conn_create_path(ctx->engine, &(user_conn->cid), &path_id, backup);
+            if (ret < 0) {
+                printf("not support mp, xqc_conn_create_path err = %d path_id: %"PRIu64"\n", ret, path_id);
+                return;
+            }
+
+            printf("client created path: path_id %"PRIu64"\n", path_id);
+
+            ret = xqc_demo_cli_init_user_path(user_conn, user_conn->total_path_cnt, path_id);
+            if (ret < 0) {
+                printf("xqc_demo_cli_init_user_path fail: path_id %"PRIu64"\n", path_id);
+                xqc_conn_close_path(ctx->engine, &(user_conn->cid), path_id);
+                return;
+            }
+
+            user_conn->path_create_time = xqc_now();
+
+            if (user_conn->total_path_cnt == 2 && ctx->args->quic_cfg.mp_backup) {
+                if (backup == 1) {
+                    printf("Init No.%d path (id = %"PRIu64") to STANDBY state\n", 1, path_id);
+                }
+                printf("set No.%d path (id = %"PRIu64") to STANDBY state\n", 1, path_id);
+                xqc_conn_mark_path_standby(ctx->engine, &(user_conn->cid), path_id);
+            }
         }
 
         ret = xqc_conn_create_path(ctx->engine, &(user_conn->cid), &path_id, backup);
@@ -892,7 +937,6 @@ xqc_demo_cli_conn_create_path(const xqc_cid_t *cid, void *conn_user_data)
             printf("set No.%d path (id = %"PRIu64") to STANDBY state\n", 1, path_id);
             xqc_conn_mark_path_standby(ctx->engine, &(user_conn->cid), path_id);
         }
-
     }
 }
 
@@ -1467,6 +1511,11 @@ xqc_demo_cli_idle_callback(int fd, short what, void *arg)
                 user_conn->ev_close_path = NULL;
             }
 
+            if (user_conn->ev_cid_rotation) {
+                event_del(user_conn->ev_cid_rotation);
+                user_conn->ev_cid_rotation = NULL;
+            }
+
             if (user_conn->ev_rebinding_p0) {
                 event_del(user_conn->ev_rebinding_p0);
                 user_conn->ev_rebinding_p0 =  NULL;
@@ -1538,6 +1587,39 @@ xqc_demo_cli_close_path_timeout(int fd, short what, void *arg)
         xqc_conn_close_path(user_conn->ctx->engine, &(user_conn->cid), user_conn->paths[1].path_id);
     }
 }
+
+static void
+xqc_demo_cli_trigger_path_cid_rotation(int fd, short what, void *arg)
+{
+    xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *) arg;
+    printf("xqc_demo_cli_cid_rotation: active path: %d\n", user_conn->active_path_cnt);
+    if (user_conn->active_path_cnt > 0) {
+        uint64_t path_id = 1;
+        printf("trigger cid rotation on path: path_id %"PRIu64"\n", path_id);
+        int ret = xqc_conn_trigger_cid_rotation_on_path(user_conn->ctx->engine, &(user_conn->cid), path_id);
+        if (ret != XQC_OK) {
+            printf("trigger cid rotation on path: path_id %"PRIu64" failed\n", path_id);
+        } else {
+            user_conn->trigger_cid_rotation = 1;
+        }
+    }
+}
+
+static void
+xqc_demo_cli_trigger_path_cid_retirment(int fd, short what, void *arg)
+{
+    xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *) arg;
+    uint64_t path_id = 1;
+
+    if (!user_conn->trigger_cid_rotation) {
+        printf("can't trigger cid retirement on path: path_id %"PRIu64" because the cid rotation failed\n", path_id);
+        return;
+    }
+
+    printf("trigger cid retirement on path: path_id %"PRIu64"\n", path_id);
+    xqc_conn_trigger_cid_retirement_on_path(user_conn->ctx->engine, &(user_conn->cid), path_id);
+}
+
 
 static void
 xqc_demo_cli_rebind_path0(int fd, short what, void *arg)
@@ -1727,6 +1809,7 @@ xqc_demo_cli_init_args(xqc_demo_cli_client_args_t *args)
     args->quic_cfg.mp_version = XQC_MULTIPATH_10;
     args->quic_cfg.init_max_path_id = 2;
     args->quic_cfg.max_pkt_sz = 1200;
+    args->quic_cfg.extra_paths_num = 1;
 
     args->req_cfg.throttled_req = -1;
 
@@ -1745,7 +1828,7 @@ xqc_demo_cli_parse_server_addr(char *url, xqc_demo_cli_net_config_t *cfg)
     /* set hint for hostname resolve */
     struct addrinfo hints = {0};
     memset(&hints, 0, sizeof(struct addrinfo));
-    hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
+    hints.ai_family = AF_INET;  // AF_UNSPEC;    /* Allow IPv4 or IPv6: set to AF_INET if only using IPv4 */
     hints.ai_socktype = SOCK_DGRAM; /* Datagram socket */
     hints.ai_flags = AI_PASSIVE;    /* For wildcard IP address */
     hints.ai_protocol = 0;          /* Any protocol */
@@ -1860,7 +1943,7 @@ void
 xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:bZ:NQT:R:V:B:I:n:eEF:G:r:x:y:Y:f:")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:bz:Z:NQT:R:V:B:I:n:eEF:g:G:r:x:X:y:Y:f:")) != -1) {
         switch (ch) {
         /* server ip */
         case 'a':
@@ -2013,10 +2096,11 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             printf("option adding interface: %s\n", optarg);
             if (args->net_cfg.ifcnt < MAX_PATH_CNT) {
                 strncpy(args->net_cfg.iflist[args->net_cfg.ifcnt++], optarg, strlen(optarg));
-            } else {
+            }
+            /*} else {
                 printf("too many interfaces (two at most)!\n");
                 exit(0);
-            }
+            }*/
             break;
 
         case 'w':
@@ -2073,6 +2157,22 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             printf("option multipath set path status: %s ms\n", optarg);
             args->quic_cfg.send_path_standby = 1;
             args->quic_cfg.path_status_timer_threshold = atoi(optarg) * 1000;
+            break;
+
+        case 'z':
+            printf("option multipath trigger cid rotation: %s ms\n", optarg);
+            args->quic_cfg.path_cid_rotation = atoi(optarg);
+            break;
+
+        case 'g':
+            printf("option force a cid rotation after %s ms\n", optarg);
+            args->quic_cfg.path_cid_retirement = atoi(optarg);
+            break;
+
+        case 'X':
+            printf("option create path numbers: %s\n", optarg);
+            args->quic_cfg.extra_paths_num = atoi(optarg);
+            args->quic_cfg.init_max_path_id = args->quic_cfg.extra_paths_num;
             break;
 
         case 'I':
@@ -2623,6 +2723,28 @@ xqc_demo_cli_start(xqc_demo_cli_user_conn_t *user_conn, xqc_demo_cli_client_args
             .tv_usec = (args->quic_cfg.close_path % 1000) * 1000,
         };
         event_add(user_conn->ev_close_path, &tv);
+    }
+
+    if (args->quic_cfg.path_cid_rotation) {
+        user_conn->ev_cid_rotation = event_new(user_conn->ctx->eb, -1, 0,
+                                               xqc_demo_cli_trigger_path_cid_rotation,
+                                               user_conn);
+        struct timeval tv = {
+                .tv_sec = args->quic_cfg.path_cid_rotation / 1000,
+                .tv_usec = (args->quic_cfg.path_cid_rotation % 1000) * 1000,
+        };
+        event_add(user_conn->ev_cid_rotation, &tv);
+    }
+
+    if (args->quic_cfg.path_cid_retirement) {
+        user_conn->ev_path_cid_retirement = event_new(user_conn->ctx->eb, -1, 0,
+                                                      xqc_demo_cli_trigger_path_cid_retirment,
+                                                      user_conn);
+        struct timeval tv = {
+                .tv_sec = args->quic_cfg.path_cid_retirement / 1000,
+                .tv_usec = (args->quic_cfg.path_cid_retirement % 1000) * 1000,
+        };
+        event_add(user_conn->ev_path_cid_retirement, &tv);
     }
 
     if (args->net_cfg.rebind_p0) {

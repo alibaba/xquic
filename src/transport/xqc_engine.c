@@ -665,7 +665,7 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
     xqc_log(conn->log, XQC_LOG_DEBUG, "|conn:%p|state:%s|flag:%s|now:%ui|",
             conn, xqc_conn_state_2_str(conn->conn_state), xqc_conn_flag_2_str(conn, conn->conn_flag), now);
 
-    int ret;
+    int ret = 0, rc = 0;
     xqc_bool_t wait_scid, wait_dcid;
 
     xqc_conn_timer_expire(conn, now);
@@ -747,11 +747,40 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
     }
 
     if (conn->enable_multipath) {
+        ret = xqc_conn_get_available_path_id(conn, NULL);
         if ((conn->conn_flag & XQC_CONN_FLAG_MP_WAIT_MP_READY)
-            && xqc_conn_get_available_path_id(conn, NULL) == XQC_OK) 
+            && ret == XQC_OK)
         {
             conn->conn_flag |= XQC_CONN_FLAG_MP_READY_NOTIFY;
             conn->conn_flag &= ~XQC_CONN_FLAG_MP_WAIT_MP_READY;
+        } else if (ret != XQC_OK && xqc_conn_check_handshake_completed(conn))
+        {
+            /* not enough cid for new path id */
+            uint64_t path_id = conn->create_path_count;
+            xqc_cid_set_inner_t *dcid_inner_set = xqc_get_path_cid_set(&conn->dcid_set, path_id);
+            uint64_t time_of_now = xqc_monotonic_timestamp();
+
+            if (dcid_inner_set && dcid_inner_set->unused_cnt == 0 && !dcid_inner_set->cids_blocked_sent
+                && conn->handshake_complete_time + XQC_PATH_CIDS_BLOCKED_CHECK_INTELVAL < time_of_now)
+            {
+                uint64_t next_cid_seq = xqc_cid_set_get_largest_seq_or_rpt(&conn->dcid_set, path_id) + 1;
+                rc = xqc_write_path_cids_blocked_to_packet(conn, path_id, next_cid_seq);
+                if (rc) {
+                    xqc_log(conn->log, XQC_LOG_WARN, "|xqc_write_path_cids_blocked_to_packet error|ret:%ui|", ret);
+                }
+                dcid_inner_set->cids_blocked_sent = 1;
+            }
+        }
+
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|create_path_count:%ui|remote_max_path_id:%ui|",
+                                                conn->create_path_count, conn->remote_max_path_id);
+        if (conn->create_path_count >= conn->remote_max_path_id + 1
+            && conn->conn_type == XQC_CONN_TYPE_CLIENT)
+        {
+            ret = xqc_write_path_blocked_to_packet(conn, conn->remote_max_path_id);
+            if (ret) {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_path_blocked_to_packet error|");
+            }
         }
     }
 

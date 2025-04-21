@@ -44,7 +44,7 @@ xqc_conn_settings_t internal_default_conn_settings = {
     .init_idle_time_out         = XQC_CONN_INITIAL_IDLE_TIMEOUT,
     .idle_time_out              = XQC_CONN_DEFAULT_IDLE_TIMEOUT,
     .enable_multipath           = 0,
-    .multipath_version          = XQC_MULTIPATH_10,
+    .multipath_version          = XQC_MULTIPATH_13,
     .spurious_loss_detect_on    = 0,
     .anti_amplification_limit   = XQC_DEFAULT_ANTI_AMPLIFICATION_LIMIT,
     .keyupdate_pkt_threshold    = 0,
@@ -729,11 +729,15 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     }
 
     if (xqc_conn_is_current_mp_version_supported(xc->conn_settings.multipath_version) != XQC_OK) {
-        xc->conn_settings.multipath_version = XQC_MULTIPATH_10;
+        xc->conn_settings.multipath_version = XQC_MULTIPATH_11;
     }
 
     if (xc->conn_settings.init_max_path_id == 0) {
         xc->conn_settings.init_max_path_id = XQC_DEFAULT_INIT_MAX_PATH_ID;
+    }
+
+    if (xc->max_paths_count == 0) {
+        xc->max_paths_count = XQC_MAX_PATHS_COUNT;
     }
 
     if (xc->conn_settings.probing_pkt_out_size == 0) {
@@ -3230,7 +3234,7 @@ xqc_conn_info_print(xqc_connection_t *conn, xqc_conn_stats_t *conn_stats)
     init_cwnd = conn->conn_settings.cc_params.customize_on ? conn->conn_settings.cc_params.init_cwnd : 0;
 
     /* conn info */
-    ret = snprintf(buff, buff_size, "%s,%u,%u,%u,%u,%u,%u,"
+    ret = snprintf(buff, buff_size, "%s,%"PRIu64",%"PRIu64",%"PRIu64",%u,%u,%u,"
                    "%u,%u,%u,%u,%u,%u,%u,%"PRIu64",%"PRIu64",%"PRIu64",i%u,"
 #ifdef XQC_ENABLE_FEC
                    "%u,%u,%u,%u,%u,%u,%u,"
@@ -3790,10 +3794,10 @@ xqc_conn_update_flow_ctl_settings(xqc_connection_t *conn)
 }
 
 xqc_int_t
-xqc_conn_add_path_cid_sets(xqc_connection_t *conn, uint32_t start, uint32_t end)
+xqc_conn_add_path_cid_sets(xqc_connection_t *conn, uint64_t start, uint64_t end)
 {
     if (conn->enable_multipath) {
-        uint32_t path_id;
+        uint64_t path_id;
         xqc_int_t ret;
         /* add cid_set_inner for all paths */
         for (path_id = start; path_id <= end; path_id++) {
@@ -4623,7 +4627,7 @@ xqc_conn_get_available_path_id(xqc_connection_t *conn, uint64_t *path_id)
         /* principle: the next unused path ID has at least one unused DCID and one acked unused SCID */
         xqc_cid_set_inner_t *scid_inner_set = xqc_get_next_unused_path_cid_set(&conn->scid_set);
         if (scid_inner_set) {
-            xqc_cid_set_inner_t *dcid_inner_set = xqc_get_path_cid_set(&conn->scid_set, scid_inner_set->path_id);
+            xqc_cid_set_inner_t *dcid_inner_set = xqc_get_path_cid_set(&conn->dcid_set, scid_inner_set->path_id);
             if (dcid_inner_set) {
                 if (dcid_inner_set->unused_cnt > 0 && scid_inner_set->acked_unused > 0) {
                     if (path_id) {
@@ -5209,6 +5213,9 @@ xqc_conn_set_remote_transport_params(xqc_connection_t *conn,
     settings->max_datagram_frame_size = params->max_datagram_frame_size;
     settings->close_dgram_redundancy = params->close_dgram_redundancy;
 
+    xqc_conn_log(conn, XQC_LOG_DEBUG, "|enable_multipath:%ui|multipath_version:%ui|",
+                 params->enable_multipath, params->multipath_version);
+
 #ifdef XQC_ENABLE_FEC
     /*
      * set fec params to remote_settings
@@ -5279,6 +5286,10 @@ xqc_conn_get_local_transport_params(xqc_connection_t *conn, xqc_transport_params
     params->max_datagram_frame_size = settings->max_datagram_frame_size;
 
     params->close_dgram_redundancy = settings->close_dgram_redundancy;
+
+    xqc_conn_log(conn, XQC_LOG_DEBUG, "|enable_multipath:%ui|multipath_version:%ui|",
+                    settings->enable_multipath, settings->multipath_version);
+
 
 #ifdef XQC_ENABLE_FEC
     if (conn->conn_settings.enable_encode_fec) {

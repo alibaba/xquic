@@ -1570,7 +1570,7 @@ xqc_write_path_abandon_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *p
 
     uint64_t path_id = path->path_id;
 
-    ret = xqc_gen_path_abandon_frame(conn, packet_out, path_id, 0);
+    ret = xqc_gen_path_abandon_frame(conn, packet_out, path_id, (uint64_t)path->path_err_code);
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_path_abandon_frame error|%d|", ret);
         goto error;
@@ -1802,7 +1802,7 @@ xqc_write_max_path_id_to_packet(xqc_connection_t *conn, uint64_t max_path_id)
 
     ret = xqc_gen_max_path_id_frame(packet_out, max_path_id);
     if (ret < 0) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_max_streams_frame error|");
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_max_path_id_frame error|");
         goto error;
     }
     packet_out->po_used_size += ret;
@@ -1811,6 +1811,71 @@ xqc_write_max_path_id_to_packet(xqc_connection_t *conn, uint64_t max_path_id)
     return XQC_OK;
 
 error:
+    xqc_maybe_recycle_packet_out(packet_out, conn);
+    return -XQC_EWRITE_PKT;
+}
+
+
+int
+xqc_write_path_blocked_to_packet(xqc_connection_t *conn, uint64_t max_path_id)
+{
+    ssize_t ret = XQC_ERROR;
+    xqc_packet_out_t *packet_out;
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|path blocked max_path_id:%ui|", max_path_id);
+
+    packet_out = xqc_write_new_packet(conn, XQC_PTYPE_SHORT_HEADER);
+    if (packet_out == NULL) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");
+        return -XQC_EWRITE_PKT;
+    }
+
+    ret = xqc_gen_path_blocked_frame(packet_out, max_path_id);
+    if (ret < 0) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_path_blocked_frame error|");
+        goto error;
+    }
+    packet_out->po_used_size += ret;
+    xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|max_path_id:%ui|", max_path_id);
+    return XQC_OK;
+
+    error:
+    xqc_maybe_recycle_packet_out(packet_out, conn);
+    return -XQC_EWRITE_PKT;
+}
+
+
+int
+xqc_write_path_cids_blocked_to_packet(xqc_connection_t *conn, uint64_t path_id, uint64_t next_cid_seq)
+{
+    if (conn->conn_settings.multipath_version < XQC_MULTIPATH_13) {
+        /* old version, do nothing here */
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_write_path_cids_blocked_to_packet|old version:%ui|",
+                    conn->conn_settings.multipath_version);
+        return XQC_OK;
+    }
+
+    ssize_t ret = XQC_ERROR;
+    xqc_packet_out_t *packet_out = NULL;
+
+    packet_out = xqc_write_new_packet(conn, XQC_PTYPE_SHORT_HEADER);
+    if (packet_out == NULL) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");
+        return -XQC_EWRITE_PKT;
+    }
+
+    ret = xqc_gen_path_cids_blocked_frame(packet_out, path_id, next_cid_seq);
+    if (ret < 0) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_path_blocked_frame error|");
+        goto error;
+    }
+    packet_out->po_used_size += ret;
+    xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|path_id:%ui|next_cid_seq:%ui|", path_id, next_cid_seq);
+    return XQC_OK;
+
+    error:
     xqc_maybe_recycle_packet_out(packet_out, conn);
     return -XQC_EWRITE_PKT;
 }

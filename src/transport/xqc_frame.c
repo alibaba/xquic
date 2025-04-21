@@ -352,7 +352,26 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
                 ret = -XQC_EMP_INVALID_MP_VERTION;
             }
             break;
+        case XQC_TRANS_FRAME_TYPE_PATH_BLOCKED:
+            if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_11) {
+                ret = xqc_process_path_blocked_frame(conn, packet_in);
 
+            } else {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|mp_version error|v:%ud|f:%xL|",
+                        conn->conn_settings.multipath_version, frame_type);
+                ret = -XQC_EMP_INVALID_MP_VERTION;
+            }
+            break;
+        case XQC_TRANS_FRAME_TYPE_PATH_CIDS_BLOCKED:
+            if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_12) {
+                ret = xqc_process_path_cids_blocked_frame(conn, packet_in);
+
+            } else {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|mp_version error|v:%ud|f:%xL|",
+                        conn->conn_settings.multipath_version, frame_type);
+                ret = -XQC_EMP_INVALID_MP_VERTION;
+            }
+            break;
 #ifdef XQC_ENABLE_FEC
         case 0xfec5:
             if (conn->conn_settings.enable_decode_fec
@@ -796,7 +815,8 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
 {
     xqc_int_t ret = XQC_ERROR;
     xqc_cid_t new_conn_cid;
-    uint64_t retire_prior_to, curr_rpi;
+    uint64_t retire_prior_to = 0;
+    int64_t curr_rpi = 0;
 
     xqc_cid_inner_t *inner_cid;
     xqc_list_head_t *pos, *next;
@@ -853,7 +873,7 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
         return XQC_OK;
     }
 
-    if (retire_prior_to > curr_rpi) {
+    if (retire_prior_to > (uint64_t)curr_rpi) {
         /*
          * Upon receipt of an increased Retire Prior To field, the peer MUST stop using the
          * corresponding connection IDs and retire them with RETIRE_CONNECTION_ID frames before
@@ -925,7 +945,8 @@ xqc_int_t
 xqc_process_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
     xqc_int_t ret = XQC_ERROR;
-    uint64_t seq_num = 0, largest_scid_seq_num = 0;
+    uint64_t seq_num = 0;
+    int64_t largest_scid_seq_num = 0;
 
     ret = xqc_parse_retire_conn_id_frame(packet_in, &seq_num);
     if (ret != XQC_OK) {
@@ -946,7 +967,7 @@ xqc_process_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         return -XQC_EPROTO;
     }
 
-    if (seq_num > largest_scid_seq_num) {
+    if (seq_num > (uint64_t)largest_scid_seq_num) {
         /* 
          * Receipt of a RETIRE_CONNECTION_ID frame containing a sequence number
          * greater than any previously sent to the peer MUST be treated as a
@@ -1686,7 +1707,8 @@ xqc_process_path_abandon_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
     uint64_t path_id = 0;
     uint64_t error_code;
 
-    ret = xqc_parse_path_abandon_frame(packet_in, &path_id, &error_code);
+    ret = xqc_parse_path_abandon_frame(packet_in, &path_id, &error_code,
+                                       (conn->remote_settings.multipath_version == XQC_MULTIPATH_10? 1 : 0));
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_parse_path_abandon_frame error|");
         return ret;
@@ -1729,7 +1751,8 @@ xqc_process_path_abandon_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
         }
     }
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|state:%d|err_code:%ui|", path->path_id, path->path_state, error_code);
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|state:%d|err_code:%ui|", path->path_id, path->path_state,
+            error_code);
 
     return XQC_OK;
 }
@@ -1787,7 +1810,8 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
 {
     xqc_int_t ret = XQC_ERROR;
     xqc_cid_t new_conn_cid;
-    uint64_t retire_prior_to, curr_rpi;
+    uint64_t retire_prior_to = 0;
+    int64_t curr_rpi = 0;
 
     xqc_cid_inner_t *inner_cid;
     xqc_list_head_t *pos, *next;
@@ -1809,9 +1833,9 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         return -XQC_EILLEGAL_FRAME;
     }
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|new_conn_id|%s|sr_token:%s",
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|new_conn_id|%s|sr_token:%s|path_id:%ui|prior:%ui|",
             xqc_scid_str(conn->engine, &new_conn_cid), 
-            xqc_sr_token_str(conn->engine, new_conn_cid.sr_token));
+            xqc_sr_token_str(conn->engine, new_conn_cid.sr_token), path_id, retire_prior_to);
 
     if (retire_prior_to > new_conn_cid.cid_seq_num) {
         /*
@@ -1827,6 +1851,9 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
 
     /* TODO: write_retire_conn_id_frame 可能涉及到 替换 path.dcid (当前无 retire_prior_to 因此不涉及) */
     curr_rpi = xqc_cid_set_get_largest_seq_or_rpt(&conn->dcid_set, path_id);
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|new_conn_id|%s|path_id:%ui|prior:%ui|",
+            xqc_scid_str(conn->engine, &new_conn_cid), path_id, curr_rpi);
+
     if (curr_rpi < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|current retire_prior_to error:%i|path:%ui|",
                 curr_rpi, path_id);
@@ -1854,7 +1881,7 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         return XQC_OK;
     }
 
-    if (retire_prior_to > curr_rpi) {
+    if (retire_prior_to > (uint64_t)curr_rpi) {
         /*
          * Upon receipt of an increased Retire Prior To field, the peer MUST stop using the
          * corresponding connection IDs and retire them with RETIRE_CONNECTION_ID frames before
@@ -1913,11 +1940,11 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
                                  conn->local_settings.active_connection_id_limit, 
                                  path_id);
     if (ret != XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_cid_set_insert_cid error|limit:%ui|unused:%i|used:%i|path:%ui|",
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_cid_set_insert_cid error|limit:%ui|unused:%i|used:%i|path:%ui|ret:%i|",
                 conn->local_settings.active_connection_id_limit, 
                 xqc_cid_set_get_unused_cnt(&conn->dcid_set, path_id), 
                 xqc_cid_set_get_used_cnt(&conn->dcid_set, path_id),
-                path_id);
+                path_id, ret);
         return ret;
     }
 
@@ -1928,7 +1955,8 @@ xqc_int_t
 xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
     xqc_int_t ret = XQC_ERROR;
-    uint64_t seq_num = 0, largest_scid_seq_num = 0, path_id;
+    uint64_t seq_num = 0, path_id;
+    int64_t largest_scid_seq_num = 0;
 
     ret = xqc_parse_mp_retire_conn_id_frame(packet_in, &seq_num, &path_id);
     if (ret != XQC_OK) {
@@ -1957,7 +1985,7 @@ xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
         return -XQC_EPROTO;
     }
 
-    if (seq_num > largest_scid_seq_num) {
+    if (seq_num > (uint64_t)largest_scid_seq_num) {
         /* 
          * Receipt of a RETIRE_CONNECTION_ID frame containing a sequence number
          * greater than any previously sent to the peer MUST be treated as a
@@ -2041,6 +2069,97 @@ xqc_process_max_path_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
 
     return ret;
 }
+
+
+xqc_int_t
+xqc_process_path_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
+{
+    xqc_int_t ret = XQC_ERROR;
+    uint64_t max_path_id, new_max_path_id;
+
+    ret = xqc_parse_path_blocked_frame(packet_in, &max_path_id);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_process_max_paths_frame error|");
+        return ret;
+    }
+
+    xqc_log(conn->log, XQC_LOG_DEBUG,
+            "|max_path_id:%ui|pre_local_max_path_id:%ui|create_path_count:%ui|max_paths_count:%ui|",
+            max_path_id, conn->local_max_path_id,
+            conn->create_path_count, conn->max_paths_count);
+
+    if (conn->local_max_path_id < max_path_id) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|invalid path blocked frame|");
+        return -XQC_EIGNORE_PKT;
+    }
+
+    if (conn->local_max_path_id > max_path_id) {
+        xqc_log(conn->log, XQC_LOG_DEBUG,
+                "|received out-dated path blocked frame|local_max_path_id:%ui|max_path_id:%ui|", conn->local_max_path_id, max_path_id);
+        return XQC_OK;
+    }
+
+    if (xqc_conn_check_path_id_blocked(conn)   /* check whether all path ids have been used */
+        && conn->create_path_count < conn->max_paths_count)  /* check whether touched path resource limit */
+    {
+        ret = xqc_conn_update_max_path_id(conn);
+    }
+
+    return ret;
+}
+
+
+xqc_int_t
+xqc_process_path_cids_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
+{
+    xqc_int_t ret = XQC_ERROR;
+    uint64_t path_id = 0, new_max_path_id = 0, next_cid_seq = 0;
+
+    ret = xqc_parse_path_cids_blocked_frame(packet_in, &path_id, &next_cid_seq);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_process_max_paths_frame error|");
+        return ret;
+    }
+
+    xqc_cid_set_inner_t* inner_set = xqc_get_path_cid_set(&conn->scid_set, path_id);
+    uint64_t scid_unused_count = 0;
+    if (inner_set) {
+        scid_unused_count = inner_set->unused_cnt;
+    }
+
+    xqc_log(conn->log, XQC_LOG_DEBUG,
+            "|path_id:%ui|next_cid_seq:%ui|local_max_path_id:%ui|create_path_count:%ui|max_paths_count:%ui|scid_unused_count:%ui|",
+            path_id, next_cid_seq, conn->local_max_path_id,
+            conn->create_path_count, conn->max_paths_count,
+            scid_unused_count);
+
+    if (conn->local_max_path_id < path_id) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|invalid path cids blocked frame|path_id:%ui|", path_id);
+        return -XQC_EIGNORE_PKT;
+    }
+
+    /* try to add one new cid for the path id */
+    uint64_t unused_limit = 2;
+    if (inner_set
+        && (inner_set->unused_cnt + inner_set->used_cnt) < conn->remote_settings.active_connection_id_limit
+        && inner_set->unused_cnt < unused_limit)
+    {
+        ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, 0, inner_set->path_id);
+        if (ret != XQC_OK) {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|xqc_write_mp_new_conn_id_frame_to_packet error|path_id:%ui|",
+                    inner_set->path_id);
+            return ret;
+        }
+    }
+
+    return ret;
+}
+
 
 #ifdef XQC_ENABLE_FEC
 

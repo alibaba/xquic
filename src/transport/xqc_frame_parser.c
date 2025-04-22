@@ -16,6 +16,9 @@
 #include "src/transport/xqc_reinjection.h"
 #include "src/transport/xqc_fec_scheme.h"
 
+static size_t xqc_write_packet_receive_timestamps_into_buf(xqc_connection_t *conn, unsigned char *dst_buf, size_t dst_buf_len,
+    xqc_recv_timestamps_info_t *recv_timestamps, uint64_t po_largest_ack);
+
 /**
  * generate datagram frame
  */
@@ -455,9 +458,9 @@ xqc_parse_crypto_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
 void
 xqc_gen_padding_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
 {
-    size_t total_len = XQC_PACKET_INITIAL_MIN_LENGTH;
+    size_t total_len = XQC_PACKET_INITIAL_MIN_LENGTH - XQC_TLS_AEAD_OVERHEAD_MAX_LEN;
 
-    if (conn->conn_settings.enable_pmtud) {
+    if (conn->enable_pmtud) {
         if ((packet_out->po_frame_types & (XQC_FRAME_BIT_PATH_CHALLENGE | XQC_FRAME_BIT_PATH_RESPONSE))
             || (packet_out->po_flag & XQC_POF_PMTUD_PROBING)) 
         {
@@ -573,10 +576,28 @@ xqc_get_lack_src_syb(unsigned char* pm, unsigned char* recv_mask, xqc_int_t m_si
     }
 }
 
+xqc_fec_rpr_syb_t *
+xqc_get_rpr_syb(xqc_fec_ctl_t *fec_ctl, uint64_t block_id)
+{
+    xqc_list_head_t *pos, *next;
+
+    xqc_list_for_each_safe(pos, next, &fec_ctl->fec_recv_rpr_syb_list) {
+        xqc_fec_rpr_syb_t *rpr_symbol = xqc_list_entry(pos, xqc_fec_rpr_syb_t, fec_list);
+        if (rpr_symbol->block_id > block_id) {
+            break;
+        }
+        if (rpr_symbol->block_id == block_id) {
+            return rpr_symbol;
+        }
+    }
+    return NULL;
+}
+
 void
 xqc_try_process_fec_decode(xqc_connection_t *conn, xqc_int_t block_id)
 {
-    xqc_int_t ret, max_src_symbol_num, recv_src_num, recv_rpr_num;
+    xqc_int_t ret, max_src_symbol_num, recv_src_num, recv_rpr_num, block_mod;
+    xqc_usec_t rpr_time;
     xqc_list_head_t *pos, *next;
     xqc_fec_schemes_e fec_scheme;
 
@@ -584,7 +605,8 @@ xqc_try_process_fec_decode(xqc_connection_t *conn, xqc_int_t block_id)
     fec_scheme = conn->conn_settings.fec_params.fec_decoder_scheme;
     recv_src_num = xqc_cnt_src_symbols_num(conn->fec_ctl, block_id);
     recv_rpr_num = xqc_cnt_rpr_symbols_num(conn->fec_ctl, block_id);
-
+    block_mod = conn->conn_settings.fec_params.fec_blk_log_mod;
+    
     switch (fec_scheme) {
     case XQC_REED_SOLOMON_CODE:
     case XQC_XOR_CODE:
@@ -595,7 +617,9 @@ xqc_try_process_fec_decode(xqc_connection_t *conn, xqc_int_t block_id)
                 goto after_decoder;
 
             } else if (recv_rpr_num > 0) {
-                ret = xqc_fec_bc_decoder(conn, block_id, max_src_symbol_num - recv_src_num);
+                xqc_fec_rpr_syb_t *rpr_syb = xqc_get_rpr_syb(conn->fec_ctl, block_id);
+                rpr_time = rpr_syb->recv_time;
+                ret = xqc_fec_bc_decoder(conn, block_id, max_src_symbol_num - recv_src_num, rpr_time);
                 if (ret != XQC_OK) {
                     xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|fec xqc_fec_bc_decoder error|ret:%d|", ret);
                 }
@@ -627,6 +651,12 @@ xqc_try_process_fec_decode(xqc_connection_t *conn, xqc_int_t block_id)
                 ret = xqc_fec_cc_decoder(conn, symbol, fst_lack_syb_id);
                 if (ret != XQC_OK) {
                     xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|fec xqc_fec_cc_decoder error|ret:%d|", ret);
+
+                } else {
+                    // log the time it cost between recovered and rpr symbol received, control log rate
+                    if (conn->conn_settings.fec_params.fec_log_on && block_id % block_mod == 0) {
+                        xqc_log(conn->log, XQC_LOG_REPORT, "|fec_stats|PM|current block: %d|recovered %ui ms after rpr received", block_id, xqc_calc_delay(xqc_monotonic_timestamp(), symbol->recv_time)/1000);
+                    }
                 }
                 xqc_remove_rpr_symbol_from_list(conn->fec_ctl, symbol);
             }
@@ -971,7 +1001,7 @@ xqc_gen_ack_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
     size_t dst_buf_len = xqc_get_po_remained_size_with_ack_spc(packet_out);
 
-    xqc_packet_number_t lagest_recv, prev_low;
+    xqc_packet_number_t largest_recv, prev_low;
     xqc_usec_t ack_delay;
 
     const unsigned char *begin = dst_buf;
@@ -994,21 +1024,21 @@ xqc_gen_ack_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec
     }
 
     ack_delay = (now - largest_pkt_recv_time);
-    lagest_recv = first_range->pktno_range.high;
-    first_ack_range = lagest_recv - first_range->pktno_range.low;
+    largest_recv = first_range->pktno_range.high;
+    first_ack_range = largest_recv - first_range->pktno_range.low;
     prev_low = first_range->pktno_range.low;
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|lagest_recv:%ui|ack_delay:%ui|first_ack_range:%ud|largest_pkt_recv_time:%ui|",
-            lagest_recv, ack_delay, first_ack_range, largest_pkt_recv_time);
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|largest_recv:%ui|ack_delay:%ui|first_ack_range:%ud|largest_pkt_recv_time:%ui|",
+            largest_recv, ack_delay, first_ack_range, largest_pkt_recv_time);
 
     ack_delay = ack_delay >> ack_delay_exponent;
 
-    unsigned lagest_recv_bits = xqc_vint_get_2bit(lagest_recv);
+    unsigned largest_recv_bits = xqc_vint_get_2bit(largest_recv);
     unsigned ack_delay_bits = xqc_vint_get_2bit(ack_delay);
     unsigned first_ack_range_bits = xqc_vint_get_2bit(first_ack_range);
 
     need = 1    /* type */
-            + xqc_vint_len(lagest_recv_bits)
+            + xqc_vint_len(largest_recv_bits)
             + xqc_vint_len(ack_delay_bits)
             + 1 /* range_count */
             + xqc_vint_len(first_ack_range_bits);
@@ -1019,10 +1049,10 @@ xqc_gen_ack_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec
 
     *dst_buf++ = 0x02;
 
-    xqc_vint_write(dst_buf, lagest_recv, lagest_recv_bits, xqc_vint_len(lagest_recv_bits));
-    dst_buf += xqc_vint_len(lagest_recv_bits);
+    xqc_vint_write(dst_buf, largest_recv, largest_recv_bits, xqc_vint_len(largest_recv_bits));
+    dst_buf += xqc_vint_len(largest_recv_bits);
 
-    *largest_ack = lagest_recv;
+    *largest_ack = largest_recv;
 
     xqc_vint_write(dst_buf, ack_delay, ack_delay_bits, xqc_vint_len(ack_delay_bits));
     dst_buf += xqc_vint_len(ack_delay_bits);
@@ -1089,9 +1119,14 @@ xqc_parse_ack_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_ack_
 {
     unsigned char *p = packet_in->pos;
     const unsigned char *end = packet_in->last;
-    const unsigned char first_byte = *p++;
 
     int vlen;
+    uint64_t frame_type;
+    vlen = xqc_vint_read(p, end, &frame_type);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
     uint64_t largest_acked;
     uint64_t ack_range_count;   /* the actual range cnt */
     uint64_t first_ack_range;
@@ -1112,6 +1147,7 @@ xqc_parse_ack_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_ack_
         return -XQC_EVINTREAD;
     }
     p += vlen;
+    ack_info->largest_acked = largest_acked;
 
     vlen = xqc_vint_read(p, end, &ack_info->ack_delay);
     if (vlen < 0) {
@@ -2217,7 +2253,7 @@ xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id,
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
     size_t dst_buf_len = xqc_get_po_remained_size_with_ack_spc(packet_out);
 
-    xqc_packet_number_t lagest_recv, prev_low;
+    xqc_packet_number_t largest_recv, prev_low;
     xqc_usec_t ack_delay;
 
     const unsigned char *begin = dst_buf;
@@ -2248,24 +2284,24 @@ xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id,
         ack_delay = 0;
     }
 
-    lagest_recv = first_range->pktno_range.high;
-    first_ack_range = lagest_recv - first_range->pktno_range.low;
+    largest_recv = first_range->pktno_range.high;
+    first_ack_range = largest_recv - first_range->pktno_range.low;
     prev_low = first_range->pktno_range.low;
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|lagest_recv:%ui|ack_delay:%ui|first_ack_range:%ud|largest_pkt_recv_time:%ui|",
-            lagest_recv, ack_delay, first_ack_range, largest_pkt_recv_time);
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|largest_recv:%ui|ack_delay:%ui|first_ack_range:%ud|largest_pkt_recv_time:%ui|",
+            largest_recv, ack_delay, first_ack_range, largest_pkt_recv_time);
 
     ack_delay = ack_delay >> ack_delay_exponent;
 
     unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
     unsigned path_id_bits = xqc_vint_get_2bit(path_id);
-    unsigned lagest_recv_bits = xqc_vint_get_2bit(lagest_recv);
+    unsigned largest_recv_bits = xqc_vint_get_2bit(largest_recv);
     unsigned ack_delay_bits = xqc_vint_get_2bit(ack_delay);
     unsigned first_ack_range_bits = xqc_vint_get_2bit(first_ack_range);
 
     need = + xqc_vint_len(frame_type_bits)
            + xqc_vint_len(path_id_bits)
-           + xqc_vint_len(lagest_recv_bits)
+           + xqc_vint_len(largest_recv_bits)
            + xqc_vint_len(ack_delay_bits)
            + 1  /* range_count */
            + xqc_vint_len(first_ack_range_bits);
@@ -2280,10 +2316,10 @@ xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id,
     xqc_vint_write(dst_buf, path_id, path_id_bits, xqc_vint_len(path_id_bits));
     dst_buf += xqc_vint_len(path_id_bits);
 
-    xqc_vint_write(dst_buf, lagest_recv, lagest_recv_bits, xqc_vint_len(lagest_recv_bits));
-    dst_buf += xqc_vint_len(lagest_recv_bits);
+    xqc_vint_write(dst_buf, largest_recv, largest_recv_bits, xqc_vint_len(largest_recv_bits));
+    dst_buf += xqc_vint_len(largest_recv_bits);
 
-    *largest_ack = lagest_recv;
+    *largest_ack = largest_recv;
 
     xqc_vint_write(dst_buf, ack_delay, ack_delay_bits, xqc_vint_len(ack_delay_bits));
     dst_buf += xqc_vint_len(ack_delay_bits);
@@ -2952,5 +2988,422 @@ xqc_parse_max_path_id_frame(xqc_packet_in_t *packet_in, uint64_t *max_path_id)
 
     packet_in->pi_frame_types |= XQC_FRAME_BIT_MAX_PATH_ID;
 
+    return XQC_OK;
+}
+
+/*
+ *
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                     Largest Acknowledged (i)                ...
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                          ACK Delay (i)                      ...
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                       ACK Range Count (i)                   ...
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                       First ACK Range (i)                   ...
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                          ACK Ranges (*)                     ...
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                     Extended Ack Features (i)               ... 
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |        // Optional ECN counts (if bit 0 is set in Features)
+   |                         [ECN Counts (..)]                   ...
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |   // Optional Receive Timestamps (if bit 1 is set in Features)
+   |                   [Receive Timestamps (..)]                 ...
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+                    Figure: ACK_EXTENDED Frame Format
+*/
+ssize_t
+xqc_gen_ack_ext_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec_t now,
+    int ack_delay_exponent, xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time,
+    int *has_gap, xqc_packet_number_t *largest_ack, xqc_recv_timestamps_info_t *recv_ts_info)
+{
+    unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
+    size_t dst_buf_len = xqc_get_po_remained_size_with_ack_spc(packet_out);
+
+    xqc_packet_number_t largest_recv, prev_low;
+    xqc_usec_t ack_delay;
+
+    const unsigned char *begin = dst_buf;
+    const unsigned char *end = dst_buf + dst_buf_len;
+    unsigned char *p_range_count;
+    unsigned range_count = 0, first_ack_range, gap, acks, gap_bits, acks_bits, need;
+
+    xqc_list_head_t *pos, *next;
+    xqc_pktno_range_node_t *range_node;
+
+    xqc_pktno_range_node_t *first_range = NULL;
+    xqc_list_for_each_safe(pos, next, &recv_record->list_head) {
+        first_range = xqc_list_entry(pos, xqc_pktno_range_node_t, list);
+        break;
+    }
+
+    if (first_range == NULL) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|recv_record empty|");
+        return -XQC_ENULLPTR;
+    }
+
+    ack_delay = (now - largest_pkt_recv_time);
+    largest_recv = first_range->pktno_range.high;
+    first_ack_range = largest_recv - first_range->pktno_range.low;
+    prev_low = first_range->pktno_range.low;
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|largest_recv:%ui|ack_delay:%ui|first_ack_range:%ud|largest_pkt_recv_time:%ui|",
+            largest_recv, ack_delay, first_ack_range, largest_pkt_recv_time);
+
+    ack_delay = ack_delay >> ack_delay_exponent;
+
+    unsigned largest_recv_bits = xqc_vint_get_2bit(largest_recv);
+    unsigned ack_delay_bits = xqc_vint_get_2bit(ack_delay);
+    unsigned first_ack_range_bits = xqc_vint_get_2bit(first_ack_range);
+    unsigned frame_type_bits = xqc_vint_get_2bit(XQC_TRANS_FRAME_TYPE_ACK_EXT);
+    unsigned ts_range_need = xqc_recv_timestamps_info_need_bytes_estimate(recv_ts_info);
+
+    need = xqc_vint_len(frame_type_bits)    /* type */
+            + xqc_vint_len(largest_recv_bits)
+            + xqc_vint_len(ack_delay_bits)
+            + 1 /* range_count */
+            + xqc_vint_len(first_ack_range_bits)
+            + 1 /* ext ack features */
+            + ts_range_need;
+
+    if (dst_buf + need > end) {
+        return -XQC_ENOBUF;
+    }
+
+    /* ack_with_timestamps frame using a different frame type */
+    xqc_vint_write(dst_buf, XQC_TRANS_FRAME_TYPE_ACK_EXT, frame_type_bits, xqc_vint_len(frame_type_bits));
+    dst_buf += xqc_vint_len(frame_type_bits);
+
+    xqc_vint_write(dst_buf, largest_recv, largest_recv_bits, xqc_vint_len(largest_recv_bits));
+    dst_buf += xqc_vint_len(largest_recv_bits);
+
+    *largest_ack = largest_recv;
+
+    xqc_vint_write(dst_buf, ack_delay, ack_delay_bits, xqc_vint_len(ack_delay_bits));
+    dst_buf += xqc_vint_len(ack_delay_bits);
+
+    p_range_count = dst_buf;
+    dst_buf += 1;   /* max range_count 63, 1 byte */
+
+    xqc_vint_write(dst_buf, first_ack_range, first_ack_range_bits, xqc_vint_len(first_ack_range_bits));
+    dst_buf += xqc_vint_len(first_ack_range_bits);
+
+    int is_first = 1;
+    xqc_list_for_each_safe(pos, next, &recv_record->list_head) {    /* from second node */
+        range_node = xqc_list_entry(pos, xqc_pktno_range_node_t, list);
+
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|high:%ui|low:%ui|pkt_pns:%d|",
+                range_node->pktno_range.high, range_node->pktno_range.low, packet_out->po_pkt.pkt_pns);
+        if (is_first) {
+            is_first = 0;
+            continue;
+        }
+
+        gap = prev_low - range_node->pktno_range.high - 2;
+        acks = range_node->pktno_range.high - range_node->pktno_range.low;
+
+        gap_bits = xqc_vint_get_2bit(gap);
+        acks_bits = xqc_vint_get_2bit(acks);
+
+        need = xqc_vint_len(gap_bits) + xqc_vint_len(acks_bits);
+        if (dst_buf + need > end) {
+            return -XQC_ENOBUF;
+        }
+
+        xqc_vint_write(dst_buf, gap, gap_bits, xqc_vint_len(gap_bits));
+        dst_buf += xqc_vint_len(gap_bits);
+
+        xqc_vint_write(dst_buf, acks, acks_bits, xqc_vint_len(acks_bits));
+        dst_buf += xqc_vint_len(acks_bits);
+
+        prev_low = range_node->pktno_range.low;
+
+        ++range_count;
+        if (range_count >= XQC_MAX_ACK_RANGE_CNT - 1) {
+            break;
+        }
+    }
+
+    if (range_count > 0) {
+        *has_gap = 1;
+
+    } else {
+        *has_gap = 0;
+    }
+    xqc_vint_write(p_range_count, range_count, 0, 1);
+
+    packet_out->po_frame_types |= XQC_FRAME_BIT_ACK;
+    /* write base ack range finish */
+
+    /* 
+     * Write Extended Ack Features: A variable-length integer whose bit-wise 
+     * value indicates which optional fields are included in the ACK. Bit 0 
+     * indicates whether ECN count fields are included in the frame.
+     * Bit 1 indicates whether Receive Timestamps are included in the frame.
+     * XQUIC doesn't send ECN count currently, But Receive Timestamps is enabled
+     */
+    int64_t ext_ack_features = 2;
+    if (dst_buf + 1 > end) {
+        return -XQC_ENOBUF;
+    }
+     /* if write ack ext features fail, set ext_ack_features = 0 */
+    unsigned char *ext_ack_features_pos = dst_buf;
+    xqc_vint_write(dst_buf, ext_ack_features, 0, 1);
+    dst_buf += 1;
+
+    size_t left_buf_len = end - dst_buf;
+    if (left_buf_len < ts_range_need) {
+        xqc_vint_write(ext_ack_features_pos, 0, 0, 1);
+        xqc_recv_timestamps_info_set_nobuf_flag(recv_ts_info, 1);
+        return dst_buf - begin;
+    }
+    size_t fill_ts_ret = xqc_write_packet_receive_timestamps_into_buf(conn, dst_buf, left_buf_len, recv_ts_info, largest_recv);
+    xqc_recv_timestamps_info_set_nobuf_flag(recv_ts_info, 0);
+    xqc_recv_timestamps_info_clear(recv_ts_info);
+    return dst_buf - begin + fill_ts_ret;
+}
+
+/* return: the number of bytes written to dst_buf */
+static size_t
+xqc_write_packet_receive_timestamps_into_buf(xqc_connection_t *conn, unsigned char *dst_buf, size_t dst_buf_len,
+    xqc_recv_timestamps_info_t *recv_ts_info, uint64_t po_largest_ack)
+{
+    /*
+     * step 1: fill Timestamp Ranges
+     * step 2: set Timestamp Range Count
+     * step 3: update packet_out used size
+    */
+    unsigned char *end = dst_buf + dst_buf_len;
+    unsigned char *begin = dst_buf;
+
+    uint32_t timestamp_range_count = 0;
+    uint32_t timestamp_exponent = conn->conn_settings.receive_timestamps_exponent;
+
+    unsigned char *timestamp_range_count_pos = dst_buf;
+    unsigned char *cur_range_delta_count_pos = NULL;
+    /* currently, only using one byte to write timestamp range count, which means the max count is 1 << 6 - 1 = 63 */
+    dst_buf += 1;
+
+    uint32_t cur_range_gap, cur_range_delta_count = 0;
+    uint64_t cur_timestamp_delta;
+    uint32_t total_report_num = 0;
+    uint8_t is_first_pkt_in_cur_range = 1, is_first_range = 1;
+
+    uint32_t need_for_cur_pkt;
+    unsigned cur_range_gap_bits, cur_timestamp_delta_bits;
+    xqc_packet_number_t cur_pkt_num, last_pkt_num = 0;
+    xqc_usec_t cur_pkt_recv_time, last_pkt_recv_time = 0;
+    uint32_t total_ts_len = xqc_recv_timestamps_info_length(recv_ts_info);
+    int cur_idx = total_ts_len - 1;
+    xqc_recv_timestamps_info_fetch(recv_ts_info, cur_idx, &cur_pkt_num, &cur_pkt_recv_time);
+    while(cur_idx >= 0) {
+        total_report_num += 1;
+        /* 
+         * 1. num of reporting timestamp should not exceed max_receive_timestamps_per_ack 
+         * 2. currently, using one byte to write timestamp range count, 
+         *    so timestamp_range_count need be small than 1 << 6 - 1
+        */
+        if (total_report_num > conn->conn_settings.max_receive_timestamps_per_ack) {
+            break;
+        }
+        if (is_first_pkt_in_cur_range) {
+            if (is_first_range) {
+                /* 
+                 * for first pkt in first range: 
+                 *     gap = largest_ack - cur_pkt_num
+                 *     time_delta = cur_pkt_recv_time - conn_create_time
+                 */
+                cur_range_gap = po_largest_ack - cur_pkt_num;
+                cur_timestamp_delta = ((cur_pkt_recv_time - conn->conn_create_time) / 1000) >> timestamp_exponent;
+                is_first_range = 0;
+            } else {
+                /* 
+                 * for first pkt other ranges:
+                 *      gap = last_pkt_num - cur_pkt_num
+                 *      time_delta = last_pkt_recv_time - cur_pkt_recv_time
+                */
+                cur_range_gap = last_pkt_num - cur_pkt_num;
+                cur_timestamp_delta = ((last_pkt_recv_time - cur_pkt_recv_time) / 1000) >> timestamp_exponent;
+            }
+            /*
+             * 1. write cur_range:gap
+             * 2. save buf pos of cur_range:cur_range_delta_count
+             * 3. write first time delta of cur_range
+             */
+            cur_range_gap_bits = xqc_vint_get_2bit(cur_range_gap);
+            cur_timestamp_delta_bits = xqc_vint_get_2bit(cur_timestamp_delta);
+            need_for_cur_pkt = xqc_vint_len(cur_range_gap_bits)
+                                + 1 /* cur_range:delta_count */
+                                + xqc_vint_len(cur_timestamp_delta_bits);
+            if (dst_buf + need_for_cur_pkt > end) {
+                break;
+            }
+            xqc_vint_write(dst_buf, cur_range_gap, cur_range_gap_bits, xqc_vint_len(cur_range_gap_bits));
+            dst_buf += xqc_vint_len(cur_range_gap_bits);
+
+            /* cur_range:delta_count */
+            cur_range_delta_count_pos = dst_buf;
+            dst_buf += 1;
+
+            xqc_vint_write(dst_buf, cur_timestamp_delta, cur_timestamp_delta_bits, xqc_vint_len(cur_timestamp_delta_bits));
+            dst_buf += xqc_vint_len(cur_timestamp_delta_bits);
+            is_first_pkt_in_cur_range = 0;
+            cur_range_delta_count = 1;
+        } else {
+            if (cur_pkt_num + 1 != last_pkt_num) {
+                /*
+                 * new timestamp range:
+                 * 1. write cur_range_delta_count
+                 * 2. set is_first_pkt_in_cur_range
+                 */
+                xqc_vint_write(cur_range_delta_count_pos, cur_range_delta_count, 0, 1);
+                cur_range_delta_count_pos = NULL;
+                is_first_pkt_in_cur_range = 1;
+                timestamp_range_count += 1;
+                continue;
+            }
+            cur_timestamp_delta = ((last_pkt_recv_time - cur_pkt_recv_time) / 1000) >> timestamp_exponent;
+            cur_timestamp_delta_bits = xqc_vint_get_2bit(cur_timestamp_delta);
+            need_for_cur_pkt = xqc_vint_len(cur_timestamp_delta_bits);
+            if (dst_buf + need_for_cur_pkt > end) {
+                break;
+            }
+            xqc_vint_write(dst_buf, cur_timestamp_delta, cur_timestamp_delta_bits, xqc_vint_len(cur_timestamp_delta_bits));
+            dst_buf += need_for_cur_pkt;
+            cur_range_delta_count += 1;
+        }
+        last_pkt_num = cur_pkt_num;
+        last_pkt_recv_time = cur_pkt_recv_time;
+        cur_idx -= 1;
+        xqc_recv_timestamps_info_fetch(recv_ts_info, cur_idx, &cur_pkt_num, &cur_pkt_recv_time);
+    }
+    /* write cur_range:delta_count and timestamp_range_count */
+    if (cur_range_delta_count_pos != NULL) {
+        xqc_vint_write(cur_range_delta_count_pos, cur_range_delta_count, 0, 1);
+        timestamp_range_count += 1;
+    }
+    xqc_vint_write(timestamp_range_count_pos, timestamp_range_count, 0, 1);
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|ts_info_len:%ud|range_count:%ud|", total_ts_len, timestamp_range_count);
+    return dst_buf - begin;
+}
+
+static xqc_int_t
+xqc_parse_timestamps_in_ack_ext(xqc_packet_in_t *packet_in, xqc_connection_t *conn, 
+    xqc_ack_timestamp_info_t *ack_ts_info, xqc_packet_number_t largest_acked)
+{
+    unsigned char *p = packet_in->pos;
+    const unsigned char *end = packet_in->last;
+    uint64_t timestamp_range_count, cur_range_gap, cur_time_delta, cur_range_length;
+    uint64_t timestamp_delta_exponent = conn->local_settings.receive_timestamps_exponent;
+    xqc_packet_number_t pkt_num_base = largest_acked;
+    uint8_t is_first_range = 1, is_first_pkt_in_range = 1;
+    int vlen;
+
+    vlen = xqc_vint_read(p, end, &timestamp_range_count);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+    if (timestamp_range_count >= XQC_RECV_TIMESTAMPS_INFO_MAX_LENGTH) {
+        return -XQC_EACK_EXT_ABN_VAL;
+    }
+
+    for (int i = 0; i < timestamp_range_count; ++i) {
+        vlen = xqc_vint_read(p, end, &cur_range_gap);
+        if (vlen < 0) {
+            return -XQC_EVINTREAD;
+        }
+        p += vlen;
+
+        vlen = xqc_vint_read(p, end, &cur_range_length);
+        if (vlen < 0) {
+            return -XQC_EVINTREAD;
+        }
+        p += vlen;
+        is_first_pkt_in_range = 1;
+        if (cur_range_length >= XQC_RECV_TIMESTAMPS_INFO_MAX_LENGTH) {
+            return -XQC_EACK_EXT_ABN_VAL;
+        }
+
+        for (int j = 0; j < cur_range_length; ++j) {
+            vlen = xqc_vint_read(p, end, &cur_time_delta);
+            if (vlen < 0) {
+                return -XQC_EVINTREAD;
+            }
+            p += vlen;
+            if (is_first_pkt_in_range) {
+                if (is_first_range) {
+                    ack_ts_info->pkt_nums[ack_ts_info->report_num] = largest_acked - cur_range_gap;
+                    /*
+                    * The base of first timestamp delta is conn_create_time in sender side, 
+                    * the receiver cannnot access it. But due to clock synchronization reason,
+                    * it's meaningless to acess the base.
+                    */
+                    ack_ts_info->recv_ts[ack_ts_info->report_num] = 
+                            (cur_time_delta << timestamp_delta_exponent) + conn->conn_create_time / 1000;
+                    is_first_range = 0;
+                } else {
+                    ack_ts_info->pkt_nums[ack_ts_info->report_num] = 
+                            ack_ts_info->pkt_nums[ack_ts_info->report_num - 1] - cur_range_gap;
+                    ack_ts_info->recv_ts[ack_ts_info->report_num] = 
+                            ack_ts_info->recv_ts[ack_ts_info->report_num - 1] - (cur_time_delta << timestamp_delta_exponent);
+                }
+                is_first_pkt_in_range = 0;
+            } else {
+                ack_ts_info->pkt_nums[ack_ts_info->report_num] = 
+                    ack_ts_info->pkt_nums[ack_ts_info->report_num - 1] - 1;
+                ack_ts_info->recv_ts[ack_ts_info->report_num] = 
+                    ack_ts_info->recv_ts[ack_ts_info->report_num - 1] - (cur_time_delta << timestamp_delta_exponent);
+            }
+            ack_ts_info->report_num += 1;
+            if (ack_ts_info->report_num > conn->local_settings.max_receive_timestamps_per_ack) {
+                return -XQC_EACK_EXT_ABN_VAL;
+            }
+        }
+        is_first_range = 0;
+    }
+    packet_in->pos = p;
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|report_num:%d|", ack_ts_info->report_num);
+    return XQC_OK;
+}
+
+xqc_int_t
+xqc_parse_ack_ext_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
+    xqc_ack_info_t *ack_info, xqc_ack_timestamp_info_t *ack_ts_info)
+{
+    int ack_parse_ret = xqc_parse_ack_frame(packet_in, conn, ack_info);
+    if (ack_parse_ret != XQC_OK) {
+        return ack_parse_ret;
+    }
+    /* parse ack_ext feature */
+    uint64_t ack_ext_feature = 0;
+    unsigned char *p = packet_in->pos;
+    const unsigned char *end = packet_in->last;
+    int vlen;
+    vlen = xqc_vint_read(p, end, &ack_ext_feature);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+    packet_in->pos = p;
+    /* parse ENC count */
+    /*
+     * if (ack_ext_feature & XQC_ACK_EXT_FEATURE_BIT_ENC_COUNT) {
+     *     xqc_parse_enc_count_in_ack_ext(packet_in, conn, ack_ts_info, ack_info->largest_acked);
+     * }
+     */
+
+    /* parse timestamps */
+    if (ack_ext_feature & XQC_ACK_EXT_FEATURE_BIT_RECV_TS) {
+        int recv_ts_parse_ret = xqc_parse_timestamps_in_ack_ext(packet_in, conn, ack_ts_info, ack_info->largest_acked);
+        if (recv_ts_parse_ret != XQC_OK) {
+            return recv_ts_parse_ret;
+        }
+    }
     return XQC_OK;
 }

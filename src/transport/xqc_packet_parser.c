@@ -461,21 +461,14 @@ xqc_packet_parse_initial(xqc_connection_t *c, xqc_packet_in_t *packet_in)
     packet_in->pi_pkt.pkt_type = XQC_PTYPE_INIT;
     packet_in->pi_pkt.pkt_pns = XQC_PNS_INIT;
 
-    if (c->conn_state == XQC_CONN_STATE_SERVER_INIT 
-        && !(c->conn_flag & XQC_CONN_FLAG_INIT_RECVD))
-    {
+    /* The smallest length of udp datagrams carrying initial packet frome client is 1200  */
+    if (c->conn_type == XQC_CONN_TYPE_SERVER) {
         if (XQC_BUFF_LEFT_SIZE(packet_in->buf, end) < XQC_PACKET_INITIAL_MIN_LENGTH) {
             xqc_log(c->log, XQC_LOG_ERROR, "|initial size too small|%z|",
                     (size_t)XQC_BUFF_LEFT_SIZE(packet_in->buf, end));
             XQC_CONN_ERR(c, TRA_PROTOCOL_VIOLATION);
             return -XQC_EILLPKT;
         }
-        c->conn_flag |= XQC_CONN_FLAG_INIT_RECVD;
-
-    } else if (c->conn_state == XQC_CONN_STATE_CLIENT_INITIAL_SENT
-               && !(c->conn_flag & XQC_CONN_FLAG_INIT_RECVD))
-    {
-        c->conn_flag |= XQC_CONN_FLAG_INIT_RECVD;
     }
 
     /* Token Length(i) & Token */
@@ -626,7 +619,6 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     }
 
     /* do packet protection */
-    //TODO: MPQUIC fix migration
     uint32_t nonce_path_id = (conn->enable_multipath) ? 
                              (uint32_t)path->path_id : 0;
 
@@ -1265,6 +1257,10 @@ xqc_packet_parse_long_header(xqc_connection_t *c,
     uint32_t version = xqc_parse_uint32(pos);
     if (version == 0) {
         /* version negotiation */
+        if (c->conn_type == XQC_CONN_TYPE_SERVER) {
+            xqc_log(c->log, XQC_LOG_DEBUG, "|server receive version negotiation packet|");
+            return -XQC_EILLPKT;
+        }
         type = XQC_PTYPE_VERSION_NEGOTIATION;
     }
     pos += XQC_PACKET_VERSION_LENGTH;
@@ -1324,7 +1320,9 @@ xqc_packet_parse_long_header(xqc_connection_t *c,
     /* check protocol version */
     if (xqc_conn_version_check(c, version) != XQC_OK) {
         xqc_log(c->log, XQC_LOG_INFO, "|version not supported|v:%ui|", version);
-        c->conn_flag |= XQC_CONN_FLAG_VERSION_NEGOTIATION;
+        if (c->conn_type == XQC_CONN_TYPE_SERVER) { /* version negotiation only send by server */
+            c->conn_flag |= XQC_CONN_FLAG_VERSION_NEGOTIATION;
+        }
         return -XQC_EVERSION;
     }
 

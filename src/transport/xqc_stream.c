@@ -676,6 +676,12 @@ error:
 }
 
 void
+xqc_stream_set_priority(xqc_stream_t *stream, xqc_stream_priority_t priority)
+{
+    stream->stream_priority = priority;
+}
+
+void
 xqc_stream_set_user_data(xqc_stream_t *stream, void *user_data)
 {
     stream->user_data = user_data;
@@ -699,21 +705,84 @@ xqc_stream_id(xqc_stream_t *stream)
     return stream->stream_id;
 }
 
+xqc_usec_t
+xqc_update_avg_time(xqc_usec_t new_time, xqc_usec_t ori_time, xqc_int_t ori_time_num)
+{
+    return (xqc_usec_t)(1.0 * new_time / (ori_time_num + 1) + 1.0 * ori_time / (ori_time_num + 1) * ori_time_num);
+}
+
+xqc_bool_t
+xqc_is_stream_finished(xqc_stream_t *stream)
+{
+    xqc_bool_t check_send_state, check_recv_state;
+    xqc_conn_type_t conn_type = stream->stream_conn->conn_type;
+
+    if (stream->stream_type == XQC_CLI_BID || stream->stream_type == XQC_SVR_BID) {
+        check_send_state = XQC_TRUE;
+        check_recv_state = XQC_TRUE;
+    } else if ((stream->stream_type == XQC_CLI_UNI && conn_type == XQC_CONN_TYPE_CLIENT)
+               || (stream->stream_type == XQC_SVR_UNI && conn_type == XQC_CONN_TYPE_SERVER)) {
+        /* Uni Stream Send side */
+        check_send_state = XQC_TRUE;
+        check_recv_state = XQC_FALSE;
+    } else {
+        /* Uni Stream Recv side */
+        check_send_state = XQC_FALSE;
+        check_recv_state = XQC_TRUE;
+    }
+
+    if (check_send_state && check_recv_state) {
+        return (stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_RECVD)
+                && (stream->stream_state_recv == XQC_RECV_STREAM_ST_DATA_READ);
+    } else if (check_send_state) {
+        return stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_RECVD;
+    } else {
+        return stream->stream_state_recv == XQC_RECV_STREAM_ST_DATA_READ;
+    }
+}
+
 void
 xqc_destroy_stream(xqc_stream_t *stream)
 {
+    xqc_int_t   finished_streams, enable_stream_num, video_frames;
+    xqc_usec_t  curr_recv_delay, curr_fec_recv_opt;
+
+#define __calc_delay(a, b) ((a && b && (a > b))? (a) - (b) : 0)
+
     xqc_log(stream->stream_conn->log, XQC_LOG_DEBUG, "|send_state:%d|recv_state:%d|stream_id:%ui|stream_type:%d|",
             stream->stream_state_send, stream->stream_state_recv, stream->stream_id, stream->stream_type);
 
-    if ((stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_RECVD)
-        && (stream->stream_state_recv == XQC_RECV_STREAM_ST_DATA_READ))
-    {
+    if (xqc_is_stream_finished(stream)) {
         if(stream->stream_conn) {
-            stream->stream_conn->finished_streams++;
+            finished_streams = stream->stream_conn->finished_streams++;
+            if (stream->stream_fec_ctl.is_video_frame) {
+                video_frames = stream->stream_conn->conn_video_frames++;
+                xqc_usec_t  curr_close_delay;
+                curr_close_delay = __calc_delay(stream->stream_stats.close_time, stream->stream_stats.create_time);          
+                curr_recv_delay = __calc_delay(stream->stream_stats.stream_recv_time, stream->stream_stats.create_time);
+                stream->stream_conn->conn_avg_close_delay = xqc_update_avg_time(curr_close_delay, stream->stream_conn->conn_avg_close_delay, video_frames);
+                stream->stream_conn->conn_latest_close_delay = curr_close_delay;
+                stream->stream_conn->conn_avg_recv_delay = xqc_update_avg_time(curr_recv_delay, stream->stream_conn->conn_avg_recv_delay, video_frames);
+                if (stream->stream_conn->fec_ctl) {
+                    if (stream->stream_fec_ctl.enable_fec
+                        || stream->stream_stats.recov_pkt_cnt > 0)
+                    {
+                        enable_stream_num = stream->stream_conn->fec_ctl->fec_enable_stream_num++;
+                        curr_recv_delay = __calc_delay(stream->stream_stats.recv_time_with_fec, stream->stream_stats.create_time);
+                        curr_fec_recv_opt = __calc_delay(stream->stream_stats.final_packet_time, stream->stream_stats.recv_time_with_fec);
+                        stream->stream_conn->fec_ctl->conn_avg_recv_delay = xqc_update_avg_time(curr_recv_delay, stream->stream_conn->fec_ctl->conn_avg_recv_delay, enable_stream_num); 
+                        stream->stream_conn->fec_ctl->fec_avg_opt_time = xqc_update_avg_time(curr_fec_recv_opt, stream->stream_conn->fec_ctl->fec_avg_opt_time, enable_stream_num); 
+                    }
+                }
+            }
         }
     }
 
     xqc_stream_record_trans_state(stream, XQC_FALSE);
+
+    if (stream->stream_stats.retrans_pkt_cnt > stream->stream_stats.fec_send_rpr_cnt) {
+        stream->stream_conn->burst_loss_cnt += 1;
+    }
 
     if (stream->stream_if->stream_close_notify
         && !(stream->stream_flag & XQC_STREAM_FLAG_DISCARDED))
@@ -745,8 +814,6 @@ xqc_destroy_stream(xqc_stream_t *stream)
 
     stream->stream_flag |= XQC_STREAM_FLAG_CLOSED;
 
-#define __calc_delay(a, b) (a? (a) - (b) : 0)
-
     char path_info_buff[200 * XQC_MAX_PATHS_COUNT] = {'\0'};
     xqc_stream_path_metrics_print(stream->stream_conn, stream, path_info_buff, 50 * XQC_MAX_PATHS_COUNT);
 
@@ -759,7 +826,7 @@ xqc_destroy_stream(xqc_stream_t *stream)
             "finrcv_delay:%ui|finread_delay:%ui|all_acked_delay:%ui|"
             "firstfinack_dely:%ui|close_delay:%ui|"
             "apprst_delay:%ui|rstsnd_delay:%ui|rstrcv_delay:%ui|%s|"
-            "path_info:%s|",
+            "path_info:%s|fec_recv_delay:%"PRIu64"|fec_send_rpr_cnt:%d|retrans:%d|",
             stream->stream_err, stream->stream_close_msg ? stream->stream_close_msg : "",
             stream->stream_conn->enable_multipath ? 1:0,
             stream->stream_state_send, stream->stream_state_recv, 
@@ -782,7 +849,11 @@ xqc_destroy_stream(xqc_stream_t *stream)
             __calc_delay(stream->stream_stats.local_reset_time, stream->stream_stats.create_time),
             __calc_delay(stream->stream_stats.peer_reset_time, stream->stream_stats.create_time),
             xqc_conn_addr_str(stream->stream_conn),
-            path_info_buff);
+            path_info_buff,
+            (stream->stream_stats.recv_time_with_fec == 0 || (stream->stream_stats.final_packet_time < stream->stream_stats.recv_time_with_fec)) ? 0 : (stream->stream_stats.final_packet_time - stream->stream_stats.recv_time_with_fec),
+            stream->stream_stats.fec_send_rpr_cnt,
+            stream->stream_stats.retrans_pkt_cnt
+        );
 #undef __calc_delay
 
     xqc_free(stream);
@@ -1001,6 +1072,7 @@ xqc_crypto_stream_on_read(xqc_stream_t *stream, void *user_data)
     if (encrypt_level == XQC_ENC_LEV_INIT) {
         switch (cur_state) {
         case XQC_CONN_STATE_CLIENT_INITIAL_SENT:
+            xqc_stream_ready_to_write(stream);
             next_state = XQC_CONN_STATE_CLIENT_INITIAL_RECVD;
             break;
         case XQC_CONN_STATE_SERVER_INIT:
@@ -1154,6 +1226,11 @@ xqc_crypto_stream_on_write(xqc_stream_t *stream, void *user_data)
 
             crypto_data_list = &conn->initial_crypto_data_list;
             next_state = XQC_CONN_STATE_CLIENT_INITIAL_SENT;
+            break;
+        
+        case XQC_CONN_STATE_CLIENT_INITIAL_RECVD:
+            crypto_data_list = &conn->initial_crypto_data_list;
+            next_state = XQC_CONN_STATE_CLIENT_INITIAL_RECVD;
             break;
 
         case XQC_CONN_STATE_SERVER_INIT:
@@ -1390,7 +1467,6 @@ xqc_stream_recv(xqc_stream_t *stream, unsigned char *recv_buf, size_t recv_buf_s
     return (read == 0 && *fin == 0) ? -XQC_EAGAIN : read;
 }
 
-
 ssize_t
 xqc_stream_send(xqc_stream_t *stream, unsigned char *send_data, size_t send_data_size, uint8_t fin)
 {
@@ -1436,7 +1512,6 @@ xqc_stream_send(xqc_stream_t *stream, unsigned char *send_data, size_t send_data
             goto do_buff;
         }
     }
-
     while (offset < send_data_size || fin_only) {
 
         if (pkt_type == XQC_PTYPE_SHORT_HEADER) {
@@ -1486,6 +1561,17 @@ xqc_stream_send(xqc_stream_t *stream, unsigned char *send_data, size_t send_data
 
     xqc_stream_shutdown_write(stream);
 
+#ifdef XQC_ENABLE_FEC
+
+    // FEC encode process on stream level
+    if (conn->conn_settings.fec_level == XQC_FEC_STREAM_LEVEL
+        && stream->stream_fec_ctl.enable_fec
+        && conn->conn_settings.fec_params.fec_encoder_scheme == XQC_PACKET_MASK_CODE
+        && stream->stream_fec_ctl.stream_fec_syb_num > 0)
+    {
+        ret = xqc_process_fec_protected_packet_moq(stream);
+    }
+#endif
 do_buff:
     /* 0RTT failure requires fallback to 1RTT, save the original send data */
     if (pkt_type == XQC_PTYPE_0RTT) {

@@ -13,6 +13,7 @@
 #include "src/transport/xqc_reinjection.h"
 #include "src/transport/xqc_frame_parser.h"
 #include "src/transport/xqc_datagram.h"
+#include "src/transport/xqc_recv_timestamps_info.h"
 
 #include "src/common/xqc_common.h"
 #include "src/common/xqc_malloc.h"
@@ -65,6 +66,8 @@ xqc_path_destroy(xqc_path_ctx_t *path)
         path->path_pn_ctl = NULL;
     }
 
+    xqc_recv_timestamps_info_destroy(path->recv_ts_info);
+
     xqc_path_schedule_buf_destroy(path);
  
     xqc_free((void *)path);
@@ -97,6 +100,9 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid, uint64
     path->path_pn_ctl = xqc_pn_ctl_create(conn);
     if (path->path_pn_ctl == NULL) {
         goto err;
+    }
+    if (conn->local_settings.extended_ack_features & XQC_ACK_EXT_FEATURE_BIT_RECV_TS) {
+        path->recv_ts_info = xqc_recv_timestamps_info_create();
     }
 
     path->path_send_ctl = xqc_send_ctl_create(path);
@@ -134,7 +140,6 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid, uint64
         }
 
     } else {
-        //TODO: risky code
         /* already have dcid */
         xqc_cid_copy(&(path->path_dcid), dcid);
     }
@@ -319,7 +324,7 @@ xqc_path_immediate_close(xqc_path_ctx_t *path)
     }
     
     /* try to update MSS */
-    if (conn->conn_settings.enable_pmtud) {
+    if (conn->enable_pmtud) {
         xqc_conn_try_to_update_mss(conn);
     }
 
@@ -357,7 +362,6 @@ xqc_path_closed(xqc_path_ctx_t *path)
                                                 xqc_conn_get_user_data(conn));
     }
 
-    /* TODO: release path recource */
     return XQC_OK;
 }
 
@@ -1102,7 +1106,7 @@ xqc_path_validate(xqc_path_ctx_t *path)
         }
 
         /* PMTUD: launch probing immediately */
-        if (conn->conn_settings.enable_pmtud) {
+        if (conn->enable_pmtud) {
             conn->probing_cnt = 0;
             conn->conn_flag |= XQC_CONN_FLAG_PMTUD_PROBING;
             xqc_timer_unset(&conn->conn_timer_manager, XQC_TIMER_PMTUD_PROBING);

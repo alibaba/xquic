@@ -52,11 +52,21 @@ xqc_calloc(size_t count, size_t size)
 }
 #endif
 
+#ifdef PRINT_MALLOC
+#define xqc_realloc(ptr, size) ({\
+    xqc_init_print();\
+    void *p = realloc(ptr, size); \
+    fprintf(g_malloc_info_fp, "PRINT_FREE %p\n", ptr); \
+    fprintf(g_malloc_info_fp, "PRINT_MALLOC %p %zu %s:%d\n", p, size, __FILE__, __LINE__);\
+    (p);\
+    })
+#else
 static inline void *
 xqc_realloc(void *ptr, size_t size)
 {
     return realloc(ptr, size);
 }
+#endif
 
 static inline void
 xqc_free(void *ptr)

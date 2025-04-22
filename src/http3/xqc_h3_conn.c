@@ -467,6 +467,36 @@ xqc_h3_conn_create(xqc_connection_t *conn, void *user_data)
         goto fail;
     }
 
+    if (h3c->h3_conn_callbacks.h3_conn_init_settings) {
+        h3c->h3_conn_callbacks.h3_conn_init_settings(h3c, 
+            &h3c->local_h3_conn_settings, user_data);
+#ifdef XQC_COMPAT_DUPLICATE
+        xqc_log(h3c->log, XQC_LOG_DEBUG, "|new_h3_local_settings|"
+                "max_field_section_size:%ui|max_pushes:%ui|"
+                "qpack_enc_max_table_capacity:%ui|"
+                "qpack_dec_max_table_capacity:%ui|"
+                "qpack_blocked_streams:%ui|"
+                "qpack_compat_duplicate:%ui|",
+                h3c->local_h3_conn_settings.max_field_section_size,
+                h3c->local_h3_conn_settings.max_pushes,
+                h3c->local_h3_conn_settings.qpack_enc_max_table_capacity,
+                h3c->local_h3_conn_settings.qpack_dec_max_table_capacity,
+                h3c->local_h3_conn_settings.qpack_blocked_streams,
+                h3c->local_h3_conn_settings.qpack_compat_duplicate);
+#else
+        xqc_log(h3c->log, XQC_LOG_DEBUG, "|new_h3_local_settings|"
+                "max_field_section_size:%ui|max_pushes:%ui|"
+                "qpack_enc_max_table_capacity:%ui|"
+                "qpack_dec_max_table_capacity:%ui|"
+                "qpack_blocked_streams:%ui|",
+                h3c->local_h3_conn_settings.max_field_section_size,
+                h3c->local_h3_conn_settings.max_pushes,
+                h3c->local_h3_conn_settings.qpack_enc_max_table_capacity,
+                h3c->local_h3_conn_settings.qpack_dec_max_table_capacity,
+                h3c->local_h3_conn_settings.qpack_blocked_streams);
+#endif
+    }
+
     /* create qpack */
     h3c->qpack = xqc_qpack_create(h3c->local_h3_conn_settings.qpack_enc_max_table_capacity,
                                   h3c->local_h3_conn_settings.qpack_dec_max_table_capacity,

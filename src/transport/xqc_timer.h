@@ -17,7 +17,7 @@
  */
 #define XQC_PING_TIMEOUT                    15000
 
-#define XQC_PMTUD_START_DELAY               10000
+#define XQC_PMTUD_START_DELAY               5000
 
 typedef enum xqc_timer_level {
     XQC_PATH_LEVEL_TIMER,
@@ -46,6 +46,7 @@ typedef enum xqc_timer_type {
     XQC_TIMER_LINGER_CLOSE,
     XQC_TIMER_KEY_UPDATE,
     XQC_TIMER_PMTUD_PROBING,
+    XQC_TIMER_QUEUE_FIN,
 
     XQC_TIMER_N,
 

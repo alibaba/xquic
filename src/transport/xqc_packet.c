@@ -95,6 +95,31 @@ xqc_packet_need_decrypt(xqc_packet_t *pkt)
     return xqc_has_packet_number(pkt);
 }
 
+/* 
+ * a client MUST discard Initial keys when it first sends a Handshake packet 
+ * and a server MUST discard Initial keys when it first successfully processes a Handshake packet
+ * we should ignore initial packet if xqc_conn_check_initial_packet_from_cur_state return XQC_FALSE
+ */
+static inline xqc_int_t
+xqc_conn_check_initial_packet_from_cur_state(xqc_conn_state_t cur_state)
+{
+    switch(cur_state) {
+        case XQC_CONN_STATE_CLIENT_INIT:
+        case XQC_CONN_STATE_CLIENT_INITIAL_SENT:
+        case XQC_CONN_STATE_CLIENT_INITIAL_RECVD:
+        case XQC_CONN_STATE_SERVER_INIT:
+        case XQC_CONN_STATE_SERVER_INITIAL_RECVD:
+        case XQC_CONN_STATE_SERVER_INITIAL_SENT:
+        case XQC_CONN_STATE_SERVER_HANDSHAKE_SENT:
+        case XQC_CONN_STATE_SERVER_HANDSHAKE_RECVD:
+            return XQC_TRUE;
+        default:
+            return XQC_FALSE;
+
+    }
+    return XQC_TRUE;
+}
+
 xqc_int_t
 xqc_packet_parse_single(xqc_connection_t *c, xqc_packet_in_t *packet_in)
 {
@@ -144,6 +169,12 @@ xqc_packet_parse_single(xqc_connection_t *c, xqc_packet_in_t *packet_in)
             xqc_log(c->log, XQC_LOG_INFO, "|delay|buff HSK before hs_rx_key_ready|");
             xqc_conn_buff_undecrypt_packet_in(packet_in, c, XQC_ENC_LEV_HSK);
             return -XQC_EWAITING;
+        } else if (XQC_PTYPE_INIT == XQC_PACKET_LONG_HEADER_GET_TYPE(packet_in->pos)) {
+            if (XQC_UNLIKELY(xqc_conn_check_initial_packet_from_cur_state(c->conn_state) == XQC_FALSE)) {
+                xqc_log(c->log, XQC_LOG_INFO, "|initial packet should be discarded"
+                        "|curr_stat:%d|", c->conn_state);
+                return -XQC_EIGNORE_PKT;
+            }
         }
 
         /* parse packet */

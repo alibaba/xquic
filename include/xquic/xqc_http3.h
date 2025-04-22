@@ -48,6 +48,16 @@ typedef void (*xqc_h3_handshake_finished_pt)(xqc_h3_conn_t *h3_conn, void *h3c_u
 typedef void (*xqc_h3_conn_ping_ack_notify_pt)(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid,
     void *ping_user_data, void *h3c_user_data);
 
+
+typedef struct xqc_h3_conn_settings_s xqc_h3_conn_settings_t;
+/**
+ * @brief In this callback, only operations related to modifying current_settings is allowed.
+ *        This callback is triggered before the connection has been fully initialized.
+ *        PLEASE DO NOT call any XQUIC APIs in this callback.
+ */
+typedef void (*xqc_h3_conn_init_settings_pt)(xqc_h3_conn_t *h3_conn, 
+    xqc_h3_conn_settings_t *current_settings, void *h3c_user_data);
+
 /**
  * @brief http3 request callbacks
  */
@@ -88,6 +98,13 @@ typedef enum xqc_http3_nv_flag_s {
 
 } xqc_http3_nv_flag_t;
 
+typedef enum xqc_http3_nv_hit_flag_s {
+    XQC_NV_HIT_NONE = 0x00,   /**< none is matched */
+    XQC_NV_HIT_NAME = 0x01,   /**< only name is matched */
+    XQC_NV_HIT_BOTH = 0x02,   /**< both name and value are matched */
+} xqc_http3_nv_hit_flag_t;
+
+typedef struct xqc_http_header_s xqc_http_header_t;
 
 typedef struct xqc_http_header_s {
     /** name of http header */
@@ -98,6 +115,15 @@ typedef struct xqc_http_header_s {
 
     /** flags of xqc_http3_nv_flag_t with OR operator */
     uint8_t             flags;
+
+    /** save the nv hit status or not (0 means do not save) */
+    uint8_t             save_nv_hit_flags;
+
+    /** flags of nv hit status (used as return values) */
+    uint8_t             nv_hit_flags;
+
+    /** src header (if this one is copied from another using xqc_h3_request_copy_header) */
+    xqc_http_header_t  *src_header;
 } xqc_http_header_t;
 
 
@@ -180,6 +206,7 @@ typedef struct xqc_request_stats_s {
     uint8_t     early_data_state;
 
     char        stream_info[XQC_STREAM_INFO_LEN];
+    char        extern_stream_info[XQC_STREAM_INFO_LEN];
 
     xqc_usec_t  stream_fst_fin_snd_time;
     
@@ -202,8 +229,17 @@ typedef struct xqc_request_stats_s {
      * @brief the number of lost/delayed packets recovered by fec module;
      */
     uint32_t    fec_recov_cnt;
+    xqc_usec_t  fst_rpr_time;
+    xqc_usec_t  last_rpr_time;
 
     uint8_t     is_fec_protected;
+    uint8_t     block_size_mode;
+    xqc_int_t   fec_blk_lack_num;       /* number of lack source symbol when receive last repair symbol */
+    xqc_usec_t  fec_blk_lack_time;      /* (first block) block finish time - last received rpr (in block) time */
+    xqc_usec_t  fec_req_delay_time;     /* request finish time - last received rpr time */
+    xqc_usec_t  recv_time_with_fec;
+    xqc_usec_t  final_packet_time;
+    xqc_usec_t  stream_close_delay;
 } xqc_request_stats_t;
 
 /**
@@ -363,6 +399,8 @@ typedef struct xqc_h3_conn_callbacks_s {
 
     /** ping callback. which will be triggered when ping is acked */
     xqc_h3_conn_ping_ack_notify_pt      h3_conn_ping_acked;            /* optional */
+
+    xqc_h3_conn_init_settings_pt        h3_conn_init_settings;
 
 } xqc_h3_conn_callbacks_t;
 

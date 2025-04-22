@@ -32,6 +32,9 @@ struct xqc_packet_in_s {
 
     uint64_t                pi_path_id;
     xqc_packet_in_flag_t    pi_flag;
+
+    xqc_usec_t              pi_fec_process_time;
+    xqc_stream_id_t         stream_id;
 };
 
 

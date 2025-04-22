@@ -146,6 +146,8 @@ typedef enum {
 
     XQC_EPMTUD_PROBING_SIZE             = 682,      /**< PMTUD - probing size error */
 
+    XQC_EACK_EXT_ABN_VAL                = 690,      /**< ACK Extension - abnormal value */
+
     XQC_E_MAX,
 } xqc_transport_error_t;
 

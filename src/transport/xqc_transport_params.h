@@ -62,22 +62,9 @@ typedef enum {
     XQC_TRANSPORT_PARAM_ACTIVE_CONNECTION_ID_LIMIT          = 0x000e,
     XQC_TRANSPORT_PARAM_INITIAL_SOURCE_CONNECTION_ID        = 0x000f,
     XQC_TRANSPORT_PARAM_RETRY_SOURCE_CONNECTION_ID          = 0x0010,
-
-    XQC_TRANSPORT_PARAM_ENABLE_MULTIPATH_PARSER             = 0x0011,
-    XQC_TRANSPORT_PARAM_MAX_DATAGRAM_FRAME_SIZE_PARSER      = 0x0012,
     
     /* whether enable datagram reduncy */
-    XQC_TRANSPORT_PARAM_CLOSE_DGRAM_REDUNDANCY             = 0x0013,
-#ifdef XQC_ENABLE_FEC
-    /* fec attributes' parser */
-    XQC_TRANSPORT_PARAM_FEC_VERSION_PARSER                  = 0x0014,
-    XQC_TRANSPORT_PARAM_FEC_ENCODER_SCHEMES_PARSER          = 0x0015,
-    XQC_TRANSPORT_PARAM_FEC_DECODER_SCHEMES_PARSER          = 0x0016,
-    XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_NUM_PARSER           = 0x0017,
-#endif
-    /* upper limit of params defined in [Transport] */
-    XQC_TRANSPORT_PARAM_PROTOCOL_MAX,
-
+    XQC_TRANSPORT_PARAM_CLOSE_DGRAM_REDUNDANCY              = 0x0013,
 
     /* max datagram frame size */
     XQC_TRANSPORT_PARAM_MAX_DATAGRAM_FRAME_SIZE             = 0x0020,
@@ -90,6 +77,9 @@ typedef enum {
 
     /* google connection options */
     XQC_TRANSPORT_PARAM_GOOGLE_CO                           = 0x3128,
+
+    /* PTMUD negotiation */
+    XQC_TRANSPORT_PARAM_PMTUD_OPTIONS                       = 0x0e08a234ff112300,
 #ifdef XQC_ENABLE_FEC
     /* fec attributes */
     XQC_TRANSPORT_PARAM_FEC_VERSION                         = 0xfec001,
@@ -98,8 +88,9 @@ typedef enum {
     XQC_TRANSPORT_PARAM_FEC_DECODER_SCHEMES                 = 0xfecd02,
     XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_NUM                  = 0xfecb02,
 #endif
-    /* upper limit of params defined by xquic */
-    XQC_TRANSPORT_PARAM_UNKNOWN,
+    XQC_TRANSPORT_PARAM_EXTENDED_ACK_FEATURES               = 0xff0a004,
+    XQC_TRANSPORT_PARAM_MAX_RECEIVE_TIMESTAMPS_PER_ACK      = 0xff0a002,
+    XQC_TRANSPORT_PARAM_RECEIVE_TIMESTAMPS_EXPONENT         = 0xff0a003,
 } xqc_transport_param_id_t;
 
 
@@ -185,9 +176,22 @@ typedef struct {
     xqc_int_t               fec_decoder_schemes_num;
 
     xqc_dgram_red_setting_e close_dgram_redundancy;
+    uint64_t                enable_pmtud;
+    
+    /* 
+     * draft-smith-quic-receive-ts-01: QUIC Extended Acknowledgement for Reporting Packet Receive Timestamps
+     * extended_ack_features: a bit-wise value indicates which optional fields are included.
+     *       Bit 0 indicates whether ECN count fields are included in the frame.
+     *       Bit 1 indicates whether Receive Timestamps are included in the frame.
+     *
+     * max_receive_timestamps_per_ack: max number of timestamps in a extended ack frame. 
+     * ack_receive_timestamps: all time delta values are decoded by mulitplying the 
+     *     value in the field by 2 to the power of the receive_timestamps_exponent.
+    */
+    uint64_t                 extended_ack_features;
+    uint64_t                 max_receive_timestamps_per_ack;
+    uint64_t                 receive_timestamps_exponent;
 } xqc_transport_params_t;
-
-
 
 /**
  * encode transport parameters. 

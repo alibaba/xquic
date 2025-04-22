@@ -7,14 +7,8 @@ set(
 )
 
 set(
-    TEST_PLATFORM_SOURCES
-    "../tests/platform.c"
-)
-
-set(
     MINI_CLIENT_SOURCES
     ${HQ_SOURCES}
-    ${TEST_PLATFORM_SOURCES}
     "common.c"
     "mini_client.c"
     "mini_client_cb.c"
@@ -23,7 +17,6 @@ set(
 set(
     MINI_SERVER_SOURCES
     ${HQ_SOURCES}
-    ${TEST_PLATFORM_SOURCES}
     "common.c"
     "mini_server.c"
     "mini_server_cb.c"

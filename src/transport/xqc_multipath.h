@@ -128,6 +128,7 @@ struct xqc_path_ctx_s {
     xqc_send_ctl_t     *path_send_ctl;
     xqc_pn_ctl_t       *path_pn_ctl;
 
+
     /* path send buffer, used to store packets scheduled to this path */
     xqc_list_head_t     path_schedule_buf[XQC_SEND_TYPE_N];
     uint32_t            path_schedule_bytes;
@@ -149,6 +150,12 @@ struct xqc_path_ctx_s {
     /* PTMUD */
     size_t              curr_pkt_out_size;
     size_t              path_max_pkt_out_size;
+
+    /* 
+     * Record pkt receive timestamp info. Null if local 
+     * conn_setting.extended_ack_features & XQC_ACK_EXT_FEATURE_BIT_RECV_TS == 0
+     */
+    xqc_recv_timestamps_info_t *recv_ts_info;
 };
 
 /* 埋点路径信息 */

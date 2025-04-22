@@ -39,7 +39,7 @@
 
 #define XQC_PACKET_TMP_BUF_LEN  1600
 #define MAX_BUF_SIZE            (100*1024*1024)
-#define XQC_INTEROP_TLS_GROUPS  "X25519:P-256:P-384:P-521"
+#define XQC_INTEROP_TLS_GROUPS  "P-256:X25519:P-384:P-521"
 #define MAX_PATH_CNT            2
 
 
@@ -130,6 +130,9 @@ typedef struct xqc_demo_cli_net_config_s {
     uint8_t rebind_p0;
     uint8_t rebind_p1;
 
+    uint8_t addr_specified;
+    uint8_t port_specified;
+
 } xqc_demo_cli_net_config_t;
 
 /**
@@ -153,6 +156,7 @@ typedef struct xqc_demo_cli_quic_config_s {
     /* alpn protocol of client */
     xqc_demo_cli_alpn_type_t alpn_type;
     char alpn[16];
+    int quic_version;
 
     /* 0-rtt config */
     int  st_len;                        /* session ticket len */
@@ -171,6 +175,7 @@ typedef struct xqc_demo_cli_quic_config_s {
 
     char mp_sched[32];
     uint8_t mp_backup;
+    int backup_path_id;
 
     uint64_t close_path;
 
@@ -198,6 +203,9 @@ typedef struct xqc_demo_cli_quic_config_s {
     size_t max_pkt_sz;
 
     char co_str[XQC_CO_STR_MAX_LEN];
+
+    int recreate_path;
+    int close_path_id;
 
 } xqc_demo_cli_quic_config_t;
 
@@ -434,6 +442,8 @@ typedef struct xqc_demo_cli_user_conn_s {
     xqc_msec_t              path_create_time;
     xqc_flag_t              remove_path_flag;
     xqc_msec_t              idle_timeout;
+
+    int                     recreate_path_seq;
 } xqc_demo_cli_user_conn_t;
 
 static void
@@ -860,13 +870,19 @@ xqc_demo_cli_conn_create_path(const xqc_cid_t *cid, void *conn_user_data)
     uint64_t path_id;
     int ret;
     int backup = 0;
-    printf("ready to create path notify\n");
+    uint32_t path_seq;
+    printf("ready to create path notify: %d %d %"PRIu64"\n", 
+           user_conn->total_path_cnt, ctx->args->net_cfg.ifcnt,
+           ctx->args->quic_cfg.init_max_path_id);
 
     if (user_conn->total_path_cnt < ctx->args->net_cfg.ifcnt
         && user_conn->total_path_cnt < ctx->args->quic_cfg.init_max_path_id)
     {
 
-        if (user_conn->total_path_cnt == 1 && ctx->args->quic_cfg.mp_backup) {
+        if (user_conn->total_path_cnt == 1 
+            && ctx->args->quic_cfg.mp_backup
+            && ctx->args->quic_cfg.backup_path_id == 1) 
+        {
             backup = 1;
         }
 
@@ -880,7 +896,12 @@ xqc_demo_cli_conn_create_path(const xqc_cid_t *cid, void *conn_user_data)
             printf("Init No.%d path (id = %"PRIu64") to STANDBY state\n", 1, path_id);
         }
 
-        ret = xqc_demo_cli_init_user_path(user_conn, user_conn->total_path_cnt, path_id);
+        path_seq = user_conn->total_path_cnt;
+        if (user_conn->recreate_path_seq != -1) {
+            path_seq = user_conn->recreate_path_seq;
+        }
+
+        ret = xqc_demo_cli_init_user_path(user_conn, path_seq, path_id);
         if (ret < 0) {
             xqc_conn_close_path(ctx->engine, &(user_conn->cid), path_id);
             return;
@@ -889,10 +910,10 @@ xqc_demo_cli_conn_create_path(const xqc_cid_t *cid, void *conn_user_data)
         user_conn->path_create_time = xqc_now();
 
         if (user_conn->total_path_cnt == 2 && ctx->args->quic_cfg.mp_backup) {
-            printf("set No.%d path (id = %"PRIu64") to STANDBY state\n", 1, path_id);
-            xqc_conn_mark_path_standby(ctx->engine, &(user_conn->cid), path_id);
+            printf("set path (id = %d) to STANDBY state\n", ctx->args->quic_cfg.backup_path_id);
+            xqc_conn_mark_path_standby(ctx->engine, &(user_conn->cid), ctx->args->quic_cfg.backup_path_id);
         }
-
+        
     }
 }
 
@@ -924,7 +945,13 @@ xqc_demo_cli_path_removed(const xqc_cid_t *scid, uint64_t path_id,
                 close(user_conn->paths[i].rebind_fd);
             }
 
-            printf("No.%d path removed id = %"PRIu64"\n", i, path_id);   
+            printf("No.%d path removed id = %"PRIu64"\n", i, path_id);  
+            
+            if (user_conn->ctx->args->quic_cfg.recreate_path) {
+                user_conn->total_path_cnt--;
+                user_conn->recreate_path_seq = user_conn->ctx->args->quic_cfg.close_path_id;
+                xqc_demo_cli_conn_create_path(&user_conn->cid, user_conn);
+            } 
         }
     }
 
@@ -1027,23 +1054,23 @@ xqc_demo_path_status_trigger(xqc_demo_cli_user_conn_t *user_conn)
             && xqc_conn_available_paths(user_conn->ctx->engine, &user_conn->cid) >= 2)
         {
             if (ts_now > user_conn->path_status_time + user_conn->path_status_timer_threshold) {
-                xqc_conn_mark_path_standby(user_conn->ctx->engine, &user_conn->cid, 0);
+                xqc_conn_mark_path_standby(user_conn->ctx->engine, &user_conn->cid, user_conn->ctx->args->quic_cfg.backup_path_id);
                 user_conn->path_status = 1; /* 1:standby */
 
                 user_conn->path_status_time = ts_now;
-                printf("mark_path_standby: path_id=0 path_status=%d now=%"PRIu64" pre=%"PRIu64" threshold=%"PRIu64"\n",
-                            user_conn->path_status, ts_now, user_conn->path_status_time, user_conn->path_status_timer_threshold);
+                printf("mark_path_standby: path_id=%d path_status=%d now=%"PRIu64" pre=%"PRIu64" threshold=%"PRIu64"\n",
+                            user_conn->ctx->args->quic_cfg.backup_path_id, user_conn->path_status, ts_now, user_conn->path_status_time, user_conn->path_status_timer_threshold);
             }
 
         } else if (user_conn->path_status == 1) {
 
             if (ts_now > user_conn->path_status_time + user_conn->path_status_timer_threshold) {
-                xqc_conn_mark_path_available(user_conn->ctx->engine, &user_conn->cid, 0);
+                xqc_conn_mark_path_available(user_conn->ctx->engine, &user_conn->cid, user_conn->ctx->args->quic_cfg.backup_path_id);
                 user_conn->path_status = 0; /* 0:available */
 
                 user_conn->path_status_time = ts_now;
-                printf("mark_path_available: path_id=0 path_status=%d now=%"PRIu64" pre=%"PRIu64" threshold=%"PRIu64"\n",
-                       user_conn->path_status, ts_now, user_conn->path_status_time, user_conn->path_status_timer_threshold);
+                printf("mark_path_available: path_id=%d path_status=%d now=%"PRIu64" pre=%"PRIu64" threshold=%"PRIu64"\n",
+                       user_conn->ctx->args->quic_cfg.backup_path_id, user_conn->path_status, ts_now, user_conn->path_status_time, user_conn->path_status_timer_threshold);
             }
         }
     }
@@ -1535,7 +1562,7 @@ xqc_demo_cli_close_path_timeout(int fd, short what, void *arg)
     xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *) arg;
     if (user_conn->active_path_cnt > 1) 
     {
-        xqc_conn_close_path(user_conn->ctx->engine, &(user_conn->cid), user_conn->paths[1].path_id);
+        xqc_conn_close_path(user_conn->ctx->engine, &(user_conn->cid), user_conn->paths[user_conn->ctx->args->quic_cfg.close_path_id].path_id);
     }
 }
 
@@ -1679,7 +1706,7 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
     settings->cc_params.customize_on = 1,
     settings->cc_params.init_cwnd = 96,
     settings->so_sndbuf = 1024*1024;
-    settings->proto_version = XQC_VERSION_V1;
+    settings->proto_version = args->quic_cfg.quic_version;
     settings->spurious_loss_detect_on = 1;
     settings->keyupdate_pkt_threshold = args->quic_cfg.keyupdate_pkt_threshold;
     settings->enable_multipath = args->net_cfg.multipath;
@@ -1693,6 +1720,7 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
     settings->mp_ping_on = 1;
     settings->is_interop_mode = args->quic_cfg.is_interop_mode;
     settings->max_pkt_out_size = args->quic_cfg.max_pkt_sz;
+    settings->max_udp_payload_size = args->quic_cfg.max_pkt_sz;
     settings->adaptive_ack_frequency = 1;
     settings->init_max_path_id = args->quic_cfg.init_max_path_id;
     if (args->req_cfg.throttled_req != -1) {
@@ -1712,6 +1740,8 @@ xqc_demo_cli_init_args(xqc_demo_cli_client_args_t *args)
     args->net_cfg.conn_timeout = 30;
     strncpy(args->net_cfg.server_addr, "127.0.0.1", sizeof(args->net_cfg.server_addr));
     args->net_cfg.server_port = 8443;
+    args->net_cfg.addr_specified = 0;
+    args->net_cfg.port_specified = 0;
 
     /* env cfg */
     args->env_cfg.log_level = XQC_LOG_DEBUG;
@@ -1725,8 +1755,12 @@ xqc_demo_cli_init_args(xqc_demo_cli_client_args_t *args)
     args->quic_cfg.keyupdate_pkt_threshold = UINT64_MAX;
     /* default 10 */
     args->quic_cfg.mp_version = XQC_MULTIPATH_10;
-    args->quic_cfg.init_max_path_id = 2;
+    args->quic_cfg.init_max_path_id = 8;
     args->quic_cfg.max_pkt_sz = 1200;
+    args->quic_cfg.recreate_path = 0;
+    args->quic_cfg.close_path_id = 1;
+    args->quic_cfg.backup_path_id = 1;
+    args->quic_cfg.quic_version = XQC_VERSION_V1;
 
     args->req_cfg.throttled_req = -1;
 
@@ -1737,42 +1771,77 @@ xqc_demo_cli_parse_server_addr(char *url, xqc_demo_cli_net_config_t *cfg)
 {
     /* get hostname and port */
     char s_port[16] = {0};
-    sscanf(url, "%*[^://]://%[^:]:%[^/]", cfg->host, s_port);
+    char tmp[256] = {0};
+    sscanf(url, "%*[^://]://%[^/]", tmp);
+
+    if (strchr(tmp, ':') != NULL) {
+        sscanf(url, "%*[^://]://%[^:]:%[^/]", cfg->host, s_port);
+    } else {
+        sscanf(url, "%*[^://]://%[^/]", cfg->host);
+    }
 
     /* parse port */
-    cfg->server_port = atoi(s_port);
-
-    /* set hint for hostname resolve */
-    struct addrinfo hints = {0};
-    memset(&hints, 0, sizeof(struct addrinfo));
-    hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
-    hints.ai_socktype = SOCK_DGRAM; /* Datagram socket */
-    hints.ai_flags = AI_PASSIVE;    /* For wildcard IP address */
-    hints.ai_protocol = 0;          /* Any protocol */
-    hints.ai_canonname = NULL;
-    hints.ai_addr = NULL;
-    hints.ai_next = NULL;
-
-    /* resolve server's ip from hostname */
-    struct addrinfo *result = NULL;
-    int rv = getaddrinfo(cfg->host, s_port, &hints, &result);
-    if (rv != 0) {
-        printf("get addr info from hostname: %s\n", gai_strerror(rv));
+    if (!cfg->port_specified) {
+        cfg->server_port = atoi(s_port);
     }
-    memcpy(&cfg->addr, result->ai_addr, result->ai_addrlen);
-    cfg->addr_len = result->ai_addrlen;
 
-    /* convert to string. */
-    if (result->ai_family == AF_INET6) {
-        inet_ntop(result->ai_family, &(((struct sockaddr_in6*)result->ai_addr)->sin6_addr),
-            cfg->server_addr, sizeof(cfg->server_addr));
+    if (!cfg->addr_specified) {
+        /* set hint for hostname resolve */
+        struct addrinfo hints = {0};
+        memset(&hints, 0, sizeof(struct addrinfo));
+        if (cfg->ipv6) {
+            hints.ai_family = AF_INET6;    /* Allow IPv4 or IPv6 */
+        } else {
+            hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
+        }
+        hints.ai_socktype = SOCK_DGRAM; /* Datagram socket */
+        hints.ai_flags = AI_PASSIVE;    /* For wildcard IP address */
+        hints.ai_protocol = 0;          /* Any protocol */
+        hints.ai_canonname = NULL;
+        hints.ai_addr = NULL;
+        hints.ai_next = NULL;
+
+        /* resolve server's ip from hostname */
+        struct addrinfo *result = NULL;
+        int rv = getaddrinfo(cfg->host, s_port, &hints, &result);
+        if (rv != 0) {
+            printf("get addr info from hostname: %s\n", gai_strerror(rv));
+        }
+        memcpy(&cfg->addr, result->ai_addr, result->ai_addrlen);
+        cfg->addr_len = result->ai_addrlen;
+
+        /* convert to string. */
+        if (result->ai_family == AF_INET6) {
+            inet_ntop(result->ai_family, &(((struct sockaddr_in6*)result->ai_addr)->sin6_addr),
+                cfg->server_addr, sizeof(cfg->server_addr));
+        } else {
+            inet_ntop(result->ai_family, &(((struct sockaddr_in*)result->ai_addr)->sin_addr),
+                cfg->server_addr, sizeof(cfg->server_addr));
+        }
+        freeaddrinfo(result);
     } else {
-        inet_ntop(result->ai_family, &(((struct sockaddr_in*)result->ai_addr)->sin_addr),
-            cfg->server_addr, sizeof(cfg->server_addr));
+
+        if (strchr(cfg->server_addr, ':') != NULL) {
+            struct sockaddr_in6 *addr6 = &cfg->addr;
+            addr6->sin6_family = AF_INET6;
+            addr6->sin6_port = htons(cfg->server_port);
+            inet_pton(AF_INET6, cfg->server_addr, &addr6->sin6_addr);
+            cfg->ipv6 = 1;
+            cfg->addr_len = sizeof(struct sockaddr_in6);
+
+        } else {
+            struct sockaddr_in *addr4 = (struct sockaddr_in*)&cfg->addr;
+            addr4->sin_family = AF_INET;
+            addr4->sin_port = htons(cfg->server_port);
+            inet_pton(AF_INET, cfg->server_addr, &addr4->sin_addr);
+            cfg->ipv6 = 0;
+            cfg->addr_len = sizeof(struct sockaddr_in);
+        }
     }
+    
 
     printf("server[%s] addr: %s:%d.\n", cfg->host, cfg->server_addr, cfg->server_port);
-    freeaddrinfo(result);
+    
 }
 
 void
@@ -1819,7 +1888,7 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -t    Connection timeout. Default 3 seconds.\n"
         "   -S    cipher suites\n"
         "   -0    use 0-RTT\n"
-        "   -A    alpn selection: h3/hq\n"
+        "   -A    alpn selection: h3/h3-29/hq\n"
         "   -D    save request body directory\n"
         "   -l    Log level. e:error d:debug.\n"
         "   -L    xquic log directory.\n"
@@ -1836,11 +1905,13 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -s    multipath scheduler (interop, minrtt, backup), default: interop\n"
         "   -b    set the second path as a backup path\n"
         "   -Z    close one path after X ms\n"
+        "   -z    path id to be closed\n"
+        "   -q    create path x if closed\n"
         "   -N    No encryption (default disabled)\n"
         "   -Q    Send requests one by one (default disabled)\n"
         "   -T    Throttle recving rate (Bps)\n"
         "   -R    Reinjection (1,2,4) \n"
-        "   -V    Multipath Version (4,5,6)\n"
+        "   -V    Multipath Version\n"
         "   -B    Set initial path standby after recvd first application data, and set initial path available after X ms\n"
         "   -I    Idle interval between requests (ms)\n"
         "   -n    Throttling the {1,2,...}xn-th requests\n"
@@ -1860,18 +1931,24 @@ void
 xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:bZ:NQT:R:V:B:I:n:eEF:G:r:x:y:Y:f:")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:b:Z:NQT:R:V:B:I:n:eEF:G:r:x:y:Y:f:z:q6")) != -1) {
         switch (ch) {
         /* server ip */
+        case '6':
+            printf("option ipv6\n");
+            args->net_cfg.ipv6 = 1;
+            break;
         case 'a':
             printf("option addr :%s\n", optarg);
             snprintf(args->net_cfg.server_addr, sizeof(args->net_cfg.server_addr), optarg);
+            args->net_cfg.addr_specified = 1;
             break;
 
         /* server port */
         case 'p':
             printf("option port :%s\n", optarg);
             args->net_cfg.server_port = atoi(optarg);
+            args->net_cfg.port_specified = 1;
             break;
 
         /* congestion control */
@@ -1947,6 +2024,10 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             } else if (strcmp(optarg, "hq") == 0) {
                 args->quic_cfg.alpn_type = ALPN_HQ;
                 strncpy(args->quic_cfg.alpn, "hq-interop", 11);
+            } else if (strcmp(optarg, "h3-29") == 0) {
+                args->quic_cfg.alpn_type = ALPN_H3;
+                args->quic_cfg.quic_version = XQC_IDRAFT_VER_29;
+                strncpy(args->quic_cfg.alpn, "h3-29", 6);
             }
 
             break;
@@ -2035,13 +2116,24 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             break;
 
         case 'b':
-            printf("option backup path on\n");
+            printf("option backup path on path %s\n", optarg);
             args->quic_cfg.mp_backup = 1;
+            args->quic_cfg.backup_path_id = atoi(optarg);
             break;
         
         case 'Z':
             printf("option close a path after %s ms\n", optarg);
             args->quic_cfg.close_path = atoi(optarg);
+            break;
+
+        case 'z':
+            printf("option close path id:%s\n", optarg);
+            args->quic_cfg.close_path_id = atoi(optarg);
+            break;
+
+        case 'q':
+            printf("option re-create path id\n");
+            args->quic_cfg.recreate_path = 1;
             break;
 
         case 'N':
@@ -2225,7 +2317,7 @@ xqc_demo_cli_send_h3_req(xqc_demo_cli_user_conn_t *user_conn,
         if (req_create_cnt == user_conn->ctx->args->req_cfg.throttled_req) {
             settings.recv_rate_bytes_per_sec = user_conn->ctx->args->quic_cfg.recv_rate;
         }
-
+        
         if (req_create_cnt != 0
             && user_conn->ctx->args->req_cfg.throttled_req != 0 
             && (req_create_cnt % user_conn->ctx->args->req_cfg.throttled_req) == 0)
@@ -2372,8 +2464,12 @@ xqc_demo_cli_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, 
     xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *)user_data;
     xqc_conn_stats_t stats = xqc_conn_get_stats(user_conn->ctx->engine, cid);
     printf("send_count:%u, lost_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" "
-           "early_data_flag:%d, conn_err:%d, ack_info:%s, conn_info:%s\n", stats.send_count, stats.lost_count,
-           stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err,
+           "standby_bytes:%"PRIu64", total_bytes:%"PRIu64" "
+           "early_data_flag:%d, conn_err:%d, acked_max_mtu %u, ack_info:%s, conn_info:%s\n", 
+           stats.send_count, stats.lost_count,
+           stats.tlp_count, stats.recv_count, stats.srtt, 
+           stats.standby_path_app_bytes, stats.total_app_bytes,
+           stats.early_data_flag, stats.conn_err, stats.max_acked_mtu,
            stats.ack_info, stats.conn_info);
 
     xqc_demo_cli_on_task_finish(user_conn->ctx, user_conn->task);
@@ -2868,6 +2964,7 @@ xqc_demo_cli_handle_task(xqc_demo_cli_ctx_t *ctx, xqc_demo_cli_task_t *task)
     xqc_demo_cli_user_conn_t *user_conn = calloc(1, sizeof(xqc_demo_cli_user_conn_t));
     user_conn->ctx = ctx;
     user_conn->task = task;
+    user_conn->recreate_path_seq = -1;
 
     /* init the first path */
     if (xqc_demo_cli_init_user_path(user_conn, 0, 0)) {

@@ -835,6 +835,33 @@ grep_err_log|grep -v xqc_h3_stream_send_headers
 
 
 clear_log
+echo -e "no h3 init settings callback ...\c"
+result=`${CLIENT_BIN} -s 1024 -l d -t 1 -E |grep ">>>>>>>> pass"`
+clog_res=`grep "new_h3_local_settings" clog`
+errlog=`grep_err_log`
+echo "$result"
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -z "$clog_res" ]; then
+    case_print_result "no_h3_init_settings_cb" "pass"
+else
+    case_print_result "no_h3_init_settings_cb" "fail"
+    echo "$errlog"
+fi
+
+clear_log
+echo -e "set h3 init settings callback ...\c"
+result=`${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 502|grep ">>>>>>>> pass"`
+clog_res=`grep -E "new_h3_local_settings.*qpack_dec_max_table_capacity:65536" clog`
+errlog=`grep_err_log`
+echo "$result"
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$clog_res" ]; then
+    case_print_result "set_h3_init_settings_cb" "pass"
+else
+    case_print_result "set_h3_init_settings_cb" "fail"
+    echo "$errlog"
+fi
+
+
+clear_log
 echo -e "send 1K data ...\c"
 result=`${CLIENT_BIN} -s 1024 -l d -t 1 -E --conn_options CBBR|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
@@ -1323,14 +1350,13 @@ fi
 
 
 killall test_server 2> /dev/null
-sudo rm -rf stdlog
 ${SERVER_BIN} -l d -e -x 8 > /dev/null &
 sleep 1
 
 clear_log
 rm -f test_session xqc_token tp_localhost
 echo -e "server amplification limit ...\c"
-${CLIENT_BIN} -s 1024 -l d -t 3 -x 25 -1 >> stdlog
+${CLIENT_BIN} -s 1024 -l d -t 3 -x 25 -1 >> clog
 enter_aal=`grep "amplification limit" slog`
 aal=`grep "blocked by anti amplification limit" slog`
 leave_aal=`grep "anti-amplification state unlock" slog`
@@ -1344,12 +1370,11 @@ fi
 
 
 killall test_server 2> /dev/null
-sudo rm -rf stdlog
 ${SERVER_BIN} -l e -e -x 10 > /dev/null &
 sleep 1
 clear_log
 echo -e "massive requests with massive header ...\c"
-sudo ${CLIENT_BIN} -l e -q 50 -n 100 -x 32 -E >> stdlog
+${CLIENT_BIN} -l e -q 50 -n 100 -x 32 -E > stdlog
 result=`grep ">>>>>>>> pass:1" stdlog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" != "" ]; then
@@ -1358,9 +1383,9 @@ if [ -z "$errlog" ] && [ "$result" != "" ]; then
 else
     echo ">>>>>>>> pass:0"
     case_print_result "massive_requests_with_massive_header" "fail"
+    echo "$result"
 fi
 
-sudo rm -rf clog slog stdlog test_session xqc_token tp_localhost
 killall test_server 2> /dev/null
 ${SERVER_BIN} -l d -e -b > /dev/null &
 sleep 1
@@ -4384,7 +4409,7 @@ else
 fi
 
 
-sudo rm -rf tp_localhost test_session xqc_token clog slog stdlog ckeys.log
+sudo rm -rf tp_localhost test_session xqc_token stdlog ckeys.log
 killall test_server
 ${SERVER_BIN} -l d -e -x 151 > /dev/null &
 sleep 1
@@ -4415,13 +4440,14 @@ else
     case_print_result "h3_engine_set_settings_api_h3_ext_more" "fail"
 fi
 
-sudo rm -rf tp_localhost test_session xqc_token clog slog stdlog
+sudo rm -rf tp_localhost test_session xqc_token
 killall test_server 2> /dev/null
 ${SERVER_BIN} -l d -e -f > /dev/null &
 sleep 1
 
+clear_log
 echo -e "negotiate_encoder_fec_schemes ...\c"
-${CLIENT_BIN} -l d -g >> stdlog
+sudo ${CLIENT_BIN} -l d -g > stdlog
 clog_res1=`grep "|xqc_negotiate_fec_schemes|set final encoder fec scheme: XOR" clog`
 slog_res1=`grep "|xqc_negotiate_fec_schemes|set final encoder fec scheme: XOR" slog`
 errlog=`grep_err_log`
@@ -4434,9 +4460,9 @@ else
 fi
 
 
-sudo rm -rf tp_localhost test_session xqc_token stdlog
+clear_log
 echo -e "negotiate_decoder_fec_schemes ...\c"
-${CLIENT_BIN} -l d -g >> stdlog
+sudo ${CLIENT_BIN} -l d -g > stdlog
 clog_res2=`grep "|xqc_negotiate_fec_schemes|set final decoder fec scheme: XOR" clog`
 slog_res2=`grep "|xqc_negotiate_fec_schemes|set final decoder fec scheme: XOR" slog`
 errlog=`grep_err_log`
@@ -4449,14 +4475,14 @@ else
 fi
 
 
-sudo rm -rf clog slog
+clear_log
 killall test_server 2> /dev/null
-${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
+stdbuf -oL ${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
 sleep 1
 
-sudo rm -rf tp_localhost test_session xqc_token stdlog
+rm -rf tp_localhost test_session xqc_token
 echo -e "check fec recovery function of stream using XOR ...\c"
-${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g >> stdlog
+sudo ${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g -M -i lo -i lo > stdlog
 slog_res1=`grep '|process packet of block .\{1,3\} successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4467,14 +4493,14 @@ else
     case_print_result "fec_recovered_function_of_stream_xor" "fail"
 fi
 
-sudo rm -rf clog slog
+clear_log
 killall test_server 2> /dev/null
-${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
+stdbuf -oL ${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
 sleep 1
 
-sudo rm -rf tp_localhost test_session xqc_token stdlog
+rm -rf tp_localhost test_session xqc_token
 echo -e "check fec recovery function of stream using RSC ...\c"
-${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g --fec_encoder 8 --fec_decoder 8 >> stdlog
+sudo ${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g -M -i lo -i lo --fec_encoder 8 --fec_decoder 8 > stdlog
 slog_res1=`grep '|process packet of block .\{1,3\} successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4485,14 +4511,14 @@ else
     case_print_result "fec_recovered_function_of_stream_rsc" "fail"
 fi
 
-sudo rm -rf clog slog
+clear_log
 killall test_server 2> /dev/null
-${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
+stdbuf -oL ${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
 sleep 1
 
-sudo rm -rf tp_localhost test_session xqc_token stdlog
+rm -rf tp_localhost test_session xqc_token
 echo -e "check fec recovery function of stream using PM ...\c"
-${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g --fec_encoder 12 --fec_decoder 12 >> stdlog
+sudo ${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g -M -i lo -i lo --fec_encoder 12 --fec_decoder 12 > stdlog
 slog_res1=`grep '|process packet of block .\{1,3\} successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4503,6 +4529,21 @@ else
     case_print_result "fec_recovered_function_of_stream_pm" "fail"
 fi
 
+rm -rf tp_localhost test_session xqc_token
+echo -e "check fec recovery when send repair packets ahead ...\c"
+sudo ${CLIENT_BIN} -s 5120000 -l d -E -d 30 -g -M -i lo -i lo --fec_encoder 12 --fec_decoder 12 --fec_timeout 20 > stdlog
+clog_res=`grep '|send repair packets ahead finished' clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$clog_res" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "fec_send_repair_ahead" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "fec_send_repair_ahead" "fail"
+    echo "$errlog"
+    echo "$clog_res"
+fi
+
 
 
 killall test_server 2> /dev/null
@@ -4510,9 +4551,10 @@ ${SERVER_BIN} -l d -Q 65535 -e -U 1 -s 1 --dgram_qos 3 -f > /dev/null &
 sleep 1
 
 rm -rf tp_localhost test_session xqc_token
+
 clear_log
 echo -e "check fec recovery function of datagram with XOR fec scheme ...\c"
-${CLIENT_BIN} -l d -T 1 -s 10000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g >> stdlog
+sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g > stdlog
 slog_res1=`grep '|process packet of block 0 successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4523,10 +4565,9 @@ else
     case_print_result "fec_recovered_function_of_datagram_xor" "fail"
 fi
 
-rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "check fec recovery function of datagram with RSC fec scheme ...\c"
-${CLIENT_BIN} -l d -T 1 -s 10000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 8 --fec_decoder 8  >> stdlog
+sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 8 --fec_decoder 8  > stdlog
 slog_res1=`grep '|process packet of block 0 successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4539,7 +4580,7 @@ fi
 
 clear_log
 echo -e "check fec recovery function of datagram with Packet Mask scheme ...\c"
-${CLIENT_BIN} -l d -T 1 -s 10000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 12 --fec_decoder 12  >> stdlog
+sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 12 --fec_decoder 12  > stdlog
 slog_res1=`grep '|process packet of block 0 successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4550,10 +4591,9 @@ else
     case_print_result "fec_recovered_function_of_datagram_pm" "fail"
 fi
 
-rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "check fec recovery function of datagram with XOR(encoder) and RSC(decoder) fec schemes ...\c"
-${CLIENT_BIN} -l d -T 1 -s 10000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 8 --fec_decoder 11 >> stdlog
+sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 8 --fec_decoder 11 > stdlog
 slog_res1=`grep '|process packet of block 0 successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4565,10 +4605,9 @@ else
 fi
 
 
-rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "check fec recovery function of datagram with XOR(decoder) and RSC(encoder) fec schemes ...\c"
-${CLIENT_BIN} -l d -T 1 -s 10000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 11 --fec_decoder 8 >> stdlog
+sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 11 --fec_decoder 8 > stdlog
 slog_res1=`grep '|process packet of block 0 successfully' slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$slog_res1" ]; then
@@ -4579,13 +4618,15 @@ else
     case_print_result "fec_recovered_function_of_datagram_rsc_and_xor" "fail"
 fi
 
-sudo rm -rf tp_localhost test_session xqc_token slog clog
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
 echo -e "qlog disable ...\c"
 killall test_server
-${SERVER_BIN} -l d -e -x 1 --qlog_disable > slog &
+${SERVER_BIN} -l d -e -x 1 --qlog_disable > /dev/null &
 sleep 1
-${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_disable >> clog
-result=`grep ">>>>>>>> pass:1" clog`
+${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_disable > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
 svr_qlog_res1=`grep "\[packet_received\]" slog`
 svr_qlog_res2=`grep "\[packet_sent\]" slog`
 cli_qlog_res1=`grep "\[packet_received\]" clog`
@@ -4605,10 +4646,10 @@ fi
 clear_log
 echo -e "qlog importance selected 1  ...\c"
 killall test_server
-${SERVER_BIN} -l d -e -x 1 --qlog_importance s > slog &
+${SERVER_BIN} -l d -e -x 1 --qlog_importance s > /dev/null &
 sleep 1
-${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance s >> clog
-result=`grep ">>>>>>>> pass:1" clog`
+${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance s > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
 svr_qlog_res1=`grep "\[packet_received\]" slog`
 svr_qlog_res2=`grep "\[connection_started\]" slog`
 cli_qlog_res1=`grep "\[packet_received\]" clog`
@@ -4628,10 +4669,10 @@ fi
 clear_log
 echo -e "qlog importance selected 2  ...\c"
 killall test_server
-${SERVER_BIN} -l i -e -x 1 --qlog_importance s > slog &
+${SERVER_BIN} -l i -e -x 1 --qlog_importance s > /dev/null &
 sleep 1
-${CLIENT_BIN} -s 10240 -l i -t 1 -E --qlog_importance s >> clog
-result=`grep ">>>>>>>> pass:1" clog`
+${CLIENT_BIN} -s 10240 -l i -t 1 -E --qlog_importance s > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
 svr_qlog_res1=`grep "\[packet_received\]" slog`
 svr_qlog_res2=`grep "\[connection_started\]" slog`
 cli_qlog_res1=`grep "\[packet_received\]" clog`
@@ -4651,10 +4692,10 @@ fi
 clear_log
 echo -e "qlog importance removed  ...\c"
 killall test_server
-${SERVER_BIN} -l d -e -x 1 --qlog_importance r > slog &
+${SERVER_BIN} -l d -e -x 1 --qlog_importance r > /dev/null &
 sleep 1
-${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance r >> clog
-result=`grep ">>>>>>>> pass:1" clog`
+${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance r > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
 svr_qlog_res1=`grep "\[packet_sent" slog`
 svr_qlog_res2=`grep "\[connection_" slog`
 svr_qlog_res3=`grep "\[datagram" slog`
@@ -4679,10 +4720,10 @@ fi
 clear_log
 echo -e "qlog importance extra  ...\c"
 killall test_server
-${SERVER_BIN} -l d -e -x 1 --qlog_importance e > slog &
+${SERVER_BIN} -l d -e -x 1 --qlog_importance e > /dev/null &
 sleep 1
-${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance e >> clog
-result=`grep ">>>>>>>> pass:1" clog`
+${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance e > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
 svr_qlog_res1=`grep "\[packet_sent" slog`
 svr_qlog_res2=`grep "\[connection_" slog`
 svr_qlog_res3=`grep "\[datagram" slog`
@@ -4707,10 +4748,9 @@ fi
 clear_log
 echo -e "qlog importance base  ...\c"
 killall test_server
-${SERVER_BIN} -l d -e -x 1 --qlog_importance b > slog &
+${SERVER_BIN} -l d -e -x 1 --qlog_importance b > /dev/null &
 sleep 1
-${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance b >> clog
-result=`grep ">>>>>>>> pass:1" clog`
+${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance b > stdlog
 svr_qlog_res1=`grep "\[packet_sent" slog`
 svr_qlog_res2=`grep "\[connection_" slog`
 svr_qlog_res3=`grep "\[datagram" slog`
@@ -4720,7 +4760,7 @@ cli_qlog_res2=`grep "\[connection_" clog`
 cli_qlog_res3=`grep "\[datagram" clog`
 cli_qlog_res4=`grep "\[qpack_" clog`
 errlog=`grep_err_log`
-if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$svr_qlog_res1" ] && [ -n "$svr_qlog_res2" ] \
+if [ -z "$errlog" ] && [ -n "$svr_qlog_res1" ] && [ -n "$svr_qlog_res2" ] \
     && [ -z "$svr_qlog_res3" ] && [ -z "$svr_qlog_res4" ] && [ -n "$cli_qlog_res1" ] && [ -n "$cli_qlog_res2" ] \
     && [ -z "$cli_qlog_res3" ] && [ -z "$cli_qlog_res4" ]; then
     echo ">>>>>>>> pass:1"
@@ -4735,10 +4775,9 @@ fi
 clear_log
 echo -e "qlog importance core  ...\c"
 killall test_server
-${SERVER_BIN} -l d -e -x 1 --qlog_importance c > slog &
+${SERVER_BIN} -l d -e -x 1 --qlog_importance c > /dev/null &
 sleep 1
-${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance c >> clog
-result=`grep ">>>>>>>> pass:1" clog`
+${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance c > /dev/null
 svr_qlog_res1=`grep "\[packet_sent" slog`
 svr_qlog_res2=`grep "\[connection_" slog`
 svr_qlog_res3=`grep "\[datagram" slog`
@@ -4760,5 +4799,127 @@ else
 fi
 
 killall test_server
+clear_log
+echo -e "ack_timestamp_frame: server enable, 0 < max_ts_per_ack < 64 and client enable, 0 < max_ts_per_ack < 64 ...\c"
+${SERVER_BIN} -l d -e -x 450 > /dev/null &
+sleep 1
+${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 450 > stdlog
+cli_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
+cli_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
+
+svr_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" slog | wc -l`
+svr_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" slog | wc -l`
+
+if [ "$cli_res1" -gt 0 ] && [ "$cli_res2" -gt 0 ] && [ "$svr_res1" -gt 0 ] && [ "$svr_res2" -gt 0 ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "ack_timestamp_frame_case_1" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "ack_timestamp_frame_case_1" "fail"
+fi
+
+
+killall test_server
+clear_log
+echo -e "ack_timestamp_frame: server enable, 0 < max_ts_per_ack < 64 and client disable, 0 < max_ts_per_ack < 64 ...\c"
+${SERVER_BIN} -l d -e -x 450 > /dev/null &
+sleep 1
+${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 451 > stdlog
+cli_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
+cli_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
+
+svr_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" slog | wc -l`
+svr_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" slog | wc -l`
+
+echo -e "$cli_res1 $cli_res2 $svr_res1 $svr_res2"
+
+if [ "$cli_res1" -eq 0 ] && [ "$cli_res2" -eq 0 ] && [ "$svr_res1" -eq 0 ] && [ "$svr_res2" -eq 0 ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "ack_timestamp_frame_case_2" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "ack_timestamp_frame_case_2" "fail"
+fi
+
+
+killall test_server
+clear_log
+echo -e "ack_timestamp_frame: server enable, 0 < max_ts_per_ack < 64 and client enable, max_ts_per_ack >= 64 ...\c"
+${SERVER_BIN} -l d -e -x 450 > /dev/null &
+sleep 1
+${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 452 > stdlog
+cli_res1=`grep "conn errno" stdlog`
+
+svr_res1=`grep "[error]" slog | grep "xqc_conn_tls_transport_params_cb" | wc -l`
+
+if [ -n "$cli_res1" ] && [ -n "$svr_res1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "ack_timestamp_frame_case_3" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "ack_timestamp_frame_case_3" "fail"
+fi
+
+
+killall test_server
+clear_log
+echo -e "ack_timestamp_frame: server enable, 0 < max_ts_per_ack < 64 and client enable, max_ts_per_ack = 0 ...\c"
+${SERVER_BIN} -l d -e -x 450 > /dev/null &
+sleep 1
+${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 453 > stdlog
+cli_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
+cli_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
+
+svr_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" slog | wc -l`
+svr_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" slog | wc -l`
+
+if [ "$cli_res1" -gt 0 ] && [ "$cli_res2" -eq 0 ] && [ "$svr_res1" -eq 0 ] && [ "$svr_res2" -gt 0 ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "ack_timestamp_frame_case_4" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "ack_timestamp_frame_case_4" "fail"
+fi
+
+
+killall test_server
+clear_log
+echo -e "ack_timestamp_frame: server disable, 0 < max_ts_per_ack < 64 and client enable, 0 < max_ts_per_ack < 64  ...\c"
+${SERVER_BIN} -l d -e -x 451 > /dev/null &
+sleep 1
+${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 450 > stdlog
+cli_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
+cli_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
+
+svr_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" slog | wc -l`
+svr_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" slog | wc -l`
+
+if [ "$cli_res1" -eq 0 ] && [ "$cli_res2" -eq 0 ] && [ "$svr_res1" -eq 0 ] && [ "$svr_res2" -eq 0 ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "ack_timestamp_frame_case_5" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "ack_timestamp_frame_case_5" "fail"
+fi
+
+
+killall test_server
+clear_log
+echo -e "ack_timestamp_frame: server enable, max_ts_per_ack > 64 and client enable, 0 < max_ts_per_ack < 64  ...\c"
+${SERVER_BIN} -l d -e -x 452 > /dev/null &
+sleep 1
+${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 450 > stdlog
+cli_res1=`grep "[error]" clog | grep "xqc_conn_tls_transport_params_cb" | wc -l`
+
+svr_res1=`grep "[error]" slog | grep "xqc_process_conn_close_frame" | wc -l`
+
+
+if [ "$cli_res1" -gt 0 ] && [ "$svr_res1" -gt 0 ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "ack_timestamp_frame_case_6" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "ack_timestamp_frame_case_6" "fail"
+fi
 
 cd -

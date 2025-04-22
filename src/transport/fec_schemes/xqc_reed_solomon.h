@@ -15,12 +15,13 @@
 
 extern const xqc_fec_code_callback_t xqc_reed_solomon_code_cb;
 
-xqc_int_t xqc_rs_code_one_symbol(unsigned char (*GM_rows)[XQC_MAX_MT_ROW], unsigned char *input, unsigned char **outputs,
+xqc_int_t xqc_rs_code_one_symbol(unsigned char (*GM_rows)[XQC_RSM_COL], unsigned char *input, unsigned char **outputs,
     xqc_int_t outputs_rows_num, xqc_int_t item_size, xqc_int_t input_idx);
-void xqc_build_generator_matrix(unsigned char src_symbol_num, unsigned char total_symbol_num,
-    unsigned char (*GM)[XQC_MAX_MT_ROW]);
 
-xqc_int_t xqc_rs_code_symbols(unsigned char (*GM_rows)[XQC_MAX_MT_ROW], unsigned char **inputs, xqc_int_t inputs_rows_num,
+void xqc_build_generator_matrix(unsigned char src_symbol_num, unsigned char total_symbol_num,
+    unsigned char (*GM)[XQC_RSM_COL]);
+
+xqc_int_t xqc_rs_code_symbols(unsigned char (*GM_rows)[XQC_RSM_COL], unsigned char **inputs, xqc_int_t inputs_rows_num,
     unsigned char **outputs, xqc_int_t outputs_rows_num, xqc_int_t item_size);
 
 void xqc_reed_solomon_init(xqc_connection_t *conn);

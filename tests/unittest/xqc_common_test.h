@@ -17,4 +17,7 @@ xqc_connection_t *test_engine_connect();
 xqc_engine_t *test_create_engine();
 xqc_engine_t *test_create_engine_server();
 
+
+extern const xqc_log_callbacks_t xqc_null_log_cb;
+
 #endif

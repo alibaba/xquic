@@ -279,7 +279,6 @@ xqc_engine_conns_hash_find(xqc_engine_t *engine, const xqc_cid_t *cid, char type
     }
 
     uint64_t hash;
-
     xqc_str_t str;
     str.data = (unsigned char *)cid->cid_buf;
     str.len = cid->cid_len;
@@ -454,8 +453,8 @@ xqc_engine_create(xqc_engine_type_t engine_type,
     if (engine->rand_generator == NULL) {
         goto fail;
     }
-
     xqc_get_random(engine->rand_generator, sipkey, sizeof(sipkey));
+    
 
     engine->conns_hash = xqc_engine_conns_hash_create(engine->config, sipkey, sizeof(sipkey), engine->log);
     if (engine->conns_hash == NULL) {
@@ -732,9 +731,9 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
     XQC_CHECK_IMMEDIATE_CLOSE();
 
     if (conn->ack_flag) {
-        ret = xqc_write_ack_or_mp_ack_to_packets(conn);
+        ret = xqc_write_ack_or_mp_ack_or_ext_ack_to_packets(conn);
         if (ret) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_ack_or_mp_ack_to_packets error|");
+            xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_ack_or_mp_ack_or_ext_ack_to_packets error|");
             XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
         }
     }
@@ -1011,7 +1010,7 @@ xqc_engine_handle_stateless_reset(xqc_engine_t *engine,
     }
 
     hash = xqc_siphash_get_hash(&engine->conns_hash_sr_token->siphash_ctx,
-                                sr_token, XQC_STATELESS_RESET_TOKENLEN);
+                                sr_token, XQC_STATELESS_RESET_TOKENLEN); 
     str.data = (unsigned char *)sr_token;
     str.len = XQC_STATELESS_RESET_TOKENLEN;
 

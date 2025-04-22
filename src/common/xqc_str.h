@@ -106,5 +106,35 @@ xqc_char_is_letter_or_number(char c)
     return XQC_FALSE;
 }
 
+static inline void
+xqc_int_2_str(char *output, uint32_t val, xqc_int_t val_len)
+{
+    xqc_int_t i, tail;
+    i = val_len - 1;
+    while (val > 0 && i >= 0) {
+        tail = val % 10;
+        output[i] = '0' + tail;
+        i--;
+        val /= 10;
+    }
+    for (i; i >= 0; i--) {
+        output[i] = '0';
+    }
+}
+
+static inline uint32_t
+xqc_str_2_int(char *str, xqc_int_t str_len)
+{
+    xqc_int_t i, tmp, result;
+    result = 0;
+
+    for (i = 0; i < str_len; i++) {
+        result *= 10;
+        tmp = str[i] - '0';
+        result += tmp;
+    }
+
+    return result;
+}
 
 #endif /*_XQC_STR_H_INCLUDED_*/

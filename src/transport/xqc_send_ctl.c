@@ -778,15 +778,43 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
     }
 }
 
+
+xqc_int_t 
+xqc_send_ctl_detect_optimistic_ack_attack(xqc_send_ctl_t *send_ctl, 
+    xqc_pn_ctl_t *pn_ctl, xqc_ack_info_t *const ack_info, xqc_usec_t ack_recv_time)
+{
+    xqc_connection_t *conn = send_ctl->ctl_conn;
+    xqc_pktno_range_t *range = NULL;
+    xqc_pkt_num_space_t pns = ack_info->pns;
+    int i;
+    
+    if (!conn->conn_settings.disable_pn_skipping
+        /* only check application data */
+        && pns == XQC_PNS_APP_DATA 
+        /* if ack is received after the next skip chance, 
+           it is unlikely to be optimistic ack */
+        && ack_recv_time < pn_ctl->ctl_next_skip_chance) 
+    {
+        for (i = ack_info->n_ranges - 1; i >= 0; i--) {
+            range = &ack_info->ranges[i];
+            /* check if skipped packet numbers are acked */
+            if (xqc_max(range->low, pn_ctl->ctl_skipped_pn_low) <= xqc_min(range->high, pn_ctl->ctl_skipped_pn_high)) {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|optimistic ack attack detected|ack_range:%ui-%ui|skipped_range:%ui-%ui|", range->low, range->high, pn_ctl->ctl_skipped_pn_low, pn_ctl->ctl_skipped_pn_high);
+                return -XQC_EPROTO;
+            }
+        }
+    }
+
+    return XQC_OK;
+}
+
+
 /**
  * OnAckReceived
  */
 int
 xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_send_queue_t *send_queue, xqc_ack_info_t *const ack_info, xqc_usec_t ack_recv_time, xqc_bool_t ack_on_same_path)
 {
-    /* ack info里包含的packet不一定会是send_ctl这条路径发出的 */
-    /* info里的largest ack 不一定是send_ctl这条路径的largest ack */
-
     xqc_connection_t *conn = send_ctl->ctl_conn;
 
     xqc_packet_out_t *packet_out;
@@ -802,6 +830,11 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
     xqc_usec_t spurious_loss_sent_time = 0;
     unsigned char need_del_record = 0;
     int stream_frame_acked = 0;
+
+    if (xqc_send_ctl_detect_optimistic_ack_attack(send_ctl, pn_ctl, ack_info, ack_recv_time) < 0) {
+        XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
+        return -XQC_EPROTO;
+    }
 
     xqc_packet_number_t largest_acked_ack = xqc_ack_sent_record_on_ack(&pn_ctl->ack_sent_record[pns], ack_info);
     if (largest_acked_ack > pn_ctl->ctl_largest_acked_ack[pns]) {
@@ -1863,4 +1896,38 @@ xqc_send_ctl_get_est_bw(xqc_send_ctl_t *send_ctl)
 uint64_t
 xqc_send_ctl_get_pacing_rate(xqc_send_ctl_t *send_ctl) {
     return xqc_pacing_rate_calc(&send_ctl->ctl_pacing);
+}
+
+
+void 
+xqc_send_ctl_set_next_pn_for_packet(xqc_connection_t *conn, xqc_pn_ctl_t *pn_ctl,  
+    xqc_packet_out_t *packet_out, xqc_usec_t current_time)
+{
+    if (conn->conn_settings.disable_pn_skipping) {
+        packet_out->po_pkt.pkt_num = pn_ctl->ctl_packet_number[packet_out->po_pkt.pkt_pns]++;
+
+    } else {
+        packet_out->po_pkt.pkt_num = pn_ctl->ctl_packet_number[packet_out->po_pkt.pkt_pns];
+        if (packet_out->po_pkt.pkt_num > 0 
+            && packet_out->po_pkt.pkt_pns == XQC_PNS_APP_DATA) 
+        {
+            /* randomly skip some packet numbers to avoid optimistic ack attacks */
+            if (current_time > pn_ctl->ctl_next_skip_chance) {
+                /* we have 20% chance to skip some packet numbers */
+                /* we must skip some packet numbers if pn has been increased up to 2^10 since the last skip */
+                if (current_time % 10 < 2
+                    || packet_out->po_pkt.pkt_num > (pn_ctl->ctl_skipped_pn_high + 1024)) 
+                {
+                    /* the number of skipped packet numbers is also random */
+                    pn_ctl->ctl_skipped_pn_low = packet_out->po_pkt.pkt_num;
+                    pn_ctl->ctl_skipped_pn_high = pn_ctl->ctl_skipped_pn_low + current_time % 7;
+                    packet_out->po_pkt.pkt_num = pn_ctl->ctl_skipped_pn_high + 1;
+                    /* we should keep this range for 3xPTO to detect malicious ACKs */
+                    pn_ctl->ctl_next_skip_chance = current_time + 3 * xqc_conn_get_max_pto(conn);
+                    xqc_log(conn->log, XQC_LOG_DEBUG, "|optimistic ack detection|skipped_range:%ui-%ui|next_skip_chance:%ui|current_time:%ui|", pn_ctl->ctl_skipped_pn_low, pn_ctl->ctl_skipped_pn_high, pn_ctl->ctl_next_skip_chance, current_time);
+                }
+            }
+        }
+        pn_ctl->ctl_packet_number[packet_out->po_pkt.pkt_pns] = packet_out->po_pkt.pkt_num + 1;
+    }
 }

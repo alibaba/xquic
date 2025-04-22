@@ -1488,6 +1488,8 @@ typedef struct xqc_conn_settings_s {
     uint64_t                    extended_ack_features;
     uint64_t                    max_receive_timestamps_per_ack;
     uint64_t                    receive_timestamps_exponent;
+
+    uint8_t                     disable_pn_skipping;
 } xqc_conn_settings_t;
 
 

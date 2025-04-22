@@ -114,7 +114,8 @@ xqc_conn_settings_t internal_default_conn_settings = {
 
     .extended_ack_features     = 0,
     .max_receive_timestamps_per_ack    = 0,
-    .receive_timestamps_exponent       = 0
+    .receive_timestamps_exponent       = 0,
+    .disable_pn_skipping               = 0
 };
 
 
@@ -2456,7 +2457,8 @@ xqc_conn_enc_packet(xqc_connection_t *conn,
     
     /* generate packet number and update packet length, might do packet number encoding here */
     xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path);
-    packet_out->po_pkt.pkt_num = pn_ctl->ctl_packet_number[packet_out->po_pkt.pkt_pns]++;
+    xqc_send_ctl_set_next_pn_for_packet(conn, pn_ctl, packet_out, current_time);
+
     xqc_write_packet_number(packet_out->po_ppktno, packet_out->po_pkt.pkt_num, XQC_PKTNO_BITS);
     xqc_long_packet_update_length(packet_out);
     xqc_short_packet_update_key_phase(packet_out, conn->key_update_ctx.cur_out_key_phase);
@@ -2590,7 +2592,6 @@ xqc_send_packet_with_pn(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_packet
 
     /* deliver packet to send control */
     xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path);
-    pn_ctl->ctl_packet_number[packet_out->po_pkt.pkt_pns]++;
 
     xqc_conn_log_sent_packet(conn, packet_out, now);
     xqc_send_ctl_on_packet_sent(path->path_send_ctl, pn_ctl, packet_out, now);
@@ -2620,7 +2621,9 @@ xqc_enc_packet_with_pn(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_packet_
 
     /* generate packet number */
     xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path);
-    packet_out->po_pkt.pkt_num = pn_ctl->ctl_packet_number[packet_out->po_pkt.pkt_pns];
+    xqc_usec_t current_time = xqc_monotonic_timestamp();
+    
+    xqc_send_ctl_set_next_pn_for_packet(conn, pn_ctl, packet_out, current_time);
     xqc_write_packet_number(packet_out->po_ppktno, packet_out->po_pkt.pkt_num, XQC_PKTNO_BITS);
     xqc_long_packet_update_length(packet_out);
     xqc_short_packet_update_key_phase(packet_out, conn->key_update_ctx.cur_out_key_phase);
@@ -6368,7 +6371,6 @@ xqc_conn_send_path_challenge(xqc_connection_t *conn, xqc_path_ctx_t *path)
     xqc_packet_out_t   *packet_out;
     xqc_usec_t          now;
     ssize_t             sent;
-    xqc_pn_ctl_t       *pn_ctl;
 
 
     /* send data */
@@ -6433,9 +6435,6 @@ xqc_conn_send_path_challenge(xqc_connection_t *conn, xqc_path_ctx_t *path)
                 xqc_pkt_type_2_str(packet_out->po_pkt.pkt_type),
                 xqc_frame_type_2_str(conn->engine, packet_out->po_frame_types), path->path_send_ctl->ctl_bytes_in_flight, now);
     }
-
-    pn_ctl = xqc_get_pn_ctl(conn, path);
-    pn_ctl->ctl_packet_number[packet_out->po_pkt.pkt_pns]++;
 
 end:
     xqc_send_queue_remove_send(&packet_out->po_list);

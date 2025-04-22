@@ -138,11 +138,14 @@ xqc_packet_decode_packet_number(xqc_packet_number_t largest_pn, xqc_packet_numbe
 
     candidate_pn = (expected_pn & ~pn_mask) | truncated_pn;
 
-    if (candidate_pn + pn_hwin <= expected_pn) {
+    // To fully align with RFC9000
+    if ((candidate_pn + pn_hwin <= expected_pn)
+        && (candidate_pn < ((1ULL << 62) - pn_win))) 
+    {
         return candidate_pn + pn_win;
     }
 
-    if (candidate_pn > expected_pn + pn_hwin && candidate_pn > pn_win) {
+    if (candidate_pn > expected_pn + pn_hwin && candidate_pn >= pn_win) {
         return candidate_pn - pn_win;
     }
 

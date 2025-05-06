@@ -1231,39 +1231,43 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
     }
 
     /* continue to recv body */
-    if (!(flag & XQC_REQ_NOTIFY_READ_BODY)) {
-        return 0;
+    if (flag & XQC_REQ_NOTIFY_READ_BODY) {
+
+        char buff[4096] = {0};
+        size_t buff_size = 4096;
+
+        ssize_t read = 0;
+        ssize_t read_sum = 0;
+        do {
+            read = xqc_h3_request_recv_body(h3_request, buff, buff_size, &fin);
+            if (read == -XQC_EAGAIN) {
+                break;
+
+            } else if (read < 0) {
+                printf("xqc_h3_request_recv_body error %zd\n", read);
+                return 0;
+            }
+
+            if (user_stream->recv_body_fp) {
+                if (fwrite(buff, 1, read, user_stream->recv_body_fp) != read) {
+                    printf("fwrite error\n");
+                    return -1;
+                }
+                fflush(user_stream->recv_body_fp);
+            }
+
+            read_sum += read;
+            user_stream->recv_body_len += read;
+        } while (read > 0 && !fin);
+
+        if (read > 0) {
+            printf("xqc_h3_request_recv_body size %zd, fin:%d\n", read, fin);
+        }
     }
 
-    char buff[4096] = {0};
-    size_t buff_size = 4096;
-
-    ssize_t read = 0;
-    ssize_t read_sum = 0;
-    do {
-        read = xqc_h3_request_recv_body(h3_request, buff, buff_size, &fin);
-        if (read == -XQC_EAGAIN) {
-            break;
-
-        } else if (read < 0) {
-            printf("xqc_h3_request_recv_body error %zd\n", read);
-            return 0;
-        }
-
-        if (user_stream->recv_body_fp) {
-            if (fwrite(buff, 1, read, user_stream->recv_body_fp) != read) {
-                printf("fwrite error\n");
-                return -1;
-            }
-            fflush(user_stream->recv_body_fp);
-        }
-
-        read_sum += read;
-        user_stream->recv_body_len += read;
-    } while (read > 0 && !fin);
-
-    if (read > 0) {
-        printf("xqc_h3_request_recv_body size %zd, fin:%d\n", read, fin);
+    if (flag & XQC_REQ_NOTIFY_READ_EMPTY_FIN) {
+        printf("empty fin received!\n");
+        fin = 1;
     }
 
     if (fin) {

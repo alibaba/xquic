@@ -344,16 +344,6 @@ if(XQC_ENABLE_UNLIMITED)
     )
 endif()
 
-# add tunnel
-if(XQC_ENABLE_TH3 OR XQC_ENABLE_TUNNEL)
-    set(
-        XQC_SOURCE
-    )
-    if(XQC_ENABLE_TNL_DG)
-        set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -DXQC_ENABLE_TNL_DG ")
-    endif()
-    add_subdirectory(tunnel)
-endif()
 
 if (XQC_NO_SHARED)
     set(XQC_BINARY_TYPE STATIC)

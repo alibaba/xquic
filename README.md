@@ -7,8 +7,9 @@
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/485e758edd98409bb7a51cbb803838c4)](https://www.codacy.com/gh/alibaba/xquic/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=alibaba/xquic&amp;utm_campaign=Badge_Grade)
 [![Codacy Badge](https://app.codacy.com/project/badge/Coverage/485e758edd98409bb7a51cbb803838c4)](https://www.codacy.com/gh/alibaba/xquic/dashboard?utm_source=github.com&utm_medium=referral&utm_content=alibaba/xquic&utm_campaign=Badge_Coverage)
 ![Platforms](https://img.shields.io/badge/platform-Android%20%7C%20iOS%20%7C%20Linux%20%7C%20macOS-blue)
-
-> [简体中文文档 README-zh-CN](https://github.com/alibaba/xquic/blob/main/docs/docs-zh/README-zh.md)
++ [官方文档](https://doc.xquic.org.cn)
++ [AI文档](https://deepwiki.com/alibaba/xquic/)
++ [简体中文文档 README-zh-CN](https://github.com/alibaba/xquic/blob/main/docs/docs-zh/README-zh.md)
 
 ## Introduction
 

@@ -1667,8 +1667,8 @@ xqc_process_path_response_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_
         path = conn->conn_initial_path;
     }
     
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|state:%d|RECV path_response_data:%s|",
-            path->path_id, path->path_state, path_response_data);
+    //xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|state:%d|RECV path_response_data:%s|",
+      //      path->path_id, path->path_state, path_response_data);
 
     /* 
      * If the content of a PATH_RESPONSE frame does not match the content of

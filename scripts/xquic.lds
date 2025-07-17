@@ -45,6 +45,7 @@ XQUIC_VERS_1.0 {
         xqc_conn_get_peer_addr;
         xqc_conn_get_local_addr;
         xqc_stream_create;
+        xqc_stream_create_with_direction;
         xqc_stream_set_user_data;
         xqc_get_conn_user_data_by_stream;
         xqc_stream_id;

@@ -470,7 +470,7 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         if ((conn->conn_type == XQC_CONN_TYPE_SERVER && (stream_type == XQC_CLI_BID || stream_type == XQC_CLI_UNI))
             || (conn->conn_type == XQC_CONN_TYPE_CLIENT && (stream_type == XQC_SVR_BID || stream_type == XQC_SVR_UNI)))
         {
-            stream = xqc_passive_create_stream(conn, stream_id, NULL);
+            stream = xqc_passive_create_stream(conn, stream_id, conn->user_data);
             if (!stream) {
                 goto free;
             }
@@ -1151,7 +1151,7 @@ xqc_process_reset_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
         if ((conn->conn_type == XQC_CONN_TYPE_SERVER && (stream_type == XQC_CLI_BID || stream_type == XQC_CLI_UNI))
             || (conn->conn_type == XQC_CONN_TYPE_CLIENT && (stream_type == XQC_SVR_BID || stream_type == XQC_SVR_UNI)))
         {
-            stream = xqc_passive_create_stream(conn, stream_id, NULL);
+            stream = xqc_passive_create_stream(conn, stream_id, conn->user_data);
             if (!stream) {
                 return XQC_OK;
             }
@@ -1211,7 +1211,7 @@ xqc_process_stop_sending_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
         if ((conn->conn_type == XQC_CONN_TYPE_SERVER && (stream_type == XQC_CLI_BID || stream_type == XQC_CLI_UNI))
             || (conn->conn_type == XQC_CONN_TYPE_CLIENT && (stream_type == XQC_SVR_BID || stream_type == XQC_SVR_UNI)))
         {
-            stream = xqc_passive_create_stream(conn, stream_id, NULL);
+            stream = xqc_passive_create_stream(conn, stream_id, conn->user_data);
             if (!stream) {
                 return XQC_OK;
             }
@@ -1293,7 +1293,7 @@ xqc_process_stream_data_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *p
         if ((conn->conn_type == XQC_CONN_TYPE_SERVER && (stream_type == XQC_CLI_BID || stream_type == XQC_CLI_UNI))
             || (conn->conn_type == XQC_CONN_TYPE_CLIENT && (stream_type == XQC_SVR_BID || stream_type == XQC_SVR_UNI)))
         {
-            stream = xqc_passive_create_stream(conn, stream_id, NULL);
+            stream = xqc_passive_create_stream(conn, stream_id, conn->user_data);
             if (!stream) {
                 return XQC_OK;
             }
@@ -1427,7 +1427,7 @@ xqc_process_max_stream_data_frame(xqc_connection_t *conn, xqc_packet_in_t *packe
         if ((conn->conn_type == XQC_CONN_TYPE_SERVER && (stream_type == XQC_CLI_BID || stream_type == XQC_CLI_UNI))
             || (conn->conn_type == XQC_CONN_TYPE_CLIENT && (stream_type == XQC_SVR_BID || stream_type == XQC_SVR_UNI)))
         {
-            stream = xqc_passive_create_stream(conn, stream_id, NULL);
+            stream = xqc_passive_create_stream(conn, stream_id, conn->user_data);
             if (!stream) {
                 return XQC_OK;
             }

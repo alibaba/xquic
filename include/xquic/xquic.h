@@ -63,6 +63,12 @@ typedef enum xqc_proto_version_s {
     XQC_VERSION_MAX             = 4
 } xqc_proto_version_t;
 
+typedef enum {
+    XQC_STREAM_PRI_DEFAULT  = 0,
+    XQC_STREAM_PRI_HIGH     = 1,
+    XQC_STREAM_PRI_NORMAL   = 2,
+} xqc_stream_priority_t;
+
 #define XQC_SUPPORT_VERSION_MAX         64
 
 
@@ -1948,6 +1954,9 @@ void xqc_stream_set_user_data(xqc_stream_t *stream, void *user_data);
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_stream_update_settings(xqc_stream_t *stream, 
     xqc_stream_settings_t *settings);
+
+XQC_EXPORT_PUBLIC_API
+void xqc_stream_set_priority(xqc_stream_t *stream, xqc_stream_priority_t priority);
 
 /**
  * Get connection's user_data by stream

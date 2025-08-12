@@ -47,6 +47,7 @@ XQUIC_VERS_1.0 {
         xqc_stream_create;
         xqc_stream_create_with_direction;
         xqc_stream_set_user_data;
+        xqc_stream_set_priority;
         xqc_get_conn_user_data_by_stream;
         xqc_stream_id;
         xqc_stream_close;

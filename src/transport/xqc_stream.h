@@ -58,12 +58,6 @@ typedef enum {
     XQC_RECV_STREAM_ST_RESET_READ   = 5,
 } xqc_recv_stream_state_t;
 
-typedef enum {
-    XQC_STREAM_PRI_DEFAULT  = 0,
-    XQC_STREAM_PRI_HIGH     = 1,
-    XQC_STREAM_PRI_NORMAL   = 2,
-} xqc_stream_priority_t;
-
 typedef struct {
     uint64_t                fc_max_stream_data_can_send;
     uint64_t                fc_max_stream_data_can_recv;
@@ -217,8 +211,6 @@ xqc_stream_is_uni(xqc_stream_id_t stream_id)
 {
     return stream_id & 0x02;
 }
-
-void xqc_stream_set_priority(xqc_stream_t *stream, xqc_stream_priority_t priority);
 
 xqc_stream_t *xqc_create_stream_with_conn (xqc_connection_t *conn, xqc_stream_id_t stream_id,
     xqc_stream_type_t stream_type, xqc_stream_settings_t *settings, void *user_data);

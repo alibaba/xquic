@@ -497,6 +497,7 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 
     if (packet_in->pi_flag & XQC_PIF_FEC_RECOVERED) {
         stream->stream_stats.recov_pkt_cnt++;
+        stream->stream_fec_ctl.enable_fec = 1;
         if (stream->stream_stats.fec_blk_lack_time == 0) {
             stream->stream_stats.fec_blk_lack_time = xqc_calc_delay(xqc_monotonic_timestamp(), packet_in->pi_fec_process_time);
         }
@@ -688,19 +689,6 @@ xqc_process_crypto_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 
     /* ack even if the token check fail */
     packet_in->pi_frame_types |= XQC_FRAME_BIT_CRYPTO;
-
-    /* check token, only validate token with Initial/CRYPTO packet, but not with Initial/ACK */
-    if (!(conn->conn_flag & XQC_CONN_FLAG_TOKEN_OK)
-        && conn->conn_type == XQC_CONN_TYPE_SERVER
-        && packet_in->pi_pkt.pkt_type == XQC_PTYPE_INIT)
-    {
-        if (xqc_conn_check_token(conn, conn->conn_token, conn->conn_token_len) == XQC_OK) {
-            conn->conn_flag |= XQC_CONN_FLAG_TOKEN_OK;
-
-        } else {
-            xqc_log(conn->log, XQC_LOG_INFO, "|check_token fail|conn:%p|%s|", conn, xqc_conn_addr_str(conn));
-        }
-    }
 
     if (conn->conn_state == XQC_CONN_STATE_SERVER_INIT 
         && !(conn->conn_flag & XQC_CONN_FLAG_INIT_RECVD))

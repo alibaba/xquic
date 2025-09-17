@@ -49,6 +49,10 @@
 
 /* max token length supported by xquic */
 #define XQC_MAX_TOKEN_LEN               256
+#define XQC_TOKEN_IV_LEN                12
+#define XQC_TOKEN_TAG_LEN               16
+/* EVP_aes_128_gcm secret len */
+#define XQC_TOKEN_SECRET_LEN            16 
 
 /* length of retry integrity tag */
 #define XQC_RETRY_INTEGRITY_TAG_LEN     16

@@ -2009,6 +2009,13 @@ xqc_keylog_cb(const xqc_cid_t *scid, const char *line, void *user_data)
     }
 }
 
+void xqc_server_conn_ssl_msg_cb(int msg_type, 
+    const void *msg, size_t msg_len, void *user_data)
+{
+    user_conn_t *user_conn = (user_conn_t *)user_data;
+    printf("user_conn:%p , scid:%s, msg_type:%d, msg_len:%d\n", user_conn, xqc_scid_str(ctx.engine, &user_conn->cid), msg_type, (int)msg_len);
+}
+
 #if defined(XQC_SUPPORT_SENDMMSG) && !defined(XQC_SYS_WINDOWS)
 ssize_t xqc_server_write_mmsg(const struct iovec *msg_iov, unsigned int vlen,
                                 const struct sockaddr *peer_addr,
@@ -2021,6 +2028,8 @@ ssize_t xqc_server_write_mmsg(const struct iovec *msg_iov, unsigned int vlen,
     struct mmsghdr mmsg[MAX_SEG];
     memset(&mmsg, 0, sizeof(mmsg));
     for (int i = 0; i < vlen; i++) {
+        mmsg[i].msg_hdr.msg_name = (void *)peer_addr;
+        mmsg[i].msg_hdr.msg_namelen = peer_addrlen;
         mmsg[i].msg_hdr.msg_iov = (struct iovec *)&msg_iov[i];
         mmsg[i].msg_hdr.msg_iovlen = 1;
     }
@@ -2044,6 +2053,19 @@ ssize_t xqc_server_mp_write_mmsg(uint64_t path_id,
     return xqc_server_write_mmsg(msg_iov, vlen, peer_addr, peer_addrlen, user);
 }
 #endif
+
+int
+xqc_retry_packet_check(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t *cid, void * user_data)
+{
+    (void *)engine;
+    (void *)conn;
+    (void *)cid;
+    (void *)user_data;
+    if (g_test_case == 601) { /* 601 for test retry packet */
+        return XQC_TRUE;
+    }
+    return XQC_FALSE; 
+}
 
 void
 stop(int signo)
@@ -2394,6 +2416,9 @@ int main(int argc, char *argv[]) {
         .conn_peer_addr_changed_notify = xqc_server_conn_peer_addr_changed_notify,
         .path_peer_addr_changed_notify = xqc_server_path_peer_addr_changed_notify,
         .path_removed_notify = xqc_server_path_removed_notify,
+        .conn_ssl_msg_cb = xqc_server_conn_ssl_msg_cb,
+        .conn_retry_packet_condition_check = xqc_retry_packet_check,
+        .conn_send_packet_before_accept = xqc_server_write_socket, 
     };
 
     xqc_cong_ctrl_callback_t cong_ctrl;

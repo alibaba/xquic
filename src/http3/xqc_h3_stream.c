@@ -2117,12 +2117,16 @@ xqc_h3_stream_set_priority(xqc_h3_stream_t *h3s, xqc_h3_priority_t *prio)
         h3s->priority.schedule    = prio->schedule;
         h3s->priority.reinject    = prio->reinject;
         h3s->priority.fec         = prio->fec;
+        h3s->priority.fastpath    = prio->fastpath;
 
         if (h3s->stream == NULL) {
             xqc_log(h3s->log, XQC_LOG_ERROR, "|transport stream was NULL|stream_id:%ui|", h3s->stream_id);
             return;
         }
 
+        if (h3s->priority.fastpath) {
+            xqc_stream_set_priority(h3s->stream, XQC_STREAM_PRI_HIGH);
+        }
         xqc_stream_set_multipath_usage(h3s->stream, h3s->priority.schedule, h3s->priority.reinject);
         h3s->stream->stream_fec_blk_mode = xqc_set_stream_fec_block_mode(h3s->priority.fec);
         h3s->h3r->block_size_mode = h3s->stream->stream_fec_blk_mode;

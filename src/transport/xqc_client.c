@@ -16,6 +16,16 @@
 #include "src/tls/xqc_tls.h"
 #include "src/transport/xqc_datagram.h"
 
+#define XQC_TLS_GROUP_MAX 5
+
+const char *xqc_tls_group_str[XQC_TLS_GROUP_MAX] = {
+    XQC_TLS_GROUPS,
+    "P-256:X25519:P-384:P-521",
+    "X25519:P-256:P-384:P-521",
+    "P-384:X25519:P-256:P-521",
+    "P-521:P-384:X25519:P-256",
+};
+
 xqc_connection_t *
 xqc_client_connect(xqc_engine_t *engine, const xqc_conn_settings_t *conn_settings,
     const unsigned char *token, unsigned token_len, const char *server_host, int no_crypto_flag,
@@ -24,6 +34,8 @@ xqc_client_connect(xqc_engine_t *engine, const xqc_conn_settings_t *conn_setting
 {
     xqc_cid_t dcid;
     xqc_cid_t scid;
+    xqc_cid_init_zero(&dcid);
+    xqc_cid_init_zero(&scid);
 
     if (NULL == conn_ssl_config) {
         xqc_log(engine->log, XQC_LOG_ERROR,
@@ -37,12 +49,24 @@ xqc_client_connect(xqc_engine_t *engine, const xqc_conn_settings_t *conn_setting
         return NULL;
     }
 
-    if (xqc_generate_cid(engine, NULL, &scid, 0) != XQC_OK
-        || xqc_generate_cid(engine, NULL, &dcid, 0) != XQC_OK)
-    {
-        xqc_log(engine->log, XQC_LOG_ERROR,
-                "|generate dcid or scid error|");
-        return NULL;
+    if (conn_settings->specify_client_scid == 1) {
+        scid.cid_len = xqc_engine_config_get_cid_len(engine);
+        xqc_memcpy(scid.cid_buf, conn_settings->client_scid, scid.cid_len);
+    } else {
+        if (xqc_generate_cid(engine, NULL, &scid, 0) != XQC_OK) {
+            xqc_log(engine->log, XQC_LOG_ERROR, "|generate scid error|");
+            return NULL;
+        }
+    }
+    
+    if (conn_settings->specify_client_dcid == 1) {
+        dcid.cid_len = xqc_engine_config_get_cid_len(engine);
+        xqc_memcpy(dcid.cid_buf, conn_settings->client_dcid, dcid.cid_len);
+    } else {
+        if (xqc_generate_cid(engine, NULL, &dcid, 0) != XQC_OK) {
+            xqc_log(engine->log, XQC_LOG_ERROR, "|generate dcid error|");
+            return NULL;
+        }
     }
 
     xqc_connection_t *xc = xqc_client_create_connection(engine, dcid, scid, conn_settings,
@@ -133,10 +157,23 @@ xqc_client_create_tls(xqc_connection_t *conn, const xqc_conn_ssl_config_t *conn_
     size_t              alpn_cap;
     unsigned char      *hostname_buf;
     size_t              host_cap;
+    size_t              tls_group_len;
 
     /* init tls config */
     cfg.cert_verify_flag = conn_ssl_config->cert_verify_flag;
     cfg.no_crypto_flag = no_crypto_flag;
+    cfg.tls_groups = NULL;
+
+    if (conn_ssl_config->tls_groups > 0 && conn_ssl_config->tls_groups < XQC_TLS_GROUP_MAX) {
+        tls_group_len = strlen(xqc_tls_group_str[conn_ssl_config->tls_groups]);
+        cfg.tls_groups = xqc_calloc(tls_group_len + 1, sizeof(char));
+        if (NULL == cfg.tls_groups) {
+            xqc_log(conn->log, XQC_LOG_ERROR, "|malloc for tls groups fail|");
+            ret = -XQC_EMALLOC;
+            goto end;
+        }
+        xqc_memcpy(cfg.tls_groups, xqc_tls_group_str[conn_ssl_config->tls_groups], tls_group_len);
+    }
 
     /* copy session ticket */
     cfg.session_ticket = xqc_malloc(conn_ssl_config->session_ticket_len + 1);
@@ -194,6 +231,10 @@ xqc_client_create_tls(xqc_connection_t *conn, const xqc_conn_ssl_config_t *conn_
     }
 
 end:
+    if (cfg.tls_groups) {
+        xqc_free(cfg.tls_groups);
+    }
+
     if (cfg.session_ticket) {
         xqc_free(cfg.session_ticket);
     }

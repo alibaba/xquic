@@ -1572,3 +1572,22 @@ xqc_fec_on_stream_size_changed(xqc_stream_t *quic_stream)
         conn->conn_settings.fec_callback.xqc_fec_init_one(conn, 0);
     }
 }
+
+void
+xqc_record_fec_state(xqc_stream_t *stream)
+{
+    xqc_int_t   enable_stream_num;
+    xqc_usec_t  curr_recv_delay, curr_fec_recv_opt;
+    xqc_usec_t  curr_close_delay;
+    if (stream->stream_conn->fec_ctl == NULL) {
+        return;
+    }
+
+#define __calc_delay(a, b) ((a && b && (a > b))? (a) - (b) : 0)
+    enable_stream_num = stream->stream_conn->fec_ctl->fec_enable_stream_num++;
+    curr_recv_delay = __calc_delay(stream->stream_stats.recv_time_with_fec, stream->stream_stats.create_time);
+    curr_fec_recv_opt = __calc_delay(stream->stream_stats.final_packet_time, stream->stream_stats.recv_time_with_fec);
+    stream->stream_conn->fec_ctl->conn_avg_recv_delay = xqc_update_avg_time(curr_recv_delay, stream->stream_conn->fec_ctl->conn_avg_recv_delay, enable_stream_num); 
+    stream->stream_conn->fec_ctl->fec_avg_opt_time = xqc_update_avg_time(curr_fec_recv_opt, stream->stream_conn->fec_ctl->fec_avg_opt_time, enable_stream_num); 
+#undef __calc_delay
+}

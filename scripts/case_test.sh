@@ -57,7 +57,8 @@ fi
 
 
 echo -e "server refuse ...\c"
-${CLIENT_BIN} -x 46 -t 10 >> stdlog
+${CLIENT_BIN} -x 46 -t 1 >> stdlog
+sleep 10
 result=`grep "conn close notified by refuse" slog`
 if [ -n "$result" ]; then
     echo ">>>>>>>> pass:1"
@@ -756,6 +757,29 @@ else
 fi
 rm -f test_session
 
+clear_log
+echo -e "retry packet send ...\c"
+killall test_server
+rm -f xqc_token
+${SERVER_BIN} -l d -e -x 601 > /dev/null &
+sleep 1
+result=`${CLIENT_BIN} -s 1024 -l d -t 1 -E --conn_options CBBR|grep ">>>>>>>> pass"`
+errlog=`grep_err_log`
+slog_res=`grep -E "<==.*xqc_conn_send_retry ok" slog`
+clog_res=`grep -E "packet_parse_retry" clog`
+#echo "$result"
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$slog_res" ] && [ -n "$clog_res" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "retry_packet_send" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "retry_packet_send" "fail"
+    echo "$errlog"
+    echo "$slog_res"
+    echo "$clog_res"
+fi
+
+
 
 clear_log
 echo -e "server cid negotiate ...\c"
@@ -859,7 +883,6 @@ else
     case_print_result "set_h3_init_settings_cb" "fail"
     echo "$errlog"
 fi
-
 
 clear_log
 echo -e "send 1K data ...\c"

@@ -30,5 +30,7 @@ extern xqc_timestamp_pt xqc_realtime_timestamp;
  */
 extern xqc_timestamp_pt xqc_monotonic_timestamp;
 
+xqc_usec_t xqc_update_avg_time(xqc_usec_t new_time, xqc_usec_t ori_time, xqc_int_t ori_time_num);
+
 #endif /* _XQC_TIME_H_INCLUDED_ */
 

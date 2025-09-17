@@ -17,7 +17,6 @@
 #include <xquic/xquic_typedef.h>
 #include <xquic/xqc_http3.h>
 #include "platform.h"
-
 #ifndef XQC_SYS_WINDOWS
 #include <unistd.h>
 #include <sys/socket.h>
@@ -278,6 +277,9 @@ int g_multi_interface_cnt = 0;
 int mp_has_recved = 0;
 char g_priority[64] = {'\0'};
 
+unsigned char g_token[XQC_MAX_TOKEN_LEN];
+int g_token_len = 0;
+
 /* 用于路径增删debug */
 int g_debug_path = 0;
 
@@ -291,6 +293,7 @@ int g_periodically_request = 0;
 
 static uint64_t last_recv_ts = 0;
 
+static int g_timeout_flag = 0;
 /*
  CDF file format:
  N (N lines)
@@ -1139,11 +1142,10 @@ xqc_client_write_socket_ex(uint64_t path_id,
     if (g_test_case == 46) {
         /* drop all initial packets to make server buffer 0rtt packets */
         header_type = send_buf[0] & 0x80;
-
         /* initial packet */
         uint8_t fixed_bit = send_buf[0] & 0x40;
         xqc_uint_t type = (send_buf[0] & 0x30) >> 4;
-        if (type == 0) {
+        if (type == 0 && g_timeout_flag == 0) { //do not drop conn close frame
             printf("... drop initial pkt, len: %zd\n", size);
             return size;
         }
@@ -2498,7 +2500,7 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
         }
         xqc_http_header_t priority_hdr = {
             .name   = {.iov_base = "priority", .iov_len = 8},
-            .value  = {.iov_base = g_priority, .iov_len = 63},
+            .value  = {.iov_base = g_priority, .iov_len = ret},
             .flags  = 0,
         };
         header[header_size] = priority_hdr;
@@ -2513,6 +2515,7 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
             .schedule = 1,
             .reinject = 1,
             .fec = XQC_DEFAULT_SIZE_REQ,
+            .fastpath = 1,
         };
         xqc_h3_request_set_priority(h3_request, &h3_prio);
 
@@ -2525,7 +2528,7 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
 
         xqc_http_header_t priority_hdr = {
             .name   = {.iov_base = "priority", .iov_len = 8},
-            .value  = {.iov_base = g_priority, .iov_len = 63},
+            .value  = {.iov_base = g_priority, .iov_len = ret},
             .flags  = 0,
         };
         header[header_size] = priority_hdr;
@@ -3429,6 +3432,7 @@ conn_close:
         printf("[dgram]|echo_check|same_content:%s|\n", !memcmp(user_conn->dgram_blk->data, user_conn->dgram_blk->recv_data, user_conn->dgram_blk->data_len) ? "yes" : "no");
     }
     printf("xqc_client_timeout_callback | conn_close\n");
+    g_timeout_flag = 1;
     rc = xqc_conn_close(ctx.engine, &user_conn->cid);
     if (rc) {
         printf("xqc_conn_close error\n");
@@ -3884,6 +3888,10 @@ static void xqc_client_concurrent_callback(int fd, short what, void *arg){
         if (user_conn == NULL) {
             printf("xqc_client_user_conn_multi_process_create error\n");
             return;
+        }
+        if (g_token_len > 0){
+            user_conn->token = g_token;
+            user_conn->token_len = g_token_len;
         }
 
         xqc_conn_ssl_config_t conn_ssl_config;
@@ -4509,6 +4517,8 @@ int main(int argc, char *argv[]) {
     xqc_client_open_keylog_file(&ctx);
     xqc_client_open_log_file(&ctx);
 
+    g_token_len = xqc_client_read_token(g_token, XQC_MAX_TOKEN_LEN);
+ 
     xqc_platform_init_env();
 
     xqc_engine_ssl_config_t  engine_ssl_config;
@@ -5031,12 +5041,9 @@ int main(int argc, char *argv[]) {
         conn_settings.scheduler_callback = xqc_backup_fec_scheduler_cb;
     }
 
-    unsigned char token[XQC_MAX_TOKEN_LEN];
-    int token_len = XQC_MAX_TOKEN_LEN;
-    token_len = xqc_client_read_token(token, token_len);
-    if (token_len > 0) {
-        user_conn->token = token;
-        user_conn->token_len = token_len;
+   if (g_token_len > 0) {
+        user_conn->token = g_token;
+        user_conn->token_len = g_token_len;
     }
 
     xqc_conn_ssl_config_t conn_ssl_config;

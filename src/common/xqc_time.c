@@ -52,5 +52,11 @@ xqc_now()
     return  ul;
 }
 
+xqc_usec_t
+xqc_update_avg_time(xqc_usec_t new_time, xqc_usec_t ori_time, xqc_int_t ori_time_num)
+{
+    return (xqc_usec_t)(1.0 * new_time / (ori_time_num + 1) + 1.0 * ori_time / (ori_time_num + 1) * ori_time_num);
+}
+
 xqc_timestamp_pt xqc_realtime_timestamp  = xqc_now;
 xqc_timestamp_pt xqc_monotonic_timestamp = xqc_now;

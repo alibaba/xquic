@@ -32,6 +32,7 @@
 
 #define XQC_TOKEN_EXPIRE_DELTA (7 * 24 * 60 * 60)           /* expire in N seconds */
 #define XQC_TOKEN_UPDATE_DELTA (XQC_TOKEN_EXPIRE_DELTA / 2) /* early update */
+#define XQC_TOKEN_RETRY_PACKET_EXPIRE_DELTA     5           /* retry packet token's expire time */
 
 /* maximum accumulated number of xqc_engine_packet_process */
 #define XQC_MAX_PACKET_PROCESS_BATCH 100
@@ -181,7 +182,8 @@ typedef enum {
     XQC_CONN_FLAG_MP_WAIT_MP_READY      = 1ULL << XQC_CONN_FLAG_MP_WAIT_MP_READY_SHIFT,
     XQC_CONN_FLAG_MP_READY_NOTIFY       = 1ULL << XQC_CONN_FLAG_MP_READY_NOTIFY_SHIFT,
     XQC_CONN_FLAG_HANDSHAKE_DONE_SENT   = 1ULL << XQC_CONN_FLAG_HANDSHAKE_DONE_SENT_SHIFT,
-
+    XQC_CONN_FLAG_SERVER_ACCEPT         = 1ULL << XQC_CONN_FLAG_SERVER_ACCEPT_SHIFT,
+    XQC_CONN_FLAG_RETRY_SENT            = 1ULL << XQC_CONN_FLAG_RETRY_SENT_SHIFT, 
 } xqc_conn_flag_t;
 
 
@@ -284,6 +286,9 @@ struct xqc_connection_s {
     xqc_cid_t                       original_dcid;
     /* initial source connection id, RFC 9000, Section 7.3 */
     xqc_cid_t                       initial_scid;
+
+    /* retry source connection id, RFC 9000, Section 7.3 */
+    xqc_cid_t                       retry_scid;
 
     xqc_cid_set_t                   dcid_set;
     xqc_cid_set_t                   scid_set;
@@ -492,7 +497,7 @@ struct xqc_connection_s {
     xqc_usec_t                      conn_avg_close_delay;
     xqc_usec_t                      conn_avg_recv_delay;
     xqc_usec_t                      conn_latest_close_delay;
-    uint32_t                        conn_video_frames;
+    uint32_t                        conn_calculated_frames;
 };
 
 extern const xqc_h3_conn_settings_t default_local_h3_conn_settings;
@@ -539,7 +544,7 @@ xqc_int_t xqc_conn_send_retry(xqc_connection_t *conn, unsigned char *token, unsi
 xqc_int_t xqc_conn_version_check(xqc_connection_t *c, uint32_t version);
 xqc_int_t xqc_conn_send_version_negotiation(xqc_connection_t *c);
 xqc_int_t xqc_conn_check_token(xqc_connection_t *conn, const unsigned char *token, unsigned token_len);
-void xqc_conn_gen_token(xqc_connection_t *conn, unsigned char *token, unsigned *token_len);
+xqc_int_t xqc_conn_gen_token(xqc_connection_t *conn, unsigned char *token, unsigned *token_len);
 xqc_int_t xqc_conn_early_data_reject(xqc_connection_t *conn);
 xqc_int_t xqc_conn_early_data_accept(xqc_connection_t *conn);
 xqc_bool_t xqc_conn_is_ready_to_send_early_data(xqc_connection_t *conn);
@@ -711,6 +716,8 @@ void xqc_path_send_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
 xqc_int_t xqc_conn_try_to_enable_multipath(xqc_connection_t *conn);
 xqc_int_t xqc_conn_add_path_cid_sets(xqc_connection_t *conn, uint32_t start, uint32_t end);
 xqc_msec_t xqc_conn_get_queue_fin_timeout(xqc_connection_t *conn);
+void xqc_conn_set_init_idle_timeout(xqc_connection_t *conn, xqc_msec_t init_idle_time_out);
 void xqc_conn_try_to_enable_pmtud(xqc_connection_t *conn);
 
+xqc_int_t xqc_conn_server_accept(xqc_connection_t *c);
 #endif /* _XQC_CONN_H_INCLUDED_ */

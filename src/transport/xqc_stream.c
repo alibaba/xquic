@@ -16,7 +16,7 @@
 #include "src/transport/xqc_utils.h"
 #include "src/transport/xqc_pacing.h"
 #include "src/tls/xqc_tls.h"
-
+#include "src/transport/xqc_fec.h"
 
 static xqc_stream_id_t
 xqc_gen_stream_id(xqc_connection_t *conn, xqc_stream_type_t type)
@@ -705,12 +705,6 @@ xqc_stream_id(xqc_stream_t *stream)
     return stream->stream_id;
 }
 
-xqc_usec_t
-xqc_update_avg_time(xqc_usec_t new_time, xqc_usec_t ori_time, xqc_int_t ori_time_num)
-{
-    return (xqc_usec_t)(1.0 * new_time / (ori_time_num + 1) + 1.0 * ori_time / (ori_time_num + 1) * ori_time_num);
-}
-
 xqc_bool_t
 xqc_is_stream_finished(xqc_stream_t *stream)
 {
@@ -742,10 +736,27 @@ xqc_is_stream_finished(xqc_stream_t *stream)
 }
 
 void
+xqc_record_stream_state(xqc_stream_t *stream)
+{
+    xqc_int_t   enable_stream_num, calculated_frames;
+    xqc_usec_t  curr_recv_delay, curr_fec_recv_opt;
+    xqc_usec_t  curr_close_delay;
+
+#define __calc_delay(a, b) ((a && b && (a > b))? (a) - (b) : 0)
+    calculated_frames = stream->stream_conn->conn_calculated_frames++;
+    curr_close_delay = __calc_delay(stream->stream_stats.close_time, stream->stream_stats.create_time);          
+    curr_recv_delay = __calc_delay(stream->stream_stats.stream_recv_time, stream->stream_stats.create_time);
+    stream->stream_conn->conn_avg_close_delay = xqc_update_avg_time(curr_close_delay, stream->stream_conn->conn_avg_close_delay, calculated_frames);
+    stream->stream_conn->conn_latest_close_delay = curr_close_delay;
+    stream->stream_conn->conn_avg_recv_delay = xqc_update_avg_time(curr_recv_delay, stream->stream_conn->conn_avg_recv_delay, calculated_frames);
+
+#undef __calc_delay
+}
+
+void
 xqc_destroy_stream(xqc_stream_t *stream)
 {
-    xqc_int_t   finished_streams, enable_stream_num, video_frames;
-    xqc_usec_t  curr_recv_delay, curr_fec_recv_opt;
+    xqc_int_t   finished_streams;
 
 #define __calc_delay(a, b) ((a && b && (a > b))? (a) - (b) : 0)
 
@@ -755,26 +766,15 @@ xqc_destroy_stream(xqc_stream_t *stream)
     if (xqc_is_stream_finished(stream)) {
         if(stream->stream_conn) {
             finished_streams = stream->stream_conn->finished_streams++;
-            if (stream->stream_fec_ctl.is_video_frame) {
-                video_frames = stream->stream_conn->conn_video_frames++;
-                xqc_usec_t  curr_close_delay;
-                curr_close_delay = __calc_delay(stream->stream_stats.close_time, stream->stream_stats.create_time);          
-                curr_recv_delay = __calc_delay(stream->stream_stats.stream_recv_time, stream->stream_stats.create_time);
-                stream->stream_conn->conn_avg_close_delay = xqc_update_avg_time(curr_close_delay, stream->stream_conn->conn_avg_close_delay, video_frames);
-                stream->stream_conn->conn_latest_close_delay = curr_close_delay;
-                stream->stream_conn->conn_avg_recv_delay = xqc_update_avg_time(curr_recv_delay, stream->stream_conn->conn_avg_recv_delay, video_frames);
-                if (stream->stream_conn->fec_ctl) {
-                    if (stream->stream_fec_ctl.enable_fec
-                        || stream->stream_stats.recov_pkt_cnt > 0)
-                    {
-                        enable_stream_num = stream->stream_conn->fec_ctl->fec_enable_stream_num++;
-                        curr_recv_delay = __calc_delay(stream->stream_stats.recv_time_with_fec, stream->stream_stats.create_time);
-                        curr_fec_recv_opt = __calc_delay(stream->stream_stats.final_packet_time, stream->stream_stats.recv_time_with_fec);
-                        stream->stream_conn->fec_ctl->conn_avg_recv_delay = xqc_update_avg_time(curr_recv_delay, stream->stream_conn->fec_ctl->conn_avg_recv_delay, enable_stream_num); 
-                        stream->stream_conn->fec_ctl->fec_avg_opt_time = xqc_update_avg_time(curr_fec_recv_opt, stream->stream_conn->fec_ctl->fec_avg_opt_time, enable_stream_num); 
-                    }
-                }
+#ifdef XQC_ENABLE_FEC
+            if (stream->stream_conn->fec_ctl 
+                && ((stream->stream_fec_ctl.enable_fec
+                    || stream->stream_stats.recov_pkt_cnt > 0
+                    ))) 
+            {
+                xqc_record_fec_state(stream);
             }
+#endif
         }
     }
 

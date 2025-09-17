@@ -120,6 +120,7 @@ xqc_conn_check_initial_packet_from_cur_state(xqc_conn_state_t cur_state)
     return XQC_TRUE;
 }
 
+
 xqc_int_t
 xqc_packet_parse_single(xqc_connection_t *c, xqc_packet_in_t *packet_in)
 {
@@ -183,6 +184,12 @@ xqc_packet_parse_single(xqc_connection_t *c, xqc_packet_in_t *packet_in)
             xqc_log(c->log, XQC_LOG_ERROR,
                     "|xqc_packet_parse_long_header error:%d|", ret);
             return ret;
+        }
+
+        if (XQC_PTYPE_INIT == XQC_PACKET_LONG_HEADER_GET_TYPE(pos)) {
+            if (c->conn_type == XQC_CONN_TYPE_SERVER && !(c->conn_flag & XQC_CONN_FLAG_SERVER_ACCEPT)) {
+                return xqc_conn_server_accept(c); 
+            }
         }
 
     } else {

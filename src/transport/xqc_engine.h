@@ -11,7 +11,7 @@
 #include <xquic/xquic.h>
 #include "src/tls/xqc_tls.h"
 #include "src/common/xqc_list.h"
-
+#include "src/transport/xqc_defs.h"
 #define XQC_RESET_CNT_ARRAY_LEN 16384
 
 
@@ -80,7 +80,9 @@ typedef struct xqc_engine_s {
     char                            peer_addr_str[INET6_ADDRSTRLEN];
 
     void                           *priv_ctx;
-
+    unsigned char                   token_secret_list[XQC_TOKEN_MAX_KEY_VERSION][XQC_TOKEN_SECRET_LEN];
+    uint8_t                         cur_ts_index;
+    
 } xqc_engine_t;
 
 

@@ -229,6 +229,7 @@ typedef struct xqc_http_priority_s {
     uint8_t                 schedule;
     uint8_t                 reinject;
     uint32_t                fec;
+    uint8_t                 fastpath;
 } xqc_h3_priority_t;
 
 /* ALPN definition */
@@ -332,5 +333,18 @@ typedef enum {
     /* max */
     XQC_APP_PATH_STATUS_MAX,
 } xqc_app_path_status_t;
+
+typedef enum xqc_tls_msg_type_e {
+    XQC_TLS_1_3_CLIENT_HELLO,
+    XQC_TLS_1_3_SERVER_HELLO
+} xqc_tls_msg_type_t;
+
+typedef enum xqc_tls_group_type_e {
+    XQC_TLS_GROUP_DEFAULT      = 0,
+    XQC_TLS_GROUP_P256_FIRST   = 1,
+    XQC_TLS_GROUP_X25519_FIRST = 2,
+    XQC_TLS_GROUP_P384_FIRST   = 3,
+    XQC_TLS_GROUP_P521_FIRST   = 4,
+} xqc_tls_group_type_t;
 
 #endif /*_XQUIC_TYPEDEF_H_INCLUDED_*/

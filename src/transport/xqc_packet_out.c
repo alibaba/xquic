@@ -1125,7 +1125,10 @@ xqc_write_new_token_to_packet(xqc_connection_t *conn)
 
     unsigned char token[XQC_MAX_TOKEN_LEN];
     unsigned token_len = XQC_MAX_TOKEN_LEN;
-    xqc_conn_gen_token(conn, token, &token_len);
+    if (xqc_conn_gen_token(conn, token, &token_len) != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|gen token failed|");
+        return -XQC_EWRITE_PKT;
+    }
 
     need = 1 /* type */
             + xqc_vint_get_2bit(token_len) /* token len */

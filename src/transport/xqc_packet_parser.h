@@ -48,7 +48,7 @@ xqc_int_t xqc_packet_parse_zero_rtt(xqc_connection_t *c, xqc_packet_in_t *packet
 
 xqc_int_t xqc_packet_parse_handshake(xqc_connection_t *c, xqc_packet_in_t *packet_in);
 
-int xqc_gen_retry_packet(unsigned char *dst_buf,
+int xqc_gen_retry_packet(xqc_connection_t *c, unsigned char *dst_buf,
     const unsigned char *dcid, unsigned char dcid_len,
     const unsigned char *scid, unsigned char scid_len,
     const unsigned char *odcid, unsigned char odcid_len,

@@ -18,6 +18,14 @@
  */
 void xqc_ssl_keylog_cb(const SSL *ssl, const char *line);
 
+/**
+ * @brief log tls message
+ * @see SSL_CTX_set_msg_callback
+ */
+void
+xqc_ssl_msg_cb(int write_p, int version, int content_type, 
+    const void *buf, size_t len, SSL *ssl, void *arg);
+
 
 /**
  * @brief select an ALPN protocol from the client's list of offered protocols

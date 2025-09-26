@@ -195,8 +195,6 @@ struct xqc_stream_s {
         xqc_list_head_t    *stream_fec_head;
         xqc_list_head_t    *stream_fec_tail;
 
-        uint16_t            is_video_frame;
-
     } stream_fec_ctl;
 };
 
@@ -296,5 +294,8 @@ void xqc_stream_closing(xqc_stream_t *stream, xqc_int_t err);
 
 void xqc_stream_close_discarded_stream(xqc_stream_t *stream);
 
+xqc_bool_t xqc_is_stream_finished(xqc_stream_t *stream);
+
+void xqc_record_stream_state(xqc_stream_t *stream);
 #endif /* _XQC_STREAM_H_INCLUDED_ */
 

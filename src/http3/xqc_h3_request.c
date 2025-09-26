@@ -72,7 +72,7 @@ xqc_h3_request_destroy(xqc_h3_request_t *h3_request)
             "pacing_blk:%ud|pacing_blk_time:%ui|begin_state:%s|end_state:%s|"
             "is_fec_protected:%ud|fec_reco_pkt_cnt:%ud|fec_block_size_mode:%ud|"
             "fst_rpr_ts:%ui|last_rpr_ts:%ui|fec_fin_delay:%ui|"
-            "external_stream_info:%s|",
+            "external_stream_info:%s|fastpath:%ud|",
             h3s->stream_id, stats.stream_close_msg ? stats.stream_close_msg : "",
             stats.stream_err, stats.recv_body_size, stats.send_body_size,
             stats.recv_header_size, stats.send_header_size,
@@ -104,7 +104,8 @@ xqc_h3_request_destroy(xqc_h3_request_t *h3_request)
             stats.is_fec_protected, stats.fec_recov_cnt, h3_request->block_size_mode,
             stats.fst_rpr_time, stats.last_rpr_time,
             stats.fec_req_delay_time,
-            stats.extern_stream_info
+            stats.extern_stream_info,
+            h3s->priority.fastpath
             );
 
     if (h3_request->request_if->h3_request_close_notify) {
@@ -1018,6 +1019,9 @@ xqc_h3_request_closing(xqc_h3_request_t *h3r, xqc_int_t err)
 #define XQC_PRIORITY_FEC_LEN 4
 #define XQC_PRIORITY_FEC_VAL_LEN 8
 
+#define XQC_PRIORITY_FASTPATH ", p"
+#define XQC_PRIORITY_FASTPATH_LEN 3
+
 void
 xqc_h3_priority_init(xqc_h3_priority_t *prio)
 {
@@ -1026,6 +1030,7 @@ xqc_h3_priority_init(xqc_h3_priority_t *prio)
     prio->schedule = 0;
     prio->reinject = 0;
     prio->fec = XQC_DEFAULT_SIZE_REQ;
+    prio->fastpath = 0;
 }
 
 size_t
@@ -1039,7 +1044,8 @@ xqc_write_http_priority(xqc_h3_priority_t *prio,
                 + XQC_PRIORITY_INCREMENTAL_LEN
                 + XQC_PRIORITY_SCHEDULE_LEN + 1
                 + XQC_PRIORITY_REINJECT_LEN + 1
-                + XQC_PRIORITY_FEC_LEN + XQC_PRIORITY_FEC_VAL_LEN;
+                + XQC_PRIORITY_FEC_LEN + XQC_PRIORITY_FEC_VAL_LEN
+                + XQC_PRIORITY_FASTPATH_LEN;
     if (need > dstcap) {
         return -XQC_H3_BUFFER_EXCEED;
     }
@@ -1068,6 +1074,11 @@ xqc_write_http_priority(xqc_h3_priority_t *prio,
     dst += XQC_PRIORITY_FEC_VAL_LEN;
 
     xqc_free(fec_str);
+
+    if (prio->fastpath) {
+        xqc_memcpy(dst, XQC_PRIORITY_FASTPATH, XQC_PRIORITY_FASTPATH_LEN);
+        dst += XQC_PRIORITY_FASTPATH_LEN;
+    }
 
     return dst - begin;
 }
@@ -1127,6 +1138,9 @@ xqc_parse_http_priority(xqc_h3_priority_t *dst,
                 goto end;
             }
             prio.fec = strtoul(p, NULL, XQC_DECIMAL);
+        } else if (strncmp(p, "p", xqc_lengthof("p")) == 0) {
+            p += xqc_lengthof("p");
+            prio.fastpath = 1;
         }
 
         p = strchr(p, ',');

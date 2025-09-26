@@ -87,6 +87,8 @@ typedef struct xqc_tls_config_s {
     uint8_t                *trans_params;
     size_t                  trans_params_len;
 
+    char                   *tls_groups;
+
 } xqc_tls_config_t;
 
 
@@ -138,6 +140,10 @@ typedef void (*xqc_tls_handshake_completed_pt)(void *user_data);
 typedef xqc_int_t (*xqc_tls_cert_cb_pt)(const char *sni,
     void **chain, void **crt, void **key, void *user_data);
 
+    
+typedef void (*xqc_tls_msg_cb_pt)(int msg_type, 
+    const void *msg, size_t msg_len, void *user_data);
+
 /**
  * @brief definition of callback functions to upper layer
  */
@@ -169,6 +175,8 @@ typedef struct xqc_tls_callbacks_s {
     xqc_tls_handshake_completed_pt  hsk_completed_cb;
 
     xqc_tls_cert_cb_pt              cert_cb;
+
+    xqc_tls_msg_cb_pt               msg_cb;
 } xqc_tls_callbacks_t;
 
 

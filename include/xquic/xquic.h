@@ -72,7 +72,9 @@ typedef enum xqc_proto_version_s {
 
 #define XQC_RESET_TOKEN_MAX_KEY_LEN     256
 
-
+#define XQC_TOKEN_MAX_KEY_VERSION       4
+#define XQC_TOKEN_VERSION_MASK          3
+#define XQC_TOKEN_MAX_KEY_LEN           256
 /**
  * the max message count of iovec in sendmmsg
  */
@@ -417,6 +419,17 @@ typedef void (*xqc_conn_ready_to_create_path_notify_pt)(const xqc_cid_t *scid,
 typedef xqc_int_t (*xqc_conn_cert_cb_pt)(const char *sni,
     void **chain, void **crt, void **key, void *user_data);
 
+typedef void (*xqc_conn_ssl_msg_cb_pt)(int msg_type, 
+    const void *msg, size_t msg_len, void *user_data);
+
+/**
+ * @brief to determine whether to send a retry packet
+ * @return XQC_TRUE(1): meet condition to send a retry packet
+ *         XQC_FALSE(0): don't meet condition to send a retry packet or  an error occurred while judging the condition
+ */
+typedef int (*xqc_conn_retry_packet_pt)(xqc_engine_t *engine, xqc_connection_t *conn,
+    const xqc_cid_t *cid, void *user_data);
+
 /**
  * @brief multi-path create callback function
  *
@@ -702,6 +715,17 @@ typedef struct xqc_transport_callbacks_s {
      * @brief cert callback
      */
     xqc_conn_cert_cb_pt                     conn_cert_cb;
+
+    xqc_conn_ssl_msg_cb_pt                  conn_ssl_msg_cb;
+    /**
+     * @brief check the conditions to send retry packet
+     */
+    xqc_conn_retry_packet_pt                conn_retry_packet_condition_check;
+    /**
+     * @brief server send packet before server accept the connection.
+     * for example, retry packet is sent when the application layer connection has not been established, 
+     */
+    xqc_socket_write_pt                     conn_send_packet_before_accept;
 
 } xqc_transport_callbacks_t;
 
@@ -1165,6 +1189,11 @@ typedef struct xqc_config_s {
 
     /** for warning when the number of elements in one bucket exceeds the value of hash_conflict_threshold*/
     uint32_t        hash_conflict_threshold;
+
+    /* used to encrypt token */
+    unsigned char   token_key_list[XQC_TOKEN_MAX_KEY_VERSION][XQC_TOKEN_MAX_KEY_LEN];
+    uint16_t        tk_len_list[XQC_TOKEN_MAX_KEY_VERSION];
+    uint8_t         cur_tk_index; /* current used token key version */
 } xqc_config_t;
 
 
@@ -1261,6 +1290,11 @@ typedef struct xqc_conn_ssl_config_s {
      * certificate verify flag. which is a bit-map flag defined in xqc_cert_verify_flag_e
      */
     uint8_t     cert_verify_flag;
+
+    /**
+     * ssl curve list (groups). If not set, xquic will use the default engine-level value.
+     */
+    xqc_tls_group_type_t   tls_groups;
 } xqc_conn_ssl_config_t;
 
 typedef struct xqc_linger_s {
@@ -1490,6 +1524,13 @@ typedef struct xqc_conn_settings_s {
     uint64_t                    receive_timestamps_exponent;
 
     uint8_t                     disable_pn_skipping;
+    
+    /* The client can specify its own scid or dcid. Default: 0 */
+    uint8_t                     specify_client_scid;
+    uint8_t                     client_scid[XQC_MAX_CID_LEN];
+    uint8_t                     specify_client_dcid;
+    uint8_t                     client_dcid[XQC_MAX_CID_LEN];
+    
 } xqc_conn_settings_t;
 
 

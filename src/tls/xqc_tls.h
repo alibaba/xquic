@@ -27,7 +27,6 @@
 #undef X509_NAME
 #endif
 
-
 /**
  * @brief init tls context. MUST be called before any creation of xqc_tls_t
  */
@@ -209,9 +208,9 @@ void xqc_tls_discard_old_1rtt_keys(xqc_tls_t *tls);
 /**
  * @brief encrypt retry pseudo-packet to calculate retry integrity tag
  */
-xqc_int_t xqc_tls_cal_retry_integrity_tag(xqc_tls_t *tls,
+xqc_int_t xqc_tls_cal_retry_integrity_tag(xqc_log_t *log,
     uint8_t *retry_pseudo_packet, size_t retry_pseudo_packet_len,
-    uint8_t *dst, size_t dst_cap, size_t *dst_len);
+    uint8_t *dst, size_t dst_cap, size_t *dst_len, xqc_proto_version_t ver);
 
 void xqc_tls_get_selected_alpn(xqc_tls_t *tls, const char **out_alpn,
                                size_t *out_len);

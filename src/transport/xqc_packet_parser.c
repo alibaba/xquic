@@ -586,6 +586,12 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     size_t enc_payload_len = 0;
 
     xqc_encrypt_level_t level = xqc_packet_type_to_enc_level(packet_out->po_pkt.pkt_type);
+   
+    /* check encrypt key ready */
+    if (xqc_tls_is_key_ready(conn->tls, level, XQC_KEY_TYPE_TX_WRITE) == XQC_FALSE) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|crypto not initialized|level:%d|", level);
+        return -XQC_TLS_INVALID_STATE;
+    }
 
     /* source buffer */
     uint8_t *header = (uint8_t *)packet_out->po_buf;
@@ -883,6 +889,43 @@ xqc_packet_parse_handshake(xqc_connection_t *c, xqc_packet_in_t *packet_in)
     return XQC_OK;
 }
 
+#define RETRY_PSEUDO_PACKET_SIZE (3 * (1 + XQC_MAX_CID_LEN) + 1 + 4 + XQC_MAX_TOKEN_LEN)
+
+xqc_int_t
+xqc_conn_gen_retry_integrity_tag(xqc_connection_t *conn, const uint8_t *odcid_buf, unsigned odcid_len,
+    uint8_t *retry_buf, unsigned retry_len, uint8_t *tag_buf, size_t *tag_len)
+{
+    uint8_t pseudo_buf[RETRY_PSEUDO_PACKET_SIZE] = {0};
+    size_t pseudo_len = sizeof(uint8_t) + odcid_len + retry_len;
+    uint8_t *dst_buf = pseudo_buf;
+    if (retry_len + odcid_len > RETRY_PSEUDO_PACKET_SIZE) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_tls_gen_retry_integrity_tag length invalid|retry_len:%d|odcid_len:%d|",
+                retry_len, odcid_len);
+ 
+        return XQC_ERROR;
+    } 
+    
+    *dst_buf++ = odcid_len;
+    memcpy(dst_buf, odcid_buf, odcid_len);
+    dst_buf += odcid_len;
+    xqc_memcpy(dst_buf, retry_buf, retry_len);
+    dst_buf += retry_len;
+    xqc_int_t ret = xqc_tls_cal_retry_integrity_tag(conn->log,
+                                                    pseudo_buf, pseudo_len,
+                                                    tag_buf, XQC_RETRY_INTEGRITY_TAG_LEN,
+                                                    tag_len, conn->version);
+   
+    if (ret != XQC_OK || *tag_len != XQC_RETRY_INTEGRITY_TAG_LEN) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_tls_cal_retry_integrity_tag error|ret:%d|tag_len:%d|", ret, *tag_len);
+        return XQC_ERROR;
+    }
+
+    return XQC_OK;
+}
+
+
 /*
  *
  0                   1                   2                   3
@@ -913,9 +956,9 @@ xqc_packet_parse_handshake(xqc_connection_t *c, xqc_packet_in_t *packet_in)
 
                        Retry Packet
  */
-/* TODO: protocol update */
+/* protocol update RFC9000 */
 int
-xqc_gen_retry_packet(unsigned char *dst_buf,
+xqc_gen_retry_packet(xqc_connection_t *conn, unsigned char *dst_buf,
     const unsigned char *dcid, unsigned char dcid_len,
     const unsigned char *scid, unsigned char scid_len,
     const unsigned char *odcid, unsigned char odcid_len,
@@ -924,30 +967,37 @@ xqc_gen_retry_packet(unsigned char *dst_buf,
 {
 
     unsigned char *begin = dst_buf;
-
     unsigned char first_byte = 0xC0;
     first_byte |= XQC_PTYPE_RETRY << 4;
-    first_byte |= odcid_len - 3;
     *dst_buf++ = first_byte;
 
     ver = htonl(ver);
     memcpy(dst_buf, &ver, sizeof(ver));
     dst_buf += sizeof(ver);
 
-    *dst_buf = (dcid_len - 3) << 4;
-    *dst_buf |= scid_len - 3;
-    dst_buf++;
+    *dst_buf++ = dcid_len;
 
     memcpy(dst_buf, dcid, dcid_len);
     dst_buf += dcid_len;
+    *dst_buf++ = scid_len;
     memcpy(dst_buf, scid, scid_len);
     dst_buf += scid_len;
-    memcpy(dst_buf, odcid, odcid_len);
-    dst_buf += odcid_len;
 
     memcpy(dst_buf, token, token_len);
     dst_buf += token_len;
+    
+    uint8_t retry_integrity_tag[XQC_RETRY_INTEGRITY_TAG_LEN] = {0};  
+    size_t retry_integrity_tag_len = XQC_RETRY_INTEGRITY_TAG_LEN;
 
+    xqc_int_t ret = xqc_conn_gen_retry_integrity_tag(conn, odcid, odcid_len, begin, dst_buf - begin,
+                                                     retry_integrity_tag, &retry_integrity_tag_len); 
+
+    if (ret != XQC_OK) {
+        return XQC_ERROR;
+    }
+    
+    memcpy(dst_buf, retry_integrity_tag, retry_integrity_tag_len); 
+    dst_buf += retry_integrity_tag_len;
     return dst_buf - begin;
 }
 
@@ -972,7 +1022,6 @@ xqc_gen_retry_packet(unsigned char *dst_buf,
  *                      Figure 8: Retry Pseudo-Packet
  */
 
-#define RETRY_PSEUDO_PACKET_SIZE (3 * (1 + XQC_MAX_CID_LEN) + 1 + 4 + XQC_MAX_TOKEN_LEN)
 
 static xqc_int_t
 xqc_conn_cal_retry_integrity_tag(xqc_connection_t *conn,
@@ -982,27 +1031,8 @@ xqc_conn_cal_retry_integrity_tag(xqc_connection_t *conn,
     uint8_t *retry_buf = (uint8_t *)packet_in->buf;
     size_t retry_len = packet_in->buf_size - XQC_RETRY_INTEGRITY_TAG_LEN;
 
-    uint8_t pseudo_buf[RETRY_PSEUDO_PACKET_SIZE] = {0};
-    size_t pseudo_len = sizeof(uint8_t) + odcid->cid_len + retry_len;
-
-    uint8_t *dst_buf = pseudo_buf;
-    *dst_buf = odcid->cid_len;
-    dst_buf++;
-    memcpy(dst_buf, odcid->cid_buf, odcid->cid_len);
-    dst_buf += odcid->cid_len;
-    xqc_memcpy(dst_buf, retry_buf, retry_len);
-    dst_buf += retry_len;
-
-    xqc_int_t ret = xqc_tls_cal_retry_integrity_tag(conn->tls,
-                                                    pseudo_buf, pseudo_len,
-                                                    tag_buf, XQC_RETRY_INTEGRITY_TAG_LEN, tag_len);
-    if (ret != XQC_OK || *tag_len != XQC_RETRY_INTEGRITY_TAG_LEN) {
-        xqc_log(conn->log, XQC_LOG_ERROR,
-                "|xqc_tls_cal_retry_integrity_tag error|ret:%d|tag_len:%d|", ret, *tag_len);
-        return ret;
-    } 
-
-    return XQC_OK;
+    return xqc_conn_gen_retry_integrity_tag(conn, odcid->cid_buf, odcid->cid_len, retry_buf,
+                                            retry_len, tag_buf, tag_len);
 }
 
 

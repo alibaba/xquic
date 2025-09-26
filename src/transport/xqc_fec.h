@@ -220,4 +220,6 @@ xqc_int_t xqc_send_repair_packets(xqc_connection_t *conn, xqc_fec_schemes_e sche
 xqc_int_t xqc_process_fec_protected_packet_moq(xqc_stream_t *stream);
 
 void xqc_fec_on_stream_size_changed(xqc_stream_t *quic_stream);
+
+void xqc_record_fec_state(xqc_stream_t *stream);
 #endif  /* _XQC_FEC_H_INCLUDED_ */

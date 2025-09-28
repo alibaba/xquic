@@ -68,16 +68,7 @@ xqc_galois_divide(unsigned char a, unsigned char b, unsigned char *res)
 unsigned char
 xqc_galois_inversion(unsigned char a)
 {
-    int i = 0;
-    if (a == 0) {
-        return 0;
-    }
-    for (i = 1; i < 256; i++) {
-        if (xqc_galois_multiply(a, i) == 1) {
-            return i;
-        }
-    }
-    return 0;
+    return xqc_galois_inv_table[a];
 }
 
 

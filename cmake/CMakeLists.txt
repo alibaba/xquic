@@ -146,7 +146,10 @@ include_directories(
     ${CMAKE_CURRENT_BINARY_DIR}/include
 )
 
-
+if(XQC_ENABLE_MOQ)
+    add_subdirectory(moq)
+endif()
+ 
 # http3/qpack source
 set(
     HTTP3_SOURCES

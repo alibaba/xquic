@@ -1,0 +1,4 @@
+#ifndef _XQC_MOQ_PROXY_H_INCLUDED_
+#define _XQC_MOQ_PROXY_H_INCLUDED_
+
+#endif /* _XQC_MOQ_PROXY_H_INCLUDED_ */

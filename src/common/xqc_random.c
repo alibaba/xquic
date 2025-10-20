@@ -34,7 +34,7 @@ long xqc_random(void) {
     return result;
 #else
     long result = random();
-    return random();
+    return result;
 #endif
 }
 

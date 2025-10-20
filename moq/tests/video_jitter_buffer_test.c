@@ -73,7 +73,7 @@ main()
                 printf("out_frame is NULL! \n");
                 break;
             }
-            printf("frame seq = %lu \n", out_frame->video_frame.seq_num);
+            printf("frame seq = %"PRIu64" \n", out_frame->video_frame.seq_num);
             xqc_moq_video_frame_ext_free(out_frame);
             out_frame = NULL;
         }

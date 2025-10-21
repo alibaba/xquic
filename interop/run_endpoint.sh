@@ -86,18 +86,16 @@ if [ "$ROLE" == "client" ]; then
 
 
 elif [ "$ROLE" == "server" ]; then
-
-    if [ "$TESTCASE" == "retry" ]; then
-        exit 127
-    fi
-
     cp /certs/priv.key server.key
     cp /certs/cert.pem server.crt
-    cp server.* /logs/
-
-    #cp -r /www /logs
 
     ARGS="-l d -L "$LOG_DIR/server.log" -p 443 -D "/www" -k $SSLKEYLOGFILE -i -M"
+
+    if [ "$TESTCASE" = "retry" ]; then
+        ARGS="$ARGS -r"
+        echo "Retry test: adding -r flag"
+    fi
+
     echo "./demo_server $ARGS"
     ./demo_server $ARGS
 fi

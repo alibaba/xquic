@@ -177,6 +177,9 @@ if(XQC_ENABLE_TESTING)
     add_subdirectory(mini)
 endif(XQC_ENABLE_TESTING)
 
+if(XQC_ENABLE_MOQ)
+    add_subdirectory(moq)
+endif()
 
 # http3/qpack source
 set(

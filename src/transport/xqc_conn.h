@@ -139,7 +139,7 @@ typedef enum {
     XQC_CONN_FLAG_HANDSHAKE_DONE_SENT_SHIFT = 40,
     XQC_CONN_FLAG_SERVER_ACCEPT_SHIFT = 41,
     XQC_CONN_FLAG_RETRY_SENT_SHIFT = 42,
-    XQC_CONN_FLAG_SHIFT_NUM
+    XQC_CONN_FLAG_SHIFT_NUM,
 } xqc_conn_flag_shift_t;
 
 typedef enum {

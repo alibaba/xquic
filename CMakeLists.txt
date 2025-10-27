@@ -1,7 +1,14 @@
 # Copyright (c) 2022, Alibaba Group Holding Limited
 
-cmake_minimum_required (VERSION 3.5)
+cmake_minimum_required (VERSION 3.5...3.29)
 project (xquic)
+
+if(PLATFORM MATCHES "mac")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lc++abi")
+    find_library(LIBEVENT_LIBRARY NAMES event PATHS /opt/homebrew/Cellar/libevent/*/lib NO_DEFAULT_PATH)
+    set(CMAKE_CXX_STANDARD 20)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+endif()
 
 set (xquic_VERSION_MAJOR 0)
 set (xquic_VERSION_MINOR 1)
@@ -19,7 +26,13 @@ option (XQC_ENABLE_FEC "enable fec" OFF)
 option (XQC_ENABLE_XOR "enable fec scheme xor" OFF)
 option (XQC_ENABLE_RSC "enable fec scheme reed-solomon code" OFF)
 option (XQC_ENABLE_PKM "enable fec scheme packet mask" OFF)
-option (XQC_PING_ATTACK_PROTECT "enable ping attack protection" OFF)
+option (XQC_COMPILE_PERF "compile perf client" OFF)
+option (XQC_ENABLE_MOQ "enable MOQ protocol" ON)
+
+# MOQ version setting
+set(XQC_MOQ_VERSION "05" CACHE STRING "Select MoQ version (e.g., 05, 11)")
+set_property(CACHE XQC_MOQ_VERSION PROPERTY STRINGS "05" "11")
+message(STATUS "Using MoQ version: ${XQC_MOQ_VERSION}")
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
@@ -136,7 +149,13 @@ include_directories(include
     ${CMAKE_SOURCE_DIR}
 )
 
-
+# MOQ version
+if(XQC_MOQ_VERSION STREQUAL "05")
+    add_definitions(-DXQC_MOQ_VERSION_05)
+elseif(XQC_MOQ_VERSION STREQUAL "11")
+    add_definitions(-DXQC_MOQ_VERSION_11)
+    add_definitions(-DXQC_DEMO_MULTI_ALPN)
+endif()
 
 # print tls traffic secret in keylog
 if(XQC_PRINT_SECRET)
@@ -174,8 +193,15 @@ endif()
 if(XQC_ENABLE_TESTING)
     add_subdirectory(tests)
     add_subdirectory(demo)
-    add_subdirectory(mini)
 endif(XQC_ENABLE_TESTING)
+
+# add tunnel
+if(XQC_ENABLE_TH3 OR XQC_ENABLE_TUNNEL)
+    if(XQC_ENABLE_TNL_DG)
+        set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -DXQC_ENABLE_TNL_DG ")
+    endif()
+    add_subdirectory(tunnel)
+endif()
 
 if(XQC_ENABLE_MOQ)
     add_subdirectory(moq)

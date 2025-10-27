@@ -6,5 +6,6 @@
 
 extern const xqc_moq_trans_stream_ops_t xqc_moq_quic_stream_ops;
 extern const xqc_stream_callbacks_t xqc_moq_quic_stream_callbacks;
+extern const xqc_stream_callbacks_t xqc_moq_quic_stream_callbacks_v11;
 
 #endif /* _XQC_MOQ_STREAM_QUIC_H_INCLUDED_ */

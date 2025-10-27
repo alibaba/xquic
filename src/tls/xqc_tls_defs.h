@@ -77,6 +77,14 @@ typedef struct xqc_tls_config_s {
     /* alpn string, only for client */
     char                   *alpn;
 
+    /*
+     * multiple ALPN protocols in length-prefixed vector format, only for client.
+     * if provided (non-NULL and length > 0), it will be used instead of the
+     * single string 'alpn'.
+     */
+    unsigned char          *alpn_list;
+    size_t                  alpn_list_len;
+
     /**
      * no_crypto flag, only for client.
      * 1 for processing 0-RTT/1-RTT packets without encryption or decryption

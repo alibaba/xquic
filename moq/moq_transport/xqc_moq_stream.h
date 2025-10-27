@@ -53,6 +53,8 @@ typedef struct xqc_moq_stream_s {
     float                       fec_code_rate;
 
     uint16_t                    moq_frame_type;
+    xqc_moq_subgroup_msg_t      *subgroup_header;
+    xqc_moq_stream_type_t       stream_type;
 } xqc_moq_stream_t;
 
 xqc_moq_stream_t *xqc_moq_stream_create(xqc_moq_session_t *session);
@@ -68,7 +70,12 @@ xqc_int_t xqc_moq_stream_write(xqc_moq_stream_t *moq_stream);
 void xqc_moq_stream_on_track_write(xqc_moq_stream_t *moq_stream, xqc_moq_track_t *track,
     uint64_t group_id, uint64_t object_id, uint64_t seq_num);
 
+void xqc_moq_stream_on_track_subgroup_write(xqc_moq_stream_t *moq_stream, xqc_moq_track_t *track,
+    uint64_t group_id, uint64_t object_id, uint64_t seq_num);
+
 void *xqc_moq_stream_get_or_alloc_cur_decode_msg(xqc_moq_stream_t *moq_stream);
+
+xqc_moq_stream_type_t xqc_moq_stream_get_type(xqc_moq_stream_t *moq_stream);
 
 void xqc_moq_stream_free_cur_decode_msg(xqc_moq_stream_t *moq_stream);
 

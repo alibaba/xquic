@@ -1,3 +1,5 @@
+#include "moq/moq_transport/xqc_moq_session.h"
+#include "src/common/xqc_malloc.h"
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <errno.h>
@@ -9,6 +11,7 @@
 #include <xquic/xquic.h>
 #include <xquic/xqc_http3.h>
 #include "src/transport/xqc_conn.h"
+#include "moq/moq_transport/xqc_moq_default_track.h"
 #include <time.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -31,7 +34,7 @@
 
 #include <moq/xqc_moq.h>
 #include "moq/moq_transport/xqc_moq_stream.h"
-#include "moq/moq_transport/xqc_moq_default_track.h"
+#include "moq/moq_transport/xqc_moq_track.h"
 
 #define DEBUG printf("%s:%d (%s)\n", __FILE__, __LINE__, __FUNCTION__);
 
@@ -42,7 +45,6 @@
 #define MAX_BUF_SIZE (100*1024*1024)
 
 #define XQC_MAX_LOG_LEN 2048
-#define XQC_CID_LEN 12
 
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
@@ -55,9 +57,11 @@ struct event_base *eb;
 int g_ipv6 = 0;
 int g_spec_local_addr = 0;
 int g_fec_on = 0;
-int g_frame_num = 5;
-int g_subscribe_block = 0;
+int g_frame_num = 150;  /* Increased for dynamic track testing */
+int g_subscribe_block = 1;
+int g_start_sending_data = 0;
 xqc_moq_role_t g_role = XQC_MOQ_PUBSUB;
+/* g_namespace_subscribed moved to per-connection state in user_conn_t */
 
 char* xqc_now_spec()
 {
@@ -101,12 +105,6 @@ xqc_server_create_socket(const char *addr, unsigned int port)
 
     optval = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) < 0) {
-        printf("setsockopt failed, errno: %d\n", get_sys_errno());
-        goto err;
-    }
-    
-    optval = 1;
-    if (setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval)) < 0) {
         printf("setsockopt failed, errno: %d\n", get_sys_errno());
         goto err;
     }
@@ -229,94 +227,61 @@ xqc_server_socket_event_callback(int fd, short what, void *arg)
 void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata)
 {
     DEBUG;
+    char ts[32];
+    xqc_get_timestamp(ts, sizeof(ts));
 
     if (extdata) {
-        printf("extdata:%s\n",extdata);
+        printf("%s extdata:%s\n", ts, extdata);
     }
+    
 
     int ret;
     xqc_moq_session_t *session = user_session->session;
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
 
-    printf("xqc_moq_subscribe_datachannel\n");
-    ret = xqc_moq_subscribe_datachannel(session);
-    if (ret < 0) {
-        printf("xqc_moq_subscribe_datachannel error\n");
-        return;
-    }
-    printf("xqc_moq_subscribe_catalog\n");
-    ret = xqc_moq_subscribe_catalog(session);
-    if (ret < 0) {
-        printf("xqc_moq_subscribe_catalog error\n");
-        return;
-    }
 
     user_conn->moq_session = session;
-    user_conn->video_subscribe_id = -1;
+    user_conn->video_subscribe_id = -2;
     user_conn->audio_subscribe_id = -1;
     user_conn->countdown = g_frame_num;
+    user_conn->stream3_message_count = 0;
 
     if (g_role == XQC_MOQ_SUBSCRIBER) {
         return;
     }
 
-    xqc_moq_selection_params_t video_params;
-    memset(&video_params, 0, sizeof(xqc_moq_selection_params_t));
-    video_params.codec = "av01";
-    video_params.mime_type = "video/mp4";
-    video_params.bitrate = 1000000;
-    video_params.framerate = 30;
-    video_params.width = 720;
-    video_params.height = 720;
-    xqc_moq_track_t *video_track = xqc_moq_track_create(session, "namespace", "video", XQC_MOQ_TRACK_VIDEO,
-                                                        &video_params, XQC_MOQ_CONTAINER_LOC, XQC_MOQ_TRACK_FOR_PUB);
-    if (video_track == NULL) {
-        printf("create video track error\n");
+    /* Create multiple tracks for namespace subscription testing */
+    xqc_moq_track_t *track1 = xqc_moq_track_create(session, "example/video", "stream1", XQC_MOQ_TRACK_DEFAULT,
+                                                    NULL, XQC_MOQ_CONTAINER_LOC, XQC_MOQ_TRACK_FOR_PUB);
+    if (track1 == NULL) {
+        printf("%s create track1 error\n", ts);
     }
-    else if (video_track->track_alias == XQC_MOQ_INVALID_ALIAS) {
-        /* 预设稳定 alias：video */
-        xqc_moq_track_set_alias(video_track, XQC_MOQ_ALIAS_VIDEO);
+    
+    xqc_moq_track_t *track2 = xqc_moq_track_create(session, "example/video", "stream2", XQC_MOQ_TRACK_DEFAULT,
+                                                    NULL, XQC_MOQ_CONTAINER_LOC, XQC_MOQ_TRACK_FOR_PUB);
+    if (track2 == NULL) {
+        printf("%s create track2 error\n", ts);
     }
-    user_conn->video_track = video_track;
-
-    xqc_moq_selection_params_t audio_params;
-    memset(&audio_params, 0, sizeof(xqc_moq_selection_params_t));
-    audio_params.codec = "opus";
-    audio_params.mime_type = "audio/mp4";
-    audio_params.bitrate = 32000;
-    audio_params.samplerate = 48000;
-    audio_params.channel_config = "2";
-    xqc_moq_track_t *audio_track = xqc_moq_track_create(session, "namespace", "audio", XQC_MOQ_TRACK_AUDIO,&audio_params, XQC_MOQ_CONTAINER_LOC, XQC_MOQ_TRACK_FOR_PUB);
-    if (audio_track == NULL) {
-        printf("create audio track error\n");
+    
+    xqc_moq_track_t *track3 = xqc_moq_track_create(session, "example/audio", "mic", XQC_MOQ_TRACK_DEFAULT,
+                                                    NULL, XQC_MOQ_CONTAINER_LOC, XQC_MOQ_TRACK_FOR_PUB);
+    if (track3 == NULL) {
+        printf("%s create track3 error\n", ts);
     }
-    else if (audio_track->track_alias == XQC_MOQ_INVALID_ALIAS) {
-        /* 预设稳定 alias：audio */
-        xqc_moq_track_set_alias(audio_track, XQC_MOQ_ALIAS_AUDIO);
-    }
-    user_conn->audio_track = audio_track;
-}
-
-void on_datachannel(xqc_moq_user_session_t *user_session)
-{
-    DEBUG;
-}
-
-void on_datachannel_msg(struct xqc_moq_user_session_s *user_session, uint8_t *msg, size_t msg_len)
-{
-    DEBUG;
-    xqc_int_t ret;
-    xqc_moq_session_t *session = user_session->session;
-    if (strncmp((char*)msg, "datachannel req", strlen("datachannel req")) == 0) {
-        ret = xqc_moq_write_datachannel(session, (uint8_t*)"datachannel rsp", strlen("datachannel rsp"));
-        if (ret < 0) {
-            printf("xqc_moq_write_datachannel error\n");
-        }
-    }
-    else {
-        printf("recv datachannel msg: %s\n", msg);
-        printf("msg_len = %zu\n", msg_len);
-    }
+    
+    /* Keep one as default track for sending data */
+    user_conn->default_track = track1;
+    
+    printf("\n%s [SERVER] Created initial tracks for namespace subscription test:\n", ts);
+    printf("  - example/video/stream1 (alias=%llu)\n", (unsigned long long)track1->track_alias);
+    printf("  - example/video/stream2 (alias=%llu)\n", (unsigned long long)track2->track_alias);
+    printf("  - example/audio/mic (alias=%llu)\n", (unsigned long long)track3->track_alias);
+    printf("  Tracks will be auto-published when client subscribes to 'example' namespace\n\n");
+    
+    /* Register send timer for dynamic track creation and data sending */
+    user_conn->ev_send_timer = evtimer_new(eb, xqc_app_send_callback, user_conn);
+    struct timeval time = { 0, 200000 };  /* 200ms */
+    event_add(user_conn->ev_send_timer, &time);
 }
 
 void on_subscribe_v05(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
@@ -365,20 +330,173 @@ void on_subscribe_v05(xqc_moq_user_session_t *user_session, uint64_t subscribe_i
     event_add(user_conn->ev_send_timer, &time);
 }
 
+void on_subscribe_namespace(xqc_moq_user_session_t *user_session,
+                            xqc_moq_subscribe_namespace_msg_t *subscribe_namespace)
+{
+    DEBUG;
+    user_conn_t *user_conn = (user_conn_t *)user_session->data;
+    char ts[32];
+    xqc_get_timestamp(ts, sizeof(ts));
+    
+    printf("\n%s [SERVER] SUBSCRIBE_NAMESPACE received:\n", ts);
+    printf("  Request ID: %llu\n", (unsigned long long)subscribe_namespace->request_id);
+    if (subscribe_namespace->track_namespace_prefix && 
+        subscribe_namespace->track_namespace_prefix->track_namespace_num > 0) {
+        printf("  Namespace: ");
+        for (uint64_t i = 0; i < subscribe_namespace->track_namespace_prefix->track_namespace_num; i++) {
+            printf("%s", subscribe_namespace->track_namespace_prefix->track_namespace[i]);
+            if (i < subscribe_namespace->track_namespace_prefix->track_namespace_num - 1) {
+                printf("/");
+            }
+        }
+        printf("\n");
+    }
+    printf("  -> Tracks matching this namespace will be auto-published\n\n");
+    
+    user_conn->namespace_subscribed = 1;
+    
+    printf("%s [SERVER] Namespace subscribed, waiting for PUBLISH_OK from client...\n", ts);
+    printf("%s [SERVER] Will create a new track 'example/video/stream3' after ~200ms to test dynamic PUBLISH...\n\n", ts);
+}
+
+void on_publish_ok(xqc_moq_user_session_t *user_session, xqc_moq_publish_ok_msg_t *publish_ok)
+{
+    DEBUG;
+    char ts[32];
+    xqc_get_timestamp(ts, sizeof(ts));
+    
+    printf("\n%s [SERVER] PUBLISH_OK received for request_id=%llu\n", ts, 
+           (unsigned long long)publish_ok->request_id);
+    
+    user_conn_t *user_conn = (user_conn_t *)user_session->data;
+    xqc_moq_session_t *session = user_session->session;
+    
+    /* 查找对应的 track 并标记为已订阅 */
+    xqc_list_head_t *pos;
+    xqc_moq_track_t *track;
+    xqc_list_for_each(pos, &session->track_list_for_pub) {
+        track = xqc_list_entry(pos, xqc_moq_track_t, list_member);
+        if (track && track->track_info.track_name) {
+            /* 根据 track name 匹配 */
+            if (strcmp(track->track_info.track_name, "stream1") == 0 && !user_conn->stream1_subscribed) {
+                user_conn->stream1_subscribed = 1;
+                printf("  -> stream1 marked as subscribed\n\n");
+                break;
+            } else if (strcmp(track->track_info.track_name, "stream2") == 0 && !user_conn->stream2_subscribed) {
+                user_conn->stream2_subscribed = 1;
+                printf("  -> stream2 marked as subscribed\n\n");
+                break;
+            } else if (strcmp(track->track_info.track_name, "stream3") == 0 && !user_conn->stream3_subscribed) {
+                user_conn->stream3_subscribed = 1;
+                printf("  -> stream3 marked as subscribed, will send 10 messages\n\n");
+                break;
+            }
+        }
+    }
+}
+
+void on_track_status(xqc_moq_user_session_t *user_session, xqc_moq_track_status_msg_t *track_status)
+{
+    DEBUG;
+    printf("msg report on_track_status track_name: %s\n", track_status->track_name);
+    if(strcmp(track_status->track_name, "test")) {
+        xqc_moq_session_t *session = user_session->session;
+        const char *req_ns = "namespace";
+        const char *req_name = track_status->track_name ? track_status->track_name : "track";
+        if (track_status->track_namespace
+            && track_status->track_namespace->track_namespace_num > 0
+            && track_status->track_namespace->track_namespace
+            && track_status->track_namespace->track_namespace[0]) {
+            req_ns = track_status->track_namespace->track_namespace[0];
+        }
+
+        xqc_moq_track_t *track = xqc_moq_find_track_by_name(session, req_ns, req_name, XQC_MOQ_TRACK_FOR_PUB);
+        if (track == NULL) {
+            xqc_moq_track_status_error_msg_t track_status_error;
+            track_status_error.request_id = track_status->request_id;
+            track_status_error.error_code = XQC_MOQ_TRACK_STATUS_CODE_NOT_EXIST;
+            track_status_error.error_reason = xqc_calloc(1, strlen("track not exist") + 1);
+            track_status_error.error_reason_len = strlen("track not exist");
+            strcpy(track_status_error.error_reason, "track not exist");
+            xqc_int_t ret = xqc_moq_track_status_error(session, &track_status_error);
+            if (ret < 0) {
+                printf("xqc_moq_track_status_error error\n");
+            } else {
+                xqc_log(session->log, XQC_LOG_INFO, "|send track status error|");
+                printf("send track status error\n");
+            }
+            return;
+        }
+
+        if (track->track_alias == XQC_MOQ_INVALID_ALIAS) {
+            uint64_t alias;
+            for (;;) {
+                alias = xqc_moq_session_alloc_track_alias(session);
+                if (alias == XQC_MOQ_ALIAS_DATACHANNEL
+                    || alias == XQC_MOQ_ALIAS_CATALOG
+                    || alias == XQC_MOQ_ALIAS_VIDEO
+                    || alias == XQC_MOQ_ALIAS_AUDIO) {
+                    continue;
+                }
+                if (xqc_moq_find_track_by_alias(session, alias, XQC_MOQ_TRACK_FOR_PUB) == NULL
+                    && xqc_moq_find_track_by_alias(session, alias, XQC_MOQ_TRACK_FOR_SUB) == NULL) {
+                    break;
+                }
+            }
+            xqc_moq_track_set_alias(track, alias);
+        }
+
+        xqc_moq_track_status_ok_msg_t track_status_ok;
+        track_status_ok.request_id = track_status->request_id;
+        track_status_ok.track_alias = track->track_alias;
+        track_status_ok.expires = 0;
+        track_status_ok.group_order = track_status->group_order;
+        track_status_ok.content_exists = 0;
+        track_status_ok.params_num = 0;
+        track_status_ok.params = NULL;
+
+        xqc_int_t ret = 0;
+        ret = xqc_moq_track_status_ok(session, &track_status_ok);
+        if (ret < 0) {
+            printf("xqc_moq_track_status_ok error\n");
+        } else {
+            printf("send track status ok\n");
+        }
+        g_start_sending_data = 1;
+    } else {
+        xqc_moq_track_status_error_msg_t track_status_error;
+        track_status_error.request_id = track_status->request_id;
+        track_status_error.error_code = XQC_MOQ_TRACK_STATUS_CODE_NOT_EXIST;
+        track_status_error.error_reason = xqc_calloc(1, strlen("track not exist") + 1);
+        track_status_error.error_reason_len = strlen("track not exist");
+        strcpy(track_status_error.error_reason, "track not exist");
+        
+        xqc_int_t ret = 0;
+        ret = xqc_moq_track_status_error(user_session->session, &track_status_error);
+        if (ret < 0) {
+            printf("xqc_moq_track_status_error error\n");
+        }
+        else {
+            xqc_log(user_session->session->log, XQC_LOG_INFO, "|send track status error|");
+            printf("send track status error\n");
+        }
+    }
+}
 
 void on_subscribe_v13(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     xqc_moq_track_t *track, xqc_moq_subscribe_msg_t_v13 *msg)
 {
+    printf("on_subscribe_v13\n");
     DEBUG;
     int ret;
     xqc_moq_session_t *session = user_session->session;
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
 
-    if (strcmp(msg->track_name, "video") == 0) {
+    if (1) {
         
         xqc_moq_subscribe_ok_msg_t subscribe_ok;
         subscribe_ok.subscribe_id = subscribe_id;
-        subscribe_ok.track_alias = track->track_alias; 
+        subscribe_ok.track_alias = track->track_alias;  // 设置正确的track_alias
         if(track->track_alias == XQC_MOQ_ALIAS_CATALOG) {
             printf("catch track alias = 1 \n");
         }
@@ -397,23 +515,40 @@ void on_subscribe_v13(xqc_moq_user_session_t *user_session, uint64_t subscribe_i
             printf("xqc_moq_write_subscribe_ok error\n");
         }
         user_conn->video_subscribe_id = subscribe_id;
-        g_subscribe_block = 0;
 
-        /* trigger stream priority path: disable datagram to force stream */
+        /* 标记具体流订阅状态，不立即发送 */
+        if (track && track->track_info.track_name) {
+            if (strcmp(track->track_info.track_name, "stream1") == 0) {
+                user_conn->stream1_subscribed = 1;
+                printf("stream1 subscribed (id=%llu)\n", (unsigned long long)subscribe_id);
+            } else if (strcmp(track->track_info.track_name, "stream2") == 0) {
+                user_conn->stream2_subscribed = 1;
+                printf("stream2 subscribed (id=%llu)\n", (unsigned long long)subscribe_id);
+            } else if (strcmp(track->track_info.track_name, "stream3") == 0) {
+                user_conn->stream3_subscribed = 1;
+                printf("stream3 subscribed (id=%llu)\n", (unsigned long long)subscribe_id);
+            }
+        }
+
+        /* 不再在此处立即发送，改为由定时器在已订阅后发送 */
         {
             xqc_connection_t *qconn = xqc_moq_session_quic_conn(session);
             if (qconn) {
                 qconn->remote_settings.max_datagram_frame_size = 0;
             }
-            uint8_t payload[] = {0xaa, 0xbb, 0xcc, 0xdd};
-            xqc_moq_default_track_send(track, payload, sizeof(payload));
         }
 
-    } else if (strcmp(msg->track_name, "audio") == 0) { 
-        
+        /* 立即触发一次发送回调，尽快开始发送 */
+        if (user_conn->ev_send_timer) {
+            struct timeval t0 = {0, 10000}; /* 10ms */
+            event_add(user_conn->ev_send_timer, &t0);
+        }
+
+    } 
+    if (strcmp(msg->track_name, "track") == 0) {
         xqc_moq_subscribe_ok_msg_t subscribe_ok;
         subscribe_ok.subscribe_id = subscribe_id;
-        subscribe_ok.track_alias = track->track_alias;  // 设置正确的track_alias
+        subscribe_ok.track_alias = track->track_alias;
         subscribe_ok.expire_ms = 0;
         subscribe_ok.content_exist = 1;
         subscribe_ok.largest_group_id = 0;
@@ -421,16 +556,24 @@ void on_subscribe_v13(xqc_moq_user_session_t *user_session, uint64_t subscribe_i
         subscribe_ok.params_num = 0;
         subscribe_ok.params = NULL;
         ret = xqc_moq_write_subscribe_ok(session, &subscribe_ok);
-        user_conn->audio_subscribe_id = subscribe_id;
-        g_subscribe_block = 0;
         if (ret < 0) {
-        printf("xqc_moq_write_subscribe_ok error\n");
+            printf("xqc_moq_write_subscribe_ok error\n");
         }
+        user_conn->default_subscribe_id = subscribe_id;
+        user_conn->default_track = track;
+
+        user_conn->moq_session = session;
+        
     }
 
-    user_conn->ev_send_timer = evtimer_new(eb, xqc_app_send_callback, user_conn);
-    struct timeval time = { 0, 10000 };
-    event_add(user_conn->ev_send_timer, &time);
+    if (!user_conn->ev_send_timer) {
+        user_conn->ev_send_timer = evtimer_new(eb, xqc_app_send_callback, user_conn);
+        struct timeval time = { 0, 10000 };
+        event_add(user_conn->ev_send_timer, &time);
+    }
+    
+    /* Enable sending for priority test */
+    g_start_sending_data = 1;
 }
 
 void on_request_keyframe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id, xqc_moq_track_t *track)
@@ -464,34 +607,7 @@ void on_subscribe_error(xqc_moq_user_session_t *user_session, xqc_moq_subscribe_
            (int)subscribe_error->subscribe_id, (int)subscribe_error->error_code, subscribe_error->reason_phrase, (int)subscribe_error->track_alias);
 }
 
-void on_catalog(xqc_moq_user_session_t *user_session, xqc_moq_track_info_t **track_info_array, xqc_int_t array_size)
-{
-    DEBUG;
 
-    int ret;
-    xqc_moq_session_t *session = user_session->session;
-
-    for (int i = 0; i < array_size; i++) {
-        xqc_moq_track_info_t *track_info = track_info_array[i];
-        printf("track_namespace:%s track_name:%s track_type:%d codec:%s mime_type:%s bitrate:%d lang:%s framerate:%d width:%d height:%d "
-               "display_width:%d display_height:%d samplerate:%d channel_config:%s\n",
-               track_info->track_namespace, track_info->track_name, track_info->track_type, track_info->selection_params.codec,
-               track_info->selection_params.mime_type, track_info->selection_params.bitrate,
-               track_info->selection_params.lang ? track_info->selection_params.lang : "null",
-               track_info->selection_params.framerate, track_info->selection_params.width, track_info->selection_params.height,
-               track_info->selection_params.display_width, track_info->selection_params.display_height, track_info->selection_params.samplerate,
-               track_info->selection_params.channel_config ? track_info->selection_params.channel_config : "null");
-    
-        if (g_role == XQC_MOQ_PUBLISHER) {
-            continue;
-        }
-        //subscribe media
-        ret = xqc_moq_subscribe_latest(session, track_info->track_namespace, track_info->track_name);
-        if (ret < 0) {
-            printf("xqc_moq_subscribe error\n");
-        }
-    }
-}
 
 void on_video_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id, xqc_moq_video_frame_t *video_frame)
 {
@@ -536,41 +652,37 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
 
     xqc_moq_session_callbacks_t callbacks = {
         .on_session_setup = on_session_setup,
-        .on_datachannel = on_datachannel,
-        .on_datachannel_msg = on_datachannel_msg,
         /* For Publisher */
         .on_subscribe_v05 = on_subscribe_v05,
         .on_subscribe_v13 = on_subscribe_v13,
+        .on_publish_ok = on_publish_ok,
         .on_request_keyframe = on_request_keyframe,
         .on_bitrate_change = on_bitrate_change,
         /* For Subscriber */
         .on_subscribe_ok = on_subscribe_ok,
         .on_subscribe_error = on_subscribe_error,
-        .on_catalog = on_catalog,
         .on_video = on_video_frame,
         .on_audio = on_audio_frame,
         // .on_fetch = on_fetch,
         .on_goaway = on_goaway,
+        .on_track_status = on_track_status,
+        /* Namespace subscription */
+        .on_subscribe_namespace = on_subscribe_namespace,
         
     };
 #ifdef XQC_MOQ_VERSION_11
-    xqc_moq_session_t *session = xqc_moq_session_create(conn, user_session, XQC_MOQ_TRANSPORT_QUIC, XQC_MOQ_SUPPORTED_VERSION_14, g_role, callbacks, NULL);
+    printf("create session with version 13\n");
+    xqc_moq_session_t *session = xqc_moq_session_create(conn, user_session, XQC_MOQ_TRANSPORT_QUIC, XQC_MOQ_SUPPORTED_VERSION_13, g_role, callbacks, NULL);
 #elif XQC_MOQ_VERSION_05
+    printf("create session with version 05\n");
     xqc_moq_session_t *session = xqc_moq_session_create(conn, user_session, XQC_MOQ_TRANSPORT_QUIC, XQC_MOQ_SUPPORTED_VERSION_05, g_role, callbacks, NULL);
 #endif
     if (session == NULL) {
         printf("create session error\n");
         return -1;
     }
-    {
-        const char *env_enabled = getenv("MOQ_PRIORITY_ENABLED");
-        const char *env_enforce = getenv("MOQ_PRIORITY_ENFORCE");
-        xqc_int_t enabled = (env_enabled && env_enabled[0] == '1') ? 1 : 0;
-        xqc_int_t enforce = (env_enforce && env_enforce[0] == '1') ? 1 : 0;
-        if (enabled || enforce) {
-            xqc_moq_set_priority_config(session, enabled, enforce);
-        }
-    }
+    /* Enable MOQ priority by default; enforce=0 keeps QUIC stream priority NORMAL */
+    xqc_moq_set_priority_config(session, /*enabled*/1, /*enforce*/0);
     xqc_moq_configure_bitrate(session, 1000000, 8000000, 1000000);
 
     xqc_conn_set_transport_user_data(conn, user_session);
@@ -603,29 +715,6 @@ xqc_server_refuse(xqc_engine_t *engine, xqc_connection_t *conn,
 
     free(user_session);
     user_conn = NULL;
-}
-
-ssize_t
-xqc_server_stateless_reset(const unsigned char *buf, size_t size,
-                           const struct sockaddr *peer_addr, socklen_t peer_addrlen,
-                           const struct sockaddr *local_addr, socklen_t local_addrlen, void *user_data)
-{
-    int fd = ctx.listen_fd;
-    ssize_t res;
-
-    do {
-        set_sys_errno(0);
-
-        res = sendto(fd, buf, size, 0, peer_addr, peer_addrlen);
-        if (res < 0) {
-            printf("xqc_app_write_socket fd:%d err %zd %s\n", fd, res, strerror(get_sys_errno()));
-            if (get_sys_errno() == EAGAIN) {
-                res = XQC_SOCKET_EAGAIN;
-            }
-        }
-    } while ((res < 0) && (EINTR == get_sys_errno()));
-
-    return res;
 }
 
 int
@@ -664,8 +753,16 @@ xqc_server_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void 
     xqc_moq_user_session_t *user_session = (xqc_moq_user_session_t *)user_data;
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
     xqc_conn_stats_t stats = xqc_conn_get_stats(ctx.engine, cid);
-    printf("send_count:%u, lost_count:%u, lost_dgram_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" early_data_flag:%d, conn_err:%d, ack_info:%s, alpn:%s, fec_recovered:%d\n",
-            stats.send_count, stats.lost_count, stats.lost_dgram_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.ack_info, stats.alpn, stats.fec_recover_pkt_cnt);
+    
+    printf("[SERVER] Connection stats: send_count:%u, lost_count:%u, recv_count:%u, srtt:%"PRIu64", conn_err:%d\n",
+            stats.send_count, stats.lost_count, stats.recv_count, stats.srtt, stats.conn_err);
+
+    /* Cancel send timer to prevent use-after-free */
+    if (user_conn->ev_send_timer) {
+        event_del(user_conn->ev_send_timer);
+        event_free(user_conn->ev_send_timer);
+        user_conn->ev_send_timer = NULL;
+    }
 
     xqc_moq_session_destroy(user_session->session);
     free(user_session);
@@ -699,51 +796,94 @@ xqc_app_send_callback(int fd, short what, void* arg)
         return;
     }
     
+    if (user_conn->namespace_subscribed && !user_conn->new_track_created) {
+        char ts[32];
+        xqc_get_timestamp(ts, sizeof(ts));
+        printf("\n%s [SERVER] Creating dynamic track 'example/video/stream3'...\n", ts);
+        
+        /* Debug: Check namespace_watch_list */
+        if (xqc_list_empty(&user_conn->moq_session->namespace_watch_list)) {
+            printf("%s [SERVER] WARNING: namespace_watch_list is EMPTY!\n", ts);
+        } else {
+            printf("%s [SERVER] namespace_watch_list is NOT empty\n", ts);
+        }
+        
+        xqc_moq_track_t *track4 = xqc_moq_track_create(user_conn->moq_session, "example/video", "stream3", 
+                                                        XQC_MOQ_TRACK_DEFAULT, NULL, XQC_MOQ_CONTAINER_LOC, 
+                                                        XQC_MOQ_TRACK_FOR_PUB);
+        if (track4 != NULL) {
+            printf("%s [SERVER] Dynamic track created:\n", ts);
+            printf("  - alias=%llu\n", (unsigned long long)track4->track_alias);
+            printf("  - namespace='%s'\n", track4->track_info.track_namespace);
+            printf("  - name='%s'\n", track4->track_info.track_name);
+            printf("%s [SERVER] xqc_moq_namespace_notify_on_track_added should be called automatically\n", ts);
+            
+            /* Store for later use, wait for PUBLISH_OK to mark as subscribed */
+            user_conn->dynamic_track = track4;
+            printf("%s [SERVER] stream3 created, waiting for PUBLISH_OK before sending data\n\n", ts);
+        } else {
+            printf("%s [SERVER] Failed to create dynamic track\n\n", ts);
+        }
+        user_conn->new_track_created = 1;
+    }
+    
+    if (user_conn->dynamic_track && user_conn->stream3_subscribed) {
+        if (user_conn->stream3_message_count < 10) {
+            char ts[32];
+            xqc_get_timestamp(ts, sizeof(ts));
+            char buffer[128];
+            snprintf(buffer, sizeof(buffer), "Message #%d from stream3", user_conn->stream3_message_count + 1);
+            
+            int idx = user_conn->stream_pool.next_idx;
+            uint64_t subgroup_id = idx;
+            xqc_moq_stream_t *stream = user_conn->stream_pool.streams[idx];
+            xqc_bool_t is_first = (stream == NULL);  
+
+            xqc_moq_stream_t *used_stream = xqc_moq_default_track_send_on_stream(
+                user_conn->dynamic_track,
+                stream,
+                subgroup_id,
+                (uint8_t*)buffer,
+                strlen(buffer) + 1,
+                is_first
+            );
+            
+            if (used_stream) {
+                if (is_first) {
+                    user_conn->stream_pool.streams[idx] = used_stream;
+                    printf("%s [SERVER] Created new stream for subgroup %d\n", ts, idx);
+                }
+                
+                printf("%s [SERVER] Sent on stream3: '%s' (%d/10) [subgroup=%d, stream_idx=%d]\n", 
+                       ts, buffer, user_conn->stream3_message_count + 1, (int)subgroup_id, idx);
+                
+                user_conn->stream3_message_count++;
+                
+                user_conn->stream_pool.next_idx = (user_conn->stream_pool.next_idx + 1) % MAX_SUBGROUP_STREAMS;
+            }
+        } else if (user_conn->stream3_message_count == 10) {
+            char ts[32];
+            xqc_get_timestamp(ts, sizeof(ts));
+            printf("%s [SERVER] All 10 messages sent on stream3 (distributed across %d streams). Sending GOAWAY...\n", 
+                   ts, MAX_SUBGROUP_STREAMS);
+            xqc_int_t ret = xqc_moq_write_goaway(user_conn->moq_session, 0, "");
+            if (ret >= 0) {
+                printf("%s [SERVER] GOAWAY sent successfully\n", ts);
+            } else {
+                printf("%s [SERVER] GOAWAY send failed: %d\n", ts, ret);
+            }
+            user_conn->stream3_message_count++;
+            user_conn->countdown = 3; /* Close after 3 more cycles */
+        }
+    }
+    
     xqc_int_t ret;
     if (user_conn->countdown-- <= 0) {
         xqc_conn_close(ctx.engine, &user_conn->cid);
         return;
     }
 
-    if (user_conn->video_subscribe_id != -1 && !g_subscribe_block) {
-        uint8_t payload_video[1024000] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-        xqc_moq_video_frame_t video_frame;
-        if (user_conn->request_keyframe || user_conn->video_seq % 30 == 0) {
-            video_frame.type = XQC_MOQ_VIDEO_KEY;
-            user_conn->request_keyframe = 0;
-        } else {
-            video_frame.type = XQC_MOQ_VIDEO_DELTA;
-        }
-        video_frame.seq_num = user_conn->video_seq++;
-        video_frame.timestamp_us = xqc_now();
-        uint64_t bitrate = xqc_moq_target_bitrate(user_conn->moq_session);
-        video_frame.video_len = bitrate / 8 / 30 /** frame_size_factor()*/;
-        if (video_frame.type == XQC_MOQ_VIDEO_KEY) {
-            video_frame.video_len *= 2;
-        }
-        video_frame.video_data = payload_video;
-        ret = xqc_moq_write_video_frame(user_conn->moq_session, user_conn->video_subscribe_id, user_conn->video_track, &video_frame);
-        if (ret < 0) {
-            printf("xqc_moq_write_video_frame error\n");
-            return;
-        }
-    }
-
-    /*if (user_conn->audio_subscribe_id != -1) {
-        uint8_t payload_audio[1024] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-        xqc_moq_audio_frame_t audio_frame;
-        audio_frame.seq_num = user_conn->audio_seq++;
-        audio_frame.timestamp_us = xqc_now();
-        audio_frame.audio_len = 1024;
-        audio_frame.audio_data = payload_audio;
-        ret = xqc_moq_write_audio_frame(user_conn->moq_session, user_conn->audio_subscribe_id, user_conn->audio_track, &audio_frame);
-        if (ret < 0) {
-            printf("xqc_moq_write_audio_frame error\n");
-            return;
-        }
-    }*/
-
-    struct timeval time = { 0,3 };
+    struct timeval time = { 0, 200000 };  /* 200ms */
     event_add(user_conn->ev_send_timer, &time);
 }
 
@@ -834,7 +974,7 @@ int main(int argc, char *argv[])
     }
     memset(&ctx, 0, sizeof(ctx));
 
-    xqc_app_open_log_file(&ctx, "./slog");
+    xqc_app_open_log_file(&ctx, "./default_slog");
     xqc_platform_init_env();
 
     xqc_engine_ssl_config_t  engine_ssl_config;
@@ -844,7 +984,6 @@ int main(int argc, char *argv[])
     engine_ssl_config.ciphers = XQC_TLS_CIPHERS;
     engine_ssl_config.groups = XQC_TLS_GROUPS;
 
-    // For 0RTT
     char g_session_ticket_key[2048];
     char g_session_ticket_file[] = "session_ticket.key";
     int ticket_key_len  = xqc_app_read_file_data(g_session_ticket_key, sizeof(g_session_ticket_key), g_session_ticket_file);
@@ -878,7 +1017,7 @@ int main(int argc, char *argv[])
     if (xqc_engine_get_default_config(&config, XQC_ENGINE_SERVER) < 0) {
         return -1;
     }
-    config.cid_len = XQC_CID_LEN;
+    config.cid_len = 12;
 
     xqc_app_set_log_level(c_log_level, &config);
 
@@ -894,8 +1033,6 @@ int main(int argc, char *argv[])
         .server_accept = xqc_server_accept,
         .server_refuse = xqc_server_refuse,
         .write_socket = xqc_app_write_socket,
-        .write_socket_ex = xqc_app_write_socket_ex,
-        .stateless_reset = xqc_server_stateless_reset,
         .conn_closing = xqc_server_conn_closing_notify,
     };
 
@@ -912,11 +1049,10 @@ int main(int argc, char *argv[])
             .conn_create_notify = xqc_server_conn_create_notify,
             .conn_close_notify = xqc_server_conn_close_notify,
             .conn_handshake_finished = xqc_server_conn_handshake_finished,
-    };
+    };    
 #ifdef XQC_MOQ_VERSION_11
     xqc_moq_init_alpn_by_custom(ctx.engine, &conn_cbs, XQC_MOQ_TRANSPORT_QUIC, XQC_MOQ_SUPPORTED_VERSION_14);
 #endif
-
     xqc_moq_init_alpn_by_custom(ctx.engine, &conn_cbs, XQC_MOQ_TRANSPORT_QUIC, XQC_MOQ_SUPPORTED_VERSION_05);
     ctx.listen_fd = xqc_server_create_socket(server_addr, server_port);
     if (ctx.listen_fd < 0) {

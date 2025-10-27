@@ -87,6 +87,8 @@ typedef enum xqc_proto_version_s {
 #define XQC_CO_MAX_NUM                  16
 #define XQC_CO_STR_MAX_LEN              (5 * XQC_CO_MAX_NUM)
 
+#define XQC_MAX_CLIENT_ALPN_LIST_LEN    512
+
 #define XQC_FEC_MAX_SCHEME_NUM          5
 
 
@@ -1478,6 +1480,10 @@ typedef struct xqc_conn_settings_s {
 
     char                        conn_option_str[XQC_CO_STR_MAX_LEN];
 
+    /* client-side multi-alpn list (length-prefixed vector) */
+    unsigned char               client_alpn_list[XQC_MAX_CLIENT_ALPN_LIST_LEN];
+    size_t                      client_alpn_list_len;
+
     /**
      * @brief intial_rtt (us). Default: 0 (use the internal default value -- 250000)
      * 
@@ -1839,6 +1845,20 @@ const xqc_cid_t *xqc_connect(xqc_engine_t *engine,
     const xqc_conn_ssl_config_t *conn_ssl_config,
     const struct sockaddr *peer_addr, socklen_t peer_addrlen,
     const char *alpn, void *user_data);
+
+/**
+ * Client connect with multiple ALPN candidates.
+ * The 'alpns' is an array of protocol strings, ordered by client preference.
+ * Server will select one from the list during ALPN negotiation.
+ */
+XQC_EXPORT_PUBLIC_API
+const xqc_cid_t *xqc_connect_with_alpns(xqc_engine_t *engine,
+    const xqc_conn_settings_t *conn_settings,
+    const unsigned char *token, unsigned token_len,
+    const char *server_host, int no_crypto_flag,
+    const xqc_conn_ssl_config_t *conn_ssl_config,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    const char **alpns, size_t alpn_cnt, void *user_data);
 
 /**
  * Send CONNECTION_CLOSE to peer, conn_close_notify will callback when connection destroyed

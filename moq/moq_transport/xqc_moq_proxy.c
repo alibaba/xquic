@@ -69,6 +69,13 @@ xqc_moq_encode_cid_ipv4(uint32_t ip,/* Network order */ uint16_t port, /* Networ
 }
 
 xqc_int_t
+xqc_moq_encode_cid(uint32_t token, const uint8_t *key, uint8_t cid_len, uint8_t *encrypted_cid)
+{
+    /* 兼容旧接口：token 作为 IPv4 地址（网络序），端口默认 0 */
+    return xqc_moq_encode_cid_ipv4(token, htons(0), key, cid_len, encrypted_cid);
+}
+
+xqc_int_t
 xqc_moq_decode_cid_ipv4(const uint8_t *encrypted_cid, uint8_t cid_len, const uint8_t *secret_key, 
     uint32_t *ip, /* Network order */ uint16_t *port /* Network order */)
 {

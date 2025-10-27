@@ -32,6 +32,15 @@
 
 extern int g_drop_rate;
 
+/* Get timestamp string for logging */
+static inline void xqc_get_timestamp(char *buf, size_t len) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    struct tm *tm_info = localtime(&tv.tv_sec);
+    snprintf(buf, len, "[%02d:%02d:%02d.%03d]", 
+             tm_info->tm_hour, tm_info->tm_min, tm_info->tm_sec, (int)(tv.tv_usec / 1000));
+}
+
 typedef struct xqc_app_ctx_s {
     xqc_engine_t        *engine;
     int                  log_fd;
@@ -59,16 +68,37 @@ typedef struct user_conn_s {
 
     //For Moq
     struct event        *ev_send_timer;
+    struct event        *ev_announce_timer;
     xqc_moq_track_t     *audio_track;
     xqc_moq_track_t     *video_track;
+    xqc_moq_track_t     *clock_track;
+    xqc_moq_track_t     *default_track;
+    xqc_moq_track_t     *dynamic_track;  /* For dynamically created track (stream3) */
     xqc_moq_session_t   *moq_session;
     uint64_t            video_subscribe_id;
     uint64_t            audio_subscribe_id;
+    uint64_t            clock_subscribe_id;
+    uint64_t            default_subscribe_id;
     uint64_t            video_seq;
     uint64_t            audio_seq;
+    uint64_t            clock_seq;
+    uint64_t            default_seq;
     int                 countdown;
     int                 request_keyframe;
     int                 closing_notified;
+    int                 object_id;
+    int                 stream1_subscribed;
+    int                 stream2_subscribed;
+    int                 stream3_subscribed;
+    int                 stream3_message_count;
+    int                 new_track_created;
+    int                 namespace_subscribed;
+    #define MAX_SUBGROUP_STREAMS 3
+    struct {
+        xqc_moq_stream_t *streams[MAX_SUBGROUP_STREAMS];
+        uint64_t         group_ids[MAX_SUBGROUP_STREAMS];
+        int              next_idx;
+    } stream_pool;
 } user_conn_t;
 
 

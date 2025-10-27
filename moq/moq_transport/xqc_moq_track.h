@@ -10,27 +10,41 @@
 #define XQC_MOQ_DATACHANNEL_NAMESPACE "datachannel"
 #define XQC_MOQ_DATACHANNEL_NAME      "datachannel"
 
-typedef enum {
-    XQC_MOQ_OBJ_STATUS_NORMAL           = 0x0,
-    XQC_MOQ_OBJ_STATUS_OBJ_NOT_EXIST    = 0x1,
-    XQC_MOQ_OBJ_STATUS_GROUP_NOT_EXIST  = 0x2,
-    XQC_MOQ_OBJ_STATUS_GROUP_END        = 0x3,
-    XQC_MOQ_OBJ_STATUS_TRACK_END        = 0x4,
-} xqc_moq_object_status_t;
 
 typedef struct xqc_moq_track_ops_s {
     void (*on_create)(xqc_moq_track_t *track);
     void (*on_destroy)(xqc_moq_track_t *track);
-    void (*on_subscribe)(xqc_moq_session_t *session, uint64_t subscribe_id,
-                         xqc_moq_track_t *track, xqc_moq_subscribe_msg_t *msg);
-    void (*on_subscribe_update)(xqc_moq_session_t *session, uint64_t subscribe_id,
-                                xqc_moq_track_t *track, xqc_moq_subscribe_update_msg_t *msg); /* Optional */
+    // TODO test
+    // void (*on_subscribe)(xqc_moq_session_t *session, uint64_t subscribe_id,
+    //                      xqc_moq_track_t *track, xqc_moq_subscribe_msg_t *msg);
+    void (*on_subscribe_v05)(xqc_moq_session_t *session, uint64_t subscribe_id,
+                             xqc_moq_track_t *track, xqc_moq_subscribe_msg_t_v05 *msg);
+    void (*on_subscribe_v13)(xqc_moq_session_t *session, uint64_t subscribe_id,
+                             xqc_moq_track_t *track, xqc_moq_subscribe_msg_t_v13 *msg);
+    void (*on_subscribe_update_v05)(xqc_moq_session_t *session, uint64_t subscribe_id,
+                                    xqc_moq_track_t *track, xqc_moq_subscribe_update_msg_t_v05 *msg); /* Optional */
+    void (*on_subscribe_update_v13)(xqc_moq_session_t *session, uint64_t subscribe_id,
+                                    xqc_moq_track_t *track, xqc_moq_subscribe_update_msg_t_v13 *msg); /* Optional */
     void (*on_subscribe_ok)(xqc_moq_session_t *session, xqc_moq_track_t *track,
                             xqc_moq_subscribe_ok_msg_t *subscribe_ok);
     void (*on_subscribe_error)(xqc_moq_session_t *session, xqc_moq_track_t *track,
                                xqc_moq_subscribe_error_msg_t *subscribe_error);
     void (*on_object)(xqc_moq_session_t *session, xqc_moq_track_t *track,
                       xqc_moq_object_t *object);
+    void (*on_subscribe_done)(xqc_moq_session_t *session, xqc_moq_track_t *track,
+                xqc_moq_subscribe_done_msg_t *subscribe_done);
+    void (*on_announce)(xqc_moq_session_t *session, xqc_moq_track_t *track,
+                        xqc_moq_announce_msg_t *announce);
+    void (*on_announce_ok)(xqc_moq_session_t *session, xqc_moq_track_t *track,
+                           xqc_moq_announce_ok_msg_t *announce_ok);
+    void (*on_announce_error)(xqc_moq_session_t *session, xqc_moq_track_t *track,
+                              xqc_moq_announce_error_msg_t *announce_error);
+    void (*on_goaway)(xqc_moq_session_t *session, xqc_moq_track_t *track,
+                      xqc_moq_goaway_msg_t *goaway);
+    void (*on_max_request_id)(xqc_moq_session_t *session, xqc_moq_track_t *track,
+                                xqc_moq_max_request_id_msg_t *max_request_id);
+    void (*on_publish)(xqc_moq_session_t *session, xqc_moq_track_t *track,
+                       xqc_moq_publish_msg_t *publish);
 } xqc_moq_track_ops_t;
 
 typedef struct xqc_moq_track_s {

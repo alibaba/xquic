@@ -44,6 +44,4 @@ xqc_int_t xqc_moq_catalog_decode(xqc_moq_catalog_t *catalog, uint8_t *buf, size_
 
 xqc_int_t xqc_moq_write_catalog(xqc_moq_session_t *session, uint64_t subscribe_id, xqc_moq_track_t *track);
 
-xqc_int_t xqc_moq_subscribe_catalog(xqc_moq_session_t *session);
-
 #endif /* _XQC_MOQ_CATALOG_H_INCLUDED_ */

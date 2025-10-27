@@ -3,11 +3,14 @@
 #include "moq/moq_transport/xqc_moq_session.h"
 #include "moq/moq_transport/xqc_moq_stream.h"
 #include "moq/cjson/cJSON.h"
+#include "moq/xqc_moq.h"
 
 static void xqc_moq_catalog_on_create(xqc_moq_track_t *track);
 static void xqc_moq_catalog_on_destroy(xqc_moq_track_t *track);
-static void xqc_moq_catalog_on_subscribe(xqc_moq_session_t *session, uint64_t subscribe_id,
-    xqc_moq_track_t *track, xqc_moq_subscribe_msg_t *msg);
+static void xqc_moq_catalog_on_subscribe_v05(xqc_moq_session_t *session, uint64_t subscribe_id,
+    xqc_moq_track_t *track, xqc_moq_subscribe_msg_t_v05 *msg);
+static void xqc_moq_catalog_on_subscribe_v13(xqc_moq_session_t *session, uint64_t subscribe_id,
+    xqc_moq_track_t *track, xqc_moq_subscribe_msg_t_v13 *msg);
 static void xqc_moq_catalog_on_subscribe_ok(xqc_moq_session_t *session, xqc_moq_track_t *track,
     xqc_moq_subscribe_ok_msg_t *subscribe_ok);
 static void xqc_moq_catalog_on_subscribe_error(xqc_moq_session_t *session, xqc_moq_track_t *track,
@@ -17,8 +20,10 @@ static void xqc_moq_catalog_on_object(xqc_moq_session_t *session, xqc_moq_track_
 const xqc_moq_track_ops_t xqc_moq_catalog_track_ops = {
     .on_create           = xqc_moq_catalog_on_create,
     .on_destroy          = xqc_moq_catalog_on_destroy,
-    .on_subscribe        = xqc_moq_catalog_on_subscribe,
-    .on_subscribe_update = NULL,
+    .on_subscribe_v05    = xqc_moq_catalog_on_subscribe_v05,
+    .on_subscribe_v13    = xqc_moq_catalog_on_subscribe_v13,
+    .on_subscribe_update_v05 = NULL,
+    .on_subscribe_update_v13 = NULL,
     .on_subscribe_ok     = xqc_moq_catalog_on_subscribe_ok,
     .on_subscribe_error  = xqc_moq_catalog_on_subscribe_error,
     .on_object           = xqc_moq_catalog_on_object,
@@ -561,10 +566,79 @@ end:
     return -ret;
 }
 
+xqc_int_t
+xqc_moq_write_catalog_v11(xqc_moq_session_t *session, uint64_t subscribe_id, xqc_moq_track_t *track)
+{
+    xqc_int_t ret = 0;
+    xqc_int_t encoded_len = 0;
+    xqc_moq_stream_t *stream;
+    xqc_moq_subgroup_msg_t subgroup_msg;
+    xqc_moq_subgroup_object_msg_t subgroup_object_msg;
+    xqc_moq_catalog_t catalog;
+    xqc_moq_catalog_init(&catalog);
+    catalog.version = 1;
+    catalog.sequence = 0;
+    catalog.streaming_format = 1;
+    size_t sfv_len = strlen(STREAMING_FORMAT_VERSION) + 1;
+    catalog.streaming_format_version = xqc_calloc(1, sfv_len);
+    xqc_memcpy(catalog.streaming_format_version, STREAMING_FORMAT_VERSION, sfv_len);
+    catalog.track_list_for_pub = &session->track_list_for_pub;
+    size_t buf_cap = 4096;
+    uint8_t *buf = xqc_malloc(buf_cap);
+    ret = xqc_moq_catalog_encode(&catalog, buf, buf_cap, &encoded_len);
+    if (ret < 0) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|encode catalog error|ret:%d|", ret);
+        goto end;
+    }
+
+
+    stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_UNI);
+    if (stream == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|create moq stream error|");
+        ret = -XQC_ECREATE_STREAM;
+        goto end;
+    }
+    stream->write_stream_fin = 1;
+
+    subgroup_msg.track_alias = track->track_alias; // TODO test
+    subgroup_msg.group_id = track->cur_group_id;
+    subgroup_msg.subgroup_id = 0;
+    subgroup_msg.publish_priority = 0;
+
+    stream->write_stream_fin = 0;
+    ret = xqc_moq_write_subgroup_msg(session, stream, &subgroup_msg);
+    if (ret < 0) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|write_subgroup_msg error|ret:%d|", ret);
+        goto end;
+    }
+
+    subgroup_object_msg.subgroup_header = &subgroup_msg;
+    subgroup_object_msg.object_id = 0;
+    subgroup_object_msg.payload_len = encoded_len;
+    subgroup_object_msg.payload = buf;
+
+    stream->write_stream_fin = 1;
+    ret = xqc_moq_write_subgroup_object_msg(session, stream, &subgroup_object_msg);
+    if (ret < 0) {
+        xqc_moq_msg_free_subgroup_object(&subgroup_object_msg);
+        xqc_log(session->log, XQC_LOG_ERROR, "|write_subgroup_object_msg error|ret:%d|", ret);
+        goto end;
+    }
+
+    return XQC_OK;
+end:
+    xqc_moq_catalog_free_fields(&catalog);
+    xqc_free(buf);
+    return ret;
+}
 
 xqc_int_t
 xqc_moq_write_catalog(xqc_moq_session_t *session, uint64_t subscribe_id, xqc_moq_track_t *track)
 {
+    if(session->version >= XQC_MOQ_VERSION_DRAFT_11) {
+        return xqc_moq_write_catalog_v11(session, subscribe_id, track);
+    }
+
     xqc_int_t ret = 0;
     xqc_int_t encoded_len = 0;
     xqc_moq_stream_t *stream;
@@ -621,16 +695,28 @@ xqc_moq_subscribe_catalog(xqc_moq_session_t *session)
     xqc_int_t ret;
 
     if (session->role == XQC_MOQ_SUBSCRIBER) {
-        xqc_moq_track_create(session, XQC_MOQ_CATALOG_NAMESPACE, XQC_MOQ_CATALOG_NAME,
-                             XQC_MOQ_TRACK_CATALOG, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_SUB);
+        xqc_moq_track_t *track_sub = xqc_moq_track_create(session, XQC_MOQ_CATALOG_NAMESPACE, XQC_MOQ_CATALOG_NAME,
+                                XQC_MOQ_TRACK_CATALOG, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_SUB);
+        if (track_sub && track_sub->track_alias == XQC_MOQ_INVALID_ALIAS) {
+            xqc_moq_track_set_alias(track_sub, XQC_MOQ_ALIAS_CATALOG);
+        }
     } else if (session->role == XQC_MOQ_PUBLISHER) {
-        xqc_moq_track_create(session, XQC_MOQ_CATALOG_NAMESPACE, XQC_MOQ_CATALOG_NAME,
-                             XQC_MOQ_TRACK_CATALOG, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_PUB);
+        xqc_moq_track_t *track_pub = xqc_moq_track_create(session, XQC_MOQ_CATALOG_NAMESPACE, XQC_MOQ_CATALOG_NAME,
+                                XQC_MOQ_TRACK_CATALOG, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_PUB);
+        if (track_pub && track_pub->track_alias == XQC_MOQ_INVALID_ALIAS) {
+            xqc_moq_track_set_alias(track_pub, XQC_MOQ_ALIAS_CATALOG);
+        }
     } else {
-        xqc_moq_track_create(session, XQC_MOQ_CATALOG_NAMESPACE, XQC_MOQ_CATALOG_NAME,
-                             XQC_MOQ_TRACK_CATALOG, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_SUB);
-        xqc_moq_track_create(session, XQC_MOQ_CATALOG_NAMESPACE, XQC_MOQ_CATALOG_NAME,
-                             XQC_MOQ_TRACK_CATALOG, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_PUB);
+        xqc_moq_track_t *track_sub = xqc_moq_track_create(session, XQC_MOQ_CATALOG_NAMESPACE, XQC_MOQ_CATALOG_NAME,
+                                XQC_MOQ_TRACK_CATALOG, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_SUB);
+        if (track_sub && track_sub->track_alias == XQC_MOQ_INVALID_ALIAS) {
+            xqc_moq_track_set_alias(track_sub, XQC_MOQ_ALIAS_CATALOG);
+        }
+        xqc_moq_track_t *track_pub = xqc_moq_track_create(session, XQC_MOQ_CATALOG_NAMESPACE, XQC_MOQ_CATALOG_NAME,
+                                XQC_MOQ_TRACK_CATALOG, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_PUB);
+        if (track_pub && track_pub->track_alias == XQC_MOQ_INVALID_ALIAS) {
+            xqc_moq_track_set_alias(track_pub, XQC_MOQ_ALIAS_CATALOG);
+        }
     }
 
     if (session->role == XQC_MOQ_PUBLISHER) {
@@ -662,8 +748,20 @@ xqc_moq_catalog_on_destroy(xqc_moq_track_t *track)
 }
 
 static void
-xqc_moq_catalog_on_subscribe(xqc_moq_session_t *session, uint64_t subscribe_id,
-    xqc_moq_track_t *track, xqc_moq_subscribe_msg_t *msg)
+xqc_moq_catalog_on_subscribe_v05(xqc_moq_session_t *session, uint64_t subscribe_id,
+    xqc_moq_track_t *track, xqc_moq_subscribe_msg_t_v05 *msg)
+{
+    xqc_int_t ret;
+    ret = xqc_moq_write_catalog(session, subscribe_id, track);
+    if (ret < 0) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_write_catalog error|ret:%d|", ret);
+        return;
+    }
+}
+
+static void
+xqc_moq_catalog_on_subscribe_v13(xqc_moq_session_t *session, uint64_t subscribe_id,
+    xqc_moq_track_t *track, xqc_moq_subscribe_msg_t_v13 *msg)
 {
     xqc_int_t ret;
     ret = xqc_moq_write_catalog(session, subscribe_id, track);

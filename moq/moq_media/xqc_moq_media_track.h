@@ -15,6 +15,7 @@ typedef struct {
     xqc_moq_fps_counter_t           fps_counter;
     /* audio/video dejitter module */
     xqc_moq_av_dejitter_t           *dejitter;
+    xqc_moq_subgroup_msg_t          *subgroup_header;
 } xqc_moq_media_track_t;
 
 extern const struct xqc_moq_track_ops_s xqc_moq_media_track_ops;

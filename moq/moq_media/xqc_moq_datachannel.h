@@ -28,6 +28,4 @@ void xqc_moq_datachannel_set_can_recv(xqc_moq_session_t *session, xqc_moq_datach
 
 void xqc_moq_datachannel_update_state(xqc_moq_session_t *session, xqc_moq_datachannel_t *dc);
 
-xqc_int_t xqc_moq_subscribe_datachannel(xqc_moq_session_t *session);
-
 #endif /* _XQC_MOQ_DATACHANNEL_H_INCLUDED_ */

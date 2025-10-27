@@ -144,6 +144,51 @@ xqc_connect(xqc_engine_t *engine, const xqc_conn_settings_t *conn_settings,
     return NULL;
 }
 
+static xqc_connection_t *
+xqc_client_connect_with_alpns_internal(xqc_engine_t *engine, const xqc_conn_settings_t *conn_settings,
+    const unsigned char *token, unsigned token_len, const char *server_host, int no_crypto_flag,
+    const xqc_conn_ssl_config_t *conn_ssl_config, const char **alpns, size_t alpn_cnt,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *user_data)
+{
+    if (alpns == NULL || alpn_cnt == 0) {
+        return NULL;
+    }
+    /* Build a temporary settings copy and encode ALPN list */
+    xqc_conn_settings_t cs = *conn_settings;
+    size_t off = 0;
+    for (size_t i = 0; i < alpn_cnt; i++) {
+        const char *p = alpns[i];
+        if (!p) continue;
+        size_t len = strlen(p);
+        if (len == 0 || len >= 256) continue;
+        if (off + 1 + len > XQC_MAX_CLIENT_ALPN_LIST_LEN) {
+            break;
+        }
+        cs.client_alpn_list[off++] = (unsigned char)len;
+        xqc_memcpy(cs.client_alpn_list + off, p, len);
+        off += len;
+    }
+    cs.client_alpn_list_len = off;
+
+    /* First attempt with the first ALPN; TLS init will consume the list */
+    return xqc_client_connect(engine, &cs, token, token_len, server_host, no_crypto_flag,
+                            conn_ssl_config, alpns[0], peer_addr, peer_addrlen, user_data);
+}
+
+const xqc_cid_t *
+xqc_connect_with_alpns(xqc_engine_t *engine, const xqc_conn_settings_t *conn_settings,
+    const unsigned char *token, unsigned token_len, const char *server_host, int no_crypto_flag,
+    const xqc_conn_ssl_config_t *conn_ssl_config, const struct sockaddr *peer_addr,
+    socklen_t peer_addrlen, const char **alpns, size_t alpn_cnt, void *user_data)
+{
+    xqc_connection_t *conn = xqc_client_connect_with_alpns_internal(engine, conn_settings, token, token_len,
+        server_host, no_crypto_flag, conn_ssl_config, alpns, alpn_cnt, peer_addr, peer_addrlen, user_data);
+    if (conn) {
+        return &conn->scid_set.user_scid;
+    }
+    return NULL;
+}
+
 
 xqc_int_t
 xqc_client_create_tls(xqc_connection_t *conn, const xqc_conn_ssl_config_t *conn_ssl_config,
@@ -196,6 +241,18 @@ xqc_client_create_tls(xqc_connection_t *conn, const xqc_conn_ssl_config_t *conn_
     }
     memcpy(cfg.alpn, alpn, alpn_cap);
 
+    /* multi-ALPN */
+    if (conn->conn_settings.client_alpn_list_len > 0) {
+        cfg.alpn_list = xqc_malloc(conn->conn_settings.client_alpn_list_len);
+        if (cfg.alpn_list == NULL) {
+            ret = -XQC_EMALLOC;
+            goto end;
+        }
+        xqc_memcpy(cfg.alpn_list, conn->conn_settings.client_alpn_list,
+                conn->conn_settings.client_alpn_list_len);
+        cfg.alpn_list_len = conn->conn_settings.client_alpn_list_len;
+    }
+
     /* copy hostname */
     host_cap = strlen(hostname) + 1;
     cfg.hostname = xqc_malloc(host_cap);
@@ -209,7 +266,7 @@ xqc_client_create_tls(xqc_connection_t *conn, const xqc_conn_ssl_config_t *conn_
     /* encode local transport parameters, and set to tls config */
     cfg.trans_params = tp_buf;
     ret = xqc_conn_encode_local_tp(conn, cfg.trans_params,
-                                   XQC_MAX_TRANSPORT_PARAM_BUF_LEN, &cfg.trans_params_len);
+                          XQC_MAX_TRANSPORT_PARAM_BUF_LEN, &cfg.trans_params_len);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|encode transport parameter error|ret:%d", ret);
         goto end;
@@ -241,6 +298,10 @@ end:
 
     if (cfg.alpn) {
         xqc_free(cfg.alpn);
+    }
+
+    if (cfg.alpn_list) {
+        xqc_free(cfg.alpn_list);
     }
 
     if (cfg.hostname) {

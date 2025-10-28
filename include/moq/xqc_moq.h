@@ -14,6 +14,8 @@ extern "C" {
 #define XQC_ALPN_MOQ_QUIC_V05               "moq-00"
 #define XQC_ALPN_MOQ_WEBTRANSPORT           "moq-wt"
 #define XQC_ALPN_MOQ_QUIC_V14               "moq-14"
+#define XQC_ALPN_MOQ_QUIC_V15_T0            "moq-15-t0"
+#define XQC_ALPN_MOQ_QUIC_V15_T1            "moq-15-t1"
 #define XQC_ALPN_MOQ_CUR_VERSION            XQC_ALPN_MOQ_QUIC_V14
 
 #ifndef XQC_MOQ_INVALID_ALIAS
@@ -736,6 +738,27 @@ XQC_EXPORT_PUBLIC_API
 void xqc_moq_session_destroy(xqc_moq_session_t *session);
 
 /**
+ * @brief Get negotiated ALPN string from session
+ * @param session The MOQ session
+ * @return ALPN string, or NULL if not available
+ */
+XQC_EXPORT_PUBLIC_API
+const char *xqc_moq_get_negotiated_alpn(xqc_moq_session_t *session);
+
+/**
+ * @brief Manually trigger on_session_setup callback (for optimistic/fast RTT mode)
+ * @param session The MOQ session
+ * @param extdata Optional extra data to pass to callback
+ * @return 0 on success, negative on error
+ * 
+ * Use case: In fast RTT mode, call this immediately after session creation
+ * to start sending data without waiting for SERVER_SETUP.
+ * In standard mode, don't call this - wait for SERVER_SETUP to auto-trigger.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_trigger_session_setup(xqc_moq_session_t *session, const char *extdata);
+
+/**
  * @brief Set application error code and close the connection
  * @param code in range 0x700 ~ 0x7FF
  */
@@ -891,17 +914,8 @@ xqc_int_t xqc_moq_write_subscribe_namespace(xqc_moq_session_t *session, xqc_moq_
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_unsubscribe_namespace(xqc_moq_session_t *session, xqc_moq_unsubscribe_namespace_msg_t *unsubscribe_namespace);
 
-/* Priority feature config (Phase 1) */
 XQC_EXPORT_PUBLIC_API
-void xqc_moq_set_priority_config(xqc_moq_session_t *session, int enabled, int enforce);
-
-/* Namespace subscription convenience API */
-XQC_EXPORT_PUBLIC_API
-xqc_int_t xqc_moq_subscribe_namespace_by_path(
-    xqc_moq_session_t *session,
-    const char **namespace_segments,
-    uint64_t segment_count,
-    uint64_t *out_request_id);
+xqc_int_t xqc_moq_subscribe_namespace_by_path(xqc_moq_session_t *session, const char **namespace_segments, uint64_t segment_count,uint64_t *out_request_id);
 
 #ifdef __cplusplus
 }

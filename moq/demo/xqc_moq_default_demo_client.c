@@ -62,6 +62,7 @@ int g_frame_num = 150;  /* Increased for dynamic track testing */
 int g_fec_on = 0;
 uint64_t g_request_id = 0;
 xqc_moq_role_t g_role = XQC_MOQ_PUBSUB;
+int g_fast_rtt_mode = 1;  /* Fast RTT mode: 0RTT for client send first subgroup data */
 
 uint64_t alloc_g_request_id()
 {
@@ -928,6 +929,15 @@ void on_announce_ok(xqc_moq_user_session_t *user_session, xqc_moq_announce_ok_ms
 }
 
 
+static int
+is_fast_rtt_alpn(const char *alpn)
+{
+    if (!alpn) {
+        return 0;
+    }
+    return (strcmp(alpn, "moq-15-t0") == 0 || strcmp(alpn, "moq-15-t1") == 0);
+}
+
 int
 xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data, void *conn_proto_data)
 {
@@ -973,6 +983,16 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
         printf("create session ok\n");
     }
     
+    const char *negotiated_alpn = xqc_moq_get_negotiated_alpn(session);
+    if (g_fast_rtt_mode && negotiated_alpn && is_fast_rtt_alpn(negotiated_alpn)) {
+        printf("[Demo] Fast RTT mode enabled (ALPN=%s), triggering session setup immediately\n", 
+               negotiated_alpn);
+        xqc_moq_trigger_session_setup(session, "");
+    } else {
+        printf("[Demo] Standard mode (ALPN=%s), waiting for SERVER_SETUP\n", 
+               negotiated_alpn ? negotiated_alpn : "NULL");
+    }
+    
     // xqc_moq_configure_bitrate(session, 1000000, 8000000, 1000000);
     return 0;
 }
@@ -984,6 +1004,9 @@ xqc_client_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void 
     xqc_moq_user_session_t *user_session = (xqc_moq_user_session_t *)user_data;
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
     xqc_conn_stats_t stats = xqc_conn_get_stats(ctx.engine, cid);
+    
+    printf("[Client Close Debug] xqc_conn_stats ALPN: '%s'\n", stats.alpn);
+    
     printf("send_count:%u, lost_count:%u, lost_dgram_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" early_data_flag:%d, conn_err:%d, ack_info:%s, alpn:%s, fec_recovered:%d\n",
             stats.send_count, stats.lost_count, stats.lost_dgram_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.ack_info, stats.alpn,
             stats.fec_recover_pkt_cnt);
@@ -1042,7 +1065,7 @@ int main(int argc, char *argv[])
     char proxy_pass_addr[64];
     uint8_t secret_key[16] = {0};
     int use_proxy = 0;
-    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:k:n:f")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:k:n:fF")) != -1) {
         switch (ch) {
             case 'a':
                 printf("option addr :%s\n", optarg);
@@ -1052,6 +1075,10 @@ int main(int argc, char *argv[])
             case 'p': /* Server port. */
                 printf("option port :%s\n", optarg);
                 server_port = atoi(optarg);
+                break;
+            case 'F': /* Fast RTT mode */
+                printf("Fast RTT mode enabled\n");
+                g_fast_rtt_mode = 1;
                 break;
             case 'r':
                 printf("option role :%s\n", optarg);
@@ -1226,10 +1253,22 @@ int main(int argc, char *argv[])
 #ifdef XQC_MOQ_VERSION_11
     #ifdef XQC_DEMO_MULTI_ALPN
     {
-        const char *alpns[] = { XQC_ALPN_MOQ_QUIC_V14, XQC_ALPN_MOQ_QUIC_V05, XQC_ALPN_MOQ_QUIC_INTEROP };
+        const char *alpns[10];
+        int alpn_count = 0;
+        
+        if (g_fast_rtt_mode) {
+            printf("[Fast RTT] Using optimistic ALPN: moq-15-t0\n");
+            alpns[alpn_count++] = XQC_ALPN_MOQ_QUIC_V15_T0;
+            alpns[alpn_count++] = XQC_ALPN_MOQ_QUIC_V15_T1;
+        }
+        
+        alpns[alpn_count++] = XQC_ALPN_MOQ_QUIC_V14;
+        alpns[alpn_count++] = XQC_ALPN_MOQ_QUIC_V05;
+        alpns[alpn_count++] = XQC_ALPN_MOQ_QUIC_INTEROP;
+        
         cid = xqc_connect_with_alpns(ctx.engine, &conn_settings, NULL, 0,
                                      server_addr, 0, &conn_ssl_config, user_conn->peer_addr,
-                                     user_conn->peer_addrlen, alpns, sizeof(alpns)/sizeof(alpns[0]), user_session);
+                                     user_conn->peer_addrlen, alpns, alpn_count, user_session);
     }
     #else
     cid = xqc_connect(ctx.engine, &conn_settings, NULL, 0,

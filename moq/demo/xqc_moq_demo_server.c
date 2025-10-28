@@ -562,15 +562,6 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
         printf("create session error\n");
         return -1;
     }
-    {
-        const char *env_enabled = getenv("MOQ_PRIORITY_ENABLED");
-        const char *env_enforce = getenv("MOQ_PRIORITY_ENFORCE");
-        xqc_int_t enabled = (env_enabled && env_enabled[0] == '1') ? 1 : 0;
-        xqc_int_t enforce = (env_enforce && env_enforce[0] == '1') ? 1 : 0;
-        if (enabled || enforce) {
-            xqc_moq_set_priority_config(session, enabled, enforce);
-        }
-    }
     xqc_moq_configure_bitrate(session, 1000000, 8000000, 1000000);
 
     xqc_conn_set_transport_user_data(conn, user_session);

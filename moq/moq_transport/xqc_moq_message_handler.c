@@ -73,7 +73,8 @@ xqc_moq_on_client_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
     }
 
     session->session_setup_done = 1;
-
+    xqc_log(session->log, XQC_LOG_INFO, "|SERVER: CLIENT_SETUP processed|peer_role:%d|", session->peer_role);
+    
     xqc_moq_session_on_setup(session, extdata);
 
     return;
@@ -88,9 +89,16 @@ xqc_moq_on_server_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
     printf("on_server_setup\n");
     xqc_int_t ret = 0;
     xqc_moq_server_setup_msg_t *server_setup = (xqc_moq_server_setup_msg_t*)msg_base;
-
+    /*
+     * Do not early-return here when session_setup_done == 1:
+     * - We still need to parse SERVER_SETUP to update peer_role and other
+     *   negotiated parameters sent by the peer.
+     * - Only trigger on_session_setup when session_setup_done == 0 to avoid
+     *   duplicate callbacks in fast-RTT mode (client may have triggered setup
+     *   immediately after CLIENT_SETUP).
+     */
     if (session->session_setup_done) {
-        return;
+        printf("[Protocol] SERVER_SETUP received (setup already done), updating peer_role only\n");
     }
 
     printf("show current selected version: %lld\n", server_setup->version);
@@ -134,9 +142,13 @@ xqc_moq_on_server_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
     //     goto error;
     // }
 
-    session->session_setup_done = 1;
-
-    xqc_moq_session_on_setup(session, NULL);
+    if (!session->session_setup_done) {
+        session->session_setup_done = 1;
+        xqc_log(session->log, XQC_LOG_INFO, "|SERVER_SETUP received|peer_role:%d|", session->peer_role);
+        xqc_moq_session_on_setup(session, NULL);
+    } else {
+        xqc_log(session->log, XQC_LOG_INFO, "|SERVER_SETUP received (already setup)|peer_role:%d|", session->peer_role);
+    }
 
     return;
 

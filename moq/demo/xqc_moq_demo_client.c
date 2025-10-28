@@ -644,8 +644,6 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
         printf("create session error\n");
         return -1;
     }
-    /* Enable MOQ priority by default; enforce=0 keeps QUIC stream priority NORMAL */
-    xqc_moq_set_priority_config(session, /*enabled*/1, /*enforce*/0);
     xqc_moq_configure_bitrate(session, 1000000, 8000000, 1000000);
     return 0;
 }

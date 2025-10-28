@@ -48,6 +48,8 @@ xqc_moq_init_alpn_by_custom(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs
         };
         xqc_int_t ret = 0;
         if(version == XQC_MOQ_SUPPORTED_VERSION_14){
+            ret = xqc_engine_register_alpn(engine, XQC_ALPN_MOQ_QUIC_V15_T0, strlen(XQC_ALPN_MOQ_QUIC_V15_T0), &ap_cbs, NULL);
+            ret = xqc_engine_register_alpn(engine, XQC_ALPN_MOQ_QUIC_V15_T1, strlen(XQC_ALPN_MOQ_QUIC_V15_T1), &ap_cbs, NULL);
             ret = xqc_engine_register_alpn(engine, XQC_ALPN_MOQ_QUIC_V14, strlen(XQC_ALPN_MOQ_QUIC_V14), &ap_cbs, NULL);
             ret = xqc_engine_register_alpn(engine, XQC_ALPN_MOQ_QUIC_V05, strlen(XQC_ALPN_MOQ_QUIC_V05), &ap_cbs, NULL);
         }
@@ -78,9 +80,6 @@ xqc_moq_session_t *
     session->session_callbacks = callbacks;
     session->trans_conn = conn;
     session->version = version;
-    /* priority default: disabled & log-only; enable via API xqc_moq_set_priority_config */
-    session->priority_enabled = 0;
-    session->priority_enforce = 0;
 
     xqc_moq_init_bitrate(session);
 
@@ -154,6 +153,9 @@ xqc_moq_session_t *
         else {
             printf("xqc_moq_write_client_setup ok\n");
         }
+
+        xqc_log(session->log, XQC_LOG_INFO, "|CLIENT_SETUP sent|alpn:%s|", 
+                (session->quic_conn && session->quic_conn->alpn) ? session->quic_conn->alpn : "NULL");
     }
     xqc_log(session->log, XQC_LOG_INFO, "|session create success|role:%d|", role);
     return session;
@@ -168,23 +170,10 @@ xqc_moq_bool_norm(xqc_int_t v) {
     return v ? 1 : 0;
 }
 
-void
-xqc_moq_set_priority_config(xqc_moq_session_t *session, xqc_int_t enabled, xqc_int_t enforce)
-{
-    if (session == NULL) {
-        return;
-    }
-    session->priority_enabled = xqc_moq_bool_norm(enabled);
-    session->priority_enforce = xqc_moq_bool_norm(enforce);
-    xqc_log(session->log, XQC_LOG_INFO, "|moq_prio_config|enabled:%d|enforce:%d|", session->priority_enabled, session->priority_enforce);
-}
+
 
 xqc_int_t
-xqc_moq_subscribe_namespace_by_path(
-    xqc_moq_session_t *session,
-    const char **namespace_segments,
-    uint64_t segment_count,
-    uint64_t *out_request_id)
+xqc_moq_subscribe_namespace_by_path(xqc_moq_session_t *session, const char **namespace_segments, uint64_t segment_count, uint64_t *out_request_id)
 {
     if (session == NULL || namespace_segments == NULL || segment_count == 0) {
         return -XQC_EPARAM;
@@ -440,4 +429,34 @@ xqc_moq_find_track_by_subscribe_id(xqc_moq_session_t *session, uint64_t subscrib
         }
     }
     return NULL;
+}
+
+const char *
+xqc_moq_get_negotiated_alpn(xqc_moq_session_t *session)
+{
+    if (!session || !session->quic_conn) {
+        return NULL;
+    }
+    return session->quic_conn->alpn;
+}
+
+xqc_int_t
+xqc_moq_trigger_session_setup(xqc_moq_session_t *session, const char *extdata)
+{
+    if (!session) {
+        return -XQC_EPARAM;
+    }
+    
+    if (session->session_setup_done) {
+        xqc_log(session->log, XQC_LOG_WARN, "|session setup already done|");
+        return -XQC_EILLEGAL_FRAME;
+    }
+    
+    session->session_setup_done = 1;
+    printf("[Protocol] Manually triggering on_session_setup callback (fast RTT mode)\n");
+    xqc_log(session->log, XQC_LOG_INFO, "|manually trigger session setup|alpn:%s|", 
+            (session->quic_conn && session->quic_conn->alpn) ? session->quic_conn->alpn : "NULL");
+    
+    xqc_moq_session_on_setup(session, (char *)extdata);
+    return XQC_OK;
 }

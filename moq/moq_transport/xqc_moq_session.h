@@ -66,11 +66,7 @@ typedef struct xqc_moq_session_s {
     uint64_t                        max_request_id; // name changed for draft-11, former name is max_subscribe_id
     uint64_t                        moq_selected_version;
     uint64_t                        max_auth_token_cache_size;
-    /* namespace subscription watches */
     xqc_list_head_t                 namespace_watch_list;
-    /* Priority feature flags */
-    xqc_int_t                       priority_enabled;   /* 0: off (default); 1: on */
-    xqc_int_t                       priority_enforce;   /* 0: log-only; 1: enforce mapping */
 } xqc_moq_session_t;
 
 
@@ -151,8 +147,5 @@ xqc_moq_track_t *xqc_moq_find_track_by_name(xqc_moq_session_t *session,
 
 xqc_moq_track_t *xqc_moq_find_track_by_subscribe_id(xqc_moq_session_t *session,
      uint64_t subscribe_id, xqc_moq_track_role_t role);
-
-/* priority feature config */
-void xqc_moq_set_priority_config(xqc_moq_session_t *session, xqc_int_t enabled, xqc_int_t enforce);
 
 #endif /* _XQC_MOQ_SESSION_H_INCLUDED_ */

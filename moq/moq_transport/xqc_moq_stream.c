@@ -287,25 +287,25 @@ xqc_moq_stream_process(xqc_moq_stream_t *moq_stream, uint8_t *buf, size_t buf_le
 
                 DEBUG_PRINTF(">>>msg_type:0x%x\n",msg_type);
                 
-                /* Print detailed decode info with binary dump */
-                printf("\n[DECODE] ===== New Message =====\n");
-                printf("[DECODE] Type: 0x%x (%d)\n", msg_type, msg_type);
-                printf("[DECODE] Stream offset: %zu, processed: %zu, len: %zu\n", 
-                       (size_t)(moq_stream->read_buf_processed - ret),
-                       moq_stream->read_buf_processed, 
-                       moq_stream->read_buf_len);
+                // /* Print detailed decode info with binary dump */
+                // printf("\n[DECODE] ===== New Message =====\n");
+                // printf("[DECODE] Type: 0x%x (%d)\n", msg_type, msg_type);
+                // printf("[DECODE] Stream offset: %zu, processed: %zu, len: %zu\n", 
+                //        (size_t)(moq_stream->read_buf_processed - ret),
+                //        moq_stream->read_buf_processed, 
+                //        moq_stream->read_buf_len);
                 
-                /* Dump next 32 bytes in hex */
-                printf("[DECODE] Buffer (next 32 bytes from type):\n");
-                size_t dump_start = moq_stream->read_buf_processed - ret;
-                size_t dump_len = (moq_stream->read_buf_len - dump_start) > 32 ? 32 : (moq_stream->read_buf_len - dump_start);
-                printf("[DECODE]   ");
-                for (size_t i = 0; i < dump_len; i++) {
-                    printf("%02x ", moq_stream->read_buf[dump_start + i]);
-                    if ((i + 1) % 16 == 0 && i + 1 < dump_len) printf("\n[DECODE]   ");
-                }
-                printf("\n[DECODE] ========================\n\n");
-                fflush(stdout);
+                // /* Dump next 32 bytes in hex */
+                // printf("[DECODE] Buffer (next 32 bytes from type):\n");
+                // size_t dump_start = moq_stream->read_buf_processed - ret;
+                // size_t dump_len = (moq_stream->read_buf_len - dump_start) > 32 ? 32 : (moq_stream->read_buf_len - dump_start);
+                // printf("[DECODE]   ");
+                // for (size_t i = 0; i < dump_len; i++) {
+                //     printf("%02x ", moq_stream->read_buf[dump_start + i]);
+                //     if ((i + 1) % 16 == 0 && i + 1 < dump_len) printf("\n[DECODE]   ");
+                // }
+                // printf("\n[DECODE] ========================\n\n");
+                // fflush(stdout);
 
                 moq_stream->decode_msg_ctx.cur_msg_type = msg_type;
                 moq_stream->decode_msg_ctx.cur_decode_state = XQC_MOQ_DECODE_MSG;

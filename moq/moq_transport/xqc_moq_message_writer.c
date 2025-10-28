@@ -532,21 +532,7 @@ xqc_moq_write_object_datagram_ext(xqc_moq_session_t *session, xqc_moq_object_dat
         return ret;
     }
 
-    {
-        xqc_data_qos_level_t qos = XQC_DATA_QOS_HIGHEST;
-        if (session->priority_enabled) {
-            if (object_datagram->publisher_priority <= 63) {
-                qos = XQC_DATA_QOS_HIGH;
-            } else if (object_datagram->publisher_priority <= 191) {
-                qos = XQC_DATA_QOS_NORMAL;
-            } else {
-                qos = XQC_DATA_QOS_LOW;
-            }
-            xqc_log(session->log, XQC_LOG_DEBUG, "|moq_prio_map|pub_pri:%d|qos:%d|enforce:%d|", 
-                (int)object_datagram->publisher_priority, (int)qos, session->priority_enforce);
-        }
-        ret = xqc_datagram_send(conn, data, encode_len, NULL, session->priority_enabled && session->priority_enforce ? qos : XQC_DATA_QOS_HIGHEST);
-    }
+    ret = xqc_datagram_send(conn, data, encode_len, NULL, XQC_DATA_QOS_HIGHEST);
     if (ret < 0) {
         xqc_log(session->log, XQC_LOG_ERROR, "|xqc_datagram_send error|ret:%d|", ret);
         xqc_free(data);
@@ -594,21 +580,7 @@ xqc_moq_write_object_datagram_status(xqc_moq_session_t *session, xqc_moq_object_
         return ret;
     }
 
-    {
-        xqc_data_qos_level_t qos = XQC_DATA_QOS_HIGHEST;
-        if (session->priority_enabled) {
-            if (object_datagram_status->publisher_priority <= 63) {
-                qos = XQC_DATA_QOS_HIGH;
-            } else if (object_datagram_status->publisher_priority <= 191) {
-                qos = XQC_DATA_QOS_NORMAL;
-            } else {
-                qos = XQC_DATA_QOS_LOW;
-            }
-            xqc_log(session->log, XQC_LOG_DEBUG, "|moq_prio_map_status|pub_pri:%d|qos:%d|enforce:%d|", 
-                (int)object_datagram_status->publisher_priority, (int)qos, session->priority_enforce);
-        }
-        ret = xqc_datagram_send(conn, data, encode_len, NULL, session->priority_enabled && session->priority_enforce ? qos : XQC_DATA_QOS_HIGHEST);
-    }
+    ret = xqc_datagram_send(conn, data, encode_len, NULL, XQC_DATA_QOS_HIGHEST);
     if (ret < 0) {
         xqc_log(session->log, XQC_LOG_ERROR, "|xqc_datagram_send error|ret:%d|", ret);
         xqc_free(data);

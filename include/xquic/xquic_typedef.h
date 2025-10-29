@@ -333,4 +333,6 @@ typedef enum {
     XQC_APP_PATH_STATUS_MAX,
 } xqc_app_path_status_t;
 
+#define XQC_UNKNOWN_STREAM_ID ((uint64_t)-1)
+
 #endif /*_XQUIC_TYPEDEF_H_INCLUDED_*/

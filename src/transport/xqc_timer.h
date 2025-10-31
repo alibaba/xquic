@@ -15,7 +15,7 @@
  * 15 to 30 seconds is necessary to prevent the majority of middleboxes
  * from losing state for UDP flows.
  */
-#define XQC_PING_TIMEOUT                    15000
+#define XQC_PING_TIMEOUT                    1000
 
 #define XQC_PMTUD_START_DELAY               5000
 

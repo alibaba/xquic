@@ -16,7 +16,7 @@ jobs:
 
     strategy:
       matrix:
-        runs-on: [ubuntu-20.04, ubuntu-latest]
+        runs-on: [ubuntu-latest]
 
     steps:
     - name: Checkout repository
@@ -114,7 +114,7 @@ jobs:
 
     strategy:
       matrix:
-        runs-on: [macos-11, macos-latest]
+        runs-on: [macos-latest]
 
     steps:
     - name: Checkout repository

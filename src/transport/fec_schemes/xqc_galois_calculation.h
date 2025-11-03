@@ -144,7 +144,8 @@ static const unsigned char xqc_galois_inv_table[256] = {
     200, 246, 249, 67,  215, 214, 16,  115, 118, 120, 153, 10,  25,  145, 20,
     63,  230, 240, 134, 177, 226, 241, 250, 116, 243, 180, 109, 33,  178, 106,
     227, 231, 181, 234, 3,   143, 211, 201, 66,  212, 232, 117, 127, 255, 126,
-    253};
+    253
+};
 
 unsigned char xqc_galois_multiply(unsigned char a, unsigned char b);
 unsigned char xqc_galois_exp(unsigned char a, unsigned char n);

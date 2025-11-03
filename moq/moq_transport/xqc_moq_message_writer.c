@@ -283,6 +283,14 @@ xqc_moq_write_subgroup_object_msg(xqc_moq_session_t *session, xqc_moq_stream_t *
 }
 
 xqc_int_t
+xqc_moq_write_subgroup_object_msg_ext(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
+    xqc_moq_subgroup_object_msg_ext_t *object_ext)
+{
+    return xqc_moq_write_msg_generic(session, stream, &object_ext->msg_base,
+                                     xqc_moq_msg_subgroup_object_ext_init_handler);
+}
+
+xqc_int_t
 xqc_moq_write_announce_msg(xqc_moq_session_t *session, xqc_moq_stream_t *stream, xqc_moq_announce_msg_t *announce)
 {
     return xqc_moq_write_msg_generic(session, stream, &announce->msg_base,

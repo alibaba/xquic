@@ -57,6 +57,8 @@ typedef struct xqc_moq_object_s {
   uint64_t object_id;
   uint64_t send_order;
   uint64_t status;
+  const uint8_t *extension_header;
+  uint64_t extension_header_len;
   uint8_t *payload;
   uint64_t payload_len;
 } xqc_moq_object_t;
@@ -832,6 +834,10 @@ void *xqc_moq_msg_create_subgroup_object(xqc_moq_session_t *session);
 
 void xqc_moq_msg_free_subgroup_object(void *msg);
 
+void *xqc_moq_msg_create_subgroup_object_ext(xqc_moq_session_t *session);
+
+void xqc_moq_msg_free_subgroup_object_ext(void *msg);
+
 xqc_int_t xqc_moq_msg_decode_subgroup(uint8_t *buf, size_t buf_len,
                                       uint8_t stream_fin,
                                       xqc_moq_decode_msg_ctx_t *msg_ctx,
@@ -1064,6 +1070,10 @@ xqc_int_t xqc_moq_msg_decode_subgroup_object_ext(
     uint8_t *buf, size_t buf_len, uint8_t stream_fin,
     xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base,
     xqc_int_t *finish, xqc_int_t *wait_more_data);
+
+/* init handler for subgroup_object_ext */
+void xqc_moq_msg_subgroup_object_ext_init_handler(xqc_moq_msg_base_t *msg_base,
+                                                  xqc_moq_session_t *session);
 
 void xqc_moq_msg_unsubscribe_namespace_init_handler(xqc_moq_msg_base_t *msg_base,
                                                     xqc_moq_session_t *session);

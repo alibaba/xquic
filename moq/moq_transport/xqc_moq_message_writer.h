@@ -39,6 +39,9 @@ xqc_int_t xqc_moq_write_subgroup_msg(xqc_moq_session_t *session, xqc_moq_stream_
 xqc_int_t xqc_moq_write_subgroup_object_msg(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
     xqc_moq_subgroup_object_msg_t *subgroup_object);
 
+xqc_int_t xqc_moq_write_subgroup_object_msg_ext(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
+    xqc_moq_subgroup_object_msg_ext_t *subgroup_object_ext);
+
 xqc_int_t xqc_moq_write_announce_msg(xqc_moq_session_t *session, xqc_moq_stream_t *stream, xqc_moq_announce_msg_t *announce);
 
 xqc_int_t xqc_moq_write_announce_ok_msg(xqc_moq_session_t *session, xqc_moq_stream_t *stream, xqc_moq_announce_ok_msg_t *announce_ok);

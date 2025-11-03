@@ -93,6 +93,8 @@ typedef struct user_conn_s {
     int                 stream3_message_count;
     int                 new_track_created;
     int                 namespace_subscribed;
+    int                 audio_ext_sent;
+    uint64_t            audio_track_alias;
     #define MAX_SUBGROUP_STREAMS 3
     struct {
         xqc_moq_stream_t *streams[MAX_SUBGROUP_STREAMS];

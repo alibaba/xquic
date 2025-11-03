@@ -638,17 +638,28 @@ void xqc_moq_on_subgroup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_strea
 
 void xqc_moq_on_subgroup_object_ext(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
 {
-    // when recv the object of subgroup
-    xqc_moq_subgroup_object_msg_ext_t *msg = (xqc_moq_subgroup_object_msg_ext_t*)msg_base;
-    msg->subgroup_header = moq_stream->subgroup_header;
+    xqc_moq_subgroup_object_msg_ext_t *msg_ext = (xqc_moq_subgroup_object_msg_ext_t*)msg_base;
+    msg_ext->subgroup_header = moq_stream->subgroup_header;
 
-    // TODO add new callback for upper layer 
-    // if(session->session_callbacks.on_subgroup_object != NULL) {
-    //     session->session_callbacks.on_subgroup_object(session->user_session, msg);
-    // }
-    // else {
-    //     xqc_log(session->log, XQC_LOG_WARN, "|on_subgroup_object_ext callback not set|");
-    // }
+    xqc_moq_subgroup_object_msg_t msg;
+    xqc_memset(&msg, 0, sizeof(msg));
+    msg.subgroup_header = msg_ext->subgroup_header;
+    msg.object_id = msg_ext->object_id;
+    msg.extension_header_len = msg_ext->extension_header_len;
+    msg.extension_header = msg_ext->extension_header;
+    msg.payload_len = msg_ext->payload_len;
+    msg.object_status = msg_ext->object_status;
+    msg.payload = msg_ext->payload;
+
+    xqc_moq_object_t object;
+    xqc_moq_msg_set_object_by_subgroup_object(&object, &msg);
+    xqc_moq_on_object(session, moq_stream, &object);
+
+    if(session->session_callbacks.on_subgroup_object != NULL) {
+        session->session_callbacks.on_subgroup_object(session->user_session, &msg);
+    } else {
+        xqc_log(session->log, XQC_LOG_WARN, "|on_subgroup_object_ext callback not set|");
+    }
 }
 
 void xqc_moq_on_fetch(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)

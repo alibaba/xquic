@@ -693,6 +693,17 @@ void on_audio_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     printf("subscribe_id:%"PRIu64", seq_num:%"PRIu64", timestamp_us:%"PRIu64", audio_len:%"PRIu64", dcid:%s\n",
             subscribe_id, audio_frame->seq_num, audio_frame->timestamp_us, audio_frame->audio_len,
             xqc_dcid_str_by_scid(ctx.engine, &user_conn->cid));
+    if (audio_frame->ext_headers && audio_frame->ext_headers_len > 0) {
+        printf("audio ext headers: raw_len=%"PRIu64", data=", audio_frame->ext_headers_len);
+        for (uint64_t i = 0; i < audio_frame->ext_headers_len; i++) {
+            if (audio_frame->ext_headers[i] >= 32 && audio_frame->ext_headers[i] <= 126) {
+                printf("%c", audio_frame->ext_headers[i]);
+            } else {
+                printf("\\x%02x", audio_frame->ext_headers[i]);
+            }
+        }
+        printf("\n");
+    }
 
     //printf("audio_data:%s\n",audio_frame->audio_data);
 }
@@ -763,10 +774,18 @@ on_publish(xqc_moq_user_session_t *user_session, xqc_moq_publish_msg_t *publish)
            publish->track_name);
     printf("  Track Alias: %llu\n", (unsigned long long)publish->track_alias);
 
-    xqc_moq_track_t *track =  xqc_moq_track_create(user_session->session,
+    xqc_moq_track_type_t track_type = XQC_MOQ_TRACK_DEFAULT;
+    
+    if (strcmp(publish->track_name, "mic") == 0) {
+        track_type = XQC_MOQ_TRACK_AUDIO;
+    } else if (strstr(publish->track_name, "video") || strstr(publish->track_name, "stream")) {
+        track_type = XQC_MOQ_TRACK_VIDEO;
+    }
+    
+    xqc_moq_track_t *track = xqc_moq_track_create(user_session->session,
                          publish->track_namespace->track_namespace[0],
                          publish->track_name,
-                         XQC_MOQ_TRACK_DEFAULT,
+                         track_type,
                          NULL,
                          XQC_MOQ_CONTAINER_LOC,
                          XQC_MOQ_TRACK_FOR_SUB);
@@ -778,7 +797,14 @@ on_publish(xqc_moq_user_session_t *user_session, xqc_moq_publish_msg_t *publish)
     
     track->track_alias = publish->track_alias;
     track->subscribe_id = publish->request_id;
-    
+
+    user_conn_t *user_conn = (user_conn_t *)user_session->data;
+    if (strcmp(publish->track_name, "mic") == 0) {
+        user_conn->audio_track = track;
+        user_conn->audio_track_alias = publish->track_alias;
+        user_conn->audio_subscribe_id = publish->request_id;
+    }
+
     printf("  -> Sending PUBLISH_OK\n");
     xqc_moq_publish_ok_msg_t *publish_ok = xqc_moq_msg_create_publish_ok(user_session->session);
     if (publish_ok) {

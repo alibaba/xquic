@@ -341,7 +341,12 @@ xqc_moq_stream_process(xqc_moq_stream_t *moq_stream, uint8_t *buf, size_t buf_le
                         // msg follows subgroup
                         printf("parse moq subgroup msg suc\n");
                         next_state = XQC_MOQ_DECODE_MSG;
-                        next_msg_type = XQC_MOQ_SUBGROUP_OBJECT; 
+                        if (moq_stream->subgroup_header != NULL && 
+                            moq_stream->subgroup_header->extensions_present) {
+                            next_msg_type = XQC_MOQ_SUBGROUP_OBJECT_EXT;
+                        } else {
+                            next_msg_type = XQC_MOQ_SUBGROUP_OBJECT;
+                        }
                     }
                     else if (moq_stream->stream_type == XQC_MOQ_STREAM_TYPE_DATA && (cur_msg_type == XQC_MOQ_MSG_STREAM_HEADER_TRACK
                         || cur_msg_type == XQC_MOQ_MSG_TRACK_STREAM_OBJECT)) {

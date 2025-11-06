@@ -50,6 +50,9 @@ typedef struct {
     uint64_t                        timestamp_us;
     uint8_t                         *video_data;
     uint64_t                        video_len;
+    /* Optional: Reversed for extension data */
+    const uint8_t                   *ext_headers;
+    uint64_t                        ext_headers_len;
 } xqc_moq_video_frame_t;
 
 typedef struct {
@@ -57,6 +60,9 @@ typedef struct {
     uint64_t                        timestamp_us;
     uint8_t                         *audio_data;
     uint64_t                        audio_len;
+    /* Optional: Reversed for extension data */
+    const uint8_t                   *ext_headers;
+    uint64_t                        ext_headers_len;
 } xqc_moq_audio_frame_t;
 
 typedef enum {
@@ -522,6 +528,7 @@ typedef struct xqc_moq_subgroup_object_msg_s {
     xqc_moq_subgroup_msg_t      *subgroup_header;
     uint64_t                    object_id;
     uint64_t                    extension_header_len;
+    uint8_t                     *extension_header;
     uint64_t                    payload_len;
     xqc_moq_object_status_t     object_status;
     uint8_t                     *payload;
@@ -532,7 +539,7 @@ typedef struct xqc_moq_subgroup_object_msg_ext_s{
     xqc_moq_subgroup_msg_t      *subgroup_header;
     uint64_t                    object_id;
     uint64_t                    extension_header_len;
-    char                        *extension_header;
+    uint8_t                     *extension_header;
     uint64_t                    payload_len;
     uint64_t                    object_status;
     uint8_t                     *payload;
@@ -831,6 +838,12 @@ xqc_int_t xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscri
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     xqc_moq_track_t *track, xqc_moq_audio_frame_t *audio_frame);
+
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_ext_set_video_headers(xqc_moq_video_frame_t *frame, const uint8_t *ext_headers, uint64_t ext_headers_len);
+
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_ext_set_audio_headers(xqc_moq_audio_frame_t *frame, const uint8_t *ext_headers, uint64_t ext_headers_len);
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_subgroup(xqc_moq_session_t *session, xqc_moq_subgroup_msg_t *subgroup,

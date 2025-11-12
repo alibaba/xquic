@@ -469,7 +469,7 @@ xqc_packet_parse_initial(xqc_connection_t *c, xqc_packet_in_t *packet_in)
         if (XQC_BUFF_LEFT_SIZE(packet_in->buf, end) < XQC_PACKET_INITIAL_MIN_LENGTH) {
             xqc_log(c->log, XQC_LOG_ERROR, "|initial size too small|%z|",
                     (size_t)XQC_BUFF_LEFT_SIZE(packet_in->buf, end));
-            XQC_CONN_ERR(c, TRA_PROTOCOL_VIOLATION);
+           // XQC_CONN_ERR(c, TRA_PROTOCOL_VIOLATION);
             return -XQC_EILLPKT;
         }
     }

@@ -18,6 +18,8 @@ xqc_int_t xqc_moq_write_subscribe(xqc_moq_session_t *session, xqc_moq_subscribe_
 
 xqc_int_t xqc_moq_write_subscribe_update(xqc_moq_session_t *session, xqc_moq_subscribe_update_msg_t *update);
 
+xqc_int_t xqc_moq_write_unsubscribe(xqc_moq_session_t *session, xqc_moq_unsubscribe_msg_t *unsubscribe);
+
 xqc_int_t xqc_moq_write_object_stream_msg(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
     xqc_moq_object_stream_msg_t *object);
 

@@ -80,6 +80,13 @@ xqc_moq_write_subscribe_update(xqc_moq_session_t *session, xqc_moq_subscribe_upd
 }
 
 xqc_int_t
+xqc_moq_write_unsubscribe(xqc_moq_session_t *session, xqc_moq_unsubscribe_msg_t *unsubscribe)
+{
+    return xqc_moq_write_msg_generic(session, session->ctl_stream, &unsubscribe->msg_base,
+                                     xqc_moq_msg_unsubscribe_init_handler);
+}
+
+xqc_int_t
 xqc_moq_write_subscribe_ok(xqc_moq_session_t *session, xqc_moq_subscribe_ok_msg_t *subscribe_ok)
 {
     return xqc_moq_write_msg_generic(session, session->ctl_stream, &subscribe_ok->msg_base,

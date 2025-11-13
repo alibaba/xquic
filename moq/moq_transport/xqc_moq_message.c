@@ -10,6 +10,7 @@ static xqc_moq_msg_func_map_t moq_msg_func_map[] = {
     {XQC_MOQ_MSG_SUBSCRIBE,            xqc_moq_msg_create_subscribe,        xqc_moq_msg_free_subscribe       },
     {XQC_MOQ_MSG_SUBSCRIBE_OK,         xqc_moq_msg_create_subscribe_ok,     xqc_moq_msg_free_subscribe_ok    },
     {XQC_MOQ_MSG_SUBSCRIBE_ERROR,      xqc_moq_msg_create_subscribe_error,  xqc_moq_msg_free_subscribe_error },
+    {XQC_MOQ_MSG_UNSUBSCRIBE,          xqc_moq_msg_create_unsubscribe,      xqc_moq_msg_free_unsubscribe     },
 //    {XQC_MOQ_MSG_ANNOUNCE,             NULL,                                NULL                             },
 //    {XQC_MOQ_MSG_ANNOUNCE_OK,          NULL,                                NULL                             },
 //    {XQC_MOQ_MSG_ANNOUNCE_ERROR,       NULL,                                NULL                             },
@@ -50,6 +51,14 @@ const xqc_moq_msg_base_t subscribe_base = {
     .encode     = xqc_moq_msg_encode_subscribe,
     .decode     = xqc_moq_msg_decode_subscribe,
     .on_msg     = xqc_moq_on_subscribe,
+};
+
+const xqc_moq_msg_base_t unsubscribe_base = {
+    .type       = xqc_moq_msg_unsubscribe_type,
+    .encode_len = xqc_moq_msg_encode_unsubscribe_len,
+    .encode     = xqc_moq_msg_encode_unsubscribe,
+    .decode     = xqc_moq_msg_decode_unsubscribe,
+    .on_msg     = xqc_moq_on_unsubscribe,
 };
 
 const xqc_moq_msg_base_t subscribe_update_base = {
@@ -1440,6 +1449,85 @@ xqc_moq_msg_decode_subscribe_error(uint8_t *buf, size_t buf_len, uint8_t stream_
 
             DEBUG_PRINTF("==>track_alias:%d\n",(int)subscribe_error->track_alias);
 
+            *finish = 1;
+            break;
+        default:
+            return -XQC_EILLEGAL_FRAME;
+    }
+
+    return processed;
+}
+
+void *
+xqc_moq_msg_create_unsubscribe()
+{
+    xqc_moq_unsubscribe_msg_t *msg = xqc_calloc(1, sizeof(*msg));
+    xqc_moq_msg_unsubscribe_init_handler(&msg->msg_base);
+    return msg;
+}
+
+void
+xqc_moq_msg_free_unsubscribe(void *msg)
+{
+    xqc_free(msg);
+}
+
+xqc_moq_msg_type_t
+xqc_moq_msg_unsubscribe_type()
+{
+    return XQC_MOQ_MSG_UNSUBSCRIBE;
+}
+
+void
+xqc_moq_msg_unsubscribe_init_handler(xqc_moq_msg_base_t *msg_base)
+{
+    *msg_base = unsubscribe_base;
+}
+
+xqc_int_t
+xqc_moq_msg_encode_unsubscribe_len(xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_unsubscribe_msg_t *unsubscribe = (xqc_moq_unsubscribe_msg_t*)msg_base;
+    xqc_int_t len = 0;
+    len += xqc_put_varint_len(XQC_MOQ_MSG_UNSUBSCRIBE);
+    len += xqc_put_varint_len(unsubscribe->subscribe_id);
+    return len;
+}
+
+xqc_int_t
+xqc_moq_msg_encode_unsubscribe(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap)
+{
+    xqc_moq_unsubscribe_msg_t *unsubscribe = (xqc_moq_unsubscribe_msg_t*)msg_base;
+    if (xqc_moq_msg_encode_unsubscribe_len(msg_base) > buf_cap) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    uint8_t *p = buf;
+    p = xqc_put_varint(p, XQC_MOQ_MSG_UNSUBSCRIBE);
+    p = xqc_put_varint(p, unsubscribe->subscribe_id);
+    return p - buf;
+}
+
+xqc_int_t
+xqc_moq_msg_decode_unsubscribe(uint8_t *buf, size_t buf_len, uint8_t stream_fin, xqc_moq_decode_msg_ctx_t *msg_ctx,
+    xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data)
+{
+    *finish = 0;
+    *wait_more_data = 0;
+    xqc_int_t processed = 0;
+    xqc_int_t ret = 0;
+    xqc_moq_unsubscribe_msg_t *unsubscribe = (xqc_moq_unsubscribe_msg_t*)msg_base;
+
+    switch (msg_ctx->cur_field_idx) {
+        case 0: // Subscribe ID (i)
+            ret = xqc_vint_read(buf + processed, buf + buf_len, &unsubscribe->subscribe_id);
+            if (ret < 0) {
+                *wait_more_data = 1;
+                break;
+            }
+            processed += ret;
+            DEBUG_PRINTF("==>unsubscribe subscribe_id:%d\n", (int)unsubscribe->subscribe_id);
+            msg_ctx->cur_field_idx = 1;
             *finish = 1;
             break;
         default:

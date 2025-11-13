@@ -150,10 +150,6 @@ typedef struct xqc_moq_subscribe_update_msg_s {
     xqc_moq_message_parameter_t *params;
 } xqc_moq_subscribe_update_msg_t;
 
-typedef struct xqc_moq_unsubscribe_msg_s {
-    xqc_moq_msg_base_t          msg_base;
-} xqc_moq_unsubscribe_msg_t;
-
 typedef struct xqc_moq_subscribe_done_msg_s {
     xqc_moq_msg_base_t          msg_base;
 } xqc_moq_subscribe_done_msg_t;
@@ -324,6 +320,21 @@ xqc_int_t xqc_moq_msg_encode_track_header_len(xqc_moq_msg_base_t *msg_base);
 xqc_int_t xqc_moq_msg_encode_track_header(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
 
 xqc_int_t xqc_moq_msg_decode_track_header(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
+
+void *xqc_moq_msg_create_unsubscribe();
+
+void xqc_moq_msg_free_unsubscribe(void *msg);
+
+xqc_moq_msg_type_t xqc_moq_msg_unsubscribe_type();
+
+void xqc_moq_msg_unsubscribe_init_handler(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_unsubscribe_len(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_unsubscribe(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
+
+xqc_int_t xqc_moq_msg_decode_unsubscribe(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
     xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
 
 #endif /* _XQC_MOQ_MESSAGE_H_INCLUDED_ */

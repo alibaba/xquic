@@ -193,6 +193,11 @@ typedef struct xqc_moq_subscribe_error_msg_s {
     uint64_t                    track_alias;
 } xqc_moq_subscribe_error_msg_t;
 
+typedef struct xqc_moq_unsubscribe_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    subscribe_id;
+} xqc_moq_unsubscribe_msg_t;
+
 typedef void (*xqc_moq_on_session_setup_pt)(xqc_moq_user_session_t *user_session, char *extdata);
 
 typedef void (*xqc_moq_on_datachannel_pt)(xqc_moq_user_session_t *user_session);
@@ -201,6 +206,9 @@ typedef void (*xqc_moq_on_datachannel_msg_pt)(xqc_moq_user_session_t *user_sessi
 
 typedef void (*xqc_moq_on_subscribe_pt)(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     xqc_moq_track_t *track, xqc_moq_subscribe_msg_t *msg);
+
+typedef void (*xqc_moq_on_unsubscribe_pt)(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
+    xqc_moq_track_t *track);
 
 typedef void (*xqc_moq_on_request_keyframe_pt)(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     xqc_moq_track_t *track);
@@ -233,6 +241,7 @@ typedef struct {
     xqc_moq_on_datachannel_msg_pt   on_datachannel_msg; /* Required */
     /* For Publisher */
     xqc_moq_on_subscribe_pt         on_subscribe; /* Required */
+    xqc_moq_on_unsubscribe_pt       on_unsubscribe; /* Optional */
     xqc_moq_on_request_keyframe_pt  on_request_keyframe; /* Required */
     xqc_moq_on_bitrate_change_pt    on_bitrate_change; /* Optional */
     /* For Subscriber */
@@ -297,6 +306,9 @@ xqc_int_t xqc_moq_subscribe(xqc_moq_session_t *session, const char *track_namesp
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_subscribe_latest(xqc_moq_session_t *session, const char *track_namespace, const char *track_name);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_unsubscribe(xqc_moq_session_t *session, uint64_t subscribe_id);
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_request_keyframe(xqc_moq_session_t *session, uint64_t subscribe_id);

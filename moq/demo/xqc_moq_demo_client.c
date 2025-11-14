@@ -636,9 +636,10 @@ xqc_app_send_callback(int fd, short what, void* arg)
         audio_frame.audio_len = 1024;
         audio_frame.audio_data = payload_audio;
 
-        static uint8_t ext_data1[] = "test_ext_data";
-        audio_frame.ext_headers = ext_data1;
-        audio_frame.ext_headers_len = sizeof(ext_data1) - 1;
+        static uint8_t test_ext_data[] = "X test_ext_data";
+        test_ext_data[0] = '0' + (uint8_t) (user_conn->countdown & 0xFF);
+        audio_frame.ext_headers = test_ext_data;
+        audio_frame.ext_headers_len = sizeof(test_ext_data) - 1;
         ret = xqc_moq_write_audio_frame(user_conn->moq_session, user_conn->audio_subscribe_id, user_conn->audio_track, &audio_frame);
         if (ret < 0) {
             printf("xqc_moq_write_audio_frame error\n");

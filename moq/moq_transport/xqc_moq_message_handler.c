@@ -346,6 +346,29 @@ xqc_moq_on_object_stream(xqc_moq_session_t *session, xqc_moq_stream_t *moq_strea
 }
 
 void
+xqc_moq_on_object_stream_ext(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_object_stream_msg_ext_t *msg_ext = (xqc_moq_object_stream_msg_ext_t*)msg_base;
+
+    xqc_moq_object_stream_msg_t msg;
+    xqc_memset(&msg, 0, sizeof(msg));
+    msg.subscribe_id = msg_ext->subscribe_id;
+    msg.track_alias = msg_ext->track_alias;
+    msg.group_id = msg_ext->group_id;
+    msg.object_id = msg_ext->object_id;
+    msg.extension_header_len = msg_ext->extension_header_len;
+    msg.extension_header = msg_ext->extension_header;
+    msg.send_order = msg_ext->send_order;
+    msg.status = msg_ext->status;
+    msg.payload = msg_ext->payload;
+    msg.payload_len = msg_ext->payload_len;
+
+    xqc_moq_object_t object;
+    xqc_moq_msg_set_object_by_object(&object, &msg);
+    xqc_moq_on_object(session, moq_stream, &object);
+}
+
+void
 xqc_moq_on_track_stream_obj(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
 {
     xqc_moq_track_stream_obj_msg_t *msg = (xqc_moq_track_stream_obj_msg_t*)msg_base;

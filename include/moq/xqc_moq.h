@@ -21,6 +21,9 @@ typedef struct {
     uint64_t                        timestamp_us;
     uint8_t                         *video_data;
     uint64_t                        video_len;
+    /* Optional: Reversed for extension data */
+    const uint8_t                   *ext_headers;
+    uint64_t                        ext_headers_len;
 } xqc_moq_video_frame_t;
 
 typedef struct {
@@ -28,6 +31,9 @@ typedef struct {
     uint64_t                        timestamp_us;
     uint8_t                         *audio_data;
     uint64_t                        audio_len;
+    /* Optional: Reversed for extension data */
+    const uint8_t                   *ext_headers;
+    uint64_t                        ext_headers_len;
 } xqc_moq_audio_frame_t;
 
 typedef enum {
@@ -134,6 +140,7 @@ typedef enum {
     XQC_MOQ_MSG_TRACK_STATUS_REQUEST = 0xD,
     XQC_MOQ_MSG_TRACK_STATUS        = 0xE,
     XQC_MOQ_MSG_GOAWAY              = 0x10,
+    XQC_MOQ_MSG_OBJECT_STREAM_EXT   = 0x30,
     XQC_MOQ_MSG_CLIENT_SETUP        = 0x40,
     XQC_MOQ_MSG_SERVER_SETUP        = 0x41,
     XQC_MOQ_MSG_STREAM_HEADER_TRACK = 0x50,

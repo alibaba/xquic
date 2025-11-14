@@ -200,9 +200,11 @@ typedef struct xqc_moq_unsubscribe_msg_s {
 
 typedef void (*xqc_moq_on_session_setup_pt)(xqc_moq_user_session_t *user_session, char *extdata);
 
-typedef void (*xqc_moq_on_datachannel_pt)(xqc_moq_user_session_t *user_session);
+typedef void (*xqc_moq_on_datachannel_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_track_info_t *track_info);
 
-typedef void (*xqc_moq_on_datachannel_msg_pt)(xqc_moq_user_session_t *user_session, uint8_t *msg, size_t msg_len);
+typedef void (*xqc_moq_on_datachannel_msg_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_track_info_t *track_info, uint8_t *msg, size_t msg_len);
 
 typedef void (*xqc_moq_on_subscribe_pt)(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     xqc_moq_track_t *track, xqc_moq_subscribe_msg_t *msg);
@@ -213,11 +215,11 @@ typedef void (*xqc_moq_on_unsubscribe_pt)(xqc_moq_user_session_t *user_session, 
 typedef void (*xqc_moq_on_request_keyframe_pt)(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     xqc_moq_track_t *track);
 
-typedef void (*xqc_moq_on_subscribe_ok_pt)(xqc_moq_user_session_t *user_session,
-    xqc_moq_subscribe_ok_msg_t *subscribe_ok);
+typedef void (*xqc_moq_on_subscribe_ok_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_track_info_t *track_info, xqc_moq_subscribe_ok_msg_t *subscribe_ok);
 
-typedef void (*xqc_moq_on_subscribe_error_pt)(xqc_moq_user_session_t *user_session,
-    xqc_moq_subscribe_error_msg_t *subscribe_error);
+typedef void (*xqc_moq_on_subscribe_error_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_track_info_t *track_info, xqc_moq_subscribe_error_msg_t *subscribe_error);
 
 typedef void (*xqc_moq_on_catalog_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_info_t **track_info_array,
     xqc_int_t array_size);
@@ -233,7 +235,8 @@ typedef void (*xqc_moq_on_audio_frame_pt)(xqc_moq_user_session_t *user_session, 
  * 1. Call xqc_moq_target_bitrate before encoding. 
  * 2. Register the xqc_moq_on_bitrate_change_pt callback. A callback notification occurs when the target bitrate changes
  */
-typedef void (*xqc_moq_on_bitrate_change_pt)(xqc_moq_user_session_t *user_session, uint64_t bitrate);
+typedef void (*xqc_moq_on_bitrate_change_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_track_info_t *track_info, uint64_t bitrate);
 
 typedef struct {
     xqc_moq_on_session_setup_pt     on_session_setup; /* Required */

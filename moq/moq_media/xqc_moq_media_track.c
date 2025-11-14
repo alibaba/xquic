@@ -435,14 +435,16 @@ static void
 xqc_moq_media_on_subscribe_ok(xqc_moq_session_t *session, xqc_moq_track_t *track,
     xqc_moq_subscribe_ok_msg_t *subscribe_ok)
 {
-    session->session_callbacks.on_subscribe_ok(session->user_session, subscribe_ok);
+    session->session_callbacks.on_subscribe_ok(session->user_session, track,
+        &track->track_info, subscribe_ok);
 }
 
 static void
 xqc_moq_media_on_subscribe_error(xqc_moq_session_t *session, xqc_moq_track_t *track,
     xqc_moq_subscribe_error_msg_t *subscribe_error)
 {
-    session->session_callbacks.on_subscribe_error(session->user_session, subscribe_error);
+    session->session_callbacks.on_subscribe_error(session->user_session, track,
+        &track->track_info, subscribe_error);
 }
 
 static void

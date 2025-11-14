@@ -361,9 +361,12 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata)
     user_conn->audio_track = audio_track;
 }
 
-void on_datachannel(xqc_moq_user_session_t *user_session)
+void on_datachannel(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info)
 {
     DEBUG;
+    printf("on_datachannel: track_namespace:%s track_name:%s\n",
+           track_info ? track_info->track_namespace : "null",
+           track_info ? track_info->track_name : "null");
 
     xqc_int_t ret;
     xqc_moq_session_t *session = user_session->session;
@@ -373,9 +376,12 @@ void on_datachannel(xqc_moq_user_session_t *user_session)
     }
 }
 
-void on_datachannel_msg(struct xqc_moq_user_session_s *user_session, uint8_t *msg, size_t msg_len)
+void on_datachannel_msg(struct xqc_moq_user_session_s *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, uint8_t *msg, size_t msg_len)
 {
     DEBUG;
+    printf("on_datachannel_msg: track_namespace:%s track_name:%s\n",
+           track_info ? track_info->track_namespace : "null",
+           track_info ? track_info->track_name : "null");
 }
 
 void on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
@@ -429,23 +435,29 @@ void on_request_keyframe(xqc_moq_user_session_t *user_session, uint64_t subscrib
     user_conn->request_keyframe = 1;
 }
 
-void on_bitrate_change(xqc_moq_user_session_t *user_session, uint64_t bitrate)
+void on_bitrate_change(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, uint64_t bitrate)
 {
     DEBUG;
     /* Configure encoder target bitrate */
 }
 
-void on_subscribe_ok(xqc_moq_user_session_t *user_session, xqc_moq_subscribe_ok_msg_t *subscribe_ok)
+void on_subscribe_ok(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, xqc_moq_subscribe_ok_msg_t *subscribe_ok)
 {
     DEBUG;
+    printf("on_subscribe_ok: track_namespace:%s track_name:%s\n",
+           track_info ? track_info->track_namespace : "null",
+           track_info ? track_info->track_name : "null");
     printf("subscribe_id:%d expire_ms:%d content_exist:%d largest_group_id:%d largest_object_id:%d\n",
            (int)subscribe_ok->subscribe_id, (int)subscribe_ok->expire_ms, (int)subscribe_ok->content_exist,
            (int)subscribe_ok->largest_group_id, (int)subscribe_ok->largest_object_id);
 }
 
-void on_subscribe_error(xqc_moq_user_session_t *user_session, xqc_moq_subscribe_error_msg_t *subscribe_error)
+void on_subscribe_error(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, xqc_moq_subscribe_error_msg_t *subscribe_error)
 {
     DEBUG;
+    printf("on_subscribe_error: track_namespace:%s track_name:%s\n",
+           track_info ? track_info->track_namespace : "null",
+           track_info ? track_info->track_name : "null");
     printf("subscribe_id:%d error_code:%d reason_phrase:%s track_alias:%d\n",
            (int)subscribe_error->subscribe_id, (int)subscribe_error->error_code, subscribe_error->reason_phrase, (int)subscribe_error->track_alias);
 }

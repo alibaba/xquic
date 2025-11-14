@@ -37,6 +37,19 @@ static void xqc_moq_media_cancel_write(xqc_moq_session_t *session, xqc_moq_track
 static xqc_bool_t xqc_moq_media_maybe_cancel_write(xqc_moq_session_t *session, uint64_t subscribe_id,
     xqc_moq_track_t *track, xqc_moq_video_frame_t *video_frame);
 
+static void xqc_init_moq_object_ext_with_object(xqc_moq_object_stream_msg_ext_t *obj_ext,
+                                                xqc_moq_object_stream_msg_t *object) {
+    xqc_memset(obj_ext, 0, sizeof(*obj_ext));
+    obj_ext->subscribe_id = object->subscribe_id;
+    obj_ext->track_alias = object->track_alias;
+    obj_ext->group_id = object->group_id;
+    obj_ext->object_id = object->object_id;
+    obj_ext->send_order = object->send_order;
+    obj_ext->status = object->status;
+    obj_ext->payload = object->payload;
+    obj_ext->payload_len = object->payload_len;
+}
+
 xqc_int_t
 xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     xqc_moq_track_t *track, xqc_moq_video_frame_t *video_frame)
@@ -92,15 +105,7 @@ xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
 
     if (video_frame->ext_headers != NULL && video_frame->ext_headers_len > 0) {
         xqc_moq_object_stream_msg_ext_t obj_ext;
-        xqc_memset(&obj_ext, 0, sizeof(obj_ext));
-        obj_ext.subscribe_id = object.subscribe_id;
-        obj_ext.track_alias = object.track_alias;
-        obj_ext.group_id = object.group_id;
-        obj_ext.object_id = object.object_id;
-        obj_ext.send_order = object.send_order;
-        obj_ext.status = object.status;
-        obj_ext.payload = object.payload;
-        obj_ext.payload_len = object.payload_len;
+        xqc_init_moq_object_ext_with_object(&obj_ext, &object);
         obj_ext.extension_header_len = video_frame->ext_headers_len;
         obj_ext.extension_header = (uint8_t *)video_frame->ext_headers;
         ret = xqc_moq_write_object_stream_msg_ext(session, stream, &obj_ext);
@@ -175,15 +180,7 @@ xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
 
     if (audio_frame->ext_headers != NULL && audio_frame->ext_headers_len > 0) {
         xqc_moq_object_stream_msg_ext_t obj_ext;
-        xqc_memset(&obj_ext, 0, sizeof(obj_ext));
-        obj_ext.subscribe_id = object.subscribe_id;
-        obj_ext.track_alias = object.track_alias;
-        obj_ext.group_id = object.group_id;
-        obj_ext.object_id = object.object_id;
-        obj_ext.send_order = object.send_order;
-        obj_ext.status = object.status;
-        obj_ext.payload = object.payload;
-        obj_ext.payload_len = object.payload_len;
+        xqc_init_moq_object_ext_with_object(&obj_ext, &object);
         obj_ext.extension_header_len = audio_frame->ext_headers_len;
         obj_ext.extension_header = (uint8_t *)audio_frame->ext_headers;
         ret = xqc_moq_write_object_stream_msg_ext(session, stream, &obj_ext);

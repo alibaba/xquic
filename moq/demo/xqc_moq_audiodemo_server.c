@@ -341,9 +341,9 @@ void on_audio_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     {
         return;
     }
-    
-    printf("subscribe_id:%"PRIu64", seq_num:%"PRIu64", timestamp_us:%"PRIu64", video_len:%"PRIu64"\n",
-           subscribe_id, audio_frame->seq_num, audio_frame->timestamp_us, audio_frame->audio_len);
+
+    printf("subscribe_id:%"PRIu64", seq_num:%"PRIu64", timestamp_us:%"PRIu64", audio_len:%"PRIu64", ext_headers_len:%"PRIu64"\n",
+           subscribe_id, audio_frame->seq_num, audio_frame->timestamp_us, audio_frame->audio_len, audio_frame->ext_headers_len);
 
     //printf("audio_data:%s\n",audio_frame->audio_data);
 

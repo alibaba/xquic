@@ -27,6 +27,7 @@ static xqc_moq_msg_func_map_t moq_msg_func_map[] = {
 //    {XQC_MOQ_MSG_STREAM_HEADER_GROUP,  NULL,                                NULL                             },
     {XQC_MOQ_MSG_TRACK_STREAM_OBJECT,  xqc_moq_msg_create_track_stream_obj, xqc_moq_msg_free_track_stream_obj},
 //    {XQC_MOQ_MSG_GROUP_STREAM_OBJECT,  NULL,                                NULL                             },
+    {XQC_MOQ_MSG_OBJECT_STREAM_EXT,    xqc_moq_msg_create_object_stream_ext, xqc_moq_msg_free_object_stream_ext  }
 };
 
 const xqc_moq_msg_base_t client_setup_base = {
@@ -93,6 +94,14 @@ const xqc_moq_msg_base_t object_stream_base = {
     .on_msg     = xqc_moq_on_object_stream,
 };
 
+const xqc_moq_msg_base_t object_stream_ext_base = {
+    .type       = xqc_moq_msg_object_stream_ext_type,
+    .encode_len = xqc_moq_msg_encode_object_stream_ext_len,
+    .encode     = xqc_moq_msg_encode_object_stream_ext,
+    .decode     = xqc_moq_msg_decode_object_stream_ext,
+    .on_msg     = xqc_moq_on_object_stream_ext,
+};
+
 const xqc_moq_msg_base_t track_stream_obj_base = {
     .type       = xqc_moq_msg_track_stream_obj_type,
     .encode_len = xqc_moq_msg_encode_track_stream_obj_len,
@@ -139,6 +148,8 @@ void xqc_moq_msg_set_object_by_object(xqc_moq_object_t *obj, xqc_moq_object_stre
     obj->track_alias = msg->track_alias;
     obj->group_id = msg->group_id;
     obj->object_id = msg->object_id;
+    obj->extension_header_len = msg->extension_header_len;
+    obj->extension_header = msg->extension_header;
     obj->send_order = msg->send_order;
     obj->status = msg->status;
     obj->payload = msg->payload;
@@ -156,6 +167,8 @@ void xqc_moq_msg_set_object_by_track(xqc_moq_object_t *obj, xqc_moq_stream_heade
     obj->status = msg->status;
     obj->payload = msg->payload;
     obj->payload_len = msg->payload_len;
+    obj->extension_header = NULL;
+    obj->extension_header_len = 0;
 }
 
 void xqc_moq_msg_set_object_by_group(xqc_moq_object_t *obj, xqc_moq_stream_header_group_msg_t *header,
@@ -169,6 +182,8 @@ void xqc_moq_msg_set_object_by_group(xqc_moq_object_t *obj, xqc_moq_stream_heade
     obj->status = msg->status;
     obj->payload = msg->payload;
     obj->payload_len = msg->payload_len;
+    obj->extension_header = NULL;
+    obj->extension_header_len = 0;
 }
 
 xqc_int_t
@@ -1678,6 +1693,219 @@ xqc_moq_msg_decode_object_stream(uint8_t *buf, size_t buf_len, uint8_t stream_fi
             DEBUG_PRINTF("==>status:%d\n",(int)object->status);
             msg_ctx->cur_field_idx = 6;
         case 6: //Object Payload (..)
+            if (buf_len - processed == 0) {
+                *wait_more_data = 1;
+                break;
+            }
+            object->payload_len = msg_ctx->payload_processed + buf_len - processed;
+            if (object->payload_len > XQC_MOQ_MAX_OBJECT_LEN) {
+                return -XQC_ELIMIT;
+            }
+            object->payload = xqc_realloc(object->payload, object->payload_len);
+            xqc_memcpy(object->payload + msg_ctx->payload_processed, buf + processed, buf_len - processed);
+            msg_ctx->payload_processed += buf_len - processed;
+            processed += buf_len - processed;
+            if (stream_fin == 1) {
+                *finish = 1;
+            } else {
+                *wait_more_data = 1;
+            }
+            break;
+        default:
+            return -XQC_EILLEGAL_FRAME;
+    }
+
+    return processed;
+}
+
+void
+xqc_moq_msg_object_stream_ext_init_handler(xqc_moq_msg_base_t *msg_base)
+{
+    *msg_base = object_stream_ext_base;
+}
+
+void *
+xqc_moq_msg_create_object_stream_ext()
+{
+    xqc_moq_object_stream_msg_ext_t *msg = xqc_calloc(1, sizeof(*msg));
+    xqc_moq_msg_object_stream_ext_init_handler(&msg->msg_base);
+    return msg;
+}
+
+void
+xqc_moq_msg_free_object_stream_ext(void *msg)
+{
+    if (msg == NULL) {
+        return;
+    }
+    xqc_moq_object_stream_msg_ext_t *object_stream = (xqc_moq_object_stream_msg_ext_t *)msg;
+    xqc_free(object_stream->payload);
+    xqc_free(object_stream);
+}
+
+xqc_moq_msg_type_t
+xqc_moq_msg_object_stream_ext_type()
+{
+    return XQC_MOQ_MSG_OBJECT_STREAM_EXT;
+}
+
+xqc_int_t
+xqc_moq_msg_encode_object_stream_ext_len(xqc_moq_msg_base_t *msg_base)
+{
+    xqc_int_t len = 0;
+    xqc_moq_object_stream_msg_ext_t *object = (xqc_moq_object_stream_msg_ext_t*)msg_base;
+    len += xqc_put_varint_len(XQC_MOQ_MSG_OBJECT_STREAM_EXT);
+    len += xqc_put_varint_len(object->subscribe_id);
+    len += xqc_put_varint_len(object->track_alias);
+    len += xqc_put_varint_len(object->group_id);
+    len += xqc_put_varint_len(object->object_id);
+    len += xqc_put_varint_len(object->extension_header_len);
+    if(object->extension_header_len > 0) {
+        len += object->extension_header_len;
+    }
+    len += xqc_put_varint_len(object->send_order);
+    len += xqc_put_varint_len(object->status);
+    len += object->payload_len;
+
+    return len;
+}
+
+xqc_int_t
+xqc_moq_msg_encode_object_stream_ext(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap)
+{
+    xqc_moq_object_stream_msg_ext_t *object = (xqc_moq_object_stream_msg_ext_t*)msg_base;
+    if (xqc_moq_msg_encode_object_stream_ext_len(msg_base) > buf_cap) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    uint8_t *p = buf;
+    p = xqc_put_varint(p, XQC_MOQ_MSG_OBJECT_STREAM_EXT);
+    p = xqc_put_varint(p, object->subscribe_id);
+    p = xqc_put_varint(p, object->track_alias);
+    p = xqc_put_varint(p, object->group_id);
+    p = xqc_put_varint(p, object->object_id);
+    p = xqc_put_varint(p, object->extension_header_len);
+    if(object->extension_header_len > 0) {
+        xqc_memcpy(p, object->extension_header, object->extension_header_len);
+        p += object->extension_header_len;
+    }
+    p = xqc_put_varint(p, object->send_order);
+    p = xqc_put_varint(p, object->status);
+
+    xqc_memcpy(p, object->payload, object->payload_len);
+    p += object->payload_len;
+    return p - buf;
+}
+
+//return processed or error
+xqc_int_t
+xqc_moq_msg_decode_object_stream_ext(uint8_t *buf, size_t buf_len, uint8_t stream_fin, xqc_moq_decode_msg_ctx_t *msg_ctx,
+    xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data)
+{
+    *finish = 0;
+    *wait_more_data = 0;
+    xqc_int_t processed = 0;
+    xqc_int_t ret = 0;
+    xqc_moq_object_stream_msg_ext_t *object = (xqc_moq_object_stream_msg_ext_t *)msg_base;
+    switch (msg_ctx->cur_field_idx) {
+        case 0: //Subscribe ID (i)
+            ret = xqc_vint_read(buf + processed, buf + buf_len, &object->subscribe_id);
+            if (ret < 0) {
+                *wait_more_data = 1;
+                break;
+            }
+            processed += ret;
+            DEBUG_PRINTF("==>subscribe_id:%d\n",(int)object->subscribe_id);
+            msg_ctx->cur_field_idx = 1;
+        case 1: //Track Alias (i)
+            ret = xqc_vint_read(buf + processed, buf + buf_len, &object->track_alias);
+            if (ret < 0) {
+                *wait_more_data = 1;
+                break;
+            }
+            processed += ret;
+            DEBUG_PRINTF("==>track_alias:%d\n",(int)object->track_alias);
+            msg_ctx->cur_field_idx = 2;
+        case 2: //Group ID (i)
+            ret = xqc_vint_read(buf + processed, buf + buf_len, &object->group_id);
+            if (ret < 0) {
+                *wait_more_data = 1;
+                break;
+            }
+            processed += ret;
+            DEBUG_PRINTF("==>group_id:%d\n",(int)object->group_id);
+            msg_ctx->cur_field_idx = 3;
+        case 3: //Object ID (i)
+            ret = xqc_vint_read(buf + processed, buf + buf_len, &object->object_id);
+            if (ret < 0) {
+                *wait_more_data = 1;
+                break;
+            }
+            processed += ret;
+            DEBUG_PRINTF("==>object_id:%d\n",(int)object->object_id);
+            msg_ctx->cur_field_idx = 4;
+        case 4: // extension header length
+            ret = xqc_vint_read(buf + processed, buf + buf_len, &object->extension_header_len);
+            if (ret < 0) {
+                *wait_more_data = 1;
+                break;
+            }
+            processed += ret;
+            if (object->extension_header_len > 0) {
+                object->extension_header = xqc_realloc(object->extension_header,
+                    object->extension_header_len);
+                if (object->extension_header == NULL) {
+                    return -XQC_EILLEGAL_FRAME;
+                }
+            } else {
+                if (object->extension_header) {
+                    xqc_free(object->extension_header);
+                    object->extension_header = NULL;
+                }
+            }
+            msg_ctx->str_processed = 0;
+            msg_ctx->cur_field_idx = 5;
+        case 5: // extension header bytes
+            if (object->extension_header_len > 0) {
+                if (processed == buf_len) {
+                    *wait_more_data = 1;
+                    break;
+                }
+                size_t remain_ext = object->extension_header_len - msg_ctx->str_processed;
+                size_t avail_ext = buf_len - processed;
+                size_t copy = xqc_min(remain_ext, avail_ext);
+                xqc_memcpy(object->extension_header + msg_ctx->str_processed, buf + processed, copy);
+                msg_ctx->str_processed += copy;
+                processed += copy;
+                if (msg_ctx->str_processed == object->extension_header_len) {
+                    msg_ctx->str_processed = 0;
+                    msg_ctx->cur_field_idx = 3;
+                } else {
+                    *wait_more_data = 1;
+                    break;
+                }
+            } else {
+                msg_ctx->cur_field_idx = 6;
+            }
+        case 6: //Object Send Order (i)
+            ret = xqc_vint_read(buf + processed, buf + buf_len, &object->send_order);
+            if (ret < 0) {
+                *wait_more_data = 1;
+                break;
+            }
+            processed += ret;
+            DEBUG_PRINTF("==>send_order:%d\n",(int)object->send_order);
+            msg_ctx->cur_field_idx = 7;
+        case 7: //Object Status (i)
+            ret = xqc_vint_read(buf + processed, buf + buf_len, &object->status);
+            if (ret < 0) {
+                *wait_more_data = 1;
+                break;
+            }
+            processed += ret;
+            DEBUG_PRINTF("==>status:%d\n",(int)object->status);
+            msg_ctx->cur_field_idx = 8;
+        case 8: //Object Payload (..)
             if (buf_len - processed == 0) {
                 *wait_more_data = 1;
                 break;

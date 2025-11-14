@@ -109,6 +109,14 @@ xqc_moq_write_object_stream_msg(xqc_moq_session_t *session, xqc_moq_stream_t *st
 }
 
 xqc_int_t
+xqc_moq_write_object_stream_msg_ext(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
+    xqc_moq_object_stream_msg_ext_t *object)
+{
+    return xqc_moq_write_msg_generic(session, stream, &object->msg_base,
+                                     xqc_moq_msg_object_stream_ext_init_handler);
+}
+
+xqc_int_t
 xqc_moq_write_stream_header_track_msg(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
     xqc_moq_stream_header_track_msg_t *track_header)
 {

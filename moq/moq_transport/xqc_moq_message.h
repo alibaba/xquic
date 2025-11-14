@@ -29,6 +29,8 @@ typedef struct xqc_moq_object_s {
     uint64_t                    object_id;
     uint64_t                    send_order;
     uint64_t                    status;
+    const uint8_t               *extension_header;
+    uint64_t                    extension_header_len;
     uint8_t                     *payload;
     uint64_t                    payload_len;
 } xqc_moq_object_t;
@@ -79,11 +81,27 @@ typedef struct xqc_moq_object_stream_msg_s {
     uint64_t                    track_alias;
     uint64_t                    group_id;
     uint64_t                    object_id;
+    uint64_t                    extension_header_len;
+    uint8_t                     *extension_header;
     uint64_t                    send_order;
     uint64_t                    status;
     uint8_t                     *payload;
     uint64_t                    payload_len;
 } xqc_moq_object_stream_msg_t;
+
+typedef struct xqc_moq_object_stream_msg_ext_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    subscribe_id;
+    uint64_t                    track_alias;
+    uint64_t                    group_id;
+    uint64_t                    object_id;
+    uint64_t                    extension_header_len;
+    uint8_t                     *extension_header;
+    uint64_t                    send_order;
+    uint64_t                    status;
+    uint8_t                     *payload;
+    uint64_t                    payload_len;
+} xqc_moq_object_stream_msg_ext_t;
 
 typedef struct xqc_moq_object_datagram_msg_s {
     xqc_moq_msg_base_t          msg_base;
@@ -290,6 +308,21 @@ xqc_int_t xqc_moq_msg_encode_object_stream_len(xqc_moq_msg_base_t *msg_base);
 xqc_int_t xqc_moq_msg_encode_object_stream(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
 
 xqc_int_t xqc_moq_msg_decode_object_stream(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
+
+void xqc_moq_msg_object_stream_ext_init_handler(xqc_moq_msg_base_t *msg_base);
+
+void *xqc_moq_msg_create_object_stream_ext();
+
+void xqc_moq_msg_free_object_stream_ext(void *msg);
+
+xqc_moq_msg_type_t xqc_moq_msg_object_stream_ext_type();
+
+xqc_int_t xqc_moq_msg_encode_object_stream_ext_len(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_object_stream_ext(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
+
+xqc_int_t xqc_moq_msg_decode_object_stream_ext(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
     xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
 
 void *xqc_moq_msg_create_track_stream_obj();

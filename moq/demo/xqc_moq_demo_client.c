@@ -515,7 +515,17 @@ void on_audio_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     printf("subscribe_id:%"PRIu64", seq_num:%"PRIu64", timestamp_us:%"PRIu64", audio_len:%"PRIu64", dcid:%s\n",
             subscribe_id, audio_frame->seq_num, audio_frame->timestamp_us, audio_frame->audio_len,
             xqc_dcid_str_by_scid(ctx.engine, &user_conn->cid));
-
+    if (audio_frame->ext_headers && audio_frame->ext_headers_len > 0) {
+        printf("audio ext headers: raw_len=%"PRIu64", data=", audio_frame->ext_headers_len);
+        for (uint64_t i = 0; i < audio_frame->ext_headers_len; i++) {
+            if (audio_frame->ext_headers[i] >= 32 && audio_frame->ext_headers[i] <= 126) {
+                printf("%c", audio_frame->ext_headers[i]);
+            } else {
+                printf("\\x%02x", audio_frame->ext_headers[i]);
+            }
+        }
+        printf("\n");
+    }
     //printf("audio_data:%s\n",audio_frame->audio_data);
 }
 
@@ -625,6 +635,10 @@ xqc_app_send_callback(int fd, short what, void* arg)
         audio_frame.timestamp_us = xqc_now();
         audio_frame.audio_len = 1024;
         audio_frame.audio_data = payload_audio;
+
+        static uint8_t ext_data1[] = "test_ext_data";
+        audio_frame.ext_headers = ext_data1;
+        audio_frame.ext_headers_len = sizeof(ext_data1) - 1;
         ret = xqc_moq_write_audio_frame(user_conn->moq_session, user_conn->audio_subscribe_id, user_conn->audio_track, &audio_frame);
         if (ret < 0) {
             printf("xqc_moq_write_audio_frame error\n");

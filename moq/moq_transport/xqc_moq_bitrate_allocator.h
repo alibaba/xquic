@@ -2,6 +2,7 @@
 #define _XQC_MOQ_BITRATE_ALLOCATOR_H_INCLUDED_
 
 #include "xquic/xquic_typedef.h"
+#include "moq/xqc_moq.h"
 #include "moq/moq_transport/xqc_moq_utils.h"
 
 struct xqc_moq_session_s;
@@ -48,7 +49,8 @@ typedef struct xqc_moq_bitrate_allocator_s {
 
 void xqc_moq_init_bitrate(struct xqc_moq_session_s *session);
 
-void xqc_moq_bitrate_alloc_on_frame_acked(struct xqc_moq_session_s *session, xqc_usec_t delay, 
-    xqc_usec_t create_time, xqc_usec_t now, uint64_t stream_len, uint64_t seq_num);
+void xqc_moq_bitrate_alloc_on_frame_acked(struct xqc_moq_session_s *session, xqc_moq_track_t *track,
+    xqc_moq_track_info_t *track_info, xqc_usec_t delay, xqc_usec_t create_time, xqc_usec_t now,
+    uint64_t stream_len, uint64_t seq_num);
 
 #endif /* _XQC_MOQ_BITRATE_ALLOCATOR_H_INCLUDED_ */

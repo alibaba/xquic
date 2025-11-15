@@ -234,6 +234,8 @@ typedef void (*xqc_moq_on_audio_frame_pt)(xqc_moq_user_session_t *user_session, 
  * @brief There are two ways to get the target bitrate. 
  * 1. Call xqc_moq_target_bitrate before encoding. 
  * 2. Register the xqc_moq_on_bitrate_change_pt callback. A callback notification occurs when the target bitrate changes
+ * @param track The track whose bitrate changes, NULL if unavailable
+ * @param track_info The metadata of the track, NULL if unavailable
  */
 typedef void (*xqc_moq_on_bitrate_change_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
     xqc_moq_track_info_t *track_info, uint64_t bitrate);

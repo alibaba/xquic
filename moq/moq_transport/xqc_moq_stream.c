@@ -64,7 +64,10 @@ xqc_moq_stream_destroy(xqc_moq_stream_t *stream)
         && stream->track && stream->track->track_info.track_type == XQC_MOQ_TRACK_VIDEO)
     {
         xqc_usec_t latest_delay = quic_stream->stream_stats.all_data_acked_time - quic_stream->stream_stats.create_time;
-        xqc_moq_bitrate_alloc_on_frame_acked(session, latest_delay, quic_stream->stream_stats.create_time, now, 
+        xqc_moq_track_t *track = stream->track;
+        xqc_moq_track_info_t *track_info = track ? &track->track_info : NULL;
+        xqc_moq_bitrate_alloc_on_frame_acked(session, track, track_info, latest_delay, 
+                                             quic_stream->stream_stats.create_time, now, 
                                              quic_stream->stream_send_offset, stream->seq_num);
     }
 

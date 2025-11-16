@@ -20,6 +20,14 @@ xqc_int_t xqc_moq_write_subscribe_update(xqc_moq_session_t *session, xqc_moq_sub
 
 xqc_int_t xqc_moq_write_unsubscribe(xqc_moq_session_t *session, xqc_moq_unsubscribe_msg_t *unsubscribe);
 
+xqc_int_t xqc_moq_write_publish(xqc_moq_session_t *session, xqc_moq_publish_msg_t *publish);
+
+xqc_int_t xqc_moq_write_publish_ok(xqc_moq_session_t *session, xqc_moq_publish_ok_msg_t *publish_ok);
+
+xqc_int_t xqc_moq_write_publish_error(xqc_moq_session_t *session, xqc_moq_publish_error_msg_t *publish_error);
+
+xqc_int_t xqc_moq_write_publish_done(xqc_moq_session_t *session, xqc_moq_publish_done_msg_t *publish_done);
+
 xqc_int_t xqc_moq_write_object_stream_msg(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
     xqc_moq_object_stream_msg_t *object);
 

@@ -69,6 +69,8 @@ typedef struct user_conn_s {
     int                 countdown;
     int                 request_keyframe;
     int                 closing_notified;
+    int                 publish_started;
+    int                 publish_request_sent;
 } user_conn_t;
 
 

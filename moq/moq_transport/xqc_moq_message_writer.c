@@ -101,6 +101,34 @@ xqc_moq_write_subscribe_error(xqc_moq_session_t *session, xqc_moq_subscribe_erro
 }
 
 xqc_int_t
+xqc_moq_write_publish(xqc_moq_session_t *session, xqc_moq_publish_msg_t *publish)
+{
+    return xqc_moq_write_msg_generic(session, session->ctl_stream, &publish->msg_base,
+                                     xqc_moq_msg_publish_init_handler);
+}
+
+xqc_int_t
+xqc_moq_write_publish_ok(xqc_moq_session_t *session, xqc_moq_publish_ok_msg_t *publish_ok)
+{
+    return xqc_moq_write_msg_generic(session, session->ctl_stream, &publish_ok->msg_base,
+                                     xqc_moq_msg_publish_ok_init_handler);
+}
+
+xqc_int_t
+xqc_moq_write_publish_error(xqc_moq_session_t *session, xqc_moq_publish_error_msg_t *publish_error)
+{
+    return xqc_moq_write_msg_generic(session, session->ctl_stream, &publish_error->msg_base,
+                                     xqc_moq_msg_publish_error_init_handler);
+}
+
+xqc_int_t
+xqc_moq_write_publish_done(xqc_moq_session_t *session, xqc_moq_publish_done_msg_t *publish_done)
+{
+    return xqc_moq_write_msg_generic(session, session->ctl_stream, &publish_done->msg_base,
+                                     xqc_moq_msg_publish_done_init_handler);
+}
+
+xqc_int_t
 xqc_moq_write_object_stream_msg(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
     xqc_moq_object_stream_msg_t *object)
 {

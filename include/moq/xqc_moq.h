@@ -100,12 +100,15 @@ typedef struct xqc_moq_subscribe_msg_s xqc_moq_subscribe_msg_t;
 typedef struct xqc_moq_subscribe_ok_msg_s xqc_moq_subscribe_ok_msg_t;
 typedef struct xqc_moq_subscribe_error_msg_s xqc_moq_subscribe_error_msg_t;
 typedef struct xqc_moq_subscribe_update_msg_s xqc_moq_subscribe_update_msg_t;
+typedef struct xqc_moq_publish_msg_s xqc_moq_publish_msg_t;
+typedef struct xqc_moq_publish_ok_msg_s xqc_moq_publish_ok_msg_t;
+typedef struct xqc_moq_publish_error_msg_s xqc_moq_publish_error_msg_t;
 typedef struct xqc_moq_announce_msg_s xqc_moq_announce_msg_t;
 typedef struct xqc_moq_announce_ok_msg_s xqc_moq_announce_ok_msg_t;
 typedef struct xqc_moq_announce_error_msg_s xqc_moq_announce_error_msg_t;
 typedef struct xqc_moq_unannounce_msg_s xqc_moq_unannounce_msg_t;
 typedef struct xqc_moq_unsubscribe_msg_s xqc_moq_unsubscribe_msg_t;
-typedef struct xqc_moq_subscribe_done_msg_s xqc_moq_subscribe_done_msg_t;
+typedef struct xqc_moq_publish_done_msg_s xqc_moq_publish_done_msg_t;
 typedef struct xqc_moq_goaway_msg_s xqc_moq_goaway_msg_t;
 typedef struct xqc_moq_client_setup_msg_s xqc_moq_client_setup_msg_t;
 typedef struct xqc_moq_server_setup_msg_s xqc_moq_server_setup_msg_t;
@@ -129,7 +132,7 @@ typedef enum {
     XQC_MOQ_MSG_ANNOUNCE_ERROR      = 0x8,
     XQC_MOQ_MSG_UNANNOUNCE          = 0x9,
     XQC_MOQ_MSG_UNSUBSCRIBE         = 0xA,
-    XQC_MOQ_MSG_SUBSCRIBE_DONE      = 0xB,
+    XQC_MOQ_MSG_PUBLISH_DONE        = 0xB,
     XQC_MOQ_MSG_ANNOUNCE_CANCEL     = 0xC,
     XQC_MOQ_MSG_TRACK_STATUS_REQUEST = 0xD,
     XQC_MOQ_MSG_TRACK_STATUS        = 0xE,
@@ -138,6 +141,9 @@ typedef enum {
     XQC_MOQ_MSG_SERVER_SETUP        = 0x41,
     XQC_MOQ_MSG_STREAM_HEADER_TRACK = 0x50,
     XQC_MOQ_MSG_STREAM_HEADER_GROUP = 0x51,
+    XQC_MOQ_MSG_PUBLISH             = 0x1D,
+    XQC_MOQ_MSG_PUBLISH_OK          = 0x1E,
+    XQC_MOQ_MSG_PUBLISH_ERROR       = 0x1F,
     /* Phony message types */
     XQC_MOQ_MSG_TRACK_STREAM_OBJECT = 0xA0,
     XQC_MOQ_MSG_GROUP_STREAM_OBJECT = 0xA1,
@@ -193,10 +199,58 @@ typedef struct xqc_moq_subscribe_error_msg_s {
     uint64_t                    track_alias;
 } xqc_moq_subscribe_error_msg_t;
 
+typedef struct xqc_moq_publish_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    subscribe_id;
+    uint64_t                    track_alias;
+    char                        *track_namespace;
+    size_t                      track_namespace_len;
+    char                        *track_name;
+    size_t                      track_name_len;
+    uint8_t                     group_order;
+    uint8_t                     content_exist;
+    uint64_t                    largest_group_id;
+    uint64_t                    largest_object_id;
+    uint8_t                     forward;
+    uint64_t                    params_num;
+    xqc_moq_message_parameter_t *params;
+} xqc_moq_publish_msg_t;
+
+typedef struct xqc_moq_publish_ok_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    subscribe_id;
+    uint8_t                     forward;
+    uint8_t                     subscriber_priority;
+    uint8_t                     group_order;
+    uint64_t                    filter_type;
+    uint64_t                    start_group_id;
+    uint64_t                    start_object_id;
+    uint64_t                    end_group_id;
+    uint64_t                    params_num;
+    xqc_moq_message_parameter_t *params;
+} xqc_moq_publish_ok_msg_t;
+
+typedef struct xqc_moq_publish_error_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    subscribe_id;
+    uint64_t                    error_code;
+    char                        *reason_phrase;
+    size_t                      reason_phrase_len;
+} xqc_moq_publish_error_msg_t;
+
 typedef struct xqc_moq_unsubscribe_msg_s {
     xqc_moq_msg_base_t          msg_base;
     uint64_t                    subscribe_id;
 } xqc_moq_unsubscribe_msg_t;
+
+typedef struct xqc_moq_publish_done_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    subscribe_id;
+    uint64_t                    status_code;
+    uint64_t                    stream_count;
+    char                        *reason_phrase;
+    size_t                      reason_phrase_len;
+} xqc_moq_publish_done_msg_t;
 
 typedef void (*xqc_moq_on_session_setup_pt)(xqc_moq_user_session_t *user_session, char *extdata);
 
@@ -220,6 +274,18 @@ typedef void (*xqc_moq_on_subscribe_ok_pt)(xqc_moq_user_session_t *user_session,
 
 typedef void (*xqc_moq_on_subscribe_error_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
     xqc_moq_track_info_t *track_info, xqc_moq_subscribe_error_msg_t *subscribe_error);
+
+typedef void (*xqc_moq_on_publish_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_publish_msg_t *publish_msg);
+
+typedef void (*xqc_moq_on_publish_ok_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_publish_ok_msg_t *publish_ok);
+
+typedef void (*xqc_moq_on_publish_error_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_publish_error_msg_t *publish_error);
+
+typedef void (*xqc_moq_on_publish_done_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_publish_done_msg_t *publish_done);
 
 typedef void (*xqc_moq_on_catalog_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_info_t **track_info_array,
     xqc_int_t array_size);
@@ -252,6 +318,10 @@ typedef struct {
     /* For Subscriber */
     xqc_moq_on_subscribe_ok_pt      on_subscribe_ok; /* Required */
     xqc_moq_on_subscribe_error_pt   on_subscribe_error; /* Required */
+    xqc_moq_on_publish_pt           on_publish; /* Optional */
+    xqc_moq_on_publish_ok_pt        on_publish_ok; /* Optional */
+    xqc_moq_on_publish_error_pt     on_publish_error; /* Optional */
+    xqc_moq_on_publish_done_pt      on_publish_done; /* Optional */
     xqc_moq_on_catalog_pt           on_catalog; /* Required */
     xqc_moq_on_video_frame_pt       on_video; /* Required */
     xqc_moq_on_audio_frame_pt       on_audio; /* Required */
@@ -313,6 +383,10 @@ XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_subscribe_latest(xqc_moq_session_t *session, const char *track_namespace, const char *track_name);
 
 XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_publish_track(xqc_moq_session_t *session, const char *track_namespace,
+    const char *track_name, uint8_t forward);
+
+XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_unsubscribe(xqc_moq_session_t *session, uint64_t subscribe_id);
 
 XQC_EXPORT_PUBLIC_API
@@ -323,6 +397,15 @@ xqc_int_t xqc_moq_write_subscribe_ok(xqc_moq_session_t *session, xqc_moq_subscri
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_subscribe_error(xqc_moq_session_t *session, xqc_moq_subscribe_error_msg_t *subscribe_error);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_publish_ok(xqc_moq_session_t *session, xqc_moq_publish_ok_msg_t *publish_ok);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_publish_error(xqc_moq_session_t *session, xqc_moq_publish_error_msg_t *publish_error);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_publish_done(xqc_moq_session_t *session, xqc_moq_publish_done_msg_t *publish_done);
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_datachannel(xqc_moq_session_t *session, uint8_t *msg, size_t msg_len);

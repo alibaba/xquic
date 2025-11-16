@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <memory.h>
+#include <string.h>
 #include <stdlib.h>
 #include <event2/event.h>
 #include <inttypes.h>
@@ -55,6 +56,39 @@ int g_spec_local_addr = 0;
 int g_fec_on = 0;
 int g_frame_num = 5;
 xqc_moq_role_t g_role = XQC_MOQ_PUBSUB;
+
+static void
+xqc_demo_try_publish(user_conn_t *user_conn)
+{
+    if ((g_role & XQC_MOQ_PUBLISHER) == 0 || user_conn->publish_started || user_conn->moq_session == NULL) {
+        return;
+    }
+
+    int published = 0;
+    int ret;
+
+    if (user_conn->video_track) {
+        ret = xqc_moq_publish_track(user_conn->moq_session, "namespace", "video", 1);
+        if (ret < 0) {
+            printf("publish video track error\n");
+        } else {
+            published = 1;
+        }
+    }
+
+    if (user_conn->audio_track) {
+        ret = xqc_moq_publish_track(user_conn->moq_session, "namespace", "audio", 1);
+        if (ret < 0) {
+            printf("publish audio track error\n");
+        } else {
+            published = 1;
+        }
+    }
+
+    if (published) {
+        user_conn->publish_started = 1;
+    }
+}
 
 static int
 xqc_server_create_socket(const char *addr, unsigned int port)
@@ -218,7 +252,6 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata)
         printf("extdata:%s\n",extdata);
     }
 
-    int ret;
     xqc_moq_session_t *session = user_session->session;
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
 
@@ -226,6 +259,8 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata)
     user_conn->video_subscribe_id = -1;
     user_conn->audio_subscribe_id = -1;
     user_conn->countdown = g_frame_num;
+    user_conn->publish_started = 0;
+    user_conn->publish_request_sent = 0;
 
     if (g_role == XQC_MOQ_SUBSCRIBER) {
         return;
@@ -259,12 +294,24 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata)
         printf("create audio track error\n");
     }
     user_conn->audio_track = audio_track;
+
 }
 
 void on_datachannel(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info)
 {
     DEBUG;
+    user_conn_t *user_conn = (user_conn_t *)user_session->data;
     printf("on_datachannel: track_namespace:%s track_name:%s\n", track_info->track_namespace, track_info->track_name);
+
+    if ((g_role & XQC_MOQ_SUBSCRIBER) && user_conn->publish_request_sent == 0) {
+        int ret = xqc_moq_write_datachannel(user_session->session,
+                                            (uint8_t*)"publish_request", strlen("publish_request"));
+        if (ret < 0) {
+            printf("xqc_moq_write_datachannel error\n");
+        } else {
+            user_conn->publish_request_sent = 1;
+        }
+    }
 }
 
 void on_datachannel_msg(struct xqc_moq_user_session_s *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, uint8_t *msg, size_t msg_len)
@@ -273,13 +320,19 @@ void on_datachannel_msg(struct xqc_moq_user_session_s *user_session, xqc_moq_tra
     printf("on_datachannel_msg: track_namespace:%s track_name:%s\n",
            track_info ? track_info->track_namespace : "null",
            track_info ? track_info->track_name : "null");
-    xqc_int_t ret;
     xqc_moq_session_t *session = user_session->session;
+    user_conn_t *user_conn = (user_conn_t *)user_session->data;
+    if (strncmp((char*)msg, "publish_request", strlen("publish_request")) == 0) {
+        xqc_demo_try_publish(user_conn);
+        return;
+    }
+
     if (strncmp((char*)msg, "datachannel req", strlen("datachannel req")) == 0) {
-        ret = xqc_moq_write_datachannel(session, (uint8_t*)"datachannel rsp", strlen("datachannel rsp"));
+        int ret = xqc_moq_write_datachannel(session, (uint8_t*)"datachannel rsp", strlen("datachannel rsp"));
         if (ret < 0) {
             printf("xqc_moq_write_datachannel error\n");
         }
+        xqc_demo_try_publish(user_conn);
     }
 }
 
@@ -362,12 +415,49 @@ void on_subscribe_error(xqc_moq_user_session_t *user_session, xqc_moq_track_t *t
            (int)subscribe_error->subscribe_id, (int)subscribe_error->error_code, subscribe_error->reason_phrase, (int)subscribe_error->track_alias);
 }
 
+void on_publish_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_publish_msg_t *publish_msg)
+{
+    printf("on_publish: subscribe_id:%"PRIu64" track:%s/%s track_alias:%"PRIu64" forward:%u content_exist:%u\n",
+           publish_msg->subscribe_id,
+           publish_msg->track_namespace,
+           publish_msg->track_name,
+           publish_msg->track_alias,
+           publish_msg->forward,
+           publish_msg->content_exist);
+}
+
+void on_publish_ok_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_publish_ok_msg_t *publish_ok)
+{
+    printf("on_publish_ok: subscribe_id:%"PRIu64" track_ptr:%p forward:%u priority:%u filter:%"PRIu64"\n",
+           publish_ok->subscribe_id,
+           (void*)track,
+           publish_ok->forward, publish_ok->subscriber_priority, publish_ok->filter_type);
+}
+
+void on_publish_error_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_publish_error_msg_t *publish_error)
+{
+    printf("on_publish_error: subscribe_id:%"PRIu64" track_ptr:%p reason:%s\n",
+           publish_error->subscribe_id,
+           (void*)track,
+           publish_error->reason_phrase ? publish_error->reason_phrase : "null");
+}
+
+void on_publish_done_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_publish_done_msg_t *publish_done)
+{
+    printf("on_publish_done: subscribe_id:%"PRIu64" track_ptr:%p status:%"PRIu64" streams:%"PRIu64" reason:%s\n",
+           publish_done->subscribe_id,
+           (void*)track,
+           publish_done->status_code, publish_done->stream_count,
+           publish_done->reason_phrase ? publish_done->reason_phrase : "null");
+}
+
 void on_catalog(xqc_moq_user_session_t *user_session, xqc_moq_track_info_t **track_info_array, xqc_int_t array_size)
 {
     DEBUG;
 
     int ret;
     xqc_moq_session_t *session = user_session->session;
+    user_conn_t *user_conn = (user_conn_t *)user_session->data;
 
     for (int i = 0; i < array_size; i++) {
         xqc_moq_track_info_t *track_info = track_info_array[i];
@@ -380,6 +470,17 @@ void on_catalog(xqc_moq_user_session_t *user_session, xqc_moq_track_info_t **tra
                track_info->selection_params.display_width, track_info->selection_params.display_height, track_info->selection_params.samplerate,
                track_info->selection_params.channel_config ? track_info->selection_params.channel_config : "null");
     
+        if (g_role & XQC_MOQ_SUBSCRIBER) {
+            xqc_moq_track_t *sub_track = xqc_moq_track_create(session,
+                track_info->track_namespace, track_info->track_name,
+                track_info->track_type, &track_info->selection_params,
+                XQC_MOQ_CONTAINER_LOC, XQC_MOQ_TRACK_FOR_SUB);
+            if (sub_track == NULL) {
+                printf("create subscriber track error:%s/%s\n",
+                       track_info->track_namespace, track_info->track_name);
+            }
+        }
+
         if (g_role == XQC_MOQ_PUBLISHER) {
             continue;
         }
@@ -437,6 +538,10 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
         /* For Subscriber */
         .on_subscribe_ok = on_subscribe_ok,
         .on_subscribe_error = on_subscribe_error,
+        .on_publish = on_publish_msg,
+        .on_publish_ok = on_publish_ok_msg,
+        .on_publish_error = on_publish_error_msg,
+        .on_publish_done = on_publish_done_msg,
         .on_catalog = on_catalog,
         .on_video = on_video_frame,
         .on_audio = on_audio_frame,
@@ -569,6 +674,17 @@ xqc_app_send_callback(int fd, short what, void* arg)
     }
     
     if (user_conn->countdown-- <= 0) {
+        if (user_conn->video_subscribe_id != -1) {
+            xqc_moq_publish_done_msg_t publish_done;
+            memset(&publish_done, 0, sizeof(publish_done));
+            publish_done.subscribe_id = user_conn->video_subscribe_id;
+            publish_done.status_code = 0x2; /* TRACK_ENDED */
+            publish_done.stream_count = 0;
+            const char *reason = "stream ended";
+            publish_done.reason_phrase = (char*)reason;
+            publish_done.reason_phrase_len = strlen(reason);
+            xqc_moq_write_publish_done(user_conn->moq_session, &publish_done);
+        }
         xqc_conn_close(ctx.engine, &user_conn->cid);
         return;
     }

@@ -132,6 +132,7 @@ typedef enum {
     XQC_MOQ_MSG_ANNOUNCE_ERROR      = 0x8,
     XQC_MOQ_MSG_UNANNOUNCE          = 0x9,
     XQC_MOQ_MSG_UNSUBSCRIBE         = 0xA,
+    // XQC_MOQ_MSG_SUBSCRIBE_DONE      = 0xB,
     XQC_MOQ_MSG_PUBLISH_DONE        = 0xB,
     XQC_MOQ_MSG_ANNOUNCE_CANCEL     = 0xC,
     XQC_MOQ_MSG_TRACK_STATUS_REQUEST = 0xD,
@@ -252,6 +253,23 @@ typedef struct xqc_moq_publish_done_msg_s {
     size_t                      reason_phrase_len;
 } xqc_moq_publish_done_msg_t;
 
+typedef enum {
+    XQC_MOQ_PUBLISH_ERR_INTERNAL              = 0x0,
+    XQC_MOQ_PUBLISH_ERR_SUBSCRIPTION_EXISTS   = 0x3,
+    XQC_MOQ_PUBLISH_ERR_TRACK_NOT_FOUND       = 0x4,
+} xqc_moq_publish_error_code_t;
+
+typedef struct {
+    uint8_t     forward;
+    uint8_t     subscriber_priority;
+    uint8_t     group_order;
+    uint64_t    filter_type;
+    uint64_t    start_group_id;
+    uint64_t    start_object_id;
+    uint64_t    end_group_id;
+    uint64_t    end_object_id;
+} xqc_moq_publish_selected_params_t;
+
 typedef void (*xqc_moq_on_session_setup_pt)(xqc_moq_user_session_t *user_session, char *extdata);
 
 typedef void (*xqc_moq_on_datachannel_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
@@ -286,6 +304,9 @@ typedef void (*xqc_moq_on_publish_error_pt)(xqc_moq_user_session_t *user_session
 
 typedef void (*xqc_moq_on_publish_done_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
     xqc_moq_publish_done_msg_t *publish_done);
+
+typedef void (*xqc_moq_on_publish_accept_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_publish_msg_t *publish_msg, xqc_moq_publish_selected_params_t *params);
 
 typedef void (*xqc_moq_on_catalog_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_info_t **track_info_array,
     xqc_int_t array_size);
@@ -322,6 +343,7 @@ typedef struct {
     xqc_moq_on_publish_ok_pt        on_publish_ok; /* Optional */
     xqc_moq_on_publish_error_pt     on_publish_error; /* Optional */
     xqc_moq_on_publish_done_pt      on_publish_done; /* Optional */
+    xqc_moq_on_publish_accept_pt    on_publish_accept; /* Optional */
     xqc_moq_on_catalog_pt           on_catalog; /* Required */
     xqc_moq_on_video_frame_pt       on_video; /* Required */
     xqc_moq_on_audio_frame_pt       on_audio; /* Required */

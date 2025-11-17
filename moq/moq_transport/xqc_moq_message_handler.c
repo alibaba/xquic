@@ -321,14 +321,14 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
     track = xqc_moq_find_track_by_name(session, publish->track_namespace, publish->track_name, XQC_MOQ_TRACK_FOR_SUB);
     if (track == NULL) {
         xqc_log(session->log, XQC_LOG_ERROR, "|on_publish track not found|track_name:%s|", publish->track_name);
-        xqc_moq_publish_send_error(session, publish->subscribe_id, 0x4, "track not found");
+    xqc_moq_publish_send_error(session, publish->subscribe_id, XQC_MOQ_PUBLISH_ERR_TRACK_NOT_FOUND, "track not found");
         return;
     }
 
     if (track->subscribe_id != -1 && track->subscribe_id != publish->subscribe_id) {
         xqc_log(session->log, XQC_LOG_ERROR, "|on_publish duplicate subscription|track_name:%s|",
                 track->track_info.track_name);
-        xqc_moq_publish_send_error(session, publish->subscribe_id, 0x3, "subscription exists");
+        xqc_moq_publish_send_error(session, publish->subscribe_id, XQC_MOQ_PUBLISH_ERR_SUBSCRIPTION_EXISTS, "subscription exists");
         return;
     }
 
@@ -340,41 +340,52 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
             publish->subscribe_id, publish->track_namespace, publish->track_name,
             publish->track_alias, publish->forward);
 
+    xqc_moq_publish_selected_params_t selected_params;
+    memset(&selected_params, 0, sizeof(selected_params));
+    selected_params.forward = 1;
+    selected_params.group_order = publish->group_order;
+    selected_params.filter_type = XQC_MOQ_FILTER_LAST_GROUP;
+
+    if (session->session_callbacks.on_publish_accept) {
+        session->session_callbacks.on_publish_accept(session->user_session, track, publish, &selected_params);
+    }
+
     subscribe = xqc_moq_find_subscribe(session, publish->subscribe_id, 1);
     if (subscribe == NULL) {
         subscribe = xqc_moq_subscribe_create(session, publish->subscribe_id,
                                              publish->track_alias, publish->track_namespace,
-                                             publish->track_name, XQC_MOQ_FILTER_LAST_GROUP,
-                                             0, 0, 0, 0, NULL, 1);
+                                             publish->track_name, selected_params.filter_type,
+                                             selected_params.start_group_id, selected_params.start_object_id,
+                                             selected_params.end_group_id, selected_params.end_object_id, NULL, 1);
         if (subscribe == NULL) {
             xqc_log(session->log, XQC_LOG_ERROR, "|on_publish create subscribe error|");
-            xqc_moq_publish_send_error(session, publish->subscribe_id, 0x0, "internal error");
+            xqc_moq_publish_send_error(session, publish->subscribe_id, XQC_MOQ_PUBLISH_ERR_INTERNAL, "internal error");
             return;
         }
     }
 
-    subscribe->subscribe_msg->filter_type = XQC_MOQ_FILTER_LAST_GROUP;
-    subscribe->subscribe_msg->start_group_id = 0;
-    subscribe->subscribe_msg->start_object_id = 0;
-    subscribe->subscribe_msg->end_group_id = 0;
-    subscribe->subscribe_msg->end_object_id = 0;
+    subscribe->subscribe_msg->filter_type = selected_params.filter_type;
+    subscribe->subscribe_msg->start_group_id = selected_params.start_group_id;
+    subscribe->subscribe_msg->start_object_id = selected_params.start_object_id;
+    subscribe->subscribe_msg->end_group_id = selected_params.end_group_id;
+    subscribe->subscribe_msg->end_object_id = selected_params.end_object_id;
 
     xqc_moq_publish_ok_msg_t publish_ok;
     xqc_memzero(&publish_ok, sizeof(publish_ok));
     xqc_moq_msg_publish_ok_init_handler(&publish_ok.msg_base);
     publish_ok.subscribe_id = publish->subscribe_id;
-    publish_ok.forward = 1;
-    publish_ok.subscriber_priority = 0;
-    publish_ok.group_order = publish->group_order;
-    publish_ok.filter_type = subscribe->subscribe_msg->filter_type;
-    publish_ok.start_group_id = subscribe->subscribe_msg->start_group_id;
-    publish_ok.start_object_id = subscribe->subscribe_msg->start_object_id;
-    publish_ok.end_group_id = subscribe->subscribe_msg->end_group_id;
+    publish_ok.forward = selected_params.forward;
+    publish_ok.subscriber_priority = selected_params.subscriber_priority;
+    publish_ok.group_order = selected_params.group_order;
+    publish_ok.filter_type = selected_params.filter_type;
+    publish_ok.start_group_id = selected_params.start_group_id;
+    publish_ok.start_object_id = selected_params.start_object_id;
+    publish_ok.end_group_id = selected_params.end_group_id;
 
     ret = xqc_moq_write_publish_ok(session, &publish_ok);
     if (ret < 0) {
         xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_write_publish_ok error|ret:%d|", ret);
-        xqc_moq_publish_send_error(session, publish->subscribe_id, 0x0, "internal error");
+        xqc_moq_publish_send_error(session, publish->subscribe_id, XQC_MOQ_PUBLISH_ERR_INTERNAL, "internal error");
         return;
     }
 

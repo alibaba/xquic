@@ -60,7 +60,7 @@ int g_spec_local_addr = 0;
 int g_frame_num = 5;
 int g_fec_on = 0;
 xqc_moq_role_t g_role = XQC_MOQ_PUBSUB;
-int g_skip_subscribe = 0;
+int g_publish_mode = 0;
 
 static void
 xqc_demo_start_send_timer(user_conn_t *user_conn)
@@ -600,8 +600,8 @@ void on_catalog(xqc_moq_user_session_t *user_session, xqc_moq_track_info_t **tra
         if (g_role == XQC_MOQ_PUBLISHER) {
             continue;
         }
-        if (g_skip_subscribe) {
-            printf("skip subscribe flag enabled, ignore track:%s/%s\n",
+        if (g_publish_mode) {
+            printf("publish mode, skip subscribe track:%s/%s\n",
                    track_info->track_namespace, track_info->track_name);
             continue;
         }
@@ -775,7 +775,7 @@ int main(int argc, char *argv[])
     uint8_t secret_key[16] = {0};
     int use_proxy = 0;
     int use_1rtt = 0;
-    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:f1S")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:f1M")) != -1) {
         switch (ch) {
             case 'a':
                 printf("option addr :%s\n", optarg);
@@ -855,9 +855,9 @@ int main(int argc, char *argv[])
                 printf("option 1RTT :%s\n", "on");
                 use_1rtt = 1;
                 break;
-            case 'S':
-                printf("option skip subscribe : on\n");
-                g_skip_subscribe = 1;
+            case 'M':
+                printf("option publish mode : on\n");
+                g_publish_mode = 1;
                 break;
             default:
                 printf("other option :%c\n", ch);

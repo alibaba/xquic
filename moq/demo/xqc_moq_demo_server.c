@@ -56,9 +56,9 @@ int g_spec_local_addr = 0;
 int g_fec_on = 0;
 int g_frame_num = 5;
 xqc_moq_role_t g_role = XQC_MOQ_PUBSUB;
+int g_publish_mode = 0;
 
-static void
-xqc_demo_try_publish(user_conn_t *user_conn)
+void xqc_demo_try_publish(user_conn_t *user_conn)
 {
     if ((g_role & XQC_MOQ_PUBLISHER) == 0 || user_conn->publish_started || user_conn->moq_session == NULL) {
         return;
@@ -484,6 +484,11 @@ void on_catalog(xqc_moq_user_session_t *user_session, xqc_moq_track_info_t **tra
         if (g_role == XQC_MOQ_PUBLISHER) {
             continue;
         }
+        if (g_publish_mode) {
+            printf("publish mode, skip subscribe track:%s/%s\n",
+                   track_info->track_namespace, track_info->track_name);
+            continue;
+        }
         //subscribe media
         ret = xqc_moq_subscribe_latest(session, track_info->track_namespace, track_info->track_name);
         if (ret < 0) {
@@ -752,7 +757,7 @@ int main(int argc, char *argv[])
     int server_port = TEST_PORT;
     xqc_cong_ctrl_callback_t cong_ctrl;
     cong_ctrl = xqc_bbr_cb;
-    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:")) != -1) {
+    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:M")) != -1) {
         switch (ch) {
         /* listen port */
         case 'p':
@@ -812,6 +817,10 @@ int main(int argc, char *argv[])
         case 'd': /* Drop rate ‰. */
             printf("option drop rate :%s\n", optarg);
             g_drop_rate = atoi(optarg);
+            break;
+        case 'M':
+            printf("option publish mode : on\n");
+            g_publish_mode = 1;
             break;
         default:
             break;

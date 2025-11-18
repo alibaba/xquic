@@ -405,8 +405,7 @@ XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_subscribe_latest(xqc_moq_session_t *session, const char *track_namespace, const char *track_name);
 
 XQC_EXPORT_PUBLIC_API
-xqc_int_t xqc_moq_publish_track(xqc_moq_session_t *session, const char *track_namespace,
-    const char *track_name, uint8_t forward);
+xqc_int_t xqc_moq_publish(xqc_moq_session_t *session, xqc_moq_publish_msg_t *publish_msg);
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_unsubscribe(xqc_moq_session_t *session, uint64_t subscribe_id);

@@ -174,34 +174,54 @@ xqc_moq_unsubscribe(xqc_moq_session_t *session, uint64_t subscribe_id)
 }
 
 xqc_int_t
-xqc_moq_publish_track(xqc_moq_session_t *session, const char *track_namespace,
-    const char *track_name, uint8_t forward)
+xqc_moq_publish(xqc_moq_session_t *session, xqc_moq_publish_msg_t *publish)
 {
     xqc_moq_track_t *track;
     xqc_moq_subscribe_t *subscribe;
-    xqc_moq_publish_msg_t publish_msg;
     xqc_int_t ret;
+    uint64_t subscribe_id;
 
-    track = xqc_moq_find_track_by_name(session, track_namespace, track_name, XQC_MOQ_TRACK_FOR_PUB);
+    if (session == NULL || publish == NULL || publish->track_namespace == NULL || publish->track_name == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|publish invalid argument|");
+        return -XQC_EPARAM;
+    }
+
+    track = xqc_moq_find_track_by_name(session, publish->track_namespace, publish->track_name, XQC_MOQ_TRACK_FOR_PUB);
     if (track == NULL) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|publish track not found|track_name:%s|", track_name);
+        xqc_log(session->log, XQC_LOG_ERROR, "|publish track not found|track_name:%s|", publish->track_name);
         return -XQC_ENULLPTR;
     }
 
     if (track->track_alias == -1) {
         xqc_moq_track_set_alias(track, xqc_moq_session_alloc_track_alias(session));
     }
+    publish->track_alias = track->track_alias;
 
     if (track->subscribe_id != -1) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|publish track already has subscriber|track_name:%s|", track_name);
+        xqc_log(session->log, XQC_LOG_ERROR, "|publish track already has subscriber|track_name:%s|",
+                publish->track_name);
         return -MOQ_PROTOCOL_VIOLATION;
     }
 
-    uint64_t subscribe_id = xqc_moq_session_alloc_subscribe_id(session);
+    subscribe_id = publish->subscribe_id;
+    if (subscribe_id == 0) {
+        subscribe_id = xqc_moq_session_alloc_subscribe_id(session);
+    }
     xqc_moq_track_set_subscribe_id(track, subscribe_id);
+    publish->subscribe_id = subscribe_id;
+
+    if (publish->track_namespace_len == 0) {
+        publish->track_namespace_len = strlen(publish->track_namespace);
+    }
+    if (publish->track_name_len == 0) {
+        publish->track_name_len = strlen(publish->track_name);
+    }
+    if (publish->group_order == 0) {
+        publish->group_order = 0x1;
+    }
 
     subscribe = xqc_moq_subscribe_create(session, subscribe_id, track->track_alias,
-                                         track_namespace, track_name, XQC_MOQ_FILTER_LAST_GROUP,
+                                         publish->track_namespace, publish->track_name, XQC_MOQ_FILTER_LAST_GROUP,
                                          0, 0, 0, 0, NULL, 0);
     if (subscribe == NULL) {
         xqc_log(session->log, XQC_LOG_ERROR, "|publish create subscribe error|");
@@ -209,22 +229,11 @@ xqc_moq_publish_track(xqc_moq_session_t *session, const char *track_namespace,
         return -XQC_ENULLPTR;
     }
 
-    xqc_memzero(&publish_msg, sizeof(publish_msg));
-    xqc_moq_msg_publish_init_handler(&publish_msg.msg_base);
-    publish_msg.subscribe_id = subscribe_id;
-    publish_msg.track_alias = track->track_alias;
-    publish_msg.track_namespace = track->track_info.track_namespace;
-    publish_msg.track_namespace_len = strlen(track->track_info.track_namespace);
-    publish_msg.track_name = track->track_info.track_name;
-    publish_msg.track_name_len = strlen(track->track_info.track_name);
-    publish_msg.group_order = 0x1;
-    publish_msg.content_exist = 0;
-    publish_msg.largest_group_id = 0;
-    publish_msg.largest_object_id = 0;
-    publish_msg.forward = forward ? 1 : 0;
-    publish_msg.params_num = 0;
+    if (publish->forward != 0) {
+        publish->forward = 1;
+    }
 
-    ret = xqc_moq_write_publish(session, &publish_msg);
+    ret = xqc_moq_write_publish(session, publish);
     if (ret < 0) {
         xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_write_publish error|ret:%d|", ret);
         xqc_list_del(&subscribe->list_member);
@@ -235,7 +244,7 @@ xqc_moq_publish_track(xqc_moq_session_t *session, const char *track_namespace,
     }
 
     xqc_log(session->log, XQC_LOG_INFO, "|publish send success|track_name:%s|track_alias:%ui|subscribe_id:%ui|",
-            track_name, track->track_alias, subscribe_id);
+            publish->track_name, track->track_alias, subscribe_id);
 
     return (xqc_int_t)subscribe_id;
 }

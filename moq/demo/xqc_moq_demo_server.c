@@ -58,6 +58,26 @@ int g_frame_num = 5;
 xqc_moq_role_t g_role = XQC_MOQ_PUBSUB;
 int g_publish_mode = 0;
 
+xqc_int_t
+xqc_demo_publish_track(user_conn_t *user_conn, const char *track_namespace, const char *track_name)
+{
+    xqc_moq_publish_msg_t publish_msg;
+    xqc_int_t ret = 0;
+    memset(&publish_msg, 0, sizeof(publish_msg));
+    publish_msg.track_namespace = (char *)track_namespace;
+    publish_msg.track_namespace_len = strlen(track_namespace);
+    publish_msg.track_name = (char *)track_name;
+    publish_msg.track_name_len = strlen(track_name);
+    publish_msg.group_order = 1;
+    publish_msg.content_exist = 0;
+    publish_msg.largest_group_id = 0;
+    publish_msg.largest_object_id = 0;
+    publish_msg.forward = 1;
+    publish_msg.params_num = 0;
+    ret = xqc_moq_publish(user_conn->moq_session, &publish_msg);
+    return ret;
+}
+
 void xqc_demo_try_publish(user_conn_t *user_conn)
 {
     if ((g_role & XQC_MOQ_PUBLISHER) == 0 || user_conn->publish_started || user_conn->moq_session == NULL) {
@@ -68,7 +88,7 @@ void xqc_demo_try_publish(user_conn_t *user_conn)
     int ret;
 
     if (user_conn->video_track) {
-        ret = xqc_moq_publish_track(user_conn->moq_session, "namespace", "video", 1);
+        ret = xqc_demo_publish_track(user_conn, "namespace", "video");
         if (ret < 0) {
             printf("publish video track error\n");
         } else {
@@ -77,7 +97,7 @@ void xqc_demo_try_publish(user_conn_t *user_conn)
     }
 
     if (user_conn->audio_track) {
-        ret = xqc_moq_publish_track(user_conn->moq_session, "namespace", "audio", 1);
+        ret = xqc_demo_publish_track(user_conn, "namespace", "audio");
         if (ret < 0) {
             printf("publish audio track error\n");
         } else {

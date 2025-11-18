@@ -38,7 +38,8 @@ static xqc_bool_t xqc_moq_media_maybe_cancel_write(xqc_moq_session_t *session, u
     xqc_moq_track_t *track, xqc_moq_video_frame_t *video_frame);
 
 static void xqc_init_moq_object_ext_with_object(xqc_moq_object_stream_msg_ext_t *obj_ext,
-                                                xqc_moq_object_stream_msg_t *object) {
+                                                xqc_moq_object_stream_msg_t *object)
+{
     xqc_memset(obj_ext, 0, sizeof(*obj_ext));
     obj_ext->subscribe_id = object->subscribe_id;
     obj_ext->track_alias = object->track_alias;

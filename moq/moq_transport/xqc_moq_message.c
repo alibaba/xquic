@@ -1740,6 +1740,7 @@ xqc_moq_msg_free_object_stream_ext(void *msg)
     }
     xqc_moq_object_stream_msg_ext_t *object_stream = (xqc_moq_object_stream_msg_ext_t *)msg;
     xqc_free(object_stream->payload);
+    xqc_free(object_stream->extension_header);
     xqc_free(object_stream);
 }
 
@@ -1760,7 +1761,7 @@ xqc_moq_msg_encode_object_stream_ext_len(xqc_moq_msg_base_t *msg_base)
     len += xqc_put_varint_len(object->group_id);
     len += xqc_put_varint_len(object->object_id);
     len += xqc_put_varint_len(object->extension_header_len);
-    if(object->extension_header_len > 0) {
+    if (object->extension_header_len > 0) {
         len += object->extension_header_len;
     }
     len += xqc_put_varint_len(object->send_order);
@@ -1785,7 +1786,7 @@ xqc_moq_msg_encode_object_stream_ext(xqc_moq_msg_base_t *msg_base, uint8_t *buf,
     p = xqc_put_varint(p, object->group_id);
     p = xqc_put_varint(p, object->object_id);
     p = xqc_put_varint(p, object->extension_header_len);
-    if(object->extension_header_len > 0) {
+    if (object->extension_header_len > 0) {
         xqc_memcpy(p, object->extension_header, object->extension_header_len);
         p += object->extension_header_len;
     }
@@ -1852,6 +1853,9 @@ xqc_moq_msg_decode_object_stream_ext(uint8_t *buf, size_t buf_len, uint8_t strea
             }
             processed += ret;
             if (object->extension_header_len > 0) {
+                if (object->extension_header_len > XQC_MOQ_MAX_NAME_LEN) {
+                    return -XQC_ELIMIT;
+                }
                 object->extension_header = xqc_realloc(object->extension_header,
                     object->extension_header_len);
                 if (object->extension_header == NULL) {
@@ -1879,7 +1883,7 @@ xqc_moq_msg_decode_object_stream_ext(uint8_t *buf, size_t buf_len, uint8_t strea
                 processed += copy;
                 if (msg_ctx->str_processed == object->extension_header_len) {
                     msg_ctx->str_processed = 0;
-                    msg_ctx->cur_field_idx = 3;
+                    msg_ctx->cur_field_idx = 6;
                 } else {
                     *wait_more_data = 1;
                     break;

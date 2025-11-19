@@ -609,7 +609,7 @@ xqc_app_send_callback(int fd, short what, void* arg)
     xqc_int_t ret;
     if (user_conn->video_subscribe_id != -1) {
         uint8_t payload_video[102400] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-        xqc_moq_video_frame_t video_frame;
+        xqc_moq_video_frame_t video_frame = {0};
         if (user_conn->request_keyframe || user_conn->video_seq % 10 == 0) {
             video_frame.type = XQC_MOQ_VIDEO_KEY;
             user_conn->request_keyframe = 0;
@@ -630,7 +630,7 @@ xqc_app_send_callback(int fd, short what, void* arg)
 
     if (user_conn->audio_subscribe_id != -1) {
         uint8_t payload_audio[1024] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-        xqc_moq_audio_frame_t audio_frame;
+        xqc_moq_audio_frame_t audio_frame = {0};
         audio_frame.seq_num = user_conn->audio_seq++;
         audio_frame.timestamp_us = xqc_now();
         audio_frame.audio_len = 1024;

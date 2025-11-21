@@ -24,7 +24,7 @@ xqc_moq_init_alpn(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs, xqc_moq_
 
 xqc_moq_session_t *
 xqc_moq_session_create(void *conn, xqc_moq_user_session_t *user_session, xqc_moq_transport_type_t transport_type,
-    xqc_moq_role_t role, xqc_moq_session_callbacks_t callbacks, char *extdata)
+    xqc_moq_role_t role, xqc_moq_session_callbacks_t callbacks, char *extdata, xqc_int_t enable_client_setup_v14)
 {
     xqc_int_t ret = 0;
     xqc_connection_t *quic_conn;
@@ -66,6 +66,10 @@ xqc_moq_session_create(void *conn, xqc_moq_user_session_t *user_session, xqc_moq
     xqc_init_list_head(&session->track_list_for_pub);
     xqc_init_list_head(&session->track_list_for_sub);
 
+    session->use_client_setup_v14 = enable_client_setup_v14;
+    /* Request IDs use parity per endpoint: client even, server odd. */
+    session->subscribe_id_allocator = (session->engine->eng_type == XQC_ENGINE_CLIENT) ? 0 : 1;
+
     if (session->engine->eng_type == XQC_ENGINE_CLIENT) {
         xqc_moq_stream_t *stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_BIDI);
         if (stream == NULL) {
@@ -74,25 +78,39 @@ xqc_moq_session_create(void *conn, xqc_moq_user_session_t *user_session, xqc_moq
         }
         session->ctl_stream = stream;
 
-        xqc_moq_client_setup_msg_t client_setup;
-        uint64_t versions[] = {XQC_MOQ_VERSION_5};
         xqc_int_t params_num = 2;
         xqc_moq_message_parameter_t params[3] = {
-                {XQC_MOQ_PARAM_ROLE, 1, (uint8_t * ) & session->role},
-                {XQC_MOQ_PARAM_PATH, sizeof("path"), (uint8_t*)"path"},
+                {XQC_MOQ_PARAM_ROLE, 1, (uint8_t * ) & session->role, 1, (uint64_t)session->role},
+                {XQC_MOQ_PARAM_PATH, sizeof("path"), (uint8_t*)"path", 0, 0},
         };
-        if (extdata && strlen(extdata) > 0) {
+        if (extdata && strlen(extdata) > 0 && !session->use_client_setup_v14) {
             params[params_num].type = XQC_MOQ_PARAM_EXTDATA;
             params[params_num].length = strlen(extdata) + 1;
             params[params_num].value = (uint8_t *)extdata;
+            params[params_num].is_integer = 0;
+            params[params_num].int_value = 0;
             params_num++;
         }
-        client_setup.versions_num = sizeof(versions) / sizeof(versions[0]);
-        client_setup.versions = versions;
-        client_setup.params_num = params_num;
-        client_setup.params = params;
 
-        ret = xqc_moq_write_client_setup(session, &client_setup);
+        if (session->use_client_setup_v14) {
+            xqc_moq_client_setup_v14_msg_t client_setup_v14;
+            uint64_t versions_v14[] = {XQC_MOQ_VERSION_14};
+            client_setup_v14.versions_num = sizeof(versions_v14) / sizeof(versions_v14[0]);
+            client_setup_v14.versions = versions_v14;
+            client_setup_v14.params_num = params_num;
+            client_setup_v14.params = params;
+            xqc_log(session->log, XQC_LOG_INFO, "|send_client_setup_v14|params_num:%d|", params_num);
+            ret = xqc_moq_write_client_setup_v14(session, &client_setup_v14);
+        } else {
+            xqc_moq_client_setup_msg_t client_setup;
+            uint64_t versions[] = {XQC_MOQ_VERSION_5};
+            client_setup.versions_num = sizeof(versions) / sizeof(versions[0]);
+            client_setup.versions = versions;
+            client_setup.params_num = params_num;
+            client_setup.params = params;
+            xqc_log(session->log, XQC_LOG_INFO, "|send_client_setup|params_num:%d|", params_num);
+            ret = xqc_moq_write_client_setup(session, &client_setup);
+        }
         if (ret < 0) {
             xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_write_client_setup error|ret:%d|", ret);
             goto error;
@@ -178,7 +196,9 @@ xqc_moq_session_get_error(xqc_moq_session_t *session)
 uint64_t
 xqc_moq_session_alloc_subscribe_id(xqc_moq_session_t *session)
 {
-    return session->subscribe_id_allocator++;
+    uint64_t subscribe_id = session->subscribe_id_allocator;
+    session->subscribe_id_allocator += 2;
+    return subscribe_id;
 }
 
 xqc_moq_subscribe_t *

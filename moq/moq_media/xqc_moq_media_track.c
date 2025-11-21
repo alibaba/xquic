@@ -10,7 +10,6 @@
 #include "src/transport/xqc_stream.h"
 
 #define XQC_MOQ_MEDIA_MAX_SEND_DELAY 500000 /* 500ms */
-
 static void xqc_moq_media_on_create(xqc_moq_track_t *track);
 static void xqc_moq_media_on_destroy(xqc_moq_track_t *track);
 static void xqc_moq_media_on_subscribe(xqc_moq_session_t *session, uint64_t subscribe_id,
@@ -37,6 +36,13 @@ static void xqc_moq_media_cancel_write(xqc_moq_session_t *session, xqc_moq_track
 static xqc_bool_t xqc_moq_media_maybe_cancel_write(xqc_moq_session_t *session, uint64_t subscribe_id,
     xqc_moq_track_t *track, xqc_moq_video_frame_t *video_frame);
 
+static xqc_int_t
+xqc_moq_media_write_subgroup_stream(xqc_moq_session_t *session,
+    xqc_moq_stream_t *stream, xqc_moq_object_stream_msg_t *object)
+{
+    return xqc_moq_write_subgroup_msg(session, stream, object);
+}
+
 xqc_int_t
 xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     xqc_moq_track_t *track, xqc_moq_video_frame_t *video_frame)
@@ -55,7 +61,7 @@ xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     
     size_t buf_cap = video_frame->video_len + XQC_MOQ_MAX_CONTAINER_OVERHEAD;
     uint8_t *buf = xqc_malloc(buf_cap);
-    ret = media_track->container_ops.encode_video(video_frame, buf, buf_cap, &encoded_len);
+    ret = media_track->container_ops->encode_video(video_frame, buf, buf_cap, &encoded_len);
     if (ret < 0) {
         xqc_log(session->log, XQC_LOG_ERROR, "|encode video container error|ret:%d|", ret);
         goto error;
@@ -81,18 +87,21 @@ xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     if (video_frame->type == XQC_MOQ_VIDEO_KEY) {
         object.group_id = ++track->cur_group_id;
         track->cur_object_id = 0;
-        object.object_id = track->cur_object_id++;
     } else {
         object.group_id = track->cur_group_id;
-        object.object_id = track->cur_object_id++;
     }
+    object.object_id = track->cur_object_id++;
+    object.subgroup_id = xqc_moq_track_next_subgroup_id(track, object.group_id);
+    object.subgroup_type = XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
+    object.subgroup_priority = XQC_MOQ_DEFAULT_SUBGROUP_PRIORITY;
+    object.object_id_delta = object.object_id;
 
     xqc_moq_stream_on_track_write(stream, track, object.group_id, object.object_id, video_frame->seq_num);
     xqc_list_add_tail(&stream->list_member, &media_track->write_stream_list);
 
-    ret = xqc_moq_write_object_stream_msg(session, stream, &object);
+    ret = xqc_moq_media_write_subgroup_stream(session, stream, &object);
     if (ret < 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|write_object_stream_msg error|ret:%d|", ret);
+        xqc_log(session->log, XQC_LOG_ERROR, "|write_subgroup_stream error|ret:%d|", ret);
         goto error;
     }
 
@@ -127,7 +136,7 @@ xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     xqc_moq_media_track_t *media_track = (xqc_moq_media_track_t*)track;
     size_t buf_cap = audio_frame->audio_len + XQC_MOQ_MAX_CONTAINER_OVERHEAD;
     uint8_t *buf = xqc_malloc(buf_cap);
-    ret = media_track->container_ops.encode_audio(audio_frame, buf, buf_cap, &encoded_len);
+    ret = media_track->container_ops->encode_audio(audio_frame, buf, buf_cap, &encoded_len);
     if (ret < 0) {
         xqc_log(session->log, XQC_LOG_ERROR, "|encode audio container error|ret:%d|", ret);
         goto error;
@@ -149,13 +158,17 @@ xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     object.payload_len = encoded_len;
     object.group_id = track->cur_group_id;
     object.object_id = track->cur_object_id++;
+    object.subgroup_id = xqc_moq_track_next_subgroup_id(track, object.group_id);
+    object.subgroup_type = XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
+    object.subgroup_priority = XQC_MOQ_DEFAULT_SUBGROUP_PRIORITY;
+    object.object_id_delta = object.object_id;
 
     xqc_moq_stream_on_track_write(stream, track, object.group_id, object.object_id, audio_frame->seq_num);
     xqc_list_add_tail(&stream->list_member, &media_track->write_stream_list);
 
-    ret = xqc_moq_write_object_stream_msg(session, stream, &object);
+    ret = xqc_moq_media_write_subgroup_stream(session, stream, &object);
     if (ret < 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|write_object_stream_msg error|ret:%d|", ret);
+        xqc_log(session->log, XQC_LOG_ERROR, "|write_subgroup_stream error|ret:%d|", ret);
         goto error;
     }
     
@@ -366,14 +379,14 @@ xqc_moq_media_on_create(xqc_moq_track_t *track)
 
     switch (track->container_format) {
         case XQC_MOQ_CONTAINER_LOC:
-            media_track->container_ops = xqc_moq_loc_ops;
+            media_track->container_ops = &xqc_moq_loc_ops;
             break;
         /*case XQC_MOQ_CONTAINER_CMAF:
             //TODO: CMAF
             media_track->container_ops = xqc_moq_cmaf_ops;
             break;*/
         default:
-            media_track->container_ops = xqc_moq_loc_ops;
+            media_track->container_ops = &xqc_moq_loc_ops;
             break;
     }
 
@@ -459,7 +472,7 @@ xqc_moq_media_on_object(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_
             video_frame_ext.object_id = object->object_id;
 
             xqc_moq_video_frame_t *video_frame = &video_frame_ext.video_frame;
-            ret = media_track->container_ops.decode_video(object->payload,
+            ret = media_track->container_ops->decode_video(object->payload,
                                             object->payload_len, video_frame);
             if (ret < 0) {
                 xqc_log(session->log, XQC_LOG_ERROR, "|decode_video_container error|ret:%d|", ret);
@@ -474,7 +487,7 @@ xqc_moq_media_on_object(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_
             audio_frame_ext.object_id = object->object_id;
 
             xqc_moq_audio_frame_t *audio_frame = &audio_frame_ext.audio_frame;
-            ret = media_track->container_ops.decode_audio(object->payload, object->payload_len, audio_frame);
+            ret = media_track->container_ops->decode_audio(object->payload, object->payload_len, audio_frame);
             if (ret < 0) {
                 xqc_log(session->log, XQC_LOG_ERROR, "|decode_audio_container error|ret:%d|", ret);
                 return;

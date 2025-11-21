@@ -60,8 +60,12 @@ xqc_moq_track_create(xqc_moq_session_t *session, char *track_namespace, char *tr
     xqc_memcpy(track->track_info.track_namespace, track_namespace, track_namespace_len);
     track->track_info.track_name = xqc_calloc(1, track_name_len + 1);
     xqc_memcpy(track->track_info.track_name, track_name, track_name_len);
-    track->track_alias = -1;
-    track->subscribe_id = -1;
+    track->track_alias = XQC_MOQ_INVALID_ID;
+    track->subscribe_id = XQC_MOQ_INVALID_ID;
+    track->cur_group_id = 0;
+    track->cur_object_id = 0;
+    track->cur_subgroup_id = 0;
+    track->cur_subgroup_group_id = XQC_MOQ_INVALID_ID;
 
     if (role == XQC_MOQ_TRACK_FOR_PUB) {
         list = &session->track_list_for_pub;
@@ -103,13 +107,35 @@ xqc_moq_track_free_fields(xqc_moq_track_t *track)
 void
 xqc_moq_track_set_alias(xqc_moq_track_t *track, uint64_t track_alias)
 {
+    if (track->track_alias != track_alias) {
+        xqc_log(track->session->log, XQC_LOG_DEBUG,
+                "|track_alias_update|track:%s/%s|old:%ui|new:%ui|",
+                track->track_info.track_namespace, track->track_info.track_name,
+                track->track_alias, track_alias);
+    }
     track->track_alias = track_alias;
 }
 
 void
 xqc_moq_track_set_subscribe_id(xqc_moq_track_t *track, uint64_t subscribe_id)
 {
+    if (track->subscribe_id != subscribe_id) {
+        xqc_log(track->session->log, XQC_LOG_DEBUG,
+                "|track_subscribe_id_update|track:%s/%s|old:%ui|new:%ui|",
+                track->track_info.track_namespace, track->track_info.track_name,
+                track->subscribe_id, subscribe_id);
+    }
     track->subscribe_id = subscribe_id;
+}
+
+uint64_t
+xqc_moq_track_next_subgroup_id(xqc_moq_track_t *track, uint64_t group_id)
+{
+    if (track->cur_subgroup_group_id != group_id) {
+        track->cur_subgroup_group_id = group_id;
+        track->cur_subgroup_id = 0;
+    }
+    return track->cur_subgroup_id++;
 }
 
 void

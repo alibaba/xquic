@@ -44,6 +44,16 @@ typedef struct xqc_app_ctx_s {
     struct event        *ev_engine;
 } xqc_app_ctx_t;
 
+typedef struct {
+    xqc_moq_track_t     *track;
+    uint64_t            subscribe_id;
+    uint64_t            track_alias;
+    uint64_t            group_id;
+    uint64_t            object_id;
+    uint64_t            subgroup_group_id;
+    uint64_t            subgroup_id;
+} xqc_demo_track_ctx_t;
+
 typedef struct user_conn_s {
     struct event        *ev_timeout;
     struct sockaddr     *peer_addr;
@@ -59,6 +69,7 @@ typedef struct user_conn_s {
 
     //For Moq
     struct event        *ev_send_timer;
+    struct event        *ev_timestamp_timer;
     xqc_moq_track_t     *audio_track;
     xqc_moq_track_t     *video_track;
     xqc_moq_session_t   *moq_session;
@@ -71,6 +82,8 @@ typedef struct user_conn_s {
     int                 closing_notified;
     int                 publish_started;
     int                 publish_request_sent;
+    xqc_demo_track_ctx_t video_ctx;
+    xqc_demo_track_ctx_t audio_ctx;
 } user_conn_t;
 
 
@@ -104,5 +117,7 @@ ssize_t
 xqc_app_write_socket_ex(uint64_t path_id, const unsigned char *buf, size_t size, 
                         const struct sockaddr *peer_addr,
                         socklen_t peer_addrlen, void *user_data);
+
+xqc_moq_stream_t *xqc_demo_stream_create(xqc_moq_session_t *session, xqc_stream_direction_t direction);
 
 #endif /* _XQC_MOQ_DEMO_COMM_H_INCLUDED_ */

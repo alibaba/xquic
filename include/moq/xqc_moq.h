@@ -49,6 +49,14 @@ typedef enum {
     XQC_MOQ_TRACK_FOR_SUB,
 } xqc_moq_track_role_t;
 
+typedef enum {
+    XQC_MOQ_OBJ_STATUS_NORMAL           = 0x0,
+    XQC_MOQ_OBJ_STATUS_OBJ_NOT_EXIST    = 0x1,
+    XQC_MOQ_OBJ_STATUS_GROUP_NOT_EXIST  = 0x2,
+    XQC_MOQ_OBJ_STATUS_GROUP_END        = 0x3,
+    XQC_MOQ_OBJ_STATUS_TRACK_END        = 0x4,
+} xqc_moq_object_status_t;
+
 typedef struct {
     /* Common */
     char                            *codec; /* Required */
@@ -95,6 +103,7 @@ typedef struct xqc_moq_session_s xqc_moq_session_t;
 typedef struct xqc_moq_stream_s xqc_moq_stream_t;
 typedef struct xqc_moq_track_s xqc_moq_track_t;
 typedef struct xqc_moq_object_s xqc_moq_object_t;
+typedef struct xqc_moq_subgroup_object_s xqc_moq_subgroup_object_t;
 typedef struct xqc_moq_catalog_s xqc_moq_catalog_t;
 typedef struct xqc_moq_subscribe_s xqc_moq_subscribe_t;
 typedef struct xqc_moq_subscribe_msg_s xqc_moq_subscribe_msg_t;
@@ -167,6 +176,21 @@ typedef struct {
     uint8_t                     is_integer;
     uint64_t                    int_value;
 } xqc_moq_message_parameter_t;
+
+typedef struct xqc_moq_subgroup_object_s {
+    uint64_t                    subscribe_id;
+    uint64_t                    track_alias;
+    uint64_t                    group_id;
+    uint64_t                    object_id;
+    uint64_t                    subgroup_id;
+    uint64_t                    object_id_delta;
+    uint8_t                     subgroup_type;
+    uint8_t                     subgroup_priority;
+    uint64_t                    send_order;
+    uint64_t                    status;
+    const uint8_t              *payload;
+    uint64_t                    payload_len;
+} xqc_moq_subgroup_object_t;
 
 typedef struct xqc_moq_msg_base_s {
     xqc_moq_msg_type_t (*type)();
@@ -460,6 +484,10 @@ xqc_int_t xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscri
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     xqc_moq_track_t *track, xqc_moq_audio_frame_t *audio_frame);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_send_subgroup(xqc_moq_session_t *session, xqc_moq_track_t *track,
+    xqc_moq_subgroup_object_t *subgroup);
 
 #ifdef __cplusplus
 }

@@ -10,14 +10,6 @@
 #define XQC_MOQ_DATACHANNEL_NAMESPACE "datachannel"
 #define XQC_MOQ_DATACHANNEL_NAME      "datachannel"
 
-typedef enum {
-    XQC_MOQ_OBJ_STATUS_NORMAL           = 0x0,
-    XQC_MOQ_OBJ_STATUS_OBJ_NOT_EXIST    = 0x1,
-    XQC_MOQ_OBJ_STATUS_GROUP_NOT_EXIST  = 0x2,
-    XQC_MOQ_OBJ_STATUS_GROUP_END        = 0x3,
-    XQC_MOQ_OBJ_STATUS_TRACK_END        = 0x4,
-} xqc_moq_object_status_t;
-
 typedef struct xqc_moq_track_ops_s {
     void (*on_create)(xqc_moq_track_t *track);
     void (*on_destroy)(xqc_moq_track_t *track);

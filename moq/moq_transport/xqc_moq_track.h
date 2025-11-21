@@ -44,6 +44,8 @@ typedef struct xqc_moq_track_s {
     xqc_list_head_t                     list_member;
     uint64_t                            cur_group_id;
     uint64_t                            cur_object_id;
+    uint64_t                            cur_subgroup_id;
+    uint64_t                            cur_subgroup_group_id;
     xqc_moq_track_ops_t                 track_ops;
     xqc_moq_track_role_t                track_role;
 } xqc_moq_track_t;
@@ -55,6 +57,8 @@ void xqc_moq_track_free_fields(xqc_moq_track_t *track);
 void xqc_moq_track_set_alias(xqc_moq_track_t *track, uint64_t track_alias);
 
 void xqc_moq_track_set_subscribe_id(xqc_moq_track_t *track, uint64_t subscribe_id);
+
+uint64_t xqc_moq_track_next_subgroup_id(xqc_moq_track_t *track, uint64_t group_id);
 
 void xqc_moq_track_copy_params(xqc_moq_selection_params_t *dst, xqc_moq_selection_params_t *src);
 

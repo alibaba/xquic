@@ -12,7 +12,11 @@ xqc_int_t xqc_moq_write_msg_generic(xqc_moq_session_t *session, xqc_moq_stream_t
 
 xqc_int_t xqc_moq_write_client_setup(xqc_moq_session_t *session, xqc_moq_client_setup_msg_t *client_setup);
 
+xqc_int_t xqc_moq_write_client_setup_v14(xqc_moq_session_t *session, xqc_moq_client_setup_v14_msg_t *client_setup);
+
 xqc_int_t xqc_moq_write_server_setup(xqc_moq_session_t *session, xqc_moq_server_setup_msg_t *server_setup);
+
+xqc_int_t xqc_moq_write_server_setup_v14(xqc_moq_session_t *session, xqc_moq_server_setup_v14_msg_t *server_setup);
 
 xqc_int_t xqc_moq_write_subscribe(xqc_moq_session_t *session, xqc_moq_subscribe_msg_t *subscribe);
 
@@ -30,6 +34,9 @@ xqc_int_t xqc_moq_write_publish_done(xqc_moq_session_t *session, xqc_moq_publish
 
 xqc_int_t xqc_moq_write_object_stream_msg(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
     xqc_moq_object_stream_msg_t *object);
+
+xqc_int_t xqc_moq_write_subgroup_msg(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
+    xqc_moq_subgroup_msg_t *object);
 
 xqc_int_t xqc_moq_write_stream_header_track_msg(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
     xqc_moq_stream_header_track_msg_t *track_header);

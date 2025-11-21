@@ -7,7 +7,8 @@
 extern "C" {
 #endif
 
-#define XQC_ALPN_MOQ_QUIC         "moq-quic"
+// #define XQC_ALPN_MOQ_QUIC         "moq-quic"
+#define XQC_ALPN_MOQ_QUIC         "moq-00"
 #define XQC_ALPN_MOQ_WEBTRANSPORT "moq-wt"
 
 typedef enum {
@@ -109,6 +110,8 @@ typedef struct xqc_moq_announce_error_msg_s xqc_moq_announce_error_msg_t;
 typedef struct xqc_moq_unannounce_msg_s xqc_moq_unannounce_msg_t;
 typedef struct xqc_moq_unsubscribe_msg_s xqc_moq_unsubscribe_msg_t;
 typedef struct xqc_moq_publish_done_msg_s xqc_moq_publish_done_msg_t;
+typedef struct xqc_moq_client_setup_v14_msg_s xqc_moq_client_setup_v14_msg_t;
+typedef struct xqc_moq_server_setup_v14_msg_s xqc_moq_server_setup_v14_msg_t;
 typedef struct xqc_moq_goaway_msg_s xqc_moq_goaway_msg_t;
 typedef struct xqc_moq_client_setup_msg_s xqc_moq_client_setup_msg_t;
 typedef struct xqc_moq_server_setup_msg_s xqc_moq_server_setup_msg_t;
@@ -119,6 +122,10 @@ typedef struct xqc_moq_user_session_s {
     xqc_moq_session_t               *session;
     uint8_t                         data[0];
 } xqc_moq_user_session_t;
+
+#define XQC_MOQ_SUBGROUP_TYPE_WITH_ID       0x14
+#define XQC_MOQ_DEFAULT_SUBGROUP_PRIORITY   0x0
+#define XQC_MOQ_INVALID_ID                  ((uint64_t)-1)
 
 typedef enum {
     XQC_MOQ_MSG_OBJECT_STREAM       = 0x0,
@@ -138,6 +145,9 @@ typedef enum {
     XQC_MOQ_MSG_TRACK_STATUS_REQUEST = 0xD,
     XQC_MOQ_MSG_TRACK_STATUS        = 0xE,
     XQC_MOQ_MSG_GOAWAY              = 0x10,
+    XQC_MOQ_MSG_SUBGROUP            = 0x14,
+    XQC_MOQ_MSG_CLIENT_SETUP_V14    = 0x20,
+    XQC_MOQ_MSG_SERVER_SETUP_V14    = 0x21,
     XQC_MOQ_MSG_CLIENT_SETUP        = 0x40,
     XQC_MOQ_MSG_SERVER_SETUP        = 0x41,
     XQC_MOQ_MSG_STREAM_HEADER_TRACK = 0x50,
@@ -154,6 +164,8 @@ typedef struct {
     uint64_t                    type;
     uint64_t                    length;
     uint8_t                     *value;
+    uint8_t                     is_integer;
+    uint64_t                    int_value;
 } xqc_moq_message_parameter_t;
 
 typedef struct xqc_moq_msg_base_s {
@@ -169,10 +181,14 @@ typedef struct xqc_moq_subscribe_msg_s {
     xqc_moq_msg_base_t          msg_base;
     uint64_t                    subscribe_id;
     uint64_t                    track_alias;
+    uint64_t                    track_namespace_num;
     char                        *track_namespace;
     size_t                      track_namespace_len;
     char                        *track_name;
     size_t                      track_name_len;
+    uint8_t                     subscriber_priority;
+    uint8_t                     group_order;
+    uint8_t                     forward;
     uint64_t                    filter_type;
     uint64_t                    start_group_id;
     uint64_t                    start_object_id;
@@ -185,10 +201,14 @@ typedef struct xqc_moq_subscribe_msg_s {
 typedef struct xqc_moq_subscribe_ok_msg_s {
     xqc_moq_msg_base_t          msg_base;
     uint64_t                    subscribe_id;
+    uint64_t                    track_alias;
     uint64_t                    expire_ms;
+    uint8_t                     group_order;
     uint64_t                    content_exist;
     uint64_t                    largest_group_id;
     uint64_t                    largest_object_id;
+    uint64_t                    params_num;
+    xqc_moq_message_parameter_t *params;
 } xqc_moq_subscribe_ok_msg_t;
 
 typedef struct xqc_moq_subscribe_error_msg_s {
@@ -204,6 +224,7 @@ typedef struct xqc_moq_publish_msg_s {
     xqc_moq_msg_base_t          msg_base;
     uint64_t                    subscribe_id;
     uint64_t                    track_alias;
+    uint64_t                    track_namespace_num;
     char                        *track_namespace;
     size_t                      track_namespace_len;
     char                        *track_name;
@@ -358,7 +379,8 @@ void xqc_moq_init_alpn(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs, xqc
  */
 XQC_EXPORT_PUBLIC_API
 xqc_moq_session_t *xqc_moq_session_create(void *conn, xqc_moq_user_session_t *user_session,
-    xqc_moq_transport_type_t type, xqc_moq_role_t role, xqc_moq_session_callbacks_t, char *extdata);
+    xqc_moq_transport_type_t type, xqc_moq_role_t role, xqc_moq_session_callbacks_t callbacks,
+    char *extdata, xqc_int_t enable_client_setup_v14);
 
 XQC_EXPORT_PUBLIC_API
 void xqc_moq_session_destroy(xqc_moq_session_t *session);

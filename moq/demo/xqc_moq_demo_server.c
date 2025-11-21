@@ -57,6 +57,7 @@ int g_fec_on = 0;
 int g_frame_num = 5;
 xqc_moq_role_t g_role = XQC_MOQ_PUBSUB;
 int g_publish_mode = 0;
+int g_enable_client_setup_v14 = 0;
 
 xqc_int_t
 xqc_demo_publish_track(user_conn_t *user_conn, const char *track_namespace, const char *track_name)
@@ -66,6 +67,7 @@ xqc_demo_publish_track(user_conn_t *user_conn, const char *track_namespace, cons
     memset(&publish_msg, 0, sizeof(publish_msg));
     publish_msg.track_namespace = (char *)track_namespace;
     publish_msg.track_namespace_len = strlen(track_namespace);
+    publish_msg.track_namespace_num = 1;
     publish_msg.track_name = (char *)track_name;
     publish_msg.track_name_len = strlen(track_name);
     publish_msg.group_order = 1;
@@ -276,8 +278,8 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata)
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
 
     user_conn->moq_session = session;
-    user_conn->video_subscribe_id = -1;
-    user_conn->audio_subscribe_id = -1;
+    user_conn->video_subscribe_id = XQC_MOQ_INVALID_ID;
+    user_conn->audio_subscribe_id = XQC_MOQ_INVALID_ID;
     user_conn->countdown = g_frame_num;
     user_conn->publish_started = 0;
     user_conn->publish_request_sent = 0;
@@ -368,8 +370,11 @@ void on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
         user_conn->video_subscribe_id = subscribe_id;
 
         xqc_moq_subscribe_ok_msg_t subscribe_ok;
+        memset(&subscribe_ok, 0, sizeof(subscribe_ok));
         subscribe_ok.subscribe_id = subscribe_id;
+        subscribe_ok.track_alias = msg ? msg->track_alias : 0;
         subscribe_ok.expire_ms = 0;
+        subscribe_ok.group_order = 0x1;
         subscribe_ok.content_exist = 1;
         subscribe_ok.largest_group_id = 0;
         subscribe_ok.largest_object_id = 0;
@@ -382,8 +387,11 @@ void on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
         user_conn->audio_subscribe_id = subscribe_id;
 
         xqc_moq_subscribe_ok_msg_t subscribe_ok;
+        memset(&subscribe_ok, 0, sizeof(subscribe_ok));
         subscribe_ok.subscribe_id = subscribe_id;
+        subscribe_ok.track_alias = msg ? msg->track_alias : 0;
         subscribe_ok.expire_ms = 0;
+        subscribe_ok.group_order = 0x1;
         subscribe_ok.content_exist = 1;
         subscribe_ok.largest_group_id = 0;
         subscribe_ok.largest_object_id = 0;
@@ -571,7 +579,8 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
         .on_video = on_video_frame,
         .on_audio = on_audio_frame,
     };
-    xqc_moq_session_t *session = xqc_moq_session_create(conn, user_session, XQC_MOQ_TRANSPORT_QUIC, g_role, callbacks, NULL);
+    xqc_moq_session_t *session = xqc_moq_session_create(conn, user_session, XQC_MOQ_TRANSPORT_QUIC,
+        g_role, callbacks, NULL, g_enable_client_setup_v14);
     if (session == NULL) {
         printf("create session error\n");
         return -1;
@@ -699,7 +708,7 @@ xqc_app_send_callback(int fd, short what, void* arg)
     }
     
     if (user_conn->countdown-- <= 0) {
-        if (user_conn->video_subscribe_id != -1) {
+        if (user_conn->video_subscribe_id != XQC_MOQ_INVALID_ID) {
             xqc_moq_publish_done_msg_t publish_done;
             memset(&publish_done, 0, sizeof(publish_done));
             publish_done.subscribe_id = user_conn->video_subscribe_id;
@@ -715,7 +724,7 @@ xqc_app_send_callback(int fd, short what, void* arg)
     }
 
     xqc_int_t ret;
-    if (user_conn->video_subscribe_id != -1) {
+    if (user_conn->video_subscribe_id != XQC_MOQ_INVALID_ID) {
         uint8_t payload_video[1024000] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
         xqc_moq_video_frame_t video_frame;
         if (user_conn->request_keyframe || user_conn->video_seq % 30 == 0) {
@@ -739,7 +748,7 @@ xqc_app_send_callback(int fd, short what, void* arg)
         }
     }
 
-    /*if (user_conn->audio_subscribe_id != -1) {
+    /*if (user_conn->audio_subscribe_id != XQC_MOQ_INVALID_ID) {
         uint8_t payload_audio[1024] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
         xqc_moq_audio_frame_t audio_frame;
         audio_frame.seq_num = user_conn->audio_seq++;
@@ -777,7 +786,7 @@ int main(int argc, char *argv[])
     int server_port = TEST_PORT;
     xqc_cong_ctrl_callback_t cong_ctrl;
     cong_ctrl = xqc_bbr_cb;
-    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:M")) != -1) {
+    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MV")) != -1) {
         switch (ch) {
         /* listen port */
         case 'p':
@@ -841,6 +850,10 @@ int main(int argc, char *argv[])
         case 'M':
             printf("option publish mode : on\n");
             g_publish_mode = 1;
+            break;
+        case 'V':
+            printf("option draft14 client setup : on\n");
+            g_enable_client_setup_v14 = 1;
             break;
         default:
             break;

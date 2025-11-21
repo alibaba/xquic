@@ -3329,6 +3329,9 @@ xqc_parse_timestamps_in_ack_ext(xqc_packet_in_t *packet_in, xqc_connection_t *co
         if (cur_range_length >= XQC_RECV_TIMESTAMPS_INFO_MAX_LENGTH) {
             return -XQC_EACK_EXT_ABN_VAL;
         }
+        if (cur_range_length == 0) {
+            return -XQC_EIGNORE_PKT;
+        }
 
         for (int j = 0; j < cur_range_length; ++j) {
             vlen = xqc_vint_read(p, end, &cur_time_delta);

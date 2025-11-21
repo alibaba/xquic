@@ -10,14 +10,6 @@
 #define XQC_MOQ_DATACHANNEL_NAMESPACE "datachannel"
 #define XQC_MOQ_DATACHANNEL_NAME      "datachannel"
 
-typedef enum {
-    XQC_MOQ_OBJ_STATUS_NORMAL           = 0x0,
-    XQC_MOQ_OBJ_STATUS_OBJ_NOT_EXIST    = 0x1,
-    XQC_MOQ_OBJ_STATUS_GROUP_NOT_EXIST  = 0x2,
-    XQC_MOQ_OBJ_STATUS_GROUP_END        = 0x3,
-    XQC_MOQ_OBJ_STATUS_TRACK_END        = 0x4,
-} xqc_moq_object_status_t;
-
 typedef struct xqc_moq_track_ops_s {
     void (*on_create)(xqc_moq_track_t *track);
     void (*on_destroy)(xqc_moq_track_t *track);
@@ -44,6 +36,8 @@ typedef struct xqc_moq_track_s {
     xqc_list_head_t                     list_member;
     uint64_t                            cur_group_id;
     uint64_t                            cur_object_id;
+    uint64_t                            cur_subgroup_id;
+    uint64_t                            cur_subgroup_group_id;
     xqc_moq_track_ops_t                 track_ops;
     xqc_moq_track_role_t                track_role;
 } xqc_moq_track_t;
@@ -55,6 +49,8 @@ void xqc_moq_track_free_fields(xqc_moq_track_t *track);
 void xqc_moq_track_set_alias(xqc_moq_track_t *track, uint64_t track_alias);
 
 void xqc_moq_track_set_subscribe_id(xqc_moq_track_t *track, uint64_t subscribe_id);
+
+uint64_t xqc_moq_track_next_subgroup_id(xqc_moq_track_t *track, uint64_t group_id);
 
 void xqc_moq_track_copy_params(xqc_moq_selection_params_t *dst, xqc_moq_selection_params_t *src);
 

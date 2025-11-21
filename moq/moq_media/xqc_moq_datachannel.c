@@ -185,8 +185,11 @@ xqc_moq_datachannel_on_subscribe(xqc_moq_session_t *session, uint64_t subscribe_
     xqc_moq_datachannel_set_can_send(session, &session->datachannel);
 
     xqc_moq_subscribe_ok_msg_t subscribe_ok;
+    memset(&subscribe_ok, 0, sizeof(subscribe_ok));
     subscribe_ok.subscribe_id = subscribe_id;
+    subscribe_ok.track_alias = msg ? msg->track_alias : 0;
     subscribe_ok.expire_ms = 0;
+    subscribe_ok.group_order = 0x1;
     subscribe_ok.content_exist = 1;
     subscribe_ok.largest_group_id = 0;
     subscribe_ok.largest_object_id = 0;

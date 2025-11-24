@@ -76,4 +76,7 @@ xqc_moq_track_t *xqc_moq_find_track_by_alias(xqc_moq_session_t *session,
 xqc_moq_track_t *xqc_moq_find_track_by_name(xqc_moq_session_t *session,
     const char *track_namespace, const char *track_name, xqc_moq_track_role_t role);
 
+xqc_moq_track_t *xqc_moq_find_track_by_subscribe_id(xqc_moq_session_t *session,
+    uint64_t subscribe_id, xqc_moq_track_role_t role);
+
 #endif /* _XQC_MOQ_SESSION_H_INCLUDED_ */

@@ -342,6 +342,12 @@ void on_datachannel_msg(struct xqc_moq_user_session_s *user_session, xqc_moq_tra
     printf("on_datachannel_msg: track_namespace:%s track_name:%s\n",
            track_info ? track_info->track_namespace : "null",
            track_info ? track_info->track_name : "null");
+    if (g_publish_mode && msg && msg_len > 0) {
+        char buf[128] = {0};
+        size_t copy_len = msg_len < sizeof(buf) - 1 ? msg_len : sizeof(buf) - 1;
+        memcpy(buf, msg, copy_len);
+        printf("on_datachannel_msg content:%s\n", buf);
+    }
     xqc_moq_session_t *session = user_session->session;
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
     if (strncmp((char*)msg, "publish_request", strlen("publish_request")) == 0) {

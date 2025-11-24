@@ -161,6 +161,8 @@ xqc_moq_on_client_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
         {XQC_MOQ_PARAM_ROLE, 1, (uint8_t *)&session->role, 1, (uint64_t)session->role},
     };
     xqc_moq_server_setup_v14_msg_t server_setup;
+    memset(&server_setup, 0, sizeof(server_setup));
+    server_setup.selected_version = version;
     server_setup.params_num = sizeof(params) / sizeof(params[0]);
     server_setup.params = params;
     ret = xqc_moq_write_server_setup_v14(session, &server_setup);
@@ -475,9 +477,15 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
 
     track = xqc_moq_find_track_by_name(session, publish->track_namespace, publish->track_name, XQC_MOQ_TRACK_FOR_SUB);
     if (track == NULL) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|on_publish track not found|track_name:%s|", publish->track_name);
-    xqc_moq_publish_send_error(session, publish->subscribe_id, XQC_MOQ_PUBLISH_ERR_TRACK_NOT_FOUND, "track not found");
-        return;
+        /* TODO: derive track type/container from publish params instead of defaulting to datachannel */
+        track = xqc_moq_track_create(session, publish->track_namespace, publish->track_name,
+                                     XQC_MOQ_TRACK_DATACHANNEL, NULL, XQC_MOQ_CONTAINER_NONE,
+                                     XQC_MOQ_TRACK_FOR_SUB);
+        if (track == NULL) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|on_publish track not found|track_name:%s|", publish->track_name);
+            xqc_moq_publish_send_error(session, publish->subscribe_id, XQC_MOQ_PUBLISH_ERR_TRACK_NOT_FOUND, "track not found");
+            return;
+        }
     }
 
     if (track->subscribe_id != XQC_MOQ_INVALID_ID && track->subscribe_id != publish->subscribe_id) {
@@ -700,8 +708,16 @@ xqc_moq_on_object(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_
 
     track = xqc_moq_find_track_by_alias(session, object->track_alias, XQC_MOQ_TRACK_FOR_SUB);
     if (track == NULL) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|track not found|track_alias:%ui|", object->track_alias);
-        goto error;
+        track = xqc_moq_find_track_by_subscribe_id(session, object->subscribe_id, XQC_MOQ_TRACK_FOR_SUB);
+        if (track) {
+            xqc_log(session->log, XQC_LOG_DEBUG,
+                    "|track alias updated|subscribe_id:%ui|old_alias:%ui|new_alias:%ui|",
+                    object->subscribe_id, track->track_alias, object->track_alias);
+            xqc_moq_track_set_alias(track, object->track_alias);
+        } else {
+            xqc_log(session->log, XQC_LOG_ERROR, "|track not found|track_alias:%ui|", object->track_alias);
+            goto error;
+        }
     }
 
     xqc_moq_stream_set_track_type(moq_stream, track->track_info.track_type);

@@ -270,3 +270,24 @@ xqc_moq_find_track_by_name(xqc_moq_session_t *session,
     }
     return NULL;
 }
+
+xqc_moq_track_t *
+xqc_moq_find_track_by_subscribe_id(xqc_moq_session_t *session,
+    uint64_t subscribe_id, xqc_moq_track_role_t role)
+{
+    xqc_moq_track_t *track = NULL;
+    xqc_list_head_t *pos, *next;
+    xqc_list_head_t *list;
+    if (role == XQC_MOQ_TRACK_FOR_PUB) {
+        list = &session->track_list_for_pub;
+    } else {
+        list = &session->track_list_for_sub;
+    }
+    xqc_list_for_each_safe(pos, next, list) {
+        track = xqc_list_entry(pos, xqc_moq_track_t, list_member);
+        if (track->subscribe_id == subscribe_id) {
+            return track;
+        }
+    }
+    return NULL;
+}

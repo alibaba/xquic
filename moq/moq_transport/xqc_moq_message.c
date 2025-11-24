@@ -659,9 +659,7 @@ uint8_t * xqc_moq_put_varint_length(uint8_t *buf, size_t length)
     if(length < 64){
         *buf = 0;
         buf++;
-        printf("show length write: first bit = %d\n", *(buf-1));
         buf = xqc_put_varint(buf, length);
-        printf("show length write: second bit = %d\n", *(buf-1));
         return buf;
     }else {
         xqc_put_varint(buf, length);
@@ -1077,9 +1075,18 @@ xqc_moq_msg_decode_client_setup_v14(uint8_t *buf, size_t buf_len, uint8_t stream
     xqc_int_t param_finish = 0;
     xqc_moq_client_setup_v14_msg_t *client_setup = (xqc_moq_client_setup_v14_msg_t *)msg_base;
     xqc_moq_decode_params_ctx_t *params_ctx = &msg_ctx->decode_params_ctx;
+    uint64_t length = 0;
 
     switch (msg_ctx->cur_field_idx) {
         case 0:
+            ret = xqc_moq_length_read(buf + processed, buf + buf_len, &length);
+            if (ret < 0) {
+                *wait_more_data = 1;
+                break;
+            }
+            processed += ret;
+            msg_ctx->cur_field_idx = 1;
+        case 1:
             ret = xqc_vint_read(buf + processed, buf + buf_len, &client_setup->versions_num);
             if (ret < 0) {
                 *wait_more_data = 1;
@@ -1091,8 +1098,8 @@ xqc_moq_msg_decode_client_setup_v14(uint8_t *buf, size_t buf_len, uint8_t stream
                 return -XQC_ELIMIT;
             }
             client_setup->versions = xqc_calloc(client_setup->versions_num, sizeof(uint64_t));
-            msg_ctx->cur_field_idx = 1;
-        case 1:
+            msg_ctx->cur_field_idx = 2;
+        case 2:
             for (; msg_ctx->cur_array_idx < client_setup->versions_num; msg_ctx->cur_array_idx++) {
                 ret = xqc_vint_read(buf + processed, buf + buf_len,
                                     &client_setup->versions[msg_ctx->cur_array_idx]);
@@ -1105,9 +1112,9 @@ xqc_moq_msg_decode_client_setup_v14(uint8_t *buf, size_t buf_len, uint8_t stream
             if (*wait_more_data == 1) {
                 break;
             }
-            msg_ctx->cur_field_idx = 2;
+            msg_ctx->cur_field_idx = 3;
             msg_ctx->cur_array_idx = 0;
-        case 2:
+        case 3:
             ret = xqc_vint_read(buf + processed, buf + buf_len, &client_setup->params_num);
             if (ret < 0) {
                 *wait_more_data = 1;
@@ -1117,15 +1124,15 @@ xqc_moq_msg_decode_client_setup_v14(uint8_t *buf, size_t buf_len, uint8_t stream
 
             if (client_setup->params_num == 0) {
                 *finish = 1;
-                msg_ctx->cur_field_idx = 4;
+                msg_ctx->cur_field_idx = 5;
                 break;
             }
             if (client_setup->params_num > XQC_MOQ_MAX_PARAMS) {
                 return -XQC_ELIMIT;
             }
             client_setup->params = xqc_moq_msg_alloc_params(client_setup->params_num);
-            msg_ctx->cur_field_idx = 3;
-        case 3:
+            msg_ctx->cur_field_idx = 4;
+        case 4:
             ret = xqc_moq_msg_decode_params_v14(buf + processed, buf_len - processed, params_ctx,
                                             client_setup->params, client_setup->params_num,
                                             &param_finish, wait_more_data);
@@ -1138,7 +1145,7 @@ xqc_moq_msg_decode_client_setup_v14(uint8_t *buf, size_t buf_len, uint8_t stream
             }
             if (param_finish == 1) {
                 *finish = 1;
-                msg_ctx->cur_field_idx = 4;
+                msg_ctx->cur_field_idx = 5;
             }
             break;
         default:
@@ -1188,6 +1195,8 @@ xqc_moq_msg_encode_server_setup_v14_len(xqc_moq_msg_base_t *msg_base)
     xqc_int_t len = 0;
     xqc_moq_server_setup_v14_msg_t *server_setup = (xqc_moq_server_setup_v14_msg_t*)msg_base;
     len += xqc_put_varint_len(XQC_MOQ_MSG_SERVER_SETUP_V14);
+    len += XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
+    len += xqc_put_varint_len(server_setup->selected_version);
     len += xqc_put_varint_len(server_setup->params_num);
     len += xqc_moq_msg_encode_params_len_v14(server_setup->params, server_setup->params_num);
     return len;
@@ -1197,13 +1206,16 @@ xqc_int_t
 xqc_moq_msg_encode_server_setup_v14(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap)
 {
     xqc_moq_server_setup_v14_msg_t *server_setup = (xqc_moq_server_setup_v14_msg_t*)msg_base;
-    xqc_int_t need = xqc_moq_msg_encode_server_setup_v14_len(msg_base);
-    if (need > buf_cap) {
+    xqc_int_t length = xqc_moq_msg_encode_server_setup_v14_len(msg_base);
+    if (length > buf_cap) {
         return -XQC_EILLEGAL_FRAME;
     }
 
+    length = length - xqc_put_varint_len(XQC_MOQ_MSG_SERVER_SETUP_V14) - XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
     uint8_t *p = buf;
     p = xqc_put_varint(p, XQC_MOQ_MSG_SERVER_SETUP_V14);
+    p = xqc_moq_put_varint_length(p, length);
+    p = xqc_put_varint(p, server_setup->selected_version);
     p = xqc_put_varint(p, server_setup->params_num);
 
     xqc_int_t ret = xqc_moq_msg_encode_params_v14(server_setup->params, server_setup->params_num,

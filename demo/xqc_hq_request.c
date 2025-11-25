@@ -233,25 +233,23 @@ xqc_hq_parse_req(xqc_hq_request_t *hqr, char *res, size_t sz, uint8_t *fin)
     char method[16] = {0};
     char fmt[32] = {0};
     size_t method_cap = sizeof(method) - 1;
-    size_t res_cap;
-    int ret;
-    size_t request_line_len;
+
 
     if (sz <= 1) {
         PRINT_LOG("|invalid resource buffer size|sz:%zu|", sz);
         return -XQC_EPROTO;
     }
 
-    res_cap = sz - 1;
+    size_t res_cap = sz - 1;
     snprintf(fmt, sizeof(fmt), "%%%zus %%%zus", method_cap, res_cap);
 
-    ret = sscanf((char *)hqr->req_recv_buf, fmt, method, res);
+    int ret = sscanf((char *)hqr->req_recv_buf, fmt, method, res);
     if (ret <= 0) {
         PRINT_LOG("|parse hq request failed: %s", hqr->req_recv_buf);
         return -XQC_EPROTO;
     }
 
-    request_line_len = strlen(method) + strlen(res) + 1; /* method + ' ' + path */
+    int request_line_len = strlen(method) + strlen(res) + 1; /* method + ' ' + path */
     if (request_line_len + 2 <= hqr->recv_buf_len
         && (*(hqr->req_recv_buf + request_line_len) == '\r')
         && (*(hqr->req_recv_buf + request_line_len + 1) == '\n'))

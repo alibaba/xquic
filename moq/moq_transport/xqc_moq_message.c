@@ -662,7 +662,7 @@ uint8_t * xqc_moq_put_varint_length(uint8_t *buf, size_t length)
         buf = xqc_put_varint(buf, length);
         return buf;
     }else {
-        xqc_put_varint(buf, length);
+        buf = xqc_put_varint(buf, length);
         return buf;
     }
 }
@@ -2281,8 +2281,7 @@ xqc_moq_msg_encode_publish_len(xqc_moq_msg_base_t *msg_base)
     len += xqc_put_varint_len(XQC_MOQ_MSG_PUBLISH);
     len += XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
     len += xqc_put_varint_len(publish->subscribe_id);
-    /* Track namespace is encoded as a tuple with element count first. */
-    len += xqc_put_varint_len(1); /* tuple size */
+    len += xqc_put_varint_len(1); /* tuple element count */
     len += xqc_put_varint_len(publish->track_namespace_len);
     len += publish->track_namespace_len;
     len += xqc_put_varint_len(publish->track_name_len);
@@ -2296,7 +2295,7 @@ xqc_moq_msg_encode_publish_len(xqc_moq_msg_base_t *msg_base)
     }
     len += xqc_put_varint_len(publish->forward);
     len += xqc_put_varint_len(publish->params_num);
-    len += xqc_moq_msg_encode_params_len(publish->params, publish->params_num);
+    len += xqc_moq_msg_encode_params_len_v14(publish->params, publish->params_num);
     return len;
 }
 
@@ -2331,7 +2330,7 @@ xqc_moq_msg_encode_publish(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t bu
     }
     p = xqc_put_varint(p, publish->forward);
     p = xqc_put_varint(p, publish->params_num);
-    ret = xqc_moq_msg_encode_params(publish->params, publish->params_num, p, buf + buf_cap - p);
+    ret = xqc_moq_msg_encode_params_v14(publish->params, publish->params_num, p, buf + buf_cap - p);
     if (ret < 0) {
         return ret;
     }
@@ -2529,7 +2528,7 @@ xqc_moq_msg_decode_publish(uint8_t *buf, size_t buf_len, uint8_t stream_fin, xqc
             publish->params = xqc_moq_msg_alloc_params(publish->params_num);
             msg_ctx->cur_field_idx = 11;
         case 11: //Parameters
-            ret = xqc_moq_msg_decode_params(buf + processed, buf_len - processed, params_ctx,
+            ret = xqc_moq_msg_decode_params_v14(buf + processed, buf_len - processed, params_ctx,
                                             publish->params, publish->params_num,
                                             &param_finish, wait_more_data);
             if (ret < 0) {
@@ -2591,6 +2590,7 @@ xqc_moq_msg_encode_publish_ok_len(xqc_moq_msg_base_t *msg_base)
     xqc_int_t len = 0;
     xqc_moq_publish_ok_msg_t *publish_ok = (xqc_moq_publish_ok_msg_t*)msg_base;
     len += xqc_put_varint_len(XQC_MOQ_MSG_PUBLISH_OK);
+    len += XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
     len += xqc_put_varint_len(publish_ok->subscribe_id);
     len += xqc_put_varint_len(publish_ok->forward);
     len += xqc_put_varint_len(publish_ok->subscriber_priority);
@@ -2614,12 +2614,15 @@ xqc_moq_msg_encode_publish_ok(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t
 {
     xqc_int_t ret = 0;
     xqc_moq_publish_ok_msg_t *publish_ok = (xqc_moq_publish_ok_msg_t*)msg_base;
-    if (xqc_moq_msg_encode_publish_ok_len(msg_base) > buf_cap) {
+    xqc_int_t length = xqc_moq_msg_encode_publish_ok_len(msg_base);
+    if (length > buf_cap) {
         return -XQC_EILLEGAL_FRAME;
     }
 
+    length = length - xqc_put_varint_len(XQC_MOQ_MSG_PUBLISH_OK) - XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
     uint8_t *p = buf;
     p = xqc_put_varint(p, XQC_MOQ_MSG_PUBLISH_OK);
+    p = xqc_moq_put_varint_length(p, length);
     p = xqc_put_varint(p, publish_ok->subscribe_id);
     p = xqc_put_varint(p, publish_ok->forward);
     p = xqc_put_varint(p, publish_ok->subscriber_priority);
@@ -3414,31 +3417,24 @@ xqc_moq_msg_decode_subgroup(uint8_t *buf, size_t buf_len, uint8_t stream_fin, xq
     xqc_bool_t has_subgroup_id = 0;
 
     switch (msg_ctx->cur_field_idx) {
-        case 0: // subgroup type
-            ret = xqc_vint_read(buf + processed, buf + buf_len, (uint64_t *)&object->subgroup_type);
-            if (ret < 0) {
-                *wait_more_data = 1;
-                break;
-            }
-            processed += ret;
-            msg_ctx->cur_field_idx = 1;
-        case 1: // track alias
+        case 0: // track alias
+            object->subgroup_type = msg_ctx->cur_msg_type;
             ret = xqc_vint_read(buf + processed, buf + buf_len, &object->track_alias);
             if (ret < 0) {
                 *wait_more_data = 1;
                 break;
             }
             processed += ret;
-            msg_ctx->cur_field_idx = 2;
-        case 2: // group id
+            msg_ctx->cur_field_idx = 1;
+        case 1: // group id
             ret = xqc_vint_read(buf + processed, buf + buf_len, &object->group_id);
             if (ret < 0) {
                 *wait_more_data = 1;
                 break;
             }
             processed += ret;
-            msg_ctx->cur_field_idx = 3;
-        case 3: // subgroup id (optional)
+            msg_ctx->cur_field_idx = 2;
+        case 2: // subgroup id (optional)
             has_subgroup_id = xqc_moq_msg_subgroup_has_id(object->subgroup_type);
             if (has_subgroup_id) {
                 ret = xqc_vint_read(buf + processed, buf + buf_len, &object->subgroup_id);
@@ -3448,16 +3444,16 @@ xqc_moq_msg_decode_subgroup(uint8_t *buf, size_t buf_len, uint8_t stream_fin, xq
                 }
                 processed += ret;
             }
-            msg_ctx->cur_field_idx = 4;
-        case 4: // priority
+            msg_ctx->cur_field_idx = 3;
+        case 3: // priority
             if (buf_len - processed == 0) {
                 *wait_more_data = 1;
                 break;
             }
             object->subgroup_priority = buf[processed];
             processed += 1;
-            msg_ctx->cur_field_idx = 5;
-        case 5: // object delta
+            msg_ctx->cur_field_idx = 4;
+        case 4: // object delta
             ret = xqc_vint_read(buf + processed, buf + buf_len, &object->object_id_delta);
             if (ret < 0) {
                 *wait_more_data = 1;
@@ -3465,8 +3461,8 @@ xqc_moq_msg_decode_subgroup(uint8_t *buf, size_t buf_len, uint8_t stream_fin, xq
             }
             processed += ret;
             object->object_id = object->object_id_delta;
-            msg_ctx->cur_field_idx = 6;
-        case 6: // payload length
+            msg_ctx->cur_field_idx = 5;
+        case 5: // payload length
             ret = xqc_vint_read(buf + processed, buf + buf_len, &object->payload_len);
             if (ret < 0) {
                 *wait_more_data = 1;
@@ -3476,8 +3472,8 @@ xqc_moq_msg_decode_subgroup(uint8_t *buf, size_t buf_len, uint8_t stream_fin, xq
                 return -XQC_ELIMIT;
             }
             processed += ret;
-            msg_ctx->cur_field_idx = 7;
-        case 7: // payload or status
+            msg_ctx->cur_field_idx = 6;
+        case 6: // payload or status
             if (object->payload_len == 0) {
                 ret = xqc_vint_read(buf + processed, buf + buf_len, &object->status);
                 if (ret < 0) {

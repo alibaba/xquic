@@ -503,23 +503,24 @@ void on_catalog(xqc_moq_user_session_t *user_session, xqc_moq_track_info_t **tra
                track_info->selection_params.framerate, track_info->selection_params.width, track_info->selection_params.height,
                track_info->selection_params.display_width, track_info->selection_params.display_height, track_info->selection_params.samplerate,
                track_info->selection_params.channel_config ? track_info->selection_params.channel_config : "null");
-    
+
         if (g_role & XQC_MOQ_SUBSCRIBER) {
+            printf("on catalog create subscriber track:%s/%s\n",
+                   track_info->track_namespace, track_info->track_name);
             xqc_moq_track_t *sub_track = xqc_moq_track_create(session,
                 track_info->track_namespace, track_info->track_name,
                 track_info->track_type, &track_info->selection_params,
                 XQC_MOQ_CONTAINER_LOC, XQC_MOQ_TRACK_FOR_SUB);
             if (sub_track == NULL) {
                 printf("create subscriber track error:%s/%s\n",
-                       track_info->track_namespace, track_info->track_name);
+                        track_info->track_namespace, track_info->track_name);
             }
         }
-
         if (g_role == XQC_MOQ_PUBLISHER) {
             continue;
         }
         if (g_publish_mode) {
-            printf("publish mode, skip subscribe track:%s/%s\n",
+            printf("publish mode, skip subscribing remote track:%s/%s\n",
                    track_info->track_namespace, track_info->track_name);
             continue;
         }
@@ -536,9 +537,14 @@ void on_video_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     DEBUG;
     xqc_moq_session_t *session = user_session->session;
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
-    printf("subscribe_id:%"PRIu64", seq_num:%"PRIu64", timestamp_us:%"PRIu64", type:%d, video_len:%"PRIu64" scid:%s\n",
-           subscribe_id, video_frame->seq_num, video_frame->timestamp_us, video_frame->type, video_frame->video_len,
-           xqc_scid_str(ctx.engine, &user_conn->cid));
+    char buf[128] = {0};
+    size_t copy = video_frame->video_len < sizeof(buf) - 1 ? video_frame->video_len : sizeof(buf) - 1;
+    if (copy > 0 && video_frame->video_data) {
+        memcpy(buf, video_frame->video_data, copy);
+    }
+    printf("on_video_frame: subscribe_id:%"PRIu64", seq_num:%"PRIu64", ts_us:%"PRIu64", len:%"PRIu64", scid:%s, data:%s\n",
+           subscribe_id, video_frame->seq_num, video_frame->timestamp_us, video_frame->video_len,
+           xqc_scid_str(ctx.engine, &user_conn->cid), buf);
 
     /* Test: Request a keyframe when the decoding fails */
     if (video_frame->seq_num == 3) {
@@ -550,13 +556,13 @@ void on_video_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
 void on_audio_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id, xqc_moq_audio_frame_t *audio_frame)
 {
     DEBUG;
-    xqc_moq_session_t *session = user_session->session;
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
-    printf("subscribe_id:%"PRIu64", seq_num:%"PRIu64", timestamp_us:%"PRIu64", audio_len:%"PRIu64" scid:%s\n",
+    char buf[128] = {0};
+    size_t copy = audio_frame->audio_len < sizeof(buf) - 1 ? audio_frame->audio_len : sizeof(buf) - 1;
+    memcpy(buf, audio_frame->audio_data, copy);
+    printf("on_audio_frame: subscribe_id:%"PRIu64", seq:%"PRIu64", ts_us:%"PRIu64", len:%"PRIu64", scid:%s, data:%s\n",
            subscribe_id, audio_frame->seq_num, audio_frame->timestamp_us, audio_frame->audio_len,
-           xqc_scid_str(ctx.engine, &user_conn->cid));
-
-    //printf("audio_data:%s\n",audio_frame->audio_data);
+           xqc_scid_str(ctx.engine, &user_conn->cid), buf);
 }
 
 int

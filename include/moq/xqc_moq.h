@@ -169,6 +169,14 @@ typedef enum {
     XQC_MOQ_MSG_GROUP_STREAM_OBJECT = 0xA1,
 } xqc_moq_msg_type_t;
 
+typedef enum {
+    XQC_MOQ_PARAM_ROLE                = 0x00,
+    XQC_MOQ_PARAM_PATH                = 0x01,
+    XQC_MOQ_PARAM_AUTH                = 0x02,
+    XQC_MOQ_PARAM_AUTHORIZATION_TOKEN = 0x03,
+    XQC_MOQ_PARAM_EXTDATA             = 0xA0,
+} xqc_moq_param_type_t;
+
 typedef struct {
     uint64_t                    type;
     uint64_t                    length;
@@ -488,6 +496,13 @@ xqc_int_t xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscri
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_send_subgroup(xqc_moq_session_t *session, xqc_moq_track_t *track,
     xqc_moq_subgroup_object_t *subgroup);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_build_catalog_param_from_track(xqc_moq_track_t *track,
+    xqc_moq_message_parameter_t *param);
+
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_free_catalog_param(xqc_moq_message_parameter_t *param);
 
 #ifdef __cplusplus
 }

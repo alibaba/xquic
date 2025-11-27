@@ -79,7 +79,19 @@ xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     stream->moq_frame_type |= (1 << MOQ_VIDEO_FRAME);
 
     object.subscribe_id = subscribe_id;
-    object.track_alias = track->track_alias;
+    /* Use the alias bound to this subscribe_id on the subscription,
+     * so that SUBGROUP always carries the subscriber's view of alias. */
+    uint64_t track_alias = track->track_alias;
+    xqc_moq_subscribe_t *subscribe = xqc_moq_find_subscribe(session, subscribe_id, 0);
+    if (subscribe && subscribe->subscribe_msg) {
+        track_alias = subscribe->subscribe_msg->track_alias;
+    } else {
+        subscribe = xqc_moq_find_subscribe(session, subscribe_id, 1);
+        if (subscribe && subscribe->subscribe_msg) {
+            track_alias = subscribe->subscribe_msg->track_alias;
+        }
+    }
+    object.track_alias = track_alias;
     object.send_order = 0; //TODO
     object.status = XQC_MOQ_OBJ_STATUS_NORMAL;
     object.payload = buf;
@@ -114,10 +126,11 @@ xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     xqc_free(buf);
     xqc_log(session->log, XQC_LOG_INFO,
             "|write video frame success|track_name:%s|subscribe_id:%ui|seq:%ui|"
-            "group_id:%ui|object_id:%ui|stream_id:%ui|video_len:%ui|type:%d|fps:%d|",
+            "group_id:%ui|object_id:%ui|stream_id:%ui|video_len:%ui|type:%d|fps:%d|"
+            "track_alias:%ui|object_alias:%ui|",
             track->track_info.track_name, subscribe_id, video_frame->seq_num, 
             object.group_id, object.object_id, quic_stream->stream_id, video_frame->video_len, 
-            video_frame->type, write_fps);
+            video_frame->type, write_fps, track->track_alias, object.track_alias);
     return XQC_OK;
 
 error:
@@ -151,7 +164,18 @@ xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     stream->write_stream_fin = 1;
 
     object.subscribe_id = subscribe_id;
-    object.track_alias = track->track_alias;
+    /* Same as video: derive alias from subscription to keep it stable. */
+    uint64_t track_alias = track->track_alias;
+    xqc_moq_subscribe_t *subscribe = xqc_moq_find_subscribe(session, subscribe_id, 0);
+    if (subscribe && subscribe->subscribe_msg) {
+        track_alias = subscribe->subscribe_msg->track_alias;
+    } else {
+        subscribe = xqc_moq_find_subscribe(session, subscribe_id, 1);
+        if (subscribe && subscribe->subscribe_msg) {
+            track_alias = subscribe->subscribe_msg->track_alias;
+        }
+    }
+    object.track_alias = track_alias;
     object.send_order = 0; //TODO
     object.status = XQC_MOQ_OBJ_STATUS_NORMAL;
     object.payload = buf;
@@ -177,9 +201,11 @@ xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     xqc_free(buf);
     xqc_log(session->log, XQC_LOG_INFO,
             "|write audio frame success|track_name:%s|subscribe_id:%ui|seq:%ui|"
-            "group_id:%ui|object_id:%ui|stream_id:%ui|audio_len:%ui|",
+            "group_id:%ui|object_id:%ui|stream_id:%ui|audio_len:%ui|"
+            "track_alias:%ui|object_alias:%ui|",
             track->track_info.track_name, subscribe_id, audio_frame->seq_num, 
-            object.group_id, object.object_id, quic_stream->stream_id, audio_frame->audio_len);
+            object.group_id, object.object_id, quic_stream->stream_id, audio_frame->audio_len,
+            track->track_alias, object.track_alias);
     return XQC_OK;
 
 error:
@@ -472,6 +498,15 @@ xqc_moq_media_on_object(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_
             video_frame_ext.object_id = object->object_id;
 
             xqc_moq_video_frame_t *video_frame = &video_frame_ext.video_frame;
+            xqc_log(session->log, XQC_LOG_INFO,
+                    "|decode video frame|track:%s/%s|alias:%ui|subscribe_id:%ui|payload_len:%ui|container:%d|codec:%s|mime:%s|",
+                    track->track_info.track_namespace, track->track_info.track_name,
+                    track->track_alias, track->subscribe_id, object->payload_len,
+                    track->container_format,
+                    track->track_info.selection_params.codec ?
+                        track->track_info.selection_params.codec : "null",
+                    track->track_info.selection_params.mime_type ?
+                        track->track_info.selection_params.mime_type : "null");
             ret = media_track->container_ops->decode_video(object->payload,
                                             object->payload_len, video_frame);
             if (ret < 0) {

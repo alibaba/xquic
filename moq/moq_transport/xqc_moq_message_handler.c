@@ -4,7 +4,14 @@
 #include "moq/moq_transport/xqc_moq_subscribe.h"
 #include "moq/moq_transport/xqc_moq_session.h"
 #include "moq/moq_transport/xqc_moq_stream.h"
+#include "moq/moq_transport/xqc_moq_track.h"
 #include "moq/moq_media/xqc_moq_catalog.h"
+#include "moq/cjson/cJSON.h"
+
+#define XQC_MOQ_ALIAS_TYPE_DELETE      0x0
+#define XQC_MOQ_ALIAS_TYPE_REGISTER    0x1
+#define XQC_MOQ_ALIAS_TYPE_USE_ALIAS   0x2
+#define XQC_MOQ_ALIAS_TYPE_USE_VALUE   0x3
 
 static uint8_t xqc_moq_param_read_u8(const xqc_moq_message_parameter_t *param);
 
@@ -474,17 +481,77 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
     xqc_moq_track_t *track;
     xqc_moq_subscribe_t *subscribe;
     xqc_int_t ret;
+    xqc_moq_track_type_t track_type = XQC_MOQ_TRACK_AUDIO; // Default track type
+    xqc_moq_selection_params_t catalog_params;
+    xqc_int_t have_catalog_params = 0;
+    xqc_memzero(&catalog_params, sizeof(catalog_params));
+
+    xqc_moq_message_parameter_t *params = publish->params;
+    for (int i = 0; i < publish->params_num; i++) {
+        xqc_moq_message_parameter_t *param = &params[i];
+        if (param->type != XQC_MOQ_PARAM_AUTHORIZATION_TOKEN || param->value == NULL || param->length == 0) {
+            continue;
+        }
+
+        xqc_moq_catalog_t catalog;
+        xqc_moq_catalog_init(&catalog);
+        xqc_int_t cat_ret = xqc_moq_catalog_decode(&catalog, param->value, (size_t)param->length);
+        if (cat_ret < 0) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|decode authorization token error|ret:%d|subscribe_id:%ui|",
+                    cat_ret, publish->subscribe_id);
+            xqc_moq_catalog_free_fields(&catalog);
+            continue;
+        }
+
+        xqc_moq_track_t *catalog_track = NULL;
+        if (!xqc_list_empty(&catalog.track_list_for_sub)) {
+            catalog_track = xqc_list_entry(catalog.track_list_for_sub.next, xqc_moq_track_t, list_member);
+        }
+
+        if (catalog_track != NULL
+            && (catalog_track->track_info.track_type == XQC_MOQ_TRACK_VIDEO
+                || catalog_track->track_info.track_type == XQC_MOQ_TRACK_AUDIO)) {
+            
+            track_type = catalog_track->track_info.track_type;
+        }
+
+        if (catalog_track != NULL) {
+            if (!have_catalog_params) {
+                xqc_moq_track_copy_params(&catalog_params,
+                                          &catalog_track->track_info.selection_params);
+                have_catalog_params = 1;
+            }
+            xqc_moq_track_info_t *track_info_array[1];
+            track_info_array[0] = &catalog_track->track_info;
+            session->session_callbacks.on_catalog(session->user_session, track_info_array, 1);
+            track = xqc_moq_find_track_by_name(session, publish->track_namespace, publish->track_name, XQC_MOQ_TRACK_FOR_SUB);
+            if (track) {
+                xqc_moq_track_set_params(track, &catalog_track->track_info.selection_params);
+            } else {
+                xqc_log(session->log, XQC_LOG_INFO,
+                        "|on_publish catalog params pending track create|track:%s/%s|",
+                        publish->track_namespace, publish->track_name);
+            }
+        }
+
+        xqc_moq_catalog_free_fields(&catalog);
+        break;
+    }
 
     track = xqc_moq_find_track_by_name(session, publish->track_namespace, publish->track_name, XQC_MOQ_TRACK_FOR_SUB);
     if (track == NULL) {
-        /* TODO: derive track type/container from publish params instead of defaulting to datachannel */
+        xqc_moq_selection_params_t *params = NULL;
+        if (have_catalog_params) {
+            params = &catalog_params;
+        }
+        xqc_moq_container_t container = XQC_MOQ_CONTAINER_LOC;
         track = xqc_moq_track_create(session, publish->track_namespace, publish->track_name,
-                                     XQC_MOQ_TRACK_DATACHANNEL, NULL, XQC_MOQ_CONTAINER_NONE,
+                                     track_type, params, container,
                                      XQC_MOQ_TRACK_FOR_SUB);
         if (track == NULL) {
             xqc_log(session->log, XQC_LOG_ERROR, "|on_publish track not found|track_name:%s|", publish->track_name);
             xqc_moq_publish_send_error(session, publish->subscribe_id, XQC_MOQ_PUBLISH_ERR_TRACK_NOT_FOUND, "track not found");
-            return;
+            goto error;
         }
     }
 
@@ -572,6 +639,11 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
 
     if (session->session_callbacks.on_publish) {
         session->session_callbacks.on_publish(session->user_session, track, publish);
+    }
+
+error:
+    if (have_catalog_params) {
+        xqc_moq_track_free_params(&catalog_params);
     }
 }
 
@@ -669,6 +741,8 @@ xqc_moq_on_publish_done(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
         if (session->session_callbacks.on_publish_done) {
             session->session_callbacks.on_publish_done(session->user_session, track, publish_done);
         }
+        xqc_list_del(&track->list_member);
+        xqc_moq_track_destroy(track);
     } else {
         xqc_log(session->log, XQC_LOG_INFO,
                 "|on_publish_done no track|subscribe_id:%ui|status:%ui|streams:%ui|",

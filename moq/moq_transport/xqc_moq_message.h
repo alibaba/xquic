@@ -23,6 +23,9 @@ typedef struct xqc_moq_object_s {
     uint64_t                    object_id;
     uint64_t                    send_order;
     uint64_t                    status;
+    /* Optional Object Header Extensions (parsed from SUBGROUP/Object) */
+    uint64_t                    ext_params_num;
+    xqc_moq_message_parameter_t *ext_params;
     uint8_t                     *payload;
     uint64_t                    payload_len;
 } xqc_moq_object_t;
@@ -94,6 +97,12 @@ typedef struct xqc_moq_object_stream_msg_s {
     uint8_t                     subgroup_priority;
     uint64_t                    send_order;
     uint64_t                    status;
+    /* Object Header Extensions (for SUBGROUP-style objects) */
+    uint64_t                    ext_len;
+    uint8_t                     *ext_buf;
+    uint64_t                    ext_bytes_received;
+    uint64_t                    ext_params_num;
+    xqc_moq_message_parameter_t *ext_params;
     uint8_t                     *payload;
     uint64_t                    payload_len;
 } xqc_moq_object_stream_msg_t;

@@ -178,7 +178,8 @@ xqc_demo_send_current_time_msg(user_conn_t *user_conn, xqc_moq_track_t *track)
         return 0;
     }
 
-    time_t now = time(NULL);
+    xqc_usec_t now_us = xqc_now();
+    time_t now = (time_t)(now_us / 1000000);
     struct tm tm_now;
 #if defined(_WIN32)
     localtime_s(&tm_now, &now);
@@ -214,7 +215,7 @@ xqc_demo_send_current_time_msg(user_conn_t *user_conn, xqc_moq_track_t *track)
         xqc_moq_audio_frame_t audio_frame;
         memset(&audio_frame, 0, sizeof(audio_frame));
         audio_frame.seq_num = user_conn->audio_seq++;
-        audio_frame.timestamp_us = xqc_now();
+        audio_frame.timestamp_us = now_us;
         audio_frame.audio_data = (uint8_t *)payload_buf;
         audio_frame.audio_len = payload_len;
 
@@ -227,7 +228,7 @@ xqc_demo_send_current_time_msg(user_conn_t *user_conn, xqc_moq_track_t *track)
         xqc_moq_video_frame_t video_frame;
         memset(&video_frame, 0, sizeof(video_frame));
         video_frame.seq_num = user_conn->video_seq++;
-        video_frame.timestamp_us = xqc_now();
+        video_frame.timestamp_us = now_us;
         video_frame.type = XQC_MOQ_VIDEO_KEY;
         video_frame.video_len = payload_len;
         video_frame.video_data = (uint8_t *)payload_buf;
@@ -847,8 +848,26 @@ void on_video_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     DEBUG;
     xqc_moq_session_t *session = user_session->session;
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
-    printf("subscribe_id:%"PRIu64", seq_num:%"PRIu64", timestamp_us:%"PRIu64", type:%d, video_len:%"PRIu64", delay:%d, dcid:%s\n",
-            subscribe_id, video_frame->seq_num, video_frame->timestamp_us, video_frame->type, video_frame->video_len,
+    char ext_label[32] = {0};
+    time_t sec = (time_t)(video_frame->timestamp_us / 1000000);
+    struct tm tm_now;
+#if defined(_WIN32)
+    localtime_s(&tm_now, &sec);
+#else
+    localtime_r(&sec, &tm_now);
+#endif
+    if (strftime(ext_label, sizeof(ext_label), "%H:%M:%S", &tm_now) == 0) {
+        snprintf(ext_label, sizeof(ext_label), "%"PRIu64, video_frame->timestamp_us);
+    }
+    size_t ext_len = strlen(ext_label);
+    if (ext_len + 2 < sizeof(ext_label)) {
+        ext_label[ext_len] = '-';
+        ext_label[ext_len + 1] = '0';
+        ext_label[ext_len + 2] = '\0';
+    }
+    printf("subscribe_id:%"PRIu64", seq_num:%"PRIu64", timestamp_us:%"PRIu64", extinfo:%s, type:%d, video_len:%"PRIu64", delay:%d, dcid:%s\n",
+            subscribe_id, video_frame->seq_num, video_frame->timestamp_us, ext_label,
+            video_frame->type, video_frame->video_len,
             (int)(xqc_now() - video_frame->timestamp_us),xqc_dcid_str_by_scid(ctx.engine, &user_conn->cid));
 
     /* Test: Request a keyframe when the decoding fails */

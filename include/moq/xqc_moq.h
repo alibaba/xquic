@@ -132,7 +132,7 @@ typedef struct xqc_moq_user_session_s {
     uint8_t                         data[0];
 } xqc_moq_user_session_t;
 
-#define XQC_MOQ_SUBGROUP_TYPE_WITH_ID       0x14
+#define XQC_MOQ_SUBGROUP_TYPE_WITH_ID       0x15
 #define XQC_MOQ_DEFAULT_SUBGROUP_PRIORITY   0x0
 #define XQC_MOQ_INVALID_ID                  ((uint64_t)-1)
 

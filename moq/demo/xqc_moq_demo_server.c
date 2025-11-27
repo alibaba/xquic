@@ -542,8 +542,26 @@ void on_video_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     if (copy > 0 && video_frame->video_data) {
         memcpy(buf, video_frame->video_data, copy);
     }
-    printf("on_video_frame: subscribe_id:%"PRIu64", seq_num:%"PRIu64", ts_us:%"PRIu64", len:%"PRIu64", scid:%s, data:%s\n",
-           subscribe_id, video_frame->seq_num, video_frame->timestamp_us, video_frame->video_len,
+    char ext_label[32] = {0};
+    time_t sec = (time_t)(video_frame->timestamp_us / 1000000);
+    struct tm tm_now;
+#if defined(_WIN32)
+    localtime_s(&tm_now, &sec);
+#else
+    localtime_r(&sec, &tm_now);
+#endif
+    if (strftime(ext_label, sizeof(ext_label), "%H:%M:%S", &tm_now) == 0) {
+        snprintf(ext_label, sizeof(ext_label), "%"PRIu64, video_frame->timestamp_us);
+    }
+    size_t ext_len = strlen(ext_label);
+    if (ext_len + 2 < sizeof(ext_label)) {
+        ext_label[ext_len] = '-';
+        ext_label[ext_len + 1] = '0';
+        ext_label[ext_len + 2] = '\0';
+    }
+
+    printf("on_video_frame: subscribe_id:%"PRIu64", seq_num:%"PRIu64", ts_us:%"PRIu64", extinfo:%s, len:%"PRIu64", scid:%s, data:%s\n",
+           subscribe_id, video_frame->seq_num, video_frame->timestamp_us, ext_label, video_frame->video_len,
            xqc_scid_str(ctx.engine, &user_conn->cid), buf);
 
     /* Test: Request a keyframe when the decoding fails */
@@ -560,8 +578,26 @@ void on_audio_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     char buf[128] = {0};
     size_t copy = audio_frame->audio_len < sizeof(buf) - 1 ? audio_frame->audio_len : sizeof(buf) - 1;
     memcpy(buf, audio_frame->audio_data, copy);
-    printf("on_audio_frame: subscribe_id:%"PRIu64", seq:%"PRIu64", ts_us:%"PRIu64", len:%"PRIu64", scid:%s, data:%s\n",
-           subscribe_id, audio_frame->seq_num, audio_frame->timestamp_us, audio_frame->audio_len,
+    char ext_label[32] = {0};
+    time_t sec = (time_t)(audio_frame->timestamp_us / 1000000);
+    struct tm tm_now;
+#if defined(_WIN32)
+    localtime_s(&tm_now, &sec);
+#else
+    localtime_r(&sec, &tm_now);
+#endif
+    if (strftime(ext_label, sizeof(ext_label), "%H:%M:%S", &tm_now) == 0) {
+        snprintf(ext_label, sizeof(ext_label), "%"PRIu64, audio_frame->timestamp_us);
+    }
+    size_t ext_len = strlen(ext_label);
+    if (ext_len + 2 < sizeof(ext_label)) {
+        ext_label[ext_len] = '-';
+        ext_label[ext_len + 1] = '0';
+        ext_label[ext_len + 2] = '\0';
+    }
+
+    printf("on_audio_frame: subscribe_id:%"PRIu64", seq:%"PRIu64", ts_us:%"PRIu64", extinfo:%s, len:%"PRIu64", scid:%s, data:%s\n",
+           subscribe_id, audio_frame->seq_num, audio_frame->timestamp_us, ext_label, audio_frame->audio_len,
            xqc_scid_str(ctx.engine, &user_conn->cid), buf);
 }
 

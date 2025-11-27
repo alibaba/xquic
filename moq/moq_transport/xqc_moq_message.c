@@ -195,6 +195,8 @@ void xqc_moq_msg_set_object_by_object(xqc_moq_object_t *obj, xqc_moq_object_stre
     obj->object_id = msg->object_id;
     obj->send_order = msg->send_order;
     obj->status = msg->status;
+    obj->ext_params_num = msg->ext_params_num;
+    obj->ext_params = msg->ext_params;
     obj->payload = msg->payload;
     obj->payload_len = msg->payload_len;
 }
@@ -208,6 +210,8 @@ void xqc_moq_msg_set_object_by_track(xqc_moq_object_t *obj, xqc_moq_stream_heade
     obj->group_id = msg->group_id;
     obj->object_id = msg->object_id;
     obj->status = msg->status;
+    obj->ext_params_num = 0;
+    obj->ext_params = NULL;
     obj->payload = msg->payload;
     obj->payload_len = msg->payload_len;
 }
@@ -221,6 +225,8 @@ void xqc_moq_msg_set_object_by_group(xqc_moq_object_t *obj, xqc_moq_stream_heade
     obj->group_id = header->group_id;
     obj->object_id = msg->object_id;
     obj->status = msg->status;
+    obj->ext_params_num = 0;
+    obj->ext_params = NULL;
     obj->payload = msg->payload;
     obj->payload_len = msg->payload_len;
 }
@@ -3170,6 +3176,18 @@ xqc_moq_msg_free_object_stream(void *msg)
         return;
     }
     xqc_moq_object_stream_msg_t *object_stream = (xqc_moq_object_stream_msg_t *)msg;
+    if (object_stream->ext_params) {
+        xqc_moq_msg_free_params(object_stream->ext_params,
+                                (xqc_int_t)object_stream->ext_params_num);
+        object_stream->ext_params = NULL;
+        object_stream->ext_params_num = 0;
+    }
+    if (object_stream->ext_buf) {
+        xqc_free(object_stream->ext_buf);
+        object_stream->ext_buf = NULL;
+        object_stream->ext_len = 0;
+        object_stream->ext_bytes_received = 0;
+    }
     xqc_free(object_stream->payload);
     xqc_free(object_stream);
 }
@@ -3348,6 +3366,104 @@ xqc_moq_msg_subgroup_has_id(uint8_t type)
     return (type & 0x04) != 0;
 }
 
+/* Whether this subgroup type encodes Object Header Extensions. */
+static xqc_bool_t
+xqc_moq_msg_subgroup_has_ext(uint8_t type)
+{
+    /* Per Table 7 in moq-transport: the lowest bit indicates whether
+     * extension headers are present for Objects in this subgroup. */
+    return (type & 0x01) != 0;
+}
+
+static xqc_int_t
+xqc_moq_msg_subgroup_parse_ext_params(xqc_moq_subgroup_msg_t *object)
+{
+    size_t ext_processed = 0;
+    xqc_int_t params_num = 0;
+    xqc_int_t ret = 0;
+
+    while (ext_processed < object->ext_len) {
+        uint64_t type = 0;
+        uint64_t length = 0;
+
+        ret = xqc_vint_read(object->ext_buf + ext_processed,
+                            object->ext_buf + object->ext_len, &type);
+        if (ret < 0) {
+            return ret;
+        }
+        ext_processed += ret;
+
+        if (type & 0x1) {
+            ret = xqc_vint_read(object->ext_buf + ext_processed,
+                                object->ext_buf + object->ext_len, &length);
+            if (ret < 0) {
+                return ret;
+            }
+            ext_processed += ret;
+            if (length > XQC_MOQ_MAX_PARAM_VALUE_LEN) {
+                return -XQC_ELIMIT;
+            }
+            if (ext_processed + length > object->ext_len) {
+                return -XQC_EILLEGAL_FRAME;
+            }
+            ext_processed += length;
+        } else {
+            ret = xqc_vint_read(object->ext_buf + ext_processed,
+                                object->ext_buf + object->ext_len, &length);
+            if (ret < 0) {
+                return ret;
+            }
+            ext_processed += ret;
+        }
+
+        params_num++;
+        if (params_num > XQC_MOQ_MAX_PARAMS) {
+            return -XQC_ELIMIT;
+        }
+    }
+
+    if (ext_processed != object->ext_len) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    if (params_num == 0) {
+        xqc_free(object->ext_buf);
+        object->ext_buf = NULL;
+        object->ext_len = 0;
+        object->ext_bytes_received = 0;
+        object->ext_params = NULL;
+        object->ext_params_num = 0;
+        return XQC_OK;
+    }
+
+    xqc_moq_decode_params_ctx_t params_ctx;
+    xqc_int_t params_finish = 0;
+    xqc_int_t params_wait = 0;
+
+    object->ext_params = xqc_moq_msg_alloc_params(params_num);
+    if (object->ext_params == NULL) {
+        return -XQC_EMALLOC;
+    }
+    object->ext_params_num = params_num;
+
+    xqc_moq_decode_params_ctx_reset(&params_ctx);
+    ret = xqc_moq_msg_decode_params_v14(object->ext_buf, object->ext_len,
+                                        &params_ctx,
+                                        object->ext_params,
+                                        (xqc_int_t)object->ext_params_num,
+                                        &params_finish, &params_wait);
+    if (ret < 0 || params_finish == 0 || params_wait != 0) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    xqc_free(object->ext_buf);
+    object->ext_buf = NULL;
+    object->ext_len = 0;
+    object->ext_bytes_received = 0;
+
+    return XQC_OK;
+}
+
 xqc_int_t
 xqc_moq_msg_encode_subgroup_len(xqc_moq_msg_base_t *msg_base)
 {
@@ -3356,6 +3472,7 @@ xqc_moq_msg_encode_subgroup_len(xqc_moq_msg_base_t *msg_base)
     uint8_t subgroup_type = object->subgroup_type ? object->subgroup_type : XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
     xqc_bool_t has_subgroup_id = xqc_moq_msg_subgroup_has_id(subgroup_type);
     uint64_t object_delta = object->object_id_delta ? object->object_id_delta : object->object_id;
+    xqc_bool_t has_ext = xqc_moq_msg_subgroup_has_ext(subgroup_type);
 
     len += xqc_put_varint_len(subgroup_type);
     len += xqc_put_varint_len(object->track_alias);
@@ -3365,6 +3482,15 @@ xqc_moq_msg_encode_subgroup_len(xqc_moq_msg_base_t *msg_base)
     }
     len += sizeof(uint8_t);
     len += xqc_put_varint_len(object_delta);
+    if (has_ext) {
+        uint64_t ext_len = 0;
+        if (object->ext_params && object->ext_params_num > 0) {
+            ext_len = xqc_moq_msg_encode_params_len_v14(object->ext_params,
+                                                        (xqc_int_t)object->ext_params_num);
+        }
+        len += xqc_put_varint_len(ext_len);
+        len += ext_len;
+    }
     len += xqc_put_varint_len(object->payload_len);
     if (object->payload_len == 0) {
         len += xqc_put_varint_len(object->status);
@@ -3381,6 +3507,7 @@ xqc_moq_msg_encode_subgroup(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t b
     uint8_t subgroup_type = object->subgroup_type ? object->subgroup_type : XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
     xqc_bool_t has_subgroup_id = xqc_moq_msg_subgroup_has_id(subgroup_type);
     uint64_t object_delta = object->object_id_delta ? object->object_id_delta : object->object_id;
+    xqc_bool_t has_ext = xqc_moq_msg_subgroup_has_ext(subgroup_type);
 
     if (xqc_moq_msg_encode_subgroup_len(msg_base) > buf_cap) {
         return -XQC_EILLEGAL_FRAME;
@@ -3395,6 +3522,23 @@ xqc_moq_msg_encode_subgroup(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t b
     }
     *p++ = object->subgroup_priority;
     p = xqc_put_varint(p, object_delta);
+    if (has_ext) {
+        uint64_t ext_len = 0;
+        if (object->ext_params && object->ext_params_num > 0) {
+            ext_len = xqc_moq_msg_encode_params_len_v14(object->ext_params,
+                                                        (xqc_int_t)object->ext_params_num);
+        }
+        p = xqc_put_varint(p, ext_len);
+        if (ext_len > 0) {
+            xqc_int_t ret = xqc_moq_msg_encode_params_v14(object->ext_params,
+                                                          (xqc_int_t)object->ext_params_num,
+                                                          p, buf + buf_cap - p);
+            if (ret < 0) {
+                return ret;
+            }
+            p += ret;
+        }
+    }
     p = xqc_put_varint(p, object->payload_len);
     if (object->payload_len == 0) {
         p = xqc_put_varint(p, object->status);
@@ -3415,6 +3559,7 @@ xqc_moq_msg_decode_subgroup(uint8_t *buf, size_t buf_len, uint8_t stream_fin, xq
     xqc_int_t ret = 0;
     xqc_moq_subgroup_msg_t *object = (xqc_moq_subgroup_msg_t*)msg_base;
     xqc_bool_t has_subgroup_id = 0;
+    xqc_bool_t has_ext = 0;
 
     switch (msg_ctx->cur_field_idx) {
         case 0: // track alias
@@ -3462,7 +3607,66 @@ xqc_moq_msg_decode_subgroup(uint8_t *buf, size_t buf_len, uint8_t stream_fin, xq
             processed += ret;
             object->object_id = object->object_id_delta;
             msg_ctx->cur_field_idx = 5;
-        case 5: // payload length
+        case 5: // extension headers length (if present)
+            has_ext = xqc_moq_msg_subgroup_has_ext(object->subgroup_type);
+            if (has_ext) {
+                ret = xqc_vint_read(buf + processed, buf + buf_len, &object->ext_len);
+                if (ret < 0) {
+                    *wait_more_data = 1;
+                    break;
+                }
+                processed += ret;
+                if (object->ext_len > XQC_MOQ_MAX_OBJECT_LEN) {
+                    return -XQC_ELIMIT;
+                }
+                if (object->ext_len == 0) {
+                    msg_ctx->cur_field_idx = 7;
+                    break;
+                }
+                if (object->ext_buf == NULL) {
+                    object->ext_buf = xqc_malloc(object->ext_len);
+                    if (object->ext_buf == NULL) {
+                        return -XQC_EMALLOC;
+                    }
+                }
+                object->ext_bytes_received = 0;
+                msg_ctx->cur_field_idx = 6;
+                break;
+            } else {
+                object->ext_len = 0;
+                msg_ctx->cur_field_idx = 7;
+                goto idx7;
+            }
+        case 6: // extension headers block (if any)
+            has_ext = xqc_moq_msg_subgroup_has_ext(object->subgroup_type);
+            if (has_ext && object->ext_len > 0) {
+                if (buf_len - processed == 0) {
+                    *wait_more_data = 1;
+                    break;
+                }
+                size_t remaining = object->ext_len - object->ext_bytes_received;
+                size_t available = buf_len - processed;
+                size_t copy = remaining < available ? remaining : available;
+                xqc_memcpy(object->ext_buf + object->ext_bytes_received, buf + processed, copy);
+                object->ext_bytes_received += copy;
+                processed += copy;
+                if (object->ext_bytes_received < object->ext_len) {
+                    *wait_more_data = 1;
+                    break;
+                }
+
+                ret = xqc_moq_msg_subgroup_parse_ext_params(object);
+                if (ret < 0) {
+                    return ret;
+                }
+
+                msg_ctx->cur_field_idx = 7;
+                break;
+            } else {
+                msg_ctx->cur_field_idx = 7;
+            }
+        case 7: // payload length
+            idx7:
             ret = xqc_vint_read(buf + processed, buf + buf_len, &object->payload_len);
             if (ret < 0) {
                 *wait_more_data = 1;
@@ -3472,8 +3676,8 @@ xqc_moq_msg_decode_subgroup(uint8_t *buf, size_t buf_len, uint8_t stream_fin, xq
                 return -XQC_ELIMIT;
             }
             processed += ret;
-            msg_ctx->cur_field_idx = 6;
-        case 6: // payload or status
+            msg_ctx->cur_field_idx = 8;
+        case 8: // payload or status
             if (object->payload_len == 0) {
                 ret = xqc_vint_read(buf + processed, buf + buf_len, &object->status);
                 if (ret < 0) {

@@ -8,6 +8,7 @@
 #define XQC_MOQ_LOC_HDR_VIDEO_CONFIG        0xD
 #define XQC_MOQ_LOC_HDR_VIDEO_FRAME_MARKING 0x4
 #define XQC_MOQ_LOC_HDR_AUDIO_LEVEL         0x6
+#define XQC_MOQ_LOC_HDR_BIZINFO             0xF7
 
 extern const xqc_moq_media_container_ops_t xqc_moq_loc_ops;
 

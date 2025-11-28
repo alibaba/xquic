@@ -107,15 +107,57 @@ xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     object.subgroup_type = XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
     object.subgroup_priority = XQC_MOQ_DEFAULT_SUBGROUP_PRIORITY;
     object.object_id_delta = object.object_id;
-    xqc_moq_message_parameter_t ext_headers[1];
+    xqc_moq_message_parameter_t ext_headers[4];
     xqc_memzero(ext_headers, sizeof(ext_headers));
-    ext_headers[0].type = XQC_MOQ_LOC_HDR_CAPTURE_TIMESTAMP;
-    ext_headers[0].is_integer = 1;
-    ext_headers[0].int_value = video_frame->timestamp_us;
-    ext_headers[0].length = 0;
-    ext_headers[0].value = NULL;
+    uint64_t ext_num = 0;
+
+    /* Optional Capture Timestamp. */
+    if (video_frame->timestamp_us != 0) {
+        ext_headers[ext_num].type = XQC_MOQ_LOC_HDR_CAPTURE_TIMESTAMP;
+        ext_headers[ext_num].is_integer = 1;
+        ext_headers[ext_num].int_value = video_frame->timestamp_us;
+        ext_headers[ext_num].length = 0;
+        ext_headers[ext_num].value = NULL;
+        ext_num++;
+    }
+
+    if (video_frame->has_video_config
+        && video_frame->video_config
+        && video_frame->video_config_len > 0)
+    {
+        ext_headers[ext_num].type = XQC_MOQ_LOC_HDR_VIDEO_CONFIG;
+        ext_headers[ext_num].is_integer = 0;
+        ext_headers[ext_num].int_value = 0;
+        ext_headers[ext_num].length = video_frame->video_config_len;
+        ext_headers[ext_num].value = video_frame->video_config;
+        ext_num++;
+    }
+
+    /* Optional Video Frame Marking (integer varint). */
+    if (video_frame->has_video_frame_marking) {
+        ext_headers[ext_num].type = XQC_MOQ_LOC_HDR_VIDEO_FRAME_MARKING;
+        ext_headers[ext_num].is_integer = 1;
+        ext_headers[ext_num].int_value = video_frame->video_frame_marking;
+        ext_headers[ext_num].length = 0;
+        ext_headers[ext_num].value = NULL;
+        ext_num++;
+    }
+
+    /* Optional Bizinfo (bytes). */
+    if (video_frame->has_bizinfo
+        && video_frame->bizinfo
+        && video_frame->bizinfo_len > 0)
+    {
+        ext_headers[ext_num].type = XQC_MOQ_LOC_HDR_BIZINFO;
+        ext_headers[ext_num].is_integer = 0;
+        ext_headers[ext_num].int_value = 0;
+        ext_headers[ext_num].length = video_frame->bizinfo_len;
+        ext_headers[ext_num].value = video_frame->bizinfo;
+        ext_num++;
+    }
+
     object.ext_params = ext_headers;
-    object.ext_params_num = 1;
+    object.ext_params_num = ext_num;
 
     xqc_moq_stream_on_track_write(stream, track, object.group_id, object.object_id, video_frame->seq_num);
     xqc_list_add_tail(&stream->list_member, &media_track->write_stream_list);
@@ -195,15 +237,45 @@ xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     object.subgroup_type = XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
     object.subgroup_priority = XQC_MOQ_DEFAULT_SUBGROUP_PRIORITY;
     object.object_id_delta = object.object_id;
-    xqc_moq_message_parameter_t ext_headers_a[1];
+    xqc_moq_message_parameter_t ext_headers_a[3];
     xqc_memzero(ext_headers_a, sizeof(ext_headers_a));
-    ext_headers_a[0].type = XQC_MOQ_LOC_HDR_CAPTURE_TIMESTAMP;
-    ext_headers_a[0].is_integer = 1;
-    ext_headers_a[0].int_value = audio_frame->timestamp_us;
-    ext_headers_a[0].length = 0;
-    ext_headers_a[0].value = NULL;
+    uint64_t ext_num_a = 0;
+
+    /* Optional Capture Timestamp. */
+    if (audio_frame->timestamp_us != 0) {
+        ext_headers_a[ext_num_a].type = XQC_MOQ_LOC_HDR_CAPTURE_TIMESTAMP;
+        ext_headers_a[ext_num_a].is_integer = 1;
+        ext_headers_a[ext_num_a].int_value = audio_frame->timestamp_us;
+        ext_headers_a[ext_num_a].length = 0;
+        ext_headers_a[ext_num_a].value = NULL;
+        ext_num_a++;
+    }
+
+    /* Optional Audio Level (integer varint, we use full value). */
+    if (audio_frame->has_audio_level) {
+        ext_headers_a[ext_num_a].type = XQC_MOQ_LOC_HDR_AUDIO_LEVEL;
+        ext_headers_a[ext_num_a].is_integer = 1;
+        ext_headers_a[ext_num_a].int_value = audio_frame->audio_level;
+        ext_headers_a[ext_num_a].length = 0;
+        ext_headers_a[ext_num_a].value = NULL;
+        ext_num_a++;
+    }
+
+    /* Optional Bizinfo (bytes). */
+    if (audio_frame->has_bizinfo
+        && audio_frame->bizinfo
+        && audio_frame->bizinfo_len > 0)
+    {
+        ext_headers_a[ext_num_a].type = XQC_MOQ_LOC_HDR_BIZINFO;
+        ext_headers_a[ext_num_a].is_integer = 0;
+        ext_headers_a[ext_num_a].int_value = 0;
+        ext_headers_a[ext_num_a].length = audio_frame->bizinfo_len;
+        ext_headers_a[ext_num_a].value = audio_frame->bizinfo;
+        ext_num_a++;
+    }
+
     object.ext_params = ext_headers_a;
-    object.ext_params_num = 1;
+    object.ext_params_num = ext_num_a;
 
     xqc_moq_stream_on_track_write(stream, track, object.group_id, object.object_id, audio_frame->seq_num);
     xqc_list_add_tail(&stream->list_member, &media_track->write_stream_list);
@@ -536,7 +608,21 @@ xqc_moq_media_on_object(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_
                     xqc_moq_message_parameter_t *p = &object->ext_params[i];
                     if (p->type == XQC_MOQ_LOC_HDR_CAPTURE_TIMESTAMP && p->is_integer) {
                         video_frame->timestamp_us = p->int_value;
-                        break;
+                    } else if (p->type == XQC_MOQ_LOC_HDR_VIDEO_FRAME_MARKING && p->is_integer) {
+                        video_frame->video_frame_marking = p->int_value;
+                        video_frame->has_video_frame_marking = 1;
+                    } else if (p->type == XQC_MOQ_LOC_HDR_VIDEO_CONFIG
+                               && p->length > 0 && p->value != NULL)
+                    {
+                        video_frame->video_config = p->value;
+                        video_frame->video_config_len = p->length;
+                        video_frame->has_video_config = 1;
+                    } else if (p->type == XQC_MOQ_LOC_HDR_BIZINFO
+                               && p->length > 0 && p->value != NULL)
+                    {
+                        video_frame->bizinfo = p->value;
+                        video_frame->bizinfo_len = p->length;
+                        video_frame->has_bizinfo = 1;
                     }
                 }
             }
@@ -560,7 +646,15 @@ xqc_moq_media_on_object(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_
                     xqc_moq_message_parameter_t *p = &object->ext_params[i];
                     if (p->type == XQC_MOQ_LOC_HDR_CAPTURE_TIMESTAMP && p->is_integer) {
                         audio_frame->timestamp_us = p->int_value;
-                        break;
+                    } else if (p->type == XQC_MOQ_LOC_HDR_AUDIO_LEVEL && p->is_integer) {
+                        audio_frame->audio_level = p->int_value;
+                        audio_frame->has_audio_level = 1;
+                    } else if (p->type == XQC_MOQ_LOC_HDR_BIZINFO
+                               && p->length > 0 && p->value != NULL)
+                    {
+                        audio_frame->bizinfo = p->value;
+                        audio_frame->bizinfo_len = p->length;
+                        audio_frame->has_bizinfo = 1;
                     }
                 }
             }

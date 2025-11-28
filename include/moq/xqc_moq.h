@@ -22,6 +22,15 @@ typedef struct {
     uint64_t                        timestamp_us;
     uint8_t                         *video_data;
     uint64_t                        video_len;
+    /* LOC Header Extensions */
+    uint8_t                         *video_config;
+    uint64_t                        video_config_len;
+    uint64_t                        video_frame_marking;
+    uint8_t                         has_video_config;
+    uint8_t                         has_video_frame_marking;
+    uint8_t                         *bizinfo;
+    uint64_t                        bizinfo_len;
+    uint8_t                         has_bizinfo;
 } xqc_moq_video_frame_t;
 
 typedef struct {
@@ -29,6 +38,12 @@ typedef struct {
     uint64_t                        timestamp_us;
     uint8_t                         *audio_data;
     uint64_t                        audio_len;
+    /* LOC Header Extensions */
+    uint64_t                        audio_level;
+    uint8_t                         has_audio_level;
+    uint8_t                         *bizinfo;
+    uint64_t                        bizinfo_len;
+    uint8_t                         has_bizinfo;
 } xqc_moq_audio_frame_t;
 
 typedef enum {

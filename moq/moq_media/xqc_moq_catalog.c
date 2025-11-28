@@ -130,6 +130,7 @@ const char kTracks[]                      = "tracks";
 const char kCatalogs[]                    = "catalogs";
 const char kNamespace[]                   = "namespace";
 const char kPackaging[]                   = "packaging";
+const char kRole[]                        = "role";
 const char kName[]                        = "name";
 const char kOperation[]                   = "operation";
 const char kLabel[]                       = "label";
@@ -243,6 +244,15 @@ xqc_moq_catalog_single_track_decode(cJSON *track_json, xqc_moq_track_t *track, x
     } else if (track->packaging != NULL && strncmp(track->packaging, XQC_MOQ_CONTAINER_CMAF_STR, strlen(track->packaging)) == 0) {
         track->container_format = XQC_MOQ_CONTAINER_CMAF;
     }
+    cJSON *role_field = cJSON_GetObjectItemCaseSensitive(track_json, kRole);
+    if (cJSON_IsString(role_field)) {
+        if (strcasecmp(role_field->valuestring, "video") == 0) {
+            track->track_info.track_type = XQC_MOQ_TRACK_VIDEO;
+        } else if (strcasecmp(role_field->valuestring, "audio") == 0) {
+            track->track_info.track_type = XQC_MOQ_TRACK_AUDIO;
+        }
+    }
+
     XQC_MOQ_PROCESS_CATALOG_UNNECESSARY_INT_FIELD(track->render_group, track_json, kRenderGroup);
 
     
@@ -307,6 +317,18 @@ xqc_moq_catalog_single_track_encode(cJSON *track_json, xqc_moq_track_t *track, x
     XQC_MOQ_ADD_REQUIRED_STRING_TO_CATALOG(track->track_info.track_name, track_json, kName);
 
     XQC_MOQ_ADD_REQUIRED_STRING_TO_CATALOG(track->track_info.selection_params.codec, track_params, kCodec);
+
+    if (track->track_info.track_type == XQC_MOQ_TRACK_VIDEO) {
+        if (cJSON_AddStringToObject(track_json, kRole, "video") == NULL) {
+            ret = XQC_MOQ_CATALOG_ENCODE_INTERNAL_ERROR;
+            goto end;
+        }
+    } else if (track->track_info.track_type == XQC_MOQ_TRACK_AUDIO) {
+        if (cJSON_AddStringToObject(track_json, kRole, "audio") == NULL) {
+            ret = XQC_MOQ_CATALOG_ENCODE_INTERNAL_ERROR;
+            goto end;
+        }
+    }
 
     /* add field which could be inherited from parent domain, but it's different from ones in parent domain. */
     if (is_first_track) {
@@ -523,18 +545,22 @@ xqc_moq_catalog_decode(xqc_moq_catalog_t *catalog, uint8_t *buf, size_t buf_len)
                     goto end;
                 }
                 // TODO: support "op" = "add" and "remove"
-                tmp_track->track_info.track_type = -1;
-                if (tmp_track->track_info.selection_params.mime_type) {
-                    if (strncmp(tmp_track->track_info.selection_params.mime_type, "video", strlen("video")) == 0) {
-                        tmp_track->track_info.track_type = XQC_MOQ_TRACK_VIDEO;
-                    } else if (strncmp(tmp_track->track_info.selection_params.mime_type, "audio", strlen("audio")) == 0) {
+                if (tmp_track->track_info.track_type != XQC_MOQ_TRACK_VIDEO
+                    && tmp_track->track_info.track_type != XQC_MOQ_TRACK_AUDIO) {
+                    tmp_track->track_info.track_type = -1;
+                    if (tmp_track->track_info.selection_params.mime_type) {
+                        if (strncmp(tmp_track->track_info.selection_params.mime_type, "video", strlen("video")) == 0) {
+                            tmp_track->track_info.track_type = XQC_MOQ_TRACK_VIDEO;
+                        } else if (strncmp(tmp_track->track_info.selection_params.mime_type, "audio", strlen("audio")) == 0) {
+                            tmp_track->track_info.track_type = XQC_MOQ_TRACK_AUDIO;
+                        }
+                    }
+                    if (tmp_track->track_info.selection_params.samplerate > 0) {
                         tmp_track->track_info.track_type = XQC_MOQ_TRACK_AUDIO;
                     }
                 }
-                if (tmp_track->track_info.selection_params.samplerate > 0) {
-                    tmp_track->track_info.track_type = XQC_MOQ_TRACK_AUDIO;
-                }
-                if (tmp_track->track_info.track_type == -1) {
+                if (tmp_track->track_info.track_type != XQC_MOQ_TRACK_VIDEO
+                    && tmp_track->track_info.track_type != XQC_MOQ_TRACK_AUDIO) {
                     ret = XQC_MOQ_CATALOG_DECODE_FIELD_MISSING;
                     goto end;
                 }
@@ -559,6 +585,74 @@ end:
     }
     cJSON_Delete(catalog_json);
     return -ret;
+}
+
+xqc_int_t
+xqc_moq_build_catalog_param_from_track(xqc_moq_track_t *track, xqc_moq_message_parameter_t *param)
+{
+    if (track == NULL || param == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_moq_catalog_t catalog;
+    xqc_moq_catalog_init(&catalog);
+    catalog.version = 1;
+    catalog.sequence = 0;
+    catalog.streaming_format = 1;
+    size_t sfv_len = strlen(STREAMING_FORMAT_VERSION) + 1;
+    catalog.streaming_format_version = xqc_calloc(1, sfv_len);
+    if (catalog.streaming_format_version == NULL) {
+        return -XQC_EMALLOC;
+    }
+    xqc_memcpy(catalog.streaming_format_version, STREAMING_FORMAT_VERSION, sfv_len);
+
+    xqc_list_head_t track_list;
+    xqc_init_list_head(&track_list);
+    catalog.track_list_for_pub = &track_list;
+
+    xqc_moq_track_t tmp_track;
+    xqc_memzero(&tmp_track, sizeof(tmp_track));
+    tmp_track.track_info = track->track_info;
+    tmp_track.container_format = track->container_format;
+    tmp_track.packaging = track->packaging;
+    tmp_track.render_group = track->render_group;
+    xqc_init_list_head(&tmp_track.list_member);
+    xqc_list_add_tail(&tmp_track.list_member, &track_list);
+
+    size_t buf_cap = 2048;
+    uint8_t *buf = xqc_malloc(buf_cap);
+    if (buf == NULL) {
+        xqc_moq_catalog_free_fields(&catalog);
+        return -XQC_EMALLOC;
+    }
+
+    xqc_int_t encoded_len = 0;
+    xqc_int_t ret = xqc_moq_catalog_encode(&catalog, buf, buf_cap, &encoded_len);
+    xqc_moq_catalog_free_fields(&catalog);
+    if (ret < 0) {
+        xqc_free(buf);
+        return ret;
+    }
+
+    xqc_memzero(param, sizeof(*param));
+    param->type = XQC_MOQ_PARAM_AUTHORIZATION_TOKEN;
+    param->length = encoded_len;
+    param->value = buf;
+    param->is_integer = 0;
+    param->int_value = 0;
+
+    return XQC_OK;
+}
+
+void
+xqc_moq_free_catalog_param(xqc_moq_message_parameter_t *param)
+{
+    if (param == NULL || param->value == NULL) {
+        return;
+    }
+    xqc_free(param->value);
+    param->value = NULL;
+    param->length = 0;
 }
 
 

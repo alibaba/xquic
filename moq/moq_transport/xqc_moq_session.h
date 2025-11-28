@@ -19,6 +19,7 @@
 
 //#define XQC_MOQ_VERSION 0x00000001
 #define XQC_MOQ_VERSION_5 0xff000005
+#define XQC_MOQ_VERSION_14 0xff00000E
 
 typedef struct xqc_moq_session_s {
     uint32_t                        version;
@@ -44,6 +45,7 @@ typedef struct xqc_moq_session_s {
     xqc_moq_bitrate_allocator_t     bitrate_allocator;
     xqc_int_t                       enable_fec;
     float                           fec_code_rate;
+    xqc_int_t                       use_client_setup_v14;
 } xqc_moq_session_t;
 
 typedef enum {
@@ -73,5 +75,8 @@ xqc_moq_track_t *xqc_moq_find_track_by_alias(xqc_moq_session_t *session,
 
 xqc_moq_track_t *xqc_moq_find_track_by_name(xqc_moq_session_t *session,
     const char *track_namespace, const char *track_name, xqc_moq_track_role_t role);
+
+xqc_moq_track_t *xqc_moq_find_track_by_subscribe_id(xqc_moq_session_t *session,
+    uint64_t subscribe_id, xqc_moq_track_role_t role);
 
 #endif /* _XQC_MOQ_SESSION_H_INCLUDED_ */

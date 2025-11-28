@@ -429,6 +429,19 @@ xqc_moq_session_t *xqc_moq_session_create(void *conn, xqc_moq_user_session_t *us
     xqc_moq_transport_type_t type, xqc_moq_role_t role, xqc_moq_session_callbacks_t callbacks,
     char *extdata, xqc_int_t enable_client_setup_v14);
 
+/**
+ * @brief Create a MOQ session with custom CLIENT_SETUP params.
+ * @param setup_params Optional array of parameters to include in CLIENT_SETUP.
+ *        If non-NULL and setup_params_num > 0, these replace the default ROLE/PATH/EXTDATA set
+ *        and must include XQC_MOQ_PARAM_ROLE themselves.
+ * @note  setup_params is only used during this call and is not retained by the library.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_moq_session_t *xqc_moq_session_create_with_params(void *conn, xqc_moq_user_session_t *user_session,
+    xqc_moq_transport_type_t type, xqc_moq_role_t role, xqc_moq_session_callbacks_t callbacks,
+    char *extdata, xqc_int_t enable_client_setup_v14,
+    xqc_moq_message_parameter_t *setup_params, uint64_t setup_params_num);
+
 XQC_EXPORT_PUBLIC_API
 void xqc_moq_session_destroy(xqc_moq_session_t *session);
 

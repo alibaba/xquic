@@ -170,8 +170,6 @@ xqc_moq_on_client_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
     xqc_moq_server_setup_v14_msg_t server_setup;
     memset(&server_setup, 0, sizeof(server_setup));
     server_setup.selected_version = version;
-    server_setup.params_num = sizeof(params) / sizeof(params[0]);
-    server_setup.params = params;
     ret = xqc_moq_write_server_setup_v14(session, &server_setup);
     if (ret < 0) {
         xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_write_server_setup_v14 error|ret:%d|", ret);

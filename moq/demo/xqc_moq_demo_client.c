@@ -926,8 +926,32 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
         .on_video = on_video_frame,
         .on_audio = on_audio_frame,
     };
-    xqc_moq_session_t *session = xqc_moq_session_create(conn, user_session, XQC_MOQ_TRANSPORT_QUIC,
-        g_role, callbacks, "extdata", g_enable_client_setup_v14);
+    xqc_moq_session_t *session;
+
+    if (g_enable_client_setup_v14) {
+        xqc_moq_message_parameter_t setup_params[2];
+        memset(setup_params, 0, sizeof(setup_params));
+
+        // ROLE (required).
+        setup_params[0].type = XQC_MOQ_PARAM_ROLE;
+        setup_params[0].is_integer = 1;
+        setup_params[0].int_value = g_role;
+
+        // Optional EXTDATA as bytes.
+        const char *ext = "extdata";
+        setup_params[1].type = XQC_MOQ_PARAM_EXTDATA;
+        setup_params[1].is_integer = 0;
+        setup_params[1].value = (uint8_t *)ext;
+        setup_params[1].length = strlen(ext) + 1;
+
+        session = xqc_moq_session_create_with_params(conn, user_session, XQC_MOQ_TRANSPORT_QUIC,
+            g_role, callbacks, NULL, g_enable_client_setup_v14,
+            setup_params, sizeof(setup_params) / sizeof(setup_params[0]));
+    } else {
+        // V5
+        session = xqc_moq_session_create(conn, user_session, XQC_MOQ_TRANSPORT_QUIC,
+            g_role, callbacks, "extdata", g_enable_client_setup_v14);
+    }
     if (session == NULL) {
         printf("create session error\n");
         return -1;

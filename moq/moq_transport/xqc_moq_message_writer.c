@@ -59,8 +59,13 @@ xqc_moq_write_client_setup(xqc_moq_session_t *session, xqc_moq_client_setup_msg_
 }
 
 xqc_int_t
-xqc_moq_write_client_setup_v14(xqc_moq_session_t *session, xqc_moq_client_setup_v14_msg_t *client_setup)
+xqc_moq_write_client_setup_v14(xqc_moq_session_t *session, xqc_moq_client_setup_v14_msg_t *client_setup,
+    xqc_moq_message_parameter_t *params, uint64_t params_num)
 {
+    if (client_setup && params && params_num > 0) {
+        client_setup->params = params;
+        client_setup->params_num = params_num;
+    }
     return xqc_moq_write_msg_generic(session, session->ctl_stream, &client_setup->msg_base,
                                      xqc_moq_msg_client_setup_v14_init_handler);
 }

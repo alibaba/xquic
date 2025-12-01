@@ -666,15 +666,9 @@ xqc_moq_msg_decode_params(uint8_t *buf, size_t buf_len, xqc_moq_decode_params_ct
 
 uint8_t * xqc_moq_put_varint_length(uint8_t *buf, size_t length)
 {
-    if(length < 64){
-        *buf = 0;
-        buf++;
-        buf = xqc_put_varint(buf, length);
-        return buf;
-    }else {
-        buf = xqc_put_varint(buf, length);
-        return buf;
-    }
+    buf[0] = (uint8_t)((length >> 8) & 0xff);
+    buf[1] = (uint8_t)(length & 0xff);
+    return buf + XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
 }
 
 

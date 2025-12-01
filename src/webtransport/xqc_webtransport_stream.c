@@ -56,7 +56,6 @@ xqc_wt_stream_map_addstream(xqc_wt_stream_map_t *stream_map,
 {
     xqc_id_hash_element_t element = {stream_id, close_func};
     xqc_id_hash_add(stream_map->FuncMap, element);
-    // printf("xqc stream map add stream success!\n") ;
 }
 
 void
@@ -105,7 +104,6 @@ xqc_wt_create_send_stream(xqc_wt_session_t *session,
         // xqc_send_stream_close
         return NULL;
     }
-    // 注意下列语句在创建conn超过限制的时候内部会报错
     xqc_stream_t *stream =
         xqc_stream_create_with_direction(conn, XQC_STREAM_UNI, NULL);
     if (stream == NULL) {

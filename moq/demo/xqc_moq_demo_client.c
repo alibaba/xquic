@@ -1003,7 +1003,7 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
         setup_params[0].int_value = g_role;
 
         // Optional EXTDATA as bytes.
-        const char *ext = "extdata";
+        const char *ext = "extdata-extra-length";
         setup_params[1].type = XQC_MOQ_PARAM_EXTDATA;
         setup_params[1].is_integer = 0;
         setup_params[1].value = (uint8_t *)ext;

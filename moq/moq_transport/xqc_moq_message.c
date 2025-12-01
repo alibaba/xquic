@@ -406,7 +406,7 @@ xqc_moq_msg_encode_params_len_v14(xqc_moq_message_parameter_t *params, xqc_int_t
     for (xqc_int_t i = 0; i < params_num; i++) {
         param = &params[i];
         len += xqc_put_varint_len(param->type);
-        if (param->type & 0x1) {
+        if ((param->type & 0x1) || param->type == XQC_MOQ_PARAM_EXTDATA) {
             len += xqc_put_varint_len(param->length);
             len += param->length;
         } else {
@@ -431,7 +431,7 @@ xqc_moq_msg_encode_params_v14(xqc_moq_message_parameter_t *params, xqc_int_t par
     for (xqc_int_t i = 0; i < params_num; i++) {
         param = &params[i];
         p = xqc_put_varint(p, param->type);
-        if (param->type & 0x1) {
+        if ((param->type & 0x1) || param->type == XQC_MOQ_PARAM_EXTDATA) {
             p = xqc_put_varint(p, param->length);
             if (param->length > 0 && param->value) {
                 xqc_memcpy(p, param->value, param->length);
@@ -464,7 +464,11 @@ xqc_moq_msg_decode_params_v14(uint8_t *buf, size_t buf_len, xqc_moq_decode_param
                 return processed;
             }
             processed += ret;
-            ctx->cur_field_idx = (param->type & 0x1) ? 1 : 3;
+                if ((param->type & 0x1) || param->type == XQC_MOQ_PARAM_EXTDATA) {
+                    ctx->cur_field_idx = 1;
+                } else {
+                    ctx->cur_field_idx = 3;
+                }
             break;
         case 1:
             ret = xqc_vint_read(buf + processed, buf + buf_len, &param->length);

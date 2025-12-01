@@ -175,6 +175,7 @@ if(XQC_ENABLE_TESTING)
     add_subdirectory(tests)
     add_subdirectory(demo)
     add_subdirectory(mini)
+    add_subdirectory(src/webtransport)
 endif(XQC_ENABLE_TESTING)
 
 if(XQC_ENABLE_MOQ)
@@ -202,6 +203,19 @@ set(
     "src/http3/qpack/dtable/xqc_dtable.c"
     "src/http3/xqc_h3_ext_dgram.c"
     "src/http3/xqc_h3_ext_bytestream.c"
+)
+
+# WebTransport source
+set(
+    WEBTRANSPORT_SOURCES
+    "src/webtransport/xqc_webtransport_session.c"
+    "src/webtransport/xqc_webtransport_ctx.c"
+    "src/webtransport/xqc_webtransport_defs.c"
+    "src/webtransport/xqc_webtransport_dgram.c"
+    "src/webtransport/xqc_webtransport_request.c"
+    "src/webtransport/xqc_webtransport_stream.c"
+    "src/webtransport/xqc_webtransport_conn.c"
+    "src/webtransport/xqc_webtransport_wire.c"
 )
 
 # Transport source
@@ -384,6 +398,7 @@ set (
     XQC_SOURCE
     ${XQC_SOURCE}
     ${HTTP3_SOURCES}
+    ${WEBTRANSPORT_SOURCES}
     ${TRANSPORT_SOURCES}
     ${TLS_SOURCE}
     ${COMMON_SOURCES}
@@ -430,4 +445,3 @@ if(CMAKE_BUILD_TYPE STREQUAL MinSizeRel)
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
             COMMAND ${CMAKE_STRIP} libxquic.so)
 endif()
-

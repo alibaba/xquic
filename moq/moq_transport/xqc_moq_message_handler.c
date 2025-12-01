@@ -177,11 +177,11 @@ xqc_moq_on_client_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
     }
     xqc_log(session->log, XQC_LOG_INFO, "|client_setup_v14_complete|local_role:%u|", session->role);
 
-    // ret = xqc_moq_subscribe_datachannel(session);
-    // if (ret < 0) {
-    //     xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_datachannel error|ret:%d|", ret);
-    //     goto error;
-    // }
+    ret = xqc_moq_subscribe_datachannel(session);
+    if (ret < 0) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_datachannel error|ret:%d|", ret);
+        goto error;
+    }
 
     // ret = xqc_moq_subscribe_catalog(session);
     // if (ret < 0) {
@@ -292,12 +292,11 @@ xqc_moq_on_server_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
         }
     }
 
-    // TODO: block for interop test
-    // ret = xqc_moq_subscribe_datachannel(session);
-    // if (ret < 0) {
-    //     xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_datachannel error|ret:%d|", ret);
-    //     goto error;
-    // }
+    ret = xqc_moq_subscribe_datachannel(session);
+    if (ret < 0) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_datachannel error|ret:%d|", ret);
+        goto error;
+    }
 
     // ret = xqc_moq_subscribe_catalog(session);
     // if (ret < 0) {
@@ -414,10 +413,19 @@ xqc_moq_on_subscribe_ok(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
         goto error;
     }
     xqc_moq_track_t *track;
-    track = xqc_moq_find_track_by_alias(session, subscribe->subscribe_msg->track_alias, XQC_MOQ_TRACK_FOR_SUB);
+    track = xqc_moq_find_track_by_subscribe_id(session, subscribe_ok->subscribe_id, XQC_MOQ_TRACK_FOR_SUB);
     if (track == NULL) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|track not found|track_alias:%ui|", subscribe->subscribe_msg->track_alias);
+        track = xqc_moq_find_track_by_alias(session, subscribe->subscribe_msg->track_alias, XQC_MOQ_TRACK_FOR_SUB);
+    }
+    if (track == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|track not found|subscribe_id:%ui|track_alias:%ui|",
+                subscribe_ok->subscribe_id, subscribe->subscribe_msg->track_alias);
         goto error;
+    }
+
+    if (subscribe_ok->track_alias != XQC_MOQ_INVALID_ID) {
+        xqc_moq_track_set_alias(track, subscribe_ok->track_alias);
+        subscribe->subscribe_msg->track_alias = subscribe_ok->track_alias;
     }
 
     xqc_log(session->log, XQC_LOG_INFO, "|on_subscribe_ok|track_name:%s|track_alias:%ui|subscribe_id:%ui|",

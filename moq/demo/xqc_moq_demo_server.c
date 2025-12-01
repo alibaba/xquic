@@ -82,6 +82,9 @@ xqc_demo_publish_track(user_conn_t *user_conn, const char *track_namespace, cons
 
 void xqc_demo_try_publish(user_conn_t *user_conn)
 {
+    if (!g_publish_mode) {
+        return;
+    }
     if ((g_role & XQC_MOQ_PUBLISHER) == 0 || user_conn->publish_started || user_conn->moq_session == NULL) {
         return;
     }
@@ -325,7 +328,9 @@ void on_datachannel(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
     printf("on_datachannel: track_namespace:%s track_name:%s\n", track_info->track_namespace, track_info->track_name);
 
-    if ((g_role & XQC_MOQ_SUBSCRIBER) && user_conn->publish_request_sent == 0) {
+    if ((g_role & XQC_MOQ_SUBSCRIBER)
+        && (g_publish_mode || g_role == XQC_MOQ_SUBSCRIBER)
+        && user_conn->publish_request_sent == 0) {
         int ret = xqc_moq_write_datachannel(user_session->session,
                                             (uint8_t*)"publish_request", strlen("publish_request"));
         if (ret < 0) {
@@ -771,6 +776,7 @@ xqc_app_send_callback(int fd, short what, void* arg)
     if (user_conn->video_subscribe_id != XQC_MOQ_INVALID_ID) {
         uint8_t payload_video[1024000] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
         xqc_moq_video_frame_t video_frame;
+        memset(&video_frame, 0, sizeof(video_frame));
         if (user_conn->request_keyframe || user_conn->video_seq % 30 == 0) {
             video_frame.type = XQC_MOQ_VIDEO_KEY;
             user_conn->request_keyframe = 0;
@@ -792,9 +798,10 @@ xqc_app_send_callback(int fd, short what, void* arg)
         }
     }
 
-    /*if (user_conn->audio_subscribe_id != XQC_MOQ_INVALID_ID) {
+    if (user_conn->audio_subscribe_id != XQC_MOQ_INVALID_ID) {
         uint8_t payload_audio[1024] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
         xqc_moq_audio_frame_t audio_frame;
+        memset(&audio_frame, 0, sizeof(audio_frame));
         audio_frame.seq_num = user_conn->audio_seq++;
         audio_frame.timestamp_us = xqc_now();
         audio_frame.audio_len = 1024;
@@ -804,7 +811,7 @@ xqc_app_send_callback(int fd, short what, void* arg)
             printf("xqc_moq_write_audio_frame error\n");
             return;
         }
-    }*/
+    }
 
     struct timeval time = { 0, 33333 };
     event_add(user_conn->ev_send_timer, &time);

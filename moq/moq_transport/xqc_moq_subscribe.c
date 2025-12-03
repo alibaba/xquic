@@ -252,3 +252,78 @@ xqc_moq_publish(xqc_moq_session_t *session, xqc_moq_publish_msg_t *publish)
 
     return (xqc_int_t)subscribe_id;
 }
+
+xqc_int_t
+xqc_moq_create_datachannel(xqc_moq_session_t *session,
+    const char *track_namespace, const char *track_name,
+    xqc_moq_track_t **track, uint64_t *subscribe_id)
+{
+    xqc_moq_track_t *dc_track;
+    xqc_moq_publish_msg_t publish_msg;
+    xqc_int_t ret;
+
+    if (session == NULL || track_namespace == NULL || track_name == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    dc_track = xqc_moq_track_create(session, (char *)track_namespace, (char *)track_name,
+                                    XQC_MOQ_TRACK_DATACHANNEL, NULL,
+                                    XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_PUB);
+    if (dc_track == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|create datachannel track error|track:%s/%s|",
+                track_namespace, track_name);
+        return -XQC_ENULLPTR;
+    }
+    xqc_log(session->log, XQC_LOG_INFO,
+            "|create_datachannel_track|track:%s/%s|track_type:%d|",
+            track_namespace, track_name, dc_track->track_info.track_type);
+
+    xqc_memzero(&publish_msg, sizeof(publish_msg));
+    publish_msg.track_namespace = (char *)track_namespace;
+    publish_msg.track_namespace_len = strlen(track_namespace);
+    publish_msg.track_namespace_num = 1;
+    publish_msg.track_name = (char *)track_name;
+    publish_msg.track_name_len = strlen(track_name);
+    publish_msg.group_order = 0;
+    publish_msg.content_exist = 0;
+    publish_msg.largest_group_id = 0;
+    publish_msg.largest_object_id = 0;
+    publish_msg.forward = 1;
+    publish_msg.params_num = 0;
+    publish_msg.params = NULL;
+
+    xqc_moq_message_parameter_t auth_param;
+    int auth_param_valid = 0;
+    ret = xqc_moq_build_catalog_param_from_track(dc_track, &auth_param);
+    if (ret == XQC_OK) {
+        publish_msg.params = &auth_param;
+        publish_msg.params_num = 1;
+        auth_param_valid = 1;
+        xqc_log(session->log, XQC_LOG_INFO,
+                "|create_datachannel_build_catalog_ok|track:%s/%s|",
+                track_namespace, track_name);
+    } else {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|create_datachannel_build_catalog_fail|ret:%d|track:%s/%s|",
+                ret, track_namespace, track_name);
+    }
+
+    ret = xqc_moq_publish(session, &publish_msg);
+    if (auth_param_valid) {
+        xqc_moq_free_catalog_param(&auth_param);
+    }
+    if (ret < 0) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_create_datachannel publish error|ret:%d|track:%s/%s|",
+                ret, track_namespace, track_name);
+        return ret;
+    }
+
+    if (track) {
+        *track = dc_track;
+    }
+    if (subscribe_id) {
+        *subscribe_id = publish_msg.subscribe_id;
+    }
+
+    return ret;
+}

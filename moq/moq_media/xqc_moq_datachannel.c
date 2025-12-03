@@ -114,6 +114,63 @@ xqc_moq_write_datachannel(xqc_moq_session_t *session, uint8_t *msg, size_t msg_l
     return XQC_OK;
 }
 
+xqc_int_t
+xqc_moq_send_datachannel_msg(xqc_moq_session_t *session, xqc_moq_track_t *track,
+    uint8_t *msg, size_t msg_len)
+{
+    xqc_moq_subgroup_object_t subgroup;
+    xqc_int_t ret = 0;
+    uint64_t group_id;
+    uint64_t object_id;
+    uint64_t subgroup_id;
+
+    if (session == NULL || track == NULL || msg == NULL || msg_len == 0) {
+        return -XQC_EPARAM;
+    }
+
+    if (track->track_info.track_type != XQC_MOQ_TRACK_DATACHANNEL) {
+        return -XQC_EPARAM;
+    }
+
+    if (track->subscribe_id == XQC_MOQ_INVALID_ID || track->track_alias == XQC_MOQ_INVALID_ID) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|send_datachannel_msg invalid track|subscribe_id:%ui|track_alias:%ui|",
+                track->subscribe_id, track->track_alias);
+        return -XQC_ESTREAM_ST;
+    }
+
+    xqc_memzero(&subgroup, sizeof(subgroup));
+
+    group_id = track->cur_group_id;
+    object_id = track->cur_object_id++;
+    subgroup_id = xqc_moq_track_next_subgroup_id(track, group_id);
+
+    subgroup.subscribe_id = track->subscribe_id;
+    subgroup.track_alias = track->track_alias;
+    subgroup.group_id = group_id;
+    subgroup.object_id = object_id;
+    subgroup.subgroup_id = subgroup_id;
+    subgroup.object_id_delta = 0;
+    subgroup.subgroup_type = 0;
+    subgroup.subgroup_priority = 0;
+    subgroup.send_order = 0;
+    subgroup.status = XQC_MOQ_OBJ_STATUS_NORMAL;
+    subgroup.payload = msg;
+    subgroup.payload_len = msg_len;
+
+    ret = xqc_moq_send_subgroup(session, track, &subgroup);
+    if (ret < 0) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_send_subgroup error|ret:%d|", ret);
+        return ret;
+    }
+
+    xqc_log(session->log, XQC_LOG_INFO,
+            "|send datachannel msg success (subgroup)|msg_len:%ui|group_id:%ui|object_id:%ui|subgroup_id:%ui|",
+            msg_len, group_id, object_id, subgroup_id);
+
+    return XQC_OK;
+}
+
 void
 xqc_moq_datachannel_set_can_send(xqc_moq_session_t *session, xqc_moq_datachannel_t *dc)
 {
@@ -218,6 +275,10 @@ static void
 xqc_moq_datachannel_on_object(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_moq_object_t *object)
 {
     xqc_log(session->log, XQC_LOG_INFO, "|on_datachannel_msg|msg_len:%ui|", object->payload_len);
+    xqc_log(session->log, XQC_LOG_INFO, "|on_datachannel_msg_detail|track:%s/%s|subscribe_id:%ui|",
+            track && track->track_info.track_namespace ? track->track_info.track_namespace : "null",
+            track && track->track_info.track_name ? track->track_info.track_name : "null",
+            object->subscribe_id);
     session->session_callbacks.on_datachannel_msg(session->user_session, track,
         track ? &track->track_info : NULL, object->payload, object->payload_len);
 }

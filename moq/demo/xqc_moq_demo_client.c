@@ -827,6 +827,13 @@ void on_publish_ok_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *tr
 
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
     xqc_demo_send_current_time_msg(user_conn, track);
+
+    if (g_publish_mode && user_conn->extra_dc_created
+        && publish_ok->subscribe_id == user_conn->extra_dc_subscribe_id) {
+        user_conn->extra_dc_ready = 1;
+        printf("extra datachannel publish_ok, subscribe_id:%"PRIu64"\n",
+               publish_ok->subscribe_id);
+    }
 }
 
 void on_publish_error_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_publish_error_msg_t *publish_error)
@@ -1137,6 +1144,55 @@ xqc_app_timestamp_callback(int fd, short what, void* arg)
         }
         sent |= ret;
     }
+
+    if (g_publish_mode && user_conn->moq_session != NULL
+        && user_conn->countdown > 0
+        && (user_conn->countdown % 3) == 0) 
+    {
+        xqc_moq_track_t *dc_track = NULL;
+        uint64_t dc_subscribe_id = 0;
+        char dc_name[32] = {0};
+        int name_len = snprintf(dc_name, sizeof(dc_name), "extra_%d", user_conn->countdown);
+        if (name_len < 0) {
+            dc_name[0] = '\0';
+        } else if (name_len >= (int)sizeof(dc_name)) {
+            dc_name[sizeof(dc_name) - 1] = '\0';
+        }
+
+        int ret = xqc_moq_create_datachannel(user_conn->moq_session,
+                                             "datachannel", dc_name[0] ? dc_name : "extra",
+                                             &dc_track, &dc_subscribe_id);
+        if (ret >= 0 && dc_track != NULL) {
+            user_conn->extra_dc_track = dc_track;
+            user_conn->extra_dc_subscribe_id = dc_subscribe_id;
+            user_conn->extra_dc_created = 1;
+            user_conn->extra_dc_ready = 0;
+            printf("create extra datachannel, track_name:%s subscribe_id:%"PRIu64"\n",
+                   dc_name[0] ? dc_name : "extra", dc_subscribe_id);
+        } else {
+            printf("xqc_moq_create_datachannel error, ret:%d\n", ret);
+        }
+    }
+
+    if (g_publish_mode && user_conn->moq_session != NULL && user_conn->extra_dc_created
+        && user_conn->extra_dc_ready && user_conn->countdown < 9) {
+        char msg_buf[64];
+        int len = snprintf(msg_buf, sizeof(msg_buf),
+                           "test for extra datachannel %d",
+                           user_conn->extra_dc_msg_cnt + 1);
+        int ret = xqc_moq_send_datachannel_msg(user_conn->moq_session,
+                                               user_conn->extra_dc_track,
+                                               (uint8_t *)msg_buf, (size_t)len);
+        if (ret < 0) {
+            printf("xqc_moq_send_datachannel_msg (extra dc) error, cnt:%d\n",
+                   user_conn->extra_dc_msg_cnt + 1);
+        } else {
+            user_conn->extra_dc_msg_cnt++;
+            printf("send msg on extra datachannel, subscribe_id:%"PRIu64" msg:%s\n",
+                   user_conn->extra_dc_subscribe_id, msg_buf);
+        }
+    }
+
     if (sent) {
         if (--user_conn->countdown <= 0) {
             if (g_publish_mode) {

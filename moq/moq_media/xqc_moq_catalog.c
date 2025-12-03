@@ -246,10 +246,14 @@ xqc_moq_catalog_single_track_decode(cJSON *track_json, xqc_moq_track_t *track, x
     }
     cJSON *role_field = cJSON_GetObjectItemCaseSensitive(track_json, kRole);
     if (cJSON_IsString(role_field)) {
+        printf("catalog_single_track_decode: role:%s\n", role_field->valuestring);
         if (strcasecmp(role_field->valuestring, "video") == 0) {
             track->track_info.track_type = XQC_MOQ_TRACK_VIDEO;
         } else if (strcasecmp(role_field->valuestring, "audio") == 0) {
             track->track_info.track_type = XQC_MOQ_TRACK_AUDIO;
+        } else if (strcasecmp(role_field->valuestring, "data") == 0
+                   || strcasecmp(role_field->valuestring, "datachannel") == 0) {
+            track->track_info.track_type = XQC_MOQ_TRACK_DATACHANNEL;
         }
     }
 
@@ -273,6 +277,9 @@ xqc_moq_catalog_single_track_decode(cJSON *track_json, xqc_moq_track_t *track, x
 
     // selectionParams
     cJSON *track_params = cJSON_GetObjectItemCaseSensitive(track_json, kSelectionParams);
+    if (track->track_info.track_type == XQC_MOQ_TRACK_DATACHANNEL) {
+        goto end;
+    }
     if (cJSON_IsObject(track_params)) {
         XQC_MOQ_PROCESS_CATALOG_REQUIRED_STRING_FIELD(track->track_info.selection_params.codec, track_params, kCodec);
 
@@ -325,6 +332,11 @@ xqc_moq_catalog_single_track_encode(cJSON *track_json, xqc_moq_track_t *track, x
         }
     } else if (track->track_info.track_type == XQC_MOQ_TRACK_AUDIO) {
         if (cJSON_AddStringToObject(track_json, kRole, "audio") == NULL) {
+            ret = XQC_MOQ_CATALOG_ENCODE_INTERNAL_ERROR;
+            goto end;
+        }
+    } else if (track->track_info.track_type == XQC_MOQ_TRACK_DATACHANNEL) {
+        if (cJSON_AddStringToObject(track_json, kRole, "data") == NULL) {
             ret = XQC_MOQ_CATALOG_ENCODE_INTERNAL_ERROR;
             goto end;
         }
@@ -430,7 +442,9 @@ xqc_moq_catalog_encode(xqc_moq_catalog_t *catalog, uint8_t *buf, size_t buf_cap,
     xqc_bool_t is_first_track = 1;
     xqc_list_for_each_safe(pos, next, catalog->track_list_for_pub) {
         catalog_track = xqc_list_entry(pos, xqc_moq_track_t, list_member);
-        if (catalog_track->track_info.track_type != XQC_MOQ_TRACK_VIDEO && catalog_track->track_info.track_type != XQC_MOQ_TRACK_AUDIO) {
+        if (catalog_track->track_info.track_type != XQC_MOQ_TRACK_VIDEO
+            && catalog_track->track_info.track_type != XQC_MOQ_TRACK_AUDIO
+            && catalog_track->track_info.track_type != XQC_MOQ_TRACK_DATACHANNEL) {
             continue;
         }
         cJSON *track_json = cJSON_CreateObject();
@@ -546,7 +560,8 @@ xqc_moq_catalog_decode(xqc_moq_catalog_t *catalog, uint8_t *buf, size_t buf_len)
                 }
                 // TODO: support "op" = "add" and "remove"
                 if (tmp_track->track_info.track_type != XQC_MOQ_TRACK_VIDEO
-                    && tmp_track->track_info.track_type != XQC_MOQ_TRACK_AUDIO) {
+                    && tmp_track->track_info.track_type != XQC_MOQ_TRACK_AUDIO
+                    && tmp_track->track_info.track_type != XQC_MOQ_TRACK_DATACHANNEL) {
                     tmp_track->track_info.track_type = -1;
                     if (tmp_track->track_info.selection_params.mime_type) {
                         if (strncmp(tmp_track->track_info.selection_params.mime_type, "video", strlen("video")) == 0) {
@@ -560,7 +575,8 @@ xqc_moq_catalog_decode(xqc_moq_catalog_t *catalog, uint8_t *buf, size_t buf_len)
                     }
                 }
                 if (tmp_track->track_info.track_type != XQC_MOQ_TRACK_VIDEO
-                    && tmp_track->track_info.track_type != XQC_MOQ_TRACK_AUDIO) {
+                    && tmp_track->track_info.track_type != XQC_MOQ_TRACK_AUDIO
+                    && tmp_track->track_info.track_type != XQC_MOQ_TRACK_DATACHANNEL) {
                     ret = XQC_MOQ_CATALOG_DECODE_FIELD_MISSING;
                     goto end;
                 }
@@ -616,6 +632,10 @@ xqc_moq_build_catalog_param_from_track(xqc_moq_track_t *track, xqc_moq_message_p
     tmp_track.container_format = track->container_format;
     tmp_track.packaging = track->packaging;
     tmp_track.render_group = track->render_group;
+    if (tmp_track.track_info.track_type == XQC_MOQ_TRACK_DATACHANNEL
+        && tmp_track.track_info.selection_params.codec == NULL) {
+        tmp_track.track_info.selection_params.codec = "data";
+    }
     xqc_init_list_head(&tmp_track.list_member);
     xqc_list_add_tail(&tmp_track.list_member, &track_list);
 

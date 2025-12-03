@@ -490,6 +490,10 @@ XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_publish(xqc_moq_session_t *session, xqc_moq_publish_msg_t *publish_msg);
 
 XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_create_datachannel(xqc_moq_session_t *session, const char *track_namespace, const char *track_name,
+    xqc_moq_track_t **track, uint64_t *subscribe_id);
+
+XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_unsubscribe(xqc_moq_session_t *session, uint64_t subscribe_id);
 
 XQC_EXPORT_PUBLIC_API
@@ -512,6 +516,10 @@ xqc_int_t xqc_moq_write_publish_done(xqc_moq_session_t *session, xqc_moq_publish
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_datachannel(xqc_moq_session_t *session, uint8_t *msg, size_t msg_len);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_send_datachannel_msg(xqc_moq_session_t *session, xqc_moq_track_t *track,
+    uint8_t *msg, size_t msg_len);
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,

@@ -84,6 +84,11 @@ typedef struct user_conn_s {
     int                 publish_request_sent;
     xqc_demo_track_ctx_t video_ctx;
     xqc_demo_track_ctx_t audio_ctx;
+    xqc_moq_track_t     *extra_dc_track;
+    uint64_t            extra_dc_subscribe_id;
+    int                 extra_dc_created;
+    int                 extra_dc_ready;
+    int                 extra_dc_msg_cnt;
 } user_conn_t;
 
 

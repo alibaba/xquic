@@ -514,29 +514,37 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
             catalog_track = xqc_list_entry(catalog.track_list_for_sub.next, xqc_moq_track_t, list_member);
         }
 
-        if (catalog_track != NULL
-            && (catalog_track->track_info.track_type == XQC_MOQ_TRACK_VIDEO
-                || catalog_track->track_info.track_type == XQC_MOQ_TRACK_AUDIO)) {
-            
-            track_type = catalog_track->track_info.track_type;
-        }
-
         if (catalog_track != NULL) {
-            if (!have_catalog_params) {
-                xqc_moq_track_copy_params(&catalog_params,
-                                          &catalog_track->track_info.selection_params);
-                have_catalog_params = 1;
-            }
-            xqc_moq_track_info_t *track_info_array[1];
-            track_info_array[0] = &catalog_track->track_info;
-            session->session_callbacks.on_catalog(session->user_session, track_info_array, 1);
-            track = xqc_moq_find_track_by_name(session, publish->track_namespace, publish->track_name, XQC_MOQ_TRACK_FOR_SUB);
-            if (track) {
-                xqc_moq_track_set_params(track, &catalog_track->track_info.selection_params);
-            } else {
+            if (catalog_track->track_info.track_type == XQC_MOQ_TRACK_VIDEO
+                || catalog_track->track_info.track_type == XQC_MOQ_TRACK_AUDIO) {
+
+                track_type = catalog_track->track_info.track_type;
+
+                if (!have_catalog_params) {
+                    xqc_moq_track_copy_params(&catalog_params,
+                                              &catalog_track->track_info.selection_params);
+                    have_catalog_params = 1;
+                }
+                xqc_moq_track_info_t *track_info_array[1];
+                track_info_array[0] = &catalog_track->track_info;
+                session->session_callbacks.on_catalog(session->user_session, track_info_array, 1);
+                track = xqc_moq_find_track_by_name(session, publish->track_namespace, publish->track_name, XQC_MOQ_TRACK_FOR_SUB);
+                if (track) {
+                    xqc_moq_track_set_params(track, &catalog_track->track_info.selection_params);
+                } else {
+                    xqc_log(session->log, XQC_LOG_INFO,
+                            "|on_publish catalog params pending track create|track:%s/%s|",
+                            publish->track_namespace, publish->track_name);
+                }
+            } else if (catalog_track->track_info.track_type == XQC_MOQ_TRACK_DATACHANNEL) {
+                track_type = XQC_MOQ_TRACK_DATACHANNEL;
                 xqc_log(session->log, XQC_LOG_INFO,
-                        "|on_publish catalog params pending track create|track:%s/%s|",
-                        publish->track_namespace, publish->track_name);
+                        "|on_publish_catalog_datatrack|subscribe_id:%ui|track:%s/%s|",
+                        publish->subscribe_id,
+                        catalog_track->track_info.track_namespace ?
+                            catalog_track->track_info.track_namespace : "null",
+                        catalog_track->track_info.track_name ?
+                            catalog_track->track_info.track_name : "null");
             }
         }
 
@@ -547,10 +555,17 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
     track = xqc_moq_find_track_by_name(session, publish->track_namespace, publish->track_name, XQC_MOQ_TRACK_FOR_SUB);
     if (track == NULL) {
         xqc_moq_selection_params_t *params = NULL;
+        xqc_moq_container_t container = XQC_MOQ_CONTAINER_LOC;
+
         if (have_catalog_params) {
             params = &catalog_params;
         }
-        xqc_moq_container_t container = XQC_MOQ_CONTAINER_LOC;
+
+        if (track_type == XQC_MOQ_TRACK_DATACHANNEL) {
+            params = NULL;
+            container = XQC_MOQ_CONTAINER_NONE;
+        }
+
         track = xqc_moq_track_create(session, publish->track_namespace, publish->track_name,
                                      track_type, params, container,
                                      XQC_MOQ_TRACK_FOR_SUB);
@@ -559,6 +574,19 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
             xqc_moq_publish_send_error(session, publish->subscribe_id, XQC_MOQ_PUBLISH_ERR_TRACK_NOT_FOUND, "track not found");
             goto error;
         }
+        xqc_log(session->log, XQC_LOG_INFO,
+                "|on_publish_track_created|subscribe_id:%ui|track:%s/%s|track_type:%d|container:%d|",
+                publish->subscribe_id,
+                track->track_info.track_namespace ? track->track_info.track_namespace : "null",
+                track->track_info.track_name ? track->track_info.track_name : "null",
+                track->track_info.track_type, track->container_format);
+    } else {
+        xqc_log(session->log, XQC_LOG_INFO,
+                "|on_publish_track_found|subscribe_id:%ui|track:%s/%s|track_type:%d|",
+                publish->subscribe_id,
+                track->track_info.track_namespace ? track->track_info.track_namespace : "null",
+                track->track_info.track_name ? track->track_info.track_name : "null",
+                track->track_info.track_type);
     }
 
     if (track->subscribe_id != XQC_MOQ_INVALID_ID && track->subscribe_id != publish->subscribe_id) {
@@ -801,6 +829,15 @@ xqc_moq_on_object(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_
     }
 
     xqc_moq_stream_set_track_type(moq_stream, track->track_info.track_type);
+
+    if (track->track_info.track_type == XQC_MOQ_TRACK_DATACHANNEL) {
+        xqc_log(session->log, XQC_LOG_INFO,
+                "|on_object_datatrack|subscribe_id:%ui|track:%s/%s|payload_len:%ui|",
+                object->subscribe_id,
+                track->track_info.track_namespace ? track->track_info.track_namespace : "null",
+                track->track_info.track_name ? track->track_info.track_name : "null",
+                object->payload_len);
+    }
 
     track->track_ops.on_object(session, track, object);
     return;

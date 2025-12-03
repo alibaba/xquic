@@ -6,6 +6,8 @@
 
 typedef struct {
     xqc_moq_track_t             track;
+    xqc_moq_stream_t           *stream;
+    uint8_t                     msg_header_write;
 } xqc_moq_dc_track_t;
 
 typedef struct xqc_moq_datachannel_s {

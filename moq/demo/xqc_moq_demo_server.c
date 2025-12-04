@@ -58,6 +58,7 @@ int g_frame_num = 5;
 xqc_moq_role_t g_role = XQC_MOQ_PUBSUB;
 int g_publish_mode = 0;
 int g_enable_client_setup_v14 = 0;
+int g_raw_object_mode = 0;
 
 xqc_int_t
 xqc_demo_publish_track(user_conn_t *user_conn, const char *track_namespace, const char *track_name)
@@ -496,7 +497,7 @@ void on_catalog(xqc_moq_user_session_t *user_session, xqc_moq_track_info_t **tra
 
     int ret;
     xqc_moq_session_t *session = user_session->session;
-    user_conn_t *user_conn = (user_conn_t *)user_session->data;
+    user_conn_t *user_conn = (user_conn_t *)user_session->data; 
 
     for (int i = 0; i < array_size; i++) {
         xqc_moq_track_info_t *track_info = track_info_array[i];
@@ -512,13 +513,20 @@ void on_catalog(xqc_moq_user_session_t *user_session, xqc_moq_track_info_t **tra
         if (g_role & XQC_MOQ_SUBSCRIBER) {
             printf("on catalog create subscriber track:%s/%s\n",
                    track_info->track_namespace, track_info->track_name);
+            xqc_moq_container_t container = XQC_MOQ_CONTAINER_LOC;
+            if (g_raw_object_mode && (track_info->track_type == XQC_MOQ_TRACK_VIDEO || track_info->track_type == XQC_MOQ_TRACK_AUDIO)) {
+                container = XQC_MOQ_CONTAINER_NONE;
+            }
             xqc_moq_track_t *sub_track = xqc_moq_track_create(session,
                 track_info->track_namespace, track_info->track_name,
                 track_info->track_type, &track_info->selection_params,
-                XQC_MOQ_CONTAINER_LOC, XQC_MOQ_TRACK_FOR_SUB);
+                container, XQC_MOQ_TRACK_FOR_SUB);
             if (sub_track == NULL) {
                 printf("create subscriber track error:%s/%s\n",
                         track_info->track_namespace, track_info->track_name);
+            }  else if (g_raw_object_mode &&
+                       (track_info->track_type == XQC_MOQ_TRACK_VIDEO || track_info->track_type == XQC_MOQ_TRACK_AUDIO)) {
+                xqc_moq_track_set_raw_object(sub_track, 1);
             }
         }
         if (g_role == XQC_MOQ_PUBLISHER) {
@@ -602,6 +610,30 @@ void on_audio_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
            xqc_scid_str(ctx.engine, &user_conn->cid), buf, biz_buf);
 }
 
+void on_raw_object(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+                   xqc_moq_track_info_t *track_info, xqc_moq_object_t *object)
+{
+    DEBUG;
+    const char *ns = (track_info && track_info->track_namespace) ? track_info->track_namespace : "null";
+    const char *name = (track_info && track_info->track_name) ? track_info->track_name : "null";
+    uint64_t subscribe_id = object ? object->subscribe_id : 0;
+    uint64_t group_id = object ? object->group_id : 0;
+    uint64_t object_id = object ? object->object_id : 0;
+    uint64_t payload_len = object ? object->payload_len : 0;
+
+    printf("on_raw_object: track_namespace:%s track_name:%s "
+           "subscribe_id:%"PRIu64" group_id:%"PRIu64" object_id:%"PRIu64" payload_len:%"PRIu64"\n",
+           ns, name, subscribe_id, group_id, object_id, payload_len);
+
+    const uint8_t *payload = object ? object->payload : NULL;
+    if (payload && payload_len > 0) {
+        char buf[128] = {0};
+        size_t copy = payload_len < sizeof(buf) - 1 ? payload_len : sizeof(buf) - 1;
+        memcpy(buf, payload, copy);
+        printf("on_raw_object payload (as string, truncated): %s\n", buf);
+    }
+}
+
 int
 xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data)
 {
@@ -627,6 +659,7 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
         .on_catalog = on_catalog,
         .on_video = on_video_frame,
         .on_audio = on_audio_frame,
+        .on_object = on_raw_object,
     };
     xqc_moq_session_t *session = xqc_moq_session_create(conn, user_session, XQC_MOQ_TRANSPORT_QUIC,
         g_role, callbacks, NULL, g_enable_client_setup_v14);
@@ -837,7 +870,7 @@ int main(int argc, char *argv[])
     int server_port = TEST_PORT;
     xqc_cong_ctrl_callback_t cong_ctrl;
     cong_ctrl = xqc_bbr_cb;
-    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MV")) != -1) {
+    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MVR")) != -1) {
         switch (ch) {
         /* listen port */
         case 'p':
@@ -905,6 +938,10 @@ int main(int argc, char *argv[])
         case 'V':
             printf("option draft14 client setup : on\n");
             g_enable_client_setup_v14 = 1;
+            break;
+        case 'R':
+            printf("option raw object mode : on\n");
+            g_raw_object_mode = 1;
             break;
         default:
             break;

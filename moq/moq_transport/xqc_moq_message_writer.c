@@ -180,8 +180,7 @@ xqc_moq_write_track_stream_obj_msg(xqc_moq_session_t *session, xqc_moq_stream_t 
 }
 
 xqc_int_t
-xqc_moq_send_subgroup(xqc_moq_session_t *session, xqc_moq_track_t *track,
-    xqc_moq_subgroup_object_t *subgroup)
+xqc_moq_send_subgroup(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_moq_subgroup_object_t *subgroup)
 {
     if (session == NULL || track == NULL || subgroup == NULL) {
         return -XQC_EPARAM;

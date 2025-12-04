@@ -66,6 +66,7 @@ xqc_moq_track_create(xqc_moq_session_t *session, char *track_namespace, char *tr
     track->cur_object_id = 0;
     track->cur_subgroup_id = 0;
     track->cur_subgroup_group_id = XQC_MOQ_INVALID_ID;
+    track->raw_object = 0;
 
     if (role == XQC_MOQ_TRACK_FOR_PUB) {
         list = &session->track_list_for_pub;
@@ -182,4 +183,16 @@ void
 xqc_moq_track_set_params(xqc_moq_track_t *track, xqc_moq_selection_params_t *params)
 {
     xqc_moq_track_copy_params(&track->track_info.selection_params, params);
+}
+
+void
+xqc_moq_track_set_raw_object(xqc_moq_track_t *track, xqc_int_t raw_object)
+{
+    if (track == NULL) {
+        return;
+    }
+    track->raw_object = raw_object ? 1 : 0;
+    if (track->raw_object) {
+        track->container_format = XQC_MOQ_CONTAINER_NONE;
+    }
 }

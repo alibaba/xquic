@@ -464,11 +464,11 @@ xqc_moq_msg_decode_params_v14(uint8_t *buf, size_t buf_len, xqc_moq_decode_param
                 return processed;
             }
             processed += ret;
-                if ((param->type & 0x1) || param->type == XQC_MOQ_PARAM_EXTDATA) {
-                    ctx->cur_field_idx = 1;
-                } else {
-                    ctx->cur_field_idx = 3;
-                }
+            if ((param->type & 0x1) || param->type == XQC_MOQ_PARAM_EXTDATA) {
+                ctx->cur_field_idx = 1;
+            } else {
+                ctx->cur_field_idx = 3;
+            }
             break;
         case 1:
             ret = xqc_vint_read(buf + processed, buf + buf_len, &param->length);
@@ -3692,20 +3692,18 @@ xqc_moq_msg_decode_subgroup(uint8_t *buf, size_t buf_len, uint8_t stream_fin, xq
                 *wait_more_data = 1;
                 break;
             }
-            {
-                size_t remaining = object->payload_len - msg_ctx->payload_processed;
-                size_t available = buf_len - processed;
-                size_t copy = remaining < available ? remaining : available;
-                object->payload = xqc_realloc(object->payload, msg_ctx->payload_processed + copy);
-                xqc_memcpy(object->payload + msg_ctx->payload_processed, buf + processed, copy);
-                msg_ctx->payload_processed += copy;
-                processed += copy;
-                if (msg_ctx->payload_processed == object->payload_len) {
-                    *finish = 1;
-                    msg_ctx->payload_processed = 0;
-                } else {
-                    *wait_more_data = 1;
-                }
+            size_t remaining = object->payload_len - msg_ctx->payload_processed;
+            size_t available = buf_len - processed;
+            size_t copy = remaining < available ? remaining : available;
+            object->payload = xqc_realloc(object->payload, msg_ctx->payload_processed + copy);
+            xqc_memcpy(object->payload + msg_ctx->payload_processed, buf + processed, copy);
+            msg_ctx->payload_processed += copy;
+            processed += copy;
+            if (msg_ctx->payload_processed == object->payload_len) {
+                *finish = 1;
+                msg_ctx->payload_processed = 0;
+            } else {
+                *wait_more_data = 1;
             }
             break;
         default:

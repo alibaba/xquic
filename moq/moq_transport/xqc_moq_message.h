@@ -16,20 +16,6 @@ typedef enum {
     XQC_MOQ_DECODE_MSG,
 } xqc_moq_decode_state_t;
 
-typedef struct xqc_moq_object_s {
-    uint64_t                    subscribe_id;
-    uint64_t                    track_alias;
-    uint64_t                    group_id;
-    uint64_t                    object_id;
-    uint64_t                    send_order;
-    uint64_t                    status;
-    /* Optional Object Header Extensions (parsed from SUBGROUP/Object) */
-    uint64_t                    ext_params_num;
-    xqc_moq_message_parameter_t *ext_params;
-    uint8_t                     *payload;
-    uint64_t                    payload_len;
-} xqc_moq_object_t;
-
 typedef struct {
     xqc_int_t                   cur_param_idx; //Params[idx]
     xqc_int_t                   cur_field_idx; //0:Type, 1:Length, 2:Value

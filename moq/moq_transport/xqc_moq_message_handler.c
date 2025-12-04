@@ -490,6 +490,7 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
     xqc_moq_track_type_t track_type = XQC_MOQ_TRACK_AUDIO; // Default track type
     xqc_moq_selection_params_t catalog_params;
     xqc_int_t have_catalog_params = 0;
+    xqc_int_t has_catalog = 0;
     xqc_memzero(&catalog_params, sizeof(catalog_params));
 
     xqc_moq_message_parameter_t *params = publish->params;
@@ -515,6 +516,7 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
         }
 
         if (catalog_track != NULL) {
+            has_catalog = 1;
             if (catalog_track->track_info.track_type == XQC_MOQ_TRACK_VIDEO
                 || catalog_track->track_info.track_type == XQC_MOQ_TRACK_AUDIO) {
 
@@ -561,7 +563,11 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
             params = &catalog_params;
         }
 
-        if (track_type == XQC_MOQ_TRACK_DATACHANNEL) {
+        if (track_type == XQC_MOQ_TRACK_VIDEO || track_type == XQC_MOQ_TRACK_AUDIO) {
+            if (!has_catalog) {
+                container = XQC_MOQ_CONTAINER_NONE;
+            }
+        } else if (track_type == XQC_MOQ_TRACK_DATACHANNEL) {
             params = NULL;
             container = XQC_MOQ_CONTAINER_NONE;
         }
@@ -574,6 +580,12 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
             xqc_moq_publish_send_error(session, publish->subscribe_id, XQC_MOQ_PUBLISH_ERR_TRACK_NOT_FOUND, "track not found");
             goto error;
         }
+
+        if (!has_catalog && (track->track_info.track_type == XQC_MOQ_TRACK_VIDEO ||
+                track->track_info.track_type == XQC_MOQ_TRACK_AUDIO)) {
+            xqc_moq_track_set_raw_object(track, 1);
+        }
+
         xqc_log(session->log, XQC_LOG_INFO,
                 "|on_publish_track_created|subscribe_id:%ui|track:%s/%s|track_type:%d|container:%d|",
                 publish->subscribe_id,
@@ -828,7 +840,13 @@ xqc_moq_on_object(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_
         }
     }
 
+    object->subscribe_id = track->subscribe_id;
     xqc_moq_stream_set_track_type(moq_stream, track->track_info.track_type);
+
+    if (session->session_callbacks.on_object && track->raw_object) {
+        session->session_callbacks.on_object(session->user_session, track, &track->track_info, object);
+        return;
+    }
 
     if (track->track_info.track_type == XQC_MOQ_TRACK_DATACHANNEL) {
         xqc_log(session->log, XQC_LOG_INFO,

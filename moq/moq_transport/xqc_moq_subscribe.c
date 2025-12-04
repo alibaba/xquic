@@ -254,9 +254,8 @@ xqc_moq_publish(xqc_moq_session_t *session, xqc_moq_publish_msg_t *publish)
 }
 
 xqc_int_t
-xqc_moq_create_datachannel(xqc_moq_session_t *session,
-    const char *track_namespace, const char *track_name,
-    xqc_moq_track_t **track, uint64_t *subscribe_id)
+xqc_moq_create_datachannel(xqc_moq_session_t *session, const char *track_namespace, const char *track_name,
+    xqc_moq_track_t **track, uint64_t *subscribe_id, xqc_int_t raw_object)
 {
     xqc_moq_track_t *dc_track;
     xqc_moq_publish_msg_t publish_msg;
@@ -274,9 +273,10 @@ xqc_moq_create_datachannel(xqc_moq_session_t *session,
                 track_namespace, track_name);
         return -XQC_ENULLPTR;
     }
+    dc_track->raw_object = raw_object ? 1 : 0;
     xqc_log(session->log, XQC_LOG_INFO,
-            "|create_datachannel_track|track:%s/%s|track_type:%d|",
-            track_namespace, track_name, dc_track->track_info.track_type);
+            "|create_datachannel_track|track:%s/%s|track_type:%d|raw_object:%d|",
+            track_namespace, track_name, dc_track->track_info.track_type, dc_track->raw_object);
 
     xqc_memzero(&publish_msg, sizeof(publish_msg));
     publish_msg.track_namespace = (char *)track_namespace;

@@ -66,6 +66,7 @@ int g_fec_on = 0;
 xqc_moq_role_t g_role = XQC_MOQ_PUBSUB;
 int g_enable_client_setup_v14 = 0;
 int g_publish_mode = 0;
+int g_raw_object_mode = 0;
 
 static void xqc_app_timestamp_callback(int fd, short what, void *arg);
 
@@ -242,6 +243,7 @@ xqc_demo_send_current_time_msg(user_conn_t *user_conn, xqc_moq_track_t *track)
         /* Demo bizinfo for video. */
         const char *bizinfo_str = "test-video";
         video_frame.bizinfo = (uint8_t *)bizinfo_str;
+        video_frame.video_frame_marking = 0;
         video_frame.bizinfo_len = strlen(bizinfo_str);
         video_frame.has_bizinfo = 1;
 
@@ -635,13 +637,17 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata)
     video_params.height = 720;
     video_params.bitrate = 1000000;
     video_params.framerate = 30;
+    xqc_moq_container_t v_container = g_raw_object_mode ? XQC_MOQ_CONTAINER_NONE : XQC_MOQ_CONTAINER_LOC;
     xqc_moq_track_t *video_track = xqc_moq_track_create(session, "namespace", "video", XQC_MOQ_TRACK_VIDEO, &video_params,
-                                                        XQC_MOQ_CONTAINER_LOC, XQC_MOQ_TRACK_FOR_PUB);
+                                                        v_container, XQC_MOQ_TRACK_FOR_PUB);
     if (video_track == NULL) {
         printf("create video track error\n");
     }
     user_conn->video_track = video_track;
     if (video_track) {
+        if (g_raw_object_mode) {
+            xqc_moq_track_set_raw_object(video_track, 1);
+        }
         user_conn->video_ctx.track = video_track;
         user_conn->video_ctx.subscribe_id = XQC_MOQ_INVALID_ID;
         user_conn->video_ctx.track_alias = XQC_MOQ_INVALID_ID;
@@ -658,13 +664,17 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata)
     audio_params.samplerate = 48000;
     audio_params.channel_config = "2";
     audio_params.bitrate = 32000;
+    xqc_moq_container_t a_container = g_raw_object_mode ? XQC_MOQ_CONTAINER_NONE : XQC_MOQ_CONTAINER_LOC;
     xqc_moq_track_t *audio_track = xqc_moq_track_create(session, "namespace", "audio", XQC_MOQ_TRACK_AUDIO, &audio_params,
-                                                        XQC_MOQ_CONTAINER_LOC, XQC_MOQ_TRACK_FOR_PUB);
+                                                        a_container, XQC_MOQ_TRACK_FOR_PUB);
     if (audio_track == NULL) {
         printf("create audio track error\n");
     }
     user_conn->audio_track = audio_track;
     if (audio_track) {
+        if (g_raw_object_mode) {
+            xqc_moq_track_set_raw_object(audio_track, 1);
+        }
         user_conn->audio_ctx.track = audio_track;
         user_conn->audio_ctx.subscribe_id = XQC_MOQ_INVALID_ID;
         user_conn->audio_ctx.track_alias = XQC_MOQ_INVALID_ID;
@@ -1161,7 +1171,7 @@ xqc_app_timestamp_callback(int fd, short what, void* arg)
 
         int ret = xqc_moq_create_datachannel(user_conn->moq_session,
                                              "datachannel", dc_name[0] ? dc_name : "extra",
-                                             &dc_track, &dc_subscribe_id);
+                                             &dc_track, &dc_subscribe_id, 1);
         if (ret >= 0 && dc_track != NULL) {
             user_conn->extra_dc_track = dc_track;
             user_conn->extra_dc_subscribe_id = dc_subscribe_id;
@@ -1227,7 +1237,7 @@ int main(int argc, char *argv[])
     uint8_t secret_key[16] = {0};
     int use_proxy = 0;
     int use_1rtt = 0;
-    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:f1MV")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:f1MVR")) != -1) {
         switch (ch) {
             case 'a':
                 printf("option addr :%s\n", optarg);
@@ -1310,6 +1320,10 @@ int main(int argc, char *argv[])
             case 'M':
                 printf("option publish mode : on\n");
                 g_publish_mode = 1;
+                break;
+            case 'R':
+                printf("option raw object mode : on\n");
+                g_raw_object_mode = 1;
                 break;
             case 'V':
                 printf("option draft14 client setup : on\n");

@@ -38,6 +38,7 @@ typedef struct xqc_moq_track_s {
     uint64_t                            cur_object_id;
     uint64_t                            cur_subgroup_id;
     uint64_t                            cur_subgroup_group_id;
+    uint8_t                             raw_object; // no loc container decode
     xqc_moq_track_ops_t                 track_ops;
     xqc_moq_track_role_t                track_role;
 } xqc_moq_track_t;

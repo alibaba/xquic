@@ -200,20 +200,19 @@ typedef struct {
     uint64_t                    int_value;
 } xqc_moq_message_parameter_t;
 
-typedef struct xqc_moq_subgroup_object_s {
+typedef struct xqc_moq_object_s {
     uint64_t                    subscribe_id;
     uint64_t                    track_alias;
     uint64_t                    group_id;
     uint64_t                    object_id;
-    uint64_t                    subgroup_id;
-    uint64_t                    object_id_delta;
-    uint8_t                     subgroup_type;
-    uint8_t                     subgroup_priority;
     uint64_t                    send_order;
     uint64_t                    status;
-    const uint8_t              *payload;
+    /* Optional Object Header Extensions (parsed from SUBGROUP/Object) */
+    uint64_t                    ext_params_num;
+    xqc_moq_message_parameter_t *ext_params;
+    uint8_t                     *payload;
     uint64_t                    payload_len;
-} xqc_moq_subgroup_object_t;
+} xqc_moq_object_t;
 
 typedef struct xqc_moq_msg_base_s {
     xqc_moq_msg_type_t (*type)();
@@ -395,6 +394,9 @@ typedef void (*xqc_moq_on_audio_frame_pt)(xqc_moq_user_session_t *user_session, 
 typedef void (*xqc_moq_on_bitrate_change_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
     xqc_moq_track_info_t *track_info, uint64_t bitrate);
 
+typedef void (*xqc_moq_on_object_pt)(xqc_moq_user_session_t *user_session,
+    xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, xqc_moq_object_t *object);
+
 typedef struct {
     xqc_moq_on_session_setup_pt     on_session_setup; /* Required */
     xqc_moq_on_datachannel_pt       on_datachannel; /* Required */
@@ -415,6 +417,7 @@ typedef struct {
     xqc_moq_on_catalog_pt           on_catalog; /* Required */
     xqc_moq_on_video_frame_pt       on_video; /* Required */
     xqc_moq_on_audio_frame_pt       on_audio; /* Required */
+    xqc_moq_on_object_pt            on_object; /* Optional, raw object callback for CONTAINER_NONE */
 } xqc_moq_session_callbacks_t;
 
 XQC_EXPORT_PUBLIC_API
@@ -491,7 +494,7 @@ xqc_int_t xqc_moq_publish(xqc_moq_session_t *session, xqc_moq_publish_msg_t *pub
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_create_datachannel(xqc_moq_session_t *session, const char *track_namespace, const char *track_name,
-    xqc_moq_track_t **track, uint64_t *subscribe_id);
+    xqc_moq_track_t **track, uint64_t *subscribe_id, xqc_int_t raw_object);
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_unsubscribe(xqc_moq_session_t *session, uint64_t subscribe_id);
@@ -530,15 +533,20 @@ xqc_int_t xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscri
     xqc_moq_track_t *track, xqc_moq_audio_frame_t *audio_frame);
 
 XQC_EXPORT_PUBLIC_API
-xqc_int_t xqc_moq_send_subgroup(xqc_moq_session_t *session, xqc_moq_track_t *track,
-    xqc_moq_subgroup_object_t *subgroup);
-
-XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_build_catalog_param_from_track(xqc_moq_track_t *track,
     xqc_moq_message_parameter_t *param);
 
 XQC_EXPORT_PUBLIC_API
 void xqc_moq_free_catalog_param(xqc_moq_message_parameter_t *param);
+
+/*
+ * @brief Set the raw object mode for a track.
+ * @param set raw object not use xquic-loc container.
+ * @param raw_object 1: raw object mode, 0: media container mode.
+ */
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_track_set_raw_object(xqc_moq_track_t *track, xqc_int_t raw_object);
+
 
 #ifdef __cplusplus
 }

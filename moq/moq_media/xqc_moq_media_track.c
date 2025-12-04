@@ -52,6 +52,8 @@ xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     xqc_moq_stream_t *stream;
     xqc_moq_object_stream_msg_t object;
     xqc_moq_media_track_t *media_track = (xqc_moq_media_track_t*)track;
+    uint8_t *buf = NULL;
+    xqc_int_t need_free = 0;
     
     if (xqc_moq_media_maybe_cancel_write(session, subscribe_id, track, video_frame)) {
         xqc_log(session->log, XQC_LOG_INFO, "|drop video frame|track_name:%s|subscribe_id:%ui|seq:%ui|type:%d|",
@@ -59,12 +61,18 @@ xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
         return XQC_OK;
     }
     
-    size_t buf_cap = video_frame->video_len + XQC_MOQ_MAX_CONTAINER_OVERHEAD;
-    uint8_t *buf = xqc_malloc(buf_cap);
-    ret = media_track->container_ops->encode_video(video_frame, buf, buf_cap, &encoded_len);
-    if (ret < 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|encode video container error|ret:%d|", ret);
-        goto error;
+    if (track->container_format == XQC_MOQ_CONTAINER_NONE) {
+        buf = video_frame->video_data;
+        encoded_len = (xqc_int_t)video_frame->video_len;
+    } else {
+        size_t buf_cap = video_frame->video_len + XQC_MOQ_MAX_CONTAINER_OVERHEAD;
+        buf = xqc_malloc(buf_cap);
+        need_free = 1;
+        ret = media_track->container_ops->encode_video(video_frame, buf, buf_cap, &encoded_len);
+        if (ret < 0) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|encode video container error|ret:%d|", ret);
+            goto error;
+        }
     }
 
     stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_UNI);
@@ -170,7 +178,9 @@ xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
 
     xqc_stream_t *quic_stream = stream->trans_ops.quic_stream(stream->trans_stream);
     
-    xqc_free(buf);
+    if (need_free) {
+        xqc_free(buf);
+    }
     xqc_log(session->log, XQC_LOG_INFO,
             "|write video frame success|track_name:%s|subscribe_id:%ui|seq:%ui|"
             "group_id:%ui|object_id:%ui|stream_id:%ui|video_len:%ui|type:%d|fps:%d|"
@@ -181,7 +191,9 @@ xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     return XQC_OK;
 
 error:
-    xqc_free(buf);
+    if (need_free && buf) {
+        xqc_free(buf);
+    }
     return ret;
 }
 
@@ -194,12 +206,22 @@ xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     xqc_moq_stream_t *stream;
     xqc_moq_object_stream_msg_t object;
     xqc_moq_media_track_t *media_track = (xqc_moq_media_track_t*)track;
-    size_t buf_cap = audio_frame->audio_len + XQC_MOQ_MAX_CONTAINER_OVERHEAD;
-    uint8_t *buf = xqc_malloc(buf_cap);
-    ret = media_track->container_ops->encode_audio(audio_frame, buf, buf_cap, &encoded_len);
-    if (ret < 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|encode audio container error|ret:%d|", ret);
-        goto error;
+    uint8_t *buf = NULL;
+    xqc_int_t need_free = 0;
+
+    if (track->container_format == XQC_MOQ_CONTAINER_NONE) {
+        // raw object mode
+        buf = audio_frame->audio_data;
+        encoded_len = (xqc_int_t)audio_frame->audio_len;
+    } else {
+        size_t buf_cap = audio_frame->audio_len + XQC_MOQ_MAX_CONTAINER_OVERHEAD;
+        buf = xqc_malloc(buf_cap);
+        need_free = 1;
+        ret = media_track->container_ops->encode_audio(audio_frame, buf, buf_cap, &encoded_len);
+        if (ret < 0) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|encode audio container error|ret:%d|", ret);
+            goto error;
+        }
     }
 
     stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_UNI);
@@ -283,7 +305,9 @@ xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     
     xqc_stream_t *quic_stream = stream->trans_ops.quic_stream(stream->trans_stream);
 
-    xqc_free(buf);
+    if (need_free) {
+        xqc_free(buf);
+    }
     xqc_log(session->log, XQC_LOG_INFO,
             "|write audio frame success|track_name:%s|subscribe_id:%ui|seq:%ui|"
             "group_id:%ui|object_id:%ui|stream_id:%ui|audio_len:%ui|"
@@ -294,7 +318,9 @@ xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     return XQC_OK;
 
 error:
-    xqc_free(buf);
+    if (need_free && buf) {
+        xqc_free(buf);
+    }
     return ret;
 }
 
@@ -579,6 +605,7 @@ xqc_moq_media_on_object(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_
     switch (track->track_info.track_type) {
         case XQC_MOQ_TRACK_VIDEO: {
             xqc_moq_video_frame_ext_t video_frame_ext;
+            xqc_memzero(&video_frame_ext, sizeof(video_frame_ext));
             video_frame_ext.group_id = object->group_id;
             video_frame_ext.object_id = object->object_id;
 
@@ -596,6 +623,14 @@ xqc_moq_media_on_object(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_
                                             object->payload_len, video_frame);
             if (ret < 0) {
                 xqc_log(session->log, XQC_LOG_ERROR, "|decode_video_container error|ret:%d|", ret);
+                if (object->ext_params && object->ext_params_num > 0) {
+                    for (uint64_t i = 0; i < object->ext_params_num; i++) {
+                        xqc_moq_message_parameter_t *p = &object->ext_params[i];
+                        xqc_log(session->log, XQC_LOG_ERROR,
+                                "|decode_video_container ext_param|idx:%ui|type:%ui|is_int:%d|len:%ui|",
+                                i, p->type, p->is_integer, p->length);
+                    }
+                }
                 return;
             }
             if (object->ext_params && object->ext_params_num > 0) {
@@ -626,6 +661,7 @@ xqc_moq_media_on_object(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_
         }
         case XQC_MOQ_TRACK_AUDIO: {
             xqc_moq_audio_frame_ext_t audio_frame_ext;
+            xqc_memzero(&audio_frame_ext, sizeof(audio_frame_ext));
             audio_frame_ext.group_id = object->group_id;
             audio_frame_ext.object_id = object->object_id;
 
@@ -633,6 +669,14 @@ xqc_moq_media_on_object(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_
             ret = media_track->container_ops->decode_audio(object->payload, object->payload_len, audio_frame);
             if (ret < 0) {
                 xqc_log(session->log, XQC_LOG_ERROR, "|decode_audio_container error|ret:%d|", ret);
+                if (object->ext_params && object->ext_params_num > 0) {
+                    for (uint64_t i = 0; i < object->ext_params_num; i++) {
+                        xqc_moq_message_parameter_t *p = &object->ext_params[i];
+                        xqc_log(session->log, XQC_LOG_ERROR,
+                                "|decode_audio_container ext_param|idx:%ui|type:%ui|is_int:%d|len:%ui|",
+                                i, p->type, p->is_integer, p->length);
+                    }
+                }
                 return;
             }
 

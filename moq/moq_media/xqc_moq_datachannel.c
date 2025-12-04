@@ -143,6 +143,7 @@ xqc_moq_send_datachannel_msg(xqc_moq_session_t *session, xqc_moq_track_t *track,
 
     group_id = ++track->cur_group_id;
     track->cur_object_id = 0;
+    object_id = track->cur_object_id;
     subgroup_id = xqc_moq_track_next_subgroup_id(track, group_id);
 
     subgroup.subscribe_id = track->subscribe_id;

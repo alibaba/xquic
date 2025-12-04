@@ -19,7 +19,7 @@
 #include "src/transport/xqc_packet.h"
 
 #define XQC_BBR_MAX_DATAGRAMSIZE    XQC_MSS
-#define XQC_BBR_MIN_WINDOW          (4 * XQC_BBR_MAX_DATAGRAMSIZE)
+#define XQC_BBR_MIN_WINDOW          (1 * XQC_BBR_MAX_DATAGRAMSIZE)
 #define XQC_BBR_MAX_WINDOW          (100 * XQC_BBR_MAX_DATAGRAMSIZE)
 /* The RECOMMENDED value is the minimum of 10 * kMaxDatagramSize and max(2* kMaxDatagramSize, 14720)) */
 /* same init window as cubic */
@@ -50,7 +50,7 @@ const float xqc_bbr_cwnd_gain = 2.5;
 const float xqc_bbr_pacing_gain[] = {1.25, 0.75, 1, 1, 1, 1, 1, 1};
 const float xqc_bbr_low_pacing_gain[] = {1.1, 0.9, 1, 1, 1, 1, 1, 1};
 /* Minimum packets that need to ensure ack if there is delayed ack */
-const uint32_t xqc_bbr_min_cwnd = 4 * XQC_BBR_MAX_DATAGRAMSIZE;
+const uint32_t xqc_bbr_min_cwnd = 1 * XQC_BBR_MAX_DATAGRAMSIZE;
 /* If bandwidth has increased by 1.25, there may be more bandwidth available */
 const float xqc_bbr_fullbw_thresh = 1.1;
 /* After 3 rounds bandwidth less than (1.25x), estimate the pipe is full */

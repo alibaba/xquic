@@ -227,8 +227,8 @@ xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     object.status = XQC_MOQ_OBJ_STATUS_NORMAL;
     object.payload = buf;
     object.payload_len = encoded_len;
-    object.group_id = track->cur_group_id;
-    object.object_id = track->cur_object_id++;
+    object.group_id = ++track->cur_group_id;
+    track->cur_object_id = 0;
     object.subgroup_id = xqc_moq_track_next_subgroup_id(track, object.group_id);
     object.subgroup_type = XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
     object.subgroup_priority = XQC_MOQ_DEFAULT_SUBGROUP_PRIORITY;

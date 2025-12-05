@@ -547,6 +547,15 @@ void xqc_moq_free_catalog_param(xqc_moq_message_parameter_t *param);
 XQC_EXPORT_PUBLIC_API
 void xqc_moq_track_set_raw_object(xqc_moq_track_t *track, xqc_int_t raw_object);
 
+/*
+ * @brief Write a raw object on a media track in raw_object mode.
+ * @note  The track must have raw_object enabled (xqc_moq_track_set_raw_object),
+ *        otherwise this API returns error.
+ */
+ XQC_EXPORT_PUBLIC_API
+ xqc_int_t xqc_moq_write_raw_object(xqc_moq_session_t *session,
+     xqc_moq_track_t *track, xqc_moq_object_t *object);
+ 
 
 #ifdef __cplusplus
 }

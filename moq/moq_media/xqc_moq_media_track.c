@@ -324,6 +324,80 @@ error:
     return ret;
 }
 
+
+xqc_int_t
+xqc_moq_write_raw_object(xqc_moq_session_t *session,
+    xqc_moq_track_t *track, xqc_moq_object_t *object)
+{
+    if (session == NULL || track == NULL || object == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    if (!track->raw_object) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_moq_media_track_t *media_track = (xqc_moq_media_track_t*)track;
+    xqc_moq_stream_t *stream;
+    xqc_int_t ret = 0;
+
+    stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_UNI);
+    if (stream == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|create moq stream error (raw object)|");
+        return -XQC_ECREATE_STREAM;
+    }
+    stream->write_stream_fin = 1;
+
+    xqc_moq_object_stream_msg_t obj_msg;
+    xqc_memzero(&obj_msg, sizeof(obj_msg));
+
+    uint64_t subscribe_id = track->subscribe_id;
+    if (object->subscribe_id != 0 && object->subscribe_id != XQC_MOQ_INVALID_ID) {
+        subscribe_id = object->subscribe_id;
+    }
+    uint64_t track_alias = track->track_alias;
+    if (object->track_alias != 0 && object->track_alias != XQC_MOQ_INVALID_ID) {
+        track_alias = object->track_alias;
+    }
+
+    obj_msg.subscribe_id = subscribe_id;
+    obj_msg.track_alias = track_alias;
+    obj_msg.send_order = object->send_order;
+    obj_msg.status = object->status ? object->status : XQC_MOQ_OBJ_STATUS_NORMAL;
+
+    obj_msg.payload = object->payload;
+    obj_msg.payload_len = (xqc_int_t)object->payload_len;
+
+    obj_msg.group_id = ++track->cur_group_id;
+    track->cur_object_id = 0;
+    obj_msg.object_id = track->cur_object_id;
+
+    obj_msg.subgroup_id = xqc_moq_track_next_subgroup_id(track, obj_msg.group_id);
+    obj_msg.subgroup_type = XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
+    obj_msg.subgroup_priority = XQC_MOQ_DEFAULT_SUBGROUP_PRIORITY;
+    obj_msg.object_id_delta = obj_msg.object_id;
+    obj_msg.ext_params = object->ext_params;
+    obj_msg.ext_params_num = object->ext_params_num;
+
+    xqc_moq_stream_on_track_write(stream, track, obj_msg.group_id, obj_msg.object_id, 0);
+    xqc_list_add_tail(&stream->list_member, &media_track->write_stream_list);
+
+    ret = xqc_moq_media_write_subgroup_stream(session, stream, &obj_msg);
+    if (ret < 0) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|write_raw_object_subgroup error|ret:%d|", ret);
+        return ret;
+    }
+
+    xqc_log(session->log, XQC_LOG_INFO,
+            "|write raw object success|track_name:%s|subscribe_id:%ui|group_id:%ui|object_id:%ui|payload_len:%ui|"
+            "track_alias:%ui|",
+            track->track_info.track_name, subscribe_id,
+            obj_msg.group_id, obj_msg.object_id, obj_msg.payload_len,
+            obj_msg.track_alias);
+
+    return XQC_OK;
+}
+
 static void
 xqc_moq_media_cancel_write(xqc_moq_session_t *session, xqc_moq_track_t *track)
 {

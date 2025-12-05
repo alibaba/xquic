@@ -212,7 +212,29 @@ xqc_demo_send_current_time_msg(user_conn_t *user_conn, xqc_moq_track_t *track)
     size_t payload_len = label_len_effective;
 
     int ret = 0;
-    if (is_audio) {
+    if (g_raw_object_mode) {
+        const char *raw_suffix = "raw_test";
+        size_t raw_len = strlen(raw_suffix);
+        if (payload_len + raw_len > sizeof(payload_buf)) {
+            raw_len = sizeof(payload_buf) - payload_len;
+        }
+        if (raw_len > 0) {
+            memcpy(payload_buf + payload_len, raw_suffix, raw_len);
+            payload_len += raw_len;
+        }
+        xqc_moq_object_t obj;
+        memset(&obj, 0, sizeof(obj));
+        obj.subscribe_id = track_ctx->subscribe_id;
+        obj.track_alias = track_ctx->track_alias;
+        obj.payload = (uint8_t *)payload_buf;
+        obj.payload_len = payload_len;
+        ret = xqc_moq_write_raw_object(user_conn->moq_session, track, &obj);
+        if (ret < 0) {
+            printf("xqc_moq_write_raw_object error\n");
+            return 0;
+        }
+    } else
+     if (is_audio) {
         xqc_moq_audio_frame_t audio_frame;
         memset(&audio_frame, 0, sizeof(audio_frame));
         audio_frame.seq_num = user_conn->audio_seq++;

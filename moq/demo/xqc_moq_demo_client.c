@@ -686,9 +686,9 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata)
     audio_params.samplerate = 48000;
     audio_params.channel_config = "2";
     audio_params.bitrate = 32000;
-    xqc_moq_container_t a_container = g_raw_object_mode ? XQC_MOQ_CONTAINER_NONE : XQC_MOQ_CONTAINER_LOC;
+    xqc_moq_container_t container = g_raw_object_mode ? XQC_MOQ_CONTAINER_NONE : XQC_MOQ_CONTAINER_LOC;
     xqc_moq_track_t *audio_track = xqc_moq_track_create(session, "namespace", "audio", XQC_MOQ_TRACK_AUDIO, &audio_params,
-                                                        a_container, XQC_MOQ_TRACK_FOR_PUB);
+                                                        container, XQC_MOQ_TRACK_FOR_PUB);
     if (audio_track == NULL) {
         printf("create audio track error\n");
     }

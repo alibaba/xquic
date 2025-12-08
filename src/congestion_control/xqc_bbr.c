@@ -52,7 +52,7 @@ const float xqc_bbr_low_pacing_gain[] = {1.1, 0.9, 1, 1, 1, 1, 1, 1};
 /* Minimum packets that need to ensure ack if there is delayed ack */
 const uint32_t xqc_bbr_min_cwnd = 1 * XQC_BBR_MAX_DATAGRAMSIZE;
 /* If bandwidth has increased by 1.25, there may be more bandwidth available */
-const float xqc_bbr_fullbw_thresh = 1.1;
+const float xqc_bbr_fullbw_thresh = 1.05;
 /* After 3 rounds bandwidth less than (1.25x), estimate the pipe is full */
 const uint32_t xqc_bbr_fullbw_cnt = 3;
 const float xqc_bbr_probe_rtt_gain = 0.75;

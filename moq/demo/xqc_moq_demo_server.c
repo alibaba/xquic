@@ -795,7 +795,6 @@ xqc_app_send_callback(int fd, short what, void* arg)
             memset(&publish_done, 0, sizeof(publish_done));
             publish_done.subscribe_id = user_conn->video_subscribe_id;
             publish_done.status_code = 0x2; /* TRACK_ENDED */
-            publish_done.stream_count = 0;
             const char *reason = "stream ended";
             publish_done.reason_phrase = (char*)reason;
             publish_done.reason_phrase_len = strlen(reason);

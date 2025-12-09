@@ -2973,6 +2973,7 @@ xqc_moq_msg_encode_publish_done_len(xqc_moq_msg_base_t *msg_base)
     xqc_int_t len = 0;
     xqc_moq_publish_done_msg_t *publish_done = (xqc_moq_publish_done_msg_t*)msg_base;
     len += xqc_put_varint_len(XQC_MOQ_MSG_PUBLISH_DONE);
+    len += XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
     len += xqc_put_varint_len(publish_done->subscribe_id);
     len += xqc_put_varint_len(publish_done->status_code);
     len += xqc_put_varint_len(publish_done->stream_count);
@@ -2984,13 +2985,17 @@ xqc_moq_msg_encode_publish_done_len(xqc_moq_msg_base_t *msg_base)
 xqc_int_t
 xqc_moq_msg_encode_publish_done(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap)
 {
+    xqc_int_t length = 0;
     xqc_moq_publish_done_msg_t *publish_done = (xqc_moq_publish_done_msg_t*)msg_base;
-    if (xqc_moq_msg_encode_publish_done_len(msg_base) > buf_cap) {
+    length = xqc_moq_msg_encode_publish_done_len(msg_base);
+    if (length > buf_cap) {
         return -XQC_EILLEGAL_FRAME;
     }
 
+    length = length - xqc_put_varint_len(XQC_MOQ_MSG_PUBLISH_DONE) - XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
     uint8_t *p = buf;
     p = xqc_put_varint(p, XQC_MOQ_MSG_PUBLISH_DONE);
+    p = xqc_moq_put_varint_length(p, length);
     p = xqc_put_varint(p, publish_done->subscribe_id);
     p = xqc_put_varint(p, publish_done->status_code);
     p = xqc_put_varint(p, publish_done->stream_count);
@@ -3009,33 +3014,42 @@ xqc_moq_msg_decode_publish_done(uint8_t *buf, size_t buf_len, uint8_t stream_fin
     *wait_more_data = 0;
     xqc_int_t processed = 0;
     xqc_int_t ret = 0;
+    uint64_t length = 0;
     xqc_moq_publish_done_msg_t *publish_done = (xqc_moq_publish_done_msg_t*)msg_base;
     switch (msg_ctx->cur_field_idx) {
-        case 0: //Request ID (i)
-            ret = xqc_vint_read(buf + processed, buf + buf_len, &publish_done->subscribe_id);
+        case 0: //Length (16)
+            ret = xqc_moq_length_read(buf + processed, buf + buf_len, &length);
             if (ret < 0) {
                 *wait_more_data = 1;
                 break;
             }
             processed += ret;
             msg_ctx->cur_field_idx = 1;
-        case 1: //Status Code (i)
-            ret = xqc_vint_read(buf + processed, buf + buf_len, &publish_done->status_code);
+        case 1: //Request ID (i)
+            ret = xqc_vint_read(buf + processed, buf + buf_len, &publish_done->subscribe_id);
             if (ret < 0) {
                 *wait_more_data = 1;
                 break;
             }
             processed += ret;
             msg_ctx->cur_field_idx = 2;
-        case 2: //Stream Count (i)
-            ret = xqc_vint_read(buf + processed, buf + buf_len, &publish_done->stream_count);
+        case 2: //Status Code (i)
+            ret = xqc_vint_read(buf + processed, buf + buf_len, &publish_done->status_code);
             if (ret < 0) {
                 *wait_more_data = 1;
                 break;
             }
             processed += ret;
             msg_ctx->cur_field_idx = 3;
-        case 3: //Reason Phrase (b)
+        case 3: //Stream Count (i)
+            ret = xqc_vint_read(buf + processed, buf + buf_len, &publish_done->stream_count);
+            if (ret < 0) {
+                *wait_more_data = 1;
+                break;
+            }
+            processed += ret;
+            msg_ctx->cur_field_idx = 4;
+        case 4: //Reason Phrase (b)
             if (publish_done->reason_phrase_len == 0) {
                 ret = xqc_vint_read(buf + processed, buf + buf_len, (uint64_t*)&publish_done->reason_phrase_len);
                 if (ret < 0) {

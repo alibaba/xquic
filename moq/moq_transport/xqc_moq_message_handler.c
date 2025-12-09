@@ -68,8 +68,8 @@ xqc_moq_on_client_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
     }
 
     if (role_found == 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|role not found|");
-        goto error;
+        session->peer_role = XQC_MOQ_PUBSUB;
+        xqc_log(session->log, XQC_LOG_WARN, "|role not found, default to subscriber|");
     }
 
     xqc_moq_message_parameter_t params[] = {
@@ -160,8 +160,8 @@ xqc_moq_on_client_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
     }
 
     if (role_found == 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|role not found|");
-        goto error;
+        session->peer_role = XQC_MOQ_PUBSUB;
+        xqc_log(session->log, XQC_LOG_WARN, "|role not found, default to subscriber|");
     }
 
     xqc_moq_message_parameter_t params[] = {

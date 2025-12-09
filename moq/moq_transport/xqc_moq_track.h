@@ -30,6 +30,7 @@ typedef struct xqc_moq_track_s {
     xqc_moq_track_info_t                track_info;
     uint64_t                            track_alias;
     uint64_t                            subscribe_id;
+    uint64_t                            streams_count;
     xqc_moq_container_t                 container_format;
     char                                *packaging;
     xqc_int_t                           render_group;
@@ -52,6 +53,8 @@ void xqc_moq_track_set_alias(xqc_moq_track_t *track, uint64_t track_alias);
 void xqc_moq_track_set_subscribe_id(xqc_moq_track_t *track, uint64_t subscribe_id);
 
 uint64_t xqc_moq_track_next_subgroup_id(xqc_moq_track_t *track, uint64_t group_id);
+
+void xqc_moq_track_add_streams_count(xqc_moq_track_t *track);
 
 void xqc_moq_track_copy_params(xqc_moq_selection_params_t *dst, xqc_moq_selection_params_t *src);
 

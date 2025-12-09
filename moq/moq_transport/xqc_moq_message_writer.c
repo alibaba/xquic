@@ -143,6 +143,20 @@ xqc_moq_write_publish_error(xqc_moq_session_t *session, xqc_moq_publish_error_ms
 xqc_int_t
 xqc_moq_write_publish_done(xqc_moq_session_t *session, xqc_moq_publish_done_msg_t *publish_done)
 {
+    if (session == NULL || publish_done == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    if (publish_done->stream_count == 0) {
+        xqc_moq_track_t *track = xqc_moq_find_track_by_subscribe_id(session,
+            publish_done->subscribe_id, XQC_MOQ_TRACK_FOR_PUB);
+        if (track && track->streams_count > 0) {
+            publish_done->stream_count = track->streams_count;
+        } else {
+            publish_done->stream_count = ((uint64_t)1 << 62) - 1;
+        }
+    }
+
     return xqc_moq_write_msg_generic(session, session->ctl_stream, &publish_done->msg_base,
                                      xqc_moq_msg_publish_done_init_handler);
 }

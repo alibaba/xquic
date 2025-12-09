@@ -81,6 +81,7 @@ xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
         ret = -XQC_ECREATE_STREAM;
         goto error;
     }
+    xqc_moq_track_add_streams_count(track);
     stream->write_stream_fin = 1;
     stream->enable_fec = session->enable_fec;
     stream->fec_code_rate = session->fec_code_rate;
@@ -334,6 +335,11 @@ xqc_moq_write_raw_object(xqc_moq_session_t *session,
     }
 
     if (!track->raw_object) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|write_raw_object raw_object_mode disabled|track:%s/%s|subscribe_id:%ui|track_alias:%ui|",
+                track->track_info.track_namespace ? track->track_info.track_namespace : "null",
+                track->track_info.track_name ? track->track_info.track_name : "null",
+                track->subscribe_id, track->track_alias);
         return -XQC_EPARAM;
     }
 
@@ -346,6 +352,7 @@ xqc_moq_write_raw_object(xqc_moq_session_t *session,
         xqc_log(session->log, XQC_LOG_ERROR, "|create moq stream error (raw object)|");
         return -XQC_ECREATE_STREAM;
     }
+    xqc_moq_track_add_streams_count(track);
     stream->write_stream_fin = 1;
 
     xqc_moq_object_stream_msg_t obj_msg;

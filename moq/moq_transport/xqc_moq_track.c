@@ -62,6 +62,7 @@ xqc_moq_track_create(xqc_moq_session_t *session, char *track_namespace, char *tr
     xqc_memcpy(track->track_info.track_name, track_name, track_name_len);
     track->track_alias = XQC_MOQ_INVALID_ID;
     track->subscribe_id = XQC_MOQ_INVALID_ID;
+    track->streams_count = 0;
     track->cur_group_id = 0;
     track->cur_object_id = 0;
     track->cur_subgroup_id = 0;
@@ -127,6 +128,17 @@ xqc_moq_track_set_subscribe_id(xqc_moq_track_t *track, uint64_t subscribe_id)
                 track->subscribe_id, subscribe_id);
     }
     track->subscribe_id = subscribe_id;
+}
+
+void
+xqc_moq_track_add_streams_count(xqc_moq_track_t *track)
+{
+    if (track == NULL) {
+        return;
+    }
+    if (track->streams_count < (((uint64_t)1 << 62) - 1)) {
+        track->streams_count++;
+    }
 }
 
 uint64_t

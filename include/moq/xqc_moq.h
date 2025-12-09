@@ -9,6 +9,7 @@ extern "C" {
 
 // #define XQC_ALPN_MOQ_QUIC         "moq-quic"
 #define XQC_ALPN_MOQ_QUIC         "moq-00"
+#define XQC_ALPN_MOQ_QUIC_INTEROP "moq-14" // used for imquic
 #define XQC_ALPN_MOQ_WEBTRANSPORT "moq-wt"
 
 typedef enum {
@@ -552,10 +553,9 @@ void xqc_moq_track_set_raw_object(xqc_moq_track_t *track, xqc_int_t raw_object);
  * @note  The track must have raw_object enabled (xqc_moq_track_set_raw_object),
  *        otherwise this API returns error.
  */
- XQC_EXPORT_PUBLIC_API
- xqc_int_t xqc_moq_write_raw_object(xqc_moq_session_t *session,
-     xqc_moq_track_t *track, xqc_moq_object_t *object);
- 
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_raw_object(xqc_moq_session_t *session,
+    xqc_moq_track_t *track, xqc_moq_object_t *object);
 
 #ifdef __cplusplus
 }

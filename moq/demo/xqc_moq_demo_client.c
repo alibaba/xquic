@@ -233,8 +233,7 @@ xqc_demo_send_current_time_msg(user_conn_t *user_conn, xqc_moq_track_t *track)
             printf("xqc_moq_write_raw_object error\n");
             return 0;
         }
-    } else
-     if (is_audio) {
+    } else if (is_audio) {
         xqc_moq_audio_frame_t audio_frame;
         memset(&audio_frame, 0, sizeof(audio_frame));
         audio_frame.seq_num = user_conn->audio_seq++;

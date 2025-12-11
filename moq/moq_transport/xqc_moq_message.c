@@ -193,12 +193,15 @@ void xqc_moq_msg_set_object_by_object(xqc_moq_object_t *obj, xqc_moq_object_stre
     obj->track_alias = msg->track_alias;
     obj->group_id = msg->group_id;
     obj->object_id = msg->object_id;
+    obj->subgroup_id = msg->subgroup_id;
+    obj->object_id_delta = msg->object_id_delta;
     obj->send_order = msg->send_order;
     obj->status = msg->status;
     obj->ext_params_num = msg->ext_params_num;
     obj->ext_params = msg->ext_params;
     obj->payload = msg->payload;
     obj->payload_len = msg->payload_len;
+    obj->custom_id_flag = 0;
 }
 
 void xqc_moq_msg_set_object_by_track(xqc_moq_object_t *obj, xqc_moq_stream_header_track_msg_t *header,
@@ -209,11 +212,14 @@ void xqc_moq_msg_set_object_by_track(xqc_moq_object_t *obj, xqc_moq_stream_heade
     obj->send_order = header->send_order;
     obj->group_id = msg->group_id;
     obj->object_id = msg->object_id;
+    obj->subgroup_id = 0;
+    obj->object_id_delta = 0;
     obj->status = msg->status;
     obj->ext_params_num = 0;
     obj->ext_params = NULL;
     obj->payload = msg->payload;
     obj->payload_len = msg->payload_len;
+    obj->custom_id_flag = 0;
 }
 
 void xqc_moq_msg_set_object_by_group(xqc_moq_object_t *obj, xqc_moq_stream_header_group_msg_t *header,
@@ -224,11 +230,14 @@ void xqc_moq_msg_set_object_by_group(xqc_moq_object_t *obj, xqc_moq_stream_heade
     obj->send_order = header->send_order;
     obj->group_id = header->group_id;
     obj->object_id = msg->object_id;
+    obj->subgroup_id = 0;
+    obj->object_id_delta = 0;
     obj->status = msg->status;
     obj->ext_params_num = 0;
     obj->ext_params = NULL;
     obj->payload = msg->payload;
     obj->payload_len = msg->payload_len;
+    obj->custom_id_flag = 0;
 }
 
 

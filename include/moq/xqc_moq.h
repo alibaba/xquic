@@ -206,6 +206,8 @@ typedef struct xqc_moq_object_s {
     uint64_t                    track_alias;
     uint64_t                    group_id;
     uint64_t                    object_id;
+    uint64_t                    subgroup_id;
+    uint64_t                    object_id_delta;
     uint64_t                    send_order;
     uint64_t                    status;
     /* Optional Object Header Extensions (parsed from SUBGROUP/Object) */
@@ -213,6 +215,7 @@ typedef struct xqc_moq_object_s {
     xqc_moq_message_parameter_t *ext_params;
     uint8_t                     *payload;
     uint64_t                    payload_len;
+    uint8_t                     custom_id_flag;
 } xqc_moq_object_t;
 
 typedef struct xqc_moq_msg_base_s {

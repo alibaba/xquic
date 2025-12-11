@@ -375,14 +375,64 @@ xqc_moq_write_raw_object(xqc_moq_session_t *session,
     obj_msg.payload = object->payload;
     obj_msg.payload_len = (xqc_int_t)object->payload_len;
 
-    obj_msg.group_id = ++track->cur_group_id;
-    track->cur_object_id = 0;
-    obj_msg.object_id = track->cur_object_id;
+    if (object->custom_id_flag == 1) {
+        obj_msg.group_id = object->group_id;
+        obj_msg.object_id = object->object_id;
+        obj_msg.subgroup_id = object->subgroup_id;
+        obj_msg.object_id_delta = object->object_id_delta ? object->object_id_delta : obj_msg.object_id;
 
-    obj_msg.subgroup_id = xqc_moq_track_next_subgroup_id(track, obj_msg.group_id);
+        if (obj_msg.group_id < track->cur_group_id) {
+            xqc_log(session->log, XQC_LOG_ERROR,
+                    "|write_raw_object invalid group_id rollback|track:%s/%s|cur_group_id:%ui|group_id:%ui|",
+                    track->track_info.track_namespace ? track->track_info.track_namespace : "null",
+                    track->track_info.track_name ? track->track_info.track_name : "null",
+                    track->cur_group_id, obj_msg.group_id);
+            return -XQC_EPARAM;
+        }
+
+        if (obj_msg.object_id == XQC_MOQ_INVALID_ID || obj_msg.subgroup_id == XQC_MOQ_INVALID_ID) {
+            return -XQC_EPARAM;
+        }
+
+        if (obj_msg.group_id != track->cur_group_id) {
+            track->cur_group_id = obj_msg.group_id;
+            track->cur_object_id = 0;
+        }
+
+        if (obj_msg.object_id < track->cur_object_id) {
+            xqc_log(session->log, XQC_LOG_ERROR,
+                    "|write_raw_object invalid object_id rollback|track:%s/%s|group_id:%ui|cur_object_id:%ui|object_id:%ui|",
+                    track->track_info.track_namespace ? track->track_info.track_namespace : "null",
+                    track->track_info.track_name ? track->track_info.track_name : "null",
+                    obj_msg.group_id, track->cur_object_id, obj_msg.object_id);
+            return -XQC_EPARAM;
+        }
+        track->cur_object_id = obj_msg.object_id + 1;
+
+        if (track->cur_subgroup_group_id != obj_msg.group_id) {
+            track->cur_subgroup_group_id = obj_msg.group_id;
+            track->cur_subgroup_id = 0;
+        }
+        if (obj_msg.subgroup_id < track->cur_subgroup_id) {
+            xqc_log(session->log, XQC_LOG_ERROR,
+                    "|write_raw_object invalid subgroup_id rollback|track:%s/%s|group_id:%ui|cur_subgroup_id:%ui|subgroup_id:%ui|",
+                    track->track_info.track_namespace ? track->track_info.track_namespace : "null",
+                    track->track_info.track_name ? track->track_info.track_name : "null",
+                    obj_msg.group_id, track->cur_subgroup_id, obj_msg.subgroup_id);
+            return -XQC_EPARAM;
+        }
+        track->cur_subgroup_id = obj_msg.subgroup_id + 1;
+
+    } else {
+        obj_msg.group_id = ++track->cur_group_id;
+        track->cur_object_id = 0;
+        obj_msg.object_id = track->cur_object_id;
+
+        obj_msg.subgroup_id = xqc_moq_track_next_subgroup_id(track, obj_msg.group_id);
+        obj_msg.object_id_delta = obj_msg.object_id;
+    }
     obj_msg.subgroup_type = XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
     obj_msg.subgroup_priority = XQC_MOQ_DEFAULT_SUBGROUP_PRIORITY;
-    obj_msg.object_id_delta = obj_msg.object_id;
     obj_msg.ext_params = object->ext_params;
     obj_msg.ext_params_num = object->ext_params_num;
 

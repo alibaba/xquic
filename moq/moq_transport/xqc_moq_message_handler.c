@@ -882,12 +882,15 @@ xqc_moq_on_subgroup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xq
     object.track_alias = msg->track_alias;
     object.group_id = msg->group_id;
     object.object_id = msg->object_id ? msg->object_id : msg->object_id_delta;
+    object.subgroup_id = msg->subgroup_id;
+    object.object_id_delta = msg->object_id_delta;
     object.send_order = msg->send_order;
     object.status = msg->status;
     object.ext_params_num = msg->ext_params_num;
     object.ext_params = msg->ext_params;
     object.payload = msg->payload;
     object.payload_len = msg->payload_len;
+    object.custom_id_flag = 0;
     xqc_moq_on_object(session, moq_stream, &object);
 }
 

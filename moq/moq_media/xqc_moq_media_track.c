@@ -413,14 +413,6 @@ xqc_moq_write_raw_object(xqc_moq_session_t *session,
             track->cur_subgroup_group_id = obj_msg.group_id;
             track->cur_subgroup_id = 0;
         }
-        if (obj_msg.subgroup_id < track->cur_subgroup_id) {
-            xqc_log(session->log, XQC_LOG_ERROR,
-                    "|write_raw_object invalid subgroup_id rollback|track:%s/%s|group_id:%ui|cur_subgroup_id:%ui|subgroup_id:%ui|",
-                    track->track_info.track_namespace ? track->track_info.track_namespace : "null",
-                    track->track_info.track_name ? track->track_info.track_name : "null",
-                    obj_msg.group_id, track->cur_subgroup_id, obj_msg.subgroup_id);
-            return -XQC_EPARAM;
-        }
         track->cur_subgroup_id = obj_msg.subgroup_id + 1;
 
     } else {

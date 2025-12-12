@@ -12,6 +12,7 @@
 
 char XQC_TEST_ILL_FRAME_1[] = {0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 char XQC_TEST_ZERO_LEN_NEW_TOKEN_FRAME[] = {0x07, 0x00};
+char XQC_TEST_STREAM_FRAME[] = {0x0a, 0x00, 0x01, 0x00};
 
 
 void
@@ -29,6 +30,14 @@ xqc_test_process_frame()
     packet_in.pos = XQC_TEST_ZERO_LEN_NEW_TOKEN_FRAME;
     packet_in.last = packet_in.pos + sizeof(XQC_TEST_ZERO_LEN_NEW_TOKEN_FRAME);
     ret = xqc_process_frames(conn, &packet_in);
+    CU_ASSERT(ret == -XQC_EPROTO);
+
+    xqc_packet_in_t pi_stream_init;
+    memset(&pi_stream_init, 0, sizeof(xqc_packet_in_t));
+    pi_stream_init.pi_pkt.pkt_type = XQC_PTYPE_INIT;
+    pi_stream_init.pos = XQC_TEST_STREAM_FRAME;
+    pi_stream_init.last = pi_stream_init.pos + sizeof(XQC_TEST_STREAM_FRAME);
+    ret = xqc_process_frames(conn, &pi_stream_init);
     CU_ASSERT(ret == -XQC_EPROTO);
 
     xqc_engine_destroy(conn->engine);

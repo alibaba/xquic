@@ -231,7 +231,19 @@ ssize_t
 xqc_hq_parse_req(xqc_hq_request_t *hqr, char *res, size_t sz, uint8_t *fin)
 {
     char method[16] = {0};
-    int ret = sscanf(hqr->req_recv_buf, "%s %s", method, res);
+    char fmt[32] = {0};
+    size_t method_cap = sizeof(method) - 1;
+
+
+    if (sz <= 1) {
+        PRINT_LOG("|invalid resource buffer size|sz:%zu|", sz);
+        return -XQC_EPROTO;
+    }
+
+    size_t res_cap = sz - 1;
+    snprintf(fmt, sizeof(fmt), "%%%zus %%%zus", method_cap, res_cap);
+
+    int ret = sscanf((char *)hqr->req_recv_buf, fmt, method, res);
     if (ret <= 0) {
         PRINT_LOG("|parse hq request failed: %s", hqr->req_recv_buf);
         return -XQC_EPROTO;
@@ -283,6 +295,12 @@ xqc_hq_request_recv_req(xqc_hq_request_t *hqr, char *res_buf, size_t buf_sz, uin
 
     } while (read > 0 && !hqr->fin);
 
+
+    if (hqr->recv_cnt >= hqr->recv_buf_len) {
+        PRINT_LOG("|hq request too long|len:%zu|", hqr->recv_cnt);
+        return -XQC_EPROTO;
+    }
+    hqr->req_recv_buf[hqr->recv_cnt] = '\0';
 
     if (NULL == hqr->resource_buf) {
         hqr->resource_buf = xqc_malloc(XQC_HQ_REQUEST_RESOURCE_MAX_LEN);

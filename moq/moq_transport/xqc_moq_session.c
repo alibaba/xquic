@@ -22,9 +22,12 @@ xqc_moq_init_alpn(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs, xqc_moq_
     }
 }
 
-xqc_moq_session_t *
-xqc_moq_session_create(void *conn, xqc_moq_user_session_t *user_session, xqc_moq_transport_type_t transport_type,
-    xqc_moq_role_t role, xqc_moq_session_callbacks_t callbacks, char *extdata)
+static xqc_moq_session_t *
+xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session,
+    xqc_moq_transport_type_t transport_type, xqc_moq_role_t role,
+    xqc_moq_session_callbacks_t callbacks, char *extdata,
+    xqc_int_t enable_client_setup_v14,
+    xqc_moq_message_parameter_t *setup_params, uint64_t setup_params_num)
 {
     xqc_int_t ret = 0;
     xqc_connection_t *quic_conn;
@@ -66,6 +69,10 @@ xqc_moq_session_create(void *conn, xqc_moq_user_session_t *user_session, xqc_moq
     xqc_init_list_head(&session->track_list_for_pub);
     xqc_init_list_head(&session->track_list_for_sub);
 
+    session->use_client_setup_v14 = enable_client_setup_v14;
+    /* Request IDs use parity per endpoint: client even, server odd. */
+    session->subscribe_id_allocator = (session->engine->eng_type == XQC_ENGINE_CLIENT) ? 0 : 1;
+
     if (session->engine->eng_type == XQC_ENGINE_CLIENT) {
         xqc_moq_stream_t *stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_BIDI);
         if (stream == NULL) {
@@ -74,25 +81,63 @@ xqc_moq_session_create(void *conn, xqc_moq_user_session_t *user_session, xqc_moq
         }
         session->ctl_stream = stream;
 
-        xqc_moq_client_setup_msg_t client_setup;
-        uint64_t versions[] = {XQC_MOQ_VERSION_5};
-        xqc_int_t params_num = 2;
-        xqc_moq_message_parameter_t params[3] = {
-                {XQC_MOQ_PARAM_ROLE, 1, (uint8_t * ) & session->role},
-                {XQC_MOQ_PARAM_PATH, sizeof("path"), (uint8_t*)"path"},
-        };
-        if (extdata && strlen(extdata) > 0) {
-            params[params_num].type = XQC_MOQ_PARAM_EXTDATA;
-            params[params_num].length = strlen(extdata) + 1;
-            params[params_num].value = (uint8_t *)extdata;
-            params_num++;
-        }
-        client_setup.versions_num = sizeof(versions) / sizeof(versions[0]);
-        client_setup.versions = versions;
-        client_setup.params_num = params_num;
-        client_setup.params = params;
+        /* If upper layer provided explicit setup params, use them as-is. */
+        if (setup_params && setup_params_num > 0) {
+            if (session->use_client_setup_v14) {
+                xqc_moq_client_setup_v14_msg_t client_setup_v14;
+                uint64_t versions_v14[] = {XQC_MOQ_VERSION_14};
+                client_setup_v14.versions_num = sizeof(versions_v14) / sizeof(versions_v14[0]);
+                client_setup_v14.versions = versions_v14;
+                xqc_log(session->log, XQC_LOG_INFO, "|send_client_setup_v14(custom)|params_num:%ui|",
+                        setup_params_num);
+                ret = xqc_moq_write_client_setup_v14(session, &client_setup_v14,
+                                                     setup_params, setup_params_num);
+            } else {
+                xqc_moq_client_setup_msg_t client_setup;
+                uint64_t versions[] = {XQC_MOQ_VERSION_5};
+                client_setup.versions_num = sizeof(versions) / sizeof(versions[0]);
+                client_setup.versions = versions;
+                client_setup.params_num = setup_params_num;
+                client_setup.params = setup_params;
+                xqc_log(session->log, XQC_LOG_INFO, "|send_client_setup(custom)|params_num:%ui|",
+                        setup_params_num);
+                ret = xqc_moq_write_client_setup(session, &client_setup);
+            }
+        } else {
+            /* Default setup params: ROLE + PATH (+ optional EXTDATA for v5). */
+            xqc_int_t params_num = 2;
+            xqc_moq_message_parameter_t params[3] = {
+                    {XQC_MOQ_PARAM_ROLE, 1, (uint8_t * ) & session->role, 1, (uint64_t)session->role},
+                    {XQC_MOQ_PARAM_PATH, sizeof("path"), (uint8_t*)"path", 0, 0},
+            };
+            if (extdata && strlen(extdata) > 0 && !session->use_client_setup_v14) {
+                params[params_num].type = XQC_MOQ_PARAM_EXTDATA;
+                params[params_num].length = strlen(extdata) + 1;
+                params[params_num].value = (uint8_t *)extdata;
+                params[params_num].is_integer = 0;
+                params[params_num].int_value = 0;
+                params_num++;
+            }
 
-        ret = xqc_moq_write_client_setup(session, &client_setup);
+            if (session->use_client_setup_v14) {
+                xqc_moq_client_setup_v14_msg_t client_setup_v14;
+                uint64_t versions_v14[] = {XQC_MOQ_VERSION_14};
+                client_setup_v14.versions_num = sizeof(versions_v14) / sizeof(versions_v14[0]);
+                client_setup_v14.versions = versions_v14;
+                xqc_log(session->log, XQC_LOG_INFO, "|send_client_setup_v14|params_num:%d|", params_num);
+                ret = xqc_moq_write_client_setup_v14(session, &client_setup_v14,
+                                                     params, params_num);
+            } else {
+                xqc_moq_client_setup_msg_t client_setup;
+                uint64_t versions[] = {XQC_MOQ_VERSION_5};
+                client_setup.versions_num = sizeof(versions) / sizeof(versions[0]);
+                client_setup.versions = versions;
+                client_setup.params_num = params_num;
+                client_setup.params = params;
+                xqc_log(session->log, XQC_LOG_INFO, "|send_client_setup|params_num:%d|", params_num);
+                ret = xqc_moq_write_client_setup(session, &client_setup);
+            }
+        }
         if (ret < 0) {
             xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_write_client_setup error|ret:%d|", ret);
             goto error;
@@ -105,6 +150,31 @@ error:
     user_session->session = NULL;
     xqc_free(session);
     return NULL;
+}
+
+xqc_moq_session_t *
+xqc_moq_session_create(void *conn, xqc_moq_user_session_t *user_session,
+    xqc_moq_transport_type_t transport_type, xqc_moq_role_t role,
+    xqc_moq_session_callbacks_t callbacks, char *extdata,
+    xqc_int_t enable_client_setup_v14)
+{
+    return xqc_moq_session_create_internal(conn, user_session, transport_type,
+                                           role, callbacks, extdata,
+                                           enable_client_setup_v14,
+                                           NULL, 0);
+}
+
+xqc_moq_session_t *
+xqc_moq_session_create_with_params(void *conn, xqc_moq_user_session_t *user_session,
+    xqc_moq_transport_type_t transport_type, xqc_moq_role_t role,
+    xqc_moq_session_callbacks_t callbacks, char *extdata,
+    xqc_int_t enable_client_setup_v14,
+    xqc_moq_message_parameter_t *setup_params, uint64_t setup_params_num)
+{
+    return xqc_moq_session_create_internal(conn, user_session, transport_type,
+                                           role, callbacks, extdata,
+                                           enable_client_setup_v14,
+                                           setup_params, setup_params_num);
 }
 
 void
@@ -178,7 +248,9 @@ xqc_moq_session_get_error(xqc_moq_session_t *session)
 uint64_t
 xqc_moq_session_alloc_subscribe_id(xqc_moq_session_t *session)
 {
-    return session->subscribe_id_allocator++;
+    uint64_t subscribe_id = session->subscribe_id_allocator;
+    session->subscribe_id_allocator += 2;
+    return subscribe_id;
 }
 
 xqc_moq_subscribe_t *
@@ -245,6 +317,27 @@ xqc_moq_find_track_by_name(xqc_moq_session_t *session,
         track = xqc_list_entry(pos, xqc_moq_track_t, list_member);
         if (track->track_info.track_namespace && track_namespace && strcmp(track->track_info.track_namespace, track_namespace) == 0
             && track->track_info.track_name && track_name && strcmp(track->track_info.track_name, track_name) == 0) {
+            return track;
+        }
+    }
+    return NULL;
+}
+
+xqc_moq_track_t *
+xqc_moq_find_track_by_subscribe_id(xqc_moq_session_t *session,
+    uint64_t subscribe_id, xqc_moq_track_role_t role)
+{
+    xqc_moq_track_t *track = NULL;
+    xqc_list_head_t *pos, *next;
+    xqc_list_head_t *list;
+    if (role == XQC_MOQ_TRACK_FOR_PUB) {
+        list = &session->track_list_for_pub;
+    } else {
+        list = &session->track_list_for_sub;
+    }
+    xqc_list_for_each_safe(pos, next, list) {
+        track = xqc_list_entry(pos, xqc_moq_track_t, list_member);
+        if (track->subscribe_id == subscribe_id) {
             return track;
         }
     }

@@ -241,6 +241,26 @@ void xqc_moq_msg_set_object_by_group(xqc_moq_object_t *obj, xqc_moq_stream_heade
 }
 
 
+static uint8_t *
+xqc_moq_put_u8(uint8_t *p, uint8_t n)
+{
+    *p++ = n;
+    return p;
+}
+
+
+static xqc_int_t
+xqc_moq_read_u8(const uint8_t *buf, size_t buf_len, xqc_int_t *processed, uint8_t *val)
+{
+    if ((size_t)(*processed) >= buf_len) {
+        return -1;
+    }
+    *val = buf[*processed];
+    *processed += 1;
+    return 1;
+}
+
+
 static uint64_t
 xqc_moq_param_bytes_to_uint(const xqc_moq_message_parameter_t *param)
 {
@@ -1365,9 +1385,9 @@ xqc_moq_msg_encode_subscribe_len(xqc_moq_msg_base_t *msg_base)
     len += subscribe->track_namespace_len;
     len += xqc_put_varint_len(subscribe->track_name_len);
     len += subscribe->track_name_len;
-    len += sizeof(uint8_t); /* subscriber priority */
-    len += sizeof(uint8_t); /* group order */
-    len += sizeof(uint8_t); /* forward */
+    len += XQC_MOQ_SUBSCRIBER_PRIORITY_FIXED_SIZE;
+    len += XQC_MOQ_GROUP_ORDER_FIXED_SIZE;
+    len += XQC_MOQ_FORWARD_FIXED_SIZE;
     len += xqc_put_varint_len(subscribe->filter_type);
     if (subscribe->filter_type == XQC_MOQ_FILTER_ABSOLUTE_START
         || subscribe->filter_type == XQC_MOQ_FILTER_ABSOLUTE_RANGE) {
@@ -1409,9 +1429,9 @@ xqc_moq_msg_encode_subscribe(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t 
         xqc_memcpy(p, subscribe->track_name, subscribe->track_name_len);
         p += subscribe->track_name_len;
     }
-    *p++ = subscribe->subscriber_priority;
-    *p++ = subscribe->group_order;
-    *p++ = subscribe->forward;
+    p = xqc_moq_put_u8(p, subscribe->subscriber_priority);
+    p = xqc_moq_put_u8(p, subscribe->group_order);
+    p = xqc_moq_put_u8(p, subscribe->forward);
     p = xqc_put_varint(p, subscribe->filter_type);
     if (subscribe->filter_type == XQC_MOQ_FILTER_ABSOLUTE_START
         || subscribe->filter_type == XQC_MOQ_FILTER_ABSOLUTE_RANGE) {
@@ -1548,28 +1568,25 @@ xqc_moq_msg_decode_subscribe(uint8_t *buf, size_t buf_len, uint8_t stream_fin, x
             DEBUG_PRINTF("==>track_name:%s\n",subscribe->track_name);
             msg_ctx->cur_field_idx = 5;
         case 5: //Subscriber priority (8)
-            if (buf_len - processed < 1) {
+            ret = xqc_moq_read_u8(buf, buf_len, &processed, &subscribe->subscriber_priority);
+            if (ret < 0) {
                 *wait_more_data = 1;
                 break;
             }
-            subscribe->subscriber_priority = buf[processed];
-            processed += sizeof(uint8_t);
             msg_ctx->cur_field_idx = 6;
         case 6: //Group order (8)
-            if (buf_len - processed < 1) {
+            ret = xqc_moq_read_u8(buf, buf_len, &processed, &subscribe->group_order);
+            if (ret < 0) {
                 *wait_more_data = 1;
                 break;
             }
-            subscribe->group_order = buf[processed];
-            processed += sizeof(uint8_t);
             msg_ctx->cur_field_idx = 7;
         case 7: //Forward (8)
-            if (buf_len - processed < 1) {
+            ret = xqc_moq_read_u8(buf, buf_len, &processed, &subscribe->forward);
+            if (ret < 0) {
                 *wait_more_data = 1;
                 break;
             }
-            subscribe->forward = buf[processed];
-            processed += sizeof(uint8_t);
             msg_ctx->cur_field_idx = 8;
         case 8: //Filter Type (i)
             ret = xqc_vint_read(buf + processed, buf + buf_len, &subscribe->filter_type);
@@ -1893,8 +1910,8 @@ xqc_moq_msg_encode_subscribe_ok_len(xqc_moq_msg_base_t *msg_base)
     len += xqc_put_varint_len(subscribe_ok->subscribe_id);
     len += xqc_put_varint_len(subscribe_ok->track_alias);
     len += xqc_put_varint_len(subscribe_ok->expire_ms);
-    len += 1; 
-    len += 1;
+    len += XQC_MOQ_GROUP_ORDER_FIXED_SIZE;
+    len += XQC_MOQ_CONTENT_EXIST_FIXED_SIZE;
     if (subscribe_ok->content_exist == 1) {
         len += xqc_put_varint_len(subscribe_ok->largest_group_id);
         len += xqc_put_varint_len(subscribe_ok->largest_object_id);
@@ -1921,8 +1938,8 @@ xqc_moq_msg_encode_subscribe_ok(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size
     p = xqc_put_varint(p, subscribe_ok->subscribe_id);
     p = xqc_put_varint(p, subscribe_ok->track_alias);
     p = xqc_put_varint(p, subscribe_ok->expire_ms);
-    *p++ = subscribe_ok->group_order;
-    *p++ = (uint8_t)subscribe_ok->content_exist;
+    p = xqc_moq_put_u8(p, subscribe_ok->group_order);
+    p = xqc_moq_put_u8(p, subscribe_ok->content_exist);
     if (subscribe_ok->content_exist == 1) {
         p = xqc_put_varint(p, subscribe_ok->largest_group_id);
         p = xqc_put_varint(p, subscribe_ok->largest_object_id);
@@ -1994,23 +2011,21 @@ xqc_moq_msg_decode_subscribe_ok(uint8_t *buf, size_t buf_len, uint8_t stream_fin
 
             msg_ctx->cur_field_idx = 4;
         case 4: //Group Order (8)
-            if (buf_len - processed < 1) {
+            ret = xqc_moq_read_u8(buf, buf_len, &processed, &subscribe_ok->group_order);
+            if (ret < 0) {
                 *wait_more_data = 1;
                 break;
             }
-            subscribe_ok->group_order = buf[processed];
-            processed += sizeof(uint8_t);
             if (subscribe_ok->group_order == 0) {
                 return -XQC_EILLEGAL_FRAME;
             }
             msg_ctx->cur_field_idx = 5;
         case 5: //ContentExists (8)
-            if (buf_len - processed < 1) {
+            ret = xqc_moq_read_u8(buf, buf_len, &processed, &subscribe_ok->content_exist);
+            if (ret < 0) {
                 *wait_more_data = 1;
                 break;
             }
-            subscribe_ok->content_exist = buf[processed];
-            processed += sizeof(uint8_t);
 
             DEBUG_PRINTF("==>content_exist:%d\n",(int)subscribe_ok->content_exist);
 
@@ -2300,13 +2315,13 @@ xqc_moq_msg_encode_publish_len(xqc_moq_msg_base_t *msg_base)
     len += xqc_put_varint_len(publish->track_name_len);
     len += publish->track_name_len;
     len += xqc_put_varint_len(publish->track_alias);
-    len += xqc_put_varint_len(publish->group_order);
-    len += xqc_put_varint_len(publish->content_exist);
+    len += XQC_MOQ_GROUP_ORDER_FIXED_SIZE;
+    len += XQC_MOQ_CONTENT_EXIST_FIXED_SIZE;
     if (publish->content_exist == 1) {
         len += xqc_put_varint_len(publish->largest_group_id);
         len += xqc_put_varint_len(publish->largest_object_id);
     }
-    len += xqc_put_varint_len(publish->forward);
+    len += XQC_MOQ_FORWARD_FIXED_SIZE;
     len += xqc_put_varint_len(publish->params_num);
     len += xqc_moq_msg_encode_params_len_v14(publish->params, publish->params_num);
     return len;
@@ -2335,13 +2350,13 @@ xqc_moq_msg_encode_publish(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t bu
     xqc_memcpy(p, publish->track_name, publish->track_name_len);
     p += publish->track_name_len;
     p = xqc_put_varint(p, publish->track_alias);
-    p = xqc_put_varint(p, publish->group_order);
-    p = xqc_put_varint(p, publish->content_exist);
+    p = xqc_moq_put_u8(p, publish->group_order);
+    p = xqc_moq_put_u8(p, publish->content_exist);
     if (publish->content_exist == 1) {
         p = xqc_put_varint(p, publish->largest_group_id);
         p = xqc_put_varint(p, publish->largest_object_id);
     }
-    p = xqc_put_varint(p, publish->forward);
+    p = xqc_moq_put_u8(p, publish->forward);
     p = xqc_put_varint(p, publish->params_num);
     ret = xqc_moq_msg_encode_params_v14(publish->params, publish->params_num, p, buf + buf_cap - p);
     if (ret < 0) {
@@ -2361,7 +2376,6 @@ xqc_moq_msg_decode_publish(uint8_t *buf, size_t buf_len, uint8_t stream_fin, xqc
     xqc_int_t processed = 0;
     xqc_int_t ret = 0;
     xqc_int_t param_finish = 0;
-    uint64_t val = 0;
     xqc_moq_publish_msg_t *publish = (xqc_moq_publish_msg_t *)msg_base;
     xqc_moq_decode_params_ctx_t *params_ctx = &msg_ctx->decode_params_ctx;
     uint64_t length = 0;
@@ -2467,28 +2481,18 @@ xqc_moq_msg_decode_publish(uint8_t *buf, size_t buf_len, uint8_t stream_fin, xqc
             processed += ret;
             msg_ctx->cur_field_idx = 5;
         case 5: //Group Order (8)
-            ret = xqc_vint_read(buf + processed, buf + buf_len, &val);
+            ret = xqc_moq_read_u8(buf, buf_len, &processed, &publish->group_order);
             if (ret < 0) {
                 *wait_more_data = 1;
                 break;
             }
-            if (val > UINT8_MAX) {
-                return -XQC_EILLEGAL_FRAME;
-            }
-            publish->group_order = (uint8_t)val;
-            processed += ret;
             msg_ctx->cur_field_idx = 6;
         case 6: //Content Exists (8)
-            ret = xqc_vint_read(buf + processed, buf + buf_len, &val);
+            ret = xqc_moq_read_u8(buf, buf_len, &processed, &publish->content_exist);
             if (ret < 0) {
                 *wait_more_data = 1;
                 break;
             }
-            if (val > UINT8_MAX) {
-                return -XQC_EILLEGAL_FRAME;
-            }
-            publish->content_exist = (uint8_t)val;
-            processed += ret;
             if (publish->content_exist == 1) {
                 msg_ctx->cur_field_idx = 7;
             } else {
@@ -2502,7 +2506,7 @@ xqc_moq_msg_decode_publish(uint8_t *buf, size_t buf_len, uint8_t stream_fin, xqc
                 break;
             }
             processed += ret;
-            msg_ctx->cur_field_idx = 7;
+            msg_ctx->cur_field_idx = 8;
         case 8: //Largest Object ID (i)
             ret = xqc_vint_read(buf + processed, buf + buf_len, &publish->largest_object_id);
             if (ret < 0) {
@@ -2513,16 +2517,11 @@ xqc_moq_msg_decode_publish(uint8_t *buf, size_t buf_len, uint8_t stream_fin, xqc
             msg_ctx->cur_field_idx = 9;
         case 9: //Forward (8)
             idx9:
-            ret = xqc_vint_read(buf + processed, buf + buf_len, &val);
+            ret = xqc_moq_read_u8(buf, buf_len, &processed, &publish->forward);
             if (ret < 0) {
                 *wait_more_data = 1;
                 break;
             }
-            if (val > UINT8_MAX) {
-                return -XQC_EILLEGAL_FRAME;
-            }
-            publish->forward = (uint8_t)val;
-            processed += ret;
             msg_ctx->cur_field_idx = 10;
         case 10: //Number of Parameters (i)
             ret = xqc_vint_read(buf + processed, buf + buf_len, &publish->params_num);
@@ -2605,9 +2604,9 @@ xqc_moq_msg_encode_publish_ok_len(xqc_moq_msg_base_t *msg_base)
     len += xqc_put_varint_len(XQC_MOQ_MSG_PUBLISH_OK);
     len += XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
     len += xqc_put_varint_len(publish_ok->subscribe_id);
-    len += xqc_put_varint_len(publish_ok->forward);
-    len += xqc_put_varint_len(publish_ok->subscriber_priority);
-    len += xqc_put_varint_len(publish_ok->group_order);
+    len += XQC_MOQ_FORWARD_FIXED_SIZE;
+    len += XQC_MOQ_SUBSCRIBER_PRIORITY_FIXED_SIZE;
+    len += XQC_MOQ_GROUP_ORDER_FIXED_SIZE;
     len += xqc_put_varint_len(publish_ok->filter_type);
     if (publish_ok->filter_type == XQC_MOQ_FILTER_ABSOLUTE_START
         || publish_ok->filter_type == XQC_MOQ_FILTER_ABSOLUTE_RANGE) {
@@ -2637,9 +2636,9 @@ xqc_moq_msg_encode_publish_ok(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t
     p = xqc_put_varint(p, XQC_MOQ_MSG_PUBLISH_OK);
     p = xqc_moq_put_varint_length(p, length);
     p = xqc_put_varint(p, publish_ok->subscribe_id);
-    p = xqc_put_varint(p, publish_ok->forward);
-    p = xqc_put_varint(p, publish_ok->subscriber_priority);
-    p = xqc_put_varint(p, publish_ok->group_order);
+    p = xqc_moq_put_u8(p, publish_ok->forward);
+    p = xqc_moq_put_u8(p, publish_ok->subscriber_priority);
+    p = xqc_moq_put_u8(p, publish_ok->group_order);
     p = xqc_put_varint(p, publish_ok->filter_type);
     if (publish_ok->filter_type == XQC_MOQ_FILTER_ABSOLUTE_START
         || publish_ok->filter_type == XQC_MOQ_FILTER_ABSOLUTE_RANGE) {
@@ -2668,7 +2667,6 @@ xqc_moq_msg_decode_publish_ok(uint8_t *buf, size_t buf_len, uint8_t stream_fin, 
     xqc_int_t processed = 0;
     xqc_int_t ret = 0;
     xqc_int_t param_finish = 0;
-    uint64_t val = 0;
     xqc_moq_publish_ok_msg_t *publish_ok = (xqc_moq_publish_ok_msg_t *)msg_base;
     xqc_moq_decode_params_ctx_t *params_ctx = &msg_ctx->decode_params_ctx;
     uint64_t length = 0;
@@ -2691,40 +2689,25 @@ xqc_moq_msg_decode_publish_ok(uint8_t *buf, size_t buf_len, uint8_t stream_fin, 
             processed += ret;
             msg_ctx->cur_field_idx = 2;
         case 2: //Forward (8)
-            ret = xqc_vint_read(buf + processed, buf + buf_len, &val);
+            ret = xqc_moq_read_u8(buf, buf_len, &processed, &publish_ok->forward);
             if (ret < 0) {
                 *wait_more_data = 1;
                 break;
             }
-            if (val > UINT8_MAX) {
-                return -XQC_EILLEGAL_FRAME;
-            }
-            publish_ok->forward = (uint8_t)val;
-            processed += ret;
             msg_ctx->cur_field_idx = 3;
         case 3: //Subscriber Priority (8)
-            ret = xqc_vint_read(buf + processed, buf + buf_len, &val);
+            ret = xqc_moq_read_u8(buf, buf_len, &processed, &publish_ok->subscriber_priority);
             if (ret < 0) {
                 *wait_more_data = 1;
                 break;
             }
-            if (val > UINT8_MAX) {
-                return -XQC_EILLEGAL_FRAME;
-            }
-            publish_ok->subscriber_priority = (uint8_t)val;
-            processed += ret;
             msg_ctx->cur_field_idx = 4;
         case 4: //Group Order (8)
-            ret = xqc_vint_read(buf + processed, buf + buf_len, &val);
+            ret = xqc_moq_read_u8(buf, buf_len, &processed, &publish_ok->group_order);
             if (ret < 0) {
                 *wait_more_data = 1;
                 break;
             }
-            if (val > UINT8_MAX) {
-                return -XQC_EILLEGAL_FRAME;
-            }
-            publish_ok->group_order = (uint8_t)val;
-            processed += ret;
             msg_ctx->cur_field_idx = 5;
         case 5: //Filter Type (i)
             ret = xqc_vint_read(buf + processed, buf + buf_len, &publish_ok->filter_type);
@@ -3501,7 +3484,7 @@ xqc_moq_msg_encode_subgroup_len(xqc_moq_msg_base_t *msg_base)
     if (has_subgroup_id) {
         len += xqc_put_varint_len(object->subgroup_id);
     }
-    len += sizeof(uint8_t);
+    len += XQC_MOQ_SUBGROUP_PRIORITY_FIXED_SIZE;
     len += xqc_put_varint_len(object_delta);
     if (has_ext) {
         uint64_t ext_len = 0;
@@ -3541,7 +3524,7 @@ xqc_moq_msg_encode_subgroup(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t b
     if (has_subgroup_id) {
         p = xqc_put_varint(p, object->subgroup_id);
     }
-    *p++ = object->subgroup_priority;
+    p = xqc_moq_put_u8(p, object->subgroup_priority);
     p = xqc_put_varint(p, object_delta);
     if (has_ext) {
         uint64_t ext_len = 0;
@@ -3612,12 +3595,11 @@ xqc_moq_msg_decode_subgroup(uint8_t *buf, size_t buf_len, uint8_t stream_fin, xq
             }
             msg_ctx->cur_field_idx = 3;
         case 3: // priority
-            if (buf_len - processed == 0) {
+            ret = xqc_moq_read_u8(buf, buf_len, &processed, &object->subgroup_priority);
+            if (ret < 0) {
                 *wait_more_data = 1;
                 break;
             }
-            object->subgroup_priority = buf[processed];
-            processed += 1;
             msg_ctx->cur_field_idx = 4;
         case 4: // object delta
             ret = xqc_vint_read(buf + processed, buf + buf_len, &object->object_id_delta);

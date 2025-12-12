@@ -254,7 +254,7 @@ typedef struct xqc_moq_subscribe_ok_msg_s {
     uint64_t                    track_alias;
     uint64_t                    expire_ms;
     uint8_t                     group_order;
-    uint64_t                    content_exist;
+    uint8_t                     content_exist;
     uint64_t                    largest_group_id;
     uint64_t                    largest_object_id;
     uint64_t                    params_num;

@@ -447,6 +447,16 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     xqc_stream_t        *stream = NULL;
     xqc_stream_frame_t  *stream_frame;
 
+    if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_INIT
+        || packet_in->pi_pkt.pkt_type == XQC_PTYPE_HSK)
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|illegal STREAM frame in %s packet, close with PROTOCOL_VIOLATION|",
+                xqc_pkt_type_2_str(packet_in->pi_pkt.pkt_type));
+        XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
+        return -XQC_EPROTO;
+    }
+
     stream_frame = xqc_calloc(1, sizeof(xqc_stream_frame_t));
     if (stream_frame == NULL) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_calloc error|");

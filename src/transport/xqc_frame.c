@@ -172,6 +172,111 @@ xqc_insert_stream_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream
 }
 
 
+static xqc_int_t
+xqc_validate_frame_type_in_pkt(xqc_connection_t *conn, xqc_packet_in_t *packet_in, uint64_t frame_type)
+{
+    /*
+     * RFC 9000 Section 12.4 Table 3:
+     * frame types that are permitted in each packet type.
+     */
+    xqc_bool_t allowed, is_init, is_hsk, is_0rtt, is_1rtt;
+    if ((packet_in->pi_flag & XQC_PIF_FEC_RECOVERED) != 0) {
+        return XQC_OK;
+    }
+    xqc_pkt_type_t pkt_type = packet_in->pi_pkt.pkt_type;
+    if (pkt_type >= XQC_PTYPE_NUM) {
+        return XQC_OK;
+    }
+    is_init = (pkt_type == XQC_PTYPE_INIT);
+    is_hsk = (pkt_type == XQC_PTYPE_HSK);
+    is_0rtt = (pkt_type == XQC_PTYPE_0RTT);
+    is_1rtt = (pkt_type == XQC_PTYPE_SHORT_HEADER);
+    allowed = XQC_FALSE;
+
+    if (frame_type > 0x1e) {
+        /*
+         * Validate known extension frames as well, to avoid accepting
+         * application/stateful frames in Initial/Handshake packets.
+         */
+        switch (frame_type) {
+        case 0x30: /* DATAGRAM */
+        case 0x31: /* DATAGRAM with length */
+        case XQC_TRANS_FRAME_TYPE_MP_ACK0:
+        case XQC_TRANS_FRAME_TYPE_MP_ACK1:
+        case XQC_TRANS_FRAME_TYPE_MP_ABANDON:
+        case XQC_TRANS_FRAME_TYPE_MP_STANDBY:
+        case XQC_TRANS_FRAME_TYPE_MP_AVAILABLE:
+        case XQC_TRANS_FRAME_TYPE_MP_FROZEN:
+        case XQC_TRANS_FRAME_TYPE_MP_NEW_CONN_ID:
+        case XQC_TRANS_FRAME_TYPE_MP_RETIRE_CONN_ID:
+        case XQC_TRANS_FRAME_TYPE_MAX_PATH_ID:
+        case 0xfec5: /* FEC SID */
+        case 0xfec6: /* FEC REPAIR SYMBOL */
+            allowed = (is_0rtt || is_1rtt);
+            break;
+        case XQC_TRANS_FRAME_TYPE_ACK_EXT:
+            allowed = (is_init || is_hsk || is_1rtt);
+            break;
+        default:
+            return XQC_OK;
+        }
+
+        if (!allowed) {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|illegal frame in packet type|frame_type:%xL|pkt_type:%s|",
+                    frame_type, xqc_pkt_type_2_str(pkt_type));
+            XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
+            return -XQC_EPROTO;
+        }
+
+        return XQC_OK;
+    }
+
+    switch (frame_type) {
+    /* IH01 */
+    case 0x00: /* PADDING */
+    case 0x01: /* PING */
+    case 0x1c: /* CONNECTION_CLOSE (transport) */
+    case 0x1d: /* CONNECTION_CLOSE (application) */
+        allowed = XQC_TRUE;
+        break;
+
+    /* IH_1 */
+    case 0x02: /* ACK */
+    case 0x03: /* ACK (ECN) */
+    case 0x06: /* CRYPTO */
+        allowed = (is_init || is_hsk || is_1rtt);
+        break;
+
+    /* ___1 */
+    case 0x07: /* NEW_TOKEN */
+    case 0x1b: /* PATH_RESPONSE */
+    case 0x1e: /* HANDSHAKE_DONE */
+        allowed = is_1rtt;
+        break;
+
+    /* __01 */
+    default:
+        if ((frame_type >= 0x04 && frame_type <= 0x05)  /* RESET_STREAM, STOP_SENDING */
+            || (frame_type >= 0x08 && frame_type <= 0x1a)) /* STREAM..PATH_CHALLENGE */
+        {
+            allowed = (is_0rtt || is_1rtt);
+        }
+        break;
+    }
+
+    if (!allowed) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|illegal frame in packet type|frame_type:%xL|pkt_type:%s|",
+                frame_type, xqc_pkt_type_2_str(pkt_type));
+        XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
+        return -XQC_EPROTO;
+    }
+
+    return XQC_OK;
+}
+
+
 xqc_int_t
 xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
@@ -211,6 +316,11 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         }
 
         xqc_log(conn->log, XQC_LOG_DEBUG, "|frame_type:%xL|", frame_type);
+
+        ret = xqc_validate_frame_type_in_pkt(conn, packet_in, frame_type);
+        if (ret != XQC_OK) {
+            return ret;
+        }
 
         switch (frame_type) {
 
@@ -447,8 +557,9 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     xqc_stream_t        *stream = NULL;
     xqc_stream_frame_t  *stream_frame;
 
-    if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_INIT
-        || packet_in->pi_pkt.pkt_type == XQC_PTYPE_HSK)
+    if ((packet_in->pi_flag & XQC_PIF_FEC_RECOVERED) == 0
+        && (packet_in->pi_pkt.pkt_type == XQC_PTYPE_INIT
+            || packet_in->pi_pkt.pkt_type == XQC_PTYPE_HSK))
     {
         xqc_log(conn->log, XQC_LOG_ERROR,
                 "|illegal STREAM frame in %s packet, close with PROTOCOL_VIOLATION|",

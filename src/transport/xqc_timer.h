@@ -47,6 +47,7 @@ typedef enum xqc_timer_type {
     XQC_TIMER_KEY_UPDATE,
     XQC_TIMER_PMTUD_PROBING,
     XQC_TIMER_QUEUE_FIN,
+    XQC_TIMER_BANDWIDTH_PRINT,
 
     XQC_TIMER_N,
 

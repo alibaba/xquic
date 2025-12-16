@@ -951,6 +951,8 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
         }
     }
 
+    xqc_timer_set(&xc->conn_timer_manager, XQC_TIMER_BANDWIDTH_PRINT, xqc_monotonic_timestamp(), 1000 * 1000);
+
     xqc_init_list_head(&xc->conn_write_streams);
     xqc_init_list_head(&xc->conn_read_streams);
     xqc_init_list_head(&xc->conn_closing_streams);

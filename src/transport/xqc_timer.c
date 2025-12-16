@@ -28,7 +28,8 @@ static const char * const timer_type_2_str[XQC_TIMER_N] = {
     [XQC_TIMER_LINGER_CLOSE]    = "LINGER_CLOSE",
     [XQC_TIMER_KEY_UPDATE]      = "KEY_UPDATE",
     [XQC_TIMER_PMTUD_PROBING]   = "PMTUD_PROBING",
-    [XQC_TIMER_QUEUE_FIN]       = "CONN_QUEUE_FINISH"
+    [XQC_TIMER_QUEUE_FIN]       = "CONN_QUEUE_FINISH",
+    [XQC_TIMER_BANDWIDTH_PRINT] = "BANDWIDTH_PRINT",
 };
 
 const char *
@@ -49,6 +50,34 @@ xqc_timer_ack_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_data)
     conn->ack_flag |= (1 << (pns + send_ctl->ctl_path->path_id * XQC_PNS_N));
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|pns:%d|path:%ui|", pns, send_ctl->ctl_path->path_id);
+}
+
+void
+xqc_timer_bandwidth_print_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_data)
+{
+    xqc_connection_t *conn = (xqc_connection_t *)user_data;
+    
+    if (!conn || !conn->conn_initial_path || !conn->conn_initial_path->path_send_ctl) {
+        return;
+    }
+    
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    uint64_t bw_bps = xqc_send_ctl_get_est_bw(send_ctl);
+    uint64_t bw_kbps = bw_bps / 1024;
+    uint64_t bw_mbps = bw_bps / (1024 * 1024);
+    
+    uint64_t cwnd = 0;
+    if (send_ctl->ctl_cong && send_ctl->ctl_cong_callback && 
+        send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd) {
+        cwnd = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong);
+    }
+    
+    xqc_log(conn->log, XQC_LOG_REPORT, 
+            "|BANDWIDTH_EST|bw:%ui B/s (%.2f KB/s, %.2f MB/s)|cwnd:%ui|srtt:%ui ms|",
+            bw_bps, (double)bw_kbps, (double)bw_mbps, cwnd, send_ctl->ctl_srtt/1000);
+    
+    // 重新设置 timer，实现周期性打印（每 1 秒）
+    xqc_timer_set(&conn->conn_timer_manager, XQC_TIMER_BANDWIDTH_PRINT, now, 1000 * 1000);
 }
 
 /**
@@ -417,6 +446,9 @@ xqc_timer_init(xqc_timer_manager_t *manager, xqc_log_t *log, void *user_data)
             timer->user_data = user_data;
         } else if (type == XQC_TIMER_QUEUE_FIN) {
             timer->timeout_cb = xqc_timer_fec_conn_queue_rpr_timeout;
+            timer->user_data = user_data;
+        } else if (type == XQC_TIMER_BANDWIDTH_PRINT) {
+            timer->timeout_cb = xqc_timer_bandwidth_print_timeout;
             timer->user_data = user_data;
         }
     }

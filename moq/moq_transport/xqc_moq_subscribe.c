@@ -88,7 +88,8 @@ xqc_moq_subscribe_update_msg(xqc_moq_subscribe_t *subscribe, xqc_moq_subscribe_u
     msg->start_group_id = update->start_group_id;
     msg->start_object_id = update->start_object_id;
     msg->end_group_id = update->end_group_id;
-    msg->end_object_id = update->end_object_id;
+    msg->subscriber_priority = update->subscriber_priority;
+    msg->forward = update->forward;
 }
 
 xqc_int_t

@@ -567,11 +567,13 @@ xqc_moq_request_keyframe(xqc_moq_session_t *session, uint64_t subscribe_id)
 
     uint64_t largest_group_id = xqc_moq_media_track_get_largest_video_group_id(track);
     xqc_memset(&update, 0, sizeof(xqc_moq_subscribe_update_msg_t));
+    update.request_id = xqc_moq_session_alloc_subscribe_id(session);
     update.subscribe_id = subscribe_id;
     update.start_group_id = largest_group_id + 1;
     update.start_object_id = 0;
     update.end_group_id = 0;
-    update.end_object_id = 0;
+    update.subscriber_priority = subscribe->subscribe_msg->subscriber_priority;
+    update.forward = subscribe->subscribe_msg->forward;
     update.params_num = 0;
     ret = xqc_moq_write_subscribe_update(session, &update);
     if (ret < 0) {

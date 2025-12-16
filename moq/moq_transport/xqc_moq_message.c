@@ -1729,13 +1729,16 @@ xqc_moq_msg_encode_subscribe_update_len(xqc_moq_msg_base_t *msg_base)
     xqc_int_t len = 0;
     xqc_moq_subscribe_update_msg_t *subscribe_update = (xqc_moq_subscribe_update_msg_t*)msg_base;
     len += xqc_put_varint_len(XQC_MOQ_MSG_SUBSCRIBE_UPDATE);
+    len += XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
+    len += xqc_put_varint_len(subscribe_update->request_id);
     len += xqc_put_varint_len(subscribe_update->subscribe_id);
     len += xqc_put_varint_len(subscribe_update->start_group_id);
     len += xqc_put_varint_len(subscribe_update->start_object_id);
     len += xqc_put_varint_len(subscribe_update->end_group_id);
-    len += xqc_put_varint_len(subscribe_update->end_object_id);
+    len += XQC_MOQ_SUBSCRIBER_PRIORITY_FIXED_SIZE;
+    len += XQC_MOQ_FORWARD_FIXED_SIZE;
     len += xqc_put_varint_len(subscribe_update->params_num);
-    len += xqc_moq_msg_encode_params_len(subscribe_update->params, subscribe_update->params_num);
+    len += xqc_moq_msg_encode_params_len_v14(subscribe_update->params, subscribe_update->params_num);
     return len;
 }
 
@@ -1744,19 +1747,24 @@ xqc_moq_msg_encode_subscribe_update(xqc_moq_msg_base_t *msg_base, uint8_t *buf, 
 {
     xqc_int_t ret = 0;
     xqc_moq_subscribe_update_msg_t *subscribe_update = (xqc_moq_subscribe_update_msg_t*)msg_base;
-    if (xqc_moq_msg_encode_subscribe_update_len(msg_base) > buf_cap) {
+    xqc_int_t length = xqc_moq_msg_encode_subscribe_update_len(msg_base);
+    if (length > buf_cap) {
         return -XQC_EILLEGAL_FRAME;
     }
 
     uint8_t *p = buf;
     p = xqc_put_varint(p, XQC_MOQ_MSG_SUBSCRIBE_UPDATE);
+    length = length - xqc_put_varint_len(XQC_MOQ_MSG_SUBSCRIBE_UPDATE) - XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
+    p = xqc_moq_put_varint_length(p, length);
+    p = xqc_put_varint(p, subscribe_update->request_id);
     p = xqc_put_varint(p, subscribe_update->subscribe_id);
     p = xqc_put_varint(p, subscribe_update->start_group_id);
     p = xqc_put_varint(p, subscribe_update->start_object_id);
     p = xqc_put_varint(p, subscribe_update->end_group_id);
-    p = xqc_put_varint(p, subscribe_update->end_object_id);
+    p = xqc_moq_put_u8(p, subscribe_update->subscriber_priority);
+    p = xqc_moq_put_u8(p, subscribe_update->forward);
     p = xqc_put_varint(p, subscribe_update->params_num);
-    ret = xqc_moq_msg_encode_params(subscribe_update->params, subscribe_update->params_num, p, buf + buf_cap - p);
+    ret = xqc_moq_msg_encode_params_v14(subscribe_update->params, subscribe_update->params_num, p, buf + buf_cap - p);
     if (ret < 0) {
         return ret;
     }
@@ -1775,11 +1783,28 @@ xqc_moq_msg_decode_subscribe_update(uint8_t *buf, size_t buf_len, uint8_t stream
     xqc_int_t processed = 0;
     xqc_int_t ret = 0;
     xqc_int_t param_finish = 0;
-    uint64_t val = 0;
+    uint64_t length = 0;
     xqc_moq_subscribe_update_msg_t *subscribe_update = (xqc_moq_subscribe_update_msg_t *)msg_base;
     xqc_moq_decode_params_ctx_t *params_ctx = &msg_ctx->decode_params_ctx;
     switch (msg_ctx->cur_field_idx) {
-        case 0: //subscribe_update ID (i)
+        case 0: //Length (16)
+            ret = xqc_moq_length_read(buf + processed, buf + buf_len, &length);
+            if (ret < 0) {
+                *wait_more_data = 1;
+                break;
+            }
+            processed += ret;
+            msg_ctx->cur_field_idx = 1;
+        case 1: //Request ID (i)
+            ret = xqc_vint_read(buf + processed, buf + buf_len, &subscribe_update->request_id);
+            if (ret < 0) {
+                *wait_more_data = 1;
+                break;
+            }
+            processed += ret;
+            DEBUG_PRINTF("==>request_id:%d\n",(int)subscribe_update->request_id);
+            msg_ctx->cur_field_idx = 2;
+        case 2: //Subscription Request ID (i)
             ret = xqc_vint_read(buf + processed, buf + buf_len, &subscribe_update->subscribe_id);
             if (ret < 0) {
                 *wait_more_data = 1;
@@ -1787,8 +1812,8 @@ xqc_moq_msg_decode_subscribe_update(uint8_t *buf, size_t buf_len, uint8_t stream
             }
             processed += ret;
             DEBUG_PRINTF("==>subscribe_id:%d\n",(int)subscribe_update->subscribe_id);
-            msg_ctx->cur_field_idx = 1;
-        case 1: //StartGroup (i)
+            msg_ctx->cur_field_idx = 3;
+        case 3: //Start Location - Group (i)
             ret = xqc_vint_read(buf + processed, buf + buf_len, &subscribe_update->start_group_id);
             if (ret < 0) {
                 *wait_more_data = 1;
@@ -1796,8 +1821,8 @@ xqc_moq_msg_decode_subscribe_update(uint8_t *buf, size_t buf_len, uint8_t stream
             }
             processed += ret;
             DEBUG_PRINTF("==>start_group_id:%d\n",(int)subscribe_update->start_group_id);
-            msg_ctx->cur_field_idx = 2;
-        case 2: //StartObject (i)
+            msg_ctx->cur_field_idx = 4;
+        case 4: //Start Location - Object (i)
             ret = xqc_vint_read(buf + processed, buf + buf_len, &subscribe_update->start_object_id);
             if (ret < 0) {
                 *wait_more_data = 1;
@@ -1805,8 +1830,8 @@ xqc_moq_msg_decode_subscribe_update(uint8_t *buf, size_t buf_len, uint8_t stream
             }
             processed += ret;
             DEBUG_PRINTF("==>start_object_id:%d\n",(int)subscribe_update->start_object_id);
-            msg_ctx->cur_field_idx = 3;
-        case 3: //EndGroup (i)
+            msg_ctx->cur_field_idx = 5;
+        case 5: //End Group (i)
             ret = xqc_vint_read(buf + processed, buf + buf_len, &subscribe_update->end_group_id);
             if (ret < 0) {
                 *wait_more_data = 1;
@@ -1814,17 +1839,25 @@ xqc_moq_msg_decode_subscribe_update(uint8_t *buf, size_t buf_len, uint8_t stream
             }
             processed += ret;
             DEBUG_PRINTF("==>end_group_id:%d\n",(int)subscribe_update->end_group_id);
-            msg_ctx->cur_field_idx = 4;
-        case 4: //EndObject (i)
-            ret = xqc_vint_read(buf + processed, buf + buf_len, &subscribe_update->end_object_id);
+            msg_ctx->cur_field_idx = 6;
+        case 6: //Subscriber Priority (8)
+            ret = xqc_moq_read_u8(buf, buf_len, &processed, &subscribe_update->subscriber_priority);
             if (ret < 0) {
                 *wait_more_data = 1;
                 break;
             }
-            processed += ret;
-            DEBUG_PRINTF("==>end_object_id:%d\n",(int)subscribe_update->end_object_id);
-            msg_ctx->cur_field_idx = 5;
-        case 5: //Number of Parameters (i) ...
+            msg_ctx->cur_field_idx = 7;
+        case 7: //Forward (8)
+            ret = xqc_moq_read_u8(buf, buf_len, &processed, &subscribe_update->forward);
+            if (ret < 0) {
+                *wait_more_data = 1;
+                break;
+            }
+            if (subscribe_update->forward != 0 && subscribe_update->forward != 1) {
+                return -XQC_EPARAM;
+            }
+            msg_ctx->cur_field_idx = 8;
+        case 8: //Number of Parameters (i) ...
             ret = xqc_vint_read(buf + processed, buf + buf_len, &subscribe_update->params_num);
             if (ret < 0) {
                 *wait_more_data = 1;
@@ -1842,9 +1875,9 @@ xqc_moq_msg_decode_subscribe_update(uint8_t *buf, size_t buf_len, uint8_t stream
             }
             subscribe_update->params = xqc_moq_msg_alloc_params(subscribe_update->params_num);
 
-            msg_ctx->cur_field_idx = 6;
-        case 6: //subscribe_update Parameters (..) ...
-            ret = xqc_moq_msg_decode_params(buf + processed, buf_len - processed, params_ctx,
+            msg_ctx->cur_field_idx = 9;
+        case 9: //subscribe_update Parameters (..) ...
+            ret = xqc_moq_msg_decode_params_v14(buf + processed, buf_len - processed, params_ctx,
                                             subscribe_update->params, subscribe_update->params_num,
                                             &param_finish, wait_more_data);
             if (ret < 0) {

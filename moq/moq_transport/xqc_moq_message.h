@@ -157,11 +157,13 @@ typedef struct xqc_moq_unannounce_msg_s {
 
 typedef struct xqc_moq_subscribe_update_msg_s {
     xqc_moq_msg_base_t          msg_base;
+    uint64_t                    request_id;
     uint64_t                    subscribe_id;
     uint64_t                    start_group_id;
     uint64_t                    start_object_id;
     uint64_t                    end_group_id;
-    uint64_t                    end_object_id;
+    uint8_t                     subscriber_priority;
+    uint8_t                     forward;
     uint64_t                    params_num;
     xqc_moq_message_parameter_t *params;
 } xqc_moq_subscribe_update_msg_t;

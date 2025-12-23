@@ -130,6 +130,7 @@ XQUIC_VERS_1.0 {
         xqc_reed_solomon_code_cb;
         xqc_xor_code_cb;
         xqc_packet_mask_code_cb;
+        xqc_conn_get_est_bandwidth;
     local:
         *;
 };

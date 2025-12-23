@@ -3761,6 +3761,37 @@ xqc_conn_get_lastest_rtt(xqc_engine_t *engine, const xqc_cid_t *cid)
     return path->path_send_ctl->ctl_latest_rtt;
 }
 
+uint64_t
+xqc_conn_get_est_bandwidth(xqc_engine_t *engine, const xqc_cid_t *cid)
+{
+    xqc_connection_t *conn;
+    xqc_path_ctx_t *path;
+    xqc_send_ctl_t *send_ctl;
+
+    conn = xqc_engine_conns_hash_find(engine, cid, 's');
+    if (!conn) {
+        xqc_log(engine->log, XQC_LOG_ERROR, "|can not find connection|cid:%s",
+                xqc_scid_str(engine, cid));
+        return 0;
+    }
+
+    path = conn->conn_initial_path;
+    if (!path) {
+        xqc_log(engine->log, XQC_LOG_ERROR, "|can not find initial path|cid:%s",
+                xqc_scid_str(engine, cid));
+        return 0;
+    }
+
+    send_ctl = path->path_send_ctl;
+    if (!send_ctl) {
+        xqc_log(engine->log, XQC_LOG_ERROR, "|can not find send ctl|cid:%s",
+                xqc_scid_str(engine, cid));
+        return 0;
+    }
+
+    return xqc_send_ctl_get_est_bw(send_ctl);
+}
+
 
 xqc_int_t
 xqc_conn_check_token(xqc_connection_t *conn, const unsigned char *token, unsigned token_len)

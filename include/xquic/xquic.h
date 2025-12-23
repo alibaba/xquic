@@ -1839,6 +1839,15 @@ void *xqc_conn_get_ssl(xqc_connection_t *conn);
 XQC_EXPORT_PUBLIC_API
 xqc_usec_t xqc_conn_get_lastest_rtt(xqc_engine_t *engine, const xqc_cid_t *cid);
 
+/**
+ * @brief get estimated bandwidth of the initial path (congestion control estimated bandwidth)
+ * @param engine xqc engine
+ * @param cid connection id
+ * @return estimated bandwidth in bytes per second (bps), 0 if connection or path not found
+ */
+XQC_EXPORT_PUBLIC_API
+uint64_t xqc_conn_get_est_bandwidth(xqc_engine_t *engine, const xqc_cid_t *cid);
+
 
 /**
  * Server should set user_data when conn_create_notify callbacks

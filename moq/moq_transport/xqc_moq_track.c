@@ -4,11 +4,11 @@
 #include "moq/moq_media/xqc_moq_catalog.h"
 #include "moq/moq_media/xqc_moq_datachannel.h"
 #include "moq/moq_media/xqc_moq_media_track.h"
-#include "moq/moq_media/xqc_moq_container.h"
 
 xqc_moq_track_t *
 xqc_moq_track_create(xqc_moq_session_t *session, char *track_namespace, char *track_name,
-    xqc_moq_track_type_t track_type, xqc_moq_selection_params_t *params, xqc_moq_container_t container, xqc_moq_track_role_t role)
+    xqc_moq_track_type_t track_type, xqc_moq_selection_params_t *params,
+    xqc_moq_container_t container, xqc_moq_track_role_t role)
 {
     xqc_moq_track_t *track;
     xqc_list_head_t *list;
@@ -68,6 +68,8 @@ xqc_moq_track_create(xqc_moq_session_t *session, char *track_namespace, char *tr
     track->cur_subgroup_id = 0;
     track->cur_subgroup_group_id = XQC_MOQ_INVALID_ID;
     track->raw_object = 0;
+    track->reuse_subgroup_stream = 0;
+    track->subgroup_stream = NULL;
 
     if (role == XQC_MOQ_TRACK_FOR_PUB) {
         list = &session->track_list_for_pub;
@@ -207,4 +209,13 @@ xqc_moq_track_set_raw_object(xqc_moq_track_t *track, xqc_int_t raw_object)
     if (track->raw_object) {
         track->container_format = XQC_MOQ_CONTAINER_NONE;
     }
+}
+
+void
+xqc_moq_track_set_reuse_subgroup_stream(xqc_moq_track_t *track, xqc_int_t reuse)
+{
+    if (track == NULL) {
+        return;
+    }
+    track->reuse_subgroup_stream = reuse ? 1 : 0;
 }

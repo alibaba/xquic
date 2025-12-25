@@ -183,6 +183,7 @@ typedef enum {
     /* Phony message types */
     XQC_MOQ_MSG_TRACK_STREAM_OBJECT = 0xA0,
     XQC_MOQ_MSG_GROUP_STREAM_OBJECT = 0xA1,
+    XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT = 0xA2,
 } xqc_moq_msg_type_t;
 
 typedef enum {
@@ -371,7 +372,7 @@ typedef void (*xqc_moq_on_publish_ok_pt)(xqc_moq_user_session_t *user_session, x
     xqc_moq_publish_ok_msg_t *publish_ok);
 
 typedef void (*xqc_moq_on_publish_error_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
-    xqc_moq_publish_error_msg_t *publish_error);
+    xqc_moq_track_info_t *track_info, xqc_moq_publish_error_msg_t *publish_error);
 
 typedef void (*xqc_moq_on_publish_done_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
     xqc_moq_publish_done_msg_t *publish_done);
@@ -483,7 +484,11 @@ uint64_t xqc_moq_target_bitrate(xqc_moq_session_t *session);
 
 XQC_EXPORT_PUBLIC_API
 xqc_moq_track_t *xqc_moq_track_create(xqc_moq_session_t *session, char *track_namespace, char *track_name,
-    xqc_moq_track_type_t track_type, xqc_moq_selection_params_t *params, xqc_moq_container_t container, xqc_moq_track_role_t role);
+    xqc_moq_track_type_t track_type, xqc_moq_selection_params_t *params,
+    xqc_moq_container_t container, xqc_moq_track_role_t role);
+
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_track_set_reuse_subgroup_stream(xqc_moq_track_t *track, xqc_int_t reuse);
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_subscribe(xqc_moq_session_t *session, const char *track_namespace, const char *track_name,

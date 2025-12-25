@@ -79,6 +79,10 @@ xqc_moq_stream_destroy(xqc_moq_stream_t *stream)
         xqc_record_stream_state(quic_stream);
     }
 
+    if (stream->track && stream->track->subgroup_stream == stream) {
+        stream->track->subgroup_stream = NULL;
+    }
+
     xqc_free(stream->read_buf);
     stream->read_buf = NULL;
 
@@ -169,6 +173,8 @@ xqc_moq_stream_get_or_alloc_cur_decode_msg(xqc_moq_stream_t *moq_stream)
     if (moq_stream->session && moq_stream != moq_stream->session->ctl_stream
         && type >= 0x10 && type <= 0x1D) {
         type = XQC_MOQ_MSG_SUBGROUP;
+    } else if (type == XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT) {
+        type = XQC_MOQ_MSG_SUBGROUP;
     }
 
     void *msg = xqc_moq_msg_create(type);
@@ -186,6 +192,8 @@ xqc_moq_stream_free_cur_decode_msg(xqc_moq_stream_t *moq_stream)
     xqc_moq_msg_type_t type = moq_stream->decode_msg_ctx.cur_msg_type;
     if (moq_stream->session && moq_stream != moq_stream->session->ctl_stream
         && type >= 0x10 && type <= 0x1D) {
+        type = XQC_MOQ_MSG_SUBGROUP;
+    } else if (type == XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT) {
         type = XQC_MOQ_MSG_SUBGROUP;
     }
     xqc_moq_msg_free(type, moq_stream->decode_msg_ctx.cur_decode_msg);
@@ -285,6 +293,13 @@ xqc_moq_stream_process(xqc_moq_stream_t *moq_stream, uint8_t *buf, size_t buf_le
                                || cur_msg_type == XQC_MOQ_MSG_GROUP_STREAM_OBJECT) {
                         next_state = XQC_MOQ_DECODE_MSG;
                         next_msg_type = XQC_MOQ_MSG_GROUP_STREAM_OBJECT;
+                    } else if (moq_stream->session && moq_stream != moq_stream->session->ctl_stream
+                               && cur_msg_type >= 0x10 && cur_msg_type <= 0x1D) {
+                        next_state = XQC_MOQ_DECODE_MSG;
+                        next_msg_type = XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT;
+                    } else if (cur_msg_type == XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT) {
+                        next_state = XQC_MOQ_DECODE_MSG;
+                        next_msg_type = XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT;
                     }
                     xqc_moq_stream_clean_decode_msg_ctx(moq_stream);
                     moq_stream->decode_msg_ctx.cur_decode_state = next_state;
@@ -334,6 +349,23 @@ xqc_moq_stream_process_msg(xqc_moq_stream_t *moq_stream, uint8_t stream_fin, xqc
         xqc_log(moq_stream->session->log, XQC_LOG_ERROR, "|unkonwn message type|msg_type:0x%xi|",
                 moq_stream->decode_msg_ctx.cur_msg_type);
         return ret;
+    }
+
+    if (moq_stream->decode_msg_ctx.cur_msg_type == XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT) {
+        if (!moq_stream->subgroup_header_valid) {
+            xqc_log(moq_stream->session->log, XQC_LOG_ERROR,
+                    "|subgroup stream object without header|");
+            return -XQC_EILLEGAL_FRAME;
+        }
+        xqc_moq_subgroup_msg_t *subgroup = (xqc_moq_subgroup_msg_t *)msg_base;
+        subgroup->track_alias = moq_stream->subgroup_header.track_alias;
+        subgroup->group_id = moq_stream->subgroup_header.group_id;
+        subgroup->subgroup_id = moq_stream->subgroup_header.subgroup_id;
+        subgroup->subgroup_type = moq_stream->subgroup_header.subgroup_type;
+        subgroup->subgroup_priority = moq_stream->subgroup_header.subgroup_priority;
+        if (moq_stream->decode_msg_ctx.cur_field_idx < 4) {
+            moq_stream->decode_msg_ctx.cur_field_idx = 4; // start decoding from object_delta
+        }
     }
     ret = msg_base->decode(moq_stream->read_buf + moq_stream->read_buf_processed,
                            moq_stream->read_buf_len - moq_stream->read_buf_processed,

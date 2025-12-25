@@ -355,6 +355,10 @@ xqc_int_t xqc_moq_msg_encode_subgroup(xqc_moq_msg_base_t *msg_base, uint8_t *buf
 xqc_int_t xqc_moq_msg_decode_subgroup(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
     xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
 
+xqc_int_t xqc_moq_msg_append_subgroup_object_len(xqc_moq_subgroup_msg_t *object);
+
+xqc_int_t xqc_moq_msg_append_subgroup_object(xqc_moq_subgroup_msg_t *object, uint8_t *buf, size_t buf_cap);
+
 void *xqc_moq_msg_create_track_stream_obj();
 
 void xqc_moq_msg_free_track_stream_obj(void *msg);

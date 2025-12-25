@@ -59,6 +59,7 @@ xqc_moq_role_t g_role = XQC_MOQ_PUBSUB;
 int g_publish_mode = 0;
 int g_enable_client_setup_v14 = 0;
 int g_raw_object_mode = 0;
+int g_publish_reply_mode = 0;
 
 xqc_int_t
 xqc_demo_publish_track(user_conn_t *user_conn, const char *track_namespace, const char *track_name)
@@ -320,6 +321,9 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata)
         printf("create audio track error\n");
     }
     user_conn->audio_track = audio_track;
+    if (audio_track) {
+        xqc_moq_track_set_reuse_subgroup_stream(audio_track, 1);
+    }
 
 }
 
@@ -430,7 +434,8 @@ void on_request_keyframe(xqc_moq_user_session_t *user_session, uint64_t subscrib
 void on_bitrate_change(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, uint64_t bitrate)
 {
     DEBUG;
-    printf("on_bitrate_change: track_namespace:%s track_name:%s bitrate:%ld\n",track_info->track_namespace, track_info->track_name, bitrate);
+    printf("on_bitrate_change: track_namespace:%s track_name:%s bitrate:%"PRIu64"\n",
+           track_info->track_namespace, track_info->track_name, bitrate);
     /* Configure encoder target bitrate */
 }
 
@@ -464,6 +469,61 @@ void on_publish_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track
            publish_msg->track_alias,
            publish_msg->forward,
            publish_msg->content_exist);
+
+    // Test for self-defined publish reply on datachanne;
+    xqc_moq_session_t *session = user_session->session;
+    if (g_publish_reply_mode == 0) {
+        if (publish_msg->track_namespace
+            && strcmp(publish_msg->track_namespace, "datachannel") == 0) {
+            xqc_moq_publish_ok_msg_t publish_ok;
+            memset(&publish_ok, 0, sizeof(publish_ok));
+            publish_ok.subscribe_id = publish_msg->subscribe_id;
+            publish_ok.forward = 1;
+            publish_ok.subscriber_priority = 0;
+            publish_ok.group_order = 1;
+            publish_ok.filter_type = XQC_MOQ_FILTER_LAST_GROUP;
+            publish_ok.params_num = 0;
+            publish_ok.params = NULL;
+            xqc_int_t ret = xqc_moq_write_publish_ok(session, &publish_ok);
+            if (ret < 0) {
+                printf("xqc_moq_write_publish_ok (datachannel) error, ret:%d\n", ret);
+            }
+        }
+        return;
+    }
+
+    if (track == NULL) {
+        return;
+    }
+
+    if (g_publish_reply_mode == 1) {
+        xqc_moq_publish_ok_msg_t publish_ok;
+        memset(&publish_ok, 0, sizeof(publish_ok));
+        publish_ok.subscribe_id = publish_msg->subscribe_id;
+        publish_ok.forward = 1;
+        publish_ok.subscriber_priority = 0;
+        publish_ok.group_order = 1;
+        publish_ok.filter_type = XQC_MOQ_FILTER_LAST_GROUP;
+        publish_ok.params_num = 0;
+        publish_ok.params = NULL;
+        xqc_int_t ret = xqc_moq_write_publish_ok(session, &publish_ok);
+        if (ret < 0) {
+            printf("xqc_moq_write_publish_ok error, ret:%d\n", ret);
+        }
+
+    } else if (g_publish_reply_mode == 2) {
+        xqc_moq_publish_error_msg_t publish_error;
+        memset(&publish_error, 0, sizeof(publish_error));
+        publish_error.subscribe_id = publish_msg->subscribe_id;
+        publish_error.error_code = XQC_MOQ_PUBLISH_ERR_INTERNAL;
+        const char *reason = "demo publish error";
+        publish_error.reason_phrase = (char *)reason;
+        publish_error.reason_phrase_len = strlen(reason);
+        xqc_int_t ret = xqc_moq_write_publish_error(session, &publish_error);
+        if (ret < 0) {
+            printf("xqc_moq_write_publish_error error, ret:%d\n", ret);
+        }
+    }
 }
 
 void on_publish_ok_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_publish_ok_msg_t *publish_ok)
@@ -474,7 +534,8 @@ void on_publish_ok_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *tr
            publish_ok->forward, publish_ok->subscriber_priority, publish_ok->filter_type);
 }
 
-void on_publish_error_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_publish_error_msg_t *publish_error)
+void on_publish_error_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_track_info_t *track_info, xqc_moq_publish_error_msg_t *publish_error)
 {
     printf("on_publish_error: subscribe_id:%"PRIu64" track_ptr:%p reason:%s\n",
            publish_error->subscribe_id,
@@ -509,6 +570,12 @@ void on_catalog(xqc_moq_user_session_t *user_session, xqc_moq_track_info_t **tra
                track_info->selection_params.framerate, track_info->selection_params.width, track_info->selection_params.height,
                track_info->selection_params.display_width, track_info->selection_params.display_height, track_info->selection_params.samplerate,
                track_info->selection_params.channel_config ? track_info->selection_params.channel_config : "null");
+
+        if (g_publish_reply_mode) {
+            printf("publish_reply_mode, skip subscribing remote track:%s/%s\n",
+                   track_info->track_namespace, track_info->track_name);
+            continue;
+        }
 
         if (g_role & XQC_MOQ_SUBSCRIBER) {
             printf("on catalog create subscriber track:%s/%s\n",
@@ -823,6 +890,8 @@ xqc_app_send_callback(int fd, short what, void* arg)
             video_frame.video_len *= 2;
         }
         video_frame.video_data = payload_video;
+        printf("server_send_video_frame|subscribe_id:%"PRIu64"|seq:%"PRIu64"|len:%"PRIu64"|\n",
+               user_conn->video_subscribe_id, video_frame.seq_num, video_frame.video_len);
         ret = xqc_moq_write_video_frame(user_conn->moq_session, user_conn->video_subscribe_id, user_conn->video_track, &video_frame);
         if (ret < 0) {
             printf("xqc_moq_write_video_frame error\n");
@@ -838,6 +907,8 @@ xqc_app_send_callback(int fd, short what, void* arg)
         audio_frame.timestamp_us = xqc_now();
         audio_frame.audio_len = 1024;
         audio_frame.audio_data = payload_audio;
+        printf("server_send_audio_frame|subscribe_id:%"PRIu64"|seq:%"PRIu64"|len:%"PRIu64"|\n",
+               user_conn->audio_subscribe_id, audio_frame.seq_num, audio_frame.audio_len);
         ret = xqc_moq_write_audio_frame(user_conn->moq_session, user_conn->audio_subscribe_id, user_conn->audio_track, &audio_frame);
         if (ret < 0) {
             printf("xqc_moq_write_audio_frame error\n");
@@ -869,7 +940,7 @@ int main(int argc, char *argv[])
     int server_port = TEST_PORT;
     xqc_cong_ctrl_callback_t cong_ctrl;
     cong_ctrl = xqc_bbr_cb;
-    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MVR")) != -1) {
+    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MVRoe")) != -1) {
         switch (ch) {
         /* listen port */
         case 'p':
@@ -941,6 +1012,14 @@ int main(int argc, char *argv[])
         case 'R':
             printf("option raw object mode : on\n");
             g_raw_object_mode = 1;
+            break;
+        case 'o':
+            printf("option publish reply ok : on\n");
+            g_publish_reply_mode = 1;
+            break;
+        case 'e':
+            printf("option publish reply error : on\n");
+            g_publish_reply_mode = 2;
             break;
         default:
             break;

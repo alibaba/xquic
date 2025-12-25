@@ -118,6 +118,47 @@ run_publish_case() {
     stop_server
 }
 
+run_publish_reply_case() {
+    local case_name="publish_reply"
+    local status="fail"
+    echo -e "moq publish reply ok/error ...\c"
+
+    # sub-case 1: server replies PUBLISH_OK for both video/audio
+    reset_runtime
+    start_server "${case_name}_ok" "${SERVER_BASE_ARGS[@]}" -r sub -n 1 -o
+    run_client "${case_name}_ok" "${CLIENT_BASE_ARGS[@]}" -r pub -n 1 -M
+    local cli_ok_cnt errlog_ok
+    cli_ok_cnt=$(grep -c "on_publish_ok:" "client_${case_name}_ok.log" 2>/dev/null || true)
+    errlog_ok=$(get_err_log)
+    stop_server
+
+    # sub-case 2: server replies PUBLISH_ERROR for both video/audio
+    reset_runtime
+    start_server "${case_name}_err" "${SERVER_BASE_ARGS[@]}" -r sub -n 1 -e
+    run_client "${case_name}_err" "${CLIENT_BASE_ARGS[@]}" -r pub -n 1 -M
+    local cli_err_cnt errlog_err
+    cli_err_cnt=$(grep -c "on_publish_error:" "client_${case_name}_err.log" 2>/dev/null || true)
+    errlog_err=$(get_err_log)
+    stop_server
+
+    if [ "${cli_ok_cnt}" -ge 2 ] && [ -z "${errlog_ok}" ] \
+       && [ "${cli_err_cnt}" -ge 2 ] && [ -z "${errlog_err}" ]; then
+        echo ">>>>>>>> pass:1"
+        status="pass"
+    else
+        echo ">>>>>>>> pass:0"
+        echo "ok_case_error_log:"
+        echo "${errlog_ok}"
+        echo "ok_case_on_publish_ok count: ${cli_ok_cnt}"
+        echo "err_case_error_log:"
+        echo "${errlog_err}"
+        echo "err_case_on_publish_error count: ${cli_err_cnt}"
+    fi
+
+    case_print_result "${case_name}" "${status}"
+    record_case_result "${case_name}" "${status}"
+}
+
 run_datachannel_case() {
     local case_name="datachannel_dynamic"
     local status="fail"
@@ -171,8 +212,47 @@ run_raw_object_case() {
 }
 
 run_publish_case
+run_publish_reply_case
 run_datachannel_case
 run_raw_object_case
+
+run_subgroup_multi_object_case() {
+    local case_name="subgroup_multi_object"
+    local status="fail"
+    echo -e "moq subgroup multi-object on single stream ...\c"
+    reset_runtime
+    start_server "${case_name}" "${SERVER_BASE_ARGS[@]}" -n 10 -V -M
+    run_client "${case_name}" "${CLIENT_BASE_ARGS[@]}" -n 10 -V -M
+    local errlog audio_lines obj_cnt stream_cnt
+    errlog=$(get_err_log)
+
+    audio_lines=$(grep "server_recv_subgroup" slog 2>/dev/null | \
+                  grep "track_alias:2|group_id:0|subgroup_id:0|" || true)
+    if [ -n "${audio_lines}" ]; then
+        obj_cnt=$(echo "${audio_lines}" | awk -F'object_id:' '{print $2}' | \
+                  awk -F'|' '{print $1}' | sort -u | wc -l | tr -d ' ')
+        stream_cnt=$(echo "${audio_lines}" | awk -F'stream_id:' '{print $2}' | \
+                     awk -F'|' '{print $1}' | sort -u | wc -l | tr -d ' ')
+    else
+        obj_cnt=0
+        stream_cnt=0
+    fi
+    if [ "${obj_cnt}" -ge 10 ] && [ "${stream_cnt}" -eq 1 ] && [ -z "${errlog}" ]; then
+        echo ">>>>>>>> pass:1"
+        status="pass"
+    else
+        echo ">>>>>>>> pass:0"
+        echo "${errlog}"
+        echo "audio subgroup lines:"
+        echo "${audio_lines}"
+        echo "distinct object_id count: ${obj_cnt}, distinct stream_id count: ${stream_cnt}"
+    fi
+    case_print_result "${case_name}" "${status}"
+    record_case_result "${case_name}" "${status}"
+    stop_server
+}
+
+run_subgroup_multi_object_case
 
 echo
 echo "moq_case_e2e summary: ${PASSED_CASES}/${TOTAL_CASES} passed"

@@ -178,6 +178,49 @@ xqc_moq_write_subgroup_msg(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
 }
 
 xqc_int_t
+xqc_moq_append_subgroup_object(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
+    xqc_moq_subgroup_msg_t *object)
+{
+    xqc_int_t encode_len = 0;
+    xqc_int_t ret = 0;
+
+    if (session == NULL || stream == NULL || object == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    encode_len = xqc_moq_msg_append_subgroup_object_len(object);
+    if (encode_len > XQC_MOQ_MAX_OBJECT_LEN) {
+        return -XQC_ELIMIT;
+    }
+
+    if (stream->write_buf_processed != stream->write_buf_len) {
+        stream->write_buf_cap += encode_len;
+    } else {
+        stream->write_buf_cap = encode_len;
+        stream->write_buf_processed = 0;
+        stream->write_buf_len = 0;
+    }
+
+    stream->write_buf = xqc_realloc(stream->write_buf, stream->write_buf_cap);
+    ret = xqc_moq_msg_append_subgroup_object(object,
+        stream->write_buf + stream->write_buf_len,
+        stream->write_buf_cap - stream->write_buf_len);
+    if (ret < 0) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|encode subgroup object error|ret:%d|", ret);
+        return ret;
+    }
+    stream->write_buf_len += ret;
+
+    ret = xqc_moq_stream_write(stream);
+    if (ret < 0) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_stream_write error|ret:%d|msg_type:subgroup_object|", ret);
+        return ret;
+    }
+
+    return XQC_OK;
+}
+
+xqc_int_t
 xqc_moq_write_stream_header_track_msg(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
     xqc_moq_stream_header_track_msg_t *track_header)
 {

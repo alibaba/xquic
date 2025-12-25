@@ -693,6 +693,8 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata)
     }
     user_conn->audio_track = audio_track;
     if (audio_track) {
+        /* For test: reuse one subgroup stream for multiple audio objects. */
+        xqc_moq_track_set_reuse_subgroup_stream(audio_track, 1);
         if (g_raw_object_mode) {
             xqc_moq_track_set_raw_object(audio_track, 1);
         }
@@ -813,7 +815,8 @@ void on_request_keyframe(xqc_moq_user_session_t *user_session, uint64_t subscrib
 void on_bitrate_change(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, uint64_t bitrate)
 {
     DEBUG;
-    printf("on_bitrate_change: track_namespace:%s track_name:%s bitrate:%ld\n",track_info->track_namespace, track_info->track_name, bitrate);
+    printf("on_bitrate_change: track_namespace:%s track_name:%s bitrate:%"PRIu64"\n",
+           track_info->track_namespace, track_info->track_name, bitrate);
     /* Configure encoder target bitrate */
 }
 
@@ -867,7 +870,8 @@ void on_publish_ok_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *tr
     }
 }
 
-void on_publish_error_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_publish_error_msg_t *publish_error)
+void on_publish_error_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_track_info_t *track_info, xqc_moq_publish_error_msg_t *publish_error)
 {
     printf("on_publish_error: subscribe_id:%"PRIu64" track_ptr:%p reason:%s\n",
            publish_error->subscribe_id,

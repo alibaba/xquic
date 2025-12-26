@@ -4,11 +4,11 @@
 #include "moq/moq_media/xqc_moq_catalog.h"
 #include "moq/moq_media/xqc_moq_datachannel.h"
 #include "moq/moq_media/xqc_moq_media_track.h"
-#include "moq/moq_media/xqc_moq_container.h"
 
 xqc_moq_track_t *
 xqc_moq_track_create(xqc_moq_session_t *session, char *track_namespace, char *track_name,
-    xqc_moq_track_type_t track_type, xqc_moq_selection_params_t *params, xqc_moq_container_t container, xqc_moq_track_role_t role)
+    xqc_moq_track_type_t track_type, xqc_moq_selection_params_t *params,
+    xqc_moq_container_t container, xqc_moq_track_role_t role)
 {
     xqc_moq_track_t *track;
     xqc_list_head_t *list;
@@ -60,8 +60,16 @@ xqc_moq_track_create(xqc_moq_session_t *session, char *track_namespace, char *tr
     xqc_memcpy(track->track_info.track_namespace, track_namespace, track_namespace_len);
     track->track_info.track_name = xqc_calloc(1, track_name_len + 1);
     xqc_memcpy(track->track_info.track_name, track_name, track_name_len);
-    track->track_alias = -1;
-    track->subscribe_id = -1;
+    track->track_alias = XQC_MOQ_INVALID_ID;
+    track->subscribe_id = XQC_MOQ_INVALID_ID;
+    track->streams_count = 0;
+    track->cur_group_id = 0;
+    track->cur_object_id = 0;
+    track->cur_subgroup_id = 0;
+    track->cur_subgroup_group_id = XQC_MOQ_INVALID_ID;
+    track->raw_object = 0;
+    track->reuse_subgroup_stream = 0;
+    track->subgroup_stream = NULL;
 
     if (role == XQC_MOQ_TRACK_FOR_PUB) {
         list = &session->track_list_for_pub;
@@ -103,13 +111,46 @@ xqc_moq_track_free_fields(xqc_moq_track_t *track)
 void
 xqc_moq_track_set_alias(xqc_moq_track_t *track, uint64_t track_alias)
 {
+    if (track->track_alias != track_alias) {
+        xqc_log(track->session->log, XQC_LOG_DEBUG,
+                "|track_alias_update|track:%s/%s|old:%ui|new:%ui|",
+                track->track_info.track_namespace, track->track_info.track_name,
+                track->track_alias, track_alias);
+    }
     track->track_alias = track_alias;
 }
 
 void
 xqc_moq_track_set_subscribe_id(xqc_moq_track_t *track, uint64_t subscribe_id)
 {
+    if (track->subscribe_id != subscribe_id) {
+        xqc_log(track->session->log, XQC_LOG_DEBUG,
+                "|track_subscribe_id_update|track:%s/%s|old:%ui|new:%ui|",
+                track->track_info.track_namespace, track->track_info.track_name,
+                track->subscribe_id, subscribe_id);
+    }
     track->subscribe_id = subscribe_id;
+}
+
+void
+xqc_moq_track_add_streams_count(xqc_moq_track_t *track)
+{
+    if (track == NULL) {
+        return;
+    }
+    if (track->streams_count < (((uint64_t)1 << 62) - 1)) {
+        track->streams_count++;
+    }
+}
+
+uint64_t
+xqc_moq_track_next_subgroup_id(xqc_moq_track_t *track, uint64_t group_id)
+{
+    if (track->cur_subgroup_group_id != group_id) {
+        track->cur_subgroup_group_id = group_id;
+        track->cur_subgroup_id = 0;
+    }
+    return track->cur_subgroup_id++;
 }
 
 void
@@ -156,4 +197,25 @@ void
 xqc_moq_track_set_params(xqc_moq_track_t *track, xqc_moq_selection_params_t *params)
 {
     xqc_moq_track_copy_params(&track->track_info.selection_params, params);
+}
+
+void
+xqc_moq_track_set_raw_object(xqc_moq_track_t *track, xqc_int_t raw_object)
+{
+    if (track == NULL) {
+        return;
+    }
+    track->raw_object = raw_object ? 1 : 0;
+    if (track->raw_object) {
+        track->container_format = XQC_MOQ_CONTAINER_NONE;
+    }
+}
+
+void
+xqc_moq_track_set_reuse_subgroup_stream(xqc_moq_track_t *track, xqc_int_t reuse)
+{
+    if (track == NULL) {
+        return;
+    }
+    track->reuse_subgroup_stream = reuse ? 1 : 0;
 }

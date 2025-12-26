@@ -260,8 +260,11 @@ void on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
         user_conn->audio_track = track;
 
         xqc_moq_subscribe_ok_msg_t subscribe_ok;
+        memset(&subscribe_ok, 0, sizeof(subscribe_ok));
         subscribe_ok.subscribe_id = subscribe_id;
+        subscribe_ok.track_alias = msg ? msg->track_alias : 0;
         subscribe_ok.expire_ms = 0;
+        subscribe_ok.group_order = 0;
         subscribe_ok.content_exist = 1;
         subscribe_ok.largest_group_id = 0;
         subscribe_ok.largest_object_id = 0;
@@ -372,7 +375,8 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
         .on_video = on_video_frame,
         .on_audio = on_audio_frame,
     };
-    xqc_moq_session_t *session = xqc_moq_session_create(conn, user_session, XQC_MOQ_TRANSPORT_QUIC, XQC_MOQ_PUBSUB, callbacks, NULL);
+    xqc_moq_session_t *session = xqc_moq_session_create(conn, user_session, XQC_MOQ_TRANSPORT_QUIC,
+        XQC_MOQ_PUBSUB, callbacks, NULL, 0);
     if (session == NULL) {
         printf("create session error\n");
         return -1;

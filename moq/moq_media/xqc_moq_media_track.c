@@ -225,13 +225,29 @@ xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
         }
     }
 
-    stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_UNI);
-    if (stream == NULL) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|create moq stream error|");
-        ret = -XQC_ECREATE_STREAM;
-        goto error;
+    if (track->reuse_subgroup_stream) {
+        stream = track->subgroup_stream;
+        if (stream == NULL) {
+            stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_UNI);
+            if (stream == NULL) {
+                xqc_log(session->log, XQC_LOG_ERROR, "|create moq stream error|");
+                ret = -XQC_ECREATE_STREAM;
+                goto error;
+            }
+            xqc_moq_track_add_streams_count(track);
+            stream->write_stream_fin = 0;
+            track->subgroup_stream = stream;
+        }
+    } else {
+        stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_UNI);
+        if (stream == NULL) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|create moq stream error|");
+            ret = -XQC_ECREATE_STREAM;
+            goto error;
+        }
+        xqc_moq_track_add_streams_count(track);
+        stream->write_stream_fin = 1;
     }
-    stream->write_stream_fin = 1;
 
     object.subscribe_id = subscribe_id;
     /* Same as video: derive alias from subscription to keep it stable. */
@@ -250,10 +266,14 @@ xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     object.status = XQC_MOQ_OBJ_STATUS_NORMAL;
     object.payload = buf;
     object.payload_len = encoded_len;
-    object.group_id = ++track->cur_group_id;
-    track->cur_object_id = 0;
-    object.object_id = track->cur_object_id;
-    object.subgroup_id = xqc_moq_track_next_subgroup_id(track, object.group_id);
+
+    if (track->cur_group_id == 0 && track->cur_object_id == 0) {
+        track->cur_group_id = 0;
+        track->cur_object_id = 0;
+    }
+    object.group_id = track->cur_group_id;
+    object.object_id = track->cur_object_id++;
+    object.subgroup_id = 0;
     object.subgroup_type = XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
     object.subgroup_priority = XQC_MOQ_DEFAULT_SUBGROUP_PRIORITY;
     object.object_id_delta = object.object_id;
@@ -296,9 +316,21 @@ xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     object.ext_params_num = ext_num;
 
     xqc_moq_stream_on_track_write(stream, track, object.group_id, object.object_id, audio_frame->seq_num);
-    xqc_list_add_tail(&stream->list_member, &media_track->write_stream_list);
+    if (track->reuse_subgroup_stream) {
+        if (xqc_list_empty(&media_track->write_stream_list)) {
+            xqc_list_add_tail(&stream->list_member, &media_track->write_stream_list);
+        }
 
-    ret = xqc_moq_media_write_subgroup_stream(session, stream, &object);
+        if (object.object_id == 0) {
+            ret = xqc_moq_media_write_subgroup_stream(session, stream, &object);
+        } else {
+            ret = xqc_moq_append_subgroup_object(session, stream, (xqc_moq_subgroup_msg_t*)&object);
+        }
+    } else {
+        xqc_list_add_tail(&stream->list_member, &media_track->write_stream_list);
+        ret = xqc_moq_media_write_subgroup_stream(session, stream, &object);
+    }
+
     if (ret < 0) {
         xqc_log(session->log, XQC_LOG_ERROR, "|write_subgroup_stream error|ret:%d|", ret);
         goto error;

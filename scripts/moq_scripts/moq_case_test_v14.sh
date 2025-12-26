@@ -223,7 +223,7 @@ run_subgroup_multi_object_case() {
     reset_runtime
     start_server "${case_name}" "${SERVER_BASE_ARGS[@]}" -n 10 -V -M
     run_client "${case_name}" "${CLIENT_BASE_ARGS[@]}" -n 10 -V -M
-    local errlog audio_lines obj_cnt stream_cnt
+    local errlog audio_lines obj_cnt stream_cnt delta_bad
     errlog=$(get_err_log)
 
     audio_lines=$(grep "server_recv_subgroup" slog 2>/dev/null | \
@@ -233,11 +233,35 @@ run_subgroup_multi_object_case() {
                   awk -F'|' '{print $1}' | sort -u | wc -l | tr -d ' ')
         stream_cnt=$(echo "${audio_lines}" | awk -F'stream_id:' '{print $2}' | \
                      awk -F'|' '{print $1}' | sort -u | wc -l | tr -d ' ')
+        # verify Object ID Delta semantics for subgroup stream:
+        # for object_id > 0 we expect object_id_delta == 0 (sequential IDs with true delta)
+        delta_bad=$(echo "${audio_lines}" | awk -F'|' '
+        {
+            id = -1; d = -1;
+            for (i = 1; i <= NF; i++) {
+                if ($i ~ /object_id:/) {
+                    gsub(/object_id:/, "", $i);
+                    id = $i;
+                } else if ($i ~ /object_id_delta:/) {
+                    gsub(/object_id_delta:/, "", $i);
+                    d = $i;
+                }
+            }
+            if (id > 0 && d != 0) {
+                bad = 1;
+            }
+        }
+        END {
+            if (bad == 1) {
+                print "bad";
+            }
+        }')
     else
         obj_cnt=0
         stream_cnt=0
+        delta_bad=""
     fi
-    if [ "${obj_cnt}" -ge 10 ] && [ "${stream_cnt}" -eq 1 ] && [ -z "${errlog}" ]; then
+    if [ "${obj_cnt}" -ge 10 ] && [ "${stream_cnt}" -eq 1 ] && [ -z "${errlog}" ] && [ -z "${delta_bad}" ]; then
         echo ">>>>>>>> pass:1"
         status="pass"
     else

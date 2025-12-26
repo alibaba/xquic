@@ -3508,7 +3508,7 @@ xqc_moq_msg_encode_subgroup_len(xqc_moq_msg_base_t *msg_base)
     xqc_moq_subgroup_msg_t *object = (xqc_moq_subgroup_msg_t*)msg_base;
     uint8_t subgroup_type = object->subgroup_type ? object->subgroup_type : XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
     xqc_bool_t has_subgroup_id = xqc_moq_msg_subgroup_has_id(subgroup_type);
-    uint64_t object_delta = object->object_id_delta ? object->object_id_delta : object->object_id;
+    uint64_t object_delta = object->object_id_delta;
     xqc_bool_t has_ext = xqc_moq_msg_subgroup_has_ext(subgroup_type);
 
     len += xqc_put_varint_len(subgroup_type);
@@ -3541,7 +3541,7 @@ xqc_int_t
 xqc_moq_msg_append_subgroup_object_len(xqc_moq_subgroup_msg_t *object)
 {
     xqc_int_t len = 0;
-    uint64_t object_delta = object->object_id_delta ? object->object_id_delta : object->object_id;
+    uint64_t object_delta = object->object_id_delta;
     xqc_bool_t has_ext = xqc_moq_msg_subgroup_has_ext(object->subgroup_type);
 
     len += xqc_put_varint_len(object_delta);
@@ -3571,7 +3571,7 @@ xqc_moq_msg_append_subgroup_object(xqc_moq_subgroup_msg_t *object, uint8_t *buf,
 {
     uint8_t *p = buf;
     uint8_t *end = buf + buf_cap;
-    uint64_t object_delta = object->object_id_delta ? object->object_id_delta : object->object_id;
+    uint64_t object_delta = object->object_id_delta;
     xqc_bool_t has_ext = xqc_moq_msg_subgroup_has_ext(object->subgroup_type);
 
     if (buf_cap == 0) {
@@ -3618,7 +3618,7 @@ xqc_moq_msg_encode_subgroup(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t b
     xqc_moq_subgroup_msg_t *object = (xqc_moq_subgroup_msg_t*)msg_base;
     uint8_t subgroup_type = object->subgroup_type ? object->subgroup_type : XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
     xqc_bool_t has_subgroup_id = xqc_moq_msg_subgroup_has_id(subgroup_type);
-    uint64_t object_delta = object->object_id_delta ? object->object_id_delta : object->object_id;
+    uint64_t object_delta = object->object_id_delta;
     xqc_bool_t has_ext = xqc_moq_msg_subgroup_has_ext(subgroup_type);
 
     if (xqc_moq_msg_encode_subgroup_len(msg_base) > buf_cap) {

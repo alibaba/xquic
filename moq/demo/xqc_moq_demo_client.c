@@ -770,7 +770,7 @@ void on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
         xqc_moq_subscribe_ok_msg_t subscribe_ok;
         memset(&subscribe_ok, 0, sizeof(subscribe_ok));
         subscribe_ok.subscribe_id = subscribe_id;
-        printf("subscribe id recv from server side: %ld\n",subscribe_id);
+        printf("subscribe id recv from server side: %llu\n", subscribe_id);
         subscribe_ok.track_alias = msg ? msg->track_alias : 0;
         subscribe_ok.expire_ms = 0;
         subscribe_ok.group_order = 0;

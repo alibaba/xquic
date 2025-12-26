@@ -866,7 +866,22 @@ xqc_moq_on_subgroup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xq
     object.subscribe_id = msg->subscribe_id;
     object.track_alias = msg->track_alias;
     object.group_id = msg->group_id;
-    object.object_id = msg->object_id ? msg->object_id : msg->object_id_delta;
+    uint64_t object_id = 0;
+    if (moq_stream->subgroup_header_valid && msg->group_id == moq_stream->subgroup_header.group_id
+        && msg->subgroup_id == moq_stream->subgroup_header.subgroup_id) 
+    {
+        if (moq_stream->subgroup_prev_object_id_valid) {
+            object_id = moq_stream->subgroup_prev_object_id + msg->object_id_delta + 1;
+        } else {
+            object_id = msg->object_id_delta;
+        }
+    } else {
+        object_id = msg->object_id_delta;
+        moq_stream->subgroup_prev_object_id_valid = 0;
+    }
+    moq_stream->subgroup_prev_object_id = object_id;
+    moq_stream->subgroup_prev_object_id_valid = 1;
+    object.object_id = object_id;
     object.subgroup_id = msg->subgroup_id;
     object.object_id_delta = msg->object_id_delta;
     object.send_order = msg->send_order;
@@ -885,9 +900,9 @@ xqc_moq_on_subgroup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xq
     xqc_stream_t *quic_stream = moq_stream->trans_ops.quic_stream(moq_stream->trans_stream);
     xqc_int_t stream_id = quic_stream ? quic_stream->stream_id : 0;
     xqc_log(session->log, XQC_LOG_INFO,
-            "|server_recv_subgroup|subscribe_id:%ui|track_alias:%ui|group_id:%ui|subgroup_id:%ui|object_id:%ui|stream_id:%llu|",
+            "|server_recv_subgroup|subscribe_id:%ui|track_alias:%ui|group_id:%ui|subgroup_id:%ui|object_id:%ui|object_id_delta:%ui|stream_id:%llu|",
             object.subscribe_id, object.track_alias, object.group_id,
-            object.subgroup_id, object.object_id, stream_id);
+            object.subgroup_id, object.object_id, msg->object_id_delta, stream_id);
     
     xqc_moq_on_object(session, moq_stream, &object);
 }

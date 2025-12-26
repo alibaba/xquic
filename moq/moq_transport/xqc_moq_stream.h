@@ -64,6 +64,8 @@ typedef struct xqc_moq_stream_s {
     uint16_t                    moq_frame_type;
     xqc_moq_subgroup_header_t   subgroup_header;
     uint8_t                     subgroup_header_valid;
+    uint64_t                    subgroup_prev_object_id;
+    uint8_t                     subgroup_prev_object_id_valid;
 } xqc_moq_stream_t;
 
 xqc_moq_stream_t *xqc_moq_stream_create(xqc_moq_session_t *session);

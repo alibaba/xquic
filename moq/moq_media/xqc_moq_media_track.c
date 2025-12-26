@@ -276,7 +276,11 @@ xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     object.subgroup_id = 0;
     object.subgroup_type = XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
     object.subgroup_priority = XQC_MOQ_DEFAULT_SUBGROUP_PRIORITY;
-    object.object_id_delta = object.object_id;
+    if (object.object_id == 0) {
+        object.object_id_delta = object.object_id;
+    } else {
+        object.object_id_delta = 0;
+    }
     xqc_moq_message_parameter_t ext_headers[3];
     xqc_memzero(ext_headers, sizeof(ext_headers));
     uint64_t ext_num = 0;

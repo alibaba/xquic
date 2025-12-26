@@ -3542,7 +3542,7 @@ xqc_moq_msg_append_subgroup_object_len(xqc_moq_subgroup_msg_t *object)
 {
     xqc_int_t len = 0;
     uint64_t object_delta = object->object_id_delta ? object->object_id_delta : object->object_id;
-    xqc_bool_t has_ext = XQC_FALSE;
+    xqc_bool_t has_ext = xqc_moq_msg_subgroup_has_ext(object->subgroup_type);
 
     len += xqc_put_varint_len(object_delta);
 
@@ -3572,7 +3572,7 @@ xqc_moq_msg_append_subgroup_object(xqc_moq_subgroup_msg_t *object, uint8_t *buf,
     uint8_t *p = buf;
     uint8_t *end = buf + buf_cap;
     uint64_t object_delta = object->object_id_delta ? object->object_id_delta : object->object_id;
-    xqc_bool_t has_ext = XQC_FALSE;
+    xqc_bool_t has_ext = xqc_moq_msg_subgroup_has_ext(object->subgroup_type);
 
     if (buf_cap == 0) {
         return -XQC_EILLEGAL_FRAME;
@@ -3720,9 +3720,6 @@ xqc_moq_msg_decode_subgroup(uint8_t *buf, size_t buf_len, uint8_t stream_fin, xq
             msg_ctx->cur_field_idx = 5;
         case 5: // extension headers length (if present)
             has_ext = xqc_moq_msg_subgroup_has_ext(object->subgroup_type);
-            if (msg_ctx->cur_msg_type == XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT) {
-                has_ext = XQC_FALSE;
-            }
             if (has_ext) {
                 ret = xqc_vint_read(buf + processed, buf + buf_len, &object->ext_len);
                 if (ret < 0) {
@@ -3753,9 +3750,6 @@ xqc_moq_msg_decode_subgroup(uint8_t *buf, size_t buf_len, uint8_t stream_fin, xq
             }
         case 6: // extension headers block (if any)
             has_ext = xqc_moq_msg_subgroup_has_ext(object->subgroup_type);
-            if (msg_ctx->cur_msg_type == XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT) {
-                has_ext = XQC_FALSE;
-            }
             if (has_ext && object->ext_len > 0) {
                 if (buf_len - processed == 0) {
                     *wait_more_data = 1;

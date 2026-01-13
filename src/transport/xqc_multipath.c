@@ -308,7 +308,7 @@ xqc_path_immediate_close(xqc_path_ctx_t *path)
     xqc_connection_t *conn = path->parent_conn;
     xqc_int_t ret = XQC_OK;
     
-    ret = xqc_write_path_abandon_frame_to_packet(conn, path);
+    ret = xqc_write_path_abandon_frame_to_packet(conn, path, APPLICATION_ABANDON_PATH);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_path_abandon_frame_to_packet error|ret:%d|", ret);
     }

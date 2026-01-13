@@ -1757,7 +1757,7 @@ xqc_write_mp_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire
         return -XQC_EWRITE_PKT;
     }
 
-    ret = xqc_gen_mp_new_conn_id_frame(packet_out, &new_conn_cid, retire_prior_to,
+    ret = xqc_gen_mp_new_conn_id_frame(conn, packet_out, &new_conn_cid, retire_prior_to,
                                        sr_token, path_id);
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_mp_new_conn_id_frame error|");
@@ -1832,7 +1832,7 @@ xqc_write_mp_retire_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t seq
         return -XQC_EWRITE_PKT;
     }
 
-    ret = xqc_gen_mp_retire_conn_id_frame(packet_out, seq_num, path_id);
+    ret = xqc_gen_mp_retire_conn_id_frame(conn, packet_out, seq_num, path_id);
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_mp_retire_conn_id_frame error|");
         xqc_maybe_recycle_packet_out(packet_out, conn);
@@ -1858,7 +1858,7 @@ xqc_write_max_path_id_to_packet(xqc_connection_t *conn, uint64_t max_path_id)
         return -XQC_EWRITE_PKT;
     }
 
-    ret = xqc_gen_max_path_id_frame(packet_out, max_path_id);
+    ret = xqc_gen_max_path_id_frame(conn, packet_out, max_path_id);
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_max_streams_frame error|");
         goto error;

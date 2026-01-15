@@ -88,6 +88,7 @@ typedef struct {
     /* Audio */
     xqc_int_t                       samplerate; /* Required */
     char                            *channel_config; /* Optional */
+    xqc_int_t                       bits_per_sample; /* Optional, audio bit depth (bits per sample) */
 } xqc_moq_selection_params_t;
 
 typedef struct {

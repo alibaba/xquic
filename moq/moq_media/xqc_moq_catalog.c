@@ -152,6 +152,7 @@ const char kDisplayHeight[]               = "displayHeight";
 const char kLang[]                        = "language";
 const char kSamplerate[]                  = "samplerate";
 const char kChannelConfig[]               = "channelConfig";
+const char kBitsPerSample[]               = "bitsPerSample";
 const char kCommonTrackFields[]           = "commonTrackFields";
 
 
@@ -299,6 +300,7 @@ xqc_moq_catalog_single_track_decode(cJSON *track_json, xqc_moq_track_t *track, x
 
         XQC_MOQ_PROCESS_CATALOG_UNNECESSARY_INT_FIELD(track->track_info.selection_params.samplerate, track_params, kSamplerate);
         XQC_MOQ_PROCESS_CATALOG_UNNECESSARY_STRING_FIELD(track->track_info.selection_params.channel_config, track_params, kChannelConfig);
+        XQC_MOQ_PROCESS_CATALOG_UNNECESSARY_INT_FIELD(track->track_info.selection_params.bits_per_sample, track_params, kBitsPerSample);
     } else{
         return XQC_MOQ_CATALOG_DECODE_FIELD_MISSING;
     }
@@ -392,6 +394,7 @@ xqc_moq_catalog_single_track_encode(cJSON *track_json, xqc_moq_track_t *track, x
 
     XQC_MOQ_ADD_UNNECESSARY_INT_TO_CATALOG(track->track_info.selection_params.samplerate, track_params, kSamplerate);
     XQC_MOQ_ADD_UNNECESSARY_STRING_TO_CATALOG(track->track_info.selection_params.channel_config, track_params, kChannelConfig);
+    XQC_MOQ_ADD_UNNECESSARY_INT_TO_CATALOG(track->track_info.selection_params.bits_per_sample, track_params, kBitsPerSample);
     if (!cJSON_AddItemToObject(track_json, kSelectionParams, track_params)) {
         ret = XQC_MOQ_CATALOG_ENCODE_ITEMADD_FAIL;
         goto end;

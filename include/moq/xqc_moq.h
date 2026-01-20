@@ -343,7 +343,8 @@ typedef struct {
     uint64_t    end_object_id;
 } xqc_moq_publish_selected_params_t;
 
-typedef void (*xqc_moq_on_session_setup_pt)(xqc_moq_user_session_t *user_session, char *extdata);
+typedef void (*xqc_moq_on_session_setup_pt)(xqc_moq_user_session_t *user_session, char *extdata,
+    const xqc_moq_message_parameter_t *params, uint64_t params_num);
 
 typedef void (*xqc_moq_on_datachannel_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
     xqc_moq_track_info_t *track_info);

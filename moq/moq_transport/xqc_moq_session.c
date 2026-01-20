@@ -210,10 +210,11 @@ xqc_moq_session_destroy(xqc_moq_session_t *session)
 }
 
 void
-xqc_moq_session_on_setup(xqc_moq_session_t *session, char *extdata)
+xqc_moq_session_on_setup(xqc_moq_session_t *session, char *extdata,
+    const xqc_moq_message_parameter_t *params, uint64_t params_num)
 {
     xqc_log(session->log, XQC_LOG_INFO, "|on_session_setup|");
-    session->session_callbacks.on_session_setup(session->user_session, extdata);
+    session->session_callbacks.on_session_setup(session->user_session, extdata, params, params_num);
 }
 
 xqc_connection_t *

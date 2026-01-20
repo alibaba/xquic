@@ -593,9 +593,21 @@ xqc_client_create_conn_socket(user_conn_t *user_conn)
     return 0;
 }
 
-void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata)
+void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
+    const xqc_moq_message_parameter_t *params, uint64_t params_num)
 {
     DEBUG;
+
+    if (extdata) {
+        printf("extdata:%s\n", extdata);
+    }
+    if (params && params_num > 0) {
+        // for test
+        printf("setup_params_num:%"PRIu64"\n", params_num);
+        for (uint64_t i = 0; i < params_num; i++) {
+            printf("  setup_param[%"PRIu64"] type:0x%"PRIx64"\n", i, params[i].type);
+        }
+    }
 
     xqc_moq_session_t *session = user_session->session;
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
@@ -1036,7 +1048,7 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
     xqc_moq_session_t *session;
 
     if (g_enable_client_setup_v14) {
-        xqc_moq_message_parameter_t setup_params[2];
+        xqc_moq_message_parameter_t setup_params[3];
         memset(setup_params, 0, sizeof(setup_params));
 
         // ROLE (required).
@@ -1044,12 +1056,19 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
         setup_params[0].is_integer = 1;
         setup_params[0].int_value = g_role;
 
+        // AUTHORIZATION_TOKEN (bytes, odd type => bytes in v14).
+        const char *authz = "Bearer test-token-123";
+        setup_params[1].type = XQC_MOQ_PARAM_AUTHORIZATION_TOKEN;
+        setup_params[1].is_integer = 0;
+        setup_params[1].value = (uint8_t *)authz;
+        setup_params[1].length = strlen(authz);
+
         // Optional EXTDATA as bytes.
         const char *ext = "extdata-extra-length";
-        setup_params[1].type = XQC_MOQ_PARAM_EXTDATA;
-        setup_params[1].is_integer = 0;
-        setup_params[1].value = (uint8_t *)ext;
-        setup_params[1].length = strlen(ext) + 1;
+        setup_params[2].type = XQC_MOQ_PARAM_EXTDATA;
+        setup_params[2].is_integer = 0;
+        setup_params[2].value = (uint8_t *)ext;
+        setup_params[2].length = strlen(ext) + 1;
 
         session = xqc_moq_session_create_with_params(conn, user_session, XQC_MOQ_TRANSPORT_QUIC,
             g_role, callbacks, NULL, g_enable_client_setup_v14,

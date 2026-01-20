@@ -200,12 +200,24 @@ xqc_server_socket_event_callback(int fd, short what, void *arg)
     }
 }
 
-void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata)
+void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
+    const xqc_moq_message_parameter_t *params, uint64_t params_num)
 {
     DEBUG;
 
     int ret;
     xqc_moq_session_t *session = user_session->session;
+
+    if (extdata) {
+        printf("extdata:%s\n", extdata);
+    }
+    if (params && params_num > 0) {
+        // for test
+        printf("setup_params_num:%"PRIu64"\n", params_num);
+        for (uint64_t i = 0; i < params_num; i++) {
+            printf("  setup_param[%"PRIu64"] type:0x%"PRIx64"\n", i, params[i].type);
+        }
+    }
 
     xqc_moq_selection_params_t audio_params;
     memset(&audio_params, 0, sizeof(xqc_moq_selection_params_t));

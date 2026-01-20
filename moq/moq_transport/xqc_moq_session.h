@@ -58,7 +58,8 @@ typedef enum {
     MOQ_GOAWAY_TIMEOUT              =   0x10,
 } xqc_moq_err_code_t;
 
-void xqc_moq_session_on_setup(xqc_moq_session_t *session, char *extdata);
+void xqc_moq_session_on_setup(xqc_moq_session_t *session, char *extdata,
+    const xqc_moq_message_parameter_t *params, uint64_t params_num);
 
 xqc_connection_t *xqc_moq_session_quic_conn(xqc_moq_session_t *session);
 

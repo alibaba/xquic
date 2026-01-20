@@ -98,7 +98,7 @@ xqc_moq_on_client_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
 
     session->session_setup_done = 1;
 
-    xqc_moq_session_on_setup(session, extdata);
+    xqc_moq_session_on_setup(session, extdata, client_setup->params, client_setup->params_num);
 
     return;
 
@@ -190,7 +190,7 @@ xqc_moq_on_client_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
 
     session->session_setup_done = 1;
 
-    xqc_moq_session_on_setup(session, extdata);
+    xqc_moq_session_on_setup(session, extdata, client_setup->params, client_setup->params_num);
     return;
 
 error:
@@ -251,7 +251,7 @@ xqc_moq_on_server_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
 
     session->session_setup_done = 1;
 
-    xqc_moq_session_on_setup(session, NULL);
+    xqc_moq_session_on_setup(session, NULL, server_setup->params, server_setup->params_num);
 
     return;
 
@@ -306,7 +306,7 @@ xqc_moq_on_server_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
     session->session_setup_done = 1;
     xqc_log(session->log, XQC_LOG_INFO, "|server_setup_v14_complete|");
 
-    xqc_moq_session_on_setup(session, NULL);
+    xqc_moq_session_on_setup(session, NULL, server_setup->params, server_setup->params_num);
     return;
 
 error:

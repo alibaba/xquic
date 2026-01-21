@@ -10,8 +10,9 @@ typedef struct xqc_moq_subscribe_s {
 } xqc_moq_subscribe_t;
 
 xqc_moq_subscribe_t *
-xqc_moq_subscribe_create(xqc_moq_session_t *session, uint64_t subscribe_id,
-    uint64_t track_alias, const char *track_namespace, const char *track_name, xqc_moq_filter_type_t filter_type,
+xqc_moq_subscribe_create_with_namespace_tuple(xqc_moq_session_t *session, uint64_t subscribe_id,
+    uint64_t track_alias, const xqc_moq_track_ns_field_t *track_namespace_tuple, uint64_t track_namespace_num,
+    const char *track_name, size_t track_name_len, xqc_moq_filter_type_t filter_type,
     uint64_t start_group_id, uint64_t start_object_id, uint64_t end_group_id, uint64_t end_object_id,
     char *authinfo, xqc_int_t is_local);
 

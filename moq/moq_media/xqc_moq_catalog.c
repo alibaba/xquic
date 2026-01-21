@@ -1,4 +1,6 @@
 #include "moq/moq_media/xqc_moq_catalog.h"
+#include "moq/moq_transport/xqc_moq_message.h"
+#include "moq/moq_transport/xqc_moq_namespace.h"
 #include "moq/moq_transport/xqc_moq_message_writer.h"
 #include "moq/moq_transport/xqc_moq_session.h"
 #include "moq/moq_transport/xqc_moq_stream.h"
@@ -26,15 +28,15 @@ const xqc_moq_track_ops_t xqc_moq_catalog_track_ops = {
 
 #define XQC_MOQ_PROCESS_CATALOG_REQUIRED_STRING_FIELD(cstring_ptr, catalog_json, field_name)         \
     do {                                                                                             \
-        cJSON *item = cJSON_GetObjectItemCaseSensitive(catalog_json, field_name);                    \
-        if (cJSON_IsString(item)) {                                                                  \
-            size_t len = strlen((item)->valuestring) + 1;                                            \
+        cJSON *field_json = cJSON_GetObjectItemCaseSensitive(catalog_json, field_name);              \
+        if (cJSON_IsString(field_json)) {                                                            \
+            size_t len = strlen((field_json)->valuestring) + 1;                                      \
             cstring_ptr = (char *)xqc_realloc(cstring_ptr, len);                                     \
             if (cstring_ptr == NULL) {                                                               \
                 ret = XQC_MOQ_CATALOG_DECODE_ALLOCATION_ERROR;                                       \
                 goto end;                                                                            \
             }                                                                                        \
-            xqc_memcpy(cstring_ptr, (item)->valuestring, len);                                       \
+            xqc_memcpy(cstring_ptr, (field_json)->valuestring, len);                                 \
         } else {                                                                                     \
             ret = XQC_MOQ_CATALOG_DECODE_FIELD_MISSING;                                              \
             goto end;                                                                                \
@@ -43,24 +45,24 @@ const xqc_moq_track_ops_t xqc_moq_catalog_track_ops = {
 
 #define XQC_MOQ_PROCESS_CATALOG_UNNECESSARY_STRING_FIELD(cstring_ptr, catalog_json, field_name)      \
     do {                                                                                             \
-        cJSON *item = cJSON_GetObjectItemCaseSensitive(catalog_json, field_name);                    \
-        if (cJSON_IsString(item)) {                                                                  \
-            size_t len = strlen((item)->valuestring) + 1;                                            \
+        cJSON *field_json = cJSON_GetObjectItemCaseSensitive(catalog_json, field_name);              \
+        if (cJSON_IsString(field_json)) {                                                            \
+            size_t len = strlen((field_json)->valuestring) + 1;                                      \
             cstring_ptr = (char *)xqc_realloc(cstring_ptr, len);                                     \
             if (cstring_ptr == NULL) {                                                               \
                 ret = -XQC_MOQ_CATALOG_DECODE_ALLOCATION_ERROR;                                      \
                 goto end;                                                                            \
             }                                                                                        \
-            xqc_memcpy(cstring_ptr, (item)->valuestring, len);                                       \
+            xqc_memcpy(cstring_ptr, (field_json)->valuestring, len);                                 \
         }                                                                                            \
     } while (0)
 
 
 #define XQC_MOQ_PROCESS_CATALOG_REQUIRED_INT_FIELD(int_item, catalog_json, field_name)               \
     do {                                                                                             \
-        cJSON *item = cJSON_GetObjectItemCaseSensitive(catalog_json, field_name);                    \
-        if (cJSON_IsNumber(item)) {                                                                  \
-            int_item = item->valueint;                                                               \
+        cJSON *field_json = cJSON_GetObjectItemCaseSensitive(catalog_json, field_name);              \
+        if (cJSON_IsNumber(field_json)) {                                                            \
+            int_item = field_json->valueint;                                                         \
         } else {                                                                                     \
             ret = XQC_MOQ_CATALOG_DECODE_FIELD_MISSING;                                              \
             goto end;                                                                                \
@@ -69,9 +71,9 @@ const xqc_moq_track_ops_t xqc_moq_catalog_track_ops = {
 
 #define XQC_MOQ_PROCESS_CATALOG_UNNECESSARY_INT_FIELD(int_item, catalog_json, field_name)            \
     do {                                                                                             \
-        cJSON *item = cJSON_GetObjectItemCaseSensitive(catalog_json, field_name);                    \
-        if (cJSON_IsNumber(item)) {                                                                  \
-            int_item = item->valueint;                                                               \
+        cJSON *field_json = cJSON_GetObjectItemCaseSensitive(catalog_json, field_name);              \
+        if (cJSON_IsNumber(field_json)) {                                                            \
+            int_item = field_json->valueint;                                                         \
         }                                                                                            \
     } while (0)
 
@@ -195,6 +197,107 @@ typedef enum xqc_moq_catalog_encode_error_s{
     XQC_MOQ_CATALOG_ENCODE_INTERNAL_ERROR,
 }xqc_moq_catalog_encode_error_t;
 
+static xqc_moq_catalog_decode_error_t
+xqc_moq_catalog_decode_namespace_tuple_field(cJSON *json_obj, const char *field_name,
+    xqc_moq_track_ns_field_t **namespace_tuple, uint64_t *namespace_tuple_num)
+{
+    if (namespace_tuple == NULL || namespace_tuple_num == NULL) {
+        return XQC_MOQ_CATALOG_DECODE_INVALID_PARAMETER;
+    }
+
+    *namespace_tuple = NULL;
+    *namespace_tuple_num = 0;
+
+    cJSON *field_json = cJSON_GetObjectItemCaseSensitive(json_obj, field_name);
+    if (field_json == NULL) {
+        return XQC_MOQ_CATALOG_DECODE_OK;
+    }
+
+    if (cJSON_IsArray(field_json)) {
+        int tuple_elem_count = cJSON_GetArraySize(field_json);
+        if (tuple_elem_count <= 0 || (uint64_t)tuple_elem_count > XQC_MOQ_MAX_NAMESPACE_TUPLE_ELEMS) {
+            return XQC_MOQ_CATALOG_DECODE_INVALID_PARAMETER;
+        }
+
+        xqc_moq_track_ns_field_t *decoded_namespace_tuple =
+            xqc_calloc((size_t)tuple_elem_count, sizeof(*decoded_namespace_tuple));
+        if (decoded_namespace_tuple == NULL) {
+            return XQC_MOQ_CATALOG_DECODE_ALLOCATION_ERROR;
+        }
+
+        for (int i = 0; i < tuple_elem_count; i++) {
+            cJSON *tuple_elem_json = cJSON_GetArrayItem(field_json, i);
+            if (!cJSON_IsString(tuple_elem_json)) {
+                xqc_moq_namespace_tuple_free(decoded_namespace_tuple, (uint64_t)tuple_elem_count);
+                return XQC_MOQ_CATALOG_DECODE_INVALID_PARAMETER;
+            }
+            size_t tuple_elem_len = strlen(tuple_elem_json->valuestring);
+            if (tuple_elem_len > XQC_MOQ_MAX_NAME_LEN) {
+                xqc_moq_namespace_tuple_free(decoded_namespace_tuple, (uint64_t)tuple_elem_count);
+                return XQC_MOQ_CATALOG_DECODE_INVALID_PARAMETER;
+            }
+            decoded_namespace_tuple[i].len = tuple_elem_len;
+            if (tuple_elem_len > 0) {
+                decoded_namespace_tuple[i].data = xqc_calloc(1, tuple_elem_len + 1);
+                if (decoded_namespace_tuple[i].data == NULL) {
+                    xqc_moq_namespace_tuple_free(decoded_namespace_tuple, (uint64_t)tuple_elem_count);
+                    return XQC_MOQ_CATALOG_DECODE_ALLOCATION_ERROR;
+                }
+                xqc_memcpy(decoded_namespace_tuple[i].data, tuple_elem_json->valuestring, tuple_elem_len);
+            }
+        }
+
+        *namespace_tuple = decoded_namespace_tuple;
+        *namespace_tuple_num = (uint64_t)tuple_elem_count;
+        return XQC_MOQ_CATALOG_DECODE_OK;
+    }
+
+    return XQC_MOQ_CATALOG_DECODE_INVALID_PARAMETER;
+}
+
+static xqc_moq_catalog_encode_error_t
+xqc_moq_catalog_add_namespace_tuple_field(cJSON *json_obj, const char *field_name,
+    const xqc_moq_track_ns_field_t *namespace_tuple, uint64_t namespace_tuple_num)
+{
+    if (json_obj == NULL || field_name == NULL || namespace_tuple == NULL || namespace_tuple_num == 0) {
+        return XQC_MOQ_CATALOG_ENCODE_INTERNAL_ERROR;
+    }
+
+    cJSON *tuple_array_json = cJSON_CreateArray();
+    if (tuple_array_json == NULL) {
+        return XQC_MOQ_CATALOG_ENCODE_INTERNAL_ERROR;
+    }
+
+    for (uint64_t i = 0; i < namespace_tuple_num; i++) {
+        const xqc_moq_track_ns_field_t *tuple_elem = &namespace_tuple[i];
+        char *tuple_elem_str = xqc_calloc(1, tuple_elem->len + 1);
+        if (tuple_elem_str == NULL) {
+            cJSON_Delete(tuple_array_json);
+            return XQC_MOQ_CATALOG_ENCODE_INTERNAL_ERROR;
+        }
+        if (tuple_elem->len > 0 && tuple_elem->data != NULL) {
+            xqc_memcpy(tuple_elem_str, tuple_elem->data, tuple_elem->len);
+        }
+        cJSON *tuple_elem_json = cJSON_CreateString(tuple_elem_str);
+        xqc_free(tuple_elem_str);
+        if (tuple_elem_json == NULL) {
+            cJSON_Delete(tuple_array_json);
+            return XQC_MOQ_CATALOG_ENCODE_INTERNAL_ERROR;
+        }
+        if (!cJSON_AddItemToArray(tuple_array_json, tuple_elem_json)) {
+            cJSON_Delete(tuple_elem_json);
+            cJSON_Delete(tuple_array_json);
+            return XQC_MOQ_CATALOG_ENCODE_ITEMADD_FAIL;
+        }
+    }
+
+    if (!cJSON_AddItemToObject(json_obj, field_name, tuple_array_json)) {
+        cJSON_Delete(tuple_array_json);
+        return XQC_MOQ_CATALOG_ENCODE_ITEMADD_FAIL;
+    }
+    return XQC_MOQ_CATALOG_ENCODE_OK;
+}
+
 
 void
 xqc_moq_catalog_init(xqc_moq_catalog_t *catalog)
@@ -215,8 +318,10 @@ xqc_moq_catalog_free_fields(xqc_moq_catalog_t *catalog)
     catalog->streaming_format_version = NULL;
     xqc_free(catalog->common_track_fields.packaging);
     catalog->common_track_fields.packaging = NULL;
-    xqc_free(catalog->common_track_fields.track_namespace);
-    catalog->common_track_fields.track_namespace = NULL;
+    xqc_moq_namespace_tuple_free(catalog->common_track_fields.track_namespace_tuple,
+                                 catalog->common_track_fields.track_namespace_num);
+    catalog->common_track_fields.track_namespace_tuple = NULL;
+    catalog->common_track_fields.track_namespace_num = 0;
 
     xqc_list_head_t *pos, *next;
     xqc_moq_track_t *tmp_track;
@@ -238,7 +343,6 @@ xqc_moq_catalog_single_track_decode(cJSON *track_json, xqc_moq_track_t *track, x
 {
     xqc_moq_catalog_decode_error_t ret = XQC_MOQ_CATALOG_DECODE_OK;
     XQC_MOQ_PROCESS_CATALOG_REQUIRED_STRING_FIELD(track->track_info.track_name, track_json, kName);
-    XQC_MOQ_PROCESS_CATALOG_UNNECESSARY_STRING_FIELD(track->track_info.track_namespace, track_json, kNamespace);
     XQC_MOQ_PROCESS_CATALOG_UNNECESSARY_STRING_FIELD(track->packaging, track_json, kPackaging);
     if (track->packaging != NULL && strncmp(track->packaging, XQC_MOQ_CONTAINER_LOC_STR, strlen(track->packaging)) == 0) {
         track->container_format = XQC_MOQ_CONTAINER_LOC;
@@ -260,12 +364,26 @@ xqc_moq_catalog_single_track_decode(cJSON *track_json, xqc_moq_track_t *track, x
 
     XQC_MOQ_PROCESS_CATALOG_UNNECESSARY_INT_FIELD(track->render_group, track_json, kRenderGroup);
 
+    ret = xqc_moq_catalog_decode_namespace_tuple_field(track_json, kNamespace,
+                                                       &track->track_info.track_namespace_tuple,
+                                                       &track->track_info.track_namespace_num);
+    if (ret != XQC_MOQ_CATALOG_DECODE_OK) {
+        goto end;
+    }
     
     // inherit from catalog->common_track_fields
-    if (track->track_info.track_namespace == NULL && catalog->common_track_fields.track_namespace != NULL) {
-        size_t str_len = strlen(catalog->common_track_fields.track_namespace) + 1;
-        track->track_info.track_namespace = xqc_malloc(str_len);
-        xqc_memcpy(track->track_info.track_namespace, catalog->common_track_fields.track_namespace, str_len);
+    if ((track->track_info.track_namespace_tuple == NULL || track->track_info.track_namespace_num == 0)
+        && catalog->common_track_fields.track_namespace_tuple != NULL
+        && catalog->common_track_fields.track_namespace_num > 0)
+    {
+        track->track_info.track_namespace_tuple =
+            xqc_moq_namespace_tuple_copy(catalog->common_track_fields.track_namespace_tuple,
+                                         catalog->common_track_fields.track_namespace_num);
+        if (track->track_info.track_namespace_tuple == NULL) {
+            ret = XQC_MOQ_CATALOG_DECODE_ALLOCATION_ERROR;
+            goto end;
+        }
+        track->track_info.track_namespace_num = catalog->common_track_fields.track_namespace_num;
     }
     if (track->packaging == NULL && catalog->common_track_fields.packaging != NULL) {
         size_t str_len = strlen(catalog->common_track_fields.packaging) + 1;
@@ -274,6 +392,10 @@ xqc_moq_catalog_single_track_decode(cJSON *track_json, xqc_moq_track_t *track, x
     }
     if (track->render_group == -1 && catalog->common_track_fields.renderGroup != -1) {
         track->render_group = catalog->common_track_fields.renderGroup;
+    }
+    if (track->track_info.track_namespace_tuple == NULL || track->track_info.track_namespace_num == 0) {
+        ret = XQC_MOQ_CATALOG_DECODE_FIELD_MISSING;
+        goto end;
     }
 
     // selectionParams
@@ -313,7 +435,7 @@ end:
  * parse feilds of single track
  */
 xqc_moq_catalog_encode_error_t 
-xqc_moq_catalog_single_track_encode(cJSON *track_json, xqc_moq_track_t *track, xqc_moq_catalog_t *catalog, xqc_bool_t is_first_track)
+xqc_moq_catalog_single_track_encode(cJSON *track_json, xqc_moq_track_t *track, xqc_moq_catalog_t *catalog, xqc_bool_t is_first_track) 
 {
     xqc_moq_catalog_encode_error_t ret = XQC_MOQ_CATALOG_ENCODE_OK;
 
@@ -346,15 +468,25 @@ xqc_moq_catalog_single_track_encode(cJSON *track_json, xqc_moq_track_t *track, x
 
     /* add field which could be inherited from parent domain, but it's different from ones in parent domain. */
     if (is_first_track) {
-        size_t str_field_len;
         catalog->common_track_fields.container_format = track->container_format;
 
-        if (catalog->common_track_fields.track_namespace == NULL) {
-            str_field_len = strlen(track->track_info.track_namespace) + 1;
-            catalog->common_track_fields.track_namespace = (char *)xqc_malloc(str_field_len);
-            xqc_memcpy(catalog->common_track_fields.track_namespace, track->track_info.track_namespace, str_field_len);
+        if (catalog->common_track_fields.track_namespace_tuple == NULL
+            || catalog->common_track_fields.track_namespace_num == 0)
+        {
+            if (track->track_info.track_namespace_tuple == NULL || track->track_info.track_namespace_num == 0) {
+                ret = XQC_MOQ_CATALOG_ENCODE_INTERNAL_ERROR;
+                goto end;
+            }
+            catalog->common_track_fields.track_namespace_tuple =
+                xqc_moq_namespace_tuple_copy(track->track_info.track_namespace_tuple,
+                                             track->track_info.track_namespace_num);
+            if (catalog->common_track_fields.track_namespace_tuple == NULL) {
+                ret = XQC_MOQ_CATALOG_ENCODE_INTERNAL_ERROR;
+                goto end;
+            }
+            catalog->common_track_fields.track_namespace_num = track->track_info.track_namespace_num;
         }
-        catalog->common_track_fields.renderGroup == track->render_group;
+        catalog->common_track_fields.renderGroup = track->render_group;
     } else {
         if (catalog->common_track_fields.container_format != track->container_format) {
             if (track->container_format == XQC_MOQ_CONTAINER_LOC) {
@@ -368,9 +500,23 @@ xqc_moq_catalog_single_track_encode(cJSON *track_json, xqc_moq_track_t *track, x
                 && strcmp(catalog->common_track_fields.packaging, track->packaging) != 0) {
             XQC_MOQ_ADD_REQUIRED_STRING_TO_CATALOG(track->packaging, track_json, kPackaging);
         }
-        if(track->track_info.track_namespace != NULL && catalog->common_track_fields.track_namespace != NULL
-                && strcmp(catalog->common_track_fields.track_namespace, track->track_info.track_namespace) != 0) {
-            XQC_MOQ_ADD_REQUIRED_STRING_TO_CATALOG(track->track_info.track_namespace, track_json, kNamespace);
+        if (track->track_info.track_namespace_tuple != NULL
+            && track->track_info.track_namespace_num > 0
+            && catalog->common_track_fields.track_namespace_tuple != NULL
+            && catalog->common_track_fields.track_namespace_num > 0
+            && !xqc_moq_namespace_tuple_equal(catalog->common_track_fields.track_namespace_tuple,
+                                              catalog->common_track_fields.track_namespace_num,
+                                              track->track_info.track_namespace_tuple,
+                                              track->track_info.track_namespace_num))
+        {
+            xqc_moq_catalog_encode_error_t ns_ret =
+                xqc_moq_catalog_add_namespace_tuple_field(track_json, kNamespace,
+                                                          track->track_info.track_namespace_tuple,
+                                                          track->track_info.track_namespace_num);
+            if (ns_ret != XQC_MOQ_CATALOG_ENCODE_OK) {
+                ret = ns_ret;
+                goto end;
+            }
         }
         if(track->render_group != -1 && catalog->common_track_fields.renderGroup != -1
                 && track->render_group != catalog->common_track_fields.renderGroup) {
@@ -473,13 +619,22 @@ xqc_moq_catalog_encode(xqc_moq_catalog_t *catalog, uint8_t *buf, size_t buf_cap,
     }
 
     // Add common_track_fields to catalog json
-    if (catalog->common_track_fields.track_namespace != NULL) {
+    if (catalog->common_track_fields.track_namespace_tuple != NULL
+        && catalog->common_track_fields.track_namespace_num > 0)
+    {
         if (catalog->common_track_fields.container_format == XQC_MOQ_CONTAINER_LOC) {
             XQC_MOQ_ADD_REQUIRED_STRING_TO_CATALOG(XQC_MOQ_CONTAINER_LOC_STR, common_track_fields_json, kPackaging);
         } else if (catalog->common_track_fields.container_format == XQC_MOQ_CONTAINER_CMAF) {
             XQC_MOQ_ADD_REQUIRED_STRING_TO_CATALOG(XQC_MOQ_CONTAINER_CMAF_STR, common_track_fields_json, kPackaging);
         }
-        XQC_MOQ_ADD_REQUIRED_STRING_TO_CATALOG(catalog->common_track_fields.track_namespace, common_track_fields_json, kNamespace);
+        xqc_moq_catalog_encode_error_t ns_ret =
+            xqc_moq_catalog_add_namespace_tuple_field(common_track_fields_json, kNamespace,
+                                                      catalog->common_track_fields.track_namespace_tuple,
+                                                      catalog->common_track_fields.track_namespace_num);
+        if (ns_ret != XQC_MOQ_CATALOG_ENCODE_OK) {
+            ret = ns_ret;
+            goto end;
+        }
         XQC_MOQ_ADD_UNNECESSARY_INT_TO_CATALOG(catalog->common_track_fields.renderGroup, common_track_fields_json, kRenderGroup);
         
         if (!cJSON_AddItemToObject(catalog_json, kCommonTrackFields, common_track_fields_json)) {
@@ -541,15 +696,20 @@ xqc_moq_catalog_decode(xqc_moq_catalog_t *catalog, uint8_t *buf, size_t buf_len)
     cJSON *common_field_json = cJSON_GetObjectItemCaseSensitive(catalog_json, kCommonTrackFields);
     if (cJSON_IsObject(common_field_json)) {
         XQC_MOQ_PROCESS_CATALOG_UNNECESSARY_STRING_FIELD(catalog->common_track_fields.packaging, common_field_json, kPackaging);
-        XQC_MOQ_PROCESS_CATALOG_UNNECESSARY_STRING_FIELD(catalog->common_track_fields.track_namespace, common_field_json, kNamespace);
+        ret = xqc_moq_catalog_decode_namespace_tuple_field(common_field_json, kNamespace,
+                                                           &catalog->common_track_fields.track_namespace_tuple,
+                                                           &catalog->common_track_fields.track_namespace_num);
+        if (ret != XQC_MOQ_CATALOG_DECODE_OK) {
+            goto end;
+        }
         XQC_MOQ_PROCESS_CATALOG_UNNECESSARY_INT_FIELD(catalog->common_track_fields.renderGroup, common_field_json, kRenderGroup);
     }
 
     // decode tracks
-    cJSON *item = cJSON_GetObjectItemCaseSensitive(catalog_json, kTracks);
-    if (cJSON_IsArray(item)) {
+    cJSON *tracks_array_json = cJSON_GetObjectItemCaseSensitive(catalog_json, kTracks);
+    if (cJSON_IsArray(tracks_array_json)) {
         cJSON *track = NULL;
-        cJSON_ArrayForEach(track, item) {
+        cJSON_ArrayForEach(track, tracks_array_json) {
             if (cJSON_IsObject(track)) {
                 tmp_track = xqc_calloc(1, sizeof(xqc_moq_track_t));
                 if (tmp_track == NULL) {
@@ -737,24 +897,28 @@ xqc_moq_subscribe_catalog(xqc_moq_session_t *session)
 {
     xqc_int_t ret;
 
+    xqc_moq_track_ns_field_t catalog_ns[1];
+    catalog_ns[0].data = (unsigned char *)XQC_MOQ_CATALOG_NAMESPACE;
+    catalog_ns[0].len = strlen(XQC_MOQ_CATALOG_NAMESPACE);
+
     if (session->role == XQC_MOQ_SUBSCRIBER) {
-        xqc_moq_track_create(session, XQC_MOQ_CATALOG_NAMESPACE, XQC_MOQ_CATALOG_NAME,
-                             XQC_MOQ_TRACK_CATALOG, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_SUB);
+        xqc_moq_track_create_with_namespace_tuple(session, 1, catalog_ns, (char *)XQC_MOQ_CATALOG_NAME,
+            XQC_MOQ_TRACK_CATALOG, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_SUB);
     } else if (session->role == XQC_MOQ_PUBLISHER) {
-        xqc_moq_track_create(session, XQC_MOQ_CATALOG_NAMESPACE, XQC_MOQ_CATALOG_NAME,
-                             XQC_MOQ_TRACK_CATALOG, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_PUB);
+        xqc_moq_track_create_with_namespace_tuple(session, 1, catalog_ns, (char *)XQC_MOQ_CATALOG_NAME,
+            XQC_MOQ_TRACK_CATALOG, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_PUB);
     } else {
-        xqc_moq_track_create(session, XQC_MOQ_CATALOG_NAMESPACE, XQC_MOQ_CATALOG_NAME,
-                             XQC_MOQ_TRACK_CATALOG, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_SUB);
-        xqc_moq_track_create(session, XQC_MOQ_CATALOG_NAMESPACE, XQC_MOQ_CATALOG_NAME,
-                             XQC_MOQ_TRACK_CATALOG, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_PUB);
+        xqc_moq_track_create_with_namespace_tuple(session, 1, catalog_ns, (char *)XQC_MOQ_CATALOG_NAME,
+            XQC_MOQ_TRACK_CATALOG, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_SUB);
+        xqc_moq_track_create_with_namespace_tuple(session, 1, catalog_ns, (char *)XQC_MOQ_CATALOG_NAME,
+            XQC_MOQ_TRACK_CATALOG, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_PUB);
     }
 
     if (session->role == XQC_MOQ_PUBLISHER) {
         return XQC_OK;
     }
 
-    ret = xqc_moq_subscribe_latest(session, XQC_MOQ_CATALOG_NAMESPACE, XQC_MOQ_CATALOG_NAME);
+    ret = xqc_moq_subscribe_latest_with_namespace_tuple(session, catalog_ns, 1, XQC_MOQ_CATALOG_NAME);
     if (ret < 0) {
         xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_latest error|ret:%d|", ret);
         return ret;
@@ -823,11 +987,13 @@ xqc_moq_catalog_on_object(xqc_moq_session_t *session, xqc_moq_track_t *track, xq
 
     xqc_list_head_t *pos, *next;
     xqc_list_for_each_safe(pos, next, &(catalog.track_list_for_sub)) {
-        xqc_moq_track_t *tmp = xqc_list_entry(pos, xqc_moq_track_t, list_member);
+        xqc_moq_track_t *catalog_track = xqc_list_entry(pos, xqc_moq_track_t, list_member);
         tracks_num++;
-        xqc_moq_track_t *new_track = xqc_moq_track_create(session, tmp->track_info.track_namespace, tmp->track_info.track_name,
-                                                          tmp->track_info.track_type, &tmp->track_info.selection_params,
-                                                          tmp->container_format, XQC_MOQ_TRACK_FOR_SUB);
+        xqc_moq_track_t *new_track = xqc_moq_track_create_with_namespace_tuple(session,
+                catalog_track->track_info.track_namespace_num, catalog_track->track_info.track_namespace_tuple,
+                catalog_track->track_info.track_name, catalog_track->track_info.track_type,
+                &catalog_track->track_info.selection_params,
+                catalog_track->container_format, XQC_MOQ_TRACK_FOR_SUB);
         if (new_track == NULL) {
             xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_track_create error|");
             goto end;
@@ -837,8 +1003,8 @@ xqc_moq_catalog_on_object(xqc_moq_session_t *session, xqc_moq_track_t *track, xq
     track_info_array = (xqc_moq_track_info_t **)xqc_malloc(tracks_num * sizeof(xqc_moq_track_info_t *));
     xqc_int_t i = 0;
     xqc_list_for_each_safe(pos, next, &(catalog.track_list_for_sub)) {
-        xqc_moq_track_t *tmp = xqc_list_entry(pos, xqc_moq_track_t, list_member);
-        track_info_array[i] = &tmp->track_info;
+        xqc_moq_track_t *catalog_track = xqc_list_entry(pos, xqc_moq_track_t, list_member);
+        track_info_array[i] = &catalog_track->track_info;
         i++;
     }
 

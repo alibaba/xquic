@@ -5,28 +5,59 @@
 #include "moq/moq_media/xqc_moq_datachannel.h"
 #include "moq/moq_media/xqc_moq_media_track.h"
 
+#define XQC_MOQ_TRACK_FULL_NAME_BUF_SIZE (XQC_MOQ_MAX_NAME_LEN * 2 + 2)
+
+static void
+xqc_moq_track_finalize_destroy(xqc_moq_track_t *track)
+{
+    if (track == NULL) {
+        return;
+    }
+
+    track->track_ops.on_destroy(track);
+    xqc_moq_track_free_fields(track);
+    xqc_free(track);
+}
+
 xqc_moq_track_t *
 xqc_moq_track_create(xqc_moq_session_t *session, char *track_namespace, char *track_name,
-    xqc_moq_track_type_t track_type, xqc_moq_selection_params_t *params,
+    xqc_moq_track_type_t track_type, xqc_moq_selection_params_t *params, xqc_moq_container_t container, xqc_moq_track_role_t role)
+{
+    if (session == NULL || track_namespace == NULL || track_name == NULL) {
+        return NULL;
+    }
+
+    xqc_moq_track_ns_field_t namespace_tuple[1];
+    namespace_tuple[0].data = (unsigned char *)track_namespace;
+    namespace_tuple[0].len = strlen(track_namespace);
+
+    // Compatibility: string namespace is treated as a single tuple element. 
+    return xqc_moq_track_create_with_namespace_tuple(session,
+        1, namespace_tuple, track_name, track_type, params, container, role);
+}
+
+xqc_moq_track_t *
+xqc_moq_track_create_with_namespace_tuple(xqc_moq_session_t *session,
+    uint64_t track_namespace_num, const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    char *track_name, xqc_moq_track_type_t track_type, xqc_moq_selection_params_t *params,
     xqc_moq_container_t container, xqc_moq_track_role_t role)
 {
     xqc_moq_track_t *track;
     xqc_list_head_t *list;
 
-    if (track_namespace == NULL || track_name == NULL) {
+    if (track_namespace_tuple == NULL || track_namespace_num == 0 || track_name == NULL) {
         xqc_log(session->log, XQC_LOG_ERROR, "|NULL ptr|");
         return NULL;
     }
 
-    size_t track_namespace_len = strlen(track_namespace);
-    size_t track_name_len = strlen(track_name);
-    if (track_namespace_len > XQC_MOQ_MAX_NAME_LEN || track_name_len > XQC_MOQ_MAX_NAME_LEN
-        || track_namespace_len == 0 || track_name_len == 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|namespace or name too long|");
+    if (track_namespace_num > XQC_MOQ_MAX_NAMESPACE_TUPLE_ELEMS) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|namespace tuple too large|track_namespace_num:%ui|",
+                track_namespace_num);
         return NULL;
     }
 
-    track = xqc_moq_find_track_by_name(session, track_namespace, track_name, role);
+    track = xqc_moq_find_track_by_track_namespace_tuple(session, track_namespace_tuple,
+                                                  track_namespace_num, track_name, role);
     if (track) {
         return track;
     }
@@ -56,10 +87,47 @@ xqc_moq_track_create(xqc_moq_session_t *session, char *track_namespace, char *tr
     track->session = session;
     track->track_info.track_type = track_type;
     track->container_format = container;
-    track->track_info.track_namespace = xqc_calloc(1, track_namespace_len + 1);
-    xqc_memcpy(track->track_info.track_namespace, track_namespace, track_namespace_len);
+    track->track_info.track_namespace_num = track_namespace_num;
+    track->track_info.track_namespace_tuple =
+    xqc_calloc(track_namespace_num, sizeof(xqc_moq_track_ns_field_t));
+    if (track->track_info.track_namespace_tuple == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|track namespace tuple alloc fail|");
+        xqc_moq_track_free_fields(track);
+        xqc_free(track);
+        return NULL;
+    }
+    for (uint64_t i = 0; i < track_namespace_num; i++) {
+        track->track_info.track_namespace_tuple[i].len = track_namespace_tuple[i].len;
+        if (track_namespace_tuple[i].len > 0 && track_namespace_tuple[i].data != NULL) {
+            track->track_info.track_namespace_tuple[i].data =
+                xqc_calloc(1, track_namespace_tuple[i].len + 1);
+            if (track->track_info.track_namespace_tuple[i].data == NULL) {
+                xqc_log(session->log, XQC_LOG_ERROR, "|track namespace tuple data alloc fail|");
+                xqc_moq_track_free_fields(track);
+                xqc_free(track);
+                return NULL;
+            }
+            xqc_memcpy(track->track_info.track_namespace_tuple[i].data,
+                       track_namespace_tuple[i].data, track_namespace_tuple[i].len);
+        }
+    }
+
+    size_t track_name_len = strlen(track_name);
+    if (track_name_len == 0 || track_name_len > XQC_MOQ_MAX_NAME_LEN) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|track name too long|");
+        xqc_moq_track_free_fields(track);
+        xqc_free(track);
+        return NULL;
+    }
     track->track_info.track_name = xqc_calloc(1, track_name_len + 1);
+    if (track->track_info.track_name == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|track name alloc fail|");
+        xqc_moq_track_free_fields(track);
+        xqc_free(track);
+        return NULL;
+    }
     xqc_memcpy(track->track_info.track_name, track_name, track_name_len);
+
     track->track_alias = XQC_MOQ_INVALID_ID;
     track->subscribe_id = XQC_MOQ_INVALID_ID;
     track->streams_count = 0;
@@ -68,8 +136,6 @@ xqc_moq_track_create(xqc_moq_session_t *session, char *track_namespace, char *tr
     track->cur_subgroup_id = 0;
     track->cur_subgroup_group_id = XQC_MOQ_INVALID_ID;
     track->raw_object = 0;
-    track->reuse_subgroup_stream = 0;
-    track->subgroup_stream = NULL;
 
     if (role == XQC_MOQ_TRACK_FOR_PUB) {
         list = &session->track_list_for_pub;
@@ -80,9 +146,13 @@ xqc_moq_track_create(xqc_moq_session_t *session, char *track_namespace, char *tr
     xqc_init_list_head(&track->list_member);
     xqc_list_add_tail(&track->list_member, list);
 
+    if (role == XQC_MOQ_TRACK_FOR_PUB) {
+        xqc_moq_session_discovery_on_track_added(session, track);
+    }
+
     track->track_ops.on_create(track);
 
-    xqc_log(session->log, XQC_LOG_INFO, "|track create success|track_name:%s|track_role:%d|", track_name, role);
+    xqc_log(session->log, XQC_LOG_INFO, "|track create success (tuple)|track_name:%s|track_role:%d|", track_name, role);
 
     return track;
 }
@@ -90,17 +160,41 @@ xqc_moq_track_create(xqc_moq_session_t *session, char *track_namespace, char *tr
 void
 xqc_moq_track_destroy(xqc_moq_track_t *track)
 {
-    track->track_ops.on_destroy(track);
+    if (track == NULL) {
+        return;
+    }
 
-    xqc_moq_track_free_fields(track);
-    xqc_free(track);
+    xqc_moq_session_t *session = track->session;
+    if (session != NULL && !session->is_destroying && track->track_role == XQC_MOQ_TRACK_FOR_PUB
+        && !track->discovery_removed)
+    {
+        xqc_moq_session_discovery_on_track_removed(session, track);
+        track->discovery_removed = 1;
+    }
+
+    if (track->active_stream_refcnt > 0) {
+        track->destroy_pending = 1;
+        return;
+    }
+
+    xqc_moq_track_finalize_destroy(track);
 }
 
 void
 xqc_moq_track_free_fields(xqc_moq_track_t *track)
 {
-    xqc_free(track->track_info.track_namespace);
-    track->track_info.track_namespace = NULL;
+    if (track->track_info.track_namespace_tuple) {
+        for (uint64_t i = 0; i < track->track_info.track_namespace_num; i++) {
+            if (track->track_info.track_namespace_tuple[i].data) {
+                xqc_free(track->track_info.track_namespace_tuple[i].data);
+                track->track_info.track_namespace_tuple[i].data = NULL;
+                track->track_info.track_namespace_tuple[i].len = 0;
+            }
+        }
+        xqc_free(track->track_info.track_namespace_tuple);
+        track->track_info.track_namespace_tuple = NULL;
+        track->track_info.track_namespace_num = 0;
+    }
     xqc_free(track->track_info.track_name);
     track->track_info.track_name = NULL;
     xqc_free(track->packaging);
@@ -109,12 +203,83 @@ xqc_moq_track_free_fields(xqc_moq_track_t *track)
 }
 
 void
+xqc_moq_track_stream_ref_inc(xqc_moq_track_t *track)
+{
+    if (track == NULL) {
+        return;
+    }
+    track->active_stream_refcnt++;
+}
+
+void
+xqc_moq_track_stream_ref_dec(xqc_moq_track_t *track)
+{
+    if (track == NULL) {
+        return;
+    }
+
+    if (track->active_stream_refcnt > 0) {
+        track->active_stream_refcnt--;
+    }
+
+    if (track->destroy_pending && track->active_stream_refcnt == 0) {
+        xqc_moq_track_finalize_destroy(track);
+    }
+}
+
+const char * xqc_moq_track_get_full_name(const xqc_moq_track_t *track)
+{
+    if (track == NULL) {
+        return "null";
+    }
+
+    // NOTE: for logging only; do not use this representation for comparisons. 
+    size_t off = 0;
+    static char xqc_moq_track_full_name_buf[XQC_MOQ_TRACK_FULL_NAME_BUF_SIZE];
+    xqc_moq_track_full_name_buf[0] = '\0';
+
+    if (track->track_info.track_namespace_tuple != NULL && track->track_info.track_namespace_num > 0) {
+        for (uint64_t i = 0; i < track->track_info.track_namespace_num && off < XQC_MOQ_TRACK_FULL_NAME_BUF_SIZE - 1; i++) {
+            const xqc_moq_track_ns_field_t *field = &track->track_info.track_namespace_tuple[i];
+            if (field->data != NULL && field->len > 0) {
+                size_t copy_len = field->len;
+                if (off + copy_len >= XQC_MOQ_TRACK_FULL_NAME_BUF_SIZE - 1) {
+                    copy_len = XQC_MOQ_TRACK_FULL_NAME_BUF_SIZE - 1 - off;
+                }
+                xqc_memcpy(xqc_moq_track_full_name_buf + off, field->data, copy_len);
+                off += copy_len;
+            }
+            if (i + 1 < track->track_info.track_namespace_num && off < XQC_MOQ_TRACK_FULL_NAME_BUF_SIZE - 1) {
+                xqc_moq_track_full_name_buf[off++] = '/';
+            }
+        }
+    }
+
+    if (track->track_info.track_name != NULL && off < XQC_MOQ_TRACK_FULL_NAME_BUF_SIZE - 2) {
+        xqc_moq_track_full_name_buf[off++] = '/';
+        size_t name_len = strlen(track->track_info.track_name);
+        if (off + name_len >= XQC_MOQ_TRACK_FULL_NAME_BUF_SIZE - 1) {
+            name_len = XQC_MOQ_TRACK_FULL_NAME_BUF_SIZE - 1 - off;
+        }
+        xqc_memcpy(xqc_moq_track_full_name_buf + off, track->track_info.track_name, name_len);
+        off += name_len;
+    }
+
+    xqc_moq_track_full_name_buf[off] = '\0';
+
+    if (off == 0) {
+        return "null";
+    }
+    return xqc_moq_track_full_name_buf;
+}
+
+void
 xqc_moq_track_set_alias(xqc_moq_track_t *track, uint64_t track_alias)
 {
     if (track->track_alias != track_alias) {
         xqc_log(track->session->log, XQC_LOG_DEBUG,
-                "|track_alias_update|track:%s/%s|old:%ui|new:%ui|",
-                track->track_info.track_namespace, track->track_info.track_name,
+                "|track_alias_update|track:%s|old:%ui|new:%ui|",
+                xqc_moq_track_get_full_name(track),
                 track->track_alias, track_alias);
     }
     track->track_alias = track_alias;
@@ -125,8 +290,8 @@ xqc_moq_track_set_subscribe_id(xqc_moq_track_t *track, uint64_t subscribe_id)
 {
     if (track->subscribe_id != subscribe_id) {
         xqc_log(track->session->log, XQC_LOG_DEBUG,
-                "|track_subscribe_id_update|track:%s/%s|old:%ui|new:%ui|",
-                track->track_info.track_namespace, track->track_info.track_name,
+                "|track_subscribe_id_update|track:%s|old:%ui|new:%ui|",
+                xqc_moq_track_get_full_name(track),
                 track->subscribe_id, subscribe_id);
     }
     track->subscribe_id = subscribe_id;

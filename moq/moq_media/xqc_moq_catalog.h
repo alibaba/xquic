@@ -12,7 +12,8 @@ typedef struct {
 } xqc_moq_catalog_track_t;
 
 typedef struct xqc_moq_catalog_common_track_fields_s {
-    char                                    *track_namespace;
+    uint64_t                                track_namespace_num;
+    xqc_moq_track_ns_field_t                *track_namespace_tuple;
     char                                    *packaging;
     xqc_int_t                               renderGroup;
     xqc_moq_container_t                     container_format;

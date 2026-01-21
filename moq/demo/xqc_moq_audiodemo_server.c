@@ -228,8 +228,9 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
     audio_params.channel_config = "2";
     //xqc_moq_track_t *video_track = xqc_moq_track_create(session, "namespace", "video", XQC_MOQ_TRACK_VIDEO, &video_params,
     //                                                    XQC_MOQ_CONTAINER_LOC, XQC_MOQ_TRACK_FOR_PUB);
-    xqc_moq_track_t *audio_track = xqc_moq_track_create(session, "namespace", "audio", XQC_MOQ_TRACK_AUDIO, &audio_params,
-                                                        XQC_MOQ_CONTAINER_LOC, XQC_MOQ_TRACK_FOR_PUB);
+    xqc_moq_track_t *audio_track = xqc_moq_track_create(session,
+        "namespace/xquic", "audio", XQC_MOQ_TRACK_AUDIO, &audio_params,
+        XQC_MOQ_CONTAINER_LOC, XQC_MOQ_TRACK_FOR_PUB);
     if (audio_track == NULL) {
         printf("create audio track error\n");
     }
@@ -240,7 +241,7 @@ void on_datachannel(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track
 {
     DEBUG;
     printf("on_datachannel: track_namespace:%s track_name:%s\n",
-           track_info ? track_info->track_namespace : "null",
+           xqc_demo_track_info_namespace(track_info),
            track_info ? track_info->track_name : "null");
 }
 
@@ -248,7 +249,7 @@ void on_datachannel_msg(struct xqc_moq_user_session_s *user_session, xqc_moq_tra
 {
     DEBUG;
     printf("on_datachannel_msg: track_namespace:%s track_name:%s\n",
-           track_info ? track_info->track_namespace : "null",
+           xqc_demo_track_info_namespace(track_info),
            track_info ? track_info->track_name : "null");
     xqc_int_t ret;
     xqc_moq_session_t *session = user_session->session;
@@ -291,7 +292,7 @@ void on_subscribe_ok(xqc_moq_user_session_t *user_session, xqc_moq_track_t *trac
 {
     DEBUG;
     printf("on_subscribe_ok: track_namespace:%s track_name:%s\n",
-           track_info ? track_info->track_namespace : "null",
+           xqc_demo_track_info_namespace(track_info),
            track_info ? track_info->track_name : "null");
     printf("subscribe_id:%d expire_ms:%d content_exist:%d largest_group_id:%d largest_object_id:%d\n",
            (int)subscribe_ok->subscribe_id, (int)subscribe_ok->expire_ms, (int)subscribe_ok->content_exist,
@@ -302,7 +303,7 @@ void on_subscribe_error(xqc_moq_user_session_t *user_session, xqc_moq_track_t *t
 {
     DEBUG;
     printf("on_subscribe_error: track_namespace:%s track_name:%s\n",
-           track_info ? track_info->track_namespace : "null",
+           xqc_demo_track_info_namespace(track_info),
            track_info ? track_info->track_name : "null");
     printf("subscribe_id:%d error_code:%d reason_phrase:%s track_alias:%d\n",
            (int)subscribe_error->subscribe_id, (int)subscribe_error->error_code, subscribe_error->reason_phrase, (int)subscribe_error->track_alias);
@@ -319,7 +320,8 @@ void on_catalog(xqc_moq_user_session_t *user_session, xqc_moq_track_info_t **tra
         xqc_moq_track_info_t *track_info = track_info_array[i];
         printf("track_namespace:%s track_name:%s track_type:%d codec:%s mime_type:%s bitrate:%d lang:%s framerate:%d width:%d height:%d "
                "display_width:%d display_height:%d samplerate:%d channel_config:%s\n",
-               track_info->track_namespace, track_info->track_name, track_info->track_type, track_info->selection_params.codec,
+               xqc_demo_track_info_namespace(track_info),
+               track_info->track_name, track_info->track_type, track_info->selection_params.codec,
                track_info->selection_params.mime_type, track_info->selection_params.bitrate,
                track_info->selection_params.lang ? track_info->selection_params.lang : "null",
                track_info->selection_params.framerate, track_info->selection_params.width, track_info->selection_params.height,
@@ -328,7 +330,9 @@ void on_catalog(xqc_moq_user_session_t *user_session, xqc_moq_track_info_t **tra
         
         //subscribe media
         if (track_info->track_type == XQC_MOQ_TRACK_AUDIO) {
-            ret = xqc_moq_subscribe_latest(session, track_info->track_namespace, track_info->track_name);
+            ret = xqc_moq_subscribe_latest_with_namespace_tuple(session,
+                track_info->track_namespace_tuple, track_info->track_namespace_num,
+                track_info->track_name);
             if (ret < 0) {
                 printf("xqc_moq_subscribe error\n");
             }

@@ -33,6 +33,33 @@ xqc_int_t xqc_moq_write_publish_error(xqc_moq_session_t *session, xqc_moq_publis
 
 xqc_int_t xqc_moq_write_publish_done(xqc_moq_session_t *session, xqc_moq_publish_done_msg_t *publish_done);
 
+xqc_int_t xqc_moq_write_publish_namespace(xqc_moq_session_t *session,
+    xqc_moq_publish_namespace_msg_t *publish_namespace);
+
+xqc_int_t xqc_moq_write_publish_namespace_ok(xqc_moq_session_t *session,
+    xqc_moq_publish_namespace_ok_msg_t *publish_namespace_ok);
+
+xqc_int_t xqc_moq_write_publish_namespace_error(xqc_moq_session_t *session,
+    xqc_moq_publish_namespace_error_msg_t *publish_namespace_error);
+
+xqc_int_t xqc_moq_write_publish_namespace_done(xqc_moq_session_t *session,
+    xqc_moq_publish_namespace_done_msg_t *publish_namespace_done);
+
+xqc_int_t xqc_moq_write_publish_namespace_cancel(xqc_moq_session_t *session,
+    xqc_moq_publish_namespace_cancel_msg_t *publish_namespace_cancel);
+
+xqc_int_t xqc_moq_write_subscribe_namespace(xqc_moq_session_t *session,
+    xqc_moq_subscribe_namespace_msg_t *subscribe_namespace);
+
+xqc_int_t xqc_moq_write_subscribe_namespace_ok(xqc_moq_session_t *session,
+    xqc_moq_subscribe_namespace_ok_msg_t *subscribe_namespace_ok);
+
+xqc_int_t xqc_moq_write_subscribe_namespace_error(xqc_moq_session_t *session,
+    xqc_moq_subscribe_namespace_error_msg_t *subscribe_namespace_error);
+
+xqc_int_t xqc_moq_write_unsubscribe_namespace(xqc_moq_session_t *session,
+    xqc_moq_unsubscribe_namespace_msg_t *unsubscribe_namespace);
+
 xqc_int_t xqc_moq_write_object_stream_msg(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
     xqc_moq_object_stream_msg_t *object);
 

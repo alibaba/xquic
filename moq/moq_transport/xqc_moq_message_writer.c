@@ -1,7 +1,55 @@
-
 #include "moq/moq_transport/xqc_moq_message_writer.h"
 #include "moq/moq_transport/xqc_moq_session.h"
 #include "moq/moq_transport/xqc_moq_stream.h"
+
+static xqc_int_t
+xqc_moq_validate_full_track_name_for_write(xqc_moq_session_t *session,
+    uint64_t track_namespace_num, const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    const char *track_name, size_t track_name_len)
+{
+    if (session == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    if (track_namespace_tuple == NULL || track_namespace_num == 0) {
+        return -XQC_EPARAM;
+    }
+    if (track_namespace_num > XQC_MOQ_MAX_NAMESPACE_TUPLE_ELEMS) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|invalid namespace tuple count|track_namespace_num:%ui|", track_namespace_num);
+        return -XQC_EPARAM;
+    }
+
+    size_t namespace_total_len = 0;
+    for (uint64_t i = 0; i < track_namespace_num; i++) {
+        if (track_namespace_tuple[i].len > XQC_MOQ_MAX_NAME_LEN
+            || namespace_total_len > XQC_MOQ_MAX_FULL_TRACK_NAME_LEN - track_namespace_tuple[i].len)
+        {
+            xqc_log(session->log, XQC_LOG_ERROR, "|full track name too long (namespace)|");
+            return -XQC_EPARAM;
+        }
+        namespace_total_len += track_namespace_tuple[i].len;
+    }
+
+    if (track_name == NULL) {
+        if (track_name_len != 0) {
+            return -XQC_EPARAM;
+        }
+        track_name_len = 0;
+    }
+
+    if (track_name_len == 0 && track_name != NULL) {
+        track_name_len = strlen(track_name);
+    }
+    if (track_name_len > XQC_MOQ_MAX_FULL_TRACK_NAME_LEN
+        || namespace_total_len > XQC_MOQ_MAX_FULL_TRACK_NAME_LEN - track_name_len)
+    {
+        xqc_log(session->log, XQC_LOG_ERROR, "|full track name too long|");
+        return -XQC_EPARAM;
+    }
+
+    return XQC_OK;
+}
 
 xqc_int_t
 xqc_moq_msg_write(xqc_moq_session_t *session, xqc_moq_stream_t *stream, xqc_moq_msg_base_t *msg_base)
@@ -87,6 +135,13 @@ xqc_moq_write_server_setup_v14(xqc_moq_session_t *session, xqc_moq_server_setup_
 xqc_int_t
 xqc_moq_write_subscribe(xqc_moq_session_t *session, xqc_moq_subscribe_msg_t *subscribe)
 {
+    xqc_int_t ret = xqc_moq_validate_full_track_name_for_write(session,
+        subscribe->track_namespace_num, subscribe->track_namespace_tuple,
+        subscribe->track_name, subscribe->track_name_len);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
     return xqc_moq_write_msg_generic(session, session->ctl_stream, &subscribe->msg_base,
                                      xqc_moq_msg_subscribe_init_handler);
 }
@@ -122,6 +177,13 @@ xqc_moq_write_subscribe_error(xqc_moq_session_t *session, xqc_moq_subscribe_erro
 xqc_int_t
 xqc_moq_write_publish(xqc_moq_session_t *session, xqc_moq_publish_msg_t *publish)
 {
+    xqc_int_t ret = xqc_moq_validate_full_track_name_for_write(session,
+        publish->track_namespace_num, publish->track_namespace_tuple,
+        publish->track_name, publish->track_name_len);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
     return xqc_moq_write_msg_generic(session, session->ctl_stream, &publish->msg_base,
                                      xqc_moq_msg_publish_init_handler);
 }
@@ -159,6 +221,113 @@ xqc_moq_write_publish_done(xqc_moq_session_t *session, xqc_moq_publish_done_msg_
 
     return xqc_moq_write_msg_generic(session, session->ctl_stream, &publish_done->msg_base,
                                      xqc_moq_msg_publish_done_init_handler);
+}
+
+xqc_int_t
+xqc_moq_write_publish_namespace(xqc_moq_session_t *session,
+    xqc_moq_publish_namespace_msg_t *publish_namespace)
+{
+    xqc_int_t ret = xqc_moq_validate_full_track_name_for_write(session,
+        publish_namespace->track_namespace_num, publish_namespace->track_namespace_tuple,
+        NULL, 0);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    return xqc_moq_write_msg_generic(session, session->ctl_stream, &publish_namespace->msg_base,
+                                     xqc_moq_msg_publish_namespace_init_handler);
+}
+
+xqc_int_t
+xqc_moq_write_publish_namespace_ok(xqc_moq_session_t *session,
+    xqc_moq_publish_namespace_ok_msg_t *publish_namespace_ok)
+{
+    return xqc_moq_write_msg_generic(session, session->ctl_stream, &publish_namespace_ok->msg_base,
+                                     xqc_moq_msg_publish_namespace_ok_init_handler);
+}
+
+xqc_int_t
+xqc_moq_write_publish_namespace_error(xqc_moq_session_t *session,
+    xqc_moq_publish_namespace_error_msg_t *publish_namespace_error)
+{
+    return xqc_moq_write_msg_generic(session, session->ctl_stream, &publish_namespace_error->msg_base,
+                                     xqc_moq_msg_publish_namespace_error_init_handler);
+}
+
+xqc_int_t
+xqc_moq_write_publish_namespace_done(xqc_moq_session_t *session,
+    xqc_moq_publish_namespace_done_msg_t *publish_namespace_done)
+{
+    xqc_int_t ret = xqc_moq_validate_full_track_name_for_write(session,
+        publish_namespace_done->track_namespace_num, publish_namespace_done->track_namespace_tuple,
+        NULL, 0);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    return xqc_moq_write_msg_generic(session, session->ctl_stream, &publish_namespace_done->msg_base,
+                                     xqc_moq_msg_publish_namespace_done_init_handler);
+}
+
+xqc_int_t
+xqc_moq_write_publish_namespace_cancel(xqc_moq_session_t *session,
+    xqc_moq_publish_namespace_cancel_msg_t *publish_namespace_cancel)
+{
+    xqc_int_t ret = xqc_moq_validate_full_track_name_for_write(session,
+        publish_namespace_cancel->track_namespace_num, publish_namespace_cancel->track_namespace_tuple,
+        NULL, 0);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    return xqc_moq_write_msg_generic(session, session->ctl_stream, &publish_namespace_cancel->msg_base,
+                                     xqc_moq_msg_publish_namespace_cancel_init_handler);
+}
+
+xqc_int_t
+xqc_moq_write_subscribe_namespace(xqc_moq_session_t *session,
+    xqc_moq_subscribe_namespace_msg_t *subscribe_namespace)
+{
+    xqc_int_t ret = xqc_moq_validate_full_track_name_for_write(session,
+        subscribe_namespace->track_namespace_num, subscribe_namespace->track_namespace_tuple,
+        NULL, 0);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    return xqc_moq_write_msg_generic(session, session->ctl_stream, &subscribe_namespace->msg_base,
+                                     xqc_moq_msg_subscribe_namespace_init_handler);
+}
+
+xqc_int_t
+xqc_moq_write_subscribe_namespace_ok(xqc_moq_session_t *session,
+    xqc_moq_subscribe_namespace_ok_msg_t *subscribe_namespace_ok)
+{
+    return xqc_moq_write_msg_generic(session, session->ctl_stream, &subscribe_namespace_ok->msg_base,
+                                     xqc_moq_msg_subscribe_namespace_ok_init_handler);
+}
+
+xqc_int_t
+xqc_moq_write_subscribe_namespace_error(xqc_moq_session_t *session,
+    xqc_moq_subscribe_namespace_error_msg_t *subscribe_namespace_error)
+{
+    return xqc_moq_write_msg_generic(session, session->ctl_stream, &subscribe_namespace_error->msg_base,
+                                     xqc_moq_msg_subscribe_namespace_error_init_handler);
+}
+
+xqc_int_t
+xqc_moq_write_unsubscribe_namespace(xqc_moq_session_t *session,
+    xqc_moq_unsubscribe_namespace_msg_t *unsubscribe_namespace)
+{
+    xqc_int_t ret = xqc_moq_validate_full_track_name_for_write(session,
+        unsubscribe_namespace->track_namespace_num, unsubscribe_namespace->track_namespace_tuple,
+        NULL, 0);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    return xqc_moq_write_msg_generic(session, session->ctl_stream, &unsubscribe_namespace->msg_base,
+                                     xqc_moq_msg_unsubscribe_namespace_init_handler);
 }
 
 xqc_int_t

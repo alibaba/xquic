@@ -239,6 +239,17 @@ xqc_moq_session_app_error(xqc_moq_session_t *session, uint64_t code)
     XQC_CONN_ERR(quic_conn, code);
 }
 
+void
+xqc_moq_session_close(xqc_moq_session_t *session, uint64_t code, const char *reason)
+{
+    if (session == NULL) {
+        return;
+    }
+    xqc_connection_t *quic_conn = xqc_moq_session_quic_conn(session);
+    XQC_CONN_CLOSE_MSG(quic_conn, reason ? reason : "");
+    XQC_CONN_ERR(quic_conn, code);
+}
+
 uint64_t 
 xqc_moq_session_get_error(xqc_moq_session_t *session)
 {

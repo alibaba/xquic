@@ -463,6 +463,15 @@ XQC_EXPORT_PUBLIC_API
 void xqc_moq_session_app_error(xqc_moq_session_t *session, uint64_t code);
 
 /**
+ * @brief Close the MOQT session with a session termination error code (draft-ietf-moq-transport-14, Section 3.4).
+ *        Typical usage: if auth_token validation fails during on_session_setup, close with UNAUTHORIZED (0x2).
+ * @param code   MOQT session termination error code (e.g. 0x2 for UNAUTHORIZED).
+ * @param reason Optional reason phrase (UTF-8 string, can be NULL).
+ */
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_session_close(xqc_moq_session_t *session, uint64_t code, const char *reason);
+
+/**
  * @brief Get session error code in conn_closing or conn_close_notify
  */
 XQC_EXPORT_PUBLIC_API

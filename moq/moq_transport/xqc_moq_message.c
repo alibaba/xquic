@@ -2179,6 +2179,7 @@ xqc_moq_msg_encode_subscribe_error_len(xqc_moq_msg_base_t *msg_base)
     xqc_int_t len = 0;
     xqc_moq_subscribe_error_msg_t *subscribe_error = (xqc_moq_subscribe_error_msg_t*)msg_base;
     len += xqc_put_varint_len(XQC_MOQ_MSG_SUBSCRIBE_ERROR);
+    len += XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
     len += xqc_put_varint_len(subscribe_error->subscribe_id);
     len += xqc_put_varint_len(subscribe_error->error_code);
     len += xqc_put_varint_len(subscribe_error->reason_phrase_len);
@@ -2192,17 +2193,22 @@ xqc_moq_msg_encode_subscribe_error(xqc_moq_msg_base_t *msg_base, uint8_t *buf, s
 {
     xqc_int_t ret = 0;
     xqc_moq_subscribe_error_msg_t *subscribe_error = (xqc_moq_subscribe_error_msg_t*)msg_base;
-    if (xqc_moq_msg_encode_subscribe_error_len(msg_base) > buf_cap) {
+    xqc_int_t length = xqc_moq_msg_encode_subscribe_error_len(msg_base);
+    if (length > buf_cap) {
         return -XQC_EILLEGAL_FRAME;
     }
 
     uint8_t *p = buf;
+    length = length - xqc_put_varint_len(XQC_MOQ_MSG_SUBSCRIBE_ERROR) - XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
     p = xqc_put_varint(p, XQC_MOQ_MSG_SUBSCRIBE_ERROR);
+    p = xqc_moq_put_varint_length(p, length);
     p = xqc_put_varint(p, subscribe_error->subscribe_id);
     p = xqc_put_varint(p, subscribe_error->error_code);
     p = xqc_put_varint(p, subscribe_error->reason_phrase_len);
-    xqc_memcpy(p, subscribe_error->reason_phrase, subscribe_error->reason_phrase_len);
-    p += subscribe_error->reason_phrase_len;
+    if (subscribe_error->reason_phrase_len > 0) {
+        xqc_memcpy(p, subscribe_error->reason_phrase, subscribe_error->reason_phrase_len);
+        p += subscribe_error->reason_phrase_len;
+    }
     p = xqc_put_varint(p, subscribe_error->track_alias);
     return p - buf;
 }
@@ -2218,8 +2224,17 @@ xqc_moq_msg_decode_subscribe_error(uint8_t *buf, size_t buf_len, uint8_t stream_
     xqc_int_t ret = 0;
     xqc_int_t param_finish = 0;
     xqc_moq_subscribe_error_msg_t *subscribe_error = (xqc_moq_subscribe_error_msg_t *)msg_base;
+    uint64_t length = 0;
     switch (msg_ctx->cur_field_idx) {
-        case 0: //Subscribe ID (i)
+        case 0: // Length (i)
+            ret = xqc_moq_length_read(buf + processed, buf + buf_len, &length);
+            if (ret < 0) {
+                *wait_more_data = 1;
+                break;
+            }
+            processed += ret;
+            msg_ctx->cur_field_idx = 1;
+        case 1: //Subscribe ID (i)
             ret = xqc_vint_read(buf + processed, buf + buf_len, &subscribe_error->subscribe_id);
             if (ret < 0) {
                 *wait_more_data = 1;
@@ -2229,8 +2244,8 @@ xqc_moq_msg_decode_subscribe_error(uint8_t *buf, size_t buf_len, uint8_t stream_
 
             DEBUG_PRINTF("==>subscribe_id:%d\n",(int)subscribe_error->subscribe_id);
 
-            msg_ctx->cur_field_idx = 1;
-        case 1: //Error Code (i)
+            msg_ctx->cur_field_idx = 2;
+        case 2: //Error Code (i)
             ret = xqc_vint_read(buf + processed, buf + buf_len, &subscribe_error->error_code);
             if (ret < 0) {
                 *wait_more_data = 1;
@@ -2240,8 +2255,8 @@ xqc_moq_msg_decode_subscribe_error(uint8_t *buf, size_t buf_len, uint8_t stream_
 
             DEBUG_PRINTF("==>error_code:%d\n",(int)subscribe_error->error_code);
 
-            msg_ctx->cur_field_idx = 2;
-        case 2: //Reason Phrase (b)
+            msg_ctx->cur_field_idx = 3;
+        case 3: //Reason Phrase (b)
             if (subscribe_error->reason_phrase_len == 0) {
                 ret = xqc_vint_read(buf + processed, buf + buf_len, (uint64_t *)&subscribe_error->reason_phrase_len);
                 if (ret < 0) {
@@ -2250,6 +2265,10 @@ xqc_moq_msg_decode_subscribe_error(uint8_t *buf, size_t buf_len, uint8_t stream_
                 }
                 DEBUG_PRINTF("==>reason_phrase_len:%d\n",(int)subscribe_error->reason_phrase_len);
                 processed += ret;
+            }
+            if (subscribe_error->reason_phrase_len == 0) {
+                msg_ctx->cur_field_idx = 4;
+                goto subscribe_error_idx4;
             }
             if (subscribe_error->reason_phrase == NULL) {
                 if (subscribe_error->reason_phrase_len > XQC_MOQ_MAX_NAME_LEN) {
@@ -2274,8 +2293,9 @@ xqc_moq_msg_decode_subscribe_error(uint8_t *buf, size_t buf_len, uint8_t stream_
                 break;
             }
             DEBUG_PRINTF("==>reason_phrase:%s\n",subscribe_error->reason_phrase);
-            msg_ctx->cur_field_idx = 3;
-        case 3: //Track Alias (i)
+            msg_ctx->cur_field_idx = 4;
+        case 4: //Track Alias (i)
+            subscribe_error_idx4:
             ret = xqc_vint_read(buf + processed, buf + buf_len, &subscribe_error->track_alias);
             if (ret < 0) {
                 *wait_more_data = 1;
@@ -2865,6 +2885,7 @@ xqc_moq_msg_encode_publish_error_len(xqc_moq_msg_base_t *msg_base)
     xqc_int_t len = 0;
     xqc_moq_publish_error_msg_t *publish_error = (xqc_moq_publish_error_msg_t*)msg_base;
     len += xqc_put_varint_len(XQC_MOQ_MSG_PUBLISH_ERROR);
+    len += XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
     len += xqc_put_varint_len(publish_error->subscribe_id);
     len += xqc_put_varint_len(publish_error->error_code);
     len += xqc_put_varint_len(publish_error->reason_phrase_len);
@@ -2876,17 +2897,22 @@ xqc_int_t
 xqc_moq_msg_encode_publish_error(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap)
 {
     xqc_moq_publish_error_msg_t *publish_error = (xqc_moq_publish_error_msg_t*)msg_base;
-    if (xqc_moq_msg_encode_publish_error_len(msg_base) > buf_cap) {
+    xqc_int_t length = xqc_moq_msg_encode_publish_error_len(msg_base);
+    if (length > buf_cap) {
         return -XQC_EILLEGAL_FRAME;
     }
 
     uint8_t *p = buf;
+    length = length - xqc_put_varint_len(XQC_MOQ_MSG_PUBLISH_ERROR) - XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
     p = xqc_put_varint(p, XQC_MOQ_MSG_PUBLISH_ERROR);
+    p = xqc_moq_put_varint_length(p, length);
     p = xqc_put_varint(p, publish_error->subscribe_id);
     p = xqc_put_varint(p, publish_error->error_code);
     p = xqc_put_varint(p, publish_error->reason_phrase_len);
-    xqc_memcpy(p, publish_error->reason_phrase, publish_error->reason_phrase_len);
-    p += publish_error->reason_phrase_len;
+    if (publish_error->reason_phrase_len > 0) {
+        xqc_memcpy(p, publish_error->reason_phrase, publish_error->reason_phrase_len);
+        p += publish_error->reason_phrase_len;
+    }
 
     return p - buf;
 }
@@ -2900,24 +2926,33 @@ xqc_moq_msg_decode_publish_error(uint8_t *buf, size_t buf_len, uint8_t stream_fi
     xqc_int_t processed = 0;
     xqc_int_t ret = 0;
     xqc_moq_publish_error_msg_t *publish_error = (xqc_moq_publish_error_msg_t*)msg_base;
+    uint64_t length = 0;
     switch (msg_ctx->cur_field_idx) {
-        case 0: //Request ID (i)
-            ret = xqc_vint_read(buf + processed, buf + buf_len, &publish_error->subscribe_id);
+        case 0: // Length (i)
+            ret = xqc_moq_length_read(buf + processed, buf + buf_len, &length);
             if (ret < 0) {
                 *wait_more_data = 1;
                 break;
             }
             processed += ret;
             msg_ctx->cur_field_idx = 1;
-        case 1: //Error Code (i)
-            ret = xqc_vint_read(buf + processed, buf + buf_len, &publish_error->error_code);
+        case 1: //Request ID (i)
+            ret = xqc_vint_read(buf + processed, buf + buf_len, &publish_error->subscribe_id);
             if (ret < 0) {
                 *wait_more_data = 1;
                 break;
             }
             processed += ret;
             msg_ctx->cur_field_idx = 2;
-        case 2: //Reason Phrase (b)
+        case 2: //Error Code (i)
+            ret = xqc_vint_read(buf + processed, buf + buf_len, &publish_error->error_code);
+            if (ret < 0) {
+                *wait_more_data = 1;
+                break;
+            }
+            processed += ret;
+            msg_ctx->cur_field_idx = 3;
+        case 3: //Reason Phrase (b)
             if (publish_error->reason_phrase_len == 0) {
                 ret = xqc_vint_read(buf + processed, buf + buf_len, (uint64_t*)&publish_error->reason_phrase_len);
                 if (ret < 0) {
@@ -2925,6 +2960,10 @@ xqc_moq_msg_decode_publish_error(uint8_t *buf, size_t buf_len, uint8_t stream_fi
                     break;
                 }
                 processed += ret;
+            }
+            if (publish_error->reason_phrase_len == 0) {
+                *finish = 1;
+                break;
             }
             if (publish_error->reason_phrase == NULL) {
                 if (publish_error->reason_phrase_len > XQC_MOQ_MAX_NAME_LEN) {
@@ -3146,6 +3185,7 @@ xqc_moq_msg_encode_unsubscribe_len(xqc_moq_msg_base_t *msg_base)
     xqc_moq_unsubscribe_msg_t *unsubscribe = (xqc_moq_unsubscribe_msg_t*)msg_base;
     xqc_int_t len = 0;
     len += xqc_put_varint_len(XQC_MOQ_MSG_UNSUBSCRIBE);
+    len += XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
     len += xqc_put_varint_len(unsubscribe->subscribe_id);
     return len;
 }
@@ -3154,12 +3194,15 @@ xqc_int_t
 xqc_moq_msg_encode_unsubscribe(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap)
 {
     xqc_moq_unsubscribe_msg_t *unsubscribe = (xqc_moq_unsubscribe_msg_t*)msg_base;
-    if (xqc_moq_msg_encode_unsubscribe_len(msg_base) > buf_cap) {
+    xqc_int_t length = xqc_moq_msg_encode_unsubscribe_len(msg_base);
+    if (length > buf_cap) {
         return -XQC_EILLEGAL_FRAME;
     }
 
     uint8_t *p = buf;
+    length = length - xqc_put_varint_len(XQC_MOQ_MSG_UNSUBSCRIBE) - XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
     p = xqc_put_varint(p, XQC_MOQ_MSG_UNSUBSCRIBE);
+    p = xqc_moq_put_varint_length(p, length);
     p = xqc_put_varint(p, unsubscribe->subscribe_id);
     return p - buf;
 }
@@ -3173,9 +3216,18 @@ xqc_moq_msg_decode_unsubscribe(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
     xqc_int_t processed = 0;
     xqc_int_t ret = 0;
     xqc_moq_unsubscribe_msg_t *unsubscribe = (xqc_moq_unsubscribe_msg_t*)msg_base;
+    uint64_t length = 0;
 
     switch (msg_ctx->cur_field_idx) {
-        case 0: // Subscribe ID (i)
+        case 0: // Length (i)
+            ret = xqc_moq_length_read(buf + processed, buf + buf_len, &length);
+            if (ret < 0) {
+                *wait_more_data = 1;
+                break;
+            }
+            processed += ret;
+            msg_ctx->cur_field_idx = 1;
+        case 1: // Subscribe ID (i)
             ret = xqc_vint_read(buf + processed, buf + buf_len, &unsubscribe->subscribe_id);
             if (ret < 0) {
                 *wait_more_data = 1;
@@ -3183,7 +3235,7 @@ xqc_moq_msg_decode_unsubscribe(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
             }
             processed += ret;
             DEBUG_PRINTF("==>unsubscribe subscribe_id:%d\n", (int)unsubscribe->subscribe_id);
-            msg_ctx->cur_field_idx = 1;
+            msg_ctx->cur_field_idx = 2;
             *finish = 1;
             break;
         default:

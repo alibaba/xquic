@@ -71,6 +71,20 @@ int g_raw_object_mode = 0;
 static void xqc_app_timestamp_callback(int fd, short what, void *arg);
 
 static void
+xqc_demo_stop_timers(user_conn_t *user_conn)
+{
+    if (user_conn == NULL) {
+        return;
+    }
+    if (user_conn->ev_send_timer) {
+        event_del(user_conn->ev_send_timer);
+    }
+    if (user_conn->ev_timestamp_timer) {
+        event_del(user_conn->ev_timestamp_timer);
+    }
+}
+
+static void
 xqc_demo_start_send_timer(user_conn_t *user_conn)
 {
     if (user_conn->ev_send_timer == NULL) {
@@ -889,6 +903,37 @@ void on_publish_error_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t 
            publish_error->subscribe_id,
            (void*)track,
            publish_error->reason_phrase ? publish_error->reason_phrase : "null");
+
+    user_conn_t *user_conn = (user_conn_t *)user_session->data;
+    if (user_conn == NULL) {
+        return;
+    }
+
+    xqc_demo_track_ctx_t *track_ctx = xqc_demo_get_track_ctx(user_conn, track);
+    if (track_ctx) {
+        track_ctx->subscribe_id = XQC_MOQ_INVALID_ID;
+        track_ctx->track_alias = XQC_MOQ_INVALID_ID;
+    }
+
+    if (publish_error->subscribe_id == user_conn->video_subscribe_id) {
+        user_conn->video_subscribe_id = XQC_MOQ_INVALID_ID;
+    }
+    if (publish_error->subscribe_id == user_conn->audio_subscribe_id) {
+        user_conn->audio_subscribe_id = XQC_MOQ_INVALID_ID;
+    }
+    if (publish_error->subscribe_id == user_conn->extra_dc_subscribe_id) {
+        user_conn->extra_dc_subscribe_id = XQC_MOQ_INVALID_ID;
+        user_conn->extra_dc_ready = 0;
+    }
+
+    if (g_publish_mode
+        && user_conn->video_subscribe_id == XQC_MOQ_INVALID_ID
+        && user_conn->audio_subscribe_id == XQC_MOQ_INVALID_ID
+        && user_conn->extra_dc_subscribe_id == XQC_MOQ_INVALID_ID)
+    {
+        xqc_demo_stop_timers(user_conn);
+        xqc_conn_close(ctx.engine, &user_conn->cid);
+    }
 }
 
 void on_publish_done_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_publish_done_msg_t *publish_done)

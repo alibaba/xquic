@@ -92,10 +92,16 @@ typedef struct {
 } xqc_moq_selection_params_t;
 
 typedef struct {
-    char                            *track_namespace;
+    size_t                      len;
+    unsigned char              *data;
+} xqc_moq_track_ns_field_t;
+
+typedef struct {
     char                            *track_name;
     xqc_moq_track_type_t            track_type;
     xqc_moq_selection_params_t      selection_params;
+    uint64_t                        track_namespace_num;
+    xqc_moq_track_ns_field_t        *track_namespace_tuple;
 } xqc_moq_track_info_t;
 
 typedef enum {
@@ -130,10 +136,15 @@ typedef struct xqc_moq_subscribe_update_msg_s xqc_moq_subscribe_update_msg_t;
 typedef struct xqc_moq_publish_msg_s xqc_moq_publish_msg_t;
 typedef struct xqc_moq_publish_ok_msg_s xqc_moq_publish_ok_msg_t;
 typedef struct xqc_moq_publish_error_msg_s xqc_moq_publish_error_msg_t;
-typedef struct xqc_moq_announce_msg_s xqc_moq_announce_msg_t;
-typedef struct xqc_moq_announce_ok_msg_s xqc_moq_announce_ok_msg_t;
-typedef struct xqc_moq_announce_error_msg_s xqc_moq_announce_error_msg_t;
-typedef struct xqc_moq_unannounce_msg_s xqc_moq_unannounce_msg_t;
+typedef struct xqc_moq_publish_namespace_msg_s xqc_moq_publish_namespace_msg_t;
+typedef struct xqc_moq_publish_namespace_ok_msg_s xqc_moq_publish_namespace_ok_msg_t;
+typedef struct xqc_moq_publish_namespace_error_msg_s xqc_moq_publish_namespace_error_msg_t;
+typedef struct xqc_moq_publish_namespace_done_msg_s xqc_moq_publish_namespace_done_msg_t;
+typedef struct xqc_moq_publish_namespace_cancel_msg_s xqc_moq_publish_namespace_cancel_msg_t;
+typedef struct xqc_moq_subscribe_namespace_msg_s xqc_moq_subscribe_namespace_msg_t;
+typedef struct xqc_moq_subscribe_namespace_ok_msg_s xqc_moq_subscribe_namespace_ok_msg_t;
+typedef struct xqc_moq_subscribe_namespace_error_msg_s xqc_moq_subscribe_namespace_error_msg_t;
+typedef struct xqc_moq_unsubscribe_namespace_msg_s xqc_moq_unsubscribe_namespace_msg_t;
 typedef struct xqc_moq_unsubscribe_msg_s xqc_moq_unsubscribe_msg_t;
 typedef struct xqc_moq_publish_done_msg_s xqc_moq_publish_done_msg_t;
 typedef struct xqc_moq_client_setup_v14_msg_s xqc_moq_client_setup_v14_msg_t;
@@ -160,18 +171,21 @@ typedef enum {
     XQC_MOQ_MSG_SUBSCRIBE           = 0x3,
     XQC_MOQ_MSG_SUBSCRIBE_OK        = 0x4,
     XQC_MOQ_MSG_SUBSCRIBE_ERROR     = 0x5,
-    XQC_MOQ_MSG_ANNOUNCE            = 0x6,
-    XQC_MOQ_MSG_ANNOUNCE_OK         = 0x7,
-    XQC_MOQ_MSG_ANNOUNCE_ERROR      = 0x8,
-    XQC_MOQ_MSG_UNANNOUNCE          = 0x9,
+    XQC_MOQ_MSG_PUBLISH_NAMESPACE         = 0x6,
+    XQC_MOQ_MSG_PUBLISH_NAMESPACE_OK      = 0x7,
+    XQC_MOQ_MSG_PUBLISH_NAMESPACE_ERROR   = 0x8,
+    XQC_MOQ_MSG_PUBLISH_NAMESPACE_DONE    = 0x9,
     XQC_MOQ_MSG_UNSUBSCRIBE         = 0xA,
     // XQC_MOQ_MSG_SUBSCRIBE_DONE      = 0xB,
     XQC_MOQ_MSG_PUBLISH_DONE        = 0xB,
-    XQC_MOQ_MSG_ANNOUNCE_CANCEL     = 0xC,
+    XQC_MOQ_MSG_PUBLISH_NAMESPACE_CANCEL  = 0xC,
     XQC_MOQ_MSG_TRACK_STATUS_REQUEST = 0xD,
     XQC_MOQ_MSG_TRACK_STATUS        = 0xE,
     XQC_MOQ_MSG_GOAWAY              = 0x10,
-    XQC_MOQ_MSG_SUBGROUP            = 0x14,
+    XQC_MOQ_MSG_SUBSCRIBE_NAMESPACE        = 0x11,
+    XQC_MOQ_MSG_SUBSCRIBE_NAMESPACE_OK     = 0x12,
+    XQC_MOQ_MSG_SUBSCRIBE_NAMESPACE_ERROR  = 0x13,
+    XQC_MOQ_MSG_UNSUBSCRIBE_NAMESPACE      = 0x14,
     XQC_MOQ_MSG_CLIENT_SETUP_V14    = 0x20,
     XQC_MOQ_MSG_SERVER_SETUP_V14    = 0x21,
     XQC_MOQ_MSG_CLIENT_SETUP        = 0x40,
@@ -182,6 +196,7 @@ typedef enum {
     XQC_MOQ_MSG_PUBLISH_OK          = 0x1E,
     XQC_MOQ_MSG_PUBLISH_ERROR       = 0x1F,
     /* Phony message types */
+    XQC_MOQ_MSG_SUBGROUP            = 0xA3,
     XQC_MOQ_MSG_TRACK_STREAM_OBJECT = 0xA0,
     XQC_MOQ_MSG_GROUP_STREAM_OBJECT = 0xA1,
     XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT = 0xA2,
@@ -234,7 +249,7 @@ typedef struct xqc_moq_subscribe_msg_s {
     uint64_t                    subscribe_id;
     uint64_t                    track_alias;
     uint64_t                    track_namespace_num;
-    char                        *track_namespace;
+    xqc_moq_track_ns_field_t    *track_namespace_tuple;
     size_t                      track_namespace_len;
     char                        *track_name;
     size_t                      track_name_len;
@@ -277,7 +292,7 @@ typedef struct xqc_moq_publish_msg_s {
     uint64_t                    subscribe_id;
     uint64_t                    track_alias;
     uint64_t                    track_namespace_num;
-    char                        *track_namespace;
+    xqc_moq_track_ns_field_t    *track_namespace_tuple;
     size_t                      track_namespace_len;
     char                        *track_name;
     size_t                      track_name_len;
@@ -326,11 +341,93 @@ typedef struct xqc_moq_publish_done_msg_s {
     size_t                      reason_phrase_len;
 } xqc_moq_publish_done_msg_t;
 
+typedef struct xqc_moq_publish_namespace_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    request_id;
+    uint64_t                    track_namespace_num;
+    xqc_moq_track_ns_field_t    *track_namespace_tuple;
+    size_t                      track_namespace_len;
+    uint64_t                    params_num;
+    xqc_moq_message_parameter_t *params;
+} xqc_moq_publish_namespace_msg_t;
+
+typedef struct xqc_moq_publish_namespace_ok_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    request_id;
+} xqc_moq_publish_namespace_ok_msg_t;
+
+typedef struct xqc_moq_publish_namespace_error_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    request_id;
+    uint64_t                    error_code;
+    char                        *reason_phrase;
+    size_t                      reason_phrase_len;
+} xqc_moq_publish_namespace_error_msg_t;
+
+typedef struct xqc_moq_publish_namespace_done_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    track_namespace_num;
+    xqc_moq_track_ns_field_t    *track_namespace_tuple;
+    size_t                      track_namespace_len;
+} xqc_moq_publish_namespace_done_msg_t;
+
+typedef struct xqc_moq_publish_namespace_cancel_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    track_namespace_num;
+    xqc_moq_track_ns_field_t    *track_namespace_tuple;
+    size_t                      track_namespace_len;
+    uint64_t                    error_code;
+    char                        *reason_phrase;
+    size_t                      reason_phrase_len;
+} xqc_moq_publish_namespace_cancel_msg_t;
+
+typedef struct xqc_moq_subscribe_namespace_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    request_id;
+    uint64_t                    track_namespace_num;
+    xqc_moq_track_ns_field_t    *track_namespace_tuple;
+    size_t                      track_namespace_len;
+    uint64_t                    params_num;
+    xqc_moq_message_parameter_t *params;
+} xqc_moq_subscribe_namespace_msg_t;
+
+typedef struct xqc_moq_subscribe_namespace_ok_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    request_id;
+} xqc_moq_subscribe_namespace_ok_msg_t;
+
+typedef struct xqc_moq_subscribe_namespace_error_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    request_id;
+    uint64_t                    error_code;
+    char                        *reason_phrase;
+    size_t                      reason_phrase_len;
+} xqc_moq_subscribe_namespace_error_msg_t;
+
+typedef struct xqc_moq_unsubscribe_namespace_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    track_namespace_num;
+    xqc_moq_track_ns_field_t    *track_namespace_tuple;
+    size_t                      track_namespace_len;
+} xqc_moq_unsubscribe_namespace_msg_t;
+
 typedef enum {
     XQC_MOQ_PUBLISH_ERR_INTERNAL              = 0x0,
     XQC_MOQ_PUBLISH_ERR_SUBSCRIPTION_EXISTS   = 0x3,
     XQC_MOQ_PUBLISH_ERR_TRACK_NOT_FOUND       = 0x4,
 } xqc_moq_publish_error_code_t;
+
+/* draft-14: SUBSCRIBE_NAMESPACE_ERROR error codes */
+typedef enum {
+    XQC_MOQ_SUBSCRIBE_NAMESPACE_ERR_INTERNAL_ERROR           = 0x0,
+    XQC_MOQ_SUBSCRIBE_NAMESPACE_ERR_UNAUTHORIZED             = 0x1,
+    XQC_MOQ_SUBSCRIBE_NAMESPACE_ERR_TIMEOUT                  = 0x2,
+    XQC_MOQ_SUBSCRIBE_NAMESPACE_ERR_NOT_SUPPORTED            = 0x3,
+    XQC_MOQ_SUBSCRIBE_NAMESPACE_ERR_PREFIX_UNKNOWN           = 0x4,
+    XQC_MOQ_SUBSCRIBE_NAMESPACE_ERR_PREFIX_OVERLAP           = 0x5,
+    XQC_MOQ_SUBSCRIBE_NAMESPACE_ERR_MALFORMED_AUTH_TOKEN     = 0x10,
+    XQC_MOQ_SUBSCRIBE_NAMESPACE_ERR_EXPIRED_AUTH_TOKEN       = 0x12,
+} xqc_moq_subscribe_namespace_error_code_t;
 
 typedef struct {
     uint8_t     forward;
@@ -404,6 +501,21 @@ typedef void (*xqc_moq_on_bitrate_change_pt)(xqc_moq_user_session_t *user_sessio
 typedef void (*xqc_moq_on_object_pt)(xqc_moq_user_session_t *user_session,
     xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, xqc_moq_object_t *object);
 
+typedef void (*xqc_moq_on_publish_namespace_pt)(xqc_moq_user_session_t *user_session,
+    xqc_moq_publish_namespace_msg_t *msg);
+
+typedef void (*xqc_moq_on_publish_namespace_done_pt)(xqc_moq_user_session_t *user_session,
+    xqc_moq_publish_namespace_done_msg_t *msg);
+
+typedef void (*xqc_moq_on_publish_namespace_cancel_pt)(xqc_moq_user_session_t *user_session,
+    xqc_moq_publish_namespace_cancel_msg_t *msg);
+
+typedef void (*xqc_moq_on_subscribe_namespace_pt)(xqc_moq_user_session_t *user_session,
+    xqc_moq_subscribe_namespace_msg_t *msg);
+
+typedef void (*xqc_moq_on_unsubscribe_namespace_pt)(xqc_moq_user_session_t *user_session,
+    xqc_moq_unsubscribe_namespace_msg_t *msg);
+
 typedef struct {
     xqc_moq_on_session_setup_pt     on_session_setup; /* Required */
     xqc_moq_on_datachannel_pt       on_datachannel; /* Required */
@@ -425,6 +537,12 @@ typedef struct {
     xqc_moq_on_video_frame_pt       on_video; /* Required */
     xqc_moq_on_audio_frame_pt       on_audio; /* Required */
     xqc_moq_on_object_pt            on_object; /* Optional, raw object callback for CONTAINER_NONE */
+    /* Namespace related callbacks (draft-14) */
+    xqc_moq_on_publish_namespace_pt        on_publish_namespace; /* Optional */
+    xqc_moq_on_publish_namespace_done_pt   on_publish_namespace_done; /* Optional */
+    xqc_moq_on_publish_namespace_cancel_pt on_publish_namespace_cancel; /* Optional */
+    xqc_moq_on_subscribe_namespace_pt      on_subscribe_namespace; /* Optional */
+    xqc_moq_on_unsubscribe_namespace_pt    on_unsubscribe_namespace; /* Optional */
 } xqc_moq_session_callbacks_t;
 
 XQC_EXPORT_PUBLIC_API
@@ -494,27 +612,52 @@ XQC_EXPORT_PUBLIC_API
 uint64_t xqc_moq_target_bitrate(xqc_moq_session_t *session);
 
 XQC_EXPORT_PUBLIC_API
-xqc_moq_track_t *xqc_moq_track_create(xqc_moq_session_t *session, char *track_namespace, char *track_name,
-    xqc_moq_track_type_t track_type, xqc_moq_selection_params_t *params,
-    xqc_moq_container_t container, xqc_moq_track_role_t role);
-
-XQC_EXPORT_PUBLIC_API
 void xqc_moq_track_set_reuse_subgroup_stream(xqc_moq_track_t *track, xqc_int_t reuse);
 
 XQC_EXPORT_PUBLIC_API
-xqc_int_t xqc_moq_subscribe(xqc_moq_session_t *session, const char *track_namespace, const char *track_name,
-    xqc_moq_filter_type_t filter_type, uint64_t start_group_id, uint64_t start_object_id,
+xqc_moq_track_t *xqc_moq_track_create(xqc_moq_session_t *session,
+    char *track_namespace, char *track_name, xqc_moq_track_type_t track_type,
+    xqc_moq_selection_params_t *params, xqc_moq_container_t container, xqc_moq_track_role_t role);
+
+XQC_EXPORT_PUBLIC_API
+xqc_moq_track_t *xqc_moq_track_create_with_namespace_tuple(xqc_moq_session_t *session,
+    uint64_t track_namespace_num, const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    char *track_name, xqc_moq_track_type_t track_type, xqc_moq_selection_params_t *params,
+    xqc_moq_container_t container, xqc_moq_track_role_t role);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_subscribe(xqc_moq_session_t *session,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple, uint64_t track_namespace_num,
+    const char *track_name, xqc_moq_filter_type_t filter_type, uint64_t start_group_id, uint64_t start_object_id,
     uint64_t end_group_id, uint64_t end_object_id, char *authinfo);
 
 XQC_EXPORT_PUBLIC_API
-xqc_int_t xqc_moq_subscribe_latest(xqc_moq_session_t *session, const char *track_namespace, const char *track_name);
+xqc_int_t xqc_moq_subscribe_latest(xqc_moq_session_t *session,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple, uint64_t track_namespace_num,
+    const char *track_name);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_subscribe_with_namespace_tuple(xqc_moq_session_t *session,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple, uint64_t track_namespace_num,
+    const char *track_name, xqc_moq_filter_type_t filter_type, uint64_t start_group_id, uint64_t start_object_id,
+    uint64_t end_group_id, uint64_t end_object_id, char *authinfo);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_subscribe_latest_with_namespace_tuple(xqc_moq_session_t *session, const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    uint64_t track_namespace_num, const char *track_name);
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_publish(xqc_moq_session_t *session, xqc_moq_publish_msg_t *publish_msg);
 
 XQC_EXPORT_PUBLIC_API
-xqc_int_t xqc_moq_create_datachannel(xqc_moq_session_t *session, const char *track_namespace, const char *track_name,
-    xqc_moq_track_t **track, uint64_t *subscribe_id, xqc_int_t raw_object);
+xqc_int_t xqc_moq_create_datachannel(xqc_moq_session_t *session,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple, uint64_t track_namespace_num,
+    const char *track_name, xqc_moq_track_t **track, uint64_t *subscribe_id, xqc_int_t raw_object);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_create_datachannel_with_namespace_tuple(xqc_moq_session_t *session,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple, uint64_t track_namespace_num,
+    const char *track_name, xqc_moq_track_t **track, uint64_t *subscribe_id, xqc_int_t raw_object);
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_unsubscribe(xqc_moq_session_t *session, uint64_t subscribe_id);
@@ -536,6 +679,41 @@ xqc_int_t xqc_moq_write_publish_error(xqc_moq_session_t *session, xqc_moq_publis
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_publish_done(xqc_moq_session_t *session, xqc_moq_publish_done_msg_t *publish_done);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_publish_namespace(xqc_moq_session_t *session, xqc_moq_publish_namespace_msg_t *publish_namespace);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_publish_namespace_ok(xqc_moq_session_t *session,
+    xqc_moq_publish_namespace_ok_msg_t *publish_namespace_ok);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_publish_namespace_error(xqc_moq_session_t *session,
+    xqc_moq_publish_namespace_error_msg_t *publish_namespace_error);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_publish_namespace_done(xqc_moq_session_t *session,
+    xqc_moq_publish_namespace_done_msg_t *publish_namespace_done);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_publish_namespace_cancel(xqc_moq_session_t *session,
+    xqc_moq_publish_namespace_cancel_msg_t *publish_namespace_cancel);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_subscribe_namespace(xqc_moq_session_t *session,
+    xqc_moq_subscribe_namespace_msg_t *subscribe_namespace);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_subscribe_namespace_ok(xqc_moq_session_t *session,
+    xqc_moq_subscribe_namespace_ok_msg_t *subscribe_namespace_ok);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_subscribe_namespace_error(xqc_moq_session_t *session,
+    xqc_moq_subscribe_namespace_error_msg_t *subscribe_namespace_error);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_unsubscribe_namespace(xqc_moq_session_t *session,
+    xqc_moq_unsubscribe_namespace_msg_t *unsubscribe_namespace);
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_datachannel(xqc_moq_session_t *session, uint8_t *msg, size_t msg_len);

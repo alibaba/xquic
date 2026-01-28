@@ -1,6 +1,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "moq/moq_media/xqc_moq_catalog.h"
 #include "moq/moq_transport/xqc_moq_session.h"
 
@@ -12,7 +13,7 @@ main()
 //   "sequence": 0,
 //   "streamingFormat": 1,
 //   "streamingFormatVersion": "0.2",
-//   "namespace": "conference.example.com/conference123/alice",
+//   "namespace": ["conference.example.com","conference123","alice"],
 //   "packaging": "loc",
 //   "renderGroup": 1,
 //   "tracks": [
@@ -31,7 +32,7 @@ main()
      \"streamingFormat\": 1,\
      \"streamingFormatVersion\": \"0.2\",\
      \"commonTrackFields\": {\
-        \"namespace\": \"sports.example.com/games/08-08-23/12345\",\
+        \"namespace\": [\"sports.example.com\",\"games\",\"08-08-23\",\"12345\"],\
         \"packaging\": \"cmaf\",\
         \"renderGroup\":1\
      },\
@@ -51,16 +52,19 @@ main()
       ]\
    }\"";
 
-    xqc_moq_catalog_t *catalog = (xqc_moq_catalog_t *) malloc(sizeof(xqc_moq_catalog_t));
-    xqc_init_list_head(&catalog->track_list_for_sub);
+    xqc_moq_catalog_t catalog;
+    xqc_moq_catalog_init(&catalog);
     size_t catalog_len = strlen(demo_catalog);
-    catalog->log = NULL;
-    xqc_int_t decode_error = xqc_moq_catalog_decode(catalog, demo_catalog, catalog_len);
+    catalog.log = NULL;
+
+    xqc_int_t decode_error = xqc_moq_catalog_decode(&catalog, (uint8_t *)demo_catalog, catalog_len);
     fprintf(stderr, "decode error = %d \n", decode_error);
     char buf[800] = {0};
     xqc_int_t length = 0;
-    catalog->track_list_for_pub = &catalog->track_list_for_sub;
-    xqc_int_t encode_error = xqc_moq_catalog_encode(catalog, buf, 800, &length);
+    catalog.track_list_for_pub = &catalog.track_list_for_sub;
+    xqc_int_t encode_error = xqc_moq_catalog_encode(&catalog, buf, 800, &length);
     fprintf(stderr, "encode error = %d \n", encode_error);
+
+    xqc_moq_catalog_free_fields(&catalog);
     return 0;
 }

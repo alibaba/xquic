@@ -11,6 +11,12 @@ set(
 )
 
 set(
+    MOQ_DEMO_RELAY_V14_SOURCE
+    "xqc_moq_demo_relay_v14.c"
+    "xqc_moq_demo_comm.c"
+)
+
+set(
     MOQ_DEMO_AUDIO_SERVER_SOURCE
     "xqc_moq_audiodemo_server.c"
     "xqc_moq_demo_comm.c"
@@ -44,9 +50,11 @@ endif()
 
 add_executable(moq_demo_client ${MOQ_DEMO_CLIENT_SOURCE})
 add_executable(moq_demo_server ${MOQ_DEMO_SERVER_SOURCE})
+add_executable(moq_demo_relay_v14 ${MOQ_DEMO_RELAY_V14_SOURCE})
 add_executable(moq_demo_audio_server ${MOQ_DEMO_AUDIO_SERVER_SOURCE})
 
 
 target_link_libraries(moq_demo_client ${APP_DEPEND_LIBS})
 target_link_libraries(moq_demo_server ${APP_DEPEND_LIBS})
+target_link_libraries(moq_demo_relay_v14 ${APP_DEPEND_LIBS})
 target_link_libraries(moq_demo_audio_server ${APP_DEPEND_LIBS})

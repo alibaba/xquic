@@ -89,6 +89,14 @@ typedef struct user_conn_s {
     int                 extra_dc_created;
     int                 extra_dc_ready;
     int                 extra_dc_msg_cnt;
+
+    /* demo-only state for SUBSCRIBE_NAMESPACE mode (-N) */
+    int                 subscribe_namespace_received_video_publish;
+    int                 subscribe_namespace_received_audio_publish;
+    uint64_t            subscribe_namespace_received_publish_count;
+    int                 subscribe_namespace_close_initiated;
+    uint64_t            subscribe_namespace_received_video_frames;
+    uint64_t            subscribe_namespace_received_audio_frames;
 } user_conn_t;
 
 
@@ -124,5 +132,17 @@ xqc_app_write_socket_ex(uint64_t path_id, const unsigned char *buf, size_t size,
                         socklen_t peer_addrlen, void *user_data);
 
 xqc_moq_stream_t *xqc_demo_stream_create(xqc_moq_session_t *session, xqc_stream_direction_t direction);
+
+/**
+ * @brief Convert namespace tuple to a printable "ns0/ns1/.../nsN" string for demo logs.
+ * @note  Returns a static buffer; not thread-safe.
+ */
+const char *xqc_demo_namespace_tuple_to_str(const xqc_moq_track_ns_field_t *tuple, uint64_t num);
+
+/**
+ * @brief Convenience wrapper of xqc_demo_namespace_tuple_to_str for xqc_moq_track_info_t.
+ * @note  Returns a static buffer; not thread-safe.
+ */
+const char *xqc_demo_track_info_namespace(const xqc_moq_track_info_t *track_info);
 
 #endif /* _XQC_MOQ_DEMO_COMM_H_INCLUDED_ */

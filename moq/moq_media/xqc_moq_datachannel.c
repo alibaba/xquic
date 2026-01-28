@@ -203,13 +203,19 @@ xqc_moq_subscribe_datachannel(xqc_moq_session_t *session)
 {
     xqc_int_t ret;
     xqc_moq_track_t *track;
-    track = xqc_moq_track_create(session, XQC_MOQ_DATACHANNEL_NAMESPACE, XQC_MOQ_DATACHANNEL_NAME,
-                                 XQC_MOQ_TRACK_DATACHANNEL, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_PUB);
+
+    xqc_moq_track_ns_field_t dc_ns[1];
+    dc_ns[0].data = (unsigned char *)XQC_MOQ_DATACHANNEL_NAMESPACE;
+    dc_ns[0].len = strlen(XQC_MOQ_DATACHANNEL_NAMESPACE);
+
+    track = xqc_moq_track_create_with_namespace_tuple(session, 1, dc_ns, (char *)XQC_MOQ_DATACHANNEL_NAME,
+        XQC_MOQ_TRACK_DATACHANNEL, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_PUB);
     session->datachannel.track_for_pub = track;
-    track = xqc_moq_track_create(session, XQC_MOQ_DATACHANNEL_NAMESPACE, XQC_MOQ_DATACHANNEL_NAME,
-                                 XQC_MOQ_TRACK_DATACHANNEL, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_SUB);
+
+    track = xqc_moq_track_create_with_namespace_tuple(session, 1, dc_ns, (char *)XQC_MOQ_DATACHANNEL_NAME,
+        XQC_MOQ_TRACK_DATACHANNEL, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_SUB);
     session->datachannel.track_for_sub = track;
-    ret = xqc_moq_subscribe_latest(session, XQC_MOQ_DATACHANNEL_NAMESPACE, XQC_MOQ_DATACHANNEL_NAME);
+    ret = xqc_moq_subscribe_latest_with_namespace_tuple(session, dc_ns, 1, XQC_MOQ_DATACHANNEL_NAME);
     if (ret < 0) {
         xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_latest error|ret:%d|", ret);
         return ret;
@@ -276,9 +282,8 @@ static void
 xqc_moq_datachannel_on_object(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_moq_object_t *object)
 {
     xqc_log(session->log, XQC_LOG_INFO, "|on_datachannel_msg|msg_len:%ui|", object->payload_len);
-    xqc_log(session->log, XQC_LOG_INFO, "|on_datachannel_msg_detail|track:%s/%s|subscribe_id:%ui|",
-            track && track->track_info.track_namespace ? track->track_info.track_namespace : "null",
-            track && track->track_info.track_name ? track->track_info.track_name : "null",
+    xqc_log(session->log, XQC_LOG_INFO, "|on_datachannel_msg_detail|track:%s|subscribe_id:%ui|",
+            xqc_moq_track_get_full_name(track),
             object->subscribe_id);
     session->session_callbacks.on_datachannel_msg(session->user_session, track,
         track ? &track->track_info : NULL, object->payload, object->payload_len);

@@ -38,6 +38,7 @@ typedef struct xqc_moq_session_s {
     xqc_moq_session_callbacks_t     session_callbacks;
     xqc_list_head_t                 local_subscribe_list;
     xqc_list_head_t                 peer_subscribe_list;
+    xqc_list_head_t                 peer_subscribe_namespace_list; // draft-14: active namespace subscriptions from peer (SUBSCRIBE_NAMESPACE)
     xqc_list_head_t                 track_list_for_pub;
     xqc_list_head_t                 track_list_for_sub;
     uint64_t                        subscribe_id_allocator;
@@ -46,6 +47,7 @@ typedef struct xqc_moq_session_s {
     xqc_int_t                       enable_fec;
     float                           fec_code_rate;
     xqc_int_t                       use_client_setup_v14;
+    uint8_t                         is_destroying;
 } xqc_moq_session_t;
 
 typedef enum {
@@ -74,10 +76,89 @@ uint64_t xqc_moq_session_alloc_track_alias(xqc_moq_session_t *session);
 xqc_moq_track_t *xqc_moq_find_track_by_alias(xqc_moq_session_t *session,
     uint64_t track_alias, xqc_moq_track_role_t role);
 
-xqc_moq_track_t *xqc_moq_find_track_by_name(xqc_moq_session_t *session,
-    const char *track_namespace, const char *track_name, xqc_moq_track_role_t role);
-
 xqc_moq_track_t *xqc_moq_find_track_by_subscribe_id(xqc_moq_session_t *session,
     uint64_t subscribe_id, xqc_moq_track_role_t role);
+
+xqc_moq_track_t *xqc_moq_find_track_by_track_namespace_tuple(xqc_moq_session_t *session,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple, uint64_t track_namespace_num,
+    const char *track_name, xqc_moq_track_role_t role);
+
+/* draft-14 namespace subscription prefix management */
+xqc_int_t xqc_moq_session_namespace_prefix_overlaps(xqc_moq_session_t *session,
+    const xqc_moq_track_ns_field_t *namespace_prefix_tuple, uint64_t namespace_prefix_num);
+
+xqc_int_t xqc_moq_session_add_namespace_prefix(xqc_moq_session_t *session,
+    const xqc_moq_track_ns_field_t *namespace_prefix_tuple, uint64_t namespace_prefix_num);
+
+/* returns 1 if removed, 0 if not found, <0 on error */
+xqc_int_t xqc_moq_session_remove_namespace_prefix(xqc_moq_session_t *session,
+    const xqc_moq_track_ns_field_t *namespace_prefix_tuple, uint64_t namespace_prefix_num);
+
+typedef xqc_int_t (*xqc_moq_namespace_discovery_on_namespace_pt)(xqc_moq_session_t *session,
+    void *user_data, const xqc_moq_track_ns_field_t *track_namespace_tuple, uint64_t track_namespace_num);
+
+typedef xqc_int_t (*xqc_moq_namespace_discovery_on_track_pt)(xqc_moq_session_t *session,
+    void *user_data, xqc_moq_track_t *track);
+
+typedef struct {
+    void                                        *user_data;
+    xqc_moq_namespace_discovery_on_namespace_pt  on_namespace;
+    xqc_moq_namespace_discovery_on_track_pt      on_track;
+} xqc_moq_namespace_discovery_cb_t;
+
+typedef xqc_int_t (*xqc_moq_namespace_discovery_on_namespace_done_pt)(xqc_moq_session_t *session,
+    void *user_data, const xqc_moq_track_ns_field_t *track_namespace_tuple, uint64_t track_namespace_num);
+
+typedef struct {
+    void                                             *user_data;
+    xqc_moq_namespace_discovery_on_namespace_pt       on_namespace;
+    xqc_moq_namespace_discovery_on_namespace_done_pt  on_namespace_done;
+    xqc_moq_namespace_discovery_on_track_pt           on_track;
+} xqc_moq_namespace_discovery_update_cb_t;
+
+/**
+ * @brief Iterate local published state matching a namespace prefix.
+ *
+ * Used to fulfill draft-14 SUBSCRIBE_NAMESPACE behavior: immediately forward
+ * existing PUBLISH_NAMESPACE and PUBLISH messages that match the prefix.
+ */
+xqc_int_t xqc_moq_session_foreach_matching_publication(xqc_moq_session_t *session,
+    const xqc_moq_track_ns_field_t *namespace_prefix_tuple, uint64_t namespace_prefix_num,
+    const xqc_moq_namespace_discovery_cb_t *discovery_callbacks);
+
+/**
+ * @brief Populate and send discovery for an active namespace prefix subscription.
+ *
+ * For a successful SUBSCRIBE_NAMESPACE, this is used to send existing matching
+ * PUBLISH_NAMESPACE/PUBLISH and to initialize per-prefix tracking state.
+ */
+xqc_int_t xqc_moq_session_discovery_refresh_namespace_prefix(xqc_moq_session_t *session,
+    const xqc_moq_track_ns_field_t *namespace_prefix_tuple, uint64_t namespace_prefix_num,
+    const xqc_moq_namespace_discovery_update_cb_t *discovery_update_callbacks);
+
+/**
+ * @brief Notify session discovery logic of a newly created local published track.
+ *
+ * If the peer has an active SUBSCRIBE_NAMESPACE that matches this track's namespace,
+ * this will send incremental PUBLISH_NAMESPACE/PUBLISH updates (deduped).
+ */
+void xqc_moq_session_discovery_on_track_added(xqc_moq_session_t *session, xqc_moq_track_t *track);
+
+/**
+ * @brief Notify session discovery logic that a local published track is removed.
+ *
+ * If this removal causes a previously advertised namespace to become empty for an
+ * active prefix subscription, a PUBLISH_NAMESPACE_DONE update is sent.
+ *
+ * Note: only call this when the track is being removed from session->track_list_for_pub.
+ */
+void xqc_moq_session_discovery_on_track_removed(xqc_moq_session_t *session, xqc_moq_track_t *track);
+
+/* Testable variants: do not call session_error; use callbacks provided. */
+xqc_int_t xqc_moq_session_discovery_on_track_added_with_cb(xqc_moq_session_t *session, xqc_moq_track_t *track,
+    const xqc_moq_namespace_discovery_update_cb_t *discovery_update_callbacks);
+
+xqc_int_t xqc_moq_session_discovery_on_track_removed_with_cb(xqc_moq_session_t *session, xqc_moq_track_t *track,
+    const xqc_moq_namespace_discovery_update_cb_t *discovery_update_callbacks);
 
 #endif /* _XQC_MOQ_SESSION_H_INCLUDED_ */

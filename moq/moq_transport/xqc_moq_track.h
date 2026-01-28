@@ -44,11 +44,21 @@ typedef struct xqc_moq_track_s {
     xqc_moq_track_role_t                track_role;
     xqc_moq_stream_t                    *subgroup_stream;
     uint8_t                             reuse_subgroup_stream;  // whether to reuse the same stream for multiple objects
+    /* Active streams referencing this track via xqc_moq_stream_on_track_write. */
+    uint64_t                            active_stream_refcnt;
+    /* Track is logically destroyed but retained until active_stream_refcnt reaches 0. */
+    uint8_t                             destroy_pending;
+    /* Discovery removal notification already emitted (idempotency). */
+    uint8_t                             discovery_removed;
 } xqc_moq_track_t;
 
 void xqc_moq_track_destroy(xqc_moq_track_t *track);
 
 void xqc_moq_track_free_fields(xqc_moq_track_t *track);
+
+void xqc_moq_track_stream_ref_inc(xqc_moq_track_t *track);
+
+void xqc_moq_track_stream_ref_dec(xqc_moq_track_t *track);
 
 void xqc_moq_track_set_alias(xqc_moq_track_t *track, uint64_t track_alias);
 
@@ -63,5 +73,15 @@ void xqc_moq_track_copy_params(xqc_moq_selection_params_t *dst, xqc_moq_selectio
 void xqc_moq_track_free_params(xqc_moq_selection_params_t *params);
 
 void xqc_moq_track_set_params(xqc_moq_track_t *track, xqc_moq_selection_params_t *params);
+
+/**
+ * @brief Get track full name as "ns0/ns1/.../nsN/track_name" for logging.
+ */
+const char *xqc_moq_track_get_full_name(const xqc_moq_track_t *track);
+
+xqc_moq_track_t *xqc_moq_track_create_with_namespace_tuple(xqc_moq_session_t *session,
+    uint64_t track_namespace_num, const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    char *track_name, xqc_moq_track_type_t track_type, xqc_moq_selection_params_t *params,
+    xqc_moq_container_t container, xqc_moq_track_role_t role);
 
 #endif /* _XQC_MOQ_TRACK_H_INCLUDED_ */

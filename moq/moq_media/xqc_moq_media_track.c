@@ -372,9 +372,8 @@ xqc_moq_write_raw_object(xqc_moq_session_t *session,
 
     if (!track->raw_object) {
         xqc_log(session->log, XQC_LOG_ERROR,
-                "|write_raw_object raw_object_mode disabled|track:%s/%s|subscribe_id:%ui|track_alias:%ui|",
-                track->track_info.track_namespace ? track->track_info.track_namespace : "null",
-                track->track_info.track_name ? track->track_info.track_name : "null",
+                "|write_raw_object raw_object_mode disabled|track:%s|subscribe_id:%ui|track_alias:%ui|",
+                xqc_moq_track_get_full_name(track),
                 track->subscribe_id, track->track_alias);
         return -XQC_EPARAM;
     }
@@ -419,9 +418,8 @@ xqc_moq_write_raw_object(xqc_moq_session_t *session,
 
         if (obj_msg.group_id < track->cur_group_id) {
             xqc_log(session->log, XQC_LOG_ERROR,
-                    "|write_raw_object invalid group_id rollback|track:%s/%s|cur_group_id:%ui|group_id:%ui|",
-                    track->track_info.track_namespace ? track->track_info.track_namespace : "null",
-                    track->track_info.track_name ? track->track_info.track_name : "null",
+                    "|write_raw_object invalid group_id rollback|track:%s|cur_group_id:%ui|group_id:%ui|",
+                    xqc_moq_track_get_full_name(track),
                     track->cur_group_id, obj_msg.group_id);
             return -XQC_EPARAM;
         }
@@ -437,9 +435,8 @@ xqc_moq_write_raw_object(xqc_moq_session_t *session,
 
         if (obj_msg.object_id < track->cur_object_id) {
             xqc_log(session->log, XQC_LOG_ERROR,
-                    "|write_raw_object invalid object_id rollback|track:%s/%s|group_id:%ui|cur_object_id:%ui|object_id:%ui|",
-                    track->track_info.track_namespace ? track->track_info.track_namespace : "null",
-                    track->track_info.track_name ? track->track_info.track_name : "null",
+                    "|write_raw_object invalid object_id rollback|track:%s|group_id:%ui|cur_object_id:%ui|object_id:%ui|",
+                    xqc_moq_track_get_full_name(track),
                     obj_msg.group_id, track->cur_object_id, obj_msg.object_id);
             return -XQC_EPARAM;
         }
@@ -772,8 +769,8 @@ xqc_moq_media_on_object(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_
 
             xqc_moq_video_frame_t *video_frame = &video_frame_ext.video_frame;
             xqc_log(session->log, XQC_LOG_INFO,
-                    "|decode video frame|track:%s/%s|alias:%ui|subscribe_id:%ui|payload_len:%ui|container:%d|codec:%s|mime:%s|",
-                    track->track_info.track_namespace, track->track_info.track_name,
+                    "|decode video frame|track:%s|alias:%ui|subscribe_id:%ui|payload_len:%ui|container:%d|codec:%s|mime:%s|",
+                    xqc_moq_track_get_full_name(track),
                     track->track_alias, track->subscribe_id, object->payload_len,
                     track->container_format,
                     track->track_info.selection_params.codec ?

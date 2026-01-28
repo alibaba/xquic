@@ -4,6 +4,7 @@ if (XQC_ENABLE_MOQ)
         "moq/moq_transport/xqc_moq_message.c"
         "moq/moq_transport/xqc_moq_message_handler.c"
         "moq/moq_transport/xqc_moq_message_writer.c"
+        "moq/moq_transport/xqc_moq_namespace.c"
         "moq/moq_transport/xqc_moq_track.c"
         "moq/moq_transport/xqc_moq_proxy.c"
         "moq/moq_transport/xqc_moq_session.c"

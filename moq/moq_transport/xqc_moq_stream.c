@@ -41,6 +41,7 @@ xqc_moq_stream_destroy(xqc_moq_stream_t *stream)
     xqc_moq_session_t *session = stream->session;
     xqc_stream_t *quic_stream = stream->trans_ops.quic_stream(stream->trans_stream);
     xqc_usec_t now = xqc_monotonic_timestamp();
+    xqc_moq_track_t *track = stream->track;
     
     if (stream == stream->session->ctl_stream) {
         stream->session->ctl_stream = NULL;
@@ -61,10 +62,9 @@ xqc_moq_stream_destroy(xqc_moq_stream_t *stream)
     }
     
     if (quic_stream && quic_stream->stream_stats.all_data_acked_time
-        && stream->track && stream->track->track_info.track_type == XQC_MOQ_TRACK_VIDEO)
+        && track && track->track_info.track_type == XQC_MOQ_TRACK_VIDEO)
     {
         xqc_usec_t latest_delay = quic_stream->stream_stats.all_data_acked_time - quic_stream->stream_stats.create_time;
-        xqc_moq_track_t *track = stream->track;
         xqc_moq_track_info_t *track_info = track ? &track->track_info : NULL;
         xqc_moq_bitrate_alloc_on_frame_acked(session, track, track_info, latest_delay, 
                                              quic_stream->stream_stats.create_time, now, 
@@ -79,8 +79,8 @@ xqc_moq_stream_destroy(xqc_moq_stream_t *stream)
         xqc_record_stream_state(quic_stream);
     }
 
-    if (stream->track && stream->track->subgroup_stream == stream) {
-        stream->track->subgroup_stream = NULL;
+    if (track && track->subgroup_stream == stream) {
+        track->subgroup_stream = NULL;
     }
 
     xqc_free(stream->read_buf);
@@ -92,6 +92,11 @@ xqc_moq_stream_destroy(xqc_moq_stream_t *stream)
     xqc_moq_stream_free_cur_decode_msg(stream);
 
     xqc_list_del_init(&stream->list_member);
+
+    if (track != NULL) {
+        stream->track = NULL;
+        xqc_moq_track_stream_ref_dec(track);
+    }
 
     xqc_free(stream);
 }
@@ -155,7 +160,11 @@ void
 xqc_moq_stream_on_track_write(xqc_moq_stream_t *moq_stream, xqc_moq_track_t *track,
     uint64_t group_id, uint64_t object_id, uint64_t seq_num)
 {
+    if (moq_stream->track != NULL) {
+        xqc_moq_track_stream_ref_dec(moq_stream->track);
+    }
     moq_stream->track = track;
+    xqc_moq_track_stream_ref_inc(track);
     moq_stream->group_id = group_id;
     moq_stream->object_id = object_id;
     moq_stream->seq_num = seq_num;
@@ -268,6 +277,10 @@ xqc_moq_stream_process(xqc_moq_stream_t *moq_stream, uint8_t *buf, size_t buf_le
                             "|decode message error|ret:%d|msg_type:0x%xi|cur_field_idx:%d|",
                             ret, moq_stream->decode_msg_ctx.cur_msg_type, moq_stream->decode_msg_ctx.cur_field_idx);
                     xqc_moq_stream_clean_decode_msg_ctx(moq_stream);
+                    if (ret == -MOQ_PROTOCOL_VIOLATION) {
+                        xqc_moq_session_error(moq_stream->session, MOQ_PROTOCOL_VIOLATION, "decode protocol violation");
+                        return ret;
+                    }
                     return -XQC_EILLEGAL_FRAME;
                 }
                 processed += ret;
@@ -388,4 +401,3 @@ xqc_moq_stream_process_msg(xqc_moq_stream_t *moq_stream, uint8_t stream_fin, xqc
 
     return processed;
 }
-

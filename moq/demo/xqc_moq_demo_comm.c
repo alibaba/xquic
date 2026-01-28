@@ -1,12 +1,54 @@
 
 #include "xqc_moq_demo_comm.h"
 
+#include <string.h>
+
 // #define TEST_DROP (g_drop_rate != 0 && (rand() % 1000 < g_drop_rate || g_loss_cnt++ == 0))
 
 #define TEST_DROP (g_drop_rate != 0 && ((g_loss_cnt++) % g_drop_rate == 0))
 
 int g_drop_rate = 0;
 int g_loss_cnt = 0;
+
+#define XQC_MOQ_DEMO_NS_BUF_SIZE 4097
+
+const char *
+xqc_demo_namespace_tuple_to_str(const xqc_moq_track_ns_field_t *tuple, uint64_t num)
+{
+    static char buf[XQC_MOQ_DEMO_NS_BUF_SIZE];
+    size_t off = 0;
+
+    if (tuple == NULL || num == 0) {
+        return "null";
+    }
+
+    buf[0] = '\0';
+    for (uint64_t i = 0; i < num && off < sizeof(buf) - 1; i++) {
+        const xqc_moq_track_ns_field_t *field = &tuple[i];
+        if (i > 0 && off < sizeof(buf) - 1) {
+            buf[off++] = '/';
+        }
+        if (field->data != NULL && field->len > 0) {
+            size_t copy_len = field->len;
+            if (off + copy_len >= sizeof(buf) - 1) {
+                copy_len = sizeof(buf) - 1 - off;
+            }
+            memcpy(buf + off, field->data, copy_len);
+            off += copy_len;
+        }
+    }
+    buf[off] = '\0';
+    return buf;
+}
+
+const char *
+xqc_demo_track_info_namespace(const xqc_moq_track_info_t *track_info)
+{
+    if (track_info == NULL) {
+        return "null";
+    }
+    return xqc_demo_namespace_tuple_to_str(track_info->track_namespace_tuple, track_info->track_namespace_num);
+}
 
 void
 xqc_app_set_log_level(char c_log_level, xqc_config_t *config)

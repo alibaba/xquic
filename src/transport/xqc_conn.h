@@ -369,6 +369,7 @@ struct xqc_connection_s {
     xqc_usec_t                      conn_close_recv_time;
     xqc_usec_t                      conn_close_send_time;
     xqc_usec_t                      conn_last_send_time;
+    xqc_usec_t                      conn_last_ack_eliciting_send_time;
     xqc_usec_t                      conn_last_recv_time;
     xqc_usec_t                      conn_hsk_recv_time;
 

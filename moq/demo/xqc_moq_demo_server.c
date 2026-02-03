@@ -60,6 +60,7 @@ int g_publish_mode = 0;
 int g_enable_client_setup_v14 = 0;
 int g_raw_object_mode = 0;
 int g_publish_reply_mode = 0;
+int g_reuse_datachannel_stream = 0;
 
 xqc_int_t
 xqc_demo_publish_track(user_conn_t *user_conn, const char *track_namespace, const char *track_name)
@@ -341,6 +342,10 @@ void on_datachannel(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
     printf("on_datachannel: track_namespace:%s track_name:%s\n", track_info->track_namespace, track_info->track_name);
 
+    if (g_reuse_datachannel_stream && track) {
+        xqc_moq_track_set_reuse_subgroup_stream(track, 1);
+    }
+
     if ((g_role & XQC_MOQ_SUBSCRIBER)
         && (g_publish_mode || g_role == XQC_MOQ_SUBSCRIBER)
         && user_conn->publish_request_sent == 0) {
@@ -350,6 +355,11 @@ void on_datachannel(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track
             printf("xqc_moq_write_datachannel error\n");
         } else {
             user_conn->publish_request_sent = 1;
+            if (g_reuse_datachannel_stream) {
+                xqc_moq_write_datachannel(user_session->session,
+                                               (uint8_t*)"reuse_stream_test",
+                                               strlen("reuse_stream_test"));
+            }
         }
     }
 }
@@ -948,7 +958,7 @@ int main(int argc, char *argv[])
     int server_port = TEST_PORT;
     xqc_cong_ctrl_callback_t cong_ctrl;
     cong_ctrl = xqc_bbr_cb;
-    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MVRoe")) != -1) {
+    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MVRoeU")) != -1) {
         switch (ch) {
         /* listen port */
         case 'p':
@@ -1028,6 +1038,10 @@ int main(int argc, char *argv[])
         case 'e':
             printf("option publish reply error : on\n");
             g_publish_reply_mode = 2;
+            break;
+        case 'U':
+            printf("option reuse datachannel stream : on\n");
+            g_reuse_datachannel_stream = 1;
             break;
         default:
             break;

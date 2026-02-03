@@ -67,6 +67,7 @@ xqc_moq_role_t g_role = XQC_MOQ_PUBSUB;
 int g_enable_client_setup_v14 = 0;
 int g_publish_mode = 0;
 int g_raw_object_mode = 0;
+int g_reuse_datachannel_stream = 0;
 
 static void xqc_app_timestamp_callback(int fd, short what, void *arg);
 
@@ -242,6 +243,14 @@ xqc_demo_send_current_time_msg(user_conn_t *user_conn, xqc_moq_track_t *track)
         obj.track_alias = track_ctx->track_alias;
         obj.payload = (uint8_t *)payload_buf;
         obj.payload_len = payload_len;
+        xqc_moq_message_parameter_t ext_params[1];
+        memset(ext_params, 0, sizeof(ext_params));
+        const char *ext_str = "ext_param_test=1";
+        ext_params[0].type = XQC_MOQ_PARAM_EXTDATA;
+        ext_params[0].value = (uint8_t *)ext_str;
+        ext_params[0].length = strlen(ext_str);
+        obj.ext_params = ext_params;
+        obj.ext_params_num = 1;
         ret = xqc_moq_write_raw_object(user_conn->moq_session, track, &obj);
         if (ret < 0) {
             printf("xqc_moq_write_raw_object error\n");
@@ -746,6 +755,11 @@ void on_datachannel(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track
            track_info ? track_info->track_namespace : "null",
            track_info ? track_info->track_name : "null");
 
+    /* Optional: enable reuse of a single subgroup stream for the default datachannel. */
+    if (g_reuse_datachannel_stream && track) {
+        xqc_moq_track_set_reuse_subgroup_stream(track, 1);
+    }
+
     if ((g_role & XQC_MOQ_SUBSCRIBER) && user_conn->publish_request_sent == 0) {
         int ret = xqc_moq_write_datachannel(user_session->session,
                                             (uint8_t*)"publish_request", strlen("publish_request"));
@@ -753,6 +767,12 @@ void on_datachannel(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track
             printf("xqc_moq_write_datachannel error\n");
         } else {
             user_conn->publish_request_sent = 1;
+            if (g_reuse_datachannel_stream) {
+                /* Send a second message to exercise subgroup-stream reuse in e2e tests. */
+                xqc_moq_write_datachannel(user_session->session,
+                                               (uint8_t*)"reuse_stream_test",
+                                               strlen("reuse_stream_test"));
+            }
         }
     }
 }
@@ -1262,6 +1282,9 @@ xqc_app_timestamp_callback(int fd, short what, void* arg)
                                              "datachannel", dc_name[0] ? dc_name : "extra",
                                              &dc_track, &dc_subscribe_id, 1);
         if (ret >= 0 && dc_track != NULL) {
+            if (g_reuse_datachannel_stream) {
+                xqc_moq_track_set_reuse_subgroup_stream(dc_track, 1);
+            }
             user_conn->extra_dc_track = dc_track;
             user_conn->extra_dc_subscribe_id = dc_subscribe_id;
             user_conn->extra_dc_created = 1;
@@ -1326,7 +1349,7 @@ int main(int argc, char *argv[])
     uint8_t secret_key[16] = {0};
     int use_proxy = 0;
     int use_1rtt = 0;
-    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:f1MVR")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:f1MVRU")) != -1) {
         switch (ch) {
             case 'a':
                 printf("option addr :%s\n", optarg);
@@ -1417,6 +1440,10 @@ int main(int argc, char *argv[])
             case 'V':
                 printf("option draft14 client setup : on\n");
                 g_enable_client_setup_v14 = 1;
+                break;
+            case 'U':
+                printf("option reuse datachannel stream : on\n");
+                g_reuse_datachannel_stream = 1;
                 break;
             default:
                 printf("other option :%c\n", ch);

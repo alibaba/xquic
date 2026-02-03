@@ -537,9 +537,20 @@ xqc_int_t xqc_moq_write_publish_error(xqc_moq_session_t *session, xqc_moq_publis
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_publish_done(xqc_moq_session_t *session, xqc_moq_publish_done_msg_t *publish_done);
 
+/*
+ * @brief Send a message on the default/system datachannel (session singleton).
+ * @note  If reuse_subgroup_stream is enabled on the default datachannel PUB track (via
+ *        xqc_moq_track_set_reuse_subgroup_stream in on_datachannel callback), this API will
+ *        switch to the subgroup-stream based sender and reuse a single stream.
+ */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_datachannel(xqc_moq_session_t *session, uint8_t *msg, size_t msg_len);
 
+/*
+ * @brief Send a message on a datachannel track (typically created by xqc_moq_create_datachannel()).
+ * @note  If xqc_moq_track_set_reuse_subgroup_stream(track, 1) is enabled, this API will reuse one
+ *        unidirectional subgroup stream for multiple objects on the same group_id.
+ */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_send_datachannel_msg(xqc_moq_session_t *session, xqc_moq_track_t *track,
     uint8_t *msg, size_t msg_len);

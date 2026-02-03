@@ -316,6 +316,42 @@ run_datachannel_case() {
     stop_server
 }
 
+run_datachannel_reuse_default_case() {
+    local case_name="datachannel_reuse_default"
+    local status="fail"
+    echo -e "moq default datachannel reuse ...\c"
+    reset_runtime
+    if start_server "${case_name}" "${SERVER_BASE_ARGS[@]}" -r pub -n 3 -U; then
+        run_client "${case_name}" "${CLIENT_BASE_ARGS[@]}" -r sub -n 3 -U
+    else
+        CLIENT_STDLOG="client_${case_name}.log"
+        LAST_CLIENT_RC=1
+    fi
+
+    local errlog dc_lines dc_group dc_has_obj1
+    errlog=$(get_err_log)
+    dc_lines=$(grep "xqc_moq_send_datachannel_msg|send datachannel msg success (subgroup)" clog 2>/dev/null || true)
+    dc_group=$(echo "${dc_lines}" | grep "object_id:0|" | head -n 1 | sed -E 's/.*group_id:([0-9]+).*/\1/' || true)
+    if [ -n "${dc_group}" ]; then
+        dc_has_obj1=$(echo "${dc_lines}" | grep "group_id:${dc_group}|" | grep "object_id:1|" || true)
+    else
+        dc_has_obj1=""
+    fi
+
+    if check_client_rc "${case_name}" && check_server_rc "${case_name}" \
+       && [ -n "${dc_group}" ] && [ -n "${dc_has_obj1}" ] && [ -z "${errlog}" ]; then
+        echo ">>>>>>>> pass:1"
+        status="pass"
+    else
+        echo ">>>>>>>> pass:0"
+        echo "${errlog}"
+        echo "${dc_lines}"
+    fi
+    case_print_result "${case_name}" "${status}"
+    record_case_result "${case_name}" "${status}"
+    stop_server
+}
+
 run_raw_object_case() {
     local case_name="raw_object_mode"
     local status="fail"
@@ -349,6 +385,7 @@ run_raw_object_case() {
 run_publish_case
 run_publish_reply_case
 run_datachannel_case
+run_datachannel_reuse_default_case
 run_raw_object_case
 
 run_subgroup_multi_object_case() {

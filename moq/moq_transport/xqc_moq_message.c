@@ -3482,7 +3482,7 @@ xqc_moq_msg_subgroup_parse_ext_params(xqc_moq_subgroup_msg_t *object)
         }
         ext_processed += ret;
 
-        if (type & 0x1) {
+        if ((type & 0x1) || type == XQC_MOQ_PARAM_EXTDATA) {
             ret = xqc_vint_read(object->ext_buf + ext_processed,
                                 object->ext_buf + object->ext_len, &length);
             if (ret < 0) {

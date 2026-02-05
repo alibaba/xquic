@@ -382,11 +382,83 @@ run_raw_object_case() {
     stop_server
 }
 
+run_raw_object_reuse_case() {
+    local case_name="raw_object_reuse"
+    local status="fail"
+    echo -e "moq raw object reuse (-R -W) ...\c"
+    reset_runtime
+    if start_server "${case_name}" "${SERVER_BASE_ARGS[@]}" -n 10 -M -R; then
+        run_client "${case_name}" "${CLIENT_BASE_ARGS[@]}" -n 10 -M -R -W
+    else
+        CLIENT_STDLOG="client_${case_name}.log"
+        LAST_CLIENT_RC=1
+    fi
+    local errlog audio_lines obj_cnt stream_cnt delta_bad cli_raw svr_raw
+    errlog=$(get_err_log)
+    cli_raw=$(grep "|write raw object success|" clog 2>/dev/null || true)
+    svr_raw=$(grep "on_raw_object:" "${SERVER_STDLOG}" 2>/dev/null || true)
+
+    audio_lines=$(grep "server_recv_subgroup" slog 2>/dev/null | \
+                  grep "track_alias:2|group_id:0|subgroup_id:0|" || true)
+    if [ -n "${audio_lines}" ]; then
+        obj_cnt=$(echo "${audio_lines}" | awk -F'object_id:' '{print $2}' | \
+                  awk -F'|' '{print $1}' | sort -u | wc -l | tr -d ' ')
+        stream_cnt=$(echo "${audio_lines}" | awk -F'stream_id:' '{print $2}' | \
+                     awk -F'|' '{print $1}' | sort -u | wc -l | tr -d ' ')
+        delta_bad=$(echo "${audio_lines}" | awk -F'|' '
+        {
+            id = -1; d = -1;
+            for (i = 1; i <= NF; i++) {
+                if ($i ~ /object_id:/) {
+                    gsub(/object_id:/, "", $i);
+                    id = $i;
+                } else if ($i ~ /object_id_delta:/) {
+                    gsub(/object_id_delta:/, "", $i);
+                    d = $i;
+                }
+            }
+            if (id > 0 && d != 0) {
+                bad = 1;
+            }
+        }
+        END {
+            if (bad == 1) {
+                print "bad";
+            }
+        }')
+    else
+        obj_cnt=0
+        stream_cnt=0
+        delta_bad=""
+    fi
+
+    if check_client_rc "${case_name}" && check_server_rc "${case_name}" \
+       && [ -n "${cli_raw}" ] && [ -n "${svr_raw}" ] \
+       && [ "${obj_cnt}" -ge 2 ] && [ "${stream_cnt}" -eq 1 ] && [ -z "${errlog}" ] && [ -z "${delta_bad}" ]; then
+        echo ">>>>>>>> pass:1"
+        status="pass"
+    else
+        echo ">>>>>>>> pass:0"
+        echo "${errlog}"
+        echo "client raw object lines:"
+        echo "${cli_raw}"
+        echo "server raw object lines:"
+        echo "${svr_raw}"
+        echo "audio subgroup lines:"
+        echo "${audio_lines}"
+        echo "distinct object_id count: ${obj_cnt}, distinct stream_id count: ${stream_cnt}"
+    fi
+    case_print_result "${case_name}" "${status}"
+    record_case_result "${case_name}" "${status}"
+    stop_server
+}
+
 run_publish_case
 run_publish_reply_case
 run_datachannel_case
 run_datachannel_reuse_default_case
 run_raw_object_case
+run_raw_object_reuse_case
 
 run_subgroup_multi_object_case() {
     local case_name="subgroup_multi_object"

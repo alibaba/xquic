@@ -555,6 +555,11 @@ XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_send_datachannel_msg(xqc_moq_session_t *session, xqc_moq_track_t *track,
     uint8_t *msg, size_t msg_len);
 
+/*
+ * @note  If xqc_moq_track_set_reuse_subgroup_stream(track, 1) is enabled on a video PUB track, this
+ *        API will reuse a single subgroup stream for all frames in the same group (GOP). A new
+ *        stream is created when the group changes (keyframe).
+ */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     xqc_moq_track_t *track, xqc_moq_video_frame_t *video_frame);
@@ -582,6 +587,9 @@ void xqc_moq_track_set_raw_object(xqc_moq_track_t *track, xqc_int_t raw_object);
  * @brief Write a raw object on a media track in raw_object mode.
  * @note  The track must have raw_object enabled (xqc_moq_track_set_raw_object),
  *        otherwise this API returns error.
+ * @note  If xqc_moq_track_set_reuse_subgroup_stream(track, 1) is enabled, objects with the same
+ *        (group_id, subgroup_id) will be appended to the same QUIC stream; a new stream will be
+ *        created when group_id or subgroup_id changes.
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_raw_object(xqc_moq_session_t *session,

@@ -55,6 +55,7 @@ typedef struct xqc_moq_stream_s {
     xqc_moq_track_t             *track;
     xqc_list_head_t             list_member; /* track write_stream_list */
     uint64_t                    group_id;
+    uint64_t                    subgroup_id; /* for subgroup stream reuse (sender-side bookkeeping) */
     uint64_t                    object_id;
     uint64_t                    seq_num;
 

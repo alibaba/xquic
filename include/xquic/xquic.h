@@ -66,9 +66,8 @@ typedef enum xqc_proto_version_s {
 typedef enum {
     XQC_STREAM_PRI_DEFAULT  = 0,
     XQC_STREAM_PRI_HIGH     = 1,
-    XQC_STREAM_PRI_NORMAL   = 2,   /* same as NORMAL_1, prefer NORMAL_1/NORMAL_2 for new code */
-    XQC_STREAM_PRI_NORMAL_1 = 2,   /* level 1, higher than NORMAL_2 */
-    XQC_STREAM_PRI_NORMAL_2 = 3,   /* level 2 */
+    XQC_STREAM_PRI_NORMAL   = 2, 
+    XQC_STREAM_PRI_NORMAL_LOW = 3,
 } xqc_stream_priority_t;
 
 #define XQC_SUPPORT_VERSION_MAX         64

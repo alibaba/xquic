@@ -139,12 +139,11 @@ xqc_send_queue_get_packet_out_for_stream(xqc_send_queue_t *send_queue, unsigned 
 {
     xqc_packet_out_t *packet_out;
     xqc_list_head_t  *pos;
-    /* NORMAL_1 -> sndq_send_packets; NORMAL_2/DEFAULT -> sndq_send_packets_low_pri */
-    xqc_list_head_t  *list = &send_queue->sndq_send_packets_low_pri;
+    xqc_list_head_t  *list = &send_queue->sndq_send_packets;
     if (stream->stream_priority == XQC_STREAM_PRI_HIGH) {
         list = &send_queue->sndq_send_packets_high_pri;
-    } else if (stream->stream_priority == XQC_STREAM_PRI_NORMAL_1) {
-        list = &send_queue->sndq_send_packets;
+    } else if (stream->stream_priority == XQC_STREAM_PRI_NORMAL_LOW) {
+        list = &send_queue->sndq_send_packets_low_pri;
     }
 
     xqc_list_for_each_reverse(pos, list) {
@@ -171,8 +170,7 @@ xqc_send_queue_get_packet_out_for_stream(xqc_send_queue_t *send_queue, unsigned 
     
     if (stream->stream_priority == XQC_STREAM_PRI_HIGH) {
         xqc_send_queue_move_to_high_pri(&packet_out->po_list, send_queue);
-    } else if (stream->stream_priority != XQC_STREAM_PRI_NORMAL_1) {
-        /* NORMAL_2 / DEFAULT -> low_pri; NORMAL_1 stays in sndq_send_packets */
+    } else if (stream->stream_priority == XQC_STREAM_PRI_NORMAL_LOW) {
         xqc_send_queue_move_to_low_pri(&packet_out->po_list, send_queue);
     }
 

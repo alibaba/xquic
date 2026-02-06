@@ -2295,8 +2295,14 @@ xqc_conn_send_packets_batch(xqc_connection_t *conn)
         xqc_path_send_packets_batch(conn, path, head, congest, XQC_SEND_TYPE_NORMAL_HIGH_PRI);
     }
 
-    head = &conn->conn_send_queue->sndq_send_packets;
     congest = 1;
+    head = &conn->conn_send_queue->sndq_send_packets;
+    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
+        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+        xqc_path_send_packets_batch(conn, path, head, congest, XQC_SEND_TYPE_NORMAL);
+    }
+
+    head = &conn->conn_send_queue->sndq_send_packets_low_pri;
     xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
         path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
         xqc_path_send_packets_batch(conn, path, head, congest, XQC_SEND_TYPE_NORMAL);
@@ -2404,6 +2410,11 @@ xqc_conn_send_packets(xqc_connection_t *conn)
         xqc_path_send_packets(conn, path, head, congest, XQC_SEND_TYPE_NORMAL);
     }
 
+    head = &conn->conn_send_queue->sndq_send_packets_low_pri;
+    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
+        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+        xqc_path_send_packets(conn, path, head, congest, XQC_SEND_TYPE_NORMAL);
+    }
 }
 
 xqc_int_t
@@ -2739,12 +2750,15 @@ xqc_conn_schedule_packets_to_paths(xqc_connection_t *conn)
     xqc_conn_schedule_packets(conn, head, XQC_FALSE, 
                               XQC_SEND_TYPE_NORMAL_HIGH_PRI);
 
+    head = &conn->conn_send_queue->sndq_send_packets;
+    xqc_conn_schedule_packets(conn, head, XQC_TRUE, XQC_SEND_TYPE_NORMAL);
+
     /* try to reinject unacked packets if paths still have cwnd */
     if (conn->conn_settings.mp_enable_reinjection & XQC_REINJ_UNACK_BEFORE_SCHED) {
         xqc_conn_reinject_unack_packets(conn, XQC_REINJ_UNACK_BEFORE_SCHED);
     }
 
-    head = &conn->conn_send_queue->sndq_send_packets;
+    head = &conn->conn_send_queue->sndq_send_packets_low_pri;
     xqc_conn_schedule_packets(conn, head, XQC_TRUE, XQC_SEND_TYPE_NORMAL);
 
     /* all packets are scheduled, we need to check if there are paths not fully utilized */

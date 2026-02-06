@@ -48,6 +48,7 @@ xqc_default_reinj_can_reinject_after_sched(xqc_default_reinj_ctl_t *rctl,
     xqc_connection_t *conn = rctl->conn;
 
     if (xqc_list_empty(&conn->conn_send_queue->sndq_send_packets)
+        && xqc_list_empty(&conn->conn_send_queue->sndq_send_packets_low_pri)
         && ((po->po_frame_types & XQC_FRAME_BIT_STREAM) 
             || (po->po_frame_types & XQC_FRAME_BIT_MAX_STREAM_DATA)
             || (po->po_frame_types & XQC_FRAME_BIT_RESET_STREAM)

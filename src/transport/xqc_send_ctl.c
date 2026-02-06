@@ -277,6 +277,10 @@ xqc_send_ctl_reset(xqc_send_ctl_t *send_ctl)
         xqc_send_queue_move_to_tail(pos, &send_queue->sndq_send_packets);
     }
 
+    xqc_list_for_each_safe(pos, next, &send_queue->sndq_send_packets_low_pri) {
+        xqc_send_queue_move_to_tail(pos, &send_queue->sndq_send_packets);
+    }
+
     xqc_list_for_each_safe(pos, next, &send_queue->sndq_lost_packets) {
         xqc_send_queue_move_to_tail(pos, &send_queue->sndq_send_packets);
     }

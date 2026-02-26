@@ -675,6 +675,11 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
             send_ctl->ctl_last_sent_ack_eliciting_packet_number[pns] =
             packet_out->po_pkt.pkt_num;
         }
+        
+        /* record last app data send time for idle-based PING (client only uses it) */
+        if (packet_out->po_frame_types & (XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_CRYPTO | XQC_FRAME_BIT_DATAGRAM)) {
+            send_ctl->ctl_conn->last_app_data_send_time = now;
+        }
 
         xqc_conn_update_stream_stats_on_sent(send_ctl->ctl_conn, send_ctl, packet_out, now);
 

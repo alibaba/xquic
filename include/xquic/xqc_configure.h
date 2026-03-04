@@ -9,3 +9,8 @@
 /* #undef XQC_ENABLE_MP_INTEROP */
 /* #undef XQC_NO_PID_PACKET_PROCESS */
 /* #undef XQC_PROTECT_POOL_MEM */
+/* #undef XQC_COMPAT_DUPLICATE */
+#define XQC_ENABLE_FEC
+#define XQC_ENABLE_XOR
+#define XQC_ENABLE_RSC
+#define XQC_ENABLE_PKM

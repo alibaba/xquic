@@ -198,6 +198,36 @@ typedef enum {
     XQC_STREAM_UNI  = 1
 } xqc_stream_direction_t;
 
+/* draft-moq-delivery-feedback-00 (experimental): cross-layer events */
+typedef enum {
+    /* Transport → application/MoQ */
+    XQC_TRANSPORT_EVENT_BWE_UPDATED    = 0,
+    XQC_TRANSPORT_EVENT_CHUNK_CREATED  = 1,
+    XQC_TRANSPORT_EVENT_CHUNK_ACKED    = 2,
+} xqc_x_layer_transport_event_type_t;
+
+typedef enum {
+    /* Application/MoQ → CC */
+    XQC_APP_EVENT_TARGET_BITRATE_UPDATED = 0,
+    XQC_APP_EVENT_PACING_GAIN_UPDATED    = 1,
+    XQC_APP_EVENT_PACING_RATE_UPDATED    = 2,
+} xqc_x_layer_app_event_type_t;
+
+typedef struct {
+    uint64_t target_bitrate; /* bps */
+    xqc_usec_t expire_time; /* monotonic, 0 = no expiry */
+} xqc_target_bitrate_update_t;
+
+typedef struct {
+    float pacing_gain;
+    xqc_usec_t expire_time; /* monotonic, 0 = no expiry */
+} xqc_pacing_gain_update_t;
+
+typedef struct {
+    uint64_t pacing_rate;   /* bytes/s (0 = clear override) */
+    xqc_usec_t expire_time; /* monotonic, 0 = use default */
+} xqc_pacing_rate_update_t;
+
 /**
  * @brief FEC priority settings decided by h3 requests size
  */

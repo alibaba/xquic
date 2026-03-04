@@ -8,6 +8,7 @@
 #include "moq/xqc_moq.h"
 #include "moq/moq_media/xqc_moq_datachannel.h"
 #include "moq/moq_transport/xqc_moq_bitrate_allocator.h"
+#include "src/cc/xqc_crosslayer.h"
 
 //TODO: remove this
 //#define XQC_MOQ_DEBUG
@@ -46,6 +47,26 @@ typedef struct xqc_moq_session_s {
     xqc_int_t                       enable_fec;
     float                           fec_code_rate;
     xqc_int_t                       use_client_setup_v14;
+
+    /* draft-moq-delivery-feedback-00 (experimental) */
+    uint8_t                         delivery_feedback_local_bitmap;   /* bit0 out, bit1 metrics, bit2 in */
+    uint8_t                         delivery_feedback_peer_bitmap;
+    uint8_t                         delivery_feedback_output;
+    uint8_t                         delivery_feedback_metrics;
+    uint8_t                         delivery_feedback_input;
+    xqc_usec_t                      setup_complete_ts;                /* monotonic */
+    uint64_t                        playout_ahead_ms;                 /* app-reported */
+
+    struct xqc_moq_fb_report_gen_s *fb_report_gen;
+
+    /* Cross-layer control gateway (inline, zero-alloc) */
+    xqc_crosslayer_ctl_t            crosslayer_ctl;
+    uint8_t                         crosslayer_initialized;
+
+    /* Feedback decision control */
+    xqc_int_t                       auto_cc_feedback;                 /* 1=enabled (default), 0=disabled */
+    xqc_moq_fb_decision_config_t    feedback_decision_config;
+    xqc_int_t                       has_custom_decision_config;       /* user provided config */
 } xqc_moq_session_t;
 
 typedef enum {
@@ -79,5 +100,8 @@ xqc_moq_track_t *xqc_moq_find_track_by_name(xqc_moq_session_t *session,
 
 xqc_moq_track_t *xqc_moq_find_track_by_subscribe_id(xqc_moq_session_t *session,
     uint64_t subscribe_id, xqc_moq_track_role_t role);
+
+/* draft-moq-delivery-feedback-00 (experimental) */
+xqc_int_t xqc_moq_session_try_publish_delivery_feedback_track(xqc_moq_session_t *session, xqc_moq_track_t *media_track);
 
 #endif /* _XQC_MOQ_SESSION_H_INCLUDED_ */

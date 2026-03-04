@@ -784,7 +784,7 @@ xqc_process_ack_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     xqc_path_ctx_t *path = conn->conn_initial_path;
     xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path);
     ret = xqc_send_ctl_on_ack_received(path->path_send_ctl, pn_ctl, conn->conn_send_queue,
-                                       &ack_info, packet_in->pkt_recv_time, 
+                                       &ack_info, NULL, packet_in->pkt_recv_time,
                                        packet_in->pi_path_id == path->path_id);
 
     if (ret != XQC_OK) {
@@ -821,7 +821,7 @@ xqc_process_ack_ext_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     xqc_path_ctx_t *path = conn->conn_initial_path;
     xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path);
     xqc_int_t ret = xqc_send_ctl_on_ack_received(path->path_send_ctl, pn_ctl, conn->conn_send_queue,
-                                       &ack_info, packet_in->pkt_recv_time, 
+                                       &ack_info, &ack_ts_info, packet_in->pkt_recv_time,
                                        packet_in->pi_path_id == path->path_id);
 
     if (ret != XQC_OK) {
@@ -1756,7 +1756,7 @@ xqc_process_ack_mp_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path_to_be_acked);
 
     ret = xqc_send_ctl_on_ack_received(path_to_be_acked->path_send_ctl, pn_ctl, conn->conn_send_queue,
-                                       &ack_info, packet_in->pkt_recv_time, 
+                                       &ack_info, NULL, packet_in->pkt_recv_time,
                                        path_to_be_acked->path_id == packet_in->pi_path_id);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_send_ctl_on_ack_received error|");

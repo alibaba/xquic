@@ -14,6 +14,11 @@ if (XQC_ENABLE_MOQ)
         "moq/moq_transport/xqc_moq_utils.c"
         "moq/moq_transport/xqc_moq_bitrate_allocator.c"
         "moq/moq_transport/xqc_moq_fec.c"
+        "moq/moq_transport/xqc_moq_fb_report.c"
+        "moq/moq_transport/xqc_moq_feedback_tracker.c"
+        "moq/moq_transport/xqc_moq_fb_report_gen.c"
+        "moq/moq_transport/xqc_moq_feedback_track.c"
+        "moq/moq_transport/xqc_moq_feedback_decision.c"
         "moq/moq_media/xqc_moq_catalog.c"
         "moq/moq_media/xqc_moq_container_loc.c"
         "moq/moq_media/xqc_moq_datachannel.c"
@@ -25,13 +30,8 @@ if (XQC_ENABLE_MOQ)
         "moq/moq_media/dejitter/video/xqc_moq_video_frame_buffer.c"
     )
 
-    # add moq source
-    set(
-        XQC_SOURCE
-        ${XQC_SOURCE}
-        ${MOQ_SOURCES}
-        CACHE INTERNAL "moq source files"
-    )
+    # add moq source (avoid CACHE to prevent stale source lists across reconfigure)
+    set(XQC_SOURCE ${XQC_SOURCE} ${MOQ_SOURCES} PARENT_SCOPE)
 
     if(XQC_ENABLE_TESTING)
         add_subdirectory(demo)

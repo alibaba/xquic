@@ -813,7 +813,9 @@ xqc_send_ctl_detect_optimistic_ack_attack(xqc_send_ctl_t *send_ctl,
  * OnAckReceived
  */
 int
-xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_send_queue_t *send_queue, xqc_ack_info_t *const ack_info, xqc_usec_t ack_recv_time, xqc_bool_t ack_on_same_path)
+xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_send_queue_t *send_queue,
+    xqc_ack_info_t *const ack_info, xqc_ack_timestamp_info_t *ack_ts_info,
+    xqc_usec_t ack_recv_time, xqc_bool_t ack_on_same_path)
 {
     xqc_connection_t *conn = send_ctl->ctl_conn;
 
@@ -915,6 +917,22 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
                 xqc_frame_type_2_str(conn->engine, packet_out->po_frame_types),
                 xqc_conn_state_2_str(conn->conn_state),
                 frame_largest_ack, send_ctl->ctl_largest_acked[pns]);
+
+            if (ack_ts_info
+                && ack_ts_info->report_num > 0
+                && send_ctl->ctl_cong_callback
+                && send_ctl->ctl_cong_callback->xqc_cong_ctl_on_recv_timestamp)
+            {
+                for (uint32_t ti = 0; ti < ack_ts_info->report_num; ti++) {
+                    if (ack_ts_info->pkt_nums[ti] == packet_out->po_pkt.pkt_num) {
+                        xqc_usec_t recv_ts = (xqc_usec_t)ack_ts_info->recv_ts[ti] * 1000;
+                        (void)send_ctl->ctl_cong_callback->xqc_cong_ctl_on_recv_timestamp(
+                            send_ctl->ctl_cong, packet_out->po_pkt.pkt_num,
+                            packet_out->po_sent_time, recv_ts, ack_recv_time);
+                        break;
+                    }
+                }
+            }
 
             // 更新sample
             xqc_update_sample(&send_ctl->sampler, packet_out, send_ctl, ack_recv_time);

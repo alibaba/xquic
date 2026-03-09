@@ -199,48 +199,62 @@ fb_suppress_decision_example(xqc_moq_session_t *session,
 */
 
 static void
-fb_on_delivery_feedback(xqc_moq_session_t *session,
+fb_on_feedback_media(xqc_moq_session_t *session,
     const xqc_moq_fb_report_t *report, void *user_data)
 {
     g_feedback_report_count++;
 
-    printf("[FEEDBACK] seq=%"PRIu64" ts=%"PRIu64"us entries=%"PRIu64
-           " total_eval=%"PRIu64" recv=%"PRIu64" lost=%"PRIu64" late=%"PRIu64
-           " avg_delta=%"PRId64"\n",
+    double loss_rate = 0, late_rate = 0;
+    uint64_t playout_ahead_ms = 0;
+
+    if (report->summary_stats.total_objects_evaluated > 0) {
+        loss_rate = (double)report->summary_stats.objects_lost
+                  / report->summary_stats.total_objects_evaluated;
+        late_rate = (double)report->summary_stats.objects_received_late
+                  / report->summary_stats.total_objects_evaluated;
+    }
+
+    for (uint64_t i = 0; i < report->optional_metric_count; i++) {
+        if (report->optional_metrics[i].metric_type == XQC_MOQ_FB_METRIC_PLAYOUT_AHEAD_MS) {
+            playout_ahead_ms = report->optional_metrics[i].metric_value;
+        }
+    }
+
+    printf("[FB_MEDIA] seq=%"PRIu64" ts=%"PRIu64" lost=%.1f%%(%"PRIu64"/%"PRIu64")"
+           " late=%.1f%% avg_delta=%"PRId64"us playout=%"PRIu64"ms entries=%"PRIu64"\n",
            report->report_sequence,
            report->report_timestamp,
-           report->object_entry_count,
-           report->summary_stats.total_objects_evaluated,
-           report->summary_stats.objects_received,
+           loss_rate * 100,
            report->summary_stats.objects_lost,
-           report->summary_stats.objects_received_late,
-           report->summary_stats.avg_inter_arrival_delta);
+           report->summary_stats.total_objects_evaluated,
+           late_rate * 100,
+           report->summary_stats.avg_inter_arrival_delta,
+           playout_ahead_ms,
+           report->object_entry_count);
 
     g_last_objects_lost = report->summary_stats.objects_lost;
     g_last_objects_late = report->summary_stats.objects_received_late;
 
-    for (uint64_t i = 0; i < report->optional_metric_count; i++) {
-        printf("[FEEDBACK] metric type=0x%"PRIx64" value=%"PRIu64"\n",
-               report->optional_metrics[i].metric_type,
-               report->optional_metrics[i].metric_value);
-    }
-
-    for (uint64_t j = 0; j < report->object_entry_count; j++) {
-        xqc_moq_fb_object_row_t *row = &report->object_entries[j];
-        printf("[FEEDBACK] object_id=%"PRIu64" status=%"PRIu64" recv_ts_delta=%"PRId64"\n",
-               row->object_id, row->obj.status, row->obj.recv_ts_delta);
-    }
-
-    /*
-     * CC adjustment is tracked in feedback_track via crosslayer; here we
-     * approximate by counting reports that indicate problems (loss/late > 0
-     * or playout critically low).
-     */
     if (report->summary_stats.objects_lost > 0
         || report->summary_stats.objects_received_late > 0)
     {
         g_cc_adj_count++;
     }
+}
+
+static void
+fb_on_feedback_network(xqc_moq_session_t *session,
+    const xqc_moq_fb_network_stats_t *stats, void *user_data)
+{
+    printf("[FB_NET] srtt=%"PRIu64"us min_rtt=%"PRIu64"us bw=%"PRIu64"KB/s"
+           " pacing=%"PRIu64"KB/s inflight=%"PRIu64
+           " loss=%.2f%% (pkts %u/%u)\n",
+           stats->srtt, stats->min_rtt,
+           stats->bandwidth_estimate / 1024,
+           stats->pacing_rate / 1024,
+           stats->inflight_bytes,
+           stats->recent_loss_rate * 100,
+           stats->lost_count, stats->send_count);
 }
 
 
@@ -363,7 +377,8 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn,
         .on_subscribe           = fb_on_subscribe,
         .on_request_keyframe    = fb_on_request_keyframe,
         .on_bitrate_change      = fb_on_bitrate_change,
-        .on_delivery_feedback   = fb_on_delivery_feedback,
+        .on_feedback_media      = fb_on_feedback_media,
+        .on_feedback_network    = fb_on_feedback_network,
         .on_subscribe_ok        = fb_on_subscribe_ok,
         .on_subscribe_error     = fb_on_subscribe_error,
         .on_publish             = fb_on_publish_msg,

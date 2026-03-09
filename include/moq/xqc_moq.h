@@ -408,8 +408,25 @@ typedef void (*xqc_moq_on_bitrate_change_pt)(xqc_moq_user_session_t *user_sessio
 typedef void (*xqc_moq_on_object_pt)(xqc_moq_user_session_t *user_session,
     xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, xqc_moq_object_t *object);
 
-typedef void (*xqc_moq_on_delivery_feedback_pt)(xqc_moq_session_t *session,
+/* Feedback: media quality (Track-level, from MRR) */
+typedef void (*xqc_moq_on_feedback_media_pt)(xqc_moq_session_t *session,
     const xqc_moq_fb_report_t *report, void *user_data);
+
+/* Feedback: network connection stats (local QUIC layer) */
+typedef struct {
+    xqc_usec_t  srtt;                   /* smoothed RTT (microseconds) */
+    xqc_usec_t  min_rtt;                /* minimum RTT (microseconds) */
+    uint64_t    bandwidth_estimate;     /* CC bandwidth estimate (bytes/s) */
+    uint64_t    pacing_rate;            /* current pacing rate (bytes/s) */
+    uint64_t    inflight_bytes;         /* bytes in flight */
+    uint32_t    send_count;             /* total packets sent */
+    uint32_t    lost_count;             /* total packets lost */
+    uint32_t    recv_count;             /* total packets received */
+    double      recent_loss_rate;       /* recent loss rate (sliding window) */
+} xqc_moq_fb_network_stats_t;
+
+typedef void (*xqc_moq_on_feedback_network_pt)(xqc_moq_session_t *session,
+    const xqc_moq_fb_network_stats_t *stats, void *user_data);
 
 /* draft-moq-delivery-feedback-00 (experimental): forward declarations */
 typedef struct xqc_moq_fb_decision_s xqc_moq_fb_decision_t;
@@ -436,7 +453,8 @@ typedef struct {
     xqc_moq_on_unsubscribe_pt       on_unsubscribe; /* Optional */
     xqc_moq_on_request_keyframe_pt  on_request_keyframe; /* Required */
     xqc_moq_on_bitrate_change_pt    on_bitrate_change; /* Optional */
-    xqc_moq_on_delivery_feedback_pt on_delivery_feedback; /* Optional: observer/logging */
+    xqc_moq_on_feedback_media_pt    on_feedback_media; /* Optional: Track-level quality from MRR */
+    xqc_moq_on_feedback_network_pt  on_feedback_network; /* Optional: connection-level network stats */
     xqc_moq_on_feedback_decision_pt on_feedback_decision; /* Optional: user-driven CC decision */
     /* For Subscriber */
     xqc_moq_on_subscribe_ok_pt      on_subscribe_ok; /* Required */

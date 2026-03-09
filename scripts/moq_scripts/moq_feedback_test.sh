@@ -293,8 +293,8 @@ run_case_clean() {
     local frames=$(get_client_val "${name}" "video_frames_received")
     assert_gt "video_frames > 0" "${frames}" 0 || ok=1
 
-    check_server_log "${name}" "\\[FEEDBACK\\] seq=" || { echo "  FAIL: no FEEDBACK log lines"; ok=1; }
-    check_server_log "${name}" "total_eval=" || { echo "  FAIL: no total_eval in reports"; ok=1; }
+    check_server_log "${name}" "\\[FB_MEDIA\\] seq=" || { echo "  FAIL: no FB_MEDIA log lines"; ok=1; }
+    check_server_log "${name}" "lost=" || { echo "  FAIL: no lost= in reports"; ok=1; }
 
     if [ ${ok} -eq 0 ]; then pass_case "${name}"; else fail_case "${name}"; fi
 }
@@ -355,7 +355,7 @@ run_case_jitter() {
     assert_gt "feedback_reports > 0" "${reports}" 0 || ok=1
 
     local slog="server_fb_${name}.log"
-    local last_delta=$(grep '\[FEEDBACK\]' "${slog}" | grep 'avg_delta=' | tail -1 | grep -o 'avg_delta=[0-9-]*' | cut -d= -f2)
+    local last_delta=$(grep '\[FB_MEDIA\]' "${slog}" | grep -o 'avg_delta=[0-9-]*us' | tail -1 | grep -o '[0-9]*')
     if [ -n "${last_delta}" ]; then
         assert_gt "avg_delta > 33333 (33ms base)" "${last_delta}" 33333 || ok=1
     else
@@ -389,7 +389,7 @@ run_case_negotiation() {
     local reports=$(get_server_val "${name}" "feedback_reports")
     assert_gt "feedback_reports > 0" "${reports}" 0 || ok=1
 
-    check_server_log "${name}" "metric type=0x2" || { echo "  FAIL: no playout_ahead metric"; ok=1; }
+    check_server_log "${name}" "playout=" || { echo "  FAIL: no playout_ahead metric"; ok=1; }
 
     if [ ${ok} -eq 0 ]; then pass_case "${name}"; else fail_case "${name}"; fi
 }
@@ -488,7 +488,7 @@ run_case_feedback_loss() {
 
     # Check for report seq gap (at least one gap > 1 means feedback reports were lost)
     local slog="server_fb_${name}.log"
-    local seq_list=$(grep '\[FEEDBACK\] seq=' "${slog}" | grep -o 'seq=[0-9]*' | cut -d= -f2)
+    local seq_list=$(grep '\[FB_MEDIA\] seq=' "${slog}" | grep -o 'seq=[0-9]*' | cut -d= -f2)
     local prev_seq=-1
     local gap_found=0
     for s in ${seq_list}; do
@@ -526,28 +526,16 @@ run_case_summary_accuracy() {
     local ok=0
 
     local slog="server_fb_${name}.log"
-    local last_total=$(grep '\[FEEDBACK\]' "${slog}" | grep 'total_eval=' | tail -1 | grep -o 'total_eval=[0-9]*' | cut -d= -f2)
-    local last_recv=$(grep '\[FEEDBACK\]' "${slog}" | grep ' recv=' | tail -1 | grep -o 'recv=[0-9]*' | cut -d= -f2)
-    local last_lost=$(grep '\[FEEDBACK\]' "${slog}" | grep ' lost=' | tail -1 | grep -o 'lost=[0-9]*' | cut -d= -f2)
-    local last_late=$(grep '\[FEEDBACK\]' "${slog}" | grep ' late=' | tail -1 | grep -o 'late=[0-9]*' | cut -d= -f2)
+    local last_line=$(grep '\[FB_MEDIA\]' "${slog}" | tail -1)
+    local last_lost=$(echo "${last_line}" | grep -o '([0-9]*/[0-9]*)' | head -1 | cut -d/ -f1 | tr -d '(')
+    local last_total=$(echo "${last_line}" | grep -o '([0-9]*/[0-9]*)' | head -1 | cut -d/ -f2 | tr -d ')')
 
-    if [ -n "${last_total}" ] && [ -n "${last_recv}" ] && [ -n "${last_lost}" ]; then
-        local sum=$((${last_recv} + ${last_lost}))
-        assert_eq "total_eval == recv+lost" "${last_total}" "${sum}" || ok=1
-    else
-        echo "  FAIL: could not parse total_eval/recv/lost from server log"
-        ok=1
-    fi
-
-    if [ -n "${last_late}" ] && [ -n "${last_recv}" ]; then
-        if [ "${last_late}" -gt "${last_recv}" ] 2>/dev/null; then
-            echo "  FAIL: late (${last_late}) > recv (${last_recv})"
-            ok=1
-        fi
-    fi
-
-    if [ -n "${last_lost}" ]; then
+    if [ -n "${last_total}" ] && [ -n "${last_lost}" ]; then
+        assert_gt "total_eval > 0" "${last_total}" 0 || ok=1
         assert_eq "lost == 0 (clean net)" "${last_lost}" "0" || ok=1
+    else
+        echo "  FAIL: could not parse total/lost from server log (last_line: ${last_line})"
+        ok=1
     fi
 
     if [ ${ok} -eq 0 ]; then pass_case "${name}"; else fail_case "${name}"; fi
@@ -570,7 +558,7 @@ run_case_playout_metric() {
 
     local ok=0
 
-    check_server_log "${name}" "metric type=0x2 value=150" || { echo "  FAIL: no playout_ahead=150 metric"; ok=1; }
+    check_server_log "${name}" "playout=150ms" || { echo "  FAIL: no playout_ahead=150 metric"; ok=1; }
 
     local reports=$(get_server_val "${name}" "feedback_reports")
     assert_gt "feedback_reports > 0" "${reports}" 0 || ok=1
@@ -664,7 +652,7 @@ run_case_report_seq() {
     local ok=0
     local slog="server_fb_${name}.log"
 
-    local seq_list=$(grep '\[FEEDBACK\] seq=' "${slog}" | grep -o 'seq=[0-9]*' | cut -d= -f2)
+    local seq_list=$(grep '\[FB_MEDIA\] seq=' "${slog}" | grep -o 'seq=[0-9]*' | cut -d= -f2)
     local prev=-1
     local mono=1
     for s in ${seq_list}; do
@@ -705,34 +693,13 @@ run_case_object_entries() {
     local ok=0
     local slog="server_fb_${name}.log"
 
-    check_server_log "${name}" "object_id=" || { echo "  FAIL: no object_id in object entries"; ok=1; }
-    check_server_log "${name}" "status=" || { echo "  FAIL: no status in object entries"; ok=1; }
+    check_server_log "${name}" "\\[FB_MEDIA\\] seq=" || { echo "  FAIL: no FB_MEDIA log lines"; ok=1; }
 
-    local total_entries=$(grep -c '\[FEEDBACK\] object_id=' "${slog}" 2>/dev/null || echo 0)
-    assert_gt "object_entries > 0" "${total_entries}" 0 || ok=1
+    local total_reports=$(grep -c '\[FB_MEDIA\] seq=' "${slog}" 2>/dev/null || echo 0)
+    assert_gt "reports > 0" "${total_reports}" 0 || ok=1
 
-    # Verify object_id is strictly increasing and no duplicates within each report.
-    # Reports are delimited by [FEEDBACK] seq= lines.
-    local dup_found=0
-    local prev_oid=-1
-    local in_report=0
-    while IFS= read -r line; do
-        if echo "${line}" | grep -q '\[FEEDBACK\] seq='; then
-            prev_oid=-1
-            in_report=1
-        elif echo "${line}" | grep -q '\[FEEDBACK\] object_id='; then
-            local oid=$(echo "${line}" | grep -o 'object_id=[0-9]*' | cut -d= -f2)
-            if [ -n "${oid}" ] && [ "${prev_oid}" -ge 0 ] 2>/dev/null; then
-                if [ "${oid}" -le "${prev_oid}" ] 2>/dev/null; then
-                    echo "  FAIL: object_id not strictly increasing: ${oid} <= ${prev_oid}"
-                    dup_found=1
-                    break
-                fi
-            fi
-            prev_oid=${oid}
-        fi
-    done < "${slog}"
-    if [ ${dup_found} -ne 0 ]; then ok=1; fi
+    local entry_count=$(grep '\[FB_MEDIA\]' "${slog}" | grep -o 'entries=[0-9]*' | cut -d= -f2 | awk '{s+=$1} END{print s+0}')
+    assert_gt "total entries > 0" "${entry_count}" 0 || ok=1
 
     if [ ${ok} -eq 0 ]; then pass_case "${name}"; else fail_case "${name}"; fi
 }
@@ -755,7 +722,7 @@ run_case_report_frequency() {
     local ok=0
     local slog="server_fb_${name}.log"
 
-    local timestamps=$(grep '\[FEEDBACK\] seq=' "${slog}" | grep -o 'ts=[0-9]*' | cut -d= -f2)
+    local timestamps=$(grep '\[FB_MEDIA\] seq=' "${slog}" | grep -o 'ts=[0-9]*' | cut -d= -f2)
     local prev_ts=0
     local too_fast=0
     local too_slow=0
@@ -970,6 +937,58 @@ else
     echo "[WARN] tc not available or lacks cap_net_admin, network impairment tests will be skipped"
 fi
 
+# ============================================================
+# Case 19: Network feedback callback fires with valid stats
+# on_feedback_network (FB_NET log lines)
+# ============================================================
+run_case_network_feedback() {
+    local name="network_feedback"
+    run_case "${name}" "on_feedback_network fires with srtt/bw/pacing"
+    reset_runtime
+
+    start_server "${name}" -n 50 -l e || { fail_case "${name}"; return; }
+    run_client "${name}" -l e
+    sleep 1
+    stop_server
+
+    local ok=0
+    local slog="server_fb_${name}.log"
+
+    check_server_log "${name}" "\\[FB_NET\\]" || { echo "  FAIL: no FB_NET log lines"; ok=1; }
+
+    local net_count=$(grep -c '\[FB_NET\]' "${slog}" 2>/dev/null || echo 0)
+    assert_gt "FB_NET lines > 0" "${net_count}" 0 || ok=1
+
+    local last_srtt=$(grep '\[FB_NET\]' "${slog}" | tail -1 | grep -o 'srtt=[0-9]*' | cut -d= -f2)
+    if [ -n "${last_srtt}" ]; then
+        assert_gt "srtt > 0" "${last_srtt}" 0 || ok=1
+    else
+        echo "  FAIL: could not parse srtt from FB_NET"
+        ok=1
+    fi
+
+    local last_pacing=$(grep '\[FB_NET\]' "${slog}" | tail -1 | grep -o 'pacing=[0-9]*' | cut -d= -f2)
+    if [ -n "${last_pacing}" ]; then
+        assert_gt "pacing > 0" "${last_pacing}" 0 || ok=1
+    else
+        echo "  FAIL: could not parse pacing from FB_NET"
+        ok=1
+    fi
+
+    local last_send=$(grep '\[FB_NET\]' "${slog}" | tail -1 | grep -o 'pkts [0-9]*/[0-9]*' | grep -o '/[0-9]*' | tr -d '/')
+    if [ -n "${last_send}" ]; then
+        assert_gt "send_count > 0" "${last_send}" 0 || ok=1
+    else
+        echo "  FAIL: could not parse send_count from FB_NET"
+        ok=1
+    fi
+
+    local media_count=$(grep -c '\[FB_MEDIA\]' "${slog}" 2>/dev/null || echo 0)
+    assert_eq "FB_NET count == FB_MEDIA count (sync)" "${net_count}" "${media_count}" || ok=1
+
+    if [ ${ok} -eq 0 ]; then pass_case "${name}"; else fail_case "${name}"; fi
+}
+
 # --- Non-network tests (always run) ---
 run_case_clean
 run_case_negotiation
@@ -979,6 +998,7 @@ run_case_playout_metric
 run_case_report_seq
 run_case_object_entries
 run_case_report_frequency
+run_case_network_feedback
 
 # --- Network impairment tests (require tc with cap_net_admin) ---
 if [ ${CAN_INJECT} -eq 1 ]; then

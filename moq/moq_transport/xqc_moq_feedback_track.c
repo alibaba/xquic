@@ -5,6 +5,7 @@
 #include "moq/moq_transport/xqc_moq_feedback_decision.h"
 #include "src/cc/xqc_crosslayer.h"
 #include "src/common/xqc_time.h"
+#include "src/transport/xqc_send_ctl.h"
 
 static void xqc_moq_feedback_on_create(xqc_moq_track_t *track);
 static void xqc_moq_feedback_on_destroy(xqc_moq_track_t *track);
@@ -170,9 +171,42 @@ xqc_moq_feedback_on_object(xqc_moq_session_t *session, xqc_moq_track_t *track, x
     input.estimated_bw_kbps = xqc_moq_feedback_get_metric(&report,
         XQC_MOQ_FB_METRIC_ESTIMATED_BANDWIDTH_KBPS);
 
-    /* 3. Observer callback (logging/stats, does not affect CC) */
-    if (session->session_callbacks.on_delivery_feedback) {
-        session->session_callbacks.on_delivery_feedback(session, &report, session->user_session);
+    /* 3a. Media feedback callback (Track-level quality from MRR) */
+    if (session->session_callbacks.on_feedback_media) {
+        session->session_callbacks.on_feedback_media(session, &report, session->user_session);
+    }
+
+    /* 3b. Network feedback callback (local QUIC connection stats) */
+    if (session->session_callbacks.on_feedback_network && session->quic_conn) {
+        xqc_moq_fb_network_stats_t net_stats;
+        xqc_memzero(&net_stats, sizeof(net_stats));
+
+        xqc_send_ctl_t *send_ctl = session->quic_conn->conn_initial_path
+            ? session->quic_conn->conn_initial_path->path_send_ctl : NULL;
+
+        if (send_ctl) {
+            net_stats.srtt               = send_ctl->ctl_srtt;
+            net_stats.min_rtt            = send_ctl->ctl_minrtt;
+            net_stats.bandwidth_estimate = xqc_send_ctl_get_est_bw(send_ctl);
+            net_stats.pacing_rate        = xqc_send_ctl_get_pacing_rate(send_ctl);
+            net_stats.inflight_bytes     = send_ctl->ctl_bytes_in_flight;
+            net_stats.send_count         = send_ctl->ctl_send_count;
+            net_stats.lost_count         = send_ctl->ctl_lost_count;
+            net_stats.recv_count         = send_ctl->ctl_recv_count;
+
+            double loss_rate0 = 0, loss_rate1 = 0;
+            if (send_ctl->ctl_recent_send_count[0] > 0) {
+                loss_rate0 = (double)send_ctl->ctl_recent_lost_count[0]
+                    / (double)send_ctl->ctl_recent_send_count[0];
+            }
+            if (send_ctl->ctl_recent_send_count[1] > 0) {
+                loss_rate1 = (double)send_ctl->ctl_recent_lost_count[1]
+                    / (double)send_ctl->ctl_recent_send_count[1];
+            }
+            net_stats.recent_loss_rate = (loss_rate0 > loss_rate1) ? loss_rate0 : loss_rate1;
+        }
+
+        session->session_callbacks.on_feedback_network(session, &net_stats, session->user_session);
     }
 
     /* 4-5. CC decision: user callback takes priority over auto */

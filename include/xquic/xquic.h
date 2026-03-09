@@ -1537,6 +1537,8 @@ typedef struct xqc_path_metrics_s {
  */
 typedef struct xqc_conn_stats_s {
     uint32_t            send_count;
+    /** 仅统计携带业务数据的包（STREAM/DATAGRAM），不含握手、ACK、控制包等 */
+    uint32_t            app_data_send_count;
     uint32_t            lost_count;
     uint32_t            tlp_count;
     uint32_t            spurious_loss_count;

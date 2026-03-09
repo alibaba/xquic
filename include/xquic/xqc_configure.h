@@ -10,7 +10,7 @@
 /* #undef XQC_NO_PID_PACKET_PROCESS */
 /* #undef XQC_PROTECT_POOL_MEM */
 /* #undef XQC_COMPAT_DUPLICATE */
-/* #undef XQC_ENABLE_FEC */
-/* #undef XQC_ENABLE_XOR */
+#define XQC_ENABLE_FEC
+#define XQC_ENABLE_XOR
 /* #undef XQC_ENABLE_RSC */
 /* #undef XQC_ENABLE_PKM */

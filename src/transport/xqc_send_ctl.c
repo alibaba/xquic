@@ -755,6 +755,9 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
         }
 
         ++send_ctl->ctl_send_count;
+        if (packet_out->po_frame_types & (XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_DATAGRAM)) {
+            ++send_ctl->ctl_app_data_send_count;
+        }
         send_ctl->ctl_recent_send_count[0]++;
         xqc_stream_path_metrics_on_send(send_ctl->ctl_conn, packet_out);
 

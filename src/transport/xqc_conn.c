@@ -3661,6 +3661,7 @@ xqc_conn_get_stats_internal(xqc_connection_t *conn, xqc_conn_stats_t *conn_stats
 
         conn_stats->lost_count           += send_ctl->ctl_lost_count;
         conn_stats->send_count           += send_ctl->ctl_send_count;
+        conn_stats->app_data_send_count  += send_ctl->ctl_app_data_send_count;
         conn_stats->tlp_count            += send_ctl->ctl_tlp_count;
         conn_stats->spurious_loss_count  += send_ctl->ctl_spurious_loss_count;
         conn_stats->recv_count           += send_ctl->ctl_recv_count;

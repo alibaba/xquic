@@ -15,9 +15,12 @@
 /**
  * Pure policy: evaluate feedback metrics against thresholds.
  * Rate-limiting is handled by the crosslayer gateway.
+ * @param had_reduction  nonzero if a prior reduction (gain<1.0 or bitrate cut)
+ *                       was dispatched; gates the recovery probe-up rule.
  */
 void xqc_moq_fb_decision_evaluate(const xqc_moq_fb_decision_config_t *config,
     const xqc_moq_fb_input_t *input, xqc_usec_t now,
+    xqc_int_t had_reduction,
     xqc_moq_fb_decision_t *decision);
 
 #endif /* _XQC_MOQ_FEEDBACK_DECISION_H_INCLUDED_ */

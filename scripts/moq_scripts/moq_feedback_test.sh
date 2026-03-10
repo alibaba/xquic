@@ -984,7 +984,69 @@ run_case_network_feedback() {
     fi
 
     local media_count=$(grep -c '\[FB_MEDIA\]' "${slog}" 2>/dev/null || echo 0)
-    assert_eq "FB_NET count == FB_MEDIA count (sync)" "${net_count}" "${media_count}" || ok=1
+    assert_gt "FB_MEDIA count > 0" "${media_count}" 0 || ok=1
+
+    if [ ${ok} -eq 0 ]; then pass_case "${name}"; else fail_case "${name}"; fi
+}
+
+# ============================================================
+# Case 20: Bidirectional MRR feedback
+# Client sends upload, Server subscribes, both generate MRR
+# ============================================================
+run_case_bidirectional_feedback() {
+    local name="bidirectional_feedback"
+    run_case "${name}" "Bidirectional MRR: Client receives Server-side FB_MEDIA_RECV"
+    reset_runtime
+
+    start_server "${name}" -n 30 -l e || { fail_case "${name}"; return; }
+    run_client "${name}" -l e -n 30
+    sleep 1
+    stop_server
+
+    local ok=0
+    local slog="server_fb_${name}.log"
+    local clog="client_fb_${name}.log"
+
+    local server_reports=$(get_server_val "${name}" "feedback_reports")
+    assert_gt "server feedback_reports > 0" "${server_reports}" 0 || ok=1
+
+    local upload_frames=$(get_server_val "${name}" "upload_frames_received")
+    assert_gt "upload_frames_received > 0" "${upload_frames}" 0 || ok=1
+
+    local client_fb_recv=$(get_client_val "${name}" "feedback_reports_received")
+    assert_gt "client feedback_reports_received > 0" "${client_fb_recv}" 0 || ok=1
+
+    local client_fb_sent=$(get_client_val "${name}" "feedback_reports_sent")
+    assert_gt "client feedback_reports_sent > 0" "${client_fb_sent}" 0 || ok=1
+
+    local client_net_count=$(grep -c '\[FB_NET\]' "${clog}" 2>/dev/null || echo 0)
+    assert_gt "client FB_NET count > 0" "${client_net_count}" 0 || ok=1
+
+    local server_net_count=$(grep -c '\[FB_NET\]' "${slog}" 2>/dev/null || echo 0)
+    assert_gt "server FB_NET count > 0" "${server_net_count}" 0 || ok=1
+
+    local upload_subscribe_requests=$(get_client_val "${name}" "upload_subscribe_requests")
+    assert_eq "upload_subscribe_requests == 1" "${upload_subscribe_requests}" "1" || ok=1
+
+    local upload_timer_starts=$(get_client_val "${name}" "upload_timer_starts")
+    assert_eq "upload_timer_starts == 1" "${upload_timer_starts}" "1" || ok=1
+
+    local first_client_net=$(grep -n '\[FB_NET\]' "${clog}" | head -1 | cut -d: -f1)
+    local first_client_media=$(grep -n '\[FB_MEDIA_RECV\]' "${clog}" | head -1 | cut -d: -f1)
+    if [ -n "${first_client_net}" ] && [ -n "${first_client_media}" ]; then
+        if [ "${first_client_net}" -ge "${first_client_media}" ]; then
+            echo "  FAIL: client FB_NET should appear before first FB_MEDIA_RECV"
+            ok=1
+        fi
+    else
+        echo "  FAIL: could not locate client FB_NET / FB_MEDIA_RECV ordering"
+        ok=1
+    fi
+
+    check_client_log "${name}" "\\[FB_MEDIA_RECV\\]" || { echo "  FAIL: no FB_MEDIA_RECV on client"; ok=1; }
+    check_server_log "${name}" "\\[UPLOAD_VIDEO\\]" || { echo "  FAIL: no UPLOAD_VIDEO on server"; ok=1; }
+    check_client_log "${name}" "\\[CLIENT_SUBSCRIBE\\]" || { echo "  FAIL: no CLIENT_SUBSCRIBE on client"; ok=1; }
+    check_client_log "${name}" "\\[FB_NET\\]" || { echo "  FAIL: no FB_NET on client"; ok=1; }
 
     if [ ${ok} -eq 0 ]; then pass_case "${name}"; else fail_case "${name}"; fi
 }
@@ -999,6 +1061,7 @@ run_case_report_seq
 run_case_object_entries
 run_case_report_frequency
 run_case_network_feedback
+run_case_bidirectional_feedback
 
 # --- Network impairment tests (require tc with cap_net_admin) ---
 if [ ${CAN_INJECT} -eq 1 ]; then

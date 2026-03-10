@@ -31,6 +31,7 @@ xqc_moq_fb_decision_config_default(xqc_moq_fb_decision_config_t *config)
 void
 xqc_moq_fb_decision_evaluate(const xqc_moq_fb_decision_config_t *config,
     const xqc_moq_fb_input_t *input, xqc_usec_t now,
+    xqc_int_t had_reduction,
     xqc_moq_fb_decision_t *decision)
 {
     decision->action = XQC_MOQ_FB_ACTION_NONE;
@@ -105,8 +106,8 @@ xqc_moq_fb_decision_evaluate(const xqc_moq_fb_decision_config_t *config,
         return;
     }
 
-    /* 7. All reduction rules passed, no BW estimate -> mild probe-up (GCC increase 1.05). */
-    if (config->recovery_gain > 1.0f) {
+    /* 7. Recovery probe-up: only fires after a prior reduction has been dispatched. */
+    if (had_reduction && config->recovery_gain > 1.0f) {
         decision->action = XQC_MOQ_FB_ACTION_PACING_GAIN;
         decision->u.pacing_gain.gain = config->recovery_gain;
         return;

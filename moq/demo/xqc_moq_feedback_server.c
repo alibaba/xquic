@@ -48,6 +48,7 @@ static uint64_t g_total_objects_sent = 0;
 static uint64_t g_last_objects_lost = 0;
 static uint64_t g_last_objects_late = 0;
 static uint64_t g_cc_adj_count = 0;  /* reports with loss/late > 0 (heuristic) */
+static uint64_t g_upload_frames_received = 0;
 
 typedef struct {
     user_conn_t          base;
@@ -58,6 +59,9 @@ typedef struct {
     uint64_t             video_seq;
     int                  countdown;
     int                  closing_notified;
+    /* upload track subscription (Server subscribes Client's upload) */
+    xqc_moq_track_t     *upload_track;
+    uint64_t             upload_subscribe_id;
 } fb_server_conn_t;
 
 
@@ -168,9 +172,9 @@ xqc_server_socket_event_callback(int fd, short what, void *arg)
 
 /*
 static xqc_int_t
-fb_custom_decision_example(xqc_moq_session_t *session,
+fb_custom_decision_example(xqc_moq_user_session_t *user_session,
     const xqc_moq_fb_report_t *report, const xqc_moq_fb_input_t *input,
-    xqc_moq_fb_decision_t *out_decision, void *user_data)
+    xqc_moq_fb_decision_t *out_decision)
 {
     if (input->loss_rate > 0.15) {
         out_decision->action = XQC_MOQ_FB_ACTION_PACING_GAIN;
@@ -186,9 +190,9 @@ fb_custom_decision_example(xqc_moq_session_t *session,
 }
 
 static xqc_int_t
-fb_suppress_decision_example(xqc_moq_session_t *session,
+fb_suppress_decision_example(xqc_moq_user_session_t *user_session,
     const xqc_moq_fb_report_t *report, const xqc_moq_fb_input_t *input,
-    xqc_moq_fb_decision_t *out_decision, void *user_data)
+    xqc_moq_fb_decision_t *out_decision)
 {
     if (input->loss_rate < 0.01 && input->late_rate < 0.01) {
         out_decision->action = XQC_MOQ_FB_ACTION_NONE;
@@ -199,8 +203,8 @@ fb_suppress_decision_example(xqc_moq_session_t *session,
 */
 
 static void
-fb_on_feedback_media(xqc_moq_session_t *session,
-    const xqc_moq_fb_report_t *report, void *user_data)
+fb_on_feedback_media(xqc_moq_user_session_t *user_session,
+    const xqc_moq_fb_report_t *report)
 {
     g_feedback_report_count++;
 
@@ -243,8 +247,8 @@ fb_on_feedback_media(xqc_moq_session_t *session,
 }
 
 static void
-fb_on_feedback_network(xqc_moq_session_t *session,
-    const xqc_moq_fb_network_stats_t *stats, void *user_data)
+fb_on_feedback_network(xqc_moq_user_session_t *user_session,
+    const xqc_moq_fb_network_stats_t *stats)
 {
     printf("[FB_NET] srtt=%"PRIu64"us min_rtt=%"PRIu64"us bw=%"PRIu64"KB/s"
            " pacing=%"PRIu64"KB/s inflight=%"PRIu64
@@ -297,6 +301,24 @@ fb_on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
         printf("create video track error\n");
     }
     conn->video_track = video_track;
+
+    /* subscribe Client's upload track for bidirectional feedback */
+    xqc_moq_track_t *sub_upload = xqc_moq_track_create(session,
+        "namespace", "upload", XQC_MOQ_TRACK_VIDEO, NULL,
+        XQC_MOQ_CONTAINER_LOC, XQC_MOQ_TRACK_FOR_SUB);
+    if (sub_upload == NULL) {
+        printf("create subscriber upload track error\n");
+    } else {
+        conn->upload_track = sub_upload;
+        conn->upload_subscribe_id = XQC_MOQ_INVALID_ID;
+        xqc_int_t ret = xqc_moq_subscribe_latest(session, "namespace", "upload");
+        if (ret < 0) {
+            printf("subscribe upload error\n");
+        } else {
+            conn->upload_subscribe_id = ret;
+        }
+
+    }
 }
 
 
@@ -351,7 +373,14 @@ fb_on_subscribe_error(xqc_moq_user_session_t *user_session, xqc_moq_track_t *tra
 
 void fb_on_request_keyframe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id, xqc_moq_track_t *track) {}
 void fb_on_bitrate_change(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, uint64_t bitrate) {}
-void fb_on_video_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id, xqc_moq_video_frame_t *video_frame) {}
+void
+fb_on_video_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
+    xqc_moq_video_frame_t *video_frame)
+{
+    g_upload_frames_received++;
+    printf("[UPLOAD_VIDEO] seq=%"PRIu64" ts=%"PRIu64" len=%"PRIu64"\n",
+           video_frame->seq_num, video_frame->timestamp_us, video_frame->video_len);
+}
 void fb_on_audio_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id, xqc_moq_audio_frame_t *audio_frame) {}
 
 void fb_on_datachannel(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info) {}
@@ -395,14 +424,14 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn,
 
     setup_params[0].type = XQC_MOQ_PARAM_ROLE;
     setup_params[0].is_integer = 1;
-    setup_params[0].int_value = XQC_MOQ_PUBLISHER;
+    setup_params[0].int_value = XQC_MOQ_PUBSUB;
 
     setup_params[1].type = XQC_MOQ_PARAM_DELIVERY_FEEDBACK;
     setup_params[1].is_integer = 1;
     setup_params[1].int_value = 0x07; /* bit0=output, bit1=metrics, bit2=input */
 
     xqc_moq_session_t *session = xqc_moq_session_create_with_params(conn, user_session,
-        XQC_MOQ_TRANSPORT_QUIC, XQC_MOQ_PUBLISHER, callbacks, NULL, 1,
+        XQC_MOQ_TRANSPORT_QUIC, XQC_MOQ_PUBSUB, callbacks, NULL, 1,
         setup_params, 2);
     if (session == NULL) {
         printf("create session error\n");
@@ -503,10 +532,12 @@ xqc_server_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
     uint64_t pacing_rate = xqc_moq_session_get_pacing_rate(user_session->session);
     uint8_t override_active = xqc_moq_session_get_cc_override_active(user_session->session);
     printf("[SUMMARY] objects_sent=%"PRIu64" feedback_reports=%"PRIu64
+           " upload_frames_received=%"PRIu64
            " last_lost=%"PRIu64" last_late=%"PRIu64
            " cc_adj=%"PRIu64" cc_dispatch=%"PRIu64
            " last_gain=%.3f pacing_rate=%"PRIu64" override_active=%u\n",
            g_total_objects_sent, g_feedback_report_count,
+           g_upload_frames_received,
            g_last_objects_lost, g_last_objects_late,
            g_cc_adj_count, real_cc_dispatch,
            last_gain, pacing_rate, (unsigned)override_active);

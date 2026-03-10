@@ -67,6 +67,11 @@ typedef struct xqc_moq_session_s {
     xqc_int_t                       auto_cc_feedback;                 /* 1=enabled (default), 0=disabled */
     xqc_moq_fb_decision_config_t    feedback_decision_config;
     xqc_int_t                       has_custom_decision_config;       /* user provided config */
+    xqc_int_t                       had_cc_reduction;                 /* 1 after any gain<1.0 decision */
+
+    /* Network stats periodic timer (decoupled from MRR arrival) */
+    xqc_gp_timer_id_t              net_stats_timer_id;
+    xqc_int_t                       net_stats_timer_active;
 } xqc_moq_session_t;
 
 typedef enum {

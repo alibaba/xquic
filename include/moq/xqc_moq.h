@@ -409,8 +409,8 @@ typedef void (*xqc_moq_on_object_pt)(xqc_moq_user_session_t *user_session,
     xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, xqc_moq_object_t *object);
 
 /* Feedback: media quality (Track-level, from MRR) */
-typedef void (*xqc_moq_on_feedback_media_pt)(xqc_moq_session_t *session,
-    const xqc_moq_fb_report_t *report, void *user_data);
+typedef void (*xqc_moq_on_feedback_media_pt)(xqc_moq_user_session_t *user_session,
+    const xqc_moq_fb_report_t *report);
 
 /* Feedback: network connection stats (local QUIC layer) */
 typedef struct {
@@ -425,8 +425,8 @@ typedef struct {
     double      recent_loss_rate;       /* recent loss rate (sliding window) */
 } xqc_moq_fb_network_stats_t;
 
-typedef void (*xqc_moq_on_feedback_network_pt)(xqc_moq_session_t *session,
-    const xqc_moq_fb_network_stats_t *stats, void *user_data);
+typedef void (*xqc_moq_on_feedback_network_pt)(xqc_moq_user_session_t *user_session,
+    const xqc_moq_fb_network_stats_t *stats);
 
 /* draft-moq-delivery-feedback-00 (experimental): forward declarations */
 typedef struct xqc_moq_fb_decision_s xqc_moq_fb_decision_t;
@@ -440,9 +440,9 @@ typedef struct xqc_moq_fb_decision_config_s xqc_moq_fb_decision_config_t;
  * If out_decision->action == NONE, this becomes an explicit no-op that suppresses
  * auto fallback.  Return non-OK to fall through to auto-decision (if enabled).
  */
-typedef xqc_int_t (*xqc_moq_on_feedback_decision_pt)(xqc_moq_session_t *session,
+typedef xqc_int_t (*xqc_moq_on_feedback_decision_pt)(xqc_moq_user_session_t *user_session,
     const xqc_moq_fb_report_t *report, const xqc_moq_fb_input_t *input,
-    xqc_moq_fb_decision_t *out_decision, void *user_data);
+    xqc_moq_fb_decision_t *out_decision);
 
 typedef struct {
     xqc_moq_on_session_setup_pt     on_session_setup; /* Required */
@@ -603,6 +603,9 @@ uint64_t xqc_moq_session_get_pacing_rate(xqc_moq_session_t *session);
 
 XQC_EXPORT_PUBLIC_API
 uint8_t xqc_moq_session_get_cc_override_active(xqc_moq_session_t *session);
+
+XQC_EXPORT_PUBLIC_API
+uint64_t xqc_moq_session_get_feedback_reports_sent(xqc_moq_session_t *session);
 
 /**
  * @brief Set application error code and close the connection

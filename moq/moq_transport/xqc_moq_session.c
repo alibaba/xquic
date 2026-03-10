@@ -9,6 +9,7 @@
 #include "moq/moq_transport/xqc_moq_stream_webtransport.h"
 #include "moq/moq_transport/xqc_moq_subscribe.h"
 #include "moq/moq_transport/xqc_moq_fb_report_gen.h"
+#include "moq/moq_transport/xqc_moq_feedback_track.h"
 
 void
 xqc_moq_init_alpn(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs, xqc_moq_transport_type_t transport_type)
@@ -53,6 +54,9 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
 
     session->auto_cc_feedback = 1;
     session->has_custom_decision_config = 0;
+    session->had_cc_reduction = 0;
+    session->net_stats_timer_id = -1;
+    session->net_stats_timer_active = 0;
     xqc_moq_fb_decision_config_default(&session->feedback_decision_config);
 
     switch (transport_type) {
@@ -206,6 +210,8 @@ xqc_moq_session_destroy(xqc_moq_session_t *session)
 
     xqc_log(session->log, XQC_LOG_INFO, "|session destroy begin|");
 
+    xqc_moq_feedback_stop_net_stats_timer(session);
+
     if (session->fb_report_gen) {
         xqc_moq_fb_report_gen_destroy(session->fb_report_gen);
         session->fb_report_gen = NULL;
@@ -295,6 +301,15 @@ xqc_moq_session_get_cc_override_active(xqc_moq_session_t *session)
     }
     xqc_bbr_t *bbr = (xqc_bbr_t *)send_ctl->ctl_cong;
     return bbr->moq_override_active;
+}
+
+uint64_t
+xqc_moq_session_get_feedback_reports_sent(xqc_moq_session_t *session)
+{
+    if (session == NULL || session->fb_report_gen == NULL) {
+        return 0;
+    }
+    return session->fb_report_gen->report_sequence;
 }
 
 void
@@ -418,6 +433,7 @@ xqc_moq_session_on_setup(xqc_moq_session_t *session, char *extdata,
     const xqc_moq_message_parameter_t *params, uint64_t params_num)
 {
     xqc_log(session->log, XQC_LOG_INFO, "|on_session_setup|");
+    xqc_moq_feedback_start_net_stats_timer(session);
     session->session_callbacks.on_session_setup(session->user_session, extdata, params, params_num);
 }
 

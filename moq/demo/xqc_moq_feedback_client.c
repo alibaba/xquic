@@ -25,6 +25,7 @@
 #endif
 
 #include <moq/xqc_moq.h>
+#include <moq/xqc_moq_fb_report.h>
 
 #define TEST_ADDR "127.0.0.1"
 #define TEST_PORT 9443
@@ -48,12 +49,22 @@ uint64_t g_playout_ahead_ms = 200;
 
 static uint64_t g_video_frames_received = 0;
 
+static uint64_t g_feedback_reports_received = 0;
+
 typedef struct {
     user_conn_t          base;
     xqc_moq_session_t   *moq_session;
     xqc_moq_track_t     *video_track;
     uint64_t             video_subscribe_id;
     struct event         *ev_playout_timer;
+    /* upload (Client→Server media for bidirectional feedback) */
+    xqc_moq_track_t     *upload_track;
+    uint64_t             upload_subscribe_id;
+    struct event         *ev_upload_timer;
+    uint64_t             upload_seq;
+    int                  upload_countdown;
+    uint64_t             upload_subscribe_requests;
+    uint64_t             upload_timer_starts;
 } fb_client_conn_t;
 
 
@@ -147,6 +158,49 @@ fb_playout_timer_callback(int fd, short what, void *arg)
 }
 
 
+static void fb_upload_send_callback(int fd, short what, void *arg);
+
+static void
+fb_on_feedback_media(xqc_moq_user_session_t *user_session,
+    const xqc_moq_fb_report_t *report)
+{
+    g_feedback_reports_received++;
+
+    double loss_rate = 0, late_rate = 0;
+    if (report->summary_stats.total_objects_evaluated > 0) {
+        loss_rate = (double)report->summary_stats.objects_lost
+                  / report->summary_stats.total_objects_evaluated;
+        late_rate = (double)report->summary_stats.objects_received_late
+                  / report->summary_stats.total_objects_evaluated;
+    }
+
+    printf("[FB_MEDIA_RECV] seq=%"PRIu64" ts=%"PRIu64" lost=%.1f%%(%"PRIu64"/%"PRIu64")"
+           " late=%.1f%% avg_delta=%"PRId64"us entries=%"PRIu64"\n",
+           report->report_sequence,
+           report->report_timestamp,
+           loss_rate * 100,
+           report->summary_stats.objects_lost,
+           report->summary_stats.total_objects_evaluated,
+           late_rate * 100,
+           report->summary_stats.avg_inter_arrival_delta,
+           report->object_entry_count);
+}
+
+static void
+fb_on_feedback_network(xqc_moq_user_session_t *user_session,
+    const xqc_moq_fb_network_stats_t *stats)
+{
+    printf("[FB_NET] srtt=%"PRIu64"us min_rtt=%"PRIu64"us bw=%"PRIu64"KB/s"
+           " pacing=%"PRIu64"KB/s inflight=%"PRIu64
+           " loss=%.2f%% (pkts %u/%u)\n",
+           stats->srtt, stats->min_rtt,
+           stats->bandwidth_estimate / 1024,
+           stats->pacing_rate / 1024,
+           stats->inflight_bytes,
+           stats->recent_loss_rate * 100,
+           stats->lost_count, stats->send_count);
+}
+
 void
 fb_on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
     const xqc_moq_message_parameter_t *params, uint64_t params_num)
@@ -185,9 +239,31 @@ fb_on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
         }
     }
 
+    xqc_moq_session_report_playout_status(session, g_playout_ahead_ms);
+
     conn->ev_playout_timer = evtimer_new(eb, fb_playout_timer_callback, user_session);
     struct timeval time = { 0, 200000 };
     event_add(conn->ev_playout_timer, &time);
+
+    /* publish an upload track so Server can subscribe and generate MRR back */
+    xqc_moq_selection_params_t upload_params;
+    memset(&upload_params, 0, sizeof(xqc_moq_selection_params_t));
+    upload_params.codec = "av01";
+    upload_params.mime_type = "video/mp4";
+    upload_params.bitrate = 500000;
+    upload_params.framerate = 30;
+    upload_params.width = 360;
+    upload_params.height = 360;
+    xqc_moq_track_t *upload_track = xqc_moq_track_create(session,
+        "namespace", "upload", XQC_MOQ_TRACK_VIDEO, &upload_params,
+        XQC_MOQ_CONTAINER_LOC, XQC_MOQ_TRACK_FOR_PUB);
+    if (upload_track == NULL) {
+        printf("create upload track error\n");
+    } else {
+        conn->upload_track = upload_track;
+        conn->upload_subscribe_id = XQC_MOQ_INVALID_ID;
+        conn->upload_countdown = g_frame_num;
+    }
 }
 
 
@@ -216,7 +292,57 @@ fb_on_subscribe_error(xqc_moq_user_session_t *user_session, xqc_moq_track_t *tra
     printf("[SUBSCRIBE_ERROR] code=%"PRIu64"\n", subscribe_error->error_code);
 }
 
-void fb_on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id, xqc_moq_track_t *track, xqc_moq_subscribe_msg_t *msg) {}
+void
+fb_on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
+    xqc_moq_track_t *track, xqc_moq_subscribe_msg_t *msg)
+{
+    fb_client_conn_t *conn = (fb_client_conn_t *)user_session->data;
+    xqc_moq_session_t *session = user_session->session;
+    const char *track_name = (msg && msg->track_name) ? msg->track_name : "null";
+
+    printf("[CLIENT_SUBSCRIBE] track=%s subscribe_id=%"PRIu64"\n",
+           track_name, subscribe_id);
+
+    if (msg == NULL || msg->track_name == NULL) {
+        return;
+    }
+
+    if (strcmp(msg->track_name, "upload") == 0) {
+        conn->upload_subscribe_requests++;
+
+        xqc_moq_subscribe_ok_msg_t subscribe_ok;
+        memset(&subscribe_ok, 0, sizeof(subscribe_ok));
+        subscribe_ok.subscribe_id = subscribe_id;
+        subscribe_ok.track_alias = msg->track_alias;
+        subscribe_ok.expire_ms = 0;
+        subscribe_ok.group_order = 0x1;
+        subscribe_ok.content_exist = 1;
+        subscribe_ok.largest_group_id = 0;
+        subscribe_ok.largest_object_id = 0;
+        xqc_int_t ret = xqc_moq_write_subscribe_ok(session, &subscribe_ok);
+        if (ret < 0) {
+            printf("write_subscribe_ok error\n");
+            return;
+        }
+
+        conn->upload_subscribe_id = subscribe_id;
+        if (conn->ev_upload_timer == NULL) {
+            conn->ev_upload_timer = evtimer_new(eb, fb_upload_send_callback, user_session);
+            if (conn->ev_upload_timer == NULL) {
+                printf("create upload timer error\n");
+                return;
+            }
+        }
+
+        if (!event_pending(conn->ev_upload_timer, EV_TIMEOUT, NULL)
+            && conn->upload_countdown > 0)
+        {
+            struct timeval time = { 0, 33333 };
+            event_add(conn->ev_upload_timer, &time);
+            conn->upload_timer_starts++;
+        }
+    }
+}
 void fb_on_request_keyframe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id, xqc_moq_track_t *track) {}
 void fb_on_bitrate_change(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, uint64_t bitrate) {}
 void fb_on_audio_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id, xqc_moq_audio_frame_t *audio_frame) {}
@@ -238,6 +364,39 @@ fb_on_publish_done_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *tr
 void fb_on_catalog(xqc_moq_user_session_t *user_session, xqc_moq_track_info_t **track_info_array, xqc_int_t array_size) {}
 
 
+static void
+fb_upload_send_callback(int fd, short what, void *arg)
+{
+    xqc_moq_user_session_t *user_session = (xqc_moq_user_session_t *)arg;
+    fb_client_conn_t *conn = (fb_client_conn_t *)user_session->data;
+
+    if (conn->upload_countdown-- <= 0) {
+        return;
+    }
+
+    if (conn->upload_subscribe_id != XQC_MOQ_INVALID_ID && conn->upload_track) {
+        uint8_t payload[1024] = {0};
+        xqc_moq_video_frame_t video_frame;
+        memset(&video_frame, 0, sizeof(video_frame));
+        video_frame.type = (conn->upload_seq % 30 == 0) ? XQC_MOQ_VIDEO_KEY : XQC_MOQ_VIDEO_DELTA;
+        video_frame.seq_num = conn->upload_seq++;
+        video_frame.timestamp_us = xqc_now();
+        video_frame.video_len = 512;
+        video_frame.video_data = payload;
+
+        xqc_int_t ret = xqc_moq_write_video_frame(conn->moq_session,
+            conn->upload_subscribe_id, conn->upload_track, &video_frame);
+        if (ret < 0) {
+            printf("upload write_video_frame error\n");
+            return;
+        }
+    }
+
+    struct timeval time = { 0, 33333 };
+    event_add(conn->ev_upload_timer, &time);
+}
+
+
 int
 xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
     void *user_data, void *conn_proto_data)
@@ -252,6 +411,8 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
         .on_subscribe           = fb_on_subscribe,
         .on_request_keyframe    = fb_on_request_keyframe,
         .on_bitrate_change      = fb_on_bitrate_change,
+        .on_feedback_media      = fb_on_feedback_media,
+        .on_feedback_network    = fb_on_feedback_network,
         .on_subscribe_ok        = fb_on_subscribe_ok,
         .on_subscribe_error     = fb_on_subscribe_error,
         .on_publish             = fb_on_publish_msg,
@@ -268,14 +429,14 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
 
     setup_params[0].type = XQC_MOQ_PARAM_ROLE;
     setup_params[0].is_integer = 1;
-    setup_params[0].int_value = XQC_MOQ_SUBSCRIBER;
+    setup_params[0].int_value = XQC_MOQ_PUBSUB;
 
     setup_params[1].type = XQC_MOQ_PARAM_DELIVERY_FEEDBACK;
     setup_params[1].is_integer = 1;
     setup_params[1].int_value = 0x07; /* bit0=output, bit1=metrics, bit2=input */
 
     xqc_moq_session_t *session = xqc_moq_session_create_with_params(conn, user_session,
-        XQC_MOQ_TRANSPORT_QUIC, XQC_MOQ_SUBSCRIBER, callbacks, NULL, 1,
+        XQC_MOQ_TRANSPORT_QUIC, XQC_MOQ_PUBSUB, callbacks, NULL, 1,
         setup_params, 2);
     if (session == NULL) {
         printf("create session error\n");
@@ -297,12 +458,26 @@ xqc_client_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
     printf("[CONN_CLOSE] send=%u lost=%u recv=%u srtt=%"PRIu64"\n",
            stats.send_count, stats.lost_count, stats.recv_count, stats.srtt);
 
-    printf("[SUMMARY] video_frames_received=%"PRIu64"\n", g_video_frames_received);
+    uint64_t reports_sent = xqc_moq_session_get_feedback_reports_sent(user_session->session);
+    printf("[SUMMARY] video_frames_received=%"PRIu64" feedback_reports_sent=%"PRIu64
+           " feedback_reports_received=%"PRIu64
+           " upload_subscribe_requests=%"PRIu64
+           " upload_timer_starts=%"PRIu64
+           " playout_ahead=%"PRIu64"ms\n",
+           g_video_frames_received, reports_sent, g_feedback_reports_received,
+           fb_conn->upload_subscribe_requests, fb_conn->upload_timer_starts,
+           g_playout_ahead_ms);
 
     if (fb_conn->ev_playout_timer) {
         event_del(fb_conn->ev_playout_timer);
         event_free(fb_conn->ev_playout_timer);
         fb_conn->ev_playout_timer = NULL;
+    }
+
+    if (fb_conn->ev_upload_timer) {
+        event_del(fb_conn->ev_upload_timer);
+        event_free(fb_conn->ev_upload_timer);
+        fb_conn->ev_upload_timer = NULL;
     }
 
     free(fb_conn->base.peer_addr);

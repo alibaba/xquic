@@ -1015,8 +1015,21 @@ typedef struct xqc_congestion_control_callback_s {
     /** get estimation of bandwidth */
     uint32_t (*xqc_cong_ctl_get_bandwidth_estimate)(void *cong_ctl);
 
+    /** per-packet receive timestamp feedback (ACK_EXTENDED) */
+    xqc_int_t (*xqc_cong_ctl_on_recv_timestamp)(void *cong_ctl,
+        xqc_packet_number_t pn, xqc_usec_t send_ts, xqc_usec_t recv_ts, xqc_usec_t now);
+
+    /** application/MoQ cross-layer control events */
+    xqc_int_t (*xqc_cong_ctl_x_layer_app_event)(void *cong_ctl,
+        xqc_x_layer_app_event_type_t ev, void *arg);
+
     xqc_bbr_info_interface_t *xqc_cong_ctl_info_cb;
 } xqc_cong_ctrl_callback_t;
+
+/* draft-moq-delivery-feedback-00 (experimental) */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_conn_signal_x_layer_app_event(xqc_connection_t *conn,
+    xqc_x_layer_app_event_type_t ev_type, void *event);
 
 #ifdef XQC_ENABLE_RENO
 XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_reno_cb;
@@ -2278,4 +2291,3 @@ xqc_conn_settings_t xqc_conn_get_conn_settings_template(xqc_conn_settings_type_t
 #endif
 
 #endif /* _XQUIC_H_INCLUDED_ */
-

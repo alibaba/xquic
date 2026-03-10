@@ -3,6 +3,8 @@
 cmake_minimum_required (VERSION 3.5)
 project (xquic)
 
+set(XQC_SOURCE "")
+
 set (xquic_VERSION_MAJOR 0)
 set (xquic_VERSION_MINOR 1)
 set (CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -344,6 +346,7 @@ set(
     "src/congestion_control/xqc_bbr.c"
     "src/congestion_control/xqc_window_filter.c"
     "src/congestion_control/xqc_sample.c"
+    "src/cc/xqc_crosslayer.c"
 )
 
 if(XQC_ENABLE_RENO)

@@ -5,6 +5,7 @@
 #include "moq/moq_transport/xqc_moq_session.h"
 #include "moq/moq_transport/xqc_moq_stream.h"
 #include "moq/moq_transport/xqc_moq_track.h"
+#include "moq/moq_transport/xqc_moq_fb_report_gen.h"
 #include "moq/moq_media/xqc_moq_catalog.h"
 
 #define XQC_MOQ_ALIAS_TYPE_DELETE      0x0
@@ -60,9 +61,12 @@ xqc_moq_on_client_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
                     extdata = (char *)param->value;
                 }
                 break;
+            case XQC_MOQ_PARAM_DELIVERY_FEEDBACK:
+                session->delivery_feedback_peer_bitmap = xqc_moq_param_read_u8(param);
+                break;
             default:
-                xqc_log(session->log, XQC_LOG_ERROR, "|except param type:0x%xi|", param->type);
-                goto error;
+                xqc_log(session->log, XQC_LOG_DEBUG, "|ignore unknown param|type:0x%xi|", param->type);
+                break;
         }
     }
 
@@ -73,6 +77,7 @@ xqc_moq_on_client_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
 
     xqc_moq_message_parameter_t params[] = {
             {XQC_MOQ_PARAM_ROLE, 1, (uint8_t * ) & session->role, 1, (uint64_t)session->role},
+            {XQC_MOQ_PARAM_DELIVERY_FEEDBACK, 0, NULL, 1, (uint64_t)session->delivery_feedback_local_bitmap},
     };
     xqc_moq_server_setup_msg_t server_setup;
     server_setup.version = version;
@@ -97,6 +102,13 @@ xqc_moq_on_client_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
     }
 
     session->session_setup_done = 1;
+    session->setup_complete_ts = xqc_monotonic_timestamp();
+    {
+        uint8_t negotiated = session->delivery_feedback_local_bitmap & session->delivery_feedback_peer_bitmap;
+        session->delivery_feedback_output = (negotiated & 0x01) ? 1 : 0;
+        session->delivery_feedback_metrics = (negotiated & 0x02) ? 1 : 0;
+        session->delivery_feedback_input = (negotiated & 0x04) ? 1 : 0;
+    }
 
     xqc_moq_session_on_setup(session, extdata, client_setup->params, client_setup->params_num);
 
@@ -152,6 +164,9 @@ xqc_moq_on_client_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
                     extdata = (char *)param->value;
                 }
                 break;
+            case XQC_MOQ_PARAM_DELIVERY_FEEDBACK:
+                session->delivery_feedback_peer_bitmap = xqc_moq_param_read_u8(param);
+                break;
             default:
                 xqc_log(session->log, XQC_LOG_DEBUG, "|ignore unknown param|type:0x%xi|", param->type);
                 break;
@@ -165,10 +180,13 @@ xqc_moq_on_client_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
 
     xqc_moq_message_parameter_t params[] = {
         {XQC_MOQ_PARAM_ROLE, 1, (uint8_t *)&session->role, 1, (uint64_t)session->role},
+        {XQC_MOQ_PARAM_DELIVERY_FEEDBACK, 0, NULL, 1, (uint64_t)session->delivery_feedback_local_bitmap},
     };
     xqc_moq_server_setup_v14_msg_t server_setup;
     memset(&server_setup, 0, sizeof(server_setup));
     server_setup.selected_version = version;
+    server_setup.params_num = sizeof(params) / sizeof(params[0]);
+    server_setup.params = params;
     ret = xqc_moq_write_server_setup_v14(session, &server_setup);
     if (ret < 0) {
         xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_write_server_setup_v14 error|ret:%d|", ret);
@@ -189,6 +207,13 @@ xqc_moq_on_client_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
     // }
 
     session->session_setup_done = 1;
+    session->setup_complete_ts = xqc_monotonic_timestamp();
+    {
+        uint8_t negotiated = session->delivery_feedback_local_bitmap & session->delivery_feedback_peer_bitmap;
+        session->delivery_feedback_output = (negotiated & 0x01) ? 1 : 0;
+        session->delivery_feedback_metrics = (negotiated & 0x02) ? 1 : 0;
+        session->delivery_feedback_input = (negotiated & 0x04) ? 1 : 0;
+    }
 
     xqc_moq_session_on_setup(session, extdata, client_setup->params, client_setup->params_num);
     return;
@@ -226,15 +251,18 @@ xqc_moq_on_server_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
                     goto error;
                 }
                 break;
+            case XQC_MOQ_PARAM_DELIVERY_FEEDBACK:
+                session->delivery_feedback_peer_bitmap = xqc_moq_param_read_u8(param);
+                break;
             default:
-                xqc_log(session->log, XQC_LOG_ERROR, "|except param type:0x%xi|", param->type);
-                goto error;
+                xqc_log(session->log, XQC_LOG_DEBUG, "|ignore unknown param|type:0x%xi|", param->type);
+                break;
         }
     }
 
     if (role_found == 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|role not found|");
-        goto error;
+        session->peer_role = XQC_MOQ_PUBSUB;
+        xqc_log(session->log, XQC_LOG_WARN, "|role not found, default to subscriber|");
     }
 
     ret = xqc_moq_subscribe_datachannel(session);
@@ -250,6 +278,13 @@ xqc_moq_on_server_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
     }
 
     session->session_setup_done = 1;
+    session->setup_complete_ts = xqc_monotonic_timestamp();
+    {
+        uint8_t negotiated = session->delivery_feedback_local_bitmap & session->delivery_feedback_peer_bitmap;
+        session->delivery_feedback_output = (negotiated & 0x01) ? 1 : 0;
+        session->delivery_feedback_metrics = (negotiated & 0x02) ? 1 : 0;
+        session->delivery_feedback_input = (negotiated & 0x04) ? 1 : 0;
+    }
 
     xqc_moq_session_on_setup(session, NULL, server_setup->params, server_setup->params_num);
 
@@ -285,6 +320,9 @@ xqc_moq_on_server_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
                     goto error;
                 }
                 break;
+            case XQC_MOQ_PARAM_DELIVERY_FEEDBACK:
+                session->delivery_feedback_peer_bitmap = xqc_moq_param_read_u8(param);
+                break;
             default:
                 xqc_log(session->log, XQC_LOG_DEBUG, "|ignore unknown param|type:0x%xi|", param->type);
                 break;
@@ -304,6 +342,13 @@ xqc_moq_on_server_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
     // }
 
     session->session_setup_done = 1;
+    session->setup_complete_ts = xqc_monotonic_timestamp();
+    {
+        uint8_t negotiated = session->delivery_feedback_local_bitmap & session->delivery_feedback_peer_bitmap;
+        session->delivery_feedback_output = (negotiated & 0x01) ? 1 : 0;
+        session->delivery_feedback_metrics = (negotiated & 0x02) ? 1 : 0;
+        session->delivery_feedback_input = (negotiated & 0x04) ? 1 : 0;
+    }
     xqc_log(session->log, XQC_LOG_INFO, "|server_setup_v14_complete|");
 
     xqc_moq_session_on_setup(session, NULL, server_setup->params, server_setup->params_num);
@@ -430,6 +475,12 @@ xqc_moq_on_subscribe_ok(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
     xqc_log(session->log, XQC_LOG_INFO, "|on_subscribe_ok|track_name:%s|track_alias:%ui|subscribe_id:%ui|",
             track->track_info.track_name, track->track_alias, subscribe_ok->subscribe_id);
     track->track_ops.on_subscribe_ok(session, track, subscribe_ok);
+
+    if (track->track_info.track_type == XQC_MOQ_TRACK_VIDEO
+        || track->track_info.track_type == XQC_MOQ_TRACK_AUDIO)
+    {
+        (void)xqc_moq_session_try_publish_delivery_feedback_track(session, track);
+    }
     return;
 
 error:
@@ -496,6 +547,12 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
     xqc_int_t has_catalog = 0;
     xqc_int_t track_created = 0;
     xqc_memzero(&catalog_params, sizeof(catalog_params));
+
+    /* draft-moq-delivery-feedback-00: feedback tracks may exist without Catalog. */
+    if (publish->track_name && strcmp(publish->track_name, "delivery-feedback") == 0) {
+        track_type = XQC_MOQ_TRACK_DELIVERY_FEEDBACK;
+        has_catalog = 0;
+    }
 
     xqc_moq_message_parameter_t *params = publish->params;
     for (int i = 0; i < publish->params_num; i++) {
@@ -572,6 +629,9 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
                 container = XQC_MOQ_CONTAINER_NONE;
             }
         } else if (track_type == XQC_MOQ_TRACK_DATACHANNEL) {
+            params = NULL;
+            container = XQC_MOQ_CONTAINER_NONE;
+        } else if (track_type == XQC_MOQ_TRACK_DELIVERY_FEEDBACK) {
             params = NULL;
             container = XQC_MOQ_CONTAINER_NONE;
         }
@@ -662,6 +722,23 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
     if (session->session_callbacks.on_publish) {
         session->session_callbacks.on_publish(session->user_session, track, publish);
     }
+
+    /* Auto-accept delivery-feedback track for experimentation. */
+    if (track && track->track_info.track_type == XQC_MOQ_TRACK_DELIVERY_FEEDBACK) {
+        xqc_moq_publish_ok_msg_t publish_ok;
+        memset(&publish_ok, 0, sizeof(publish_ok));
+        publish_ok.subscribe_id = publish->subscribe_id;
+        publish_ok.forward = selected_params.forward ? 1 : 0;
+        publish_ok.subscriber_priority = 0;
+        publish_ok.group_order = selected_params.group_order;
+        publish_ok.filter_type = selected_params.filter_type;
+        publish_ok.start_group_id = selected_params.start_group_id;
+        publish_ok.start_object_id = selected_params.start_object_id;
+        publish_ok.end_group_id = selected_params.end_group_id;
+        publish_ok.params_num = 0;
+        publish_ok.params = NULL;
+        (void)xqc_moq_write_publish_ok(session, &publish_ok);
+    }
     goto clean_up;
 
 clean_up:
@@ -701,6 +778,20 @@ xqc_moq_on_publish_ok(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, 
 
     if (session->session_callbacks.on_publish_ok) {
         session->session_callbacks.on_publish_ok(session->user_session, track, publish_ok);
+    }
+
+    /* Start periodic feedback report generation after delivery-feedback track is established. */
+    if (track->track_info.track_type == XQC_MOQ_TRACK_DELIVERY_FEEDBACK
+        && session->delivery_feedback_output
+        && session->fb_report_gen == NULL)
+    {
+        session->fb_report_gen = xqc_moq_fb_report_gen_create(session, track);
+        if (session->fb_report_gen == NULL) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|fb_report_gen_create failed|");
+        } else {
+            xqc_log(session->log, XQC_LOG_INFO, "|fb_report_gen started|subscribe_id:%ui|track_alias:%ui|",
+                    track->subscribe_id, track->track_alias);
+        }
     }
     return;
 
@@ -827,6 +918,13 @@ xqc_moq_on_object(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_
 
     object->subscribe_id = track->subscribe_id;
     xqc_moq_stream_set_track_type(moq_stream, track->track_info.track_type);
+
+    if (session->delivery_feedback_output
+        && (track->track_info.track_type == XQC_MOQ_TRACK_VIDEO || track->track_info.track_type == XQC_MOQ_TRACK_AUDIO))
+    {
+        xqc_usec_t now = xqc_monotonic_timestamp();
+        xqc_moq_fb_report_gen_on_media_object_received(session, track, object, now);
+    }
 
     if (session->session_callbacks.on_object && track->raw_object) {
         session->session_callbacks.on_object(session->user_session, track, &track->track_info, object);

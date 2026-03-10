@@ -16,6 +16,18 @@ set(
     "xqc_moq_demo_comm.c"
 )
 
+set(
+    MOQ_FEEDBACK_SERVER_SOURCE
+    "xqc_moq_feedback_server.c"
+    "xqc_moq_demo_comm.c"
+)
+
+set(
+    MOQ_FEEDBACK_CLIENT_SOURCE
+    "xqc_moq_feedback_client.c"
+    "xqc_moq_demo_comm.c"
+)
+
 
 include_directories(
     "${CMAKE_SOURCE_DIR}/"
@@ -40,13 +52,25 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
         ${MOQ_DEMO_AUDIO_SERVER_SOURCE}
         ${GETOPT_SOURCES}
     )
+    set(MOQ_FEEDBACK_SERVER_SOURCE
+        ${MOQ_FEEDBACK_SERVER_SOURCE}
+        ${GETOPT_SOURCES}
+    )
+    set(MOQ_FEEDBACK_CLIENT_SOURCE
+        ${MOQ_FEEDBACK_CLIENT_SOURCE}
+        ${GETOPT_SOURCES}
+    )
 endif()
 
 add_executable(moq_demo_client ${MOQ_DEMO_CLIENT_SOURCE})
 add_executable(moq_demo_server ${MOQ_DEMO_SERVER_SOURCE})
 add_executable(moq_demo_audio_server ${MOQ_DEMO_AUDIO_SERVER_SOURCE})
+add_executable(moq_feedback_server ${MOQ_FEEDBACK_SERVER_SOURCE})
+add_executable(moq_feedback_client ${MOQ_FEEDBACK_CLIENT_SOURCE})
 
 
 target_link_libraries(moq_demo_client ${APP_DEPEND_LIBS})
 target_link_libraries(moq_demo_server ${APP_DEPEND_LIBS})
 target_link_libraries(moq_demo_audio_server ${APP_DEPEND_LIBS})
+target_link_libraries(moq_feedback_server ${APP_DEPEND_LIBS})
+target_link_libraries(moq_feedback_client ${APP_DEPEND_LIBS})

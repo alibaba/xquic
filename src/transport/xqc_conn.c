@@ -36,6 +36,23 @@
 #include <inttypes.h>
 #include <openssl/rand.h>
 
+/* draft-moq-delivery-feedback-00 (experimental) */
+xqc_int_t
+xqc_conn_signal_x_layer_app_event(xqc_connection_t *conn,
+    xqc_x_layer_app_event_type_t ev_type, void *event)
+{
+    if (conn == NULL || conn->conn_initial_path == NULL || conn->conn_initial_path->path_send_ctl == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    if (send_ctl->ctl_cong_callback == NULL || send_ctl->ctl_cong_callback->xqc_cong_ctl_x_layer_app_event == NULL) {
+        return 1; /* OK but no CC handler consumed the event */
+    }
+
+    return send_ctl->ctl_cong_callback->xqc_cong_ctl_x_layer_app_event(send_ctl->ctl_cong, ev_type, event);
+}
+
 xqc_conn_settings_t internal_default_conn_settings = {
     .pacing_on                  = 0,
     .ping_on                    = 0,

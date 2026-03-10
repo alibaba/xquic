@@ -4,6 +4,8 @@
 #include "moq/moq_media/xqc_moq_catalog.h"
 #include "moq/moq_media/xqc_moq_datachannel.h"
 #include "moq/moq_media/xqc_moq_media_track.h"
+#include "moq/moq_transport/xqc_moq_feedback_tracker.h"
+#include "moq/moq_transport/xqc_moq_feedback_track.h"
 
 xqc_moq_track_t *
 xqc_moq_track_create(xqc_moq_session_t *session, char *track_namespace, char *track_name,
@@ -45,6 +47,10 @@ xqc_moq_track_create(xqc_moq_session_t *session, char *track_namespace, char *tr
             track = xqc_calloc(1, sizeof(xqc_moq_catalog_track_t));
             track->track_ops = xqc_moq_catalog_track_ops;
             break;
+        case XQC_MOQ_TRACK_DELIVERY_FEEDBACK:
+            track = xqc_calloc(1, sizeof(xqc_moq_track_t));
+            track->track_ops = xqc_moq_feedback_track_ops;
+            break;
         default:
             xqc_log(session->log, XQC_LOG_ERROR, "|unknown type|");
             return NULL;
@@ -70,6 +76,8 @@ xqc_moq_track_create(xqc_moq_session_t *session, char *track_namespace, char *tr
     track->raw_object = 0;
     track->reuse_subgroup_stream = 0;
     track->subgroup_stream = NULL;
+    track->feedback_tracker = NULL;
+    track->target_latency_us = 0;
 
     if (role == XQC_MOQ_TRACK_FOR_PUB) {
         list = &session->track_list_for_pub;
@@ -99,6 +107,10 @@ xqc_moq_track_destroy(xqc_moq_track_t *track)
 void
 xqc_moq_track_free_fields(xqc_moq_track_t *track)
 {
+    if (track->feedback_tracker) {
+        xqc_moq_feedback_tracker_destroy(track->feedback_tracker);
+        track->feedback_tracker = NULL;
+    }
     xqc_free(track->track_info.track_namespace);
     track->track_info.track_namespace = NULL;
     xqc_free(track->track_info.track_name);
@@ -218,4 +230,13 @@ xqc_moq_track_set_reuse_subgroup_stream(xqc_moq_track_t *track, xqc_int_t reuse)
         return;
     }
     track->reuse_subgroup_stream = reuse ? 1 : 0;
+}
+
+void
+xqc_moq_track_set_target_latency(xqc_moq_track_t *track, uint64_t target_latency_us)
+{
+    if (track == NULL) {
+        return;
+    }
+    track->target_latency_us = target_latency_us;
 }

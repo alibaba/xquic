@@ -154,6 +154,17 @@ typedef struct xqc_bbr_s {
     xqc_bool_t             lt_use_bw;
     uint16_t               lt_rtt_cnt;
     
+    /* draft-moq-delivery-feedback-00 (experimental) */
+    uint8_t                moq_override_active;
+    float                  moq_pacing_gain;
+    uint64_t               moq_pacing_rate;      /* bytes/s, 0 = no override */
+    xqc_usec_t             moq_override_expire;  /* monotonic, 0 = no expiry */
+    uint64_t               moq_target_bitrate;   /* bps */
+
+    uint64_t               moq_override_count;   /* times override was activated */
+    xqc_usec_t             moq_last_owd;         /* latest one-way delay sample (us) */
+    xqc_usec_t             moq_min_owd;          /* min one-way delay observed (us) */
+
     xqc_bool_t             ignore_app_limit;
 
 } xqc_bbr_t;

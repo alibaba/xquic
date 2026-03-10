@@ -1,0 +1,325 @@
+#include "moq/moq_transport/xqc_moq_feedback_track.h"
+
+#include "moq/xqc_moq_fb_report.h"
+#include "moq/moq_transport/xqc_moq_session.h"
+#include "moq/moq_transport/xqc_moq_feedback_decision.h"
+#include "src/cc/xqc_crosslayer.h"
+#include "src/common/xqc_time.h"
+#include "src/transport/xqc_send_ctl.h"
+#include <stdio.h>
+
+static void xqc_moq_feedback_on_create(xqc_moq_track_t *track);
+static void xqc_moq_feedback_on_destroy(xqc_moq_track_t *track);
+static void xqc_moq_feedback_on_subscribe(xqc_moq_session_t *session, uint64_t subscribe_id,
+    xqc_moq_track_t *track, xqc_moq_subscribe_msg_t *msg);
+static void xqc_moq_feedback_on_subscribe_ok(xqc_moq_session_t *session, xqc_moq_track_t *track,
+    xqc_moq_subscribe_ok_msg_t *subscribe_ok);
+static void xqc_moq_feedback_on_subscribe_error(xqc_moq_session_t *session, xqc_moq_track_t *track,
+    xqc_moq_subscribe_error_msg_t *subscribe_error);
+static void xqc_moq_feedback_on_object(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_moq_object_t *object);
+
+const xqc_moq_track_ops_t xqc_moq_feedback_track_ops = {
+    .on_create           = xqc_moq_feedback_on_create,
+    .on_destroy          = xqc_moq_feedback_on_destroy,
+    .on_subscribe        = xqc_moq_feedback_on_subscribe,
+    .on_subscribe_update = NULL,
+    .on_subscribe_ok     = xqc_moq_feedback_on_subscribe_ok,
+    .on_subscribe_error  = xqc_moq_feedback_on_subscribe_error,
+    .on_object           = xqc_moq_feedback_on_object,
+};
+
+#define XQC_MOQ_NET_STATS_INTERVAL_US 100000  /* 100ms */
+
+static void
+xqc_moq_feedback_collect_net_stats(xqc_moq_session_t *session)
+{
+    if (!session->session_callbacks.on_feedback_network || !session->quic_conn) {
+        return;
+    }
+
+    xqc_moq_fb_network_stats_t net_stats;
+    xqc_memzero(&net_stats, sizeof(net_stats));
+
+    xqc_send_ctl_t *send_ctl = session->quic_conn->conn_initial_path
+        ? session->quic_conn->conn_initial_path->path_send_ctl : NULL;
+
+    if (send_ctl) {
+        net_stats.srtt               = send_ctl->ctl_srtt;
+        net_stats.min_rtt            = send_ctl->ctl_minrtt;
+        net_stats.bandwidth_estimate = xqc_send_ctl_get_est_bw(send_ctl);
+        net_stats.pacing_rate        = xqc_send_ctl_get_pacing_rate(send_ctl);
+        net_stats.inflight_bytes     = send_ctl->ctl_bytes_in_flight;
+        net_stats.send_count         = send_ctl->ctl_send_count;
+        net_stats.lost_count         = send_ctl->ctl_lost_count;
+        net_stats.recv_count         = send_ctl->ctl_recv_count;
+
+        double loss_rate0 = 0, loss_rate1 = 0;
+        if (send_ctl->ctl_recent_send_count[0] > 0) {
+            loss_rate0 = (double)send_ctl->ctl_recent_lost_count[0]
+                / (double)send_ctl->ctl_recent_send_count[0];
+        }
+        if (send_ctl->ctl_recent_send_count[1] > 0) {
+            loss_rate1 = (double)send_ctl->ctl_recent_lost_count[1]
+                / (double)send_ctl->ctl_recent_send_count[1];
+        }
+        net_stats.recent_loss_rate = (loss_rate0 > loss_rate1) ? loss_rate0 : loss_rate1;
+    }
+
+    session->session_callbacks.on_feedback_network(session->user_session, &net_stats);
+}
+
+static void
+xqc_moq_net_stats_timer_callback(xqc_gp_timer_id_t gp_timer_id, xqc_usec_t now, void *user_data)
+{
+    xqc_moq_session_t *session = (xqc_moq_session_t *)user_data;
+    if (session == NULL) {
+        return;
+    }
+    (void)gp_timer_id;
+
+    xqc_moq_feedback_collect_net_stats(session);
+
+    xqc_timer_gp_timer_set(session->timer_manager, session->net_stats_timer_id,
+        now + XQC_MOQ_NET_STATS_INTERVAL_US);
+}
+
+void
+xqc_moq_feedback_start_net_stats_timer(xqc_moq_session_t *session)
+{
+    if (session == NULL || session->net_stats_timer_active
+        || !session->session_callbacks.on_feedback_network)
+    {
+        return;
+    }
+
+    session->net_stats_timer_id = xqc_timer_register_gp_timer(session->timer_manager,
+        "moq_net_stats", xqc_moq_net_stats_timer_callback, session);
+    if (session->net_stats_timer_id < 0) {
+        return;
+    }
+
+    xqc_usec_t now = xqc_monotonic_timestamp();
+    xqc_timer_gp_timer_set(session->timer_manager, session->net_stats_timer_id,
+        now + XQC_MOQ_NET_STATS_INTERVAL_US);
+    session->net_stats_timer_active = 1;
+}
+
+void
+xqc_moq_feedback_stop_net_stats_timer(xqc_moq_session_t *session)
+{
+    if (session == NULL || !session->net_stats_timer_active) {
+        return;
+    }
+    xqc_timer_unregister_gp_timer(session->timer_manager, session->net_stats_timer_id);
+    session->net_stats_timer_active = 0;
+    session->net_stats_timer_id = -1;
+}
+
+static void
+xqc_moq_feedback_on_create(xqc_moq_track_t *track)
+{
+    (void)track;
+}
+
+static void
+xqc_moq_feedback_on_destroy(xqc_moq_track_t *track)
+{
+    (void)track;
+}
+
+static void
+xqc_moq_feedback_on_subscribe(xqc_moq_session_t *session, uint64_t subscribe_id,
+    xqc_moq_track_t *track, xqc_moq_subscribe_msg_t *msg)
+{
+    (void)session;
+    (void)subscribe_id;
+    (void)track;
+    (void)msg;
+}
+
+static void
+xqc_moq_feedback_on_subscribe_ok(xqc_moq_session_t *session, xqc_moq_track_t *track,
+    xqc_moq_subscribe_ok_msg_t *subscribe_ok)
+{
+    (void)session;
+    (void)track;
+    (void)subscribe_ok;
+}
+
+static void
+xqc_moq_feedback_on_subscribe_error(xqc_moq_session_t *session, xqc_moq_track_t *track,
+    xqc_moq_subscribe_error_msg_t *subscribe_error)
+{
+    (void)session;
+    (void)track;
+    (void)subscribe_error;
+}
+
+static uint64_t
+xqc_moq_feedback_get_metric(const xqc_moq_fb_report_t *report, uint64_t metric_type)
+{
+    for (uint64_t i = 0; i < report->optional_metric_count; i++) {
+        if (report->optional_metrics[i].metric_type == metric_type) {
+            return report->optional_metrics[i].metric_value;
+        }
+    }
+    return 0;
+}
+
+/*
+ * Convert feedback_decision output to a crosslayer_event and dispatch
+ * through the unified crosslayer gateway.
+ */
+static xqc_int_t
+xqc_moq_feedback_dispatch_via_crosslayer(xqc_moq_session_t *session,
+    const xqc_moq_fb_decision_t *decision, xqc_usec_t expire_us, xqc_usec_t now)
+{
+    if (!session->crosslayer_initialized) {
+        return XQC_ERROR;
+    }
+
+    xqc_crosslayer_event_t ev;
+    switch (decision->action) {
+    case XQC_MOQ_FB_ACTION_PACING_GAIN:
+        ev.type = XQC_EVENT_PACING_GAIN_UPDATE;
+        ev.payload.pacing_gain.gain = decision->u.pacing_gain.gain;
+        ev.payload.pacing_gain.expire_us = expire_us;
+        break;
+    case XQC_MOQ_FB_ACTION_PACING_RATE:
+        ev.type = XQC_EVENT_PACING_RATE_UPDATE;
+        ev.payload.pacing_rate.rate = decision->u.pacing_rate.rate;
+        ev.payload.pacing_rate.expire_us = expire_us;
+        break;
+    case XQC_MOQ_FB_ACTION_TARGET_BITRATE:
+        ev.type = XQC_EVENT_TARGET_BITRATE_UPDATE;
+        ev.payload.target_bitrate.bitrate = decision->u.target_bitrate.bitrate;
+        ev.payload.target_bitrate.expire_us = expire_us;
+        break;
+    default:
+        return XQC_ERROR;
+    }
+
+    return xqc_crosslayer_apply(&session->crosslayer_ctl, &ev, now);
+}
+
+static void
+xqc_moq_feedback_dispatch_and_notify(xqc_moq_session_t *session,
+    const xqc_moq_fb_decision_t *decision, xqc_usec_t now)
+{
+    xqc_usec_t duration = session->feedback_decision_config.override_duration_us;
+    if (duration == 0) {
+        duration = 200000;
+    }
+
+    xqc_int_t rc = xqc_moq_feedback_dispatch_via_crosslayer(session,
+        decision, now + duration, now);
+
+    if (rc == XQC_OK) {
+        xqc_log(session->log, XQC_LOG_STATS,
+            "|feedback_cc|action:%d|src:%s|",
+            decision->action,
+            session->session_callbacks.on_feedback_decision ? "user" : "auto");
+    }
+
+    if (decision->action == XQC_MOQ_FB_ACTION_TARGET_BITRATE
+        && session->session_callbacks.on_bitrate_change)
+    {
+        session->session_callbacks.on_bitrate_change(
+            session->user_session, NULL, NULL,
+            decision->u.target_bitrate.bitrate);
+    }
+}
+
+static void
+xqc_moq_feedback_on_object(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_moq_object_t *object)
+{
+    (void)track;
+    if (session == NULL || object == NULL || object->payload == NULL || object->payload_len == 0) {
+        return;
+    }
+
+    /* 1. Decode feedback report */
+    xqc_moq_fb_report_t report;
+    xqc_int_t ret = xqc_moq_fb_report_decode(object->payload, object->payload_len, &report);
+    if (ret != XQC_OK) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|fb_report_decode error|ret:%d|len:%ui|", ret, object->payload_len);
+        return;
+    }
+
+    /* 2. Compute fb_input (always, for both observer and decision) */
+    uint64_t total = report.summary_stats.total_objects_evaluated;
+    uint64_t lost  = report.summary_stats.objects_lost;
+    uint64_t late  = report.summary_stats.objects_received_late;
+
+    xqc_moq_fb_input_t input;
+    input.loss_rate        = (total > 0) ? ((double)lost / (double)total) : 0.0;
+    input.late_rate        = (total > 0) ? ((double)late / (double)total) : 0.0;
+    input.playout_ahead_ms = xqc_moq_feedback_get_metric(&report,
+        XQC_MOQ_FB_METRIC_PLAYOUT_AHEAD_MS);
+    input.estimated_bw_kbps = xqc_moq_feedback_get_metric(&report,
+        XQC_MOQ_FB_METRIC_ESTIMATED_BANDWIDTH_KBPS);
+
+    /* 3a. Media feedback callback (Track-level quality from MRR) */
+    if (session->session_callbacks.on_feedback_media) {
+        session->session_callbacks.on_feedback_media(session->user_session, &report);
+    }
+
+    /* 3b. Backstop: keep timer running even if setup path did not start it. */
+    if (!session->net_stats_timer_active) {
+        xqc_moq_feedback_start_net_stats_timer(session);
+    }
+
+    /* 4-5. CC decision: user callback takes priority over auto */
+    if (session->quic_conn && session->delivery_feedback_input) {
+        xqc_usec_t now = xqc_monotonic_timestamp();
+        xqc_moq_fb_decision_t decision;
+        decision.action = XQC_MOQ_FB_ACTION_NONE;
+        xqc_int_t decided = 0;
+
+        /* 4. User decision callback (Level 2.5)
+         *    rc==XQC_OK means "user has decided" -- even if action==NONE
+         *    (intentional no-op that suppresses auto fallback).
+         *    Return non-OK to let auto decision run. */
+        xqc_int_t user_decided = 0;
+        if (session->session_callbacks.on_feedback_decision) {
+            xqc_int_t rc = session->session_callbacks.on_feedback_decision(
+                session->user_session, &report, &input, &decision);
+            if (rc == XQC_OK) {
+                user_decided = 1;
+                if (decision.action != XQC_MOQ_FB_ACTION_NONE) {
+                    decided = 1;
+                }
+            }
+        }
+
+        /* 5. Auto decision (if user didn't decide, and auto is enabled) */
+        if (!user_decided && !decided && session->auto_cc_feedback) {
+            xqc_moq_fb_decision_evaluate(&session->feedback_decision_config,
+                &input, now, session->had_cc_reduction, &decision);
+            if (decision.action != XQC_MOQ_FB_ACTION_NONE) {
+                decided = 1;
+            }
+        }
+
+        /* 6. Dispatch through crosslayer (unified clamp/rate-limit/expiry) */
+        if (decided) {
+            xqc_moq_feedback_dispatch_and_notify(session, &decision, now);
+
+            /* Track reduction state for probe-up gating */
+            if (decision.action == XQC_MOQ_FB_ACTION_PACING_GAIN
+                && decision.u.pacing_gain.gain < 1.0f)
+            {
+                session->had_cc_reduction = 1;
+            } else if (decision.action == XQC_MOQ_FB_ACTION_TARGET_BITRATE) {
+                session->had_cc_reduction = 1;
+            } else if (decision.action == XQC_MOQ_FB_ACTION_PACING_GAIN
+                       && decision.u.pacing_gain.gain > 1.0f)
+            {
+                session->had_cc_reduction = 0;
+            }
+        }
+    }
+
+
+    xqc_moq_fb_report_free(&report);
+}

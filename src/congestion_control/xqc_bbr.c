@@ -1088,7 +1088,56 @@ xqc_bbr_get_pacing_rate(void *cong_ctl)
     xqc_bbr_t *bbr = (xqc_bbr_t *)(cong_ctl);
     xqc_usec_t min_rtt = (bbr->min_rtt && (bbr->min_rtt != XQC_BBR_INF) ? bbr->min_rtt : 10000);
     uint32_t min_pacing_rate = bbr->min_cwnd * (uint64_t)MSEC2SEC / min_rtt;
-    return xqc_max(bbr->pacing_rate, bbr->pacing_gain * min_pacing_rate);
+    uint32_t base_rate = xqc_max(bbr->pacing_rate, bbr->pacing_gain * min_pacing_rate);
+
+    if (bbr->moq_override_active) {
+        xqc_usec_t now = xqc_monotonic_timestamp();
+        if (bbr->moq_override_expire != 0 && now > bbr->moq_override_expire) {
+            bbr->moq_override_active = 0;
+            bbr->moq_pacing_rate = 0;
+            bbr->moq_pacing_gain = 0;
+            bbr->moq_target_bitrate = 0;
+        } else {
+            if (bbr->moq_pacing_rate > 0) {
+                return (uint32_t)xqc_min(bbr->moq_pacing_rate, (uint64_t)XQC_MAX_UINT32_VALUE);
+            }
+            if (bbr->moq_pacing_gain > 0) {
+                double r = (double)base_rate * (double)bbr->moq_pacing_gain;
+                if (r < 0) {
+                    r = 0;
+                }
+                if (r > (double)XQC_MAX_UINT32_VALUE) {
+                    r = (double)XQC_MAX_UINT32_VALUE;
+                }
+                return (uint32_t)r;
+            }
+            if (bbr->moq_target_bitrate > 0) {
+                uint64_t rate_bps = bbr->moq_target_bitrate / 8;
+                return (uint32_t)xqc_min(rate_bps, (uint64_t)XQC_MAX_UINT32_VALUE);
+            }
+        }
+    }
+
+    return base_rate;
+}
+
+static xqc_int_t
+xqc_bbr_on_recv_timestamp(void *cong_ctl, xqc_packet_number_t pn,
+    xqc_usec_t send_ts, xqc_usec_t recv_ts, xqc_usec_t now)
+{
+    xqc_bbr_t *bbr = (xqc_bbr_t *)cong_ctl;
+    if (bbr == NULL || recv_ts == 0 || send_ts == 0) {
+        return -XQC_EPARAM;
+    }
+
+    if (recv_ts > send_ts) {
+        xqc_usec_t owd = recv_ts - send_ts;
+        bbr->moq_last_owd = owd;
+        if (bbr->moq_min_owd == 0 || owd < bbr->moq_min_owd) {
+            bbr->moq_min_owd = owd;
+        }
+    }
+    return XQC_OK;
 }
 
 static uint32_t 
@@ -1096,6 +1145,54 @@ xqc_bbr_get_bandwidth(void *cong_ctl)
 {
     xqc_bbr_t *bbr = (xqc_bbr_t *)(cong_ctl);
     return xqc_bbr_bw(bbr);
+}
+
+static xqc_int_t
+xqc_bbr_on_x_layer_app_event(void *cong_ctl, xqc_x_layer_app_event_type_t ev, void *arg)
+{
+    xqc_bbr_t *bbr = (xqc_bbr_t *)(cong_ctl);
+    if (bbr == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_usec_t now = xqc_monotonic_timestamp();
+
+    switch (ev) {
+    case XQC_APP_EVENT_TARGET_BITRATE_UPDATED: {
+        xqc_target_bitrate_update_t *u = (xqc_target_bitrate_update_t *)arg;
+        if (u) {
+            bbr->moq_override_active = 1;
+            bbr->moq_target_bitrate = u->target_bitrate;
+            bbr->moq_override_expire = u->expire_time ? u->expire_time : (now + 200000);
+            bbr->moq_override_count++;
+        }
+        return XQC_OK;
+    }
+    case XQC_APP_EVENT_PACING_GAIN_UPDATED: {
+        xqc_pacing_gain_update_t *u = (xqc_pacing_gain_update_t *)arg;
+        if (u) {
+            bbr->moq_override_active = 1;
+            bbr->moq_pacing_gain = u->pacing_gain;
+            bbr->moq_override_expire = u->expire_time ? u->expire_time : (now + 200000);
+            bbr->moq_override_count++;
+        }
+        return XQC_OK;
+    }
+    case XQC_APP_EVENT_PACING_RATE_UPDATED: {
+        xqc_pacing_rate_update_t *u = (xqc_pacing_rate_update_t *)arg;
+        if (u) {
+            bbr->moq_override_active = 1;
+            bbr->moq_pacing_rate = u->pacing_rate;
+            bbr->moq_override_expire = u->expire_time ? u->expire_time : (now + 200000);
+            bbr->moq_override_count++;
+        }
+        return XQC_OK;
+    }
+    default:
+        break;
+    }
+
+    return XQC_OK;
 }
 
 static void 
@@ -1227,6 +1324,8 @@ const xqc_cong_ctrl_callback_t xqc_bbr_cb = {
     .xqc_cong_ctl_get_cwnd                = xqc_bbr_get_cwnd,
     .xqc_cong_ctl_get_pacing_rate         = xqc_bbr_get_pacing_rate,
     .xqc_cong_ctl_get_bandwidth_estimate  = xqc_bbr_get_bandwidth,
+    .xqc_cong_ctl_on_recv_timestamp       = xqc_bbr_on_recv_timestamp,
+    .xqc_cong_ctl_x_layer_app_event       = xqc_bbr_on_x_layer_app_event,
     .xqc_cong_ctl_restart_from_idle       = xqc_bbr_restart_from_idle,
     .xqc_cong_ctl_on_lost                 = xqc_bbr_on_lost,
     .xqc_cong_ctl_reset_cwnd              = xqc_bbr_reset_cwnd,

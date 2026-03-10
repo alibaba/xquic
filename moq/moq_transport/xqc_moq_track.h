@@ -10,6 +10,8 @@
 #define XQC_MOQ_DATACHANNEL_NAMESPACE "datachannel"
 #define XQC_MOQ_DATACHANNEL_NAME      "datachannel"
 
+struct xqc_moq_feedback_tracker_s;
+
 typedef struct xqc_moq_track_ops_s {
     void (*on_create)(xqc_moq_track_t *track);
     void (*on_destroy)(xqc_moq_track_t *track);
@@ -44,6 +46,10 @@ typedef struct xqc_moq_track_s {
     xqc_moq_track_role_t                track_role;
     xqc_moq_stream_t                    *subgroup_stream;
     uint8_t                             reuse_subgroup_stream;  // whether to reuse the same stream for multiple objects
+
+    /* draft-moq-delivery-feedback-00 (experimental) */
+    struct xqc_moq_feedback_tracker_s   *feedback_tracker;
+    uint64_t                            target_latency_us;
 } xqc_moq_track_t;
 
 void xqc_moq_track_destroy(xqc_moq_track_t *track);

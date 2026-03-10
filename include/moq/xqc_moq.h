@@ -2,6 +2,7 @@
 #define _XQC_MOQ_H_INCLUDED_
 
 #include <xquic/xquic.h>
+#include "moq/xqc_moq_fb_report.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -58,6 +59,7 @@ typedef enum {
     XQC_MOQ_TRACK_AUDIO,
     XQC_MOQ_TRACK_CATALOG,
     XQC_MOQ_TRACK_DATACHANNEL,
+    XQC_MOQ_TRACK_DELIVERY_FEEDBACK,
 } xqc_moq_track_type_t;
 
 typedef enum {
@@ -193,6 +195,8 @@ typedef enum {
     XQC_MOQ_PARAM_AUTH                = 0x02,
     XQC_MOQ_PARAM_AUTHORIZATION_TOKEN = 0x03,
     XQC_MOQ_PARAM_EXTDATA             = 0xA0,
+    /* draft-moq-delivery-feedback-00 (experimental) */
+    XQC_MOQ_PARAM_DELIVERY_FEEDBACK   = 0xA2,
 } xqc_moq_param_type_t;
 
 typedef struct {
@@ -404,6 +408,42 @@ typedef void (*xqc_moq_on_bitrate_change_pt)(xqc_moq_user_session_t *user_sessio
 typedef void (*xqc_moq_on_object_pt)(xqc_moq_user_session_t *user_session,
     xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, xqc_moq_object_t *object);
 
+/* Feedback: media quality (Track-level, from MRR) */
+typedef void (*xqc_moq_on_feedback_media_pt)(xqc_moq_user_session_t *user_session,
+    const xqc_moq_fb_report_t *report);
+
+/* Feedback: network connection stats (local QUIC layer) */
+typedef struct {
+    xqc_usec_t  srtt;                   /* smoothed RTT (microseconds) */
+    xqc_usec_t  min_rtt;                /* minimum RTT (microseconds) */
+    uint64_t    bandwidth_estimate;     /* CC bandwidth estimate (bytes/s) */
+    uint64_t    pacing_rate;            /* current pacing rate (bytes/s) */
+    uint64_t    inflight_bytes;         /* bytes in flight */
+    uint32_t    send_count;             /* total packets sent */
+    uint32_t    lost_count;             /* total packets lost */
+    uint32_t    recv_count;             /* total packets received */
+    double      recent_loss_rate;       /* recent loss rate (sliding window) */
+} xqc_moq_fb_network_stats_t;
+
+typedef void (*xqc_moq_on_feedback_network_pt)(xqc_moq_user_session_t *user_session,
+    const xqc_moq_fb_network_stats_t *stats);
+
+/* draft-moq-delivery-feedback-00 (experimental): forward declarations */
+typedef struct xqc_moq_fb_decision_s xqc_moq_fb_decision_t;
+typedef struct xqc_moq_fb_input_s xqc_moq_fb_input_t;
+typedef struct xqc_moq_fb_decision_config_s xqc_moq_fb_decision_config_t;
+
+/**
+ * Decision callback (Level 2.5).
+ * Called after report decode with pre-computed metrics.  Fill out_decision and
+ * return XQC_OK to mark the decision as handled (auto-decision will be skipped).
+ * If out_decision->action == NONE, this becomes an explicit no-op that suppresses
+ * auto fallback.  Return non-OK to fall through to auto-decision (if enabled).
+ */
+typedef xqc_int_t (*xqc_moq_on_feedback_decision_pt)(xqc_moq_user_session_t *user_session,
+    const xqc_moq_fb_report_t *report, const xqc_moq_fb_input_t *input,
+    xqc_moq_fb_decision_t *out_decision);
+
 typedef struct {
     xqc_moq_on_session_setup_pt     on_session_setup; /* Required */
     xqc_moq_on_datachannel_pt       on_datachannel; /* Required */
@@ -413,6 +453,9 @@ typedef struct {
     xqc_moq_on_unsubscribe_pt       on_unsubscribe; /* Optional */
     xqc_moq_on_request_keyframe_pt  on_request_keyframe; /* Required */
     xqc_moq_on_bitrate_change_pt    on_bitrate_change; /* Optional */
+    xqc_moq_on_feedback_media_pt    on_feedback_media; /* Optional: Track-level quality from MRR */
+    xqc_moq_on_feedback_network_pt  on_feedback_network; /* Optional: connection-level network stats */
+    xqc_moq_on_feedback_decision_pt on_feedback_decision; /* Optional: user-driven CC decision */
     /* For Subscriber */
     xqc_moq_on_subscribe_ok_pt      on_subscribe_ok; /* Required */
     xqc_moq_on_subscribe_error_pt   on_subscribe_error; /* Required */
@@ -454,6 +497,115 @@ xqc_moq_session_t *xqc_moq_session_create_with_params(void *conn, xqc_moq_user_s
 
 XQC_EXPORT_PUBLIC_API
 void xqc_moq_session_destroy(xqc_moq_session_t *session);
+
+/* draft-moq-delivery-feedback-00 (experimental)
+ * Three control levels: auto (default), decision callback, or hybrid.
+ * See set_auto_cc_feedback / set_feedback_decision_config / on_feedback_decision.
+ */
+
+typedef enum {
+    XQC_MOQ_FB_ACTION_NONE            = 0,
+    XQC_MOQ_FB_ACTION_PACING_GAIN     = 1,
+    XQC_MOQ_FB_ACTION_PACING_RATE     = 2,
+    XQC_MOQ_FB_ACTION_TARGET_BITRATE  = 3,
+} xqc_moq_fb_action_type_t;
+
+typedef struct xqc_moq_fb_decision_s {
+    xqc_moq_fb_action_type_t action;
+    union {
+        struct { float gain; }       pacing_gain;
+        struct { uint64_t rate; }    pacing_rate;
+        struct { uint64_t bitrate; } target_bitrate;
+    } u;
+} xqc_moq_fb_decision_t;
+
+typedef struct xqc_moq_fb_input_s {
+    double   loss_rate;
+    double   late_rate;
+    uint64_t playout_ahead_ms;
+    uint64_t estimated_bw_kbps;
+} xqc_moq_fb_input_t;
+
+typedef struct xqc_moq_fb_decision_config_s {
+    uint64_t   playout_critical_ms;
+    uint64_t   playout_warning_ms;
+    float      playout_critical_gain;
+    float      playout_warning_gain;
+    double     loss_heavy_threshold;
+    double     late_heavy_threshold;
+    float      heavy_gain;
+    double     loss_mild_threshold;
+    double     late_mild_threshold;
+    float      mild_gain;
+    double     loss_severe_threshold;
+    uint64_t   bitrate_floor_kbps;
+    xqc_usec_t override_duration_us;
+
+    float      recovery_gain;
+} xqc_moq_fb_decision_config_t;
+
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_session_report_playout_status(xqc_moq_session_t *session, uint64_t playout_ahead_ms);
+
+/**
+ * Enable/disable the built-in auto CC feedback decision.
+ * Default: enabled (1).  Set 0 to disable; then only the decision callback
+ * (on_feedback_decision) will affect CC.
+ */
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_session_set_auto_cc_feedback(xqc_moq_session_t *session, xqc_int_t enable);
+
+/**
+ * Override the default decision thresholds for auto mode.
+ * Pass NULL to reset to built-in defaults.
+ */
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_session_set_feedback_decision_config(xqc_moq_session_t *session,
+    const xqc_moq_fb_decision_config_t *config);
+
+/**
+ * Initialize a decision config with sensible defaults.
+ */
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_fb_decision_config_default(xqc_moq_fb_decision_config_t *config);
+
+/**
+ * Configure crosslayer gateway safety bounds.
+ * Affects rate-limiting interval and gain clamping for ALL dispatches
+ * (both auto and user-driven).
+ * @param min_interval_us  Minimum interval between consecutive dispatches (default 50ms).
+ * @param min_gain         Minimum pacing_gain clamp (default 0.5).
+ * @param max_gain         Maximum pacing_gain clamp (default 2.0).
+ * @param min_rate         Minimum pacing_rate floor in bytes/s (default 0).
+ */
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_session_set_crosslayer_bounds(xqc_moq_session_t *session,
+    xqc_usec_t min_interval_us, float min_gain, float max_gain, uint64_t min_rate);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_session_get_auto_cc_feedback(xqc_moq_session_t *session);
+
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_session_get_feedback_decision_config(xqc_moq_session_t *session,
+    xqc_moq_fb_decision_config_t *out_config);
+
+XQC_EXPORT_PUBLIC_API
+uint64_t xqc_moq_session_get_cc_dispatch_count(xqc_moq_session_t *session);
+
+XQC_EXPORT_PUBLIC_API
+float xqc_moq_session_get_last_dispatched_gain(xqc_moq_session_t *session);
+
+XQC_EXPORT_PUBLIC_API
+uint64_t xqc_moq_session_get_last_dispatched_rate(xqc_moq_session_t *session);
+
+XQC_EXPORT_PUBLIC_API
+uint64_t xqc_moq_session_get_pacing_rate(xqc_moq_session_t *session);
+
+XQC_EXPORT_PUBLIC_API
+uint8_t xqc_moq_session_get_cc_override_active(xqc_moq_session_t *session);
+
+XQC_EXPORT_PUBLIC_API
+uint64_t xqc_moq_session_get_feedback_reports_sent(xqc_moq_session_t *session);
 
 /**
  * @brief Set application error code and close the connection
@@ -500,6 +652,9 @@ xqc_moq_track_t *xqc_moq_track_create(xqc_moq_session_t *session, char *track_na
 
 XQC_EXPORT_PUBLIC_API
 void xqc_moq_track_set_reuse_subgroup_stream(xqc_moq_track_t *track, xqc_int_t reuse);
+
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_track_set_target_latency(xqc_moq_track_t *track, uint64_t target_latency_us);
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_subscribe(xqc_moq_session_t *session, const char *track_namespace, const char *track_name,

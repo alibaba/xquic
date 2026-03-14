@@ -155,8 +155,18 @@ xqc_demo_tap_result(int test_num, const char *test_name, int passed,
     printf("%s %d - %s\n", passed ? "ok" : "not ok", test_num, test_name);
     printf("  ---\n");
     printf("  duration_ms: %"PRIu64"\n", duration_ms);
-    if (message && message[0]) {
+    if (!passed && message && message[0]) {
         printf("  message: \"%s\"\n", message);
+        if (strstr(message, "expected ") != NULL) {
+            const char *exp = strstr(message, "expected ");
+            const char *got = strstr(message, ", got ");
+            if (exp && got) {
+                printf("  expected: %.*s\n", (int)(got - exp - 9), exp + 9);
+                printf("  received: %s\n", got + 6);
+            }
+        } else if (strstr(message, "timeout") != NULL) {
+            printf("  received: timeout\n");
+        }
     }
     printf("  ...\n");
     fflush(stdout);
@@ -179,10 +189,12 @@ xqc_demo_interop_timeout_callback(int fd, short what, void *arg)
 
     if (g_current_test == XQC_DEMO_TEST_SUBSCRIBE_ERROR) {
         xqc_demo_interop_conn_t *sub = g_sub_conn;
-        if (sub && sub->subscribe_ok_received) {
-            xqc_demo_test_fail("unexpected success: SUBSCRIBE_OK for nonexistent namespace");
-        } else {
+        if (sub && sub->subscribe_error_received) {
             xqc_demo_test_pass();
+        } else if (sub && sub->subscribe_ok_received) {
+            xqc_demo_test_fail("expected SUBSCRIBE_ERROR, got SUBSCRIBE_OK");
+        } else {
+            xqc_demo_test_fail("timeout: no SUBSCRIBE_ERROR received");
         }
     } else {
         xqc_demo_test_fail("test timed out: deadline has elapsed");
@@ -469,8 +481,7 @@ xqc_demo_interop_on_subscribe_ok(xqc_moq_user_session_t *user_session, xqc_moq_t
     conn->subscribe_ok_received = 1;
 
     if (g_current_test == XQC_DEMO_TEST_SUBSCRIBE_ERROR) {
-        VERBOSE("subscribe-error: relay accepted subscription (no namespace validation) - PASS");
-        xqc_demo_test_pass();
+        xqc_demo_test_fail("expected SUBSCRIBE_ERROR, got SUBSCRIBE_OK");
         xqc_demo_interop_close_conn(conn);
         return;
     }
@@ -508,7 +519,8 @@ xqc_demo_interop_on_subscribe_error(xqc_moq_user_session_t *user_session, xqc_mo
     }
 
     if (g_current_test == XQC_DEMO_TEST_ANNOUNCE_SUBSCRIBE) {
-        xqc_demo_test_pass();
+        xqc_demo_test_fail("expected SUBSCRIBE_OK, got SUBSCRIBE_ERROR (code=%"PRIu64")",
+                           subscribe_error->error_code);
         xqc_demo_interop_close_conn(conn);
         if (g_pub_conn && !g_pub_conn->closed) {
             xqc_demo_interop_close_conn(g_pub_conn);
@@ -516,11 +528,12 @@ xqc_demo_interop_on_subscribe_error(xqc_moq_user_session_t *user_session, xqc_mo
     }
 
     if (g_current_test == XQC_DEMO_TEST_SUBSCRIBE_BEFORE_ANNOUNCE) {
-        conn->subscribe_sent = 0;
-        struct event *ev = evtimer_new(g_eb, xqc_demo_interop_subscriber_subscribe_callback, conn);
-        struct timeval delay = { 3, 0 };
-        event_add(ev, &delay);
-        VERBOSE("subscribe-before-announce: SUBSCRIBE_ERROR received, retrying in 3s");
+        VERBOSE("subscribe-before-announce: SUBSCRIBE_ERROR received (relay doesn't buffer) - PASS");
+        xqc_demo_test_pass();
+        xqc_demo_interop_close_conn(conn);
+        if (g_pub_conn && !g_pub_conn->closed) {
+            xqc_demo_interop_close_conn(g_pub_conn);
+        }
     }
 }
 
@@ -755,12 +768,12 @@ xqc_demo_interop_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
             VERBOSE("connection closed (err=%d) for %s, session was established - PASS",
                     (int)err, g_test_case_names[g_current_test]);
             xqc_demo_test_pass();
-        } else if (g_current_test == XQC_DEMO_TEST_SUBSCRIBE_ERROR
-                   && !iconn->subscribe_ok_received)
-        {
-            VERBOSE("connection closed (err=%d) for subscribe-error without SUBSCRIBE_OK - PASS",
-                    (int)err);
-            xqc_demo_test_pass();
+        } else if (g_current_test == XQC_DEMO_TEST_SUBSCRIBE_ERROR) {
+            if (iconn->subscribe_error_received) {
+                xqc_demo_test_pass();
+            } else {
+                xqc_demo_test_fail("connection closed without SUBSCRIBE_ERROR (err=%d)", (int)err);
+            }
         } else if (err != 0) {
             xqc_demo_test_fail("connection error: %d", (int)err);
         }

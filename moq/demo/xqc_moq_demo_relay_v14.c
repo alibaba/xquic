@@ -79,8 +79,16 @@ typedef struct xqc_moq_relay_conn_s {
     xqc_cid_t                cid;
 } xqc_moq_relay_conn_t;
 
+typedef struct xqc_moq_relay_pub_namespace_s {
+    xqc_list_head_t              list_member;
+    xqc_moq_session_t            *session;
+    uint64_t                     track_namespace_num;
+    xqc_moq_track_ns_field_t     *track_namespace_tuple;
+} xqc_moq_relay_pub_namespace_t;
+
 static xqc_list_head_t g_relay_conn_list;
 static xqc_list_head_t g_relay_forwarding_list;
+static xqc_list_head_t g_relay_pub_namespace_list;
 
 static xqc_int_t
 xqc_moq_relay_forwarding_has_downstream(xqc_moq_relay_forwarding_t *forwarding, xqc_moq_session_t *downstream_session)
@@ -508,6 +516,86 @@ xqc_moq_relay_detach_session_from_forwardings(xqc_moq_session_t *session)
     }
 }
 
+static xqc_moq_relay_pub_namespace_t *
+xqc_moq_relay_find_pub_namespace_for_track(
+    const xqc_moq_track_ns_field_t *track_namespace_tuple, uint64_t track_namespace_num,
+    xqc_moq_session_t *exclude_session)
+{
+    xqc_list_head_t *pos;
+    xqc_list_for_each(pos, &g_relay_pub_namespace_list) {
+        xqc_moq_relay_pub_namespace_t *pub_ns =
+            xqc_list_entry(pos, xqc_moq_relay_pub_namespace_t, list_member);
+        if (pub_ns->session == exclude_session) {
+            continue;
+        }
+        if (!xqc_moq_relay_session_is_active(pub_ns->session)) {
+            continue;
+        }
+        if (xqc_moq_namespace_tuple_is_prefix(pub_ns->track_namespace_tuple, pub_ns->track_namespace_num,
+                track_namespace_tuple, track_namespace_num))
+        {
+            return pub_ns;
+        }
+    }
+    return NULL;
+}
+
+static void
+xqc_moq_relay_detach_pub_namespaces(xqc_moq_session_t *session)
+{
+    xqc_list_head_t *pos, *next;
+    xqc_list_for_each_safe(pos, next, &g_relay_pub_namespace_list) {
+        xqc_moq_relay_pub_namespace_t *pub_ns =
+            xqc_list_entry(pos, xqc_moq_relay_pub_namespace_t, list_member);
+        if (pub_ns->session == session) {
+            xqc_list_del(&pub_ns->list_member);
+            if (pub_ns->track_namespace_tuple != NULL) {
+                xqc_moq_namespace_tuple_free(pub_ns->track_namespace_tuple, pub_ns->track_namespace_num);
+            }
+            xqc_free(pub_ns);
+        }
+    }
+}
+
+static void
+xqc_moq_relay_on_publish_namespace(xqc_moq_user_session_t *user_session,
+    xqc_moq_publish_namespace_msg_t *msg)
+{
+    if (user_session == NULL || user_session->session == NULL || msg == NULL) {
+        return;
+    }
+
+    xqc_moq_session_t *session = user_session->session;
+
+    xqc_moq_relay_pub_namespace_t *pub_ns = xqc_calloc(1, sizeof(*pub_ns));
+    if (pub_ns == NULL) {
+        return;
+    }
+    xqc_init_list_head(&pub_ns->list_member);
+    pub_ns->session = session;
+    pub_ns->track_namespace_num = msg->track_namespace_num;
+    pub_ns->track_namespace_tuple = xqc_moq_namespace_tuple_copy(
+        msg->track_namespace_tuple, msg->track_namespace_num);
+    if (pub_ns->track_namespace_tuple == NULL) {
+        xqc_free(pub_ns);
+        return;
+    }
+    xqc_list_add_tail(&pub_ns->list_member, &g_relay_pub_namespace_list);
+
+    printf("relay on_publish_namespace: session:%p namespace:%s\n",
+           (void *)session,
+           xqc_demo_namespace_tuple_to_str(msg->track_namespace_tuple, msg->track_namespace_num));
+
+    xqc_moq_publish_namespace_ok_msg_t ok;
+    memset(&ok, 0, sizeof(ok));
+    ok.request_id = msg->request_id;
+    xqc_int_t ret = xqc_moq_write_publish_namespace_ok(session, &ok);
+    if (ret < 0) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|write_publish_namespace_ok error|ret:%d|", ret);
+        xqc_moq_session_error(session, MOQ_INTERNAL_ERROR, "on publish namespace");
+    }
+}
+
 static void
 xqc_moq_relay_on_subscribe_namespace(xqc_moq_user_session_t *user_session, xqc_moq_subscribe_namespace_msg_t *msg)
 {
@@ -588,6 +676,7 @@ xqc_server_conn_closing_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
     xqc_moq_session_t *closing_session = user_session->session;
     if (closing_session != NULL) {
         xqc_moq_relay_detach_session_from_forwardings(closing_session);
+        xqc_moq_relay_detach_pub_namespaces(closing_session);
     }
 
     if (conn_ctx != NULL && !xqc_list_empty(&conn_ctx->list_member)) {
@@ -645,10 +734,45 @@ static void
 xqc_moq_relay_on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     xqc_moq_track_t *track, xqc_moq_subscribe_msg_t *msg)
 {
-    (void)user_session;
-    (void)subscribe_id;
-    (void)track;
-    (void)msg;
+    if (track != NULL) {
+        return;
+    }
+    if (user_session == NULL || user_session->session == NULL || msg == NULL) {
+        return;
+    }
+
+    xqc_moq_session_t *session = user_session->session;
+
+    xqc_moq_relay_pub_namespace_t *pub_ns = xqc_moq_relay_find_pub_namespace_for_track(
+        msg->track_namespace_tuple, msg->track_namespace_num, session);
+
+    if (pub_ns != NULL) {
+        printf("relay on_subscribe: found publisher for namespace, sending subscribe_ok "
+               "subscribe_id:%"PRIu64" track:%s\n",
+               subscribe_id, msg->track_name ? msg->track_name : "null");
+        xqc_moq_subscribe_ok_msg_t ok;
+        memset(&ok, 0, sizeof(ok));
+        ok.subscribe_id = subscribe_id;
+        ok.expire_ms = 0;
+        ok.content_exist = 0;
+        ok.largest_group_id = 0;
+        ok.largest_object_id = 0;
+        ok.params_num = 0;
+        ok.params = NULL;
+        xqc_moq_write_subscribe_ok(session, &ok);
+    } else {
+        printf("relay on_subscribe: no publisher found, sending subscribe_error "
+               "subscribe_id:%"PRIu64" track:%s\n",
+               subscribe_id, msg->track_name ? msg->track_name : "null");
+        xqc_moq_subscribe_error_msg_t err;
+        memset(&err, 0, sizeof(err));
+        err.subscribe_id = subscribe_id;
+        err.error_code = 1;
+        err.reason_phrase = "no matching publisher namespace";
+        err.reason_phrase_len = strlen(err.reason_phrase);
+        err.track_alias = msg->track_alias;
+        xqc_moq_write_subscribe_error(session, &err);
+    }
 }
 
 static void
@@ -819,6 +943,7 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
         .on_catalog = xqc_moq_relay_on_catalog,
         .on_video = xqc_moq_relay_on_video_frame,
         .on_audio = xqc_moq_relay_on_audio_frame,
+        .on_publish_namespace = xqc_moq_relay_on_publish_namespace,
         .on_subscribe_namespace = xqc_moq_relay_on_subscribe_namespace,
     };
 
@@ -853,6 +978,7 @@ xqc_server_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void 
     xqc_moq_session_t *closing_session = conn_ctx ? conn_ctx->session : NULL;
     if (closing_session != NULL) {
         xqc_moq_relay_detach_session_from_forwardings(closing_session);
+        xqc_moq_relay_detach_pub_namespaces(closing_session);
     }
 
     if (conn_ctx != NULL && !xqc_list_empty(&conn_ctx->list_member)) {
@@ -895,6 +1021,7 @@ main(int argc, char *argv[])
     memset(&g_app_ctx, 0, sizeof(g_app_ctx));
     xqc_init_list_head(&g_relay_conn_list);
     xqc_init_list_head(&g_relay_forwarding_list);
+    xqc_init_list_head(&g_relay_pub_namespace_list);
 
     xqc_app_open_log_file(&g_app_ctx, "./relay.log");
     xqc_platform_init_env();

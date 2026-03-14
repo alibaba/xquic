@@ -2394,6 +2394,7 @@ xqc_moq_msg_encode_subscribe_error_len(xqc_moq_msg_base_t *msg_base)
     xqc_int_t len = 0;
     xqc_moq_subscribe_error_msg_t *subscribe_error = (xqc_moq_subscribe_error_msg_t*)msg_base;
     len += xqc_put_varint_len(XQC_MOQ_MSG_SUBSCRIBE_ERROR);
+    len += XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
     len += xqc_put_varint_len(subscribe_error->subscribe_id);
     len += xqc_put_varint_len(subscribe_error->error_code);
     len += xqc_put_varint_len(subscribe_error->reason_phrase_len);
@@ -2405,14 +2406,16 @@ xqc_moq_msg_encode_subscribe_error_len(xqc_moq_msg_base_t *msg_base)
 xqc_int_t
 xqc_moq_msg_encode_subscribe_error(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap)
 {
-    xqc_int_t ret = 0;
     xqc_moq_subscribe_error_msg_t *subscribe_error = (xqc_moq_subscribe_error_msg_t*)msg_base;
-    if (xqc_moq_msg_encode_subscribe_error_len(msg_base) > buf_cap) {
+    xqc_int_t length = xqc_moq_msg_encode_subscribe_error_len(msg_base);
+    if (length > buf_cap) {
         return -XQC_EILLEGAL_FRAME;
     }
 
+    length = length - xqc_put_varint_len(XQC_MOQ_MSG_SUBSCRIBE_ERROR) - XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
     uint8_t *p = buf;
     p = xqc_put_varint(p, XQC_MOQ_MSG_SUBSCRIBE_ERROR);
+    p = xqc_moq_put_varint_length(p, length);
     p = xqc_put_varint(p, subscribe_error->subscribe_id);
     p = xqc_put_varint(p, subscribe_error->error_code);
     p = xqc_put_varint(p, subscribe_error->reason_phrase_len);

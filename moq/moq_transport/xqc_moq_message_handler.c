@@ -176,17 +176,13 @@ xqc_moq_on_client_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
     }
     xqc_log(session->log, XQC_LOG_INFO, "|client_setup_v14_complete|local_role:%u|", session->role);
 
-    ret = xqc_moq_subscribe_datachannel(session);
-    if (ret < 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_datachannel error|ret:%d|", ret);
-        goto error;
+    if (session->role != XQC_MOQ_PUBSUB) {
+        ret = xqc_moq_subscribe_datachannel(session);
+        if (ret < 0) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_datachannel error|ret:%d|", ret);
+            goto error;
+        }
     }
-
-    // ret = xqc_moq_subscribe_catalog(session);
-    // if (ret < 0) {
-    //     xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_catalog error|ret:%d|", ret);
-    //     goto error;
-    // }
 
     session->session_setup_done = 1;
 
@@ -331,8 +327,22 @@ xqc_moq_on_subscribe(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, x
         subscribe_msg->track_namespace_tuple, subscribe_msg->track_namespace_num,
         subscribe_msg->track_name, XQC_MOQ_TRACK_FOR_PUB);
     if (track == NULL) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|track not found|track_alias:%ui|", subscribe_msg->track_alias);
-        goto error;
+        xqc_log(session->log, XQC_LOG_WARN, "|track not found|track_alias:%ui|subscribe_id:%ui|",
+                subscribe_msg->track_alias, subscribe_msg->subscribe_id);
+        if (session->session_callbacks.on_subscribe) {
+            session->session_callbacks.on_subscribe(session->user_session,
+                subscribe_msg->subscribe_id, NULL, subscribe_msg);
+            return;
+        }
+        xqc_moq_subscribe_error_msg_t subscribe_error;
+        memset(&subscribe_error, 0, sizeof(subscribe_error));
+        subscribe_error.subscribe_id = subscribe_msg->subscribe_id;
+        subscribe_error.error_code = MOQ_INTERNAL_ERROR;
+        subscribe_error.reason_phrase = "track not found";
+        subscribe_error.reason_phrase_len = 15;
+        subscribe_error.track_alias = subscribe_msg->track_alias;
+        xqc_moq_write_subscribe_error(session, &subscribe_error);
+        return;
     }
 
     if (track->subscribe_id != XQC_MOQ_INVALID_ID) {

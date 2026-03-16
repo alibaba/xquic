@@ -287,17 +287,13 @@ xqc_moq_on_server_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
         }
     }
 
-    ret = xqc_moq_subscribe_datachannel(session);
-    if (ret < 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_datachannel error|ret:%d|", ret);
-        goto error;
+    if (session->role != XQC_MOQ_PUBSUB) {
+        ret = xqc_moq_subscribe_datachannel(session);
+        if (ret < 0) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_datachannel error|ret:%d|", ret);
+            goto error;
+        }
     }
-
-    // ret = xqc_moq_subscribe_catalog(session);
-    // if (ret < 0) {
-    //     xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_catalog error|ret:%d|", ret);
-    //     goto error;
-    // }
 
     session->session_setup_done = 1;
     xqc_log(session->log, XQC_LOG_INFO, "|server_setup_v14_complete|");

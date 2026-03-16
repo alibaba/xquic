@@ -2435,9 +2435,18 @@ xqc_moq_msg_decode_subscribe_error(uint8_t *buf, size_t buf_len, uint8_t stream_
     xqc_int_t processed = 0;
     xqc_int_t ret = 0;
     xqc_int_t param_finish = 0;
+    uint64_t length = 0;
     xqc_moq_subscribe_error_msg_t *subscribe_error = (xqc_moq_subscribe_error_msg_t *)msg_base;
     switch (msg_ctx->cur_field_idx) {
-        case 0: //Subscribe ID (i)
+        case 0: //Length (16)
+            ret = xqc_moq_length_read(buf + processed, buf + buf_len, &length);
+            if (ret < 0) {
+                *wait_more_data = 1;
+                break;
+            }
+            processed += ret;
+            msg_ctx->cur_field_idx = 1;
+        case 1: //Subscribe ID (i)
             ret = xqc_vint_read(buf + processed, buf + buf_len, &subscribe_error->subscribe_id);
             if (ret < 0) {
                 *wait_more_data = 1;
@@ -2447,8 +2456,8 @@ xqc_moq_msg_decode_subscribe_error(uint8_t *buf, size_t buf_len, uint8_t stream_
 
             DEBUG_PRINTF("==>subscribe_id:%d\n",(int)subscribe_error->subscribe_id);
 
-            msg_ctx->cur_field_idx = 1;
-        case 1: //Error Code (i)
+            msg_ctx->cur_field_idx = 2;
+        case 2: //Error Code (i)
             ret = xqc_vint_read(buf + processed, buf + buf_len, &subscribe_error->error_code);
             if (ret < 0) {
                 *wait_more_data = 1;
@@ -2458,8 +2467,8 @@ xqc_moq_msg_decode_subscribe_error(uint8_t *buf, size_t buf_len, uint8_t stream_
 
             DEBUG_PRINTF("==>error_code:%d\n",(int)subscribe_error->error_code);
 
-            msg_ctx->cur_field_idx = 2;
-        case 2: //Reason Phrase (b)
+            msg_ctx->cur_field_idx = 3;
+        case 3: //Reason Phrase (b)
             if (subscribe_error->reason_phrase_len == 0) {
                 ret = xqc_vint_read(buf + processed, buf + buf_len, (uint64_t *)&subscribe_error->reason_phrase_len);
                 if (ret < 0) {
@@ -2492,8 +2501,8 @@ xqc_moq_msg_decode_subscribe_error(uint8_t *buf, size_t buf_len, uint8_t stream_
                 break;
             }
             DEBUG_PRINTF("==>reason_phrase:%s\n",subscribe_error->reason_phrase);
-            msg_ctx->cur_field_idx = 3;
-        case 3: //Track Alias (i)
+            msg_ctx->cur_field_idx = 4;
+        case 4: //Track Alias (i)
             ret = xqc_vint_read(buf + processed, buf + buf_len, &subscribe_error->track_alias);
             if (ret < 0) {
                 *wait_more_data = 1;

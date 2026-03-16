@@ -104,10 +104,21 @@ static xqc_moq_user_session_t *g_sub_user_session = NULL;
 
 static uint64_t g_request_id_counter = 0;
 static int g_connections_closed = 0;
+static int g_publisher_announced = 0;
 
-/* Use simple namespace string (current branch has no xqc_moq_track_ns_field_t) */
 #define XQC_INTEROP_NS_STR "moq-test/interop"
 #define XQC_INTEROP_TRACK_NAME "test-track"
+
+/* Helper: single-element namespace tuple from string */
+static xqc_moq_track_ns_field_t interop_ns_tuple = {
+    .len = sizeof(XQC_INTEROP_NS_STR) - 1,
+    .data = (unsigned char *)XQC_INTEROP_NS_STR
+};
+static const char *XQC_NONEXISTENT_NS_STR = "nonexistent/namespace";
+static xqc_moq_track_ns_field_t nonexistent_ns_tuple = {
+    .len = sizeof("nonexistent/namespace") - 1,
+    .data = (unsigned char *)"nonexistent/namespace"
+};
 
 #define VERBOSE(...) do { if (g_verbose) { fprintf(stderr, "[verbose] " __VA_ARGS__); fprintf(stderr, "\n"); } } while(0)
 
@@ -217,6 +228,9 @@ xqc_demo_interop_delayed_action_callback(int fd, short what, void *arg);
 
 static void
 xqc_demo_interop_subscriber_subscribe_callback(int fd, short what, void *arg);
+
+static void
+xqc_demo_interop_delayed_announce_callback(int fd, short what, void *arg);
 
 static void
 xqc_demo_interop_create_subscriber_callback(int fd, short what, void *arg);
@@ -354,7 +368,6 @@ xqc_demo_interop_init_conn(int role)
     return conn;
 }
 
-/* publish_namespace APIs not in current branch - use track create as announce equivalent */
 static int
 xqc_demo_interop_send_announce(xqc_moq_session_t *session)
 {
@@ -366,7 +379,16 @@ xqc_demo_interop_send_announce(xqc_moq_session_t *session)
         return -1;
     }
     VERBOSE("created track (announce) for %s/%s", XQC_INTEROP_NS_STR, XQC_INTEROP_TRACK_NAME);
-    return 0;
+    xqc_moq_publish_namespace_msg_t pub_ns;
+    memset(&pub_ns, 0, sizeof(pub_ns));
+    pub_ns.track_namespace_num = 1;
+    pub_ns.track_namespace_tuple = &interop_ns_tuple;
+    pub_ns.track_namespace_len = 0;
+    pub_ns.params_num = 0;
+    pub_ns.params = NULL;
+    xqc_int_t ret = xqc_moq_write_publish_namespace(session, &pub_ns);
+    VERBOSE("send PUBLISH_NAMESPACE(%s) ret=%d", XQC_INTEROP_NS_STR, (int)ret);
+    return (int)ret;
 }
 
 static int
@@ -379,7 +401,7 @@ xqc_demo_interop_send_subscribe_namespace(xqc_moq_session_t *session)
         VERBOSE("failed to create track for interop subscribe");
         return -1;
     }
-    int ret = xqc_moq_subscribe_latest(session, XQC_INTEROP_NS_STR, XQC_INTEROP_TRACK_NAME);
+    int ret = xqc_moq_subscribe_latest(session, &interop_ns_tuple, 1, XQC_INTEROP_TRACK_NAME);
     VERBOSE("send SUBSCRIBE(%s/%s) ret=%d", XQC_INTEROP_NS_STR, XQC_INTEROP_TRACK_NAME, ret);
     return ret;
 }
@@ -394,7 +416,7 @@ xqc_demo_interop_send_subscribe_nonexistent(xqc_moq_session_t *session)
         VERBOSE("failed to create track for nonexistent subscribe");
         return -1;
     }
-    int ret = xqc_moq_subscribe_latest(session, "nonexistent/namespace", "test-track");
+    int ret = xqc_moq_subscribe_latest(session, &nonexistent_ns_tuple, 1, "test-track");
     VERBOSE("send SUBSCRIBE(nonexistent/namespace, test-track) ret=%d", ret);
     return ret;
 }
@@ -409,7 +431,7 @@ xqc_demo_interop_send_subscribe_interop(xqc_moq_session_t *session)
         VERBOSE("failed to create track for interop subscribe");
         return -1;
     }
-    int ret = xqc_moq_subscribe_latest(session, XQC_INTEROP_NS_STR, XQC_INTEROP_TRACK_NAME);
+    int ret = xqc_moq_subscribe_latest(session, &interop_ns_tuple, 1, XQC_INTEROP_TRACK_NAME);
     VERBOSE("send SUBSCRIBE(%s/%s) ret=%d", XQC_INTEROP_NS_STR, XQC_INTEROP_TRACK_NAME, ret);
     return ret;
 }
@@ -436,11 +458,14 @@ xqc_demo_interop_on_session_setup(xqc_moq_user_session_t *user_session, char *ex
         break;
 
     case XQC_DEMO_TEST_PUBLISH_NAMESPACE_DONE:
-        /* not supported in current branch - test will report skipped */
+        if (conn->conn_role == 0) {
+            xqc_demo_interop_send_announce(conn->session);
+        }
         break;
 
     case XQC_DEMO_TEST_SUBSCRIBE_ERROR:
         if (conn->conn_role == 1) {
+            conn->subscribe_sent = 1;
             xqc_demo_interop_send_subscribe_nonexistent(conn->session);
         }
         break;
@@ -448,11 +473,18 @@ xqc_demo_interop_on_session_setup(xqc_moq_user_session_t *user_session, char *ex
     case XQC_DEMO_TEST_ANNOUNCE_SUBSCRIBE:
         if (conn->conn_role == 0) {
             xqc_demo_interop_send_announce(conn->session);
+            g_publisher_announced = 1;
+            if (g_sub_conn && g_sub_conn->session_ready && !g_sub_conn->subscribe_sent) {
+                g_sub_conn->subscribe_sent = 1;
+                VERBOSE("publisher announced, triggering subscriber SUBSCRIBE");
+                xqc_demo_interop_send_subscribe_interop(g_sub_conn->session);
+            }
         }
         if (conn->conn_role == 1) {
-            struct event *ev = evtimer_new(g_eb, xqc_demo_interop_subscriber_subscribe_callback, conn);
-            struct timeval delay = { 3, 0 };
-            event_add(ev, &delay);
+            if (g_publisher_announced) {
+                conn->subscribe_sent = 1;
+                xqc_demo_interop_send_subscribe_interop(conn->session);
+            }
         }
         break;
 
@@ -462,7 +494,9 @@ xqc_demo_interop_on_session_setup(xqc_moq_user_session_t *user_session, char *ex
             xqc_demo_interop_send_subscribe_interop(conn->session);
         }
         if (conn->conn_role == 0) {
-            xqc_demo_interop_send_announce(conn->session);
+            struct event *ev = evtimer_new(g_eb, xqc_demo_interop_delayed_announce_callback, conn);
+            struct timeval delay = { 2, 0 };
+            event_add(ev, &delay);
         }
         break;
 
@@ -558,9 +592,10 @@ xqc_demo_interop_on_subscribe(xqc_moq_user_session_t *user_session, uint64_t sub
             conn->conn_role, subscribe_id,
             msg && msg->track_name ? msg->track_name : "null");
 
-    if (track == NULL && msg != NULL && msg->track_namespace && msg->track_name) {
-        track = xqc_moq_track_create(conn->session, msg->track_namespace, msg->track_name,
-            XQC_MOQ_TRACK_VIDEO, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_PUB);
+    if (track == NULL && msg != NULL && msg->track_namespace_tuple && msg->track_namespace_num > 0 && msg->track_name) {
+        track = xqc_moq_track_create_with_namespace_tuple(conn->session, msg->track_namespace_num,
+            msg->track_namespace_tuple, msg->track_name, XQC_MOQ_TRACK_VIDEO, NULL,
+            XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_PUB);
         VERBOSE("created track for on_subscribe: %p", (void *)track);
     }
 
@@ -645,8 +680,23 @@ xqc_demo_interop_delayed_action_callback(int fd, short what, void *arg)
         break;
 
     case XQC_DEMO_TEST_PUBLISH_NAMESPACE_DONE:
-        /* publish_namespace not supported in current branch - skip */
-        xqc_demo_test_fail("skip: publish-namespace-done not supported in this branch");
+        if (conn->session_ready && !conn->publish_ns_done_sent) {
+            xqc_moq_publish_namespace_done_msg_t done;
+            memset(&done, 0, sizeof(done));
+            done.track_namespace_num = 1;
+            done.track_namespace_tuple = &interop_ns_tuple;
+            done.track_namespace_len = 0;
+            xqc_int_t ret = xqc_moq_write_publish_namespace_done(conn->session, &done);
+            VERBOSE("send PUBLISH_NAMESPACE_DONE ret=%d", (int)ret);
+            conn->publish_ns_done_sent = 1;
+            if (ret >= 0) {
+                xqc_demo_test_pass();
+            } else {
+                xqc_demo_test_fail("write_publish_namespace_done failed: %d", (int)ret);
+            }
+        } else if (!conn->session_ready) {
+            xqc_demo_test_fail("session setup not completed within deadline");
+        }
         xqc_demo_interop_close_conn(conn);
         break;
 
@@ -670,6 +720,19 @@ xqc_demo_interop_subscriber_subscribe_callback(int fd, short what, void *arg)
     conn->subscribe_sent = 1;
     VERBOSE("subscriber fallback: sending SUBSCRIBE");
     xqc_demo_interop_send_subscribe_interop(conn->session);
+}
+
+static void
+xqc_demo_interop_delayed_announce_callback(int fd, short what, void *arg)
+{
+    (void)fd; (void)what;
+    xqc_demo_interop_conn_t *conn = (xqc_demo_interop_conn_t *)arg;
+    if (conn == NULL || conn->closed) {
+        return;
+    }
+    VERBOSE("delayed announce: sending PUBLISH_NAMESPACE");
+    xqc_demo_interop_send_announce(conn->session);
+    g_publisher_announced = 1;
 }
 
 static void
@@ -945,9 +1008,12 @@ xqc_demo_wt_h3_conn_init_settings(xqc_h3_conn_t *h3_conn,
     xqc_h3_conn_settings_t *settings, void *h3c_user_data)
 {
     VERBOSE("wt: h3_conn_init_settings - enabling WT settings");
+#if 0
+    /* WebTransport settings not available on moq_draft_14_dev_relay branch */
     settings->enable_connect_protocol = 1;
     settings->enable_h3_datagram = 1;
     settings->webtransport_max_sessions = 1;
+#endif
 }
 
 static int
@@ -1177,6 +1243,8 @@ xqc_demo_wt_h3_request_read_notify(xqc_h3_request_t *h3_request,
     }
     iconn->session = session;
 
+#if 0
+    /* WebTransport session context APIs not available on moq_draft_14_dev_relay branch */
     xqc_moq_wt_session_ctx_t *wt_sess_ctx = xqc_moq_wt_session_ctx_create();
     wt_sess_ctx->h3_conn = ctx->h3_conn;
     wt_sess_ctx->session_id = ctx->session_id;
@@ -1189,6 +1257,7 @@ xqc_demo_wt_h3_request_read_notify(xqc_h3_request_t *h3_request,
         xqc_demo_test_fail("wt: failed to start MoQ session: %d", (int)ret2);
         return -1;
     }
+#endif
 
     VERBOSE("wt: MoQ CLIENT_SETUP sent over WebTransport");
     return 0;
@@ -1206,6 +1275,7 @@ xqc_demo_run_single_test(xqc_demo_test_case_t tc)
     g_pub_user_session = NULL;
     g_sub_user_session = NULL;
     g_request_id_counter = 0;
+    g_publisher_announced = 0;
     g_wt_ctx = NULL;
     memset(g_wt_ctxs, 0, sizeof(g_wt_ctxs));
     g_test_start_us = xqc_now();

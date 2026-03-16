@@ -748,12 +748,15 @@ xqc_moq_relay_on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscr
 
     if (pub_ns != NULL) {
         printf("relay on_subscribe: found publisher for namespace, sending subscribe_ok "
-               "subscribe_id:%"PRIu64" track:%s\n",
-               subscribe_id, msg->track_name ? msg->track_name : "null");
+               "subscribe_id:%"PRIu64" track_alias:%"PRIu64" track:%s\n",
+               subscribe_id, msg->track_alias,
+               msg->track_name ? msg->track_name : "null");
         xqc_moq_subscribe_ok_msg_t ok;
         memset(&ok, 0, sizeof(ok));
         ok.subscribe_id = subscribe_id;
+        ok.track_alias = msg->track_alias;
         ok.expire_ms = 0;
+        ok.group_order = 1;
         ok.content_exist = 0;
         ok.largest_group_id = 0;
         ok.largest_object_id = 0;

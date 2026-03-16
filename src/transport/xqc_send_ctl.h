@@ -116,6 +116,8 @@ typedef struct xqc_send_ctl_s {
     unsigned                    ctl_send_count;
     /** 仅统计携带业务数据的包（含 STREAM 或 DATAGRAM，不含纯握手/ACK/控制包） */
     unsigned                    ctl_app_data_send_count;
+    /** 其中因丢包/TLP 重传发出的业务数据包数（为 ctl_app_data_send_count 的子集） */
+    unsigned                    ctl_app_data_retrans_send_count;
     unsigned                    ctl_lost_count;
     unsigned                    ctl_tlp_count;
     unsigned                    ctl_spurious_loss_count;

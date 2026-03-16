@@ -716,6 +716,10 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
             xqc_send_ctl_set_loss_detection_timer(send_ctl);
         }
 
+        /* 在清除 POF_LOST/POF_TLP 前记录是否为业务数据重传（供 ctl_app_data_retrans_send_count 用） */
+        int is_app_data_retrans = (packet_out->po_frame_types & (XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_DATAGRAM))
+            && (packet_out->po_flag & (XQC_POF_LOST | XQC_POF_TLP));
+
         if (packet_out->po_flag & XQC_POF_LOST) {
             ++send_ctl->ctl_lost_count;
             send_ctl->ctl_recent_lost_count[0]++;
@@ -757,6 +761,9 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
         ++send_ctl->ctl_send_count;
         if (packet_out->po_frame_types & (XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_DATAGRAM)) {
             ++send_ctl->ctl_app_data_send_count;
+            if (is_app_data_retrans) {
+                ++send_ctl->ctl_app_data_retrans_send_count;
+            }
         }
         send_ctl->ctl_recent_send_count[0]++;
         xqc_stream_path_metrics_on_send(send_ctl->ctl_conn, packet_out);

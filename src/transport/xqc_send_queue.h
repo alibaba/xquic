@@ -16,6 +16,7 @@ typedef struct xqc_send_queue_s {
     /* send queue for packets, should be in connection level */
     xqc_list_head_t             sndq_send_packets;                  /* xqc_packet_out_t to send */
     xqc_list_head_t             sndq_send_packets_high_pri;         /* xqc_packet_out_t to send with high priority */
+    xqc_list_head_t             sndq_send_packets_low_pri;          /* xqc_packet_out_t to send with normal level-2 (low) priority */
     xqc_list_head_t             sndq_unacked_packets[XQC_PNS_N];    /* xqc_packet_out_t */
 
     xqc_list_head_t             sndq_lost_packets;                  /* xqc_packet_out_t */
@@ -86,6 +87,7 @@ void xqc_send_queue_remove_unacked(xqc_packet_out_t *packet_out, xqc_send_queue_
 void xqc_send_queue_move_to_head(xqc_list_head_t *pos, xqc_list_head_t *head);
 void xqc_send_queue_move_to_tail(xqc_list_head_t *pos, xqc_list_head_t *head);
 void xqc_send_queue_move_to_high_pri(xqc_list_head_t *pos, xqc_send_queue_t *send_queue);
+void xqc_send_queue_move_to_low_pri(xqc_list_head_t *pos, xqc_send_queue_t *send_queue);
 
 void xqc_send_queue_copy_to_lost(xqc_packet_out_t *packet_out, xqc_send_queue_t *send_queue, xqc_bool_t mark_retrans);
 void xqc_send_queue_copy_to_probe(xqc_packet_out_t *packet_out, xqc_send_queue_t *send_queue, xqc_path_ctx_t *path);

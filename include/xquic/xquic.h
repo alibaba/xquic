@@ -66,7 +66,8 @@ typedef enum xqc_proto_version_s {
 typedef enum {
     XQC_STREAM_PRI_DEFAULT  = 0,
     XQC_STREAM_PRI_HIGH     = 1,
-    XQC_STREAM_PRI_NORMAL   = 2,
+    XQC_STREAM_PRI_NORMAL   = 2, 
+    XQC_STREAM_PRI_NORMAL_LOW = 3,
 } xqc_stream_priority_t;
 
 #define XQC_SUPPORT_VERSION_MAX         64
@@ -1536,6 +1537,10 @@ typedef struct xqc_path_metrics_s {
  */
 typedef struct xqc_conn_stats_s {
     uint32_t            send_count;
+    /** 仅统计携带业务数据的包（STREAM/DATAGRAM），不含握手、ACK、控制包等 */
+    uint32_t            app_data_send_count;
+    /** 其中因丢包/TLP 重传发出的业务数据包数（为 app_data_send_count 的子集） */
+    uint32_t            app_data_retrans_send_count;
     uint32_t            lost_count;
     uint32_t            tlp_count;
     uint32_t            spurious_loss_count;
@@ -1838,6 +1843,15 @@ void *xqc_conn_get_ssl(xqc_connection_t *conn);
  */
 XQC_EXPORT_PUBLIC_API
 xqc_usec_t xqc_conn_get_lastest_rtt(xqc_engine_t *engine, const xqc_cid_t *cid);
+
+/**
+ * @brief get estimated bandwidth of the initial path (congestion control estimated bandwidth)
+ * @param engine xqc engine
+ * @param cid connection id
+ * @return estimated bandwidth in bytes per second (bps), 0 if connection or path not found
+ */
+XQC_EXPORT_PUBLIC_API
+uint64_t xqc_conn_get_est_bandwidth(xqc_engine_t *engine, const xqc_cid_t *cid);
 
 
 /**

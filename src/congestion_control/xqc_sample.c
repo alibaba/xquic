@@ -167,15 +167,17 @@ xqc_sample_check_app_limited(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl, xq
     xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, 
             "|check_applimit|path:%ui|inflight:%ud|"
             "now_cwnd_limited:%d|all_path_empty:%d|"
-            "sndq:%d|lostq:%d|ptoq:%d|",
+            "sndq:%d+%d|lostq:%d|ptoq:%d|",
             send_ctl->ctl_path->path_id, send_ctl->ctl_bytes_in_flight, 
             !send_ctl->ctl_is_cwnd_limited, all_path_buffer_empty,
             xqc_list_empty(&send_queue->sndq_send_packets),
+            xqc_list_empty(&send_queue->sndq_send_packets_low_pri),
             xqc_list_empty(&send_queue->sndq_lost_packets),
             xqc_list_empty(&send_queue->sndq_pto_probe_packets));
 
     if (not_cwnd_limited    /* We are not limited by CWND. */
         && xqc_list_empty(&send_queue->sndq_send_packets)  /* We have no packet to send. */
+        && xqc_list_empty(&send_queue->sndq_send_packets_low_pri)
         && xqc_list_empty(&send_queue->sndq_lost_packets)  /* All lost packets have been retransmitted. */
         && xqc_list_empty(&send_queue->sndq_pto_probe_packets)
         && all_path_buffer_empty)

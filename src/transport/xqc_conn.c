@@ -2295,8 +2295,14 @@ xqc_conn_send_packets_batch(xqc_connection_t *conn)
         xqc_path_send_packets_batch(conn, path, head, congest, XQC_SEND_TYPE_NORMAL_HIGH_PRI);
     }
 
-    head = &conn->conn_send_queue->sndq_send_packets;
     congest = 1;
+    head = &conn->conn_send_queue->sndq_send_packets;
+    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
+        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+        xqc_path_send_packets_batch(conn, path, head, congest, XQC_SEND_TYPE_NORMAL);
+    }
+
+    head = &conn->conn_send_queue->sndq_send_packets_low_pri;
     xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
         path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
         xqc_path_send_packets_batch(conn, path, head, congest, XQC_SEND_TYPE_NORMAL);
@@ -2404,6 +2410,11 @@ xqc_conn_send_packets(xqc_connection_t *conn)
         xqc_path_send_packets(conn, path, head, congest, XQC_SEND_TYPE_NORMAL);
     }
 
+    head = &conn->conn_send_queue->sndq_send_packets_low_pri;
+    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
+        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+        xqc_path_send_packets(conn, path, head, congest, XQC_SEND_TYPE_NORMAL);
+    }
 }
 
 xqc_int_t
@@ -2739,12 +2750,15 @@ xqc_conn_schedule_packets_to_paths(xqc_connection_t *conn)
     xqc_conn_schedule_packets(conn, head, XQC_FALSE, 
                               XQC_SEND_TYPE_NORMAL_HIGH_PRI);
 
+    head = &conn->conn_send_queue->sndq_send_packets;
+    xqc_conn_schedule_packets(conn, head, XQC_TRUE, XQC_SEND_TYPE_NORMAL);
+
     /* try to reinject unacked packets if paths still have cwnd */
     if (conn->conn_settings.mp_enable_reinjection & XQC_REINJ_UNACK_BEFORE_SCHED) {
         xqc_conn_reinject_unack_packets(conn, XQC_REINJ_UNACK_BEFORE_SCHED);
     }
 
-    head = &conn->conn_send_queue->sndq_send_packets;
+    head = &conn->conn_send_queue->sndq_send_packets_low_pri;
     xqc_conn_schedule_packets(conn, head, XQC_TRUE, XQC_SEND_TYPE_NORMAL);
 
     /* all packets are scheduled, we need to check if there are paths not fully utilized */
@@ -3647,6 +3661,8 @@ xqc_conn_get_stats_internal(xqc_connection_t *conn, xqc_conn_stats_t *conn_stats
 
         conn_stats->lost_count           += send_ctl->ctl_lost_count;
         conn_stats->send_count           += send_ctl->ctl_send_count;
+        conn_stats->app_data_send_count  += send_ctl->ctl_app_data_send_count;
+        conn_stats->app_data_retrans_send_count += send_ctl->ctl_app_data_retrans_send_count;
         conn_stats->tlp_count            += send_ctl->ctl_tlp_count;
         conn_stats->spurious_loss_count  += send_ctl->ctl_spurious_loss_count;
         conn_stats->recv_count           += send_ctl->ctl_recv_count;
@@ -3759,6 +3775,37 @@ xqc_conn_get_lastest_rtt(xqc_engine_t *engine, const xqc_cid_t *cid)
     }
 
     return path->path_send_ctl->ctl_latest_rtt;
+}
+
+uint64_t
+xqc_conn_get_est_bandwidth(xqc_engine_t *engine, const xqc_cid_t *cid)
+{
+    xqc_connection_t *conn;
+    xqc_path_ctx_t *path;
+    xqc_send_ctl_t *send_ctl;
+
+    conn = xqc_engine_conns_hash_find(engine, cid, 's');
+    if (!conn) {
+        xqc_log(engine->log, XQC_LOG_ERROR, "|can not find connection|cid:%s",
+                xqc_scid_str(engine, cid));
+        return 0;
+    }
+
+    path = conn->conn_initial_path;
+    if (!path) {
+        xqc_log(engine->log, XQC_LOG_ERROR, "|can not find initial path|cid:%s",
+                xqc_scid_str(engine, cid));
+        return 0;
+    }
+
+    send_ctl = path->path_send_ctl;
+    if (!send_ctl) {
+        xqc_log(engine->log, XQC_LOG_ERROR, "|can not find send ctl|cid:%s",
+                xqc_scid_str(engine, cid));
+        return 0;
+    }
+
+    return xqc_send_ctl_get_est_bw(send_ctl);
 }
 
 

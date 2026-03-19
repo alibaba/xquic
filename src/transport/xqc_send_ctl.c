@@ -277,6 +277,10 @@ xqc_send_ctl_reset(xqc_send_ctl_t *send_ctl)
         xqc_send_queue_move_to_tail(pos, &send_queue->sndq_send_packets);
     }
 
+    xqc_list_for_each_safe(pos, next, &send_queue->sndq_send_packets_low_pri) {
+        xqc_send_queue_move_to_tail(pos, &send_queue->sndq_send_packets);
+    }
+
     xqc_list_for_each_safe(pos, next, &send_queue->sndq_lost_packets) {
         xqc_send_queue_move_to_tail(pos, &send_queue->sndq_send_packets);
     }
@@ -671,6 +675,11 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
             send_ctl->ctl_last_sent_ack_eliciting_packet_number[pns] =
             packet_out->po_pkt.pkt_num;
         }
+        
+        /* record last app data send time for idle-based PING (client only uses it) */
+        if (packet_out->po_frame_types & (XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_CRYPTO | XQC_FRAME_BIT_DATAGRAM)) {
+            send_ctl->ctl_conn->last_app_data_send_time = now;
+        }
 
         xqc_conn_update_stream_stats_on_sent(send_ctl->ctl_conn, send_ctl, packet_out, now);
 
@@ -706,6 +715,10 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
         {
             xqc_send_ctl_set_loss_detection_timer(send_ctl);
         }
+
+        /* 在清除 POF_LOST/POF_TLP 前记录是否为业务数据重传（供 ctl_app_data_retrans_send_count 用） */
+        int is_app_data_retrans = (packet_out->po_frame_types & (XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_DATAGRAM))
+            && (packet_out->po_flag & (XQC_POF_LOST | XQC_POF_TLP));
 
         if (packet_out->po_flag & XQC_POF_LOST) {
             ++send_ctl->ctl_lost_count;
@@ -746,6 +759,12 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
         }
 
         ++send_ctl->ctl_send_count;
+        if (packet_out->po_frame_types & (XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_DATAGRAM)) {
+            ++send_ctl->ctl_app_data_send_count;
+            if (is_app_data_retrans) {
+                ++send_ctl->ctl_app_data_retrans_send_count;
+            }
+        }
         send_ctl->ctl_recent_send_count[0]++;
         xqc_stream_path_metrics_on_send(send_ctl->ctl_conn, packet_out);
 

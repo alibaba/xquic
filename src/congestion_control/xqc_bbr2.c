@@ -173,7 +173,7 @@ xqc_bbr2_init(void *cong_ctl, xqc_sample_t *sampler, xqc_cc_params_t cc_params)
     bbr2->probe_rtt_round_done_stamp = 0;
     bbr2->packet_conservation = FALSE;
     bbr2->prior_cwnd = 0;
-    bbr2->initial_congestion_window = 32 * XQC_BBR2_MAX_DATAGRAM_SIZE; 
+    bbr2->initial_congestion_window = 8 * XQC_BBR2_MAX_DATAGRAM_SIZE; 
     bbr2->congestion_window = bbr2->initial_congestion_window;
     bbr2->has_srtt = 0;
     bbr2->idle_restart = 0;

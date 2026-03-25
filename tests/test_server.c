@@ -2153,7 +2153,7 @@ int main(int argc, char *argv[]) {
     uint8_t c_qlog_disable = 0;
     char c_qlog_importance = 'r';
     int pacing_on = 0;
-    strncpy(g_log_path, "./slog", sizeof(g_log_path));
+    snprintf(g_log_path, sizeof(g_log_path), "%s", "./slog");
 
     //ensure the random sequence is the same for every test
     srand(0);

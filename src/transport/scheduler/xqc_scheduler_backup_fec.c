@@ -187,10 +187,9 @@ skip_path:
             && conn->fec_ctl->fec_mp_mode == XQC_FEC_MP_USE_STB
             && (packet_out->po_frame_types & XQC_FRAME_BIT_REPAIR_SYMBOL))
         {
-            conn->fec_ctl->fec_rep_path_id =
-                (ret_path->app_path_status == XQC_APP_PATH_STATUS_STANDBY)
-                ? ret_path->path_id
-                : XQC_MAX_UINT64_VALUE;
+            if (ret_path->app_path_status == XQC_APP_PATH_STATUS_STANDBY) {
+                conn->fec_ctl->fec_rep_path_id = ret_path->path_id;
+            }
         }
 #endif
         xqc_log(conn->log, XQC_LOG_DEBUG, "|best path:%ui|frame_type:%s|"

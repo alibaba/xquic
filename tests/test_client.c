@@ -1385,6 +1385,7 @@ xqc_client_bind_to_interface(int fd, const char *interface_name)
     struct ifreq ifr;
     memset(&ifr, 0x00, sizeof(ifr));
     strncpy(ifr.ifr_name, interface_name, sizeof(ifr.ifr_name) - 1);
+    ifr.ifr_name[sizeof(ifr.ifr_name) - 1] = '\0';
 #if !defined(__APPLE__)
     printf("fd: %d. bind to nic: %s\n", fd, interface_name);
     if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (char *)&ifr, sizeof(ifr)) < 0) {
@@ -4468,7 +4469,8 @@ int main(int argc, char *argv[]) {
                 break;
 
             case 8:
-                strncpy(conn_options, optarg, XQC_CO_STR_MAX_LEN);
+                strncpy(conn_options, optarg, XQC_CO_STR_MAX_LEN - 1);
+                conn_options[XQC_CO_STR_MAX_LEN - 1] = '\0';
                 printf("option conn_options: %s\n", conn_options);
                 break;
 
@@ -4633,7 +4635,8 @@ int main(int argc, char *argv[]) {
         .close_dgram_redundancy = XQC_RED_NOT_USE
     };
 
-    strncpy(conn_settings.conn_option_str, conn_options, XQC_CO_STR_MAX_LEN);
+    strncpy(conn_settings.conn_option_str, conn_options, XQC_CO_STR_MAX_LEN - 1);
+    conn_settings.conn_option_str[XQC_CO_STR_MAX_LEN - 1] = '\0';
 
 #ifdef XQC_PROTECT_POOL_MEM
     if (g_test_case == 600) {

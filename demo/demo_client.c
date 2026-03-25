@@ -2139,7 +2139,8 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
 
         case 's':
             printf("option scheduler: %s\n", optarg);
-            strncpy(args->quic_cfg.mp_sched, optarg, 32);
+            strncpy(args->quic_cfg.mp_sched, optarg, 31);
+            args->quic_cfg.mp_sched[31] = '\0';
             break;
 
         case 'b':

@@ -156,7 +156,7 @@ sh ../scripts/xquic_test.sh
     - [RFC9221-datagram-zh](./docs/translation/rfc9221-datagram-zh.md)
 
 * For using quic-qlog, see the [Features: qlog](./docs/Features.md)
-* For testing the library, see the [Testing docs](./docs/docs-zh/Testing-zh.md).
+* For testing the library, see the [Testing docs](./docs/Testing.md).
 * For other frequently asked questions, see the [FAQs](./docs/docs-zh/FAQ-zh.md) and [Trouble Shooting Guide](./docs/docs-zh/Troubleshooting-zh.md).
 
 ## Contributing

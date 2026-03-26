@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>xquic WebTransport Echo Test</title>
+<style>
+:root { --bg: #1a1a2e; --surface: #16213e; --accent: #0f3460; --text: #e0e0e0; --ok: #4ecca3; --err: #e23e57; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; background: var(--bg); color: var(--text); padding: 2rem; }
+h1 { font-size: 1.4rem; margin-bottom: 1rem; color: #fff; }
+.panel { background: var(--surface); border-radius: 8px; padding: 1.2rem; margin-bottom: 1rem; }
+.row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.8rem; }
+label { font-size: 0.85rem; color: #aaa; min-width: 60px; }
+input { background: var(--accent); border: 1px solid #334; color: var(--text); padding: 0.4rem 0.6rem; border-radius: 4px; font-family: inherit; font-size: 0.85rem; }
+input#url { flex: 1; min-width: 250px; }
+input#msg { flex: 1; min-width: 200px; }
+button { background: var(--ok); color: #111; border: none; padding: 0.45rem 1rem; border-radius: 4px; font-family: inherit; font-weight: 600; cursor: pointer; font-size: 0.85rem; }
+button:hover { opacity: 0.9; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+button.danger { background: var(--err); color: #fff; }
+#log { background: #0d1117; border-radius: 6px; padding: 1rem; max-height: 50vh; overflow-y: auto; font-size: 0.8rem; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+.log-ok { color: var(--ok); }
+.log-err { color: var(--err); }
+.log-info { color: #58a6ff; }
+.log-data { color: #d2a8ff; }
+.status { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+.status.connected { background: var(--ok); }
+.status.disconnected { background: #555; }
+.status.error { background: var(--err); }
+#certNote { font-size: 0.75rem; color: #888; margin-top: 0.5rem; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<h1><span class="status disconnected" id="statusDot"></span>xquic WebTransport Echo Test</h1>
+
+<div class="panel">
+  <div class="row">
+    <label>URL</label>
+    <input id="url" type="text" value="https://localhost:4443/">
+    <button id="btnConnect" onclick="doConnect()">Connect</button>
+    <button id="btnClose" class="danger" onclick="doClose()" disabled>Close</button>
+  </div>
+  <div class="row">
+    <label>Bidi</label>
+    <input id="msg" type="text" value="Hello xquic WebTransport!" placeholder="message to echo">
+    <button id="btnSendBidi" onclick="sendBidi()" disabled>Send Bidi</button>
+    <button id="btnSendUni" onclick="sendUni()" disabled>Send Uni</button>
+  </div>
+  <div id="certNote">
+    For self-signed certs, launch Chrome with:
+    <code>--origin-to-force-quic-on=localhost:4443 --ignore-certificate-errors-spdy-list=localhost</code>
+    <br>Or on macOS:
+    <code>/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --origin-to-force-quic-on=localhost:4443 --ignore-certificate-errors-spdy-list=localhost --user-data-dir=/tmp/wt-chrome</code>
+    <br>
+    Cert SHA-256: <code id="certHash">3bp46qd1KXM18uKSaXM083RHhE8Fa83XEgnILTbWpJQ=</code>
+  </div>
+</div>
+
+<div id="log"></div>
+
+<script>
+let transport = null;
+
+function log(msg, cls = '') {
+  const el = document.getElementById('log');
+  const ts = new Date().toISOString().split('T')[1].replace('Z','');
+  const span = document.createElement('span');
+  span.className = cls;
+  span.textContent = `[${ts}] ${msg}\n`;
+  el.appendChild(span);
+  el.scrollTop = el.scrollHeight;
+}
+
+function setStatus(s) {
+  const dot = document.getElementById('statusDot');
+  dot.className = 'status ' + s;
+  document.getElementById('btnConnect').disabled = (s === 'connected');
+  document.getElementById('btnClose').disabled = (s !== 'connected');
+  document.getElementById('btnSendBidi').disabled = (s !== 'connected');
+  document.getElementById('btnSendUni').disabled = (s !== 'connected');
+}
+
+async function doConnect() {
+  const url = document.getElementById('url').value;
+  log(`Connecting to ${url} ...`, 'log-info');
+  try {
+    const hashB64 = document.getElementById('certHash').textContent.trim();
+    const hashBin = Uint8Array.from(atob(hashB64), c => c.charCodeAt(0));
+    const opts = {
+      serverCertificateHashes: [{
+        algorithm: 'sha-256',
+        value: hashBin.buffer
+      }]
+    };
+    transport = new WebTransport(url, opts);
+    transport.closed.then(() => {
+      log('Connection closed.', 'log-info');
+      setStatus('disconnected');
+    }).catch(e => {
+      log('Connection closed with error: ' + e, 'log-err');
+      setStatus('error');
+    });
+
+    await transport.ready;
+    log('Connected!', 'log-ok');
+    setStatus('connected');
+
+    listenIncomingBidi();
+    listenIncomingUni();
+  } catch (e) {
+    log('Connect failed: ' + e, 'log-err');
+    setStatus('error');
+  }
+}
+
+function doClose() {
+  if (transport) {
+    transport.close();
+    transport = null;
+  }
+}
+
+async function sendBidi() {
+  if (!transport) return;
+  const text = document.getElementById('msg').value;
+  try {
+    const stream = await transport.createBidirectionalStream();
+    const writer = stream.writable.getWriter();
+    const encoded = new TextEncoder().encode(text);
+    log(`[bidi-send] ${text} (${encoded.byteLength} bytes)`, 'log-data');
+    await writer.write(encoded);
+    await writer.close();
+
+    const reader = stream.readable.getReader();
+    let received = new Uint8Array();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const tmp = new Uint8Array(received.length + value.length);
+      tmp.set(received); tmp.set(value, received.length);
+      received = tmp;
+    }
+    const decoded = new TextDecoder().decode(received);
+    log(`[bidi-recv] ${decoded} (${received.byteLength} bytes)`, 'log-ok');
+  } catch (e) {
+    log('[bidi-err] ' + e, 'log-err');
+  }
+}
+
+async function sendUni() {
+  if (!transport) return;
+  const text = document.getElementById('msg').value;
+  try {
+    const stream = await transport.createUnidirectionalStream();
+    const writer = stream.writable.getWriter();
+    const encoded = new TextEncoder().encode(text);
+    log(`[uni-send] ${text} (${encoded.byteLength} bytes)`, 'log-data');
+    await writer.write(encoded);
+    await writer.close();
+    log('[uni-send] stream closed, waiting for echo on incoming uni...', 'log-info');
+  } catch (e) {
+    log('[uni-err] ' + e, 'log-err');
+  }
+}
+
+async function listenIncomingBidi() {
+  if (!transport) return;
+  try {
+    const reader = transport.incomingBidirectionalStreams.getReader();
+    while (true) {
+      const { value: stream, done } = await reader.read();
+      if (done) break;
+      readStream(stream.readable, 'incoming-bidi');
+    }
+  } catch (e) {
+    if (transport) log('[incoming-bidi-err] ' + e, 'log-err');
+  }
+}
+
+async function listenIncomingUni() {
+  if (!transport) return;
+  try {
+    const reader = transport.incomingUnidirectionalStreams.getReader();
+    while (true) {
+      const { value: stream, done } = await reader.read();
+      if (done) break;
+      readStream(stream, 'incoming-uni');
+    }
+  } catch (e) {
+    if (transport) log('[incoming-uni-err] ' + e, 'log-err');
+  }
+}
+
+async function readStream(readable, label) {
+  try {
+    const reader = readable.getReader();
+    let buf = new Uint8Array();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const tmp = new Uint8Array(buf.length + value.length);
+      tmp.set(buf); tmp.set(value, buf.length);
+      buf = tmp;
+    }
+    const text = new TextDecoder().decode(buf);
+    log(`[${label}] ${text} (${buf.byteLength} bytes)`, 'log-ok');
+  } catch (e) {
+    log(`[${label}-err] ` + e, 'log-err');
+  }
+}
+</script>
+</body>
+</html>

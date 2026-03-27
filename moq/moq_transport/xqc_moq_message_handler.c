@@ -807,9 +807,12 @@ xqc_moq_on_object(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_
 {
     xqc_moq_track_t *track;
     xqc_log(session->log, XQC_LOG_DEBUG, "|subscribe_id:%ui|track_alias:%ui|group_id:%ui|"
-                                         "object_id:%ui|send_order:%ui|status:%ui|payload_len:%ui|",
+                                         "object_id:%ui|send_order:%ui|publisher_priority_set:%ud|publisher_priority:%ud|"
+                                         "status:%ui|payload_len:%ui|",
             object->subscribe_id, object->track_alias, object->group_id,
-            object->object_id, object->send_order, object->status, object->payload_len);
+            object->object_id, object->send_order,
+            object->publisher_priority_set, object->publisher_priority,
+            object->status, object->payload_len);
 
     track = xqc_moq_find_track_by_alias(session, object->track_alias, XQC_MOQ_TRACK_FOR_SUB);
     if (track == NULL) {
@@ -826,7 +829,9 @@ xqc_moq_on_object(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_
     }
 
     object->subscribe_id = track->subscribe_id;
-    xqc_moq_stream_set_track_type(moq_stream, track->track_info.track_type);
+    if (moq_stream) {
+        xqc_moq_stream_set_track_type(moq_stream, track->track_info.track_type);
+    }
 
     if (session->session_callbacks.on_object && track->raw_object) {
         session->session_callbacks.on_object(session->user_session, track, &track->track_info, object);
@@ -891,6 +896,8 @@ xqc_moq_on_subgroup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xq
     object.payload = msg->payload;
     object.payload_len = msg->payload_len;
     object.custom_id_flag = 0;
+    object.publisher_priority_set = 0;
+    object.publisher_priority = 0;
     moq_stream->subgroup_header.track_alias = object.track_alias;
     moq_stream->subgroup_header.group_id = object.group_id;
     moq_stream->subgroup_header.subgroup_id = object.subgroup_id;

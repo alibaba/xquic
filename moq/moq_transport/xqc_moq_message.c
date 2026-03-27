@@ -202,6 +202,8 @@ void xqc_moq_msg_set_object_by_object(xqc_moq_object_t *obj, xqc_moq_object_stre
     obj->payload = msg->payload;
     obj->payload_len = msg->payload_len;
     obj->custom_id_flag = 0;
+    obj->publisher_priority_set = 0;
+    obj->publisher_priority = 0;
 }
 
 void xqc_moq_msg_set_object_by_track(xqc_moq_object_t *obj, xqc_moq_stream_header_track_msg_t *header,
@@ -220,6 +222,8 @@ void xqc_moq_msg_set_object_by_track(xqc_moq_object_t *obj, xqc_moq_stream_heade
     obj->payload = msg->payload;
     obj->payload_len = msg->payload_len;
     obj->custom_id_flag = 0;
+    obj->publisher_priority_set = 0;
+    obj->publisher_priority = 0;
 }
 
 void xqc_moq_msg_set_object_by_group(xqc_moq_object_t *obj, xqc_moq_stream_header_group_msg_t *header,
@@ -238,6 +242,8 @@ void xqc_moq_msg_set_object_by_group(xqc_moq_object_t *obj, xqc_moq_stream_heade
     obj->payload = msg->payload;
     obj->payload_len = msg->payload_len;
     obj->custom_id_flag = 0;
+    obj->publisher_priority_set = 0;
+    obj->publisher_priority = 0;
 }
 
 
@@ -578,6 +584,377 @@ xqc_moq_msg_decode_params_v14(uint8_t *buf, size_t buf_len, xqc_moq_decode_param
     }
 
     return processed;
+}
+
+static xqc_moq_dgram_type_flags_t
+xqc_moq_object_datagram_type_parse(uint64_t type)
+{
+    xqc_moq_dgram_type_flags_t flags = 0;
+
+    if (type <= XQC_MOQ_OBJ_DGRAM_TYPE_PAYLOAD_MAX) {
+        flags |= XQC_MOQ_DGRAM_FLAG_PAYLOAD;
+        if (type & XQC_MOQ_OBJ_DGRAM_TYPE_HAS_EXT) {
+            flags |= XQC_MOQ_DGRAM_FLAG_EXT;
+        }
+        if (type & XQC_MOQ_OBJ_DGRAM_TYPE_END_OF_GROUP) {
+            flags |= XQC_MOQ_DGRAM_FLAG_EOG;
+        }
+        if (!(type & XQC_MOQ_OBJ_DGRAM_TYPE_NO_OBJECT_ID)) {
+            flags |= XQC_MOQ_DGRAM_FLAG_OID;
+        }
+
+    } else if (type == XQC_MOQ_OBJ_DGRAM_TYPE_STATUS || type == XQC_MOQ_OBJ_DGRAM_TYPE_STATUS_EXT) {
+        flags |= XQC_MOQ_DGRAM_FLAG_STATUS;
+        flags |= XQC_MOQ_DGRAM_FLAG_OID;
+        if (type == XQC_MOQ_OBJ_DGRAM_TYPE_STATUS_EXT) {
+            flags |= XQC_MOQ_DGRAM_FLAG_EXT;
+        }
+
+    } else {
+        flags |= XQC_MOQ_DGRAM_FLAG_VIOLATION;
+    }
+
+    return flags;
+}
+
+static xqc_int_t
+xqc_moq_msg_parse_ext_params_block(uint8_t *ext_buf, uint64_t ext_len,
+    xqc_moq_message_parameter_t **params_out, uint64_t *params_num_out)
+{
+    size_t ext_processed = 0;
+    xqc_int_t params_num = 0;
+    xqc_int_t ret = 0;
+
+    if (params_out) { *params_out = NULL; }
+    if (params_num_out) { *params_num_out = 0; }
+
+    /* Two-pass parse: first pass counts parameters for allocation,
+     * second pass decodes into allocated array. */
+    while (ext_processed < ext_len) {
+        uint64_t type = 0;
+        uint64_t length = 0;
+
+        ret = xqc_vint_read(ext_buf + ext_processed, ext_buf + ext_len, &type);
+        if (ret < 0) {
+            return ret;
+        }
+        ext_processed += ret;
+
+        if ((type & 0x1) || type == XQC_MOQ_PARAM_EXTDATA) {
+            ret = xqc_vint_read(ext_buf + ext_processed, ext_buf + ext_len, &length);
+            if (ret < 0) {
+                return ret;
+            }
+            ext_processed += ret;
+            if (length > XQC_MOQ_MAX_PARAM_VALUE_LEN) {
+                return -XQC_ELIMIT;
+            }
+            if (ext_processed + length > ext_len) {
+                return -XQC_EILLEGAL_FRAME;
+            }
+            ext_processed += length;
+        } else {
+            ret = xqc_vint_read(ext_buf + ext_processed, ext_buf + ext_len, &length);
+            if (ret < 0) {
+                return ret;
+            }
+            ext_processed += ret;
+        }
+
+        params_num++;
+        if (params_num > XQC_MOQ_MAX_PARAMS) {
+            return -XQC_ELIMIT;
+        }
+    }
+
+    if (ext_processed != ext_len) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    if (params_num == 0) {
+        return XQC_OK;
+    }
+
+    xqc_moq_message_parameter_t *params = xqc_moq_msg_alloc_params(params_num);
+    if (params == NULL) {
+        return -XQC_EMALLOC;
+    }
+
+    xqc_moq_decode_params_ctx_t params_ctx;
+    xqc_int_t params_finish = 0;
+    xqc_int_t params_wait = 0;
+    xqc_moq_decode_params_ctx_reset(&params_ctx);
+    ret = xqc_moq_msg_decode_params_v14(ext_buf, ext_len, &params_ctx,
+                                        params, params_num, &params_finish, &params_wait);
+    if (ret < 0 || params_finish == 0 || params_wait != 0) {
+        xqc_moq_msg_free_params(params, params_num);
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    if (params_out) { *params_out = params; }
+    if (params_num_out) { *params_num_out = (uint64_t)params_num; }
+    return XQC_OK;
+}
+
+void
+xqc_moq_object_datagram_free_fields(xqc_moq_object_datagram_msg_t *dgram)
+{
+    if (dgram == NULL) {
+        return;
+    }
+    if (dgram->ext_params) {
+        xqc_moq_msg_free_params(dgram->ext_params, (xqc_int_t)dgram->ext_params_num);
+        dgram->ext_params = NULL;
+        dgram->ext_params_num = 0;
+    }
+    if (dgram->payload) {
+        xqc_free(dgram->payload);
+        dgram->payload = NULL;
+        dgram->payload_len = 0;
+    }
+}
+
+static xqc_int_t
+xqc_moq_object_datagram_encode_len_with_flags(xqc_moq_object_datagram_msg_t *dgram,
+    xqc_moq_dgram_type_flags_t flags, uint64_t *ext_len_out)
+{
+    xqc_int_t len = 0;
+    uint64_t ext_len = 0;
+
+    if (ext_len_out) {
+        *ext_len_out = 0;
+    }
+
+    len += xqc_put_varint_len(dgram->type);
+    len += xqc_put_varint_len(dgram->track_alias);
+    len += xqc_put_varint_len(dgram->group_id);
+    if (flags & XQC_MOQ_DGRAM_FLAG_OID) {
+        len += xqc_put_varint_len(dgram->object_id);
+    }
+    len += XQC_MOQ_SUBGROUP_PRIORITY_FIXED_SIZE;
+
+    if (flags & XQC_MOQ_DGRAM_FLAG_EXT) {
+        if (dgram->ext_params && dgram->ext_params_num > 0) {
+            if (dgram->ext_params_num > XQC_MOQ_MAX_PARAMS) {
+                return -XQC_ELIMIT;
+            }
+            ext_len = (uint64_t)xqc_moq_msg_encode_params_len_v14(dgram->ext_params, (xqc_int_t)dgram->ext_params_num);
+        }
+        if (ext_len == 0) {
+            return -XQC_EILLEGAL_FRAME;
+        }
+        len += xqc_put_varint_len(ext_len);
+        len += (xqc_int_t)ext_len;
+    }
+
+    if (flags & XQC_MOQ_DGRAM_FLAG_PAYLOAD) {
+        if (dgram->payload_len > 0 && dgram->payload == NULL) {
+            return -XQC_EPARAM;
+        }
+        if (dgram->payload_len > XQC_MOQ_MAX_OBJECT_LEN) {
+            return -XQC_ELIMIT;
+        }
+        len += (xqc_int_t)dgram->payload_len;
+    } else if (flags & XQC_MOQ_DGRAM_FLAG_STATUS) {
+        if (dgram->payload_len != 0) {
+            return -XQC_EILLEGAL_FRAME;
+        }
+        len += xqc_put_varint_len(dgram->status);
+    } else {
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    if (ext_len_out) {
+        *ext_len_out = ext_len;
+    }
+    return len;
+}
+
+xqc_int_t
+xqc_moq_object_datagram_encode_len(xqc_moq_object_datagram_msg_t *dgram)
+{
+    if (dgram == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_moq_dgram_type_flags_t flags = xqc_moq_object_datagram_type_parse(dgram->type);
+    if (flags & XQC_MOQ_DGRAM_FLAG_VIOLATION) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    return xqc_moq_object_datagram_encode_len_with_flags(dgram, flags, NULL);
+}
+
+xqc_int_t
+xqc_moq_object_datagram_encode(xqc_moq_object_datagram_msg_t *dgram, uint8_t *buf, size_t buf_cap)
+{
+    xqc_int_t need = 0;
+    uint64_t ext_len = 0;
+    xqc_moq_dgram_type_flags_t flags;
+
+    if (dgram == NULL || buf == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    flags = xqc_moq_object_datagram_type_parse(dgram->type);
+    if (flags & XQC_MOQ_DGRAM_FLAG_VIOLATION) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    need = xqc_moq_object_datagram_encode_len_with_flags(dgram, flags, &ext_len);
+    if (need < 0) {
+        return need;
+    }
+    if ((size_t)need > buf_cap) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    uint8_t *p = buf;
+    p = xqc_put_varint(p, dgram->type);
+    p = xqc_put_varint(p, dgram->track_alias);
+    p = xqc_put_varint(p, dgram->group_id);
+    if (flags & XQC_MOQ_DGRAM_FLAG_OID) {
+        p = xqc_put_varint(p, dgram->object_id);
+    }
+    p = xqc_moq_put_u8(p, dgram->publisher_priority);
+
+    if (flags & XQC_MOQ_DGRAM_FLAG_EXT) {
+        p = xqc_put_varint(p, ext_len);
+        xqc_int_t ret = xqc_moq_msg_encode_params_v14(dgram->ext_params, (xqc_int_t)dgram->ext_params_num,
+                                                      p, buf + buf_cap - p);
+        if (ret < 0) {
+            return ret;
+        }
+        p += ret;
+    }
+
+    if (flags & XQC_MOQ_DGRAM_FLAG_PAYLOAD) {
+        if (dgram->payload_len > 0) {
+            xqc_memcpy(p, dgram->payload, dgram->payload_len);
+            p += dgram->payload_len;
+        }
+        return p - buf;
+    }
+
+    if (flags & XQC_MOQ_DGRAM_FLAG_STATUS) {
+        p = xqc_put_varint(p, dgram->status);
+        return p - buf;
+    }
+
+    return -XQC_EILLEGAL_FRAME;
+}
+
+xqc_int_t
+xqc_moq_object_datagram_decode(uint8_t *buf, size_t buf_len, xqc_moq_object_datagram_msg_t *dgram)
+{
+    xqc_int_t processed = 0;
+    xqc_int_t ret = 0;
+    xqc_moq_dgram_type_flags_t flags;
+    uint64_t type = 0;
+    uint64_t ext_len = 0;
+    uint8_t *ext_buf = NULL;
+
+    if (buf == NULL || dgram == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_moq_object_datagram_free_fields(dgram);
+    xqc_memzero(dgram, sizeof(*dgram));
+
+    ret = xqc_vint_read(buf + processed, buf + buf_len, &type);
+    if (ret < 0) {
+        return ret;
+    }
+    processed += ret;
+    dgram->type = type;
+
+    flags = xqc_moq_object_datagram_type_parse(type);
+    if (flags & XQC_MOQ_DGRAM_FLAG_VIOLATION) {
+        return -XQC_EPROTO;
+    }
+
+    ret = xqc_vint_read(buf + processed, buf + buf_len, &dgram->track_alias);
+    if (ret < 0) {
+        return ret;
+    }
+    processed += ret;
+
+    ret = xqc_vint_read(buf + processed, buf + buf_len, &dgram->group_id);
+    if (ret < 0) {
+        return ret;
+    }
+    processed += ret;
+
+    if (flags & XQC_MOQ_DGRAM_FLAG_OID) {
+        ret = xqc_vint_read(buf + processed, buf + buf_len, &dgram->object_id);
+        if (ret < 0) {
+            return ret;
+        }
+        processed += ret;
+    } else {
+        dgram->object_id = 0;
+    }
+
+    ret = xqc_moq_read_u8(buf, buf_len, &processed, &dgram->publisher_priority);
+    if (ret < 0) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    if (flags & XQC_MOQ_DGRAM_FLAG_EXT) {
+        ret = xqc_vint_read(buf + processed, buf + buf_len, &ext_len);
+        if (ret < 0) {
+            return ret;
+        }
+        processed += ret;
+        if (ext_len == 0) {
+            return -XQC_EPROTO;
+        }
+        if (ext_len > XQC_MOQ_MAX_OBJECT_LEN) {
+            return -XQC_ELIMIT;
+        }
+        if ((size_t)processed + ext_len > buf_len) {
+            return -XQC_EILLEGAL_FRAME;
+        }
+
+        dgram->ext_len = ext_len;
+        ext_buf = buf + processed;
+        ret = xqc_moq_msg_parse_ext_params_block(ext_buf, ext_len,
+                                                 &dgram->ext_params, &dgram->ext_params_num);
+        if (ret < 0) {
+            return ret;
+        }
+        processed += (xqc_int_t)ext_len;
+    }
+
+    if (flags & XQC_MOQ_DGRAM_FLAG_PAYLOAD) {
+        dgram->payload_len = buf_len - processed;
+        if (dgram->payload_len > XQC_MOQ_MAX_OBJECT_LEN) {
+            return -XQC_ELIMIT;
+        }
+        if (dgram->payload_len > 0) {
+            dgram->payload = xqc_malloc(dgram->payload_len);
+            if (dgram->payload == NULL) {
+                return -XQC_EMALLOC;
+            }
+            xqc_memcpy(dgram->payload, buf + processed, dgram->payload_len);
+        }
+        processed = (xqc_int_t)buf_len;
+        return processed;
+    }
+
+    if (flags & XQC_MOQ_DGRAM_FLAG_STATUS) {
+        ret = xqc_vint_read(buf + processed, buf + buf_len, &dgram->status);
+        if (ret < 0) {
+            return ret;
+        }
+        processed += ret;
+        if ((size_t)processed != buf_len) {
+            return -XQC_EILLEGAL_FRAME;
+        }
+        return processed;
+    }
+
+    return -XQC_EILLEGAL_FRAME;
 }
 
 xqc_int_t

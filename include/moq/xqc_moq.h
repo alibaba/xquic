@@ -218,6 +218,9 @@ typedef struct xqc_moq_object_s {
     uint8_t                     *payload;
     uint64_t                    payload_len;
     uint8_t                     custom_id_flag;
+    /* Publisher Priority from OBJECT_DATAGRAM (draft-14); not related to send_order */
+    uint8_t                     publisher_priority_set;
+    uint8_t                     publisher_priority;
 } xqc_moq_object_t;
 
 typedef struct xqc_moq_msg_base_s {
@@ -594,6 +597,16 @@ void xqc_moq_track_set_raw_object(xqc_moq_track_t *track, xqc_int_t raw_object);
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_raw_object(xqc_moq_session_t *session,
     xqc_moq_track_t *track, xqc_moq_object_t *object);
+
+/*
+ * @brief Send a single MOQT OBJECT_DATAGRAM (draft-ietf-moq-transport-14, Section 10.3.1) on QUIC DATAGRAM.
+ * @note  The connection must negotiate max_datagram_frame_size > 0 to actually send datagrams.
+ * @param publisher_priority 8-bit publisher priority in OBJECT_DATAGRAM.
+ * @param end_of_group Whether to set the End Of Group bit in the OBJECT_DATAGRAM type (payload datagrams only).
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_send_object_datagram(xqc_moq_session_t *session, xqc_moq_object_t *object,
+    uint8_t publisher_priority, xqc_int_t end_of_group);
 
 #ifdef __cplusplus
 }

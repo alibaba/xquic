@@ -48,4 +48,7 @@ xqc_int_t xqc_moq_write_stream_header_track_msg(xqc_moq_session_t *session, xqc_
 xqc_int_t xqc_moq_write_track_stream_obj_msg(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
     xqc_moq_track_stream_obj_msg_t *object);
 
+xqc_int_t xqc_moq_send_object_datagram(xqc_moq_session_t *session, xqc_moq_object_t *object,
+    uint8_t publisher_priority, xqc_int_t end_of_group);
+
 #endif /* _XQC_MOQ_MESSAGE_WRITER_H_INCLUDED_ */

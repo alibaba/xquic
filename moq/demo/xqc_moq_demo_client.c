@@ -652,15 +652,22 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
 
     if (!g_publish_mode && (g_role & XQC_MOQ_SUBSCRIBER)) {
         xqc_int_t ret;
+        xqc_moq_container_t sub_container = g_raw_object_mode ? XQC_MOQ_CONTAINER_NONE : XQC_MOQ_CONTAINER_LOC;
 
         xqc_moq_track_t *sub_video = xqc_moq_track_create(session,
             "namespace", "video", XQC_MOQ_TRACK_VIDEO, NULL,
-            XQC_MOQ_CONTAINER_LOC, XQC_MOQ_TRACK_FOR_SUB);
+            sub_container, XQC_MOQ_TRACK_FOR_SUB);
         if (sub_video == NULL) {
             printf("create subscriber video track error\n");
         } else {
             user_conn->video_track = sub_video;
-            ret = xqc_moq_subscribe_latest(session, "namespace", "video");
+            if (g_raw_object_mode) {
+                xqc_moq_track_set_raw_object(sub_video, 1);
+                ret = xqc_moq_subscribe(session, "namespace", "video",
+                                        XQC_MOQ_FILTER_ABSOLUTE_START, 0, 0, 0, 0, NULL);
+            } else {
+                ret = xqc_moq_subscribe_latest(session, "namespace", "video");
+            }
             if (ret < 0) {
                 printf("xqc_moq_subscribe video error\n");
             } else {
@@ -670,12 +677,18 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
 
         xqc_moq_track_t *sub_audio = xqc_moq_track_create(session,
             "namespace", "audio", XQC_MOQ_TRACK_AUDIO, NULL,
-            XQC_MOQ_CONTAINER_LOC, XQC_MOQ_TRACK_FOR_SUB);
+            sub_container, XQC_MOQ_TRACK_FOR_SUB);
         if (sub_audio == NULL) {
             printf("create subscriber audio track error\n");
         } else {
             user_conn->audio_track = sub_audio;
-            ret = xqc_moq_subscribe_latest(session, "namespace", "audio");
+            if (g_raw_object_mode) {
+                xqc_moq_track_set_raw_object(sub_audio, 1);
+                ret = xqc_moq_subscribe(session, "namespace", "audio",
+                                        XQC_MOQ_FILTER_ABSOLUTE_START, 0, 0, 0, 0, NULL);
+            } else {
+                ret = xqc_moq_subscribe_latest(session, "namespace", "audio");
+            }
             if (ret < 0) {
                 printf("xqc_moq_subscribe audio error\n");
             } else {
@@ -1084,6 +1097,36 @@ void on_audio_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     }
 }
 
+void on_raw_object(xqc_moq_user_session_t *user_session,
+    xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, xqc_moq_object_t *object)
+{
+    DEBUG;
+
+    if (object == NULL) {
+        return;
+    }
+
+    const char *ns = (track_info && track_info->track_namespace) ? track_info->track_namespace : "null";
+    const char *name = (track_info && track_info->track_name) ? track_info->track_name : "null";
+    uint64_t subscribe_id = object->subscribe_id;
+    void *session = user_session ? user_session->session : NULL;
+    printf("on_raw_object: ns:%s name:%s subscribe_id:%"PRIu64" alias:%"PRIu64", group:%"PRIu64", id:%"PRIu64", status:%"PRIu64", payload_len:%"PRIu64", priority_set:%u, priority:%u, session:%p\n",
+           ns, name, subscribe_id,
+           object->track_alias, object->group_id, object->object_id, object->status, object->payload_len,
+           object->publisher_priority_set, object->publisher_priority, session);
+    if (object->payload && object->payload_len > 0) {
+        size_t n = object->payload_len < 32 ? object->payload_len : 32;
+        printf("payload_preview_hex(%zu):", n);
+        for (size_t i = 0; i < n; i++) {
+            printf(" %02x", object->payload[i]);
+        }
+        if (object->payload_len > n) {
+            printf(" ...");
+        }
+        printf("\n");
+    }
+}
+
 int
 xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data, void *conn_proto_data)
 {
@@ -1109,6 +1152,7 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
         .on_catalog = on_catalog,
         .on_video = on_video_frame,
         .on_audio = on_audio_frame,
+        .on_object = on_raw_object,
     };
     xqc_moq_session_t *session;
 
@@ -1518,6 +1562,7 @@ int main(int argc, char *argv[])
         .fec_level = XQC_FEC_STREAM_LEVEL,
         .enable_encode_fec = g_fec_on,
         .enable_decode_fec = g_fec_on,
+        .max_datagram_frame_size = 65535,
         .fec_params = {
             .fec_encoder_schemes[0] = XQC_PACKET_MASK_CODE,
             .fec_decoder_schemes[0] = XQC_PACKET_MASK_CODE,
@@ -1581,9 +1626,10 @@ int main(int argc, char *argv[])
     }
 
     const xqc_cid_t *cid;
+    const char *alpn = g_enable_client_setup_v14 ? XQC_ALPN_MOQ_QUIC_INTEROP : XQC_ALPN_MOQ_QUIC;
     cid = xqc_connect(ctx.engine, &conn_settings, user_conn->token, user_conn->token_len,
                       server_addr, 0, &conn_ssl_config, user_conn->peer_addr,
-                      user_conn->peer_addrlen, XQC_ALPN_MOQ_QUIC, user_session);
+                      user_conn->peer_addrlen, alpn, user_session);
     if (cid == NULL) {
         printf("xqc_connect error, delete cache files then retry once\n");
         xqc_app_delete_file(FILE_SESSION_TICKET);
@@ -1598,7 +1644,7 @@ int main(int argc, char *argv[])
         
         cid = xqc_connect(ctx.engine, &conn_settings, user_conn->token, user_conn->token_len,
                           server_addr, 0, &conn_ssl_config, user_conn->peer_addr,
-                          user_conn->peer_addrlen, XQC_ALPN_MOQ_QUIC, user_session);
+                          user_conn->peer_addrlen, alpn, user_session);
     }
     if (cid == NULL) {
         printf("xqc_connect error\n");

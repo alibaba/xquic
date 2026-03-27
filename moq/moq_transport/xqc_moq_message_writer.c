@@ -287,3 +287,74 @@ xqc_moq_send_subgroup(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_mo
     }
     return ret;
 }
+
+
+xqc_int_t
+xqc_moq_send_object_datagram(xqc_moq_session_t *session, xqc_moq_object_t *object,
+    uint8_t publisher_priority, xqc_int_t end_of_group)
+{
+    if (session == NULL || object == NULL) {
+        return -XQC_EPARAM;
+    }
+    if (object->track_alias == XQC_MOQ_INVALID_ID) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_bool_t ext = (object->ext_params && object->ext_params_num > 0) ? 1 : 0;
+    xqc_bool_t payload = (object->payload != NULL && object->payload_len > 0) ? 1 : 0;
+    xqc_bool_t oid = payload ? (object->object_id != 0) : 1;
+
+    xqc_moq_object_datagram_msg_t dgram;
+    xqc_memzero(&dgram, sizeof(dgram));
+    dgram.track_alias = object->track_alias;
+    dgram.group_id = object->group_id;
+    dgram.object_id = object->object_id;
+    dgram.publisher_priority = publisher_priority;
+    dgram.ext_params = object->ext_params;
+    dgram.ext_params_num = object->ext_params_num;
+    dgram.status = object->status;
+    dgram.payload = object->payload;
+    dgram.payload_len = object->payload_len;
+
+    if (payload) {
+        uint64_t type = 0;
+        if (end_of_group) {
+            type |= XQC_MOQ_OBJ_DGRAM_TYPE_END_OF_GROUP;
+        }
+        if (ext) {
+            type |= XQC_MOQ_OBJ_DGRAM_TYPE_HAS_EXT;
+        }
+        if (!oid) {
+            type |= XQC_MOQ_OBJ_DGRAM_TYPE_NO_OBJECT_ID;
+        }
+        dgram.type = type;
+    } else {
+        dgram.type = ext ? XQC_MOQ_OBJ_DGRAM_TYPE_STATUS_EXT : XQC_MOQ_OBJ_DGRAM_TYPE_STATUS;
+    }
+
+    xqc_int_t enc_len = xqc_moq_object_datagram_encode_len(&dgram);
+    if (enc_len < 0) {
+        return enc_len;
+    }
+
+    size_t mss = xqc_datagram_get_mss(session->quic_conn);
+    if (mss > 0 && (size_t)enc_len > mss) {
+        xqc_log(session->log, XQC_LOG_INFO, "|dgram_too_large|enc_len:%d|mss:%z|", enc_len, mss);
+        return -XQC_EDGRAM_TOO_LARGE;
+    }
+
+    uint8_t *buf = xqc_malloc(enc_len);
+    if (buf == NULL) {
+        return -XQC_EMALLOC;
+    }
+    xqc_int_t ret = xqc_moq_object_datagram_encode(&dgram, buf, enc_len);
+    if (ret < 0) {
+        xqc_free(buf);
+        return ret;
+    }
+
+    uint64_t dgram_id = 0;
+    xqc_int_t send_ret = xqc_datagram_send(session->quic_conn, buf, ret, &dgram_id, XQC_DATA_QOS_NORMAL);
+    xqc_free(buf);
+    return send_ret;
+}

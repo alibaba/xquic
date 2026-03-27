@@ -654,7 +654,6 @@ void on_video_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
 #else
     localtime_r(&sec, &tm_now);
 #endif
-    (void)tm_now;
 
     printf("on_video_frame: subscribe_id:%"PRIu64", seq_num:%"PRIu64", ts_us:%"PRIu64", len:%"PRIu64", scid:%s, data:%s, bizinfo:%s\n",
            subscribe_id, video_frame->seq_num, video_frame->timestamp_us, video_frame->video_len,
@@ -688,7 +687,6 @@ void on_audio_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
 #else
     localtime_r(&sec, &tm_now);
 #endif
-    (void)tm_now;
 
     printf("on_audio_frame: subscribe_id:%"PRIu64", seq:%"PRIu64", ts_us:%"PRIu64", len:%"PRIu64", scid:%s, data:%s, bizinfo:%s\n",
            subscribe_id, audio_frame->seq_num, audio_frame->timestamp_us, audio_frame->audio_len,
@@ -1080,6 +1078,7 @@ int main(int argc, char *argv[])
         .fec_level = XQC_FEC_STREAM_LEVEL,
         .enable_encode_fec = g_fec_on,
         .enable_decode_fec = g_fec_on,
+        .max_datagram_frame_size = 65535,
         .fec_params = {
             .fec_encoder_schemes[0] = XQC_PACKET_MASK_CODE,
             .fec_decoder_schemes[0] = XQC_PACKET_MASK_CODE,

@@ -1,11 +1,9 @@
 #include "src/transport/xqc_engine.h"
 #include "src/transport/xqc_conn.h"
-#include "src/transport/xqc_send_ctl.h"
 #include "moq/moq_transport/xqc_moq_session.h"
 #include "moq/moq_transport/xqc_moq_message_writer.h"
 #include "moq/moq_transport/xqc_moq_stream.h"
 #include "moq/moq_transport/xqc_moq_stream_quic.h"
-#include "moq/moq_transport/xqc_moq_stream_webtransport.h"
 #include "moq/moq_transport/xqc_moq_subscribe.h"
 
 void
@@ -17,8 +15,10 @@ xqc_moq_init_alpn(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs, xqc_moq_
         xqc_app_proto_callbacks_t ap_cbs = {
             .conn_cbs   = *conn_cbs,
             .stream_cbs = callbacks,
+            .dgram_cbs  = xqc_moq_quic_datagram_callbacks,
         };
         xqc_engine_register_alpn(engine, XQC_ALPN_MOQ_QUIC, sizeof(XQC_ALPN_MOQ_QUIC) - 1, &ap_cbs, NULL);
+        xqc_engine_register_alpn(engine, XQC_ALPN_MOQ_QUIC_INTEROP, sizeof(XQC_ALPN_MOQ_QUIC_INTEROP) - 1, &ap_cbs, NULL);
     }
 }
 
@@ -63,6 +63,7 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
     session->enable_fec = quic_conn->conn_settings.enable_encode_fec;
 
     user_session->session = session;
+    xqc_datagram_set_user_data(quic_conn, user_session);
 
     xqc_init_list_head(&session->local_subscribe_list);
     xqc_init_list_head(&session->peer_subscribe_list);

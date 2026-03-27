@@ -17,6 +17,32 @@
 #define XQC_MOQ_CONTENT_EXIST_FIXED_SIZE            XQC_MOQ_U8_FIXED_SIZE
 #define XQC_MOQ_SUBGROUP_PRIORITY_FIXED_SIZE        XQC_MOQ_U8_FIXED_SIZE
 
+/*
+ * draft-ietf-moq-transport-14 Section 10.3.1 OBJECT_DATAGRAM (Table 6)
+ * Type (varint) is encoded as:
+ * - 0x00..0x07: payload-carrying variants, using bit flags below
+ * - 0x20/0x21: status-only variants (no payload)
+ */
+#define XQC_MOQ_OBJ_DGRAM_TYPE_PAYLOAD_MAX          0x07
+#define XQC_MOQ_OBJ_DGRAM_TYPE_HAS_EXT              0x01
+#define XQC_MOQ_OBJ_DGRAM_TYPE_END_OF_GROUP         0x02
+#define XQC_MOQ_OBJ_DGRAM_TYPE_NO_OBJECT_ID         0x04
+
+/* Internal flags derived from OBJECT_DATAGRAM type. */
+#define XQC_MOQ_DGRAM_FLAG_PAYLOAD    0x01
+#define XQC_MOQ_DGRAM_FLAG_EXT        0x02
+#define XQC_MOQ_DGRAM_FLAG_EOG        0x04
+#define XQC_MOQ_DGRAM_FLAG_OID        0x08
+#define XQC_MOQ_DGRAM_FLAG_STATUS     0x10
+#define XQC_MOQ_DGRAM_FLAG_VIOLATION  0x20
+
+typedef uint8_t xqc_moq_dgram_type_flags_t;
+
+typedef enum {
+    XQC_MOQ_OBJ_DGRAM_TYPE_STATUS                   = 0x20,
+    XQC_MOQ_OBJ_DGRAM_TYPE_STATUS_EXT               = 0x21,
+} xqc_moq_object_datagram_type_t;
+
 typedef enum {
     XQC_MOQ_DECODE_MSG_TYPE,
     XQC_MOQ_DECODE_MSG,
@@ -103,6 +129,18 @@ typedef xqc_moq_object_stream_msg_t xqc_moq_subgroup_msg_t;
 
 typedef struct xqc_moq_object_datagram_msg_s {
     xqc_moq_msg_base_t          msg_base;
+    /* draft-ietf-moq-transport-14 Section 10.3.1 */
+    uint64_t                    type;
+    uint64_t                    track_alias;
+    uint64_t                    group_id;
+    uint64_t                    object_id;
+    uint64_t                    ext_len;
+    uint64_t                    ext_params_num;
+    xqc_moq_message_parameter_t *ext_params;
+    uint64_t                    status;
+    uint8_t                     *payload;
+    uint64_t                    payload_len;
+    uint8_t                     publisher_priority;
 } xqc_moq_object_datagram_msg_t;
 
 typedef struct xqc_moq_stream_header_track_msg_s {
@@ -187,6 +225,14 @@ void xqc_moq_msg_set_object_by_track(xqc_moq_object_t *obj, xqc_moq_stream_heade
 
 void xqc_moq_msg_set_object_by_group(xqc_moq_object_t *obj, xqc_moq_stream_header_group_msg_t *header,
     xqc_moq_group_stream_obj_msg_t *msg);
+
+xqc_int_t xqc_moq_object_datagram_encode_len(xqc_moq_object_datagram_msg_t *dgram);
+
+xqc_int_t xqc_moq_object_datagram_encode(xqc_moq_object_datagram_msg_t *dgram, uint8_t *buf, size_t buf_cap);
+
+xqc_int_t xqc_moq_object_datagram_decode(uint8_t *buf, size_t buf_len, xqc_moq_object_datagram_msg_t *dgram);
+
+void xqc_moq_object_datagram_free_fields(xqc_moq_object_datagram_msg_t *dgram);
 
 xqc_int_t xqc_moq_msg_decode_type(uint8_t *buf, size_t buf_len, xqc_moq_msg_type_t *type, xqc_int_t *wait_more_data);
 

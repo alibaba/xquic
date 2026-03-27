@@ -563,6 +563,7 @@ int main(int argc, char *argv[])
            .customize_on = 1, 
            .bbr_ignore_app_limit = 1,
         },
+        .max_datagram_frame_size = 65535,
     };
 
     xqc_config_t config;

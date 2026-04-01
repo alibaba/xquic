@@ -1651,7 +1651,7 @@ xqc_process_path_challenge_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
 
     xqc_log(conn->log, XQC_LOG_DEBUG, 
             "|path:%ui|state:%d|RECV path_challenge_data:%*s|cid:%s|",
-            path->path_id, path->path_state, XQC_PATH_CHALLENGE_DATA_LEN, 
+            path->path_id, path->path_state, (size_t)XQC_PATH_CHALLENGE_DATA_LEN,
             path_challenge_data, xqc_dcid_str(conn->engine, &packet_in->pi_pkt.pkt_dcid));
 
     ret = xqc_write_path_response_frame_to_packet(conn, path, path_challenge_data);
@@ -1704,7 +1704,7 @@ xqc_process_path_response_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_
      * MAY generate a connection error of type PROTOCOL_VIOLATION.
      */
 
-    if (memcmp(path->path_challenge_data, path_response_data, XQC_PATH_CHALLENGE_DATA_LEN) != 0) {
+    if (memcmp(path->path_challenge_data, path_response_data, (size_t)XQC_PATH_CHALLENGE_DATA_LEN) != 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|path:%ui|ignore|no match path challenge data|", path->path_id);
         return XQC_OK;
     }

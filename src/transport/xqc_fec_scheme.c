@@ -84,6 +84,9 @@ xqc_process_recovered_packet(xqc_connection_t *conn, unsigned char *recovered_pa
     new_packet->pi_path_id = 0;
     new_packet->pi_flag |= XQC_PIF_FEC_RECOVERED;
     new_packet->pi_fec_process_time = rpr_recv_time;
+    // Without setting pkt_type, the zero-initialized value equals XQC_PTYPE_INIT;
+    // Set it to XQC_PTYPE_SHORT_HEADER for 1-rtt data.
+    new_packet->pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
 
     ret = xqc_process_frames(conn, new_packet);
     xqc_free(new_packet);

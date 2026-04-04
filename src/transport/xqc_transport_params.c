@@ -166,7 +166,10 @@ xqc_transport_params_calc_length(const xqc_transport_params_t *params,
             len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V10) +
                     xqc_put_varint_len(xqc_put_varint_len(params->init_max_path_id)) +
                     xqc_put_varint_len(params->init_max_path_id);
-
+        } else if (params->multipath_version == XQC_MULTIPATH_3E) {
+            len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V3E) +
+                    xqc_put_varint_len(xqc_put_varint_len(params->init_max_path_id)) +
+                    xqc_put_varint_len(params->init_max_path_id);
         }
     }
 
@@ -418,7 +421,8 @@ xqc_encode_transport_params(const xqc_transport_params_t *params,
     if (params->enable_multipath) {
         if (params->multipath_version == XQC_MULTIPATH_10) {
             p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V10, params->init_max_path_id);
-
+        } else if (params->multipath_version == XQC_MULTIPATH_3E) {
+            p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V3E, params->init_max_path_id);
         }
     }
 
@@ -742,6 +746,11 @@ xqc_decode_enable_multipath(xqc_transport_params_t *params, xqc_transport_params
         params->multipath_version = XQC_MULTIPATH_10;
         XQC_DECODE_VINT_VALUE(&params->init_max_path_id, p, end);
         return XQC_OK;
+    } else if (param_type == XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V3E) {
+        params->enable_multipath = 1;
+        params->multipath_version = XQC_MULTIPATH_3E;
+        XQC_DECODE_VINT_VALUE(&params->init_max_path_id, p, end);
+        return XQC_OK;
     }
     return XQC_OK;
 }
@@ -1004,6 +1013,7 @@ xqc_trans_param_get_index(uint64_t param_type)
         return (xqc_tp_decoder_index_t)param_type;
     
     case XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V10:
+    case XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V3E:
         return XQC_TP_DECODER_ENABLE_MULTIPATH;
 
     case XQC_TRANSPORT_PARAM_MAX_DATAGRAM_FRAME_SIZE:

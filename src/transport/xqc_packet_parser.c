@@ -1482,7 +1482,7 @@ xqc_int_t
 xqc_packet_parse_stateless_reset(const unsigned char *buf, size_t buf_size,
     const uint8_t **sr_token)
 {
-    if (buf_size <= XQC_STATELESS_RESET_PKT_MIN_LEN) {
+    if (buf_size < XQC_STATELESS_RESET_PKT_MIN_LEN) {
         return -XQC_EILLPKT;
     }
 

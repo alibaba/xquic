@@ -943,6 +943,9 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
         goto fail;
     }
 
+    // Initial here as idle_timeout dependency
+    xqc_init_list_head(&xc->conn_paths_list);
+
     xqc_conn_init_timer_manager(xc);
 
     if (xc->conn_settings.datagram_redundant_probe) {
@@ -5818,17 +5821,6 @@ xqc_conn_get_local_transport_params(xqc_connection_t *conn, xqc_transport_params
                      conn->original_dcid.cid_buf, conn->original_dcid.cid_len);
         params->original_dest_connection_id_present = 1;
 
-        xqc_gen_reset_token(&conn->original_dcid, 
-                            params->stateless_reset_token,
-                            XQC_STATELESS_RESET_TOKENLEN, 
-                            conn->engine->config->reset_token_key, 
-                            conn->engine->config->reset_token_keylen);
-        params->stateless_reset_token_present = 1;
-
-        xqc_log(conn->log, XQC_LOG_INFO, "|generate sr_token[%s] for cid[%s]",
-                xqc_sr_token_str(conn->engine, params->stateless_reset_token),
-                xqc_scid_str(conn->engine, &conn->original_dcid));
-
     } else {
         params->original_dest_connection_id_present = 0;
     }
@@ -5836,6 +5828,22 @@ xqc_conn_get_local_transport_params(xqc_connection_t *conn, xqc_transport_params
     xqc_cid_set(&params->initial_source_connection_id,
                  conn->initial_scid.cid_buf, conn->initial_scid.cid_len);
     params->initial_source_connection_id_present = 1;
+
+    /* RFC 9000: server's stateless_reset_token is associated with its CID */
+    if (conn->conn_type == XQC_CONN_TYPE_SERVER
+        && conn->initial_scid.cid_len > 0)
+    {
+        xqc_gen_reset_token(&conn->initial_scid,
+                            params->stateless_reset_token,
+                            XQC_STATELESS_RESET_TOKENLEN,
+                            conn->engine->config->reset_token_key,
+                            conn->engine->config->reset_token_keylen);
+        params->stateless_reset_token_present = 1;
+
+        xqc_log(conn->log, XQC_LOG_INFO, "|generate sr_token[%s] for cid[%s]|",
+                xqc_sr_token_str(conn->engine, params->stateless_reset_token),
+                xqc_scid_str(conn->engine, &conn->initial_scid));
+    }
 
     if (conn->conn_type == XQC_CONN_TYPE_SERVER 
         && conn->conn_flag & XQC_CONN_FLAG_RETRY_SENT 
@@ -6393,8 +6401,19 @@ xqc_conn_get_idle_timeout(xqc_connection_t *conn)
             ? XQC_CONN_INITIAL_IDLE_TIMEOUT : conn->conn_settings.init_idle_time_out;
 
     } else {
-        return conn->local_settings.max_idle_timeout == 0
+        xqc_msec_t local = conn->local_settings.max_idle_timeout == 0
             ? XQC_CONN_DEFAULT_IDLE_TIMEOUT : conn->local_settings.max_idle_timeout;
+
+        xqc_msec_t remote_idle_timeout = (xqc_msec_t)conn->remote_settings.max_idle_timeout;
+        xqc_msec_t idle_timeout = (remote_idle_timeout > 0) ? xqc_min(local, remote_idle_timeout) : local;
+
+        xqc_usec_t pto = xqc_conn_get_max_pto(conn);
+        if (pto > 0) {
+            xqc_msec_t min_idle_timeout = (xqc_msec_t)((3 * pto + 999) / 1000);
+            idle_timeout = xqc_max(idle_timeout, min_idle_timeout);
+        }
+
+        return idle_timeout;
     }
 }
 

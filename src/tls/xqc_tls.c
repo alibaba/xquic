@@ -392,7 +392,7 @@ xqc_tls_process_trans_param(xqc_tls_t *tls)
     }
 
     /* callback to Transport layer */
-    if (tls->cbs->tp_cb) {
+    if (tls->cbs->tp_cb && peer_tp) {
         tls->cbs->tp_cb(peer_tp, tp_len, tls->user_data);
     }
 

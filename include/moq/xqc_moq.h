@@ -7,7 +7,9 @@
 extern "C" {
 #endif
 
-#define XQC_ALPN_MOQ_QUIC         "moq-quic"
+// #define XQC_ALPN_MOQ_QUIC         "moq-quic"
+#define XQC_ALPN_MOQ_QUIC         "moq-00"
+#define XQC_ALPN_MOQ_QUIC_INTEROP "moq-14" // used for imquic
 #define XQC_ALPN_MOQ_WEBTRANSPORT "moq-wt"
 
 typedef enum {
@@ -21,6 +23,15 @@ typedef struct {
     uint64_t                        timestamp_us;
     uint8_t                         *video_data;
     uint64_t                        video_len;
+    /* LOC Header Extensions */
+    uint8_t                         *video_config;
+    uint64_t                        video_config_len;
+    uint64_t                        video_frame_marking;
+    uint8_t                         has_video_config;
+    uint8_t                         has_video_frame_marking;
+    uint8_t                         *bizinfo;
+    uint64_t                        bizinfo_len;
+    uint8_t                         has_bizinfo;
 } xqc_moq_video_frame_t;
 
 typedef struct {
@@ -28,6 +39,12 @@ typedef struct {
     uint64_t                        timestamp_us;
     uint8_t                         *audio_data;
     uint64_t                        audio_len;
+    /* LOC Header Extensions */
+    uint64_t                        audio_level;
+    uint8_t                         has_audio_level;
+    uint8_t                         *bizinfo;
+    uint64_t                        bizinfo_len;
+    uint8_t                         has_bizinfo;
 } xqc_moq_audio_frame_t;
 
 typedef enum {
@@ -48,6 +65,19 @@ typedef enum {
     XQC_MOQ_TRACK_FOR_SUB,
 } xqc_moq_track_role_t;
 
+typedef enum {
+    XQC_MOQ_OBJ_STATUS_NORMAL           = 0x0,
+    XQC_MOQ_OBJ_STATUS_OBJ_NOT_EXIST    = 0x1,
+    XQC_MOQ_OBJ_STATUS_GROUP_NOT_EXIST  = 0x2,
+    XQC_MOQ_OBJ_STATUS_GROUP_END        = 0x3,
+    XQC_MOQ_OBJ_STATUS_TRACK_END        = 0x4,
+} xqc_moq_object_status_t;
+
+typedef enum {
+    XQC_MOQ_FORWARDING_SUBGROUP     = 0,
+    XQC_MOQ_FORWARDING_DATAGRAM     = 1,
+} xqc_moq_forwarding_preference_t;
+
 typedef struct {
     /* Common */
     char                            *codec; /* Required */
@@ -63,6 +93,7 @@ typedef struct {
     /* Audio */
     xqc_int_t                       samplerate; /* Required */
     char                            *channel_config; /* Optional */
+    xqc_int_t                       bits_per_sample; /* Optional, audio bit depth (bits per sample) */
 } xqc_moq_selection_params_t;
 
 typedef struct {
@@ -94,18 +125,24 @@ typedef struct xqc_moq_session_s xqc_moq_session_t;
 typedef struct xqc_moq_stream_s xqc_moq_stream_t;
 typedef struct xqc_moq_track_s xqc_moq_track_t;
 typedef struct xqc_moq_object_s xqc_moq_object_t;
+typedef struct xqc_moq_subgroup_object_s xqc_moq_subgroup_object_t;
 typedef struct xqc_moq_catalog_s xqc_moq_catalog_t;
 typedef struct xqc_moq_subscribe_s xqc_moq_subscribe_t;
 typedef struct xqc_moq_subscribe_msg_s xqc_moq_subscribe_msg_t;
 typedef struct xqc_moq_subscribe_ok_msg_s xqc_moq_subscribe_ok_msg_t;
 typedef struct xqc_moq_subscribe_error_msg_s xqc_moq_subscribe_error_msg_t;
 typedef struct xqc_moq_subscribe_update_msg_s xqc_moq_subscribe_update_msg_t;
+typedef struct xqc_moq_publish_msg_s xqc_moq_publish_msg_t;
+typedef struct xqc_moq_publish_ok_msg_s xqc_moq_publish_ok_msg_t;
+typedef struct xqc_moq_publish_error_msg_s xqc_moq_publish_error_msg_t;
 typedef struct xqc_moq_announce_msg_s xqc_moq_announce_msg_t;
 typedef struct xqc_moq_announce_ok_msg_s xqc_moq_announce_ok_msg_t;
 typedef struct xqc_moq_announce_error_msg_s xqc_moq_announce_error_msg_t;
 typedef struct xqc_moq_unannounce_msg_s xqc_moq_unannounce_msg_t;
 typedef struct xqc_moq_unsubscribe_msg_s xqc_moq_unsubscribe_msg_t;
-typedef struct xqc_moq_subscribe_done_msg_s xqc_moq_subscribe_done_msg_t;
+typedef struct xqc_moq_publish_done_msg_s xqc_moq_publish_done_msg_t;
+typedef struct xqc_moq_client_setup_v14_msg_s xqc_moq_client_setup_v14_msg_t;
+typedef struct xqc_moq_server_setup_v14_msg_s xqc_moq_server_setup_v14_msg_t;
 typedef struct xqc_moq_goaway_msg_s xqc_moq_goaway_msg_t;
 typedef struct xqc_moq_client_setup_msg_s xqc_moq_client_setup_msg_t;
 typedef struct xqc_moq_server_setup_msg_s xqc_moq_server_setup_msg_t;
@@ -116,6 +153,10 @@ typedef struct xqc_moq_user_session_s {
     xqc_moq_session_t               *session;
     uint8_t                         data[0];
 } xqc_moq_user_session_t;
+
+#define XQC_MOQ_SUBGROUP_TYPE_WITH_ID       0x15
+#define XQC_MOQ_DEFAULT_SUBGROUP_PRIORITY   0x0
+#define XQC_MOQ_INVALID_ID                  ((uint64_t)-1)
 
 typedef enum {
     XQC_MOQ_MSG_OBJECT_STREAM       = 0x0,
@@ -129,25 +170,65 @@ typedef enum {
     XQC_MOQ_MSG_ANNOUNCE_ERROR      = 0x8,
     XQC_MOQ_MSG_UNANNOUNCE          = 0x9,
     XQC_MOQ_MSG_UNSUBSCRIBE         = 0xA,
-    XQC_MOQ_MSG_SUBSCRIBE_DONE      = 0xB,
+    // XQC_MOQ_MSG_SUBSCRIBE_DONE      = 0xB,
+    XQC_MOQ_MSG_PUBLISH_DONE        = 0xB,
     XQC_MOQ_MSG_ANNOUNCE_CANCEL     = 0xC,
     XQC_MOQ_MSG_TRACK_STATUS_REQUEST = 0xD,
     XQC_MOQ_MSG_TRACK_STATUS        = 0xE,
     XQC_MOQ_MSG_GOAWAY              = 0x10,
+    XQC_MOQ_MSG_SUBGROUP            = 0x14,
+    XQC_MOQ_MSG_CLIENT_SETUP_V14    = 0x20,
+    XQC_MOQ_MSG_SERVER_SETUP_V14    = 0x21,
     XQC_MOQ_MSG_CLIENT_SETUP        = 0x40,
     XQC_MOQ_MSG_SERVER_SETUP        = 0x41,
     XQC_MOQ_MSG_STREAM_HEADER_TRACK = 0x50,
     XQC_MOQ_MSG_STREAM_HEADER_GROUP = 0x51,
+    XQC_MOQ_MSG_PUBLISH             = 0x1D,
+    XQC_MOQ_MSG_PUBLISH_OK          = 0x1E,
+    XQC_MOQ_MSG_PUBLISH_ERROR       = 0x1F,
     /* Phony message types */
     XQC_MOQ_MSG_TRACK_STREAM_OBJECT = 0xA0,
     XQC_MOQ_MSG_GROUP_STREAM_OBJECT = 0xA1,
+    XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT = 0xA2,
 } xqc_moq_msg_type_t;
+
+typedef enum {
+    XQC_MOQ_PARAM_ROLE                = 0x00,
+    XQC_MOQ_PARAM_PATH                = 0x01,
+    XQC_MOQ_PARAM_AUTH                = 0x02,
+    XQC_MOQ_PARAM_AUTHORIZATION_TOKEN = 0x03,
+    XQC_MOQ_PARAM_EXTDATA             = 0xA0,
+} xqc_moq_param_type_t;
 
 typedef struct {
     uint64_t                    type;
     uint64_t                    length;
     uint8_t                     *value;
+    uint8_t                     is_integer;
+    uint64_t                    int_value;
 } xqc_moq_message_parameter_t;
+
+typedef struct xqc_moq_object_s {
+    uint64_t                    subscribe_id;
+    uint64_t                    track_alias;
+    uint64_t                    group_id;
+    uint64_t                    object_id;
+    uint64_t                    subgroup_id;
+    uint64_t                    object_id_delta;
+    uint64_t                    send_order;
+    uint64_t                    status;
+    /* Optional Object Header Extensions (parsed from SUBGROUP/Object) */
+    uint64_t                    ext_params_num;
+    xqc_moq_message_parameter_t *ext_params;
+    uint8_t                     *payload;
+    uint64_t                    payload_len;
+    uint8_t                     custom_id_flag;
+    /* Publisher Priority from OBJECT_DATAGRAM (draft-14); not related to send_order */
+    uint8_t                     publisher_priority_set;
+    uint8_t                     publisher_priority;
+    /* Object Forwarding Preference (draft-14 Section 10.2.1): Subgroup or Datagram */
+    uint8_t                     forwarding_preference;
+} xqc_moq_object_t;
 
 typedef struct xqc_moq_msg_base_s {
     xqc_moq_msg_type_t (*type)();
@@ -162,10 +243,14 @@ typedef struct xqc_moq_subscribe_msg_s {
     xqc_moq_msg_base_t          msg_base;
     uint64_t                    subscribe_id;
     uint64_t                    track_alias;
+    uint64_t                    track_namespace_num;
     char                        *track_namespace;
     size_t                      track_namespace_len;
     char                        *track_name;
     size_t                      track_name_len;
+    uint8_t                     subscriber_priority;
+    uint8_t                     group_order;
+    uint8_t                     forward;
     uint64_t                    filter_type;
     uint64_t                    start_group_id;
     uint64_t                    start_object_id;
@@ -178,10 +263,14 @@ typedef struct xqc_moq_subscribe_msg_s {
 typedef struct xqc_moq_subscribe_ok_msg_s {
     xqc_moq_msg_base_t          msg_base;
     uint64_t                    subscribe_id;
+    uint64_t                    track_alias;
     uint64_t                    expire_ms;
-    uint64_t                    content_exist;
+    uint8_t                     group_order;
+    uint8_t                     content_exist;
     uint64_t                    largest_group_id;
     uint64_t                    largest_object_id;
+    uint64_t                    params_num;
+    xqc_moq_message_parameter_t *params;
 } xqc_moq_subscribe_ok_msg_t;
 
 typedef struct xqc_moq_subscribe_error_msg_s {
@@ -193,12 +282,79 @@ typedef struct xqc_moq_subscribe_error_msg_s {
     uint64_t                    track_alias;
 } xqc_moq_subscribe_error_msg_t;
 
+typedef struct xqc_moq_publish_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    subscribe_id;
+    uint64_t                    track_alias;
+    uint64_t                    track_namespace_num;
+    char                        *track_namespace;
+    size_t                      track_namespace_len;
+    char                        *track_name;
+    size_t                      track_name_len;
+    uint8_t                     group_order;
+    uint8_t                     content_exist;
+    uint64_t                    largest_group_id;
+    uint64_t                    largest_object_id;
+    uint8_t                     forward;
+    uint64_t                    params_num;
+    xqc_moq_message_parameter_t *params;
+} xqc_moq_publish_msg_t;
+
+typedef struct xqc_moq_publish_ok_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    subscribe_id;
+    uint8_t                     forward;
+    uint8_t                     subscriber_priority;
+    uint8_t                     group_order;
+    uint64_t                    filter_type;
+    uint64_t                    start_group_id;
+    uint64_t                    start_object_id;
+    uint64_t                    end_group_id;
+    uint64_t                    params_num;
+    xqc_moq_message_parameter_t *params;
+} xqc_moq_publish_ok_msg_t;
+
+typedef struct xqc_moq_publish_error_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    subscribe_id;
+    uint64_t                    error_code;
+    char                        *reason_phrase;
+    size_t                      reason_phrase_len;
+} xqc_moq_publish_error_msg_t;
+
 typedef struct xqc_moq_unsubscribe_msg_s {
     xqc_moq_msg_base_t          msg_base;
     uint64_t                    subscribe_id;
 } xqc_moq_unsubscribe_msg_t;
 
-typedef void (*xqc_moq_on_session_setup_pt)(xqc_moq_user_session_t *user_session, char *extdata);
+typedef struct xqc_moq_publish_done_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    subscribe_id;
+    uint64_t                    status_code;
+    uint64_t                    stream_count;
+    char                        *reason_phrase;
+    size_t                      reason_phrase_len;
+} xqc_moq_publish_done_msg_t;
+
+typedef enum {
+    XQC_MOQ_PUBLISH_ERR_INTERNAL              = 0x0,
+    XQC_MOQ_PUBLISH_ERR_SUBSCRIPTION_EXISTS   = 0x3,
+    XQC_MOQ_PUBLISH_ERR_TRACK_NOT_FOUND       = 0x4,
+} xqc_moq_publish_error_code_t;
+
+typedef struct {
+    uint8_t     forward;
+    uint8_t     subscriber_priority;
+    uint8_t     group_order;
+    uint64_t    filter_type;
+    uint64_t    start_group_id;
+    uint64_t    start_object_id;
+    uint64_t    end_group_id;
+    uint64_t    end_object_id;
+} xqc_moq_publish_selected_params_t;
+
+typedef void (*xqc_moq_on_session_setup_pt)(xqc_moq_user_session_t *user_session, char *extdata,
+    const xqc_moq_message_parameter_t *params, uint64_t params_num);
 
 typedef void (*xqc_moq_on_datachannel_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
     xqc_moq_track_info_t *track_info);
@@ -221,6 +377,21 @@ typedef void (*xqc_moq_on_subscribe_ok_pt)(xqc_moq_user_session_t *user_session,
 typedef void (*xqc_moq_on_subscribe_error_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
     xqc_moq_track_info_t *track_info, xqc_moq_subscribe_error_msg_t *subscribe_error);
 
+typedef void (*xqc_moq_on_publish_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_publish_msg_t *publish_msg);
+
+typedef void (*xqc_moq_on_publish_ok_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_publish_ok_msg_t *publish_ok);
+
+typedef void (*xqc_moq_on_publish_error_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_track_info_t *track_info, xqc_moq_publish_error_msg_t *publish_error);
+
+typedef void (*xqc_moq_on_publish_done_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_publish_done_msg_t *publish_done);
+
+typedef void (*xqc_moq_on_publish_accept_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_publish_msg_t *publish_msg, xqc_moq_publish_selected_params_t *params);
+
 typedef void (*xqc_moq_on_catalog_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_info_t **track_info_array,
     xqc_int_t array_size);
 
@@ -240,6 +411,12 @@ typedef void (*xqc_moq_on_audio_frame_pt)(xqc_moq_user_session_t *user_session, 
 typedef void (*xqc_moq_on_bitrate_change_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
     xqc_moq_track_info_t *track_info, uint64_t bitrate);
 
+typedef void (*xqc_moq_on_object_pt)(xqc_moq_user_session_t *user_session,
+    xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, xqc_moq_object_t *object);
+
+typedef void (*xqc_moq_on_datagram_object_pt)(xqc_moq_user_session_t *user_session,
+    xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, xqc_moq_object_t *object);
+
 typedef struct {
     xqc_moq_on_session_setup_pt     on_session_setup; /* Required */
     xqc_moq_on_datachannel_pt       on_datachannel; /* Required */
@@ -252,9 +429,16 @@ typedef struct {
     /* For Subscriber */
     xqc_moq_on_subscribe_ok_pt      on_subscribe_ok; /* Required */
     xqc_moq_on_subscribe_error_pt   on_subscribe_error; /* Required */
+    xqc_moq_on_publish_pt           on_publish; /* Optional */
+    xqc_moq_on_publish_ok_pt        on_publish_ok; /* Optional */
+    xqc_moq_on_publish_error_pt     on_publish_error; /* Optional */
+    xqc_moq_on_publish_done_pt      on_publish_done; /* Optional */
+    xqc_moq_on_publish_accept_pt    on_publish_accept; /* Optional */
     xqc_moq_on_catalog_pt           on_catalog; /* Required */
     xqc_moq_on_video_frame_pt       on_video; /* Required */
     xqc_moq_on_audio_frame_pt       on_audio; /* Required */
+    xqc_moq_on_object_pt            on_object; /* Optional, raw object callback for CONTAINER_NONE */
+    xqc_moq_on_datagram_object_pt   on_datagram_object; /* Optional, callback for OBJECT_DATAGRAM */
 } xqc_moq_session_callbacks_t;
 
 XQC_EXPORT_PUBLIC_API
@@ -266,7 +450,21 @@ void xqc_moq_init_alpn(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs, xqc
  */
 XQC_EXPORT_PUBLIC_API
 xqc_moq_session_t *xqc_moq_session_create(void *conn, xqc_moq_user_session_t *user_session,
-    xqc_moq_transport_type_t type, xqc_moq_role_t role, xqc_moq_session_callbacks_t, char *extdata);
+    xqc_moq_transport_type_t type, xqc_moq_role_t role, xqc_moq_session_callbacks_t callbacks,
+    char *extdata, xqc_int_t enable_client_setup_v14);
+
+/**
+ * @brief Create a MOQ session with custom CLIENT_SETUP params.
+ * @param setup_params Optional array of parameters to include in CLIENT_SETUP.
+ *        If non-NULL and setup_params_num > 0, these replace the default ROLE/PATH/EXTDATA set
+ *        and must include XQC_MOQ_PARAM_ROLE themselves.
+ * @note  setup_params is only used during this call and is not retained by the library.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_moq_session_t *xqc_moq_session_create_with_params(void *conn, xqc_moq_user_session_t *user_session,
+    xqc_moq_transport_type_t type, xqc_moq_role_t role, xqc_moq_session_callbacks_t callbacks,
+    char *extdata, xqc_int_t enable_client_setup_v14,
+    xqc_moq_message_parameter_t *setup_params, uint64_t setup_params_num);
 
 XQC_EXPORT_PUBLIC_API
 void xqc_moq_session_destroy(xqc_moq_session_t *session);
@@ -277,6 +475,15 @@ void xqc_moq_session_destroy(xqc_moq_session_t *session);
  */
 XQC_EXPORT_PUBLIC_API
 void xqc_moq_session_app_error(xqc_moq_session_t *session, uint64_t code);
+
+/**
+ * @brief Close the MOQT session with a session termination error code (draft-ietf-moq-transport-14, Section 3.4).
+ *        Typical usage: if auth_token validation fails during on_session_setup, close with UNAUTHORIZED (0x2).
+ * @param code   MOQT session termination error code (e.g. 0x2 for UNAUTHORIZED).
+ * @param reason Optional reason phrase (UTF-8 string, can be NULL).
+ */
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_session_close(xqc_moq_session_t *session, uint64_t code, const char *reason);
 
 /**
  * @brief Get session error code in conn_closing or conn_close_notify
@@ -302,7 +509,11 @@ uint64_t xqc_moq_target_bitrate(xqc_moq_session_t *session);
 
 XQC_EXPORT_PUBLIC_API
 xqc_moq_track_t *xqc_moq_track_create(xqc_moq_session_t *session, char *track_namespace, char *track_name,
-    xqc_moq_track_type_t track_type, xqc_moq_selection_params_t *params, xqc_moq_container_t container, xqc_moq_track_role_t role);
+    xqc_moq_track_type_t track_type, xqc_moq_selection_params_t *params,
+    xqc_moq_container_t container, xqc_moq_track_role_t role);
+
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_track_set_reuse_subgroup_stream(xqc_moq_track_t *track, xqc_int_t reuse);
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_subscribe(xqc_moq_session_t *session, const char *track_namespace, const char *track_name,
@@ -311,6 +522,13 @@ xqc_int_t xqc_moq_subscribe(xqc_moq_session_t *session, const char *track_namesp
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_subscribe_latest(xqc_moq_session_t *session, const char *track_namespace, const char *track_name);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_publish(xqc_moq_session_t *session, xqc_moq_publish_msg_t *publish_msg);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_create_datachannel(xqc_moq_session_t *session, const char *track_namespace, const char *track_name,
+    xqc_moq_track_t **track, uint64_t *subscribe_id, xqc_int_t raw_object);
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_unsubscribe(xqc_moq_session_t *session, uint64_t subscribe_id);
@@ -325,8 +543,37 @@ XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_subscribe_error(xqc_moq_session_t *session, xqc_moq_subscribe_error_msg_t *subscribe_error);
 
 XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_publish_ok(xqc_moq_session_t *session, xqc_moq_publish_ok_msg_t *publish_ok);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_publish_error(xqc_moq_session_t *session, xqc_moq_publish_error_msg_t *publish_error);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_publish_done(xqc_moq_session_t *session, xqc_moq_publish_done_msg_t *publish_done);
+
+/*
+ * @brief Send a message on the default/system datachannel (session singleton).
+ * @note  If reuse_subgroup_stream is enabled on the default datachannel PUB track (via
+ *        xqc_moq_track_set_reuse_subgroup_stream in on_datachannel callback), this API will
+ *        switch to the subgroup-stream based sender and reuse a single stream.
+ */
+XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_datachannel(xqc_moq_session_t *session, uint8_t *msg, size_t msg_len);
 
+/*
+ * @brief Send a message on a datachannel track (typically created by xqc_moq_create_datachannel()).
+ * @note  If xqc_moq_track_set_reuse_subgroup_stream(track, 1) is enabled, this API will reuse one
+ *        unidirectional subgroup stream for multiple objects on the same group_id.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_send_datachannel_msg(xqc_moq_session_t *session, xqc_moq_track_t *track,
+    uint8_t *msg, size_t msg_len);
+
+/*
+ * @note  If xqc_moq_track_set_reuse_subgroup_stream(track, 1) is enabled on a video PUB track, this
+ *        API will reuse a single subgroup stream for all frames in the same group (GOP). A new
+ *        stream is created when the group changes (keyframe).
+ */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     xqc_moq_track_t *track, xqc_moq_video_frame_t *video_frame);
@@ -334,6 +581,42 @@ xqc_int_t xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscri
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     xqc_moq_track_t *track, xqc_moq_audio_frame_t *audio_frame);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_build_catalog_param_from_track(xqc_moq_track_t *track,
+    xqc_moq_message_parameter_t *param);
+
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_free_catalog_param(xqc_moq_message_parameter_t *param);
+
+/*
+ * @brief Set the raw object mode for a track.
+ * @param set raw object not use xquic-loc container.
+ * @param raw_object 1: raw object mode, 0: media container mode.
+ */
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_track_set_raw_object(xqc_moq_track_t *track, xqc_int_t raw_object);
+
+/*
+ * @brief Write a raw object on a media track in raw_object mode.
+ * @note  The track must have raw_object enabled (xqc_moq_track_set_raw_object),
+ *        otherwise this API returns error.
+ * @note  If xqc_moq_track_set_reuse_subgroup_stream(track, 1) is enabled, objects with the same
+ *        (group_id, subgroup_id) will be appended to the same QUIC stream; a new stream will be
+ *        created when group_id or subgroup_id changes.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_raw_object(xqc_moq_session_t *session,
+    xqc_moq_track_t *track, xqc_moq_object_t *object);
+
+/*
+ * @brief Send a single MOQT OBJECT_DATAGRAM (draft-ietf-moq-transport-14, Section 10.3.1) on QUIC DATAGRAM.
+ * @note  The connection must negotiate max_datagram_frame_size > 0 to actually send datagrams.
+ * @note  Publisher priority is read from object->publisher_priority.
+ *        End-of-group is inferred from object->status == XQC_MOQ_OBJ_STATUS_GROUP_END.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_send_object_datagram(xqc_moq_session_t *session, xqc_moq_object_t *object);
 
 #ifdef __cplusplus
 }

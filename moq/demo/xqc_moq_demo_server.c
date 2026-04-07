@@ -717,6 +717,27 @@ void on_raw_object(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
     }
 }
 
+void on_datagram_object(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+                        xqc_moq_track_info_t *track_info, xqc_moq_object_t *object)
+{
+    if (object == NULL) {
+        return;
+    }
+    const char *ns = (track_info && track_info->track_namespace) ? track_info->track_namespace : "null";
+    const char *name = (track_info && track_info->track_name) ? track_info->track_name : "null";
+    printf("on_datagram_object: ns:%s name:%s alias:%"PRIu64" group:%"PRIu64" id:%"PRIu64
+           " status:%"PRIu64" payload_len:%"PRIu64" priority:%u forwarding:%u\n",
+           ns, name, object->track_alias, object->group_id, object->object_id,
+           object->status, object->payload_len,
+           object->publisher_priority, object->forwarding_preference);
+    if (object->payload && object->payload_len > 0) {
+        char buf[128] = {0};
+        size_t copy = object->payload_len < sizeof(buf) - 1 ? object->payload_len : sizeof(buf) - 1;
+        memcpy(buf, object->payload, copy);
+        printf("datagram payload: %s\n", buf);
+    }
+}
+
 int
 xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data)
 {
@@ -743,6 +764,7 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
         .on_video = on_video_frame,
         .on_audio = on_audio_frame,
         .on_object = on_raw_object,
+        .on_datagram_object = on_datagram_object,
     };
     xqc_moq_session_t *session = xqc_moq_session_create(conn, user_session, XQC_MOQ_TRANSPORT_QUIC,
         g_role, callbacks, NULL, g_enable_client_setup_v14);

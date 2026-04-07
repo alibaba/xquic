@@ -68,6 +68,7 @@ int g_enable_client_setup_v14 = 0;
 int g_publish_mode = 0;
 int g_raw_object_mode = 0;
 int g_reuse_datachannel_stream = 0;
+int g_datagram_mode = 0;
 
 static void xqc_app_timestamp_callback(int fd, short what, void *arg);
 
@@ -251,10 +252,21 @@ xqc_demo_send_current_time_msg(user_conn_t *user_conn, xqc_moq_track_t *track)
         ext_params[0].length = strlen(ext_str);
         obj.ext_params = ext_params;
         obj.ext_params_num = 1;
-        ret = xqc_moq_write_raw_object(user_conn->moq_session, track, &obj);
-        if (ret < 0) {
-            printf("xqc_moq_write_raw_object error\n");
-            return 0;
+        if (g_datagram_mode) {
+            obj.publisher_priority = 0;
+            obj.publisher_priority_set = 1;
+            obj.forwarding_preference = XQC_MOQ_FORWARDING_DATAGRAM;
+            ret = xqc_moq_send_object_datagram(user_conn->moq_session, &obj);
+            if (ret < 0) {
+                printf("xqc_moq_send_object_datagram error: %d\n", ret);
+                return 0;
+            }
+        } else {
+            ret = xqc_moq_write_raw_object(user_conn->moq_session, track, &obj);
+            if (ret < 0) {
+                printf("xqc_moq_write_raw_object error\n");
+                return 0;
+            }
         }
     } else if (is_audio) {
         xqc_moq_audio_frame_t audio_frame;
@@ -1127,6 +1139,27 @@ void on_raw_object(xqc_moq_user_session_t *user_session,
     }
 }
 
+void on_datagram_object(xqc_moq_user_session_t *user_session,
+    xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, xqc_moq_object_t *object)
+{
+    if (object == NULL) {
+        return;
+    }
+    const char *ns = (track_info && track_info->track_namespace) ? track_info->track_namespace : "null";
+    const char *name = (track_info && track_info->track_name) ? track_info->track_name : "null";
+    printf("on_datagram_object: ns:%s name:%s alias:%"PRIu64" group:%"PRIu64" id:%"PRIu64
+           " status:%"PRIu64" payload_len:%"PRIu64" priority:%u forwarding:%u\n",
+           ns, name, object->track_alias, object->group_id, object->object_id,
+           object->status, object->payload_len,
+           object->publisher_priority, object->forwarding_preference);
+    if (object->payload && object->payload_len > 0) {
+        char buf[128] = {0};
+        size_t copy = object->payload_len < sizeof(buf) - 1 ? object->payload_len : sizeof(buf) - 1;
+        memcpy(buf, object->payload, copy);
+        printf("datagram payload: %s\n", buf);
+    }
+}
+
 int
 xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data, void *conn_proto_data)
 {
@@ -1153,6 +1186,7 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
         .on_video = on_video_frame,
         .on_audio = on_audio_frame,
         .on_object = on_raw_object,
+        .on_datagram_object = on_datagram_object,
     };
     xqc_moq_session_t *session;
 
@@ -1393,7 +1427,7 @@ int main(int argc, char *argv[])
     uint8_t secret_key[16] = {0};
     int use_proxy = 0;
     int use_1rtt = 0;
-    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:f1MVRU")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:f1MVRUD")) != -1) {
         switch (ch) {
             case 'a':
                 printf("option addr :%s\n", optarg);
@@ -1488,6 +1522,11 @@ int main(int argc, char *argv[])
             case 'U':
                 printf("option reuse datachannel stream : on\n");
                 g_reuse_datachannel_stream = 1;
+                break;
+            case 'D':
+                printf("option datagram mode : on\n");
+                g_datagram_mode = 1;
+                g_raw_object_mode = 1;
                 break;
             default:
                 printf("other option :%c\n", ch);

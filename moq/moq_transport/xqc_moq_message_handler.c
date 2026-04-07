@@ -803,6 +803,36 @@ xqc_moq_stream_set_track_type(xqc_moq_stream_t *moq_stream, xqc_moq_track_type_t
 }
 
 void
+xqc_moq_on_datagram_object(xqc_moq_session_t *session, xqc_moq_object_t *object)
+{
+    xqc_moq_track_t *track;
+    xqc_log(session->log, XQC_LOG_DEBUG,
+            "|datagram_object|track_alias:%ui|group_id:%ui|object_id:%ui|"
+            "publisher_priority:%ud|status:%ui|payload_len:%ui|",
+            object->track_alias, object->group_id, object->object_id,
+            object->publisher_priority, object->status, object->payload_len);
+
+    track = xqc_moq_find_track_by_alias(session, object->track_alias, XQC_MOQ_TRACK_FOR_SUB);
+    if (track == NULL) {
+        xqc_log(session->log, XQC_LOG_WARN,
+                "|datagram_object dropped, track not found|track_alias:%ui|group_id:%ui|object_id:%ui|payload_len:%ui|",
+                object->track_alias, object->group_id, object->object_id, object->payload_len);
+        return;
+    }
+
+    object->subscribe_id = track->subscribe_id;
+
+    if (session->session_callbacks.on_datagram_object) {
+        session->session_callbacks.on_datagram_object(session->user_session, track, &track->track_info, object);
+    } else {
+        xqc_log(session->log, XQC_LOG_WARN,
+                "|datagram_object dropped, on_datagram_object not registered|"
+                "track_alias:%ui|group_id:%ui|object_id:%ui|payload_len:%ui|",
+                object->track_alias, object->group_id, object->object_id, object->payload_len);
+    }
+}
+
+void
 xqc_moq_on_object(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_object_t *object)
 {
     xqc_moq_track_t *track;
@@ -860,6 +890,7 @@ xqc_moq_on_object_stream(xqc_moq_session_t *session, xqc_moq_stream_t *moq_strea
     xqc_moq_object_stream_msg_t *msg = (xqc_moq_object_stream_msg_t*)msg_base;
     xqc_moq_object_t object;
     xqc_moq_msg_set_object_by_object(&object, msg);
+    object.forwarding_preference = XQC_MOQ_FORWARDING_SUBGROUP;
     xqc_moq_on_object(session, moq_stream, &object);
 }
 
@@ -898,6 +929,7 @@ xqc_moq_on_subgroup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xq
     object.custom_id_flag = 0;
     object.publisher_priority_set = 0;
     object.publisher_priority = 0;
+    object.forwarding_preference = XQC_MOQ_FORWARDING_SUBGROUP;
     moq_stream->subgroup_header.track_alias = object.track_alias;
     moq_stream->subgroup_header.group_id = object.group_id;
     moq_stream->subgroup_header.subgroup_id = object.subgroup_id;
@@ -921,6 +953,7 @@ xqc_moq_on_track_stream_obj(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
     msg->track_header = moq_stream->track_header;
     xqc_moq_object_t object;
     xqc_moq_msg_set_object_by_track(&object, &msg->track_header, msg);
+    object.forwarding_preference = XQC_MOQ_FORWARDING_SUBGROUP;
     xqc_moq_on_object(session, moq_stream, &object);
 }
 

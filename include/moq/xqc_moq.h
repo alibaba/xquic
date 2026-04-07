@@ -73,6 +73,11 @@ typedef enum {
     XQC_MOQ_OBJ_STATUS_TRACK_END        = 0x4,
 } xqc_moq_object_status_t;
 
+typedef enum {
+    XQC_MOQ_FORWARDING_SUBGROUP     = 0,
+    XQC_MOQ_FORWARDING_DATAGRAM     = 1,
+} xqc_moq_forwarding_preference_t;
+
 typedef struct {
     /* Common */
     char                            *codec; /* Required */
@@ -221,6 +226,8 @@ typedef struct xqc_moq_object_s {
     /* Publisher Priority from OBJECT_DATAGRAM (draft-14); not related to send_order */
     uint8_t                     publisher_priority_set;
     uint8_t                     publisher_priority;
+    /* Object Forwarding Preference (draft-14 Section 10.2.1): Subgroup or Datagram */
+    uint8_t                     forwarding_preference;
 } xqc_moq_object_t;
 
 typedef struct xqc_moq_msg_base_s {
@@ -407,6 +414,9 @@ typedef void (*xqc_moq_on_bitrate_change_pt)(xqc_moq_user_session_t *user_sessio
 typedef void (*xqc_moq_on_object_pt)(xqc_moq_user_session_t *user_session,
     xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, xqc_moq_object_t *object);
 
+typedef void (*xqc_moq_on_datagram_object_pt)(xqc_moq_user_session_t *user_session,
+    xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, xqc_moq_object_t *object);
+
 typedef struct {
     xqc_moq_on_session_setup_pt     on_session_setup; /* Required */
     xqc_moq_on_datachannel_pt       on_datachannel; /* Required */
@@ -428,6 +438,7 @@ typedef struct {
     xqc_moq_on_video_frame_pt       on_video; /* Required */
     xqc_moq_on_audio_frame_pt       on_audio; /* Required */
     xqc_moq_on_object_pt            on_object; /* Optional, raw object callback for CONTAINER_NONE */
+    xqc_moq_on_datagram_object_pt   on_datagram_object; /* Optional, callback for OBJECT_DATAGRAM */
 } xqc_moq_session_callbacks_t;
 
 XQC_EXPORT_PUBLIC_API
@@ -601,12 +612,11 @@ xqc_int_t xqc_moq_write_raw_object(xqc_moq_session_t *session,
 /*
  * @brief Send a single MOQT OBJECT_DATAGRAM (draft-ietf-moq-transport-14, Section 10.3.1) on QUIC DATAGRAM.
  * @note  The connection must negotiate max_datagram_frame_size > 0 to actually send datagrams.
- * @param publisher_priority 8-bit publisher priority in OBJECT_DATAGRAM.
- * @param end_of_group Whether to set the End Of Group bit in the OBJECT_DATAGRAM type (payload datagrams only).
+ * @note  Publisher priority is read from object->publisher_priority.
+ *        End-of-group is inferred from object->status == XQC_MOQ_OBJ_STATUS_GROUP_END.
  */
 XQC_EXPORT_PUBLIC_API
-xqc_int_t xqc_moq_send_object_datagram(xqc_moq_session_t *session, xqc_moq_object_t *object,
-    uint8_t publisher_priority, xqc_int_t end_of_group);
+xqc_int_t xqc_moq_send_object_datagram(xqc_moq_session_t *session, xqc_moq_object_t *object);
 
 #ifdef __cplusplus
 }

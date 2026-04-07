@@ -290,8 +290,7 @@ xqc_moq_send_subgroup(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_mo
 
 
 xqc_int_t
-xqc_moq_send_object_datagram(xqc_moq_session_t *session, xqc_moq_object_t *object,
-    uint8_t publisher_priority, xqc_int_t end_of_group)
+xqc_moq_send_object_datagram(xqc_moq_session_t *session, xqc_moq_object_t *object)
 {
     if (session == NULL || object == NULL) {
         return -XQC_EPARAM;
@@ -309,7 +308,7 @@ xqc_moq_send_object_datagram(xqc_moq_session_t *session, xqc_moq_object_t *objec
     dgram.track_alias = object->track_alias;
     dgram.group_id = object->group_id;
     dgram.object_id = object->object_id;
-    dgram.publisher_priority = publisher_priority;
+    dgram.publisher_priority = object->publisher_priority;
     dgram.ext_params = object->ext_params;
     dgram.ext_params_num = object->ext_params_num;
     dgram.status = object->status;
@@ -318,7 +317,7 @@ xqc_moq_send_object_datagram(xqc_moq_session_t *session, xqc_moq_object_t *objec
 
     if (payload) {
         uint64_t type = 0;
-        if (end_of_group) {
+        if (object->status == XQC_MOQ_OBJ_STATUS_GROUP_END) {
             type |= XQC_MOQ_OBJ_DGRAM_TYPE_END_OF_GROUP;
         }
         if (ext) {

@@ -217,13 +217,14 @@ xqc_moq_quic_datagram_read_notify(xqc_connection_t *conn, void *user_data,
     object.payload = dgram.payload;
     object.payload_len = dgram.payload_len;
     object.custom_id_flag = 0;
+    object.forwarding_preference = XQC_MOQ_FORWARDING_DATAGRAM;
 
     xqc_log(session->log, XQC_LOG_DEBUG,
             "|moq_datagram_recv|type:%ui|track_alias:%ui|group_id:%ui|object_id:%ui|prio:%ud|payload_len:%ui|",
             dgram.type, dgram.track_alias, dgram.group_id, dgram.object_id,
             dgram.publisher_priority, dgram.payload_len);
 
-    xqc_moq_on_object(session, NULL, &object);
+    xqc_moq_on_datagram_object(session, &object);
     xqc_moq_object_datagram_free_fields(&dgram);
 }
 

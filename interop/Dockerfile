@@ -9,7 +9,7 @@ RUN apt-get update && \
     git clone --depth 1 https://github.com/alibaba/xquic.git && \
     git clone -b 8.3-stable --depth 1 https://github.com/Tongsuo-Project/Tongsuo.git xquic/third_party/babassl && \
     cd xquic/third_party/babassl/ && \
-    ./Configure --api=1.1.1 no-deprecated && make -j && \
+    ./Configure no-deprecated && make -j && \
     cd ../../../ && \
     mkdir xquic_bin && \
     cd xquic_bin && \

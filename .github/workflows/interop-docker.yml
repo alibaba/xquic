@@ -2,8 +2,7 @@ name: Build interop Docker image
 
 on:
   push:
-    # interop-docker-babassl-test: temporary; remove after interop Docker + babassl validation
-    branches: [ main, interop, interop-docker-babassl-test ]
+    branches: [ main, interop ]
 
 permissions: read-all
 

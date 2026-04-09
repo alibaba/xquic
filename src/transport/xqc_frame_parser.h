@@ -17,6 +17,7 @@
 #define XQC_DATAGRAM_LENGTH_FIELD_BYTES 2
 #define XQC_DATAGRAM_HEADER_BYTES (XQC_DATAGRAM_LENGTH_FIELD_BYTES + 1)
 
+/* Legacy multipath frame types (v10) */
 #define XQC_TRANS_FRAME_TYPE_MP_ACK0                    0x15228c00
 #define XQC_TRANS_FRAME_TYPE_MP_ACK1                    0x15228c01
 #define XQC_TRANS_FRAME_TYPE_MP_ABANDON                 0x15228c05
@@ -26,6 +27,16 @@
 #define XQC_TRANS_FRAME_TYPE_MP_RETIRE_CONN_ID          0x15228c0a
 #define XQC_TRANS_FRAME_TYPE_MAX_PATH_ID                0x15228c0c
 #define XQC_TRANS_FRAME_TYPE_MP_FROZEN                  0x15228cff
+
+/* RFC multipath frame types */
+#define XQC_TRANS_FRAME_TYPE_PATH_ACK                   0x3e
+#define XQC_TRANS_FRAME_TYPE_PATH_ACK_ECN               0x3f
+#define XQC_TRANS_FRAME_TYPE_PATH_ABANDON               0x3e75
+#define XQC_TRANS_FRAME_TYPE_PATH_STATUS_STANDBY        0x3e76
+#define XQC_TRANS_FRAME_TYPE_PATH_STATUS_AVAILABLE      0x3e77
+#define XQC_TRANS_FRAME_TYPE_PATH_NEW_CONNECTION_ID     0x3e78
+#define XQC_TRANS_FRAME_TYPE_PATH_RETIRE_CONNECTION_ID  0x3e79
+#define XQC_TRANS_FRAME_TYPE_PATH_MAX_PATH_ID           0x3e7a
 
 #define XQC_TRANS_FRAME_TYPE_ACK_EXT                    0xB1
 
@@ -168,17 +179,17 @@ xqc_int_t xqc_gen_repair_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_
 xqc_int_t xqc_parse_repair_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in,
     xqc_fec_rpr_syb_t *rpr_symbol);
 
-ssize_t xqc_gen_mp_new_conn_id_frame(xqc_packet_out_t *packet_out, xqc_cid_t *new_cid,
+ssize_t xqc_gen_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_cid_t *new_cid,
     uint64_t retire_prior_to, const uint8_t *sr_token, uint64_t path_id);
 
 xqc_int_t xqc_parse_mp_new_conn_id_frame(xqc_packet_in_t *packet_in,
     xqc_cid_t *new_cid, uint64_t *retire_prior_to, uint64_t *path_id, xqc_connection_t *conn);
 
-ssize_t xqc_gen_mp_retire_conn_id_frame(xqc_packet_out_t *packet_out, uint64_t seq_num, uint64_t path_id);
+ssize_t xqc_gen_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, uint64_t seq_num, uint64_t path_id);
 
 xqc_int_t xqc_parse_mp_retire_conn_id_frame(xqc_packet_in_t *packet_in, uint64_t *seq_num, uint64_t *path_id);
 
-ssize_t xqc_gen_max_path_id_frame(xqc_packet_out_t *packet_out, uint64_t max_path_id);
+ssize_t xqc_gen_max_path_id_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, uint64_t max_path_id);
 xqc_int_t xqc_parse_max_path_id_frame(xqc_packet_in_t *packet_in, uint64_t *max_path_id);
 
 void xqc_try_process_fec_decode(xqc_connection_t *conn, xqc_int_t block_id);

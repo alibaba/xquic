@@ -69,96 +69,109 @@
 
 // #define XQC_TEST_DGRAM_BATCH_SZ 32
 
+// /**
+//  * @brief 用户数据报块结构体，用于处理数据报传输
+//  */
 // typedef struct user_datagram_block_s {
-//     unsigned char *recv_data;
-//     unsigned char *data;
-//     size_t         data_len;
-//     size_t         data_sent;
-//     size_t         data_recv;
-//     size_t         data_lost;
-//     size_t         dgram_lost;
-//     uint32_t       dgram_id;
+//     unsigned char *recv_data;   ///< 接收的数据
+//     unsigned char *data;        ///< 发送的数据
+//     size_t         data_len;    ///< 数据长度
+//     size_t         data_sent;   ///< 已发送的数据量
+//     size_t         data_recv;   ///< 已接收的数据量
+//     size_t         data_lost;   ///< 丢失的数据量
+//     size_t         dgram_lost;  ///< 丢失的数据报数量
+//     uint32_t       dgram_id;    ///< 数据报ID
 // } user_dgram_blk_t;
+
+// /**
+//  * @brief 客户端上下文结构体
+//  */
 // typedef struct client_ctx_s {
-//     xqc_engine_t   *engine;
-//     struct event   *ev_engine;
-//     int             log_fd;
-//     int             keylog_fd;
-//     struct event   *ev_delay;
-//     struct event_base *eb;
-//     struct event   *ev_conc;
-//     int             cur_conn_num;
+//     xqc_engine_t   *engine;     ///< XQUIC引擎实例
+//     struct event   *ev_engine;  ///< 引擎事件
+//     int             log_fd;     ///< 日志文件描述符
+//     int             keylog_fd;  ///< 密钥日志文件描述符
+//     struct event   *ev_delay;   ///< 延迟事件
+//     struct event_base *eb;      ///< 事件基础结构
+//     struct event   *ev_conc;    ///< 并发事件
+//     int             cur_conn_num;///< 当前连接数
 // } client_ctx_t;
 
+// /**
+//  * @brief 用户流结构体
+//  */
 // typedef struct user_stream_s {
-//     xqc_stream_t            *stream;
-//     xqc_h3_request_t        *h3_request;
-//     user_conn_t             *user_conn;
-//     uint64_t                 send_offset;
-//     int                      header_sent;
-//     int                      header_recvd;
-//     char                    *send_body;
-//     size_t                   send_body_len;
-//     size_t                   send_body_max;
-//     char                    *recv_body;
-//     size_t                   recv_body_len;
-//     FILE                    *recv_body_fp;
-//     int                      recv_fin;
-//     xqc_usec_t               start_time;
-//     xqc_usec_t               first_frame_time;   /* first frame download time */
-//     xqc_usec_t               last_read_time;
-//     int                      abnormal_count;
-//     int                      body_read_notify_cnt;
-//     xqc_usec_t               last_recv_log_time;
-//     uint64_t                 recv_log_bytes;
+//     xqc_stream_t            *stream;             ///< XQUIC流
+//     xqc_h3_request_t        *h3_request;         ///< HTTP/3请求
+//     user_conn_t             *user_conn;          ///< 用户连接
+//     uint64_t                 send_offset;        ///< 发送偏移
+//     int                      header_sent;        ///< 头部是否已发送
+//     int                      header_recvd;       ///< 头部是否已接收
+//     char                    *send_body;          ///< 发送主体
+//     size_t                   send_body_len;      ///< 发送主体长度
+//     size_t                   send_body_max;      ///< 发送主体最大长度
+//     char                    *recv_body;          ///< 接收主体
+//     size_t                   recv_body_len;      ///< 接收主体长度
+//     FILE                    *recv_body_fp;       ///< 接收主体文件指针
+//     int                      recv_fin;           ///< FIN是否已接收
+//     xqc_usec_t               start_time;         ///< 开始时间
+//     xqc_usec_t               first_frame_time;   ///< 第一帧下载时间
+//     xqc_usec_t               last_read_time;     ///< 最后读取时间
+//     int                      abnormal_count;     ///< 异常计数
+//     int                      body_read_notify_cnt;///< 主体读取通知计数
+//     xqc_usec_t               last_recv_log_time; ///< 最后接收日志时间
+//     uint64_t                 recv_log_bytes;     ///< 接收日志字节数
 
-//     xqc_h3_ext_bytestream_t *h3_ext_bs;
-//     struct event            *ev_bytestream_timer;
+//     xqc_h3_ext_bytestream_t *h3_ext_bs;         ///< HTTP/3扩展字节流
+//     struct event            *ev_bytestream_timer;///< 字节流定时器事件
 
-//     int                      snd_times;
-//     int                      rcv_times;
+//     int                      snd_times;          ///< 发送次数
+//     int                      rcv_times;          ///< 接收次数
 
 // } user_stream_t;
 
+// /**
+//  * @brief 用户连接结构体
+//  */
 // typedef struct user_conn_s {
-//     int                 fd;
-//     xqc_cid_t           cid;
+//     int                 fd;                    ///< 套接字文件描述符
+//     xqc_cid_t           cid;                   ///< 连接ID
 
-//     struct sockaddr    *local_addr;
-//     socklen_t           local_addrlen;
-//     xqc_flag_t          get_local_addr;
-//     struct sockaddr    *peer_addr;
-//     socklen_t           peer_addrlen;
+//     struct sockaddr    *local_addr;            ///< 本地地址
+//     socklen_t           local_addrlen;         ///< 本地地址长度
+//     xqc_flag_t          get_local_addr;        ///< 获取本地地址标志
+//     struct sockaddr    *peer_addr;             ///< 对端地址
+//     socklen_t           peer_addrlen;          ///< 对端地址长度
 
-//     unsigned char      *token;
-//     unsigned            token_len;
+//     unsigned char      *token;                 ///< 令牌
+//     unsigned            token_len;             ///< 令牌长度
 
-//     struct event       *ev_socket;
-//     struct event       *ev_timeout;
-//     struct event       *ev_abs_timeout;
-//     uint64_t            conn_create_time;
+//     struct event       *ev_socket;             ///< 套接字事件
+//     struct event       *ev_timeout;            ///< 超时事件
+//     struct event       *ev_abs_timeout;        ///< 绝对超时事件
+//     uint64_t            conn_create_time;      ///< 连接创建时间
 
 //     /* 用于路径增删debug */
-//     struct event       *ev_path;
-//     struct event       *ev_epoch;
+//     struct event       *ev_path;               ///< 路径事件
+//     struct event       *ev_epoch;              ///< 时期事件
 
-//     struct event       *ev_request;
+//     struct event       *ev_request;            ///< 请求事件
 
 
-//     int                 h3;
+//     int                 h3;                    ///< 是否使用HTTP/3
 
-//     user_dgram_blk_t   *dgram_blk;
-//     size_t              dgram_mss;
-//     uint8_t             dgram_not_supported;
-//     int                 dgram_retry_in_hs_cb;
+//     user_dgram_blk_t   *dgram_blk;             ///< 数据报块
+//     size_t              dgram_mss;             ///< 数据报最大段大小
+//     uint8_t             dgram_not_supported;   ///< 数据报不支持标志
+//     int                 dgram_retry_in_hs_cb;  ///< 握手回调重试标志
 
-//     xqc_connection_t   *quic_conn;
-//     xqc_h3_conn_t      *h3_conn;
-//     client_ctx_t       *ctx;
-//     int                 cur_stream_num;
+//     xqc_connection_t   *quic_conn;             ///< QUIC连接
+//     xqc_h3_conn_t      *h3_conn;               ///< HTTP/3连接
+//     client_ctx_t       *ctx;                    ///< 客户端上下文
+//     int                 cur_stream_num;         ///< 当前流数量
 
-//     uint64_t            black_hole_start_time;
-//     int                 tracked_pkt_cnt;
+//     uint64_t            black_hole_start_time; ///< 黑洞开始时间
+//     int                 tracked_pkt_cnt;       ///< 跟踪包计数
 // } user_conn_t;
 
 // #define XQC_DEMO_INTERFACE_MAX_LEN 64
@@ -166,134 +179,140 @@
 // #define MAX_HEADER_KEY_LEN 128
 // #define MAX_HEADER_VALUE_LEN 4096
 
+// /**
+//  * @brief 用户路径结构体，用于多路径传输
+//  */
 // typedef struct xqc_user_path_s {
-//     int                 path_fd;
-//     uint64_t            path_id;
-//     int                 is_in_used;
-//     size_t              send_size;
+//     int                 path_fd;               ///< 路径文件描述符
+//     uint64_t            path_id;               ///< 路径ID
+//     int                 is_in_used;            ///< 是否正在使用
+//     size_t              send_size;             ///< 发送大小
 
-//     struct sockaddr    *peer_addr;
-//     socklen_t           peer_addrlen;
-//     struct sockaddr    *local_addr;
-//     socklen_t           local_addrlen;
+//     struct sockaddr    *peer_addr;              ///< 对端地址
+//     socklen_t           peer_addrlen;           ///< 对端地址长度
+//     struct sockaddr    *local_addr;             ///< 本地地址
+//     socklen_t           local_addrlen;          ///< 本地地址长度
 
-//     struct event       *ev_socket;
+//     struct event       *ev_socket;              ///< 套接字事件
 
-//     int                 rebinding_path_fd;
-//     struct event       *rebinding_ev_socket;
+//     int                 rebinding_path_fd;      ///< 重新绑定路径文件描述符
+//     struct event       *rebinding_ev_socket;    ///< 重新绑定事件
 // } xqc_user_path_t;
 
 
+// /**
+//  * @brief 累积分布函数条目结构体
+//  */
 // typedef struct {
-//     double p;
-//     int val;
+//     double p;                                   ///< 概率
+//     int val;                                  ///< 值
 // } cdf_entry_t;
 
 
-// static char *g_server_addr = NULL;
-// int g_server_port = TEST_SERVER_PORT;
-// int g_transport = 0;
-// int g_conn_count = 0;
-// int g_max_conn_num = 1000;
-// int g_conn_num = 100;
-// int g_process_num = 2;
-// int g_test_qch_mode = 0;
-// int g_random_cid = 0;
-// xqc_data_qos_level_t g_dgram_qos_level;
-// xqc_conn_settings_t *g_conn_settings;
+// static char *g_server_addr = NULL;             ///< 服务器地址
+// int g_server_port = TEST_SERVER_PORT;          ///< 服务器端口
+// int g_transport = 0;                           ///< 传输层模式
+// int g_conn_count = 0;                          ///< 连接计数
+// int g_max_conn_num = 1000;                     ///< 最大连接数
+// int g_conn_num = 100;                          ///< 连接数
+// int g_process_num = 2;                         ///< 进程数
+// int g_test_qch_mode = 0;                       ///< QCH测试模式
+// int g_random_cid = 0;                          ///< 随机连接ID
+// xqc_data_qos_level_t g_dgram_qos_level;        ///< 数据报QoS级别
+// xqc_conn_settings_t *g_conn_settings;          ///< 连接设置
 
-// unsigned char *sock_op_buffer[2000];
-// size_t sock_op_buffer_len = 0;
-// size_t dgram1_size = 0;
-// size_t dgram2_size = 0;
+// unsigned char *sock_op_buffer[2000];           ///< 套接字操作缓冲区
+// size_t sock_op_buffer_len = 0;                 ///< 套接字操作缓冲区长度
+// size_t dgram1_size = 0;                        ///< 数据报1大小
+// size_t dgram2_size = 0;                        ///< 数据报2大小
 
-// int dgram_drop_pkt1 = 0;
-// client_ctx_t ctx;
-// struct event_base *eb;
-// int g_send_dgram;
-// int g_max_dgram_size;
-// int g_req_cnt;
-// int g_bytestream_cnt;
-// int g_req_max;
-// int g_send_body_size;
-// int g_send_body_size_defined;
-// int g_send_body_size_from_cdf;
-// cdf_entry_t *cdf_list;
-// int cdf_list_size;
-// int g_req_paral = 1;
-// int g_req_per_time = 0;
-// int g_recovery = 0;
-// int g_save_body;
-// int g_read_body;
-// int g_echo_check;
-// int g_drop_rate;
-// int g_spec_url;
-// int g_is_get;
-// uint64_t g_last_sock_op_time;
+// int dgram_drop_pkt1 = 0;                       ///< 数据报丢弃包1标志
+// client_ctx_t ctx;                              ///< 客户端上下文
+// struct event_base *eb;                         ///< 事件基础结构
+// int g_send_dgram;                              ///< 发送数据报标志
+// int g_max_dgram_size;                          ///< 最大数据报大小
+// int g_req_cnt;                                 ///< 请求计数
+// int g_bytestream_cnt;                          ///< 字节流计数
+// int g_req_max;                                 ///< 最大请求数
+// int g_req_paral = 1;                           ///< 并行请求数
+// int g_req_per_time = 0;                        ///< 每次请求数
+// int g_send_body_size;                          ///< 发送主体大小
+// int g_send_body_size_defined;                  ///< 发送主体大小已定义标志
+// int g_send_body_size_from_cdf;                 ///< 从CDF获取发送主体大小标志
+// cdf_entry_t *cdf_list;                         ///< CDF列表
+// int cdf_list_size;                             ///< CDF列表大小
+// int g_recovery = 0;                            ///< 恢复标志
+// int g_save_body;                               ///< 保存主体标志
+// int g_read_body;                               ///< 读取主体标志
+// int g_echo_check;                              ///< 回声检查标志
+// int g_drop_rate;                               ///< 丢包率
+// int g_spec_url;                                ///< 特定URL标志
+// int g_is_get;                                  ///< GET请求标志
+// uint64_t g_last_sock_op_time;                  ///< 最后套接字操作时间
 // //currently, the maximum used test case id is 19
 // //please keep this comment updated if you are adding more test cases. :-D
 // //99 for pure fin
 // //2XX for datagram testcases
 // //3XX for h3 ext bytestream testcases
 // //4XX for conn_settings configuration
-// int g_test_case;
-// int g_ipv6;
-// int g_no_crypt;
-// int g_conn_timeout = 1;
-// int g_conn_abs_timeout = 0;
-// int g_path_timeout = 5000000; /* 5s */
-// int g_epoch_timeout = 1000000; /* us */
-// char g_write_file[256];
-// char g_read_file[256];
-// char g_log_path[256];
-// char g_host[64] = "test.xquic.com";
-// char g_url_path[256] = "/path/resource";
-// char g_scheme[8] = "https";
-// char g_url[2048];
-// char g_headers[MAX_HEADER][256];
-// int g_header_cnt = 0;
-// int g_ping_id = 1;
-// int g_enable_multipath = 0;
-// xqc_multipath_version_t g_multipath_version = XQC_MULTIPATH_10;
-// int g_enable_fec = 0;
-// int g_enable_reinjection = 0;
-// int g_verify_cert = 0;
-// int g_verify_cert_allow_self_sign = 0;
-// int g_header_num = 6;
-// int g_epoch = 0;
-// int g_cur_epoch = 0;
-// int g_mp_backup_mode = 0;
-// int g_mp_request_accelerate = 0;
-// double g_copa_ai = 1.0;
-// double g_copa_delta = 0.05;
-// int g_pmtud_on = 0;
-// int g_mp_ping_on = 0;
-// char g_header_key[MAX_HEADER_KEY_LEN];
-// char g_header_value[MAX_HEADER_VALUE_LEN];
+// int g_test_case;                               ///< 测试案例
+// int g_ipv6;                                    ///< IPv6标志
+// int g_no_crypt;                                ///< 无加密标志
+// int g_conn_timeout = 1;                        ///< 连接超时
+// int g_conn_abs_timeout = 0;                    ///< 绝对连接超时
+// int g_path_timeout = 5000000; /* 5s */        ///< 路径超时
+// int g_epoch_timeout = 1000000; /* us */       ///< 时期超时
+// char g_write_file[256];                        ///< 写入文件
+// char g_read_file[256];                         ///< 读取文件
+// char g_log_path[256];                          ///< 日志路径
+// char g_host[64] = "test.xquic.com";            ///< 主机名
+// char g_url_path[256] = "/path/resource";       ///< URL路径
+// char g_scheme[8] = "https";                    ///< 协议方案
+// char g_url[2048];                              ///< URL
+// char g_headers[MAX_HEADER][256];               ///< 头部
+// int g_header_cnt = 0;                          ///< 头部计数
+// int g_ping_id = 1;                             ///< Ping ID
+// int g_enable_multipath = 0;                    ///< 启用多路径标志
+// xqc_multipath_version_t g_multipath_version = XQC_MULTIPATH_10; ///< 多路径版本
+// int g_enable_fec = 0;                          ///< 启用FEC标志
+// int g_enable_reinjection = 0;                  ///< 启用重注入标志
+// int g_verify_cert = 0;                         ///< 验证证书标志
+// int g_verify_cert_allow_self_sign = 0;         ///< 允许自签名证书标志
+// int g_header_num = 6;                          ///< 头部数量
+// int g_epoch = 0;                               ///< 时期
+// int g_cur_epoch = 0;                           ///< 当前时期
+// int g_mp_backup_mode = 0;                      ///< 多路径备份模式
+// int g_mp_request_accelerate = 0;               ///< 多路径请求加速
+// double g_copa_ai = 1.0;                        ///< Copa AI参数
+// double g_copa_delta = 0.05;                    ///< Copa delta参数
+// int g_pmtud_on = 0;                            ///< PMTUD启用标志
+// int g_mp_ping_on = 0;                          ///< 多路径Ping启用标志
+// char g_header_key[MAX_HEADER_KEY_LEN];         ///< 头部键
+// char g_header_value[MAX_HEADER_VALUE_LEN];     ///< 头部值
 
-// char g_multi_interface[XQC_DEMO_MAX_PATH_COUNT][64];
-// xqc_user_path_t g_client_path[XQC_DEMO_MAX_PATH_COUNT];
-// int g_multi_interface_cnt = 0;
-// int mp_has_recved = 0;
-// char g_priority[64] = {'\0'};
+// char g_multi_interface[XQC_DEMO_MAX_PATH_COUNT][64];  ///< 多接口
+// xqc_user_path_t g_client_path[XQC_DEMO_MAX_PATH_COUNT]; ///< 客户端路径
+// int g_multi_interface_cnt = 0;                 ///< 多接口计数
+// int mp_has_recved = 0;                         ///< 已接收MP标志
+// char g_priority[64] = {'\0'};                  ///< 优先级
 
-// unsigned char g_token[XQC_MAX_TOKEN_LEN];
-// int g_token_len = 0;
+// unsigned char g_token[XQC_MAX_TOKEN_LEN];      ///< 令牌
+// int g_token_len = 0;                           ///< 令牌长度
 
 // /* 用于路径增删debug */
 // int g_debug_path = 0;
 
 // #define XQC_TEST_LONG_HEADER_LEN 32769
-// char test_long_value[XQC_TEST_LONG_HEADER_LEN] = {'\0'};
+// char test_long_value[XQC_TEST_LONG_HEADER_LEN] = {'\0'}; ///< 长头部测试值
 
-// int hsk_completed = 0;
+// int hsk_completed = 0;                         ///< 握手完成标志
 
 
-// int g_periodically_request = 0;
+// int g_periodically_request = 0;                ///< 定期请求标志
 
-// static uint64_t last_recv_ts = 0;
+// static uint64_t last_recv_ts = 0;              ///< 最后接收时间戳
 
-// static int g_timeout_flag = 0;
+// static int g_timeout_flag = 0;                 ///< 超时标志
 // /*
 //  CDF file format:
 //  N (N lines)
@@ -769,6 +788,15 @@
 // static void xqc_client_timeout_multi_process_callback(int fd, short what, void *arg);
 
 
+// /**
+//  * @brief 客户端设置事件定时器回调函数
+//  * 
+//  * 该函数用于设置XQUIC引擎的事件定时器，当定时器到期时会调用此函数
+//  * 并触发xqc_engine_main_logic函数处理引擎逻辑
+//  * 
+//  * @param wake_after 下次唤醒的时间间隔（微秒）
+//  * @param user_data 用户数据，指向客户端上下文
+//  */
 // void
 // xqc_client_set_event_timer(xqc_usec_t wake_after, void *user_data)
 // {
@@ -776,21 +804,29 @@
 //     //printf("xqc_engine_wakeup_after %llu us, now %llu\n", wake_after, xqc_now());
 
 //     struct timeval tv;
-//     tv.tv_sec = wake_after / 1000000;
-//     tv.tv_usec = wake_after % 1000000;
-//     event_add(ctx->ev_engine, &tv);
-
+//     tv.tv_sec = wake_after / 1000000;  // 将微秒转换为秒
+//     tv.tv_usec = wake_after % 1000000; // 计算剩余的微秒
+//     event_add(ctx->ev_engine, &tv);     // 添加定时器事件
 // }
 
+// /**
+//  * @brief 保存会话回调函数
+//  * 
+//  * 该函数用于保存TLS会话信息，以便后续连接可以重用会话
+//  * 
+//  * @param data 会话数据
+//  * @param data_len 会话数据长度
+//  * @param user_data 用户数据，指向用户连接
+//  */
 // void
 // save_session_cb(const char * data, size_t data_len, void *user_data)
 // {
 //     user_conn_t *user_conn = (user_conn_t*)user_data;
 //     printf("save_session_cb use server domain as the key. h3[%d]\n", user_conn->h3);
 
-//     FILE * fp  = fopen("test_session", "wb");
-//     int write_size = fwrite(data, 1, data_len, fp);
-//     if (data_len != write_size) {
+//     FILE * fp  = fopen("test_session", "wb"); // 打开会话文件用于写入
+//     int write_size = fwrite(data, 1, data_len, fp); // 写入会话数据
+//     if (data_len != write_size) { // 检查写入是否完整
 //         printf("save _session_cb error\n");
 //         fclose(fp);
 //         return;
@@ -800,15 +836,24 @@
 // }
 
 
+// /**
+//  * @brief 保存传输参数回调函数
+//  * 
+//  * 该函数用于保存服务器的传输参数，以便后续连接可以重用
+//  * 
+//  * @param data 传输参数数据
+//  * @param data_len 传输参数数据长度
+//  * @param user_data 用户数据，指向用户连接
+//  */
 // void
 // save_tp_cb(const char * data, size_t data_len, void * user_data)
 // {
 //     user_conn_t *user_conn = (user_conn_t*)user_data;
 //     printf("save_tp_cb use server domain as the key. h3[%d]\n", user_conn->h3);
 
-//     FILE * fp = fopen("tp_localhost", "wb");
-//     int write_size = fwrite(data, 1, data_len, fp);
-//     if (data_len != write_size) {
+//     FILE * fp = fopen("tp_localhost", "wb"); // 打开传输参数文件用于写入
+//     int write_size = fwrite(data, 1, data_len, fp); // 写入传输参数数据
+//     if (data_len != write_size) { // 检查写入是否完整
 //         printf("save _tp_cb error\n");
 //         fclose(fp);
 //         return;
@@ -817,22 +862,31 @@
 //     return;
 // }
 
+// /**
+//  * @brief 保存令牌回调函数
+//  * 
+//  * 该函数用于保存连接令牌，以便后续连接可以重用
+//  * 
+//  * @param token 令牌数据
+//  * @param token_len 令牌长度
+//  * @param user_data 用户数据，指向用户连接
+//  */
 // void
 // xqc_client_save_token(const unsigned char *token, unsigned token_len, void *user_data)
 // {
 //     user_conn_t *user_conn = (user_conn_t*)user_data;
 //     printf("xqc_client_save_token use client ip as the key. h3[%d]\n", user_conn->h3);
 
-//     if (g_test_case == 16) { /* test application delay */
-//         usleep(300*1000);
+//     if (g_test_case == 16) { /* test application delay 应用延迟测试 */
+//         usleep(300*1000); // 延迟300毫秒
 //     }
-//     int fd = open("./xqc_token", O_TRUNC | O_CREAT | O_WRONLY, 0666);
+//     int fd = open("./xqc_token", O_TRUNC | O_CREAT | O_WRONLY, 0666); // 打开令牌文件
 //     if (fd < 0) {
 //         printf("save token error %s\n", strerror(get_sys_errno()));
 //         return;
 //     }
 
-//     ssize_t n = write(fd, token, token_len);
+//     ssize_t n = write(fd, token, token_len); // 写入令牌数据
 //     if (n < token_len) {
 //         printf("save token error %s\n", strerror(get_sys_errno()));
 //         close(fd);
@@ -841,42 +895,61 @@
 //     close(fd);
 // }
 
+// /**
+//  * @brief 读取令牌函数
+//  * 
+//  * 该函数用于读取之前保存的连接令牌
+//  * 
+//  * @param token 令牌数据缓冲区
+//  * @param token_len 令牌长度
+//  * @return 成功返回读取的字节数，失败返回-1
+//  */
 // int
 // xqc_client_read_token(unsigned char *token, unsigned token_len)
 // {
-//     int fd = open("./xqc_token", O_RDONLY);
+//     int fd = open("./xqc_token", O_RDONLY); // 打开令牌文件用于读取
 //     if (fd < 0) {
 //         printf("read token error %s\n", strerror(get_sys_errno()));
 //         return -1;
 //     }
 
-//     ssize_t n = read(fd, token, token_len);
+//     ssize_t n = read(fd, token, token_len); // 读取令牌数据
 //     printf("read token size %zu\n", n);
 //     close(fd);
 //     return n;
 // }
 
+// /**
+//  * @brief 读取文件数据函数
+//  * 
+//  * 该函数用于从指定文件读取数据到缓冲区
+//  * 
+//  * @param data 数据缓冲区
+//  * @param data_len 数据缓冲区长度
+//  * @param filename 文件名
+//  * @return 成功返回读取的字节数，失败返回-1
+//  */
 // int
 // read_file_data(char *data, size_t data_len, char *filename)
 // {
 //     int ret = 0;
 //     size_t total_len, read_len;
-//     FILE *fp = fopen(filename, "rb");
+//     FILE *fp = fopen(filename, "rb"); // 以二进制模式打开文件
 //     if (fp == NULL) {
 //         ret = -1;
 //         goto end;
 //     }
 
-//     fseek(fp, 0, SEEK_END);
-//     total_len = ftell(fp);
-//     fseek(fp, 0, SEEK_SET);
-//     if (total_len > data_len) {
+//     fseek(fp, 0, SEEK_END); // 移动到文件末尾
+//     total_len = ftell(fp);  // 获取文件大小
+//     fseek(fp, 0, SEEK_SET); // 移动到文件开头
+//     if (total_len > data_len) { // 检查缓冲区是否足够大
 //         ret = -1;
 //         goto end;
 //     }
 
-//     read_len = fread(data, 1, total_len, fp);
-//     if (read_len != total_len) {
+//     read_len = fread(data, 1, total_len, fp); // 读取文件数据
+//     if (read_len != total_len) { // 检查读取是否完整
 //         ret = -1;
 //         goto end;
 //     }
@@ -890,103 +963,124 @@
 //     return ret;
 // }
 
+// /**
+//  * @brief 客户端写入套接字函数
+//  * 
+//  * 该函数负责将数据包写入套接字发送到对端
+//  * 
+//  * @param buf 数据包缓冲区
+//  * @param size 数据包大小
+//  * @param peer_addr 对端地址
+//  * @param peer_addrlen 对端地址长度
+//  * @param user 用户数据，指向用户连接
+//  * @return 成功返回发送的字节数，失败返回错误码
+//  */
 // ssize_t 
 // xqc_client_write_socket(const unsigned char *buf, size_t size,
 //     const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *user)
 // {
 //     user_conn_t *user_conn = (user_conn_t *) user;
 //     ssize_t res = 0;
-//     int fd = user_conn->fd;
+//     int fd = user_conn->fd; // 获取连接的套接字文件描述符
 
-//     /* COPY to run corruption test cases */
+//     /* COPY to run corruption test cases 为损坏测试用例复制数据 */
 //     unsigned char send_buf[XQC_PACKET_TMP_BUF_LEN];
 //     size_t send_buf_size = 0;
 
-//     if (size > XQC_PACKET_TMP_BUF_LEN) {
+//     if (size > XQC_PACKET_TMP_BUF_LEN) { // 检查数据包是否过大
 //         printf("xqc_client_write_socket err: size=%zu is too long\n", size);
 //         return XQC_SOCKET_ERROR;
 //     }
 //     send_buf_size = size;
-//     memcpy(send_buf, buf, send_buf_size);
+//     memcpy(send_buf, buf, send_buf_size); // 复制数据到发送缓冲区
 
-//     /* trigger version negotiation */
+//     /* trigger version negotiation 触发版本协商 */
 //     if (g_test_case == 33) {
-//         /* makes version 0xff000001 */
+//         /* makes version 0xff000001 使版本号为0xff000001 */
 //         send_buf[1] = 0xff;
 //     }
 
-//     /* make initial packet loss to test 0rtt buffer */
+//     /* make initial packet loss to test 0rtt buffer 造成初始包丢失以测试0RTT缓冲区 */
 //     if (g_test_case == 39) {
 //         g_test_case = -1;
-//         return size;
+//         return size; // 丢弃数据包
 //     }
 
 //     do {
 //         set_sys_errno(0);
 
-//         g_last_sock_op_time = xqc_now();
+//         g_last_sock_op_time = xqc_now(); // 更新最后套接字操作时间
 
-//         if (TEST_DROP) {
+//         if (TEST_DROP) { // 检查是否需要丢弃数据包
 //             return send_buf_size;
 //         }
-//         if (g_test_case == 5) { /* socket send fail */
+//         if (g_test_case == 5) { /* socket send fail 套接字发送失败测试 */
 //             g_test_case = -1;
 //             set_sys_errno(EAGAIN);
 //             return XQC_SOCKET_EAGAIN;
 //         }
 
-//         /* client Initial dcid corruption */
+//         /* client Initial dcid corruption 客户端初始DCID损坏 */
 //         if (g_test_case == 22) {
 //             /* client initial dcid corruption, bytes [6, 13] is the DCID of xquic's Initial packet */
+//             /* 客户端初始DCID损坏，字节[6, 13]是xquic初始数据包的DCID */
 //             g_test_case = -1;
-//             send_buf[6] = ~send_buf[6];
+//             send_buf[6] = ~send_buf[6]; // 翻转第6个字节
 //             printf("test case 22, corrupt byte[6]\n");
 //         }
 
-//         /* client Initial scid corruption */
+//         /* client Initial scid corruption 客户端初始SCID损坏 */
 //         if (g_test_case == 23) {
 //             /* bytes [15, 22] is the SCID of xquic's Initial packet */
+//             /* 字节[15, 22]是xquic初始数据包的SCID */
 //             g_test_case = -1;
-//             send_buf[15] = ~send_buf[15];
+//             send_buf[15] = ~send_buf[15]; // 翻转第15个字节
 //             printf("test case 23, corrupt byte[15]\n");
 //         }
 
-//         // drop the first datagram packet
+//         // drop the first datagram packet 丢弃第一个数据报包
 //         if ((g_test_case == 205 || g_test_case == 206) && g_no_crypt && !dgram_drop_pkt1) {
-//             int header_type = send_buf[0] & 0x80;
+//             int header_type = send_buf[0] & 0x80; // 检查头部类型
 //             if (header_type == 0x80) {
 //                 // long header: 29B + 3B (frame header)
-//                 int lp_type = send_buf[0] & 0x30;
+//                 // 长头部：29字节 + 3字节（帧头部）
+//                 int lp_type = send_buf[0] & 0x30; // 获取包类型
 //                 if (lp_type == 0x10) {
-//                     //0RTT pkt
-//                     if (send_buf[29] == 0x31) {
-//                         //datagram frame
+//                     //0RTT pkt 0RTT包
+//                     if (send_buf[29] == 0x31) { // 检查是否为数据报帧
+//                         //datagram frame 数据报帧
 //                         if (g_test_case == 206) {
 //                             //hold data & swap the order with the next one
-//                             //swap 1st & 2nd dgram
+//                             //hold the first & 2nd dgram
+//                             //保持数据并与下一个交换顺序
+//                             //保持第一和第二数据报
 //                             memcpy(sock_op_buffer, send_buf, send_buf_size);
 //                             sock_op_buffer_len = send_buf_size;
 //                         }
-//                         dgram_drop_pkt1 = 1;
+//                         dgram_drop_pkt1 = 1; // 标记第一个数据报已丢弃
 //                         return send_buf_size;
 //                     }
 //                 }
 //             } else {
 //                 // short header: 13B + 3B (frame header)
-//                 if (send_buf[13] == 0x31) {
-//                     //datagram frame
+//                 // 短头部：13字节 + 3字节（帧头部）
+//                 if (send_buf[13] == 0x31) { // 检查是否为数据报帧
+//                     //datagram frame 数据报帧
 //                     if (g_test_case == 206) {
 //                         //hold data & swap the order with the next one
-//                         //swap 1st & 2nd dgram
+//                         //hold the first & 2nd dgram
+//                         //保持数据并与下一个交换顺序
+//                         //保持第一和第二数据报
 //                         memcpy(sock_op_buffer, send_buf, send_buf_size);
 //                         sock_op_buffer_len = send_buf_size;
 //                     }
-//                     dgram_drop_pkt1 = 1;
+//                     dgram_drop_pkt1 = 1; // 标记第一个数据报已丢弃
 //                     return send_buf_size;
 //                 }
 //             }
 //         }
 
+//         // 实际发送数据到对端
 //         res = sendto(fd, send_buf, send_buf_size, 0, peer_addr, peer_addrlen);
 //         if (res < 0) {
 //             printf("xqc_client_write_socket err %zd %s\n", res, strerror(get_sys_errno()));
@@ -994,10 +1088,11 @@
 //                 res = XQC_SOCKET_EAGAIN;
 //             }
 //             if (errno == EMSGSIZE) {
-//                 res = send_buf_size;
+//                 res = send_buf_size; // 消息太大但仍标记为成功发送
 //             }
 //         }
 
+//         // 如果缓冲区中有待发送的数据，则发送
 //         if (sock_op_buffer_len) {
 //             int header_type = send_buf[0] & 0x80;
 //             int frame_type = -1;
@@ -1020,12 +1115,12 @@
 //                         res = XQC_SOCKET_EAGAIN;
 //                     }
 //                 }
-//                 sock_op_buffer_len = 0;
+//                 sock_op_buffer_len = 0; // 清空缓冲区
 //             }
 //         }
-//     } while ((res < 0) && (get_sys_errno() == EINTR));
+//     } while ((res < 0) && (get_sys_errno() == EINTR)); // 如果是中断则重试
 
-//     return res;
+//     return res; // 返回发送结果
 // }
 
 // int

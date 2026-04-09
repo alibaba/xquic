@@ -132,26 +132,56 @@ extern "C" {
     }
 
     // H3 Callbacks
-    int xqc_client_h3_conn_create_notify_tramp(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *h3c_user_data) {
-        if (h3c_user_data) static_cast<XquicClient*>(h3c_user_data)->on_h3_conn_create_notify(conn, cid, h3c_user_data);
+    int xqc_client_h3_conn_create_notify_tramp(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data) {
+        if (user_data) {
+            user_conn_t *u_conn = (user_conn_t *)user_data;
+            if (u_conn->client) {
+                XquicClient *client = (XquicClient *)u_conn->client;
+                client->on_h3_conn_create_notify(conn, cid, u_conn);
+            }
+        }
         return 0;
     }
 
     int xqc_client_h3_conn_close_notify_tramp(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *h3c_user_data) {
-        if (h3c_user_data) static_cast<XquicClient*>(h3c_user_data)->on_h3_conn_close_notify(conn, cid, h3c_user_data);
+        if (h3c_user_data) {
+            user_conn_t *u_conn = (user_conn_t *)h3c_user_data;
+            if (u_conn->client) {
+                XquicClient *client = (XquicClient *)u_conn->client;
+                client->on_h3_conn_close_notify(conn, cid, u_conn);
+            }
+        }
         return 0;
     }
 
     void xqc_client_h3_conn_handshake_finished_tramp(xqc_h3_conn_t *h3_conn, void *h3c_user_data) {
-        if (h3c_user_data) static_cast<XquicClient*>(h3c_user_data)->on_h3_conn_handshake_finished(h3_conn, h3c_user_data);
+        if (h3c_user_data) {
+            user_conn_t *u_conn = (user_conn_t *)h3c_user_data;
+            if (u_conn->client) {
+                XquicClient *client = (XquicClient *)u_conn->client;
+                client->on_h3_conn_handshake_finished(h3_conn, u_conn);
+            }
+        }
     }
 
     void xqc_client_h3_conn_ping_acked_tramp(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *ping_user_data, void *h3c_user_data) {
-        if (h3c_user_data) static_cast<XquicClient*>(h3c_user_data)->on_h3_conn_ping_acked(conn, cid, ping_user_data, h3c_user_data);
+        if (h3c_user_data) {
+            user_conn_t *u_conn = (user_conn_t *)h3c_user_data;
+            if (u_conn->client) {
+                XquicClient *client = (XquicClient *)u_conn->client;
+                client->on_h3_conn_ping_acked(conn, cid, ping_user_data, u_conn);
+            }
+        }
     }
 
     void xqc_client_h3_conn_update_cid_tramp(xqc_h3_conn_t *conn, const xqc_cid_t *retire_cid, const xqc_cid_t *new_cid, void *h3c_user_data) {
-        if (h3c_user_data) static_cast<XquicClient*>(h3c_user_data)->on_h3_conn_update_cid(conn, retire_cid, new_cid, h3c_user_data);
+        if (h3c_user_data) {
+            user_conn_t *u_conn = (user_conn_t *)h3c_user_data;
+            if (u_conn->client) {
+                XquicClient *client = (XquicClient *)u_conn->client;
+                client->on_h3_conn_update_cid(conn, retire_cid, new_cid, u_conn);
+            }
+        }
     }
 
     // Stream Callbacks
@@ -283,6 +313,10 @@ int XquicClient::init(int argc, char *argv[]) {
     memset(&ssl_config, 0, sizeof(ssl_config));
     // In a real client, you might need to configure cert verification options here
 
+    ssl_config.ciphers = XQC_TLS_CIPHERS;
+    ssl_config.groups = XQC_TLS_GROUPS;
+
+
     xqc_engine_callback_t engine_callback;
     memset(&engine_callback, 0, sizeof(engine_callback));
     engine_callback.set_event_timer = xqc_client_set_event_timer_tramp;
@@ -357,12 +391,34 @@ int XquicClient::init(int argc, char *argv[]) {
         }
     }
 
+    // Register ALPN for transport connections
+    xqc_app_proto_callbacks_t ap_cbs = {
+        .conn_cbs = {
+            .conn_create_notify = xqc_client_conn_create_notify_tramp,
+            .conn_close_notify = xqc_client_conn_close_notify_tramp,
+            .conn_handshake_finished = xqc_client_conn_handshake_finished_tramp,
+            .conn_ping_acked = xqc_client_conn_ping_acked_tramp,
+        },
+        .stream_cbs = {
+            .stream_write_notify = xqc_client_stream_write_notify_tramp,
+            .stream_read_notify = xqc_client_stream_read_notify_tramp,
+            .stream_close_notify = xqc_client_stream_close_notify_tramp,
+        }
+    };
+
+    // Register transport ALPN regardless of transport_only_ setting to handle both cases
+    if (xqc_engine_register_alpn(engine_, "transport", 9, &ap_cbs, NULL) != XQC_OK) {
+        printf("Failed to register transport ALPN!\n");
+        return -1;
+    }
+
     ev_engine_ = event_new(event_base_, -1, EV_PERSIST, xqc_client_engine_trampoline, this);
+    event_add(ev_engine_, NULL);
 
     // Create Connection
     user_conn_t *u_conn = (user_conn_t *)calloc(1, sizeof(user_conn_t));
     u_conn->client = this;
-    u_conn->h3 = !transport_only_;
+    u_conn->h3 = !transport_only_;  // 如果transport_only_为true，则h3为false；反之亦然
     
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
@@ -387,12 +443,20 @@ int XquicClient::init(int argc, char *argv[]) {
     if (transport_only_) {
         xqc_conn_settings_t conn_settings;
         memset(&conn_settings, 0, sizeof(conn_settings));
+        // xqc_default_conn_settings(&conn_settings);
+        conn_settings.proto_version = XQC_VERSION_V1;  // Ensure protocol version is set correctly
         
         xqc_conn_ssl_config_t ssl_config;
         memset(&ssl_config, 0, sizeof(ssl_config));
         
+        // Additional SSL configuration for better compatibility
+        // ssl_config.tls_groups.group_arr = NULL;
+        // ssl_config.tls_groups.group_num = 0;
+        ssl_config.session_ticket_data = NULL;
+        ssl_config.transport_parameter_data = NULL;
+        
         const xqc_cid_t *cid = xqc_connect(engine_, &conn_settings, NULL, 0, server_ip_.c_str(), 1, &ssl_config,
-                                          (struct sockaddr*)&addr, sizeof(addr), NULL, u_conn);
+                                          (struct sockaddr*)&addr, sizeof(addr), "transport", u_conn);
         if (cid == NULL) {
             printf("xqc_connect error\n");
             return -1;
@@ -402,9 +466,17 @@ int XquicClient::init(int argc, char *argv[]) {
         // H3 Connect
         xqc_conn_settings_t conn_settings;
         memset(&conn_settings, 0, sizeof(conn_settings));
+        // xqc_default_conn_settings(&conn_settings);
+        conn_settings.proto_version = XQC_VERSION_V1;  // Ensure protocol version is set correctly
         
         xqc_conn_ssl_config_t ssl_config;
         memset(&ssl_config, 0, sizeof(ssl_config));
+        
+        // Additional SSL configuration for better compatibility
+        // ssl_config.tls_groups.group_arr = NULL;
+        // ssl_config.tls_groups.group_num = 0;
+        ssl_config.session_ticket_data = NULL;
+        ssl_config.transport_parameter_data = NULL;
         
         // Updated xqc_h3_connect signature: added token/token_len params (NULL, 0) before server_name
         const xqc_cid_t *cid = xqc_h3_connect(engine_, &conn_settings, NULL, 0, server_ip_.c_str(), 1, &ssl_config,
@@ -488,7 +560,7 @@ void XquicClient::on_conn_update_cid(xqc_connection_t *conn, const xqc_cid_t *re
 
 // H3 Callbacks
 void XquicClient::on_h3_conn_create_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data) {
-    printf("client: h3 conn created\n");
+    printf("Client: H3 Conn Created\n");
     user_conn_t *u_conn = (user_conn_t *)user_data;
     if (u_conn) {
         u_conn->h3_conn = conn;

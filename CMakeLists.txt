@@ -5,11 +5,13 @@ project (xquic)
 
 set (xquic_VERSION_MAJOR 0)
 set (xquic_VERSION_MINOR 1)
+set(SSL_TYPE "boringssl")
 set (CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-option (XQC_ENABLE_BBR2 "enable bbr2" OFF)
+option (XQC_ENABLE_BBR2 "enable bbr2" ON)
 option (XQC_ENABLE_COPA "enable copa" OFF)
-option (XQC_ENABLE_RENO "enable reno" OFF)
+option (XQC_ENABLE_RENO "enable reno" ON)
+option (XQC_ENABLE_TH3 "enable th3" ON)
 option (XQC_ENABLE_UNLIMITED "enable unlimited cc" OFF)
 option (XQC_ENABLE_MP_INTEROP "enable MPQUIC interop" OFF)
 option (XQC_NO_PID_PACKET_PROCESS "do not expose path_id in xqc_engine_packet_process" OFF)
@@ -169,7 +171,7 @@ if(GCOV STREQUAL "on")
 endif()
 
 
-
+add_subdirectory(tests)
 # testing
 if(XQC_ENABLE_TESTING)
     add_subdirectory(tests)

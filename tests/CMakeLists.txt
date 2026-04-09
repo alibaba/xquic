@@ -22,11 +22,13 @@ include_directories(
 )
 
 set(TEST_SERVER_SOURCES
-    test_server.c
+    test_server.cpp
+    xquic_server.cpp
 )
 
 set(TEST_CLIENT_SOURCES
-    test_client.c
+    test_client.cpp
+    xquic_client.cpp
 )
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")

@@ -1502,6 +1502,10 @@ xqc_engine_free_alpn_list(xqc_engine_t *engine)
         alpn_reg = xqc_list_entry(pos, xqc_alpn_registration_t, head);
 
         if (alpn_reg) {
+            if (alpn_reg->alp_ctx) {
+                xqc_free(alpn_reg->alp_ctx);
+            }
+            
             if (alpn_reg->alpn) {
                 xqc_free(alpn_reg->alpn);
             }

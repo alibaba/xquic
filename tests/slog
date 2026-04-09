@@ -1,0 +1,20 @@
+[2022/06/21 23:51:33 133953] [warn] |xqc_tls_ctx_set_config|no session ticket key data|
+[2022/06/21 23:51:33 146623] [error] |xqc_create_server_ssl_ctx|SSL_CTX_use_PrivateKey_file| error info:error:02000002:system library:OPENSSL_internal:No such file or directory|
+[2022/06/21 23:51:33 147603] [error] |xqc_engine_create|create tls context error
+[2022/06/21 23:51:33 147645] [debug] |xqc_engine_destroy|begin|
+[2022/07/24 18:23:29 590493] [warn] |xqc_tls_ctx_set_config|no session ticket key data|
+[2022/07/24 18:23:29 610534] [error] |xqc_create_server_ssl_ctx|SSL_CTX_use_PrivateKey_file| error info:error:02000002:system library:OPENSSL_internal:No such file or directory|
+[2022/07/24 18:23:29 610664] [error] |xqc_engine_create|create tls context error
+[2022/07/24 18:23:29 611077] [debug] |xqc_engine_destroy|begin|
+[2022/07/24 18:24:40 963463] [warn] |xqc_tls_ctx_set_config|no session ticket key data|
+[2022/07/24 18:24:40 964159] [error] |xqc_create_server_ssl_ctx|SSL_CTX_use_PrivateKey_file| error info:error:02000002:system library:OPENSSL_internal:No such file or directory|
+[2022/07/24 18:24:40 964206] [error] |xqc_engine_create|create tls context error
+[2022/07/24 18:24:40 964219] [debug] |xqc_engine_destroy|begin|
+[2022/07/24 18:31:18 034456] [warn] |xqc_tls_ctx_set_config|no session ticket key data|
+[2022/07/24 18:31:18 035172] [error] |xqc_create_server_ssl_ctx|SSL_CTX_use_PrivateKey_file| error info:error:02000002:system library:OPENSSL_internal:No such file or directory|
+[2022/07/24 18:31:18 035220] [error] |xqc_engine_create|create tls context error
+[2022/07/24 18:31:18 035234] [debug] |xqc_engine_destroy|begin|
+[2022/07/24 18:32:04 080109] [warn] |xqc_tls_ctx_set_config|no session ticket key data|
+[2022/07/24 18:32:04 081029] [error] |xqc_create_server_ssl_ctx|SSL_CTX_use_PrivateKey_file| error info:error:02000002:system library:OPENSSL_internal:No such file or directory|
+[2022/07/24 18:32:04 081101] [error] |xqc_engine_create|create tls context error
+[2022/07/24 18:32:04 081122] [debug] |xqc_engine_destroy|begin|

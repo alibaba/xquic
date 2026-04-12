@@ -1,5 +1,6 @@
 #include "xquic_server_seastar.hh"
 
+#include "platform.h"
 #include "user_conn.h"
 
 #include <seastar/core/app-template.hh>
@@ -13,9 +14,11 @@
 #include <arpa/inet.h>
 #include <cerrno>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <utility>
 
@@ -302,7 +305,13 @@ void XquicSeastarServer::schedule_send_flush() {
     (void)seastar::with_gate(_background_ops, [this] {
         return flush_send_queue();
     }).handle_exception([this](std::exception_ptr ep) {
-        std::cerr << "Seastar send flush failed: " << ep << std::endl;
+        try {
+            std::rethrow_exception(ep);
+        } catch (const std::exception& ex) {
+            std::cerr << "Seastar send flush failed: " << ex.what() << std::endl;
+        } catch (...) {
+            std::cerr << "Seastar send flush failed with unknown exception" << std::endl;
+        }
         _send_queue.clear();
         return seastar::make_ready_future<>();
     }).finally([this] {
@@ -357,7 +366,7 @@ void XquicSeastarServer::send_h3_response(user_stream_t *user_stream) {
     user_stream->header_sent = 1;
     xqc_h3_request_send_headers(reinterpret_cast<xqc_h3_request_t*>(user_stream->h3_request), &response_headers, 0);
     xqc_h3_request_send_body(reinterpret_cast<xqc_h3_request_t*>(user_stream->h3_request),
-                             reinterpret_cast<const unsigned char*>(kH3ResponseBody),
+                             reinterpret_cast<unsigned char*>(const_cast<char*>(kH3ResponseBody)),
                              sizeof(kH3ResponseBody) - 1, 1);
 }
 

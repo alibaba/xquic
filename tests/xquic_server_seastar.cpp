@@ -57,8 +57,7 @@ void socket_address_to_sockaddr(const seastar::socket_address& src,
     throw std::invalid_argument("unsupported socket family");
 }
 
-seastar::socket_address sockaddr_to_socket_address(const struct sockaddr *addr, socklen_t len) {
-    (void)len;
+seastar::socket_address sockaddr_to_socket_address(const struct sockaddr *addr) {
     if (addr == nullptr) {
         throw std::invalid_argument("null sockaddr");
     }
@@ -288,7 +287,7 @@ ssize_t XquicSeastarServer::enqueue_send(const unsigned char *buf, size_t size,
     }
 
     try {
-        if (!_send_queue.push(sockaddr_to_socket_address(peer_addr, peer_addrlen), buf, size)) {
+        if (!_send_queue.push(sockaddr_to_socket_address(peer_addr), buf, size)) {
             errno = EAGAIN;
             return -1;
         }
@@ -533,6 +532,7 @@ int main(int argc, char **argv) {
                              config["cert"].as<std::string>(),
                              config["key"].as<std::string>())
             .then([server = std::move(server)]() mutable {
+                // Keep the sample server alive until the Seastar app shuts down.
                 return seastar::keep_doing([] {
                         return seastar::sleep(std::chrono::hours(24));
                     })

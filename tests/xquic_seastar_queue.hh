@@ -9,12 +9,14 @@
 
 class XquicSeastarSendQueue {
 public:
+    static constexpr size_t kDefaultCapacity = 1024;
+
     struct Datagram {
         seastar::socket_address peer;
         std::vector<unsigned char> payload;
     };
 
-    explicit XquicSeastarSendQueue(size_t capacity = 1024)
+    explicit XquicSeastarSendQueue(size_t capacity = kDefaultCapacity)
         : _capacity(capacity) {
     }
 

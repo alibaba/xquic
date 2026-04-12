@@ -33,6 +33,11 @@ public:
             return -1;
         }
 
+        if (buf == nullptr && size != 0) {
+            errno = EINVAL;
+            return -1;
+        }
+
         try {
             if (!_queue.push(sockaddr_to_socket_address(peer_addr, peer_addrlen), buf, size)) {
                 errno = EINVAL;

@@ -535,7 +535,9 @@ int main(int argc, char **argv) {
                              config["cert"].as<std::string>(),
                              config["key"].as<std::string>())
             .then([server = std::move(server)]() mutable {
-                return seastar::sleep(std::chrono::hours(24 * 365 * 10))
+                return seastar::keep_doing([] {
+                        return seastar::sleep(std::chrono::hours(24));
+                    })
                     .finally([server = std::move(server)]() mutable {
                         return server->stop();
                     });

@@ -1,248 +1,530 @@
 #include "xquic_server_seastar.hh"
-#include "user_conn.h" // Your existing struct definitions
-#include <seastar/core/reactor.hh>
-#include <seastar/net/inet_address.hh>
-#include <fcntl.h>
-#include <unistd.h>
 
-// Helper to convert seastar address to sockaddr
-static void seastar_addr_to_sockaddr(const seastar::socket_address& src, struct sockaddr* dst, socklen_t* len) {
-    if (src.is_ipv4()) {
-        auto& ipv4 = src.as_ipv4_addr();
-        auto* in = reinterpret_cast<sockaddr_in*>(dst);
-        memset(in, 0, sizeof(*in));
-        in->sin_family = AF_INET;
-        in->sin_port = htons(ipv4.port());
-        in->sin_addr.s_addr = htonl(ipv4.ip().ip());
-        *len = sizeof(sockaddr_in);
-    } else {
-        auto& ipv6 = src.as_ipv6_addr();
-        auto* in6 = reinterpret_cast<sockaddr_in6*>(dst);
-        memset(in6, 0, sizeof(*in6));
-        in6->sin6_family = AF_INET6;
-        in6->sin6_port = htons(ipv6.port());
-        memcpy(in6->sin6_addr.s6_addr, ipv6.ip().ip(), 16);
-        *len = sizeof(sockaddr_in6);
-    }
+#include "user_conn.h"
+
+#include <seastar/core/app-template.hh>
+#include <seastar/core/loop.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/sleep.hh>
+#include <seastar/core/temporary_buffer.hh>
+
+#include <boost/program_options.hpp>
+
+#include <arpa/inet.h>
+#include <cerrno>
+#include <chrono>
+#include <cstring>
+#include <exception>
+#include <iostream>
+#include <stdexcept>
+#include <utility>
+
+namespace bpo = boost::program_options;
+
+namespace {
+
+constexpr size_t kMaxQueuedDatagrams = 1024;
+constexpr char kH3ResponseBody[] = "Hello from Seastar XQUIC";
+
+uint64_t xqc_now_us() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count());
 }
 
-XquicSeastarServer::XquicSeastarServer() 
+void socket_address_to_sockaddr(const seastar::socket_address& src,
+                                struct sockaddr_storage& dst, socklen_t& len) {
+    std::memset(&dst, 0, sizeof(dst));
+    if (src.family() == AF_INET) {
+        std::memcpy(&dst, &src.as_posix_sockaddr_in(), sizeof(sockaddr_in));
+        len = sizeof(sockaddr_in);
+        return;
+    }
+
+    if (src.family() == AF_INET6) {
+        std::memcpy(&dst, &src.as_posix_sockaddr_in6(), sizeof(sockaddr_in6));
+        len = sizeof(sockaddr_in6);
+        return;
+    }
+
+    throw std::invalid_argument("unsupported socket family");
+}
+
+seastar::socket_address sockaddr_to_socket_address(const struct sockaddr *addr, socklen_t len) {
+    (void)len;
+    if (addr == nullptr) {
+        throw std::invalid_argument("null sockaddr");
+    }
+
+    if (addr->sa_family == AF_INET) {
+        return seastar::socket_address(*reinterpret_cast<const sockaddr_in*>(addr));
+    }
+
+    if (addr->sa_family == AF_INET6) {
+        return seastar::socket_address(*reinterpret_cast<const sockaddr_in6*>(addr));
+    }
+
+    throw std::invalid_argument("unsupported sockaddr family");
+}
+
+} // namespace
+
+XquicSeastarServer::XquicSeastarServer()
     : _engine_timer([this]() { on_engine_timer_expire(); })
-    , _engine(nullptr) {
+    , _engine(nullptr)
+    , _port(0)
+    , _stopping(false)
+    , _send_flush_in_progress(false) {
 }
 
 XquicSeastarServer::~XquicSeastarServer() {
-    if (_engine) {
+    if (_engine != nullptr) {
         xqc_engine_destroy(_engine);
+        _engine = nullptr;
     }
 }
 
 void XquicSeastarServer::init_xquic_engine() {
     xqc_platform_init_env();
 
+    xqc_config_t config;
+    if (xqc_engine_get_default_config(&config, XQC_ENGINE_SERVER) < 0) {
+        throw std::runtime_error("xqc_engine_get_default_config failed");
+    }
+    config.cfg_log_level = XQC_LOG_INFO;
+
     xqc_engine_ssl_config_t ssl_config;
-    memset(&ssl_config, 0, sizeof(ssl_config));
-    ssl_config.cert_file = _cert_path.c_str();
-    ssl_config.private_key_file = _key_path.c_str();
+    std::memset(&ssl_config, 0, sizeof(ssl_config));
+    ssl_config.cert_file = const_cast<char*>(_cert_path.c_str());
+    ssl_config.private_key_file = const_cast<char*>(_key_path.c_str());
     ssl_config.ciphers = XQC_TLS_CIPHERS;
     ssl_config.groups = XQC_TLS_GROUPS;
 
-    xqc_config_t config;
-    xqc_engine_get_default_config(&config, XQC_ENGINE_SERVER);
-    config.cfg_log_level = XQC_LOG_INFO;
+    xqc_engine_callback_t engine_cb;
+    std::memset(&engine_cb, 0, sizeof(engine_cb));
+    engine_cb.set_event_timer = XquicSeastarServer::ss_set_event_timer;
 
-    xqc_engine_callback_t engine_cb = {
-        .set_event_timer = XquicSeastarServer::ss_set_event_timer,
-        .keylog_cb = nullptr, // Optional
-    };
+    xqc_transport_callbacks_t transport_cbs;
+    std::memset(&transport_cbs, 0, sizeof(transport_cbs));
+    transport_cbs.write_socket = XquicSeastarServer::ss_write_socket;
 
-    xqc_transport_callbacks_t trans_cb = {
-        .write_socket = XquicSeastarServer::ss_write_socket,
-    };
+    _engine = xqc_engine_create(XQC_ENGINE_SERVER, &config, &ssl_config, &engine_cb, &transport_cbs, this);
+    if (_engine == nullptr) {
+        throw std::runtime_error("xqc_engine_create failed");
+    }
 
-    // Pass 'this' as user_data so trampolines can find us
-    _engine = xqc_engine_create(XQC_ENGINE_SERVER, &config, &ssl_config, &engine_cb, &trans_cb, this);
-    
-    // Initialize H3 or Transport ALPN here similar to previous example
-    xqc_h3_callbacks_t h3_cbs = {
-        .h3c_cbs = {
-            .h3_conn_create_notify = [](xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data) {
-                std::cout << "H3 Conn Created\n";
-            },
-            .h3_conn_close_notify = [](xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data) {
-                std::cout << "H3 Conn Closed\n";
-            },
-        },
-        .h3r_cbs = {
-            .h3_request_read_notify = [](xqc_h3_request_t *req, xqc_request_notify_flag_t flag, void *user_data) {
-                if (flag & XQC_REQ_NOTIFY_READ_BODY) {
-                    char buf[1024];
-                    unsigned char fin = 0;
-                    ssize_t n = xqc_h3_request_recv_body(req, buf, sizeof(buf), &fin);
-                    if (n > 0) {
-                        std::cout << "Received H3 body: " << std::string(buf, n) << std::endl;
-                        // Send response
-                        xqc_http_header_t headers[] = {
-                            { {.iov_base = (void*)":status", .iov_len = 7}, {.iov_base = (void*)"200", .iov_len = 3}, 0 },
-                        };
-                        xqc_http_headers_t h = { .headers = headers, .count = 1 };
-                        xqc_h3_request_send_headers(req, &h, 0);
-                        const char* resp = "Hello from Seastar Xquic";
-                        xqc_h3_request_send_body(req, (const unsigned char*)resp, strlen(resp), 1);
-                    }
-                }
-            },
-        }
-    };
-    xqc_h3_ctx_init(_engine, &h3_cbs);
+    xqc_h3_callbacks_t h3_cbs;
+    std::memset(&h3_cbs, 0, sizeof(h3_cbs));
+    h3_cbs.h3c_cbs.h3_conn_create_notify = XquicSeastarServer::ss_h3_conn_create_notify;
+    h3_cbs.h3c_cbs.h3_conn_close_notify = XquicSeastarServer::ss_h3_conn_close_notify;
+    h3_cbs.h3r_cbs.h3_request_write_notify = XquicSeastarServer::ss_h3_request_write_notify;
+    h3_cbs.h3r_cbs.h3_request_read_notify = XquicSeastarServer::ss_h3_request_read_notify;
+    h3_cbs.h3r_cbs.h3_request_close_notify = XquicSeastarServer::ss_h3_request_close_notify;
+
+    if (xqc_h3_ctx_init(_engine, &h3_cbs) != XQC_OK) {
+        throw std::runtime_error("xqc_h3_ctx_init failed");
+    }
 }
 
 seastar::future<> XquicSeastarServer::start(uint16_t port, const std::string& cert_path, const std::string& key_path) {
-    _cert_path = cert_path;
-    _key_path = key_path;
+    try {
+        _port = port;
+        _cert_path = cert_path;
+        _key_path = key_path;
+        _stopping = false;
+        _send_queue.clear();
 
-    init_xquic_engine();
+        init_xquic_engine();
 
-    // Create UDP channel
-    seastar::socket_address addr(seastar::ipv4_addr("0.0.0.0", port));
-    _udp_channel = std::make_unique<seastar::udp_channel>(seastar::engine().net(), addr);
+        seastar::socket_address bind_addr = seastar::make_ipv4_address(seastar::ipv4_addr(port));
+        _udp_channel.emplace(seastar::engine().net().make_bound_datagram_channel(bind_addr));
 
-    std::cout << "Seastar Xquic Server started on port " << port << std::endl;
+        _receive_loop.emplace(
+            seastar::with_gate(_background_ops, [this] {
+                return run_receive_loop();
+            }).handle_exception([this](std::exception_ptr ep) {
+                if (_stopping) {
+                    return seastar::make_ready_future<>();
+                }
+                return seastar::make_exception_future<>(ep);
+            })
+        );
 
-    // Start listening loop
-    // Note: In a real app, you might want to handle this in a background fiber
-    seastar::keep_doing([this]() {
-        return _udp_channel->receive()
-            .then([this](std::tuple<seastar::net::packet, seastar::socket_address> data) {
-                auto& [pkt, addr] = data;
-                on_packet_received(std::move(pkt), addr);
-            });
-    }).handle_exception([](std::exception_ptr e) {
-        std::cerr << "UDP receive error: " << std::current_exception() << std::endl;
-    });
+        std::cout << "Seastar XQUIC server listening on UDP port " << _port << std::endl;
+        return seastar::make_ready_future<>();
 
-    return seastar::make_ready_future<>();
+    } catch (...) {
+        if (_udp_channel) {
+            _udp_channel->close();
+            _udp_channel.reset();
+        }
+        if (_engine != nullptr) {
+            xqc_engine_destroy(_engine);
+            _engine = nullptr;
+        }
+        return seastar::make_exception_future<>(std::current_exception());
+    }
 }
 
 seastar::future<> XquicSeastarServer::stop() {
+    if (_stopping) {
+        return seastar::make_ready_future<>();
+    }
+
+    _stopping = true;
     _engine_timer.cancel();
+
     if (_udp_channel) {
         _udp_channel->shutdown_input();
+        _udp_channel->shutdown_output();
     }
-    return seastar::make_ready_future<>();
+
+    seastar::future<> receive_loop = seastar::make_ready_future<>();
+    if (_receive_loop.has_value()) {
+        receive_loop = std::move(_receive_loop.value());
+        _receive_loop.reset();
+    }
+
+    return std::move(receive_loop)
+        .handle_exception([this](std::exception_ptr ep) {
+            if (_stopping) {
+                return seastar::make_ready_future<>();
+            }
+            return seastar::make_exception_future<>(ep);
+        })
+        .then([this] {
+            return _background_ops.close();
+        })
+        .then([this] {
+            _send_queue.clear();
+            if (_udp_channel) {
+                _udp_channel->close();
+                _udp_channel.reset();
+            }
+            if (_engine != nullptr) {
+                xqc_engine_destroy(_engine);
+                _engine = nullptr;
+            }
+            return seastar::make_ready_future<>();
+        });
 }
 
-void XquicSeastarServer::on_packet_received(seastar::net::packet pkt, seastar::socket_address addr) {
-    // Process each fragment in the packet
-    for (auto& frag : pkt.fragments()) {
-        struct sockaddr_storage peer_addr;
-        socklen_t peer_len = sizeof(peer_addr);
-        seastar_addr_to_sockaddr(addr, (struct sockaddr*)&peer_addr, &peer_len);
+seastar::future<> XquicSeastarServer::run_receive_loop() {
+    return seastar::repeat([this]() {
+        if (_stopping || !_udp_channel) {
+            return seastar::make_ready_future<seastar::stop_iteration>(seastar::stop_iteration::yes);
+        }
 
-        // Get local address (simplified, assuming bound to 0.0.0.0)
-        struct sockaddr_storage local_addr;
-        socklen_t local_len = sizeof(local_addr);
-        // In Seastar, getting local addr from udp_channel is tricky, usually we know it.
-        // For demo, we assume IPv4 any
-        auto* in = reinterpret_cast<sockaddr_in*>(&local_addr);
-        memset(in, 0, sizeof(*in));
-        in->sin_family = AF_INET;
-        in->sin_port = htons(_udp_channel->local_address().port()); // Might need specific API
-        local_len = sizeof(sockaddr_in);
+        return _udp_channel->receive().then([this](seastar::net::udp_datagram datagram) {
+            on_datagram(datagram);
+            return seastar::stop_iteration::no;
+        }).handle_exception([this](std::exception_ptr ep) {
+            if (_stopping) {
+                return seastar::make_ready_future<seastar::stop_iteration>(seastar::stop_iteration::yes);
+            }
+            return seastar::make_exception_future<seastar::stop_iteration>(ep);
+        });
+    });
+}
 
-        // Create dummy user_conn for context
-        user_conn_t* user_conn = (user_conn_t*)calloc(1, sizeof(user_conn_t));
-        memcpy(&user_conn->peer_addr, &peer_addr, peer_len);
-        user_conn->peer_addrlen = peer_len;
-        memcpy(&user_conn->local_addr, &local_addr, local_len);
-        user_conn->local_addrlen = local_len;
-        
-        // Store pointer to server if needed in write_socket trampoline
-        // user_conn->server_instance = this; 
-
-        uint64_t now = seastar::reactor::now().time_since_epoch().count() / 1000; // microseconds
-
-        xqc_engine_packet_process(_engine, (const unsigned char*)frag.base, frag.size,
-                                  (struct sockaddr*)&local_addr, local_len,
-                                  (struct sockaddr*)&peer_addr, peer_len,
-                                  now, user_conn);
-        
-        free(user_conn); // In real impl, manage lifecycle
+void XquicSeastarServer::on_datagram(seastar::net::udp_datagram& datagram) {
+    if (_engine == nullptr) {
+        return;
     }
+
+    struct sockaddr_storage peer_addr;
+    struct sockaddr_storage local_addr;
+    socklen_t peer_len = 0;
+    socklen_t local_len = 0;
+    socket_address_to_sockaddr(datagram.get_src(), peer_addr, peer_len);
+    socket_address_to_sockaddr(datagram.get_dst(), local_addr, local_len);
+
+    user_conn_t user_conn;
+    std::memset(&user_conn, 0, sizeof(user_conn));
+    user_conn.server = this;
+
+    seastar::net::packet& packet = datagram.get_data();
+    for (auto& frag : packet.fragments()) {
+        xqc_engine_packet_process(_engine,
+                                  reinterpret_cast<const unsigned char*>(frag.base),
+                                  frag.size,
+                                  reinterpret_cast<struct sockaddr*>(&local_addr),
+                                  local_len,
+                                  reinterpret_cast<struct sockaddr*>(&peer_addr),
+                                  peer_len,
+                                  xqc_now_us(),
+                                  &user_conn);
+    }
+
     xqc_engine_finish_recv(_engine);
+    schedule_send_flush();
 }
 
 void XquicSeastarServer::on_engine_timer_expire() {
-    if (_engine) {
+    if (_engine != nullptr) {
         xqc_engine_main_logic(_engine);
+        schedule_send_flush();
     }
 }
 
-// --- Trampolines ---
+ssize_t XquicSeastarServer::enqueue_send(const unsigned char *buf, size_t size,
+                                         const struct sockaddr *peer_addr, socklen_t peer_addrlen) {
+    if (_stopping || !_udp_channel) {
+        errno = ESHUTDOWN;
+        return -1;
+    }
+
+    if (_send_queue.size() >= kMaxQueuedDatagrams) {
+        errno = EAGAIN;
+        return -1;
+    }
+
+    try {
+        PendingDatagram datagram{
+            sockaddr_to_socket_address(peer_addr, peer_addrlen),
+            std::vector<unsigned char>(buf, buf + size)
+        };
+        _send_queue.push_back(std::move(datagram));
+        schedule_send_flush();
+        return static_cast<ssize_t>(size);
+
+    } catch (...) {
+        errno = EINVAL;
+        return -1;
+    }
+}
+
+void XquicSeastarServer::schedule_send_flush() {
+    if (_stopping || !_udp_channel || _send_flush_in_progress || _send_queue.empty()) {
+        return;
+    }
+
+    _send_flush_in_progress = true;
+    (void)seastar::with_gate(_background_ops, [this] {
+        return flush_send_queue();
+    }).handle_exception([this](std::exception_ptr ep) {
+        std::cerr << "Seastar send flush failed: " << ep << std::endl;
+        _send_queue.clear();
+        return seastar::make_ready_future<>();
+    }).finally([this] {
+        _send_flush_in_progress = false;
+        if (!_stopping && !_send_queue.empty()) {
+            schedule_send_flush();
+        }
+    });
+}
+
+seastar::future<> XquicSeastarServer::flush_send_queue() {
+    return seastar::do_until([this] {
+        return _stopping || !_udp_channel || _send_queue.empty();
+    }, [this] {
+        PendingDatagram datagram = std::move(_send_queue.front());
+        _send_queue.pop_front();
+
+        seastar::temporary_buffer<char> buffer(datagram.payload.size());
+        std::memcpy(buffer.get_write(), datagram.payload.data(), datagram.payload.size());
+        return _udp_channel->send(datagram.peer, seastar::net::packet(std::move(buffer)));
+    });
+}
+
+void XquicSeastarServer::send_h3_response(user_stream_t *user_stream) {
+    if (user_stream == nullptr || user_stream->h3_request == nullptr || user_stream->header_sent) {
+        return;
+    }
+
+    const std::string content_length = std::to_string(sizeof(kH3ResponseBody) - 1);
+    xqc_http_header_t headers[] = {
+        {
+            {.iov_base = const_cast<char*>(":status"), .iov_len = 7},
+            {.iov_base = const_cast<char*>("200"), .iov_len = 3},
+            0
+        },
+        {
+            {.iov_base = const_cast<char*>("content-length"), .iov_len = 14},
+            {.iov_base = const_cast<char*>(content_length.c_str()), .iov_len = content_length.size()},
+            0
+        },
+        {
+            {.iov_base = const_cast<char*>("content-type"), .iov_len = 12},
+            {.iov_base = const_cast<char*>("text/plain"), .iov_len = 10},
+            0
+        },
+    };
+    xqc_http_headers_t response_headers = {
+        .headers = headers,
+        .count = sizeof(headers) / sizeof(headers[0]),
+    };
+
+    user_stream->header_sent = 1;
+    xqc_h3_request_send_headers(reinterpret_cast<xqc_h3_request_t*>(user_stream->h3_request), &response_headers, 0);
+    xqc_h3_request_send_body(reinterpret_cast<xqc_h3_request_t*>(user_stream->h3_request),
+                             reinterpret_cast<const unsigned char*>(kH3ResponseBody),
+                             sizeof(kH3ResponseBody) - 1, 1);
+}
+
+int XquicSeastarServer::on_h3_conn_create_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data) {
+    (void)cid;
+    (void)user_data;
+
+    user_conn_t *u_conn = static_cast<user_conn_t*>(std::calloc(1, sizeof(user_conn_t)));
+    if (u_conn == nullptr) {
+        return -1;
+    }
+
+    u_conn->server = this;
+    u_conn->h3_conn = conn;
+    xqc_h3_conn_set_user_data(conn, u_conn);
+    return 0;
+}
+
+int XquicSeastarServer::on_h3_conn_close_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data) {
+    (void)conn;
+    (void)cid;
+    std::free(user_data);
+    return 0;
+}
+
+xqc_int_t XquicSeastarServer::on_h3_request_write_notify(xqc_h3_request_t *req, void *user_data) {
+    (void)req;
+    send_h3_response(static_cast<user_stream_t*>(user_data));
+    return 0;
+}
+
+xqc_int_t XquicSeastarServer::on_h3_request_read_notify(xqc_h3_request_t *req,
+                                                        xqc_request_notify_flag_t flag, void *user_data) {
+    user_stream_t *user_stream = static_cast<user_stream_t*>(user_data);
+    if (user_stream == nullptr) {
+        user_stream = static_cast<user_stream_t*>(std::calloc(1, sizeof(user_stream_t)));
+        if (user_stream == nullptr) {
+            return -1;
+        }
+        user_stream->server = this;
+        user_stream->h3_request = req;
+        user_stream->is_h3 = 1;
+        xqc_h3_request_set_user_data(req, user_stream);
+    }
+
+    if (flag & XQC_REQ_NOTIFY_READ_HEADER) {
+        xqc_http_headers_t *headers = xqc_h3_request_recv_headers(req, nullptr);
+        if (headers != nullptr) {
+            std::free(headers);
+        }
+    }
+
+    bool should_respond = false;
+
+    if (flag & XQC_REQ_NOTIFY_READ_BODY) {
+        unsigned char body[4096];
+        unsigned char fin = 0;
+        while (true) {
+            ssize_t read = xqc_h3_request_recv_body(req, body, sizeof(body), &fin);
+            if (read <= 0) {
+                break;
+            }
+            user_stream->total_recvd += static_cast<size_t>(read);
+            if (fin) {
+                should_respond = true;
+                break;
+            }
+        }
+    }
+
+    if (flag & XQC_REQ_NOTIFY_READ_EMPTY_FIN) {
+        should_respond = true;
+    }
+
+    if (should_respond) {
+        send_h3_response(user_stream);
+    }
+
+    return 0;
+}
+
+xqc_int_t XquicSeastarServer::on_h3_request_close_notify(xqc_h3_request_t *req, void *user_data) {
+    (void)req;
+    std::free(user_data);
+    return 0;
+}
 
 void XquicSeastarServer::ss_set_event_timer(xqc_msec_t wake_after, void *user_data) {
     auto* server = static_cast<XquicSeastarServer*>(user_data);
-    if (server) {
-        // Cancel existing timer and set new one
-        server->_engine_timer.cancel();
-        server->_engine_timer.arm(std::chrono::microseconds(wake_after));
+    if (server == nullptr) {
+        return;
     }
+
+    server->_engine_timer.cancel();
+    server->_engine_timer.arm(std::chrono::milliseconds(wake_after));
 }
 
-ssize_t XquicSeastarServer::ss_write_socket(const unsigned char *buf, size_t size, 
-                                            const struct sockaddr *peer_addr, socklen_t peer_addrlen, 
+ssize_t XquicSeastarServer::ss_write_socket(const unsigned char *buf, size_t size,
+                                            const struct sockaddr *peer_addr, socklen_t peer_addrlen,
                                             void *user_conn) {
-    // This is tricky in Seastar because write_socket is synchronous in XQuic API,
-    // but Seastar I/O is asynchronous.
-    // Option 1: Use a blocking sendto (bad for performance)
-    // Option 2: Queue the packet and flush later (complex)
-    // Option 3: Use seastar::udp_channel::send() which returns future, but we can't await here.
-    
-    // For demo purposes, we will use a simple blocking sendto on the underlying FD
-    // NOTE: This blocks the reactor thread! Not recommended for production high-load.
-    // A better way is to store the server pointer in user_conn and use a non-blocking queue.
-    
-    int fd = -1;
-    // We need access to the udp_channel's FD. 
-    // Seastar doesn't expose FD easily. 
-    // Alternative: Use raw socket created separately for sending if performance is critical.
-    
-    // Hack for demo: Retrieve FD from user_conn if we stored it, or use global/ref
-    // Since we can't easily get the FD from udp_channel in a sync callback:
-    // We will assume a simplified scenario where we might have stored the FD in user_conn
-    // or we use a global reference to the channel (not ideal).
-    
-    // Let's assume we passed the server instance via user_conn (commented out above)
-    // If not, we can't easily do async send here.
-    
-    // Fallback: Create a temporary socket to send (very inefficient, demo only)
-    int sock = socket(peer_addr->sa_family, SOCK_DGRAM, 0);
-    if (sock >= 0) {
-        ssize_t n = sendto(sock, buf, size, 0, peer_addr, peer_addrlen);
-        close(sock);
-        return n;
+    auto* u_conn = static_cast<user_conn_t*>(user_conn);
+    auto* server = (u_conn != nullptr) ? static_cast<XquicSeastarServer*>(u_conn->server) : nullptr;
+    if (server == nullptr) {
+        errno = EINVAL;
+        return -1;
     }
-    return -1;
+
+    return server->enqueue_send(buf, size, peer_addr, peer_addrlen);
 }
 
-// Main entry point
-int main(int argc, char** argv) {
+int XquicSeastarServer::ss_h3_conn_create_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data) {
+    auto* server = static_cast<XquicSeastarServer*>(user_data);
+    return server == nullptr ? -1 : server->on_h3_conn_create_notify(conn, cid, user_data);
+}
+
+int XquicSeastarServer::ss_h3_conn_close_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data) {
+    auto* u_conn = static_cast<user_conn_t*>(user_data);
+    auto* server = (u_conn != nullptr) ? static_cast<XquicSeastarServer*>(u_conn->server) : nullptr;
+    return server == nullptr ? 0 : server->on_h3_conn_close_notify(conn, cid, user_data);
+}
+
+xqc_int_t XquicSeastarServer::ss_h3_request_write_notify(xqc_h3_request_t *req, void *user_data) {
+    auto* user_stream = static_cast<user_stream_t*>(user_data);
+    auto* server = (user_stream != nullptr) ? static_cast<XquicSeastarServer*>(user_stream->server) : nullptr;
+    return server == nullptr ? 0 : server->on_h3_request_write_notify(req, user_data);
+}
+
+xqc_int_t XquicSeastarServer::ss_h3_request_read_notify(xqc_h3_request_t *req,
+                                                        xqc_request_notify_flag_t flag, void *user_data) {
+    auto* user_stream = static_cast<user_stream_t*>(user_data);
+    auto* server = (user_stream != nullptr) ? static_cast<XquicSeastarServer*>(user_stream->server) : nullptr;
+
+    if (server == nullptr) {
+        auto* u_conn = static_cast<user_conn_t*>(xqc_h3_get_conn_user_data_by_request(req));
+        if (u_conn != nullptr) {
+            server = static_cast<XquicSeastarServer*>(u_conn->server);
+        }
+    }
+
+    return server == nullptr ? -1 : server->on_h3_request_read_notify(req, flag, user_data);
+}
+
+xqc_int_t XquicSeastarServer::ss_h3_request_close_notify(xqc_h3_request_t *req, void *user_data) {
+    auto* user_stream = static_cast<user_stream_t*>(user_data);
+    auto* server = (user_stream != nullptr) ? static_cast<XquicSeastarServer*>(user_stream->server) : nullptr;
+    return server == nullptr ? 0 : server->on_h3_request_close_notify(req, user_data);
+}
+
+int main(int argc, char **argv) {
     seastar::app_template app;
     app.add_options()
-        ("port,p", bpo::value<uint16_t>()->default_value(8443), "Port to listen on")
-        ("cert,c", bpo::value<std::string>()->default_value("./cert.crt"), "Cert file")
-        ("key,k", bpo::value<std::string>()->default_value("./cert.key"), "Key file");
+        ("port,p", bpo::value<uint16_t>()->default_value(8443), "UDP port")
+        ("cert,c", bpo::value<std::string>()->default_value("./server.crt"), "TLS certificate path")
+        ("key,k", bpo::value<std::string>()->default_value("./server.key"), "TLS private key path");
 
     return app.run_deprecated(argc, argv, [&app] {
         auto& config = app.configuration();
-        uint16_t port = config["port"].as<uint16_t>();
-        std::string cert = config["cert"].as<std::string>();
-        std::string key = config["key"].as<std::string>();
-
         auto server = std::make_unique<XquicSeastarServer>();
-        return server->start(port, cert, key).then([server = std::move(server)]() mutable {
-            // Keep running until signal
-            return seastar::make_ready_future<>();
-        });
+
+        return server->start(config["port"].as<uint16_t>(),
+                             config["cert"].as<std::string>(),
+                             config["key"].as<std::string>())
+            .then([server = std::move(server)]() mutable {
+                return seastar::sleep(std::chrono::hours(24 * 365 * 10))
+                    .finally([server = std::move(server)]() mutable {
+                        return server->stop();
+                    });
+            });
     });
 }

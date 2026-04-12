@@ -1,6 +1,6 @@
 #pragma once
 
-#include "xquic_seastar_queue.hh"
+#include "xquic_seastar_integration.hh"
 
 #include <seastar/core/future.hh>
 #include <seastar/core/gate.hh>
@@ -29,7 +29,7 @@ private:
     seastar::gate _background_ops;
     seastar::timer<> _engine_timer;
     xqc_engine_t* _engine;
-    XquicSeastarSendQueue _send_queue;
+    XquicSeastarSendIntegration _send_integration;
     std::string _cert_path;
     std::string _key_path;
     uint16_t _port;

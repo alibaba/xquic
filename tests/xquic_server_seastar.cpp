@@ -7,7 +7,6 @@
 #include <seastar/core/loop.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/sleep.hh>
-#include <seastar/core/temporary_buffer.hh>
 
 #include <boost/program_options.hpp>
 
@@ -57,28 +56,12 @@ void socket_address_to_sockaddr(const seastar::socket_address& src,
     throw std::invalid_argument("unsupported socket family");
 }
 
-seastar::socket_address sockaddr_to_socket_address(const struct sockaddr *addr) {
-    if (addr == nullptr) {
-        throw std::invalid_argument("null sockaddr");
-    }
-
-    if (addr->sa_family == AF_INET) {
-        return seastar::socket_address(*reinterpret_cast<const sockaddr_in*>(addr));
-    }
-
-    if (addr->sa_family == AF_INET6) {
-        return seastar::socket_address(*reinterpret_cast<const sockaddr_in6*>(addr));
-    }
-
-    throw std::invalid_argument("unsupported sockaddr family");
-}
-
 } // namespace
 
 XquicSeastarServer::XquicSeastarServer()
     : _engine_timer([this]() { on_engine_timer_expire(); })
     , _engine(nullptr)
-    , _send_queue()
+    , _send_integration()
     , _port(0)
     , _stopping(false)
     , _send_flush_in_progress(false) {
@@ -139,7 +122,7 @@ seastar::future<> XquicSeastarServer::start(uint16_t port, const std::string& ce
         _cert_path = cert_path;
         _key_path = key_path;
         _stopping = false;
-        _send_queue.clear();
+        _send_integration.clear();
 
         init_xquic_engine();
 
@@ -203,7 +186,7 @@ seastar::future<> XquicSeastarServer::stop() {
             return _background_ops.close();
         })
         .then([this] {
-            _send_queue.clear();
+            _send_integration.clear();
             if (_udp_channel) {
                 _udp_channel->close();
                 _udp_channel.reset();
@@ -281,18 +264,14 @@ ssize_t XquicSeastarServer::enqueue_send(const unsigned char *buf, size_t size,
         return -1;
     }
 
-    if (_send_queue.full()) {
-        errno = EAGAIN;
+    ssize_t queued = _send_integration.enqueue_write(buf, size, peer_addr, peer_addrlen);
+    if (queued < 0) {
         return -1;
     }
 
     try {
-        if (!_send_queue.push(sockaddr_to_socket_address(peer_addr), buf, size)) {
-            errno = EAGAIN;
-            return -1;
-        }
         schedule_send_flush();
-        return static_cast<ssize_t>(size);
+        return queued;
 
     } catch (...) {
         errno = EINVAL;
@@ -301,7 +280,7 @@ ssize_t XquicSeastarServer::enqueue_send(const unsigned char *buf, size_t size,
 }
 
 void XquicSeastarServer::schedule_send_flush() {
-    if (_stopping || !_udp_channel || _send_flush_in_progress || _send_queue.empty()) {
+    if (_stopping || !_udp_channel || _send_flush_in_progress || _send_integration.empty()) {
         return;
     }
 
@@ -316,26 +295,22 @@ void XquicSeastarServer::schedule_send_flush() {
         } catch (...) {
             std::cerr << "Seastar send flush failed with unknown exception" << std::endl;
         }
-        _send_queue.clear();
+        _send_integration.clear();
         return seastar::make_ready_future<>();
     }).finally([this] {
         _send_flush_in_progress = false;
-        if (!_stopping && !_send_queue.empty()) {
+        if (!_stopping && !_send_integration.empty()) {
             schedule_send_flush();
         }
     });
 }
 
 seastar::future<> XquicSeastarServer::flush_send_queue() {
-    return seastar::do_until([this] {
-        return _stopping || !_udp_channel || _send_queue.empty();
-    }, [this] {
-        XquicSeastarSendQueue::Datagram datagram = _send_queue.pop();
+    if (_stopping || !_udp_channel) {
+        return seastar::make_ready_future<>();
+    }
 
-        seastar::temporary_buffer<char> buffer(datagram.payload.size());
-        std::memcpy(buffer.get_write(), datagram.payload.data(), datagram.payload.size());
-        return _udp_channel->send(datagram.peer, seastar::net::packet(std::move(buffer)));
-    });
+    return _send_integration.flush_to(*_udp_channel);
 }
 
 void XquicSeastarServer::send_h3_response(user_stream_t *user_stream) {

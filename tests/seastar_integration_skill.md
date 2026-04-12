@@ -6,10 +6,10 @@
    - 当前只落地 `/home/runner/work/xquic/xquic/tests/xquic_server_seastar.cpp`
    - 目标是先把服务端收包、驱动 `xqc_engine_main_logic()`、以及发送路径闭环跑通
 
-2. **queue 先于更大范围 integration**
+2. **queue 继续上提为 integration 层**
    - XQUIC 的 `write_socket` 回调是同步接口
    - Seastar UDP 发送是异步 future 接口
-   - 当前样例通过独立的 `/home/runner/work/xquic/xquic/tests/xquic_seastar_queue.hh` 发送队列抽象桥接两者，先返回“已接管发送”，再由后台 flush 任务逐个发送
+   - 当前样例把 `/home/runner/work/xquic/xquic/tests/xquic_seastar_queue.hh` 作为底层队列细节，进一步通过 `/home/runner/work/xquic/xquic/tests/xquic_seastar_integration.hh` 暴露更通用的 integration 层 enqueue/flush 接口
 
 3. **tests/ 内实验性集成**
    - Seastar 代码只放在 `/home/runner/work/xquic/xquic/tests/`
@@ -46,11 +46,11 @@ cmake -S /home/runner/work/xquic/xquic -B /tmp/xquic-build \
 
 - Seastar UDP 收包
 - 调用 `xqc_engine_packet_process()` / `xqc_engine_finish_recv()`
-- 通过独立发送队列抽象异步 flush 出站 UDP 包
+- 通过独立 integration 层接口异步 flush 出站 UDP 包
 - 最小 HTTP/3 文本响应
 
 ## 后续扩展建议
 
 - 将 `std::deque` 替换为更严格的 SPSC 队列实现
 - 补齐 client 样例
-- 提炼为更通用的 Seastar/XQUIC integration 层
+- 将 integration 层下沉为可复用的 server/client 共享桥接

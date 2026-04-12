@@ -1,5 +1,7 @@
 #pragma once
 
+#include "xquic_seastar_queue.hh"
+
 #include <seastar/core/future.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/core/timer.hh>
@@ -7,10 +9,8 @@
 #include <xquic/xqc_http3.h>
 #include <xquic/xquic.h>
 #include <cstdint>
-#include <deque>
 #include <optional>
 #include <string>
-#include <vector>
 
 struct user_conn_t;
 struct user_stream_t;
@@ -24,17 +24,12 @@ public:
     seastar::future<> stop();
 
 private:
-    struct PendingDatagram {
-        seastar::socket_address peer;
-        std::vector<unsigned char> payload;
-    };
-
     std::optional<seastar::net::udp_channel> _udp_channel;
     std::optional<seastar::future<>> _receive_loop;
     seastar::gate _background_ops;
     seastar::timer<> _engine_timer;
     xqc_engine_t* _engine;
-    std::deque<PendingDatagram> _send_queue;
+    XquicSeastarSendQueue _send_queue;
     std::string _cert_path;
     std::string _key_path;
     uint16_t _port;

@@ -26,7 +26,6 @@ namespace bpo = boost::program_options;
 
 namespace {
 
-constexpr size_t kMaxQueuedDatagrams = 1024;
 char kH3StatusName[] = ":status";
 char kH3StatusValue[] = "200";
 char kH3ContentLengthName[] = "content-length";
@@ -80,6 +79,7 @@ seastar::socket_address sockaddr_to_socket_address(const struct sockaddr *addr, 
 XquicSeastarServer::XquicSeastarServer()
     : _engine_timer([this]() { on_engine_timer_expire(); })
     , _engine(nullptr)
+    , _send_queue()
     , _port(0)
     , _stopping(false)
     , _send_flush_in_progress(false) {
@@ -282,17 +282,16 @@ ssize_t XquicSeastarServer::enqueue_send(const unsigned char *buf, size_t size,
         return -1;
     }
 
-    if (_send_queue.size() >= kMaxQueuedDatagrams) {
+    if (_send_queue.full()) {
         errno = EAGAIN;
         return -1;
     }
 
     try {
-        PendingDatagram datagram{
-            sockaddr_to_socket_address(peer_addr, peer_addrlen),
-            std::vector<unsigned char>(buf, buf + size)
-        };
-        _send_queue.push_back(std::move(datagram));
+        if (!_send_queue.push(sockaddr_to_socket_address(peer_addr, peer_addrlen), buf, size)) {
+            errno = EAGAIN;
+            return -1;
+        }
         schedule_send_flush();
         return static_cast<ssize_t>(size);
 
@@ -332,8 +331,7 @@ seastar::future<> XquicSeastarServer::flush_send_queue() {
     return seastar::do_until([this] {
         return _stopping || !_udp_channel || _send_queue.empty();
     }, [this] {
-        PendingDatagram datagram = std::move(_send_queue.front());
-        _send_queue.pop_front();
+        XquicSeastarSendQueue::Datagram datagram = _send_queue.pop();
 
         seastar::temporary_buffer<char> buffer(datagram.payload.size());
         std::memcpy(buffer.get_write(), datagram.payload.data(), datagram.payload.size());

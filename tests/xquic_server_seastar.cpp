@@ -482,7 +482,7 @@ ssize_t XquicSeastarServer::ss_write_socket(const unsigned char *buf, size_t siz
 
 int XquicSeastarServer::ss_h3_conn_create_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data) {
     auto* server = static_cast<XquicSeastarServer*>(user_data);
-    return server == nullptr ? -1 : server->on_h3_conn_create_notify(conn, cid, user_data);
+    return server == nullptr ? -1 : server->on_h3_conn_create_notify(conn, cid, nullptr);
 }
 
 int XquicSeastarServer::ss_h3_conn_close_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data) {

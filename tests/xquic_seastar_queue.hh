@@ -3,6 +3,7 @@
 #include <seastar/net/api.hh>
 #include <cstddef>
 #include <deque>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -55,6 +56,10 @@ public:
     }
 
     Datagram pop() {
+        if (_queue.empty()) {
+            throw std::logic_error("pop called on empty XquicSeastarSendQueue");
+        }
+
         Datagram datagram = std::move(_queue.front());
         _queue.pop_front();
         return datagram;

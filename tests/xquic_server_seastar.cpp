@@ -27,7 +27,13 @@ namespace bpo = boost::program_options;
 namespace {
 
 constexpr size_t kMaxQueuedDatagrams = 1024;
-constexpr char kH3ResponseBody[] = "Hello from Seastar XQUIC";
+char kH3StatusName[] = ":status";
+char kH3StatusValue[] = "200";
+char kH3ContentLengthName[] = "content-length";
+char kH3ContentLengthValue[] = "24";
+char kH3ContentTypeName[] = "content-type";
+char kH3ContentTypeValue[] = "text/plain";
+unsigned char kH3ResponseBody[] = "Hello from Seastar XQUIC";
 
 uint64_t xqc_now_us() {
     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
@@ -97,8 +103,8 @@ void XquicSeastarServer::init_xquic_engine() {
 
     xqc_engine_ssl_config_t ssl_config;
     std::memset(&ssl_config, 0, sizeof(ssl_config));
-    ssl_config.cert_file = const_cast<char*>(_cert_path.c_str());
-    ssl_config.private_key_file = const_cast<char*>(_key_path.c_str());
+    ssl_config.cert_file = _cert_path.data();
+    ssl_config.private_key_file = _key_path.data();
     ssl_config.ciphers = XQC_TLS_CIPHERS;
     ssl_config.groups = XQC_TLS_GROUPS;
 
@@ -340,21 +346,20 @@ void XquicSeastarServer::send_h3_response(user_stream_t *user_stream) {
         return;
     }
 
-    const std::string content_length = std::to_string(sizeof(kH3ResponseBody) - 1);
     xqc_http_header_t headers[] = {
         {
-            {.iov_base = const_cast<char*>(":status"), .iov_len = 7},
-            {.iov_base = const_cast<char*>("200"), .iov_len = 3},
+            {.iov_base = kH3StatusName, .iov_len = sizeof(kH3StatusName) - 1},
+            {.iov_base = kH3StatusValue, .iov_len = sizeof(kH3StatusValue) - 1},
             0
         },
         {
-            {.iov_base = const_cast<char*>("content-length"), .iov_len = 14},
-            {.iov_base = const_cast<char*>(content_length.c_str()), .iov_len = content_length.size()},
+            {.iov_base = kH3ContentLengthName, .iov_len = sizeof(kH3ContentLengthName) - 1},
+            {.iov_base = kH3ContentLengthValue, .iov_len = sizeof(kH3ContentLengthValue) - 1},
             0
         },
         {
-            {.iov_base = const_cast<char*>("content-type"), .iov_len = 12},
-            {.iov_base = const_cast<char*>("text/plain"), .iov_len = 10},
+            {.iov_base = kH3ContentTypeName, .iov_len = sizeof(kH3ContentTypeName) - 1},
+            {.iov_base = kH3ContentTypeValue, .iov_len = sizeof(kH3ContentTypeValue) - 1},
             0
         },
     };
@@ -366,7 +371,7 @@ void XquicSeastarServer::send_h3_response(user_stream_t *user_stream) {
     user_stream->header_sent = 1;
     xqc_h3_request_send_headers(reinterpret_cast<xqc_h3_request_t*>(user_stream->h3_request), &response_headers, 0);
     xqc_h3_request_send_body(reinterpret_cast<xqc_h3_request_t*>(user_stream->h3_request),
-                             reinterpret_cast<unsigned char*>(const_cast<char*>(kH3ResponseBody)),
+                             kH3ResponseBody,
                              sizeof(kH3ResponseBody) - 1, 1);
 }
 

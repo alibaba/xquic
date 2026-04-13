@@ -7,6 +7,8 @@ if(HAVE_CUNIT)
     add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
 endif()
 
+option(XQC_ENABLE_SEASTAR_EXAMPLE "Build Seastar integration example under tests/" OFF)
+
 # find LibEvent include and library path
 find_package(LibEvent 2.0.21)
 if(NOT LIBEVENT_FOUND)
@@ -74,6 +76,27 @@ endif()
 
 target_link_libraries(test_server ${APP_DEPEND_LIBS})
 target_link_libraries(test_client ${APP_DEPEND_LIBS})
+
+if(XQC_ENABLE_SEASTAR_EXAMPLE)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(SEASTAR REQUIRED IMPORTED_TARGET seastar)
+
+    add_executable(xquic_server_seastar
+        xquic_server_seastar.cpp
+    )
+
+    target_compile_features(xquic_server_seastar PRIVATE cxx_std_20)
+
+    target_link_libraries(xquic_server_seastar
+        PRIVATE
+        xquic-static
+        PkgConfig::SEASTAR
+        ${SSL_LIB_PATH}
+        m
+        dl
+        pthread
+    )
+endif()
 
 
 # build run_tests
@@ -162,4 +185,3 @@ if(HAVE_CUNIT)
     add_test(run_tests run_tests)
     add_dependencies(check run_tests)
 endif()
-

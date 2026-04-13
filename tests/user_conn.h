@@ -41,6 +41,7 @@ typedef struct user_stream_s {
     // Receiving Data (Client mostly)
     char* recv_body;        // Buffer for received body (for echo check)
     size_t recv_body_len;   // Length of received body so far
+    size_t recv_body_cap;   // Capacity of recv_body
     FILE* recv_body_fp;     // File pointer for saving received body
     int recv_fin;           // Flag indicating if FIN has been received
     

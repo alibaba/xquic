@@ -7,9 +7,9 @@
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/net/api.hh>
 
-#include <arpa/inet.h>
 #include <cerrno>
 #include <cstring>
+#include <netinet/in.h>
 #include <stdexcept>
 
 class XquicSeastarSendIntegration {

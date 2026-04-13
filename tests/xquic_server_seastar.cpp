@@ -128,8 +128,7 @@ seastar::future<> XquicSeastarServer::start(uint16_t port, const std::string& ce
         _key_path = key_path;
         _stopping = false;
         _send_integration.clear();
-        _packet_user_conn = {};
-        _packet_user_conn.server = this;
+        _packet_user_conn = {.server = this};
 
         init_xquic_engine();
 
@@ -463,7 +462,7 @@ ssize_t XquicSeastarServer::ss_write_socket(const unsigned char *buf, size_t siz
 
 int XquicSeastarServer::ss_h3_conn_create_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data) {
     auto* server = static_cast<XquicSeastarServer*>(user_data);
-    return server == nullptr ? -1 : server->on_h3_conn_create_notify(conn, cid, nullptr);
+    return server == nullptr ? -1 : server->on_h3_conn_create_notify(conn, cid, user_data);
 }
 
 int XquicSeastarServer::ss_h3_conn_close_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data) {

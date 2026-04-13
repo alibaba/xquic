@@ -448,7 +448,6 @@ int XquicSeastarServer::on_conn_create_notify(xqc_connection_t *conn, const xqc_
         return -1;
     }
 
-    u_conn->server = this;
     if (cid != nullptr) {
         u_conn->cid = *cid;
     }
@@ -521,7 +520,6 @@ int XquicSeastarServer::on_h3_conn_create_notify(xqc_h3_conn_t *conn, const xqc_
         return -1;
     }
 
-    u_conn->server = this;
     u_conn->h3 = 1;
     u_conn->h3_conn = conn;
     if (cid != nullptr) {

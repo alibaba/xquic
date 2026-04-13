@@ -192,12 +192,18 @@ load_cdf(char *cdf_file)
         return -1;
     }
     int n;
-    fscanf(fp, "%d", &n);
+    if (fscanf(fp, "%d", &n) != 1) {
+        fclose(fp);
+        return -1;
+    }
     cdf_list_size = n;
     cdf_list = malloc(sizeof(cdf_entry_t) * cdf_list_size);
     while (n--) {
-        fscanf(fp, "%lf%d", &cdf_list[cdf_list_size - n - 1].p, &cdf_list[cdf_list_size - n - 1].val);
+        if (fscanf(fp, "%lf%d", &cdf_list[cdf_list_size - n - 1].p, &cdf_list[cdf_list_size - n - 1].val) != 2) {
+            break;
+        }
     }
+    fclose(fp);
     return 0;
 }
 
@@ -2147,7 +2153,7 @@ int main(int argc, char *argv[]) {
     uint8_t c_qlog_disable = 0;
     char c_qlog_importance = 'r';
     int pacing_on = 0;
-    strncpy(g_log_path, "./slog", sizeof(g_log_path));
+    snprintf(g_log_path, sizeof(g_log_path), "%s", "./slog");
 
     //ensure the random sequence is the same for every test
     srand(0);

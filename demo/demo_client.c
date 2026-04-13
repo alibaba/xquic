@@ -1751,7 +1751,8 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
         settings->enable_stream_rate_limit = 1;
         settings->recv_rate_bytes_per_sec = 0;
     }
-    strncpy(settings->conn_option_str, args->quic_cfg.co_str, XQC_CO_STR_MAX_LEN);
+    strncpy(settings->conn_option_str, args->quic_cfg.co_str, XQC_CO_STR_MAX_LEN - 1);
+    settings->conn_option_str[XQC_CO_STR_MAX_LEN - 1] = '\0';
 }
 
 /* set client args to default values */
@@ -1762,20 +1763,20 @@ xqc_demo_cli_init_args(xqc_demo_cli_client_args_t *args)
 
     /* net cfg */
     args->net_cfg.conn_timeout = 30;
-    strncpy(args->net_cfg.server_addr, "127.0.0.1", sizeof(args->net_cfg.server_addr));
+    snprintf(args->net_cfg.server_addr, sizeof(args->net_cfg.server_addr), "%s", "127.0.0.1");
     args->net_cfg.server_port = 8443;
     args->net_cfg.addr_specified = 0;
     args->net_cfg.port_specified = 0;
 
     /* env cfg */
     args->env_cfg.log_level = XQC_LOG_DEBUG;
-    strncpy(args->env_cfg.log_path, LOG_PATH, sizeof(args->env_cfg.log_path));
-    strncpy(args->env_cfg.out_file_dir, OUT_DIR, sizeof(args->env_cfg.out_file_dir));
-    strncpy(args->env_cfg.key_out_path, KEY_PATH, sizeof(args->env_cfg.out_file_dir));
+    snprintf(args->env_cfg.log_path, sizeof(args->env_cfg.log_path), "%s", LOG_PATH);
+    snprintf(args->env_cfg.out_file_dir, sizeof(args->env_cfg.out_file_dir), "%s", OUT_DIR);
+    snprintf(args->env_cfg.key_out_path, sizeof(args->env_cfg.key_out_path), "%s", KEY_PATH);
 
     /* quic cfg */
     args->quic_cfg.alpn_type = ALPN_HQ;
-    strncpy(args->quic_cfg.alpn, "hq-interop", sizeof(args->quic_cfg.alpn));
+    snprintf(args->quic_cfg.alpn, sizeof(args->quic_cfg.alpn), "%s", "hq-interop");
     args->quic_cfg.keyupdate_pkt_threshold = UINT64_MAX;
     /* default 10 */
     args->quic_cfg.mp_version = XQC_MULTIPATH_10;
@@ -2139,7 +2140,8 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
 
         case 's':
             printf("option scheduler: %s\n", optarg);
-            strncpy(args->quic_cfg.mp_sched, optarg, 32);
+            strncpy(args->quic_cfg.mp_sched, optarg, 31);
+            args->quic_cfg.mp_sched[31] = '\0';
             break;
 
         case 'b':
@@ -2228,7 +2230,8 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
         
         case 'G':
             printf("Google connection options: %s\n", optarg);
-            strncpy(args->quic_cfg.co_str, optarg, XQC_CO_STR_MAX_LEN);
+            strncpy(args->quic_cfg.co_str, optarg, XQC_CO_STR_MAX_LEN - 1);
+            args->quic_cfg.co_str[XQC_CO_STR_MAX_LEN - 1] = '\0';
             break;
 
         case 'r':
@@ -2822,7 +2825,7 @@ xqc_demo_cli_start(xqc_demo_cli_user_conn_t *user_conn, xqc_demo_cli_client_args
 void
 xqc_demo_cli_init_ctx(xqc_demo_cli_ctx_t *pctx, xqc_demo_cli_client_args_t *args)
 {
-    strncpy(pctx->log_path, args->env_cfg.log_path, sizeof(pctx->log_path) - 1);
+    snprintf(pctx->log_path, sizeof(pctx->log_path), "%s", args->env_cfg.log_path);
     pctx->args = args;
     xqc_demo_cli_open_log_file(pctx);
     xqc_demo_cli_open_keylog_file(pctx);
@@ -2913,6 +2916,7 @@ xqc_demo_cli_create_socket(xqc_demo_cli_user_path_t *user_path,
         struct ifreq ifr;
         memset(&ifr, 0x00, sizeof(ifr));
         strncpy(ifr.ifr_name, cfg->iflist[path_seq], sizeof(ifr.ifr_name) - 1);
+        ifr.ifr_name[sizeof(ifr.ifr_name) - 1] = '\0';
 
 #if !defined(__APPLE__)
         printf("fd: %d. bind to nic: %s\n", fd, cfg->iflist[path_seq]);

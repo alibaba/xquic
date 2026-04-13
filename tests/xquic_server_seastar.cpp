@@ -32,6 +32,26 @@ namespace {
 using XqcHeadersPtr = std::unique_ptr<xqc_http_headers_t, decltype(&std::free)>;
 constexpr char kTransportAlpn[] = "transport";
 constexpr size_t kTransportPreviewLimit = 96;
+constexpr size_t kTransportFrameHeaderLen = 5;
+
+enum TransportDemoFrameType : uint8_t {
+    XQC_TRANSPORT_DEMO_FRAME_HELLO = 0x01,
+    XQC_TRANSPORT_DEMO_FRAME_MESSAGE = 0x02,
+    XQC_TRANSPORT_DEMO_FRAME_METADATA = 0x03,
+    XQC_TRANSPORT_DEMO_FRAME_STATUS = 0x80,
+    XQC_TRANSPORT_DEMO_FRAME_RESULT = 0x81,
+    XQC_TRANSPORT_DEMO_FRAME_INFO = 0x82,
+    XQC_TRANSPORT_DEMO_FRAME_ERROR = 0xff,
+};
+
+struct TransportDemoRequest {
+    bool has_message = false;
+    size_t frame_count = 0;
+    std::string hello;
+    std::string message;
+    std::string metadata;
+    std::string error;
+};
 
 const char kH3StatusName[] = ":status";
 const char kH3StatusValue[] = "200";
@@ -200,23 +220,106 @@ bool append_stream_payload(user_stream_t *user_stream, const unsigned char *data
     return true;
 }
 
+uint32_t read_u32_be(const unsigned char *data) {
+    return (static_cast<uint32_t>(data[0]) << 24)
+        | (static_cast<uint32_t>(data[1]) << 16)
+        | (static_cast<uint32_t>(data[2]) << 8)
+        | static_cast<uint32_t>(data[3]);
+}
+
+void append_u32_be(std::string& out, uint32_t value) {
+    out.push_back(static_cast<char>((value >> 24) & 0xff));
+    out.push_back(static_cast<char>((value >> 16) & 0xff));
+    out.push_back(static_cast<char>((value >> 8) & 0xff));
+    out.push_back(static_cast<char>(value & 0xff));
+}
+
+void append_transport_frame(std::string& out, uint8_t type, const char *data, size_t len) {
+    out.push_back(static_cast<char>(type));
+    append_u32_be(out, static_cast<uint32_t>(len));
+    if (len > 0) {
+        out.append(data, len);
+    }
+}
+
+void append_transport_frame(std::string& out, uint8_t type, const std::string& payload) {
+    append_transport_frame(out, type, payload.data(), payload.size());
+}
+
+bool parse_transport_demo_request(const char *data, size_t len, TransportDemoRequest& request) {
+    size_t offset = 0;
+    while (offset < len) {
+        if (len - offset < kTransportFrameHeaderLen) {
+            request.error = "incomplete frame header";
+            return false;
+        }
+
+        const uint8_t type = static_cast<uint8_t>(data[offset]);
+        const uint32_t payload_len = read_u32_be(reinterpret_cast<const unsigned char*>(data + offset + 1));
+        offset += kTransportFrameHeaderLen;
+        if (len - offset < payload_len) {
+            request.error = "truncated frame payload";
+            return false;
+        }
+
+        const char *payload = data + offset;
+        request.frame_count++;
+        switch (type) {
+        case XQC_TRANSPORT_DEMO_FRAME_HELLO:
+            request.hello.assign(payload, payload_len);
+            break;
+        case XQC_TRANSPORT_DEMO_FRAME_MESSAGE:
+            request.message.append(payload, payload_len);
+            request.has_message = true;
+            break;
+        case XQC_TRANSPORT_DEMO_FRAME_METADATA:
+            request.metadata.append(payload, payload_len);
+            break;
+        default:
+            request.error = "unknown frame type: " + std::to_string(type);
+            return false;
+        }
+
+        offset += payload_len;
+    }
+
+    if (!request.has_message) {
+        request.error = "missing MESSAGE frame";
+        return false;
+    }
+
+    return true;
+}
+
 bool build_transport_demo_response(xqc_stream_t *stream, user_stream_t *user_stream) {
     if (stream == nullptr || user_stream == nullptr || user_stream->user_conn == nullptr) {
         return false;
     }
 
+    TransportDemoRequest request;
+    const bool parse_ok = parse_transport_demo_request(user_stream->recv_body, user_stream->recv_body_len, request);
     const std::string peer = format_socket_address(user_stream->user_conn->peer_addr, user_stream->user_conn->peer_addrlen);
     const std::string local = format_socket_address(user_stream->user_conn->local_addr, user_stream->user_conn->local_addrlen);
-    const std::string preview = preview_transport_payload(user_stream->recv_body, user_stream->recv_body_len);
-    const std::string response =
-        "XQUIC-DEMO/1\n"
-        "mode=transport\n"
-        "result=ok\n"
+    const std::string preview = preview_transport_payload(
+        parse_ok ? request.message.data() : user_stream->recv_body,
+        parse_ok ? request.message.size() : user_stream->recv_body_len);
+    std::string response;
+    append_transport_frame(response,
+        parse_ok ? XQC_TRANSPORT_DEMO_FRAME_STATUS : XQC_TRANSPORT_DEMO_FRAME_ERROR,
+        parse_ok ? std::string("ok") : request.error);
+
+    const std::string result =
         "stream_id=" + std::to_string(xqc_stream_id(stream)) + "\n"
         "peer=" + peer + "\n"
         "local=" + local + "\n"
         "request_bytes=" + std::to_string(user_stream->recv_body_len) + "\n"
-        "message=" + preview + "\n";
+        "request_frames=" + std::to_string(request.frame_count) + "\n"
+        "hello=" + (request.hello.empty() ? std::string("<none>") : request.hello) + "\n"
+        "metadata=" + (request.metadata.empty() ? std::string("<none>") : request.metadata) + "\n";
+    append_transport_frame(response, XQC_TRANSPORT_DEMO_FRAME_INFO, result);
+
+    const std::string message_payload = parse_ok ? preview : "request rejected";
+    append_transport_frame(response, XQC_TRANSPORT_DEMO_FRAME_RESULT, message_payload);
 
     auto buffer = std::unique_ptr<char, decltype(&std::free)>(
         static_cast<char*>(std::malloc(response.size())), &std::free);

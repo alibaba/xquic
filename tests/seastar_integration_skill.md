@@ -47,8 +47,28 @@ cmake -S /home/runner/work/xquic/xquic -B /tmp/xquic-build \
 - Seastar UDP 收包
 - 调用 `xqc_engine_packet_process()` / `xqc_engine_finish_recv()`
 - 通过独立 integration 层接口异步 flush 出站 UDP 包
-- transport 模式下演示 `user_conn` 归属、stream 生命周期、以及“收请求/组响应/回写消息”的基础应用层协议流程
+- transport 模式下演示 `user_conn` 归属、stream 生命周期、以及“收 frame 请求/组 frame 响应/回写消息”的基础应用层协议流程
 - 最小 HTTP/3 文本响应
+
+## transport demo frame 协议
+
+transport 样例当前使用一个最小 frame 头：
+
+- `type: 1 byte`
+- `length: 4 bytes`（大端）
+- `payload: length bytes`
+
+当前约定的 frame type：
+
+- `0x01` `HELLO`：可选，携带 demo client 标识或版本信息
+- `0x02` `MESSAGE`：必选，携带业务请求文本；允许多帧拼接
+- `0x03` `METADATA`：可选，携带额外扩展信息
+- `0x80` `STATUS`：服务端响应状态
+- `0x81` `RESULT`：服务端返回的处理结果摘要
+- `0x82` `INFO`：服务端返回的连接/流上下文信息
+- `0xff` `ERROR`：请求非法时的错误响应
+
+这样可以让 transport demo 更接近正式协议的“typed frame”风格，同时不把样例耦合到某个具体业务模型里。
 
 ## 后续扩展建议
 

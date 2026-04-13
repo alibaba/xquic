@@ -33,13 +33,13 @@ using XqcHeadersPtr = std::unique_ptr<xqc_http_headers_t, decltype(&std::free)>;
 constexpr char kTransportAlpn[] = "transport";
 constexpr size_t kTransportPreviewLimit = 96;
 
-char kH3StatusName[] = ":status";
-char kH3StatusValue[] = "200";
-char kH3ContentLengthName[] = "content-length";
-char kH3ContentLengthValue[] = "24";
-char kH3ContentTypeName[] = "content-type";
-char kH3ContentTypeValue[] = "text/plain";
-unsigned char kH3ResponseBody[] = "Hello from Seastar XQUIC";
+const char kH3StatusName[] = ":status";
+const char kH3StatusValue[] = "200";
+const char kH3ContentLengthName[] = "content-length";
+const char kH3ContentLengthValue[] = "24";
+const char kH3ContentTypeName[] = "content-type";
+const char kH3ContentTypeValue[] = "text/plain";
+const unsigned char kH3ResponseBody[] = "Hello from Seastar XQUIC";
 
 uint64_t xqc_now_us() {
     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
@@ -177,7 +177,7 @@ bool ensure_stream_recv_capacity(user_stream_t *user_stream, size_t extra_len) {
 
     size_t new_cap = user_stream->recv_body_cap == 0 ? 4096 : user_stream->recv_body_cap;
     while (new_cap < user_stream->recv_body_len + extra_len) {
-        new_cap *= 2;
+        new_cap = std::max(new_cap * 2, user_stream->recv_body_len + extra_len);
     }
 
     void *new_buf = std::realloc(user_stream->recv_body, new_cap);
@@ -218,14 +218,15 @@ bool build_transport_demo_response(xqc_stream_t *stream, user_stream_t *user_str
         "request_bytes=" + std::to_string(user_stream->recv_body_len) + "\n"
         "message=" + preview + "\n";
 
-    char *buffer = static_cast<char*>(std::malloc(response.size()));
+    auto buffer = std::unique_ptr<char, decltype(&std::free)>(
+        static_cast<char*>(std::malloc(response.size())), &std::free);
     if (buffer == nullptr) {
         return false;
     }
 
-    std::memcpy(buffer, response.data(), response.size());
+    std::memcpy(buffer.get(), response.data(), response.size());
     std::free(user_stream->send_body);
-    user_stream->send_body = buffer;
+    user_stream->send_body = buffer.release();
     user_stream->send_body_len = response.size();
     user_stream->send_offset = 0;
     return true;

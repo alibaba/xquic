@@ -47,6 +47,7 @@ cmake -S /home/runner/work/xquic/xquic -B /tmp/xquic-build \
 - Seastar UDP 收包
 - 调用 `xqc_engine_packet_process()` / `xqc_engine_finish_recv()`
 - 通过独立 integration 层接口异步 flush 出站 UDP 包
+- transport 模式下演示 `user_conn` 归属、stream 生命周期、以及“收请求/组响应/回写消息”的基础应用层协议流程
 - 最小 HTTP/3 文本响应
 
 ## 后续扩展建议

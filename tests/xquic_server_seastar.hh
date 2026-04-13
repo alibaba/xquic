@@ -51,6 +51,7 @@ private:
                               void *user_data, void *conn_proto_data);
     int on_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
                              void *user_data, void *conn_proto_data);
+    xqc_int_t on_stream_create_notify(xqc_stream_t *stream, void *user_data);
     xqc_int_t on_stream_write_notify(xqc_stream_t *stream, void *user_data);
     xqc_int_t on_stream_read_notify(xqc_stream_t *stream, void *user_data);
     xqc_int_t on_stream_close_notify(xqc_stream_t *stream, void *user_data);
@@ -72,6 +73,7 @@ private:
                                      void *user_data, void *conn_proto_data);
     static int ss_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
                                     void *user_data, void *conn_proto_data);
+    static xqc_int_t ss_stream_create_notify(xqc_stream_t *stream, void *user_data);
     static xqc_int_t ss_stream_write_notify(xqc_stream_t *stream, void *user_data);
     static xqc_int_t ss_stream_read_notify(xqc_stream_t *stream, void *user_data);
     static xqc_int_t ss_stream_close_notify(xqc_stream_t *stream, void *user_data);

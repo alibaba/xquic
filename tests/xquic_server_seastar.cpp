@@ -3,6 +3,7 @@
 #include "platform.h"
 #include "user_conn.h"
 
+#include <algorithm>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/reactor.hh>
@@ -13,6 +14,8 @@
 #include <arpa/inet.h>
 #include <cerrno>
 #include <chrono>
+#include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
@@ -28,6 +31,7 @@ namespace {
 
 using XqcHeadersPtr = std::unique_ptr<xqc_http_headers_t, decltype(&std::free)>;
 constexpr char kTransportAlpn[] = "transport";
+constexpr size_t kTransportPreviewLimit = 96;
 
 char kH3StatusName[] = ":status";
 char kH3StatusValue[] = "200";
@@ -101,6 +105,132 @@ void release_user_conn(user_conn_t *user_conn) {
     user_conn->local_addrlen = 0;
 }
 
+void release_user_stream(user_stream_t *user_stream) {
+    if (user_stream == nullptr) {
+        return;
+    }
+
+    std::free(user_stream->send_body);
+    user_stream->send_body = nullptr;
+    user_stream->send_body_len = 0;
+    user_stream->send_offset = 0;
+    std::free(user_stream->recv_body);
+    user_stream->recv_body = nullptr;
+    user_stream->recv_body_len = 0;
+    user_stream->recv_body_cap = 0;
+    if (user_stream->recv_body_fp != nullptr) {
+        std::fclose(user_stream->recv_body_fp);
+        user_stream->recv_body_fp = nullptr;
+    }
+}
+
+std::string format_socket_address(const sockaddr *addr, socklen_t addr_len) {
+    if (addr == nullptr) {
+        return "unknown";
+    }
+
+    char host[INET6_ADDRSTRLEN] = {0};
+    uint16_t port = 0;
+    if (addr->sa_family == AF_INET && addr_len >= static_cast<socklen_t>(sizeof(sockaddr_in))) {
+        const auto *addr4 = reinterpret_cast<const sockaddr_in*>(addr);
+        if (inet_ntop(AF_INET, &addr4->sin_addr, host, sizeof(host)) == nullptr) {
+            return "unknown";
+        }
+        port = ntohs(addr4->sin_port);
+
+    } else if (addr->sa_family == AF_INET6 && addr_len >= static_cast<socklen_t>(sizeof(sockaddr_in6))) {
+        const auto *addr6 = reinterpret_cast<const sockaddr_in6*>(addr);
+        if (inet_ntop(AF_INET6, &addr6->sin6_addr, host, sizeof(host)) == nullptr) {
+            return "unknown";
+        }
+        port = ntohs(addr6->sin6_port);
+
+    } else {
+        return "unknown";
+    }
+
+    return std::string(host) + ":" + std::to_string(port);
+}
+
+std::string preview_transport_payload(const char *data, size_t len) {
+    if (data == nullptr || len == 0) {
+        return "<empty>";
+    }
+
+    const size_t preview_len = std::min(len, kTransportPreviewLimit);
+    std::string preview;
+    preview.reserve(preview_len + 3);
+    for (size_t i = 0; i < preview_len; ++i) {
+        const unsigned char ch = static_cast<unsigned char>(data[i]);
+        preview.push_back(std::isprint(ch) != 0 ? static_cast<char>(ch) : '.');
+    }
+    if (len > preview_len) {
+        preview += "...";
+    }
+    return preview;
+}
+
+bool ensure_stream_recv_capacity(user_stream_t *user_stream, size_t extra_len) {
+    if (user_stream->recv_body_len + extra_len <= user_stream->recv_body_cap) {
+        return true;
+    }
+
+    size_t new_cap = user_stream->recv_body_cap == 0 ? 4096 : user_stream->recv_body_cap;
+    while (new_cap < user_stream->recv_body_len + extra_len) {
+        new_cap *= 2;
+    }
+
+    void *new_buf = std::realloc(user_stream->recv_body, new_cap);
+    if (new_buf == nullptr) {
+        return false;
+    }
+
+    user_stream->recv_body = static_cast<char*>(new_buf);
+    user_stream->recv_body_cap = new_cap;
+    return true;
+}
+
+bool append_stream_payload(user_stream_t *user_stream, const unsigned char *data, size_t data_len) {
+    if (!ensure_stream_recv_capacity(user_stream, data_len)) {
+        return false;
+    }
+
+    std::memcpy(user_stream->recv_body + user_stream->recv_body_len, data, data_len);
+    user_stream->recv_body_len += data_len;
+    return true;
+}
+
+bool build_transport_demo_response(xqc_stream_t *stream, user_stream_t *user_stream) {
+    if (stream == nullptr || user_stream == nullptr || user_stream->user_conn == nullptr) {
+        return false;
+    }
+
+    const std::string peer = format_socket_address(user_stream->user_conn->peer_addr, user_stream->user_conn->peer_addrlen);
+    const std::string local = format_socket_address(user_stream->user_conn->local_addr, user_stream->user_conn->local_addrlen);
+    const std::string preview = preview_transport_payload(user_stream->recv_body, user_stream->recv_body_len);
+    const std::string response =
+        "XQUIC-DEMO/1\n"
+        "mode=transport\n"
+        "result=ok\n"
+        "stream_id=" + std::to_string(xqc_stream_id(stream)) + "\n"
+        "peer=" + peer + "\n"
+        "local=" + local + "\n"
+        "request_bytes=" + std::to_string(user_stream->recv_body_len) + "\n"
+        "message=" + preview + "\n";
+
+    char *buffer = static_cast<char*>(std::malloc(response.size()));
+    if (buffer == nullptr) {
+        return false;
+    }
+
+    std::memcpy(buffer, response.data(), response.size());
+    std::free(user_stream->send_body);
+    user_stream->send_body = buffer;
+    user_stream->send_body_len = response.size();
+    user_stream->send_offset = 0;
+    return true;
+}
+
 } // namespace
 
 XquicSeastarServer::XquicSeastarServer()
@@ -156,6 +286,7 @@ void XquicSeastarServer::init_xquic_engine() {
     std::memset(&transport_ap_cbs, 0, sizeof(transport_ap_cbs));
     transport_ap_cbs.conn_cbs.conn_create_notify = XquicSeastarServer::ss_conn_create_notify;
     transport_ap_cbs.conn_cbs.conn_close_notify = XquicSeastarServer::ss_conn_close_notify;
+    transport_ap_cbs.stream_cbs.stream_create_notify = XquicSeastarServer::ss_stream_create_notify;
     transport_ap_cbs.stream_cbs.stream_write_notify = XquicSeastarServer::ss_stream_write_notify;
     transport_ap_cbs.stream_cbs.stream_read_notify = XquicSeastarServer::ss_stream_read_notify;
     transport_ap_cbs.stream_cbs.stream_close_notify = XquicSeastarServer::ss_stream_close_notify;
@@ -466,51 +597,87 @@ int XquicSeastarServer::on_conn_close_notify(xqc_connection_t *conn, const xqc_c
 }
 
 xqc_int_t XquicSeastarServer::on_stream_write_notify(xqc_stream_t *stream, void *user_data) {
-    (void)stream;
-    (void)user_data;
+    user_stream_t *user_stream = static_cast<user_stream_t*>(user_data);
+    if (stream == nullptr || user_stream == nullptr || user_stream->send_body == nullptr) {
+        return 0;
+    }
+
+    while (user_stream->send_offset < user_stream->send_body_len) {
+        const size_t remaining = user_stream->send_body_len - user_stream->send_offset;
+        const ssize_t sent = xqc_stream_send(stream,
+            reinterpret_cast<unsigned char*>(user_stream->send_body + user_stream->send_offset), remaining, 1);
+        if (sent == -XQC_EAGAIN) {
+            return 0;
+        }
+        if (sent < 0) {
+            return -1;
+        }
+
+        user_stream->send_offset += static_cast<size_t>(sent);
+        user_stream->total_sent += static_cast<size_t>(sent);
+    }
+
     return 0;
+}
+
+xqc_int_t XquicSeastarServer::on_stream_create_notify(xqc_stream_t *stream, void *user_data) {
+    (void)user_data;
+    try {
+        auto owned_stream = std::make_unique<user_stream_t>();
+        owned_stream->server = this;
+        owned_stream->stream = stream;
+        owned_stream->user_conn = static_cast<user_conn_t*>(xqc_get_conn_user_data_by_stream(stream));
+        xqc_stream_set_user_data(stream, owned_stream.get());
+        owned_stream.release();
+        return 0;
+
+    } catch (const std::bad_alloc&) {
+        return -1;
+    }
 }
 
 xqc_int_t XquicSeastarServer::on_stream_read_notify(xqc_stream_t *stream, void *user_data) {
     user_stream_t *user_stream = static_cast<user_stream_t*>(user_data);
-    if (user_stream == nullptr) {
-        try {
-            auto owned_stream = std::make_unique<user_stream_t>();
-            owned_stream->server = this;
-            owned_stream->stream = stream;
-            owned_stream->user_conn = static_cast<user_conn_t*>(xqc_get_conn_user_data_by_stream(stream));
-            user_stream = owned_stream.get();
-            xqc_stream_set_user_data(stream, user_stream);
-            owned_stream.release();
-
-        } catch (const std::bad_alloc&) {
-            return -1;
-        }
+    if (stream == nullptr || user_stream == nullptr) {
+        return -1;
     }
 
     unsigned char body[4096];
     unsigned char fin = 0;
     while (true) {
         ssize_t read = xqc_stream_recv(stream, body, sizeof(body), &fin);
-        if (read <= 0) {
+        if (read == -XQC_EAGAIN || read == 0) {
             break;
         }
+        if (read < 0) {
+            return -1;
+        }
+
         user_stream->total_recvd += static_cast<size_t>(read);
-        if (xqc_stream_send(stream, body, static_cast<size_t>(read), fin) < 0) {
+        if (!append_stream_payload(user_stream, body, static_cast<size_t>(read))) {
             return -1;
         }
         if (fin) {
-            break;
+            user_stream->recv_fin = 1;
         }
     }
 
-    return 0;
+    if (!user_stream->recv_fin) {
+        return 0;
+    }
+
+    if (user_stream->send_body == nullptr && !build_transport_demo_response(stream, user_stream)) {
+        return -1;
+    }
+
+    return on_stream_write_notify(stream, user_stream);
 }
 
 xqc_int_t XquicSeastarServer::on_stream_close_notify(xqc_stream_t *stream, void *user_data) {
     (void)stream;
 
     auto user_stream = std::unique_ptr<user_stream_t>(static_cast<user_stream_t*>(user_data));
+    release_user_stream(user_stream.get());
     return 0;
 }
 
@@ -597,6 +764,7 @@ xqc_int_t XquicSeastarServer::on_h3_request_read_notify(xqc_h3_request_t *req,
 xqc_int_t XquicSeastarServer::on_h3_request_close_notify(xqc_h3_request_t *req, void *user_data) {
     (void)req;
     auto user_stream = std::unique_ptr<user_stream_t>(static_cast<user_stream_t*>(user_data));
+    release_user_stream(user_stream.get());
     return 0;
 }
 
@@ -663,6 +831,18 @@ xqc_int_t XquicSeastarServer::ss_stream_write_notify(xqc_stream_t *stream, void 
         }
     }
     return server == nullptr ? -1 : server->on_stream_write_notify(stream, user_data);
+}
+
+xqc_int_t XquicSeastarServer::ss_stream_create_notify(xqc_stream_t *stream, void *user_data) {
+    auto* user_stream = static_cast<user_stream_t*>(user_data);
+    auto* server = (user_stream != nullptr) ? static_cast<XquicSeastarServer*>(user_stream->server) : nullptr;
+    if (server == nullptr) {
+        auto* u_conn = static_cast<user_conn_t*>(xqc_get_conn_user_data_by_stream(stream));
+        if (u_conn != nullptr) {
+            server = static_cast<XquicSeastarServer*>(u_conn->server);
+        }
+    }
+    return server == nullptr ? -1 : server->on_stream_create_notify(stream, user_data);
 }
 
 xqc_int_t XquicSeastarServer::ss_stream_read_notify(xqc_stream_t *stream, void *user_data) {

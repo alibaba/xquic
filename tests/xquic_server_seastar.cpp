@@ -27,6 +27,7 @@ namespace bpo = boost::program_options;
 namespace {
 
 using XqcHeadersPtr = std::unique_ptr<xqc_http_headers_t, decltype(&std::free)>;
+constexpr char kTransportAlpn[] = "transport";
 
 char kH3StatusName[] = ":status";
 char kH3StatusValue[] = "200";
@@ -57,6 +58,47 @@ void socket_address_to_sockaddr(const seastar::socket_address& src,
     }
 
     throw std::invalid_argument("unsupported socket family");
+}
+
+bool copy_conn_address(xqc_connection_t *conn, user_conn_t *user_conn, bool peer) {
+    auto addr = std::unique_ptr<sockaddr_storage, decltype(&std::free)>(
+        static_cast<sockaddr_storage*>(std::calloc(1, sizeof(sockaddr_storage))), &std::free);
+    if (!addr) {
+        return false;
+    }
+
+    socklen_t addr_len = 0;
+    xqc_int_t ret = peer
+        ? xqc_conn_get_peer_addr(conn, reinterpret_cast<sockaddr*>(addr.get()), sizeof(sockaddr_storage), &addr_len)
+        : xqc_conn_get_local_addr(conn, reinterpret_cast<sockaddr*>(addr.get()), sizeof(sockaddr_storage), &addr_len);
+    if (ret != XQC_OK) {
+        return false;
+    }
+
+    if (peer) {
+        std::free(user_conn->peer_addr);
+        user_conn->peer_addr = reinterpret_cast<sockaddr*>(addr.release());
+        user_conn->peer_addrlen = addr_len;
+    } else {
+        std::free(user_conn->local_addr);
+        user_conn->local_addr = reinterpret_cast<sockaddr*>(addr.release());
+        user_conn->local_addrlen = addr_len;
+    }
+
+    return true;
+}
+
+void release_user_conn(user_conn_t *user_conn) {
+    if (user_conn == nullptr) {
+        return;
+    }
+
+    std::free(user_conn->peer_addr);
+    user_conn->peer_addr = nullptr;
+    user_conn->peer_addrlen = 0;
+    std::free(user_conn->local_addr);
+    user_conn->local_addr = nullptr;
+    user_conn->local_addrlen = 0;
 }
 
 } // namespace
@@ -101,11 +143,24 @@ void XquicSeastarServer::init_xquic_engine() {
 
     xqc_transport_callbacks_t transport_cbs;
     std::memset(&transport_cbs, 0, sizeof(transport_cbs));
+    transport_cbs.server_accept = XquicSeastarServer::ss_server_accept;
     transport_cbs.write_socket = XquicSeastarServer::ss_write_socket;
+    transport_cbs.conn_update_cid_notify = XquicSeastarServer::ss_conn_update_cid_notify;
 
     _engine = xqc_engine_create(XQC_ENGINE_SERVER, &config, &ssl_config, &engine_cb, &transport_cbs, this);
     if (_engine == nullptr) {
         throw std::runtime_error("xqc_engine_create failed");
+    }
+
+    xqc_app_proto_callbacks_t transport_ap_cbs;
+    std::memset(&transport_ap_cbs, 0, sizeof(transport_ap_cbs));
+    transport_ap_cbs.conn_cbs.conn_create_notify = XquicSeastarServer::ss_conn_create_notify;
+    transport_ap_cbs.conn_cbs.conn_close_notify = XquicSeastarServer::ss_conn_close_notify;
+    transport_ap_cbs.stream_cbs.stream_write_notify = XquicSeastarServer::ss_stream_write_notify;
+    transport_ap_cbs.stream_cbs.stream_read_notify = XquicSeastarServer::ss_stream_read_notify;
+    transport_ap_cbs.stream_cbs.stream_close_notify = XquicSeastarServer::ss_stream_close_notify;
+    if (xqc_engine_register_alpn(_engine, kTransportAlpn, sizeof(kTransportAlpn) - 1, &transport_ap_cbs, nullptr) != XQC_OK) {
+        throw std::runtime_error("xqc_engine_register_alpn failed");
     }
 
     xqc_h3_callbacks_t h3_cbs;
@@ -349,17 +404,22 @@ void XquicSeastarServer::send_h3_response(user_stream_t *user_stream) {
                              sizeof(kH3ResponseBody) - 1, 1);
 }
 
-int XquicSeastarServer::on_h3_conn_create_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data) {
+int XquicSeastarServer::on_server_accept(xqc_engine_t *engine, xqc_connection_t *conn,
+                                         const xqc_cid_t *cid, void *user_data) {
+    (void)engine;
     (void)user_data;
 
     try {
         auto u_conn = std::make_unique<user_conn_t>();
         u_conn->server = this;
-        u_conn->h3_conn = conn;
         if (cid != nullptr) {
             u_conn->cid = *cid;
         }
-        xqc_h3_conn_set_user_data(conn, u_conn.release());
+        if (!copy_conn_address(conn, u_conn.get(), true) || !copy_conn_address(conn, u_conn.get(), false)) {
+            release_user_conn(u_conn.get());
+            return -1;
+        }
+        xqc_conn_set_transport_user_data(conn, u_conn.release());
         return 0;
 
     } catch (const std::bad_alloc&) {
@@ -367,10 +427,115 @@ int XquicSeastarServer::on_h3_conn_create_notify(xqc_h3_conn_t *conn, const xqc_
     }
 }
 
+void XquicSeastarServer::on_conn_update_cid_notify(xqc_connection_t *conn, const xqc_cid_t *retire_cid,
+                                                   const xqc_cid_t *new_cid, void *user_data) {
+    (void)conn;
+    (void)retire_cid;
+
+    auto *u_conn = static_cast<user_conn_t*>(user_data);
+    if (u_conn != nullptr && new_cid != nullptr) {
+        u_conn->cid = *new_cid;
+    }
+}
+
+int XquicSeastarServer::on_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
+                                              void *user_data, void *conn_proto_data) {
+    (void)conn;
+    (void)conn_proto_data;
+
+    auto *u_conn = static_cast<user_conn_t*>(user_data);
+    if (u_conn == nullptr) {
+        return -1;
+    }
+
+    u_conn->server = this;
+    if (cid != nullptr) {
+        u_conn->cid = *cid;
+    }
+    return 0;
+}
+
+int XquicSeastarServer::on_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
+                                             void *user_data, void *conn_proto_data) {
+    (void)conn;
+    (void)cid;
+    (void)conn_proto_data;
+
+    auto u_conn = std::unique_ptr<user_conn_t>(static_cast<user_conn_t*>(user_data));
+    release_user_conn(u_conn.get());
+    return 0;
+}
+
+xqc_int_t XquicSeastarServer::on_stream_write_notify(xqc_stream_t *stream, void *user_data) {
+    (void)stream;
+    (void)user_data;
+    return 0;
+}
+
+xqc_int_t XquicSeastarServer::on_stream_read_notify(xqc_stream_t *stream, void *user_data) {
+    user_stream_t *user_stream = static_cast<user_stream_t*>(user_data);
+    if (user_stream == nullptr) {
+        try {
+            auto owned_stream = std::make_unique<user_stream_t>();
+            owned_stream->server = this;
+            owned_stream->stream = stream;
+            owned_stream->user_conn = static_cast<user_conn_t*>(xqc_get_conn_user_data_by_stream(stream));
+            user_stream = owned_stream.get();
+            xqc_stream_set_user_data(stream, user_stream);
+            owned_stream.release();
+
+        } catch (const std::bad_alloc&) {
+            return -1;
+        }
+    }
+
+    unsigned char body[4096];
+    unsigned char fin = 0;
+    while (true) {
+        ssize_t read = xqc_stream_recv(stream, body, sizeof(body), &fin);
+        if (read <= 0) {
+            break;
+        }
+        user_stream->total_recvd += static_cast<size_t>(read);
+        if (xqc_stream_send(stream, body, static_cast<size_t>(read), fin) < 0) {
+            return -1;
+        }
+        if (fin) {
+            break;
+        }
+    }
+
+    return 0;
+}
+
+xqc_int_t XquicSeastarServer::on_stream_close_notify(xqc_stream_t *stream, void *user_data) {
+    (void)stream;
+
+    auto user_stream = std::unique_ptr<user_stream_t>(static_cast<user_stream_t*>(user_data));
+    return 0;
+}
+
+int XquicSeastarServer::on_h3_conn_create_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data) {
+    auto *u_conn = static_cast<user_conn_t*>(user_data);
+    if (u_conn == nullptr) {
+        return -1;
+    }
+
+    u_conn->server = this;
+    u_conn->h3 = 1;
+    u_conn->h3_conn = conn;
+    if (cid != nullptr) {
+        u_conn->cid = *cid;
+    }
+    xqc_h3_conn_set_user_data(conn, u_conn);
+    return 0;
+}
+
 int XquicSeastarServer::on_h3_conn_close_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data) {
     (void)conn;
     (void)cid;
     auto u_conn = std::unique_ptr<user_conn_t>(static_cast<user_conn_t*>(user_data));
+    release_user_conn(u_conn.get());
     return 0;
 }
 
@@ -460,8 +625,75 @@ ssize_t XquicSeastarServer::ss_write_socket(const unsigned char *buf, size_t siz
     return server->enqueue_send(buf, size, peer_addr, peer_addrlen);
 }
 
+int XquicSeastarServer::ss_server_accept(xqc_engine_t *engine, xqc_connection_t *conn,
+                                         const xqc_cid_t *cid, void *user_data) {
+    auto* u_conn = static_cast<user_conn_t*>(user_data);
+    auto* server = (u_conn != nullptr) ? static_cast<XquicSeastarServer*>(u_conn->server) : nullptr;
+    return server == nullptr ? -1 : server->on_server_accept(engine, conn, cid, user_data);
+}
+
+void XquicSeastarServer::ss_conn_update_cid_notify(xqc_connection_t *conn, const xqc_cid_t *retire_cid,
+                                                   const xqc_cid_t *new_cid, void *user_data) {
+    auto* u_conn = static_cast<user_conn_t*>(user_data);
+    auto* server = (u_conn != nullptr) ? static_cast<XquicSeastarServer*>(u_conn->server) : nullptr;
+    if (server != nullptr) {
+        server->on_conn_update_cid_notify(conn, retire_cid, new_cid, user_data);
+    }
+}
+
+int XquicSeastarServer::ss_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
+                                              void *user_data, void *conn_proto_data) {
+    auto* u_conn = static_cast<user_conn_t*>(user_data);
+    auto* server = (u_conn != nullptr) ? static_cast<XquicSeastarServer*>(u_conn->server) : nullptr;
+    return server == nullptr ? -1 : server->on_conn_create_notify(conn, cid, user_data, conn_proto_data);
+}
+
+int XquicSeastarServer::ss_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
+                                             void *user_data, void *conn_proto_data) {
+    auto* u_conn = static_cast<user_conn_t*>(user_data);
+    auto* server = (u_conn != nullptr) ? static_cast<XquicSeastarServer*>(u_conn->server) : nullptr;
+    return server == nullptr ? 0 : server->on_conn_close_notify(conn, cid, user_data, conn_proto_data);
+}
+
+xqc_int_t XquicSeastarServer::ss_stream_write_notify(xqc_stream_t *stream, void *user_data) {
+    auto* user_stream = static_cast<user_stream_t*>(user_data);
+    auto* server = (user_stream != nullptr) ? static_cast<XquicSeastarServer*>(user_stream->server) : nullptr;
+    if (server == nullptr) {
+        auto* u_conn = static_cast<user_conn_t*>(xqc_get_conn_user_data_by_stream(stream));
+        if (u_conn != nullptr) {
+            server = static_cast<XquicSeastarServer*>(u_conn->server);
+        }
+    }
+    return server == nullptr ? -1 : server->on_stream_write_notify(stream, user_data);
+}
+
+xqc_int_t XquicSeastarServer::ss_stream_read_notify(xqc_stream_t *stream, void *user_data) {
+    auto* user_stream = static_cast<user_stream_t*>(user_data);
+    auto* server = (user_stream != nullptr) ? static_cast<XquicSeastarServer*>(user_stream->server) : nullptr;
+    if (server == nullptr) {
+        auto* u_conn = static_cast<user_conn_t*>(xqc_get_conn_user_data_by_stream(stream));
+        if (u_conn != nullptr) {
+            server = static_cast<XquicSeastarServer*>(u_conn->server);
+        }
+    }
+    return server == nullptr ? -1 : server->on_stream_read_notify(stream, user_data);
+}
+
+xqc_int_t XquicSeastarServer::ss_stream_close_notify(xqc_stream_t *stream, void *user_data) {
+    auto* user_stream = static_cast<user_stream_t*>(user_data);
+    auto* server = (user_stream != nullptr) ? static_cast<XquicSeastarServer*>(user_stream->server) : nullptr;
+    if (server == nullptr) {
+        auto* u_conn = static_cast<user_conn_t*>(xqc_get_conn_user_data_by_stream(stream));
+        if (u_conn != nullptr) {
+            server = static_cast<XquicSeastarServer*>(u_conn->server);
+        }
+    }
+    return server == nullptr ? 0 : server->on_stream_close_notify(stream, user_data);
+}
+
 int XquicSeastarServer::ss_h3_conn_create_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data) {
-    auto* server = static_cast<XquicSeastarServer*>(user_data);
+    auto* u_conn = static_cast<user_conn_t*>(user_data);
+    auto* server = (u_conn != nullptr) ? static_cast<XquicSeastarServer*>(u_conn->server) : nullptr;
     return server == nullptr ? -1 : server->on_h3_conn_create_notify(conn, cid, user_data);
 }
 

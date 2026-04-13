@@ -44,6 +44,16 @@ private:
     void schedule_send_flush();
     seastar::future<> flush_send_queue();
     void send_h3_response(user_stream_t *user_stream);
+    int on_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data);
+    void on_conn_update_cid_notify(xqc_connection_t *conn, const xqc_cid_t *retire_cid,
+                                   const xqc_cid_t *new_cid, void *user_data);
+    int on_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
+                              void *user_data, void *conn_proto_data);
+    int on_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
+                             void *user_data, void *conn_proto_data);
+    xqc_int_t on_stream_write_notify(xqc_stream_t *stream, void *user_data);
+    xqc_int_t on_stream_read_notify(xqc_stream_t *stream, void *user_data);
+    xqc_int_t on_stream_close_notify(xqc_stream_t *stream, void *user_data);
 
     int on_h3_conn_create_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data);
     int on_h3_conn_close_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data);
@@ -55,6 +65,16 @@ private:
     static ssize_t ss_write_socket(const unsigned char *buf, size_t size,
                                    const struct sockaddr *peer_addr, socklen_t peer_addrlen,
                                    void *user_conn);
+    static int ss_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data);
+    static void ss_conn_update_cid_notify(xqc_connection_t *conn, const xqc_cid_t *retire_cid,
+                                          const xqc_cid_t *new_cid, void *user_data);
+    static int ss_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
+                                     void *user_data, void *conn_proto_data);
+    static int ss_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
+                                    void *user_data, void *conn_proto_data);
+    static xqc_int_t ss_stream_write_notify(xqc_stream_t *stream, void *user_data);
+    static xqc_int_t ss_stream_read_notify(xqc_stream_t *stream, void *user_data);
+    static xqc_int_t ss_stream_close_notify(xqc_stream_t *stream, void *user_data);
     static int ss_h3_conn_create_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data);
     static int ss_h3_conn_close_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *user_data);
     static xqc_int_t ss_h3_request_write_notify(xqc_h3_request_t *req, void *user_data);

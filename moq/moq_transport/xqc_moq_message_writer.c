@@ -357,3 +357,18 @@ xqc_moq_send_object_datagram(xqc_moq_session_t *session, xqc_moq_object_t *objec
     xqc_free(buf);
     return send_ret;
 }
+
+xqc_int_t
+xqc_moq_write_goaway(xqc_moq_session_t *session, const char *new_session_uri, size_t uri_len)
+{
+    xqc_moq_goaway_msg_t goaway;
+    xqc_memzero(&goaway, sizeof(goaway));
+
+    if (new_session_uri && uri_len > 0) {
+        goaway.new_session_uri = (char *)new_session_uri;
+        goaway.new_session_uri_len = uri_len;
+    }
+
+    return xqc_moq_write_msg_generic(session, session->ctl_stream, &goaway.msg_base,
+                                     xqc_moq_msg_goaway_init_handler);
+}

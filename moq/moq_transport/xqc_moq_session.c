@@ -207,6 +207,7 @@ xqc_moq_session_destroy(xqc_moq_session_t *session)
         xqc_list_del(pos);
         xqc_moq_track_destroy(track);
     }
+    xqc_free(session->goaway_new_session_uri);
     xqc_free(session);
 }
 
@@ -355,4 +356,71 @@ xqc_moq_find_track_by_subscribe_id(xqc_moq_session_t *session,
         }
     }
     return NULL;
+}
+
+xqc_int_t
+xqc_moq_session_is_server(xqc_moq_session_t *session)
+{
+    return session && session->engine->eng_type == XQC_ENGINE_SERVER;
+}
+
+xqc_int_t
+xqc_moq_send_goaway(xqc_moq_session_t *session, const char *new_session_uri, size_t uri_len)
+{
+    if (session == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    if (session->goaway_sent) {
+        xqc_log(session->log, XQC_LOG_WARN, "|goaway already sent|");
+        return -XQC_EPARAM;
+    }
+
+    /* client MUST NOT send URI */
+    if (!xqc_moq_session_is_server(session)
+        && new_session_uri != NULL && uri_len > 0)
+    {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|client cannot send GOAWAY with URI|uri_len:%z|", uri_len);
+        return -XQC_EPARAM;
+    }
+
+    xqc_int_t ret = xqc_moq_write_goaway(session, new_session_uri, uri_len);
+    if (ret < 0) {
+        return ret;
+    }
+
+    session->goaway_sent = 1;
+    xqc_moq_session_drain(session);
+    return ret;
+}
+
+void
+xqc_moq_session_drain(xqc_moq_session_t *session)
+{
+    if (session->draining) {
+        return;
+    }
+    xqc_log(session->log, XQC_LOG_INFO, "|session entering drain state|");
+    session->draining = 1;
+    xqc_moq_session_check_drain_complete(session);
+}
+
+void
+xqc_moq_session_check_drain_complete(xqc_moq_session_t *session)
+{
+    if (!session->draining) {
+        return;
+    }
+
+    /* Check if all subscriptions (both local and peer) are done */
+    if (!xqc_list_empty(&session->local_subscribe_list)
+        || !xqc_list_empty(&session->peer_subscribe_list))
+    {
+        return;
+    }
+
+    xqc_log(session->log, XQC_LOG_INFO,
+            "|drain complete, closing session with NO_ERROR|");
+    xqc_moq_session_error(session, MOQ_NO_ERROR, "drain complete");
 }

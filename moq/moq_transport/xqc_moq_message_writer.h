@@ -50,4 +50,6 @@ xqc_int_t xqc_moq_write_track_stream_obj_msg(xqc_moq_session_t *session, xqc_moq
 
 xqc_int_t xqc_moq_send_object_datagram(xqc_moq_session_t *session, xqc_moq_object_t *object);
 
+xqc_int_t xqc_moq_write_goaway(xqc_moq_session_t *session, const char *new_session_uri, size_t uri_len);
+
 #endif /* _XQC_MOQ_MESSAGE_WRITER_H_INCLUDED_ */

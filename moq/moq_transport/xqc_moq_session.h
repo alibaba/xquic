@@ -46,6 +46,11 @@ typedef struct xqc_moq_session_s {
     xqc_int_t                       enable_fec;
     float                           fec_code_rate;
     xqc_int_t                       use_client_setup_v14;
+    uint8_t                         goaway_sent;
+    uint8_t                         goaway_received;
+    uint8_t                         draining;
+    char                            *goaway_new_session_uri;
+    size_t                          goaway_new_session_uri_len;
 } xqc_moq_session_t;
 
 typedef enum {
@@ -79,5 +84,11 @@ xqc_moq_track_t *xqc_moq_find_track_by_name(xqc_moq_session_t *session,
 
 xqc_moq_track_t *xqc_moq_find_track_by_subscribe_id(xqc_moq_session_t *session,
     uint64_t subscribe_id, xqc_moq_track_role_t role);
+
+void xqc_moq_session_drain(xqc_moq_session_t *session);
+
+void xqc_moq_session_check_drain_complete(xqc_moq_session_t *session);
+
+xqc_int_t xqc_moq_session_is_server(xqc_moq_session_t *session);
 
 #endif /* _XQC_MOQ_SESSION_H_INCLUDED_ */

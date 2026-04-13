@@ -8,6 +8,7 @@
 #define XQC_MOQ_MAX_OBJECT_LEN      (10 * 1024 * 1024)
 #define XQC_MOQ_MAX_PARAM_VALUE_LEN 4096
 #define XQC_MOQ_MAX_NAME_LEN        1024
+#define XQC_MOQ_MAX_GOAWAY_URI_LEN  8192
 #define XQC_MOQ_MAX_AUTH_LEN        1024
 #define XQC_MOQ_MSG_LENGTH_FIXED_SIZE 2
 #define XQC_MOQ_U8_FIXED_SIZE 1
@@ -212,6 +213,8 @@ typedef struct xqc_moq_subscribe_done_msg_s {
 
 typedef struct xqc_moq_goaway_msg_s {
     xqc_moq_msg_base_t          msg_base;
+    char                        *new_session_uri;
+    size_t                      new_session_uri_len;
 } xqc_moq_goaway_msg_t;
 
 void *xqc_moq_msg_create(xqc_moq_msg_type_t type);
@@ -508,6 +511,21 @@ xqc_int_t xqc_moq_msg_encode_publish_done_len(xqc_moq_msg_base_t *msg_base);
 xqc_int_t xqc_moq_msg_encode_publish_done(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
 
 xqc_int_t xqc_moq_msg_decode_publish_done(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
+
+void *xqc_moq_msg_create_goaway();
+
+void xqc_moq_msg_free_goaway(void *msg);
+
+xqc_moq_msg_type_t xqc_moq_msg_goaway_type();
+
+void xqc_moq_msg_goaway_init_handler(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_goaway_len(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_goaway(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
+
+xqc_int_t xqc_moq_msg_decode_goaway(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
     xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
 
 #endif /* _XQC_MOQ_MESSAGE_H_INCLUDED_ */

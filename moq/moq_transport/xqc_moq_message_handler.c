@@ -457,6 +457,12 @@ xqc_moq_on_subscribe_error(xqc_moq_session_t *session, xqc_moq_stream_t *moq_str
     xqc_log(session->log, XQC_LOG_INFO, "|on_subscribe_error|track_name:%s|track_alias:%ui|",
             track->track_info.track_name, track->track_alias);
     track->track_ops.on_subscribe_error(session, track, subscribe_error);
+
+    xqc_moq_track_set_subscribe_id(track, XQC_MOQ_INVALID_ID);
+    xqc_moq_track_set_alias(track, XQC_MOQ_INVALID_ID);
+    xqc_list_del(&subscribe->list_member);
+    xqc_moq_subscribe_destroy(subscribe);
+    xqc_moq_session_check_drain_complete(session);
     return;
 
 error:
@@ -744,6 +750,7 @@ xqc_moq_on_publish_error(xqc_moq_session_t *session, xqc_moq_stream_t *moq_strea
 
     xqc_list_del(&subscribe->list_member);
     xqc_moq_subscribe_destroy(subscribe);
+    xqc_moq_session_check_drain_complete(session);
 }
 
 void
@@ -782,6 +789,7 @@ xqc_moq_on_publish_done(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
 
     xqc_list_del(&subscribe->list_member);
     xqc_moq_subscribe_destroy(subscribe);
+    xqc_moq_session_check_drain_complete(session);
 }
 
 
@@ -981,6 +989,7 @@ xqc_moq_on_unsubscribe(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream,
                 subscribe->subscribe_msg->track_alias);
         xqc_list_del(&subscribe->list_member);
         xqc_moq_subscribe_destroy(subscribe);
+        xqc_moq_session_check_drain_complete(session);
         return;
     }
 
@@ -995,6 +1004,7 @@ xqc_moq_on_unsubscribe(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream,
     xqc_moq_subscribe_destroy(subscribe);
     xqc_moq_track_set_subscribe_id(track, XQC_MOQ_INVALID_ID);
     xqc_moq_track_set_alias(track, XQC_MOQ_INVALID_ID);
+    xqc_moq_session_check_drain_complete(session);
 }
 
 static uint8_t
@@ -1010,4 +1020,58 @@ xqc_moq_param_read_u8(const xqc_moq_message_parameter_t *param)
         return param->value[0];
     }
     return 0;
+}
+
+void
+xqc_moq_on_goaway(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_goaway_msg_t *goaway = (xqc_moq_goaway_msg_t *)msg_base;
+
+    if (!session->session_setup_done) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|goaway before session setup|");
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                              "GOAWAY before session setup");
+        return;
+    }
+
+    if (session->goaway_received) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|duplicate goaway received|");
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION, "duplicate GOAWAY");
+        return;
+    }
+
+    session->goaway_received = 1;
+
+    /* Use is_server (eng_type) instead of session->role to handle PUBSUB correctly */
+    if (xqc_moq_session_is_server(session)
+        && goaway->new_session_uri_len > 0)
+    {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|server received goaway with non-empty URI|uri_len:%z|",
+                goaway->new_session_uri_len);
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                              "client GOAWAY must have empty URI");
+        return;
+    }
+
+    if (goaway->new_session_uri_len > 0 && goaway->new_session_uri) {
+        session->goaway_new_session_uri = xqc_calloc(1, goaway->new_session_uri_len + 1);
+        if (session->goaway_new_session_uri) {
+            xqc_memcpy(session->goaway_new_session_uri, goaway->new_session_uri,
+                       goaway->new_session_uri_len);
+            session->goaway_new_session_uri_len = goaway->new_session_uri_len;
+        }
+    }
+
+    xqc_log(session->log, XQC_LOG_INFO,
+            "|on_goaway|uri_len:%z|uri:%s|",
+            goaway->new_session_uri_len,
+            goaway->new_session_uri ? goaway->new_session_uri : "");
+
+    xqc_moq_session_drain(session);
+
+    if (session->session_callbacks.on_goaway) {
+        session->session_callbacks.on_goaway(session->user_session,
+            goaway->new_session_uri, goaway->new_session_uri_len);
+    }
 }

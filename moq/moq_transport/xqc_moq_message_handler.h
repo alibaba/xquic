@@ -41,4 +41,6 @@ void xqc_moq_on_track_header(xqc_moq_session_t *session, xqc_moq_stream_t *moq_s
 
 void xqc_moq_on_unsubscribe(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
 
+void xqc_moq_on_goaway(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
+
 #endif /* _XQC_MOQ_MESSAGE_HANDLER_H_INCLUDED_ */

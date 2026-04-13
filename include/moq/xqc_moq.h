@@ -417,6 +417,9 @@ typedef void (*xqc_moq_on_object_pt)(xqc_moq_user_session_t *user_session,
 typedef void (*xqc_moq_on_datagram_object_pt)(xqc_moq_user_session_t *user_session,
     xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, xqc_moq_object_t *object);
 
+typedef void (*xqc_moq_on_goaway_pt)(xqc_moq_user_session_t *user_session,
+    const char *new_session_uri, size_t new_session_uri_len);
+
 typedef struct {
     xqc_moq_on_session_setup_pt     on_session_setup; /* Required */
     xqc_moq_on_datachannel_pt       on_datachannel; /* Required */
@@ -439,6 +442,7 @@ typedef struct {
     xqc_moq_on_audio_frame_pt       on_audio; /* Required */
     xqc_moq_on_object_pt            on_object; /* Optional, raw object callback for CONTAINER_NONE */
     xqc_moq_on_datagram_object_pt   on_datagram_object; /* Optional, callback for OBJECT_DATAGRAM */
+    xqc_moq_on_goaway_pt            on_goaway; /* Optional, callback for GOAWAY message */
 } xqc_moq_session_callbacks_t;
 
 XQC_EXPORT_PUBLIC_API
@@ -617,6 +621,16 @@ xqc_int_t xqc_moq_write_raw_object(xqc_moq_session_t *session,
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_send_object_datagram(xqc_moq_session_t *session, xqc_moq_object_t *object);
+
+/**
+ * @brief Send a GOAWAY message to the peer (draft-ietf-moq-transport-14, Section 9.4).
+ *        Signals the intent to close the session soon. Can only be sent once per session.
+ * @param session  The MOQ session.
+ * @param new_session_uri  Optional new session URI (server only, NULL or empty for client).
+ * @param uri_len  Length of new_session_uri (0 if not provided).
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_send_goaway(xqc_moq_session_t *session, const char *new_session_uri, size_t uri_len);
 
 #ifdef __cplusplus
 }

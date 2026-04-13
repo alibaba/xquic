@@ -100,6 +100,13 @@ xqc_moq_subscribe(xqc_moq_session_t *session, const char *track_namespace, const
     xqc_moq_subscribe_t *subscribe;
     xqc_moq_track_t *track;
     xqc_int_t ret;
+
+    /* reject during drain */
+    if (session->draining) {
+        xqc_log(session->log, XQC_LOG_WARN, "|subscribe rejected, session draining|");
+        return -XQC_EPARAM;
+    }
+
     track = xqc_moq_find_track_by_name(session, track_namespace, track_name, XQC_MOQ_TRACK_FOR_SUB);
     if (track == NULL) {
         xqc_log(session->log, XQC_LOG_ERROR, "|track not found|");
@@ -175,6 +182,8 @@ xqc_moq_unsubscribe(xqc_moq_session_t *session, uint64_t subscribe_id)
 
     xqc_log(session->log, XQC_LOG_INFO, "|unsubscribe success|subscribe_id:%ui|", subscribe_id);
 
+    xqc_moq_session_check_drain_complete(session);
+
     return XQC_OK;
 }
 
@@ -188,6 +197,12 @@ xqc_moq_publish(xqc_moq_session_t *session, xqc_moq_publish_msg_t *publish)
 
     if (session == NULL || publish == NULL || publish->track_namespace == NULL || publish->track_name == NULL) {
         xqc_log(session->log, XQC_LOG_ERROR, "|publish invalid argument|");
+        return -XQC_EPARAM;
+    }
+
+    /* reject during drain */
+    if (session->draining) {
+        xqc_log(session->log, XQC_LOG_WARN, "|publish rejected, session draining|");
         return -XQC_EPARAM;
     }
 

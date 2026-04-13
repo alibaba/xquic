@@ -78,8 +78,18 @@ target_link_libraries(test_server ${APP_DEPEND_LIBS})
 target_link_libraries(test_client ${APP_DEPEND_LIBS})
 
 if(XQC_ENABLE_SEASTAR_EXAMPLE)
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(SEASTAR REQUIRED IMPORTED_TARGET seastar)
+    # When XQC_ENABLE_SEASTAR is ON, Seastar is built from submodule
+    # (third_party/seastar) and provides the Seastar::seastar target.
+    # Fallback to pkg-config for system-installed Seastar.
+    if(TARGET Seastar::seastar)
+        message(STATUS "Using Seastar from submodule (Seastar::seastar target)")
+        set(SEASTAR_LINK_TARGET Seastar::seastar)
+    else()
+        message(STATUS "Seastar::seastar target not found, falling back to pkg-config")
+        find_package(PkgConfig REQUIRED)
+        pkg_check_modules(SEASTAR REQUIRED IMPORTED_TARGET seastar)
+        set(SEASTAR_LINK_TARGET PkgConfig::SEASTAR)
+    endif()
 
     add_executable(xquic_server_seastar
         xquic_server_seastar.cpp
@@ -90,7 +100,7 @@ if(XQC_ENABLE_SEASTAR_EXAMPLE)
     target_link_libraries(xquic_server_seastar
         PRIVATE
         xquic-static
-        PkgConfig::SEASTAR
+        ${SEASTAR_LINK_TARGET}
         ${SSL_LIB_PATH}
         m
         dl

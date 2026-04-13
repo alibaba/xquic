@@ -28,16 +28,49 @@
 
 ## 构建方式
 
-Seastar 样例默认关闭，需要显式开启：
+Seastar 样例默认关闭，需要显式开启。
+
+### 方式一：Git Submodule（推荐）
+
+Seastar 已作为 git submodule 集成在 `third_party/seastar`，使用 SSH 方式拉取。
 
 ```bash
-cmake -S /home/runner/work/xquic/xquic -B /tmp/xquic-build \
+# 1. 初始化并拉取 seastar submodule
+git submodule update --init --recursive third_party/seastar
+
+# 2. 安装 Seastar 的系统依赖（仅首次，Fedora/Ubuntu 示例）
+# Ubuntu/Debian:
+sudo apt-get install -y gcc g++ ninja-build ragel libhwloc-dev libnuma-dev \
+  libpciaccess-dev libcrypto++-dev libboost-all-dev libxml2-dev xfslibs-dev \
+  libgnutls28-dev liblz4-dev libsctp-dev systemtap-sdt-dev libtool cmake \
+  libyaml-cpp-dev libc-ares-dev stow libfmt-dev diffutils valgrind doxygen \
+  libprotobuf-dev protobuf-compiler libunwind-dev pkg-config python3-pyelftools
+
+# 3. cmake 配置（使用 submodule 内的 Seastar）
+cmake -S . -B build_seastar \
+  -DXQC_ENABLE_SEASTAR=ON \
+  -DXQC_ENABLE_TESTING=ON \
+  -DSSL_TYPE=boringssl \
+  -DSSL_PATH=third_party/boringssl \
+  -DSSL_INC_PATH=third_party/boringssl/include \
+  -DSSL_LIB_PATH="third_party/boringssl/build/ssl/libssl.a;third_party/boringssl/build/crypto/libcrypto.a"
+
+# 4. 编译
+cmake --build build_seastar --target xquic_server_seastar -j$(nproc)
+```
+
+### 方式二：系统安装的 Seastar（pkg-config）
+
+如果不通过 submodule 而是使用系统安装的 Seastar：
+
+```bash
+cmake -S . -B build_seastar \
   -DXQC_ENABLE_TESTING=ON \
   -DXQC_ENABLE_SEASTAR_EXAMPLE=ON \
   -DSSL_TYPE=boringssl \
-  -DSSL_PATH=/path/to/boringssl \
-  -DSSL_INC_PATH=/path/to/boringssl/include \
-  -DSSL_LIB_PATH="/path/to/boringssl/build/libssl.a;/path/to/boringssl/build/libcrypto.a"
+  -DSSL_PATH=third_party/boringssl \
+  -DSSL_INC_PATH=third_party/boringssl/include \
+  -DSSL_LIB_PATH="third_party/boringssl/build/ssl/libssl.a;third_party/boringssl/build/crypto/libcrypto.a"
 ```
 
 要求系统中可通过 `pkg-config` 找到 `seastar`。

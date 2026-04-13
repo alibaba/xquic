@@ -1,6 +1,6 @@
 # Copyright (c) 2022, Alibaba Group Holding Limited
 
-cmake_minimum_required (VERSION 3.5)
+cmake_minimum_required (VERSION 3.13)
 project (xquic)
 
 set (xquic_VERSION_MAJOR 0)
@@ -22,6 +22,7 @@ option (XQC_ENABLE_XOR "enable fec scheme xor" OFF)
 option (XQC_ENABLE_RSC "enable fec scheme reed-solomon code" OFF)
 option (XQC_ENABLE_PKM "enable fec scheme packet mask" OFF)
 option (XQC_PING_ATTACK_PROTECT "enable ping attack protection" OFF)
+option (XQC_ENABLE_SEASTAR "enable seastar integration (submodule in third_party/seastar)" ON)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
@@ -168,6 +169,30 @@ endif()
 # coverity
 if(GCOV STREQUAL "on")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fprofile-arcs -ftest-coverage")
+endif()
+
+
+# Seastar integration via submodule
+if(XQC_ENABLE_SEASTAR)
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/seastar/CMakeLists.txt")
+        message(FATAL_ERROR
+            "Seastar submodule not found at third_party/seastar.\n"
+            "Run: git submodule update --init --recursive third_party/seastar")
+    endif()
+
+    message(STATUS "Building with Seastar from submodule third_party/seastar")
+
+    # Seastar build options — disable parts we don't need to speed up compilation
+    set(Seastar_TESTING OFF CACHE BOOL "" FORCE)
+    set(Seastar_DEMOS OFF CACHE BOOL "" FORCE)
+    set(Seastar_DOCS OFF CACHE BOOL "" FORCE)
+    set(Seastar_APPS OFF CACHE BOOL "" FORCE)
+    set(Seastar_INSTALL OFF CACHE BOOL "" FORCE)
+
+    add_subdirectory(third_party/seastar)
+
+    # Propagate seastar option to tests/
+    set(XQC_ENABLE_SEASTAR_EXAMPLE ON CACHE BOOL "Build Seastar integration example" FORCE)
 endif()
 
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "user_conn.h"
 #include "xquic_seastar_integration.hh"
 
 #include <seastar/core/future.hh>
@@ -11,9 +12,6 @@
 #include <cstdint>
 #include <optional>
 #include <string>
-
-struct user_conn_t;
-struct user_stream_t;
 
 class XquicSeastarServer {
 public:
@@ -30,6 +28,7 @@ private:
     seastar::timer<> _engine_timer;
     xqc_engine_t* _engine;
     XquicSeastarSendIntegration _send_integration;
+    user_conn_t _packet_user_conn;
     std::string _cert_path;
     std::string _key_path;
     uint16_t _port;

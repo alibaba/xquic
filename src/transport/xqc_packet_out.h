@@ -213,7 +213,7 @@ xqc_int_t xqc_write_path_response_frame_to_packet(xqc_connection_t *conn, xqc_pa
 int xqc_write_ack_mp_to_one_packet(xqc_connection_t *conn, xqc_path_ctx_t *path,
     xqc_packet_out_t *packet_out, xqc_pkt_num_space_t pns);
 
-xqc_int_t xqc_write_path_abandon_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path);
+xqc_int_t xqc_write_path_abandon_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path, uint64_t error_code);
 
 xqc_int_t xqc_write_path_status_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path);
 

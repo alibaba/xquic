@@ -1346,22 +1346,37 @@ xqc_process_streams_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *packe
     uint64_t new_max_streams;
     if (bidirectional) {
         /* there is no need to increase MAX_STREAMS */
-        if (stream_limit < conn->conn_flow_ctl.fc_max_streams_bidi_can_recv) {
+        if (stream_limit <= conn->conn_flow_ctl.fc_max_streams_bidi_can_recv
+            && conn->conn_flow_ctl.fc_max_streams_bidi_can_recv == conn->conn_flow_ctl.fc_max_streams_bidi_recv_wind)
+        {
             return XQC_OK;
         }
+        if (stream_limit > conn->conn_flow_ctl.fc_max_streams_bidi_can_recv) {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|xqc_process_streams_blocked_frame stream_limit invalid|stream_limit:%ui|",
+                    stream_limit);
+            return -XQC_EIGNORE_PKT;
+        }
 
-        new_max_streams = xqc_min(stream_limit + conn->local_settings.max_streams_bidi,
-            conn->conn_flow_ctl.fc_max_streams_bidi_can_recv + conn->local_settings.max_streams_bidi);
+        new_max_streams = conn->conn_flow_ctl.fc_max_streams_bidi_recv_wind;
         conn->conn_flow_ctl.fc_max_streams_bidi_can_recv = new_max_streams;
 
     } else {
         /* there is no need to increase MAX_STREAMS */
-        if (stream_limit < conn->conn_flow_ctl.fc_max_streams_uni_can_recv) {
+        if (stream_limit <= conn->conn_flow_ctl.fc_max_streams_uni_can_recv
+            && conn->conn_flow_ctl.fc_max_streams_uni_can_recv == conn->conn_flow_ctl.fc_max_streams_uni_recv_wind)
+        {
             return XQC_OK;
         }
 
-        new_max_streams = xqc_min(stream_limit + conn->local_settings.max_streams_uni,
-            conn->conn_flow_ctl.fc_max_streams_uni_can_recv + conn->local_settings.max_streams_uni);
+        if (stream_limit > conn->conn_flow_ctl.fc_max_streams_uni_can_recv) {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|xqc_process_streams_blocked_frame stream_limit invalid|stream_limit:%ui|",
+                    stream_limit);
+            return -XQC_EIGNORE_PKT;
+        }
+
+        new_max_streams = conn->conn_flow_ctl.fc_max_streams_uni_recv_wind;
         conn->conn_flow_ctl.fc_max_streams_uni_can_recv = new_max_streams;
     }
 

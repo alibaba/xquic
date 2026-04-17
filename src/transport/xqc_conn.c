@@ -36,6 +36,8 @@
 #include <inttypes.h>
 #include <openssl/rand.h>
 
+#define XQC_DEFAULT_MAX_STREAMS     1024
+
 xqc_conn_settings_t internal_default_conn_settings = {
     .pacing_on                  = 0,
     .ping_on                    = 0,
@@ -369,6 +371,13 @@ xqc_server_set_conn_settings(xqc_engine_t *engine, const xqc_conn_settings_t *se
     if (settings->probing_pkt_out_size > 0) {
         engine->default_conn_settings.probing_pkt_out_size = settings->probing_pkt_out_size;
     }
+
+    if (settings->max_streams_bidi > 0) {
+        engine->default_conn_settings.max_streams_bidi = settings->max_streams_bidi;
+    }
+    if (settings->max_streams_uni > 0) {
+        engine->default_conn_settings.max_streams_uni = settings->max_streams_uni;
+    }
 }
 
 static const char * const xqc_conn_flag_to_str[XQC_CONN_FLAG_SHIFT_NUM] = {
@@ -498,8 +507,16 @@ xqc_conn_init_trans_settings(xqc_connection_t *conn)
         ls->max_streams_uni = 128;
 
     } else {
-        ls->max_streams_bidi = 1024;
-        ls->max_streams_uni = 1024;
+        if (conn->conn_settings.max_streams_bidi) {
+            ls->max_streams_bidi = conn->conn_settings.max_streams_bidi;
+        } else {
+            ls->max_streams_bidi = XQC_DEFAULT_MAX_STREAMS;
+        }
+        if (conn->conn_settings.max_streams_uni) {
+            ls->max_streams_uni = conn->conn_settings.max_streams_uni;
+        } else {
+            ls->max_streams_uni = XQC_DEFAULT_MAX_STREAMS;
+        } 
     }
     ls->max_stream_data_bidi_remote = XQC_MAX_RECV_WINDOW;
     ls->max_stream_data_uni = XQC_MAX_RECV_WINDOW;
@@ -603,8 +620,10 @@ xqc_conn_init_flow_ctl(xqc_connection_t *conn)
     flow_ctl->fc_max_data_can_recv = settings->max_data;
     flow_ctl->fc_max_streams_bidi_can_send = settings->max_streams_bidi; /* replace with the value specified by peer after handshake */
     flow_ctl->fc_max_streams_bidi_can_recv = settings->max_streams_bidi;
+    flow_ctl->fc_max_streams_bidi_recv_wind = settings->max_streams_bidi;
     flow_ctl->fc_max_streams_uni_can_send = settings->max_streams_uni; /* replace with the value specified by peer after handshake */
     flow_ctl->fc_max_streams_uni_can_recv = settings->max_streams_uni;
+    flow_ctl->fc_max_streams_uni_recv_wind = settings->max_streams_uni;
     flow_ctl->fc_data_sent = 0;
     flow_ctl->fc_data_recved = 0;
     flow_ctl->fc_recv_windows_size = settings->max_data;
@@ -1500,6 +1519,7 @@ xqc_conn_destroy(xqc_connection_t *xc)
             "fec_mp_mode:%s|send_fec_pkts:%ud|recovered_fec_num:%ud|"
             "max_po_size:%uz|max_probing_size:%uz|ppo_size:%uz|"
             "ext_conn_info:%s|max_acked_po_size:%uz|enable_pmtud:%ui|avg_closed_time:%ui|"
+            "passive_bidi_s_max:%ui|"
             ,
             xc,
             xc->conn_flag & XQC_CONN_FLAG_HAS_0RTT ? 1:0,
@@ -1525,7 +1545,8 @@ xqc_conn_destroy(xqc_connection_t *xc)
             fec_mpm_str, conn_stats.send_fec_cnt, xc->fec_ctl ? xc->fec_ctl->fec_recover_pkt_cnt : 0,
             xc->pkt_out_size, xc->max_pkt_out_size, xc->probing_pkt_out_size,
             conn_stats.extern_conn_info, xc->max_acked_po_size, 
-            xc->local_settings.enable_pmtud & xc->remote_settings.enable_pmtud, xc->conn_avg_close_delay
+            xc->local_settings.enable_pmtud & xc->remote_settings.enable_pmtud, xc->conn_avg_close_delay,
+            xc->passive_bidi_stream_max
             );
     xqc_log_event(xc->log, CON_CONNECTION_CLOSED, xc);
 

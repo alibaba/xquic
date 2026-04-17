@@ -20,6 +20,15 @@ typedef enum {
 } xqc_moq_frame_type_t;
 
 
+typedef struct xqc_moq_subgroup_header_s {
+    uint64_t                    track_alias;
+    uint64_t                    group_id;
+    uint64_t                    subgroup_id;
+    uint8_t                     subgroup_type;
+    uint8_t                     subgroup_priority;
+} xqc_moq_subgroup_header_t;
+
+
 typedef struct xqc_moq_stream_s {
     xqc_moq_session_t           *session;
     void                        *trans_stream; /* Depend on transport type */
@@ -46,6 +55,7 @@ typedef struct xqc_moq_stream_s {
     xqc_moq_track_t             *track;
     xqc_list_head_t             list_member; /* track write_stream_list */
     uint64_t                    group_id;
+    uint64_t                    subgroup_id; /* for subgroup stream reuse (sender-side bookkeeping) */
     uint64_t                    object_id;
     uint64_t                    seq_num;
 
@@ -53,6 +63,10 @@ typedef struct xqc_moq_stream_s {
     float                       fec_code_rate;
 
     uint16_t                    moq_frame_type;
+    xqc_moq_subgroup_header_t   subgroup_header;
+    uint8_t                     subgroup_header_valid;
+    uint64_t                    subgroup_prev_object_id;
+    uint8_t                     subgroup_prev_object_id_valid;
 } xqc_moq_stream_t;
 
 xqc_moq_stream_t *xqc_moq_stream_create(xqc_moq_session_t *session);

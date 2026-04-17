@@ -42,7 +42,7 @@ xqc_moq_subscribe_create(xqc_moq_session_t *session, uint64_t subscribe_id,
     xqc_memcpy(msg->track_name, track_name, track_name_len);
     msg->subscriber_priority = 0;
     msg->group_order = 0x1;
-    msg->forward = 1;
+    msg->forward = 0;
     msg->filter_type = filter_type;
     msg->start_group_id = start_group_id;
     msg->start_object_id = start_object_id;

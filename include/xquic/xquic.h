@@ -1306,7 +1306,8 @@ typedef struct xqc_linger_s {
 
 typedef enum {
     XQC_ERR_MULTIPATH_VERSION   = 0x00,
-    XQC_MULTIPATH_10            = 0x0a, 
+    XQC_MULTIPATH_10            = 0x0a,
+    XQC_MULTIPATH_3E            = 0x3e,
 } xqc_multipath_version_t;
 
 typedef enum {
@@ -2145,6 +2146,12 @@ void xqc_conn_continue_send_by_conn(xqc_connection_t *conn);
  */
 XQC_EXPORT_PUBLIC_API
 xqc_conn_stats_t xqc_conn_get_stats(xqc_engine_t *engine, const xqc_cid_t *cid);
+
+/**
+ * Get negotiated multipath version by cid
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_multipath_version_t xqc_conn_get_multipath_version(xqc_engine_t *engine, const xqc_cid_t *cid);
 
 
 /**

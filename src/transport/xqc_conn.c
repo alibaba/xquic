@@ -3757,7 +3757,20 @@ xqc_conn_get_stats(xqc_engine_t *engine, const xqc_cid_t *cid)
     return conn_stats;
 }
 
-xqc_conn_qos_stats_t 
+xqc_multipath_version_t
+xqc_conn_get_multipath_version(xqc_engine_t *engine, const xqc_cid_t *cid)
+{
+    xqc_connection_t *conn = xqc_engine_conns_hash_find(engine, cid, 's');
+    if (!conn) {
+        xqc_log(engine->log, XQC_LOG_ERROR, "|can not find connection|cid:%s",
+                xqc_scid_str(engine, cid));
+        return XQC_ERR_MULTIPATH_VERSION;
+    }
+
+    return xqc_conn_multipath_version_negotiation(conn);
+}
+
+xqc_conn_qos_stats_t
 xqc_conn_get_qos_stats(xqc_engine_t *engine, const xqc_cid_t *cid)
 {
     xqc_connection_t *conn;

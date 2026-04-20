@@ -1937,7 +1937,7 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -Q    Send requests one by one (default disabled)\n"
         "   -T    Throttle recving rate (Bps)\n"
         "   -R    Reinjection (1,2,4) \n"
-        "   -V    Multipath Version\n"
+        "   -V    Multipath Version (19/3e for draft-19, or numeric value)\n"
         "   -B    Set initial path standby after recvd first application data, and set initial path available after X ms\n"
         "   -I    Idle interval between requests (ms)\n"
         "   -n    Throttling the {1,2,...}xn-th requests\n"
@@ -2186,8 +2186,13 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             break;
         
         case 'V':
-            printf("option multipath version: %s\n", optarg);
-            args->quic_cfg.mp_version = atoi(optarg);
+            if (strcmp(optarg, "19") == 0 || strcmp(optarg, "3e") == 0) {
+                args->quic_cfg.mp_version = XQC_MULTIPATH_3E;
+                printf("option multipath version: %s (draft-19, using 0x3e)\n", optarg);
+            } else {
+                args->quic_cfg.mp_version = atoi(optarg);
+                printf("option multipath version: %s (numeric value: 0x%02x)\n", optarg, args->quic_cfg.mp_version);
+            }
             break;
 
         case 'B':
@@ -2526,6 +2531,18 @@ xqc_demo_cli_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
     xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *) user_data;
     xqc_conn_stats_t stats = xqc_conn_get_stats(user_conn->ctx->engine, &user_conn->cid);
     printf("0rtt_flag:%d\n", stats.early_data_flag);
+
+    // 打印协商完成的multipath版本信息
+    if (stats.enable_multipath) {
+        xqc_multipath_version_t negotiated_version = xqc_conn_get_multipath_version(user_conn->ctx->engine, &user_conn->cid);
+
+        printf("=== Multipath Negotiated ===\n");
+        printf("Multipath enabled: %d\n", stats.enable_multipath);
+        printf("Negotiated multipath version: 0x%02x\n", (uint8_t)negotiated_version);
+        printf("============================\n");
+    } else {
+        printf("Multipath not negotiated\n");
+    }
 
 }
 

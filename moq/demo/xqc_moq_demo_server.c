@@ -412,9 +412,23 @@ void on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
         subscribe_ok.content_exist = 1;
         subscribe_ok.largest_group_id = 0;
         subscribe_ok.largest_object_id = 0;
+
+        xqc_moq_message_parameter_t cat_param;
+        int have_cat = (track != NULL
+            && xqc_moq_build_catalog_param_from_track(track, &cat_param) == XQC_OK);
+        if (have_cat) {
+            subscribe_ok.params = &cat_param;
+            subscribe_ok.params_num = 1;
+            printf("==>subscribe_ok attach catalog param track:%s\n",
+                   track->track_info.track_name);
+        }
+
         ret = xqc_moq_write_subscribe_ok(session, &subscribe_ok);
         if (ret < 0) {
             printf("xqc_moq_write_subscribe_ok error\n");
+        }
+        if (have_cat) {
+            xqc_moq_free_catalog_param(&cat_param);
         }
 
     } else if (strcmp(msg->track_name, "audio") == 0) {
@@ -429,9 +443,23 @@ void on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
         subscribe_ok.content_exist = 1;
         subscribe_ok.largest_group_id = 0;
         subscribe_ok.largest_object_id = 0;
+
+        xqc_moq_message_parameter_t cat_param;
+        int have_cat = (track != NULL
+            && xqc_moq_build_catalog_param_from_track(track, &cat_param) == XQC_OK);
+        if (have_cat) {
+            subscribe_ok.params = &cat_param;
+            subscribe_ok.params_num = 1;
+            printf("==>subscribe_ok attach catalog param track:%s\n",
+                   track->track_info.track_name);
+        }
+
         ret = xqc_moq_write_subscribe_ok(session, &subscribe_ok);
         if (ret < 0) {
             printf("xqc_moq_write_subscribe_ok error\n");
+        }
+        if (have_cat) {
+            xqc_moq_free_catalog_param(&cat_param);
         }
     }
 
@@ -487,6 +515,14 @@ void on_publish_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track
            publish_msg->track_alias,
            publish_msg->forward,
            publish_msg->content_exist);
+
+    if (track != NULL) {
+        xqc_moq_selection_params_t *sp = &track->track_info.selection_params;
+        printf("==>on_publish selection_params codec:%s mime:%s %dx%d@%d bitrate:%d samplerate:%d\n",
+               sp->codec ? sp->codec : "null",
+               sp->mime_type ? sp->mime_type : "null",
+               sp->width, sp->height, sp->framerate, sp->bitrate, sp->samplerate);
+    }
 
     // Test for self-defined publish reply on datachanne;
     xqc_moq_session_t *session = user_session->session;

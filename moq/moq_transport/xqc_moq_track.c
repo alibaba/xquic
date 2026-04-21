@@ -156,7 +156,15 @@ xqc_moq_track_next_subgroup_id(xqc_moq_track_t *track, uint64_t group_id)
 void
 xqc_moq_track_copy_params(xqc_moq_selection_params_t *dst, xqc_moq_selection_params_t *src)
 {
+    if (dst == src) {
+        return;
+    }
+    xqc_moq_track_free_params(dst);
     xqc_memcpy(dst, src, sizeof(xqc_moq_selection_params_t));
+    dst->codec = NULL;
+    dst->mime_type = NULL;
+    dst->lang = NULL;
+    dst->channel_config = NULL;
     size_t len;
     if (src->codec != NULL) {
         len = strlen(src->codec);

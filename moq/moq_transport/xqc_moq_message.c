@@ -447,7 +447,8 @@ xqc_moq_msg_encode_params_len_v14(xqc_moq_message_parameter_t *params, xqc_int_t
     for (xqc_int_t i = 0; i < params_num; i++) {
         param = &params[i];
         len += xqc_put_varint_len(param->type);
-        if ((param->type & 0x1) || param->type == XQC_MOQ_PARAM_EXTDATA) {
+        if ((param->type & 0x1) || param->type == XQC_MOQ_PARAM_EXTDATA
+            || param->type == XQC_MOQ_PARAM_CATALOG) {
             len += xqc_put_varint_len(param->length);
             len += param->length;
         } else {
@@ -472,7 +473,8 @@ xqc_moq_msg_encode_params_v14(xqc_moq_message_parameter_t *params, xqc_int_t par
     for (xqc_int_t i = 0; i < params_num; i++) {
         param = &params[i];
         p = xqc_put_varint(p, param->type);
-        if ((param->type & 0x1) || param->type == XQC_MOQ_PARAM_EXTDATA) {
+        if ((param->type & 0x1) || param->type == XQC_MOQ_PARAM_EXTDATA
+            || param->type == XQC_MOQ_PARAM_CATALOG) {
             p = xqc_put_varint(p, param->length);
             if (param->length > 0 && param->value) {
                 xqc_memcpy(p, param->value, param->length);
@@ -505,7 +507,14 @@ xqc_moq_msg_decode_params_v14(uint8_t *buf, size_t buf_len, xqc_moq_decode_param
                 return processed;
             }
             processed += ret;
-            if ((param->type & 0x1) || param->type == XQC_MOQ_PARAM_EXTDATA) {
+            /* draft-14 param encoding: odd types and EXTDATA/CATALOG carry
+             * length-prefixed bytes (field_idx=1); all other even types are
+             * varint-only (field_idx=3). Unknown types are not rejected here
+             * so the receiver can honor the MOQT "ignore unknown parameters"
+             * rule upstream.
+             */
+            if ((param->type & 0x1) || param->type == XQC_MOQ_PARAM_EXTDATA
+            || param->type == XQC_MOQ_PARAM_CATALOG) {
                 ctx->cur_field_idx = 1;
             } else {
                 ctx->cur_field_idx = 3;
@@ -646,7 +655,8 @@ xqc_moq_msg_parse_ext_params_block(uint8_t *ext_buf, uint64_t ext_len,
         }
         ext_processed += ret;
 
-        if ((type & 0x1) || type == XQC_MOQ_PARAM_EXTDATA) {
+        if ((type & 0x1) || type == XQC_MOQ_PARAM_EXTDATA
+            || type == XQC_MOQ_PARAM_CATALOG) {
             ret = xqc_vint_read(ext_buf + ext_processed, ext_buf + ext_len, &length);
             if (ret < 0) {
                 return ret;
@@ -984,11 +994,9 @@ xqc_moq_msg_decode_one_param(uint8_t *buf, size_t buf_len, xqc_moq_decode_params
             param->int_value = 0;
 
             DEBUG_PRINTF("====>param[%d] type:%d\n",ctx->cur_param_idx, (int)param->type);
-            if (param->type > XQC_MOQ_PARAM_EXTDATA) {
-                return -XQC_EILLEGAL_FRAME;
-            }
 
             ctx->cur_field_idx = 1;
+            /* fall through */
         case 1: //Parameter Length (i)
             ret = xqc_vint_read(buf + processed, buf + buf_len, &param->length);
             if (ret < 0) {
@@ -1008,6 +1016,7 @@ xqc_moq_msg_decode_one_param(uint8_t *buf, size_t buf_len, xqc_moq_decode_params
             ctx->value_processed = 0;
 
             ctx->cur_field_idx = 2;
+            /* fall through */
         case 2: //Parameter Value (..)
             if (buf_len - processed == 0) {
                 *wait_more_data = 1;
@@ -3865,7 +3874,8 @@ xqc_moq_msg_subgroup_parse_ext_params(xqc_moq_subgroup_msg_t *object)
         }
         ext_processed += ret;
 
-        if ((type & 0x1) || type == XQC_MOQ_PARAM_EXTDATA) {
+        if ((type & 0x1) || type == XQC_MOQ_PARAM_EXTDATA
+            || type == XQC_MOQ_PARAM_CATALOG) {
             ret = xqc_vint_read(object->ext_buf + ext_processed,
                                 object->ext_buf + object->ext_len, &length);
             if (ret < 0) {

@@ -429,6 +429,22 @@ xqc_moq_on_subscribe_ok(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
 
     xqc_log(session->log, XQC_LOG_INFO, "|on_subscribe_ok|track_name:%s|track_alias:%ui|subscribe_id:%ui|",
             track->track_info.track_name, track->track_alias, subscribe_ok->subscribe_id);
+
+    xqc_int_t apply_ret = xqc_moq_apply_catalog_param_to_track(track,
+        subscribe_ok->params, subscribe_ok->params_num);
+    if (apply_ret == XQC_OK) {
+        xqc_log(session->log, XQC_LOG_INFO,
+                "|on_subscribe_ok catalog param applied|track_name:%s|codec:%s|",
+                track->track_info.track_name,
+                track->track_info.selection_params.codec ?
+                    track->track_info.selection_params.codec : "null");
+    } else if (apply_ret == XQC_MOQ_CATALOG_PARAM_DECODE_ERR
+               || apply_ret == XQC_MOQ_CATALOG_PARAM_NO_MATCH) {
+        xqc_log(session->log, XQC_LOG_WARN,
+                "|on_subscribe_ok catalog param present but not applied|track_name:%s|reason:%d|",
+                track->track_info.track_name, apply_ret);
+    }
+
     track->track_ops.on_subscribe_ok(session, track, subscribe_ok);
     return;
 
@@ -503,10 +519,14 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
     xqc_int_t track_created = 0;
     xqc_memzero(&catalog_params, sizeof(catalog_params));
 
+    /* TODO: kept separate from xqc_moq_apply_catalog_param_to_track on purpose.
+     * This loop also has to *create* the track when it does not yet exist and
+     * wire the right track_ops, which the helper does not do. Do not collapse
+     * the two without first unifying the track-create path. */
     xqc_moq_message_parameter_t *params = publish->params;
     for (int i = 0; i < publish->params_num; i++) {
         xqc_moq_message_parameter_t *param = &params[i];
-        if (param->type != XQC_MOQ_PARAM_AUTHORIZATION_TOKEN || param->value == NULL || param->length == 0) {
+        if (param->type != XQC_MOQ_PARAM_CATALOG || param->value == NULL || param->length == 0) {
             continue;
         }
 
@@ -514,7 +534,7 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
         xqc_moq_catalog_init(&catalog);
         xqc_int_t cat_ret = xqc_moq_catalog_decode(&catalog, param->value, (size_t)param->length);
         if (cat_ret < 0) {
-            xqc_log(session->log, XQC_LOG_ERROR, "|decode authorization token error|ret:%d|subscribe_id:%ui|",
+            xqc_log(session->log, XQC_LOG_ERROR, "|decode catalog param error|ret:%d|subscribe_id:%ui|",
                     cat_ret, publish->subscribe_id);
             xqc_moq_catalog_free_fields(&catalog);
             continue;

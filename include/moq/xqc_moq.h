@@ -198,6 +198,7 @@ typedef enum {
     XQC_MOQ_PARAM_AUTH                = 0x02,
     XQC_MOQ_PARAM_AUTHORIZATION_TOKEN = 0x03,
     XQC_MOQ_PARAM_EXTDATA             = 0xA0,
+    XQC_MOQ_PARAM_CATALOG             = 0xA2,
 } xqc_moq_param_type_t;
 
 typedef struct {
@@ -592,6 +593,14 @@ xqc_int_t xqc_moq_build_catalog_param_from_track(xqc_moq_track_t *track,
 
 XQC_EXPORT_PUBLIC_API
 void xqc_moq_free_catalog_param(xqc_moq_message_parameter_t *param);
+
+#define XQC_MOQ_CATALOG_PARAM_NOT_FOUND    1
+#define XQC_MOQ_CATALOG_PARAM_DECODE_ERR   2
+#define XQC_MOQ_CATALOG_PARAM_NO_MATCH     3
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_apply_catalog_param_to_track(xqc_moq_track_t *track,
+    xqc_moq_message_parameter_t *params, uint64_t params_num);
 
 /*
  * @brief Set the raw object mode for a track.

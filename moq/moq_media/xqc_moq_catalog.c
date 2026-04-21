@@ -658,7 +658,7 @@ xqc_moq_build_catalog_param_from_track(xqc_moq_track_t *track, xqc_moq_message_p
     }
 
     xqc_memzero(param, sizeof(*param));
-    param->type = XQC_MOQ_PARAM_AUTHORIZATION_TOKEN;
+    param->type = XQC_MOQ_PARAM_CATALOG;
     param->length = encoded_len;
     param->value = buf;
     param->is_integer = 0;
@@ -676,6 +676,115 @@ xqc_moq_free_catalog_param(xqc_moq_message_parameter_t *param)
     xqc_free(param->value);
     param->value = NULL;
     param->length = 0;
+}
+
+/*
+ * Strict match: require equal, non-empty track_name. If both sides carry a
+ * track_namespace, they must also agree; one side missing a namespace alone
+ * does NOT imply match (collisions across namespaces).
+ */
+static xqc_bool_t
+xqc_moq_catalog_track_strict_match(xqc_moq_track_t *dst, xqc_moq_track_t *cat)
+{
+    if (dst->track_info.track_name == NULL || cat->track_info.track_name == NULL) {
+        return XQC_FALSE;
+    }
+    if (strcmp(dst->track_info.track_name, cat->track_info.track_name) != 0) {
+        return XQC_FALSE;
+    }
+    if (dst->track_info.track_namespace != NULL
+        && cat->track_info.track_namespace != NULL
+        && strcmp(dst->track_info.track_namespace,
+                  cat->track_info.track_namespace) != 0)
+    {
+        return XQC_FALSE;
+    }
+    return XQC_TRUE;
+}
+
+/*
+ * Conservative fallback: only when catalog carries exactly one usable track
+ * AND at least one side has no track_name to compare with. Media-type must
+ * still agree. Refuses to guess when both sides name their tracks.
+ */
+static xqc_moq_track_t *
+xqc_moq_catalog_single_track_fallback(xqc_moq_track_t *dst, xqc_moq_catalog_t *catalog)
+{
+    xqc_list_head_t *pos, *next;
+    xqc_moq_track_t *only = NULL;
+    xqc_int_t count = 0;
+
+    xqc_list_for_each_safe(pos, next, &catalog->track_list_for_sub) {
+        xqc_moq_track_t *ct = xqc_list_entry(pos, xqc_moq_track_t, list_member);
+        if (ct->track_info.track_type == XQC_MOQ_TRACK_CATALOG) {
+            continue;
+        }
+        count++;
+        only = ct;
+    }
+    if (count != 1 || only == NULL) {
+        return NULL;
+    }
+    if (only->track_info.track_type != dst->track_info.track_type) {
+        return NULL;
+    }
+    if (dst->track_info.track_name != NULL && only->track_info.track_name != NULL) {
+        /* Both named: strict match should have fired earlier; refuse to guess. */
+        return NULL;
+    }
+    return only;
+}
+
+xqc_int_t
+xqc_moq_apply_catalog_param_to_track(xqc_moq_track_t *track,
+    xqc_moq_message_parameter_t *params, uint64_t params_num)
+{
+    if (track == NULL || params == NULL || params_num == 0) {
+        return XQC_MOQ_CATALOG_PARAM_NOT_FOUND;
+    }
+
+    xqc_int_t seen_catalog = 0;
+
+    for (uint64_t i = 0; i < params_num; i++) {
+        xqc_moq_message_parameter_t *param = &params[i];
+        if (param->type != XQC_MOQ_PARAM_CATALOG
+            || param->value == NULL || param->length == 0) {
+            continue;
+        }
+        seen_catalog = 1;
+
+        xqc_moq_catalog_t catalog;
+        xqc_moq_catalog_init(&catalog);
+        xqc_int_t ret = xqc_moq_catalog_decode(&catalog, param->value, (size_t)param->length);
+        if (ret < 0) {
+            xqc_moq_catalog_free_fields(&catalog);
+            return XQC_MOQ_CATALOG_PARAM_DECODE_ERR;
+        }
+
+        xqc_list_head_t *pos, *next;
+        xqc_moq_track_t *match = NULL;
+        xqc_list_for_each_safe(pos, next, &catalog.track_list_for_sub) {
+            xqc_moq_track_t *ct = xqc_list_entry(pos, xqc_moq_track_t, list_member);
+            if (xqc_moq_catalog_track_strict_match(track, ct)) {
+                match = ct;
+                break;
+            }
+        }
+        if (match == NULL) {
+            match = xqc_moq_catalog_single_track_fallback(track, &catalog);
+        }
+
+        if (match != NULL) {
+            xqc_moq_track_set_params(track, &match->track_info.selection_params);
+            xqc_moq_catalog_free_fields(&catalog);
+            return XQC_OK;
+        }
+
+        xqc_moq_catalog_free_fields(&catalog);
+    }
+
+    return seen_catalog ? XQC_MOQ_CATALOG_PARAM_NO_MATCH
+                        : XQC_MOQ_CATALOG_PARAM_NOT_FOUND;
 }
 
 

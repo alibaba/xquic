@@ -1122,17 +1122,35 @@ xqc_ssl_cert_cb(SSL *ssl, void *arg)
             goto end;
         }
 
-        ssl_ret = SSL_set1_chain(ssl, chain);
-        if (ssl_ret != XQC_SSL_SUCCESS) {
-            xqc_log(tls->log, XQC_LOG_ERROR,
-                    "|set chain error|sni:%s|ret:%d", hostname, ssl_ret);
-            return XQC_SSL_FAIL;
-        }
-
+        /*
+         * IMPORTANT: SSL_use_certificate MUST be called BEFORE SSL_set1_chain.
+         *
+         * SSL_use_certificate() internally calls ssl_set_cert(), which switches
+         * ssl->cert->key to the pkey slot matching the new certificate type
+         * (e.g., RSA → ECC).  SSL_set1_chain() operates on ssl->cert->key->chain,
+         * i.e., the *current* slot.
+         *
+         * If SSL_set1_chain is called first (old order), the chain is written to
+         * the OLD slot (inherited from xquic SSL_CTX).  Then SSL_use_certificate
+         * switches to the NEW slot, whose chain is NULL.  During handshake,
+         * BabaSSL reads ssl->cert->key->chain from the NEW slot → NULL → client
+         * receives only the leaf certificate → TLS alert unknown_ca (0x130).
+         *
+         * The correct order matches BabaSSL's own SSL_CTX_use_certificate_chain_file:
+         *   1. SSL_CTX_use_certificate  (switch slot)
+         *   2. SSL_CTX_add0_chain_cert  (add chain to current slot)
+         */
         ssl_ret = SSL_use_certificate(ssl, crt);
         if (ssl_ret != XQC_SSL_SUCCESS) {
             xqc_log(tls->log, XQC_LOG_ERROR,
                     "|set certificate error|sni:%s|ret:%d", hostname, ssl_ret);
+            return XQC_SSL_FAIL;
+        }
+
+        ssl_ret = SSL_set1_chain(ssl, chain);
+        if (ssl_ret != XQC_SSL_SUCCESS) {
+            xqc_log(tls->log, XQC_LOG_ERROR,
+                    "|set chain error|sni:%s|ret:%d", hostname, ssl_ret);
             return XQC_SSL_FAIL;
         }
 

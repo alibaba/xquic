@@ -747,7 +747,8 @@ xqc_moq_apply_catalog_param_to_track(xqc_moq_track_t *track,
 
     for (uint64_t i = 0; i < params_num; i++) {
         xqc_moq_message_parameter_t *param = &params[i];
-        if (param->type != XQC_MOQ_PARAM_CATALOG
+        if ((param->type != XQC_MOQ_PARAM_CATALOG
+             && param->type != XQC_MOQ_PARAM_AUTHORIZATION_TOKEN)
             || param->value == NULL || param->length == 0) {
             continue;
         }

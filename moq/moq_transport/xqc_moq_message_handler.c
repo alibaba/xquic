@@ -526,7 +526,9 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
     xqc_moq_message_parameter_t *params = publish->params;
     for (int i = 0; i < publish->params_num; i++) {
         xqc_moq_message_parameter_t *param = &params[i];
-        if (param->type != XQC_MOQ_PARAM_CATALOG || param->value == NULL || param->length == 0) {
+        if ((param->type != XQC_MOQ_PARAM_CATALOG
+             && param->type != XQC_MOQ_PARAM_AUTHORIZATION_TOKEN)
+            || param->value == NULL || param->length == 0) {
             continue;
         }
 

@@ -9,6 +9,7 @@
 #include "src/transport/xqc_engine.h"
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_ext_bytestream.h"
+#include "src/webtransport/xqc_webtransport_ctx.h"
 
 xqc_h3_stream_t *
 xqc_h3_stream_create(xqc_h3_conn_t *h3c, xqc_stream_t *stream, xqc_h3_stream_type_t type,
@@ -1068,6 +1069,18 @@ xqc_h3_stream_process_bytestream(xqc_h3_stream_t *h3s,
     xqc_int_t ret;
     xqc_h3_ext_bytestream_data_buf_t *buf;
 
+    /* WebTransport bidi streams (RFC 9297) carry raw payload (session_id +
+     * application data) without H3 DATA frame wrapping.  Bypass the H3 frame
+     * parser and deliver via xqc_h3_ext_bytestream_deliver_raw, which calls
+     * wt_bs_read_notify → session_id parsing → application callback. */
+    if ((h3s->flags & XQC_HTTP3_STREAM_FLAG_WT_BIDI) && h3s->h3_ext_bs != NULL) {
+        if (data_len > 0 || fin_flag) {
+            xqc_h3_ext_bytestream_deliver_raw(h3s->h3_ext_bs,
+                data, data_len, fin_flag);
+        }
+        return data_len;
+    }
+
     /* process bytestream bytes */
     while (processed < data_len) {
         xqc_log(h3s->log, XQC_LOG_DEBUG, "|parse frame|state:%d|data_len:%uz|process:%z|",
@@ -1230,6 +1243,22 @@ xqc_h3_stream_process_uni(xqc_h3_stream_t *h3s, unsigned char *data, size_t data
         }
     }
 
+    /* WebTransport uni stream (RFC 9297 Section 5): route to WT layer */
+    if (h3s->type == (xqc_h3_stream_type_t)XQC_H3_STREAM_TYPE_WT_UNI) {
+        if (!(h3s->flags & XQC_HTTP3_STREAM_FLAG_WT_UNI_CREATED)) {
+            h3s->flags |= XQC_HTTP3_STREAM_FLAG_WT_UNI_CREATED;
+            int wt_ret = 0;
+            xqc_wt_h3_uni_stream_created(h3s->h3c, h3s, &wt_ret);
+        }
+        if (data_len > processed) {
+            int wt_ret = 0;
+            xqc_wt_h3_uni_stream_recv(h3s->h3c, h3s,
+                data + processed, data_len - processed, &wt_ret);
+            processed = data_len;
+        }
+        return processed;
+    }
+
     if (data_len != processed) {
         /* deliver data to modules which is concerned */
         ssize_t read = xqc_h3_stream_process_uni_payload(h3s, data + processed,
@@ -1258,7 +1287,6 @@ xqc_h3_stream_process_bidi_payload(xqc_h3_stream_t *h3s, unsigned char *data, si
         break;
 
     case XQC_H3_STREAM_TYPE_BYTESTEAM:
-        //TODO: process bytestream 
         processed = xqc_h3_stream_process_bytestream(h3s, data, data_len, fin_flag);
         break; 
 
@@ -1358,7 +1386,13 @@ xqc_h3_stream_process_bidi_type_unknown(xqc_h3_stream_t *h3s,
         xqc_log(h3s->log, XQC_LOG_DEBUG, "|parse frame type success|frame_type:%xL|read:%z|",
                 pctx->frame.type, read);
         
-        if (pctx->frame.type != XQC_H3_EXT_FRM_BIDI_STREAM_TYPE) {
+        if (pctx->frame.type == (xqc_h3_frm_type_t)XQC_H3_STREAM_TYPE_WT_BIDI) {
+            /* WebTransport bidi stream (RFC 9297 Section 5): raw payload, no H3 frames */
+            h3s->type = XQC_H3_STREAM_TYPE_BYTESTEAM;
+            h3s->flags |= XQC_HTTP3_STREAM_FLAG_WT_BIDI;
+            ret = xqc_h3_stream_create_inner_bytestream(h3s);
+
+        } else if (pctx->frame.type != XQC_H3_EXT_FRM_BIDI_STREAM_TYPE) {
             /* the first frame is not BIDI_STREAM_TYPE */
             ret = xqc_h3_stream_create_inner_request_stream(h3s);
 

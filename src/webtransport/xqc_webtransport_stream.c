@@ -9,6 +9,7 @@
 #include "src/http3/xqc_h3_stream.h"
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_stream.h"
+#include "src/transport/xqc_packet_out.h"
 #include "src/webtransport/xqc_webtransport_conn.h"
 #include "src/webtransport/xqc_webtransport_defs.h"
 #include "src/webtransport/xqc_webtransport_session.h"
@@ -84,6 +85,8 @@ xqc_wt_stream_map_closeSession(xqc_wt_stream_map_t *stream_map)
         }
     }
     xqc_id_hash_release(stream_map->FuncMap);
+    xqc_free(stream_map->FuncMap);
+    xqc_free(stream_map);
 }
 
 uint64_t
@@ -155,14 +158,17 @@ xqc_wt_create_recv_stream_active(xqc_h3_stream_t *h3_stream,
     wt_stream_close_func_pt                       close_func)
 {
     if (h3_stream == NULL) {
-        /* h3_stream is NULL */
         return NULL;
     }
     xqc_wt_recv_stream_t *wt_stream =
         (xqc_wt_recv_stream_t *)xqc_malloc(sizeof(xqc_wt_recv_stream_t));
+    if (wt_stream == NULL) {
+        return NULL;
+    }
     xqc_connection_t *conn = xqc_h3_conn_get_xqc_conn(h3_stream->h3c);
     wt_stream->stream =
         xqc_stream_create_with_direction(conn, XQC_STREAM_UNI, NULL);
+    wt_stream->h3_stream = h3_stream;
     wt_stream->close_func = close_func;
     return wt_stream;
 }
@@ -224,7 +230,7 @@ xqc_wt_create_unistream(xqc_wt_unistream_type_t unistream_type,
         return NULL;
     }
 
-    wt_unistream->sessionID = session->sessionID;
+    wt_unistream->session_id = session->session_id;
 
     return wt_unistream;
 }
@@ -232,19 +238,28 @@ xqc_wt_create_unistream(xqc_wt_unistream_type_t unistream_type,
 xqc_int_t
 xqc_wt_unistream_close(xqc_wt_unistream_t *wt_stream)
 {
+    if (wt_stream == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    /* Note: caller is responsible for removing this stream from session's
+     * pending_unistreams hash table before calling close, since unistream
+     * does not hold a back-reference to its session. */
+
     if (wt_stream->type == XQC_WT_STREAM_TYPE_SEND) {
         xqc_wt_send_stream_t *send_stream = wt_stream->stream.send_stream;
-        if (send_stream->stream) xqc_destroy_stream(send_stream->stream);
-        wt_stream->fin.send_fin = XQC_FALSE;
+        if (send_stream && send_stream->stream) {
+            xqc_destroy_stream(send_stream->stream);
+        }
         if (wt_stream->close_func) wt_stream->close_func();
     } else if (wt_stream->type == XQC_WT_STREAM_TYPE_RECV) {
         xqc_wt_recv_stream_t *recv_stream = wt_stream->stream.recv_stream;
-        if (recv_stream->stream) xqc_destroy_stream(recv_stream->stream);
-        wt_stream->fin.recv_fin = XQC_FALSE;
+        if (recv_stream && recv_stream->stream) {
+            xqc_destroy_stream(recv_stream->stream);
+        }
         if (wt_stream->close_func) wt_stream->close_func();
     }
     xqc_free(wt_stream);
-    wt_stream = NULL;
     return XQC_OK;
 }
 
@@ -272,7 +287,7 @@ xqc_wt_unistream_send(xqc_wt_unistream_t *wt_unistream, void *data,
         p    += n;
         left -= n;
 
-        n = xqc_wt_encode_session_id(wt_unistream->sessionID, p, left);
+        n = xqc_wt_encode_session_id(wt_unistream->session_id, p, left);
         if (n == 0) {
             return XQC_ERROR;
         }
@@ -349,7 +364,7 @@ xqc_wt_create_bidistream(xqc_h3_stream_t *h3_stream, xqc_wt_session_t *session,
     }
     wt_bidistream->send_fin = XQC_FALSE;
     wt_bidistream->recv_fin = XQC_FALSE;
-    wt_bidistream->sessionID = session->sessionID;
+    wt_bidistream->session_id = session->session_id;
 
     return wt_bidistream;
 }
@@ -381,7 +396,7 @@ xqc_wt_bidistream_send(xqc_wt_bidistream_t *wt_stream, void *data, uint32_t len,
         p    += n;
         left -= n;
 
-        n = xqc_wt_encode_session_id(wt_stream->sessionID, p, left);
+        n = xqc_wt_encode_session_id(wt_stream->session_id, p, left);
         if (n == 0) {
             return XQC_ERROR;
         }
@@ -441,20 +456,105 @@ xqc_wt_unistream_set_h3_stream(xqc_wt_unistream_t *wt_stream,
 
 // for test
 void
-xqc_wt_unistream_set_sessionID(xqc_wt_unistream_t *wt_stream,
-    uint64_t                                       sessionID)
+xqc_wt_unistream_set_session_id(xqc_wt_unistream_t *wt_stream,
+    uint64_t                                       session_id)
 {
-    wt_stream->sessionID = sessionID;
+    wt_stream->session_id = session_id;
 }
 
 uint64_t
-xqc_wt_unistream_get_sessionID(xqc_wt_unistream_t *wt_stream)
+xqc_wt_unistream_get_session_id(xqc_wt_unistream_t *wt_stream)
 {
-    return wt_stream->sessionID;
+    return wt_stream->session_id;
 }
 
 uint64_t
-xqc_wt_bidistream_get_sessionID(xqc_wt_bidistream_t *wt_stream)
+xqc_wt_bidistream_get_session_id(xqc_wt_bidistream_t *wt_stream)
 {
-    return wt_stream->sessionID;
+    return wt_stream->session_id;
+}
+
+/* ===== Stream RESET_STREAM / STOP_SENDING (RFC 9000 §3.5, §3.3) ===== */
+
+xqc_int_t
+xqc_wt_unistream_reset(xqc_wt_unistream_t *wt_stream, uint64_t error_code)
+{
+    if (wt_stream == NULL) {
+        return -XQC_EPARAM;
+    }
+    if (wt_stream->type == XQC_WT_STREAM_TYPE_SEND) {
+        xqc_wt_send_stream_t *send_stream = wt_stream->stream.send_stream;
+        if (send_stream && send_stream->stream) {
+            xqc_connection_t *conn = send_stream->stream->stream_conn;
+            return xqc_write_reset_stream_to_packet(conn, send_stream->stream,
+                error_code, send_stream->stream->stream_send_offset);
+        }
+    }
+    return -XQC_EPARAM;
+}
+
+xqc_int_t
+xqc_wt_unistream_stop_sending(xqc_wt_unistream_t *wt_stream, uint64_t error_code)
+{
+    if (wt_stream == NULL) {
+        return -XQC_EPARAM;
+    }
+    if (wt_stream->type == XQC_WT_STREAM_TYPE_RECV) {
+        xqc_wt_recv_stream_t *recv_stream = wt_stream->stream.recv_stream;
+        if (recv_stream && recv_stream->stream) {
+            xqc_connection_t *conn = recv_stream->stream->stream_conn;
+            return xqc_write_stop_sending_to_packet(conn, recv_stream->stream, error_code);
+        }
+    }
+    return -XQC_EPARAM;
+}
+
+xqc_int_t
+xqc_wt_bidistream_reset(xqc_wt_bidistream_t *wt_stream, uint64_t error_code)
+{
+    if (wt_stream == NULL) {
+        return -XQC_EPARAM;
+    }
+    if (wt_stream->send_stream && wt_stream->send_stream->stream) {
+        xqc_connection_t *conn = wt_stream->send_stream->stream->stream_conn;
+        return xqc_write_reset_stream_to_packet(conn,
+            wt_stream->send_stream->stream, error_code,
+            wt_stream->send_stream->stream->stream_send_offset);
+    }
+    return -XQC_EPARAM;
+}
+
+xqc_int_t
+xqc_wt_bidistream_stop_sending(xqc_wt_bidistream_t *wt_stream, uint64_t error_code)
+{
+    if (wt_stream == NULL) {
+        return -XQC_EPARAM;
+    }
+    if (wt_stream->recv_stream && wt_stream->recv_stream->stream) {
+        xqc_connection_t *conn = wt_stream->recv_stream->stream->stream_conn;
+        return xqc_write_stop_sending_to_packet(conn, wt_stream->recv_stream->stream, error_code);
+    }
+    return -XQC_EPARAM;
+}
+
+xqc_int_t
+xqc_wt_bidistream_destroy(xqc_wt_bidistream_t *wt_stream)
+{
+    if (wt_stream == NULL) {
+        return XQC_OK;
+    }
+    if (wt_stream->send_stream) {
+        if (wt_stream->send_stream->stream) {
+            xqc_destroy_stream(wt_stream->send_stream->stream);
+        }
+        xqc_free(wt_stream->send_stream);
+    }
+    if (wt_stream->recv_stream) {
+        if (wt_stream->recv_stream->stream) {
+            xqc_destroy_stream(wt_stream->recv_stream->stream);
+        }
+        xqc_free(wt_stream->recv_stream);
+    }
+    xqc_free(wt_stream);
+    return XQC_OK;
 }

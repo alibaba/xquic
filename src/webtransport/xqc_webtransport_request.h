@@ -38,6 +38,10 @@ typedef struct xqc_wt_request_s {   // 本质上是封装了一下h3_request + �
     size_t                send_body_len;
     size_t                recv_body_len;
 
+    /* capsule reassembly buffer for incomplete capsules spanning DATA frames */
+    uint8_t              *capsule_buf;
+    size_t                capsule_buf_len;
+
 } xqc_wt_request_t;   // inner interface
 
 void xqc_wt_request_parse_request_parameter(
@@ -46,6 +50,9 @@ void xqc_wt_request_parse_request_parameter(
 xqc_wt_request_t *xqc_wt_request_create(xqc_log_t *log);   // 这里注意 headers 和 map 的初始化
 
 void              xqc_wt_request_destroy(xqc_wt_request_t *wt_request);
+
+void              xqc_wt_request_table_insert(xqc_wt_request_t *wt_request,
+                      const char *key, const char *value);
 
 char             *xqc_wt_request_table_find(xqc_wt_request_t *wt_request, const char *key);
 

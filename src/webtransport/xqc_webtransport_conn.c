@@ -4,6 +4,7 @@
  */
 #include "xqc_webtransport_conn.h"
 #include "src/common/xqc_malloc.h"
+#include "src/webtransport/xqc_webtransport_session.h"
 
 
 xqc_wt_conn_t* xqc_wt_conn_create(xqc_h3_conn_t* h3_conn)
@@ -14,8 +15,7 @@ xqc_wt_conn_t* xqc_wt_conn_create(xqc_h3_conn_t* h3_conn)
     }
     conn->h3_conn = h3_conn;
     conn->wt_session = NULL;
-    conn->bidistream_first_connect = XQC_FALSE;
-    conn->dgram_mss = 100;
+    conn->dgram_mss = XQC_WEBTRANSPORT_DEFAULT_DGRAM_MSS;
 
     /* initialize session map for potential multi-session support */
     conn->sessions = xqc_calloc(1, sizeof(xqc_id_hash_table_t));
@@ -28,10 +28,30 @@ xqc_wt_conn_t* xqc_wt_conn_create(xqc_h3_conn_t* h3_conn)
 
 xqc_int_t xqc_wt_conn_close(xqc_wt_conn_t* conn)
 {
+    if (conn == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    /* destroy all sessions registered on this connection.
+     * Clear wt_conn back-references first to prevent re-entrant unregister
+     * calls from xqc_wt_session_close modifying the hash during iteration. */
     if (conn->sessions) {
+        for (int i = 0; i < conn->sessions->count; i++) {
+            xqc_id_hash_node_t *node = conn->sessions->list[i];
+            while (node) {
+                xqc_wt_session_t *s = (xqc_wt_session_t *)node->element.value;
+                node = node->next;
+                if (s) {
+                    s->wt_conn = NULL;
+                    xqc_wt_session_close(s);
+                }
+            }
+        }
         xqc_id_hash_release(conn->sessions);
         xqc_free(conn->sessions);
         conn->sessions = NULL;
+    } else if (conn->wt_session) {
+        conn->wt_session->wt_conn = NULL;
     }
     xqc_free(conn);
 
@@ -51,7 +71,7 @@ xqc_wt_conn_register_session(xqc_wt_conn_t *wt_conn, xqc_wt_session_t *session)
     }
 
     xqc_id_hash_element_t e = {
-        .hash  = session->sessionID,
+        .hash  = session->session_id,
         .value = session,
     };
 

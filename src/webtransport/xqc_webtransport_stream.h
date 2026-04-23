@@ -71,7 +71,7 @@ typedef struct xqc_wt_unistream_s
         xqc_bool_t recv_fin;
     } fin;
 
-    uint64_t          sessionID;
+    uint64_t          session_id;
     xqc_h3_stream_t  *h3_stream;   // 多余的 暂时保留
     xqc_connection_t *conn;
     xqc_bool_t packet_parsed_flag;   // default value = XQC_FALSE , when packet
@@ -96,7 +96,7 @@ typedef struct xqc_wt_bidistream_s
 
     xqc_bool_t packet_parsed_flag;   // default value = XQC_FALSE , when packet
                                      // parsed , set it to XQC_TRUE
-    uint64_t         sessionID;
+    uint64_t         session_id;
     xqc_h3_stream_t *h3_stream;
 
     xqc_bool_t send_fin;
@@ -136,8 +136,8 @@ xqc_int_t xqc_wt_bidistream_destroy(xqc_wt_bidistream_t *wt_stream);
 xqc_int_t xqc_wt_bidistream_send(xqc_wt_bidistream_t *wt_stream, void *data,
     uint32_t len, int fin);
 
-void xqc_wt_unistream_set_sessionID(xqc_wt_unistream_t *wt_stream,
-    uint64_t                                            sessionID);
+void xqc_wt_unistream_set_session_id(xqc_wt_unistream_t *wt_stream,
+    uint64_t                                            session_id);
 
 
 #ifdef __cplusplus

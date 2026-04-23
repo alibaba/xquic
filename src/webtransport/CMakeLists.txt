@@ -68,3 +68,16 @@ target_link_libraries(wt_test_server ${APP_DEPEND_LIBS})
 
 add_executable(wt_test_client "wt_test_client.c")
 target_link_libraries(wt_test_client ${APP_DEPEND_LIBS})
+
+# Shared library for Python CFFI bindings (pyxquic-wt)
+set(
+    WT_PY_API_SOURCES
+    ${WT_DEMO_BASE_SOURCES}
+    "xqc_wt_py_api.c"
+)
+add_library(xquic_wt_py SHARED ${WT_PY_API_SOURCES})
+target_link_libraries(xquic_wt_py ${APP_DEPEND_LIBS})
+set_target_properties(xquic_wt_py PROPERTIES
+    OUTPUT_NAME "xquic_wt_py"
+    POSITION_INDEPENDENT_CODE ON
+)

@@ -25,6 +25,10 @@ typedef enum {
     XQC_H3_STREAM_TYPE_REQUEST          = 0x10,
     XQC_H3_STREAM_TYPE_BYTESTEAM        = 0x20,
 
+    /* WebTransport stream types (RFC 9297 Section 5) */
+    XQC_H3_STREAM_TYPE_WT_BIDI          = 0x41,
+    XQC_H3_STREAM_TYPE_WT_UNI           = 0x54,
+
     /* reserved stream type or others */
     XQC_H3_STREAM_TYPE_UNKNOWN          = 0xFFFFFFFFFFFFFFFFull,
 } xqc_h3_stream_type_t;
@@ -74,6 +78,10 @@ typedef enum {
     XQC_HTTP3_STREAM_FLAG_ACTIVELY_CLOSED       = 0x1000,
     /* FIN was sent and no data will be sent any more */
     XQC_HTTP3_STREAM_FLAG_FIN_SENT              = 0x2000,
+    /* WebTransport uni stream: WT layer has been notified of creation */
+    XQC_HTTP3_STREAM_FLAG_WT_UNI_CREATED        = 0x4000,
+    /* WebTransport bidi stream: bypass H3 DATA frame parsing */
+    XQC_HTTP3_STREAM_FLAG_WT_BIDI               = 0x8000,
 } xqc_h3_stream_flag;
 
 typedef struct xqc_h3_stream_pctx_s {

@@ -415,6 +415,42 @@ xqc_h3_frm_write_settings(xqc_list_head_t *send_buf, xqc_h3_conn_settings_t *set
     len += xqc_put_varint_len(settings[count].value.vi);
     ++count;
 
+    /* Extended CONNECT (RFC 9220) — independent of WebTransport */
+    if (setting->enable_connect_protocol) {
+        settings[count].identifier.vi = XQC_H3_SETTINGS_ENABLE_CONNECT_PROTOCOL;
+        settings[count].value.vi = 1;
+        len += xqc_put_varint_len(settings[count].identifier.vi);
+        len += xqc_put_varint_len(settings[count].value.vi);
+        ++count;
+    }
+
+    /* H3 Datagram (RFC 9297) — independent of WebTransport */
+    if (setting->h3_datagram) {
+        settings[count].identifier.vi = XQC_H3_SETTINGS_H3_DATAGRAM;
+        settings[count].value.vi = 1;
+        len += xqc_put_varint_len(settings[count].identifier.vi);
+        len += xqc_put_varint_len(settings[count].value.vi);
+        ++count;
+    }
+
+    /* WebTransport: send both draft and RFC 9297 final IDs for interop */
+    if (setting->enable_webtransport) {
+        uint64_t max_sessions = setting->webtransport_max_sessions > 0
+                              ? setting->webtransport_max_sessions : 1;
+
+        settings[count].identifier.vi = XQC_H3_SETTINGS_ENABLE_WEBTRANSPORT;
+        settings[count].value.vi = 1;
+        len += xqc_put_varint_len(settings[count].identifier.vi);
+        len += xqc_put_varint_len(settings[count].value.vi);
+        ++count;
+
+        settings[count].identifier.vi = XQC_H3_SETTINGS_WEBTRANSPORT_MAX_SESSIONS;
+        settings[count].value.vi = max_sessions;
+        len += xqc_put_varint_len(settings[count].identifier.vi);
+        len += xqc_put_varint_len(settings[count].value.vi);
+        ++count;
+    }
+
     xqc_var_buf_t *buf = xqc_var_buf_create(xqc_put_varint_len(XQC_H3_FRM_SETTINGS)
                                             + xqc_put_varint_len(len)
                                             + len);

@@ -45,7 +45,7 @@ xqc_webtransport_datagram_send(xqc_webtransport_conn_t *user_conn, void *data,
 
     uint64_t session_id = 0;
     if (wt_conn && wt_conn->wt_session) {
-        session_id = wt_conn->wt_session->sessionID;
+        session_id = wt_conn->wt_session->session_id;
     }
 
     uint8_t header_buf[8];

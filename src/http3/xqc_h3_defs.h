@@ -43,6 +43,12 @@ typedef enum {
     /* QPACK settings */
     XQC_H3_SETTINGS_QPACK_MAX_TABLE_CAPACITY    = 0x01,
     XQC_H3_SETTINGS_QPACK_BLOCKED_STREAMS       = 0x07,
+
+    /* WebTransport settings (RFC 9220 + RFC 9297) */
+    XQC_H3_SETTINGS_ENABLE_CONNECT_PROTOCOL     = 0x08,
+    XQC_H3_SETTINGS_H3_DATAGRAM                 = 0x33,
+    XQC_H3_SETTINGS_ENABLE_WEBTRANSPORT         = 0x2b603742,  /* draft */
+    XQC_H3_SETTINGS_WEBTRANSPORT_MAX_SESSIONS   = 0xc671706a,  /* RFC 9297 final */
 } xqc_h3_settings_id;
 
 

@@ -26,13 +26,13 @@ typedef struct xqc_webtransport_conn_s{
     socklen_t peer_addrlen;
     xqc_cid_t cid;
 
-    xqc_bool_t bidistream_first_connect;
-
     size_t dgram_mss;
 
     xqc_id_hash_table_t *sessions; /* map sessionID -> xqc_wt_session_t* */
 
     xqc_wt_ctx_t *wt_ctx; /* back-pointer to WT context (shared, not owned) */
+
+    void *py_handle;  /* back-pointer to py_client_t or py_server_t for CFFI routing */
 
 }xqc_wt_conn_t ;
 

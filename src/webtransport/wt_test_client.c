@@ -245,7 +245,7 @@ main(int argc, char *argv[])
     xqc_webtransport_stream_callbacks_t stcbs = {
         .wt_bidistream_read_notify = on_bidi_read,
     };
-    if (xqc_wt_ctx_init(ctx_s.engine, NULL, &scbs, &stcbs) != XQC_OK) {
+    if (xqc_wt_ctx_init(ctx_s.engine, NULL, &scbs, &stcbs, 0) != XQC_OK) {
         printf("[FAIL] wt_ctx_init\n"); return 1;
     }
 

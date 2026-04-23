@@ -284,6 +284,14 @@ typedef struct xqc_h3_conn_settings_s {
     xqc_bool_t  qpack_compat_duplicate;
 #endif
 
+    /** Extended CONNECT and Datagram settings (RFC 9220, RFC 9297) */
+    xqc_bool_t enable_connect_protocol;   /* SETTINGS_ENABLE_CONNECT_PROTOCOL (0x08) */
+    xqc_bool_t h3_datagram;              /* SETTINGS_H3_DATAGRAM (0x33) */
+
+    /** WebTransport settings */
+    xqc_bool_t enable_webtransport;      /* enables WT; sends both draft (0x2b603742) and RFC 9297 (0xc671706a) */
+    uint64_t   webtransport_max_sessions; /* SETTINGS_WEBTRANSPORT_MAX_SESSIONS value (default 1) */
+
 } xqc_h3_conn_settings_t;
 
 /**

@@ -464,13 +464,18 @@ xqc_packet_parse_initial(xqc_connection_t *c, xqc_packet_in_t *packet_in)
     packet_in->pi_pkt.pkt_type = XQC_PTYPE_INIT;
     packet_in->pi_pkt.pkt_pns = XQC_PNS_INIT;
 
-    /* The smallest length of udp datagrams carrying initial packet frome client is 1200  */
+    /* RFC 9000 §14.1: clients MUST pad UDP datagrams carrying Initial packets to >=1200 bytes.
+     * This is a client-side obligation; the server's anti-amplification defense is the 3x send
+     * limit (xqc_send_ctl_check_anti_amplification), not this size check.  Some browsers
+     * (e.g. Safari/WebKit) send Initial datagrams below 1200 bytes.  We log the violation
+     * but do not reject the packet, consistent with other major QUIC implementations. */
     if (c->conn_type == XQC_CONN_TYPE_SERVER) {
-        if (XQC_BUFF_LEFT_SIZE(packet_in->buf, end) < XQC_PACKET_INITIAL_MIN_LENGTH) {
-            xqc_log(c->log, XQC_LOG_ERROR, "|initial size too small|%z|",
-                    (size_t)XQC_BUFF_LEFT_SIZE(packet_in->buf, end));
-            XQC_CONN_ERR(c, TRA_PROTOCOL_VIOLATION);
-            return -XQC_EILLPKT;
+        size_t dgram_size = XQC_BUFF_LEFT_SIZE(packet_in->buf, end);
+        if (dgram_size < XQC_PACKET_INITIAL_MIN_LENGTH) {
+            xqc_log(c->log, XQC_LOG_WARN,
+                    "|initial datagram below RFC 9000 minimum"
+                    "|dgram_size:%z|min:%d|",
+                    dgram_size, XQC_PACKET_INITIAL_MIN_LENGTH);
         }
     }
 

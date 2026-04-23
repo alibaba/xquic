@@ -22,11 +22,9 @@
 #include <xquic/xqc_http3.h>
 #include <xquic/xquic.h>
 #include <xquic/xquic_typedef.h>
-// #include <io.h>
 
 #include <stdio.h>
 #include <xquic/xqc_webtransport.h>
-// #include <semaphore>
 #include "src/common/utils/var_buf/xqc_var_buf.h"
 #include "src/common/xqc_common.h"
 #include "src/common/xqc_time.h"
@@ -92,14 +90,6 @@ typedef enum h3_hdr_type
 
     H3_HDR_CNT
 } H3_HDR_TYPE;
-
-enum WTSettingsID
-{
-    /* h3 settings */
-    WT_SETTINGS_ENABLE_WEBTRANSPORT = 0x2b603742,
-    WT_SETTINGS_DATAGRAM            = 0x33,
-    WT_SETTINGS_EXTENDEDCONNECT     = 0x8,
-};
 
 #define USE_WT_VIDEO_DEMO 1
 
@@ -170,11 +160,12 @@ wt_unistream_read_handler(xqc_wt_unistream_t *stream, xqc_wt_session_t *session,
     xqc_wt_unistream_t *unistream = xqc_wt_create_unistream(
         XQC_WT_STREAM_TYPE_SEND, session, NULL, h3_stream);
 
-    // xqc_wt_unistream_send(unistream, data, data_len, 0);
+    if (!unistream) {
+        return 1;
+    }
+
     xqc_wt_unistream_send(unistream, data, data_len, 1);
-
     xqc_wt_unistream_close(unistream);
-
     return 1;
 }
 xqc_int_t
@@ -182,10 +173,7 @@ wt_bidistream_read_handler(xqc_wt_bidistream_t *bidistream,
     xqc_wt_session_t *session, void *data, size_t data_len,
     void *strm_user_data)
 {
-    // xqc_wt_bidistream_send(bidistream, data, data_len, 0); // not finish
-    xqc_wt_bidistream_send(bidistream, data, data_len, 1);   // finish stream
-    // xqc_h3_stream_send_goaway(session->mStream, 2,0); // test go away
-
+    xqc_wt_bidistream_send(bidistream, data, data_len, 1);
     return 1;
 }
 
@@ -194,7 +182,7 @@ xqc_webtransport_dgram_callbacks_t default_dgram_cbs = {0};
 
 xqc_webtransport_stream_callbacks_t default_stream_cbs = {
     .wt_unistream_read_notify  = wt_unistream_read_handler,
-    /* bidi echo is handled by WT layer's default fallback (raw stream echo) */
+    .wt_bidistream_read_notify = wt_bidistream_read_handler,
 };
 
 typedef struct NetConfig_s {
@@ -317,6 +305,7 @@ server_init()
     server->wt_EnvConfig     = (EnvConfig *)xqc_calloc(1, sizeof(EnvConfig));
     server->m_con_id_gen     = 0;
     server->check_connid_cnt = 0;
+    server->log_fd = open("slog.log", O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
     return server;
 }
@@ -350,7 +339,28 @@ wt_svr_init_args(WT_Server *server, int argc, char **argv)
     server->wt_QuicConfig->least_available_cid_count = 1;
     server->wt_QuicConfig->max_pkt_sz                = 1200;
 
-    int ch                                           = 0;
+    int ch = 0;
+    while ((ch = getopt(argc, argv, "p:c:k:l:")) != -1) {
+        switch (ch) {
+        case 'p':
+            server->wt_NetConfig->port = (short)atoi(optarg);
+            break;
+        case 'c':
+            server->wt_EnvConfig->mCertPemPath = optarg;
+            break;
+        case 'k':
+            server->wt_EnvConfig->mPrivKeyPath = optarg;
+            break;
+        case 'l':
+            if (strcmp(optarg, "e") == 0)      server->wt_EnvConfig->mLogLevel = XQC_LOG_ERROR;
+            else if (strcmp(optarg, "w") == 0)  server->wt_EnvConfig->mLogLevel = XQC_LOG_WARN;
+            else if (strcmp(optarg, "i") == 0)  server->wt_EnvConfig->mLogLevel = XQC_LOG_INFO;
+            else if (strcmp(optarg, "d") == 0)  server->wt_EnvConfig->mLogLevel = XQC_LOG_DEBUG;
+            break;
+        default:
+            break;
+        }
+    }
 }
 
 void
@@ -369,6 +379,10 @@ wt_svr_write_log_file(xqc_log_level_t lvl, const void *buf, size_t size,
     void *eng_user_data)
 {
     WT_Server *server = g_Server;
+    if (server && server->log_fd > 0) {
+        write(server->log_fd, buf, size);
+        write(server->log_fd, "\n", 1);
+    }
 }
 
 static void
@@ -392,8 +406,9 @@ wt_svr_write_socket(const unsigned char *buf, size_t size,
         set_sys_errno(0);
         res = sendto(fd, (const char *)buf, size, 0, peer_addr, peer_addrlen);
         if ( res < 0 ) {
-            printf("xqc_demo_svr_write_socket err %zd %s, fd: %d\n", res,
-                strerror(get_sys_errno()), fd);
+            fprintf(stderr, "SENDTO_ERR: fd=%d size=%zu res=%zd errno=%d(%s) family=%d addrlen=%d\n",
+                fd, size, res, get_sys_errno(), strerror(get_sys_errno()),
+                peer_addr->sa_family, peer_addrlen);
             if ( get_sys_errno() == EAGAIN ) {
                 res = XQC_SOCKET_EAGAIN;
             }
@@ -505,7 +520,7 @@ wt_svr_init_conn_settings(WT_Server *server)
                 .init_cwnd        = 32,
                 .bbr_enable_lt_bw = 1,
             },
-        .init_idle_time_out      = 60000,
+        .init_idle_time_out      = 1800000,  /* 30 minutes */
         .spurious_loss_detect_on = 1,
         .keyupdate_pkt_threshold =
             server->wt_QuicConfig->keyupdate_pkt_threshold,
@@ -522,7 +537,7 @@ wt_svr_init_conn_settings(WT_Server *server)
         .scheduler_callback         = sched,
         .reinj_ctl_callback         = xqc_default_reinj_ctl_cb,
         .standby_path_probe_timeout = 1000,
-        .adaptive_ack_frequency     = 1,
+        .adaptive_ack_frequency     = 0, /* disabled: Safari does not support ACK_FREQUENCY extension */
         .is_interop_mode = (xqc_bool_t)server->wt_QuicConfig->is_interop_mode,
     };
     return conn_settings;
@@ -568,7 +583,7 @@ wt_svr_init_xquic_engine(WT_Server *server)
     xqc_server_set_conn_settings(server->engine, &conn_settings);
 
     xqc_wt_ctx_init(server->engine, &default_dgram_cbs, NULL,
-        &default_stream_cbs);
+        &default_stream_cbs, 0);
 
     return 0;
 }
@@ -588,9 +603,6 @@ wt_svr_socket_read_handler(WT_Server *server, int fd)
         recv_size = recvfrom(fd, (char *)packet_buf, sizeof(packet_buf), 0,
             (struct sockaddr *)&peer_addr, &peer_addrlen);
         if ( recv_size < 0 && get_sys_errno() == EAGAIN ) {
-            int errcode = get_sys_errno();
-            //  printf("err code %d\n", errcode);
-            //  printf("haha\n");
             break;
         }
 
@@ -613,7 +625,6 @@ wt_svr_socket_read_handler(WT_Server *server, int fd)
     } while ( recv_size > 0 );
 
 finish_recv:
-    // printf("recvfrom size:%zu\n", recv_sum);
     xqc_engine_finish_recv(server->engine);
 }
 

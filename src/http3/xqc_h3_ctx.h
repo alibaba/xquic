@@ -12,6 +12,9 @@
 typedef struct xqc_h3_ctx_s {
     xqc_h3_callbacks_t  h3_cbs;
     xqc_h3_conn_settings_t h3c_def_local_settings;
+
+    /* extension context (e.g. WebTransport ctx), owned by upper layer */
+    void *ext_ctx;
 } xqc_h3_ctx_t;
 
 xqc_int_t xqc_h3_ctx_get_app_callbacks(xqc_engine_t *engine, char *alpn, 

@@ -12,23 +12,16 @@
 extern "C" {
 #endif
 
-/**
- * @brief Draft Version of WebTransport
- */
-typedef enum {
-    XQC_WEBTRANSPORT_DRAFT_VERSION_2,
-    XQC_WEBTRANSPORT_DRAFT_VERSION_7,
-} xqc_webtransport_draft_version_t;
-
 #define XQC_WEBTRANSPORT_DEFAULT_DGRAM_MSS 512
 
 /**
  * @brief Stream Type of WebTransport
  */
 typedef enum {
-    XQC_WEBTRANSPORT_UNISTREAM,           // unidirectional stream
-    XQC_WEBTRANSPORT_BISTREAM,            // bidirectional stream
-    XQC_WEBTRANSPORT_STREAM_TYPE_UNKNOWN  // stream that is not parsed or supported
+    XQC_WEBTRANSPORT_UNISTREAM,            /* unidirectional stream */
+    XQC_WEBTRANSPORT_BIDISTREAM,           /* bidirectional stream */
+    XQC_WEBTRANSPORT_BISTREAM = XQC_WEBTRANSPORT_BIDISTREAM,  /* compat alias */
+    XQC_WEBTRANSPORT_STREAM_TYPE_UNKNOWN   /* stream that is not parsed or supported */
 } xqc_webtransport_stream_type_t;
 
 /**
@@ -185,8 +178,7 @@ typedef int (*xqc_webtransport_session_notify_pt)(xqc_webtransport_session_t *se
 typedef int (*xqc_webtransport_on_create_session_notify_pt)(xqc_http_headers_t *headers, xqc_http_headers_t *response);
 
 /**
- * @brief webtransport stream close function callback
- * trigger when stream is closed
+ * @brief webtransport stream close function callback (internal use)
  */
 typedef void (*wt_stream_close_func_pt)(void);
 
@@ -327,13 +319,15 @@ typedef struct xqc_webtransport_callbacks_s {
  * @param dgram_cbs
  * @param session_cbs
  * @param stream_cbs
+ * @param max_sessions  maximum concurrent WT sessions per connection (0 = default 1)
  * @return XQC_EXPORT_PUBLIC_API
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_wt_ctx_init(xqc_engine_t *engine,
                           xqc_webtransport_dgram_callbacks_t *dgram_cbs,
                           xqc_webtransport_session_callbacks_t *session_cbs,
-                          xqc_webtransport_stream_callbacks_t *stream_cbs);
+                          xqc_webtransport_stream_callbacks_t *stream_cbs,
+                          uint64_t max_sessions);
 
 /**
  * @brief create and webtransport connection from client (not implemented)
@@ -436,14 +430,47 @@ xqc_int_t xqc_wt_unistream_close(xqc_wt_unistream_t *wt_stream);
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_wt_conn_close(xqc_wt_conn_t *conn);
+
 /**
- * @brief request table insert , for header parsing
+ * @brief Send RESET_STREAM on a unidirectional send stream (abort writing)
  *
- * @param wt_request webtransport request
- * @param key
- * @param value
+ * @param wt_stream pointer to webtransport unistream (must be SEND type)
+ * @param error_code application error code sent in the RESET_STREAM frame
+ * @return XQC_OK for success, < 0 for failure
  */
-void xqc_wt_request_table_insert(xqc_wt_request_t *wt_request, const char *key, const char *value);
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_unistream_reset(xqc_wt_unistream_t *wt_stream, uint64_t error_code);
+
+/**
+ * @brief Send STOP_SENDING on a unidirectional recv stream (abort reading)
+ *
+ * @param wt_stream pointer to webtransport unistream (must be RECV type)
+ * @param error_code application error code sent in the STOP_SENDING frame
+ * @return XQC_OK for success, < 0 for failure
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_unistream_stop_sending(xqc_wt_unistream_t *wt_stream, uint64_t error_code);
+
+/**
+ * @brief Send RESET_STREAM on the send side of a bidirectional stream
+ *
+ * @param wt_stream pointer to webtransport bidistream
+ * @param error_code application error code
+ * @return XQC_OK for success, < 0 for failure
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_bidistream_reset(xqc_wt_bidistream_t *wt_stream, uint64_t error_code);
+
+/**
+ * @brief Send STOP_SENDING on the recv side of a bidirectional stream
+ *
+ * @param wt_stream pointer to webtransport bidistream
+ * @param error_code application error code
+ * @return XQC_OK for success, < 0 for failure
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_bidistream_stop_sending(xqc_wt_bidistream_t *wt_stream, uint64_t error_code);
+/* xqc_wt_request_table_insert is internal — declared in xqc_webtransport_request.h */
 
 /**
  * @brief send data by webtransport bidistream
@@ -479,17 +506,6 @@ void xqc_wt_conn_set_dgram_mss(xqc_wt_conn_t *conn, size_t mss);
 XQC_EXPORT_PUBLIC_API
 xqc_h3_stream_t *xqc_wt_session_get_h3_stream(xqc_wt_session_t *session);
 
-/* for test
-XQC_EXPORT_PUBLIC_API
-uint64_t xqc_wt_unistream_get_sessionID(xqc_wt_unistream_t *wt_stream);
-
-XQC_EXPORT_PUBLIC_API
-uint64_t xqc_wt_bidistream_get_sessionID(xqc_wt_bidistream_t *wt_stream);
-
-XQC_EXPORT_PUBLIC_API
-xqc_int_t xqc_wt_unistream_set_h3_stream(xqc_wt_unistream_t *stream, xqc_h3_stream_t *h3_stream);
-*/
-
 /**
  * @brief Client: send Extended CONNECT to establish a WebTransport session.
  *        Must be called after handshake is complete (e.g. in h3_conn_handshake_finished callback).
@@ -517,6 +533,33 @@ xqc_int_t xqc_wt_client_open_session(xqc_engine_t *engine, const xqc_cid_t *cid,
 XQC_EXPORT_PUBLIC_API
 ssize_t xqc_wt_session_send_bidi(xqc_wt_session_t *session,
     const void *data, size_t data_len, int fin);
+
+/**
+ * @brief Close a WebTransport session with error code and reason.
+ *        Sends a CLOSE_WEBTRANSPORT_SESSION capsule (RFC 9297) on the CONNECT stream
+ *        with a 4-byte error_code and UTF-8 reason_phrase, then sends FIN.
+ *
+ * @param session the WT session
+ * @param error_code 32-bit error code (0 for clean close)
+ * @param reason UTF-8 reason phrase (can be NULL)
+ * @param reason_len length of reason (can be 0)
+ * @return XQC_OK for success, < 0 for error
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_session_close_with_error(xqc_wt_session_t *session,
+    uint32_t error_code, const char *reason, size_t reason_len);
+
+/**
+ * @brief Send a DRAIN_WEBTRANSPORT_SESSION capsule for graceful shutdown.
+ *        The peer should stop opening new streams after receiving this capsule.
+ *        Does NOT close the session — use xqc_wt_session_close() or
+ *        xqc_wt_session_close_with_error() to actually close.
+ *
+ * @param session the WT session
+ * @return XQC_OK for success, < 0 for error
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_session_drain(xqc_wt_session_t *session);
 
 #ifdef __cplusplus
 }

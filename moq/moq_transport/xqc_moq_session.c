@@ -61,6 +61,8 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
     session->log = quic_conn->log;
     session->timer_manager = &quic_conn->conn_timer_manager;
     session->enable_fec = quic_conn->conn_settings.enable_encode_fec;
+    session->enable_datachannel = 1;
+    session->enable_catalog = 0;
 
     user_session->session = session;
     xqc_datagram_set_user_data(quic_conn, user_session);
@@ -423,4 +425,20 @@ xqc_moq_session_check_drain_complete(xqc_moq_session_t *session)
     xqc_log(session->log, XQC_LOG_INFO,
             "|drain complete, closing session with NO_ERROR|");
     xqc_moq_session_error(session, MOQ_NO_ERROR, "drain complete");
+}
+
+void
+xqc_moq_session_set_enable_datachannel(xqc_moq_session_t *session, xqc_int_t enable)
+{
+    if (session) {
+        session->enable_datachannel = enable ? 1 : 0;
+    }
+}
+
+void
+xqc_moq_session_set_enable_catalog(xqc_moq_session_t *session, xqc_int_t enable)
+{
+    if (session) {
+        session->enable_catalog = enable ? 1 : 0;
+    }
 }

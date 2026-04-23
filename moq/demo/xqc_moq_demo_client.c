@@ -69,6 +69,8 @@ int g_publish_mode = 0;
 int g_raw_object_mode = 0;
 int g_reuse_datachannel_stream = 0;
 int g_datagram_mode = 0;
+int g_enable_datachannel = 1;
+int g_enable_catalog = -1;
 
 static void xqc_app_timestamp_callback(int fd, short what, void *arg);
 
@@ -1226,6 +1228,8 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
         return -1;
     }
     xqc_moq_configure_bitrate(session, 1000000, 8000000, 1000000);
+    xqc_moq_session_set_enable_datachannel(session, g_enable_datachannel);
+    xqc_moq_session_set_enable_catalog(session, g_enable_catalog);
     return 0;
 }
 
@@ -1427,7 +1431,7 @@ int main(int argc, char *argv[])
     uint8_t secret_key[16] = {0};
     int use_proxy = 0;
     int use_1rtt = 0;
-    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:f1MVRUD")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:f1MVRUDTC")) != -1) {
         switch (ch) {
             case 'a':
                 printf("option addr :%s\n", optarg);
@@ -1528,12 +1532,24 @@ int main(int argc, char *argv[])
                 g_datagram_mode = 1;
                 g_raw_object_mode = 1;
                 break;
+            case 'T':
+                printf("option disable datachannel\n");
+                g_enable_datachannel = 0;
+                break;
+            case 'C':
+                printf("option enable catalog\n");
+                g_enable_catalog = 1;
+                break;
             default:
                 printf("other option :%c\n", ch);
                 //usage(argc, argv);
                 exit(0);
         }
     }
+    if (g_enable_catalog < 0) {
+        g_enable_catalog = g_enable_client_setup_v14 ? 0 : 1;
+    }
+
     memset(&ctx, 0, sizeof(ctx));
 
     xqc_app_open_log_file(&ctx, "./clog");

@@ -46,6 +46,8 @@ typedef struct xqc_moq_session_s {
     xqc_int_t                       enable_fec;
     float                           fec_code_rate;
     xqc_int_t                       use_client_setup_v14;
+    uint8_t                         enable_datachannel;
+    uint8_t                         enable_catalog;
     uint8_t                         goaway_sent;
     uint8_t                         goaway_received;
     uint8_t                         draining;

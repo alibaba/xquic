@@ -503,6 +503,12 @@ uint64_t xqc_moq_session_get_error(xqc_moq_session_t *session);
 XQC_EXPORT_PUBLIC_API
 void xqc_moq_configure_bitrate(xqc_moq_session_t *session, uint64_t init_bitrate, uint64_t max_bitrate, uint64_t min_bitrate);
 
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_session_set_enable_datachannel(xqc_moq_session_t *session, xqc_int_t enable);
+
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_session_set_enable_catalog(xqc_moq_session_t *session, xqc_int_t enable);
+
 /**
  * @brief There are two ways to get the target bitrate. 
  * 1. Call xqc_moq_target_bitrate before encoding. 

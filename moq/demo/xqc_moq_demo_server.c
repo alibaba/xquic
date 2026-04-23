@@ -61,6 +61,8 @@ int g_enable_client_setup_v14 = 0;
 int g_raw_object_mode = 0;
 int g_publish_reply_mode = 0;
 int g_reuse_datachannel_stream = 0;
+int g_enable_datachannel = 1;
+int g_enable_catalog = -1;
 
 xqc_int_t
 xqc_demo_publish_track(user_conn_t *user_conn, const char *track_namespace, const char *track_name)
@@ -419,8 +421,6 @@ void on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
         if (have_cat) {
             subscribe_ok.params = &cat_param;
             subscribe_ok.params_num = 1;
-            printf("==>subscribe_ok attach catalog param track:%s\n",
-                   track->track_info.track_name);
         }
 
         ret = xqc_moq_write_subscribe_ok(session, &subscribe_ok);
@@ -450,8 +450,6 @@ void on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
         if (have_cat) {
             subscribe_ok.params = &cat_param;
             subscribe_ok.params_num = 1;
-            printf("==>subscribe_ok attach catalog param track:%s\n",
-                   track->track_info.track_name);
         }
 
         ret = xqc_moq_write_subscribe_ok(session, &subscribe_ok);
@@ -515,14 +513,6 @@ void on_publish_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track
            publish_msg->track_alias,
            publish_msg->forward,
            publish_msg->content_exist);
-
-    if (track != NULL) {
-        xqc_moq_selection_params_t *sp = &track->track_info.selection_params;
-        printf("==>on_publish selection_params codec:%s mime:%s %dx%d@%d bitrate:%d samplerate:%d\n",
-               sp->codec ? sp->codec : "null",
-               sp->mime_type ? sp->mime_type : "null",
-               sp->width, sp->height, sp->framerate, sp->bitrate, sp->samplerate);
-    }
 
     // Test for self-defined publish reply on datachanne;
     xqc_moq_session_t *session = user_session->session;
@@ -809,6 +799,8 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
         return -1;
     }
     xqc_moq_configure_bitrate(session, 1000000, 8000000, 1000000);
+    xqc_moq_session_set_enable_datachannel(session, g_enable_datachannel);
+    xqc_moq_session_set_enable_catalog(session, g_enable_catalog);
 
     xqc_conn_set_transport_user_data(conn, user_session);
 
@@ -1014,7 +1006,7 @@ int main(int argc, char *argv[])
     int server_port = TEST_PORT;
     xqc_cong_ctrl_callback_t cong_ctrl;
     cong_ctrl = xqc_bbr_cb;
-    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MVRoeU")) != -1) {
+    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MVRoeUTC")) != -1) {
         switch (ch) {
         /* listen port */
         case 'p':
@@ -1099,10 +1091,23 @@ int main(int argc, char *argv[])
             printf("option reuse datachannel stream : on\n");
             g_reuse_datachannel_stream = 1;
             break;
+        case 'T':
+            printf("option disable datachannel\n");
+            g_enable_datachannel = 0;
+            break;
+        case 'C':
+            printf("option enable catalog\n");
+            g_enable_catalog = 1;
+            break;
         default:
             break;
         }
     }
+
+    if (g_enable_catalog < 0) {
+        g_enable_catalog = g_enable_client_setup_v14 ? 0 : 1;
+    }
+
     memset(&ctx, 0, sizeof(ctx));
 
     xqc_app_open_log_file(&ctx, "./slog");

@@ -84,16 +84,20 @@ xqc_moq_on_client_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
         goto error;
     }
 
-    ret = xqc_moq_subscribe_datachannel(session);
-    if (ret < 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_datachannel error|ret:%d|", ret);
-        goto error;
+    if (session->enable_datachannel) {
+        ret = xqc_moq_subscribe_datachannel(session);
+        if (ret < 0) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_datachannel error|ret:%d|", ret);
+            goto error;
+        }
     }
 
-    ret = xqc_moq_subscribe_catalog(session);
-    if (ret < 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_catalog error|ret:%d|", ret);
-        goto error;
+    if (session->enable_catalog) {
+        ret = xqc_moq_subscribe_catalog(session);
+        if (ret < 0) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_catalog error|ret:%d|", ret);
+            goto error;
+        }
     }
 
     session->session_setup_done = 1;
@@ -176,17 +180,21 @@ xqc_moq_on_client_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
     }
     xqc_log(session->log, XQC_LOG_INFO, "|client_setup_v14_complete|local_role:%u|", session->role);
 
-    ret = xqc_moq_subscribe_datachannel(session);
-    if (ret < 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_datachannel error|ret:%d|", ret);
-        goto error;
+    if (session->enable_datachannel) {
+        ret = xqc_moq_subscribe_datachannel(session);
+        if (ret < 0) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_datachannel error|ret:%d|", ret);
+            goto error;
+        }
     }
 
-    // ret = xqc_moq_subscribe_catalog(session);
-    // if (ret < 0) {
-    //     xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_catalog error|ret:%d|", ret);
-    //     goto error;
-    // }
+    if (session->enable_catalog) {
+        ret = xqc_moq_subscribe_catalog(session);
+        if (ret < 0) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_catalog error|ret:%d|", ret);
+            goto error;
+        }
+    }
 
     session->session_setup_done = 1;
 
@@ -237,16 +245,20 @@ xqc_moq_on_server_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
         goto error;
     }
 
-    ret = xqc_moq_subscribe_datachannel(session);
-    if (ret < 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_datachannel error|ret:%d|", ret);
-        goto error;
+    if (session->enable_datachannel) {
+        ret = xqc_moq_subscribe_datachannel(session);
+        if (ret < 0) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_datachannel error|ret:%d|", ret);
+            goto error;
+        }
     }
 
-    ret = xqc_moq_subscribe_catalog(session);
-    if (ret < 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_catalog error|ret:%d|", ret);
-        goto error;
+    if (session->enable_catalog) {
+        ret = xqc_moq_subscribe_catalog(session);
+        if (ret < 0) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_catalog error|ret:%d|", ret);
+            goto error;
+        }
     }
 
     session->session_setup_done = 1;
@@ -291,17 +303,21 @@ xqc_moq_on_server_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
         }
     }
 
-    ret = xqc_moq_subscribe_datachannel(session);
-    if (ret < 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_datachannel error|ret:%d|", ret);
-        goto error;
+    if (session->enable_datachannel) {
+        ret = xqc_moq_subscribe_datachannel(session);
+        if (ret < 0) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_datachannel error|ret:%d|", ret);
+            goto error;
+        }
     }
 
-    // ret = xqc_moq_subscribe_catalog(session);
-    // if (ret < 0) {
-    //     xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_catalog error|ret:%d|", ret);
-    //     goto error;
-    // }
+    if (session->enable_catalog) {
+        ret = xqc_moq_subscribe_catalog(session);
+        if (ret < 0) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_subscribe_catalog error|ret:%d|", ret);
+            goto error;
+        }
+    }
 
     session->session_setup_done = 1;
     xqc_log(session->log, XQC_LOG_INFO, "|server_setup_v14_complete|");

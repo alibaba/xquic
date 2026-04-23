@@ -1,0 +1,67 @@
+name: pyxquic-wt
+
+on:
+  push:
+    branches: [main, feat/webtransport]
+    paths:
+      - 'src/webtransport/**'
+      - 'xquic_webtransport/python/**'
+      - 'include/xquic/xqc_webtransport.h'
+      - 'scripts/build_wt_py.sh'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/webtransport/**'
+      - 'xquic_webtransport/python/**'
+
+jobs:
+  test:
+    name: Test ${{ matrix.os }} / Python ${{ matrix.python }} / ${{ matrix.ssl }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ['3.9', '3.10', '3.11', '3.12']
+        ssl: [babassl]
+        include:
+          - os: ubuntu-latest
+            python: '3.12'
+            ssl: boringssl
+          - os: macos-latest
+            python: '3.12'
+            ssl: boringssl
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install system deps (Linux)
+      if: runner.os == 'Linux'
+      run: sudo apt-get update && sudo apt-get install -y build-essential cmake
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python }}
+
+    - name: Build and test
+      run: |
+        SSL_BACKEND=${{ matrix.ssl }} bash scripts/build_wt_py.sh
+
+    - name: Install Python deps
+      run: |
+        cd xquic_webtransport/python
+        pip install cffi pytest pytest-asyncio
+
+    - name: Generate test certs
+      run: |
+        pip install cryptography
+        cd xquic_webtransport/python
+        python -m pyxquic_wt.cli gen-cert --outdir ../../certs
+
+    - name: Run tests
+      run: |
+        cd xquic_webtransport/python
+        python -m pytest tests/test_wire.py tests/test_e2e_lowlevel.py tests/test_echo.py tests/test_stream_unit.py -v

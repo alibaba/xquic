@@ -2,7 +2,7 @@
 name = "pyxquic-wt"
 version = "0.1.0"
 description = "WebTransport client/server powered by xquic QUIC/HTTP3 stack"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 dependencies = ["cffi>=1.15"]
 license = {text = "Apache-2.0"}
 readme = "README.md"
@@ -15,19 +15,26 @@ classifiers = [
     "Development Status :: 3 - Alpha",
 ]
 
+[project.optional-dependencies]
+cert = ["cryptography>=3.0"]
+
+[project.scripts]
+pyxquic-wt = "pyxquic_wt.cli:main"
+
 [build-system]
 requires = ["setuptools>=42", "cffi>=1.15", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+
 [tool.cibuildwheel]
-before-all = [
-    "cd {project}/.. && git submodule update --init --recursive",
-    "cd {project}/../third_party/babassl && ./config --prefix=$PWD/output && make -j$(nproc) && make install",
-    "mkdir -p {project}/../build_wheel && cd {project}/../build_wheel && cmake .. -DXQC_ENABLE_WEBTRANSPORT=ON -DSSL_TYPE=babassl -DSSL_PATH={project}/../third_party/babassl -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON && make -j$(nproc)",
-]
+build = "cp39-* cp310-* cp311-* cp312-* cp313-*"
+skip = "*-win* *-musllinux* pp*"
+test-command = "python -c \"from pyxquic_wt import serve; print('OK')\""
 
 before-build = [
-    "cp {project}/../build_wheel/libxquic.so {project}/pyxquic_wt/ 2>/dev/null || cp {project}/../build_wheel/libxquic.dylib {project}/pyxquic_wt/ 2>/dev/null || true",
+    "SSL_BACKEND=boringssl bash {project}/../../scripts/build_wt_py.sh",
 ]
 
 [tool.cibuildwheel.linux]

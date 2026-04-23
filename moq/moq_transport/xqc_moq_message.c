@@ -505,11 +505,9 @@ xqc_moq_msg_decode_params_v14(uint8_t *buf, size_t buf_len, xqc_moq_decode_param
                 return processed;
             }
             processed += ret;
-            /* draft-14 param encoding: odd types and EXTDATA/CATALOG carry
-             * length-prefixed bytes (field_idx=1); all other even types are
-             * varint-only (field_idx=3). Unknown types are not rejected here
-             * so the receiver can honor the MOQT "ignore unknown parameters"
-             * rule upstream.
+            /* draft-14 param encoding: odd types (including CATALOG 0xA1)
+             * and EXTDATA carry length-prefixed bytes (field_idx=1); all other
+             * even types are varint-only (field_idx=3).
              */
             if ((param->type & 0x1) || param->type == XQC_MOQ_PARAM_EXTDATA) {
                 ctx->cur_field_idx = 1;

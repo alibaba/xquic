@@ -198,7 +198,7 @@ typedef enum {
     XQC_MOQ_PARAM_AUTH                = 0x02,
     XQC_MOQ_PARAM_AUTHORIZATION_TOKEN = 0x03,
     XQC_MOQ_PARAM_EXTDATA             = 0xA0,
-    XQC_MOQ_PARAM_CATALOG             = 0xA2,
+    XQC_MOQ_PARAM_CATALOG             = 0xA1,
 } xqc_moq_param_type_t;
 
 typedef struct {

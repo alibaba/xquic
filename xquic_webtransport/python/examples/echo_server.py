@@ -11,29 +11,23 @@ Requires TLS certificates in certs/ directory:
 """
 
 import asyncio
-from pyxquic_wt import WebTransportServer
+from pyxquic_wt import serve
 
 
-async def handle_session(session):
-    print(f"New session: path={session.path}")
-
-    async for stream in session.incoming_bidi_streams():
-        data = await stream.recv()
-        print(f"Received: {data}")
-        await stream.send(data)  # echo back
-        await stream.close()
+async def echo_handler(session):
+    """Echo all incoming bidi stream data back."""
+    async for stream in session.incoming_bidirectional_streams():
+        data = await stream.read_all()
+        print(f"Echo: {len(data)} bytes")
+        await stream.write_all(data, end_stream=True)
 
 
 async def main():
-    server = WebTransportServer(
-        host="0.0.0.0",
-        port=4443,
-        cert_file="certs/localhost.crt",
-        key_file="certs/localhost.key",
-    )
-    server.on_session = handle_session
     print("WebTransport echo server listening on :4443")
-    await server.serve_forever()
+    async with serve(echo_handler, port=4443,
+                     cert_file="certs/localhost.crt",
+                     key_file="certs/localhost.key"):
+        await asyncio.Future()  # run forever
 
 
 if __name__ == "__main__":

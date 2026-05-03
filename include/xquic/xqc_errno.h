@@ -5,6 +5,8 @@
 #ifndef _XQC_ERRNO_H_INCLUDED_
 #define _XQC_ERRNO_H_INCLUDED_
 
+#include <stdint.h>
+
 /**
  * @brief QUIC Transport Protocol error codes
  */
@@ -31,10 +33,15 @@ typedef enum {
 
 /**
  * @brief Multipath error codes
+ *
+ * The value exceeds INT_MAX. MSVC's C compiler always uses int as the
+ * underlying type for plain enum, silently truncating it — which would
+ * cause CONNECTION_CLOSE on multipath protocol violations to send the
+ * wrong error code (low 32 bits only) on Windows builds. Define as a
+ * uint64_t macro with a typedef-aliased uint64_t for API stability.
  */
-typedef enum {
-    TRA_MP_PROTOCOL_VIOLATION       = 0x1001d76d3ded42f3
-} xqc_mp_err_code_t;
+typedef uint64_t xqc_mp_err_code_t;
+#define TRA_MP_PROTOCOL_VIOLATION ((xqc_mp_err_code_t)0x1001d76d3ded42f3ULL)
 
 
 #define TRA_CRYPTO_ERROR_BASE   0x100

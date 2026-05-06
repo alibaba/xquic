@@ -259,7 +259,7 @@ xqc_transport_params_calc_length(const xqc_transport_params_t *params,
  * put variant int value param into buf
  */
 inline static uint8_t*
-xqc_put_varint_param(uint8_t* p, xqc_transport_param_id_t id, uint64_t v)
+xqc_put_varint_param(uint8_t* p, uint64_t id, uint64_t v)
 {
     p = xqc_put_varint(p, id);
     p = xqc_put_varint(p, xqc_put_varint_len(v));

@@ -72,14 +72,9 @@ typedef enum {
     /* do no cryption on 0-RTT and 1-RTT packets */
     XQC_TRANSPORT_PARAM_NO_CRYPTO                           = 0x1000,
 
-    /* multipath quic attributes */
-    XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V10                = 0x0f739bbc1b666d09,
-
     /* google connection options */
     XQC_TRANSPORT_PARAM_GOOGLE_CO                           = 0x3128,
 
-    /* PTMUD negotiation */
-    XQC_TRANSPORT_PARAM_PMTUD_OPTIONS                       = 0x0e08a234ff112300,
 #ifdef XQC_ENABLE_FEC
     /* fec attributes */
     XQC_TRANSPORT_PARAM_FEC_VERSION                         = 0xfec001,
@@ -92,6 +87,14 @@ typedef enum {
     XQC_TRANSPORT_PARAM_MAX_RECEIVE_TIMESTAMPS_PER_ACK      = 0xff0a002,
     XQC_TRANSPORT_PARAM_RECEIVE_TIMESTAMPS_EXPONENT         = 0xff0a003,
 } xqc_transport_param_id_t;
+
+/* These IDs exceed INT_MAX. MSVC's C compiler always uses int as the
+ * underlying type for plain enum, silently truncating larger constants —
+ * which broke multipath_version negotiation on Windows builds. Define
+ * them as uint64_t macros so they survive on every compiler regardless
+ * of /std:c11 mode. */
+#define XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V10 ((uint64_t)0x0f739bbc1b666d09ULL)
+#define XQC_TRANSPORT_PARAM_PMTUD_OPTIONS        ((uint64_t)0x0e08a234ff112300ULL)
 
 
 typedef struct {

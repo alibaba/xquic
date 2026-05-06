@@ -3,9 +3,7 @@
 
 set -e
 
-#######################################
-# Detect distro and package manager
-#######################################
+
 if [ -f /etc/os-release ]; then
     . /etc/os-release
 else
@@ -41,9 +39,7 @@ esac
 
 echo "Detected distro:  $ID (using $PKG_MGR)"
 
-#######################################
-# Install dependencies
-#######################################
+
 echo ""
 echo "=== Installing Dependencies ==="
 
@@ -65,9 +61,7 @@ fi
 
 echo "✓ Dependencies installed"
 
-#######################################
-# Detect SSL backend
-#######################################
+
 echo ""
 echo "=== Detecting SSL Backend ==="
 
@@ -97,9 +91,7 @@ else
     exit 1
 fi
 
-#######################################
-# Check XQUIC build
-#######################################
+
 echo ""
 echo "=== Checking XQUIC Build ==="
 
@@ -134,9 +126,7 @@ else
     echo "✓ Certificates already exist"
 fi
 
-#######################################
-# Run tests
-#######################################
+
 echo ""
 echo "=== Running Tests ==="
 
@@ -149,16 +139,12 @@ echo "Running unit tests..."
 echo "Running case tests..."
 bash ../scripts/case_test.sh | tee -a xquic_test.log
 
-#######################################
-# Generate coverage
-#######################################
+
 echo ""
 echo "=== Generating Coverage Report ==="
 gcovr -r ..  | tee -a xquic_test.log
 
-#######################################
-# Summary
-#######################################
+
 echo ""
 echo "=============Summary=============="
 

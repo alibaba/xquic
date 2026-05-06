@@ -22,11 +22,9 @@ clear_log() {
 grep_err_log() {
     grep "\[error\]" clog
     grep "\[error\]" slog
-    #grep "retrans rate:" clog|grep -v "retrans rate:0.0000"
-    #grep "retrans rate:" slog|grep -v "retrans rate:0.0000"
+
 }
 
-# params: case_name, result
 case_print_result() {
     echo "[ RUN      ] xquic_case_test.$1"
     if [ "$2" = "pass" ];then
@@ -37,7 +35,6 @@ case_print_result() {
 }
 
 
-# start test_server
 rm -rf tp_localhost test_session xqc_token
 killall test_server 2> /dev/null
 ${SERVER_BIN} -l d -e > /dev/null &

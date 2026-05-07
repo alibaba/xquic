@@ -63,6 +63,7 @@ int g_publish_reply_mode = 0;
 int g_reuse_datachannel_stream = 0;
 int g_enable_datachannel = 1;
 int g_enable_catalog = -1;
+int g_reuse_video_subgroup_stream = 0;
 
 xqc_int_t
 xqc_demo_publish_track(user_conn_t *user_conn, const char *track_namespace, const char *track_name)
@@ -318,6 +319,10 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
         printf("create video track error\n");
     }
     user_conn->video_track = video_track;
+    if (video_track && g_reuse_video_subgroup_stream) {
+        xqc_moq_track_set_reuse_subgroup_stream(video_track, 1);
+        printf("moq_video_reuse_subgroup_stream|enabled:1|\n");
+    }
 
     xqc_moq_selection_params_t audio_params;
     memset(&audio_params, 0, sizeof(xqc_moq_selection_params_t));
@@ -1006,7 +1011,7 @@ int main(int argc, char *argv[])
     int server_port = TEST_PORT;
     xqc_cong_ctrl_callback_t cong_ctrl;
     cong_ctrl = xqc_bbr_cb;
-    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MVRoeUTC")) != -1) {
+    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MVRoeUTCW")) != -1) {
         switch (ch) {
         /* listen port */
         case 'p':
@@ -1098,6 +1103,10 @@ int main(int argc, char *argv[])
         case 'C':
             printf("option enable catalog\n");
             g_enable_catalog = 1;
+            break;
+        case 'W':
+            printf("option reuse video subgroup stream : on\n");
+            g_reuse_video_subgroup_stream = 1;
             break;
         default:
             break;

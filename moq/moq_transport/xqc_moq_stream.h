@@ -58,6 +58,7 @@ typedef struct xqc_moq_stream_s {
     uint64_t                    subgroup_id; /* for subgroup stream reuse (sender-side bookkeeping) */
     uint64_t                    object_id;
     uint64_t                    seq_num;
+    xqc_usec_t                  last_moq_object_write_time;
 
     xqc_flag_t                  enable_fec;
     float                       fec_code_rate;

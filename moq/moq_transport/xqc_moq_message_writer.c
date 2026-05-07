@@ -2,6 +2,7 @@
 #include "moq/moq_transport/xqc_moq_message_writer.h"
 #include "moq/moq_transport/xqc_moq_session.h"
 #include "moq/moq_transport/xqc_moq_stream.h"
+#include "src/common/xqc_time.h"
 
 xqc_int_t
 xqc_moq_msg_write(xqc_moq_session_t *session, xqc_moq_stream_t *stream, xqc_moq_msg_base_t *msg_base)
@@ -161,20 +162,36 @@ xqc_moq_write_publish_done(xqc_moq_session_t *session, xqc_moq_publish_done_msg_
                                      xqc_moq_msg_publish_done_init_handler);
 }
 
+static void
+xqc_moq_mark_object_write_time(xqc_moq_stream_t *stream)
+{
+    if (stream) {
+        stream->last_moq_object_write_time = xqc_monotonic_timestamp();
+    }
+}
+
 xqc_int_t
 xqc_moq_write_object_stream_msg(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
     xqc_moq_object_stream_msg_t *object)
 {
-    return xqc_moq_write_msg_generic(session, stream, &object->msg_base,
-                                     xqc_moq_msg_object_stream_init_handler);
+    xqc_int_t ret = xqc_moq_write_msg_generic(session, stream, &object->msg_base,
+                                              xqc_moq_msg_object_stream_init_handler);
+    if (ret == XQC_OK) {
+        xqc_moq_mark_object_write_time(stream);
+    }
+    return ret;
 }
 
 xqc_int_t
 xqc_moq_write_subgroup_msg(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
     xqc_moq_subgroup_msg_t *object)
 {
-    return xqc_moq_write_msg_generic(session, stream, &object->msg_base,
-                                     xqc_moq_msg_subgroup_init_handler);
+    xqc_int_t ret = xqc_moq_write_msg_generic(session, stream, &object->msg_base,
+                                              xqc_moq_msg_subgroup_init_handler);
+    if (ret == XQC_OK) {
+        xqc_moq_mark_object_write_time(stream);
+    }
+    return ret;
 }
 
 xqc_int_t
@@ -216,6 +233,8 @@ xqc_moq_append_subgroup_object(xqc_moq_session_t *session, xqc_moq_stream_t *str
         xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_stream_write error|ret:%d|msg_type:subgroup_object|", ret);
         return ret;
     }
+
+    xqc_moq_mark_object_write_time(stream);
 
     return XQC_OK;
 }

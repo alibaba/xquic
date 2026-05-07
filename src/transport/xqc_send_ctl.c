@@ -666,6 +666,17 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
     if (XQC_CAN_IN_FLIGHT(packet_out->po_frame_types)) {
 
         if (XQC_IS_ACK_ELICITING(packet_out->po_frame_types)) {
+            xqc_connection_t *conn = send_ctl->ctl_conn;
+
+            if (conn->conn_last_ack_eliciting_send_time <= conn->conn_last_recv_time) {
+                xqc_msec_t idle_timeout = xqc_conn_get_idle_timeout(conn);
+                if (idle_timeout > 0) {
+                    xqc_timer_set(&conn->conn_timer_manager, XQC_TIMER_CONN_IDLE,
+                                  now, idle_timeout * 1000);
+                }
+            }
+            conn->conn_last_ack_eliciting_send_time = now;
+
             send_ctl->ctl_time_of_last_sent_ack_eliciting_packet[pns] =
             packet_out->po_sent_time;
             send_ctl->ctl_last_sent_ack_eliciting_packet_number[pns] =

@@ -789,13 +789,19 @@ xqc_write_conn_close_to_packet(xqc_connection_t *conn, uint64_t err_code)
         pkt_type = XQC_PTYPE_SHORT_HEADER;
     }
 
+    xqc_bool_t is_app = err_code >= H3_NO_ERROR;
+    if (is_app && (pkt_type == XQC_PTYPE_INIT || pkt_type == XQC_PTYPE_HSK)) {
+        is_app = XQC_FALSE;
+        err_code = TRA_APPLICATION_ERROR;
+    }
+
     packet_out = xqc_write_new_packet(conn, pkt_type);
     if (packet_out == NULL) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");
         return -XQC_EWRITE_PKT;
     }
 
-    ret = xqc_gen_conn_close_frame(packet_out, err_code, err_code >= H3_NO_ERROR ? 1:0, 0);
+    ret = xqc_gen_conn_close_frame(packet_out, err_code, is_app, 0);
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_conn_close_frame error|");
         goto error;
@@ -935,13 +941,51 @@ error:
     return -XQC_EWRITE_PKT;
 }
 
+
+static xqc_pkt_type_t
+xqc_select_pkt_type_for_app_data_frame(xqc_connection_t *conn,
+    xqc_pkt_type_t requested_pkt_type, xqc_bool_t *buff_pkt)
+{
+    *buff_pkt = XQC_FALSE;
+
+    if (requested_pkt_type == XQC_PTYPE_0RTT) {
+        return XQC_PTYPE_0RTT;
+    }
+
+    if (conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT) {
+        if (requested_pkt_type == XQC_PTYPE_SHORT_HEADER) {
+            return requested_pkt_type;
+        }
+
+        return XQC_PTYPE_SHORT_HEADER;
+    }
+
+    if (requested_pkt_type == XQC_PTYPE_SHORT_HEADER) {
+        *buff_pkt = XQC_TRUE;
+        return requested_pkt_type;
+    }
+
+    if (conn->conn_type == XQC_CONN_TYPE_CLIENT
+        && conn->conn_state == XQC_CONN_STATE_CLIENT_INITIAL_SENT
+        && xqc_conn_is_ready_to_send_early_data(conn))
+    {
+        conn->conn_flag |= XQC_CONN_FLAG_HAS_0RTT;
+        return XQC_PTYPE_0RTT;
+    }
+
+    *buff_pkt = XQC_TRUE;
+    return XQC_PTYPE_SHORT_HEADER;
+}
+
 int
 xqc_write_data_blocked_to_packet(xqc_connection_t *conn, uint64_t data_limit)
 {
     ssize_t ret;
     xqc_packet_out_t *packet_out;
+    xqc_bool_t buff_pkt = XQC_FALSE;
+    xqc_pkt_type_t pkt_type = xqc_select_pkt_type_for_app_data_frame(conn, XQC_PTYPE_NUM, &buff_pkt);
 
-    packet_out = xqc_write_new_packet(conn, XQC_PTYPE_SHORT_HEADER);
+    packet_out = xqc_write_new_packet(conn, pkt_type);
     if (packet_out == NULL) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");
         return -XQC_EWRITE_PKT;
@@ -958,6 +1002,10 @@ xqc_write_data_blocked_to_packet(xqc_connection_t *conn, uint64_t data_limit)
     /* we need to send this packet asap */
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
 
+    if (buff_pkt) {
+        xqc_conn_buff_1rtt_packet(conn, packet_out);
+    }
+
     return XQC_OK;
 
 error:
@@ -970,7 +1018,10 @@ xqc_write_stream_data_blocked_to_packet(xqc_connection_t *conn, xqc_stream_id_t 
 {
     ssize_t ret;
     xqc_packet_out_t *packet_out;
-    packet_out = xqc_write_new_packet(conn, XQC_PTYPE_SHORT_HEADER);
+    xqc_bool_t buff_pkt = XQC_FALSE;
+    xqc_pkt_type_t pkt_type = xqc_select_pkt_type_for_app_data_frame(conn, XQC_PTYPE_NUM, &buff_pkt);
+
+    packet_out = xqc_write_new_packet(conn, pkt_type);
     if (packet_out == NULL) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");
         return -XQC_EWRITE_PKT;
@@ -987,6 +1038,10 @@ xqc_write_stream_data_blocked_to_packet(xqc_connection_t *conn, xqc_stream_id_t 
     /* we need to send this packet asap */
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
 
+    if (buff_pkt) {
+        xqc_conn_buff_1rtt_packet(conn, packet_out);
+    }
+
     return XQC_OK;
 
 error:
@@ -999,8 +1054,10 @@ xqc_write_streams_blocked_to_packet(xqc_connection_t *conn, uint64_t stream_limi
 {
     ssize_t ret;
     xqc_packet_out_t *packet_out;
+    xqc_bool_t buff_pkt = XQC_FALSE;
+    xqc_pkt_type_t pkt_type = xqc_select_pkt_type_for_app_data_frame(conn, XQC_PTYPE_NUM, &buff_pkt);
 
-    packet_out = xqc_write_new_packet(conn, XQC_PTYPE_NUM);
+    packet_out = xqc_write_new_packet(conn, pkt_type);
     if (packet_out == NULL) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");
         return -XQC_EWRITE_PKT;
@@ -1016,6 +1073,10 @@ xqc_write_streams_blocked_to_packet(xqc_connection_t *conn, uint64_t stream_limi
 
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
 
+    if (buff_pkt) {
+        xqc_conn_buff_1rtt_packet(conn, packet_out);
+    }
+
     return XQC_OK;
 
 error:
@@ -1028,8 +1089,10 @@ xqc_write_max_data_to_packet(xqc_connection_t *conn, uint64_t max_data)
 {
     ssize_t ret;
     xqc_packet_out_t *packet_out;
+    xqc_bool_t buff_pkt = XQC_FALSE;
+    xqc_pkt_type_t pkt_type = xqc_select_pkt_type_for_app_data_frame(conn, XQC_PTYPE_NUM, &buff_pkt);
 
-    packet_out = xqc_write_new_packet(conn, XQC_PTYPE_SHORT_HEADER);
+    packet_out = xqc_write_new_packet(conn, pkt_type);
     if (packet_out == NULL) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");
         return -XQC_EWRITE_PKT;
@@ -1045,6 +1108,10 @@ xqc_write_max_data_to_packet(xqc_connection_t *conn, uint64_t max_data)
 
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
 
+    if (buff_pkt) {
+        xqc_conn_buff_1rtt_packet(conn, packet_out);
+    }
+
     return XQC_OK;
 
 error:
@@ -1057,6 +1124,9 @@ xqc_write_max_stream_data_to_packet(xqc_connection_t *conn, xqc_stream_id_t stre
 {
     ssize_t ret = XQC_OK;
     xqc_packet_out_t *packet_out;
+    xqc_bool_t buff_pkt = XQC_FALSE;
+
+    pkt_type = xqc_select_pkt_type_for_app_data_frame(conn, pkt_type, &buff_pkt);
 
     packet_out = xqc_write_new_packet(conn, pkt_type);
     if (packet_out == NULL) {
@@ -1074,6 +1144,10 @@ xqc_write_max_stream_data_to_packet(xqc_connection_t *conn, xqc_stream_id_t stre
 
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
 
+    if (buff_pkt) {
+        xqc_conn_buff_1rtt_packet(conn, packet_out);
+    }
+
     return XQC_OK;
 
 error:
@@ -1086,13 +1160,15 @@ xqc_write_max_streams_to_packet(xqc_connection_t *conn, uint64_t max_stream, int
 {
     ssize_t ret = XQC_ERROR;
     xqc_packet_out_t *packet_out;
+    xqc_bool_t buff_pkt = XQC_FALSE;
+    xqc_pkt_type_t pkt_type = xqc_select_pkt_type_for_app_data_frame(conn, XQC_PTYPE_NUM, &buff_pkt);
 
     if (max_stream > XQC_MAX_STREAMS) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_max_streams_to_packet error|set max_stream:%ui", max_stream);
         return -XQC_EPARAM;
     }
 
-    packet_out = xqc_write_new_packet(conn, XQC_PTYPE_NUM);
+    packet_out = xqc_write_new_packet(conn, pkt_type);
     if (packet_out == NULL) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");
         return -XQC_EWRITE_PKT;
@@ -1107,6 +1183,10 @@ xqc_write_max_streams_to_packet(xqc_connection_t *conn, uint64_t max_stream, int
     packet_out->po_used_size += ret;
 
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
+
+    if (buff_pkt) {
+        xqc_conn_buff_1rtt_packet(conn, packet_out);
+    }
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|new_max_stream:%ui|", max_stream);
     return XQC_OK;

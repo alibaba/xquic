@@ -9,7 +9,15 @@
 #include "moq/moq_media/dejitter/xqc_moq_av_dejitter.h"
 #include "src/transport/xqc_stream.h"
 
-#define XQC_MOQ_MEDIA_MAX_SEND_DELAY 500000 /* 500ms */
+#define XQC_MOQ_MEDIA_MAX_OBJECT_IDLE_DELAY 500000 /* 500ms */
+#define XQC_MOQ_MEDIA_MAX_REUSE_SUBGROUP_STREAM_LIFETIME 2000000 /* 2s */
+
+typedef enum {
+    XQC_MOQ_MEDIA_CANCEL_NONE = 0,
+    XQC_MOQ_MEDIA_CANCEL_OBJECT_IDLE,
+    XQC_MOQ_MEDIA_CANCEL_REUSE_STREAM_LIFETIME,
+} xqc_moq_media_cancel_reason_t;
+
 static void xqc_moq_media_on_create(xqc_moq_track_t *track);
 static void xqc_moq_media_on_destroy(xqc_moq_track_t *track);
 static void xqc_moq_media_on_subscribe(xqc_moq_session_t *session, uint64_t subscribe_id,
@@ -640,6 +648,78 @@ search_from_head:
     }
 }
 
+static const char *
+xqc_moq_media_cancel_reason_str(xqc_moq_media_cancel_reason_t reason)
+{
+    switch (reason) {
+    case XQC_MOQ_MEDIA_CANCEL_OBJECT_IDLE:
+        return "object_idle";
+    case XQC_MOQ_MEDIA_CANCEL_REUSE_STREAM_LIFETIME:
+        return "reuse_stream_lifetime";
+    default:
+        return "none";
+    }
+}
+
+static xqc_bool_t
+xqc_moq_media_delay_expired(xqc_usec_t now, xqc_usec_t base_time, xqc_usec_t max_delay)
+{
+    return now >= base_time && now - base_time >= max_delay;
+}
+
+static xqc_bool_t
+xqc_moq_media_stream_should_cancel_write(xqc_moq_track_t *track,
+    xqc_moq_stream_t *stream, xqc_stream_t *quic_stream, xqc_usec_t now,
+    xqc_moq_media_cancel_reason_t *reason)
+{
+    xqc_usec_t create_time;
+    xqc_usec_t last_object_write_time;
+
+    if (reason) {
+        *reason = XQC_MOQ_MEDIA_CANCEL_NONE;
+    }
+
+    if (track == NULL || stream == NULL || quic_stream == NULL) {
+        return XQC_FALSE;
+    }
+
+    create_time = quic_stream->stream_stats.create_time;
+    if (!track->reuse_subgroup_stream) {
+        if (xqc_moq_media_delay_expired(now, create_time, XQC_MOQ_MEDIA_MAX_OBJECT_IDLE_DELAY)) {
+            if (reason) {
+                *reason = XQC_MOQ_MEDIA_CANCEL_OBJECT_IDLE;
+            }
+            return XQC_TRUE;
+        }
+        return XQC_FALSE;
+    }
+
+    if (xqc_moq_media_delay_expired(now, create_time,
+                                    XQC_MOQ_MEDIA_MAX_REUSE_SUBGROUP_STREAM_LIFETIME))
+    {
+        if (reason) {
+            *reason = XQC_MOQ_MEDIA_CANCEL_REUSE_STREAM_LIFETIME;
+        }
+        return XQC_TRUE;
+    }
+
+    last_object_write_time = stream->last_moq_object_write_time;
+    if (last_object_write_time == 0) {
+        last_object_write_time = create_time;
+    }
+
+    if (xqc_moq_media_delay_expired(now, last_object_write_time,
+                                    XQC_MOQ_MEDIA_MAX_OBJECT_IDLE_DELAY))
+    {
+        if (reason) {
+            *reason = XQC_MOQ_MEDIA_CANCEL_OBJECT_IDLE;
+        }
+        return XQC_TRUE;
+    }
+
+    return XQC_FALSE;
+}
+
 static xqc_bool_t 
 xqc_moq_media_maybe_cancel_write(xqc_moq_session_t *session, uint64_t subscribe_id,
     xqc_moq_track_t *track, xqc_moq_video_frame_t *video_frame)
@@ -647,21 +727,22 @@ xqc_moq_media_maybe_cancel_write(xqc_moq_session_t *session, uint64_t subscribe_
     xqc_list_head_t *pos, *next;
     xqc_moq_stream_t *stream;
     xqc_stream_t *quic_stream;
-    xqc_usec_t create_time;
     xqc_usec_t now = xqc_monotonic_timestamp();
     xqc_int_t need_request_keyframe = 0;
     xqc_moq_media_track_t *media_track = (xqc_moq_media_track_t*)track;
+    xqc_moq_media_cancel_reason_t cancel_reason;
     
     xqc_list_for_each_safe(pos, next, &media_track->write_stream_list) {
         stream = xqc_list_entry(pos, xqc_moq_stream_t, list_member);
         quic_stream = stream->trans_ops.quic_stream(stream->trans_stream);
-        create_time = quic_stream->stream_stats.create_time;
-        if (now - create_time < XQC_MOQ_MEDIA_MAX_SEND_DELAY) {
-            break;
+        if (!xqc_moq_media_stream_should_cancel_write(track, stream, quic_stream, now, &cancel_reason)) {
+            continue;
         }
         if (quic_stream->stream_state_send < XQC_SEND_STREAM_ST_DATA_RECVD) {
-            xqc_log(session->log, XQC_LOG_INFO, "|video frame timeout|seq:%ui|group_id:%ui|object_id:%ui|",
-                    video_frame->seq_num, stream->group_id, stream->object_id);
+            xqc_log(session->log, XQC_LOG_INFO,
+                    "|video frame timeout|seq:%ui|group_id:%ui|object_id:%ui|reason:%s|",
+                    video_frame->seq_num, stream->group_id, stream->object_id,
+                    xqc_moq_media_cancel_reason_str(cancel_reason));
             
             media_track->drop_group_id_before = xqc_max(stream->group_id + 1, media_track->drop_group_id_before);
             media_track->drop_object_id_before = 0;

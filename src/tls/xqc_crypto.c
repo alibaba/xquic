@@ -211,6 +211,19 @@ xqc_crypto_encrypt_header(xqc_crypto_t *crypto, xqc_pkt_type_t pkt_type, uint8_t
         return -XQC_EILLPKT;
     }
 
+    /*
+     * RFC 9001 Section 5.4.2: header protection samples 16 bytes from a fixed offset
+     * after the packet number. Endpoints MUST discard packets that are not long
+     * enough to contain a complete sample. Without this check, hp_mask below would
+     * read XQC_HP_SAMPLELEN bytes starting at `sample`, which could read past `end`.
+     */
+    if (sample + XQC_HP_SAMPLELEN > end) {
+        xqc_log(crypto->log, XQC_LOG_ERROR,
+                "|illegal pkt, hp sample exceed buffer|sample_off:%uz|remain:%uz|",
+                (size_t)(sample - header), (size_t)(end - sample));
+        return -XQC_EILLPKT;
+    }
+
     /* generate header protection mask */
     ret = hp_cipher->hp_mask(hp_cipher, crypto->keys.tx_hp_ctx,
                              mask, XQC_HP_MASKLEN, &nwrite,                  /* mask */
@@ -258,6 +271,20 @@ xqc_crypto_decrypt_header(xqc_crypto_t *crypto, xqc_pkt_type_t pkt_type, uint8_t
     /* generate hp mask */
     uint8_t mask[XQC_HP_MASKLEN];
     uint8_t *sample = pktno + 4;
+
+    /*
+     * RFC 9001 Section 5.4.2: header protection samples 16 bytes from a fixed offset
+     * after the packet number. Endpoints MUST discard packets that are not long
+     * enough to contain a complete sample. This check must happen BEFORE hp_mask,
+     * otherwise hp_mask would read XQC_HP_SAMPLELEN bytes past `end`.
+     */
+    if (sample + XQC_HP_SAMPLELEN > end) {
+        xqc_log(crypto->log, XQC_LOG_ERROR,
+                "|illegal pkt, hp sample exceed buffer|sample_off:%uz|remain:%uz|",
+                (size_t)(sample - header), (size_t)(end - sample));
+        return -XQC_EILLPKT;
+    }
+
     ret = hp_cipher->hp_mask(hp_cipher, crypto->keys.rx_hp_ctx,
                              mask, XQC_HP_MASKLEN, &nwrite,                     /* mask */
                              XQC_FAKE_HP_MASK, sizeof(XQC_FAKE_HP_MASK) - 1,    /* ciphertext */

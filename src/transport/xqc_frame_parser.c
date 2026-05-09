@@ -329,6 +329,26 @@ xqc_parse_stream_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
 
     } else {
         frame->data_length = end - p;
+        length = frame->data_length;
+    }
+
+    /*
+     * RFC 9000 Section 19.8: the sum of "Offset" and "Length" of a STREAM frame
+     * MUST NOT exceed 2^62-1. Endpoints MUST treat such a frame as a connection
+     * error of type FRAME_ENCODING_ERROR or FLOW_CONTROL_ERROR.
+     *
+     * Note on safety of the addition: xqc_vint_read constrains every parsed
+     * value to <= 2^62-1 (1/2/4-byte forms via the 6-bit length-prefix mask,
+     * 8-byte form via an explicit `& ((1ULL<<62)-1)`). The implicit-length
+     * branch above takes `end - p`, which is bounded by the UDP datagram size
+     * (XQC_QUIC_MAX_MSS = 1420). Therefore offset + length <= 2*(2^62-1) and
+     * cannot overflow uint64_t; this single comparison is sufficient.
+     */
+    if (frame->data_offset + length > ((UINT64_C(1) << 62) - 1)) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|stream offset+length exceeds 2^62-1|offset:%ui|length:%ui|",
+                frame->data_offset, length);
+        return -XQC_EILLEGAL_FRAME;
     }
 
     if (first_byte & 0x01) {

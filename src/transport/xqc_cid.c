@@ -271,7 +271,19 @@ xqc_cid_set_insert_cid(xqc_cid_set_t *cid_set,
         return -XQC_ECONN_CID_NOT_FOUND;
     }
 
-    if ((inner_set->unused_cnt + inner_set->used_cnt) > limit) {
+    /*
+     * RFC 9000 Section 5.1.1: An endpoint MUST NOT provide more
+     * connection IDs than the peer's active_connection_id_limit. The
+     * active count includes both UNUSED and USED CIDs. RETIRED CIDs are
+     * not active and therefore excluded from this check (they are pending
+     * peer ACK on RETIRE_CONNECTION_ID and will be released later).
+     *
+     * Use ">= limit" instead of "> limit": the new CID being inserted is
+     * the (count + 1)-th active CID, so accepting it requires count to be
+     * strictly less than limit. The previous "> limit" check was off-by-one
+     * and allowed (limit + 1) active CIDs, violating the RFC MUST.
+     */
+    if ((inner_set->unused_cnt + inner_set->used_cnt) >= limit) {
         return -XQC_EACTIVE_CID_LIMIT;
     }
 

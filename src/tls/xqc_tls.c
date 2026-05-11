@@ -11,6 +11,18 @@
 #include <openssl/rand.h>
 #include <openssl/hmac.h>
 
+/*
+ * RFC 9001 Section 5.8 (Retry Packet Integrity) fixes the AEAD parameters:
+ *   - secret key K is 128 bits (16 bytes), e.g. 0xbe0c69...c84e for QUIC v1
+ *   - nonce N is 96 bits (12 bytes), e.g. 0x461599...25bb for QUIC v1
+ * Use compile-time constants instead of strlen() on the binary literals; the
+ * literals can legitimately contain '\0' bytes for future versions, in which
+ * case strlen() would silently truncate the length and break tag computation.
+ * See issue #596.
+ */
+#define XQC_RETRY_INTEGRITY_KEY_LEN     16  /* RFC 9001 §5.8: K = 128 bits */
+#define XQC_RETRY_INTEGRITY_NONCE_LEN   12  /* RFC 9001 §5.8: N = 96 bits  */
+
 
 typedef enum xqc_tls_flag_e {
     /* initial state */
@@ -804,8 +816,8 @@ xqc_tls_cal_retry_integrity_tag(xqc_log_t *log,
     }
 
     ret = xqc_crypto_aead_encrypt(crypto, "", 0,
-                                  xqc_crypto_retry_key[ver], strlen(xqc_crypto_retry_key[ver]),
-                                  xqc_crypto_retry_nonce[ver], strlen(xqc_crypto_retry_nonce[ver]),
+                                  xqc_crypto_retry_key[ver],   XQC_RETRY_INTEGRITY_KEY_LEN,
+                                  xqc_crypto_retry_nonce[ver], XQC_RETRY_INTEGRITY_NONCE_LEN,
                                   retry_pseudo_packet, retry_pseudo_packet_len,
                                   dst, dst_cap, dst_len);
     if (ret != XQC_OK) {

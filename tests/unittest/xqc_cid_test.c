@@ -207,3 +207,204 @@ xqc_test_cid()
     xqc_test_recv_retire_cid();
     xqc_test_retire_cid_with_odcid_in_set();
 }
+
+/*
+ * Helper: snapshot the current active CID count (UNUSED + USED) of cid_set
+ * on the initial path. test_engine_connect() pre-populates the cid_set with
+ * the initial SCID/DCID needed for the handshake, so any test that wants to
+ * verify "boundary at limit" must base its limit on this baseline rather
+ * than assuming the set is empty.
+ */
+static uint64_t
+xqc_test_cid_active_count(xqc_cid_set_t *cid_set)
+{
+    int64_t unused = xqc_cid_set_get_unused_cnt(cid_set, XQC_INITIAL_PATH_ID);
+    int64_t used   = xqc_cid_set_get_used_cnt(cid_set, XQC_INITIAL_PATH_ID);
+    if (unused < 0) {
+        unused = 0;
+    }
+    if (used < 0) {
+        used = 0;
+    }
+    return (uint64_t)(unused + used);
+}
+
+/*
+ * Helper: insert one fresh UNUSED CID into cid_set with the given limit and
+ * a unique seq number. Returns the value of xqc_cid_set_insert_cid (so callers
+ * can assert XQC_OK or -XQC_EACTIVE_CID_LIMIT depending on the boundary case).
+ */
+static xqc_int_t
+xqc_test_cid_insert_one(xqc_connection_t *conn, xqc_cid_set_t *cid_set,
+    xqc_cid_state_t state, uint64_t limit, uint64_t seq_num)
+{
+    xqc_cid_t cid;
+    xqc_int_t ret;
+
+    ret = xqc_generate_cid(conn->engine, NULL, &cid, seq_num);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+    return xqc_cid_set_insert_cid(cid_set, &cid, state, limit,
+                                  XQC_INITIAL_PATH_ID);
+}
+
+/*
+ * Issue #585 — off-by-one regression test for xqc_cid_set_insert_cid.
+ *
+ * RFC 9000 Section 5.1.1: "An endpoint MUST NOT provide more connection IDs
+ * than the peer's active_connection_id_limit." Active count = UNUSED + USED;
+ * RETIRED CIDs are no longer active.
+ *
+ * Coverage matrix (all cases compute "limit" relative to the baseline active
+ * count produced by test_engine_connect(), so the test is robust against
+ * future changes to the handshake fixture):
+ *   #1 scid: count == limit-1, insert succeeds       -> XQC_OK
+ *   #2 scid: count == limit,   insert MUST be denied -> -XQC_EACTIVE_CID_LIMIT
+ *   #3 dcid: count == limit-1, insert succeeds       -> XQC_OK
+ *   #4 dcid: count == limit,   insert MUST be denied -> -XQC_EACTIVE_CID_LIMIT
+ *   #5 mixed UNUSED + USED summing to limit -> next insert denied
+ *   #6 RETIRED CIDs are excluded from active count   -> insert succeeds
+ *   #7 limit == baseline + 1: second insert past baseline MUST be denied
+ *
+ * Pre-fix behavior (count > limit) allowed (limit + 1) active CIDs, so cases
+ * #2/#4/#5/#7 would incorrectly return XQC_OK. Post-fix (count >= limit), all
+ * four are denied.
+ */
+void
+xqc_test_cid_active_limit()
+{
+    xqc_int_t           ret;
+    xqc_connection_t   *conn;
+
+    /* ---- Cases #1 & #2: SCID side ---- */
+    {
+        conn = test_engine_connect();
+        CU_ASSERT_FATAL(conn != NULL);
+
+        uint64_t base  = xqc_test_cid_active_count(&conn->scid_set);
+        uint64_t limit = base + 2;  /* room for exactly 2 more inserts */
+
+        /* the (base + 1)-th insert (== limit-1 -> limit) must succeed */
+        ret = xqc_test_cid_insert_one(conn, &conn->scid_set,
+                                      XQC_CID_UNUSED, limit, 1001);
+        CU_ASSERT(ret == XQC_OK);
+
+        /* the (base + 2)-th insert (== limit) -- last allowed one */
+        ret = xqc_test_cid_insert_one(conn, &conn->scid_set,
+                                      XQC_CID_UNUSED, limit, 1002);
+        CU_ASSERT(ret == XQC_OK);
+
+        /* the (base + 3)-th insert pushes count past limit -> MUST be denied */
+        ret = xqc_test_cid_insert_one(conn, &conn->scid_set,
+                                      XQC_CID_UNUSED, limit, 1003);
+        CU_ASSERT(ret == -XQC_EACTIVE_CID_LIMIT);
+
+        xqc_engine_destroy(conn->engine);
+    }
+
+    /* ---- Cases #3 & #4: DCID side ---- */
+    {
+        conn = test_engine_connect();
+        CU_ASSERT_FATAL(conn != NULL);
+
+        uint64_t base  = xqc_test_cid_active_count(&conn->dcid_set);
+        uint64_t limit = base + 2;
+
+        ret = xqc_test_cid_insert_one(conn, &conn->dcid_set,
+                                      XQC_CID_UNUSED, limit, 2001);
+        CU_ASSERT(ret == XQC_OK);
+
+        ret = xqc_test_cid_insert_one(conn, &conn->dcid_set,
+                                      XQC_CID_UNUSED, limit, 2002);
+        CU_ASSERT(ret == XQC_OK);
+
+        ret = xqc_test_cid_insert_one(conn, &conn->dcid_set,
+                                      XQC_CID_UNUSED, limit, 2003);
+        CU_ASSERT(ret == -XQC_EACTIVE_CID_LIMIT);
+
+        xqc_engine_destroy(conn->engine);
+    }
+
+    /* ---- Case #5: mixed UNUSED + USED summing to limit ---- */
+    {
+        conn = test_engine_connect();
+        CU_ASSERT_FATAL(conn != NULL);
+
+        uint64_t base  = xqc_test_cid_active_count(&conn->dcid_set);
+        uint64_t limit = base + 2;
+
+        /* one UNUSED, one USED -> total active grows by 2 -> equals limit */
+        ret = xqc_test_cid_insert_one(conn, &conn->dcid_set,
+                                      XQC_CID_UNUSED, limit, 3001);
+        CU_ASSERT(ret == XQC_OK);
+
+        ret = xqc_test_cid_insert_one(conn, &conn->dcid_set,
+                                      XQC_CID_USED, limit, 3002);
+        CU_ASSERT(ret == XQC_OK);
+
+        /* unused_cnt + used_cnt == limit -> next insert MUST be denied */
+        ret = xqc_test_cid_insert_one(conn, &conn->dcid_set,
+                                      XQC_CID_UNUSED, limit, 3003);
+        CU_ASSERT(ret == -XQC_EACTIVE_CID_LIMIT);
+
+        xqc_engine_destroy(conn->engine);
+    }
+
+    /* ---- Case #6: RETIRED CIDs are excluded from the active count ---- */
+    {
+        conn = test_engine_connect();
+        CU_ASSERT_FATAL(conn != NULL);
+
+        uint64_t base  = xqc_test_cid_active_count(&conn->scid_set);
+        uint64_t limit = base + 2;
+
+        /* fill up to the limit with two fresh UNUSED CIDs */
+        ret = xqc_test_cid_insert_one(conn, &conn->scid_set,
+                                      XQC_CID_UNUSED, limit, 4001);
+        CU_ASSERT(ret == XQC_OK);
+        ret = xqc_test_cid_insert_one(conn, &conn->scid_set,
+                                      XQC_CID_UNUSED, limit, 4002);
+        CU_ASSERT(ret == XQC_OK);
+
+        /* sanity: at limit, next insert is denied */
+        ret = xqc_test_cid_insert_one(conn, &conn->scid_set,
+                                      XQC_CID_UNUSED, limit, 4003);
+        CU_ASSERT(ret == -XQC_EACTIVE_CID_LIMIT);
+
+        /* retire one of our inserted UNUSED CIDs via state transition */
+        xqc_cid_inner_t *inner = xqc_get_inner_cid_by_seq(&conn->scid_set, 4001,
+                                                          XQC_INITIAL_PATH_ID);
+        CU_ASSERT_FATAL(inner != NULL);
+        ret = xqc_cid_switch_to_next_state(&conn->scid_set, inner,
+                                           XQC_CID_RETIRED,
+                                           XQC_INITIAL_PATH_ID);
+        CU_ASSERT(ret == XQC_OK);
+
+        /* active count drops by 1 (RETIRED is excluded) -> insert succeeds */
+        ret = xqc_test_cid_insert_one(conn, &conn->scid_set,
+                                      XQC_CID_UNUSED, limit, 4004);
+        CU_ASSERT(ret == XQC_OK);
+
+        xqc_engine_destroy(conn->engine);
+    }
+
+    /* ---- Case #7: tight limit (baseline + 1), second insert MUST be denied ---- */
+    {
+        conn = test_engine_connect();
+        CU_ASSERT_FATAL(conn != NULL);
+
+        uint64_t base  = xqc_test_cid_active_count(&conn->scid_set);
+        uint64_t limit = base + 1;  /* room for exactly 1 more insert */
+
+        ret = xqc_test_cid_insert_one(conn, &conn->scid_set,
+                                      XQC_CID_UNUSED, limit, 5001);
+        CU_ASSERT(ret == XQC_OK);
+
+        ret = xqc_test_cid_insert_one(conn, &conn->scid_set,
+                                      XQC_CID_UNUSED, limit, 5002);
+        CU_ASSERT(ret == -XQC_EACTIVE_CID_LIMIT);
+
+        xqc_engine_destroy(conn->engine);
+    }
+}

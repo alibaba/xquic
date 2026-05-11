@@ -574,7 +574,8 @@ xqc_h3_conn_on_uni_stream_created(xqc_h3_conn_t *h3c, uint64_t stype)
             xqc_log(h3c->log, XQC_LOG_ERROR,
                     "|h3 uni-stream has been created|type:%ui|", stype);
 
-            XQC_H3_CONN_ERR(h3c, H3_FRAME_ERROR, -XQC_H3_INVALID_STREAM);
+            /* RFC 9114 §6.2.1: second control stream MUST be H3_STREAM_CREATION_ERROR */
+            XQC_H3_CONN_ERR(h3c, H3_STREAM_CREATION_ERROR, -XQC_H3_INVALID_STREAM);
             return -XQC_H3_INVALID_STREAM;
         }
 

@@ -461,3 +461,120 @@ xqc_test_stream()
         xqc_free(conn->alpn);
     }
 }
+
+
+/*
+ * Tests for issue #606 — RFC 9114 §6.2.1 critical stream close detection.
+ *
+ * The function under test is xqc_h3_stream_close_notify (xqc_h3_stream.c:1965),
+ * which is exported (non-static) but not declared in xqc_h3_stream.h. We
+ * forward-declare it locally to invoke it directly without depending on the
+ * full transport-layer destroy chain, so each case can assert conn->conn_err
+ * deterministically.
+ *
+ * The fix has three guards (in order):
+ *   G1: h3s->type == XQC_H3_STREAM_TYPE_CONTROL
+ *   G2: !(conn->conn_flag & XQC_CONN_FLAG_CLOSING_NOTIFY)   (avoid teardown noise)
+ *   G3: !(h3s->flags & XQC_HTTP3_STREAM_FLAG_ACTIVELY_CLOSED) (passive close only)
+ *
+ * Cases below cover one positive path (all guards pass -> error raised) plus
+ * three negative paths, each isolating one guard.
+ */
+extern int xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data);
+
+static void
+xqc_test_h3_critical_stream_close_one(xqc_h3_stream_type_t stream_type,
+    int set_actively_closed, int set_closing_notify, uint64_t expected_err)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    /* set alpn to H3 — same setup as xqc_test_stream */
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+
+    xqc_stream_t *stream = xqc_create_stream_with_conn(conn,
+            XQC_UNDEFINE_STREAM_ID, XQC_CLI_UNI, NULL, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+
+    xqc_h3_conn_t *h3c = xqc_h3_conn_create(conn, NULL);
+    CU_ASSERT_FATAL(h3c != NULL);
+
+    xqc_h3_stream_t *h3s = xqc_h3_stream_create(h3c, stream, stream_type, NULL);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    /* configure guards per case */
+    if (set_actively_closed) {
+        h3s->flags |= XQC_HTTP3_STREAM_FLAG_ACTIVELY_CLOSED;
+    }
+    if (set_closing_notify) {
+        conn->conn_flag |= XQC_CONN_FLAG_CLOSING_NOTIFY;
+    }
+
+    /* baseline: conn_err must start clean so we can attribute any change to the fix */
+    CU_ASSERT(conn->conn_err == 0);
+
+    /*
+     * Invoke close_notify directly. It will internally call xqc_h3_stream_destroy
+     * at the end, so do NOT free h3s afterwards (avoid double-free).
+     */
+    int ret = xqc_h3_stream_close_notify(stream, h3s);
+    CU_ASSERT(ret == XQC_OK);
+
+    /* the only assertion of interest: was H3_CLOSED_CRITICAL_STREAM raised? */
+    CU_ASSERT(conn->conn_err == expected_err);
+    if (expected_err == H3_CLOSED_CRITICAL_STREAM) {
+        CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    }
+
+    xqc_h3_conn_destroy(h3c);
+    xqc_destroy_stream(stream);
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+}
+
+void
+xqc_test_h3_critical_stream_close()
+{
+    /*
+     * Case 1 (positive): peer-initiated close on a control stream while the
+     * connection is still healthy -> H3_CLOSED_CRITICAL_STREAM MUST be raised.
+     * This is exactly the RFC 9114 §6.2.1 enforcement that issue #606 added.
+     */
+    xqc_test_h3_critical_stream_close_one(XQC_H3_STREAM_TYPE_CONTROL,
+            /* actively_closed */ 0, /* closing_notify */ 0,
+            /* expected_err   */ H3_CLOSED_CRITICAL_STREAM);
+
+    /*
+     * Case 2 (negative, guard G3): local stack actively closed the control
+     * stream. We log an ERROR (not asserted here — log inspection is out of
+     * scope) but MUST NOT tear down the connection.
+     */
+    xqc_test_h3_critical_stream_close_one(XQC_H3_STREAM_TYPE_CONTROL,
+            /* actively_closed */ 1, /* closing_notify */ 0,
+            /* expected_err   */ 0);
+
+    /*
+     * Case 3 (negative, guard G2): connection is already closing/draining.
+     * Stream cleanup here is part of normal teardown — no error must surface,
+     * otherwise normal connection close would always trigger a spurious
+     * H3_CLOSED_CRITICAL_STREAM.
+     */
+    xqc_test_h3_critical_stream_close_one(XQC_H3_STREAM_TYPE_CONTROL,
+            /* actively_closed */ 0, /* closing_notify */ 1,
+            /* expected_err   */ 0);
+
+    /*
+     * Case 4 (negative, guard G1): non-critical stream (REQUEST). Closing a
+     * request stream is normal HTTP/3 lifecycle and must never raise
+     * H3_CLOSED_CRITICAL_STREAM regardless of how it was closed.
+     */
+    xqc_test_h3_critical_stream_close_one(XQC_H3_STREAM_TYPE_REQUEST,
+            /* actively_closed */ 0, /* closing_notify */ 0,
+            /* expected_err   */ 0);
+}

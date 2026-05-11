@@ -5893,7 +5893,7 @@ xqc_conn_get_local_transport_params(xqc_connection_t *conn, xqc_transport_params
     return XQC_OK;
 }
 
-static inline xqc_int_t
+xqc_int_t
 xqc_conn_check_transport_params(xqc_connection_t *conn, const xqc_transport_params_t *params)
 {
     /* parameters MUST NOT be larger than 2^60 */

@@ -280,7 +280,6 @@ typedef struct xqc_moq_subscribe_error_msg_s {
     uint64_t                    error_code;
     char                        *reason_phrase;
     size_t                      reason_phrase_len;
-    uint64_t                    track_alias;
 } xqc_moq_subscribe_error_msg_t;
 
 typedef struct xqc_moq_publish_msg_s {

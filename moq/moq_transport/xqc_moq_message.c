@@ -2570,7 +2570,6 @@ xqc_moq_msg_encode_subscribe_error_len(xqc_moq_msg_base_t *msg_base)
     len += xqc_put_varint_len(subscribe_error->error_code);
     len += xqc_put_varint_len(subscribe_error->reason_phrase_len);
     len += subscribe_error->reason_phrase_len;
-    len += xqc_put_varint_len(subscribe_error->track_alias);
     return len;
 }
 
@@ -2595,7 +2594,6 @@ xqc_moq_msg_encode_subscribe_error(xqc_moq_msg_base_t *msg_base, uint8_t *buf, s
         xqc_memcpy(p, subscribe_error->reason_phrase, subscribe_error->reason_phrase_len);
         p += subscribe_error->reason_phrase_len;
     }
-    p = xqc_put_varint(p, subscribe_error->track_alias);
     return p - buf;
 }
 
@@ -2653,8 +2651,8 @@ xqc_moq_msg_decode_subscribe_error(uint8_t *buf, size_t buf_len, uint8_t stream_
                 processed += ret;
             }
             if (subscribe_error->reason_phrase_len == 0) {
-                msg_ctx->cur_field_idx = 4;
-                goto subscribe_error_idx4;
+                *finish = 1;
+                break;
             }
             if (subscribe_error->reason_phrase == NULL) {
                 if (subscribe_error->reason_phrase_len > XQC_MOQ_MAX_NAME_LEN) {
@@ -2679,17 +2677,6 @@ xqc_moq_msg_decode_subscribe_error(uint8_t *buf, size_t buf_len, uint8_t stream_
                 break;
             }
             DEBUG_PRINTF("==>reason_phrase:%s\n",subscribe_error->reason_phrase);
-            msg_ctx->cur_field_idx = 4;
-        case 4: //Track Alias (i)
-            subscribe_error_idx4:
-            ret = xqc_vint_read(buf + processed, buf + buf_len, &subscribe_error->track_alias);
-            if (ret < 0) {
-                *wait_more_data = 1;
-                break;
-            }
-            processed += ret;
-
-            DEBUG_PRINTF("==>track_alias:%d\n",(int)subscribe_error->track_alias);
 
             *finish = 1;
             break;

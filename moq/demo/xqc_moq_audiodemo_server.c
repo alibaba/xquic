@@ -304,8 +304,8 @@ void on_subscribe_error(xqc_moq_user_session_t *user_session, xqc_moq_track_t *t
     printf("on_subscribe_error: track_namespace:%s track_name:%s\n",
            track_info ? track_info->track_namespace : "null",
            track_info ? track_info->track_name : "null");
-    printf("subscribe_id:%d error_code:%d reason_phrase:%s track_alias:%d\n",
-           (int)subscribe_error->subscribe_id, (int)subscribe_error->error_code, subscribe_error->reason_phrase, (int)subscribe_error->track_alias);
+    printf("subscribe_id:%d error_code:%d reason_phrase:%s\n",
+           (int)subscribe_error->subscribe_id, (int)subscribe_error->error_code, subscribe_error->reason_phrase);
 }
 
 void on_catalog(xqc_moq_user_session_t *user_session, xqc_moq_track_info_t **track_info_array, xqc_int_t array_size)

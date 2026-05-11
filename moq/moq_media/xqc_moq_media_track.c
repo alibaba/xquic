@@ -10,12 +10,10 @@
 #include "src/transport/xqc_stream.h"
 
 #define XQC_MOQ_MEDIA_MAX_OBJECT_IDLE_DELAY 500000 /* 500ms */
-#define XQC_MOQ_MEDIA_MAX_REUSE_SUBGROUP_STREAM_LIFETIME 2000000 /* 2s */
 
 typedef enum {
     XQC_MOQ_MEDIA_CANCEL_NONE = 0,
     XQC_MOQ_MEDIA_CANCEL_OBJECT_IDLE,
-    XQC_MOQ_MEDIA_CANCEL_REUSE_STREAM_LIFETIME,
 } xqc_moq_media_cancel_reason_t;
 
 static void xqc_moq_media_on_create(xqc_moq_track_t *track);
@@ -654,8 +652,6 @@ xqc_moq_media_cancel_reason_str(xqc_moq_media_cancel_reason_t reason)
     switch (reason) {
     case XQC_MOQ_MEDIA_CANCEL_OBJECT_IDLE:
         return "object_idle";
-    case XQC_MOQ_MEDIA_CANCEL_REUSE_STREAM_LIFETIME:
-        return "reuse_stream_lifetime";
     default:
         return "none";
     }
@@ -692,15 +688,6 @@ xqc_moq_media_stream_should_cancel_write(xqc_moq_track_t *track,
             return XQC_TRUE;
         }
         return XQC_FALSE;
-    }
-
-    if (xqc_moq_media_delay_expired(now, create_time,
-                                    XQC_MOQ_MEDIA_MAX_REUSE_SUBGROUP_STREAM_LIFETIME))
-    {
-        if (reason) {
-            *reason = XQC_MOQ_MEDIA_CANCEL_REUSE_STREAM_LIFETIME;
-        }
-        return XQC_TRUE;
     }
 
     last_object_write_time = stream->last_moq_object_write_time;

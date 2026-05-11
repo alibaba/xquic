@@ -574,7 +574,13 @@ xqc_h3_conn_on_uni_stream_created(xqc_h3_conn_t *h3c, uint64_t stype)
             xqc_log(h3c->log, XQC_LOG_ERROR,
                     "|h3 uni-stream has been created|type:%ui|", stype);
 
-            XQC_H3_CONN_ERR(h3c, H3_FRAME_ERROR, -XQC_H3_INVALID_STREAM);
+            /*
+             * RFC 9114 Section 6.2.1: "Only one control stream per peer is
+             * permitted; receipt of a second stream claiming to be a
+             * control stream MUST be treated as a connection error of type
+             * H3_STREAM_CREATION_ERROR." See xquic issue #608.
+             */
+            XQC_H3_CONN_ERR(h3c, H3_STREAM_CREATION_ERROR, -XQC_H3_INVALID_STREAM);
             return -XQC_H3_INVALID_STREAM;
         }
 

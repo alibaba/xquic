@@ -745,8 +745,22 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
         if (pctx->frame.type != XQC_H3_FRM_SETTINGS
             && !(h3s->h3c->flags & XQC_H3_CONN_FLAG_SETTINGS_RECVED))
         {
+            /*
+             * RFC 9114 Section 6.2.1: "If the first frame of the control
+             * stream is any other frame type [than SETTINGS], this MUST be
+             * treated as a connection error of type H3_MISSING_SETTINGS."
+             * See xquic issue #607.
+             *
+             * Set conn->conn_err early via XQC_H3_CONN_ERR so the
+             * RFC-mandated error code (H3_MISSING_SETTINGS = 0x10A) reaches
+             * the peer in the CONNECTION_CLOSE frame; otherwise the upper
+             * layer (xqc_h3_stream_read_notify) would map our negative
+             * return into the generic H3_FRAME_ERROR code.
+             */
             xqc_h3_frm_reset_pctx(pctx);
-            return -H3_FRAME_UNEXPECTED;
+            XQC_H3_CONN_ERR(h3s->h3c, H3_MISSING_SETTINGS,
+                            -XQC_H3_MISSING_SETTINGS);
+            return -XQC_H3_MISSING_SETTINGS;
         }
 
         if (pctx->state == XQC_H3_FRM_STATE_END) {

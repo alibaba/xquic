@@ -1036,6 +1036,20 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 /* PUSH related is not implemented yet */
                 break;
 
+            case XQC_H3_FRM_SETTINGS:
+                /*
+                 * RFC 9114 Section 7.2.4: "SETTINGS frames MUST NOT be
+                 * sent on any stream other than the control stream. If
+                 * an endpoint receives a SETTINGS frame on a different
+                 * stream, the endpoint MUST respond with a connection
+                 * error of type H3_FRAME_UNEXPECTED."
+                 * See xquic issue #609.
+                 */
+                xqc_h3_frm_reset_pctx(pctx);
+                XQC_H3_CONN_ERR(h3s->h3c, H3_FRAME_UNEXPECTED,
+                                -XQC_H3_CONTROL_ERROR);
+                return -XQC_H3_CONTROL_ERROR;
+
             default:
                 xqc_log(h3s->log, XQC_LOG_INFO, "|ignore unknown frame|"
                         "frame type:%xL|", pctx->frame.type);

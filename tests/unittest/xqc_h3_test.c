@@ -578,3 +578,147 @@ xqc_test_h3_critical_stream_close()
             /* actively_closed */ 0, /* closing_notify */ 0,
             /* expected_err   */ 0);
 }
+
+/*
+ * Tests for issue #612 — RFC 9114 §7.2.1 / §7.2.2 reject DATA / HEADERS frames
+ * received on the http3 control stream.
+ *
+ * The function under test is xqc_h3_stream_process_control (xqc_h3_stream.c:720),
+ * which is exported (non-static) but not declared in the public header. We
+ * forward-declare it locally so we can drive frame bytes into it directly and
+ * deterministically observe conn->conn_err.
+ *
+ * The fix adds a single switch arm:
+ *   case XQC_H3_FRM_DATA:
+ *   case XQC_H3_FRM_HEADERS:
+ *       XQC_H3_CONN_ERR(..., H3_FRAME_UNEXPECTED, ...);
+ *
+ * Cases below cover both positive paths (DATA and HEADERS on control stream
+ * MUST raise H3_FRAME_UNEXPECTED) plus two negative paths exercising the
+ * still-legal control-stream frames GOAWAY and MAX_PUSH_ID, to confirm the
+ * fix did not regress legitimate frame handling.
+ */
+extern ssize_t xqc_h3_stream_process_control(xqc_h3_stream_t *h3s,
+        unsigned char *data, size_t data_len);
+
+static void
+xqc_test_h3_dh_on_control_one(uint64_t frame_type, uint64_t expected_err)
+{
+    xqc_int_t ret;
+    ssize_t processed;
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    /* set alpn to H3 — same setup as xqc_test_stream */
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+
+    xqc_stream_t *stream = xqc_create_stream_with_conn(conn,
+            XQC_UNDEFINE_STREAM_ID, XQC_CLI_UNI, NULL, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+
+    xqc_h3_conn_t *h3c = xqc_h3_conn_create(conn, NULL);
+    CU_ASSERT_FATAL(h3c != NULL);
+
+    xqc_h3_stream_t *h3s = xqc_h3_stream_create(h3c, stream,
+            XQC_H3_STREAM_TYPE_CONTROL, NULL);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    /*
+     * Bypass the issue #607 MISSING_SETTINGS guard: pretend SETTINGS has
+     * already been received so the switch can be reached for any frame type.
+     */
+    h3c->flags |= XQC_H3_CONN_FLAG_SETTINGS_RECVED;
+
+    /* baseline: conn_err must start clean to attribute any change to the fix */
+    CU_ASSERT(conn->conn_err == 0);
+
+    /* build one frame of the requested type into a list buffer */
+    xqc_list_head_t send_buf;
+    xqc_init_list_head(&send_buf);
+
+    char payload[] = "abcdefghij";  /* 10-byte arbitrary payload */
+    uint64_t push_id = 7;
+    if (frame_type == XQC_H3_FRM_DATA) {
+        ret = xqc_h3_frm_write_data(&send_buf, payload, sizeof(payload) - 1, XQC_TRUE);
+    } else if (frame_type == XQC_H3_FRM_HEADERS) {
+        xqc_var_buf_t *header = xqc_var_buf_create(sizeof(payload) - 1);
+        xqc_var_buf_save_data(header, payload, sizeof(payload) - 1);
+        ret = xqc_h3_frm_write_headers(&send_buf, header, XQC_TRUE);
+    } else if (frame_type == XQC_H3_FRM_GOAWAY) {
+        ret = xqc_h3_frm_write_goaway(&send_buf, push_id, XQC_TRUE);
+    } else if (frame_type == XQC_H3_FRM_MAX_PUSH_ID) {
+        ret = xqc_h3_frm_write_max_push_id(&send_buf, push_id, XQC_TRUE);
+    } else {
+        CU_FAIL_FATAL("unsupported frame_type in test fixture");
+        ret = XQC_ERROR;
+    }
+    CU_ASSERT_FATAL(ret == XQC_OK);
+
+    /* concatenate list buffer into a flat byte stream */
+    xqc_var_buf_t *buf = xqc_var_buf_create(XQC_VAR_BUF_INIT_SIZE);
+    xqc_list_head_t *pos, *next;
+    xqc_list_for_each_safe(pos, next, &send_buf) {
+        xqc_list_buf_t *list_buf = xqc_list_entry(pos, xqc_list_buf_t, list_head);
+        xqc_var_buf_t *data_buf = list_buf->buf;
+        xqc_var_buf_save_data(buf, data_buf->data, data_buf->data_len);
+        xqc_list_del(&list_buf->list_head);
+        xqc_var_buf_free(data_buf);
+        xqc_free(list_buf);
+    }
+
+    /* drive bytes into the function under test */
+    processed = xqc_h3_stream_process_control(h3s, buf->data, buf->data_len);
+
+    if (expected_err == H3_FRAME_UNEXPECTED) {
+        /* positive case: fix must surface RFC 9114 H3_FRAME_UNEXPECTED */
+        CU_ASSERT(processed < 0);
+        CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
+        CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    } else {
+        /* negative/control case: legal control-stream frame must not error */
+        CU_ASSERT(processed >= 0);
+        CU_ASSERT(conn->conn_err == 0);
+    }
+
+    xqc_var_buf_free(buf);
+    xqc_h3_stream_destroy(h3s);
+    xqc_h3_conn_destroy(h3c);
+    xqc_destroy_stream(stream);
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+}
+
+void
+xqc_test_h3_data_headers_on_control_rejected()
+{
+    /*
+     * Case 1 (positive): DATA frame on control stream MUST raise
+     * H3_FRAME_UNEXPECTED per RFC 9114 §7.2.1.
+     */
+    xqc_test_h3_dh_on_control_one(XQC_H3_FRM_DATA, H3_FRAME_UNEXPECTED);
+
+    /*
+     * Case 2 (positive): HEADERS frame on control stream MUST raise
+     * H3_FRAME_UNEXPECTED per RFC 9114 §7.2.2.
+     */
+    xqc_test_h3_dh_on_control_one(XQC_H3_FRM_HEADERS, H3_FRAME_UNEXPECTED);
+
+    /*
+     * Case 3 (negative, regression guard): GOAWAY is a legitimate
+     * control-stream frame; the fix MUST NOT regress it.
+     */
+    xqc_test_h3_dh_on_control_one(XQC_H3_FRM_GOAWAY, 0);
+
+    /*
+     * Case 4 (negative, regression guard): MAX_PUSH_ID is also a legitimate
+     * control-stream frame; the fix MUST NOT regress it.
+     */
+    xqc_test_h3_dh_on_control_one(XQC_H3_FRM_MAX_PUSH_ID, 0);
+}

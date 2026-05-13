@@ -5637,16 +5637,7 @@ xqc_conn_on_recv_retry(xqc_connection_t *conn, xqc_cid_t *retry_scid)
 
     conn->conn_flag |= XQC_CONN_FLAG_RETRY_RECVD;
 
-    /*
-     * Save the SCID of the received Retry packet. This is required by
-     * RFC 9000 Section 7.3 so the client can later verify that the
-     * retry_source_connection_id transport parameter received from the
-     * server matches the SCID of the Retry packet that triggered this
-     * second Initial. Without this copy conn->retry_scid stays zero on
-     * the client side and the value-mismatch check in
-     * xqc_conn_check_transport_params would falsely reject every
-     * compliant peer after a Retry.
-     */
+    /* RFC 9000 §7.3: save Retry SCID for later retry_source_connection_id validation */
     xqc_cid_copy(&conn->retry_scid, retry_scid);
 
     /* change the DCID it uses for sending packets in response to Retry packet. */
@@ -5916,19 +5907,7 @@ xqc_conn_check_transport_params(xqc_connection_t *conn, const xqc_transport_para
             return -XQC_TLS_TRANSPORT_PARAM;
         }
 
-        /*
-         * RFC 9000 Section 7.3: an endpoint MUST treat the absence of the
-         * initial_source_connection_id transport parameter, or a mismatch
-         * with the SCID of its peer's first Initial packet, as a connection
-         * error of type TRANSPORT_PARAMETER_ERROR.
-         *
-         * For server, conn->dcid_set.current_dcid holds the client's SCID.
-         * In xqc_engine_packet_process, xqc_packet_parse_cid reverses the
-         * packet header CIDs so that dcid = client's CID (pkt SCID) and
-         * scid = server's CID (pkt DCID). xqc_conn_server_create then
-         * passes dcid to xqc_conn_create which stores it via
-         * xqc_cid_copy(&xc->dcid_set.current_dcid, dcid).
-         */
+        /* RFC 9000 §7.3: validate initial_source_connection_id matches peer's first Initial SCID */
         if (!params->initial_source_connection_id_present
             || xqc_cid_is_equal(&params->initial_source_connection_id,
                                 &conn->dcid_set.current_dcid) != XQC_OK)
@@ -5943,22 +5922,7 @@ xqc_conn_check_transport_params(xqc_connection_t *conn, const xqc_transport_para
     }
 
     if (conn->conn_type == XQC_CONN_TYPE_CLIENT) {
-        /*
-         * RFC 9000 Section 7.3: client MUST verify that the
-         * initial_source_connection_id from the server matches the SCID it
-         * received in the server's first Initial packet, and that the
-         * original_destination_connection_id matches the DCID the client
-         * used in its first Initial packet. Absence or mismatch of either
-         * MUST be treated as TRANSPORT_PARAMETER_ERROR.
-         *
-         * - conn->dcid_set.current_dcid : SCID of the server's Initial
-         *   (recorded in xqc_conn_confirm_cid; if a Retry occurred, this is
-         *   updated to the Retry SCID in xqc_conn_on_recv_retry, which is
-         *   exactly the SCID the server uses for subsequent Initials).
-         * - conn->original_dcid : DCID the client used in its very first
-         *   Initial (recorded in xqc_client_create_connection before any
-         *   handshake packet is sent).
-         */
+        /* RFC 9000 §7.3: client validates ISCID/ODCID/RSCID from server transport params */
         if (!params->initial_source_connection_id_present
             || xqc_cid_is_equal(&params->initial_source_connection_id,
                                 &conn->dcid_set.current_dcid) != XQC_OK)

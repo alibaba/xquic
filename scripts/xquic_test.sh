@@ -1,124 +1,187 @@
+#!/bin/bash
 # Copyright (c) 2022, Alibaba Group Holding Limited
 
-#!/bin/bash
+set -e
 
-function generate_cert() {
-    if [[ ! -f "server.key" || ! -f "server.crt" ]]; then
-        keyfile=server.key
-        certfile=server.crt
-        openssl req -newkey rsa:2048 -x509 -nodes -keyout "$keyfile" -new -out "$certfile" -subj /CN=test.xquic.com
-    fi
-}
+#######################################
+# Detect distro and package manager
+#######################################
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+else
+    echo "Cannot detect OS distribution"
+    exit 1
+fi
 
-function install_gcov_tool() {
-    #install gcovr which can output code coverage summary
-    sudo yum -y install python3-pip > /dev/null
-    sudo yum -y install python3-lxml > /dev/null
-    sudo pip3 install gcovr > /dev/null
-}
+PKG_MGR=""
+INSTALL_CMD=""
 
-function install_cunit() {
-    sudo yum -y install CUnit > /dev/null
-}
+case "$ID" in
+    ubuntu|debian)
+        PKG_MGR="apt"
+        INSTALL_CMD="apt install -y"
+        ;;
+    rhel|centos|almalinux|rocky|ol)
+        PKG_MGR="yum"
+        INSTALL_CMD="yum install -y"
+        ;;
+    *)
+        if echo "$ID_LIKE" | grep -q "rhel\|fedora"; then
+            PKG_MGR="yum"
+            INSTALL_CMD="yum install -y"
+        elif echo "$ID_LIKE" | grep -q "debian"; then
+            PKG_MGR="apt"
+            INSTALL_CMD="apt install -y"
+        else
+            echo "Unsupported distro: $ID"
+            exit 1
+        fi
+        ;;
+esac
 
-function install_go() {
-    sudo yum -y install golang
-}
+echo "Detected distro:  $ID (using $PKG_MGR)"
 
-function build_babassl() {
-    git clone https://github.com/Tongsuo-Project/Tongsuo.git ../third_party/babassl
-    cd ../third_party/babassl/
-    ./config --prefix=/usr/local/babassl --api=1.1.1 no-deprecated
-    make -j
-    SSL_PATH_STR="${PWD}"
-    cd -
-}
+#######################################
+# Install dependencies
+#######################################
+echo ""
+echo "=== Installing Dependencies ==="
 
-function build_boringssl() {
-    git clone https://github.com/google/boringssl.git ../third_party/boringssl
-    mkdir -p ../third_party/boringssl/build
-    cd ../third_party/boringssl/build
-    cmake -DBUILD_SHARED_LIBS=0 -DCMAKE_C_FLAGS="-fPIC" -DCMAKE_CXX_FLAGS="-fPIC" ..
-    make ssl crypto
-    cd ..
-    SSL_PATH_STR="${PWD}"
-    cd ../../build/
-}
+if [ "$PKG_MGR" = "yum" ]; then
+    sudo yum install -y gcc gcc-c++ make cmake git openssl-devel pkgconfig psmisc
+    sudo yum install -y python3-pip python3-lxml
+    sudo pip3 install gcovr
+    sudo yum install -y CUnit CUnit-devel
+    sudo yum install -y golang
+else
+    sudo apt update -y
+    sudo apt install -y build-essential cmake git openssl libssl-dev pkg-config psmisc
+    sudo add-apt-repository -y universe 2>/dev/null || true
+    sudo apt update -y
+    sudo apt install -y python3-pip python3-lxml gcovr
+    sudo apt install -y libcunit1-dev
+    sudo apt install -y golang-go
+fi
 
-function do_compile() {
-    rm -f CMakeCache.txt
-    if [[ $1 == "boringssl" ]]; then
-        build_boringssl
-        SSL_TYPE_STR="boringssl"
+echo "✓ Dependencies installed"
 
-    else
-        build_babassl
-        SSL_TYPE_STR="babassl"
-    fi
+#######################################
+# Detect SSL backend
+#######################################
+echo ""
+echo "=== Detecting SSL Backend ==="
 
-    #turn on Code Coverage
-    cmake -DGCOV=on -DCMAKE_BUILD_TYPE=Debug -DXQC_ENABLE_TESTING=1 -DXQC_PRINT_SECRET=1 -DXQC_SUPPORT_SENDMMSG_BUILD=1 -DXQC_ENABLE_EVENT_LOG=1 -DXQC_ENABLE_BBR2=1 -DXQC_ENABLE_RENO=1 -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} -DXQC_ENABLE_UNLIMITED=1 -DXQC_ENABLE_COPA=1 -DXQC_COMPAT_DUPLICATE=1 ..
-    make -j
+SSL_TYPE_STR=""
+SSL_PATH_STR=""
 
-    if [ $? -ne 0 ]; then
-        echo "cmake failed"
-        exit 1
-    fi
-    rm -f CMakeCache.txt
-}
+# Check for BoringSSL
+if [ -f "../third_party/boringssl/build/libssl.a" ]; then
+    SSL_TYPE_STR="boringssl"
+    SSL_PATH_STR="$(cd ../third_party/boringssl && pwd)"
+    echo "✓ Found BoringSSL at: $SSL_PATH_STR"
+elif [ -f "../third_party/boringssl/build/ssl/libssl.a" ]; then
+    SSL_TYPE_STR="boringssl"
+    SSL_PATH_STR="$(cd ../third_party/boringssl && pwd)"
+    echo "✓ Found BoringSSL at: $SSL_PATH_STR"
+# Check for BabaSSL
+elif [ -f "../third_party/babassl/libssl.a" ]; then
+    SSL_TYPE_STR="babassl"
+    SSL_PATH_STR="$(cd ../third_party/babassl && pwd)"
+    echo "✓ Found BabaSSL at:  $SSL_PATH_STR"
+elif [ -f "/usr/local/babassl/lib/libssl.a" ]; then
+    SSL_TYPE_STR="babassl"
+    SSL_PATH_STR="/usr/local/babassl"
+    echo "✓ Found BabaSSL at: $SSL_PATH_STR"
+else
+    echo "✗ No SSL backend found"
+    exit 1
+fi
 
-function run_test_case() {
-    # "unit test..."
-    ./tests/run_tests | tee -a xquic_test.log
+#######################################
+# Check XQUIC build
+#######################################
+echo ""
+echo "=== Checking XQUIC Build ==="
 
-    # "case test..."
-    sh ../scripts/case_test.sh | tee -a xquic_test.log
+if [ !  -f "./libxquic.so" ]; then
+    echo "✗ XQUIC not built yet"
+    exit 1
+fi
 
-}
+echo "✓ XQUIC library found"
 
-function run_gcov() {
-    #output coverage summary
-    gcovr -r .. | tee -a xquic_test.log
-}
+if [ ! -f "./tests/run_tests" ]; then
+    echo "✗ Test binaries not found"
+    exit 1
+fi
 
-function output_summary() {
-    echo "=============summary=============="
-    echo -e "unit test:"
-    cat xquic_test.log | grep "Test:"
-    passed=`cat xquic_test.log | grep "Test:" | grep "passed" | wc -l`
-    failed=`cat xquic_test.log | grep "Test:" | grep "FAILED" | wc -l`
-    echo -e "\033[32m unit test passed:$passed failed:$failed \033[0m"
+echo "✓ Test binaries found"
+echo "✓ Using SSL backend: $SSL_TYPE_STR at $SSL_PATH_STR"
 
-    echo -e "\ncase test:"
-    cat xquic_test.log | grep "pass:"
-    passed=`cat xquic_test.log | grep "pass:" | grep "pass:1" | wc -l`
-    failed=`cat xquic_test.log | grep "pass:" | grep "pass:0" | wc -l`
-    echo -e "\033[32m case test passed:$passed failed:$failed \033[0m"
+#######################################
+# Generate certificates
+#######################################
+echo ""
+echo "=== Generating Certificates ==="
 
-    echo -e "\nCode Coverage:                             Lines    Exec  Cover"
-    cat xquic_test.log | grep "TOTAL"
-}
+if [ ! -f "server.key" ] || [ ! -f "server.crt" ]; then
+    openssl req -newkey rsa:2048 -x509 -nodes \
+        -keyout server.key \
+        -out server.crt \
+        -subj /CN=test.xquic.com
+    echo "✓ Certificates generated"
+else
+    echo "✓ Certificates already exist"
+fi
 
-cd ../build
-mkdir -p ../third_party
+#######################################
+# Run tests
+#######################################
+echo ""
+echo "=== Running Tests ==="
 
+# Clear previous test log
 > xquic_test.log
 
+echo "Running unit tests..."
+./tests/run_tests | tee -a xquic_test.log
 
-generate_cert
-install_gcov_tool
-install_cunit
-install_go
+echo "Running case tests..."
+bash ../scripts/case_test.sh | tee -a xquic_test.log
 
-#run boringssl
-do_compile "boringssl"
-run_test_case
+#######################################
+# Generate coverage
+#######################################
+echo ""
+echo "=== Generating Coverage Report ==="
+gcovr -r ..  | tee -a xquic_test.log
 
-#run babassl
-do_compile
-run_test_case
+#######################################
+# Summary
+#######################################
+echo ""
+echo "=============Summary=============="
 
-run_gcov
-output_summary
+echo ""
+echo "Unit Tests:"
+grep "Test:" xquic_test.log || true
+passed=$(grep "Test:" xquic_test.log | grep -c "passed" || true)
+failed=$(grep "Test:" xquic_test.log | grep -c "FAILED" || true)
+echo "  Passed: $passed | Failed:  $failed"
+
+echo ""
+echo "Case Tests:"
+grep "pass:" xquic_test.log || true
+passed=$(grep "pass:" xquic_test.log | grep -c "pass:  1" || true)
+failed=$(grep "pass:" xquic_test.log | grep -c "pass: 0" || true)
+echo "  Passed: $passed | Failed:  $failed"
+
+echo ""
+echo "Code Coverage:"
+grep "TOTAL" xquic_test.log || true
+
+echo ""
+echo "=================================="
+echo "Full log saved to: build/xquic_test.log"
 
 cd -

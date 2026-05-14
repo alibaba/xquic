@@ -733,6 +733,27 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
 
         processed += read;
 
+        /*
+         * RFC 9114 Section 7.2.1 / 7.2.2: "If a DATA frame [or HEADERS
+         * frame] is received on a control stream, the recipient MUST respond
+         * with a connection error of type H3_FRAME_UNEXPECTED."
+         * See xquic issue #612.
+         *
+         * Check frame type as soon as it is known (state >= PAYLOAD).
+         * xqc_h3_frm_parse does NOT consume payload for DATA/HEADERS frames
+         * so they never reach XQC_H3_FRM_STATE_END in the control-stream path;
+         * we must reject them here before the state!=END error gate below.
+         */
+        if (pctx->state >= XQC_H3_FRM_STATE_PAYLOAD
+            && (pctx->frame.type == XQC_H3_FRM_DATA
+                || pctx->frame.type == XQC_H3_FRM_HEADERS))
+        {
+            xqc_h3_frm_reset_pctx(pctx);
+            XQC_H3_CONN_ERR(h3s->h3c, H3_FRAME_UNEXPECTED,
+                            -XQC_H3_CONTROL_ERROR);
+            return -XQC_H3_CONTROL_ERROR;
+        }
+
         if (pctx->state != XQC_H3_FRM_STATE_END && data_len != processed) {
             xqc_log(h3c->log, XQC_LOG_ERROR, "|parse frame state error|state:%d"
                     "|data_len:%uz|processed:%uz|type:%xL|len:%uz|consumed:%uz",

@@ -1973,32 +1973,7 @@ xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data)
     xqc_h3_stream_t *h3s = (xqc_h3_stream_t*)user_data;
     h3s->flags |= XQC_HTTP3_STREAM_FLAG_CLOSED;
 
-    /*
-     * RFC 9114 Section 6.2.1 (Control Streams): "If either control stream is
-     * closed at any point, this MUST be treated as a connection error of
-     * type H3_CLOSED_CRITICAL_STREAM." See xquic issue #606.
-     *
-     * Scope of this fix (per #606 decision):
-     *   - Only XQC_H3_STREAM_TYPE_CONTROL is checked here. QPACK encoder /
-     *     decoder streams are also "critical" per RFC 9204 and will be
-     *     covered by a follow-up issue to keep this commit minimal.
-     *   - Only the *passive* close path raises a connection error. If the
-     *     local stack actively closed the control stream
-     *     (XQC_HTTP3_STREAM_FLAG_ACTIVELY_CLOSED set, e.g. via
-     *     xqc_h3_stream_close()), we only emit an ERROR log to surface the
-     *     local bug without tearing down the connection.
-     *   - When the connection itself is already closing/draining
-     *     (XQC_CONN_FLAG_CLOSING_NOTIFY set), this close_notify is part of
-     *     normal teardown and MUST NOT raise H3_CLOSED_CRITICAL_STREAM.
-     *
-     * Compatibility note: prior to this fix xquic silently tolerated peers
-     * that violated RFC 9114 by closing/resetting the control stream.
-     * After this fix such peers will see the connection terminated with
-     * H3_CLOSED_CRITICAL_STREAM (0x104). This is the RFC-mandated behavior;
-     * previously-interoperating but RFC-violating peers must be updated.
-     * (Audit at fix time: xquic itself never closes control_stream_out, so
-     * xquic-to-xquic interop is unaffected.)
-     */
+    /* RFC 9114 §6.2.1: peer closing control stream MUST be H3_CLOSED_CRITICAL_STREAM */
     if (h3s->type == XQC_H3_STREAM_TYPE_CONTROL
         && !(h3s->h3c->conn->conn_flag & XQC_CONN_FLAG_CLOSING_NOTIFY)
         && h3s->h3c->conn->conn_state < XQC_CONN_STATE_CLOSING)

@@ -271,7 +271,8 @@ xqc_cid_set_insert_cid(xqc_cid_set_t *cid_set,
         return -XQC_ECONN_CID_NOT_FOUND;
     }
 
-    if ((inner_set->unused_cnt + inner_set->used_cnt) > limit) {
+    /* RFC 9000 §5.1.1: active CIDs (UNUSED+USED) MUST NOT exceed limit; use >= to fix off-by-one */
+    if ((inner_set->unused_cnt + inner_set->used_cnt) >= limit) {
         return -XQC_EACTIVE_CID_LIMIT;
     }
 

@@ -1036,6 +1036,13 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 /* PUSH related is not implemented yet */
                 break;
 
+            case XQC_H3_FRM_SETTINGS:
+                /* RFC 9114 §7.2.4: SETTINGS on non-control stream → H3_FRAME_UNEXPECTED */
+                xqc_h3_frm_reset_pctx(pctx);
+                XQC_H3_CONN_ERR(h3s->h3c, H3_FRAME_UNEXPECTED,
+                                -XQC_H3_CONTROL_ERROR);
+                return -XQC_H3_CONTROL_ERROR;
+
             default:
                 xqc_log(h3s->log, XQC_LOG_INFO, "|ignore unknown frame|"
                         "frame type:%xL|", pctx->frame.type);

@@ -83,10 +83,90 @@ xqc_test_derive_packet_protection_keys()
 }
 
 
+/*
+ * Tests for issue #574 — RFC 9001 §5.4.2 HP sample boundary check.
+ * Verifies that encrypt_header and decrypt_header reject packets too short
+ * for a complete 16-byte HP sample (pktno + 4 + 16 > end).
+ */
+static void
+xqc_test_hp_sample_boundary_one(xqc_bool_t is_encrypt, size_t total_len,
+                                xqc_int_t expected_ret)
+{
+    xqc_engine_t *engine = test_create_engine();
+    CU_ASSERT_FATAL(engine != NULL);
+
+    xqc_crypto_t *crypto = xqc_crypto_create(XQC_TLS13_AES_128_GCM_SHA256, engine->log);
+    CU_ASSERT_FATAL(crypto != NULL);
+
+    /* derive keys so hp key is non-NULL */
+    xqc_int_t ret;
+    ret = xqc_crypto_derive_keys(crypto, XQC_TEST_CLIENT_SECRET,
+                                 sizeof(XQC_TEST_CLIENT_SECRET) - 1, XQC_KEY_TYPE_RX_READ);
+    CU_ASSERT_FATAL(ret == XQC_OK);
+    ret = xqc_crypto_derive_keys(crypto, XQC_TEST_CLIENT_SECRET,
+                                 sizeof(XQC_TEST_CLIENT_SECRET) - 1, XQC_KEY_TYPE_TX_WRITE);
+    CU_ASSERT_FATAL(ret == XQC_OK);
+
+    /*
+     * Build a fake short-header packet buffer.
+     * Layout: [header_byte] [... padding ...] [pktno @ offset 1] [... to end]
+     * header[0] & 0x03 = 0 → pktno_len = 1, so pktno + 1 <= end is satisfied
+     * as long as total_len >= 2. The HP sample check requires pktno + 4 + 16 <= end.
+     * With pktno at offset 1, that means total_len >= 1 + 4 + 16 = 21.
+     */
+    uint8_t buf[64];
+    memset(buf, 0, sizeof(buf));
+    buf[0] = 0x40; /* short header, pktno_len bits = 0 → pktno_len = 1 */
+
+    uint8_t *header = buf;
+    uint8_t *pktno  = buf + 1;
+    uint8_t *end    = buf + total_len;
+
+    if (is_encrypt) {
+        ret = xqc_crypto_encrypt_header(crypto, XQC_PTYPE_SHORT_HEADER,
+                                        header, pktno, end);
+    } else {
+        ret = xqc_crypto_decrypt_header(crypto, XQC_PTYPE_SHORT_HEADER,
+                                        header, pktno, end);
+    }
+
+    if (expected_ret < 0) {
+        CU_ASSERT(ret == expected_ret);
+    } else {
+        CU_ASSERT(ret >= 0);
+    }
+
+    xqc_crypto_destroy(crypto);
+    xqc_engine_destroy(engine);
+}
+
+void
+xqc_test_hp_sample_boundary()
+{
+    /*
+     * pktno at offset 1, sample starts at pktno+4 = offset 5.
+     * Need sample + 16 <= end, i.e. total_len >= 5 + 16 = 21.
+     */
+
+    /* Case 1: decrypt, too short (20 bytes) → -XQC_EILLPKT */
+    xqc_test_hp_sample_boundary_one(XQC_FALSE, 20, -XQC_EILLPKT);
+
+    /* Case 2: decrypt, exact boundary (21 bytes) → should pass check */
+    xqc_test_hp_sample_boundary_one(XQC_FALSE, 21, XQC_OK);
+
+    /* Case 3: encrypt, too short (20 bytes) → -XQC_EILLPKT */
+    xqc_test_hp_sample_boundary_one(XQC_TRUE, 20, -XQC_EILLPKT);
+
+    /* Case 4: encrypt, exact boundary (21 bytes) → should pass check */
+    xqc_test_hp_sample_boundary_one(XQC_TRUE, 21, XQC_OK);
+}
+
+
 void
 xqc_test_crypto()
 {
     xqc_test_derive_initial_secret();
     xqc_test_derive_packet_protection_keys();
+    xqc_test_hp_sample_boundary();
 }
 

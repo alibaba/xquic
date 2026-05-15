@@ -1972,6 +1972,26 @@ xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data)
 
     xqc_h3_stream_t *h3s = (xqc_h3_stream_t*)user_data;
     h3s->flags |= XQC_HTTP3_STREAM_FLAG_CLOSED;
+
+    /* RFC 9114 §6.2.1: peer closing control stream MUST be H3_CLOSED_CRITICAL_STREAM */
+    if (h3s->type == XQC_H3_STREAM_TYPE_CONTROL
+        && !(h3s->h3c->conn->conn_flag & XQC_CONN_FLAG_CLOSING_NOTIFY)
+        && h3s->h3c->conn->conn_state < XQC_CONN_STATE_CLOSING)
+    {
+        if (!(h3s->flags & XQC_HTTP3_STREAM_FLAG_ACTIVELY_CLOSED)) {
+            xqc_log(h3s->log, XQC_LOG_ERROR,
+                    "|RFC 9114 6.2.1 violation: peer closed control stream"
+                    "|stream_id:%ui|h3s:%p", h3s->stream_id, h3s);
+            XQC_H3_CONN_ERR(h3s->h3c, H3_CLOSED_CRITICAL_STREAM,
+                            -XQC_H3_CLOSE_CRITICAL_STREAM);
+        } else {
+            xqc_log(h3s->log, XQC_LOG_ERROR,
+                    "|local stack actively closed control stream, "
+                    "this is a local bug per RFC 9114 6.2.1"
+                    "|stream_id:%ui|h3s:%p", h3s->stream_id, h3s);
+        }
+    }
+
     xqc_h3_stream_get_err(h3s);
     xqc_h3_stream_get_path_info(h3s);
 

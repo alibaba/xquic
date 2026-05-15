@@ -11,4 +11,6 @@ void xqc_test_parse_padding_frame();
 
 void xqc_test_large_ack_frame();
 
+void xqc_test_stream_frame_offset_overflow();
+
 #endif /* _XQC_PROCESS_FRAME_TEST_H_INCLUDED_ */

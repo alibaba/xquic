@@ -655,6 +655,10 @@ xqc_int_t xqc_conn_encode_local_tp(xqc_connection_t *conn, uint8_t *dst, size_t 
 
 xqc_int_t xqc_conn_on_recv_retry(xqc_connection_t *conn, xqc_cid_t *retry_scid);
 
+/* exposed for unit tests; validates the peer's transport parameters per RFC 9000 7.3 */
+xqc_int_t xqc_conn_check_transport_params(xqc_connection_t *conn,
+    const xqc_transport_params_t *params);
+
 /* get idle timeout in milliseconds */
 xqc_msec_t xqc_conn_get_idle_timeout(xqc_connection_t *conn);
 

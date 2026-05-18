@@ -71,6 +71,16 @@ xqc_moq_write_datachannel(xqc_moq_session_t *session, uint8_t *msg, size_t msg_l
         return -XQC_ESTREAM_ST;
     }
 
+    /*
+     * If reuse_subgroup_stream is enabled on the default datachannel PUB track,
+     * switch to the subgroup-stream based sender (same as multi-datatrack via PUBLISH).
+     * This allows callers to configure datachannel stream reuse via
+     * xqc_moq_track_set_reuse_subgroup_stream().
+     */
+    if (track && track->reuse_subgroup_stream) {
+        return xqc_moq_send_datachannel_msg(session, track, msg, msg_len);
+    }
+
     stream = session->datachannel.ordered_stream;
     if (stream == NULL) {
         stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_UNI);
@@ -114,6 +124,123 @@ xqc_moq_write_datachannel(xqc_moq_session_t *session, uint8_t *msg, size_t msg_l
     return XQC_OK;
 }
 
+xqc_int_t
+xqc_moq_send_datachannel_msg(xqc_moq_session_t *session, xqc_moq_track_t *track,
+    uint8_t *msg, size_t msg_len)
+{
+    xqc_moq_subgroup_object_t subgroup;
+    xqc_moq_object_stream_msg_t object;
+    xqc_moq_stream_t *stream;
+    xqc_int_t ret = 0;
+    uint64_t group_id;
+    uint64_t object_id;
+    uint64_t subgroup_id;
+
+    if (session == NULL || track == NULL || msg == NULL || msg_len == 0) {
+        return -XQC_EPARAM;
+    }
+
+    if (track->track_info.track_type != XQC_MOQ_TRACK_DATACHANNEL) {
+        return -XQC_EPARAM;
+    }
+
+    if (track->subscribe_id == XQC_MOQ_INVALID_ID || track->track_alias == XQC_MOQ_INVALID_ID) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|send_datachannel_msg invalid track|subscribe_id:%ui|track_alias:%ui|",
+                track->subscribe_id, track->track_alias);
+        return -XQC_ESTREAM_ST;
+    }
+
+    xqc_memzero(&subgroup, sizeof(subgroup));
+
+    if (track->reuse_subgroup_stream) {
+        stream = track->subgroup_stream;
+        if (stream == NULL) {
+            stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_UNI);
+            if (stream == NULL) {
+                xqc_log(session->log, XQC_LOG_ERROR, "|create moq stream error|");
+                return -XQC_ECREATE_STREAM;
+            }
+            stream->write_stream_fin = 0;
+            track->subgroup_stream = stream;
+
+            group_id = ++track->cur_group_id;
+            track->cur_object_id = 0;
+        } else {
+            group_id = track->cur_group_id;
+        }
+
+        object_id = track->cur_object_id++;
+        subgroup_id = 0;
+
+        xqc_memzero(&object, sizeof(object));
+        object.subscribe_id = track->subscribe_id;
+        object.track_alias = track->track_alias;
+        object.group_id = group_id;
+        object.object_id = object_id;
+        object.subgroup_id = subgroup_id;
+        object.object_id_delta = 0;
+        object.subgroup_type = XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
+        object.subgroup_priority = XQC_MOQ_DEFAULT_SUBGROUP_PRIORITY;
+        object.send_order = 0;
+        object.status = XQC_MOQ_OBJ_STATUS_NORMAL;
+        object.payload = msg;
+        object.payload_len = msg_len;
+
+        xqc_moq_stream_on_track_write(stream, track, group_id, object_id, 0);
+
+        if (object_id == 0) {
+            ret = xqc_moq_write_subgroup_msg(session, stream, &object);
+        } else {
+            ret = xqc_moq_append_subgroup_object(session, stream, &object);
+        }
+        if (ret < 0) {
+            xqc_log(session->log, XQC_LOG_ERROR,
+                    "|send_datachannel_msg reuse stream error|ret:%d|group_id:%ui|object_id:%ui|",
+                    ret, group_id, object_id);
+            xqc_moq_stream_close(stream);
+            track->subgroup_stream = NULL;
+            return ret;
+        }
+
+        xqc_log(session->log, XQC_LOG_INFO,
+                "|send datachannel msg success (subgroup)|msg_len:%ui|group_id:%ui|object_id:%ui|subgroup_id:%ui|",
+                msg_len, group_id, object_id, subgroup_id);
+
+        return XQC_OK;
+    }
+
+    group_id = ++track->cur_group_id;
+    track->cur_object_id = 0;
+    object_id = track->cur_object_id;
+    subgroup_id = xqc_moq_track_next_subgroup_id(track, group_id);
+
+    subgroup.subscribe_id = track->subscribe_id;
+    subgroup.track_alias = track->track_alias;
+    subgroup.group_id = group_id;
+    subgroup.object_id = object_id;
+    subgroup.subgroup_id = subgroup_id;
+    subgroup.object_id_delta = 0;
+    subgroup.subgroup_type = 0;
+    subgroup.subgroup_priority = 0;
+    subgroup.send_order = 0;
+    subgroup.status = XQC_MOQ_OBJ_STATUS_NORMAL;
+    subgroup.payload = msg;
+    subgroup.payload_len = msg_len;
+
+    ret = xqc_moq_send_subgroup(session, track, &subgroup);
+    if (ret < 0) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_send_subgroup error|ret:%d|", ret);
+        return ret;
+    }
+
+    xqc_log(session->log, XQC_LOG_INFO,
+            "|send datachannel msg success (subgroup)|msg_len:%ui|group_id:%ui|object_id:%ui|subgroup_id:%ui|",
+            msg_len, group_id, object_id, subgroup_id);
+
+    return XQC_OK;
+}
+
 void
 xqc_moq_datachannel_set_can_send(xqc_moq_session_t *session, xqc_moq_datachannel_t *dc)
 {
@@ -134,7 +261,8 @@ xqc_moq_datachannel_update_state(xqc_moq_session_t *session, xqc_moq_datachannel
     if (dc->can_send && dc->can_recv) {
         dc->ready = 1;
         xqc_log(session->log, XQC_LOG_INFO, "|on_datachannel|");
-        xqc_moq_track_t *track = session->datachannel.track_for_sub;
+        /* Prefer PUB track here so app can configure send-side knobs (e.g. reuse_subgroup_stream). */
+        xqc_moq_track_t *track = session->datachannel.track_for_pub;
         session->session_callbacks.on_datachannel(session->user_session, track,
             track ? &track->track_info : NULL);
     }
@@ -173,6 +301,10 @@ xqc_moq_datachannel_on_create(xqc_moq_track_t *track)
 static void
 xqc_moq_datachannel_on_destroy(xqc_moq_track_t *track)
 {
+    if (track && track->subgroup_stream) {
+        xqc_moq_stream_close(track->subgroup_stream);
+        track->subgroup_stream = NULL;
+    }
     return;
 }
 
@@ -182,11 +314,28 @@ xqc_moq_datachannel_on_subscribe(xqc_moq_session_t *session, uint64_t subscribe_
 {
     xqc_int_t ret;
     session->datachannel.peer_subscribe_id = subscribe_id;
+    /* Store peer subscription info on the PUB track so xqc_moq_send_datachannel_msg() can be used. */
+    if (track) {
+        /*
+         * Default/system datachannel track: subscribe_id/track_alias are not set via PUBLISH.
+         * For PUBLISH-created datachannel tracks, track->subscribe_id is already occupied by the
+         * PUBLISH subscribe_id and must not be overwritten here.
+         */
+        if (track->subscribe_id == XQC_MOQ_INVALID_ID) {
+            track->subscribe_id = subscribe_id;
+        }
+        if (track->track_alias == XQC_MOQ_INVALID_ID && msg) {
+            track->track_alias = msg->track_alias;
+        }
+    }
     xqc_moq_datachannel_set_can_send(session, &session->datachannel);
 
     xqc_moq_subscribe_ok_msg_t subscribe_ok;
+    memset(&subscribe_ok, 0, sizeof(subscribe_ok));
     subscribe_ok.subscribe_id = subscribe_id;
+    subscribe_ok.track_alias = msg ? msg->track_alias : 0;
     subscribe_ok.expire_ms = 0;
+    subscribe_ok.group_order = 0x1;
     subscribe_ok.content_exist = 1;
     subscribe_ok.largest_group_id = 0;
     subscribe_ok.largest_object_id = 0;
@@ -215,7 +364,10 @@ static void
 xqc_moq_datachannel_on_object(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_moq_object_t *object)
 {
     xqc_log(session->log, XQC_LOG_INFO, "|on_datachannel_msg|msg_len:%ui|", object->payload_len);
+    xqc_log(session->log, XQC_LOG_INFO, "|on_datachannel_msg_detail|track:%s/%s|subscribe_id:%ui|",
+            track && track->track_info.track_namespace ? track->track_info.track_namespace : "null",
+            track && track->track_info.track_name ? track->track_info.track_name : "null",
+            object->subscribe_id);
     session->session_callbacks.on_datachannel_msg(session->user_session, track,
         track ? &track->track_info : NULL, object->payload, object->payload_len);
 }
-

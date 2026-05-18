@@ -8,30 +8,46 @@
 #define XQC_MOQ_MAX_OBJECT_LEN      (10 * 1024 * 1024)
 #define XQC_MOQ_MAX_PARAM_VALUE_LEN 4096
 #define XQC_MOQ_MAX_NAME_LEN        1024
+#define XQC_MOQ_MAX_GOAWAY_URI_LEN  8192
 #define XQC_MOQ_MAX_AUTH_LEN        1024
+#define XQC_MOQ_MSG_LENGTH_FIXED_SIZE 2
+#define XQC_MOQ_U8_FIXED_SIZE 1
+#define XQC_MOQ_FORWARD_FIXED_SIZE                  XQC_MOQ_U8_FIXED_SIZE
+#define XQC_MOQ_SUBSCRIBER_PRIORITY_FIXED_SIZE      XQC_MOQ_U8_FIXED_SIZE
+#define XQC_MOQ_GROUP_ORDER_FIXED_SIZE              XQC_MOQ_U8_FIXED_SIZE
+#define XQC_MOQ_CONTENT_EXIST_FIXED_SIZE            XQC_MOQ_U8_FIXED_SIZE
+#define XQC_MOQ_SUBGROUP_PRIORITY_FIXED_SIZE        XQC_MOQ_U8_FIXED_SIZE
+
+/*
+ * draft-ietf-moq-transport-14 Section 10.3.1 OBJECT_DATAGRAM (Table 6)
+ * Type (varint) is encoded as:
+ * - 0x00..0x07: payload-carrying variants, using bit flags below
+ * - 0x20/0x21: status-only variants (no payload)
+ */
+#define XQC_MOQ_OBJ_DGRAM_TYPE_PAYLOAD_MAX          0x07
+#define XQC_MOQ_OBJ_DGRAM_TYPE_HAS_EXT              0x01
+#define XQC_MOQ_OBJ_DGRAM_TYPE_END_OF_GROUP         0x02
+#define XQC_MOQ_OBJ_DGRAM_TYPE_NO_OBJECT_ID         0x04
+
+/* Internal flags derived from OBJECT_DATAGRAM type. */
+#define XQC_MOQ_DGRAM_FLAG_PAYLOAD    0x01
+#define XQC_MOQ_DGRAM_FLAG_EXT        0x02
+#define XQC_MOQ_DGRAM_FLAG_EOG        0x04
+#define XQC_MOQ_DGRAM_FLAG_OID        0x08
+#define XQC_MOQ_DGRAM_FLAG_STATUS     0x10
+#define XQC_MOQ_DGRAM_FLAG_VIOLATION  0x20
+
+typedef uint8_t xqc_moq_dgram_type_flags_t;
 
 typedef enum {
-    XQC_MOQ_PARAM_ROLE              = 0x00,
-    XQC_MOQ_PARAM_PATH              = 0x01,
-    XQC_MOQ_PARAM_AUTH              = 0x02,
-    XQC_MOQ_PARAM_EXTDATA           = 0xA0,
-} xqc_moq_param_type_t;
+    XQC_MOQ_OBJ_DGRAM_TYPE_STATUS                   = 0x20,
+    XQC_MOQ_OBJ_DGRAM_TYPE_STATUS_EXT               = 0x21,
+} xqc_moq_object_datagram_type_t;
 
 typedef enum {
     XQC_MOQ_DECODE_MSG_TYPE,
     XQC_MOQ_DECODE_MSG,
 } xqc_moq_decode_state_t;
-
-typedef struct xqc_moq_object_s {
-    uint64_t                    subscribe_id;
-    uint64_t                    track_alias;
-    uint64_t                    group_id;
-    uint64_t                    object_id;
-    uint64_t                    send_order;
-    uint64_t                    status;
-    uint8_t                     *payload;
-    uint64_t                    payload_len;
-} xqc_moq_object_t;
 
 typedef struct {
     xqc_int_t                   cur_param_idx; //Params[idx]
@@ -73,20 +89,59 @@ typedef struct xqc_moq_server_setup_msg_s {
     xqc_moq_message_parameter_t *params;
 } xqc_moq_server_setup_msg_t;
 
+typedef struct xqc_moq_client_setup_v14_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    versions_num;
+    uint64_t                    *versions;
+    uint64_t                    params_num;
+    xqc_moq_message_parameter_t *params;
+} xqc_moq_client_setup_v14_msg_t;
+
+typedef struct xqc_moq_server_setup_v14_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    selected_version;
+    uint64_t                    params_num;
+    xqc_moq_message_parameter_t *params;
+} xqc_moq_server_setup_v14_msg_t;
+
 typedef struct xqc_moq_object_stream_msg_s {
     xqc_moq_msg_base_t          msg_base;
     uint64_t                    subscribe_id;
     uint64_t                    track_alias;
     uint64_t                    group_id;
     uint64_t                    object_id;
+    uint64_t                    subgroup_id;
+    uint64_t                    object_id_delta;
+    uint8_t                     subgroup_type;
+    uint8_t                     subgroup_priority;
     uint64_t                    send_order;
     uint64_t                    status;
+    /* Object Header Extensions (for SUBGROUP-style objects) */
+    uint64_t                    ext_len;
+    uint8_t                     *ext_buf;
+    uint64_t                    ext_bytes_received;
+    uint64_t                    ext_params_num;
+    xqc_moq_message_parameter_t *ext_params;
     uint8_t                     *payload;
     uint64_t                    payload_len;
 } xqc_moq_object_stream_msg_t;
 
+typedef xqc_moq_object_stream_msg_t xqc_moq_subgroup_msg_t;
+
 typedef struct xqc_moq_object_datagram_msg_s {
     xqc_moq_msg_base_t          msg_base;
+    /* draft-ietf-moq-transport-14 Section 10.3.1 */
+    uint64_t                    type;
+    uint64_t                    track_alias;
+    uint64_t                    group_id;
+    uint64_t                    object_id;
+    uint64_t                    ext_len;
+    uint64_t                    ext_params_num;
+    xqc_moq_message_parameter_t *ext_params;
+    uint64_t                    status;
+    uint8_t                     *payload;
+    uint64_t                    payload_len;
+    uint8_t                     publisher_priority;
 } xqc_moq_object_datagram_msg_t;
 
 typedef struct xqc_moq_stream_header_track_msg_s {
@@ -141,11 +196,13 @@ typedef struct xqc_moq_unannounce_msg_s {
 
 typedef struct xqc_moq_subscribe_update_msg_s {
     xqc_moq_msg_base_t          msg_base;
+    uint64_t                    request_id;
     uint64_t                    subscribe_id;
     uint64_t                    start_group_id;
     uint64_t                    start_object_id;
     uint64_t                    end_group_id;
-    uint64_t                    end_object_id;
+    uint8_t                     subscriber_priority;
+    uint8_t                     forward;
     uint64_t                    params_num;
     xqc_moq_message_parameter_t *params;
 } xqc_moq_subscribe_update_msg_t;
@@ -156,6 +213,8 @@ typedef struct xqc_moq_subscribe_done_msg_s {
 
 typedef struct xqc_moq_goaway_msg_s {
     xqc_moq_msg_base_t          msg_base;
+    char                        *new_session_uri;
+    size_t                      new_session_uri_len;
 } xqc_moq_goaway_msg_t;
 
 void *xqc_moq_msg_create(xqc_moq_msg_type_t type);
@@ -169,6 +228,14 @@ void xqc_moq_msg_set_object_by_track(xqc_moq_object_t *obj, xqc_moq_stream_heade
 
 void xqc_moq_msg_set_object_by_group(xqc_moq_object_t *obj, xqc_moq_stream_header_group_msg_t *header,
     xqc_moq_group_stream_obj_msg_t *msg);
+
+xqc_int_t xqc_moq_object_datagram_encode_len(xqc_moq_object_datagram_msg_t *dgram);
+
+xqc_int_t xqc_moq_object_datagram_encode(xqc_moq_object_datagram_msg_t *dgram, uint8_t *buf, size_t buf_cap);
+
+xqc_int_t xqc_moq_object_datagram_decode(uint8_t *buf, size_t buf_len, xqc_moq_object_datagram_msg_t *dgram);
+
+void xqc_moq_object_datagram_free_fields(xqc_moq_object_datagram_msg_t *dgram);
 
 xqc_int_t xqc_moq_msg_decode_type(uint8_t *buf, size_t buf_len, xqc_moq_msg_type_t *type, xqc_int_t *wait_more_data);
 
@@ -202,6 +269,21 @@ xqc_int_t xqc_moq_msg_encode_client_setup(xqc_moq_msg_base_t *msg_base, uint8_t 
 xqc_int_t xqc_moq_msg_decode_client_setup(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
     xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
 
+void *xqc_moq_msg_create_client_setup_v14();
+
+void xqc_moq_msg_free_client_setup_v14(void *msg);
+
+xqc_moq_msg_type_t xqc_moq_msg_client_setup_v14_type();
+
+void xqc_moq_msg_client_setup_v14_init_handler(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_client_setup_v14_len(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_client_setup_v14(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
+
+xqc_int_t xqc_moq_msg_decode_client_setup_v14(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
+
 void *xqc_moq_msg_create_server_setup();
 
 void xqc_moq_msg_free_server_setup(void *msg);
@@ -215,6 +297,21 @@ xqc_int_t xqc_moq_msg_encode_server_setup_len(xqc_moq_msg_base_t *msg_base);
 xqc_int_t xqc_moq_msg_encode_server_setup(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
 
 xqc_int_t xqc_moq_msg_decode_server_setup(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
+
+void *xqc_moq_msg_create_server_setup_v14();
+
+void xqc_moq_msg_free_server_setup_v14(void *msg);
+
+xqc_moq_msg_type_t xqc_moq_msg_server_setup_v14_type();
+
+void xqc_moq_msg_server_setup_v14_init_handler(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_server_setup_v14_len(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_server_setup_v14(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
+
+xqc_int_t xqc_moq_msg_decode_server_setup_v14(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
     xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
 
 void *xqc_moq_msg_create_subscribe();
@@ -292,6 +389,25 @@ xqc_int_t xqc_moq_msg_encode_object_stream(xqc_moq_msg_base_t *msg_base, uint8_t
 xqc_int_t xqc_moq_msg_decode_object_stream(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
     xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
 
+void *xqc_moq_msg_create_subgroup();
+
+void xqc_moq_msg_free_subgroup(void *msg);
+
+xqc_moq_msg_type_t xqc_moq_msg_subgroup_type();
+
+void xqc_moq_msg_subgroup_init_handler(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_subgroup_len(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_subgroup(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
+
+xqc_int_t xqc_moq_msg_decode_subgroup(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
+
+xqc_int_t xqc_moq_msg_append_subgroup_object_len(xqc_moq_subgroup_msg_t *object);
+
+xqc_int_t xqc_moq_msg_append_subgroup_object(xqc_moq_subgroup_msg_t *object, uint8_t *buf, size_t buf_cap);
+
 void *xqc_moq_msg_create_track_stream_obj();
 
 void xqc_moq_msg_free_track_stream_obj(void *msg);
@@ -335,6 +451,81 @@ xqc_int_t xqc_moq_msg_encode_unsubscribe_len(xqc_moq_msg_base_t *msg_base);
 xqc_int_t xqc_moq_msg_encode_unsubscribe(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
 
 xqc_int_t xqc_moq_msg_decode_unsubscribe(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
+
+void *xqc_moq_msg_create_publish();
+
+void xqc_moq_msg_free_publish(void *msg);
+
+xqc_moq_msg_type_t xqc_moq_msg_publish_type();
+
+void xqc_moq_msg_publish_init_handler(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_publish_len(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_publish(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
+
+xqc_int_t xqc_moq_msg_decode_publish(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
+
+void *xqc_moq_msg_create_publish_ok();
+
+void xqc_moq_msg_free_publish_ok(void *msg);
+
+xqc_moq_msg_type_t xqc_moq_msg_publish_ok_type();
+
+void xqc_moq_msg_publish_ok_init_handler(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_publish_ok_len(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_publish_ok(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
+
+xqc_int_t xqc_moq_msg_decode_publish_ok(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
+
+void *xqc_moq_msg_create_publish_error();
+
+void xqc_moq_msg_free_publish_error(void *msg);
+
+xqc_moq_msg_type_t xqc_moq_msg_publish_error_type();
+
+void xqc_moq_msg_publish_error_init_handler(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_publish_error_len(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_publish_error(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
+
+xqc_int_t xqc_moq_msg_decode_publish_error(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
+
+void *xqc_moq_msg_create_publish_done();
+
+void xqc_moq_msg_free_publish_done(void *msg);
+
+xqc_moq_msg_type_t xqc_moq_msg_publish_done_type();
+
+void xqc_moq_msg_publish_done_init_handler(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_publish_done_len(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_publish_done(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
+
+xqc_int_t xqc_moq_msg_decode_publish_done(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
+
+void *xqc_moq_msg_create_goaway();
+
+void xqc_moq_msg_free_goaway(void *msg);
+
+xqc_moq_msg_type_t xqc_moq_msg_goaway_type();
+
+void xqc_moq_msg_goaway_init_handler(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_goaway_len(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_goaway(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
+
+xqc_int_t xqc_moq_msg_decode_goaway(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
     xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
 
 #endif /* _XQC_MOQ_MESSAGE_H_INCLUDED_ */

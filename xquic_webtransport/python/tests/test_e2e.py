@@ -1,5 +1,5 @@
 """
-End-to-end tests: xquic WT server + client (bidi echo, uni stream, datagram).
+End-to-end tests: xquic WT server + client (bidi echo and session lifecycle).
 
 Requires:
   - libxquic_wt_py.{so,dylib} built and discoverable (XQUIC_LIB_PATH or LD_LIBRARY_PATH)
@@ -138,3 +138,24 @@ async def test_session_close():
             await stream.write_all(b"bye", end_stream=True)
             await stream.read_all(timeout=3.0)
         # session is closed by context manager — should not raise
+
+
+@skip_no_lib
+@skip_no_certs
+@pytest.mark.asyncio
+async def test_route_reject_raises_session_rejected():
+    """Unregistered paths are rejected by the CONNECT response status."""
+    from pyxquic_wt import SessionRejectedError, connect, serve
+
+    async with serve(
+        routes={"/echo": _echo_handler},
+        host="127.0.0.1", port=_PORT + 4,
+        cert_file=str(_CERT_FILE), key_file=str(_KEY_FILE),
+    ):
+        await asyncio.sleep(0.2)
+
+        with pytest.raises(SessionRejectedError) as exc:
+            async with connect(f"https://127.0.0.1:{_PORT + 4}/missing"):
+                pass
+
+        assert exc.value.status_code == 404

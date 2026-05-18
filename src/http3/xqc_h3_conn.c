@@ -736,15 +736,35 @@ xqc_h3_conn_on_settings_entry_received(uint64_t identifier, uint64_t value, void
         xqc_log(h3c->log, XQC_LOG_DEBUG, "|peer enable_h3_datagram:%ui|", value);
         break;
 
-    case XQC_H3_SETTINGS_ENABLE_WEBTRANSPORT:
+    case XQC_H3_SETTINGS_WT_ENABLED:
         h3c->peer_h3_conn_settings.enable_webtransport = (xqc_bool_t)value;
         xqc_log(h3c->log, XQC_LOG_DEBUG, "|peer enable_webtransport:%ui|", value);
+        break;
+
+    case XQC_H3_SETTINGS_WT_INITIAL_MAX_STREAMS_UNI:
+        h3c->peer_h3_conn_settings.wt_initial_max_streams_uni = value;
+        xqc_log(h3c->log, XQC_LOG_DEBUG, "|peer wt_initial_max_streams_uni:%ui|", value);
+        break;
+
+    case XQC_H3_SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI:
+        h3c->peer_h3_conn_settings.wt_initial_max_streams_bidi = value;
+        xqc_log(h3c->log, XQC_LOG_DEBUG, "|peer wt_initial_max_streams_bidi:%ui|", value);
+        break;
+
+    case XQC_H3_SETTINGS_WT_INITIAL_MAX_DATA:
+        h3c->peer_h3_conn_settings.wt_initial_max_data = value;
+        xqc_log(h3c->log, XQC_LOG_DEBUG, "|peer wt_initial_max_data:%ui|", value);
+        break;
+
+    case XQC_H3_SETTINGS_ENABLE_WEBTRANSPORT:
+        h3c->peer_h3_conn_settings.enable_webtransport = (xqc_bool_t)value;
+        xqc_log(h3c->log, XQC_LOG_DEBUG, "|peer legacy_enable_webtransport:%ui|", value);
         break;
 
     case XQC_H3_SETTINGS_WEBTRANSPORT_MAX_SESSIONS:
         h3c->peer_h3_conn_settings.enable_webtransport = 1;
         h3c->peer_h3_conn_settings.webtransport_max_sessions = value;
-        xqc_log(h3c->log, XQC_LOG_DEBUG, "|peer webtransport_max_sessions:%ui|", value);
+        xqc_log(h3c->log, XQC_LOG_DEBUG, "|peer legacy_webtransport_max_sessions:%ui|", value);
         break;
 
     default:
@@ -934,4 +954,3 @@ const xqc_conn_callbacks_t h3_conn_callbacks = {
     .conn_handshake_finished    = xqc_h3_conn_handshake_finished,
     .conn_ping_acked            = xqc_h3_conn_ping_acked_notify,
 };
-

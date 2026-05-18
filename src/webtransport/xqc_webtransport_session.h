@@ -37,6 +37,21 @@ typedef struct xqc_webtransport_session_s
     /* DRAIN_WEBTRANSPORT_SESSION received — peer requests no new streams */
     xqc_bool_t drain_received;
 
+    /* draft-15 session flow control */
+    xqc_bool_t flow_control_enabled;
+    uint64_t local_max_streams_uni;   /* streams peer may open on this session */
+    uint64_t local_max_streams_bidi;
+    uint64_t local_max_data;          /* stream body bytes peer may send */
+    uint64_t peer_max_streams_uni;    /* streams this endpoint may open */
+    uint64_t peer_max_streams_bidi;
+    uint64_t peer_max_data;
+    uint64_t recv_streams_uni;
+    uint64_t recv_streams_bidi;
+    uint64_t recv_data;
+    uint64_t sent_streams_uni;
+    uint64_t sent_streams_bidi;
+    uint64_t sent_data;
+
 } xqc_wt_session_t;
 
 /* Tagged wrapper for pending streams — disambiguates uni vs bidi without
@@ -59,6 +74,24 @@ xqc_int_t xqc_wt_session_add_pendingstream(xqc_wt_session_t *session,
 
 xqc_wt_pending_stream_t* xqc_wt_session_pending_stream_find(
     xqc_wt_session_t *session, xqc_h3_stream_t *h3_stream);
+
+xqc_int_t xqc_wt_session_on_incoming_stream(xqc_wt_session_t *session,
+    xqc_bool_t is_bidi);
+
+xqc_int_t xqc_wt_session_on_incoming_data(xqc_wt_session_t *session,
+    uint64_t data_len);
+
+xqc_int_t xqc_wt_session_update_peer_max_streams(xqc_wt_session_t *session,
+    xqc_bool_t is_bidi, uint64_t value);
+
+xqc_int_t xqc_wt_session_update_peer_max_data(xqc_wt_session_t *session,
+    uint64_t value);
+
+xqc_int_t xqc_wt_session_on_outgoing_stream(xqc_wt_session_t *session,
+    xqc_bool_t is_bidi);
+
+xqc_int_t xqc_wt_session_on_outgoing_data(xqc_wt_session_t *session,
+    uint64_t data_len);
 
 
 

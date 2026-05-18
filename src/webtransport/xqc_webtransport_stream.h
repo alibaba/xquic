@@ -72,10 +72,12 @@ typedef struct xqc_wt_unistream_s
     } fin;
 
     uint64_t          session_id;
+    xqc_wt_session_t *session;
     xqc_h3_stream_t  *h3_stream;   // 多余的 暂时保留
     xqc_connection_t *conn;
     xqc_bool_t packet_parsed_flag;   // default value = XQC_FALSE , when packet
                                      // parsed , set it to XQC_TRUE
+    xqc_bool_t flow_counted;
 
     union stream
     {
@@ -96,7 +98,9 @@ typedef struct xqc_wt_bidistream_s
 
     xqc_bool_t packet_parsed_flag;   // default value = XQC_FALSE , when packet
                                      // parsed , set it to XQC_TRUE
+    xqc_bool_t flow_counted;
     uint64_t         session_id;
+    xqc_wt_session_t *session;
     xqc_h3_stream_t *h3_stream;
 
     xqc_bool_t send_fin;

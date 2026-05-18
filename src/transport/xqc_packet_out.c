@@ -881,6 +881,71 @@ error:
 }
 
 int
+xqc_write_reset_stream_at_to_packet(xqc_connection_t *conn, xqc_stream_t *stream,
+    uint64_t err_code, uint64_t final_size, uint64_t reliable_size)
+{
+    if (conn == NULL || stream == NULL) {
+        return -XQC_EPARAM;
+    }
+    if (!conn->remote_settings.reset_stream_at) {
+        return xqc_write_reset_stream_to_packet(conn, stream, err_code, final_size);
+    }
+    if (reliable_size > final_size) {
+        return -XQC_EPARAM;
+    }
+
+    ssize_t ret;
+    xqc_packet_out_t *packet_out;
+    xqc_pkt_type_t pkt_type = XQC_PTYPE_SHORT_HEADER;
+    int support_0rtt = xqc_conn_is_ready_to_send_early_data(conn);
+    if (!(conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT)) {
+        if ((conn->conn_type == XQC_CONN_TYPE_CLIENT)
+            && (conn->conn_state == XQC_CONN_STATE_CLIENT_INITIAL_SENT)
+            && support_0rtt)
+        {
+            pkt_type = XQC_PTYPE_0RTT;
+            conn->conn_flag |= XQC_CONN_FLAG_HAS_0RTT;
+            stream->stream_flag |= XQC_STREAM_FLAG_HAS_0RTT;
+
+        } else {
+            return xqc_write_reset_stream_to_packet(conn, stream, err_code, final_size);
+        }
+    }
+
+    packet_out = xqc_write_new_packet(conn, pkt_type);
+    if (packet_out == NULL) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");
+        return -XQC_EWRITE_PKT;
+    }
+
+    ret = xqc_gen_reset_stream_at_frame(packet_out, stream->stream_id,
+        err_code, final_size, reliable_size);
+    if (ret < 0) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_reset_stream_at_frame error|");
+        goto error;
+    }
+    stream->stream_err = err_code;
+    packet_out->po_used_size += ret;
+
+    packet_out->po_stream_frames[0].ps_stream_id = stream->stream_id;
+    packet_out->po_stream_frames[0].ps_is_reset = 1;
+    packet_out->po_stream_frames[0].ps_is_used = 1;
+    packet_out->po_stream_frames_idx++;
+    if (stream->stream_state_send < XQC_SEND_STREAM_ST_RESET_SENT) {
+        xqc_stream_send_state_update(stream, XQC_SEND_STREAM_ST_RESET_SENT);
+    }
+    if (stream->stream_stats.app_reset_time == 0) {
+        stream->stream_stats.app_reset_time = xqc_monotonic_timestamp();
+    }
+    xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
+    return XQC_OK;
+
+error:
+    xqc_maybe_recycle_packet_out(packet_out, conn);
+    return ret;
+}
+
+int
 xqc_write_stop_sending_to_packet(xqc_connection_t *conn, xqc_stream_t *stream,
     uint64_t err_code)
 {

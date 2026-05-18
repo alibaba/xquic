@@ -31,7 +31,33 @@ xqc_wt_decode_session_id(const uint8_t *buf, size_t buf_len, uint64_t *session_i
     return n;
 }
 
-/* ===== Capsule encoding/decoding (RFC 9297 + WebTransport) ===== */
+size_t
+xqc_wt_encode_h3_datagram_session_id(uint64_t session_id,
+    uint8_t *buf, size_t buf_len)
+{
+    if ((session_id & 0x03) != 0) {
+        return 0;
+    }
+    return xqc_wt_encode_session_id(session_id >> 2, buf, buf_len);
+}
+
+ssize_t
+xqc_wt_decode_h3_datagram_session_id(const uint8_t *buf,
+    size_t buf_len, uint64_t *session_id)
+{
+    uint64_t quarter_stream_id = 0;
+    ssize_t consumed = xqc_wt_decode_session_id(buf, buf_len, &quarter_stream_id);
+    if (consumed <= 0) {
+        return consumed;
+    }
+    if (quarter_stream_id > (UINT64_MAX >> 2)) {
+        return -XQC_H3_DECODE_ERROR;
+    }
+    *session_id = quarter_stream_id << 2;
+    return consumed;
+}
+
+/* ===== Capsule encoding/decoding (HTTP Datagram/Capsule + WebTransport-H3) ===== */
 
 ssize_t
 xqc_wt_decode_capsule_header(const uint8_t *buf, size_t buf_len,
@@ -136,3 +162,43 @@ xqc_wt_encode_drain_session_capsule(uint8_t *buf, size_t buf_len)
     return (size_t)(p - buf);
 }
 
+size_t
+xqc_wt_encode_flow_control_capsule(uint64_t capsule_type,
+    uint64_t value, uint8_t *buf, size_t buf_len)
+{
+    if (buf == NULL) {
+        return 0;
+    }
+
+    size_t value_vlen   = xqc_put_varint_len(value);
+    size_t type_vlen    = xqc_put_varint_len(capsule_type);
+    size_t payload_vlen = xqc_put_varint_len(value_vlen);
+    size_t total        = type_vlen + payload_vlen + value_vlen;
+    if (value_vlen == 0 || type_vlen == 0 || payload_vlen == 0
+        || buf_len < total)
+    {
+        return 0;
+    }
+
+    uint8_t *p = buf;
+    p = xqc_put_varint(p, capsule_type);
+    p = xqc_put_varint(p, value_vlen);
+    p = xqc_put_varint(p, value);
+    return (size_t)(p - buf);
+}
+
+ssize_t
+xqc_wt_decode_flow_control_capsule_value(const uint8_t *payload,
+    size_t payload_len, uint64_t *value)
+{
+    if (payload == NULL || value == NULL || payload_len == 0) {
+        return -XQC_EPARAM;
+    }
+
+    const uint8_t *end = payload + payload_len;
+    int n = xqc_vint_read(payload, end, value);
+    if (n <= 0 || (size_t)n != payload_len) {
+        return -XQC_H3_DECODE_ERROR;
+    }
+    return n;
+}

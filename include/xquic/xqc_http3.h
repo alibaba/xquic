@@ -288,9 +288,14 @@ typedef struct xqc_h3_conn_settings_s {
     xqc_bool_t enable_connect_protocol;   /* SETTINGS_ENABLE_CONNECT_PROTOCOL (0x08) */
     xqc_bool_t h3_datagram;              /* SETTINGS_H3_DATAGRAM (0x33) */
 
-    /** WebTransport settings */
-    xqc_bool_t enable_webtransport;      /* enables WT; sends both draft (0x2b603742) and RFC 9297 (0xc671706a) */
-    uint64_t   webtransport_max_sessions; /* SETTINGS_WEBTRANSPORT_MAX_SESSIONS value (default 1) */
+    /** WebTransport over HTTP/3 draft-15 settings */
+    xqc_bool_t enable_webtransport;       /* SETTINGS_WT_ENABLED (0x2c7cf000) */
+    uint64_t   wt_initial_max_streams_uni;  /* SETTINGS_WT_INITIAL_MAX_STREAMS_UNI */
+    uint64_t   wt_initial_max_streams_bidi; /* SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI */
+    uint64_t   wt_initial_max_data;         /* SETTINGS_WT_INITIAL_MAX_DATA */
+
+    /** Legacy WebTransport draft setting, parsed for compatibility only. */
+    uint64_t   webtransport_max_sessions;
 
 } xqc_h3_conn_settings_t;
 

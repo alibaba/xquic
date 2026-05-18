@@ -34,6 +34,7 @@ class WebTransportSession:
         self._created_bidi_queue = asyncio.Queue()
         # fast-path: pending recv waiters for send_bidi + recv pattern
         self._pending_recv_waiters: deque[asyncio.Future] = deque()
+        self._pending_recv_streams: dict[int, tuple[asyncio.Future, bytearray]] = {}
 
     @property
     def session_id(self) -> int:
@@ -88,6 +89,9 @@ class WebTransportSession:
             # clean up if waiter wasn't consumed (timeout or cancel)
             if waiter in self._pending_recv_waiters:
                 self._pending_recv_waiters.remove(waiter)
+            for stream_id, (pending, _) in list(self._pending_recv_streams.items()):
+                if pending is waiter:
+                    del self._pending_recv_streams[stream_id]
 
     async def create_bidirectional_stream(self) -> BidiStream:
         """Create a new bidirectional stream for multi-send/recv."""
@@ -201,12 +205,21 @@ class WebTransportSession:
                 self._recv_streams[stream_id] = stream
 
     def _on_stream_data(self, stream_id: int, data: bytes, fin: bool):
-        # bidi already known?
+        pending = self._pending_recv_streams.get(stream_id)
+        if pending:
+            waiter, buf = pending
+            buf.extend(data)
+            if fin:
+                del self._pending_recv_streams[stream_id]
+                if not waiter.done():
+                    waiter.set_result(bytes(buf))
+            return
+
         stream = self._streams.get(stream_id)
         if stream:
             stream._on_data(data, fin)
             return
-        # uni recv?
+
         recv = self._recv_streams.get(stream_id)
         if recv:
             recv._on_data(data, fin)
@@ -214,22 +227,17 @@ class WebTransportSession:
                 recv._enqueued = True
                 self._incoming_uni_queue.put_nowait(recv)
             return
-        # unknown incoming bidi — fast-path: if there's a pending recv waiter
-        # and data arrives with FIN (complete message), resolve directly
+
         if self._pending_recv_waiters:
-            # accumulate into a new stream to handle multi-chunk case
-            stream = BidiStream(self._conn, stream_id)
-            self._streams[stream_id] = stream
-            stream._on_data(data, fin)
+            waiter = self._pending_recv_waiters.popleft()
+            buf = bytearray(data)
             if fin:
-                waiter = self._pending_recv_waiters.popleft()
                 if not waiter.done():
-                    waiter.set_result(data)
-                    return
-            # not FIN yet — need to go through queue for read_all
-            self._incoming_bidi_queue.put_nowait(stream)
+                    waiter.set_result(bytes(buf))
+            else:
+                self._pending_recv_streams[stream_id] = (waiter, buf)
             return
-        # no waiter — normal path
+
         stream = BidiStream(self._conn, stream_id)
         self._streams[stream_id] = stream
         stream._on_data(data, fin)

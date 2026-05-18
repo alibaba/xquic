@@ -15,13 +15,14 @@ from pyxquic_wt._defaults import (
     HANDSHAKE_TIMEOUT, SESSION_OPEN_TIMEOUT,
     POLL_INTERVAL_SEC, POLL_IDLE_INTERVAL_SEC, UDP_RECV_BUF_SIZE,
 )
-from pyxquic_wt._exceptions import QuicConnectionError
+from pyxquic_wt._exceptions import QuicConnectionError, SessionRejectedError
 from pyxquic_wt._session import WebTransportSession
 
 
 _EVENT_CREATED = 0
 _EVENT_CLOSED = 1
 _EVENT_HANDSHAKE_DONE = 2
+_EVENT_REJECTED = 3
 
 
 class WebTransportConnection:
@@ -122,13 +123,25 @@ class WebTransportConnection:
         """
         if self._destroyed:
             raise RuntimeError("Connection is closed")
+        deadline = self._loop.time() + SESSION_OPEN_TIMEOUT
+        while lib.xqc_wt_py_client_peer_wt_ready(self._handle) != 1:
+            self._on_readable()
+            lib.xqc_wt_py_client_process(self._handle)
+            if self._loop.time() >= deadline:
+                raise QuicConnectionError(
+                    "peer did not advertise draft-15 WebTransport support")
+            await asyncio.sleep(POLL_INTERVAL_SEC)
+
         ret = lib.xqc_wt_py_open_session(
             self._handle, path.encode(), self._host.encode())
         if ret < 0:
             raise QuicConnectionError(f"open_session failed: {ret}")
 
-        session_id = await asyncio.wait_for(
+        session_event = await asyncio.wait_for(
             self._session_queue.get(), timeout=SESSION_OPEN_TIMEOUT)
+        if isinstance(session_event, SessionRejectedError):
+            raise session_event
+        session_id = session_event
         session = WebTransportSession(self, session_id)
         self._sessions[session_id] = session
         return session
@@ -159,6 +172,8 @@ class WebTransportConnection:
                 self._handshake_done.set_result(True)
         elif event == _EVENT_CREATED:
             self._session_queue.put_nowait(session_id)
+        elif event == _EVENT_REJECTED:
+            self._session_queue.put_nowait(SessionRejectedError(int(session_id)))
         elif event == _EVENT_CLOSED:
             session = self._sessions.get(session_id)
             if session:

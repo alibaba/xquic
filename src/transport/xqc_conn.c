@@ -540,6 +540,7 @@ xqc_conn_init_trans_settings(xqc_connection_t *conn)
     ls->enable_pmtud = conn->conn_settings.enable_pmtud;
 
     ls->max_datagram_frame_size = conn->conn_settings.max_datagram_frame_size;
+    ls->reset_stream_at = conn->conn_settings.reset_stream_at;
     ls->disable_active_migration = ls->enable_multipath ? 0 : 1;
 
     ls->max_ack_delay = conn->conn_settings.max_ack_delay;
@@ -5707,6 +5708,7 @@ xqc_conn_set_remote_transport_params(xqc_connection_t *conn,
     settings->multipath_version = params->multipath_version;
     settings->init_max_path_id = params->init_max_path_id;
     settings->max_datagram_frame_size = params->max_datagram_frame_size;
+    settings->reset_stream_at = params->reset_stream_at;
     settings->close_dgram_redundancy = params->close_dgram_redundancy;
     settings->enable_pmtud = params->enable_pmtud;
 
@@ -5787,6 +5789,7 @@ xqc_conn_get_local_transport_params(xqc_connection_t *conn, xqc_transport_params
     params->multipath_version = settings->multipath_version;
     params->init_max_path_id = settings->init_max_path_id;
     params->max_datagram_frame_size = settings->max_datagram_frame_size;
+    params->reset_stream_at = settings->reset_stream_at;
     params->enable_pmtud = settings->enable_pmtud;
 
     params->close_dgram_redundancy = settings->close_dgram_redundancy;

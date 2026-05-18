@@ -21,8 +21,10 @@
 #include "src/common/xqc_time.h"
 #include "xqc_webtransport_session.h"
 #include "xqc_webtransport_conn.h"
+#include "xqc_webtransport_dgram.h"
 #include "xqc_webtransport_stream.h"
 #include "src/http3/xqc_h3_stream.h"
+#include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_ext_bytestream.h"
 #include "src/transport/xqc_stream.h"
 #include "xqc_webtransport_wire.h"
@@ -254,6 +256,33 @@ py_find_session_id(xqc_wt_py_client_t *c, xqc_wt_session_t *wt_session)
     return 0;
 }
 
+static xqc_h3_conn_t *
+py_client_get_h3_conn(xqc_wt_py_client_t *c)
+{
+    if (!c || !c->engine || !c->connected) {
+        return NULL;
+    }
+    xqc_connection_t *conn = xqc_engine_get_conn_by_scid(c->engine, &c->cid);
+    if (!conn) {
+        return NULL;
+    }
+    return (xqc_h3_conn_t *)conn->proto_data;
+}
+
+static int
+py_h3_peer_wt_ready(xqc_h3_conn_t *h3c)
+{
+    if (!h3c) {
+        return 0;
+    }
+    if (!(h3c->flags & XQC_H3_CONN_FLAG_SETTINGS_RECVED)) {
+        return 0;
+    }
+    return h3c->peer_h3_conn_settings.enable_webtransport
+        && h3c->peer_h3_conn_settings.enable_connect_protocol
+        && h3c->peer_h3_conn_settings.h3_datagram;
+}
+
 static void
 py_remove_session(xqc_wt_py_client_t *c, uint64_t session_id)
 {
@@ -288,19 +317,28 @@ py_client_session_create(xqc_webtransport_session_t *session,
     xqc_wt_py_client_t *c = py_client_from_wt_conn(h3c_user_data);
     if (!c || !headers) return 0;
 
-    /* check for :status 200 */
+    /* A 2xx CONNECT response establishes the session; non-2xx rejects it. */
     for (size_t i = 0; i < headers->count; i++) {
         size_t nlen = headers->headers[i].name.iov_len;
         size_t vlen = headers->headers[i].value.iov_len;
         char *n = (char *)headers->headers[i].name.iov_base;
         char *v = (char *)headers->headers[i].value.iov_base;
-        if (n && v && nlen == 7 && memcmp(n, ":status", 7) == 0 &&
-            vlen == 3 && memcmp(v, "200", 3) == 0) {
-            /* assign unique session_id and store mapping */
-            uint64_t sid = ++c->next_session_id;
-            py_add_session(c, sid, session);
-            if (c->session_cb) {
-                c->session_cb(XQC_WT_PY_EVENT_CREATED, sid, c->user_data);
+        if (n && v && nlen == 7 && memcmp(n, ":status", 7) == 0
+            && vlen == 3 && v[0] >= '0' && v[0] <= '9'
+            && v[1] >= '0' && v[1] <= '9'
+            && v[2] >= '0' && v[2] <= '9')
+        {
+            int status_code = (v[0] - '0') * 100 + (v[1] - '0') * 10 + (v[2] - '0');
+            if (status_code >= 200 && status_code < 300) {
+                /* assign unique session_id and store mapping */
+                uint64_t sid = ++c->next_session_id;
+                py_add_session(c, sid, session);
+                if (c->session_cb) {
+                    c->session_cb(XQC_WT_PY_EVENT_CREATED, sid, c->user_data);
+                }
+            } else if (c->session_cb) {
+                c->session_cb(XQC_WT_PY_EVENT_REJECTED,
+                    (uint64_t)status_code, c->user_data);
             }
             return 0;
         }
@@ -519,7 +557,7 @@ xqc_wt_py_client_connect(xqc_wt_py_client_t *client)
     };
 
     /* engine config with defaults */
-    xqc_config_t cfg;
+    xqc_config_t cfg = {0};
     if (xqc_engine_get_default_config(&cfg, XQC_ENGINE_CLIENT) < 0) {
         return -1;
     }
@@ -565,6 +603,7 @@ xqc_wt_py_client_connect(xqc_wt_py_client_t *client)
     cs.cong_ctrl_callback = client->cc_type == 1 ? xqc_cubic_cb : xqc_bbr_cb;
     cs.init_idle_time_out = client->idle_timeout_ms;
     cs.max_datagram_frame_size = XQC_WT_PY_MAX_DGRAM_FRAME_SIZE;
+    cs.reset_stream_at = 1;
 
     xqc_conn_ssl_config_t cssl = {0};
 
@@ -630,6 +669,9 @@ xqc_wt_py_open_session(xqc_wt_py_client_t *client,
 {
     if (!client || !client->engine) return -1;
     /* py_handle is set automatically via wt_conn->py_handle = engine->user_data */
+    if (!py_h3_peer_wt_ready(py_client_get_h3_conn(client))) {
+        return -XQC_ESTATE;
+    }
 
     const char *auth = authority ? authority : client->host;
     return xqc_wt_client_open_session(client->engine, &client->cid,
@@ -823,7 +865,7 @@ xqc_wt_py_send_datagram(xqc_wt_py_client_t *client, uint64_t session_id,
     if (!ws || !ws->wt_conn) return -1;
     /* py_handle is set automatically via wt_conn->py_handle = engine->user_data */
 
-    int ret = xqc_webtransport_datagram_send(ws->wt_conn, (void *)data, (uint32_t)len);
+    int ret = xqc_wt_session_datagram_send(ws, (void *)data, (uint32_t)len);
     xqc_engine_main_logic(client->engine);
     return ret;
 }
@@ -1043,6 +1085,12 @@ xqc_wt_py_client_get_session_count(xqc_wt_py_client_t *client)
     return count;
 }
 
+int
+xqc_wt_py_client_peer_wt_ready(xqc_wt_py_client_t *client)
+{
+    return py_h3_peer_wt_ready(py_client_get_h3_conn(client));
+}
+
 uint64_t
 xqc_wt_py_client_get_remote_dgram_size(xqc_wt_py_client_t *client)
 {
@@ -1252,9 +1300,6 @@ py_server_session_create(xqc_webtransport_session_t *session,
             path, authority,
             session->session_id, s->user_data);
         if (!accepted) {
-            xqc_wt_session_close_with_error(session,
-                XQC_WT_PY_REJECT_ERROR_CODE, XQC_WT_PY_REJECT_REASON,
-                XQC_WT_PY_REJECT_REASON_LEN);
             return 0;
         }
     }
@@ -1266,7 +1311,7 @@ py_server_session_create(xqc_webtransport_session_t *session,
     if (s->session_cb) {
         s->session_cb(XQC_WT_PY_EVENT_CREATED, session->session_id, s->user_data);
     }
-    return 0;
+    return 1;
 }
 
 static int
@@ -1325,7 +1370,7 @@ xqc_wt_py_server_create(const char *cert_file, const char *key_file)
     };
 
     /* engine config */
-    xqc_config_t cfg;
+    xqc_config_t cfg = {0};
     if (xqc_engine_get_default_config(&cfg, XQC_ENGINE_SERVER) < 0) {
         py_hash_free_all(s->streams); py_hash_free_all(s->sessions);
         free(s);
@@ -1356,6 +1401,7 @@ xqc_wt_py_server_create(const char *cert_file, const char *key_file)
     conn_settings.cong_ctrl_callback = s->cc_type == 1 ? xqc_cubic_cb : xqc_bbr_cb;
     conn_settings.init_idle_time_out = s->idle_timeout_ms ? s->idle_timeout_ms : XQC_WT_PY_IDLE_TIMEOUT_MS;
     conn_settings.max_datagram_frame_size = XQC_WT_PY_MAX_DGRAM_FRAME_SIZE;
+    conn_settings.reset_stream_at = 1;
     conn_settings.max_pkt_out_size = 1200;
     xqc_server_set_conn_settings(s->engine, &conn_settings);
 
@@ -1467,7 +1513,7 @@ xqc_wt_py_server_send_datagram(xqc_wt_py_server_t *server, uint64_t session_id,
     xqc_wt_session_t *session = py_server_find_wt_session(server, session_id);
     if (!session || !session->wt_conn) return -1;
 
-    int ret = xqc_webtransport_datagram_send(session->wt_conn, (void *)data, (uint32_t)len);
+    int ret = xqc_wt_session_datagram_send(session, (void *)data, (uint32_t)len);
     xqc_engine_main_logic(server->engine);
     return ret;
 }
@@ -1533,6 +1579,7 @@ xqc_wt_py_server_set_config(xqc_wt_py_server_t *server,
     cs.cong_ctrl_callback = cc_type == 1 ? xqc_cubic_cb : xqc_bbr_cb;
     cs.init_idle_time_out = idle_timeout_ms ? idle_timeout_ms : XQC_WT_PY_IDLE_TIMEOUT_MS;
     cs.max_datagram_frame_size = XQC_WT_PY_MAX_DGRAM_FRAME_SIZE;
+    cs.reset_stream_at = 1;
     cs.max_pkt_out_size = 1200;
     xqc_server_set_conn_settings(server->engine, &cs);
 }

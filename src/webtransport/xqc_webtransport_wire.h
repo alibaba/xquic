@@ -14,13 +14,31 @@ typedef enum {
     XQC_WT_STREAM_TYPE_CODE_UNKNOWN    = 1,
 } xqc_wt_stream_type_code_t;
 
-/* Capsule types (RFC 9297 + WebTransport over HTTP/3) */
+/* Capsule types (HTTP Datagram/Capsule + WebTransport-H3 draft-15) */
 #define XQC_WT_CAPSULE_CLOSE_SESSION  0x2843
-#define XQC_WT_CAPSULE_DRAIN_SESSION  0x2844
+#define XQC_WT_CAPSULE_DRAIN_SESSION  0x78ae
+#define XQC_WT_CAPSULE_MAX_STREAMS_BIDI 0x190B4D3F
+#define XQC_WT_CAPSULE_MAX_STREAMS_UNI  0x190B4D40
+#define XQC_WT_CAPSULE_DATA_BLOCKED     0x190B4D41
+#define XQC_WT_CAPSULE_STREAMS_BLOCKED_BIDI 0x190B4D43
+#define XQC_WT_CAPSULE_STREAMS_BLOCKED_UNI  0x190B4D44
+#define XQC_WT_CAPSULE_MAX_DATA         0x190B4D3D
+
+#define XQC_WT_ERROR_BUFFERED_STREAM_REJECTED 0x3994bd84
+#define XQC_WT_ERROR_SESSION_GONE      0x170d7b68
+#define XQC_WT_ERROR_FLOW_CONTROL      0x045d4487
+#define XQC_WT_ERROR_ALPN              0x0817b3dd
+#define XQC_WT_ERROR_REQUIREMENTS_NOT_MET 0x212c0d48
 
 size_t xqc_wt_encode_session_id(uint64_t session_id, uint8_t *buf, size_t buf_len);
 
 ssize_t xqc_wt_decode_session_id(const uint8_t *buf, size_t buf_len, uint64_t *session_id);
+
+size_t xqc_wt_encode_h3_datagram_session_id(uint64_t session_id,
+    uint8_t *buf, size_t buf_len);
+
+ssize_t xqc_wt_decode_h3_datagram_session_id(const uint8_t *buf,
+    size_t buf_len, uint64_t *session_id);
 
 /**
  * Encode a CLOSE_WEBTRANSPORT_SESSION capsule.
@@ -48,6 +66,12 @@ ssize_t xqc_wt_decode_close_session_capsule(const uint8_t *payload, size_t paylo
  * @return bytes written, or 0 if buf_len is insufficient
  */
 size_t xqc_wt_encode_drain_session_capsule(uint8_t *buf, size_t buf_len);
+
+size_t xqc_wt_encode_flow_control_capsule(uint64_t capsule_type,
+    uint64_t value, uint8_t *buf, size_t buf_len);
+
+ssize_t xqc_wt_decode_flow_control_capsule_value(const uint8_t *payload,
+    size_t payload_len, uint64_t *value);
 
 /**
  * Decode a capsule header (type + length) from a byte stream.

@@ -8,6 +8,7 @@ import pytest
 
 from pyxquic_wt._stream import BidiStream, ReceiveStream
 from pyxquic_wt._server_stream import ServerBidiStream
+from pyxquic_wt._session import WebTransportSession
 
 
 class FakeConn:
@@ -184,3 +185,21 @@ async def test_server_bidi_read_max_bytes():
     assert chunk == b"server"
     rest = await stream.read(timeout=1.0)
     assert rest == b" data"
+
+
+@pytest.mark.asyncio
+async def test_session_recv_fast_path_multichunk():
+    """session.recv() fast-path resolves when a bidi stream arrives in multiple chunks."""
+    session = WebTransportSession(FakeConn(), session_id=1)
+
+    recv_task = asyncio.create_task(session.recv(timeout=1.0))
+    await asyncio.sleep(0)
+
+    session._on_stream_data(123, b"hello ", False)
+    await asyncio.sleep(0)
+    assert not recv_task.done()
+
+    session._on_stream_data(123, b"world", True)
+    result = await recv_task
+
+    assert result == b"hello world"

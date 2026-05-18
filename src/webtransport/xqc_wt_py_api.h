@@ -45,8 +45,9 @@ typedef void (*xqc_wt_py_timer_cb)(
 
 /**
  * Session lifecycle event.
- * @param event  0=created (server responded 200), 1=closed, 2=handshake_done
- * @param session_id  unique session identifier
+ * @param event  0=created (server responded 2xx), 1=closed, 2=handshake_done,
+ *               3=rejected (session_id carries HTTP status code)
+ * @param session_id  unique session identifier, or HTTP status for rejected
  */
 typedef void (*xqc_wt_py_session_cb)(
     int event, uint64_t session_id, void *user);
@@ -102,6 +103,7 @@ typedef int (*xqc_wt_py_session_request_cb)(
 #define XQC_WT_PY_EVENT_CREATED        0
 #define XQC_WT_PY_EVENT_CLOSED         1
 #define XQC_WT_PY_EVENT_HANDSHAKE_DONE 2
+#define XQC_WT_PY_EVENT_REJECTED       3
 
 /* ===== Client API ===== */
 
@@ -282,6 +284,9 @@ uint32_t xqc_wt_py_client_get_recv_count(xqc_wt_py_client_t *client);
 /** Get number of sessions currently open. */
 int xqc_wt_py_client_get_session_count(xqc_wt_py_client_t *client);
 
+/** Return 1 when peer SETTINGS allow draft-15 WebTransport sessions. */
+int xqc_wt_py_client_peer_wt_ready(xqc_wt_py_client_t *client);
+
 
 /* ===== Server API ===== */
 
@@ -331,10 +336,8 @@ ssize_t xqc_wt_py_server_stream_send(
     xqc_wt_py_server_t *server, uint64_t stream_id,
     const uint8_t *data, size_t len, int fin);
 
-/**
- * Send an unreliable datagram on a session (server-side).
- * @return 0 on success, <0 on error
- */
+/* Experimental/internal: server-side datagram is not exposed in Python public API
+ * until draft-15 HTTP Datagram demux is complete. */
 int xqc_wt_py_server_send_datagram(
     xqc_wt_py_server_t *server, uint64_t session_id,
     const uint8_t *data, size_t len);

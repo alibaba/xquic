@@ -38,37 +38,45 @@ xqc_wt_datagram_send_blk(xqc_wt_conn_t *user_conn, wt_dgram_blk_t *dgram_blk)
 }
 
 xqc_int_t
-xqc_webtransport_datagram_send(xqc_webtransport_conn_t *user_conn, void *data,
+xqc_wt_session_datagram_send(xqc_wt_session_t *session, void *data,
     uint32_t data_len)
 {
-    xqc_wt_conn_t *wt_conn = (xqc_wt_conn_t *)user_conn;
-
-    uint64_t session_id = 0;
-    if (wt_conn && wt_conn->wt_session) {
-        session_id = wt_conn->wt_session->session_id;
+    if (session == NULL || session->wt_conn == NULL) {
+        return -XQC_EPARAM;
     }
 
     uint8_t header_buf[8];
     size_t  header_len =
-        xqc_wt_encode_session_id(session_id, header_buf, sizeof(header_buf));
+        xqc_wt_encode_h3_datagram_session_id(session->session_id,
+            header_buf, sizeof(header_buf));
+    if (header_len == 0) {
+        return -XQC_EPARAM;
+    }
 
     wt_dgram_blk_t *dgram_blk = NULL;
 
-    if (header_len > 0) {
-        size_t   total_len = header_len + data_len;
-        uint8_t *buf       = xqc_malloc(total_len);
-        if (buf == NULL) {
-            return XQC_ERROR;
-        }
-        memcpy(buf, header_buf, header_len);
-        memcpy(buf + header_len, data, data_len);
-        dgram_blk = xqc_wt_dgram_blk_create(buf, total_len);
-        xqc_free(buf);
-    } else {
-        dgram_blk = xqc_wt_dgram_blk_create(data, data_len);
+    size_t   total_len = header_len + data_len;
+    uint8_t *buf       = xqc_malloc(total_len);
+    if (buf == NULL) {
+        return XQC_ERROR;
     }
+    memcpy(buf, header_buf, header_len);
+    memcpy(buf + header_len, data, data_len);
+    dgram_blk = xqc_wt_dgram_blk_create(buf, total_len);
+    xqc_free(buf);
 
-    int ret = xqc_wt_datagram_send_blk(wt_conn, dgram_blk);
+    int ret = xqc_wt_datagram_send_blk(session->wt_conn, dgram_blk);
     xqc_wt_dgram_blk_destroy(dgram_blk);
     return ret;
+}
+
+xqc_int_t
+xqc_webtransport_datagram_send(xqc_webtransport_conn_t *user_conn, void *data,
+    uint32_t data_len)
+{
+    xqc_wt_conn_t *wt_conn = (xqc_wt_conn_t *)user_conn;
+    if (wt_conn == NULL || wt_conn->wt_session == NULL) {
+        return -XQC_EPARAM;
+    }
+    return xqc_wt_session_datagram_send(wt_conn->wt_session, data, data_len);
 }

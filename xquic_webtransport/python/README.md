@@ -79,7 +79,7 @@ xquic/
       test_e2e_lowlevel.py             # C-layer E2E tests (7)
       test_stream_unit.py              # stream API unit tests (16)
       test_echo.py                     # basic import/smoke tests (4)
-      test_e2e.py                      # high-level E2E tests (4)
+      test_e2e.py                      # high-level E2E tests (5)
       bench_compare.py                 # performance benchmark
     examples/
       echo_client.py
@@ -308,7 +308,7 @@ See [BENCHMARK.md](BENCHMARK.md) for full details.
 ```bash
 cd xquic_webtransport/python
 
-# Run all tests (44 tests)
+# Run all tests (50 tests)
 python -m pytest tests/test_wire.py tests/test_e2e_lowlevel.py \
     tests/test_e2e.py tests/test_echo.py tests/test_stream_unit.py -v
 

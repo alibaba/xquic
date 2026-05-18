@@ -28,6 +28,7 @@
 #define XQC_TRANS_FRAME_TYPE_MP_FROZEN                  0x15228cff
 
 #define XQC_TRANS_FRAME_TYPE_ACK_EXT                    0xB1
+#define XQC_TRANS_FRAME_TYPE_RESET_STREAM_AT            0x24
 
 /**
  * generate datagram frame
@@ -80,6 +81,14 @@ ssize_t xqc_gen_reset_stream_frame(xqc_packet_out_t *packet_out, xqc_stream_id_t
 
 xqc_int_t xqc_parse_reset_stream_frame(xqc_packet_in_t *packet_in, xqc_stream_id_t *stream_id,
     uint64_t *err_code, uint64_t *final_size, xqc_connection_t *conn);
+
+ssize_t xqc_gen_reset_stream_at_frame(xqc_packet_out_t *packet_out,
+    xqc_stream_id_t stream_id, uint64_t err_code, uint64_t final_size,
+    uint64_t reliable_size);
+
+xqc_int_t xqc_parse_reset_stream_at_frame(xqc_packet_in_t *packet_in,
+    xqc_stream_id_t *stream_id, uint64_t *err_code, uint64_t *final_size,
+    uint64_t *reliable_size, xqc_connection_t *conn);
 
 ssize_t xqc_gen_stop_sending_frame(xqc_packet_out_t *packet_out, xqc_stream_id_t stream_id,
     uint64_t err_code);

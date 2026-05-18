@@ -104,6 +104,7 @@ ffi.cdef("""
     uint32_t xqc_wt_py_client_get_recv_count(xqc_wt_py_client_t *client);
     int xqc_wt_py_client_get_session_count(xqc_wt_py_client_t *client);
     uint64_t xqc_wt_py_client_get_remote_dgram_size(xqc_wt_py_client_t *client);
+    int xqc_wt_py_client_peer_wt_ready(xqc_wt_py_client_t *client);
 
     /* Server API */
     xqc_wt_py_server_t *xqc_wt_py_server_create(
@@ -128,6 +129,7 @@ ffi.cdef("""
     long long xqc_wt_py_server_stream_send(
         xqc_wt_py_server_t *server, uint64_t stream_id,
         const uint8_t *data, size_t len, int fin);
+    /* experimental/internal until draft-15 datagram demux is complete */
     int xqc_wt_py_server_send_datagram(
         xqc_wt_py_server_t *server, uint64_t session_id,
         const uint8_t *data, size_t len);
@@ -165,11 +167,18 @@ ffi.cdef("""
     /* Wire protocol (for testing) */
     size_t xqc_wt_encode_session_id(uint64_t session_id, uint8_t *buf, size_t buf_len);
     long long xqc_wt_decode_session_id(const uint8_t *buf, size_t buf_len, uint64_t *session_id);
+    size_t xqc_wt_encode_h3_datagram_session_id(uint64_t session_id, uint8_t *buf, size_t buf_len);
+    long long xqc_wt_decode_h3_datagram_session_id(
+        const uint8_t *buf, size_t buf_len, uint64_t *session_id);
     size_t xqc_wt_encode_close_session_capsule(uint32_t error_code,
         const char *reason, size_t reason_len, uint8_t *buf, size_t buf_len);
     long long xqc_wt_decode_close_session_capsule(const uint8_t *payload, size_t payload_len,
         uint32_t *error_code, const uint8_t **reason, size_t *reason_len);
     size_t xqc_wt_encode_drain_session_capsule(uint8_t *buf, size_t buf_len);
+    size_t xqc_wt_encode_flow_control_capsule(
+        uint64_t capsule_type, uint64_t value, uint8_t *buf, size_t buf_len);
+    long long xqc_wt_decode_flow_control_capsule_value(
+        const uint8_t *payload, size_t payload_len, uint64_t *value);
     long long xqc_wt_decode_capsule_header(const uint8_t *buf, size_t buf_len,
         uint64_t *type, uint64_t *payload_len);
 """)

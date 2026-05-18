@@ -433,19 +433,28 @@ xqc_h3_frm_write_settings(xqc_list_head_t *send_buf, xqc_h3_conn_settings_t *set
         ++count;
     }
 
-    /* WebTransport: send both draft and RFC 9297 final IDs for interop */
+    /* WebTransport over HTTP/3 draft-15 */
     if (setting->enable_webtransport) {
-        uint64_t max_sessions = setting->webtransport_max_sessions > 0
-                              ? setting->webtransport_max_sessions : 1;
-
-        settings[count].identifier.vi = XQC_H3_SETTINGS_ENABLE_WEBTRANSPORT;
+        settings[count].identifier.vi = XQC_H3_SETTINGS_WT_ENABLED;
         settings[count].value.vi = 1;
         len += xqc_put_varint_len(settings[count].identifier.vi);
         len += xqc_put_varint_len(settings[count].value.vi);
         ++count;
 
-        settings[count].identifier.vi = XQC_H3_SETTINGS_WEBTRANSPORT_MAX_SESSIONS;
-        settings[count].value.vi = max_sessions;
+        settings[count].identifier.vi = XQC_H3_SETTINGS_WT_INITIAL_MAX_STREAMS_UNI;
+        settings[count].value.vi = setting->wt_initial_max_streams_uni;
+        len += xqc_put_varint_len(settings[count].identifier.vi);
+        len += xqc_put_varint_len(settings[count].value.vi);
+        ++count;
+
+        settings[count].identifier.vi = XQC_H3_SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI;
+        settings[count].value.vi = setting->wt_initial_max_streams_bidi;
+        len += xqc_put_varint_len(settings[count].identifier.vi);
+        len += xqc_put_varint_len(settings[count].value.vi);
+        ++count;
+
+        settings[count].identifier.vi = XQC_H3_SETTINGS_WT_INITIAL_MAX_DATA;
+        settings[count].value.vi = setting->wt_initial_max_data;
         len += xqc_put_varint_len(settings[count].identifier.vi);
         len += xqc_put_varint_len(settings[count].value.vi);
         ++count;

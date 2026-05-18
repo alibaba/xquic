@@ -121,6 +121,16 @@ typedef enum {
     XQC_MOQ_FILTER_ABSOLUTE_RANGE   = 0x4,
 } xqc_moq_filter_type_t;
 
+typedef enum {
+    XQC_MOQ_GROUP_FILTER_EXACT      = 0,
+    XQC_MOQ_GROUP_FILTER_BEFORE     = 1,
+} xqc_moq_group_filter_type_t;
+
+typedef struct {
+    xqc_moq_group_filter_type_t      type;
+    uint64_t                         group_id;
+} xqc_moq_group_filter_t;
+
 typedef struct xqc_moq_session_s xqc_moq_session_t;
 typedef struct xqc_moq_stream_s xqc_moq_stream_t;
 typedef struct xqc_moq_track_s xqc_moq_track_t;
@@ -353,6 +363,15 @@ typedef struct {
     uint64_t    end_object_id;
 } xqc_moq_publish_selected_params_t;
 
+typedef struct {
+    uint64_t    request_id;
+    uint64_t    start_group_id;
+    uint64_t    start_object_id;
+    uint64_t    end_group_id;
+    uint8_t     subscriber_priority;
+    uint8_t     forward;
+} xqc_moq_subscribe_update_info_t;
+
 typedef void (*xqc_moq_on_session_setup_pt)(xqc_moq_user_session_t *user_session, char *extdata,
     const xqc_moq_message_parameter_t *params, uint64_t params_num);
 
@@ -364,6 +383,9 @@ typedef void (*xqc_moq_on_datachannel_msg_pt)(xqc_moq_user_session_t *user_sessi
 
 typedef void (*xqc_moq_on_subscribe_pt)(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     xqc_moq_track_t *track, xqc_moq_subscribe_msg_t *msg);
+
+typedef void (*xqc_moq_on_subscribe_update_pt)(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
+    xqc_moq_track_t *track, const xqc_moq_subscribe_update_info_t *update);
 
 typedef void (*xqc_moq_on_unsubscribe_pt)(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     xqc_moq_track_t *track);
@@ -426,6 +448,7 @@ typedef struct {
     xqc_moq_on_datachannel_msg_pt   on_datachannel_msg; /* Required */
     /* For Publisher */
     xqc_moq_on_subscribe_pt         on_subscribe; /* Required */
+    xqc_moq_on_subscribe_update_pt  on_subscribe_update; /* Optional */
     xqc_moq_on_unsubscribe_pt       on_unsubscribe; /* Optional */
     xqc_moq_on_request_keyframe_pt  on_request_keyframe; /* Required */
     xqc_moq_on_bitrate_change_pt    on_bitrate_change; /* Optional */
@@ -525,6 +548,15 @@ xqc_moq_track_t *xqc_moq_track_create(xqc_moq_session_t *session, char *track_na
 XQC_EXPORT_PUBLIC_API
 void xqc_moq_track_set_reuse_subgroup_stream(xqc_moq_track_t *track, xqc_int_t reuse);
 
+/*
+ * @brief Stop receiving currently open data streams that match a group filter.
+ * @note  This sends receiver-side STOP_SENDING only. It does not send RESET_STREAM
+ *        and does not update the subscription window by itself.
+ * @note  XQC_MOQ_GROUP_FILTER_BEFORE matches streams with group_id < filter->group_id.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_track_cancel_recv(xqc_moq_track_t *track, const xqc_moq_group_filter_t *filter);
+
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_subscribe(xqc_moq_session_t *session, const char *track_namespace, const char *track_name,
     xqc_moq_filter_type_t filter_type, uint64_t start_group_id, uint64_t start_object_id,
@@ -532,6 +564,16 @@ xqc_int_t xqc_moq_subscribe(xqc_moq_session_t *session, const char *track_namesp
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_subscribe_latest(xqc_moq_session_t *session, const char *track_namespace, const char *track_name);
+
+/*
+ * @brief Send SUBSCRIBE_UPDATE for an existing local subscription.
+ * @note  This only advances/narrows the subscription window on the control stream.
+ *        It does not cancel already-open data streams; use xqc_moq_track_cancel_recv
+ *        when immediate receiver-side cancellation is also needed.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_subscribe_update(xqc_moq_session_t *session, uint64_t subscribe_id,
+    uint64_t start_group_id, uint64_t start_object_id, uint64_t end_group_id);
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_publish(xqc_moq_session_t *session, xqc_moq_publish_msg_t *publish_msg);

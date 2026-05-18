@@ -40,7 +40,7 @@ typedef struct xqc_moq_session_s {
     xqc_list_head_t                 peer_subscribe_list;
     xqc_list_head_t                 track_list_for_pub;
     xqc_list_head_t                 track_list_for_sub;
-    uint64_t                        subscribe_id_allocator;
+    uint64_t                        request_id_allocator;
     uint64_t                        track_alias_allocator;
     xqc_moq_bitrate_allocator_t     bitrate_allocator;
     xqc_int_t                       enable_fec;
@@ -71,6 +71,8 @@ void xqc_moq_session_on_setup(xqc_moq_session_t *session, char *extdata,
 xqc_connection_t *xqc_moq_session_quic_conn(xqc_moq_session_t *session);
 
 void xqc_moq_session_error(xqc_moq_session_t *session, xqc_moq_err_code_t code, const char *msg);
+
+uint64_t xqc_moq_session_alloc_request_id(xqc_moq_session_t *session);
 
 uint64_t xqc_moq_session_alloc_subscribe_id(xqc_moq_session_t *session);
 

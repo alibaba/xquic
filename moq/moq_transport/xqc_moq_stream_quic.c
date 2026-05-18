@@ -1,6 +1,8 @@
 
 #include "src/transport/xqc_stream.h"
 #include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_engine.h"
+#include "src/transport/xqc_packet_out.h"
 #include "moq/moq_transport/xqc_moq_stream_quic.h"
 #include "moq/moq_transport/xqc_moq_session.h"
 #include "moq/moq_transport/xqc_moq_stream.h"
@@ -10,6 +12,7 @@
 static void *xqc_moq_quic_stream_create(void *conn, xqc_stream_direction_t dir, void *user_data);
 static xqc_stream_t *xqc_moq_quic_stream(void *stream);
 static xqc_int_t xqc_moq_quic_stream_close(void *stream);
+static xqc_int_t xqc_moq_quic_stream_stop_sending(void *stream, uint64_t err_code);
 static ssize_t xqc_moq_quic_stream_send(void *stream, uint8_t *send_data, size_t send_data_size, uint8_t fin);
 
 static xqc_int_t xqc_moq_quic_stream_create_notify(xqc_stream_t *stream, void *user_data);
@@ -29,6 +32,7 @@ const xqc_moq_trans_stream_ops_t xqc_moq_quic_stream_ops = {
     .create      = xqc_moq_quic_stream_create,
     .quic_stream = xqc_moq_quic_stream,
     .close       = xqc_moq_quic_stream_close,
+    .stop_sending = xqc_moq_quic_stream_stop_sending,
     .write       = xqc_moq_quic_stream_send,
 };
 
@@ -67,6 +71,32 @@ xqc_moq_quic_stream_close(void *stream)
 {
     xqc_stream_t *quic_stream = (xqc_stream_t *)stream;
     return xqc_stream_close(quic_stream);
+}
+
+static xqc_int_t
+xqc_moq_quic_stream_stop_sending(void *stream, uint64_t err_code)
+{
+    xqc_stream_t *quic_stream = (xqc_stream_t *)stream;
+    if (quic_stream == NULL || quic_stream->stream_conn == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_connection_t *conn = quic_stream->stream_conn;
+    if (conn->conn_state >= XQC_CONN_STATE_CLOSING) {
+        return XQC_OK;
+    }
+
+    xqc_int_t ret = xqc_write_stop_sending_to_packet(conn, quic_stream, err_code);
+    if (ret < 0) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_write_stop_sending_to_packet error|ret:%d|stream_id:%ui|",
+                ret, quic_stream->stream_id);
+        return ret;
+    }
+
+    xqc_engine_remove_wakeup_queue(conn->engine, conn);
+    xqc_engine_add_active_queue(conn->engine, conn);
+    return XQC_OK;
 }
 
 static ssize_t

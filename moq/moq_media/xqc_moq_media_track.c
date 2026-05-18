@@ -41,6 +41,10 @@ const xqc_moq_track_ops_t xqc_moq_media_track_ops = {
 static void xqc_moq_media_cancel_write(xqc_moq_session_t *session, xqc_moq_track_t *track);
 static xqc_bool_t xqc_moq_media_maybe_cancel_write(xqc_moq_session_t *session, uint64_t subscribe_id,
     xqc_moq_track_t *track, xqc_moq_video_frame_t *video_frame);
+static xqc_bool_t xqc_moq_media_should_drop_write_location(xqc_moq_track_t *track,
+    uint64_t group_id, uint64_t object_id);
+static void xqc_moq_media_advance_drop_location(xqc_moq_media_track_t *media_track,
+    uint64_t group_id, uint64_t object_id);
 
 static xqc_int_t
 xqc_moq_media_write_subgroup_stream(xqc_moq_session_t *session,
@@ -318,6 +322,16 @@ xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     object.subgroup_type = XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
     object.subgroup_priority = XQC_MOQ_DEFAULT_SUBGROUP_PRIORITY;
 
+    if (xqc_moq_media_should_drop_write_location(track, object.group_id, object.object_id)) {
+        xqc_log(session->log, XQC_LOG_INFO,
+                "|drop audio frame by subscribe update|track_name:%s|subscribe_id:%ui|group_id:%ui|object_id:%ui|",
+                track->track_info.track_name, subscribe_id, object.group_id, object.object_id);
+        if (need_free && buf) {
+            xqc_free(buf);
+        }
+        return XQC_OK;
+    }
+
     if (track->reuse_subgroup_stream) {
         if (track->subgroup_stream == NULL
             || track->subgroup_stream->group_id != object.group_id
@@ -490,6 +504,15 @@ xqc_moq_write_raw_object(xqc_moq_session_t *session,
         obj_msg.object_id = object->object_id;
         obj_msg.subgroup_id = object->subgroup_id;
 
+        if (xqc_moq_media_should_drop_write_location(track, obj_msg.group_id, obj_msg.object_id)) {
+            xqc_log(session->log, XQC_LOG_INFO,
+                    "|drop raw object by subscribe update|track:%s/%s|subscribe_id:%ui|group_id:%ui|object_id:%ui|",
+                    track->track_info.track_namespace ? track->track_info.track_namespace : "null",
+                    track->track_info.track_name ? track->track_info.track_name : "null",
+                    subscribe_id, obj_msg.group_id, obj_msg.object_id);
+            return XQC_OK;
+        }
+
         if (obj_msg.group_id < track->cur_group_id) {
             xqc_log(session->log, XQC_LOG_ERROR,
                     "|write_raw_object invalid group_id rollback|track:%s/%s|cur_group_id:%ui|group_id:%ui|",
@@ -525,11 +548,29 @@ xqc_moq_write_raw_object(xqc_moq_session_t *session,
         track->cur_subgroup_id = obj_msg.subgroup_id + 1;
 
     } else {
-        obj_msg.group_id = ++track->cur_group_id;
+        obj_msg.group_id = track->cur_group_id + 1;
+        if (obj_msg.group_id < media_track->drop_group_id_before) {
+            obj_msg.group_id = media_track->drop_group_id_before;
+        }
+        if (obj_msg.group_id == media_track->drop_group_id_before
+            && media_track->drop_object_id_before > 0)
+        {
+            obj_msg.group_id++;
+        }
+        track->cur_group_id = obj_msg.group_id;
         track->cur_object_id = 0;
         obj_msg.object_id = track->cur_object_id;
 
         obj_msg.subgroup_id = xqc_moq_track_next_subgroup_id(track, obj_msg.group_id);
+    }
+
+    if (xqc_moq_media_should_drop_write_location(track, obj_msg.group_id, obj_msg.object_id)) {
+        xqc_log(session->log, XQC_LOG_INFO,
+                "|drop raw object by subscribe update|track:%s/%s|subscribe_id:%ui|group_id:%ui|object_id:%ui|",
+                track->track_info.track_namespace ? track->track_info.track_namespace : "null",
+                track->track_info.track_name ? track->track_info.track_name : "null",
+                subscribe_id, obj_msg.group_id, obj_msg.object_id);
+        return XQC_OK;
     }
     obj_msg.subgroup_type = XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
     obj_msg.subgroup_priority = XQC_MOQ_DEFAULT_SUBGROUP_PRIORITY;
@@ -792,7 +833,7 @@ xqc_moq_request_keyframe(xqc_moq_session_t *session, uint64_t subscribe_id)
 
     uint64_t largest_group_id = xqc_moq_media_track_get_largest_video_group_id(track);
     xqc_memset(&update, 0, sizeof(xqc_moq_subscribe_update_msg_t));
-    update.request_id = xqc_moq_session_alloc_subscribe_id(session);
+    update.request_id = xqc_moq_session_alloc_request_id(session);
     update.subscribe_id = subscribe_id;
     update.start_group_id = largest_group_id + 1;
     update.start_object_id = 0;
@@ -807,6 +848,7 @@ xqc_moq_request_keyframe(xqc_moq_session_t *session, uint64_t subscribe_id)
                 ret, track->track_info.track_name, subscribe_id);
         return ret;
     }
+    xqc_moq_subscribe_update_msg(subscribe, &update);
     xqc_log(session->log, XQC_LOG_INFO, "|request keyframe success|track_name:%s|subscribe_id:%ui|start_group_id:%ui|",
             track->track_info.track_name, subscribe_id, update.start_group_id);
     return XQC_OK;
@@ -916,13 +958,36 @@ xqc_moq_media_on_subscribe(xqc_moq_session_t *session, uint64_t subscribe_id,
     session->session_callbacks.on_subscribe(session->user_session, subscribe_id, track, msg);
 }
 
+static xqc_bool_t
+xqc_moq_media_should_drop_write_location(xqc_moq_track_t *track, uint64_t group_id, uint64_t object_id)
+{
+    xqc_moq_media_track_t *media_track = (xqc_moq_media_track_t*)track;
+
+    return group_id < media_track->drop_group_id_before
+           || (group_id == media_track->drop_group_id_before
+               && object_id < media_track->drop_object_id_before);
+}
+
+static void
+xqc_moq_media_advance_drop_location(xqc_moq_media_track_t *media_track,
+    uint64_t group_id, uint64_t object_id)
+{
+    /* MoQ session state is mutated on the xquic engine thread. */
+    if (group_id > media_track->drop_group_id_before) {
+        media_track->drop_group_id_before = group_id;
+        media_track->drop_object_id_before = object_id;
+
+    } else if (group_id == media_track->drop_group_id_before) {
+        media_track->drop_object_id_before = xqc_max(media_track->drop_object_id_before, object_id);
+    }
+}
+
 static void
 xqc_moq_media_on_subscribe_update(xqc_moq_session_t *session, uint64_t subscribe_id,
     xqc_moq_track_t *track, xqc_moq_subscribe_update_msg_t *update)
 {
     xqc_moq_media_track_t *media_track = (xqc_moq_media_track_t*)track;
-    media_track->drop_group_id_before = xqc_max(update->start_group_id, media_track->drop_group_id_before);
-    media_track->drop_object_id_before = 0;
+    xqc_moq_media_advance_drop_location(media_track, update->start_group_id, update->start_object_id);
     xqc_moq_media_cancel_write(session, track);
 
     if (track->track_info.track_type == XQC_MOQ_TRACK_VIDEO) {

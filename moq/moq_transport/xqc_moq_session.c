@@ -74,7 +74,7 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
 
     session->use_client_setup_v14 = enable_client_setup_v14;
     /* Request IDs use parity per endpoint: client even, server odd. */
-    session->subscribe_id_allocator = (session->engine->eng_type == XQC_ENGINE_CLIENT) ? 0 : 1;
+    session->request_id_allocator = (session->engine->eng_type == XQC_ENGINE_CLIENT) ? 0 : 1;
 
     if (session->engine->eng_type == XQC_ENGINE_CLIENT) {
         xqc_moq_stream_t *stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_BIDI);
@@ -262,11 +262,17 @@ xqc_moq_session_get_error(xqc_moq_session_t *session)
 }
 
 uint64_t
+xqc_moq_session_alloc_request_id(xqc_moq_session_t *session)
+{
+    uint64_t request_id = session->request_id_allocator;
+    session->request_id_allocator += 2;
+    return request_id;
+}
+
+uint64_t
 xqc_moq_session_alloc_subscribe_id(xqc_moq_session_t *session)
 {
-    uint64_t subscribe_id = session->subscribe_id_allocator;
-    session->subscribe_id_allocator += 2;
-    return subscribe_id;
+    return xqc_moq_session_alloc_request_id(session);
 }
 
 xqc_moq_subscribe_t *

@@ -71,6 +71,7 @@ int g_reuse_datachannel_stream = 0;
 int g_datagram_mode = 0;
 int g_enable_datachannel = 1;
 int g_enable_catalog = -1;
+uint64_t g_audio_cancel_next_group_id = XQC_MOQ_INVALID_ID;
 
 static void xqc_app_timestamp_callback(int fd, short what, void *arg);
 
@@ -1096,6 +1097,23 @@ void on_audio_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
            subscribe_id, audio_frame->seq_num, audio_frame->timestamp_us, audio_frame->audio_len,
            xqc_dcid_str_by_scid(ctx.engine, &user_conn->cid), buf);
 
+    if (g_audio_cancel_next_group_id != XQC_MOQ_INVALID_ID
+        && !user_conn->audio_cancel_sent
+        && user_conn->audio_track != NULL)
+    {
+        xqc_moq_group_filter_t filter;
+        memset(&filter, 0, sizeof(filter));
+        filter.type = XQC_MOQ_GROUP_FILTER_BEFORE;
+        filter.group_id = g_audio_cancel_next_group_id;
+
+        xqc_int_t cancel_ret = xqc_moq_track_cancel_recv(user_conn->audio_track, &filter);
+        xqc_int_t update_ret = xqc_moq_subscribe_update(session, subscribe_id,
+                                                        g_audio_cancel_next_group_id, 0, 0);
+        user_conn->audio_cancel_sent = 1;
+        printf("demo_audio_cancel_recv|subscribe_id:%"PRIu64"|next_group_id:%"PRIu64"|cancel_ret:%d|update_ret:%d|\n",
+               subscribe_id, g_audio_cancel_next_group_id, cancel_ret, update_ret);
+    }
+
     if (!g_publish_mode) {
         uint8_t amsg[128] = {0};
         int an = snprintf((char *)amsg, sizeof(amsg),
@@ -1128,6 +1146,27 @@ void on_raw_object(xqc_moq_user_session_t *user_session,
            ns, name, subscribe_id,
            object->track_alias, object->group_id, object->object_id, object->status, object->payload_len,
            object->publisher_priority_set, object->publisher_priority, session);
+
+    user_conn_t *user_conn = user_session ? (user_conn_t *)user_session->data : NULL;
+    if (g_audio_cancel_next_group_id != XQC_MOQ_INVALID_ID
+        && user_conn != NULL
+        && !user_conn->audio_cancel_sent
+        && user_conn->audio_track != NULL
+        && strcmp(name, "audio") == 0)
+    {
+        xqc_moq_group_filter_t filter;
+        memset(&filter, 0, sizeof(filter));
+        filter.type = XQC_MOQ_GROUP_FILTER_BEFORE;
+        filter.group_id = g_audio_cancel_next_group_id;
+
+        xqc_int_t cancel_ret = xqc_moq_track_cancel_recv(user_conn->audio_track, &filter);
+        xqc_int_t update_ret = xqc_moq_subscribe_update(user_session->session, subscribe_id,
+                                                        g_audio_cancel_next_group_id, 0, 0);
+        user_conn->audio_cancel_sent = 1;
+        printf("demo_raw_audio_cancel_recv|subscribe_id:%"PRIu64"|next_group_id:%"PRIu64"|recv_group_id:%"PRIu64"|cancel_ret:%d|update_ret:%d|\n",
+               subscribe_id, g_audio_cancel_next_group_id, object->group_id, cancel_ret, update_ret);
+    }
+
     if (object->payload && object->payload_len > 0) {
         size_t n = object->payload_len < 32 ? object->payload_len : 32;
         printf("payload_preview_hex(%zu):", n);
@@ -1431,7 +1470,7 @@ int main(int argc, char *argv[])
     uint8_t secret_key[16] = {0};
     int use_proxy = 0;
     int use_1rtt = 0;
-    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:f1MVRUDTC")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:S:f1MVRUDTC")) != -1) {
         switch (ch) {
             case 'a':
                 printf("option addr :%s\n", optarg);
@@ -1502,6 +1541,10 @@ int main(int argc, char *argv[])
             case 'n': /* send frame number */
                 printf("option frame num :%s\n", optarg);
                 g_frame_num = atoi(optarg);
+                break;
+            case 'S':
+                g_audio_cancel_next_group_id = strtoull(optarg, NULL, 10);
+                printf("option audio cancel next group id :%"PRIu64"\n", g_audio_cancel_next_group_id);
                 break;
             case 'f':
                 printf("option open fec: on\n");

@@ -388,10 +388,24 @@ xqc_moq_on_subscribe_update(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
     xqc_moq_subscribe_t *subscribe;
     xqc_moq_track_t *track;
     uint64_t track_alias;
+    xqc_moq_err_code_t err = MOQ_INTERNAL_ERROR;
     xqc_moq_subscribe_update_msg_t *update = (xqc_moq_subscribe_update_msg_t*)msg_base;
     subscribe = xqc_moq_find_subscribe(session, update->subscribe_id, 0);
     if (subscribe == NULL) {
         xqc_log(session->log, XQC_LOG_ERROR, "|subscribe not exist|subscribe_id:%ui|", update->subscribe_id);
+        goto error;
+    }
+    if (!xqc_moq_subscribe_update_is_valid(subscribe->subscribe_msg,
+                                           update->start_group_id,
+                                           update->start_object_id,
+                                           update->end_group_id))
+    {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|invalid subscribe update|subscribe_id:%ui|old_start:%ui/%ui|old_end:%ui|new_start:%ui/%ui|new_end:%ui|",
+                update->subscribe_id, subscribe->subscribe_msg->start_group_id,
+                subscribe->subscribe_msg->start_object_id, subscribe->subscribe_msg->end_group_id,
+                update->start_group_id, update->start_object_id, update->end_group_id);
+        err = MOQ_PROTOCOL_VIOLATION;
         goto error;
     }
     track_alias = subscribe->subscribe_msg->track_alias;
@@ -410,10 +424,23 @@ xqc_moq_on_subscribe_update(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
         xqc_log(session->log, XQC_LOG_ERROR, "|subscribe update is not supported now|track_type:%d|",
                 track->track_info.track_type);
     }
+
+    if (session->session_callbacks.on_subscribe_update) {
+        xqc_moq_subscribe_update_info_t update_info;
+        xqc_memzero(&update_info, sizeof(update_info));
+        update_info.request_id = update->request_id;
+        update_info.start_group_id = update->start_group_id;
+        update_info.start_object_id = update->start_object_id;
+        update_info.end_group_id = update->end_group_id;
+        update_info.subscriber_priority = update->subscriber_priority;
+        update_info.forward = update->forward;
+        session->session_callbacks.on_subscribe_update(session->user_session,
+            update->subscribe_id, track, &update_info);
+    }
     return;
 
 error:
-    xqc_moq_session_error(session, MOQ_INTERNAL_ERROR, "on subscribe update");
+    xqc_moq_session_error(session, err, "on subscribe update");
 }
 
 void
@@ -702,6 +729,8 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
     subscribe->subscribe_msg->start_object_id = selected_params.start_object_id;
     subscribe->subscribe_msg->end_group_id = selected_params.end_group_id;
     subscribe->subscribe_msg->end_object_id = selected_params.end_object_id;
+    subscribe->subscribe_msg->forward = selected_params.forward;
+    subscribe->subscribe_msg->group_order = selected_params.group_order;
 
     if (session->session_callbacks.on_publish) {
         session->session_callbacks.on_publish(session->user_session, track, publish);
@@ -868,6 +897,15 @@ xqc_moq_on_datagram_object(xqc_moq_session_t *session, xqc_moq_object_t *object)
 
     object->subscribe_id = track->subscribe_id;
 
+    if (xqc_moq_track_should_drop_recv_object(track, object)) {
+        xqc_log(session->log, XQC_LOG_INFO,
+                "|drop cancelled datagram object|track:%s/%s|subscribe_id:%ui|group_id:%ui|object_id:%ui|",
+                track->track_info.track_namespace ? track->track_info.track_namespace : "null",
+                track->track_info.track_name ? track->track_info.track_name : "null",
+                object->subscribe_id, object->group_id, object->object_id);
+        return;
+    }
+
     if (session->session_callbacks.on_datagram_object) {
         session->session_callbacks.on_datagram_object(session->user_session, track, &track->track_info, object);
     } else {
@@ -905,8 +943,20 @@ xqc_moq_on_object(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_
     }
 
     object->subscribe_id = track->subscribe_id;
+    if (xqc_moq_track_should_drop_recv_object(track, object)) {
+        if (moq_stream) {
+            xqc_moq_stream_stop_sending(moq_stream, XQC_MOQ_DATA_STREAM_CANCELLED);
+        }
+        xqc_log(session->log, XQC_LOG_INFO,
+                "|drop cancelled recv object|track:%s/%s|subscribe_id:%ui|group_id:%ui|object_id:%ui|",
+                track->track_info.track_namespace ? track->track_info.track_namespace : "null",
+                track->track_info.track_name ? track->track_info.track_name : "null",
+                object->subscribe_id, object->group_id, object->object_id);
+        return;
+    }
     if (moq_stream) {
         xqc_moq_stream_set_track_type(moq_stream, track->track_info.track_type);
+        xqc_moq_track_on_recv_object(track, moq_stream, object);
     }
 
     if (session->session_callbacks.on_object && track->raw_object) {

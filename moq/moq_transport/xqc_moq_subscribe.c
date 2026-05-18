@@ -85,11 +85,45 @@ void
 xqc_moq_subscribe_update_msg(xqc_moq_subscribe_t *subscribe, xqc_moq_subscribe_update_msg_t *update)
 {
     xqc_moq_subscribe_msg_t *msg = subscribe->subscribe_msg;
+    msg->filter_type = update->end_group_id == 0 ? XQC_MOQ_FILTER_ABSOLUTE_START
+                                                 : XQC_MOQ_FILTER_ABSOLUTE_RANGE;
     msg->start_group_id = update->start_group_id;
     msg->start_object_id = update->start_object_id;
     msg->end_group_id = update->end_group_id;
+    msg->end_object_id = 0;
     msg->subscriber_priority = update->subscriber_priority;
     msg->forward = update->forward;
+}
+
+static xqc_bool_t
+xqc_moq_group_object_location_is_before(uint64_t group_id, uint64_t object_id,
+    uint64_t other_group_id, uint64_t other_object_id)
+{
+    return group_id < other_group_id
+           || (group_id == other_group_id && object_id < other_object_id);
+}
+
+xqc_bool_t
+xqc_moq_subscribe_update_is_valid(xqc_moq_subscribe_msg_t *cur,
+    uint64_t start_group_id, uint64_t start_object_id, uint64_t end_group_id)
+{
+    if (xqc_moq_group_object_location_is_before(start_group_id, start_object_id,
+                                                cur->start_group_id, cur->start_object_id))
+    {
+        return XQC_FALSE;
+    }
+
+    if (end_group_id != 0 && end_group_id < start_group_id) {
+        return XQC_FALSE;
+    }
+
+    if (cur->end_group_id != 0
+        && (end_group_id == 0 || end_group_id > cur->end_group_id))
+    {
+        return XQC_FALSE;
+    }
+
+    return XQC_TRUE;
 }
 
 xqc_int_t
@@ -118,7 +152,7 @@ xqc_moq_subscribe(xqc_moq_session_t *session, const char *track_namespace, const
         return -MOQ_PROTOCOL_VIOLATION;
     }
 
-    uint64_t subscribe_id = xqc_moq_session_alloc_subscribe_id(session);
+    uint64_t subscribe_id = xqc_moq_session_alloc_request_id(session);
     uint64_t track_alias = xqc_moq_session_alloc_track_alias(session);
     xqc_moq_track_set_subscribe_id(track, subscribe_id);
     xqc_moq_track_set_alias(track, track_alias);
@@ -148,6 +182,60 @@ xqc_moq_subscribe_latest(xqc_moq_session_t *session, const char *track_namespace
 {
     return xqc_moq_subscribe(session, track_namespace, track_name,
                              XQC_MOQ_FILTER_LAST_GROUP, 0, 0, 0, 0, NULL);
+}
+
+xqc_int_t
+xqc_moq_subscribe_update(xqc_moq_session_t *session, uint64_t subscribe_id,
+    uint64_t start_group_id, uint64_t start_object_id, uint64_t end_group_id)
+{
+    if (session == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_moq_subscribe_t *subscribe = xqc_moq_find_subscribe(session, subscribe_id, 1);
+    if (subscribe == NULL || subscribe->subscribe_msg == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|subscribe_update target not found|subscribe_id:%ui|", subscribe_id);
+        return -XQC_ENULLPTR;
+    }
+
+    if (!xqc_moq_subscribe_update_is_valid(subscribe->subscribe_msg,
+                                           start_group_id, start_object_id,
+                                           end_group_id))
+    {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|subscribe_update invalid range|subscribe_id:%ui|old_start:%ui/%ui|old_end:%ui|new_start:%ui/%ui|new_end:%ui|",
+                subscribe_id, subscribe->subscribe_msg->start_group_id,
+                subscribe->subscribe_msg->start_object_id,
+                subscribe->subscribe_msg->end_group_id,
+                start_group_id, start_object_id, end_group_id);
+        return -XQC_EPARAM;
+    }
+
+    xqc_moq_subscribe_update_msg_t update;
+    xqc_memzero(&update, sizeof(update));
+    update.request_id = xqc_moq_session_alloc_request_id(session);
+    update.subscribe_id = subscribe_id;
+    update.start_group_id = start_group_id;
+    update.start_object_id = start_object_id;
+    update.end_group_id = end_group_id;
+    update.subscriber_priority = subscribe->subscribe_msg->subscriber_priority;
+    update.forward = subscribe->subscribe_msg->forward;
+    update.params_num = 0;
+    update.params = NULL;
+
+    xqc_int_t ret = xqc_moq_write_subscribe_update(session, &update);
+    if (ret < 0) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|write subscribe_update error|ret:%d|subscribe_id:%ui|", ret, subscribe_id);
+        return ret;
+    }
+
+    xqc_moq_subscribe_update_msg(subscribe, &update);
+    xqc_log(session->log, XQC_LOG_INFO,
+            "|subscribe_update success|subscribe_id:%ui|start_group_id:%ui|start_object_id:%ui|end_group_id:%ui|",
+            subscribe_id, start_group_id, start_object_id, end_group_id);
+    return XQC_OK;
 }
 
 xqc_int_t
@@ -225,7 +313,7 @@ xqc_moq_publish(xqc_moq_session_t *session, xqc_moq_publish_msg_t *publish)
 
     subscribe_id = publish->subscribe_id;
     if (subscribe_id == 0) {
-        subscribe_id = xqc_moq_session_alloc_subscribe_id(session);
+        subscribe_id = xqc_moq_session_alloc_request_id(session);
     }
     xqc_moq_track_set_subscribe_id(track, subscribe_id);
     publish->subscribe_id = subscribe_id;

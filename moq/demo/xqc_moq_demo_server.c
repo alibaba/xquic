@@ -86,6 +86,37 @@ xqc_demo_publish_track(user_conn_t *user_conn, const char *track_namespace, cons
     return ret;
 }
 
+static xqc_int_t
+xqc_demo_write_raw_object(user_conn_t *user_conn, xqc_moq_track_t *track,
+    uint64_t subscribe_id, const char *label)
+{
+    if (user_conn == NULL || track == NULL || subscribe_id == XQC_MOQ_INVALID_ID) {
+        return 0;
+    }
+
+    char payload[128];
+    int payload_len = snprintf(payload, sizeof(payload), "raw_%s_%"PRIu64,
+                               label ? label : "object", xqc_now());
+    if (payload_len <= 0) {
+        return 0;
+    }
+    if (payload_len >= (int)sizeof(payload)) {
+        payload_len = sizeof(payload) - 1;
+    }
+
+    xqc_moq_object_t obj;
+    memset(&obj, 0, sizeof(obj));
+    obj.subscribe_id = subscribe_id;
+    obj.payload = (uint8_t*)payload;
+    obj.payload_len = (size_t)payload_len;
+
+    xqc_int_t ret = xqc_moq_write_raw_object(user_conn->moq_session, track, &obj);
+    if (ret < 0) {
+        printf("xqc_moq_write_raw_object %s error:%d\n", label ? label : "object", ret);
+    }
+    return ret;
+}
+
 void xqc_demo_try_publish(user_conn_t *user_conn)
 {
     if (!g_publish_mode) {
@@ -313,8 +344,9 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
     video_params.framerate = 30;
     video_params.width = 720;
     video_params.height = 720;
+    xqc_moq_container_t video_container = g_raw_object_mode ? XQC_MOQ_CONTAINER_NONE : XQC_MOQ_CONTAINER_LOC;
     xqc_moq_track_t *video_track = xqc_moq_track_create(session, "namespace", "video", XQC_MOQ_TRACK_VIDEO,
-                                                        &video_params, XQC_MOQ_CONTAINER_LOC, XQC_MOQ_TRACK_FOR_PUB);
+                                                        &video_params, video_container, XQC_MOQ_TRACK_FOR_PUB);
     if (video_track == NULL) {
         printf("create video track error\n");
     }
@@ -322,6 +354,9 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
     if (video_track && g_reuse_video_subgroup_stream) {
         xqc_moq_track_set_reuse_subgroup_stream(video_track, 1);
         printf("moq_video_reuse_subgroup_stream|enabled:1|\n");
+    }
+    if (video_track && g_raw_object_mode) {
+        xqc_moq_track_set_raw_object(video_track, 1);
     }
 
     xqc_moq_selection_params_t audio_params;
@@ -331,14 +366,18 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
     audio_params.bitrate = 32000;
     audio_params.samplerate = 48000;
     audio_params.channel_config = "2";
+    xqc_moq_container_t audio_container = g_raw_object_mode ? XQC_MOQ_CONTAINER_NONE : XQC_MOQ_CONTAINER_LOC;
     xqc_moq_track_t *audio_track = xqc_moq_track_create(session, "namespace", "audio", XQC_MOQ_TRACK_AUDIO,
-                                                        &audio_params, XQC_MOQ_CONTAINER_LOC, XQC_MOQ_TRACK_FOR_PUB);
+                                                        &audio_params, audio_container, XQC_MOQ_TRACK_FOR_PUB);
     if (audio_track == NULL) {
         printf("create audio track error\n");
     }
     user_conn->audio_track = audio_track;
     if (audio_track) {
         xqc_moq_track_set_reuse_subgroup_stream(audio_track, 1);
+        if (g_raw_object_mode) {
+            xqc_moq_track_set_raw_object(audio_track, 1);
+        }
     }
 
 }
@@ -478,6 +517,19 @@ void on_request_keyframe(xqc_moq_user_session_t *user_session, uint64_t subscrib
     xqc_moq_session_t *session = user_session->session;
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
     user_conn->request_keyframe = 1;
+}
+
+void on_subscribe_update(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
+                         xqc_moq_track_t *track, const xqc_moq_subscribe_update_info_t *update)
+{
+    DEBUG;
+    printf("demo_on_subscribe_update|subscribe_id:%"PRIu64"|track_ptr:%p|start_group_id:%"PRIu64"|start_object_id:%"PRIu64"|end_group_id:%"PRIu64"|forward:%u|\n",
+           subscribe_id,
+           (void*)track,
+           update ? update->start_group_id : XQC_MOQ_INVALID_ID,
+           update ? update->start_object_id : XQC_MOQ_INVALID_ID,
+           update ? update->end_group_id : XQC_MOQ_INVALID_ID,
+           update ? update->forward : 0);
 }
 
 void on_bitrate_change(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, uint64_t bitrate)
@@ -782,6 +834,7 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
         .on_datachannel_msg = on_datachannel_msg,
         /* For Publisher */
         .on_subscribe = on_subscribe,
+        .on_subscribe_update = on_subscribe_update,
         .on_request_keyframe = on_request_keyframe,
         .on_bitrate_change = on_bitrate_change,
         /* For Subscriber */
@@ -944,6 +997,15 @@ xqc_app_send_callback(int fd, short what, void* arg)
 
     xqc_int_t ret;
     if (user_conn->video_subscribe_id != XQC_MOQ_INVALID_ID) {
+        if (g_raw_object_mode) {
+            ret = xqc_demo_write_raw_object(user_conn, user_conn->video_track,
+                                            user_conn->video_subscribe_id, "video");
+            if (ret < 0) {
+                return;
+            }
+            goto send_audio;
+        }
+
         uint8_t payload_video[1024000] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
         xqc_moq_video_frame_t video_frame;
         memset(&video_frame, 0, sizeof(video_frame));
@@ -970,7 +1032,17 @@ xqc_app_send_callback(int fd, short what, void* arg)
         }
     }
 
+send_audio:
     if (user_conn->audio_subscribe_id != XQC_MOQ_INVALID_ID) {
+        if (g_raw_object_mode) {
+            ret = xqc_demo_write_raw_object(user_conn, user_conn->audio_track,
+                                            user_conn->audio_subscribe_id, "audio");
+            if (ret < 0) {
+                return;
+            }
+            goto reschedule;
+        }
+
         uint8_t payload_audio[1024] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
         xqc_moq_audio_frame_t audio_frame;
         memset(&audio_frame, 0, sizeof(audio_frame));
@@ -987,6 +1059,8 @@ xqc_app_send_callback(int fd, short what, void* arg)
         }
     }
 
+reschedule:
+    ;
     struct timeval time = { 0, 33333 };
     event_add(user_conn->ev_send_timer, &time);
 }

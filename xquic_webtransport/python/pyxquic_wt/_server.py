@@ -51,7 +51,6 @@ class WebTransportServer:
         self._sessions: dict[int, ServerSession] = {}
         self._session_handlers: dict[int, Callable] = {}
         self._session_paths: dict[int, str] = {}
-        self._session_id_counter = 0
         self._timer_handle = None
         self._poll_handle = None
 
@@ -109,10 +108,8 @@ class WebTransportServer:
 
     def _on_session(self, event, session_id, user):
         if event == _EVENT_CREATED:
-            self._session_id_counter += 1
             path = self._session_paths.pop(session_id, "/")
             session = ServerSession(session_id, self._handle, path=path)
-            self._sessions[self._session_id_counter] = session
             self._sessions[session_id] = session
             handler = self._session_handlers.pop(session_id, self._handler)
             asyncio.ensure_future(self._run_handler(handler, session))

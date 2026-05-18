@@ -4,7 +4,7 @@ WebTransport client/server for Python, powered by the [xquic](https://github.com
 
 ## Features
 
-- **RFC 9297 WebTransport** — bidirectional streams, unidirectional streams, client datagram API
+- **WebTransport over HTTP/3 core** — bidirectional streams, unidirectional streams, client datagram API
 - **Browser-compatible** — tested with Chrome 146+ and Safari 26+
 - **Async/await API** — built on Python asyncio
 - **Path-based routing** — `serve(routes={"/echo": handler, "/chat": chat})`
@@ -308,9 +308,9 @@ See [BENCHMARK.md](BENCHMARK.md) for full details.
 ```bash
 cd xquic_webtransport/python
 
-# Run all tests (40 tests)
+# Run all tests (44 tests)
 python -m pytest tests/test_wire.py tests/test_e2e_lowlevel.py \
-    tests/test_echo.py tests/test_stream_unit.py -v
+    tests/test_e2e.py tests/test_echo.py tests/test_stream_unit.py -v
 
 # Performance benchmark
 python tests/bench_compare.py

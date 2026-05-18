@@ -747,7 +747,6 @@ static void
 wt_h3_dgram_read_notify(xqc_h3_conn_t *conn, const void *data, size_t data_len,
     void *user_data, uint64_t recv_time)
 {
-    fprintf(stderr, "WT_DGRAM_H3_READ len=%zu\n", data_len);
     xqc_wt_conn_t *wt_conn = (xqc_wt_conn_t *)xqc_h3_conn_get_user_data(conn);
     xqc_wt_ctx_t  *wt_ctx  = xqc_wt_get_ctx_by_h3conn(conn);
 

@@ -745,8 +745,11 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
         if (pctx->frame.type != XQC_H3_FRM_SETTINGS
             && !(h3s->h3c->flags & XQC_H3_CONN_FLAG_SETTINGS_RECVED))
         {
+            /* RFC 9114 §6.2.1: first frame on control stream MUST be SETTINGS */
             xqc_h3_frm_reset_pctx(pctx);
-            return -H3_FRAME_UNEXPECTED;
+            XQC_H3_CONN_ERR(h3s->h3c, H3_MISSING_SETTINGS,
+                            -XQC_H3_MISSING_SETTINGS);
+            return -XQC_H3_MISSING_SETTINGS;
         }
 
         if (pctx->state == XQC_H3_FRM_STATE_END) {

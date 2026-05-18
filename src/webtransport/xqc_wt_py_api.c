@@ -43,6 +43,7 @@ typedef void (*xqc_wt_py_log_cb)(int level, const char *msg, size_t len, void *u
 #define XQC_WT_PY_IDLE_TIMEOUT_MS        1800000  /* 30 minutes */
 #define XQC_WT_PY_MAX_DGRAM_FRAME_SIZE   16383   /* RFC 9221 max */
 #define XQC_WT_PY_UDP_RECV_BUF_SIZE      1500
+#define XQC_WT_PY_SERVER_MAGIC           0x57545356u
 
 /* HTTP status / reject */
 #define XQC_WT_PY_REJECT_ERROR_CODE      404
@@ -114,6 +115,7 @@ struct xqc_wt_py_client_s {
 /* ===== Internal: Server struct ===== */
 
 struct xqc_wt_py_server_s {
+    uint32_t                 magic;
     xqc_engine_t           *engine;
     char                     cert_file[512];
     char                     key_file[512];
@@ -732,17 +734,20 @@ xqc_wt_py_create_bidi_stream(xqc_wt_py_client_t *client, uint64_t session_id)
     xqc_stream_t *stream = xqc_stream_create_with_direction(conn, XQC_STREAM_BIDI, NULL);
     if (!stream) return -1;
 
-    /* create H3 stream + mark as WT type */
+    /* Use BYTESTEAM type + WT_BIDI flag — same path as xqc_wt_session_send_bidi */
     xqc_h3_stream_t *h3s = (xqc_h3_stream_t *)stream->user_data;
     if (!h3s) {
         h3s = xqc_h3_stream_create(h3c, stream,
-                                    XQC_H3_STREAM_TYPE_WT_BIDI, NULL);
+                                    XQC_H3_STREAM_TYPE_BYTESTEAM, NULL);
         if (h3s) stream->user_data = h3s;
-    } else {
-        h3s->type = XQC_H3_STREAM_TYPE_WT_BIDI;
+    } else if (h3s->type == XQC_H3_STREAM_TYPE_UNKNOWN) {
+        h3s->type = XQC_H3_STREAM_TYPE_BYTESTEAM;
     }
-    if (h3s && !h3s->h3_ext_bs) {
-        h3s->h3_ext_bs = xqc_h3_ext_bytestream_create_passive(h3c, h3s, NULL);
+    if (h3s) {
+        h3s->flags |= XQC_HTTP3_STREAM_FLAG_WT_BIDI;
+        if (!h3s->h3_ext_bs) {
+            h3s->h3_ext_bs = xqc_h3_ext_bytestream_create_passive(h3c, h3s, NULL);
+        }
     }
 
     /* send WT bidi stream header: varint(type) + varint(session_id) */
@@ -1079,17 +1084,19 @@ py_server_log_write(xqc_log_level_t lvl, const void *buf, size_t sz, void *eng_u
     }
 }
 
-/* Fallback server handle for write_socket during TLS handshake.
- * Before wt_conn is established, conn_user_data is NULL, so we need
- * an alternative way to reach the server's send_cb. Set by server_create. */
-static xqc_wt_py_server_t *s_active_server = NULL;
-
 static ssize_t
 py_server_write_socket(const unsigned char *buf, size_t size,
     const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *conn_user_data)
 {
-    xqc_wt_py_server_t *s = py_server_from_wt_conn(conn_user_data);
-    if (!s) s = s_active_server;  /* fallback during handshake */
+    xqc_wt_py_server_t *s = NULL;
+    if (conn_user_data) {
+        xqc_wt_py_server_t *direct = (xqc_wt_py_server_t *)conn_user_data;
+        if (direct->magic == XQC_WT_PY_SERVER_MAGIC) {
+            s = direct;
+        } else {
+            s = py_server_from_wt_conn(conn_user_data);
+        }
+    }
     if (s && s->send_cb) {
         s->send_eagain = 0;
         s->send_cb((const uint8_t *)buf, size, peer_addr, peer_addrlen, s->user_data);
@@ -1112,7 +1119,21 @@ static int
 py_server_accept(xqc_engine_t *engine, xqc_connection_t *conn,
     const xqc_cid_t *cid, void *user_data)
 {
+    if (conn && user_data) {
+        xqc_conn_set_transport_user_data(conn, user_data);
+    }
     return 0; /* accept all connections */
+}
+
+static void
+py_server_dgram_read(xqc_webtransport_session_t *session,
+    const void *data, size_t data_len, void *user_data, uint64_t data_recv_time)
+{
+    xqc_wt_py_server_t *s = session ? (xqc_wt_py_server_t *)
+        (session->wt_conn ? session->wt_conn->py_handle : NULL) : NULL;
+    if (s && s->dgram_cb && data_len > 0) {
+        s->dgram_cb(session->session_id, (const uint8_t *)data, data_len, s->user_data);
+    }
 }
 
 /* Server-side WT stream callback: bidi data → Python data_cb */
@@ -1201,23 +1222,34 @@ py_server_session_create(xqc_webtransport_session_t *session,
     xqc_wt_py_server_t *s = py_server_from_wt_conn(h3c_user_data);
     if (!s || !session) return 0;
 
-    /* extract :path and :authority from headers */
-    const char *path = NULL, *authority = NULL;
+    /* extract :path and :authority from iovec headers into NUL-terminated buffers */
+    char path_buf[256] = "/";
+    char authority_buf[256] = "";
+    const char *path = path_buf;
+    const char *authority = authority_buf;
     if (headers) {
         for (size_t i = 0; i < headers->count; i++) {
             char *n = (char *)headers->headers[i].name.iov_base;
             size_t nlen = headers->headers[i].name.iov_len;
-            if (nlen == 5 && memcmp(n, ":path", 5) == 0)
-                path = (const char *)headers->headers[i].value.iov_base;
-            else if (nlen == 10 && memcmp(n, ":authority", 10) == 0)
-                authority = (const char *)headers->headers[i].value.iov_base;
+            char *v = (char *)headers->headers[i].value.iov_base;
+            size_t vlen = headers->headers[i].value.iov_len;
+            if (!n || !v) continue;
+            if (nlen == 5 && memcmp(n, ":path", 5) == 0) {
+                size_t copy_len = vlen < sizeof(path_buf) - 1 ? vlen : sizeof(path_buf) - 1;
+                memcpy(path_buf, v, copy_len);
+                path_buf[copy_len] = '\0';
+            } else if (nlen == 10 && memcmp(n, ":authority", 10) == 0) {
+                size_t copy_len = vlen < sizeof(authority_buf) - 1 ? vlen : sizeof(authority_buf) - 1;
+                memcpy(authority_buf, v, copy_len);
+                authority_buf[copy_len] = '\0';
+            }
         }
     }
 
     /* if session_request_cb is set, let Python decide accept/reject */
     if (s->session_request_cb) {
         int accepted = s->session_request_cb(
-            path ? path : "/", authority ? authority : "",
+            path, authority,
             session->session_id, s->user_data);
         if (!accepted) {
             xqc_wt_session_close_with_error(session,
@@ -1259,6 +1291,7 @@ xqc_wt_py_server_create(const char *cert_file, const char *key_file)
 
     xqc_wt_py_server_t *s = calloc(1, sizeof(*s));
     if (!s) return NULL;
+    s->magic = XQC_WT_PY_SERVER_MAGIC;
 
     strncpy(s->cert_file, cert_file, sizeof(s->cert_file) - 1);
     strncpy(s->key_file, key_file, sizeof(s->key_file) - 1);
@@ -1327,6 +1360,9 @@ xqc_wt_py_server_create(const char *cert_file, const char *key_file)
     xqc_server_set_conn_settings(s->engine, &conn_settings);
 
     /* register WT callbacks (xqc_wt_ctx_init now does value-copy) */
+    xqc_webtransport_dgram_callbacks_t dcbs = {
+        .dgram_read_notify = py_server_dgram_read,
+    };
     xqc_webtransport_session_callbacks_t scbs = {
         .webtransport_session_create_notify = py_server_session_create,
         .webtransport_session_close_notify = py_server_session_close,
@@ -1334,14 +1370,13 @@ xqc_wt_py_server_create(const char *cert_file, const char *key_file)
     xqc_webtransport_stream_callbacks_t stcbs = {
         .wt_bidistream_read_notify = py_server_bidi_read_ex,
     };
-    if (xqc_wt_ctx_init(s->engine, NULL, &scbs, &stcbs, 0) != XQC_OK) {
+    if (xqc_wt_ctx_init(s->engine, &dcbs, &scbs, &stcbs, 0) != XQC_OK) {
         xqc_engine_destroy(s->engine);
         py_hash_free_all(s->streams); py_hash_free_all(s->sessions);
         free(s);
         return NULL;
     }
 
-    s_active_server = s;
     return s;
 }
 
@@ -1428,15 +1463,13 @@ int
 xqc_wt_py_server_send_datagram(xqc_wt_py_server_t *server, uint64_t session_id,
     const uint8_t *data, size_t len)
 {
-    if (server == NULL || server->engine == NULL) {
-        return -1;
-    }
-    /* TODO: implement server datagram via session_id → wt_conn lookup.
-     * Requires storing wt_conn references in py_server_t during session create. */
-    (void)session_id;
-    (void)data;
-    (void)len;
-    return -1;
+    if (!server || !server->engine) return -1;
+    xqc_wt_session_t *session = py_server_find_wt_session(server, session_id);
+    if (!session || !session->wt_conn) return -1;
+
+    int ret = xqc_webtransport_datagram_send(session->wt_conn, (void *)data, (uint32_t)len);
+    xqc_engine_main_logic(server->engine);
+    return ret;
 }
 
 void
@@ -1514,5 +1547,6 @@ xqc_wt_py_server_destroy(xqc_wt_py_server_t *server)
     }
     py_hash_free_all(server->streams);
     py_hash_free_all(server->sessions);
+    server->magic = 0;
     free(server);
 }

@@ -133,10 +133,7 @@ class WebTransportServer:
             session._on_stream_data(stream_id, buf, bool(fin))
 
     def _on_dgram(self, session_id, data, length, user):
-        buf = bytes(ffi.buffer(data, length))
-        session = self._sessions.get(session_id)
-        if session:
-            session._on_datagram(buf)
+        pass
 
     async def _run_handler(self, handler, session):
         try:

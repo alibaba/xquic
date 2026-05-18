@@ -64,4 +64,4 @@ jobs:
     - name: Run tests
       run: |
         cd xquic_webtransport/python
-        python -m pytest tests/test_wire.py tests/test_e2e_lowlevel.py tests/test_echo.py tests/test_stream_unit.py -v
+        python -m pytest tests/test_wire.py tests/test_e2e_lowlevel.py tests/test_e2e.py tests/test_echo.py tests/test_stream_unit.py -v

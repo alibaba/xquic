@@ -17,20 +17,7 @@ class ServerSession:
         self._server = server_handle
         self._stream_queue = asyncio.Queue()
         self._streams: dict[int, ServerBidiStream] = {}
-        self._dgram_queue = asyncio.Queue()
         self._closed = False
-
-    async def send_datagram(self, data: bytes):
-        """Send an unreliable datagram to the client."""
-        ret = lib.xqc_wt_py_server_send_datagram(
-            self._server, self.session_id, data, len(data))
-        lib.xqc_wt_py_server_process(self._server)
-        return ret
-
-    async def recv_datagram(self, timeout: float = SERVER_READ_TIMEOUT) -> bytes:
-        """Receive a datagram from the client."""
-        return await asyncio.wait_for(
-            self._dgram_queue.get(), timeout=timeout)
 
     async def incoming_bidirectional_streams(self):
         """Async iterator over incoming bidi streams."""
@@ -65,6 +52,3 @@ class ServerSession:
             self._streams[stream_id] = stream
             self._stream_queue.put_nowait(stream)
         stream._on_data(data, fin)
-
-    def _on_datagram(self, data: bytes):
-        self._dgram_queue.put_nowait(data)

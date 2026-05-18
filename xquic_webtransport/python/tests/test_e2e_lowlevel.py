@@ -171,11 +171,7 @@ class WTTestHarness:
         return False
 
     async def destroy(self):
-        """Graceful shutdown: close connections, drain, then destroy.
-        NOTE: xqc_conn_destroy has a known SEGV during engine teardown
-        when active WT streams exist. We catch this by only destroying
-        after graceful close + drain, but it may still crash on some paths.
-        For now, close sockets and let the process clean up naturally. """
+        """Gracefully close and destroy client/server engines."""
         try:
             lib.xqc_wt_py_client_close(self.ch)
             lib.xqc_wt_py_client_process(self.ch)
@@ -183,11 +179,14 @@ class WTTestHarness:
             self.poll()
         except Exception:
             pass
+        if self.ch:
+            lib.xqc_wt_py_client_destroy(self.ch)
+            self.ch = ffi.NULL
+        if self.sh:
+            lib.xqc_wt_py_server_destroy(self.sh)
+            self.sh = ffi.NULL
         self.ssock.close()
         self.csock.close()
-        # Do NOT call client_destroy/server_destroy here — xqc_conn_destroy
-        # crashes when WT streams are still referenced. The memory will be
-        # reclaimed when the process exits. This is acceptable for tests.
 
 
 # ---- Tests ---- #

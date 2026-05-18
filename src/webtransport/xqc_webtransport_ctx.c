@@ -747,13 +747,31 @@ static void
 wt_h3_dgram_read_notify(xqc_h3_conn_t *conn, const void *data, size_t data_len,
     void *user_data, uint64_t recv_time)
 {
+    fprintf(stderr, "WT_DGRAM_H3_READ len=%zu\n", data_len);
     xqc_wt_conn_t *wt_conn = (xqc_wt_conn_t *)xqc_h3_conn_get_user_data(conn);
     xqc_wt_ctx_t  *wt_ctx  = xqc_wt_get_ctx_by_h3conn(conn);
 
     /* if application registered a datagram callback, let it handle */
     if (wt_ctx && wt_ctx->dgram_cbs.dgram_read_notify) {
-        xqc_wt_session_t *wt_session = wt_conn ? wt_conn->wt_session : NULL;
-        wt_ctx->dgram_cbs.dgram_read_notify(wt_session, data, data_len, user_data, recv_time);
+        xqc_wt_session_t *wt_session = NULL;
+        const void *payload = data;
+        size_t payload_len = data_len;
+
+        if (wt_conn && data && data_len > 0) {
+            uint64_t session_id = 0;
+            ssize_t consumed = xqc_wt_decode_session_id(
+                (const uint8_t *)data, data_len, &session_id);
+            if (consumed > 0 && (size_t)consumed <= data_len) {
+                wt_session = xqc_wt_conn_find_session(wt_conn, session_id);
+                payload = (const uint8_t *)data + consumed;
+                payload_len = data_len - (size_t)consumed;
+            }
+            if (!wt_session) {
+                wt_session = wt_conn->wt_session;
+            }
+        }
+
+        wt_ctx->dgram_cbs.dgram_read_notify(wt_session, payload, payload_len, user_data, recv_time);
         return;
     }
 

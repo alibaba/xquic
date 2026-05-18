@@ -4,7 +4,7 @@ WebTransport client/server for Python, powered by the [xquic](https://github.com
 
 ## Features
 
-- **Full RFC 9297 WebTransport** — bidirectional streams, unidirectional streams, datagrams
+- **RFC 9297 WebTransport** — bidirectional streams, unidirectional streams, client datagram API
 - **Browser-compatible** — tested with Chrome 146+ and Safari 26+
 - **Async/await API** — built on Python asyncio
 - **Path-based routing** — `serve(routes={"/echo": handler, "/chat": chat})`
@@ -200,10 +200,6 @@ async def handler(session):
     # Incremental read
     chunk = await stream.read(max_bytes=1024)
 
-    # Datagrams
-    await session.send_datagram(b"unreliable")
-    dgram = await session.recv_datagram()
-
     # Close / drain
     await session.close(error_code=42, reason="done")
     await session.drain()
@@ -233,12 +229,14 @@ async with open_connection("https://host:4443",
     await stream.write_all(b"hello", end_stream=True)
     data = await stream.read_all()
 
-# Uni streams & datagrams
+# Uni streams & client datagrams
 async with connect("https://host:4443/ep") as session:
     await session.send_uni(b"fire-and-forget")
     await session.send_datagram(b"low-latency")
     dgram = await session.recv_datagram(timeout=5.0)
 ```
+
+Server-side datagram receive/send is not exposed yet.
 
 ### Stream
 

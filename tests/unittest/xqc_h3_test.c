@@ -461,3 +461,94 @@ xqc_test_stream()
         xqc_free(conn->alpn);
     }
 }
+
+
+/*
+ * Test for issue #607: first frame on control stream not SETTINGS must trigger
+ * H3_MISSING_SETTINGS. Uses xqc_h3_stream_process_control directly.
+ */
+extern ssize_t xqc_h3_stream_process_control(xqc_h3_stream_t *h3s,
+        unsigned char *data, size_t data_len);
+
+static void
+xqc_test_h3_missing_settings_one(uint64_t frame_type, uint64_t expected_err)
+{
+    xqc_int_t ret;
+    ssize_t processed;
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+
+    xqc_stream_t *stream = xqc_create_stream_with_conn(conn,
+            XQC_UNDEFINE_STREAM_ID, XQC_CLI_UNI, NULL, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+
+    xqc_h3_conn_t *h3c = xqc_h3_conn_create(conn, NULL);
+    CU_ASSERT_FATAL(h3c != NULL);
+
+    xqc_h3_stream_t *h3s = xqc_h3_stream_create(h3c, stream,
+            XQC_H3_STREAM_TYPE_CONTROL, NULL);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    CU_ASSERT(conn->conn_err == 0);
+
+    /* build one frame of the requested type */
+    xqc_list_head_t send_buf;
+    xqc_init_list_head(&send_buf);
+
+    char payload[] = "abcdefghij";
+    uint64_t push_id = 1;
+    if (frame_type == XQC_H3_FRM_SETTINGS) {
+        xqc_h3_conn_settings_t settings = {0};
+        settings.max_field_section_size = 10;
+        ret = xqc_h3_frm_write_settings(&send_buf, &settings, XQC_TRUE);
+    } else if (frame_type == XQC_H3_FRM_DATA) {
+        ret = xqc_h3_frm_write_data(&send_buf, payload, sizeof(payload) - 1, XQC_TRUE);
+    } else if (frame_type == XQC_H3_FRM_GOAWAY) {
+        ret = xqc_h3_frm_write_goaway(&send_buf, push_id, XQC_TRUE);
+    } else {
+        CU_FAIL_FATAL("unsupported frame_type in test fixture");
+        ret = XQC_ERROR;
+    }
+    CU_ASSERT_FATAL(ret == XQC_OK);
+
+    /* flatten list buffer */
+    xqc_var_buf_t *buf = xqc_var_buf_create(XQC_VAR_BUF_INIT_SIZE);
+    xqc_list_head_t *pos, *next;
+    xqc_list_for_each_safe(pos, next, &send_buf) {
+        xqc_list_buf_t *list_buf = xqc_list_entry(pos, xqc_list_buf_t, list_head);
+        xqc_var_buf_t *data_buf = list_buf->buf;
+        xqc_var_buf_save_data(buf, data_buf->data, data_buf->data_len);
+        xqc_list_del(&list_buf->list_head);
+        xqc_var_buf_free(data_buf);
+        xqc_free(list_buf);
+    }
+
+    processed = xqc_h3_stream_process_control(h3s, buf->data, buf->data_len);
+
+    CU_ASSERT(processed < 0);
+    CU_ASSERT(conn->conn_err == expected_err);
+
+    xqc_var_buf_free(buf);
+    xqc_h3_stream_destroy(h3s);
+    xqc_h3_conn_destroy(h3c);
+    xqc_destroy_stream(stream);
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+}
+
+void
+xqc_test_h3_missing_settings()
+{
+    /* Case 1: GOAWAY as first frame on control stream → H3_MISSING_SETTINGS */
+    xqc_test_h3_missing_settings_one(XQC_H3_FRM_GOAWAY, H3_MISSING_SETTINGS);
+}
+

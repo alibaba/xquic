@@ -257,6 +257,7 @@ typedef enum {
     XQC_H3_EPROC_BYTESTREAM             = 830,  /**< fail to process bytestream */
     XQC_H3_BYTESTREAM_FIN_SENT          = 831,  /**< try to send data on a bytestream that already sent FIN */
     XQC_H3_BYTESTREAM_MSG_BUF_EXIST     = 832,  /**< try to create a msg buf while it already exists */
+    XQC_H3_MISSING_SETTINGS             = 833,  /**< RFC 9114 6.2.1: first frame on control stream is not SETTINGS */
 
     XQC_H3_ERR_MAX,
 } xqc_h3_error_t;

@@ -665,6 +665,20 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
                 conn->conn_initial_path->path_send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA]
             && xqc_monotonic_timestamp() > conn->key_update_ctx.initiate_time_guard)
         {
+            /* RFC 9001 Section 6.1: MUST NOT initiate a key update prior to having
+             * confirmed the handshake. Defer the key update until handshake is confirmed.
+             * The current packet is still encrypted normally; only the key rotation is
+             * postponed, so we must still finalize po_enc_size before returning.
+             */
+            if (!xqc_conn_is_handshake_confirmed(conn)) {
+                xqc_log(conn->log, XQC_LOG_WARN,
+                        "|key_update deferred: handshake not yet confirmed|enc_pkt_cnt:%ui|threshold:%ui|",
+                        conn->key_update_ctx.enc_pkt_cnt,
+                        conn->conn_settings.keyupdate_pkt_threshold);
+                packet_out->po_enc_size = *enc_pkt_len;
+                return XQC_OK;
+            }
+
             ret = xqc_tls_update_1rtt_keys(conn->tls, XQC_KEY_TYPE_RX_READ);
             if (ret != XQC_OK) {
                 xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_tls_update_rx_keys error|");

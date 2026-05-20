@@ -5637,6 +5637,9 @@ xqc_conn_on_recv_retry(xqc_connection_t *conn, xqc_cid_t *retry_scid)
 
     conn->conn_flag |= XQC_CONN_FLAG_RETRY_RECVD;
 
+    /* RFC 9000 §7.3: save Retry SCID for later retry_source_connection_id validation */
+    xqc_cid_copy(&conn->retry_scid, retry_scid);
+
     /* change the DCID it uses for sending packets in response to Retry packet. */
     xqc_cid_copy(&conn->dcid_set.current_dcid, retry_scid);
     xqc_datagram_record_mss(conn);
@@ -5881,7 +5884,7 @@ xqc_conn_get_local_transport_params(xqc_connection_t *conn, xqc_transport_params
     return XQC_OK;
 }
 
-static inline xqc_int_t
+xqc_int_t
 xqc_conn_check_transport_params(xqc_connection_t *conn, const xqc_transport_params_t *params)
 {
     /* parameters MUST NOT be larger than 2^60 */
@@ -5903,12 +5906,68 @@ xqc_conn_check_transport_params(xqc_connection_t *conn, const xqc_transport_para
         {
             return -XQC_TLS_TRANSPORT_PARAM;
         }
+
+        /* RFC 9000 §7.3: validate initial_source_connection_id matches peer's first Initial SCID */
+        if (!params->initial_source_connection_id_present
+            || xqc_cid_is_equal(&params->initial_source_connection_id,
+                                &conn->dcid_set.current_dcid) != XQC_OK)
+        {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|iscid mismatch|present:%d|expect:%s|got:%s|",
+                    (int)params->initial_source_connection_id_present,
+                    xqc_dcid_str(conn->engine, &conn->dcid_set.current_dcid),
+                    xqc_scid_str(conn->engine, &params->initial_source_connection_id));
+            return -XQC_TLS_TRANSPORT_PARAM;
+        }
     }
 
     if (conn->conn_type == XQC_CONN_TYPE_CLIENT) {
+        /* RFC 9000 §7.3: client validates ISCID/ODCID/RSCID from server transport params */
+        if (!params->initial_source_connection_id_present
+            || xqc_cid_is_equal(&params->initial_source_connection_id,
+                                &conn->dcid_set.current_dcid) != XQC_OK)
+        {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|iscid mismatch|present:%d|expect:%s|got:%s|",
+                    (int)params->initial_source_connection_id_present,
+                    xqc_dcid_str(conn->engine, &conn->dcid_set.current_dcid),
+                    xqc_scid_str(conn->engine, &params->initial_source_connection_id));
+            return -XQC_TLS_TRANSPORT_PARAM;
+        }
+
+        if (!params->original_dest_connection_id_present
+            || xqc_cid_is_equal(&params->original_dest_connection_id,
+                                &conn->original_dcid) != XQC_OK)
+        {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|odcid mismatch|present:%d|expect:%s|got:%s|",
+                    (int)params->original_dest_connection_id_present,
+                    xqc_dcid_str(conn->engine, &conn->original_dcid),
+                    xqc_scid_str(conn->engine, &params->original_dest_connection_id));
+            return -XQC_TLS_TRANSPORT_PARAM;
+        }
+
         /* check retry_source_connection_id parameter if recv retry packet */
         if (conn->conn_flag & XQC_CONN_FLAG_RETRY_RECVD) {
-            if (!params->retry_source_connection_id_present) {
+            /*
+             * RFC 9000 Section 7.3: when a Retry was received, the server's
+             * retry_source_connection_id MUST be present and MUST match the
+             * SCID of that Retry packet (saved in conn->retry_scid by
+             * xqc_conn_on_recv_retry). XQC_CONN_FLAG_RETRY_RECVD is only set
+             * inside xqc_conn_on_recv_retry which also populates retry_scid,
+             * so reaching this branch with cid_len == 0 would indicate an
+             * internal inconsistency; reject defensively in that case as well.
+             */
+            if (!params->retry_source_connection_id_present
+                || conn->retry_scid.cid_len == 0
+                || xqc_cid_is_equal(&params->retry_source_connection_id,
+                                    &conn->retry_scid) != XQC_OK)
+            {
+                xqc_log(conn->log, XQC_LOG_ERROR,
+                        "|rscid mismatch|present:%d|expect:%s|got:%s|",
+                        (int)params->retry_source_connection_id_present,
+                        xqc_dcid_str(conn->engine, &conn->retry_scid),
+                        xqc_scid_str(conn->engine, &params->retry_source_connection_id));
                 return -XQC_TLS_TRANSPORT_PARAM;
             }
 

@@ -354,7 +354,7 @@ xqc_moq_catalog_single_track_encode(cJSON *track_json, xqc_moq_track_t *track, x
             catalog->common_track_fields.track_namespace = (char *)xqc_malloc(str_field_len);
             xqc_memcpy(catalog->common_track_fields.track_namespace, track->track_info.track_namespace, str_field_len);
         }
-        catalog->common_track_fields.renderGroup == track->render_group;
+        catalog->common_track_fields.renderGroup = track->render_group;
     } else {
         if (catalog->common_track_fields.container_format != track->container_format) {
             if (track->container_format == XQC_MOQ_CONTAINER_LOC) {

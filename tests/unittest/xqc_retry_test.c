@@ -8,6 +8,7 @@
 #include "xqc_common_test.h"
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_packet_parser.h"
+#include "src/tls/xqc_tls.h"
 
 
 #define XQC_TEST_RETRY_PACKET \
@@ -45,6 +46,77 @@ xqc_test_retry()
     ret = xqc_packet_parse_long_header(conn, packet_in);
     CU_ASSERT(ret == XQC_OK);
     CU_ASSERT(conn->conn_flag & XQC_CONN_FLAG_RETRY_RECVD);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * Issue #596 regression: xqc_tls_cal_retry_integrity_tag must use the binary
+ * key/nonce lengths defined by RFC 9001 Section 5.8 (K = 128 bits = 16 bytes,
+ * N = 96 bits = 12 bytes), not strlen() which stops at the first NUL byte.
+ *
+ * Ground truth: RFC 9001 Appendix A.4 (Retry).
+ *   ODCID: 8394c8f03e515708 (8 bytes)
+ *   Full Retry packet (with integrity tag):
+ *     ff000000010008f067a5502a4262b574 6f6b656e04a265ba2eff4d829058fb3f 0f2496ba
+ *   Expected integrity tag (last 16 bytes):
+ *     04a265ba2eff4d829058fb3f0f2496ba
+ *
+ * Pre-fix (using strlen): V1 key/nonce happen to contain no NUL byte, so the
+ * V1 path keeps working by accident. But placeholder versions
+ * (XQC_IDRAFT_INIT_VER / XQC_IDRAFT_VER_NEGOTIATION) are all-zero -- strlen
+ * returns 0, which causes the AEAD call to use zero-length key/nonce. This
+ * test pins V1 down to RFC ground truth so any future revert to strlen will
+ * also be caught (because compile-time constants are required by the patch).
+ */
+void
+xqc_test_retry_integrity_tag_rfc9001()
+{
+    /* RFC 9001 A.4 ODCID: 8394c8f03e515708 */
+    uint8_t odcid[] = {
+        0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08
+    };
+
+    /* RFC 9001 A.4 Retry packet without the trailing 16-byte integrity tag.
+     * Full RFC vector (36 bytes total):
+     *   ff 00000001 00 08 f067a5502a4262b5 746f6b656e [16-byte tag]
+     * Layout: type(1) + version(4) + DCID_len(1)=0 + SCID_len(1)=8 +
+     *         SCID(8) + token "token"(5) = 20 bytes pre-tag. */
+    uint8_t retry_no_tag[] = {
+        0xff,                                             /* long header, retry */
+        0x00, 0x00, 0x00, 0x01,                           /* version = V1 */
+        0x00,                                             /* DCID len = 0 */
+        0x08,                                             /* SCID len = 8 */
+        0xf0, 0x67, 0xa5, 0x50, 0x2a, 0x42, 0x62, 0xb5,   /* SCID */
+        0x74, 0x6f, 0x6b, 0x65, 0x6e                      /* token "token" */
+    };
+
+    /* RFC 9001 A.4 expected integrity tag */
+    uint8_t expected_tag[16] = {
+        0x04, 0xa2, 0x65, 0xba, 0x2e, 0xff, 0x4d, 0x82,
+        0x90, 0x58, 0xfb, 0x3f, 0x0f, 0x24, 0x96, 0xba
+    };
+
+    /* Build retry pseudo-packet = odcid_len + odcid + retry_no_tag */
+    uint8_t pseudo[1 + sizeof(odcid) + sizeof(retry_no_tag)];
+    pseudo[0] = (uint8_t)sizeof(odcid);
+    memcpy(pseudo + 1, odcid, sizeof(odcid));
+    memcpy(pseudo + 1 + sizeof(odcid), retry_no_tag, sizeof(retry_no_tag));
+
+    /* Get a log handle from a throwaway engine */
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    uint8_t  tag[16];
+    size_t   tag_len = 0;
+    xqc_int_t ret = xqc_tls_cal_retry_integrity_tag(conn->log,
+                                                    pseudo, sizeof(pseudo),
+                                                    tag, sizeof(tag), &tag_len,
+                                                    XQC_VERSION_V1);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(tag_len == sizeof(expected_tag));
+    CU_ASSERT(memcmp(tag, expected_tag, sizeof(expected_tag)) == 0);
 
     xqc_engine_destroy(conn->engine);
 }

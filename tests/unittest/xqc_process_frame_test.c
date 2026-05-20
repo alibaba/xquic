@@ -111,3 +111,87 @@ xqc_test_large_ack_frame()
     xqc_engine_destroy(conn->engine);
 }
 
+
+void
+xqc_test_stream_frame_offset_overflow()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+
+    xqc_packet_in_t pi;
+    int ret;
+
+    /*
+     * STREAM frame: first_byte=0x0e (OFF=1, LEN=1, FIN=0)
+     * stream_id=0 (1-byte varint: 0x00)
+     * offset = 8-byte varint
+     * length = 1-byte varint
+     * data = 1 byte (0x00)
+     *
+     * 8-byte varint: high 2 bits = 0xC0, remaining 62 bits = value
+     * (1<<62)-1 = 0x3FFFFFFFFFFFFFFF → encoded: 0xFF FF FF FF FF FF FF FF
+     * (1<<62)-2 = 0x3FFFFFFFFFFFFFFE → encoded: 0xFF FF FF FF FF FF FF FE
+     */
+
+    /* Case 1: offset=(1<<62)-1, length=1 → sum exceeds 2^62-1, expect error */
+    unsigned char frame_overflow[] = {
+        0x0e,                                           /* STREAM + OFF + LEN */
+        0x00,                                           /* stream_id = 0 */
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, /* offset = (1<<62)-1 */
+        0x01,                                           /* length = 1 */
+        0x00                                            /* 1 byte data */
+    };
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = (unsigned char *)frame_overflow;
+    pi.last = pi.pos + sizeof(frame_overflow);
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    ret = xqc_process_frames(conn, &pi);
+    CU_ASSERT(ret == -XQC_EILLEGAL_FRAME);
+
+    /* Case 2: offset=(1<<62)-2, length=1 → sum = 2^62-1, exact boundary, expect OK */
+    unsigned char frame_boundary[] = {
+        0x0e,
+        0x00,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE, /* offset = (1<<62)-2 */
+        0x01,                                           /* length = 1 */
+        0x00                                            /* 1 byte data */
+    };
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = (unsigned char *)frame_boundary;
+    pi.last = pi.pos + sizeof(frame_boundary);
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    ret = xqc_process_frames(conn, &pi);
+    CU_ASSERT(ret == XQC_OK);
+
+    /* Case 3: offset=(1<<62)-1, length=0 → sum = 2^62-1, expect OK */
+    unsigned char frame_zero_len[] = {
+        0x0e,
+        0x00,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, /* offset = (1<<62)-1 */
+        0x00,                                           /* length = 0 */
+    };
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = (unsigned char *)frame_zero_len;
+    pi.last = pi.pos + sizeof(frame_zero_len);
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    ret = xqc_process_frames(conn, &pi);
+    CU_ASSERT(ret == XQC_OK);
+
+    /* Case 4: implicit length (no LEN bit), offset=(1<<62)-1, 1 byte trailing data
+     * → implicit length = end - p = 1, sum exceeds 2^62-1, expect error */
+    unsigned char frame_implicit_overflow[] = {
+        0x0c,                                           /* STREAM + OFF, no LEN */
+        0x00,                                           /* stream_id = 0 */
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, /* offset = (1<<62)-1 */
+        0x00                                            /* 1 byte implicit data */
+    };
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = (unsigned char *)frame_implicit_overflow;
+    pi.last = pi.pos + sizeof(frame_implicit_overflow);
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    ret = xqc_process_frames(conn, &pi);
+    CU_ASSERT(ret == -XQC_EILLEGAL_FRAME);
+
+    xqc_engine_destroy(conn->engine);
+}
+

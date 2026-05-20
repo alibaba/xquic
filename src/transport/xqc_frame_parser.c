@@ -329,6 +329,16 @@ xqc_parse_stream_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
 
     } else {
         frame->data_length = end - p;
+        length = frame->data_length;
+    }
+
+    /* RFC 9000 §19.8: offset + length MUST NOT exceed 2^62-1 */
+    if (frame->data_offset + length > ((UINT64_C(1) << 62) - 1)) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|stream offset+length exceeds 2^62-1|offset:%ui|length:%ui|",
+                frame->data_offset, length);
+        XQC_CONN_ERR(conn, TRA_FRAME_ENCODING_ERROR);
+        return -XQC_EILLEGAL_FRAME;
     }
 
     if (first_byte & 0x01) {

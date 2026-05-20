@@ -6,6 +6,7 @@
 #include "xqc_process_frame_test.h"
 #include "xqc_common_test.h"
 #include "src/transport/xqc_frame.h"
+#include "src/transport/xqc_frame_parser.h"
 #include "src/transport/xqc_packet_in.h"
 #include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "src/transport/xqc_conn.h"
@@ -13,6 +14,29 @@
 char XQC_TEST_ILL_FRAME_1[] = {0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 char XQC_TEST_ZERO_LEN_NEW_TOKEN_FRAME[] = {0x07, 0x00};
 char XQC_TEST_STREAM_FRAME[] = {0x0a, 0x00, 0x01, 0x00};
+
+
+static xqc_int_t
+xqc_test_parse_stream_frame_inner(unsigned char *frame_buf,
+    size_t frame_buf_len,
+    xqc_stream_frame_t *frame, xqc_stream_id_t *stream_id,
+    xqc_connection_t **conn)
+{
+    xqc_packet_in_t pi;
+
+    *conn = test_engine_connect();
+    CU_ASSERT(*conn != NULL);
+    if (*conn == NULL) {
+        return XQC_ERROR;
+    }
+
+    memset(&pi, 0, sizeof(pi));
+    memset(frame, 0, sizeof(*frame));
+    pi.pos = frame_buf;
+    pi.last = frame_buf + frame_buf_len;
+
+    return xqc_parse_stream_frame(&pi, *conn, frame, stream_id);
+}
 
 
 void
@@ -115,10 +139,9 @@ xqc_test_large_ack_frame()
 void
 xqc_test_stream_frame_offset_overflow()
 {
-    xqc_connection_t *conn = test_engine_connect();
-    CU_ASSERT(conn != NULL);
-
-    xqc_packet_in_t pi;
+    xqc_connection_t *conn;
+    xqc_stream_frame_t frame;
+    xqc_stream_id_t stream_id;
     int ret;
 
     /*
@@ -129,11 +152,11 @@ xqc_test_stream_frame_offset_overflow()
      * data = 1 byte (0x00)
      *
      * 8-byte varint: high 2 bits = 0xC0, remaining 62 bits = value
-     * (1<<62)-1 = 0x3FFFFFFFFFFFFFFF → encoded: 0xFF FF FF FF FF FF FF FF
-     * (1<<62)-2 = 0x3FFFFFFFFFFFFFFE → encoded: 0xFF FF FF FF FF FF FF FE
+     * (1 << 62) - 1 is encoded as 0xFF FF FF FF FF FF FF FF
+     * (1 << 62) - 2 is encoded as 0xFF FF FF FF FF FF FF FE
      */
 
-    /* Case 1: offset=(1<<62)-1, length=1 → sum exceeds 2^62-1, expect error */
+    /* Case 1: offset=(1 << 62) - 1, length=1 exceeds 2^62 - 1. */
     unsigned char frame_overflow[] = {
         0x0e,                                           /* STREAM + OFF + LEN */
         0x00,                                           /* stream_id = 0 */
@@ -141,14 +164,14 @@ xqc_test_stream_frame_offset_overflow()
         0x01,                                           /* length = 1 */
         0x00                                            /* 1 byte data */
     };
-    memset(&pi, 0, sizeof(pi));
-    pi.pos = (unsigned char *)frame_overflow;
-    pi.last = pi.pos + sizeof(frame_overflow);
-    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
-    ret = xqc_process_frames(conn, &pi);
+    ret = xqc_test_parse_stream_frame_inner(frame_overflow,
+                                            sizeof(frame_overflow), &frame,
+                                            &stream_id, &conn);
     CU_ASSERT(ret == -XQC_EILLEGAL_FRAME);
+    CU_ASSERT(conn->conn_err == TRA_FRAME_ENCODING_ERROR);
+    xqc_engine_destroy(conn->engine);
 
-    /* Case 2: offset=(1<<62)-2, length=1 → sum = 2^62-1, exact boundary, expect OK */
+    /* Case 2: offset=(1 << 62) - 2, length=1 reaches the boundary. */
     unsigned char frame_boundary[] = {
         0x0e,
         0x00,
@@ -156,42 +179,63 @@ xqc_test_stream_frame_offset_overflow()
         0x01,                                           /* length = 1 */
         0x00                                            /* 1 byte data */
     };
-    memset(&pi, 0, sizeof(pi));
-    pi.pos = (unsigned char *)frame_boundary;
-    pi.last = pi.pos + sizeof(frame_boundary);
-    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
-    ret = xqc_process_frames(conn, &pi);
+    ret = xqc_test_parse_stream_frame_inner(frame_boundary,
+                                            sizeof(frame_boundary), &frame,
+                                            &stream_id, &conn);
     CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(stream_id == 0);
+    CU_ASSERT(frame.data_offset == ((UINT64_C(1) << 62) - 2));
+    CU_ASSERT(frame.data_length == 1);
+    CU_ASSERT(conn->conn_err == 0);
+    xqc_free(frame.data);
+    xqc_engine_destroy(conn->engine);
 
-    /* Case 3: offset=(1<<62)-1, length=0 → sum = 2^62-1, expect OK */
+    /* Case 3: offset=(1 << 62) - 1, length=0 reaches the boundary. */
     unsigned char frame_zero_len[] = {
         0x0e,
         0x00,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, /* offset = (1<<62)-1 */
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
         0x00,                                           /* length = 0 */
     };
-    memset(&pi, 0, sizeof(pi));
-    pi.pos = (unsigned char *)frame_zero_len;
-    pi.last = pi.pos + sizeof(frame_zero_len);
-    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
-    ret = xqc_process_frames(conn, &pi);
+    ret = xqc_test_parse_stream_frame_inner(frame_zero_len,
+                                            sizeof(frame_zero_len), &frame,
+                                            &stream_id, &conn);
     CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(stream_id == 0);
+    CU_ASSERT(frame.data_offset == ((UINT64_C(1) << 62) - 1));
+    CU_ASSERT(frame.data_length == 0);
+    CU_ASSERT(conn->conn_err == 0);
+    xqc_engine_destroy(conn->engine);
 
-    /* Case 4: implicit length (no LEN bit), offset=(1<<62)-1, 1 byte trailing data
-     * → implicit length = end - p = 1, sum exceeds 2^62-1, expect error */
-    unsigned char frame_implicit_overflow[] = {
-        0x0c,                                           /* STREAM + OFF, no LEN */
+    /* Case 4: implicit length can also reach the boundary. */
+    unsigned char frame_implicit_boundary[] = {
+        0x0c,                                           /* STREAM + OFF */
         0x00,                                           /* stream_id = 0 */
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, /* offset = (1<<62)-1 */
-        0x00                                            /* 1 byte implicit data */
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE,
+        0x00                                            /* 1 byte data */
     };
-    memset(&pi, 0, sizeof(pi));
-    pi.pos = (unsigned char *)frame_implicit_overflow;
-    pi.last = pi.pos + sizeof(frame_implicit_overflow);
-    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
-    ret = xqc_process_frames(conn, &pi);
-    CU_ASSERT(ret == -XQC_EILLEGAL_FRAME);
+    ret = xqc_test_parse_stream_frame_inner(frame_implicit_boundary,
+                                            sizeof(frame_implicit_boundary),
+                                            &frame, &stream_id, &conn);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(stream_id == 0);
+    CU_ASSERT(frame.data_offset == ((UINT64_C(1) << 62) - 2));
+    CU_ASSERT(frame.data_length == 1);
+    CU_ASSERT(conn->conn_err == 0);
+    xqc_free(frame.data);
+    xqc_engine_destroy(conn->engine);
 
+    /* Case 5: implicit length, offset=(1 << 62) - 1, 1 byte data. */
+    unsigned char frame_implicit_overflow[] = {
+        0x0c,                                           /* STREAM + OFF */
+        0x00,                                           /* stream_id = 0 */
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0x00                                            /* 1 byte data */
+    };
+    ret = xqc_test_parse_stream_frame_inner(frame_implicit_overflow,
+                                            sizeof(frame_implicit_overflow),
+                                            &frame, &stream_id, &conn);
+    CU_ASSERT(ret == -XQC_EILLEGAL_FRAME);
+    CU_ASSERT(conn->conn_err == TRA_FRAME_ENCODING_ERROR);
     xqc_engine_destroy(conn->engine);
 }
-

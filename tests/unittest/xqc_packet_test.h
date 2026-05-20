@@ -7,6 +7,7 @@
 
 void xqc_test_short_header_packet_parse_cid();
 void xqc_test_long_header_packet_parse_cid();
+void xqc_test_packet_encrypt_hp_sample_boundary();
 void xqc_test_empty_pkt();
 
 

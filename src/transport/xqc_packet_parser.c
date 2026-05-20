@@ -604,7 +604,6 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     uint8_t *dst_header = enc_pkt;
     uint8_t *dst_pktno = dst_header + (pktno - header);
     uint8_t *dst_payload = dst_header + header_len;
-    uint8_t *dst_end = dst_payload;
     xqc_path_ctx_t *path = xqc_conn_find_path_by_path_id(conn, packet_out->po_path_id);
 
     if (path == NULL) {
@@ -647,7 +646,7 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
 
     /* do header protection */
     ret = xqc_tls_encrypt_header(conn->tls, level, packet_out->po_pkt.pkt_type,
-                                 dst_header, dst_pktno, dst_end);
+                                 dst_header, dst_pktno, dst_header + *enc_pkt_len);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|header protection error|pkt_type:%d|pkt_num:%ui",
                 packet_out->po_pkt.pkt_type, packet_out->po_pkt.pkt_num);

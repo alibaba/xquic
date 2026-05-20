@@ -209,6 +209,66 @@ test_create_engine_buf_client(test_ctx *tctx)
 
 
 void
+xqc_test_packet_encrypt_hp_sample_boundary()
+{
+    test_ctx         svr_tctx   = {0};
+    test_ctx         cli_tctx   = {0};
+
+    svr_tctx.engine = test_create_engine_buf_server(&svr_tctx);
+    cli_tctx.engine = test_create_engine_buf_client(&cli_tctx);
+
+    xqc_conn_settings_t conn_settings;
+    memset(&conn_settings, 0, sizeof(xqc_conn_settings_t));
+    conn_settings.proto_version = XQC_VERSION_V1;
+    xqc_conn_ssl_config_t conn_ssl_config;
+    memset(&conn_ssl_config, 0, sizeof(conn_ssl_config));
+
+    xqc_connect(cli_tctx.engine, &conn_settings, NULL, 0, "", 0,
+                &conn_ssl_config, NULL, 0, "transport", &cli_tctx);
+
+    struct sockaddr_in6 peer_addr;
+    socklen_t peer_addrlen = sizeof(peer_addr);
+
+    struct sockaddr_in6 local_addr;
+    socklen_t local_addrlen = sizeof(local_addr);
+
+    xqc_engine_packet_process(svr_tctx.engine, cli_tctx.buf, cli_tctx.buf_len,
+                              (struct sockaddr *)&local_addr, local_addrlen,
+                              (struct sockaddr *)&peer_addr, peer_addrlen, xqc_now(), &svr_tctx);
+
+    xqc_packet_out_t *po = xqc_packet_out_create(2048);
+    CU_ASSERT(po != NULL);
+
+    memcpy(po->po_pkt.pkt_scid.cid_buf, cli_tctx.c->scid_set.user_scid.cid_buf,
+           cli_tctx.c->scid_set.user_scid.cid_len);
+    po->po_pkt.pkt_scid.cid_len = cli_tctx.c->scid_set.user_scid.cid_len;
+
+    memcpy(po->po_pkt.pkt_dcid.cid_buf, cli_tctx.c->dcid_set.current_dcid.cid_buf,
+            cli_tctx.c->dcid_set.current_dcid.cid_len);
+    po->po_pkt.pkt_dcid.cid_len = cli_tctx.c->dcid_set.current_dcid.cid_len;
+
+    ssize_t po_size = xqc_gen_long_packet_header(
+        po, po->po_pkt.pkt_dcid.cid_buf, po->po_pkt.pkt_dcid.cid_len,
+        po->po_pkt.pkt_scid.cid_buf, po->po_pkt.pkt_scid.cid_len,
+        NULL, 0, XQC_VERSION_V1, XQC_PKTNO_BITS);
+    CU_ASSERT(po_size > 0);
+    po->po_used_size += po_size;
+
+    uint8_t enc_buf[2048];
+    size_t enc_len = 0;
+    xqc_int_t ret = xqc_packet_encrypt_buf(cli_tctx.c, po, enc_buf, sizeof(enc_buf), &enc_len);
+    CU_ASSERT(ret == XQC_OK);
+
+    xqc_packet_out_destroy(po);
+    xqc_conn_close(cli_tctx.engine, &cli_tctx.cid);
+    xqc_engine_destroy(cli_tctx.engine);
+
+    xqc_conn_close(svr_tctx.engine, &svr_tctx.cid);
+    xqc_engine_destroy(svr_tctx.engine);
+}
+
+
+void
 xqc_test_empty_pkt()
 {
     test_ctx         svr_tctx   = {0};
@@ -276,4 +336,3 @@ xqc_test_empty_pkt()
     xqc_conn_close(svr_tctx.engine, &svr_tctx.cid);
     xqc_engine_destroy(svr_tctx.engine);
 }
-

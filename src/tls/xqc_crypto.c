@@ -16,6 +16,21 @@
 #define XQC_FAKE_HP_MASK        "\x00\x00\x00\x00\x00"
 #define XQC_FAKE_AEAD_OVERHEAD  XQC_TLS_AEAD_OVERHEAD_MAX_LEN
 
+static inline xqc_int_t
+xqc_crypto_check_hp_sample(xqc_crypto_t *crypto, uint8_t *pktno, uint8_t *end)
+{
+    const size_t need = 4 + XQC_HP_SAMPLELEN;
+
+    if (pktno > end || (size_t)(end - pktno) < need) {
+        xqc_log(crypto->log, XQC_LOG_ERROR,
+                "|illegal pkt, hp sample exceed buffer|left:%uz|need:%uz|",
+                pktno > end ? 0 : (size_t)(end - pktno), need);
+        return -XQC_EILLPKT;
+    }
+
+    return XQC_OK;
+}
+
 static inline void
 xqc_vec_init(xqc_vec_t *vec)
 {
@@ -195,7 +210,7 @@ xqc_crypto_encrypt_header(xqc_crypto_t *crypto, xqc_pkt_type_t pkt_type, uint8_t
 
     /* packet number position and sample position */
     size_t   pktno_len  = XQC_PACKET_SHORT_HEADER_PKTNO_LEN(header);
-    uint8_t *sample     = pktno + 4;
+    uint8_t *sample;
 
     /* hp cipher and key */
     xqc_hdr_protect_cipher_t *hp_cipher = &crypto->hp_cipher;
@@ -206,18 +221,17 @@ xqc_crypto_encrypt_header(xqc_crypto_t *crypto, xqc_pkt_type_t pkt_type, uint8_t
     }
 
     /* get length of packet number */
-    if (pktno + pktno_len > end) {
+    if (pktno > end || (size_t)(end - pktno) < pktno_len) {
         xqc_log(crypto->log, XQC_LOG_ERROR, "|illegal pkt, pkt num exceed buffer");
         return -XQC_EILLPKT;
     }
 
     /* RFC 9001 §5.4.2: discard packets too short for a complete HP sample */
-    if (sample + XQC_HP_SAMPLELEN > end) {
-        xqc_log(crypto->log, XQC_LOG_ERROR,
-                "|illegal pkt, hp sample exceed buffer|sample_off:%uz|remain:%uz|",
-                (size_t)(sample - header), (size_t)(end - sample));
-        return -XQC_EILLPKT;
+    ret = xqc_crypto_check_hp_sample(crypto, pktno, end);
+    if (ret != XQC_OK) {
+        return ret;
     }
+    sample = pktno + 4;
 
     /* generate header protection mask */
     ret = hp_cipher->hp_mask(hp_cipher, crypto->keys.tx_hp_ctx,
@@ -265,15 +279,14 @@ xqc_crypto_decrypt_header(xqc_crypto_t *crypto, xqc_pkt_type_t pkt_type, uint8_t
 
     /* generate hp mask */
     uint8_t mask[XQC_HP_MASKLEN];
-    uint8_t *sample = pktno + 4;
+    uint8_t *sample;
 
     /* RFC 9001 §5.4.2: discard packets too short for a complete HP sample */
-    if (sample + XQC_HP_SAMPLELEN > end) {
-        xqc_log(crypto->log, XQC_LOG_ERROR,
-                "|illegal pkt, hp sample exceed buffer|sample_off:%uz|remain:%uz|",
-                (size_t)(sample - header), (size_t)(end - sample));
-        return -XQC_EILLPKT;
+    ret = xqc_crypto_check_hp_sample(crypto, pktno, end);
+    if (ret != XQC_OK) {
+        return ret;
     }
+    sample = pktno + 4;
 
     ret = hp_cipher->hp_mask(hp_cipher, crypto->keys.rx_hp_ctx,
                              mask, XQC_HP_MASKLEN, &nwrite,                     /* mask */
@@ -296,7 +309,7 @@ xqc_crypto_decrypt_header(xqc_crypto_t *crypto, xqc_pkt_type_t pkt_type, uint8_t
 
     /* get length of packet number */
     size_t pktno_len = XQC_PACKET_SHORT_HEADER_PKTNO_LEN(header);
-    if (pktno + pktno_len > end) {
+    if (pktno > end || (size_t)(end - pktno) < pktno_len) {
         xqc_log(crypto->log, XQC_LOG_ERROR, "|illegal pkt, pkt num exceed buffer");
         return -XQC_EILLPKT;
     }

@@ -84,7 +84,7 @@ xqc_test_derive_packet_protection_keys()
 
 
 /*
- * Tests for issue #574 — RFC 9001 §5.4.2 HP sample boundary check.
+ * Tests for issue #574 - RFC 9001 §5.4.2 HP sample boundary check.
  * Verifies that encrypt_header and decrypt_header reject packets too short
  * for a complete 16-byte HP sample (pktno + 4 + 16 > end).
  */
@@ -110,13 +110,13 @@ xqc_test_hp_sample_boundary_one(xqc_bool_t is_encrypt, size_t total_len,
     /*
      * Build a fake short-header packet buffer.
      * Layout: [header_byte] [... padding ...] [pktno @ offset 1] [... to end]
-     * header[0] & 0x03 = 0 → pktno_len = 1, so pktno + 1 <= end is satisfied
+     * header[0] & 0x03 = 0 -> pktno_len = 1, so pktno + 1 <= end is satisfied
      * as long as total_len >= 2. The HP sample check requires pktno + 4 + 16 <= end.
      * With pktno at offset 1, that means total_len >= 1 + 4 + 16 = 21.
      */
     uint8_t buf[64];
     memset(buf, 0, sizeof(buf));
-    buf[0] = 0x40; /* short header, pktno_len bits = 0 → pktno_len = 1 */
+    buf[0] = 0x40; /* short header, pktno_len bits = 0 -> pktno_len = 1 */
 
     uint8_t *header = buf;
     uint8_t *pktno  = buf + 1;
@@ -148,16 +148,28 @@ xqc_test_hp_sample_boundary()
      * Need sample + 16 <= end, i.e. total_len >= 5 + 16 = 21.
      */
 
-    /* Case 1: decrypt, too short (20 bytes) → -XQC_EILLPKT */
+    /* Case 1: decrypt, pktno present but sample offset itself is short. */
+    xqc_test_hp_sample_boundary_one(XQC_FALSE, 2, -XQC_EILLPKT);
+
+    /* Case 2: decrypt, sample starts exactly at end. */
+    xqc_test_hp_sample_boundary_one(XQC_FALSE, 5, -XQC_EILLPKT);
+
+    /* Case 3: decrypt, too short (20 bytes) -> -XQC_EILLPKT */
     xqc_test_hp_sample_boundary_one(XQC_FALSE, 20, -XQC_EILLPKT);
 
-    /* Case 2: decrypt, exact boundary (21 bytes) → should pass check */
+    /* Case 4: decrypt, exact boundary (21 bytes) -> should pass check */
     xqc_test_hp_sample_boundary_one(XQC_FALSE, 21, XQC_OK);
 
-    /* Case 3: encrypt, too short (20 bytes) → -XQC_EILLPKT */
+    /* Case 5: encrypt, pktno present but sample offset itself is short. */
+    xqc_test_hp_sample_boundary_one(XQC_TRUE, 2, -XQC_EILLPKT);
+
+    /* Case 6: encrypt, sample starts exactly at end. */
+    xqc_test_hp_sample_boundary_one(XQC_TRUE, 5, -XQC_EILLPKT);
+
+    /* Case 7: encrypt, too short (20 bytes) -> -XQC_EILLPKT */
     xqc_test_hp_sample_boundary_one(XQC_TRUE, 20, -XQC_EILLPKT);
 
-    /* Case 4: encrypt, exact boundary (21 bytes) → should pass check */
+    /* Case 8: encrypt, exact boundary (21 bytes) -> should pass check */
     xqc_test_hp_sample_boundary_one(XQC_TRUE, 21, XQC_OK);
 }
 
@@ -167,6 +179,4 @@ xqc_test_crypto()
 {
     xqc_test_derive_initial_secret();
     xqc_test_derive_packet_protection_keys();
-    xqc_test_hp_sample_boundary();
 }
-

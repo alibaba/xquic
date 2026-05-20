@@ -59,16 +59,14 @@ xqc_test_retry()
  * Ground truth: RFC 9001 Appendix A.4 (Retry).
  *   ODCID: 8394c8f03e515708 (8 bytes)
  *   Full Retry packet (with integrity tag):
- *     ff000000010008f067a5502a4262b574 6f6b656e04a265ba2eff4d829058fb3f 0f2496ba
+ *     ff000000010008f067a5502a4262b574 6f6b656e
+ *     04a265ba2eff4d829058fb3f0f2496ba
  *   Expected integrity tag (last 16 bytes):
  *     04a265ba2eff4d829058fb3f0f2496ba
  *
  * Pre-fix (using strlen): V1 key/nonce happen to contain no NUL byte, so the
- * V1 path keeps working by accident. But placeholder versions
- * (XQC_IDRAFT_INIT_VER / XQC_IDRAFT_VER_NEGOTIATION) are all-zero -- strlen
- * returns 0, which causes the AEAD call to use zero-length key/nonce. This
- * test pins V1 down to RFC ground truth so any future revert to strlen will
- * also be caught (because compile-time constants are required by the patch).
+ * V1 path keeps working by accident. This test pins V1 down to RFC ground
+ * truth; the binary-length test catches strlen regressions.
  */
 void
 xqc_test_retry_integrity_tag_rfc9001()
@@ -84,7 +82,7 @@ xqc_test_retry_integrity_tag_rfc9001()
      * Layout: type(1) + version(4) + DCID_len(1)=0 + SCID_len(1)=8 +
      *         SCID(8) + token "token"(5) = 20 bytes pre-tag. */
     uint8_t retry_no_tag[] = {
-        0xff,                                             /* long header, retry */
+        0xff,                                             /* long header */
         0x00, 0x00, 0x00, 0x01,                           /* version = V1 */
         0x00,                                             /* DCID len = 0 */
         0x08,                                             /* SCID len = 8 */
@@ -117,6 +115,49 @@ xqc_test_retry_integrity_tag_rfc9001()
     CU_ASSERT(ret == XQC_OK);
     CU_ASSERT(tag_len == sizeof(expected_tag));
     CU_ASSERT(memcmp(tag, expected_tag, sizeof(expected_tag)) == 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * Regression guard for binary Retry integrity key/nonce lengths.
+ *
+ * The in-range placeholder entry uses all-zero binary key/nonce material. A
+ * strlen-based implementation passes a zero-length nonce to AEAD, while the
+ * fixed-length implementation computes this GMAC with a 16-byte zero key and
+ * 12-byte zero nonce.
+ */
+void
+xqc_test_retry_integrity_tag_binary_lengths()
+{
+    uint8_t pseudo[] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f
+    };
+    uint8_t expected_tag[16] = {
+        0x8a, 0x44, 0xec, 0x70, 0xda, 0x3a, 0x66, 0xff,
+        0x6d, 0x07, 0xc5, 0x7b, 0x3f, 0x60, 0x72, 0x45
+    };
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    uint8_t tag[16];
+    size_t tag_len = 0;
+    xqc_int_t ret = xqc_tls_cal_retry_integrity_tag(conn->log,
+                                                    pseudo, sizeof(pseudo),
+                                                    tag, sizeof(tag), &tag_len,
+                                                    XQC_IDRAFT_INIT_VER);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(tag_len == sizeof(expected_tag));
+    CU_ASSERT(memcmp(tag, expected_tag, sizeof(expected_tag)) == 0);
+
+    ret = xqc_tls_cal_retry_integrity_tag(conn->log,
+                                          pseudo, sizeof(pseudo),
+                                          tag, sizeof(tag), &tag_len,
+                                          XQC_VERSION_MAX);
+    CU_ASSERT(ret == -XQC_TLS_INVALID_ARGUMENT);
 
     xqc_engine_destroy(conn->engine);
 }

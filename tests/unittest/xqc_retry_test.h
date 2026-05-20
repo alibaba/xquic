@@ -7,5 +7,6 @@
 
 void xqc_test_retry();
 void xqc_test_retry_integrity_tag_rfc9001();
+void xqc_test_retry_integrity_tag_binary_lengths();
 
 #endif

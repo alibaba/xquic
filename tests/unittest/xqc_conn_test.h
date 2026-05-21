@@ -6,5 +6,6 @@
 #define XQC_CONN_TEST_H
 
 void xqc_test_conn_create();
+void xqc_test_conn_idle_timeout();
 
 #endif

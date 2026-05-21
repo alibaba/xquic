@@ -1961,6 +1961,14 @@ xqc_h3_stream_update_stats(xqc_h3_stream_t *h3s)
     }
 }
 
+static inline xqc_bool_t
+xqc_h3_stream_is_critical(uint64_t type)
+{
+    return type == XQC_H3_STREAM_TYPE_CONTROL
+        || type == XQC_H3_STREAM_TYPE_QPACK_ENCODER
+        || type == XQC_H3_STREAM_TYPE_QPACK_DECODER;
+}
+
 int
 xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data)
 {
@@ -1972,6 +1980,21 @@ xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data)
 
     xqc_h3_stream_t *h3s = (xqc_h3_stream_t*)user_data;
     h3s->flags |= XQC_HTTP3_STREAM_FLAG_CLOSED;
+
+    /* RFC 9114 Section 6.2.1 + RFC 9204 Section 4.2: peer closing any critical
+     * stream (control / QPACK encoder / QPACK decoder) MUST be treated as
+     * H3_CLOSED_CRITICAL_STREAM */
+    if (xqc_h3_stream_is_critical(h3s->type)
+        && !(h3s->h3c->conn->conn_flag & XQC_CONN_FLAG_CLOSING_NOTIFY)
+        && h3s->h3c->conn->conn_state < XQC_CONN_STATE_CLOSING)
+    {
+        xqc_log(h3s->log, XQC_LOG_ERROR,
+                "|peer closed critical stream|type:%d"
+                "|stream_id:%ui|h3s:%p", h3s->type, h3s->stream_id, h3s);
+        XQC_H3_CONN_ERR(h3s->h3c, H3_CLOSED_CRITICAL_STREAM,
+                        -XQC_H3_CLOSE_CRITICAL_STREAM);
+    }
+
     xqc_h3_stream_get_err(h3s);
     xqc_h3_stream_get_path_info(h3s);
 

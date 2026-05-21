@@ -6,5 +6,6 @@
 #define _XQC_CUBIC_TEST_H_INCLUDED_
 
 void xqc_test_cubic ();
+void xqc_test_cubic_init_cwnd ();
 
 #endif /* _XQC_CUBIC_TEST_H_INCLUDED_ */

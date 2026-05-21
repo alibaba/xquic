@@ -11,9 +11,9 @@
 #include <openssl/rand.h>
 #include <openssl/hmac.h>
 
-/* RFC 9001 §5.8: use fixed lengths (not strlen) since binary keys may contain '\0' */
-#define XQC_RETRY_INTEGRITY_KEY_LEN     16  /* RFC 9001 §5.8: K = 128 bits */
-#define XQC_RETRY_INTEGRITY_NONCE_LEN   12  /* RFC 9001 §5.8: N = 96 bits  */
+/* RFC 9001 Section 5.8: fixed binary lengths, not strlen(). */
+#define XQC_RETRY_INTEGRITY_KEY_LEN     16  /* K = 128 bits */
+#define XQC_RETRY_INTEGRITY_NONCE_LEN   12  /* N = 96 bits */
 
 
 typedef enum xqc_tls_flag_e {
@@ -801,6 +801,10 @@ xqc_tls_cal_retry_integrity_tag(xqc_log_t *log,
 {
     xqc_int_t ret = XQC_OK;
 
+    if (ver < XQC_IDRAFT_INIT_VER || ver >= XQC_VERSION_MAX) {
+        return -XQC_TLS_INVALID_ARGUMENT;
+    }
+
     xqc_crypto_t *crypto = xqc_crypto_create(XQC_TLS13_AES_128_GCM_SHA256, log);
     if (crypto == NULL) {
         xqc_log(log, XQC_LOG_ERROR, "|create retry crypto error|");
@@ -808,8 +812,10 @@ xqc_tls_cal_retry_integrity_tag(xqc_log_t *log,
     }
 
     ret = xqc_crypto_aead_encrypt(crypto, "", 0,
-                                  xqc_crypto_retry_key[ver],   XQC_RETRY_INTEGRITY_KEY_LEN,
-                                  xqc_crypto_retry_nonce[ver], XQC_RETRY_INTEGRITY_NONCE_LEN,
+                                  xqc_crypto_retry_key[ver],
+                                  XQC_RETRY_INTEGRITY_KEY_LEN,
+                                  xqc_crypto_retry_nonce[ver],
+                                  XQC_RETRY_INTEGRITY_NONCE_LEN,
                                   retry_pseudo_packet, retry_pseudo_packet_len,
                                   dst, dst_cap, dst_len);
     if (ret != XQC_OK) {

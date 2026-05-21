@@ -98,7 +98,10 @@ main()
         || !CU_add_test(pSuite, "xqc_cid_test", xqc_test_cid)
         || !CU_add_test(pSuite, "xqc_test_id_hash", xqc_test_id_hash)
         || !CU_add_test(pSuite, "xqc_test_retry", xqc_test_retry)
-        || !CU_add_test(pSuite, "xqc_test_retry_integrity_tag_rfc9001", xqc_test_retry_integrity_tag_rfc9001)
+        || !CU_add_test(pSuite, "xqc_test_retry_integrity_tag_rfc9001",
+                        xqc_test_retry_integrity_tag_rfc9001)
+        || !CU_add_test(pSuite, "xqc_test_retry_integrity_tag_binary_lengths",
+                        xqc_test_retry_integrity_tag_binary_lengths)
         || !CU_add_test(pSuite, "xqc_test_receive_invalid_dgram", xqc_test_receive_invalid_dgram)
         || !CU_add_test(pSuite, "xqc_test_h3_ext_frame", xqc_test_h3_ext_frame)
 #ifdef XQC_ENABLE_FEC

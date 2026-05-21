@@ -461,3 +461,109 @@ xqc_test_stream()
         xqc_free(conn->alpn);
     }
 }
+
+
+/*
+ * Tests for issue #606: RFC 9114 Section 6.2.1 + RFC 9204 Section 4.2
+ * critical stream close detection.
+ *
+ * The fix guards peer-initiated close of critical streams (control / QPACK
+ * encoder / QPACK decoder) with three checks:
+ *   G1: xqc_h3_stream_is_critical(h3s->type)     (control/enc/dec)
+ *   G2: !(conn->conn_flag & CLOSING_NOTIFY)       (avoid teardown noise)
+ *   G3: conn->conn_state < CLOSING                (state-machine backup)
+ *
+ * Each case creates a fresh test_engine_connect() for state isolation.
+ */
+extern int xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data);
+
+static void
+xqc_test_h3_critical_stream_close_one(xqc_h3_stream_type_t stream_type,
+    int set_closing_notify, int set_conn_state_closing,
+    uint64_t expected_err)
+{
+    /* fresh engine per case for state isolation (review point #5) */
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+
+    xqc_stream_t *stream = xqc_create_stream_with_conn(conn,
+            XQC_UNDEFINE_STREAM_ID, XQC_CLI_UNI, NULL, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+
+    xqc_h3_conn_t *h3c = xqc_h3_conn_create(conn, NULL);
+    CU_ASSERT_FATAL(h3c != NULL);
+
+    xqc_h3_stream_t *h3s = xqc_h3_stream_create(h3c, stream, stream_type, NULL);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    if (set_closing_notify) {
+        conn->conn_flag |= XQC_CONN_FLAG_CLOSING_NOTIFY;
+    }
+    if (set_conn_state_closing) {
+        conn->conn_state = XQC_CONN_STATE_CLOSING;
+    }
+
+    /* baseline: conn_err must be clean before invoking close_notify */
+    CU_ASSERT(conn->conn_err == 0);
+
+    /* close_notify internally calls xqc_h3_stream_destroy, do NOT free h3s */
+    int ret = xqc_h3_stream_close_notify(stream, h3s);
+    CU_ASSERT(ret == XQC_OK);
+
+    /* verify error code (review point #4: multi-dimensional assertion) */
+    CU_ASSERT(conn->conn_err == expected_err);
+    if (expected_err == H3_CLOSED_CRITICAL_STREAM) {
+        /* positive: literal value + error flag */
+        CU_ASSERT(expected_err == 0x104);
+        CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+        /*
+         * note: conn_state transition to CLOSING is driven by the event loop
+         * (xqc_conn_immediate_close), not by close_notify itself, so we do
+         * not assert conn_state here in unit test context.
+         */
+    } else {
+        /* negative: explicitly assert no error flag was set */
+        CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
+    }
+
+    xqc_h3_conn_destroy(h3c);
+    xqc_destroy_stream(stream);
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+}
+
+void
+xqc_test_h3_critical_stream_close()
+{
+    /* Case 1 (positive, control): peer close -> H3_CLOSED_CRITICAL_STREAM */
+    xqc_test_h3_critical_stream_close_one(XQC_H3_STREAM_TYPE_CONTROL,
+            0, 0, H3_CLOSED_CRITICAL_STREAM);
+
+    /* Case 2 (positive, QPACK encoder): RFC 9204 Section 4.2 */
+    xqc_test_h3_critical_stream_close_one(XQC_H3_STREAM_TYPE_QPACK_ENCODER,
+            0, 0, H3_CLOSED_CRITICAL_STREAM);
+
+    /* Case 3 (positive, QPACK decoder): RFC 9204 Section 4.2 */
+    xqc_test_h3_critical_stream_close_one(XQC_H3_STREAM_TYPE_QPACK_DECODER,
+            0, 0, H3_CLOSED_CRITICAL_STREAM);
+
+    /* Case 4 (negative, guard G1): REQUEST stream is not critical */
+    xqc_test_h3_critical_stream_close_one(XQC_H3_STREAM_TYPE_REQUEST,
+            0, 0, 0);
+
+    /* Case 5 (negative, guard G2): CLOSING_NOTIFY set -> normal teardown */
+    xqc_test_h3_critical_stream_close_one(XQC_H3_STREAM_TYPE_CONTROL,
+            1, 0, 0);
+
+    /* Case 6 (negative, guard G3): conn_state already CLOSING */
+    xqc_test_h3_critical_stream_close_one(XQC_H3_STREAM_TYPE_CONTROL,
+            0, 1, 0);
+}

@@ -289,6 +289,7 @@ xqc_parse_stream_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
 {
     uint64_t offset;
     uint64_t length;
+    uint64_t max_stream_data_offset = (UINT64_C(1) << 62) - 1;
     int      vlen;
 
     const unsigned char *p = packet_in->pos;
@@ -332,8 +333,8 @@ xqc_parse_stream_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
         length = frame->data_length;
     }
 
-    /* RFC 9000 §19.8: offset + length MUST NOT exceed 2^62-1 */
-    if (frame->data_offset + length > ((UINT64_C(1) << 62) - 1)) {
+    /* RFC 9000 19.8: offset + length MUST NOT exceed 2^62 - 1. */
+    if (length > max_stream_data_offset - frame->data_offset) {
         xqc_log(conn->log, XQC_LOG_ERROR,
                 "|stream offset+length exceeds 2^62-1|offset:%ui|length:%ui|",
                 frame->data_offset, length);

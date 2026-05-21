@@ -165,6 +165,9 @@ test_create_engine_buf_server(test_ctx *tctx)
     xqc_conn_settings_t conn_settings;
     xqc_engine_t *engine = xqc_engine_create(XQC_ENGINE_SERVER, NULL, &engine_ssl_config,
                                              &callback, &tcbs, tctx);
+    if (engine == NULL) {
+        return NULL;
+    }
 
     /* transport ALPN */
     xqc_engine_register_alpn(engine, "transport", 9, &transport_cbs, NULL);
@@ -200,6 +203,9 @@ test_create_engine_buf_client(test_ctx *tctx)
     xqc_conn_settings_t conn_settings;
     xqc_engine_t *engine = xqc_engine_create(XQC_ENGINE_CLIENT, NULL, &engine_ssl_config,
                                              &callback, &tcbs, tctx);
+    if (engine == NULL) {
+        return NULL;
+    }
 
     /* transport ALPN */
     xqc_engine_register_alpn(engine, "transport", 9, &transport_cbs, NULL);
@@ -273,10 +279,16 @@ xqc_test_empty_pkt()
 {
     test_ctx         svr_tctx   = {0};
     test_ctx         cli_tctx   = {0};
+    xqc_packet_out_t *po        = NULL;
 
     svr_tctx.engine = test_create_engine_buf_server(&svr_tctx);
     cli_tctx.engine = test_create_engine_buf_client(&cli_tctx);
 
+    CU_ASSERT(svr_tctx.engine != NULL);
+    CU_ASSERT(cli_tctx.engine != NULL);
+    if (svr_tctx.engine == NULL || cli_tctx.engine == NULL) {
+        goto finish;
+    }
 
     xqc_conn_settings_t conn_settings;
     memset(&conn_settings, 0, sizeof(xqc_conn_settings_t));
@@ -285,8 +297,14 @@ xqc_test_empty_pkt()
     memset(&conn_ssl_config, 0, sizeof(conn_ssl_config));
 
     /* create client instance, will trigger create_notiry and write_socket */
-    xqc_connect(cli_tctx.engine, &conn_settings, NULL, 0, "", 0,
-                &conn_ssl_config, NULL, 0, "transport", &cli_tctx);
+    const xqc_cid_t *cid = xqc_connect(cli_tctx.engine, &conn_settings,
+                                       NULL, 0, "", 0, &conn_ssl_config,
+                                       NULL, 0, "transport", &cli_tctx);
+    CU_ASSERT(cid != NULL);
+    CU_ASSERT(cli_tctx.c != NULL);
+    if (cid == NULL || cli_tctx.c == NULL) {
+        goto finish;
+    }
 
     struct sockaddr_in6 peer_addr;
     socklen_t peer_addrlen = sizeof(peer_addr);
@@ -299,10 +317,17 @@ xqc_test_empty_pkt()
                               (struct sockaddr *)&local_addr, local_addrlen,
                               (struct sockaddr *)&peer_addr, peer_addrlen, xqc_now(), &svr_tctx);
 
+    CU_ASSERT(svr_tctx.c != NULL);
+    if (svr_tctx.c == NULL) {
+        goto finish;
+    }
 
     /* generate an Initial pkt with no payload */
-    xqc_packet_out_t   *po = xqc_packet_out_create(2048);
+    po = xqc_packet_out_create(2048);
     CU_ASSERT(po != NULL);
+    if (po == NULL) {
+        goto finish;
+    }
 
     memcpy(po->po_pkt.pkt_scid.cid_buf, cli_tctx.c->scid_set.user_scid.cid_buf,
            cli_tctx.c->scid_set.user_scid.cid_len);
@@ -329,10 +354,22 @@ xqc_test_empty_pkt()
     CU_ASSERT(svr_tctx.c->conn_err == TRA_PROTOCOL_VIOLATION);
 
 
-    xqc_packet_out_destroy(po);
-    xqc_conn_close(cli_tctx.engine, &cli_tctx.cid);
-    xqc_engine_destroy(cli_tctx.engine);
+finish:
+    if (po != NULL) {
+        xqc_packet_out_destroy(po);
+    }
 
-    xqc_conn_close(svr_tctx.engine, &svr_tctx.cid);
-    xqc_engine_destroy(svr_tctx.engine);
+    if (cli_tctx.engine != NULL) {
+        if (cli_tctx.c != NULL) {
+            xqc_conn_close(cli_tctx.engine, &cli_tctx.cid);
+        }
+        xqc_engine_destroy(cli_tctx.engine);
+    }
+
+    if (svr_tctx.engine != NULL) {
+        if (svr_tctx.c != NULL) {
+            xqc_conn_close(svr_tctx.engine, &svr_tctx.cid);
+        }
+        xqc_engine_destroy(svr_tctx.engine);
+    }
 }

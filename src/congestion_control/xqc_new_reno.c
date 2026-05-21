@@ -4,6 +4,7 @@
 
 #include <xquic/xquic.h>
 #include "src/congestion_control/xqc_new_reno.h"
+#include "src/common/xqc_config.h"
 #include "src/common/xqc_time.h"
 #include "src/transport/xqc_packet.h"
 
@@ -11,14 +12,27 @@
 
 #define XQC_kMaxDatagramSize XQC_MSS
 #define XQC_kMinimumWindow (2 * XQC_kMaxDatagramSize)
-/* 
- * The RECOMMENDED value is the minimum of
- * 10 * kMaxDatagramSize and max(2* kMaxDatagramSize, 14720)).
- */
-#define XQC_kInitialWindow (10 * XQC_kMaxDatagramSize)
-#define XQC_kLossReductionFactor (0.5f)
 
-#define xqc_max(a, b) ((a) > (b) ? (a) : (b))
+/*
+ * RFC 9002 Section 7.2: endpoints SHOULD use an initial congestion
+ * window of ten times the maximum datagram size, while limiting the
+ * window to the larger of 14720 bytes or twice the maximum datagram
+ * size. That is:
+ *
+ *     IW = min(10 * kMaxDatagramSize,
+ *              max(2 * kMaxDatagramSize, 14720))
+ *
+ * With the default XQC_MSS the 14720-byte ceiling is not binding, but
+ * a deployment built with a larger maximum datagram size (for example,
+ * jumbo frames) would otherwise compute an initial window well above
+ * the value the RFC permits.
+ */
+#define XQC_kInitialWindowMinBytes 14720
+#define XQC_kInitialWindow                                                    \
+    xqc_min(10 * XQC_kMaxDatagramSize,                                        \
+            xqc_max(2 * XQC_kMaxDatagramSize, XQC_kInitialWindowMinBytes))
+
+#define XQC_kLossReductionFactor (0.5f)
 
 size_t
 xqc_reno_size()

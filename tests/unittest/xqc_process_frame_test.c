@@ -7,9 +7,11 @@
 #include "xqc_common_test.h"
 #include "src/transport/xqc_frame.h"
 #include "src/transport/xqc_frame_parser.h"
+#include "src/transport/xqc_packet.h"
 #include "src/transport/xqc_packet_in.h"
 #include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "src/transport/xqc_conn.h"
+#include "xquic/xqc_errno.h"
 
 char XQC_TEST_ILL_FRAME_1[] = {0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 char XQC_TEST_ZERO_LEN_NEW_TOKEN_FRAME[] = {0x07, 0x00};
@@ -237,5 +239,194 @@ xqc_test_stream_frame_offset_overflow()
                                             &frame, &stream_id, &conn);
     CU_ASSERT(ret == -XQC_EILLEGAL_FRAME);
     CU_ASSERT(conn->conn_err == TRA_FRAME_ENCODING_ERROR);
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * Helpers for the RFC 9001 8.3 CRYPTO-in-0-RTT regression tests.
+ *
+ * Each helper builds a fresh connection plus a packet_in that carries a
+ * minimal but parseable CRYPTO frame body. The CRYPTO body is laid out so
+ * that, when the new packet-type guard is bypassed (i.e. for INIT / HSK /
+ * 1-RTT), xqc_parse_crypto_frame succeeds and any subsequent failures stem
+ * from missing handshake state rather than from frame validation. That lets
+ * us assert "guard not taken" without depending on full crypto-stream setup.
+ *
+ * CRYPTO frame layout (RFC 9000 19.6): type=0x06, offset=0, length=0.
+ */
+static unsigned char XQC_TEST_CRYPTO_FRAME_EMPTY[] = {0x06, 0x00, 0x00};
+
+
+static void
+xqc_test_crypto_frame_setup(xqc_connection_t **conn, xqc_packet_in_t *pi,
+    xqc_pkt_type_t pkt_type)
+{
+    *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(*conn);
+
+    memset(pi, 0, sizeof(*pi));
+    pi->pi_pkt.pkt_type = pkt_type;
+    pi->pos = XQC_TEST_CRYPTO_FRAME_EMPTY;
+    pi->last = pi->pos + sizeof(XQC_TEST_CRYPTO_FRAME_EMPTY);
+}
+
+
+void
+xqc_test_crypto_frame_in_0rtt_rejected()
+{
+    xqc_connection_t *conn;
+    xqc_packet_in_t pi;
+    xqc_int_t ret;
+
+    xqc_test_crypto_frame_setup(&conn, &pi, XQC_PTYPE_0RTT);
+
+    ret = xqc_process_crypto_frame(conn, &pi);
+
+    /* RFC 9001 8.3: PROTOCOL_VIOLATION on CRYPTO in 0-RTT. */
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_PROTOCOL_VIOLATION);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+
+    /*
+     * The guard MUST run before the frame-type bit is recorded, otherwise
+     * a malformed 0-RTT packet could leave residual state behind.
+     */
+    CU_ASSERT((pi.pi_frame_types & XQC_FRAME_BIT_CRYPTO) == 0);
+
+    /* Parser must not have advanced; the buffer is untouched. */
+    CU_ASSERT(pi.pos == XQC_TEST_CRYPTO_FRAME_EMPTY);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_crypto_frame_in_initial_accepted()
+{
+    xqc_connection_t *conn;
+    xqc_packet_in_t pi;
+    xqc_int_t ret;
+
+    xqc_test_crypto_frame_setup(&conn, &pi, XQC_PTYPE_INIT);
+
+    ret = xqc_process_crypto_frame(conn, &pi);
+
+    /*
+     * The guard must not fire for Initial packets. Whatever the rest of
+     * xqc_process_crypto_frame does in unit-test isolation, it must NOT
+     * short-circuit with PROTOCOL_VIOLATION and must NOT set FLAG_ERROR.
+     */
+    CU_ASSERT(ret != -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err != TRA_PROTOCOL_VIOLATION);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
+
+    /* The post-guard line that records the frame bit must have executed. */
+    CU_ASSERT((pi.pi_frame_types & XQC_FRAME_BIT_CRYPTO) != 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_crypto_frame_in_handshake_accepted()
+{
+    xqc_connection_t *conn;
+    xqc_packet_in_t pi;
+    xqc_int_t ret;
+
+    xqc_test_crypto_frame_setup(&conn, &pi, XQC_PTYPE_HSK);
+
+    ret = xqc_process_crypto_frame(conn, &pi);
+
+    CU_ASSERT(ret != -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err != TRA_PROTOCOL_VIOLATION);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
+    CU_ASSERT((pi.pi_frame_types & XQC_FRAME_BIT_CRYPTO) != 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_crypto_frame_in_short_header_accepted()
+{
+    xqc_connection_t *conn;
+    xqc_packet_in_t pi;
+    xqc_int_t ret;
+
+    /*
+     * RFC 9001 4.1.3 explicitly permits CRYPTO frames in 1-RTT packets for
+     * post-handshake key updates and NEW_SESSION_TICKET delivery. The guard
+     * must therefore not fire for XQC_PTYPE_SHORT_HEADER.
+     */
+    xqc_test_crypto_frame_setup(&conn, &pi, XQC_PTYPE_SHORT_HEADER);
+
+    ret = xqc_process_crypto_frame(conn, &pi);
+
+    CU_ASSERT(ret != -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err != TRA_PROTOCOL_VIOLATION);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
+    CU_ASSERT((pi.pi_frame_types & XQC_FRAME_BIT_CRYPTO) != 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_crypto_frame_dispatched_via_xqc_process_frame()
+{
+    xqc_connection_t *conn;
+    xqc_packet_in_t pi;
+    xqc_int_t ret;
+
+    /*
+     * End-to-end check that the dispatcher path (xqc_process_frames ->
+     * frame_type 0x06 case) also rejects, not just direct calls to
+     * xqc_process_crypto_frame.
+     */
+    xqc_test_crypto_frame_setup(&conn, &pi, XQC_PTYPE_0RTT);
+
+    ret = xqc_process_frames(conn, &pi);
+
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_PROTOCOL_VIOLATION);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    CU_ASSERT((pi.pi_frame_types & XQC_FRAME_BIT_CRYPTO) == 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_crypto_in_0rtt_emits_connection_close()
+{
+    xqc_connection_t *conn;
+    xqc_packet_in_t pi;
+    xqc_int_t ret;
+
+    xqc_test_crypto_frame_setup(&conn, &pi, XQC_PTYPE_0RTT);
+
+    ret = xqc_process_crypto_frame(conn, &pi);
+    CU_ASSERT(ret == -XQC_EPROTO);
+
+    /*
+     * XQC_CONN_ERR is the canonical entry point for emitting CONNECTION_CLOSE
+     * with a transport error. It must have:
+     *   1. recorded conn_err = TRA_PROTOCOL_VIOLATION (0x0a)
+     *   2. set XQC_CONN_FLAG_ERROR so the connection enters the immediate
+     *      close path (XQC_CONN_IMMEDIATE_CLOSE_FLAGS includes FLAG_ERROR)
+     *   3. driven the connection out of the normal (non-closing) state via
+     *      xqc_conn_closing()
+     *
+     * That triple is the contract under which the engine emits a
+     * CONNECTION_CLOSE frame on the next write opportunity.
+     */
+    CU_ASSERT(conn->conn_err == TRA_PROTOCOL_VIOLATION);
+    CU_ASSERT((uint64_t)conn->conn_err == 0x0a);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_IMMEDIATE_CLOSE_FLAGS) != 0);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_CLOSING_NOTIFY) != 0);
+
     xqc_engine_destroy(conn->engine);
 }

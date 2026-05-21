@@ -697,6 +697,19 @@ xqc_process_crypto_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
     xqc_int_t ret;
 
+    /*
+     * RFC 9001 Section 8.3: A server MUST treat receipt of a CRYPTO frame
+     * in a 0-RTT packet as a connection error of type PROTOCOL_VIOLATION.
+     * Reject before recording the frame type bit so a malformed packet does
+     * not leave residual state.
+     */
+    if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_0RTT) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|reject CRYPTO frame in 0-RTT packet|RFC 9001 8.3|");
+        XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
+        return -XQC_EPROTO;
+    }
+
     /* ack even if the token check fail */
     packet_in->pi_frame_types |= XQC_FRAME_BIT_CRYPTO;
 

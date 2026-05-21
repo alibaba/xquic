@@ -484,6 +484,82 @@ xqc_tp_test_check_client_no_retry_but_rscid_present(void)
     xqc_engine_destroy(conn->engine);
 }
 
+/*
+ * Test: reject TP CID fields exceeding XQC_MAX_CID_LEN (20 bytes).
+ * Constructs raw TP buffers with oversized CID to trigger the length check.
+ */
+void
+xqc_test_tp_cid_overflow(void)
+{
+    xqc_transport_params_t params;
+    xqc_int_t ret;
+
+    /*
+     * TP wire format: varint(param_type) + varint(param_len) + data[param_len]
+     * initial_source_connection_id = 0x0f, length = 21 (exceeds XQC_MAX_CID_LEN=20)
+     */
+    uint8_t tp_iscid_overflow[] = {
+        0x0f,                                       /* param_type = initial_source_connection_id */
+        0x15,                                       /* param_len = 21 (> 20) */
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,  /* 21 bytes of fake CID data */
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+        0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15
+    };
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      tp_iscid_overflow, sizeof(tp_iscid_overflow));
+    CU_ASSERT(ret != XQC_OK);
+
+    /*
+     * original_destination_connection_id = 0x00, length = 21
+     */
+    uint8_t tp_odcid_overflow[] = {
+        0x00,                                       /* param_type = original_dest_connection_id */
+        0x15,                                       /* param_len = 21 */
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+        0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15
+    };
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      tp_odcid_overflow, sizeof(tp_odcid_overflow));
+    CU_ASSERT(ret != XQC_OK);
+
+    /*
+     * retry_source_connection_id = 0x10, length = 21
+     * 0x10 as varint: two-byte encoding 0x40 0x10
+     */
+    uint8_t tp_rscid_overflow[] = {
+        0x40, 0x10,                                 /* param_type = retry_source_connection_id (2-byte varint) */
+        0x15,                                       /* param_len = 21 */
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+        0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15
+    };
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      tp_rscid_overflow, sizeof(tp_rscid_overflow));
+    CU_ASSERT(ret != XQC_OK);
+
+    /* Boundary: exactly 20 bytes should succeed (initial_source_connection_id) */
+    uint8_t tp_iscid_boundary[] = {
+        0x0f,                                       /* param_type = initial_source_connection_id */
+        0x14,                                       /* param_len = 20 (== XQC_MAX_CID_LEN) */
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+        0x0f, 0x10, 0x11, 0x12, 0x13, 0x14
+    };
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      tp_iscid_boundary, sizeof(tp_iscid_boundary));
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(params.initial_source_connection_id.cid_len == 20);
+}
+
 void
 xqc_test_check_transport_params_cids(void)
 {

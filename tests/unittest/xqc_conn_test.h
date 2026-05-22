@@ -7,5 +7,6 @@
 
 void xqc_test_conn_create();
 void xqc_test_conn_idle_timeout();
+void xqc_test_conn_pmtud_unilateral();
 
 #endif

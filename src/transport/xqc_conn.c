@@ -4157,6 +4157,17 @@ xqc_conn_early_data_reject(xqc_connection_t *conn)
 
     xqc_conn_resend_0rtt_datagram(conn);
 
+    /*
+     * RFC 9001 Section 4.6.2: when 0-RTT is rejected, the client
+     * resets the state of all streams. The connection-level send
+     * aggregate is the sum of every stream's send progress, so it
+     * must be reset together with the per-stream offsets below.
+     * Otherwise the buffered data, replayed in 1-RTT through
+     * xqc_write_stream_frame_to_packet, would be charged twice
+     * against the peer's MAX_DATA limit.
+     */
+    conn->conn_flow_ctl.fc_data_sent = 0;
+
     xqc_list_for_each_safe(pos, next, &conn->conn_all_streams) {
         stream = xqc_list_entry(pos, xqc_stream_t, all_stream_list);
         if (stream->stream_flag & XQC_STREAM_FLAG_HAS_0RTT) {

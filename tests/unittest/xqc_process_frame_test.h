@@ -13,4 +13,16 @@ void xqc_test_large_ack_frame();
 
 void xqc_test_stream_frame_offset_overflow();
 
+void xqc_test_crypto_frame_in_0rtt_rejected();
+
+void xqc_test_crypto_frame_in_initial_accepted();
+
+void xqc_test_crypto_frame_in_handshake_accepted();
+
+void xqc_test_crypto_frame_in_short_header_accepted();
+
+void xqc_test_crypto_frame_dispatched_via_xqc_process_frame();
+
+void xqc_test_crypto_in_0rtt_emits_connection_close();
+
 #endif /* _XQC_PROCESS_FRAME_TEST_H_INCLUDED_ */

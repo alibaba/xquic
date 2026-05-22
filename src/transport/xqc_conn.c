@@ -5012,7 +5012,7 @@ xqc_conn_log_recvd_packet(xqc_connection_t *c, xqc_packet_in_t *pi,
 
 xqc_int_t
 xqc_conn_process_packet(xqc_connection_t *c,
-    const unsigned char *packet_in_buf, size_t packet_in_size, 
+    const unsigned char *packet_in_buf, size_t packet_in_size,
     xqc_usec_t recv_time)
 {
     xqc_int_t ret = XQC_OK;
@@ -5021,6 +5021,17 @@ xqc_conn_process_packet(xqc_connection_t *c,
     const unsigned char *end = packet_in_buf + packet_in_size;  /* end of udp datagram */
     xqc_packet_in_t packet;
     unsigned char decrypt_payload[XQC_MAX_PACKET_IN_LEN];
+
+    /*
+     * RFC 9000 Section 12.2: every coalesced packet that follows the first
+     * one in a UDP datagram is required to carry the same Destination
+     * Connection ID as the first packet; receivers SHOULD discard any
+     * mismatching subsequent packet but continue to process the rest.
+     * first_dcid only needs to be valid once first_dcid_seen flips to TRUE,
+     * so leaving the rest of the struct uninitialized is intentional.
+     */
+    xqc_cid_t first_dcid;
+    xqc_bool_t first_dcid_seen = XQC_FALSE;
 
     /* process all QUIC packets in UDP datagram */
     while (pos < end) {
@@ -5039,6 +5050,44 @@ xqc_conn_process_packet(xqc_connection_t *c,
         xqc_conn_log_recvd_packet(c, packet_in, packet_in_size, ret, recv_time);
 
         if (ret == XQC_OK) {
+            /*
+             * Anchor the datagram on the DCID of its first successfully
+             * parsed packet. Subsequent packets must match, otherwise the
+             * peer is either confused or attempting to smuggle traffic
+             * onto another connection's path through coalescing.
+             */
+            if (first_dcid_seen == XQC_FALSE) {
+                xqc_cid_set(&first_dcid, packet_in->pi_pkt.pkt_dcid.cid_buf,
+                            packet_in->pi_pkt.pkt_dcid.cid_len);
+                first_dcid_seen = XQC_TRUE;
+
+            } else if (xqc_cid_is_equal(&first_dcid,
+                                        &packet_in->pi_pkt.pkt_dcid) != XQC_OK)
+            {
+                /*
+                 * Drop only the offending packet, not the whole datagram;
+                 * xqc_dcid_str/xqc_scid_str use distinct engine-side
+                 * scratch buffers, so it is safe to print both CIDs in one
+                 * log statement.
+                 */
+                xqc_log(c->log, XQC_LOG_WARN,
+                        "|coalesced pkt dcid mismatch|first_dcid:%s|pkt_dcid:%s|pkt_type:%s|pkt_num:%ui|",
+                        xqc_dcid_str(c->engine, &first_dcid),
+                        xqc_scid_str(c->engine, &packet_in->pi_pkt.pkt_dcid),
+                        xqc_pkt_type_2_str(packet_in->pi_pkt.pkt_type),
+                        packet_in->pi_pkt.pkt_num);
+
+                c->packet_dropped_count++;
+                xqc_log_event(c->log, TRA_PACKET_DROPPED,
+                              "coalesced pkt dcid mismatch", XQC_OK,
+                              xqc_pkt_type_2_str(packet_in->pi_pkt.pkt_type),
+                              packet_in->pi_pkt.pkt_num);
+
+                pos = packet_in->last;
+                xqc_log_event(c->log, TRA_PACKET_RECEIVED, packet_in);
+                continue;
+            }
+
             ret = xqc_conn_on_pkt_processed(c, packet_in, recv_time);
 
         } else if (xqc_conn_tolerant_error(ret)) {

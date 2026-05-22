@@ -42,6 +42,7 @@
 #include "xqc_fec_test.h"
 #include "xqc_ack_with_timestamp_test.h"
 #include "xqc_send_ctl_test.h"
+#include "xqc_coalesced_test.h"
 
 static int xqc_init_suite(void) { return 0; }
 static int xqc_clean_suite(void) { return 0; }
@@ -126,7 +127,12 @@ main()
                         xqc_test_pto_uses_remote_max_ack_delay)
         || !CU_add_test(pSuite, "xqc_test_pto_remote_default_when_unset",
                         xqc_test_pto_remote_default_when_unset)
-        /* ADD TESTS HERE */) 
+        || !CU_add_test(pSuite, "xqc_test_coalesced_single_pkt", xqc_test_coalesced_single_pkt)
+        || !CU_add_test(pSuite, "xqc_test_coalesced_dcid_match", xqc_test_coalesced_dcid_match)
+        || !CU_add_test(pSuite, "xqc_test_coalesced_dcid_mismatch", xqc_test_coalesced_dcid_mismatch)
+        || !CU_add_test(pSuite, "xqc_test_coalesced_dcid_len_mismatch", xqc_test_coalesced_dcid_len_mismatch)
+        || !CU_add_test(pSuite, "xqc_test_coalesced_dcid_a_b_a", xqc_test_coalesced_dcid_a_b_a)
+        /* ADD TESTS HERE */)
     {
         CU_cleanup_registry();
         return (int)CU_get_error();

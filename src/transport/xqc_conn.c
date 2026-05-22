@@ -6465,17 +6465,46 @@ xqc_conn_set_init_idle_timeout(xqc_connection_t *conn, xqc_msec_t init_idle_time
 xqc_msec_t
 xqc_conn_get_idle_timeout(xqc_connection_t *conn)
 {
+    xqc_msec_t local_to, remote_to, idle_timeout;
+
     if (conn->conn_type == XQC_CONN_TYPE_SERVER
         && !(conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_COMPLETED))
     {
         /* only server will limit idle timeout to init_idle_time_out before handshake completed */
         return conn->conn_settings.init_idle_time_out == 0
             ? XQC_CONN_INITIAL_IDLE_TIMEOUT : conn->conn_settings.init_idle_time_out;
+    }
+
+    local_to = conn->local_settings.max_idle_timeout;
+
+    /*
+     * RFC 9000 10.1: the effective idle timeout is the minimum of the
+     * max_idle_timeout values advertised by both endpoints, where a value
+     * of 0 means the endpoint imposes no limit. Remote transport
+     * parameters are only authoritative after handshake completion, so
+     * fall back to the local value before then.
+     */
+    if (conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_COMPLETED) {
+        remote_to = conn->remote_settings.max_idle_timeout;
+
+        if (local_to == 0) {
+            idle_timeout = remote_to;
+
+        } else if (remote_to == 0) {
+            idle_timeout = local_to;
+
+        } else {
+            idle_timeout = xqc_min(local_to, remote_to);
+        }
 
     } else {
-        return conn->local_settings.max_idle_timeout == 0
-            ? XQC_CONN_DEFAULT_IDLE_TIMEOUT : conn->local_settings.max_idle_timeout;
+        idle_timeout = local_to;
     }
+
+    /* both peers disabled the timeout; fall back to xquic's safe default
+     * rather than returning 0 to avoid disabling the idle timer entirely.
+     */
+    return idle_timeout == 0 ? XQC_CONN_DEFAULT_IDLE_TIMEOUT : idle_timeout;
 }
 
 xqc_msec_t

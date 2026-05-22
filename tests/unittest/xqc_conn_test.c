@@ -8,8 +8,10 @@
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_client.h"
 #include "src/transport/xqc_defs.h"
+#include "src/transport/xqc_stream.h"
 #include "xquic/xquic_typedef.h"
 #include "src/common/xqc_str.h"
+#include "src/common/xqc_list.h"
 #include "src/congestion_control/xqc_new_reno.h"
 #include "xqc_common_test.h"
 #include "src/transport/xqc_engine.h"
@@ -128,4 +130,100 @@ xqc_test_conn_idle_timeout()
     CU_ASSERT(got == 5000);
 
     xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * Regression guard for issue #681. xqc_conn_early_data_reject must
+ * walk every 0-RTT-flagged stream on conn_all_streams. The pre-fix
+ * loop returned XQC_OK as soon as it hit a stream already in
+ * RESET_SENT / RESET_RECVD, leaving any subsequent 0-RTT streams in
+ * their pre-reject state. Three streams are primed so the middle
+ * one short-circuits the loop in the broken version, and the
+ * assertions on the third stream catch the regression.
+ */
+void
+xqc_test_conn_early_data_reject()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    /* The loop being exercised lives in the client branch. */
+    CU_ASSERT(conn->conn_type != XQC_CONN_TYPE_SERVER);
+
+    xqc_stream_t *s1 = xqc_create_stream_with_conn(conn, XQC_UNDEFINE_STREAM_ID,
+                                                   XQC_CLI_BID, NULL, NULL);
+    xqc_stream_t *s2 = xqc_create_stream_with_conn(conn, XQC_UNDEFINE_STREAM_ID,
+                                                   XQC_CLI_BID, NULL, NULL);
+    xqc_stream_t *s3 = xqc_create_stream_with_conn(conn, XQC_UNDEFINE_STREAM_ID,
+                                                   XQC_CLI_BID, NULL, NULL);
+    CU_ASSERT_FATAL(s1 != NULL && s2 != NULL && s3 != NULL);
+
+    /*
+     * Prime each stream with a non-zero send_offset / unacked_pkt so
+     * the post-call zeroing is observable, and force the middle one
+     * past the RESET threshold to drive the issue path.
+     */
+    s1->stream_flag |= XQC_STREAM_FLAG_HAS_0RTT;
+    s1->stream_send_offset = 100;
+    s1->stream_unacked_pkt = 2;
+
+    s2->stream_flag |= XQC_STREAM_FLAG_HAS_0RTT;
+    s2->stream_send_offset = 200;
+    s2->stream_unacked_pkt = 3;
+    s2->stream_state_send = XQC_SEND_STREAM_ST_RESET_SENT;
+
+    s3->stream_flag |= XQC_STREAM_FLAG_HAS_0RTT;
+    s3->stream_send_offset = 300;
+    s3->stream_unacked_pkt = 4;
+
+    xqc_int_t ret = xqc_conn_early_data_reject(conn);
+    CU_ASSERT(ret == XQC_OK);
+
+    /* Live stream: re-initialised for 1-RTT retransmission. */
+    CU_ASSERT_EQUAL(s1->stream_send_offset, 0);
+    CU_ASSERT_EQUAL(s1->stream_unacked_pkt, 0);
+    CU_ASSERT_EQUAL(s1->stream_state_send, XQC_SEND_STREAM_ST_READY);
+    CU_ASSERT_EQUAL(s1->stream_state_recv, XQC_RECV_STREAM_ST_RECV);
+
+    /*
+     * Already-reset stream: offsets cleared, terminal state preserved
+     * (RFC 9000 §3.4 forbids resurrecting a reset stream), buffered
+     * 0-RTT writes discarded.
+     */
+    CU_ASSERT_EQUAL(s2->stream_send_offset, 0);
+    CU_ASSERT_EQUAL(s2->stream_unacked_pkt, 0);
+    CU_ASSERT_EQUAL(s2->stream_state_send, XQC_SEND_STREAM_ST_RESET_SENT);
+    CU_ASSERT(xqc_list_empty(&s2->stream_write_buff_list.write_buff_list));
+
+    /*
+     * Regression guard for issue #681: with the pre-fix early return
+     * this stream would still hold offset 300 / unacked 4 / READY-send
+     * untouched. The fix MUST iterate past the reset stream above.
+     */
+    CU_ASSERT_EQUAL(s3->stream_send_offset, 0);
+    CU_ASSERT_EQUAL(s3->stream_unacked_pkt, 0);
+    CU_ASSERT_EQUAL(s3->stream_state_send, XQC_SEND_STREAM_ST_READY);
+    CU_ASSERT_EQUAL(s3->stream_state_recv, XQC_RECV_STREAM_ST_RECV);
+
+    /*
+     * A stream without the 0-RTT flag must not be touched by the
+     * function regardless of its position in the list.
+     */
+    xqc_stream_t *s4 = xqc_create_stream_with_conn(conn, XQC_UNDEFINE_STREAM_ID,
+                                                   XQC_CLI_BID, NULL, NULL);
+    CU_ASSERT_FATAL(s4 != NULL);
+    s4->stream_send_offset = 400;
+    s4->stream_unacked_pkt = 5;
+
+    ret = xqc_conn_early_data_reject(conn);
+    CU_ASSERT(ret == XQC_OK);
+
+    CU_ASSERT_EQUAL(s4->stream_send_offset, 400);
+    CU_ASSERT_EQUAL(s4->stream_unacked_pkt, 5);
+
+    xqc_destroy_stream(s1);
+    xqc_destroy_stream(s2);
+    xqc_destroy_stream(s3);
+    xqc_destroy_stream(s4);
 }

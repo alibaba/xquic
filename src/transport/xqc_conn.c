@@ -4165,8 +4165,16 @@ xqc_conn_early_data_reject(xqc_connection_t *conn)
             if (stream->stream_state_send >= XQC_SEND_STREAM_ST_RESET_SENT
                 || stream->stream_state_recv >= XQC_RECV_STREAM_ST_RESET_RECVD)
             {
+                /*
+                 * RFC 9001 Section 4.6.2: when 0-RTT is rejected, the
+                 * client MUST reset the state of all streams that were
+                 * sent in 0-RTT. A stream already in RESET_SENT /
+                 * RESET_RECVD cannot be re-initialized, so just discard
+                 * its buffered 0-RTT writes and continue iterating so the
+                 * remaining 0-RTT streams are still processed.
+                 */
                 xqc_destroy_write_buff_list(&stream->stream_write_buff_list.write_buff_list);
-                return XQC_OK;
+                continue;
             }
             xqc_stream_send_state_update(stream, XQC_SEND_STREAM_ST_READY);
             xqc_stream_recv_state_update(stream, XQC_RECV_STREAM_ST_RECV);

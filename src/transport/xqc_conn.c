@@ -1545,7 +1545,7 @@ xqc_conn_destroy(xqc_connection_t *xc)
             fec_mpm_str, conn_stats.send_fec_cnt, xc->fec_ctl ? xc->fec_ctl->fec_recover_pkt_cnt : 0,
             xc->pkt_out_size, xc->max_pkt_out_size, xc->probing_pkt_out_size,
             conn_stats.extern_conn_info, xc->max_acked_po_size, 
-            xc->local_settings.enable_pmtud & xc->remote_settings.enable_pmtud, xc->conn_avg_close_delay,
+            xc->local_settings.enable_pmtud, xc->conn_avg_close_delay,
             xc->passive_bidi_stream_max
             );
     xqc_log_event(xc->log, CON_CONNECTION_CLOSED, xc);
@@ -4318,12 +4318,29 @@ xqc_conn_add_path_cid_sets(xqc_connection_t *conn, uint32_t start, uint32_t end)
     return XQC_OK;
 }
 
-void 
+void
 xqc_conn_try_to_enable_pmtud(xqc_connection_t *conn)
 {
+    /*
+     * RFC 9000 Section 14 places PMTUD entirely on the sender: the path
+     * maximum is discovered locally by emitting probe packets and
+     * observing acknowledgements (see also RFC 8899 for DPLPMTUD). No
+     * transport parameter is defined or required for it.
+     *
+     * Earlier revisions of this function AND-gated PMTUD on
+     * conn->remote_settings.enable_pmtud, which is decoded from an
+     * xquic-private transport parameter (0x0e08a234ff112300). Peers
+     * that do not speak this private parameter (ngtcp2, Cloudflare
+     * quiche, Google QUIC, ...) leave the field at zero, so the gate
+     * silently disabled xquic's own probing against every non-xquic
+     * peer. That is the bug fixed here: the decision is now driven
+     * solely by the local opt-in bit. The transport parameter is still
+     * emitted and parsed for wire compatibility with older xquic
+     * builds, but no longer participates in the gating.
+     */
     uint64_t pmtud_check_bit = conn->conn_type == XQC_CONN_TYPE_SERVER ? 0x2 : 0x1;
     xqc_usec_t now;
-    if (((conn->remote_settings.enable_pmtud & conn->local_settings.enable_pmtud) & pmtud_check_bit) != 0) {
+    if ((conn->local_settings.enable_pmtud & pmtud_check_bit) != 0) {
         conn->enable_pmtud = 1;
         now = xqc_monotonic_timestamp();
         if (conn->enable_multipath) {

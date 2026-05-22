@@ -1432,14 +1432,17 @@ typedef struct xqc_conn_settings_s {
     uint64_t                    datagram_redundant_probe;
 
      /**
-     * enable PMTUD: 
-     * 0x0 disbale, 
-     * 0x1 enable client probing, 
-     * 0x2 enable server probing, 
-     * 0x3 enable both ends probing
-     * NOTE: This option needs to be negotiated by both ends. The final decision
-     * is made by the logic AND operation of both ends' options, e.g. client:
-     * 0x3, server: 0x1 --> 0x1 (only enable client probing).
+     * enable PMTUD:
+     * 0x0 disable PMTUD probing on this endpoint
+     * 0x1 enable client-side probing (only meaningful on a client)
+     * 0x2 enable server-side probing (only meaningful on a server)
+     * 0x3 enable both bits, so the same value can be reused on either role
+     *
+     * NOTE: PMTUD is a sender-side mechanism per RFC 9000 Section 14
+     * and RFC 8899. The decision is made unilaterally based on this
+     * local option; no peer agreement is needed or performed. The bit
+     * matching the local role (0x1 on a client, 0x2 on a server) drives
+     * the decision; the other bit is ignored.
      **/
     uint8_t                     enable_pmtud;
     /** probing interval (us), default: 500000 */

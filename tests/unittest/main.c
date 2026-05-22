@@ -127,7 +127,9 @@ main()
                         xqc_test_pto_uses_remote_max_ack_delay)
         || !CU_add_test(pSuite, "xqc_test_pto_remote_default_when_unset",
                         xqc_test_pto_remote_default_when_unset)
-        /* ADD TESTS HERE */) 
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_update_rtt_ack_delay_cap",
+                        xqc_test_send_ctl_update_rtt_ack_delay_cap)
+        /* ADD TESTS HERE */)
     {
         CU_cleanup_registry();
         return (int)CU_get_error();

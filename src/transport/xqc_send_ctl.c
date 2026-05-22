@@ -21,6 +21,7 @@
 #include "src/transport/xqc_utils.h"
 #include "src/transport/xqc_datagram.h"
 #include "src/transport/xqc_reinjection.h"
+#include "src/transport/xqc_transport_params.h"
 
 int 
 xqc_send_ctl_may_remove_unacked_dgram(xqc_connection_t *conn, xqc_packet_out_t *po)
@@ -1155,8 +1156,19 @@ xqc_send_ctl_update_rtt(xqc_send_ctl_t *send_ctl, xqc_usec_t *latest_rtt, xqc_us
     } else {
         send_ctl->ctl_minrtt = xqc_min(*latest_rtt, send_ctl->ctl_minrtt);
 
+        /*
+         * RFC 9002 5.3: ack_delay MUST be clamped by max_ack_delay before
+         * being subtracted from latest_rtt. Until the handshake is
+         * confirmed the peer is required to use the default max_ack_delay
+         * (RFC 9000 18.2), so use that constant; after confirmation the
+         * negotiated value from the peer's transport parameters applies.
+         */
         if (xqc_conn_is_handshake_confirmed(send_ctl->ctl_conn)) {
-            ack_delay = xqc_min(ack_delay, send_ctl->ctl_conn->remote_settings.max_ack_delay * 1000);
+            ack_delay = xqc_min(ack_delay,
+                                send_ctl->ctl_conn->remote_settings.max_ack_delay * 1000);
+
+        } else {
+            ack_delay = xqc_min(ack_delay, XQC_DEFAULT_MAX_ACK_DELAY * 1000);
         }
 
         /* Adjust for ack delay if it's plausible. */

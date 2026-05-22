@@ -227,3 +227,83 @@ xqc_test_conn_early_data_reject()
     xqc_destroy_stream(s3);
     xqc_destroy_stream(s4);
 }
+
+
+/*
+ * Regression guard for issue #767. When 0-RTT is rejected, the client
+ * branch of xqc_conn_early_data_reject must reset the connection-level
+ * fc_data_sent counter together with the per-stream offsets, otherwise
+ * the buffered data replayed in 1-RTT is charged twice against the
+ * peer's MAX_DATA limit. The server branch returns before the reset
+ * line and must leave the counter untouched.
+ */
+void
+xqc_test_conn_early_data_reject_flow_ctl()
+{
+    xqc_engine_t        *engine;
+    xqc_connection_t    *conn;
+    xqc_stream_t        *stream;
+    xqc_int_t            ret;
+
+    /*
+     * Case 1: client connection with a HAS_0RTT stream. fc_data_sent is
+     * primed to a non-zero value and must be cleared after the reject.
+     * The stream is forced into RESET_SENT so the loop takes the
+     * early-return branch and avoids the buffered-write code path.
+     */
+    conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT(conn->conn_type == XQC_CONN_TYPE_CLIENT);
+    engine = conn->engine;
+
+    stream = xqc_create_stream_with_conn(conn, XQC_UNDEFINE_STREAM_ID,
+                                         XQC_CLI_BID, NULL, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+    stream->stream_flag |= XQC_STREAM_FLAG_HAS_0RTT;
+    stream->stream_state_send = XQC_SEND_STREAM_ST_RESET_SENT;
+
+    conn->conn_flow_ctl.fc_data_sent = 4096;
+
+    ret = xqc_conn_early_data_reject(conn);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_flag & XQC_CONN_FLAG_0RTT_REJ);
+    CU_ASSERT(conn->conn_flow_ctl.fc_data_sent == 0);
+
+    xqc_engine_destroy(engine);
+
+    /*
+     * Case 2: client connection without any HAS_0RTT stream. The reset
+     * sits before the per-stream loop and is unconditional on the
+     * client branch, so fc_data_sent must still be zeroed.
+     */
+    conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    engine = conn->engine;
+
+    conn->conn_flow_ctl.fc_data_sent = 8192;
+
+    ret = xqc_conn_early_data_reject(conn);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_flow_ctl.fc_data_sent == 0);
+
+    xqc_engine_destroy(engine);
+
+    /*
+     * Case 3: server branch returns at the early exit before the reset
+     * line is reached, so fc_data_sent must remain unchanged. The test
+     * infrastructure only builds client connections, so the conn_type
+     * is overridden directly to exercise the server path.
+     */
+    conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    engine = conn->engine;
+
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    conn->conn_flow_ctl.fc_data_sent = 16384;
+
+    ret = xqc_conn_early_data_reject(conn);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_flow_ctl.fc_data_sent == 16384);
+
+    xqc_engine_destroy(engine);
+}

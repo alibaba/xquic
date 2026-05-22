@@ -8,5 +8,6 @@
 void xqc_test_conn_create();
 void xqc_test_conn_idle_timeout();
 void xqc_test_conn_early_data_reject();
+void xqc_test_conn_early_data_reject_flow_ctl();
 
 #endif

@@ -13,6 +13,8 @@
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_multipath.h"
 #include "src/transport/xqc_transport_params.h"
+#include "src/transport/xqc_packet_out.h"
+#include "src/transport/xqc_frame.h"
 
 
 /*
@@ -318,4 +320,134 @@ xqc_test_send_ctl_update_rtt_ack_delay_cap(void)
     xqc_engine_destroy(conn->engine);
     xqc_free(path->path_send_ctl);
     xqc_free(path);
+}
+
+
+/*
+ * Issue #722 regression test.
+ *
+ * RFC 9002 defines an in-flight packet as one that carries any frame
+ * besides ACK or CONNECTION_CLOSE. Before the fix,
+ * xqc_send_ctl_increase_inflight gated the bytes_in_flight accounting
+ * on XQC_IS_ACK_ELICITING, which excludes PADDING, so a packet that
+ * carried nothing but PADDING (PMTUD probes, Initial padding, anti-
+ * amplification fill) never reached the counter. The decrement path
+ * was symmetrically wrong, so the per-packet XQC_POF_IN_FLIGHT flag
+ * never flipped and the counters merely stayed balanced -- always
+ * understated. After the fix bytes_in_flight follows
+ * XQC_CAN_IN_FLIGHT, while bytes_ack_eliciting_inflight remains
+ * gated on XQC_IS_ACK_ELICITING.
+ *
+ * We construct minimal xqc_packet_out_t objects on the stack and
+ * drive the two counters directly; the goal is to lock the
+ * branching logic, not to exercise the surrounding scheduler.
+ */
+static void
+xqc_test_inflight_init_packet(xqc_packet_out_t *po, uint64_t types,
+    uint64_t path_id)
+{
+    memset(po, 0, sizeof(*po));
+    po->po_frame_types  = types;
+    po->po_used_size    = 1200;
+    po->po_path_id      = path_id;
+    po->po_pkt.pkt_pns  = XQC_PNS_APP_DATA;
+}
+
+void
+xqc_test_send_ctl_inflight_padding(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    CU_ASSERT_FATAL(send_ctl != NULL);
+
+    uint64_t path_id = conn->conn_initial_path->path_id;
+
+    /* Baseline */
+    send_ctl->ctl_bytes_in_flight = 0;
+    send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA] = 0;
+
+    /* Case 1: pure PADDING packet must enter bytes_in_flight but
+     * leave bytes_ack_eliciting_inflight untouched. */
+    xqc_packet_out_t padding_only;
+    xqc_test_inflight_init_packet(&padding_only,
+                                  XQC_FRAME_BIT_PADDING, path_id);
+    xqc_send_ctl_increase_inflight(conn, &padding_only);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, 1200);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA], 0);
+    CU_ASSERT((padding_only.po_flag & XQC_POF_IN_FLIGHT) != 0);
+
+    /* Case 2: pure ACK packet must NOT be counted (XQC_CAN_IN_FLIGHT
+     * excludes ACK). */
+    xqc_packet_out_t ack_only;
+    xqc_test_inflight_init_packet(&ack_only,
+                                  XQC_FRAME_BIT_ACK, path_id);
+    xqc_send_ctl_increase_inflight(conn, &ack_only);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, 1200);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA], 0);
+    CU_ASSERT((ack_only.po_flag & XQC_POF_IN_FLIGHT) == 0);
+
+    /* Case 3: pure CONNECTION_CLOSE must NOT be counted. */
+    xqc_packet_out_t cc_only;
+    xqc_test_inflight_init_packet(&cc_only,
+                                  XQC_FRAME_BIT_CONNECTION_CLOSE, path_id);
+    xqc_send_ctl_increase_inflight(conn, &cc_only);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, 1200);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA], 0);
+
+    /* Case 4: STREAM packet bumps both counters (ack-eliciting). */
+    xqc_packet_out_t stream_pkt;
+    xqc_test_inflight_init_packet(&stream_pkt,
+                                  XQC_FRAME_BIT_STREAM, path_id);
+    xqc_send_ctl_increase_inflight(conn, &stream_pkt);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, 2400);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA], 1200);
+
+    /* Case 5: PADDING + ACK in the same packet -- PADDING keeps
+     * XQC_CAN_IN_FLIGHT true so bytes_in_flight increases, but the
+     * packet is not ack-eliciting (PADDING and ACK are both in the
+     * XQC_IS_ACK_ELICITING exclusion list). */
+    xqc_packet_out_t padding_plus_ack;
+    xqc_test_inflight_init_packet(&padding_plus_ack,
+                                  XQC_FRAME_BIT_PADDING | XQC_FRAME_BIT_ACK,
+                                  path_id);
+    xqc_send_ctl_increase_inflight(conn, &padding_plus_ack);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, 3600);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA], 1200);
+
+    /* Case 6: a second increase_inflight on the same packet is a
+     * no-op -- the XQC_POF_IN_FLIGHT flag must guard against double
+     * counting. */
+    xqc_send_ctl_increase_inflight(conn, &padding_only);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, 3600);
+
+    /* Case 7: decrease_inflight on the PADDING-only packet must
+     * subtract from bytes_in_flight without touching the
+     * ack_eliciting counter -- symmetric with case 1. */
+    xqc_send_ctl_decrease_inflight(conn, &padding_only);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, 2400);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA], 1200);
+    CU_ASSERT((padding_only.po_flag & XQC_POF_IN_FLIGHT) == 0);
+
+    /* Case 8: decrease the PADDING+ACK packet -- bytes_in_flight only. */
+    xqc_send_ctl_decrease_inflight(conn, &padding_plus_ack);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, 1200);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA], 1200);
+
+    /* Case 9: decrease the STREAM packet -- both counters go back to zero. */
+    xqc_send_ctl_decrease_inflight(conn, &stream_pkt);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, 0);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA], 0);
+
+    /* Case 10: a second decrease on the same packet must not
+     * underflow either counter. xqc_uint32_bounded_subtract clamps
+     * at zero but the XQC_POF_IN_FLIGHT guard should short-circuit
+     * the call first. */
+    xqc_send_ctl_decrease_inflight(conn, &stream_pkt);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, 0);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA], 0);
+
+    xqc_engine_destroy(conn->engine);
 }

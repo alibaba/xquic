@@ -139,6 +139,8 @@ main()
         || !CU_add_test(pSuite, "xqc_test_vn_reject_when_scid_mismatch", xqc_test_vn_reject_when_scid_mismatch)
         || !CU_add_test(pSuite, "xqc_test_vn_reject_when_state_not_initial_sent", xqc_test_vn_reject_when_state_not_initial_sent)
         || !CU_add_test(pSuite, "xqc_test_vn_abort_on_multi_unsupported_versions", xqc_test_vn_abort_on_multi_unsupported_versions)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_inflight_padding",
+                        xqc_test_send_ctl_inflight_padding)
         /* ADD TESTS HERE */)
     {
         CU_cleanup_registry();

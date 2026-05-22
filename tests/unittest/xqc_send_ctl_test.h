@@ -21,4 +21,11 @@ void xqc_test_pto_remote_default_when_unset(void);
  */
 void xqc_test_send_ctl_update_rtt_ack_delay_cap(void);
 
+/*
+ * Regression test for issue #722 (RFC 9002 in-flight definition):
+ * pure PADDING packets must count toward bytes_in_flight even though
+ * they are not ack-eliciting.
+ */
+void xqc_test_send_ctl_inflight_padding(void);
+
 #endif

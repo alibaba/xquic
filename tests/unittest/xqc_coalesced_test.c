@@ -26,6 +26,7 @@
 #include "src/transport/xqc_packet.h"
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_packet_parser.h"
+#include "src/transport/xqc_frame_parser.h"
 #include "src/transport/xqc_cid.h"
 
 
@@ -161,6 +162,87 @@ build_initial_pkt(xqc_connection_t *cli_conn,
         (COALESCED_TEST_PKT_TARGET > (size_t)hdr_len + aead_tag)
             ? COALESCED_TEST_PKT_TARGET - (size_t)hdr_len - aead_tag
             : 64;
+
+    if (po->po_used_size + target_payload > po->po_buf_cap) {
+        xqc_packet_out_destroy(po);
+        return 0;
+    }
+    memset(po->po_buf + po->po_used_size, 0x00, target_payload);
+    po->po_used_size += target_payload;
+
+    size_t enc_len = 0;
+    xqc_int_t ret = xqc_packet_encrypt_buf(cli_conn, po, out_buf,
+                                           out_buf_cap, &enc_len);
+    xqc_packet_out_destroy(po);
+    if (ret != XQC_OK) {
+        return 0;
+    }
+    return enc_len;
+}
+
+
+/*
+ * Variant of build_initial_pkt that injects a CONNECTION_CLOSE frame
+ * (0x1c, transport-level, err_code=0x0a PROTOCOL_VIOLATION) at the head
+ * of the payload before padding. The frame is observable through two
+ * server-side side effects produced by xqc_process_conn_close_frame:
+ *
+ *   - conn_close_recv_time flips from 0 to a non-zero timestamp
+ *   - conn_state advances to XQC_CONN_STATE_DRAINING
+ *
+ * Neither of those is touched by xqc_conn_on_pkt_processed, so they
+ * only appear if the frame really reached xqc_process_frames. This
+ * makes the helper a smoking-gun probe for "were the offending packet's
+ * frames actually applied to connection state?".
+ */
+static size_t
+build_initial_pkt_with_conn_close(xqc_connection_t *cli_conn,
+                                  const unsigned char *dcid_buf,
+                                  uint8_t dcid_len,
+                                  xqc_packet_number_t pkt_num,
+                                  uint8_t *out_buf, size_t out_buf_cap)
+{
+    xqc_packet_out_t *po = xqc_packet_out_create(2048);
+    if (po == NULL) {
+        return 0;
+    }
+
+    po->po_pkt.pkt_type = XQC_PTYPE_INIT;
+    po->po_pkt.pkt_pns  = XQC_PNS_INIT;
+    po->po_pkt.pkt_num  = pkt_num;
+
+    memcpy(po->po_pkt.pkt_scid.cid_buf,
+           cli_conn->scid_set.user_scid.cid_buf,
+           cli_conn->scid_set.user_scid.cid_len);
+    po->po_pkt.pkt_scid.cid_len = cli_conn->scid_set.user_scid.cid_len;
+
+    memcpy(po->po_pkt.pkt_dcid.cid_buf, dcid_buf, dcid_len);
+    po->po_pkt.pkt_dcid.cid_len = dcid_len;
+
+    ssize_t hdr_len = xqc_gen_long_packet_header(
+        po,
+        po->po_pkt.pkt_dcid.cid_buf, po->po_pkt.pkt_dcid.cid_len,
+        po->po_pkt.pkt_scid.cid_buf, po->po_pkt.pkt_scid.cid_len,
+        NULL, 0, XQC_VERSION_V1, XQC_PKTNO_BITS);
+    if (hdr_len <= 0) {
+        xqc_packet_out_destroy(po);
+        return 0;
+    }
+    po->po_used_size += hdr_len;
+
+    /* CONNECTION_CLOSE (transport, PROTOCOL_VIOLATION, no triggering frame). */
+    ssize_t cc_len = xqc_gen_conn_close_frame(po, 0x0a, 0, 0);
+    if (cc_len <= 0) {
+        xqc_packet_out_destroy(po);
+        return 0;
+    }
+    po->po_used_size += cc_len;
+
+    /* Pad to roughly the same nominal size as build_initial_pkt. */
+    size_t aead_tag = 16;
+    size_t fixed = (size_t)hdr_len + (size_t)cc_len + aead_tag;
+    size_t target_payload =
+        (COALESCED_TEST_PKT_TARGET > fixed) ? COALESCED_TEST_PKT_TARGET - fixed : 64;
 
     if (po->po_used_size + target_payload > po->po_buf_cap) {
         xqc_packet_out_destroy(po);
@@ -468,6 +550,76 @@ xqc_test_coalesced_dcid_a_b_a(void)
     (void)xqc_conn_process_packet(svr.c, combined, off, xqc_now());
 
     /* Only the middle packet should have been dropped. */
+    CU_ASSERT_EQUAL(svr.c->packet_dropped_count, baseline_dropped + 1);
+
+    coalesced_test_teardown(&cli, &svr);
+}
+
+
+/*
+ * Smoking-gun test for the §12.2 semantics that drop counters alone
+ * cannot prove: when the offending packet carries an observable frame
+ * (CONNECTION_CLOSE), the receiver state must be untouched. If the
+ * mismatch check fires only after xqc_packet_decrypt_single (which
+ * internally calls xqc_process_frames), the CLOSE frame still lands
+ * and drives the connection to DRAINING - which is exactly the bug
+ * this case is here to catch.
+ */
+void
+xqc_test_coalesced_mismatch_frames_not_applied(void)
+{
+    coalesced_ctx_t cli = {0};
+    coalesced_ctx_t svr = {0};
+
+    if (coalesced_test_setup(&cli, &svr) != 0) {
+        CU_FAIL("coalesced_test_setup failed");
+        coalesced_test_teardown(&cli, &svr);
+        return;
+    }
+
+    uint32_t baseline_dropped = svr.c->packet_dropped_count;
+    xqc_conn_state_t baseline_state = svr.c->conn_state;
+    CU_ASSERT_EQUAL(svr.c->conn_close_recv_time, 0);
+    CU_ASSERT(baseline_state < XQC_CONN_STATE_DRAINING);
+
+    uint8_t dcid_a[XQC_MAX_CID_LEN];
+    uint8_t dcid_a_len = cli.c->dcid_set.current_dcid.cid_len;
+    memcpy(dcid_a, cli.c->dcid_set.current_dcid.cid_buf, dcid_a_len);
+
+    uint8_t dcid_b[XQC_MAX_CID_LEN];
+    uint8_t dcid_b_len = dcid_a_len;
+    memcpy(dcid_b, dcid_a, dcid_a_len);
+    dcid_b[0] ^= 0xFF;
+
+    /* First packet: legitimate anchor, padding-only. */
+    uint8_t enc1[2048];
+    size_t enc1_len = build_initial_pkt(cli.c, dcid_a, dcid_a_len, 1,
+                                        enc1, sizeof(enc1));
+    CU_ASSERT(enc1_len > 0);
+
+    /* Second packet: mismatching DCID, CONNECTION_CLOSE payload. */
+    uint8_t enc2[2048];
+    size_t enc2_len = build_initial_pkt_with_conn_close(
+        cli.c, dcid_b, dcid_b_len, 2, enc2, sizeof(enc2));
+    CU_ASSERT(enc2_len > 0);
+
+    uint8_t combined[8192];
+    CU_ASSERT(enc1_len + enc2_len <= sizeof(combined));
+    memcpy(combined, enc1, enc1_len);
+    memcpy(combined + enc1_len, enc2, enc2_len);
+
+    (void)xqc_conn_process_packet(svr.c, combined,
+                                  enc1_len + enc2_len, xqc_now());
+
+    /*
+     * Core invariants of RFC 9000 §12.2: the offending packet's frames
+     * MUST NOT take effect on the connection.
+     */
+    CU_ASSERT_EQUAL(svr.c->conn_close_recv_time, 0);
+    CU_ASSERT(svr.c->conn_state < XQC_CONN_STATE_DRAINING);
+
+    /* And the drop counter still has to move forward, otherwise we would
+     * silently accept the rogue packet. */
     CU_ASSERT_EQUAL(svr.c->packet_dropped_count, baseline_dropped + 1);
 
     coalesced_test_teardown(&cli, &svr);

@@ -12,6 +12,7 @@
 #include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_recv_record.h"
 #include "src/transport/xqc_packet_parser.h"
+#include "src/transport/xqc_cid.h"
 #include "src/transport/xqc_utils.h"
 #include "src/transport/xqc_engine.h"
 #include "src/tls/xqc_tls.h"
@@ -248,6 +249,34 @@ xqc_int_t
 xqc_packet_process_single(xqc_connection_t *c,
     xqc_packet_in_t *packet_in)
 {
+    return xqc_packet_process_single_anchored(c, packet_in, NULL, NULL);
+}
+
+/*
+ * RFC 9000 Section 12.2: every coalesced packet that follows the first
+ * one in a UDP datagram is required to carry the same Destination
+ * Connection ID as the first packet; receivers MUST discard any
+ * mismatching subsequent packet without processing its payload, while
+ * continuing to process the rest of the datagram.
+ *
+ * The check has to happen after xqc_packet_parse_single (so that
+ * pi_pkt.pkt_dcid and packet_in->last are populated for the current
+ * packet) but BEFORE xqc_packet_decrypt_single, because the "decrypt"
+ * step internally calls xqc_process_frames and applies STREAM/ACK/CRYPTO
+ * frames to the connection state. Once that returns, dropping the packet
+ * at the caller level cannot un-apply those frames - it would only skip
+ * xqc_conn_on_pkt_processed bookkeeping, which is not what §12.2 requires.
+ *
+ * Only packets that carry a packet number participate in anchoring and
+ * mismatch detection. VERSION_NEGOTIATION and RETRY are stand-alone by
+ * spec and must not be coalesced, so they are skipped here to avoid
+ * polluting the anchor.
+ */
+xqc_int_t
+xqc_packet_process_single_anchored(xqc_connection_t *c,
+    xqc_packet_in_t *packet_in,
+    xqc_cid_t *first_dcid, xqc_bool_t *first_dcid_seen)
+{
     xqc_int_t ret = XQC_ERROR;
 
     /* parse packet */
@@ -259,6 +288,37 @@ xqc_packet_process_single(xqc_connection_t *c,
     /* those packets with no packet number, don't need to be decrypt or put into CC */
     if (!xqc_packet_need_decrypt(&packet_in->pi_pkt)) {
         return XQC_OK;
+    }
+
+    /*
+     * Anchor on the DCID of the first parsed packet that needs decryption,
+     * and reject every subsequent packet whose DCID does not match. Doing
+     * this before xqc_packet_decrypt_single guarantees that the offending
+     * packet's frames are never delivered to the connection state machine
+     * and that no AEAD work is spent on a packet we are required to drop.
+     */
+    if (first_dcid != NULL && first_dcid_seen != NULL) {
+        if (*first_dcid_seen == XQC_FALSE) {
+            xqc_cid_set(first_dcid, packet_in->pi_pkt.pkt_dcid.cid_buf,
+                        packet_in->pi_pkt.pkt_dcid.cid_len);
+            *first_dcid_seen = XQC_TRUE;
+
+        } else if (xqc_cid_is_equal(first_dcid,
+                                    &packet_in->pi_pkt.pkt_dcid) != XQC_OK)
+        {
+            xqc_log(c->log, XQC_LOG_WARN,
+                    "|coalesced pkt dcid mismatch|first_dcid:%s|pkt_dcid:%s|pkt_type:%s|",
+                    xqc_dcid_str(c->engine, first_dcid),
+                    xqc_scid_str(c->engine, &packet_in->pi_pkt.pkt_dcid),
+                    xqc_pkt_type_2_str(packet_in->pi_pkt.pkt_type));
+
+            xqc_log_event(c->log, TRA_PACKET_DROPPED,
+                          "coalesced pkt dcid mismatch", XQC_OK,
+                          xqc_pkt_type_2_str(packet_in->pi_pkt.pkt_type),
+                          (uint64_t)0);
+            c->packet_dropped_count++;
+            return -XQC_ECOALESCED_DCID_MISMATCH;
+        }
     }
 
     /* decrypt packet */

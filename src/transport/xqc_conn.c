@@ -5025,8 +5025,14 @@ xqc_conn_process_packet(xqc_connection_t *c,
     /*
      * RFC 9000 Section 12.2: every coalesced packet that follows the first
      * one in a UDP datagram is required to carry the same Destination
-     * Connection ID as the first packet; receivers SHOULD discard any
-     * mismatching subsequent packet but continue to process the rest.
+     * Connection ID as the first packet; receivers MUST discard any
+     * mismatching subsequent packet (without delivering its frames to the
+     * connection state machine) but continue to process the rest of the
+     * datagram. The anchor is set inside xqc_packet_process_single_anchored
+     * after parsing succeeds and before xqc_packet_decrypt_single performs
+     * AEAD and frame application, so mismatched packets cost neither cycles
+     * nor side effects.
+     *
      * first_dcid only needs to be valid once first_dcid_seen flips to TRUE,
      * so leaving the rest of the struct uninitialized is intentional.
      */
@@ -5045,50 +5051,25 @@ xqc_conn_process_packet(xqc_connection_t *c,
         packet_in->pi_path_id = XQC_UNKNOWN_PATH_ID;
 
         /* packet_in->pos will update inside */
-        ret = xqc_packet_process_single(c, packet_in);
+        ret = xqc_packet_process_single_anchored(c, packet_in,
+                                                 &first_dcid, &first_dcid_seen);
 
         xqc_conn_log_recvd_packet(c, packet_in, packet_in_size, ret, recv_time);
 
         if (ret == XQC_OK) {
-            /*
-             * Anchor the datagram on the DCID of its first successfully
-             * parsed packet. Subsequent packets must match, otherwise the
-             * peer is either confused or attempting to smuggle traffic
-             * onto another connection's path through coalescing.
-             */
-            if (first_dcid_seen == XQC_FALSE) {
-                xqc_cid_set(&first_dcid, packet_in->pi_pkt.pkt_dcid.cid_buf,
-                            packet_in->pi_pkt.pkt_dcid.cid_len);
-                first_dcid_seen = XQC_TRUE;
-
-            } else if (xqc_cid_is_equal(&first_dcid,
-                                        &packet_in->pi_pkt.pkt_dcid) != XQC_OK)
-            {
-                /*
-                 * Drop only the offending packet, not the whole datagram;
-                 * xqc_dcid_str/xqc_scid_str use distinct engine-side
-                 * scratch buffers, so it is safe to print both CIDs in one
-                 * log statement.
-                 */
-                xqc_log(c->log, XQC_LOG_WARN,
-                        "|coalesced pkt dcid mismatch|first_dcid:%s|pkt_dcid:%s|pkt_type:%s|pkt_num:%ui|",
-                        xqc_dcid_str(c->engine, &first_dcid),
-                        xqc_scid_str(c->engine, &packet_in->pi_pkt.pkt_dcid),
-                        xqc_pkt_type_2_str(packet_in->pi_pkt.pkt_type),
-                        packet_in->pi_pkt.pkt_num);
-
-                c->packet_dropped_count++;
-                xqc_log_event(c->log, TRA_PACKET_DROPPED,
-                              "coalesced pkt dcid mismatch", XQC_OK,
-                              xqc_pkt_type_2_str(packet_in->pi_pkt.pkt_type),
-                              packet_in->pi_pkt.pkt_num);
-
-                pos = packet_in->last;
-                xqc_log_event(c->log, TRA_PACKET_RECEIVED, packet_in);
-                continue;
-            }
-
             ret = xqc_conn_on_pkt_processed(c, packet_in, recv_time);
+
+        } else if (ret == -XQC_ECOALESCED_DCID_MISMATCH) {
+            /*
+             * §12.2 drop: skip on_pkt_processed for this packet (no PN
+             * space update, no ACK arming, no idle timer refresh) but
+             * keep walking the datagram. packet_in->last already points
+             * to the end of this coalesced packet because parsing
+             * succeeded before the DCID check fired.
+             */
+            pos = packet_in->last;
+            ret = XQC_OK;
+            continue;
 
         } else if (xqc_conn_tolerant_error(ret)) {
             /* ignore the remain bytes */

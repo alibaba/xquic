@@ -100,5 +100,22 @@ xqc_pkt_type_t xqc_state_to_pkt_type(xqc_connection_t *conn);
  */
 xqc_int_t xqc_packet_process_single(xqc_connection_t *c, xqc_packet_in_t *packet_in);
 
+/**
+ * Process a single QUIC packet, enforcing the RFC 9000 §12.2 coalesced
+ * DCID rule before decryption. first_dcid / first_dcid_seen are owned by
+ * the datagram-level caller and persist across packets in the same UDP
+ * datagram. Passing NULL for either pointer disables the check (used by
+ * the legacy xqc_packet_process_single wrapper).
+ *
+ * Returns -XQC_ECOALESCED_DCID_MISMATCH when a subsequent coalesced
+ * packet's DCID does not match the anchor; the caller must skip the
+ * offending packet without invoking xqc_conn_on_pkt_processed but still
+ * advance pos past packet_in->last to continue with the next coalesced
+ * packet in the same UDP datagram.
+ */
+xqc_int_t xqc_packet_process_single_anchored(xqc_connection_t *c,
+    xqc_packet_in_t *packet_in,
+    xqc_cid_t *first_dcid, xqc_bool_t *first_dcid_seen);
+
 
 #endif /* _XQC_PACKET_H_INCLUDED_ */

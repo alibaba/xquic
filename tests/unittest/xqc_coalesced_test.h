@@ -14,5 +14,6 @@ void xqc_test_coalesced_dcid_match(void);
 void xqc_test_coalesced_dcid_mismatch(void);
 void xqc_test_coalesced_dcid_len_mismatch(void);
 void xqc_test_coalesced_dcid_a_b_a(void);
+void xqc_test_coalesced_mismatch_frames_not_applied(void);
 
 #endif /* _XQC_COALESCED_TEST_H_INCLUDED_ */

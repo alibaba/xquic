@@ -132,6 +132,7 @@ main()
         || !CU_add_test(pSuite, "xqc_test_coalesced_dcid_mismatch", xqc_test_coalesced_dcid_mismatch)
         || !CU_add_test(pSuite, "xqc_test_coalesced_dcid_len_mismatch", xqc_test_coalesced_dcid_len_mismatch)
         || !CU_add_test(pSuite, "xqc_test_coalesced_dcid_a_b_a", xqc_test_coalesced_dcid_a_b_a)
+        || !CU_add_test(pSuite, "xqc_test_coalesced_mismatch_frames_not_applied", xqc_test_coalesced_mismatch_frames_not_applied)
         /* ADD TESTS HERE */)
     {
         CU_cleanup_registry();

@@ -373,3 +373,199 @@ finish:
         xqc_engine_destroy(svr_tctx.engine);
     }
 }
+
+
+/*
+ * Tests for RFC 9000 Section 12.2: when one QUIC packet inside a
+ * coalesced UDP datagram fails with a tolerant error (decryption
+ * failure, unknown version, etc.), the implementation MUST still
+ * attempt to process the remaining packets in the same datagram.
+ * Pre-fix code did `goto end` after the first tolerant error, which
+ * silently dropped every subsequent coalesced packet. The fix in
+ * xqc_conn_process_packet skips past the failing packet via
+ * `pos = packet_in->last > pos ? packet_in->last : end; continue;`.
+ */
+
+/*
+ * Build a synthetic Initial-typed long-header QUIC packet with a
+ * well-formed header and a parseable Length(i) field. The encrypted
+ * body is intentionally garbage so that AEAD decryption fails with a
+ * tolerant error (-XQC_EDECRYPT). Crucially xqc_packet_parse_initial
+ * sets packet_in->last = pos + length BEFORE decryption runs, which
+ * is exactly the precondition the fix relies on to advance to the
+ * next coalesced packet. Returns total bytes written.
+ */
+static size_t
+xqc_test_build_synthetic_initial(unsigned char *buf, size_t cap)
+{
+    /* payload length (Packet Number + AEAD-protected body, including
+     * the 16-byte AEAD tag). 64 leaves enough for the 16-byte HP
+     * sample (which starts at pktno_offset + 4) without spilling
+     * past the packet boundary. */
+    const uint64_t length = 64;
+
+    size_t off = 0;
+
+    /* first byte: 1 1 0 0 R R P P -> Initial, 1-byte packet number */
+    buf[off++] = 0xC0;
+
+    /* version: QUIC v1 */
+    buf[off++] = 0x00;
+    buf[off++] = 0x00;
+    buf[off++] = 0x00;
+    buf[off++] = 0x01;
+
+    /* dcid_len = 8, dcid = 0x01..0x08 */
+    buf[off++] = 0x08;
+    for (int i = 0; i < 8; i++) {
+        buf[off++] = (unsigned char)(0x01 + i);
+    }
+
+    /* scid_len = 8, scid = 0x09..0x10 */
+    buf[off++] = 0x08;
+    for (int i = 0; i < 8; i++) {
+        buf[off++] = (unsigned char)(0x09 + i);
+    }
+
+    /* token_len = 0 (1-byte vint) */
+    buf[off++] = 0x00;
+
+    /* Length (2-byte vint, 0x40 sets prefix bits = 01) */
+    buf[off++] = (unsigned char)(0x40 | ((length >> 8) & 0x3f));
+    buf[off++] = (unsigned char)(length & 0xff);
+
+    /* "encrypted" body: garbage. Must be exactly `length` bytes so
+     * that parse_initial accepts it (no overflow vs datagram end). */
+    for (uint64_t i = 0; i < length; i++) {
+        buf[off++] = (unsigned char)(0xAA ^ (i & 0xff));
+    }
+
+    (void)cap;
+    return off;
+}
+
+
+void
+xqc_test_coalesced_continue_after_tolerant_error()
+{
+    /* the fix lives in xqc_conn_process_packet's coalesced-loop and
+     * is independent of TLS state on the server side, so this test
+     * brings up only a client engine. That avoids the brittle SSL
+     * context teardown-and-recreate path on macOS that intermittently
+     * causes test_create_engine_buf_server to fail when invoked after
+     * other tests have created and destroyed engines. */
+    test_ctx cli_tctx = {0};
+
+    cli_tctx.engine = test_create_engine_buf_client(&cli_tctx);
+
+    CU_ASSERT(cli_tctx.engine != NULL);
+    if (cli_tctx.engine == NULL) {
+        goto finish;
+    }
+
+    xqc_conn_settings_t conn_settings;
+    memset(&conn_settings, 0, sizeof(xqc_conn_settings_t));
+    conn_settings.proto_version = XQC_VERSION_V1;
+    xqc_conn_ssl_config_t conn_ssl_config;
+    memset(&conn_ssl_config, 0, sizeof(conn_ssl_config));
+
+    /* drive xqc_connect on client to bring up the connection_t and
+     * its Initial-level TLS keys */
+    const xqc_cid_t *cid = xqc_connect(cli_tctx.engine, &conn_settings,
+                                       NULL, 0, "", 0, &conn_ssl_config,
+                                       NULL, 0, "transport", &cli_tctx);
+    CU_ASSERT(cid != NULL);
+    CU_ASSERT(cli_tctx.c != NULL);
+    if (cid == NULL || cli_tctx.c == NULL) {
+        goto finish;
+    }
+
+    /* build a synthetic 2-packet coalesced UDP datagram:
+     *   pkt 1: well-formed Initial header, parseable Length, garbage
+     *          body -> tolerant -XQC_EDECRYPT after parse_initial set
+     *          packet_in->last to the packet boundary
+     *   pkt 2: a single 0x00 byte -> matches neither short nor long
+     *          header masks, returns -XQC_EIGNORE_PKT (also tolerant)
+     *
+     * The observable: rcv_pkt_stats.conn_rcvd_pkts is bumped once per
+     * iteration of xqc_conn_process_packet's inner loop. With the fix
+     * the loop should reach packet 2 and the counter increments by 2.
+     * Without the fix the old `goto end` aborts after packet 1 and
+     * the counter only increments by 1.
+     */
+    unsigned char dgram[256];
+    size_t pkt1_len = xqc_test_build_synthetic_initial(dgram, sizeof(dgram));
+    CU_ASSERT(pkt1_len > 0 && pkt1_len < sizeof(dgram));
+    dgram[pkt1_len] = 0x00;
+    size_t total = pkt1_len + 1;
+
+    uint32_t before = cli_tctx.c->rcv_pkt_stats.conn_rcvd_pkts;
+    xqc_int_t ret = xqc_conn_process_packet(cli_tctx.c,
+                                            dgram, total, xqc_now());
+    uint32_t after = cli_tctx.c->rcv_pkt_stats.conn_rcvd_pkts;
+
+    /* tolerant errors must be swallowed by xqc_conn_process_packet */
+    CU_ASSERT(ret == XQC_OK);
+
+    /* with the fix in place we should see BOTH packets visited */
+    CU_ASSERT(after - before == 2);
+
+finish:
+    if (cli_tctx.engine != NULL) {
+        if (cli_tctx.c != NULL) {
+            xqc_conn_close(cli_tctx.engine, &cli_tctx.cid);
+        }
+        xqc_engine_destroy(cli_tctx.engine);
+    }
+}
+
+
+void
+xqc_test_coalesced_zero_progress_terminates()
+{
+    test_ctx cli_tctx = {0};
+
+    cli_tctx.engine = test_create_engine_buf_client(&cli_tctx);
+
+    CU_ASSERT(cli_tctx.engine != NULL);
+    if (cli_tctx.engine == NULL) {
+        goto finish;
+    }
+
+    xqc_conn_settings_t conn_settings;
+    memset(&conn_settings, 0, sizeof(xqc_conn_settings_t));
+    conn_settings.proto_version = XQC_VERSION_V1;
+    xqc_conn_ssl_config_t conn_ssl_config;
+    memset(&conn_ssl_config, 0, sizeof(conn_ssl_config));
+
+    const xqc_cid_t *cid = xqc_connect(cli_tctx.engine, &conn_settings,
+                                       NULL, 0, "", 0, &conn_ssl_config,
+                                       NULL, 0, "transport", &cli_tctx);
+    CU_ASSERT(cid != NULL);
+    CU_ASSERT(cli_tctx.c != NULL);
+    if (cid == NULL || cli_tctx.c == NULL) {
+        goto finish;
+    }
+
+    /* degenerate datagram: a single byte that triggers -XQC_EIGNORE_PKT
+     * inside xqc_packet_parse_single BEFORE any parser advances
+     * packet_in->last. Pre-fix code zeroed `pos` via the now-removed
+     * `packet_in->pos = packet_in->last; goto end;` path; post-fix
+     * code falls back to `pos = end` because last did not advance.
+     * Either way the function must return XQC_OK and terminate (no
+     * infinite loop, no crash). This pins down the safety fallback in
+     * the new conditional `pos = packet_in->last > pos ? ... : end;`. */
+    unsigned char dgram[1] = { 0x00 };
+
+    xqc_int_t ret = xqc_conn_process_packet(cli_tctx.c,
+                                            dgram, sizeof(dgram), xqc_now());
+    CU_ASSERT(ret == XQC_OK);
+
+finish:
+    if (cli_tctx.engine != NULL) {
+        if (cli_tctx.c != NULL) {
+            xqc_conn_close(cli_tctx.engine, &cli_tctx.cid);
+        }
+        xqc_engine_destroy(cli_tctx.engine);
+    }
+}

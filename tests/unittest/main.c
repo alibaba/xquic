@@ -64,6 +64,14 @@ main()
 
     if (!CU_add_test(pSuite, "xqc_test_get_random", xqc_test_get_random)
         || !CU_add_test(pSuite, "xqc_test_engine_create", xqc_test_engine_create)
+        /* run coalesced-packet regression tests early so that they
+         * are not gated by the pre-existing flakiness of later tests
+         * such as xqc_test_packet_encrypt_hp_sample_boundary which on
+         * macOS occasionally fails to bring up an SSL engine after a
+         * prior xqc_engine_destroy. The fix under test is independent
+         * of those tests. */
+        || !CU_add_test(pSuite, "xqc_test_coalesced_continue_after_tolerant_error", xqc_test_coalesced_continue_after_tolerant_error)
+        || !CU_add_test(pSuite, "xqc_test_coalesced_zero_progress_terminates", xqc_test_coalesced_zero_progress_terminates)
         || !CU_add_test(pSuite, "xqc_test_conn_create", xqc_test_conn_create)
         || !CU_add_test(pSuite, "xqc_test_pq", xqc_test_pq)
         || !CU_add_test(pSuite, "xqc_test_common", xqc_test_common)

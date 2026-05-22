@@ -5042,11 +5042,30 @@ xqc_conn_process_packet(xqc_connection_t *c,
             ret = xqc_conn_on_pkt_processed(c, packet_in, recv_time);
 
         } else if (xqc_conn_tolerant_error(ret)) {
-            /* ignore the remain bytes */
-            xqc_log(c->log, XQC_LOG_INFO, "|ignore err|%d|", ret);
-            packet_in->pos = packet_in->last;
+            /*
+             * RFC 9000 Section 12.2: a packet that is unable to be
+             * processed MUST be discarded, but other packets in the
+             * same UDP datagram MUST be permitted to be processed.
+             * Skip past the failing packet and continue parsing the
+             * remaining coalesced packets. If the parser could not
+             * determine the failing packet's boundary (last did not
+             * advance), terminate the loop because we cannot locate
+             * the next packet's start.
+             */
+            xqc_log(c->log, XQC_LOG_INFO,
+                    "|tolerant err, skip packet and continue|%d|", ret);
+            pos = packet_in->last > pos ? packet_in->last : end;
+            /*
+             * xqc_packet_decrypt already emits TRA_PACKET_DROPPED on
+             * the EDECRYPT path; the other tolerant errors do not, so
+             * log RECEIVED here only when we are not duplicating a
+             * DROPPED event for the same packet.
+             */
+            if (ret != -XQC_EDECRYPT) {
+                xqc_log_event(c->log, TRA_PACKET_RECEIVED, packet_in);
+            }
             ret = XQC_OK;
-            goto end;
+            continue;
         }
 
         /* error occurred or read state is error */
@@ -5061,7 +5080,7 @@ xqc_conn_process_packet(xqc_connection_t *c,
         pos = packet_in->last;
         xqc_log_event(c->log, TRA_PACKET_RECEIVED, packet_in);
     }
-end:
+
     return ret;
 }
 

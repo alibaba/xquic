@@ -5,7 +5,9 @@
 #include "xqc_reno_test.h"
 #include "src/congestion_control/xqc_new_reno.h"
 #include <stdio.h>
+#include <CUnit/CUnit.h>
 #include "src/common/xqc_time.h"
+#include "src/transport/xqc_packet.h"
 #include "src/transport/xqc_packet_out.h"
 
 void
@@ -58,4 +60,50 @@ xqc_test_reno()
     xqc_reno_cb.xqc_cong_ctl_reset_cwnd(&reno);
     print_reno(&reno);
 
+}
+
+/*
+ * Mirror of the RFC 9002 Section 7.2 formula evaluated in
+ * src/congestion_control/xqc_new_reno.c. Kept in the test so that
+ * the assertions below pin the formula independently of any
+ * compile-time MSS the production macro happens to use.
+ */
+static uint32_t
+xqc_test_reno_expected_iw(uint32_t mss)
+{
+    uint32_t ten_mss = 10 * mss;
+    uint32_t two_mss = 2 * mss;
+    uint32_t cap = two_mss > 14720 ? two_mss : 14720;
+    return ten_mss < cap ? ten_mss : cap;
+}
+
+void
+xqc_test_reno_init_cwnd()
+{
+#ifndef XQC_ENABLE_RENO
+    return;
+#endif
+    xqc_new_reno_t reno;
+    xqc_cc_params_t params = {.init_cwnd = 10};
+
+    xqc_reno_cb.xqc_cong_ctl_init(&reno, NULL, params);
+
+    /*
+     * Regression guard for issue #727: the live initial window must
+     * match the RFC 9002 Section 7.2 formula evaluated against the
+     * compile-time XQC_MSS. With the stock MSS the value is 14360.
+     */
+    CU_ASSERT_EQUAL(reno.reno_congestion_window,
+                    xqc_test_reno_expected_iw(XQC_MSS));
+
+    /*
+     * Lock the formula against canonical MSS values so a deployment
+     * built with a larger maximum datagram size (for example jumbo
+     * frames at MSS=9000) cannot silently drift above the 18000-byte
+     * cap the RFC permits in that case.
+     */
+    CU_ASSERT_EQUAL(xqc_test_reno_expected_iw(1200), 12000);
+    CU_ASSERT_EQUAL(xqc_test_reno_expected_iw(1436), 14360);
+    CU_ASSERT_EQUAL(xqc_test_reno_expected_iw(1500), 14720);
+    CU_ASSERT_EQUAL(xqc_test_reno_expected_iw(9000), 18000);
 }

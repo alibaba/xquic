@@ -1524,11 +1524,29 @@ fi
 
 
 killall test_server
-${SERVER_BIN} -l d -x 13 > /dev/null &
+# Start the server without -x 13. The previous "idle_time_out = 1000"
+# trick relied on a small max_idle_timeout transport parameter to force
+# the server to discard its connection state quickly; after RFC 9000
+# Section 10.1 negotiation (PR #758) the client now takes the minimum
+# of both advertised values, so a 1 s server-side TP would also kill
+# the client well before the wake-up packet that the test relies on.
+# Restart the server mid-test instead: it cleans up its connection
+# state silently, then the new instance generates the stateless reset
+# from the same default reset_token_key.
+${SERVER_BIN} -l d > /dev/null &
 sleep 1
 clear_log
 echo -e "stateless reset...\c"
-${CLIENT_BIN} -l d -x 41 -1 -t 5 > stdlog
+${CLIENT_BIN} -l d -x 41 -1 -t 8 > stdlog &
+CLIENT_PID=$!
+# Allow the handshake to finish, the two tracked short-header packets
+# to be sent, and the 3 s outbound black-hole inside the client to
+# begin before the server is recycled.
+sleep 2
+killall test_server
+sleep 0.2
+${SERVER_BIN} -l d > /dev/null &
+wait $CLIENT_PID
 result=`grep "|====>|receive stateless reset" clog`
 cloing_notify=`grep "conn closing: 641" stdlog`
 if [ -n "$result" ] && [ -n "$cloing_notify" ]; then
@@ -1542,7 +1560,17 @@ fi
 
 clear_log
 echo -e "stateless reset during hsk...\c"
-${CLIENT_BIN} -l d  -t 5 -x 45 -1 -s 100 -G > stdlog
+${CLIENT_BIN} -l d  -t 12 -x 45 -1 -s 100 -G > stdlog &
+CLIENT_PID=$!
+# Same pattern as above. The client opens the black-hole on the first
+# Handshake-level or short-header outbound packet, so 2 s gives Initial
+# exchange plus the start of the 10 s drop window before we recycle
+# the server.
+sleep 2
+killall test_server
+sleep 0.2
+${SERVER_BIN} -l d > /dev/null &
+wait $CLIENT_PID
 result=`grep "|====>|receive stateless reset" clog`
 cloing_notify=`grep "conn closing: 641" stdlog`
 svr_hsk=`grep "handshake_time:0" slog`

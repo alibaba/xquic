@@ -461,3 +461,151 @@ xqc_test_stream()
         xqc_free(conn->alpn);
     }
 }
+
+
+extern int xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data);
+
+/*
+ * Drive xqc_h3_stream_close_notify against the matrix of stream types and
+ * teardown guards required by RFC 9114 6.2.1 and RFC 9204 4.2. Each case
+ * builds a fresh transport stream + h3 stream so the close_notify path runs
+ * end-to-end. The h3 stream is forced into the QPACK-blocked + READ_EOF
+ * branch so the function returns before destroying h3s, which lets the test
+ * own teardown and inspect conn->conn_err / conn->conn_flag.
+ */
+
+typedef struct {
+    const char     *name;
+    uint64_t        stream_type;
+    xqc_bool_t      set_closing_notify;
+    xqc_bool_t      set_state_closing;
+    uint64_t        pre_conn_err;
+    uint64_t        expected_conn_err;
+    xqc_bool_t      expect_error_flag;
+} xqc_h3_critical_close_case_t;
+
+static void
+xqc_h3_critical_run_case(xqc_connection_t *conn, xqc_h3_conn_t *h3c,
+    const xqc_h3_critical_close_case_t *tc)
+{
+    /*
+     * reset just enough connection state for this case. the stream must
+     * be allocated while conn_state < CLOSING (xqc_create_stream_with_conn
+     * rejects otherwise), so the CLOSING-state guard is applied AFTER
+     * the stream is up.
+     */
+    conn->conn_err   = tc->pre_conn_err;
+    conn->conn_flag &= ~(XQC_CONN_FLAG_ERROR | XQC_CONN_FLAG_CLOSING_NOTIFY);
+    conn->conn_state = XQC_CONN_STATE_ESTABED;
+
+    xqc_stream_t *stream = xqc_create_stream_with_conn(conn, XQC_UNDEFINE_STREAM_ID,
+                                                       XQC_CLI_UNI, NULL, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+
+    xqc_h3_stream_t *h3s = xqc_h3_stream_create(h3c, stream,
+                                                (xqc_h3_stream_type_t)tc->stream_type,
+                                                NULL);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    /* now apply the per-case teardown guards so the close_notify path
+     * sees the same state a real teardown would expose. */
+    if (tc->set_closing_notify) {
+        conn->conn_flag |= XQC_CONN_FLAG_CLOSING_NOTIFY;
+    }
+    if (tc->set_state_closing) {
+        conn->conn_state = XQC_CONN_STATE_CLOSING;
+    }
+
+    /*
+     * make close_notify return before destroying h3s so the test owns
+     * teardown; this branch needs READ_EOF + QPACK_DECODE_BLOCKED and no
+     * ACTIVELY_CLOSED.
+     */
+    h3s->flags |= XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED
+                | XQC_HTTP3_STREAM_FLAG_READ_EOF;
+
+    int ret = xqc_h3_stream_close_notify(stream, h3s);
+    CU_ASSERT(ret == XQC_OK);
+
+    if (tc->expected_conn_err == H3_CLOSED_CRITICAL_STREAM) {
+        CU_ASSERT(conn->conn_err == H3_CLOSED_CRITICAL_STREAM);
+    } else {
+        CU_ASSERT(conn->conn_err == tc->expected_conn_err);
+    }
+
+    if (tc->expect_error_flag) {
+        CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    } else {
+        CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
+    }
+
+    /*
+     * close_notify nulled h3s->stream and the test owns teardown from here.
+     * Mark the transport stream as DISCARDED so xqc_destroy_stream does
+     * not redrive stream_close_notify on the soon-to-be-freed h3s.
+     */
+    stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_h3_stream_destroy(h3s);
+    xqc_destroy_stream(stream);
+}
+
+void
+xqc_test_h3_critical_stream_close()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+
+    xqc_h3_conn_t *h3c = xqc_h3_conn_create(conn, NULL);
+    CU_ASSERT_FATAL(h3c != NULL);
+
+    /* lift the local uni-stream send limit so all cases can create a stream */
+    conn->conn_flow_ctl.fc_max_streams_uni_can_send = 1024;
+
+    xqc_h3_critical_close_case_t cases[] = {
+        /* control stream peer-close on a healthy connection */
+        { "control_running",        XQC_H3_STREAM_TYPE_CONTROL,
+          XQC_FALSE, XQC_FALSE, 0, H3_CLOSED_CRITICAL_STREAM, XQC_TRUE },
+        /* qpack encoder stream peer-close on a healthy connection */
+        { "qpack_encoder_running",  XQC_H3_STREAM_TYPE_QPACK_ENCODER,
+          XQC_FALSE, XQC_FALSE, 0, H3_CLOSED_CRITICAL_STREAM, XQC_TRUE },
+        /* qpack decoder stream peer-close on a healthy connection */
+        { "qpack_decoder_running",  XQC_H3_STREAM_TYPE_QPACK_DECODER,
+          XQC_FALSE, XQC_FALSE, 0, H3_CLOSED_CRITICAL_STREAM, XQC_TRUE },
+        /* request stream close must not raise the critical-stream error */
+        { "request_running",        XQC_H3_STREAM_TYPE_REQUEST,
+          XQC_FALSE, XQC_FALSE, 0, 0, XQC_FALSE },
+        /* push stream close must not raise the critical-stream error */
+        { "push_running",           XQC_H3_STREAM_TYPE_PUSH,
+          XQC_FALSE, XQC_FALSE, 0, 0, XQC_FALSE },
+        /* unknown stream type must not raise the critical-stream error */
+        { "unknown_running",        XQC_H3_STREAM_TYPE_UNKNOWN,
+          XQC_FALSE, XQC_FALSE, 0, 0, XQC_FALSE },
+        /* connection already issued CONNECTION_CLOSE - report is suppressed */
+        { "control_closing_notify", XQC_H3_STREAM_TYPE_CONTROL,
+          XQC_TRUE, XQC_FALSE, 0, 0, XQC_FALSE },
+        /* connection state already CLOSING - report is suppressed */
+        { "control_state_closing",  XQC_H3_STREAM_TYPE_CONTROL,
+          XQC_FALSE, XQC_TRUE, 0, 0, XQC_FALSE },
+        /* a previous conn_err must win (XQC_H3_CONN_ERR is first-write-wins) */
+        { "control_preserve_err",   XQC_H3_STREAM_TYPE_CONTROL,
+          XQC_FALSE, XQC_FALSE, 0xdead, 0xdead, XQC_FALSE },
+    };
+
+    size_t n = sizeof(cases) / sizeof(cases[0]);
+    for (size_t i = 0; i < n; i++) {
+        xqc_h3_critical_run_case(conn, h3c, &cases[i]);
+    }
+
+    xqc_h3_conn_destroy(h3c);
+
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+}

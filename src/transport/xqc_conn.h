@@ -302,8 +302,6 @@ struct xqc_connection_s {
     xqc_engine_t                   *engine;
 
     xqc_proto_version_t             version;
-    /* set when client receives a non-VN package from server or receives a VN package and processes it */
-    uint32_t                        discard_vn_flag;
 
     /* original destination connection id, RFC 9000, Section 7.3. */
     xqc_cid_t                       original_dcid;

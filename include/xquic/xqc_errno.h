@@ -26,6 +26,15 @@ typedef enum {
     TRA_APPLICATION_ERROR           =  0xC,
     TRA_CRYPTO_BUFFER_EXCEEDED      =  0xD,
     TRA_0RTT_TRANS_PARAMS_ERROR     =  0xE,   /**< MUST delete the current saved 0RTT transport parameters */
+    /*
+     * RFC 9000 Section 6.2 does not assign a CONNECTION_CLOSE code for
+     * the Version Negotiation abort path, because the client cannot
+     * send CONNECTION_CLOSE before keys are established. This value is
+     * therefore library-internal: it is exposed via xqc_conn_get_errno
+     * so the upper layer can distinguish a VN-driven abort from other
+     * close reasons, but it is never serialised onto the wire.
+     */
+    TRA_VERSION_NEGOTIATION_ERROR   =  0x53,
     TRA_HS_CERTIFICATE_VERIFY_FAIL  =  0x1FE, /**< for handshake certificate verify error */
     TRA_CRYPTO_ERROR                =  0x1FF, /**< 0x1XX */
 } xqc_trans_err_code_t;
@@ -129,6 +138,7 @@ typedef enum {
     XQC_EALPN_NOT_REGISTERED            = 640,      /**< alpn is not registered */
     XQC_ESTATELESS_RESET                = 641,      /**< connection is reset by peer */
     XQC_EPACKET_FILETER_CALLBACK        = 642,      /**< error with packet filter callback function */
+    XQC_EVERSION_NEGOTIATION            = 643,      /**< client received a Version Negotiation packet, RFC 9000 §6.2 mandates abandoning the connection attempt */
 
     XQC_EMP_NOT_SUPPORT_MP              = 650,      /**< Multipath - don't support multipath */
     XQC_EMP_NO_AVAIL_PATH_ID            = 651,      /**< Multipath - no available path id */

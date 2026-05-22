@@ -4660,6 +4660,17 @@ int main(int argc, char *argv[]) {
         conn_settings.enable_pmtud = 3;
     }
 
+    /*
+     * issue #722 regression: enable PMTUD so that PADDING-bearing probe
+     * packets get scheduled during the transfer. Combined with a sizeable
+     * payload, this exercises bytes_in_flight accounting on packets that
+     * would previously have slipped past the XQC_IS_ACK_ELICITING guard
+     * in xqc_send_ctl_increase_inflight / decrease_inflight.
+     */
+    if (g_test_case == 48) {
+        conn_settings.enable_pmtud = 3;
+    }
+
     if (g_test_case == 450) {
         conn_settings.extended_ack_features = 2;
         conn_settings.max_receive_timestamps_per_ack = 45;

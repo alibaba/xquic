@@ -5020,7 +5020,7 @@ xqc_conn_log_recvd_packet(xqc_connection_t *c, xqc_packet_in_t *pi,
 
 xqc_int_t
 xqc_conn_process_packet(xqc_connection_t *c,
-    const unsigned char *packet_in_buf, size_t packet_in_size, 
+    const unsigned char *packet_in_buf, size_t packet_in_size,
     xqc_usec_t recv_time)
 {
     xqc_int_t ret = XQC_OK;
@@ -5029,6 +5029,23 @@ xqc_conn_process_packet(xqc_connection_t *c,
     const unsigned char *end = packet_in_buf + packet_in_size;  /* end of udp datagram */
     xqc_packet_in_t packet;
     unsigned char decrypt_payload[XQC_MAX_PACKET_IN_LEN];
+
+    /*
+     * RFC 9000 Section 12.2: every coalesced packet that follows the first
+     * one in a UDP datagram is required to carry the same Destination
+     * Connection ID as the first packet; receivers MUST discard any
+     * mismatching subsequent packet (without delivering its frames to the
+     * connection state machine) but continue to process the rest of the
+     * datagram. The anchor is set inside xqc_packet_process_single_anchored
+     * after parsing succeeds and before xqc_packet_decrypt_single performs
+     * AEAD and frame application, so mismatched packets cost neither cycles
+     * nor side effects.
+     *
+     * first_dcid only needs to be valid once first_dcid_seen flips to TRUE,
+     * so leaving the rest of the struct uninitialized is intentional.
+     */
+    xqc_cid_t first_dcid;
+    xqc_bool_t first_dcid_seen = XQC_FALSE;
 
     /* process all QUIC packets in UDP datagram */
     while (pos < end) {
@@ -5042,12 +5059,25 @@ xqc_conn_process_packet(xqc_connection_t *c,
         packet_in->pi_path_id = XQC_UNKNOWN_PATH_ID;
 
         /* packet_in->pos will update inside */
-        ret = xqc_packet_process_single(c, packet_in);
+        ret = xqc_packet_process_single_anchored(c, packet_in,
+                                                 &first_dcid, &first_dcid_seen);
 
         xqc_conn_log_recvd_packet(c, packet_in, packet_in_size, ret, recv_time);
 
         if (ret == XQC_OK) {
             ret = xqc_conn_on_pkt_processed(c, packet_in, recv_time);
+
+        } else if (ret == -XQC_ECOALESCED_DCID_MISMATCH) {
+            /*
+             * §12.2 drop: skip on_pkt_processed for this packet (no PN
+             * space update, no ACK arming, no idle timer refresh) but
+             * keep walking the datagram. packet_in->last already points
+             * to the end of this coalesced packet because parsing
+             * succeeded before the DCID check fired.
+             */
+            pos = packet_in->last;
+            ret = XQC_OK;
+            continue;
 
         } else if (xqc_conn_tolerant_error(ret)) {
             /* ignore the remain bytes */

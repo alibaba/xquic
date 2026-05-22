@@ -155,6 +155,8 @@ typedef enum {
 
     XQC_EACK_EXT_ABN_VAL                = 690,      /**< ACK Extension - abnormal value */
 
+    XQC_ECOALESCED_DCID_MISMATCH        = 691,      /**< RFC 9000 §12.2: coalesced packet DCID differs from first packet in datagram, drop just this packet */
+
     XQC_E_MAX,
 } xqc_transport_error_t;
 

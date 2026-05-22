@@ -243,6 +243,7 @@ xqc_server_set_conn_settings(xqc_engine_t *engine, const xqc_conn_settings_t *se
 
     engine->default_conn_settings.keyupdate_pkt_threshold = settings->keyupdate_pkt_threshold;
     engine->default_conn_settings.max_datagram_frame_size = settings->max_datagram_frame_size;
+    engine->default_conn_settings.reset_stream_at = settings->reset_stream_at;
 
     if (settings->max_pkt_out_size != 0) {
         engine->default_conn_settings.max_pkt_out_size = settings->max_pkt_out_size;

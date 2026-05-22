@@ -57,8 +57,10 @@ typedef enum {
     H3_REQUEST_REJECTED             = 0x10B,
     H3_REQUEST_CANCELLED            = 0x10C,
     H3_REQUEST_INCOMPLETE           = 0x10D,
+    H3_MESSAGE_ERROR                = 0x10E,
     H3_CONNECT_ERROR                = 0x10F,
     H3_VERSION_FALLBACK             = 0x110,
+    H3_DATAGRAM_ERROR               = 0x33,
 } xqc_h3_err_code_t;
 
 /**

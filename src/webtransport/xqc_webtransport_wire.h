@@ -7,7 +7,7 @@
 
 #include "src/common/xqc_common.h"
 
-/* WebTransport stream type codes (RFC 9297 §4.3, §4.4) */
+/* WebTransport over HTTP/3 draft-15 stream type codes */
 typedef enum {
     XQC_WT_STREAM_TYPE_UNIDIRECTIONAL  = 0x54,  /* WT uni stream */
     XQC_WT_STREAM_TYPE_BIDIRECTIONAL   = 0x41,  /* WEBTRANSPORT_STREAM (bidi) */
@@ -20,6 +20,8 @@ typedef enum {
 #define XQC_WT_CAPSULE_MAX_STREAMS_BIDI 0x190B4D3F
 #define XQC_WT_CAPSULE_MAX_STREAMS_UNI  0x190B4D40
 #define XQC_WT_CAPSULE_DATA_BLOCKED     0x190B4D41
+#define XQC_WT_CAPSULE_MAX_STREAM_DATA  0x190B4D3E
+#define XQC_WT_CAPSULE_STREAM_DATA_BLOCKED 0x190B4D42
 #define XQC_WT_CAPSULE_STREAMS_BLOCKED_BIDI 0x190B4D43
 #define XQC_WT_CAPSULE_STREAMS_BLOCKED_UNI  0x190B4D44
 #define XQC_WT_CAPSULE_MAX_DATA         0x190B4D3D
@@ -29,6 +31,10 @@ typedef enum {
 #define XQC_WT_ERROR_FLOW_CONTROL      0x045d4487
 #define XQC_WT_ERROR_ALPN              0x0817b3dd
 #define XQC_WT_ERROR_REQUIREMENTS_NOT_MET 0x212c0d48
+
+#define XQC_WT_CLOSE_REASON_MAX_LEN 1024
+#define XQC_WT_H3_ERROR_FIRST       0x52e4a40fa8dbULL
+#define XQC_WT_H3_ERROR_LAST        0x52e5ac983162ULL
 
 size_t xqc_wt_encode_session_id(uint64_t session_id, uint8_t *buf, size_t buf_len);
 
@@ -72,6 +78,11 @@ size_t xqc_wt_encode_flow_control_capsule(uint64_t capsule_type,
 
 ssize_t xqc_wt_decode_flow_control_capsule_value(const uint8_t *payload,
     size_t payload_len, uint64_t *value);
+
+uint64_t xqc_wt_app_error_to_h3(uint32_t app_error_code);
+
+xqc_bool_t xqc_wt_h3_error_to_app(uint64_t h3_error_code,
+    uint32_t *app_error_code);
 
 /**
  * Decode a capsule header (type + length) from a byte stream.

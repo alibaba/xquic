@@ -21,6 +21,9 @@ typedef struct xqc_wt_ctx_s {
     xqc_webtransport_session_callbacks_t  session_cbs;
     xqc_webtransport_dgram_callbacks_t    dgram_cbs;
     uint64_t                              max_sessions;  /* 0 means default (1) */
+    uint64_t                              unknown_session_dgram_window;
+    size_t                                pending_dgram_count_max;
+    size_t                                pending_dgram_bytes_max;
 } xqc_wt_ctx_t;
 
 /**
@@ -38,6 +41,11 @@ void xqc_wt_h3_uni_stream_created(xqc_h3_conn_t *h3c,
     xqc_h3_stream_t *h3s, int *ret);
 void xqc_wt_h3_uni_stream_recv(xqc_h3_conn_t *h3c,
     xqc_h3_stream_t *h3s, uint8_t *data, size_t size, int *ret);
+void xqc_wt_h3_bidi_stream_created(xqc_h3_conn_t *h3c,
+    xqc_h3_stream_t *h3s, int *ret);
+void xqc_wt_h3_bidi_stream_recv(xqc_h3_conn_t *h3c,
+    xqc_h3_stream_t *h3s, uint8_t *data, size_t size, uint8_t fin,
+    int *ret);
 
 #ifdef __cplusplus
 }

@@ -12,7 +12,7 @@ xqc_wt_encode_session_id(uint64_t session_id, uint8_t *buf, size_t buf_len)
     if (need == 0 || buf_len < need) {
         return 0;
     }
-    (void)xqc_put_varint(buf, session_id);
+    xqc_put_varint(buf, session_id);
     return need;
 }
 
@@ -91,6 +91,10 @@ xqc_wt_encode_close_session_capsule(uint32_t error_code,
     const char *reason, size_t reason_len,
     uint8_t *buf, size_t buf_len)
 {
+    if (reason_len > XQC_WT_CLOSE_REASON_MAX_LEN) {
+        return 0;
+    }
+
     /* payload = 4-byte error_code (network byte order) + reason */
     size_t payload_len = 4 + reason_len;
 
@@ -124,7 +128,9 @@ ssize_t
 xqc_wt_decode_close_session_capsule(const uint8_t *payload, size_t payload_len,
     uint32_t *error_code, const uint8_t **reason, size_t *reason_len)
 {
-    if (payload == NULL || error_code == NULL || payload_len < 4) {
+    if (payload == NULL || error_code == NULL || payload_len < 4
+        || payload_len - 4 > XQC_WT_CLOSE_REASON_MAX_LEN)
+    {
         return -XQC_EPARAM;
     }
 
@@ -201,4 +207,35 @@ xqc_wt_decode_flow_control_capsule_value(const uint8_t *payload,
         return -XQC_H3_DECODE_ERROR;
     }
     return n;
+}
+
+uint64_t
+xqc_wt_app_error_to_h3(uint32_t app_error_code)
+{
+    return XQC_WT_H3_ERROR_FIRST + app_error_code
+           + app_error_code / 0x1e;
+}
+
+xqc_bool_t
+xqc_wt_h3_error_to_app(uint64_t h3_error_code, uint32_t *app_error_code)
+{
+    if (app_error_code == NULL
+        || h3_error_code < XQC_WT_H3_ERROR_FIRST
+        || h3_error_code > XQC_WT_H3_ERROR_LAST)
+    {
+        return XQC_FALSE;
+    }
+
+    uint64_t offset = h3_error_code - XQC_WT_H3_ERROR_FIRST;
+    if (offset % 0x1f == 0x1e) {
+        return XQC_FALSE;
+    }
+
+    uint64_t app = offset - offset / 0x1f;
+    if (app > UINT32_MAX) {
+        return XQC_FALSE;
+    }
+
+    *app_error_code = (uint32_t)app;
+    return XQC_TRUE;
 }

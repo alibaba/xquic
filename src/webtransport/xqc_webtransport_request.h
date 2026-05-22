@@ -54,6 +54,10 @@ void              xqc_wt_request_destroy(xqc_wt_request_t *wt_request);
 void              xqc_wt_request_table_insert(xqc_wt_request_t *wt_request,
                       const char *key, const char *value);
 
+void              xqc_wt_request_table_insert_len(xqc_wt_request_t *wt_request,
+                      const char *key, size_t key_len,
+                      const char *value, size_t value_len);
+
 char             *xqc_wt_request_table_find(xqc_wt_request_t *wt_request, const char *key);
 
 int xqc_wt_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_flag_t flag,

@@ -433,28 +433,43 @@ xqc_h3_frm_write_settings(xqc_list_head_t *send_buf, xqc_h3_conn_settings_t *set
         ++count;
     }
 
-    /* WebTransport over HTTP/3 draft-15 */
+    /* WebTransport over HTTP/3 draft-15, plus legacy browser settings for
+     * Safari versions that still gate WebTransport on older codepoints. */
     if (setting->enable_webtransport) {
-        settings[count].identifier.vi = XQC_H3_SETTINGS_WT_ENABLED;
+        if (setting->webtransport_mode != XQC_WT_MODE_BROWSER_LEGACY) {
+            settings[count].identifier.vi = XQC_H3_SETTINGS_WT_ENABLED;
+            settings[count].value.vi = 1;
+            len += xqc_put_varint_len(settings[count].identifier.vi);
+            len += xqc_put_varint_len(settings[count].value.vi);
+            ++count;
+
+            settings[count].identifier.vi = XQC_H3_SETTINGS_WT_INITIAL_MAX_STREAMS_UNI;
+            settings[count].value.vi = setting->wt_initial_max_streams_uni;
+            len += xqc_put_varint_len(settings[count].identifier.vi);
+            len += xqc_put_varint_len(settings[count].value.vi);
+            ++count;
+
+            settings[count].identifier.vi = XQC_H3_SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI;
+            settings[count].value.vi = setting->wt_initial_max_streams_bidi;
+            len += xqc_put_varint_len(settings[count].identifier.vi);
+            len += xqc_put_varint_len(settings[count].value.vi);
+            ++count;
+
+            settings[count].identifier.vi = XQC_H3_SETTINGS_WT_INITIAL_MAX_DATA;
+            settings[count].value.vi = setting->wt_initial_max_data;
+            len += xqc_put_varint_len(settings[count].identifier.vi);
+            len += xqc_put_varint_len(settings[count].value.vi);
+            ++count;
+        }
+
+        settings[count].identifier.vi = XQC_H3_SETTINGS_ENABLE_WEBTRANSPORT;
         settings[count].value.vi = 1;
         len += xqc_put_varint_len(settings[count].identifier.vi);
         len += xqc_put_varint_len(settings[count].value.vi);
         ++count;
 
-        settings[count].identifier.vi = XQC_H3_SETTINGS_WT_INITIAL_MAX_STREAMS_UNI;
-        settings[count].value.vi = setting->wt_initial_max_streams_uni;
-        len += xqc_put_varint_len(settings[count].identifier.vi);
-        len += xqc_put_varint_len(settings[count].value.vi);
-        ++count;
-
-        settings[count].identifier.vi = XQC_H3_SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI;
-        settings[count].value.vi = setting->wt_initial_max_streams_bidi;
-        len += xqc_put_varint_len(settings[count].identifier.vi);
-        len += xqc_put_varint_len(settings[count].value.vi);
-        ++count;
-
-        settings[count].identifier.vi = XQC_H3_SETTINGS_WT_INITIAL_MAX_DATA;
-        settings[count].value.vi = setting->wt_initial_max_data;
+        settings[count].identifier.vi = XQC_H3_SETTINGS_WEBTRANSPORT_MAX_SESSIONS;
+        settings[count].value.vi = setting->webtransport_max_sessions;
         len += xqc_put_varint_len(settings[count].identifier.vi);
         len += xqc_put_varint_len(settings[count].value.vi);
         ++count;

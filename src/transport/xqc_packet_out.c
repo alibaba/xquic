@@ -798,7 +798,8 @@ xqc_write_conn_close_to_packet(xqc_connection_t *conn, uint64_t err_code)
     /* RFC 9000 §19.19: APPLICATION CONNECTION_CLOSE (0x1d) MUST only be sent
      * in 1-RTT packets. In Initial/Handshake packets, use transport
      * CONNECTION_CLOSE (0x1c) instead. */
-    int is_app = (err_code >= H3_NO_ERROR && pkt_type == XQC_PTYPE_SHORT_HEADER) ? 1 : 0;
+    int is_app = ((err_code >= H3_NO_ERROR || err_code == H3_DATAGRAM_ERROR)
+                  && pkt_type == XQC_PTYPE_SHORT_HEADER) ? 1 : 0;
     ret = xqc_gen_conn_close_frame(packet_out, err_code, is_app, 0);
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_conn_close_frame error|");

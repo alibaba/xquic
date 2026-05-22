@@ -16,24 +16,21 @@
 xqc_int_t
 xqc_wt_datagram_send_blk(xqc_wt_conn_t *user_conn, wt_dgram_blk_t *dgram_blk)
 {
-    int      ret = 0;
-    uint64_t dgram_id = 0;
-    while (dgram_blk->data_sent < dgram_blk->to_send_size) {
-
-        size_t dgram_size = dgram_blk->to_send_size - dgram_blk->data_sent;
-        if (user_conn->dgram_mss && dgram_size > user_conn->dgram_mss) {
-            dgram_size = user_conn->dgram_mss;
-        }
-        ret = xqc_datagram_send(xqc_h3_conn_get_xqc_conn(user_conn->h3_conn),
-            dgram_blk->data + dgram_blk->data_sent, dgram_size, &dgram_id,
-            XQC_DATA_QOS_HIGHEST);
-        if (ret == -XQC_EAGAIN) {
-            return ret;
-        } else if (ret < 0) {
-            return ret;
-        }
-        dgram_blk->data_sent += dgram_size;
+    if (user_conn == NULL || dgram_blk == NULL) {
+        return -XQC_EPARAM;
     }
+    if (user_conn->dgram_mss && dgram_blk->to_send_size > user_conn->dgram_mss) {
+        return -XQC_EDGRAM_TOO_LARGE;
+    }
+
+    uint64_t dgram_id = 0;
+    int ret = xqc_h3_ext_datagram_send(user_conn->h3_conn,
+        dgram_blk->data, dgram_blk->to_send_size, &dgram_id,
+        XQC_DATA_QOS_HIGHEST);
+    if (ret < 0) {
+        return ret;
+    }
+    dgram_blk->data_sent = dgram_blk->to_send_size;
     return XQC_OK;
 }
 
@@ -44,7 +41,12 @@ xqc_wt_session_datagram_send(xqc_wt_session_t *session, void *data,
     if (session == NULL || session->wt_conn == NULL) {
         return -XQC_EPARAM;
     }
+    if (session->terminated || !session->established) {
+        return -XQC_ESTATE;
+    }
 
+    /* HTTP Datagram payload starts with Quarter Stream ID. The application
+     * WebTransport datagram payload follows this field unchanged. */
     uint8_t header_buf[8];
     size_t  header_len =
         xqc_wt_encode_h3_datagram_session_id(session->session_id,

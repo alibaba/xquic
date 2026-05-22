@@ -9,10 +9,23 @@ This note compares the current local WebTransport implementation with
 This document was originally written before the draft-15 migration started.
 As of the current working tree, SETTINGS, `webtransport-h3`, HTTP Datagram
 Quarter Stream ID demux, `WT_DRAIN_SESSION = 0x78ae`, strict invalid
-session-id handling, pre-2xx rejection, session flow-control capsules, and
-initial `RESET_STREAM_AT` wire support are implemented. Remaining protocol
-gaps are still tracked below and should not be described as complete
-draft-15 compliance yet.
+session-id handling, pre-2xx rejection, session flow-control capsules,
+transactional outgoing quota reservation/commit/rollback on one-shot plus
+advanced bidi send paths, dynamic `WT_MAX_DATA` / `WT_MAX_STREAMS_*` issuance,
+`WT_DATA_BLOCKED` / `WT_STREAMS_BLOCKED` handling, `RESET_STREAM_AT`
+reliable-prefix receive handling, bounded optimistic stream/datagram buffering
+with explicit overflow handling, session termination gating, optional browser
+Origin allowlist with 403 rejection, close reason limits, WT app error-code
+mapping, split WT stream session-id header reassembly, standard-H3 datagram
+callback delivery, and length-aware H3 header storage are implemented.
+Remaining tracked items are adjacent SDK/runtime gaps, not known draft-15 wire
+blockers.
+
+Runtime caveat: Python stream writes now retry partial writes and `-XQC_EAGAIN`
+through `await drain()`. Hard WT session-flow-control blocks such as peer max
+data/streams exhaustion still surface as `WebTransportError` after sending the
+appropriate `WT_*_BLOCKED` capsule; they require the peer to send a later
+`WT_MAX_*` capsule before a retry can succeed.
 
 ## P0: wire compatibility blockers
 
@@ -32,6 +45,11 @@ draft-15 compliance yet.
   `SETTINGS_WT_INITIAL_MAX_DATA = 0x2b61`
   (`wt_draft_15.txt:1667`, `wt_draft_15.txt:1688`,
   `wt_draft_15.txt:1701`, `wt_draft_15.txt:1714`).
+  Safari 26.4 still requires the legacy max-sessions setting path; this is
+  exposed explicitly as `serve(..., webtransport_mode="legacy")` so the
+  draft-15 default does not silently downgrade. Browser interop that sends
+  draft-15 SETTINGS but tolerates legacy-only peer SETTINGS is exposed
+  separately as `serve(..., webtransport_mode="compat")`.
 
 - [x] Gate session creation on negotiated WT support.
   Draft-15 says clients MUST NOT establish WT sessions until receiving the
@@ -54,13 +72,11 @@ draft-15 compliance yet.
 - [x] Fix DATAGRAM wire format and demux.
   Draft-15 WebTransport datagrams are HTTP Datagrams whose payload follows the
   HTTP Datagram Quarter Stream ID and is otherwise unmodified
-  (`wt_draft_15.txt:828`). Current code prepends a varint WT `session_id` into
-  the datagram payload on send (`src/webtransport/xqc_webtransport_dgram.c:51`)
-  and strips that varint on receive (`src/webtransport/xqc_webtransport_ctx.c:75`,
-  `src/webtransport/xqc_webtransport_ctx.c:760`). This will not interoperate
-  with a draft-15 peer. The demux key should be the HTTP Datagram Quarter Stream
-  ID pointing at the CONNECT stream/session, not an extra WT header inside the
-  payload.
+  (`wt_draft_15.txt:828`). The WT layer now encodes/decodes the HTTP Datagram
+  Quarter Stream ID derived from the CONNECT stream id and leaves the
+  WebTransport application datagram payload unchanged. Standard `h3` ALPN also
+  registers the H3 datagram callbacks, so this path is no longer limited to
+  `h3-ext`.
 
 - [x] Update `WT_DRAIN_SESSION` capsule type.
   Draft-15 registers `WT_DRAIN_SESSION = 0x78ae`
@@ -74,10 +90,14 @@ draft-15 compliance yet.
   to carry the WT stream header (`wt_draft_15.txt:397`,
   `wt_draft_15.txt:812`). Current WT reset helpers call regular
   `RESET_STREAM` packet writing and pass user error codes directly
-  (`src/webtransport/xqc_webtransport_stream.c:477`,
-  `src/webtransport/xqc_webtransport_stream.c:489`,
-  `src/webtransport/xqc_webtransport_stream.c:520`). There is no evidence of
-  `reset_stream_at` transport parameter support in the current WT path.
+    (`src/webtransport/xqc_webtransport_stream.c:477`,
+    `src/webtransport/xqc_webtransport_stream.c:489`,
+    `src/webtransport/xqc_webtransport_stream.c:520`). There is no evidence of
+    `reset_stream_at` transport parameter support in the current WT path.
+    Current transport receive handling records `reliable_size`, preserves or
+    truncates buffered STREAM data up to that prefix, accepts late STREAM frames
+    inside the reliable prefix after RESET_STREAM_AT, and only reports reset to
+    the application after the reliable prefix is drained.
 
 - [x] Validate session IDs strictly.
   Draft-15 session IDs are CONNECT stream IDs and MUST correspond to
@@ -85,12 +105,16 @@ draft-15 compliance yet.
   connection with `H3_ID_ERROR` (`wt_draft_15.txt:641`,
   `wt_draft_15.txt:653`). Current stream/datagram receive paths decode a
   session ID and then fall back to `wt_conn->wt_session` if lookup fails
-  (`src/webtransport/xqc_webtransport_ctx.c:566`,
-  `src/webtransport/xqc_webtransport_ctx.c:684`,
-  `src/webtransport/xqc_webtransport_ctx.c:769`). That fallback turns malformed
-  or cross-session data into valid application data. It is a protocol violation.
+    (`src/webtransport/xqc_webtransport_ctx.c:566`,
+    `src/webtransport/xqc_webtransport_ctx.c:684`,
+    `src/webtransport/xqc_webtransport_ctx.c:769`). That fallback turns malformed
+    or cross-session data into valid application data. It is a protocol violation.
+    Current stream and datagram receive paths close the H3 connection with
+    `H3_ID_ERROR` for malformed or unknown session ids. Optimistic buffering is
+    only used after the session id resolves to a known, not-yet-established
+    session.
 
-- [ ] Buffer streams/datagrams until their session association is known, with
+- [x] Buffer streams/datagrams until their session association is known, with
   bounded buffers.
   Draft-15 allows optimistic streams/datagrams before the 2xx response, and
   endpoints SHOULD buffer them until associated while bounding the buffer
@@ -100,6 +124,17 @@ draft-15 compliance yet.
   `src/webtransport/xqc_webtransport_ctx.c:620`,
   `src/webtransport/xqc_webtransport_ctx.c:650`). This needs a real pending
   association table keyed by session ID plus limits and rejection behavior.
+    The core now buffers pre-established stream payload on the WT stream wrapper
+    and datagrams on the WT connection, with fixed count/byte limits, then flushes
+    them once the Extended CONNECT response establishes the session. Stream buffer
+    overflows return an error to the H3 callback; datagram buffer overflow closes
+    the target WT session with `XQC_WT_ERROR_BUFFERED_STREAM_REJECTED`.
+
+- [x] Reassemble WT stream session-id headers across read callbacks.
+  QUIC STREAM delivery can split the WT stream header. The receive path now
+  buffers partial session-id varints and the C bash e2e `split-header` scenario
+  opens session id `64`, sends the two-byte varint across two callbacks, and
+  verifies the server routes the payload to that session.
 
 ## P1: session establishment and security semantics
 
@@ -112,18 +147,21 @@ draft-15 compliance yet.
   code `404` after session creation (`src/webtransport/xqc_wt_py_api.c:1249`).
   That is semantically too late.
 
-- [ ] Validate browser `Origin`.
+- [x] Validate browser `Origin`.
   Draft-15 requires `:scheme = https`, both `:authority` and `:path`, and
   browser-origin validation (`wt_draft_15.txt:475`, `wt_draft_15.txt:477`,
   `wt_draft_15.txt:480`). Server-side pseudo-header validation now checks
   method, protocol, scheme, authority, and path before returning 2xx. Browser
-  `Origin` policy is still not exposed as a real server option.
+  `Origin` policy is now exposed as `serve(..., allowed_origins=[...])`; when
+  configured, non-matching or missing Origin is rejected before session
+  creation.
 
-- [ ] Do not initiate WebTransport in 0-RTT.
+- [x] Do not initiate WebTransport in 0-RTT.
   Draft-15 forbids initiating WT in 0-RTT because CONNECT is not safe
   (`wt_draft_15.txt:515`). Current code does not appear to implement 0-RTT WT
-  session resumption, but this must be an explicit invariant if resumption is
-  added.
+  session resumption; the client also waits for peer H3 SETTINGS before opening
+  a WT session, so it cannot send WT CONNECT in early data. Keep this invariant
+  explicit if session resumption is added later.
 
 - [ ] TLS verification must become a real SDK option.
   This is not a draft-15 wire-format item, but it is a release blocker for a
@@ -145,8 +183,11 @@ draft-15 compliance yet.
   handles CLOSE and DRAIN (`src/webtransport/xqc_webtransport_ctx.c:371`,
   `src/webtransport/xqc_webtransport_ctx.c:398`), and current H3 settings
   struct has only `webtransport_max_sessions`
-  (`include/xquic/xqc_http3.h:287`). There is no enforcement for cumulative
-  stream counts, monotonic limit updates, or per-session max data.
+    (`include/xquic/xqc_http3.h:287`). There is no enforcement for cumulative
+    stream counts, monotonic limit updates, or per-session max data.
+    Current send paths use WT wrappers for one-shot `send_bidi()` and the
+    advanced `create_bidirectional_stream().write_all()` path, so outgoing stream
+    count and session data checks are not bypassed by the Python high-level API.
 
 - [x] Close sessions with `WT_FLOW_CONTROL_ERROR` on limit violations.
   Draft-15 requires closing the WT session if incoming streams/data exceed the
@@ -157,7 +198,7 @@ draft-15 compliance yet.
 
 ## P1: session termination and error mapping
 
-- [ ] Reset/abort all associated streams on session termination.
+- [x] Reset/abort all associated streams on session termination.
   Draft-15 says a session terminates when the CONNECT stream closes or a
   `WT_CLOSE_SESSION` capsule is sent/received, then all associated streams must
   be reset/aborted with `WT_SESSION_GONE` and no new datagrams/streams may be
@@ -166,17 +207,22 @@ draft-15 compliance yet.
   but session destruction deliberately frees WT wrappers without closing QUIC
   streams (`src/webtransport/xqc_webtransport_session.c:58`). That may be
   necessary for ownership safety, but draft-15 still needs a separate
-  protocol-level reset/abort pass before object teardown.
+  protocol-level reset/abort pass before object teardown. The core now marks
+  sessions terminated when `WT_CLOSE_SESSION` is sent/received or the CONNECT
+  stream closes, blocks new streams/datagrams, and resets/stops associated
+  streams with `WT_SESSION_GONE`.
 
-- [ ] Enforce CONNECT-stream post-close rules.
+- [x] Enforce CONNECT-stream post-close rules.
   Draft-15 requires FIN immediately after sending `WT_CLOSE_SESSION`; after
   receiving it, extra CONNECT stream data must reset with `H3_MESSAGE_ERROR`
   (`wt_draft_15.txt:1491`, `wt_draft_15.txt:1495`). Current send path does send
   FIN (`src/webtransport/xqc_webtransport_session.c:194`), but the receive path
   does not mark the CONNECT stream as closed-for-capsules and reject later DATA
-  (`src/webtransport/xqc_webtransport_ctx.c:371`).
+  (`src/webtransport/xqc_webtransport_ctx.c:371`). The receive path now marks
+  `close_capsule_received` and rejects subsequent CONNECT DATA with
+  `H3_MESSAGE_ERROR = 0x10e`.
 
-- [ ] Enforce close reason length and error-code mapping.
+- [x] Enforce close reason length and error-code mapping.
   Draft-15 says close message length MUST NOT exceed 1024 bytes
   (`wt_draft_15.txt:1480`) and registers the WT application error-code range
   (`wt_draft_15.txt:1864`). Current encode uses a 512-byte stack buffer
@@ -184,18 +230,23 @@ draft-15 compliance yet.
   messages indirectly but does not implement the draft limit or error behavior.
   Stream reset helpers also pass user error codes straight to QUIC
   (`src/webtransport/xqc_webtransport_stream.c:489`), instead of mapping
-  WebTransport application error codes into the registered HTTP/3 range.
+  WebTransport application error codes into the registered HTTP/3 range. The
+  close capsule codec now enforces the 1024-byte reason limit, and stream reset
+  / stop-sending helpers map WT application error codes into the registered
+  HTTP/3 reserved range.
 
 ## P2: implementation correctness issues adjacent to draft-15
 
-- [ ] Stop treating HTTP header iovecs as NUL-terminated strings in core parsing.
+- [x] Stop treating HTTP header iovecs as NUL-terminated strings in core parsing.
   `xqc_wt_h3_request_read_notify()` casts `iov_base` to `char *` and calls
   `strcmp`-based helpers (`src/webtransport/xqc_webtransport_ctx.c:227`,
   `src/webtransport/xqc_webtransport_ctx.c:181`). `xqc_wt_py_api.c` now has a
   safer length-aware extraction path for Python route callbacks
   (`src/webtransport/xqc_wt_py_api.c:1231`), but the core request table insert
   still copies using `strlen` (`src/webtransport/xqc_webtransport_request.c:52`).
-  This can read past header buffers depending on H3 decoder storage.
+  This can read past header buffers depending on H3 decoder storage. Core
+  request table insertion is now length-aware and `xqc_wt_h3_request_read_notify`
+  passes H3 iovec lengths instead of relying on NUL termination.
 
 - [x] Remove default-session fallback after multi-session hash maps were added.
   The new hash map storage is the right direction, but fallback routing

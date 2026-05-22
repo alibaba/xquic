@@ -1378,16 +1378,36 @@ xqc_stream_recv(xqc_stream_t *stream, unsigned char *recv_buf, size_t recv_buf_s
     size_t read = 0;
     size_t frame_left;
     *fin = 0;
+    xqc_bool_t reliable_reset =
+        stream->stream_state_recv >= XQC_RECV_STREAM_ST_RESET_RECVD
+        && stream->stream_data_in.reset_at_received;
 
     if (stream->stream_state_recv >= XQC_RECV_STREAM_ST_RESET_RECVD) {
-        stream->stream_state_recv = XQC_RECV_STREAM_ST_RESET_READ;
-        xqc_stream_shutdown_read(stream);
-        xqc_stream_maybe_need_close(stream);
-        return -XQC_ESTREAM_RESET;
+        if (!reliable_reset
+            || stream->stream_data_in.next_read_offset
+                   >= stream->stream_data_in.reset_at_reliable_size)
+        {
+            stream->stream_state_recv = XQC_RECV_STREAM_ST_RESET_READ;
+            xqc_stream_shutdown_read(stream);
+            xqc_stream_maybe_need_close(stream);
+            return -XQC_ESTREAM_RESET;
+        }
+        if (stream->stream_data_in.next_read_offset
+                >= stream->stream_data_in.merged_offset_end)
+        {
+            return -XQC_EAGAIN;
+        }
     }
 
     xqc_list_for_each_safe(pos, next, &stream->stream_data_in.frames_tailq) {
         stream_frame = xqc_list_entry(pos, xqc_stream_frame_t, sf_list);
+
+        if (reliable_reset
+            && stream->stream_data_in.next_read_offset
+                   >= stream->stream_data_in.reset_at_reliable_size)
+        {
+            break;
+        }
 
         if (stream_frame->data_offset > stream->stream_data_in.merged_offset_end) {
             break;
@@ -1420,6 +1440,12 @@ xqc_stream_recv(xqc_stream_t *stream, unsigned char *recv_buf, size_t recv_buf_s
         }
 
         frame_left = stream_frame->data_length - stream_frame->next_read_offset;
+        if (reliable_reset) {
+            uint64_t reliable_left =
+                stream->stream_data_in.reset_at_reliable_size
+                - stream->stream_data_in.next_read_offset;
+            frame_left = xqc_min(frame_left, reliable_left);
+        }
 
         if (read + frame_left <= recv_buf_size) {
             memcpy(recv_buf + read, stream_frame->data + stream_frame->next_read_offset, frame_left);

@@ -33,6 +33,10 @@ typedef struct xqc_webtransport_session_s
     char    *close_reason;
     size_t   close_reason_len;
     xqc_bool_t close_capsule_sent;
+    xqc_bool_t close_capsule_received;
+
+    xqc_bool_t established;
+    xqc_bool_t terminated;
 
     /* DRAIN_WEBTRANSPORT_SESSION received — peer requests no new streams */
     xqc_bool_t drain_received;
@@ -51,6 +55,12 @@ typedef struct xqc_webtransport_session_s
     uint64_t sent_streams_uni;
     uint64_t sent_streams_bidi;
     uint64_t sent_data;
+    uint64_t reserved_streams_uni;
+    uint64_t reserved_streams_bidi;
+    uint64_t reserved_data;
+    uint64_t local_streams_uni_window;
+    uint64_t local_streams_bidi_window;
+    uint64_t local_data_window;
 
 } xqc_wt_session_t;
 
@@ -65,6 +75,12 @@ typedef struct {
     xqc_wt_pending_stream_type_t type;
     void                        *stream;  /* xqc_wt_unistream_t* or xqc_wt_bidistream_t* */
 } xqc_wt_pending_stream_t;
+
+typedef struct {
+    uint64_t streams_uni;
+    uint64_t streams_bidi;
+    uint64_t data;
+} xqc_wt_flow_reservation_t;
 
 xqc_int_t xqc_wt_session_close(xqc_wt_session_t *session);
 
@@ -93,7 +109,30 @@ xqc_int_t xqc_wt_session_on_outgoing_stream(xqc_wt_session_t *session,
 xqc_int_t xqc_wt_session_on_outgoing_data(xqc_wt_session_t *session,
     uint64_t data_len);
 
+xqc_int_t xqc_wt_session_reserve_outgoing(xqc_wt_session_t *session,
+    xqc_bool_t reserve_stream, xqc_bool_t is_bidi, uint64_t data_len,
+    xqc_wt_flow_reservation_t *reservation);
 
+void xqc_wt_session_rollback_outgoing(xqc_wt_session_t *session,
+    const xqc_wt_flow_reservation_t *reservation);
+
+xqc_int_t xqc_wt_session_commit_outgoing(xqc_wt_session_t *session,
+    const xqc_wt_flow_reservation_t *reservation);
+
+xqc_int_t xqc_wt_session_handle_blocked_capsule(xqc_wt_session_t *session,
+    uint64_t capsule_type, uint64_t value);
+
+xqc_int_t xqc_wt_session_flow_error(xqc_wt_session_t *session);
+
+xqc_int_t xqc_wt_session_mark_established(xqc_wt_session_t *session);
+
+xqc_int_t xqc_wt_session_mark_terminated(xqc_wt_session_t *session,
+    xqc_bool_t abort_streams);
+
+xqc_int_t xqc_wt_session_finish_connect_stream(xqc_wt_session_t *session);
+
+xqc_int_t xqc_wt_session_receive_close_capsule(xqc_wt_session_t *session,
+    uint32_t close_code, const uint8_t *reason, size_t reason_len);
 
 #ifdef __cplusplus
 }

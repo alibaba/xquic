@@ -12,7 +12,6 @@
 #include "../tests/platform.h"
 #include <event2/event.h>
 #include <fcntl.h>
-#include <inttypes.h>
 #include <memory.h>
 #include <signal.h>
 #include <stdio.h>
@@ -23,7 +22,6 @@
 #include <xquic/xquic.h>
 #include <xquic/xquic_typedef.h>
 
-#include <stdio.h>
 #include <xquic/xqc_webtransport.h>
 #include "src/common/utils/var_buf/xqc_var_buf.h"
 #include "src/common/xqc_common.h"
@@ -66,6 +64,11 @@
 
 #define DEFAULT_SERVER_ADDR "127.0.0.1"
 #define DEFAULT_SERVER_PORT 8443
+#define RESET_PREFIX_REQ "RESET_PREFIX_REQUEST"
+#define RESET_PREFIX_RSP "RESET_PREFIX_OK"
+#define SPLIT_HEADER_MSG "split-header-echo"
+#define SERVER_BIDI_TRIGGER "server-bidi-trigger"
+#define SERVER_BIDI_MSG "server-bidi-from-demo-server"
 
 #define LOG_PATH "slog.log"
 #define KEY_PATH "skeys.log"
@@ -147,9 +150,11 @@ void
 wt_dgram_read_handler(xqc_webtransport_session_t *session, const void *data,
     size_t data_len, void *user_data, uint64_t data_recv_time)
 {
-    /* datagram echo is handled by H3 ext layer (wt_h3_dgram_read_notify) */
-    (void)session; (void)data; (void)data_len;
-    (void)user_data; (void)data_recv_time;
+    if (session == NULL || data == NULL || data_len == 0) {
+        return;
+    }
+
+    xqc_wt_session_datagram_send(session, (void *)data, (uint32_t)data_len);
 }
 
 xqc_int_t
@@ -173,12 +178,40 @@ wt_bidistream_read_handler(xqc_wt_bidistream_t *bidistream,
     xqc_wt_session_t *session, void *data, size_t data_len,
     void *strm_user_data)
 {
-    xqc_wt_bidistream_send(bidistream, data, data_len, 1);
+    if (bidistream == NULL || data == NULL || data_len == 0) {
+        return 1;
+    }
+    if (data_len == strlen(SPLIT_HEADER_MSG)
+        && memcmp(data, SPLIT_HEADER_MSG, strlen(SPLIT_HEADER_MSG)) == 0)
+    {
+        xqc_wt_session_datagram_send(session, data, (uint32_t)data_len);
+        return 1;
+    }
+    if (data_len == strlen(RESET_PREFIX_REQ)
+        && memcmp(data, RESET_PREFIX_REQ, strlen(RESET_PREFIX_REQ)) == 0)
+    {
+        xqc_wt_bidistream_send(bidistream, (void *)RESET_PREFIX_RSP,
+            (uint32_t)strlen(RESET_PREFIX_RSP), 0);
+        xqc_wt_bidistream_reset(bidistream, 0);
+        return 1;
+    }
+    if (data_len == strlen(SERVER_BIDI_TRIGGER)
+        && memcmp(data, SERVER_BIDI_TRIGGER, strlen(SERVER_BIDI_TRIGGER)) == 0)
+    {
+        xqc_wt_session_send_bidi(session, SERVER_BIDI_MSG,
+            strlen(SERVER_BIDI_MSG), 1);
+        return 1;
+    }
+    xqc_int_t ret = xqc_wt_bidistream_send(bidistream, data, data_len, 1);
+    if (ret < 0) {
+        return ret;
+    }
     return 1;
 }
 
-/* no datagram callback registered — WT layer's fallback echo handles it */
-xqc_webtransport_dgram_callbacks_t default_dgram_cbs = {0};
+xqc_webtransport_dgram_callbacks_t default_dgram_cbs = {
+    .dgram_read_notify = wt_dgram_read_handler,
+};
 
 xqc_webtransport_stream_callbacks_t default_stream_cbs = {
     .wt_unistream_read_notify  = wt_unistream_read_handler,
@@ -240,6 +273,15 @@ typedef struct QuicConfig_s {
     uint64_t least_available_cid_count;
 
     size_t   max_pkt_sz;
+    xqc_wt_mode_t wt_mode;
+    uint64_t wt_initial_max_streams_uni;
+    uint64_t wt_initial_max_streams_bidi;
+    uint64_t wt_initial_max_data;
+    int      disable_wt_enabled;
+    int      disable_h3_datagram;
+    int      disable_connect_protocol;
+    int      disable_dgram_tp;
+    int      disable_reset_at;
 } QuicConfig;
 
 typedef struct EnvConfig_s {
@@ -338,9 +380,13 @@ wt_svr_init_args(WT_Server *server, int argc, char **argv)
     server->wt_QuicConfig->keyupdate_pkt_threshold   = UINT64_MAX;
     server->wt_QuicConfig->least_available_cid_count = 1;
     server->wt_QuicConfig->max_pkt_sz                = 1200;
+    server->wt_QuicConfig->wt_mode                   = XQC_WT_MODE_DRAFT15_STRICT;
+    server->wt_QuicConfig->wt_initial_max_streams_uni  = 1024;
+    server->wt_QuicConfig->wt_initial_max_streams_bidi = 1024;
+    server->wt_QuicConfig->wt_initial_max_data         = 16 * 1024 * 1024;
 
     int ch = 0;
-    while ((ch = getopt(argc, argv, "p:c:k:l:")) != -1) {
+    while ((ch = getopt(argc, argv, "p:c:k:l:m:d:b:u:x:")) != -1) {
         switch (ch) {
         case 'p':
             server->wt_NetConfig->port = (short)atoi(optarg);
@@ -356,6 +402,37 @@ wt_svr_init_args(WT_Server *server, int argc, char **argv)
             else if (strcmp(optarg, "w") == 0)  server->wt_EnvConfig->mLogLevel = XQC_LOG_WARN;
             else if (strcmp(optarg, "i") == 0)  server->wt_EnvConfig->mLogLevel = XQC_LOG_INFO;
             else if (strcmp(optarg, "d") == 0)  server->wt_EnvConfig->mLogLevel = XQC_LOG_DEBUG;
+            break;
+        case 'm':
+            if (strcmp(optarg, "legacy") == 0) {
+                server->wt_QuicConfig->wt_mode = XQC_WT_MODE_BROWSER_LEGACY;
+            } else if (strcmp(optarg, "compat") == 0) {
+                server->wt_QuicConfig->wt_mode = XQC_WT_MODE_BROWSER_COMPAT;
+            } else {
+                server->wt_QuicConfig->wt_mode = XQC_WT_MODE_DRAFT15_STRICT;
+            }
+            break;
+        case 'd':
+            server->wt_QuicConfig->wt_initial_max_data = strtoull(optarg, NULL, 10);
+            break;
+        case 'b':
+            server->wt_QuicConfig->wt_initial_max_streams_bidi = strtoull(optarg, NULL, 10);
+            break;
+        case 'u':
+            server->wt_QuicConfig->wt_initial_max_streams_uni = strtoull(optarg, NULL, 10);
+            break;
+        case 'x':
+            if (strcmp(optarg, "no-wt-enabled") == 0) {
+                server->wt_QuicConfig->disable_wt_enabled = 1;
+            } else if (strcmp(optarg, "no-h3-datagram") == 0) {
+                server->wt_QuicConfig->disable_h3_datagram = 1;
+            } else if (strcmp(optarg, "no-connect") == 0) {
+                server->wt_QuicConfig->disable_connect_protocol = 1;
+            } else if (strcmp(optarg, "no-dgram-tp") == 0) {
+                server->wt_QuicConfig->disable_dgram_tp = 1;
+            } else if (strcmp(optarg, "no-reset-at") == 0) {
+                server->wt_QuicConfig->disable_reset_at = 1;
+            }
             break;
         default:
             break;
@@ -406,9 +483,6 @@ wt_svr_write_socket(const unsigned char *buf, size_t size,
         set_sys_errno(0);
         res = sendto(fd, (const char *)buf, size, 0, peer_addr, peer_addrlen);
         if ( res < 0 ) {
-            fprintf(stderr, "SENDTO_ERR: fd=%d size=%zu res=%zd errno=%d(%s) family=%d addrlen=%d\n",
-                fd, size, res, get_sys_errno(), strerror(get_sys_errno()),
-                peer_addr->sa_family, peer_addrlen);
             if ( get_sys_errno() == EAGAIN ) {
                 res = XQC_SOCKET_EAGAIN;
             }
@@ -525,7 +599,10 @@ wt_svr_init_conn_settings(WT_Server *server)
         .keyupdate_pkt_threshold =
             server->wt_QuicConfig->keyupdate_pkt_threshold,
         .max_pkt_out_size        = server->wt_QuicConfig->max_pkt_sz,
-        .max_datagram_frame_size = 16383,
+        .max_datagram_frame_size =
+            server->wt_QuicConfig->disable_dgram_tp ? 0 : 16383,
+        .reset_stream_at =
+            server->wt_QuicConfig->disable_reset_at ? 0 : 1,
         .enable_multipath        = (uint64_t)server->wt_QuicConfig->multipath,
         .multipath_version =
             (xqc_multipath_version_t)server->wt_QuicConfig->multipath_version,
@@ -585,6 +662,15 @@ wt_svr_init_xquic_engine(WT_Server *server)
     xqc_wt_ctx_init(server->engine, &default_dgram_cbs, NULL,
         &default_stream_cbs, 0);
 
+    xqc_wt_engine_set_default_settings(server->engine,
+        server->wt_QuicConfig->wt_mode,
+        server->wt_QuicConfig->wt_initial_max_streams_uni,
+        server->wt_QuicConfig->wt_initial_max_streams_bidi,
+        server->wt_QuicConfig->wt_initial_max_data,
+        server->wt_QuicConfig->disable_wt_enabled ? 0 : 1,
+        server->wt_QuicConfig->disable_h3_datagram ? 0 : 1,
+        server->wt_QuicConfig->disable_connect_protocol ? 0 : 1);
+
     return 0;
 }
 
@@ -631,8 +717,9 @@ finish_recv:
 void
 wt_svr_socket_write_handler(WT_Server *server, int fd)
 {
-    (void)server;
-    (void)fd;
+    if (server == NULL || fd < 0) {
+        return;
+    }
 }
 
 static void

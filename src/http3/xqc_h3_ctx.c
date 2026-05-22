@@ -41,6 +41,9 @@ xqc_h3_ctx_init(xqc_engine_t *engine, xqc_h3_callbacks_t *h3_cbs)
         .conn_cbs       = h3_conn_callbacks,
         .stream_cbs     = h3_stream_callbacks,
     };
+    if (engine->config->enable_h3_ext) {
+        ap_cbs.dgram_cbs = h3_ext_datagram_callbacks;
+    }
 
     h3_ctx = xqc_h3_ctx_create(h3_cbs);
     if (h3_ctx == NULL) {
@@ -68,9 +71,6 @@ xqc_h3_ctx_init(xqc_engine_t *engine, xqc_h3_callbacks_t *h3_cbs)
     }
 
     if (engine->config->enable_h3_ext) {
-
-        ap_cbs.dgram_cbs = h3_ext_datagram_callbacks;
-
         h3_ctx = xqc_h3_ctx_create(h3_cbs);
         if (h3_ctx == NULL) {
             ret = -XQC_EMALLOC;

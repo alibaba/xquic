@@ -39,6 +39,7 @@ typedef struct xqc_wt_buffer_list_s
     xqc_wt_buffer_t *tail;
 } xqc_wt_buffer_list_t;
 
+void xqc_wt_stream_buffer_list_release(xqc_wt_buffer_list_t *list);
 
 // xqc_wt_stream_map_t暂时不使用，后续再整合到stream里面
 typedef struct xqc_wt_stream_map_s
@@ -52,6 +53,9 @@ typedef struct xqc_wt_send_stream_s
     xqc_stream_t           *stream;
     wt_stream_close_func_pt close_func;
     xqc_bool_t              send_header_flag;
+    uint8_t                 send_header_buf[16];
+    size_t                  send_header_len;
+    size_t                  send_header_sent;
 } xqc_wt_send_stream_t;
 
 typedef struct xqc_wt_recv_stream_s
@@ -77,7 +81,12 @@ typedef struct xqc_wt_unistream_s
     xqc_connection_t *conn;
     xqc_bool_t packet_parsed_flag;   // default value = XQC_FALSE , when packet
                                      // parsed , set it to XQC_TRUE
+    uint8_t    recv_header_buf[8];
+    size_t     recv_header_len;
     xqc_bool_t flow_counted;
+    xqc_bool_t pending_fin;
+    size_t     pending_bytes;
+    xqc_wt_buffer_list_t pending_recv;
 
     union stream
     {
@@ -98,7 +107,12 @@ typedef struct xqc_wt_bidistream_s
 
     xqc_bool_t packet_parsed_flag;   // default value = XQC_FALSE , when packet
                                      // parsed , set it to XQC_TRUE
+    uint8_t    recv_header_buf[8];
+    size_t     recv_header_len;
     xqc_bool_t flow_counted;
+    xqc_bool_t pending_fin;
+    size_t     pending_bytes;
+    xqc_wt_buffer_list_t pending_recv;
     uint64_t         session_id;
     xqc_wt_session_t *session;
     xqc_h3_stream_t *h3_stream;
@@ -132,6 +146,9 @@ xqc_wt_bidistream_t *xqc_wt_create_bidistream(xqc_h3_stream_t *h3_stream,
     xqc_wt_session_t *session, wt_stream_close_func_pt send_close_func,
     wt_stream_close_func_pt recv_close_func, xqc_bool_t passive_created);
 
+xqc_wt_recv_stream_t *xqc_wt_create_recv_stream_passive(
+    xqc_h3_stream_t *h3_stream, wt_stream_close_func_pt close_func);
+
 xqc_h3_stream_t *xqc_wt_bidistream_get_h3_stream(
     xqc_wt_bidistream_t *wt_stream);
 
@@ -140,8 +157,15 @@ xqc_int_t xqc_wt_bidistream_destroy(xqc_wt_bidistream_t *wt_stream);
 xqc_int_t xqc_wt_bidistream_send(xqc_wt_bidistream_t *wt_stream, void *data,
     uint32_t len, int fin);
 
+xqc_int_t xqc_wt_bidistream_send_reserved(xqc_wt_bidistream_t *wt_stream,
+    void *data, uint32_t len, int fin, xqc_bool_t *sent_any,
+    uint32_t *payload_sent);
+
 void xqc_wt_unistream_set_session_id(xqc_wt_unistream_t *wt_stream,
     uint64_t                                            session_id);
+
+xqc_int_t xqc_wt_send_stream_reset_at(xqc_wt_send_stream_t *send_stream,
+    uint64_t stream_type, uint64_t session_id, uint64_t h3_error_code);
 
 
 #ifdef __cplusplus

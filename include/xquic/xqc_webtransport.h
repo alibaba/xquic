@@ -13,6 +13,9 @@ extern "C" {
 #endif
 
 #define XQC_WEBTRANSPORT_DEFAULT_DGRAM_MSS 512
+#define XQC_WEBTRANSPORT_DEFAULT_UNKNOWN_SESSION_DGRAM_WINDOW 8
+#define XQC_WEBTRANSPORT_DEFAULT_PENDING_DGRAM_COUNT_MAX 64
+#define XQC_WEBTRANSPORT_DEFAULT_PENDING_DGRAM_BYTES_MAX 65536
 
 /**
  * @brief Stream Type of WebTransport
@@ -42,6 +45,12 @@ typedef struct xqc_webtransport_conn_settings_s {
     /* max webtransport session count for single h3 connect */
     uint64_t max_sessions_count;
 } xqc_webtransport_conn_settings_t;
+
+typedef struct xqc_webtransport_pending_dgram_policy_s {
+    uint64_t unknown_session_window;
+    size_t   max_count;
+    size_t   max_bytes;
+} xqc_webtransport_pending_dgram_policy_t;
 
 /**
  * @brief webtransport connection object
@@ -329,6 +338,41 @@ xqc_int_t xqc_wt_ctx_init(xqc_engine_t *engine,
                           xqc_webtransport_stream_callbacks_t *stream_cbs,
                           uint64_t max_sessions);
 
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_ctx_init_for_alpns(xqc_engine_t *engine,
+                          xqc_webtransport_dgram_callbacks_t *dgram_cbs,
+                          xqc_webtransport_session_callbacks_t *session_cbs,
+                          xqc_webtransport_stream_callbacks_t *stream_cbs,
+                          uint64_t max_sessions,
+                          const char **alpns,
+                          size_t alpn_count);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_ctx_set_pending_datagram_policy(xqc_engine_t *engine,
+                          const xqc_webtransport_pending_dgram_policy_t *policy);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_engine_set_default_settings_for_alpn(xqc_engine_t *engine,
+                          const char *alpn,
+                          size_t alpn_len,
+                          xqc_wt_mode_t mode,
+                          uint64_t wt_initial_max_streams_uni,
+                          uint64_t wt_initial_max_streams_bidi,
+                          uint64_t wt_initial_max_data,
+                          xqc_bool_t enable_webtransport,
+                          xqc_bool_t h3_datagram,
+                          xqc_bool_t enable_connect_protocol);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_engine_set_default_settings(xqc_engine_t *engine,
+                          xqc_wt_mode_t mode,
+                          uint64_t wt_initial_max_streams_uni,
+                          uint64_t wt_initial_max_streams_bidi,
+                          uint64_t wt_initial_max_data,
+                          xqc_bool_t enable_webtransport,
+                          xqc_bool_t h3_datagram,
+                          xqc_bool_t enable_connect_protocol);
+
 /**
  * @brief create and webtransport connection from client (not implemented)
  *
@@ -391,6 +435,10 @@ void xqc_wt_unistream_destroy(xqc_wt_unistream_t *wt_stream);
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_webtransport_datagram_send(xqc_webtransport_conn_t *wt_conn, void *data, uint32_t size);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_session_datagram_send(xqc_wt_session_t *session, void *data,
+    uint32_t data_len);
 
 /**
  * @brief
@@ -492,6 +540,9 @@ xqc_int_t xqc_wt_bidistream_send(xqc_wt_bidistream_t *wt_bidistream, void *data,
  */
 XQC_EXPORT_PUBLIC_API
 xqc_connection_t *xqc_wt_session_get_conn(xqc_wt_session_t *wt_session);
+
+XQC_EXPORT_PUBLIC_API
+xqc_h3_conn_t *xqc_wt_session_get_h3_conn(xqc_wt_session_t *wt_session);
 
 /**
  * @brief set the dgram mss of the connection , if not set then dgram_mss = 100 ;

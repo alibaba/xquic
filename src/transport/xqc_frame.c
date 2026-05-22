@@ -172,6 +172,37 @@ xqc_insert_stream_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream
     return XQC_OK;
 }
 
+static void
+xqc_stream_data_keep_reliable_prefix(xqc_stream_t *stream, uint64_t reliable_size)
+{
+    xqc_list_head_t *pos, *next;
+    xqc_stream_frame_t *frame;
+
+    xqc_list_for_each_safe(pos, next, &stream->stream_data_in.frames_tailq) {
+        frame = xqc_list_entry(pos, xqc_stream_frame_t, sf_list);
+        uint64_t frame_end = frame->data_offset + frame->data_length;
+
+        if (frame->data_offset >= reliable_size) {
+            xqc_list_del_init(&frame->sf_list);
+            xqc_free(frame->data);
+            xqc_free(frame);
+            continue;
+        }
+
+        if (frame_end > reliable_size) {
+            frame->data_length = (unsigned)(reliable_size - frame->data_offset);
+            frame->fin = 0;
+            if (frame->next_read_offset > frame->data_length) {
+                frame->next_read_offset = frame->data_length;
+            }
+        }
+    }
+
+    if (stream->stream_data_in.merged_offset_end > reliable_size) {
+        stream->stream_data_in.merged_offset_end = reliable_size;
+    }
+}
+
 
 xqc_int_t
 xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
@@ -525,9 +556,28 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     }
 
     if (stream->stream_state_recv >= XQC_RECV_STREAM_ST_RESET_RECVD) {
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|RESET_RECVD return|stream_id:%ui|", stream_id);
-        ret = XQC_OK;
-        goto free;
+        if (stream->stream_data_in.reset_at_received
+            && stream_frame->data_offset < stream->stream_data_in.reset_at_reliable_size)
+        {
+            uint64_t reliable_size =
+                stream->stream_data_in.reset_at_reliable_size;
+            uint64_t frame_end =
+                stream_frame->data_offset + stream_frame->data_length;
+            if (frame_end > reliable_size) {
+                stream_frame->data_length =
+                    (unsigned)(reliable_size - stream_frame->data_offset);
+                stream_frame->fin = 0;
+            }
+            if (stream_frame->data_length == 0) {
+                ret = XQC_OK;
+                goto free;
+            }
+
+        } else {
+            xqc_log(conn->log, XQC_LOG_DEBUG, "|RESET_RECVD return|stream_id:%ui|", stream_id);
+            ret = XQC_OK;
+            goto free;
+        }
     }
 
     stream->stream_stats.final_packet_time = xqc_monotonic_timestamp();
@@ -1150,6 +1200,10 @@ xqc_process_reset_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
     }
     xqc_stream_type_t stream_type = xqc_get_stream_type(stream_id);
 
+    xqc_log(conn->log, XQC_LOG_DEBUG,
+            "|recv reset_stream|stream_id:%ui|err_code:%ui|final_size:%ui|",
+            stream_id, err_code, final_size);
+
     stream = xqc_find_stream_by_id(stream_id, conn->streams_hash);
     if (!stream) {
         if ((conn->conn_type == XQC_CONN_TYPE_SERVER && (stream_type == XQC_CLI_BID || stream_type == XQC_CLI_UNI))
@@ -1247,14 +1301,22 @@ xqc_process_reset_stream_at_frame(xqc_connection_t *conn, xqc_packet_in_t *packe
     }
 
     if (stream->stream_state_recv < XQC_RECV_STREAM_ST_RESET_RECVD) {
+        stream->stream_data_in.reset_at_received = XQC_TRUE;
+        stream->stream_data_in.reset_at_reliable_size = reliable_size;
+        xqc_stream_data_keep_reliable_prefix(stream, reliable_size);
         xqc_stream_recv_state_update(stream, XQC_RECV_STREAM_ST_RESET_RECVD);
         if (stream->stream_stats.peer_reset_time == 0) {
             stream->stream_stats.peer_reset_time = xqc_monotonic_timestamp();
         }
         conn->conn_flow_ctl.fc_data_recved += (int64_t)final_size - (int64_t)stream->stream_max_recv_offset;
-        conn->conn_flow_ctl.fc_data_read += (int64_t)final_size - (int64_t)stream->stream_data_in.next_read_offset;
-        xqc_destroy_frame_list(&stream->stream_data_in.frames_tailq);
-        xqc_stream_ready_to_read(stream);
+        uint64_t read_credit_base = xqc_max(stream->stream_data_in.next_read_offset,
+                                            reliable_size);
+        conn->conn_flow_ctl.fc_data_read += (int64_t)final_size - (int64_t)read_credit_base;
+        if (stream->stream_data_in.next_read_offset < stream->stream_data_in.merged_offset_end
+            || stream->stream_data_in.next_read_offset >= reliable_size)
+        {
+            xqc_stream_ready_to_read(stream);
+        }
     }
     return XQC_OK;
 }

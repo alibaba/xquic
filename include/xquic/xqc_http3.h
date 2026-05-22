@@ -260,6 +260,12 @@ typedef struct xqc_h3_ext_bytestream_stats_s {
     xqc_usec_t  first_byte_rcvd_time;
 } xqc_h3_ext_bytestream_stats_t;
 
+typedef enum xqc_wt_mode_e {
+    XQC_WT_MODE_DRAFT15_STRICT = 0,
+    XQC_WT_MODE_BROWSER_LEGACY = 1,
+    XQC_WT_MODE_BROWSER_COMPAT = 2,
+} xqc_wt_mode_t;
+
 /**
  * @brief connection settings for http3 
  */
@@ -287,14 +293,21 @@ typedef struct xqc_h3_conn_settings_s {
     /** Extended CONNECT and Datagram settings (RFC 9220, RFC 9297) */
     xqc_bool_t enable_connect_protocol;   /* SETTINGS_ENABLE_CONNECT_PROTOCOL (0x08) */
     xqc_bool_t h3_datagram;              /* SETTINGS_H3_DATAGRAM (0x33) */
+    xqc_bool_t enable_connect_protocol_present;
+    xqc_bool_t h3_datagram_present;
 
     /** WebTransport over HTTP/3 draft-15 settings */
     xqc_bool_t enable_webtransport;       /* SETTINGS_WT_ENABLED (0x2c7cf000) */
+    xqc_wt_mode_t webtransport_mode;      /* strict draft-15, browser legacy, or browser compat */
+    xqc_bool_t wt_enabled_present;
     uint64_t   wt_initial_max_streams_uni;  /* SETTINGS_WT_INITIAL_MAX_STREAMS_UNI */
     uint64_t   wt_initial_max_streams_bidi; /* SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI */
     uint64_t   wt_initial_max_data;         /* SETTINGS_WT_INITIAL_MAX_DATA */
+    xqc_bool_t wt_initial_max_streams_uni_present;
+    xqc_bool_t wt_initial_max_streams_bidi_present;
+    xqc_bool_t wt_initial_max_data_present;
 
-    /** Legacy WebTransport draft setting, parsed for compatibility only. */
+    /** Legacy WebTransport draft setting for browser compatibility. */
     uint64_t   webtransport_max_sessions;
 
 } xqc_h3_conn_settings_t;

@@ -209,7 +209,9 @@ xqc_h3_ext_bytestream_create(xqc_engine_t *engine,
 
     h3_conn = (xqc_h3_conn_t*)stream->stream_conn->proto_data;
 
-    if (!(h3_conn->flags & XQC_H3_CONN_FLAG_EXT_ENABLED)) {
+    if (!(h3_conn->flags & XQC_H3_CONN_FLAG_EXT_ENABLED)
+        && !h3_conn->local_h3_conn_settings.enable_webtransport)
+    {
         // it is safe to destroy the stream here, as it is not notified to upper layer.
         xqc_destroy_stream(stream);
         xqc_log(engine->log, XQC_LOG_ERROR, "|try to create bytestream while it is disabled on the connection|");

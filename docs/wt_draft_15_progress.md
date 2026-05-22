@@ -10,8 +10,9 @@
   - `SETTINGS_WT_INITIAL_MAX_STREAMS_UNI = 0x2b64`
   - `SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI = 0x2b65`
   - `SETTINGS_WT_INITIAL_MAX_DATA = 0x2b61`
-- SETTINGS emission now sends draft-15 WT settings instead of the legacy
-  WebTransport max-sessions setting.
+- SETTINGS emission now defaults to draft-15 WT settings while retaining an
+  explicit legacy browser mode for Safari versions that cancel CONNECT when
+  `WT_INITIAL_MAX_*` settings are present.
 - Client CONNECT now sends `:protocol = webtransport-h3`; server checks the
   same token.
 - Verification:
@@ -110,3 +111,104 @@ control capsules, termination rules, RESET_STREAM_AT, full verification.
 - Caveat: this is the transport wire path needed by WebTransport, but
   reliable-size retransmission behavior still needs targeted transport-level
   tests before calling the underlying QUIC extension mature.
+
+### Step 6: termination, optimistic buffering, and error-code mapping
+
+- Added bounded optimistic buffering for data that arrives before the
+  WebTransport session is established:
+  - stream payload buffers live on the WT stream wrapper and are flushed after
+    the Extended CONNECT response establishes the session;
+  - datagrams are buffered on the WT connection by CONNECT stream/session id
+    and flushed once the matching session is established.
+- Added session lifecycle flags:
+  - `established` gates outgoing streams/datagrams;
+  - `terminated` blocks new stream/data/datagram sends;
+  - `close_capsule_received` rejects later CONNECT stream DATA with
+    `H3_MESSAGE_ERROR = 0x10e`.
+- Sending or receiving `WT_CLOSE_SESSION`, or closing the CONNECT stream, now
+  marks the session terminated and resets/stops associated WT streams with
+  `WT_SESSION_GONE`.
+- CLOSE capsule encoding/decoding now enforces the draft-15 1024-byte reason
+  limit.
+- Added WebTransport application error-code mapping helpers for the registered
+  HTTP/3 reserved range and use that mapping for WT stream reset/stop-sending.
+- Core request header storage is now length-aware and no longer treats H3
+  header iovecs as NUL-terminated strings.
+- Added optional browser Origin allowlist plumbing through
+  `serve(..., allowed_origins=[...])`; when configured, requests with missing
+  or non-matching `origin` are rejected before sending a 2xx response.
+- Verification:
+  - `rm -rf build_wt && bash scripts/build_wt_py.sh`
+  - `XQUIC_LIB_PATH=/Users/sy03/github_xquic/xquic/xquic_webtransport/python/pyxquic_wt python3 -m pytest xquic_webtransport/python/tests/test_wire.py xquic_webtransport/python/tests/test_e2e_lowlevel.py xquic_webtransport/python/tests/test_e2e.py xquic_webtransport/python/tests/test_echo.py xquic_webtransport/python/tests/test_stream_unit.py -q`
+
+## 2026-05-21
+
+### Step 8: C draft-15 hardening and bash e2e
+
+- Standard `h3` ALPN now installs the H3 datagram callbacks when H3 extensions
+  are enabled, so draft-15 WebTransport datagrams over standard H3 reach the WT
+  demux path instead of being limited to the old `h3-ext` ALPN.
+- H3 bytestream creation is now allowed for standard H3 connections that have
+  WebTransport enabled, which is required for WT bidi data streams using stream
+  type `0x41`.
+- Client-side 2xx session creation now marks the WT session established before
+  invoking the application session-create callback, so callbacks can immediately
+  send streams or datagrams without hitting `-XQC_ESTATE`.
+- Incoming WT stream session-id varints are reassembled across read callbacks;
+  a split varint header now waits for the remaining bytes instead of raising an
+  H3 decode error.
+- WT stream resets prepare the WT header first and set RESET_STREAM_AT final /
+  reliable size to at least the WT header length.
+- The C bash e2e now covers bidi echo, datagram echo, local close gates,
+  RESET_STREAM_AT reliable prefix, multiple WT sessions on one H3 connection,
+  split session-id header reassembly, session flow-control blocked paths,
+  compat/legacy mode, strict legacy rejection, invalid datagram session id, and
+  sequential session churn.
+- Verification:
+  - `WT_E2E_SCENARIOS='bidi datagram close-gates reset-prefix multi-session split-header fc-data-blocked fc-stream-blocked compat-legacy strict-reject-legacy invalid-datagram churn' WT_E2E_CLIENT_RUNS=2 scripts/wt_draft15_e2e.sh`
+
+### Step 7: review blocker follow-ups
+
+- Unified the advanced Python bidi stream API with the WT bidistream wrapper:
+  `create_bidirectional_stream()` now records an active WT wrapper and
+  `stream.write_all()` sends through `xqc_wt_bidistream_send()`, so it enforces
+  the same outgoing WT stream/data limits as one-shot `send_bidi()`.
+- Fixed the local active bytestream callback split: H3 bytestream creation no
+  longer pre-registers locally initiated WT_BIDI streams as passive wrappers.
+- Datagram receive is now strict for session ids: malformed Quarter Stream ID
+  or unknown CONNECT stream id closes the H3 connection with `H3_ID_ERROR`.
+  Optimistic datagram buffering is only used for known but not-yet-established
+  sessions; overflow closes the WT session explicitly.
+- RESET_STREAM_AT receive handling now preserves reliable prefix semantics:
+  buffered data beyond `reliable_size` is dropped/truncated, late STREAM frames
+  within the reliable prefix are still accepted after RESET_STREAM_AT, and
+  applications can read the reliable prefix before observing reset.
+- Outgoing WT session flow-control now uses an explicit
+  reservation/commit/rollback path. One-shot `send_bidi()` reserves stream and
+  data quota before touching QUIC, commits only accepted payload bytes, rolls
+  the reservation back if the combined operation fails before data is written,
+  and advanced stream creation rolls stream quota back if wrapper or
+  pending-stream registration fails.
+- Origin allowlist failures now reject the Extended CONNECT response with
+  status `403`, while route misses still use `404`.
+- WT stream send wrappers return the number of application payload bytes
+  accepted by xquic instead of translating EAGAIN/partial-send state to
+  success-like `0`; unaccepted payload bytes are rolled back from WT session
+  data quota.
+- Strict/compat/legacy behavior is selected by an explicit `xqc_wt_mode_t`
+  instead of a pair of browser booleans. Strict draft-15 requires peer
+  `WT_INITIAL_MAX_*` SETTINGS; compat keeps draft-15 server SETTINGS but falls
+  back to QUIC flow control if a browser peer advertises no WT session budgets;
+  legacy omits draft-15 WT_INITIAL settings for Safari.
+- Incoming WT data/streams now auto-extend local receive windows with
+  `WT_MAX_DATA` / `WT_MAX_STREAMS_*` capsules, and received
+  `WT_DATA_BLOCKED` / `WT_STREAMS_BLOCKED` capsules trigger an explicit local
+  limit increase plus MAX response.
+- Python stream `write_all()` / `write()` now retry partial accepted writes and
+  `-XQC_EAGAIN` through `await drain()`. Hard peer WT FC blocks still surface as
+  errors after C sends the matching `WT_*_BLOCKED` capsule.
+- Verification:
+  - `bash scripts/build_wt_py.sh`
+  - `XQUIC_LIB_PATH=/Users/sy03/github_xquic/xquic/xquic_webtransport/python/pyxquic_wt python3 -m pytest xquic_webtransport/python/tests/test_e2e.py::test_bidi_echo xquic_webtransport/python/tests/test_e2e.py::test_send_bidi_respects_session_flow_limits xquic_webtransport/python/tests/test_e2e.py::test_create_bidi_stream_respects_session_flow_limits xquic_webtransport/python/tests/test_e2e.py::test_bidi_writes_respect_session_data_limit -q`
+  - `XQUIC_LIB_PATH=/Users/sy03/github_xquic/xquic/xquic_webtransport/python/pyxquic_wt python3 -m pytest xquic_webtransport/python/tests/test_e2e.py::test_failed_one_shot_bidi_send_rolls_back_stream_quota -q`
+  - `XQUIC_LIB_PATH=/Users/sy03/github_xquic/xquic/xquic_webtransport/python/pyxquic_wt python3 -m pytest xquic_webtransport/python/tests/test_wire.py xquic_webtransport/python/tests/test_e2e_lowlevel.py xquic_webtransport/python/tests/test_e2e.py xquic_webtransport/python/tests/test_echo.py xquic_webtransport/python/tests/test_stream_unit.py -q`

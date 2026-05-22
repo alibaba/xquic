@@ -51,20 +51,29 @@ xqc_wt_request_destroy(xqc_wt_request_t *wt_request)
 void
 xqc_wt_request_table_insert(xqc_wt_request_t *wt_request, const char *key, const char *value)
 {
+    xqc_wt_request_table_insert_len(wt_request, key, strlen(key), value, strlen(value));
+}
+
+void
+xqc_wt_request_table_insert_len(xqc_wt_request_t *wt_request,
+    const char *key, size_t key_len, const char *value, size_t value_len)
+{
     /* copy key and value so they outlive the H3 header buffer */
-    char *key_copy = xqc_malloc(strlen(key) + 1);
-    char *val_copy = xqc_malloc(strlen(value) + 1);
+    char *key_copy = xqc_malloc(key_len + 1);
+    char *val_copy = xqc_malloc(value_len + 1);
     if (key_copy == NULL || val_copy == NULL) {
         xqc_free(key_copy);
         xqc_free(val_copy);
         return;
     }
-    memcpy(key_copy, key, strlen(key) + 1);
-    memcpy(val_copy, value, strlen(value) + 1);
+    memcpy(key_copy, key, key_len);
+    key_copy[key_len] = '\0';
+    memcpy(val_copy, value, value_len);
+    val_copy[value_len] = '\0';
 
-    uint64_t               hash    = xqc_hash_string(key_copy, strlen(key_copy));
+    uint64_t               hash    = xqc_hash_string(key_copy, key_len);
     xqc_str_hash_element_t element = {
-        .str  = {.data = (unsigned char *)key_copy, .len = strlen(key_copy)},
+        .str  = {.data = (unsigned char *)key_copy, .len = key_len},
         .hash = hash,
         .value = (void *)val_copy,
     };

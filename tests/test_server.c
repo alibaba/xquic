@@ -2500,6 +2500,14 @@ int main(int argc, char *argv[]) {
         conn_settings.enable_pmtud = 3;
     }
 
+    /*
+     * issue #722 regression: peer side of the PMTUD-driven PADDING-only
+     * accounting test; see test_client.c case 48 for the rationale.
+     */
+    if (g_test_case == 48) {
+        conn_settings.enable_pmtud = 3;
+    }
+
     if (g_test_case == 6) {
         conn_settings.idle_time_out = 10000;
     }

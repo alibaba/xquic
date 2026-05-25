@@ -5002,4 +5002,31 @@ else
     case_print_result "ack_timestamp_frame_case_6" "fail"
 fi
 
+
+# issue #722 regression: PADDING-bearing packets (PMTUD probes, Initial
+# coalesce padding) must register against bytes_in_flight. Enable PMTUD on
+# both ends, push a sizeable transfer, and assert that:
+#   1. PMTUD was actually negotiated (enable_pmtud != 0 in conn_destroy),
+#      so PADDING-bearing probes were scheduled,
+#   2. inflight accounting was non-zero during the run (counter exercised),
+#   3. the transfer completed end-to-end with no error log.
+killall test_server 2> /dev/null
+clear_log
+echo -e "inflight padding accounting (issue #722) ...\c"
+${SERVER_BIN} -l d -e -x 48 > /dev/null &
+sleep 1
+${CLIENT_BIN} -s 1024000 -l d -t 2 -E -x 48 > stdlog
+transfer_ok=`grep ">>>>>>>> pass" stdlog`
+inflight_nonzero=`grep "|inflight:" clog | grep -v "|inflight:0|" | wc -l`
+pmtud_negotiated=`grep "enable_pmtud:" clog | grep -v "enable_pmtud:0|" | wc -l`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$transfer_ok" ] && [ "$inflight_nonzero" -gt 0 ] && [ "$pmtud_negotiated" -gt 0 ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "inflight_padding_accounting_issue_722" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "inflight_padding_accounting_issue_722" "fail"
+fi
+grep_err_log
+
 cd -

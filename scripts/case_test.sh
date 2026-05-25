@@ -4947,4 +4947,56 @@ else
     case_print_result "ack_timestamp_frame_case_6" "fail"
 fi
 
+
+# issue #582 regression: a tolerant per-packet error inside a coalesced
+# UDP datagram must let the loop continue to the remaining packets.
+# Pre-fix code emitted an "|ignore err|" INFO log and `goto end` after
+# the first tolerant error, silently dropping every subsequent packet
+# in the same datagram. The fix replaces that with
+# "|tolerant err, skip packet and continue|" and a continue, plus
+# de-duplicates the qlog packet_received emission on the EDECRYPT
+# path (which is already covered by packet_dropped in xqc_packet.c).
+# Assertions:
+#   1. normal HTTP/3 transfer completes,
+#   2. no errors on either side,
+#   3. the legacy "|ignore err|" string -- which only appears in the
+#      buggy code path -- is absent in both clog and slog,
+#   4. when the new "|tolerant err, skip packet and continue|" line
+#      shows up (it does during the regular handshake when keys for
+#      a coalesced Handshake packet are not yet installed) it is
+#      never emitted with ret==-XQC_EDECRYPT alongside a duplicate
+#      qlog packet_received for the same packet number.
+killall test_server 2> /dev/null
+clear_log
+echo -e "coalesced-tolerant continue (issue #582) ...\c"
+${SERVER_BIN} -l d -e -x 53 > /dev/null &
+sleep 1
+${CLIENT_BIN} -s 1024000 -l d -t 2 -E -x 53 > stdlog
+transfer_ok=`grep ">>>>>>>> pass" stdlog`
+errlog=`grep_err_log`
+legacy_log=`grep "|ignore err|" clog slog 2>/dev/null | wc -l | tr -d ' '`
+# If qlog events are written to the log file (depends on test build
+# config), enforce per-log dedup of pkt_num between received/dropped.
+collisions=0
+for lg in clog slog; do
+    [ -s "$lg" ] || continue
+    recv_nums=`grep "packet_received" $lg | grep -oE "pkt_num:[0-9]+" | sort -u`
+    drop_nums=`grep "packet_dropped"  $lg | grep -oE "pkt_num:[0-9]+" | sort -u`
+    if [ -n "$recv_nums" ] && [ -n "$drop_nums" ]; then
+        dup=`comm -12 <(echo "$recv_nums") <(echo "$drop_nums") | wc -l | tr -d ' '`
+    else
+        dup=0
+    fi
+    collisions=$(( collisions + dup ))
+done
+if [ -z "$errlog" ] && [ -n "$transfer_ok" ] \
+        && [ "$legacy_log" -eq 0 ] && [ "$collisions" -eq 0 ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "coalesced_tolerant_continue_issue_582" "pass"
+else
+    echo ">>>>>>>> pass:0 legacy=$legacy_log collisions=$collisions"
+    case_print_result "coalesced_tolerant_continue_issue_582" "fail"
+fi
+grep_err_log
+
 cd -

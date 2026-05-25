@@ -4820,6 +4820,18 @@ int main(int argc, char *argv[]) {
         xqc_log_disable(XQC_TRUE);
     }
 
+    /*
+     * issue #582 regression marker: see test_server.c for the
+     * matching block. case_test.sh drives a normal HTTP/3 round
+     * trip and then verifies that the qlog packet_received and
+     * packet_dropped events do not collide on the same pkt_num,
+     * which would mean xqc_conn_process_packet emitted both for
+     * the same EDECRYPT packet.
+     */
+    if (g_test_case == 53) {
+        printf("--- coalesced-tolerant-error regression marker (issue #582)\n");
+    }
+
     ctx.engine = xqc_engine_create(XQC_ENGINE_CLIENT, &config, &engine_ssl_config,
                                    &callback, &tcbs, &ctx);
     if (ctx.engine == NULL) {

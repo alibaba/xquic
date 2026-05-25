@@ -1000,6 +1000,19 @@ xqc_server_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *conn_user_da
 
     }
 
+    /*
+     * issue #582 regression: tolerant errors inside a coalesced UDP
+     * datagram must let the loop keep processing the remaining
+     * packets, and the qlog packet_received event must not be
+     * duplicated against an already-emitted packet_dropped on the
+     * EDECRYPT path. The handler does nothing extra here -- the
+     * fingerprint is verified by case_test.sh from the qlog after a
+     * normal request/response round trip.
+     */
+    if (g_test_case == 53) {
+        printf("--- coalesced-tolerant-error regression marker (issue #582)\n");
+    }
+
 }
 
 void

@@ -35,6 +35,7 @@ typedef struct xqc_cid_inner_s {
     xqc_cid_state_t   state;
     xqc_usec_t        retired_ts;
     xqc_cid_flag_t    acked;
+    uint8_t           is_original;
 } xqc_cid_inner_t;
 
 typedef struct xqc_cid_set_inner_s {
@@ -43,6 +44,7 @@ typedef struct xqc_cid_set_inner_s {
     uint64_t            unused_cnt;
     uint64_t            used_cnt;
     uint64_t            retired_cnt;
+    uint64_t            original_cid_cnt;
     uint64_t            path_id;
     union {
     uint64_t            largest_scid_seq_num;    /* for scid set */
@@ -111,6 +113,19 @@ void xqc_cid_set_update_state(xqc_cid_set_t *cid_set, uint64_t path_id, xqc_cid_
 
 xqc_cid_set_inner_t* xqc_get_next_unused_path_cid_set(xqc_cid_set_t *cid_set);
 void xqc_cid_set_on_cid_acked(xqc_cid_set_t *cid_set, uint64_t path_id, uint64_t cid_seq);
+
+static inline void
+xqc_cid_set_mark_original(xqc_cid_set_t *cid_set, xqc_cid_t *cid, uint64_t path_id)
+{
+    xqc_cid_inner_t *inner = xqc_cid_in_cid_set(cid_set, cid, path_id);
+    if (inner) {
+        inner->is_original = 1;
+        xqc_cid_set_inner_t *s = xqc_get_path_cid_set(cid_set, path_id);
+        if (s) {
+            s->original_cid_cnt++;
+        }
+    }
+}
 
 
 #endif /* _XQC_CID_H_INCLUDED_ */

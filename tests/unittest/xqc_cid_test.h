@@ -15,4 +15,10 @@ void xqc_test_cid();
  */
 void xqc_test_cid_active_limit();
 
+/*
+ * Issue #776: handshake CIDs must not count toward active_connection_id_limit
+ * per RFC 9000 §5.1.1.  Reproduces the nginx interop failure scenario.
+ */
+void xqc_test_cid_handshake_exclusion();
+
 #endif

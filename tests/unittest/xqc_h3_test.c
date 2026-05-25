@@ -7,6 +7,8 @@
 #include "src/http3/frame/xqc_h3_frame.h"
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_stream.h"
+#include "src/http3/xqc_h3_request.h"
+#include "src/http3/xqc_h3_header.h"
 #include "src/http3/qpack/xqc_qpack.h"
 #include "src/transport/xqc_stream.h"
 #include "src/http3/qpack/stable/xqc_stable.h"
@@ -718,4 +720,149 @@ xqc_test_h3_second_control_stream_rejected()
     /* Case 4: PUSH stream (unsupported) -> H3_ID_ERROR
      * per RFC 9114 Section 4.6 / 6.2.2 */
     xqc_test_h3_push_stream_rejected();
+}
+
+
+/*
+ * RFC 9114 Section 4.2.2: the size of a field list is the sum of the
+ * uncompressed name and value lengths plus 32 bytes per field.
+ */
+void
+xqc_test_h3_uncompressed_fields_size()
+{
+    xqc_http_headers_t hdrs;
+    hdrs.headers  = NULL;
+    hdrs.capacity = 0;
+
+    /* empty list */
+    hdrs.count     = 0;
+    hdrs.total_len = 0;
+    CU_ASSERT_EQUAL(xqc_h3_uncompressed_fields_size(&hdrs), 0);
+
+    /* zero-length fields still cost 32B each */
+    hdrs.count     = 3;
+    hdrs.total_len = 0;
+    CU_ASSERT_EQUAL(xqc_h3_uncompressed_fields_size(&hdrs), 96);
+
+    /* single field */
+    hdrs.count     = 1;
+    hdrs.total_len = 10;
+    CU_ASSERT_EQUAL(xqc_h3_uncompressed_fields_size(&hdrs), 42);
+
+    /* many fields */
+    hdrs.count     = 5;
+    hdrs.total_len = 100;
+    CU_ASSERT_EQUAL(xqc_h3_uncompressed_fields_size(&hdrs), 260);
+
+    /*
+     * Issue 751 regression: total_len <= limit but the per-field 32B
+     * overhead pushes the field-section size above the limit. The pre-fix
+     * receive path compared total_len only and would have accepted this.
+     */
+    hdrs.count     = 1;
+    hdrs.total_len = 80;
+    CU_ASSERT(hdrs.total_len <= 100);
+    CU_ASSERT(xqc_h3_uncompressed_fields_size(&hdrs) > 100);
+}
+
+
+/*
+ * Drive xqc_h3_request_on_recv_header against the
+ * SETTINGS_MAX_FIELD_SECTION_SIZE check to prove it now uses
+ * total_len + count*32 (RFC 9114 4.2.2) symmetrically with the send side.
+ */
+void
+xqc_test_h3_recv_header_field_section_size()
+{
+    xqc_int_t ret;
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+
+    xqc_h3_conn_t *h3c = xqc_h3_conn_create(conn, NULL);
+    CU_ASSERT_FATAL(h3c != NULL);
+
+    /* override the default 32K limit so boundaries are easy to reason about */
+    h3c->local_h3_conn_settings.max_field_section_size = 100;
+
+    conn->conn_flow_ctl.fc_max_streams_uni_can_send = 16;
+
+    xqc_stream_t *stream = xqc_create_stream_with_conn(conn,
+                                                       XQC_UNDEFINE_STREAM_ID,
+                                                       XQC_CLI_UNI, NULL, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+
+    /* CONTROL stream type avoids xqc_h3_stream_destroy walking into the
+       request-only h3r teardown path on cleanup. */
+    xqc_h3_stream_t *h3s = xqc_h3_stream_create(h3c, stream,
+                                                XQC_H3_STREAM_TYPE_CONTROL,
+                                                NULL);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    xqc_h3_request_t *h3r = xqc_calloc(1, sizeof(xqc_h3_request_t));
+    CU_ASSERT_FATAL(h3r != NULL);
+    h3r->h3_stream  = h3s;
+    h3r->request_if = &h3c->h3_request_callbacks;
+    xqc_init_list_head(&h3r->body_buf);
+
+    xqc_http_headers_t *hdr = &h3r->h3_header[0];
+    hdr->headers  = NULL;
+    hdr->capacity = 0;
+
+    /* regression for issue 751: total_len < limit but
+       total_len + count*32 > limit. Pre-fix this would have been accepted. */
+    hdr->count     = 1;
+    hdr->total_len = 80;
+    h3r->current_header = 0;
+    h3r->read_flag      = 0;
+    ret = xqc_h3_request_on_recv_header(h3r);
+    CU_ASSERT_EQUAL(ret, -XQC_H3_INVALID_HEADER);
+
+    /* exact-equal-to-limit must be accepted (check is strictly greater) */
+    hdr->count     = 2;
+    hdr->total_len = 36;
+    h3r->current_header = 0;
+    h3r->read_flag      = 0;
+    ret = xqc_h3_request_on_recv_header(h3r);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+
+    /* one byte over the limit must be rejected */
+    hdr->count     = 2;
+    hdr->total_len = 37;
+    h3r->current_header = 0;
+    h3r->read_flag      = 0;
+    ret = xqc_h3_request_on_recv_header(h3r);
+    CU_ASSERT_EQUAL(ret, -XQC_H3_INVALID_HEADER);
+
+    /* zero-field headers under the limit are accepted */
+    hdr->count     = 0;
+    hdr->total_len = 50;
+    h3r->current_header = 0;
+    h3r->read_flag      = 0;
+    ret = xqc_h3_request_on_recv_header(h3r);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+
+    for (size_t i = 0; i < XQC_H3_REQUEST_MAX_HEADERS_CNT; i++) {
+        xqc_h3_headers_free(&h3r->h3_header[i]);
+    }
+    xqc_list_buf_list_free(&h3r->body_buf);
+    xqc_free(h3r);
+
+    h3s->h3r = NULL;
+    stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_h3_stream_destroy(h3s);
+    xqc_destroy_stream(stream);
+
+    xqc_h3_conn_destroy(h3c);
+
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
 }

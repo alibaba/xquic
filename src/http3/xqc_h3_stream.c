@@ -171,17 +171,6 @@ xqc_h3_stream_send_buffer(xqc_h3_stream_t *h3s)
 }
 
 
-static inline uint64_t
-xqc_h3_uncompressed_fields_size(xqc_http_headers_t *headers)
-{
-    /*
-     * The size of a field list is calculated based on the uncompressed size of fields, including
-     * the length of the name and value in bytes plus an overhead of 32 bytes for each field
-     */
-    return headers->total_len + headers->count * 32;
-}
-
-
 ssize_t
 xqc_h3_stream_write_headers(xqc_h3_stream_t *h3s, xqc_http_headers_t *headers, uint8_t fin)
 {

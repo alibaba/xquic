@@ -42,6 +42,7 @@
 #include "xqc_fec_test.h"
 #include "xqc_ack_with_timestamp_test.h"
 #include "xqc_send_ctl_test.h"
+#include "xqc_vn_test.h"
 
 static int xqc_init_suite(void) { return 0; }
 static int xqc_clean_suite(void) { return 0; }
@@ -130,6 +131,13 @@ main()
                         xqc_test_pto_remote_default_when_unset)
         || !CU_add_test(pSuite, "xqc_test_send_ctl_update_rtt_ack_delay_cap",
                         xqc_test_send_ctl_update_rtt_ack_delay_cap)
+        /* RFC 9000 §6.2 Version Negotiation abort suite */
+        || !CU_add_test(pSuite, "xqc_test_vn_abort_on_unsupported_version", xqc_test_vn_abort_on_unsupported_version)
+        || !CU_add_test(pSuite, "xqc_test_vn_downgrade_protection_when_version_matches", xqc_test_vn_downgrade_protection_when_version_matches)
+        || !CU_add_test(pSuite, "xqc_test_vn_reject_when_dcid_mismatch", xqc_test_vn_reject_when_dcid_mismatch)
+        || !CU_add_test(pSuite, "xqc_test_vn_reject_when_scid_mismatch", xqc_test_vn_reject_when_scid_mismatch)
+        || !CU_add_test(pSuite, "xqc_test_vn_reject_when_state_not_initial_sent", xqc_test_vn_reject_when_state_not_initial_sent)
+        || !CU_add_test(pSuite, "xqc_test_vn_abort_on_multi_unsupported_versions", xqc_test_vn_abort_on_multi_unsupported_versions)
         /* ADD TESTS HERE */)
     {
         CU_cleanup_registry();

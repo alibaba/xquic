@@ -291,10 +291,6 @@ xqc_packet_parse_short_header(xqc_connection_t *c, xqc_packet_in_t *packet_in)
         return -XQC_EILLPKT;
     }
 
-    if (c->conn_type == XQC_CONN_TYPE_CLIENT) {
-        c->discard_vn_flag = 1;
-    }
-
     return XQC_OK;
 }
 
@@ -1145,16 +1141,37 @@ Version Negotiation Packet {
 xqc_int_t
 xqc_packet_parse_version_negotiation(xqc_connection_t *c, xqc_packet_in_t *packet_in)
 {
-    /* check original DCID */
+    unsigned char  *pos;
+    unsigned char  *end;
+    uint32_t       *config_version_list;
+    uint32_t        config_version_count;
+    uint32_t        version_chosen;
+    uint32_t        current_wire_version;
+    uint32_t        supported_version_count;
+    uint32_t        supported_version_list[256];
+
+    /*
+     * RFC 9000 Section 17.2.1 requires the VN packet to mirror the
+     * client's Initial CIDs: SCID echoes the client's DCID, DCID
+     * echoes the client's SCID. Validate both directions so that an
+     * off-path attacker cannot forge a VN packet for an unrelated
+     * connection.
+     */
     if (xqc_cid_is_equal(&c->original_dcid, &packet_in->pi_pkt.pkt_scid) != XQC_OK) {
-        xqc_log(c->log, XQC_LOG_ERROR, "|version negotiation pkt SCID error|original_dcid:%s|scid:%s|", 
+        xqc_log(c->log, XQC_LOG_ERROR, "|version negotiation pkt SCID error|original_dcid:%s|scid:%s|",
                 xqc_dcid_str(c->engine, &c->original_dcid), xqc_scid_str(c->engine, &packet_in->pi_pkt.pkt_scid));
         return -XQC_EILLPKT;
     }
 
+    if (xqc_cid_is_equal(&c->initial_scid, &packet_in->pi_pkt.pkt_dcid) != XQC_OK) {
+        xqc_log(c->log, XQC_LOG_ERROR, "|version negotiation pkt DCID error|initial_scid:%s|dcid:%s|",
+                xqc_scid_str(c->engine, &c->initial_scid), xqc_dcid_str(c->engine, &packet_in->pi_pkt.pkt_dcid));
+        return -XQC_EILLPKT;
+    }
+
     xqc_log(c->log, XQC_LOG_DEBUG, "|packet parse|version negotiation|");
-    unsigned char *pos = packet_in->pos;
-    unsigned char *end = packet_in->last;
+    pos = packet_in->pos;
+    end = packet_in->last;
     packet_in->pi_pkt.pkt_type = XQC_PTYPE_VERSION_NEGOTIATION;
 
     /* at least one version is carried in the VN packet */
@@ -1164,28 +1181,28 @@ xqc_packet_parse_version_negotiation(xqc_connection_t *c, xqc_packet_in_t *packe
         return -XQC_EILLPKT;
     }
 
-    /* check available states */
+    /*
+     * RFC 9000 Section 6.2: a VN packet is only valid in response to
+     * the client's initial flight. Any VN observed after the client
+     * has accepted a server response is ignored as required.
+     */
     if (c->conn_state != XQC_CONN_STATE_CLIENT_INITIAL_SENT) {
-        /* drop packet */
         xqc_log(c->log, XQC_LOG_WARN, "|packet_parse_version_negotiation|invalid state|%d|", c->conn_state);
         return -XQC_ESTATE;
     }
 
-    /* check conn type, only client can receive a VN packet */
+    /* only a client is permitted to receive a VN packet */
     if (c->conn_type != XQC_CONN_TYPE_CLIENT) {
         xqc_log(c->log, XQC_LOG_WARN, "|packet_parse_version_negotiation|invalid conn_type|%d|", c->conn_type);
         return -XQC_EPROTO;
     }
 
-    /* check discard vn flag */
-    if (c->discard_vn_flag != 0) {
-        packet_in->pos = packet_in->last;
-        return XQC_OK;
-    }
-
-    /* get Supported Version list */
-    uint32_t supported_version_list[256];
-    uint32_t supported_version_count = 0;
+    /*
+     * Collect the server's Supported Version list. The list is parsed
+     * purely for observability (event log + INFO trace); the abort
+     * decision below does not depend on its contents.
+     */
+    supported_version_count = 0;
     while (XQC_BUFF_LEFT_SIZE(pos, end) >= XQC_PACKET_VERSION_LENGTH) {
         uint32_t version = ntohl(*(uint32_t*)pos);
         if (version) {
@@ -1202,47 +1219,67 @@ xqc_packet_parse_version_negotiation(xqc_connection_t *c, xqc_packet_in_t *packe
     }
     packet_in->pos = packet_in->last;
 
-    /* VN packet returns the same version, nothing to be changed */
-    if (xqc_uint32_list_find(supported_version_list, supported_version_count, c->version) != -1) {
+    /*
+     * RFC 9000 Section 6.2: "A client that supports a version offered
+     * by the server MUST abandon the current connection attempt." If
+     * the server's list happens to include the client's chosen
+     * version, the spec still requires the client to discard the VN
+     * packet and treat it as a stray datagram (do NOT abort), since
+     * it cannot have been generated in response to this Initial.
+     * The list carries wire-format version values, so compare against
+     * the wire value of the client's current version rather than the
+     * internal enum (which only matches by coincidence for V1).
+     */
+    current_wire_version = (c->version < XQC_VERSION_MAX)
+                           ? xqc_proto_version_value[c->version] : 0;
+    if (xqc_uint32_list_find(supported_version_list, supported_version_count,
+                             current_wire_version) != -1)
+    {
+        xqc_log(c->log, XQC_LOG_WARN,
+                "|VN lists current version, discarding per RFC 9000 §6.2"
+                "|version:%ud|wire:0x%xL|",
+                c->version, current_wire_version);
         return XQC_OK;
     }
 
-    /* chose a version both client and server support */
-    uint32_t *config_version_list = c->engine->config->support_version_list;
-    uint32_t config_version_count = c->engine->config->support_version_count;
-    uint32_t version_chosen = 0;
+    config_version_list = c->engine->config->support_version_list;
+    config_version_count = c->engine->config->support_version_count;
+    version_chosen = 0;
     for (uint32_t i = 0; i < supported_version_count; ++i) {
         if (xqc_uint32_list_find(config_version_list, config_version_count, supported_version_list[i]) != -1) {
             version_chosen = supported_version_list[i];
-            xqc_log(c->log, XQC_LOG_INFO, "|version negotiation|version:%ui|", version_chosen);
             break;
         }
     }
-    xqc_log_event(c->log, TRA_VERSION_INFORMATION, config_version_count, config_version_list, supported_version_count,
-                  supported_version_list, version_chosen);
+    xqc_log_event(c->log, TRA_VERSION_INFORMATION, config_version_count, config_version_list,
+                  supported_version_count, supported_version_list, version_chosen);
 
-    /* can't chose a version, abort the connection attempt */
-    if (version_chosen == 0) {
-        xqc_log(c->log, XQC_LOG_ERROR, "|can't negotiate a version|");
-        return -XQC_ESYS;
-    }
+    /*
+     * RFC 9000 Section 6.2 mandates the client MUST abandon the
+     * connection attempt on any valid VN packet, regardless of
+     * whether a mutually supported version exists. The decision to
+     * retry with a different version is explicitly left to the
+     * application (MAY, not MUST), so we surface the abort to the
+     * upper layer and let it decide. Reconnecting in-place would
+     * also be unsafe here because the Initial keys are derived from
+     * the original version and cannot be reused once the version
+     * changes; retransmissions of the in-flight Initial would still
+     * carry the old keys.
+     *
+     * VN packets are not protected, so CONNECTION_CLOSE MUST NOT be
+     * emitted. Move directly to CLOSED to short-circuit the closing
+     * machinery in xqc_conn_immediate_close (which already refuses
+     * to write CONNECTION_CLOSE once state >= DRAINING).
+     */
+    xqc_log(c->log, XQC_LOG_WARN,
+            "|version negotiation: aborting connection attempt|peer_versions:%ud|mutual:%ud|",
+            supported_version_count, version_chosen);
 
-    /* translate version to enum, and set to the connection */
-    for (uint32_t i = XQC_IDRAFT_INIT_VER + 1; i < XQC_IDRAFT_VER_NEGOTIATION; i++) {
-        if (xqc_proto_version_value[i] == version_chosen) {
-            c->version = i;
-            break;
-        }
-    }
+    XQC_CONN_ERR(c, TRA_VERSION_NEGOTIATION_ERROR);
+    c->conn_state = XQC_CONN_STATE_CLOSED;
+    xqc_log_event(c->log, CON_CONNECTION_STATE_UPDATED, c);
 
-    /* TODO: connect the server with the new version, which is not defined by protocol */
-
-    xqc_log(c->log, XQC_LOG_INFO, "|parse version negotiation packet suc|");
-
-    /* set the discard vn flag to avoid a second negotiation */
-    c->discard_vn_flag = 1;
-
-    return XQC_OK;
+    return -XQC_EVERSION_NEGOTIATION;
 }
 
 
@@ -1379,10 +1416,6 @@ xqc_packet_parse_long_header(xqc_connection_t *c,
         xqc_log(c->log, XQC_LOG_ERROR, "|invalid packet type|%ui|", type);
         ret = -XQC_EILLPKT;
         break;
-    }
-
-    if (ret == XQC_OK && c->conn_type == XQC_CONN_TYPE_CLIENT) {
-        c->discard_vn_flag = 1;
     }
 
     return ret;

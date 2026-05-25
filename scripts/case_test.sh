@@ -1417,7 +1417,9 @@ sleep 1
 
 clear_log
 echo -e "version negotiation ...\c"
-${CLIENT_BIN} -l d -E -x 33 >> clog
+${CLIENT_BIN} -l d -E -x 33 >> clog 2>&1
+
+# Wire-level: VN packet was received and recognised by the receiver.
 result=`grep -e "|====>|.*VERSION_NEGOTIATION" clog`
 if [ -n "$result" ]; then
     echo ">>>>>>>> pass:1"
@@ -1425,6 +1427,31 @@ if [ -n "$result" ]; then
 else
     echo ">>>>>>>> pass:0"
     case_print_result "version_negotiation" "fail"
+fi
+
+# RFC 9000 §6.2 mandates the client MUST abandon the connection attempt on
+# a valid VN. Verify xqc_packet_parse_version_negotiation took the abort
+# branch instead of the legacy silent-version-switch behaviour.
+abort_log=`grep "version negotiation: aborting connection attempt" clog`
+if [ -n "$abort_log" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "version_negotiation_abort_path" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "version_negotiation_abort_path" "fail"
+fi
+
+# The abort must be surfaced to the upper layer through conn_close_notify
+# with a non-zero errno: either TRA_VERSION_NEGOTIATION_ERROR (0x53 = 83)
+# from the transport conn_err, or XQC_EVERSION_NEGOTIATION (643) when the
+# error is propagated through xqc_conn_get_errno on a transport-only path.
+errno_log=`grep -E "conn errno:(83|643)" clog`
+if [ -n "$errno_log" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "version_negotiation_close_errno" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "version_negotiation_close_errno" "fail"
 fi
 
 

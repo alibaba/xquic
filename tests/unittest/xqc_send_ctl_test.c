@@ -449,5 +449,45 @@ xqc_test_send_ctl_inflight_padding(void)
     CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, 0);
     CU_ASSERT_EQUAL(send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA], 0);
 
+    /* Case 11: pure ACK_MP packet (multipath) must NOT be counted,
+     * mirroring case 2 for ACK. XQC_CAN_IN_FLIGHT excludes ACK_MP
+     * symmetrically with ACK. */
+    xqc_packet_out_t ack_mp_only;
+    xqc_test_inflight_init_packet(&ack_mp_only,
+                                  XQC_FRAME_BIT_ACK_MP, path_id);
+    xqc_send_ctl_increase_inflight(conn, &ack_mp_only);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, 0);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA], 0);
+    CU_ASSERT((ack_mp_only.po_flag & XQC_POF_IN_FLIGHT) == 0);
+
+    /* Case 12: PADDING + ACK_MP must follow the PADDING+ACK rule
+     * (bytes_in_flight only). This guards the multipath path that
+     * piggybacks PADDING onto ACK_MP-only datagrams. */
+    xqc_packet_out_t padding_plus_ack_mp;
+    xqc_test_inflight_init_packet(&padding_plus_ack_mp,
+                                  XQC_FRAME_BIT_PADDING | XQC_FRAME_BIT_ACK_MP,
+                                  path_id);
+    xqc_send_ctl_increase_inflight(conn, &padding_plus_ack_mp);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, 1200);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA], 0);
+    xqc_send_ctl_decrease_inflight(conn, &padding_plus_ack_mp);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, 0);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA], 0);
+
+    /* Case 13: zero-sized PADDING-only packet -- po_used_size == 0
+     * is a degenerate input that should still set the IN_FLIGHT flag
+     * (no value-change visible in the counter, but symmetry matters
+     * so a subsequent decrease is a no-op rather than unbalanced). */
+    xqc_packet_out_t zero_padding;
+    xqc_test_inflight_init_packet(&zero_padding,
+                                  XQC_FRAME_BIT_PADDING, path_id);
+    zero_padding.po_used_size = 0;
+    xqc_send_ctl_increase_inflight(conn, &zero_padding);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, 0);
+    CU_ASSERT((zero_padding.po_flag & XQC_POF_IN_FLIGHT) != 0);
+    xqc_send_ctl_decrease_inflight(conn, &zero_padding);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, 0);
+    CU_ASSERT((zero_padding.po_flag & XQC_POF_IN_FLIGHT) == 0);
+
     xqc_engine_destroy(conn->engine);
 }

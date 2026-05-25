@@ -580,6 +580,13 @@ xqc_send_ctl_decrease_inflight(xqc_connection_t *conn, xqc_packet_out_t *packet_
         return;
     }
 
+    /*
+     * Mirror of increase_inflight. po_frame_types is set during packet
+     * build and stays constant from on_packet_sent through acked / lost /
+     * dropped, so XQC_IS_ACK_ELICITING returns the same answer on both
+     * sides and the two counters stay balanced. xqc_uint32_bounded_subtract
+     * is defensive in case that invariant ever gets broken.
+     */
     xqc_send_ctl_t *send_ctl = path->path_send_ctl;
     if (packet_out->po_flag & XQC_POF_IN_FLIGHT) {
         send_ctl->ctl_bytes_in_flight = xqc_uint32_bounded_subtract(

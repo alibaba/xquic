@@ -19,6 +19,7 @@
 
 #include "platform.h"
 #include "src/http3/xqc_h3_conn.h"
+#include "src/http3/xqc_h3_request.h"
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_packet_out.h"
 
@@ -61,6 +62,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_SINGLE_VINT_OVERLONG 1008
 #define XQC_TEST_CASE_H3_FIELD_SECTION_VALID 1011
 #define XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT 1012
+#define XQC_TEST_CASE_H3_LOWERCASE_RESPONSE 1013
+#define XQC_TEST_CASE_H3_UPPERCASE_RESPONSE 1014
 
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
@@ -1268,8 +1271,10 @@ xqc_client_h3_send_pure_fin(int fd, short what, void *arg)
 int
 xqc_server_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream)
 {
+    static int uppercase_response_sent;
     ssize_t ret = 0;
     int header_cnt = 6;
+    int send_uppercase;
     xqc_http_header_t header[MAX_HEADER] = {
         {
             .name   = {.iov_base = ":method", .iov_len = 7},
@@ -1302,6 +1307,45 @@ xqc_server_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
             .flags  = 0,
         },
     };
+
+    send_uppercase = g_test_case == XQC_TEST_CASE_H3_UPPERCASE_RESPONSE
+                     && !uppercase_response_sent;
+    if (g_test_case == XQC_TEST_CASE_H3_LOWERCASE_RESPONSE
+        || (g_test_case == XQC_TEST_CASE_H3_UPPERCASE_RESPONSE
+            && !send_uppercase))
+    {
+        xqc_http_header_t lowercase_name_hdr = {
+            .name = {
+                .iov_base = "x-uppercase-test",
+                .iov_len = 16,
+            },
+            .value = {
+                .iov_base = "lowercase",
+                .iov_len = 9,
+            },
+            .flags = 0,
+        };
+        header[header_cnt++] = lowercase_name_hdr;
+
+    } else if (send_uppercase) {
+        /*
+         * RFC 9114 Section 4.2: uppercase field names make the response
+         * malformed. Bypass only the public sender's normalization inside
+         * this test peer so the client receives the invalid wire input.
+         */
+        xqc_http_header_t uppercase_name_hdr = {
+            .name = {
+                .iov_base = "X-Uppercase-Test",
+                .iov_len = 16,
+            },
+            .value = {
+                .iov_base = "rejected",
+                .iov_len = 8,
+            },
+            .flags = 0,
+        };
+        header[header_cnt++] = uppercase_name_hdr;
+    }
 
     if (g_test_case == 9) {
         memset(test_long_value, 'a', XQC_TEST_LONG_HEADER_LEN - 1);
@@ -1338,7 +1382,16 @@ xqc_server_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
     }
 
     if (user_stream->header_sent == 0) {
-        ret = xqc_h3_request_send_headers(h3_request, &headers, header_only && send_fin);
+        if (send_uppercase) {
+            uppercase_response_sent = 1;
+            ret = xqc_h3_stream_send_headers(h3_request->h3_stream, &headers,
+                                             header_only && send_fin);
+
+        } else {
+            ret = xqc_h3_request_send_headers(h3_request, &headers,
+                                              header_only && send_fin);
+        }
+
         if (ret < 0) {
             printf("xqc_h3_request_send_headers error %zd\n", ret);
             return ret;

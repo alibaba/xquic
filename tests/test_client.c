@@ -15,6 +15,7 @@
 #include <inttypes.h>
 #include <xquic/xquic.h>
 #include <xquic/xquic_typedef.h>
+#include <xquic/xqc_errno.h>
 #include <xquic/xqc_http3.h>
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_request.h"
@@ -77,6 +78,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_SINGLE_VINT_OVERLONG 1008
 #define XQC_TEST_CASE_H3_FIELD_SECTION_VALID 1011
 #define XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT 1012
+#define XQC_TEST_CASE_H3_LOWERCASE_RESPONSE 1013
+#define XQC_TEST_CASE_H3_UPPERCASE_RESPONSE 1014
 
 typedef struct user_conn_s user_conn_t;
 
@@ -3119,6 +3122,18 @@ xqc_client_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
 
         for (int i = 0; i < headers->count; i++) {
             printf("%s = %s\n", (char *)headers->headers[i].name.iov_base, (char *)headers->headers[i].value.iov_base);
+
+            if ((g_test_case == XQC_TEST_CASE_H3_LOWERCASE_RESPONSE
+                 || g_test_case == XQC_TEST_CASE_H3_UPPERCASE_RESPONSE)
+                && headers->headers[i].name.iov_len == 16
+                && memcmp(headers->headers[i].name.iov_base,
+                          "x-uppercase-test", 16) == 0
+                && headers->headers[i].value.iov_len == 9
+                && memcmp(headers->headers[i].value.iov_base,
+                          "lowercase", 9) == 0)
+            {
+                printf("lowercase_header_received:1\n");
+            }
         }
 
         user_stream->header_recvd = 1;
@@ -3265,8 +3280,26 @@ xqc_client_request_close_notify(xqc_h3_request_t *h3_request, void *user_data)
     printf("retx:%u, sent:%u, max_pto:%u\n", stats.retrans_cnt,
            stats.sent_pkt_cnt, stats.max_pto_backoff);
 
+    if (g_test_case == XQC_TEST_CASE_H3_LOWERCASE_RESPONSE
+        && stats.stream_err == 0
+        && user_stream->header_recvd)
+    {
+        printf("lowercase_header_request_succeeded:1\n");
+    }
+
+    if (g_test_case == XQC_TEST_CASE_H3_UPPERCASE_RESPONSE) {
+        if (stats.stream_err == H3_MESSAGE_ERROR) {
+            printf("uppercase_header_stream_error:1\n");
+
+        } else if (stats.stream_err == 0 && user_stream->header_recvd) {
+            printf("post_error_request_succeeded:1\n");
+        }
+    }
+
     if (g_echo_check
         && !(g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT
+             && stats.stream_err == H3_MESSAGE_ERROR)
+        && !(g_test_case == XQC_TEST_CASE_H3_UPPERCASE_RESPONSE
              && stats.stream_err == H3_MESSAGE_ERROR))
     {
         int pass = 0;

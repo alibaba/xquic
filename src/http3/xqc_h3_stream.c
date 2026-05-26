@@ -1605,8 +1605,8 @@ xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_
             if (h3s->type == XQC_H3_STREAM_TYPE_BYTESTEAM) {
                 errcode = -XQC_H3_EPROC_BYTESTREAM;
             }
-            
-            if (processed == -XQC_H3_INVALID_HEADER
+            if ((processed == -XQC_H3_INVALID_HEADER
+                 || processed == -XQC_H3_EMALFORMED_HEADER)
                 && h3c->conn->conn_err == 0)
             {
                 /*
@@ -1831,7 +1831,9 @@ xqc_h3_stream_process_data(xqc_stream_t *stream, xqc_h3_stream_t *h3s, xqc_bool_
         ret = xqc_h3_stream_process_in(h3s, buff, read, *fin);
         if (ret != XQC_OK) {
             xqc_log(h3c->log, XQC_LOG_ERROR, "|xqc_h3_stream_process_in error|%d|", ret);
-            XQC_H3_CONN_ERR(h3s->h3c, H3_INTERNAL_ERROR, ret);
+            if (h3s->stream_err == 0) {
+                XQC_H3_CONN_ERR(h3s->h3c, H3_INTERNAL_ERROR, ret);
+            }
             return ret;
         }
 
@@ -1887,6 +1889,12 @@ xqc_h3_stream_process_blocked_stream(xqc_h3_stream_t *h3s)
         ssize_t processed = xqc_h3_stream_process_request(h3s, buf->data + buf->consumed_len,
                                                           buf->data_len - buf->consumed_len, buf->fin_flag);
         if (processed < 0) {
+            if (processed == -XQC_H3_EMALFORMED_HEADER) {
+                xqc_stream_close_with_error(h3s->stream,
+                                            H3_MESSAGE_ERROR);
+                h3s->ref_cnt--;
+                return XQC_OK;
+            }
             h3s->ref_cnt--;
             return processed;
         }

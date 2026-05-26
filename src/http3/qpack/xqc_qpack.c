@@ -474,6 +474,24 @@ xqc_qpack_enc_headers(xqc_qpack_t *qpk, uint64_t stream_id,
 }
 
 
+xqc_bool_t
+xqc_qpack_field_name_has_uppercase(const unsigned char *name, size_t name_len)
+{
+    /*
+     * RFC 9114 4.2 / 4.1.2: any uppercase ASCII character in an HTTP/3
+     * field name makes the message malformed. Pseudo-header names start
+     * with ':' (0x3A) which is below 'A', so the same scan covers them.
+     */
+    for (size_t i = 0; i < name_len; i++) {
+        unsigned char c = name[i];
+        if (c >= 'A' && c <= 'Z') {
+            return XQC_TRUE;
+        }
+    }
+    return XQC_FALSE;
+}
+
+
 ssize_t
 xqc_qpack_dec_headers(xqc_qpack_t *qpk, xqc_rep_ctx_t *req_ctx, unsigned char *data,
     size_t data_len, xqc_http_headers_t *headers, xqc_bool_t fin, xqc_bool_t *blocked)

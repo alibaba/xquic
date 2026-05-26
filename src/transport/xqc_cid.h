@@ -118,7 +118,7 @@ static inline void
 xqc_cid_set_mark_original(xqc_cid_set_t *cid_set, xqc_cid_t *cid, uint64_t path_id)
 {
     xqc_cid_inner_t *inner = xqc_cid_in_cid_set(cid_set, cid, path_id);
-    if (inner) {
+    if (inner && !inner->is_original) {
         inner->is_original = 1;
         xqc_cid_set_inner_t *s = xqc_get_path_cid_set(cid_set, path_id);
         if (s) {

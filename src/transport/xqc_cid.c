@@ -339,6 +339,15 @@ xqc_cid_set_delete_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid, uint64_t path_id)
                 inner_set->retired_cnt--;
             }
 
+            if (inner_cid->is_original
+                && (inner_cid->state == XQC_CID_UNUSED
+                    || inner_cid->state == XQC_CID_USED))
+            {
+                if (inner_set->original_cid_cnt > 0) {
+                    inner_set->original_cid_cnt--;
+                }
+            }
+
             xqc_list_del(pos);
             xqc_free(inner_cid);
             return XQC_OK;

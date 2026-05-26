@@ -1416,8 +1416,29 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
         {
             /* For loss-based CCs, it means we are gonna slow start again. */
             send_ctl->ctl_max_bytes_in_flight = 0;
+
+            /*
+             * RFC 9002 Section 5.2: "Endpoints SHOULD set the min_rtt to
+             * the newest RTT sample after persistent congestion is
+             * established." Reset srtt/rttvar/first_rtt_sample_time
+             * alongside min_rtt so the next RTT sample re-seeds the
+             * estimator via the first-sample branch in update_rtt; this
+             * prevents stale srtt/rttvar from inflating the PTO and the
+             * persistent-congestion duration formula after a disruptive
+             * path event. ctl_latest_rtt is preserved for debug.
+             * Reset is per-path because send_ctl is per-path.
+             */
+            xqc_log(conn->log, XQC_LOG_DEBUG,
+                    "|OnLostDetection|persistent_congestion|reset_rtt"
+                    "|old_srtt:%ui|old_rttvar:%ui|old_minrtt:%ui|",
+                    send_ctl->ctl_srtt, send_ctl->ctl_rttvar,
+                    send_ctl->ctl_minrtt);
+            send_ctl->ctl_minrtt = XQC_MAX_UINT32_VALUE;
+            send_ctl->ctl_srtt = send_ctl->ctl_conn->conn_settings.initial_rtt;
+            send_ctl->ctl_rttvar = send_ctl->ctl_srtt / 2;
+            send_ctl->ctl_first_rtt_sample_time = 0;
+
             /* we reset BBR's cwnd here */
-            xqc_log(conn->log, XQC_LOG_DEBUG, "|OnLostDetection|%s|", "Persistent congestion occurs");
             send_ctl->ctl_cong_callback->xqc_cong_ctl_reset_cwnd(send_ctl->ctl_cong);
         }
 

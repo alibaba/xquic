@@ -112,6 +112,12 @@ main()
         /* RFC 9114 §4.2.2 field-section-size 32B overhead (issue 751) */
         || !CU_add_test(pSuite, "xqc_test_h3_uncompressed_fields_size", xqc_test_h3_uncompressed_fields_size)
         || !CU_add_test(pSuite, "xqc_test_h3_recv_header_field_section_size", xqc_test_h3_recv_header_field_section_size)
+        /* issue #744: RFC 9114 §4.1.2 / §8.1 H3_MESSAGE_ERROR + INTERNAL split */
+        || !CU_add_test(pSuite, "xqc_test_h3_message_error_code_value", xqc_test_h3_message_error_code_value)
+        || !CU_add_test(pSuite, "xqc_test_h3_malformed_headers_uses_message_error", xqc_test_h3_malformed_headers_uses_message_error)
+        || !CU_add_test(pSuite, "xqc_test_h3_headers_capacity_uses_internal_error", xqc_test_h3_headers_capacity_uses_internal_error)
+        || !CU_add_test(pSuite, "xqc_test_h3_valid_headers_smoke", xqc_test_h3_valid_headers_smoke)
+        || !CU_add_test(pSuite, "xqc_test_h3_frame_parse_error_uses_frame_error", xqc_test_h3_frame_parse_error_uses_frame_error)
         || !CU_add_test(pSuite, "xqc_test_stable", xqc_test_stable)
         || !CU_add_test(pSuite, "xqc_test_dtable", xqc_test_dtable)
         || !CU_add_test(pSuite, "test_2d_hash_table", test_2d_hash_table)

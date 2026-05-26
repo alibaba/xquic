@@ -4,6 +4,7 @@
 
 #include <CUnit/CUnit.h>
 #include "xquic/xquic.h"
+#include "xquic/xqc_errno.h"
 #include "src/http3/frame/xqc_h3_frame.h"
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_stream.h"
@@ -18,6 +19,8 @@
 
 ssize_t xqc_h3_stream_write_data_to_buffer(xqc_h3_stream_t *h3s, unsigned char *data, uint64_t data_size, uint8_t fin);
 xqc_int_t xqc_decoder_copy_header(xqc_http_header_t *hdr, xqc_var_buf_t *name, xqc_var_buf_t *value);
+/* not exposed in xqc_h3_stream.h, but stable file-scope entry used by tests */
+xqc_int_t xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_len, xqc_bool_t fin_flag);
 
 
 ssize_t
@@ -865,4 +868,264 @@ xqc_test_h3_recv_header_field_section_size()
     if (conn->alpn) {
         xqc_free(conn->alpn);
     }
+}
+
+
+/*
+ * Tests for issue #744: RFC 9114 §4.1.2 / §8.1
+ *
+ * The fix changes two H3 error-code mappings in xqc_h3_stream.c:
+ *   1. xqc_h3_stream_process_in: when the bidi pipeline surfaces
+ *      -XQC_H3_INVALID_HEADER (header section too large, third HEADERS
+ *      frame, ...), the wire-level code must be H3_MESSAGE_ERROR
+ *      (0x10E), not the generic H3_GENERAL_PROTOCOL_ERROR (0x101).
+ *      RFC 9114 §4.1.2 requires "malformed request or response"
+ *      to be treated as H3_MESSAGE_ERROR.
+ *   2. xqc_h3_stream_process_request: when our request-side header
+ *      buffer slot count (XQC_H3_REQUEST_MAX_HEADERS_CNT = 2) is
+ *      exhausted, that's an implementation limit, not malformed
+ *      peer input, so the wire-level code must be H3_INTERNAL_ERROR
+ *      (0x102) per RFC 9114 §8.1.
+ *
+ * Helpers below build a request-bidi h3 stream with no transport I/O
+ * so the tests can call xqc_h3_stream_process_in directly.
+ */
+
+/* Minimal valid QPACK encoded field section wrapped in a HEADERS frame:
+ *   01     HEADERS frame type        (varint)
+ *   03     payload length 3          (varint)
+ *   00     Required Insert Count 0   (QPACK prefix, 8-bit)
+ *   00     S=0, Delta Base 0         (QPACK prefix, 7-bit)
+ *   c0     Indexed Field Line, static table idx 0 (":authority","")
+ *           decoded section length = 10 (name) + 0 (value) = 10 bytes
+ */
+static const unsigned char xqc_h3_msgerr_valid_headers[] = {
+    0x01, 0x03, 0x00, 0x00, 0xC0
+};
+
+
+static xqc_h3_stream_t *
+xqc_h3_msgerr_setup(xqc_connection_t **out_conn, xqc_h3_conn_t **out_h3c)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    if (conn == NULL) {
+        return NULL;
+    }
+
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+
+    /* allow stream creation without negotiated peer limits */
+    conn->conn_flow_ctl.fc_max_streams_bidi_can_send = 1024;
+    conn->conn_state = XQC_CONN_STATE_ESTABED;
+
+    xqc_h3_conn_t *h3c = xqc_h3_conn_create(conn, NULL);
+    if (h3c == NULL) {
+        return NULL;
+    }
+
+    xqc_stream_t *stream = xqc_create_stream_with_conn(conn,
+            XQC_UNDEFINE_STREAM_ID, XQC_CLI_BID, NULL, NULL);
+    if (stream == NULL) {
+        return NULL;
+    }
+
+    xqc_h3_stream_t *h3s = xqc_h3_stream_create(h3c, stream,
+            XQC_H3_STREAM_TYPE_REQUEST, NULL);
+    if (h3s == NULL) {
+        return NULL;
+    }
+
+    /* eagerly create the request so tests can manipulate current_header
+     * before feeding bytes through process_in. */
+    h3s->h3r = xqc_h3_request_create_inner(h3c, h3s, NULL);
+    if (h3s->h3r == NULL) {
+        return NULL;
+    }
+
+    *out_conn = conn;
+    *out_h3c = h3c;
+    return h3s;
+}
+
+static void
+xqc_h3_msgerr_teardown(xqc_h3_stream_t *h3s, xqc_h3_conn_t *h3c,
+    xqc_connection_t *conn)
+{
+    xqc_stream_t *stream = h3s->stream;
+    /* h3 stream owns h3r lifetime; mark stream DISCARDED so destroy
+     * does not redrive close_notify on the soon-to-be-freed h3s. */
+    stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_h3_stream_destroy(h3s);
+    xqc_destroy_stream(stream);
+    xqc_h3_conn_destroy(h3c);
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+}
+
+
+void
+xqc_test_h3_message_error_code_value()
+{
+    /*
+     * IANA-registered HTTP/3 error code points (RFC 9114 §8.1 Table 2).
+     * The wire format is frozen by these literal values; any drift
+     * breaks interoperability. Lock the relevant entries plus the
+     * two adjacent code points so an accidental table reorder fails.
+     */
+    CU_ASSERT(H3_GENERAL_PROTOCOL_ERROR == 0x101);
+    CU_ASSERT(H3_INTERNAL_ERROR         == 0x102);
+    CU_ASSERT(H3_REQUEST_INCOMPLETE     == 0x10D);
+    CU_ASSERT(H3_MESSAGE_ERROR          == 0x10E);
+    CU_ASSERT(H3_CONNECT_ERROR          == 0x10F);
+}
+
+
+void
+xqc_test_h3_malformed_headers_uses_message_error()
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    /*
+     * Shrink the locally advertised SETTINGS_MAX_FIELD_SECTION_SIZE so
+     * the decoded :authority header section (10 bytes) trips the
+     * "header section too large" path in xqc_h3_request_on_recv_header
+     * (xqc_h3_request.c:821). That returns -XQC_H3_INVALID_HEADER up
+     * to process_in, which must map it to H3_MESSAGE_ERROR per
+     * RFC 9114 §4.1.2. Pre-fix this raised H3_GENERAL_PROTOCOL_ERROR.
+     */
+    h3c->local_h3_conn_settings.max_field_section_size = 1;
+
+    CU_ASSERT(conn->conn_err == 0);
+
+    unsigned char buf[sizeof(xqc_h3_msgerr_valid_headers)];
+    xqc_memcpy(buf, xqc_h3_msgerr_valid_headers, sizeof(buf));
+
+    xqc_int_t ret = xqc_h3_stream_process_in(h3s, buf, sizeof(buf),
+            XQC_TRUE);
+
+    /* process_in collapses sub-errors to -XQC_H3_EPROC_REQUEST */
+    CU_ASSERT(ret == -XQC_H3_EPROC_REQUEST);
+    CU_ASSERT(conn->conn_err == H3_MESSAGE_ERROR);
+    CU_ASSERT(conn->conn_err == 0x10E);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
+}
+
+
+void
+xqc_test_h3_headers_capacity_uses_internal_error()
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    /*
+     * Simulate two prior HEADERS sections (request + trailer) by
+     * jumping current_header to the cap. A third HEADERS frame then
+     * makes xqc_h3_request_get_writing_headers return NULL inside
+     * xqc_h3_stream_process_request (xqc_h3_stream.c:920), which is
+     * an implementation-side capacity exhaustion. Post-fix this must
+     * be H3_INTERNAL_ERROR (0x102), not the previous
+     * H3_GENERAL_PROTOCOL_ERROR (0x101). XQC_H3_CONN_ERR is
+     * first-write-wins so the outer process_in mapping at line 1521
+     * does not overwrite it.
+     */
+    h3s->h3r->current_header = XQC_H3_REQUEST_MAX_HEADERS_CNT;
+
+    CU_ASSERT(conn->conn_err == 0);
+
+    unsigned char buf[sizeof(xqc_h3_msgerr_valid_headers)];
+    xqc_memcpy(buf, xqc_h3_msgerr_valid_headers, sizeof(buf));
+
+    xqc_int_t ret = xqc_h3_stream_process_in(h3s, buf, sizeof(buf),
+            XQC_TRUE);
+
+    CU_ASSERT(ret == -XQC_H3_EPROC_REQUEST);
+    CU_ASSERT(conn->conn_err == H3_INTERNAL_ERROR);
+    CU_ASSERT(conn->conn_err == 0x102);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
+}
+
+
+void
+xqc_test_h3_valid_headers_smoke()
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    /* Default max_field_section_size leaves a 10-byte section well
+     * under cap; no error code must be set. Guards against the fix
+     * accidentally tagging the happy path. */
+    CU_ASSERT(conn->conn_err == 0);
+
+    unsigned char buf[sizeof(xqc_h3_msgerr_valid_headers)];
+    xqc_memcpy(buf, xqc_h3_msgerr_valid_headers, sizeof(buf));
+
+    xqc_int_t ret = xqc_h3_stream_process_in(h3s, buf, sizeof(buf),
+            XQC_TRUE);
+
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
+    /* the HEADERS frame should have advanced the request to 1 section */
+    CU_ASSERT(h3s->h3r->current_header == 1);
+
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
+}
+
+
+void
+xqc_test_h3_frame_parse_error_uses_frame_error()
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    /*
+     * Feed a HEADERS frame whose QPACK payload references static
+     * table index 99 (out of range, valid is 0..98). The QPACK
+     * decoder fails with -XQC_QPACK_SAVE_HEADERS_ERROR (not
+     * -XQC_H3_INVALID_HEADER), so process_in must keep the wire
+     * code as H3_FRAME_ERROR. This is the line 1524 "else" branch
+     * the PR does NOT change - regression guard against the fix
+     * accidentally widening H3_MESSAGE_ERROR to non-header errors.
+     *
+     *   01           HEADERS frame type
+     *   04           payload length 4
+     *   00           Required Insert Count 0       (QPACK prefix, 8-bit)
+     *   00           S=0, Delta Base 0             (QPACK prefix, 7-bit)
+     *   ff 24        Indexed Field Line, T=1 (static), 6-bit prefix
+     *                with continuation: idx = 63 + 36 = 99 (out of range)
+     */
+    const unsigned char malformed[] = { 0x01, 0x04, 0x00, 0x00, 0xFF, 0x24 };
+    unsigned char buf[sizeof(malformed)];
+    xqc_memcpy(buf, malformed, sizeof(buf));
+
+    CU_ASSERT(conn->conn_err == 0);
+
+    xqc_int_t ret = xqc_h3_stream_process_in(h3s, buf, sizeof(buf),
+            XQC_TRUE);
+
+    CU_ASSERT(ret < 0);
+    CU_ASSERT(conn->conn_err == H3_FRAME_ERROR);
+    CU_ASSERT(conn->conn_err != H3_MESSAGE_ERROR);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
 }

@@ -73,6 +73,8 @@ typedef enum {
     H3_REQUEST_REJECTED             = 0x10B,
     H3_REQUEST_CANCELLED            = 0x10C,
     H3_REQUEST_INCOMPLETE           = 0x10D,
+    /* RFC 9114 §8.1 IANA Table 2: malformed HTTP message detected */
+    H3_MESSAGE_ERROR                = 0x10E,
     H3_CONNECT_ERROR                = 0x10F,
     H3_VERSION_FALLBACK             = 0x110,
 } xqc_h3_err_code_t;

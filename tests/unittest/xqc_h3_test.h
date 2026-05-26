@@ -31,4 +31,7 @@ void xqc_test_h3_message_error_enum();
 void xqc_test_h3_forbidden_headers_rejected();
 void xqc_test_h3_allowed_headers_pass();
 
+/* issue #748: RFC 9114 §4.2 uppercase field name rejection */
+void xqc_test_h3_field_name_uppercase_rejection();
+
 #endif //XQUIC_XQC_H3_TEST_H

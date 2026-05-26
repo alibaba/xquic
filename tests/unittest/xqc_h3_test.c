@@ -1759,3 +1759,86 @@ xqc_test_h3_allowed_headers_pass()
         (const unsigned char *)"host", 4,
         (const unsigned char *)"example.com", 11) == XQC_FALSE);
 }
+
+
+/*
+ * Issue #748 regression test.
+ *
+ * RFC 9114 4.2 says any request or response containing uppercase
+ * characters in field names MUST be treated as malformed, and 4.1.2
+ * routes malformed messages to a stream error of type H3_MESSAGE_ERROR.
+ * The xquic encoder already silently lowercases on send, but the
+ * receiver had no check at all -- xqc_qpack_dec_headers handed any
+ * decoded header straight to the application without validating the
+ * name was lowercase. This test exercises the new helper that powers
+ * the receive-side guard.
+ *
+ * The helper is a pure byte scan, so the test drives it directly
+ * with stack-allocated names rather than going through QPACK encoding.
+ * Pseudo-header names (which start with ':') go through the same
+ * scan: ':' is 0x3A which sits below 'A' = 0x41, so a pseudo-header
+ * name like ":Method" is caught on the 'M', exactly the same path
+ * as a regular field.
+ */
+void
+xqc_test_h3_field_name_uppercase_rejection()
+{
+    /* all-lowercase regular field name -> accepted */
+    const unsigned char ua_lc[] = "user-agent";
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase(ua_lc, sizeof(ua_lc) - 1)
+              == XQC_FALSE);
+
+    /* mixed case regular field name -> rejected */
+    const unsigned char ua_mc[] = "User-Agent";
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase(ua_mc, sizeof(ua_mc) - 1)
+              == XQC_TRUE);
+
+    /* single uppercase byte -> rejected */
+    const unsigned char single_u[] = "X";
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase(single_u, sizeof(single_u) - 1)
+              == XQC_TRUE);
+
+    /* all-uppercase -> rejected */
+    const unsigned char all_u[] = "ACCEPT";
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase(all_u, sizeof(all_u) - 1)
+              == XQC_TRUE);
+
+    /* empty name -> accepted (the helper is name-only; empty-name
+     * malformed handling lives elsewhere) */
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase((const unsigned char *)"", 0)
+              == XQC_FALSE);
+
+    /* lowercase pseudo-header -> accepted */
+    const unsigned char pseudo_lc[] = ":method";
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase(pseudo_lc, sizeof(pseudo_lc) - 1)
+              == XQC_FALSE);
+
+    /* uppercase in pseudo-header -> rejected (RFC 9114 4.3 routes
+     * this through "undefined pseudo-header" but the byte scan
+     * catches it first) */
+    const unsigned char pseudo_uc[] = ":Method";
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase(pseudo_uc, sizeof(pseudo_uc) - 1)
+              == XQC_TRUE);
+
+    /* boundary characters around A-Z -> not flagged */
+    const unsigned char at_sign[] = "@";  /* 0x40, just below 'A' */
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase(at_sign, sizeof(at_sign) - 1)
+              == XQC_FALSE);
+    const unsigned char open_bracket[] = "[";  /* 0x5B, just above 'Z' */
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase(open_bracket,
+                                                 sizeof(open_bracket) - 1)
+              == XQC_FALSE);
+
+    /* high-bit byte (0xff) -> not flagged. Such a byte is invalid in
+     * an HTTP/3 field name per RFC 9110 token rules, but that is a
+     * separate validation -- the helper is scoped to A-Z. */
+    const unsigned char high_bit[] = { 0xff, 0x00 };
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase(high_bit, 1) == XQC_FALSE);
+
+    /* uppercase deep inside an otherwise lowercase name -> rejected.
+     * Catches the off-by-one of an early-exit-only-on-first-byte loop. */
+    const unsigned char trailing_uc[] = "x-forwarded-For";
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase(trailing_uc,
+                                                 sizeof(trailing_uc) - 1)
+              == XQC_TRUE);
+}

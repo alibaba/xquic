@@ -7,6 +7,7 @@
 #include "src/transport/xqc_engine.h"
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_ctx.h"
+#include "src/http3/qpack/xqc_qpack.h"
 #include "src/common/xqc_time.h"
 
 
@@ -865,6 +866,29 @@ xqc_h3_request_on_recv_header(xqc_h3_request_t *h3r)
                     (int)hdr->name.iov_len,
                     (char *)hdr->name.iov_base);
             return -XQC_H3_INVALID_HEADER;
+        }
+    }
+
+    /*
+     * RFC 9114 4.2: a request or response containing uppercase characters
+     * in field names MUST be treated as malformed. 4.1.2 routes malformed
+     * messages through H3_MESSAGE_ERROR. The QPACK layer is purposefully
+     * byte-transparent (it round-trips arbitrary bytes for codec testing),
+     * so this HTTP-semantic check lives at the H3 boundary instead.
+     */
+    for (size_t i = 0; i < headers->count; i++) {
+        xqc_http_header_t *hdr = &headers->headers[i];
+        if (xqc_qpack_field_name_has_uppercase(hdr->name.iov_base,
+                                               hdr->name.iov_len))
+        {
+            xqc_log(h3r->h3_stream->log, XQC_LOG_ERROR,
+                    "|uppercase character in field name|conn:%p|"
+                    "stream_id:%ui|field_index:%uz|name_len:%uz|",
+                    h3r->h3_stream->h3c->conn, h3r->h3_stream->stream_id,
+                    i, hdr->name.iov_len);
+            XQC_H3_CONN_ERR(h3r->h3_stream->h3c, H3_MESSAGE_ERROR,
+                            -XQC_H3_EMALFORMED_HEADER);
+            return -XQC_H3_EMALFORMED_HEADER;
         }
     }
 

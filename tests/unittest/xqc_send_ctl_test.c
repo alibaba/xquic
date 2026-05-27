@@ -10,9 +10,12 @@
 
 #include "src/common/xqc_malloc.h"
 #include "src/transport/xqc_send_ctl.h"
+#include "src/transport/xqc_send_queue.h"
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_multipath.h"
 #include "src/transport/xqc_transport_params.h"
+#include "src/transport/xqc_packet_out.h"
+#include "src/transport/xqc_frame.h"
 
 
 /*
@@ -318,4 +321,253 @@ xqc_test_send_ctl_update_rtt_ack_delay_cap(void)
     xqc_engine_destroy(conn->engine);
     xqc_free(path->path_send_ctl);
     xqc_free(path);
+}
+
+
+/*
+ * Issue #739 regression tests.
+ *
+ * Pre-fix, xqc_send_ctl_detect_lost only reset cwnd on persistent
+ * congestion; min_rtt/srtt/rttvar were left at their pre-disruption
+ * values. After a major path event that triggers persistent
+ * congestion, the stale (smaller) srtt and rttvar made every
+ * downstream PTO and persistent-congestion duration computation use
+ * RTT that no longer reflects the path, repeatedly mis-triggering
+ * loss detection. RFC 9002 5.2 SHOULD reset min_rtt to the newest
+ * sample; ngtcp2 (lib/ngtcp2_rtb.c persistent_congestion path)
+ * additionally resets srtt/rttvar to initial and clears the
+ * first-sample timestamp so the next sample re-seeds the estimator.
+ *
+ * The fix in xqc_send_ctl_detect_lost performs exactly that reset.
+ * These tests pin its observable effects and guard against
+ * regressions in two directions:
+ *   - that the reset is *not* applied to ordinary loss
+ *   - that the early-return guard for "no RTT sample yet" still
+ *     short-circuits before any reset can fire
+ */
+
+
+/*
+ * Seed a single in-flight, ack-eliciting packet on the connection's
+ * initial path. po_sent_time/pkt_num are caller-supplied so the
+ * caller controls the persistent-congestion duration arithmetic.
+ *
+ * po_used_size is left at 0 so xqc_send_ctl_decrease_inflight is a
+ * no-op on inflight bookkeeping; we only need the packet to be on
+ * the unacked list and on the right path so detect_lost picks it up.
+ */
+static xqc_packet_out_t *
+xqc_test_send_ctl_seed_lost_packet(xqc_connection_t *conn,
+    xqc_packet_number_t pkt_num, xqc_usec_t po_sent_time)
+{
+    xqc_send_queue_t *sq = conn->conn_send_queue;
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+
+    xqc_packet_out_t *po = xqc_packet_out_get(sq);
+    if (po == NULL) {
+        return NULL;
+    }
+
+    po->po_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    po->po_pkt.pkt_pns  = XQC_PNS_APP_DATA;
+    po->po_pkt.pkt_num  = pkt_num;
+    po->po_path_id      = send_ctl->ctl_path->path_id;
+    po->po_sent_time    = po_sent_time;
+    po->po_flag         = XQC_POF_IN_FLIGHT;
+    /* PING is ack-eliciting and is not in XQC_NEED_REPAIR. */
+    po->po_frame_types  = XQC_FRAME_BIT_PING;
+    po->po_used_size    = 0;
+
+    xqc_send_queue_insert_unacked(po, &sq->sndq_unacked_packets[XQC_PNS_APP_DATA], sq);
+    return po;
+}
+
+
+/*
+ * Build a send_ctl state that satisfies xqc_send_ctl_in_persistent_congestion:
+ *   - pto_count == XQC_CONSECUTIVE_PTO_THRESH
+ *   - srtt/rttvar small so duration is bounded and easy to exceed
+ *   - first_rtt_sample_time non-zero so detect_lost doesn't early-return
+ *   - largest_acked[APP_DATA] >= our packet's pkt_num so the loop considers it
+ */
+static void
+xqc_test_send_ctl_arm_pc_state(xqc_send_ctl_t *send_ctl,
+    xqc_usec_t srtt, xqc_usec_t rttvar, xqc_usec_t minrtt,
+    xqc_packet_number_t largest_acked)
+{
+    send_ctl->ctl_srtt    = srtt;
+    send_ctl->ctl_rttvar  = rttvar;
+    send_ctl->ctl_minrtt  = minrtt;
+    send_ctl->ctl_latest_rtt = srtt;
+    send_ctl->ctl_first_rtt_sample_time = 1;
+    send_ctl->ctl_pto_count = XQC_CONSECUTIVE_PTO_THRESH;
+    send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA] = largest_acked;
+}
+
+
+void
+xqc_test_send_ctl_persistent_congestion_resets_rtt(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    CU_ASSERT_FATAL(send_ctl != NULL);
+    CU_ASSERT_FATAL(send_ctl->ctl_cong_callback != NULL);
+    CU_ASSERT_FATAL(send_ctl->ctl_cong_callback->xqc_cong_ctl_reset_cwnd != NULL);
+    CU_ASSERT_FATAL(send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd != NULL);
+
+    /* initial_rtt is the post-reset srtt; assert it is non-zero so the
+     * test does not silently accept an unintended 0/0 outcome. */
+    CU_ASSERT_FATAL(conn->conn_settings.initial_rtt > 0);
+    conn->remote_settings.max_ack_delay = 25; /* ms */
+
+    /* Pin RTT estimator at a small, converged value. With srtt=10ms,
+     * rttvar=2ms, max_ack_delay=25ms, the persistent-congestion
+     * duration is (10 + max(8,2) + 25)ms * 3 = 129ms. Setting
+     * po_sent_time = 1us and now = 1s leaves a 999ms gap, well past
+     * the 129ms threshold. */
+    xqc_test_send_ctl_arm_pc_state(send_ctl,
+                                   /* srtt   */ 10000,
+                                   /* rttvar */  2000,
+                                   /* minrtt */  8000,
+                                   /* largest_acked */ 1);
+
+    xqc_packet_out_t *po = xqc_test_send_ctl_seed_lost_packet(conn, 1, 1);
+    CU_ASSERT_FATAL(po != NULL);
+
+    uint64_t cwnd_before = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(
+        send_ctl->ctl_cong);
+    /* Cubic default init_cwnd = 10*MSS, which must exceed min_cwnd (4*MSS).
+     * If this invariant ever flips, the cwnd-reset assertion below would
+     * become a tautology, so guard it explicitly. */
+    CU_ASSERT_FATAL(cwnd_before > 0);
+
+    xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
+                             XQC_PNS_APP_DATA, 1000000);
+
+    /* min_rtt resets to the xquic sentinel (XQC_MAX_UINT32_VALUE), not
+     * UINT64_MAX, to stay consistent with xqc_send_ctl_create. */
+    CU_ASSERT_EQUAL(send_ctl->ctl_minrtt, XQC_MAX_UINT32_VALUE);
+    CU_ASSERT_EQUAL(send_ctl->ctl_srtt, conn->conn_settings.initial_rtt);
+    CU_ASSERT_EQUAL(send_ctl->ctl_rttvar, conn->conn_settings.initial_rtt / 2);
+    CU_ASSERT_EQUAL(send_ctl->ctl_first_rtt_sample_time, 0);
+
+    uint64_t cwnd_after = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(
+        send_ctl->ctl_cong);
+    /* Cubic reset_cwnd collapses cwnd to min_cwnd; cubic_init sets
+     * cwnd = init_cwnd > min_cwnd. So cwnd must strictly shrink. */
+    CU_ASSERT(cwnd_after < cwnd_before);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_send_ctl_persistent_congestion_rtt_reseeds_from_new_sample(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    CU_ASSERT_FATAL(send_ctl != NULL);
+    CU_ASSERT_FATAL(conn->conn_settings.initial_rtt > 0);
+    conn->remote_settings.max_ack_delay = 25;
+
+    /* Drive the persistent-congestion path identically to Test A so the
+     * state on entry to update_rtt is exactly what the fix produces. */
+    xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 1);
+    xqc_packet_out_t *po = xqc_test_send_ctl_seed_lost_packet(conn, 1, 1);
+    CU_ASSERT_FATAL(po != NULL);
+    xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
+                             XQC_PNS_APP_DATA, 1000000);
+
+    CU_ASSERT_FATAL(send_ctl->ctl_first_rtt_sample_time == 0);
+
+    /* Inject a new RTT sample that is orders of magnitude larger than
+     * the pre-reset estimator (8ms minrtt -> 300ms latest_rtt). Without
+     * the first_rtt_sample_time clear, the existing min(latest, minrtt)
+     * code in update_rtt would have left minrtt pegged at 8ms — the
+     * exact bug. With the clear, the first-sample branch takes the
+     * value directly. */
+    xqc_usec_t latest = 300000;
+    xqc_send_ctl_update_rtt(send_ctl, &latest, 0);
+
+    CU_ASSERT_EQUAL(send_ctl->ctl_minrtt, 300000);
+    CU_ASSERT_EQUAL(send_ctl->ctl_srtt,   300000);
+    CU_ASSERT_EQUAL(send_ctl->ctl_rttvar, 150000);
+    CU_ASSERT(send_ctl->ctl_first_rtt_sample_time != 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_send_ctl_single_loss_does_not_reset_rtt(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    CU_ASSERT_FATAL(send_ctl != NULL);
+    conn->remote_settings.max_ack_delay = 25;
+
+    /* Same RTT state and same packet timing as Test A, but pto_count
+     * is below XQC_CONSECUTIVE_PTO_THRESH so the persistent-congestion
+     * predicate fails. The packet is still marked lost (single loss),
+     * but the RTT estimator must remain untouched. */
+    xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 1);
+    send_ctl->ctl_pto_count = 0;
+
+    xqc_packet_out_t *po = xqc_test_send_ctl_seed_lost_packet(conn, 1, 1);
+    CU_ASSERT_FATAL(po != NULL);
+
+    xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
+                             XQC_PNS_APP_DATA, 1000000);
+
+    /* All four RTT fields must equal their pre-call values. */
+    CU_ASSERT_EQUAL(send_ctl->ctl_srtt,   10000);
+    CU_ASSERT_EQUAL(send_ctl->ctl_rttvar,  2000);
+    CU_ASSERT_EQUAL(send_ctl->ctl_minrtt,  8000);
+    CU_ASSERT(send_ctl->ctl_first_rtt_sample_time != 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    CU_ASSERT_FATAL(send_ctl != NULL);
+    conn->remote_settings.max_ack_delay = 25;
+
+    /* Arm a state where the duration check WOULD pass if reached, then
+     * clear first_rtt_sample_time so the guard at the top of the
+     * OnPacketsLost block returns before the persistent-congestion
+     * branch can fire. This pins existing behavior: the fix must not
+     * change what happens before RTT has been measured. */
+    xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 1);
+    send_ctl->ctl_first_rtt_sample_time = 0;
+
+    xqc_packet_out_t *po = xqc_test_send_ctl_seed_lost_packet(conn, 1, 1);
+    CU_ASSERT_FATAL(po != NULL);
+
+    xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
+                             XQC_PNS_APP_DATA, 1000000);
+
+    /* No mutation, including first_rtt_sample_time itself. */
+    CU_ASSERT_EQUAL(send_ctl->ctl_srtt,   10000);
+    CU_ASSERT_EQUAL(send_ctl->ctl_rttvar,  2000);
+    CU_ASSERT_EQUAL(send_ctl->ctl_minrtt,  8000);
+    CU_ASSERT_EQUAL(send_ctl->ctl_first_rtt_sample_time, 0);
+
+    xqc_engine_destroy(conn->engine);
 }

@@ -271,8 +271,13 @@ xqc_cid_set_insert_cid(xqc_cid_set_t *cid_set,
         return -XQC_ECONN_CID_NOT_FOUND;
     }
 
-    /* RFC 9000 §5.1.1: active CIDs (UNUSED+USED) MUST NOT exceed limit; use >= to fix off-by-one */
-    if ((inner_set->unused_cnt + inner_set->used_cnt) >= limit) {
+    /*
+     * RFC 9000 §5.1.1: "The value of the active_connection_id_limit transport
+     * parameter does not include the connection ID negotiated during the
+     * handshake."  Subtract original (handshake) CIDs from the active count.
+     */
+    uint64_t countable = xqc_cid_set_countable_cnt(inner_set);
+    if (countable >= limit) {
         return -XQC_EACTIVE_CID_LIMIT;
     }
 
@@ -330,6 +335,10 @@ xqc_cid_set_delete_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid, uint64_t path_id)
 
             } else if (inner_cid->state == XQC_CID_RETIRED) {
                 inner_set->retired_cnt--;
+            }
+
+            if (inner_cid->is_original && inner_set->original_cid_cnt > 0) {
+                inner_set->original_cid_cnt--;
             }
 
             xqc_list_del(pos);
@@ -426,6 +435,16 @@ xqc_cid_switch_to_next_state(xqc_cid_set_t *cid_set, xqc_cid_inner_t *cid, xqc_c
 
     } else if (current_state == XQC_CID_RETIRED) {
         inner_set->retired_cnt--;
+    }
+
+    if (cid->is_original
+        && (current_state == XQC_CID_UNUSED || current_state == XQC_CID_USED)
+        && (next_state != XQC_CID_UNUSED && next_state != XQC_CID_USED))
+    {
+        if (inner_set->original_cid_cnt > 0) {
+            inner_set->original_cid_cnt--;
+        }
+        cid->is_original = 0;
     }
 
     cid->state = next_state;

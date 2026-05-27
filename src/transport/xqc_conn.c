@@ -907,6 +907,7 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     {
         goto fail;
     }
+    xqc_cid_set_mark_original(&xc->dcid_set, dcid, XQC_INITIAL_PATH_ID);
     xqc_cid_copy(&(xc->dcid_set.current_dcid), dcid);
     xqc_hex_dump(xc->dcid_set.current_dcid_str, dcid->cid_buf, dcid->cid_len);
     xc->dcid_set.current_dcid_str[dcid->cid_len * 2] = '\0';
@@ -917,6 +918,7 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     {
         goto fail;
     }
+    xqc_cid_set_mark_original(&xc->scid_set, scid, XQC_INITIAL_PATH_ID);
     xqc_cid_copy(&(xc->scid_set.user_scid), scid);
     xqc_hex_dump(xc->scid_set.original_scid_str, scid->cid_buf, scid->cid_len);
     xc->scid_set.original_scid_str[scid->cid_len * 2] = '\0';
@@ -4799,6 +4801,7 @@ xqc_conn_confirm_cid(xqc_connection_t *c, xqc_packet_t *pkt)
                         xqc_cid_set_get_used_cnt(&c->dcid_set, XQC_INITIAL_PATH_ID));
                 return ret;
             }
+            xqc_cid_set_mark_original(&c->dcid_set, &pkt->pkt_scid, XQC_INITIAL_PATH_ID);
         }
 
         if (XQC_OK != xqc_cid_is_equal(&c->dcid_set.current_dcid, &pkt->pkt_scid)) {
@@ -5257,7 +5260,7 @@ xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
             /* principle #1 there are two CIDs for the next path ID */
             inner_set = xqc_get_next_unused_path_cid_set(&conn->scid_set);
             while (inner_set 
-                   && (inner_set->unused_cnt + inner_set->used_cnt) < conn->remote_settings.active_connection_id_limit
+                   && xqc_cid_set_countable_cnt(inner_set) < conn->remote_settings.active_connection_id_limit
                    && inner_set->unused_cnt < unused_limit) 
             {
                 ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, retire_prior_to, inner_set->path_id);
@@ -5275,7 +5278,7 @@ xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
                 inner_set = xqc_list_entry(pos, xqc_cid_set_inner_t, next);
                 if (inner_set->set_state == XQC_CID_SET_USED) {
                     while (inner_set 
-                           && (inner_set->unused_cnt + inner_set->used_cnt) < conn->remote_settings.active_connection_id_limit
+                           && xqc_cid_set_countable_cnt(inner_set) < conn->remote_settings.active_connection_id_limit
                            && inner_set->unused_cnt < unused_limit) 
                     {
                         ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, retire_prior_to, inner_set->path_id);
@@ -5293,7 +5296,7 @@ xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
 
             inner_set = xqc_get_path_cid_set(&conn->scid_set, XQC_INITIAL_PATH_ID);
             /* origin logic for new connection id */
-            while ((inner_set->used_cnt + inner_set->unused_cnt) < conn->remote_settings.active_connection_id_limit
+            while (xqc_cid_set_countable_cnt(inner_set) < conn->remote_settings.active_connection_id_limit
                    && inner_set->unused_cnt < unused_limit)
             {
                 ret = xqc_write_new_conn_id_frame_to_packet(conn, retire_prior_to);

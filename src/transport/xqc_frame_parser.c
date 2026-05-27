@@ -1214,6 +1214,42 @@ xqc_parse_ack_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_ack_
     }
 
     ack_info->n_ranges = n_ranges;
+
+    /*
+     * RFC 9000 Section 19.3: ACK_ECN (type=0x03) carries three
+     * additional varint fields after ACK Ranges: ECT(0) Count,
+     * ECT(1) Count, and ECN-CE Count.  We must consume them so
+     * that packet_in->pos advances past the entire frame;
+     * otherwise subsequent frame parsing will read garbage.
+     */
+    if (frame_type == 0x03) {
+        uint64_t ecn_count;
+
+        /* ECT(0) Count */
+        vlen = xqc_vint_read(p, end, &ecn_count);
+        if (vlen < 0) {
+            return -XQC_EVINTREAD;
+        }
+        p += vlen;
+
+        /* ECT(1) Count */
+        vlen = xqc_vint_read(p, end, &ecn_count);
+        if (vlen < 0) {
+            return -XQC_EVINTREAD;
+        }
+        p += vlen;
+
+        /* ECN-CE Count */
+        vlen = xqc_vint_read(p, end, &ecn_count);
+        if (vlen < 0) {
+            return -XQC_EVINTREAD;
+        }
+        p += vlen;
+
+        xqc_log(conn->log, XQC_LOG_DEBUG,
+                "|ACK_ECN frame ECN counts consumed|");
+    }
+
     packet_in->pos = p;
     packet_in->pi_frame_types |= XQC_FRAME_BIT_ACK;
 

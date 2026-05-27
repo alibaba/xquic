@@ -5,6 +5,7 @@
 #include <CUnit/CUnit.h>
 #include <stdint.h>
 #include "xquic/xquic.h"
+#include "xquic/xqc_errno.h"
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_client.h"
 #include "src/transport/xqc_defs.h"
@@ -15,6 +16,8 @@
 #include "src/congestion_control/xqc_new_reno.h"
 #include "xqc_common_test.h"
 #include "src/transport/xqc_engine.h"
+
+extern void xqc_conn_tls_error_cb(xqc_int_t tls_err, void *user_data);
 
 void
 xqc_test_conn_create()
@@ -306,4 +309,112 @@ xqc_test_conn_early_data_reject_flow_ctl()
     CU_ASSERT(conn->conn_flow_ctl.fc_data_sent == 16384);
 
     xqc_engine_destroy(engine);
+}
+
+
+/* RFC 9000 §20.1 CRYPTO_ERROR dynamic construction tests */
+
+
+void
+xqc_test_conn_tls_error_cb_constructs_crypto_error()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
+
+    /*
+     * TLS alert 48 = unknown_ca (RFC 8446 §6.2).
+     * xqc_conn_tls_error_cb must OR it with TRA_CRYPTO_ERROR_BASE (0x100)
+     * to produce the RFC 9000 §20.1 CRYPTO_ERROR wire code: 0x130.
+     */
+    xqc_conn_tls_error_cb(48, (void *)conn);
+
+    CU_ASSERT(conn->conn_err == (48 | TRA_CRYPTO_ERROR_BASE));
+    CU_ASSERT(conn->conn_err == 0x130);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_conn_crypto_error_base_value()
+{
+    /*
+     * RFC 9000 §20.1 CRYPTO_ERROR (0x0100-0x01FF): "The cryptographic
+     * handshake failed. A range of 256 values is reserved ..."
+     * TRA_CRYPTO_ERROR_BASE is the base of this range. Lock the value
+     * so an accidental edit doesn't silently break the wire format.
+     */
+    CU_ASSERT(TRA_CRYPTO_ERROR_BASE == 0x100);
+    CU_ASSERT(TRA_INTERNAL_ERROR == 0x1);
+}
+
+
+void
+xqc_test_conn_tls_error_first_writer_wins()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    /*
+     * Simulate the real sequence: TLS callback fires first with a specific
+     * alert, then the crypto stream fallback path tries to stamp
+     * TRA_INTERNAL_ERROR. The XQC_CONN_ERR macro is first-writer-wins
+     * (guarded by conn_err == 0), so the second stamp must be a no-op.
+     */
+    xqc_conn_tls_error_cb(48, (void *)conn);
+    CU_ASSERT(conn->conn_err == 0x130);
+
+    XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+    CU_ASSERT(conn->conn_err == 0x130);
+    CU_ASSERT(conn->conn_err != TRA_INTERNAL_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_conn_tls_error_cb_alert_zero()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    /*
+     * Edge case: TLS alert 0 = close_notify. (0 | 0x100) = 0x100.
+     * Pre-fix, xqc_conn_tls_crypto_data_cb's default branch used bare
+     * TRA_CRYPTO_ERROR_BASE (0x100) for this case. The fix replaced it
+     * with TRA_INTERNAL_ERROR (0x1). But xqc_conn_tls_error_cb (alert=0)
+     * still correctly produces 0x100, which is a distinct code. Verify
+     * both paths work.
+     */
+    xqc_conn_tls_error_cb(0, (void *)conn);
+    CU_ASSERT(conn->conn_err == TRA_CRYPTO_ERROR_BASE);
+    CU_ASSERT(conn->conn_err == 0x100);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_conn_tls_error_cb_max_alert()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    /*
+     * RFC 9000 §20.1 reserves 0x0100..0x01FF for CRYPTO_ERROR.
+     * TLS alerts are 0..255, so (0xFF | 0x100) = 0x1FF is the
+     * maximum valid CRYPTO_ERROR code. This was the old
+     * TRA_CRYPTO_ERROR's value, now only reachable through dynamic
+     * construction with alert 255.
+     */
+    xqc_conn_tls_error_cb(0xFF, (void *)conn);
+    CU_ASSERT(conn->conn_err == 0x1FF);
+    CU_ASSERT(conn->conn_err == (0xFF | TRA_CRYPTO_ERROR_BASE));
+
+    xqc_engine_destroy(conn->engine);
 }

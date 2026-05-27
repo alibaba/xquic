@@ -632,7 +632,7 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
                                   dst_header, header_len, payload, payload_len,
                                   dst_payload, enc_pkt_cap - header_len, &enc_payload_len);
     if (ret != XQC_OK) {
-        XQC_CONN_ERR(conn, TRA_CRYPTO_ERROR);
+        XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
         xqc_log(conn->log, XQC_LOG_ERROR, "|packet protection error|pkt_type:%d|pkt_num:%ui",
                 packet_out->po_pkt.pkt_type, packet_out->po_pkt.pkt_num);
         return ret;

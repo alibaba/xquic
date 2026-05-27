@@ -36,7 +36,6 @@ typedef enum {
      */
     TRA_VERSION_NEGOTIATION_ERROR   =  0x53,
     TRA_HS_CERTIFICATE_VERIFY_FAIL  =  0x1FE, /**< for handshake certificate verify error */
-    TRA_CRYPTO_ERROR                =  0x1FF, /**< 0x1XX */
 } xqc_trans_err_code_t;
 
 

@@ -43,6 +43,7 @@
 #include "xqc_ack_with_timestamp_test.h"
 #include "xqc_send_ctl_test.h"
 #include "xqc_vn_test.h"
+#include "xqc_frame_type_bit_test.h"
 
 static int xqc_init_suite(void) { return 0; }
 static int xqc_clean_suite(void) { return 0; }
@@ -161,6 +162,31 @@ main()
         || !CU_add_test(pSuite, "xqc_test_vn_reject_when_scid_mismatch", xqc_test_vn_reject_when_scid_mismatch)
         || !CU_add_test(pSuite, "xqc_test_vn_reject_when_state_not_initial_sent", xqc_test_vn_reject_when_state_not_initial_sent)
         || !CU_add_test(pSuite, "xqc_test_vn_abort_on_multi_unsupported_versions", xqc_test_vn_abort_on_multi_unsupported_versions)
+        /* issue #534: xqc_frame_type_bit_t 64-bit overflow fix */
+        || !CU_add_test(pSuite, "xqc_test_frame_type_enum_ordinals",
+                        xqc_test_frame_type_enum_ordinals)
+        || !CU_add_test(pSuite, "xqc_test_frame_bit_high_values_nonzero",
+                        xqc_test_frame_bit_high_values_nonzero)
+        || !CU_add_test(pSuite, "xqc_test_frame_type_bit_sizeof",
+                        xqc_test_frame_type_bit_sizeof)
+        || !CU_add_test(pSuite, "xqc_test_frame_bit_or_high_low",
+                        xqc_test_frame_bit_or_high_low)
+        || !CU_add_test(pSuite, "xqc_test_need_repair_with_high_bit",
+                        xqc_test_need_repair_with_high_bit)
+        || !CU_add_test(pSuite, "xqc_test_ack_eliciting_with_high_bit",
+                        xqc_test_ack_eliciting_with_high_bit)
+        || !CU_add_test(pSuite, "xqc_test_can_in_flight_with_high_bit",
+                        xqc_test_can_in_flight_with_high_bit)
+        || !CU_add_test(pSuite, "xqc_test_frame_type_2_str_high_bit",
+                        xqc_test_frame_type_2_str_high_bit)
+        || !CU_add_test(pSuite, "xqc_test_packet_frame_types_64bit_storage",
+                        xqc_test_packet_frame_types_64bit_storage)
+        || !CU_add_test(pSuite, "xqc_test_frame_bit_all_constants_correct",
+                        xqc_test_frame_bit_all_constants_have_correct_bit_position)
+        || !CU_add_test(pSuite, "xqc_test_frame_bit_32bit_boundary",
+                        xqc_test_frame_bit_32bit_boundary)
+        || !CU_add_test(pSuite, "xqc_test_frame_type_bit_roundtrip",
+                        xqc_test_frame_type_bit_roundtrip)
         /* ADD TESTS HERE */)
     {
         CU_cleanup_registry();

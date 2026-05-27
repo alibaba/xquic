@@ -1412,15 +1412,19 @@ else
 fi
 
 killall test_server 2> /dev/null
-${SERVER_BIN} -l d -e -b > /dev/null &
+# Case 33: server only advertises draft-29 so the V1 client hits the
+# abort path instead of the downgrade-protection discard.
+${SERVER_BIN} -l d -e -x 33 > /dev/null &
 sleep 1
 
 clear_log
 echo -e "version negotiation ...\c"
 ${CLIENT_BIN} -l d -E -x 33 >> clog 2>&1
 
-# Wire-level: VN packet was received and recognised by the receiver.
-result=`grep -e "|====>|.*VERSION_NEGOTIATION" clog`
+# Wire-level: VN packet was received and parsed by the client.
+# (The event-log callback is skipped because the abort error is non-tolerant,
+# so we match the unconditional debug log from xqc_packet_parse_version_negotiation.)
+result=`grep "packet parse|version negotiation" clog`
 if [ -n "$result" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "version_negotiation" "pass"

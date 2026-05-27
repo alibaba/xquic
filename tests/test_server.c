@@ -2643,6 +2643,18 @@ int main(int argc, char *argv[]) {
     }
 #endif
 
+    /*
+     * VN abort test (case 33): offer only draft-29 so that the V1
+     * client hits the abort path instead of the downgrade-protection
+     * discard.  Server's VN will list 0xFF00001D only; V1 is absent,
+     * so the client's current_wire_version check passes and the
+     * connection is correctly abandoned per RFC 9000 §6.2.
+     */
+    if (g_test_case == 33) {
+        config.support_version_count = 1;
+        config.support_version_list[0] = 0xFF00001D; /* draft-29 */
+    }
+
     /* test server cid negotiate */
     if (g_test_case == 1 || g_test_case == 5 || g_test_case == 6 || g_sid_len != 0) {
 

@@ -909,12 +909,6 @@ xqc_client_write_socket(const unsigned char *buf, size_t size,
     send_buf_size = size;
     memcpy(send_buf, buf, send_buf_size);
 
-    /* trigger version negotiation */
-    if (g_test_case == 33) {
-        /* makes version 0xff000001 */
-        send_buf[1] = 0xff;
-    }
-
     /* make initial packet loss to test 0rtt buffer */
     if (g_test_case == 39) {
         g_test_case = -1;
@@ -1132,12 +1126,6 @@ xqc_client_write_socket_ex(uint64_t path_id,
     }
     send_buf_size = size;
     memcpy(send_buf, buf, send_buf_size);
-
-    /* trigger version negotiation */
-    if (g_test_case == 33) {
-        /* makes version 0xff000001 */
-        send_buf[1] = 0xff;
-    }
 
     /* make initial packet loss to test 0rtt buffer */
     if (g_test_case == 39) {

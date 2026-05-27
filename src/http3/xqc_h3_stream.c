@@ -908,7 +908,14 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 hdrs = xqc_h3_request_get_writing_headers(h3s->h3r);
                 if (NULL == hdrs) {
                     xqc_log(h3s->log, XQC_LOG_ERROR, "|get writing header error|");
-                    XQC_H3_CONN_ERR(h3s->h3c, H3_GENERAL_PROTOCOL_ERROR, -XQC_H3_INVALID_HEADER);
+                    /* NULL here means current_header has reached
+                     * XQC_H3_REQUEST_MAX_HEADERS_CNT (=2): our internal
+                     * capacity for stored header blocks is exhausted.
+                     * This is an implementation-side limit, not malformed
+                     * peer input, so H3_INTERNAL_ERROR is the proper
+                     * wire-level code. The -XQC_H3_INVALID_HEADER internal
+                     * errno is kept to avoid wider callsite churn. */
+                    XQC_H3_CONN_ERR(h3s->h3c, H3_INTERNAL_ERROR, -XQC_H3_INVALID_HEADER);
                     return -XQC_H3_INVALID_HEADER;
                 }
 
@@ -1496,7 +1503,11 @@ xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_
             }
             
             if (processed == -XQC_H3_INVALID_HEADER) {
-                XQC_H3_CONN_ERR(h3c, H3_GENERAL_PROTOCOL_ERROR, errcode);
+                /* RFC 9114 §4.1.2: malformed request/response headers
+                 * MUST be treated as H3_MESSAGE_ERROR, not as a generic
+                 * protocol error. This path covers QPACK decode failures
+                 * surfaced as -XQC_H3_INVALID_HEADER. */
+                XQC_H3_CONN_ERR(h3c, H3_MESSAGE_ERROR, errcode);
 
             } else {
                 XQC_H3_CONN_ERR(h3c, H3_FRAME_ERROR, errcode);

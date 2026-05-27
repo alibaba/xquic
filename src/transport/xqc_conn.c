@@ -4410,6 +4410,23 @@ xqc_conn_handshake_complete(xqc_connection_t *conn)
 
     } else {
         /*
+         * RFC 9001 Section 8.1: clients MUST treat a handshake that
+         * completes without ALPN negotiation as a connection error of
+         * type 0x0178 (no_application_protocol).
+         */
+        const char *selected_alpn = NULL;
+        size_t      selected_alpn_len = 0;
+        xqc_tls_get_selected_alpn(conn->tls,
+                                  &selected_alpn,
+                                  &selected_alpn_len);
+        if (selected_alpn == NULL || selected_alpn_len == 0) {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|handshake completed without ALPN|");
+            XQC_CONN_ERR(conn, TRA_NO_APPLICATION_PROTOCOL);
+            return -XQC_EPROTO;
+        }
+
+        /*
          * client MUST discard Initial keys when it first sends a Handshake packet,
          * equivalent to handshake complete and can send 1RTT
          */
@@ -6478,8 +6495,7 @@ xqc_int_t
 xqc_conn_tls_alpn_select_cb(const char *alpn, size_t alpn_len, void *user_data)
 {
     xqc_connection_t *conn = (xqc_connection_t *)user_data;
-    xqc_conn_server_on_alpn(conn, alpn, alpn_len);
-    return XQC_OK;
+    return xqc_conn_server_on_alpn(conn, alpn, alpn_len);
 }
 
 xqc_int_t

@@ -872,13 +872,19 @@ xqc_ssl_alpn_select_cb(SSL *ssl, const unsigned char **out, unsigned char *outle
     size_t alpn_list_len = 0;
     xqc_tls_ctx_get_alpn_list(tls->ctx, &alpn_list, &alpn_list_len);
 
-    /* select alp */
+    /* select alpn */
     if (SSL_select_next_proto((unsigned char **)out, outlen, alpn_list, alpn_list_len, in, inlen)
         != OPENSSL_NPN_NEGOTIATED)
     {
+        /*
+         * RFC 9001 Section 8.1: QUIC requires ALPN; if no common protocol
+         * is found the server MUST send TLS alert 120
+         * (no_application_protocol).  SSL_TLSEXT_ERR_ALERT_FATAL makes
+         * both BoringSSL and OpenSSL/BabaSSL emit that alert.
+         */
         xqc_log(tls->log, XQC_LOG_ERROR, "|select proto error|in:%*s",
                 (size_t)inlen, in);
-        return SSL_TLSEXT_ERR_NOACK;
+        return SSL_TLSEXT_ERR_ALERT_FATAL;
     }
 
     /* notify alpn selection to upper layer */

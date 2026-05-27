@@ -222,6 +222,13 @@ main()
                         xqc_test_0rtt_params_all_increased)
         || !CU_add_test(pSuite, "xqc_test_0rtt_params_each_reduced",
                         xqc_test_0rtt_params_each_reduced)
+        /* ALPN negotiation tests (issue #709) */
+        || !CU_add_test(pSuite, "xqc_test_alpn_error_code_value",
+                        xqc_test_alpn_error_code_value)
+        || !CU_add_test(pSuite, "xqc_test_alpn_server_cb_propagates_error",
+                        xqc_test_alpn_server_cb_propagates_error)
+        || !CU_add_test(pSuite, "xqc_test_alpn_client_handshake_no_alpn",
+                        xqc_test_alpn_client_handshake_no_alpn)
         /* ADD TESTS HERE */)
     {
         CU_cleanup_registry();

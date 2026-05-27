@@ -43,6 +43,7 @@
 #include "xqc_ack_with_timestamp_test.h"
 #include "xqc_send_ctl_test.h"
 #include "xqc_vn_test.h"
+#include "xqc_frame_type_bit_test.h"
 
 static int xqc_init_suite(void) { return 0; }
 static int xqc_clean_suite(void) { return 0; }
@@ -138,6 +139,14 @@ main()
         || !CU_add_test(pSuite, "xqc_test_vn_reject_when_scid_mismatch", xqc_test_vn_reject_when_scid_mismatch)
         || !CU_add_test(pSuite, "xqc_test_vn_reject_when_state_not_initial_sent", xqc_test_vn_reject_when_state_not_initial_sent)
         || !CU_add_test(pSuite, "xqc_test_vn_abort_on_multi_unsupported_versions", xqc_test_vn_abort_on_multi_unsupported_versions)
+        || !CU_add_test(pSuite, "xqc_test_frame_type_bit_high_bits_nonzero",
+                        xqc_test_frame_type_bit_high_bits_nonzero)
+        || !CU_add_test(pSuite, "xqc_test_frame_type_bit_uniqueness",
+                        xqc_test_frame_type_bit_uniqueness)
+        || !CU_add_test(pSuite, "xqc_test_frame_type_bit_bitmask_macros",
+                        xqc_test_frame_type_bit_bitmask_macros)
+        || !CU_add_test(pSuite, "xqc_test_frame_type_bit_roundtrip",
+                        xqc_test_frame_type_bit_roundtrip)
         /* ADD TESTS HERE */)
     {
         CU_cleanup_registry();

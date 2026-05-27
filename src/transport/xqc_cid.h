@@ -118,7 +118,7 @@ static inline void
 xqc_cid_set_mark_original(xqc_cid_set_t *cid_set, xqc_cid_t *cid, uint64_t path_id)
 {
     xqc_cid_inner_t *inner = xqc_cid_in_cid_set(cid_set, cid, path_id);
-    if (inner) {
+    if (inner && !inner->is_original) {
         inner->is_original = 1;
         xqc_cid_set_inner_t *s = xqc_get_path_cid_set(cid_set, path_id);
         if (s) {
@@ -127,6 +127,19 @@ xqc_cid_set_mark_original(xqc_cid_set_t *cid_set, xqc_cid_t *cid, uint64_t path_
     }
 }
 
+/*
+ * Return the number of CIDs that count toward active_connection_id_limit.
+ * Per RFC 9000 §5.1.1, handshake (original) CIDs are excluded.
+ * Uses saturating subtraction to avoid uint64_t underflow.
+ */
+static inline uint64_t
+xqc_cid_set_countable_cnt(xqc_cid_set_inner_t *inner_set)
+{
+    uint64_t active = inner_set->unused_cnt + inner_set->used_cnt;
+    return (active > inner_set->original_cid_cnt)
+         ? (active - inner_set->original_cid_cnt) : 0;
+}
 
 #endif /* _XQC_CID_H_INCLUDED_ */
+
 

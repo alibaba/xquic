@@ -5260,7 +5260,7 @@ xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
             /* principle #1 there are two CIDs for the next path ID */
             inner_set = xqc_get_next_unused_path_cid_set(&conn->scid_set);
             while (inner_set 
-                   && (inner_set->unused_cnt + inner_set->used_cnt) < conn->remote_settings.active_connection_id_limit
+                   && xqc_cid_set_countable_cnt(inner_set) < conn->remote_settings.active_connection_id_limit
                    && inner_set->unused_cnt < unused_limit) 
             {
                 ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, retire_prior_to, inner_set->path_id);
@@ -5278,7 +5278,7 @@ xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
                 inner_set = xqc_list_entry(pos, xqc_cid_set_inner_t, next);
                 if (inner_set->set_state == XQC_CID_SET_USED) {
                     while (inner_set 
-                           && (inner_set->unused_cnt + inner_set->used_cnt) < conn->remote_settings.active_connection_id_limit
+                           && xqc_cid_set_countable_cnt(inner_set) < conn->remote_settings.active_connection_id_limit
                            && inner_set->unused_cnt < unused_limit) 
                     {
                         ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, retire_prior_to, inner_set->path_id);
@@ -5296,7 +5296,7 @@ xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
 
             inner_set = xqc_get_path_cid_set(&conn->scid_set, XQC_INITIAL_PATH_ID);
             /* origin logic for new connection id */
-            while ((inner_set->used_cnt + inner_set->unused_cnt) < conn->remote_settings.active_connection_id_limit
+            while (xqc_cid_set_countable_cnt(inner_set) < conn->remote_settings.active_connection_id_limit
                    && inner_set->unused_cnt < unused_limit)
             {
                 ret = xqc_write_new_conn_id_frame_to_packet(conn, retire_prior_to);

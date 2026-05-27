@@ -518,3 +518,91 @@ xqc_test_cid_handshake_exclusion()
 
     xqc_engine_destroy(conn->engine);
 }
+
+/*
+ * Test mark_original idempotency: calling xqc_cid_set_mark_original twice
+ * on the same CID must not inflate original_cid_cnt.
+ */
+void
+xqc_test_cid_mark_original_idempotent()
+{
+    xqc_int_t         ret;
+    xqc_connection_t *conn;
+
+    conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    /* test_engine_connect already marks initial DCID as original (cnt=1) */
+    xqc_cid_set_inner_t *inner_set = xqc_get_path_cid_set(&conn->dcid_set,
+                                                           XQC_INITIAL_PATH_ID);
+    CU_ASSERT_FATAL(inner_set != NULL);
+    uint64_t cnt_before = inner_set->original_cid_cnt;
+
+    /* call mark_original again on the same CID — must be a no-op */
+    xqc_cid_set_mark_original(&conn->dcid_set,
+                              &conn->dcid_set.current_dcid,
+                              XQC_INITIAL_PATH_ID);
+    CU_ASSERT(inner_set->original_cid_cnt == cnt_before);
+
+    /* call a third time for good measure */
+    xqc_cid_set_mark_original(&conn->dcid_set,
+                              &conn->dcid_set.current_dcid,
+                              XQC_INITIAL_PATH_ID);
+    CU_ASSERT(inner_set->original_cid_cnt == cnt_before);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * Test that xqc_cid_set_delete_cid correctly decrements original_cid_cnt
+ * when an original CID is deleted (rather than state-transitioned).
+ */
+void
+xqc_test_cid_delete_original()
+{
+    xqc_int_t         ret;
+    xqc_connection_t *conn;
+
+    conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    /* insert a new CID and mark it as original */
+    xqc_cid_t extra_cid;
+    ret = xqc_generate_cid(conn->engine, NULL, &extra_cid, 0);
+    CU_ASSERT(ret == XQC_OK);
+    ret = xqc_cid_set_insert_cid(&conn->dcid_set, &extra_cid, XQC_CID_USED,
+                                 conn->local_settings.active_connection_id_limit,
+                                 XQC_INITIAL_PATH_ID);
+    CU_ASSERT(ret == XQC_OK);
+    xqc_cid_set_mark_original(&conn->dcid_set, &extra_cid, XQC_INITIAL_PATH_ID);
+
+    xqc_cid_set_inner_t *inner_set = xqc_get_path_cid_set(&conn->dcid_set,
+                                                           XQC_INITIAL_PATH_ID);
+    CU_ASSERT_FATAL(inner_set != NULL);
+    uint64_t cnt_before = inner_set->original_cid_cnt;
+    CU_ASSERT(cnt_before >= 2);
+
+    /* delete the extra original CID — original_cid_cnt must decrease */
+    ret = xqc_cid_set_delete_cid(&conn->dcid_set, &extra_cid,
+                                 XQC_INITIAL_PATH_ID);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(inner_set->original_cid_cnt == cnt_before - 1);
+
+    /* delete a non-original CID — original_cid_cnt must NOT change */
+    xqc_cid_t normal_cid;
+    ret = xqc_generate_cid(conn->engine, NULL, &normal_cid, 200);
+    CU_ASSERT(ret == XQC_OK);
+    ret = xqc_cid_set_insert_cid(&conn->dcid_set, &normal_cid, XQC_CID_UNUSED,
+                                 conn->local_settings.active_connection_id_limit,
+                                 XQC_INITIAL_PATH_ID);
+    CU_ASSERT(ret == XQC_OK);
+
+    uint64_t cnt_after_insert = inner_set->original_cid_cnt;
+    ret = xqc_cid_set_delete_cid(&conn->dcid_set, &normal_cid,
+                                 XQC_INITIAL_PATH_ID);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(inner_set->original_cid_cnt == cnt_after_insert);
+
+    xqc_engine_destroy(conn->engine);
+}
+

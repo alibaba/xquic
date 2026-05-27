@@ -21,4 +21,11 @@ void xqc_test_cid_active_limit();
  */
 void xqc_test_cid_handshake_exclusion();
 
+/* mark_original idempotency: repeated calls must not inflate original_cid_cnt */
+void xqc_test_cid_mark_original_idempotent();
+
+/* delete_cid must decrement original_cid_cnt when removing an original CID */
+void xqc_test_cid_delete_original();
+
 #endif
+

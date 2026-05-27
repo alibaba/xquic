@@ -276,9 +276,7 @@ xqc_cid_set_insert_cid(xqc_cid_set_t *cid_set,
      * parameter does not include the connection ID negotiated during the
      * handshake."  Subtract original (handshake) CIDs from the active count.
      */
-    uint64_t active_cid_cnt = inner_set->unused_cnt + inner_set->used_cnt;
-    uint64_t countable = (active_cid_cnt > inner_set->original_cid_cnt)
-                       ? (active_cid_cnt - inner_set->original_cid_cnt) : 0;
+    uint64_t countable = xqc_cid_set_countable_cnt(inner_set);
     if (countable >= limit) {
         return -XQC_EACTIVE_CID_LIMIT;
     }
@@ -337,6 +335,10 @@ xqc_cid_set_delete_cid(xqc_cid_set_t *cid_set, xqc_cid_t *cid, uint64_t path_id)
 
             } else if (inner_cid->state == XQC_CID_RETIRED) {
                 inner_set->retired_cnt--;
+            }
+
+            if (inner_cid->is_original && inner_set->original_cid_cnt > 0) {
+                inner_set->original_cid_cnt--;
             }
 
             xqc_list_del(pos);
@@ -442,6 +444,7 @@ xqc_cid_switch_to_next_state(xqc_cid_set_t *cid_set, xqc_cid_inner_t *cid, xqc_c
         if (inner_set->original_cid_cnt > 0) {
             inner_set->original_cid_cnt--;
         }
+        cid->is_original = 0;
     }
 
     cid->state = next_state;

@@ -215,6 +215,23 @@ main()
         || !CU_add_test(pSuite, "xqc_test_initial_salt_length", xqc_test_initial_salt_length)
         || !CU_add_test(pSuite, "xqc_test_initial_salt_v1_value", xqc_test_initial_salt_v1_value)
         || !CU_add_test(pSuite, "xqc_test_initial_salt_null_byte_regression", xqc_test_initial_salt_null_byte_regression)
+        /* issue #717: 0-RTT transport parameter validation (RFC 9000 Section 7.4.1) */
+        || !CU_add_test(pSuite, "xqc_test_0rtt_params_all_equal",
+                        xqc_test_0rtt_params_all_equal)
+        || !CU_add_test(pSuite, "xqc_test_0rtt_params_all_increased",
+                        xqc_test_0rtt_params_all_increased)
+        || !CU_add_test(pSuite, "xqc_test_0rtt_params_initial_max_data_reduced",
+                        xqc_test_0rtt_params_initial_max_data_reduced)
+        || !CU_add_test(pSuite, "xqc_test_0rtt_params_max_streams_bidi_reduced",
+                        xqc_test_0rtt_params_max_streams_bidi_reduced)
+        || !CU_add_test(pSuite, "xqc_test_0rtt_params_active_cid_limit_reduced",
+                        xqc_test_0rtt_params_active_cid_limit_reduced)
+        || !CU_add_test(pSuite, "xqc_test_0rtt_params_datagram_size_reduced",
+                        xqc_test_0rtt_params_datagram_size_reduced)
+        || !CU_add_test(pSuite, "xqc_test_0rtt_params_no_0rtt_flag_skips_check",
+                        xqc_test_0rtt_params_no_0rtt_flag_skips_check)
+        || !CU_add_test(pSuite, "xqc_test_0rtt_params_server_skips_check",
+                        xqc_test_0rtt_params_server_skips_check)
         /* ADD TESTS HERE */)
     {
         CU_cleanup_registry();

@@ -34,6 +34,16 @@
 
 #define XQC_kLossReductionFactor (0.5f)
 
+/*
+ * Bounds for cc_params.init_cwnd overrides. Kept consistent with Cubic
+ * (XQC_CUBIC_MIN_WIN / XQC_CUBIC_MAX_INIT_WIN) and BBR so that operators
+ * can reason about a single packet range across CCAs. Values outside the
+ * range fall back to the RFC 9002 default rather than being clamped, to
+ * surface configuration mistakes instead of silently rewriting them.
+ */
+#define XQC_RENO_MIN_INIT_WIN (4 * XQC_kMaxDatagramSize)
+#define XQC_RENO_MAX_INIT_WIN (100 * XQC_kMaxDatagramSize)
+
 size_t
 xqc_reno_size()
 {
@@ -49,6 +59,23 @@ xqc_reno_init(void *cong_ctl, xqc_send_ctl_t *ctl_ctx, xqc_cc_params_t cc_params
     reno->reno_ssthresh = 0xffffffff;
     reno->reno_recovery_start_time = 0;
     reno->ctl_ctx = ctl_ctx;
+
+    /*
+     * Honor caller-provided init_cwnd override (in packets) the same way
+     * Cubic/BBR/Copa do. Without this block the customize_on path is a
+     * no-op on NewReno and the application silently keeps the default
+     * 10 * MSS window. Out-of-range values fall back to the default;
+     * the RFC 9002 Section 7.2 cap is already enforced by the
+     * XQC_kInitialWindow formula above.
+     */
+    if (cc_params.customize_on) {
+        uint32_t init_cwnd_bytes = cc_params.init_cwnd * XQC_kMaxDatagramSize;
+        if (init_cwnd_bytes >= XQC_RENO_MIN_INIT_WIN
+            && init_cwnd_bytes <= XQC_RENO_MAX_INIT_WIN)
+        {
+            reno->reno_congestion_window = init_cwnd_bytes;
+        }
+    }
 }
 
 /**

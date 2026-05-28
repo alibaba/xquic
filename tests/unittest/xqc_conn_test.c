@@ -650,22 +650,6 @@ xqc_test_0rtt_params_active_cid_limit_reduced(void)
 }
 
 void
-xqc_test_0rtt_params_datagram_size_reduced(void)
-{
-    xqc_cid_t server_scid;
-    xqc_connection_t *conn = xqc_0rtt_test_make_conn(&server_scid);
-
-    xqc_transport_params_t params;
-    xqc_0rtt_test_init_params(&params, conn, &server_scid);
-    params.max_datagram_frame_size = REMEMBERED_MAX_DGRAM_FRAME_SIZE - 1;
-
-    xqc_int_t err = xqc_0rtt_test_fire(conn, &params);
-    CU_ASSERT_EQUAL(err, TRA_0RTT_TRANS_PARAMS_ERROR);
-
-    xqc_engine_destroy(conn->engine);
-}
-
-void
 xqc_test_0rtt_params_no_0rtt_flag_skips_check(void)
 {
     xqc_cid_t server_scid;

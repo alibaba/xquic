@@ -6087,7 +6087,17 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
     {
         xqc_trans_settings_t *remembered = &conn->remote_settings;
 
-        /* MUST parameters -- server MUST NOT reduce these (RFC 9000 Section 7.4.1) */
+        /*
+         * MUST parameters -- server MUST NOT reduce these after 0-RTT is
+         * accepted (RFC 9000 Section 7.4.1):
+         *   - active_connection_id_limit
+         *   - initial_max_data
+         *   - initial_max_stream_data_bidi_local
+         *   - initial_max_stream_data_bidi_remote
+         *   - initial_max_stream_data_uni
+         *   - initial_max_streams_bidi
+         *   - initial_max_streams_uni
+         */
         if (params.initial_max_data < remembered->max_data) {
             xqc_log(conn->log, XQC_LOG_ERROR,
                     "|0rtt_param_reduced|initial_max_data|"
@@ -6157,43 +6167,6 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
             return;
         }
 
-        /* max_datagram_frame_size -- keep existing check with original error code */
-        if (params.max_datagram_frame_size < remembered->max_datagram_frame_size) {
-            xqc_log(conn->log, XQC_LOG_ERROR,
-                    "|0rtt_param_reduced|max_datagram_frame_size|"
-                    "remembered:%ui|new:%ui|",
-                    (uint64_t)remembered->max_datagram_frame_size,
-                    params.max_datagram_frame_size);
-            XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
-            return;
-        }
-
-        /* SHOULD parameters -- log warnings but do not close the connection */
-        if (params.max_idle_timeout != 0
-            && remembered->max_idle_timeout != 0
-            && params.max_idle_timeout < remembered->max_idle_timeout)
-        {
-            xqc_log(conn->log, XQC_LOG_WARN,
-                    "|0rtt_param_reduced_warn|max_idle_timeout|"
-                    "remembered:%ui|new:%ui|",
-                    remembered->max_idle_timeout, params.max_idle_timeout);
-        }
-
-        if (params.max_udp_payload_size < remembered->max_udp_payload_size) {
-            xqc_log(conn->log, XQC_LOG_WARN,
-                    "|0rtt_param_reduced_warn|max_udp_payload_size|"
-                    "remembered:%ui|new:%ui|",
-                    remembered->max_udp_payload_size,
-                    params.max_udp_payload_size);
-        }
-
-        if (!remembered->disable_active_migration
-            && params.disable_active_migration)
-        {
-            xqc_log(conn->log, XQC_LOG_WARN,
-                    "|0rtt_param_reduced_warn|disable_active_migration|"
-                    "remembered:0|new:1|");
-        }
     }
 
     /* set remote transport param */

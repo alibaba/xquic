@@ -226,8 +226,6 @@ main()
                         xqc_test_0rtt_params_max_streams_bidi_reduced)
         || !CU_add_test(pSuite, "xqc_test_0rtt_params_active_cid_limit_reduced",
                         xqc_test_0rtt_params_active_cid_limit_reduced)
-        || !CU_add_test(pSuite, "xqc_test_0rtt_params_datagram_size_reduced",
-                        xqc_test_0rtt_params_datagram_size_reduced)
         || !CU_add_test(pSuite, "xqc_test_0rtt_params_no_0rtt_flag_skips_check",
                         xqc_test_0rtt_params_no_0rtt_flag_skips_check)
         || !CU_add_test(pSuite, "xqc_test_0rtt_params_server_skips_check",

@@ -209,10 +209,13 @@ void xqc_h3_stream_get_path_info(xqc_h3_stream_t *h3s);
 
 void xqc_h3_stream_set_priority(xqc_h3_stream_t *h3s, xqc_h3_priority_t *prio);
 
-xqc_int_t xqc_h3_stream_send_bidi_stream_type(xqc_h3_stream_t *h3s, 
+xqc_int_t xqc_h3_stream_send_bidi_stream_type(xqc_h3_stream_t *h3s,
    xqc_h3_bidi_stream_type_t stype, uint8_t fin);
 
 ssize_t xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data,
     size_t data_len);
+
+ssize_t xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data,
+    size_t data_len, xqc_bool_t fin_flag);
 
 #endif

@@ -1032,7 +1032,20 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 /* PUSH related is not implemented yet */
                 break;
 
+            /* RFC 9114 §7.2.4/§7.2.3/§7.2.6/§7.2.7: control-only frames on request stream */
+            case XQC_H3_FRM_SETTINGS:
+            case XQC_H3_FRM_CANCEL_PUSH:
+            case XQC_H3_FRM_GOAWAY:
+            case XQC_H3_FRM_MAX_PUSH_ID:
+                xqc_log(h3s->log, XQC_LOG_ERROR,
+                        "|control-only frame on request stream|type:%xL|",
+                        pctx->frame.type);
+                xqc_h3_frm_reset_pctx(pctx);
+                XQC_H3_CONN_ERR(h3s->h3c, H3_FRAME_UNEXPECTED, -XQC_H3_REQUEST_FRAME_UNEXPECTED);
+                return -XQC_H3_REQUEST_FRAME_UNEXPECTED;
+
             default:
+                /* RFC 9114 §9: ignore unknown frame types */
                 xqc_log(h3s->log, XQC_LOG_INFO, "|ignore unknown frame|"
                         "frame type:%xL|", pctx->frame.type);
                 break;

@@ -4629,6 +4629,43 @@ else
 fi
 
 
+clear_log
+killall test_server 2> /dev/null
+stdbuf -oL ${SERVER_BIN} -l d -e -f -x 700 -M > /dev/null &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+echo -e "frame_type_bit repair symbol sent (bit 32 non-zero) ...\c"
+sudo ${CLIENT_BIN} -s 5120000 -l d -E -d 30 -g -x 700 -M -i lo -i lo > stdlog
+clog_repair=`grep 'frame:.*FEC_REPAIR' clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$clog_repair" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "frame_type_bit_repair_sent" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "frame_type_bit_repair_sent" "fail"
+fi
+
+
+clear_log
+killall test_server 2> /dev/null
+stdbuf -oL ${SERVER_BIN} -l d -e -f -x 700 -M > /dev/null &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+echo -e "frame_type_bit repair symbol received (bit 32 non-zero) ...\c"
+sudo ${CLIENT_BIN} -s 5120000 -l d -E -d 30 -g -x 700 -M -i lo -i lo > stdlog
+slog_repair=`grep 'frame:.*FEC_REPAIR' slog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$slog_repair" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "frame_type_bit_repair_received" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "frame_type_bit_repair_received" "fail"
+fi
+
 
 killall test_server 2> /dev/null
 ${SERVER_BIN} -l d -Q 65535 -e -U 1 -s 1 --dgram_qos 3 -f > /dev/null &

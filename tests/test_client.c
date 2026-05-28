@@ -5017,6 +5017,18 @@ int main(int argc, char *argv[]) {
             fec_params.fec_code_rate = 1;
         }
 
+        /*
+         * Case 700: end-to-end validation for issue #534 (xqc_frame_type_bit_t
+         * 64-bit overflow fix).  XQC_FRAME_BIT_REPAIR_SYMBOL = 1ULL << 32;
+         * if the type were a 32-bit enum (MSVC), this constant would silently
+         * truncate to 0, making FEC repair frame tracking dead code.
+         *
+         * fec_code_rate = 1.0  -> 1:1 redundancy, guarantees repair symbols
+         * fec_max_symbol_num_per_block = 5  -> small blocks for fast triggering
+         *
+         * case_test.sh validates by grepping "FEC_REPAIR" in packet logs; that
+         * string is only emitted when bit 32 of po_frame_types is actually set.
+         */
         if (g_test_case == 700) {
             fec_params.fec_code_rate = 1.0;
             fec_params.fec_max_symbol_num_per_block = 5;

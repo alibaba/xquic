@@ -2547,6 +2547,7 @@ int main(int argc, char *argv[]) {
         fec_params.fec_max_symbol_num_per_block = 10;
         fec_params.fec_mp_mode = XQC_FEC_MP_USE_STB;
 
+        /* Case 700: see test_client.c for rationale (issue #534 bit 32 fix) */
         if (g_test_case == 700) {
             fec_params.fec_code_rate = 1.0;
             fec_params.fec_max_symbol_num_per_block = 5;

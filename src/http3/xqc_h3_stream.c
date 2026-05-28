@@ -722,6 +722,26 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
 
         processed += read;
 
+        /*
+         * RFC 9114 §7.2.1/§7.2.5: DATA, HEADERS, and PUSH_PROMISE MUST NOT
+         * appear on control stream.  This check runs first because the frame
+         * parser does not consume payload for DATA/HEADERS (state stays at
+         * PAYLOAD, never advances to END), which would otherwise trip the
+         * state-error gate below when trailing bytes remain in the buffer.
+         */
+        if (pctx->state >= XQC_H3_FRM_STATE_PAYLOAD
+            && (pctx->frame.type == XQC_H3_FRM_DATA
+                || pctx->frame.type == XQC_H3_FRM_HEADERS
+                || pctx->frame.type == XQC_H3_FRM_PUSH_PROMISE))
+        {
+            xqc_log(h3c->log, XQC_LOG_ERROR,
+                    "|request-only frame on control stream|type:%xL|",
+                    pctx->frame.type);
+            xqc_h3_frm_reset_pctx(pctx);
+            XQC_H3_CONN_ERR(h3c, H3_FRAME_UNEXPECTED, -XQC_H3_CONTROL_FRAME_UNEXPECTED);
+            return -XQC_H3_CONTROL_FRAME_UNEXPECTED;
+        }
+
         if (pctx->state != XQC_H3_FRM_STATE_END && data_len != processed) {
             xqc_log(h3c->log, XQC_LOG_ERROR, "|parse frame state error|state:%d"
                     "|data_len:%uz|processed:%uz|type:%xL|len:%uz|consumed:%uz",
@@ -784,7 +804,7 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 break;
 
             default:
-                /* ignore unknown h3 frame */
+                /* RFC 9114 §9: ignore unknown frame types */
                 xqc_log(h3c->log, XQC_LOG_INFO, "|ignore unknown frame|"
                         "type:%xL|", pctx->frame.type);
                 break;

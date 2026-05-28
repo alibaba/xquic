@@ -4707,6 +4707,11 @@ int main(int argc, char *argv[]) {
         conn_settings.datagram_redundant_probe = 30000;
     }
 
+    if (g_test_case == 700) {
+        g_verify_cert = 1;
+        g_verify_cert_allow_self_sign = 0;
+    }
+
     g_conn_settings = &conn_settings;
 
     xqc_config_t config;

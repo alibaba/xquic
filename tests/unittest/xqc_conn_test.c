@@ -5,6 +5,7 @@
 #include <CUnit/CUnit.h>
 #include <stdint.h>
 #include "xquic/xquic.h"
+#include "xquic/xqc_errno.h"
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_client.h"
 #include "src/transport/xqc_defs.h"
@@ -15,6 +16,8 @@
 #include "src/congestion_control/xqc_new_reno.h"
 #include "xqc_common_test.h"
 #include "src/transport/xqc_engine.h"
+
+extern void xqc_conn_tls_error_cb(xqc_int_t tls_err, void *user_data);
 
 void
 xqc_test_conn_create()
@@ -306,4 +309,80 @@ xqc_test_conn_early_data_reject_flow_ctl()
     CU_ASSERT(conn->conn_flow_ctl.fc_data_sent == 16384);
 
     xqc_engine_destroy(engine);
+}
+
+
+/* RFC 9000 §20.1 CRYPTO_ERROR dynamic construction tests */
+
+
+void
+xqc_test_conn_tls_error_cb_constructs_crypto_error()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
+
+    xqc_conn_tls_error_cb(48, (void *)conn);
+
+    CU_ASSERT(conn->conn_err == (48 | TRA_CRYPTO_ERROR_BASE));
+    CU_ASSERT(conn->conn_err == 0x130);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_conn_crypto_error_base_value()
+{
+    CU_ASSERT(TRA_CRYPTO_ERROR_BASE == 0x100);
+    CU_ASSERT(TRA_INTERNAL_ERROR == 0x1);
+}
+
+
+void
+xqc_test_conn_tls_error_first_writer_wins()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_conn_tls_error_cb(48, (void *)conn);
+    CU_ASSERT(conn->conn_err == 0x130);
+
+    XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+    CU_ASSERT(conn->conn_err == 0x130);
+    CU_ASSERT(conn->conn_err != TRA_INTERNAL_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_conn_tls_error_cb_alert_zero()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_conn_tls_error_cb(0, (void *)conn);
+    CU_ASSERT(conn->conn_err == TRA_CRYPTO_ERROR_BASE);
+    CU_ASSERT(conn->conn_err == 0x100);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_conn_tls_error_cb_max_alert()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_conn_tls_error_cb(0xFF, (void *)conn);
+    CU_ASSERT(conn->conn_err == 0x1FF);
+    CU_ASSERT(conn->conn_err == (0xFF | TRA_CRYPTO_ERROR_BASE));
+
+    xqc_engine_destroy(conn->engine);
 }

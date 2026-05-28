@@ -6284,7 +6284,7 @@ xqc_conn_tls_crypto_data_cb(xqc_encrypt_level_t level, const uint8_t *data,
     default:
         xqc_log(conn->log, XQC_LOG_ERROR,
                 "|impossible crypto data from encryption level|level:%d|", level);
-        XQC_CONN_ERR(conn, TRA_CRYPTO_ERROR_BASE);
+        XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
         return -XQC_EFATAL;
     }
 

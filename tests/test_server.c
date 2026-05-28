@@ -12,6 +12,7 @@
 #include <xquic/xquic_typedef.h>
 #include <xquic/xquic.h>
 #include <xquic/xqc_http3.h>
+#include "src/transport/xqc_frame.h"
 #include <time.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -674,6 +675,13 @@ xqc_server_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
         if (!g_echo) {
             user_conn->dgram_blk->to_send_size = g_send_body_size;
         }
+    }
+
+    if (g_test_case == 800) {
+        printf("[frame_bit_check]|SID:0x%"PRIx64"|REPAIR:0x%"PRIx64"|NUM:0x%"PRIx64"|\n",
+               (uint64_t)XQC_FRAME_BIT_SID,
+               (uint64_t)XQC_FRAME_BIT_REPAIR_SYMBOL,
+               (uint64_t)XQC_FRAME_BIT_NUM);
     }
 
     return 0;

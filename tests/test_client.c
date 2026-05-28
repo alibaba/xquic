@@ -16,6 +16,7 @@
 #include <xquic/xquic.h>
 #include <xquic/xquic_typedef.h>
 #include <xquic/xqc_http3.h>
+#include "src/transport/xqc_frame.h"
 #include "platform.h"
 #ifndef XQC_SYS_WINDOWS
 #include <unistd.h>
@@ -236,6 +237,7 @@ uint64_t g_last_sock_op_time;
 //2XX for datagram testcases
 //3XX for h3 ext bytestream testcases
 //4XX for conn_settings configuration
+//8XX for frame type bit regression
 int g_test_case;
 int g_ipv6;
 int g_no_crypt;
@@ -1717,6 +1719,13 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
 
     if (g_test_case == 200 || g_test_case == 201) {
         printf("[dgram-200]|0RTT|initial_mss:%zu|\n", user_conn->dgram_mss);
+    }
+
+    if (g_test_case == 800) {
+        printf("[frame_bit_check]|SID:0x%"PRIx64"|REPAIR:0x%"PRIx64"|NUM:0x%"PRIx64"|\n",
+               (uint64_t)XQC_FRAME_BIT_SID,
+               (uint64_t)XQC_FRAME_BIT_REPAIR_SYMBOL,
+               (uint64_t)XQC_FRAME_BIT_NUM);
     }
 
     printf("xqc_conn_is_ready_to_send_early_data:%d\n", xqc_conn_is_ready_to_send_early_data(conn));

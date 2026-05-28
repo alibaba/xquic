@@ -5002,4 +5002,23 @@ else
     case_print_result "ack_timestamp_frame_case_6" "fail"
 fi
 
+## xqc_frame_type_bit_t uint64 regression
+killall test_server 2> /dev/null
+clear_log
+rm -f test_session xqc_token tp_localhost
+echo -e "frame_type_bit_uint64_datagram ...\c"
+${SERVER_BIN} -l d -e -x 800 -Q 1000 > svr_stdlog &
+sleep 1
+${CLIENT_BIN} -s 1024 -l d -t 1 -U 1 -Q 1000 -E -x 800 > stdlog
+cli_bit=`grep "REPAIR:0x100000000" stdlog`
+svr_bit=`grep "REPAIR:0x100000000" svr_stdlog`
+echo_ok=`grep "echo_check|same_content:yes" stdlog`
+if [ -n "$cli_bit" ] && [ -n "$svr_bit" ] && [ -n "$echo_ok" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "frame_type_bit_uint64_datagram" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "frame_type_bit_uint64_datagram" "fail"
+fi
+
 cd -

@@ -21,5 +21,6 @@ void xqc_test_h3_headers_capacity_uses_internal_error();
 void xqc_test_h3_valid_headers_smoke();
 void xqc_test_h3_frame_parse_error_uses_frame_error();
 void xqc_test_h3_control_frame_unexpected();
+void xqc_test_h3_missing_settings();
 
 #endif //XQUIC_XQC_H3_TEST_H

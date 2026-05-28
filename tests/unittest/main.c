@@ -187,6 +187,11 @@ main()
                         xqc_test_frame_bit_32bit_boundary)
         || !CU_add_test(pSuite, "xqc_test_frame_type_bit_roundtrip",
                         xqc_test_frame_type_bit_roundtrip)
+        /* RFC 9001 Appendix A test vector verification (#719) */
+        || !CU_add_test(pSuite, "xqc_test_rfc9001_initial_secret", xqc_test_rfc9001_initial_secret)
+        || !CU_add_test(pSuite, "xqc_test_rfc9001_derive_initial_secrets", xqc_test_rfc9001_derive_initial_secrets)
+        || !CU_add_test(pSuite, "xqc_test_rfc9001_client_initial_keys", xqc_test_rfc9001_client_initial_keys)
+        || !CU_add_test(pSuite, "xqc_test_rfc9001_server_initial_keys", xqc_test_rfc9001_server_initial_keys)
         /* ADD TESTS HERE */)
     {
         CU_cleanup_registry();

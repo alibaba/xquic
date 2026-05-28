@@ -32,22 +32,33 @@
 
 #define INITIAL_SECRET_MAX_LEN  32
 
-static const char * const (xqc_crypto_initial_salt)[] = {
-    /* placeholder */
-    [XQC_IDRAFT_INIT_VER] = 
-        "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+/* length of QUIC initial salt (all versions use 20 bytes) */
+#define XQC_INITIAL_SALT_LEN    20
 
-    /* QUIC v1 */
-    [XQC_VERSION_V1] = 
-        "\x38\x76\x2c\xf7\xf5\x59\x34\xb3\x4d\x17\x9a\xe6\xa4\xc8\x0c\xad\xcc\xbb\x7f\x0a",
+static const uint8_t xqc_crypto_initial_salt[][XQC_INITIAL_SALT_LEN] = {
+    /* placeholder */
+    [XQC_IDRAFT_INIT_VER] = {
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    },
+
+    /* QUIC v1 (RFC 9001, Section 5.2) */
+    [XQC_VERSION_V1] = {
+        0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3, 0x4d, 0x17,
+        0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad, 0xcc, 0xbb, 0x7f, 0x0a
+    },
 
     /* draft-29 ~ draft-32 */
-    [XQC_IDRAFT_VER_29] = 
-        "\xaf\xbf\xec\x28\x99\x93\xd2\x4c\x9e\x97\x86\xf1\x9c\x61\x11\xe0\x43\x90\xa8\x99",
+    [XQC_IDRAFT_VER_29] = {
+        0xaf, 0xbf, 0xec, 0x28, 0x99, 0x93, 0xd2, 0x4c, 0x9e, 0x97,
+        0x86, 0xf1, 0x9c, 0x61, 0x11, 0xe0, 0x43, 0x90, 0xa8, 0x99
+    },
 
     /* version negotiation */
-    [XQC_IDRAFT_VER_NEGOTIATION] = 
-        "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+    [XQC_IDRAFT_VER_NEGOTIATION] = {
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    },
 };
 
 static const char * const (xqc_crypto_retry_key)[] = {

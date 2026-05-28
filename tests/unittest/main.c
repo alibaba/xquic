@@ -197,6 +197,10 @@ main()
         || !CU_add_test(pSuite, "xqc_test_rfc9001_derive_initial_secrets", xqc_test_rfc9001_derive_initial_secrets)
         || !CU_add_test(pSuite, "xqc_test_rfc9001_client_initial_keys", xqc_test_rfc9001_client_initial_keys)
         || !CU_add_test(pSuite, "xqc_test_rfc9001_server_initial_keys", xqc_test_rfc9001_server_initial_keys)
+        /* issue #695: initial salt strlen fix */
+        || !CU_add_test(pSuite, "xqc_test_initial_salt_length", xqc_test_initial_salt_length)
+        || !CU_add_test(pSuite, "xqc_test_initial_salt_v1_value", xqc_test_initial_salt_v1_value)
+        || !CU_add_test(pSuite, "xqc_test_initial_salt_null_byte_regression", xqc_test_initial_salt_null_byte_regression)
         /* ADD TESTS HERE */)
     {
         CU_cleanup_registry();

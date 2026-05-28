@@ -7,6 +7,9 @@
 
 void xqc_test_crypto();
 void xqc_test_hp_sample_boundary();
+void xqc_test_initial_salt_length();
+void xqc_test_initial_salt_v1_value();
+void xqc_test_initial_salt_null_byte_regression();
 
 /* RFC 9001 Appendix A test vector verification */
 void xqc_test_rfc9001_initial_secret();

@@ -2,6 +2,7 @@
  * @copyright Copyright (c) 2022, Alibaba Group Holding Limited
  */
 
+#include <string.h>
 #include <CUnit/CUnit.h>
 #include "xqc_common_test.h"
 #include "src/transport/xqc_conn.h"
@@ -34,7 +35,7 @@ xqc_test_derive_initial_secret()
     ret = xqc_crypto_derive_initial_secret(client_initial_secret, INITIAL_SECRET_MAX_LEN,
                                            server_initial_secret, INITIAL_SECRET_MAX_LEN,
                                            odcid, xqc_crypto_initial_salt[XQC_VERSION_V1],
-                                           strlen(xqc_crypto_initial_salt[XQC_VERSION_V1]));
+                                           XQC_INITIAL_SALT_LEN);
     CU_ASSERT(ret == XQC_OK);
 
     xqc_engine_destroy(conn->engine);
@@ -399,6 +400,56 @@ xqc_test_rfc9001_server_initial_keys()
     xqc_engine_destroy(engine);
 }
 
+
+void
+xqc_test_initial_salt_length()
+{
+    /* XQC_INITIAL_SALT_LEN must be 20 (all QUIC versions) */
+    CU_ASSERT_EQUAL(XQC_INITIAL_SALT_LEN, 20);
+
+    /* sizeof each row must match the constant */
+    CU_ASSERT_EQUAL(sizeof(xqc_crypto_initial_salt[XQC_VERSION_V1]),
+                    XQC_INITIAL_SALT_LEN);
+    CU_ASSERT_EQUAL(sizeof(xqc_crypto_initial_salt[XQC_IDRAFT_VER_29]),
+                    XQC_INITIAL_SALT_LEN);
+}
+
+void
+xqc_test_initial_salt_v1_value()
+{
+    /* RFC 9001 Section 5.2: 0x38762cf7f55934b34d179ae6a4c80cadccbb7f0a */
+    static const uint8_t rfc9001_v1_salt[20] = {
+        0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3,
+        0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad,
+        0xcc, 0xbb, 0x7f, 0x0a
+    };
+
+    CU_ASSERT_EQUAL(memcmp(xqc_crypto_initial_salt[XQC_VERSION_V1],
+                           rfc9001_v1_salt, 20), 0);
+}
+
+void
+xqc_test_initial_salt_null_byte_regression()
+{
+    /* salt with embedded 0x00: sizeof must still return 20 */
+    static const uint8_t salt_with_null[XQC_INITIAL_SALT_LEN] = {
+        0xAA, 0xBB, 0xCC, 0xDD,
+        0x00,  /* embedded null */
+        0x11, 0x22, 0x33, 0x44, 0x55,
+        0x66, 0x77, 0x88, 0x99, 0xAA,
+        0xBB, 0xCC, 0xDD, 0xEE, 0xFF
+    };
+
+    /* sizeof on a fixed-size uint8_t array is immune to 0x00 */
+    CU_ASSERT_EQUAL(sizeof(salt_with_null), XQC_INITIAL_SALT_LEN);
+
+    /* strlen would return 4 here -- that is the bug we are guarding */
+    CU_ASSERT(strlen((const char *)salt_with_null) < XQC_INITIAL_SALT_LEN);
+
+    /* the real salt table must also be immune */
+    CU_ASSERT_EQUAL(sizeof(xqc_crypto_initial_salt[XQC_IDRAFT_INIT_VER]),
+                    XQC_INITIAL_SALT_LEN);
+}
 
 void
 xqc_test_crypto()

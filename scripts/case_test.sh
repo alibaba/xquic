@@ -5098,4 +5098,26 @@ else
     case_print_result "ack_ecn_parse_server_only" "fail"
 fi
 
+killall test_server 2> /dev/null
+> svr_stdlog
+stdbuf -oL ${SERVER_BIN} -l d -e -x 48 > svr_stdlog &
+sleep 1
+
+rm -f test_session tp_localhost xqc_token
+
+clear_log
+echo -e "initial salt v1 key derivation ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 48 > stdlog
+result=`grep ">>>>>>>> pass" stdlog`
+salt_cli=`grep "\[initial-salt-test\] handshake ok, conn_err:0" stdlog`
+salt_svr=`grep -a "\[initial-salt-test\] server handshake ok, conn_err:0" svr_stdlog`
+errlog=`grep "derive initial secret error" clog slog`
+if [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$salt_cli" ] && [ -n "$salt_svr" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "initial_salt_v1_key_derivation" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "initial_salt_v1_key_derivation" "fail"
+fi
+
 cd -

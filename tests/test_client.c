@@ -1908,6 +1908,10 @@ xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
         }
     }
 
+    if (g_test_case == 48) {
+        printf("[initial-salt-test] handshake ok, conn_err:%d\n", stats.conn_err);
+    }
+
     if (g_test_case == 200 || g_test_case == 201) {
         printf("[h3-dgram-200]|1RTT|updated_mss:%zu|\n", user_conn->dgram_mss);
     }

@@ -989,6 +989,11 @@ xqc_server_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *conn_user_da
     printf("h3_datagram_mss:%zd\n", xqc_h3_ext_datagram_get_mss(h3_conn));
 
 
+    if (g_test_case == 48) {
+        printf("[initial-salt-test] server handshake ok, conn_err:%d\n",
+               stats.conn_err);
+    }
+
     /* pretend to create a server-inited http3 stream */
     if (g_test_case == 17) {
         xqc_stream_t * stream = xqc_stream_create_with_direction(

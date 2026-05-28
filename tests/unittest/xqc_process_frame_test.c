@@ -430,3 +430,240 @@ xqc_test_crypto_in_0rtt_emits_connection_close()
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+/*
+ * ACK_ECN frame parsing tests for issue #632.
+ *
+ * RFC 9000 Section 19.3 defines ACK_ECN (type=0x03) as an ACK frame
+ * followed by three additional varint fields: ECT(0) Count, ECT(1)
+ * Count, and ECN-CE Count.  Before the fix, xqc_parse_ack_frame did
+ * not consume these fields, so packet_in->pos pointed into the ECN
+ * data rather than past it, corrupting subsequent frame parsing.
+ *
+ * All buffers below are hand-crafted byte sequences.  Single-byte
+ * varints (value 0-63) are used everywhere for simplicity; the
+ * varint encoding is already tested elsewhere.
+ *
+ * Minimal ACK / ACK_ECN layout used in these tests:
+ *   type           : 1 byte  (0x02 or 0x03)
+ *   largest_acked  : 1 byte  varint
+ *   ack_delay      : 1 byte  varint
+ *   ack_range_count: 1 byte  varint (0 = no additional ranges)
+ *   first_ack_range: 1 byte  varint
+ *   --- ACK_ECN only ---
+ *   ect0_count     : 1 byte  varint
+ *   ect1_count     : 1 byte  varint
+ *   ecnce_count    : 1 byte  varint
+ */
+
+
+/*
+ * Test A: ACK_ECN (type=0x03) with valid ECN fields parses correctly
+ * and consumes the entire frame including the three ECN count fields.
+ */
+void
+xqc_test_ack_ecn_normal_parse()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+
+    /*
+     * ACK_ECN frame:
+     *   0x03  type = ACK_ECN
+     *   0x0A  largest_acked = 10
+     *   0x00  ack_delay = 0
+     *   0x00  ack_range_count = 0
+     *   0x05  first_ack_range = 5  (acks 10..5)
+     *   0x03  ECT(0) count = 3
+     *   0x02  ECT(1) count = 2
+     *   0x01  ECN-CE count = 1
+     */
+    unsigned char buf[] = {
+        0x03,
+        0x0A, 0x00, 0x00, 0x05,
+        0x03, 0x02, 0x01
+    };
+
+    xqc_packet_in_t pi;
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = buf;
+    pi.last = buf + sizeof(buf);
+
+    xqc_ack_info_t ack_info;
+    memset(&ack_info, 0, sizeof(ack_info));
+
+    xqc_int_t ret = xqc_parse_ack_frame(&pi, conn, &ack_info);
+    CU_ASSERT(ret == XQC_OK);
+
+    /* parser must have consumed the entire buffer */
+    CU_ASSERT(pi.pos == buf + sizeof(buf));
+
+    /* verify ACK semantics are correct */
+    CU_ASSERT(ack_info.n_ranges == 1);
+    CU_ASSERT(ack_info.largest_acked == 10);
+    CU_ASSERT(ack_info.ranges[0].high == 10);
+    CU_ASSERT(ack_info.ranges[0].low == 5);
+
+    /* frame type bit must be recorded */
+    CU_ASSERT((pi.pi_frame_types & XQC_FRAME_BIT_ACK) != 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * Test B: Plain ACK (type=0x02) must not read ECN fields -- regression.
+ *
+ * We append garbage bytes after the ACK body.  If the parser
+ * incorrectly tried to read ECN fields for type 0x02, pos would
+ * advance into the garbage and the consumed length would be wrong.
+ */
+void
+xqc_test_ack_plain_regression()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+
+    /*
+     * ACK frame (type=0x02):
+     *   0x02  type = ACK
+     *   0x0A  largest_acked = 10
+     *   0x00  ack_delay = 0
+     *   0x00  ack_range_count = 0
+     *   0x05  first_ack_range = 5
+     * Followed by 3 bytes of trailing data (simulating a next frame).
+     */
+    unsigned char buf[] = {
+        0x02,
+        0x0A, 0x00, 0x00, 0x05,
+        0xAA, 0xBB, 0xCC   /* trailing -- must NOT be consumed */
+    };
+
+    xqc_packet_in_t pi;
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = buf;
+    pi.last = buf + sizeof(buf);
+
+    xqc_ack_info_t ack_info;
+    memset(&ack_info, 0, sizeof(ack_info));
+
+    xqc_int_t ret = xqc_parse_ack_frame(&pi, conn, &ack_info);
+    CU_ASSERT(ret == XQC_OK);
+
+    /* parser must stop right after the ACK body (5 bytes), not touch trailing */
+    CU_ASSERT(pi.pos == buf + 5);
+
+    CU_ASSERT(ack_info.n_ranges == 1);
+    CU_ASSERT(ack_info.largest_acked == 10);
+    CU_ASSERT((pi.pi_frame_types & XQC_FRAME_BIT_ACK) != 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * Test C: ACK_ECN with truncated ECN fields must return error.
+ *
+ * Buffer holds a valid ACK body for type=0x03 but cuts off before
+ * all three ECN count fields can be read.
+ */
+void
+xqc_test_ack_ecn_truncated()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+
+    /*
+     * ACK_ECN frame, but only 1 of 3 ECN fields present:
+     *   0x03  type = ACK_ECN
+     *   0x0A  largest_acked = 10
+     *   0x00  ack_delay = 0
+     *   0x00  ack_range_count = 0
+     *   0x05  first_ack_range = 5
+     *   0x03  ECT(0) count = 3  -- present
+     *          ECT(1) -- MISSING
+     *          ECN-CE -- MISSING
+     */
+    unsigned char buf[] = {
+        0x03,
+        0x0A, 0x00, 0x00, 0x05,
+        0x03
+    };
+
+    xqc_packet_in_t pi;
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = buf;
+    pi.last = buf + sizeof(buf);
+
+    xqc_ack_info_t ack_info;
+    memset(&ack_info, 0, sizeof(ack_info));
+
+    xqc_int_t ret = xqc_parse_ack_frame(&pi, conn, &ack_info);
+    CU_ASSERT(ret == -XQC_EVINTREAD);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * Test D: ACK_ECN followed by a PING frame -- the core issue scenario.
+ *
+ * Before the fix, xqc_parse_ack_frame left pos pointing at the ECN
+ * fields.  When xqc_process_frames continued to read the "next frame",
+ * it would interpret ECN data as a frame type, resulting in garbage
+ * parsing.  After the fix, pos must land exactly on the PING byte.
+ */
+void
+xqc_test_ack_ecn_followed_by_ping()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+
+    /*
+     * ACK_ECN frame + PING frame:
+     *   0x03  type = ACK_ECN
+     *   0x0A  largest_acked = 10
+     *   0x00  ack_delay = 0
+     *   0x00  ack_range_count = 0
+     *   0x05  first_ack_range = 5
+     *   0x03  ECT(0) count = 3
+     *   0x02  ECT(1) count = 2
+     *   0x01  ECN-CE count = 1
+     *   0x01  PING frame (type=0x01)
+     */
+    unsigned char buf[] = {
+        0x03,
+        0x0A, 0x00, 0x00, 0x05,
+        0x03, 0x02, 0x01,
+        0x01   /* PING */
+    };
+
+    xqc_packet_in_t pi;
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = buf;
+    pi.last = buf + sizeof(buf);
+
+    xqc_ack_info_t ack_info;
+    memset(&ack_info, 0, sizeof(ack_info));
+
+    xqc_int_t ret = xqc_parse_ack_frame(&pi, conn, &ack_info);
+    CU_ASSERT(ret == XQC_OK);
+
+    /* pos must point at the PING byte, i.e. buf + 8 */
+    CU_ASSERT(pi.pos == buf + 8);
+
+    /* verify the byte at pos is indeed PING type */
+    CU_ASSERT(*pi.pos == 0x01);
+
+    /* parse the remaining buffer via xqc_process_frames for full E2E check */
+    int ret2 = xqc_process_frames(conn, &pi);
+    CU_ASSERT(ret2 == XQC_OK);
+    CU_ASSERT((pi.pi_frame_types & XQC_FRAME_BIT_ACK) != 0);
+    CU_ASSERT((pi.pi_frame_types & XQC_FRAME_BIT_PING) != 0);
+
+    /* pos must now be at the very end */
+    CU_ASSERT(pi.pos == buf + sizeof(buf));
+
+    xqc_engine_destroy(conn->engine);
+}

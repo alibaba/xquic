@@ -5060,4 +5060,42 @@ else
     case_print_result "ack_timestamp_frame_case_6" "fail"
 fi
 
+## ACK_ECN (0x03) frame parsing tests (issue #632)
+
+killall test_server
+clear_log
+echo -e "ack_ecn_parse: both endpoints send ACK_ECN, verify parsing on both sides ...\c"
+${SERVER_BIN} -l d -e -x 454 > /dev/null &
+sleep 1
+${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 454 > stdlog
+cli_res=`grep "ACK_ECN frame ECN counts consumed" clog | wc -l`
+svr_res=`grep "ACK_ECN frame ECN counts consumed" slog | wc -l`
+errlog=`grep_err_log`
+
+if [ -z "$errlog" ] && [ "$cli_res" -gt 0 ] && [ "$svr_res" -gt 0 ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "ack_ecn_parse_both" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "ack_ecn_parse_both" "fail"
+fi
+
+killall test_server
+clear_log
+echo -e "ack_ecn_parse: only server sends ACK_ECN, verify client parsing ...\c"
+${SERVER_BIN} -l d -e -x 455 > /dev/null &
+sleep 1
+${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 455 > stdlog
+cli_res=`grep "ACK_ECN frame ECN counts consumed" clog | wc -l`
+svr_res=`grep "ACK_ECN frame ECN counts consumed" slog | wc -l`
+errlog=`grep_err_log`
+
+if [ -z "$errlog" ] && [ "$cli_res" -gt 0 ] && [ "$svr_res" -eq 0 ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "ack_ecn_parse_server_only" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "ack_ecn_parse_server_only" "fail"
+fi
+
 cd -

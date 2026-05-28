@@ -1129,3 +1129,338 @@ xqc_test_h3_frame_parse_error_uses_frame_error()
 
     xqc_h3_msgerr_teardown(h3s, h3c, conn);
 }
+
+
+/*
+ * Issue #612: RFC 9114 §7.2.1/§7.2.5 — DATA, HEADERS, PUSH_PROMISE on
+ * the control stream MUST be rejected with H3_FRAME_UNEXPECTED.
+ *
+ * The frame parser does not consume payload for DATA/HEADERS (state stays
+ * at PAYLOAD, never reaches END), so the rejection guard must fire before
+ * the state==END dispatch.  PUSH_PROMISE payload IS consumed to END but
+ * was previously swallowed by the default: branch.
+ */
+
+static xqc_h3_stream_t *
+xqc_h3_ctrl_test_setup(xqc_connection_t **out_conn, xqc_h3_conn_t **out_h3c)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    if (conn == NULL) {
+        return NULL;
+    }
+
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+
+    conn->conn_flow_ctl.fc_max_streams_uni_can_send = 1024;
+    conn->conn_state = XQC_CONN_STATE_ESTABED;
+
+    xqc_h3_conn_t *h3c = xqc_h3_conn_create(conn, NULL);
+    if (h3c == NULL) {
+        return NULL;
+    }
+
+    xqc_stream_t *stream = xqc_create_stream_with_conn(conn,
+            XQC_UNDEFINE_STREAM_ID, XQC_CLI_UNI, NULL, NULL);
+    if (stream == NULL) {
+        return NULL;
+    }
+
+    xqc_h3_stream_t *h3s = xqc_h3_stream_create(h3c, stream,
+            XQC_H3_STREAM_TYPE_CONTROL, NULL);
+    if (h3s == NULL) {
+        return NULL;
+    }
+
+    *out_conn = conn;
+    *out_h3c = h3c;
+    return h3s;
+}
+
+static void
+xqc_h3_ctrl_test_teardown(xqc_h3_stream_t *h3s, xqc_h3_conn_t *h3c,
+    xqc_connection_t *conn)
+{
+    xqc_stream_t *stream = h3s->stream;
+    stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_h3_stream_destroy(h3s);
+    xqc_destroy_stream(stream);
+    xqc_h3_conn_destroy(h3c);
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+}
+
+/*
+ * Feed a valid SETTINGS frame so subsequent tests start from a state
+ * where SETTINGS_RECVED is set.
+ * SETTINGS: type=0x04, len=0x02, entry=[id=0x06(MAX_FIELD_SECTION_SIZE), val=0x00]
+ */
+static ssize_t
+xqc_h3_ctrl_feed_settings(xqc_h3_stream_t *h3s)
+{
+    unsigned char settings[] = { 0x04, 0x02, 0x06, 0x00 };
+    return xqc_h3_stream_process_control(h3s, settings, sizeof(settings));
+}
+
+/* Case 1: DATA frame (with payload) rejected on control stream */
+static void
+xqc_test_h3_ctrl_reject_data(void)
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    ssize_t ret = xqc_h3_ctrl_feed_settings(h3s);
+    CU_ASSERT_FATAL(ret > 0);
+
+    /* DATA frame: type=0x00, len=0x03, payload="abc" */
+    unsigned char data_frame[] = { 0x00, 0x03, 0x61, 0x62, 0x63 };
+    conn->conn_err = 0;
+    conn->conn_flag &= ~XQC_CONN_FLAG_ERROR;
+
+    ssize_t processed = xqc_h3_stream_process_control(h3s, data_frame,
+            sizeof(data_frame));
+
+    CU_ASSERT(processed == -XQC_H3_CONTROL_FRAME_UNEXPECTED);
+    CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
+
+    xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+}
+
+/* Case 2: zero-length DATA frame rejected on control stream */
+static void
+xqc_test_h3_ctrl_reject_zero_len_data(void)
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    ssize_t ret = xqc_h3_ctrl_feed_settings(h3s);
+    CU_ASSERT_FATAL(ret > 0);
+
+    /* DATA frame: type=0x00, len=0x00 (zero-length) */
+    unsigned char zero_data[] = { 0x00, 0x00 };
+    conn->conn_err = 0;
+    conn->conn_flag &= ~XQC_CONN_FLAG_ERROR;
+
+    ssize_t processed = xqc_h3_stream_process_control(h3s, zero_data,
+            sizeof(zero_data));
+
+    CU_ASSERT(processed == -XQC_H3_CONTROL_FRAME_UNEXPECTED);
+    CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
+
+    xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+}
+
+/* Case 3: HEADERS frame rejected on control stream */
+static void
+xqc_test_h3_ctrl_reject_headers(void)
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    ssize_t ret = xqc_h3_ctrl_feed_settings(h3s);
+    CU_ASSERT_FATAL(ret > 0);
+
+    /* HEADERS frame: type=0x01, len=0x02, payload=0x00 0x00 */
+    unsigned char headers_frame[] = { 0x01, 0x02, 0x00, 0x00 };
+    conn->conn_err = 0;
+    conn->conn_flag &= ~XQC_CONN_FLAG_ERROR;
+
+    ssize_t processed = xqc_h3_stream_process_control(h3s, headers_frame,
+            sizeof(headers_frame));
+
+    CU_ASSERT(processed == -XQC_H3_CONTROL_FRAME_UNEXPECTED);
+    CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
+
+    xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+}
+
+/* Case 4: PUSH_PROMISE frame rejected on control stream (RFC 9114 §7.2.5) */
+static void
+xqc_test_h3_ctrl_reject_push_promise(void)
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    ssize_t ret = xqc_h3_ctrl_feed_settings(h3s);
+    CU_ASSERT_FATAL(ret > 0);
+
+    /* PUSH_PROMISE: type=0x05, len=0x02, push_id=0x00, field_section=0x00 */
+    unsigned char push_promise[] = { 0x05, 0x02, 0x00, 0x00 };
+    conn->conn_err = 0;
+    conn->conn_flag &= ~XQC_CONN_FLAG_ERROR;
+
+    ssize_t processed = xqc_h3_stream_process_control(h3s, push_promise,
+            sizeof(push_promise));
+
+    CU_ASSERT(processed == -XQC_H3_CONTROL_FRAME_UNEXPECTED);
+    CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
+
+    xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+}
+
+/*
+ * Case 5: DATA without SETTINGS_RECVED — the illegal-frame guard takes
+ * precedence over the SETTINGS-first guard.
+ */
+static void
+xqc_test_h3_ctrl_reject_data_before_settings(void)
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    /* Do NOT feed SETTINGS — SETTINGS_RECVED flag stays unset */
+    unsigned char data_frame[] = { 0x00, 0x02, 0xAA, 0xBB };
+    conn->conn_err = 0;
+    conn->conn_flag &= ~XQC_CONN_FLAG_ERROR;
+
+    ssize_t processed = xqc_h3_stream_process_control(h3s, data_frame,
+            sizeof(data_frame));
+
+    CU_ASSERT(processed == -XQC_H3_CONTROL_FRAME_UNEXPECTED);
+    CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
+
+    xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+}
+
+/*
+ * Case 6: GOAWAY || DATA in one buffer — GOAWAY side effects land first,
+ * then DATA is still rejected.
+ */
+static void
+xqc_test_h3_ctrl_goaway_then_data(void)
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    ssize_t ret = xqc_h3_ctrl_feed_settings(h3s);
+    CU_ASSERT_FATAL(ret > 0);
+
+    /*
+     * GOAWAY: type=0x07, len=0x01, stream_id=0x04
+     * DATA:   type=0x00, len=0x01, payload=0xFF
+     */
+    unsigned char buf[] = { 0x07, 0x01, 0x04, 0x00, 0x01, 0xFF };
+    conn->conn_err = 0;
+    conn->conn_flag &= ~XQC_CONN_FLAG_ERROR;
+
+    ssize_t processed = xqc_h3_stream_process_control(h3s, buf, sizeof(buf));
+
+    /* GOAWAY side effects must have landed */
+    CU_ASSERT((h3c->flags & XQC_H3_CONN_FLAG_GOAWAY_RECVD) != 0);
+    CU_ASSERT(h3c->goaway_stream_id == 4);
+
+    /* DATA must be rejected */
+    CU_ASSERT(processed == -XQC_H3_CONTROL_FRAME_UNEXPECTED);
+    CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
+
+    xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+}
+
+/*
+ * Case 7: partial feed — type byte in first call, length in second.
+ * Verifies multi-call parse continuity still rejects correctly.
+ */
+static void
+xqc_test_h3_ctrl_reject_partial_feed(void)
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    ssize_t ret = xqc_h3_ctrl_feed_settings(h3s);
+    CU_ASSERT_FATAL(ret > 0);
+
+    /* Feed only the type byte of a DATA frame */
+    unsigned char type_byte[] = { 0x00 };
+    conn->conn_err = 0;
+    conn->conn_flag &= ~XQC_CONN_FLAG_ERROR;
+
+    ssize_t processed = xqc_h3_stream_process_control(h3s, type_byte,
+            sizeof(type_byte));
+    /* Parser consumed the type byte, state is LEN, no error yet */
+    CU_ASSERT(processed == 1);
+    CU_ASSERT(conn->conn_err == 0);
+
+    /* Feed the length byte — parser enters PAYLOAD and guard fires */
+    unsigned char len_byte[] = { 0x02 };
+    processed = xqc_h3_stream_process_control(h3s, len_byte, sizeof(len_byte));
+
+    CU_ASSERT(processed == -XQC_H3_CONTROL_FRAME_UNEXPECTED);
+    CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
+
+    xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+}
+
+/* Case 8: GOAWAY regression — valid GOAWAY still works after the fix */
+static void
+xqc_test_h3_ctrl_goaway_regression(void)
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    ssize_t ret = xqc_h3_ctrl_feed_settings(h3s);
+    CU_ASSERT_FATAL(ret > 0);
+
+    /* GOAWAY: type=0x07, len=0x01, stream_id=0x08 */
+    unsigned char goaway[] = { 0x07, 0x01, 0x08 };
+    conn->conn_err = 0;
+    conn->conn_flag &= ~XQC_CONN_FLAG_ERROR;
+
+    ssize_t processed = xqc_h3_stream_process_control(h3s, goaway,
+            sizeof(goaway));
+
+    CU_ASSERT(processed == (ssize_t)sizeof(goaway));
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT((h3c->flags & XQC_H3_CONN_FLAG_GOAWAY_RECVD) != 0);
+    CU_ASSERT(h3c->goaway_stream_id == 8);
+
+    xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+}
+
+/* Public entry point that runs all sub-cases */
+void
+xqc_test_h3_control_frame_unexpected(void)
+{
+    xqc_test_h3_ctrl_reject_data();
+    xqc_test_h3_ctrl_reject_zero_len_data();
+    xqc_test_h3_ctrl_reject_headers();
+    xqc_test_h3_ctrl_reject_push_promise();
+    xqc_test_h3_ctrl_reject_data_before_settings();
+    xqc_test_h3_ctrl_goaway_then_data();
+    xqc_test_h3_ctrl_reject_partial_feed();
+    xqc_test_h3_ctrl_goaway_regression();
+}

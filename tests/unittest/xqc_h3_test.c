@@ -1464,3 +1464,84 @@ xqc_test_h3_control_frame_unexpected(void)
     xqc_test_h3_ctrl_reject_partial_feed();
     xqc_test_h3_ctrl_goaway_regression();
 }
+
+
+
+/*
+ * Issue #607 - RFC 9114 §6.2.1: "If the first frame of the control stream
+ * is any other frame type, this MUST be treated as a connection error of
+ * type H3_MISSING_SETTINGS."
+ *
+ * Note: DATA/HEADERS/PUSH_PROMISE are caught earlier by the §7.2.1/§7.2.5
+ * guard (issue #612) with H3_FRAME_UNEXPECTED, so this test covers only
+ * the frame types that reach the SETTINGS-first gate: CANCEL_PUSH, GOAWAY,
+ * MAX_PUSH_ID, and reserved/grease types.
+ */
+static void
+xqc_test_h3_missing_settings_one(uint64_t frame_type)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+
+    xqc_h3_conn_t *h3c = xqc_h3_conn_create(conn, NULL);
+    CU_ASSERT_FATAL(h3c != NULL);
+
+    xqc_stream_t *stream = xqc_create_stream_with_conn(conn,
+            XQC_UNDEFINE_STREAM_ID, XQC_CLI_UNI, NULL, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+
+    xqc_h3_stream_t *h3s = xqc_h3_stream_create(h3c, stream,
+            XQC_H3_STREAM_TYPE_CONTROL, NULL);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    /* ensure SETTINGS_RECVED is NOT set */
+    h3c->flags &= ~XQC_H3_CONN_FLAG_SETTINGS_RECVED;
+    conn->conn_err = 0;
+    conn->conn_flag &= ~XQC_CONN_FLAG_ERROR;
+
+    /*
+     * Build a minimal frame: [type varint][length=0].
+     * All standard H3 types fit in a single byte varint.
+     */
+    unsigned char frame_buf[2];
+    frame_buf[0] = (unsigned char)(frame_type & 0x3F);  /* 1-byte varint */
+    frame_buf[1] = 0x00;  /* length = 0 */
+
+    ssize_t processed = xqc_h3_stream_process_control(h3s, frame_buf,
+            sizeof(frame_buf));
+
+    CU_ASSERT(processed == -XQC_H3_MISSING_SETTINGS);
+    CU_ASSERT(conn->conn_err == H3_MISSING_SETTINGS);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+
+    stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_h3_stream_destroy(h3s);
+    xqc_destroy_stream(stream);
+    xqc_h3_conn_destroy(h3c);
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+}
+
+void
+xqc_test_h3_missing_settings()
+{
+    /* CANCEL_PUSH (0x03) */
+    xqc_test_h3_missing_settings_one(XQC_H3_FRM_CANCEL_PUSH);
+
+    /* GOAWAY (0x07) */
+    xqc_test_h3_missing_settings_one(XQC_H3_FRM_GOAWAY);
+
+    /* MAX_PUSH_ID (0x0d) */
+    xqc_test_h3_missing_settings_one(XQC_H3_FRM_MAX_PUSH_ID);
+
+    /* reserved/grease type (0x21) */
+    xqc_test_h3_missing_settings_one(0x21);
+}

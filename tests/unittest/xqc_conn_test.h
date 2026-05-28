@@ -26,5 +26,10 @@ void xqc_test_0rtt_params_active_cid_limit_reduced(void);
 void xqc_test_0rtt_params_datagram_size_reduced(void);
 void xqc_test_0rtt_params_no_0rtt_flag_skips_check(void);
 void xqc_test_0rtt_params_server_skips_check(void);
+void xqc_test_0rtt_params_stream_data_bidi_local_reduced(void);
+void xqc_test_0rtt_params_stream_data_bidi_remote_reduced(void);
+void xqc_test_0rtt_params_stream_data_uni_reduced(void);
+void xqc_test_0rtt_params_max_streams_uni_reduced(void);
+void xqc_test_0rtt_params_rejected_allows_reduction(void);
 
 #endif

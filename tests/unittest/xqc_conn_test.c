@@ -591,7 +591,7 @@ xqc_test_0rtt_params_initial_max_data_reduced(void)
     params.initial_max_data = REMEMBERED_MAX_DATA - 1;
 
     xqc_int_t err = xqc_0rtt_test_fire(conn, &params);
-    CU_ASSERT_EQUAL(err, TRA_TRANSPORT_PARAMETER_ERROR);
+    CU_ASSERT_EQUAL(err, TRA_0RTT_TRANS_PARAMS_ERROR);
 
     xqc_engine_destroy(conn->engine);
 }
@@ -628,7 +628,7 @@ xqc_test_0rtt_params_max_streams_bidi_reduced(void)
     params.initial_max_streams_bidi = REMEMBERED_MAX_STREAMS_BIDI - 1;
 
     xqc_int_t err = xqc_0rtt_test_fire(conn, &params);
-    CU_ASSERT_EQUAL(err, TRA_TRANSPORT_PARAMETER_ERROR);
+    CU_ASSERT_EQUAL(err, TRA_0RTT_TRANS_PARAMS_ERROR);
 
     xqc_engine_destroy(conn->engine);
 }
@@ -644,7 +644,7 @@ xqc_test_0rtt_params_active_cid_limit_reduced(void)
     params.active_connection_id_limit = REMEMBERED_ACTIVE_CID_LIMIT - 1;
 
     xqc_int_t err = xqc_0rtt_test_fire(conn, &params);
-    CU_ASSERT_EQUAL(err, TRA_TRANSPORT_PARAMETER_ERROR);
+    CU_ASSERT_EQUAL(err, TRA_0RTT_TRANS_PARAMS_ERROR);
 
     xqc_engine_destroy(conn->engine);
 }
@@ -725,6 +725,97 @@ xqc_test_0rtt_params_server_skips_check(void)
 
     xqc_conn_tls_transport_params_cb(buf, len, conn);
     CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/* reduce initial_max_stream_data_bidi_local below remembered */
+void
+xqc_test_0rtt_params_stream_data_bidi_local_reduced(void)
+{
+    xqc_cid_t server_scid;
+    xqc_connection_t *conn = xqc_0rtt_test_make_conn(&server_scid);
+
+    xqc_transport_params_t params;
+    xqc_0rtt_test_init_params(&params, conn, &server_scid);
+    params.initial_max_stream_data_bidi_local = REMEMBERED_MAX_STREAM_DATA_BIDI_LOCAL - 1;
+
+    xqc_int_t err = xqc_0rtt_test_fire(conn, &params);
+    CU_ASSERT_EQUAL(err, TRA_0RTT_TRANS_PARAMS_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/* reduce initial_max_stream_data_bidi_remote below remembered */
+void
+xqc_test_0rtt_params_stream_data_bidi_remote_reduced(void)
+{
+    xqc_cid_t server_scid;
+    xqc_connection_t *conn = xqc_0rtt_test_make_conn(&server_scid);
+
+    xqc_transport_params_t params;
+    xqc_0rtt_test_init_params(&params, conn, &server_scid);
+    params.initial_max_stream_data_bidi_remote = REMEMBERED_MAX_STREAM_DATA_BIDI_REMOTE - 1;
+
+    xqc_int_t err = xqc_0rtt_test_fire(conn, &params);
+    CU_ASSERT_EQUAL(err, TRA_0RTT_TRANS_PARAMS_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/* reduce initial_max_stream_data_uni below remembered */
+void
+xqc_test_0rtt_params_stream_data_uni_reduced(void)
+{
+    xqc_cid_t server_scid;
+    xqc_connection_t *conn = xqc_0rtt_test_make_conn(&server_scid);
+
+    xqc_transport_params_t params;
+    xqc_0rtt_test_init_params(&params, conn, &server_scid);
+    params.initial_max_stream_data_uni = REMEMBERED_MAX_STREAM_DATA_UNI - 1;
+
+    xqc_int_t err = xqc_0rtt_test_fire(conn, &params);
+    CU_ASSERT_EQUAL(err, TRA_0RTT_TRANS_PARAMS_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/* reduce initial_max_streams_uni below remembered */
+void
+xqc_test_0rtt_params_max_streams_uni_reduced(void)
+{
+    xqc_cid_t server_scid;
+    xqc_connection_t *conn = xqc_0rtt_test_make_conn(&server_scid);
+
+    xqc_transport_params_t params;
+    xqc_0rtt_test_init_params(&params, conn, &server_scid);
+    params.initial_max_streams_uni = REMEMBERED_MAX_STREAMS_UNI - 1;
+
+    xqc_int_t err = xqc_0rtt_test_fire(conn, &params);
+    CU_ASSERT_EQUAL(err, TRA_0RTT_TRANS_PARAMS_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/* 0-RTT rejected (early data not accepted) -- reduction must be allowed */
+void
+xqc_test_0rtt_params_rejected_allows_reduction(void)
+{
+    xqc_cid_t server_scid;
+    xqc_connection_t *conn = xqc_0rtt_test_make_conn(&server_scid);
+
+    /*
+     * HAS_0RTT is set, but tls->resumption is false (test_engine_connect
+     * default), so xqc_tls_is_early_data_accepted() returns NO_EARLY_DATA.
+     * The guard skips 0-RTT validation -- reduction must be tolerated.
+     */
+
+    xqc_transport_params_t params;
+    xqc_0rtt_test_init_params(&params, conn, &server_scid);
+    params.initial_max_data = REMEMBERED_MAX_DATA - 1;
+
+    xqc_int_t err = xqc_0rtt_test_fire(conn, &params);
+    CU_ASSERT_EQUAL(err, 0);
 
     xqc_engine_destroy(conn->engine);
 }

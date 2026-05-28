@@ -2611,6 +2611,10 @@ int main(int argc, char *argv[]) {
         conn_settings.receive_timestamps_exponent = 0;
     }
 
+    if (g_test_case == 454 || g_test_case == 455) {
+        conn_settings.simulate_ecn = 1;
+    }
+
     xqc_config_t config;
     if (xqc_engine_get_default_config(&config, XQC_ENGINE_SERVER) < 0) {
         return -1;

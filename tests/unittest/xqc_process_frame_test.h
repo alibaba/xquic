@@ -25,4 +25,12 @@ void xqc_test_crypto_frame_dispatched_via_xqc_process_frame();
 
 void xqc_test_crypto_in_0rtt_emits_connection_close();
 
+void xqc_test_ack_ecn_normal_parse();
+
+void xqc_test_ack_plain_regression();
+
+void xqc_test_ack_ecn_truncated();
+
+void xqc_test_ack_ecn_followed_by_ping();
+
 #endif /* _XQC_PROCESS_FRAME_TEST_H_INCLUDED_ */

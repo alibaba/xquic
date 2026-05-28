@@ -4673,6 +4673,14 @@ int main(int argc, char *argv[]) {
         conn_settings.receive_timestamps_exponent = 0;
     }
 
+    if (g_test_case == 454) {
+        conn_settings.simulate_ecn = 1;
+    }
+
+    if (g_test_case == 455) {
+        conn_settings.simulate_ecn = 0;
+    }
+
     conn_settings.pacing_on = pacing_on;
     conn_settings.proto_version = XQC_VERSION_V1;
     conn_settings.max_datagram_frame_size = g_max_dgram_size;

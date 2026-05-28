@@ -1058,7 +1058,11 @@ xqc_gen_ack_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec
         return -XQC_ENOBUF;
     }
 
-    *dst_buf++ = 0x02;
+    if (conn->conn_settings.simulate_ecn) {
+        *dst_buf++ = 0x03;
+    } else {
+        *dst_buf++ = 0x02;
+    }
 
     xqc_vint_write(dst_buf, largest_recv, largest_recv_bits, xqc_vint_len(largest_recv_bits));
     dst_buf += xqc_vint_len(largest_recv_bits);
@@ -1117,6 +1121,16 @@ xqc_gen_ack_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec
         *has_gap = 0;
     }
     xqc_vint_write(p_range_count, range_count, 0, 1);
+
+    /* append dummy ECN counts for ACK_ECN simulation */
+    if (conn->conn_settings.simulate_ecn) {
+        if (dst_buf + 3 > end) {
+            return -XQC_ENOBUF;
+        }
+        *dst_buf++ = 0x00;  /* ECT(0) Count = 0 */
+        *dst_buf++ = 0x00;  /* ECT(1) Count = 0 */
+        *dst_buf++ = 0x00;  /* ECN-CE Count = 0 */
+    }
 
     packet_out->po_frame_types |= XQC_FRAME_BIT_ACK;
     return dst_buf - begin;

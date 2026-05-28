@@ -4629,6 +4629,60 @@ else
 fi
 
 
+# ---- Issue #534: xqc_frame_type_bit_t 64-bit overflow end-to-end test ----
+#
+# Correctness chain:
+#   1. Client/server run with FEC enabled (-f) and case 700 params
+#      (code_rate=1.0, block_size=5) to force REPAIR_SYMBOL frame generation
+#   2. When a REPAIR_SYMBOL frame is created, the packet's po_frame_types
+#      gets bit 32 set: po_frame_types |= XQC_FRAME_BIT_REPAIR_SYMBOL
+#   3. xqc_send_ctl.c logs "|frame:%s|" via xqc_frame_type_2_str(), which
+#      iterates bits 0..32 and outputs "FEC_REPAIR" when bit 32 is set
+#   4. If the old enum truncated bit 32 to 0, "FEC_REPAIR" would NEVER
+#      appear in the log -> grep fails -> test fails
+#
+# Test 1: verify client SENDS repair symbols (grep clog)
+# Test 2: verify server RECEIVES repair symbols (grep slog)
+
+clear_log
+killall test_server 2> /dev/null
+stdbuf -oL ${SERVER_BIN} -l d -e -f -x 700 -M > /dev/null &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+echo -e "frame_type_bit repair symbol sent (bit 32 non-zero) ...\c"
+sudo ${CLIENT_BIN} -s 5120000 -l d -E -d 30 -g -x 700 -M -i lo -i lo > stdlog
+clog_repair=`grep 'frame:.*FEC_REPAIR' clog`
+echo_result=`grep ">>>>>>>> pass" stdlog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$clog_repair" ] && [ "$echo_result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "frame_type_bit_repair_sent" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "frame_type_bit_repair_sent" "fail"
+fi
+
+
+clear_log
+killall test_server 2> /dev/null
+stdbuf -oL ${SERVER_BIN} -l d -e -f -x 700 -M > /dev/null &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+echo -e "frame_type_bit repair symbol received (bit 32 non-zero) ...\c"
+sudo ${CLIENT_BIN} -s 5120000 -l d -E -d 30 -g -x 700 -M -i lo -i lo > stdlog
+slog_repair=`grep 'frame:.*FEC_REPAIR' slog`
+echo_result=`grep ">>>>>>>> pass" stdlog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$slog_repair" ] && [ "$echo_result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "frame_type_bit_repair_received" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "frame_type_bit_repair_received" "fail"
+fi
+
 
 killall test_server 2> /dev/null
 ${SERVER_BIN} -l d -Q 65535 -e -U 1 -s 1 --dgram_qos 3 -f > /dev/null &

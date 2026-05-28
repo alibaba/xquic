@@ -1129,3 +1129,96 @@ xqc_test_h3_frame_parse_error_uses_frame_error()
 
     xqc_h3_msgerr_teardown(h3s, h3c, conn);
 }
+
+
+/*
+ * Issue #609 — RFC 9114 §7.2.4/§7.2.3/§7.2.6/§7.2.7: control-only frames
+ * (SETTINGS, CANCEL_PUSH, GOAWAY, MAX_PUSH_ID) received on a request stream
+ * MUST be treated as a connection error of type H3_FRAME_UNEXPECTED.
+ *
+ * Build a minimal frame (type + length=0) and feed it to
+ * xqc_h3_stream_process_request on a fresh request-type h3 stream.
+ * For rejected types: verify return == -XQC_H3_REQUEST_FRAME_UNEXPECTED
+ *   and conn->conn_err == H3_FRAME_UNEXPECTED (0x105).
+ * For allowed types (HEADERS regression guard): verify return >= 0.
+ */
+static void
+xqc_test_h3_request_frame_unexpected_one(uint64_t frame_type,
+    xqc_bool_t expect_reject)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+
+    xqc_h3_conn_t *h3c = xqc_h3_conn_create(conn, NULL);
+    CU_ASSERT_FATAL(h3c != NULL);
+
+    conn->conn_flow_ctl.fc_max_streams_bidi_can_send = 128;
+
+    xqc_stream_t *stream = xqc_create_stream_with_conn(conn,
+            XQC_UNDEFINE_STREAM_ID, XQC_CLI_BID, NULL, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+
+    xqc_h3_stream_t *h3s = xqc_h3_stream_create(h3c, stream,
+            XQC_H3_STREAM_TYPE_REQUEST, NULL);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    conn->conn_err = 0;
+    conn->conn_flag &= ~XQC_CONN_FLAG_ERROR;
+
+    /* build a minimal frame: [type varint][length=0] */
+    unsigned char frame_buf[2];
+    frame_buf[0] = (unsigned char)(frame_type & 0x3F);  /* 1-byte varint */
+    frame_buf[1] = 0x00;  /* length = 0 */
+
+    ssize_t processed = xqc_h3_stream_process_request(h3s, frame_buf,
+            sizeof(frame_buf), XQC_FALSE);
+
+    if (expect_reject) {
+        CU_ASSERT(processed == -XQC_H3_REQUEST_FRAME_UNEXPECTED);
+        CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
+        CU_ASSERT(conn->conn_err == 0x105);
+        CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    } else {
+        /* allowed frame type must not trigger H3_FRAME_UNEXPECTED */
+        CU_ASSERT(processed >= 0 || processed != -XQC_H3_REQUEST_FRAME_UNEXPECTED);
+        CU_ASSERT(conn->conn_err != H3_FRAME_UNEXPECTED);
+    }
+
+    if (h3s->h3r) {
+        xqc_h3_request_destroy(h3s->h3r);
+        h3s->h3r = NULL;
+    }
+    stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_h3_stream_destroy(h3s);
+    xqc_destroy_stream(stream);
+    xqc_h3_conn_destroy(h3c);
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+}
+
+void
+xqc_test_h3_request_frame_unexpected()
+{
+    /* RFC 9114 §7.2.4: SETTINGS on request stream -> H3_FRAME_UNEXPECTED */
+    xqc_test_h3_request_frame_unexpected_one(XQC_H3_FRM_SETTINGS, XQC_TRUE);
+
+    /* RFC 9114 §7.2.3: CANCEL_PUSH on request stream -> H3_FRAME_UNEXPECTED */
+    xqc_test_h3_request_frame_unexpected_one(XQC_H3_FRM_CANCEL_PUSH, XQC_TRUE);
+
+    /* RFC 9114 §7.2.6: GOAWAY on request stream -> H3_FRAME_UNEXPECTED */
+    xqc_test_h3_request_frame_unexpected_one(XQC_H3_FRM_GOAWAY, XQC_TRUE);
+
+    /* RFC 9114 §7.2.7: MAX_PUSH_ID on request stream -> H3_FRAME_UNEXPECTED */
+    xqc_test_h3_request_frame_unexpected_one(XQC_H3_FRM_MAX_PUSH_ID, XQC_TRUE);
+
+    /* regression guard: HEADERS on request stream must NOT be rejected */
+    xqc_test_h3_request_frame_unexpected_one(XQC_H3_FRM_HEADERS, XQC_FALSE);
+}

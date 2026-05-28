@@ -16,7 +16,7 @@
 #include "src/transport/xqc_reinjection.h"
 #include "src/transport/xqc_fec_scheme.h"
 
-static size_t xqc_write_packet_receive_timestamps_into_buf(xqc_connection_t *conn, unsigned char *dst_buf, size_t dst_buf_len,
+size_t xqc_write_packet_receive_timestamps_into_buf(xqc_connection_t *conn, unsigned char *dst_buf, size_t dst_buf_len,
     xqc_recv_timestamps_info_t *recv_timestamps, uint64_t po_largest_ack);
 
 /**
@@ -3015,10 +3015,10 @@ xqc_parse_max_path_id_frame(xqc_packet_in_t *packet_in, uint64_t *max_path_id)
    |                   [Receive Timestamps (..)]                 ...
    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
-                    Figure: ACK_EXTENDED Frame Format
+                    Figure: ACK Frame with Receive Timestamps Format
 */
 ssize_t
-xqc_gen_ack_ext_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec_t now,
+xqc_gen_ack_with_receive_timestamps_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec_t now,
     int ack_delay_exponent, xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time,
     int *has_gap, xqc_packet_number_t *largest_ack, xqc_recv_timestamps_info_t *recv_ts_info)
 {
@@ -3060,10 +3060,9 @@ xqc_gen_ack_ext_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_
     unsigned largest_recv_bits = xqc_vint_get_2bit(largest_recv);
     unsigned ack_delay_bits = xqc_vint_get_2bit(ack_delay);
     unsigned first_ack_range_bits = xqc_vint_get_2bit(first_ack_range);
-    unsigned frame_type_bits = xqc_vint_get_2bit(XQC_TRANS_FRAME_TYPE_ACK_EXT);
     unsigned ts_range_need = xqc_recv_timestamps_info_need_bytes_estimate(recv_ts_info);
 
-    need = xqc_vint_len(frame_type_bits)    /* type */
+    need = 1    /* type */
             + xqc_vint_len(largest_recv_bits)
             + xqc_vint_len(ack_delay_bits)
             + 1 /* range_count */
@@ -3075,9 +3074,7 @@ xqc_gen_ack_ext_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_
         return -XQC_ENOBUF;
     }
 
-    /* ack_with_timestamps frame using a different frame type */
-    xqc_vint_write(dst_buf, XQC_TRANS_FRAME_TYPE_ACK_EXT, frame_type_bits, xqc_vint_len(frame_type_bits));
-    dst_buf += xqc_vint_len(frame_type_bits);
+    *dst_buf++ = 0x02;
 
     xqc_vint_write(dst_buf, largest_recv, largest_recv_bits, xqc_vint_len(largest_recv_bits));
     dst_buf += xqc_vint_len(largest_recv_bits);
@@ -3140,25 +3137,8 @@ xqc_gen_ack_ext_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_
     packet_out->po_frame_types |= XQC_FRAME_BIT_ACK;
     /* write base ack range finish */
 
-    /* 
-     * Write Extended Ack Features: A variable-length integer whose bit-wise 
-     * value indicates which optional fields are included in the ACK. Bit 0 
-     * indicates whether ECN count fields are included in the frame.
-     * Bit 1 indicates whether Receive Timestamps are included in the frame.
-     * XQUIC doesn't send ECN count currently, But Receive Timestamps is enabled
-     */
-    int64_t ext_ack_features = 2;
-    if (dst_buf + 1 > end) {
-        return -XQC_ENOBUF;
-    }
-     /* if write ack ext features fail, set ext_ack_features = 0 */
-    unsigned char *ext_ack_features_pos = dst_buf;
-    xqc_vint_write(dst_buf, ext_ack_features, 0, 1);
-    dst_buf += 1;
-
     size_t left_buf_len = end - dst_buf;
     if (left_buf_len < ts_range_need) {
-        xqc_vint_write(ext_ack_features_pos, 0, 0, 1);
         xqc_recv_timestamps_info_set_nobuf_flag(recv_ts_info, 1);
         return dst_buf - begin;
     }
@@ -3169,7 +3149,7 @@ xqc_gen_ack_ext_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_
 }
 
 /* return: the number of bytes written to dst_buf */
-static size_t
+size_t
 xqc_write_packet_receive_timestamps_into_buf(xqc_connection_t *conn, unsigned char *dst_buf, size_t dst_buf_len,
     xqc_recv_timestamps_info_t *recv_ts_info, uint64_t po_largest_ack)
 {
@@ -3199,6 +3179,10 @@ xqc_write_packet_receive_timestamps_into_buf(xqc_connection_t *conn, unsigned ch
     xqc_packet_number_t cur_pkt_num, last_pkt_num = 0;
     xqc_usec_t cur_pkt_recv_time, last_pkt_recv_time = 0;
     uint32_t total_ts_len = xqc_recv_timestamps_info_length(recv_ts_info);
+    if (total_ts_len == 0) {
+        xqc_vint_write(timestamp_range_count_pos, 0, 0, 1);
+        return dst_buf - begin;
+    }
     int cur_idx = total_ts_len - 1;
     xqc_recv_timestamps_info_fetch(recv_ts_info, cur_idx, &cur_pkt_num, &cur_pkt_recv_time);
     while(cur_idx >= 0) {
@@ -3219,7 +3203,7 @@ xqc_write_packet_receive_timestamps_into_buf(xqc_connection_t *conn, unsigned ch
                  *     time_delta = cur_pkt_recv_time - conn_create_time
                  */
                 cur_range_gap = po_largest_ack - cur_pkt_num;
-                cur_timestamp_delta = ((cur_pkt_recv_time - conn->conn_create_time) / 1000) >> timestamp_exponent;
+                cur_timestamp_delta = (cur_pkt_recv_time - conn->conn_create_time) >> timestamp_exponent;
                 is_first_range = 0;
             } else {
                 /* 
@@ -3228,7 +3212,7 @@ xqc_write_packet_receive_timestamps_into_buf(xqc_connection_t *conn, unsigned ch
                  *      time_delta = last_pkt_recv_time - cur_pkt_recv_time
                 */
                 cur_range_gap = last_pkt_num - cur_pkt_num;
-                cur_timestamp_delta = ((last_pkt_recv_time - cur_pkt_recv_time) / 1000) >> timestamp_exponent;
+                cur_timestamp_delta = (last_pkt_recv_time - cur_pkt_recv_time) >> timestamp_exponent;
             }
             /*
              * 1. write cur_range:gap
@@ -3267,7 +3251,7 @@ xqc_write_packet_receive_timestamps_into_buf(xqc_connection_t *conn, unsigned ch
                 timestamp_range_count += 1;
                 continue;
             }
-            cur_timestamp_delta = ((last_pkt_recv_time - cur_pkt_recv_time) / 1000) >> timestamp_exponent;
+            cur_timestamp_delta = (last_pkt_recv_time - cur_pkt_recv_time) >> timestamp_exponent;
             cur_timestamp_delta_bits = xqc_vint_get_2bit(cur_timestamp_delta);
             need_for_cur_pkt = xqc_vint_len(cur_timestamp_delta_bits);
             if (dst_buf + need_for_cur_pkt > end) {
@@ -3293,7 +3277,7 @@ xqc_write_packet_receive_timestamps_into_buf(xqc_connection_t *conn, unsigned ch
 }
 
 static xqc_int_t
-xqc_parse_timestamps_in_ack_ext(xqc_packet_in_t *packet_in, xqc_connection_t *conn, 
+xqc_parse_receive_timestamps_in_ack(xqc_packet_in_t *packet_in, xqc_connection_t *conn, 
     xqc_ack_timestamp_info_t *ack_ts_info, xqc_packet_number_t largest_acked)
 {
     unsigned char *p = packet_in->pos;
@@ -3345,7 +3329,7 @@ xqc_parse_timestamps_in_ack_ext(xqc_packet_in_t *packet_in, xqc_connection_t *co
                     * it's meaningless to acess the base.
                     */
                     ack_ts_info->recv_ts[ack_ts_info->report_num] = 
-                            (cur_time_delta << timestamp_delta_exponent) + conn->conn_create_time / 1000;
+                            (cur_time_delta << timestamp_delta_exponent) + conn->conn_create_time;
                     is_first_range = 0;
                 } else {
                     ack_ts_info->pkt_nums[ack_ts_info->report_num] = 
@@ -3373,34 +3357,16 @@ xqc_parse_timestamps_in_ack_ext(xqc_packet_in_t *packet_in, xqc_connection_t *co
 }
 
 xqc_int_t
-xqc_parse_ack_ext_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
+xqc_parse_ack_with_receive_timestamps_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
     xqc_ack_info_t *ack_info, xqc_ack_timestamp_info_t *ack_ts_info)
 {
     int ack_parse_ret = xqc_parse_ack_frame(packet_in, conn, ack_info);
     if (ack_parse_ret != XQC_OK) {
         return ack_parse_ret;
     }
-    /* parse ack_ext feature */
-    uint64_t ack_ext_feature = 0;
-    unsigned char *p = packet_in->pos;
-    const unsigned char *end = packet_in->last;
-    int vlen;
-    vlen = xqc_vint_read(p, end, &ack_ext_feature);
-    if (vlen < 0) {
-        return -XQC_EVINTREAD;
-    }
-    p += vlen;
-    packet_in->pos = p;
-    /* parse ENC count */
-    /*
-     * if (ack_ext_feature & XQC_ACK_EXT_FEATURE_BIT_ENC_COUNT) {
-     *     xqc_parse_enc_count_in_ack_ext(packet_in, conn, ack_ts_info, ack_info->largest_acked);
-     * }
-     */
 
-    /* parse timestamps */
-    if (ack_ext_feature & XQC_ACK_EXT_FEATURE_BIT_RECV_TS) {
-        int recv_ts_parse_ret = xqc_parse_timestamps_in_ack_ext(packet_in, conn, ack_ts_info, ack_info->largest_acked);
+    if (conn->local_settings.max_receive_timestamps_per_ack > 0 && packet_in->pos < packet_in->last) {
+        int recv_ts_parse_ret = xqc_parse_receive_timestamps_in_ack(packet_in, conn, ack_ts_info, ack_info->largest_acked);
         if (recv_ts_parse_ret != XQC_OK) {
             return recv_ts_parse_ret;
         }

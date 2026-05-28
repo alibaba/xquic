@@ -224,7 +224,6 @@ typedef struct {
     xqc_dgram_red_setting_e close_dgram_redundancy;
     uint64_t                init_max_path_id;
 
-    uint64_t                extended_ack_features;
     /* Currently, max_receive_timestamps_per_ack must be less than or equal to 63. */
     uint64_t                max_receive_timestamps_per_ack;
     uint64_t                receive_timestamps_exponent;

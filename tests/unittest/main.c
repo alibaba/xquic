@@ -161,6 +161,11 @@ main()
         || !CU_add_test(pSuite, "xqc_test_vn_reject_when_scid_mismatch", xqc_test_vn_reject_when_scid_mismatch)
         || !CU_add_test(pSuite, "xqc_test_vn_reject_when_state_not_initial_sent", xqc_test_vn_reject_when_state_not_initial_sent)
         || !CU_add_test(pSuite, "xqc_test_vn_abort_on_multi_unsupported_versions", xqc_test_vn_abort_on_multi_unsupported_versions)
+        /* RFC 9001 Appendix A test vector verification (#719) */
+        || !CU_add_test(pSuite, "xqc_test_rfc9001_initial_secret", xqc_test_rfc9001_initial_secret)
+        || !CU_add_test(pSuite, "xqc_test_rfc9001_derive_initial_secrets", xqc_test_rfc9001_derive_initial_secrets)
+        || !CU_add_test(pSuite, "xqc_test_rfc9001_client_initial_keys", xqc_test_rfc9001_client_initial_keys)
+        || !CU_add_test(pSuite, "xqc_test_rfc9001_server_initial_keys", xqc_test_rfc9001_server_initial_keys)
         /* ADD TESTS HERE */)
     {
         CU_cleanup_registry();

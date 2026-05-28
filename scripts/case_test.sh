@@ -5002,4 +5002,35 @@ else
     case_print_result "ack_timestamp_frame_case_6" "fail"
 fi
 
+killall test_server
+clear_log
+echo -e "crypto_error: cert verify triggers dynamic CRYPTO_ERROR (0x112=274) ...\c"
+${SERVER_BIN} -l d -e > /dev/null &
+sleep 1
+${CLIENT_BIN} -l d -t 1 -E -x 700 > stdlog
+result=`grep "conn_err:274" stdlog | wc -l`
+if [ "$result" -gt 0 ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "crypto_error_cert_verify" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "crypto_error_cert_verify" "fail"
+fi
+
+
+killall test_server
+clear_log
+echo -e "crypto_error: removed 0x1FF enum not used (conn_err:511 absent) ...\c"
+${SERVER_BIN} -l d -e > /dev/null &
+sleep 1
+${CLIENT_BIN} -l d -t 1 -E -x 700 > stdlog
+result=`grep "conn_err:511" stdlog | wc -l`
+if [ "$result" -eq 0 ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "crypto_error_not_fixed_enum" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "crypto_error_not_fixed_enum" "fail"
+fi
+
 cd -

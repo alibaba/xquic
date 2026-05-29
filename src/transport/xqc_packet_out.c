@@ -791,7 +791,7 @@ xqc_write_conn_close_to_packet(xqc_connection_t *conn, uint64_t err_code)
 
     xqc_bool_t is_app = err_code >= H3_NO_ERROR;
     if (pkt_type == XQC_PTYPE_INIT || pkt_type == XQC_PTYPE_HSK) {
-        if (err_code >= TRA_CRYPTO_ERROR_BASE && err_code <= TRA_CRYPTO_ERROR) {
+        if (err_code >= TRA_CRYPTO_ERROR_BASE && err_code <= TRA_CRYPTO_ERROR_BASE + 0xff) {
             is_app = XQC_FALSE;
         } else if (is_app) {
             is_app = XQC_FALSE;

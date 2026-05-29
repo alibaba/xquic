@@ -1835,7 +1835,7 @@ xqc_process_crypto_write_streams(xqc_connection_t *conn)
             ret = stream->stream_if->stream_write_notify(stream, stream->user_data);
             if (ret < 0) {
                 xqc_log(conn->log, XQC_LOG_ERROR, "|stream_write_notify crypto err:%d|", ret);
-                XQC_CONN_ERR(conn, TRA_CRYPTO_ERROR);
+                XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
             }
         }
     }
@@ -1853,7 +1853,7 @@ xqc_process_crypto_read_streams(xqc_connection_t *conn)
             ret = stream->stream_if->stream_read_notify(stream, stream->user_data);
             if (ret < 0) {
                 xqc_log(conn->log, XQC_LOG_ERROR, "|stream_read_notify crypto err:%d|", ret);
-                XQC_CONN_ERR(conn, TRA_CRYPTO_ERROR);
+                XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
             }
         }
     }

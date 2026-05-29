@@ -789,6 +789,7 @@ xqc_h3_request_on_recv_header(xqc_h3_request_t *h3r)
 
     xqc_int_t ret;
     xqc_http_headers_t *headers;
+    uint64_t fields_size;
 
     if (h3r->current_header == 1) {
         /* notify data before trailer headers*/
@@ -811,12 +812,13 @@ xqc_h3_request_on_recv_header(xqc_h3_request_t *h3r)
     xqc_h3_request_header_end(h3r);
 
     /* header is too large */
-    if (headers->total_len
+    fields_size = xqc_h3_uncompressed_fields_size(headers);
+    if (fields_size
         > h3r->h3_stream->h3c->local_h3_conn_settings.max_field_section_size)
     {
         xqc_log(h3r->h3_stream->log, XQC_LOG_ERROR, "|large nv|conn:%p|fields_size:%ui|exceed|"
                 "SETTINGS_MAX_FIELD_SECTION_SIZE:%ui|", h3r->h3_stream->h3c->conn,
-                headers->total_len, 
+                fields_size,
                 h3r->h3_stream->h3c->local_h3_conn_settings.max_field_section_size);
         return -XQC_H3_INVALID_HEADER;
     }

@@ -36,6 +36,8 @@
 #include <inttypes.h>
 #include <openssl/rand.h>
 
+#define XQC_DEFAULT_MAX_STREAMS     1024
+
 xqc_conn_settings_t internal_default_conn_settings = {
     .pacing_on                  = 0,
     .ping_on                    = 0,
@@ -369,6 +371,13 @@ xqc_server_set_conn_settings(xqc_engine_t *engine, const xqc_conn_settings_t *se
     if (settings->probing_pkt_out_size > 0) {
         engine->default_conn_settings.probing_pkt_out_size = settings->probing_pkt_out_size;
     }
+
+    if (settings->max_streams_bidi > 0) {
+        engine->default_conn_settings.max_streams_bidi = settings->max_streams_bidi;
+    }
+    if (settings->max_streams_uni > 0) {
+        engine->default_conn_settings.max_streams_uni = settings->max_streams_uni;
+    }
 }
 
 static const char * const xqc_conn_flag_to_str[XQC_CONN_FLAG_SHIFT_NUM] = {
@@ -498,8 +507,16 @@ xqc_conn_init_trans_settings(xqc_connection_t *conn)
         ls->max_streams_uni = 128;
 
     } else {
-        ls->max_streams_bidi = 1024;
-        ls->max_streams_uni = 1024;
+        if (conn->conn_settings.max_streams_bidi) {
+            ls->max_streams_bidi = conn->conn_settings.max_streams_bidi;
+        } else {
+            ls->max_streams_bidi = XQC_DEFAULT_MAX_STREAMS;
+        }
+        if (conn->conn_settings.max_streams_uni) {
+            ls->max_streams_uni = conn->conn_settings.max_streams_uni;
+        } else {
+            ls->max_streams_uni = XQC_DEFAULT_MAX_STREAMS;
+        } 
     }
     ls->max_stream_data_bidi_remote = XQC_MAX_RECV_WINDOW;
     ls->max_stream_data_uni = XQC_MAX_RECV_WINDOW;
@@ -603,8 +620,10 @@ xqc_conn_init_flow_ctl(xqc_connection_t *conn)
     flow_ctl->fc_max_data_can_recv = settings->max_data;
     flow_ctl->fc_max_streams_bidi_can_send = settings->max_streams_bidi; /* replace with the value specified by peer after handshake */
     flow_ctl->fc_max_streams_bidi_can_recv = settings->max_streams_bidi;
+    flow_ctl->fc_max_streams_bidi_recv_wind = settings->max_streams_bidi;
     flow_ctl->fc_max_streams_uni_can_send = settings->max_streams_uni; /* replace with the value specified by peer after handshake */
     flow_ctl->fc_max_streams_uni_can_recv = settings->max_streams_uni;
+    flow_ctl->fc_max_streams_uni_recv_wind = settings->max_streams_uni;
     flow_ctl->fc_data_sent = 0;
     flow_ctl->fc_data_recved = 0;
     flow_ctl->fc_recv_windows_size = settings->max_data;
@@ -888,6 +907,7 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     {
         goto fail;
     }
+    xqc_cid_set_mark_original(&xc->dcid_set, dcid, XQC_INITIAL_PATH_ID);
     xqc_cid_copy(&(xc->dcid_set.current_dcid), dcid);
     xqc_hex_dump(xc->dcid_set.current_dcid_str, dcid->cid_buf, dcid->cid_len);
     xc->dcid_set.current_dcid_str[dcid->cid_len * 2] = '\0';
@@ -898,6 +918,7 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     {
         goto fail;
     }
+    xqc_cid_set_mark_original(&xc->scid_set, scid, XQC_INITIAL_PATH_ID);
     xqc_cid_copy(&(xc->scid_set.user_scid), scid);
     xqc_hex_dump(xc->scid_set.original_scid_str, scid->cid_buf, scid->cid_len);
     xc->scid_set.original_scid_str[scid->cid_len * 2] = '\0';
@@ -910,7 +931,6 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     xc->log->scid = xc->scid_set.original_scid_str;
     xc->transport_cbs = engine->transport_cbs;
     xc->user_data = user_data;
-    xc->discard_vn_flag = 0;
     xc->conn_type = type;
     xc->conn_flag = 0;
     xc->conn_state = (type == XQC_CONN_TYPE_SERVER) ? XQC_CONN_STATE_SERVER_INIT : XQC_CONN_STATE_CLIENT_INIT;
@@ -1500,6 +1520,7 @@ xqc_conn_destroy(xqc_connection_t *xc)
             "fec_mp_mode:%s|send_fec_pkts:%ud|recovered_fec_num:%ud|"
             "max_po_size:%uz|max_probing_size:%uz|ppo_size:%uz|"
             "ext_conn_info:%s|max_acked_po_size:%uz|enable_pmtud:%ui|avg_closed_time:%ui|"
+            "passive_bidi_s_max:%ui|"
             ,
             xc,
             xc->conn_flag & XQC_CONN_FLAG_HAS_0RTT ? 1:0,
@@ -1525,7 +1546,8 @@ xqc_conn_destroy(xqc_connection_t *xc)
             fec_mpm_str, conn_stats.send_fec_cnt, xc->fec_ctl ? xc->fec_ctl->fec_recover_pkt_cnt : 0,
             xc->pkt_out_size, xc->max_pkt_out_size, xc->probing_pkt_out_size,
             conn_stats.extern_conn_info, xc->max_acked_po_size, 
-            xc->local_settings.enable_pmtud & xc->remote_settings.enable_pmtud, xc->conn_avg_close_delay
+            xc->local_settings.enable_pmtud & xc->remote_settings.enable_pmtud, xc->conn_avg_close_delay,
+            xc->passive_bidi_stream_max
             );
     xqc_log_event(xc->log, CON_CONNECTION_CLOSED, xc);
 
@@ -4136,6 +4158,17 @@ xqc_conn_early_data_reject(xqc_connection_t *conn)
 
     xqc_conn_resend_0rtt_datagram(conn);
 
+    /*
+     * RFC 9001 Section 4.6.2: when 0-RTT is rejected, the client
+     * resets the state of all streams. The connection-level send
+     * aggregate is the sum of every stream's send progress, so it
+     * must be reset together with the per-stream offsets below.
+     * Otherwise the buffered data, replayed in 1-RTT through
+     * xqc_write_stream_frame_to_packet, would be charged twice
+     * against the peer's MAX_DATA limit.
+     */
+    conn->conn_flow_ctl.fc_data_sent = 0;
+
     xqc_list_for_each_safe(pos, next, &conn->conn_all_streams) {
         stream = xqc_list_entry(pos, xqc_stream_t, all_stream_list);
         if (stream->stream_flag & XQC_STREAM_FLAG_HAS_0RTT) {
@@ -4144,8 +4177,16 @@ xqc_conn_early_data_reject(xqc_connection_t *conn)
             if (stream->stream_state_send >= XQC_SEND_STREAM_ST_RESET_SENT
                 || stream->stream_state_recv >= XQC_RECV_STREAM_ST_RESET_RECVD)
             {
+                /*
+                 * RFC 9001 Section 4.6.2: when 0-RTT is rejected, the
+                 * client MUST reset the state of all streams that were
+                 * sent in 0-RTT. A stream already in RESET_SENT /
+                 * RESET_RECVD cannot be re-initialized, so just discard
+                 * its buffered 0-RTT writes and continue iterating so the
+                 * remaining 0-RTT streams are still processed.
+                 */
                 xqc_destroy_write_buff_list(&stream->stream_write_buff_list.write_buff_list);
-                return XQC_OK;
+                continue;
             }
             xqc_stream_send_state_update(stream, XQC_SEND_STREAM_ST_READY);
             xqc_stream_recv_state_update(stream, XQC_RECV_STREAM_ST_RECV);
@@ -4760,6 +4801,7 @@ xqc_conn_confirm_cid(xqc_connection_t *c, xqc_packet_t *pkt)
                         xqc_cid_set_get_used_cnt(&c->dcid_set, XQC_INITIAL_PATH_ID));
                 return ret;
             }
+            xqc_cid_set_mark_original(&c->dcid_set, &pkt->pkt_scid, XQC_INITIAL_PATH_ID);
         }
 
         if (XQC_OK != xqc_cid_is_equal(&c->dcid_set.current_dcid, &pkt->pkt_scid)) {
@@ -5218,7 +5260,7 @@ xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
             /* principle #1 there are two CIDs for the next path ID */
             inner_set = xqc_get_next_unused_path_cid_set(&conn->scid_set);
             while (inner_set 
-                   && (inner_set->unused_cnt + inner_set->used_cnt) < conn->remote_settings.active_connection_id_limit
+                   && xqc_cid_set_countable_cnt(inner_set) < conn->remote_settings.active_connection_id_limit
                    && inner_set->unused_cnt < unused_limit) 
             {
                 ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, retire_prior_to, inner_set->path_id);
@@ -5236,7 +5278,7 @@ xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
                 inner_set = xqc_list_entry(pos, xqc_cid_set_inner_t, next);
                 if (inner_set->set_state == XQC_CID_SET_USED) {
                     while (inner_set 
-                           && (inner_set->unused_cnt + inner_set->used_cnt) < conn->remote_settings.active_connection_id_limit
+                           && xqc_cid_set_countable_cnt(inner_set) < conn->remote_settings.active_connection_id_limit
                            && inner_set->unused_cnt < unused_limit) 
                     {
                         ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, retire_prior_to, inner_set->path_id);
@@ -5254,7 +5296,7 @@ xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
 
             inner_set = xqc_get_path_cid_set(&conn->scid_set, XQC_INITIAL_PATH_ID);
             /* origin logic for new connection id */
-            while ((inner_set->used_cnt + inner_set->unused_cnt) < conn->remote_settings.active_connection_id_limit
+            while (xqc_cid_set_countable_cnt(inner_set) < conn->remote_settings.active_connection_id_limit
                    && inner_set->unused_cnt < unused_limit)
             {
                 ret = xqc_write_new_conn_id_frame_to_packet(conn, retire_prior_to);
@@ -5616,6 +5658,9 @@ xqc_conn_on_recv_retry(xqc_connection_t *conn, xqc_cid_t *retry_scid)
 
     conn->conn_flag |= XQC_CONN_FLAG_RETRY_RECVD;
 
+    /* RFC 9000 §7.3: save Retry SCID for later retry_source_connection_id validation */
+    xqc_cid_copy(&conn->retry_scid, retry_scid);
+
     /* change the DCID it uses for sending packets in response to Retry packet. */
     xqc_cid_copy(&conn->dcid_set.current_dcid, retry_scid);
     xqc_datagram_record_mss(conn);
@@ -5860,7 +5905,7 @@ xqc_conn_get_local_transport_params(xqc_connection_t *conn, xqc_transport_params
     return XQC_OK;
 }
 
-static inline xqc_int_t
+xqc_int_t
 xqc_conn_check_transport_params(xqc_connection_t *conn, const xqc_transport_params_t *params)
 {
     /* parameters MUST NOT be larger than 2^60 */
@@ -5882,12 +5927,68 @@ xqc_conn_check_transport_params(xqc_connection_t *conn, const xqc_transport_para
         {
             return -XQC_TLS_TRANSPORT_PARAM;
         }
+
+        /* RFC 9000 §7.3: validate initial_source_connection_id matches peer's first Initial SCID */
+        if (!params->initial_source_connection_id_present
+            || xqc_cid_is_equal(&params->initial_source_connection_id,
+                                &conn->dcid_set.current_dcid) != XQC_OK)
+        {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|iscid mismatch|present:%d|expect:%s|got:%s|",
+                    (int)params->initial_source_connection_id_present,
+                    xqc_dcid_str(conn->engine, &conn->dcid_set.current_dcid),
+                    xqc_scid_str(conn->engine, &params->initial_source_connection_id));
+            return -XQC_TLS_TRANSPORT_PARAM;
+        }
     }
 
     if (conn->conn_type == XQC_CONN_TYPE_CLIENT) {
+        /* RFC 9000 §7.3: client validates ISCID/ODCID/RSCID from server transport params */
+        if (!params->initial_source_connection_id_present
+            || xqc_cid_is_equal(&params->initial_source_connection_id,
+                                &conn->dcid_set.current_dcid) != XQC_OK)
+        {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|iscid mismatch|present:%d|expect:%s|got:%s|",
+                    (int)params->initial_source_connection_id_present,
+                    xqc_dcid_str(conn->engine, &conn->dcid_set.current_dcid),
+                    xqc_scid_str(conn->engine, &params->initial_source_connection_id));
+            return -XQC_TLS_TRANSPORT_PARAM;
+        }
+
+        if (!params->original_dest_connection_id_present
+            || xqc_cid_is_equal(&params->original_dest_connection_id,
+                                &conn->original_dcid) != XQC_OK)
+        {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|odcid mismatch|present:%d|expect:%s|got:%s|",
+                    (int)params->original_dest_connection_id_present,
+                    xqc_dcid_str(conn->engine, &conn->original_dcid),
+                    xqc_scid_str(conn->engine, &params->original_dest_connection_id));
+            return -XQC_TLS_TRANSPORT_PARAM;
+        }
+
         /* check retry_source_connection_id parameter if recv retry packet */
         if (conn->conn_flag & XQC_CONN_FLAG_RETRY_RECVD) {
-            if (!params->retry_source_connection_id_present) {
+            /*
+             * RFC 9000 Section 7.3: when a Retry was received, the server's
+             * retry_source_connection_id MUST be present and MUST match the
+             * SCID of that Retry packet (saved in conn->retry_scid by
+             * xqc_conn_on_recv_retry). XQC_CONN_FLAG_RETRY_RECVD is only set
+             * inside xqc_conn_on_recv_retry which also populates retry_scid,
+             * so reaching this branch with cid_len == 0 would indicate an
+             * internal inconsistency; reject defensively in that case as well.
+             */
+            if (!params->retry_source_connection_id_present
+                || conn->retry_scid.cid_len == 0
+                || xqc_cid_is_equal(&params->retry_source_connection_id,
+                                    &conn->retry_scid) != XQC_OK)
+            {
+                xqc_log(conn->log, XQC_LOG_ERROR,
+                        "|rscid mismatch|present:%d|expect:%s|got:%s|",
+                        (int)params->retry_source_connection_id_present,
+                        xqc_dcid_str(conn->engine, &conn->retry_scid),
+                        xqc_scid_str(conn->engine, &params->retry_source_connection_id));
                 return -XQC_TLS_TRANSPORT_PARAM;
             }
 
@@ -6186,7 +6287,7 @@ xqc_conn_tls_crypto_data_cb(xqc_encrypt_level_t level, const uint8_t *data,
     default:
         xqc_log(conn->log, XQC_LOG_ERROR,
                 "|impossible crypto data from encryption level|level:%d|", level);
-        XQC_CONN_ERR(conn, TRA_CRYPTO_ERROR_BASE);
+        XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
         return -XQC_EFATAL;
     }
 
@@ -6385,17 +6486,46 @@ xqc_conn_set_init_idle_timeout(xqc_connection_t *conn, xqc_msec_t init_idle_time
 xqc_msec_t
 xqc_conn_get_idle_timeout(xqc_connection_t *conn)
 {
+    xqc_msec_t local_to, remote_to, idle_timeout;
+
     if (conn->conn_type == XQC_CONN_TYPE_SERVER
         && !(conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_COMPLETED))
     {
         /* only server will limit idle timeout to init_idle_time_out before handshake completed */
         return conn->conn_settings.init_idle_time_out == 0
             ? XQC_CONN_INITIAL_IDLE_TIMEOUT : conn->conn_settings.init_idle_time_out;
+    }
+
+    local_to = conn->local_settings.max_idle_timeout;
+
+    /*
+     * RFC 9000 10.1: the effective idle timeout is the minimum of the
+     * max_idle_timeout values advertised by both endpoints, where a value
+     * of 0 means the endpoint imposes no limit. Remote transport
+     * parameters are only authoritative after handshake completion, so
+     * fall back to the local value before then.
+     */
+    if (conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_COMPLETED) {
+        remote_to = conn->remote_settings.max_idle_timeout;
+
+        if (local_to == 0) {
+            idle_timeout = remote_to;
+
+        } else if (remote_to == 0) {
+            idle_timeout = local_to;
+
+        } else {
+            idle_timeout = xqc_min(local_to, remote_to);
+        }
 
     } else {
-        return conn->local_settings.max_idle_timeout == 0
-            ? XQC_CONN_DEFAULT_IDLE_TIMEOUT : conn->local_settings.max_idle_timeout;
+        idle_timeout = local_to;
     }
+
+    /* both peers disabled the timeout; fall back to xquic's safe default
+     * rather than returning 0 to avoid disabling the idle timer entirely.
+     */
+    return idle_timeout == 0 ? XQC_CONN_DEFAULT_IDLE_TIMEOUT : idle_timeout;
 }
 
 xqc_msec_t

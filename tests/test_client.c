@@ -310,12 +310,18 @@ load_cdf(char *cdf_file)
         return -1;
     }
     int n;
-    fscanf(fp, "%d", &n);
+    if (fscanf(fp, "%d", &n) != 1) {
+        fclose(fp);
+        return -1;
+    }
     cdf_list_size = n;
     cdf_list = malloc(sizeof(cdf_entry_t) * cdf_list_size);
     while (n--) {
-        fscanf(fp, "%lf%d", &cdf_list[cdf_list_size - n - 1].p, &cdf_list[cdf_list_size - n - 1].val);
+        if (fscanf(fp, "%lf%d", &cdf_list[cdf_list_size - n - 1].p, &cdf_list[cdf_list_size - n - 1].val) != 2) {
+            break;
+        }
     }
+    fclose(fp);
     return 0;
 }
 
@@ -903,12 +909,6 @@ xqc_client_write_socket(const unsigned char *buf, size_t size,
     send_buf_size = size;
     memcpy(send_buf, buf, send_buf_size);
 
-    /* trigger version negotiation */
-    if (g_test_case == 33) {
-        /* makes version 0xff000001 */
-        send_buf[1] = 0xff;
-    }
-
     /* make initial packet loss to test 0rtt buffer */
     if (g_test_case == 39) {
         g_test_case = -1;
@@ -1126,12 +1126,6 @@ xqc_client_write_socket_ex(uint64_t path_id,
     }
     send_buf_size = size;
     memcpy(send_buf, buf, send_buf_size);
-
-    /* trigger version negotiation */
-    if (g_test_case == 33) {
-        /* makes version 0xff000001 */
-        send_buf[1] = 0xff;
-    }
 
     /* make initial packet loss to test 0rtt buffer */
     if (g_test_case == 39) {
@@ -1379,6 +1373,7 @@ xqc_client_bind_to_interface(int fd, const char *interface_name)
     struct ifreq ifr;
     memset(&ifr, 0x00, sizeof(ifr));
     strncpy(ifr.ifr_name, interface_name, sizeof(ifr.ifr_name) - 1);
+    ifr.ifr_name[sizeof(ifr.ifr_name) - 1] = '\0';
 #if !defined(__APPLE__)
     printf("fd: %d. bind to nic: %s\n", fd, interface_name);
     if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (char *)&ifr, sizeof(ifr)) < 0) {
@@ -1911,6 +1906,10 @@ xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
             user_conn->dgram_not_supported = 0;
             user_conn->dgram_mss = 1000;
         }
+    }
+
+    if (g_test_case == 48) {
+        printf("[initial-salt-test] handshake ok, conn_err:%d\n", stats.conn_err);
     }
 
     if (g_test_case == 200 || g_test_case == 201) {
@@ -4462,7 +4461,8 @@ int main(int argc, char *argv[]) {
                 break;
 
             case 8:
-                strncpy(conn_options, optarg, XQC_CO_STR_MAX_LEN);
+                strncpy(conn_options, optarg, XQC_CO_STR_MAX_LEN - 1);
+                conn_options[XQC_CO_STR_MAX_LEN - 1] = '\0';
                 printf("option conn_options: %s\n", conn_options);
                 break;
 
@@ -4627,7 +4627,8 @@ int main(int argc, char *argv[]) {
         .close_dgram_redundancy = XQC_RED_NOT_USE
     };
 
-    strncpy(conn_settings.conn_option_str, conn_options, XQC_CO_STR_MAX_LEN);
+    strncpy(conn_settings.conn_option_str, conn_options, XQC_CO_STR_MAX_LEN - 1);
+    conn_settings.conn_option_str[XQC_CO_STR_MAX_LEN - 1] = '\0';
 
 #ifdef XQC_PROTECT_POOL_MEM
     if (g_test_case == 600) {
@@ -4676,6 +4677,14 @@ int main(int argc, char *argv[]) {
         conn_settings.receive_timestamps_exponent = 0;
     }
 
+    if (g_test_case == 454) {
+        conn_settings.simulate_ecn = 1;
+    }
+
+    if (g_test_case == 455) {
+        conn_settings.simulate_ecn = 0;
+    }
+
     conn_settings.pacing_on = pacing_on;
     conn_settings.proto_version = XQC_VERSION_V1;
     conn_settings.max_datagram_frame_size = g_max_dgram_size;
@@ -4696,6 +4705,11 @@ int main(int argc, char *argv[]) {
     if (g_test_case == 211) {
         conn_settings.datagram_redundancy = 2;
         conn_settings.datagram_redundant_probe = 30000;
+    }
+
+    if (g_test_case == 700) {
+        g_verify_cert = 1;
+        g_verify_cert_allow_self_sign = 0;
     }
 
     g_conn_settings = &conn_settings;
@@ -5018,6 +5032,23 @@ int main(int argc, char *argv[]) {
         
         if (g_test_case == 80) {
             fec_params.fec_code_rate = 1;
+        }
+
+        /*
+         * Case 700: end-to-end validation for issue #534 (xqc_frame_type_bit_t
+         * 64-bit overflow fix).  XQC_FRAME_BIT_REPAIR_SYMBOL = 1ULL << 32;
+         * if the type were a 32-bit enum (MSVC), this constant would silently
+         * truncate to 0, making FEC repair frame tracking dead code.
+         *
+         * fec_code_rate = 1.0  -> 1:1 redundancy, guarantees repair symbols
+         * fec_max_symbol_num_per_block = 5  -> small blocks for fast triggering
+         *
+         * case_test.sh validates by grepping "FEC_REPAIR" in packet logs; that
+         * string is only emitted when bit 32 of po_frame_types is actually set.
+         */
+        if (g_test_case == 700) {
+            fec_params.fec_code_rate = 1.0;
+            fec_params.fec_max_symbol_num_per_block = 5;
         }
 
         conn_settings.fec_params = fec_params;

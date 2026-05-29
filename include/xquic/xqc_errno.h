@@ -5,6 +5,8 @@
 #ifndef _XQC_ERRNO_H_INCLUDED_
 #define _XQC_ERRNO_H_INCLUDED_
 
+#include <stdint.h>
+
 /**
  * @brief QUIC Transport Protocol error codes
  */
@@ -24,17 +26,30 @@ typedef enum {
     TRA_APPLICATION_ERROR           =  0xC,
     TRA_CRYPTO_BUFFER_EXCEEDED      =  0xD,
     TRA_0RTT_TRANS_PARAMS_ERROR     =  0xE,   /**< MUST delete the current saved 0RTT transport parameters */
+    /*
+     * RFC 9000 Section 6.2 does not assign a CONNECTION_CLOSE code for
+     * the Version Negotiation abort path, because the client cannot
+     * send CONNECTION_CLOSE before keys are established. This value is
+     * therefore library-internal: it is exposed via xqc_conn_get_errno
+     * so the upper layer can distinguish a VN-driven abort from other
+     * close reasons, but it is never serialised onto the wire.
+     */
+    TRA_VERSION_NEGOTIATION_ERROR   =  0x53,
     TRA_HS_CERTIFICATE_VERIFY_FAIL  =  0x1FE, /**< for handshake certificate verify error */
-    TRA_CRYPTO_ERROR                =  0x1FF, /**< 0x1XX */
 } xqc_trans_err_code_t;
 
 
 /**
  * @brief Multipath error codes
+ *
+ * The value exceeds INT_MAX. MSVC's C compiler always uses int as the
+ * underlying type for plain enum, silently truncating it — which would
+ * cause CONNECTION_CLOSE on multipath protocol violations to send the
+ * wrong error code (low 32 bits only) on Windows builds. Define as a
+ * uint64_t macro with a typedef-aliased uint64_t for API stability.
  */
-typedef enum {
-    TRA_MP_PROTOCOL_VIOLATION       = 0x1001d76d3ded42f3
-} xqc_mp_err_code_t;
+typedef uint64_t xqc_mp_err_code_t;
+#define TRA_MP_PROTOCOL_VIOLATION ((xqc_mp_err_code_t)0x1001d76d3ded42f3ULL)
 
 
 #define TRA_CRYPTO_ERROR_BASE   0x100
@@ -57,6 +72,8 @@ typedef enum {
     H3_REQUEST_REJECTED             = 0x10B,
     H3_REQUEST_CANCELLED            = 0x10C,
     H3_REQUEST_INCOMPLETE           = 0x10D,
+    /* RFC 9114 §8.1 IANA Table 2: malformed HTTP message detected */
+    H3_MESSAGE_ERROR                = 0x10E,
     H3_CONNECT_ERROR                = 0x10F,
     H3_VERSION_FALLBACK             = 0x110,
 } xqc_h3_err_code_t;
@@ -122,6 +139,7 @@ typedef enum {
     XQC_EALPN_NOT_REGISTERED            = 640,      /**< alpn is not registered */
     XQC_ESTATELESS_RESET                = 641,      /**< connection is reset by peer */
     XQC_EPACKET_FILETER_CALLBACK        = 642,      /**< error with packet filter callback function */
+    XQC_EVERSION_NEGOTIATION            = 643,      /**< client received a Version Negotiation packet, RFC 9000 §6.2 mandates abandoning the connection attempt */
 
     XQC_EMP_NOT_SUPPORT_MP              = 650,      /**< Multipath - don't support multipath */
     XQC_EMP_NO_AVAIL_PATH_ID            = 651,      /**< Multipath - no available path id */
@@ -250,6 +268,8 @@ typedef enum {
     XQC_H3_EPROC_BYTESTREAM             = 830,  /**< fail to process bytestream */
     XQC_H3_BYTESTREAM_FIN_SENT          = 831,  /**< try to send data on a bytestream that already sent FIN */
     XQC_H3_BYTESTREAM_MSG_BUF_EXIST     = 832,  /**< try to create a msg buf while it already exists */
+    XQC_H3_CONTROL_FRAME_UNEXPECTED     = 833,  /**< request-only frame received on control stream (RFC 9114 §7.2.1/§7.2.5) */
+    XQC_H3_MISSING_SETTINGS             = 834,  /**< first frame on control stream is not SETTINGS, RFC 9114 §6.2.1 */
 
     XQC_H3_ERR_MAX,
 } xqc_h3_error_t;

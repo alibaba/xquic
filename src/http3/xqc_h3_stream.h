@@ -160,6 +160,17 @@ typedef struct xqc_h3_stream_s {
 } xqc_h3_stream_t;
 
 
+static inline uint64_t
+xqc_h3_uncompressed_fields_size(xqc_http_headers_t *headers)
+{
+    /*
+     * RFC 9114 Section 4.2.2: the size of a field list is the sum of the
+     * uncompressed name and value lengths plus 32 bytes of overhead per field.
+     */
+    return headers->total_len + headers->count * 32;
+}
+
+
 /* transport layer callback hook */
 extern const xqc_stream_callbacks_t h3_stream_callbacks;
 
@@ -200,5 +211,8 @@ void xqc_h3_stream_set_priority(xqc_h3_stream_t *h3s, xqc_h3_priority_t *prio);
 
 xqc_int_t xqc_h3_stream_send_bidi_stream_type(xqc_h3_stream_t *h3s, 
    xqc_h3_bidi_stream_type_t stype, uint8_t fin);
+
+ssize_t xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data,
+    size_t data_len);
 
 #endif

@@ -171,17 +171,6 @@ xqc_h3_stream_send_buffer(xqc_h3_stream_t *h3s)
 }
 
 
-static inline uint64_t
-xqc_h3_uncompressed_fields_size(xqc_http_headers_t *headers)
-{
-    /*
-     * The size of a field list is calculated based on the uncompressed size of fields, including
-     * the length of the name and value in bytes plus an overhead of 32 bytes for each field
-     */
-    return headers->total_len + headers->count * 32;
-}
-
-
 ssize_t
 xqc_h3_stream_write_headers(xqc_h3_stream_t *h3s, xqc_http_headers_t *headers, uint8_t fin)
 {
@@ -733,6 +722,26 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
 
         processed += read;
 
+        /*
+         * RFC 9114 §7.2.1/§7.2.5: DATA, HEADERS, and PUSH_PROMISE MUST NOT
+         * appear on control stream.  This check runs first because the frame
+         * parser does not consume payload for DATA/HEADERS (state stays at
+         * PAYLOAD, never advances to END), which would otherwise trip the
+         * state-error gate below when trailing bytes remain in the buffer.
+         */
+        if (pctx->state >= XQC_H3_FRM_STATE_PAYLOAD
+            && (pctx->frame.type == XQC_H3_FRM_DATA
+                || pctx->frame.type == XQC_H3_FRM_HEADERS
+                || pctx->frame.type == XQC_H3_FRM_PUSH_PROMISE))
+        {
+            xqc_log(h3c->log, XQC_LOG_ERROR,
+                    "|request-only frame on control stream|type:%xL|",
+                    pctx->frame.type);
+            xqc_h3_frm_reset_pctx(pctx);
+            XQC_H3_CONN_ERR(h3c, H3_FRAME_UNEXPECTED, -XQC_H3_CONTROL_FRAME_UNEXPECTED);
+            return -XQC_H3_CONTROL_FRAME_UNEXPECTED;
+        }
+
         if (pctx->state != XQC_H3_FRM_STATE_END && data_len != processed) {
             xqc_log(h3c->log, XQC_LOG_ERROR, "|parse frame state error|state:%d"
                     "|data_len:%uz|processed:%uz|type:%xL|len:%uz|consumed:%uz",
@@ -745,8 +754,12 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
         if (pctx->frame.type != XQC_H3_FRM_SETTINGS
             && !(h3s->h3c->flags & XQC_H3_CONN_FLAG_SETTINGS_RECVED))
         {
+            xqc_log(h3c->log, XQC_LOG_ERROR,
+                    "|first control frame is not SETTINGS|type:%xL|",
+                    pctx->frame.type);
             xqc_h3_frm_reset_pctx(pctx);
-            return -H3_FRAME_UNEXPECTED;
+            XQC_H3_CONN_ERR(h3c, H3_MISSING_SETTINGS, -XQC_H3_MISSING_SETTINGS);
+            return -XQC_H3_MISSING_SETTINGS;
         }
 
         if (pctx->state == XQC_H3_FRM_STATE_END) {
@@ -795,7 +808,7 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 break;
 
             default:
-                /* ignore unknown h3 frame */
+                /* RFC 9114 §9: ignore unknown frame types */
                 xqc_log(h3c->log, XQC_LOG_INFO, "|ignore unknown frame|"
                         "type:%xL|", pctx->frame.type);
                 break;
@@ -919,7 +932,14 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 hdrs = xqc_h3_request_get_writing_headers(h3s->h3r);
                 if (NULL == hdrs) {
                     xqc_log(h3s->log, XQC_LOG_ERROR, "|get writing header error|");
-                    XQC_H3_CONN_ERR(h3s->h3c, H3_GENERAL_PROTOCOL_ERROR, -XQC_H3_INVALID_HEADER);
+                    /* NULL here means current_header has reached
+                     * XQC_H3_REQUEST_MAX_HEADERS_CNT (=2): our internal
+                     * capacity for stored header blocks is exhausted.
+                     * This is an implementation-side limit, not malformed
+                     * peer input, so H3_INTERNAL_ERROR is the proper
+                     * wire-level code. The -XQC_H3_INVALID_HEADER internal
+                     * errno is kept to avoid wider callsite churn. */
+                    XQC_H3_CONN_ERR(h3s->h3c, H3_INTERNAL_ERROR, -XQC_H3_INVALID_HEADER);
                     return -XQC_H3_INVALID_HEADER;
                 }
 
@@ -1507,7 +1527,11 @@ xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_
             }
             
             if (processed == -XQC_H3_INVALID_HEADER) {
-                XQC_H3_CONN_ERR(h3c, H3_GENERAL_PROTOCOL_ERROR, errcode);
+                /* RFC 9114 §4.1.2: malformed request/response headers
+                 * MUST be treated as H3_MESSAGE_ERROR, not as a generic
+                 * protocol error. This path covers QPACK decode failures
+                 * surfaced as -XQC_H3_INVALID_HEADER. */
+                XQC_H3_CONN_ERR(h3c, H3_MESSAGE_ERROR, errcode);
 
             } else {
                 XQC_H3_CONN_ERR(h3c, H3_FRAME_ERROR, errcode);
@@ -1961,6 +1985,21 @@ xqc_h3_stream_update_stats(xqc_h3_stream_t *h3s)
     }
 }
 
+static inline xqc_bool_t
+xqc_h3_stream_is_critical(uint64_t type)
+{
+    /*
+     * RFC 9114 6.2.1 / RFC 9204 4.2: the control stream and the two QPACK
+     * unidirectional streams must remain open for the lifetime of the
+     * connection. Peer-initiated closure of any of them is a connection
+     * error of type H3_CLOSED_CRITICAL_STREAM.
+     */
+    return type == XQC_H3_STREAM_TYPE_CONTROL
+           || type == XQC_H3_STREAM_TYPE_QPACK_ENCODER
+           || type == XQC_H3_STREAM_TYPE_QPACK_DECODER;
+}
+
+
 int
 xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data)
 {
@@ -1972,6 +2011,25 @@ xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data)
 
     xqc_h3_stream_t *h3s = (xqc_h3_stream_t*)user_data;
     h3s->flags |= XQC_HTTP3_STREAM_FLAG_CLOSED;
+
+    /*
+     * Detect peer-initiated closure of an HTTP/3 critical stream. The
+     * CLOSING_NOTIFY flag and conn_state guards keep us from clobbering
+     * an existing conn_err when the connection is already tearing down
+     * (e.g. local close, transport error), in which case the stream
+     * close here is just a side effect, not a protocol violation.
+     */
+    if (xqc_h3_stream_is_critical(h3s->type)
+        && !(h3s->h3c->conn->conn_flag & XQC_CONN_FLAG_CLOSING_NOTIFY)
+        && h3s->h3c->conn->conn_state < XQC_CONN_STATE_CLOSING)
+    {
+        xqc_log(h3s->log, XQC_LOG_ERROR,
+                "|peer closed critical stream|type:%ui|stream_id:%ui|h3s:%p",
+                h3s->type, h3s->stream_id, h3s);
+        XQC_H3_CONN_ERR(h3s->h3c, H3_CLOSED_CRITICAL_STREAM,
+                        -XQC_H3_CLOSE_CRITICAL_STREAM);
+    }
+
     xqc_h3_stream_get_err(h3s);
     xqc_h3_stream_get_path_info(h3s);
 

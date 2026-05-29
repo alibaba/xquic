@@ -113,6 +113,9 @@ if(HAVE_CUNIT)
         ${UNIT_TEST_DIR}/xqc_datagram_test.c
         ${UNIT_TEST_DIR}/xqc_h3_ext_test.c
         ${UNIT_TEST_DIR}/xqc_ack_with_timestamp_test.c
+        ${UNIT_TEST_DIR}/xqc_send_ctl_test.c
+        ${UNIT_TEST_DIR}/xqc_vn_test.c
+        ${UNIT_TEST_DIR}/xqc_frame_type_bit_test.c
     )
 
     if(XQC_ENABLE_FEC)
@@ -157,7 +160,8 @@ if(HAVE_CUNIT)
         ${CUTEST_DEPEND_LIBS}
     )
 
-    add_test(run_tests run_tests)
+    add_test(NAME run_tests COMMAND run_tests)
+    set_tests_properties(run_tests PROPERTIES
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
     add_dependencies(check run_tests)
 endif()
-

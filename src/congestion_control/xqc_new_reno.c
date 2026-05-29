@@ -4,6 +4,7 @@
 
 #include <xquic/xquic.h>
 #include "src/congestion_control/xqc_new_reno.h"
+#include "src/common/xqc_config.h"
 #include "src/common/xqc_time.h"
 #include "src/transport/xqc_packet.h"
 
@@ -11,14 +12,37 @@
 
 #define XQC_kMaxDatagramSize XQC_MSS
 #define XQC_kMinimumWindow (2 * XQC_kMaxDatagramSize)
-/* 
- * The RECOMMENDED value is the minimum of
- * 10 * kMaxDatagramSize and max(2* kMaxDatagramSize, 14720)).
+
+/*
+ * RFC 9002 Section 7.2: endpoints SHOULD use an initial congestion
+ * window of ten times the maximum datagram size, while limiting the
+ * window to the larger of 14720 bytes or twice the maximum datagram
+ * size. That is:
+ *
+ *     IW = min(10 * kMaxDatagramSize,
+ *              max(2 * kMaxDatagramSize, 14720))
+ *
+ * With the default XQC_MSS the 14720-byte ceiling is not binding, but
+ * a deployment built with a larger maximum datagram size (for example,
+ * jumbo frames) would otherwise compute an initial window well above
+ * the value the RFC permits.
  */
-#define XQC_kInitialWindow (10 * XQC_kMaxDatagramSize)
+#define XQC_kInitialWindowMinBytes 14720
+#define XQC_kInitialWindow                                                    \
+    xqc_min(10 * XQC_kMaxDatagramSize,                                        \
+            xqc_max(2 * XQC_kMaxDatagramSize, XQC_kInitialWindowMinBytes))
+
 #define XQC_kLossReductionFactor (0.5f)
 
-#define xqc_max(a, b) ((a) > (b) ? (a) : (b))
+/*
+ * Bounds for cc_params.init_cwnd overrides. Kept consistent with Cubic
+ * (XQC_CUBIC_MIN_WIN / XQC_CUBIC_MAX_INIT_WIN) and BBR so that operators
+ * can reason about a single packet range across CCAs. Values outside the
+ * range fall back to the RFC 9002 default rather than being clamped, to
+ * surface configuration mistakes instead of silently rewriting them.
+ */
+#define XQC_RENO_MIN_INIT_WIN (4 * XQC_kMaxDatagramSize)
+#define XQC_RENO_MAX_INIT_WIN (100 * XQC_kMaxDatagramSize)
 
 size_t
 xqc_reno_size()
@@ -35,6 +59,23 @@ xqc_reno_init(void *cong_ctl, xqc_send_ctl_t *ctl_ctx, xqc_cc_params_t cc_params
     reno->reno_ssthresh = 0xffffffff;
     reno->reno_recovery_start_time = 0;
     reno->ctl_ctx = ctl_ctx;
+
+    /*
+     * Honor caller-provided init_cwnd override (in packets) the same way
+     * Cubic/BBR/Copa do. Without this block the customize_on path is a
+     * no-op on NewReno and the application silently keeps the default
+     * 10 * MSS window. Out-of-range values fall back to the default;
+     * the RFC 9002 Section 7.2 cap is already enforced by the
+     * XQC_kInitialWindow formula above.
+     */
+    if (cc_params.customize_on) {
+        uint32_t init_cwnd_bytes = cc_params.init_cwnd * XQC_kMaxDatagramSize;
+        if (init_cwnd_bytes >= XQC_RENO_MIN_INIT_WIN
+            && init_cwnd_bytes <= XQC_RENO_MAX_INIT_WIN)
+        {
+            reno->reno_congestion_window = init_cwnd_bytes;
+        }
+    }
 }
 
 /**

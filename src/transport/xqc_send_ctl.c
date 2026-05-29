@@ -21,6 +21,7 @@
 #include "src/transport/xqc_utils.h"
 #include "src/transport/xqc_datagram.h"
 #include "src/transport/xqc_reinjection.h"
+#include "src/transport/xqc_transport_params.h"
 
 int 
 xqc_send_ctl_may_remove_unacked_dgram(xqc_connection_t *conn, xqc_packet_out_t *po)
@@ -1155,8 +1156,19 @@ xqc_send_ctl_update_rtt(xqc_send_ctl_t *send_ctl, xqc_usec_t *latest_rtt, xqc_us
     } else {
         send_ctl->ctl_minrtt = xqc_min(*latest_rtt, send_ctl->ctl_minrtt);
 
+        /*
+         * RFC 9002 5.3: ack_delay MUST be clamped by max_ack_delay before
+         * being subtracted from latest_rtt. Until the handshake is
+         * confirmed the peer is required to use the default max_ack_delay
+         * (RFC 9000 18.2), so use that constant; after confirmation the
+         * negotiated value from the peer's transport parameters applies.
+         */
         if (xqc_conn_is_handshake_confirmed(send_ctl->ctl_conn)) {
-            ack_delay = xqc_min(ack_delay, send_ctl->ctl_conn->remote_settings.max_ack_delay * 1000);
+            ack_delay = xqc_min(ack_delay,
+                                send_ctl->ctl_conn->remote_settings.max_ack_delay * 1000);
+
+        } else {
+            ack_delay = xqc_min(ack_delay, XQC_DEFAULT_MAX_ACK_DELAY * 1000);
         }
 
         /* Adjust for ack delay if it's plausible. */
@@ -1404,8 +1416,29 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
         {
             /* For loss-based CCs, it means we are gonna slow start again. */
             send_ctl->ctl_max_bytes_in_flight = 0;
+
+            /*
+             * RFC 9002 Section 5.2: "Endpoints SHOULD set the min_rtt to
+             * the newest RTT sample after persistent congestion is
+             * established." Reset srtt/rttvar/first_rtt_sample_time
+             * alongside min_rtt so the next RTT sample re-seeds the
+             * estimator via the first-sample branch in update_rtt; this
+             * prevents stale srtt/rttvar from inflating the PTO and the
+             * persistent-congestion duration formula after a disruptive
+             * path event. ctl_latest_rtt is preserved for debug.
+             * Reset is per-path because send_ctl is per-path.
+             */
+            xqc_log(conn->log, XQC_LOG_DEBUG,
+                    "|OnLostDetection|persistent_congestion|reset_rtt"
+                    "|old_srtt:%ui|old_rttvar:%ui|old_minrtt:%ui|",
+                    send_ctl->ctl_srtt, send_ctl->ctl_rttvar,
+                    send_ctl->ctl_minrtt);
+            send_ctl->ctl_minrtt = XQC_MAX_UINT32_VALUE;
+            send_ctl->ctl_srtt = send_ctl->ctl_conn->conn_settings.initial_rtt;
+            send_ctl->ctl_rttvar = send_ctl->ctl_srtt / 2;
+            send_ctl->ctl_first_rtt_sample_time = 0;
+
             /* we reset BBR's cwnd here */
-            xqc_log(conn->log, XQC_LOG_DEBUG, "|OnLostDetection|%s|", "Persistent congestion occurs");
             send_ctl->ctl_cong_callback->xqc_cong_ctl_reset_cwnd(send_ctl->ctl_cong);
         }
 

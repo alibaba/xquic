@@ -259,7 +259,7 @@ xqc_transport_params_calc_length(const xqc_transport_params_t *params,
  * put variant int value param into buf
  */
 inline static uint8_t*
-xqc_put_varint_param(uint8_t* p, xqc_transport_param_id_t id, uint64_t v)
+xqc_put_varint_param(uint8_t* p, uint64_t id, uint64_t v)
 {
     p = xqc_put_varint(p, id);
     p = xqc_put_varint(p, xqc_put_varint_len(v));
@@ -525,6 +525,10 @@ xqc_decode_original_dest_cid(xqc_transport_params_t *params, xqc_transport_param
         return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
     }
 
+    if (param_len > XQC_MAX_CID_LEN) {
+        return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+    }
+
     xqc_cid_set(&params->original_dest_connection_id, p, param_len);
     params->original_dest_connection_id_present = 1;
     return XQC_OK;
@@ -712,6 +716,10 @@ static xqc_int_t
 xqc_decode_initial_scid(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
     const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
 {
+    if (param_len > XQC_MAX_CID_LEN) {
+        return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+    }
+
     xqc_cid_set(&params->initial_source_connection_id, p, param_len);
     params->initial_source_connection_id_present = 1;
     return XQC_OK;
@@ -721,6 +729,10 @@ static xqc_int_t
 xqc_decode_retry_scid(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
     const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
 {
+    if (param_len > XQC_MAX_CID_LEN) {
+        return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+    }
+
     xqc_cid_set(&params->retry_source_connection_id, p, param_len);
     params->retry_source_connection_id_present = 1;
     return XQC_OK;

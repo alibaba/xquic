@@ -1266,12 +1266,14 @@ killall test_server
 echo -e "client Initial scid corruption ...\c"
 ${SERVER_BIN} -l d -e > /dev/null &
 sleep 1
-client_print_res=`${CLIENT_BIN} -s 1024000 -l d -t 1 -x 23 -E | grep ">>>>>>>> pass"`
+client_print_res=`${CLIENT_BIN} -s 1024000 -l d -t 1 -x 23 -E | grep ">>>>>>>> pass:1"`
 errlog=`grep_err_log`
-server_log_res=`grep "decrypt data error" slog`
-server_dcid_res=`grep "dcid change" slog`
+server_iscid_res=`grep "iscid mismatch" slog`
 echo "$client_print_res"
-if [ "$client_print_res" != "" ] && [ "$server_log_res" != NULL ] && [ "$server_dcid_res" != NULL ]; then
+# After ISCID validation, server detects the corrupted SCID does not match
+# the client's transport-parameter ISCID and closes the connection, so client
+# fails the transfer (no pass:1) and server logs iscid mismatch.
+if [ "$client_print_res" == "" ] && [ "$server_iscid_res" != "" ]; then
     case_print_result "client_initial_scid_corruption" "pass"
 else
     case_print_result "client_initial_scid_corruption" "fail"
@@ -1410,19 +1412,50 @@ else
 fi
 
 killall test_server 2> /dev/null
-${SERVER_BIN} -l d -e -b > /dev/null &
+# Case 33: server only advertises draft-29 so the V1 client hits the
+# abort path instead of the downgrade-protection discard.
+${SERVER_BIN} -l d -e -x 33 > /dev/null &
 sleep 1
 
 clear_log
 echo -e "version negotiation ...\c"
-${CLIENT_BIN} -l d -E -x 33 >> clog
-result=`grep -e "|====>|.*VERSION_NEGOTIATION" clog`
+${CLIENT_BIN} -l d -E -x 33 >> clog 2>&1
+
+# Wire-level: VN packet was received and parsed by the client.
+# (The event-log callback is skipped because the abort error is non-tolerant,
+# so we match the unconditional debug log from xqc_packet_parse_version_negotiation.)
+result=`grep "packet parse|version negotiation" clog`
 if [ -n "$result" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "version_negotiation" "pass"
 else
     echo ">>>>>>>> pass:0"
     case_print_result "version_negotiation" "fail"
+fi
+
+# RFC 9000 §6.2 mandates the client MUST abandon the connection attempt on
+# a valid VN. Verify xqc_packet_parse_version_negotiation took the abort
+# branch instead of the legacy silent-version-switch behaviour.
+abort_log=`grep "version negotiation: aborting connection attempt" clog`
+if [ -n "$abort_log" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "version_negotiation_abort_path" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "version_negotiation_abort_path" "fail"
+fi
+
+# The abort must be surfaced to the upper layer through conn_close_notify
+# with a non-zero errno: either TRA_VERSION_NEGOTIATION_ERROR (0x53 = 83)
+# from the transport conn_err, or XQC_EVERSION_NEGOTIATION (643) when the
+# error is propagated through xqc_conn_get_errno on a transport-only path.
+errno_log=`grep -E "conn errno:(83|643)" clog`
+if [ -n "$errno_log" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "version_negotiation_close_errno" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "version_negotiation_close_errno" "fail"
 fi
 
 
@@ -1522,11 +1555,29 @@ fi
 
 
 killall test_server
-${SERVER_BIN} -l d -x 13 > /dev/null &
+# Start the server without -x 13. The previous "idle_time_out = 1000"
+# trick relied on a small max_idle_timeout transport parameter to force
+# the server to discard its connection state quickly; after RFC 9000
+# Section 10.1 negotiation (PR #758) the client now takes the minimum
+# of both advertised values, so a 1 s server-side TP would also kill
+# the client well before the wake-up packet that the test relies on.
+# Restart the server mid-test instead: it cleans up its connection
+# state silently, then the new instance generates the stateless reset
+# from the same default reset_token_key.
+${SERVER_BIN} -l d > /dev/null &
 sleep 1
 clear_log
 echo -e "stateless reset...\c"
-${CLIENT_BIN} -l d -x 41 -1 -t 5 > stdlog
+${CLIENT_BIN} -l d -x 41 -1 -t 8 > stdlog &
+CLIENT_PID=$!
+# Allow the handshake to finish, the two tracked short-header packets
+# to be sent, and the 3 s outbound black-hole inside the client to
+# begin before the server is recycled.
+sleep 2
+killall test_server
+sleep 0.2
+${SERVER_BIN} -l d > /dev/null &
+wait $CLIENT_PID
 result=`grep "|====>|receive stateless reset" clog`
 cloing_notify=`grep "conn closing: 641" stdlog`
 if [ -n "$result" ] && [ -n "$cloing_notify" ]; then
@@ -1540,7 +1591,17 @@ fi
 
 clear_log
 echo -e "stateless reset during hsk...\c"
-${CLIENT_BIN} -l d  -t 5 -x 45 -1 -s 100 -G > stdlog
+${CLIENT_BIN} -l d  -t 12 -x 45 -1 -s 100 -G > stdlog &
+CLIENT_PID=$!
+# Same pattern as above. The client opens the black-hole on the first
+# Handshake-level or short-header outbound packet, so 2 s gives Initial
+# exchange plus the start of the 10 s drop window before we recycle
+# the server.
+sleep 2
+killall test_server
+sleep 0.2
+${SERVER_BIN} -l d > /dev/null &
+wait $CLIENT_PID
 result=`grep "|====>|receive stateless reset" clog`
 cloing_notify=`grep "conn closing: 641" stdlog`
 svr_hsk=`grep "handshake_time:0" slog`
@@ -4568,6 +4629,60 @@ else
 fi
 
 
+# ---- Issue #534: xqc_frame_type_bit_t 64-bit overflow end-to-end test ----
+#
+# Correctness chain:
+#   1. Client/server run with FEC enabled (-f) and case 700 params
+#      (code_rate=1.0, block_size=5) to force REPAIR_SYMBOL frame generation
+#   2. When a REPAIR_SYMBOL frame is created, the packet's po_frame_types
+#      gets bit 32 set: po_frame_types |= XQC_FRAME_BIT_REPAIR_SYMBOL
+#   3. xqc_send_ctl.c logs "|frame:%s|" via xqc_frame_type_2_str(), which
+#      iterates bits 0..32 and outputs "FEC_REPAIR" when bit 32 is set
+#   4. If the old enum truncated bit 32 to 0, "FEC_REPAIR" would NEVER
+#      appear in the log -> grep fails -> test fails
+#
+# Test 1: verify client SENDS repair symbols (grep clog)
+# Test 2: verify server RECEIVES repair symbols (grep slog)
+
+clear_log
+killall test_server 2> /dev/null
+stdbuf -oL ${SERVER_BIN} -l d -e -f -x 700 -M > /dev/null &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+echo -e "frame_type_bit repair symbol sent (bit 32 non-zero) ...\c"
+sudo ${CLIENT_BIN} -s 5120000 -l d -E -d 30 -g -x 700 -M -i lo -i lo > stdlog
+clog_repair=`grep 'frame:.*FEC_REPAIR' clog`
+echo_result=`grep ">>>>>>>> pass" stdlog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$clog_repair" ] && [ "$echo_result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "frame_type_bit_repair_sent" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "frame_type_bit_repair_sent" "fail"
+fi
+
+
+clear_log
+killall test_server 2> /dev/null
+stdbuf -oL ${SERVER_BIN} -l d -e -f -x 700 -M > /dev/null &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+echo -e "frame_type_bit repair symbol received (bit 32 non-zero) ...\c"
+sudo ${CLIENT_BIN} -s 5120000 -l d -E -d 30 -g -x 700 -M -i lo -i lo > stdlog
+slog_repair=`grep 'frame:.*FEC_REPAIR' slog`
+echo_result=`grep ">>>>>>>> pass" stdlog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$slog_repair" ] && [ "$echo_result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "frame_type_bit_repair_received" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "frame_type_bit_repair_received" "fail"
+fi
+
 
 killall test_server 2> /dev/null
 ${SERVER_BIN} -l d -Q 65535 -e -U 1 -s 1 --dgram_qos 3 -f > /dev/null &
@@ -4943,6 +5058,97 @@ if [ "$cli_res1" -gt 0 ] && [ "$svr_res1" -gt 0 ]; then
 else
     echo ">>>>>>>> pass:0"
     case_print_result "ack_timestamp_frame_case_6" "fail"
+fi
+
+## ACK_ECN (0x03) frame parsing tests (issue #632)
+
+killall test_server
+clear_log
+echo -e "ack_ecn_parse: both endpoints send ACK_ECN, verify parsing on both sides ...\c"
+${SERVER_BIN} -l d -e -x 454 > /dev/null &
+sleep 1
+${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 454 > stdlog
+cli_res=`grep "ACK_ECN frame ECN counts consumed" clog | wc -l`
+svr_res=`grep "ACK_ECN frame ECN counts consumed" slog | wc -l`
+errlog=`grep_err_log`
+
+if [ -z "$errlog" ] && [ "$cli_res" -gt 0 ] && [ "$svr_res" -gt 0 ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "ack_ecn_parse_both" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "ack_ecn_parse_both" "fail"
+fi
+
+killall test_server
+clear_log
+echo -e "ack_ecn_parse: only server sends ACK_ECN, verify client parsing ...\c"
+${SERVER_BIN} -l d -e -x 455 > /dev/null &
+sleep 1
+${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 455 > stdlog
+cli_res=`grep "ACK_ECN frame ECN counts consumed" clog | wc -l`
+svr_res=`grep "ACK_ECN frame ECN counts consumed" slog | wc -l`
+errlog=`grep_err_log`
+
+if [ -z "$errlog" ] && [ "$cli_res" -gt 0 ] && [ "$svr_res" -eq 0 ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "ack_ecn_parse_server_only" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "ack_ecn_parse_server_only" "fail"
+fi
+
+killall test_server 2> /dev/null
+> svr_stdlog
+stdbuf -oL ${SERVER_BIN} -l d -e -x 48 > svr_stdlog &
+sleep 1
+
+rm -f test_session tp_localhost xqc_token
+
+clear_log
+echo -e "initial salt v1 key derivation ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 48 > stdlog
+result=`grep ">>>>>>>> pass" stdlog`
+salt_cli=`grep "\[initial-salt-test\] handshake ok, conn_err:0" stdlog`
+salt_svr=`grep -a "\[initial-salt-test\] server handshake ok, conn_err:0" svr_stdlog`
+errlog=`grep "derive initial secret error" clog slog`
+if [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$salt_cli" ] && [ -n "$salt_svr" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "initial_salt_v1_key_derivation" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "initial_salt_v1_key_derivation" "fail"
+fi
+
+killall test_server
+clear_log
+echo -e "crypto_error: cert verify triggers dynamic CRYPTO_ERROR (0x112=274) ...\c"
+${SERVER_BIN} -l d -e > /dev/null &
+sleep 1
+${CLIENT_BIN} -l d -t 1 -E -x 700 > stdlog
+result=`grep "conn_err:274" stdlog | wc -l`
+if [ "$result" -gt 0 ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "crypto_error_cert_verify" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "crypto_error_cert_verify" "fail"
+fi
+
+
+killall test_server
+clear_log
+echo -e "crypto_error: removed 0x1FF enum not used (conn_err:511 absent) ...\c"
+${SERVER_BIN} -l d -e > /dev/null &
+sleep 1
+${CLIENT_BIN} -l d -t 1 -E -x 700 > stdlog
+result=`grep "conn_err:511" stdlog | wc -l`
+if [ "$result" -eq 0 ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "crypto_error_not_fixed_enum" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "crypto_error_not_fixed_enum" "fail"
 fi
 
 cd -

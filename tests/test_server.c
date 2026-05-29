@@ -192,12 +192,18 @@ load_cdf(char *cdf_file)
         return -1;
     }
     int n;
-    fscanf(fp, "%d", &n);
+    if (fscanf(fp, "%d", &n) != 1) {
+        fclose(fp);
+        return -1;
+    }
     cdf_list_size = n;
     cdf_list = malloc(sizeof(cdf_entry_t) * cdf_list_size);
     while (n--) {
-        fscanf(fp, "%lf%d", &cdf_list[cdf_list_size - n - 1].p, &cdf_list[cdf_list_size - n - 1].val);
+        if (fscanf(fp, "%lf%d", &cdf_list[cdf_list_size - n - 1].p, &cdf_list[cdf_list_size - n - 1].val) != 2) {
+            break;
+        }
     }
+    fclose(fp);
     return 0;
 }
 
@@ -982,6 +988,11 @@ xqc_server_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *conn_user_da
     printf("0rtt_flag:%d\n", stats.early_data_flag);
     printf("h3_datagram_mss:%zd\n", xqc_h3_ext_datagram_get_mss(h3_conn));
 
+
+    if (g_test_case == 48) {
+        printf("[initial-salt-test] server handshake ok, conn_err:%d\n",
+               stats.conn_err);
+    }
 
     /* pretend to create a server-inited http3 stream */
     if (g_test_case == 17) {
@@ -2147,7 +2158,7 @@ int main(int argc, char *argv[]) {
     uint8_t c_qlog_disable = 0;
     char c_qlog_importance = 'r';
     int pacing_on = 0;
-    strncpy(g_log_path, "./slog", sizeof(g_log_path));
+    snprintf(g_log_path, sizeof(g_log_path), "%s", "./slog");
 
     //ensure the random sequence is the same for every test
     srand(0);
@@ -2540,6 +2551,13 @@ int main(int argc, char *argv[]) {
         fec_params.fec_code_rate = 0.2;
         fec_params.fec_max_symbol_num_per_block = 10;
         fec_params.fec_mp_mode = XQC_FEC_MP_USE_STB;
+
+        /* Case 700: see test_client.c for rationale (issue #534 bit 32 fix) */
+        if (g_test_case == 700) {
+            fec_params.fec_code_rate = 1.0;
+            fec_params.fec_max_symbol_num_per_block = 5;
+        }
+
         conn_settings.fec_params = fec_params;
     }
 
@@ -2598,6 +2616,10 @@ int main(int argc, char *argv[]) {
         conn_settings.receive_timestamps_exponent = 0;
     }
 
+    if (g_test_case == 454 || g_test_case == 455) {
+        conn_settings.simulate_ecn = 1;
+    }
+
     xqc_config_t config;
     if (xqc_engine_get_default_config(&config, XQC_ENGINE_SERVER) < 0) {
         return -1;
@@ -2636,6 +2658,18 @@ int main(int argc, char *argv[]) {
         config.sendmmsg_on = 1;
     }
 #endif
+
+    /*
+     * VN abort test (case 33): offer only draft-29 so that the V1
+     * client hits the abort path instead of the downgrade-protection
+     * discard.  Server's VN will list 0xFF00001D only; V1 is absent,
+     * so the client's current_wire_version check passes and the
+     * connection is correctly abandoned per RFC 9000 §6.2.
+     */
+    if (g_test_case == 33) {
+        config.support_version_count = 1;
+        config.support_version_list[0] = 0xFF00001D; /* draft-29 */
+    }
 
     /* test server cid negotiate */
     if (g_test_case == 1 || g_test_case == 5 || g_test_case == 6 || g_sid_len != 0) {

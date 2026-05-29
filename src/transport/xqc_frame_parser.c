@@ -289,6 +289,7 @@ xqc_parse_stream_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
 {
     uint64_t offset;
     uint64_t length;
+    uint64_t max_stream_data_offset = (UINT64_C(1) << 62) - 1;
     int      vlen;
 
     const unsigned char *p = packet_in->pos;
@@ -329,6 +330,16 @@ xqc_parse_stream_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
 
     } else {
         frame->data_length = end - p;
+        length = frame->data_length;
+    }
+
+    /* RFC 9000 19.8: offset + length MUST NOT exceed 2^62 - 1. */
+    if (length > max_stream_data_offset - frame->data_offset) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|stream offset+length exceeds 2^62-1|offset:%ui|length:%ui|",
+                frame->data_offset, length);
+        XQC_CONN_ERR(conn, TRA_FRAME_ENCODING_ERROR);
+        return -XQC_EILLEGAL_FRAME;
     }
 
     if (first_byte & 0x01) {
@@ -1047,7 +1058,11 @@ xqc_gen_ack_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec
         return -XQC_ENOBUF;
     }
 
-    *dst_buf++ = 0x02;
+    if (conn->conn_settings.simulate_ecn) {
+        *dst_buf++ = 0x03;
+    } else {
+        *dst_buf++ = 0x02;
+    }
 
     xqc_vint_write(dst_buf, largest_recv, largest_recv_bits, xqc_vint_len(largest_recv_bits));
     dst_buf += xqc_vint_len(largest_recv_bits);
@@ -1106,6 +1121,16 @@ xqc_gen_ack_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec
         *has_gap = 0;
     }
     xqc_vint_write(p_range_count, range_count, 0, 1);
+
+    /* append dummy ECN counts for ACK_ECN simulation */
+    if (conn->conn_settings.simulate_ecn) {
+        if (dst_buf + 3 > end) {
+            return -XQC_ENOBUF;
+        }
+        *dst_buf++ = 0x00;  /* ECT(0) Count = 0 */
+        *dst_buf++ = 0x00;  /* ECT(1) Count = 0 */
+        *dst_buf++ = 0x00;  /* ECN-CE Count = 0 */
+    }
 
     packet_out->po_frame_types |= XQC_FRAME_BIT_ACK;
     return dst_buf - begin;
@@ -1203,6 +1228,42 @@ xqc_parse_ack_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_ack_
     }
 
     ack_info->n_ranges = n_ranges;
+
+    /*
+     * RFC 9000 Section 19.3: ACK_ECN (type=0x03) carries three
+     * additional varint fields after ACK Ranges: ECT(0) Count,
+     * ECT(1) Count, and ECN-CE Count.  We must consume them so
+     * that packet_in->pos advances past the entire frame;
+     * otherwise subsequent frame parsing will read garbage.
+     */
+    if (frame_type == 0x03) {
+        uint64_t ecn_count;
+
+        /* ECT(0) Count */
+        vlen = xqc_vint_read(p, end, &ecn_count);
+        if (vlen < 0) {
+            return -XQC_EVINTREAD;
+        }
+        p += vlen;
+
+        /* ECT(1) Count */
+        vlen = xqc_vint_read(p, end, &ecn_count);
+        if (vlen < 0) {
+            return -XQC_EVINTREAD;
+        }
+        p += vlen;
+
+        /* ECN-CE Count */
+        vlen = xqc_vint_read(p, end, &ecn_count);
+        if (vlen < 0) {
+            return -XQC_EVINTREAD;
+        }
+        p += vlen;
+
+        xqc_log(conn->log, XQC_LOG_DEBUG,
+                "|ACK_ECN frame ECN counts consumed|");
+    }
+
     packet_in->pos = p;
     packet_in->pi_frame_types |= XQC_FRAME_BIT_ACK;
 

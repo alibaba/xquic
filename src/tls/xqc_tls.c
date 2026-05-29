@@ -439,7 +439,7 @@ xqc_tls_derive_and_install_initial_keys(xqc_tls_t *tls, const xqc_cid_t *odcid)
     ret = xqc_crypto_derive_initial_secret(cli_initial_secret, INITIAL_SECRET_MAX_LEN,
                                            svr_initial_secret, INITIAL_SECRET_MAX_LEN,
                                            odcid, xqc_crypto_initial_salt[tls->version],
-                                           strlen(xqc_crypto_initial_salt[tls->version]));
+                                           XQC_INITIAL_SALT_LEN);
     if (XQC_OK != ret) {
         xqc_log(tls->log, XQC_LOG_ERROR, "|derive initial secret error|ret:%d", ret);
         return ret;

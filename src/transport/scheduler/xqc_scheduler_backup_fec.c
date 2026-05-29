@@ -182,6 +182,16 @@ skip_path:
 #endif
 
     if (ret_path != NULL) {
+#ifdef XQC_ENABLE_FEC
+        if (conn->fec_ctl
+            && conn->fec_ctl->fec_mp_mode == XQC_FEC_MP_USE_STB
+            && (packet_out->po_frame_types & XQC_FRAME_BIT_REPAIR_SYMBOL))
+        {
+            if (ret_path->app_path_status == XQC_APP_PATH_STATUS_STANDBY) {
+                conn->fec_ctl->fec_rep_path_id = ret_path->path_id;
+            }
+        }
+#endif
         xqc_log(conn->log, XQC_LOG_DEBUG, "|best path:%ui|frame_type:%s|"
                 "pn:%ui|size:%ud|reinj:%d|path_class:%d|",
                 ret_path->path_id, 

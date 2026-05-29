@@ -198,11 +198,16 @@ xqc_validate_frame_type_in_pkt(xqc_connection_t *conn, xqc_packet_in_t *packet_i
         return XQC_OK;
     }
 
-    if (frame_type > 0x1e) {
+    if (frame_type > 0x1e && frame_type != 0x30 && frame_type != 0x31) {
         return XQC_OK;
     }
 
     switch (frame_type) {
+    case 0x30:
+    case 0x31:
+        allowed = (pkt_flag_0rtt || pkt_flag_1rtt);
+        break;
+
     /* IH01 */
     case 0x00: /* PADDING */
     case 0x01: /* PING */

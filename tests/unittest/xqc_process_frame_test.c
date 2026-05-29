@@ -16,6 +16,7 @@ char XQC_TEST_ILL_FRAME_1[] = {0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 char XQC_TEST_ZERO_LEN_NEW_TOKEN_FRAME[] = {0x07, 0x00};
 char XQC_TEST_STREAM_FRAME[] = {0x0a, 0x00, 0x01, 0x00};
 char XQC_TEST_APP_CONN_CLOSE_FRAME[] = {0x1d, 0x00, 0x00};
+char XQC_TEST_DATAGRAM_FRAME[] = {0x30};
 
 
 static void
@@ -77,8 +78,20 @@ xqc_test_process_frame()
     CU_ASSERT(ret == -XQC_EPROTO);
 
     xqc_engine_destroy(conn->engine);
-}
 
+    conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+
+    xqc_packet_in_t pi_datagram_init;
+    memset(&pi_datagram_init, 0, sizeof(xqc_packet_in_t));
+    pi_datagram_init.pi_pkt.pkt_type = XQC_PTYPE_INIT;
+    pi_datagram_init.pos = XQC_TEST_DATAGRAM_FRAME;
+    pi_datagram_init.last = pi_datagram_init.pos + sizeof(XQC_TEST_DATAGRAM_FRAME);
+    ret = xqc_process_frames(conn, &pi_datagram_init);
+    CU_ASSERT(ret == -XQC_EPROTO);
+
+    xqc_engine_destroy(conn->engine);
+}
 
 void
 xqc_test_handshake_app_conn_close_is_converted()
@@ -86,7 +99,7 @@ xqc_test_handshake_app_conn_close_is_converted()
     xqc_connection_t *conn = test_engine_connect();
     CU_ASSERT(conn != NULL);
 
-    int ret = xqc_write_conn_close_to_packet(conn, H3_NO_ERROR);
+    int ret = xqc_write_conn_close_to_packet(conn, TRA_CRYPTO_ERROR_BASE);
     CU_ASSERT(ret == XQC_OK);
 
     xqc_packet_out_t *packet_out = xqc_test_first_high_pri_packet(conn);
@@ -99,6 +112,27 @@ xqc_test_handshake_app_conn_close_is_converted()
     ssize_t vlen = xqc_vint_read(packet_out->po_payload + 1,
                                  packet_out->po_buf + packet_out->po_used_size,
                                  &err_code);
+    CU_ASSERT(vlen > 0);
+    CU_ASSERT(err_code == TRA_CRYPTO_ERROR_BASE);
+
+    xqc_engine_destroy(conn->engine);
+
+    conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+
+    ret = xqc_write_conn_close_to_packet(conn, H3_NO_ERROR);
+    CU_ASSERT(ret == XQC_OK);
+
+    packet_out = xqc_test_first_high_pri_packet(conn);
+    CU_ASSERT(packet_out != NULL);
+    CU_ASSERT(packet_out->po_pkt.pkt_type == XQC_PTYPE_INIT);
+    CU_ASSERT(packet_out->po_payload < packet_out->po_buf + packet_out->po_used_size);
+    CU_ASSERT(*packet_out->po_payload == 0x1c);
+
+    err_code = 0;
+    vlen = xqc_vint_read(packet_out->po_payload + 1,
+                         packet_out->po_buf + packet_out->po_used_size,
+                         &err_code);
     CU_ASSERT(vlen > 0);
     CU_ASSERT(err_code == TRA_APPLICATION_ERROR);
 
@@ -134,7 +168,6 @@ xqc_test_1rtt_only_flow_control_frames_are_buffered()
     xqc_engine_destroy(conn->engine);
 }
 
-
 void
 xqc_test_parse_padding_frame()
 {
@@ -163,7 +196,6 @@ xqc_test_parse_padding_frame()
 
     xqc_engine_destroy(conn->engine);
 }
-
 
 void
 xqc_test_large_ack_frame()

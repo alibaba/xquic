@@ -23,4 +23,7 @@ void xqc_test_h3_frame_parse_error_uses_frame_error();
 void xqc_test_h3_control_frame_unexpected();
 void xqc_test_h3_missing_settings();
 
+/* issue #609: RFC 9114 §7.2 control-only frames on request stream */
+void xqc_test_h3_request_frame_unexpected();
+
 #endif //XQUIC_XQC_H3_TEST_H

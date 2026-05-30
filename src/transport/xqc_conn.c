@@ -378,6 +378,8 @@ xqc_server_set_conn_settings(xqc_engine_t *engine, const xqc_conn_settings_t *se
     if (settings->max_streams_uni > 0) {
         engine->default_conn_settings.max_streams_uni = settings->max_streams_uni;
     }
+
+    engine->default_conn_settings.simulate_ecn = settings->simulate_ecn;
 }
 
 static const char * const xqc_conn_flag_to_str[XQC_CONN_FLAG_SHIFT_NUM] = {

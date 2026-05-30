@@ -230,8 +230,9 @@ int g_drop_rate;
 int g_spec_url;
 int g_is_get;
 uint64_t g_last_sock_op_time;
-//currently, the maximum used test case id is 19
+//currently, the maximum used test case id is 55
 //please keep this comment updated if you are adding more test cases. :-D
+//55 for RFC 9114 §4.2 forbidden header e2e validation
 //99 for pure fin
 //2XX for datagram testcases
 //3XX for h3 ext bytestream testcases
@@ -2604,6 +2605,58 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
         header[header_size].value.iov_base = g_header_value;
         header[header_size].value.iov_len = n%(MAX_HEADER_VALUE_LEN - 1) + 1;
         header[header_size].flags = 0;
+        header_size++;
+    }
+
+    /*
+     * case 55: RFC 9114 §4.2 forbidden header e2e validation
+     * 1) verify forbidden headers (transfer-encoding, keep-alive, proxy-connection)
+     *    are rejected with -XQC_H3_INVALID_HEADER on the send path
+     * 2) verify allowed headers (connection, upgrade) pass through for
+     *    WebSocket-over-HTTP/3 compatibility
+     */
+    if (g_test_case == 55 && user_stream->header_sent == 0) {
+        int all_rejected = 1;
+        struct {
+            const char *name;  size_t nlen;
+            const char *value; size_t vlen;
+        } forbidden[] = {
+            {"transfer-encoding", 17, "chunked",    7},
+            {"keep-alive",        10, "timeout=5",  9},
+            {"proxy-connection",  16, "keep-alive", 10},
+        };
+        for (int fi = 0; fi < 3; fi++) {
+            xqc_http_header_t tmp[MAX_HEADER];
+            memcpy(tmp, header, sizeof(xqc_http_header_t) * header_size);
+            tmp[header_size].name.iov_base  = (char *)forbidden[fi].name;
+            tmp[header_size].name.iov_len   = forbidden[fi].nlen;
+            tmp[header_size].value.iov_base = (char *)forbidden[fi].value;
+            tmp[header_size].value.iov_len  = forbidden[fi].vlen;
+            tmp[header_size].flags          = 0;
+            xqc_http_headers_t tmp_hdrs = {
+                .headers = tmp, .count = header_size + 1,
+            };
+            ssize_t fret = xqc_h3_request_send_headers(h3_request, &tmp_hdrs, 0);
+            if (fret != -XQC_H3_INVALID_HEADER) {
+                printf("forbidden_header_check FAIL: %s expected %d got %zd\n",
+                       forbidden[fi].name, -XQC_H3_INVALID_HEADER, fret);
+                all_rejected = 0;
+            }
+        }
+        printf("forbidden_header_rejected:%d\n", all_rejected);
+
+        /* add allowed WebSocket-over-HTTP/3 headers for the real send */
+        header[header_size].name.iov_base  = "connection";
+        header[header_size].name.iov_len   = 10;
+        header[header_size].value.iov_base = "Upgrade";
+        header[header_size].value.iov_len  = 7;
+        header[header_size].flags          = 0;
+        header_size++;
+        header[header_size].name.iov_base  = "upgrade";
+        header[header_size].name.iov_len   = 7;
+        header[header_size].value.iov_base = "websocket";
+        header[header_size].value.iov_len  = 9;
+        header[header_size].flags          = 0;
         header_size++;
     }
 

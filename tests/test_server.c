@@ -144,8 +144,10 @@ int g_send_body_size_defined;
 int g_save_body;
 int g_read_body;
 int g_spec_url;
-//99 pure fin
+/* 99 pure fin, 7XX for 0-RTT transport param validation */
 int g_test_case;
+int g_server_conn_cnt;
+xqc_conn_settings_t g_conn_settings;
 int g_ipv6;
 int g_batch=0;
 int g_lb_cid_encryption_on = 0;
@@ -970,6 +972,19 @@ xqc_server_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, vo
     }
 
     free(user_conn);
+
+    g_server_conn_cnt++;
+
+    /*
+     * test 701: after the first connection closes, reduce max_streams_bidi
+     * so the second connection (with 0-RTT) hits the RFC 9000 Section 7.4.1
+     * validation check on the client side.
+     */
+    if (g_test_case == 701 && g_server_conn_cnt == 1) {
+        g_conn_settings.max_streams_bidi = 1;
+        xqc_server_set_conn_settings(ctx.engine, &g_conn_settings);
+        printf("test_701: reduced max_streams_bidi to 1 for next conn\n");
+    }
 
     if (g_mpshell) {
         event_base_loopbreak(eb);
@@ -2484,10 +2499,10 @@ int main(int argc, char *argv[]) {
         .pacing_on  =   pacing_on,
         .cong_ctrl_callback = cong_ctrl,
         .cc_params  =   {
-            .customize_on = 1, 
-            .init_cwnd = 32, 
+            .customize_on = 1,
+            .init_cwnd = 32,
             .cc_optimization_flags = cong_flags,
-            .copa_delta_ai_unit = g_copa_ai, 
+            .copa_delta_ai_unit = g_copa_ai,
             .copa_delta_base = g_copa_delta,
         },
         .enable_multipath = g_enable_multipath,
@@ -2620,6 +2635,11 @@ int main(int argc, char *argv[]) {
         conn_settings.simulate_ecn = 1;
     }
 
+    /* test 702: server starts with reduced max_streams_bidi from the beginning */
+    if (g_test_case == 702) {
+        conn_settings.max_streams_bidi = 1;
+    }
+
     xqc_config_t config;
     if (xqc_engine_get_default_config(&config, XQC_ENGINE_SERVER) < 0) {
         return -1;
@@ -2694,6 +2714,7 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
+    g_conn_settings = conn_settings;
     xqc_server_set_conn_settings(ctx.engine, &conn_settings);
 
     /* register http3 callbacks */

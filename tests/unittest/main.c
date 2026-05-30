@@ -215,6 +215,13 @@ main()
         || !CU_add_test(pSuite, "xqc_test_initial_salt_length", xqc_test_initial_salt_length)
         || !CU_add_test(pSuite, "xqc_test_initial_salt_v1_value", xqc_test_initial_salt_v1_value)
         || !CU_add_test(pSuite, "xqc_test_initial_salt_null_byte_regression", xqc_test_initial_salt_null_byte_regression)
+        /* issue #717: 0-RTT transport parameter validation (RFC 9000 Section 7.4.1) */
+        || !CU_add_test(pSuite, "xqc_test_0rtt_params_all_equal",
+                        xqc_test_0rtt_params_all_equal)
+        || !CU_add_test(pSuite, "xqc_test_0rtt_params_all_increased",
+                        xqc_test_0rtt_params_all_increased)
+        || !CU_add_test(pSuite, "xqc_test_0rtt_params_each_reduced",
+                        xqc_test_0rtt_params_each_reduced)
         /* ADD TESTS HERE */)
     {
         CU_cleanup_registry();

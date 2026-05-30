@@ -16,6 +16,8 @@
 #include "src/congestion_control/xqc_new_reno.h"
 #include "xqc_common_test.h"
 #include "src/transport/xqc_engine.h"
+#include "src/transport/xqc_transport_params.h"
+#include "src/transport/xqc_cid.h"
 
 extern void xqc_conn_tls_error_cb(xqc_int_t tls_err, void *user_data);
 
@@ -339,6 +341,161 @@ xqc_test_conn_tls_error_cb_constructs_crypto_error()
 }
 
 
+/* -------------------------------------------------------------------------
+ * 0-RTT transport parameter validation tests for issue #717.
+ *
+ * RFC 9000 Section 7.4.1: when a client attempts 0-RTT, the server MUST NOT
+ * reduce certain transport parameters below the values remembered from the
+ * previous connection.  The client MUST validate this and close with
+ * TRANSPORT_PARAMETER_ERROR if any MUST parameter was reduced.
+ *
+ * The production code under test lives in xqc_conn_tls_transport_params_cb().
+ * Each test creates a fresh client connection, plants remembered values into
+ * conn->remote_settings, encodes new transport parameters with
+ * xqc_encode_transport_params(), and calls the callback directly.
+ * ------------------------------------------------------------------------- */
+
+/* declared in xqc_conn.c, not static */
+extern void xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len,
+                                             void *user_data);
+
+/* baseline "remembered" values stored in conn->remote_settings before
+ * the callback fires.  Non-zero for every field the fix checks. */
+#define REMEMBERED_MAX_DATA                     1000000
+#define REMEMBERED_MAX_STREAM_DATA_BIDI_LOCAL   100000
+#define REMEMBERED_MAX_STREAM_DATA_BIDI_REMOTE  100000
+#define REMEMBERED_MAX_STREAM_DATA_UNI          100000
+#define REMEMBERED_MAX_STREAMS_BIDI             100
+#define REMEMBERED_MAX_STREAMS_UNI              100
+#define REMEMBERED_ACTIVE_CID_LIMIT             4
+#define REMEMBERED_MAX_DGRAM_FRAME_SIZE         1200
+#define REMEMBERED_MAX_IDLE_TIMEOUT             30000
+#define REMEMBERED_MAX_UDP_PAYLOAD_SIZE         1350
+
+/*
+ * Set up a client connection that looks like it did a 0-RTT handshake:
+ *   - conn_type  = CLIENT
+ *   - HAS_0RTT   flag set
+ *   - remote_settings populated with "remembered" values
+ *   - dcid_set.current_dcid seeded with a generated CID (server's SCID)
+ *
+ * *out_server_scid receives the server SCID so the caller can embed the
+ * matching initial_source_connection_id in the encoded transport parameters.
+ */
+static xqc_connection_t *
+xqc_0rtt_test_make_conn(xqc_cid_t *out_server_scid)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_type == XQC_CONN_TYPE_CLIENT);
+
+    /* deterministic server SCID so ISCID validation passes */
+    xqc_cid_t server_scid;
+    xqc_generate_cid(conn->engine, NULL, &server_scid, 0);
+    xqc_cid_copy(&conn->dcid_set.current_dcid, &server_scid);
+    if (out_server_scid) {
+        xqc_cid_copy(out_server_scid, &server_scid);
+    }
+
+    /* mark the connection as having 0-RTT */
+    conn->conn_flag |= XQC_CONN_FLAG_HAS_0RTT;
+    /* clear any prior errors */
+    conn->conn_err = 0;
+    conn->conn_flag &= ~XQC_CONN_FLAG_ERROR;
+
+    /* plant "remembered" values in remote_settings (the 0-RTT baseline) */
+    conn->remote_settings.max_data                     = REMEMBERED_MAX_DATA;
+    conn->remote_settings.max_stream_data_bidi_local   = REMEMBERED_MAX_STREAM_DATA_BIDI_LOCAL;
+    conn->remote_settings.max_stream_data_bidi_remote  = REMEMBERED_MAX_STREAM_DATA_BIDI_REMOTE;
+    conn->remote_settings.max_stream_data_uni          = REMEMBERED_MAX_STREAM_DATA_UNI;
+    conn->remote_settings.max_streams_bidi             = REMEMBERED_MAX_STREAMS_BIDI;
+    conn->remote_settings.max_streams_uni              = REMEMBERED_MAX_STREAMS_UNI;
+    conn->remote_settings.active_connection_id_limit   = REMEMBERED_ACTIVE_CID_LIMIT;
+    conn->remote_settings.max_datagram_frame_size      = REMEMBERED_MAX_DGRAM_FRAME_SIZE;
+    conn->remote_settings.max_idle_timeout             = REMEMBERED_MAX_IDLE_TIMEOUT;
+    conn->remote_settings.max_udp_payload_size         = REMEMBERED_MAX_UDP_PAYLOAD_SIZE;
+    conn->remote_settings.disable_active_migration     = 0;
+
+    return conn;
+}
+
+/*
+ * Populate a xqc_transport_params_t struct with CID fields that match
+ * the connection (so xqc_conn_check_transport_params passes) and baseline
+ * numeric values equal to the remembered settings.
+ */
+static void
+xqc_0rtt_test_init_params(xqc_transport_params_t *params,
+                          xqc_connection_t *conn,
+                          const xqc_cid_t *server_scid)
+{
+    memset(params, 0, sizeof(*params));
+
+    /* CID fields required by xqc_conn_check_transport_params (client side) */
+    xqc_cid_set(&params->initial_source_connection_id,
+                server_scid->cid_buf, server_scid->cid_len);
+    params->initial_source_connection_id_present = 1;
+    xqc_cid_set(&params->original_dest_connection_id,
+                conn->original_dcid.cid_buf, conn->original_dcid.cid_len);
+    params->original_dest_connection_id_present = 1;
+
+    /* satisfy the 2^60 ceiling in xqc_conn_check_transport_params */
+    params->initial_max_data                     = REMEMBERED_MAX_DATA;
+    params->initial_max_stream_data_bidi_local   = REMEMBERED_MAX_STREAM_DATA_BIDI_LOCAL;
+    params->initial_max_stream_data_bidi_remote  = REMEMBERED_MAX_STREAM_DATA_BIDI_REMOTE;
+    params->initial_max_stream_data_uni          = REMEMBERED_MAX_STREAM_DATA_UNI;
+    params->initial_max_streams_bidi             = REMEMBERED_MAX_STREAMS_BIDI;
+    params->initial_max_streams_uni              = REMEMBERED_MAX_STREAMS_UNI;
+    params->active_connection_id_limit           = REMEMBERED_ACTIVE_CID_LIMIT;
+    params->max_datagram_frame_size              = REMEMBERED_MAX_DGRAM_FRAME_SIZE;
+    params->max_idle_timeout                     = REMEMBERED_MAX_IDLE_TIMEOUT;
+    params->max_udp_payload_size                 = REMEMBERED_MAX_UDP_PAYLOAD_SIZE;
+    params->disable_active_migration             = 0;
+
+    /* defaults that the decode path expects */
+    params->ack_delay_exponent = XQC_DEFAULT_ACK_DELAY_EXPONENT;
+    params->max_ack_delay      = XQC_DEFAULT_MAX_ACK_DELAY;
+}
+
+/*
+ * Encode params and invoke the callback.  Returns the conn_err value
+ * set (or 0 if no error).
+ */
+static xqc_int_t
+xqc_0rtt_test_fire(xqc_connection_t *conn, xqc_transport_params_t *params)
+{
+    uint8_t buf[XQC_MAX_TRANSPORT_PARAM_BUF_LEN];
+    size_t  len = 0;
+    xqc_int_t ret;
+
+    ret = xqc_encode_transport_params(params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      buf, sizeof(buf), &len);
+    CU_ASSERT_FATAL(ret == XQC_OK);
+    CU_ASSERT_FATAL(len > 0);
+
+    xqc_conn_tls_transport_params_cb(buf, len, conn);
+    return conn->conn_err;
+}
+
+/* ---- individual test cases ---- */
+
+void
+xqc_test_0rtt_params_all_equal(void)
+{
+    xqc_cid_t server_scid;
+    xqc_connection_t *conn = xqc_0rtt_test_make_conn(&server_scid);
+
+    xqc_transport_params_t params;
+    xqc_0rtt_test_init_params(&params, conn, &server_scid);
+    /* all values equal to remembered -- must succeed */
+
+    xqc_int_t err = xqc_0rtt_test_fire(conn, &params);
+    CU_ASSERT_EQUAL(err, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 void
 xqc_test_conn_crypto_error_base_value()
 {
@@ -375,6 +532,31 @@ xqc_test_conn_tls_error_first_writer_wins()
     xqc_engine_destroy(conn->engine);
 }
 
+void
+xqc_test_0rtt_params_all_increased(void)
+{
+    xqc_cid_t server_scid;
+    xqc_connection_t *conn = xqc_0rtt_test_make_conn(&server_scid);
+
+    xqc_transport_params_t params;
+    xqc_0rtt_test_init_params(&params, conn, &server_scid);
+
+    /* increase every MUST parameter -- must succeed */
+    params.initial_max_data                   *= 2;
+    params.initial_max_stream_data_bidi_local *= 2;
+    params.initial_max_stream_data_bidi_remote*= 2;
+    params.initial_max_stream_data_uni        *= 2;
+    params.initial_max_streams_bidi           *= 2;
+    params.initial_max_streams_uni            *= 2;
+    params.active_connection_id_limit         *= 2;
+    params.max_datagram_frame_size            *= 2;
+
+    xqc_int_t err = xqc_0rtt_test_fire(conn, &params);
+    CU_ASSERT_EQUAL(err, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
 
 void
 xqc_test_conn_tls_error_cb_alert_zero()
@@ -398,6 +580,56 @@ xqc_test_conn_tls_error_cb_alert_zero()
     xqc_engine_destroy(conn->engine);
 }
 
+void
+xqc_test_0rtt_params_each_reduced(void)
+{
+    /*
+     * Reduce each MUST parameter individually and verify that every
+     * branch in the validation code triggers TRA_0RTT_TRANS_PARAMS_ERROR.
+     * Uses offset-based mutation so one loop covers all 8 fields.
+     */
+    struct {
+        size_t   tp_offset;       /* offset into xqc_transport_params_t */
+        size_t   rs_offset;       /* offset into xqc_trans_settings_t (for datagram) */
+        uint64_t remembered_val;
+    } cases[] = {
+        { offsetof(xqc_transport_params_t, initial_max_data),
+          0, REMEMBERED_MAX_DATA },
+        { offsetof(xqc_transport_params_t, initial_max_stream_data_bidi_local),
+          0, REMEMBERED_MAX_STREAM_DATA_BIDI_LOCAL },
+        { offsetof(xqc_transport_params_t, initial_max_stream_data_bidi_remote),
+          0, REMEMBERED_MAX_STREAM_DATA_BIDI_REMOTE },
+        { offsetof(xqc_transport_params_t, initial_max_stream_data_uni),
+          0, REMEMBERED_MAX_STREAM_DATA_UNI },
+        { offsetof(xqc_transport_params_t, initial_max_streams_bidi),
+          0, REMEMBERED_MAX_STREAMS_BIDI },
+        { offsetof(xqc_transport_params_t, initial_max_streams_uni),
+          0, REMEMBERED_MAX_STREAMS_UNI },
+        { offsetof(xqc_transport_params_t, active_connection_id_limit),
+          0, REMEMBERED_ACTIVE_CID_LIMIT },
+        { offsetof(xqc_transport_params_t, max_datagram_frame_size),
+          0, REMEMBERED_MAX_DGRAM_FRAME_SIZE },
+    };
+    size_t n = sizeof(cases) / sizeof(cases[0]);
+
+    for (size_t i = 0; i < n; i++) {
+        xqc_cid_t server_scid;
+        xqc_connection_t *conn = xqc_0rtt_test_make_conn(&server_scid);
+
+        xqc_transport_params_t params;
+        xqc_0rtt_test_init_params(&params, conn, &server_scid);
+
+        /* reduce exactly one field below remembered */
+        uint64_t *field = (uint64_t *)((char *)&params + cases[i].tp_offset);
+        *field = cases[i].remembered_val - 1;
+
+        xqc_int_t err = xqc_0rtt_test_fire(conn, &params);
+        CU_ASSERT_EQUAL(err, TRA_0RTT_TRANS_PARAMS_ERROR);
+
+        xqc_engine_destroy(conn->engine);
+    }
+}
+
 
 void
 xqc_test_conn_tls_error_cb_max_alert()
@@ -418,3 +650,4 @@ xqc_test_conn_tls_error_cb_max_alert()
 
     xqc_engine_destroy(conn->engine);
 }
+

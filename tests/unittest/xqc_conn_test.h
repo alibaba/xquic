@@ -21,15 +21,5 @@ void xqc_test_conn_tls_error_cb_max_alert();
 void xqc_test_0rtt_params_all_equal(void);
 void xqc_test_0rtt_params_all_increased(void);
 void xqc_test_0rtt_params_initial_max_data_reduced(void);
-void xqc_test_0rtt_params_max_streams_bidi_reduced(void);
-void xqc_test_0rtt_params_active_cid_limit_reduced(void);
-void xqc_test_0rtt_params_no_0rtt_flag_skips_check(void);
-void xqc_test_0rtt_params_server_skips_check(void);
-void xqc_test_0rtt_params_stream_data_bidi_local_reduced(void);
-void xqc_test_0rtt_params_stream_data_bidi_remote_reduced(void);
-void xqc_test_0rtt_params_stream_data_uni_reduced(void);
-void xqc_test_0rtt_params_max_streams_uni_reduced(void);
-void xqc_test_0rtt_params_max_dgram_frame_size_reduced(void);
-void xqc_test_0rtt_params_rejected_allows_reduction(void);
 
 #endif

@@ -5139,7 +5139,7 @@ clear_log
 echo -e "crypto_error: cert verify triggers dynamic CRYPTO_ERROR (0x112=274) ...\c"
 ${SERVER_BIN} -l d -e > /dev/null &
 sleep 1
-${CLIENT_BIN} -l d -t 1 -E -x 700 > stdlog
+${CLIENT_BIN} -l d -t 1 -E -x 703 > stdlog
 result=`grep "conn_err:274" stdlog | wc -l`
 if [ "$result" -gt 0 ]; then
     echo ">>>>>>>> pass:1"
@@ -5155,7 +5155,7 @@ clear_log
 echo -e "crypto_error: removed 0x1FF enum not used (conn_err:511 absent) ...\c"
 ${SERVER_BIN} -l d -e > /dev/null &
 sleep 1
-${CLIENT_BIN} -l d -t 1 -E -x 700 > stdlog
+${CLIENT_BIN} -l d -t 1 -E -x 703 > stdlog
 result=`grep "conn_err:511" stdlog | wc -l`
 if [ "$result" -eq 0 ]; then
     echo ">>>>>>>> pass:1"

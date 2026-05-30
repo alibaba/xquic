@@ -581,19 +581,53 @@ xqc_test_conn_tls_error_cb_alert_zero()
 }
 
 void
-xqc_test_0rtt_params_initial_max_data_reduced(void)
+xqc_test_0rtt_params_each_reduced(void)
 {
-    xqc_cid_t server_scid;
-    xqc_connection_t *conn = xqc_0rtt_test_make_conn(&server_scid);
+    /*
+     * Reduce each MUST parameter individually and verify that every
+     * branch in the validation code triggers TRA_0RTT_TRANS_PARAMS_ERROR.
+     * Uses offset-based mutation so one loop covers all 8 fields.
+     */
+    struct {
+        size_t   tp_offset;       /* offset into xqc_transport_params_t */
+        size_t   rs_offset;       /* offset into xqc_trans_settings_t (for datagram) */
+        uint64_t remembered_val;
+    } cases[] = {
+        { offsetof(xqc_transport_params_t, initial_max_data),
+          0, REMEMBERED_MAX_DATA },
+        { offsetof(xqc_transport_params_t, initial_max_stream_data_bidi_local),
+          0, REMEMBERED_MAX_STREAM_DATA_BIDI_LOCAL },
+        { offsetof(xqc_transport_params_t, initial_max_stream_data_bidi_remote),
+          0, REMEMBERED_MAX_STREAM_DATA_BIDI_REMOTE },
+        { offsetof(xqc_transport_params_t, initial_max_stream_data_uni),
+          0, REMEMBERED_MAX_STREAM_DATA_UNI },
+        { offsetof(xqc_transport_params_t, initial_max_streams_bidi),
+          0, REMEMBERED_MAX_STREAMS_BIDI },
+        { offsetof(xqc_transport_params_t, initial_max_streams_uni),
+          0, REMEMBERED_MAX_STREAMS_UNI },
+        { offsetof(xqc_transport_params_t, active_connection_id_limit),
+          0, REMEMBERED_ACTIVE_CID_LIMIT },
+        { offsetof(xqc_transport_params_t, max_datagram_frame_size),
+          0, REMEMBERED_MAX_DGRAM_FRAME_SIZE },
+    };
+    size_t n = sizeof(cases) / sizeof(cases[0]);
 
-    xqc_transport_params_t params;
-    xqc_0rtt_test_init_params(&params, conn, &server_scid);
-    params.initial_max_data = REMEMBERED_MAX_DATA - 1;
+    for (size_t i = 0; i < n; i++) {
+        xqc_cid_t server_scid;
+        xqc_connection_t *conn = xqc_0rtt_test_make_conn(&server_scid);
 
-    xqc_int_t err = xqc_0rtt_test_fire(conn, &params);
-    CU_ASSERT_EQUAL(err, TRA_0RTT_TRANS_PARAMS_ERROR);
+        xqc_transport_params_t params;
+        xqc_0rtt_test_init_params(&params, conn, &server_scid);
 
-    xqc_engine_destroy(conn->engine);
+        /* reduce exactly one field below remembered */
+        uint64_t *field = (uint64_t *)((char *)&params + cases[i].tp_offset);
+        *field = cases[i].remembered_val - 1;
+
+        xqc_int_t err = xqc_0rtt_test_fire(conn, &params);
+        CU_ASSERT_EQUAL(err, TRA_0RTT_TRANS_PARAMS_ERROR);
+
+        xqc_engine_destroy(conn->engine);
+    }
 }
 
 

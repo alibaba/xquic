@@ -20,6 +20,6 @@ void xqc_test_conn_tls_error_cb_max_alert();
 /* 0-RTT transport parameter validation (issue #717, RFC 9000 Section 7.4.1) */
 void xqc_test_0rtt_params_all_equal(void);
 void xqc_test_0rtt_params_all_increased(void);
-void xqc_test_0rtt_params_initial_max_data_reduced(void);
+void xqc_test_0rtt_params_each_reduced(void);
 
 #endif

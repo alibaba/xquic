@@ -220,8 +220,8 @@ main()
                         xqc_test_0rtt_params_all_equal)
         || !CU_add_test(pSuite, "xqc_test_0rtt_params_all_increased",
                         xqc_test_0rtt_params_all_increased)
-        || !CU_add_test(pSuite, "xqc_test_0rtt_params_initial_max_data_reduced",
-                        xqc_test_0rtt_params_initial_max_data_reduced)
+        || !CU_add_test(pSuite, "xqc_test_0rtt_params_each_reduced",
+                        xqc_test_0rtt_params_each_reduced)
         /* ADD TESTS HERE */)
     {
         CU_cleanup_registry();

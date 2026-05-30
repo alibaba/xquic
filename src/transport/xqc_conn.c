@@ -6169,6 +6169,19 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
 
     }
 
+    /* check datagram parameter -- unconditional, not gated on early_data
+     * accepted.  For non-0RTT connections remote_settings.max_datagram_frame_size
+     * is 0, so this is a no-op. */
+    if (params.max_datagram_frame_size < conn->remote_settings.max_datagram_frame_size) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|0rtt_param_reduced|max_datagram_frame_size|"
+                "remembered:%ui|new:%ui|",
+                conn->remote_settings.max_datagram_frame_size,
+                params.max_datagram_frame_size);
+        XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
+        return;
+    }
+
     /* set remote transport param */
     ret = xqc_conn_set_remote_transport_params(conn, &params, tp_type);
     if (ret != XQC_OK) {

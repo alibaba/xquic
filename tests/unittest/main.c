@@ -238,6 +238,8 @@ main()
                         xqc_test_0rtt_params_stream_data_uni_reduced)
         || !CU_add_test(pSuite, "xqc_test_0rtt_params_max_streams_uni_reduced",
                         xqc_test_0rtt_params_max_streams_uni_reduced)
+        || !CU_add_test(pSuite, "xqc_test_0rtt_params_max_dgram_frame_size_reduced",
+                        xqc_test_0rtt_params_max_dgram_frame_size_reduced)
         || !CU_add_test(pSuite, "xqc_test_0rtt_params_rejected_allows_reduction",
                         xqc_test_0rtt_params_rejected_allows_reduction)
         /* ADD TESTS HERE */)

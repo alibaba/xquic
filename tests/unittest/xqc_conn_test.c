@@ -781,6 +781,23 @@ xqc_test_0rtt_params_max_streams_uni_reduced(void)
     xqc_engine_destroy(conn->engine);
 }
 
+/* reduce max_datagram_frame_size below remembered (RFC 9221) */
+void
+xqc_test_0rtt_params_max_dgram_frame_size_reduced(void)
+{
+    xqc_cid_t server_scid;
+    xqc_connection_t *conn = xqc_0rtt_test_make_conn(&server_scid);
+
+    xqc_transport_params_t params;
+    xqc_0rtt_test_init_params(&params, conn, &server_scid);
+    params.max_datagram_frame_size = REMEMBERED_MAX_DGRAM_FRAME_SIZE - 1;
+
+    xqc_int_t err = xqc_0rtt_test_fire(conn, &params);
+    CU_ASSERT_EQUAL(err, TRA_0RTT_TRANS_PARAMS_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
 /* 0-RTT rejected (early data not accepted) -- reduction must be allowed */
 void
 xqc_test_0rtt_params_rejected_allows_reduction(void)

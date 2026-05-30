@@ -29,6 +29,7 @@ void xqc_test_0rtt_params_stream_data_bidi_local_reduced(void);
 void xqc_test_0rtt_params_stream_data_bidi_remote_reduced(void);
 void xqc_test_0rtt_params_stream_data_uni_reduced(void);
 void xqc_test_0rtt_params_max_streams_uni_reduced(void);
+void xqc_test_0rtt_params_max_dgram_frame_size_reduced(void);
 void xqc_test_0rtt_params_rejected_allows_reduction(void);
 
 #endif

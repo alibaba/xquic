@@ -5167,14 +5167,14 @@ fi
 
 ## RFC 9000 Section 7.4.1: 0-RTT transport parameter validation
 
-# test 700: server reduces max_streams_bidi after first connection,
+# test 701: server reduces max_streams_bidi after first connection,
 # client detects reduction on 0-RTT resumption and closes with
 # TRANSPORT_PARAMETER_ERROR (0x0E = conn_err:14)
 killall test_server 2> /dev/null
 clear_log
 rm -f test_session xqc_token tp_localhost
 echo -e "0RTT param reduction detection ...\c"
-${SERVER_BIN} -l d -e -x 700 > /dev/null &
+${SERVER_BIN} -l d -e -x 701 > /dev/null &
 sleep 1
 # first connection: establish session ticket with normal params
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
@@ -5189,14 +5189,14 @@ else
     case_print_result "0RTT_param_reduction" "fail"
 fi
 
-# test 701: server restarts with reduced params, 0-RTT is rejected
+# test 702: server restarts with reduced params, 0-RTT is rejected
 # (ticket invalid), so validation is skipped and connection succeeds
 killall test_server 2> /dev/null
 clear_log
 echo -e "0RTT rejected with param reduction ...\c"
-${SERVER_BIN} -l d -e -x 701 > /dev/null &
+${SERVER_BIN} -l d -e -x 702 > /dev/null &
 sleep 1
-# client uses stale session ticket from test 700
+# client uses stale session ticket from test 701
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
 result=`grep ">>>>>>>> pass:" stdlog`
 echo "$result"

@@ -976,14 +976,14 @@ xqc_server_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, vo
     g_server_conn_cnt++;
 
     /*
-     * test 700: after the first connection closes, reduce max_streams_bidi
+     * test 701: after the first connection closes, reduce max_streams_bidi
      * so the second connection (with 0-RTT) hits the RFC 9000 Section 7.4.1
      * validation check on the client side.
      */
-    if (g_test_case == 700 && g_server_conn_cnt == 1) {
+    if (g_test_case == 701 && g_server_conn_cnt == 1) {
         g_conn_settings.max_streams_bidi = 1;
         xqc_server_set_conn_settings(ctx.engine, &g_conn_settings);
-        printf("test_700: reduced max_streams_bidi to 1 for next conn\n");
+        printf("test_701: reduced max_streams_bidi to 1 for next conn\n");
     }
 
     if (g_mpshell) {
@@ -2635,8 +2635,8 @@ int main(int argc, char *argv[]) {
         conn_settings.simulate_ecn = 1;
     }
 
-    /* test 701: server starts with reduced max_streams_bidi from the beginning */
-    if (g_test_case == 701) {
+    /* test 702: server starts with reduced max_streams_bidi from the beginning */
+    if (g_test_case == 702) {
         conn_settings.max_streams_bidi = 1;
     }
 

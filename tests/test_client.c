@@ -4708,8 +4708,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (g_test_case == 700) {
-        g_verify_cert = 1;
-        g_verify_cert_allow_self_sign = 0;
+        g_verify_cert = 0;
     }
 
     g_conn_settings = &conn_settings;

@@ -620,6 +620,28 @@ xqc_h3_request_send_headers(xqc_h3_request_t *h3_request, xqc_http_headers_t *he
     }
 
     headers_in->count = pt;
+
+    /*
+     * RFC 9114 Section 4.2: do not send connection-specific headers.
+     * Reject locally before encoding to avoid sending non-compliant
+     * messages on the wire.
+     */
+    for (i = 0; i < headers_in->count; i++) {
+        xqc_http_header_t *hdr = &headers_in->headers[i];
+        if (xqc_h3_hdr_is_forbidden(hdr->name.iov_base,
+                                     hdr->name.iov_len,
+                                     hdr->value.iov_base,
+                                     hdr->value.iov_len))
+        {
+            xqc_log(h3_request->h3_stream->log, XQC_LOG_ERROR,
+                    "|forbidden header in h3 send|name:%*s|",
+                    (int)hdr->name.iov_len,
+                    (char *)hdr->name.iov_base);
+            sent = -XQC_H3_INVALID_HEADER;
+            goto end;
+        }
+    }
+
     sent = xqc_h3_stream_send_headers(h3_request->h3_stream, headers_in, fin);
     xqc_h3_request_on_header_send(h3_request);
 
@@ -821,6 +843,29 @@ xqc_h3_request_on_recv_header(xqc_h3_request_t *h3r)
                 fields_size,
                 h3r->h3_stream->h3c->local_h3_conn_settings.max_field_section_size);
         return -XQC_H3_INVALID_HEADER;
+    }
+
+    /*
+     * RFC 9114 Section 4.2: reject connection-specific headers.
+     * Any message containing connection-specific header fields
+     * MUST be treated as malformed (H3_MESSAGE_ERROR).
+     */
+    for (size_t fi = 0; fi < headers->count; fi++) {
+        xqc_http_header_t *hdr = &headers->headers[fi];
+        if (xqc_h3_hdr_is_forbidden(hdr->name.iov_base,
+                                     hdr->name.iov_len,
+                                     hdr->value.iov_base,
+                                     hdr->value.iov_len))
+        {
+            xqc_log(h3r->h3_stream->log, XQC_LOG_ERROR,
+                    "|forbidden header in h3|conn:%p|stream_id:%ui|"
+                    "name:%*s|",
+                    h3r->h3_stream->h3c->conn,
+                    h3r->h3_stream->stream_id,
+                    (int)hdr->name.iov_len,
+                    (char *)hdr->name.iov_base);
+            return -XQC_H3_INVALID_HEADER;
+        }
     }
 
     /* set read flag */

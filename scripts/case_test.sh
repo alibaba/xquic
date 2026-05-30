@@ -441,6 +441,20 @@ fi
 
 
 clear_log
+echo -e "forbidden_header_e2e ...\c"
+${CLIENT_BIN} -s 5120 -l d -t 1 -E -x 55 >> clog
+forbidden_ok=`grep "forbidden_header_rejected:1" clog`
+echo_ok=`grep ">>>>>>>> pass:1" clog`
+if [ -n "$forbidden_ok" ] && [ -n "$echo_ok" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "forbidden_header_e2e" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "forbidden_header_e2e" "fail"
+fi
+
+
+clear_log
 echo -e "user close connection ...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 2 >> clog
 if grep "<==.*CONNECTION_CLOSE" clog >/dev/null && grep "==>.*CONNECTION_CLOSE" clog >/dev/null; then

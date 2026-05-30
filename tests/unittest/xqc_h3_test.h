@@ -26,4 +26,9 @@ void xqc_test_h3_missing_settings();
 /* issue #609: RFC 9114 §7.2 control-only frames on request stream */
 void xqc_test_h3_request_frame_unexpected();
 
+/* issue #746: RFC 9114 §4.2 forbidden connection-specific headers */
+void xqc_test_h3_message_error_enum();
+void xqc_test_h3_forbidden_headers_rejected();
+void xqc_test_h3_allowed_headers_pass();
+
 #endif //XQUIC_XQC_H3_TEST_H

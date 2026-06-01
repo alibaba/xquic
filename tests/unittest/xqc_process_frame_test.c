@@ -6,17 +6,43 @@
 #include "xqc_process_frame_test.h"
 #include "xqc_common_test.h"
 #include "src/transport/xqc_frame.h"
+#include "src/transport/xqc_frame_parser.h"
+#include "src/transport/xqc_packet.h"
 #include "src/transport/xqc_packet_in.h"
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_send_queue.h"
 #include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "src/transport/xqc_conn.h"
+#include "xquic/xqc_errno.h"
 
 char XQC_TEST_ILL_FRAME_1[] = {0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 char XQC_TEST_ZERO_LEN_NEW_TOKEN_FRAME[] = {0x07, 0x00};
 char XQC_TEST_STREAM_FRAME[] = {0x0a, 0x00, 0x01, 0x00};
 char XQC_TEST_APP_CONN_CLOSE_FRAME[] = {0x1d, 0x00, 0x00};
 char XQC_TEST_DATAGRAM_FRAME[] = {0x30};
+
+
+static xqc_int_t
+xqc_test_parse_stream_frame_inner(unsigned char *frame_buf,
+    size_t frame_buf_len,
+    xqc_stream_frame_t *frame, xqc_stream_id_t *stream_id,
+    xqc_connection_t **conn)
+{
+    xqc_packet_in_t pi;
+
+    *conn = test_engine_connect();
+    CU_ASSERT(*conn != NULL);
+    if (*conn == NULL) {
+        return XQC_ERROR;
+    }
+
+    memset(&pi, 0, sizeof(pi));
+    memset(frame, 0, sizeof(*frame));
+    pi.pos = frame_buf;
+    pi.last = frame_buf + frame_buf_len;
+
+    return xqc_parse_stream_frame(&pi, *conn, frame, stream_id);
+}
 
 
 static void

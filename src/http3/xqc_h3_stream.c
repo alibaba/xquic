@@ -77,6 +77,35 @@ xqc_h3_stream_close(xqc_h3_stream_t *h3s)
 }
 
 
+xqc_int_t
+xqc_h3_stream_reset_with_error(xqc_h3_stream_t *h3s, uint64_t h3_err)
+{
+    xqc_connection_t *conn = h3s->h3c->conn;
+    xqc_stream_t     *stream = h3s->stream;
+    int               ret;
+
+    ret = xqc_write_reset_stream_to_packet(conn, stream, h3_err,
+                                           stream->stream_send_offset);
+    if (ret < 0) {
+        xqc_log(h3s->log, XQC_LOG_ERROR,
+                "|write reset_stream failed|ret:%d|stream_id:%ui|",
+                ret, h3s->stream_id);
+        return ret;
+    }
+
+    ret = xqc_write_stop_sending_to_packet(conn, stream, h3_err);
+    if (ret < 0) {
+        xqc_log(h3s->log, XQC_LOG_ERROR,
+                "|write stop_sending failed|ret:%d|stream_id:%ui|",
+                ret, h3s->stream_id);
+        return ret;
+    }
+
+    h3s->stream_err = h3_err;
+    return XQC_OK;
+}
+
+
 void
 xqc_h3_stream_destroy(xqc_h3_stream_t *h3s)
 {
@@ -1546,12 +1575,7 @@ xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_
              * H3_MESSAGE_ERROR so only the offending stream is torn down.
              */
             if (processed == -XQC_H3_EMALFORMED_HEADER) {
-                xqc_write_reset_stream_to_packet(h3c->conn, h3s->stream,
-                                                 H3_MESSAGE_ERROR,
-                                                 h3s->stream->stream_send_offset);
-                xqc_write_stop_sending_to_packet(h3c->conn, h3s->stream,
-                                                 H3_MESSAGE_ERROR);
-                h3s->stream_err = H3_MESSAGE_ERROR;
+                xqc_h3_stream_reset_with_error(h3s, H3_MESSAGE_ERROR);
                 return errcode;
             }
 
@@ -1782,13 +1806,7 @@ xqc_h3_stream_process_blocked_stream(xqc_h3_stream_t *h3s)
                                                           buf->data_len - buf->consumed_len, buf->fin_flag);
         if (processed < 0) {
             if (processed == -XQC_H3_EMALFORMED_HEADER) {
-                xqc_h3_conn_t *h3c = h3s->h3c;
-                xqc_write_reset_stream_to_packet(h3c->conn, h3s->stream,
-                                                 H3_MESSAGE_ERROR,
-                                                 h3s->stream->stream_send_offset);
-                xqc_write_stop_sending_to_packet(h3c->conn, h3s->stream,
-                                                 H3_MESSAGE_ERROR);
-                h3s->stream_err = H3_MESSAGE_ERROR;
+                xqc_h3_stream_reset_with_error(h3s, H3_MESSAGE_ERROR);
                 h3s->ref_cnt--;
                 return XQC_OK;
             }

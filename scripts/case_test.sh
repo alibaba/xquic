@@ -440,6 +440,32 @@ else
 fi
 
 
+# RFC 9114 4.2 receiver-side rejection: server sends uppercase field name,
+# client MUST treat it as malformed and close with H3_MESSAGE_ERROR.
+killall test_server 2> /dev/null
+${SERVER_BIN} -l d -e -x 48 > /dev/null &
+sleep 1
+
+rm -f test_session tp_localhost xqc_token
+
+clear_log
+echo -e "uppercase header recv rejection ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E >> clog
+result=`strings clog | grep "uppercase character in field name"`
+err_code=`strings clog | grep "conn errno:270"`
+if [ -n "$result" ] && [ -n "$err_code" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "uppercase_header_recv_rejection" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "uppercase_header_recv_rejection" "fail"
+fi
+
+killall test_server 2> /dev/null
+${SERVER_BIN} -l d -e > /dev/null &
+sleep 1
+
+
 clear_log
 echo -e "forbidden_header_e2e ...\c"
 ${CLIENT_BIN} -s 5120 -l d -t 1 -E -x 55 >> clog

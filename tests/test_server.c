@@ -1223,6 +1223,16 @@ xqc_server_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
         header_cnt++;
     }
 
+    if (g_test_case == 48) {
+        xqc_http_header_t uppercase_hdr = {
+            .name   = {.iov_base = "X-Uppercase-Test", .iov_len = 16},
+            .value  = {.iov_base = "violation", .iov_len = 9},
+            .flags  = XQC_HTTP_HEADER_FLAG_RAW_NAME,
+        };
+        header[header_cnt] = uppercase_hdr;
+        header_cnt++;
+    }
+
     xqc_http_headers_t headers = {
         .headers = header,
         .count  = header_cnt,

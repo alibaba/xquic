@@ -443,7 +443,7 @@ fi
 # RFC 9114 4.2 receiver-side rejection: server sends uppercase field name,
 # client MUST treat it as malformed (stream error, not connection error).
 killall test_server 2> /dev/null
-${SERVER_BIN} -l d -e -x 48 > /dev/null &
+${SERVER_BIN} -l d -e -x 704 > /dev/null &
 sleep 1
 
 rm -f test_session tp_localhost xqc_token

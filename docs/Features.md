@@ -25,7 +25,6 @@ CCM-based cipher suites (`TLS_AES_128_CCM_SHA256` and `TLS_AES_128_CCM_8_SHA256`
 1. **Optional per RFC 9001**: CCM support is not mandatory for QUIC implementations.
 2. **Low security limits**: AEAD_AES_128_CCM has significantly lower confidentiality and integrity limits (2^21.5 ≈ 2,992,530 packets) compared to GCM (confidentiality: 2^23, integrity: 2^52) and ChaCha20-Poly1305 (confidentiality: 2^62, integrity: 2^36). This requires more frequent key updates.
 3. **No header protection for CCM_8**: RFC 9001 does not define a header protection scheme for `TLS_AES_128_CCM_8_SHA256`, making it unsuitable for QUIC.
-4. **Industry consensus**: Most QUIC implementations (including ngtcp2, quiche) also do not support CCM.
 
 ## qlog
 Based on qlog ([draft-ietf-quic-qlog-main-schema](https://datatracker.ietf.org/doc/draft-ietf-quic-qlog-main-schema/), [draft-ietf-quic-qlog-quic-events](https://datatracker.ietf.org/doc/draft-ietf-quic-qlog-quic-events/) and [draft-ietf-quic-qlog-h3-events](https://datatracker.ietf.org/doc/draft-ietf-quic-qlog-h3-events/))，xquic implements quic event logging.

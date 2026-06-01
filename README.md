@@ -55,7 +55,7 @@ XQUIC supports the following TLS 1.3 cipher suites for QUIC packet protection (a
 | TLS_AES_128_CCM_SHA256 | AEAD_AES_128_CCM | — | Not Supported |
 | TLS_AES_128_CCM_8_SHA256 | — | — | Not Supported |
 
-> **Note:** `TLS_AES_128_CCM_SHA256` and `TLS_AES_128_CCM_8_SHA256` are not supported. CCM-based cipher suites are optional per [RFC 9001](https://www.rfc-editor.org/rfc/rfc9001) and have significantly lower confidentiality and integrity limits (2^21.5) compared to GCM (2^23 / 2^52) and ChaCha20-Poly1305. `TLS_AES_128_CCM_8_SHA256` is further excluded from QUIC usage by RFC 9001 as no header protection scheme is defined for it. Most QUIC implementations (including ngtcp2) also do not support CCM.
+> **Note:** `TLS_AES_128_CCM_SHA256` and `TLS_AES_128_CCM_8_SHA256` are not supported. CCM-based cipher suites are optional per [RFC 9001](https://www.rfc-editor.org/rfc/rfc9001) and have significantly lower confidentiality and integrity limits (2^21.5) compared to GCM (2^23 / 2^52) and ChaCha20-Poly1305. `TLS_AES_128_CCM_8_SHA256` is further excluded from QUIC usage by RFC 9001 as no header protection scheme is defined for it.
 
 #### Not Yet Standardized Features
 

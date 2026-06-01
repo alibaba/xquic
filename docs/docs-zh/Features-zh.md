@@ -25,7 +25,6 @@ XQUIC 不支持基于 CCM 的加密套件（`TLS_AES_128_CCM_SHA256` 和 `TLS_AE
 1. **RFC 9001 中为可选项**：QUIC 实现不强制要求支持 CCM。
 2. **安全限值极低**：AEAD_AES_128_CCM 的机密性和完整性限值仅为 2^21.5（约 2,992,530 个数据包），远低于 GCM（机密性：2^23，完整性：2^52）和 ChaCha20-Poly1305（机密性：2^62，完整性：2^36）。这意味着需要更频繁地进行密钥更新。
 3. **CCM_8 无头部保护方案**：RFC 9001 未为 `TLS_AES_128_CCM_8_SHA256` 定义头部保护方案，因此无法在 QUIC 中使用。
-4. **行业共识**：大多数 QUIC 实现（包括 ngtcp2、quiche）也不支持 CCM。
 
 ## qlog
 基于 qlog ([draft-ietf-quic-qlog-main-schema](https://datatracker.ietf.org/doc/draft-ietf-quic-qlog-main-schema/)、[draft-ietf-quic-qlog-quic-events](https://datatracker.ietf.org/doc/draft-ietf-quic-qlog-quic-events/) 和 [draft-ietf-quic-qlog-h3-events](https://datatracker.ietf.org/doc/draft-ietf-quic-qlog-h3-events/))，xquic 实现了 quic 事件记录。

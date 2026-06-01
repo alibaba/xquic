@@ -22,4 +22,9 @@ void xqc_test_0rtt_params_all_equal(void);
 void xqc_test_0rtt_params_all_increased(void);
 void xqc_test_0rtt_params_each_reduced(void);
 
+/* ALPN negotiation tests (issue #709) */
+void xqc_test_alpn_error_code_value(void);
+void xqc_test_alpn_server_cb_propagates_error(void);
+void xqc_test_alpn_client_handshake_no_alpn(void);
+
 #endif

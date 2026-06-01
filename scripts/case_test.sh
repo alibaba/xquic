@@ -559,16 +559,32 @@ fi
 
 
 clear_log
-echo -e "alp negotiation failure ...\c"
+echo -e "alpn negotiation success ...\c"
+rm -f test_session
+${CLIENT_BIN} -s 1024 -l e -t 1 -T 1 > stdlog
+alpn_ok=`grep "alpn:transport" stdlog`
+conn_err_zero=`grep -E "conn_err:0[^0-9]" stdlog`
+errlog=`grep_err_log`
+if [ -n "$alpn_ok" ] && [ -n "$conn_err_zero" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "alpn_negotiation_success" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "alpn_negotiation_success" "fail"
+fi
+
+clear_log
+echo -e "alpn negotiation failure (0x178) ...\c"
 rm -f test_session
 ${CLIENT_BIN} -l e -t 1 -T 1 -x 43 > stdlog
 alpn_res=`grep "xqc_ssl_alpn_select_cb|select proto error" slog`
-if [ -n "$alpn_res" ]; then
+conn_err_178=`grep "conn_err:376" stdlog`
+if [ -n "$alpn_res" ] && [ -n "$conn_err_178" ]; then
     echo ">>>>>>>> pass:1"
-    case_print_result "alp_negotiation_failure" "pass"
+    case_print_result "alpn_negotiation_failure_0x178" "pass"
 else
     echo ">>>>>>>> pass:0"
-    case_print_result "alp_negotiation_failure" "fail"
+    case_print_result "alpn_negotiation_failure_0x178" "fail"
 fi
 
 

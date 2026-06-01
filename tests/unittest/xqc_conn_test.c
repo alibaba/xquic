@@ -21,6 +21,10 @@
 
 extern void xqc_conn_tls_error_cb(xqc_int_t tls_err, void *user_data);
 
+/* forward-declare: defined in xqc_conn.c, exposed via xqc_conn_tls_cbs */
+xqc_int_t xqc_conn_tls_alpn_select_cb(const char *alpn,
+    size_t alpn_len, void *user_data);
+
 void
 xqc_test_conn_create()
 {
@@ -651,3 +655,66 @@ xqc_test_conn_tls_error_cb_max_alert()
     xqc_engine_destroy(conn->engine);
 }
 
+
+/* RFC 9001 Section 8.1 ALPN enforcement -- issue #709 */
+void
+xqc_test_alpn_error_code_value(void)
+{
+    CU_ASSERT_EQUAL(TRA_NO_APPLICATION_PROTOCOL, 0x178);
+
+    /* also verify it sits inside the crypto-error range [0x100, 0x1FF] */
+    CU_ASSERT(TRA_NO_APPLICATION_PROTOCOL >= TRA_CRYPTO_ERROR_BASE);
+    CU_ASSERT(TRA_NO_APPLICATION_PROTOCOL <= 0x1FF);
+}
+
+
+/* verify xqc_conn_tls_alpn_select_cb propagates xqc_conn_server_on_alpn errors */
+void
+xqc_test_alpn_server_cb_propagates_error(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_engine_t *engine = conn->engine;
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+
+    xqc_int_t ret;
+    ret = xqc_conn_tls_alpn_select_cb("transport", 9, conn);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+        conn->alpn = NULL;
+        conn->alpn_len = 0;
+    }
+
+    /* unregistered ALPN must fail */
+    ret = xqc_conn_tls_alpn_select_cb("bogus", 5, conn);
+    CU_ASSERT(ret != XQC_OK);
+
+    xqc_engine_destroy(engine);
+}
+
+
+/* client handshake without ALPN must close with 0x178 */
+void
+xqc_test_alpn_client_handshake_no_alpn(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT(conn->conn_type == XQC_CONN_TYPE_CLIENT);
+
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+    CU_ASSERT(
+        !(conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_COMPLETED));
+
+    xqc_int_t ret = xqc_conn_handshake_complete(conn);
+
+    CU_ASSERT_EQUAL(ret, -XQC_EPROTO);
+    CU_ASSERT(conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_COMPLETED);
+    CU_ASSERT_EQUAL(conn->conn_err,
+                    (uint64_t)TRA_NO_APPLICATION_PROTOCOL);
+    CU_ASSERT(conn->conn_flag & XQC_CONN_FLAG_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}

@@ -891,8 +891,6 @@ xqc_h3_request_on_recv_header(xqc_h3_request_t *h3r)
                     "stream_id:%ui|field_index:%uz|name_len:%uz|",
                     h3r->h3_stream->h3c->conn, h3r->h3_stream->stream_id,
                     i, hdr->name.iov_len);
-            XQC_H3_CONN_ERR(h3r->h3_stream->h3c, H3_MESSAGE_ERROR,
-                            -XQC_H3_EMALFORMED_HEADER);
             return -XQC_H3_EMALFORMED_HEADER;
         }
     }

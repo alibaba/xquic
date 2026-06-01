@@ -441,7 +441,7 @@ fi
 
 
 # RFC 9114 4.2 receiver-side rejection: server sends uppercase field name,
-# client MUST treat it as malformed and close with H3_MESSAGE_ERROR.
+# client MUST treat it as malformed (stream error, not connection error).
 killall test_server 2> /dev/null
 ${SERVER_BIN} -l d -e -x 48 > /dev/null &
 sleep 1
@@ -452,8 +452,8 @@ clear_log
 echo -e "uppercase header recv rejection ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E >> clog
 result=`strings clog | grep "uppercase character in field name"`
-err_code=`strings clog | grep "conn errno:270"`
-if [ -n "$result" ] && [ -n "$err_code" ]; then
+stream_rst=`strings clog | grep "xqc_write_reset_stream_to_packet"`
+if [ -n "$result" ] && [ -n "$stream_rst" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "uppercase_header_recv_rejection" "pass"
 else

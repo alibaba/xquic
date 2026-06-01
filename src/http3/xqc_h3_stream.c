@@ -7,6 +7,7 @@
 #include "src/http3/qpack/xqc_qpack.h"
 #include "src/transport/xqc_stream.h"
 #include "src/transport/xqc_engine.h"
+#include "src/transport/xqc_packet_out.h"
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_ext_bytestream.h"
 
@@ -1538,7 +1539,22 @@ xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_
             if (h3s->type == XQC_H3_STREAM_TYPE_BYTESTEAM) {
                 errcode = -XQC_H3_EPROC_BYTESTREAM;
             }
-            
+
+            /*
+             * RFC 9114 4.1.2: malformed request/response is a stream error,
+             * not a connection error.  send RESET_STREAM + STOP_SENDING with
+             * H3_MESSAGE_ERROR so only the offending stream is torn down.
+             */
+            if (processed == -XQC_H3_EMALFORMED_HEADER) {
+                xqc_write_reset_stream_to_packet(h3c->conn, h3s->stream,
+                                                 H3_MESSAGE_ERROR,
+                                                 h3s->stream->stream_send_offset);
+                xqc_write_stop_sending_to_packet(h3c->conn, h3s->stream,
+                                                 H3_MESSAGE_ERROR);
+                h3s->stream_err = H3_MESSAGE_ERROR;
+                return errcode;
+            }
+
             if (processed == -XQC_H3_INVALID_HEADER) {
                 /* RFC 9114 §4.1.2: malformed request/response headers
                  * MUST be treated as H3_MESSAGE_ERROR, not as a generic
@@ -1707,7 +1723,9 @@ xqc_h3_stream_process_data(xqc_stream_t *stream, xqc_h3_stream_t *h3s, xqc_bool_
         ret = xqc_h3_stream_process_in(h3s, buff, read, *fin);
         if (ret != XQC_OK) {
             xqc_log(h3c->log, XQC_LOG_ERROR, "|xqc_h3_stream_process_in error|%d|", ret);
-            XQC_H3_CONN_ERR(h3s->h3c, H3_INTERNAL_ERROR, ret);
+            if (h3s->stream_err == 0) {
+                XQC_H3_CONN_ERR(h3s->h3c, H3_INTERNAL_ERROR, ret);
+            }
             return ret;
         }
 
@@ -1763,6 +1781,17 @@ xqc_h3_stream_process_blocked_stream(xqc_h3_stream_t *h3s)
         ssize_t processed = xqc_h3_stream_process_request(h3s, buf->data + buf->consumed_len,
                                                           buf->data_len - buf->consumed_len, buf->fin_flag);
         if (processed < 0) {
+            if (processed == -XQC_H3_EMALFORMED_HEADER) {
+                xqc_h3_conn_t *h3c = h3s->h3c;
+                xqc_write_reset_stream_to_packet(h3c->conn, h3s->stream,
+                                                 H3_MESSAGE_ERROR,
+                                                 h3s->stream->stream_send_offset);
+                xqc_write_stop_sending_to_packet(h3c->conn, h3s->stream,
+                                                 H3_MESSAGE_ERROR);
+                h3s->stream_err = H3_MESSAGE_ERROR;
+                h3s->ref_cnt--;
+                return XQC_OK;
+            }
             h3s->ref_cnt--;
             return processed;
         }

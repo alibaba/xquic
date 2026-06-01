@@ -94,15 +94,7 @@ typedef enum xqc_http3_nv_flag_s {
      * into dynamic table. application layer can use this flag to tell QPACK not to put value into
      * dynamic table.
      */
-    XQC_HTTP_HEADER_FLAG_NEVER_INDEX_VALUE  = 0x02,
-
-    /**
-     * preserve the original field name bytes on send, bypassing the automatic
-     * lowercase conversion mandated by RFC 9114 4.2.  intended for conformance
-     * testing only -- an endpoint that receives uppercase names from a peer
-     * MUST treat the message as malformed per RFC 9114 4.1.2.
-     */
-    XQC_HTTP_HEADER_FLAG_RAW_NAME           = 0x04
+    XQC_HTTP_HEADER_FLAG_NEVER_INDEX_VALUE  = 0x02
 
 } xqc_http3_nv_flag_t;
 

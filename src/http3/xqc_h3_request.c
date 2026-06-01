@@ -533,15 +533,10 @@ xqc_h3_request_make_name_lowercase(xqc_http_header_t *dst, xqc_http_header_t *sr
 xqc_int_t
 xqc_h3_request_copy_header(xqc_http_header_t *dst, xqc_http_header_t *src, xqc_var_buf_t *buf)
 {
-    if (src->flags & XQC_HTTP_HEADER_FLAG_RAW_NAME) {
-        dst->name.iov_base = src->name.iov_base;
-        dst->name.iov_len = src->name.iov_len;
-    } else {
-        /* try to make field name to lower-case if upper-case characters is contained */
-        xqc_int_t ret = xqc_h3_request_make_name_lowercase(dst, src, buf);
-        if (ret != XQC_OK) {
-            return ret;
-        }
+    /* try to make field name to lower-case if upper-case characters is contained */
+    xqc_int_t ret = xqc_h3_request_make_name_lowercase(dst, src, buf);
+    if (ret != XQC_OK) {
+        return ret;
     }
 
     dst->value = src->value;

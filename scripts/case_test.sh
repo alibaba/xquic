@@ -440,31 +440,6 @@ else
 fi
 
 
-# RFC 9114 4.2 receiver-side rejection: server sends uppercase field name,
-# client MUST treat it as malformed (stream error, not connection error).
-killall test_server 2> /dev/null
-${SERVER_BIN} -l d -e -x 704 > /dev/null &
-sleep 1
-
-rm -f test_session tp_localhost xqc_token
-
-clear_log
-echo -e "uppercase header recv rejection ...\c"
-${CLIENT_BIN} -s 1024 -l d -t 1 -E >> clog
-result=`strings clog | grep "uppercase character in field name"`
-stream_rst=`strings clog | grep "xqc_write_reset_stream_to_packet"`
-if [ -n "$result" ] && [ -n "$stream_rst" ]; then
-    echo ">>>>>>>> pass:1"
-    case_print_result "uppercase_header_recv_rejection" "pass"
-else
-    echo ">>>>>>>> pass:0"
-    case_print_result "uppercase_header_recv_rejection" "fail"
-fi
-
-killall test_server 2> /dev/null
-${SERVER_BIN} -l d -e > /dev/null &
-sleep 1
-
 
 clear_log
 echo -e "forbidden_header_e2e ...\c"

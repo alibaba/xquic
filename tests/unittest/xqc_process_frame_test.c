@@ -146,7 +146,7 @@ xqc_test_handshake_app_conn_close_is_converted()
     conn = test_engine_connect();
     CU_ASSERT(conn != NULL);
 
-    ret = xqc_write_conn_close_to_packet(conn, H3_NO_ERROR);
+    ret = xqc_write_conn_close_to_packet(conn, 0x200);
     CU_ASSERT(ret == XQC_OK);
 
     packet_out = xqc_test_first_high_pri_packet(conn);

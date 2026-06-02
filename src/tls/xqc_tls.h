@@ -222,5 +222,14 @@ xqc_int_t xqc_tls_update_tp(xqc_tls_t *tls, uint8_t *tp_buf, size_t tp_len);
  */
 void *xqc_tls_get_ssl(xqc_tls_t *tls);
 
+/**
+ * @brief check if a cert verification error is tolerable
+ *
+ * tolerable errors include missing issuer cert (local or chain)
+ * and self-signed cert when allowed by cert_verify_flag.
+ */
+xqc_bool_t xqc_cert_verify_err_tolerable(int err_code,
+    uint8_t cert_verify_flag);
+
 
 #endif

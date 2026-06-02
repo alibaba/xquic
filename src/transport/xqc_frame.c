@@ -674,6 +674,31 @@ xqc_insert_crypto_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream
                 "|crypto frame data buffer exceed|");
         return ret;
     }
+
+    /* CWE-770 mitigation: reject if buffered frame count or data bytes exceed caps.
+     * This prevents sparse out-of-order CRYPTO fragments from causing unbounded
+     * memory allocation when next_read_offset is pinned by gaps. */
+    if (stream->stream_data_in.buffered_frame_count >= XQC_MAX_CRYPTO_FRAME_BUFFERED_COUNT) {
+        XQC_CONN_ERR(conn, TRA_CRYPTO_BUFFER_EXCEEDED);
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|crypto frame buffered count exceed|count:%ui|limit:%d|",
+                stream->stream_data_in.buffered_frame_count,
+                XQC_MAX_CRYPTO_FRAME_BUFFERED_COUNT);
+        return -XQC_ELIMIT;
+    }
+
+    if (stream->stream_data_in.buffered_data_bytes + stream_frame->data_length
+        > XQC_MAX_CRYPTO_FRAME_BUFFERED_BYTES)
+    {
+        XQC_CONN_ERR(conn, TRA_CRYPTO_BUFFER_EXCEEDED);
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|crypto frame buffered bytes exceed|bytes:%ui|new:%ud|limit:%d|",
+                stream->stream_data_in.buffered_data_bytes,
+                stream_frame->data_length,
+                XQC_MAX_CRYPTO_FRAME_BUFFERED_BYTES);
+        return -XQC_ELIMIT;
+    }
+
     xqc_list_for_each_reverse(pos, &stream->stream_data_in.frames_tailq) {
         frame = xqc_list_entry(pos, xqc_stream_frame_t, sf_list);
 
@@ -687,6 +712,10 @@ xqc_insert_crypto_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream
     if (!inserted) {
         xqc_list_add(&stream_frame->sf_list, &stream->stream_data_in.frames_tailq);
     }
+
+    /* update buffered resource counters */
+    stream->stream_data_in.buffered_frame_count++;
+    stream->stream_data_in.buffered_data_bytes += stream_frame->data_length;
 
     return XQC_OK;
 }

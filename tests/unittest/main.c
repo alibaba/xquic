@@ -112,6 +112,7 @@ main()
         || !CU_add_test(pSuite, "xqc_test_process_frame", xqc_test_process_frame)
         || !CU_add_test(pSuite, "xqc_test_handshake_app_conn_close_is_converted", xqc_test_handshake_app_conn_close_is_converted)
         || !CU_add_test(pSuite, "xqc_test_1rtt_only_flow_control_frames_are_buffered", xqc_test_1rtt_only_flow_control_frames_are_buffered)
+        || !CU_add_test(pSuite, "xqc_test_frame_type_in_pkt_validation", xqc_test_frame_type_in_pkt_validation)
         || !CU_add_test(pSuite, "xqc_test_parse_padding_frame", xqc_test_parse_padding_frame)
         || !CU_add_test(pSuite, "xqc_test_large_ack_frame", xqc_test_large_ack_frame)
         /* issue #632: ACK_ECN frame parsing (RFC 9000 19.3) */

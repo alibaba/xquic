@@ -11,6 +11,8 @@ void xqc_test_handshake_app_conn_close_is_converted();
 
 void xqc_test_1rtt_only_flow_control_frames_are_buffered();
 
+void xqc_test_frame_type_in_pkt_validation();
+
 void xqc_test_parse_padding_frame();
 
 void xqc_test_large_ack_frame();

@@ -66,6 +66,7 @@ typedef struct {
     xqc_wt_bidistream_t *stream;
     char                 buf[1024];
     size_t               len;
+    int                  fin;
 } wt_stream_read_state_t;
 
 static xqc_usec_t wt_now(void) {
@@ -470,6 +471,7 @@ stream_state(wt_ctx_t *ctx, xqc_wt_bidistream_t *stream)
     if (empty) {
         empty->stream = stream;
         empty->len = 0;
+        empty->fin = 0;
     }
     return empty;
 }
@@ -542,15 +544,15 @@ on_session_close(xqc_webtransport_session_t *session,
 }
 
 static void
-on_handshake_done(xqc_webtransport_session_t *session)
+on_handshake_done(xqc_webtransport_conn_t *conn, void *user)
 {
-    if (session == NULL) {
+    if (conn == NULL) {
         g_ctx->session_open_failed = 1;
         event_base_loopbreak(g_ctx->eb);
         return;
     }
 
-    g_ctx->h3_conn = xqc_wt_session_get_h3_conn(session);
+    g_ctx->h3_conn = xqc_wt_conn_get_h3_conn(conn);
     g_ctx->handshake_done = 1;
     try_send_pre_session_dgram(g_ctx);
     try_open_session(g_ctx);
@@ -558,7 +560,7 @@ on_handshake_done(xqc_webtransport_session_t *session)
 
 static xqc_int_t
 on_bidi_read(xqc_wt_bidistream_t *stream, xqc_wt_session_t *session,
-    void *data, size_t data_len, void *user)
+    void *data, size_t data_len, uint8_t fin, void *user)
 {
     wt_stream_read_state_t *state = stream_state(g_ctx, stream);
     if (state == NULL) {
@@ -567,6 +569,9 @@ on_bidi_read(xqc_wt_bidistream_t *stream, xqc_wt_session_t *session,
     if (data_len > 0 && state->len + data_len <= sizeof(state->buf)) {
         memcpy(state->buf + state->len, data, data_len);
         state->len += data_len;
+    }
+    if (fin) {
+        state->fin = 1;
     }
 
     if (g_ctx->scenario == WT_SCENARIO_SPLIT_HEADER) {
@@ -670,8 +675,13 @@ on_bidi_read(xqc_wt_bidistream_t *stream, xqc_wt_session_t *session,
         if (state->len == expected
             && memcmp(state->buf, ECHO_MSG, expected) == 0)
         {
-            printf("[OK] bidi-echo: %zu bytes match\n", state->len);
-            g_ctx->echo_ok = 1;
+            if (state->fin) {
+                printf("[OK] bidi-echo: %zu bytes match\n", state->len);
+                printf("[OK] bidi-fin\n");
+                g_ctx->echo_ok = 1;
+            } else {
+                printf("[FAIL] bidi-echo: FIN not observed\n");
+            }
             if (g_ctx->scenario == WT_SCENARIO_COMPAT_LEGACY) {
                 printf("[OK] compat-legacy\n");
             }
@@ -1384,7 +1394,7 @@ main(int argc, char *argv[])
     xqc_webtransport_session_callbacks_t scbs = {
         .webtransport_session_create_notify = on_session_create,
         .webtransport_session_close_notify = on_session_close,
-        .webtransport_session_handshake_finished_notify = on_handshake_done,
+        .webtransport_conn_handshake_finished_notify = on_handshake_done,
     };
     xqc_webtransport_stream_callbacks_t stcbs = {
         .wt_bidistream_read_notify = on_bidi_read,

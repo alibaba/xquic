@@ -40,7 +40,8 @@ xqc_wt_ctx_t *xqc_wt_ctx_get_by_engine(xqc_engine_t *engine);
 void xqc_wt_h3_uni_stream_created(xqc_h3_conn_t *h3c,
     xqc_h3_stream_t *h3s, int *ret);
 void xqc_wt_h3_uni_stream_recv(xqc_h3_conn_t *h3c,
-    xqc_h3_stream_t *h3s, uint8_t *data, size_t size, int *ret);
+    xqc_h3_stream_t *h3s, uint8_t *data, size_t size, uint8_t fin,
+    int *ret);
 void xqc_wt_h3_bidi_stream_created(xqc_h3_conn_t *h3c,
     xqc_h3_stream_t *h3s, int *ret);
 void xqc_wt_h3_bidi_stream_recv(xqc_h3_conn_t *h3c,

@@ -14,7 +14,8 @@
 #include "src/webtransport/xqc_webtransport_wire.h"
 
 xqc_int_t
-xqc_wt_datagram_send_blk(xqc_wt_conn_t *user_conn, wt_dgram_blk_t *dgram_blk)
+xqc_wt_datagram_send_blk(xqc_wt_conn_t *user_conn, xqc_wt_session_t *session,
+    wt_dgram_blk_t *dgram_blk)
 {
     if (user_conn == NULL || dgram_blk == NULL) {
         return -XQC_EPARAM;
@@ -30,6 +31,7 @@ xqc_wt_datagram_send_blk(xqc_wt_conn_t *user_conn, wt_dgram_blk_t *dgram_blk)
     if (ret < 0) {
         return ret;
     }
+    xqc_wt_conn_register_dgram_session(user_conn, dgram_id, session);
     dgram_blk->data_sent = dgram_blk->to_send_size;
     return XQC_OK;
 }
@@ -67,7 +69,7 @@ xqc_wt_session_datagram_send(xqc_wt_session_t *session, void *data,
     dgram_blk = xqc_wt_dgram_blk_create(buf, total_len);
     xqc_free(buf);
 
-    int ret = xqc_wt_datagram_send_blk(session->wt_conn, dgram_blk);
+    int ret = xqc_wt_datagram_send_blk(session->wt_conn, session, dgram_blk);
     xqc_wt_dgram_blk_destroy(dgram_blk);
     return ret;
 }

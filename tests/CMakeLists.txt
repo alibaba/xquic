@@ -112,7 +112,16 @@ if(HAVE_CUNIT)
         ${UNIT_TEST_DIR}/xqc_retry_test.c
         ${UNIT_TEST_DIR}/xqc_datagram_test.c
         ${UNIT_TEST_DIR}/xqc_h3_ext_test.c
+        ${UNIT_TEST_DIR}/xqc_webtransport_test.c
         ${UNIT_TEST_DIR}/xqc_ack_with_timestamp_test.c
+        ${CMAKE_SOURCE_DIR}/src/webtransport/xqc_webtransport_ctx.c
+        ${CMAKE_SOURCE_DIR}/src/webtransport/xqc_webtransport_conn.c
+        ${CMAKE_SOURCE_DIR}/src/webtransport/xqc_webtransport_request.c
+        ${CMAKE_SOURCE_DIR}/src/webtransport/xqc_webtransport_defs.c
+        ${CMAKE_SOURCE_DIR}/src/webtransport/xqc_webtransport_dgram.c
+        ${CMAKE_SOURCE_DIR}/src/webtransport/xqc_webtransport_session.c
+        ${CMAKE_SOURCE_DIR}/src/webtransport/xqc_webtransport_stream.c
+        ${CMAKE_SOURCE_DIR}/src/webtransport/xqc_webtransport_wire.c
     )
 
     if(XQC_ENABLE_FEC)
@@ -160,4 +169,3 @@ if(HAVE_CUNIT)
     add_test(run_tests run_tests)
     add_dependencies(check run_tests)
 endif()
-

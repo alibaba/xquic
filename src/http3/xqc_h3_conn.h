@@ -67,6 +67,7 @@ typedef struct xqc_h3_conn_s {
     xqc_connection_t            *conn;
     xqc_log_t                   *log;
     void                        *user_data;
+    void                        *wt_conn;
 
     /* h3 connection state flags */
     uint64_t                     flags;

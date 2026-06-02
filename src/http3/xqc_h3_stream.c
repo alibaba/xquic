@@ -1253,7 +1253,8 @@ xqc_h3_stream_process_uni_payload(xqc_h3_stream_t *h3s, unsigned char *data, siz
 
 
 ssize_t
-xqc_h3_stream_process_uni(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_len)
+xqc_h3_stream_process_uni(xqc_h3_stream_t *h3s, unsigned char *data,
+    size_t data_len, xqc_bool_t fin_flag)
 {
     ssize_t processed = 0;
 
@@ -1296,10 +1297,11 @@ xqc_h3_stream_process_uni(xqc_h3_stream_t *h3s, unsigned char *data, size_t data
             int wt_ret = 0;
             xqc_wt_h3_uni_stream_created(h3s->h3c, h3s, &wt_ret);
         }
-        if (data_len > processed) {
+        if (data_len > processed || fin_flag) {
             int wt_ret = 0;
+            uint8_t *wt_data = data_len > processed ? data + processed : NULL;
             xqc_wt_h3_uni_stream_recv(h3s->h3c, h3s,
-                data + processed, data_len - processed, &wt_ret);
+                wt_data, data_len - processed, fin_flag, &wt_ret);
             processed = data_len;
         }
         return processed;
@@ -1636,7 +1638,7 @@ xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_
 
     if (xqc_stream_is_uni(h3s->stream_id)) {
         /* process uni stream bytes */
-        processed = xqc_h3_stream_process_uni(h3s, data, data_len);
+        processed = xqc_h3_stream_process_uni(h3s, data, data_len, fin_flag);
         if (processed < 0 || processed != data_len) {
             xqc_log(h3c->log, XQC_LOG_ERROR, "|xqc_h3_stream_process_uni error|processed:%z"
                     "|size:%uz|stream_id:%ui|", processed, data_len, h3s->stream_id);

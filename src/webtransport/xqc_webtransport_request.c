@@ -14,7 +14,14 @@ xqc_wt_request_t *
 xqc_wt_request_create(xqc_log_t *log)
 {
     xqc_wt_request_t *wt_request = xqc_calloc(1, sizeof(xqc_wt_request_t));
+    if (wt_request == NULL) {
+        return NULL;
+    }
     wt_request->request_headers  = xqc_calloc(1, sizeof(xqc_str_hash_table_t));
+    if (wt_request->request_headers == NULL) {
+        xqc_free(wt_request);
+        return NULL;
+    }
     uint8_t siphash_key[XQC_SIPHASH_KEY_SIZE] = {0};
     if (xqc_str_hash_init(wt_request->request_headers, xqc_default_allocator,
             16, 0, siphash_key, sizeof(siphash_key), log) != XQC_OK)
@@ -29,6 +36,9 @@ xqc_wt_request_create(xqc_log_t *log)
 void
 xqc_wt_request_destroy(xqc_wt_request_t *wt_request)
 {
+    if (wt_request == NULL) {
+        return;
+    }
     if (wt_request->request_headers) {
         /* free copied key/value strings allocated in xqc_wt_request_table_insert */
         for (size_t i = 0; i < wt_request->request_headers->count; i++) {
@@ -71,7 +81,8 @@ xqc_wt_request_table_insert_len(xqc_wt_request_t *wt_request,
     memcpy(val_copy, value, value_len);
     val_copy[value_len] = '\0';
 
-    uint64_t               hash    = xqc_hash_string(key_copy, key_len);
+    uint64_t               hash    = xqc_hash_string((const u_char *)key_copy,
+        key_len);
     xqc_str_hash_element_t element = {
         .str  = {.data = (unsigned char *)key_copy, .len = key_len},
         .hash = hash,
@@ -83,7 +94,7 @@ xqc_wt_request_table_insert_len(xqc_wt_request_t *wt_request,
 char *
 xqc_wt_request_table_find(xqc_wt_request_t *wt_request, const char *key)
 {
-    uint64_t  hash  = xqc_hash_string(key, strlen(key));
+    uint64_t  hash  = xqc_hash_string((const u_char *)key, strlen(key));
     xqc_str_t str   = {.data = (unsigned char *)key, .len = strlen(key)};
     void     *value = xqc_str_hash_find(wt_request->request_headers, hash, str);
     if (value == NULL) {

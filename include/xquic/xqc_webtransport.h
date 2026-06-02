@@ -83,7 +83,7 @@ typedef struct xqc_wt_bidistream_s xqc_wt_bidistream_t;
  * @brief the callback API to notify the application that there is a datagram to be read
  *
  * @param conn the connection handle
- * @param user_data the user_data set by xqc_webtransport_datagram_set_user_data
+ * @param user_data the user_data set on the WT connection
  * @param data the data delivered by this callback
  * @param data_len the length of the delivered data
  * @param data_recv_time time spent for receiving data
@@ -95,7 +95,7 @@ typedef void (*xqc_webtransport_datagram_read_notify_pt)(xqc_webtransport_sessio
  * @brief the callback API to notify the application that datagrams can be sent
  *
  * @param conn the connection handle
- * @param user_data the user_data set by xqc_webtransport_datagram_set_user_data
+ * @param user_data the user_data set on the WT connection
  */
 typedef void (*xqc_webtransport_datagram_write_notify_pt)(xqc_webtransport_session_t *session,
                                                           void *user_data);
@@ -110,7 +110,7 @@ typedef struct wt_dgram_block_s wt_dgram_blk_t;
  * datagram packet.
  *
  * @param conn the connection handle
- * @param user_data the user_data set by xqc_webtransport_datagram_set_user_data
+ * @param user_data the user_data set on the WT connection
  * @param dgram_id the id of the lost datagram
  * @return 0, do not retransmit;
  *         XQC_DGRAM_RETX_ASKED_BY_APP, retransmit;
@@ -123,7 +123,7 @@ typedef int (*xqc_webtransport_datagram_lost_notify_pt)(xqc_webtransport_session
  * @brief the callback API to notify the application that a datagram is acked
  *
  * @param conn the connection handle
- * @param user_data the user_data set by xqc_webtransport_datagram_set_user_data
+ * @param user_data the user_data set on the WT connection
  * @param dgram_id the id of the acked datagram
  */
 typedef void (*xqc_webtransport_datagram_acked_notify_pt)(xqc_webtransport_session_t *session,
@@ -135,7 +135,7 @@ typedef void (*xqc_webtransport_datagram_acked_notify_pt)(xqc_webtransport_sessi
  *        means this connection does not support sending QUIC datagrams.
  *
  * @param conn the connection handle
- * @param user_data the dgram_data set by xqc_webtransport_datagram_set_user_data
+ * @param user_data the user_data set on the WT connection
  * @param mss the MSS of QUIC datagrams
  */
 typedef void (*xqc_webtransport_datagram_mss_updated_notify_pt)(xqc_webtransport_session_t *session,
@@ -192,10 +192,12 @@ typedef int (*xqc_webtransport_on_create_session_notify_pt)(xqc_http_headers_t *
 typedef void (*wt_stream_close_func_pt)(void);
 
 /**
- * @brief webtransport session handshake finished notify
- * @param session webtransport_session
+ * @brief webtransport connection handshake finished notify
+ * @param conn webtransport connection
+ * @param user_data the user_data set on the WT connection
  */
-typedef void (*xqc_webtransport_session_handshake_finish_notify_pt)(xqc_webtransport_session_t *session);
+typedef void (*xqc_webtransport_conn_handshake_finish_notify_pt)(xqc_webtransport_conn_t *conn,
+                                                                 void *user_data);
 
 /**
  * @brief webtransport session callbacks for application layer
@@ -207,8 +209,8 @@ typedef struct xqc_webtransport_session_callbacks_s {
     xqc_webtransport_session_notify_pt webtransport_session_create_notify;
     /* webtransport connection close callback */
     xqc_webtransport_session_notify_pt webtransport_session_close_notify;
-    /*webtransport connection finished notify */
-    xqc_webtransport_session_handshake_finish_notify_pt webtransport_session_handshake_finished_notify;
+    /* webtransport connection handshake finished notify */
+    xqc_webtransport_conn_handshake_finish_notify_pt webtransport_conn_handshake_finished_notify;
 
 } xqc_webtransport_session_callbacks_t;
 
@@ -216,21 +218,22 @@ typedef struct xqc_webtransport_session_callbacks_s {
  * @brief general callback function definition for stream create, close, read and write.
  *
  * @param stream webtransport stream handler
- * @param strm_user_data stream level user_data, which was the parameter of xqc_webtransport_stream_create set by
- * client, or the parameter of xqc_webtransport_stream_set_user_data set by server
- * @return 0 for success, -1 for failure
+ * @param user_data the user_data set on the WT connection
+ * @return 0 for success, negative for failure
  */
 typedef xqc_int_t (*xqc_webtransport_unistream_notify_pt)(xqc_wt_unistream_t *stream, xqc_wt_session_t *session,
-                                                          void *strm_user_data);
+                                                          void *user_data);
 
 typedef xqc_int_t (*xqc_webtransport_bidistream_notify_pt)(xqc_wt_bidistream_t *stream, xqc_wt_session_t *session,
-                                                           void *strm_user_data);
+                                                           void *user_data);
 
 typedef xqc_int_t (*xqc_webtransport_unistream_read_notify_pt)(xqc_wt_unistream_t *stream,
-                                                               xqc_wt_session_t *session, void *data, size_t data_len, void *strm_user_data);
+                                                               xqc_wt_session_t *session, void *data,
+                                                               size_t data_len, uint8_t fin, void *user_data);
 
 typedef xqc_int_t (*xqc_webtransport_bidistream_read_notify_pt)(xqc_wt_bidistream_t *stream,
-                                                                xqc_wt_session_t *session, void *data, size_t data_len, void *strm_user_data);
+                                                                xqc_wt_session_t *session, void *data,
+                                                                size_t data_len, uint8_t fin, void *user_data);
 
 /* webtransport stream callback functions */
 typedef struct xqc_webtransport_stream_callbacks_s {
@@ -241,14 +244,6 @@ typedef struct xqc_webtransport_stream_callbacks_s {
      * data when xqc_webtransport_stream_recv interface.
      */
     xqc_webtransport_unistream_read_notify_pt wt_unistream_read_notify;
-
-    /**
-     * @brief stream write callback function. REQUIRED for both client and server
-     *
-     * when sending data with xqc_stream_send, xquic might be blocked or send part of the data. if
-     * this callback function is triggered, applications can continue to send the rest data.
-     */
-    xqc_webtransport_unistream_notify_pt wt_unistream_write_notify;
 
     /**
      * @brief stream create callback function. REQUIRED for server, OPTIONAL for client.
@@ -281,14 +276,6 @@ typedef struct xqc_webtransport_stream_callbacks_s {
      * data when xqc_webtransport_stream_recv interface.
      */
     xqc_webtransport_bidistream_read_notify_pt wt_bidistream_read_notify;
-
-    /**
-     * @brief stream write callback function. REQUIRED for both client and server
-     *
-     * when sending data with xqc_stream_send, xquic might be blocked or send part of the data. if
-     * this callback function is triggered, applications can continue to send the rest data.
-     */
-    xqc_webtransport_bidistream_notify_pt wt_bidistream_write_notify;
 
     /**
      * @brief stream create callback function. REQUIRED for server, OPTIONAL for client.
@@ -544,9 +531,12 @@ xqc_connection_t *xqc_wt_session_get_conn(xqc_wt_session_t *wt_session);
 XQC_EXPORT_PUBLIC_API
 xqc_h3_conn_t *xqc_wt_session_get_h3_conn(xqc_wt_session_t *wt_session);
 
+XQC_EXPORT_PUBLIC_API
+xqc_h3_conn_t *xqc_wt_conn_get_h3_conn(xqc_wt_conn_t *wt_conn);
+
 /**
  * @brief set the dgram mss of the connection , if not set then dgram_mss = 100 ;
- * @details if datagram to be sent is larger than mss, it will be split into multiple datagrams
+ * @details if datagram to be sent is larger than mss, the send call fails
  * @param conn
  * @param mss
  *
@@ -599,6 +589,19 @@ ssize_t xqc_wt_session_send_bidi(xqc_wt_session_t *session,
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_wt_session_close_with_error(xqc_wt_session_t *session,
     uint32_t error_code, const char *reason, size_t reason_len);
+
+XQC_EXPORT_PUBLIC_API
+uint32_t xqc_wt_session_get_close_error_code(xqc_wt_session_t *session);
+
+XQC_EXPORT_PUBLIC_API
+const char *xqc_wt_session_get_close_reason(xqc_wt_session_t *session,
+    size_t *reason_len);
+
+XQC_EXPORT_PUBLIC_API
+xqc_bool_t xqc_wt_session_is_established(xqc_wt_session_t *session);
+
+XQC_EXPORT_PUBLIC_API
+xqc_bool_t xqc_wt_session_is_terminated(xqc_wt_session_t *session);
 
 /**
  * @brief Send a DRAIN_WEBTRANSPORT_SESSION capsule for graceful shutdown.

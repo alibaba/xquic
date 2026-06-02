@@ -159,7 +159,7 @@ wt_dgram_read_handler(xqc_webtransport_session_t *session, const void *data,
 
 xqc_int_t
 wt_unistream_read_handler(xqc_wt_unistream_t *stream, xqc_wt_session_t *session,
-    void *data, size_t data_len, void *strm_user_data)
+    void *data, size_t data_len, uint8_t fin, void *user_data)
 {
     xqc_h3_stream_t    *h3_stream = xqc_wt_session_get_h3_stream(session);
     xqc_wt_unistream_t *unistream = xqc_wt_create_unistream(
@@ -176,7 +176,7 @@ wt_unistream_read_handler(xqc_wt_unistream_t *stream, xqc_wt_session_t *session,
 xqc_int_t
 wt_bidistream_read_handler(xqc_wt_bidistream_t *bidistream,
     xqc_wt_session_t *session, void *data, size_t data_len,
-    void *strm_user_data)
+    uint8_t fin, void *user_data)
 {
     if (bidistream == NULL || data == NULL || data_len == 0) {
         return 1;

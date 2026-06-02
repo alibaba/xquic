@@ -891,3 +891,30 @@ xqc_wt_session_drain(xqc_wt_session_t *session)
 
     return XQC_OK;
 }
+
+uint32_t
+xqc_wt_session_get_close_error_code(xqc_wt_session_t *session)
+{
+    return session ? session->close_error_code : 0;
+}
+
+const char *
+xqc_wt_session_get_close_reason(xqc_wt_session_t *session, size_t *reason_len)
+{
+    if (reason_len) {
+        *reason_len = session ? session->close_reason_len : 0;
+    }
+    return session ? session->close_reason : NULL;
+}
+
+xqc_bool_t
+xqc_wt_session_is_established(xqc_wt_session_t *session)
+{
+    return session ? session->established : XQC_FALSE;
+}
+
+xqc_bool_t
+xqc_wt_session_is_terminated(xqc_wt_session_t *session)
+{
+    return session ? session->terminated : XQC_FALSE;
+}

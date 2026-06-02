@@ -27,6 +27,9 @@ typedef struct xqc_wt_request_s {   // 本质上是封装了一下h3_request + �
     xqc_wt_session_t     *wt_session;
 
     void                 *user_data;
+    void                 *app_user_data;
+    xqc_bool_t            passthrough;
+    xqc_bool_t            passthrough_create_done;
     char                 *request_stream_id;
     xqc_str_hash_table_t *request_headers;
 
@@ -60,8 +63,14 @@ void              xqc_wt_request_table_insert_len(xqc_wt_request_t *wt_request,
 
 char             *xqc_wt_request_table_find(xqc_wt_request_t *wt_request, const char *key);
 
+int xqc_wt_h3_request_create_notify(xqc_h3_request_t *h3_request, void *stream_user_data);
+
 int xqc_wt_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_flag_t flag,
     void *stream_user_data);
+
+int xqc_wt_h3_request_write_notify(xqc_h3_request_t *h3_request, void *stream_user_data);
+
+int xqc_wt_h3_request_close_notify(xqc_h3_request_t *h3_request, void *stream_user_data);
 
 #ifdef __cplusplus
 }

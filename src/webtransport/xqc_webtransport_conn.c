@@ -87,18 +87,21 @@ xqc_wt_conn_t* xqc_wt_conn_create(xqc_h3_conn_t* h3_conn)
     conn->sessions = xqc_calloc(1, sizeof(xqc_id_hash_table_t));
     conn->closed_sessions = xqc_calloc(1, sizeof(xqc_id_hash_table_t));
     conn->pending_streams = xqc_calloc(1, sizeof(xqc_id_hash_table_t));
+    conn->dgram_sessions = xqc_calloc(1, sizeof(xqc_id_hash_table_t));
     if (conn->sessions == NULL || conn->closed_sessions == NULL
-        || conn->pending_streams == NULL)
+        || conn->pending_streams == NULL || conn->dgram_sessions == NULL)
     {
         xqc_free(conn->sessions);
         xqc_free(conn->closed_sessions);
         xqc_free(conn->pending_streams);
+        xqc_free(conn->dgram_sessions);
         xqc_free(conn);
         return NULL;
     }
     xqc_id_hash_init(conn->sessions, xqc_default_allocator, 16);
     xqc_id_hash_init(conn->closed_sessions, xqc_default_allocator, 16);
     xqc_id_hash_init(conn->pending_streams, xqc_default_allocator, 16);
+    xqc_id_hash_init(conn->dgram_sessions, xqc_default_allocator, 16);
 
     return conn;
 }
@@ -137,6 +140,11 @@ xqc_int_t xqc_wt_conn_close(xqc_wt_conn_t* conn)
     }
     xqc_wt_conn_free_pending_streams(conn);
     xqc_wt_conn_free_pending_dgrams(conn);
+    if (conn->dgram_sessions) {
+        xqc_id_hash_release(conn->dgram_sessions);
+        xqc_free(conn->dgram_sessions);
+        conn->dgram_sessions = NULL;
+    }
     xqc_free(conn);
 
     return 0;
@@ -145,6 +153,12 @@ xqc_int_t xqc_wt_conn_close(xqc_wt_conn_t* conn)
 void xqc_wt_conn_set_dgram_mss(xqc_wt_conn_t* conn, size_t mss)
 {
     conn->dgram_mss = mss;
+}
+
+xqc_h3_conn_t *
+xqc_wt_conn_get_h3_conn(xqc_wt_conn_t *wt_conn)
+{
+    return wt_conn ? wt_conn->h3_conn : NULL;
 }
 
 xqc_int_t
@@ -273,4 +287,38 @@ xqc_wt_conn_is_closed_session(xqc_wt_conn_t *wt_conn, uint64_t session_id)
     }
     return xqc_id_hash_find(wt_conn->closed_sessions, session_id) != NULL
            ? XQC_TRUE : XQC_FALSE;
+}
+
+xqc_int_t
+xqc_wt_conn_register_dgram_session(xqc_wt_conn_t *wt_conn, uint64_t dgram_id,
+    xqc_wt_session_t *session)
+{
+    if (wt_conn == NULL || session == NULL || wt_conn->dgram_sessions == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_id_hash_element_t e = {
+        .hash = dgram_id,
+        .value = session,
+    };
+    return xqc_id_hash_add(wt_conn->dgram_sessions, e);
+}
+
+xqc_wt_session_t *
+xqc_wt_conn_find_dgram_session(xqc_wt_conn_t *wt_conn, uint64_t dgram_id)
+{
+    if (wt_conn == NULL || wt_conn->dgram_sessions == NULL) {
+        return NULL;
+    }
+    return (xqc_wt_session_t *)xqc_id_hash_find(wt_conn->dgram_sessions,
+        dgram_id);
+}
+
+void
+xqc_wt_conn_unregister_dgram_session(xqc_wt_conn_t *wt_conn, uint64_t dgram_id)
+{
+    if (wt_conn == NULL || wt_conn->dgram_sessions == NULL) {
+        return;
+    }
+    xqc_id_hash_delete(wt_conn->dgram_sessions, dgram_id);
 }

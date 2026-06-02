@@ -31,6 +31,7 @@ typedef struct xqc_wt_pending_dgram_s {
 typedef struct xqc_webtransport_conn_s{
     xqc_h3_conn_t* h3_conn;
     xqc_wt_session_t* wt_session; /* default / primary session */
+    void *user_data; /* application user_data from the H3 connection */
     struct sockaddr_in6 peer_addr;
     socklen_t peer_addrlen;
     xqc_cid_t cid;
@@ -40,6 +41,7 @@ typedef struct xqc_webtransport_conn_s{
     xqc_id_hash_table_t *sessions; /* map sessionID -> xqc_wt_session_t* */
     xqc_id_hash_table_t *closed_sessions; /* session IDs valid but terminated */
     xqc_id_hash_table_t *pending_streams; /* pre-session WT streams keyed by H3 stream id */
+    xqc_id_hash_table_t *dgram_sessions; /* sent datagram id -> xqc_wt_session_t* */
     size_t active_session_count;
 
     xqc_wt_pending_dgram_t *pending_dgram_head;
@@ -80,6 +82,15 @@ xqc_bool_t xqc_wt_conn_has_active_session_without_fc(xqc_wt_conn_t *wt_conn,
 void xqc_wt_conn_mark_session_closed(xqc_wt_conn_t *wt_conn, uint64_t session_id);
 
 xqc_bool_t xqc_wt_conn_is_closed_session(xqc_wt_conn_t *wt_conn, uint64_t session_id);
+
+xqc_int_t xqc_wt_conn_register_dgram_session(xqc_wt_conn_t *wt_conn,
+    uint64_t dgram_id, xqc_wt_session_t *session);
+
+xqc_wt_session_t *xqc_wt_conn_find_dgram_session(xqc_wt_conn_t *wt_conn,
+    uint64_t dgram_id);
+
+void xqc_wt_conn_unregister_dgram_session(xqc_wt_conn_t *wt_conn,
+    uint64_t dgram_id);
 
 
 

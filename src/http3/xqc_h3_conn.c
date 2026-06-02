@@ -254,7 +254,6 @@ xqc_h3_conn_set_user_data(xqc_h3_conn_t *h3_conn,
                           void *user_data)
 {
     h3_conn->user_data = user_data;
-    xqc_conn_set_transport_user_data(h3_conn->conn, user_data);
 }
 
 

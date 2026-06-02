@@ -3,25 +3,85 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ASAN="${WT_E2E_ASAN:-0}"
-SANITIZERS="${WT_E2E_SANITIZERS:-address,undefined}"
+DEFAULT_SCENARIOS="bidi datagram large-datagram-reject pre-session-datagram pre-session-stream-overflow close-gates peer-close-fin reset-prefix server-bidi multi-session split-header fc-disabled-single-session fc-data-blocked fc-stream-blocked compat-legacy strict-reject-legacy client-reject-missing-wt-enabled client-reject-missing-h3-datagram client-reject-missing-connect client-reject-missing-dgram-tp client-reject-missing-reset-at strict-missing-wt-enabled strict-missing-h3-datagram strict-missing-connect strict-missing-dgram-tp strict-missing-reset-at invalid-datagram churn"
+ASAN="0"
+SANITIZERS="address,undefined"
+CLIENT_RUNS="4"
+KEEP_LOGS="0"
+SKIP_BUILD="0"
+SSL_BACKEND="babassl"
+SCENARIOS="$DEFAULT_SCENARIOS"
+
+usage() {
+    cat <<EOF
+Usage: $0 [options]
+
+Options:
+  --scenarios "LIST"       Space-separated scenario list
+  --runs N                 Number of churn sessions (default: 4)
+  --keep-logs              Keep temporary logs after exit
+  --skip-build             Reuse existing binaries
+  --asan                   Build and run with address,undefined sanitizers
+  --sanitizers LIST        Sanitizer list used with --asan (default: address,undefined)
+  --ssl BACKEND            babassl or boringssl (default: babassl)
+  -h, --help               Show this help
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --scenarios)
+            SCENARIOS="$2"
+            shift 2
+            ;;
+        --runs)
+            CLIENT_RUNS="$2"
+            shift 2
+            ;;
+        --keep-logs)
+            KEEP_LOGS="1"
+            shift
+            ;;
+        --skip-build)
+            SKIP_BUILD="1"
+            shift
+            ;;
+        --asan)
+            ASAN="1"
+            shift
+            ;;
+        --sanitizers)
+            SANITIZERS="$2"
+            shift 2
+            ;;
+        --ssl)
+            SSL_BACKEND="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            printf 'unknown option: %s\n' "$1"
+            usage
+            exit 1
+            ;;
+    esac
+done
+
 DEFAULT_BUILD_DIR="$ROOT_DIR/build_wt_e2e"
 if [ "$ASAN" = "1" ]; then
     DEFAULT_BUILD_DIR="$ROOT_DIR/build_wt_e2e_asan"
 fi
-BUILD_DIR="${WT_E2E_BUILD_DIR:-$DEFAULT_BUILD_DIR}"
+BUILD_DIR="$DEFAULT_BUILD_DIR"
 BIN_DIR="$BUILD_DIR/src/webtransport"
-SERVER_BIN="${WT_E2E_SERVER_BIN:-$BIN_DIR/wt_test_server}"
-CLIENT_BIN="${WT_E2E_CLIENT_BIN:-$BIN_DIR/wt_test_client}"
-CERT_FILE="${WT_E2E_CERT:-$ROOT_DIR/certs/localhost.crt}"
-KEY_FILE="${WT_E2E_KEY:-$ROOT_DIR/certs/localhost.key}"
-HOST="${WT_E2E_HOST:-127.0.0.1}"
-CLIENT_RUNS="${WT_E2E_CLIENT_RUNS:-4}"
-PORT="${WT_E2E_PORT:-}"
-KEEP_LOGS="${WT_E2E_KEEP_LOGS:-0}"
-SKIP_BUILD="${WT_E2E_SKIP_BUILD:-0}"
-SSL_BACKEND="${SSL_BACKEND:-babassl}"
-SCENARIOS="${WT_E2E_SCENARIOS:-bidi datagram large-datagram-reject pre-session-datagram pre-session-stream-overflow close-gates peer-close-fin reset-prefix server-bidi multi-session split-header fc-disabled-single-session fc-data-blocked fc-stream-blocked compat-legacy strict-reject-legacy client-reject-missing-wt-enabled client-reject-missing-h3-datagram client-reject-missing-connect client-reject-missing-dgram-tp client-reject-missing-reset-at strict-missing-wt-enabled strict-missing-h3-datagram strict-missing-connect strict-missing-dgram-tp strict-missing-reset-at invalid-datagram churn}"
+SERVER_BIN="$BIN_DIR/wt_test_server"
+CLIENT_BIN="$BIN_DIR/wt_test_client"
+CERT_FILE="$ROOT_DIR/certs/localhost.crt"
+KEY_FILE="$ROOT_DIR/certs/localhost.key"
+HOST="127.0.0.1"
+PORT=""
 
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/xquic-wt-e2e.XXXXXX")"
 SERVER_PID=""
@@ -153,7 +213,7 @@ ensure_binaries() {
                     "${cmake_ssl_args[@]}"
             fi
         fi
-        cmake --build "$BUILD_DIR" --target xquic-static -j"${WT_E2E_JOBS:-4}"
+        cmake --build "$BUILD_DIR" --target xquic-static -j4
 
         local event_cflags_raw event_libs_raw
         event_cflags_raw=""
@@ -267,6 +327,38 @@ check_no_direct_wt_quic_datagram() {
         log "buffered WT stream overflow must reject the stream with WT_BUFFERED_STREAM_REJECTED"
         return 1
     fi
+    if grep -A6 "xqc_h3_conn_set_user_data" "$ROOT_DIR/src/http3/xqc_h3_conn.c" | grep "xqc_conn_set_transport_user_data" >/dev/null 2>&1; then
+        log "H3 user_data setter must not overwrite transport user_data"
+        return 1
+    fi
+    if grep "xqc_conn_set_transport_user_data(conn, wt_conn)" "$ROOT_DIR/src/webtransport/xqc_webtransport_ctx.c" >/dev/null 2>&1; then
+        log "WT core must not overwrite transport user_data"
+        return 1
+    fi
+    if grep -A80 "xqc_wt_ctx_init_for_alpns" "$ROOT_DIR/src/webtransport/xqc_webtransport_ctx.c" | grep "xqc_h3_ctx_init(engine" >/dev/null 2>&1; then
+        log "WT scoped ALPN init must not register callbacks for every H3 ALPN"
+        return 1
+    fi
+    if grep "&processed" "$ROOT_DIR/src/webtransport/xqc_webtransport_ctx.c" >/dev/null 2>&1; then
+        log "WT stream read callbacks must not overload user_data as a processed-byte output parameter"
+        return 1
+    fi
+    if grep "webtransport_session_handshake_finished_notify" "$ROOT_DIR/include/xquic/xqc_webtransport.h" "$ROOT_DIR/src/webtransport/xqc_webtransport_ctx.c" "$ROOT_DIR/src/webtransport/wt_test_client.c" >/dev/null 2>&1; then
+        log "WT handshake-finished callback is connection-scoped, not session-scoped"
+        return 1
+    fi
+    if grep "wt_.*stream_write_notify" "$ROOT_DIR/include/xquic/xqc_webtransport.h" >/dev/null 2>&1; then
+        log "WT C SDK must not expose stream write callbacks until both uni and bidi write readiness are bridged"
+        return 1
+    fi
+    if ! grep "dgram_acked_notify .*wt_h3_dgram_acked_notify" "$ROOT_DIR/src/webtransport/xqc_webtransport_ctx.c" >/dev/null 2>&1; then
+        log "WT datagram ack callback must be bridged from H3 datagram callbacks"
+        return 1
+    fi
+    if ! grep "dgram_lost_notify .*wt_h3_dgram_lost_notify" "$ROOT_DIR/src/webtransport/xqc_webtransport_ctx.c" >/dev/null 2>&1; then
+        log "WT datagram lost callback must be bridged from H3 datagram callbacks"
+        return 1
+    fi
 }
 
 start_server() {
@@ -280,12 +372,12 @@ start_server() {
     (
         cd "$ROOT_DIR"
         if [ -n "$extra" ]; then
-            exec env ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:abort_on_error=1}" \
+            exec env ASAN_OPTIONS="detect_leaks=0:abort_on_error=1" \
                 UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1}" \
                 "$SERVER_BIN" -p "$PORT" -c "$CERT_FILE" -k "$KEY_FILE" -l e \
                 -m "$mode" -d "$max_data" -b "$max_bidi" -u "$max_uni" $extra
         else
-            exec env ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:abort_on_error=1}" \
+            exec env ASAN_OPTIONS="detect_leaks=0:abort_on_error=1" \
                 UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1}" \
                 "$SERVER_BIN" -p "$PORT" -c "$CERT_FILE" -k "$KEY_FILE" -l e \
                 -m "$mode" -d "$max_data" -b "$max_bidi" -u "$max_uni"
@@ -326,7 +418,7 @@ run_client_once() {
     local log_file="$TMP_DIR/client-$index.log"
 
     set +e
-    env ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:abort_on_error=1}" \
+    env ASAN_OPTIONS="detect_leaks=0:abort_on_error=1" \
         UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1}" \
         "$CLIENT_BIN" "$HOST" "$PORT" --scenario "$scenario" --mode "$mode" $extra >"$log_file" 2>&1
     local rc=$?
@@ -354,7 +446,8 @@ run_client_once() {
 
     case "$scenario" in
         bidi|churn)
-            grep -q "\\[OK\\] bidi-echo" "$log_file" ;;
+            grep -q "\\[OK\\] bidi-echo" "$log_file" \
+                && grep -q "\\[OK\\] bidi-fin" "$log_file" ;;
         datagram)
             grep -q "\\[OK\\] datagram-echo" "$log_file" ;;
         large-datagram-reject)

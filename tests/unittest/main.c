@@ -3,6 +3,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <CUnit/Basic.h>
 #include <CUnit/CUnit.h>
@@ -37,6 +38,7 @@
 #include "xqc_retry_test.h"
 #include "xqc_datagram_test.h"
 #include "xqc_h3_ext_test.h"
+#include "xqc_webtransport_test.h"
 #include "xqc_galois_test.h"
 #include "xqc_fec_scheme_test.h"
 #include "xqc_fec_test.h"
@@ -100,6 +102,8 @@ main()
         || !CU_add_test(pSuite, "xqc_test_retry", xqc_test_retry)
         || !CU_add_test(pSuite, "xqc_test_receive_invalid_dgram", xqc_test_receive_invalid_dgram)
         || !CU_add_test(pSuite, "xqc_test_h3_ext_frame", xqc_test_h3_ext_frame)
+        || !CU_add_test(pSuite, "xqc_test_wt_request_lifecycle", xqc_test_wt_request_lifecycle)
+        || !CU_add_test(pSuite, "xqc_test_wt_h3_passthrough_callbacks", xqc_test_wt_h3_passthrough_callbacks)
 #ifdef XQC_ENABLE_FEC
         || !CU_add_test(pSuite, "xqc_test_galois_calculation", xqc_test_galois_calculation)
         || !CU_add_test(pSuite, "xqc_test_fec_scheme", xqc_test_fec_scheme)
@@ -113,7 +117,18 @@ main()
     }
 
     CU_basic_set_mode(CU_BRM_VERBOSE);
-    CU_basic_run_tests();
+    const char *test_filter = getenv("XQC_CUNIT_TEST");
+    if (test_filter && test_filter[0]) {
+        CU_pTest pTest = CU_get_test_by_name(test_filter, pSuite);
+        if (pTest == NULL) {
+            printf("CUnit test not found: %s\n", test_filter);
+            CU_cleanup_registry();
+            return 1;
+        }
+        CU_basic_run_test(pSuite, pTest);
+    } else {
+        CU_basic_run_tests();
+    }
     failed_tests_count = CU_get_number_of_tests_failed();
 
     CU_cleanup_registry();

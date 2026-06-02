@@ -14,7 +14,8 @@
 extern "C" {
 #endif
 
-xqc_int_t xqc_wt_datagram_send_blk(xqc_wt_conn_t *user_conn, wt_dgram_blk_t *dgram_blk);
+xqc_int_t xqc_wt_datagram_send_blk(xqc_wt_conn_t *user_conn,
+    xqc_wt_session_t *session, wt_dgram_blk_t *dgram_blk);
 
 xqc_int_t xqc_wt_session_datagram_send(xqc_wt_session_t *session, void *data,
     uint32_t data_len);

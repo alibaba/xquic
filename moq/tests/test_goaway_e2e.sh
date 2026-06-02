@@ -3,10 +3,11 @@
 # Usage: ./test_goaway_e2e.sh <build_dir>
 # Example: ./test_goaway_e2e.sh ../../build_boring/moq/demo
 
-BUILD_DIR="${1:?Usage: $0 <build_dir>}"
+BUILD_DIR="$(cd "${1:?Usage: $0 <build_dir>}" && pwd)"
 SERVER="$BUILD_DIR/moq_demo_server"
 CLIENT="$BUILD_DIR/moq_demo_client"
 CERT_DIR="$(cd "$(dirname "$0")/../../certs" 2>/dev/null && pwd || echo "")"
+BUILD_ROOT="$(cd "$BUILD_DIR/../.." && pwd)"
 PORT=$((9800 + RANDOM % 100))
 PASS=0
 FAIL=0
@@ -36,7 +37,10 @@ done
 if [ -n "$CERT_DIR" ] && [ -f "$CERT_DIR/localhost.crt" ]; then
     cp "$CERT_DIR/localhost.crt" "$TMPDIR/server.crt"
     cp "$CERT_DIR/localhost.key" "$TMPDIR/server.key"
-else
+elif [ -f "$BUILD_ROOT/server.crt" ]; then
+    cp "$BUILD_ROOT/server.crt" "$TMPDIR/"
+    cp "$BUILD_ROOT/server.key" "$TMPDIR/"
+elif [ -f "$(dirname "$SERVER")/server.crt" ]; then
     cp "$(dirname "$SERVER")/server.crt" "$TMPDIR/server.crt" 2>/dev/null || true
     cp "$(dirname "$SERVER")/server.key" "$TMPDIR/server.key" 2>/dev/null || true
 fi

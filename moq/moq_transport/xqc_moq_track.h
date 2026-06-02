@@ -74,4 +74,11 @@ void xqc_moq_track_on_recv_object(xqc_moq_track_t *track, xqc_moq_stream_t *stre
 xqc_bool_t xqc_moq_track_should_drop_recv_object(xqc_moq_track_t *track,
     xqc_moq_object_t *object);
 
+xqc_moq_track_t *
+xqc_moq_track_create_with_ns_tuple(xqc_moq_session_t *session,
+    const xqc_moq_track_ns_field_t *ns_tuple, uint64_t ns_num,
+    char *track_name, xqc_moq_track_type_t track_type,
+    xqc_moq_selection_params_t *params, xqc_moq_container_t container,
+    xqc_moq_track_role_t role);
+
 #endif /* _XQC_MOQ_TRACK_H_INCLUDED_ */

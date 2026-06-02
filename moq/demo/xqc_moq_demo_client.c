@@ -71,6 +71,8 @@ int g_reuse_datachannel_stream = 0;
 int g_datagram_mode = 0;
 int g_enable_datachannel = 1;
 int g_enable_catalog = -1;
+int g_subscribe_namespace_mode = 0;
+int g_multi_ns_mode = 0;
 uint64_t g_audio_cancel_next_group_id = XQC_MOQ_INVALID_ID;
 
 static void xqc_app_timestamp_callback(int fd, short what, void *arg);
@@ -133,8 +135,10 @@ xqc_demo_publish_track(user_conn_t *user_conn, xqc_demo_track_ctx_t *ctx,
     }
     xqc_moq_publish_msg_t publish_msg;
     memset(&publish_msg, 0, sizeof(publish_msg));
-    publish_msg.track_namespace = (char *)track_namespace;
-    publish_msg.track_namespace_len = strlen(track_namespace);
+    size_t ns_len = strlen(track_namespace);
+    xqc_moq_track_ns_field_t ns_field = { .len = ns_len, .data = (unsigned char *)track_namespace };
+    publish_msg.track_namespace_tuple = &ns_field;
+    publish_msg.track_namespace_len = ns_len;
     publish_msg.track_namespace_num = 1;
     publish_msg.track_name = (char *)track_name;
     publish_msg.track_name_len = strlen(track_name);
@@ -665,18 +669,335 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
     user_conn->audio_ctx.track_alias = XQC_MOQ_INVALID_ID;
     user_conn->audio_ctx.subgroup_group_id = XQC_MOQ_INVALID_ID;
 
+    if (g_subscribe_namespace_mode) {
+        xqc_moq_subscribe_namespace_msg_t sub_ns;
+        xqc_int_t ret;
+
+        if (g_subscribe_namespace_mode == 1) {
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 0;
+            xqc_moq_track_ns_field_t ns_field;
+            ns_field.data = (unsigned char *)"namespace";
+            ns_field.len = strlen("namespace");
+            sub_ns.track_namespace_tuple = &ns_field;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 1: sent request_id=0, ret=%d\n", ret);
+
+        } else if (g_subscribe_namespace_mode == 2) {
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 0;
+            xqc_moq_track_ns_field_t ns_field1;
+            ns_field1.data = (unsigned char *)"namespace";
+            ns_field1.len = strlen("namespace");
+            sub_ns.track_namespace_tuple = &ns_field1;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 2: first sent request_id=0, ret=%d\n", ret);
+
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 2;
+            xqc_moq_track_ns_field_t ns_field2;
+            ns_field2.data = (unsigned char *)"namespace";
+            ns_field2.len = strlen("namespace");
+            sub_ns.track_namespace_tuple = &ns_field2;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 2: second sent request_id=2, ret=%d\n", ret);
+
+        } else if (g_subscribe_namespace_mode == 3) {
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 0;
+            xqc_moq_track_ns_field_t ns_field;
+            ns_field.data = (unsigned char *)"namespace";
+            ns_field.len = strlen("namespace");
+            sub_ns.track_namespace_tuple = &ns_field;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 3: subscribe sent, ret=%d\n", ret);
+
+            xqc_moq_unsubscribe_namespace_msg_t unsub_ns;
+            memset(&unsub_ns, 0, sizeof(unsub_ns));
+            unsub_ns.track_namespace_tuple = &ns_field;
+            unsub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_unsubscribe_namespace(session, &unsub_ns);
+            printf("subscribe_namespace mode 3: unsubscribe sent, ret=%d\n", ret);
+
+        } else if (g_subscribe_namespace_mode == 4) {
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 0;
+            xqc_moq_track_ns_field_t ns_fields[2];
+            ns_fields[0].data = (unsigned char *)"example.com";
+            ns_fields[0].len = strlen("example.com");
+            ns_fields[1].data = (unsigned char *)"live";
+            ns_fields[1].len = strlen("live");
+            sub_ns.track_namespace_tuple = ns_fields;
+            sub_ns.track_namespace_num = 2;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 4: multi-element tuple sent, ret=%d\n", ret);
+
+        } else if (g_subscribe_namespace_mode == 5) {
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 0;
+            xqc_moq_track_ns_field_t ns_field1;
+            ns_field1.data = (unsigned char *)"alpha";
+            ns_field1.len = strlen("alpha");
+            sub_ns.track_namespace_tuple = &ns_field1;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 5: first (alpha) sent, ret=%d\n", ret);
+
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 2;
+            xqc_moq_track_ns_field_t ns_field2;
+            ns_field2.data = (unsigned char *)"beta";
+            ns_field2.len = strlen("beta");
+            sub_ns.track_namespace_tuple = &ns_field2;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 5: second (beta) sent, ret=%d\n", ret);
+
+        } else if (g_subscribe_namespace_mode == 6) {
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 0;
+            xqc_moq_track_ns_field_t ns_fields_parent[1];
+            ns_fields_parent[0].data = (unsigned char *)"example.com";
+            ns_fields_parent[0].len = strlen("example.com");
+            sub_ns.track_namespace_tuple = ns_fields_parent;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 6: parent (example.com) sent, ret=%d\n", ret);
+
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 2;
+            xqc_moq_track_ns_field_t ns_fields_child[2];
+            ns_fields_child[0].data = (unsigned char *)"example.com";
+            ns_fields_child[0].len = strlen("example.com");
+            ns_fields_child[1].data = (unsigned char *)"live";
+            ns_fields_child[1].len = strlen("live");
+            sub_ns.track_namespace_tuple = ns_fields_child;
+            sub_ns.track_namespace_num = 2;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 6: child (example.com/live) sent, ret=%d\n", ret);
+
+        } else if (g_subscribe_namespace_mode == 7) {
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 0;
+            xqc_moq_track_ns_field_t ns_fields_child7[2];
+            ns_fields_child7[0].data = (unsigned char *)"example.com";
+            ns_fields_child7[0].len = strlen("example.com");
+            ns_fields_child7[1].data = (unsigned char *)"live";
+            ns_fields_child7[1].len = strlen("live");
+            sub_ns.track_namespace_tuple = ns_fields_child7;
+            sub_ns.track_namespace_num = 2;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 7: child (example.com/live) sent, ret=%d\n", ret);
+
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 2;
+            xqc_moq_track_ns_field_t ns_fields_parent7[1];
+            ns_fields_parent7[0].data = (unsigned char *)"example.com";
+            ns_fields_parent7[0].len = strlen("example.com");
+            sub_ns.track_namespace_tuple = ns_fields_parent7;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 7: parent (example.com) sent, ret=%d\n", ret);
+
+        } else if (g_subscribe_namespace_mode == 8) {
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 0;
+            xqc_moq_track_ns_field_t ns_field8;
+            ns_field8.data = (unsigned char *)"namespace";
+            ns_field8.len = strlen("namespace");
+            sub_ns.track_namespace_tuple = &ns_field8;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 8: subscribe sent request_id=0, ret=%d\n", ret);
+
+            xqc_moq_unsubscribe_namespace_msg_t unsub_ns8;
+            memset(&unsub_ns8, 0, sizeof(unsub_ns8));
+            unsub_ns8.track_namespace_tuple = &ns_field8;
+            unsub_ns8.track_namespace_num = 1;
+            ret = xqc_moq_write_unsubscribe_namespace(session, &unsub_ns8);
+            printf("subscribe_namespace mode 8: unsubscribe sent, ret=%d\n", ret);
+
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 2;
+            sub_ns.track_namespace_tuple = &ns_field8;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 8: resubscribe sent request_id=2, ret=%d\n", ret);
+
+        } else if (g_subscribe_namespace_mode == 9) {
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 0;
+            xqc_moq_track_ns_field_t ns_field9;
+            ns_field9.data = (unsigned char *)"callback_ns";
+            ns_field9.len = strlen("callback_ns");
+            sub_ns.track_namespace_tuple = &ns_field9;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 9: sent request_id=0, ret=%d\n", ret);
+
+        } else if (g_subscribe_namespace_mode == 10) {
+            /* request_id reuse after overlap ERROR */
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 0;
+            xqc_moq_track_ns_field_t ns10_1;
+            ns10_1.data = (unsigned char *)"alpha";
+            ns10_1.len = strlen("alpha");
+            sub_ns.track_namespace_tuple = &ns10_1;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 10: alpha request_id=0, ret=%d\n", ret);
+
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 2;
+            sub_ns.track_namespace_tuple = &ns10_1;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 10: alpha(dup) request_id=2, ret=%d\n", ret);
+
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 2;
+            xqc_moq_track_ns_field_t ns10_2;
+            ns10_2.data = (unsigned char *)"beta";
+            ns10_2.len = strlen("beta");
+            sub_ns.track_namespace_tuple = &ns10_2;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 10: beta(reuse id=2) request_id=2, ret=%d\n", ret);
+
+        } else if (g_subscribe_namespace_mode == 11) {
+            /* parity error: client sends odd request_id */
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 1;
+            xqc_moq_track_ns_field_t ns11;
+            ns11.data = (unsigned char *)"namespace";
+            ns11.len = strlen("namespace");
+            sub_ns.track_namespace_tuple = &ns11;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 11: odd request_id=1, ret=%d\n", ret);
+
+        } else if (g_subscribe_namespace_mode == 12) {
+            /* unsubscribe non-existent: should not delete existing prefix */
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 0;
+            xqc_moq_track_ns_field_t ns12;
+            ns12.data = (unsigned char *)"alpha";
+            ns12.len = strlen("alpha");
+            sub_ns.track_namespace_tuple = &ns12;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 12: subscribe alpha, ret=%d\n", ret);
+
+            xqc_moq_unsubscribe_namespace_msg_t unsub12;
+            memset(&unsub12, 0, sizeof(unsub12));
+            xqc_moq_track_ns_field_t ns12_bad;
+            ns12_bad.data = (unsigned char *)"nonexistent";
+            ns12_bad.len = strlen("nonexistent");
+            unsub12.track_namespace_tuple = &ns12_bad;
+            unsub12.track_namespace_num = 1;
+            ret = xqc_moq_write_unsubscribe_namespace(session, &unsub12);
+            printf("subscribe_namespace mode 12: unsubscribe nonexistent, ret=%d\n", ret);
+
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 2;
+            xqc_moq_track_ns_field_t ns12_child[2];
+            ns12_child[0].data = (unsigned char *)"alpha";
+            ns12_child[0].len = strlen("alpha");
+            ns12_child[1].data = (unsigned char *)"child";
+            ns12_child[1].len = strlen("child");
+            sub_ns.track_namespace_tuple = ns12_child;
+            sub_ns.track_namespace_num = 2;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 12: subscribe alpha/child, ret=%d\n", ret);
+
+        } else if (g_subscribe_namespace_mode == 13) {
+            /* unsubscribe child should not delete parent */
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 0;
+            xqc_moq_track_ns_field_t ns13;
+            ns13.data = (unsigned char *)"a";
+            ns13.len = strlen("a");
+            sub_ns.track_namespace_tuple = &ns13;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 13: subscribe [a], ret=%d\n", ret);
+
+            xqc_moq_unsubscribe_namespace_msg_t unsub13;
+            memset(&unsub13, 0, sizeof(unsub13));
+            xqc_moq_track_ns_field_t ns13_child[2];
+            ns13_child[0].data = (unsigned char *)"a";
+            ns13_child[0].len = strlen("a");
+            ns13_child[1].data = (unsigned char *)"child";
+            ns13_child[1].len = strlen("child");
+            unsub13.track_namespace_tuple = ns13_child;
+            unsub13.track_namespace_num = 2;
+            ret = xqc_moq_write_unsubscribe_namespace(session, &unsub13);
+            printf("subscribe_namespace mode 13: unsubscribe [a,child], ret=%d\n", ret);
+
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 2;
+            sub_ns.track_namespace_tuple = ns13_child;
+            sub_ns.track_namespace_num = 2;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 13: subscribe [a,child], ret=%d\n", ret);
+
+        } else if (g_subscribe_namespace_mode == 14) {
+            /* server sends OK with wrong request_id (server -K 2) */
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 0;
+            xqc_moq_track_ns_field_t ns14;
+            ns14.data = (unsigned char *)"namespace";
+            ns14.len = strlen("namespace");
+            sub_ns.track_namespace_tuple = &ns14;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 14: sent request_id=0, ret=%d\n", ret);
+
+        } else if (g_subscribe_namespace_mode == 15) {
+            /* server sends duplicate OK (server -K 3) */
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 0;
+            xqc_moq_track_ns_field_t ns15;
+            ns15.data = (unsigned char *)"namespace";
+            ns15.len = strlen("namespace");
+            sub_ns.track_namespace_tuple = &ns15;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 15: sent request_id=0, ret=%d\n", ret);
+        }
+        return;
+    }
+
     if (!g_publish_mode && (g_role & XQC_MOQ_SUBSCRIBER)) {
         xqc_int_t ret;
         xqc_moq_container_t sub_container = g_raw_object_mode ? XQC_MOQ_CONTAINER_NONE : XQC_MOQ_CONTAINER_LOC;
 
-        xqc_moq_track_t *sub_video = xqc_moq_track_create(session,
-            "namespace", "video", XQC_MOQ_TRACK_VIDEO, NULL,
-            sub_container, XQC_MOQ_TRACK_FOR_SUB);
+        xqc_moq_track_ns_field_t multi_ns[2] = {
+            { .len = 7, .data = (unsigned char *)"example" },
+            { .len = 2, .data = (unsigned char *)"ns" }
+        };
+
+        xqc_moq_track_t *sub_video;
+        if (g_multi_ns_mode) {
+            sub_video = xqc_moq_track_create_with_ns_tuple(session, multi_ns, 2, "video",
+                            XQC_MOQ_TRACK_VIDEO, NULL, sub_container, XQC_MOQ_TRACK_FOR_SUB);
+        } else {
+            sub_video = xqc_moq_track_create(session,
+                "namespace", "video", XQC_MOQ_TRACK_VIDEO, NULL,
+                sub_container, XQC_MOQ_TRACK_FOR_SUB);
+        }
         if (sub_video == NULL) {
             printf("create subscriber video track error\n");
         } else {
             user_conn->video_track = sub_video;
-            if (g_raw_object_mode) {
+            if (g_multi_ns_mode) {
+                ret = xqc_moq_subscribe_with_ns_tuple(session, multi_ns, 2, "video",
+                                                      XQC_MOQ_FILTER_LAST_GROUP, 0, 0, 0, 0, NULL);
+            } else if (g_raw_object_mode) {
                 xqc_moq_track_set_raw_object(sub_video, 1);
                 ret = xqc_moq_subscribe(session, "namespace", "video",
                                         XQC_MOQ_FILTER_ABSOLUTE_START, 0, 0, 0, 0, NULL);
@@ -690,14 +1011,23 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
             }
         }
 
-        xqc_moq_track_t *sub_audio = xqc_moq_track_create(session,
-            "namespace", "audio", XQC_MOQ_TRACK_AUDIO, NULL,
-            sub_container, XQC_MOQ_TRACK_FOR_SUB);
+        xqc_moq_track_t *sub_audio;
+        if (g_multi_ns_mode) {
+            sub_audio = xqc_moq_track_create_with_ns_tuple(session, multi_ns, 2, "audio",
+                            XQC_MOQ_TRACK_AUDIO, NULL, sub_container, XQC_MOQ_TRACK_FOR_SUB);
+        } else {
+            sub_audio = xqc_moq_track_create(session,
+                "namespace", "audio", XQC_MOQ_TRACK_AUDIO, NULL,
+                sub_container, XQC_MOQ_TRACK_FOR_SUB);
+        }
         if (sub_audio == NULL) {
             printf("create subscriber audio track error\n");
         } else {
             user_conn->audio_track = sub_audio;
-            if (g_raw_object_mode) {
+            if (g_multi_ns_mode) {
+                ret = xqc_moq_subscribe_with_ns_tuple(session, multi_ns, 2, "audio",
+                                                      XQC_MOQ_FILTER_LAST_GROUP, 0, 0, 0, 0, NULL);
+            } else if (g_raw_object_mode) {
                 xqc_moq_track_set_raw_object(sub_audio, 1);
                 ret = xqc_moq_subscribe(session, "namespace", "audio",
                                         XQC_MOQ_FILTER_ABSOLUTE_START, 0, 0, 0, 0, NULL);
@@ -917,13 +1247,15 @@ void on_subscribe_error(xqc_moq_user_session_t *user_session, xqc_moq_track_t *t
 
 void on_publish_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_publish_msg_t *publish_msg)
 {
+    char *ns = xqc_moq_namespace_tuple_join(publish_msg->track_namespace_tuple, publish_msg->track_namespace_num);
     printf("on_publish: subscribe_id:%"PRIu64" track:%s/%s track_alias:%"PRIu64" forward:%u content_exist:%u\n",
            publish_msg->subscribe_id,
-           publish_msg->track_namespace,
+           ns ? ns : "null",
            publish_msg->track_name,
            publish_msg->track_alias,
            publish_msg->forward,
            publish_msg->content_exist);
+    free(ns);
 }
 
 void on_publish_ok_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_publish_ok_msg_t *publish_ok)
@@ -1470,7 +1802,7 @@ int main(int argc, char *argv[])
     uint8_t secret_key[16] = {0};
     int use_proxy = 0;
     int use_1rtt = 0;
-    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:S:f1MVRUDTC")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:S:f1MVRUDTCmN:")) != -1) {
         switch (ch) {
             case 'a':
                 printf("option addr :%s\n", optarg);
@@ -1582,6 +1914,18 @@ int main(int argc, char *argv[])
             case 'C':
                 printf("option enable catalog\n");
                 g_enable_catalog = 1;
+                break;
+            case 'm':
+                printf("option multi-element namespace tuple : on\n");
+                g_multi_ns_mode = 1;
+                break;
+            case 'N':
+                g_subscribe_namespace_mode = atoi(optarg);
+                if (g_subscribe_namespace_mode < 1 || g_subscribe_namespace_mode > 15) {
+                    printf("invalid subscribe namespace mode: %d (must be 1-15)\n", g_subscribe_namespace_mode);
+                    exit(1);
+                }
+                printf("option subscribe namespace mode : %d\n", g_subscribe_namespace_mode);
                 break;
             default:
                 printf("other option :%c\n", ch);

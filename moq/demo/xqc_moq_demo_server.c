@@ -64,6 +64,39 @@ int g_reuse_datachannel_stream = 0;
 int g_enable_datachannel = 1;
 int g_enable_catalog = -1;
 int g_reuse_video_subgroup_stream = 0;
+int g_multi_ns_mode = 0;
+int g_ns_callback_mode = 0;
+
+static void
+on_subscribe_namespace_callback(xqc_moq_user_session_t *user_session,
+    xqc_moq_subscribe_namespace_msg_t *msg)
+{
+    printf("custom_subscribe_namespace_callback|request_id:%lu|prefix_num:%lu\n",
+           (unsigned long)msg->request_id, (unsigned long)msg->track_namespace_num);
+}
+
+static void
+on_subscribe_namespace_wrong_id(xqc_moq_user_session_t *user_session,
+    xqc_moq_subscribe_namespace_msg_t *msg)
+{
+    printf("ns_callback_wrong_id|request_id:%lu\n", (unsigned long)msg->request_id);
+    xqc_moq_subscribe_namespace_ok_msg_t ok;
+    memset(&ok, 0, sizeof(ok));
+    ok.request_id = msg->request_id + 100;
+    xqc_moq_write_subscribe_namespace_ok(user_session->session, &ok);
+}
+
+static void
+on_subscribe_namespace_dup_ok(xqc_moq_user_session_t *user_session,
+    xqc_moq_subscribe_namespace_msg_t *msg)
+{
+    printf("ns_callback_dup_ok|request_id:%lu\n", (unsigned long)msg->request_id);
+    xqc_moq_subscribe_namespace_ok_msg_t ok;
+    memset(&ok, 0, sizeof(ok));
+    ok.request_id = msg->request_id;
+    xqc_moq_write_subscribe_namespace_ok(user_session->session, &ok);
+    xqc_moq_write_subscribe_namespace_ok(user_session->session, &ok);
+}
 
 xqc_int_t
 xqc_demo_publish_track(user_conn_t *user_conn, const char *track_namespace, const char *track_name)
@@ -71,9 +104,38 @@ xqc_demo_publish_track(user_conn_t *user_conn, const char *track_namespace, cons
     xqc_moq_publish_msg_t publish_msg;
     xqc_int_t ret = 0;
     memset(&publish_msg, 0, sizeof(publish_msg));
-    publish_msg.track_namespace = (char *)track_namespace;
-    publish_msg.track_namespace_len = strlen(track_namespace);
+    size_t ns_len = strlen(track_namespace);
+    xqc_moq_track_ns_field_t ns_field = { .len = ns_len, .data = (unsigned char *)track_namespace };
+    publish_msg.track_namespace_tuple = &ns_field;
+    publish_msg.track_namespace_len = ns_len;
     publish_msg.track_namespace_num = 1;
+    publish_msg.track_name = (char *)track_name;
+    publish_msg.track_name_len = strlen(track_name);
+    publish_msg.group_order = 1;
+    publish_msg.content_exist = 0;
+    publish_msg.largest_group_id = 0;
+    publish_msg.largest_object_id = 0;
+    publish_msg.forward = 1;
+    publish_msg.params_num = 0;
+    ret = xqc_moq_publish(user_conn->moq_session, &publish_msg);
+    return ret;
+}
+
+xqc_int_t
+xqc_demo_publish_track_ns_tuple(user_conn_t *user_conn,
+    const xqc_moq_track_ns_field_t *ns_tuple, uint64_t ns_num,
+    const char *track_name)
+{
+    xqc_moq_publish_msg_t publish_msg;
+    xqc_int_t ret = 0;
+    memset(&publish_msg, 0, sizeof(publish_msg));
+    size_t total_ns_len = 0;
+    for (uint64_t i = 0; i < ns_num; i++) {
+        total_ns_len += ns_tuple[i].len;
+    }
+    publish_msg.track_namespace_tuple = (xqc_moq_track_ns_field_t *)ns_tuple;
+    publish_msg.track_namespace_len = total_ns_len;
+    publish_msg.track_namespace_num = ns_num;
     publish_msg.track_name = (char *)track_name;
     publish_msg.track_name_len = strlen(track_name);
     publish_msg.group_order = 1;
@@ -129,8 +191,17 @@ void xqc_demo_try_publish(user_conn_t *user_conn)
     int published = 0;
     int ret;
 
+    xqc_moq_track_ns_field_t multi_ns[2] = {
+        { .len = 7, .data = (unsigned char *)"example" },
+        { .len = 2, .data = (unsigned char *)"ns" }
+    };
+
     if (user_conn->video_track) {
-        ret = xqc_demo_publish_track(user_conn, "namespace", "video");
+        if (g_multi_ns_mode) {
+            ret = xqc_demo_publish_track_ns_tuple(user_conn, multi_ns, 2, "video");
+        } else {
+            ret = xqc_demo_publish_track(user_conn, "namespace", "video");
+        }
         if (ret < 0) {
             printf("publish video track error\n");
         } else {
@@ -139,7 +210,11 @@ void xqc_demo_try_publish(user_conn_t *user_conn)
     }
 
     if (user_conn->audio_track) {
-        ret = xqc_demo_publish_track(user_conn, "namespace", "audio");
+        if (g_multi_ns_mode) {
+            ret = xqc_demo_publish_track_ns_tuple(user_conn, multi_ns, 2, "audio");
+        } else {
+            ret = xqc_demo_publish_track(user_conn, "namespace", "audio");
+        }
         if (ret < 0) {
             printf("publish audio track error\n");
         } else {
@@ -345,8 +420,18 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
     video_params.width = 720;
     video_params.height = 720;
     xqc_moq_container_t video_container = g_raw_object_mode ? XQC_MOQ_CONTAINER_NONE : XQC_MOQ_CONTAINER_LOC;
-    xqc_moq_track_t *video_track = xqc_moq_track_create(session, "namespace", "video", XQC_MOQ_TRACK_VIDEO,
-                                                        &video_params, video_container, XQC_MOQ_TRACK_FOR_PUB);
+    xqc_moq_track_t *video_track;
+    if (g_multi_ns_mode) {
+        xqc_moq_track_ns_field_t ns_tuple[2] = {
+            { .len = 7, .data = (unsigned char *)"example" },
+            { .len = 2, .data = (unsigned char *)"ns" }
+        };
+        video_track = xqc_moq_track_create_with_ns_tuple(session, ns_tuple, 2, "video",
+                          XQC_MOQ_TRACK_VIDEO, &video_params, video_container, XQC_MOQ_TRACK_FOR_PUB);
+    } else {
+        video_track = xqc_moq_track_create(session, "namespace", "video", XQC_MOQ_TRACK_VIDEO,
+                                           &video_params, video_container, XQC_MOQ_TRACK_FOR_PUB);
+    }
     if (video_track == NULL) {
         printf("create video track error\n");
     }
@@ -367,8 +452,18 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
     audio_params.samplerate = 48000;
     audio_params.channel_config = "2";
     xqc_moq_container_t audio_container = g_raw_object_mode ? XQC_MOQ_CONTAINER_NONE : XQC_MOQ_CONTAINER_LOC;
-    xqc_moq_track_t *audio_track = xqc_moq_track_create(session, "namespace", "audio", XQC_MOQ_TRACK_AUDIO,
-                                                        &audio_params, audio_container, XQC_MOQ_TRACK_FOR_PUB);
+    xqc_moq_track_t *audio_track;
+    if (g_multi_ns_mode) {
+        xqc_moq_track_ns_field_t ns_tuple[2] = {
+            { .len = 7, .data = (unsigned char *)"example" },
+            { .len = 2, .data = (unsigned char *)"ns" }
+        };
+        audio_track = xqc_moq_track_create_with_ns_tuple(session, ns_tuple, 2, "audio",
+                          XQC_MOQ_TRACK_AUDIO, &audio_params, audio_container, XQC_MOQ_TRACK_FOR_PUB);
+    } else {
+        audio_track = xqc_moq_track_create(session, "namespace", "audio", XQC_MOQ_TRACK_AUDIO,
+                                           &audio_params, audio_container, XQC_MOQ_TRACK_FOR_PUB);
+    }
     if (audio_track == NULL) {
         printf("create audio track error\n");
     }
@@ -563,9 +658,10 @@ void on_subscribe_error(xqc_moq_user_session_t *user_session, xqc_moq_track_t *t
 
 void on_publish_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_publish_msg_t *publish_msg)
 {
+    char *pub_ns = xqc_moq_namespace_tuple_join(publish_msg->track_namespace_tuple, publish_msg->track_namespace_num);
     printf("on_publish: subscribe_id:%"PRIu64" track:%s/%s track_alias:%"PRIu64" forward:%u content_exist:%u\n",
            publish_msg->subscribe_id,
-           publish_msg->track_namespace,
+           pub_ns ? pub_ns : "null",
            publish_msg->track_name,
            publish_msg->track_alias,
            publish_msg->forward,
@@ -574,8 +670,7 @@ void on_publish_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track
     // Test for self-defined publish reply on datachanne;
     xqc_moq_session_t *session = user_session->session;
     if (g_publish_reply_mode == 0) {
-        if (publish_msg->track_namespace
-            && strcmp(publish_msg->track_namespace, "datachannel") == 0) {
+        if (pub_ns && strcmp(pub_ns, "datachannel") == 0) {
             xqc_moq_publish_ok_msg_t publish_ok;
             memset(&publish_ok, 0, sizeof(publish_ok));
             publish_ok.subscribe_id = publish_msg->subscribe_id;
@@ -590,12 +685,16 @@ void on_publish_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track
                 printf("xqc_moq_write_publish_ok (datachannel) error, ret:%d\n", ret);
             }
         }
+        free(pub_ns);
         return;
     }
 
     if (track == NULL) {
+        free(pub_ns);
         return;
     }
+
+    free(pub_ns);
 
     if (g_publish_reply_mode == 1) {
         xqc_moq_publish_ok_msg_t publish_ok;
@@ -850,6 +949,13 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
         .on_object = on_raw_object,
         .on_datagram_object = on_datagram_object,
     };
+    if (g_ns_callback_mode == 1) {
+        callbacks.on_subscribe_namespace = on_subscribe_namespace_callback;
+    } else if (g_ns_callback_mode == 2) {
+        callbacks.on_subscribe_namespace = on_subscribe_namespace_wrong_id;
+    } else if (g_ns_callback_mode == 3) {
+        callbacks.on_subscribe_namespace = on_subscribe_namespace_dup_ok;
+    }
     xqc_moq_session_t *session = xqc_moq_session_create(conn, user_session, XQC_MOQ_TRANSPORT_QUIC,
         g_role, callbacks, NULL, g_enable_client_setup_v14);
     if (session == NULL) {
@@ -1085,7 +1191,7 @@ int main(int argc, char *argv[])
     int server_port = TEST_PORT;
     xqc_cong_ctrl_callback_t cong_ctrl;
     cong_ctrl = xqc_bbr_cb;
-    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MVRoeUTCW")) != -1) {
+    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MVRoeUTCWmK:")) != -1) {
         switch (ch) {
         /* listen port */
         case 'p':
@@ -1181,6 +1287,14 @@ int main(int argc, char *argv[])
         case 'W':
             printf("option reuse video subgroup stream : on\n");
             g_reuse_video_subgroup_stream = 1;
+            break;
+        case 'm':
+            printf("option multi-element namespace tuple : on\n");
+            g_multi_ns_mode = 1;
+            break;
+        case 'K':
+            g_ns_callback_mode = atoi(optarg);
+            printf("option namespace callback mode : %d\n", g_ns_callback_mode);
             break;
         default:
             break;

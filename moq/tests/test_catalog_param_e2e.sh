@@ -6,7 +6,7 @@
 set -u
 set -o pipefail
 
-BUILD_DIR="${1:?Usage: $0 <build_dir>}"
+BUILD_DIR="$(cd "${1:?Usage: $0 <build_dir>}" && pwd)"
 SERVER="$BUILD_DIR/moq_demo_server"
 CLIENT="$BUILD_DIR/moq_demo_client"
 CERT_DIR="$(cd "$(dirname "$0")/../../certs" 2>/dev/null && pwd || echo "")"
@@ -39,35 +39,21 @@ grep_not_in_existing() {
     [ -s "$file" ] && ! grep -q -- "$pat" "$file"
 }
 
-wait_for_listen() {
-    local port="$1" tries=50
-    while [ $tries -gt 0 ]; do
-        # /dev/tcp is a bash builtin but may be compiled out on some distros
-        # (Alpine, minimal containers). Fall back to nc / ss when missing.
-        if (echo > /dev/tcp/127.0.0.1/"$port") 2>/dev/null; then
-            return 0
-        elif command -v nc >/dev/null 2>&1 && nc -z 127.0.0.1 "$port" 2>/dev/null; then
-            return 0
-        elif command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -q ":$port\b"; then
-            return 0
-        fi
-        tries=$((tries - 1))
-        sleep 0.1
-    done
-    return 1
-}
-
 # --- Setup ---
 for f in "$SERVER" "$CLIENT"; do
     [ -x "$f" ] || { echo "FATAL: $f not found"; exit 1; }
 done
 
-if [ -n "$CERT_DIR" ] && [ -f "$CERT_DIR/localhost.crt" ]; then
+BUILD_ROOT="$(cd "$BUILD_DIR/../.." && pwd)"
+if [ -f "$BUILD_ROOT/server.crt" ]; then
+    cp "$BUILD_ROOT/server.crt" "$TMPDIR/"
+    cp "$BUILD_ROOT/server.key" "$TMPDIR/"
+elif [ -f "$BUILD_DIR/server.crt" ]; then
+    cp "$BUILD_DIR/server.crt" "$TMPDIR/"
+    cp "$BUILD_DIR/server.key" "$TMPDIR/"
+elif [ -n "$CERT_DIR" ] && [ -f "$CERT_DIR/localhost.crt" ]; then
     cp "$CERT_DIR/localhost.crt" "$TMPDIR/server.crt"
     cp "$CERT_DIR/localhost.key" "$TMPDIR/server.key"
-else
-    cp "$(dirname "$SERVER")/server.crt" "$TMPDIR/server.crt" 2>/dev/null || true
-    cp "$(dirname "$SERVER")/server.key" "$TMPDIR/server.key" 2>/dev/null || true
 fi
 
 echo "=== CATALOG param (0xA2) E2E Tests ==="
@@ -83,12 +69,7 @@ cd "$TMPDIR" || exit 1
 
 "$SERVER" -l d -p "$PORT" -V > srv.log 2>&1 &
 SRV_PID=$!
-
-if ! wait_for_listen "$PORT"; then
-    echo "FATAL: server did not listen on $PORT within 5s"
-    kill $SRV_PID 2>/dev/null || true
-    exit 1
-fi
+sleep 2
 
 timeout 15 "$CLIENT" -a 127.0.0.1 -p "$PORT" -l d -V > cli.log 2>&1 || true
 

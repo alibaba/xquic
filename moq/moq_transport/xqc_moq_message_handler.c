@@ -1243,8 +1243,13 @@ xqc_moq_on_subscribe_namespace(xqc_moq_session_t *session, xqc_moq_stream_t *moq
     }
 
     if (session->session_callbacks.on_subscribe_namespace) {
-        session->max_peer_ns_request_id = msg->request_id;
-        session->peer_ns_request_id_seen = 1;
+        xqc_int_t rc = xqc_moq_session_add_pending_inbound_ns(session, msg->request_id,
+            msg->track_namespace_tuple, msg->track_namespace_num);
+        if (rc < 0) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|add pending inbound ns failed|ret:%d|", rc);
+            xqc_moq_session_error(session, MOQ_INTERNAL_ERROR, "on subscribe namespace");
+            return;
+        }
         session->session_callbacks.on_subscribe_namespace(session->user_session, msg);
         return;
     }

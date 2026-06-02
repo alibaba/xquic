@@ -4,6 +4,8 @@
 #include "moq/xqc_moq.h"
 
 #define XQC_MOQ_MAX_PARAMS          10
+#define XQC_MOQ_MAX_NAMESPACE_TUPLE_ELEMS  32
+#define XQC_MOQ_MAX_FULL_TRACK_NAME_LEN    4096
 #define XQC_MOQ_MAX_VERSIONS        10
 #define XQC_MOQ_MAX_OBJECT_LEN      (10 * 1024 * 1024)
 #define XQC_MOQ_MAX_PARAM_VALUE_LEN 4096
@@ -63,6 +65,10 @@ typedef struct xqc_moq_decode_msg_ctx_s {
     xqc_int_t                   cur_array_idx;
     xqc_int_t                   payload_processed;
     xqc_int_t                   str_processed;
+    uint64_t                    tuple_elem_len;
+    uint8_t                     tuple_elem_len_ready;
+    uint64_t                    msg_declared_length;
+    uint64_t                    msg_payload_consumed;
     xqc_moq_decode_params_ctx_t decode_params_ctx;
 } xqc_moq_decode_msg_ctx_t;
 
@@ -526,6 +532,51 @@ xqc_int_t xqc_moq_msg_encode_goaway_len(xqc_moq_msg_base_t *msg_base);
 xqc_int_t xqc_moq_msg_encode_goaway(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
 
 xqc_int_t xqc_moq_msg_decode_goaway(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
+
+xqc_int_t xqc_moq_track_namespace_tuple_encode_len(uint64_t track_namespace_num,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple);
+
+uint8_t *xqc_moq_track_namespace_tuple_encode(uint8_t *p, uint64_t track_namespace_num,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple);
+
+xqc_int_t xqc_moq_track_namespace_tuple_validate_and_sum(uint64_t track_namespace_num,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple, size_t *track_namespace_total_len);
+
+void *xqc_moq_msg_create_subscribe_namespace();
+void xqc_moq_msg_free_subscribe_namespace(void *msg);
+xqc_moq_msg_type_t xqc_moq_msg_subscribe_namespace_type();
+void xqc_moq_msg_subscribe_namespace_init_handler(xqc_moq_msg_base_t *msg_base);
+xqc_int_t xqc_moq_msg_encode_subscribe_namespace_len(xqc_moq_msg_base_t *msg_base);
+xqc_int_t xqc_moq_msg_encode_subscribe_namespace(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
+xqc_int_t xqc_moq_msg_decode_subscribe_namespace(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
+
+void *xqc_moq_msg_create_subscribe_namespace_ok();
+void xqc_moq_msg_free_subscribe_namespace_ok(void *msg);
+xqc_moq_msg_type_t xqc_moq_msg_subscribe_namespace_ok_type();
+void xqc_moq_msg_subscribe_namespace_ok_init_handler(xqc_moq_msg_base_t *msg_base);
+xqc_int_t xqc_moq_msg_encode_subscribe_namespace_ok_len(xqc_moq_msg_base_t *msg_base);
+xqc_int_t xqc_moq_msg_encode_subscribe_namespace_ok(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
+xqc_int_t xqc_moq_msg_decode_subscribe_namespace_ok(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
+
+void *xqc_moq_msg_create_subscribe_namespace_error();
+void xqc_moq_msg_free_subscribe_namespace_error(void *msg);
+xqc_moq_msg_type_t xqc_moq_msg_subscribe_namespace_error_type();
+void xqc_moq_msg_subscribe_namespace_error_init_handler(xqc_moq_msg_base_t *msg_base);
+xqc_int_t xqc_moq_msg_encode_subscribe_namespace_error_len(xqc_moq_msg_base_t *msg_base);
+xqc_int_t xqc_moq_msg_encode_subscribe_namespace_error(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
+xqc_int_t xqc_moq_msg_decode_subscribe_namespace_error(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
+
+void *xqc_moq_msg_create_unsubscribe_namespace();
+void xqc_moq_msg_free_unsubscribe_namespace(void *msg);
+xqc_moq_msg_type_t xqc_moq_msg_unsubscribe_namespace_type();
+void xqc_moq_msg_unsubscribe_namespace_init_handler(xqc_moq_msg_base_t *msg_base);
+xqc_int_t xqc_moq_msg_encode_unsubscribe_namespace_len(xqc_moq_msg_base_t *msg_base);
+xqc_int_t xqc_moq_msg_encode_unsubscribe_namespace(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
+xqc_int_t xqc_moq_msg_decode_unsubscribe_namespace(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
     xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
 
 #endif /* _XQC_MOQ_MESSAGE_H_INCLUDED_ */

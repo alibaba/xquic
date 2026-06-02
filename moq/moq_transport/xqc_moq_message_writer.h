@@ -52,4 +52,20 @@ xqc_int_t xqc_moq_send_object_datagram(xqc_moq_session_t *session, xqc_moq_objec
 
 xqc_int_t xqc_moq_write_goaway(xqc_moq_session_t *session, const char *new_session_uri, size_t uri_len);
 
+xqc_int_t xqc_moq_write_subscribe_namespace(xqc_moq_session_t *session,
+    xqc_moq_subscribe_namespace_msg_t *subscribe_namespace);
+
+xqc_int_t xqc_moq_write_subscribe_namespace_ok(xqc_moq_session_t *session,
+    xqc_moq_subscribe_namespace_ok_msg_t *subscribe_namespace_ok);
+
+xqc_int_t xqc_moq_write_subscribe_namespace_error(xqc_moq_session_t *session,
+    xqc_moq_subscribe_namespace_error_msg_t *subscribe_namespace_error);
+
+xqc_int_t xqc_moq_write_unsubscribe_namespace(xqc_moq_session_t *session,
+    xqc_moq_unsubscribe_namespace_msg_t *unsubscribe_namespace);
+
+xqc_int_t xqc_moq_validate_full_track_name_for_write(xqc_moq_session_t *session,
+    uint64_t track_namespace_num, const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    const char *track_name, size_t track_name_len);
+
 #endif /* _XQC_MOQ_MESSAGE_WRITER_H_INCLUDED_ */

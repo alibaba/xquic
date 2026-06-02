@@ -5,6 +5,7 @@
 #include "moq/moq_transport/xqc_moq_session.h"
 #include "moq/moq_transport/xqc_moq_stream.h"
 #include "moq/moq_transport/xqc_moq_track.h"
+#include "moq/moq_transport/xqc_moq_namespace.h"
 #include "moq/moq_media/xqc_moq_catalog.h"
 
 #define XQC_MOQ_ALIAS_TYPE_DELETE      0x0
@@ -337,7 +338,8 @@ xqc_moq_on_subscribe(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, x
     xqc_int_t ret;
     xqc_moq_subscribe_msg_t *subscribe_msg = (xqc_moq_subscribe_msg_t*)msg_base;
 
-    track = xqc_moq_find_track_by_name(session, subscribe_msg->track_namespace, subscribe_msg->track_name, XQC_MOQ_TRACK_FOR_PUB);
+    track = xqc_moq_find_track_by_ns_tuple(session, subscribe_msg->track_namespace_tuple,
+                subscribe_msg->track_namespace_num, subscribe_msg->track_name, XQC_MOQ_TRACK_FOR_PUB);
     if (track == NULL) {
         xqc_log(session->log, XQC_LOG_ERROR, "|track not found|track_alias:%ui|", subscribe_msg->track_alias);
         goto error;
@@ -362,8 +364,10 @@ xqc_moq_on_subscribe(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, x
     xqc_moq_track_set_subscribe_id(track, subscribe_msg->subscribe_id);
     xqc_moq_track_set_alias(track, subscribe_msg->track_alias);
 
-    subscribe = xqc_moq_subscribe_create(session, subscribe_msg->subscribe_id,
-                     subscribe_msg->track_alias, subscribe_msg->track_namespace, subscribe_msg->track_name,
+    subscribe = xqc_moq_subscribe_create_with_ns_tuple(session, subscribe_msg->subscribe_id,
+                     subscribe_msg->track_alias,
+                     subscribe_msg->track_namespace_tuple, subscribe_msg->track_namespace_num,
+                     subscribe_msg->track_name,
                      subscribe_msg->filter_type, subscribe_msg->start_group_id, subscribe_msg->start_object_id,
                      subscribe_msg->end_group_id, subscribe_msg->end_object_id, NULL, 0);
     if (subscribe == NULL) {
@@ -560,6 +564,7 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
     xqc_int_t have_catalog_params = 0;
     xqc_int_t has_catalog = 0;
     xqc_int_t track_created = 0;
+    char *pub_ns_joined = xqc_moq_namespace_tuple_join(publish->track_namespace_tuple, publish->track_namespace_num);
     xqc_memzero(&catalog_params, sizeof(catalog_params));
 
     /* TODO: kept separate from xqc_moq_apply_catalog_param_to_track on purpose.
@@ -605,23 +610,26 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
                 xqc_moq_track_info_t *track_info_array[1];
                 track_info_array[0] = &catalog_track->track_info;
                 session->session_callbacks.on_catalog(session->user_session, track_info_array, 1);
-                track = xqc_moq_find_track_by_name(session, publish->track_namespace, publish->track_name, XQC_MOQ_TRACK_FOR_SUB);
+                track = xqc_moq_find_track_by_ns_tuple(session, publish->track_namespace_tuple,
+                            publish->track_namespace_num, publish->track_name, XQC_MOQ_TRACK_FOR_SUB);
                 if (track) {
                     xqc_moq_track_set_params(track, &catalog_track->track_info.selection_params);
                 } else {
                     xqc_log(session->log, XQC_LOG_INFO,
                             "|on_publish catalog params pending track create|track:%s/%s|",
-                            publish->track_namespace, publish->track_name);
+                            pub_ns_joined, publish->track_name);
                 }
             } else if (catalog_track->track_info.track_type == XQC_MOQ_TRACK_DATACHANNEL) {
                 track_type = XQC_MOQ_TRACK_DATACHANNEL;
+                char *cat_ns = xqc_moq_namespace_tuple_join(catalog_track->track_info.track_namespace_tuple,
+                                                            catalog_track->track_info.track_namespace_num);
                 xqc_log(session->log, XQC_LOG_INFO,
                         "|on_publish_catalog_datatrack|subscribe_id:%ui|track:%s/%s|",
                         publish->subscribe_id,
-                        catalog_track->track_info.track_namespace ?
-                            catalog_track->track_info.track_namespace : "null",
+                        cat_ns ? cat_ns : "null",
                         catalog_track->track_info.track_name ?
                             catalog_track->track_info.track_name : "null");
+                xqc_free(cat_ns);
             }
         }
 
@@ -629,7 +637,8 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
         break;
     }
 
-    track = xqc_moq_find_track_by_name(session, publish->track_namespace, publish->track_name, XQC_MOQ_TRACK_FOR_SUB);
+    track = xqc_moq_find_track_by_ns_tuple(session, publish->track_namespace_tuple,
+                publish->track_namespace_num, publish->track_name, XQC_MOQ_TRACK_FOR_SUB);
     if (track == NULL) {
         xqc_moq_selection_params_t *params = NULL;
         xqc_moq_container_t container = XQC_MOQ_CONTAINER_LOC;
@@ -647,8 +656,9 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
             container = XQC_MOQ_CONTAINER_NONE;
         }
 
-        track = xqc_moq_track_create(session, publish->track_namespace, publish->track_name,
-                                     track_type, params, container,
+        track = xqc_moq_track_create_with_ns_tuple(session,
+                                     publish->track_namespace_tuple, publish->track_namespace_num,
+                                     publish->track_name, track_type, params, container,
                                      XQC_MOQ_TRACK_FOR_SUB);
         if (track == NULL) {
             xqc_log(session->log, XQC_LOG_ERROR, "|on_publish track not found|track_name:%s|", publish->track_name);
@@ -666,14 +676,14 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
         xqc_log(session->log, XQC_LOG_INFO,
                 "|on_publish_track_created|subscribe_id:%ui|track:%s/%s|track_type:%d|container:%d|",
                 publish->subscribe_id,
-                track->track_info.track_namespace ? track->track_info.track_namespace : "null",
+                pub_ns_joined ? pub_ns_joined : "null",
                 track->track_info.track_name ? track->track_info.track_name : "null",
                 track->track_info.track_type, track->container_format);
     } else {
         xqc_log(session->log, XQC_LOG_INFO,
                 "|on_publish_track_found|subscribe_id:%ui|track:%s/%s|track_type:%d|",
                 publish->subscribe_id,
-                track->track_info.track_namespace ? track->track_info.track_namespace : "null",
+                pub_ns_joined ? pub_ns_joined : "null",
                 track->track_info.track_name ? track->track_info.track_name : "null",
                 track->track_info.track_type);
     }
@@ -688,7 +698,7 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
 
     xqc_log(session->log, XQC_LOG_INFO,
             "|on_publish|subscribe_id:%ui|track:%s/%s|track_alias:%ui|forward:%u|",
-            publish->subscribe_id, publish->track_namespace, publish->track_name,
+            publish->subscribe_id, pub_ns_joined, publish->track_name,
             publish->track_alias, publish->forward);
 
     xqc_moq_publish_selected_params_t selected_params;
@@ -708,8 +718,9 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
 
     subscribe = xqc_moq_find_subscribe(session, publish->subscribe_id, 1);
     if (subscribe == NULL) {
-        subscribe = xqc_moq_subscribe_create(session, publish->subscribe_id,
-                                             publish->track_alias, publish->track_namespace,
+        subscribe = xqc_moq_subscribe_create_with_ns_tuple(session, publish->subscribe_id,
+                                             publish->track_alias,
+                                             publish->track_namespace_tuple, publish->track_namespace_num,
                                              publish->track_name, selected_params.filter_type,
                                              selected_params.start_group_id, selected_params.start_object_id,
                                              selected_params.end_group_id, selected_params.end_object_id, NULL, 1);
@@ -738,6 +749,7 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
     goto clean_up;
 
 clean_up:
+    xqc_free(pub_ns_joined);
     if (track_created && track != NULL && track->subscribe_id == XQC_MOQ_INVALID_ID) {
         xqc_list_del(&track->list_member);
         xqc_moq_track_destroy(track);
@@ -797,11 +809,13 @@ xqc_moq_on_publish_error(xqc_moq_session_t *session, xqc_moq_stream_t *moq_strea
 
     track = xqc_moq_find_track_by_alias(session, subscribe->subscribe_msg->track_alias, XQC_MOQ_TRACK_FOR_PUB);
     if (track) {
+        char *err_ns = xqc_moq_namespace_tuple_join(track->track_info.track_namespace_tuple, track->track_info.track_namespace_num);
         xqc_log(session->log, XQC_LOG_INFO,
                 "|on_publish_error|subscribe_id:%ui|track:%s/%s|reason:%s|",
                 publish_error->subscribe_id,
-                track->track_info.track_namespace, track->track_info.track_name,
+                err_ns ? err_ns : "null", track->track_info.track_name,
                 publish_error->reason_phrase ? publish_error->reason_phrase : "null");
+        xqc_free(err_ns);
         xqc_moq_track_set_alias(track, XQC_MOQ_INVALID_ID);
         xqc_moq_track_set_subscribe_id(track, XQC_MOQ_INVALID_ID);
         if (session->session_callbacks.on_publish_error) {
@@ -836,11 +850,13 @@ xqc_moq_on_publish_done(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
 
     track = xqc_moq_find_track_by_alias(session, subscribe->subscribe_msg->track_alias, XQC_MOQ_TRACK_FOR_SUB);
     if (track) {
+        char *done_ns = xqc_moq_namespace_tuple_join(track->track_info.track_namespace_tuple, track->track_info.track_namespace_num);
         xqc_log(session->log, XQC_LOG_INFO,
                 "|on_publish_done|subscribe_id:%ui|track:%s/%s|status:%ui|streams:%ui|reason:%s|",
-                publish_done->subscribe_id, track->track_info.track_namespace, track->track_info.track_name,
+                publish_done->subscribe_id, done_ns ? done_ns : "null", track->track_info.track_name,
                 publish_done->status_code, publish_done->stream_count,
                 publish_done->reason_phrase ? publish_done->reason_phrase : "null");
+        xqc_free(done_ns);
         xqc_moq_track_set_alias(track, XQC_MOQ_INVALID_ID);
         xqc_moq_track_set_subscribe_id(track, XQC_MOQ_INVALID_ID);
         if (session->session_callbacks.on_publish_done) {
@@ -898,11 +914,13 @@ xqc_moq_on_datagram_object(xqc_moq_session_t *session, xqc_moq_object_t *object)
     object->subscribe_id = track->subscribe_id;
 
     if (xqc_moq_track_should_drop_recv_object(track, object)) {
+        char *dg_ns = xqc_moq_namespace_tuple_join(track->track_info.track_namespace_tuple, track->track_info.track_namespace_num);
         xqc_log(session->log, XQC_LOG_INFO,
                 "|drop cancelled datagram object|track:%s/%s|subscribe_id:%ui|group_id:%ui|object_id:%ui|",
-                track->track_info.track_namespace ? track->track_info.track_namespace : "null",
+                dg_ns ? dg_ns : "null",
                 track->track_info.track_name ? track->track_info.track_name : "null",
                 object->subscribe_id, object->group_id, object->object_id);
+        xqc_free(dg_ns);
         return;
     }
 
@@ -947,11 +965,13 @@ xqc_moq_on_object(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_
         if (moq_stream) {
             xqc_moq_stream_stop_sending(moq_stream, XQC_MOQ_DATA_STREAM_CANCELLED);
         }
+        char *obj_ns = xqc_moq_namespace_tuple_join(track->track_info.track_namespace_tuple, track->track_info.track_namespace_num);
         xqc_log(session->log, XQC_LOG_INFO,
                 "|drop cancelled recv object|track:%s/%s|subscribe_id:%ui|group_id:%ui|object_id:%ui|",
-                track->track_info.track_namespace ? track->track_info.track_namespace : "null",
+                obj_ns ? obj_ns : "null",
                 track->track_info.track_name ? track->track_info.track_name : "null",
                 object->subscribe_id, object->group_id, object->object_id);
+        xqc_free(obj_ns);
         return;
     }
     if (moq_stream) {
@@ -965,12 +985,14 @@ xqc_moq_on_object(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_
     }
 
     if (track->track_info.track_type == XQC_MOQ_TRACK_DATACHANNEL) {
+        char *dc_ns = xqc_moq_namespace_tuple_join(track->track_info.track_namespace_tuple, track->track_info.track_namespace_num);
         xqc_log(session->log, XQC_LOG_INFO,
                 "|on_object_datatrack|subscribe_id:%ui|track:%s/%s|payload_len:%ui|",
                 object->subscribe_id,
-                track->track_info.track_namespace ? track->track_info.track_namespace : "null",
+                dc_ns ? dc_ns : "null",
                 track->track_info.track_name ? track->track_info.track_name : "null",
                 object->payload_len);
+        xqc_free(dc_ns);
     }
 
     track->track_ops.on_object(session, track, object);
@@ -1161,5 +1183,167 @@ xqc_moq_on_goaway(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_
     if (session->session_callbacks.on_goaway) {
         session->session_callbacks.on_goaway(session->user_session,
             goaway->new_session_uri, goaway->new_session_uri_len);
+    }
+}
+
+void
+xqc_moq_on_subscribe_namespace(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_subscribe_namespace_msg_t *msg = (xqc_moq_subscribe_namespace_msg_t*)msg_base;
+    if (session == NULL || msg == NULL) {
+        return;
+    }
+
+    uint64_t sender_parity = xqc_moq_session_is_server(session) ? 0 : 1;
+    if ((msg->request_id & 1) != sender_parity) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|subscribe_namespace wrong request_id parity|request_id:%ui|expected_parity:%ui|",
+                msg->request_id, sender_parity);
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION, "wrong request_id parity");
+        return;
+    }
+
+    if (msg->track_namespace_tuple == NULL
+        || msg->track_namespace_num == 0
+        || msg->track_namespace_num > XQC_MOQ_MAX_NAMESPACE_TUPLE_ELEMS)
+    {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|subscribe_namespace invalid prefix|request_id:%ui|prefix_num:%ui|",
+                msg->request_id, msg->track_namespace_num);
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION, "subscribe namespace invalid prefix");
+        return;
+    }
+
+    if (xqc_moq_session_find_request_id(session, msg->request_id)) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|subscribe_namespace duplicate request_id|request_id:%ui|",
+                msg->request_id);
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                              "duplicate subscribe_namespace request_id");
+        return;
+    }
+
+    if (xqc_moq_session_namespace_prefix_overlaps(session, msg->track_namespace_tuple, msg->track_namespace_num)) {
+        xqc_log(session->log, XQC_LOG_WARN,
+                "|subscribe_namespace namespace prefix overlap|request_id:%ui|", msg->request_id);
+        session->max_peer_ns_request_id = msg->request_id;
+        session->peer_ns_request_id_seen = 1;
+
+        xqc_moq_subscribe_namespace_error_msg_t err;
+        xqc_memzero(&err, sizeof(err));
+        err.request_id = msg->request_id;
+        err.error_code = XQC_MOQ_SUBSCRIBE_NAMESPACE_ERR_PREFIX_OVERLAP;
+        err.reason_phrase = "namespace prefix overlap";
+        xqc_int_t ret = xqc_moq_write_subscribe_namespace_error(session, &err);
+        if (ret < 0) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|write_subscribe_namespace_error error|ret:%d|", ret);
+            xqc_moq_session_error(session, MOQ_INTERNAL_ERROR, "on subscribe namespace");
+        }
+        return;
+    }
+
+    if (session->session_callbacks.on_subscribe_namespace) {
+        session->max_peer_ns_request_id = msg->request_id;
+        session->peer_ns_request_id_seen = 1;
+        session->session_callbacks.on_subscribe_namespace(session->user_session, msg);
+        return;
+    }
+
+    xqc_int_t ret = xqc_moq_session_add_namespace_prefix(session, msg->request_id, msg->track_namespace_tuple, msg->track_namespace_num);
+    if (ret < 0) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|add namespace prefix failed|ret:%d|", ret);
+        xqc_moq_session_error(session, MOQ_INTERNAL_ERROR, "on subscribe namespace");
+        return;
+    }
+
+    xqc_moq_subscribe_namespace_ok_msg_t ok;
+    xqc_memzero(&ok, sizeof(ok));
+    ok.request_id = msg->request_id;
+    ret = xqc_moq_write_subscribe_namespace_ok(session, &ok);
+    if (ret < 0) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|write_subscribe_namespace_ok error|ret:%d|", ret);
+        xqc_moq_session_error(session, MOQ_INTERNAL_ERROR, "on subscribe namespace");
+        return;
+    }
+
+    xqc_log(session->log, XQC_LOG_INFO,
+            "|subscribe_namespace accepted|request_id:%ui|prefix_num:%ui|",
+            msg->request_id, msg->track_namespace_num);
+}
+
+void
+xqc_moq_on_subscribe_namespace_ok(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_subscribe_namespace_ok_msg_t *ok = (xqc_moq_subscribe_namespace_ok_msg_t*)msg_base;
+    if (session == NULL || ok == NULL) {
+        return;
+    }
+
+    if (!xqc_moq_session_consume_pending_ns_request(session, ok->request_id)) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|subscribe_namespace_ok unknown request_id|request_id:%ui|",
+                ok->request_id);
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                              "subscribe_namespace_ok unknown request_id");
+        return;
+    }
+
+    xqc_log(session->log, XQC_LOG_INFO, "|subscribe_namespace_ok|request_id:%ui|", ok->request_id);
+
+    if (session->session_callbacks.on_subscribe_namespace_ok) {
+        session->session_callbacks.on_subscribe_namespace_ok(session->user_session, ok);
+    }
+}
+
+void
+xqc_moq_on_subscribe_namespace_error(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_subscribe_namespace_error_msg_t *err = (xqc_moq_subscribe_namespace_error_msg_t*)msg_base;
+    if (session == NULL || err == NULL) {
+        return;
+    }
+
+    if (!xqc_moq_session_consume_pending_ns_request(session, err->request_id)) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|subscribe_namespace_error unknown request_id|request_id:%ui|",
+                err->request_id);
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                              "subscribe_namespace_error unknown request_id");
+        return;
+    }
+
+    xqc_log(session->log, XQC_LOG_WARN, "|subscribe_namespace_error|request_id:%ui|error_code:%ui|reason:%s|",
+            err->request_id, err->error_code, err->reason_phrase ? err->reason_phrase : "");
+
+    if (session->session_callbacks.on_subscribe_namespace_error) {
+        session->session_callbacks.on_subscribe_namespace_error(session->user_session, err);
+    }
+}
+
+void
+xqc_moq_on_unsubscribe_namespace(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_unsubscribe_namespace_msg_t *msg = (xqc_moq_unsubscribe_namespace_msg_t*)msg_base;
+    if (session == NULL || msg == NULL) {
+        return;
+    }
+
+    xqc_log(session->log, XQC_LOG_INFO,
+            "|unsubscribe_namespace|prefix_num:%ui|",
+            msg->track_namespace_num);
+
+    if (session->session_callbacks.on_unsubscribe_namespace) {
+        session->session_callbacks.on_unsubscribe_namespace(session->user_session, msg);
+        return;
+    }
+
+    if (msg->track_namespace_tuple != NULL && msg->track_namespace_num > 0) {
+        xqc_int_t removed = xqc_moq_session_remove_namespace_prefix(
+            session, msg->track_namespace_tuple, msg->track_namespace_num);
+        if (removed == 0) {
+            xqc_log(session->log, XQC_LOG_WARN,
+                    "|unsubscribe_namespace prefix not found|prefix_num:%ui|",
+                    msg->track_namespace_num);
+        }
     }
 }

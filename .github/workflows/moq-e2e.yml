@@ -1,0 +1,102 @@
+name: MoQ E2E Tests
+
+on:
+  push:
+    branches: [main, moq_draft_14_dev]
+    paths:
+      - 'moq/**'
+      - 'include/moq/**'
+      - '.github/workflows/moq-e2e.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'moq/**'
+      - 'include/moq/**'
+      - '.github/workflows/moq-e2e.yml'
+
+jobs:
+  moq-e2e:
+    name: MoQ E2E Tests
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential libevent-dev libcunit1-dev cmake
+
+    - name: Cache BoringSSL
+      id: cache-boringssl
+      uses: actions/cache@v4
+      with:
+        path: third_party/boringssl
+        key: boringssl-${{ runner.os }}-${{ hashFiles('.gitmodules') }}
+
+    - name: Build BoringSSL
+      if: steps.cache-boringssl.outputs.cache-hit != 'true'
+      run: |
+        git clone https://github.com/google/boringssl.git ./third_party/boringssl
+        cd ./third_party/boringssl
+        mkdir -p build && cd build
+        cmake -DBUILD_SHARED_LIBS=0 -DCMAKE_C_FLAGS="-fPIC" -DCMAKE_CXX_FLAGS="-fPIC" ..
+        make -j$(nproc) ssl crypto
+
+    - name: Build XQUIC with MoQ
+      run: |
+        SSL_TYPE_STR="boringssl"
+        SSL_PATH_STR="${PWD}/third_party/boringssl"
+        SSL_INC_PATH_STR="${PWD}/third_party/boringssl/include"
+        SSL_LIB_PATH_STR="${PWD}/third_party/boringssl/build/libssl.a;${PWD}/third_party/boringssl/build/libcrypto.a"
+        mkdir -p build && cd build
+        cmake -DCMAKE_BUILD_TYPE=Debug \
+              -DXQC_ENABLE_TESTING=1 \
+              -DXQC_ENABLE_MOQ=1 \
+              -DXQC_PRINT_SECRET=1 \
+              -DSSL_TYPE=${SSL_TYPE_STR} \
+              -DSSL_PATH=${SSL_PATH_STR} \
+              -DSSL_INC_PATH=${SSL_INC_PATH_STR} \
+              -DSSL_LIB_PATH=${SSL_LIB_PATH_STR} \
+              ..
+        make -j$(nproc)
+
+    - name: Generate TLS certificates
+      run: |
+        cd build
+        openssl req -x509 -newkey rsa:2048 -nodes \
+          -keyout server.key -out server.crt \
+          -subj '/CN=localhost' -days 1
+
+    - name: Run MoQ E2E tests
+      run: |
+        DEMO_DIR="${PWD}/build/moq/demo"
+        PASS_TOTAL=0
+        FAIL_TOTAL=0
+        FAILED_TESTS=""
+
+        for test_script in moq/tests/test_*_e2e.sh; do
+          echo ""
+          echo "========================================"
+          echo "Running: $test_script"
+          echo "========================================"
+          chmod +x "$test_script"
+          if bash "$test_script" "$DEMO_DIR"; then
+            PASS_TOTAL=$((PASS_TOTAL + 1))
+          else
+            FAIL_TOTAL=$((FAIL_TOTAL + 1))
+            FAILED_TESTS="$FAILED_TESTS $test_script"
+          fi
+        done
+
+        echo ""
+        echo "========================================"
+        echo "MoQ E2E Summary: $PASS_TOTAL scripts passed, $FAIL_TOTAL scripts failed"
+        if [ $FAIL_TOTAL -gt 0 ]; then
+          echo "Failed: $FAILED_TESTS"
+          exit 1
+        fi
+        echo "All MoQ E2E tests passed!"

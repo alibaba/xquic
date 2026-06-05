@@ -44,6 +44,7 @@
 #include "xqc_send_ctl_test.h"
 #include "xqc_vn_test.h"
 #include "xqc_frame_type_bit_test.h"
+#include "xqc_flow_ctl_test.h"
 
 static int xqc_init_suite(void) { return 0; }
 static int xqc_clean_suite(void) { return 0; }
@@ -85,6 +86,10 @@ main()
         || !CU_add_test(pSuite, "xqc_test_pq", xqc_test_pq)
         || !CU_add_test(pSuite, "xqc_test_common", xqc_test_common)
         || !CU_add_test(pSuite, "xqc_test_vint", xqc_test_vint)
+        /* issue #675: flow control window clamp to 2^62-1 (RFC 9000) */
+        || !CU_add_test(pSuite, "xqc_test_stream_flow_ctl_clamp", xqc_test_stream_flow_ctl_clamp)
+        || !CU_add_test(pSuite, "xqc_test_conn_flow_ctl_clamp", xqc_test_conn_flow_ctl_clamp)
+        || !CU_add_test(pSuite, "xqc_test_flow_ctl_normal_no_clamp", xqc_test_flow_ctl_normal_no_clamp)
         || !CU_add_test(pSuite, "xqc_test_recv_record", xqc_test_recv_record)
         || !CU_add_test(pSuite, "xqc_test_reno", xqc_test_reno)
         || !CU_add_test(pSuite, "xqc_test_reno_init_cwnd", xqc_test_reno_init_cwnd)

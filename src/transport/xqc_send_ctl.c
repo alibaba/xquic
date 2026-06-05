@@ -1547,9 +1547,10 @@ xqc_send_ctl_on_pmtud_ping_acked(xqc_send_ctl_t *send_ctl,
     xqc_path_ctx_t *path = xqc_conn_find_path_by_path_id(conn, po->po_path_id);
 
     if (path == NULL || path->path_state >= XQC_PATH_STATE_CLOSING) {
-        xqc_log(conn->log, XQC_LOG_WARN, 
-                "|PMTUD probe acked on invalid path|path:%ui|", 
+        xqc_log(conn->log, XQC_LOG_WARN,
+                "|PMTUD probe acked on invalid path|path:%ui|",
                 po->po_path_id);
+        return;
     }
     
     if (po->po_buf_size > path->curr_pkt_out_size) {

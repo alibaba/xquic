@@ -1215,6 +1215,7 @@ xqc_write_stream_frame_to_packet(xqc_connection_t *conn,
 
         if (stream->stream_flow_ctl.fc_stream_recv_window_size > available_window) {        
             stream->stream_flow_ctl.fc_max_stream_data_can_recv += (stream->stream_flow_ctl.fc_stream_recv_window_size - available_window);
+            stream->stream_flow_ctl.fc_max_stream_data_can_recv = xqc_clamp_to_max_flow_ctl(stream->stream_flow_ctl.fc_max_stream_data_can_recv);
             xqc_log(conn->log, XQC_LOG_DEBUG,
                     "|initial_fc_credit_update|stream:%ui|new_max_data:%ui|stream_max_recv_offset:%ui|next_read_offset:%ui|window_size:%ui|pkt_type:%d|",
                     stream->stream_id,

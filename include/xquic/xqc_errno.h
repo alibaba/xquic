@@ -37,7 +37,14 @@ typedef enum {
     TRA_VERSION_NEGOTIATION_ERROR   =  0x53,
     /* RFC 9001 Section 4.8: TLS alert 120 maps to 0x100 + 120 = 0x178 */
     TRA_NO_APPLICATION_PROTOCOL     =  0x178,
-    TRA_HS_CERTIFICATE_VERIFY_FAIL  =  0x1FE, /**< for handshake certificate verify error */
+    /*
+     * Certificate verification failures are reported as dynamic
+     * CRYPTO_ERROR codes: TRA_CRYPTO_ERROR_BASE | tls_alert_code
+     * (see xqc_conn_tls_error_cb).  The former fixed enum value
+     * TRA_HS_CERTIFICATE_VERIFY_FAIL (0x1FE) was removed because it
+     * fell inside the RFC 9000 §20.1 reserved CRYPTO_ERROR range
+     * (0x0100-0x01FF) and was never referenced in any code path.
+     */
 } xqc_trans_err_code_t;
 
 

@@ -2080,7 +2080,13 @@ xqc_parse_new_conn_id_frame(xqc_packet_in_t *packet_in, xqc_cid_t *new_cid, uint
         return -XQC_EPROTO;
     }
     new_cid->cid_len = *p++;
-    if (new_cid->cid_len > XQC_MAX_CID_LEN) {
+    if (new_cid->cid_len < 1 || new_cid->cid_len > XQC_MAX_CID_LEN) {
+        /*
+         * RFC 9000 §19.15: "Values less than 1 and greater than 20 are
+         * invalid and MUST be treated as a connection error of type
+         * FRAME_ENCODING_ERROR."
+         */
+        XQC_CONN_ERR(conn, TRA_FRAME_ENCODING_ERROR);
         return -XQC_EPROTO;
     }
 
@@ -2899,7 +2905,9 @@ xqc_parse_mp_new_conn_id_frame(xqc_packet_in_t *packet_in,
         return -XQC_EPROTO;
     }
     new_cid->cid_len = *p++;
-    if (new_cid->cid_len > XQC_MAX_CID_LEN) {
+    if (new_cid->cid_len < 1 || new_cid->cid_len > XQC_MAX_CID_LEN) {
+        /* RFC 9000 §19.15: FRAME_ENCODING_ERROR for invalid CID length */
+        XQC_CONN_ERR(conn, TRA_FRAME_ENCODING_ERROR);
         return -XQC_EPROTO;
     }
 

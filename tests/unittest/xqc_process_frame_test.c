@@ -667,3 +667,51 @@ xqc_test_ack_ecn_followed_by_ping()
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+void
+xqc_test_new_conn_id_zero_len_cid(void)
+{
+    /*
+     * RFC 9000 §19.15: CID Length < 1 or > 20 MUST trigger
+     * FRAME_ENCODING_ERROR.  Build a NEW_CONNECTION_ID frame
+     * with Length = 0 and verify the parser rejects it.
+     *
+     * Frame layout:
+     *   Type       = 0x18 (1 byte)
+     *   SeqNum     = 0x01 (1 byte varint)
+     *   RetirePT   = 0x00 (1 byte varint)
+     *   Length     = 0x00 (1 byte — invalid!)
+     *   CID        = (none, 0 bytes)
+     *   SR Token   = 16 bytes of 0xAA
+     */
+    unsigned char frame_buf[64];
+    unsigned char *p = frame_buf;
+    *p++ = 0x18;  /* type */
+    *p++ = 0x01;  /* sequence number = 1 */
+    *p++ = 0x00;  /* retire prior to = 0 */
+    *p++ = 0x00;  /* length = 0 (invalid) */
+    /* no CID bytes */
+    memset(p, 0xAA, 16);  /* stateless reset token */
+    p += 16;
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+    if (conn == NULL) {
+        return;
+    }
+
+    xqc_packet_in_t pi;
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = frame_buf + 1;  /* skip type byte, parser starts after type */
+    pi.last = p;
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+
+    xqc_cid_t new_cid;
+    uint64_t retire_prior_to = 0;
+    xqc_int_t ret = xqc_parse_new_conn_id_frame(&pi, &new_cid, &retire_prior_to, conn);
+    CU_ASSERT(ret != XQC_OK);
+    CU_ASSERT(conn->conn_err == TRA_FRAME_ENCODING_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}

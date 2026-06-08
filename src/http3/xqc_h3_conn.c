@@ -497,6 +497,12 @@ xqc_h3_conn_create(xqc_connection_t *conn, void *user_data)
 #endif
     }
 
+    /* read effective blocked buffer limits (already computed in xqc_server_set_conn_settings) */
+    h3c->max_blocked_buf_per_stream = conn->conn_settings.max_blocked_buf_per_stream;
+    h3c->max_blocked_buf_per_conn = conn->conn_settings.max_blocked_buf_per_conn;
+    xqc_log(h3c->log, XQC_LOG_DEBUG, "|blocked_buf_limits|per_stream:%uz|per_conn:%uz|",
+            h3c->max_blocked_buf_per_stream, h3c->max_blocked_buf_per_conn);
+
     /* create qpack */
     h3c->qpack = xqc_qpack_create(h3c->local_h3_conn_settings.qpack_enc_max_table_capacity,
                                   h3c->local_h3_conn_settings.qpack_dec_max_table_capacity,

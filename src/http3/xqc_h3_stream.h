@@ -11,6 +11,12 @@
 #include "src/http3/frame/xqc_h3_frame.h"
 #include "src/transport/xqc_stream.h"
 
+/* Default maximum size of blocked buffer per stream (1 MB) */
+#define XQC_H3_STREAM_MAX_BLOCKED_BUF_SIZE_DEFAULT (1 * 1024 * 1024)
+
+/* Default maximum total size of blocked buffers per connection (8 MB) */
+#define XQC_H3_CONN_MAX_BLOCKED_BUF_SIZE_DEFAULT (8 * 1024 * 1024)
+
 typedef struct xqc_h3_conn_s    xqc_h3_conn_t;
 typedef struct xqc_h3_stream_s  xqc_h3_stream_t;
 
@@ -136,6 +142,8 @@ typedef struct xqc_h3_stream_s {
     /* blocked data buffer, used to store request
        stream data when stream is blocked */
     xqc_list_head_t                 blocked_buf;
+    /* current size of blocked buffer */
+    size_t                          blocked_buf_size;
     xqc_h3_blocked_stream_t        *blocked_stream;
 
     /* context of representation */

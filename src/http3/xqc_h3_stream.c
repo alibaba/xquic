@@ -34,6 +34,7 @@ xqc_h3_stream_create(xqc_h3_conn_t *h3c, xqc_stream_t *stream, xqc_h3_stream_typ
     h3s->blocked_stream = NULL;
     xqc_init_list_head(&h3s->send_buf);
     xqc_init_list_head(&h3s->blocked_buf);
+    h3s->blocked_buf_size = 0;
     h3s->ctx = xqc_qpack_create_req_ctx(stream->stream_id);
     h3s->log = h3c->log;
     h3s->recv_rate_limit = stream->recv_rate_bytes_per_sec;
@@ -98,6 +99,12 @@ xqc_h3_stream_destroy(xqc_h3_stream_t *h3s)
     xqc_h3_frm_reset_pctx(&h3s->pctx.frame_pctx);
     xqc_qpack_destroy_req_ctx(h3s->ctx);
     xqc_list_buf_list_free(&h3s->send_buf);
+
+    /* update connection-level blocked buffer counter before freeing */
+    if (h3s->blocked_buf_size > 0 && h3s->h3c != NULL) {
+        h3s->h3c->total_blocked_buf_size -= h3s->blocked_buf_size;
+        h3s->blocked_buf_size = 0;
+    }
     xqc_list_buf_list_free(&h3s->blocked_buf);
 
     xqc_log(h3s->log, XQC_LOG_DEBUG, "|stream_id:%ui|h3_stream_type:%d|",
@@ -1561,6 +1568,28 @@ xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_
                 return XQC_ERROR;
             }
 
+            /* check blocked buffer size limit */
+            size_t remaining_size = data_len - processed;
+            if (h3c->max_blocked_buf_per_stream
+                && (h3s->blocked_buf_size + remaining_size > h3c->max_blocked_buf_per_stream))
+            {
+                xqc_log(h3c->log, XQC_LOG_ERROR,
+                        "|blocked buffer size limit exceeded|stream_id:%ui|current:%uz|adding:%uz|limit:%uz|",
+                        h3s->stream_id, h3s->blocked_buf_size, remaining_size, h3c->max_blocked_buf_per_stream);
+                XQC_H3_CONN_ERR(h3c, H3_EXCESSIVE_LOAD, -XQC_H3_EPROC_REQUEST);
+                return -XQC_H3_EPROC_REQUEST;
+            }
+
+            if (h3c->max_blocked_buf_per_conn
+                && (h3c->total_blocked_buf_size + remaining_size > h3c->max_blocked_buf_per_conn))
+            {
+                xqc_log(h3c->log, XQC_LOG_ERROR,
+                        "|connection blocked buffer size limit exceeded|total:%uz|adding:%uz|limit:%uz|",
+                        h3c->total_blocked_buf_size, remaining_size, h3c->max_blocked_buf_per_conn);
+                XQC_H3_CONN_ERR(h3c, H3_EXCESSIVE_LOAD, -XQC_H3_EPROC_REQUEST);
+                return -XQC_H3_EPROC_REQUEST;
+            }
+
             /* if blocked, store data in blocked buffer */
             xqc_var_buf_t *buf = xqc_var_buf_create(XQC_DATA_BUF_SIZE_4K);
             if (buf == NULL) {
@@ -1578,6 +1607,10 @@ xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_
                 xqc_var_buf_free(buf);
                 return ret;
             }
+
+            /* update blocked buffer size counters  */
+            h3s->blocked_buf_size += remaining_size;
+            h3c->total_blocked_buf_size += remaining_size;
         }
     }
 
@@ -1634,6 +1667,27 @@ xqc_h3_stream_process_blocked_data(xqc_stream_t *stream, xqc_h3_stream_t *h3s, x
 
     do
     {
+        /* check blocked buffer size limit before receiving more data */
+        if (h3s->h3c->max_blocked_buf_per_stream
+            && (h3s->blocked_buf_size >= h3s->h3c->max_blocked_buf_per_stream))
+        {
+            xqc_log(h3s->log, XQC_LOG_ERROR,
+                    "|blocked buffer size limit reached|stream_id:%ui|size:%uz|limit:%uz|",
+                    h3s->stream_id, h3s->blocked_buf_size, h3s->h3c->max_blocked_buf_per_stream);
+            XQC_H3_CONN_ERR(h3s->h3c, H3_EXCESSIVE_LOAD, -XQC_H3_EPROC_REQUEST);
+            return -XQC_H3_EPROC_REQUEST;
+        }
+
+        if (h3s->h3c->max_blocked_buf_per_conn
+            && (h3s->h3c->total_blocked_buf_size >= h3s->h3c->max_blocked_buf_per_conn))
+        {
+            xqc_log(h3s->log, XQC_LOG_ERROR,
+                    "|connection blocked buffer size limit reached|total:%uz|limit:%uz|",
+                    h3s->h3c->total_blocked_buf_size, h3s->h3c->max_blocked_buf_per_conn);
+            XQC_H3_CONN_ERR(h3s->h3c, H3_EXCESSIVE_LOAD, -XQC_H3_EPROC_REQUEST);
+            return -XQC_H3_EPROC_REQUEST;
+        }
+
         buf = xqc_h3_stream_get_buf(h3s, &h3s->blocked_buf, XQC_DATA_BUF_SIZE_4K);
         if (buf == NULL) {
             return -XQC_EMALLOC;
@@ -1654,6 +1708,10 @@ xqc_h3_stream_process_blocked_data(xqc_stream_t *stream, xqc_h3_stream_t *h3s, x
 
         buf->data_len += rcvd;
         buf->fin_flag = *fin;
+
+        /* update blocked buffer size counters  */
+        h3s->blocked_buf_size += rcvd;
+        h3s->h3c->total_blocked_buf_size += rcvd;
 
         if (*fin) {
             h3s->flags |= XQC_HTTP3_STREAM_FLAG_READ_EOF;
@@ -1767,6 +1825,10 @@ xqc_h3_stream_process_blocked_stream(xqc_h3_stream_t *h3s)
             return processed;
         }
         buf->consumed_len += processed;
+
+        /* update blocked buffer size counters: subtract consumed bytes */
+        h3s->blocked_buf_size -= processed;
+        h3s->h3c->total_blocked_buf_size -= processed;
 
         if (buf->consumed_len == buf->data_len) {
             xqc_list_buf_free(list_buf);

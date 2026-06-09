@@ -69,6 +69,7 @@ typedef struct xqc_moq_decode_msg_ctx_s {
     uint8_t                     tuple_elem_len_ready;
     uint64_t                    msg_declared_length;
     uint64_t                    msg_payload_consumed;
+    size_t                      namespace_total_len;
     xqc_moq_decode_params_ctx_t decode_params_ctx;
 } xqc_moq_decode_msg_ctx_t;
 

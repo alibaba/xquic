@@ -575,6 +575,47 @@ run_test "16e: no segfault" \
 echo ""
 
 # ============================================================
+# Test 17: PUBLISH forwarding after SUBSCRIBE_NAMESPACE_OK
+# Mode 1: client subscribes namespace ["namespace"], server has tracks
+# video and audio registered. After OK, server should forward PUBLISH
+# messages for matching tracks to the client.
+# ============================================================
+echo "--- Test 17: PUBLISH forwarding after SUBSCRIBE_NAMESPACE_OK ---"
+PORT=$((PORT + 1))
+rm -f clog slog
+
+"$SERVER" -l d -p $PORT -V -n 2 > srv17.log 2>&1 &
+SRV_PID=$!
+sleep 2
+
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 1 > cli17.log 2>&1 || true
+
+kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
+
+run_test "17a: server decoded SUBSCRIBE_NAMESPACE (0x11)" \
+    grep -q "msg_type:0x11" slog
+run_test "17b: server accepted namespace prefix" \
+    grep -q "subscribe_namespace accepted" slog
+run_test "17c: server forwarded PUBLISH for video" \
+    grep -q "forward_matching_publish|track:video" slog
+run_test "17d: server forwarded PUBLISH for audio" \
+    grep -q "forward_matching_publish|track:audio" slog
+run_test "17e: client received PUBLISH for video track" \
+    grep -q "on_publish.*track:namespace/video" clog
+run_test "17f: client received PUBLISH for audio track" \
+    grep -q "on_publish.*track:namespace/audio" clog
+run_test "17g: client received SUBSCRIBE_NAMESPACE_OK" \
+    grep -q "subscribe_namespace_ok" clog
+run_test "17h: no segfault in server" \
+    assert_no_match "segfault\|SIGSEGV\|abort" srv17.log
+run_test "17i: no segfault in client" \
+    assert_no_match "segfault\|SIGSEGV\|abort" cli17.log
+run_test "17j: no protocol violation" \
+    assert_no_match "PROTOCOL_VIOLATION\|conn_err:3" slog
+
+echo ""
+
+# ============================================================
 # Summary
 # ============================================================
 echo "=== Results: $PASS passed, $FAIL failed ==="

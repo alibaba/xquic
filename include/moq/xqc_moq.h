@@ -274,7 +274,6 @@ typedef struct xqc_moq_subscribe_msg_s {
     uint64_t                    track_alias;
     uint64_t                    track_namespace_num;
     xqc_moq_track_ns_field_t    *track_namespace_tuple;
-    size_t                      track_namespace_len;
     char                        *track_name;
     size_t                      track_name_len;
     uint8_t                     subscriber_priority;
@@ -316,7 +315,6 @@ typedef struct xqc_moq_publish_msg_s {
     uint64_t                    track_alias;
     uint64_t                    track_namespace_num;
     xqc_moq_track_ns_field_t    *track_namespace_tuple;
-    size_t                      track_namespace_len;
     char                        *track_name;
     size_t                      track_name_len;
     uint8_t                     group_order;
@@ -375,7 +373,6 @@ typedef struct xqc_moq_subscribe_namespace_msg_s {
     uint64_t                    request_id;
     uint64_t                    track_namespace_num;
     xqc_moq_track_ns_field_t    *track_namespace_tuple;
-    size_t                      track_namespace_len;
     uint64_t                    params_num;
     xqc_moq_message_parameter_t *params;
 } xqc_moq_subscribe_namespace_msg_t;
@@ -383,6 +380,8 @@ typedef struct xqc_moq_subscribe_namespace_msg_s {
 typedef struct xqc_moq_subscribe_namespace_ok_msg_s {
     xqc_moq_msg_base_t          msg_base;
     uint64_t                    request_id;
+    xqc_moq_track_ns_field_t   *track_namespace_tuple;
+    uint64_t                    track_namespace_num;
 } xqc_moq_subscribe_namespace_ok_msg_t;
 
 typedef struct xqc_moq_subscribe_namespace_error_msg_s {
@@ -391,13 +390,14 @@ typedef struct xqc_moq_subscribe_namespace_error_msg_s {
     uint64_t                    error_code;
     char                        *reason_phrase;
     size_t                      reason_phrase_len;
+    xqc_moq_track_ns_field_t   *track_namespace_tuple;
+    uint64_t                    track_namespace_num;
 } xqc_moq_subscribe_namespace_error_msg_t;
 
 typedef struct xqc_moq_unsubscribe_namespace_msg_s {
     xqc_moq_msg_base_t          msg_base;
     uint64_t                    track_namespace_num;
     xqc_moq_track_ns_field_t    *track_namespace_tuple;
-    size_t                      track_namespace_len;
 } xqc_moq_unsubscribe_namespace_msg_t;
 
 typedef enum {

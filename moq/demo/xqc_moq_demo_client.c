@@ -138,7 +138,6 @@ xqc_demo_publish_track(user_conn_t *user_conn, xqc_demo_track_ctx_t *ctx,
     size_t ns_len = strlen(track_namespace);
     xqc_moq_track_ns_field_t ns_field = { .len = ns_len, .data = (unsigned char *)track_namespace };
     publish_msg.track_namespace_tuple = &ns_field;
-    publish_msg.track_namespace_len = ns_len;
     publish_msg.track_namespace_num = 1;
     publish_msg.track_name = (char *)track_name;
     publish_msg.track_name_len = strlen(track_name);

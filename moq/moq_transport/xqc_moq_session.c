@@ -229,6 +229,7 @@ xqc_moq_session_destroy(xqc_moq_session_t *session)
         xqc_moq_pending_ns_request_t *pending =
             xqc_list_entry(pos, xqc_moq_pending_ns_request_t, list_member);
         xqc_list_del(pos);
+        xqc_moq_namespace_tuple_free(pending->track_namespace_tuple, pending->track_namespace_num);
         xqc_free(pending);
     }
     xqc_free(session->goaway_new_session_uri);
@@ -604,7 +605,8 @@ xqc_moq_session_remove_namespace_prefix(xqc_moq_session_t *session,
 }
 
 xqc_int_t
-xqc_moq_session_add_pending_ns_request(xqc_moq_session_t *session, uint64_t request_id)
+xqc_moq_session_add_pending_ns_request(xqc_moq_session_t *session, uint64_t request_id,
+    const xqc_moq_track_ns_field_t *ns_tuple, uint64_t ns_num)
 {
     if (session == NULL) {
         return -XQC_EPARAM;
@@ -614,15 +616,21 @@ xqc_moq_session_add_pending_ns_request(xqc_moq_session_t *session, uint64_t requ
         return -XQC_EMALLOC;
     }
     pending->request_id = request_id;
+    pending->track_namespace_tuple = xqc_moq_namespace_tuple_copy(ns_tuple, ns_num);
+    pending->track_namespace_num = ns_num;
+    if (ns_tuple && ns_num > 0 && pending->track_namespace_tuple == NULL) {
+        xqc_free(pending);
+        return -XQC_EMALLOC;
+    }
     xqc_list_add_tail(&pending->list_member, &session->local_ns_pending_list);
     return XQC_OK;
 }
 
-xqc_int_t
+xqc_moq_pending_ns_request_t *
 xqc_moq_session_consume_pending_ns_request(xqc_moq_session_t *session, uint64_t request_id)
 {
     if (session == NULL) {
-        return 0;
+        return NULL;
     }
     xqc_list_head_t *pos, *next;
     xqc_list_for_each_safe(pos, next, &session->local_ns_pending_list) {
@@ -630,11 +638,10 @@ xqc_moq_session_consume_pending_ns_request(xqc_moq_session_t *session, uint64_t 
             xqc_list_entry(pos, xqc_moq_pending_ns_request_t, list_member);
         if (pending->request_id == request_id) {
             xqc_list_del(pos);
-            xqc_free(pending);
-            return 1;
+            return pending;
         }
     }
-    return 0;
+    return NULL;
 }
 
 xqc_int_t
@@ -662,7 +669,8 @@ xqc_moq_session_add_pending_inbound_ns(xqc_moq_session_t *session,
 
 xqc_int_t
 xqc_moq_session_accept_pending_inbound_ns(xqc_moq_session_t *session,
-    uint64_t request_id)
+    uint64_t request_id,
+    const xqc_moq_track_ns_field_t **namespace_prefix_tuple, uint64_t *namespace_prefix_num)
 {
     if (session == NULL) {
         return 0;
@@ -674,6 +682,12 @@ xqc_moq_session_accept_pending_inbound_ns(xqc_moq_session_t *session,
         if (pending->request_id == request_id) {
             xqc_list_del(pos);
             xqc_list_add_tail(&pending->list_member, &session->peer_subscribe_namespace_list);
+            if (namespace_prefix_tuple) {
+                *namespace_prefix_tuple = pending->prefix_tuple;
+            }
+            if (namespace_prefix_num) {
+                *namespace_prefix_num = pending->prefix_num;
+            }
             return 1;
         }
     }

@@ -1935,7 +1935,7 @@ xqc_moq_msg_decode_subscribe(uint8_t *buf, size_t buf_len, uint8_t stream_fin, x
                 msg_ctx->str_processed = 0;
                 msg_ctx->tuple_elem_len = 0;
                 msg_ctx->tuple_elem_len_ready = 0;
-                subscribe->track_namespace_len = 0;
+                msg_ctx->namespace_total_len = 0;
                 subscribe->track_namespace_tuple = xqc_calloc(subscribe->track_namespace_num,
                     sizeof(xqc_moq_track_ns_field_t));
                 if (subscribe->track_namespace_tuple == NULL) { return -XQC_EMALLOC; }
@@ -1954,10 +1954,10 @@ xqc_moq_msg_decode_subscribe(uint8_t *buf, size_t buf_len, uint8_t stream_fin, x
                     msg_ctx->tuple_elem_len_ready = 1;
                     if (msg_ctx->tuple_elem_len > XQC_MOQ_MAX_NAME_LEN) { return -XQC_ELIMIT; }
                     field->len = msg_ctx->tuple_elem_len;
-                    if (subscribe->track_namespace_len > XQC_MOQ_MAX_FULL_TRACK_NAME_LEN - field->len) {
+                    if (msg_ctx->namespace_total_len > XQC_MOQ_MAX_FULL_TRACK_NAME_LEN - field->len) {
                         return -MOQ_PROTOCOL_VIOLATION;
                     }
-                    subscribe->track_namespace_len += field->len;
+                    msg_ctx->namespace_total_len += field->len;
                     if (field->len > 0) {
                         field->data = xqc_calloc(1, field->len + 1);
                         if (field->data == NULL) { return -XQC_EMALLOC; }
@@ -2962,7 +2962,7 @@ xqc_moq_msg_decode_publish(uint8_t *buf, size_t buf_len, uint8_t stream_fin, xqc
                 msg_ctx->str_processed = 0;
                 msg_ctx->tuple_elem_len = 0;
                 msg_ctx->tuple_elem_len_ready = 0;
-                publish->track_namespace_len = 0;
+                msg_ctx->namespace_total_len = 0;
                 publish->track_namespace_tuple = xqc_calloc(publish->track_namespace_num,
                     sizeof(xqc_moq_track_ns_field_t));
                 if (publish->track_namespace_tuple == NULL) { return -XQC_EMALLOC; }
@@ -2981,10 +2981,10 @@ xqc_moq_msg_decode_publish(uint8_t *buf, size_t buf_len, uint8_t stream_fin, xqc
                     msg_ctx->tuple_elem_len_ready = 1;
                     if (msg_ctx->tuple_elem_len > XQC_MOQ_MAX_NAME_LEN) { return -XQC_ELIMIT; }
                     field->len = msg_ctx->tuple_elem_len;
-                    if (publish->track_namespace_len > XQC_MOQ_MAX_FULL_TRACK_NAME_LEN - field->len) {
+                    if (msg_ctx->namespace_total_len > XQC_MOQ_MAX_FULL_TRACK_NAME_LEN - field->len) {
                         return -MOQ_PROTOCOL_VIOLATION;
                     }
-                    publish->track_namespace_len += field->len;
+                    msg_ctx->namespace_total_len += field->len;
                     if (field->len > 0) {
                         field->data = xqc_calloc(1, field->len + 1);
                         if (field->data == NULL) { return -XQC_EMALLOC; }
@@ -4977,7 +4977,6 @@ xqc_moq_msg_encode_subscribe_namespace(xqc_moq_msg_base_t *msg_base, uint8_t *bu
     if (xqc_moq_track_namespace_tuple_validate_and_sum(sub->track_namespace_num,
             sub->track_namespace_tuple, &track_namespace_len) != XQC_OK)
     { return -XQC_EPARAM; }
-    sub->track_namespace_len = track_namespace_len;
 
     xqc_int_t length = xqc_moq_msg_encode_subscribe_namespace_len(msg_base);
     if (length > buf_cap) { return -XQC_EILLEGAL_FRAME; }
@@ -5047,7 +5046,7 @@ xqc_moq_msg_decode_subscribe_namespace(uint8_t *buf, size_t buf_len, uint8_t str
                 msg_ctx->str_processed = 0;
                 msg_ctx->tuple_elem_len = 0;
                 msg_ctx->tuple_elem_len_ready = 0;
-                sub->track_namespace_len = 0;
+                msg_ctx->namespace_total_len = 0;
                 sub->track_namespace_tuple = xqc_calloc(sub->track_namespace_num, sizeof(xqc_moq_track_ns_field_t));
                 if (sub->track_namespace_tuple == NULL) { return -XQC_EMALLOC; }
             }
@@ -5065,8 +5064,8 @@ xqc_moq_msg_decode_subscribe_namespace(uint8_t *buf, size_t buf_len, uint8_t str
                     msg_ctx->tuple_elem_len_ready = 1;
                     if (msg_ctx->tuple_elem_len > XQC_MOQ_MAX_NAME_LEN) { return -XQC_ELIMIT; }
                     field->len = msg_ctx->tuple_elem_len;
-                    if (sub->track_namespace_len > XQC_MOQ_MAX_FULL_TRACK_NAME_LEN - field->len) { return -MOQ_PROTOCOL_VIOLATION; }
-                    sub->track_namespace_len += field->len;
+                    if (msg_ctx->namespace_total_len > XQC_MOQ_MAX_FULL_TRACK_NAME_LEN - field->len) { return -MOQ_PROTOCOL_VIOLATION; }
+                    msg_ctx->namespace_total_len += field->len;
                     if (field->len > 0) {
                         field->data = xqc_calloc(1, field->len + 1);
                         if (field->data == NULL) { return -XQC_EMALLOC; }
@@ -5530,7 +5529,6 @@ xqc_moq_msg_encode_unsubscribe_namespace(xqc_moq_msg_base_t *msg_base, uint8_t *
     if (xqc_moq_track_namespace_tuple_validate_and_sum(unsub->track_namespace_num,
             unsub->track_namespace_tuple, &ns_len) != XQC_OK)
     { return -XQC_EPARAM; }
-    unsub->track_namespace_len = ns_len;
     xqc_int_t length = xqc_moq_msg_encode_unsubscribe_namespace_len(msg_base);
     if (length > buf_cap) { return -XQC_EILLEGAL_FRAME; }
     length = length - xqc_put_varint_len(XQC_MOQ_MSG_UNSUBSCRIBE_NAMESPACE) - XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
@@ -5584,7 +5582,7 @@ xqc_moq_msg_decode_unsubscribe_namespace(uint8_t *buf, size_t buf_len, uint8_t s
                 msg_ctx->str_processed = 0;
                 msg_ctx->tuple_elem_len = 0;
                 msg_ctx->tuple_elem_len_ready = 0;
-                unsub->track_namespace_len = 0;
+                msg_ctx->namespace_total_len = 0;
                 unsub->track_namespace_tuple = xqc_calloc(unsub->track_namespace_num, sizeof(xqc_moq_track_ns_field_t));
                 if (unsub->track_namespace_tuple == NULL) { return -XQC_EMALLOC; }
             }
@@ -5602,8 +5600,8 @@ xqc_moq_msg_decode_unsubscribe_namespace(uint8_t *buf, size_t buf_len, uint8_t s
                     msg_ctx->tuple_elem_len_ready = 1;
                     if (msg_ctx->tuple_elem_len > XQC_MOQ_MAX_NAME_LEN) { return -XQC_ELIMIT; }
                     field->len = msg_ctx->tuple_elem_len;
-                    if (unsub->track_namespace_len > XQC_MOQ_MAX_FULL_TRACK_NAME_LEN - field->len) { return -MOQ_PROTOCOL_VIOLATION; }
-                    unsub->track_namespace_len += field->len;
+                    if (msg_ctx->namespace_total_len > XQC_MOQ_MAX_FULL_TRACK_NAME_LEN - field->len) { return -MOQ_PROTOCOL_VIOLATION; }
+                    msg_ctx->namespace_total_len += field->len;
                     if (field->len > 0) {
                         field->data = xqc_calloc(1, field->len + 1);
                         if (field->data == NULL) { return -XQC_EMALLOC; }

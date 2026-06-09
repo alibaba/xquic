@@ -2,6 +2,8 @@
 #include "moq/moq_transport/xqc_moq_message_writer.h"
 #include "moq/moq_transport/xqc_moq_session.h"
 #include "moq/moq_transport/xqc_moq_stream.h"
+#include "moq/moq_transport/xqc_moq_subscribe.h"
+#include "moq/moq_transport/xqc_moq_namespace.h"
 #include "src/common/xqc_time.h"
 
 xqc_int_t
@@ -417,30 +419,54 @@ xqc_moq_write_subscribe_namespace(xqc_moq_session_t *session,
         return ret;
     }
 
+    ret = xqc_moq_session_add_pending_ns_request(session, subscribe_namespace->request_id,
+        subscribe_namespace->track_namespace_tuple, subscribe_namespace->track_namespace_num);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
     ret = xqc_moq_write_msg_generic(session, session->ctl_stream, &subscribe_namespace->msg_base,
                                     xqc_moq_msg_subscribe_namespace_init_handler);
-    if (ret == XQC_OK) {
-        xqc_moq_session_add_pending_ns_request(session, subscribe_namespace->request_id);
+    if (ret != XQC_OK) {
+        xqc_moq_pending_ns_request_t *pending =
+            xqc_moq_session_consume_pending_ns_request(session, subscribe_namespace->request_id);
+        if (pending) {
+            xqc_moq_namespace_tuple_free(pending->track_namespace_tuple, pending->track_namespace_num);
+            xqc_free(pending);
+        }
+        return ret;
     }
-    return ret;
+    return XQC_OK;
 }
 
 xqc_int_t
 xqc_moq_write_subscribe_namespace_ok(xqc_moq_session_t *session,
     xqc_moq_subscribe_namespace_ok_msg_t *subscribe_namespace_ok)
 {
-    xqc_moq_session_accept_pending_inbound_ns(session, subscribe_namespace_ok->request_id);
-    return xqc_moq_write_msg_generic(session, session->ctl_stream, &subscribe_namespace_ok->msg_base,
+    xqc_int_t ret = xqc_moq_write_msg_generic(session, session->ctl_stream, &subscribe_namespace_ok->msg_base,
                                      xqc_moq_msg_subscribe_namespace_ok_init_handler);
+    if (ret == XQC_OK) {
+        const xqc_moq_track_ns_field_t *prefix_tuple = NULL;
+        uint64_t prefix_num = 0;
+        xqc_moq_session_accept_pending_inbound_ns(session, subscribe_namespace_ok->request_id,
+            &prefix_tuple, &prefix_num);
+        if (prefix_tuple && prefix_num > 0) {
+            xqc_moq_session_forward_matching_publishes(session, prefix_tuple, prefix_num);
+        }
+    }
+    return ret;
 }
 
 xqc_int_t
 xqc_moq_write_subscribe_namespace_error(xqc_moq_session_t *session,
     xqc_moq_subscribe_namespace_error_msg_t *subscribe_namespace_error)
 {
-    xqc_moq_session_reject_pending_inbound_ns(session, subscribe_namespace_error->request_id);
-    return xqc_moq_write_msg_generic(session, session->ctl_stream, &subscribe_namespace_error->msg_base,
+    xqc_int_t ret = xqc_moq_write_msg_generic(session, session->ctl_stream, &subscribe_namespace_error->msg_base,
                                      xqc_moq_msg_subscribe_namespace_error_init_handler);
+    if (ret == XQC_OK) {
+        xqc_moq_session_reject_pending_inbound_ns(session, subscribe_namespace_error->request_id);
+    }
+    return ret;
 }
 
 xqc_int_t

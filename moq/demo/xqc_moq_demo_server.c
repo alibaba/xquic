@@ -107,7 +107,6 @@ xqc_demo_publish_track(user_conn_t *user_conn, const char *track_namespace, cons
     size_t ns_len = strlen(track_namespace);
     xqc_moq_track_ns_field_t ns_field = { .len = ns_len, .data = (unsigned char *)track_namespace };
     publish_msg.track_namespace_tuple = &ns_field;
-    publish_msg.track_namespace_len = ns_len;
     publish_msg.track_namespace_num = 1;
     publish_msg.track_name = (char *)track_name;
     publish_msg.track_name_len = strlen(track_name);
@@ -129,12 +128,7 @@ xqc_demo_publish_track_ns_tuple(user_conn_t *user_conn,
     xqc_moq_publish_msg_t publish_msg;
     xqc_int_t ret = 0;
     memset(&publish_msg, 0, sizeof(publish_msg));
-    size_t total_ns_len = 0;
-    for (uint64_t i = 0; i < ns_num; i++) {
-        total_ns_len += ns_tuple[i].len;
-    }
     publish_msg.track_namespace_tuple = (xqc_moq_track_ns_field_t *)ns_tuple;
-    publish_msg.track_namespace_len = total_ns_len;
     publish_msg.track_namespace_num = ns_num;
     publish_msg.track_name = (char *)track_name;
     publish_msg.track_name_len = strlen(track_name);

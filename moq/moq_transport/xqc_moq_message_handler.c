@@ -689,10 +689,16 @@ xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc
     }
 
     if (track->subscribe_id != XQC_MOQ_INVALID_ID && track->subscribe_id != publish->subscribe_id) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|on_publish duplicate subscription|track_name:%s|",
-                track->track_info.track_name);
-        xqc_moq_publish_send_error(session, track, publish->subscribe_id,
-                                  XQC_MOQ_PUBLISH_ERR_SUBSCRIPTION_EXISTS, "subscription exists");
+        xqc_log(session->log, XQC_LOG_INFO,
+                "|on_publish_discovery_duplicate|track_name:%s|existing_id:%ui|publish_id:%ui|",
+                track->track_info.track_name, track->subscribe_id, publish->subscribe_id);
+
+        if (have_catalog_params) {
+            xqc_moq_track_set_params(track, &catalog_params);
+        }
+        if (session->session_callbacks.on_publish) {
+            session->session_callbacks.on_publish(session->user_session, track, publish);
+        }
         goto clean_up;
     }
 
@@ -1254,9 +1260,10 @@ xqc_moq_on_subscribe_namespace(xqc_moq_session_t *session, xqc_moq_stream_t *moq
         return;
     }
 
-    xqc_int_t ret = xqc_moq_session_add_namespace_prefix(session, msg->request_id, msg->track_namespace_tuple, msg->track_namespace_num);
+    xqc_int_t ret = xqc_moq_session_add_pending_inbound_ns(session, msg->request_id,
+        msg->track_namespace_tuple, msg->track_namespace_num);
     if (ret < 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|add namespace prefix failed|ret:%d|", ret);
+        xqc_log(session->log, XQC_LOG_ERROR, "|add pending inbound ns failed|ret:%d|", ret);
         xqc_moq_session_error(session, MOQ_INTERNAL_ERROR, "on subscribe namespace");
         return;
     }
@@ -1284,7 +1291,8 @@ xqc_moq_on_subscribe_namespace_ok(xqc_moq_session_t *session, xqc_moq_stream_t *
         return;
     }
 
-    if (!xqc_moq_session_consume_pending_ns_request(session, ok->request_id)) {
+    xqc_moq_pending_ns_request_t *pending = xqc_moq_session_consume_pending_ns_request(session, ok->request_id);
+    if (pending == NULL) {
         xqc_log(session->log, XQC_LOG_ERROR,
                 "|subscribe_namespace_ok unknown request_id|request_id:%ui|",
                 ok->request_id);
@@ -1293,11 +1301,18 @@ xqc_moq_on_subscribe_namespace_ok(xqc_moq_session_t *session, xqc_moq_stream_t *
         return;
     }
 
+    ok->track_namespace_tuple = pending->track_namespace_tuple;
+    ok->track_namespace_num = pending->track_namespace_num;
+    pending->track_namespace_tuple = NULL;
+
     xqc_log(session->log, XQC_LOG_INFO, "|subscribe_namespace_ok|request_id:%ui|", ok->request_id);
 
     if (session->session_callbacks.on_subscribe_namespace_ok) {
         session->session_callbacks.on_subscribe_namespace_ok(session->user_session, ok);
     }
+
+    xqc_moq_namespace_tuple_free(ok->track_namespace_tuple, ok->track_namespace_num);
+    xqc_free(pending);
 }
 
 void
@@ -1308,7 +1323,8 @@ xqc_moq_on_subscribe_namespace_error(xqc_moq_session_t *session, xqc_moq_stream_
         return;
     }
 
-    if (!xqc_moq_session_consume_pending_ns_request(session, err->request_id)) {
+    xqc_moq_pending_ns_request_t *pending = xqc_moq_session_consume_pending_ns_request(session, err->request_id);
+    if (pending == NULL) {
         xqc_log(session->log, XQC_LOG_ERROR,
                 "|subscribe_namespace_error unknown request_id|request_id:%ui|",
                 err->request_id);
@@ -1317,12 +1333,19 @@ xqc_moq_on_subscribe_namespace_error(xqc_moq_session_t *session, xqc_moq_stream_
         return;
     }
 
+    err->track_namespace_tuple = pending->track_namespace_tuple;
+    err->track_namespace_num = pending->track_namespace_num;
+    pending->track_namespace_tuple = NULL;
+
     xqc_log(session->log, XQC_LOG_WARN, "|subscribe_namespace_error|request_id:%ui|error_code:%ui|reason:%s|",
             err->request_id, err->error_code, err->reason_phrase ? err->reason_phrase : "");
 
     if (session->session_callbacks.on_subscribe_namespace_error) {
         session->session_callbacks.on_subscribe_namespace_error(session->user_session, err);
     }
+
+    xqc_moq_namespace_tuple_free(err->track_namespace_tuple, err->track_namespace_num);
+    xqc_free(pending);
 }
 
 void

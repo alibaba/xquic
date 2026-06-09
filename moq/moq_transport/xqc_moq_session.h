@@ -25,6 +25,8 @@
 typedef struct xqc_moq_pending_ns_request_s {
     xqc_list_head_t             list_member;
     uint64_t                    request_id;
+    xqc_moq_track_ns_field_t   *track_namespace_tuple;
+    uint64_t                    track_namespace_num;
 } xqc_moq_pending_ns_request_t;
 
 typedef struct xqc_moq_session_s {
@@ -118,9 +120,10 @@ xqc_int_t xqc_moq_session_add_namespace_prefix(xqc_moq_session_t *session,
 xqc_int_t xqc_moq_session_remove_namespace_prefix(xqc_moq_session_t *session,
     const xqc_moq_track_ns_field_t *namespace_prefix_tuple, uint64_t namespace_prefix_num);
 
-xqc_int_t xqc_moq_session_add_pending_ns_request(xqc_moq_session_t *session, uint64_t request_id);
+xqc_int_t xqc_moq_session_add_pending_ns_request(xqc_moq_session_t *session, uint64_t request_id,
+    const xqc_moq_track_ns_field_t *ns_tuple, uint64_t ns_num);
 
-xqc_int_t xqc_moq_session_consume_pending_ns_request(xqc_moq_session_t *session, uint64_t request_id);
+xqc_moq_pending_ns_request_t *xqc_moq_session_consume_pending_ns_request(xqc_moq_session_t *session, uint64_t request_id);
 
 xqc_moq_track_t *xqc_moq_find_track_by_ns_tuple(xqc_moq_session_t *session,
     const xqc_moq_track_ns_field_t *ns_tuple, uint64_t ns_num,
@@ -131,7 +134,8 @@ xqc_int_t xqc_moq_session_add_pending_inbound_ns(xqc_moq_session_t *session,
     const xqc_moq_track_ns_field_t *namespace_prefix_tuple, uint64_t namespace_prefix_num);
 
 xqc_int_t xqc_moq_session_accept_pending_inbound_ns(xqc_moq_session_t *session,
-    uint64_t request_id);
+    uint64_t request_id,
+    const xqc_moq_track_ns_field_t **namespace_prefix_tuple, uint64_t *namespace_prefix_num);
 
 void xqc_moq_session_reject_pending_inbound_ns(xqc_moq_session_t *session,
     uint64_t request_id);

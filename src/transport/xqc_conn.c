@@ -380,6 +380,19 @@ xqc_server_set_conn_settings(xqc_engine_t *engine, const xqc_conn_settings_t *se
     }
 
     engine->default_conn_settings.simulate_ecn = settings->simulate_ecn;
+
+    /* compute effective blocked buffer limits (use default if not configured) */
+    if (settings->max_blocked_buf_per_stream > 0) {
+        engine->default_conn_settings.max_blocked_buf_per_stream = settings->max_blocked_buf_per_stream;
+    } else {
+        engine->default_conn_settings.max_blocked_buf_per_stream = XQC_H3_STREAM_MAX_BLOCKED_BUF_SIZE_DEFAULT;
+    }
+
+    if (settings->max_blocked_buf_per_conn > 0) {
+        engine->default_conn_settings.max_blocked_buf_per_conn = settings->max_blocked_buf_per_conn;
+    } else {
+        engine->default_conn_settings.max_blocked_buf_per_conn = XQC_H3_CONN_MAX_BLOCKED_BUF_SIZE_DEFAULT;
+    }
 }
 
 static const char * const xqc_conn_flag_to_str[XQC_CONN_FLAG_SHIFT_NUM] = {

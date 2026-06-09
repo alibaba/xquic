@@ -173,6 +173,8 @@ xqc_int_t xqc_process_padding_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
 
 xqc_int_t xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
+xqc_int_t xqc_insert_crypto_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream_frame_t *stream_frame);
+
 xqc_int_t xqc_process_crypto_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 xqc_int_t xqc_process_ack_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);

@@ -2612,6 +2612,10 @@ int main(int argc, char *argv[]) {
         conn_settings.receive_timestamps_exponent = 0;
     }
 
+    /* Set larger blocked buffer limits for QPACK to avoid triggering limits in tests */
+    conn_settings.max_blocked_buf_per_stream = 10 * 1024 * 1024;  /* 10 MB per stream */
+    conn_settings.max_blocked_buf_per_conn = 50 * 1024 * 1024;    /* 50 MB per connection */
+
     if (g_test_case == 451) {
         conn_settings.extended_ack_features = 0;
         conn_settings.max_receive_timestamps_per_ack = 40;

@@ -41,6 +41,7 @@
 #include "xqc_fec_scheme_test.h"
 #include "xqc_fec_test.h"
 #include "xqc_ack_with_timestamp_test.h"
+#include "xqc_crypto_frame_test.h"
 #include "xqc_send_ctl_test.h"
 #include "xqc_vn_test.h"
 #include "xqc_frame_type_bit_test.h"
@@ -93,6 +94,9 @@ main()
         || !CU_add_test(pSuite, "xqc_test_cubic_init_cwnd", xqc_test_cubic_init_cwnd)
         || !CU_add_test(pSuite, "xqc_test_short_header_parse_cid", xqc_test_short_header_packet_parse_cid)
         || !CU_add_test(pSuite, "xqc_test_long_header_parse_cid", xqc_test_long_header_packet_parse_cid)
+        || !CU_add_test(pSuite, "xqc_test_crypto_frame_flood", xqc_test_crypto_frame_flood)
+        || !CU_add_test(pSuite, "xqc_test_crypto_frame_bytes_limit", xqc_test_crypto_frame_bytes_limit)
+        || !CU_add_test(pSuite, "xqc_test_crypto_frame_recycle", xqc_test_crypto_frame_recycle)
         || !CU_add_test(pSuite, "xqc_test_stream_frame_offset_overflow", xqc_test_stream_frame_offset_overflow)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_in_0rtt_rejected", xqc_test_crypto_frame_in_0rtt_rejected)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_in_initial_accepted", xqc_test_crypto_frame_in_initial_accepted)

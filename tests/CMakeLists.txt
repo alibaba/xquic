@@ -113,6 +113,7 @@ if(HAVE_CUNIT)
         ${UNIT_TEST_DIR}/xqc_datagram_test.c
         ${UNIT_TEST_DIR}/xqc_h3_ext_test.c
         ${UNIT_TEST_DIR}/xqc_ack_with_timestamp_test.c
+        ${UNIT_TEST_DIR}/xqc_crypto_frame_test.c
         ${UNIT_TEST_DIR}/xqc_send_ctl_test.c
         ${UNIT_TEST_DIR}/xqc_vn_test.c
         ${UNIT_TEST_DIR}/xqc_frame_type_bit_test.c

@@ -1539,6 +1539,20 @@ typedef struct xqc_conn_settings_s {
      * (type 0x03) with dummy ECN counts instead of plain ACK (0x02).
      */
     uint8_t                     simulate_ecn;
+
+    /**
+     * Maximum blocked buffer size per stream (bytes) for QPACK decode blocking.
+     * This limits memory usage when QPACK decoding is blocked waiting for
+     * dynamic table updates. Default: 0 (use internal default: 1MB)
+     */
+    size_t                      max_blocked_buf_per_stream;
+
+    /**
+     * Maximum total blocked buffer size per connection (bytes) for QPACK decode blocking.
+     * This limits total memory usage across all blocked streams on a connection.
+     * Default: 0 (use internal default: 8MB)
+     */
+    size_t                      max_blocked_buf_per_conn;
 } xqc_conn_settings_t;
 
 

@@ -38,6 +38,14 @@
 
 #define XQC_CONN_MAX_CRYPTO_DATA_TOTAL_LEN (10*1024*1024)
 
+/*
+ * CWE-770 mitigation: limit buffered out-of-order CRYPTO frame resources.
+ * These caps prevent unbounded memory allocation from sparse CRYPTO fragments
+ * that keep next_read_offset pinned (RFC 9001 §5.2 attack surface).
+ */
+#define XQC_MAX_CRYPTO_FRAME_BUFFERED_COUNT     1024    /* max buffered frame nodes per crypto stream */
+#define XQC_MAX_CRYPTO_FRAME_BUFFERED_BYTES     (1*1024*1024)  /* max buffered data bytes per crypto stream (1MB), accommodates large cert chains under reordering */
+
 
 /* xquic will not send stateless reset to packets which are smaller than
    XQC_STATELESS_RESET_PKT_MIN_LEN */
@@ -69,8 +77,8 @@ extern const unsigned char  xqc_proto_version_field[][XQC_PROTO_VERSION_LEN];
 /* max alpn length */
 #define XQC_MAX_ALPN_LEN                        255
 
-/* limit of anti-amplification */
-#define XQC_DEFAULT_ANTI_AMPLIFICATION_LIMIT    5
+/* limit of anti-amplification (RFC 9000 Section 8.1) */
+#define XQC_DEFAULT_ANTI_AMPLIFICATION_LIMIT    3
 
 #define XQC_MAX_MT_ROW                          256
 

@@ -6069,6 +6069,93 @@ xqc_check_fec_trans_param(xqc_connection_t *conn, xqc_transport_params_t params)
     }
 }
 
+/*
+ * Validate that the server's 1-RTT transport parameters do not reduce any
+ * MUST parameters below the remembered 0-RTT values (RFC 9000 §7.4.1).
+ * Returns XQC_OK if all parameters are valid, or sets conn_err and returns
+ * -XQC_ETRANSPORT_PARAM if any parameter was reduced.
+ *
+ * Extracted as a standalone function so that unit tests can invoke it
+ * directly without requiring a fully initialized TLS context.
+ */
+xqc_int_t
+xqc_conn_check_0rtt_transport_params(xqc_connection_t *conn,
+                                     const xqc_transport_params_t *params)
+{
+    xqc_trans_settings_t *remembered = &conn->remote_settings;
+
+    if (params->initial_max_data < remembered->max_data) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|0rtt_param_reduced|initial_max_data|"
+                "remembered:%ui|new:%ui|",
+                remembered->max_data, params->initial_max_data);
+        XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
+        return -XQC_EPARAM;
+    }
+
+    if (params->initial_max_stream_data_bidi_local < remembered->max_stream_data_bidi_local) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|0rtt_param_reduced|initial_max_stream_data_bidi_local|"
+                "remembered:%ui|new:%ui|",
+                remembered->max_stream_data_bidi_local,
+                params->initial_max_stream_data_bidi_local);
+        XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
+        return -XQC_EPARAM;
+    }
+
+    if (params->initial_max_stream_data_bidi_remote < remembered->max_stream_data_bidi_remote) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|0rtt_param_reduced|initial_max_stream_data_bidi_remote|"
+                "remembered:%ui|new:%ui|",
+                remembered->max_stream_data_bidi_remote,
+                params->initial_max_stream_data_bidi_remote);
+        XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
+        return -XQC_EPARAM;
+    }
+
+    if (params->initial_max_stream_data_uni < remembered->max_stream_data_uni) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|0rtt_param_reduced|initial_max_stream_data_uni|"
+                "remembered:%ui|new:%ui|",
+                remembered->max_stream_data_uni,
+                params->initial_max_stream_data_uni);
+        XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
+        return -XQC_EPARAM;
+    }
+
+    if (params->initial_max_streams_bidi < remembered->max_streams_bidi) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|0rtt_param_reduced|initial_max_streams_bidi|"
+                "remembered:%ui|new:%ui|",
+                remembered->max_streams_bidi,
+                params->initial_max_streams_bidi);
+        XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
+        return -XQC_EPARAM;
+    }
+
+    if (params->initial_max_streams_uni < remembered->max_streams_uni) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|0rtt_param_reduced|initial_max_streams_uni|"
+                "remembered:%ui|new:%ui|",
+                remembered->max_streams_uni,
+                params->initial_max_streams_uni);
+        XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
+        return -XQC_EPARAM;
+    }
+
+    if (params->active_connection_id_limit < remembered->active_connection_id_limit) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|0rtt_param_reduced|active_connection_id_limit|"
+                "remembered:%ui|new:%ui|",
+                remembered->active_connection_id_limit,
+                params->active_connection_id_limit);
+        XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
+        return -XQC_EPARAM;
+    }
+
+    return XQC_OK;
+}
+
 void
 xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
 {
@@ -6117,88 +6204,9 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
         && (conn->conn_flag & XQC_CONN_FLAG_HAS_0RTT)
         && xqc_tls_is_early_data_accepted(conn->tls) == XQC_TLS_EARLY_DATA_ACCEPT)
     {
-        xqc_trans_settings_t *remembered = &conn->remote_settings;
-
-        /*
-         * MUST parameters -- server MUST NOT reduce these after 0-RTT is
-         * accepted (RFC 9000 Section 7.4.1):
-         *   - active_connection_id_limit
-         *   - initial_max_data
-         *   - initial_max_stream_data_bidi_local
-         *   - initial_max_stream_data_bidi_remote
-         *   - initial_max_stream_data_uni
-         *   - initial_max_streams_bidi
-         *   - initial_max_streams_uni
-         */
-        if (params.initial_max_data < remembered->max_data) {
-            xqc_log(conn->log, XQC_LOG_ERROR,
-                    "|0rtt_param_reduced|initial_max_data|"
-                    "remembered:%ui|new:%ui|",
-                    remembered->max_data, params.initial_max_data);
-            XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
+        if (xqc_conn_check_0rtt_transport_params(conn, &params) != XQC_OK) {
             return;
         }
-
-        if (params.initial_max_stream_data_bidi_local < remembered->max_stream_data_bidi_local) {
-            xqc_log(conn->log, XQC_LOG_ERROR,
-                    "|0rtt_param_reduced|initial_max_stream_data_bidi_local|"
-                    "remembered:%ui|new:%ui|",
-                    remembered->max_stream_data_bidi_local,
-                    params.initial_max_stream_data_bidi_local);
-            XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
-            return;
-        }
-
-        if (params.initial_max_stream_data_bidi_remote < remembered->max_stream_data_bidi_remote) {
-            xqc_log(conn->log, XQC_LOG_ERROR,
-                    "|0rtt_param_reduced|initial_max_stream_data_bidi_remote|"
-                    "remembered:%ui|new:%ui|",
-                    remembered->max_stream_data_bidi_remote,
-                    params.initial_max_stream_data_bidi_remote);
-            XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
-            return;
-        }
-
-        if (params.initial_max_stream_data_uni < remembered->max_stream_data_uni) {
-            xqc_log(conn->log, XQC_LOG_ERROR,
-                    "|0rtt_param_reduced|initial_max_stream_data_uni|"
-                    "remembered:%ui|new:%ui|",
-                    remembered->max_stream_data_uni,
-                    params.initial_max_stream_data_uni);
-            XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
-            return;
-        }
-
-        if (params.initial_max_streams_bidi < remembered->max_streams_bidi) {
-            xqc_log(conn->log, XQC_LOG_ERROR,
-                    "|0rtt_param_reduced|initial_max_streams_bidi|"
-                    "remembered:%ui|new:%ui|",
-                    remembered->max_streams_bidi,
-                    params.initial_max_streams_bidi);
-            XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
-            return;
-        }
-
-        if (params.initial_max_streams_uni < remembered->max_streams_uni) {
-            xqc_log(conn->log, XQC_LOG_ERROR,
-                    "|0rtt_param_reduced|initial_max_streams_uni|"
-                    "remembered:%ui|new:%ui|",
-                    remembered->max_streams_uni,
-                    params.initial_max_streams_uni);
-            XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
-            return;
-        }
-
-        if (params.active_connection_id_limit < remembered->active_connection_id_limit) {
-            xqc_log(conn->log, XQC_LOG_ERROR,
-                    "|0rtt_param_reduced|active_connection_id_limit|"
-                    "remembered:%ui|new:%ui|",
-                    remembered->active_connection_id_limit,
-                    params.active_connection_id_limit);
-            XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
-            return;
-        }
-
     }
 
     /* check datagram parameter -- unconditional, not gated on early_data

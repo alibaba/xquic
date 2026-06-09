@@ -657,6 +657,11 @@ xqc_int_t xqc_conn_on_recv_retry(xqc_connection_t *conn, xqc_cid_t *retry_scid);
 xqc_int_t xqc_conn_check_transport_params(xqc_connection_t *conn,
     const xqc_transport_params_t *params);
 
+/* RFC 9000 §7.4.1: validate that 1-RTT params do not reduce remembered 0-RTT values.
+ * Exposed for unit tests to bypass TLS early-data-accepted check. */
+xqc_int_t xqc_conn_check_0rtt_transport_params(xqc_connection_t *conn,
+    const xqc_transport_params_t *params);
+
 /* get idle timeout in milliseconds */
 xqc_msec_t xqc_conn_get_idle_timeout(xqc_connection_t *conn);
 

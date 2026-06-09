@@ -468,16 +468,28 @@ xqc_0rtt_test_init_params(xqc_transport_params_t *params,
 static xqc_int_t
 xqc_0rtt_test_fire(xqc_connection_t *conn, xqc_transport_params_t *params)
 {
-    uint8_t buf[XQC_MAX_TRANSPORT_PARAM_BUF_LEN];
-    size_t  len = 0;
-    xqc_int_t ret;
+    /*
+     * Directly invoke the extracted 0-RTT parameter validation function
+     * instead of going through xqc_conn_tls_transport_params_cb, which
+     * requires xqc_tls_is_early_data_accepted() == XQC_TLS_EARLY_DATA_ACCEPT.
+     * That condition cannot be satisfied in unit tests because the fixture
+     * connection has no real TLS handshake (tls->resumption is false and
+     * SSL_get_early_data_status returns SSL_EARLY_DATA_NOT_SENT).
+     *
+     * Also check the datagram parameter separately, mirroring the
+     * unconditional check in xqc_conn_tls_transport_params_cb.
+     */
+    conn->conn_err = 0;
+    conn->conn_flag &= ~XQC_CONN_FLAG_ERROR;
 
-    ret = xqc_encode_transport_params(params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
-                                      buf, sizeof(buf), &len);
-    CU_ASSERT_FATAL(ret == XQC_OK);
-    CU_ASSERT_FATAL(len > 0);
+    xqc_int_t ret = xqc_conn_check_0rtt_transport_params(conn, params);
+    if (ret == XQC_OK) {
+        /* datagram check is unconditional in the real callback */
+        if (params->max_datagram_frame_size < conn->remote_settings.max_datagram_frame_size) {
+            XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
+        }
+    }
 
-    xqc_conn_tls_transport_params_cb(buf, len, conn);
     return conn->conn_err;
 }
 

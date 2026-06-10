@@ -64,9 +64,11 @@ typedef enum {
 
 typedef struct {
     xqc_wt_bidistream_t *stream;
-    char                 buf[1024];
+    char                *buf;
+    size_t               cap;
     size_t               len;
     int                  fin;
+    int                  counted;
 } wt_stream_read_state_t;
 
 static xqc_usec_t wt_now(void) {
@@ -88,9 +90,16 @@ typedef struct {
     xqc_cid_t           cid;
     xqc_h3_conn_t      *h3_conn;
     xqc_webtransport_session_t *session;
-    xqc_webtransport_session_t *sessions[32];
+    xqc_webtransport_session_t **sessions;
+    size_t               sessions_cap;
     size_t               session_count;
     size_t               target_sessions;
+    size_t               streams_per_session;
+    size_t               payload_size;
+    size_t               repeat_count;
+    size_t               expected_echoes;
+    size_t               received_echoes;
+    int                  timeout_sec;
     int                  handshake_done;
     int                  session_open_sent;
     int                  session_open_failed;
@@ -110,7 +119,8 @@ typedef struct {
     int                  overflow_rejected;
     wt_scenario_t        scenario;
     xqc_wt_mode_t        mode;
-    wt_stream_read_state_t stream_reads[8];
+    wt_stream_read_state_t *stream_reads;
+    size_t                  stream_reads_cap;
     char                 host[256];
 } wt_ctx_t;
 
@@ -460,7 +470,7 @@ static wt_stream_read_state_t *
 stream_state(wt_ctx_t *ctx, xqc_wt_bidistream_t *stream)
 {
     wt_stream_read_state_t *empty = NULL;
-    for (size_t i = 0; i < sizeof(ctx->stream_reads) / sizeof(ctx->stream_reads[0]); i++) {
+    for (size_t i = 0; i < ctx->stream_reads_cap; i++) {
         if (ctx->stream_reads[i].stream == stream) {
             return &ctx->stream_reads[i];
         }
@@ -470,8 +480,16 @@ stream_state(wt_ctx_t *ctx, xqc_wt_bidistream_t *stream)
     }
     if (empty) {
         empty->stream = stream;
+        empty->cap = ctx->payload_size ? ctx->payload_size : strlen(ECHO_MSG);
+        empty->buf = malloc(empty->cap);
+        if (empty->buf == NULL) {
+            empty->stream = NULL;
+            empty->cap = 0;
+            return NULL;
+        }
         empty->len = 0;
         empty->fin = 0;
+        empty->counted = 0;
     }
     return empty;
 }
@@ -491,9 +509,13 @@ on_session_create(xqc_webtransport_session_t *session,
         if (n && v && nlen == 7 && memcmp(n, ":status", 7) == 0 &&
             vlen == 3 && memcmp(v, "200", 3) == 0) {
             g_ctx->session = session;
-            if (g_ctx->session_count < sizeof(g_ctx->sessions) / sizeof(g_ctx->sessions[0])) {
-                g_ctx->sessions[g_ctx->session_count++] = session;
+            if (g_ctx->session_count >= g_ctx->sessions_cap) {
+                printf("[FAIL] session capacity exceeded: %zu/%zu\n",
+                    g_ctx->session_count, g_ctx->sessions_cap);
+                event_base_loopbreak(g_ctx->eb);
+                return 0;
             }
+            g_ctx->sessions[g_ctx->session_count++] = session;
             g_ctx->session_ready = 1;
             g_ctx->session_open_sent = 0;
             printf("[OK] session-setup\n");
@@ -566,7 +588,7 @@ on_bidi_read(xqc_wt_bidistream_t *stream, xqc_wt_session_t *session,
     if (state == NULL) {
         return 0;
     }
-    if (data_len > 0 && state->len + data_len <= sizeof(state->buf)) {
+    if (data_len > 0 && state->len + data_len <= state->cap) {
         memcpy(state->buf + state->len, data, data_len);
         state->len += data_len;
     }
@@ -651,17 +673,22 @@ on_bidi_read(xqc_wt_bidistream_t *stream, xqc_wt_session_t *session,
     }
 
     if (g_ctx->scenario == WT_SCENARIO_MULTI_SESSION) {
-        if (state->len == strlen(MULTI_MSG_1)
-            && memcmp(state->buf, MULTI_MSG_1, strlen(MULTI_MSG_1)) == 0)
-        {
-            g_ctx->dgram_done |= 1;
+        if (!state->counted && state->len >= g_ctx->payload_size) {
+            int ok = state->len == g_ctx->payload_size;
+            for (size_t i = 0; ok && i < g_ctx->payload_size; i++) {
+                ok = state->buf[i] == 'm';
+            }
+            if (ok) {
+                state->counted = 1;
+                g_ctx->received_echoes++;
+            } else {
+                printf("[FAIL] multi-session: mismatch\n");
+                g_ctx->echo_done = 1;
+                xqc_h3_conn_close(g_ctx->engine, &g_ctx->cid);
+                return 0;
+            }
         }
-        if (state->len == strlen(MULTI_MSG_2)
-            && memcmp(state->buf, MULTI_MSG_2, strlen(MULTI_MSG_2)) == 0)
-        {
-            g_ctx->dgram_done |= 2;
-        }
-        if (g_ctx->dgram_done == 3) {
+        if (g_ctx->received_echoes >= g_ctx->expected_echoes) {
             printf("[OK] multi-session\n");
             g_ctx->echo_ok = 1;
             g_ctx->echo_done = 1;
@@ -1229,22 +1256,37 @@ try_run_ready_scenario(wt_ctx_t *ctx)
             return;
         }
         if (!ctx->echo_sent) {
-            ssize_t sent1 = xqc_wt_session_send_bidi(ctx->sessions[0],
-                MULTI_MSG_1, strlen(MULTI_MSG_1), 1);
-            ssize_t sent2 = xqc_wt_session_send_bidi(ctx->sessions[1],
-                MULTI_MSG_2, strlen(MULTI_MSG_2), 1);
-            if (sent1 > 0 && sent2 > 0) {
-                ctx->echo_sent = 1;
+            char *payload = malloc(ctx->payload_size + 1);
+            if (payload == NULL) {
+                printf("[FAIL] multi-session payload allocation\n");
+                event_base_loopbreak(ctx->eb);
                 return;
             }
-            if (sent1 == -XQC_ESTATE || sent2 == -XQC_ESTATE
-                || sent1 == -XQC_ESTREAM_BLOCKED || sent2 == -XQC_ESTREAM_BLOCKED
-                || sent1 == -XQC_ECONN_BLOCKED || sent2 == -XQC_ECONN_BLOCKED)
-            {
-                return;
+            memset(payload, 'm', ctx->payload_size);
+            payload[ctx->payload_size] = '\0';
+            for (size_t s = 0; s < ctx->target_sessions; s++) {
+                for (size_t r = 0; r < ctx->repeat_count; r++) {
+                    for (size_t st = 0; st < ctx->streams_per_session; st++) {
+                        ssize_t sent = xqc_wt_session_send_bidi(ctx->sessions[s],
+                            payload, ctx->payload_size, 1);
+                        if (sent <= 0) {
+                            free(payload);
+                            if (sent == -XQC_ESTATE || sent == -XQC_ESTREAM_BLOCKED
+                                || sent == -XQC_ECONN_BLOCKED)
+                            {
+                                return;
+                            }
+                            printf("[FAIL] multi-session-send[%zu,%zu,%zu]: %zd\n",
+                                s, r, st, sent);
+                            event_base_loopbreak(ctx->eb);
+                            return;
+                        }
+                    }
+                }
             }
-            printf("[FAIL] multi-session-send: %zd %zd\n", sent1, sent2);
-            event_base_loopbreak(ctx->eb);
+            free(payload);
+            ctx->echo_sent = 1;
+            return;
         }
         break;
 
@@ -1334,6 +1376,11 @@ main(int argc, char *argv[])
     if (argc > 2) port = atoi(argv[2]);
     wt_scenario_t scenario = WT_SCENARIO_BIDI;
     xqc_wt_mode_t mode = XQC_WT_MODE_DRAFT15_STRICT;
+    size_t opt_sessions = 0;
+    size_t opt_streams = 1;
+    size_t opt_size = strlen(ECHO_MSG);
+    size_t opt_count = 1;
+    int opt_timeout = 15;
     for (int i = 3; i < argc; i++) {
         if (strcmp(argv[i], "--scenario") == 0 && i + 1 < argc) {
             if (!parse_scenario(argv[++i], &scenario)) {
@@ -1344,8 +1391,22 @@ main(int argc, char *argv[])
             mode = parse_mode(argv[++i]);
         } else if (strcmp(argv[i], "--sni") == 0 && i + 1 < argc) {
             sni = argv[++i];
+        } else if (strcmp(argv[i], "--sessions") == 0 && i + 1 < argc) {
+            opt_sessions = strtoull(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--streams") == 0 && i + 1 < argc) {
+            opt_streams = strtoull(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--size") == 0 && i + 1 < argc) {
+            opt_size = strtoull(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--count") == 0 && i + 1 < argc) {
+            opt_count = strtoull(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--timeout") == 0 && i + 1 < argc) {
+            opt_timeout = atoi(argv[++i]);
         }
     }
+    if (opt_streams == 0) opt_streams = 1;
+    if (opt_size == 0) opt_size = strlen(ECHO_MSG);
+    if (opt_count == 0) opt_count = 1;
+    if (opt_timeout <= 0) opt_timeout = 15;
     if (sni == NULL) {
         sni = host;
     }
@@ -1357,9 +1418,29 @@ main(int argc, char *argv[])
     ctx_s.mode = mode;
     ctx_s.target_sessions = 1;
     if (scenario == WT_SCENARIO_MULTI_SESSION) {
-        ctx_s.target_sessions = 2;
+        ctx_s.target_sessions = opt_sessions > 0 ? opt_sessions : 2;
     } else if (scenario == WT_SCENARIO_SPLIT_HEADER) {
-        ctx_s.target_sessions = 17;
+        ctx_s.target_sessions = opt_sessions > 0 ? opt_sessions : 17;
+    } else if (opt_sessions > 0) {
+        ctx_s.target_sessions = opt_sessions;
+    }
+    ctx_s.sessions_cap = ctx_s.target_sessions;
+    ctx_s.streams_per_session = opt_streams;
+    ctx_s.payload_size = opt_size;
+    ctx_s.repeat_count = opt_count;
+    ctx_s.timeout_sec = opt_timeout;
+    ctx_s.sessions = calloc(ctx_s.sessions_cap, sizeof(ctx_s.sessions[0]));
+    ctx_s.stream_reads_cap = ctx_s.target_sessions * ctx_s.streams_per_session
+        * ctx_s.repeat_count + 8;
+    ctx_s.expected_echoes = ctx_s.target_sessions * ctx_s.streams_per_session
+        * ctx_s.repeat_count;
+    ctx_s.stream_reads = calloc(ctx_s.stream_reads_cap,
+        sizeof(ctx_s.stream_reads[0]));
+    if (ctx_s.sessions == NULL || ctx_s.stream_reads == NULL) {
+        printf("[FAIL] allocate session/stream tracking\n");
+        free(ctx_s.sessions);
+        free(ctx_s.stream_reads);
+        return 1;
     }
 
     struct event_base *eb = event_base_new();
@@ -1449,7 +1530,7 @@ main(int argc, char *argv[])
 
     xqc_engine_main_logic(ctx_s.engine);
 
-    struct timeval tv = {15, 0};
+    struct timeval tv = {ctx_s.timeout_sec, 0};
     event_base_loopexit(eb, &tv);
     event_base_dispatch(eb);
 
@@ -1461,5 +1542,10 @@ main(int argc, char *argv[])
     xqc_engine_destroy(ctx_s.engine);
     close(ctx_s.fd);
     event_base_free(eb);
+    for (size_t i = 0; i < ctx_s.stream_reads_cap; i++) {
+        free(ctx_s.stream_reads[i].buf);
+    }
+    free(ctx_s.sessions);
+    free(ctx_s.stream_reads);
     return ctx_s.echo_ok ? 0 : 1;
 }

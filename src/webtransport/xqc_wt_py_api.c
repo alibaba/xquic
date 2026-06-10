@@ -25,6 +25,7 @@
 #include "xqc_webtransport_stream.h"
 #include "src/http3/xqc_h3_stream.h"
 #include "src/http3/xqc_h3_conn.h"
+#include "src/http3/xqc_h3_ctx.h"
 #include "src/http3/xqc_h3_ext_bytestream.h"
 #include "src/transport/xqc_stream.h"
 #include "xqc_webtransport_wire.h"
@@ -45,7 +46,10 @@ typedef void (*xqc_wt_py_log_cb)(int level, const char *msg, size_t len, void *u
 #define XQC_WT_PY_IDLE_TIMEOUT_MS        1800000  /* 30 minutes */
 #define XQC_WT_PY_MAX_DGRAM_FRAME_SIZE   16383   /* RFC 9221 max */
 #define XQC_WT_PY_UDP_RECV_BUF_SIZE      1500
+#define XQC_WT_PY_DEFAULT_MAX_PKT_SIZE   1200
+#define XQC_WT_PY_MAX_PKT_SIZE_LIMIT     1420
 #define XQC_WT_PY_SERVER_MAGIC           0x57545356u
+#define XQC_WT_PY_SERVER_MAGIC2          0x50595754u
 
 /* HTTP status / reject */
 #define XQC_WT_PY_REJECT_ERROR_CODE      404
@@ -53,7 +57,9 @@ typedef void (*xqc_wt_py_log_cb)(int level, const char *msg, size_t len, void *u
 #define XQC_WT_PY_REJECT_REASON_LEN      9
 
 typedef struct {
-    uint64_t                stream_id;
+    uint64_t                stream_id;      /* Python-visible id for server, wire id for client */
+    uint64_t                owner_session_id;
+    uint64_t                wire_stream_id;
     xqc_h3_stream_t        *h3_stream;
     xqc_wt_bidistream_t    *bidi_stream;   /* for xqc_wt_bidistream_send */
 } py_stream_entry_t;
@@ -63,13 +69,16 @@ typedef struct {
     xqc_wt_unistream_t     *unistream;
 } py_uni_stream_entry_t;
 
+static void py_remove_stream_h(xqc_id_hash_table_t *ht, uint64_t stream_id);
+
 typedef struct {
     uint64_t                 session_id;
     xqc_wt_session_t        *wt_session;
 } py_session_entry_t;
 
 typedef struct {
-    uint64_t                 session_id;
+    uint64_t                 session_id;       /* Python-visible server id */
+    uint64_t                 wire_session_id;  /* CONNECT stream id scoped to one QUIC connection */
     xqc_wt_session_t        *wt_session;
     char                     path[256];
 } py_server_session_entry_t;
@@ -91,6 +100,11 @@ struct xqc_wt_py_client_s {
     uint64_t                 idle_timeout_ms;
     int                      log_level;
     int                      cc_type;
+    size_t                   max_pkt_out_size;
+    uint8_t                  enable_pmtud;
+    uint32_t                 ack_frequency;
+    uint64_t                 initial_rtt_us;
+    int                      no_verify_cert;
     xqc_wt_py_log_cb         log_cb;
 
     xqc_id_hash_table_t     *sessions;      /* session_id → py_session_entry_t* */
@@ -118,6 +132,7 @@ struct xqc_wt_py_client_s {
 
 struct xqc_wt_py_server_s {
     uint32_t                 magic;
+    uint32_t                 magic2;
     xqc_engine_t           *engine;
     char                     cert_file[512];
     char                     key_file[512];
@@ -126,10 +141,19 @@ struct xqc_wt_py_server_s {
     uint64_t                 idle_timeout_ms;
     int                      log_level;
     int                      cc_type;
+    size_t                   max_pkt_out_size;
+    uint8_t                  enable_pmtud;
+    uint32_t                 ack_frequency;
+    uint64_t                 initial_rtt_us;
     xqc_wt_py_log_cb         log_cb;
 
-    xqc_id_hash_table_t     *streams;       /* stream_id → py_stream_entry_t* */
-    xqc_id_hash_table_t     *sessions;     /* session_id → py_server_session_entry_t* */
+    xqc_id_hash_table_t     *streams;       /* py_stream_id → py_stream_entry_t* */
+    xqc_id_hash_table_t     *sessions;      /* py_session_id → py_server_session_entry_t* */
+    uint64_t                 next_session_id;
+    uint64_t                 next_stream_id;
+    char                     allowed_origins[16][256];
+    size_t                   allowed_origin_count;
+    xqc_bool_t               allow_any_origin;
 
     /* Python callbacks */
     xqc_wt_py_send_cb            send_cb;
@@ -172,6 +196,55 @@ py_server_from_wt_conn(void *h3c_user_data)
 {
     xqc_wt_conn_t *wt_conn = (xqc_wt_conn_t *)h3c_user_data;
     return wt_conn ? (xqc_wt_py_server_t *)wt_conn->py_handle : NULL;
+}
+
+static size_t
+py_normalize_max_pkt_size(size_t max_pkt_out_size)
+{
+    if (max_pkt_out_size == 0) {
+        return XQC_WT_PY_DEFAULT_MAX_PKT_SIZE;
+    }
+    if (max_pkt_out_size < XQC_WT_PY_DEFAULT_MAX_PKT_SIZE) {
+        return XQC_WT_PY_DEFAULT_MAX_PKT_SIZE;
+    }
+    if (max_pkt_out_size > XQC_WT_PY_MAX_PKT_SIZE_LIMIT) {
+        return XQC_WT_PY_MAX_PKT_SIZE_LIMIT;
+    }
+    return max_pkt_out_size;
+}
+
+static void
+py_fill_conn_settings(xqc_conn_settings_t *cs, int cc_type,
+    uint64_t idle_timeout_ms, size_t max_pkt_out_size, uint8_t enable_pmtud,
+    uint32_t ack_frequency, uint64_t initial_rtt_us)
+{
+    memset(cs, 0, sizeof(*cs));
+    cs->cong_ctrl_callback = cc_type == 1 ? xqc_cubic_cb : xqc_bbr_cb;
+    cs->init_idle_time_out = idle_timeout_ms ? idle_timeout_ms
+                                             : XQC_WT_PY_IDLE_TIMEOUT_MS;
+    cs->max_datagram_frame_size = XQC_WT_PY_MAX_DGRAM_FRAME_SIZE;
+    cs->reset_stream_at = 1;
+    cs->max_pkt_out_size = py_normalize_max_pkt_size(max_pkt_out_size);
+    cs->enable_pmtud = enable_pmtud ? 3 : 0;
+    if (ack_frequency > 0) {
+        cs->ack_frequency = ack_frequency;
+    }
+    if (initial_rtt_us > 0) {
+        cs->initial_rtt = initial_rtt_us;
+    }
+}
+
+static void
+py_server_apply_conn_settings(xqc_wt_py_server_t *server)
+{
+    if (server == NULL || server->engine == NULL) {
+        return;
+    }
+    xqc_conn_settings_t cs;
+    py_fill_conn_settings(&cs, server->cc_type, server->idle_timeout_ms,
+        server->max_pkt_out_size, server->enable_pmtud,
+        server->ack_frequency, server->initial_rtt_us);
+    xqc_server_set_conn_settings(server->engine, &cs);
 }
 
 
@@ -353,18 +426,18 @@ py_client_session_close(xqc_webtransport_session_t *session,
     xqc_wt_py_client_t *c = py_client_from_wt_conn(h3c_user_data);
     if (c && c->session_cb) {
         uint64_t sid = py_find_session_id(c, session);
-        c->session_cb(XQC_WT_PY_EVENT_CLOSED, sid, c->user_data);
-        py_remove_session(c, sid);
+        if (sid != 0) {
+            c->session_cb(XQC_WT_PY_EVENT_CLOSED, sid, c->user_data);
+            py_remove_session(c, sid);
+        }
     }
     return 0;
 }
 
 static void
-py_client_handshake_done(xqc_webtransport_session_t *session)
+py_client_handshake_done(xqc_webtransport_conn_t *conn, void *user_data)
 {
-    /* C layer guarantees session is non-NULL (may be a temp shell with wt_conn set). */
-    xqc_wt_py_client_t *c = (session && session->wt_conn)
-        ? (xqc_wt_py_client_t *)session->wt_conn->py_handle : NULL;
+    xqc_wt_py_client_t *c = py_client_from_wt_conn(user_data);
     if (c && c->session_cb) {
         c->session_cb(XQC_WT_PY_EVENT_HANDSHAKE_DONE, 0, c->user_data);
     }
@@ -381,6 +454,9 @@ py_client_dgram_read(xqc_webtransport_session_t *session,
         (session->wt_conn ? session->wt_conn->py_handle : NULL) : NULL;
     if (c && c->dgram_cb && data_len > 0) {
         uint64_t sid = py_find_session_id(c, session);
+        if (sid == 0) {
+            return;
+        }
         c->dgram_cb(sid, (const uint8_t *)data, data_len, c->user_data);
     }
 }
@@ -390,34 +466,37 @@ py_client_dgram_read(xqc_webtransport_session_t *session,
 
 static xqc_int_t
 py_client_uni_read(xqc_wt_unistream_t *stream, xqc_wt_session_t *session,
-    void *data, size_t data_len, void *strm_user_data)
+    void *data, size_t data_len, uint8_t fin, void *strm_user_data)
 {
     xqc_wt_py_client_t *c = session ? (xqc_wt_py_client_t *)
         (session->wt_conn ? session->wt_conn->py_handle : NULL) : NULL;
     if (!c || !c->data_cb) return 0;
 
     uint64_t sess_id = py_find_session_id(c, session);
+    if (sess_id == 0) {
+        return 0;
+    }
     uint64_t stream_id = 0;
     if (stream && stream->type == XQC_WT_STREAM_TYPE_RECV
         && stream->stream.recv_stream
         && stream->stream.recv_stream->stream) {
         stream_id = stream->stream.recv_stream->stream->stream_id;
     }
-    int fin = (stream && stream->fin.recv_fin) ? 1 : 0;
+    int py_fin = fin ? 1 : 0;
 
     if (c->stream_cb) {
         c->stream_cb(0, sess_id, stream_id, 0, c->user_data);
     }
-    if (data_len > 0 || fin) {
+    if (data_len > 0 || py_fin) {
         c->data_cb(sess_id, stream_id,
-            (const uint8_t *)data, data_len, fin, c->user_data);
+            (const uint8_t *)data, data_len, py_fin, c->user_data);
     }
     return 0;
 }
 
 static xqc_int_t
 py_client_bidi_read_ex(xqc_wt_bidistream_t *stream, xqc_wt_session_t *session,
-    void *data, size_t data_len, void *strm_user_data)
+    void *data, size_t data_len, uint8_t fin, void *strm_user_data)
 {
     xqc_wt_py_client_t *c = session ? (xqc_wt_py_client_t *)
         (session->wt_conn ? session->wt_conn->py_handle : NULL) : NULL;
@@ -426,16 +505,61 @@ py_client_bidi_read_ex(xqc_wt_bidistream_t *stream, xqc_wt_session_t *session,
     /* NOTE: strm_user_data is &processed (int*), NOT h3_stream pointer.
      * Get h3_stream from the bidistream object instead. */
     uint64_t sess_id = py_find_session_id(c, session);
+    if (sess_id == 0) {
+        return 0;
+    }
     uint64_t stream_id = 0;
     if (stream && stream->h3_stream) {
         stream_id = stream->h3_stream->stream_id;
     }
-    int fin = (stream && stream->recv_fin) ? 1 : 0;
+    int py_fin = fin ? 1 : 0;
 
-    if (data_len > 0 || fin) {
+    if (data_len > 0 || py_fin) {
         c->data_cb(sess_id, stream_id,
-            (const uint8_t *)data, data_len, fin, c->user_data);
+            (const uint8_t *)data, data_len, py_fin, c->user_data);
     }
+    return 0;
+}
+
+static void py_remove_stream_h(xqc_id_hash_table_t *ht, uint64_t stream_id);
+
+static xqc_int_t
+py_client_bidi_close(xqc_wt_bidistream_t *stream, xqc_wt_session_t *session,
+    void *strm_user_data)
+{
+    xqc_wt_py_client_t *c = session ? (xqc_wt_py_client_t *)
+        (session->wt_conn ? session->wt_conn->py_handle : NULL) : NULL;
+    if (c && stream && stream->h3_stream) {
+        py_remove_stream_h(c->streams, stream->h3_stream->stream_id);
+    }
+    (void)strm_user_data;
+    return 0;
+}
+
+static xqc_int_t
+py_client_uni_close(xqc_wt_unistream_t *stream, xqc_wt_session_t *session,
+    void *strm_user_data)
+{
+    xqc_wt_py_client_t *c = session ? (xqc_wt_py_client_t *)
+        (session->wt_conn ? session->wt_conn->py_handle : NULL) : NULL;
+    uint64_t stream_id = 0;
+    if (stream && stream->type == XQC_WT_STREAM_TYPE_SEND
+        && stream->stream.send_stream && stream->stream.send_stream->stream)
+    {
+        stream_id = stream->stream.send_stream->stream->stream_id;
+    } else if (stream && stream->type == XQC_WT_STREAM_TYPE_RECV
+               && stream->stream.recv_stream && stream->stream.recv_stream->stream)
+    {
+        stream_id = stream->stream.recv_stream->stream->stream_id;
+    }
+    if (c && stream_id) {
+        py_uni_stream_entry_t *ue = xqc_id_hash_find(c->uni_streams, stream_id);
+        if (ue) {
+            xqc_id_hash_delete(c->uni_streams, stream_id);
+            xqc_free(ue);
+        }
+    }
+    (void)strm_user_data;
     return 0;
 }
 
@@ -450,6 +574,7 @@ xqc_wt_py_client_create(const char *host, int port, int no_verify_cert)
 
     strncpy(c->host, host ? host : "127.0.0.1", sizeof(c->host) - 1);
     c->port = port > 0 ? port : XQC_WT_PY_DEFAULT_PORT;
+    c->no_verify_cert = no_verify_cert ? 1 : 0;
 
     /* peer address — try IPv6 first, fall back to IPv4 */
     memset(&c->peer_addr, 0, sizeof(c->peer_addr));
@@ -483,6 +608,9 @@ xqc_wt_py_client_create(const char *host, int port, int no_verify_cert)
     c->idle_timeout_ms = XQC_WT_PY_IDLE_TIMEOUT_MS;
     c->log_level = XQC_LOG_WARN;
     c->cc_type = 0;  /* bbr */
+    c->max_pkt_out_size = XQC_WT_PY_DEFAULT_MAX_PKT_SIZE;
+    c->enable_pmtud = 0;
+    c->ack_frequency = 2;
 
     /* init hash tables */
     c->sessions = xqc_malloc(sizeof(xqc_id_hash_table_t));
@@ -508,6 +636,20 @@ xqc_wt_py_client_set_config(xqc_wt_py_client_t *client,
     if (idle_timeout_ms > 0) client->idle_timeout_ms = idle_timeout_ms;
     if (log_level >= 0)      client->log_level = log_level;
     if (cc_type >= 0)        client->cc_type = cc_type;
+}
+
+void
+xqc_wt_py_client_set_transport_params(xqc_wt_py_client_t *client,
+    size_t max_pkt_out_size, int enable_pmtud, uint32_t ack_frequency,
+    uint64_t initial_rtt_us)
+{
+    if (!client) return;
+    client->max_pkt_out_size = py_normalize_max_pkt_size(max_pkt_out_size);
+    client->enable_pmtud = enable_pmtud ? 1 : 0;
+    if (ack_frequency > 0) {
+        client->ack_frequency = ack_frequency;
+    }
+    client->initial_rtt_us = initial_rtt_us;
 }
 
 void
@@ -583,11 +725,13 @@ xqc_wt_py_client_connect(xqc_wt_py_client_t *client)
     xqc_webtransport_session_callbacks_t scbs = {
         .webtransport_session_create_notify = py_client_session_create,
         .webtransport_session_close_notify = py_client_session_close,
-        .webtransport_session_handshake_finished_notify = py_client_handshake_done,
+        .webtransport_conn_handshake_finished_notify = py_client_handshake_done,
     };
     xqc_webtransport_stream_callbacks_t stcbs = {
         .wt_bidistream_read_notify = py_client_bidi_read_ex,
+        .wt_bidistream_close_notify = py_client_bidi_close,
         .wt_unistream_read_notify = py_client_uni_read,
+        .wt_unistream_close_notify = py_client_uni_close,
     };
     if (xqc_wt_ctx_init(client->engine, &dcbs, &scbs, &stcbs, 0) != XQC_OK) {
         xqc_engine_destroy(client->engine);
@@ -598,14 +742,16 @@ xqc_wt_py_client_connect(xqc_wt_py_client_t *client)
     /* wt_ctx_init OK */
 
     /* QUIC connection settings with defaults */
-    xqc_conn_settings_t cs = {0};
+    xqc_conn_settings_t cs;
+    py_fill_conn_settings(&cs, client->cc_type, client->idle_timeout_ms,
+        client->max_pkt_out_size, client->enable_pmtud,
+        client->ack_frequency, client->initial_rtt_us);
     cs.proto_version = XQC_VERSION_V1;
-    cs.cong_ctrl_callback = client->cc_type == 1 ? xqc_cubic_cb : xqc_bbr_cb;
-    cs.init_idle_time_out = client->idle_timeout_ms;
-    cs.max_datagram_frame_size = XQC_WT_PY_MAX_DGRAM_FRAME_SIZE;
-    cs.reset_stream_at = 1;
 
     xqc_conn_ssl_config_t cssl = {0};
+    if (!client->no_verify_cert) {
+        cssl.cert_verify_flag = XQC_TLS_CERT_FLAG_NEED_VERIFY;
+    }
 
     /* initiate QUIC connection */
     const xqc_cid_t *cid = xqc_webtransport_connect(client->engine, &cs,
@@ -633,13 +779,30 @@ xqc_wt_py_client_feed_packet(xqc_wt_py_client_t *client,
     uint64_t recv_time_us)
 {
     if (!client || !client->engine) return -1;
-    /* py_handle is set automatically via wt_conn->py_handle = engine->user_data */
+    /* py_handle is set automatically via wt_conn->py_handle = engine->user_data.
+     *
+     * Prefer the concrete socket addresses observed by Python.  The stored
+     * client->local_addr is 0.0.0.0:0 before the UDP socket receives its
+     * ephemeral port; feeding packets with that address can break cross-host
+     * path validation even when localhost happens to work.
+     */
+    const struct sockaddr *local =
+        (local_addr && local_addrlen > 0)
+            ? local_addr
+            : (const struct sockaddr *)&client->local_addr;
+    socklen_t local_len =
+        (local_addr && local_addrlen > 0) ? local_addrlen : client->local_addrlen;
+    const struct sockaddr *peer =
+        (peer_addr && peer_addrlen > 0)
+            ? peer_addr
+            : (const struct sockaddr *)&client->peer_addr;
+    socklen_t peer_len =
+        (peer_addr && peer_addrlen > 0) ? peer_addrlen : client->peer_addrlen;
 
-    /* Client always uses the stored peer_addr for correct sockaddr alignment */
     xqc_int_t ret = xqc_engine_packet_process(client->engine,
         (const unsigned char *)data, len,
-        (const struct sockaddr *)&client->local_addr, client->local_addrlen,
-        (const struct sockaddr *)&client->peer_addr, client->peer_addrlen,
+        local, local_len,
+        peer, peer_len,
         (xqc_usec_t)recv_time_us, client);
     if (ret != 0) {
         printf("[C-feed] packet_process returned %d, len=%zu\n", ret, len);
@@ -729,6 +892,8 @@ py_record_stream_h(xqc_id_hash_table_t *ht,
     e = xqc_malloc(sizeof(py_stream_entry_t));
     if (!e) return -1;
     e->stream_id = stream_id;
+    e->owner_session_id = 0;
+    e->wire_stream_id = h3s ? h3s->stream_id : stream_id;
     e->h3_stream = h3s;
     e->bidi_stream = bidi;
     xqc_id_hash_element_t el = { stream_id, e };
@@ -772,9 +937,17 @@ xqc_wt_py_create_bidi_stream(xqc_wt_py_client_t *client, uint64_t session_id)
     xqc_h3_conn_t *h3c = ws->wt_conn->h3_conn;
     if (!h3c) return -1;
 
+    xqc_wt_flow_reservation_t reservation = {0};
+    xqc_int_t fc_ret = xqc_wt_session_reserve_outgoing(ws, XQC_TRUE,
+        XQC_TRUE, 0, &reservation);
+    if (fc_ret < 0) return fc_ret;
+
     xqc_connection_t *conn = xqc_h3_conn_get_xqc_conn(h3c);
     xqc_stream_t *stream = xqc_stream_create_with_direction(conn, XQC_STREAM_BIDI, NULL);
-    if (!stream) return -1;
+    if (!stream) {
+        xqc_wt_session_rollback_outgoing(ws, &reservation);
+        return -1;
+    }
 
     /* Use BYTESTEAM type + WT_BIDI flag — same path as xqc_wt_session_send_bidi */
     xqc_h3_stream_t *h3s = (xqc_h3_stream_t *)stream->user_data;
@@ -792,20 +965,50 @@ xqc_wt_py_create_bidi_stream(xqc_wt_py_client_t *client, uint64_t session_id)
         }
     }
 
-    /* send WT bidi stream header: varint(type) + varint(session_id) */
-    uint8_t wt_hdr[16];
-    unsigned char *p = wt_hdr;
-    p = xqc_put_varint(p, XQC_WT_STREAM_TYPE_BIDIRECTIONAL);
-    p = xqc_put_varint(p, ws->session_id);
-    size_t hdr_len = p - wt_hdr;
+    xqc_wt_bidistream_t *bidi =
+        xqc_wt_create_bidistream(h3s, ws, NULL, NULL, XQC_FALSE);
+    if (!bidi) {
+        xqc_destroy_stream(stream);
+        xqc_wt_session_rollback_outgoing(ws, &reservation);
+        return -1;
+    }
 
-    ssize_t sent = xqc_stream_send(stream, wt_hdr, hdr_len, 0);
-    if (sent < 0) return (int)sent;
+    xqc_int_t add_ret = xqc_wt_session_add_pendingstream(ws, h3s, bidi,
+        XQC_WT_PENDING_BIDISTREAM);
+    if (add_ret < 0) {
+        xqc_wt_bidistream_destroy(bidi);
+        xqc_destroy_stream(stream);
+        xqc_wt_session_rollback_outgoing(ws, &reservation);
+        return add_ret;
+    }
 
     uint64_t sid = h3s->stream_id;
 
     /* record for later stream_send */
-    py_record_stream_h(client->streams, sid, h3s, NULL);
+    if (py_record_stream_h(client->streams, sid, h3s, bidi) < 0) {
+        xqc_wt_pending_stream_t *ps =
+            xqc_wt_session_pending_stream_find(ws, h3s);
+        xqc_id_hash_delete(ws->pending_unistreams, sid);
+        if (ps) {
+            xqc_free(ps);
+        }
+        xqc_wt_bidistream_destroy(bidi);
+        xqc_destroy_stream(stream);
+        xqc_wt_session_rollback_outgoing(ws, &reservation);
+        return -1;
+    }
+    if (xqc_wt_session_commit_outgoing(ws, &reservation) < 0) {
+        py_remove_stream_h(client->streams, sid);
+        xqc_wt_pending_stream_t *ps =
+            xqc_wt_session_pending_stream_find(ws, h3s);
+        xqc_id_hash_delete(ws->pending_unistreams, sid);
+        if (ps) {
+            xqc_free(ps);
+        }
+        xqc_wt_bidistream_destroy(bidi);
+        xqc_destroy_stream(stream);
+        return -1;
+    }
 
     /* notify Python via stream_cb */
     if (client->stream_cb) {
@@ -824,16 +1027,21 @@ xqc_wt_py_stream_send(xqc_wt_py_client_t *client, uint64_t stream_id,
     /* py_handle is set automatically via wt_conn->py_handle = engine->user_data */
 
     /* check bidi streams first */
-    xqc_h3_stream_t *h3s = py_find_stream_h(client->streams, stream_id);
-    if (h3s && h3s->stream) {
-        ssize_t sent = xqc_stream_send(h3s->stream, (unsigned char *)data, len, fin);
+    py_stream_entry_t *se = py_find_stream_entry(client->streams, stream_id);
+    xqc_h3_stream_t *h3s = se ? se->h3_stream : NULL;
+    if (se && se->bidi_stream) {
+        ssize_t sent = xqc_wt_bidistream_send(se->bidi_stream,
+            (void *)data, (uint32_t)len, fin);
         if (sent >= 0) {
             xqc_engine_main_logic(client->engine);
-            if (fin) {
+            if (fin && se->bidi_stream && se->bidi_stream->send_fin) {
                 py_remove_stream_h(client->streams, stream_id);
             }
         }
         return sent;
+    }
+    if (h3s && h3s->stream) {
+        return -1;
     }
 
     /* check uni streams */
@@ -843,13 +1051,13 @@ xqc_wt_py_stream_send(xqc_wt_py_client_t *client, uint64_t stream_id,
             xqc_int_t ret = xqc_wt_unistream_send(ue->unistream, (void *)data, (uint32_t)len, fin);
             if (ret >= 0) {
                 xqc_engine_main_logic(client->engine);
-                if (fin) {
+                if (fin && ue->unistream && ue->unistream->fin.send_fin) {
                     xqc_wt_unistream_close(ue->unistream);
                     xqc_id_hash_delete(client->uni_streams, stream_id);
                     xqc_free(ue);
                 }
             }
-            return ret >= 0 ? (ssize_t)len : (ssize_t)ret;
+            return ret;
         }
     }
 
@@ -925,7 +1133,7 @@ xqc_wt_py_send_uni(xqc_wt_py_client_t *client, uint64_t session_id,
     xqc_wt_unistream_close(unis);
 
     xqc_engine_main_logic(client->engine);
-    return ret >= 0 ? (ssize_t)len : (ssize_t)ret;
+    return ret;
 }
 
 void
@@ -946,19 +1154,11 @@ xqc_wt_py_close_session(xqc_wt_py_client_t *client, uint64_t session_id)
     if (!client || !client->engine) return -1;
     xqc_wt_session_t *ws = py_find_session_by_id(client, session_id);
     if (!ws) return -1;
-    /* py_handle is set automatically via wt_conn->py_handle = engine->user_data */
-
-    /* remove from our mapping — the underlying WT session resources
-     * will be freed when the QUIC connection closes */
-    py_remove_session(client, session_id);
-
-    /* notify Python */
-    if (client->session_cb) {
-        client->session_cb(XQC_WT_PY_EVENT_CLOSED, session_id, client->user_data);
+    int ret = xqc_wt_session_close_with_error(ws, 0, NULL, 0);
+    if (ret == XQC_OK) {
+        xqc_engine_main_logic(client->engine);
     }
-
-    xqc_engine_main_logic(client->engine);
-    return 0;
+    return ret;
 }
 
 int
@@ -1109,6 +1309,21 @@ xqc_wt_py_client_get_remote_dgram_size(xqc_wt_py_client_t *client)
     return 0;
 }
 
+int
+xqc_wt_py_debug_set_session_peer_flow_limits(xqc_wt_py_client_t *client,
+    uint64_t session_id, uint64_t max_streams_bidi, uint64_t max_data)
+{
+    if (!client) return -1;
+    xqc_wt_session_t *ws = py_find_session_by_id(client, session_id);
+    if (!ws) return -1;
+    ws->flow_control_enabled = XQC_TRUE;
+    ws->peer_max_streams_bidi = max_streams_bidi;
+    ws->peer_max_data = max_data;
+    ws->sent_streams_bidi = 0;
+    ws->sent_data = 0;
+    return 0;
+}
+
 
 /* ================================================================
  * Server API implementation
@@ -1139,7 +1354,9 @@ py_server_write_socket(const unsigned char *buf, size_t size,
     xqc_wt_py_server_t *s = NULL;
     if (conn_user_data) {
         xqc_wt_py_server_t *direct = (xqc_wt_py_server_t *)conn_user_data;
-        if (direct->magic == XQC_WT_PY_SERVER_MAGIC) {
+        if (direct->magic == XQC_WT_PY_SERVER_MAGIC
+            && direct->magic2 == XQC_WT_PY_SERVER_MAGIC2)
+        {
             s = direct;
         } else {
             s = py_server_from_wt_conn(conn_user_data);
@@ -1173,21 +1390,112 @@ py_server_accept(xqc_engine_t *engine, xqc_connection_t *conn,
     return 0; /* accept all connections */
 }
 
+static py_server_session_entry_t *
+py_server_find_session_entry_by_wt(xqc_wt_py_server_t *s,
+    xqc_wt_session_t *wt_session)
+{
+    if (!s || !s->sessions || !wt_session) return NULL;
+    for (int i = 0; i < s->sessions->count; i++) {
+        xqc_id_hash_node_t *node = s->sessions->list[i];
+        while (node) {
+            py_server_session_entry_t *e =
+                (py_server_session_entry_t *)node->element.value;
+            if (e && e->wt_session == wt_session) return e;
+            node = node->next;
+        }
+    }
+    return NULL;
+}
+
+static uint64_t
+py_server_find_session_id(xqc_wt_py_server_t *s, xqc_wt_session_t *wt_session)
+{
+    py_server_session_entry_t *e =
+        py_server_find_session_entry_by_wt(s, wt_session);
+    return e ? e->session_id : 0;
+}
+
+static uint64_t
+py_server_find_stream_id_by_h3(xqc_wt_py_server_t *s, uint64_t owner_session_id,
+    xqc_h3_stream_t *h3s, xqc_wt_bidistream_t *bidi_stream)
+{
+    if (!s || !s->streams || (!h3s && !bidi_stream)) return 0;
+    uint64_t wire_stream_id = h3s ? h3s->stream_id : 0;
+    for (int i = 0; i < s->streams->count; i++) {
+        xqc_id_hash_node_t *node = s->streams->list[i];
+        while (node) {
+            py_stream_entry_t *e = (py_stream_entry_t *)node->element.value;
+            if (e && e->owner_session_id == owner_session_id
+                && ((wire_stream_id && e->wire_stream_id == wire_stream_id)
+                    || (!wire_stream_id && bidi_stream
+                        && e->bidi_stream == bidi_stream)))
+            {
+                if (bidi_stream && !e->bidi_stream) {
+                    e->bidi_stream = bidi_stream;
+                }
+                return e->stream_id;
+            }
+            node = node->next;
+        }
+    }
+    return 0;
+}
+
+static uint64_t
+py_server_get_or_create_stream_id(xqc_wt_py_server_t *s,
+    uint64_t owner_session_id, xqc_h3_stream_t *h3s,
+    xqc_wt_bidistream_t *bidi_stream)
+{
+    uint64_t stream_id = py_server_find_stream_id_by_h3(s, owner_session_id,
+        h3s, bidi_stream);
+    if (stream_id) return stream_id;
+
+    stream_id = ++s->next_stream_id;
+    if (py_record_stream_h(s->streams, stream_id, h3s, bidi_stream) < 0) {
+        return 0;
+    }
+    py_stream_entry_t *e = py_find_stream_entry(s->streams, stream_id);
+    if (e) {
+        e->owner_session_id = owner_session_id;
+        e->wire_stream_id = h3s ? h3s->stream_id : 0;
+    }
+    return stream_id;
+}
+
+static xqc_int_t
+py_server_bidi_close(xqc_wt_bidistream_t *bidi_stream, xqc_wt_session_t *session,
+    void *strm_user_data)
+{
+    xqc_wt_py_server_t *s = session ? (xqc_wt_py_server_t *)
+        (session->wt_conn ? session->wt_conn->py_handle : NULL) : NULL;
+    if (s && bidi_stream) {
+        uint64_t session_id = py_server_find_session_id(s, session);
+        uint64_t stream_id = py_server_find_stream_id_by_h3(s, session_id,
+            bidi_stream->h3_stream, bidi_stream);
+        if (stream_id) {
+            py_remove_stream_h(s->streams, stream_id);
+        }
+    }
+    (void)strm_user_data;
+    return 0;
+}
+
 static void
 py_server_dgram_read(xqc_webtransport_session_t *session,
     const void *data, size_t data_len, void *user_data, uint64_t data_recv_time)
 {
     xqc_wt_py_server_t *s = session ? (xqc_wt_py_server_t *)
         (session->wt_conn ? session->wt_conn->py_handle : NULL) : NULL;
-    if (s && s->dgram_cb && data_len > 0) {
-        s->dgram_cb(session->session_id, (const uint8_t *)data, data_len, s->user_data);
+    uint64_t session_id = py_server_find_session_id(s, session);
+    if (s && s->dgram_cb && session_id && data_len > 0) {
+        s->dgram_cb(session_id, (const uint8_t *)data, data_len, s->user_data);
     }
 }
 
 /* Server-side WT stream callback: bidi data → Python data_cb */
 static xqc_int_t
 py_server_bidi_read_ex(xqc_wt_bidistream_t *bidi_stream, xqc_wt_session_t *session,
-    void *data, size_t data_len, void *strm_user_data)
+    void *data, size_t data_len, uint8_t fin, void *strm_user_data)
 {
     xqc_wt_py_server_t *s = session ? (xqc_wt_py_server_t *)
         (session->wt_conn ? session->wt_conn->py_handle : NULL) : NULL;
@@ -1196,34 +1504,31 @@ py_server_bidi_read_ex(xqc_wt_bidistream_t *bidi_stream, xqc_wt_session_t *sessi
     /* NOTE: strm_user_data here is &processed (int*), NOT h3_stream pointer.
      * Get h3_stream from the bidistream object instead. */
     xqc_h3_stream_t *h3s = (bidi_stream) ? bidi_stream->h3_stream : NULL;
-    uint64_t stream_id = (h3s) ? h3s->stream_id : 0;
-    uint64_t session_id = session ? session->session_id : 0;
-    int fin = (bidi_stream && bidi_stream->recv_fin) ? 1 : 0;
+    uint64_t session_id = py_server_find_session_id(s, session);
+    uint64_t stream_id = py_server_get_or_create_stream_id(s, session_id,
+        h3s, bidi_stream);
+    int py_fin = fin ? 1 : 0;
 
-    /* record stream mapping for later stream_send */
-    if (h3s) {
-        py_record_stream_h(s->streams, stream_id, h3s, bidi_stream);
-    }
-
-    if (s->data_cb && (data_len > 0 || fin)) {
+    if (s->data_cb && session_id && stream_id && (data_len > 0 || py_fin)) {
         s->data_cb(session_id, stream_id,
-            (const uint8_t *)data, data_len, fin, s->user_data);
+            (const uint8_t *)data, data_len, py_fin, s->user_data);
     }
 
     return 0;
 }
 
 /* helper: store session mapping in server */
-static void
+static int
 py_server_store_session(xqc_wt_py_server_t *s, uint64_t session_id,
-    xqc_wt_session_t *wt_session, const char *path)
+    uint64_t wire_session_id, xqc_wt_session_t *wt_session, const char *path)
 {
     py_server_session_entry_t *e = xqc_malloc(sizeof(py_server_session_entry_t));
     if (!e) {
         fprintf(stderr, "py_server_store_session: malloc failed\n");
-        return;
+        return -1;
     }
     e->session_id = session_id;
+    e->wire_session_id = wire_session_id;
     e->wt_session = wt_session;
     if (path) {
         strncpy(e->path, path, sizeof(e->path) - 1);
@@ -1232,7 +1537,11 @@ py_server_store_session(xqc_wt_py_server_t *s, uint64_t session_id,
         e->path[0] = '/'; e->path[1] = '\0';
     }
     xqc_id_hash_element_t el = { session_id, e };
-    xqc_id_hash_add(s->sessions, el);
+    if (xqc_id_hash_add(s->sessions, el) < 0) {
+        xqc_free(e);
+        return -1;
+    }
+    return 0;
 }
 
 /* helper: find wt_session by session_id */
@@ -1251,15 +1560,67 @@ py_server_get_session_path(xqc_wt_py_server_t *s, uint64_t session_id)
     return e ? e->path : "";
 }
 
+static int
+py_server_origin_allowed(xqc_wt_py_server_t *s, const char *origin)
+{
+    if (s == NULL || s->allowed_origin_count == 0 || s->allow_any_origin) {
+        return 1;
+    }
+    if (origin == NULL || origin[0] == '\0') {
+        return 0;
+    }
+    for (size_t i = 0; i < s->allowed_origin_count; i++) {
+        if (strcmp(s->allowed_origins[i], origin) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* helper: remove Python-visible stream entries owned by a server session */
+static void
+py_server_remove_streams_by_session(xqc_wt_py_server_t *s, uint64_t session_id)
+{
+    if (!s || !s->streams || session_id == 0) return;
+
+    for (int i = 0; i < s->streams->count; i++) {
+        xqc_id_hash_node_t *node = s->streams->list[i];
+        while (node) {
+            xqc_id_hash_node_t *next = node->next;
+            py_stream_entry_t *e = (py_stream_entry_t *)node->element.value;
+            if (e && e->owner_session_id == session_id) {
+                uint64_t stream_id = e->stream_id;
+                xqc_id_hash_delete(s->streams, stream_id);
+                xqc_free(e);
+            }
+            if (next == node) break;
+            node = next;
+        }
+    }
+}
+
 /* helper: remove session entry */
 static void
 py_server_remove_session(xqc_wt_py_server_t *s, uint64_t session_id)
 {
+    py_server_remove_streams_by_session(s, session_id);
     py_server_session_entry_t *e = xqc_id_hash_find(s->sessions, session_id);
     if (e) {
         xqc_id_hash_delete(s->sessions, session_id);
         xqc_free(e);
     }
+}
+
+static uint64_t
+py_server_remove_session_by_wt(xqc_wt_py_server_t *s, xqc_wt_session_t *wt_session)
+{
+    py_server_session_entry_t *e =
+        py_server_find_session_entry_by_wt(s, wt_session);
+    uint64_t session_id = e ? e->session_id : 0;
+    if (session_id) {
+        py_server_remove_session(s, session_id);
+    }
+    return session_id;
 }
 
 /* Server-side session create → accept/reject via session_request_cb, then notify */
@@ -1273,8 +1634,10 @@ py_server_session_create(xqc_webtransport_session_t *session,
     /* extract :path and :authority from iovec headers into NUL-terminated buffers */
     char path_buf[256] = "/";
     char authority_buf[256] = "";
+    char origin_buf[256] = "";
     const char *path = path_buf;
     const char *authority = authority_buf;
+    const char *origin = origin_buf;
     if (headers) {
         for (size_t i = 0; i < headers->count; i++) {
             char *n = (char *)headers->headers[i].name.iov_base;
@@ -1290,26 +1653,40 @@ py_server_session_create(xqc_webtransport_session_t *session,
                 size_t copy_len = vlen < sizeof(authority_buf) - 1 ? vlen : sizeof(authority_buf) - 1;
                 memcpy(authority_buf, v, copy_len);
                 authority_buf[copy_len] = '\0';
+            } else if (nlen == 6 && memcmp(n, "origin", 6) == 0) {
+                size_t copy_len = vlen < sizeof(origin_buf) - 1 ? vlen : sizeof(origin_buf) - 1;
+                memcpy(origin_buf, v, copy_len);
+                origin_buf[copy_len] = '\0';
             }
         }
     }
+
+    if (!py_server_origin_allowed(s, origin)) {
+        return 403;
+    }
+
+    uint64_t py_session_id = ++s->next_session_id;
 
     /* if session_request_cb is set, let Python decide accept/reject */
     if (s->session_request_cb) {
         int accepted = s->session_request_cb(
             path, authority,
-            session->session_id, s->user_data);
+            py_session_id, s->user_data);
         if (!accepted) {
             return 0;
         }
     }
 
     /* store session mapping for close/drain/path queries */
-    py_server_store_session(s, session->session_id, session, path);
+    if (py_server_store_session(s, py_session_id, session->session_id,
+        session, path) < 0)
+    {
+        return 0;
+    }
 
     /* notify Python */
     if (s->session_cb) {
-        s->session_cb(XQC_WT_PY_EVENT_CREATED, session->session_id, s->user_data);
+        s->session_cb(XQC_WT_PY_EVENT_CREATED, py_session_id, s->user_data);
     }
     return 1;
 }
@@ -1320,10 +1697,11 @@ py_server_session_close(xqc_webtransport_session_t *session,
 {
     xqc_wt_py_server_t *s = py_server_from_wt_conn(h3c_user_data);
     if (s && session) {
-        if (s->session_cb) {
-            s->session_cb(XQC_WT_PY_EVENT_CLOSED, session->session_id, s->user_data);
+        uint64_t py_session_id = py_server_find_session_id(s, session);
+        if (s->session_cb && py_session_id) {
+            s->session_cb(XQC_WT_PY_EVENT_CLOSED, py_session_id, s->user_data);
         }
-        py_server_remove_session(s, session->session_id);
+        py_server_remove_session_by_wt(s, session);
     }
     return 0;
 }
@@ -1337,6 +1715,12 @@ xqc_wt_py_server_create(const char *cert_file, const char *key_file)
     xqc_wt_py_server_t *s = calloc(1, sizeof(*s));
     if (!s) return NULL;
     s->magic = XQC_WT_PY_SERVER_MAGIC;
+    s->magic2 = XQC_WT_PY_SERVER_MAGIC2;
+    s->idle_timeout_ms = XQC_WT_PY_IDLE_TIMEOUT_MS;
+    s->cc_type = 0;
+    s->max_pkt_out_size = XQC_WT_PY_DEFAULT_MAX_PKT_SIZE;
+    s->enable_pmtud = 0;
+    s->ack_frequency = 2;
 
     strncpy(s->cert_file, cert_file, sizeof(s->cert_file) - 1);
     strncpy(s->key_file, key_file, sizeof(s->key_file) - 1);
@@ -1396,14 +1780,7 @@ xqc_wt_py_server_create(const char *cert_file, const char *key_file)
         return NULL;
     }
 
-    /* connection settings */
-    xqc_conn_settings_t conn_settings = {0};
-    conn_settings.cong_ctrl_callback = s->cc_type == 1 ? xqc_cubic_cb : xqc_bbr_cb;
-    conn_settings.init_idle_time_out = s->idle_timeout_ms ? s->idle_timeout_ms : XQC_WT_PY_IDLE_TIMEOUT_MS;
-    conn_settings.max_datagram_frame_size = XQC_WT_PY_MAX_DGRAM_FRAME_SIZE;
-    conn_settings.reset_stream_at = 1;
-    conn_settings.max_pkt_out_size = 1200;
-    xqc_server_set_conn_settings(s->engine, &conn_settings);
+    py_server_apply_conn_settings(s);
 
     /* register WT callbacks (xqc_wt_ctx_init now does value-copy) */
     xqc_webtransport_dgram_callbacks_t dcbs = {
@@ -1415,6 +1792,7 @@ xqc_wt_py_server_create(const char *cert_file, const char *key_file)
     };
     xqc_webtransport_stream_callbacks_t stcbs = {
         .wt_bidistream_read_notify = py_server_bidi_read_ex,
+        .wt_bidistream_close_notify = py_server_bidi_close,
     };
     if (xqc_wt_ctx_init(s->engine, &dcbs, &scbs, &stcbs, 0) != XQC_OK) {
         xqc_engine_destroy(s->engine);
@@ -1526,6 +1904,60 @@ xqc_wt_py_server_set_session_request_cb(xqc_wt_py_server_t *server,
 }
 
 int
+xqc_wt_py_server_set_allowed_origins(xqc_wt_py_server_t *server,
+    const char *origins_csv)
+{
+    if (server == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    server->allowed_origin_count = 0;
+    server->allow_any_origin = XQC_FALSE;
+    if (origins_csv == NULL || origins_csv[0] == '\0') {
+        return XQC_OK;
+    }
+
+    const char *p = origins_csv;
+    while (*p) {
+        if (server->allowed_origin_count >= 16) {
+            server->allowed_origin_count = 0;
+            server->allow_any_origin = XQC_FALSE;
+            return -XQC_ELIMIT;
+        }
+        while (*p == ',' || *p == ' ') {
+            p++;
+        }
+        const char *end = p;
+        while (*end && *end != ',') {
+            end++;
+        }
+        size_t len = (size_t)(end - p);
+        while (len > 0 && p[len - 1] == ' ') {
+            len--;
+        }
+        if (len == 1 && p[0] == '*') {
+            server->allow_any_origin = XQC_TRUE;
+            server->allowed_origin_count = 1;
+            return XQC_OK;
+        }
+        if (len > 0) {
+            if (len >= sizeof(server->allowed_origins[0])) {
+                server->allowed_origin_count = 0;
+                server->allow_any_origin = XQC_FALSE;
+                return -XQC_ELIMIT;
+            }
+            size_t copy_len = len;
+            memcpy(server->allowed_origins[server->allowed_origin_count],
+                p, copy_len);
+            server->allowed_origins[server->allowed_origin_count][copy_len] = '\0';
+            server->allowed_origin_count++;
+        }
+        p = end;
+    }
+    return XQC_OK;
+}
+
+int
 xqc_wt_py_server_close_session(xqc_wt_py_server_t *server, uint64_t session_id,
     uint32_t error_code, const char *reason, size_t reason_len)
 {
@@ -1572,16 +2004,61 @@ xqc_wt_py_server_set_config(xqc_wt_py_server_t *server,
     uint64_t idle_timeout_ms, int log_level, int cc_type)
 {
     if (!server || !server->engine) return;
-    server->idle_timeout_ms = idle_timeout_ms;
+    if (idle_timeout_ms > 0) server->idle_timeout_ms = idle_timeout_ms;
     server->log_level = log_level;
     server->cc_type = cc_type;
-    xqc_conn_settings_t cs = {0};
-    cs.cong_ctrl_callback = cc_type == 1 ? xqc_cubic_cb : xqc_bbr_cb;
-    cs.init_idle_time_out = idle_timeout_ms ? idle_timeout_ms : XQC_WT_PY_IDLE_TIMEOUT_MS;
-    cs.max_datagram_frame_size = XQC_WT_PY_MAX_DGRAM_FRAME_SIZE;
-    cs.reset_stream_at = 1;
-    cs.max_pkt_out_size = 1200;
-    xqc_server_set_conn_settings(server->engine, &cs);
+    py_server_apply_conn_settings(server);
+}
+
+void
+xqc_wt_py_server_set_transport_params(xqc_wt_py_server_t *server,
+    size_t max_pkt_out_size, int enable_pmtud, uint32_t ack_frequency,
+    uint64_t initial_rtt_us)
+{
+    if (!server) return;
+    server->max_pkt_out_size = py_normalize_max_pkt_size(max_pkt_out_size);
+    server->enable_pmtud = enable_pmtud ? 1 : 0;
+    if (ack_frequency > 0) {
+        server->ack_frequency = ack_frequency;
+    }
+    server->initial_rtt_us = initial_rtt_us;
+    py_server_apply_conn_settings(server);
+}
+
+void
+xqc_wt_py_server_set_browser_legacy_mode(xqc_wt_py_server_t *server,
+    int enabled)
+{
+    if (!server || !server->engine) return;
+
+    const char *alpns[] = { XQC_ALPN_H3, XQC_ALPN_H3_29, XQC_ALPN_H3_EXT };
+    for (int i = 0; i < 3; i++) {
+        xqc_h3_ctx_t *h3_ctx = xqc_engine_get_alpn_ctx(server->engine,
+            alpns[i], strlen(alpns[i]));
+        if (h3_ctx) {
+            h3_ctx->h3c_def_local_settings.webtransport_mode =
+                enabled ? XQC_WT_MODE_BROWSER_LEGACY
+                        : XQC_WT_MODE_DRAFT15_STRICT;
+        }
+    }
+}
+
+void
+xqc_wt_py_server_set_browser_compat_mode(xqc_wt_py_server_t *server,
+    int enabled)
+{
+    if (!server || !server->engine) return;
+
+    const char *alpns[] = { XQC_ALPN_H3, XQC_ALPN_H3_29, XQC_ALPN_H3_EXT };
+    for (int i = 0; i < 3; i++) {
+        xqc_h3_ctx_t *h3_ctx = xqc_engine_get_alpn_ctx(server->engine,
+            alpns[i], strlen(alpns[i]));
+        if (h3_ctx) {
+            h3_ctx->h3c_def_local_settings.webtransport_mode =
+                enabled ? XQC_WT_MODE_BROWSER_COMPAT
+                        : XQC_WT_MODE_DRAFT15_STRICT;
+        }
+    }
 }
 
 void

@@ -123,6 +123,7 @@ xqc_test_recv_retire_cid()
                                    0x00,       /* Sequence Number */};
     xqc_packet_in_t packet_in;
     memset(&packet_in, 0, sizeof(xqc_packet_in_t));
+    packet_in.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
     packet_in.pos = XQC_RETIRE_CID_FRAME;
     packet_in.last = packet_in.pos + sizeof(XQC_RETIRE_CID_FRAME);
 
@@ -182,6 +183,7 @@ xqc_test_retire_cid_with_odcid_in_set()
                                    0x00,       /* Sequence Number */};
     xqc_packet_in_t packet_in;
     memset(&packet_in, 0, sizeof(xqc_packet_in_t));
+    packet_in.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
     packet_in.pos = XQC_RETIRE_CID_FRAME;
     packet_in.last = packet_in.pos + sizeof(XQC_RETIRE_CID_FRAME);
 

@@ -1016,6 +1016,26 @@ XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_unlimited_cc
 XQC_EXPORT_PUBLIC_API XQC_EXTERN const xqc_cong_ctrl_callback_t xqc_copa_cb;
 #endif
 
+#ifdef XQC_ENABLE_GCC_SENSOR
+typedef enum {
+    XQC_GCC_BW_NORMAL     = 0,
+    XQC_GCC_BW_UNDERUSING = 1,
+    XQC_GCC_BW_OVERUSING  = 2,
+} xqc_gcc_bandwidth_usage_e;
+
+typedef struct xqc_gcc_transport_feedback_s {
+    xqc_gcc_bandwidth_usage_e   usage;
+    uint32_t                    rtt_us;
+    uint32_t                    ack_rate_bps;
+    int32_t                     trendline_slope_scaled;
+    uint32_t                    min_rtt_us;
+    uint64_t                    timestamp_us;
+} xqc_gcc_transport_feedback_t;
+
+typedef void (*xqc_gcc_feedback_notify_pt)(xqc_connection_t *conn,
+    const xqc_cid_t *cid, const xqc_gcc_transport_feedback_t *feedback, void *user_data);
+#endif
+
 typedef enum xqc_scheduler_path_event_e {
     XQC_SCHED_EVENT_PATH_NOT_FULL = 0,
 } xqc_scheduler_path_event_t;
@@ -1497,6 +1517,15 @@ typedef struct xqc_conn_settings_s {
     uint64_t                    receive_timestamps_exponent;
 
     uint8_t                     disable_pn_skipping;
+
+#ifdef XQC_ENABLE_GCC_SENSOR
+    /** GCC delay sensor (inter-arrival + trendline), independent of cong_ctrl_callback */
+    uint8_t                     gcc_sensor_on;
+    xqc_gcc_feedback_notify_pt  gcc_feedback_notify;
+    void                       *gcc_feedback_user_data;
+    /** Minimum interval between gcc_feedback_notify callbacks (ms), default 1000 */
+    uint32_t                    gcc_feedback_interval_ms;
+#endif
 } xqc_conn_settings_t;
 
 

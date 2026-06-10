@@ -8,6 +8,9 @@
 #include "src/congestion_control/xqc_bbr_common.h"
 #include "src/transport/xqc_engine.h"
 #include "src/transport/xqc_send_ctl.h"
+#ifdef XQC_ENABLE_GCC_SENSOR
+#include "src/congestion_control/xqc_gcc_sensor.h"
+#endif
 #include "src/transport/xqc_pacing.h"
 #include "src/transport/xqc_packet.h"
 #include "src/transport/xqc_packet_out.h"
@@ -1028,6 +1031,8 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
         send_ctl->ctl_app_limited = 0;
     }
 
+    xqc_sample_type_t cc_sample_type = XQC_RATE_SAMPLE_ACK_NOTHING;
+
     /* BBR */
     if (send_ctl->ctl_cong_callback->xqc_cong_ctl_init_bbr /* && stream_frame_acked */) {
 
@@ -1035,6 +1040,7 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
         int bw_record_flag = 0;
         xqc_usec_t now = ack_recv_time;
         xqc_sample_type_t sample_type = xqc_generate_sample(&send_ctl->sampler, send_ctl, ack_recv_time);
+        cc_sample_type = sample_type;
 
         /* Make sure that we do not call BBR with a invalid sampler. */
         if (sample_type == XQC_RATE_SAMPLE_VALID) {
@@ -1100,11 +1106,20 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
 
     } else if (send_ctl->ctl_cong_callback->xqc_cong_ctl_on_ack_multiple_pkts) {
         xqc_sample_type_t sample_type = xqc_generate_sample(&send_ctl->sampler, send_ctl, ack_recv_time);
+        cc_sample_type = sample_type;
         /* Currently, this is only the case for Copa. */
         if (sample_type != XQC_RATE_SAMPLE_ACK_NOTHING) {
             send_ctl->ctl_cong_callback->xqc_cong_ctl_on_ack_multiple_pkts(send_ctl->ctl_cong, &send_ctl->sampler);
         }
     }
+
+#ifdef XQC_ENABLE_GCC_SENSOR
+    if (conn->conn_settings.gcc_sensor_on && conn->gcc_sensor
+        && cc_sample_type == XQC_RATE_SAMPLE_VALID)
+    {
+        xqc_gcc_sensor_on_ack(conn, send_ctl, &send_ctl->sampler, ack_recv_time);
+    }
+#endif
 
     xqc_send_ctl_info_circle_record(send_ctl);
     xqc_log_event(conn->log, REC_METRICS_UPDATED, send_ctl);

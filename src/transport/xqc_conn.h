@@ -494,6 +494,10 @@ struct xqc_connection_s {
     xqc_usec_t                      conn_avg_recv_delay;
     xqc_usec_t                      conn_latest_close_delay;
     uint32_t                        conn_video_frames;
+
+#ifdef XQC_ENABLE_GCC_SENSOR
+    struct xqc_gcc_sensor_s        *gcc_sensor;
+#endif
 };
 
 extern const xqc_h3_conn_settings_t default_local_h3_conn_settings;

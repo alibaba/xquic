@@ -33,6 +33,9 @@
 #include "src/transport/xqc_fec_scheme.h"
 #include "src/tls/xqc_tls.h"
 #include <inttypes.h>
+#ifdef XQC_ENABLE_GCC_SENSOR
+#include "src/congestion_control/xqc_gcc_sensor.h"
+#endif
 
 
 xqc_conn_settings_t internal_default_conn_settings = {
@@ -115,7 +118,13 @@ xqc_conn_settings_t internal_default_conn_settings = {
     .extended_ack_features     = 0,
     .max_receive_timestamps_per_ack    = 0,
     .receive_timestamps_exponent       = 0,
-    .disable_pn_skipping               = 0
+    .disable_pn_skipping               = 0,
+#ifdef XQC_ENABLE_GCC_SENSOR
+    .gcc_sensor_on                    = 0,
+    .gcc_feedback_notify              = NULL,
+    .gcc_feedback_user_data           = NULL,
+    .gcc_feedback_interval_ms         = 1000,
+#endif
 };
 
 
@@ -1033,6 +1042,16 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     xqc_init_list_head(&xc->dgram_0rtt_buffer_list);
     xqc_init_list_head(&xc->ping_notification_list);
 
+#ifdef XQC_ENABLE_GCC_SENSOR
+    if (xc->conn_settings.gcc_sensor_on) {
+        xc->gcc_sensor = xqc_pcalloc(xc->conn_pool, xqc_gcc_sensor_size());
+        if (xc->gcc_sensor == NULL) {
+            goto fail;
+        }
+        xqc_gcc_sensor_init(xc->gcc_sensor);
+    }
+#endif
+
     xqc_log(xc->log, XQC_LOG_DEBUG, "|success|scid:%s|dcid:%s|conn:%p|",
             xqc_scid_str(engine, &xc->scid_set.user_scid), xqc_dcid_str(engine, &xc->dcid_set.current_dcid), xc);
     xqc_log_event(xc->log, TRA_PARAMETERS_SET, xc, XQC_LOG_LOCAL_EVENT);
@@ -1587,6 +1606,12 @@ xqc_conn_destroy(xqc_connection_t *xc)
     xqc_timer_destroy_gp_timer_list(&xc->conn_timer_manager);
 
     xqc_send_queue_destroy(xc->conn_send_queue);
+#ifdef XQC_ENABLE_GCC_SENSOR
+    if (xc->gcc_sensor) {
+        xqc_gcc_sensor_destroy(xc->gcc_sensor);
+        xc->gcc_sensor = NULL;
+    }
+#endif
 #ifdef XQC_ENABLE_FEC
     if (xc->fec_ctl) {
         xqc_fec_ctl_destroy(xc->fec_ctl);

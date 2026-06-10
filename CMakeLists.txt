@@ -9,6 +9,7 @@ set (CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 option (XQC_ENABLE_BBR2 "enable bbr2" OFF)
 option (XQC_ENABLE_COPA "enable copa" OFF)
+option (XQC_ENABLE_GCC_SENSOR "enable gcc delay sensor" ON)
 option (XQC_ENABLE_RENO "enable reno" OFF)
 option (XQC_ENABLE_UNLIMITED "enable unlimited cc" OFF)
 option (XQC_ENABLE_MP_INTEROP "enable MPQUIC interop" OFF)
@@ -363,6 +364,16 @@ if(XQC_ENABLE_COPA)
         CONGESTION_CONTROL_SOURCES
         ${CONGESTION_CONTROL_SOURCES}
         "src/congestion_control/xqc_copa.c"
+    )
+endif()
+
+if(XQC_ENABLE_GCC_SENSOR)
+    set(
+        CONGESTION_CONTROL_SOURCES
+        ${CONGESTION_CONTROL_SOURCES}
+        "src/congestion_control/xqc_gcc_inter_arrival.c"
+        "src/congestion_control/xqc_gcc_trendline.c"
+        "src/congestion_control/xqc_gcc_sensor.c"
     )
 endif()
 

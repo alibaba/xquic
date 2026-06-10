@@ -22,6 +22,9 @@ void xqc_test_0rtt_params_all_equal(void);
 void xqc_test_0rtt_params_all_increased(void);
 void xqc_test_0rtt_params_each_reduced(void);
 
+/* RFC 9000 §7.4.1: forbidden remembered fields must be reset (issue #672) */
+void xqc_test_early_params_forbidden_fields_reset(void);
+
 /* ALPN negotiation tests (issue #709) */
 void xqc_test_alpn_error_code_value(void);
 void xqc_test_alpn_server_cb_propagates_error(void);

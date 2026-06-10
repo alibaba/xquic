@@ -228,6 +228,8 @@ main()
                         xqc_test_0rtt_params_all_increased)
         || !CU_add_test(pSuite, "xqc_test_0rtt_params_each_reduced",
                         xqc_test_0rtt_params_each_reduced)
+        || !CU_add_test(pSuite, "xqc_test_early_params_forbidden_fields_reset",
+                        xqc_test_early_params_forbidden_fields_reset)
         /* ALPN negotiation tests (issue #709) */
         || !CU_add_test(pSuite, "xqc_test_alpn_error_code_value",
                         xqc_test_alpn_error_code_value)

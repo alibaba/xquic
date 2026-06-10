@@ -373,3 +373,40 @@ finish:
         xqc_engine_destroy(svr_tctx.engine);
     }
 }
+
+
+void
+xqc_test_stateless_reset_parse_boundary(void)
+{
+    const uint8_t *sr_token = NULL;
+    xqc_int_t      ret;
+
+    /*
+     * RFC 9000 §10.3: minimum Stateless Reset is 21 bytes
+     * (1 byte header + 4 bytes unpredictable + 16 bytes token).
+     * Build a minimal 21-byte packet: short-header bit set, random
+     * filler, then a 16-byte fake token at the tail.
+     */
+    unsigned char pkt[64];
+    memset(pkt, 0xAB, sizeof(pkt));
+    pkt[0] = 0x40; /* short header: Fixed Bit = 1 */
+
+    /* Case 1: 20 bytes — below minimum, must reject */
+    sr_token = NULL;
+    ret = xqc_packet_parse_stateless_reset(pkt, 20, &sr_token);
+    CU_ASSERT(ret != XQC_OK);
+
+    /* Case 2: 21 bytes — exact minimum, must accept */
+    sr_token = NULL;
+    ret = xqc_packet_parse_stateless_reset(pkt, 21, &sr_token);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(sr_token != NULL);
+    CU_ASSERT(sr_token == pkt + 21 - XQC_STATELESS_RESET_TOKENLEN);
+
+    /* Case 3: 22 bytes — above minimum, must accept */
+    sr_token = NULL;
+    ret = xqc_packet_parse_stateless_reset(pkt, 22, &sr_token);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(sr_token != NULL);
+    CU_ASSERT(sr_token == pkt + 22 - XQC_STATELESS_RESET_TOKENLEN);
+}

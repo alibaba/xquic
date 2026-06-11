@@ -291,6 +291,7 @@ xqc_parse_stream_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
     uint64_t length;
     uint64_t max_stream_data_offset = (UINT64_C(1) << 62) - 1;
     int      vlen;
+    xqc_stream_type_t stype;
 
     const unsigned char *p = packet_in->pos;
     const unsigned char *end = packet_in->last;
@@ -302,6 +303,17 @@ xqc_parse_stream_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
         return -XQC_EVINTREAD;
     }
     p += vlen;
+
+    /* RFC 9000 §19.8: reject STREAM frame on a locally initiated send-only stream */
+    stype = xqc_get_stream_type(*stream_id);
+    if ((conn->conn_type == XQC_CONN_TYPE_CLIENT && stype == XQC_CLI_UNI)
+        || (conn->conn_type == XQC_CONN_TYPE_SERVER && stype == XQC_SVR_UNI))
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|STREAM frame on send-only stream|stream_id:%ui|", *stream_id);
+        XQC_CONN_ERR(conn, TRA_STREAM_STATE_ERROR);
+        return -XQC_EPROTO;
+    }
 
     if (first_byte & 0x04) {
         vlen = xqc_vint_read(p, end, &offset);

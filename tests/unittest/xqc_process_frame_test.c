@@ -715,3 +715,40 @@ xqc_test_new_conn_id_zero_len_cid(void)
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+void
+xqc_test_stream_frame_on_send_only_stream(void)
+{
+    /*
+     * RFC 9000 §19.8: receiving a STREAM frame on a send-only stream
+     * must trigger STREAM_STATE_ERROR.
+     *
+     * test_engine_connect() creates a CLIENT connection.
+     * stream_id=2 → XQC_CLI_UNI → client's send-only unidirectional stream.
+     * Frame bytes (after type byte): 0x02 (stream_id=2), 0x01 (len=1), 0x00 (data).
+     * Type byte 0x0a = STREAM|LEN, consumed by xqc_process_frames before dispatch.
+     */
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+    if (conn == NULL) {
+        return;
+    }
+
+    conn->conn_err = 0;
+
+    /* build packet_in with STREAM frame type 0x0a, stream_id=2 */
+    char frame_buf[] = {0x0a, 0x02, 0x01, 0x00};
+    xqc_packet_in_t pi;
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = frame_buf;
+    pi.last = frame_buf + sizeof(frame_buf);
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+
+    /* call xqc_process_stream_frame directly; it expects pos at the type byte */
+    xqc_int_t ret = xqc_process_stream_frame(conn, &pi);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_STREAM_STATE_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}

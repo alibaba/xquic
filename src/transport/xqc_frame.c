@@ -486,11 +486,8 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
             }
 
         } else {
-            /* RFC 9000 §19.8: locally initiated stream not yet created */
-            xqc_log(conn->log, XQC_LOG_ERROR,
-                    "|STREAM frame for locally initiated uncreated stream|stream_id:%ui|", stream_id);
-            XQC_CONN_ERR(conn, TRA_STREAM_STATE_ERROR);
-            ret = -XQC_EPROTO;
+            xqc_log(conn->log, XQC_LOG_WARN, "|cannot find stream|stream_id:%ui|", stream_id);
+            ret = XQC_OK; /* STREAM frame retransmitted after stream is closed. Ignore it. */
             goto error;
         }
     }

@@ -123,6 +123,8 @@ main()
         || !CU_add_test(pSuite, "xqc_test_ack_ecn_truncated", xqc_test_ack_ecn_truncated)
         || !CU_add_test(pSuite, "xqc_test_ack_ecn_followed_by_ping", xqc_test_ack_ecn_followed_by_ping)
         || !CU_add_test(pSuite, "xqc_test_new_conn_id_zero_len_cid", xqc_test_new_conn_id_zero_len_cid)
+        /* issue #565: STREAM frame on send-only / locally initiated uncreated stream */
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_on_send_only_stream", xqc_test_stream_frame_on_send_only_stream)
         || !CU_add_test(pSuite, "xqc_test_h3_frame", xqc_test_frame)
         || !CU_add_test(pSuite, "xqc_test_tls", xqc_test_tls)
         || !CU_add_test(pSuite, "xqc_test_h3_stream", xqc_test_stream)

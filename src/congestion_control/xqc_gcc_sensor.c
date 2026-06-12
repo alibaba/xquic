@@ -232,9 +232,6 @@ xqc_gcc_sensor_maybe_notify(xqc_connection_t *conn, xqc_gcc_sensor_t *sensor,
     xqc_send_ctl_t *send_ctl, xqc_gcc_bandwidth_usage_e usage, xqc_usec_t now_us)
 {
     if (!conn || !conn->conn_settings.gcc_feedback_notify) {
-        if (getenv("XQC_GCC_SENSOR_DEBUG")) {
-            fprintf(stderr, "[gcc] skip notify: feedback_notify callback is NULL\n");
-        }
         return;
     }
 

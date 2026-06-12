@@ -35,4 +35,8 @@ void xqc_test_ack_ecn_followed_by_ping();
 
 void xqc_test_new_conn_id_zero_len_cid(void);
 
+void xqc_test_reset_stream_on_send_only_stream(void);
+
+void xqc_test_stop_sending_on_recv_only_stream(void);
+
 #endif /* _XQC_PROCESS_FRAME_TEST_H_INCLUDED_ */

@@ -43,4 +43,16 @@ void xqc_test_conn_close_application_error_type(void);
 
 void xqc_test_conn_close_transport_error_type_overlap(void);
 
+void xqc_test_reset_stream_on_send_only_stream(void);
+
+void xqc_test_stop_sending_on_recv_only_stream(void);
+
+void xqc_test_reset_stream_on_send_only_stream_server(void);
+
+void xqc_test_stop_sending_on_recv_only_stream_server(void);
+
+void xqc_test_reset_stream_on_recv_only_stream_accepted(void);
+
+void xqc_test_stop_sending_on_send_only_stream_accepted(void);
+
 #endif /* _XQC_PROCESS_FRAME_TEST_H_INCLUDED_ */

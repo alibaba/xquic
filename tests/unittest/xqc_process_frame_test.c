@@ -904,3 +904,231 @@ xqc_test_new_conn_id_active_limit_exceeded(void)
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+void
+xqc_test_reset_stream_on_send_only_stream(void)
+{
+    /*
+     * RFC 9000 §19.4: receiving RESET_STREAM on a send-only stream must
+     * trigger STREAM_STATE_ERROR.
+     *
+     * test_engine_connect() creates a CLIENT connection.
+     * stream_id=2 -> XQC_CLI_UNI -> client's send-only unidirectional stream.
+     *
+     * RESET_STREAM frame layout: type(1) + stream_id(varint) + err_code(varint) + final_size(varint)
+     * 0x04 = RESET_STREAM type, 0x02 = stream_id 2, 0x00 = err_code 0, 0x00 = final_size 0
+     */
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+    if (conn == NULL) {
+        return;
+    }
+
+    conn->conn_err = 0;
+
+    unsigned char frame_buf[] = {0x04, 0x02, 0x00, 0x00};
+    xqc_stream_id_t stream_id;
+    uint64_t err_code, final_size;
+    xqc_packet_in_t pi;
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = frame_buf;
+    pi.last = frame_buf + sizeof(frame_buf);
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+
+    xqc_int_t ret = xqc_parse_reset_stream_frame(&pi, &stream_id, &err_code, &final_size, conn);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_STREAM_STATE_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_stop_sending_on_recv_only_stream(void)
+{
+    /*
+     * RFC 9000 §19.5: receiving STOP_SENDING on a recv-only stream must
+     * trigger STREAM_STATE_ERROR.
+     *
+     * test_engine_connect() creates a CLIENT connection.
+     * stream_id=3 -> XQC_SVR_UNI -> server's send-only stream = client's recv-only stream.
+     *
+     * STOP_SENDING frame layout: type(1) + stream_id(varint) + err_code(varint)
+     * 0x05 = STOP_SENDING type, 0x03 = stream_id 3, 0x00 = err_code 0
+     */
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+    if (conn == NULL) {
+        return;
+    }
+
+    conn->conn_err = 0;
+
+    unsigned char frame_buf[] = {0x05, 0x03, 0x00};
+    xqc_stream_id_t stream_id;
+    uint64_t err_code;
+    xqc_packet_in_t pi;
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = frame_buf;
+    pi.last = frame_buf + sizeof(frame_buf);
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+
+    xqc_int_t ret = xqc_parse_stop_sending_frame(&pi, &stream_id, &err_code, conn);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_STREAM_STATE_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_reset_stream_on_send_only_stream_server(void)
+{
+    /*
+     * Server-side variant of the RFC 9000 19.4 check.
+     *
+     * test_engine_connect() builds a CLIENT connection; the parser only reads
+     * conn->conn_type, so flipping it exercises the server branch of the check.
+     * stream_id=3 -> XQC_SVR_UNI -> server's send-only unidirectional stream.
+     */
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+    if (conn == NULL) {
+        return;
+    }
+
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    conn->conn_err = 0;
+
+    unsigned char frame_buf[] = {0x04, 0x03, 0x00, 0x00};
+    xqc_stream_id_t stream_id;
+    uint64_t err_code, final_size;
+    xqc_packet_in_t pi;
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = frame_buf;
+    pi.last = frame_buf + sizeof(frame_buf);
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+
+    xqc_int_t ret = xqc_parse_reset_stream_frame(&pi, &stream_id, &err_code, &final_size, conn);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_STREAM_STATE_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_stop_sending_on_recv_only_stream_server(void)
+{
+    /*
+     * Server-side variant of the RFC 9000 19.5 check.
+     * stream_id=2 -> XQC_CLI_UNI -> client's send-only stream = server's
+     * recv-only stream.
+     */
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+    if (conn == NULL) {
+        return;
+    }
+
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    conn->conn_err = 0;
+
+    unsigned char frame_buf[] = {0x05, 0x02, 0x00};
+    xqc_stream_id_t stream_id;
+    uint64_t err_code;
+    xqc_packet_in_t pi;
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = frame_buf;
+    pi.last = frame_buf + sizeof(frame_buf);
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+
+    xqc_int_t ret = xqc_parse_stop_sending_frame(&pi, &stream_id, &err_code, conn);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_STREAM_STATE_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_reset_stream_on_recv_only_stream_accepted(void)
+{
+    /*
+     * Negative control for the RFC 9000 19.4 check: RESET_STREAM is legal on a
+     * recv-only stream and MUST still be accepted.  Without this case a check
+     * that is too broad (e.g. rejecting every unidirectional stream regardless
+     * of conn_type) would go unnoticed.
+     *
+     * client + stream_id=3 -> XQC_SVR_UNI -> client's recv-only stream.
+     * err_code = 10, final_size = 5 so the parsed values can be asserted.
+     */
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+    if (conn == NULL) {
+        return;
+    }
+
+    conn->conn_err = 0;
+
+    unsigned char frame_buf[] = {0x04, 0x03, 0x0a, 0x05};
+    xqc_stream_id_t stream_id;
+    uint64_t err_code, final_size;
+    xqc_packet_in_t pi;
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = frame_buf;
+    pi.last = frame_buf + sizeof(frame_buf);
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+
+    xqc_int_t ret = xqc_parse_reset_stream_frame(&pi, &stream_id, &err_code, &final_size, conn);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT(stream_id == 3);
+    CU_ASSERT(err_code == 10);
+    CU_ASSERT(final_size == 5);
+    CU_ASSERT(pi.pi_frame_types & XQC_FRAME_BIT_RESET_STREAM);
+    CU_ASSERT(pi.pos == frame_buf + sizeof(frame_buf));
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_stop_sending_on_send_only_stream_accepted(void)
+{
+    /*
+     * Negative control for the RFC 9000 19.5 check: STOP_SENDING is legal on a
+     * send-only stream and MUST still be accepted.  This is the normal case for
+     * an HTTP/3 client control stream.
+     *
+     * client + stream_id=2 -> XQC_CLI_UNI -> client's send-only stream.
+     * err_code = 7 so the parsed value can be asserted.
+     */
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+    if (conn == NULL) {
+        return;
+    }
+
+    conn->conn_err = 0;
+
+    unsigned char frame_buf[] = {0x05, 0x02, 0x07};
+    xqc_stream_id_t stream_id;
+    uint64_t err_code;
+    xqc_packet_in_t pi;
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = frame_buf;
+    pi.last = frame_buf + sizeof(frame_buf);
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+
+    xqc_int_t ret = xqc_parse_stop_sending_frame(&pi, &stream_id, &err_code, conn);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT(stream_id == 2);
+    CU_ASSERT(err_code == 7);
+    CU_ASSERT(pi.pi_frame_types & XQC_FRAME_BIT_STOP_SENDING);
+    CU_ASSERT(pi.pos == frame_buf + sizeof(frame_buf));
+
+    xqc_engine_destroy(conn->engine);
+}

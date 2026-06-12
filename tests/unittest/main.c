@@ -143,6 +143,17 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_conn_close_transport_error_type_overlap",
                         xqc_test_conn_close_transport_error_type_overlap)
+        /* issue #566/#567: RESET_STREAM/STOP_SENDING on send-only/recv-only stream */
+        || !CU_add_test(pSuite, "xqc_test_reset_stream_on_send_only_stream", xqc_test_reset_stream_on_send_only_stream)
+        || !CU_add_test(pSuite, "xqc_test_stop_sending_on_recv_only_stream", xqc_test_stop_sending_on_recv_only_stream)
+        || !CU_add_test(pSuite, "xqc_test_reset_stream_on_send_only_stream_server",
+                        xqc_test_reset_stream_on_send_only_stream_server)
+        || !CU_add_test(pSuite, "xqc_test_stop_sending_on_recv_only_stream_server",
+                        xqc_test_stop_sending_on_recv_only_stream_server)
+        || !CU_add_test(pSuite, "xqc_test_reset_stream_on_recv_only_stream_accepted",
+                        xqc_test_reset_stream_on_recv_only_stream_accepted)
+        || !CU_add_test(pSuite, "xqc_test_stop_sending_on_send_only_stream_accepted",
+                        xqc_test_stop_sending_on_send_only_stream_accepted)
         || !CU_add_test(pSuite, "xqc_test_h3_frame", xqc_test_frame)
         || !CU_add_test(pSuite, "xqc_test_h3_single_vint_frame_valid",
                         xqc_test_h3_single_vint_frame_valid)

@@ -1115,7 +1115,7 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
 
 #ifdef XQC_ENABLE_GCC_SENSOR
     if (conn->conn_settings.gcc_sensor_on && conn->gcc_sensor
-        && cc_sample_type == XQC_RATE_SAMPLE_VALID)
+        && cc_sample_type != XQC_RATE_SAMPLE_ACK_NOTHING)
     {
         xqc_gcc_sensor_on_ack(conn, send_ctl, &send_ctl->sampler, ack_recv_time);
     }

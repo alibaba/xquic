@@ -1440,12 +1440,24 @@ xqc_parse_reset_stream_frame(xqc_packet_in_t *packet_in, xqc_stream_id_t *stream
     const unsigned char first_byte = *p++;
 
     int vlen;
+    xqc_stream_type_t stype;
 
     vlen = xqc_vint_read(p, end, stream_id);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }
     p += vlen;
+
+    /* RFC 9000 §19.4: reject RESET_STREAM on a send-only stream */
+    stype = xqc_get_stream_type(*stream_id);
+    if ((conn->conn_type == XQC_CONN_TYPE_CLIENT && stype == XQC_CLI_UNI)
+        || (conn->conn_type == XQC_CONN_TYPE_SERVER && stype == XQC_SVR_UNI))
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|RESET_STREAM on send-only stream|stream_id:%ui|", *stream_id);
+        XQC_CONN_ERR(conn, TRA_STREAM_STATE_ERROR);
+        return -XQC_EPROTO;
+    }
 
     vlen = xqc_vint_read(p, end, err_code);
     if (vlen < 0) {
@@ -1518,12 +1530,24 @@ xqc_parse_stop_sending_frame(xqc_packet_in_t *packet_in, xqc_stream_id_t *stream
     const unsigned char first_byte = *p++;
 
     int vlen;
+    xqc_stream_type_t stype;
 
     vlen = xqc_vint_read(p, end, stream_id);
     if (vlen < 0) {
         return -XQC_EVINTREAD;
     }
     p += vlen;
+
+    /* RFC 9000 §19.5: reject STOP_SENDING on a recv-only stream */
+    stype = xqc_get_stream_type(*stream_id);
+    if ((conn->conn_type == XQC_CONN_TYPE_CLIENT && stype == XQC_SVR_UNI)
+        || (conn->conn_type == XQC_CONN_TYPE_SERVER && stype == XQC_CLI_UNI))
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|STOP_SENDING on recv-only stream|stream_id:%ui|", *stream_id);
+        XQC_CONN_ERR(conn, TRA_STREAM_STATE_ERROR);
+        return -XQC_EPROTO;
+    }
 
     vlen = xqc_vint_read(p, end, err_code);
     if (vlen < 0) {

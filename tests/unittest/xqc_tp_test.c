@@ -560,6 +560,60 @@ xqc_test_tp_cid_overflow(void)
     CU_ASSERT(params.initial_source_connection_id.cid_len == 20);
 }
 
+/*
+ * RFC 9000 §18.2: active_connection_id_limit MUST be at least 2.
+ * Verify that decoding a value of 0 or 1 returns an error.
+ */
+void
+xqc_test_active_cid_limit_minimum(void)
+{
+    xqc_transport_params_t params;
+    xqc_int_t ret;
+
+    /*
+     * Construct a minimal ENCRYPTED_EXTENSIONS transport parameter buffer
+     * containing only active_connection_id_limit = 1 (varint encoded).
+     *   param_type  = 0x0e (XQC_TRANSPORT_PARAM_ACTIVE_CONNECTION_ID_LIMIT)
+     *   param_len   = 0x01
+     *   param_value = 0x01 (varint for 1)
+     */
+    uint8_t tp_acl_one[] = {
+        0x0e,   /* param_type = active_connection_id_limit */
+        0x01,   /* param_len = 1 */
+        0x01    /* value = 1 */
+    };
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      tp_acl_one, sizeof(tp_acl_one));
+    CU_ASSERT(ret != XQC_OK);
+
+    /* Also verify value = 0 is rejected */
+    uint8_t tp_acl_zero[] = {
+        0x0e,   /* param_type = active_connection_id_limit */
+        0x01,   /* param_len = 1 */
+        0x00    /* value = 0 */
+    };
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      tp_acl_zero, sizeof(tp_acl_zero));
+    CU_ASSERT(ret != XQC_OK);
+
+    /* Boundary: value = 2 should succeed */
+    uint8_t tp_acl_two[] = {
+        0x0e,   /* param_type = active_connection_id_limit */
+        0x01,   /* param_len = 1 */
+        0x02    /* value = 2 */
+    };
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      tp_acl_two, sizeof(tp_acl_two));
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(params.active_connection_id_limit == 2);
+}
+
 void
 xqc_test_check_transport_params_cids(void)
 {

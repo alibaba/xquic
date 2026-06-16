@@ -15,6 +15,7 @@
 #include "src/transport/xqc_utils.h"
 #include "src/transport/xqc_engine.h"
 #include "src/tls/xqc_tls.h"
+#include "src/tls/xqc_crypto.h"
 
 
 
@@ -233,6 +234,16 @@ xqc_packet_decrypt_single(xqc_connection_t *c, xqc_packet_in_t *packet_in)
             xqc_log_event(c->log, TRA_PACKET_DROPPED, "decrypt data error", ret, 
                 xqc_pkt_type_2_str(packet_in->pi_pkt.pkt_type), packet_in->pi_pkt.pkt_num);
             c->packet_dropped_count ++;
+
+            /* RFC 9001 §6.6: close connection if AEAD integrity limit is reached */
+            uint32_t cipher_id = xqc_tls_get_1rtt_cipher_id(c->tls);
+            if (cipher_id != 0 && c->packet_dropped_count > xqc_aead_integrity_limit(cipher_id)) {
+                xqc_log(c->log, XQC_LOG_ERROR, "|AEAD integrity limit reached|dropped:%ui|limit:%ui|",
+                        c->packet_dropped_count, xqc_aead_integrity_limit(cipher_id));
+                XQC_CONN_ERR(c, TRA_AEAD_LIMIT_REACHED);
+                return -XQC_EAEAD_LIMIT;
+            }
+
             ret = -XQC_EDECRYPT;
             /* don't close connection, just drop the packet */
         }

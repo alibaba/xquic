@@ -103,6 +103,7 @@ xqc_crypto_create(uint32_t cipher_id, xqc_log_t *log)
 
     crypto->log = log;
     crypto->key_phase = 0;
+    crypto->cipher_id = cipher_id;
 
     xqc_vec_init(&crypto->keys.tx_hp);
     xqc_vec_init(&crypto->keys.rx_hp);
@@ -788,4 +789,24 @@ xqc_crypto_aead_encrypt(xqc_crypto_t *crypto,
 end:
     xqc_aead_ctx_free(aead_ctx);
     return ret;
+}
+
+uint64_t
+xqc_aead_integrity_limit(uint32_t cipher_id)
+{
+    /* RFC 9001 §6.6: integrity limits for each AEAD algorithm */
+    switch (cipher_id) {
+    case XQC_TLS13_AES_128_GCM_SHA256:
+    case XQC_TLS13_AES_256_GCM_SHA384:
+        /* AES-GCM integrity limit: 2^52 = 4503599627370496 */
+        return 4503599627370496ULL;
+
+    case XQC_TLS13_CHACHA20_POLY1305_SHA256:
+        /* ChaCha20-Poly1305 integrity limit: 2^36 = 68719476736 */
+        return 68719476736ULL;
+
+    default:
+        /* unknown cipher, use conservative limit */
+        return 68719476736ULL;
+    }
 }

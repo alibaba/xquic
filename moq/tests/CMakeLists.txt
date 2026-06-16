@@ -11,6 +11,11 @@ set(
     "video_jitter_buffer_test.c"
 )
 
+set(
+    MOQ_MESSAGE_TEST_SOURCE
+    "moq_message_test.c"
+)
+
 include_directories(
     "${CMAKE_SOURCE_DIR}/"
     "${CMAKE_SOURCE_DIR}/include"
@@ -26,3 +31,6 @@ target_link_libraries(catalog_test ${APP_DEPEND_LIBS})
 
 add_executable(jitter_buffer_test ${JITTERBUFFER_TEST_SOURCE})
 target_link_libraries(jitter_buffer_test ${APP_DEPEND_LIBS})
+
+add_executable(moq_message_test ${MOQ_MESSAGE_TEST_SOURCE})
+target_link_libraries(moq_message_test ${APP_DEPEND_LIBS})

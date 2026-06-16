@@ -3678,19 +3678,21 @@ xqc_moq_msg_decode_publish_done(uint8_t *buf, size_t buf_len, uint8_t stream_fin
             processed += ret;
             msg_ctx->cur_field_idx = 4;
         case 4: //Reason Phrase (b)
-            if (publish_done->reason_phrase_len == 0) {
+            if (publish_done->reason_phrase == NULL) {
                 ret = xqc_vint_read(buf + processed, buf + buf_len, (uint64_t*)&publish_done->reason_phrase_len);
                 if (ret < 0) {
                     *wait_more_data = 1;
                     break;
                 }
                 processed += ret;
-            }
-            if (publish_done->reason_phrase == NULL) {
                 if (publish_done->reason_phrase_len > XQC_MOQ_MAX_NAME_LEN) {
                     return -XQC_ELIMIT;
                 }
                 publish_done->reason_phrase = xqc_calloc(1, publish_done->reason_phrase_len + 1);
+            }
+            if (publish_done->reason_phrase_len == 0) {
+                *finish = 1;
+                break;
             }
             if (processed == buf_len) {
                 *wait_more_data = 1;

@@ -277,6 +277,15 @@ main(int argc, char *argv[])
                         xqc_test_0rtt_ack_delay_exponent_default_in_parse)
         || !CU_add_test(pSuite, "xqc_test_0rtt_remote_mad_timeline",
                         xqc_test_0rtt_remote_mad_timeline)
+        /* issue #704: AEAD integrity limit per RFC 9001 §6.6 */
+        || !CU_add_test(pSuite, "xqc_test_aead_integrity_limit",
+                        xqc_test_aead_integrity_limit)
+        || !CU_add_test(pSuite, "xqc_test_aead_integrity_limit_unknown_cipher",
+                        xqc_test_aead_integrity_limit_unknown_cipher)
+        || !CU_add_test(pSuite, "xqc_test_aead_integrity_limit_conn_triggered",
+                        xqc_test_aead_integrity_limit_conn_triggered)
+        || !CU_add_test(pSuite, "xqc_test_aead_integrity_limit_conn_no_crypto",
+                        xqc_test_aead_integrity_limit_conn_no_crypto)
         /* ALPN negotiation tests (issue #709) */
         || !CU_add_test(pSuite, "xqc_test_alpn_error_code_value",
                         xqc_test_alpn_error_code_value)

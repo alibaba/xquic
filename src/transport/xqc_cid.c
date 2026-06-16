@@ -272,9 +272,15 @@ xqc_cid_set_insert_cid(xqc_cid_set_t *cid_set,
     }
 
     /*
-     * RFC 9000 §5.1.1: "The value of the active_connection_id_limit transport
-     * parameter does not include the connection ID negotiated during the
-     * handshake."  Subtract original (handshake) CIDs from the active count.
+     * RFC 9000 §18.2: active_connection_id_limit is "the maximum number
+     * of connection IDs from the peer that an endpoint is willing to
+     * store."  The limit applies only to peer-supplied CIDs; locally
+     * chosen CIDs (tracked by original_cid_cnt) are excluded.
+     *
+     * After processing a NEW_CONNECTION_ID frame, if the number of
+     * active peer-supplied CIDs exceeds the advertised limit, the
+     * endpoint MUST close the connection with CONNECTION_ID_LIMIT_ERROR
+     * (RFC 9000 §5.1.1).
      */
     uint64_t countable = xqc_cid_set_countable_cnt(inner_set);
     if (countable >= limit) {

@@ -4833,7 +4833,6 @@ xqc_conn_confirm_cid(xqc_connection_t *c, xqc_packet_t *pkt)
                         xqc_cid_set_get_used_cnt(&c->dcid_set, XQC_INITIAL_PATH_ID));
                 return ret;
             }
-            xqc_cid_set_mark_original(&c->dcid_set, &pkt->pkt_scid, XQC_INITIAL_PATH_ID);
         }
 
         if (XQC_OK != xqc_cid_is_equal(&c->dcid_set.current_dcid, &pkt->pkt_scid)) {

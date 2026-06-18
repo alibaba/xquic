@@ -1,0 +1,90 @@
+# Auto-Doc Lookup: Code-to-Documentation Mapping
+
+Source: `docs_ai/`
+
+When starting any task, use this mapping to determine which documentation to read and which to update.
+
+## Lookup Table: Source Path -> Documentation
+
+**Given a source file path, read the corresponding docs BEFORE modifying code, and update them AFTER.**
+
+| Source Path Pattern | Read These Docs | Update These Docs | Suggested Validation Target |
+|---|---|---|---|
+| `include/xquic/xquic.h` | `docs_ai/architecture/overview.md`, `docs/API.md` | `docs/API.md`, `docs_ai/architecture/overview.md` | Full `run_tests` + `case_test.sh` |
+| `include/xquic/xqc_http3.h` | `docs_ai/architecture/overview.md`, `docs/API.md` | `docs/API.md`, `docs_ai/architecture/overview.md` | Full `run_tests` + `case_test.sh` |
+| `include/xquic/xqc_errno.h` | `docs_ai/architecture/overview.md` | `docs_ai/architecture/overview.md` | Full `run_tests` |
+| `src/transport/*` | `docs_ai/architecture/overview.md`, `docs_ai/architecture/module_dependency.md` | `docs_ai/architecture/module_dependency.md` | `run_tests` (transport tests) + `case_test.sh` |
+| `src/transport/scheduler/*` | `docs_ai/architecture/overview.md` | `docs_ai/architecture/module_dependency.md` | `run_tests` + multipath case tests |
+| `src/transport/reinjection_control/*` | `docs_ai/architecture/overview.md` | `docs_ai/architecture/module_dependency.md` | `run_tests` + multipath case tests |
+| `src/transport/fec_schemes/*` | `docs_ai/architecture/module_dependency.md` | `docs_ai/architecture/module_dependency.md` | `run_tests` (fec tests) |
+| `src/http3/*` | `docs_ai/architecture/overview.md` | `docs_ai/architecture/module_dependency.md` | `run_tests` (h3 tests) + `case_test.sh` |
+| `src/http3/qpack/*` | `docs_ai/architecture/overview.md` | `docs_ai/architecture/module_dependency.md` | `run_tests` (qpack tests) |
+| `src/tls/*` | `docs_ai/architecture/overview.md` | `docs_ai/architecture/module_dependency.md` | `run_tests` (tls + crypto tests) |
+| `src/tls/boringssl/*` | `docs_ai/architecture/overview.md`, `docs_ai/build/build_guide.md` | `docs_ai/architecture/module_dependency.md` | `run_tests` (tls + crypto tests) |
+| `src/tls/babassl/*` | `docs_ai/architecture/overview.md`, `docs_ai/build/build_guide.md` | `docs_ai/architecture/module_dependency.md` | `run_tests` (tls + crypto tests) |
+| `src/congestion_control/*` | `docs_ai/architecture/overview.md` | `docs_ai/architecture/module_dependency.md` | `run_tests` (cc tests) + `case_test.sh` |
+| `src/common/*` | `docs_ai/architecture/module_dependency.md` | `docs_ai/architecture/module_dependency.md` | Full `run_tests` |
+| `tests/unittest/*` | `docs_ai/testing/test_guide.md` | `docs_ai/testing/test_guide.md` | `run_tests` |
+| `tests/test_client.c` / `tests/test_server.c` | `docs_ai/testing/test_guide.md` | `docs_ai/testing/test_guide.md` | `case_test.sh` |
+| `demo/*` | `docs/API.md` | (none unless API usage pattern changes) | Rebuild demo targets |
+| `mini/*` | `docs/API.md` | (none unless API usage pattern changes) | Rebuild mini targets |
+| `CMakeLists.txt` | `docs_ai/build/build_guide.md` | `docs_ai/build/build_guide.md` | Full rebuild + `run_tests` |
+| `cmake/*` | `docs_ai/build/build_guide.md` | `docs_ai/build/build_guide.md` | Full rebuild |
+| `scripts/*` | `docs_ai/testing/test_guide.md` | `docs_ai/testing/test_guide.md` | Run affected script |
+
+## Lookup Procedure (Execute at Stage 1: Requirement Analysis)
+
+```
+1. Identify which source files will be modified
+2. Look up each file path in the table above
+3. READ the corresponding "Read These Docs" files to understand context
+4. After implementation, UPDATE the corresponding "Update These Docs" files
+5. Use `docs_ai/validation_guide.md` to decide whether build/test execution is needed, then map to the smallest suggested validation target
+```
+
+## Cross-Cutting Concerns
+
+When a change spans multiple modules, read ALL relevant docs. Specifically:
+- **Public API change** -> Always read `docs_ai/architecture/overview.md` + `docs/API.md`
+- **New module/file** -> Update `docs_ai/architecture/module_dependency.md` + `docs_ai/codebase_index.md`
+- **Build system change** -> Read and update `docs_ai/build/build_guide.md`
+- **New test pattern** -> Read and update `docs_ai/testing/test_guide.md`
+- **New congestion control algorithm** -> Update `docs_ai/architecture/overview.md` (CC section) + `docs_ai/build/build_guide.md` (feature flags)
+
+## Documentation Structure
+
+All agent documentation lives under `docs_ai/`. Original project documentation lives under `docs/`.
+
+```
+docs_ai/
+  agent_guide.md                   # Agent workflow notes and context-preservation guidance
+  validation_guide.md              # Build/test decision rules and validation commands
+  dev_pipeline.md                  # Development pipeline, enforcement rules
+  bugfix_pipeline.md               # Bug fix pipeline, root cause analysis, unit test verification
+  architecture/
+    overview.md                    # System architecture, layers, entry points, plugin model
+    module_dependency.md           # Module dependency matrix, impact analysis guide
+  build/
+    build_guide.md                 # Prerequisites, SSL backends, CMake options, platform notes
+  testing/
+    test_guide.md                  # Test categories, feature-to-test mapping, commands
+  codebase_index.md                # Full source file tree with annotations
+  auto_doc_lookup.md               # This file: code-to-doc mapping
+
+docs/                              # Original project documentation (do not move to docs_ai/)
+  API.md                           # Public API documentation
+  Platforms.md                     # Platform support details
+  Features.md                      # Feature documentation (qlog, etc.)
+  FAQ.md                           # Frequently asked questions
+  docs-zh/                         # Chinese documentation
+  translation/                     # RFC translation documents
+  images/                          # Project images
+```
+
+## Documentation Maintenance Rules
+
+1. **Code change -> Doc change**: Every code modification that changes behavior, API, or architecture MUST have a corresponding documentation update. Use the lookup table above to find which docs to update.
+2. **New file -> Index update**: When adding new source files, update `docs_ai/codebase_index.md` and `docs_ai/architecture/module_dependency.md`.
+3. **New test -> Test guide update**: When adding new test patterns, update `docs_ai/testing/test_guide.md`.
+4. **Doc-first for API changes**: Public API changes should be documented before or alongside implementation.
+5. **Keep `docs/` and `docs_ai/` separate**: `docs/` contains original project documentation. `docs_ai/` contains agent workflow and analysis documents.

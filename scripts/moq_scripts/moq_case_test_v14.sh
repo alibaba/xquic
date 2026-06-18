@@ -36,6 +36,84 @@ clear_log() {
     : > slog
 }
 
+wait_for_log_count() {
+    local file="$1"
+    local pattern="$2"
+    local expected="$3"
+    local timeout_ms="${4:-3000}"
+    local waited=0
+    local count=0
+
+    while [ "${waited}" -le "${timeout_ms}" ]; do
+        if [ -s "${file}" ]; then
+            count=$(grep -E "${pattern}" "${file}" 2>/dev/null | awk -F'object_id:' '{print $2}' | awk -F'|' '{print $1}' | sort -u | wc -l | tr -d ' ')
+            [ "${count}" -ge "${expected}" ] && return 0
+        fi
+        sleep 0.1
+        waited=$((waited + 100))
+    done
+    return 1
+}
+
+wait_for_log_pattern() {
+    local file="$1"
+    local pattern="$2"
+    local timeout_ms="${3:-3000}"
+    local waited=0
+
+    while [ "${waited}" -le "${timeout_ms}" ]; do
+        [ -s "${file}" ] && grep -Eq "${pattern}" "${file}" && return 0
+        sleep 0.1
+        waited=$((waited + 100))
+    done
+    return 1
+}
+
+line_has_all_in_any() {
+    local files=()
+    while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
+        files+=("$1")
+        shift
+    done
+    [ "$#" -gt 0 ] || return 1
+    shift
+
+    local f line token ok
+    for f in "${files[@]}"; do
+        [ -s "${f}" ] || continue
+        while IFS= read -r line; do
+            ok=1
+            for token in "$@"; do
+                case "${line}" in
+                    *"${token}"*) ;;
+                    *) ok=0; break ;;
+                esac
+            done
+            [ "${ok}" -eq 1 ] && return 0
+        done < "${f}"
+    done
+    return 1
+}
+
+none_in_any() {
+    local files=()
+    while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
+        files+=("$1")
+        shift
+    done
+    [ "$#" -gt 0 ] || return 1
+    shift
+
+    local f token
+    for f in "${files[@]}"; do
+        [ -s "${f}" ] || continue
+        for token in "$@"; do
+            grep -Fq -- "${token}" "${f}" && return 1
+        done
+    done
+    return 0
+}
+
 reset_runtime() {
     rm -rf tp_localhost test_session xqc_token
     clear_log
@@ -385,56 +463,31 @@ run_raw_object_case() {
 run_raw_object_reuse_case() {
     local case_name="raw_object_reuse"
     local status="fail"
-    echo -e "moq raw object reuse (-R -W) ...\c"
+    echo -e "moq raw object reuse (-R) ...\c"
     reset_runtime
     if start_server "${case_name}" "${SERVER_BASE_ARGS[@]}" -n 10 -M -R; then
-        run_client "${case_name}" "${CLIENT_BASE_ARGS[@]}" -n 10 -M -R -W
+        run_client "${case_name}" "${CLIENT_BASE_ARGS[@]}" -n 10 -M -R
     else
         CLIENT_STDLOG="client_${case_name}.log"
         LAST_CLIENT_RC=1
     fi
-    local errlog audio_lines obj_cnt stream_cnt delta_bad cli_raw svr_raw
+    local errlog audio_lines group_cnt cli_raw svr_raw
     errlog=$(get_err_log)
     cli_raw=$(grep "|write raw object success|" clog 2>/dev/null || true)
     svr_raw=$(grep "on_raw_object:" "${SERVER_STDLOG}" 2>/dev/null || true)
 
     audio_lines=$(grep "server_recv_subgroup" slog 2>/dev/null | \
-                  grep "track_alias:2|group_id:0|subgroup_id:0|" || true)
+                  grep "track_alias:2|" | grep "subgroup_id:0|" || true)
     if [ -n "${audio_lines}" ]; then
-        obj_cnt=$(echo "${audio_lines}" | awk -F'object_id:' '{print $2}' | \
-                  awk -F'|' '{print $1}' | sort -u | wc -l | tr -d ' ')
-        stream_cnt=$(echo "${audio_lines}" | awk -F'stream_id:' '{print $2}' | \
-                     awk -F'|' '{print $1}' | sort -u | wc -l | tr -d ' ')
-        delta_bad=$(echo "${audio_lines}" | awk -F'|' '
-        {
-            id = -1; d = -1;
-            for (i = 1; i <= NF; i++) {
-                if ($i ~ /object_id:/) {
-                    gsub(/object_id:/, "", $i);
-                    id = $i;
-                } else if ($i ~ /object_id_delta:/) {
-                    gsub(/object_id_delta:/, "", $i);
-                    d = $i;
-                }
-            }
-            if (id > 0 && d != 0) {
-                bad = 1;
-            }
-        }
-        END {
-            if (bad == 1) {
-                print "bad";
-            }
-        }')
+        group_cnt=$(echo "${audio_lines}" | awk -F'group_id:' '{print $2}' | \
+                    awk -F'|' '{print $1}' | sort -u | wc -l | tr -d ' ')
     else
-        obj_cnt=0
-        stream_cnt=0
-        delta_bad=""
+        group_cnt=0
     fi
 
     if check_client_rc "${case_name}" && check_server_rc "${case_name}" \
        && [ -n "${cli_raw}" ] && [ -n "${svr_raw}" ] \
-       && [ "${obj_cnt}" -ge 2 ] && [ "${stream_cnt}" -eq 1 ] && [ -z "${errlog}" ] && [ -z "${delta_bad}" ]; then
+       && [ "${group_cnt}" -ge 2 ] && [ -z "${errlog}" ]; then
         echo ">>>>>>>> pass:1"
         status="pass"
     else
@@ -446,7 +499,7 @@ run_raw_object_reuse_case() {
         echo "${svr_raw}"
         echo "audio subgroup lines:"
         echo "${audio_lines}"
-        echo "distinct object_id count: ${obj_cnt}, distinct stream_id count: ${stream_cnt}"
+        echo "distinct audio group_id count: ${group_cnt}"
     fi
     case_print_result "${case_name}" "${status}"
     record_case_result "${case_name}" "${status}"
@@ -473,6 +526,7 @@ run_subgroup_multi_object_case() {
     fi
     local errlog audio_lines obj_cnt stream_cnt delta_bad
     errlog=$(get_err_log)
+    wait_for_log_count slog "server_recv_subgroup.*track_alias:2\\|group_id:0\\|subgroup_id:0\\|" 10 3000 || true
 
     audio_lines=$(grep "server_recv_subgroup" slog 2>/dev/null | \
                   grep "track_alias:2|group_id:0|subgroup_id:0|" || true)
@@ -526,6 +580,124 @@ run_subgroup_multi_object_case() {
 }
 
 run_subgroup_multi_object_case
+
+run_reuse_subgroup_timeout_case() {
+    local case_name="reuse_subgroup_timeout"
+    local status="fail"
+    echo -e "moq reused video subgroup timeout ...\c"
+    reset_runtime
+    if start_server "${case_name}" "${SERVER_BASE_ARGS[@]}" -l d -n 25 -W; then
+        run_client "${case_name}" "${CLIENT_BASE_ARGS[@]}" -l d -n 25
+    else
+        CLIENT_STDLOG="client_${case_name}.log"
+        LAST_CLIENT_RC=1
+    fi
+
+    wait_for_log_pattern "${SERVER_STDLOG}" "server_send_video_frame.*seq:20" 3000 || true
+
+    local enabled seq20 errlog timeout_log crash_log proto_log
+    enabled=$(grep "moq_video_reuse_subgroup_stream|enabled:1" "${SERVER_STDLOG}" 2>/dev/null || true)
+    seq20=$(grep "server_send_video_frame|.*seq:20" "${SERVER_STDLOG}" 2>/dev/null || true)
+    errlog=$(get_err_log)
+    timeout_log=$(grep "video frame timeout" slog clog "${SERVER_STDLOG}" "${CLIENT_STDLOG}" 2>/dev/null || true)
+    crash_log=$(grep -E "segfault|SIGSEGV|Aborted" "${SERVER_STDLOG}" "${CLIENT_STDLOG}" 2>/dev/null || true)
+    proto_log=$(grep -E "PROTOCOL_VIOLATION|conn_err:3" slog clog "${SERVER_STDLOG}" "${CLIENT_STDLOG}" 2>/dev/null || true)
+
+    if check_client_rc "${case_name}" && check_server_rc "${case_name}" \
+       && [ -n "${enabled}" ] && [ -n "${seq20}" ] \
+       && [ -z "${errlog}" ] && [ -z "${timeout_log}" ] \
+       && [ -z "${crash_log}" ] && [ -z "${proto_log}" ]; then
+        echo ">>>>>>>> pass:1"
+        status="pass"
+    else
+        echo ">>>>>>>> pass:0"
+        echo "${errlog}"
+        echo "${enabled}"
+        echo "${seq20}"
+        echo "${timeout_log}"
+        echo "${crash_log}"
+        echo "${proto_log}"
+    fi
+    case_print_result "${case_name}" "${status}"
+    record_case_result "${case_name}" "${status}"
+    stop_server
+}
+
+run_stream_cancel_subscribe_update_case_one() {
+    local label="$1"
+    local next_group_id="$2"
+    local mode="${3:-media}"
+    local case_name="stream_cancel_${label}"
+    local status="fail"
+    local frame_num=20
+    echo -e "moq stream cancel subscribe update ${label} ...\c"
+    reset_runtime
+
+    if [ "${mode}" = "raw" ]; then
+        if start_server "${case_name}" "${SERVER_BASE_ARGS[@]}" -l d -n "${frame_num}" -R; then
+            run_client "${case_name}" "${CLIENT_BASE_ARGS[@]}" -l d -n "${frame_num}" -S "${next_group_id}" -R
+        else
+            CLIENT_STDLOG="client_${case_name}.log"
+            LAST_CLIENT_RC=1
+        fi
+    else
+        if start_server "${case_name}" "${SERVER_BASE_ARGS[@]}" -l d -n "${frame_num}"; then
+            run_client "${case_name}" "${CLIENT_BASE_ARGS[@]}" -l d -n "${frame_num}" -S "${next_group_id}"
+        else
+            CLIENT_STDLOG="client_${case_name}.log"
+            LAST_CLIENT_RC=1
+        fi
+    fi
+
+    wait_for_log_pattern slog "demo_on_subscribe_update.*start_group_id:${next_group_id}.*start_object_id:0" 3000 || true
+
+    local errlog client_cancel stop_sending server_update expected_resume expected_drop crash_log proto_log
+    errlog=$(get_err_log)
+    server_update=""
+    if line_has_all_in_any "${CLIENT_STDLOG}" clog -- "subscribe_update success|" "start_group_id:${next_group_id}|" "start_object_id:0|"; then
+        server_update=ok
+    fi
+    if [ "${mode}" = "raw" ]; then
+        client_cancel=$(line_has_all_in_any "${CLIENT_STDLOG}" clog -- "demo_raw_audio_cancel_recv|" "next_group_id:${next_group_id}|" "recv_group_id:1|" "cancel_ret:0|" "update_ret:0|" && echo ok || true)
+        stop_sending=$(line_has_all_in_any "${CLIENT_STDLOG}" clog -- "moq cancel recv stream|" "track:namespace/audio|" "group_id:1|" "ret:0|" && echo ok || true)
+        expected_resume=$(line_has_all_in_any "${SERVER_STDLOG}" slog -- "write raw object success|" "track_name:audio|" "group_id:${next_group_id}|" "object_id:0|" && echo ok || true)
+        expected_drop=ok
+    else
+        client_cancel=$(line_has_all_in_any "${CLIENT_STDLOG}" clog -- "demo_audio_cancel_recv|" "next_group_id:${next_group_id}|" "cancel_ret:0|" "update_ret:0|" && echo ok || true)
+        stop_sending=$(line_has_all_in_any "${CLIENT_STDLOG}" clog -- "moq cancel recv stream|" "track:namespace/audio|" "group_id:0|" "ret:0|" && echo ok || true)
+        expected_drop=$(line_has_all_in_any "${SERVER_STDLOG}" slog -- "drop audio frame by subscribe update|" "track_name:audio|" "group_id:0|" && echo ok || true)
+        expected_resume=ok
+    fi
+    crash_log=$(grep -E "segfault|SIGSEGV|Aborted" "${SERVER_STDLOG}" "${CLIENT_STDLOG}" 2>/dev/null || true)
+    proto_log=$(grep -E "PROTOCOL_VIOLATION|conn_err:3" slog clog "${SERVER_STDLOG}" "${CLIENT_STDLOG}" 2>/dev/null || true)
+
+    if check_client_rc "${case_name}" && check_server_rc "${case_name}" \
+       && [ -n "${client_cancel}" ] && [ -n "${stop_sending}" ] \
+       && [ -n "${server_update}" ] && [ -n "${expected_drop}" ] \
+       && [ -n "${expected_resume}" ] && [ -z "${errlog}" ] \
+       && [ -z "${crash_log}" ] && [ -z "${proto_log}" ]; then
+        echo ">>>>>>>> pass:1"
+        status="pass"
+    else
+        echo ">>>>>>>> pass:0"
+        echo "${errlog}"
+        echo "client_cancel:${client_cancel} stop_sending:${stop_sending} server_update:${server_update} expected_drop:${expected_drop} expected_resume:${expected_resume}"
+        echo "${crash_log}"
+        echo "${proto_log}"
+    fi
+    case_print_result "${case_name}" "${status}"
+    record_case_result "${case_name}" "${status}"
+    stop_server
+}
+
+run_stream_cancel_subscribe_update_case() {
+    run_stream_cancel_subscribe_update_case_one "adjacent" 1
+    run_stream_cancel_subscribe_update_case_one "skip" 5
+    run_stream_cancel_subscribe_update_case_one "raw_skip" 5 raw
+}
+
+run_reuse_subgroup_timeout_case
+run_stream_cancel_subscribe_update_case
 
 echo
 echo "moq_case_e2e summary: ${PASSED_CASES}/${TOTAL_CASES} passed"

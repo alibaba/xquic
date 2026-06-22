@@ -25,7 +25,15 @@ typedef enum {
     TRA_INVALID_TOKEN               =  0xB,
     TRA_APPLICATION_ERROR           =  0xC,
     TRA_CRYPTO_BUFFER_EXCEEDED      =  0xD,
-    TRA_0RTT_TRANS_PARAMS_ERROR     =  0xE,   /**< MUST delete the current saved 0RTT transport parameters */
+    TRA_KEY_UPDATE_ERROR            =  0xE,   /**< RFC 9001 §6.7: key update error */
+    /*
+     * Library-internal: 0-RTT transport parameter violation.
+     * RFC 9000 §7.4.1 does not define a dedicated wire error code for this;
+     * on the wire this value is non-standard (peer treats as INTERNAL_ERROR).
+     * Kept as a distinct value so xqc_conn_should_clear_0rtt_ticket() can
+     * distinguish it from other close reasons.
+     */
+    TRA_0RTT_TRANS_PARAMS_ERROR     =  0x54,
     /*
      * RFC 9000 Section 6.2 does not assign a CONNECTION_CLOSE code for
      * the Version Negotiation abort path, because the client cannot

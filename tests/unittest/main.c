@@ -105,6 +105,12 @@ main()
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_dispatched_via_xqc_process_frame", xqc_test_crypto_frame_dispatched_via_xqc_process_frame)
         || !CU_add_test(pSuite, "xqc_test_crypto_in_0rtt_emits_connection_close", xqc_test_crypto_in_0rtt_emits_connection_close)
         || !CU_add_test(pSuite, "xqc_test_crypto", xqc_test_crypto)
+        /* issue #823: key update initiator confirmation (RFC 9001 §6.1) */
+        || !CU_add_test(pSuite, "xqc_test_key_update_initiator_confirmation",
+                        xqc_test_key_update_initiator_confirmation)
+        /* issue #756 BUG2: consecutive key update detection (RFC 9001 §6.2) */
+        || !CU_add_test(pSuite, "xqc_test_consecutive_key_update_detection",
+                        xqc_test_consecutive_key_update_detection)
         || !CU_add_test(pSuite, "xqc_test_hp_sample_boundary", xqc_test_hp_sample_boundary)
         || !CU_add_test(pSuite, "xqc_test_packet_encrypt_hp_sample_boundary", xqc_test_packet_encrypt_hp_sample_boundary)
         || !CU_add_test(pSuite, "xqc_test_empty_pkt", xqc_test_empty_pkt)

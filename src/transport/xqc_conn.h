@@ -288,6 +288,12 @@ typedef struct {
     uint64_t                enc_pkt_cnt;       /* number of packet encrypt with each key phase */
     xqc_usec_t              initiate_time_guard;  /* time limit for initiating next key update */
 
+    /* RFC 9001 §6.1: initiator must wait for ACK before considering update confirmed */
+    xqc_bool_t              key_update_initiator; /* XQC_TRUE if this endpoint initiated the current key update */
+
+    /* RFC 9001 §6.1/6.2: TRUE while key update awaits peer confirmation */
+    xqc_bool_t              key_update_not_confirmed;
+
 } xqc_key_update_ctx_t;
 
 typedef struct xqc_ping_record_s {

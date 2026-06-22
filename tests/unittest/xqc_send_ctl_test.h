@@ -43,4 +43,18 @@ void xqc_test_send_ctl_persistent_congestion_rtt_reseeds_from_new_sample(void);
 void xqc_test_send_ctl_single_loss_does_not_reset_rtt(void);
 void xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return(void);
 
+/*
+ * Regression test for issue #823 / #756 BUG1 (RFC 9001 §6.1):
+ * Key update initiator must NOT consider update confirmed until an ACK
+ * is received for a packet sent with the new key phase.
+ */
+void xqc_test_key_update_initiator_confirmation(void);
+
+/*
+ * Regression test for issue #756 BUG2 (RFC 9001 §6.2):
+ * Consecutive key update from peer must be detected and treated as
+ * KEY_UPDATE_ERROR when key_update_not_confirmed is TRUE.
+ */
+void xqc_test_consecutive_key_update_detection(void);
+
 #endif

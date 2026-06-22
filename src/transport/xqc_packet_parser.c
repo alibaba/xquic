@@ -672,6 +672,16 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
                 return ret;
             }
 
+            /*
+             * RFC 9001 §6.1: Initiator MUST NOT initiate a subsequent key update
+             * until it receives an ACK for a packet sent with the new key phase.
+             * This is enforced by the first_sent_pktno <= ctl_largest_acked check
+             * in the key update trigger condition (line 660 above).
+             * Mark as initiator so ACK processing can log confirmation.
+             */
+            conn->key_update_ctx.key_update_initiator = XQC_TRUE;
+            conn->key_update_ctx.key_update_not_confirmed = XQC_TRUE;
+
             ret = xqc_conn_confirm_key_update(conn);
             if (ret != XQC_OK) {
                 xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_conn_confirm_key_update error|");
@@ -761,6 +771,29 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 
     /* check key phase, determine weather to update read keys */
     xqc_uint_t key_phase = XQC_PACKET_SHORT_HEADER_KEY_PHASE(header);
+
+    /*
+     * RFC 9001 §6.2: Consecutive key update detection.
+     * If key_update_not_confirmed is TRUE, we are still awaiting confirmation
+     * of our own key update.  A new key_phase change from the peer before that
+     * confirmation means the peer updated keys twice without waiting.
+     * Treat as KEY_UPDATE_ERROR.
+     */
+    if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER && level == XQC_ENC_LEV_1RTT
+        && key_phase != conn->key_update_ctx.next_in_key_phase
+        && packet_in->pi_pkt.pkt_num > conn->key_update_ctx.first_recv_pktno
+        && conn->key_update_ctx.key_update_not_confirmed)
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|consecutive key update from peer|pkt_num:%ui|key_phase:%ui|"
+                "expected:%ui|first_recv_pktno:%ui|",
+                packet_in->pi_pkt.pkt_num, key_phase,
+                conn->key_update_ctx.next_in_key_phase,
+                conn->key_update_ctx.first_recv_pktno);
+        XQC_CONN_ERR(conn, TRA_KEY_UPDATE_ERROR);
+        return -XQC_EPROTO;
+    }
+
     if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER && level == XQC_ENC_LEV_1RTT
         && key_phase != conn->key_update_ctx.next_in_key_phase
         && packet_in->pi_pkt.pkt_num > conn->key_update_ctx.first_recv_pktno
@@ -808,6 +841,11 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
                 return ret;
             }
 
+            /* Responder: confirmed by sending with new keys (TX_WRITE sets TRUE).
+             * Clear initiator flag in case a prior initiated update was pending. */
+            conn->key_update_ctx.key_update_initiator = XQC_FALSE;
+            conn->key_update_ctx.key_update_not_confirmed = XQC_FALSE;
+
             ret = xqc_conn_confirm_key_update(conn);
             if (ret != XQC_OK) {
                 xqc_log(conn->log, XQC_LOG_WARN, "|xqc_conn_confirm_key_update error|");
@@ -820,6 +858,14 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
             conn->key_update_ctx.first_recv_pktno = packet_in->pi_pkt.pkt_num;
         }
     }
+
+    /*
+     * TODO: RFC 9001 §6.4 — detect old-key packets with higher pkt_num
+     * than new-key packets.  xquic selects keys by key_phase bit (not trial
+     * decryption), so an old-key-phase packet with pkt_num > first_recv_pktno
+     * during the 3*PTO retention window should be treated as KEY_UPDATE_ERROR.
+     * Requires tracking max pkt_num per key phase.  See issue #756 BUG3.
+     */
 
     return XQC_OK;
 }

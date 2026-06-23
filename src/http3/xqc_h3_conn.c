@@ -756,7 +756,8 @@ xqc_h3_conn_get_qpack(xqc_h3_conn_t *h3c)
 xqc_h3_blocked_stream_t *
 xqc_h3_conn_add_blocked_stream(xqc_h3_conn_t *h3c, xqc_h3_stream_t *h3s, uint64_t ric)
 {
-    if (h3c->block_stream_count >= h3c->peer_h3_conn_settings.qpack_blocked_streams) {
+    /* RFC 9204 Section 2.1.2: use local setting (self-enforced decoder limit), not peer's */
+    if (h3c->block_stream_count >= h3c->local_h3_conn_settings.qpack_blocked_streams) {
         xqc_log(h3c->log, XQC_LOG_ERROR, "|exceed max blocked stream limit|limit:%ui",
                 h3c->local_h3_conn_settings.qpack_blocked_streams);
         return NULL;

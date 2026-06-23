@@ -1759,3 +1759,60 @@ xqc_test_h3_allowed_headers_pass()
         (const unsigned char *)"host", 4,
         (const unsigned char *)"example.com", 11) == XQC_FALSE);
 }
+
+
+/**
+ * Test that blocked stream limit uses local settings, not peer's (CVE: CWE-770)
+ * RFC 9204 Section 2.1.2: decoder enforces its own SETTINGS_QPACK_BLOCKED_STREAMS
+ */
+void
+xqc_test_h3_blocked_stream_limit_uses_local()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+    if (conn == NULL) return;
+
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+    conn->conn_flow_ctl.fc_max_streams_bidi_can_send = 1024;
+    conn->conn_state = XQC_CONN_STATE_ESTABED;
+
+    xqc_h3_conn_t *h3c = xqc_h3_conn_create(conn, NULL);
+    CU_ASSERT(h3c != NULL);
+    if (h3c == NULL) { xqc_engine_destroy(conn->engine); return; }
+
+    xqc_stream_t *stream = xqc_create_stream_with_conn(conn,
+            XQC_UNDEFINE_STREAM_ID, XQC_CLI_BID, NULL, NULL);
+    CU_ASSERT(stream != NULL);
+
+    xqc_h3_stream_t *h3s = xqc_h3_stream_create(h3c, stream,
+            XQC_H3_STREAM_TYPE_REQUEST, NULL);
+    CU_ASSERT(h3s != NULL);
+
+    /* Set local limit to 2, peer to UINT64_MAX (simulating attacker) */
+    h3c->local_h3_conn_settings.qpack_blocked_streams = 2;
+    h3c->peer_h3_conn_settings.qpack_blocked_streams = XQC_H3_SETTINGS_UNSET;  /* UINT64_MAX */
+
+    /* count == 0, local limit == 2: should succeed (count becomes 1) */
+    h3c->block_stream_count = 0;
+    xqc_h3_blocked_stream_t *bs1 = xqc_h3_conn_add_blocked_stream(h3c, h3s, 1);
+    CU_ASSERT(bs1 != NULL);
+
+    /* count == 1, local limit == 2: should succeed (count becomes 2) */
+    xqc_h3_blocked_stream_t *bs2 = xqc_h3_conn_add_blocked_stream(h3c, h3s, 2);
+    CU_ASSERT(bs2 != NULL);
+
+    /* count == 2, local limit == 2: should be rejected (== limit) */
+    xqc_h3_blocked_stream_t *bs3 = xqc_h3_conn_add_blocked_stream(h3c, h3s, 3);
+    CU_ASSERT(bs3 == NULL);
+
+    /* Verify peer setting is UINT64_MAX (would have allowed if bug present) */
+    CU_ASSERT(h3c->peer_h3_conn_settings.qpack_blocked_streams == XQC_H3_SETTINGS_UNSET);
+
+    /* cleanup: engine_destroy handles full teardown including h3c, h3s, streams */
+    xqc_engine_destroy(conn->engine);
+}

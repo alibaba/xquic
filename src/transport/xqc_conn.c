@@ -657,9 +657,8 @@ xqc_conn_init_key_update_ctx(xqc_connection_t *conn)
     ctx->first_recv_pktno  = 0;
     ctx->enc_pkt_cnt       = 0;
 
-    ctx->initiate_time_guard       = 0;
-    ctx->key_update_initiator      = XQC_FALSE;
-    ctx->key_update_not_confirmed  = XQC_FALSE;
+    ctx->initiate_time_guard   = 0;
+    ctx->key_update_initiator  = XQC_FALSE;
 }
 
 static inline void

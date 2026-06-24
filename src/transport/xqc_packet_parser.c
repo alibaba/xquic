@@ -680,7 +680,6 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
              * Mark as initiator so ACK processing can log confirmation.
              */
             conn->key_update_ctx.key_update_initiator = XQC_TRUE;
-            conn->key_update_ctx.key_update_not_confirmed = XQC_TRUE;
 
             ret = xqc_conn_confirm_key_update(conn);
             if (ret != XQC_OK) {
@@ -774,15 +773,15 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 
     /*
      * RFC 9001 §6.2: Consecutive key update detection.
-     * If key_update_not_confirmed is TRUE, we are still awaiting confirmation
-     * of our own key update.  A new key_phase change from the peer before that
-     * confirmation means the peer updated keys twice without waiting.
+     * If key_update_initiator is TRUE, we initiated a key update and are still
+     * awaiting the peer's ACK.  A new key_phase change from the peer before
+     * that confirmation means the peer updated keys twice without waiting.
      * Treat as KEY_UPDATE_ERROR.
      */
     if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER && level == XQC_ENC_LEV_1RTT
         && key_phase != conn->key_update_ctx.next_in_key_phase
         && packet_in->pi_pkt.pkt_num > conn->key_update_ctx.first_recv_pktno
-        && conn->key_update_ctx.key_update_not_confirmed)
+        && conn->key_update_ctx.key_update_initiator)
     {
         xqc_log(conn->log, XQC_LOG_ERROR,
                 "|consecutive key update from peer|pkt_num:%ui|key_phase:%ui|"
@@ -797,7 +796,7 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER && level == XQC_ENC_LEV_1RTT
         && key_phase != conn->key_update_ctx.next_in_key_phase
         && packet_in->pi_pkt.pkt_num > conn->key_update_ctx.first_recv_pktno
-        && xqc_tls_is_key_update_confirmed(conn->tls))
+        && xqc_tls_is_key_phase_synced(conn->tls))
     {
         ret = xqc_tls_update_1rtt_keys(conn->tls, XQC_KEY_TYPE_RX_READ);
         if (ret != XQC_OK) {
@@ -816,7 +815,7 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
                                   header, header_len, payload, payload_len,
                                   dst, dst_cap, &packet_in->decode_payload_len);
     if (ret != XQC_OK) {
-        if (!xqc_tls_is_key_update_confirmed(conn->tls)) {
+        if (!xqc_tls_is_key_phase_synced(conn->tls)) {
             xqc_log(conn->log, XQC_LOG_WARN, "|xqc_tls_decrypt_payload error when keyupdate|");
             return -XQC_TLS_DECRYPT_WHEN_KU_ERROR;
 
@@ -833,7 +832,7 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER && level == XQC_ENC_LEV_1RTT) {
 
         if (key_phase != conn->key_update_ctx.next_in_key_phase
-            && !xqc_tls_is_key_update_confirmed(conn->tls))
+            && !xqc_tls_is_key_phase_synced(conn->tls))
         {
             ret = xqc_tls_update_1rtt_keys(conn->tls, XQC_KEY_TYPE_TX_WRITE);
             if (ret != XQC_OK) {
@@ -841,10 +840,9 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
                 return ret;
             }
 
-            /* Responder: confirmed by sending with new keys (TX_WRITE sets TRUE).
+            /* Responder: key_phase_synced restored by TX_WRITE derivation above.
              * Clear initiator flag in case a prior initiated update was pending. */
             conn->key_update_ctx.key_update_initiator = XQC_FALSE;
-            conn->key_update_ctx.key_update_not_confirmed = XQC_FALSE;
 
             ret = xqc_conn_confirm_key_update(conn);
             if (ret != XQC_OK) {

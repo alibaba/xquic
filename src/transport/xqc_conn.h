@@ -288,11 +288,15 @@ typedef struct {
     uint64_t                enc_pkt_cnt;       /* number of packet encrypt with each key phase */
     xqc_usec_t              initiate_time_guard;  /* time limit for initiating next key update */
 
-    /* RFC 9001 §6.1: initiator must wait for ACK before considering update confirmed */
-    xqc_bool_t              key_update_initiator; /* XQC_TRUE if this endpoint initiated the current key update */
-
-    /* RFC 9001 §6.1/6.2: TRUE while key update awaits peer confirmation */
-    xqc_bool_t              key_update_not_confirmed;
+    /*
+     * RFC 9001 §6.1: TRUE when this endpoint initiated the current key update.
+     * The initiator MUST NOT start a subsequent update until the peer ACKs a
+     * packet sent with the new key phase (enforced by first_sent_pktno <=
+     * ctl_largest_acked at the trigger site).  Cleared by ACK confirmation in
+     * xqc_send_ctl_on_ack_received, or when switching to responder role.
+     * Also used for consecutive key update detection (RFC 9001 §6.2).
+     */
+    xqc_bool_t              key_update_initiator;
 
 } xqc_key_update_ctx_t;
 

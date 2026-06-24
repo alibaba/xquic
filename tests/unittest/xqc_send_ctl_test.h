@@ -53,7 +53,7 @@ void xqc_test_key_update_initiator_confirmation(void);
 /*
  * Regression test for issue #756 BUG2 (RFC 9001 §6.2):
  * Consecutive key update from peer must be detected and treated as
- * KEY_UPDATE_ERROR when key_update_not_confirmed is TRUE.
+ * KEY_UPDATE_ERROR when key_update_initiator is TRUE.
  */
 void xqc_test_consecutive_key_update_detection(void);
 

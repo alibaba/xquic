@@ -191,9 +191,11 @@ void xqc_tls_set_no_crypto(xqc_tls_t *tls);
 void xqc_tls_set_1rtt_key_phase(xqc_tls_t *tls, xqc_uint_t key_phase);
 
 /**
- * @brief check if key update is waiting confirmed
+ * @brief check if RX and TX 1-RTT keys are on the same key phase.
+ * Returns TRUE in steady state; FALSE transiently after RX keys are derived
+ * to the next phase but TX keys have not yet been updated.
  */
-xqc_bool_t xqc_tls_is_key_update_confirmed(xqc_tls_t *tls);
+xqc_bool_t xqc_tls_is_key_phase_synced(xqc_tls_t *tls);
 
 /**
  * @brief derive updated read or write keys on 1-RTT

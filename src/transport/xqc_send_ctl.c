@@ -972,7 +972,6 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
         && send_ctl->ctl_largest_acked[pns] >= conn->key_update_ctx.first_sent_pktno)
     {
         conn->key_update_ctx.key_update_initiator = XQC_FALSE;
-        conn->key_update_ctx.key_update_not_confirmed = XQC_FALSE;
         xqc_log(conn->log, XQC_LOG_DEBUG,
                  "|key update confirmed by ACK|largest_acked:%ui|first_sent_pktno:%ui|",
                  send_ctl->ctl_largest_acked[pns], conn->key_update_ctx.first_sent_pktno);

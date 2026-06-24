@@ -604,16 +604,12 @@ xqc_test_key_update_initiator_confirmation(void)
     /*
      * Simulate the state after initiator calls key update:
      * - key_update_initiator = TRUE
-     * - key_update_not_confirmed = TRUE
      * - first_sent_pktno = 100 (first packet sent with new key phase)
      */
     conn->key_update_ctx.key_update_initiator = XQC_TRUE;
-    conn->key_update_ctx.key_update_not_confirmed = XQC_TRUE;
     conn->key_update_ctx.first_sent_pktno = 100;
 
-    /* Pre-condition: both flags are TRUE */
     CU_ASSERT_EQUAL(conn->key_update_ctx.key_update_initiator, XQC_TRUE);
-    CU_ASSERT_EQUAL(conn->key_update_ctx.key_update_not_confirmed, XQC_TRUE);
 
     /*
      * Case 1: ACK with largest_acked = 99 (< first_sent_pktno).
@@ -629,12 +625,10 @@ xqc_test_key_update_initiator_confirmation(void)
         && send_ctl->ctl_largest_acked[pns] >= conn->key_update_ctx.first_sent_pktno)
     {
         conn->key_update_ctx.key_update_initiator = XQC_FALSE;
-        conn->key_update_ctx.key_update_not_confirmed = XQC_FALSE;
     }
 
-    /* Still pending: 99 < 100, neither flag cleared */
+    /* Still pending: 99 < 100 */
     CU_ASSERT_EQUAL(conn->key_update_ctx.key_update_initiator, XQC_TRUE);
-    CU_ASSERT_EQUAL(conn->key_update_ctx.key_update_not_confirmed, XQC_TRUE);
 
     /* Verify the next key update trigger is blocked:
      * condition: first_sent_pktno <= ctl_largest_acked must be FALSE */
@@ -653,12 +647,10 @@ xqc_test_key_update_initiator_confirmation(void)
         && send_ctl->ctl_largest_acked[pns] >= conn->key_update_ctx.first_sent_pktno)
     {
         conn->key_update_ctx.key_update_initiator = XQC_FALSE;
-        conn->key_update_ctx.key_update_not_confirmed = XQC_FALSE;
     }
 
-    /* Confirmed: 100 >= 100, both flags cleared */
+    /* Confirmed: 100 >= 100, initiator cleared */
     CU_ASSERT_EQUAL(conn->key_update_ctx.key_update_initiator, XQC_FALSE);
-    CU_ASSERT_EQUAL(conn->key_update_ctx.key_update_not_confirmed, XQC_FALSE);
 
     /* Verify the next key update trigger is now unblocked:
      * condition: first_sent_pktno <= ctl_largest_acked must be TRUE */
@@ -676,11 +668,9 @@ xqc_test_key_update_initiator_confirmation(void)
         && send_ctl->ctl_largest_acked[pns] >= conn->key_update_ctx.first_sent_pktno)
     {
         conn->key_update_ctx.key_update_initiator = XQC_FALSE;
-        conn->key_update_ctx.key_update_not_confirmed = XQC_FALSE;
     }
 
     CU_ASSERT_EQUAL(conn->key_update_ctx.key_update_initiator, XQC_FALSE);
-    CU_ASSERT_EQUAL(conn->key_update_ctx.key_update_not_confirmed, XQC_FALSE);
 
     xqc_engine_destroy(conn->engine);
 }
@@ -689,7 +679,7 @@ xqc_test_key_update_initiator_confirmation(void)
 /*
  * Issue #756 BUG2 regression test (RFC 9001 §6.2).
  *
- * When a key update is in progress (key_update_not_confirmed == TRUE),
+ * When a key update is in progress (key_update_initiator == TRUE),
  * a second key-phase change from the peer (different from next_in_key_phase,
  * with pkt_num > first_recv_pktno) must be detected as a consecutive key
  * update violation and treated as KEY_UPDATE_ERROR.
@@ -707,11 +697,11 @@ xqc_test_consecutive_key_update_detection(void)
      * Setup: simulate a key update in progress.
      * next_in_key_phase = 0 (expecting key_phase 0 for current epoch)
      * first_recv_pktno = 50  (lowest pkt received with current keys)
-     * key_update_not_confirmed = TRUE (awaiting ACK confirmation)
+     * key_update_initiator = TRUE (we initiated, awaiting ACK confirmation)
      */
     conn->key_update_ctx.next_in_key_phase = 0;
     conn->key_update_ctx.first_recv_pktno = 50;
-    conn->key_update_ctx.key_update_not_confirmed = XQC_TRUE;
+    conn->key_update_ctx.key_update_initiator = XQC_TRUE;
 
     /*
      * Case 1: Packet with same key_phase as expected, pkt_num > first_recv.
@@ -724,7 +714,7 @@ xqc_test_consecutive_key_update_detection(void)
 
     if (key_phase != conn->key_update_ctx.next_in_key_phase
         && pkt_num > conn->key_update_ctx.first_recv_pktno
-        && conn->key_update_ctx.key_update_not_confirmed)
+        && conn->key_update_ctx.key_update_initiator)
     {
         detected = XQC_TRUE;
     }
@@ -740,7 +730,7 @@ xqc_test_consecutive_key_update_detection(void)
 
     if (key_phase != conn->key_update_ctx.next_in_key_phase
         && pkt_num > conn->key_update_ctx.first_recv_pktno
-        && conn->key_update_ctx.key_update_not_confirmed)
+        && conn->key_update_ctx.key_update_initiator)
     {
         detected = XQC_TRUE;
     }
@@ -748,16 +738,16 @@ xqc_test_consecutive_key_update_detection(void)
 
     /*
      * Case 3: Packet with different key_phase, pkt_num > first_recv,
-     * but key_update_not_confirmed is FALSE → no detection (normal RX key update).
+     * but key_update_initiator is FALSE → no detection (normal RX key update).
      */
-    conn->key_update_ctx.key_update_not_confirmed = XQC_FALSE;
+    conn->key_update_ctx.key_update_initiator = XQC_FALSE;
     key_phase = 1;
     pkt_num = 100;
     detected = XQC_FALSE;
 
     if (key_phase != conn->key_update_ctx.next_in_key_phase
         && pkt_num > conn->key_update_ctx.first_recv_pktno
-        && conn->key_update_ctx.key_update_not_confirmed)
+        && conn->key_update_ctx.key_update_initiator)
     {
         detected = XQC_TRUE;
     }
@@ -765,16 +755,16 @@ xqc_test_consecutive_key_update_detection(void)
 
     /*
      * Case 4: All conditions met → consecutive key update DETECTED.
-     * key_phase != next_in_key_phase, pkt_num > first_recv, not_confirmed = TRUE.
+     * key_phase != next_in_key_phase, pkt_num > first_recv, initiator = TRUE.
      */
-    conn->key_update_ctx.key_update_not_confirmed = XQC_TRUE;
+    conn->key_update_ctx.key_update_initiator = XQC_TRUE;
     key_phase = 1;
     pkt_num = 100;
     detected = XQC_FALSE;
 
     if (key_phase != conn->key_update_ctx.next_in_key_phase
         && pkt_num > conn->key_update_ctx.first_recv_pktno
-        && conn->key_update_ctx.key_update_not_confirmed)
+        && conn->key_update_ctx.key_update_initiator)
     {
         detected = XQC_TRUE;
     }

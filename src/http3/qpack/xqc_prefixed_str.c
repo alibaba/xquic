@@ -3,6 +3,7 @@
  */
 
 #include "src/http3/qpack/xqc_prefixed_str.h"
+#include "src/http3/xqc_h3_defs.h"
 
 
 void
@@ -28,16 +29,25 @@ xqc_prefixed_str_free(xqc_prefixed_str_t *pctx)
 }
 
 xqc_prefixed_str_t *
-xqc_prefixed_str_pctx_create(size_t capacity)
+xqc_prefixed_str_pctx_create(size_t capacity, size_t max_str_len)
 {
     xqc_prefixed_str_t *pctx = xqc_malloc(sizeof(xqc_prefixed_str_t));
+    if (pctx == NULL) {
+        return NULL;
+    }
     memset(pctx, 0, sizeof(xqc_prefixed_str_t));
 
-    pctx->value = xqc_var_buf_create(capacity);
+    /* RFC 9204 Section 7.4: buffer limit must hold the largest decoded string
+     * plus a null terminator, to prevent unbounded allocation from
+     * attacker-controlled length. */
+    size_t buf_limit = (capacity > max_str_len + 1) ? capacity : max_str_len + 1;
+    pctx->value = xqc_var_buf_create_with_limit(capacity, buf_limit);
     if (pctx->value == NULL) {
         xqc_free(pctx);
         return NULL;
     }
+
+    pctx->max_str_len = max_str_len;
 
     xqc_prefixed_str_init(pctx, 0);
     return pctx;
@@ -73,6 +83,21 @@ xqc_parse_prefixed_str(xqc_prefixed_str_t *pstr, uint8_t *buf, size_t len, int *
                 break;
             }
 
+            /* RFC 9204 Section 7.4: reject string literals exceeding the
+             * implementation limit before any allocation based on length. */
+            if (pstr->huff_flag) {
+                /* Huffman: worst-case expansion is 2x (4-bit shortest code).
+                 * Allow encoded length up to 2 * max_str_len; decoder output
+                 * is still bounded by max_str_len via buffer limit. */
+                if (pstr->len.value > pstr->max_str_len * 2) {
+                    return -QPACK_DECOMPRESSION_FAILED;
+                }
+            } else {
+                if (pstr->len.value > pstr->max_str_len) {
+                    return -QPACK_DECOMPRESSION_FAILED;
+                }
+            }
+
             pstr->stg = XQC_PS_STAGE_VALUE;
             if (pstr->huff_flag > 0) {
                 xqc_huffman_dec_ctx_init(&pstr->huff_ctx);
@@ -95,7 +120,7 @@ xqc_parse_prefixed_str(xqc_prefixed_str_t *pstr, uint8_t *buf, size_t len, int *
             l = xqc_min(end - pos, pstr->len.value - pstr->value->data_len);
             ret = xqc_var_buf_save_data(pstr->value, pos, l);
             if (ret != XQC_OK) {
-                return ret;
+                return -QPACK_DECOMPRESSION_FAILED;
             }
             pos += l;
 
@@ -107,14 +132,28 @@ xqc_parse_prefixed_str(xqc_prefixed_str_t *pstr, uint8_t *buf, size_t len, int *
             while (pos < end) {
                 /* l is the length to be read */
                 l = xqc_min(end - pos, pstr->len.value - pstr->used_len);
-                ret = xqc_var_buf_save_prepare(pstr->value, 2 * (pstr->len.value - pstr->used_len));
+
+                /* RFC 9204 Section 7.4: bound per-chunk allocation by the
+                 * remaining allowed output space. Worst-case Huffman expansion
+                 * is 2x, but the buffer limit (max_str_len + 1) prevents any
+                 * decoded output from exceeding the configured maximum. */
+                uint64_t remain_out = pstr->max_str_len + 1 - pstr->value->data_len;
+                uint64_t need = (uint64_t)2 * l;
+                if (need > remain_out) {
+                    need = remain_out;
+                }
+                if (need == 0) {
+                    return -QPACK_DECOMPRESSION_FAILED;
+                }
+
+                ret = xqc_var_buf_save_prepare(pstr->value, (size_t)need);
                 if (ret != XQC_OK) {
-                    return ret;
+                    return -QPACK_DECOMPRESSION_FAILED;
                 }
 
                 /* decode huffman string */
                 read = xqc_huffman_dec(&pstr->huff_ctx, pstr->value->data + pstr->value->data_len,
-                                       pstr->value->buf_len - pstr->value->data_len, pos, l, 
+                                       pstr->value->buf_len - pstr->value->data_len, pos, l,
                                        pstr->used_len + l == pstr->len.value, &write);
                 if (read < 0) {
                     return read;
@@ -123,6 +162,10 @@ xqc_parse_prefixed_str(xqc_prefixed_str_t *pstr, uint8_t *buf, size_t len, int *
                 pos += read;
                 pstr->used_len += read;         /* processed bytes of huffman decoded buffer */
                 pstr->value->data_len += write; /* output string length */
+
+                if (pstr->value->data_len > pstr->max_str_len) {
+                    return -QPACK_DECOMPRESSION_FAILED;
+                }
 
                 /* all huffman encoded bytes are read */
                 if (pstr->used_len == pstr->len.value) {

@@ -46,14 +46,18 @@ typedef struct xqc_prefixed_str_s {
     /* parsing context */
     xqc_prefixed_str_stage_t    stg;
     xqc_huffman_dec_ctx         huff_ctx;
+
+    /* RFC 9204 Section 7.4: max acceptable decoded string literal length */
+    uint64_t                    max_str_len;
 } xqc_prefixed_str_t;
 
 
 /**
  * @brief create a prefixed string
  * @param capacity initial capacity
+ * @param max_str_len max acceptable decoded string literal length (RFC 9204 Section 7.4)
  */
-xqc_prefixed_str_t *xqc_prefixed_str_pctx_create(size_t capacity);
+xqc_prefixed_str_t *xqc_prefixed_str_pctx_create(size_t capacity, size_t max_str_len);
 
 /**
  * @brief initialize or free parsing context of prefixed string

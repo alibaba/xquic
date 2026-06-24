@@ -4674,8 +4674,9 @@ fi
 # Test 1: verify client SENDS repair symbols (grep clog)
 # Test 2: verify server RECEIVES repair symbols (grep slog)
 
-clear_log
 killall test_server 2> /dev/null
+sleep 1
+clear_log
 stdbuf -oL ${SERVER_BIN} -l d -e -f -x 700 -M > /dev/null &
 sleep 1
 
@@ -4694,8 +4695,9 @@ else
 fi
 
 
-clear_log
 killall test_server 2> /dev/null
+sleep 1
+clear_log
 stdbuf -oL ${SERVER_BIN} -l d -e -f -x 700 -M > /dev/null &
 sleep 1
 

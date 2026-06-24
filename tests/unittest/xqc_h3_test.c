@@ -1816,3 +1816,38 @@ xqc_test_h3_blocked_stream_limit_uses_local()
     /* cleanup: engine_destroy handles full teardown including h3c, h3s, streams */
     xqc_engine_destroy(conn->engine);
 }
+
+/*
+ * Test that oversized SETTINGS frame is rejected to prevent memory exhaustion.
+ * ALIBABA-2026-42073004: xqc_h3_frm_parse_settings must reject frame->len > 1024.
+ */
+void
+xqc_test_h3_settings_frame_size_limit()
+{
+    xqc_h3_frame_pctx_t pctx;
+    ssize_t ret;
+
+    /* Construct a SETTINGS frame with frame->len = 8192 (> 4096 limit)
+     * Type: 0x04 (SETTINGS, 1-byte varint)
+     * Length: 8192 = 0x2000 (2-byte varint: 0x6000)
+     * Payload: 1 byte dummy (just to trigger parsing)
+     */
+    unsigned char oversized_settings[] = { 0x04, 0x60, 0x00, 0x00 };
+
+    memset(&pctx, 0, sizeof(xqc_h3_frame_pctx_t));
+    ret = xqc_h3_frm_parse(oversized_settings, sizeof(oversized_settings), &pctx);
+    /* frame parser should return negative error for oversized SETTINGS */
+    CU_ASSERT(ret < 0);
+
+    /* Construct a normal-sized SETTINGS frame (len=4, well under 1024 limit)
+     * Type: 0x04 (SETTINGS)
+     * Length: 4 (1-byte varint: 0x04)
+     * Payload: two varint pairs (id=0x06, value=0x00) = 2 bytes each
+     */
+    unsigned char normal_settings[] = { 0x04, 0x04, 0x06, 0x00, 0x01, 0x00 };
+
+    memset(&pctx, 0, sizeof(xqc_h3_frame_pctx_t));
+    ret = xqc_h3_frm_parse(normal_settings, sizeof(normal_settings), &pctx);
+    /* normal-sized SETTINGS frame should parse successfully */
+    CU_ASSERT(ret >= 0);
+}

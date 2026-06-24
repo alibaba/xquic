@@ -27,14 +27,6 @@ typedef enum {
     TRA_CRYPTO_BUFFER_EXCEEDED      =  0xD,
     TRA_KEY_UPDATE_ERROR            =  0xE,   /**< RFC 9001 §6.7: key update error */
     /*
-     * Library-internal: 0-RTT transport parameter violation.
-     * RFC 9000 §7.4.1 does not define a dedicated wire error code for this;
-     * on the wire this value is non-standard (peer treats as INTERNAL_ERROR).
-     * Kept as a distinct value so xqc_conn_should_clear_0rtt_ticket() can
-     * distinguish it from other close reasons.
-     */
-    TRA_0RTT_TRANS_PARAMS_ERROR     =  0x54,
-    /*
      * RFC 9000 Section 6.2 does not assign a CONNECTION_CLOSE code for
      * the Version Negotiation abort path, because the client cannot
      * send CONNECTION_CLOSE before keys are established. This value is
@@ -43,6 +35,14 @@ typedef enum {
      * close reasons, but it is never serialised onto the wire.
      */
     TRA_VERSION_NEGOTIATION_ERROR   =  0x53,
+    /*
+     * Library-internal: 0-RTT transport parameter violation.
+     * RFC 9000 §7.4.1 does not define a dedicated wire error code for this;
+     * on the wire this value is non-standard (peer treats as INTERNAL_ERROR).
+     * Kept as a distinct value so xqc_conn_should_clear_0rtt_ticket() can
+     * distinguish it from other close reasons.
+     */
+    TRA_0RTT_TRANS_PARAMS_ERROR     =  0x54,
     /* RFC 9001 Section 4.8: TLS alert 120 maps to 0x100 + 120 = 0x178 */
     TRA_NO_APPLICATION_PROTOCOL     =  0x178,
 } xqc_trans_err_code_t;

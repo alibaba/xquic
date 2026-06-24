@@ -43,6 +43,25 @@ typedef struct xqc_h3_setting_s {
 
 #define MAX_SETTING_ENTRY 16
 
+/*
+ * RFC 9114 Section 7.2.4: receive-side SETTINGS frame size cap.
+ * Each setting entry is a pair of varints (max 8+8=16 bytes).
+ * With MAX_SETTING_ENTRY=16, theoretical max is 256 bytes.
+ * 4096 provides ~16x headroom for future extensions while
+ * preventing unbounded allocation from malicious frame->len.
+ */
+#define XQC_H3_SETTINGS_MAX_FRAME_SIZE      4096
+
+/*
+ * PUSH_PROMISE encoded field section receive-side cap.
+ * The payload carries QPACK-encoded response headers.
+ * XQC_H3_MAX_FIELD_SECTION_SIZE defaults to 32KB (decoded),
+ * but users may configure larger values. 256KB ensures no
+ * false rejection of legitimate push promises while still
+ * bounding memory: even 1000 connections x 256KB = 256MB.
+ */
+#define XQC_H3_PUSH_PROMISE_MAX_PAYLOAD_SIZE (256 * 1024)
+
 typedef struct xqc_h3_frm_settings_s {
     xqc_var_buf_t           *setting;
 } xqc_h3_frame_settings_t;

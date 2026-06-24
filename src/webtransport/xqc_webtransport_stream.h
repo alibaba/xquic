@@ -110,6 +110,7 @@ typedef struct xqc_wt_bidistream_s
     uint8_t    recv_header_buf[8];
     size_t     recv_header_len;
     xqc_bool_t flow_counted;
+    xqc_bool_t create_notified;
     xqc_bool_t pending_fin;
     size_t     pending_bytes;
     xqc_wt_buffer_list_t pending_recv;

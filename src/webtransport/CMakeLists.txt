@@ -7,18 +7,8 @@ set(
 )
 
 
-set(
-    WT_DEMO_BASE_SOURCES
-    # ${HQ_SOURCES}
-    "xqc_webtransport_ctx.c"
-    "xqc_webtransport_conn.c"
-    "xqc_webtransport_request.c"
-    "xqc_webtransport_defs.c"
-    "xqc_webtransport_dgram.c"
-    "xqc_webtransport_session.c"
-    "xqc_webtransport_stream.c"
-    "xqc_webtransport_wire.c"
-)
+set(WT_DEMO_BASE_SOURCES ${WEBTRANSPORT_SOURCES})
+list(TRANSFORM WT_DEMO_BASE_SOURCES REPLACE "^src/webtransport/" "")
 set (
     NEW_WT_DEMO_SERVER_SOURCES
     ${WT_DEMO_BASE_SOURCES}

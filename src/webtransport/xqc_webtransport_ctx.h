@@ -42,6 +42,8 @@ void xqc_wt_h3_uni_stream_created(xqc_h3_conn_t *h3c,
 void xqc_wt_h3_uni_stream_recv(xqc_h3_conn_t *h3c,
     xqc_h3_stream_t *h3s, uint8_t *data, size_t size, uint8_t fin,
     int *ret);
+void xqc_wt_h3_uni_stream_closing(xqc_h3_conn_t *h3c,
+    xqc_h3_stream_t *h3s, xqc_int_t err_code);
 void xqc_wt_h3_bidi_stream_created(xqc_h3_conn_t *h3c,
     xqc_h3_stream_t *h3s, int *ret);
 void xqc_wt_h3_bidi_stream_recv(xqc_h3_conn_t *h3c,

@@ -12,9 +12,6 @@
 #include "src/webtransport/xqc_webtransport_ctx.h"
 #include "src/common/utils/vint/xqc_variable_len_int.h"
 
-void xqc_wt_h3_uni_stream_closing(xqc_h3_conn_t *h3c, xqc_h3_stream_t *h3s,
-    xqc_int_t err_code);
-
 static xqc_bool_t
 xqc_h3_stream_is_forbidden_wt_stream_frame(xqc_h3_stream_t *h3s)
 {

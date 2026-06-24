@@ -922,7 +922,15 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     {
         goto fail;
     }
-    xqc_cid_set_mark_original(&xc->dcid_set, dcid, XQC_INITIAL_PATH_ID);
+    /*
+     * Only the client's self-generated initial DCID is NOT from the peer
+     * and should be excluded from the active_connection_id_limit count
+     * (RFC 9000 §18.2).  The server's dcid (client's SCID) IS from the
+     * peer and must count toward the limit.
+     */
+    if (type == XQC_CONN_TYPE_CLIENT) {
+        xqc_cid_set_mark_original(&xc->dcid_set, dcid, XQC_INITIAL_PATH_ID);
+    }
     xqc_cid_copy(&(xc->dcid_set.current_dcid), dcid);
     xqc_hex_dump(xc->dcid_set.current_dcid_str, dcid->cid_buf, dcid->cid_len);
     xc->dcid_set.current_dcid_str[dcid->cid_len * 2] = '\0';
@@ -933,7 +941,6 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     {
         goto fail;
     }
-    xqc_cid_set_mark_original(&xc->scid_set, scid, XQC_INITIAL_PATH_ID);
     xqc_cid_copy(&(xc->scid_set.user_scid), scid);
     xqc_hex_dump(xc->scid_set.original_scid_str, scid->cid_buf, scid->cid_len);
     xc->scid_set.original_scid_str[scid->cid_len * 2] = '\0';

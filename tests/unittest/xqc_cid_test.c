@@ -412,16 +412,20 @@ xqc_test_cid_active_limit()
 }
 
 /*
- * RFC 9000 §18.2: active_connection_id_limit applies to CIDs "from the
- * peer".  The client's self-generated initial DCID is NOT from the peer
- * and must be excluded from the count (tracked by original_cid_cnt).
- * The server's handshake SCID IS from the peer and counts toward the
- * limit.
+ * Issue #820 — RFC 9000 §18.2: active_connection_id_limit is "the maximum
+ * number of connection IDs from the peer that an endpoint is willing to store.
+ * This value includes the connection ID received during the handshake."
  *
- * Simulates the nginx interop scenario: with active_connection_id_limit
- * = 8, the dcid_set has 1 self-generated CID (excluded) + 1 peer
- * handshake CID (counted) = countable 1.  So 7 more NEW_CONNECTION_IDs
- * can be accepted (1 + 7 = 8 == limit).
+ * Only the client's self-generated initial DCID is NOT from the peer and is
+ * excluded from the count (original_cid_cnt = 1).  The server's SCID from
+ * the Initial response IS from the peer and must count toward the limit.
+ * The initial SCID (in scid_set) IS sent to the peer during the handshake
+ * and must also count toward the peer's limit.
+ *
+ * Reproduces the nginx interop scenario: with active_connection_id_limit = 8,
+ * the dcid_set has 1 self-generated CID (excluded) + 1 peer handshake CID
+ * (counted) = countable 1.  So 7 more NEW_CONNECTION_IDs can be accepted
+ * (1 + 7 = 8 == limit), and the 8th is rejected.
  */
 void
 xqc_test_cid_handshake_exclusion()
@@ -437,7 +441,19 @@ xqc_test_cid_handshake_exclusion()
      * After test_engine_connect, dcid_set has 1 USED CID (the client's
      * self-generated initial DCID), marked as original.  original_cid_cnt
      * = 1, so countable = (unused + used) - 1.
+     *
+     * scid_set also has 1 USED CID (the initial SCID), but it is NOT
+     * marked as original — it IS sent to the peer during the handshake
+     * and counts toward remote_settings.active_connection_id_limit.
      */
+
+    /* verify scid_set: initial SCID is NOT original (sent to peer, counts toward limit) */
+    {
+        xqc_cid_set_inner_t *s = xqc_get_path_cid_set(&conn->scid_set,
+                                                       XQC_INITIAL_PATH_ID);
+        CU_ASSERT_FATAL(s != NULL);
+        CU_ASSERT(s->original_cid_cnt == 0);
+    }
 
     /*
      * Simulate the server SCID arrival (peer handshake CID).

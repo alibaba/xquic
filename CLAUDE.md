@@ -55,42 +55,6 @@ xquic_ops/
 └── xqc_build.sh                  # Convenience build script
 ```
 
-## Build Dependencies
-
-- **Compiler**: GCC or Clang with C11 support (C++17 for BoringSSL build)
-- **CMake**: >= 3.10
-- **SSL Backend**: BoringSSL (recommended for macOS) or BabaSSL/Tongsuo
-- **Go**: >= 1.18 (BoringSSL build dependency)
-- **Ninja**: any version (BoringSSL build dependency)
-- **libevent**: >= 2.0.21 (test/demo binaries)
-- **CUnit**: >= 2.1 (unit test framework)
-- **OpenSSL CLI**: for generating test TLS certificates
-
-See `docs_ai/build/build_guide.md` for full build instructions.
-
-## Git Conventions
-
-### Remotes
-
-```
-origin  -> git@github.com:alibaba/xquic.git     (upstream, read-only for pushes)
-fork    -> git@github.com:cherylsy/xquic.git     (fork, push target)
-```
-
-- Issue branches (`issue-<N>-*`) are pushed to the `fork` remote.
-- PRs target origin: `gh pr create --repo alibaba/xquic --head cherylsy:<branch>`.
-
-### Worktree Convention
-
-Each issue uses an independent git worktree for parallel isolation:
-
-```
-<project-root>/                     (main worktree)
-../xquic-issue-<N>/                 (issue worktree)
-```
-
-Lifecycle: `git worktree add` -> work -> push to fork -> create PR -> `git worktree remove`.
-
 ## Coding Guidelines
 
 Follow [karpathy-guidelines](~/.claude/plugins/marketplaces/karpathy-skills/CLAUDE.md) for general coding discipline (think before coding, simplicity first, surgical changes, goal-driven execution).

@@ -66,13 +66,4 @@ If any required context is uncertain after compaction, follow **Pipeline-first e
 
 ## Project Dependencies
 
-- **Compiler**: GCC or Clang with C11 support (C++17 for BoringSSL build)
-- **CMake**: >= 3.10
-- **SSL Backend**: BoringSSL (recommended for macOS) or BabaSSL/Tongsuo
-- **Go**: >= 1.18 (BoringSSL build dependency)
-- **Ninja**: any version (BoringSSL build dependency)
-- **libevent**: >= 2.0.21 (test/demo binaries)
-- **CUnit**: >= 2.1 (unit test framework)
-- **OpenSSL CLI**: for generating test TLS certificates
-
-See `docs_ai/build/build_guide.md` for full build instructions and platform-specific notes.
+See `docs_ai/build/build_guide.md` for build prerequisites and platform-specific instructions.

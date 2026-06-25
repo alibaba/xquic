@@ -53,9 +53,25 @@ git push fork <branch-name>
 - Do not use `--force` unless the user explicitly requested it. Prefer `--force-with-lease` when force is necessary.
 - Do not reset, checkout, clean, or remove files to simplify the state unless explicitly requested.
 
-## Fork Remote Reference
+## Git Conventions
+
+### Remotes
 
 ```
 origin  -> git@github.com:alibaba/xquic.git     (upstream, read-only for pushes)
 fork    -> git@github.com:cherylsy/xquic.git     (fork, push target for issue branches)
 ```
+
+- Issue branches (`issue-<N>-*`) are pushed to the `fork` remote.
+- PRs target origin: `gh pr create --repo alibaba/xquic --head cherylsy:<branch>`.
+
+### Worktree Convention
+
+Each issue uses an independent git worktree for parallel isolation:
+
+```
+<project-root>/                     (main worktree)
+../xquic-issue-<N>/                 (issue worktree)
+```
+
+Lifecycle: `git worktree add` -> work -> push to fork -> create PR -> `git worktree remove`.

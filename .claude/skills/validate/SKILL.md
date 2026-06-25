@@ -7,6 +7,19 @@ description: Build and run the minimal test set for xquic changes. Use after cod
 
 Two-layer validation: deterministic shell script (`scripts/xqc_validate.sh`) for repeatable operations + AI layer for dynamic scope decisions and targeted e2e test generation.
 
+## Build Prerequisites
+
+- **Compiler**: GCC or Clang with C11 support (C++17 for BoringSSL build)
+- **CMake**: >= 3.10
+- **SSL Backend**: BoringSSL (recommended for macOS) or BabaSSL/Tongsuo
+- **Go**: >= 1.18 (BoringSSL build dependency)
+- **Ninja**: any version (BoringSSL build dependency)
+- **libevent**: >= 2.0.21 (test/demo binaries)
+- **CUnit**: >= 2.1 (unit test framework)
+- **OpenSSL CLI**: for generating test TLS certificates
+
+See `docs_ai/build/build_guide.md` for full build instructions and platform-specific notes.
+
 ## Operation Modes
 
 This skill supports **individual** and **combined** validation:

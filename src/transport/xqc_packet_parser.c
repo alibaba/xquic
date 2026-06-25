@@ -767,26 +767,6 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     xqc_uint_t key_phase = XQC_PACKET_SHORT_HEADER_KEY_PHASE(header);
 
     /*
-     * §6.2: if we initiated a key update (key_update_initiator) and the peer
-     * changes key_phase again before ACKing ours, the peer skipped a phase.
-     * Cannot gate on pkt_num > first_recv_pktno: confirm resets it to MAX,
-     * making that comparison always false.
-     */
-    if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER && level == XQC_ENC_LEV_1RTT
-        && key_phase != conn->key_update_ctx.next_in_key_phase
-        && conn->key_update_ctx.key_update_initiator)
-    {
-        xqc_log(conn->log, XQC_LOG_ERROR,
-                "|consecutive key update from peer|pkt_num:%ui|key_phase:%ui|"
-                "expected:%ui|first_recv_pktno:%ui|",
-                packet_in->pi_pkt.pkt_num, key_phase,
-                conn->key_update_ctx.next_in_key_phase,
-                conn->key_update_ctx.first_recv_pktno);
-        XQC_CONN_ERR(conn, TRA_KEY_UPDATE_ERROR);
-        return -XQC_EPROTO;
-    }
-
-    /*
      * RX key derivation for a peer-initiated key update.
      * pkt_num > first_recv_pktno: skip reordered late arrivals.
      * key_phase_synced: block double RX derivation before TX catches up.

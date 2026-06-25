@@ -293,7 +293,7 @@ typedef struct {
     xqc_usec_t              initiate_time_guard;  /* time limit for initiating next key update */
 
     /* §6.1: TRUE if we initiated this key update.  Blocks next initiation
-     * until peer ACKs new-phase packet.  Also gates §6.2 consecutive detect. */
+     * until peer ACKs new-phase packet (xqc_key_update_acked). */
     xqc_bool_t              key_update_initiator;
 
 } xqc_key_update_ctx_t;

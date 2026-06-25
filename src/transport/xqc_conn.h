@@ -285,38 +285,21 @@ typedef struct {
     /* for current out key phase */
     xqc_packet_number_t     first_sent_pktno;  /* lowest packet number sent with each key phase */
 
-    /*
-     * Lowest packet number received under the current key phase.  Serves as
-     * the baseline for RFC 9001 §6.4 detection: an old-key-phase packet whose
-     * pkt_num exceeds this value means old keys are being used at a higher
-     * packet number than new keys, which is a protocol violation.
-     *
-     * Reset to XQC_MAX_UINT64_VALUE by xqc_conn_confirm_key_update() because
-     * no packet has been received under the new phase yet; the first arrival
-     * will naturally be smaller and replace the sentinel.
-     */
+    /* §6.4 baseline: min pkt_num under current key phase.  Old-phase packets
+     * with pkt_num above this are protocol violations.  Reset to MAX on key
+     * update as sentinel (no new-phase packet received yet). */
     xqc_packet_number_t     first_recv_pktno;
     uint64_t                enc_pkt_cnt;       /* number of packet encrypt with each key phase */
     xqc_usec_t              initiate_time_guard;  /* time limit for initiating next key update */
 
-    /*
-     * RFC 9001 §6.1: TRUE when this endpoint initiated the current key update.
-     * The initiator MUST NOT start a subsequent update until the peer ACKs a
-     * packet sent with the new key phase (enforced by first_sent_pktno <=
-     * ctl_largest_acked at the trigger site).  Cleared by ACK confirmation in
-     * xqc_send_ctl_on_ack_received, or when switching to responder role.
-     * Also used for consecutive key update detection (RFC 9001 §6.2).
-     */
+    /* §6.1: TRUE if we initiated this key update.  Blocks next initiation
+     * until peer ACKs new-phase packet.  Also gates §6.2 consecutive detect. */
     xqc_bool_t              key_update_initiator;
 
 } xqc_key_update_ctx_t;
 
-/**
- * RFC 9001 §6.1: the peer has ACKed at least one packet sent under the
- * current key phase.  Until this returns TRUE the initiator MUST NOT
- * start a subsequent key update — otherwise the peer may not have the
- * new keys yet and would fail to decrypt.
- */
+/* §6.1: TRUE once the peer has ACKed a new-phase packet, unlocking
+ * the next key update initiation. */
 static inline xqc_bool_t
 xqc_key_update_acked(const xqc_key_update_ctx_t *ctx,
                      xqc_packet_number_t largest_acked)

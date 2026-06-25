@@ -958,12 +958,8 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
         return XQC_OK;
     }
 
-    /*
-     * RFC 9001 §6.1: Once the peer ACKs a packet from the new key phase,
-     * the key update is confirmed and the initiator may start a new one.
-     * Clear the flag here; the trigger site uses xqc_key_update_acked()
-     * to gate the next initiation.
-     */
+    /* §6.1: peer ACKed a new-phase packet — key update confirmed,
+     * clear initiator flag to unlock the next initiation. */
     if (pns == XQC_PNS_APP_DATA
         && conn->key_update_ctx.key_update_initiator
         && xqc_key_update_acked(&conn->key_update_ctx,

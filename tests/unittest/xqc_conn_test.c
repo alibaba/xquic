@@ -403,7 +403,6 @@ xqc_0rtt_test_make_conn(xqc_cid_t *out_server_scid)
 
     /* mark the connection as having 0-RTT */
     conn->conn_flag |= XQC_CONN_FLAG_HAS_0RTT;
-    conn->conn_flag |= XQC_CONN_FLAG_0RTT_OK;
     /* clear any prior errors */
     conn->conn_err = 0;
     conn->conn_flag &= ~XQC_CONN_FLAG_ERROR;
@@ -626,9 +625,7 @@ xqc_test_0rtt_params_each_reduced(void)
 
         /* reduce exactly one field below remembered */
         uint64_t *field = (uint64_t *)((char *)&params + cases[i].tp_offset);
-        *field = cases[i].remembered_val <= 4
-                 ? cases[i].remembered_val - 1
-                 : cases[i].remembered_val / 2;
+        *field = cases[i].remembered_val - 1;
 
         xqc_int_t err = xqc_0rtt_test_fire(conn, &params);
         CU_ASSERT_EQUAL(err, TRA_0RTT_TRANS_PARAMS_ERROR);

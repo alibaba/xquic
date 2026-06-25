@@ -5432,11 +5432,7 @@ xqc_conn_confirm_key_update(xqc_connection_t *conn)
     ctx->key_update_cnt++;
     ctx->first_sent_pktno = pn_ctl->ctl_packet_number[XQC_PNS_APP_DATA] + 1;
 
-    /*
-     * Sentinel: no packet has been received under the new key phase yet.
-     * The first new-phase arrival will be smaller than MAX and replace this,
-     * establishing the §6.4 baseline for old-key-high-pktnum detection.
-     */
+    /* sentinel: no new-phase packet received yet; first arrival replaces it */
     ctx->first_recv_pktno = XQC_MAX_UINT64_VALUE;
 
     ctx->cur_out_key_phase ^= 1;
@@ -6123,8 +6119,7 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
      */
     if (conn->conn_type == XQC_CONN_TYPE_CLIENT
         && (conn->conn_flag & XQC_CONN_FLAG_HAS_0RTT)
-        && (xqc_tls_is_early_data_accepted(conn->tls) == XQC_TLS_EARLY_DATA_ACCEPT
-            || (conn->conn_flag & XQC_CONN_FLAG_0RTT_OK)))
+        && xqc_tls_is_early_data_accepted(conn->tls) == XQC_TLS_EARLY_DATA_ACCEPT)
     {
         xqc_trans_settings_t *remembered = &conn->remote_settings;
 

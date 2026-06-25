@@ -672,12 +672,8 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
                 return ret;
             }
 
-            /*
-             * RFC 9001 §6.1: Initiator MUST NOT initiate a subsequent key update
-             * until it receives an ACK for a packet sent with the new key phase.
-             * Enforced by xqc_key_update_acked() in the trigger condition above.
-             * Mark as initiator so ACK processing can clear the flag on confirmation.
-             */
+            /* §6.1: mark as initiator; ACK processing clears the flag,
+             * gating the next initiation via xqc_key_update_acked(). */
             conn->key_update_ctx.key_update_initiator = XQC_TRUE;
 
             ret = xqc_conn_confirm_key_update(conn);
@@ -771,19 +767,10 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     xqc_uint_t key_phase = XQC_PACKET_SHORT_HEADER_KEY_PHASE(header);
 
     /*
-     * RFC 9001 §6.2: Consecutive key update detection.
-     * If key_update_initiator is TRUE, we initiated a key update and are still
-     * awaiting the peer's ACK.  A new key_phase change from the peer before
-     * that confirmation means the peer updated keys twice without waiting.
-     * Treat as KEY_UPDATE_ERROR.
-     *
-     * Note: do NOT gate on pkt_num > first_recv_pktno here.  After the
-     * initiator calls xqc_conn_confirm_key_update(), first_recv_pktno is
-     * reset to XQC_MAX_UINT64_VALUE, so the pkt_num comparison would always
-     * be false and the detection would never trigger.  key_update_initiator
-     * combined with a mismatched key_phase is sufficient: the initiator has
-     * already flipped next_in_key_phase, so a *second* flip from the peer
-     * means the peer skipped a phase.
+     * §6.2: if we initiated a key update (key_update_initiator) and the peer
+     * changes key_phase again before ACKing ours, the peer skipped a phase.
+     * Cannot gate on pkt_num > first_recv_pktno: confirm resets it to MAX,
+     * making that comparison always false.
      */
     if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER && level == XQC_ENC_LEV_1RTT
         && key_phase != conn->key_update_ctx.next_in_key_phase
@@ -800,22 +787,11 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     }
 
     /*
-     * RX key derivation for a new key update from peer.
-     *
-     * pkt_num > first_recv_pktno: a reordered old-phase packet whose pkt_num
-     * is below the current phase's minimum is not a new key update — it is
-     * just a late arrival.  Only forward-progressing packet numbers indicate
-     * a genuine phase change.
-     *
-     * key_phase_synced: prevents a second RX derivation while the first one
-     * is still pending TX catch-up (RX and TX would desynchronize further).
-     *
-     * !timer_set: do NOT derive new RX keys during the old-key retention
-     * window (XQC_TIMER_KEY_UPDATE active).  In that window, an old-phase
-     * packet should be decrypted with the still-retained old keys and then
-     * checked for §6.4 violation post-decrypt.  Without this guard,
-     * derivation would overwrite the old key slot with next-next keys,
-     * making old-key decrypt impossible.
+     * RX key derivation for a peer-initiated key update.
+     * pkt_num > first_recv_pktno: skip reordered late arrivals.
+     * key_phase_synced: block double RX derivation before TX catches up.
+     * !timer_set: during old-key retention window, decrypt with old keys
+     *   first so the §6.4 post-decrypt check can run.
      */
     if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER && level == XQC_ENC_LEV_1RTT
         && key_phase != conn->key_update_ctx.next_in_key_phase
@@ -854,16 +830,9 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     packet_in->last = dst + packet_in->decode_payload_len;
 
     /*
-     * RFC 9001 §6.4: An endpoint that successfully removes protection with
-     * old keys when newer keys were used for packets with lower packet
-     * numbers MUST treat this as a connection error of type KEY_UPDATE_ERROR.
-     *
-     * This check runs AFTER successful decryption so the "successfully
-     * removes protection" precondition is satisfied.  During the 3*PTO
-     * old-key retention window (KEY_UPDATE timer active), a packet whose
-     * key_phase matches the *previous* phase (old keys) with pkt_num higher
-     * than any packet already received under the new phase means old keys
-     * are being used at a higher packet number than new keys.
+     * §6.4: old-key packet successfully decrypted with pkt_num above the
+     * new-phase minimum — old keys used at a higher number than new keys.
+     * Only checked during old-key retention window (KEY_UPDATE timer active).
      */
     if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER && level == XQC_ENC_LEV_1RTT
         && key_phase != conn->key_update_ctx.next_in_key_phase
@@ -906,11 +875,7 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         } else if (key_phase == conn->key_update_ctx.next_in_key_phase
                    && packet_in->pi_pkt.pkt_num < conn->key_update_ctx.first_recv_pktno)
         {
-            /*
-             * Track the minimum pkt_num seen under the current key phase so
-             * that the §6.4 check can distinguish legitimate reordered old-phase
-             * packets (pkt_num <= minimum) from violations (pkt_num > minimum).
-             */
+            /* track min pkt_num under current phase for §6.4 baseline */
             conn->key_update_ctx.first_recv_pktno = packet_in->pi_pkt.pkt_num;
         }
     }

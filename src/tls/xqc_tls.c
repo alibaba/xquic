@@ -63,12 +63,8 @@ typedef struct xqc_tls_s {
     /* quic version. used to decide protection salt */
     xqc_proto_version_t         version;
 
-    /*
-     * TRUE when RX and TX 1-RTT keys are on the same key phase (steady state).
-     * FALSE transiently after RX keys are derived to the next phase but TX keys
-     * have not yet been updated.  Used to gate RX key derivation and to
-     * distinguish recoverable decrypt failures during a key update.
-     */
+    /* TRUE = RX/TX 1-RTT keys same phase; FALSE = RX advanced, TX pending.
+     * Gates further RX derivation and marks decrypt failures recoverable. */
     xqc_bool_t                  key_phase_synced;
 
 } xqc_tls_t;
@@ -781,13 +777,8 @@ xqc_tls_update_1rtt_keys(xqc_tls_t *tls, xqc_key_type_t type)
     }
 
     if (type == XQC_KEY_TYPE_RX_READ) {
-        /*
-         * RX advanced to the next phase while TX is still on the old phase.
-         * Mark unsynchronized so that: (1) a second RX derivation is blocked
-         * until TX catches up, and (2) decrypt failures in this transient
-         * window are treated as recoverable (XQC_TLS_DECRYPT_WHEN_KU_ERROR)
-         * rather than fatal.
-         */
+        /* RX ahead of TX: block further RX derivation and mark decrypt
+         * failures recoverable until TX catches up. */
         tls->key_phase_synced = XQC_FALSE;
 
     } else if (type == XQC_KEY_TYPE_TX_WRITE) {

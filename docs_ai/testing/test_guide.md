@@ -1,15 +1,29 @@
 # Test Guide
 
-> Test mapping and command reference. Agents should use `docs_ai/validation_guide.md` to decide whether tests are needed and which smallest test set to run.
+> Test decision, mapping, execution, and diagnostics. Single source of truth for all testing concerns.
+> For build commands and CMake flags, see `docs_ai/build/build_guide.md`.
+
+---
+
+## When to Test
+
+| Change Type | Build Needed? | Tests Needed? |
+|-------------|---------------|---------------|
+| Production code / headers / build config | Yes | Unit + integration per mapping below |
+| Public API or feature switch | Yes | Full unit + full integration |
+| Test-only change | Yes (if binaries or registration changed) | Affected suites |
+| Script-only change | Only if script depends on rebuilt binaries | Manual or script-specific check |
+| Docs-only (wording, no technical claims) | No | No |
+| Query / analysis | No | No |
+
+If skipped, state why.
 
 ---
 
 ## Test Architecture
 
-XQUIC has two categories of tests:
-
 1. **Unit Tests** (`tests/run_tests`): CUnit-based, test individual modules in isolation. Fast, no network I/O.
-2. **Integration Tests** (`scripts/case_test.sh`): Client-server interaction tests using `test_client` and `test_server` binaries over localhost UDP. Tests real QUIC handshakes, data transfer, and edge cases.
+2. **Integration Tests** (`scripts/case_test.sh`): Client-server interaction over localhost UDP. Real QUIC handshakes, data transfer, edge cases.
 
 Both require building with `-DXQC_ENABLE_TESTING=1`.
 
@@ -55,96 +69,132 @@ Use this table to find the **smallest test set** that proves your change works.
 
 ---
 
-## Test Binaries / Commands
+## Test Commands
+
+All commands run from the `build/` directory.
 
 ### Unit Tests
 
-| Binary / Command | Location | Scope | Pass Criteria |
-|------------------|----------|-------|---------------|
-| `./tests/run_tests` | `build/tests/run_tests` | All CUnit test suites | Exit 0, `0 tests FAILED` in output |
-
-Run from the `build/` directory:
-
 ```bash
-cd build
 ./tests/run_tests
 ```
 
-Output format:
-```
-Test: xqc_random_test ...passed
-Test: xqc_pq_test ...passed
-...
-```
+Output: `Test: xqc_<name>_test ...passed` per suite.
 
 ### Integration Tests
 
-| Script / Command | Scope | Prerequisites |
-|------------------|-------|---------------|
-| `sh scripts/case_test.sh` | Full client-server interaction tests | Build with `XQC_ENABLE_TESTING=1`, SSL certificates generated |
-
-Run from the project root:
-
 ```bash
-cd build
+# Generate certificates if missing
+if [ ! -f server.key ]; then
+    openssl req -newkey rsa:2048 -x509 -nodes -keyout server.key -new -out server.crt -subj /CN=test.xquic.com
+fi
 
-# Generate test certificates (if not already present)
-openssl req -newkey rsa:2048 -x509 -nodes -keyout server.key -new -out server.crt -subj /CN=test.xquic.com
+# macOS: required to avoid kqueue issues with libevent
+export EVENT_NOKQUEUE=1
 
-# Run integration tests
 sh ../scripts/case_test.sh
 ```
 
-**macOS note**: If kqueue causes issues, set `export EVENT_NOKQUEUE=1` before running.
-
-The script:
-1. Starts `test_server` in background
-2. Runs `test_client` with various flags to exercise different code paths
-3. Checks `clog`/`slog` for errors
-4. Reports pass/fail per case
-
-### Full CI Test Suite
-
-| Script / Command | Scope | Notes |
-|------------------|-------|-------|
-| `sh scripts/xquic_test.sh` | Build both SSL backends + unit tests + case tests + gcov | Designed for Linux CI. Uses `yum` for dependency installation. Not recommended for local macOS use. |
-
----
-
-## Test Certificate Generation
-
-Integration tests require a self-signed TLS certificate. Generate from the `build/` directory:
+### Running a Single Case Test
 
 ```bash
-cd build
-openssl req -newkey rsa:2048 -x509 -nodes -keyout server.key -new -out server.crt -subj /CN=test.xquic.com
+export EVENT_NOKQUEUE=1  # macOS
+rm -rf tp_localhost test_session xqc_token
+killall test_server test_client 2>/dev/null
+sleep 1
+
+# Start server
+tests/test_server -l d -e > /dev/null 2>&1 &
+sleep 2
+
+# Run specific test (replace <case_number>)
+>clog && >slog
+tests/test_client -s <size> -l d -E -x <case_number> >> clog 2>&1
+
+# Check results
+grep ">>>>>>>> pass" clog       # data transfer result
+grep "\[error\]" clog slog      # error logs (should be empty)
+
+killall test_server 2>/dev/null
 ```
 
-This creates `server.key` and `server.crt` in the build directory, which `test_server` reads at startup.
+Common case test flags (`-x <N>`):
+
+| Flag | Test | Key Settings |
+|------|------|-------------|
+| `-x 40` | Key update | `keyupdate_pkt_threshold=30`, needs `-s 102400` |
+| `-x 42` | Max packet out size | `max_pkt_out_size=1400` |
+| `-x 44` | Log switch off | Verifies logging can be disabled |
+| `-x 46` | Server refuse | Tests connection refusal |
+
+### Adding a New Case Test
+
+For step-by-step instructions on adding a new `-x <N>` integration test case (modifying `test_client.c`, `test_server.c`, and `case_test.sh`), see `tests/CLAUDE.md` section "Adding a New Integration Test".
+
+### Quick Validation (rebuild + unit tests)
+
+```bash
+cd build && make -j && ./tests/run_tests
+```
+
+### Full Validation (rebuild + unit + integration)
+
+```bash
+cd build && make -j && ./tests/run_tests && sh ../scripts/case_test.sh
+```
 
 ---
 
-## Success Criteria
+## Pass Criteria
 
 | Test Type | Pass Condition |
 |-----------|----------------|
+| Build | Exit 0, no compile/link errors |
 | Unit tests (`run_tests`) | Exit 0, all `Test: ... passed`, `0 tests FAILED` |
 | Integration tests (`case_test.sh`) | All cases print `pass:1`, no `pass:0` lines |
 | Full CI (`xquic_test.sh`) | Summary shows 0 failures for both unit and case tests |
 
+### Case Test Pass Criteria (4 checks, ALL must pass)
+
+1. `grep ">>>>>>>> pass" clog` shows `pass:1` (client data transfer succeeded)
+2. Test-specific grep in `slog` matches (server-side behavior verified)
+3. Test-specific grep in `clog` matches (client-side behavior verified)
+4. `grep "[error]" clog slog` is empty (no error logs)
+
 ---
 
-## Local macOS Quick Validation
+## Diagnosing Failures
 
-For a fast validation cycle after code changes:
+**Case test logging**:
+- `test_server` writes XQUIC logs to `./slog`
+- `test_client` writes XQUIC logs to `./clog`; stdout also redirected to clog
+- `clear_log()` in case_test.sh truncates both between tests
+- For 0-RTT tests, run client twice (second reuses session ticket from `test_session`, `tp_localhost`)
 
-```bash
-# From build/ directory (assumes already configured)
-make -j && ./tests/run_tests
-```
+**Failure diagnosis**:
+- `pass:0` in client output: data transfer failed (connection issue, not feature-specific)
+- Server grep fails (`slog` empty): feature didn't trigger server-side
+- Client grep fails (`clog` missing pattern): feature didn't trigger client-side
+- `[error]` present: code path hit an error -- read the log for error code and message
 
-For full validation including integration:
+---
 
-```bash
-make -j && ./tests/run_tests && sh ../scripts/case_test.sh
+## Full CI Test Suite
+
+| Script | Scope | Notes |
+|--------|-------|-------|
+| `sh scripts/xquic_test.sh` | Build both SSL backends + unit + case + gcov | Linux CI only. Uses `yum`. Not for local macOS. |
+
+---
+
+## Validation Report Template
+
+After validation, summarize:
+
+```text
+Validation:
+- Needed: yes/no, because <reason>
+- Build: <command or skipped reason>
+- Tests: <commands or skipped reason>
+- Result: <pass/fail/blocker with evidence>
 ```

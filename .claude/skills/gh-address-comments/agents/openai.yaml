@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub Address Comments"
+  short_description: "Resolve PR review comments with narrow edits."
+  default_prompt: "Address the actionable PR review comments, preserve unrelated changes, and report unresolved items."

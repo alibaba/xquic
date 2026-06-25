@@ -39,7 +39,7 @@ When starting any task, use this mapping to determine which documentation to rea
 2. Look up each file path in the table above
 3. READ the corresponding "Read These Docs" files to understand context
 4. After implementation, UPDATE the corresponding "Update These Docs" files
-5. Use `docs_ai/validation_guide.md` to decide whether build/test execution is needed, then map to the smallest suggested validation target
+5. Use `docs_ai/testing/test_guide.md` to decide whether build/test execution is needed, then map to the smallest suggested validation target
 ```
 
 ## Cross-Cutting Concerns
@@ -58,9 +58,9 @@ All agent documentation lives under `docs_ai/`. Original project documentation l
 ```
 docs_ai/
   agent_guide.md                   # Agent workflow notes and context-preservation guidance
-  validation_guide.md              # Build/test decision rules and validation commands
   dev_pipeline.md                  # Development pipeline, enforcement rules
   bugfix_pipeline.md               # Bug fix pipeline, root cause analysis, unit test verification
+  # Issue triage is handled by the /issue skill: .claude/skills/issue/SKILL.md
   architecture/
     overview.md                    # System architecture, layers, entry points, plugin model
     module_dependency.md           # Module dependency matrix, impact analysis guide

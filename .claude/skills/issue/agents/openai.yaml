@@ -1,0 +1,4 @@
+interface:
+  display_name: "Issue Triage"
+  short_description: "Triage GitHub issues for xquic."
+  default_prompt: "Triage this GitHub issue: verify every claim against source code and RFC text, produce a structured report, and route to implementation."

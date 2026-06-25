@@ -1,62 +1,41 @@
-# xquic_ops Project Rules
+# XQUIC
 
-> Universal rules and document index for Claude Code and other coding agents. Read this file first in every session.
+XQUIC is a QUIC and HTTP/3 protocol library implemented in C, developed by Alibaba. It provides a high-performance, cross-platform implementation of the IETF QUIC transport protocol and the HTTP/3 application protocol.
 
-## Task Routing
+## Project Structure
 
-| Task Type | Examples | Required Entry Point |
-|-----------|----------|----------------------|
-| **Goal (long task)** | `/goal <desc>`, "background task" | `scripts/goal.sh "<description>"` |
-| **Code change** | "Add feature X", "Refactor Y" | `docs_ai/dev_pipeline.md` |
-| **Bug fix** | "Fix bug in Y", "Unit test X fails" | `docs_ai/bugfix_pipeline.md` |
-| **Test execution** | "Run tests", "Verify X works" | `docs_ai/validation_guide.md` |
-| **Build** | "Build the project", "Rebuild with flag" | `docs_ai/validation_guide.md` |
-| **Query / Analysis** | "How does X work?", "Explain this module" | Read the relevant code and docs. No workflow document is required unless the task becomes a code/build/test change. |
+Each `src/` module and `tests/` has its own `CLAUDE.md` with module-specific conventions, data structures, and pitfalls.
 
-## Git Branch Policy
+```
+xquic_ops/
+├── src/
+│   ├── transport/                # QUIC transport: conn, engine, stream, packet, send_ctl, cid, fec, datagram
+│   │                             #   CLAUDE.md: conn flags (uint64 bitmask), state machine, scheduler/FEC plugins
+│   ├── http3/                    # HTTP/3 + QPACK: h3_conn, h3_stream, h3_request, frame/, qpack/
+│   │                             #   CLAUDE.md: error handling, SETTINGS ordering, stream types
+│   ├── tls/                      # TLS 1.3: boringssl/ & babassl/ backends, crypto, hkdf
+│   │                             #   CLAUDE.md: backend abstraction, key derivation ordering
+│   ├── congestion_control/       # BBR/BBR2/CUBIC/Reno/Copa, rate sampling, window filter
+│   │                             #   CLAUDE.md: xqc_cong_ctrl_callback_t plugin interface
+│   └── common/                   # Shared utils: log, memory pool, str, utils/
+│                                 #   CLAUDE.md: leaf module (no upward deps), memory allocation
+├── include/xquic/                # Public API: xquic.h, xqc_http3.h, xqc_errno.h, xquic_typedef.h
+├── tests/                        # CUnit unit tests (unittest/) + integration client/server
+│                                 #   CLAUDE.md: test conventions, adding new tests
+├── demo/                         # HQ demo client/server
+├── mini/                         # Minimal client/server examples
+├── moq/                          # Media over QUIC (MoQ) transport, demo, tests
+├── interop/                      # QUIC interop runner (Docker)
+├── third_party/boringssl/        # BoringSSL source
+├── cmake/                        # CMake modules (FindCUnit, FindSSL, etc.)
+├── scripts/                      # Build and test scripts
+├── docs_ai/                      # Dev reference docs (see Reference Documents below)
+├── CMakeLists.txt                # Root build configuration
+├── xqc_configure.h.in           # Configure header template -> include/xquic/xqc_configure.h
+└── xqc_build.sh                  # Convenience build script
+```
 
-- **NEVER push directly to `main` or `master` branch on remote.** All changes must go through a feature/dev branch and be merged via Pull Request.
-- Development work should be done on `dev/agent` or other feature branches.
-- Use `gh pr create` to submit changes for review. Do not use `git push origin main` or `git push origin master`.
-
-## Global Constraints
-
-1. **Pipeline-first execution**: At task start, choose the task type from **Task Routing**. Read the matching Required Entry Point document in full before acting. Follow that document in order. After compaction or a new session, repeat this step.
-2. **Code style**: Follow existing project conventions. Use consistent naming (snake_case or project prefix). Comments explain "why", not "what".
-3. **Code-doc sync**: When modifying any module, update corresponding docs using `docs_ai/auto_doc_lookup.md` for mapping. When changing public APIs, update the interface documentation. When adding new files, update `docs_ai/codebase_index.md`.
-4. **Evidence-based reasoning**: Read the relevant code path before claiming behavior or applying a fix. For bugs, confirm the cause in source before editing. If multiple causes are possible, inspect each plausible path. If a fix fails, re-read the code before adding another fix.
-5. **Post-modification verification**: After every code or documentation change, re-read the modified path and verify the change is logically consistent with the requirement and adjacent code. Each pipeline document contains specific verification checklists at modification stages -- follow them before advancing to build/test.
-6. **Validation mapping**: Claude decides whether build/test execution is needed for the task. When build/test execution is needed or requested, follow `docs_ai/validation_guide.md` for the commands, forbidden scripts, and smallest correct test mapping.
-
-## Compact Instructions
-
-When compacting context, preserve:
-
-- Current task goal, task type, and selected pipeline document.
-- Hard constraints from this file and the selected pipeline document.
-- Current git branch, dirty files, user-owned changes, and any explicit user-requested operation order.
-- Files already inspected or edited, docs still needing sync, builds/tests already run, and remaining verification steps.
-- Exact failing commands, key error snippets, and hypotheses already confirmed or rejected.
-
-If any required context is uncertain after compaction, follow **Pipeline-first execution** again before proceeding.
-
-## Document Index
-
-| Topic | Document |
-|-------|----------|
-| **Development pipeline** | **`docs_ai/dev_pipeline.md`** |
-| **Bug fix pipeline** | **`docs_ai/bugfix_pipeline.md`** |
-| **Build/test validation policy** | **`docs_ai/validation_guide.md`** |
-| **Test guide (mapping, execution)** | **`docs_ai/testing/test_guide.md`** |
-| Agent workflow notes | `docs_ai/agent_guide.md` |
-| Build guide | `docs_ai/build/build_guide.md` |
-| Full codebase file tree | `docs_ai/codebase_index.md` |
-| Source-path-to-doc mapping | `docs_ai/auto_doc_lookup.md` |
-| System architecture | `docs_ai/architecture/overview.md` |
-| Module dependencies | `docs_ai/architecture/module_dependency.md` |
-
-
-## Project Dependencies
+## Build Dependencies
 
 - **Compiler**: GCC or Clang with C11 support (C++17 for BoringSSL build)
 - **CMake**: >= 3.10
@@ -67,4 +46,48 @@ If any required context is uncertain after compaction, follow **Pipeline-first e
 - **CUnit**: >= 2.1 (unit test framework)
 - **OpenSSL CLI**: for generating test TLS certificates
 
-See `docs_ai/build/build_guide.md` for full build instructions and platform-specific notes.
+See `docs_ai/build/build_guide.md` for full build instructions.
+
+## Git Conventions
+
+### Remotes
+
+```
+origin  -> git@github.com:alibaba/xquic.git     (upstream, read-only for pushes)
+fork    -> git@github.com:cherylsy/xquic.git     (fork, push target)
+```
+
+- Issue branches (`issue-<N>-*`) are pushed to the `fork` remote.
+- PRs target origin: `gh pr create --repo alibaba/xquic --head cherylsy:<branch>`.
+
+### Worktree Convention
+
+Each issue uses an independent git worktree for parallel isolation:
+
+```
+<project-root>/                     (main worktree)
+../xquic-issue-<N>/                 (issue worktree)
+```
+
+Lifecycle: `git worktree add` -> work -> push to fork -> create PR -> `git worktree remove`.
+
+## Coding Guidelines
+
+Follow [karpathy-guidelines](~/.claude/plugins/marketplaces/karpathy-skills/CLAUDE.md) for general coding discipline (think before coding, simplicity first, surgical changes, goal-driven execution).
+
+Project-specific rules:
+
+1. **Naming**: Use `snake_case` with `xqc_` prefix. Comments explain "why", not "what".
+2. **Code-doc sync**: When modifying a module, update corresponding docs (see `docs_ai/auto_doc_lookup.md`). When changing public APIs, update `include/xquic/` header docs. When adding new files, update `docs_ai/codebase_index.md`.
+3. **Testing**: Non-trivial changes must include tests and pass before completion. Use `/validate` to auto-detect changed files, build, and run the minimal test set. For adding new tests, see `tests/CLAUDE.md`; for the full feature-to-test mapping, see `docs_ai/testing/test_guide.md`.
+
+## Reference Documents
+
+| Topic | Path |
+|-------|------|
+| System architecture | `docs_ai/architecture/overview.md` |
+| Module dependencies | `docs_ai/architecture/module_dependency.md` |
+| Build guide | `docs_ai/build/build_guide.md` |
+| Test guide | `docs_ai/testing/test_guide.md` |
+| Codebase file index | `docs_ai/codebase_index.md` |
+| Source-to-doc mapping | `docs_ai/auto_doc_lookup.md` |

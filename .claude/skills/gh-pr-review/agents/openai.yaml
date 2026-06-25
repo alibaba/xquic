@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub PR Review"
+  short_description: "Review PR diffs with source-backed findings."
+  default_prompt: "Review this PR with evidence-backed findings and no code changes unless requested."

@@ -283,6 +283,20 @@ scripts/
     moq_case_test.sh         # Media-over-QUIC test cases
 ```
 
+## .claude/ -- Agent Workflow Configuration
+
+```
+.claude/
+  commands/
+    goal.md                  # Claude Code command wrapper for long-running goals
+  skills/
+    gh-pr-review/            # Source-backed GitHub PR review workflow
+    gh-fix-ci/               # GitHub CI log diagnosis and smallest-fix workflow
+    gh-address-comments/     # PR review comment triage and narrow edit workflow
+    issue-to-branch/         # GitHub issue intake and scoped branch preparation
+    xquic-safe-push/         # Branch, staging, commit, and remote push safety checks
+```
+
 ## cmake/ -- CMake Modules
 
 ```

@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub Fix CI"
+  short_description: "Debug failing PR checks from GitHub logs."
+  default_prompt: "Inspect failing GitHub checks, identify the source-backed cause, and make the smallest safe fix."

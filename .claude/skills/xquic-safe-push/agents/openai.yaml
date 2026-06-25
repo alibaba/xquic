@@ -1,0 +1,4 @@
+interface:
+  display_name: "XQUIC Safe Push"
+  short_description: "Push xquic branches only after scoped checks."
+  default_prompt: "Verify staged scope, branch safety, and target remote before pushing this xquic branch."

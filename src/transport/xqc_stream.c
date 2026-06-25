@@ -1474,6 +1474,9 @@ xqc_stream_recv(xqc_stream_t *stream, unsigned char *recv_buf, size_t recv_buf_s
         if (stream_frame->data_offset + stream_frame->data_length < stream->stream_data_in.next_read_offset) {
             /* free frame */
             xqc_list_del_init(&stream_frame->sf_list);
+            if (stream->stream_data_in.buffered_frame_count > 0) {
+                stream->stream_data_in.buffered_frame_count--;
+            }
             xqc_free(stream_frame->data);
             xqc_free(stream_frame);
             continue;
@@ -1497,6 +1500,9 @@ xqc_stream_recv(xqc_stream_t *stream, unsigned char *recv_buf, size_t recv_buf_s
             read += frame_left;
             /* free frame */
             xqc_list_del_init(&stream_frame->sf_list);
+            if (stream->stream_data_in.buffered_frame_count > 0) {
+                stream->stream_data_in.buffered_frame_count--;
+            }
             xqc_free(stream_frame->data);
             xqc_free(stream_frame);
 

@@ -97,6 +97,15 @@ xqc_int_t
 xqc_insert_stream_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream_frame_t *new_frame)
 {
 
+    /* CWE-770 mitigation: reject if buffered frame count exceeds cap (RFC 9000 §21.7) */
+    if (stream->stream_data_in.buffered_frame_count >= XQC_MAX_STREAM_FRAME_BUFFERED_COUNT) {
+        xqc_log(conn->log, XQC_LOG_WARN,
+                "|stream frame buffered count exceed|stream_id:%ui|count:%ui|limit:%d|",
+                stream->stream_id, stream->stream_data_in.buffered_frame_count,
+                XQC_MAX_STREAM_FRAME_BUFFERED_COUNT);
+        return -XQC_ELIMIT;
+    }
+
     /* insert xqc_stream_frame_t into stream->stream_data_in.frames_tailq in order of offset */
     unsigned char inserted = 0;
     xqc_list_head_t *pos;
@@ -167,6 +176,9 @@ xqc_insert_stream_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream
             }
         }
     }
+
+    /* update buffered resource counter */
+    stream->stream_data_in.buffered_frame_count++;
 
     return XQC_OK;
 }
@@ -1230,6 +1242,7 @@ xqc_process_reset_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
         conn->conn_flow_ctl.fc_data_recved += (int64_t)final_size - (int64_t)stream->stream_max_recv_offset;
         conn->conn_flow_ctl.fc_data_read += (int64_t)final_size - (int64_t)stream->stream_data_in.next_read_offset;
         xqc_destroy_frame_list(&stream->stream_data_in.frames_tailq);
+        stream->stream_data_in.buffered_frame_count = 0;
         xqc_stream_ready_to_read(stream);
     }
     return XQC_OK;

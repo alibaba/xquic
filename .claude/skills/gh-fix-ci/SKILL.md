@@ -12,7 +12,7 @@ description: Debug and fix failing GitHub PR checks for xquic. Use when a PR, br
 3. Map the failure to source using `docs_ai/auto_doc_lookup.md` and read the required docs before changing code.
 4. Inspect the real code path or build/test script that produced the failure.
 5. Make the smallest fix that addresses the confirmed cause. Preserve unrelated local edits and staged state.
-6. Re-run the smallest relevant local validation from `docs_ai/testing/test_guide.md` when feasible. If CI-only, explain why local validation is not equivalent.
+6. Re-run local validation using `/validate` when feasible. If CI-only, explain why local validation is not equivalent.
 7. Report the failing command, cause, changed files, validation result, and any checks that still need remote rerun.
 
 ## Guardrails

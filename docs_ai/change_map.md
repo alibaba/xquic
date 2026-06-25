@@ -1,6 +1,6 @@
 # AI Change Map
 
-Source: `docs_ai/code_map.md`, `docs_ai/auto_doc_lookup.md`, `docs_ai/testing/test_guide.md`
+Source: `docs_ai/code_map.md`, `docs_ai/auto_doc_lookup.md`
 
 This document maps a requested change to the files, docs, behavior specs, decisions, and validation evidence an agent must consider. Use it after locating the module in `docs_ai/code_map.md` and before editing.
 
@@ -50,14 +50,14 @@ Notes:
 4. Use this file and `docs_ai/auto_doc_lookup.md` to determine required docs and validation.
 5. Inspect the real code path before making claims or edits.
 6. After edits, update affected docs, behavior specs, and decision records.
-7. Use `docs_ai/validation_guide.md` to record whether validation is needed and what evidence was produced.
+7. Use `/validate` to run the appropriate build/test set and record the evidence produced.
 
 ## Cross-Cutting Rules
 
 - Public API changes require updates to `docs/API.md`, `docs_ai/architecture/overview.md`, `docs_ai/behavior_specs.md`, and validation with full unit plus integration tests unless blocked.
 - New source files require updates to `docs_ai/codebase_index.md`, `docs_ai/code_map.md`, `docs_ai/architecture/module_dependency.md`, and relevant behavior specs.
 - New feature gates require updates to `CMakeLists.txt`, `cmake/CMakeLists.txt` if applicable, `docs_ai/build/build_guide.md`, `docs_ai/behavior_specs.md`, and the code map.
-- New tests or integration cases require updates to `docs_ai/testing/test_guide.md`.
+- New tests or integration cases should be reflected in `/validate` scope (see `.claude/skills/validate/SKILL.md`).
 - Behavior-changing bug fixes require either a regression test or a specific existing test that covers the fixed path.
 - Architectural tradeoffs, compatibility choices, or non-obvious constraints require a decision record.
 
@@ -88,7 +88,7 @@ Update after editing:
 - `docs_ai/codebase_index.md` and `docs_ai/code_map.md` if files or ownership changed.
 
 Validation:
-- Full rebuild, full `./tests/run_tests`, and `sh ../scripts/case_test.sh`.
+- `/validate` (auto-detects `api` module -> full scope).
 
 Decision-record trigger:
 - Any ABI/API compatibility choice, callback contract change, default-setting change, or behavior that intentionally differs from RFC text or prior public behavior.
@@ -115,10 +115,8 @@ Update after editing:
 - `docs/API.md`
 - `docs_ai/architecture/overview.md`
 - `docs_ai/behavior_specs.md`
-- `docs_ai/testing/test_guide.md` if test patterns change.
-
 Validation:
-- HTTP/3/QPACK unit tests plus `case_test.sh`; full validation for public API changes.
+- `/validate` (auto-detects `http3`/`http3:qpack` modules -> targeted or full scope).
 
 Decision-record trigger:
 - Changes to header validation, SETTINGS semantics, stream type behavior, request lifecycle, or extension negotiation.
@@ -147,11 +145,8 @@ Read before editing:
 Update after editing:
 - `docs_ai/behavior_specs.md` for changed invariants or protocol behavior.
 - `docs_ai/architecture/module_dependency.md` if dependency or test impact changes.
-- `docs_ai/testing/test_guide.md` if validation mapping changes.
-
 Validation:
-- Targeted transport unit test plus `case_test.sh` for runtime/protocol behavior.
-- Full unit tests for broad connection or packet changes.
+- `/validate` (auto-detects transport sub-modules -> targeted or full scope).
 
 Decision-record trigger:
 - State-machine changes, timer policy, loss/ACK policy, compatibility tradeoff, or any deliberate behavior under feature gates.
@@ -177,11 +172,9 @@ Update after editing:
 - `docs_ai/behavior_specs.md`
 - `docs_ai/architecture/overview.md` for new algorithms.
 - `docs_ai/build/build_guide.md` for new gates.
-- `docs_ai/testing/test_guide.md` for new tests.
 
 Validation:
-- CC-specific unit tests when present plus `case_test.sh`.
-- For BBR/Copa paths without dedicated unit tests, integration validation or documented blocker is required.
+- `/validate` (auto-detects `cc:*` modules -> targeted scope with CC-specific integration tests).
 
 Decision-record trigger:
 - Algorithm defaults, unit conversions, pacing policy, loss response, app-limited handling, or compatibility/performance tradeoffs.
@@ -210,9 +203,7 @@ Update after editing:
 - `docs_ai/architecture/module_dependency.md` if dependency scope changes.
 
 Validation:
-- TLS and crypto unit tests.
-- Backend-specific build/test for backend-only changes.
-- `case_test.sh` when handshake/runtime behavior changes.
+- `/validate` (auto-detects `tls` module -> targeted scope with handshake/crypto integration tests).
 
 Decision-record trigger:
 - Backend portability choice, ALPN compatibility, key derivation/retry behavior, 0-RTT policy, or TLS error mapping.
@@ -237,11 +228,8 @@ Read before editing:
 Update after editing:
 - `docs_ai/behavior_specs.md`
 - `docs/API.md` for public API behavior.
-- `docs_ai/testing/test_guide.md` for new test coverage.
-
 Validation:
-- HTTP/3 unit tests and QPACK-specific tests for QPACK-only changes.
-- `case_test.sh` for runtime HTTP/3 behavior.
+- `/validate` (auto-detects `http3`/`http3:qpack` modules).
 
 Decision-record trigger:
 - Header validation rules, SETTINGS/GOAWAY compatibility, QPACK dynamic table safety, extension negotiation.
@@ -271,12 +259,8 @@ Update after editing:
 - `docs_ai/behavior_specs.md`
 - `docs_ai/architecture/module_dependency.md`
 - `docs_ai/build/build_guide.md` if feature gates change.
-- `docs_ai/testing/test_guide.md` if FEC test mapping changes.
-
 Validation:
-- Build with `-DXQC_ENABLE_FEC=1` and relevant scheme flags.
-- FEC unit tests: `fec_test`, `fec_scheme_test`, `galois_test`.
-- Integration validation when packet send/receive, scheduling, or HTTP/3 request behavior changes.
+- `/validate` (auto-detects `transport:fec` module -> none scope; requires FEC-enabled build with `-DXQC_ENABLE_FEC=1`).
 
 Decision-record trigger:
 - Repair-only congestion-control behavior, wire-format compatibility, block sizing, recovery policy, or scheme default changes.
@@ -299,11 +283,8 @@ Read before editing:
 Update after editing:
 - `docs_ai/codebase_index.md` and `docs_ai/code_map.md` for new utilities.
 - `docs_ai/behavior_specs.md` if utility semantics or invariants change.
-- `docs_ai/testing/test_guide.md` for new tests.
-
 Validation:
-- Full unit tests for broad common changes.
-- Targeted utility plus downstream tests for Huffman/VINT changes.
+- `/validate` (auto-detects `common` module -> unit tests only, no integration).
 
 Decision-record trigger:
 - Memory ownership semantics, compatibility of encoding/decoding, logging schema, or reusable data-structure invariants.
@@ -331,8 +312,7 @@ Update after editing:
 - `docs_ai/auto_doc_lookup.md` if path mapping changes.
 
 Validation:
-- Reconfigure and rebuild.
-- Run tests mapped to the enabled feature.
+- `/validate` (auto-detects `build` module -> full scope).
 
 Decision-record trigger:
 - Default option changes, backend selection, platform-specific build behavior, generated-file policy.
@@ -352,18 +332,14 @@ Likely files:
 - `scripts/goal.sh`
 
 Read before editing:
-- `docs_ai/validation_guide.md`
-- `docs_ai/testing/test_guide.md`
 - `tests/CLAUDE.md`
+- `.claude/skills/validate/SKILL.md`
 
 Update after editing:
-- `docs_ai/testing/test_guide.md`
-- `docs_ai/validation_guide.md` for policy changes.
 - `docs_ai/codebase_index.md` for new harness files.
 
 Validation:
-- Run the affected test or script.
-- For registration changes, rebuild and run the affected test binary.
+- `/validate` (auto-detects `test` module; for registration changes, rebuild and run affected binary).
 
 Decision-record trigger:
 - New validation policy, skip policy, platform-specific test behavior, or harness output contract.

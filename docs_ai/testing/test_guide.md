@@ -1,6 +1,7 @@
 # Test Guide
 
-> Test decision, mapping, execution, and diagnostics. Single source of truth for all testing concerns.
+> Test architecture, commands, pass criteria, and diagnostics.
+> For automated change detection and test scope mapping, use `/validate`.
 > For build commands and CMake flags, see `docs_ai/build/build_guide.md`.
 
 ---
@@ -9,11 +10,11 @@
 
 | Change Type | Build Needed? | Tests Needed? |
 |-------------|---------------|---------------|
-| Production code / headers / build config | Yes | Unit + integration per mapping below |
+| Production code / headers / build config | Yes | Unit + integration per `/validate --detect` |
 | Public API or feature switch | Yes | Full unit + full integration |
 | Test-only change | Yes (if binaries or registration changed) | Affected suites |
 | Script-only change | Only if script depends on rebuilt binaries | Manual or script-specific check |
-| Docs-only (wording, no technical claims) | No | No |
+| Docs-only (wording, no technical claim change) | No | No |
 | Query / analysis | No | No |
 
 If skipped, state why.
@@ -26,46 +27,6 @@ If skipped, state why.
 2. **Integration Tests** (`scripts/case_test.sh`): Client-server interaction over localhost UDP. Real QUIC handshakes, data transfer, edge cases.
 
 Both require building with `-DXQC_ENABLE_TESTING=1`.
-
----
-
-## Feature-to-Test Mapping
-
-Use this table to find the **smallest test set** that proves your change works.
-
-| Modified Area | Unit Test (run_tests) | Integration Test (case_test.sh) | Notes |
-|---|---|---|---|
-| `src/common/` | All unit tests | Not needed | Common utilities affect everything |
-| `src/common/utils/huffman/` | huffman_test | Not needed | |
-| `src/common/utils/vint/` | vint_test | Not needed | |
-| `src/common/utils/ringarray/` | ring_array_test | Not needed | |
-| `src/common/utils/ringmem/` | ring_mem_test | Not needed | |
-| `src/common/utils/2d_hash/` | 2d_hash_table_test | Not needed | |
-| `src/transport/xqc_conn.c` | conn_test | Full case_test.sh | Connection is core path |
-| `src/transport/xqc_engine.c` | engine_test | Full case_test.sh | Engine is core path |
-| `src/transport/xqc_stream.c` | stream_frame_test | case_test.sh | |
-| `src/transport/xqc_packet*.c` | packet_test | case_test.sh | |
-| `src/transport/xqc_frame*.c` | process_frame_test, frame_type_bit_test | case_test.sh | |
-| `src/transport/xqc_send_ctl.c` | send_ctl_test | case_test.sh | |
-| `src/transport/xqc_recv_record.c` | recv_record_test | Not needed | |
-| `src/transport/xqc_cid.c` | cid_test | Not needed | |
-| `src/transport/xqc_transport_params.c` | tp_test | Not needed | |
-| `src/transport/xqc_datagram.c` | datagram_test | case_test.sh (datagram cases) | |
-| `src/transport/xqc_multipath.c` | N/A | case_test.sh (multipath cases) | |
-| `src/transport/scheduler/` | N/A | case_test.sh (multipath cases) | |
-| `src/transport/fec_schemes/` | fec_test, fec_scheme_test, galois_test | Not needed | Requires `-DXQC_ENABLE_FEC=1` |
-| `src/congestion_control/xqc_cubic.c` | cubic_test | case_test.sh | |
-| `src/congestion_control/xqc_new_reno.c` | reno_test | case_test.sh | Requires `-DXQC_ENABLE_RENO=1` |
-| `src/congestion_control/xqc_bbr*.c` | N/A (no dedicated unit test) | case_test.sh | |
-| `src/tls/` | tls_test, crypto_test | case_test.sh | |
-| `src/tls/boringssl/` | tls_test, crypto_test | case_test.sh | Only when SSL_TYPE=boringssl |
-| `src/tls/babassl/` | tls_test, crypto_test | case_test.sh | Only when SSL_TYPE=babassl |
-| `src/http3/` | h3_test, h3_ext_test | case_test.sh | |
-| `src/http3/qpack/` | qpack_test, encoder_test, prefixed_str_test | Not needed | |
-| `src/http3/qpack/stable/` | stable_test | Not needed | |
-| `src/http3/qpack/dtable/` | dtable_test | Not needed | |
-| `include/xquic/*.h` | Full run_tests | Full case_test.sh | API changes affect everything |
-| `CMakeLists.txt` | Full rebuild + run_tests | Full case_test.sh | |
 
 ---
 
@@ -118,29 +79,16 @@ grep "\[error\]" clog slog      # error logs (should be empty)
 killall test_server 2>/dev/null
 ```
 
-Common case test flags (`-x <N>`):
-
-| Flag | Test | Key Settings |
-|------|------|-------------|
-| `-x 40` | Key update | `keyupdate_pkt_threshold=30`, needs `-s 102400` |
-| `-x 42` | Max packet out size | `max_pkt_out_size=1400` |
-| `-x 44` | Log switch off | Verifies logging can be disabled |
-| `-x 46` | Server refuse | Tests connection refusal |
-
-### Adding a New Case Test
-
-For step-by-step instructions on adding a new `-x <N>` integration test case (modifying `test_client.c`, `test_server.c`, and `case_test.sh`), see `tests/CLAUDE.md` section "Adding a New Integration Test".
-
 ### Quick Validation (rebuild + unit tests)
 
 ```bash
-cd build && make -j && ./tests/run_tests
+bash scripts/xqc_validate.sh --quick
 ```
 
 ### Full Validation (rebuild + unit + integration)
 
 ```bash
-cd build && make -j && ./tests/run_tests && sh ../scripts/case_test.sh
+bash scripts/xqc_validate.sh --all
 ```
 
 ---
@@ -184,17 +132,3 @@ cd build && make -j && ./tests/run_tests && sh ../scripts/case_test.sh
 | Script | Scope | Notes |
 |--------|-------|-------|
 | `sh scripts/xquic_test.sh` | Build both SSL backends + unit + case + gcov | Linux CI only. Uses `yum`. Not for local macOS. |
-
----
-
-## Validation Report Template
-
-After validation, summarize:
-
-```text
-Validation:
-- Needed: yes/no, because <reason>
-- Build: <command or skipped reason>
-- Tests: <commands or skipped reason>
-- Result: <pass/fail/blocker with evidence>
-```

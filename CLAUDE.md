@@ -20,7 +20,7 @@ Test-stage status:
 - Final evidence: <what proof must be reported at completion>
 ```
 
-For test/build work, derive validation and diagnosis from `docs_ai/validation_guide.md` and `docs_ai/testing/test_guide.md`. For code or bug-fix work, also consult `AGENTS.md`, `docs_ai/dev_pipeline.md`, `docs_ai/bugfix_pipeline.md`, `docs_ai/code_map.md`, `docs_ai/change_map.md`, and `docs_ai/behavior_specs.md` as applicable.
+For test/build work, use `/validate` for automated validation. For diagnostics details, see `docs_ai/testing/test_guide.md`. For code or bug-fix work, also consult `AGENTS.md`, `docs_ai/dev_pipeline.md`, `docs_ai/bugfix_pipeline.md`, `docs_ai/code_map.md`, `docs_ai/change_map.md`, and `docs_ai/behavior_specs.md` as applicable.
 
 ## Project Structure
 
@@ -100,7 +100,7 @@ Project-specific rules:
 1. **Naming**: Use `snake_case` with `xqc_` prefix. Comments explain "why", not "what".
 2. **Code-doc sync**: When modifying a module, update corresponding docs (see `docs_ai/auto_doc_lookup.md`). When changing public APIs, update `include/xquic/` header docs. When adding new files, update `docs_ai/codebase_index.md`.
 3. **Documentation minimalism**: Follow `docs_ai/doc_style_guide.md`. Keep generated comments/docs short, source-backed, non-duplicative, and focused on durable constraints.
-4. **Testing**: Non-trivial changes must include tests and pass before completion. Use `/validate` to auto-detect changed files, build, and run the minimal test set. For adding new tests, see `tests/CLAUDE.md`; for the full feature-to-test mapping, see `docs_ai/testing/test_guide.md`.
+4. **Testing**: Non-trivial changes must include tests and pass before completion. Use `/validate` to auto-detect changed files, build, and run the minimal test set. For adding new unit tests, see `tests/CLAUDE.md`.
 
 ## Reference Documents
 

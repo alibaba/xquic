@@ -12,7 +12,7 @@ description: Address actionable GitHub pull request review comments for xquic. U
 3. For actionable items, inspect the surrounding source and caller path before editing.
 4. Apply the smallest edits needed to satisfy the comment. Keep unrelated files and user-owned changes untouched.
 5. Re-read the modified path and verify the reviewer concern is actually handled.
-6. Run the smallest relevant validation when the edit affects code, build, or tests.
+6. Run `/validate` when the edit affects code, build, or tests.
 7. Summarize each comment with status: fixed, already addressed, needs user decision, or cannot verify.
 
 ## Guardrails

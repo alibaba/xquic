@@ -2,7 +2,7 @@
 
 > Complete pipeline for code changes. Referenced by `AGENTS.md`.
 
-All code changes MUST follow this pipeline. Validation scope is selected from `docs_ai/validation_guide.md` based on the actual change and user request.
+All code changes MUST follow this pipeline. Use `/validate` for automated validation (change detection, build, unit tests, integration tests).
 
 ```
 Requirement Analysis -> Code Implementation -> Documentation Maintenance -> Validation Decision -> Complete
@@ -59,9 +59,8 @@ After updating documentation, verify consistency:
 
 ## Stage 4: Validation Decision
 
-Use `docs_ai/validation_guide.md` to decide whether build/test execution is needed.
+Use `/validate` to auto-detect changed files, determine the minimal test scope, and run build + tests.
 
-- If validation is needed, run the smallest correct build/test set from the guide.
 - If validation is skipped, state the reason.
 - If validation cannot run, state the blocker and the closest completed check.
 

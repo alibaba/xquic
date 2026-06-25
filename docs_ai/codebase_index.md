@@ -274,6 +274,7 @@ mini/
 
 ```
 scripts/
+  xqc_validate.sh            # Deterministic validation backbone (--detect, --build, --unit, --integration, --quick, --all)
   xquic_test.sh             # Full CI test runner (build both SSL backends + unit/case tests + gcov)
   case_test.sh               # Integration test cases (client-server interaction scenarios)
   xquic.lds                  # Linux linker version script (symbol visibility)
@@ -291,8 +292,8 @@ docs_ai/
   doc_style_guide.md        # Minimalist rules for generated comments and documentation
   dev_pipeline.md           # Required pipeline for code changes
   bugfix_pipeline.md        # Required pipeline for bug diagnosis and fixes
-  validation_guide.md       # Build/test validation policy entry point
-  testing/test_guide.md     # Test mapping, exact commands, pass criteria, diagnostics
+  validation_guide.md       # Validation stub (points to /validate skill)
+  testing/test_guide.md     # Test architecture, commands, pass criteria, diagnostics
   code_map.md               # Agent-facing module map and first files to inspect
   change_map.md             # Change-family read/update/validation obligations
   behavior_specs.md         # Behavior contracts, invariants, lifecycle, and feature semantics

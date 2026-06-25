@@ -83,7 +83,7 @@ Decision:
 - `AGENTS.md` is the first file for each session.
 - Code changes use `docs_ai/dev_pipeline.md`.
 - Bug fixes use `docs_ai/bugfix_pipeline.md`.
-- Build/test work uses `docs_ai/validation_guide.md`.
+- Build/test work uses `/validate` skill.
 - Long-running goals use `scripts/goal.sh`.
 
 Consequences:
@@ -128,32 +128,34 @@ Evidence:
 - `docs_ai/behavior_specs.md`
 - `docs_ai/decision_records.md`
 
-### ADR-0004: Use `docs_ai/validation_guide.md` as the validation policy entry point
+### ADR-0004: Use `/validate` skill as the validation entry point
 
-Status: Accepted
+Status: Accepted (supersedes original ADR-0004)
 
 Date: 2026-06-25
 
 Context:
-- Multiple docs referenced `docs_ai/validation_guide.md`, but detailed test mapping lived in `docs_ai/testing/test_guide.md`.
-- Agents need one stable validation-policy entry point while preserving detailed test commands in the testing guide.
+- Original ADR-0004 established `docs_ai/validation_guide.md` as the validation policy entry point, with test mapping in `docs_ai/testing/test_guide.md`.
+- This created scattered knowledge: the AI had to read multiple docs, guess test scope, and construct commands manually.
 
 Decision:
-- Add `docs_ai/validation_guide.md` as the build/test validation policy entry point.
-- Keep detailed unit/integration command mapping in `docs_ai/testing/test_guide.md`.
-- Pipelines and `AGENTS.md` should route validation decisions through `docs_ai/validation_guide.md`.
+- Replace the doc-based validation approach with a two-layer `/validate` skill: deterministic shell script (`scripts/xqc_validate.sh`) for repeatable operations + AI skill (`.claude/skills/validate/SKILL.md`) for dynamic scope decisions.
+- `docs_ai/validation_guide.md` becomes a stub pointing to `/validate`.
+- `docs_ai/testing/test_guide.md` retains test architecture, commands, and diagnostics only (feature-to-test mapping moved to the skill).
+- All pipelines, skills, and docs route validation through `/validate`.
 
 Consequences:
-- Existing references become valid.
-- The test guide remains focused on command details and diagnostics.
+- Change detection, module mapping, and test scope are deterministic and repeatable.
+- The AI focuses on targeted e2e test selection rather than reconstructing the full workflow each time.
+- `docs_ai/validation_guide.md` is retained for backwards compatibility but is a stub.
 
 Update triggers:
-- Revisit if validation mapping is generated automatically or if build/test policy moves elsewhere.
+- Revisit if the shell script's file-to-module mapping becomes stale or if CI integrates the script directly.
 
 Evidence:
-- `AGENTS.md`
-- `docs_ai/testing/test_guide.md`
-- `docs_ai/validation_guide.md`
+- `scripts/xqc_validate.sh`
+- `.claude/skills/validate/SKILL.md`
+- `docs_ai/validation_guide.md` (stub)
 
 ### ADR-0005: Preserve SSL backend isolation
 

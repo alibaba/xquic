@@ -377,32 +377,24 @@ CI `build-ubuntu` runs TWO test phases sequentially:
 
 #### 4.5.3a Local Case Test Reproduction
 
-When CI case tests fail, reproduce locally:
+When CI case tests fail, reproduce locally using `/validate`:
 
 ```bash
-cd <worktree>/build
-export EVENT_NOKQUEUE=1  # Required on macOS
+# Full local validation (in worktree)
+cd <worktree> && bash scripts/xqc_validate.sh --all
 
-rm -rf tp_localhost test_session xqc_token clog slog
-killall test_server test_client 2>/dev/null
+# Or targeted: just build + unit tests
+bash scripts/xqc_validate.sh --quick
 
-tests/test_server -l d -e > /dev/null 2>&1 &
-sleep 2
-
->clog && >slog
-tests/test_client -s 102400 -l d -E -x 40 >> clog 2>&1
-
-grep ">>>>>>>> pass" clog           # must show "pass:1"
-grep "key phase changed to" slog    # must be non-empty
-grep "key phase changed to" clog    # must be non-empty
-grep "\[error\]" clog slog          # must be empty
+# Or just integration tests
+bash scripts/xqc_validate.sh --integration
 ```
 
-For 0-RTT variant: run the same test twice consecutively.
+For running individual case tests, see `.claude/skills/validate/SKILL.md` (E2E Case Catalog and targeted test template).
 
 macOS limitations:
 - macOS CI only runs build, NOT case tests.
-- Set `EVENT_NOKQUEUE=1` locally.
+- `xqc_validate.sh` auto-sets `EVENT_NOKQUEUE=1` on macOS.
 - The definitive test environment is Ubuntu.
 
 #### 4.5.4 CI Verification Checklist

@@ -46,7 +46,7 @@ Use the narrowest durable doc:
 | What changes require reading/updating/testing | `docs_ai/change_map.md` |
 | Behavior or invariant to preserve | `docs_ai/behavior_specs.md` |
 | Why a design choice was made | `docs_ai/decision_records.md` |
-| Build/test command policy | `docs_ai/validation_guide.md` or `docs_ai/testing/test_guide.md` |
+| Build/test validation | `/validate` skill; diagnostics in `docs_ai/testing/test_guide.md` |
 | Full file inventory | `docs_ai/codebase_index.md` |
 
 Size targets:

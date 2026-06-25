@@ -9,8 +9,8 @@
 | **Goal (long task)** | `/goal <desc>`, "background task" | `scripts/goal.sh "<description>"` |
 | **Code change** | "Add feature X", "Refactor Y" | `docs_ai/dev_pipeline.md` |
 | **Bug fix** | "Fix bug in Y", "Unit test X fails" | `docs_ai/bugfix_pipeline.md` |
-| **Test execution** | "Run tests", "Verify X works" | `docs_ai/validation_guide.md` |
-| **Build** | "Build the project", "Rebuild with flag" | `docs_ai/validation_guide.md` |
+| **Test execution** | "Run tests", "Verify X works" | `/validate` skill |
+| **Build** | "Build the project", "Rebuild with flag" | `/validate` skill |
 | **Query / Analysis** | "How does X work?", "Explain this module" | Read the relevant code and docs. No workflow document is required unless the task becomes a code/build/test change. |
 
 ## Git Branch Policy
@@ -26,7 +26,7 @@
 3. **Code-doc sync**: When modifying any module, update corresponding docs using `docs_ai/auto_doc_lookup.md` for mapping. When changing public APIs, update the interface documentation. When adding new files, update `docs_ai/codebase_index.md`.
 4. **Evidence-based reasoning**: Read the relevant code path before claiming behavior or applying a fix. For bugs, confirm the cause in source before editing. If multiple causes are possible, inspect each plausible path. If a fix fails, re-read the code before adding another fix.
 5. **Post-modification verification**: After every code or documentation change, re-read the modified path and verify the change is logically consistent with the requirement and adjacent code. Each pipeline document contains specific verification checklists at modification stages -- follow them before advancing to build/test.
-6. **Validation mapping**: Codex decides whether build/test execution is needed for the task. When build/test execution is needed or requested, follow `docs_ai/validation_guide.md` for the commands, forbidden scripts, and smallest correct test mapping.
+6. **Validation mapping**: Codex decides whether build/test execution is needed for the task. When build/test execution is needed or requested, use `/validate` for automated change detection, build, and test execution.
 7. **AI knowledge-base upkeep**: For code changes, inspect `docs_ai/code_map.md`, `docs_ai/change_map.md`, `docs_ai/behavior_specs.md`, and `docs_ai/decision_records.md`. Update them when the module map, change obligations, behavior contract, or design rationale changes. Do not leave stale guidance for future agents.
 8. **Documentation minimalism**: Follow `docs_ai/doc_style_guide.md` for all comments and docs. Prefer source-backed, non-duplicative, durable facts. Remove redundant generated prose before finishing.
 
@@ -49,8 +49,8 @@ If any required context is uncertain after compaction, follow **Pipeline-first e
 |-------|----------|
 | **Development pipeline** | **`docs_ai/dev_pipeline.md`** |
 | **Bug fix pipeline** | **`docs_ai/bugfix_pipeline.md`** |
-| **Build/test validation policy** | **`docs_ai/validation_guide.md`** |
-| **Test guide (mapping, execution)** | **`docs_ai/testing/test_guide.md`** |
+| **Build/test validation** | **`/validate` skill** (`.claude/skills/validate/SKILL.md` + `scripts/xqc_validate.sh`) |
+| **Test architecture & diagnostics** | **`docs_ai/testing/test_guide.md`** |
 | Agent workflow notes | `docs_ai/agent_guide.md` |
 | Agent documentation style | `docs_ai/doc_style_guide.md` |
 | AI code map | `docs_ai/code_map.md` |

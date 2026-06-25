@@ -1,6 +1,6 @@
 # Agent Workflow Notes
 
-> Non-global operational guidance for agents. Global constraints remain in `AGENTS.md`; pipeline-specific rules remain in `docs_ai/dev_pipeline.md`, `docs_ai/bugfix_pipeline.md`, and `docs_ai/validation_guide.md`.
+> Non-global operational guidance for agents. Global constraints remain in `AGENTS.md`; pipeline-specific rules remain in `docs_ai/dev_pipeline.md` and `docs_ai/bugfix_pipeline.md`. Validation uses `/validate` skill.
 
 ## Scope
 
@@ -13,7 +13,7 @@ Use this flow when a task spans multiple files, has uncertain behavior, or could
 1. **Explore**: Read `AGENTS.md`, classify the task, read the required entry-point doc, inspect relevant source/tests/docs, and summarize findings.
 2. **Plan**: State the intended files, behavior change, risks, and verification command(s). For user-facing or high-risk changes, wait for confirmation if the user asked for planning first.
 3. **Implement**: Keep edits scoped to the task and follow existing project patterns.
-4. **Verify**: Use `docs_ai/validation_guide.md` to decide and run the smallest needed build/test workflow. If verification cannot be run, state why and provide the closest safe evidence.
+4. **Verify**: Use `/validate` to auto-detect and run the smallest needed build/test workflow. If verification cannot be run, state why and provide the closest safe evidence.
 5. **Report**: Summarize changed files, behavior impact, docs updated, and exact verification result.
 
 For simple query/analysis tasks, answer from inspected code/docs and cite the concrete files or symbols used.

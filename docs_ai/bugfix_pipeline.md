@@ -2,7 +2,7 @@
 
 > Complete pipeline for diagnosing and fixing bugs. Referenced by `AGENTS.md`.
 
-All bug fixes MUST follow this pipeline. Validation scope is selected from `docs_ai/validation_guide.md` based on the failing path, fix scope, and user request.
+All bug fixes MUST follow this pipeline. Use `/validate` for automated validation (change detection, build, unit tests, integration tests).
 
 ```
 Bug Report -> Root Cause Analysis -> Fix Implementation -> Validation Decision -> Fix Summary -> Complete
@@ -73,15 +73,7 @@ Does an existing unit test cover the fixed code path?
 
 ### Where to Add Tests
 
-| Fixed Area | Test Location | Binary / Command |
-|-----------|---------------|------------------|
-| `src/common/*` | `tests/unittest/xqc_*_test.c` or `tests/unittest/utils/*` | `./tests/run_tests` |
-| `src/transport/*` | `tests/unittest/xqc_*_test.c` plus integration cases when runtime behavior changes | `./tests/run_tests` and/or `sh ../scripts/case_test.sh` |
-| `src/transport/fec_schemes/*` | `tests/unittest/xqc_fec*_test.c`, `xqc_galois_test.c` | FEC-enabled `./tests/run_tests` |
-| `src/congestion_control/*` | `tests/unittest/xqc_cubic_test.c`, `xqc_reno_test.c`, or integration coverage for algorithms without unit tests | `./tests/run_tests` and/or `sh ../scripts/case_test.sh` |
-| `src/tls/*` | `tests/unittest/xqc_tls_test.c`, `xqc_crypto_test.c` | `./tests/run_tests`; add `case_test.sh` for handshake behavior |
-| `src/http3/*` | `tests/unittest/xqc_h3*_test.c`, QPACK tests for compression paths | `./tests/run_tests` and/or `sh ../scripts/case_test.sh` |
-| Public headers | Matching unit/integration tests plus API usage in demos/tests if needed | Full `./tests/run_tests` and `sh ../scripts/case_test.sh` |
+For unit tests, see `tests/CLAUDE.md`. For the file-to-module mapping and integration test case catalog, use `/validate --detect` or see `.claude/skills/validate/SKILL.md`.
 
 ### Post-Modification Verification
 
@@ -96,7 +88,7 @@ After completing the fix and any associated test changes, verify the modificatio
 
 ## Stage 4: Validation Decision
 
-Use `docs_ai/validation_guide.md` to select the smallest build/test set that proves the fix.
+Use `/validate` to auto-detect changed files and run the minimal build/test set that proves the fix.
 
 - Prefer the unit test that covers the original failing path.
 - Add targeted E2E only when the fixed behavior is runtime/protocol behavior not proven by unit tests.

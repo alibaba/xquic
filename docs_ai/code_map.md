@@ -295,5 +295,5 @@ Primary files:
 - `scripts/goal.sh` -- long-running task launcher referenced by `AGENTS.md`.
 
 First files to inspect:
-- Test mapping and commands: `docs_ai/validation_guide.md`, `docs_ai/testing/test_guide.md`.
-- Adding an integration case: `tests/CLAUDE.md`, `tests/test_client.c`, `tests/test_server.c`, `scripts/case_test.sh`.
+- Test mapping and validation: `/validate` skill; diagnostics in `docs_ai/testing/test_guide.md`.
+- Adding tests: `tests/CLAUDE.md`; integration case catalog in `.claude/skills/validate/SKILL.md`.

@@ -1,6 +1,8 @@
 # tests/ -- Test Code
 
-> Module-level conventions for Claude Code. For test commands, mapping, and validation, see `docs_ai/testing/test_guide.md`.
+> Module-level conventions for Claude Code. For automated validation, use `/validate`.
+> For test commands, pass criteria, and diagnostics, see `docs_ai/testing/test_guide.md`.
+> For integration test case catalog and e2e test templates, see `.claude/skills/validate/SKILL.md`.
 
 ## Test Categories
 
@@ -14,7 +16,7 @@
 ### Integration Tests (test_client.c / test_server.c)
 - Full QUIC client/server using libevent for I/O
 - Driven by `scripts/case_test.sh` which starts server, runs client scenarios, checks results
-- Uses command-line flags for test case selection
+- Uses command-line flags (`-x <N>`) for test case selection
 
 ## Adding a New Unit Test
 
@@ -22,57 +24,6 @@
 2. Define test functions: `void xqc_test_<name>_<case>(void)`
 3. Register suite in `unittest/main.c`: `CU_add_suite()` + `CU_add_test()`
 4. Add source file to `CMakeLists.txt` under the `run_tests` target
-5. Update `docs_ai/testing/test_guide.md`
-
-## Adding a New Integration Test (case_test.sh)
-
-Integration tests use a global `g_test_case` variable (set by `-x <N>`) to branch behavior in `test_client.c` and `test_server.c`.
-
-### Steps
-
-1. **Choose a case ID**: Pick an unused `-x <N>` number. Check existing IDs in `scripts/case_test.sh` (grep for `-x`). Convention: transport 1-99, multipath 100-199, datagram 200-299, bytestream 300-399, FEC 400+, 0-RTT 700+.
-
-2. **Add client-side behavior** in `test_client.c`:
-   - Branch on `g_test_case == <N>` in the appropriate callback (e.g. `xqc_client_conn_create_notify`, `xqc_client_stream_write_notify`, `xqc_client_request_write_notify`).
-   - Trigger the feature or error condition under test.
-
-3. **Add server-side behavior** in `test_server.c` (if needed):
-   - Branch on `g_test_case == <N>` in the appropriate server callback.
-   - Server may also need `-x <N>` to start with a specific mode (e.g. `-x 99` for pure-fin mode, `-x 17` for server-initiated streams).
-
-4. **Add verification block** in `scripts/case_test.sh`:
-   ```bash
-   clear_log
-   echo -e "<description> ...\c"
-   ${CLIENT_BIN} -s <size> -l d -t 1 -E -x <N> >> clog
-   errlog=`grep_err_log`
-   clog_res=`grep "<expected_pattern>" clog`
-   slog_res=`grep "<expected_pattern>" slog`
-   if [ -z "$errlog" ] && [ -n "$clog_res" ] && [ -n "$slog_res" ]; then
-       echo ">>>>>>>> pass:1"
-       case_print_result "<test_name>" "pass"
-   else
-       echo ">>>>>>>> pass:0"
-       case_print_result "<test_name>" "fail"
-   fi
-   ```
-
-5. **If the server needs a different mode**: restart server before the block:
-   ```bash
-   killall test_server 2> /dev/null
-   ${SERVER_BIN} -l d -e -x <server_mode> > /dev/null &
-   sleep 1
-   ```
-
-6. **Update `docs_ai/testing/test_guide.md`**: add the new case to the feature-to-test mapping table.
-
-### Verification block conventions
-
-- Use `grep_err_log` to check for `[error]` in both clog and slog.
-- Use `case_print_result "<test_name>" "pass"/"fail"` for structured output.
-- Use `clear_log` before each case to reset log files.
-- For 0-RTT tests: run client twice, second run reuses session ticket.
-- Clean up session state with `rm -f test_session tp_localhost xqc_token` between unrelated cases.
 
 ## Conventions
 

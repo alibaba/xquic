@@ -656,8 +656,8 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
         conn->key_update_ctx.enc_pkt_cnt++;
 
         if (conn->key_update_ctx.enc_pkt_cnt > conn->conn_settings.keyupdate_pkt_threshold
-            && conn->key_update_ctx.first_sent_pktno <=
-                conn->conn_initial_path->path_send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA]
+            && xqc_key_update_acked(&conn->key_update_ctx,
+                   conn->conn_initial_path->path_send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA])
             && xqc_monotonic_timestamp() > conn->key_update_ctx.initiate_time_guard)
         {
             ret = xqc_tls_update_1rtt_keys(conn->tls, XQC_KEY_TYPE_RX_READ);
@@ -675,9 +675,8 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
             /*
              * RFC 9001 §6.1: Initiator MUST NOT initiate a subsequent key update
              * until it receives an ACK for a packet sent with the new key phase.
-             * This is enforced by the first_sent_pktno <= ctl_largest_acked check
-             * in the key update trigger condition (line 660 above).
-             * Mark as initiator so ACK processing can log confirmation.
+             * Enforced by xqc_key_update_acked() in the trigger condition above.
+             * Mark as initiator so ACK processing can clear the flag on confirmation.
              */
             conn->key_update_ctx.key_update_initiator = XQC_TRUE;
 

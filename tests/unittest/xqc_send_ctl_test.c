@@ -622,8 +622,8 @@ xqc_test_key_update_initiator_confirmation(void)
     /* Mirror the confirmation check logic in xqc_send_ctl_on_ack_received */
     xqc_pkt_num_space_t pns = XQC_PNS_APP_DATA;
     if (conn->key_update_ctx.key_update_initiator
-        && send_ctl->ctl_largest_acked[pns] != XQC_MAX_UINT64_VALUE
-        && send_ctl->ctl_largest_acked[pns] >= conn->key_update_ctx.first_sent_pktno)
+        && xqc_key_update_acked(&conn->key_update_ctx,
+                                send_ctl->ctl_largest_acked[pns]))
     {
         conn->key_update_ctx.key_update_initiator = XQC_FALSE;
     }
@@ -631,10 +631,9 @@ xqc_test_key_update_initiator_confirmation(void)
     /* Still pending: 99 < 100 */
     CU_ASSERT_EQUAL(conn->key_update_ctx.key_update_initiator, XQC_TRUE);
 
-    /* Verify the next key update trigger is blocked:
-     * condition: first_sent_pktno <= ctl_largest_acked must be FALSE */
-    CU_ASSERT(!(conn->key_update_ctx.first_sent_pktno
-                <= send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA]));
+    /* Verify the next key update trigger is blocked */
+    CU_ASSERT(!xqc_key_update_acked(&conn->key_update_ctx,
+                                    send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA]));
 
     /*
      * Case 2: ACK with largest_acked = 100 (== first_sent_pktno).
@@ -644,8 +643,8 @@ xqc_test_key_update_initiator_confirmation(void)
     send_ctl->ctl_largest_acked[pns] = 100;
 
     if (conn->key_update_ctx.key_update_initiator
-        && send_ctl->ctl_largest_acked[pns] != XQC_MAX_UINT64_VALUE
-        && send_ctl->ctl_largest_acked[pns] >= conn->key_update_ctx.first_sent_pktno)
+        && xqc_key_update_acked(&conn->key_update_ctx,
+                                send_ctl->ctl_largest_acked[pns]))
     {
         conn->key_update_ctx.key_update_initiator = XQC_FALSE;
     }
@@ -653,10 +652,9 @@ xqc_test_key_update_initiator_confirmation(void)
     /* Confirmed: 100 >= 100, initiator cleared */
     CU_ASSERT_EQUAL(conn->key_update_ctx.key_update_initiator, XQC_FALSE);
 
-    /* Verify the next key update trigger is now unblocked:
-     * condition: first_sent_pktno <= ctl_largest_acked must be TRUE */
-    CU_ASSERT(conn->key_update_ctx.first_sent_pktno
-              <= send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA]);
+    /* Verify the next key update trigger is now unblocked */
+    CU_ASSERT(xqc_key_update_acked(&conn->key_update_ctx,
+                                   send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA]));
 
     /*
      * Case 3: Verify idempotency — once cleared, re-running the check
@@ -665,8 +663,8 @@ xqc_test_key_update_initiator_confirmation(void)
     send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA] = 200;
 
     if (conn->key_update_ctx.key_update_initiator
-        && send_ctl->ctl_largest_acked[pns] != XQC_MAX_UINT64_VALUE
-        && send_ctl->ctl_largest_acked[pns] >= conn->key_update_ctx.first_sent_pktno)
+        && xqc_key_update_acked(&conn->key_update_ctx,
+                                send_ctl->ctl_largest_acked[pns]))
     {
         conn->key_update_ctx.key_update_initiator = XQC_FALSE;
     }

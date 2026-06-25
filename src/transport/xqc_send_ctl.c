@@ -959,17 +959,15 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
     }
 
     /*
-     * RFC 9001 §6.1: Key update confirmation for the initiator.
-     * The initiator considers the key update confirmed once the peer ACKs a
-     * packet sent with the new key phase.  The practical enforcement is that
-     * the next key update cannot be initiated until first_sent_pktno <=
-     * ctl_largest_acked (checked at the trigger site in xqc_packet_parser.c).
-     * Here we just log the event and clear the initiator flag.
+     * RFC 9001 §6.1: Once the peer ACKs a packet from the new key phase,
+     * the key update is confirmed and the initiator may start a new one.
+     * Clear the flag here; the trigger site uses xqc_key_update_acked()
+     * to gate the next initiation.
      */
     if (pns == XQC_PNS_APP_DATA
         && conn->key_update_ctx.key_update_initiator
-        && send_ctl->ctl_largest_acked[pns] != XQC_MAX_UINT64_VALUE
-        && send_ctl->ctl_largest_acked[pns] >= conn->key_update_ctx.first_sent_pktno)
+        && xqc_key_update_acked(&conn->key_update_ctx,
+                                send_ctl->ctl_largest_acked[pns]))
     {
         conn->key_update_ctx.key_update_initiator = XQC_FALSE;
         xqc_log(conn->log, XQC_LOG_DEBUG,

@@ -311,6 +311,20 @@ typedef struct {
 
 } xqc_key_update_ctx_t;
 
+/**
+ * RFC 9001 §6.1: the peer has ACKed at least one packet sent under the
+ * current key phase.  Until this returns TRUE the initiator MUST NOT
+ * start a subsequent key update — otherwise the peer may not have the
+ * new keys yet and would fail to decrypt.
+ */
+static inline xqc_bool_t
+xqc_key_update_acked(const xqc_key_update_ctx_t *ctx,
+                     xqc_packet_number_t largest_acked)
+{
+    return largest_acked != XQC_MAX_UINT64_VALUE
+        && largest_acked >= ctx->first_sent_pktno;
+}
+
 typedef struct xqc_ping_record_s {
     xqc_list_head_t list;
     uint8_t         notified;

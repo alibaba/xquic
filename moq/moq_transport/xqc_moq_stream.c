@@ -55,7 +55,8 @@ xqc_moq_stream_destroy(xqc_moq_stream_t *stream)
     
     if (stream == session->datachannel.ordered_stream) {
         session->datachannel.ordered_stream = NULL;
-        if (quic_stream->stream_conn->conn_state <= XQC_CONN_STATE_ESTABED) {
+        session->datachannel.msg_header_write = 0;
+        if (!stream->cancel_write_close && quic_stream->stream_conn->conn_state <= XQC_CONN_STATE_ESTABED) {
             xqc_log(session->log, XQC_LOG_ERROR, "|datachannel stream closed|");
             xqc_moq_session_error(session, MOQ_INTERNAL_ERROR, "datachannel stream closed");
         }

@@ -66,6 +66,8 @@ int g_enable_catalog = -1;
 int g_reuse_video_subgroup_stream = 0;
 int g_multi_ns_mode = 0;
 int g_ns_callback_mode = 0;
+int g_server_cancel_write_before_group = -1;
+int g_server_cancel_write_done = 0;
 
 static void
 on_subscribe_namespace_callback(xqc_moq_user_session_t *user_session,
@@ -1157,6 +1159,16 @@ send_audio:
             printf("xqc_moq_write_audio_frame error\n");
             return;
         }
+        if (!g_server_cancel_write_done && g_server_cancel_write_before_group >= 0 && audio_frame.seq_num == 0) {
+            xqc_moq_group_filter_t filter = {
+                .type = XQC_MOQ_GROUP_FILTER_BEFORE,
+                .group_id = (uint64_t)g_server_cancel_write_before_group,
+            };
+            xqc_int_t cancel_ret = xqc_moq_track_cancel_write(user_conn->audio_track, &filter);
+            g_server_cancel_write_done = 1;
+            printf("demo_audio_cancel_write|before_group_id:%d|ret:%d|\n",
+                   g_server_cancel_write_before_group, cancel_ret);
+        }
     }
 
 reschedule:
@@ -1185,7 +1197,7 @@ int main(int argc, char *argv[])
     int server_port = TEST_PORT;
     xqc_cong_ctrl_callback_t cong_ctrl;
     cong_ctrl = xqc_bbr_cb;
-    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MVRoeUTCWmK:")) != -1) {
+    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MVRoeUTCWmK:Z:")) != -1) {
         switch (ch) {
         /* listen port */
         case 'p':
@@ -1289,6 +1301,10 @@ int main(int argc, char *argv[])
         case 'K':
             g_ns_callback_mode = atoi(optarg);
             printf("option namespace callback mode : %d\n", g_ns_callback_mode);
+            break;
+        case 'Z':
+            g_server_cancel_write_before_group = atoi(optarg);
+            printf("option server cancel write before group : %d\n", g_server_cancel_write_before_group);
             break;
         default:
             break;

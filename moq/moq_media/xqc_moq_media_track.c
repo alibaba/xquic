@@ -38,7 +38,7 @@ const xqc_moq_track_ops_t xqc_moq_media_track_ops = {
     .on_object           = xqc_moq_media_on_object,
 };
 
-static void xqc_moq_media_cancel_write(xqc_moq_session_t *session, xqc_moq_track_t *track);
+static xqc_int_t xqc_moq_media_cancel_write(xqc_moq_session_t *session, xqc_moq_track_t *track);
 static xqc_bool_t xqc_moq_media_maybe_cancel_write(xqc_moq_session_t *session, uint64_t subscribe_id,
     xqc_moq_track_t *track, xqc_moq_video_frame_t *video_frame);
 static xqc_bool_t xqc_moq_media_should_drop_write_location(xqc_moq_track_t *track,
@@ -138,6 +138,15 @@ xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
         object.group_id = track->cur_group_id;
     }
     object.object_id = track->cur_object_id++;
+    if (xqc_moq_media_should_drop_write_location(track, object.group_id, object.object_id)) {
+        xqc_log(session->log, XQC_LOG_INFO,
+                "|drop video frame by cancel write|track_name:%s|subscribe_id:%ui|group_id:%ui|object_id:%ui|",
+                track->track_info.track_name, subscribe_id, object.group_id, object.object_id);
+        if (need_free && buf) {
+            xqc_free(buf);
+        }
+        return XQC_OK;
+    }
     if (track->reuse_subgroup_stream) {
         if (track->cur_subgroup_group_id != object.group_id) {
             track->cur_subgroup_group_id = object.group_id;
@@ -246,11 +255,8 @@ xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     stream->fec_code_rate = session->fec_code_rate;
     stream->moq_frame_type |= (1 << MOQ_VIDEO_FRAME);
 
-    xqc_moq_stream_on_track_write(stream, track, object.group_id, object.object_id, video_frame->seq_num);
+    xqc_moq_track_on_write_stream(track, stream, object.group_id, object.object_id, video_frame->seq_num);
     stream->subgroup_id = object.subgroup_id;
-    if (!track->reuse_subgroup_stream || new_stream) {
-        xqc_list_add_tail(&stream->list_member, &media_track->write_stream_list);
-    }
 
     if (track->reuse_subgroup_stream) {
         if (new_stream) {
@@ -440,11 +446,8 @@ xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
         stream->write_stream_fin = 1;
     }
 
-    xqc_moq_stream_on_track_write(stream, track, object.group_id, object.object_id, audio_frame->seq_num);
+    xqc_moq_track_on_write_stream(track, stream, object.group_id, object.object_id, audio_frame->seq_num);
     stream->subgroup_id = object.subgroup_id;
-    if (!track->reuse_subgroup_stream || new_stream) {
-        xqc_list_add_tail(&stream->list_member, &media_track->write_stream_list);
-    }
 
     if (track->reuse_subgroup_stream) {
         if (new_stream) {
@@ -647,11 +650,8 @@ xqc_moq_write_raw_object(xqc_moq_session_t *session,
         stream->write_stream_fin = 1;
     }
 
-    xqc_moq_stream_on_track_write(stream, track, obj_msg.group_id, obj_msg.object_id, 0);
+    xqc_moq_track_on_write_stream(track, stream, obj_msg.group_id, obj_msg.object_id, 0);
     stream->subgroup_id = obj_msg.subgroup_id;
-    if (!track->reuse_subgroup_stream || new_stream) {
-        xqc_list_add_tail(&stream->list_member, &media_track->write_stream_list);
-    }
 
     if (track->reuse_subgroup_stream) {
         if (new_stream) {
@@ -677,7 +677,7 @@ xqc_moq_write_raw_object(xqc_moq_session_t *session,
     return XQC_OK;
 }
 
-static void
+static xqc_int_t
 xqc_moq_media_cancel_write(xqc_moq_session_t *session, xqc_moq_track_t *track)
 {
     xqc_list_head_t *pos, *next;
@@ -686,31 +686,46 @@ xqc_moq_media_cancel_write(xqc_moq_session_t *session, xqc_moq_track_t *track)
     xqc_moq_media_track_t *media_track = (xqc_moq_media_track_t*)track;
     uint64_t group_id = media_track->drop_group_id_before;
     uint64_t object_id = media_track->drop_object_id_before;
+    xqc_int_t ret = XQC_OK;
 
-    xqc_log(session->log, XQC_LOG_INFO, "|cancel stream before|track_name:%s|subscribe_id:%ui|group_id:%ui|object_id:%ui|",
-            track->track_info.track_name, track->subscribe_id, group_id, object_id);
+    if (session && session->log) {
+        xqc_log(session->log, XQC_LOG_INFO, "|cancel stream before|track_name:%s|subscribe_id:%ui|group_id:%ui|object_id:%ui|",
+                track->track_info.track_name, track->subscribe_id, group_id, object_id);
+    }
 
 search_from_head:
-    xqc_list_for_each_safe(pos, next, &media_track->write_stream_list) {
+    xqc_list_for_each_safe(pos, next, &track->write_stream_list) {
         stream = xqc_list_entry(pos, xqc_moq_stream_t, list_member);
-        quic_stream = stream->trans_ops.quic_stream(stream->trans_stream);
+        quic_stream = stream->trans_ops.quic_stream ? stream->trans_ops.quic_stream(stream->trans_stream) : NULL;
         if (stream->group_id < group_id
             || (stream->group_id == group_id && stream->object_id < object_id)) {
-            xqc_log(session->log, XQC_LOG_INFO, "|do cancel stream|group_id:%ui|object_id:%ui|send_state:%d|",
-                    stream->group_id, stream->object_id, quic_stream->stream_state_send);
+            if (session && session->log) {
+                xqc_log(session->log, XQC_LOG_INFO, "|do cancel stream|group_id:%ui|object_id:%ui|send_state:%d|",
+                        stream->group_id, stream->object_id, quic_stream ? quic_stream->stream_state_send : -1);
+            }
             xqc_list_del_init(&stream->list_member); /* Delete here or on moq stream destroy */
-            xqc_moq_stream_close(stream);
-            
+            if (track->subgroup_stream == stream) {
+                track->subgroup_stream = NULL;
+            }
+            xqc_int_t close_ret = xqc_moq_stream_close(stream);
+            if (close_ret < 0 && ret == XQC_OK) {
+                ret = close_ret;
+            }
+
             /* If the next node is deleted in xqc_moq_stream_close, search from head */
             if (next->next == next) {
-                xqc_log(session->log, XQC_LOG_WARN, "|next node deleted|group_id:%ui|object_id:%ui|send_state:%d|",
-                        stream->group_id, stream->object_id, quic_stream->stream_state_send);
+                if (session && session->log) {
+                    xqc_log(session->log, XQC_LOG_WARN, "|next node deleted|group_id:%ui|object_id:%ui|send_state:%d|",
+                            stream->group_id, stream->object_id, quic_stream ? quic_stream->stream_state_send : -1);
+                }
                 goto search_from_head;
             }
         } else {
             break;
         }
     }
+
+    return ret;
 }
 
 static const char *
@@ -786,7 +801,7 @@ xqc_moq_media_maybe_cancel_write(xqc_moq_session_t *session, uint64_t subscribe_
     xqc_moq_media_track_t *media_track = (xqc_moq_media_track_t*)track;
     xqc_moq_media_cancel_reason_t cancel_reason;
     
-    xqc_list_for_each_safe(pos, next, &media_track->write_stream_list) {
+    xqc_list_for_each_safe(pos, next, &track->write_stream_list) {
         stream = xqc_list_entry(pos, xqc_moq_stream_t, list_member);
         quic_stream = stream->trans_ops.quic_stream(stream->trans_stream);
         if (!xqc_moq_media_stream_should_cancel_write(track, stream, quic_stream, now, &cancel_reason)) {
@@ -945,9 +960,7 @@ xqc_moq_media_on_create(xqc_moq_track_t *track)
             break;
     }
 
-    xqc_init_list_head(&media_track->write_stream_list);
-
-    /* 
+    /*
     * if subscribed track, add dejitter module add init
     */
     if (track->track_role == XQC_MOQ_TRACK_FOR_SUB) {
@@ -989,7 +1002,8 @@ xqc_moq_media_should_drop_write_location(xqc_moq_track_t *track, uint64_t group_
 {
     xqc_moq_media_track_t *media_track = (xqc_moq_media_track_t*)track;
 
-    return group_id < media_track->drop_group_id_before
+    return xqc_moq_track_should_drop_write_object(track, group_id, object_id)
+           || group_id < media_track->drop_group_id_before
            || (group_id == media_track->drop_group_id_before
                && object_id < media_track->drop_object_id_before);
 }
@@ -1014,6 +1028,7 @@ xqc_moq_media_on_subscribe_update(xqc_moq_session_t *session, uint64_t subscribe
 {
     xqc_moq_media_track_t *media_track = (xqc_moq_media_track_t*)track;
     xqc_moq_media_advance_drop_location(media_track, update->start_group_id, update->start_object_id);
+    track->drop_write_group_id_before = xqc_max(track->drop_write_group_id_before, update->start_group_id);
     xqc_moq_media_cancel_write(session, track);
 
     if (track->track_info.track_type == XQC_MOQ_TRACK_VIDEO) {

@@ -44,7 +44,9 @@ typedef struct xqc_moq_track_s {
     xqc_moq_track_role_t                track_role;
     xqc_moq_stream_t                    *subgroup_stream;
     uint8_t                             reuse_subgroup_stream;  // whether to reuse the same stream for multiple objects
+    xqc_list_head_t                     write_stream_list;
     xqc_list_head_t                     recv_stream_list;
+    uint64_t                            drop_write_group_id_before;
     uint64_t                            drop_recv_group_id_before;
     uint8_t                             drop_recv_exact_group_id_valid;
     uint64_t                            drop_recv_exact_group_id;
@@ -67,6 +69,15 @@ void xqc_moq_track_copy_params(xqc_moq_selection_params_t *dst, xqc_moq_selectio
 void xqc_moq_track_free_params(xqc_moq_selection_params_t *params);
 
 void xqc_moq_track_set_params(xqc_moq_track_t *track, xqc_moq_selection_params_t *params);
+
+void xqc_moq_track_on_write_stream(xqc_moq_track_t *track, xqc_moq_stream_t *stream,
+    uint64_t group_id, uint64_t object_id, uint64_t seq_num);
+
+xqc_bool_t xqc_moq_track_should_drop_write_object(xqc_moq_track_t *track,
+    uint64_t group_id, uint64_t object_id);
+
+void xqc_moq_track_advance_write_location(xqc_moq_track_t *track,
+    uint64_t *group_id, uint64_t *object_id);
 
 void xqc_moq_track_on_recv_object(xqc_moq_track_t *track, xqc_moq_stream_t *stream,
     xqc_moq_object_t *object);

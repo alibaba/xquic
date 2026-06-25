@@ -33,6 +33,11 @@ xqc_moq_write_datachannel_unordered(xqc_moq_session_t *session, uint8_t *msg, si
     xqc_moq_object_stream_msg_t object;
     xqc_moq_track_t *track = session->datachannel.track_for_pub;
 
+    xqc_memzero(&object, sizeof(object));
+    object.group_id = track->cur_group_id;
+    object.object_id = track->cur_object_id++;
+    xqc_moq_track_advance_write_location(track, &object.group_id, &object.object_id);
+
     stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_UNI);
     if (stream == NULL) {
         xqc_log(session->log, XQC_LOG_ERROR, "|create moq stream error|");
@@ -46,14 +51,14 @@ xqc_moq_write_datachannel_unordered(xqc_moq_session_t *session, uint8_t *msg, si
     object.status = XQC_MOQ_OBJ_STATUS_NORMAL;
     object.payload = msg;
     object.payload_len = msg_len;
-    object.group_id = track->cur_group_id;
-    object.object_id = track->cur_object_id++;
 
     ret = xqc_moq_write_object_stream_msg(session, stream, &object);
     if (ret < 0) {
         xqc_log(session->log, XQC_LOG_ERROR, "|write_object_stream_msg error|ret:%d|", ret);
+        xqc_moq_stream_close(stream);
         return ret;
     }
+    xqc_moq_track_on_write_stream(track, stream, object.group_id, object.object_id, 0);
     return XQC_OK;
 }
 
@@ -66,6 +71,7 @@ xqc_moq_write_datachannel(xqc_moq_session_t *session, uint8_t *msg, size_t msg_l
     xqc_moq_stream_header_track_msg_t track_header;
     xqc_moq_track_stream_obj_msg_t obj;
     xqc_moq_track_t *track = session->datachannel.track_for_pub;
+    xqc_int_t new_stream = 0;
 
     if (session->datachannel.ready == 0) {
         return -XQC_ESTREAM_ST;
@@ -81,6 +87,11 @@ xqc_moq_write_datachannel(xqc_moq_session_t *session, uint8_t *msg, size_t msg_l
         return xqc_moq_send_datachannel_msg(session, track, msg, msg_len);
     }
 
+    xqc_memzero(&obj, sizeof(obj));
+    obj.group_id = track->cur_group_id;
+    obj.object_id = track->cur_object_id++;
+    xqc_moq_track_advance_write_location(track, &obj.group_id, &obj.object_id);
+
     stream = session->datachannel.ordered_stream;
     if (stream == NULL) {
         stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_UNI);
@@ -93,6 +104,7 @@ xqc_moq_write_datachannel(xqc_moq_session_t *session, uint8_t *msg, size_t msg_l
         xqc_stream_set_priority(quic_stream, XQC_STREAM_PRI_HIGH);
         
         session->datachannel.ordered_stream = stream;
+        new_stream = 1;
     }
 
     track_header.subscribe_id = session->datachannel.peer_subscribe_id;
@@ -102,22 +114,31 @@ xqc_moq_write_datachannel(xqc_moq_session_t *session, uint8_t *msg, size_t msg_l
         ret = xqc_moq_write_stream_header_track_msg(session, stream, &track_header);
         if (ret < 0) {
             xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_write_stream_header_track_msg error|ret:%d|", ret);
+            if (new_stream) {
+                session->datachannel.ordered_stream = NULL;
+                session->datachannel.msg_header_write = 0;
+                xqc_moq_stream_close(stream);
+            }
             return ret;
         }
         session->datachannel.msg_header_write = 1;
     }
 
     obj.track_header = track_header;
-    obj.group_id = track->cur_group_id;
-    obj.object_id = track->cur_object_id++;
     obj.payload_len = msg_len;
     obj.payload = msg;
     obj.status = 0;
     ret = xqc_moq_write_track_stream_obj_msg(session, stream, &obj);
     if (ret < 0) {
         xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_write_track_stream_obj_msg error|ret:%d|", ret);
+        if (new_stream) {
+            session->datachannel.ordered_stream = NULL;
+            session->datachannel.msg_header_write = 0;
+            xqc_moq_stream_close(stream);
+        }
         return ret;
     }
+    xqc_moq_track_on_write_stream(track, stream, obj.group_id, obj.object_id, 0);
 
     xqc_log(session->log, XQC_LOG_INFO, "|write datachannel success|msg_len:%ui|", msg_len);
 
@@ -156,14 +177,6 @@ xqc_moq_send_datachannel_msg(xqc_moq_session_t *session, xqc_moq_track_t *track,
     if (track->reuse_subgroup_stream) {
         stream = track->subgroup_stream;
         if (stream == NULL) {
-            stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_UNI);
-            if (stream == NULL) {
-                xqc_log(session->log, XQC_LOG_ERROR, "|create moq stream error|");
-                return -XQC_ECREATE_STREAM;
-            }
-            stream->write_stream_fin = 0;
-            track->subgroup_stream = stream;
-
             group_id = ++track->cur_group_id;
             track->cur_object_id = 0;
         } else {
@@ -172,6 +185,17 @@ xqc_moq_send_datachannel_msg(xqc_moq_session_t *session, xqc_moq_track_t *track,
 
         object_id = track->cur_object_id++;
         subgroup_id = 0;
+        xqc_moq_track_advance_write_location(track, &group_id, &object_id);
+
+        if (stream == NULL) {
+            stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_UNI);
+            if (stream == NULL) {
+                xqc_log(session->log, XQC_LOG_ERROR, "|create moq stream error|");
+                return -XQC_ECREATE_STREAM;
+            }
+            stream->write_stream_fin = 0;
+            track->subgroup_stream = stream;
+        }
 
         xqc_memzero(&object, sizeof(object));
         object.subscribe_id = track->subscribe_id;
@@ -187,7 +211,7 @@ xqc_moq_send_datachannel_msg(xqc_moq_session_t *session, xqc_moq_track_t *track,
         object.payload = msg;
         object.payload_len = msg_len;
 
-        xqc_moq_stream_on_track_write(stream, track, group_id, object_id, 0);
+        xqc_moq_track_on_write_stream(track, stream, group_id, object_id, 0);
 
         if (object_id == 0) {
             ret = xqc_moq_write_subgroup_msg(session, stream, &object);

@@ -1,3 +1,5 @@
+enable_testing()
+
 set(
     CATALOG_TEST_SOURCE
     "catalog_test.c"
@@ -14,6 +16,11 @@ set(
 set(
     MOQ_MESSAGE_TEST_SOURCE
     "moq_message_test.c"
+)
+
+set(
+    MOQ_CANCEL_WRITE_TEST_SOURCE
+    "moq_cancel_write_test.c"
 )
 
 include_directories(
@@ -34,3 +41,7 @@ target_link_libraries(jitter_buffer_test ${APP_DEPEND_LIBS})
 
 add_executable(moq_message_test ${MOQ_MESSAGE_TEST_SOURCE})
 target_link_libraries(moq_message_test ${APP_DEPEND_LIBS})
+
+add_executable(moq_cancel_write_test ${MOQ_CANCEL_WRITE_TEST_SOURCE})
+target_link_libraries(moq_cancel_write_test ${APP_DEPEND_LIBS})
+add_test(NAME moq_cancel_write_test COMMAND moq_cancel_write_test)

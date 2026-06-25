@@ -282,6 +282,10 @@ xqc_moq_send_subgroup(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_mo
         return -XQC_ELIMIT;
     }
 
+    if (xqc_moq_track_should_drop_write_object(track, subgroup->group_id, subgroup->object_id)) {
+        return XQC_OK;
+    }
+
     xqc_moq_stream_t *stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_UNI);
     if (stream == NULL) {
         return -XQC_ECREATE_STREAM;
@@ -313,7 +317,7 @@ xqc_moq_send_subgroup(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_mo
         object.object_id_delta = object.object_id;
     }
 
-    xqc_moq_stream_on_track_write(stream, track, object.group_id, object.object_id, 0);
+    xqc_moq_track_on_write_stream(track, stream, object.group_id, object.object_id, 0);
 
     xqc_int_t ret = xqc_moq_write_subgroup_msg(session, stream, &object);
     if (ret < 0) {

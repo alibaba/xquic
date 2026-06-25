@@ -12,6 +12,14 @@ void
 xqc_moq_track_destroy(xqc_moq_track_t *track)
 {
     xqc_list_head_t *pos, *next;
+    xqc_list_for_each_safe(pos, next, &track->write_stream_list) {
+        xqc_moq_stream_t *stream = xqc_list_entry(pos, xqc_moq_stream_t, list_member);
+        xqc_list_del_init(&stream->list_member);
+        if (stream->track == track) {
+            stream->track = NULL;
+        }
+    }
+
     xqc_list_for_each_safe(pos, next, &track->recv_stream_list) {
         xqc_moq_stream_t *stream = xqc_list_entry(pos, xqc_moq_stream_t, recv_list_member);
         xqc_list_del_init(&stream->recv_list_member);
@@ -230,6 +238,105 @@ xqc_moq_track_cancel_recv(xqc_moq_track_t *track, const xqc_moq_group_filter_t *
 }
 
 void
+xqc_moq_track_on_write_stream(xqc_moq_track_t *track, xqc_moq_stream_t *stream,
+    uint64_t group_id, uint64_t object_id, uint64_t seq_num)
+{
+    if (track == NULL || stream == NULL) {
+        return;
+    }
+
+    xqc_moq_stream_on_track_write(stream, track, group_id, object_id, seq_num);
+    if (xqc_list_empty(&stream->list_member)) {
+        xqc_list_add_tail(&stream->list_member, &track->write_stream_list);
+    }
+}
+
+xqc_bool_t
+xqc_moq_track_should_drop_write_object(xqc_moq_track_t *track, uint64_t group_id,
+    uint64_t object_id)
+{
+    if (track == NULL) {
+        return XQC_FALSE;
+    }
+
+    if (group_id < track->drop_write_group_id_before) {
+        return XQC_TRUE;
+    }
+
+    return XQC_FALSE;
+}
+
+void
+xqc_moq_track_advance_write_location(xqc_moq_track_t *track,
+    uint64_t *group_id, uint64_t *object_id)
+{
+    if (track == NULL || group_id == NULL || object_id == NULL) {
+        return;
+    }
+
+    if (*group_id < track->drop_write_group_id_before) {
+        *group_id = track->drop_write_group_id_before;
+        *object_id = 0;
+        track->cur_group_id = *group_id;
+        track->cur_object_id = 1;
+    }
+}
+
+xqc_int_t
+xqc_moq_track_cancel_write(xqc_moq_track_t *track, const xqc_moq_group_filter_t *filter)
+{
+    if (track == NULL || filter == NULL || track->track_role != XQC_MOQ_TRACK_FOR_PUB) {
+        return -XQC_EPARAM;
+    }
+
+    if (filter->type != XQC_MOQ_GROUP_FILTER_EXACT
+        && filter->type != XQC_MOQ_GROUP_FILTER_BEFORE)
+    {
+        return -XQC_EPARAM;
+    }
+
+    if (filter->type == XQC_MOQ_GROUP_FILTER_BEFORE) {
+        track->drop_write_group_id_before = xqc_max(track->drop_write_group_id_before, filter->group_id);
+    }
+
+    xqc_int_t ret = XQC_OK;
+    xqc_list_head_t *pos, *next;
+search_from_head:
+    xqc_list_for_each_safe(pos, next, &track->write_stream_list) {
+        xqc_moq_stream_t *stream = xqc_list_entry(pos, xqc_moq_stream_t, list_member);
+        if (!xqc_moq_group_filter_match(filter, stream)) {
+            continue;
+        }
+
+        xqc_list_del_init(&stream->list_member);
+        if (track->subgroup_stream == stream) {
+            track->subgroup_stream = NULL;
+        }
+        stream->cancel_write_close = 1;
+        xqc_int_t close_ret = xqc_moq_stream_close(stream);
+        if (close_ret < 0 && ret == XQC_OK) {
+            ret = close_ret;
+        }
+
+        char *cancel_ns = xqc_moq_namespace_tuple_join(track->track_info.track_namespace_tuple, track->track_info.track_namespace_num);
+        if (track->session && track->session->log) {
+            xqc_log(track->session->log, XQC_LOG_INFO,
+                    "|moq cancel write stream|track:%s/%s|group_id:%ui|subgroup_id:%ui|ret:%d|",
+                    cancel_ns ? cancel_ns : "null",
+                    track->track_info.track_name ? track->track_info.track_name : "null",
+                    stream->group_id, stream->subgroup_id, close_ret);
+        }
+        xqc_free(cancel_ns);
+
+        if (next->next == next) {
+            goto search_from_head;
+        }
+    }
+
+    return ret;
+}
+
+void
 xqc_moq_track_on_recv_object(xqc_moq_track_t *track, xqc_moq_stream_t *stream,
     xqc_moq_object_t *object)
 {
@@ -388,6 +495,7 @@ xqc_moq_track_create_with_ns_tuple(xqc_moq_session_t *session,
     }
     track->track_role = role;
     xqc_init_list_head(&track->list_member);
+    xqc_init_list_head(&track->write_stream_list);
     xqc_init_list_head(&track->recv_stream_list);
     xqc_list_add_tail(&track->list_member, list);
 

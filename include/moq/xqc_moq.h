@@ -639,6 +639,14 @@ void xqc_moq_track_set_reuse_subgroup_stream(xqc_moq_track_t *track, xqc_int_t r
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_track_cancel_recv(xqc_moq_track_t *track, const xqc_moq_group_filter_t *filter);
 
+/*
+ * @brief Stop sending currently open data streams that match a group filter.
+ * @note  This sends sender-side RESET_STREAM for matched streams.
+ * @note  XQC_MOQ_GROUP_FILTER_BEFORE also drops future writes before filter->group_id.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_track_cancel_write(xqc_moq_track_t *track, const xqc_moq_group_filter_t *filter);
+
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_subscribe(xqc_moq_session_t *session, const char *track_namespace, const char *track_name,
     xqc_moq_filter_type_t filter_type, uint64_t start_group_id, uint64_t start_object_id,

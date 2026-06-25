@@ -179,6 +179,16 @@ xqc_fec_bc_decoder(xqc_connection_t *conn, xqc_int_t block_id, xqc_int_t loss_sr
         goto bc_decoder_end;
     }
 
+    /* cap loss_src_num to XQC_REPAIR_LEN to prevent stack buffer overflow.
+     * Also clamp loss_src_num so the bc_decoder_end cleanup loop stays in bounds. */
+    if (loss_src_num > XQC_REPAIR_LEN) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|loss_src_num %d exceeds XQC_REPAIR_LEN %d|",
+                loss_src_num, XQC_REPAIR_LEN);
+        ret = -XQC_EFEC_SCHEME_ERROR;
+        loss_src_num = XQC_REPAIR_LEN;
+        goto bc_decoder_end;
+    }
+
     for (i = 0; i < loss_src_num; i++) {
         recovered_symbols_buff[i] = conn->fec_ctl->fec_gen_repair_symbols_buff[i].payload;
         if (recovered_symbols_buff[i] == NULL) {

@@ -111,6 +111,9 @@ main()
         /* issue #756 BUG2: consecutive key update detection (RFC 9001 §6.2) */
         || !CU_add_test(pSuite, "xqc_test_consecutive_key_update_detection",
                         xqc_test_consecutive_key_update_detection)
+        /* issue #756 BUG3: old-key high pkt_num detection (RFC 9001 §6.4) */
+        || !CU_add_test(pSuite, "xqc_test_old_key_high_pktnum_detection",
+                        xqc_test_old_key_high_pktnum_detection)
         || !CU_add_test(pSuite, "xqc_test_hp_sample_boundary", xqc_test_hp_sample_boundary)
         || !CU_add_test(pSuite, "xqc_test_packet_encrypt_hp_sample_boundary", xqc_test_packet_encrypt_hp_sample_boundary)
         || !CU_add_test(pSuite, "xqc_test_empty_pkt", xqc_test_empty_pkt)

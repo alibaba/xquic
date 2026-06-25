@@ -5431,7 +5431,14 @@ xqc_conn_confirm_key_update(xqc_connection_t *conn)
 
     ctx->key_update_cnt++;
     ctx->first_sent_pktno = pn_ctl->ctl_packet_number[XQC_PNS_APP_DATA] + 1;
+
+    /*
+     * Sentinel: no packet has been received under the new key phase yet.
+     * The first new-phase arrival will be smaller than MAX and replace this,
+     * establishing the §6.4 baseline for old-key-high-pktnum detection.
+     */
     ctx->first_recv_pktno = XQC_MAX_UINT64_VALUE;
+
     ctx->cur_out_key_phase ^= 1;
     ctx->next_in_key_phase ^= 1;
     ctx->enc_pkt_cnt = 0;

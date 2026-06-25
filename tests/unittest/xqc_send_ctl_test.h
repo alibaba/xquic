@@ -57,4 +57,11 @@ void xqc_test_key_update_initiator_confirmation(void);
  */
 void xqc_test_consecutive_key_update_detection(void);
 
+/*
+ * Regression test for issue #756 BUG3 (RFC 9001 §6.4):
+ * Old-key packet with pkt_num higher than any new-key packet must be
+ * detected as KEY_UPDATE_ERROR during the 3*PTO old-key retention window.
+ */
+void xqc_test_old_key_high_pktnum_detection(void);
+
 #endif

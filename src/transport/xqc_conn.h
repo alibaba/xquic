@@ -284,7 +284,18 @@ typedef struct {
 
     /* for current out key phase */
     xqc_packet_number_t     first_sent_pktno;  /* lowest packet number sent with each key phase */
-    xqc_packet_number_t     first_recv_pktno;  /* lowest packet number recv with each key phase */
+
+    /*
+     * Lowest packet number received under the current key phase.  Serves as
+     * the baseline for RFC 9001 §6.4 detection: an old-key-phase packet whose
+     * pkt_num exceeds this value means old keys are being used at a higher
+     * packet number than new keys, which is a protocol violation.
+     *
+     * Reset to XQC_MAX_UINT64_VALUE by xqc_conn_confirm_key_update() because
+     * no packet has been received under the new phase yet; the first arrival
+     * will naturally be smaller and replace the sentinel.
+     */
+    xqc_packet_number_t     first_recv_pktno;
     uint64_t                enc_pkt_cnt;       /* number of packet encrypt with each key phase */
     xqc_usec_t              initiate_time_guard;  /* time limit for initiating next key update */
 

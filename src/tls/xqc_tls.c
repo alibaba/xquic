@@ -781,9 +781,17 @@ xqc_tls_update_1rtt_keys(xqc_tls_t *tls, xqc_key_type_t type)
     }
 
     if (type == XQC_KEY_TYPE_RX_READ) {
+        /*
+         * RX advanced to the next phase while TX is still on the old phase.
+         * Mark unsynchronized so that: (1) a second RX derivation is blocked
+         * until TX catches up, and (2) decrypt failures in this transient
+         * window are treated as recoverable (XQC_TLS_DECRYPT_WHEN_KU_ERROR)
+         * rather than fatal.
+         */
         tls->key_phase_synced = XQC_FALSE;
 
     } else if (type == XQC_KEY_TYPE_TX_WRITE) {
+        /* TX has caught up with RX — both sides are on the same phase again. */
         tls->key_phase_synced = XQC_TRUE;
     }
 

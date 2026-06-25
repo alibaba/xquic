@@ -283,6 +283,27 @@ scripts/
     moq_case_test.sh         # Media-over-QUIC test cases
 ```
 
+## docs_ai/ -- Agent Knowledge Base
+
+```
+docs_ai/
+  agent_guide.md            # Non-global workflow notes and context-preservation guidance
+  doc_style_guide.md        # Minimalist rules for generated comments and documentation
+  dev_pipeline.md           # Required pipeline for code changes
+  bugfix_pipeline.md        # Required pipeline for bug diagnosis and fixes
+  validation_guide.md       # Build/test validation policy entry point
+  testing/test_guide.md     # Test mapping, exact commands, pass criteria, diagnostics
+  code_map.md               # Agent-facing module map and first files to inspect
+  change_map.md             # Change-family read/update/validation obligations
+  behavior_specs.md         # Behavior contracts, invariants, lifecycle, and feature semantics
+  decision_records.md       # Ongoing design, workflow, and compatibility decisions
+  auto_doc_lookup.md        # Source path to documentation/update/validation mapping
+  architecture/overview.md  # Layered architecture, dependencies, callbacks, plugin model
+  architecture/module_dependency.md # Module impact and dependency matrix
+  build/build_guide.md      # Build prerequisites, SSL backends, CMake options
+  codebase_index.md         # This annotated file tree and ownership index
+```
+
 ## .claude/ -- Agent Workflow Configuration
 
 ```

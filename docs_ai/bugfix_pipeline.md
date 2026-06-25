@@ -1,6 +1,6 @@
 # Bug Fix Pipeline
 
-> Complete pipeline for diagnosing and fixing bugs. Referenced by `CLAUDE.md`.
+> Complete pipeline for diagnosing and fixing bugs. Referenced by `AGENTS.md`.
 
 All bug fixes MUST follow this pipeline. Validation scope is selected from `docs_ai/validation_guide.md` based on the failing path, fix scope, and user request.
 
@@ -26,7 +26,9 @@ Bug Report -> Root Cause Analysis -> Fix Implementation -> Validation Decision -
 
 - Locate the failing code path using the error message / assertion / stack trace
 - Trace backwards from the failure point to find the root cause (not just the symptom)
-- Use `docs_ai/auto_doc_lookup.md` to find relevant module documentation
+- Use `docs_ai/code_map.md` to locate the owning module and likely call path
+- Use `docs_ai/change_map.md` and `docs_ai/auto_doc_lookup.md` to find relevant module documentation
+- Read `docs_ai/behavior_specs.md` for existing invariants before deciding whether behavior or tests are wrong
 - Distinguish between:
   - **Regression**: A previously passing code path broke due to a recent change
   - **Test gap**: The test was always wrong / incomplete but a new validation exposed it
@@ -39,6 +41,9 @@ Bug Report -> Root Cause Analysis -> Fix Implementation -> Validation Decision -
 - Fix the root cause, not the symptom
 - Follow existing code style: Follow existing project conventions. Use consistent naming (snake_case or project prefix). Comments explain "why", not "what".
 - Minimize fix scope -- do not refactor surrounding code
+- Follow `docs_ai/doc_style_guide.md` for comments, fix notes, and generated docs.
+- If the bug exposes a missing or misleading invariant, update `docs_ai/behavior_specs.md`
+- If the fix depends on a design choice or compatibility tradeoff, update `docs_ai/decision_records.md`
 - If the fix requires adding test infrastructure (e.g. test helpers, mock functions), keep them clearly marked and separated from production code
 - **Every bug fix MUST have a unit test** -- either an existing test covers the fixed path, or a new test must be written as part of this stage
 
@@ -70,8 +75,13 @@ Does an existing unit test cover the fixed code path?
 
 | Fixed Area | Test Location | Binary / Command |
 |-----------|---------------|------------------|
-| `src/*` | `tests/` | `./tests/run_tests` or `ctest` |
-| <!-- TODO: Add more mappings --> | | |
+| `src/common/*` | `tests/unittest/xqc_*_test.c` or `tests/unittest/utils/*` | `./tests/run_tests` |
+| `src/transport/*` | `tests/unittest/xqc_*_test.c` plus integration cases when runtime behavior changes | `./tests/run_tests` and/or `sh ../scripts/case_test.sh` |
+| `src/transport/fec_schemes/*` | `tests/unittest/xqc_fec*_test.c`, `xqc_galois_test.c` | FEC-enabled `./tests/run_tests` |
+| `src/congestion_control/*` | `tests/unittest/xqc_cubic_test.c`, `xqc_reno_test.c`, or integration coverage for algorithms without unit tests | `./tests/run_tests` and/or `sh ../scripts/case_test.sh` |
+| `src/tls/*` | `tests/unittest/xqc_tls_test.c`, `xqc_crypto_test.c` | `./tests/run_tests`; add `case_test.sh` for handshake behavior |
+| `src/http3/*` | `tests/unittest/xqc_h3*_test.c`, QPACK tests for compression paths | `./tests/run_tests` and/or `sh ../scripts/case_test.sh` |
+| Public headers | Matching unit/integration tests plus API usage in demos/tests if needed | Full `./tests/run_tests` and `sh ../scripts/case_test.sh` |
 
 ### Post-Modification Verification
 
@@ -81,7 +91,8 @@ After completing the fix and any associated test changes, verify the modificatio
 2. **Trace the fixed code path** -- verify the fix is reachable from the original failure path and that all callers/callees are consistent with the change
 3. **Check fix scope** -- confirm no unrelated production code was modified
 4. **Verify test coverage alignment** -- confirm the unit test exercises the exact code path that was broken, not a different path
-5. If any check fails, revise the fix before proceeding to Stage 4.
+5. **Verify knowledge-base alignment** -- confirm code map, change map, behavior specs, and decision records remain accurate
+6. If any check fails, revise the fix before proceeding to Stage 4.
 
 ## Stage 4: Validation Decision
 
@@ -129,3 +140,4 @@ Every completed bug fix MUST produce a structured summary.
 5. **NEVER** proceed from Stage 4 on a validation failure caused by the fix. Return to Stage 3, fix the issue, and re-run validation.
 6. If the fix introduces test infrastructure (helpers, mock functions), document them as test-only in both the code comment and the fix summary.
 7. If a fix reveals additional issues, file them separately -- do not scope-creep the current fix.
+8. Do not leave behavior specs or decision records stale when a bug fix changes project semantics.

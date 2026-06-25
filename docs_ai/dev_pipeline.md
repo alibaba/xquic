@@ -1,6 +1,6 @@
 # Development Pipeline
 
-> Complete pipeline for code changes. Referenced by `CLAUDE.md`.
+> Complete pipeline for code changes. Referenced by `AGENTS.md`.
 
 All code changes MUST follow this pipeline. Validation scope is selected from `docs_ai/validation_guide.md` based on the actual change and user request.
 
@@ -14,7 +14,9 @@ Requirement Analysis -> Code Implementation -> Documentation Maintenance -> Vali
 
 - Read and understand the task requirements
 - Identify affected modules (see `docs_ai/codebase_index.md`)
-- Look up relevant docs and tests (see `docs_ai/auto_doc_lookup.md`)
+- Locate the behavior in `docs_ai/code_map.md`
+- Look up relevant docs, tests, and maintenance obligations (see `docs_ai/change_map.md` and `docs_ai/auto_doc_lookup.md`)
+- Read existing behavior contracts in `docs_ai/behavior_specs.md`
 - Identify affected public APIs
 
 
@@ -22,7 +24,7 @@ Requirement Analysis -> Code Implementation -> Documentation Maintenance -> Vali
 
 - Implement the change with minimal scope
 - Follow existing code style: Follow existing project conventions. Use consistent naming (snake_case or project prefix). Comments explain "why", not "what".
-- Comments explain "why", not "what"
+- Follow `docs_ai/doc_style_guide.md` for any generated comments or documentation.
 
 
 ### Post-Modification Verification
@@ -39,6 +41,10 @@ After completing code changes, verify each modification against the requirement 
 - When modifying any module, update corresponding docs under `docs_ai/` (see `docs_ai/auto_doc_lookup.md` for mapping)
 - When changing public APIs, update the interface documentation
 - When adding new files, update `docs_ai/codebase_index.md`
+- Update `docs_ai/code_map.md` when module ownership, entry points, feature gates, or important files change
+- Update `docs_ai/change_map.md` when docs/test/update obligations change
+- Update `docs_ai/behavior_specs.md` when behavior, invariants, lifecycle, callbacks, errors, feature gates, or compatibility semantics change
+- Update `docs_ai/decision_records.md` when the change encodes a design choice, default behavior, compatibility tradeoff, or non-obvious rationale
 
 
 ### Post-Modification Verification
@@ -47,7 +53,9 @@ After updating documentation, verify consistency:
 
 1. **Cross-reference with code** -- confirm documented APIs, parameters, and behaviors match the actual implementation
 2. **Check stale content** -- verify no references to removed/renamed functions, flags, or files remain in the updated docs
-3. If inconsistencies are found, fix them before proceeding to Stage 4.
+3. **Check AI knowledge-base consistency** -- confirm `code_map`, `change_map`, `behavior_specs`, and `decision_records` either remain accurate or were updated
+4. **Prune generated prose** -- remove duplicated, obvious, speculative, or non-durable documentation per `docs_ai/doc_style_guide.md`
+5. If inconsistencies are found, fix them before proceeding to Stage 4.
 
 ## Stage 4: Validation Decision
 
@@ -60,6 +68,7 @@ Use `docs_ai/validation_guide.md` to decide whether build/test execution is need
 ## Stage 5: Complete
 
 - Documentation is updated when required.
+- AI knowledge-base docs are updated or explicitly not needed.
 - The validation decision is recorded with command evidence, skipped reason, or blocker.
 
 ---
@@ -70,4 +79,4 @@ Use `docs_ai/validation_guide.md` to decide whether build/test execution is need
 2. If build fails, fix compilation errors before anything else.
 3. If tests fail, determine if the failure is caused by your change. If yes, fix it. If pre-existing, document it.
 4. When modifying code that lacks tests, add or identify the smallest test that covers the changed path when feasible.
-
+5. Do not make a behavior-changing code edit while leaving stale behavior specs or decision rationale.

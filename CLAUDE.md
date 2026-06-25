@@ -2,6 +2,26 @@
 
 XQUIC is a QUIC and HTTP/3 protocol library implemented in C, developed by Alibaba. It provides a high-performance, cross-platform implementation of the IETF QUIC transport protocol and the HTTP/3 application protocol.
 
+## Temporary Test-Stage Response Checklist
+
+During the current project testing stage, every answer to the user MUST include a concise status block that answers the questions below. If any item is unclear, unknown, or cannot be determined from the currently inspected files, say so directly and name what must be read, run, or confirmed next.
+
+Required status block:
+
+```text
+Test-stage status:
+- Task type: <which task category this is, or unclear>
+- Required reading: <files/docs that must be read before acting, or unclear>
+- Editable scope: <files/areas that may be changed, or unclear>
+- Docs to sync: <docs that must be updated after changes, or none/unclear>
+- Minimal validation: <smallest build/test/check command, or unclear>
+- Failure diagnosis: <where to inspect logs/errors if tests fail, or unclear>
+- Stop/confirm conditions: <operations that require stopping or user confirmation>
+- Final evidence: <what proof must be reported at completion>
+```
+
+For test/build work, derive validation and diagnosis from `docs_ai/validation_guide.md` and `docs_ai/testing/test_guide.md`. For code or bug-fix work, also consult `AGENTS.md`, `docs_ai/dev_pipeline.md`, `docs_ai/bugfix_pipeline.md`, `docs_ai/code_map.md`, `docs_ai/change_map.md`, and `docs_ai/behavior_specs.md` as applicable.
+
 ## Project Structure
 
 Each `src/` module and `tests/` has its own `CLAUDE.md` with module-specific conventions, data structures, and pitfalls.
@@ -79,7 +99,8 @@ Project-specific rules:
 
 1. **Naming**: Use `snake_case` with `xqc_` prefix. Comments explain "why", not "what".
 2. **Code-doc sync**: When modifying a module, update corresponding docs (see `docs_ai/auto_doc_lookup.md`). When changing public APIs, update `include/xquic/` header docs. When adding new files, update `docs_ai/codebase_index.md`.
-3. **Testing**: Non-trivial changes must include tests and pass before completion. Use `/validate` to auto-detect changed files, build, and run the minimal test set. For adding new tests, see `tests/CLAUDE.md`; for the full feature-to-test mapping, see `docs_ai/testing/test_guide.md`.
+3. **Documentation minimalism**: Follow `docs_ai/doc_style_guide.md`. Keep generated comments/docs short, source-backed, non-duplicative, and focused on durable constraints.
+4. **Testing**: Non-trivial changes must include tests and pass before completion. Use `/validate` to auto-detect changed files, build, and run the minimal test set. For adding new tests, see `tests/CLAUDE.md`; for the full feature-to-test mapping, see `docs_ai/testing/test_guide.md`.
 
 ## Reference Documents
 
@@ -89,5 +110,6 @@ Project-specific rules:
 | Module dependencies | `docs_ai/architecture/module_dependency.md` |
 | Build guide | `docs_ai/build/build_guide.md` |
 | Test guide | `docs_ai/testing/test_guide.md` |
+| Documentation style | `docs_ai/doc_style_guide.md` |
 | Codebase file index | `docs_ai/codebase_index.md` |
 | Source-to-doc mapping | `docs_ai/auto_doc_lookup.md` |

@@ -4,3 +4,11 @@ bss/
 third_party/
 .idea/
 cmake-build-debug/
+
+# Build-generated files
+include/xquic/xqc_configure.h
+*.o
+*.a
+*.so
+*.dylib
+.ai-context/

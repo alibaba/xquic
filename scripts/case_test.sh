@@ -4589,8 +4589,9 @@ else
 fi
 
 
-clear_log
 killall test_server 2> /dev/null
+sleep 1
+clear_log
 stdbuf -oL ${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
 sleep 1
 
@@ -4607,8 +4608,9 @@ else
     case_print_result "fec_recovered_function_of_stream_xor" "fail"
 fi
 
-clear_log
 killall test_server 2> /dev/null
+sleep 1
+clear_log
 stdbuf -oL ${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
 sleep 1
 
@@ -4625,8 +4627,9 @@ else
     case_print_result "fec_recovered_function_of_stream_rsc" "fail"
 fi
 
-clear_log
 killall test_server 2> /dev/null
+sleep 1
+clear_log
 stdbuf -oL ${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
 sleep 1
 

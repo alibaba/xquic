@@ -749,4 +749,15 @@ void xqc_conn_set_init_idle_timeout(xqc_connection_t *conn, xqc_msec_t init_idle
 void xqc_conn_try_to_enable_pmtud(xqc_connection_t *conn);
 
 xqc_int_t xqc_conn_server_accept(xqc_connection_t *c);
+
+/*
+ * RFC 9000 Section 7.4.1: validate that new transport parameters do not
+ * reduce MUST parameters below the remembered (0-RTT) values.
+ *
+ * Returns XQC_OK if all parameters are valid, or TRA_0RTT_TRANS_PARAMS_ERROR
+ * if any MUST parameter was reduced.
+ */
+xqc_int_t xqc_conn_validate_0rtt_transport_params(xqc_connection_t *conn,
+                                                   const xqc_transport_params_t *params);
+
 #endif /* _XQC_CONN_H_INCLUDED_ */

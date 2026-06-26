@@ -967,6 +967,39 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
             sub_ns.track_namespace_num = 1;
             ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
             printf("subscribe_namespace mode 15: sent request_id=0, ret=%d\n", ret);
+
+        } else if (g_subscribe_namespace_mode == 16) {
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 0;
+            xqc_moq_track_ns_field_t ns16;
+            ns16.data = (unsigned char *)"explicit";
+            ns16.len = strlen("explicit");
+            sub_ns.track_namespace_tuple = &ns16;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 16: explicit prefix sent request_id=0, ret=%d\n", ret);
+
+        } else if (g_subscribe_namespace_mode == 17) {
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 0;
+            xqc_moq_track_ns_field_t ns17;
+            ns17.data = (unsigned char *)"dup";
+            ns17.len = strlen("dup");
+            sub_ns.track_namespace_tuple = &ns17;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 17: duplicate parent prefix sent request_id=0, ret=%d\n", ret);
+
+        } else if (g_subscribe_namespace_mode == 18) {
+            memset(&sub_ns, 0, sizeof(sub_ns));
+            sub_ns.request_id = 0;
+            xqc_moq_track_ns_field_t ns18;
+            ns18.data = (unsigned char *)"sib";
+            ns18.len = strlen("sib");
+            sub_ns.track_namespace_tuple = &ns18;
+            sub_ns.track_namespace_num = 1;
+            ret = xqc_moq_write_subscribe_namespace(session, &sub_ns);
+            printf("subscribe_namespace mode 18: sibling prefix sent request_id=0, ret=%d\n", ret);
         }
         return;
     }
@@ -1920,8 +1953,8 @@ int main(int argc, char *argv[])
                 break;
             case 'N':
                 g_subscribe_namespace_mode = atoi(optarg);
-                if (g_subscribe_namespace_mode < 1 || g_subscribe_namespace_mode > 15) {
-                    printf("invalid subscribe namespace mode: %d (must be 1-15)\n", g_subscribe_namespace_mode);
+                if (g_subscribe_namespace_mode < 1 || g_subscribe_namespace_mode > 18) {
+                    printf("invalid subscribe namespace mode: %d (must be 1-18)\n", g_subscribe_namespace_mode);
                     exit(1);
                 }
                 printf("option subscribe namespace mode : %d\n", g_subscribe_namespace_mode);

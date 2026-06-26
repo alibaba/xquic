@@ -100,6 +100,122 @@ on_subscribe_namespace_dup_ok(xqc_moq_user_session_t *user_session,
     xqc_moq_write_subscribe_namespace_ok(user_session->session, &ok);
 }
 
+void
+on_subscribe_namespace_explicit_publish(xqc_moq_user_session_t *user_session,
+    xqc_moq_subscribe_namespace_msg_t *msg)
+{
+    printf("ns_callback_explicit_publish|request_id:%lu\n", (unsigned long)msg->request_id);
+
+    xqc_moq_subscribe_namespace_ok_msg_t ok;
+    memset(&ok, 0, sizeof(ok));
+    ok.request_id = msg->request_id;
+    xqc_int_t ret = xqc_moq_write_subscribe_namespace_ok(user_session->session, &ok);
+    printf("explicit subscribe_namespace_ok ret:%d\n", ret);
+
+    xqc_moq_track_ns_field_t explicit_ns[2];
+    explicit_ns[0].data = (unsigned char *)"explicit";
+    explicit_ns[0].len = strlen("explicit");
+    explicit_ns[1].data = (unsigned char *)"child";
+    explicit_ns[1].len = strlen("child");
+
+    xqc_moq_publish_namespace_msg_t pub_ns;
+    memset(&pub_ns, 0, sizeof(pub_ns));
+    pub_ns.track_namespace_tuple = explicit_ns;
+    pub_ns.track_namespace_num = 2;
+    ret = xqc_moq_publish_namespace(user_session->session, &pub_ns);
+    printf("explicit publish_namespace ret:%d\n", ret);
+
+    xqc_moq_publish_namespace_done_msg_t done;
+    memset(&done, 0, sizeof(done));
+    done.track_namespace_tuple = explicit_ns;
+    done.track_namespace_num = 2;
+    ret = xqc_moq_publish_namespace_done(user_session->session, &done);
+    printf("explicit publish_namespace_done ret:%d\n", ret);
+}
+
+void
+on_subscribe_namespace_duplicate_parent(xqc_moq_user_session_t *user_session,
+    xqc_moq_subscribe_namespace_msg_t *msg)
+{
+    printf("ns_callback_duplicate_parent|request_id:%lu\n", (unsigned long)msg->request_id);
+
+    xqc_moq_subscribe_namespace_ok_msg_t ok;
+    memset(&ok, 0, sizeof(ok));
+    ok.request_id = msg->request_id;
+    xqc_int_t ret = xqc_moq_write_subscribe_namespace_ok(user_session->session, &ok);
+    printf("duplicate parent subscribe_namespace_ok ret:%d\n", ret);
+
+    xqc_moq_track_ns_field_t parent_ns[1];
+    parent_ns[0].data = (unsigned char *)"dup";
+    parent_ns[0].len = strlen("dup");
+    xqc_moq_publish_namespace_msg_t pub_parent;
+    memset(&pub_parent, 0, sizeof(pub_parent));
+    pub_parent.track_namespace_tuple = parent_ns;
+    pub_parent.track_namespace_num = 1;
+    ret = xqc_moq_publish_namespace(user_session->session, &pub_parent);
+    printf("duplicate parent publish_namespace parent ret:%d\n", ret);
+
+    xqc_moq_track_ns_field_t child_ns[2];
+    child_ns[0].data = (unsigned char *)"dup";
+    child_ns[0].len = strlen("dup");
+    child_ns[1].data = (unsigned char *)"child";
+    child_ns[1].len = strlen("child");
+    xqc_moq_publish_namespace_msg_t pub_child;
+    memset(&pub_child, 0, sizeof(pub_child));
+    pub_child.track_namespace_tuple = child_ns;
+    pub_child.track_namespace_num = 2;
+    ret = xqc_moq_publish_namespace(user_session->session, &pub_child);
+    printf("duplicate parent publish_namespace child ret:%d\n", ret);
+}
+
+void
+on_subscribe_namespace_sibling_done(xqc_moq_user_session_t *user_session,
+    xqc_moq_subscribe_namespace_msg_t *msg)
+{
+    printf("ns_callback_sibling_done|request_id:%lu\n", (unsigned long)msg->request_id);
+
+    xqc_moq_subscribe_namespace_ok_msg_t ok;
+    memset(&ok, 0, sizeof(ok));
+    ok.request_id = msg->request_id;
+    xqc_int_t ret = xqc_moq_write_subscribe_namespace_ok(user_session->session, &ok);
+    printf("sibling subscribe_namespace_ok ret:%d\n", ret);
+
+    xqc_moq_track_ns_field_t ns_cc[2];
+    ns_cc[0].data = (unsigned char *)"sib";
+    ns_cc[0].len = strlen("sib");
+    ns_cc[1].data = (unsigned char *)"cc";
+    ns_cc[1].len = strlen("cc");
+    xqc_moq_track_ns_field_t ns_dd[2];
+    ns_dd[0].data = (unsigned char *)"sib";
+    ns_dd[0].len = strlen("sib");
+    ns_dd[1].data = (unsigned char *)"dd";
+    ns_dd[1].len = strlen("dd");
+
+    xqc_moq_publish_namespace_msg_t pub;
+    memset(&pub, 0, sizeof(pub));
+    pub.track_namespace_tuple = ns_cc;
+    pub.track_namespace_num = 2;
+    ret = xqc_moq_publish_namespace(user_session->session, &pub);
+    printf("sibling publish_namespace cc ret:%d\n", ret);
+    memset(&pub, 0, sizeof(pub));
+    pub.track_namespace_tuple = ns_dd;
+    pub.track_namespace_num = 2;
+    ret = xqc_moq_publish_namespace(user_session->session, &pub);
+    printf("sibling publish_namespace dd ret:%d\n", ret);
+
+    xqc_moq_publish_namespace_done_msg_t done;
+    memset(&done, 0, sizeof(done));
+    done.track_namespace_tuple = ns_cc;
+    done.track_namespace_num = 2;
+    ret = xqc_moq_publish_namespace_done(user_session->session, &done);
+    printf("sibling publish_namespace_done cc ret:%d\n", ret);
+    memset(&done, 0, sizeof(done));
+    done.track_namespace_tuple = ns_dd;
+    done.track_namespace_num = 2;
+    ret = xqc_moq_publish_namespace_done(user_session->session, &done);
+    printf("sibling publish_namespace_done dd ret:%d\n", ret);
+}
+
 xqc_int_t
 xqc_demo_publish_track(user_conn_t *user_conn, const char *track_namespace, const char *track_name)
 {
@@ -951,6 +1067,12 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
         callbacks.on_subscribe_namespace = on_subscribe_namespace_wrong_id;
     } else if (g_ns_callback_mode == 3) {
         callbacks.on_subscribe_namespace = on_subscribe_namespace_dup_ok;
+    } else if (g_ns_callback_mode == 4) {
+        callbacks.on_subscribe_namespace = on_subscribe_namespace_explicit_publish;
+    } else if (g_ns_callback_mode == 5) {
+        callbacks.on_subscribe_namespace = on_subscribe_namespace_duplicate_parent;
+    } else if (g_ns_callback_mode == 6) {
+        callbacks.on_subscribe_namespace = on_subscribe_namespace_sibling_done;
     }
     xqc_moq_session_t *session = xqc_moq_session_create(conn, user_session, XQC_MOQ_TRANSPORT_QUIC,
         g_role, callbacks, NULL, g_enable_client_setup_v14);

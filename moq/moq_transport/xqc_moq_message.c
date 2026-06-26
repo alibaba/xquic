@@ -11,6 +11,10 @@ static xqc_moq_msg_func_map_t moq_msg_func_map[] = {
     {XQC_MOQ_MSG_SUBSCRIBE,            xqc_moq_msg_create_subscribe,        xqc_moq_msg_free_subscribe       },
     {XQC_MOQ_MSG_SUBSCRIBE_OK,         xqc_moq_msg_create_subscribe_ok,     xqc_moq_msg_free_subscribe_ok    },
     {XQC_MOQ_MSG_SUBSCRIBE_ERROR,      xqc_moq_msg_create_subscribe_error,  xqc_moq_msg_free_subscribe_error },
+    {XQC_MOQ_MSG_PUBLISH_NAMESPACE,    xqc_moq_msg_create_publish_namespace,
+                                           xqc_moq_msg_free_publish_namespace },
+    {XQC_MOQ_MSG_PUBLISH_NAMESPACE_DONE, xqc_moq_msg_create_publish_namespace_done,
+                                           xqc_moq_msg_free_publish_namespace_done },
     {XQC_MOQ_MSG_UNSUBSCRIBE,          xqc_moq_msg_create_unsubscribe,      xqc_moq_msg_free_unsubscribe     },
     {XQC_MOQ_MSG_PUBLISH,              xqc_moq_msg_create_publish,          xqc_moq_msg_free_publish         },
     {XQC_MOQ_MSG_PUBLISH_OK,           xqc_moq_msg_create_publish_ok,       xqc_moq_msg_free_publish_ok      },
@@ -114,6 +118,22 @@ const xqc_moq_msg_base_t subscribe_error_base = {
     .encode     = xqc_moq_msg_encode_subscribe_error,
     .decode     = xqc_moq_msg_decode_subscribe_error,
     .on_msg     = xqc_moq_on_subscribe_error,
+};
+
+const xqc_moq_msg_base_t publish_namespace_base = {
+    .type       = xqc_moq_msg_publish_namespace_type,
+    .encode_len = xqc_moq_msg_encode_publish_namespace_len,
+    .encode     = xqc_moq_msg_encode_publish_namespace,
+    .decode     = xqc_moq_msg_decode_publish_namespace,
+    .on_msg     = xqc_moq_on_publish_namespace,
+};
+
+const xqc_moq_msg_base_t publish_namespace_done_base = {
+    .type       = xqc_moq_msg_publish_namespace_done_type,
+    .encode_len = xqc_moq_msg_encode_publish_namespace_done_len,
+    .encode     = xqc_moq_msg_encode_publish_namespace_done,
+    .decode     = xqc_moq_msg_decode_publish_namespace_done,
+    .on_msg     = xqc_moq_on_publish_namespace_done,
 };
 
 const xqc_moq_msg_base_t publish_base = {
@@ -4911,6 +4931,454 @@ xqc_moq_track_namespace_tuple_encode(uint8_t *p, uint64_t track_namespace_num,
     return p;
 }
 
+
+void *
+xqc_moq_msg_create_publish_namespace()
+{
+    xqc_moq_publish_namespace_msg_t *msg = xqc_calloc(1, sizeof(*msg));
+    if (msg == NULL) {
+        return NULL;
+    }
+    xqc_moq_msg_publish_namespace_init_handler(&msg->msg_base);
+    return msg;
+}
+
+void
+xqc_moq_msg_free_publish_namespace(void *msg)
+{
+    if (msg == NULL) {
+        return;
+    }
+    xqc_moq_publish_namespace_msg_t *pub = (xqc_moq_publish_namespace_msg_t*)msg;
+    if (pub->track_namespace_tuple) {
+        for (uint64_t i = 0; i < pub->track_namespace_num; i++) {
+            xqc_free(pub->track_namespace_tuple[i].data);
+        }
+        xqc_free(pub->track_namespace_tuple);
+    }
+    xqc_moq_msg_free_params(pub->params, pub->params_num);
+    xqc_free(pub);
+}
+
+xqc_moq_msg_type_t
+xqc_moq_msg_publish_namespace_type()
+{
+    return XQC_MOQ_MSG_PUBLISH_NAMESPACE;
+}
+
+void
+xqc_moq_msg_publish_namespace_init_handler(xqc_moq_msg_base_t *msg_base)
+{
+    *msg_base = publish_namespace_base;
+}
+
+xqc_int_t
+xqc_moq_msg_encode_publish_namespace_len(xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_publish_namespace_msg_t *pub = (xqc_moq_publish_namespace_msg_t*)msg_base;
+    size_t track_namespace_len = 0;
+    if (xqc_moq_track_namespace_tuple_validate_and_sum(pub->track_namespace_num,
+            pub->track_namespace_tuple, &track_namespace_len) != XQC_OK)
+    { return -XQC_EPARAM; }
+
+    xqc_int_t len = 0;
+    len += xqc_put_varint_len(XQC_MOQ_MSG_PUBLISH_NAMESPACE);
+    len += XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
+    len += xqc_put_varint_len(pub->request_id);
+    len += xqc_moq_track_namespace_tuple_encode_len(pub->track_namespace_num, pub->track_namespace_tuple);
+    len += xqc_put_varint_len(pub->params_num);
+    len += xqc_moq_msg_encode_params_len_v14(pub->params, pub->params_num);
+    return len;
+}
+
+xqc_int_t
+xqc_moq_msg_encode_publish_namespace(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap)
+{
+    xqc_moq_publish_namespace_msg_t *pub = (xqc_moq_publish_namespace_msg_t*)msg_base;
+    size_t track_namespace_len = 0;
+    if (xqc_moq_track_namespace_tuple_validate_and_sum(pub->track_namespace_num,
+            pub->track_namespace_tuple, &track_namespace_len) != XQC_OK)
+    { return -XQC_EPARAM; }
+
+    xqc_int_t length = xqc_moq_msg_encode_publish_namespace_len(msg_base);
+    if (length > buf_cap) { return -XQC_EILLEGAL_FRAME; }
+    length = length - xqc_put_varint_len(XQC_MOQ_MSG_PUBLISH_NAMESPACE) - XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
+
+    uint8_t *p = buf;
+    p = xqc_put_varint(p, XQC_MOQ_MSG_PUBLISH_NAMESPACE);
+    p = xqc_moq_put_varint_length(p, length);
+    p = xqc_put_varint(p, pub->request_id);
+    p = xqc_moq_track_namespace_tuple_encode(p, pub->track_namespace_num, pub->track_namespace_tuple);
+    p = xqc_put_varint(p, pub->params_num);
+    xqc_int_t ret = xqc_moq_msg_encode_params_v14(pub->params, pub->params_num, p, buf + buf_cap - p);
+    if (ret < 0) { return ret; }
+    p += ret;
+    return p - buf;
+}
+
+xqc_int_t
+xqc_moq_msg_decode_publish_namespace(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base,
+    xqc_int_t *finish, xqc_int_t *wait_more_data)
+{
+    *finish = 0; *wait_more_data = 0;
+    xqc_int_t processed = 0, ret = 0, param_finish = 0;
+    xqc_int_t payload_offset = 0;
+    xqc_moq_publish_namespace_msg_t *pub = (xqc_moq_publish_namespace_msg_t*)msg_base;
+    xqc_moq_decode_params_ctx_t *params_ctx = &msg_ctx->decode_params_ctx;
+
+    size_t msg_bound_len = buf_len;
+    if (msg_ctx->cur_field_idx > 0) {
+        uint64_t remaining = msg_ctx->msg_declared_length - msg_ctx->msg_payload_consumed;
+        msg_bound_len = remaining < buf_len ? (size_t)remaining : buf_len;
+    }
+
+    switch (msg_ctx->cur_field_idx) {
+        case 0:
+            ret = xqc_moq_length_read(buf + processed, buf + buf_len, &msg_ctx->msg_declared_length);
+            if (ret < 0) { *wait_more_data = 1; break; }
+            processed += ret;
+            payload_offset = processed;
+            msg_ctx->msg_payload_consumed = 0;
+            {
+                uint64_t end = (uint64_t)payload_offset + msg_ctx->msg_declared_length;
+                msg_bound_len = end < buf_len ? (size_t)end : buf_len;
+            }
+            msg_ctx->cur_field_idx = 1;
+        case 1:
+            ret = xqc_vint_read(buf + processed, buf + msg_bound_len, &pub->request_id);
+            if (ret < 0) {
+                if (msg_bound_len < buf_len) { return -MOQ_PROTOCOL_VIOLATION; }
+                *wait_more_data = 1; break;
+            }
+            processed += ret;
+            msg_ctx->cur_field_idx = 2;
+        case 2:
+            if (pub->track_namespace_num == 0) {
+                ret = xqc_vint_read(buf + processed, buf + msg_bound_len, &pub->track_namespace_num);
+                if (ret < 0) {
+                    if (msg_bound_len < buf_len) { return -MOQ_PROTOCOL_VIOLATION; }
+                    *wait_more_data = 1; break;
+                }
+                processed += ret;
+                if (pub->track_namespace_num == 0 || pub->track_namespace_num > XQC_MOQ_MAX_NAMESPACE_TUPLE_ELEMS) {
+                    return -MOQ_PROTOCOL_VIOLATION;
+                }
+                msg_ctx->cur_array_idx = 0;
+                msg_ctx->str_processed = 0;
+                msg_ctx->tuple_elem_len = 0;
+                msg_ctx->tuple_elem_len_ready = 0;
+                msg_ctx->namespace_total_len = 0;
+                pub->track_namespace_tuple = xqc_calloc(pub->track_namespace_num, sizeof(xqc_moq_track_ns_field_t));
+                if (pub->track_namespace_tuple == NULL) { return -XQC_EMALLOC; }
+            }
+            msg_ctx->cur_field_idx = 3;
+        case 3:
+            for (; msg_ctx->cur_array_idx < pub->track_namespace_num; msg_ctx->cur_array_idx++) {
+                xqc_moq_track_ns_field_t *field = &pub->track_namespace_tuple[msg_ctx->cur_array_idx];
+                if (!msg_ctx->tuple_elem_len_ready) {
+                    ret = xqc_vint_read(buf + processed, buf + msg_bound_len, &msg_ctx->tuple_elem_len);
+                    if (ret < 0) {
+                        if (msg_bound_len < buf_len) { return -MOQ_PROTOCOL_VIOLATION; }
+                        *wait_more_data = 1; break;
+                    }
+                    processed += ret;
+                    msg_ctx->tuple_elem_len_ready = 1;
+                    if (msg_ctx->tuple_elem_len > XQC_MOQ_MAX_NAME_LEN) { return -XQC_ELIMIT; }
+                    field->len = msg_ctx->tuple_elem_len;
+                    if (msg_ctx->namespace_total_len > XQC_MOQ_MAX_FULL_TRACK_NAME_LEN - field->len) { return -MOQ_PROTOCOL_VIOLATION; }
+                    msg_ctx->namespace_total_len += field->len;
+                    if (field->len > 0) {
+                        field->data = xqc_calloc(1, field->len + 1);
+                        if (field->data == NULL) { return -XQC_EMALLOC; }
+                    } else {
+                        msg_ctx->str_processed = 0;
+                        msg_ctx->tuple_elem_len_ready = 0;
+                        msg_ctx->tuple_elem_len = 0;
+                        continue;
+                    }
+                }
+                if (processed >= msg_bound_len) {
+                    if (msg_bound_len < buf_len) { return -MOQ_PROTOCOL_VIOLATION; }
+                    *wait_more_data = 1; break;
+                }
+                size_t field_remaining = msg_ctx->tuple_elem_len - msg_ctx->str_processed;
+                size_t avail = msg_bound_len - processed;
+                if (field_remaining <= avail) {
+                    xqc_memcpy(field->data + msg_ctx->str_processed, buf + processed, field_remaining);
+                    processed += field_remaining;
+                } else {
+                    xqc_memcpy(field->data + msg_ctx->str_processed, buf + processed, avail);
+                    msg_ctx->str_processed += avail;
+                    processed += avail;
+                    if (msg_bound_len < buf_len) { return -MOQ_PROTOCOL_VIOLATION; }
+                    *wait_more_data = 1;
+                    break;
+                }
+                msg_ctx->str_processed = 0;
+                msg_ctx->tuple_elem_len_ready = 0;
+                msg_ctx->tuple_elem_len = 0;
+            }
+            if (*wait_more_data) { break; }
+            msg_ctx->cur_field_idx = 4;
+        case 4:
+            if (pub->params_num == 0) {
+                ret = xqc_vint_read(buf + processed, buf + msg_bound_len, &pub->params_num);
+                if (ret < 0) {
+                    if (msg_bound_len < buf_len) { return -MOQ_PROTOCOL_VIOLATION; }
+                    *wait_more_data = 1; break;
+                }
+                processed += ret;
+                if (pub->params_num == 0) {
+                    msg_ctx->cur_field_idx = 6;
+                    goto trailing_skip;
+                }
+                if (pub->params_num > XQC_MOQ_MAX_PARAMS) { return -XQC_ELIMIT; }
+                pub->params = xqc_moq_msg_alloc_params(pub->params_num);
+                if (pub->params == NULL) { return -XQC_EMALLOC; }
+            }
+            msg_ctx->cur_field_idx = 5;
+        case 5:
+        {
+            size_t params_avail = msg_bound_len > (size_t)processed ? msg_bound_len - processed : 0;
+            ret = xqc_moq_msg_decode_params_v14(buf + processed, params_avail, params_ctx,
+                                                pub->params, pub->params_num, &param_finish, wait_more_data);
+            if (ret < 0) { return ret; }
+            processed += ret;
+            if (*wait_more_data) {
+                if (msg_bound_len < buf_len && !param_finish) { return -MOQ_PROTOCOL_VIOLATION; }
+                break;
+            }
+            if (!param_finish) { break; }
+            msg_ctx->cur_field_idx = 6;
+        }
+        case 6:
+        trailing_skip:
+        {
+            msg_ctx->msg_payload_consumed += (processed - payload_offset);
+            payload_offset = processed;
+            uint64_t trailing = msg_ctx->msg_declared_length - msg_ctx->msg_payload_consumed;
+            if (trailing > 0) {
+                uint64_t buf_avail = buf_len - processed;
+                if (trailing <= buf_avail) {
+                    processed += trailing;
+                } else {
+                    processed += buf_avail;
+                    msg_ctx->msg_payload_consumed += buf_avail;
+                    *wait_more_data = 1;
+                    break;
+                }
+            }
+            *finish = 1;
+            break;
+        }
+        default:
+            return -XQC_EILLEGAL_FRAME;
+    }
+    if (!*finish && msg_ctx->cur_field_idx > 0 && msg_ctx->cur_field_idx < 6) {
+        msg_ctx->msg_payload_consumed += (processed - payload_offset);
+    }
+    return processed;
+}
+
+void *
+xqc_moq_msg_create_publish_namespace_done()
+{
+    xqc_moq_publish_namespace_done_msg_t *msg = xqc_calloc(1, sizeof(*msg));
+    if (msg == NULL) {
+        return NULL;
+    }
+    xqc_moq_msg_publish_namespace_done_init_handler(&msg->msg_base);
+    return msg;
+}
+
+void
+xqc_moq_msg_free_publish_namespace_done(void *msg)
+{
+    if (msg == NULL) {
+        return;
+    }
+    xqc_moq_publish_namespace_done_msg_t *done = (xqc_moq_publish_namespace_done_msg_t*)msg;
+    if (done->track_namespace_tuple) {
+        for (uint64_t i = 0; i < done->track_namespace_num; i++) {
+            xqc_free(done->track_namespace_tuple[i].data);
+        }
+        xqc_free(done->track_namespace_tuple);
+    }
+    xqc_free(done);
+}
+
+xqc_moq_msg_type_t
+xqc_moq_msg_publish_namespace_done_type()
+{
+    return XQC_MOQ_MSG_PUBLISH_NAMESPACE_DONE;
+}
+
+void
+xqc_moq_msg_publish_namespace_done_init_handler(xqc_moq_msg_base_t *msg_base)
+{
+    *msg_base = publish_namespace_done_base;
+}
+
+xqc_int_t
+xqc_moq_msg_encode_publish_namespace_done_len(xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_publish_namespace_done_msg_t *done = (xqc_moq_publish_namespace_done_msg_t*)msg_base;
+    size_t track_namespace_len = 0;
+    if (xqc_moq_track_namespace_tuple_validate_and_sum(done->track_namespace_num,
+            done->track_namespace_tuple, &track_namespace_len) != XQC_OK)
+    { return -XQC_EPARAM; }
+
+    xqc_int_t len = 0;
+    len += xqc_put_varint_len(XQC_MOQ_MSG_PUBLISH_NAMESPACE_DONE);
+    len += XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
+    len += xqc_moq_track_namespace_tuple_encode_len(done->track_namespace_num, done->track_namespace_tuple);
+    return len;
+}
+
+xqc_int_t
+xqc_moq_msg_encode_publish_namespace_done(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap)
+{
+    xqc_moq_publish_namespace_done_msg_t *done = (xqc_moq_publish_namespace_done_msg_t*)msg_base;
+    size_t track_namespace_len = 0;
+    if (xqc_moq_track_namespace_tuple_validate_and_sum(done->track_namespace_num,
+            done->track_namespace_tuple, &track_namespace_len) != XQC_OK)
+    { return -XQC_EPARAM; }
+
+    xqc_int_t length = xqc_moq_msg_encode_publish_namespace_done_len(msg_base);
+    if (length > buf_cap) { return -XQC_EILLEGAL_FRAME; }
+    length = length - xqc_put_varint_len(XQC_MOQ_MSG_PUBLISH_NAMESPACE_DONE) - XQC_MOQ_MSG_LENGTH_FIXED_SIZE;
+
+    uint8_t *p = buf;
+    p = xqc_put_varint(p, XQC_MOQ_MSG_PUBLISH_NAMESPACE_DONE);
+    p = xqc_moq_put_varint_length(p, length);
+    p = xqc_moq_track_namespace_tuple_encode(p, done->track_namespace_num, done->track_namespace_tuple);
+    return p - buf;
+}
+
+xqc_int_t
+xqc_moq_msg_decode_publish_namespace_done(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base,
+    xqc_int_t *finish, xqc_int_t *wait_more_data)
+{
+    *finish = 0; *wait_more_data = 0;
+    xqc_int_t processed = 0, ret = 0;
+    xqc_int_t payload_offset = 0;
+    xqc_moq_publish_namespace_done_msg_t *done = (xqc_moq_publish_namespace_done_msg_t*)msg_base;
+
+    size_t msg_bound_len = buf_len;
+    if (msg_ctx->cur_field_idx > 0) {
+        uint64_t remaining = msg_ctx->msg_declared_length - msg_ctx->msg_payload_consumed;
+        msg_bound_len = remaining < buf_len ? (size_t)remaining : buf_len;
+    }
+
+    switch (msg_ctx->cur_field_idx) {
+        case 0:
+            ret = xqc_moq_length_read(buf + processed, buf + buf_len, &msg_ctx->msg_declared_length);
+            if (ret < 0) { *wait_more_data = 1; break; }
+            processed += ret;
+            payload_offset = processed;
+            msg_ctx->msg_payload_consumed = 0;
+            {
+                uint64_t end = (uint64_t)payload_offset + msg_ctx->msg_declared_length;
+                msg_bound_len = end < buf_len ? (size_t)end : buf_len;
+            }
+            msg_ctx->cur_field_idx = 1;
+        case 1:
+            if (done->track_namespace_num == 0) {
+                ret = xqc_vint_read(buf + processed, buf + msg_bound_len, &done->track_namespace_num);
+                if (ret < 0) {
+                    if (msg_bound_len < buf_len) { return -MOQ_PROTOCOL_VIOLATION; }
+                    *wait_more_data = 1; break;
+                }
+                processed += ret;
+                if (done->track_namespace_num == 0 || done->track_namespace_num > XQC_MOQ_MAX_NAMESPACE_TUPLE_ELEMS) {
+                    return -MOQ_PROTOCOL_VIOLATION;
+                }
+                msg_ctx->cur_array_idx = 0;
+                msg_ctx->str_processed = 0;
+                msg_ctx->tuple_elem_len = 0;
+                msg_ctx->tuple_elem_len_ready = 0;
+                msg_ctx->namespace_total_len = 0;
+                done->track_namespace_tuple = xqc_calloc(done->track_namespace_num, sizeof(xqc_moq_track_ns_field_t));
+                if (done->track_namespace_tuple == NULL) { return -XQC_EMALLOC; }
+            }
+            msg_ctx->cur_field_idx = 2;
+        case 2:
+            for (; msg_ctx->cur_array_idx < done->track_namespace_num; msg_ctx->cur_array_idx++) {
+                xqc_moq_track_ns_field_t *field = &done->track_namespace_tuple[msg_ctx->cur_array_idx];
+                if (!msg_ctx->tuple_elem_len_ready) {
+                    ret = xqc_vint_read(buf + processed, buf + msg_bound_len, &msg_ctx->tuple_elem_len);
+                    if (ret < 0) {
+                        if (msg_bound_len < buf_len) { return -MOQ_PROTOCOL_VIOLATION; }
+                        *wait_more_data = 1; break;
+                    }
+                    processed += ret;
+                    msg_ctx->tuple_elem_len_ready = 1;
+                    if (msg_ctx->tuple_elem_len > XQC_MOQ_MAX_NAME_LEN) { return -XQC_ELIMIT; }
+                    field->len = msg_ctx->tuple_elem_len;
+                    if (msg_ctx->namespace_total_len > XQC_MOQ_MAX_FULL_TRACK_NAME_LEN - field->len) { return -MOQ_PROTOCOL_VIOLATION; }
+                    msg_ctx->namespace_total_len += field->len;
+                    if (field->len > 0) {
+                        field->data = xqc_calloc(1, field->len + 1);
+                        if (field->data == NULL) { return -XQC_EMALLOC; }
+                    } else {
+                        msg_ctx->str_processed = 0;
+                        msg_ctx->tuple_elem_len_ready = 0;
+                        msg_ctx->tuple_elem_len = 0;
+                        continue;
+                    }
+                }
+                if (processed >= msg_bound_len) {
+                    if (msg_bound_len < buf_len) { return -MOQ_PROTOCOL_VIOLATION; }
+                    *wait_more_data = 1; break;
+                }
+                size_t field_remaining = msg_ctx->tuple_elem_len - msg_ctx->str_processed;
+                size_t avail = msg_bound_len - processed;
+                if (field_remaining <= avail) {
+                    xqc_memcpy(field->data + msg_ctx->str_processed, buf + processed, field_remaining);
+                    processed += field_remaining;
+                } else {
+                    xqc_memcpy(field->data + msg_ctx->str_processed, buf + processed, avail);
+                    msg_ctx->str_processed += avail;
+                    processed += avail;
+                    if (msg_bound_len < buf_len) { return -MOQ_PROTOCOL_VIOLATION; }
+                    *wait_more_data = 1;
+                    break;
+                }
+                msg_ctx->str_processed = 0;
+                msg_ctx->tuple_elem_len_ready = 0;
+                msg_ctx->tuple_elem_len = 0;
+            }
+            if (*wait_more_data) { break; }
+            msg_ctx->cur_field_idx = 3;
+        case 3:
+        {
+            msg_ctx->msg_payload_consumed += (processed - payload_offset);
+            payload_offset = processed;
+            uint64_t trailing = msg_ctx->msg_declared_length - msg_ctx->msg_payload_consumed;
+            if (trailing > 0) {
+                uint64_t buf_avail = buf_len - processed;
+                if (trailing <= buf_avail) {
+                    processed += trailing;
+                } else {
+                    processed += buf_avail;
+                    msg_ctx->msg_payload_consumed += buf_avail;
+                    *wait_more_data = 1;
+                    break;
+                }
+            }
+            *finish = 1;
+            break;
+        }
+        default:
+            return -XQC_EILLEGAL_FRAME;
+    }
+    if (!*finish && msg_ctx->cur_field_idx > 0 && msg_ctx->cur_field_idx < 3) {
+        msg_ctx->msg_payload_consumed += (processed - payload_offset);
+    }
+    return processed;
+}
 
 void *
 xqc_moq_msg_create_subscribe_namespace()

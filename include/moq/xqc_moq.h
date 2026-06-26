@@ -189,14 +189,11 @@ typedef enum {
     XQC_MOQ_MSG_SUBSCRIBE           = 0x3,
     XQC_MOQ_MSG_SUBSCRIBE_OK        = 0x4,
     XQC_MOQ_MSG_SUBSCRIBE_ERROR     = 0x5,
-    XQC_MOQ_MSG_ANNOUNCE            = 0x6,
-    XQC_MOQ_MSG_ANNOUNCE_OK         = 0x7,
-    XQC_MOQ_MSG_ANNOUNCE_ERROR      = 0x8,
-    XQC_MOQ_MSG_UNANNOUNCE          = 0x9,
+    XQC_MOQ_MSG_PUBLISH_NAMESPACE   = 0x6,
+    XQC_MOQ_MSG_PUBLISH_NAMESPACE_DONE = 0x9,
     XQC_MOQ_MSG_UNSUBSCRIBE         = 0xA,
     // XQC_MOQ_MSG_SUBSCRIBE_DONE      = 0xB,
     XQC_MOQ_MSG_PUBLISH_DONE        = 0xB,
-    XQC_MOQ_MSG_ANNOUNCE_CANCEL     = 0xC,
     XQC_MOQ_MSG_TRACK_STATUS_REQUEST = 0xD,
     XQC_MOQ_MSG_TRACK_STATUS        = 0xE,
     XQC_MOQ_MSG_GOAWAY              = 0x10,
@@ -367,6 +364,21 @@ typedef enum {
     XQC_MOQ_PUBLISH_ERR_SUBSCRIPTION_EXISTS   = 0x3,
     XQC_MOQ_PUBLISH_ERR_TRACK_NOT_FOUND       = 0x4,
 } xqc_moq_publish_error_code_t;
+
+typedef struct xqc_moq_publish_namespace_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    request_id;
+    uint64_t                    track_namespace_num;
+    xqc_moq_track_ns_field_t    *track_namespace_tuple;
+    uint64_t                    params_num;
+    xqc_moq_message_parameter_t *params;
+} xqc_moq_publish_namespace_msg_t;
+
+typedef struct xqc_moq_publish_namespace_done_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    track_namespace_num;
+    xqc_moq_track_ns_field_t    *track_namespace_tuple;
+} xqc_moq_publish_namespace_done_msg_t;
 
 typedef struct xqc_moq_subscribe_namespace_msg_s {
     xqc_moq_msg_base_t          msg_base;
@@ -671,6 +683,25 @@ xqc_int_t xqc_moq_subscribe_latest(xqc_moq_session_t *session, const char *track
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_subscribe_update(xqc_moq_session_t *session, uint64_t subscribe_id,
     uint64_t start_group_id, uint64_t start_object_id, uint64_t end_group_id);
+
+/*
+ * Advertise a namespace and fan out PUBLISH_NAMESPACE to active matching
+ * SUBSCRIBE_NAMESPACE prefixes. Applications that need draft-14 namespace
+ * subscription semantics should call this before publishing tracks in that
+ * namespace; xqc_moq_publish() does not implicitly send PUBLISH_NAMESPACE.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_publish_namespace(xqc_moq_session_t *session,
+    xqc_moq_publish_namespace_msg_t *publish_namespace);
+
+/*
+ * End an advertised namespace and fan out PUBLISH_NAMESPACE_DONE to active
+ * matching SUBSCRIBE_NAMESPACE prefixes. The call fails while an exact-match
+ * namespace publish is still active.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_publish_namespace_done(xqc_moq_session_t *session,
+    xqc_moq_publish_namespace_done_msg_t *publish_namespace_done);
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_publish(xqc_moq_session_t *session, xqc_moq_publish_msg_t *publish_msg);

@@ -616,6 +616,113 @@ run_test "17j: no protocol violation" \
 echo ""
 
 # ============================================================
+# Test 18: Explicit PUBLISH_NAMESPACE and DONE after active prefix
+# Mode 16: client subscribes ["explicit"]. Server callback accepts and
+# explicitly publishes/dones ["explicit", "child"].
+# ============================================================
+echo "--- Test 18: Explicit PUBLISH_NAMESPACE/DONE future update ---"
+PORT=$((PORT + 1))
+rm -f clog slog
+
+"$SERVER" -l d -p $PORT -V -n 2 -K 4 > srv18.log 2>&1 &
+SRV_PID=$!
+sleep 2
+
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 16 > cli18.log 2>&1 || true
+
+kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
+
+run_test "18a: server callback sent explicit namespace OK" \
+    grep -q "ns_callback_explicit_publish|request_id:0" srv18.log
+run_test "18b: server called explicit PUBLISH_NAMESPACE" \
+    grep -q "explicit publish_namespace ret:0" srv18.log
+run_test "18c: client received implicit parent PUBLISH_NAMESPACE" \
+    grep -q "publish_namespace.*namespace_num:1.*namespace:explicit" clog
+run_test "18d: client received explicit child PUBLISH_NAMESPACE" \
+    grep -q "publish_namespace.*namespace_num:2.*namespace:explicit/child" clog
+run_test "18e: server called explicit PUBLISH_NAMESPACE_DONE" \
+    grep -q "explicit publish_namespace_done ret:0" srv18.log
+run_test "18f: client received child PUBLISH_NAMESPACE_DONE" \
+    grep -q "publish_namespace_done.*namespace_num:2.*namespace:explicit/child" clog
+run_test "18g: client did not receive implicit parent PUBLISH_NAMESPACE_DONE" \
+    assert_no_match "publish_namespace_done.*namespace_num:1.*namespace:explicit" clog
+run_test "18h: no segfault in server" \
+    assert_no_match "segfault\|SIGSEGV\|abort" srv18.log
+run_test "18i: no segfault in client" \
+    assert_no_match "segfault\|SIGSEGV\|abort" cli18.log
+run_test "18j: no protocol violation" \
+    assert_no_match "PROTOCOL_VIOLATION\|conn_err:3" slog
+
+echo ""
+
+# ============================================================
+# Test 19: Existing parent namespace is not re-announced
+# Mode 17: client subscribes ["dup"]. Server publishes ["dup"] then
+# ["dup", "child"]. Client should see dup once and dup/child once.
+# ============================================================
+echo "--- Test 19: Existing parent namespace is not duplicated ---"
+PORT=$((PORT + 1))
+rm -f clog slog
+
+"$SERVER" -l d -p $PORT -V -n 2 -K 5 > srv19.log 2>&1 &
+SRV_PID=$!
+sleep 2
+
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 17 > cli19.log 2>&1 || true
+
+kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
+
+run_test "19a: server ran duplicate parent callback" \
+    grep -q "ns_callback_duplicate_parent|request_id:0" srv19.log
+run_test "19b: client received parent once" \
+    [ "$(grep -c "publish_namespace.*namespace_num:1.*namespace:dup" clog 2>/dev/null || echo 0)" -eq 1 ]
+run_test "19c: client received child once" \
+    [ "$(grep -c "publish_namespace.*namespace_num:2.*namespace:dup/child" clog 2>/dev/null || echo 0)" -eq 1 ]
+run_test "19d: no segfault in server" \
+    assert_no_match "segfault\|SIGSEGV\|abort" srv19.log
+run_test "19e: no segfault in client" \
+    assert_no_match "segfault\|SIGSEGV\|abort" cli19.log
+run_test "19f: no protocol violation" \
+    assert_no_match "PROTOCOL_VIOLATION\|conn_err:3" slog
+
+echo ""
+
+# ============================================================
+# Test 20: Sibling DONE keeps sticky parent
+# Mode 18: client subscribes ["sib"]. Server publishes ["sib","cc"]
+# and ["sib","dd"], dones cc, then dones dd. Parent stays advertised
+# until explicitly DONE by the application.
+# ============================================================
+echo "--- Test 20: Sibling DONE keeps sticky parent ---"
+PORT=$((PORT + 1))
+rm -f clog slog
+
+"$SERVER" -l d -p $PORT -V -n 2 -K 6 > srv20.log 2>&1 &
+SRV_PID=$!
+sleep 2
+
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 18 > cli20.log 2>&1 || true
+
+kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
+
+run_test "20a: server ran sibling callback" \
+    grep -q "ns_callback_sibling_done|request_id:0" srv20.log
+run_test "20b: client received cc DONE" \
+    grep -q "publish_namespace_done.*namespace_num:2.*namespace:sib/cc" clog
+run_test "20c: client received dd DONE" \
+    grep -q "publish_namespace_done.*namespace_num:2.*namespace:sib/dd" clog
+run_test "20d: client did not receive parent DONE automatically" \
+    assert_no_match "publish_namespace_done.*namespace_num:1.*namespace:sib" clog
+run_test "20e: no segfault in server" \
+    assert_no_match "segfault\|SIGSEGV\|abort" srv20.log
+run_test "20f: no segfault in client" \
+    assert_no_match "segfault\|SIGSEGV\|abort" cli20.log
+run_test "20g: no protocol violation" \
+    assert_no_match "PROTOCOL_VIOLATION\|conn_err:3" slog
+
+echo ""
+
+# ============================================================
 # Summary
 # ============================================================
 echo "=== Results: $PASS passed, $FAIL failed ==="

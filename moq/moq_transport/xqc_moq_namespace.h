@@ -17,6 +17,8 @@ typedef struct xqc_moq_namespace_advertisement_s {
     uint64_t                     track_namespace_num;
     xqc_moq_track_ns_field_t     *track_namespace_tuple;
     uint64_t                     track_refcnt;
+    uint64_t                     child_refcnt;
+    uint8_t                      explicit_advertised;
     xqc_list_head_t              advertised_track_list;
 } xqc_moq_namespace_advertisement_t;
 

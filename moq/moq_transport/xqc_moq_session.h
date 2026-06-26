@@ -50,6 +50,8 @@ typedef struct xqc_moq_session_s {
     xqc_list_head_t                 track_list_for_sub;
     xqc_list_head_t                 peer_subscribe_namespace_list;
     xqc_list_head_t                 peer_ns_pending_inbound_list;
+    xqc_list_head_t                 local_advertised_namespace_list;
+    xqc_list_head_t                 peer_advertised_namespace_list;
     uint64_t                        request_id_allocator;
     uint64_t                        track_alias_allocator;
     xqc_moq_bitrate_allocator_t     bitrate_allocator;
@@ -139,5 +141,20 @@ xqc_int_t xqc_moq_session_accept_pending_inbound_ns(xqc_moq_session_t *session,
 
 void xqc_moq_session_reject_pending_inbound_ns(xqc_moq_session_t *session,
     uint64_t request_id);
+
+xqc_moq_namespace_advertisement_t *xqc_moq_session_find_advertised_namespace(
+    xqc_moq_session_t *session, xqc_int_t is_local,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple, uint64_t track_namespace_num);
+
+xqc_int_t xqc_moq_session_add_advertised_namespace(xqc_moq_session_t *session,
+    xqc_int_t is_local, const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    uint64_t track_namespace_num);
+
+xqc_int_t xqc_moq_session_remove_advertised_namespace(xqc_moq_session_t *session,
+    xqc_int_t is_local, const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    uint64_t track_namespace_num);
+
+xqc_int_t xqc_moq_session_has_active_publish_in_namespace(xqc_moq_session_t *session,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple, uint64_t track_namespace_num);
 
 #endif /* _XQC_MOQ_SESSION_H_INCLUDED_ */

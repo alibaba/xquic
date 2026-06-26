@@ -35,6 +35,9 @@ xqc_int_t xqc_moq_subscribe_with_ns_tuple(xqc_moq_session_t *session,
     uint64_t start_group_id, uint64_t start_object_id,
     uint64_t end_group_id, uint64_t end_object_id, char *authinfo);
 
+void xqc_moq_session_forward_matching_namespaces(xqc_moq_session_t *session,
+    const xqc_moq_track_ns_field_t *namespace_prefix_tuple, uint64_t namespace_prefix_num);
+
 void xqc_moq_session_forward_matching_publishes(xqc_moq_session_t *session,
     const xqc_moq_track_ns_field_t *namespace_prefix_tuple, uint64_t namespace_prefix_num);
 

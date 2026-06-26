@@ -554,6 +554,66 @@ xqc_moq_publish_send_error(xqc_moq_session_t *session, xqc_moq_track_t *track,
 }
 
 void
+xqc_moq_on_publish_namespace(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_publish_namespace_msg_t *msg = (xqc_moq_publish_namespace_msg_t*)msg_base;
+    if (session == NULL || msg == NULL) {
+        return;
+    }
+
+    uint64_t sender_parity = xqc_moq_session_is_server(session) ? 0 : 1;
+    if ((msg->request_id & 1) != sender_parity) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|publish_namespace wrong request_id parity|request_id:%ui|expected_parity:%ui|",
+                msg->request_id, sender_parity);
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION, "wrong publish_namespace request_id parity");
+        return;
+    }
+
+    if (xqc_moq_session_find_request_id(session, msg->request_id)) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|publish_namespace duplicate request_id|request_id:%ui|", msg->request_id);
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                              "duplicate publish_namespace request_id");
+        return;
+    }
+    session->max_peer_ns_request_id = msg->request_id;
+    session->peer_ns_request_id_seen = 1;
+
+    xqc_int_t ret = xqc_moq_session_add_advertised_namespace(session, 0,
+        msg->track_namespace_tuple, msg->track_namespace_num);
+    if (ret != XQC_OK) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|add peer publish_namespace failed|ret:%d|", ret);
+        xqc_moq_session_error(session, MOQ_INTERNAL_ERROR, "on publish namespace");
+        return;
+    }
+
+    char *ns = xqc_moq_namespace_tuple_join(msg->track_namespace_tuple, msg->track_namespace_num);
+    xqc_log(session->log, XQC_LOG_INFO,
+            "|publish_namespace|request_id:%ui|namespace_num:%ui|namespace:%s|",
+            msg->request_id, msg->track_namespace_num, ns ? ns : "");
+    xqc_free(ns);
+}
+
+void
+xqc_moq_on_publish_namespace_done(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_publish_namespace_done_msg_t *msg = (xqc_moq_publish_namespace_done_msg_t*)msg_base;
+    if (session == NULL || msg == NULL) {
+        return;
+    }
+
+    xqc_moq_session_remove_advertised_namespace(session, 0,
+        msg->track_namespace_tuple, msg->track_namespace_num);
+
+    char *ns = xqc_moq_namespace_tuple_join(msg->track_namespace_tuple, msg->track_namespace_num);
+    xqc_log(session->log, XQC_LOG_INFO,
+            "|publish_namespace_done|namespace_num:%ui|namespace:%s|",
+            msg->track_namespace_num, ns ? ns : "");
+    xqc_free(ns);
+}
+
+void
 xqc_moq_on_publish(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
 {
     xqc_moq_publish_msg_t *publish = (xqc_moq_publish_msg_t*)msg_base;
@@ -1360,11 +1420,6 @@ xqc_moq_on_unsubscribe_namespace(xqc_moq_session_t *session, xqc_moq_stream_t *m
             "|unsubscribe_namespace|prefix_num:%ui|",
             msg->track_namespace_num);
 
-    if (session->session_callbacks.on_unsubscribe_namespace) {
-        session->session_callbacks.on_unsubscribe_namespace(session->user_session, msg);
-        return;
-    }
-
     if (msg->track_namespace_tuple != NULL && msg->track_namespace_num > 0) {
         xqc_int_t removed = xqc_moq_session_remove_namespace_prefix(
             session, msg->track_namespace_tuple, msg->track_namespace_num);
@@ -1373,5 +1428,9 @@ xqc_moq_on_unsubscribe_namespace(xqc_moq_session_t *session, xqc_moq_stream_t *m
                     "|unsubscribe_namespace prefix not found|prefix_num:%ui|",
                     msg->track_namespace_num);
         }
+    }
+
+    if (session->session_callbacks.on_unsubscribe_namespace) {
+        session->session_callbacks.on_unsubscribe_namespace(session->user_session, msg);
     }
 }

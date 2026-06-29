@@ -659,6 +659,8 @@ xqc_conn_init_key_update_ctx(xqc_connection_t *conn)
 
     ctx->initiate_time_guard   = 0;
     ctx->key_update_initiator  = XQC_FALSE;
+    ctx->peer_key_update_ack_pending = XQC_FALSE;
+    ctx->peer_key_update_pktno = XQC_MAX_UINT64_VALUE;
 }
 
 static inline void
@@ -2109,6 +2111,17 @@ xqc_conn_log_sent_packet(xqc_connection_t *c, xqc_packet_out_t *po,
     c->snd_pkt_stats.curr_index = (index + 1) % 3;
 }
 
+static void
+xqc_conn_maybe_confirm_peer_key_update_ack_sent(xqc_connection_t *conn,
+    xqc_packet_out_t *packet_out)
+{
+    if (packet_out->po_pkt.pkt_pns == XQC_PNS_APP_DATA
+        && (packet_out->po_frame_types & (XQC_FRAME_BIT_ACK | XQC_FRAME_BIT_ACK_MP)))
+    {
+        xqc_key_update_peer_ack_sent(&conn->key_update_ctx, packet_out->po_largest_ack);
+    }
+}
+
 void
 xqc_on_packets_send_burst(xqc_connection_t *conn, xqc_path_ctx_t *path, ssize_t sent, xqc_usec_t now, xqc_send_type_t send_type)
 {
@@ -2138,6 +2151,7 @@ xqc_on_packets_send_burst(xqc_connection_t *conn, xqc_path_ctx_t *path, ssize_t 
             }
 
             xqc_send_ctl_on_packet_sent(send_ctl, pn_ctl, packet_out, now);
+            xqc_conn_maybe_confirm_peer_key_update_ack_sent(conn, packet_out);
             xqc_path_send_buffer_remove(path, packet_out);
             if (XQC_IS_ACK_ELICITING(packet_out->po_frame_types)) {
                 xqc_send_queue_insert_unacked(packet_out,
@@ -2660,6 +2674,7 @@ xqc_send_packet_with_pn(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_packet
 
     xqc_conn_log_sent_packet(conn, packet_out, now);
     xqc_send_ctl_on_packet_sent(path->path_send_ctl, pn_ctl, packet_out, now);
+    xqc_conn_maybe_confirm_peer_key_update_ack_sent(conn, packet_out);
     return sent;
 }
 

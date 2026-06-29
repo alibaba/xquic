@@ -675,6 +675,47 @@ xqc_test_key_update_initiator_confirmation(void)
 }
 
 
+/*
+ * Issue #756 BUG2 regression test (RFC 9001 §6.2).
+ *
+ * A responder that accepts a peer-initiated key update MUST reject another
+ * key update before it sends an ACK for the packet that triggered the first
+ * update.  The production path records peer_key_update_ack_pending after
+ * confirming the first peer update and clears it after sending an APP_DATA
+ * ACK that covers peer_key_update_pktno.
+ */
+void
+xqc_test_consecutive_key_update_detection(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    conn->key_update_ctx.next_in_key_phase = 1;
+    conn->key_update_ctx.peer_key_update_ack_pending = XQC_TRUE;
+    conn->key_update_ctx.peer_key_update_pktno = 80;
+
+    /* Higher packet number with the opposite phase is a second update. */
+    CU_ASSERT(xqc_key_update_peer_consecutive(&conn->key_update_ctx, 0, 100));
+
+    /* Reordered lower packet numbers and current-phase packets are allowed. */
+    CU_ASSERT(!xqc_key_update_peer_consecutive(&conn->key_update_ctx, 0, 70));
+    CU_ASSERT(!xqc_key_update_peer_consecutive(&conn->key_update_ctx, 1, 100));
+
+    /* ACKs that do not cover the trigger packet must not clear the gate. */
+    xqc_key_update_peer_ack_sent(&conn->key_update_ctx, 79);
+    CU_ASSERT_EQUAL(conn->key_update_ctx.peer_key_update_ack_pending, XQC_TRUE);
+    CU_ASSERT(xqc_key_update_peer_consecutive(&conn->key_update_ctx, 0, 100));
+
+    /* Once the trigger packet is ACKed, another key update is no longer BUG2. */
+    xqc_key_update_peer_ack_sent(&conn->key_update_ctx, 80);
+    CU_ASSERT_EQUAL(conn->key_update_ctx.peer_key_update_ack_pending, XQC_FALSE);
+    CU_ASSERT_EQUAL(conn->key_update_ctx.peer_key_update_pktno, XQC_MAX_UINT64_VALUE);
+    CU_ASSERT(!xqc_key_update_peer_consecutive(&conn->key_update_ctx, 0, 100));
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 
 
 /*

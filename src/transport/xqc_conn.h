@@ -296,6 +296,11 @@ typedef struct {
      * until peer ACKs new-phase packet (xqc_key_update_acked). */
     xqc_bool_t              key_update_initiator;
 
+    /* §6.2: TRUE after accepting a peer-initiated update until a packet
+     * carrying an ACK for peer_key_update_pktno is sent with updated keys. */
+    xqc_bool_t              peer_key_update_ack_pending;
+    xqc_packet_number_t     peer_key_update_pktno;
+
 } xqc_key_update_ctx_t;
 
 /* §6.1: TRUE once the peer has ACKed a new-phase packet, unlocking
@@ -306,6 +311,31 @@ xqc_key_update_acked(const xqc_key_update_ctx_t *ctx,
 {
     return largest_acked != XQC_MAX_UINT64_VALUE
         && largest_acked >= ctx->first_sent_pktno;
+}
+
+/* §6.2: A peer cannot update keys again before we send an ACK for the
+ * packet that triggered the previous peer-initiated key update. */
+static inline xqc_bool_t
+xqc_key_update_peer_consecutive(const xqc_key_update_ctx_t *ctx,
+                                xqc_uint_t key_phase,
+                                xqc_packet_number_t pktno)
+{
+    return ctx->peer_key_update_ack_pending
+        && key_phase != ctx->next_in_key_phase
+        && pktno > ctx->peer_key_update_pktno;
+}
+
+static inline void
+xqc_key_update_peer_ack_sent(xqc_key_update_ctx_t *ctx,
+                             xqc_packet_number_t largest_ack)
+{
+    if (ctx->peer_key_update_ack_pending
+        && largest_ack != XQC_MAX_UINT64_VALUE
+        && largest_ack >= ctx->peer_key_update_pktno)
+    {
+        ctx->peer_key_update_ack_pending = XQC_FALSE;
+        ctx->peer_key_update_pktno = XQC_MAX_UINT64_VALUE;
+    }
 }
 
 typedef struct xqc_ping_record_s {

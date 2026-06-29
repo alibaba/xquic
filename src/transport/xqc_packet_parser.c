@@ -766,6 +766,20 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     /* check key phase, determine weather to update read keys */
     xqc_uint_t key_phase = XQC_PACKET_SHORT_HEADER_KEY_PHASE(header);
 
+    if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER && level == XQC_ENC_LEV_1RTT
+        && xqc_key_update_peer_consecutive(&conn->key_update_ctx,
+                                           key_phase, packet_in->pi_pkt.pkt_num))
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|consecutive key update before ACK|pkt_num:%ui|key_phase:%ui|"
+                "expected:%ui|peer_key_update_pktno:%ui|",
+                packet_in->pi_pkt.pkt_num, key_phase,
+                conn->key_update_ctx.next_in_key_phase,
+                conn->key_update_ctx.peer_key_update_pktno);
+        XQC_CONN_ERR(conn, TRA_KEY_UPDATE_ERROR);
+        return -XQC_EPROTO;
+    }
+
     /*
      * RX key derivation for a peer-initiated key update.
      * pkt_num > first_recv_pktno: skip reordered late arrivals.
@@ -851,6 +865,10 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
                 xqc_log(conn->log, XQC_LOG_WARN, "|xqc_conn_confirm_key_update error|");
                 return ret;
             }
+
+            conn->key_update_ctx.first_recv_pktno = packet_in->pi_pkt.pkt_num;
+            conn->key_update_ctx.peer_key_update_ack_pending = XQC_TRUE;
+            conn->key_update_ctx.peer_key_update_pktno = packet_in->pi_pkt.pkt_num;
 
         } else if (key_phase == conn->key_update_ctx.next_in_key_phase
                    && packet_in->pi_pkt.pkt_num < conn->key_update_ctx.first_recv_pktno)

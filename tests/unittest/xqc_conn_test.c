@@ -348,9 +348,9 @@ xqc_test_conn_tls_error_cb_constructs_crypto_error()
 /* -------------------------------------------------------------------------
  * 0-RTT transport parameter validation tests for issue #717.
  *
- * RFC 9000 Section 7.4.1: when a client attempts 0-RTT, the server MUST NOT
- * reduce certain transport parameters below the values remembered from the
- * previous connection.
+ * RFC 9000 Section 7.4.1 and RFC 9221 Section 3: when a client attempts
+ * 0-RTT, the server MUST NOT reduce certain transport parameters below the
+ * values remembered from the previous connection.
  *
  * Tests call xqc_conn_validate_0rtt_transport_params() directly, which only
  * compares new params against conn->remote_settings.  No TLS state, CID

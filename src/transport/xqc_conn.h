@@ -751,8 +751,8 @@ void xqc_conn_try_to_enable_pmtud(xqc_connection_t *conn);
 xqc_int_t xqc_conn_server_accept(xqc_connection_t *c);
 
 /*
- * RFC 9000 Section 7.4.1: validate that new transport parameters do not
- * reduce MUST parameters below the remembered (0-RTT) values.
+ * RFC 9000 Section 7.4.1 and RFC 9221 Section 3: validate that new transport
+ * parameters do not reduce 0-RTT-sensitive parameters below remembered values.
  *
  * Returns XQC_OK if all parameters are valid, or TRA_0RTT_TRANS_PARAMS_ERROR
  * if any MUST parameter was reduced.

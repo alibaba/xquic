@@ -6070,8 +6070,9 @@ xqc_check_fec_trans_param(xqc_connection_t *conn, xqc_transport_params_t params)
 }
 
 /*
- * RFC 9000 Section 7.4.1: validate that new transport parameters do not
- * reduce MUST parameters below the remembered (0-RTT) values.
+ * RFC 9000 Section 7.4.1 and RFC 9221 Section 3: validate that new
+ * transport parameters do not reduce 0-RTT-sensitive parameters below the
+ * remembered values.
  *
  * Returns XQC_OK if all parameters are valid, or an error code
  * (TRA_0RTT_TRANS_PARAMS_ERROR) if any MUST parameter was reduced.
@@ -6187,8 +6188,8 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
     }
 
     /*
-     * RFC 9000 Section 7.4.1: when a client has sent 0-RTT data AND the
-     * server accepted early data, the server MUST NOT reduce certain
+     * RFC 9000 Section 7.4.1: when a client has sent 0-RTT data and the
+     * server accepted early data, the server MUST NOT reduce the core
      * transport parameters below the remembered values.  The client MUST
      * validate this and close with TRANSPORT_PARAMETER_ERROR if any MUST
      * parameter was reduced.
@@ -6209,6 +6210,22 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
             XQC_CONN_ERR(conn, ret);
             return;
         }
+    }
+
+    /*
+     * RFC 9221 Section 3: if max_datagram_frame_size is remembered as 0-RTT
+     * state, the new value MUST NOT be smaller.  This check is not gated on
+     * the TLS early-data result; for non-0RTT connections the remembered value
+     * is zero, so it remains a no-op.
+     */
+    if (params.max_datagram_frame_size < conn->remote_settings.max_datagram_frame_size) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|0rtt_param_reduced|max_datagram_frame_size|"
+                "remembered:%ui|new:%ui|",
+                conn->remote_settings.max_datagram_frame_size,
+                params.max_datagram_frame_size);
+        XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
+        return;
     }
 
     /* set remote transport param */

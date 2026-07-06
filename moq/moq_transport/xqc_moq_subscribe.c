@@ -1,21 +1,29 @@
 #include "moq/moq_transport/xqc_moq_subscribe.h"
 #include "moq/moq_transport/xqc_moq_session.h"
 #include "moq/moq_transport/xqc_moq_message_writer.h"
+#include "moq/moq_transport/xqc_moq_namespace.h"
+#include "moq/moq_transport/xqc_moq_track.h"
+#include "moq/moq_media/xqc_moq_catalog.h"
 
 xqc_moq_subscribe_t *
-xqc_moq_subscribe_create(xqc_moq_session_t *session, uint64_t subscribe_id,
-    uint64_t track_alias, const char *track_namespace, const char *track_name, xqc_moq_filter_type_t filter_type,
+xqc_moq_subscribe_create_with_ns_tuple(xqc_moq_session_t *session, uint64_t subscribe_id,
+    uint64_t track_alias, const xqc_moq_track_ns_field_t *ns_tuple, uint64_t ns_num,
+    const char *track_name, xqc_moq_filter_type_t filter_type,
     uint64_t start_group_id, uint64_t start_object_id, uint64_t end_group_id, uint64_t end_object_id,
     char *authinfo, xqc_int_t is_local)
 {
     xqc_moq_subscribe_t *subscribe;
     xqc_moq_subscribe_msg_t *msg;
 
-    size_t track_namespace_len = strlen(track_namespace);
+    if (track_name == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|NULL track_name|");
+        return NULL;
+    }
+
     size_t track_name_len = strlen(track_name);
-    if (track_namespace_len > XQC_MOQ_MAX_NAME_LEN || track_name_len > XQC_MOQ_MAX_NAME_LEN
-        || track_namespace_len == 0 || track_name_len == 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|illegal track namespace or name|");
+    if (xqc_moq_validate_full_track_name_for_write(session, ns_num, ns_tuple,
+                                                    track_name, track_name_len) != XQC_OK)
+    {
         return NULL;
     }
 
@@ -31,31 +39,64 @@ xqc_moq_subscribe_create(xqc_moq_session_t *session, uint64_t subscribe_id,
     }
 
     msg = xqc_calloc(1, sizeof(xqc_moq_subscribe_msg_t));
+    if (msg == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|subscribe msg alloc failed|");
+        return NULL;
+    }
+
     msg->subscribe_id = subscribe_id;
     msg->track_alias = track_alias;
-    msg->track_namespace_len = track_namespace_len;
-    msg->track_namespace = xqc_calloc(1, track_namespace_len + 1);
-    xqc_memcpy(msg->track_namespace, track_namespace, track_namespace_len);
-    msg->track_name_len = track_name_len;
-    msg->track_name = xqc_calloc(1, track_name_len + 1);
-    xqc_memcpy(msg->track_name, track_name, track_name_len);
+    msg->track_namespace_num = ns_num;
+    msg->subscriber_priority = 0;
+    msg->group_order = 0x1;
+    msg->forward = 0;
     msg->filter_type = filter_type;
     msg->start_group_id = start_group_id;
     msg->start_object_id = start_object_id;
     msg->end_group_id = end_group_id;
     msg->end_object_id = end_object_id;
+
+    msg->track_namespace_tuple = xqc_moq_namespace_tuple_copy(ns_tuple, ns_num);
+    if (msg->track_namespace_tuple == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|namespace tuple copy failed|");
+        xqc_moq_msg_free_subscribe(msg);
+        return NULL;
+    }
+
+    msg->track_name_len = track_name_len;
+    msg->track_name = xqc_calloc(1, track_name_len + 1);
+    if (msg->track_name == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|track name alloc failed|");
+        xqc_moq_msg_free_subscribe(msg);
+        return NULL;
+    }
+    xqc_memcpy(msg->track_name, track_name, track_name_len);
+
     if (authinfo_len > 0) {
         msg->params_num = 1;
         msg->params = xqc_calloc(msg->params_num, sizeof(xqc_moq_message_parameter_t));
+        if (msg->params == NULL) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|params alloc failed|");
+            xqc_moq_msg_free_subscribe(msg);
+            return NULL;
+        }
         msg->params[0].type = XQC_MOQ_PARAM_AUTH;
         msg->params[0].length = authinfo_len;
         msg->params[0].value = xqc_calloc(1, authinfo_len + 1);
+        if (msg->params[0].value == NULL) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|auth value alloc failed|");
+            xqc_moq_msg_free_subscribe(msg);
+            return NULL;
+        }
         xqc_memcpy(msg->params[0].value, authinfo, authinfo_len);
-    } else {
-        msg->params_num = 0;
     }
 
     subscribe = xqc_calloc(1, sizeof(xqc_moq_subscribe_t));
+    if (subscribe == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|subscribe alloc failed|");
+        xqc_moq_msg_free_subscribe(msg);
+        return NULL;
+    }
     subscribe->subscribe_msg = msg;
 
     xqc_init_list_head(&subscribe->list_member);
@@ -66,6 +107,26 @@ xqc_moq_subscribe_create(xqc_moq_session_t *session, uint64_t subscribe_id,
     }
 
     return subscribe;
+}
+
+xqc_moq_subscribe_t *
+xqc_moq_subscribe_create(xqc_moq_session_t *session, uint64_t subscribe_id,
+    uint64_t track_alias, const char *track_namespace, const char *track_name, xqc_moq_filter_type_t filter_type,
+    uint64_t start_group_id, uint64_t start_object_id, uint64_t end_group_id, uint64_t end_object_id,
+    char *authinfo, xqc_int_t is_local)
+{
+    if (track_namespace == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|illegal track namespace or name|");
+        return NULL;
+    }
+
+    xqc_moq_track_ns_field_t field;
+    field.data = (unsigned char *)track_namespace;
+    field.len = strlen(track_namespace);
+
+    return xqc_moq_subscribe_create_with_ns_tuple(session, subscribe_id, track_alias,
+        &field, 1, track_name, filter_type, start_group_id, start_object_id,
+        end_group_id, end_object_id, authinfo, is_local);
 }
 
 void
@@ -81,10 +142,45 @@ void
 xqc_moq_subscribe_update_msg(xqc_moq_subscribe_t *subscribe, xqc_moq_subscribe_update_msg_t *update)
 {
     xqc_moq_subscribe_msg_t *msg = subscribe->subscribe_msg;
+    msg->filter_type = update->end_group_id == 0 ? XQC_MOQ_FILTER_ABSOLUTE_START
+                                                 : XQC_MOQ_FILTER_ABSOLUTE_RANGE;
     msg->start_group_id = update->start_group_id;
     msg->start_object_id = update->start_object_id;
     msg->end_group_id = update->end_group_id;
-    msg->end_object_id = update->end_object_id;
+    msg->end_object_id = 0;
+    msg->subscriber_priority = update->subscriber_priority;
+    msg->forward = update->forward;
+}
+
+static xqc_bool_t
+xqc_moq_group_object_location_is_before(uint64_t group_id, uint64_t object_id,
+    uint64_t other_group_id, uint64_t other_object_id)
+{
+    return group_id < other_group_id
+           || (group_id == other_group_id && object_id < other_object_id);
+}
+
+xqc_bool_t
+xqc_moq_subscribe_update_is_valid(xqc_moq_subscribe_msg_t *cur,
+    uint64_t start_group_id, uint64_t start_object_id, uint64_t end_group_id)
+{
+    if (xqc_moq_group_object_location_is_before(start_group_id, start_object_id,
+                                                cur->start_group_id, cur->start_object_id))
+    {
+        return XQC_FALSE;
+    }
+
+    if (end_group_id != 0 && end_group_id < start_group_id) {
+        return XQC_FALSE;
+    }
+
+    if (cur->end_group_id != 0
+        && (end_group_id == 0 || end_group_id > cur->end_group_id))
+    {
+        return XQC_FALSE;
+    }
+
+    return XQC_TRUE;
 }
 
 xqc_int_t
@@ -92,28 +188,56 @@ xqc_moq_subscribe(xqc_moq_session_t *session, const char *track_namespace, const
     xqc_moq_filter_type_t filter_type, uint64_t start_group_id, uint64_t start_object_id,
     uint64_t end_group_id, uint64_t end_object_id, char *authinfo)
 {
+    if (track_namespace == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|subscribe null namespace|");
+        return -XQC_EPARAM;
+    }
+
+    xqc_moq_track_ns_field_t field;
+    field.data = (unsigned char *)track_namespace;
+    field.len = strlen(track_namespace);
+
+    return xqc_moq_subscribe_with_ns_tuple(session, &field, 1, track_name,
+               filter_type, start_group_id, start_object_id,
+               end_group_id, end_object_id, authinfo);
+}
+
+xqc_int_t
+xqc_moq_subscribe_with_ns_tuple(xqc_moq_session_t *session,
+    const xqc_moq_track_ns_field_t *ns_tuple, uint64_t ns_num,
+    const char *track_name, xqc_moq_filter_type_t filter_type,
+    uint64_t start_group_id, uint64_t start_object_id,
+    uint64_t end_group_id, uint64_t end_object_id, char *authinfo)
+{
     xqc_moq_subscribe_t *subscribe;
     xqc_moq_track_t *track;
     xqc_int_t ret;
-    track = xqc_moq_find_track_by_name(session, track_namespace, track_name, XQC_MOQ_TRACK_FOR_SUB);
+
+    if (session->draining) {
+        xqc_log(session->log, XQC_LOG_WARN, "|subscribe rejected, session draining|");
+        return -XQC_EPARAM;
+    }
+
+    track = xqc_moq_find_track_by_ns_tuple(session, ns_tuple, ns_num, track_name, XQC_MOQ_TRACK_FOR_SUB);
     if (track == NULL) {
         xqc_log(session->log, XQC_LOG_ERROR, "|track not found|");
         return -XQC_ENULLPTR;
     }
 
-    if (track->track_alias != -1 || track->subscribe_id != -1) {
+    if (track->track_alias != XQC_MOQ_INVALID_ID || track->subscribe_id != XQC_MOQ_INVALID_ID) {
         xqc_log(session->log, XQC_LOG_ERROR, "|track already subscribed|");
         return -MOQ_PROTOCOL_VIOLATION;
     }
 
-    uint64_t subscribe_id = xqc_moq_session_alloc_subscribe_id(session);
+    uint64_t subscribe_id = xqc_moq_session_alloc_request_id(session);
     uint64_t track_alias = xqc_moq_session_alloc_track_alias(session);
     xqc_moq_track_set_subscribe_id(track, subscribe_id);
     xqc_moq_track_set_alias(track, track_alias);
 
-    subscribe = xqc_moq_subscribe_create(session, subscribe_id, track->track_alias, track_namespace, track_name,
-                                         filter_type, start_group_id, start_object_id, end_group_id, end_object_id,
-                                         authinfo, 1);
+    subscribe = xqc_moq_subscribe_create_with_ns_tuple(session, subscribe_id, track->track_alias,
+                                                       ns_tuple, ns_num, track_name,
+                                                       filter_type, start_group_id, start_object_id,
+                                                       end_group_id, end_object_id, authinfo, 1);
     if (subscribe == NULL) {
         xqc_log(session->log, XQC_LOG_ERROR, "|create subscribe error|");
         return -XQC_ENULLPTR;
@@ -139,6 +263,60 @@ xqc_moq_subscribe_latest(xqc_moq_session_t *session, const char *track_namespace
 }
 
 xqc_int_t
+xqc_moq_subscribe_update(xqc_moq_session_t *session, uint64_t subscribe_id,
+    uint64_t start_group_id, uint64_t start_object_id, uint64_t end_group_id)
+{
+    if (session == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_moq_subscribe_t *subscribe = xqc_moq_find_subscribe(session, subscribe_id, 1);
+    if (subscribe == NULL || subscribe->subscribe_msg == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|subscribe_update target not found|subscribe_id:%ui|", subscribe_id);
+        return -XQC_ENULLPTR;
+    }
+
+    if (!xqc_moq_subscribe_update_is_valid(subscribe->subscribe_msg,
+                                           start_group_id, start_object_id,
+                                           end_group_id))
+    {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|subscribe_update invalid range|subscribe_id:%ui|old_start:%ui/%ui|old_end:%ui|new_start:%ui/%ui|new_end:%ui|",
+                subscribe_id, subscribe->subscribe_msg->start_group_id,
+                subscribe->subscribe_msg->start_object_id,
+                subscribe->subscribe_msg->end_group_id,
+                start_group_id, start_object_id, end_group_id);
+        return -XQC_EPARAM;
+    }
+
+    xqc_moq_subscribe_update_msg_t update;
+    xqc_memzero(&update, sizeof(update));
+    update.request_id = xqc_moq_session_alloc_request_id(session);
+    update.subscribe_id = subscribe_id;
+    update.start_group_id = start_group_id;
+    update.start_object_id = start_object_id;
+    update.end_group_id = end_group_id;
+    update.subscriber_priority = subscribe->subscribe_msg->subscriber_priority;
+    update.forward = subscribe->subscribe_msg->forward;
+    update.params_num = 0;
+    update.params = NULL;
+
+    xqc_int_t ret = xqc_moq_write_subscribe_update(session, &update);
+    if (ret < 0) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|write subscribe_update error|ret:%d|subscribe_id:%ui|", ret, subscribe_id);
+        return ret;
+    }
+
+    xqc_moq_subscribe_update_msg(subscribe, &update);
+    xqc_log(session->log, XQC_LOG_INFO,
+            "|subscribe_update success|subscribe_id:%ui|start_group_id:%ui|start_object_id:%ui|end_group_id:%ui|",
+            subscribe_id, start_group_id, start_object_id, end_group_id);
+    return XQC_OK;
+}
+
+xqc_int_t
 xqc_moq_unsubscribe(xqc_moq_session_t *session, uint64_t subscribe_id)
 {
     xqc_moq_subscribe_t *subscribe = xqc_moq_find_subscribe(session, subscribe_id, 1);
@@ -161,8 +339,8 @@ xqc_moq_unsubscribe(xqc_moq_session_t *session, uint64_t subscribe_id)
     xqc_moq_track_t *track = xqc_moq_find_track_by_alias(session, subscribe->subscribe_msg->track_alias,
                                                          XQC_MOQ_TRACK_FOR_SUB);
     if (track) {
-        xqc_moq_track_set_subscribe_id(track, -1);
-        xqc_moq_track_set_alias(track, -1);
+        xqc_moq_track_set_subscribe_id(track, XQC_MOQ_INVALID_ID);
+        xqc_moq_track_set_alias(track, XQC_MOQ_INVALID_ID);
     }
 
     xqc_list_del(&subscribe->list_member);
@@ -170,5 +348,263 @@ xqc_moq_unsubscribe(xqc_moq_session_t *session, uint64_t subscribe_id)
 
     xqc_log(session->log, XQC_LOG_INFO, "|unsubscribe success|subscribe_id:%ui|", subscribe_id);
 
+    xqc_moq_session_check_drain_complete(session);
+
     return XQC_OK;
+}
+
+xqc_int_t
+xqc_moq_publish(xqc_moq_session_t *session, xqc_moq_publish_msg_t *publish)
+{
+    xqc_moq_track_t *track;
+    xqc_moq_subscribe_t *subscribe;
+    xqc_int_t ret;
+    uint64_t subscribe_id;
+
+    if (session == NULL || publish == NULL || publish->track_namespace_tuple == NULL || publish->track_name == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|publish invalid argument|");
+        return -XQC_EPARAM;
+    }
+
+    /* reject during drain */
+    if (session->draining) {
+        xqc_log(session->log, XQC_LOG_WARN, "|publish rejected, session draining|");
+        return -XQC_EPARAM;
+    }
+
+    track = xqc_moq_find_track_by_ns_tuple(session, publish->track_namespace_tuple,
+                publish->track_namespace_num, publish->track_name, XQC_MOQ_TRACK_FOR_PUB);
+    if (track == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|publish track not found|track_name:%s|", publish->track_name);
+        return -XQC_ENULLPTR;
+    }
+
+    if (track->track_alias == XQC_MOQ_INVALID_ID) {
+        xqc_moq_track_set_alias(track, xqc_moq_session_alloc_track_alias(session));
+    }
+    publish->track_alias = track->track_alias;
+
+    if (track->subscribe_id != XQC_MOQ_INVALID_ID) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|publish track already has subscriber|track_name:%s|",
+                publish->track_name);
+        return -MOQ_PROTOCOL_VIOLATION;
+    }
+
+    subscribe_id = publish->subscribe_id;
+    if (subscribe_id == 0) {
+        subscribe_id = xqc_moq_session_alloc_request_id(session);
+    }
+    xqc_moq_track_set_subscribe_id(track, subscribe_id);
+    publish->subscribe_id = subscribe_id;
+
+    if (publish->track_name_len == 0) {
+        publish->track_name_len = strlen(publish->track_name);
+    }
+    if (publish->group_order == 0) {
+        publish->group_order = 0x1;
+    }
+
+    subscribe = xqc_moq_subscribe_create_with_ns_tuple(session, subscribe_id, track->track_alias,
+                                         publish->track_namespace_tuple, publish->track_namespace_num,
+                                         publish->track_name, XQC_MOQ_FILTER_LAST_GROUP,
+                                         0, 0, 0, 0, NULL, 0);
+    if (subscribe == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|publish create subscribe error|");
+        xqc_moq_track_set_subscribe_id(track, XQC_MOQ_INVALID_ID);
+        return -XQC_ENULLPTR;
+    }
+
+    if (publish->forward != 0) {
+        publish->forward = 1;
+    }
+
+    ret = xqc_moq_write_publish(session, publish);
+    if (ret < 0) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_write_publish error|ret:%d|", ret);
+        xqc_list_del(&subscribe->list_member);
+        xqc_moq_subscribe_destroy(subscribe);
+        xqc_moq_track_set_subscribe_id(track, XQC_MOQ_INVALID_ID);
+        xqc_moq_track_set_alias(track, XQC_MOQ_INVALID_ID);
+        return ret;
+    }
+
+    xqc_log(session->log, XQC_LOG_INFO, "|publish send success|track_name:%s|track_alias:%ui|subscribe_id:%ui|",
+            publish->track_name, track->track_alias, subscribe_id);
+
+    return (xqc_int_t)subscribe_id;
+}
+
+xqc_int_t
+xqc_moq_create_datachannel(xqc_moq_session_t *session, const char *track_namespace, const char *track_name,
+    xqc_moq_track_t **track, uint64_t *subscribe_id, xqc_int_t raw_object)
+{
+    xqc_moq_track_t *dc_track;
+    xqc_moq_publish_msg_t publish_msg;
+    xqc_int_t ret;
+
+    if (session == NULL || track_namespace == NULL || track_name == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    dc_track = xqc_moq_track_create(session, (char *)track_namespace, (char *)track_name,
+                                    XQC_MOQ_TRACK_DATACHANNEL, NULL,
+                                    XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_PUB);
+    if (dc_track == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|create datachannel track error|track:%s/%s|",
+                track_namespace, track_name);
+        return -XQC_ENULLPTR;
+    }
+    dc_track->raw_object = raw_object ? 1 : 0;
+    xqc_log(session->log, XQC_LOG_INFO,
+            "|create_datachannel_track|track:%s/%s|track_type:%d|raw_object:%d|",
+            track_namespace, track_name, dc_track->track_info.track_type, dc_track->raw_object);
+
+    xqc_memzero(&publish_msg, sizeof(publish_msg));
+    size_t ns_len = strlen(track_namespace);
+    publish_msg.track_namespace_tuple = xqc_moq_namespace_tuple_from_string(track_namespace, ns_len);
+    publish_msg.track_namespace_num = 1;
+    publish_msg.track_name = (char *)track_name;
+    publish_msg.track_name_len = strlen(track_name);
+    publish_msg.group_order = 0;
+    publish_msg.content_exist = 0;
+    publish_msg.largest_group_id = 0;
+    publish_msg.largest_object_id = 0;
+    publish_msg.forward = 1;
+    publish_msg.params_num = 0;
+    publish_msg.params = NULL;
+
+    xqc_moq_message_parameter_t auth_param;
+    int auth_param_valid = 0;
+    ret = xqc_moq_build_catalog_param_from_track(dc_track, &auth_param);
+    if (ret == XQC_OK) {
+        publish_msg.params = &auth_param;
+        publish_msg.params_num = 1;
+        auth_param_valid = 1;
+        xqc_log(session->log, XQC_LOG_INFO,
+                "|create_datachannel_build_catalog_ok|track:%s/%s|",
+                track_namespace, track_name);
+    } else {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|create_datachannel_build_catalog_fail|ret:%d|track:%s/%s|",
+                ret, track_namespace, track_name);
+    }
+
+    ret = xqc_moq_publish(session, &publish_msg);
+    xqc_moq_namespace_tuple_free(publish_msg.track_namespace_tuple, publish_msg.track_namespace_num);
+    publish_msg.track_namespace_tuple = NULL;
+    if (auth_param_valid) {
+        xqc_moq_free_catalog_param(&auth_param);
+    }
+    if (ret < 0) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_create_datachannel publish error|ret:%d|track:%s/%s|",
+                ret, track_namespace, track_name);
+        return ret;
+    }
+
+    if (track) {
+        *track = dc_track;
+    }
+    if (subscribe_id) {
+        *subscribe_id = publish_msg.subscribe_id;
+    }
+
+    return ret;
+}
+
+void
+xqc_moq_session_forward_matching_namespaces(xqc_moq_session_t *session,
+    const xqc_moq_track_ns_field_t *namespace_prefix_tuple, uint64_t namespace_prefix_num)
+{
+    if (session == NULL || namespace_prefix_tuple == NULL || namespace_prefix_num == 0) {
+        return;
+    }
+
+    xqc_list_head_t *pos, *next;
+    xqc_list_for_each_safe(pos, next, &session->local_advertised_namespace_list) {
+        xqc_moq_namespace_advertisement_t *advertisement =
+            xqc_list_entry(pos, xqc_moq_namespace_advertisement_t, list_member);
+
+        if (!xqc_moq_namespace_tuple_is_prefix(namespace_prefix_tuple, namespace_prefix_num,
+                advertisement->track_namespace_tuple,
+                advertisement->track_namespace_num))
+        {
+            continue;
+        }
+
+        xqc_moq_publish_namespace_msg_t pub_ns;
+        xqc_memzero(&pub_ns, sizeof(pub_ns));
+        pub_ns.request_id = xqc_moq_session_alloc_request_id(session);
+        pub_ns.track_namespace_tuple = advertisement->track_namespace_tuple;
+        pub_ns.track_namespace_num = advertisement->track_namespace_num;
+
+        xqc_int_t ret = xqc_moq_write_msg_generic(session, session->ctl_stream, &pub_ns.msg_base,
+                                                  xqc_moq_msg_publish_namespace_init_handler);
+        if (ret < 0) {
+            xqc_log(session->log, XQC_LOG_WARN,
+                    "|forward_matching_namespace failed|ret:%d|", ret);
+        } else {
+            xqc_log(session->log, XQC_LOG_INFO,
+                    "|forward_matching_namespace|request_id:%ui|namespace_num:%ui|",
+                    pub_ns.request_id, pub_ns.track_namespace_num);
+        }
+    }
+}
+
+void
+xqc_moq_session_forward_matching_publishes(xqc_moq_session_t *session,
+    const xqc_moq_track_ns_field_t *namespace_prefix_tuple, uint64_t namespace_prefix_num)
+{
+    if (session == NULL || namespace_prefix_tuple == NULL || namespace_prefix_num == 0) {
+        return;
+    }
+
+    xqc_list_head_t *pos, *next;
+    xqc_list_for_each_safe(pos, next, &session->track_list_for_pub) {
+        xqc_moq_track_t *track = xqc_list_entry(pos, xqc_moq_track_t, list_member);
+
+        if (!xqc_moq_namespace_tuple_is_prefix(namespace_prefix_tuple, namespace_prefix_num,
+                track->track_info.track_namespace_tuple,
+                track->track_info.track_namespace_num))
+        {
+            continue;
+        }
+
+        xqc_moq_publish_msg_t pub;
+        xqc_memzero(&pub, sizeof(pub));
+        pub.track_namespace_tuple = track->track_info.track_namespace_tuple;
+        pub.track_namespace_num = track->track_info.track_namespace_num;
+        pub.track_name = track->track_info.track_name;
+        pub.track_name_len = strlen(track->track_info.track_name);
+        pub.forward = 1;
+
+        xqc_moq_message_parameter_t cat_param;
+        int cat_valid = 0;
+        if (xqc_moq_build_catalog_param_from_track(track, &cat_param) == XQC_OK) {
+            pub.params = &cat_param;
+            pub.params_num = 1;
+            cat_valid = 1;
+        }
+
+        xqc_int_t ret;
+        if (track->subscribe_id == XQC_MOQ_INVALID_ID) {
+            ret = xqc_moq_publish(session, &pub);
+        } else {
+            pub.subscribe_id = track->subscribe_id;
+            pub.track_alias = track->track_alias;
+            ret = xqc_moq_write_publish(session, &pub);
+        }
+
+        if (cat_valid) {
+            xqc_moq_free_catalog_param(&cat_param);
+        }
+        if (ret < 0) {
+            xqc_log(session->log, XQC_LOG_WARN,
+                    "|forward_matching_publish failed|track:%s|ret:%d|",
+                    track->track_info.track_name, ret);
+        } else {
+            xqc_log(session->log, XQC_LOG_INFO,
+                    "|forward_matching_publish|track:%s|subscribe_id:%ui|",
+                    track->track_info.track_name, pub.subscribe_id);
+        }
+    }
 }

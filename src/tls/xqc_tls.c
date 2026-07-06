@@ -1094,8 +1094,8 @@ xqc_ssl_cert_cb(SSL *ssl, void *arg)
 
     hostname = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
     if (NULL == hostname) {
-        xqc_log(tls->log, XQC_LOG_ERROR, "|hostname is NULL");
-        return XQC_SSL_FAIL;
+        xqc_log(tls->log, XQC_LOG_WARN, "|hostname is NULL, using default cert");
+        goto end;
     }
 
     /* callback to upper layer to get SSL_CTX */

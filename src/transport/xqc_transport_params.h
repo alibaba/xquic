@@ -88,7 +88,6 @@ typedef enum {
     XQC_TRANSPORT_PARAM_FEC_DECODER_SCHEMES                 = 0xfecd02,
     XQC_TRANSPORT_PARAM_FEC_MAX_SYMBOL_NUM                  = 0xfecb02,
 #endif
-    XQC_TRANSPORT_PARAM_EXTENDED_ACK_FEATURES               = 0xff0a004,
     XQC_TRANSPORT_PARAM_MAX_RECEIVE_TIMESTAMPS_PER_ACK      = 0xff0a002,
     XQC_TRANSPORT_PARAM_RECEIVE_TIMESTAMPS_EXPONENT         = 0xff0a003,
 } xqc_transport_param_id_t;
@@ -178,17 +177,12 @@ typedef struct {
     xqc_dgram_red_setting_e close_dgram_redundancy;
     uint64_t                enable_pmtud;
     
-    /* 
-     * draft-smith-quic-receive-ts-01: QUIC Extended Acknowledgement for Reporting Packet Receive Timestamps
-     * extended_ack_features: a bit-wise value indicates which optional fields are included.
-     *       Bit 0 indicates whether ECN count fields are included in the frame.
-     *       Bit 1 indicates whether Receive Timestamps are included in the frame.
-     *
-     * max_receive_timestamps_per_ack: max number of timestamps in a extended ack frame. 
-     * ack_receive_timestamps: all time delta values are decoded by mulitplying the 
+    /*
+     * draft-ietf-quic-receive-ts-00.
+     * max_receive_timestamps_per_ack: max number of timestamps in an ACK frame.
+     * receive timestamps: all time delta values are decoded by multiplying the
      *     value in the field by 2 to the power of the receive_timestamps_exponent.
-    */
-    uint64_t                 extended_ack_features;
+     */
     uint64_t                 max_receive_timestamps_per_ack;
     uint64_t                 receive_timestamps_exponent;
 } xqc_transport_params_t;

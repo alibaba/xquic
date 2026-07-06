@@ -138,9 +138,6 @@ xqc_int_t xqc_process_crypto_frame(xqc_connection_t *conn, xqc_packet_in_t *pack
 
 xqc_int_t xqc_process_ack_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
-/* draft-smith-quic-receive-ts-01: QUIC Extended Acknowledgement for Reporting Packet Receive Timestamps */
-xqc_int_t xqc_process_ack_ext_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
-
 xqc_int_t xqc_process_ping_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 xqc_int_t xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);

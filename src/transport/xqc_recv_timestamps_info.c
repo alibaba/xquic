@@ -49,18 +49,19 @@ xqc_recv_timestamps_info_add_pkt(xqc_recv_timestamps_info_t *ts_info,
     if (pkt_num < ts_info->expected_next_pkt_num) {
         return;
     } else if (pkt_num > ts_info->expected_next_pkt_num) {
-        ts_info->new_range_flag |= 1 << (ts_info->end_idx);
+        ts_info->new_range_flag |= 1ULL << ts_info->end_idx;
     } else {
-        ts_info->new_range_flag &= ~(1 << (ts_info->end_idx));
+        ts_info->new_range_flag &= ~(1ULL << ts_info->end_idx);
     }
     ts_info->pkt_nums[ts_info->end_idx] = pkt_num;
     ts_info->recv_timestamps[ts_info->end_idx] = recv_time;
     ts_info->end_idx = RECV_TIMESTAMPS_INFO_NEXT_IDX(ts_info->end_idx);
-    if (ts_info->end_idx == ts_info->start_idx) {
+    if (ts_info->cur_len < XQC_RECV_TIMESTAMPS_INFO_MAX_LENGTH) {
+        ts_info->cur_len += 1;
+    } else if (ts_info->end_idx == ts_info->start_idx) {
         ts_info->start_idx = RECV_TIMESTAMPS_INFO_NEXT_IDX(ts_info->start_idx);
     }
     ts_info->expected_next_pkt_num = pkt_num + 1;
-    ts_info->cur_len += 1;
 }
 
 void
@@ -121,5 +122,5 @@ xqc_recv_timestamps_info_need_bytes_estimate(xqc_recv_timestamps_info_t *ts_info
 void
 xqc_recv_timestamps_info_set_nobuf_flag(xqc_recv_timestamps_info_t *ts_info, uint8_t nobuf_for_ts)
 {
-    ts_info->nobuf_for_ts_in_last_ext_ack = nobuf_for_ts;
+    ts_info->nobuf_for_ts_in_last_ack = nobuf_for_ts;
 }

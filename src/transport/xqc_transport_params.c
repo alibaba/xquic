@@ -223,20 +223,15 @@ xqc_transport_params_calc_length(const xqc_transport_params_t *params,
     }
 #endif
 
-    if (params->extended_ack_features) {
-        len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_EXTENDED_ACK_FEATURES) +
-               xqc_put_varint_len(xqc_put_varint_len(params->extended_ack_features)) +
-               xqc_put_varint_len(params->extended_ack_features);
-        if (params->max_receive_timestamps_per_ack) {
-            len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_MAX_RECEIVE_TIMESTAMPS_PER_ACK) +
-                    xqc_put_varint_len(xqc_put_varint_len(params->max_receive_timestamps_per_ack)) +
-                    xqc_put_varint_len(params->max_receive_timestamps_per_ack);
-        }
-        if (params->receive_timestamps_exponent) {
-            len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_RECEIVE_TIMESTAMPS_EXPONENT) +
-                    xqc_put_varint_len(xqc_put_varint_len(params->receive_timestamps_exponent)) +
-                    xqc_put_varint_len(params->receive_timestamps_exponent);
-        }
+    if (params->max_receive_timestamps_per_ack) {
+        len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_MAX_RECEIVE_TIMESTAMPS_PER_ACK) +
+                xqc_put_varint_len(xqc_put_varint_len(params->max_receive_timestamps_per_ack)) +
+                xqc_put_varint_len(params->max_receive_timestamps_per_ack);
+    }
+    if (params->receive_timestamps_exponent) {
+        len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_RECEIVE_TIMESTAMPS_EXPONENT) +
+                xqc_put_varint_len(xqc_put_varint_len(params->receive_timestamps_exponent)) +
+                xqc_put_varint_len(params->receive_timestamps_exponent);
     }
 
     if (params->max_datagram_frame_size) {
@@ -484,17 +479,13 @@ xqc_encode_transport_params(const xqc_transport_params_t *params,
     }
 #endif    
 
-    if (params->extended_ack_features) {
-        p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_EXTENDED_ACK_FEATURES,
-                                 params->extended_ack_features);
-        if (params->max_receive_timestamps_per_ack) {
-            p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_MAX_RECEIVE_TIMESTAMPS_PER_ACK,
-                                    params->max_receive_timestamps_per_ack);
-        }
-        if (params->receive_timestamps_exponent) {
-            p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_RECEIVE_TIMESTAMPS_EXPONENT,
-                                    params->receive_timestamps_exponent);
-        }
+    if (params->max_receive_timestamps_per_ack) {
+        p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_MAX_RECEIVE_TIMESTAMPS_PER_ACK,
+                                params->max_receive_timestamps_per_ack);
+    }
+    if (params->receive_timestamps_exponent) {
+        p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_RECEIVE_TIMESTAMPS_EXPONENT,
+                                params->receive_timestamps_exponent);
     }
 
     if ((size_t)(p - out) != len) {
@@ -864,12 +855,6 @@ xqc_decode_decoder_schemes(xqc_transport_params_t *params, xqc_transport_params_
 }
 #endif
 
-static xqc_int_t xqc_decode_extended_ack_features(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
-    const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
-{
-    XQC_DECODE_VINT_VALUE(&params->extended_ack_features, p, end);
-}
-
 static xqc_int_t xqc_decode_max_receive_timestamps_per_ack(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
     const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
 {
@@ -930,7 +915,6 @@ typedef enum {
     XQC_TP_DECODER_FEC_DECODER_SCHEMES_PARSER          ,
     XQC_TP_DECODER_FEC_MAX_SYMBOL_NUM_PARSER           ,
 #endif
-    XQC_TP_EXTENDED_ACK_FEATURES_PARSER                ,
     XQC_TP_MAX_RECEIVE_TIMESTAMPS_PER_ACK_PARSER       ,
     XQC_TP_RECEIVE_TIMESTAMPS_EXPONENT_PARSER          ,
     XQC_TP_DECODER_NO_CRYPTO                           ,
@@ -970,7 +954,6 @@ xqc_trans_param_decode_func xqc_trans_param_decode_func_list[] = {
     xqc_decode_decoder_schemes,
     xqc_decode_fec_max_symbols_num,
 #endif
-    xqc_decode_extended_ack_features,
     xqc_decode_max_receive_timestamps_per_ack,
     xqc_decode_receive_timestamps_exponent,
     xqc_decode_no_crypto,
@@ -1028,9 +1011,6 @@ xqc_trans_param_get_index(uint64_t param_type)
 
 #endif
 
-    case XQC_TRANSPORT_PARAM_EXTENDED_ACK_FEATURES:
-        return XQC_TP_EXTENDED_ACK_FEATURES_PARSER;
-    
     case XQC_TRANSPORT_PARAM_MAX_RECEIVE_TIMESTAMPS_PER_ACK:
         return XQC_TP_MAX_RECEIVE_TIMESTAMPS_PER_ACK_PARSER;
     
@@ -1145,7 +1125,6 @@ xqc_decode_transport_params(xqc_transport_params_t *params,
     params->fec_encoder_schemes_num = 0;
     params->fec_decoder_schemes_num = 0;
 
-    params->extended_ack_features = 0;
     params->max_receive_timestamps_per_ack = 0;
     params->receive_timestamps_exponent = 0;
 

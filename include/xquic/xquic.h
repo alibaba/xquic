@@ -1015,6 +1015,10 @@ typedef struct xqc_congestion_control_callback_s {
     /** get estimation of bandwidth */
     uint32_t (*xqc_cong_ctl_get_bandwidth_estimate)(void *cong_ctl);
 
+    /** per-packet receive timestamp feedback */
+    xqc_int_t (*xqc_cong_ctl_on_recv_timestamp)(void *cong_ctl,
+        xqc_packet_number_t pn, xqc_usec_t send_ts, xqc_usec_t recv_ts, xqc_usec_t now);
+
     xqc_bbr_info_interface_t *xqc_cong_ctl_info_cb;
 } xqc_cong_ctrl_callback_t;
 
@@ -1519,7 +1523,7 @@ typedef struct xqc_conn_settings_s {
      * 1: stream level, only be applied to MOQ
      */
     xqc_fec_level_e             fec_level;
-    uint64_t                    extended_ack_features;
+    /* draft-ietf-quic-receive-ts-00 */
     uint64_t                    max_receive_timestamps_per_ack;
     uint64_t                    receive_timestamps_exponent;
 

@@ -289,9 +289,6 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         case 0x31:
             ret = xqc_process_datagram_frame(conn, packet_in);
             break;
-        case XQC_TRANS_FRAME_TYPE_ACK_EXT:
-            ret = xqc_process_ack_ext_frame(conn, packet_in);
-            break;
         case XQC_TRANS_FRAME_TYPE_MP_ACK0:
         case XQC_TRANS_FRAME_TYPE_MP_ACK1:
             if (conn->conn_settings.multipath_version >= XQC_MULTIPATH_10) {
@@ -766,7 +763,9 @@ xqc_process_ack_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     xqc_int_t ret;
 
     xqc_ack_info_t ack_info;
-    ret = xqc_parse_ack_frame(packet_in, conn, &ack_info);
+    xqc_ack_timestamp_info_t ack_ts_info;
+    ack_ts_info.report_num = 0;
+    ret = xqc_parse_ack_with_receive_timestamps_frame(packet_in, conn, &ack_info, &ack_ts_info);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_parse_ack_frame error|");
         return ret;
@@ -784,7 +783,7 @@ xqc_process_ack_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     xqc_path_ctx_t *path = conn->conn_initial_path;
     xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path);
     ret = xqc_send_ctl_on_ack_received(path->path_send_ctl, pn_ctl, conn->conn_send_queue,
-                                       &ack_info, packet_in->pkt_recv_time, 
+                                       &ack_info, &ack_ts_info, packet_in->pkt_recv_time,
                                        packet_in->pi_path_id == path->path_id);
 
     if (ret != XQC_OK) {
@@ -792,47 +791,6 @@ xqc_process_ack_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         return ret;
     }
 
-    return XQC_OK;
-}
-
-xqc_int_t
-xqc_process_ack_ext_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
-{
-    xqc_int_t parse_ack_recv_ts_ret;
-
-    xqc_ack_info_t ack_info;
-    xqc_ack_timestamp_info_t ack_ts_info;
-    ack_ts_info.report_num = 0;
-    parse_ack_recv_ts_ret = xqc_parse_ack_ext_frame(packet_in, conn, &ack_info, &ack_ts_info);
-    if (parse_ack_recv_ts_ret != XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_process_ack_ext_frame error|");
-        return parse_ack_recv_ts_ret;
-    }
-    if ((packet_in->pi_flag & XQC_PIF_FEC_RECOVERED) != 0) {
-        return XQC_OK;
-    }
-
-    for (int i = 0; i < ack_info.n_ranges; i++) {
-        xqc_log_event(conn->log, TRA_PACKETS_ACKED, packet_in, ack_info.ranges[i].high,
-            ack_info.ranges[i].low, packet_in->pi_path_id);
-    }
-
-    /* 对端还不支持MP，或还未握手确认时，使用 initial path */
-    xqc_path_ctx_t *path = conn->conn_initial_path;
-    xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path);
-    xqc_int_t ret = xqc_send_ctl_on_ack_received(path->path_send_ctl, pn_ctl, conn->conn_send_queue,
-                                       &ack_info, packet_in->pkt_recv_time, 
-                                       packet_in->pi_path_id == path->path_id);
-
-    if (ret != XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_send_ctl_on_ack_received error|");
-        return ret;
-    }
-    /*
-    * TODO: There will be an interface that passes receive timestamps information to sent_ctl.
-    * Temporarily, the client does not receive ack_with_timestamps_frame. So we will complete
-    * the interface after verification in moq server.
-    */
     return XQC_OK;
 }
 
@@ -1756,7 +1714,7 @@ xqc_process_ack_mp_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path_to_be_acked);
 
     ret = xqc_send_ctl_on_ack_received(path_to_be_acked->path_send_ctl, pn_ctl, conn->conn_send_queue,
-                                       &ack_info, packet_in->pkt_recv_time, 
+                                       &ack_info, NULL, packet_in->pkt_recv_time,
                                        path_to_be_acked->path_id == packet_in->pi_path_id);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_send_ctl_on_ack_received error|");

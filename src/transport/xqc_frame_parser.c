@@ -3062,13 +3062,21 @@ xqc_gen_ack_with_receive_timestamps_frame(xqc_connection_t *conn, xqc_packet_out
     unsigned first_ack_range_bits = xqc_vint_get_2bit(first_ack_range);
     unsigned ts_range_need = xqc_recv_timestamps_info_need_bytes_estimate(recv_ts_info);
 
+    /*
+     * Only the mandatory base ACK fields are reserved up-front. Receive
+     * Timestamps are optional and appended later only if buffer space
+     * remains (see the ts_range_need check after the ranges are written),
+     * so ts_range_need must NOT be counted here. Otherwise a large
+     * ts_range_need (weak-network / reordering) would make the whole ACK
+     * fail with -XQC_ENOBUF even though the base ACK fits, dropping the ACK
+     * entirely. The frame also no longer emits a separate "ext ack features"
+     * byte, so it is dropped from the estimate as well.
+     */
     need = 1    /* type */
             + xqc_vint_len(largest_recv_bits)
             + xqc_vint_len(ack_delay_bits)
             + 1 /* range_count */
-            + xqc_vint_len(first_ack_range_bits)
-            + 1 /* ext ack features */
-            + ts_range_need;
+            + xqc_vint_len(first_ack_range_bits);
 
     if (dst_buf + need > end) {
         return -XQC_ENOBUF;

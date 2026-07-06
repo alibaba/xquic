@@ -104,25 +104,48 @@ xqc_test_ack_with_timestamp_no_buf_space()
     packet_out->po_largest_ack = 15;
     conn->conn_create_time = 0;
     
+    conn->local_settings.ack_delay_exponent = 0;
     path->recv_ts_info = recv_timestamp_info;
     conn->conn_initial_path = path;
-    packet_out->po_used_size = 1400;
+    /*
+     * Leave only a small tail so that the base ACK fits but the estimated
+     * receive timestamps do not. Receive Timestamps are optional, so the base
+     * ACK must still be emitted (ret > 0) with the nobuf flag set, instead of
+     * failing the whole frame with -XQC_ENOBUF and dropping the ACK.
+     */
+    int used_size = 1410;
+    packet_out->po_used_size = used_size;
 
-    ssize_t ret;
     int has_gap;
     xqc_packet_number_t largest_ack;
-    xqc_usec_t now = xqc_monotonic_timestamp();
+    xqc_usec_t now = 20000; /* deterministic ack_delay = now - largest_recv_time(15000) */
 
     xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path);
 
-    ret = xqc_gen_ack_with_receive_timestamps_frame(conn, packet_out, now, conn->local_settings.ack_delay_exponent,
+    ssize_t ret = xqc_gen_ack_with_receive_timestamps_frame(conn, packet_out, now, conn->local_settings.ack_delay_exponent,
                             &pn_ctl->ctl_recv_record[XQC_PNS_APP_DATA], path->path_send_ctl->ctl_largest_recv_time[XQC_PNS_APP_DATA],
                             &has_gap, &largest_ack, path->recv_ts_info);
 
-    CU_ASSERT(ret == -XQC_ENOBUF);
+    /* base ACK is written even though receive timestamps do not fit */
+    CU_ASSERT(ret > 0);
+    CU_ASSERT(recv_timestamp_info->nobuf_for_ts_in_last_ack == 1);
+
+    xqc_packet_in_t* packet_in = xqc_calloc(1, sizeof(xqc_packet_in_t));
+    packet_in->buf = packet_out->po_buf;
+    packet_in->pos = packet_out->po_buf + used_size;
+    packet_in->last = packet_out->po_buf + used_size + ret;
+    xqc_ack_timestamp_info_t ack_timestamp;
+    ack_timestamp.report_num = 0;
+    xqc_ack_info_t ack_info;
+    int pret = xqc_parse_ack_with_receive_timestamps_frame(packet_in, conn, &ack_info, &ack_timestamp);
+    CU_ASSERT(pret == XQC_OK);
+    CU_ASSERT(ack_info.n_ranges == 3);
+    CU_ASSERT(ack_timestamp.report_num == 0);
+
     xqc_engine_destroy(conn->engine);
     xqc_packet_out_destroy(packet_out);
     xqc_recv_timestamps_info_destroy(recv_timestamp_info);
+    xqc_free(packet_in);
     xqc_free(path->path_pn_ctl);
     xqc_free(path->path_send_ctl);
     xqc_free(path);
@@ -286,13 +309,15 @@ xqc_test_ack_with_timestamp_stops_before_next_frame()
 
     int ret = xqc_write_ack_with_receive_timestamps_to_one_packet(conn, path, packet_out, XQC_PNS_APP_DATA, 1);
     CU_ASSERT(ret == XQC_OK);
-    packet_out->po_used_size += ret;
+    /* the write helper returns XQC_OK and updates po_used_size to the frame size */
+    size_t frame_size = packet_out->po_used_size;
+    /* append a trailing PING(0x01) frame right after the ACK frame */
     packet_out->po_buf[packet_out->po_used_size++] = 0x01;
 
     xqc_packet_in_t* packet_in = xqc_calloc(1, sizeof(xqc_packet_in_t));
     packet_in->buf = packet_out->po_buf;
     packet_in->pos = packet_out->po_buf;
-    packet_in->last = packet_out->po_buf + ret;
+    packet_in->last = packet_out->po_buf + packet_out->po_used_size;
 
     xqc_ack_timestamp_info_t ack_timestamp;
     ack_timestamp.report_num = 0;
@@ -300,8 +325,9 @@ xqc_test_ack_with_timestamp_stops_before_next_frame()
     ret = xqc_parse_ack_with_receive_timestamps_frame(packet_in, conn, &ack_info, &ack_timestamp);
     CU_ASSERT(ret == XQC_OK);
     CU_ASSERT(ack_timestamp.report_num == 1);
-    CU_ASSERT(packet_in->pos == packet_out->po_buf + ret);
-    CU_ASSERT(packet_out->po_buf[ret] == 0x01);
+    /* parsing the ACK frame must stop exactly before the trailing PING(0x01) */
+    CU_ASSERT(packet_in->pos == packet_out->po_buf + frame_size);
+    CU_ASSERT(packet_out->po_buf[frame_size] == 0x01);
 
     xqc_engine_destroy(conn->engine);
     xqc_packet_out_destroy(packet_out);

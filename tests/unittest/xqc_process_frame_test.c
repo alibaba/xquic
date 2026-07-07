@@ -194,6 +194,135 @@ xqc_test_1rtt_only_flow_control_frames_are_buffered()
     xqc_engine_destroy(conn->engine);
 }
 
+/*
+ * RFC 9000 Section 12.4 Table 3 -- full validation matrix.
+ *
+ * Each entry encodes a frame type byte and the packet types where it
+ * is permitted.  The allowed[] array is indexed by xqc_pkt_type_t:
+ *   [0]=Initial  [1]=0-RTT  [2]=Handshake  [3]=1-RTT(Short Header)
+ *
+ * The test iterates every (frame_type, pkt_type) pair: 33 frames x 4
+ * packet types = 132 checks.  If a case label is ever accidentally
+ * dropped from the validation switch the corresponding entry will
+ * fail, catching single-label regressions that group-level sampling
+ * would miss.
+ */
+typedef struct {
+    uint8_t     frame_byte;
+    const char *name;
+    xqc_bool_t  allowed[4];
+} frame_pkt_rule_t;
+
+static const frame_pkt_rule_t rfc9000_table3[] = {
+    /* IH01: allowed in all packet types */
+    {0x00, "PADDING",              {1, 1, 1, 1}},
+    {0x01, "PING",                 {1, 1, 1, 1}},
+    {0x1c, "CONN_CLOSE_T",        {1, 1, 1, 1}},
+
+    /* IH_1: allowed in Initial, Handshake, 1-RTT; forbidden in 0-RTT */
+    {0x02, "ACK",                  {1, 0, 1, 1}},
+    {0x03, "ACK_ECN",              {1, 0, 1, 1}},
+    {0x06, "CRYPTO",               {1, 0, 1, 1}},
+
+    /* ___1: allowed in 1-RTT only */
+    {0x07, "NEW_TOKEN",            {0, 0, 0, 1}},
+    {0x1b, "PATH_RESPONSE",        {0, 0, 0, 1}},
+    {0x1e, "HANDSHAKE_DONE",       {0, 0, 0, 1}},
+
+    /* __01: allowed in 0-RTT and 1-RTT */
+    {0x04, "RESET_STREAM",         {0, 1, 0, 1}},
+    {0x05, "STOP_SENDING",         {0, 1, 0, 1}},
+    {0x08, "STREAM",               {0, 1, 0, 1}},
+    {0x09, "STREAM_FIN",           {0, 1, 0, 1}},
+    {0x0a, "STREAM_LEN",           {0, 1, 0, 1}},
+    {0x0b, "STREAM_LEN_FIN",       {0, 1, 0, 1}},
+    {0x0c, "STREAM_OFF",           {0, 1, 0, 1}},
+    {0x0d, "STREAM_OFF_FIN",       {0, 1, 0, 1}},
+    {0x0e, "STREAM_OFF_LEN",       {0, 1, 0, 1}},
+    {0x0f, "STREAM_OFF_LEN_FIN",   {0, 1, 0, 1}},
+    {0x10, "MAX_DATA",             {0, 1, 0, 1}},
+    {0x11, "MAX_STREAM_DATA",      {0, 1, 0, 1}},
+    {0x12, "MAX_STREAMS_BIDI",     {0, 1, 0, 1}},
+    {0x13, "MAX_STREAMS_UNI",      {0, 1, 0, 1}},
+    {0x14, "DATA_BLOCKED",         {0, 1, 0, 1}},
+    {0x15, "STREAM_DATA_BLOCKED",  {0, 1, 0, 1}},
+    {0x16, "STREAMS_BLOCKED_BIDI", {0, 1, 0, 1}},
+    {0x17, "STREAMS_BLOCKED_UNI",  {0, 1, 0, 1}},
+    {0x18, "NEW_CONNECTION_ID",    {0, 1, 0, 1}},
+    {0x19, "RETIRE_CONNECTION_ID", {0, 1, 0, 1}},
+    {0x1a, "PATH_CHALLENGE",       {0, 1, 0, 1}},
+    {0x1d, "CONN_CLOSE_APP",       {0, 1, 0, 1}},
+
+    /* DATAGRAM: allowed in 0-RTT and 1-RTT */
+    {0x30, "DATAGRAM",             {0, 1, 0, 1}},
+    {0x31, "DATAGRAM_LEN",         {0, 1, 0, 1}},
+};
+
+#define RFC9000_TABLE3_COUNT (sizeof(rfc9000_table3) / sizeof(rfc9000_table3[0]))
+
+
+/*
+ * Drive one (frame_type, pkt_type) validation check through
+ * xqc_process_frames -- the real code path.
+ *
+ * Negative (expect_reject): validation fires before the per-frame
+ * parser, so we assert -XQC_EPROTO + PROTOCOL_VIOLATION + FLAG_ERROR.
+ *
+ * Positive (!expect_reject): the frame passes validation but may
+ * still fail in the parser due to missing handshake state.  Any
+ * such failure must NOT be PROTOCOL_VIOLATION.
+ */
+static void
+xqc_test_frame_in_pkt_one(uint8_t frame_byte, xqc_pkt_type_t pkt_type,
+                           xqc_bool_t expect_reject)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    conn->local_settings.max_datagram_frame_size = 65535;
+
+    unsigned char buf[32] = {0};
+    buf[0] = frame_byte;
+
+    xqc_packet_in_t pi;
+    memset(&pi, 0, sizeof(pi));
+    pi.pi_pkt.pkt_type = pkt_type;
+    pi.pos  = buf;
+    pi.last = buf + sizeof(buf);
+
+    xqc_int_t ret = xqc_process_frames(conn, &pi);
+
+    if (expect_reject) {
+        CU_ASSERT_EQUAL(ret, -XQC_EPROTO);
+        CU_ASSERT_EQUAL(conn->conn_err, TRA_PROTOCOL_VIOLATION);
+        CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    } else {
+        if (ret != XQC_OK) {
+            CU_ASSERT_NOT_EQUAL(conn->conn_err, TRA_PROTOCOL_VIOLATION);
+        }
+    }
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_frame_type_in_pkt_validation()
+{
+    size_t i;
+    int pkt_type;
+
+    for (i = 0; i < RFC9000_TABLE3_COUNT; i++) {
+        for (pkt_type = 0; pkt_type < 4; pkt_type++) {
+            xqc_test_frame_in_pkt_one(
+                rfc9000_table3[i].frame_byte,
+                (xqc_pkt_type_t)pkt_type,
+                !rfc9000_table3[i].allowed[pkt_type]);
+        }
+    }
+}
+
+
 void
 xqc_test_parse_padding_frame()
 {

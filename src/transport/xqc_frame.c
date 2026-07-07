@@ -183,6 +183,9 @@ xqc_validate_frame_type_in_pkt(xqc_connection_t *conn, xqc_packet_in_t *packet_i
     xqc_bool_t pkt_flag_init = XQC_FALSE, pkt_flag_hsk = XQC_FALSE;
     xqc_bool_t pkt_flag_0rtt = XQC_FALSE, pkt_flag_1rtt = XQC_FALSE;
     if ((packet_in->pi_flag & XQC_PIF_FEC_RECOVERED) != 0) {
+        xqc_log(conn->log, XQC_LOG_DEBUG,
+                "|skip frame-in-pkt validation for FEC-recovered|frame_type:%xL|",
+                frame_type);
         return XQC_OK;
     }
     xqc_pkt_type_t pkt_type = packet_in->pi_pkt.pkt_type;

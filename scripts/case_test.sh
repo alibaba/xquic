@@ -535,7 +535,8 @@ result=`grep ">>>>>>>> pass:" stdlog`
 echo "$result"
 flag=`grep "early_data_flag:0" stdlog`
 errlog=`grep_err_log`
-if [ -n "$flag" ] && [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+violation=`grep "illegal frame in packet type" clog slog`
+if [ -n "$flag" ] && [ -z "$errlog" ] && [ -z "$violation" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
     case_print_result "1RTT" "pass"
 else
     case_print_result "1RTT" "fail"
@@ -612,7 +613,8 @@ result=`grep ">>>>>>>> pass:" stdlog`
 echo "$result"
 flag=`grep "early_data_flag:1" stdlog`
 errlog=`grep_err_log`
-if [ -n "$flag" ] && [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+violation=`grep "illegal frame in packet type" clog slog`
+if [ -n "$flag" ] && [ -z "$errlog" ] && [ -z "$violation" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
     case_print_result "0RTT_accept" "pass"
 else
     case_print_result "0RTT_accept" "fail"
@@ -5150,5 +5152,6 @@ else
     echo ">>>>>>>> pass:0"
     case_print_result "crypto_error_not_fixed_enum" "fail"
 fi
+
 
 cd -

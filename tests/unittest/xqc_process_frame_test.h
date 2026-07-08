@@ -35,4 +35,8 @@ void xqc_test_ack_ecn_followed_by_ping();
 
 void xqc_test_new_conn_id_zero_len_cid(void);
 
+void xqc_test_new_conn_id_active_limit_accept(void);
+
+void xqc_test_new_conn_id_active_limit_exceeded(void);
+
 #endif /* _XQC_PROCESS_FRAME_TEST_H_INCLUDED_ */

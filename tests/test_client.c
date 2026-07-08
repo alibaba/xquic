@@ -231,14 +231,17 @@ int g_spec_url;
 int g_is_get;
 uint64_t g_last_sock_op_time;
 /*
- * currently, the maximum used test case id is 55
+ * currently, the maximum used test case id is 704
  * please keep this comment updated if you are adding more test cases. :-D
  * 55 for RFC 9114 Section 4.2 forbidden header e2e validation
  * 99 for pure fin
  * 2XX for datagram testcases
  * 3XX for h3 ext bytestream testcases
  * 4XX for conn_settings configuration
- * 7XX for 0-RTT transport param validation
+ * 700 for FEC frame type bit validation
+ * 701/702 for 0-RTT transport param validation
+ * 703 for CRYPTO_ERROR validation
+ * 704 for active_connection_id_limit validation
  */
 int g_test_case;
 int g_ipv6;

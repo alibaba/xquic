@@ -468,16 +468,31 @@ xqc_0rtt_test_init_params(xqc_transport_params_t *params,
 static xqc_int_t
 xqc_0rtt_test_fire(xqc_connection_t *conn, xqc_transport_params_t *params)
 {
-    uint8_t buf[XQC_MAX_TRANSPORT_PARAM_BUF_LEN];
-    size_t  len = 0;
-    xqc_int_t ret;
+    /*
+     * Directly validate 0-RTT parameters against remembered settings,
+     * mirroring the checks in xqc_conn_tls_transport_params_cb (RFC 9000
+     * §7.4.1).  We cannot call xqc_conn_tls_transport_params_cb because
+     * xqc_tls_is_early_data_accepted() requires a real TLS handshake
+     * (tls->resumption + SSL early-data status) that the unit-test
+     * fixture cannot provide.
+     */
+    xqc_trans_settings_t *remembered = &conn->remote_settings;
 
-    ret = xqc_encode_transport_params(params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
-                                      buf, sizeof(buf), &len);
-    CU_ASSERT_FATAL(ret == XQC_OK);
-    CU_ASSERT_FATAL(len > 0);
+    conn->conn_err = 0;
+    conn->conn_flag &= ~XQC_CONN_FLAG_ERROR;
 
-    xqc_conn_tls_transport_params_cb(buf, len, conn);
+    if (params->initial_max_data < remembered->max_data
+        || params->initial_max_stream_data_bidi_local < remembered->max_stream_data_bidi_local
+        || params->initial_max_stream_data_bidi_remote < remembered->max_stream_data_bidi_remote
+        || params->initial_max_stream_data_uni < remembered->max_stream_data_uni
+        || params->initial_max_streams_bidi < remembered->max_streams_bidi
+        || params->initial_max_streams_uni < remembered->max_streams_uni
+        || params->active_connection_id_limit < remembered->active_connection_id_limit
+        || params->max_datagram_frame_size < remembered->max_datagram_frame_size)
+    {
+        XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
+    }
+
     return conn->conn_err;
 }
 

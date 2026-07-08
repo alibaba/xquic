@@ -831,6 +831,48 @@ else
 fi
 
 clear_log
+echo -e "active_connection_id_limit accepts in-limit NEW_CONNECTION_ID ...\c"
+killall test_server 2> /dev/null
+${SERVER_BIN} -l d -e -x 1 > /dev/null &
+sleep 1
+${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
+conn_err_zero=`grep -E "conn_err:0[^0-9]" stdlog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$conn_err_zero" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "active_cid_limit_accept" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "active_cid_limit_accept" "fail"
+    echo "$errlog"
+fi
+
+clear_log
+echo -e "active_connection_id_limit rejects extra NEW_CONNECTION_ID ...\c"
+killall test_server 2> /dev/null
+${SERVER_BIN} -l d -e -x 704 > svr_stdlog &
+sleep 1
+${CLIENT_BIN} -s 1024 -l d -t 2 -E > stdlog 2>&1
+forced_cid=`grep "\[active-cid-limit-test\]" svr_stdlog`
+conn_id_limit_err=`grep -E "(conn errno:9|conn_err:9)" stdlog`
+frame_encoding_err=`grep -E "(conn errno:7|conn_err:7)" stdlog`
+if [ -n "$forced_cid" ] && [ -n "$conn_id_limit_err" ] && [ -z "$frame_encoding_err" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "active_cid_limit_exceeded" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "active_cid_limit_exceeded" "fail"
+    echo "$forced_cid"
+    echo "$conn_id_limit_err"
+    echo "$frame_encoding_err"
+fi
+
+killall test_server 2> /dev/null
+${SERVER_BIN} -l d -e > /dev/null &
+sleep 1
+
+clear_log
 echo -e "GET request ...\c"
 result=`${CLIENT_BIN} -l d -t 1 -E -G|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`

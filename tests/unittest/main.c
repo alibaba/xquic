@@ -123,6 +123,10 @@ main()
         || !CU_add_test(pSuite, "xqc_test_ack_ecn_truncated", xqc_test_ack_ecn_truncated)
         || !CU_add_test(pSuite, "xqc_test_ack_ecn_followed_by_ping", xqc_test_ack_ecn_followed_by_ping)
         || !CU_add_test(pSuite, "xqc_test_new_conn_id_zero_len_cid", xqc_test_new_conn_id_zero_len_cid)
+        || !CU_add_test(pSuite, "xqc_test_new_conn_id_active_limit_accept",
+                        xqc_test_new_conn_id_active_limit_accept)
+        || !CU_add_test(pSuite, "xqc_test_new_conn_id_active_limit_exceeded",
+                        xqc_test_new_conn_id_active_limit_exceeded)
         || !CU_add_test(pSuite, "xqc_test_h3_frame", xqc_test_frame)
         || !CU_add_test(pSuite, "xqc_test_tls", xqc_test_tls)
         || !CU_add_test(pSuite, "xqc_test_h3_stream", xqc_test_stream)

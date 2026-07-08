@@ -128,9 +128,18 @@ xqc_cid_set_mark_original(xqc_cid_set_t *cid_set, xqc_cid_t *cid, uint64_t path_
 }
 
 /*
- * Return the number of CIDs that count toward active_connection_id_limit.
- * Per RFC 9000 §5.1.1, handshake (original) CIDs are excluded.
- * Uses saturating subtraction to avoid uint64_t underflow.
+ * Return the number of "from the peer" CIDs that count toward
+ * active_connection_id_limit.
+ *
+ * Per RFC 9000 §18.2: active_connection_id_limit is "the maximum number
+ * of connection IDs from the peer that an endpoint is willing to store.
+ * This value includes the connection ID received during the handshake,
+ * that received in the preferred_address transport parameter, and those
+ * received in NEW_CONNECTION_ID frames."
+ *
+ * original_cid_cnt tracks CIDs chosen locally (not from the peer), such
+ * as the client's self-generated initial DCID.  These are excluded from
+ * the count since the limit only applies to peer-supplied CIDs.
  */
 static inline uint64_t
 xqc_cid_set_countable_cnt(xqc_cid_set_inner_t *inner_set)

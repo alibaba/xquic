@@ -1046,6 +1046,10 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
                 conn->local_settings.active_connection_id_limit, 
                 xqc_cid_set_get_unused_cnt(&conn->dcid_set, XQC_INITIAL_PATH_ID), 
                 xqc_cid_set_get_used_cnt(&conn->dcid_set, XQC_INITIAL_PATH_ID));
+        if (ret == -XQC_EACTIVE_CID_LIMIT) {
+            XQC_CONN_ERR(conn, TRA_CONNECTION_ID_LIMIT_ERROR);
+            return -XQC_EPROTO;
+        }
         return ret;
     }
 
@@ -2082,6 +2086,10 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
                 xqc_cid_set_get_unused_cnt(&conn->dcid_set, path_id), 
                 xqc_cid_set_get_used_cnt(&conn->dcid_set, path_id),
                 path_id);
+        if (ret == -XQC_EACTIVE_CID_LIMIT) {
+            XQC_CONN_ERR(conn, TRA_CONNECTION_ID_LIMIT_ERROR);
+            return -XQC_EPROTO;
+        }
         return ret;
     }
 

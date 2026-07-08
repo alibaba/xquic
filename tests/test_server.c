@@ -18,6 +18,8 @@
 #include <stdint.h>
 
 #include "platform.h"
+#include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_packet_out.h"
 
 #ifndef XQC_SYS_WINDOWS
 #include <unistd.h>
@@ -1007,6 +1009,45 @@ xqc_server_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *conn_user_da
     if (g_test_case == 48) {
         printf("[initial-salt-test] server handshake ok, conn_err:%d\n",
                stats.conn_err);
+    }
+
+    if (g_test_case == 704) {
+        xqc_connection_t *conn = xqc_h3_conn_get_xqc_conn(h3_conn);
+        xqc_cid_set_inner_t *inner_set;
+        uint64_t peer_limit;
+        uint64_t target;
+        uint64_t countable;
+        xqc_int_t ret = XQC_OK;
+
+        if (conn == NULL) {
+            printf("[active-cid-limit-test] conn unavailable\n");
+            return;
+        }
+
+        inner_set = xqc_get_path_cid_set(&conn->scid_set, XQC_INITIAL_PATH_ID);
+        if (inner_set == NULL) {
+            printf("[active-cid-limit-test] cid set unavailable\n");
+            return;
+        }
+
+        peer_limit = conn->remote_settings.active_connection_id_limit;
+        target = peer_limit + 1;
+        countable = xqc_cid_set_countable_cnt(inner_set);
+
+        conn->remote_settings.active_connection_id_limit = target;
+        while (countable < target) {
+            ret = xqc_write_new_conn_id_frame_to_packet(conn, 0);
+            if (ret != XQC_OK) {
+                printf("[active-cid-limit-test] force NEW_CONNECTION_ID ret:%d\n",
+                       ret);
+                break;
+            }
+            countable = xqc_cid_set_countable_cnt(inner_set);
+        }
+        conn->remote_settings.active_connection_id_limit = peer_limit;
+
+        printf("[active-cid-limit-test] peer_limit:%"PRIu64
+               ", sent_countable:%"PRIu64"\n", peer_limit, countable);
     }
 
     /* pretend to create a server-inited http3 stream */
@@ -2696,7 +2737,9 @@ int main(int argc, char *argv[]) {
     }
 
     /* test server cid negotiate */
-    if (g_test_case == 1 || g_test_case == 5 || g_test_case == 6 || g_sid_len != 0) {
+    if (g_test_case == 1 || g_test_case == 5 || g_test_case == 6
+        || g_test_case == 704 || g_sid_len != 0)
+    {
 
         if (g_lb_cid_enc_key_len == 0) {
             int i = 0;

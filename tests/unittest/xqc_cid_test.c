@@ -412,15 +412,20 @@ xqc_test_cid_active_limit()
 }
 
 /*
- * Issue #776 — RFC 9000 §5.1.1: handshake CIDs MUST NOT count toward
- * active_connection_id_limit.
+ * Issue #820 — RFC 9000 §18.2: active_connection_id_limit is "the maximum
+ * number of connection IDs from the peer that an endpoint is willing to store.
+ * This value includes the connection ID received during the handshake."
  *
- * Reproduces the nginx interop failure: server sends 7 NEW_CONNECTION_ID
- * frames (seq 1..7) with active_connection_id_limit = 8. The initial
- * handshake produced 2 USED CIDs in the dcid_set. Pre-fix, the 7th
- * NEW_CONNECTION_ID was rejected because (6 unused + 2 used) >= 8.
- * Post-fix, handshake CIDs are excluded: (7 unused + 2 used - 2 original)
- * = 7 < 8, so all 7 are accepted.
+ * Only the client's self-generated initial DCID is NOT from the peer and is
+ * excluded from the count (original_cid_cnt = 1).  The server's SCID from
+ * the Initial response IS from the peer and must count toward the limit.
+ * The initial SCID (in scid_set) IS sent to the peer during the handshake
+ * and must also count toward the peer's limit.
+ *
+ * Reproduces the nginx interop scenario: with active_connection_id_limit = 8,
+ * the dcid_set has 1 self-generated CID (excluded) + 1 peer handshake CID
+ * (counted) = countable 1.  So 7 more NEW_CONNECTION_IDs can be accepted
+ * (1 + 7 = 8 == limit), and the 8th is rejected.
  */
 void
 xqc_test_cid_handshake_exclusion()
@@ -433,9 +438,28 @@ xqc_test_cid_handshake_exclusion()
     CU_ASSERT_FATAL(conn != NULL);
 
     /*
-     * Simulate the server SCID arrival (second handshake CID).
-     * test_engine_connect only inserts the initial DCID; in real operation
-     * a second CID is inserted when XQC_CONN_FLAG_DCID_OK is processed.
+     * After test_engine_connect, dcid_set has 1 USED CID (the client's
+     * self-generated initial DCID), marked as original.  original_cid_cnt
+     * = 1, so countable = (unused + used) - 1.
+     *
+     * scid_set also has 1 USED CID (the initial SCID), but it is NOT
+     * marked as original — it IS sent to the peer during the handshake
+     * and counts toward remote_settings.active_connection_id_limit.
+     */
+
+    /* verify scid_set: initial SCID is NOT original (sent to peer, counts toward limit) */
+    {
+        xqc_cid_set_inner_t *s = xqc_get_path_cid_set(&conn->scid_set,
+                                                       XQC_INITIAL_PATH_ID);
+        CU_ASSERT_FATAL(s != NULL);
+        CU_ASSERT(s->original_cid_cnt == 0);
+    }
+
+    /*
+     * Simulate the server SCID arrival (peer handshake CID).
+     * Unlike the client's self-generated DCID, this CID IS from the
+     * peer and must NOT be marked as original — it counts toward the
+     * limit per RFC 9000 §18.2.
      */
     xqc_cid_t server_scid;
     ret = xqc_generate_cid(conn->engine, NULL, &server_scid, 0);
@@ -444,66 +468,72 @@ xqc_test_cid_handshake_exclusion()
                                  conn->local_settings.active_connection_id_limit,
                                  XQC_INITIAL_PATH_ID);
     CU_ASSERT(ret == XQC_OK);
-    /* mark it as original handshake CID */
+    /* Do NOT mark server_scid as original — it is from the peer */
+
+    /* verify: 2 used CIDs total, but only 1 original (self-generated) */
+    CU_ASSERT(xqc_cid_set_get_used_cnt(&conn->dcid_set, XQC_INITIAL_PATH_ID) == 2);
+    CU_ASSERT(xqc_cid_set_get_unused_cnt(&conn->dcid_set, XQC_INITIAL_PATH_ID) == 0);
     {
-        xqc_cid_inner_t *inner = xqc_cid_in_cid_set(&conn->dcid_set, &server_scid,
-                                                     XQC_INITIAL_PATH_ID);
-        CU_ASSERT_FATAL(inner != NULL);
-        inner->is_original = 1;
         xqc_cid_set_inner_t *s = xqc_get_path_cid_set(&conn->dcid_set,
                                                        XQC_INITIAL_PATH_ID);
         CU_ASSERT_FATAL(s != NULL);
-        s->original_cid_cnt++;
+        CU_ASSERT(s->original_cid_cnt == 1);  /* only client's self-generated */
     }
 
-    /* verify: 2 used CIDs (both original), 0 unused */
-    CU_ASSERT(xqc_cid_set_get_used_cnt(&conn->dcid_set, XQC_INITIAL_PATH_ID) == 2);
-    CU_ASSERT(xqc_cid_set_get_unused_cnt(&conn->dcid_set, XQC_INITIAL_PATH_ID) == 0);
-
     /*
-     * Now simulate nginx sending 7 NEW_CONNECTION_ID frames (seq 1..7).
-     * With active_connection_id_limit = 8, all 7 MUST be accepted because
-     * the 2 handshake CIDs are excluded from the count.
-     * (Pre-fix, the 7th would fail: (6+2) >= 8.)
+     * Per RFC 9000 §18.2, active_connection_id_limit = 8 applies to
+     * peer-supplied CIDs.  Currently countable = (0 + 2) - 1 = 1
+     * (1 self-generated excluded, 1 peer handshake included).
+     * So (8 - 1) = 7 more NEW_CONNECTION_IDs can be accepted.
      */
     uint64_t limit = conn->local_settings.active_connection_id_limit;  /* 8 */
     CU_ASSERT(limit == 8);
 
+    /* 7 NEW_CONNECTION_IDs fill the remaining slots: countable = 1 + 7 = 8 */
     for (i = 1; i <= 7; i++) {
         ret = xqc_test_cid_insert_one(conn, &conn->dcid_set,
                                       XQC_CID_UNUSED, limit, 100 + i);
         CU_ASSERT(ret == XQC_OK);
     }
 
-    /* 8th also succeeds: countable = 7 < 8 (max active NCID CIDs = limit = 8) */
+    /* 8th is rejected: countable = 1 (peer handshake) + 7 (NCID) = 8 >= 8 */
     ret = xqc_test_cid_insert_one(conn, &conn->dcid_set,
                                   XQC_CID_UNUSED, limit, 108);
-    CU_ASSERT(ret == XQC_OK);
-
-    /* 9th is rejected: countable = 8 >= 8 */
-    ret = xqc_test_cid_insert_one(conn, &conn->dcid_set,
-                                  XQC_CID_UNUSED, limit, 109);
     CU_ASSERT(ret == -XQC_EACTIVE_CID_LIMIT);
 
     /*
-     * Verify that retiring an original CID correctly adjusts the accounting:
-     * after retirement, one more NEW_CONNECTION_ID can be accepted.
+     * Verify that retiring the self-generated CID does NOT free a slot
+     * (it was already excluded from the count).
      */
-    xqc_cid_inner_t *orig = xqc_cid_in_cid_set(&conn->dcid_set, &server_scid,
+    xqc_cid_inner_t *orig = xqc_cid_in_cid_set(&conn->dcid_set,
+                                                &conn->dcid_set.current_dcid,
                                                 XQC_INITIAL_PATH_ID);
+    /* if not found via current_dcid, find the original directly */
+    if (orig == NULL) {
+        /* fallback: find any original CID */
+        xqc_list_head_t *pos;
+        xqc_cid_set_inner_t *inner_set = xqc_get_path_cid_set(&conn->dcid_set,
+                                                               XQC_INITIAL_PATH_ID);
+        xqc_list_for_each(pos, &inner_set->cid_list) {
+            xqc_cid_inner_t *tmp = xqc_list_entry(pos, xqc_cid_inner_t, list);
+            if (tmp->is_original) {
+                orig = tmp;
+                break;
+            }
+        }
+    }
     CU_ASSERT_FATAL(orig != NULL);
     ret = xqc_cid_switch_to_next_state(&conn->dcid_set, orig,
                                        XQC_CID_RETIRED, XQC_INITIAL_PATH_ID);
     CU_ASSERT(ret == XQC_OK);
 
-    /* now countable = (8 unused + 1 used - 1 original) = 8 >= 8, still at limit */
-    /* But wait: used_cnt decreased (orig retired), so: unused=8, used=1, original=1 */
-    /* countable = 8+1-1 = 8 >= 8, still denied */
+    /* original_cid_cnt decreased, but countable unchanged since it was
+     * already excluded.  Still at limit. */
     ret = xqc_test_cid_insert_one(conn, &conn->dcid_set,
-                                  XQC_CID_UNUSED, limit, 110);
+                                  XQC_CID_UNUSED, limit, 109);
     CU_ASSERT(ret == -XQC_EACTIVE_CID_LIMIT);
 
-    /* retire one of the NCID CIDs to free a slot */
+    /* retire a peer NCID CID to free a slot */
     xqc_cid_inner_t *ncid = xqc_get_inner_cid_by_seq(&conn->dcid_set, 101,
                                                       XQC_INITIAL_PATH_ID);
     CU_ASSERT_FATAL(ncid != NULL);
@@ -511,9 +541,9 @@ xqc_test_cid_handshake_exclusion()
                                        XQC_CID_RETIRED, XQC_INITIAL_PATH_ID);
     CU_ASSERT(ret == XQC_OK);
 
-    /* now countable = (7 unused + 1 used - 1 original) = 7 < 8, insert succeeds */
+    /* countable = (1 peer handshake + 6 NCID) - 0 original = 7 < 8, succeeds */
     ret = xqc_test_cid_insert_one(conn, &conn->dcid_set,
-                                  XQC_CID_UNUSED, limit, 111);
+                                  XQC_CID_UNUSED, limit, 110);
     CU_ASSERT(ret == XQC_OK);
 
     xqc_engine_destroy(conn->engine);

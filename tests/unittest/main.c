@@ -105,6 +105,14 @@ main()
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_dispatched_via_xqc_process_frame", xqc_test_crypto_frame_dispatched_via_xqc_process_frame)
         || !CU_add_test(pSuite, "xqc_test_crypto_in_0rtt_emits_connection_close", xqc_test_crypto_in_0rtt_emits_connection_close)
         || !CU_add_test(pSuite, "xqc_test_crypto", xqc_test_crypto)
+        /* issue #717: 0-RTT transport parameter validation (RFC 9000 Section 7.4.1)
+         * registered before hp_sample_boundary to avoid a pre-existing SIGSEGV */
+        || !CU_add_test(pSuite, "xqc_test_0rtt_params_all_equal",
+                        xqc_test_0rtt_params_all_equal)
+        || !CU_add_test(pSuite, "xqc_test_0rtt_params_all_increased",
+                        xqc_test_0rtt_params_all_increased)
+        || !CU_add_test(pSuite, "xqc_test_0rtt_params_each_reduced",
+                        xqc_test_0rtt_params_each_reduced)
         || !CU_add_test(pSuite, "xqc_test_hp_sample_boundary", xqc_test_hp_sample_boundary)
         || !CU_add_test(pSuite, "xqc_test_packet_encrypt_hp_sample_boundary", xqc_test_packet_encrypt_hp_sample_boundary)
         || !CU_add_test(pSuite, "xqc_test_empty_pkt", xqc_test_empty_pkt)
@@ -225,13 +233,6 @@ main()
         || !CU_add_test(pSuite, "xqc_test_initial_salt_length", xqc_test_initial_salt_length)
         || !CU_add_test(pSuite, "xqc_test_initial_salt_v1_value", xqc_test_initial_salt_v1_value)
         || !CU_add_test(pSuite, "xqc_test_initial_salt_null_byte_regression", xqc_test_initial_salt_null_byte_regression)
-        /* issue #717: 0-RTT transport parameter validation (RFC 9000 Section 7.4.1) */
-        || !CU_add_test(pSuite, "xqc_test_0rtt_params_all_equal",
-                        xqc_test_0rtt_params_all_equal)
-        || !CU_add_test(pSuite, "xqc_test_0rtt_params_all_increased",
-                        xqc_test_0rtt_params_all_increased)
-        || !CU_add_test(pSuite, "xqc_test_0rtt_params_each_reduced",
-                        xqc_test_0rtt_params_each_reduced)
         /* ALPN negotiation tests (issue #709) */
         || !CU_add_test(pSuite, "xqc_test_alpn_error_code_value",
                         xqc_test_alpn_error_code_value)

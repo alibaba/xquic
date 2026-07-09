@@ -171,4 +171,11 @@ xqc_int_t xqc_qpack_enc_headers(xqc_qpack_t *qpk, uint64_t stream_id,
 void xqc_qpack_set_compat_dup(xqc_qpack_t *qpk, xqc_bool_t compat);
 #endif
 
+/**
+ * @brief test whether a decoded HTTP/3 field name contains any uppercase
+ *        ASCII character (RFC 9114 4.2 forbids them on the wire).
+ * @return XQC_TRUE if at least one byte in [A-Z] is found, XQC_FALSE otherwise.
+ */
+xqc_bool_t xqc_qpack_field_name_has_uppercase(const unsigned char *name, size_t name_len);
+
 #endif

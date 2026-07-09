@@ -1759,3 +1759,165 @@ xqc_test_h3_allowed_headers_pass()
         (const unsigned char *)"host", 4,
         (const unsigned char *)"example.com", 11) == XQC_FALSE);
 }
+
+
+/*
+ * Issue #748 regression test.
+ *
+ * RFC 9114 4.2 says any request or response containing uppercase
+ * characters in field names MUST be treated as malformed, and 4.1.2
+ * routes malformed messages to a stream error of type H3_MESSAGE_ERROR.
+ * The xquic encoder already silently lowercases on send, but the
+ * receiver had no check at all -- xqc_qpack_dec_headers handed any
+ * decoded header straight to the application without validating the
+ * name was lowercase. This test exercises the new helper that powers
+ * the receive-side guard.
+ *
+ * The helper is a pure byte scan, so the test drives it directly
+ * with stack-allocated names rather than going through QPACK encoding.
+ * Pseudo-header names (which start with ':') go through the same
+ * scan: ':' is 0x3A which sits below 'A' = 0x41, so a pseudo-header
+ * name like ":Method" is caught on the 'M', exactly the same path
+ * as a regular field.
+ */
+void
+xqc_test_h3_field_name_uppercase_rejection()
+{
+    /* all-lowercase regular field name -> accepted */
+    const unsigned char ua_lc[] = "user-agent";
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase(ua_lc, sizeof(ua_lc) - 1)
+              == XQC_FALSE);
+
+    /* mixed case regular field name -> rejected */
+    const unsigned char ua_mc[] = "User-Agent";
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase(ua_mc, sizeof(ua_mc) - 1)
+              == XQC_TRUE);
+
+    /* single uppercase byte -> rejected */
+    const unsigned char single_u[] = "X";
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase(single_u, sizeof(single_u) - 1)
+              == XQC_TRUE);
+
+    /* all-uppercase -> rejected */
+    const unsigned char all_u[] = "ACCEPT";
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase(all_u, sizeof(all_u) - 1)
+              == XQC_TRUE);
+
+    /* empty name -> accepted (the helper is name-only; empty-name
+     * malformed handling lives elsewhere) */
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase((const unsigned char *)"", 0)
+              == XQC_FALSE);
+
+    /* lowercase pseudo-header -> accepted */
+    const unsigned char pseudo_lc[] = ":method";
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase(pseudo_lc, sizeof(pseudo_lc) - 1)
+              == XQC_FALSE);
+
+    /* uppercase in pseudo-header -> rejected (RFC 9114 4.3 routes
+     * this through "undefined pseudo-header" but the byte scan
+     * catches it first) */
+    const unsigned char pseudo_uc[] = ":Method";
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase(pseudo_uc, sizeof(pseudo_uc) - 1)
+              == XQC_TRUE);
+
+    /* boundary characters around A-Z -> not flagged */
+    const unsigned char at_sign[] = "@";  /* 0x40, just below 'A' */
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase(at_sign, sizeof(at_sign) - 1)
+              == XQC_FALSE);
+    const unsigned char open_bracket[] = "[";  /* 0x5B, just above 'Z' */
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase(open_bracket,
+                                                 sizeof(open_bracket) - 1)
+              == XQC_FALSE);
+
+    /* high-bit byte (0xff) -> not flagged. Such a byte is invalid in
+     * an HTTP/3 field name per RFC 9110 token rules, but that is a
+     * separate validation -- the helper is scoped to A-Z. */
+    const unsigned char high_bit[] = { 0xff, 0x00 };
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase(high_bit, 1) == XQC_FALSE);
+
+    /* uppercase deep inside an otherwise lowercase name -> rejected.
+     * Catches the off-by-one of an early-exit-only-on-first-byte loop. */
+    const unsigned char trailing_uc[] = "x-forwarded-For";
+    CU_ASSERT(xqc_qpack_field_name_has_uppercase(trailing_uc,
+                                                 sizeof(trailing_uc) - 1)
+              == XQC_TRUE);
+
+    /*
+     * Drive xqc_h3_request_on_recv_header with fake header data containing
+     * an uppercase field name.  This exercises the full error propagation
+     * path (helper -> H3_MESSAGE_ERROR -> -XQC_H3_EMALFORMED_HEADER)
+     * without touching the sender path or requiring a real wire exchange.
+     */
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+
+    xqc_h3_conn_t *h3c = xqc_h3_conn_create(conn, NULL);
+    CU_ASSERT_FATAL(h3c != NULL);
+
+    conn->conn_flow_ctl.fc_max_streams_uni_can_send = 16;
+
+    xqc_stream_t *stream = xqc_create_stream_with_conn(conn,
+                                                       XQC_UNDEFINE_STREAM_ID,
+                                                       XQC_CLI_UNI, NULL, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+
+    xqc_h3_stream_t *h3s = xqc_h3_stream_create(h3c, stream,
+                                                XQC_H3_STREAM_TYPE_CONTROL,
+                                                NULL);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    xqc_h3_request_t *h3r = xqc_calloc(1, sizeof(xqc_h3_request_t));
+    CU_ASSERT_FATAL(h3r != NULL);
+    h3r->h3_stream  = h3s;
+    h3r->request_if = &h3c->h3_request_callbacks;
+    xqc_init_list_head(&h3r->body_buf);
+
+    xqc_http_header_t fake_hdrs[1];
+    fake_hdrs[0].name.iov_base  = (void *)"X-Bad-Name";
+    fake_hdrs[0].name.iov_len   = 10;
+    fake_hdrs[0].value.iov_base = (void *)"ok";
+    fake_hdrs[0].value.iov_len  = 2;
+    fake_hdrs[0].flags          = 0;
+
+    xqc_http_headers_t *hdr = &h3r->h3_header[0];
+    hdr->headers   = fake_hdrs;
+    hdr->count     = 1;
+    hdr->total_len = 12;
+    hdr->capacity  = 1;
+
+    h3r->current_header = 0;
+    h3r->read_flag      = 0;
+    xqc_int_t ret = xqc_h3_request_on_recv_header(h3r);
+    CU_ASSERT_EQUAL(ret, -XQC_H3_EMALFORMED_HEADER);
+
+    /* all-lowercase header passes the check */
+    fake_hdrs[0].name.iov_base = (void *)"x-good-name";
+    fake_hdrs[0].name.iov_len  = 11;
+    hdr->total_len = 13;
+    h3r->current_header = 0;
+    h3r->read_flag      = 0;
+    ret = xqc_h3_request_on_recv_header(h3r);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+
+    hdr->headers = NULL;
+    for (size_t i = 0; i < XQC_H3_REQUEST_MAX_HEADERS_CNT; i++) {
+        xqc_h3_headers_free(&h3r->h3_header[i]);
+    }
+    xqc_list_buf_list_free(&h3r->body_buf);
+    xqc_free(h3r);
+
+    h3s->h3r = NULL;
+    stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_h3_stream_destroy(h3s);
+    xqc_destroy_stream(stream);
+
+    xqc_h3_conn_destroy(h3c);
+    xqc_engine_destroy(conn->engine);
+}

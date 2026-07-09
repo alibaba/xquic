@@ -189,6 +189,8 @@ xqc_h3_stream_t *xqc_h3_stream_create(xqc_h3_conn_t *h3c, xqc_stream_t *stream,
 
 xqc_int_t xqc_h3_stream_close(xqc_h3_stream_t *h3s);
 
+xqc_int_t xqc_h3_stream_reset_with_error(xqc_h3_stream_t *h3s, uint64_t h3_err);
+
 void xqc_h3_stream_destroy(xqc_h3_stream_t *h3s);
 
 xqc_int_t xqc_h3_stream_send_buffer(xqc_h3_stream_t *h3s);

@@ -2770,52 +2770,65 @@ xqc_wt_client_open_session(xqc_engine_t *engine, const xqc_cid_t *cid,
 }
 
 
-ssize_t
-xqc_wt_session_send_bidi(xqc_wt_session_t *session,
-    const void *data, size_t data_len, int fin)
+/*
+ * Create a WT bidi stream without sending data.
+ * Reserves one outgoing bidi slot in session flow control, creates the
+ * underlying QUIC stream, H3 bytestream wrapper, and WT bidistream object,
+ * then registers the stream as pending.  The caller can later send data
+ * via xqc_wt_bidistream_send().
+ */
+xqc_wt_bidistream_t *
+xqc_wt_session_create_bidi_stream(xqc_wt_session_t *session)
 {
     if (session == NULL || session->wt_conn == NULL) {
-        return -XQC_EPARAM;
+        return NULL;
     }
     xqc_h3_conn_t *h3c = session->wt_conn->h3_conn;
     if (h3c == NULL) {
-        return -XQC_EPARAM;
+        return NULL;
     }
 
+    /* reserve one bidi stream slot, no data bytes yet */
     xqc_wt_flow_reservation_t reservation = {0};
     xqc_int_t ret = xqc_wt_session_reserve_outgoing(session, XQC_TRUE,
-        XQC_TRUE, data_len, &reservation);
+        XQC_TRUE, 0, &reservation);
     if (ret < 0) {
-        return ret;
+        return NULL;
     }
 
     /* create a QUIC bidi stream for WT data */
     xqc_connection_t *conn = xqc_h3_conn_get_xqc_conn(h3c);
-    xqc_stream_t *stream = xqc_stream_create_with_direction(conn, XQC_STREAM_BIDI, NULL);
+    xqc_stream_t *stream = xqc_stream_create_with_direction(conn,
+        XQC_STREAM_BIDI, NULL);
     if (stream == NULL) {
         xqc_wt_session_rollback_outgoing(session, &reservation);
-        return -XQC_ECREATE_STREAM;
+        return NULL;
     }
 
-    /* FIRST: create H3 stream and mark as WT type BEFORE sending data.
+    /*
+     * Create H3 stream and mark as WT type BEFORE any data is sent.
      * This ensures the H3 layer knows about this stream before any
-     * flow control or retransmit callbacks fire. */
+     * flow control or retransmit callbacks fire.
+     */
     xqc_h3_stream_t *h3s = (xqc_h3_stream_t *)stream->user_data;
     if (h3s == NULL) {
-        /* Use BYTESTEAM type so H3 layer routes to process_bytestream.
-         * Set WT_BIDI flag so bytestream bypasses H3 frame parser. */
+        /* BYTESTEAM type: H3 layer routes to process_bytestream.
+         * WT_BIDI flag: bytestream bypasses H3 frame parser. */
         h3s = xqc_h3_stream_create(h3c, stream,
                                     XQC_H3_STREAM_TYPE_BYTESTEAM, NULL);
         if (h3s) {
             stream->user_data = h3s;
         }
+
     } else if (h3s->type == XQC_H3_STREAM_TYPE_UNKNOWN) {
         h3s->type = XQC_H3_STREAM_TYPE_BYTESTEAM;
     }
+
     if (h3s) {
         h3s->flags |= XQC_HTTP3_STREAM_FLAG_WT_BIDI;
         if (h3s->h3_ext_bs == NULL) {
-            h3s->h3_ext_bs = xqc_h3_ext_bytestream_create_passive(h3c, h3s, NULL);
+            h3s->h3_ext_bs = xqc_h3_ext_bytestream_create_passive(
+                h3c, h3s, NULL);
         }
     }
 
@@ -2824,7 +2837,7 @@ xqc_wt_session_send_bidi(xqc_wt_session_t *session,
     if (wt_bidi == NULL) {
         xqc_destroy_stream(stream);
         xqc_wt_session_rollback_outgoing(session, &reservation);
-        return -XQC_ECREATE_STREAM;
+        return NULL;
     }
 
     ret = xqc_wt_session_add_pendingstream(session, h3s, wt_bidi,
@@ -2833,39 +2846,34 @@ xqc_wt_session_send_bidi(xqc_wt_session_t *session,
         xqc_wt_bidistream_destroy(wt_bidi);
         xqc_destroy_stream(stream);
         xqc_wt_session_rollback_outgoing(session, &reservation);
+        return NULL;
+    }
+
+    xqc_wt_session_commit_outgoing(session, &reservation);
+    return wt_bidi;
+}
+
+
+ssize_t
+xqc_wt_session_send_bidi(xqc_wt_session_t *session,
+    const void *data, size_t data_len, int fin)
+{
+    /* create the bidi stream (reserves stream slot, no data reserved) */
+    xqc_wt_bidistream_t *wt_bidi =
+        xqc_wt_session_create_bidi_stream(session);
+    if (wt_bidi == NULL) {
+        return -XQC_ECREATE_STREAM;
+    }
+
+    /* send data; bidistream_send handles its own data flow reservation */
+    xqc_int_t ret = xqc_wt_bidistream_send(wt_bidi, (void *)data,
+        (uint32_t)data_len, fin);
+    if (ret < 0) {
+        xqc_wt_bidistream_destroy(wt_bidi);
         return ret;
     }
 
-    xqc_bool_t sent_any = XQC_FALSE;
-    uint32_t payload_sent = 0;
-    ret = xqc_wt_bidistream_send_reserved(wt_bidi, (void *)data,
-        (uint32_t)data_len, fin, &sent_any, &payload_sent);
-    if (ret < 0 && !sent_any) {
-        xqc_wt_pending_stream_t *ps =
-            xqc_wt_session_pending_stream_find(session, h3s);
-        xqc_id_hash_delete(session->pending_unistreams, h3s->stream_id);
-        if (ps) {
-            xqc_free(ps);
-        }
-        xqc_wt_bidistream_destroy(wt_bidi);
-        xqc_destroy_stream(stream);
-        xqc_wt_session_rollback_outgoing(session, &reservation);
-        return ret;
-    }
-    if (ret < 0) {
-        return ret;
-    }
-    if (payload_sent < data_len) {
-        xqc_wt_flow_reservation_t rollback = {0};
-        rollback.data = data_len - payload_sent;
-        xqc_wt_session_rollback_outgoing(session, &rollback);
-    }
-    reservation.data = payload_sent;
-    ret = xqc_wt_session_commit_outgoing(session, &reservation);
-    if (ret < 0) {
-        return ret;
-    }
-    return (ssize_t)payload_sent;
+    return (ssize_t)ret;
 }
 
 const xqc_cid_t *

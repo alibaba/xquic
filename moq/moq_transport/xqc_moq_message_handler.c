@@ -361,3 +361,36 @@ xqc_moq_on_track_header(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
     xqc_moq_stream_header_track_msg_t *track_header = (xqc_moq_stream_header_track_msg_t*)msg_base;
     moq_stream->track_header = *track_header;
 }
+
+void
+xqc_moq_on_unsubscribe(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_unsubscribe_msg_t *unsubscribe_msg = (xqc_moq_unsubscribe_msg_t*)msg_base;
+    xqc_moq_subscribe_t *subscribe = xqc_moq_find_subscribe(session, unsubscribe_msg->subscribe_id, 0);
+    if (subscribe == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|unsubscribe not found|subscribe_id:%ui|", unsubscribe_msg->subscribe_id);
+        return;
+    }
+
+    xqc_moq_track_t *track = xqc_moq_find_track_by_alias(session, subscribe->subscribe_msg->track_alias,
+                                                         XQC_MOQ_TRACK_FOR_PUB);
+    if (track == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|track not found for unsubscribe|track_alias:%ui|",
+                subscribe->subscribe_msg->track_alias);
+        xqc_list_del(&subscribe->list_member);
+        xqc_moq_subscribe_destroy(subscribe);
+        return;
+    }
+
+    xqc_log(session->log, XQC_LOG_INFO, "|on_unsubscribe|track_name:%s|subscribe_id:%ui|",
+            track->track_info.track_name, unsubscribe_msg->subscribe_id);
+
+    if (session->session_callbacks.on_unsubscribe) {
+        session->session_callbacks.on_unsubscribe(session->user_session, unsubscribe_msg->subscribe_id, track);
+    }
+
+    xqc_list_del(&subscribe->list_member);
+    xqc_moq_subscribe_destroy(subscribe);
+    xqc_moq_track_set_subscribe_id(track, -1);
+    xqc_moq_track_set_alias(track, -1);
+}

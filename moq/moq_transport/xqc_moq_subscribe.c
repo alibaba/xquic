@@ -1,4 +1,3 @@
-
 #include "moq/moq_transport/xqc_moq_subscribe.h"
 #include "moq/moq_transport/xqc_moq_session.h"
 #include "moq/moq_transport/xqc_moq_message_writer.h"
@@ -139,3 +138,37 @@ xqc_moq_subscribe_latest(xqc_moq_session_t *session, const char *track_namespace
                              XQC_MOQ_FILTER_LAST_GROUP, 0, 0, 0, 0, NULL);
 }
 
+xqc_int_t
+xqc_moq_unsubscribe(xqc_moq_session_t *session, uint64_t subscribe_id)
+{
+    xqc_moq_subscribe_t *subscribe = xqc_moq_find_subscribe(session, subscribe_id, 1);
+    if (subscribe == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|unsubscribe target not found|subscribe_id:%ui|", subscribe_id);
+        return -XQC_ENULLPTR;
+    }
+
+    xqc_moq_unsubscribe_msg_t unsubscribe_msg;
+    xqc_memzero(&unsubscribe_msg, sizeof(unsubscribe_msg));
+    xqc_moq_msg_unsubscribe_init_handler(&unsubscribe_msg.msg_base);
+    unsubscribe_msg.subscribe_id = subscribe_id;
+
+    xqc_int_t ret = xqc_moq_write_unsubscribe(session, &unsubscribe_msg);
+    if (ret < 0) {
+        xqc_log(session->log, XQC_LOG_ERROR, "|write unsubscribe error|ret:%d|subscribe_id:%ui|", ret, subscribe_id);
+        return ret;
+    }
+
+    xqc_moq_track_t *track = xqc_moq_find_track_by_alias(session, subscribe->subscribe_msg->track_alias,
+                                                         XQC_MOQ_TRACK_FOR_SUB);
+    if (track) {
+        xqc_moq_track_set_subscribe_id(track, -1);
+        xqc_moq_track_set_alias(track, -1);
+    }
+
+    xqc_list_del(&subscribe->list_member);
+    xqc_moq_subscribe_destroy(subscribe);
+
+    xqc_log(session->log, XQC_LOG_INFO, "|unsubscribe success|subscribe_id:%ui|", subscribe_id);
+
+    return XQC_OK;
+}

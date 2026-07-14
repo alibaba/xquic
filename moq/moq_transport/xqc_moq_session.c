@@ -7,18 +7,66 @@
 #include "moq/moq_transport/xqc_moq_stream_quic.h"
 #include "moq/moq_transport/xqc_moq_stream_webtransport.h"
 #include "moq/moq_transport/xqc_moq_subscribe.h"
+#include "xquic/xqc_webtransport.h"
+
+/*
+ * will_create_session callback for MOQ-over-WT:
+ * Accept the session only if the :path matches XQC_MOQ_WT_PATH.
+ */
+static int
+xqc_moq_wt_will_create_session(xqc_http_headers_t *headers,
+    xqc_http_headers_t *response)
+{
+    size_t i;
+    if (headers == NULL) {
+        return 0;
+    }
+
+    for (i = 0; i < headers->count; i++) {
+        if (headers->headers[i].name.iov_len == 5
+            && memcmp(headers->headers[i].name.iov_base, ":path", 5) == 0
+            && headers->headers[i].value.iov_len == sizeof(XQC_MOQ_WT_PATH) - 1
+            && memcmp(headers->headers[i].value.iov_base,
+                      XQC_MOQ_WT_PATH,
+                      sizeof(XQC_MOQ_WT_PATH) - 1) == 0)
+        {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 
 void
-xqc_moq_init_alpn(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs, xqc_moq_transport_type_t transport_type)
+xqc_moq_init_alpn(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs,
+    xqc_moq_transport_type_t transport_type)
 {
-    xqc_stream_callbacks_t callbacks;
     if (transport_type == XQC_MOQ_TRANSPORT_QUIC) {
-        callbacks = xqc_moq_quic_stream_callbacks;
+        xqc_stream_callbacks_t callbacks = xqc_moq_quic_stream_callbacks;
         xqc_app_proto_callbacks_t ap_cbs = {
             .conn_cbs   = *conn_cbs,
             .stream_cbs = callbacks,
         };
-        xqc_engine_register_alpn(engine, XQC_ALPN_MOQ_QUIC, sizeof(XQC_ALPN_MOQ_QUIC) - 1, &ap_cbs, NULL);
+        xqc_engine_register_alpn(engine, XQC_ALPN_MOQ_QUIC,
+            sizeof(XQC_ALPN_MOQ_QUIC) - 1, &ap_cbs, NULL);
+
+    } else if (transport_type == XQC_MOQ_TRANSPORT_WEBTRANSPORT) {
+        /* WT session callbacks */
+        xqc_webtransport_session_callbacks_t session_cbs = {0};
+        session_cbs.webtransport_will_create_session_notify =
+            xqc_moq_wt_will_create_session;
+
+        /* WT stream callbacks from the adapter */
+        xqc_webtransport_stream_callbacks_t stream_cbs =
+            xqc_moq_wt_stream_callbacks;
+
+        /* datagram callbacks (unused by MOQ, zeroed) */
+        xqc_webtransport_dgram_callbacks_t dgram_cbs = {0};
+
+        const char *alpns[] = { "h3" };
+        xqc_wt_ctx_init_for_alpns(engine, &dgram_cbs, &session_cbs,
+            &stream_cbs, 1, alpns, 1);
     }
 }
 
@@ -42,12 +90,15 @@ xqc_moq_session_create(void *conn, xqc_moq_user_session_t *user_session, xqc_moq
             quic_conn = (xqc_connection_t *)conn;
             break;
         }
-        /*case XQC_MOQ_TRANSPORT_WEBTRANSPORT: {
-            //TODO: WEBTRANSPORT
-            wt_conn = (xqc_wt_t *)conn;
-            quic_conn = wt_conn->conn;
+        case XQC_MOQ_TRANSPORT_WEBTRANSPORT: {
+            /* conn is xqc_wt_session_t* for WT transport */
+            xqc_wt_session_t *wt_session = (xqc_wt_session_t *)conn;
+            quic_conn = xqc_wt_session_get_conn(wt_session);
+            if (quic_conn == NULL) {
+                goto error;
+            }
             break;
-        }*/
+        }
         default: {
             goto error;
         }
@@ -153,19 +204,42 @@ xqc_moq_session_quic_conn(xqc_moq_session_t *session)
 }
 
 void
-xqc_moq_session_error(xqc_moq_session_t *session, xqc_moq_err_code_t code, const char *msg)
+xqc_moq_session_error(xqc_moq_session_t *session,
+    xqc_moq_err_code_t code, const char *msg)
 {
-    xqc_connection_t *quic_conn = xqc_moq_session_quic_conn(session);
-    XQC_CONN_CLOSE_MSG(quic_conn, msg);
-    XQC_CONN_ERR(quic_conn, code);
+    session->closing = XQC_TRUE;
+
+    if (session->transport_type == XQC_MOQ_TRANSPORT_WEBTRANSPORT) {
+        /* WT: close session only, keep the H3 connection alive */
+        xqc_wt_session_t *wt_session =
+            (xqc_wt_session_t *)session->trans_conn;
+        xqc_wt_session_close_with_error(wt_session, (uint32_t)code,
+            msg, msg ? strlen(msg) : 0);
+
+    } else {
+        /* raw QUIC: close the entire connection */
+        xqc_connection_t *quic_conn = xqc_moq_session_quic_conn(session);
+        XQC_CONN_CLOSE_MSG(quic_conn, msg);
+        XQC_CONN_ERR(quic_conn, code);
+    }
 }
 
 void
 xqc_moq_session_app_error(xqc_moq_session_t *session, uint64_t code)
 {
-    xqc_connection_t *quic_conn = xqc_moq_session_quic_conn(session);
-    XQC_CONN_CLOSE_MSG(quic_conn, "app error");
-    XQC_CONN_ERR(quic_conn, code);
+    session->closing = XQC_TRUE;
+
+    if (session->transport_type == XQC_MOQ_TRANSPORT_WEBTRANSPORT) {
+        xqc_wt_session_t *wt_session =
+            (xqc_wt_session_t *)session->trans_conn;
+        xqc_wt_session_close_with_error(wt_session, (uint32_t)code,
+            "app error", sizeof("app error") - 1);
+
+    } else {
+        xqc_connection_t *quic_conn = xqc_moq_session_quic_conn(session);
+        XQC_CONN_CLOSE_MSG(quic_conn, "app error");
+        XQC_CONN_ERR(quic_conn, code);
+    }
 }
 
 uint64_t 

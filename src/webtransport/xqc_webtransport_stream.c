@@ -749,3 +749,30 @@ xqc_wt_bidistream_destroy(xqc_wt_bidistream_t *wt_stream)
     xqc_free(wt_stream);
     return XQC_OK;
 }
+
+
+/*
+ * Free a unistream's WT wrapper memory without closing the underlying
+ * QUIC stream.  Mirrors xqc_wt_bidistream_destroy().
+ */
+void
+xqc_wt_unistream_destroy(xqc_wt_unistream_t *wt_stream)
+{
+    if (wt_stream == NULL) {
+        return;
+    }
+
+    if (wt_stream->type == XQC_WT_STREAM_TYPE_SEND) {
+        if (wt_stream->stream.send_stream) {
+            xqc_free(wt_stream->stream.send_stream);
+        }
+
+    } else if (wt_stream->type == XQC_WT_STREAM_TYPE_RECV) {
+        if (wt_stream->stream.recv_stream) {
+            xqc_free(wt_stream->stream.recv_stream);
+        }
+    }
+
+    xqc_wt_stream_buffer_list_release(&wt_stream->pending_recv);
+    xqc_free(wt_stream);
+}

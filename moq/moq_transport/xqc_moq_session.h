@@ -44,6 +44,7 @@ typedef struct xqc_moq_session_s {
     xqc_moq_bitrate_allocator_t     bitrate_allocator;
     xqc_int_t                       enable_fec;
     float                           fec_code_rate;
+    xqc_bool_t                      closing; /* session error/close in progress */
 } xqc_moq_session_t;
 
 typedef enum {

@@ -563,6 +563,18 @@ xqc_int_t xqc_wt_client_open_session(xqc_engine_t *engine, const xqc_cid_t *cid,
     const char *path, const char *authority, void *user_data);
 
 /**
+ * @brief Client: create a WebTransport bidi stream on an existing session
+ *        without sending data.  The caller can send data later via
+ *        xqc_wt_bidistream_send().
+ *
+ * @param session the WT session (must be established)
+ * @return bidistream handle on success, NULL on failure
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_wt_bidistream_t *xqc_wt_session_create_bidi_stream(
+    xqc_wt_session_t *session);
+
+/**
  * @brief Client: create a WebTransport bidi stream on an existing session and send data.
  *
  * @param session the WT session

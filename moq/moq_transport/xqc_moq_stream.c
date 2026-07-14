@@ -14,11 +14,10 @@ xqc_moq_stream_create(xqc_moq_session_t *session)
             stream->trans_ops = xqc_moq_quic_stream_ops;
             break;
         }
-        /*case XQC_MOQ_TRANSPORT_WEBTRANSPORT: {
-            //TODO: WEBTRANSPORT
+        case XQC_MOQ_TRANSPORT_WEBTRANSPORT: {
             stream->trans_ops = xqc_moq_wt_stream_ops;
             break;
-        }*/
+        }
         default: {
             xqc_log(session->log, XQC_LOG_ERROR, "|transport_type error|");
             goto error;
@@ -44,19 +43,24 @@ xqc_moq_stream_destroy(xqc_moq_stream_t *stream)
     
     if (stream == stream->session->ctl_stream) {
         stream->session->ctl_stream = NULL;
-        /* The control stream MUST NOT be abruptly closed at the underlying transport layer.
-         * Doing so results in the session being closed as a 'Protocol Violation'. */
-        if (quic_stream->stream_conn->conn_state <= XQC_CONN_STATE_ESTABED) {
-            xqc_log(session->log, XQC_LOG_ERROR, "|control stream closed|");
-            xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION, "control stream closed");
+        /* The control stream MUST NOT be abruptly closed at the underlying
+         * transport layer.  Doing so results in the session being closed
+         * as a 'Protocol Violation'. */
+        if (!session->closing) {
+            xqc_log(session->log, XQC_LOG_ERROR,
+                    "|control stream closed|");
+            xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                                  "control stream closed");
         }
     }
-    
+
     if (stream == session->datachannel.ordered_stream) {
         session->datachannel.ordered_stream = NULL;
-        if (quic_stream->stream_conn->conn_state <= XQC_CONN_STATE_ESTABED) {
-            xqc_log(session->log, XQC_LOG_ERROR, "|datachannel stream closed|");
-            xqc_moq_session_error(session, MOQ_INTERNAL_ERROR, "datachannel stream closed");
+        if (!session->closing) {
+            xqc_log(session->log, XQC_LOG_ERROR,
+                    "|datachannel stream closed|");
+            xqc_moq_session_error(session, MOQ_INTERNAL_ERROR,
+                                  "datachannel stream closed");
         }
     }
     
@@ -64,7 +68,10 @@ xqc_moq_stream_destroy(xqc_moq_stream_t *stream)
         && stream->track && stream->track->track_info.track_type == XQC_MOQ_TRACK_VIDEO)
     {
         xqc_usec_t latest_delay = quic_stream->stream_stats.all_data_acked_time - quic_stream->stream_stats.create_time;
-        xqc_moq_bitrate_alloc_on_frame_acked(session, latest_delay, quic_stream->stream_stats.create_time, now, 
+        xqc_moq_track_t *track = stream->track;
+        xqc_moq_track_info_t *track_info = track ? &track->track_info : NULL;
+        xqc_moq_bitrate_alloc_on_frame_acked(session, track, track_info, latest_delay, 
+                                             quic_stream->stream_stats.create_time, now, 
                                              quic_stream->stream_send_offset, stream->seq_num);
     }
 

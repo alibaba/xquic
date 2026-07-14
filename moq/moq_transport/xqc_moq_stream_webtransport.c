@@ -9,6 +9,7 @@
 #include "src/transport/xqc_stream.h"
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_timer.h"
+#include "src/http3/xqc_h3_stream.h"
 #include "src/webtransport/xqc_webtransport_stream.h"
 #include "moq/moq_transport/xqc_moq_stream_webtransport.h"
 #include "moq/moq_transport/xqc_moq_session.h"
@@ -33,6 +34,73 @@ typedef struct xqc_moq_wt_stream_wrapper_s {
     xqc_moq_stream_t       *moq_stream;   /* back-pointer for timer cb */
     xqc_gp_timer_id_t       retry_timer_id;
 } xqc_moq_wt_stream_wrapper_t;
+
+
+/*
+ * WT bidi streams and incoming (RECV) uni streams carry a per-stream
+ * xqc_h3_stream_t that owns the underlying QUIC stream's user_data slot.
+ * For those, the H3 layer stores its h3_stream pointer in
+ * stream->user_data, so MOQ may NOT reuse that slot — doing so clobbers
+ * the h3_stream and corrupts H3 routing.  Instead, store the moq_stream
+ * back-pointer in the h3_stream's own user_data field (unused by the
+ * H3 bytestream path, only touched by the request path).
+ *
+ * Outgoing (SEND) uni streams have NO per-stream h3_stream, so the QUIC
+ * stream's user_data slot is free and is used directly.
+ */
+static void
+xqc_moq_wt_set_bidi_moq(xqc_wt_bidistream_t *bidi, xqc_moq_stream_t *moq_stream)
+{
+    if (bidi && bidi->h3_stream) {
+        bidi->h3_stream->user_data = moq_stream;
+    }
+}
+
+static xqc_moq_stream_t *
+xqc_moq_wt_get_bidi_moq(xqc_wt_bidistream_t *bidi)
+{
+    if (bidi && bidi->h3_stream) {
+        return (xqc_moq_stream_t *)bidi->h3_stream->user_data;
+    }
+    return NULL;
+}
+
+static void
+xqc_moq_wt_set_uni_moq(xqc_wt_unistream_t *uni, xqc_moq_stream_t *moq_stream)
+{
+    if (uni == NULL) {
+        return;
+    }
+    if (uni->type == XQC_WT_STREAM_TYPE_RECV) {
+        /* incoming RECV uni: per-stream h3_stream owns quic user_data */
+        if (uni->h3_stream) {
+            uni->h3_stream->user_data = moq_stream;
+        }
+    } else {
+        /* outgoing SEND uni: no per-stream h3_stream, quic slot is free */
+        if (uni->stream.send_stream && uni->stream.send_stream->stream) {
+            uni->stream.send_stream->stream->user_data = moq_stream;
+        }
+    }
+}
+
+static xqc_moq_stream_t *
+xqc_moq_wt_get_uni_moq(xqc_wt_unistream_t *uni)
+{
+    if (uni == NULL) {
+        return NULL;
+    }
+    if (uni->type == XQC_WT_STREAM_TYPE_RECV) {
+        if (uni->h3_stream) {
+            return (xqc_moq_stream_t *)uni->h3_stream->user_data;
+        }
+    } else {
+        if (uni->stream.send_stream && uni->stream.send_stream->stream) {
+            return (xqc_moq_stream_t *)uni->stream.send_stream->stream->user_data;
+        }
+    }
+    return NULL;
+}
 
 
 /* ---- forward declarations ---- */
@@ -162,11 +230,19 @@ xqc_moq_wt_stream_create(void *conn, xqc_stream_direction_t dir,
         }
     }
 
-    /* set moq_stream as user_data on the underlying QUIC stream,
-     * mirroring what xqc_stream_create_with_direction does for QUIC */
-    xqc_stream_t *quic_stream = xqc_moq_wt_quic_stream(wrapper);
-    if (quic_stream) {
-        xqc_stream_set_user_data(quic_stream, moq_stream);
+    /*
+     * Record the moq_stream back-pointer so WT read/close callbacks can
+     * recover it.  Bidi streams carry a per-stream h3_stream that owns
+     * the QUIC stream's user_data slot, so the back-pointer is stored in
+     * the h3_stream's user_data (NOT the QUIC stream's — that would
+     * clobber the h3_stream pointer and corrupt H3 routing).  Outgoing
+     * SEND uni streams have no per-stream h3_stream, so the QUIC slot is
+     * used directly.  See xqc_moq_wt_set_*_moq() for the per-type rule.
+     */
+    if (dir == XQC_STREAM_BIDI) {
+        xqc_moq_wt_set_bidi_moq(wrapper->wt.bidi, moq_stream);
+    } else {
+        xqc_moq_wt_set_uni_moq(wrapper->wt.uni, moq_stream);
     }
 
     return wrapper;
@@ -317,11 +393,9 @@ xqc_moq_wt_bidi_create_notify(xqc_wt_bidistream_t *stream,
     wrapper->retry_timer_id = -1;
     moq_stream->trans_stream = wrapper;
 
-    /* set user_data on the underlying QUIC stream for cross-referencing */
-    xqc_stream_t *quic_stream = xqc_moq_wt_quic_stream(wrapper);
-    if (quic_stream) {
-        xqc_stream_set_user_data(quic_stream, moq_stream);
-    }
+    /* bidi h3_stream owns the QUIC stream's user_data slot; store the
+     * moq_stream back-pointer in the h3_stream's user_data instead */
+    xqc_moq_wt_set_bidi_moq(stream, moq_stream);
 
     /* first client-initiated bidi stream is the control stream */
     if (moq_session->ctl_stream == NULL) {
@@ -341,16 +415,8 @@ xqc_moq_wt_bidi_read_notify(xqc_wt_bidistream_t *stream,
         return -XQC_ENULLPTR;
     }
 
-    /* find the moq_stream via underlying QUIC stream user_data */
-    xqc_wt_bidistream_t *bidi = stream;
-    xqc_stream_t *quic_stream = bidi->send_stream
-        ? bidi->send_stream->stream : NULL;
-    if (quic_stream == NULL) {
-        return -XQC_ENULLPTR;
-    }
-
-    xqc_moq_stream_t *moq_stream =
-        (xqc_moq_stream_t *)quic_stream->user_data;
+    /* recover moq_stream from the bidi h3_stream's user_data back-pointer */
+    xqc_moq_stream_t *moq_stream = xqc_moq_wt_get_bidi_moq(stream);
     if (moq_stream == NULL) {
         return -XQC_ENULLPTR;
     }
@@ -363,15 +429,7 @@ static xqc_int_t
 xqc_moq_wt_bidi_close_notify(xqc_wt_bidistream_t *stream,
     xqc_wt_session_t *session, void *user_data)
 {
-    xqc_wt_bidistream_t *bidi = stream;
-    xqc_stream_t *quic_stream = bidi->send_stream
-        ? bidi->send_stream->stream : NULL;
-    if (quic_stream == NULL) {
-        return XQC_OK;
-    }
-
-    xqc_moq_stream_t *moq_stream =
-        (xqc_moq_stream_t *)quic_stream->user_data;
+    xqc_moq_stream_t *moq_stream = xqc_moq_wt_get_bidi_moq(stream);
     if (moq_stream == NULL) {
         return XQC_OK;
     }
@@ -406,11 +464,9 @@ xqc_moq_wt_uni_create_notify(xqc_wt_unistream_t *stream,
     wrapper->retry_timer_id = -1;
     moq_stream->trans_stream = wrapper;
 
-    /* for recv-type unistreams, underlying stream is accessed via conn */
-    xqc_stream_t *quic_stream = xqc_moq_wt_quic_stream(wrapper);
-    if (quic_stream) {
-        xqc_stream_set_user_data(quic_stream, moq_stream);
-    }
+    /* store moq_stream back-pointer per the uni type rule
+     * (RECV: h3_stream user_data; SEND: quic stream user_data) */
+    xqc_moq_wt_set_uni_moq(stream, moq_stream);
 
     return XQC_OK;
 }
@@ -425,29 +481,8 @@ xqc_moq_wt_uni_read_notify(xqc_wt_unistream_t *stream,
         return -XQC_ENULLPTR;
     }
 
-    /*
-     * For recv-type unistreams the send_stream field is NULL;
-     * look up moq_stream via the wrapper stored in create_notify.
-     * The user_data parameter from WT callbacks is strm_user_data
-     * which we did not set — use conn user_data path instead.
-     */
-    xqc_stream_t *quic_stream = NULL;
-    if (stream->type == XQC_WT_STREAM_TYPE_SEND
-        && stream->stream.send_stream)
-    {
-        quic_stream = stream->stream.send_stream->stream;
-    } else if (stream->type == XQC_WT_STREAM_TYPE_RECV
-               && stream->stream.recv_stream)
-    {
-        quic_stream = stream->stream.recv_stream->stream;
-    }
-
-    if (quic_stream == NULL) {
-        return -XQC_ENULLPTR;
-    }
-
-    xqc_moq_stream_t *moq_stream =
-        (xqc_moq_stream_t *)quic_stream->user_data;
+    /* recover moq_stream via the per-type back-pointer */
+    xqc_moq_stream_t *moq_stream = xqc_moq_wt_get_uni_moq(stream);
     if (moq_stream == NULL) {
         return -XQC_ENULLPTR;
     }
@@ -459,23 +494,7 @@ static xqc_int_t
 xqc_moq_wt_uni_close_notify(xqc_wt_unistream_t *stream,
     xqc_wt_session_t *session, void *user_data)
 {
-    xqc_stream_t *quic_stream = NULL;
-    if (stream->type == XQC_WT_STREAM_TYPE_SEND
-        && stream->stream.send_stream)
-    {
-        quic_stream = stream->stream.send_stream->stream;
-    } else if (stream->type == XQC_WT_STREAM_TYPE_RECV
-               && stream->stream.recv_stream)
-    {
-        quic_stream = stream->stream.recv_stream->stream;
-    }
-
-    if (quic_stream == NULL) {
-        return XQC_OK;
-    }
-
-    xqc_moq_stream_t *moq_stream =
-        (xqc_moq_stream_t *)quic_stream->user_data;
+    xqc_moq_stream_t *moq_stream = xqc_moq_wt_get_uni_moq(stream);
     if (moq_stream == NULL) {
         return XQC_OK;
     }

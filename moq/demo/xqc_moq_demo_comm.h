@@ -59,6 +59,7 @@ typedef struct user_conn_s {
 
     //For Moq
     struct event        *ev_send_timer;
+    struct event        *ev_wt_open;
     xqc_moq_track_t     *audio_track;
     xqc_moq_track_t     *video_track;
     xqc_moq_session_t   *moq_session;

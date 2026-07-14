@@ -26,6 +26,15 @@ function install_go() {
 }
 
 function build_babassl() {
+    # prefer yum-installed babassl if present
+    if [ -f "/usr/local/babassl/lib/libssl.a" ]; then
+        SSL_PATH_STR="/usr/local/babassl"
+        return 0
+    fi
+    if [ -f "/opt/taobao/install/babassl/lib/libssl.a" ]; then
+        SSL_PATH_STR="/opt/taobao/install/babassl"
+        return 0
+    fi
     git clone https://github.com/Tongsuo-Project/Tongsuo.git ../third_party/babassl
     cd ../third_party/babassl/
     ./config --prefix=/usr/local/babassl --api=1.1.1 no-deprecated
@@ -39,17 +48,34 @@ function build_boringssl() {
     mkdir -p ../third_party/boringssl/build
     cd ../third_party/boringssl/build
     cmake -DBUILD_SHARED_LIBS=0 -DCMAKE_C_FLAGS="-fPIC" -DCMAKE_CXX_FLAGS="-fPIC" ..
+    if [ $? -ne 0 ]; then
+        echo "boringssl cmake failed (cmake version too old?), skipping"
+        cd ../../../build/
+        return 1
+    fi
     make ssl crypto
+    if [ $? -ne 0 ]; then
+        echo "boringssl build failed, skipping"
+        cd ../../../build/
+        return 1
+    fi
     cd ..
     SSL_PATH_STR="${PWD}"
     cd ../../build/
+    return 0
 }
 
 function do_compile() {
     rm -f CMakeCache.txt
     if [[ $1 == "boringssl" ]]; then
         build_boringssl
-        SSL_TYPE_STR="boringssl"
+        if [ $? -ne 0 ]; then
+            echo "boringssl unavailable, falling back to babassl"
+            build_babassl
+            SSL_TYPE_STR="babassl"
+        else
+            SSL_TYPE_STR="boringssl"
+        fi
 
     else
         build_babassl
@@ -57,7 +83,7 @@ function do_compile() {
     fi
 
     #turn on Code Coverage
-    cmake -DGCOV=on -DCMAKE_BUILD_TYPE=Debug -DXQC_ENABLE_TESTING=1 -DXQC_PRINT_SECRET=1 -DXQC_SUPPORT_SENDMMSG_BUILD=1 -DXQC_ENABLE_EVENT_LOG=1 -DXQC_ENABLE_BBR2=1 -DXQC_ENABLE_RENO=1 -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} -DXQC_ENABLE_UNLIMITED=1 -DXQC_ENABLE_COPA=1 -DXQC_COMPAT_DUPLICATE=1 ..
+    cmake -DGCOV=on -DCMAKE_BUILD_TYPE=Debug -DXQC_ENABLE_TESTING=1 -DXQC_ENABLE_MOQ=1 -DXQC_PRINT_SECRET=1 -DXQC_SUPPORT_SENDMMSG_BUILD=1 -DXQC_ENABLE_EVENT_LOG=1 -DXQC_ENABLE_BBR2=1 -DXQC_ENABLE_RENO=1 -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} -DXQC_ENABLE_UNLIMITED=1 -DXQC_ENABLE_COPA=1 -DXQC_COMPAT_DUPLICATE=1 ..
     make -j
 
     if [ $? -ne 0 ]; then

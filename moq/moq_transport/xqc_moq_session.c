@@ -116,6 +116,7 @@ xqc_moq_session_create(void *conn, xqc_moq_user_session_t *user_session, xqc_moq
     xqc_init_list_head(&session->peer_subscribe_list);
     xqc_init_list_head(&session->track_list_for_pub);
     xqc_init_list_head(&session->track_list_for_sub);
+    xqc_init_list_head(&session->wt_stream_list);
 
     if (session->engine->eng_type == XQC_ENGINE_CLIENT) {
         xqc_moq_stream_t *stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_BIDI);

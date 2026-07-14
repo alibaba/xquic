@@ -9,7 +9,6 @@
 #include "src/transport/xqc_stream.h"
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_timer.h"
-#include "src/http3/xqc_h3_stream.h"
 #include "src/webtransport/xqc_webtransport_stream.h"
 #include "moq/moq_transport/xqc_moq_stream_webtransport.h"
 #include "moq/moq_transport/xqc_moq_session.h"
@@ -22,8 +21,9 @@
 
 /*
  * Wrapper around WT stream objects.  Holds the WT handle, stream direction
- * flag, and a retry timer for write-blocked conditions (WT has no
- * stream_write_notify callback like raw QUIC does).
+ * flag, a retry timer for write-blocked conditions (WT has no
+ * stream_write_notify callback like raw QUIC does), and a list node linking
+ * it into the session's WT stream registry.
  */
 typedef struct xqc_moq_wt_stream_wrapper_s {
     xqc_stream_direction_t  dir;
@@ -33,73 +33,76 @@ typedef struct xqc_moq_wt_stream_wrapper_s {
     } wt;
     xqc_moq_stream_t       *moq_stream;   /* back-pointer for timer cb */
     xqc_gp_timer_id_t       retry_timer_id;
+    xqc_list_head_t         list_member;   /* session->wt_stream_list */
 } xqc_moq_wt_stream_wrapper_t;
 
 
 /*
- * WT bidi streams and incoming (RECV) uni streams carry a per-stream
- * xqc_h3_stream_t that owns the underlying QUIC stream's user_data slot.
- * For those, the H3 layer stores its h3_stream pointer in
- * stream->user_data, so MOQ may NOT reuse that slot — doing so clobbers
- * the h3_stream and corrupts H3 routing.  Instead, store the moq_stream
- * back-pointer in the h3_stream's own user_data field (unused by the
- * H3 bytestream path, only touched by the request path).
+ * WT stream -> moq_stream mapping.
  *
- * Outgoing (SEND) uni streams have NO per-stream h3_stream, so the QUIC
- * stream's user_data slot is free and is used directly.
+ * The xquic WebTransport API exposes no per-stream application user_data
+ * (unlike the raw QUIC stream API's xqc_stream_set_user_data).  WT bidi
+ * streams and incoming RECV uni streams also carry a per-stream
+ * xqc_h3_stream_t that owns the underlying QUIC stream's user_data slot, so
+ * that slot cannot be reused.  Following Tengine's ngx_http_webtransport
+ * module (the reference xquic-WT consumer), MOQ keeps a session-scoped
+ * registry of WT stream wrappers and looks up the moq_stream by scanning it.
  */
-static void
-xqc_moq_wt_set_bidi_moq(xqc_wt_bidistream_t *bidi, xqc_moq_stream_t *moq_stream)
+static xqc_moq_wt_stream_wrapper_t *
+xqc_moq_wt_find_wrapper_by_bidi(xqc_moq_session_t *session,
+    xqc_wt_bidistream_t *bidi)
 {
-    if (bidi && bidi->h3_stream) {
-        bidi->h3_stream->user_data = moq_stream;
+    xqc_list_head_t *pos, *next;
+    xqc_moq_wt_stream_wrapper_t *wrapper;
+    xqc_list_for_each_safe(pos, next, &session->wt_stream_list) {
+        wrapper = xqc_list_entry(pos, xqc_moq_wt_stream_wrapper_t, list_member);
+        if (wrapper->dir == XQC_STREAM_BIDI && wrapper->wt.bidi == bidi) {
+            return wrapper;
+        }
     }
+    return NULL;
 }
 
-static xqc_moq_stream_t *
-xqc_moq_wt_get_bidi_moq(xqc_wt_bidistream_t *bidi)
+static xqc_moq_wt_stream_wrapper_t *
+xqc_moq_wt_find_wrapper_by_uni(xqc_moq_session_t *session,
+    xqc_wt_unistream_t *uni)
 {
-    if (bidi && bidi->h3_stream) {
-        return (xqc_moq_stream_t *)bidi->h3_stream->user_data;
+    xqc_list_head_t *pos, *next;
+    xqc_moq_wt_stream_wrapper_t *wrapper;
+    xqc_list_for_each_safe(pos, next, &session->wt_stream_list) {
+        wrapper = xqc_list_entry(pos, xqc_moq_wt_stream_wrapper_t, list_member);
+        if (wrapper->dir == XQC_STREAM_UNI && wrapper->wt.uni == uni) {
+            return wrapper;
+        }
     }
     return NULL;
 }
 
-static void
-xqc_moq_wt_set_uni_moq(xqc_wt_unistream_t *uni, xqc_moq_stream_t *moq_stream)
+static xqc_moq_stream_t *
+xqc_moq_wt_find_moq_by_bidi(xqc_moq_session_t *session,
+    xqc_wt_bidistream_t *bidi)
 {
-    if (uni == NULL) {
-        return;
-    }
-    if (uni->type == XQC_WT_STREAM_TYPE_RECV) {
-        /* incoming RECV uni: per-stream h3_stream owns quic user_data */
-        if (uni->h3_stream) {
-            uni->h3_stream->user_data = moq_stream;
-        }
-    } else {
-        /* outgoing SEND uni: no per-stream h3_stream, quic slot is free */
-        if (uni->stream.send_stream && uni->stream.send_stream->stream) {
-            uni->stream.send_stream->stream->user_data = moq_stream;
-        }
-    }
+    xqc_moq_wt_stream_wrapper_t *wrapper =
+        xqc_moq_wt_find_wrapper_by_bidi(session, bidi);
+    return wrapper ? wrapper->moq_stream : NULL;
 }
 
 static xqc_moq_stream_t *
-xqc_moq_wt_get_uni_moq(xqc_wt_unistream_t *uni)
+xqc_moq_wt_find_moq_by_uni(xqc_moq_session_t *session,
+    xqc_wt_unistream_t *uni)
 {
-    if (uni == NULL) {
-        return NULL;
-    }
-    if (uni->type == XQC_WT_STREAM_TYPE_RECV) {
-        if (uni->h3_stream) {
-            return (xqc_moq_stream_t *)uni->h3_stream->user_data;
-        }
-    } else {
-        if (uni->stream.send_stream && uni->stream.send_stream->stream) {
-            return (xqc_moq_stream_t *)uni->stream.send_stream->stream->user_data;
-        }
-    }
-    return NULL;
+    xqc_moq_wt_stream_wrapper_t *wrapper =
+        xqc_moq_wt_find_wrapper_by_uni(session, uni);
+    return wrapper ? wrapper->moq_stream : NULL;
+}
+
+/* link a wrapper into the session's WT stream registry */
+static void
+xqc_moq_wt_link_wrapper(xqc_moq_session_t *session,
+    xqc_moq_wt_stream_wrapper_t *wrapper)
+{
+    xqc_init_list_head(&wrapper->list_member);
+    xqc_list_add_tail(&wrapper->list_member, &session->wt_stream_list);
 }
 
 
@@ -230,20 +233,9 @@ xqc_moq_wt_stream_create(void *conn, xqc_stream_direction_t dir,
         }
     }
 
-    /*
-     * Record the moq_stream back-pointer so WT read/close callbacks can
-     * recover it.  Bidi streams carry a per-stream h3_stream that owns
-     * the QUIC stream's user_data slot, so the back-pointer is stored in
-     * the h3_stream's user_data (NOT the QUIC stream's — that would
-     * clobber the h3_stream pointer and corrupt H3 routing).  Outgoing
-     * SEND uni streams have no per-stream h3_stream, so the QUIC slot is
-     * used directly.  See xqc_moq_wt_set_*_moq() for the per-type rule.
-     */
-    if (dir == XQC_STREAM_BIDI) {
-        xqc_moq_wt_set_bidi_moq(wrapper->wt.bidi, moq_stream);
-    } else {
-        xqc_moq_wt_set_uni_moq(wrapper->wt.uni, moq_stream);
-    }
+    /* register the wrapper so WT read/close callbacks can recover the
+     * moq_stream from the WT handle (see xqc_moq_wt_find_moq_by_*) */
+    xqc_moq_wt_link_wrapper(moq_stream->session, wrapper);
 
     return wrapper;
 }
@@ -282,7 +274,7 @@ xqc_moq_wt_stream_close(void *stream)
         return XQC_OK;
     }
 
-    /* unregister retry timer to prevent use-after-free */
+    /* unregister retry timer; MOQ won't retry after explicit close */
     if (wrapper->retry_timer_id >= 0 && wrapper->moq_stream) {
         xqc_timer_unregister_gp_timer(
             wrapper->moq_stream->session->timer_manager,
@@ -290,19 +282,20 @@ xqc_moq_wt_stream_close(void *stream)
         wrapper->retry_timer_id = -1;
     }
 
-    /* close underlying QUIC stream first, then free WT wrapper */
+    /*
+     * Only trigger close of the underlying QUIC stream here — the wrapper
+     * and moq_stream are torn down later in wt_*_close_notify, which the WT
+     * module fires when the stream is fully closed. This mirrors the
+     * raw-QUIC path: xqc_moq_stream_close() only calls xqc_stream_close(),
+     * and the moq_stream is freed in stream_close_notify. The WT bidi/uni
+     * struct itself is freed by the WT module after wt_*_close_notify
+     * returns (xqc_wt_bidistream_destroy in wt_bs_close_notify).
+     */
     xqc_stream_t *quic_stream = xqc_moq_wt_quic_stream(stream);
     if (quic_stream) {
         xqc_stream_close(quic_stream);
     }
 
-    if (wrapper->dir == XQC_STREAM_BIDI) {
-        xqc_wt_bidistream_destroy(wrapper->wt.bidi);
-    } else {
-        xqc_wt_unistream_destroy(wrapper->wt.uni);
-    }
-
-    xqc_free(wrapper);
     return XQC_OK;
 }
 
@@ -370,6 +363,7 @@ static xqc_int_t
 xqc_moq_wt_bidi_create_notify(xqc_wt_bidistream_t *stream,
     xqc_wt_session_t *session, void *user_data)
 {
+    fprintf(stderr, "[WTTRACE] bidi_create_notify\n");
     xqc_moq_session_t *moq_session = xqc_moq_wt_get_session(session);
     if (moq_session == NULL) {
         return -XQC_ENULLPTR;
@@ -393,9 +387,8 @@ xqc_moq_wt_bidi_create_notify(xqc_wt_bidistream_t *stream,
     wrapper->retry_timer_id = -1;
     moq_stream->trans_stream = wrapper;
 
-    /* bidi h3_stream owns the QUIC stream's user_data slot; store the
-     * moq_stream back-pointer in the h3_stream's user_data instead */
-    xqc_moq_wt_set_bidi_moq(stream, moq_stream);
+    /* register the wrapper in the session's WT stream registry */
+    xqc_moq_wt_link_wrapper(moq_session, wrapper);
 
     /* first client-initiated bidi stream is the control stream */
     if (moq_session->ctl_stream == NULL) {
@@ -415,8 +408,9 @@ xqc_moq_wt_bidi_read_notify(xqc_wt_bidistream_t *stream,
         return -XQC_ENULLPTR;
     }
 
-    /* recover moq_stream from the bidi h3_stream's user_data back-pointer */
-    xqc_moq_stream_t *moq_stream = xqc_moq_wt_get_bidi_moq(stream);
+    /* recover moq_stream from the session's WT stream registry */
+    xqc_moq_stream_t *moq_stream =
+        xqc_moq_wt_find_moq_by_bidi(moq_session, stream);
     if (moq_stream == NULL) {
         return -XQC_ENULLPTR;
     }
@@ -429,12 +423,36 @@ static xqc_int_t
 xqc_moq_wt_bidi_close_notify(xqc_wt_bidistream_t *stream,
     xqc_wt_session_t *session, void *user_data)
 {
-    xqc_moq_stream_t *moq_stream = xqc_moq_wt_get_bidi_moq(stream);
-    if (moq_stream == NULL) {
+    xqc_moq_session_t *moq_session = xqc_moq_wt_get_session(session);
+    if (moq_session == NULL) {
         return XQC_OK;
     }
 
+    xqc_moq_wt_stream_wrapper_t *wrapper =
+        xqc_moq_wt_find_wrapper_by_bidi(moq_session, stream);
+    if (wrapper == NULL) {
+        return XQC_OK;
+    }
+
+    /* unregister retry timer before tearing down */
+    if (wrapper->retry_timer_id >= 0) {
+        xqc_timer_unregister_gp_timer(moq_session->timer_manager,
+            wrapper->retry_timer_id);
+        wrapper->retry_timer_id = -1;
+    }
+
+    xqc_moq_stream_t *moq_stream = wrapper->moq_stream;
+    /*
+     * xqc_moq_stream_destroy reads trans_stream (this wrapper) to recover
+     * the underlying quic_stream; the WT bidi is still valid here because
+     * the WT module frees it only AFTER this callback returns.
+     */
     xqc_moq_stream_destroy(moq_stream);
+
+    /* unlink our wrapper and free it; the WT bidi itself is freed by the
+     * WT module after this callback (xqc_wt_bidistream_destroy). */
+    xqc_list_del_init(&wrapper->list_member);
+    xqc_free(wrapper);
     return XQC_OK;
 }
 
@@ -464,9 +482,8 @@ xqc_moq_wt_uni_create_notify(xqc_wt_unistream_t *stream,
     wrapper->retry_timer_id = -1;
     moq_stream->trans_stream = wrapper;
 
-    /* store moq_stream back-pointer per the uni type rule
-     * (RECV: h3_stream user_data; SEND: quic stream user_data) */
-    xqc_moq_wt_set_uni_moq(stream, moq_stream);
+    /* register the wrapper in the session's WT stream registry */
+    xqc_moq_wt_link_wrapper(moq_session, wrapper);
 
     return XQC_OK;
 }
@@ -481,8 +498,9 @@ xqc_moq_wt_uni_read_notify(xqc_wt_unistream_t *stream,
         return -XQC_ENULLPTR;
     }
 
-    /* recover moq_stream via the per-type back-pointer */
-    xqc_moq_stream_t *moq_stream = xqc_moq_wt_get_uni_moq(stream);
+    /* recover moq_stream from the session's WT stream registry */
+    xqc_moq_stream_t *moq_stream =
+        xqc_moq_wt_find_moq_by_uni(moq_session, stream);
     if (moq_stream == NULL) {
         return -XQC_ENULLPTR;
     }
@@ -494,11 +512,33 @@ static xqc_int_t
 xqc_moq_wt_uni_close_notify(xqc_wt_unistream_t *stream,
     xqc_wt_session_t *session, void *user_data)
 {
-    xqc_moq_stream_t *moq_stream = xqc_moq_wt_get_uni_moq(stream);
-    if (moq_stream == NULL) {
+    xqc_moq_session_t *moq_session = xqc_moq_wt_get_session(session);
+    if (moq_session == NULL) {
         return XQC_OK;
     }
 
+    xqc_moq_wt_stream_wrapper_t *wrapper =
+        xqc_moq_wt_find_wrapper_by_uni(moq_session, stream);
+    if (wrapper == NULL) {
+        return XQC_OK;
+    }
+
+    /* unregister retry timer before tearing down */
+    if (wrapper->retry_timer_id >= 0) {
+        xqc_timer_unregister_gp_timer(moq_session->timer_manager,
+            wrapper->retry_timer_id);
+        wrapper->retry_timer_id = -1;
+    }
+
+    xqc_moq_stream_t *moq_stream = wrapper->moq_stream;
+    /* xqc_moq_stream_destroy reads trans_stream (this wrapper); the WT uni
+     * is still valid here — the WT module frees it only AFTER this callback
+     * returns (xqc_wt_unistream_destroy in wt_bs_close_notify). */
     xqc_moq_stream_destroy(moq_stream);
+
+    /* unlink our wrapper and free it; the WT uni itself is freed by the
+     * WT module after this callback. */
+    xqc_list_del_init(&wrapper->list_member);
+    xqc_free(wrapper);
     return XQC_OK;
 }

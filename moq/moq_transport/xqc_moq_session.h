@@ -39,6 +39,7 @@ typedef struct xqc_moq_session_s {
     xqc_list_head_t                 peer_subscribe_list;
     xqc_list_head_t                 track_list_for_pub;
     xqc_list_head_t                 track_list_for_sub;
+    xqc_list_head_t                 wt_stream_list; /* WT stream wrappers (WT path only) */
     uint64_t                        subscribe_id_allocator;
     uint64_t                        track_alias_allocator;
     xqc_moq_bitrate_allocator_t     bitrate_allocator;

@@ -13,7 +13,7 @@
  * will_create_session callback for MOQ-over-WT:
  * Accept the session only if the :path matches XQC_MOQ_WT_PATH.
  */
-static int
+int
 xqc_moq_wt_will_create_session(xqc_http_headers_t *headers,
     xqc_http_headers_t *response)
 {
@@ -188,6 +188,13 @@ xqc_moq_session_destroy(xqc_moq_session_t *session)
         xqc_list_del(pos);
         xqc_moq_track_destroy(track);
     }
+
+    /* clean up leftover WT stream wrappers — uni streams do not receive
+     * close_notify on connection teardown (WT module gap) */
+    if (session->transport_type == XQC_MOQ_TRANSPORT_WEBTRANSPORT) {
+        xqc_moq_wt_cleanup_stream_list(session);
+    }
+
     xqc_free(session);
 }
 

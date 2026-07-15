@@ -581,27 +581,6 @@ xqc_server_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, vo
 }
 
 int
-xqc_server_wt_will_create_session(xqc_http_headers_t *headers, xqc_http_headers_t *response)
-{
-    DEBUG;
-    size_t i;
-    if (headers == NULL) {
-        return 0;
-    }
-    for (i = 0; i < headers->count; i++) {
-        if (headers->headers[i].name.iov_len == 5
-            && memcmp(headers->headers[i].name.iov_base, ":path", 5) == 0
-            && headers->headers[i].value.iov_len == sizeof(XQC_MOQ_WT_PATH) - 1
-            && memcmp(headers->headers[i].value.iov_base, XQC_MOQ_WT_PATH,
-                      sizeof(XQC_MOQ_WT_PATH) - 1) == 0)
-        {
-            return 1;
-        }
-    }
-    return 0;
-}
-
-int
 xqc_server_wt_session_create_notify(xqc_webtransport_session_t *wt_session,
     xqc_http_headers_t *headers, const xqc_cid_t *cid, void *h3c_user_data)
 {
@@ -633,11 +612,16 @@ xqc_server_wt_session_close_notify(xqc_webtransport_session_t *wt_session,
      * session closing now; the actual xqc_moq_session_destroy is deferred
      * to h3_conn_close_notify, which runs outside any stream-destruction
      * chain — mirroring the raw-QUIC path where the session is destroyed
-     * from conn_close_notify.  The pointer is kept so conn_close_notify
-     * can still find and free it.
+     * from conn_close_notify.
+     *
+     * Sweep the WT stream registry here (Tengine pattern): the WT-layer
+     * bidi/uni objects are still alive at this point — xqc_wt_session_close
+     * frees them only AFTER this callback returns.  Subsequent individual
+     * stream close_notify callbacks will find no wrapper and safely no-op.
      */
     if (user_session->session) {
         user_session->session->closing = XQC_TRUE;
+        xqc_moq_wt_cleanup_stream_list(user_session->session);
     }
     return 0;
 }
@@ -898,7 +882,8 @@ int main(int argc, char *argv[])
         }
 
         xqc_webtransport_session_callbacks_t wt_session_cbs = {
-            .webtransport_will_create_session_notify = xqc_server_wt_will_create_session,
+            .webtransport_will_create_session_notify =
+                xqc_moq_wt_will_create_session,
             .webtransport_session_create_notify = xqc_server_wt_session_create_notify,
             .webtransport_session_close_notify = xqc_server_wt_session_close_notify,
         };

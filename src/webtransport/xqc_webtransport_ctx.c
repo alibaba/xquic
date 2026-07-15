@@ -2472,13 +2472,7 @@ wt_bs_close_notify(xqc_h3_ext_bytestream_t *h3_ext_bs, void *bs_user_data)
                     wt_ctx->stream_cbs.wt_unistream_close_notify(
                         uni, wt_session, xqc_wt_conn_app_user_data(wt_conn));
                 }
-            xqc_wt_stream_buffer_list_release(&uni->pending_recv);
-            if (uni->type == XQC_WT_STREAM_TYPE_SEND && uni->stream.send_stream) {
-                xqc_free(uni->stream.send_stream);
-            } else if (uni->type == XQC_WT_STREAM_TYPE_RECV && uni->stream.recv_stream) {
-                xqc_free(uni->stream.recv_stream);
-            }
-            xqc_free(uni);
+            xqc_wt_unistream_destroy(uni);
         }
     }
     xqc_free(ps);

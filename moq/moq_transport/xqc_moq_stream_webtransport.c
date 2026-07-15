@@ -254,11 +254,17 @@ xqc_moq_wt_quic_stream(void *stream)
             return wrapper->wt.bidi->send_stream->stream;
         }
     } else {
-        if (wrapper->wt.uni
-            && wrapper->wt.uni->type == XQC_WT_STREAM_TYPE_SEND
-            && wrapper->wt.uni->stream.send_stream)
-        {
-            return wrapper->wt.uni->stream.send_stream->stream;
+        if (wrapper->wt.uni) {
+            if (wrapper->wt.uni->type == XQC_WT_STREAM_TYPE_SEND
+                && wrapper->wt.uni->stream.send_stream)
+            {
+                return wrapper->wt.uni->stream.send_stream->stream;
+            }
+            if (wrapper->wt.uni->type == XQC_WT_STREAM_TYPE_RECV
+                && wrapper->wt.uni->stream.recv_stream)
+            {
+                return wrapper->wt.uni->stream.recv_stream->stream;
+            }
         }
     }
 
@@ -363,7 +369,6 @@ static xqc_int_t
 xqc_moq_wt_bidi_create_notify(xqc_wt_bidistream_t *stream,
     xqc_wt_session_t *session, void *user_data)
 {
-    fprintf(stderr, "[WTTRACE] bidi_create_notify\n");
     xqc_moq_session_t *moq_session = xqc_moq_wt_get_session(session);
     if (moq_session == NULL) {
         return -XQC_ENULLPTR;
@@ -541,4 +546,61 @@ xqc_moq_wt_uni_close_notify(xqc_wt_unistream_t *stream,
     xqc_list_del_init(&wrapper->list_member);
     xqc_free(wrapper);
     return XQC_OK;
+}
+
+
+/*
+ * Clean up any WT stream wrappers still on the session's registry.
+ *
+ * On session/connection teardown, per-stream close_notify is not a
+ * reliable place to free these wrappers, for two different reasons:
+ * uni streams (XQC_H3_STREAM_TYPE_WT_UNI) are never dispatched to
+ * wt_bs_close_notify by xqc_h3_stream_destroy at all; bidi streams
+ * (BYTESTEAM type) *are* dispatched, but by the time xqc_conn_destroy
+ * reaches them the session has usually already been unregistered (its
+ * pending_unistreams table freed by xqc_wt_session_close), so
+ * wt_bs_close_notify's pending-stream lookup misses and the callback
+ * no-ops.  Either way, wt_bidistream_close_notify/wt_unistream_close_notify
+ * never fire and our wrappers are left dangling.
+ *
+ * Following Tengine's session_close_cb pattern, the primary call site is
+ * the app's webtransport_session_close_notify callback (see the demos'
+ * wt_session_close_notify), which fires *before* xqc_wt_session_close
+ * frees the WT-layer objects — so the handles below are still valid at
+ * that point.  xqc_moq_session_destroy also calls this as a safety net;
+ * by then the WT bidi/uni handles may already be freed, so we NULL them
+ * out before calling xqc_moq_stream_destroy (which calls quic_stream()
+ * and safely returns NULL).
+ */
+void
+xqc_moq_wt_cleanup_stream_list(xqc_moq_session_t *session)
+{
+    xqc_list_head_t *pos, *next;
+    xqc_moq_wt_stream_wrapper_t *wrapper;
+
+    xqc_list_for_each_safe(pos, next, &session->wt_stream_list) {
+        wrapper = xqc_list_entry(pos, xqc_moq_wt_stream_wrapper_t,
+            list_member);
+
+        if (wrapper->retry_timer_id >= 0) {
+            xqc_timer_unregister_gp_timer(session->timer_manager,
+                wrapper->retry_timer_id);
+            wrapper->retry_timer_id = -1;
+        }
+
+        /* NULL out WT handle — may already be freed by
+         * xqc_wt_session_close; prevents UAF in quic_stream() */
+        if (wrapper->dir == XQC_STREAM_BIDI) {
+            wrapper->wt.bidi = NULL;
+        } else {
+            wrapper->wt.uni = NULL;
+        }
+
+        if (wrapper->moq_stream) {
+            xqc_moq_stream_destroy(wrapper->moq_stream);
+        }
+
+        xqc_list_del_init(&wrapper->list_member);
+        xqc_free(wrapper);
+    }
 }

@@ -687,11 +687,16 @@ xqc_client_wt_session_close_notify(xqc_webtransport_session_t *wt_session,
      * (use-after-free).  Only mark the session closing now; the actual
      * xqc_moq_session_destroy is deferred to h3_conn_close_notify, which
      * runs outside any stream-destruction chain — mirroring the raw-QUIC
-     * path where the session is destroyed from conn_close_notify.  The
-     * pointer is kept so conn_close_notify can still find and free it.
+     * path where the session is destroyed from conn_close_notify.
+     *
+     * Sweep the WT stream registry here (Tengine pattern): the WT-layer
+     * bidi/uni objects are still alive at this point — xqc_wt_session_close
+     * frees them only AFTER this callback returns.  Subsequent individual
+     * stream close_notify callbacks will find no wrapper and safely no-op.
      */
     if (user_session->session) {
         user_session->session->closing = XQC_TRUE;
+        xqc_moq_wt_cleanup_stream_list(user_session->session);
     }
     return 0;
 }

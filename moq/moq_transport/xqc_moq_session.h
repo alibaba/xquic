@@ -5,6 +5,7 @@
 #include "src/common/xqc_log.h"
 #include "src/common/xqc_malloc.h"
 #include "src/transport/xqc_timer.h"
+#include "xquic/xqc_http3.h"
 #include "moq/xqc_moq.h"
 #include "moq/moq_media/xqc_moq_datachannel.h"
 #include "moq/moq_transport/xqc_moq_bitrate_allocator.h"
@@ -39,13 +40,13 @@ typedef struct xqc_moq_session_s {
     xqc_list_head_t                 peer_subscribe_list;
     xqc_list_head_t                 track_list_for_pub;
     xqc_list_head_t                 track_list_for_sub;
-    xqc_list_head_t                 wt_stream_list; /* WT stream wrappers (WT path only) */
+    xqc_list_head_t                 wt_stream_list; /* WT stream wrappers */
     uint64_t                        subscribe_id_allocator;
     uint64_t                        track_alias_allocator;
     xqc_moq_bitrate_allocator_t     bitrate_allocator;
     xqc_int_t                       enable_fec;
     float                           fec_code_rate;
-    xqc_bool_t                      closing; /* session error/close in progress */
+    xqc_bool_t                      closing; /* error/close in progress */
 } xqc_moq_session_t;
 
 typedef enum {
@@ -57,6 +58,9 @@ typedef enum {
     MOQ_PARAMETER_LENGTH_MISMATCH   =   0x5,
     MOQ_GOAWAY_TIMEOUT              =   0x10,
 } xqc_moq_err_code_t;
+
+int xqc_moq_wt_will_create_session(xqc_http_headers_t *headers,
+    xqc_http_headers_t *response);
 
 void xqc_moq_session_on_setup(xqc_moq_session_t *session, char *extdata);
 

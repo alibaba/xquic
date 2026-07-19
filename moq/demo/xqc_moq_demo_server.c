@@ -58,6 +58,7 @@ int g_frame_num = 5;
 xqc_moq_role_t g_role = XQC_MOQ_PUBSUB;
 int g_publish_mode = 0;
 int g_enable_client_setup_v14 = 0;
+int g_enable_draft18 = 0;
 int g_raw_object_mode = 0;
 int g_publish_reply_mode = 0;
 int g_reuse_datachannel_stream = 0;
@@ -1097,8 +1098,15 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
     } else if (g_ns_callback_mode == 6) {
         callbacks.on_subscribe_namespace = on_subscribe_namespace_sibling_done;
     }
-    xqc_moq_session_t *session = xqc_moq_session_create(conn, user_session, XQC_MOQ_TRANSPORT_QUIC,
-        g_role, callbacks, NULL, g_enable_client_setup_v14);
+    xqc_moq_session_t *session;
+    if (g_enable_draft18) {
+        session = xqc_moq_session_create_draft18(conn, user_session,
+            XQC_MOQ_TRANSPORT_QUIC, g_role, callbacks, NULL, NULL);
+    } else {
+        session = xqc_moq_session_create(conn, user_session,
+            XQC_MOQ_TRANSPORT_QUIC, g_role, callbacks, NULL,
+            g_enable_client_setup_v14);
+    }
     if (session == NULL) {
         printf("create session error\n");
         return -1;
@@ -1342,7 +1350,7 @@ int main(int argc, char *argv[])
     int server_port = TEST_PORT;
     xqc_cong_ctrl_callback_t cong_ctrl;
     cong_ctrl = xqc_bbr_cb;
-    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MVGRoeUTCWmK:Z:")) != -1) {
+    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MVIGRoeUTCWmK:Z:")) != -1) {
         switch (ch) {
         /* listen port */
         case 'p':
@@ -1411,6 +1419,10 @@ int main(int argc, char *argv[])
             printf("option draft14 client setup : on\n");
             g_enable_client_setup_v14 = 1;
             break;
+        case 'I':
+            printf("option draft18 interop mode : on\n");
+            g_enable_draft18 = 1;
+            break;
         case 'G':
             printf("option send goaway : on\n");
             g_send_goaway = 1;
@@ -1462,6 +1474,10 @@ int main(int argc, char *argv[])
 
     if (g_enable_catalog < 0) {
         g_enable_catalog = g_enable_client_setup_v14 ? 0 : 1;
+    }
+    if (g_enable_client_setup_v14 && g_enable_draft18) {
+        printf("draft14 and draft18 modes are mutually exclusive\n");
+        return -1;
     }
 
     memset(&ctx, 0, sizeof(ctx));
@@ -1546,7 +1562,12 @@ int main(int argc, char *argv[])
             .conn_close_notify = xqc_server_conn_close_notify,
             .conn_handshake_finished = xqc_server_conn_handshake_finished,
     };
-    xqc_moq_init_alpn(ctx.engine, &conn_cbs, XQC_MOQ_TRANSPORT_QUIC);
+    if (g_enable_draft18) {
+        xqc_moq_init_alpn_draft18(ctx.engine, &conn_cbs,
+                                  XQC_MOQ_TRANSPORT_QUIC);
+    } else {
+        xqc_moq_init_alpn(ctx.engine, &conn_cbs, XQC_MOQ_TRANSPORT_QUIC);
+    }
 
     ctx.listen_fd = xqc_server_create_socket(server_addr, server_port);
     if (ctx.listen_fd < 0) {

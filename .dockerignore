@@ -1,0 +1,5 @@
+.git
+build
+cmake-build-*
+third_party
+reports

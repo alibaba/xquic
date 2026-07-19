@@ -14,6 +14,7 @@ static xqc_moq_msg_func_map_t moq_msg_func_map[] = {
     {XQC_MOQ_MSG_SUBSCRIBE_ERROR,      xqc_moq_msg_create_subscribe_error,  xqc_moq_msg_free_subscribe_error },
     {XQC_MOQ_MSG_PUBLISH_NAMESPACE,    xqc_moq_msg_create_publish_namespace,
                                            xqc_moq_msg_free_publish_namespace },
+    {XQC_MOQ_MSG_REQUEST_OK,           xqc_moq_msg_create_request_ok,       xqc_moq_msg_free_request_ok      },
     {XQC_MOQ_MSG_PUBLISH_NAMESPACE_DONE, xqc_moq_msg_create_publish_namespace_done,
                                            xqc_moq_msg_free_publish_namespace_done },
     {XQC_MOQ_MSG_UNSUBSCRIBE,          xqc_moq_msg_create_unsubscribe,      xqc_moq_msg_free_unsubscribe     },
@@ -135,6 +136,22 @@ const xqc_moq_msg_base_t publish_namespace_base = {
     .encode     = xqc_moq_msg_encode_publish_namespace,
     .decode     = xqc_moq_msg_decode_publish_namespace,
     .on_msg     = xqc_moq_on_publish_namespace,
+};
+
+const xqc_moq_msg_base_t publish_namespace_vi64_base = {
+    .type       = xqc_moq_msg_publish_namespace_type,
+    .encode_len = xqc_moq_msg_encode_publish_namespace_len_vi64,
+    .encode     = xqc_moq_msg_encode_publish_namespace_vi64,
+    .decode     = xqc_moq_msg_decode_publish_namespace,
+    .on_msg     = xqc_moq_on_publish_namespace,
+};
+
+const xqc_moq_msg_base_t request_ok_base = {
+    .type       = xqc_moq_msg_request_ok_type,
+    .encode_len = xqc_moq_msg_encode_request_ok_len,
+    .encode     = xqc_moq_msg_encode_request_ok,
+    .decode     = xqc_moq_msg_decode_request_ok,
+    .on_msg     = xqc_moq_on_request_ok,
 };
 
 const xqc_moq_msg_base_t publish_namespace_done_base = {
@@ -5098,6 +5115,33 @@ xqc_moq_track_namespace_tuple_encode_len(uint64_t track_namespace_num,
     return len;
 }
 
+xqc_int_t
+xqc_moq_track_namespace_tuple_encode_len_vi64(uint64_t track_namespace_num,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple)
+{
+    xqc_int_t len = xqc_vi64_len(track_namespace_num);
+    for (uint64_t i = 0; i < track_namespace_num; i++) {
+        len += xqc_vi64_len(track_namespace_tuple[i].len);
+        len += track_namespace_tuple[i].len;
+    }
+    return len;
+}
+
+uint8_t *
+xqc_moq_track_namespace_tuple_encode_vi64(uint8_t *p, uint64_t track_namespace_num,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple)
+{
+    p = xqc_vi64_write(p, track_namespace_num);
+    for (uint64_t i = 0; i < track_namespace_num; i++) {
+        p = xqc_vi64_write(p, track_namespace_tuple[i].len);
+        if (track_namespace_tuple[i].len > 0 && track_namespace_tuple[i].data != NULL) {
+            xqc_memcpy(p, track_namespace_tuple[i].data, track_namespace_tuple[i].len);
+            p += track_namespace_tuple[i].len;
+        }
+    }
+    return p;
+}
+
 uint8_t *
 xqc_moq_track_namespace_tuple_encode(uint8_t *p, uint64_t track_namespace_num,
     const xqc_moq_track_ns_field_t *track_namespace_tuple)
@@ -5152,6 +5196,60 @@ void
 xqc_moq_msg_publish_namespace_init_handler(xqc_moq_msg_base_t *msg_base)
 {
     *msg_base = publish_namespace_base;
+}
+
+void
+xqc_moq_msg_publish_namespace_vi64_init_handler(xqc_moq_msg_base_t *msg_base)
+{
+    *msg_base = publish_namespace_vi64_base;
+}
+
+xqc_int_t
+xqc_moq_msg_encode_publish_namespace_len_vi64(xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_publish_namespace_msg_t *pub = (xqc_moq_publish_namespace_msg_t *)msg_base;
+    size_t track_namespace_len = 0;
+    if (pub->params_num != 0
+        || xqc_moq_track_namespace_tuple_validate_and_sum(pub->track_namespace_num,
+            pub->track_namespace_tuple, &track_namespace_len) != XQC_OK)
+    {
+        return -XQC_EPARAM;
+    }
+
+    xqc_int_t payload_len = xqc_vi64_len(pub->request_id)
+        + xqc_moq_track_namespace_tuple_encode_len_vi64(pub->track_namespace_num,
+            pub->track_namespace_tuple)
+        + xqc_vi64_len(pub->params_num);
+    if (payload_len > UINT16_MAX) {
+        return -XQC_ELIMIT;
+    }
+    return xqc_vi64_len(XQC_MOQ_MSG_PUBLISH_NAMESPACE)
+        + XQC_MOQ_MSG_LENGTH_FIXED_SIZE + payload_len;
+}
+
+xqc_int_t
+xqc_moq_msg_encode_publish_namespace_vi64(xqc_moq_msg_base_t *msg_base, uint8_t *buf,
+    size_t buf_cap)
+{
+    xqc_moq_publish_namespace_msg_t *pub = (xqc_moq_publish_namespace_msg_t *)msg_base;
+    xqc_int_t length = xqc_moq_msg_encode_publish_namespace_len_vi64(msg_base);
+    if (length < 0) {
+        return length;
+    }
+    if ((size_t)length > buf_cap) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    uint16_t payload_len = (uint16_t)(length
+        - xqc_vi64_len(XQC_MOQ_MSG_PUBLISH_NAMESPACE)
+        - XQC_MOQ_MSG_LENGTH_FIXED_SIZE);
+    uint8_t *p = xqc_vi64_write(buf, XQC_MOQ_MSG_PUBLISH_NAMESPACE);
+    p = xqc_moq_put_varint_length(p, payload_len);
+    p = xqc_vi64_write(p, pub->request_id);
+    p = xqc_moq_track_namespace_tuple_encode_vi64(p, pub->track_namespace_num,
+        pub->track_namespace_tuple);
+    p = xqc_vi64_write(p, pub->params_num);
+    return p - buf;
 }
 
 xqc_int_t
@@ -5360,6 +5458,113 @@ xqc_moq_msg_decode_publish_namespace(uint8_t *buf, size_t buf_len, uint8_t strea
     if (!*finish && msg_ctx->cur_field_idx > 0 && msg_ctx->cur_field_idx < 6) {
         msg_ctx->msg_payload_consumed += (processed - payload_offset);
     }
+    return processed;
+}
+
+void *
+xqc_moq_msg_create_request_ok()
+{
+    xqc_moq_request_ok_msg_t *msg = xqc_calloc(1, sizeof(*msg));
+    if (msg == NULL) {
+        return NULL;
+    }
+    xqc_moq_msg_request_ok_init_handler(&msg->msg_base);
+    return msg;
+}
+
+void
+xqc_moq_msg_free_request_ok(void *msg)
+{
+    xqc_free(msg);
+}
+
+xqc_moq_msg_type_t
+xqc_moq_msg_request_ok_type()
+{
+    return XQC_MOQ_MSG_REQUEST_OK;
+}
+
+void
+xqc_moq_msg_request_ok_init_handler(xqc_moq_msg_base_t *msg_base)
+{
+    *msg_base = request_ok_base;
+}
+
+xqc_int_t
+xqc_moq_msg_encode_request_ok_len(xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_request_ok_msg_t *msg = (xqc_moq_request_ok_msg_t *)msg_base;
+    if (msg->params_num != 0) {
+        return -XQC_EPARAM;
+    }
+    return xqc_vi64_len(XQC_MOQ_MSG_REQUEST_OK)
+        + XQC_MOQ_MSG_LENGTH_FIXED_SIZE + xqc_vi64_len(msg->params_num);
+}
+
+xqc_int_t
+xqc_moq_msg_encode_request_ok(xqc_moq_msg_base_t *msg_base, uint8_t *buf,
+    size_t buf_cap)
+{
+    xqc_moq_request_ok_msg_t *msg = (xqc_moq_request_ok_msg_t *)msg_base;
+    xqc_int_t length = xqc_moq_msg_encode_request_ok_len(msg_base);
+    if (length < 0) {
+        return length;
+    }
+    if ((size_t)length > buf_cap) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    uint8_t *p = xqc_vi64_write(buf, XQC_MOQ_MSG_REQUEST_OK);
+    p = xqc_moq_put_varint_length(p, xqc_vi64_len(msg->params_num));
+    p = xqc_vi64_write(p, msg->params_num);
+    return p - buf;
+}
+
+xqc_int_t
+xqc_moq_msg_decode_request_ok(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base,
+    xqc_int_t *finish, xqc_int_t *wait_more_data)
+{
+    xqc_moq_request_ok_msg_t *msg = (xqc_moq_request_ok_msg_t *)msg_base;
+    xqc_int_t processed = 0;
+    *finish = 0;
+    *wait_more_data = 0;
+
+    if (msg_ctx->cur_field_idx == 0) {
+        uint64_t length = 0;
+        xqc_int_t ret = xqc_moq_length_read(buf, buf + buf_len, &length);
+        if (ret < 0) {
+            if (stream_fin) {
+                return -XQC_EILLEGAL_FRAME;
+            }
+            *wait_more_data = 1;
+            return 0;
+        }
+        if (length == 0) {
+            return -XQC_EILLEGAL_FRAME;
+        }
+        msg_ctx->msg_declared_length = length;
+        msg_ctx->cur_field_idx = 1;
+        processed += ret;
+    }
+
+    xqc_int_t ret = xqc_vi64_read(buf + processed, buf + buf_len, &msg->params_num);
+    if (ret < 0) {
+        if (stream_fin) {
+            return -XQC_EILLEGAL_FRAME;
+        }
+        *wait_more_data = 1;
+        return processed;
+    }
+    processed += ret;
+
+    /* Parameter parsing will be shared with other request messages as they are ported.
+     * PUBLISH_NAMESPACE_OK has no parameters or Track Properties. */
+    if (msg->params_num != 0 || (uint64_t)ret != msg_ctx->msg_declared_length) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    *finish = 1;
     return processed;
 }
 

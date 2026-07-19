@@ -78,6 +78,60 @@ xqc_test_setup_empty_options(void)
 }
 
 static int
+xqc_test_publish_namespace_vi64_encoding(void)
+{
+    static const uint8_t expected[] = {
+        0x06, 0x00, 0x14, 0x00, 0x01, 0x10,
+        'm', 'o', 'q', '-', 't', 'e', 's', 't',
+        '/', 'i', 'n', 't', 'e', 'r', 'o', 'p',
+        0x00,
+    };
+    xqc_moq_track_ns_field_t ns = {
+        .len = sizeof("moq-test/interop") - 1,
+        .data = (unsigned char *)"moq-test/interop",
+    };
+    xqc_moq_publish_namespace_msg_t msg = {0};
+    uint8_t buf[64] = {0};
+
+    xqc_moq_msg_publish_namespace_vi64_init_handler(&msg.msg_base);
+    msg.request_id = 0;
+    msg.track_namespace_num = 1;
+    msg.track_namespace_tuple = &ns;
+
+    xqc_int_t len = xqc_moq_msg_encode_publish_namespace_len_vi64(&msg.msg_base);
+    XQC_TEST_ASSERT(len == sizeof(expected));
+    XQC_TEST_ASSERT(xqc_moq_msg_encode_publish_namespace_vi64(
+        &msg.msg_base, buf, sizeof(buf)) == len);
+    XQC_TEST_ASSERT(memcmp(buf, expected, sizeof(expected)) == 0);
+    return 0;
+}
+
+static int
+xqc_test_request_ok_vi64_decoding(void)
+{
+    static const uint8_t encoded[] = {0x07, 0x00, 0x01, 0x00};
+    xqc_moq_request_ok_msg_t msg = {0};
+    xqc_moq_decode_msg_ctx_t msg_ctx = {0};
+    xqc_moq_msg_type_t type = 0;
+    xqc_int_t finish = 0;
+    xqc_int_t wait_more_data = 0;
+
+    xqc_int_t type_len = xqc_moq_msg_decode_type_vi64((uint8_t *)encoded,
+        sizeof(encoded), &type, &wait_more_data);
+    XQC_TEST_ASSERT(type_len == 1);
+    XQC_TEST_ASSERT(type == XQC_MOQ_MSG_REQUEST_OK);
+
+    xqc_moq_msg_request_ok_init_handler(&msg.msg_base);
+    XQC_TEST_ASSERT(xqc_moq_msg_decode_request_ok((uint8_t *)encoded + type_len,
+        sizeof(encoded) - type_len, 0, &msg_ctx, &msg.msg_base,
+        &finish, &wait_more_data) == sizeof(encoded) - type_len);
+    XQC_TEST_ASSERT(finish == 1);
+    XQC_TEST_ASSERT(wait_more_data == 0);
+    XQC_TEST_ASSERT(msg.params_num == 0);
+    return 0;
+}
+
+static int
 xqc_test_advertised_namespace_registry_lifecycle(void)
 {
     xqc_moq_session_t session;
@@ -442,6 +496,14 @@ main(void)
     }
 
     if (xqc_test_setup_empty_options() != 0) {
+        return EXIT_FAILURE;
+    }
+
+    if (xqc_test_publish_namespace_vi64_encoding() != 0) {
+        return EXIT_FAILURE;
+    }
+
+    if (xqc_test_request_ok_vi64_decoding() != 0) {
         return EXIT_FAILURE;
     }
 

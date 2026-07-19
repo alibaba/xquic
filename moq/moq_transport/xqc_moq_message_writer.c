@@ -625,6 +625,25 @@ xqc_moq_write_publish_namespace(xqc_moq_session_t *session,
         publish_namespace->request_id = xqc_moq_session_alloc_request_id(session);
     }
 
+    if (session->use_unified_setup) {
+        xqc_moq_stream_t *request_stream =
+            xqc_moq_stream_create_with_transport(session, XQC_STREAM_BIDI);
+        if (request_stream == NULL) {
+            return -XQC_EMALLOC;
+        }
+        request_stream->local_request = 1;
+        request_stream->request_type = XQC_MOQ_MSG_PUBLISH_NAMESPACE;
+        request_stream->request_id = publish_namespace->request_id;
+
+        ret = xqc_moq_write_msg_generic(session, request_stream,
+            &publish_namespace->msg_base,
+            xqc_moq_msg_publish_namespace_vi64_init_handler);
+        if (ret < 0) {
+            xqc_moq_stream_close(request_stream);
+        }
+        return ret;
+    }
+
     return xqc_moq_write_msg_generic(session, session->ctl_stream, &publish_namespace->msg_base,
                                      xqc_moq_msg_publish_namespace_init_handler);
 }
@@ -683,6 +702,10 @@ xqc_moq_publish_namespace(xqc_moq_session_t *session,
         NULL, 0);
     if (ret != XQC_OK) {
         return ret;
+    }
+
+    if (session->use_unified_setup) {
+        return xqc_moq_write_publish_namespace(session, publish_namespace);
     }
 
     xqc_moq_namespace_advertisement_t *leaf =

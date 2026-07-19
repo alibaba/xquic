@@ -616,6 +616,41 @@ xqc_moq_on_publish_namespace(xqc_moq_session_t *session, xqc_moq_stream_t *moq_s
 }
 
 void
+xqc_moq_on_request_ok(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream,
+    xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_request_ok_msg_t *msg = (xqc_moq_request_ok_msg_t *)msg_base;
+    if (session == NULL || moq_stream == NULL || msg == NULL) {
+        return;
+    }
+
+    if (!moq_stream->local_request || moq_stream->response_received) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|request_ok on invalid request stream|local:%d|received:%d|",
+                moq_stream->local_request, moq_stream->response_received);
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                              "REQUEST_OK on invalid request stream");
+        return;
+    }
+    if (moq_stream->request_type == XQC_MOQ_MSG_PUBLISH_NAMESPACE
+        && msg->params_num != 0)
+    {
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                              "PUBLISH_NAMESPACE_OK has parameters");
+        return;
+    }
+
+    moq_stream->response_received = 1;
+    xqc_log(session->log, XQC_LOG_INFO,
+            "|request_ok|request_id:%ui|request_type:0x%xi|params_num:%ui|",
+            moq_stream->request_id, moq_stream->request_type, msg->params_num);
+    if (session->session_callbacks.on_request_ok) {
+        session->session_callbacks.on_request_ok(session->user_session,
+            moq_stream->request_id, moq_stream->request_type, msg);
+    }
+}
+
+void
 xqc_moq_on_publish_namespace_done(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
 {
     xqc_moq_publish_namespace_done_msg_t *msg = (xqc_moq_publish_namespace_done_msg_t*)msg_base;

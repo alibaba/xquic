@@ -162,6 +162,7 @@ typedef struct xqc_moq_announce_error_msg_s xqc_moq_announce_error_msg_t;
 typedef struct xqc_moq_unannounce_msg_s xqc_moq_unannounce_msg_t;
 typedef struct xqc_moq_unsubscribe_msg_s xqc_moq_unsubscribe_msg_t;
 typedef struct xqc_moq_publish_done_msg_s xqc_moq_publish_done_msg_t;
+typedef struct xqc_moq_request_ok_msg_s xqc_moq_request_ok_msg_t;
 typedef struct xqc_moq_subscribe_namespace_msg_s xqc_moq_subscribe_namespace_msg_t;
 typedef struct xqc_moq_subscribe_namespace_ok_msg_s xqc_moq_subscribe_namespace_ok_msg_t;
 typedef struct xqc_moq_subscribe_namespace_error_msg_s xqc_moq_subscribe_namespace_error_msg_t;
@@ -191,6 +192,7 @@ typedef enum {
     XQC_MOQ_MSG_SUBSCRIBE_OK        = 0x4,
     XQC_MOQ_MSG_SUBSCRIBE_ERROR     = 0x5,
     XQC_MOQ_MSG_PUBLISH_NAMESPACE   = 0x6,
+    XQC_MOQ_MSG_REQUEST_OK          = 0x7,
     XQC_MOQ_MSG_PUBLISH_NAMESPACE_DONE = 0x9,
     XQC_MOQ_MSG_UNSUBSCRIBE         = 0xA,
     // XQC_MOQ_MSG_SUBSCRIBE_DONE      = 0xB,
@@ -376,6 +378,11 @@ typedef struct xqc_moq_publish_namespace_msg_s {
     xqc_moq_message_parameter_t *params;
 } xqc_moq_publish_namespace_msg_t;
 
+typedef struct xqc_moq_request_ok_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    params_num;
+} xqc_moq_request_ok_msg_t;
+
 typedef struct xqc_moq_publish_namespace_done_msg_s {
     xqc_moq_msg_base_t          msg_base;
     uint64_t                    track_namespace_num;
@@ -515,6 +522,10 @@ typedef void (*xqc_moq_on_datagram_object_pt)(xqc_moq_user_session_t *user_sessi
 typedef void (*xqc_moq_on_goaway_pt)(xqc_moq_user_session_t *user_session,
     const char *new_session_uri, size_t new_session_uri_len);
 
+typedef void (*xqc_moq_on_request_ok_pt)(xqc_moq_user_session_t *user_session,
+    uint64_t request_id, xqc_moq_msg_type_t request_type,
+    xqc_moq_request_ok_msg_t *msg);
+
 typedef void (*xqc_moq_on_subscribe_namespace_pt)(xqc_moq_user_session_t *user_session,
     xqc_moq_subscribe_namespace_msg_t *msg);
 
@@ -551,6 +562,7 @@ typedef struct {
     xqc_moq_on_object_pt            on_object; /* Optional, raw object callback for CONTAINER_NONE */
     xqc_moq_on_datagram_object_pt   on_datagram_object; /* Optional, callback for OBJECT_DATAGRAM */
     xqc_moq_on_goaway_pt            on_goaway; /* Optional, callback for GOAWAY message */
+    xqc_moq_on_request_ok_pt        on_request_ok; /* Optional, response on a local request stream */
     xqc_moq_on_subscribe_namespace_pt         on_subscribe_namespace; /* Optional, server-side: incoming request */
     xqc_moq_on_subscribe_namespace_ok_pt      on_subscribe_namespace_ok; /* Optional, client-side: response */
     xqc_moq_on_subscribe_namespace_error_pt   on_subscribe_namespace_error; /* Optional, client-side: response */

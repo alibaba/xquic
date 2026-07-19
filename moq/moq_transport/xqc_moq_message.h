@@ -564,6 +564,12 @@ xqc_int_t xqc_moq_msg_decode_goaway(uint8_t *buf, size_t buf_len, uint8_t stream
 xqc_int_t xqc_moq_track_namespace_tuple_encode_len(uint64_t track_namespace_num,
     const xqc_moq_track_ns_field_t *track_namespace_tuple);
 
+xqc_int_t xqc_moq_track_namespace_tuple_encode_len_vi64(uint64_t track_namespace_num,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple);
+
+uint8_t *xqc_moq_track_namespace_tuple_encode_vi64(uint8_t *p, uint64_t track_namespace_num,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple);
+
 uint8_t *xqc_moq_track_namespace_tuple_encode(uint8_t *p, uint64_t track_namespace_num,
     const xqc_moq_track_ns_field_t *track_namespace_tuple);
 
@@ -610,10 +616,23 @@ void *xqc_moq_msg_create_publish_namespace();
 void xqc_moq_msg_free_publish_namespace(void *msg);
 xqc_moq_msg_type_t xqc_moq_msg_publish_namespace_type();
 void xqc_moq_msg_publish_namespace_init_handler(xqc_moq_msg_base_t *msg_base);
+void xqc_moq_msg_publish_namespace_vi64_init_handler(xqc_moq_msg_base_t *msg_base);
 xqc_int_t xqc_moq_msg_encode_publish_namespace_len(xqc_moq_msg_base_t *msg_base);
 xqc_int_t xqc_moq_msg_encode_publish_namespace(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
+xqc_int_t xqc_moq_msg_encode_publish_namespace_len_vi64(xqc_moq_msg_base_t *msg_base);
+xqc_int_t xqc_moq_msg_encode_publish_namespace_vi64(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
 xqc_int_t xqc_moq_msg_decode_publish_namespace(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
     xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
+
+void *xqc_moq_msg_create_request_ok();
+void xqc_moq_msg_free_request_ok(void *msg);
+xqc_moq_msg_type_t xqc_moq_msg_request_ok_type();
+void xqc_moq_msg_request_ok_init_handler(xqc_moq_msg_base_t *msg_base);
+xqc_int_t xqc_moq_msg_encode_request_ok_len(xqc_moq_msg_base_t *msg_base);
+xqc_int_t xqc_moq_msg_encode_request_ok(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
+xqc_int_t xqc_moq_msg_decode_request_ok(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base,
+    xqc_int_t *finish, xqc_int_t *wait_more_data);
 
 void *xqc_moq_msg_create_publish_namespace_done();
 void xqc_moq_msg_free_publish_namespace_done(void *msg);

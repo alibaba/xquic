@@ -55,6 +55,11 @@ typedef struct xqc_moq_stream_s {
     size_t                      write_buf_processed;
     uint8_t                     write_stream_fin;
 
+    uint8_t                     local_request;
+    uint8_t                     response_received;
+    xqc_moq_msg_type_t          request_type;
+    uint64_t                    request_id;
+
     xqc_moq_track_t             *track;
     xqc_list_head_t             list_member; /* track write_stream_list */
     xqc_list_head_t             recv_list_member; /* track recv_stream_list */

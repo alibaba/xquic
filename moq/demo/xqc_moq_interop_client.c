@@ -29,10 +29,10 @@
 #include "moq/moq_transport/xqc_moq_stream_webtransport.h"
 #include "src/http3/xqc_h3_conn.h"
 
-#define XQC_INTEROP_VERSION       "0.2.0-draft18"
+#define XQC_INTEROP_VERSION       "0.3.0-draft18"
 #define XQC_INTEROP_CID_LEN       12
 #define XQC_INTEROP_TIMEOUT_SEC   2
-#define XQC_INTEROP_MAX_TESTS     1
+#define XQC_INTEROP_MAX_TESTS     2
 
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
@@ -209,7 +209,9 @@ xqc_demo_interop_timeout_callback(int fd, short what, void *arg)
 {
     (void)fd; (void)what;
 
-    if (g_current_test == XQC_DEMO_TEST_SUBSCRIBE_ERROR) {
+    if (g_current_test == XQC_DEMO_TEST_ANNOUNCE_ONLY) {
+        xqc_demo_test_fail("timeout: no REQUEST_OK received for PUBLISH_NAMESPACE");
+    } else if (g_current_test == XQC_DEMO_TEST_SUBSCRIBE_ERROR) {
         xqc_demo_interop_conn_t *sub = g_sub_conn;
         if (sub && sub->subscribe_error_received) {
             xqc_demo_test_pass();
@@ -382,14 +384,6 @@ xqc_demo_interop_init_conn(int role)
 static int
 xqc_demo_interop_send_announce(xqc_moq_session_t *session)
 {
-    xqc_moq_track_t *track = xqc_moq_track_create(session,
-        (char *)XQC_INTEROP_NS_STR, (char *)XQC_INTEROP_TRACK_NAME,
-        XQC_MOQ_TRACK_VIDEO, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_PUB);
-    if (track == NULL) {
-        VERBOSE("failed to create track for announce");
-        return -1;
-    }
-    VERBOSE("created track (announce) for %s/%s", XQC_INTEROP_NS_STR, XQC_INTEROP_TRACK_NAME);
     xqc_moq_publish_namespace_msg_t pub_ns;
     memset(&pub_ns, 0, sizeof(pub_ns));
     pub_ns.track_namespace_num = 1;
@@ -466,7 +460,11 @@ xqc_demo_interop_on_session_setup(xqc_moq_user_session_t *user_session, char *ex
 
     case XQC_DEMO_TEST_ANNOUNCE_ONLY:
         if (conn->conn_role == 0) {
-            xqc_demo_interop_send_announce(conn->session);
+            int ret = xqc_demo_interop_send_announce(conn->session);
+            if (ret < 0) {
+                xqc_demo_test_fail("PUBLISH_NAMESPACE send failed: %d", ret);
+                xqc_demo_interop_close_conn(conn);
+            }
         }
         break;
 
@@ -515,6 +513,27 @@ xqc_demo_interop_on_session_setup(xqc_moq_user_session_t *user_session, char *ex
 
     default:
         break;
+    }
+}
+
+static void
+xqc_demo_interop_on_request_ok(xqc_moq_user_session_t *user_session,
+    uint64_t request_id, xqc_moq_msg_type_t request_type,
+    xqc_moq_request_ok_msg_t *msg)
+{
+    xqc_demo_interop_conn_t *conn = (xqc_demo_interop_conn_t *)user_session->data;
+    VERBOSE("on_request_ok role=%d request_id=%"PRIu64" request_type=0x%x params=%"PRIu64,
+            conn->conn_role, request_id, request_type, msg->params_num);
+
+    if (g_current_test == XQC_DEMO_TEST_ANNOUNCE_ONLY
+        && request_type == XQC_MOQ_MSG_PUBLISH_NAMESPACE)
+    {
+        conn->publish_ns_ok_received = 1;
+        xqc_demo_test_pass();
+        if (g_test_timeout_event) {
+            event_del(g_test_timeout_event);
+        }
+        xqc_demo_interop_close_conn(conn);
     }
 }
 
@@ -683,15 +702,6 @@ xqc_demo_interop_delayed_action_callback(int fd, short what, void *arg)
     }
 
     switch (g_current_test) {
-    case XQC_DEMO_TEST_ANNOUNCE_ONLY:
-        if (conn->session_ready) {
-            xqc_demo_test_pass();
-        } else {
-            xqc_demo_test_fail("session setup not completed within deadline");
-        }
-        xqc_demo_interop_close_conn(conn);
-        break;
-
     case XQC_DEMO_TEST_PUBLISH_NAMESPACE_DONE:
         if (conn->session_ready && !conn->publish_ns_done_sent) {
             xqc_moq_publish_namespace_done_msg_t done;
@@ -798,6 +808,7 @@ xqc_demo_interop_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid
         .on_publish_ok              = xqc_demo_interop_on_publish_ok,
         .on_publish_error           = xqc_demo_interop_on_publish_error,
         .on_publish_done            = xqc_demo_interop_on_publish_done,
+        .on_request_ok              = xqc_demo_interop_on_request_ok,
         .on_catalog                 = xqc_demo_interop_on_catalog,
         .on_video                   = xqc_demo_interop_on_video,
         .on_audio                   = xqc_demo_interop_on_audio,
@@ -829,8 +840,12 @@ xqc_demo_interop_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
     VERBOSE("conn_close role=%d err=%d", iconn->conn_role, (int)err);
 
     if (!g_test_passed && g_fail_reason[0] == '\0') {
-        if ((g_current_test == XQC_DEMO_TEST_ANNOUNCE_ONLY || g_current_test == XQC_DEMO_TEST_PUBLISH_NAMESPACE_DONE)
-            && iconn->session_ready)
+        if (g_current_test == XQC_DEMO_TEST_ANNOUNCE_ONLY
+            && iconn->publish_ns_ok_received)
+        {
+            xqc_demo_test_pass();
+        } else if (g_current_test == XQC_DEMO_TEST_PUBLISH_NAMESPACE_DONE
+                   && iconn->session_ready)
         {
             VERBOSE("connection closed (err=%d) for %s, session was established - PASS",
                     (int)err, g_test_case_names[g_current_test]);
@@ -1054,9 +1069,12 @@ xqc_demo_wt_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, v
 
         if (!g_test_passed && g_fail_reason[0] == '\0') {
             if ((g_current_test == XQC_DEMO_TEST_SETUP_ONLY
-                 || g_current_test == XQC_DEMO_TEST_ANNOUNCE_ONLY
                  || g_current_test == XQC_DEMO_TEST_PUBLISH_NAMESPACE_DONE)
                 && iconn->session_ready)
+            {
+                xqc_demo_test_pass();
+            } else if (g_current_test == XQC_DEMO_TEST_ANNOUNCE_ONLY
+                       && iconn->publish_ns_ok_received)
             {
                 xqc_demo_test_pass();
             } else if (err != 0) {
@@ -1232,6 +1250,7 @@ xqc_demo_wt_h3_request_read_notify(xqc_h3_request_t *h3_request,
         .on_publish_ok              = xqc_demo_interop_on_publish_ok,
         .on_publish_error           = xqc_demo_interop_on_publish_error,
         .on_publish_done            = xqc_demo_interop_on_publish_done,
+        .on_request_ok              = xqc_demo_interop_on_request_ok,
         .on_catalog                 = xqc_demo_interop_on_catalog,
         .on_video                   = xqc_demo_interop_on_video,
         .on_audio                   = xqc_demo_interop_on_audio,
@@ -1412,7 +1431,7 @@ xqc_demo_run_single_test(xqc_demo_test_case_t tc)
     }
     memcpy(&first->cid, cid, sizeof(xqc_cid_t));
 
-    if (tc == XQC_DEMO_TEST_ANNOUNCE_ONLY || tc == XQC_DEMO_TEST_PUBLISH_NAMESPACE_DONE) {
+    if (tc == XQC_DEMO_TEST_PUBLISH_NAMESPACE_DONE) {
         struct event *ev_delayed = evtimer_new(g_eb, xqc_demo_interop_delayed_action_callback, first);
         struct timeval delay = { 3, 0 };
         event_add(ev_delayed, &delay);
@@ -1607,7 +1626,7 @@ int main(int argc, char *argv[])
         return 1;
     }
     if (g_transport_type != XQC_MOQ_TRANSPORT_QUIC) {
-        fprintf(stderr, "error: draft-18 setup-only currently supports raw QUIC (moqt://) only\n");
+        fprintf(stderr, "error: draft-18 interop cases currently support raw QUIC (moqt://) only\n");
         return 127;
     }
 
@@ -1633,7 +1652,7 @@ int main(int argc, char *argv[])
         xqc_demo_test_case_t tc = xqc_demo_parse_test_name(testcase);
         if (tc == XQC_DEMO_TEST_UNKNOWN) {
             fprintf(stderr, "error: unknown test case '%s'\n", testcase);
-            fprintf(stderr, "  supported for draft-18: setup-only\n");
+            fprintf(stderr, "  supported for draft-18: setup-only, announce-only\n");
             return 127;
         }
         tests[0] = tc;

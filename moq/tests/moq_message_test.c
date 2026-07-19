@@ -16,32 +16,7 @@
     } while (0)
 
 static int
-xqc_test_v18_varint_roundtrip(void)
-{
-    static const uint64_t values[] = {
-        0, 127, 128, 16383, 16384, 2097151, 2097152,
-        UINT64_C(72057594037927935), UINT64_MAX,
-    };
-    uint8_t buf[9] = {0};
-
-    for (size_t i = 0; i < sizeof(values) / sizeof(values[0]); i++) {
-        size_t len = xqc_moq_v18_varint_len(values[i]);
-        XQC_TEST_ASSERT(len >= 1 && len <= 9);
-        uint8_t *end = xqc_moq_v18_put_varint(buf, values[i]);
-        XQC_TEST_ASSERT((size_t)(end - buf) == len);
-        uint64_t decoded = 0;
-        XQC_TEST_ASSERT(xqc_moq_v18_read_varint(buf, end, &decoded) == (xqc_int_t)len);
-        XQC_TEST_ASSERT(decoded == values[i]);
-    }
-
-    uint8_t *end = xqc_moq_v18_put_varint(buf, XQC_MOQ_MSG_SETUP);
-    XQC_TEST_ASSERT(end - buf == 2);
-    XQC_TEST_ASSERT(buf[0] == 0xAF && buf[1] == 0x00);
-    return 0;
-}
-
-static int
-xqc_test_setup_v18_roundtrip(void)
+xqc_test_setup_roundtrip(void)
 {
     static const uint8_t expected_options[] = {
         0x01, 0x01, '/',
@@ -66,7 +41,7 @@ xqc_test_setup_v18_roundtrip(void)
     XQC_TEST_ASSERT(memcmp(buf + sizeof(expected_prefix), expected_options,
                            sizeof(expected_options)) == 0);
 
-    xqc_int_t type_len = xqc_moq_msg_decode_type_v18(buf, len, &type, &wait_more_data);
+    xqc_int_t type_len = xqc_moq_msg_decode_type_vi64(buf, len, &type, &wait_more_data);
     XQC_TEST_ASSERT(type_len == 2);
     XQC_TEST_ASSERT(type == XQC_MOQ_MSG_SETUP);
     XQC_TEST_ASSERT(wait_more_data == 0);
@@ -84,7 +59,7 @@ xqc_test_setup_v18_roundtrip(void)
 }
 
 static int
-xqc_test_setup_v18_empty_options(void)
+xqc_test_setup_empty_options(void)
 {
     static const uint8_t encoded[] = {0xaf, 0x00, 0x00, 0x00};
     xqc_moq_setup_msg_t decoded = {0};
@@ -462,15 +437,11 @@ xqc_test_publish_done_empty_reason_finishes(void)
 int
 main(void)
 {
-    if (xqc_test_v18_varint_roundtrip() != 0) {
+    if (xqc_test_setup_roundtrip() != 0) {
         return EXIT_FAILURE;
     }
 
-    if (xqc_test_setup_v18_roundtrip() != 0) {
-        return EXIT_FAILURE;
-    }
-
-    if (xqc_test_setup_v18_empty_options() != 0) {
+    if (xqc_test_setup_empty_options() != 0) {
         return EXIT_FAILURE;
     }
 

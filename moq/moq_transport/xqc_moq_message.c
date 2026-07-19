@@ -81,12 +81,12 @@ const xqc_moq_msg_base_t server_setup_v14_base = {
     .on_msg     = xqc_moq_on_server_setup_v14,
 };
 
-const xqc_moq_msg_base_t setup_v18_base = {
+const xqc_moq_msg_base_t setup_base = {
     .type       = xqc_moq_msg_setup_type,
     .encode_len = xqc_moq_msg_encode_setup_len,
     .encode     = xqc_moq_msg_encode_setup,
     .decode     = xqc_moq_msg_decode_setup,
-    .on_msg     = xqc_moq_on_setup_v18,
+    .on_msg     = xqc_moq_on_setup,
 };
 
 const xqc_moq_msg_base_t subscribe_base = {
@@ -401,74 +401,12 @@ xqc_moq_msg_create(xqc_moq_msg_type_t type)
     return NULL;
 }
 
-size_t
-xqc_moq_v18_varint_len(uint64_t value)
-{
-    for (size_t len = 1; len <= 8; len++) {
-        uint64_t max = (UINT64_C(1) << (7 * len)) - 1;
-        if (value <= max) {
-            return len;
-        }
-    }
-    return 9;
-}
-
-uint8_t *
-xqc_moq_v18_put_varint(uint8_t *buf, uint64_t value)
-{
-    size_t len = xqc_moq_v18_varint_len(value);
-    if (len == 9) {
-        buf[0] = 0xFF;
-        for (size_t i = 8; i > 0; i--) {
-            buf[i] = (uint8_t)(value & 0xFF);
-            value >>= 8;
-        }
-        return buf + 9;
-    }
-
-    for (size_t i = len; i > 0; i--) {
-        buf[i - 1] = (uint8_t)(value & 0xFF);
-        value >>= 8;
-    }
-    buf[0] |= (uint8_t)(0xFFu << (9 - len));
-    return buf + len;
-}
-
 xqc_int_t
-xqc_moq_v18_read_varint(const uint8_t *buf, const uint8_t *end, uint64_t *value)
-{
-    if (buf == NULL || end == NULL || value == NULL || buf >= end) {
-        return -1;
-    }
-
-    uint8_t first = buf[0];
-    size_t leading_ones = 0;
-    for (uint8_t marker = 0x80; marker != 0 && (first & marker); marker >>= 1) {
-        leading_ones++;
-    }
-    size_t len = leading_ones + 1;
-    if ((size_t)(end - buf) < len) {
-        return -1;
-    }
-
-    uint64_t decoded = 0;
-    size_t start = 1;
-    if (len < 9) {
-        decoded = first & (uint8_t)(0xFFu >> len);
-    }
-    for (size_t i = start; i < len; i++) {
-        decoded = (decoded << 8) | buf[i];
-    }
-    *value = decoded;
-    return len;
-}
-
-xqc_int_t
-xqc_moq_msg_decode_type_v18(uint8_t *buf, size_t buf_len,
+xqc_moq_msg_decode_type_vi64(uint8_t *buf, size_t buf_len,
     xqc_moq_msg_type_t *type, xqc_int_t *wait_more_data)
 {
     uint64_t value = 0;
-    xqc_int_t ret = xqc_moq_v18_read_varint(buf, buf + buf_len, &value);
+    xqc_int_t ret = xqc_vi64_read(buf, buf + buf_len, &value);
     if (ret < 0) {
         *wait_more_data = 1;
         return 0;
@@ -1288,14 +1226,14 @@ xqc_moq_msg_setup_type()
 void
 xqc_moq_msg_setup_init_handler(xqc_moq_msg_base_t *msg_base)
 {
-    *msg_base = setup_v18_base;
+    *msg_base = setup_base;
 }
 
 xqc_int_t
 xqc_moq_msg_encode_setup_len(xqc_moq_msg_base_t *msg_base)
 {
     xqc_moq_setup_msg_t *setup = (xqc_moq_setup_msg_t *)msg_base;
-    return xqc_moq_v18_varint_len(XQC_MOQ_MSG_SETUP)
+    return xqc_vi64_len(XQC_MOQ_MSG_SETUP)
         + XQC_MOQ_MSG_LENGTH_FIXED_SIZE + setup->options_len;
 }
 
@@ -1310,7 +1248,7 @@ xqc_moq_msg_encode_setup(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_
         return -XQC_EILLEGAL_FRAME;
     }
 
-    uint8_t *p = xqc_moq_v18_put_varint(buf, XQC_MOQ_MSG_SETUP);
+    uint8_t *p = xqc_vi64_write(buf, XQC_MOQ_MSG_SETUP);
     p = xqc_moq_put_varint_length(p, setup->options_len);
     if (setup->options_len > 0) {
         xqc_memcpy(p, setup->options, setup->options_len);
@@ -1320,7 +1258,7 @@ xqc_moq_msg_encode_setup(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_
 }
 
 static xqc_int_t
-xqc_moq_msg_validate_setup_options_v18(const uint8_t *options, size_t options_len)
+xqc_moq_msg_validate_setup_options(const uint8_t *options, size_t options_len)
 {
     const uint8_t *pos = options;
     const uint8_t *end = options + options_len;
@@ -1328,7 +1266,7 @@ xqc_moq_msg_validate_setup_options_v18(const uint8_t *options, size_t options_le
 
     while (pos < end) {
         uint64_t delta_type = 0;
-        xqc_int_t ret = xqc_moq_v18_read_varint(pos, end, &delta_type);
+        xqc_int_t ret = xqc_vi64_read(pos, end, &delta_type);
         if (ret < 0 || UINT64_MAX - previous_type < delta_type) {
             return -XQC_EILLEGAL_FRAME;
         }
@@ -1336,7 +1274,7 @@ xqc_moq_msg_validate_setup_options_v18(const uint8_t *options, size_t options_le
         uint64_t type = previous_type + delta_type;
 
         uint64_t value_or_len = 0;
-        ret = xqc_moq_v18_read_varint(pos, end, &value_or_len);
+        ret = xqc_vi64_read(pos, end, &value_or_len);
         if (ret < 0) {
             return -XQC_EILLEGAL_FRAME;
         }
@@ -1396,7 +1334,7 @@ xqc_moq_msg_decode_setup(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
     }
 
     if (setup->options_processed == setup->options_len) {
-        if (xqc_moq_msg_validate_setup_options_v18(setup->options, setup->options_len) != XQC_OK) {
+        if (xqc_moq_msg_validate_setup_options(setup->options, setup->options_len) != XQC_OK) {
             return -XQC_EILLEGAL_FRAME;
         }
         *finish = 1;

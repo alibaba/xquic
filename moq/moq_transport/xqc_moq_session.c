@@ -1,5 +1,6 @@
 #include "src/transport/xqc_engine.h"
 #include "src/transport/xqc_conn.h"
+#include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "moq/moq_transport/xqc_moq_session.h"
 #include "moq/moq_transport/xqc_moq_message_writer.h"
 #include "moq/moq_transport/xqc_moq_stream.h"
@@ -40,24 +41,24 @@ xqc_moq_init_alpn_draft18(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs,
 }
 
 static xqc_int_t
-xqc_moq_setup_v18_append_string_option(uint8_t **pos, uint8_t *end,
+xqc_moq_setup_append_string_option(uint8_t **pos, uint8_t *end,
     uint64_t delta_type, const char *value)
 {
     size_t value_len = strlen(value);
-    size_t needed = xqc_moq_v18_varint_len(delta_type)
-        + xqc_moq_v18_varint_len(value_len) + value_len;
+    size_t needed = xqc_vi64_len(delta_type)
+        + xqc_vi64_len(value_len) + value_len;
     if ((size_t)(end - *pos) < needed) {
         return -XQC_ELIMIT;
     }
-    *pos = xqc_moq_v18_put_varint(*pos, delta_type);
-    *pos = xqc_moq_v18_put_varint(*pos, value_len);
+    *pos = xqc_vi64_write(*pos, delta_type);
+    *pos = xqc_vi64_write(*pos, value_len);
     xqc_memcpy(*pos, value, value_len);
     *pos += value_len;
     return XQC_OK;
 }
 
 static xqc_int_t
-xqc_moq_write_initial_setup_v18(xqc_moq_session_t *session,
+xqc_moq_write_initial_setup(xqc_moq_session_t *session,
     const char *authority, const char *path)
 {
     xqc_moq_setup_msg_t setup;
@@ -88,9 +89,9 @@ xqc_moq_write_initial_setup_v18(xqc_moq_session_t *session,
         uint8_t *end = options + options_cap;
 
         /* Options are delta encoded in ascending key order: PATH (0x01), AUTHORITY (0x05). */
-        xqc_int_t ret = xqc_moq_setup_v18_append_string_option(&pos, end, 0x01, path);
+        xqc_int_t ret = xqc_moq_setup_append_string_option(&pos, end, 0x01, path);
         if (ret == XQC_OK) {
-            ret = xqc_moq_setup_v18_append_string_option(&pos, end, 0x04, authority);
+            ret = xqc_moq_setup_append_string_option(&pos, end, 0x04, authority);
         }
         if (ret != XQC_OK) {
             xqc_free(options);
@@ -100,7 +101,7 @@ xqc_moq_write_initial_setup_v18(xqc_moq_session_t *session,
         setup.options_len = pos - options;
     }
 
-    xqc_int_t ret = xqc_moq_write_setup_v18(session, &setup);
+    xqc_int_t ret = xqc_moq_write_setup(session, &setup);
     xqc_free(options);
     return ret;
 }
@@ -109,7 +110,7 @@ static xqc_moq_session_t *
 xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session,
     xqc_moq_transport_type_t transport_type, xqc_moq_role_t role,
     xqc_moq_session_callbacks_t callbacks, char *extdata,
-    xqc_int_t enable_client_setup_v14, xqc_int_t enable_setup_v18,
+    xqc_int_t enable_client_setup_v14, xqc_int_t enable_unified_setup,
     const char *authority, const char *path,
     xqc_moq_message_parameter_t *setup_params, uint64_t setup_params_num)
 {
@@ -162,11 +163,11 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
     xqc_init_list_head(&session->local_ns_pending_list);
 
     session->use_client_setup_v14 = enable_client_setup_v14;
-    session->use_setup_v18 = enable_setup_v18;
+    session->use_unified_setup = enable_unified_setup;
     /* Request IDs use parity per endpoint: client even, server odd. */
     session->request_id_allocator = (session->engine->eng_type == XQC_ENGINE_CLIENT) ? 0 : 1;
 
-    if (session->use_setup_v18) {
+    if (session->use_unified_setup) {
         xqc_moq_stream_t *stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_UNI);
         if (stream == NULL) {
             xqc_log(session->log, XQC_LOG_ERROR, "|create draft-18 control stream error|");
@@ -174,7 +175,7 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
         }
         session->ctl_stream = stream;
         session->version = XQC_MOQ_VERSION_18;
-        ret = xqc_moq_write_initial_setup_v18(session, authority, path);
+        ret = xqc_moq_write_initial_setup(session, authority, path);
         if (ret < 0) {
             xqc_log(session->log, XQC_LOG_ERROR, "|write draft-18 SETUP error|ret:%d|", ret);
             goto error;

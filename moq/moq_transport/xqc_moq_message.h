@@ -253,13 +253,7 @@ void xqc_moq_object_datagram_free_fields(xqc_moq_object_datagram_msg_t *dgram);
 
 xqc_int_t xqc_moq_msg_decode_type(uint8_t *buf, size_t buf_len, xqc_moq_msg_type_t *type, xqc_int_t *wait_more_data);
 
-size_t xqc_moq_v18_varint_len(uint64_t value);
-
-uint8_t *xqc_moq_v18_put_varint(uint8_t *buf, uint64_t value);
-
-xqc_int_t xqc_moq_v18_read_varint(const uint8_t *buf, const uint8_t *end, uint64_t *value);
-
-xqc_int_t xqc_moq_msg_decode_type_v18(uint8_t *buf, size_t buf_len,
+xqc_int_t xqc_moq_msg_decode_type_vi64(uint8_t *buf, size_t buf_len,
     xqc_moq_msg_type_t *type, xqc_int_t *wait_more_data);
 
 void xqc_moq_decode_msg_ctx_reset(xqc_moq_decode_msg_ctx_t *ctx);

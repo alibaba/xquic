@@ -88,7 +88,7 @@ xqc_moq_write_server_setup_v14(xqc_moq_session_t *session, xqc_moq_server_setup_
 }
 
 xqc_int_t
-xqc_moq_write_setup_v18(xqc_moq_session_t *session, xqc_moq_setup_msg_t *setup)
+xqc_moq_write_setup(xqc_moq_session_t *session, xqc_moq_setup_msg_t *setup)
 {
     return xqc_moq_write_msg_generic(session, session->ctl_stream, &setup->msg_base,
                                      xqc_moq_msg_setup_init_handler);

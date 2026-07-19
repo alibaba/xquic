@@ -29,10 +29,10 @@
 #include "moq/moq_transport/xqc_moq_stream_webtransport.h"
 #include "src/http3/xqc_h3_conn.h"
 
-#define XQC_INTEROP_VERSION       "0.6.0-draft18"
+#define XQC_INTEROP_VERSION       "0.7.0-draft18"
 #define XQC_INTEROP_CID_LEN       12
 #define XQC_INTEROP_TIMEOUT_SEC   2
-#define XQC_INTEROP_MAX_TESTS     5
+#define XQC_INTEROP_MAX_TESTS     6
 
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
@@ -208,6 +208,28 @@ xqc_demo_interop_close_conn(xqc_demo_interop_conn_t *conn)
 }
 
 static void
+xqc_demo_interop_maybe_complete_preannounce(void)
+{
+    if (g_current_test != XQC_DEMO_TEST_SUBSCRIBE_BEFORE_ANNOUNCE
+        || g_sub_conn == NULL || g_pub_conn == NULL
+        || !g_pub_conn->publish_ns_ok_received
+        || (!g_sub_conn->subscribe_ok_received
+            && !g_sub_conn->subscribe_error_received))
+    {
+        return;
+    }
+
+    VERBOSE("subscribe-before-announce completed via %s after publisher REQUEST_OK",
+            g_sub_conn->subscribe_ok_received ? "SUBSCRIBE_OK" : "REQUEST_ERROR");
+    xqc_demo_test_pass();
+    if (g_test_timeout_event) {
+        event_del(g_test_timeout_event);
+    }
+    xqc_demo_interop_close_conn(g_sub_conn);
+    xqc_demo_interop_close_conn(g_pub_conn);
+}
+
+static void
 xqc_demo_interop_timeout_callback(int fd, short what, void *arg)
 {
     (void)fd; (void)what;
@@ -238,6 +260,16 @@ xqc_demo_interop_timeout_callback(int fd, short what, void *arg)
         } else {
             xqc_demo_test_fail("timeout: subscriber did not receive SUBSCRIBE_OK");
         }
+    } else if (g_current_test == XQC_DEMO_TEST_SUBSCRIBE_BEFORE_ANNOUNCE) {
+        if (g_sub_conn == NULL || !g_sub_conn->subscribe_sent) {
+            xqc_demo_test_fail("timeout: subscriber did not send SUBSCRIBE before publisher start");
+        } else if (g_pub_conn == NULL || !g_pub_conn->publish_ns_sent) {
+            xqc_demo_test_fail("timeout: publisher did not send PUBLISH_NAMESPACE");
+        } else if (!g_pub_conn->publish_ns_ok_received) {
+            xqc_demo_test_fail("timeout: publisher did not receive REQUEST_OK");
+        } else {
+            xqc_demo_test_fail("timeout: subscriber received neither SUBSCRIBE_OK nor REQUEST_ERROR");
+        }
     } else {
         xqc_demo_test_fail("test timed out: deadline has elapsed");
     }
@@ -258,13 +290,7 @@ static void
 xqc_demo_interop_delayed_close_callback(int fd, short what, void *arg);
 
 static void
-xqc_demo_interop_subscriber_subscribe_callback(int fd, short what, void *arg);
-
-static void
-xqc_demo_interop_delayed_announce_callback(int fd, short what, void *arg);
-
-static void
-xqc_demo_interop_create_subscriber_callback(int fd, short what, void *arg);
+xqc_demo_interop_create_publisher_callback(int fd, short what, void *arg);
 
 static void
 xqc_demo_interop_socket_read_handler(xqc_demo_interop_conn_t *conn)
@@ -564,13 +590,27 @@ xqc_demo_interop_on_session_setup(xqc_moq_user_session_t *user_session, char *ex
 
     case XQC_DEMO_TEST_SUBSCRIBE_BEFORE_ANNOUNCE:
         if (conn->conn_role == 1) {
-            conn->subscribe_sent = 1;
-            xqc_demo_interop_send_subscribe_interop(conn->session);
+            int ret = xqc_demo_interop_start_subscribe(conn);
+            if (ret == XQC_OK) {
+                struct timeval publisher_delay = { 0, 500000 };
+                if (event_base_once(g_eb, -1, EV_TIMEOUT,
+                                    xqc_demo_interop_create_publisher_callback,
+                                    NULL, &publisher_delay) < 0)
+                {
+                    xqc_demo_test_fail("failed to schedule publisher connection");
+                    xqc_demo_interop_close_conn(conn);
+                }
+            }
         }
         if (conn->conn_role == 0) {
-            struct event *ev = evtimer_new(g_eb, xqc_demo_interop_delayed_announce_callback, conn);
-            struct timeval delay = { 2, 0 };
-            event_add(ev, &delay);
+            int ret = xqc_demo_interop_send_announce(conn);
+            if (ret < 0) {
+                xqc_demo_test_fail("PUBLISH_NAMESPACE send failed: %d", ret);
+                xqc_demo_interop_close_conn(conn);
+                if (g_sub_conn && !g_sub_conn->closed) {
+                    xqc_demo_interop_close_conn(g_sub_conn);
+                }
+            }
         }
         break;
 
@@ -646,6 +686,19 @@ xqc_demo_interop_on_request_ok(xqc_moq_user_session_t *user_session,
             xqc_demo_interop_start_subscribe(g_sub_conn);
         }
     }
+
+    if (g_current_test == XQC_DEMO_TEST_SUBSCRIBE_BEFORE_ANNOUNCE) {
+        if (!conn->publish_ns_sent || request_id != conn->publish_ns_request_id) {
+            xqc_demo_test_fail("REQUEST_OK did not match PUBLISH_NAMESPACE request");
+            xqc_demo_interop_close_conn(conn);
+            if (g_sub_conn && !g_sub_conn->closed) {
+                xqc_demo_interop_close_conn(g_sub_conn);
+            }
+            return;
+        }
+        g_publisher_announced = 1;
+        xqc_demo_interop_maybe_complete_preannounce();
+    }
 }
 
 static void
@@ -687,14 +740,7 @@ xqc_demo_interop_on_subscribe_ok(xqc_moq_user_session_t *user_session, xqc_moq_t
     }
 
     if (g_current_test == XQC_DEMO_TEST_SUBSCRIBE_BEFORE_ANNOUNCE) {
-        xqc_demo_test_pass();
-        if (g_test_timeout_event) {
-            event_del(g_test_timeout_event);
-        }
-        xqc_demo_interop_close_conn(conn);
-        if (g_pub_conn && !g_pub_conn->closed) {
-            xqc_demo_interop_close_conn(g_pub_conn);
-        }
+        xqc_demo_interop_maybe_complete_preannounce();
     }
 }
 
@@ -739,6 +785,19 @@ xqc_demo_interop_on_request_error(xqc_moq_user_session_t *user_session,
             xqc_demo_interop_close_conn(g_pub_conn);
         }
     }
+
+    if (g_current_test == XQC_DEMO_TEST_SUBSCRIBE_BEFORE_ANNOUNCE) {
+        if (request_id != conn->subscribe_request_id) {
+            xqc_demo_test_fail("REQUEST_ERROR did not match SUBSCRIBE request");
+            xqc_demo_interop_close_conn(conn);
+            if (g_pub_conn && !g_pub_conn->closed) {
+                xqc_demo_interop_close_conn(g_pub_conn);
+            }
+            return;
+        }
+        conn->subscribe_error_received = 1;
+        xqc_demo_interop_maybe_complete_preannounce();
+    }
 }
 
 static void
@@ -774,12 +833,8 @@ xqc_demo_interop_on_subscribe_error(xqc_moq_user_session_t *user_session, xqc_mo
     }
 
     if (g_current_test == XQC_DEMO_TEST_SUBSCRIBE_BEFORE_ANNOUNCE) {
-        VERBOSE("subscribe-before-announce: SUBSCRIBE_ERROR received (relay doesn't buffer) - PASS");
-        xqc_demo_test_pass();
-        xqc_demo_interop_close_conn(conn);
-        if (g_pub_conn && !g_pub_conn->closed) {
-            xqc_demo_interop_close_conn(g_pub_conn);
-        }
+        VERBOSE("subscribe-before-announce: legacy SUBSCRIBE_ERROR received");
+        xqc_demo_interop_maybe_complete_preannounce();
     }
 }
 
@@ -891,60 +946,37 @@ xqc_demo_interop_delayed_close_callback(int fd, short what, void *arg)
 }
 
 static void
-xqc_demo_interop_subscriber_subscribe_callback(int fd, short what, void *arg)
-{
-    (void)fd; (void)what;
-    xqc_demo_interop_conn_t *conn = (xqc_demo_interop_conn_t *)arg;
-    if (conn == NULL || conn->closed || conn->subscribe_sent) {
-        return;
-    }
-    conn->subscribe_sent = 1;
-    VERBOSE("subscriber fallback: sending SUBSCRIBE");
-    xqc_demo_interop_send_subscribe_interop(conn->session);
-}
-
-static void
-xqc_demo_interop_delayed_announce_callback(int fd, short what, void *arg)
-{
-    (void)fd; (void)what;
-    xqc_demo_interop_conn_t *conn = (xqc_demo_interop_conn_t *)arg;
-    if (conn == NULL || conn->closed) {
-        return;
-    }
-    VERBOSE("delayed announce: sending PUBLISH_NAMESPACE");
-    xqc_demo_interop_send_announce(conn);
-    g_publisher_announced = 1;
-}
-
-static void
-xqc_demo_interop_create_subscriber_callback(int fd, short what, void *arg)
+xqc_demo_interop_create_publisher_callback(int fd, short what, void *arg)
 {
     (void)fd; (void)what; (void)arg;
-    if (g_sub_conn != NULL) {
+    if (g_pub_conn != NULL) {
         return;
     }
-    xqc_demo_interop_conn_t *sub = xqc_demo_interop_init_conn(1);
-    if (sub == NULL) {
-        xqc_demo_test_fail("failed to create subscriber connection");
+    xqc_demo_interop_conn_t *pub = xqc_demo_interop_init_conn(0);
+    if (pub == NULL) {
+        xqc_demo_test_fail("failed to create delayed publisher connection");
+        event_base_loopbreak(g_eb);
         return;
     }
     xqc_conn_settings_t settings;
     memset(&settings, 0, sizeof(settings));
     settings.cong_ctrl_callback = xqc_bbr_cb;
+    settings.proto_version = XQC_VERSION_V1;
     xqc_conn_ssl_config_t ssl_cfg;
     memset(&ssl_cfg, 0, sizeof(ssl_cfg));
     if (g_tls_disable_verify) {
         ssl_cfg.cert_verify_flag |= XQC_TLS_CERT_FLAG_ALLOW_SELF_SIGNED;
     }
     const xqc_cid_t *cid = xqc_connect(g_ctx.engine, &settings, NULL, 0,
-        g_relay_sni, 0, &ssl_cfg, sub->peer_addr, sub->peer_addrlen,
-        XQC_ALPN_MOQ_DRAFT_18, g_sub_user_session);
+        g_relay_sni, 0, &ssl_cfg, pub->peer_addr, pub->peer_addrlen,
+        XQC_ALPN_MOQ_DRAFT_18, g_pub_user_session);
     if (cid == NULL) {
-        xqc_demo_test_fail("subscriber xqc_connect failed");
+        xqc_demo_test_fail("delayed publisher xqc_connect failed");
+        event_base_loopbreak(g_eb);
         return;
     }
-    memcpy(&sub->cid, cid, sizeof(xqc_cid_t));
-    VERBOSE("created subscriber connection after publisher ANNOUNCE");
+    memcpy(&pub->cid, cid, sizeof(xqc_cid_t));
+    VERBOSE("created publisher connection 500 ms after subscriber");
 }
 
 static int
@@ -1601,8 +1633,8 @@ xqc_demo_run_single_test(xqc_demo_test_case_t tc)
     }
     memcpy(&first->cid, cid, sizeof(xqc_cid_t));
 
-    if (tc == XQC_DEMO_TEST_ANNOUNCE_SUBSCRIBE || tc == XQC_DEMO_TEST_SUBSCRIBE_BEFORE_ANNOUNCE) {
-        int second_role = (tc == XQC_DEMO_TEST_ANNOUNCE_SUBSCRIBE) ? 1 : 0;
+    if (tc == XQC_DEMO_TEST_ANNOUNCE_SUBSCRIBE) {
+        int second_role = 1;
         xqc_demo_interop_conn_t *second = xqc_demo_interop_init_conn(second_role);
         if (second == NULL) {
             xqc_demo_test_fail("failed to create second connection");
@@ -1816,7 +1848,7 @@ int main(int argc, char *argv[])
         xqc_demo_test_case_t tc = xqc_demo_parse_test_name(testcase);
         if (tc == XQC_DEMO_TEST_UNKNOWN) {
             fprintf(stderr, "error: unknown test case '%s'\n", testcase);
-            fprintf(stderr, "  supported for draft-18: setup-only, announce-only, publish-namespace-done, subscribe-error, announce-subscribe\n");
+            fprintf(stderr, "  supported for draft-18: setup-only, announce-only, publish-namespace-done, subscribe-error, announce-subscribe, subscribe-before-announce\n");
             return 127;
         }
         tests[0] = tc;

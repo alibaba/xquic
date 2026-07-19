@@ -45,16 +45,21 @@ elif [ -f "$(dirname "$SERVER")/server.crt" ]; then
     cp "$(dirname "$SERVER")/server.key" "$TMPDIR/server.key" 2>/dev/null || true
 fi
 
+if [ ! -f "$TMPDIR/server.crt" ] || [ ! -f "$TMPDIR/server.key" ]; then
+    echo "FATAL: TLS certificate/key not found"
+    exit 1
+fi
+
 echo "=== GOAWAY E2E Tests ==="
 echo ""
 
 # ============================================================
-# Test 1: server -n 0 (GOAWAY-only) -> client receives GOAWAY
+# Test 1: server explicitly sends GOAWAY -> client receives GOAWAY
 # ============================================================
 PORT=$((PORT + 1))
 cd "$TMPDIR"
 
-"$SERVER" -l d -p $PORT -V -n 0 > srv.log 2>&1 &
+"$SERVER" -l d -p $PORT -V -G > srv.log 2>&1 &
 SRV_PID=$!
 sleep 1
 
@@ -70,7 +75,7 @@ run_test "1d: server entered drain" grep -q "session entering drain" slog
 run_test "1e: no protocol violation" assert_no_match "conn_err:3" cli.log
 
 # ============================================================
-# Test 2: client -n 0 (GOAWAY-only) -> server receives GOAWAY
+# Test 2: client explicitly sends GOAWAY -> server receives GOAWAY
 # ============================================================
 PORT=$((PORT + 1))
 rm -f clog slog
@@ -79,12 +84,12 @@ rm -f clog slog
 SRV_PID=$!
 sleep 1
 
-timeout 5 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -n 0 > cli2.log 2>&1 || true
+timeout 5 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -G > cli2.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
-run_test "2a: client entered drain (sent goaway)" grep -q "session_drain" clog
-run_test "2b: server received goaway" grep -q "on_goaway" slog
+run_test "2a: client entered drain (sent goaway)" grep -q "session entering drain" clog
+run_test "2b: server received goaway" grep -q "on_goaway" srv2.log
 
 # ============================================================
 # Test 3: no crashes during the above

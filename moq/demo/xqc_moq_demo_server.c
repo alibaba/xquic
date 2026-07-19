@@ -63,6 +63,7 @@ int g_publish_reply_mode = 0;
 int g_reuse_datachannel_stream = 0;
 int g_enable_datachannel = 1;
 int g_enable_catalog = -1;
+int g_send_goaway = 0;
 int g_reuse_video_subgroup_stream = 0;
 int g_multi_ns_mode = 0;
 int g_ns_callback_mode = 0;
@@ -519,6 +520,13 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
     user_conn->publish_started = 0;
     user_conn->publish_request_sent = 0;
 
+    if (g_send_goaway) {
+        const char *uri = "moqt://127.0.0.1:4443";
+        xqc_int_t ret = xqc_moq_send_goaway(session, uri, strlen(uri));
+        printf("send goaway ret:%d\n", ret);
+        return;
+    }
+
     if (g_role == XQC_MOQ_SUBSCRIBER) {
         return;
     }
@@ -672,6 +680,8 @@ void on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
         if (have_cat) {
             subscribe_ok.params = &cat_param;
             subscribe_ok.params_num = 1;
+            printf("==>subscribe_ok attach catalog param track:%s\n",
+                   msg->track_name);
         }
 
         ret = xqc_moq_write_subscribe_ok(session, &subscribe_ok);
@@ -701,6 +711,8 @@ void on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
         if (have_cat) {
             subscribe_ok.params = &cat_param;
             subscribe_ok.params_num = 1;
+            printf("==>subscribe_ok attach catalog param track:%s\n",
+                   msg->track_name);
         }
 
         ret = xqc_moq_write_subscribe_ok(session, &subscribe_ok);
@@ -1032,6 +1044,16 @@ void on_datagram_object(xqc_moq_user_session_t *user_session, xqc_moq_track_t *t
     }
 }
 
+void on_goaway(xqc_moq_user_session_t *user_session,
+    const char *new_session_uri, size_t new_session_uri_len)
+{
+    const char *uri = new_session_uri ? new_session_uri : "";
+
+    (void)user_session;
+    printf("on_goaway: uri_len:%zu uri:%.*s\n", new_session_uri_len,
+           (int)new_session_uri_len, uri);
+}
+
 int
 xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data)
 {
@@ -1059,6 +1081,7 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
         .on_video = on_video_frame,
         .on_audio = on_audio_frame,
         .on_object = on_raw_object,
+        .on_goaway = on_goaway,
         .on_datagram_object = on_datagram_object,
     };
     if (g_ns_callback_mode == 1) {
@@ -1319,7 +1342,7 @@ int main(int argc, char *argv[])
     int server_port = TEST_PORT;
     xqc_cong_ctrl_callback_t cong_ctrl;
     cong_ctrl = xqc_bbr_cb;
-    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MVRoeUTCWmK:Z:")) != -1) {
+    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MVGRoeUTCWmK:Z:")) != -1) {
         switch (ch) {
         /* listen port */
         case 'p':
@@ -1387,6 +1410,10 @@ int main(int argc, char *argv[])
         case 'V':
             printf("option draft14 client setup : on\n");
             g_enable_client_setup_v14 = 1;
+            break;
+        case 'G':
+            printf("option send goaway : on\n");
+            g_send_goaway = 1;
             break;
         case 'R':
             printf("option raw object mode : on\n");

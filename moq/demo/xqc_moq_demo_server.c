@@ -71,6 +71,306 @@ int g_ns_callback_mode = 0;
 int g_server_cancel_write_before_group = -1;
 int g_server_cancel_write_done = 0;
 
+typedef struct xqc_demo_relay_namespace_s {
+    xqc_moq_user_session_t                    *publisher;
+    xqc_moq_track_ns_field_t                  *namespace_tuple;
+    uint64_t                                   namespace_num;
+    struct xqc_demo_relay_namespace_s         *next;
+} xqc_demo_relay_namespace_t;
+
+typedef struct xqc_demo_relay_subscription_s {
+    xqc_moq_user_session_t                    *subscriber;
+    xqc_moq_user_session_t                    *publisher;
+    uint64_t                                   subscriber_request_id;
+    uint64_t                                   subscriber_track_alias;
+    uint64_t                                   publisher_request_id;
+    xqc_moq_track_ns_field_t                  *namespace_tuple;
+    uint64_t                                   namespace_num;
+    char                                      *track_name;
+    uint64_t                                   filter_type;
+    uint64_t                                   start_group_id;
+    uint64_t                                   start_object_id;
+    uint64_t                                   end_group_id;
+    uint64_t                                   end_object_id;
+    struct event                              *timeout_event;
+    struct xqc_demo_relay_subscription_s      *next;
+} xqc_demo_relay_subscription_t;
+
+static xqc_demo_relay_namespace_t *g_relay_namespaces = NULL;
+static xqc_demo_relay_subscription_t *g_relay_subscriptions = NULL;
+
+static void
+xqc_demo_relay_free_namespace_tuple(xqc_moq_track_ns_field_t *tuple,
+    uint64_t num)
+{
+    if (tuple == NULL) {
+        return;
+    }
+    for (uint64_t i = 0; i < num; i++) {
+        free(tuple[i].data);
+    }
+    free(tuple);
+}
+
+static xqc_moq_track_ns_field_t *
+xqc_demo_relay_copy_namespace_tuple(const xqc_moq_track_ns_field_t *tuple,
+    uint64_t num)
+{
+    if (tuple == NULL || num == 0) {
+        return NULL;
+    }
+
+    xqc_moq_track_ns_field_t *copy = calloc(num, sizeof(*copy));
+    if (copy == NULL) {
+        return NULL;
+    }
+    for (uint64_t i = 0; i < num; i++) {
+        copy[i].data = malloc(tuple[i].len);
+        if (copy[i].data == NULL) {
+            xqc_demo_relay_free_namespace_tuple(copy, num);
+            return NULL;
+        }
+        memcpy(copy[i].data, tuple[i].data, tuple[i].len);
+        copy[i].len = tuple[i].len;
+    }
+    return copy;
+}
+
+static int
+xqc_demo_relay_namespace_equal(const xqc_moq_track_ns_field_t *left,
+    uint64_t left_num, const xqc_moq_track_ns_field_t *right,
+    uint64_t right_num)
+{
+    if (left == NULL || right == NULL || left_num != right_num) {
+        return 0;
+    }
+    for (uint64_t i = 0; i < left_num; i++) {
+        if (left[i].len != right[i].len
+            || memcmp(left[i].data, right[i].data, left[i].len) != 0)
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void
+xqc_demo_relay_free_subscription(xqc_demo_relay_subscription_t *subscription)
+{
+    if (subscription == NULL) {
+        return;
+    }
+    xqc_demo_relay_free_namespace_tuple(subscription->namespace_tuple,
+                                        subscription->namespace_num);
+    if (subscription->timeout_event != NULL) {
+        event_del(subscription->timeout_event);
+        event_free(subscription->timeout_event);
+    }
+    free(subscription->track_name);
+    free(subscription);
+}
+
+static xqc_moq_user_session_t *
+xqc_demo_relay_find_publisher(const xqc_moq_track_ns_field_t *tuple,
+    uint64_t num)
+{
+    xqc_demo_relay_namespace_t *entry = g_relay_namespaces;
+    while (entry != NULL) {
+        if (xqc_demo_relay_namespace_equal(entry->namespace_tuple,
+                                           entry->namespace_num, tuple, num))
+        {
+            return entry->publisher;
+        }
+        entry = entry->next;
+    }
+    return NULL;
+}
+
+static int
+xqc_demo_relay_forward_subscription(xqc_demo_relay_subscription_t *subscription)
+{
+    if (subscription == NULL || subscription->publisher != NULL) {
+        return 0;
+    }
+
+    xqc_moq_user_session_t *publisher = xqc_demo_relay_find_publisher(
+        subscription->namespace_tuple, subscription->namespace_num);
+    if (publisher == NULL || publisher->session == NULL) {
+        return 0;
+    }
+
+    xqc_moq_track_t *track = xqc_moq_track_create_with_ns_tuple(
+        publisher->session, subscription->namespace_tuple,
+        subscription->namespace_num, subscription->track_name,
+        XQC_MOQ_TRACK_VIDEO, NULL, XQC_MOQ_CONTAINER_NONE,
+        XQC_MOQ_TRACK_FOR_SUB);
+    if (track == NULL) {
+        printf("draft18_relay_forward create subscriber track failed\n");
+        return -1;
+    }
+
+    xqc_int_t request_id = xqc_moq_subscribe_with_ns_tuple(
+        publisher->session, subscription->namespace_tuple,
+        subscription->namespace_num, subscription->track_name,
+        (xqc_moq_filter_type_t)subscription->filter_type,
+        subscription->start_group_id, subscription->start_object_id,
+        subscription->end_group_id, subscription->end_object_id, NULL);
+    if (request_id < 0) {
+        printf("draft18_relay_forward SUBSCRIBE failed ret:%d\n", request_id);
+        return -1;
+    }
+
+    subscription->publisher = publisher;
+    subscription->publisher_request_id = (uint64_t)request_id;
+    printf("draft18_relay_forward subscriber_request_id:%"PRIu64
+           " publisher_request_id:%"PRIu64" track:%s\n",
+           subscription->subscriber_request_id,
+           subscription->publisher_request_id, subscription->track_name);
+    return 1;
+}
+
+static void
+xqc_demo_relay_remove_subscription(xqc_demo_relay_subscription_t *target)
+{
+    xqc_demo_relay_subscription_t **link = &g_relay_subscriptions;
+    while (*link != NULL) {
+        if (*link == target) {
+            *link = target->next;
+            xqc_demo_relay_free_subscription(target);
+            return;
+        }
+        link = &(*link)->next;
+    }
+}
+
+static void
+xqc_demo_relay_pending_timeout(int fd, short what, void *arg)
+{
+    (void)fd;
+    (void)what;
+    xqc_demo_relay_subscription_t *subscription =
+        (xqc_demo_relay_subscription_t *)arg;
+    if (subscription == NULL || subscription->subscriber == NULL
+        || subscription->subscriber->session == NULL)
+    {
+        return;
+    }
+
+    struct event *timeout_event = subscription->timeout_event;
+    subscription->timeout_event = NULL;
+    if (subscription->publisher != NULL
+        && subscription->publisher->session != NULL
+        && subscription->publisher_request_id != XQC_MOQ_INVALID_ID)
+    {
+        xqc_moq_cancel_request(subscription->publisher->session,
+                               subscription->publisher_request_id);
+    }
+
+    const char *reason = "namespace publisher unavailable";
+    xqc_moq_request_error_msg_t request_error;
+    memset(&request_error, 0, sizeof(request_error));
+    request_error.error_code = XQC_MOQ_REQUEST_ERROR_DOES_NOT_EXIST;
+    request_error.retry_interval = 0;
+    request_error.reason_phrase = (char *)reason;
+    request_error.reason_phrase_len = strlen(reason);
+    xqc_int_t ret = xqc_moq_write_request_error(
+        subscription->subscriber->session,
+        subscription->subscriber_request_id, &request_error);
+    printf("draft18_relay_request_error subscriber_request_id:%"PRIu64
+           " ret:%d\n", subscription->subscriber_request_id, ret);
+    xqc_demo_relay_remove_subscription(subscription);
+    if (timeout_event != NULL) {
+        event_free(timeout_event);
+    }
+}
+
+static void
+xqc_demo_relay_remove_session(xqc_moq_user_session_t *user_session)
+{
+    xqc_demo_relay_namespace_t **namespace_link = &g_relay_namespaces;
+    while (*namespace_link != NULL) {
+        xqc_demo_relay_namespace_t *entry = *namespace_link;
+        if (entry->publisher == user_session) {
+            *namespace_link = entry->next;
+            xqc_demo_relay_free_namespace_tuple(entry->namespace_tuple,
+                                                entry->namespace_num);
+            free(entry);
+            continue;
+        }
+        namespace_link = &entry->next;
+    }
+
+    xqc_demo_relay_subscription_t **subscription_link = &g_relay_subscriptions;
+    while (*subscription_link != NULL) {
+        xqc_demo_relay_subscription_t *subscription = *subscription_link;
+        if (subscription->subscriber == user_session) {
+            *subscription_link = subscription->next;
+            xqc_demo_relay_free_subscription(subscription);
+            continue;
+        }
+        if (subscription->publisher == user_session) {
+            subscription->publisher = NULL;
+            subscription->publisher_request_id = XQC_MOQ_INVALID_ID;
+        }
+        subscription_link = &subscription->next;
+    }
+}
+
+static void
+on_publish_namespace(xqc_moq_user_session_t *user_session,
+    xqc_moq_publish_namespace_msg_t *msg)
+{
+    if (!g_enable_draft18 || user_session == NULL || msg == NULL) {
+        return;
+    }
+
+    xqc_demo_relay_namespace_t *entry = g_relay_namespaces;
+    while (entry != NULL) {
+        if (entry->publisher == user_session
+            && xqc_demo_relay_namespace_equal(entry->namespace_tuple,
+                entry->namespace_num, msg->track_namespace_tuple,
+                msg->track_namespace_num))
+        {
+            return;
+        }
+        entry = entry->next;
+    }
+
+    entry = calloc(1, sizeof(*entry));
+    if (entry == NULL) {
+        return;
+    }
+    entry->namespace_tuple = xqc_demo_relay_copy_namespace_tuple(
+        msg->track_namespace_tuple, msg->track_namespace_num);
+    if (entry->namespace_tuple == NULL) {
+        free(entry);
+        return;
+    }
+    entry->publisher = user_session;
+    entry->namespace_num = msg->track_namespace_num;
+    entry->next = g_relay_namespaces;
+    g_relay_namespaces = entry;
+
+    char *namespace_text = xqc_moq_namespace_tuple_join(
+        msg->track_namespace_tuple, msg->track_namespace_num);
+    printf("draft18_relay_namespace publisher:%p namespace:%s\n",
+           (void *)user_session, namespace_text ? namespace_text : "");
+    free(namespace_text);
+
+    xqc_demo_relay_subscription_t *subscription = g_relay_subscriptions;
+    while (subscription != NULL) {
+        xqc_demo_relay_subscription_t *next = subscription->next;
+        if (subscription->publisher == NULL
+            && xqc_demo_relay_namespace_equal(subscription->namespace_tuple,
+                subscription->namespace_num, msg->track_namespace_tuple,
+                msg->track_namespace_num))
+        {
+            xqc_demo_relay_forward_subscription(subscription);
+        }
+        subscription = next;
+    }
+}
+
 static void
 on_subscribe_namespace_callback(xqc_moq_user_session_t *user_session,
     xqc_moq_subscribe_namespace_msg_t *msg)
@@ -662,6 +962,53 @@ void on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     xqc_moq_session_t *session = user_session->session;
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
 
+    if (g_enable_draft18 && track == NULL && msg != NULL) {
+        xqc_demo_relay_subscription_t *subscription =
+            calloc(1, sizeof(*subscription));
+        if (subscription == NULL) {
+            printf("draft18_relay_pending allocation failed\n");
+            return;
+        }
+        subscription->namespace_tuple = xqc_demo_relay_copy_namespace_tuple(
+            msg->track_namespace_tuple, msg->track_namespace_num);
+        subscription->track_name = calloc(1, msg->track_name_len + 1);
+        if (subscription->namespace_tuple == NULL
+            || subscription->track_name == NULL)
+        {
+            xqc_demo_relay_free_subscription(subscription);
+            printf("draft18_relay_pending request copy failed\n");
+            return;
+        }
+        memcpy(subscription->track_name, msg->track_name,
+               msg->track_name_len);
+        subscription->subscriber = user_session;
+        subscription->subscriber_request_id = subscribe_id;
+        subscription->subscriber_track_alias = msg->track_alias;
+        subscription->publisher_request_id = XQC_MOQ_INVALID_ID;
+        subscription->namespace_num = msg->track_namespace_num;
+        subscription->filter_type = msg->filter_type;
+        subscription->start_group_id = msg->start_group_id;
+        subscription->start_object_id = msg->start_object_id;
+        subscription->end_group_id = msg->end_group_id;
+        subscription->end_object_id = msg->end_object_id;
+        subscription->next = g_relay_subscriptions;
+        g_relay_subscriptions = subscription;
+
+        struct timeval pending_timeout = { 1, 500000 };
+        subscription->timeout_event = evtimer_new(
+            eb, xqc_demo_relay_pending_timeout, subscription);
+        if (subscription->timeout_event != NULL) {
+            event_add(subscription->timeout_event, &pending_timeout);
+        }
+
+        ret = xqc_demo_relay_forward_subscription(subscription);
+        if (ret == 0) {
+            printf("draft18_relay_pending subscriber_request_id:%"PRIu64
+                   " track:%s\n", subscribe_id, subscription->track_name);
+        }
+        return;
+    }
+
     if (strcmp(msg->track_name, "video") == 0) {
         user_conn->video_subscribe_id = subscribe_id;
 
@@ -763,6 +1110,42 @@ void on_bitrate_change(xqc_moq_user_session_t *user_session, xqc_moq_track_t *tr
 void on_subscribe_ok(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, xqc_moq_subscribe_ok_msg_t *subscribe_ok)
 {
     DEBUG;
+    if (g_enable_draft18 && subscribe_ok != NULL) {
+        xqc_demo_relay_subscription_t *subscription = g_relay_subscriptions;
+        while (subscription != NULL) {
+            if (subscription->publisher == user_session
+                && subscription->publisher_request_id
+                    == subscribe_ok->subscribe_id)
+            {
+                xqc_moq_subscribe_ok_msg_t downstream;
+                memset(&downstream, 0, sizeof(downstream));
+                downstream.subscribe_id = subscription->subscriber_request_id;
+                downstream.track_alias = subscription->subscriber_track_alias;
+                downstream.expire_ms = subscribe_ok->expire_ms;
+                downstream.group_order = subscribe_ok->group_order;
+                downstream.content_exist = subscribe_ok->content_exist;
+                downstream.largest_group_id = subscribe_ok->largest_group_id;
+                downstream.largest_object_id = subscribe_ok->largest_object_id;
+                downstream.params_num = 0;
+                downstream.params = NULL;
+                downstream.track_properties = subscribe_ok->track_properties;
+                downstream.track_properties_len =
+                    subscribe_ok->track_properties_len;
+
+                xqc_int_t ret = xqc_moq_write_subscribe_ok(
+                    subscription->subscriber->session, &downstream);
+                printf("draft18_relay_subscribe_ok subscriber_request_id:%"PRIu64
+                       " publisher_request_id:%"PRIu64" ret:%d\n",
+                       subscription->subscriber_request_id,
+                       subscription->publisher_request_id, ret);
+                if (ret == XQC_OK) {
+                    xqc_demo_relay_remove_subscription(subscription);
+                }
+                return;
+            }
+            subscription = subscription->next;
+        }
+    }
     printf("on_subscribe_ok: track_namespace:%s track_name:%s\n",
            track_info ? track_info->track_namespace : "null",
            track_info ? track_info->track_name : "null");
@@ -1084,6 +1467,7 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
         .on_object = on_raw_object,
         .on_goaway = on_goaway,
         .on_datagram_object = on_datagram_object,
+        .on_publish_namespace = on_publish_namespace,
     };
     if (g_ns_callback_mode == 1) {
         callbacks.on_subscribe_namespace = on_subscribe_namespace_callback;
@@ -1203,6 +1587,7 @@ xqc_server_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void 
     printf("send_count:%u, lost_count:%u, lost_dgram_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" early_data_flag:%d, conn_err:%d, ack_info:%s, alpn:%s, fec_recovered:%d\n",
             stats.send_count, stats.lost_count, stats.lost_dgram_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.ack_info, stats.alpn, stats.fec_recover_pkt_cnt);
 
+    xqc_demo_relay_remove_session(user_session);
     xqc_moq_session_destroy(user_session->session);
     free(user_session);
 

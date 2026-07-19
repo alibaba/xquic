@@ -736,6 +736,41 @@ xqc_moq_write_request_ok(xqc_moq_session_t *session, uint64_t request_id,
 }
 
 xqc_int_t
+xqc_moq_write_request_error(xqc_moq_session_t *session, uint64_t request_id,
+    xqc_moq_request_error_msg_t *request_error)
+{
+    if (session == NULL || request_error == NULL
+        || !session->use_unified_setup)
+    {
+        return -XQC_EPARAM;
+    }
+
+    xqc_list_head_t *pos;
+    xqc_list_for_each(pos, &session->peer_request_stream_list) {
+        xqc_moq_stream_t *request_stream =
+            xqc_list_entry(pos, xqc_moq_stream_t, request_list_member);
+        if (!request_stream->peer_request
+            || request_stream->request_id != request_id)
+        {
+            continue;
+        }
+        if (request_stream->response_sent) {
+            return -XQC_EPARAM;
+        }
+
+        xqc_int_t ret = xqc_moq_write_msg_generic(session, request_stream,
+            &request_error->msg_base,
+            xqc_moq_msg_request_error_init_handler);
+        if (ret == XQC_OK) {
+            request_stream->response_sent = 1;
+        }
+        return ret;
+    }
+
+    return -XQC_ENULLPTR;
+}
+
+xqc_int_t
 xqc_moq_write_publish_namespace_done(xqc_moq_session_t *session,
     xqc_moq_publish_namespace_done_msg_t *publish_namespace_done)
 {

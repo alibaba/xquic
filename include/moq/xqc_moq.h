@@ -563,6 +563,9 @@ typedef void (*xqc_moq_on_request_error_pt)(xqc_moq_user_session_t *user_session
     uint64_t request_id, xqc_moq_msg_type_t request_type,
     xqc_moq_request_error_msg_t *msg);
 
+typedef void (*xqc_moq_on_publish_namespace_pt)(xqc_moq_user_session_t *user_session,
+    xqc_moq_publish_namespace_msg_t *msg);
+
 typedef void (*xqc_moq_on_subscribe_namespace_pt)(xqc_moq_user_session_t *user_session,
     xqc_moq_subscribe_namespace_msg_t *msg);
 
@@ -601,6 +604,7 @@ typedef struct {
     xqc_moq_on_goaway_pt            on_goaway; /* Optional, callback for GOAWAY message */
     xqc_moq_on_request_ok_pt        on_request_ok; /* Optional, response on a local request stream */
     xqc_moq_on_request_error_pt     on_request_error; /* Optional, error response on a local request stream */
+    xqc_moq_on_publish_namespace_pt on_publish_namespace; /* Optional, incoming namespace advertisement */
     xqc_moq_on_subscribe_namespace_pt         on_subscribe_namespace; /* Optional, server-side: incoming request */
     xqc_moq_on_subscribe_namespace_ok_pt      on_subscribe_namespace_ok; /* Optional, client-side: response */
     xqc_moq_on_subscribe_namespace_error_pt   on_subscribe_namespace_error; /* Optional, client-side: response */
@@ -804,6 +808,14 @@ xqc_int_t xqc_moq_write_subscribe_error(xqc_moq_session_t *session, xqc_moq_subs
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_request_ok(xqc_moq_session_t *session,
     uint64_t request_id, xqc_moq_request_ok_msg_t *request_ok);
+
+/*
+ * Send a draft-18 REQUEST_ERROR on the peer-initiated request stream
+ * identified by request_id. A request stream can receive exactly one response.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_request_error(xqc_moq_session_t *session,
+    uint64_t request_id, xqc_moq_request_error_msg_t *request_error);
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_publish_ok(xqc_moq_session_t *session, xqc_moq_publish_ok_msg_t *publish_ok);

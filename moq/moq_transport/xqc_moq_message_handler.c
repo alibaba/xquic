@@ -399,6 +399,16 @@ xqc_moq_on_subscribe(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, x
     track = xqc_moq_find_track_by_ns_tuple(session, subscribe_msg->track_namespace_tuple,
                 subscribe_msg->track_namespace_num, subscribe_msg->track_name, XQC_MOQ_TRACK_FOR_PUB);
     if (track == NULL) {
+        if (session->use_unified_setup
+            && session->session_callbacks.on_subscribe != NULL)
+        {
+            xqc_log(session->log, XQC_LOG_INFO,
+                    "|delegate unknown track subscription|subscribe_id:%ui|track_name:%s|",
+                    subscribe_msg->subscribe_id, subscribe_msg->track_name);
+            session->session_callbacks.on_subscribe(session->user_session,
+                subscribe_msg->subscribe_id, NULL, subscribe_msg);
+            return;
+        }
         xqc_log(session->log, XQC_LOG_ERROR, "|track not found|track_alias:%ui|", subscribe_msg->track_alias);
         goto error;
     }
@@ -714,6 +724,11 @@ xqc_moq_on_publish_namespace(xqc_moq_session_t *session, xqc_moq_stream_t *moq_s
         xqc_log(session->log, XQC_LOG_INFO,
                 "|publish_namespace request accepted|request_id:%ui|",
                 msg->request_id);
+    }
+
+    if (session->session_callbacks.on_publish_namespace != NULL) {
+        session->session_callbacks.on_publish_namespace(session->user_session,
+                                                         msg);
     }
 }
 

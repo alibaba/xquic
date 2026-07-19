@@ -21,6 +21,7 @@
 //#define XQC_MOQ_VERSION 0x00000001
 #define XQC_MOQ_VERSION_5 0xff000005
 #define XQC_MOQ_VERSION_14 0xff00000E
+#define XQC_MOQ_VERSION_18 0xff000012
 
 typedef struct xqc_moq_pending_ns_request_s {
     xqc_list_head_t             list_member;
@@ -42,6 +43,7 @@ typedef struct xqc_moq_session_s {
     xqc_timer_manager_t             *timer_manager;
     uint8_t                         session_setup_done;
     xqc_moq_stream_t                *ctl_stream;
+    xqc_moq_stream_t                *peer_ctl_stream;
     xqc_moq_datachannel_t           datachannel;
     xqc_moq_session_callbacks_t     session_callbacks;
     xqc_list_head_t                 local_subscribe_list;
@@ -58,6 +60,7 @@ typedef struct xqc_moq_session_s {
     xqc_int_t                       enable_fec;
     float                           fec_code_rate;
     xqc_int_t                       use_client_setup_v14;
+    xqc_int_t                       use_setup_v18;
     uint8_t                         enable_datachannel;
     uint8_t                         enable_catalog;
     uint8_t                         goaway_sent;

@@ -331,6 +331,26 @@ error:
 }
 
 void
+xqc_moq_on_setup_v18(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream,
+    xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_setup_msg_t *setup = (xqc_moq_setup_msg_t *)msg_base;
+    if (!session->use_setup_v18 || session->session_setup_done
+        || (session->peer_ctl_stream && session->peer_ctl_stream != moq_stream))
+    {
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION, "invalid draft-18 SETUP");
+        return;
+    }
+
+    session->peer_ctl_stream = moq_stream;
+    session->version = XQC_MOQ_VERSION_18;
+    session->session_setup_done = 1;
+    xqc_log(session->log, XQC_LOG_INFO, "|setup_v18_complete|options_len:%ui|",
+            setup->options_len);
+    xqc_moq_session_on_setup(session, NULL, NULL, 0);
+}
+
+void
 xqc_moq_on_subscribe(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
 {
     xqc_moq_subscribe_t *subscribe;

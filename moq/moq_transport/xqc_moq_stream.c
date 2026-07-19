@@ -43,8 +43,13 @@ xqc_moq_stream_destroy(xqc_moq_stream_t *stream)
     xqc_stream_t *quic_stream = stream->trans_ops.quic_stream(stream->trans_stream);
     xqc_usec_t now = xqc_monotonic_timestamp();
     
-    if (stream == stream->session->ctl_stream) {
-        stream->session->ctl_stream = NULL;
+    if (stream == session->ctl_stream || stream == session->peer_ctl_stream) {
+        if (stream == session->ctl_stream) {
+            session->ctl_stream = NULL;
+        }
+        if (stream == session->peer_ctl_stream) {
+            session->peer_ctl_stream = NULL;
+        }
         /* The control stream MUST NOT be abruptly closed at the underlying transport layer.
          * Doing so results in the session being closed as a 'Protocol Violation'. */
         if (quic_stream->stream_conn->conn_state <= XQC_CONN_STATE_ESTABED) {
@@ -97,6 +102,14 @@ xqc_moq_stream_destroy(xqc_moq_stream_t *stream)
     xqc_list_del_init(&stream->recv_list_member);
 
     xqc_free(stream);
+}
+
+static xqc_int_t
+xqc_moq_stream_is_control(xqc_moq_stream_t *moq_stream)
+{
+    return moq_stream->session
+        && (moq_stream == moq_stream->session->ctl_stream
+            || moq_stream == moq_stream->session->peer_ctl_stream);
 }
 
 xqc_moq_stream_t *
@@ -185,7 +198,7 @@ xqc_moq_stream_get_or_alloc_cur_decode_msg(xqc_moq_stream_t *moq_stream)
 
     xqc_moq_msg_type_t type = moq_stream->decode_msg_ctx.cur_msg_type;
     // on non-control streams, SUBGROUP_HEADER types (0x10-0x1D) map to the internal SUBGROUP message type
-    if (moq_stream->session && moq_stream != moq_stream->session->ctl_stream
+    if (!xqc_moq_stream_is_control(moq_stream)
         && type >= 0x10 && type <= 0x1D) {
         type = XQC_MOQ_MSG_SUBGROUP;
     } else if (type == XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT) {
@@ -205,7 +218,7 @@ void
 xqc_moq_stream_free_cur_decode_msg(xqc_moq_stream_t *moq_stream)
 {
     xqc_moq_msg_type_t type = moq_stream->decode_msg_ctx.cur_msg_type;
-    if (moq_stream->session && moq_stream != moq_stream->session->ctl_stream
+    if (!xqc_moq_stream_is_control(moq_stream)
         && type >= 0x10 && type <= 0x1D) {
         type = XQC_MOQ_MSG_SUBGROUP;
     } else if (type == XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT) {
@@ -251,9 +264,17 @@ xqc_moq_stream_process(xqc_moq_stream_t *moq_stream, uint8_t *buf, size_t buf_le
     do {
         switch (moq_stream->decode_msg_ctx.cur_decode_state) {
             case XQC_MOQ_DECODE_MSG_TYPE:
-                ret = xqc_moq_msg_decode_type(moq_stream->read_buf + moq_stream->read_buf_processed,
-                                              moq_stream->read_buf_len - moq_stream->read_buf_processed,
-                                              &msg_type, &wait_more_data);
+                if (moq_stream->session->use_setup_v18) {
+                    ret = xqc_moq_msg_decode_type_v18(
+                        moq_stream->read_buf + moq_stream->read_buf_processed,
+                        moq_stream->read_buf_len - moq_stream->read_buf_processed,
+                        &msg_type, &wait_more_data);
+                } else {
+                    ret = xqc_moq_msg_decode_type(
+                        moq_stream->read_buf + moq_stream->read_buf_processed,
+                        moq_stream->read_buf_len - moq_stream->read_buf_processed,
+                        &msg_type, &wait_more_data);
+                }
                 if (ret < 0) {
                     xqc_log(moq_stream->session->log, XQC_LOG_ERROR,
                             "|decode message type error|ret:%d|", ret);
@@ -269,6 +290,20 @@ xqc_moq_stream_process(xqc_moq_stream_t *moq_stream, uint8_t *buf, size_t buf_le
                 if (wait_more_data == 1) {
                     stop = 1;
                     break;
+                }
+
+                if (moq_stream->session->use_setup_v18 && msg_type == XQC_MOQ_MSG_SETUP) {
+                    if (moq_stream->session->peer_ctl_stream
+                        && moq_stream->session->peer_ctl_stream != moq_stream)
+                    {
+                        return -XQC_EILLEGAL_FRAME;
+                    }
+                    moq_stream->session->peer_ctl_stream = moq_stream;
+                } else if (moq_stream->session->use_setup_v18
+                           && moq_stream == moq_stream->session->peer_ctl_stream
+                           && !moq_stream->session->session_setup_done)
+                {
+                    return -XQC_EILLEGAL_FRAME;
                 }
 
                 DEBUG_PRINTF(">>>msg_type:0x%x\n",msg_type);
@@ -308,7 +343,7 @@ xqc_moq_stream_process(xqc_moq_stream_t *moq_stream, uint8_t *buf, size_t buf_le
                                || cur_msg_type == XQC_MOQ_MSG_GROUP_STREAM_OBJECT) {
                         next_state = XQC_MOQ_DECODE_MSG;
                         next_msg_type = XQC_MOQ_MSG_GROUP_STREAM_OBJECT;
-                    } else if (moq_stream->session && moq_stream != moq_stream->session->ctl_stream
+                    } else if (!xqc_moq_stream_is_control(moq_stream)
                                && cur_msg_type >= 0x10 && cur_msg_type <= 0x1D) {
                         next_state = XQC_MOQ_DECODE_MSG;
                         next_msg_type = XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT;

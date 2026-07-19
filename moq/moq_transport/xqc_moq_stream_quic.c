@@ -133,7 +133,7 @@ xqc_moq_quic_stream_create_notify(xqc_stream_t *stream, void *user_data)
     moq_stream->trans_stream = stream;
     xqc_stream_set_user_data(stream, moq_stream);
 
-    if (xqc_get_stream_type(stream->stream_id) == XQC_CLI_BID) {
+    if (!session->use_setup_v18 && xqc_get_stream_type(stream->stream_id) == XQC_CLI_BID) {
         if (session->ctl_stream == NULL) {
             session->ctl_stream = moq_stream;
         } else {

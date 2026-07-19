@@ -23,11 +23,94 @@ xqc_moq_init_alpn(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs, xqc_moq_
     }
 }
 
+void
+xqc_moq_init_alpn_draft18(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs,
+    xqc_moq_transport_type_t transport_type)
+{
+    if (transport_type != XQC_MOQ_TRANSPORT_QUIC) {
+        return;
+    }
+    xqc_app_proto_callbacks_t ap_cbs = {
+        .conn_cbs   = *conn_cbs,
+        .stream_cbs = xqc_moq_quic_stream_callbacks,
+        .dgram_cbs  = xqc_moq_quic_datagram_callbacks,
+    };
+    xqc_engine_register_alpn(engine, XQC_ALPN_MOQ_DRAFT_18,
+        sizeof(XQC_ALPN_MOQ_DRAFT_18) - 1, &ap_cbs, NULL);
+}
+
+static xqc_int_t
+xqc_moq_setup_v18_append_string_option(uint8_t **pos, uint8_t *end,
+    uint64_t delta_type, const char *value)
+{
+    size_t value_len = strlen(value);
+    size_t needed = xqc_moq_v18_varint_len(delta_type)
+        + xqc_moq_v18_varint_len(value_len) + value_len;
+    if ((size_t)(end - *pos) < needed) {
+        return -XQC_ELIMIT;
+    }
+    *pos = xqc_moq_v18_put_varint(*pos, delta_type);
+    *pos = xqc_moq_v18_put_varint(*pos, value_len);
+    xqc_memcpy(*pos, value, value_len);
+    *pos += value_len;
+    return XQC_OK;
+}
+
+static xqc_int_t
+xqc_moq_write_initial_setup_v18(xqc_moq_session_t *session,
+    const char *authority, const char *path)
+{
+    xqc_moq_setup_msg_t setup;
+    xqc_memzero(&setup, sizeof(setup));
+
+    uint8_t *options = NULL;
+    if (session->engine->eng_type == XQC_ENGINE_CLIENT) {
+        if (authority == NULL || authority[0] == '\0') {
+            return -XQC_EPARAM;
+        }
+        if (path == NULL) {
+            path = "";
+        }
+
+        size_t path_len = strlen(path);
+        size_t authority_len = strlen(authority);
+        if (path_len > UINT16_MAX || authority_len > UINT16_MAX
+            || path_len + authority_len > UINT16_MAX - 32)
+        {
+            return -XQC_ELIMIT;
+        }
+        size_t options_cap = path_len + authority_len + 32;
+        options = xqc_malloc(options_cap);
+        if (options == NULL) {
+            return -XQC_EMALLOC;
+        }
+        uint8_t *pos = options;
+        uint8_t *end = options + options_cap;
+
+        /* Options are delta encoded in ascending key order: PATH (0x01), AUTHORITY (0x05). */
+        xqc_int_t ret = xqc_moq_setup_v18_append_string_option(&pos, end, 0x01, path);
+        if (ret == XQC_OK) {
+            ret = xqc_moq_setup_v18_append_string_option(&pos, end, 0x04, authority);
+        }
+        if (ret != XQC_OK) {
+            xqc_free(options);
+            return ret;
+        }
+        setup.options = options;
+        setup.options_len = pos - options;
+    }
+
+    xqc_int_t ret = xqc_moq_write_setup_v18(session, &setup);
+    xqc_free(options);
+    return ret;
+}
+
 static xqc_moq_session_t *
 xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session,
     xqc_moq_transport_type_t transport_type, xqc_moq_role_t role,
     xqc_moq_session_callbacks_t callbacks, char *extdata,
-    xqc_int_t enable_client_setup_v14,
+    xqc_int_t enable_client_setup_v14, xqc_int_t enable_setup_v18,
+    const char *authority, const char *path,
     xqc_moq_message_parameter_t *setup_params, uint64_t setup_params_num)
 {
     xqc_int_t ret = 0;
@@ -79,10 +162,25 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
     xqc_init_list_head(&session->local_ns_pending_list);
 
     session->use_client_setup_v14 = enable_client_setup_v14;
+    session->use_setup_v18 = enable_setup_v18;
     /* Request IDs use parity per endpoint: client even, server odd. */
     session->request_id_allocator = (session->engine->eng_type == XQC_ENGINE_CLIENT) ? 0 : 1;
 
-    if (session->engine->eng_type == XQC_ENGINE_CLIENT) {
+    if (session->use_setup_v18) {
+        xqc_moq_stream_t *stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_UNI);
+        if (stream == NULL) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|create draft-18 control stream error|");
+            goto error;
+        }
+        session->ctl_stream = stream;
+        session->version = XQC_MOQ_VERSION_18;
+        ret = xqc_moq_write_initial_setup_v18(session, authority, path);
+        if (ret < 0) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|write draft-18 SETUP error|ret:%d|", ret);
+            goto error;
+        }
+
+    } else if (session->engine->eng_type == XQC_ENGINE_CLIENT) {
         xqc_moq_stream_t *stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_BIDI);
         if (stream == NULL) {
             xqc_log(session->log, XQC_LOG_ERROR, "|create moq bidi stream error|");
@@ -169,7 +267,8 @@ xqc_moq_session_create(void *conn, xqc_moq_user_session_t *user_session,
 {
     return xqc_moq_session_create_internal(conn, user_session, transport_type,
                                            role, callbacks, extdata,
-                                           enable_client_setup_v14,
+                                           enable_client_setup_v14, 0,
+                                           NULL, NULL,
                                            NULL, 0);
 }
 
@@ -182,8 +281,20 @@ xqc_moq_session_create_with_params(void *conn, xqc_moq_user_session_t *user_sess
 {
     return xqc_moq_session_create_internal(conn, user_session, transport_type,
                                            role, callbacks, extdata,
-                                           enable_client_setup_v14,
+                                           enable_client_setup_v14, 0,
+                                           NULL, NULL,
                                            setup_params, setup_params_num);
+}
+
+xqc_moq_session_t *
+xqc_moq_session_create_draft18(void *conn, xqc_moq_user_session_t *user_session,
+    xqc_moq_transport_type_t transport_type, xqc_moq_role_t role,
+    xqc_moq_session_callbacks_t callbacks, const char *authority, const char *path)
+{
+    return xqc_moq_session_create_internal(conn, user_session, transport_type,
+                                           role, callbacks, NULL,
+                                           0, 1, authority, path,
+                                           NULL, 0);
 }
 
 void

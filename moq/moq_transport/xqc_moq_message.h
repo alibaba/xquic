@@ -111,6 +111,13 @@ typedef struct xqc_moq_server_setup_v14_msg_s {
     xqc_moq_message_parameter_t *params;
 } xqc_moq_server_setup_v14_msg_t;
 
+typedef struct xqc_moq_setup_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint8_t                    *options;
+    uint64_t                    options_len;
+    uint64_t                    options_processed;
+} xqc_moq_setup_msg_t;
+
 typedef struct xqc_moq_object_stream_msg_s {
     xqc_moq_msg_base_t          msg_base;
     uint64_t                    subscribe_id;
@@ -246,6 +253,15 @@ void xqc_moq_object_datagram_free_fields(xqc_moq_object_datagram_msg_t *dgram);
 
 xqc_int_t xqc_moq_msg_decode_type(uint8_t *buf, size_t buf_len, xqc_moq_msg_type_t *type, xqc_int_t *wait_more_data);
 
+size_t xqc_moq_v18_varint_len(uint64_t value);
+
+uint8_t *xqc_moq_v18_put_varint(uint8_t *buf, uint64_t value);
+
+xqc_int_t xqc_moq_v18_read_varint(const uint8_t *buf, const uint8_t *end, uint64_t *value);
+
+xqc_int_t xqc_moq_msg_decode_type_v18(uint8_t *buf, size_t buf_len,
+    xqc_moq_msg_type_t *type, xqc_int_t *wait_more_data);
+
 void xqc_moq_decode_msg_ctx_reset(xqc_moq_decode_msg_ctx_t *ctx);
 
 void xqc_moq_decode_params_ctx_reset(xqc_moq_decode_params_ctx_t *ctx);
@@ -275,6 +291,22 @@ xqc_int_t xqc_moq_msg_encode_client_setup(xqc_moq_msg_base_t *msg_base, uint8_t 
 
 xqc_int_t xqc_moq_msg_decode_client_setup(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
     xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
+
+void *xqc_moq_msg_create_setup();
+
+void xqc_moq_msg_free_setup(void *msg);
+
+xqc_moq_msg_type_t xqc_moq_msg_setup_type();
+
+void xqc_moq_msg_setup_init_handler(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_setup_len(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_setup(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
+
+xqc_int_t xqc_moq_msg_decode_setup(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base,
+    xqc_int_t *finish, xqc_int_t *wait_more_data);
 
 void *xqc_moq_msg_create_client_setup_v14();
 

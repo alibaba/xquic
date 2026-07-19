@@ -10,6 +10,7 @@ extern "C" {
 // #define XQC_ALPN_MOQ_QUIC         "moq-quic"
 #define XQC_ALPN_MOQ_QUIC         "moq-00"
 #define XQC_ALPN_MOQ_QUIC_INTEROP "moq-14" // used for imquic
+#define XQC_ALPN_MOQ_DRAFT_18     "moqt-18"
 #define XQC_ALPN_MOQ_WEBTRANSPORT "moq-wt"
 
 typedef enum {
@@ -203,6 +204,7 @@ typedef enum {
     XQC_MOQ_MSG_UNSUBSCRIBE_NAMESPACE      = 0x14,
     XQC_MOQ_MSG_CLIENT_SETUP_V14    = 0x20,
     XQC_MOQ_MSG_SERVER_SETUP_V14    = 0x21,
+    XQC_MOQ_MSG_SETUP               = 0x2F00,
     XQC_MOQ_MSG_CLIENT_SETUP        = 0x40,
     XQC_MOQ_MSG_SERVER_SETUP        = 0x41,
     XQC_MOQ_MSG_STREAM_HEADER_TRACK = 0x50,
@@ -558,6 +560,10 @@ typedef struct {
 XQC_EXPORT_PUBLIC_API
 void xqc_moq_init_alpn(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs, xqc_moq_transport_type_t transport_type);
 
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_init_alpn_draft18(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs,
+    xqc_moq_transport_type_t transport_type);
+
 /**
  * @param extdata The client can send extdata when creating a session. 
  *                This extdata will be received by the server in the on_session_setup callback.
@@ -579,6 +585,18 @@ xqc_moq_session_t *xqc_moq_session_create_with_params(void *conn, xqc_moq_user_s
     xqc_moq_transport_type_t type, xqc_moq_role_t role, xqc_moq_session_callbacks_t callbacks,
     char *extdata, xqc_int_t enable_client_setup_v14,
     xqc_moq_message_parameter_t *setup_params, uint64_t setup_params_num);
+
+/**
+ * @brief Create a draft-18 MOQT session negotiated with the "moqt-18" ALPN.
+ * @param authority Required for a raw QUIC client; formatted as host[:port].
+ * @param path Raw QUIC URI path-abempty (plus query); defaults to empty when NULL.
+ * @note authority and path are only used during this call and are not retained.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_moq_session_t *xqc_moq_session_create_draft18(void *conn,
+    xqc_moq_user_session_t *user_session, xqc_moq_transport_type_t type,
+    xqc_moq_role_t role, xqc_moq_session_callbacks_t callbacks,
+    const char *authority, const char *path);
 
 XQC_EXPORT_PUBLIC_API
 void xqc_moq_session_destroy(xqc_moq_session_t *session);

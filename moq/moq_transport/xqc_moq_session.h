@@ -55,6 +55,7 @@ typedef struct xqc_moq_session_s {
     xqc_list_head_t                 local_advertised_namespace_list;
     xqc_list_head_t                 peer_advertised_namespace_list;
     xqc_list_head_t                 local_request_stream_list;
+    xqc_list_head_t                 peer_request_stream_list;
     uint64_t                        request_id_allocator;
     uint64_t                        track_alias_allocator;
     xqc_moq_bitrate_allocator_t     bitrate_allocator;
@@ -69,6 +70,8 @@ typedef struct xqc_moq_session_s {
     uint8_t                         draining;
     uint8_t                         peer_ns_request_id_seen;
     uint64_t                        max_peer_ns_request_id;
+    uint8_t                         peer_request_id_seen;
+    uint64_t                        max_peer_request_id;
     xqc_list_head_t                 local_ns_pending_list;
     char                            *goaway_new_session_uri;
     size_t                          goaway_new_session_uri_len;

@@ -102,7 +102,7 @@ const xqc_moq_msg_base_t subscribe_request_base = {
     .type       = xqc_moq_msg_subscribe_type,
     .encode_len = xqc_moq_msg_encode_subscribe_request_len,
     .encode     = xqc_moq_msg_encode_subscribe_request,
-    .decode     = xqc_moq_msg_decode_subscribe,
+    .decode     = xqc_moq_msg_decode_subscribe_request,
     .on_msg     = xqc_moq_on_subscribe,
 };
 
@@ -127,6 +127,14 @@ const xqc_moq_msg_base_t subscribe_ok_base = {
     .encode_len = xqc_moq_msg_encode_subscribe_ok_len,
     .encode     = xqc_moq_msg_encode_subscribe_ok,
     .decode     = xqc_moq_msg_decode_subscribe_ok,
+    .on_msg     = xqc_moq_on_subscribe_ok,
+};
+
+const xqc_moq_msg_base_t subscribe_ok_response_base = {
+    .type       = xqc_moq_msg_subscribe_ok_type,
+    .encode_len = xqc_moq_msg_encode_subscribe_ok_response_len,
+    .encode     = xqc_moq_msg_encode_subscribe_ok_response,
+    .decode     = xqc_moq_msg_decode_subscribe_ok_response,
     .on_msg     = xqc_moq_on_subscribe_ok,
 };
 
@@ -714,6 +722,168 @@ xqc_moq_msg_decode_params_v14(uint8_t *buf, size_t buf_len, xqc_moq_decode_param
     }
 
     return processed;
+}
+
+typedef enum {
+    XQC_MOQ_PARAM_ENCODING_VI64,
+    XQC_MOQ_PARAM_ENCODING_U8,
+    XQC_MOQ_PARAM_ENCODING_LOCATION,
+    XQC_MOQ_PARAM_ENCODING_BYTES,
+} xqc_moq_param_encoding_t;
+
+static xqc_int_t
+xqc_moq_msg_param_encoding_draft18(uint64_t type,
+    xqc_moq_param_encoding_t *encoding)
+{
+    switch (type) {
+    case 0x02: /* OBJECT_DELIVERY_TIMEOUT */
+    case 0x04: /* RENDEZVOUS_TIMEOUT */
+    case 0x06: /* SUBGROUP_DELIVERY_TIMEOUT */
+    case 0x08: /* EXPIRES */
+    case 0x0A: /* FILL_TIMEOUT */
+    case 0x32: /* NEW_GROUP_REQUEST */
+        *encoding = XQC_MOQ_PARAM_ENCODING_VI64;
+        return XQC_OK;
+    case 0x10: /* FORWARD */
+    case 0x20: /* SUBSCRIBER_PRIORITY */
+    case 0x22: /* GROUP_ORDER */
+        *encoding = XQC_MOQ_PARAM_ENCODING_U8;
+        return XQC_OK;
+    case 0x09: /* LARGEST_OBJECT */
+        *encoding = XQC_MOQ_PARAM_ENCODING_LOCATION;
+        return XQC_OK;
+    case XQC_MOQ_PARAM_AUTHORIZATION_TOKEN:
+    case 0x21: /* SUBSCRIPTION_FILTER */
+        *encoding = XQC_MOQ_PARAM_ENCODING_BYTES;
+        return XQC_OK;
+    default:
+        return -XQC_EILLEGAL_FRAME;
+    }
+}
+
+static xqc_int_t
+xqc_moq_msg_decode_params_draft18(uint8_t **pos, uint8_t *end,
+    xqc_moq_message_parameter_t *params, uint64_t params_num)
+{
+    uint64_t previous_type = 0;
+    for (uint64_t i = 0; i < params_num; i++) {
+        uint64_t delta_type = 0;
+        xqc_int_t ret = xqc_vi64_read(*pos, end, &delta_type);
+        if (ret < 0 || UINT64_MAX - previous_type < delta_type) {
+            return -XQC_EILLEGAL_FRAME;
+        }
+        *pos += ret;
+        uint64_t type = previous_type + delta_type;
+        if (i > 0 && delta_type == 0
+            && type != XQC_MOQ_PARAM_AUTHORIZATION_TOKEN)
+        {
+            return -XQC_EILLEGAL_FRAME;
+        }
+
+        xqc_moq_param_encoding_t encoding;
+        ret = xqc_moq_msg_param_encoding_draft18(type, &encoding);
+        if (ret != XQC_OK) {
+            return ret;
+        }
+        params[i].type = type;
+
+        if (encoding == XQC_MOQ_PARAM_ENCODING_U8) {
+            if (*pos >= end) {
+                return -XQC_EILLEGAL_FRAME;
+            }
+            params[i].is_integer = 1;
+            params[i].int_value = **pos;
+            (*pos)++;
+
+        } else if (encoding == XQC_MOQ_PARAM_ENCODING_VI64) {
+            uint64_t value = 0;
+            ret = xqc_vi64_read(*pos, end, &value);
+            if (ret < 0) {
+                return -XQC_EILLEGAL_FRAME;
+            }
+            *pos += ret;
+            params[i].is_integer = 1;
+            params[i].int_value = value;
+
+        } else if (encoding == XQC_MOQ_PARAM_ENCODING_LOCATION) {
+            uint8_t *value_start = *pos;
+            uint64_t group = 0, object = 0;
+            ret = xqc_vi64_read(*pos, end, &group);
+            if (ret < 0) {
+                return -XQC_EILLEGAL_FRAME;
+            }
+            *pos += ret;
+            ret = xqc_vi64_read(*pos, end, &object);
+            if (ret < 0) {
+                return -XQC_EILLEGAL_FRAME;
+            }
+            *pos += ret;
+            params[i].length = *pos - value_start;
+            params[i].value = xqc_malloc(params[i].length);
+            if (params[i].value == NULL) {
+                return -XQC_EMALLOC;
+            }
+            xqc_memcpy(params[i].value, value_start, params[i].length);
+
+        } else {
+            uint64_t value_len = 0;
+            ret = xqc_vi64_read(*pos, end, &value_len);
+            if (ret < 0 || value_len > XQC_MOQ_MAX_PARAM_VALUE_LEN
+                || (uint64_t)(end - *pos - ret) < value_len)
+            {
+                return -XQC_EILLEGAL_FRAME;
+            }
+            *pos += ret;
+            params[i].length = value_len;
+            if (value_len > 0) {
+                params[i].value = xqc_malloc(value_len);
+                if (params[i].value == NULL) {
+                    return -XQC_EMALLOC;
+                }
+                xqc_memcpy(params[i].value, *pos, value_len);
+                *pos += value_len;
+            }
+        }
+        previous_type = type;
+    }
+    return XQC_OK;
+}
+
+static xqc_int_t
+xqc_moq_msg_validate_track_properties_draft18(uint8_t *pos, uint8_t *end)
+{
+    uint64_t previous_type = 0;
+    while (pos < end) {
+        uint64_t delta_type = 0;
+        xqc_int_t ret = xqc_vi64_read(pos, end, &delta_type);
+        if (ret < 0 || UINT64_MAX - previous_type < delta_type) {
+            return -XQC_EILLEGAL_FRAME;
+        }
+        pos += ret;
+        uint64_t type = previous_type + delta_type;
+        if (type >= 0x4000 && type <= 0x7FFF) {
+            return -XQC_EPROTO;
+        }
+        if (type & 1) {
+            uint64_t value_len = 0;
+            ret = xqc_vi64_read(pos, end, &value_len);
+            if (ret < 0 || value_len > UINT16_MAX
+                || (uint64_t)(end - pos - ret) < value_len)
+            {
+                return -XQC_EILLEGAL_FRAME;
+            }
+            pos += ret + value_len;
+        } else {
+            uint64_t value = 0;
+            ret = xqc_vi64_read(pos, end, &value);
+            if (ret < 0) {
+                return -XQC_EILLEGAL_FRAME;
+            }
+            pos += ret;
+        }
+        previous_type = type;
+    }
+    return pos == end ? XQC_OK : -XQC_EILLEGAL_FRAME;
 }
 
 static xqc_moq_dgram_type_flags_t
@@ -2019,6 +2189,7 @@ xqc_moq_msg_free_subscribe(void *msg)
     subscribe->track_namespace_tuple = NULL;
     xqc_free(subscribe->track_name);
     xqc_moq_msg_free_params(subscribe->params, subscribe->params_num);
+    xqc_free(subscribe->payload);
     xqc_free(subscribe);
 }
 
@@ -2167,6 +2338,148 @@ xqc_moq_msg_encode_subscribe_request(xqc_moq_msg_base_t *msg_base, uint8_t *buf,
     }
     p = xqc_vi64_write(p, subscribe->params_num);
     return p - buf;
+}
+
+xqc_int_t
+xqc_moq_msg_decode_subscribe_request(uint8_t *buf, size_t buf_len,
+    uint8_t stream_fin, xqc_moq_decode_msg_ctx_t *msg_ctx,
+    xqc_moq_msg_base_t *msg_base, xqc_int_t *finish,
+    xqc_int_t *wait_more_data)
+{
+    xqc_moq_subscribe_msg_t *subscribe = (xqc_moq_subscribe_msg_t *)msg_base;
+    xqc_int_t processed = 0;
+    *finish = 0;
+    *wait_more_data = 0;
+
+    if (msg_ctx->cur_field_idx == 0) {
+        uint64_t length = 0;
+        xqc_int_t ret = xqc_moq_length_read(buf, buf + buf_len, &length);
+        if (ret < 0) {
+            if (stream_fin) {
+                return -XQC_EILLEGAL_FRAME;
+            }
+            *wait_more_data = 1;
+            return 0;
+        }
+        if (length < 5 || length > UINT16_MAX) {
+            return -XQC_EILLEGAL_FRAME;
+        }
+        subscribe->payload_len = length;
+        subscribe->payload = xqc_malloc(length);
+        if (subscribe->payload == NULL) {
+            return -XQC_EMALLOC;
+        }
+        msg_ctx->msg_declared_length = length;
+        msg_ctx->cur_field_idx = 1;
+        processed += ret;
+    }
+
+    size_t available = buf_len - processed;
+    size_t remaining = subscribe->payload_len - subscribe->payload_processed;
+    size_t to_copy = available < remaining ? available : remaining;
+    if (to_copy > 0) {
+        xqc_memcpy(subscribe->payload + subscribe->payload_processed,
+                   buf + processed, to_copy);
+        subscribe->payload_processed += to_copy;
+        processed += to_copy;
+    }
+    if (subscribe->payload_processed != subscribe->payload_len) {
+        if (stream_fin) {
+            return -XQC_EILLEGAL_FRAME;
+        }
+        *wait_more_data = 1;
+        return processed;
+    }
+
+    uint8_t *p = subscribe->payload;
+    uint8_t *end = subscribe->payload + subscribe->payload_len;
+    xqc_int_t ret = xqc_vi64_read(p, end, &subscribe->subscribe_id);
+    if (ret < 0) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+    p += ret;
+
+    ret = xqc_vi64_read(p, end, &subscribe->track_namespace_num);
+    if (ret < 0 || subscribe->track_namespace_num == 0
+        || subscribe->track_namespace_num > XQC_MOQ_MAX_NAMESPACE_TUPLE_ELEMS)
+    {
+        return -XQC_EILLEGAL_FRAME;
+    }
+    p += ret;
+    subscribe->track_namespace_tuple = xqc_calloc(
+        subscribe->track_namespace_num, sizeof(xqc_moq_track_ns_field_t));
+    if (subscribe->track_namespace_tuple == NULL) {
+        return -XQC_EMALLOC;
+    }
+
+    size_t full_track_name_len = 0;
+    for (uint64_t i = 0; i < subscribe->track_namespace_num; i++) {
+        uint64_t field_len = 0;
+        ret = xqc_vi64_read(p, end, &field_len);
+        if (ret < 0 || field_len == 0 || field_len > XQC_MOQ_MAX_NAME_LEN) {
+            return -XQC_EILLEGAL_FRAME;
+        }
+        p += ret;
+        if ((uint64_t)(end - p) < field_len
+            || full_track_name_len > XQC_MOQ_MAX_FULL_TRACK_NAME_LEN - field_len)
+        {
+            return -XQC_EILLEGAL_FRAME;
+        }
+        subscribe->track_namespace_tuple[i].len = field_len;
+        subscribe->track_namespace_tuple[i].data = xqc_malloc(field_len);
+        if (subscribe->track_namespace_tuple[i].data == NULL) {
+            return -XQC_EMALLOC;
+        }
+        xqc_memcpy(subscribe->track_namespace_tuple[i].data, p, field_len);
+        p += field_len;
+        full_track_name_len += field_len;
+    }
+
+    uint64_t track_name_len = 0;
+    ret = xqc_vi64_read(p, end, &track_name_len);
+    if (ret < 0 || track_name_len > XQC_MOQ_MAX_NAME_LEN) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+    p += ret;
+    if ((uint64_t)(end - p) < track_name_len
+        || full_track_name_len > XQC_MOQ_MAX_FULL_TRACK_NAME_LEN - track_name_len)
+    {
+        return -XQC_EILLEGAL_FRAME;
+    }
+    subscribe->track_name_len = track_name_len;
+    subscribe->track_name = xqc_calloc(1, track_name_len + 1);
+    if (subscribe->track_name == NULL) {
+        return -XQC_EMALLOC;
+    }
+    if (track_name_len > 0) {
+        xqc_memcpy(subscribe->track_name, p, track_name_len);
+        p += track_name_len;
+    }
+
+    ret = xqc_vi64_read(p, end, &subscribe->params_num);
+    if (ret < 0 || subscribe->params_num > XQC_MOQ_MAX_PARAMS) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+    p += ret;
+    if (subscribe->params_num > 0) {
+        subscribe->params = xqc_moq_msg_alloc_params(subscribe->params_num);
+        if (subscribe->params == NULL) {
+            return -XQC_EMALLOC;
+        }
+        ret = xqc_moq_msg_decode_params_draft18(&p, end, subscribe->params,
+                                                subscribe->params_num);
+        if (ret != XQC_OK) {
+            return ret;
+        }
+    }
+    if (p != end) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    xqc_free(subscribe->payload);
+    subscribe->payload = NULL;
+    *finish = 1;
+    return processed;
 }
 
 //return processed or error
@@ -2714,6 +3027,8 @@ xqc_moq_msg_free_subscribe_ok(void *msg)
     }
     xqc_moq_subscribe_ok_msg_t *subscribe_ok = (xqc_moq_subscribe_ok_msg_t*)msg;
     xqc_moq_msg_free_params(subscribe_ok->params, subscribe_ok->params_num);
+    xqc_free(subscribe_ok->track_properties);
+    xqc_free(subscribe_ok->payload);
     xqc_free(subscribe_ok);
 }
 
@@ -2727,6 +3042,12 @@ void
 xqc_moq_msg_subscribe_ok_init_handler(xqc_moq_msg_base_t *msg_base)
 {
     *msg_base = subscribe_ok_base;
+}
+
+void
+xqc_moq_msg_subscribe_ok_response_init_handler(xqc_moq_msg_base_t *msg_base)
+{
+    *msg_base = subscribe_ok_response_base;
 }
 
 xqc_int_t
@@ -2782,6 +3103,158 @@ xqc_moq_msg_encode_subscribe_ok(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size
     p += ret;
 
     return p - buf;
+}
+
+xqc_int_t
+xqc_moq_msg_encode_subscribe_ok_response_len(xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_subscribe_ok_msg_t *subscribe_ok =
+        (xqc_moq_subscribe_ok_msg_t *)msg_base;
+    if (subscribe_ok->params_num != 0
+        || (subscribe_ok->track_properties_len > 0
+            && (subscribe_ok->track_properties == NULL
+                || xqc_moq_msg_validate_track_properties_draft18(
+                    subscribe_ok->track_properties,
+                    subscribe_ok->track_properties
+                        + subscribe_ok->track_properties_len) != XQC_OK)))
+    {
+        return -XQC_EPARAM;
+    }
+
+    xqc_int_t payload_len = xqc_vi64_len(subscribe_ok->track_alias)
+        + xqc_vi64_len(subscribe_ok->params_num)
+        + subscribe_ok->track_properties_len;
+    if (payload_len > UINT16_MAX) {
+        return -XQC_ELIMIT;
+    }
+    return xqc_vi64_len(XQC_MOQ_MSG_SUBSCRIBE_OK)
+        + XQC_MOQ_MSG_LENGTH_FIXED_SIZE + payload_len;
+}
+
+xqc_int_t
+xqc_moq_msg_encode_subscribe_ok_response(xqc_moq_msg_base_t *msg_base,
+    uint8_t *buf, size_t buf_cap)
+{
+    xqc_moq_subscribe_ok_msg_t *subscribe_ok =
+        (xqc_moq_subscribe_ok_msg_t *)msg_base;
+    xqc_int_t length = xqc_moq_msg_encode_subscribe_ok_response_len(msg_base);
+    if (length < 0) {
+        return length;
+    }
+    if ((size_t)length > buf_cap) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    uint16_t payload_len = (uint16_t)(length
+        - xqc_vi64_len(XQC_MOQ_MSG_SUBSCRIBE_OK)
+        - XQC_MOQ_MSG_LENGTH_FIXED_SIZE);
+    uint8_t *p = xqc_vi64_write(buf, XQC_MOQ_MSG_SUBSCRIBE_OK);
+    p = xqc_moq_put_varint_length(p, payload_len);
+    p = xqc_vi64_write(p, subscribe_ok->track_alias);
+    p = xqc_vi64_write(p, subscribe_ok->params_num);
+    if (subscribe_ok->track_properties_len > 0) {
+        xqc_memcpy(p, subscribe_ok->track_properties,
+                   subscribe_ok->track_properties_len);
+        p += subscribe_ok->track_properties_len;
+    }
+    return p - buf;
+}
+
+xqc_int_t
+xqc_moq_msg_decode_subscribe_ok_response(uint8_t *buf, size_t buf_len,
+    uint8_t stream_fin, xqc_moq_decode_msg_ctx_t *msg_ctx,
+    xqc_moq_msg_base_t *msg_base, xqc_int_t *finish,
+    xqc_int_t *wait_more_data)
+{
+    xqc_moq_subscribe_ok_msg_t *subscribe_ok =
+        (xqc_moq_subscribe_ok_msg_t *)msg_base;
+    xqc_int_t processed = 0;
+    *finish = 0;
+    *wait_more_data = 0;
+
+    if (msg_ctx->cur_field_idx == 0) {
+        uint64_t length = 0;
+        xqc_int_t ret = xqc_moq_length_read(buf, buf + buf_len, &length);
+        if (ret < 0) {
+            if (stream_fin) {
+                return -XQC_EILLEGAL_FRAME;
+            }
+            *wait_more_data = 1;
+            return 0;
+        }
+        if (length < 2 || length > UINT16_MAX) {
+            return -XQC_EILLEGAL_FRAME;
+        }
+        subscribe_ok->payload_len = length;
+        subscribe_ok->payload = xqc_malloc(length);
+        if (subscribe_ok->payload == NULL) {
+            return -XQC_EMALLOC;
+        }
+        msg_ctx->msg_declared_length = length;
+        msg_ctx->cur_field_idx = 1;
+        processed += ret;
+    }
+
+    size_t available = buf_len - processed;
+    size_t remaining = subscribe_ok->payload_len - subscribe_ok->payload_processed;
+    size_t to_copy = available < remaining ? available : remaining;
+    if (to_copy > 0) {
+        xqc_memcpy(subscribe_ok->payload + subscribe_ok->payload_processed,
+                   buf + processed, to_copy);
+        subscribe_ok->payload_processed += to_copy;
+        processed += to_copy;
+    }
+    if (subscribe_ok->payload_processed != subscribe_ok->payload_len) {
+        if (stream_fin) {
+            return -XQC_EILLEGAL_FRAME;
+        }
+        *wait_more_data = 1;
+        return processed;
+    }
+
+    uint8_t *p = subscribe_ok->payload;
+    uint8_t *end = subscribe_ok->payload + subscribe_ok->payload_len;
+    xqc_int_t ret = xqc_vi64_read(p, end, &subscribe_ok->track_alias);
+    if (ret < 0) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+    p += ret;
+    ret = xqc_vi64_read(p, end, &subscribe_ok->params_num);
+    if (ret < 0 || subscribe_ok->params_num > XQC_MOQ_MAX_PARAMS) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+    p += ret;
+    if (subscribe_ok->params_num > 0) {
+        subscribe_ok->params = xqc_moq_msg_alloc_params(subscribe_ok->params_num);
+        if (subscribe_ok->params == NULL) {
+            return -XQC_EMALLOC;
+        }
+        ret = xqc_moq_msg_decode_params_draft18(&p, end, subscribe_ok->params,
+                                                subscribe_ok->params_num);
+        if (ret != XQC_OK) {
+            return ret;
+        }
+    }
+
+    ret = xqc_moq_msg_validate_track_properties_draft18(p, end);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+    subscribe_ok->track_properties_len = end - p;
+    if (subscribe_ok->track_properties_len > 0) {
+        subscribe_ok->track_properties =
+            xqc_malloc(subscribe_ok->track_properties_len);
+        if (subscribe_ok->track_properties == NULL) {
+            return -XQC_EMALLOC;
+        }
+        xqc_memcpy(subscribe_ok->track_properties, p,
+                   subscribe_ok->track_properties_len);
+    }
+
+    xqc_free(subscribe_ok->payload);
+    subscribe_ok->payload = NULL;
+    *finish = 1;
+    return processed;
 }
 
 //return processed or error

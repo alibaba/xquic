@@ -29,10 +29,10 @@
 #include "moq/moq_transport/xqc_moq_stream_webtransport.h"
 #include "src/http3/xqc_h3_conn.h"
 
-#define XQC_INTEROP_VERSION       "0.5.0-draft18"
+#define XQC_INTEROP_VERSION       "0.6.0-draft18"
 #define XQC_INTEROP_CID_LEN       12
 #define XQC_INTEROP_TIMEOUT_SEC   2
-#define XQC_INTEROP_MAX_TESTS     4
+#define XQC_INTEROP_MAX_TESTS     5
 
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
@@ -230,6 +230,14 @@ xqc_demo_interop_timeout_callback(int fd, short what, void *arg)
         } else {
             xqc_demo_test_fail("timeout: no REQUEST_ERROR received");
         }
+    } else if (g_current_test == XQC_DEMO_TEST_ANNOUNCE_SUBSCRIBE) {
+        if (g_pub_conn == NULL || !g_pub_conn->publish_ns_ok_received) {
+            xqc_demo_test_fail("timeout: publisher did not receive REQUEST_OK");
+        } else if (g_sub_conn == NULL || !g_sub_conn->subscribe_sent) {
+            xqc_demo_test_fail("timeout: subscriber did not send SUBSCRIBE");
+        } else {
+            xqc_demo_test_fail("timeout: subscriber did not receive SUBSCRIBE_OK");
+        }
     } else {
         xqc_demo_test_fail("test timed out: deadline has elapsed");
     }
@@ -394,6 +402,19 @@ xqc_demo_interop_init_conn(int role)
 static int
 xqc_demo_interop_send_announce(xqc_demo_interop_conn_t *conn)
 {
+    if (g_current_test == XQC_DEMO_TEST_ANNOUNCE_SUBSCRIBE
+        || g_current_test == XQC_DEMO_TEST_SUBSCRIBE_BEFORE_ANNOUNCE)
+    {
+        xqc_moq_track_t *track = xqc_moq_track_create(conn->session,
+            (char *)XQC_INTEROP_NS_STR, (char *)XQC_INTEROP_TRACK_NAME,
+            XQC_MOQ_TRACK_VIDEO, NULL, XQC_MOQ_CONTAINER_NONE,
+            XQC_MOQ_TRACK_FOR_PUB);
+        if (track == NULL) {
+            VERBOSE("failed to register publisher track before namespace advertisement");
+            return -1;
+        }
+    }
+
     xqc_moq_publish_namespace_msg_t pub_ns;
     memset(&pub_ns, 0, sizeof(pub_ns));
     pub_ns.track_namespace_num = 1;
@@ -455,6 +476,26 @@ xqc_demo_interop_send_subscribe_interop(xqc_moq_session_t *session)
     return ret;
 }
 
+static int
+xqc_demo_interop_start_subscribe(xqc_demo_interop_conn_t *conn)
+{
+    if (conn == NULL || conn->session == NULL || conn->subscribe_sent) {
+        return -1;
+    }
+    xqc_int_t ret = xqc_demo_interop_send_subscribe_interop(conn->session);
+    if (ret < 0) {
+        xqc_demo_test_fail("SUBSCRIBE send failed: %d", (int)ret);
+        xqc_demo_interop_close_conn(conn);
+        if (g_pub_conn != NULL && !g_pub_conn->closed) {
+            xqc_demo_interop_close_conn(g_pub_conn);
+        }
+        return ret;
+    }
+    conn->subscribe_sent = 1;
+    conn->subscribe_request_id = (uint64_t)ret;
+    return XQC_OK;
+}
+
 static void
 xqc_demo_interop_on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
                          const xqc_moq_message_parameter_t *params, uint64_t params_num)
@@ -508,18 +549,15 @@ xqc_demo_interop_on_session_setup(xqc_moq_user_session_t *user_session, char *ex
 
     case XQC_DEMO_TEST_ANNOUNCE_SUBSCRIBE:
         if (conn->conn_role == 0) {
-            xqc_demo_interop_send_announce(conn);
-            g_publisher_announced = 1;
-            if (g_sub_conn && g_sub_conn->session_ready && !g_sub_conn->subscribe_sent) {
-                g_sub_conn->subscribe_sent = 1;
-                VERBOSE("publisher announced, triggering subscriber SUBSCRIBE");
-                xqc_demo_interop_send_subscribe_interop(g_sub_conn->session);
+            int ret = xqc_demo_interop_send_announce(conn);
+            if (ret < 0) {
+                xqc_demo_test_fail("PUBLISH_NAMESPACE send failed: %d", ret);
+                xqc_demo_interop_close_conn(conn);
             }
         }
         if (conn->conn_role == 1) {
             if (g_publisher_announced) {
-                conn->subscribe_sent = 1;
-                xqc_demo_interop_send_subscribe_interop(conn->session);
+                xqc_demo_interop_start_subscribe(conn);
             }
         }
         break;
@@ -593,6 +631,21 @@ xqc_demo_interop_on_request_ok(xqc_moq_user_session_t *user_session,
             xqc_demo_interop_close_conn(conn);
         }
     }
+
+    if (g_current_test == XQC_DEMO_TEST_ANNOUNCE_SUBSCRIBE) {
+        if (!conn->publish_ns_sent || request_id != conn->publish_ns_request_id) {
+            xqc_demo_test_fail("REQUEST_OK did not match PUBLISH_NAMESPACE request");
+            xqc_demo_interop_close_conn(conn);
+            return;
+        }
+        g_publisher_announced = 1;
+        if (g_sub_conn != NULL && g_sub_conn->session_ready
+            && !g_sub_conn->subscribe_sent)
+        {
+            VERBOSE("namespace accepted, triggering subscriber SUBSCRIBE");
+            xqc_demo_interop_start_subscribe(g_sub_conn);
+        }
+    }
 }
 
 static void
@@ -602,6 +655,13 @@ xqc_demo_interop_on_subscribe_ok(xqc_moq_user_session_t *user_session, xqc_moq_t
     xqc_demo_interop_conn_t *conn = (xqc_demo_interop_conn_t *)user_session->data;
     VERBOSE("on_subscribe_ok role=%d subscribe_id=%"PRIu64, conn->conn_role, subscribe_ok->subscribe_id);
 
+    if (conn->conn_role != 1 || !conn->subscribe_sent
+        || subscribe_ok->subscribe_id != conn->subscribe_request_id)
+    {
+        xqc_demo_test_fail("SUBSCRIBE_OK did not match subscriber request");
+        xqc_demo_interop_close_conn(conn);
+        return;
+    }
     conn->subscribe_ok_received = 1;
 
     if (g_current_test == XQC_DEMO_TEST_SUBSCRIBE_ERROR) {
@@ -610,8 +670,27 @@ xqc_demo_interop_on_subscribe_ok(xqc_moq_user_session_t *user_session, xqc_moq_t
         return;
     }
 
-    if (g_current_test == XQC_DEMO_TEST_ANNOUNCE_SUBSCRIBE || g_current_test == XQC_DEMO_TEST_SUBSCRIBE_BEFORE_ANNOUNCE) {
+    if (g_current_test == XQC_DEMO_TEST_ANNOUNCE_SUBSCRIBE) {
+        if (g_pub_conn == NULL || !g_pub_conn->publish_ns_ok_received) {
+            xqc_demo_test_fail("SUBSCRIBE_OK arrived before PUBLISH_NAMESPACE was accepted");
+            xqc_demo_interop_close_conn(conn);
+            return;
+        }
         xqc_demo_test_pass();
+        if (g_test_timeout_event) {
+            event_del(g_test_timeout_event);
+        }
+        xqc_demo_interop_close_conn(conn);
+        if (g_pub_conn && !g_pub_conn->closed) {
+            xqc_demo_interop_close_conn(g_pub_conn);
+        }
+    }
+
+    if (g_current_test == XQC_DEMO_TEST_SUBSCRIBE_BEFORE_ANNOUNCE) {
+        xqc_demo_test_pass();
+        if (g_test_timeout_event) {
+            event_del(g_test_timeout_event);
+        }
         xqc_demo_interop_close_conn(conn);
         if (g_pub_conn && !g_pub_conn->closed) {
             xqc_demo_interop_close_conn(g_pub_conn);
@@ -649,6 +728,16 @@ xqc_demo_interop_on_request_error(xqc_moq_user_session_t *user_session,
             event_del(g_test_timeout_event);
         }
         xqc_demo_interop_close_conn(conn);
+    }
+
+    if (g_current_test == XQC_DEMO_TEST_ANNOUNCE_SUBSCRIBE) {
+        conn->subscribe_error_received = 1;
+        xqc_demo_test_fail("expected SUBSCRIBE_OK, got REQUEST_ERROR (code=%"PRIu64")",
+                           request_error->error_code);
+        xqc_demo_interop_close_conn(conn);
+        if (g_pub_conn && !g_pub_conn->closed) {
+            xqc_demo_interop_close_conn(g_pub_conn);
+        }
     }
 }
 
@@ -731,6 +820,13 @@ xqc_demo_interop_on_subscribe(xqc_moq_user_session_t *user_session, uint64_t sub
     ok.content_exist = 0;
     int ret = xqc_moq_write_subscribe_ok(conn->session, &ok);
     VERBOSE("write_subscribe_ok ret=%d", ret);
+    if (ret < 0) {
+        xqc_demo_test_fail("SUBSCRIBE_OK send failed: %d", ret);
+        xqc_demo_interop_close_conn(conn);
+        if (g_sub_conn && !g_sub_conn->closed) {
+            xqc_demo_interop_close_conn(g_sub_conn);
+        }
+    }
 }
 
 static void
@@ -1720,7 +1816,7 @@ int main(int argc, char *argv[])
         xqc_demo_test_case_t tc = xqc_demo_parse_test_name(testcase);
         if (tc == XQC_DEMO_TEST_UNKNOWN) {
             fprintf(stderr, "error: unknown test case '%s'\n", testcase);
-            fprintf(stderr, "  supported for draft-18: setup-only, announce-only, publish-namespace-done, subscribe-error\n");
+            fprintf(stderr, "  supported for draft-18: setup-only, announce-only, publish-namespace-done, subscribe-error, announce-subscribe\n");
             return 127;
         }
         tests[0] = tc;

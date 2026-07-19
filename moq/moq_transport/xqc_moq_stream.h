@@ -57,7 +57,9 @@ typedef struct xqc_moq_stream_s {
     uint8_t                     write_stream_fin;
 
     uint8_t                     local_request;
+    uint8_t                     peer_request;
     uint8_t                     response_received;
+    uint8_t                     response_sent;
     xqc_moq_msg_type_t          request_type;
     uint64_t                    request_id;
     xqc_list_head_t             request_list_member;

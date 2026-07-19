@@ -161,6 +161,7 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
     xqc_init_list_head(&session->local_advertised_namespace_list);
     xqc_init_list_head(&session->peer_advertised_namespace_list);
     xqc_init_list_head(&session->local_request_stream_list);
+    xqc_init_list_head(&session->peer_request_stream_list);
     xqc_init_list_head(&session->local_ns_pending_list);
 
     session->use_client_setup_v14 = enable_client_setup_v14;

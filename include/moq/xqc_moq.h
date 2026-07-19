@@ -291,6 +291,10 @@ typedef struct xqc_moq_subscribe_msg_s {
     uint64_t                    end_object_id;
     uint64_t                    params_num;
     xqc_moq_message_parameter_t *params;
+    /* Internal receive buffer for fragmented request-stream input. */
+    uint8_t                     *payload;
+    size_t                      payload_len;
+    size_t                      payload_processed;
 } xqc_moq_subscribe_msg_t;
 
 typedef struct xqc_moq_subscribe_ok_msg_s {
@@ -304,6 +308,12 @@ typedef struct xqc_moq_subscribe_ok_msg_s {
     uint64_t                    largest_object_id;
     uint64_t                    params_num;
     xqc_moq_message_parameter_t *params;
+    uint8_t                     *track_properties;
+    size_t                      track_properties_len;
+    /* Internal receive buffer for fragmented request-stream input. */
+    uint8_t                     *payload;
+    size_t                      payload_len;
+    size_t                      payload_processed;
 } xqc_moq_subscribe_ok_msg_t;
 
 typedef struct xqc_moq_subscribe_error_msg_s {

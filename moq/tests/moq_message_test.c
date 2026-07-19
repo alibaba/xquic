@@ -160,6 +160,67 @@ xqc_test_subscribe_request_vi64_encoding(void)
     XQC_TEST_ASSERT(xqc_moq_msg_encode_subscribe_request(
         &msg.msg_base, buf, sizeof(buf)) == len);
     XQC_TEST_ASSERT(memcmp(buf, expected, sizeof(expected)) == 0);
+
+    xqc_moq_subscribe_msg_t *decoded = xqc_moq_msg_create_subscribe();
+    xqc_moq_decode_msg_ctx_t msg_ctx = {0};
+    xqc_int_t finish = 0;
+    xqc_int_t wait_more_data = 0;
+    XQC_TEST_ASSERT(decoded != NULL);
+    xqc_moq_msg_subscribe_request_init_handler(&decoded->msg_base);
+    XQC_TEST_ASSERT(xqc_moq_msg_decode_subscribe_request(buf + 1, 8, 0,
+        &msg_ctx, &decoded->msg_base, &finish, &wait_more_data) == 8);
+    XQC_TEST_ASSERT(finish == 0);
+    XQC_TEST_ASSERT(wait_more_data == 1);
+    XQC_TEST_ASSERT(xqc_moq_msg_decode_subscribe_request(buf + 9, len - 9, 1,
+        &msg_ctx, &decoded->msg_base, &finish, &wait_more_data) == len - 9);
+    XQC_TEST_ASSERT(finish == 1);
+    XQC_TEST_ASSERT(wait_more_data == 0);
+    XQC_TEST_ASSERT(decoded->subscribe_id == 0);
+    XQC_TEST_ASSERT(decoded->track_namespace_num == 1);
+    XQC_TEST_ASSERT(decoded->track_namespace_tuple[0].len == ns.len);
+    XQC_TEST_ASSERT(memcmp(decoded->track_namespace_tuple[0].data,
+                           ns.data, ns.len) == 0);
+    XQC_TEST_ASSERT(decoded->track_name_len == sizeof("test-track") - 1);
+    XQC_TEST_ASSERT(memcmp(decoded->track_name, "test-track",
+                           decoded->track_name_len) == 0);
+    XQC_TEST_ASSERT(decoded->params_num == 0);
+    xqc_moq_msg_free_subscribe(decoded);
+    return 0;
+}
+
+static int
+xqc_test_subscribe_ok_response_vi64_roundtrip(void)
+{
+    static const uint8_t expected[] = {0x04, 0x00, 0x02, 0x07, 0x00};
+    xqc_moq_subscribe_ok_msg_t msg = {0};
+    xqc_moq_subscribe_ok_msg_t *decoded = xqc_moq_msg_create_subscribe_ok();
+    xqc_moq_decode_msg_ctx_t msg_ctx = {0};
+    uint8_t buf[16] = {0};
+    xqc_int_t finish = 0;
+    xqc_int_t wait_more_data = 0;
+
+    xqc_moq_msg_subscribe_ok_response_init_handler(&msg.msg_base);
+    msg.track_alias = 7;
+    xqc_int_t len = xqc_moq_msg_encode_subscribe_ok_response_len(&msg.msg_base);
+    XQC_TEST_ASSERT(len == sizeof(expected));
+    XQC_TEST_ASSERT(xqc_moq_msg_encode_subscribe_ok_response(
+        &msg.msg_base, buf, sizeof(buf)) == len);
+    XQC_TEST_ASSERT(memcmp(buf, expected, sizeof(expected)) == 0);
+
+    XQC_TEST_ASSERT(decoded != NULL);
+    xqc_moq_msg_subscribe_ok_response_init_handler(&decoded->msg_base);
+    XQC_TEST_ASSERT(xqc_moq_msg_decode_subscribe_ok_response(buf + 1, 2, 0,
+        &msg_ctx, &decoded->msg_base, &finish, &wait_more_data) == 2);
+    XQC_TEST_ASSERT(finish == 0);
+    XQC_TEST_ASSERT(wait_more_data == 1);
+    XQC_TEST_ASSERT(xqc_moq_msg_decode_subscribe_ok_response(buf + 3, len - 3, 1,
+        &msg_ctx, &decoded->msg_base, &finish, &wait_more_data) == len - 3);
+    XQC_TEST_ASSERT(finish == 1);
+    XQC_TEST_ASSERT(wait_more_data == 0);
+    XQC_TEST_ASSERT(decoded->track_alias == 7);
+    XQC_TEST_ASSERT(decoded->params_num == 0);
+    XQC_TEST_ASSERT(decoded->track_properties_len == 0);
+    xqc_moq_msg_free_subscribe_ok(decoded);
     return 0;
 }
 
@@ -585,6 +646,10 @@ main(void)
     }
 
     if (xqc_test_subscribe_request_vi64_encoding() != 0) {
+        return EXIT_FAILURE;
+    }
+
+    if (xqc_test_subscribe_ok_response_vi64_roundtrip() != 0) {
         return EXIT_FAILURE;
     }
 

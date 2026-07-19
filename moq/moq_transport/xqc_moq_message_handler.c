@@ -358,6 +358,44 @@ xqc_moq_on_subscribe(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, x
     xqc_int_t ret;
     xqc_moq_subscribe_msg_t *subscribe_msg = (xqc_moq_subscribe_msg_t*)msg_base;
 
+    if (session->use_unified_setup) {
+        if (moq_stream == NULL || moq_stream->local_request
+            || moq_stream->peer_request)
+        {
+            xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                                  "invalid SUBSCRIBE request stream");
+            return;
+        }
+        uint64_t peer_request_parity =
+            xqc_moq_session_is_server(session) ? 0 : 1;
+        if ((subscribe_msg->subscribe_id & 1) != peer_request_parity) {
+            xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                                  "invalid SUBSCRIBE request ID parity");
+            return;
+        }
+        xqc_list_head_t *pos;
+        xqc_list_for_each(pos, &session->peer_request_stream_list) {
+            xqc_moq_stream_t *request_stream =
+                xqc_list_entry(pos, xqc_moq_stream_t, request_list_member);
+            if (request_stream->request_id == subscribe_msg->subscribe_id) {
+                xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                                      "duplicate SUBSCRIBE request ID");
+                return;
+            }
+        }
+        moq_stream->peer_request = 1;
+        moq_stream->request_type = XQC_MOQ_MSG_SUBSCRIBE;
+        moq_stream->request_id = subscribe_msg->subscribe_id;
+        xqc_list_add_tail(&moq_stream->request_list_member,
+                          &session->peer_request_stream_list);
+        if (!session->peer_request_id_seen
+            || subscribe_msg->subscribe_id > session->max_peer_request_id)
+        {
+            session->max_peer_request_id = subscribe_msg->subscribe_id;
+        }
+        session->peer_request_id_seen = 1;
+    }
+
     track = xqc_moq_find_track_by_ns_tuple(session, subscribe_msg->track_namespace_tuple,
                 subscribe_msg->track_namespace_num, subscribe_msg->track_name, XQC_MOQ_TRACK_FOR_PUB);
     if (track == NULL) {
@@ -471,6 +509,19 @@ void
 xqc_moq_on_subscribe_ok(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
 {
     xqc_moq_subscribe_ok_msg_t *subscribe_ok = (xqc_moq_subscribe_ok_msg_t*)msg_base;
+
+    if (session->use_unified_setup) {
+        if (moq_stream == NULL || !moq_stream->local_request
+            || moq_stream->response_received
+            || moq_stream->request_type != XQC_MOQ_MSG_SUBSCRIBE)
+        {
+            xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                                  "SUBSCRIBE_OK on invalid request stream");
+            return;
+        }
+        subscribe_ok->subscribe_id = moq_stream->request_id;
+        moq_stream->response_received = 1;
+    }
 
     xqc_moq_subscribe_t *subscribe;
     subscribe = xqc_moq_find_subscribe(session, subscribe_ok->subscribe_id, 1);

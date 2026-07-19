@@ -1380,7 +1380,9 @@ uint8_t * xqc_moq_put_varint_length(uint8_t *buf, size_t length)
 xqc_int_t 
 xqc_moq_length_read(uint8_t *buf, uint8_t* end, uint64_t *length)
 {
-    if (end - buf < 2 || buf == NULL || buf + 1 == NULL) {
+    if (buf == NULL || end == NULL || length == NULL
+        || end - buf < XQC_MOQ_MSG_LENGTH_FIXED_SIZE)
+    {
         return -1;
     }
 

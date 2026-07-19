@@ -669,9 +669,13 @@ void *xqc_moq_msg_create_publish_namespace_done();
 void xqc_moq_msg_free_publish_namespace_done(void *msg);
 xqc_moq_msg_type_t xqc_moq_msg_publish_namespace_done_type();
 void xqc_moq_msg_publish_namespace_done_init_handler(xqc_moq_msg_base_t *msg_base);
+void xqc_moq_msg_publish_namespace_done_request_init_handler(xqc_moq_msg_base_t *msg_base);
 xqc_int_t xqc_moq_msg_encode_publish_namespace_done_len(xqc_moq_msg_base_t *msg_base);
 xqc_int_t xqc_moq_msg_encode_publish_namespace_done(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
 xqc_int_t xqc_moq_msg_decode_publish_namespace_done(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
     xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
+xqc_int_t xqc_moq_msg_decode_publish_namespace_done_request(uint8_t *buf, size_t buf_len,
+    uint8_t stream_fin, xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base,
+    xqc_int_t *finish, xqc_int_t *wait_more_data);
 
 #endif /* _XQC_MOQ_MESSAGE_H_INCLUDED_ */

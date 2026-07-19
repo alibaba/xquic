@@ -702,6 +702,16 @@ xqc_moq_on_publish_namespace(xqc_moq_session_t *session, xqc_moq_stream_t *moq_s
         xqc_moq_session_error(session, MOQ_INTERNAL_ERROR, "on publish namespace");
         return;
     }
+    ret = xqc_moq_session_bind_advertised_namespace_request(session, 0,
+        msg->track_namespace_tuple, msg->track_namespace_num,
+        msg->request_id);
+    if (ret != XQC_OK) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|bind peer publish_namespace request failed|ret:%d|", ret);
+        xqc_moq_session_error(session, MOQ_INTERNAL_ERROR,
+                              "bind publish namespace request");
+        return;
+    }
 
     char *ns = xqc_moq_namespace_tuple_join(msg->track_namespace_tuple, msg->track_namespace_num);
     xqc_log(session->log, XQC_LOG_INFO,
@@ -835,6 +845,36 @@ xqc_moq_on_publish_namespace_done(xqc_moq_session_t *session, xqc_moq_stream_t *
 {
     xqc_moq_publish_namespace_done_msg_t *msg = (xqc_moq_publish_namespace_done_msg_t*)msg_base;
     if (session == NULL || msg == NULL) {
+        return;
+    }
+
+    if (session->use_unified_setup) {
+        if (moq_stream != session->peer_ctl_stream) {
+            xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                                  "PUBLISH_NAMESPACE_DONE on request stream");
+            return;
+        }
+
+        xqc_list_head_t *pos;
+        xqc_list_for_each(pos, &session->peer_request_stream_list) {
+            xqc_moq_stream_t *request_stream =
+                xqc_list_entry(pos, xqc_moq_stream_t, request_list_member);
+            if (request_stream->request_type != XQC_MOQ_MSG_PUBLISH_NAMESPACE
+                || request_stream->request_id != msg->request_id)
+            {
+                continue;
+            }
+
+            xqc_log(session->log, XQC_LOG_WARN,
+                    "|legacy publish_namespace_done accepted|request_id:%ui|",
+                    msg->request_id);
+            xqc_moq_stream_on_request_closed(request_stream,
+                                             XQC_MOQ_REQUEST_CANCELLED);
+            xqc_moq_stream_cancel(request_stream, XQC_MOQ_REQUEST_CANCELLED);
+            return;
+        }
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                              "unknown PUBLISH_NAMESPACE_DONE request ID");
         return;
     }
 

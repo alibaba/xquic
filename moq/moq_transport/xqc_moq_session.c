@@ -934,6 +934,42 @@ xqc_moq_session_remove_advertised_namespace(xqc_moq_session_t *session, xqc_int_
 }
 
 xqc_int_t
+xqc_moq_session_bind_advertised_namespace_request(xqc_moq_session_t *session,
+    xqc_int_t is_local, const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    uint64_t track_namespace_num, uint64_t request_id)
+{
+    xqc_moq_namespace_advertisement_t *advertisement =
+        xqc_moq_session_find_advertised_namespace(session, is_local,
+            track_namespace_tuple, track_namespace_num);
+    if (advertisement == NULL) {
+        return -XQC_ENULLPTR;
+    }
+    advertisement->request_id = request_id;
+    return XQC_OK;
+}
+
+xqc_moq_namespace_advertisement_t *
+xqc_moq_session_find_advertised_namespace_by_request(xqc_moq_session_t *session,
+    xqc_int_t is_local, uint64_t request_id)
+{
+    if (session == NULL || request_id == XQC_MOQ_INVALID_ID) {
+        return NULL;
+    }
+
+    xqc_list_head_t *list = is_local ? &session->local_advertised_namespace_list
+                                     : &session->peer_advertised_namespace_list;
+    xqc_list_head_t *pos, *next;
+    xqc_list_for_each_safe(pos, next, list) {
+        xqc_moq_namespace_advertisement_t *advertisement =
+            xqc_list_entry(pos, xqc_moq_namespace_advertisement_t, list_member);
+        if (advertisement->request_id == request_id) {
+            return advertisement;
+        }
+    }
+    return NULL;
+}
+
+xqc_int_t
 xqc_moq_session_has_active_publish_in_namespace(xqc_moq_session_t *session,
     const xqc_moq_track_ns_field_t *track_namespace_tuple, uint64_t track_namespace_num)
 {

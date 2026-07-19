@@ -161,6 +161,13 @@ xqc_int_t xqc_moq_session_remove_advertised_namespace(xqc_moq_session_t *session
     xqc_int_t is_local, const xqc_moq_track_ns_field_t *track_namespace_tuple,
     uint64_t track_namespace_num);
 
+xqc_int_t xqc_moq_session_bind_advertised_namespace_request(xqc_moq_session_t *session,
+    xqc_int_t is_local, const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    uint64_t track_namespace_num, uint64_t request_id);
+
+xqc_moq_namespace_advertisement_t *xqc_moq_session_find_advertised_namespace_by_request(
+    xqc_moq_session_t *session, xqc_int_t is_local, uint64_t request_id);
+
 xqc_int_t xqc_moq_session_has_active_publish_in_namespace(xqc_moq_session_t *session,
     const xqc_moq_track_ns_field_t *track_namespace_tuple, uint64_t track_namespace_num);
 

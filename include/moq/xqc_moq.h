@@ -418,6 +418,7 @@ typedef struct xqc_moq_request_ok_msg_s {
 
 typedef struct xqc_moq_publish_namespace_done_msg_s {
     xqc_moq_msg_base_t          msg_base;
+    uint64_t                    request_id;
     uint64_t                    track_namespace_num;
     xqc_moq_track_ns_field_t    *track_namespace_tuple;
 } xqc_moq_publish_namespace_done_msg_t;
@@ -566,6 +567,10 @@ typedef void (*xqc_moq_on_request_error_pt)(xqc_moq_user_session_t *user_session
 typedef void (*xqc_moq_on_publish_namespace_pt)(xqc_moq_user_session_t *user_session,
     xqc_moq_publish_namespace_msg_t *msg);
 
+typedef void (*xqc_moq_on_publish_namespace_done_pt)(xqc_moq_user_session_t *user_session,
+    uint64_t request_id, const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    uint64_t track_namespace_num, uint64_t error_code);
+
 typedef void (*xqc_moq_on_subscribe_namespace_pt)(xqc_moq_user_session_t *user_session,
     xqc_moq_subscribe_namespace_msg_t *msg);
 
@@ -605,6 +610,7 @@ typedef struct {
     xqc_moq_on_request_ok_pt        on_request_ok; /* Optional, response on a local request stream */
     xqc_moq_on_request_error_pt     on_request_error; /* Optional, error response on a local request stream */
     xqc_moq_on_publish_namespace_pt on_publish_namespace; /* Optional, incoming namespace advertisement */
+    xqc_moq_on_publish_namespace_done_pt on_publish_namespace_done; /* Optional, namespace request ended */
     xqc_moq_on_subscribe_namespace_pt         on_subscribe_namespace; /* Optional, server-side: incoming request */
     xqc_moq_on_subscribe_namespace_ok_pt      on_subscribe_namespace_ok; /* Optional, client-side: response */
     xqc_moq_on_subscribe_namespace_error_pt   on_subscribe_namespace_error; /* Optional, client-side: response */

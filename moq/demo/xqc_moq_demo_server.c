@@ -73,6 +73,7 @@ int g_server_cancel_write_done = 0;
 
 typedef struct xqc_demo_relay_namespace_s {
     xqc_moq_user_session_t                    *publisher;
+    uint64_t                                   request_id;
     xqc_moq_track_ns_field_t                  *namespace_tuple;
     uint64_t                                   namespace_num;
     struct xqc_demo_relay_namespace_s         *next;
@@ -291,6 +292,14 @@ xqc_demo_relay_remove_session(xqc_moq_user_session_t *user_session)
     while (*namespace_link != NULL) {
         xqc_demo_relay_namespace_t *entry = *namespace_link;
         if (entry->publisher == user_session) {
+            char *namespace_text = xqc_moq_namespace_tuple_join(
+                entry->namespace_tuple, entry->namespace_num);
+            printf("draft18_relay_namespace_cleanup source:session_close"
+                   " request_id:%"PRIu64" namespace:%s\n",
+                   entry->request_id,
+                   namespace_text ? namespace_text : "");
+            free(namespace_text);
+
             *namespace_link = entry->next;
             xqc_demo_relay_free_namespace_tuple(entry->namespace_tuple,
                                                 entry->namespace_num);
@@ -347,6 +356,7 @@ on_publish_namespace(xqc_moq_user_session_t *user_session,
         return;
     }
     entry->publisher = user_session;
+    entry->request_id = msg->request_id;
     entry->namespace_num = msg->track_namespace_num;
     entry->next = g_relay_namespaces;
     g_relay_namespaces = entry;
@@ -368,6 +378,40 @@ on_publish_namespace(xqc_moq_user_session_t *user_session,
             xqc_demo_relay_forward_subscription(subscription);
         }
         subscription = next;
+    }
+}
+
+static void
+on_publish_namespace_done(xqc_moq_user_session_t *user_session,
+    uint64_t request_id,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    uint64_t track_namespace_num, uint64_t error_code)
+{
+    if (!g_enable_draft18 || user_session == NULL) {
+        return;
+    }
+
+    xqc_demo_relay_namespace_t **link = &g_relay_namespaces;
+    while (*link != NULL) {
+        xqc_demo_relay_namespace_t *entry = *link;
+        if (entry->publisher != user_session || entry->request_id != request_id) {
+            link = &entry->next;
+            continue;
+        }
+
+        char *namespace_text = xqc_moq_namespace_tuple_join(
+            track_namespace_tuple, track_namespace_num);
+        printf("draft18_relay_namespace_done request_id:%"PRIu64
+               " error_code:%"PRIu64" namespace:%s\n",
+               request_id, error_code,
+               namespace_text ? namespace_text : "");
+        free(namespace_text);
+
+        *link = entry->next;
+        xqc_demo_relay_free_namespace_tuple(entry->namespace_tuple,
+                                            entry->namespace_num);
+        free(entry);
+        return;
     }
 }
 
@@ -1468,6 +1512,7 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
         .on_goaway = on_goaway,
         .on_datagram_object = on_datagram_object,
         .on_publish_namespace = on_publish_namespace,
+        .on_publish_namespace_done = on_publish_namespace_done,
     };
     if (g_ns_callback_mode == 1) {
         callbacks.on_subscribe_namespace = on_subscribe_namespace_callback;

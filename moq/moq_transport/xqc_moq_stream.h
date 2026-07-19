@@ -60,6 +60,7 @@ typedef struct xqc_moq_stream_s {
     uint8_t                     peer_request;
     uint8_t                     response_received;
     uint8_t                     response_sent;
+    uint8_t                     request_closed_notified;
     xqc_moq_msg_type_t          request_type;
     uint64_t                    request_id;
     xqc_list_head_t             request_list_member;
@@ -111,5 +112,8 @@ xqc_int_t xqc_moq_stream_process(xqc_moq_stream_t *moq_stream, uint8_t *buf, siz
 
 xqc_int_t xqc_moq_stream_process_msg(xqc_moq_stream_t *moq_stream, uint8_t stream_fin,
     xqc_int_t *msg_finish, xqc_int_t *wait_more_data);
+
+void xqc_moq_stream_on_request_closed(xqc_moq_stream_t *moq_stream,
+    uint64_t error_code);
 
 #endif /* _XQC_MOQ_STREAM_H_INCLUDED_ */

@@ -287,10 +287,34 @@ xqc_test_advertised_namespace_registry_lifecycle(void)
     XQC_TEST_ASSERT(xqc_moq_session_add_advertised_namespace(&session, 1, ns, 3) == XQC_OK);
     XQC_TEST_ASSERT(xqc_moq_session_find_advertised_namespace(&session, 1, ns, 3) != NULL);
     XQC_TEST_ASSERT(xqc_moq_session_add_advertised_namespace(&session, 1, ns, 3) == XQC_OK);
+    XQC_TEST_ASSERT(xqc_moq_session_bind_advertised_namespace_request(
+        &session, 1, ns, 3, 42) == XQC_OK);
+    XQC_TEST_ASSERT(xqc_moq_session_find_advertised_namespace_by_request(
+        &session, 1, 42) == xqc_moq_session_find_advertised_namespace(
+            &session, 1, ns, 3));
     XQC_TEST_ASSERT(xqc_moq_session_remove_advertised_namespace(&session, 1, ns, 3) == 1);
     XQC_TEST_ASSERT(xqc_moq_session_find_advertised_namespace(&session, 1, ns, 3) == NULL);
     XQC_TEST_ASSERT(xqc_moq_session_remove_advertised_namespace(&session, 1, ns, 3) == 0);
 
+    return 0;
+}
+
+static int
+xqc_test_publish_namespace_done_request_id_decoding(void)
+{
+    static const uint8_t encoded[] = {0x00, 0x01, 0x2a};
+    xqc_moq_publish_namespace_done_msg_t done = {0};
+    xqc_moq_decode_msg_ctx_t msg_ctx = {0};
+    xqc_int_t finish = 0;
+    xqc_int_t wait_more_data = 0;
+
+    xqc_moq_msg_publish_namespace_done_request_init_handler(&done.msg_base);
+    XQC_TEST_ASSERT(xqc_moq_msg_decode_publish_namespace_done_request(
+        (uint8_t *)encoded, sizeof(encoded), 0, &msg_ctx, &done.msg_base,
+        &finish, &wait_more_data) == (xqc_int_t)sizeof(encoded));
+    XQC_TEST_ASSERT(finish == 1);
+    XQC_TEST_ASSERT(wait_more_data == 0);
+    XQC_TEST_ASSERT(done.request_id == 42);
     return 0;
 }
 
@@ -658,6 +682,10 @@ main(void)
     }
 
     if (xqc_test_advertised_namespace_registry_lifecycle() != 0) {
+        return EXIT_FAILURE;
+    }
+
+    if (xqc_test_publish_namespace_done_request_id_decoding() != 0) {
         return EXIT_FAILURE;
     }
 

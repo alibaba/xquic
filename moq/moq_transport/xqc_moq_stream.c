@@ -243,6 +243,15 @@ xqc_moq_stream_get_or_alloc_cur_decode_msg(xqc_moq_stream_t *moq_stream)
                 &((xqc_moq_subscribe_ok_msg_t *)msg)->msg_base);
         }
 
+    } else if (moq_stream->session->use_unified_setup
+               && type == XQC_MOQ_MSG_PUBLISH_NAMESPACE_DONE)
+    {
+        msg = xqc_moq_msg_create_publish_namespace_done();
+        if (msg != NULL) {
+            xqc_moq_msg_publish_namespace_done_request_init_handler(
+                &((xqc_moq_publish_namespace_done_msg_t *)msg)->msg_base);
+        }
+
     } else {
         msg = xqc_moq_msg_create(type);
     }
@@ -428,7 +437,47 @@ xqc_moq_stream_process(xqc_moq_stream_t *moq_stream, uint8_t *buf, size_t buf_le
                 "|input buf not processed completely|");
         return -XQC_EILLEGAL_FRAME;
     }
+    if (fin) {
+        xqc_moq_stream_on_request_closed(moq_stream,
+                                         XQC_MOQ_REQUEST_CANCELLED);
+    }
     return processed;
+}
+
+void
+xqc_moq_stream_on_request_closed(xqc_moq_stream_t *moq_stream,
+    uint64_t error_code)
+{
+    if (moq_stream == NULL || moq_stream->session == NULL
+        || !moq_stream->session->use_unified_setup
+        || !moq_stream->peer_request
+        || moq_stream->request_type != XQC_MOQ_MSG_PUBLISH_NAMESPACE
+        || moq_stream->request_closed_notified)
+    {
+        return;
+    }
+
+    xqc_moq_session_t *session = moq_stream->session;
+    xqc_moq_namespace_advertisement_t *advertisement =
+        xqc_moq_session_find_advertised_namespace_by_request(session, 0,
+            moq_stream->request_id);
+    if (advertisement == NULL) {
+        return;
+    }
+
+    moq_stream->request_closed_notified = 1;
+    xqc_log(session->log, XQC_LOG_INFO,
+            "|publish_namespace request ended|request_id:%ui|error_code:%ui|",
+            moq_stream->request_id, error_code);
+    if (session->session_callbacks.on_publish_namespace_done != NULL) {
+        session->session_callbacks.on_publish_namespace_done(
+            session->user_session, moq_stream->request_id,
+            advertisement->track_namespace_tuple,
+            advertisement->track_namespace_num, error_code);
+    }
+    xqc_moq_session_remove_advertised_namespace(session, 0,
+        advertisement->track_namespace_tuple,
+        advertisement->track_namespace_num);
 }
 
 

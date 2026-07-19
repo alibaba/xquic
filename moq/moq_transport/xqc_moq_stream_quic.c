@@ -167,6 +167,7 @@ static void
 xqc_moq_quic_stream_closing_notify(xqc_stream_t *stream, xqc_int_t err_code, void *user_data)
 {
     xqc_moq_stream_t *moq_stream = (xqc_moq_stream_t*)user_data;
+    xqc_moq_stream_on_request_closed(moq_stream, (uint64_t)err_code);
 }
 
 static xqc_int_t

@@ -186,6 +186,17 @@ const xqc_moq_msg_base_t publish_namespace_done_base = {
     .on_msg     = xqc_moq_on_publish_namespace_done,
 };
 
+/* Compatibility decoder for draft-16-style PUBLISH_NAMESPACE_DONE observed
+ * from draft-18 interop clients. Draft-18 itself withdraws the namespace by
+ * cancelling the PUBLISH_NAMESPACE request stream. */
+const xqc_moq_msg_base_t publish_namespace_done_request_base = {
+    .type       = xqc_moq_msg_publish_namespace_done_type,
+    .encode_len = xqc_moq_msg_encode_publish_namespace_done_len,
+    .encode     = xqc_moq_msg_encode_publish_namespace_done,
+    .decode     = xqc_moq_msg_decode_publish_namespace_done_request,
+    .on_msg     = xqc_moq_on_publish_namespace_done,
+};
+
 const xqc_moq_msg_base_t publish_base = {
     .type       = xqc_moq_msg_publish_type,
     .encode_len = xqc_moq_msg_encode_publish_len,
@@ -6355,6 +6366,12 @@ xqc_moq_msg_publish_namespace_done_init_handler(xqc_moq_msg_base_t *msg_base)
     *msg_base = publish_namespace_done_base;
 }
 
+void
+xqc_moq_msg_publish_namespace_done_request_init_handler(xqc_moq_msg_base_t *msg_base)
+{
+    *msg_base = publish_namespace_done_request_base;
+}
+
 xqc_int_t
 xqc_moq_msg_encode_publish_namespace_done_len(xqc_moq_msg_base_t *msg_base)
 {
@@ -6512,6 +6529,54 @@ xqc_moq_msg_decode_publish_namespace_done(uint8_t *buf, size_t buf_len, uint8_t 
     if (!*finish && msg_ctx->cur_field_idx > 0 && msg_ctx->cur_field_idx < 3) {
         msg_ctx->msg_payload_consumed += (processed - payload_offset);
     }
+    return processed;
+}
+
+xqc_int_t
+xqc_moq_msg_decode_publish_namespace_done_request(uint8_t *buf, size_t buf_len,
+    uint8_t stream_fin, xqc_moq_decode_msg_ctx_t *msg_ctx,
+    xqc_moq_msg_base_t *msg_base, xqc_int_t *finish,
+    xqc_int_t *wait_more_data)
+{
+    xqc_moq_publish_namespace_done_msg_t *done =
+        (xqc_moq_publish_namespace_done_msg_t *)msg_base;
+    xqc_int_t processed = 0;
+    *finish = 0;
+    *wait_more_data = 0;
+
+    if (msg_ctx->cur_field_idx == 0) {
+        uint64_t length = 0;
+        xqc_int_t ret = xqc_moq_length_read(buf, buf + buf_len, &length);
+        if (ret < 0) {
+            if (stream_fin) {
+                return -XQC_EILLEGAL_FRAME;
+            }
+            *wait_more_data = 1;
+            return 0;
+        }
+        if (length == 0 || length > 8) {
+            return -XQC_EILLEGAL_FRAME;
+        }
+        msg_ctx->msg_declared_length = length;
+        msg_ctx->cur_field_idx = 1;
+        processed += ret;
+    }
+
+    xqc_int_t ret = xqc_vi64_read(buf + processed, buf + buf_len,
+                                  &done->request_id);
+    if (ret < 0) {
+        if (stream_fin) {
+            return -XQC_EILLEGAL_FRAME;
+        }
+        *wait_more_data = 1;
+        return processed;
+    }
+    processed += ret;
+    if ((uint64_t)ret != msg_ctx->msg_declared_length) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    *finish = 1;
     return processed;
 }
 

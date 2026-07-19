@@ -648,6 +648,40 @@ xqc_moq_on_publish_namespace(xqc_moq_session_t *session, xqc_moq_stream_t *moq_s
                               "duplicate publish_namespace request_id");
         return;
     }
+
+    if (session->use_unified_setup) {
+        if (moq_stream == NULL || moq_stream->local_request
+            || moq_stream->peer_request)
+        {
+            xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                                  "invalid PUBLISH_NAMESPACE request stream");
+            return;
+        }
+
+        xqc_list_head_t *pos;
+        xqc_list_for_each(pos, &session->peer_request_stream_list) {
+            xqc_moq_stream_t *request_stream =
+                xqc_list_entry(pos, xqc_moq_stream_t, request_list_member);
+            if (request_stream->request_id == msg->request_id) {
+                xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                                      "duplicate PUBLISH_NAMESPACE request ID");
+                return;
+            }
+        }
+
+        moq_stream->peer_request = 1;
+        moq_stream->request_type = XQC_MOQ_MSG_PUBLISH_NAMESPACE;
+        moq_stream->request_id = msg->request_id;
+        xqc_list_add_tail(&moq_stream->request_list_member,
+                          &session->peer_request_stream_list);
+        if (!session->peer_request_id_seen
+            || msg->request_id > session->max_peer_request_id)
+        {
+            session->max_peer_request_id = msg->request_id;
+        }
+        session->peer_request_id_seen = 1;
+    }
+
     session->max_peer_ns_request_id = msg->request_id;
     session->peer_ns_request_id_seen = 1;
 
@@ -664,6 +698,23 @@ xqc_moq_on_publish_namespace(xqc_moq_session_t *session, xqc_moq_stream_t *moq_s
             "|publish_namespace|request_id:%ui|namespace_num:%ui|namespace:%s|",
             msg->request_id, msg->track_namespace_num, ns ? ns : "");
     xqc_free(ns);
+
+    if (session->use_unified_setup) {
+        xqc_moq_request_ok_msg_t request_ok;
+        xqc_memzero(&request_ok, sizeof(request_ok));
+        ret = xqc_moq_write_request_ok(session, msg->request_id, &request_ok);
+        if (ret != XQC_OK) {
+            xqc_log(session->log, XQC_LOG_ERROR,
+                    "|write publish_namespace REQUEST_OK failed|request_id:%ui|ret:%d|",
+                    msg->request_id, ret);
+            xqc_moq_session_error(session, MOQ_INTERNAL_ERROR,
+                                  "write publish_namespace REQUEST_OK");
+            return;
+        }
+        xqc_log(session->log, XQC_LOG_INFO,
+                "|publish_namespace request accepted|request_id:%ui|",
+                msg->request_id);
+    }
 }
 
 void

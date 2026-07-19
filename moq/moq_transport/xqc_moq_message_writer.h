@@ -30,6 +30,9 @@ xqc_int_t xqc_moq_write_unsubscribe(xqc_moq_session_t *session, xqc_moq_unsubscr
 xqc_int_t xqc_moq_write_publish_namespace(xqc_moq_session_t *session,
     xqc_moq_publish_namespace_msg_t *publish_namespace);
 
+xqc_int_t xqc_moq_write_request_ok(xqc_moq_session_t *session,
+    uint64_t request_id, xqc_moq_request_ok_msg_t *request_ok);
+
 xqc_int_t xqc_moq_write_publish_namespace_done(xqc_moq_session_t *session,
     xqc_moq_publish_namespace_done_msg_t *publish_namespace_done);
 

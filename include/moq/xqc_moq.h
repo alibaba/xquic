@@ -797,6 +797,14 @@ xqc_int_t xqc_moq_write_subscribe_ok(xqc_moq_session_t *session, xqc_moq_subscri
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_subscribe_error(xqc_moq_session_t *session, xqc_moq_subscribe_error_msg_t *subscribe_error);
 
+/*
+ * Send a draft-18 REQUEST_OK on the peer-initiated request stream identified
+ * by request_id. A request stream can receive exactly one response.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_request_ok(xqc_moq_session_t *session,
+    uint64_t request_id, xqc_moq_request_ok_msg_t *request_ok);
+
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_publish_ok(xqc_moq_session_t *session, xqc_moq_publish_ok_msg_t *publish_ok);
 

@@ -12,6 +12,7 @@
 static void *xqc_moq_quic_stream_create(void *conn, xqc_stream_direction_t dir, void *user_data);
 static xqc_stream_t *xqc_moq_quic_stream(void *stream);
 static xqc_int_t xqc_moq_quic_stream_close(void *stream);
+static xqc_int_t xqc_moq_quic_stream_cancel(void *stream, uint64_t err_code);
 static xqc_int_t xqc_moq_quic_stream_stop_sending(void *stream, uint64_t err_code);
 static ssize_t xqc_moq_quic_stream_send(void *stream, uint8_t *send_data, size_t send_data_size, uint8_t fin);
 
@@ -32,6 +33,7 @@ const xqc_moq_trans_stream_ops_t xqc_moq_quic_stream_ops = {
     .create      = xqc_moq_quic_stream_create,
     .quic_stream = xqc_moq_quic_stream,
     .close       = xqc_moq_quic_stream_close,
+    .cancel      = xqc_moq_quic_stream_cancel,
     .stop_sending = xqc_moq_quic_stream_stop_sending,
     .write       = xqc_moq_quic_stream_send,
 };
@@ -71,6 +73,13 @@ xqc_moq_quic_stream_close(void *stream)
 {
     xqc_stream_t *quic_stream = (xqc_stream_t *)stream;
     return xqc_stream_close(quic_stream);
+}
+
+static xqc_int_t
+xqc_moq_quic_stream_cancel(void *stream, uint64_t err_code)
+{
+    xqc_stream_t *quic_stream = (xqc_stream_t *)stream;
+    return xqc_stream_close_with_error(quic_stream, err_code);
 }
 
 static xqc_int_t

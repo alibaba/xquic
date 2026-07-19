@@ -28,6 +28,7 @@ xqc_moq_stream_create(xqc_moq_session_t *session)
     stream->session = session;
     xqc_init_list_head(&stream->list_member);
     xqc_init_list_head(&stream->recv_list_member);
+    xqc_init_list_head(&stream->request_list_member);
 
     return stream;
 
@@ -100,6 +101,7 @@ xqc_moq_stream_destroy(xqc_moq_stream_t *stream)
 
     xqc_list_del_init(&stream->list_member);
     xqc_list_del_init(&stream->recv_list_member);
+    xqc_list_del_init(&stream->request_list_member);
 
     xqc_free(stream);
 }
@@ -139,6 +141,18 @@ xqc_int_t
 xqc_moq_stream_close(xqc_moq_stream_t *moq_stream)
 {
     return moq_stream->trans_ops.close(moq_stream->trans_stream);
+}
+
+xqc_int_t
+xqc_moq_stream_cancel(xqc_moq_stream_t *moq_stream, uint64_t err_code)
+{
+    if (moq_stream == NULL || moq_stream->trans_stream == NULL
+        || moq_stream->trans_ops.cancel == NULL)
+    {
+        return -XQC_EPARAM;
+    }
+
+    return moq_stream->trans_ops.cancel(moq_stream->trans_stream, err_code);
 }
 
 xqc_int_t

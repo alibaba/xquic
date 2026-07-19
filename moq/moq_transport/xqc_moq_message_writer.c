@@ -634,6 +634,8 @@ xqc_moq_write_publish_namespace(xqc_moq_session_t *session,
         request_stream->local_request = 1;
         request_stream->request_type = XQC_MOQ_MSG_PUBLISH_NAMESPACE;
         request_stream->request_id = publish_namespace->request_id;
+        xqc_list_add_tail(&request_stream->request_list_member,
+                          &session->local_request_stream_list);
 
         ret = xqc_moq_write_msg_generic(session, request_stream,
             &publish_namespace->msg_base,

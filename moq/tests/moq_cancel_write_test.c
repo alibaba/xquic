@@ -18,6 +18,9 @@
 typedef struct {
     xqc_int_t close_ret;
     xqc_int_t close_count;
+    xqc_int_t cancel_ret;
+    xqc_int_t cancel_count;
+    uint64_t cancel_error_code;
 } xqc_test_stream_ctx_t;
 
 static xqc_int_t
@@ -28,6 +31,15 @@ xqc_test_stream_close(void *stream)
     return ctx->close_ret;
 }
 
+static xqc_int_t
+xqc_test_stream_cancel(void *stream, uint64_t err_code)
+{
+    xqc_test_stream_ctx_t *ctx = stream;
+    ctx->cancel_count++;
+    ctx->cancel_error_code = err_code;
+    return ctx->cancel_ret;
+}
+
 static void
 xqc_test_init_stream(xqc_moq_stream_t *stream, xqc_moq_track_t *track,
     xqc_test_stream_ctx_t *ctx, uint64_t group_id, uint64_t object_id)
@@ -35,11 +47,41 @@ xqc_test_init_stream(xqc_moq_stream_t *stream, xqc_moq_track_t *track,
     xqc_memzero(stream, sizeof(*stream));
     xqc_init_list_head(&stream->list_member);
     xqc_init_list_head(&stream->recv_list_member);
+    xqc_init_list_head(&stream->request_list_member);
     stream->track = track;
     stream->group_id = group_id;
     stream->object_id = object_id;
     stream->trans_stream = ctx;
     stream->trans_ops.close = xqc_test_stream_close;
+    stream->trans_ops.cancel = xqc_test_stream_cancel;
+}
+
+static int
+xqc_test_cancel_request_uses_moq_cancelled_code(void)
+{
+    xqc_moq_session_t session;
+    xqc_memzero(&session, sizeof(session));
+    session.use_unified_setup = 1;
+    xqc_init_list_head(&session.local_request_stream_list);
+
+    xqc_test_stream_ctx_t ctx = {0};
+    xqc_moq_stream_t stream;
+    xqc_memzero(&stream, sizeof(stream));
+    xqc_init_list_head(&stream.request_list_member);
+    stream.local_request = 1;
+    stream.request_type = XQC_MOQ_MSG_PUBLISH_NAMESPACE;
+    stream.request_id = 42;
+    stream.trans_stream = &ctx;
+    stream.trans_ops.cancel = xqc_test_stream_cancel;
+    xqc_list_add_tail(&stream.request_list_member, &session.local_request_stream_list);
+
+    XQC_TEST_ASSERT(xqc_moq_cancel_request(&session, 42) == XQC_OK);
+    XQC_TEST_ASSERT(ctx.cancel_count == 1);
+    XQC_TEST_ASSERT(ctx.cancel_error_code == XQC_MOQ_REQUEST_CANCELLED);
+    XQC_TEST_ASSERT(xqc_moq_cancel_request(&session, 43) == -XQC_ESTREAM_NFOUND);
+
+    xqc_list_del_init(&stream.request_list_member);
+    return 0;
 }
 
 static void
@@ -213,6 +255,10 @@ xqc_test_cancel_write_rejects_subscriber_track(void)
 int
 main(void)
 {
+    if (xqc_test_cancel_request_uses_moq_cancelled_code() != 0) {
+        return 1;
+    }
+
     if (xqc_test_cancel_write_before_closes_old_streams() != 0) {
         return 1;
     }

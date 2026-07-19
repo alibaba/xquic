@@ -163,6 +163,8 @@ typedef struct xqc_moq_unannounce_msg_s xqc_moq_unannounce_msg_t;
 typedef struct xqc_moq_unsubscribe_msg_s xqc_moq_unsubscribe_msg_t;
 typedef struct xqc_moq_publish_done_msg_s xqc_moq_publish_done_msg_t;
 typedef struct xqc_moq_request_ok_msg_s xqc_moq_request_ok_msg_t;
+
+#define XQC_MOQ_REQUEST_CANCELLED 0x1
 typedef struct xqc_moq_subscribe_namespace_msg_s xqc_moq_subscribe_namespace_msg_t;
 typedef struct xqc_moq_subscribe_namespace_ok_msg_s xqc_moq_subscribe_namespace_ok_msg_t;
 typedef struct xqc_moq_subscribe_namespace_error_msg_s xqc_moq_subscribe_namespace_error_msg_t;
@@ -723,6 +725,13 @@ xqc_int_t xqc_moq_subscribe_update(xqc_moq_session_t *session, uint64_t subscrib
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_publish_namespace(xqc_moq_session_t *session,
     xqc_moq_publish_namespace_msg_t *publish_namespace);
+
+/*
+ * Cancel a draft-18 request stream by Request ID. Both open stream directions
+ * are abruptly terminated with the MOQT CANCELLED (0x1) stream error code.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_cancel_request(xqc_moq_session_t *session, uint64_t request_id);
 
 /*
  * End an advertised namespace and fan out PUBLISH_NAMESPACE_DONE to active

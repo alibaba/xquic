@@ -160,6 +160,7 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
     xqc_init_list_head(&session->peer_ns_pending_inbound_list);
     xqc_init_list_head(&session->local_advertised_namespace_list);
     xqc_init_list_head(&session->peer_advertised_namespace_list);
+    xqc_init_list_head(&session->local_request_stream_list);
     xqc_init_list_head(&session->local_ns_pending_list);
 
     session->use_client_setup_v14 = enable_client_setup_v14;
@@ -296,6 +297,33 @@ xqc_moq_session_create_draft18(void *conn, xqc_moq_user_session_t *user_session,
                                            role, callbacks, NULL,
                                            0, 1, authority, path,
                                            NULL, 0);
+}
+
+xqc_int_t
+xqc_moq_cancel_request(xqc_moq_session_t *session, uint64_t request_id)
+{
+    if (session == NULL || !session->use_unified_setup) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_list_head_t *pos;
+    xqc_list_for_each(pos, &session->local_request_stream_list) {
+        xqc_moq_stream_t *stream =
+            xqc_list_entry(pos, xqc_moq_stream_t, request_list_member);
+        if (!stream->local_request || stream->request_id != request_id) {
+            continue;
+        }
+
+        xqc_int_t ret = xqc_moq_stream_cancel(stream, XQC_MOQ_REQUEST_CANCELLED);
+        if (session->log != NULL) {
+            xqc_log(session->log, XQC_LOG_INFO,
+                    "|cancel request stream|request_id:%ui|request_type:0x%xi|ret:%d|",
+                    request_id, stream->request_type, ret);
+        }
+        return ret;
+    }
+
+    return -XQC_ESTREAM_NFOUND;
 }
 
 void

@@ -29,10 +29,10 @@
 #include "moq/moq_transport/xqc_moq_stream_webtransport.h"
 #include "src/http3/xqc_h3_conn.h"
 
-#define XQC_INTEROP_VERSION       "0.3.0-draft18"
+#define XQC_INTEROP_VERSION       "0.4.0-draft18"
 #define XQC_INTEROP_CID_LEN       12
 #define XQC_INTEROP_TIMEOUT_SEC   2
-#define XQC_INTEROP_MAX_TESTS     2
+#define XQC_INTEROP_MAX_TESTS     3
 
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
@@ -40,10 +40,10 @@ extern xqc_usec_t xqc_now();
 typedef enum {
     XQC_DEMO_TEST_SETUP_ONLY = 0,
     XQC_DEMO_TEST_ANNOUNCE_ONLY,
+    XQC_DEMO_TEST_PUBLISH_NAMESPACE_DONE,
     XQC_DEMO_TEST_SUBSCRIBE_ERROR,
     XQC_DEMO_TEST_ANNOUNCE_SUBSCRIBE,
     XQC_DEMO_TEST_SUBSCRIBE_BEFORE_ANNOUNCE,
-    XQC_DEMO_TEST_PUBLISH_NAMESPACE_DONE,
     XQC_DEMO_TEST_ALL,
     XQC_DEMO_TEST_UNKNOWN,
 } xqc_demo_test_case_t;
@@ -51,10 +51,10 @@ typedef enum {
 static const char *g_test_case_names[] = {
     "setup-only",
     "announce-only",
+    "publish-namespace-done",
     "subscribe-error",
     "announce-subscribe",
     "subscribe-before-announce",
-    "publish-namespace-done",
 };
 
 typedef struct xqc_demo_interop_conn_s {
@@ -73,8 +73,10 @@ typedef struct xqc_demo_interop_conn_s {
     int                  conn_role; /* 0 = publisher, 1 = subscriber */
     int                  session_ready;
     int                  closed;
+    int                  publish_ns_sent;
     int                  publish_ns_ok_received;
-    int                  publish_ns_done_sent;
+    int                  publish_ns_cancelled;
+    uint64_t             publish_ns_request_id;
     int                  subscribe_error_received;
     int                  announcement_received;
     int                  subscribe_sent;
@@ -211,6 +213,13 @@ xqc_demo_interop_timeout_callback(int fd, short what, void *arg)
 
     if (g_current_test == XQC_DEMO_TEST_ANNOUNCE_ONLY) {
         xqc_demo_test_fail("timeout: no REQUEST_OK received for PUBLISH_NAMESPACE");
+    } else if (g_current_test == XQC_DEMO_TEST_PUBLISH_NAMESPACE_DONE) {
+        xqc_demo_interop_conn_t *pub = g_pub_conn;
+        if (pub && pub->publish_ns_ok_received && !pub->publish_ns_cancelled) {
+            xqc_demo_test_fail("timeout: PUBLISH_NAMESPACE request stream was not cancelled");
+        } else {
+            xqc_demo_test_fail("timeout: no REQUEST_OK received for PUBLISH_NAMESPACE");
+        }
     } else if (g_current_test == XQC_DEMO_TEST_SUBSCRIBE_ERROR) {
         xqc_demo_interop_conn_t *sub = g_sub_conn;
         if (sub && sub->subscribe_error_received) {
@@ -237,7 +246,7 @@ xqc_demo_interop_timeout_callback(int fd, short what, void *arg)
 }
 
 static void
-xqc_demo_interop_delayed_action_callback(int fd, short what, void *arg);
+xqc_demo_interop_delayed_close_callback(int fd, short what, void *arg);
 
 static void
 xqc_demo_interop_subscriber_subscribe_callback(int fd, short what, void *arg);
@@ -382,7 +391,7 @@ xqc_demo_interop_init_conn(int role)
 }
 
 static int
-xqc_demo_interop_send_announce(xqc_moq_session_t *session)
+xqc_demo_interop_send_announce(xqc_demo_interop_conn_t *conn)
 {
     xqc_moq_publish_namespace_msg_t pub_ns;
     memset(&pub_ns, 0, sizeof(pub_ns));
@@ -390,8 +399,13 @@ xqc_demo_interop_send_announce(xqc_moq_session_t *session)
     pub_ns.track_namespace_tuple = &interop_ns_tuple;
     pub_ns.params_num = 0;
     pub_ns.params = NULL;
-    xqc_int_t ret = xqc_moq_publish_namespace(session, &pub_ns);
-    VERBOSE("send PUBLISH_NAMESPACE(%s) ret=%d", XQC_INTEROP_NS_STR, (int)ret);
+    xqc_int_t ret = xqc_moq_publish_namespace(conn->session, &pub_ns);
+    if (ret >= 0) {
+        conn->publish_ns_sent = 1;
+        conn->publish_ns_request_id = pub_ns.request_id;
+    }
+    VERBOSE("send PUBLISH_NAMESPACE(%s) request_id=%"PRIu64" ret=%d",
+            XQC_INTEROP_NS_STR, pub_ns.request_id, (int)ret);
     return (int)ret;
 }
 
@@ -460,7 +474,7 @@ xqc_demo_interop_on_session_setup(xqc_moq_user_session_t *user_session, char *ex
 
     case XQC_DEMO_TEST_ANNOUNCE_ONLY:
         if (conn->conn_role == 0) {
-            int ret = xqc_demo_interop_send_announce(conn->session);
+            int ret = xqc_demo_interop_send_announce(conn);
             if (ret < 0) {
                 xqc_demo_test_fail("PUBLISH_NAMESPACE send failed: %d", ret);
                 xqc_demo_interop_close_conn(conn);
@@ -470,7 +484,11 @@ xqc_demo_interop_on_session_setup(xqc_moq_user_session_t *user_session, char *ex
 
     case XQC_DEMO_TEST_PUBLISH_NAMESPACE_DONE:
         if (conn->conn_role == 0) {
-            xqc_demo_interop_send_announce(conn->session);
+            int ret = xqc_demo_interop_send_announce(conn);
+            if (ret < 0) {
+                xqc_demo_test_fail("PUBLISH_NAMESPACE send failed: %d", ret);
+                xqc_demo_interop_close_conn(conn);
+            }
         }
         break;
 
@@ -483,7 +501,7 @@ xqc_demo_interop_on_session_setup(xqc_moq_user_session_t *user_session, char *ex
 
     case XQC_DEMO_TEST_ANNOUNCE_SUBSCRIBE:
         if (conn->conn_role == 0) {
-            xqc_demo_interop_send_announce(conn->session);
+            xqc_demo_interop_send_announce(conn);
             g_publisher_announced = 1;
             if (g_sub_conn && g_sub_conn->session_ready && !g_sub_conn->subscribe_sent) {
                 g_sub_conn->subscribe_sent = 1;
@@ -525,15 +543,48 @@ xqc_demo_interop_on_request_ok(xqc_moq_user_session_t *user_session,
     VERBOSE("on_request_ok role=%d request_id=%"PRIu64" request_type=0x%x params=%"PRIu64,
             conn->conn_role, request_id, request_type, msg->params_num);
 
-    if (g_current_test == XQC_DEMO_TEST_ANNOUNCE_ONLY
-        && request_type == XQC_MOQ_MSG_PUBLISH_NAMESPACE)
-    {
-        conn->publish_ns_ok_received = 1;
+    if (request_type != XQC_MOQ_MSG_PUBLISH_NAMESPACE) {
+        return;
+    }
+
+    conn->publish_ns_ok_received = 1;
+    if (g_current_test == XQC_DEMO_TEST_ANNOUNCE_ONLY) {
         xqc_demo_test_pass();
         if (g_test_timeout_event) {
             event_del(g_test_timeout_event);
         }
         xqc_demo_interop_close_conn(conn);
+        return;
+    }
+
+    if (g_current_test == XQC_DEMO_TEST_PUBLISH_NAMESPACE_DONE) {
+        if (!conn->publish_ns_sent || request_id != conn->publish_ns_request_id) {
+            xqc_demo_test_fail("REQUEST_OK did not match PUBLISH_NAMESPACE request");
+            xqc_demo_interop_close_conn(conn);
+            return;
+        }
+
+        xqc_int_t ret = xqc_moq_cancel_request(conn->session, request_id);
+        VERBOSE("cancel PUBLISH_NAMESPACE request stream request_id=%"PRIu64" ret=%d",
+                request_id, (int)ret);
+        if (ret < 0) {
+            xqc_demo_test_fail("PUBLISH_NAMESPACE request cancellation failed: %d", (int)ret);
+            xqc_demo_interop_close_conn(conn);
+            return;
+        }
+
+        conn->publish_ns_cancelled = 1;
+        xqc_demo_test_pass();
+        if (g_test_timeout_event) {
+            event_del(g_test_timeout_event);
+        }
+        struct timeval flush_delay = { 0, 500000 };
+        if (event_base_once(g_eb, -1, EV_TIMEOUT,
+                            xqc_demo_interop_delayed_close_callback,
+                            conn, &flush_delay) < 0)
+        {
+            xqc_demo_interop_close_conn(conn);
+        }
     }
 }
 
@@ -693,42 +744,14 @@ xqc_demo_interop_on_audio(xqc_moq_user_session_t *user_session, uint64_t subscri
 }
 
 static void
-xqc_demo_interop_delayed_action_callback(int fd, short what, void *arg)
+xqc_demo_interop_delayed_close_callback(int fd, short what, void *arg)
 {
     (void)fd; (void)what;
     xqc_demo_interop_conn_t *conn = (xqc_demo_interop_conn_t *)arg;
     if (conn == NULL || conn->closed) {
         return;
     }
-
-    switch (g_current_test) {
-    case XQC_DEMO_TEST_PUBLISH_NAMESPACE_DONE:
-        if (conn->session_ready && !conn->publish_ns_done_sent) {
-            xqc_moq_publish_namespace_done_msg_t done;
-            memset(&done, 0, sizeof(done));
-            done.track_namespace_num = 1;
-            done.track_namespace_tuple = &interop_ns_tuple;
-            xqc_int_t ret = xqc_moq_publish_namespace_done(conn->session, &done);
-            VERBOSE("send PUBLISH_NAMESPACE_DONE ret=%d", (int)ret);
-            conn->publish_ns_done_sent = 1;
-            if (ret >= 0) {
-                xqc_demo_test_pass();
-            } else {
-                xqc_demo_test_fail("write_publish_namespace_done failed: %d", (int)ret);
-            }
-        } else if (!conn->session_ready) {
-            xqc_demo_test_fail("session setup not completed within deadline");
-        }
-        xqc_demo_interop_close_conn(conn);
-        break;
-
-    case XQC_DEMO_TEST_ANNOUNCE_SUBSCRIBE:
-    case XQC_DEMO_TEST_SUBSCRIBE_BEFORE_ANNOUNCE:
-        break;
-
-    default:
-        break;
-    }
+    xqc_demo_interop_close_conn(conn);
 }
 
 static void
@@ -753,7 +776,7 @@ xqc_demo_interop_delayed_announce_callback(int fd, short what, void *arg)
         return;
     }
     VERBOSE("delayed announce: sending PUBLISH_NAMESPACE");
-    xqc_demo_interop_send_announce(conn->session);
+    xqc_demo_interop_send_announce(conn);
     g_publisher_announced = 1;
 }
 
@@ -845,11 +868,15 @@ xqc_demo_interop_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
         {
             xqc_demo_test_pass();
         } else if (g_current_test == XQC_DEMO_TEST_PUBLISH_NAMESPACE_DONE
-                   && iconn->session_ready)
+                   && iconn->publish_ns_ok_received
+                   && iconn->publish_ns_cancelled)
         {
-            VERBOSE("connection closed (err=%d) for %s, session was established - PASS",
+            VERBOSE("connection closed (err=%d) for %s after request cancellation - PASS",
                     (int)err, g_test_case_names[g_current_test]);
             xqc_demo_test_pass();
+        } else if (g_current_test == XQC_DEMO_TEST_PUBLISH_NAMESPACE_DONE) {
+            xqc_demo_test_fail("connection closed before PUBLISH_NAMESPACE cancellation (err=%d)",
+                               (int)err);
         } else if (g_current_test == XQC_DEMO_TEST_SUBSCRIBE_ERROR) {
             if (iconn->subscribe_error_received) {
                 xqc_demo_test_pass();
@@ -1068,11 +1095,16 @@ xqc_demo_wt_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, v
         xqc_int_t err = xqc_conn_get_errno(conn);
 
         if (!g_test_passed && g_fail_reason[0] == '\0') {
-            if ((g_current_test == XQC_DEMO_TEST_SETUP_ONLY
-                 || g_current_test == XQC_DEMO_TEST_PUBLISH_NAMESPACE_DONE)
-                && iconn->session_ready)
+            if (g_current_test == XQC_DEMO_TEST_SETUP_ONLY && iconn->session_ready)
             {
                 xqc_demo_test_pass();
+            } else if (g_current_test == XQC_DEMO_TEST_PUBLISH_NAMESPACE_DONE
+                       && iconn->publish_ns_ok_received
+                       && iconn->publish_ns_cancelled)
+            {
+                xqc_demo_test_pass();
+            } else if (g_current_test == XQC_DEMO_TEST_PUBLISH_NAMESPACE_DONE) {
+                xqc_demo_test_fail("wt connection closed before PUBLISH_NAMESPACE cancellation");
             } else if (g_current_test == XQC_DEMO_TEST_ANNOUNCE_ONLY
                        && iconn->publish_ns_ok_received)
             {
@@ -1431,12 +1463,6 @@ xqc_demo_run_single_test(xqc_demo_test_case_t tc)
     }
     memcpy(&first->cid, cid, sizeof(xqc_cid_t));
 
-    if (tc == XQC_DEMO_TEST_PUBLISH_NAMESPACE_DONE) {
-        struct event *ev_delayed = evtimer_new(g_eb, xqc_demo_interop_delayed_action_callback, first);
-        struct timeval delay = { 3, 0 };
-        event_add(ev_delayed, &delay);
-    }
-
     if (tc == XQC_DEMO_TEST_ANNOUNCE_SUBSCRIBE || tc == XQC_DEMO_TEST_SUBSCRIBE_BEFORE_ANNOUNCE) {
         int second_role = (tc == XQC_DEMO_TEST_ANNOUNCE_SUBSCRIBE) ? 1 : 0;
         xqc_demo_interop_conn_t *second = xqc_demo_interop_init_conn(second_role);
@@ -1652,7 +1678,7 @@ int main(int argc, char *argv[])
         xqc_demo_test_case_t tc = xqc_demo_parse_test_name(testcase);
         if (tc == XQC_DEMO_TEST_UNKNOWN) {
             fprintf(stderr, "error: unknown test case '%s'\n", testcase);
-            fprintf(stderr, "  supported for draft-18: setup-only, announce-only\n");
+            fprintf(stderr, "  supported for draft-18: setup-only, announce-only, publish-namespace-done\n");
             return 127;
         }
         tests[0] = tc;

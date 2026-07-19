@@ -54,6 +54,7 @@ typedef struct xqc_moq_session_s {
     xqc_list_head_t                 peer_ns_pending_inbound_list;
     xqc_list_head_t                 local_advertised_namespace_list;
     xqc_list_head_t                 peer_advertised_namespace_list;
+    xqc_list_head_t                 local_request_stream_list;
     uint64_t                        request_id_allocator;
     uint64_t                        track_alias_allocator;
     xqc_moq_bitrate_allocator_t     bitrate_allocator;

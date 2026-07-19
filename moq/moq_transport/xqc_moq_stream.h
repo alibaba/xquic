@@ -11,6 +11,7 @@ typedef struct {
     xqc_stream_t *(*quic_stream)(void *stream);
     ssize_t (*write)(void *stream, uint8_t *send_data, size_t send_data_size, uint8_t fin);
     xqc_int_t (*close)(void *stream);
+    xqc_int_t (*cancel)(void *stream, uint64_t err_code);
     xqc_int_t (*stop_sending)(void *stream, uint64_t err_code);
 } xqc_moq_trans_stream_ops_t;
 
@@ -59,6 +60,7 @@ typedef struct xqc_moq_stream_s {
     uint8_t                     response_received;
     xqc_moq_msg_type_t          request_type;
     uint64_t                    request_id;
+    xqc_list_head_t             request_list_member;
 
     xqc_moq_track_t             *track;
     xqc_list_head_t             list_member; /* track write_stream_list */
@@ -87,6 +89,8 @@ void xqc_moq_stream_destroy(xqc_moq_stream_t *moq_stream);
 xqc_moq_stream_t *xqc_moq_stream_create_with_transport(xqc_moq_session_t *session, xqc_stream_direction_t direction);
 
 xqc_int_t xqc_moq_stream_close(xqc_moq_stream_t *moq_stream);
+
+xqc_int_t xqc_moq_stream_cancel(xqc_moq_stream_t *moq_stream, uint64_t err_code);
 
 xqc_int_t xqc_moq_stream_stop_sending(xqc_moq_stream_t *moq_stream, uint64_t err_code);
 

@@ -244,6 +244,28 @@ xqc_demo_relay_remove_subscription(xqc_demo_relay_subscription_t *target)
     }
 }
 
+static xqc_int_t
+xqc_demo_relay_send_does_not_exist(xqc_moq_user_session_t *subscriber,
+    uint64_t request_id, const char *reason)
+{
+    if (subscriber == NULL || subscriber->session == NULL || reason == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_moq_request_error_msg_t request_error;
+    memset(&request_error, 0, sizeof(request_error));
+    request_error.error_code = XQC_MOQ_REQUEST_ERROR_DOES_NOT_EXIST;
+    request_error.retry_interval = 0;
+    request_error.reason_phrase = (char *)reason;
+    request_error.reason_phrase_len = strlen(reason);
+    xqc_int_t ret = xqc_moq_write_request_error(
+        subscriber->session, request_id, &request_error);
+    printf("draft18_relay_request_error subscriber_request_id:%"PRIu64
+           " error_code:%u reason:%s ret:%d\n", request_id,
+           XQC_MOQ_REQUEST_ERROR_DOES_NOT_EXIST, reason, ret);
+    return ret;
+}
+
 static void
 xqc_demo_relay_pending_timeout(int fd, short what, void *arg)
 {
@@ -267,18 +289,9 @@ xqc_demo_relay_pending_timeout(int fd, short what, void *arg)
                                subscription->publisher_request_id);
     }
 
-    const char *reason = "namespace publisher unavailable";
-    xqc_moq_request_error_msg_t request_error;
-    memset(&request_error, 0, sizeof(request_error));
-    request_error.error_code = XQC_MOQ_REQUEST_ERROR_DOES_NOT_EXIST;
-    request_error.retry_interval = 0;
-    request_error.reason_phrase = (char *)reason;
-    request_error.reason_phrase_len = strlen(reason);
-    xqc_int_t ret = xqc_moq_write_request_error(
-        subscription->subscriber->session,
-        subscription->subscriber_request_id, &request_error);
-    printf("draft18_relay_request_error subscriber_request_id:%"PRIu64
-           " ret:%d\n", subscription->subscriber_request_id, ret);
+    xqc_demo_relay_send_does_not_exist(subscription->subscriber,
+        subscription->subscriber_request_id,
+        "namespace publisher unavailable");
     xqc_demo_relay_remove_subscription(subscription);
     if (timeout_event != NULL) {
         event_free(timeout_event);
@@ -1011,6 +1024,8 @@ void on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
             calloc(1, sizeof(*subscription));
         if (subscription == NULL) {
             printf("draft18_relay_pending allocation failed\n");
+            xqc_demo_relay_send_does_not_exist(user_session, subscribe_id,
+                "relay could not retain subscription");
             return;
         }
         subscription->namespace_tuple = xqc_demo_relay_copy_namespace_tuple(
@@ -1021,6 +1036,8 @@ void on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
         {
             xqc_demo_relay_free_subscription(subscription);
             printf("draft18_relay_pending request copy failed\n");
+            xqc_demo_relay_send_does_not_exist(user_session, subscribe_id,
+                "relay could not retain subscription");
             return;
         }
         memcpy(subscription->track_name, msg->track_name,
@@ -1041,11 +1058,23 @@ void on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
         struct timeval pending_timeout = { 1, 500000 };
         subscription->timeout_event = evtimer_new(
             eb, xqc_demo_relay_pending_timeout, subscription);
-        if (subscription->timeout_event != NULL) {
-            event_add(subscription->timeout_event, &pending_timeout);
+        if (subscription->timeout_event == NULL
+            || event_add(subscription->timeout_event, &pending_timeout) != 0)
+        {
+            printf("draft18_relay_pending timer setup failed\n");
+            xqc_demo_relay_send_does_not_exist(user_session, subscribe_id,
+                "relay could not schedule subscription");
+            xqc_demo_relay_remove_subscription(subscription);
+            return;
         }
 
         ret = xqc_demo_relay_forward_subscription(subscription);
+        if (ret < 0) {
+            xqc_demo_relay_send_does_not_exist(user_session, subscribe_id,
+                "namespace publisher unavailable");
+            xqc_demo_relay_remove_subscription(subscription);
+            return;
+        }
         if (ret == 0) {
             printf("draft18_relay_pending subscriber_request_id:%"PRIu64
                    " track:%s\n", subscribe_id, subscription->track_name);

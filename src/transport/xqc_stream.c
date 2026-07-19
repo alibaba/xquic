@@ -874,7 +874,7 @@ xqc_stream_record_trans_state(xqc_stream_t *stream, xqc_bool_t begin)
 }
 
 xqc_int_t
-xqc_stream_close(xqc_stream_t *stream)
+xqc_stream_close_with_error(xqc_stream_t *stream, uint64_t error_code)
 {
     xqc_int_t ret;
     xqc_connection_t *conn = stream->stream_conn;
@@ -891,7 +891,7 @@ xqc_stream_close(xqc_stream_t *stream)
     }
 
     xqc_send_queue_drop_stream_frame_packets(conn, stream->stream_id);
-    ret = xqc_write_reset_stream_to_packet(conn, stream, H3_REQUEST_CANCELLED, stream->stream_send_offset);
+    ret = xqc_write_reset_stream_to_packet(conn, stream, error_code, stream->stream_send_offset);
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_reset_stream_to_packet error|%d|", ret);
         XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
@@ -902,7 +902,7 @@ xqc_stream_close(xqc_stream_t *stream)
     if (stream->stream_state_recv == XQC_RECV_STREAM_ST_RECV
         || stream->stream_state_recv == XQC_RECV_STREAM_ST_SIZE_KNOWN)
     {
-        ret = xqc_write_stop_sending_to_packet(conn, stream, H3_REQUEST_CANCELLED);
+        ret = xqc_write_stop_sending_to_packet(conn, stream, error_code);
         if (ret < 0) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_stop_sending_to_packet error|%d|", ret);
             XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
@@ -917,6 +917,12 @@ xqc_stream_close(xqc_stream_t *stream)
     xqc_stream_shutdown_write(stream);
     xqc_engine_conn_logic(conn->engine, conn);
     return XQC_OK;
+}
+
+xqc_int_t
+xqc_stream_close(xqc_stream_t *stream)
+{
+    return xqc_stream_close_with_error(stream, H3_REQUEST_CANCELLED);
 }
 
 xqc_int_t

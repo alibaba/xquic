@@ -19,6 +19,8 @@ xqc_int_t xqc_moq_write_server_setup(xqc_moq_session_t *session, xqc_moq_server_
 
 xqc_int_t xqc_moq_write_server_setup_v14(xqc_moq_session_t *session, xqc_moq_server_setup_v14_msg_t *server_setup);
 
+xqc_int_t xqc_moq_write_setup(xqc_moq_session_t *session, xqc_moq_setup_msg_t *setup);
+
 xqc_int_t xqc_moq_write_subscribe(xqc_moq_session_t *session, xqc_moq_subscribe_msg_t *subscribe);
 
 xqc_int_t xqc_moq_write_subscribe_update(xqc_moq_session_t *session, xqc_moq_subscribe_update_msg_t *update);
@@ -27,6 +29,12 @@ xqc_int_t xqc_moq_write_unsubscribe(xqc_moq_session_t *session, xqc_moq_unsubscr
 
 xqc_int_t xqc_moq_write_publish_namespace(xqc_moq_session_t *session,
     xqc_moq_publish_namespace_msg_t *publish_namespace);
+
+xqc_int_t xqc_moq_write_request_ok(xqc_moq_session_t *session,
+    uint64_t request_id, xqc_moq_request_ok_msg_t *request_ok);
+
+xqc_int_t xqc_moq_write_request_error(xqc_moq_session_t *session,
+    uint64_t request_id, xqc_moq_request_error_msg_t *request_error);
 
 xqc_int_t xqc_moq_write_publish_namespace_done(xqc_moq_session_t *session,
     xqc_moq_publish_namespace_done_msg_t *publish_namespace_done);

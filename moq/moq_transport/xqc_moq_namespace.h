@@ -14,6 +14,7 @@ typedef struct xqc_moq_namespace_prefix_s {
 
 typedef struct xqc_moq_namespace_advertisement_s {
     xqc_list_head_t              list_member;
+    uint64_t                     request_id;
     uint64_t                     track_namespace_num;
     xqc_moq_track_ns_field_t     *track_namespace_tuple;
     uint64_t                     track_refcnt;

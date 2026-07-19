@@ -71,6 +71,7 @@ int g_reuse_datachannel_stream = 0;
 int g_datagram_mode = 0;
 int g_enable_datachannel = 1;
 int g_enable_catalog = -1;
+int g_send_goaway = 0;
 int g_subscribe_namespace_mode = 0;
 int g_multi_ns_mode = 0;
 uint64_t g_audio_cancel_next_group_id = XQC_MOQ_INVALID_ID;
@@ -668,6 +669,12 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
     user_conn->audio_ctx.track_alias = XQC_MOQ_INVALID_ID;
     user_conn->audio_ctx.subgroup_group_id = XQC_MOQ_INVALID_ID;
 
+    if (g_send_goaway) {
+        xqc_int_t ret = xqc_moq_send_goaway(session, NULL, 0);
+        printf("send goaway ret:%d\n", ret);
+        return;
+    }
+
     if (g_subscribe_namespace_mode) {
         xqc_moq_subscribe_namespace_msg_t sub_ns;
         xqc_int_t ret;
@@ -1206,7 +1213,7 @@ void on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
         xqc_moq_subscribe_ok_msg_t subscribe_ok;
         memset(&subscribe_ok, 0, sizeof(subscribe_ok));
         subscribe_ok.subscribe_id = subscribe_id;
-        printf("subscribe id recv from server side: %llu\n", subscribe_id);
+        printf("subscribe id recv from server side: %"PRIu64"\n", subscribe_id);
         subscribe_ok.track_alias = msg ? msg->track_alias : 0;
         subscribe_ok.expire_ms = 0;
         subscribe_ok.group_order = 0;
@@ -1565,6 +1572,16 @@ void on_datagram_object(xqc_moq_user_session_t *user_session,
     }
 }
 
+void on_goaway(xqc_moq_user_session_t *user_session,
+    const char *new_session_uri, size_t new_session_uri_len)
+{
+    const char *uri = new_session_uri ? new_session_uri : "";
+
+    (void)user_session;
+    printf("on_goaway: uri_len:%zu uri:%.*s\n", new_session_uri_len,
+           (int)new_session_uri_len, uri);
+}
+
 int
 xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data, void *conn_proto_data)
 {
@@ -1592,6 +1609,7 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
         .on_audio = on_audio_frame,
         .on_object = on_raw_object,
         .on_datagram_object = on_datagram_object,
+        .on_goaway = on_goaway,
     };
     xqc_moq_session_t *session;
 
@@ -1834,7 +1852,7 @@ int main(int argc, char *argv[])
     uint8_t secret_key[16] = {0};
     int use_proxy = 0;
     int use_1rtt = 0;
-    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:S:f1MVRUDTCmN:")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:S:f1MVGRUDTCmN:")) != -1) {
         switch (ch) {
             case 'a':
                 printf("option addr :%s\n", optarg);
@@ -1929,6 +1947,10 @@ int main(int argc, char *argv[])
             case 'V':
                 printf("option draft14 client setup : on\n");
                 g_enable_client_setup_v14 = 1;
+                break;
+            case 'G':
+                printf("option send goaway : on\n");
+                g_send_goaway = 1;
                 break;
             case 'U':
                 printf("option reuse datachannel stream : on\n");

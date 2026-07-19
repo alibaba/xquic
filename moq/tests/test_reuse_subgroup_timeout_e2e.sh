@@ -9,6 +9,7 @@ set -o pipefail
 BUILD_DIR="$(cd "${1:?Usage: $0 <build_dir>}" && pwd)"
 SERVER="$BUILD_DIR/moq_demo_server"
 CLIENT="$BUILD_DIR/moq_demo_client"
+BUILD_ROOT="$(cd "$BUILD_DIR/../.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CERT_DIR=""
 for _d in "$SCRIPT_DIR/../../certs" "$SCRIPT_DIR/../../../certs"; do
@@ -47,12 +48,20 @@ for f in "$SERVER" "$CLIENT"; do
     [ -x "$f" ] || { echo "FATAL: $f not found"; exit 1; }
 done
 
-if [ -n "$CERT_DIR" ] && [ -f "$CERT_DIR/localhost.crt" ]; then
+if [ -f "$BUILD_ROOT/server.crt" ] && [ -f "$BUILD_ROOT/server.key" ]; then
+    cp "$BUILD_ROOT/server.crt" "$TMPDIR/server.crt"
+    cp "$BUILD_ROOT/server.key" "$TMPDIR/server.key"
+elif [ -n "$CERT_DIR" ] && [ -f "$CERT_DIR/localhost.crt" ]; then
     cp "$CERT_DIR/localhost.crt" "$TMPDIR/server.crt"
     cp "$CERT_DIR/localhost.key" "$TMPDIR/server.key"
 else
     cp "$(dirname "$SERVER")/server.crt" "$TMPDIR/server.crt" 2>/dev/null || true
     cp "$(dirname "$SERVER")/server.key" "$TMPDIR/server.key" 2>/dev/null || true
+fi
+
+if [ ! -f "$TMPDIR/server.crt" ] || [ ! -f "$TMPDIR/server.key" ]; then
+    echo "FATAL: TLS certificate/key not found"
+    exit 1
 fi
 
 echo "=== Reused Video Subgroup Timeout E2E Tests ==="

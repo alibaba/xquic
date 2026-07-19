@@ -10,6 +10,7 @@ extern "C" {
 // #define XQC_ALPN_MOQ_QUIC         "moq-quic"
 #define XQC_ALPN_MOQ_QUIC         "moq-00"
 #define XQC_ALPN_MOQ_QUIC_INTEROP "moq-14" // used for imquic
+#define XQC_ALPN_MOQ_DRAFT_18     "moqt-18"
 #define XQC_ALPN_MOQ_WEBTRANSPORT "moq-wt"
 
 typedef enum {
@@ -161,6 +162,10 @@ typedef struct xqc_moq_announce_error_msg_s xqc_moq_announce_error_msg_t;
 typedef struct xqc_moq_unannounce_msg_s xqc_moq_unannounce_msg_t;
 typedef struct xqc_moq_unsubscribe_msg_s xqc_moq_unsubscribe_msg_t;
 typedef struct xqc_moq_publish_done_msg_s xqc_moq_publish_done_msg_t;
+typedef struct xqc_moq_request_ok_msg_s xqc_moq_request_ok_msg_t;
+typedef struct xqc_moq_request_error_msg_s xqc_moq_request_error_msg_t;
+
+#define XQC_MOQ_REQUEST_CANCELLED 0x1
 typedef struct xqc_moq_subscribe_namespace_msg_s xqc_moq_subscribe_namespace_msg_t;
 typedef struct xqc_moq_subscribe_namespace_ok_msg_s xqc_moq_subscribe_namespace_ok_msg_t;
 typedef struct xqc_moq_subscribe_namespace_error_msg_s xqc_moq_subscribe_namespace_error_msg_t;
@@ -188,8 +193,10 @@ typedef enum {
     XQC_MOQ_MSG_SUBSCRIBE_UPDATE    = 0x2,
     XQC_MOQ_MSG_SUBSCRIBE           = 0x3,
     XQC_MOQ_MSG_SUBSCRIBE_OK        = 0x4,
-    XQC_MOQ_MSG_SUBSCRIBE_ERROR     = 0x5,
+    XQC_MOQ_MSG_REQUEST_ERROR       = 0x5,
+    XQC_MOQ_MSG_SUBSCRIBE_ERROR     = XQC_MOQ_MSG_REQUEST_ERROR,
     XQC_MOQ_MSG_PUBLISH_NAMESPACE   = 0x6,
+    XQC_MOQ_MSG_REQUEST_OK          = 0x7,
     XQC_MOQ_MSG_PUBLISH_NAMESPACE_DONE = 0x9,
     XQC_MOQ_MSG_UNSUBSCRIBE         = 0xA,
     // XQC_MOQ_MSG_SUBSCRIBE_DONE      = 0xB,
@@ -203,6 +210,7 @@ typedef enum {
     XQC_MOQ_MSG_UNSUBSCRIBE_NAMESPACE      = 0x14,
     XQC_MOQ_MSG_CLIENT_SETUP_V14    = 0x20,
     XQC_MOQ_MSG_SERVER_SETUP_V14    = 0x21,
+    XQC_MOQ_MSG_SETUP               = 0x2F00,
     XQC_MOQ_MSG_CLIENT_SETUP        = 0x40,
     XQC_MOQ_MSG_SERVER_SETUP        = 0x41,
     XQC_MOQ_MSG_STREAM_HEADER_TRACK = 0x50,
@@ -283,6 +291,10 @@ typedef struct xqc_moq_subscribe_msg_s {
     uint64_t                    end_object_id;
     uint64_t                    params_num;
     xqc_moq_message_parameter_t *params;
+    /* Internal receive buffer for fragmented request-stream input. */
+    uint8_t                     *payload;
+    size_t                      payload_len;
+    size_t                      payload_processed;
 } xqc_moq_subscribe_msg_t;
 
 typedef struct xqc_moq_subscribe_ok_msg_s {
@@ -296,6 +308,12 @@ typedef struct xqc_moq_subscribe_ok_msg_s {
     uint64_t                    largest_object_id;
     uint64_t                    params_num;
     xqc_moq_message_parameter_t *params;
+    uint8_t                     *track_properties;
+    size_t                      track_properties_len;
+    /* Internal receive buffer for fragmented request-stream input. */
+    uint8_t                     *payload;
+    size_t                      payload_len;
+    size_t                      payload_processed;
 } xqc_moq_subscribe_ok_msg_t;
 
 typedef struct xqc_moq_subscribe_error_msg_s {
@@ -305,6 +323,25 @@ typedef struct xqc_moq_subscribe_error_msg_s {
     char                        *reason_phrase;
     size_t                      reason_phrase_len;
 } xqc_moq_subscribe_error_msg_t;
+
+typedef struct xqc_moq_request_error_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    error_code;
+    uint64_t                    retry_interval;
+    char                        *reason_phrase;
+    size_t                      reason_phrase_len;
+    uint8_t                     *redirect;
+    size_t                      redirect_len;
+    /* Internal receive buffer used to support fragmented request-stream input. */
+    uint8_t                     *payload;
+    size_t                      payload_len;
+    size_t                      payload_processed;
+} xqc_moq_request_error_msg_t;
+
+typedef enum {
+    XQC_MOQ_REQUEST_ERROR_DOES_NOT_EXIST = 0x10,
+    XQC_MOQ_REQUEST_ERROR_REDIRECT       = 0x34,
+} xqc_moq_request_error_code_t;
 
 typedef struct xqc_moq_publish_msg_s {
     xqc_moq_msg_base_t          msg_base;
@@ -374,8 +411,14 @@ typedef struct xqc_moq_publish_namespace_msg_s {
     xqc_moq_message_parameter_t *params;
 } xqc_moq_publish_namespace_msg_t;
 
+typedef struct xqc_moq_request_ok_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    params_num;
+} xqc_moq_request_ok_msg_t;
+
 typedef struct xqc_moq_publish_namespace_done_msg_s {
     xqc_moq_msg_base_t          msg_base;
+    uint64_t                    request_id;
     uint64_t                    track_namespace_num;
     xqc_moq_track_ns_field_t    *track_namespace_tuple;
 } xqc_moq_publish_namespace_done_msg_t;
@@ -513,6 +556,21 @@ typedef void (*xqc_moq_on_datagram_object_pt)(xqc_moq_user_session_t *user_sessi
 typedef void (*xqc_moq_on_goaway_pt)(xqc_moq_user_session_t *user_session,
     const char *new_session_uri, size_t new_session_uri_len);
 
+typedef void (*xqc_moq_on_request_ok_pt)(xqc_moq_user_session_t *user_session,
+    uint64_t request_id, xqc_moq_msg_type_t request_type,
+    xqc_moq_request_ok_msg_t *msg);
+
+typedef void (*xqc_moq_on_request_error_pt)(xqc_moq_user_session_t *user_session,
+    uint64_t request_id, xqc_moq_msg_type_t request_type,
+    xqc_moq_request_error_msg_t *msg);
+
+typedef void (*xqc_moq_on_publish_namespace_pt)(xqc_moq_user_session_t *user_session,
+    xqc_moq_publish_namespace_msg_t *msg);
+
+typedef void (*xqc_moq_on_publish_namespace_done_pt)(xqc_moq_user_session_t *user_session,
+    uint64_t request_id, const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    uint64_t track_namespace_num, uint64_t error_code);
+
 typedef void (*xqc_moq_on_subscribe_namespace_pt)(xqc_moq_user_session_t *user_session,
     xqc_moq_subscribe_namespace_msg_t *msg);
 
@@ -549,6 +607,10 @@ typedef struct {
     xqc_moq_on_object_pt            on_object; /* Optional, raw object callback for CONTAINER_NONE */
     xqc_moq_on_datagram_object_pt   on_datagram_object; /* Optional, callback for OBJECT_DATAGRAM */
     xqc_moq_on_goaway_pt            on_goaway; /* Optional, callback for GOAWAY message */
+    xqc_moq_on_request_ok_pt        on_request_ok; /* Optional, response on a local request stream */
+    xqc_moq_on_request_error_pt     on_request_error; /* Optional, error response on a local request stream */
+    xqc_moq_on_publish_namespace_pt on_publish_namespace; /* Optional, incoming namespace advertisement */
+    xqc_moq_on_publish_namespace_done_pt on_publish_namespace_done; /* Optional, namespace request ended */
     xqc_moq_on_subscribe_namespace_pt         on_subscribe_namespace; /* Optional, server-side: incoming request */
     xqc_moq_on_subscribe_namespace_ok_pt      on_subscribe_namespace_ok; /* Optional, client-side: response */
     xqc_moq_on_subscribe_namespace_error_pt   on_subscribe_namespace_error; /* Optional, client-side: response */
@@ -557,6 +619,10 @@ typedef struct {
 
 XQC_EXPORT_PUBLIC_API
 void xqc_moq_init_alpn(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs, xqc_moq_transport_type_t transport_type);
+
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_init_alpn_draft18(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs,
+    xqc_moq_transport_type_t transport_type);
 
 /**
  * @param extdata The client can send extdata when creating a session. 
@@ -579,6 +645,18 @@ xqc_moq_session_t *xqc_moq_session_create_with_params(void *conn, xqc_moq_user_s
     xqc_moq_transport_type_t type, xqc_moq_role_t role, xqc_moq_session_callbacks_t callbacks,
     char *extdata, xqc_int_t enable_client_setup_v14,
     xqc_moq_message_parameter_t *setup_params, uint64_t setup_params_num);
+
+/**
+ * @brief Create a draft-18 MOQT session negotiated with the "moqt-18" ALPN.
+ * @param authority Required for a raw QUIC client; formatted as host[:port].
+ * @param path Raw QUIC URI path-abempty (plus query); defaults to empty when NULL.
+ * @note authority and path are only used during this call and are not retained.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_moq_session_t *xqc_moq_session_create_draft18(void *conn,
+    xqc_moq_user_session_t *user_session, xqc_moq_transport_type_t type,
+    xqc_moq_role_t role, xqc_moq_session_callbacks_t callbacks,
+    const char *authority, const char *path);
 
 XQC_EXPORT_PUBLIC_API
 void xqc_moq_session_destroy(xqc_moq_session_t *session);
@@ -695,6 +773,13 @@ xqc_int_t xqc_moq_publish_namespace(xqc_moq_session_t *session,
     xqc_moq_publish_namespace_msg_t *publish_namespace);
 
 /*
+ * Cancel a draft-18 request stream by Request ID. Both open stream directions
+ * are abruptly terminated with the MOQT CANCELLED (0x1) stream error code.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_cancel_request(xqc_moq_session_t *session, uint64_t request_id);
+
+/*
  * End an advertised namespace and fan out PUBLISH_NAMESPACE_DONE to active
  * matching SUBSCRIBE_NAMESPACE prefixes. The call fails while an exact-match
  * namespace publish is still active.
@@ -721,6 +806,22 @@ xqc_int_t xqc_moq_write_subscribe_ok(xqc_moq_session_t *session, xqc_moq_subscri
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_subscribe_error(xqc_moq_session_t *session, xqc_moq_subscribe_error_msg_t *subscribe_error);
+
+/*
+ * Send a draft-18 REQUEST_OK on the peer-initiated request stream identified
+ * by request_id. A request stream can receive exactly one response.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_request_ok(xqc_moq_session_t *session,
+    uint64_t request_id, xqc_moq_request_ok_msg_t *request_ok);
+
+/*
+ * Send a draft-18 REQUEST_ERROR on the peer-initiated request stream
+ * identified by request_id. A request stream can receive exactly one response.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_request_error(xqc_moq_session_t *session,
+    uint64_t request_id, xqc_moq_request_error_msg_t *request_error);
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_publish_ok(xqc_moq_session_t *session, xqc_moq_publish_ok_msg_t *publish_ok);

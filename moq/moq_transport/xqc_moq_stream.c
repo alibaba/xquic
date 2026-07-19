@@ -28,6 +28,7 @@ xqc_moq_stream_create(xqc_moq_session_t *session)
     stream->session = session;
     xqc_init_list_head(&stream->list_member);
     xqc_init_list_head(&stream->recv_list_member);
+    xqc_init_list_head(&stream->request_list_member);
 
     return stream;
 
@@ -43,8 +44,13 @@ xqc_moq_stream_destroy(xqc_moq_stream_t *stream)
     xqc_stream_t *quic_stream = stream->trans_ops.quic_stream(stream->trans_stream);
     xqc_usec_t now = xqc_monotonic_timestamp();
     
-    if (stream == stream->session->ctl_stream) {
-        stream->session->ctl_stream = NULL;
+    if (stream == session->ctl_stream || stream == session->peer_ctl_stream) {
+        if (stream == session->ctl_stream) {
+            session->ctl_stream = NULL;
+        }
+        if (stream == session->peer_ctl_stream) {
+            session->peer_ctl_stream = NULL;
+        }
         /* The control stream MUST NOT be abruptly closed at the underlying transport layer.
          * Doing so results in the session being closed as a 'Protocol Violation'. */
         if (quic_stream->stream_conn->conn_state <= XQC_CONN_STATE_ESTABED) {
@@ -95,8 +101,17 @@ xqc_moq_stream_destroy(xqc_moq_stream_t *stream)
 
     xqc_list_del_init(&stream->list_member);
     xqc_list_del_init(&stream->recv_list_member);
+    xqc_list_del_init(&stream->request_list_member);
 
     xqc_free(stream);
+}
+
+static xqc_int_t
+xqc_moq_stream_is_control(xqc_moq_stream_t *moq_stream)
+{
+    return moq_stream->session
+        && (moq_stream == moq_stream->session->ctl_stream
+            || moq_stream == moq_stream->session->peer_ctl_stream);
 }
 
 xqc_moq_stream_t *
@@ -126,6 +141,18 @@ xqc_int_t
 xqc_moq_stream_close(xqc_moq_stream_t *moq_stream)
 {
     return moq_stream->trans_ops.close(moq_stream->trans_stream);
+}
+
+xqc_int_t
+xqc_moq_stream_cancel(xqc_moq_stream_t *moq_stream, uint64_t err_code)
+{
+    if (moq_stream == NULL || moq_stream->trans_stream == NULL
+        || moq_stream->trans_ops.cancel == NULL)
+    {
+        return -XQC_EPARAM;
+    }
+
+    return moq_stream->trans_ops.cancel(moq_stream->trans_stream, err_code);
 }
 
 xqc_int_t
@@ -185,14 +212,49 @@ xqc_moq_stream_get_or_alloc_cur_decode_msg(xqc_moq_stream_t *moq_stream)
 
     xqc_moq_msg_type_t type = moq_stream->decode_msg_ctx.cur_msg_type;
     // on non-control streams, SUBGROUP_HEADER types (0x10-0x1D) map to the internal SUBGROUP message type
-    if (moq_stream->session && moq_stream != moq_stream->session->ctl_stream
+    if (!xqc_moq_stream_is_control(moq_stream)
         && type >= 0x10 && type <= 0x1D) {
         type = XQC_MOQ_MSG_SUBGROUP;
     } else if (type == XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT) {
         type = XQC_MOQ_MSG_SUBGROUP;
     }
 
-    void *msg = xqc_moq_msg_create(type);
+    void *msg = NULL;
+    if (moq_stream->session->use_unified_setup
+        && type == XQC_MOQ_MSG_REQUEST_ERROR)
+    {
+        msg = xqc_moq_msg_create_request_error();
+
+    } else if (moq_stream->session->use_unified_setup
+               && type == XQC_MOQ_MSG_SUBSCRIBE)
+    {
+        msg = xqc_moq_msg_create_subscribe();
+        if (msg != NULL) {
+            xqc_moq_msg_subscribe_request_init_handler(
+                &((xqc_moq_subscribe_msg_t *)msg)->msg_base);
+        }
+
+    } else if (moq_stream->session->use_unified_setup
+               && type == XQC_MOQ_MSG_SUBSCRIBE_OK)
+    {
+        msg = xqc_moq_msg_create_subscribe_ok();
+        if (msg != NULL) {
+            xqc_moq_msg_subscribe_ok_response_init_handler(
+                &((xqc_moq_subscribe_ok_msg_t *)msg)->msg_base);
+        }
+
+    } else if (moq_stream->session->use_unified_setup
+               && type == XQC_MOQ_MSG_PUBLISH_NAMESPACE_DONE)
+    {
+        msg = xqc_moq_msg_create_publish_namespace_done();
+        if (msg != NULL) {
+            xqc_moq_msg_publish_namespace_done_request_init_handler(
+                &((xqc_moq_publish_namespace_done_msg_t *)msg)->msg_base);
+        }
+
+    } else {
+        msg = xqc_moq_msg_create(type);
+    }
     if (msg == NULL) {
         return NULL;
     }
@@ -205,13 +267,20 @@ void
 xqc_moq_stream_free_cur_decode_msg(xqc_moq_stream_t *moq_stream)
 {
     xqc_moq_msg_type_t type = moq_stream->decode_msg_ctx.cur_msg_type;
-    if (moq_stream->session && moq_stream != moq_stream->session->ctl_stream
+    if (!xqc_moq_stream_is_control(moq_stream)
         && type >= 0x10 && type <= 0x1D) {
         type = XQC_MOQ_MSG_SUBGROUP;
     } else if (type == XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT) {
         type = XQC_MOQ_MSG_SUBGROUP;
     }
-    xqc_moq_msg_free(type, moq_stream->decode_msg_ctx.cur_decode_msg);
+    if (moq_stream->session->use_unified_setup
+        && type == XQC_MOQ_MSG_REQUEST_ERROR)
+    {
+        xqc_moq_msg_free_request_error(moq_stream->decode_msg_ctx.cur_decode_msg);
+
+    } else {
+        xqc_moq_msg_free(type, moq_stream->decode_msg_ctx.cur_decode_msg);
+    }
     moq_stream->decode_msg_ctx.cur_decode_msg = NULL;
 }
 
@@ -251,9 +320,17 @@ xqc_moq_stream_process(xqc_moq_stream_t *moq_stream, uint8_t *buf, size_t buf_le
     do {
         switch (moq_stream->decode_msg_ctx.cur_decode_state) {
             case XQC_MOQ_DECODE_MSG_TYPE:
-                ret = xqc_moq_msg_decode_type(moq_stream->read_buf + moq_stream->read_buf_processed,
-                                              moq_stream->read_buf_len - moq_stream->read_buf_processed,
-                                              &msg_type, &wait_more_data);
+                if (moq_stream->session->use_unified_setup) {
+                    ret = xqc_moq_msg_decode_type_vi64(
+                        moq_stream->read_buf + moq_stream->read_buf_processed,
+                        moq_stream->read_buf_len - moq_stream->read_buf_processed,
+                        &msg_type, &wait_more_data);
+                } else {
+                    ret = xqc_moq_msg_decode_type(
+                        moq_stream->read_buf + moq_stream->read_buf_processed,
+                        moq_stream->read_buf_len - moq_stream->read_buf_processed,
+                        &msg_type, &wait_more_data);
+                }
                 if (ret < 0) {
                     xqc_log(moq_stream->session->log, XQC_LOG_ERROR,
                             "|decode message type error|ret:%d|", ret);
@@ -269,6 +346,20 @@ xqc_moq_stream_process(xqc_moq_stream_t *moq_stream, uint8_t *buf, size_t buf_le
                 if (wait_more_data == 1) {
                     stop = 1;
                     break;
+                }
+
+                if (moq_stream->session->use_unified_setup && msg_type == XQC_MOQ_MSG_SETUP) {
+                    if (moq_stream->session->peer_ctl_stream
+                        && moq_stream->session->peer_ctl_stream != moq_stream)
+                    {
+                        return -XQC_EILLEGAL_FRAME;
+                    }
+                    moq_stream->session->peer_ctl_stream = moq_stream;
+                } else if (moq_stream->session->use_unified_setup
+                           && moq_stream == moq_stream->session->peer_ctl_stream
+                           && !moq_stream->session->session_setup_done)
+                {
+                    return -XQC_EILLEGAL_FRAME;
                 }
 
                 DEBUG_PRINTF(">>>msg_type:0x%x\n",msg_type);
@@ -308,7 +399,7 @@ xqc_moq_stream_process(xqc_moq_stream_t *moq_stream, uint8_t *buf, size_t buf_le
                                || cur_msg_type == XQC_MOQ_MSG_GROUP_STREAM_OBJECT) {
                         next_state = XQC_MOQ_DECODE_MSG;
                         next_msg_type = XQC_MOQ_MSG_GROUP_STREAM_OBJECT;
-                    } else if (moq_stream->session && moq_stream != moq_stream->session->ctl_stream
+                    } else if (!xqc_moq_stream_is_control(moq_stream)
                                && cur_msg_type >= 0x10 && cur_msg_type <= 0x1D) {
                         next_state = XQC_MOQ_DECODE_MSG;
                         next_msg_type = XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT;
@@ -346,7 +437,47 @@ xqc_moq_stream_process(xqc_moq_stream_t *moq_stream, uint8_t *buf, size_t buf_le
                 "|input buf not processed completely|");
         return -XQC_EILLEGAL_FRAME;
     }
+    if (fin) {
+        xqc_moq_stream_on_request_closed(moq_stream,
+                                         XQC_MOQ_REQUEST_CANCELLED);
+    }
     return processed;
+}
+
+void
+xqc_moq_stream_on_request_closed(xqc_moq_stream_t *moq_stream,
+    uint64_t error_code)
+{
+    if (moq_stream == NULL || moq_stream->session == NULL
+        || !moq_stream->session->use_unified_setup
+        || !moq_stream->peer_request
+        || moq_stream->request_type != XQC_MOQ_MSG_PUBLISH_NAMESPACE
+        || moq_stream->request_closed_notified)
+    {
+        return;
+    }
+
+    xqc_moq_session_t *session = moq_stream->session;
+    xqc_moq_namespace_advertisement_t *advertisement =
+        xqc_moq_session_find_advertised_namespace_by_request(session, 0,
+            moq_stream->request_id);
+    if (advertisement == NULL) {
+        return;
+    }
+
+    moq_stream->request_closed_notified = 1;
+    xqc_log(session->log, XQC_LOG_INFO,
+            "|publish_namespace request ended|request_id:%ui|error_code:%ui|",
+            moq_stream->request_id, error_code);
+    if (session->session_callbacks.on_publish_namespace_done != NULL) {
+        session->session_callbacks.on_publish_namespace_done(
+            session->user_session, moq_stream->request_id,
+            advertisement->track_namespace_tuple,
+            advertisement->track_namespace_num, error_code);
+    }
+    xqc_moq_session_remove_advertised_namespace(session, 0,
+        advertisement->track_namespace_tuple,
+        advertisement->track_namespace_num);
 }
 
 

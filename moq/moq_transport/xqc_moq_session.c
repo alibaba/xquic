@@ -1,5 +1,6 @@
 #include "src/transport/xqc_engine.h"
 #include "src/transport/xqc_conn.h"
+#include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "moq/moq_transport/xqc_moq_session.h"
 #include "moq/moq_transport/xqc_moq_message_writer.h"
 #include "moq/moq_transport/xqc_moq_stream.h"
@@ -23,11 +24,94 @@ xqc_moq_init_alpn(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs, xqc_moq_
     }
 }
 
+void
+xqc_moq_init_alpn_draft18(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs,
+    xqc_moq_transport_type_t transport_type)
+{
+    if (transport_type != XQC_MOQ_TRANSPORT_QUIC) {
+        return;
+    }
+    xqc_app_proto_callbacks_t ap_cbs = {
+        .conn_cbs   = *conn_cbs,
+        .stream_cbs = xqc_moq_quic_stream_callbacks,
+        .dgram_cbs  = xqc_moq_quic_datagram_callbacks,
+    };
+    xqc_engine_register_alpn(engine, XQC_ALPN_MOQ_DRAFT_18,
+        sizeof(XQC_ALPN_MOQ_DRAFT_18) - 1, &ap_cbs, NULL);
+}
+
+static xqc_int_t
+xqc_moq_setup_append_string_option(uint8_t **pos, uint8_t *end,
+    uint64_t delta_type, const char *value)
+{
+    size_t value_len = strlen(value);
+    size_t needed = xqc_vi64_len(delta_type)
+        + xqc_vi64_len(value_len) + value_len;
+    if ((size_t)(end - *pos) < needed) {
+        return -XQC_ELIMIT;
+    }
+    *pos = xqc_vi64_write(*pos, delta_type);
+    *pos = xqc_vi64_write(*pos, value_len);
+    xqc_memcpy(*pos, value, value_len);
+    *pos += value_len;
+    return XQC_OK;
+}
+
+static xqc_int_t
+xqc_moq_write_initial_setup(xqc_moq_session_t *session,
+    const char *authority, const char *path)
+{
+    xqc_moq_setup_msg_t setup;
+    xqc_memzero(&setup, sizeof(setup));
+
+    uint8_t *options = NULL;
+    if (session->engine->eng_type == XQC_ENGINE_CLIENT) {
+        if (authority == NULL || authority[0] == '\0') {
+            return -XQC_EPARAM;
+        }
+        if (path == NULL) {
+            path = "";
+        }
+
+        size_t path_len = strlen(path);
+        size_t authority_len = strlen(authority);
+        if (path_len > UINT16_MAX || authority_len > UINT16_MAX
+            || path_len + authority_len > UINT16_MAX - 32)
+        {
+            return -XQC_ELIMIT;
+        }
+        size_t options_cap = path_len + authority_len + 32;
+        options = xqc_malloc(options_cap);
+        if (options == NULL) {
+            return -XQC_EMALLOC;
+        }
+        uint8_t *pos = options;
+        uint8_t *end = options + options_cap;
+
+        /* Options are delta encoded in ascending key order: PATH (0x01), AUTHORITY (0x05). */
+        xqc_int_t ret = xqc_moq_setup_append_string_option(&pos, end, 0x01, path);
+        if (ret == XQC_OK) {
+            ret = xqc_moq_setup_append_string_option(&pos, end, 0x04, authority);
+        }
+        if (ret != XQC_OK) {
+            xqc_free(options);
+            return ret;
+        }
+        setup.options = options;
+        setup.options_len = pos - options;
+    }
+
+    xqc_int_t ret = xqc_moq_write_setup(session, &setup);
+    xqc_free(options);
+    return ret;
+}
+
 static xqc_moq_session_t *
 xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session,
     xqc_moq_transport_type_t transport_type, xqc_moq_role_t role,
     xqc_moq_session_callbacks_t callbacks, char *extdata,
-    xqc_int_t enable_client_setup_v14,
+    xqc_int_t enable_client_setup_v14, xqc_int_t enable_unified_setup,
+    const char *authority, const char *path,
     xqc_moq_message_parameter_t *setup_params, uint64_t setup_params_num)
 {
     xqc_int_t ret = 0;
@@ -76,13 +160,30 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
     xqc_init_list_head(&session->peer_ns_pending_inbound_list);
     xqc_init_list_head(&session->local_advertised_namespace_list);
     xqc_init_list_head(&session->peer_advertised_namespace_list);
+    xqc_init_list_head(&session->local_request_stream_list);
+    xqc_init_list_head(&session->peer_request_stream_list);
     xqc_init_list_head(&session->local_ns_pending_list);
 
     session->use_client_setup_v14 = enable_client_setup_v14;
+    session->use_unified_setup = enable_unified_setup;
     /* Request IDs use parity per endpoint: client even, server odd. */
     session->request_id_allocator = (session->engine->eng_type == XQC_ENGINE_CLIENT) ? 0 : 1;
 
-    if (session->engine->eng_type == XQC_ENGINE_CLIENT) {
+    if (session->use_unified_setup) {
+        xqc_moq_stream_t *stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_UNI);
+        if (stream == NULL) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|create draft-18 control stream error|");
+            goto error;
+        }
+        session->ctl_stream = stream;
+        session->version = XQC_MOQ_VERSION_18;
+        ret = xqc_moq_write_initial_setup(session, authority, path);
+        if (ret < 0) {
+            xqc_log(session->log, XQC_LOG_ERROR, "|write draft-18 SETUP error|ret:%d|", ret);
+            goto error;
+        }
+
+    } else if (session->engine->eng_type == XQC_ENGINE_CLIENT) {
         xqc_moq_stream_t *stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_BIDI);
         if (stream == NULL) {
             xqc_log(session->log, XQC_LOG_ERROR, "|create moq bidi stream error|");
@@ -169,7 +270,8 @@ xqc_moq_session_create(void *conn, xqc_moq_user_session_t *user_session,
 {
     return xqc_moq_session_create_internal(conn, user_session, transport_type,
                                            role, callbacks, extdata,
-                                           enable_client_setup_v14,
+                                           enable_client_setup_v14, 0,
+                                           NULL, NULL,
                                            NULL, 0);
 }
 
@@ -182,8 +284,47 @@ xqc_moq_session_create_with_params(void *conn, xqc_moq_user_session_t *user_sess
 {
     return xqc_moq_session_create_internal(conn, user_session, transport_type,
                                            role, callbacks, extdata,
-                                           enable_client_setup_v14,
+                                           enable_client_setup_v14, 0,
+                                           NULL, NULL,
                                            setup_params, setup_params_num);
+}
+
+xqc_moq_session_t *
+xqc_moq_session_create_draft18(void *conn, xqc_moq_user_session_t *user_session,
+    xqc_moq_transport_type_t transport_type, xqc_moq_role_t role,
+    xqc_moq_session_callbacks_t callbacks, const char *authority, const char *path)
+{
+    return xqc_moq_session_create_internal(conn, user_session, transport_type,
+                                           role, callbacks, NULL,
+                                           0, 1, authority, path,
+                                           NULL, 0);
+}
+
+xqc_int_t
+xqc_moq_cancel_request(xqc_moq_session_t *session, uint64_t request_id)
+{
+    if (session == NULL || !session->use_unified_setup) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_list_head_t *pos;
+    xqc_list_for_each(pos, &session->local_request_stream_list) {
+        xqc_moq_stream_t *stream =
+            xqc_list_entry(pos, xqc_moq_stream_t, request_list_member);
+        if (!stream->local_request || stream->request_id != request_id) {
+            continue;
+        }
+
+        xqc_int_t ret = xqc_moq_stream_cancel(stream, XQC_MOQ_REQUEST_CANCELLED);
+        if (session->log != NULL) {
+            xqc_log(session->log, XQC_LOG_INFO,
+                    "|cancel request stream|request_id:%ui|request_type:0x%xi|ret:%d|",
+                    request_id, stream->request_type, ret);
+        }
+        return ret;
+    }
+
+    return -XQC_ESTREAM_NFOUND;
 }
 
 void
@@ -790,6 +931,42 @@ xqc_moq_session_remove_advertised_namespace(xqc_moq_session_t *session, xqc_int_
     xqc_list_del(&advertisement->list_member);
     xqc_moq_namespace_advertisement_destroy(advertisement);
     return 1;
+}
+
+xqc_int_t
+xqc_moq_session_bind_advertised_namespace_request(xqc_moq_session_t *session,
+    xqc_int_t is_local, const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    uint64_t track_namespace_num, uint64_t request_id)
+{
+    xqc_moq_namespace_advertisement_t *advertisement =
+        xqc_moq_session_find_advertised_namespace(session, is_local,
+            track_namespace_tuple, track_namespace_num);
+    if (advertisement == NULL) {
+        return -XQC_ENULLPTR;
+    }
+    advertisement->request_id = request_id;
+    return XQC_OK;
+}
+
+xqc_moq_namespace_advertisement_t *
+xqc_moq_session_find_advertised_namespace_by_request(xqc_moq_session_t *session,
+    xqc_int_t is_local, uint64_t request_id)
+{
+    if (session == NULL || request_id == XQC_MOQ_INVALID_ID) {
+        return NULL;
+    }
+
+    xqc_list_head_t *list = is_local ? &session->local_advertised_namespace_list
+                                     : &session->peer_advertised_namespace_list;
+    xqc_list_head_t *pos, *next;
+    xqc_list_for_each_safe(pos, next, list) {
+        xqc_moq_namespace_advertisement_t *advertisement =
+            xqc_list_entry(pos, xqc_moq_namespace_advertisement_t, list_member);
+        if (advertisement->request_id == request_id) {
+            return advertisement;
+        }
+    }
+    return NULL;
 }
 
 xqc_int_t

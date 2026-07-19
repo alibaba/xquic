@@ -21,6 +21,7 @@
 //#define XQC_MOQ_VERSION 0x00000001
 #define XQC_MOQ_VERSION_5 0xff000005
 #define XQC_MOQ_VERSION_14 0xff00000E
+#define XQC_MOQ_VERSION_18 0xff000012
 
 typedef struct xqc_moq_pending_ns_request_s {
     xqc_list_head_t             list_member;
@@ -42,6 +43,7 @@ typedef struct xqc_moq_session_s {
     xqc_timer_manager_t             *timer_manager;
     uint8_t                         session_setup_done;
     xqc_moq_stream_t                *ctl_stream;
+    xqc_moq_stream_t                *peer_ctl_stream;
     xqc_moq_datachannel_t           datachannel;
     xqc_moq_session_callbacks_t     session_callbacks;
     xqc_list_head_t                 local_subscribe_list;
@@ -52,12 +54,15 @@ typedef struct xqc_moq_session_s {
     xqc_list_head_t                 peer_ns_pending_inbound_list;
     xqc_list_head_t                 local_advertised_namespace_list;
     xqc_list_head_t                 peer_advertised_namespace_list;
+    xqc_list_head_t                 local_request_stream_list;
+    xqc_list_head_t                 peer_request_stream_list;
     uint64_t                        request_id_allocator;
     uint64_t                        track_alias_allocator;
     xqc_moq_bitrate_allocator_t     bitrate_allocator;
     xqc_int_t                       enable_fec;
     float                           fec_code_rate;
     xqc_int_t                       use_client_setup_v14;
+    xqc_int_t                       use_unified_setup;
     uint8_t                         enable_datachannel;
     uint8_t                         enable_catalog;
     uint8_t                         goaway_sent;
@@ -65,6 +70,8 @@ typedef struct xqc_moq_session_s {
     uint8_t                         draining;
     uint8_t                         peer_ns_request_id_seen;
     uint64_t                        max_peer_ns_request_id;
+    uint8_t                         peer_request_id_seen;
+    uint64_t                        max_peer_request_id;
     xqc_list_head_t                 local_ns_pending_list;
     char                            *goaway_new_session_uri;
     size_t                          goaway_new_session_uri_len;
@@ -153,6 +160,13 @@ xqc_int_t xqc_moq_session_add_advertised_namespace(xqc_moq_session_t *session,
 xqc_int_t xqc_moq_session_remove_advertised_namespace(xqc_moq_session_t *session,
     xqc_int_t is_local, const xqc_moq_track_ns_field_t *track_namespace_tuple,
     uint64_t track_namespace_num);
+
+xqc_int_t xqc_moq_session_bind_advertised_namespace_request(xqc_moq_session_t *session,
+    xqc_int_t is_local, const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    uint64_t track_namespace_num, uint64_t request_id);
+
+xqc_moq_namespace_advertisement_t *xqc_moq_session_find_advertised_namespace_by_request(
+    xqc_moq_session_t *session, xqc_int_t is_local, uint64_t request_id);
 
 xqc_int_t xqc_moq_session_has_active_publish_in_namespace(xqc_moq_session_t *session,
     const xqc_moq_track_ns_field_t *track_namespace_tuple, uint64_t track_namespace_num);

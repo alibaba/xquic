@@ -2021,6 +2021,14 @@ XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_stream_close(xqc_stream_t *stream);
 
 /**
+ * Send RESET_STREAM and STOP_SENDING to peer with an application error code.
+ * stream_close_notify will callback when stream destroyed.
+ * @retval XQC_OK for success, others for failure
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_stream_close_with_error(xqc_stream_t *stream, uint64_t error_code);
+
+/**
  * Recv data in stream.
  * @return bytes read, -XQC_EAGAIN try next time, <0 for error
  */
@@ -2282,4 +2290,3 @@ xqc_conn_settings_t xqc_conn_get_conn_settings_template(xqc_conn_settings_type_t
 #endif
 
 #endif /* _XQUIC_H_INCLUDED_ */
-

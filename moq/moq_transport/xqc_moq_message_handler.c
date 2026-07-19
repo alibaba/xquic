@@ -331,6 +331,26 @@ error:
 }
 
 void
+xqc_moq_on_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream,
+    xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_setup_msg_t *setup = (xqc_moq_setup_msg_t *)msg_base;
+    if (!session->use_unified_setup || session->session_setup_done
+        || (session->peer_ctl_stream && session->peer_ctl_stream != moq_stream))
+    {
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION, "invalid draft-18 SETUP");
+        return;
+    }
+
+    session->peer_ctl_stream = moq_stream;
+    session->version = XQC_MOQ_VERSION_18;
+    session->session_setup_done = 1;
+    xqc_log(session->log, XQC_LOG_INFO, "|setup_complete|options_len:%ui|",
+            setup->options_len);
+    xqc_moq_session_on_setup(session, NULL, NULL, 0);
+}
+
+void
 xqc_moq_on_subscribe(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
 {
     xqc_moq_subscribe_t *subscribe;
@@ -338,9 +358,57 @@ xqc_moq_on_subscribe(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, x
     xqc_int_t ret;
     xqc_moq_subscribe_msg_t *subscribe_msg = (xqc_moq_subscribe_msg_t*)msg_base;
 
+    if (session->use_unified_setup) {
+        if (moq_stream == NULL || moq_stream->local_request
+            || moq_stream->peer_request)
+        {
+            xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                                  "invalid SUBSCRIBE request stream");
+            return;
+        }
+        uint64_t peer_request_parity =
+            xqc_moq_session_is_server(session) ? 0 : 1;
+        if ((subscribe_msg->subscribe_id & 1) != peer_request_parity) {
+            xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                                  "invalid SUBSCRIBE request ID parity");
+            return;
+        }
+        xqc_list_head_t *pos;
+        xqc_list_for_each(pos, &session->peer_request_stream_list) {
+            xqc_moq_stream_t *request_stream =
+                xqc_list_entry(pos, xqc_moq_stream_t, request_list_member);
+            if (request_stream->request_id == subscribe_msg->subscribe_id) {
+                xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                                      "duplicate SUBSCRIBE request ID");
+                return;
+            }
+        }
+        moq_stream->peer_request = 1;
+        moq_stream->request_type = XQC_MOQ_MSG_SUBSCRIBE;
+        moq_stream->request_id = subscribe_msg->subscribe_id;
+        xqc_list_add_tail(&moq_stream->request_list_member,
+                          &session->peer_request_stream_list);
+        if (!session->peer_request_id_seen
+            || subscribe_msg->subscribe_id > session->max_peer_request_id)
+        {
+            session->max_peer_request_id = subscribe_msg->subscribe_id;
+        }
+        session->peer_request_id_seen = 1;
+    }
+
     track = xqc_moq_find_track_by_ns_tuple(session, subscribe_msg->track_namespace_tuple,
                 subscribe_msg->track_namespace_num, subscribe_msg->track_name, XQC_MOQ_TRACK_FOR_PUB);
     if (track == NULL) {
+        if (session->use_unified_setup
+            && session->session_callbacks.on_subscribe != NULL)
+        {
+            xqc_log(session->log, XQC_LOG_INFO,
+                    "|delegate unknown track subscription|subscribe_id:%ui|track_name:%s|",
+                    subscribe_msg->subscribe_id, subscribe_msg->track_name);
+            session->session_callbacks.on_subscribe(session->user_session,
+                subscribe_msg->subscribe_id, NULL, subscribe_msg);
+            return;
+        }
         xqc_log(session->log, XQC_LOG_ERROR, "|track not found|track_alias:%ui|", subscribe_msg->track_alias);
         goto error;
     }
@@ -451,6 +519,19 @@ void
 xqc_moq_on_subscribe_ok(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
 {
     xqc_moq_subscribe_ok_msg_t *subscribe_ok = (xqc_moq_subscribe_ok_msg_t*)msg_base;
+
+    if (session->use_unified_setup) {
+        if (moq_stream == NULL || !moq_stream->local_request
+            || moq_stream->response_received
+            || moq_stream->request_type != XQC_MOQ_MSG_SUBSCRIBE)
+        {
+            xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                                  "SUBSCRIBE_OK on invalid request stream");
+            return;
+        }
+        subscribe_ok->subscribe_id = moq_stream->request_id;
+        moq_stream->response_received = 1;
+    }
 
     xqc_moq_subscribe_t *subscribe;
     subscribe = xqc_moq_find_subscribe(session, subscribe_ok->subscribe_id, 1);
@@ -577,6 +658,40 @@ xqc_moq_on_publish_namespace(xqc_moq_session_t *session, xqc_moq_stream_t *moq_s
                               "duplicate publish_namespace request_id");
         return;
     }
+
+    if (session->use_unified_setup) {
+        if (moq_stream == NULL || moq_stream->local_request
+            || moq_stream->peer_request)
+        {
+            xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                                  "invalid PUBLISH_NAMESPACE request stream");
+            return;
+        }
+
+        xqc_list_head_t *pos;
+        xqc_list_for_each(pos, &session->peer_request_stream_list) {
+            xqc_moq_stream_t *request_stream =
+                xqc_list_entry(pos, xqc_moq_stream_t, request_list_member);
+            if (request_stream->request_id == msg->request_id) {
+                xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                                      "duplicate PUBLISH_NAMESPACE request ID");
+                return;
+            }
+        }
+
+        moq_stream->peer_request = 1;
+        moq_stream->request_type = XQC_MOQ_MSG_PUBLISH_NAMESPACE;
+        moq_stream->request_id = msg->request_id;
+        xqc_list_add_tail(&moq_stream->request_list_member,
+                          &session->peer_request_stream_list);
+        if (!session->peer_request_id_seen
+            || msg->request_id > session->max_peer_request_id)
+        {
+            session->max_peer_request_id = msg->request_id;
+        }
+        session->peer_request_id_seen = 1;
+    }
+
     session->max_peer_ns_request_id = msg->request_id;
     session->peer_ns_request_id_seen = 1;
 
@@ -587,12 +702,142 @@ xqc_moq_on_publish_namespace(xqc_moq_session_t *session, xqc_moq_stream_t *moq_s
         xqc_moq_session_error(session, MOQ_INTERNAL_ERROR, "on publish namespace");
         return;
     }
+    ret = xqc_moq_session_bind_advertised_namespace_request(session, 0,
+        msg->track_namespace_tuple, msg->track_namespace_num,
+        msg->request_id);
+    if (ret != XQC_OK) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|bind peer publish_namespace request failed|ret:%d|", ret);
+        xqc_moq_session_error(session, MOQ_INTERNAL_ERROR,
+                              "bind publish namespace request");
+        return;
+    }
 
     char *ns = xqc_moq_namespace_tuple_join(msg->track_namespace_tuple, msg->track_namespace_num);
     xqc_log(session->log, XQC_LOG_INFO,
             "|publish_namespace|request_id:%ui|namespace_num:%ui|namespace:%s|",
             msg->request_id, msg->track_namespace_num, ns ? ns : "");
     xqc_free(ns);
+
+    if (session->use_unified_setup) {
+        xqc_moq_request_ok_msg_t request_ok;
+        xqc_memzero(&request_ok, sizeof(request_ok));
+        ret = xqc_moq_write_request_ok(session, msg->request_id, &request_ok);
+        if (ret != XQC_OK) {
+            xqc_log(session->log, XQC_LOG_ERROR,
+                    "|write publish_namespace REQUEST_OK failed|request_id:%ui|ret:%d|",
+                    msg->request_id, ret);
+            xqc_moq_session_error(session, MOQ_INTERNAL_ERROR,
+                                  "write publish_namespace REQUEST_OK");
+            return;
+        }
+        xqc_log(session->log, XQC_LOG_INFO,
+                "|publish_namespace request accepted|request_id:%ui|",
+                msg->request_id);
+    }
+
+    if (session->session_callbacks.on_publish_namespace != NULL) {
+        session->session_callbacks.on_publish_namespace(session->user_session,
+                                                         msg);
+    }
+}
+
+void
+xqc_moq_on_request_ok(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream,
+    xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_request_ok_msg_t *msg = (xqc_moq_request_ok_msg_t *)msg_base;
+    if (session == NULL || moq_stream == NULL || msg == NULL) {
+        return;
+    }
+
+    if (!moq_stream->local_request || moq_stream->response_received) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|request_ok on invalid request stream|local:%d|received:%d|",
+                moq_stream->local_request, moq_stream->response_received);
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                              "REQUEST_OK on invalid request stream");
+        return;
+    }
+    if (moq_stream->request_type == XQC_MOQ_MSG_PUBLISH_NAMESPACE
+        && msg->params_num != 0)
+    {
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                              "PUBLISH_NAMESPACE_OK has parameters");
+        return;
+    }
+
+    moq_stream->response_received = 1;
+    xqc_log(session->log, XQC_LOG_INFO,
+            "|request_ok|request_id:%ui|request_type:0x%xi|params_num:%ui|",
+            moq_stream->request_id, moq_stream->request_type, msg->params_num);
+    if (session->session_callbacks.on_request_ok) {
+        session->session_callbacks.on_request_ok(session->user_session,
+            moq_stream->request_id, moq_stream->request_type, msg);
+    }
+}
+
+void
+xqc_moq_on_request_error(xqc_moq_session_t *session,
+    xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_request_error_msg_t *msg = (xqc_moq_request_error_msg_t *)msg_base;
+    if (session == NULL || moq_stream == NULL || msg == NULL) {
+        return;
+    }
+
+    if (!moq_stream->local_request || moq_stream->response_received) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|request_error on invalid request stream|local:%d|received:%d|",
+                moq_stream->local_request, moq_stream->response_received);
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                              "REQUEST_ERROR on invalid request stream");
+        return;
+    }
+
+    moq_stream->response_received = 1;
+    xqc_log(session->log, XQC_LOG_INFO,
+            "|request_error|request_id:%ui|request_type:0x%xi|error_code:%ui|retry_interval:%ui|reason:%s|",
+            moq_stream->request_id, moq_stream->request_type, msg->error_code,
+            msg->retry_interval, msg->reason_phrase ? msg->reason_phrase : "");
+
+    xqc_moq_subscribe_t *subscribe = NULL;
+    xqc_moq_track_t *track = NULL;
+    if (moq_stream->request_type == XQC_MOQ_MSG_SUBSCRIBE) {
+        subscribe = xqc_moq_find_subscribe(session, moq_stream->request_id, 1);
+        if (subscribe != NULL) {
+            track = xqc_moq_find_track_by_subscribe_id(session,
+                moq_stream->request_id, XQC_MOQ_TRACK_FOR_SUB);
+            if (track == NULL) {
+                track = xqc_moq_find_track_by_alias(session,
+                    subscribe->subscribe_msg->track_alias, XQC_MOQ_TRACK_FOR_SUB);
+            }
+        }
+    }
+
+    if (session->session_callbacks.on_request_error) {
+        session->session_callbacks.on_request_error(session->user_session,
+            moq_stream->request_id, moq_stream->request_type, msg);
+
+    } else if (track != NULL && track->track_ops.on_subscribe_error != NULL) {
+        xqc_moq_subscribe_error_msg_t subscribe_error;
+        xqc_memzero(&subscribe_error, sizeof(subscribe_error));
+        subscribe_error.subscribe_id = moq_stream->request_id;
+        subscribe_error.error_code = msg->error_code;
+        subscribe_error.reason_phrase = msg->reason_phrase;
+        subscribe_error.reason_phrase_len = msg->reason_phrase_len;
+        track->track_ops.on_subscribe_error(session, track, &subscribe_error);
+    }
+
+    if (subscribe != NULL) {
+        if (track != NULL) {
+            xqc_moq_track_set_subscribe_id(track, XQC_MOQ_INVALID_ID);
+            xqc_moq_track_set_alias(track, XQC_MOQ_INVALID_ID);
+        }
+        xqc_list_del(&subscribe->list_member);
+        xqc_moq_subscribe_destroy(subscribe);
+        xqc_moq_session_check_drain_complete(session);
+    }
 }
 
 void
@@ -600,6 +845,36 @@ xqc_moq_on_publish_namespace_done(xqc_moq_session_t *session, xqc_moq_stream_t *
 {
     xqc_moq_publish_namespace_done_msg_t *msg = (xqc_moq_publish_namespace_done_msg_t*)msg_base;
     if (session == NULL || msg == NULL) {
+        return;
+    }
+
+    if (session->use_unified_setup) {
+        if (moq_stream != session->peer_ctl_stream) {
+            xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                                  "PUBLISH_NAMESPACE_DONE on request stream");
+            return;
+        }
+
+        xqc_list_head_t *pos;
+        xqc_list_for_each(pos, &session->peer_request_stream_list) {
+            xqc_moq_stream_t *request_stream =
+                xqc_list_entry(pos, xqc_moq_stream_t, request_list_member);
+            if (request_stream->request_type != XQC_MOQ_MSG_PUBLISH_NAMESPACE
+                || request_stream->request_id != msg->request_id)
+            {
+                continue;
+            }
+
+            xqc_log(session->log, XQC_LOG_WARN,
+                    "|legacy publish_namespace_done accepted|request_id:%ui|",
+                    msg->request_id);
+            xqc_moq_stream_on_request_closed(request_stream,
+                                             XQC_MOQ_REQUEST_CANCELLED);
+            xqc_moq_stream_cancel(request_stream, XQC_MOQ_REQUEST_CANCELLED);
+            return;
+        }
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                              "unknown PUBLISH_NAMESPACE_DONE request ID");
         return;
     }
 

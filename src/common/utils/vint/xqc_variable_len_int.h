@@ -124,4 +124,17 @@ static inline int64_t xqc_get_varint_fb(const uint8_t *p) { return *p & 0x3f; }
 size_t xqc_put_varint_len(uint64_t n);
 uint8_t *xqc_put_varint(uint8_t *p, uint64_t n);
 
+/**
+ * MOQT VI64 variable-length integer encoding.
+ *
+ * VI64 uses the number of leading one bits to encode a total length of
+ * 1 through 9 bytes and can represent the full uint64_t range.  It is not
+ * wire-compatible with the QUIC variable-length integer helpers above.
+ */
+#define XQC_VI64_MAX_LEN 9
+
+size_t xqc_vi64_len(uint64_t value);
+uint8_t *xqc_vi64_write(uint8_t *p, uint64_t value);
+int xqc_vi64_read(const uint8_t *p, const uint8_t *end, uint64_t *value);
+
 #endif /* _XQC_VARIABLE_LEN_INT_H_INCLUDED_ */

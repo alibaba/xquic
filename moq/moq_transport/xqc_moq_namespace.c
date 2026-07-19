@@ -157,6 +157,7 @@ xqc_moq_namespace_advertisement_create_copy(const xqc_moq_track_ns_field_t *trac
     }
     xqc_init_list_head(&namespace_advertisement->list_member);
     xqc_init_list_head(&namespace_advertisement->advertised_track_list);
+    namespace_advertisement->request_id = XQC_MOQ_INVALID_ID;
     namespace_advertisement->track_namespace_num = track_namespace_num;
     namespace_advertisement->track_namespace_tuple =
         xqc_moq_namespace_tuple_copy(track_namespace_tuple, track_namespace_num);

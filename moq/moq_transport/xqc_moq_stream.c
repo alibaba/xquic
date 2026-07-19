@@ -219,7 +219,15 @@ xqc_moq_stream_get_or_alloc_cur_decode_msg(xqc_moq_stream_t *moq_stream)
         type = XQC_MOQ_MSG_SUBGROUP;
     }
 
-    void *msg = xqc_moq_msg_create(type);
+    void *msg = NULL;
+    if (moq_stream->session->use_unified_setup
+        && type == XQC_MOQ_MSG_REQUEST_ERROR)
+    {
+        msg = xqc_moq_msg_create_request_error();
+
+    } else {
+        msg = xqc_moq_msg_create(type);
+    }
     if (msg == NULL) {
         return NULL;
     }
@@ -238,7 +246,14 @@ xqc_moq_stream_free_cur_decode_msg(xqc_moq_stream_t *moq_stream)
     } else if (type == XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT) {
         type = XQC_MOQ_MSG_SUBGROUP;
     }
-    xqc_moq_msg_free(type, moq_stream->decode_msg_ctx.cur_decode_msg);
+    if (moq_stream->session->use_unified_setup
+        && type == XQC_MOQ_MSG_REQUEST_ERROR)
+    {
+        xqc_moq_msg_free_request_error(moq_stream->decode_msg_ctx.cur_decode_msg);
+
+    } else {
+        xqc_moq_msg_free(type, moq_stream->decode_msg_ctx.cur_decode_msg);
+    }
     moq_stream->decode_msg_ctx.cur_decode_msg = NULL;
 }
 

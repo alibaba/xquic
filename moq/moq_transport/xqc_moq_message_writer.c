@@ -17,6 +17,9 @@ xqc_moq_msg_write(xqc_moq_session_t *session, xqc_moq_stream_t *stream, xqc_moq_
     }
 
     encode_len = msg_base->encode_len(msg_base);
+    if (encode_len < 0) {
+        return encode_len;
+    }
     if (encode_len > XQC_MOQ_MAX_OBJECT_LEN) {
         return -XQC_ELIMIT;
     }
@@ -97,10 +100,33 @@ xqc_moq_write_setup(xqc_moq_session_t *session, xqc_moq_setup_msg_t *setup)
 xqc_int_t
 xqc_moq_write_subscribe(xqc_moq_session_t *session, xqc_moq_subscribe_msg_t *subscribe)
 {
+    if (session == NULL || subscribe == NULL) {
+        return -XQC_EPARAM;
+    }
     xqc_int_t ret = xqc_moq_validate_full_track_name_for_write(session,
         subscribe->track_namespace_num, subscribe->track_namespace_tuple,
         subscribe->track_name, subscribe->track_name_len);
     if (ret != XQC_OK) {
+        return ret;
+    }
+
+    if (session->use_unified_setup) {
+        xqc_moq_stream_t *request_stream =
+            xqc_moq_stream_create_with_transport(session, XQC_STREAM_BIDI);
+        if (request_stream == NULL) {
+            return -XQC_EMALLOC;
+        }
+        request_stream->local_request = 1;
+        request_stream->request_type = XQC_MOQ_MSG_SUBSCRIBE;
+        request_stream->request_id = subscribe->subscribe_id;
+        xqc_list_add_tail(&request_stream->request_list_member,
+                          &session->local_request_stream_list);
+
+        ret = xqc_moq_write_msg_generic(session, request_stream,
+            &subscribe->msg_base, xqc_moq_msg_subscribe_request_init_handler);
+        if (ret < 0) {
+            xqc_moq_stream_close(request_stream);
+        }
         return ret;
     }
 

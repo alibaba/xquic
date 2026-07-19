@@ -29,10 +29,10 @@
 #include "moq/moq_transport/xqc_moq_stream_webtransport.h"
 #include "src/http3/xqc_h3_conn.h"
 
-#define XQC_INTEROP_VERSION       "0.4.0-draft18"
+#define XQC_INTEROP_VERSION       "0.5.0-draft18"
 #define XQC_INTEROP_CID_LEN       12
 #define XQC_INTEROP_TIMEOUT_SEC   2
-#define XQC_INTEROP_MAX_TESTS     3
+#define XQC_INTEROP_MAX_TESTS     4
 
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
@@ -78,6 +78,7 @@ typedef struct xqc_demo_interop_conn_s {
     int                  publish_ns_cancelled;
     uint64_t             publish_ns_request_id;
     int                  subscribe_error_received;
+    uint64_t             subscribe_request_id;
     int                  announcement_received;
     int                  subscribe_sent;
     int                  subscribe_ok_received;
@@ -225,9 +226,9 @@ xqc_demo_interop_timeout_callback(int fd, short what, void *arg)
         if (sub && sub->subscribe_error_received) {
             xqc_demo_test_pass();
         } else if (sub && sub->subscribe_ok_received) {
-            xqc_demo_test_fail("expected SUBSCRIBE_ERROR, got SUBSCRIBE_OK");
+            xqc_demo_test_fail("expected REQUEST_ERROR, got SUBSCRIBE_OK");
         } else {
-            xqc_demo_test_fail("timeout: no SUBSCRIBE_ERROR received");
+            xqc_demo_test_fail("timeout: no REQUEST_ERROR received");
         }
     } else {
         xqc_demo_test_fail("test timed out: deadline has elapsed");
@@ -494,8 +495,14 @@ xqc_demo_interop_on_session_setup(xqc_moq_user_session_t *user_session, char *ex
 
     case XQC_DEMO_TEST_SUBSCRIBE_ERROR:
         if (conn->conn_role == 1) {
-            conn->subscribe_sent = 1;
-            xqc_demo_interop_send_subscribe_nonexistent(conn->session);
+            int ret = xqc_demo_interop_send_subscribe_nonexistent(conn->session);
+            if (ret < 0) {
+                xqc_demo_test_fail("SUBSCRIBE send failed: %d", ret);
+                xqc_demo_interop_close_conn(conn);
+            } else {
+                conn->subscribe_sent = 1;
+                conn->subscribe_request_id = (uint64_t)ret;
+            }
         }
         break;
 
@@ -598,7 +605,7 @@ xqc_demo_interop_on_subscribe_ok(xqc_moq_user_session_t *user_session, xqc_moq_t
     conn->subscribe_ok_received = 1;
 
     if (g_current_test == XQC_DEMO_TEST_SUBSCRIBE_ERROR) {
-        xqc_demo_test_fail("expected SUBSCRIBE_ERROR, got SUBSCRIBE_OK");
+        xqc_demo_test_fail("expected REQUEST_ERROR, got SUBSCRIBE_OK");
         xqc_demo_interop_close_conn(conn);
         return;
     }
@@ -609,6 +616,39 @@ xqc_demo_interop_on_subscribe_ok(xqc_moq_user_session_t *user_session, xqc_moq_t
         if (g_pub_conn && !g_pub_conn->closed) {
             xqc_demo_interop_close_conn(g_pub_conn);
         }
+    }
+}
+
+static void
+xqc_demo_interop_on_request_error(xqc_moq_user_session_t *user_session,
+    uint64_t request_id, xqc_moq_msg_type_t request_type,
+    xqc_moq_request_error_msg_t *request_error)
+{
+    xqc_demo_interop_conn_t *conn =
+        (xqc_demo_interop_conn_t *)user_session->data;
+    VERBOSE("on_request_error role=%d request_id=%"PRIu64" request_type=0x%x error_code=%"PRIu64" retry=%"PRIu64" reason=%s",
+            conn->conn_role, request_id, request_type, request_error->error_code,
+            request_error->retry_interval,
+            request_error->reason_phrase ? request_error->reason_phrase : "");
+
+    if (request_type != XQC_MOQ_MSG_SUBSCRIBE || conn->conn_role != 1
+        || !conn->subscribe_sent)
+    {
+        return;
+    }
+
+    if (g_current_test == XQC_DEMO_TEST_SUBSCRIBE_ERROR) {
+        if (request_id != conn->subscribe_request_id) {
+            xqc_demo_test_fail("REQUEST_ERROR did not match SUBSCRIBE request");
+            xqc_demo_interop_close_conn(conn);
+            return;
+        }
+        conn->subscribe_error_received = 1;
+        xqc_demo_test_pass();
+        if (g_test_timeout_event) {
+            event_del(g_test_timeout_event);
+        }
+        xqc_demo_interop_close_conn(conn);
     }
 }
 
@@ -832,6 +872,7 @@ xqc_demo_interop_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid
         .on_publish_error           = xqc_demo_interop_on_publish_error,
         .on_publish_done            = xqc_demo_interop_on_publish_done,
         .on_request_ok              = xqc_demo_interop_on_request_ok,
+        .on_request_error           = xqc_demo_interop_on_request_error,
         .on_catalog                 = xqc_demo_interop_on_catalog,
         .on_video                   = xqc_demo_interop_on_video,
         .on_audio                   = xqc_demo_interop_on_audio,
@@ -881,7 +922,7 @@ xqc_demo_interop_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
             if (iconn->subscribe_error_received) {
                 xqc_demo_test_pass();
             } else {
-                xqc_demo_test_fail("connection closed without SUBSCRIBE_ERROR (err=%d)", (int)err);
+                xqc_demo_test_fail("connection closed without REQUEST_ERROR (err=%d)", (int)err);
             }
         } else if (err != 0) {
             xqc_demo_test_fail("connection error: %d", (int)err);
@@ -1283,6 +1324,7 @@ xqc_demo_wt_h3_request_read_notify(xqc_h3_request_t *h3_request,
         .on_publish_error           = xqc_demo_interop_on_publish_error,
         .on_publish_done            = xqc_demo_interop_on_publish_done,
         .on_request_ok              = xqc_demo_interop_on_request_ok,
+        .on_request_error           = xqc_demo_interop_on_request_error,
         .on_catalog                 = xqc_demo_interop_on_catalog,
         .on_video                   = xqc_demo_interop_on_video,
         .on_audio                   = xqc_demo_interop_on_audio,
@@ -1678,7 +1720,7 @@ int main(int argc, char *argv[])
         xqc_demo_test_case_t tc = xqc_demo_parse_test_name(testcase);
         if (tc == XQC_DEMO_TEST_UNKNOWN) {
             fprintf(stderr, "error: unknown test case '%s'\n", testcase);
-            fprintf(stderr, "  supported for draft-18: setup-only, announce-only, publish-namespace-done\n");
+            fprintf(stderr, "  supported for draft-18: setup-only, announce-only, publish-namespace-done, subscribe-error\n");
             return 127;
         }
         tests[0] = tc;

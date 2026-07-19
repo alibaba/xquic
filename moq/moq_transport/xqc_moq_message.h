@@ -12,6 +12,7 @@
 #define XQC_MOQ_MAX_NAME_LEN        1024
 #define XQC_MOQ_MAX_GOAWAY_URI_LEN  8192
 #define XQC_MOQ_MAX_AUTH_LEN        1024
+#define XQC_MOQ_MAX_REASON_PHRASE_LEN 1024
 #define XQC_MOQ_MSG_LENGTH_FIXED_SIZE 2
 #define XQC_MOQ_U8_FIXED_SIZE 1
 #define XQC_MOQ_FORWARD_FIXED_SIZE                  XQC_MOQ_U8_FIXED_SIZE
@@ -355,9 +356,15 @@ xqc_moq_msg_type_t xqc_moq_msg_subscribe_type();
 
 void xqc_moq_msg_subscribe_init_handler(xqc_moq_msg_base_t *msg_base);
 
+void xqc_moq_msg_subscribe_request_init_handler(xqc_moq_msg_base_t *msg_base);
+
 xqc_int_t xqc_moq_msg_encode_subscribe_len(xqc_moq_msg_base_t *msg_base);
 
 xqc_int_t xqc_moq_msg_encode_subscribe(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
+
+xqc_int_t xqc_moq_msg_encode_subscribe_request_len(xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_msg_encode_subscribe_request(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
 
 xqc_int_t xqc_moq_msg_decode_subscribe(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
     xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base, xqc_int_t *finish, xqc_int_t *wait_more_data);
@@ -631,6 +638,16 @@ void xqc_moq_msg_request_ok_init_handler(xqc_moq_msg_base_t *msg_base);
 xqc_int_t xqc_moq_msg_encode_request_ok_len(xqc_moq_msg_base_t *msg_base);
 xqc_int_t xqc_moq_msg_encode_request_ok(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
 xqc_int_t xqc_moq_msg_decode_request_ok(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
+    xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base,
+    xqc_int_t *finish, xqc_int_t *wait_more_data);
+
+void *xqc_moq_msg_create_request_error();
+void xqc_moq_msg_free_request_error(void *msg);
+xqc_moq_msg_type_t xqc_moq_msg_request_error_type();
+void xqc_moq_msg_request_error_init_handler(xqc_moq_msg_base_t *msg_base);
+xqc_int_t xqc_moq_msg_encode_request_error_len(xqc_moq_msg_base_t *msg_base);
+xqc_int_t xqc_moq_msg_encode_request_error(xqc_moq_msg_base_t *msg_base, uint8_t *buf, size_t buf_cap);
+xqc_int_t xqc_moq_msg_decode_request_error(uint8_t *buf, size_t buf_len, uint8_t stream_fin,
     xqc_moq_decode_msg_ctx_t *msg_ctx, xqc_moq_msg_base_t *msg_base,
     xqc_int_t *finish, xqc_int_t *wait_more_data);
 

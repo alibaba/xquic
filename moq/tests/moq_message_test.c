@@ -132,6 +132,83 @@ xqc_test_request_ok_vi64_decoding(void)
 }
 
 static int
+xqc_test_subscribe_request_vi64_encoding(void)
+{
+    static const uint8_t expected[] = {
+        0x03, 0x00, 0x24, 0x00, 0x01, 0x15,
+        'n', 'o', 'n', 'e', 'x', 'i', 's', 't', 'e', 'n', 't',
+        '/', 'n', 'a', 'm', 'e', 's', 'p', 'a', 'c', 'e',
+        0x0a, 't', 'e', 's', 't', '-', 't', 'r', 'a', 'c', 'k',
+        0x00,
+    };
+    xqc_moq_track_ns_field_t ns = {
+        .len = sizeof("nonexistent/namespace") - 1,
+        .data = (unsigned char *)"nonexistent/namespace",
+    };
+    xqc_moq_subscribe_msg_t msg = {0};
+    uint8_t buf[64] = {0};
+
+    xqc_moq_msg_subscribe_request_init_handler(&msg.msg_base);
+    msg.subscribe_id = 0;
+    msg.track_namespace_num = 1;
+    msg.track_namespace_tuple = &ns;
+    msg.track_name = "test-track";
+    msg.track_name_len = sizeof("test-track") - 1;
+
+    xqc_int_t len = xqc_moq_msg_encode_subscribe_request_len(&msg.msg_base);
+    XQC_TEST_ASSERT(len == sizeof(expected));
+    XQC_TEST_ASSERT(xqc_moq_msg_encode_subscribe_request(
+        &msg.msg_base, buf, sizeof(buf)) == len);
+    XQC_TEST_ASSERT(memcmp(buf, expected, sizeof(expected)) == 0);
+    return 0;
+}
+
+static int
+xqc_test_request_error_fragmented_decoding(void)
+{
+    static const uint8_t expected[] = {
+        0x05, 0x00, 0x0c, 0x10, 0x00, 0x09,
+        'n', 'o', 't', ' ', 'f', 'o', 'u', 'n', 'd',
+    };
+    xqc_moq_request_error_msg_t encoded = {0};
+    xqc_moq_request_error_msg_t decoded = {0};
+    xqc_moq_decode_msg_ctx_t msg_ctx = {0};
+    uint8_t buf[32] = {0};
+    xqc_int_t finish = 0;
+    xqc_int_t wait_more_data = 0;
+
+    xqc_moq_msg_request_error_init_handler(&encoded.msg_base);
+    encoded.error_code = XQC_MOQ_REQUEST_ERROR_DOES_NOT_EXIST;
+    encoded.reason_phrase = "not found";
+    encoded.reason_phrase_len = sizeof("not found") - 1;
+    xqc_int_t len = xqc_moq_msg_encode_request_error_len(&encoded.msg_base);
+    XQC_TEST_ASSERT(len == sizeof(expected));
+    XQC_TEST_ASSERT(xqc_moq_msg_encode_request_error(
+        &encoded.msg_base, buf, sizeof(buf)) == len);
+    XQC_TEST_ASSERT(memcmp(buf, expected, sizeof(expected)) == 0);
+
+    xqc_moq_msg_request_error_init_handler(&decoded.msg_base);
+    XQC_TEST_ASSERT(xqc_moq_msg_decode_request_error(buf + 1, 4, 0,
+        &msg_ctx, &decoded.msg_base, &finish, &wait_more_data) == 4);
+    XQC_TEST_ASSERT(finish == 0);
+    XQC_TEST_ASSERT(wait_more_data == 1);
+    XQC_TEST_ASSERT(xqc_moq_msg_decode_request_error(buf + 5, len - 5, 1,
+        &msg_ctx, &decoded.msg_base, &finish, &wait_more_data) == len - 5);
+    XQC_TEST_ASSERT(finish == 1);
+    XQC_TEST_ASSERT(wait_more_data == 0);
+    XQC_TEST_ASSERT(decoded.error_code == XQC_MOQ_REQUEST_ERROR_DOES_NOT_EXIST);
+    XQC_TEST_ASSERT(decoded.retry_interval == 0);
+    XQC_TEST_ASSERT(decoded.reason_phrase_len == sizeof("not found") - 1);
+    XQC_TEST_ASSERT(memcmp(decoded.reason_phrase, "not found",
+                           decoded.reason_phrase_len) == 0);
+
+    xqc_free(decoded.reason_phrase);
+    xqc_free(decoded.redirect);
+    xqc_free(decoded.payload);
+    return 0;
+}
+
+static int
 xqc_test_advertised_namespace_registry_lifecycle(void)
 {
     xqc_moq_session_t session;
@@ -504,6 +581,14 @@ main(void)
     }
 
     if (xqc_test_request_ok_vi64_decoding() != 0) {
+        return EXIT_FAILURE;
+    }
+
+    if (xqc_test_subscribe_request_vi64_encoding() != 0) {
+        return EXIT_FAILURE;
+    }
+
+    if (xqc_test_request_error_fragmented_decoding() != 0) {
         return EXIT_FAILURE;
     }
 

@@ -651,6 +651,69 @@ xqc_moq_on_request_ok(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream,
 }
 
 void
+xqc_moq_on_request_error(xqc_moq_session_t *session,
+    xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_request_error_msg_t *msg = (xqc_moq_request_error_msg_t *)msg_base;
+    if (session == NULL || moq_stream == NULL || msg == NULL) {
+        return;
+    }
+
+    if (!moq_stream->local_request || moq_stream->response_received) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|request_error on invalid request stream|local:%d|received:%d|",
+                moq_stream->local_request, moq_stream->response_received);
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                              "REQUEST_ERROR on invalid request stream");
+        return;
+    }
+
+    moq_stream->response_received = 1;
+    xqc_log(session->log, XQC_LOG_INFO,
+            "|request_error|request_id:%ui|request_type:0x%xi|error_code:%ui|retry_interval:%ui|reason:%s|",
+            moq_stream->request_id, moq_stream->request_type, msg->error_code,
+            msg->retry_interval, msg->reason_phrase ? msg->reason_phrase : "");
+
+    xqc_moq_subscribe_t *subscribe = NULL;
+    xqc_moq_track_t *track = NULL;
+    if (moq_stream->request_type == XQC_MOQ_MSG_SUBSCRIBE) {
+        subscribe = xqc_moq_find_subscribe(session, moq_stream->request_id, 1);
+        if (subscribe != NULL) {
+            track = xqc_moq_find_track_by_subscribe_id(session,
+                moq_stream->request_id, XQC_MOQ_TRACK_FOR_SUB);
+            if (track == NULL) {
+                track = xqc_moq_find_track_by_alias(session,
+                    subscribe->subscribe_msg->track_alias, XQC_MOQ_TRACK_FOR_SUB);
+            }
+        }
+    }
+
+    if (session->session_callbacks.on_request_error) {
+        session->session_callbacks.on_request_error(session->user_session,
+            moq_stream->request_id, moq_stream->request_type, msg);
+
+    } else if (track != NULL && track->track_ops.on_subscribe_error != NULL) {
+        xqc_moq_subscribe_error_msg_t subscribe_error;
+        xqc_memzero(&subscribe_error, sizeof(subscribe_error));
+        subscribe_error.subscribe_id = moq_stream->request_id;
+        subscribe_error.error_code = msg->error_code;
+        subscribe_error.reason_phrase = msg->reason_phrase;
+        subscribe_error.reason_phrase_len = msg->reason_phrase_len;
+        track->track_ops.on_subscribe_error(session, track, &subscribe_error);
+    }
+
+    if (subscribe != NULL) {
+        if (track != NULL) {
+            xqc_moq_track_set_subscribe_id(track, XQC_MOQ_INVALID_ID);
+            xqc_moq_track_set_alias(track, XQC_MOQ_INVALID_ID);
+        }
+        xqc_list_del(&subscribe->list_member);
+        xqc_moq_subscribe_destroy(subscribe);
+        xqc_moq_session_check_drain_complete(session);
+    }
+}
+
+void
 xqc_moq_on_publish_namespace_done(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
 {
     xqc_moq_publish_namespace_done_msg_t *msg = (xqc_moq_publish_namespace_done_msg_t*)msg_base;

@@ -1018,6 +1018,25 @@ end:
 }
 
 
+xqc_bool_t
+xqc_cert_verify_err_tolerable(int err_code, uint8_t cert_verify_flag)
+{
+    if (err_code == X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY
+        || err_code == X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT)
+    {
+        return XQC_TRUE;
+    }
+
+    if ((cert_verify_flag & XQC_TLS_CERT_FLAG_ALLOW_SELF_SIGNED) != 0
+        && XQC_TLS_SELF_SIGNED_CERT(err_code))
+    {
+        return XQC_TRUE;
+    }
+
+    return XQC_FALSE;
+}
+
+
 int
 xqc_ssl_cert_verify_cb(int ok, X509_STORE_CTX *store_ctx)
 {
@@ -1041,10 +1060,8 @@ xqc_ssl_cert_verify_cb(int ok, X509_STORE_CTX *store_ctx)
     }
 
     int err_code = X509_STORE_CTX_get_error(store_ctx);
-    if (err_code != X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY
-        && err_code != X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY
-        && !((tls->cert_verify_flag & XQC_TLS_CERT_FLAG_ALLOW_SELF_SIGNED) != 0
-             && XQC_TLS_SELF_SIGNED_CERT(err_code)))
+    if (!xqc_cert_verify_err_tolerable(err_code,
+                                       tls->cert_verify_flag))
     {
         xqc_log(tls->log, XQC_LOG_ERROR, "|certificate verify failed with err_code:%d|", err_code);
         if (tls->cbs->error_cb) {

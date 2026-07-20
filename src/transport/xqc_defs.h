@@ -46,6 +46,13 @@
 #define XQC_MAX_CRYPTO_FRAME_BUFFERED_COUNT     1024    /* max buffered frame nodes per crypto stream */
 #define XQC_MAX_CRYPTO_FRAME_BUFFERED_BYTES     (1*1024*1024)  /* max buffered data bytes per crypto stream (1MB), accommodates large cert chains under reordering */
 
+/*
+ * CWE-770 mitigation: limit buffered out-of-order STREAM frame nodes.
+ * Prevents sparse 1-byte fragment attacks that exploit per-node metadata overhead
+ * to achieve ~56x memory amplification within flow control budget (RFC 9000 §21.7).
+ */
+#define XQC_MAX_STREAM_FRAME_BUFFERED_COUNT     8192    /* max buffered frame nodes per stream */
+
 
 /* xquic will not send stateless reset to packets which are smaller than
    XQC_STATELESS_RESET_PKT_MIN_LEN */

@@ -5,6 +5,7 @@
 #include "src/common/utils/huffman/xqc_huffman.h"
 #include "src/http3/qpack/xqc_rep.h"
 #include "src/http3/qpack/xqc_prefixed_str.h"
+#include "src/http3/xqc_h3_defs.h"
 
 xqc_rep_ctx_t *
 xqc_rep_ctx_create(uint64_t stream_id)
@@ -16,8 +17,12 @@ xqc_rep_ctx_create(uint64_t stream_id)
 
     xqc_memset(ctx, 0, sizeof(xqc_rep_ctx_t));
     ctx->stream_id = stream_id;
-    ctx->name = xqc_prefixed_str_pctx_create(XQC_VAR_BUF_INIT_SIZE);
-    ctx->value = xqc_prefixed_str_pctx_create(XQC_VAR_BUF_INIT_SIZE);
+    ctx->name = xqc_prefixed_str_pctx_create(XQC_VAR_BUF_INIT_SIZE, XQC_H3_MAX_FIELD_SECTION_SIZE);
+    ctx->value = xqc_prefixed_str_pctx_create(XQC_VAR_BUF_INIT_SIZE, XQC_H3_MAX_FIELD_SECTION_SIZE);
+    if (ctx->name == NULL || ctx->value == NULL) {
+        xqc_rep_ctx_free(ctx);
+        return NULL;
+    }
     ctx->state = XQC_REP_DECODE_STATE_RICNT;
     return ctx;
 }

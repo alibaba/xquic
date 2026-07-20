@@ -2186,6 +2186,9 @@ void usage(int argc, char *argv[]) {
 
 int main(int argc, char *argv[]) {
 
+    /* line-buffer stdout so runtime markers are flushed promptly for case_test.sh to grep */
+    setvbuf(stdout, NULL, _IOLBF, 0);
+
     signal(SIGINT, stop);
     signal(SIGTERM, stop);
 

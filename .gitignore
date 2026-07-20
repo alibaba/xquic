@@ -4,3 +4,4 @@ bss/
 third_party/
 .idea/
 cmake-build-debug/
+.codex/

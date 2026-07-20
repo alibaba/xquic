@@ -5015,10 +5015,10 @@ ${SERVER_BIN} -l d -e -x 450 > /dev/null &
 sleep 1
 ${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 450 > stdlog
 cli_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
-cli_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
+cli_res2=`grep "xqc_parse_receive_timestamps_in_ack|report_num:" clog | wc -l`
 
 svr_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" slog | wc -l`
-svr_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" slog | wc -l`
+svr_res2=`grep "xqc_parse_receive_timestamps_in_ack|report_num:" slog | wc -l`
 
 if [ "$cli_res1" -gt 0 ] && [ "$cli_res2" -gt 0 ] && [ "$svr_res1" -gt 0 ] && [ "$svr_res2" -gt 0 ]; then
     echo ">>>>>>>> pass:1"
@@ -5036,10 +5036,10 @@ ${SERVER_BIN} -l d -e -x 450 > /dev/null &
 sleep 1
 ${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 451 > stdlog
 cli_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
-cli_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
+cli_res2=`grep "xqc_parse_receive_timestamps_in_ack|report_num:" clog | wc -l`
 
 svr_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" slog | wc -l`
-svr_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" slog | wc -l`
+svr_res2=`grep "xqc_parse_receive_timestamps_in_ack|report_num:" slog | wc -l`
 
 echo -e "$cli_res1 $cli_res2 $svr_res1 $svr_res2"
 
@@ -5078,10 +5078,10 @@ ${SERVER_BIN} -l d -e -x 450 > /dev/null &
 sleep 1
 ${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 453 > stdlog
 cli_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
-cli_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
+cli_res2=`grep "xqc_parse_receive_timestamps_in_ack|report_num:" clog | wc -l`
 
 svr_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" slog | wc -l`
-svr_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" slog | wc -l`
+svr_res2=`grep "xqc_parse_receive_timestamps_in_ack|report_num:" slog | wc -l`
 
 if [ "$cli_res1" -gt 0 ] && [ "$cli_res2" -eq 0 ] && [ "$svr_res1" -eq 0 ] && [ "$svr_res2" -gt 0 ]; then
     echo ">>>>>>>> pass:1"
@@ -5099,10 +5099,10 @@ ${SERVER_BIN} -l d -e -x 451 > /dev/null &
 sleep 1
 ${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 450 > stdlog
 cli_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
-cli_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
+cli_res2=`grep "xqc_parse_receive_timestamps_in_ack|report_num:" clog | wc -l`
 
 svr_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" slog | wc -l`
-svr_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" slog | wc -l`
+svr_res2=`grep "xqc_parse_receive_timestamps_in_ack|report_num:" slog | wc -l`
 
 if [ "$cli_res1" -eq 0 ] && [ "$cli_res2" -eq 0 ] && [ "$svr_res1" -eq 0 ] && [ "$svr_res2" -eq 0 ]; then
     echo ">>>>>>>> pass:1"

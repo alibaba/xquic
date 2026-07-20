@@ -115,7 +115,6 @@ xqc_conn_settings_t internal_default_conn_settings = {
     .control_pto_value          = 0,
     .max_udp_payload_size       = XQC_CONN_MAX_UDP_PAYLOAD_SIZE,
 
-    .extended_ack_features      = 0,
     .max_receive_timestamps_per_ack    = 0,
     .receive_timestamps_exponent       = 0,
     .disable_pn_skipping               = 0,
@@ -320,17 +319,7 @@ xqc_server_set_conn_settings(xqc_engine_t *engine, const xqc_conn_settings_t *se
     engine->default_conn_settings.reinj_ctl_callback = settings->reinj_ctl_callback;
     engine->default_conn_settings.mp_enable_reinjection = settings->mp_enable_reinjection;
 
-    if ((settings->extended_ack_features & XQC_ACK_EXT_FEATURE_BIT_RECV_TS) 
-        && !settings->enable_multipath)
-    {
-        /* 
-         * Bit 1 indicates whether Receive Timestamps are enabled.
-         * Currently, we only use receive_timestamps features, so set extended_ack_features = XQC_ACK_EXT_FEATURE_BIT_RECV_TS.
-         * 
-         * Besides, multipath-quic and ack_ext are incompatible right now, disable ack_ext when enable multipath.
-         * TODO: coordinate them in the future.
-         */
-        engine->default_conn_settings.extended_ack_features = XQC_ACK_EXT_FEATURE_BIT_RECV_TS;
+    if (settings->max_receive_timestamps_per_ack > 0 && !settings->enable_multipath) {
         engine->default_conn_settings.max_receive_timestamps_per_ack = settings->max_receive_timestamps_per_ack;
         engine->default_conn_settings.receive_timestamps_exponent = settings->receive_timestamps_exponent;
     }
@@ -678,10 +667,9 @@ xqc_conn_init_timer_manager(xqc_connection_t *conn)
 }
 
 static void
-xqc_conn_set_ack_ext_local_settings(xqc_trans_settings_t *local_settings, const xqc_conn_settings_t *settings)
+xqc_conn_set_receive_timestamps_local_settings(xqc_trans_settings_t *local_settings, const xqc_conn_settings_t *settings)
 {
-    if (settings->extended_ack_features & XQC_ACK_EXT_FEATURE_BIT_RECV_TS) {
-        local_settings->extended_ack_features = 2;
+    if (settings->max_receive_timestamps_per_ack > 0) {
         local_settings->max_receive_timestamps_per_ack = settings->max_receive_timestamps_per_ack;
         local_settings->receive_timestamps_exponent = settings->receive_timestamps_exponent;
     }
@@ -834,7 +822,6 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
         xc->conn_settings.probing_pkt_out_size = engine->default_conn_settings.probing_pkt_out_size;
     }
 
-    xc->conn_settings.extended_ack_features = 0;
     xc->conn_settings.max_receive_timestamps_per_ack = 0;
     xc->conn_settings.receive_timestamps_exponent = 0;
 
@@ -895,7 +882,7 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
 
 #endif
     xqc_conn_init_trans_settings(xc);
-    xqc_conn_set_ack_ext_local_settings(&xc->local_settings, settings);
+    xqc_conn_set_receive_timestamps_local_settings(&xc->local_settings, settings);
 
     xqc_conn_init_flow_ctl(xc);
     xqc_conn_init_key_update_ctx(xc);
@@ -4784,15 +4771,16 @@ xqc_conn_record_single(xqc_connection_t *c, xqc_packet_in_t *packet_in)
     xqc_pkt_num_space_t pns = packet_in->pi_pkt.pkt_pns;
     xqc_packet_number_t pkt_num = packet_in->pi_pkt.pkt_num;
 
-    /* only recording the receive timestamp of pkt in app data space */
-    if ((c->conn_settings.extended_ack_features & XQC_ACK_EXT_FEATURE_BIT_RECV_TS)
-        && pns == XQC_PNS_APP_DATA)
-    {
-        xqc_recv_timestamps_info_add_pkt(path->recv_ts_info, pkt_num, packet_in->pkt_recv_time);
-    }
-
     range_status = xqc_recv_record_add(&pn_ctl->ctl_recv_record[pns], pkt_num);
     if (range_status == XQC_PKTRANGE_OK) {
+        if (!c->enable_multipath && c->conn_settings.max_receive_timestamps_per_ack > 0 && pns == XQC_PNS_APP_DATA) {
+            if (path->recv_ts_info == NULL) {
+                path->recv_ts_info = xqc_recv_timestamps_info_create();
+            }
+            if (path->recv_ts_info != NULL) {
+                xqc_recv_timestamps_info_add_pkt(path->recv_ts_info, pkt_num, packet_in->pkt_recv_time);
+            }
+        }
         if (XQC_IS_ACK_ELICITING(packet_in->pi_frame_types)) {
             ++send_ctl->ctl_ack_eliciting_pkt[pns];
 
@@ -5824,7 +5812,6 @@ xqc_conn_set_remote_transport_params(xqc_connection_t *conn,
     }
 #endif
 
-    settings->extended_ack_features = params->extended_ack_features;
     settings->max_receive_timestamps_per_ack = params->max_receive_timestamps_per_ack;
     settings->receive_timestamps_exponent = params->receive_timestamps_exponent;
 
@@ -5936,7 +5923,6 @@ xqc_conn_get_local_transport_params(xqc_connection_t *conn, xqc_transport_params
     xqc_memcpy(params->conn_options, settings->conn_options, 
                sizeof(uint32_t) * settings->conn_option_num);
 
-    params->extended_ack_features = settings->extended_ack_features;
     params->max_receive_timestamps_per_ack = settings->max_receive_timestamps_per_ack;
     params->receive_timestamps_exponent = settings->receive_timestamps_exponent;
 
@@ -6232,11 +6218,7 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
     xqc_log(conn->log, XQC_LOG_DEBUG, "|1RTT_transport_params|max_datagram_frame_size:%ud|",
             conn->remote_settings.max_datagram_frame_size);
 
-    if ((conn->local_settings.extended_ack_features & XQC_ACK_EXT_FEATURE_BIT_RECV_TS)
-            && (conn->remote_settings.extended_ack_features & XQC_ACK_EXT_FEATURE_BIT_RECV_TS)
-            && conn->remote_settings.max_receive_timestamps_per_ack > 0)
-    {
-        conn->conn_settings.extended_ack_features = 2;
+    if (conn->remote_settings.max_receive_timestamps_per_ack > 0) {
         conn->conn_settings.max_receive_timestamps_per_ack =
             conn->remote_settings.max_receive_timestamps_per_ack;
         conn->conn_settings.receive_timestamps_exponent =
@@ -6302,6 +6284,11 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
                 "|enable multipath error|ret:%d|", ret);
         XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
         return;
+    }
+
+    if (conn->enable_multipath == XQC_CONN_MP_ENABLED) {
+        conn->conn_settings.max_receive_timestamps_per_ack = 0;
+        conn->conn_settings.receive_timestamps_exponent = 0;
     }
 
     /* must be called after xqc_conn_try_to_enable_multipath */

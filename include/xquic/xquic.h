@@ -1015,6 +1015,10 @@ typedef struct xqc_congestion_control_callback_s {
     /** get estimation of bandwidth */
     uint32_t (*xqc_cong_ctl_get_bandwidth_estimate)(void *cong_ctl);
 
+    /** per-packet receive timestamp feedback */
+    xqc_int_t (*xqc_cong_ctl_on_recv_timestamp)(void *cong_ctl,
+        xqc_packet_number_t pn, xqc_usec_t send_ts, xqc_usec_t recv_ts, xqc_usec_t now);
+
     xqc_bbr_info_interface_t *xqc_cong_ctl_info_cb;
 } xqc_cong_ctrl_callback_t;
 
@@ -1519,7 +1523,7 @@ typedef struct xqc_conn_settings_s {
      * 1: stream level, only be applied to MOQ
      */
     xqc_fec_level_e             fec_level;
-    uint64_t                    extended_ack_features;
+    /* draft-ietf-quic-receive-ts-00 */
     uint64_t                    max_receive_timestamps_per_ack;
     uint64_t                    receive_timestamps_exponent;
 
@@ -2039,6 +2043,14 @@ XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_stream_close(xqc_stream_t *stream);
 
 /**
+ * Send RESET_STREAM and STOP_SENDING to peer with an application error code.
+ * stream_close_notify will callback when stream destroyed.
+ * @retval XQC_OK for success, others for failure
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_stream_close_with_error(xqc_stream_t *stream, uint64_t error_code);
+
+/**
  * Recv data in stream.
  * @return bytes read, -XQC_EAGAIN try next time, <0 for error
  */
@@ -2300,4 +2312,3 @@ xqc_conn_settings_t xqc_conn_get_conn_settings_template(xqc_conn_settings_type_t
 #endif
 
 #endif /* _XQUIC_H_INCLUDED_ */
-

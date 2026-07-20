@@ -46,4 +46,10 @@ xqc_int_t xqc_moq_write_catalog(xqc_moq_session_t *session, uint64_t subscribe_i
 
 xqc_int_t xqc_moq_subscribe_catalog(xqc_moq_session_t *session);
 
+/*
+ * xqc_moq_build_catalog_param_from_track, xqc_moq_free_catalog_param,
+ * xqc_moq_apply_catalog_param_to_track and XQC_MOQ_CATALOG_PARAM_* are
+ * declared in include/moq/xqc_moq.h as public API.
+ */
+
 #endif /* _XQC_MOQ_CATALOG_H_INCLUDED_ */

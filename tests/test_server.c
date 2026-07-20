@@ -2651,7 +2651,6 @@ int main(int argc, char *argv[]) {
     }
 
     if (g_test_case == 450) {
-        conn_settings.extended_ack_features = 2;
         conn_settings.max_receive_timestamps_per_ack = 45;
         conn_settings.receive_timestamps_exponent = 0;
     }
@@ -2661,20 +2660,17 @@ int main(int argc, char *argv[]) {
     conn_settings.max_blocked_buf_per_conn = 50 * 1024 * 1024;    /* 50 MB per connection */
 
     if (g_test_case == 451) {
-        conn_settings.extended_ack_features = 0;
         conn_settings.max_receive_timestamps_per_ack = 40;
         conn_settings.receive_timestamps_exponent = 0;
     }
 
     if (g_test_case == 452) {
-        conn_settings.extended_ack_features = 2;
         /* negotiation fail test, because max_receive_timestamps_per_ack > 63 */
         conn_settings.max_receive_timestamps_per_ack = 64;
         conn_settings.receive_timestamps_exponent = 0;
     }
 
     if (g_test_case == 453) {
-        conn_settings.extended_ack_features = 2;
         conn_settings.max_receive_timestamps_per_ack = 0;
         conn_settings.receive_timestamps_exponent = 0;
     }

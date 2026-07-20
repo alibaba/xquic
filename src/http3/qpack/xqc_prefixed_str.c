@@ -137,6 +137,9 @@ xqc_parse_prefixed_str(xqc_prefixed_str_t *pstr, uint8_t *buf, size_t len, int *
                  * remaining allowed output space. Worst-case Huffman expansion
                  * is 2x, but the buffer limit (max_str_len + 1) prevents any
                  * decoded output from exceeding the configured maximum. */
+                if (pstr->value->data_len >= pstr->max_str_len + 1) {
+                    return -QPACK_DECOMPRESSION_FAILED;
+                }
                 uint64_t remain_out = pstr->max_str_len + 1 - pstr->value->data_len;
                 uint64_t need = (uint64_t)2 * l;
                 if (need > remain_out) {

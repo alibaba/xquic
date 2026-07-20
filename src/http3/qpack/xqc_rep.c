@@ -19,6 +19,10 @@ xqc_rep_ctx_create(uint64_t stream_id)
     ctx->stream_id = stream_id;
     ctx->name = xqc_prefixed_str_pctx_create(XQC_VAR_BUF_INIT_SIZE, XQC_H3_MAX_FIELD_SECTION_SIZE);
     ctx->value = xqc_prefixed_str_pctx_create(XQC_VAR_BUF_INIT_SIZE, XQC_H3_MAX_FIELD_SECTION_SIZE);
+    if (ctx->name == NULL || ctx->value == NULL) {
+        xqc_rep_ctx_free(ctx);
+        return NULL;
+    }
     ctx->state = XQC_REP_DECODE_STATE_RICNT;
     return ctx;
 }

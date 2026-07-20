@@ -18,6 +18,10 @@ xqc_ins_encoder_ctx_create()
     xqc_memset(ctx, 0, sizeof(xqc_ins_enc_ctx_t));
     ctx->name = xqc_prefixed_str_pctx_create(XQC_VAR_BUF_INIT_SIZE, XQC_H3_MAX_FIELD_SECTION_SIZE);
     ctx->value = xqc_prefixed_str_pctx_create(XQC_H3_MAX_FIELD_SECTION_SIZE, XQC_H3_MAX_FIELD_SECTION_SIZE);
+    if (ctx->name == NULL || ctx->value == NULL) {
+        xqc_ins_encoder_ctx_free(ctx);
+        return NULL;
+    }
     return ctx;
 }
 

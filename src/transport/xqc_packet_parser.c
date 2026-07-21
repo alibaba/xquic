@@ -656,8 +656,8 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
         conn->key_update_ctx.enc_pkt_cnt++;
 
         if (conn->key_update_ctx.enc_pkt_cnt > conn->conn_settings.keyupdate_pkt_threshold
-            && conn->key_update_ctx.first_sent_pktno <=
-                conn->conn_initial_path->path_send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA]
+            && xqc_key_update_acked(&conn->key_update_ctx,
+                   conn->conn_initial_path->path_send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA])
             && xqc_monotonic_timestamp() > conn->key_update_ctx.initiate_time_guard)
         {
             ret = xqc_tls_update_1rtt_keys(conn->tls, XQC_KEY_TYPE_RX_READ);
@@ -671,6 +671,10 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
                 xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_tls_update_tx_keys error|");
                 return ret;
             }
+
+            /* §6.1: mark as initiator; ACK processing clears the flag,
+             * gating the next initiation via xqc_key_update_acked(). */
+            conn->key_update_ctx.key_update_initiator = XQC_TRUE;
 
             ret = xqc_conn_confirm_key_update(conn);
             if (ret != XQC_OK) {
@@ -761,10 +765,33 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 
     /* check key phase, determine weather to update read keys */
     xqc_uint_t key_phase = XQC_PACKET_SHORT_HEADER_KEY_PHASE(header);
+
+    if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER && level == XQC_ENC_LEV_1RTT
+        && xqc_key_update_peer_consecutive(&conn->key_update_ctx,
+                                           key_phase, packet_in->pi_pkt.pkt_num))
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|consecutive key update before ACK|pkt_num:%ui|key_phase:%ui|"
+                "expected:%ui|peer_key_update_pktno:%ui|",
+                packet_in->pi_pkt.pkt_num, key_phase,
+                conn->key_update_ctx.next_in_key_phase,
+                conn->key_update_ctx.peer_key_update_pktno);
+        XQC_CONN_ERR(conn, TRA_KEY_UPDATE_ERROR);
+        return -XQC_EPROTO;
+    }
+
+    /*
+     * RX key derivation for a peer-initiated key update.
+     * pkt_num > first_recv_pktno: skip reordered late arrivals.
+     * key_phase_synced: block double RX derivation before TX catches up.
+     * !timer_set: during old-key retention window, decrypt with old keys
+     *   first so the §6.4 post-decrypt check can run.
+     */
     if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER && level == XQC_ENC_LEV_1RTT
         && key_phase != conn->key_update_ctx.next_in_key_phase
         && packet_in->pi_pkt.pkt_num > conn->key_update_ctx.first_recv_pktno
-        && xqc_tls_is_key_update_confirmed(conn->tls))
+        && xqc_tls_is_key_phase_synced(conn->tls)
+        && !xqc_timer_is_set(&conn->conn_timer_manager, XQC_TIMER_KEY_UPDATE))
     {
         ret = xqc_tls_update_1rtt_keys(conn->tls, XQC_KEY_TYPE_RX_READ);
         if (ret != XQC_OK) {
@@ -783,7 +810,7 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
                                   header, header_len, payload, payload_len,
                                   dst, dst_cap, &packet_in->decode_payload_len);
     if (ret != XQC_OK) {
-        if (!xqc_tls_is_key_update_confirmed(conn->tls)) {
+        if (!xqc_tls_is_key_phase_synced(conn->tls)) {
             xqc_log(conn->log, XQC_LOG_WARN, "|xqc_tls_decrypt_payload error when keyupdate|");
             return -XQC_TLS_DECRYPT_WHEN_KU_ERROR;
 
@@ -796,11 +823,32 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     packet_in->pos = dst;
     packet_in->last = dst + packet_in->decode_payload_len;
 
+    /*
+     * §6.4: old-key packet successfully decrypted with pkt_num above the
+     * new-phase minimum — old keys used at a higher number than new keys.
+     * Only checked during old-key retention window (KEY_UPDATE timer active).
+     */
+    if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER && level == XQC_ENC_LEV_1RTT
+        && key_phase != conn->key_update_ctx.next_in_key_phase
+        && packet_in->pi_pkt.pkt_num > conn->key_update_ctx.first_recv_pktno
+        && xqc_tls_is_key_phase_synced(conn->tls)
+        && xqc_timer_is_set(&conn->conn_timer_manager, XQC_TIMER_KEY_UPDATE))
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|old-key packet with higher pkt_num than new-key packets|"
+                "pkt_num:%ui|key_phase:%ui|expected:%ui|first_recv_pktno:%ui|",
+                packet_in->pi_pkt.pkt_num, key_phase,
+                conn->key_update_ctx.next_in_key_phase,
+                conn->key_update_ctx.first_recv_pktno);
+        XQC_CONN_ERR(conn, TRA_KEY_UPDATE_ERROR);
+        return -XQC_EPROTO;
+    }
+
     /* update write keys, apply key update */
     if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER && level == XQC_ENC_LEV_1RTT) {
 
         if (key_phase != conn->key_update_ctx.next_in_key_phase
-            && !xqc_tls_is_key_update_confirmed(conn->tls))
+            && !xqc_tls_is_key_phase_synced(conn->tls))
         {
             ret = xqc_tls_update_1rtt_keys(conn->tls, XQC_KEY_TYPE_TX_WRITE);
             if (ret != XQC_OK) {
@@ -808,15 +856,24 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
                 return ret;
             }
 
+            /* Responder: key_phase_synced restored by TX_WRITE derivation above.
+             * Clear initiator flag in case a prior initiated update was pending. */
+            conn->key_update_ctx.key_update_initiator = XQC_FALSE;
+
             ret = xqc_conn_confirm_key_update(conn);
             if (ret != XQC_OK) {
                 xqc_log(conn->log, XQC_LOG_WARN, "|xqc_conn_confirm_key_update error|");
                 return ret;
             }
 
+            conn->key_update_ctx.first_recv_pktno = packet_in->pi_pkt.pkt_num;
+            conn->key_update_ctx.peer_key_update_ack_pending = XQC_TRUE;
+            conn->key_update_ctx.peer_key_update_pktno = packet_in->pi_pkt.pkt_num;
+
         } else if (key_phase == conn->key_update_ctx.next_in_key_phase
                    && packet_in->pi_pkt.pkt_num < conn->key_update_ctx.first_recv_pktno)
         {
+            /* track min pkt_num under current phase for §6.4 baseline */
             conn->key_update_ctx.first_recv_pktno = packet_in->pi_pkt.pkt_num;
         }
     }

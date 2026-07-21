@@ -1978,8 +1978,8 @@ clear_log
 echo -e "0RTT max_datagram_frame_size is invalid...\c"
 ${CLIENT_BIN} -l d >> stdlog
 cli_result=`grep "|0RTT_transport_params|max_datagram_frame_size:9000|" clog`
-cli_err=`grep "[error].*err:0xe" clog`
-svr_err=`grep "[error].*err:0xe" slog`
+cli_err=`grep "[error].*err:0x54" clog`
+svr_err=`grep "[error].*err:0x54" slog`
 if [ -n "$cli_result" ] && [ -n "$cli_err" ] && [ -n "$svr_err" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "0rtt_max_datagram_frame_size_is_invalid" "pass"
@@ -3922,7 +3922,7 @@ sleep 1
 clear_log
 echo -e "check_clear_0rtt_ticket_flag_in_close_notify...\c"
 ${CLIENT_BIN} -l d -T 1 -s 4800 -U 1 -Q 65535 -E > stdlog
-cli_res2=`grep "should_clear_0rtt_ticket, conn_err:14, clear_0rtt_ticket:1" stdlog`
+cli_res2=`grep "should_clear_0rtt_ticket, conn_err:84, clear_0rtt_ticket:1" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res2" ] && [ -n "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -3944,7 +3944,7 @@ sleep 1
 clear_log
 echo -e "check_clear_0rtt_ticket_flag_in_h3_close_notify...\c"
 ${CLIENT_BIN} -l d -s 4800 -Q 65535 -E > stdlog
-cli_res2=`grep "should_clear_0rtt_ticket, conn_err:14, clear_0rtt_ticket:1" stdlog`
+cli_res2=`grep "should_clear_0rtt_ticket, conn_err:84, clear_0rtt_ticket:1" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res2" ] && [ -n "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -3966,7 +3966,7 @@ sleep 1
 clear_log
 echo -e "check_clear_0rtt_ticket_flag_in_h3_close_notify...\c"
 ${CLIENT_BIN} -l d -s 4800 -Q 65535 -E > stdlog
-cli_res2=`grep "should_clear_0rtt_ticket, conn_err:14, clear_0rtt_ticket:1" stdlog`
+cli_res2=`grep "should_clear_0rtt_ticket, conn_err:84, clear_0rtt_ticket:1" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res2" ] && [ -n "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -4631,8 +4631,9 @@ else
 fi
 
 
-clear_log
 killall test_server 2> /dev/null
+sleep 1
+clear_log
 stdbuf -oL ${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
 sleep 1
 
@@ -4649,8 +4650,9 @@ else
     case_print_result "fec_recovered_function_of_stream_xor" "fail"
 fi
 
-clear_log
 killall test_server 2> /dev/null
+sleep 1
+clear_log
 stdbuf -oL ${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
 sleep 1
 
@@ -4667,8 +4669,9 @@ else
     case_print_result "fec_recovered_function_of_stream_rsc" "fail"
 fi
 
-clear_log
 killall test_server 2> /dev/null
+sleep 1
+clear_log
 stdbuf -oL ${SERVER_BIN} -l d -e -f -x 1 -M > /dev/null &
 sleep 1
 
@@ -4716,8 +4719,9 @@ fi
 # Test 1: verify client SENDS repair symbols (grep clog)
 # Test 2: verify server RECEIVES repair symbols (grep slog)
 
-clear_log
 killall test_server 2> /dev/null
+sleep 1
+clear_log
 stdbuf -oL ${SERVER_BIN} -l d -e -f -x 700 -M > /dev/null &
 sleep 1
 
@@ -4736,8 +4740,9 @@ else
 fi
 
 
-clear_log
 killall test_server 2> /dev/null
+sleep 1
+clear_log
 stdbuf -oL ${SERVER_BIN} -l d -e -f -x 700 -M > /dev/null &
 sleep 1
 
@@ -5227,7 +5232,7 @@ fi
 
 # test 701: server reduces max_streams_bidi after first connection,
 # client detects reduction on 0-RTT resumption and closes with
-# TRANSPORT_PARAMETER_ERROR (0x0E = conn_err:14)
+# TRA_0RTT_TRANS_PARAMS_ERROR (0x54 = conn_err:84)
 killall test_server 2> /dev/null
 clear_log
 rm -f test_session xqc_token tp_localhost
@@ -5238,7 +5243,7 @@ sleep 1
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
 # second connection: 0-RTT with reduced max_streams_bidi on server
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
-conn_err=`grep "conn_err:14" stdlog`
+conn_err=`grep "conn_err:84" stdlog`
 if [ -n "$conn_err" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "0RTT_param_reduction" "pass"

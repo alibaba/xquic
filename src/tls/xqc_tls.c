@@ -63,7 +63,9 @@ typedef struct xqc_tls_s {
     /* quic version. used to decide protection salt */
     xqc_proto_version_t         version;
 
-    xqc_bool_t                  key_update_confirmed;
+    /* TRUE = RX/TX 1-RTT keys same phase; FALSE = RX advanced, TX pending.
+     * Gates further RX derivation and marks decrypt failures recoverable. */
+    xqc_bool_t                  key_phase_synced;
 
 } xqc_tls_t;
 
@@ -357,7 +359,7 @@ xqc_tls_create(xqc_tls_ctx_t *ctx, xqc_tls_config_t *cfg, xqc_log_t *log, void *
     tls->user_data = user_data;
     tls->cert_verify_flag = cfg->cert_verify_flag;
     tls->no_crypto = cfg->no_crypto_flag;
-    tls->key_update_confirmed = XQC_TRUE;
+    tls->key_phase_synced = XQC_TRUE;
 
     /* init ssl with input config */
     ret = xqc_tls_create_ssl(tls, cfg);
@@ -754,9 +756,9 @@ xqc_tls_set_1rtt_key_phase(xqc_tls_t *tls, xqc_uint_t key_phase)
 }
 
 xqc_bool_t
-xqc_tls_is_key_update_confirmed(xqc_tls_t *tls)
+xqc_tls_is_key_phase_synced(xqc_tls_t *tls)
 {
-    return tls->key_update_confirmed;
+    return tls->key_phase_synced;
 }
 
 xqc_int_t
@@ -775,10 +777,13 @@ xqc_tls_update_1rtt_keys(xqc_tls_t *tls, xqc_key_type_t type)
     }
 
     if (type == XQC_KEY_TYPE_RX_READ) {
-        tls->key_update_confirmed = XQC_FALSE;
+        /* RX ahead of TX: block further RX derivation and mark decrypt
+         * failures recoverable until TX catches up. */
+        tls->key_phase_synced = XQC_FALSE;
 
     } else if (type == XQC_KEY_TYPE_TX_WRITE) {
-        tls->key_update_confirmed = XQC_TRUE;
+        /* TX has caught up with RX — both sides are on the same phase again. */
+        tls->key_phase_synced = XQC_TRUE;
     }
 
     return XQC_OK;

@@ -181,6 +181,11 @@ xqc_tls_early_data_accept_t xqc_tls_is_early_data_accepted(xqc_tls_t *tls);
 ssize_t xqc_tls_aead_tag_len(xqc_tls_t *tls, xqc_encrypt_level_t level);
 
 /**
+ * @brief get 1-RTT cipher_id for AEAD integrity limit check per RFC 9001 §6.6
+ */
+uint32_t xqc_tls_get_1rtt_cipher_id(xqc_tls_t *tls);
+
+/**
  * @brief set no crypto on 0-RTT and 1-RTT
  */
 void xqc_tls_set_no_crypto(xqc_tls_t *tls);

@@ -416,6 +416,7 @@ xqc_stream_do_recv_flow_ctl(xqc_stream_t *stream)
 
         if (stream->stream_flow_ctl.fc_stream_recv_window_size > available_window) {        
             stream->stream_flow_ctl.fc_max_stream_data_can_recv += (stream->stream_flow_ctl.fc_stream_recv_window_size - available_window);
+            stream->stream_flow_ctl.fc_max_stream_data_can_recv = xqc_clamp_to_max_flow_ctl(stream->stream_flow_ctl.fc_max_stream_data_can_recv);
             xqc_log(conn->log, XQC_LOG_DEBUG,
                     "|xqc_write_max_stream_data_to_packet|new_max_data:%ui|stream_max_recv_offset:%ui|next_read_offset:%ui|window_size:%ui|",
                     stream->stream_flow_ctl.fc_max_stream_data_can_recv, stream->stream_max_recv_offset,
@@ -462,6 +463,7 @@ xqc_stream_do_recv_flow_ctl(xqc_stream_t *stream)
 
         if (conn->conn_flow_ctl.fc_recv_windows_size > available_window) {
             conn->conn_flow_ctl.fc_max_data_can_recv += (conn->conn_flow_ctl.fc_recv_windows_size - available_window);
+            conn->conn_flow_ctl.fc_max_data_can_recv = xqc_clamp_to_max_flow_ctl(conn->conn_flow_ctl.fc_max_data_can_recv);
             xqc_log(conn->log, XQC_LOG_DEBUG,
                     "|xqc_write_max_data_to_packet|new_max_data:%ui|fc_data_recved:%ui|fc_data_read:%ui|window_size:%ui|",
                     conn->conn_flow_ctl.fc_max_data_can_recv, conn->conn_flow_ctl.fc_data_recved,
@@ -1052,7 +1054,7 @@ xqc_stream_update_settings(xqc_stream_t *stream,
             xqc_log(conn->log, XQC_LOG_DEBUG, 
                     "|fc_win_update|old_fc_win:%ui|fc_win:%ui|", 
                     old_fc_win, stream->stream_flow_ctl.fc_stream_recv_window_size);
-            new_offset = stream->stream_data_in.next_read_offset + stream->stream_flow_ctl.fc_stream_recv_window_size;
+            new_offset = xqc_clamp_to_max_flow_ctl(stream->stream_data_in.next_read_offset + stream->stream_flow_ctl.fc_stream_recv_window_size);
 
             if(new_offset > stream->stream_flow_ctl.fc_max_stream_data_can_recv) {
                 stream->stream_flow_ctl.fc_max_stream_data_can_recv = new_offset;

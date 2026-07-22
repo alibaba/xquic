@@ -646,6 +646,46 @@ xqc_test_0rtt_params_each_reduced(void)
 }
 
 
+/*
+ * RFC 9000 §7.4.1: client MUST NOT use remembered values for max_ack_delay,
+ * ack_delay_exponent, or stateless_reset_token.  Verify that
+ * xqc_conn_set_early_remote_transport_params resets them to defaults.
+ */
+void
+xqc_test_early_params_forbidden_fields_reset(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_transport_params_t params;
+    memset(&params, 0, sizeof(params));
+
+    /* set forbidden fields to non-default values */
+    params.max_ack_delay = 100;  /* default is 25 */
+    params.ack_delay_exponent = 10;  /* default is 3 */
+    params.stateless_reset_token_present = 1;
+    memset(params.stateless_reset_token, 0xAB, sizeof(params.stateless_reset_token));
+
+    /* also set allowed fields */
+    params.initial_max_data = 65536;
+    params.initial_max_streams_bidi = 100;
+
+    xqc_int_t ret = xqc_conn_set_early_remote_transport_params(conn, &params);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+
+    /* forbidden fields must be reset to defaults */
+    CU_ASSERT_EQUAL(conn->remote_settings.max_ack_delay, XQC_DEFAULT_MAX_ACK_DELAY);
+    CU_ASSERT_EQUAL(conn->remote_settings.ack_delay_exponent, XQC_DEFAULT_ACK_DELAY_EXPONENT);
+    CU_ASSERT_EQUAL(conn->remote_settings.stateless_reset_token_present, 0);
+
+    /* allowed fields must be preserved */
+    CU_ASSERT_EQUAL(conn->remote_settings.max_data, 65536);
+    CU_ASSERT_EQUAL(conn->remote_settings.max_streams_bidi, 100);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 void
 xqc_test_conn_tls_error_cb_max_alert()
 {

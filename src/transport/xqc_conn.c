@@ -6506,6 +6506,16 @@ xqc_conn_set_early_remote_transport_params(xqc_connection_t *conn,
     }
 
     xqc_settings_copy_from_transport_params(&conn->remote_settings, params);
+
+    /*
+     * RFC 9000 §7.4.1: a client MUST NOT use remembered values for
+     * max_ack_delay, ack_delay_exponent, or stateless_reset_token.
+     * Reset them to defaults so the 0-RTT path never relies on stale values.
+     */
+    conn->remote_settings.max_ack_delay = XQC_DEFAULT_MAX_ACK_DELAY;
+    conn->remote_settings.ack_delay_exponent = XQC_DEFAULT_ACK_DELAY_EXPONENT;
+    conn->remote_settings.stateless_reset_token_present = 0;
+
     xqc_conn_update_flow_ctl_settings(conn);
     return XQC_OK;
 }

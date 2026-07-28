@@ -7,10 +7,17 @@
 extern "C" {
 #endif
 
-// #define XQC_ALPN_MOQ_QUIC         "moq-quic"
-#define XQC_ALPN_MOQ_QUIC         "moq-00"
-#define XQC_ALPN_MOQ_QUIC_INTEROP "moq-14" // used for imquic
+#define XQC_ALPN_MOQ_DRAFT_05        "moq-05"
+#define XQC_ALPN_MOQ_DRAFT_14        "moq-14"
+#define XQC_ALPN_MOQ_LEGACY          "moq-quic"
+
+/* Source-compatible aliases for the ALPN names used before profiles. */
+#define XQC_ALPN_MOQ_QUIC            XQC_ALPN_MOQ_LEGACY
+#define XQC_ALPN_MOQ_QUIC_INTEROP    XQC_ALPN_MOQ_DRAFT_14
 #define XQC_ALPN_MOQ_WEBTRANSPORT "moq-wt"
+
+#define XQC_MOQ_VERSION_5            0xff000005
+#define XQC_MOQ_VERSION_14           0xff00000E
 
 typedef enum {
     XQC_MOQ_VIDEO_KEY,

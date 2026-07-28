@@ -18,10 +18,6 @@
 #define DEBUG_PRINTF(fmt, ...)
 #endif
 
-//#define XQC_MOQ_VERSION 0x00000001
-#define XQC_MOQ_VERSION_5 0xff000005
-#define XQC_MOQ_VERSION_14 0xff00000E
-
 typedef struct xqc_moq_pending_ns_request_s {
     xqc_list_head_t             list_member;
     uint64_t                    request_id;

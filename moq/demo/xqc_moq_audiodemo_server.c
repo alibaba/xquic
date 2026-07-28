@@ -369,13 +369,10 @@ void on_audio_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     }
 }
 
-int
-xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data)
+static xqc_int_t
+xqc_server_create_moq_session(xqc_connection_t *conn,
+    xqc_moq_user_session_t *user_session)
 {
-    DEBUG;
-    xqc_moq_user_session_t *user_session = calloc(1, sizeof(xqc_moq_user_session_t) + sizeof(user_conn_t));
-    user_conn_t *user_conn = (user_conn_t *)(user_session->data);
-    user_conn->audio_track = NULL;
     xqc_moq_session_callbacks_t callbacks = {
         .on_session_setup = on_session_setup,
         .on_datachannel = on_datachannel,
@@ -394,6 +391,16 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
         printf("create session error\n");
         return -1;
     }
+    return XQC_OK;
+}
+
+int
+xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data)
+{
+    DEBUG;
+    xqc_moq_user_session_t *user_session = calloc(1, sizeof(xqc_moq_user_session_t) + sizeof(user_conn_t));
+    user_conn_t *user_conn = (user_conn_t *)(user_session->data);
+    user_conn->audio_track = NULL;
 
     xqc_conn_set_transport_user_data(conn, user_session);
 
@@ -444,7 +451,7 @@ xqc_server_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
 
     printf("-- user_data: %p user_conn: %p\n", user_data, user_conn);
 
-    return 0;
+    return xqc_server_create_moq_session(conn, user_session);
 }
 
 int
@@ -457,7 +464,9 @@ xqc_server_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void 
     printf("send_count:%u, lost_count:%u, lost_dgram_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" early_data_flag:%d, conn_err:%d, ack_info:%s, alpn:%s\n",
             stats.send_count, stats.lost_count, stats.lost_dgram_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.ack_info, stats.alpn);
 
-    xqc_moq_session_destroy(user_session->session);
+    if (user_session->session != NULL) {
+        xqc_moq_session_destroy(user_session->session);
+    }
     free(user_session);
 
     return 0;

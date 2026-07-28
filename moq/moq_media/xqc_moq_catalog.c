@@ -247,7 +247,6 @@ xqc_moq_catalog_single_track_decode(cJSON *track_json, xqc_moq_track_t *track, x
     }
     cJSON *role_field = cJSON_GetObjectItemCaseSensitive(track_json, kRole);
     if (cJSON_IsString(role_field)) {
-        printf("catalog_single_track_decode: role:%s\n", role_field->valuestring);
         if (strcasecmp(role_field->valuestring, "video") == 0) {
             track->track_info.track_type = XQC_MOQ_TRACK_VIDEO;
         } else if (strcasecmp(role_field->valuestring, "audio") == 0) {

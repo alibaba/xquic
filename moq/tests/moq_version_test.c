@@ -4,6 +4,7 @@
 
 #include "moq/xqc_moq.h"
 #include "moq/moq_transport/version/xqc_moq_version.h"
+#include "moq/moq_transport/xqc_moq_session.h"
 
 #define XQC_TEST_ASSERT(expr)                                             \
     do {                                                                  \
@@ -55,8 +56,56 @@ xqc_test_profile_lookup(void)
     return 0;
 }
 
+static int
+xqc_test_session_profile_state(void)
+{
+    xqc_moq_session_t session;
+    uint64_t v5_versions[] = {XQC_MOQ_VERSION_5};
+    uint64_t v14_versions[] = {XQC_MOQ_VERSION_14};
+    const xqc_moq_alpn_policy_t *v5_policy;
+    const xqc_moq_alpn_policy_t *v14_policy;
+
+    v5_policy = xqc_moq_version_policy_for_alpn("moq-05", 6);
+    v14_policy = xqc_moq_version_policy_for_alpn("moq-14", 6);
+    XQC_TEST_ASSERT(v5_policy != NULL);
+    XQC_TEST_ASSERT(v14_policy != NULL);
+
+    memset(&session, 0, sizeof(session));
+    XQC_TEST_ASSERT(xqc_moq_session_bind_policy(&session, v5_policy) == XQC_OK);
+    XQC_TEST_ASSERT(session.profile == xqc_moq_v5_profile());
+    XQC_TEST_ASSERT(session.profile_state == XQC_MOQ_PROFILE_ALPN_SELECTED);
+    XQC_TEST_ASSERT(xqc_moq_session_require_active(&session) == -XQC_EVERSION);
+
+    XQC_TEST_ASSERT(xqc_moq_session_bind_policy(&session, v14_policy)
+                    == -XQC_EVERSION);
+    XQC_TEST_ASSERT(session.profile == xqc_moq_v5_profile());
+    XQC_TEST_ASSERT(session.profile_state == XQC_MOQ_PROFILE_ALPN_SELECTED);
+
+    XQC_TEST_ASSERT(xqc_moq_session_validate_setup_type(
+        &session, XQC_MOQ_MSG_CLIENT_SETUP) == XQC_OK);
+    XQC_TEST_ASSERT(xqc_moq_session_negotiate_version(
+        &session, v5_versions, 1) == XQC_OK);
+    XQC_TEST_ASSERT(session.profile_state == XQC_MOQ_PROFILE_ACTIVE);
+    XQC_TEST_ASSERT(session.negotiated_version == XQC_MOQ_VERSION_5);
+    XQC_TEST_ASSERT(xqc_moq_session_require_active(&session) == XQC_OK);
+
+    memset(&session, 0, sizeof(session));
+    XQC_TEST_ASSERT(xqc_moq_session_bind_policy(&session, v14_policy) == XQC_OK);
+    XQC_TEST_ASSERT(xqc_moq_session_validate_setup_type(
+        &session, XQC_MOQ_MSG_CLIENT_SETUP) == -XQC_EVERSION);
+    XQC_TEST_ASSERT(session.profile == xqc_moq_v14_profile());
+    XQC_TEST_ASSERT(session.profile_state == XQC_MOQ_PROFILE_FAILED);
+    XQC_TEST_ASSERT(xqc_moq_session_negotiate_version(
+        &session, v14_versions, 1) == -XQC_EVERSION);
+    XQC_TEST_ASSERT(xqc_moq_session_require_active(&session) == -XQC_EVERSION);
+
+    return 0;
+}
+
 int
 main(void)
 {
-    return xqc_test_profile_lookup() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    return xqc_test_profile_lookup() == 0
+           && xqc_test_session_profile_state() == 0
+           ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -482,4 +482,3 @@ def test_wt_test_client_is_parameterized_for_sessions_and_streams():
     assert "ctx_s.target_sessions = 2;" not in client_c
     assert "ctx_s.sessions = calloc" in client_c
     assert "ctx_s.stream_reads = calloc" in client_c
-

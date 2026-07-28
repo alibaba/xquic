@@ -14,8 +14,8 @@ set (
     ${WT_DEMO_BASE_SOURCES}
     "wt_demo_server.c"
 )
-    
-    
+
+
 set(
     WT_VIDEO_SYNC_SERVER_SOURCES
     ${WT_DEMO_BASE_SOURCES}

@@ -83,7 +83,7 @@ public:
 
     int maybeSendStreamHeader(); // not used
     int Write(const uint8_t *data, size_t len); // 1
-    void cancelWrite(int errorCode); 
+    void cancelWrite(int errorCode);
     void closeWithSession();
     int  Close();
     int  SetWriteDeadline(uint64_t time); // not used
@@ -124,7 +124,7 @@ public:
     void closeWithSession();
     int SetDeadline(uint64_t time); // TODO
     xqc_stream_id_t StreamID();
-    int  maybeConvertStreamError(int errorCode); // not used 
+    int  maybeConvertStreamError(int errorCode); // not used
     bool isTimeoutError(int errorCode); // not defined
 public:
     WTSendStream* mSendStream = nullptr;
@@ -194,7 +194,7 @@ public:
     uint64_t mSessionID = 0;
     WTConnection* mConn = nullptr;
     wt_quic_stream_type* mStream = nullptr;
-    
+
     std::vector<uint64_t> mStreamHdr;
     std::vector<uint64_t> mUniStreamHdr;
     std::mutex mCloseLock;
@@ -323,9 +323,9 @@ public:
 
 public:
     WTSessionManager(uint64_t timeout);
-    
+
     WTSession* findSessionForUnistream(wt_quic_stream_type *stream);
-    
+
     void addStream(uint64_t connTracingID, wt_quic_stream_type* str, uint64_t sid);
     void maybeDelete(uint64_t connTracingID, uint64_t sessionId);
     void addUniStream(uint64_t connTracingID, wt_quic_stream_type*str);
@@ -465,7 +465,7 @@ public:
         mSessionManager = new WTSessionManager(5000);
     }
     int initialize();
-    
+
     void registerPath(const std::string &path);
 
 protected:
@@ -473,7 +473,7 @@ protected:
     uint64_t timeout();
     int init();
     int close();
-    
+
 protected:
     void handleH3Request();
 

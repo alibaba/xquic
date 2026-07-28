@@ -136,6 +136,7 @@ xqc_moq_quic_stream_create_notify(xqc_stream_t *stream, void *user_data)
     if (xqc_get_stream_type(stream->stream_id) == XQC_CLI_BID) {
         if (session->ctl_stream == NULL) {
             session->ctl_stream = moq_stream;
+            moq_stream->kind = XQC_MOQ_STREAM_CONTROL;
         } else {
             xqc_log(stream->stream_conn->log, XQC_LOG_ERROR, "|duplicate control stream|");
             return -XQC_EPROTO;

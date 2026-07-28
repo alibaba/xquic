@@ -34,6 +34,7 @@ typedef struct xqc_moq_subgroup_header_s {
 
 typedef struct xqc_moq_stream_s {
     xqc_moq_session_t           *session;
+    xqc_moq_stream_kind_t       kind;
     void                        *trans_stream; /* Depend on transport type */
     xqc_moq_trans_stream_ops_t  trans_ops;
     union {

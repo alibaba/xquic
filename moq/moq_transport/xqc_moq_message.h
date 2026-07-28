@@ -2,6 +2,7 @@
 #define _XQC_MOQ_MESSAGE_H_INCLUDED_
 
 #include "moq/xqc_moq.h"
+#include "moq/moq_transport/version/xqc_moq_version.h"
 
 #define XQC_MOQ_MAX_PARAMS          10
 #define XQC_MOQ_MAX_NAMESPACE_TUPLE_ELEMS  32
@@ -74,12 +75,6 @@ typedef struct xqc_moq_decode_msg_ctx_s {
 } xqc_moq_decode_msg_ctx_t;
 
 typedef void (*xqc_moq_msg_init_handler_pt)(xqc_moq_msg_base_t *msg_base);
-
-typedef struct {
-    xqc_moq_msg_type_t type;
-    void* (*create)();
-    void (*free)(void *);
-} xqc_moq_msg_func_map_t;
 
 typedef struct xqc_moq_client_setup_msg_s {
     xqc_moq_msg_base_t          msg_base;
@@ -208,6 +203,7 @@ typedef struct xqc_moq_subscribe_update_msg_s {
     uint64_t                    start_group_id;
     uint64_t                    start_object_id;
     uint64_t                    end_group_id;
+    uint64_t                    end_object_id;
     uint8_t                     subscriber_priority;
     uint8_t                     forward;
     uint64_t                    params_num;
@@ -224,9 +220,11 @@ typedef struct xqc_moq_goaway_msg_s {
     size_t                      new_session_uri_len;
 } xqc_moq_goaway_msg_t;
 
-void *xqc_moq_msg_create(xqc_moq_msg_type_t type);
+void *xqc_moq_msg_create(xqc_moq_session_t *session,
+    xqc_moq_stream_kind_t stream_kind, uint64_t wire_type);
 
-void xqc_moq_msg_free(xqc_moq_msg_type_t type, void *msg);
+void xqc_moq_msg_free(xqc_moq_session_t *session,
+    xqc_moq_stream_kind_t stream_kind, uint64_t wire_type, void *msg);
 
 void xqc_moq_msg_set_object_by_object(xqc_moq_object_t *obj, xqc_moq_object_stream_msg_t *msg);
 

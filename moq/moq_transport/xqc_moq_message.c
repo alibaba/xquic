@@ -3,51 +3,6 @@
 #include "moq/moq_transport/xqc_moq_session.h"
 #include "src/common/utils/vint/xqc_variable_len_int.h"
 
-static xqc_moq_msg_func_map_t moq_msg_func_map[] = {
-    {XQC_MOQ_MSG_OBJECT_STREAM,        xqc_moq_msg_create_object_stream,    xqc_moq_msg_free_object_stream   },
-    {XQC_MOQ_MSG_SUBGROUP,             xqc_moq_msg_create_subgroup,         xqc_moq_msg_free_subgroup        },
-//    {XQC_MOQ_MSG_OBJECT_DATAGRAM,      NULL,                                NULL                             },
-    {XQC_MOQ_MSG_SUBSCRIBE_UPDATE,     xqc_moq_msg_create_subscribe_update, xqc_moq_msg_free_subscribe_update},
-    {XQC_MOQ_MSG_SUBSCRIBE,            xqc_moq_msg_create_subscribe,        xqc_moq_msg_free_subscribe       },
-    {XQC_MOQ_MSG_SUBSCRIBE_OK,         xqc_moq_msg_create_subscribe_ok,     xqc_moq_msg_free_subscribe_ok    },
-    {XQC_MOQ_MSG_SUBSCRIBE_ERROR,      xqc_moq_msg_create_subscribe_error,  xqc_moq_msg_free_subscribe_error },
-    {XQC_MOQ_MSG_PUBLISH_NAMESPACE,    xqc_moq_msg_create_publish_namespace,
-                                           xqc_moq_msg_free_publish_namespace },
-    {XQC_MOQ_MSG_PUBLISH_NAMESPACE_DONE, xqc_moq_msg_create_publish_namespace_done,
-                                           xqc_moq_msg_free_publish_namespace_done },
-    {XQC_MOQ_MSG_UNSUBSCRIBE,          xqc_moq_msg_create_unsubscribe,      xqc_moq_msg_free_unsubscribe     },
-    {XQC_MOQ_MSG_PUBLISH,              xqc_moq_msg_create_publish,          xqc_moq_msg_free_publish         },
-    {XQC_MOQ_MSG_PUBLISH_OK,           xqc_moq_msg_create_publish_ok,       xqc_moq_msg_free_publish_ok      },
-    {XQC_MOQ_MSG_PUBLISH_ERROR,        xqc_moq_msg_create_publish_error,    xqc_moq_msg_free_publish_error   },
-    {XQC_MOQ_MSG_PUBLISH_DONE,         xqc_moq_msg_create_publish_done,     xqc_moq_msg_free_publish_done    },
-    {XQC_MOQ_MSG_SUBSCRIBE_NAMESPACE,       xqc_moq_msg_create_subscribe_namespace,
-                                           xqc_moq_msg_free_subscribe_namespace },
-    {XQC_MOQ_MSG_SUBSCRIBE_NAMESPACE_OK,    xqc_moq_msg_create_subscribe_namespace_ok,
-                                           xqc_moq_msg_free_subscribe_namespace_ok },
-    {XQC_MOQ_MSG_SUBSCRIBE_NAMESPACE_ERROR, xqc_moq_msg_create_subscribe_namespace_error,
-                                           xqc_moq_msg_free_subscribe_namespace_error },
-    {XQC_MOQ_MSG_UNSUBSCRIBE_NAMESPACE,     xqc_moq_msg_create_unsubscribe_namespace,
-                                           xqc_moq_msg_free_unsubscribe_namespace },
-//    {XQC_MOQ_MSG_ANNOUNCE,             NULL,                                NULL                             },
-//    {XQC_MOQ_MSG_ANNOUNCE_OK,          NULL,                                NULL                             },
-//    {XQC_MOQ_MSG_ANNOUNCE_ERROR,       NULL,                                NULL                             },
-//    {XQC_MOQ_MSG_UNANNOUNCE,           NULL,                                NULL                             },
-//    {XQC_MOQ_MSG_UNSUBSCRIBE,          NULL,                                NULL                             },
-//    {XQC_MOQ_MSG_SUBSCRIBE_DONE,       NULL,                                NULL                             },
-//    {XQC_MOQ_MSG_ANNOUNCE_CANCEL,      NULL,                                NULL                             },
-//    {XQC_MOQ_MSG_TRACK_STATUS_REQUEST, NULL,                                NULL                             },
-//    {XQC_MOQ_MSG_TRACK_STATUS,         NULL,                                NULL                             },
-    {XQC_MOQ_MSG_GOAWAY,               xqc_moq_msg_create_goaway,           xqc_moq_msg_free_goaway          },
-    {XQC_MOQ_MSG_CLIENT_SETUP_V14,     xqc_moq_msg_create_client_setup_v14, xqc_moq_msg_free_client_setup_v14},
-    {XQC_MOQ_MSG_SERVER_SETUP_V14,     xqc_moq_msg_create_server_setup_v14, xqc_moq_msg_free_server_setup_v14},
-    {XQC_MOQ_MSG_CLIENT_SETUP,         xqc_moq_msg_create_client_setup,     xqc_moq_msg_free_client_setup    },
-    {XQC_MOQ_MSG_SERVER_SETUP,         xqc_moq_msg_create_server_setup,     xqc_moq_msg_free_server_setup    },
-    {XQC_MOQ_MSG_STREAM_HEADER_TRACK,  xqc_moq_msg_create_track_header,     xqc_moq_msg_free_track_header    },
-//    {XQC_MOQ_MSG_STREAM_HEADER_GROUP,  NULL,                                NULL                             },
-    {XQC_MOQ_MSG_TRACK_STREAM_OBJECT,  xqc_moq_msg_create_track_stream_obj, xqc_moq_msg_free_track_stream_obj},
-//    {XQC_MOQ_MSG_GROUP_STREAM_OBJECT,  NULL,                                NULL                             },
-};
-
 const xqc_moq_msg_base_t client_setup_base = {
     .type       = xqc_moq_msg_client_setup_type,
     .encode_len = xqc_moq_msg_encode_client_setup_len,
@@ -241,15 +196,23 @@ const xqc_moq_msg_base_t goaway_base = {
 };
 
 void
-xqc_moq_msg_free(xqc_moq_msg_type_t type, void *msg)
+xqc_moq_msg_free(xqc_moq_session_t *session,
+    xqc_moq_stream_kind_t stream_kind, uint64_t wire_type, void *msg)
 {
+    const xqc_moq_message_codec_entry_t *codec;
+
     if (msg == NULL) {
         return;
     }
-    for (xqc_int_t i = 0; i < sizeof(moq_msg_func_map) / sizeof(moq_msg_func_map[0]); i++) {
-        if (moq_msg_func_map[i].type == type) {
-            return moq_msg_func_map[i].free(msg);
-        }
+
+    if (session == NULL || session->profile == NULL) {
+        return;
+    }
+
+    codec = xqc_moq_profile_find_codec(session->profile, stream_kind,
+                                       wire_type);
+    if (codec != NULL && codec->destroy != NULL) {
+        codec->destroy(msg);
     }
 }
 
@@ -382,14 +345,30 @@ xqc_moq_param_write_uint_bytes(uint8_t *dst, xqc_int_t len, uint64_t value)
 }
 
 void *
-xqc_moq_msg_create(xqc_moq_msg_type_t type)
+xqc_moq_msg_create(xqc_moq_session_t *session,
+    xqc_moq_stream_kind_t stream_kind, uint64_t wire_type)
 {
-    for (xqc_int_t i = 0; i < sizeof(moq_msg_func_map) / sizeof(moq_msg_func_map[0]); i++) {
-        if (moq_msg_func_map[i].type == type) {
-            return moq_msg_func_map[i].create();
-        }
+    const xqc_moq_message_codec_entry_t *codec;
+
+    if (session == NULL) {
+        return NULL;
     }
-    return NULL;
+
+    if (session->profile_state == XQC_MOQ_PROFILE_ALPN_SELECTED) {
+        if (stream_kind != XQC_MOQ_STREAM_CONTROL
+            || xqc_moq_session_validate_setup_type(session, wire_type)
+               != XQC_OK)
+        {
+            return NULL;
+        }
+
+    } else if (session->profile_state != XQC_MOQ_PROFILE_ACTIVE) {
+        return NULL;
+    }
+
+    codec = xqc_moq_profile_find_codec(session->profile, stream_kind,
+                                       wire_type);
+    return codec != NULL && codec->create != NULL ? codec->create() : NULL;
 }
 
 xqc_int_t
@@ -406,9 +385,6 @@ xqc_moq_msg_decode_type(uint8_t *buf, size_t buf_len, xqc_moq_msg_type_t *type, 
 
     processed += ret;
 
-    if (val > XQC_MOQ_MSG_STREAM_HEADER_GROUP) {
-        return -XQC_EILLEGAL_FRAME;
-    }
     *type = val;
     return processed;
 }

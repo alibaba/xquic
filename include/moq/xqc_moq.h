@@ -283,6 +283,8 @@ typedef struct xqc_moq_subscribe_msg_s {
     uint64_t                    track_alias;
     uint64_t                    track_namespace_num;
     xqc_moq_track_ns_field_t    *track_namespace_tuple;
+    char                        *track_namespace;
+    size_t                      track_namespace_len;
     char                        *track_name;
     size_t                      track_name_len;
     uint8_t                     subscriber_priority;
@@ -316,6 +318,7 @@ typedef struct xqc_moq_subscribe_error_msg_s {
     uint64_t                    error_code;
     char                        *reason_phrase;
     size_t                      reason_phrase_len;
+    uint64_t                    track_alias;
 } xqc_moq_subscribe_error_msg_t;
 
 typedef struct xqc_moq_publish_msg_s {

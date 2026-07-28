@@ -82,3 +82,66 @@ xqc_moq_profile_has_capability(const xqc_moq_version_profile_t *profile,
 
     return (profile->capabilities & (uint64_t) capability) != 0;
 }
+
+xqc_moq_stream_kind_t
+xqc_moq_profile_classify_stream(const xqc_moq_version_profile_t *profile,
+    xqc_moq_stream_kind_t current_kind, uint64_t wire_type)
+{
+    if (profile == NULL || profile->classify_stream == NULL) {
+        return current_kind;
+    }
+
+    return profile->classify_stream(current_kind, wire_type);
+}
+
+const xqc_moq_message_codec_entry_t *
+xqc_moq_profile_find_codec(const xqc_moq_version_profile_t *profile,
+    xqc_moq_stream_kind_t stream_kind, uint64_t wire_type)
+{
+    const xqc_moq_message_codec_entry_t *codecs;
+    size_t codecs_count;
+    size_t i;
+
+    if (profile == NULL) {
+        return NULL;
+    }
+
+    if (profile->normalize_wire_type != NULL) {
+        wire_type = profile->normalize_wire_type(stream_kind, wire_type);
+    }
+
+    if (stream_kind == XQC_MOQ_STREAM_CONTROL) {
+        codecs = profile->control_codecs;
+        codecs_count = profile->control_codecs_count;
+
+    } else if (stream_kind != XQC_MOQ_STREAM_UNKNOWN) {
+        codecs = profile->data_codecs;
+        codecs_count = profile->data_codecs_count;
+
+    } else {
+        return NULL;
+    }
+
+    for (i = 0; i < codecs_count; ++i) {
+        if (codecs[i].wire_type == wire_type) {
+            return &codecs[i];
+        }
+    }
+
+    return NULL;
+}
+
+xqc_bool_t
+xqc_moq_profile_next_data_message(const xqc_moq_version_profile_t *profile,
+    xqc_moq_stream_kind_t stream_kind, uint64_t current_wire_type,
+    uint64_t *next_wire_type)
+{
+    if (profile == NULL || profile->next_data_message == NULL
+        || next_wire_type == NULL)
+    {
+        return XQC_FALSE;
+    }
+
+    return profile->next_data_message(stream_kind, current_wire_type,
+                                      next_wire_type);
+}

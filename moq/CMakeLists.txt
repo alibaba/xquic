@@ -17,6 +17,7 @@ if (XQC_ENABLE_MOQ)
         "moq/moq_transport/xqc_moq_fec.c"
         "moq/moq_transport/version/xqc_moq_version.c"
         "moq/moq_transport/version/v5/xqc_moq_v5_profile.c"
+        "moq/moq_transport/version/v5/xqc_moq_v5_message.c"
         "moq/moq_transport/version/v14/xqc_moq_v14_profile.c"
         "moq/moq_media/xqc_moq_catalog.c"
         "moq/moq_media/xqc_moq_container_loc.c"

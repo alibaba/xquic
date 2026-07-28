@@ -251,6 +251,7 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
             goto error;
         }
         session->ctl_stream = stream;
+        stream->kind = XQC_MOQ_STREAM_CONTROL;
 
         /* If upper layer provided explicit setup params, use them as-is. */
         if (setup_params && setup_params_num > 0) {

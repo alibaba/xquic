@@ -26,6 +26,7 @@ xqc_moq_stream_create(xqc_moq_session_t *session)
     }
 
     stream->session = session;
+    stream->kind = XQC_MOQ_STREAM_UNKNOWN;
     xqc_init_list_head(&stream->list_member);
     xqc_init_list_head(&stream->recv_list_member);
 
@@ -183,16 +184,12 @@ xqc_moq_stream_get_or_alloc_cur_decode_msg(xqc_moq_stream_t *moq_stream)
         return moq_stream->decode_msg_ctx.cur_decode_msg;
     }
 
-    xqc_moq_msg_type_t type = moq_stream->decode_msg_ctx.cur_msg_type;
-    // on non-control streams, SUBGROUP_HEADER types (0x10-0x1D) map to the internal SUBGROUP message type
-    if (moq_stream->session && moq_stream != moq_stream->session->ctl_stream
-        && type >= 0x10 && type <= 0x1D) {
-        type = XQC_MOQ_MSG_SUBGROUP;
-    } else if (type == XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT) {
-        type = XQC_MOQ_MSG_SUBGROUP;
-    }
+    uint64_t type = moq_stream->decode_msg_ctx.cur_msg_type;
+    moq_stream->kind = xqc_moq_profile_classify_stream(
+        moq_stream->session->profile, moq_stream->kind, type);
 
-    void *msg = xqc_moq_msg_create(type);
+    void *msg = xqc_moq_msg_create(moq_stream->session, moq_stream->kind,
+                                   type);
     if (msg == NULL) {
         return NULL;
     }
@@ -204,14 +201,9 @@ xqc_moq_stream_get_or_alloc_cur_decode_msg(xqc_moq_stream_t *moq_stream)
 void
 xqc_moq_stream_free_cur_decode_msg(xqc_moq_stream_t *moq_stream)
 {
-    xqc_moq_msg_type_t type = moq_stream->decode_msg_ctx.cur_msg_type;
-    if (moq_stream->session && moq_stream != moq_stream->session->ctl_stream
-        && type >= 0x10 && type <= 0x1D) {
-        type = XQC_MOQ_MSG_SUBGROUP;
-    } else if (type == XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT) {
-        type = XQC_MOQ_MSG_SUBGROUP;
-    }
-    xqc_moq_msg_free(type, moq_stream->decode_msg_ctx.cur_decode_msg);
+    uint64_t type = moq_stream->decode_msg_ctx.cur_msg_type;
+    xqc_moq_msg_free(moq_stream->session, moq_stream->kind, type,
+                     moq_stream->decode_msg_ctx.cur_decode_msg);
     moq_stream->decode_msg_ctx.cur_decode_msg = NULL;
 }
 
@@ -298,27 +290,19 @@ xqc_moq_stream_process(xqc_moq_stream_t *moq_stream, uint8_t *buf, size_t buf_le
                 if (msg_finish == 1) {
                     DEBUG_PRINTF(">>>msg decode finish\n");
                     xqc_moq_decode_state_t next_state = XQC_MOQ_DECODE_MSG_TYPE;
-                    xqc_moq_msg_type_t cur_msg_type = moq_stream->decode_msg_ctx.cur_msg_type;
-                    xqc_moq_msg_type_t next_msg_type = 0xFF;
-                    if (cur_msg_type == XQC_MOQ_MSG_STREAM_HEADER_TRACK
-                        || cur_msg_type == XQC_MOQ_MSG_TRACK_STREAM_OBJECT) {
+                    uint64_t cur_msg_type =
+                        moq_stream->decode_msg_ctx.cur_msg_type;
+                    uint64_t next_msg_type = 0xFF;
+                    if (xqc_moq_profile_next_data_message(
+                            moq_stream->session->profile, moq_stream->kind,
+                            cur_msg_type, &next_msg_type))
+                    {
                         next_state = XQC_MOQ_DECODE_MSG;
-                        next_msg_type = XQC_MOQ_MSG_TRACK_STREAM_OBJECT;
-                    } else if (cur_msg_type == XQC_MOQ_MSG_STREAM_HEADER_GROUP
-                               || cur_msg_type == XQC_MOQ_MSG_GROUP_STREAM_OBJECT) {
-                        next_state = XQC_MOQ_DECODE_MSG;
-                        next_msg_type = XQC_MOQ_MSG_GROUP_STREAM_OBJECT;
-                    } else if (moq_stream->session && moq_stream != moq_stream->session->ctl_stream
-                               && cur_msg_type >= 0x10 && cur_msg_type <= 0x1D) {
-                        next_state = XQC_MOQ_DECODE_MSG;
-                        next_msg_type = XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT;
-                    } else if (cur_msg_type == XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT) {
-                        next_state = XQC_MOQ_DECODE_MSG;
-                        next_msg_type = XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT;
                     }
                     xqc_moq_stream_clean_decode_msg_ctx(moq_stream);
                     moq_stream->decode_msg_ctx.cur_decode_state = next_state;
-                    moq_stream->decode_msg_ctx.cur_msg_type = next_msg_type;
+                    moq_stream->decode_msg_ctx.cur_msg_type =
+                        (xqc_moq_msg_type_t)next_msg_type;
                     break;
                 }
                 break;

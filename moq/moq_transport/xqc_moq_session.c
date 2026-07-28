@@ -10,7 +10,10 @@
 void
 xqc_moq_init_alpn(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs, xqc_moq_transport_type_t transport_type)
 {
+    size_t i;
+    xqc_int_t ret;
     xqc_stream_callbacks_t callbacks;
+
     if (transport_type == XQC_MOQ_TRANSPORT_QUIC) {
         callbacks = xqc_moq_quic_stream_callbacks;
         xqc_app_proto_callbacks_t ap_cbs = {
@@ -18,21 +21,167 @@ xqc_moq_init_alpn(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs, xqc_moq_
             .stream_cbs = callbacks,
             .dgram_cbs  = xqc_moq_quic_datagram_callbacks,
         };
-        xqc_engine_register_alpn(engine, XQC_ALPN_MOQ_QUIC, sizeof(XQC_ALPN_MOQ_QUIC) - 1, &ap_cbs, NULL);
-        xqc_engine_register_alpn(engine, XQC_ALPN_MOQ_QUIC_INTEROP, sizeof(XQC_ALPN_MOQ_QUIC_INTEROP) - 1, &ap_cbs, NULL);
+
+        for (i = 0; i < xqc_moq_version_policy_count(); ++i) {
+            const xqc_moq_alpn_policy_t *policy =
+                xqc_moq_version_policy_at(i);
+            ret = xqc_engine_register_alpn(engine, policy->alpn,
+                                           policy->alpn_len, &ap_cbs, NULL);
+            if (ret != XQC_OK) {
+                xqc_log(engine->log, XQC_LOG_ERROR,
+                        "|register moq alpn error|alpn:%*s|ret:%d|",
+                        policy->alpn_len, policy->alpn, ret);
+                return;
+            }
+        }
     }
+}
+
+xqc_int_t
+xqc_moq_session_bind_policy(xqc_moq_session_t *session,
+    const xqc_moq_alpn_policy_t *policy)
+{
+    if (session == NULL || policy == NULL || policy->profile == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    if (session->alpn_policy != NULL || session->profile != NULL) {
+        if (session->alpn_policy == policy
+            && session->profile == policy->profile)
+        {
+            return XQC_OK;
+        }
+
+        return -XQC_EVERSION;
+    }
+
+    session->alpn_policy = policy;
+    session->profile = policy->profile;
+    session->profile_state = XQC_MOQ_PROFILE_ALPN_SELECTED;
+    return XQC_OK;
+}
+
+xqc_int_t
+xqc_moq_session_bind_negotiated_alpn(xqc_moq_session_t *session)
+{
+    const xqc_moq_alpn_policy_t *policy;
+    const char *alpn;
+    size_t alpn_len;
+    xqc_int_t ret;
+
+    if (session == NULL || session->quic_conn == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    if (session->alpn_policy != NULL) {
+        return session->profile_state == XQC_MOQ_PROFILE_FAILED
+               ? -XQC_EVERSION : XQC_OK;
+    }
+
+    ret = xqc_conn_get_alpn(session->quic_conn, &alpn, &alpn_len);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    policy = xqc_moq_version_policy_for_alpn(alpn, alpn_len);
+    if (policy == NULL) {
+        if (session->log != NULL) {
+            xqc_log(session->log, XQC_LOG_ERROR,
+                    "|unsupported negotiated alpn|alpn:%*s|",
+                    alpn_len, alpn);
+        }
+        session->profile_state = XQC_MOQ_PROFILE_FAILED;
+        return -XQC_EALPN_NOT_SUPPORTED;
+    }
+
+    return xqc_moq_session_bind_policy(session, policy);
+}
+
+xqc_int_t
+xqc_moq_session_validate_setup_type(xqc_moq_session_t *session,
+    uint64_t setup_type)
+{
+    if (session == NULL || session->profile == NULL
+        || session->profile_state != XQC_MOQ_PROFILE_ALPN_SELECTED)
+    {
+        return -XQC_EPARAM;
+    }
+
+    if (setup_type != session->profile->client_setup_type
+        && setup_type != session->profile->server_setup_type)
+    {
+        session->profile_state = XQC_MOQ_PROFILE_FAILED;
+        return -XQC_EVERSION;
+    }
+
+    return XQC_OK;
+}
+
+xqc_int_t
+xqc_moq_session_negotiate_version(xqc_moq_session_t *session,
+    const uint64_t *offered_versions, uint64_t offered_versions_num)
+{
+    uint64_t i;
+
+    if (session == NULL || offered_versions == NULL
+        || offered_versions_num == 0)
+    {
+        return -XQC_EPARAM;
+    }
+
+    if (session->profile == NULL
+        || session->profile_state != XQC_MOQ_PROFILE_ALPN_SELECTED)
+    {
+        return -XQC_EVERSION;
+    }
+
+    for (i = 0; i < offered_versions_num; ++i) {
+        if (offered_versions[i] == session->profile->wire_version) {
+            session->negotiated_version = offered_versions[i];
+            session->version = (uint32_t) offered_versions[i];
+            session->profile_state = XQC_MOQ_PROFILE_ACTIVE;
+            if (session->log != NULL) {
+                xqc_log(session->log, XQC_LOG_INFO,
+                        "|moq_setup_active|profile:%s|wire_version:%ui|",
+                        session->profile->name, offered_versions[i]);
+            }
+            return XQC_OK;
+        }
+    }
+
+    session->profile_state = XQC_MOQ_PROFILE_FAILED;
+    return -XQC_EVERSION;
+}
+
+xqc_int_t
+xqc_moq_session_require_active(const xqc_moq_session_t *session)
+{
+    if (session == NULL || session->profile == NULL
+        || session->profile_state != XQC_MOQ_PROFILE_ACTIVE)
+    {
+        return -XQC_EVERSION;
+    }
+
+    return XQC_OK;
 }
 
 static xqc_moq_session_t *
 xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session,
     xqc_moq_transport_type_t transport_type, xqc_moq_role_t role,
     xqc_moq_session_callbacks_t callbacks, char *extdata,
-    xqc_int_t enable_client_setup_v14,
-    xqc_moq_message_parameter_t *setup_params, uint64_t setup_params_num)
+    const xqc_moq_session_config_t *config)
 {
     xqc_int_t ret = 0;
+    const xqc_moq_message_parameter_t *setup_params =
+        config != NULL ? config->setup_params : NULL;
+    uint64_t setup_params_num =
+        config != NULL ? config->setup_params_num : 0;
     xqc_connection_t *quic_conn;
     xqc_moq_session_t *session = xqc_calloc(1, sizeof(*session));
+    if (session == NULL) {
+        return NULL;
+    }
+
     session->user_session = user_session;
     session->transport_type = transport_type;
     session->role = role;
@@ -65,6 +214,20 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
     session->enable_datachannel = 1;
     session->enable_catalog = 0;
 
+    ret = xqc_moq_session_bind_negotiated_alpn(session);
+    if (ret != XQC_OK) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|bind negotiated MoQ ALPN error|ret:%d|", ret);
+        goto error;
+    }
+
+    if (session->profile_state != XQC_MOQ_PROFILE_ALPN_SELECTED
+        || session->profile == NULL)
+    {
+        xqc_log(session->log, XQC_LOG_ERROR, "|MoQ ALPN selected no profile|");
+        goto error;
+    }
+
     user_session->session = session;
     xqc_datagram_set_user_data(quic_conn, user_session);
 
@@ -78,7 +241,6 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
     xqc_init_list_head(&session->peer_advertised_namespace_list);
     xqc_init_list_head(&session->local_ns_pending_list);
 
-    session->use_client_setup_v14 = enable_client_setup_v14;
     /* Request IDs use parity per endpoint: client even, server odd. */
     session->request_id_allocator = (session->engine->eng_type == XQC_ENGINE_CLIENT) ? 0 : 1;
 
@@ -92,7 +254,7 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
 
         /* If upper layer provided explicit setup params, use them as-is. */
         if (setup_params && setup_params_num > 0) {
-            if (session->use_client_setup_v14) {
+            if (session->profile->wire_version == XQC_MOQ_VERSION_14) {
                 xqc_moq_client_setup_v14_msg_t client_setup_v14;
                 uint64_t versions_v14[] = {XQC_MOQ_VERSION_14};
                 client_setup_v14.versions_num = sizeof(versions_v14) / sizeof(versions_v14[0]);
@@ -100,14 +262,16 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
                 xqc_log(session->log, XQC_LOG_INFO, "|send_client_setup_v14(custom)|params_num:%ui|",
                         setup_params_num);
                 ret = xqc_moq_write_client_setup_v14(session, &client_setup_v14,
-                                                     setup_params, setup_params_num);
+                    (xqc_moq_message_parameter_t *)setup_params,
+                    setup_params_num);
             } else {
                 xqc_moq_client_setup_msg_t client_setup;
                 uint64_t versions[] = {XQC_MOQ_VERSION_5};
                 client_setup.versions_num = sizeof(versions) / sizeof(versions[0]);
                 client_setup.versions = versions;
                 client_setup.params_num = setup_params_num;
-                client_setup.params = setup_params;
+                client_setup.params =
+                    (xqc_moq_message_parameter_t *)setup_params;
                 xqc_log(session->log, XQC_LOG_INFO, "|send_client_setup(custom)|params_num:%ui|",
                         setup_params_num);
                 ret = xqc_moq_write_client_setup(session, &client_setup);
@@ -119,7 +283,9 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
                     {XQC_MOQ_PARAM_ROLE, 1, (uint8_t * ) & session->role, 1, (uint64_t)session->role},
                     {XQC_MOQ_PARAM_PATH, sizeof("path"), (uint8_t*)"path", 0, 0},
             };
-            if (extdata && strlen(extdata) > 0 && !session->use_client_setup_v14) {
+            if (extdata && strlen(extdata) > 0
+                && session->profile->wire_version == XQC_MOQ_VERSION_5)
+            {
                 params[params_num].type = XQC_MOQ_PARAM_EXTDATA;
                 params[params_num].length = strlen(extdata) + 1;
                 params[params_num].value = (uint8_t *)extdata;
@@ -128,7 +294,7 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
                 params_num++;
             }
 
-            if (session->use_client_setup_v14) {
+            if (session->profile->wire_version == XQC_MOQ_VERSION_14) {
                 xqc_moq_client_setup_v14_msg_t client_setup_v14;
                 uint64_t versions_v14[] = {XQC_MOQ_VERSION_14};
                 client_setup_v14.versions_num = sizeof(versions_v14) / sizeof(versions_v14[0]);
@@ -167,10 +333,20 @@ xqc_moq_session_create(void *conn, xqc_moq_user_session_t *user_session,
     xqc_moq_session_callbacks_t callbacks, char *extdata,
     xqc_int_t enable_client_setup_v14)
 {
+    (void) enable_client_setup_v14;
+
     return xqc_moq_session_create_internal(conn, user_session, transport_type,
-                                           role, callbacks, extdata,
-                                           enable_client_setup_v14,
-                                           NULL, 0);
+                                           role, callbacks, extdata, NULL);
+}
+
+xqc_moq_session_t *
+xqc_moq_session_create_ex(void *conn, xqc_moq_user_session_t *user_session,
+    xqc_moq_transport_type_t transport_type, xqc_moq_role_t role,
+    xqc_moq_session_callbacks_t callbacks,
+    const xqc_moq_session_config_t *config)
+{
+    return xqc_moq_session_create_internal(conn, user_session, transport_type,
+                                           role, callbacks, NULL, config);
 }
 
 xqc_moq_session_t *
@@ -180,10 +356,14 @@ xqc_moq_session_create_with_params(void *conn, xqc_moq_user_session_t *user_sess
     xqc_int_t enable_client_setup_v14,
     xqc_moq_message_parameter_t *setup_params, uint64_t setup_params_num)
 {
+    (void) enable_client_setup_v14;
+    xqc_moq_session_config_t config = {
+        .setup_params = setup_params,
+        .setup_params_num = setup_params_num,
+    };
+
     return xqc_moq_session_create_internal(conn, user_session, transport_type,
-                                           role, callbacks, extdata,
-                                           enable_client_setup_v14,
-                                           setup_params, setup_params_num);
+                                           role, callbacks, extdata, &config);
 }
 
 void

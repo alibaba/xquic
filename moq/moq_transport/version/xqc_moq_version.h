@@ -52,6 +52,9 @@ extern const xqc_moq_version_profile_t xqc_moq_v14_profile_definition;
 const xqc_moq_alpn_policy_t *xqc_moq_version_policy_for_alpn(
     const char *alpn, size_t alpn_len);
 
+size_t xqc_moq_version_policy_count(void);
+const xqc_moq_alpn_policy_t *xqc_moq_version_policy_at(size_t index);
+
 const xqc_moq_version_profile_t *xqc_moq_version_profile_for_version(
     uint64_t wire_version);
 

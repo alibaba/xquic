@@ -20,6 +20,23 @@ static const xqc_moq_alpn_policy_t xqc_moq_alpn_policies[] = {
     },
 };
 
+size_t
+xqc_moq_version_policy_count(void)
+{
+    return sizeof(xqc_moq_alpn_policies)
+           / sizeof(xqc_moq_alpn_policies[0]);
+}
+
+const xqc_moq_alpn_policy_t *
+xqc_moq_version_policy_at(size_t index)
+{
+    if (index >= xqc_moq_version_policy_count()) {
+        return NULL;
+    }
+
+    return &xqc_moq_alpn_policies[index];
+}
+
 const xqc_moq_alpn_policy_t *
 xqc_moq_version_policy_for_alpn(const char *alpn, size_t alpn_len)
 {
@@ -29,8 +46,7 @@ xqc_moq_version_policy_for_alpn(const char *alpn, size_t alpn_len)
         return NULL;
     }
 
-    for (i = 0; i < sizeof(xqc_moq_alpn_policies)
-                    / sizeof(xqc_moq_alpn_policies[0]); ++i)
+    for (i = 0; i < xqc_moq_version_policy_count(); ++i)
     {
         const xqc_moq_alpn_policy_t *policy = &xqc_moq_alpn_policies[i];
         if (policy->alpn_len == alpn_len

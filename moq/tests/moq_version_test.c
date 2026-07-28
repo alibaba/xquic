@@ -44,6 +44,10 @@ xqc_test_profile_lookup(void)
 
     XQC_TEST_ASSERT(xqc_moq_version_policy_for_alpn("moq-00", 6) == NULL);
     XQC_TEST_ASSERT(xqc_moq_version_policy_for_alpn("unknown", 7) == NULL);
+    XQC_TEST_ASSERT(xqc_moq_version_policy_count() == 3);
+    XQC_TEST_ASSERT(xqc_moq_version_policy_at(0) != NULL);
+    XQC_TEST_ASSERT(xqc_moq_version_policy_at(2) != NULL);
+    XQC_TEST_ASSERT(xqc_moq_version_policy_at(3) == NULL);
 
     XQC_TEST_ASSERT(xqc_moq_version_profile_for_version(XQC_MOQ_VERSION_5)
                     == xqc_moq_v5_profile());

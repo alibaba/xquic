@@ -9,6 +9,7 @@
 #include "moq/moq_media/xqc_moq_datachannel.h"
 #include "moq/moq_transport/xqc_moq_bitrate_allocator.h"
 #include "moq/moq_transport/xqc_moq_namespace.h"
+#include "moq/moq_transport/version/xqc_moq_version.h"
 
 //TODO: remove this
 //#define XQC_MOQ_DEBUG
@@ -17,6 +18,12 @@
 #else
 #define DEBUG_PRINTF(fmt, ...)
 #endif
+
+typedef enum {
+    XQC_MOQ_PROFILE_ALPN_SELECTED,
+    XQC_MOQ_PROFILE_ACTIVE,
+    XQC_MOQ_PROFILE_FAILED,
+} xqc_moq_profile_state_t;
 
 typedef struct xqc_moq_pending_ns_request_s {
     xqc_list_head_t             list_member;
@@ -27,6 +34,10 @@ typedef struct xqc_moq_pending_ns_request_s {
 
 typedef struct xqc_moq_session_s {
     uint32_t                        version;
+    uint64_t                        negotiated_version;
+    const xqc_moq_alpn_policy_t     *alpn_policy;
+    const xqc_moq_version_profile_t *profile;
+    xqc_moq_profile_state_t         profile_state;
     xqc_moq_user_session_t          *user_session;
     xqc_engine_t                    *engine;
     xqc_log_t                       *log;
@@ -53,7 +64,6 @@ typedef struct xqc_moq_session_s {
     xqc_moq_bitrate_allocator_t     bitrate_allocator;
     xqc_int_t                       enable_fec;
     float                           fec_code_rate;
-    xqc_int_t                       use_client_setup_v14;
     uint8_t                         enable_datachannel;
     uint8_t                         enable_catalog;
     uint8_t                         goaway_sent;
@@ -65,6 +75,20 @@ typedef struct xqc_moq_session_s {
     char                            *goaway_new_session_uri;
     size_t                          goaway_new_session_uri_len;
 } xqc_moq_session_t;
+
+xqc_int_t xqc_moq_session_bind_policy(xqc_moq_session_t *session,
+    const xqc_moq_alpn_policy_t *policy);
+
+xqc_int_t xqc_moq_session_bind_negotiated_alpn(
+    xqc_moq_session_t *session);
+
+xqc_int_t xqc_moq_session_validate_setup_type(
+    xqc_moq_session_t *session, uint64_t setup_type);
+
+xqc_int_t xqc_moq_session_negotiate_version(xqc_moq_session_t *session,
+    const uint64_t *offered_versions, uint64_t offered_versions_num);
+
+xqc_int_t xqc_moq_session_require_active(const xqc_moq_session_t *session);
 
 typedef enum {
     MOQ_NO_ERROR                    =   0x0,

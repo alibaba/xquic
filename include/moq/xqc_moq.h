@@ -241,6 +241,11 @@ typedef struct {
     uint64_t                    int_value;
 } xqc_moq_message_parameter_t;
 
+typedef struct {
+    const xqc_moq_message_parameter_t *setup_params;
+    uint64_t                           setup_params_num;
+} xqc_moq_session_config_t;
+
 typedef struct xqc_moq_object_s {
     uint64_t                    subscribe_id;
     uint64_t                    track_alias;
@@ -573,6 +578,17 @@ XQC_EXPORT_PUBLIC_API
 xqc_moq_session_t *xqc_moq_session_create(void *conn, xqc_moq_user_session_t *user_session,
     xqc_moq_transport_type_t type, xqc_moq_role_t role, xqc_moq_session_callbacks_t callbacks,
     char *extdata, xqc_int_t enable_client_setup_v14);
+
+/**
+ * Create a MoQ session using the version profile selected by negotiated ALPN.
+ *
+ * The immutable version profile is derived directly from negotiated ALPN.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_moq_session_t *xqc_moq_session_create_ex(void *conn,
+    xqc_moq_user_session_t *user_session, xqc_moq_transport_type_t type,
+    xqc_moq_role_t role, xqc_moq_session_callbacks_t callbacks,
+    const xqc_moq_session_config_t *config);
 
 /**
  * @brief Create a MOQ session with custom CLIENT_SETUP params.

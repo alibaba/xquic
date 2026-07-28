@@ -9,6 +9,10 @@
 #include "moq/moq_transport/xqc_moq_subscribe.h"
 #include "xquic/xqc_webtransport.h"
 
+#define XQC_MOQ_WT_INITIAL_MAX_STREAMS_UNI  1024
+#define XQC_MOQ_WT_INITIAL_MAX_STREAMS_BIDI 1
+#define XQC_MOQ_WT_INITIAL_MAX_DATA         (16 * 1024 * 1024ULL)
+
 /*
  * will_create_session callback for MOQ-over-WT:
  * Accept the session only if the :path matches XQC_MOQ_WT_PATH.
@@ -38,36 +42,81 @@ xqc_moq_wt_will_create_session(xqc_http_headers_t *headers,
 }
 
 
-void
+xqc_int_t
+xqc_moq_init_webtransport(xqc_engine_t *engine,
+    xqc_h3_callbacks_t *h3_cbs,
+    xqc_webtransport_session_callbacks_t *session_cbs)
+{
+    if (engine == NULL || session_cbs == NULL
+        || session_cbs->webtransport_session_create_notify == NULL)
+    {
+        return -XQC_EPARAM;
+    }
+
+    xqc_h3_callbacks_t h3_callbacks = {0};
+    if (h3_cbs) {
+        h3_callbacks = *h3_cbs;
+    }
+    xqc_int_t ret = xqc_h3_ctx_init(engine, &h3_callbacks);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    xqc_webtransport_session_callbacks_t wt_session_cbs = *session_cbs;
+    wt_session_cbs.webtransport_will_create_session_notify =
+        xqc_moq_wt_will_create_session;
+
+    xqc_webtransport_stream_callbacks_t stream_cbs =
+        xqc_moq_wt_stream_callbacks;
+    xqc_webtransport_dgram_callbacks_t dgram_cbs = {0};
+    const char *alpns[] = { XQC_ALPN_H3 };
+    ret = xqc_wt_ctx_init_for_alpns(engine, &dgram_cbs, &wt_session_cbs,
+        &stream_cbs, 1, alpns, 1);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    /*
+     * max_sessions is intentionally one, but MoQ opens one unidirectional
+     * WT stream per media object. Override WT's generic default, which
+     * otherwise also uses max_sessions as the initial stream credit.
+     */
+    return xqc_wt_engine_set_default_settings_for_alpn(engine, XQC_ALPN_H3,
+        sizeof(XQC_ALPN_H3) - 1, XQC_WT_MODE_DRAFT15_STRICT,
+        XQC_MOQ_WT_INITIAL_MAX_STREAMS_UNI,
+        XQC_MOQ_WT_INITIAL_MAX_STREAMS_BIDI,
+        XQC_MOQ_WT_INITIAL_MAX_DATA, XQC_TRUE, XQC_TRUE, XQC_TRUE);
+}
+
+xqc_int_t
 xqc_moq_init_alpn(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs,
     xqc_moq_transport_type_t transport_type)
 {
+    if (engine == NULL) {
+        return -XQC_EPARAM;
+    }
+
     if (transport_type == XQC_MOQ_TRANSPORT_QUIC) {
+        if (conn_cbs == NULL) {
+            return -XQC_EPARAM;
+        }
         xqc_stream_callbacks_t callbacks = xqc_moq_quic_stream_callbacks;
         xqc_app_proto_callbacks_t ap_cbs = {
             .conn_cbs   = *conn_cbs,
             .stream_cbs = callbacks,
         };
-        xqc_engine_register_alpn(engine, XQC_ALPN_MOQ_QUIC,
+        return xqc_engine_register_alpn(engine, XQC_ALPN_MOQ_QUIC,
             sizeof(XQC_ALPN_MOQ_QUIC) - 1, &ap_cbs, NULL);
 
-    } else if (transport_type == XQC_MOQ_TRANSPORT_WEBTRANSPORT) {
-        /* WT session callbacks */
-        xqc_webtransport_session_callbacks_t session_cbs = {0};
-        session_cbs.webtransport_will_create_session_notify =
-            xqc_moq_wt_will_create_session;
-
-        /* WT stream callbacks from the adapter */
-        xqc_webtransport_stream_callbacks_t stream_cbs =
-            xqc_moq_wt_stream_callbacks;
-
-        /* datagram callbacks (unused by MOQ, zeroed) */
-        xqc_webtransport_dgram_callbacks_t dgram_cbs = {0};
-
-        const char *alpns[] = { "h3" };
-        xqc_wt_ctx_init_for_alpns(engine, &dgram_cbs, &session_cbs,
-            &stream_cbs, 1, alpns, 1);
     }
+    if (transport_type == XQC_MOQ_TRANSPORT_WEBTRANSPORT) {
+        /*
+         * The generic ALPN initializer cannot carry the application callback
+         * that creates xqc_moq_session_t after the WT CONNECT succeeds.
+         */
+        return -XQC_EPARAM;
+    }
+    return -XQC_EPARAM;
 }
 
 xqc_moq_session_t *
@@ -166,7 +215,22 @@ xqc_moq_session_destroy(xqc_moq_session_t *session)
     xqc_moq_subscribe_t *subscribe;
     xqc_moq_track_t *track;
 
+    if (session->user_session
+        && session->user_session->session == session)
+    {
+        session->user_session->session = NULL;
+    }
+    session->closing = XQC_TRUE;
+
     xqc_log(session->log, XQC_LOG_INFO, "|session destroy begin|");
+
+    /*
+     * Stream destruction removes media streams from their owning track's
+     * write_stream_list, so WT wrappers must be swept before tracks.
+     */
+    if (session->transport_type == XQC_MOQ_TRANSPORT_WEBTRANSPORT) {
+        xqc_moq_wt_cleanup_stream_list(session);
+    }
 
     xqc_list_for_each_safe(pos, next, &session->local_subscribe_list) {
         subscribe = xqc_list_entry(pos, xqc_moq_subscribe_t, list_member);
@@ -187,12 +251,6 @@ xqc_moq_session_destroy(xqc_moq_session_t *session)
         track = xqc_list_entry(pos, xqc_moq_track_t, list_member);
         xqc_list_del(pos);
         xqc_moq_track_destroy(track);
-    }
-
-    /* clean up leftover WT stream wrappers — uni streams do not receive
-     * close_notify on connection teardown (WT module gap) */
-    if (session->transport_type == XQC_MOQ_TRANSPORT_WEBTRANSPORT) {
-        xqc_moq_wt_cleanup_stream_list(session);
     }
 
     xqc_free(session);

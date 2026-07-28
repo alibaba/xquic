@@ -128,6 +128,11 @@ void xqc_wt_send_stream_set_write_deadline(xqc_wt_send_stream_t *wt_stream,
 
 xqc_h3_stream_t *xqc_wt_unistream_get_h3_stream(xqc_wt_unistream_t *wt_stream);
 
+xqc_wt_unistream_t *xqc_wt_create_unistream_with_error(
+    xqc_wt_unistream_type_t unistream_type, xqc_wt_session_t *session,
+    wt_stream_close_func_pt close_func, xqc_h3_stream_t *h3_stream,
+    xqc_int_t *create_err);
+
 
 /* 这里整合了三种stream 类型： send , recv , bidi(同时包含send 和 recv)
  * send 和 recv 的close_func 由自己管理

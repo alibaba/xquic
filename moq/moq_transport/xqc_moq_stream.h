@@ -48,9 +48,11 @@ typedef struct xqc_moq_stream_s {
     uint64_t                    group_id;
     uint64_t                    object_id;
     uint64_t                    seq_num;
+    xqc_usec_t                  create_time;
 
     xqc_flag_t                  enable_fec;
     float                       fec_code_rate;
+    xqc_stream_priority_t       priority;
 
     uint16_t                    moq_frame_type;
 } xqc_moq_stream_t;

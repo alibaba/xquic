@@ -2,6 +2,8 @@
 #define _XQC_MOQ_H_INCLUDED_
 
 #include <xquic/xquic.h>
+#include <xquic/xqc_http3.h>
+#include <xquic/xqc_webtransport.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -258,7 +260,22 @@ typedef struct {
 } xqc_moq_session_callbacks_t;
 
 XQC_EXPORT_PUBLIC_API
-void xqc_moq_init_alpn(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs, xqc_moq_transport_type_t transport_type);
+xqc_int_t xqc_moq_init_alpn(xqc_engine_t *engine,
+    xqc_conn_callbacks_t *conn_cbs,
+    xqc_moq_transport_type_t transport_type);
+
+/**
+ * @brief Initialize HTTP/3, WebTransport, and MoQ-over-WebTransport callbacks.
+ *
+ * The H3 and WT session callback structs are copied. The MoQ /moq path
+ * selector and MoQ WT stream callbacks are installed by this function.
+ * session_cbs and webtransport_session_create_notify are required because
+ * the application creates and owns the xqc_moq_session_t from that callback.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_init_webtransport(xqc_engine_t *engine,
+    xqc_h3_callbacks_t *h3_cbs,
+    xqc_webtransport_session_callbacks_t *session_cbs);
 
 /**
  * @param extdata The client can send extdata when creating a session. 

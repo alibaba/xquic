@@ -79,8 +79,11 @@ xqc_moq_write_datachannel(xqc_moq_session_t *session, uint8_t *msg, size_t msg_l
             return -XQC_ECREATE_STREAM;
         }
         
+        stream->priority = XQC_STREAM_PRI_HIGH;
         quic_stream = stream->trans_ops.quic_stream(stream->trans_stream);
-        xqc_stream_set_priority(quic_stream, XQC_STREAM_PRI_HIGH);
+        if (quic_stream) {
+            xqc_stream_set_priority(quic_stream, stream->priority);
+        }
         
         session->datachannel.ordered_stream = stream;
     }
@@ -218,4 +221,3 @@ xqc_moq_datachannel_on_object(xqc_moq_session_t *session, xqc_moq_track_t *track
     session->session_callbacks.on_datachannel_msg(session->user_session, track,
         track ? &track->track_info : NULL, object->payload, object->payload_len);
 }
-

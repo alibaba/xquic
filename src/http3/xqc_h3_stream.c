@@ -580,7 +580,7 @@ xqc_h3_stream_send_finish(xqc_h3_stream_t *h3s)
     /* send buffer */
     ret = xqc_h3_stream_send_buffer(h3s);
     if (ret != XQC_OK) {
-        if (ret != -XQC_EAGAIN) {
+        if (ret != -XQC_EAGAIN && ret != -XQC_ESTREAM_RESET) {
             xqc_log(h3s->log, XQC_LOG_ERROR, "|h3 stream send buffer error|ret:%d|", ret);
         }
         return ret;
@@ -785,6 +785,14 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 if (xqc_h3_frm_parse_setting(pl->settings.setting, (void *)h3c) < 0) {
                     xqc_h3_frm_reset_pctx(pctx);
                     return -H3_SETTINGS_ERROR;
+                }
+                {
+                    xqc_int_t settings_ret =
+                        xqc_wt_h3_settings_received(h3s->h3c);
+                    if (settings_ret != XQC_OK) {
+                        xqc_h3_frm_reset_pctx(pctx);
+                        return settings_ret;
+                    }
                 }
                 break;
 
@@ -2130,6 +2138,11 @@ xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data)
     }
 
     xqc_h3_stream_t *h3s = (xqc_h3_stream_t*)user_data;
+
+    if (h3s->type == XQC_H3_STREAM_TYPE_WT_UNI && h3s->h3c) {
+        xqc_wt_h3_uni_stream_closed(h3s->h3c, h3s);
+    }
+
     h3s->flags |= XQC_HTTP3_STREAM_FLAG_CLOSED;
     xqc_h3_stream_get_err(h3s);
     xqc_h3_stream_get_path_info(h3s);

@@ -32,6 +32,10 @@ typedef struct xqc_wt_ctx_s {
  */
 xqc_wt_ctx_t *xqc_wt_ctx_get_by_engine(xqc_engine_t *engine);
 
+xqc_bool_t xqc_wt_peer_satisfies_draft15_requirements(
+    xqc_h3_stream_t *h3_stream);
+xqc_int_t xqc_wt_h3_settings_received(xqc_h3_conn_t *h3c);
+
 /**
  * @brief WebTransport uni stream hooks called from H3 layer.
  * Declared here so xqc_h3_stream.c can include this header
@@ -44,11 +48,17 @@ void xqc_wt_h3_uni_stream_recv(xqc_h3_conn_t *h3c,
     int *ret);
 void xqc_wt_h3_uni_stream_closing(xqc_h3_conn_t *h3c,
     xqc_h3_stream_t *h3s, xqc_int_t err_code);
+void xqc_wt_h3_uni_stream_closed(xqc_h3_conn_t *h3c,
+    xqc_h3_stream_t *h3s);
 void xqc_wt_h3_bidi_stream_created(xqc_h3_conn_t *h3c,
     xqc_h3_stream_t *h3s, int *ret);
 void xqc_wt_h3_bidi_stream_recv(xqc_h3_conn_t *h3c,
     xqc_h3_stream_t *h3s, uint8_t *data, size_t size, uint8_t fin,
     int *ret);
+
+#ifdef XQC_WT_TESTING
+void xqc_wt_test_fail_next_passive_bytestream_creation(void);
+#endif
 
 #ifdef __cplusplus
 }

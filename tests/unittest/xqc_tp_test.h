@@ -6,5 +6,6 @@
 #define _XQC_TP_TEST_H_
 
 void xqc_test_transport_params();
+void xqc_test_reset_stream_at_codepoints();
 
 #endif

@@ -41,6 +41,9 @@ typedef struct xqc_wt_request_s {   // 本质上是封装了一下h3_request + �
     size_t                send_body_len;
     size_t                recv_body_len;
 
+    struct xqc_wt_request_s *settings_next;
+    xqc_bool_t               waiting_for_settings;
+
     /* capsule reassembly buffer for incomplete capsules spanning DATA frames */
     uint8_t              *capsule_buf;
     size_t                capsule_buf_len;

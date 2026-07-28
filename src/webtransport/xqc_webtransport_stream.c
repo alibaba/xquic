@@ -202,68 +202,185 @@ xqc_wt_unistream_getid(xqc_wt_unistream_t *wt_stream)
 }
 
 xqc_wt_unistream_t *
-xqc_wt_create_unistream(xqc_wt_unistream_type_t unistream_type,
+xqc_wt_create_unistream_with_error(xqc_wt_unistream_type_t unistream_type,
     xqc_wt_session_t *session, wt_stream_close_func_pt close_func,
-    xqc_h3_stream_t *h3_stream)
+    xqc_h3_stream_t *h3_stream, xqc_int_t *create_err)
 {
-    if (session == NULL) {
-        // xqc_log
+    if (create_err) {
+        *create_err = -XQC_ECREATE_STREAM;
+    }
+    if (session == NULL || session->wt_conn == NULL
+        || session->wt_conn->h3_conn == NULL)
+    {
+        if (create_err) {
+            *create_err = -XQC_EPARAM;
+        }
         return NULL;
     }
-    if (h3_stream == NULL) {
-        // xqc_log
+    if (unistream_type == XQC_WT_STREAM_TYPE_RECV && h3_stream == NULL) {
+        if (create_err) {
+            *create_err = -XQC_EPARAM;
+        }
         return NULL;
     }
 
     xqc_wt_unistream_t *wt_unistream =
         (xqc_wt_unistream_t *)xqc_malloc(sizeof(xqc_wt_unistream_t));
     if (wt_unistream == NULL) {
+        if (create_err) {
+            *create_err = -XQC_EMALLOC;
+        }
         return NULL;
     }
     memset(wt_unistream, 0, sizeof(xqc_wt_unistream_t));
 
     xqc_connection_t *conn =
         xqc_h3_conn_get_xqc_conn(session->wt_conn->h3_conn);
+    if (conn == NULL) {
+        xqc_free(wt_unistream);
+        if (create_err) {
+            *create_err = -XQC_ESTATE;
+        }
+        return NULL;
+    }
     wt_unistream->conn = conn;
     wt_unistream->close_func = close_func;
     wt_unistream->packet_parsed_flag = XQC_FALSE;
 
     wt_unistream->type = unistream_type;
+    xqc_wt_flow_reservation_t reservation = {0};
     if (wt_unistream->type == XQC_WT_STREAM_TYPE_SEND) {
-        xqc_wt_flow_reservation_t reservation = {0};
-        if (xqc_wt_session_reserve_outgoing(session, XQC_TRUE, XQC_FALSE, 0,
-                &reservation) < 0)
+        xqc_int_t ret = xqc_wt_session_reserve_outgoing(session, XQC_TRUE,
+            XQC_FALSE, 0, &reservation);
+        if (ret < 0)
         {
+            xqc_log(wt_unistream->conn->log, XQC_LOG_ERROR,
+                "|reserve outgoing unistream failed|ret:%d|", ret);
             xqc_free(wt_unistream);
+            if (create_err) {
+                *create_err = ret;
+            }
             return NULL;
         }
         wt_unistream->stream.send_stream =
             xqc_wt_create_send_stream(session, close_func);
         if (wt_unistream->stream.send_stream == NULL) {
+            xqc_log(wt_unistream->conn->log, XQC_LOG_ERROR,
+                "|create outgoing unistream failed|");
             xqc_wt_session_rollback_outgoing(session, &reservation);
             xqc_free(wt_unistream);
             return NULL;
         }
-        if (xqc_wt_session_commit_outgoing(session, &reservation) != XQC_OK) {
-            xqc_destroy_stream(wt_unistream->stream.send_stream->stream);
+
+        /*
+         * An outgoing WT unidirectional stream owns its own H3 wrapper.
+         * Reusing the CONNECT stream here leaves H3 unable to route the
+         * transport stream's closing notification back to WT, so the WT
+         * and application wrappers outlive the underlying QUIC stream.
+         */
+        xqc_stream_t *stream = wt_unistream->stream.send_stream->stream;
+        xqc_h3_conn_t *h3_conn = session->wt_conn
+            ? session->wt_conn->h3_conn : NULL;
+        xqc_h3_stream_t *send_h3_stream =
+            (xqc_h3_stream_t *)stream->user_data;
+        if (send_h3_stream == NULL && h3_conn != NULL) {
+            send_h3_stream = xqc_h3_stream_create(h3_conn, stream,
+                XQC_H3_STREAM_TYPE_WT_UNI, NULL);
+        } else if (send_h3_stream != NULL) {
+            send_h3_stream->type = XQC_H3_STREAM_TYPE_WT_UNI;
+        }
+        if (send_h3_stream == NULL) {
+            xqc_log(wt_unistream->conn->log, XQC_LOG_ERROR,
+                "|create outgoing unistream H3 wrapper failed|");
+            xqc_destroy_stream(stream);
             xqc_free(wt_unistream->stream.send_stream);
             xqc_free(wt_unistream);
+            xqc_wt_session_rollback_outgoing(session, &reservation);
             return NULL;
         }
+        wt_unistream->h3_stream = send_h3_stream;
+        wt_unistream->stream.send_stream->h3_stream = send_h3_stream;
         wt_unistream->fin.send_fin = XQC_FALSE;
+
     } else if (wt_unistream->type == XQC_WT_STREAM_TYPE_RECV) {
         wt_unistream->stream.recv_stream =
             xqc_wt_create_recv_stream_passive(h3_stream, close_func);
+        if (wt_unistream->stream.recv_stream == NULL) {
+            xqc_free(wt_unistream);
+            if (create_err) {
+                *create_err = -XQC_EMALLOC;
+            }
+            return NULL;
+        }
+        wt_unistream->h3_stream = h3_stream;
         wt_unistream->fin.recv_fin = XQC_FALSE;
+
     } else {
         xqc_free(wt_unistream);
+        if (create_err) {
+            *create_err = -XQC_EPARAM;
+        }
         return NULL;
     }
 
     wt_unistream->session_id = session->session_id;
     wt_unistream->session = session;
 
+    if (wt_unistream->type == XQC_WT_STREAM_TYPE_SEND) {
+        xqc_int_t ret = xqc_wt_session_add_pendingstream(session,
+            wt_unistream->h3_stream, wt_unistream,
+            XQC_WT_PENDING_UNISTREAM);
+        if (ret != XQC_OK) {
+            xqc_log(wt_unistream->conn->log, XQC_LOG_ERROR,
+                "|register outgoing unistream failed|ret:%d|", ret);
+            xqc_stream_t *stream =
+                wt_unistream->stream.send_stream->stream;
+            xqc_destroy_stream(stream);
+            xqc_free(wt_unistream->stream.send_stream);
+            xqc_free(wt_unistream);
+            xqc_wt_session_rollback_outgoing(session, &reservation);
+            if (create_err) {
+                *create_err = ret;
+            }
+            return NULL;
+        }
+
+        ret = xqc_wt_session_commit_outgoing(session, &reservation);
+        if (ret != XQC_OK) {
+            xqc_log(wt_unistream->conn->log, XQC_LOG_ERROR,
+                "|commit outgoing unistream failed|ret:%d|", ret);
+            uint64_t stream_id = wt_unistream->h3_stream->stream_id;
+            xqc_wt_pending_stream_t *ps =
+                (xqc_wt_pending_stream_t *)xqc_id_hash_find(
+                    session->pending_unistreams, stream_id);
+            xqc_id_hash_delete(session->pending_unistreams, stream_id);
+            xqc_free(ps);
+            xqc_stream_t *stream =
+                wt_unistream->stream.send_stream->stream;
+            xqc_destroy_stream(stream);
+            xqc_free(wt_unistream->stream.send_stream);
+            xqc_free(wt_unistream);
+            xqc_wt_session_rollback_outgoing(session, &reservation);
+            if (create_err) {
+                *create_err = ret;
+            }
+            return NULL;
+        }
+    }
+
+    if (create_err) {
+        *create_err = XQC_OK;
+    }
     return wt_unistream;
+}
+
+xqc_wt_unistream_t *
+xqc_wt_create_unistream(xqc_wt_unistream_type_t unistream_type,
+    xqc_wt_session_t *session, wt_stream_close_func_pt close_func,
+    xqc_h3_stream_t *h3_stream)
+{
+    return xqc_wt_create_unistream_with_error(unistream_type, session,
+        close_func, h3_stream, NULL);
 }
 
 xqc_int_t
@@ -273,9 +390,18 @@ xqc_wt_unistream_close(xqc_wt_unistream_t *wt_stream)
         return -XQC_EPARAM;
     }
 
-    /* Note: caller is responsible for removing this stream from session's
-     * pending_unistreams hash table before calling close, since unistream
-     * does not hold a back-reference to its session. */
+    xqc_wt_session_t *session = wt_stream->session;
+    xqc_h3_stream_t *h3_stream = wt_stream->h3_stream;
+    if (session && session->pending_unistreams && h3_stream) {
+        xqc_wt_pending_stream_t *ps =
+            (xqc_wt_pending_stream_t *)xqc_id_hash_find(
+                session->pending_unistreams, h3_stream->stream_id);
+        if (ps && ps->stream == wt_stream) {
+            xqc_id_hash_delete(session->pending_unistreams,
+                h3_stream->stream_id);
+            xqc_free(ps);
+        }
+    }
 
     if (wt_stream->type == XQC_WT_STREAM_TYPE_SEND) {
         xqc_wt_send_stream_t *send_stream = wt_stream->stream.send_stream;
@@ -290,7 +416,7 @@ xqc_wt_unistream_close(xqc_wt_unistream_t *wt_stream)
         }
         if (wt_stream->close_func) wt_stream->close_func();
     }
-    xqc_free(wt_stream);
+    xqc_wt_unistream_destroy(wt_stream);
     return XQC_OK;
 }
 

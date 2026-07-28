@@ -818,6 +818,12 @@ xqc_wt_session_finish_connect_stream(xqc_wt_session_t *session)
     }
 
     ssize_t sent = xqc_h3_request_finish(session->h3_request);
+    if (sent == -XQC_ESTREAM_RESET) {
+        /* The peer may send STOP_SENDING together with its close capsule.
+         * Its receive side is already closed, so failing to send our FIN is
+         * an expected terminal state rather than a connection error. */
+        return XQC_OK;
+    }
     if (sent < 0) {
         return (xqc_int_t)sent;
     }

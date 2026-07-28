@@ -124,6 +124,12 @@ if(HAVE_CUNIT)
         ${CMAKE_SOURCE_DIR}/src/webtransport/xqc_webtransport_wire.c
     )
 
+    if(XQC_ENABLE_MOQ)
+        list(APPEND test_SOURCES
+            ${UNIT_TEST_DIR}/xqc_moq_webtransport_test.c
+        )
+    endif()
+
     if(XQC_ENABLE_FEC)
         set(
             test_SOURCES
@@ -137,6 +143,12 @@ if(HAVE_CUNIT)
     add_executable(run_tests
         ${test_SOURCES}
     )
+
+    target_compile_definitions(run_tests PRIVATE XQC_WT_TESTING)
+
+    if(XQC_ENABLE_MOQ)
+        target_compile_definitions(run_tests PRIVATE XQC_ENABLE_MOQ)
+    endif()
 
     target_include_directories(run_tests
         PRIVATE

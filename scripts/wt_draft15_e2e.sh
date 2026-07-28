@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEFAULT_SCENARIOS="bidi datagram large-datagram-reject pre-session-datagram pre-session-stream-overflow close-gates peer-close-fin reset-prefix server-bidi multi-session split-header fc-disabled-single-session fc-data-blocked fc-stream-blocked compat-legacy strict-reject-legacy client-reject-missing-wt-enabled client-reject-missing-h3-datagram client-reject-missing-connect client-reject-missing-dgram-tp client-reject-missing-reset-at strict-missing-wt-enabled strict-missing-h3-datagram strict-missing-connect strict-missing-dgram-tp strict-missing-reset-at invalid-datagram churn"
+DEFAULT_SCENARIOS="bidi datagram large-datagram-reject pre-session-datagram pre-session-stream-overflow close-gates peer-close-fin reset-prefix server-bidi multi-session split-header fc-disabled-single-session fc-data-blocked fc-stream-blocked compat-legacy strict-reject-legacy client-reject-missing-wt-enabled client-reject-missing-h3-datagram client-reject-missing-connect client-reject-missing-dgram-tp client-reject-missing-reset-at strict-missing-wt-enabled strict-missing-h3-datagram strict-client-without-connect strict-missing-dgram-tp strict-missing-reset-at invalid-datagram churn"
 ASAN="0"
 SANITIZERS="address,undefined"
 CLIENT_RUNS="4"
@@ -487,8 +487,8 @@ run_client_once() {
             grep -q "\\[OK\\] strict-missing-wt-enabled" "$log_file" ;;
         strict-missing-h3-datagram)
             grep -q "\\[OK\\] strict-missing-h3-datagram" "$log_file" ;;
-        strict-missing-connect)
-            grep -q "\\[OK\\] strict-missing-connect" "$log_file" ;;
+        strict-client-without-connect)
+            grep -q "\\[OK\\] strict-client-without-connect" "$log_file" ;;
         strict-missing-dgram-tp)
             grep -q "\\[OK\\] strict-missing-dgram-tp" "$log_file" ;;
         strict-missing-reset-at)
@@ -621,8 +621,8 @@ main() {
             strict-missing-h3-datagram)
                 run_with_server "strict_missing_h3_datagram" "draft15" "draft15" "strict-missing-h3-datagram"
                 ;;
-            strict-missing-connect)
-                run_with_server "strict_missing_connect" "draft15" "draft15" "strict-missing-connect"
+            strict-client-without-connect)
+                run_with_server "strict_client_without_connect" "draft15" "draft15" "strict-client-without-connect"
                 ;;
             strict-missing-dgram-tp)
                 run_with_server "strict_missing_dgram_tp" "draft15" "draft15" "strict-missing-dgram-tp"

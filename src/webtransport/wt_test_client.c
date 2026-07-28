@@ -53,7 +53,7 @@ typedef enum {
     WT_SCENARIO_CLIENT_REJECT_REQUIREMENTS,
     WT_SCENARIO_STRICT_MISSING_WT_ENABLED,
     WT_SCENARIO_STRICT_MISSING_H3_DATAGRAM,
-    WT_SCENARIO_STRICT_MISSING_CONNECT,
+    WT_SCENARIO_STRICT_CLIENT_WITHOUT_CONNECT,
     WT_SCENARIO_STRICT_MISSING_DGRAM_TP,
     WT_SCENARIO_STRICT_MISSING_RESET_AT,
     WT_SCENARIO_LARGE_DATAGRAM_REJECT,
@@ -354,8 +354,8 @@ scenario_name(wt_scenario_t scenario)
         return "strict-missing-wt-enabled";
     case WT_SCENARIO_STRICT_MISSING_H3_DATAGRAM:
         return "strict-missing-h3-datagram";
-    case WT_SCENARIO_STRICT_MISSING_CONNECT:
-        return "strict-missing-connect";
+    case WT_SCENARIO_STRICT_CLIENT_WITHOUT_CONNECT:
+        return "strict-client-without-connect";
     case WT_SCENARIO_STRICT_MISSING_DGRAM_TP:
         return "strict-missing-dgram-tp";
     case WT_SCENARIO_STRICT_MISSING_RESET_AT:
@@ -409,8 +409,8 @@ parse_scenario(const char *name, wt_scenario_t *scenario)
         *scenario = WT_SCENARIO_STRICT_MISSING_WT_ENABLED;
     } else if (strcmp(name, "strict-missing-h3-datagram") == 0) {
         *scenario = WT_SCENARIO_STRICT_MISSING_H3_DATAGRAM;
-    } else if (strcmp(name, "strict-missing-connect") == 0) {
-        *scenario = WT_SCENARIO_STRICT_MISSING_CONNECT;
+    } else if (strcmp(name, "strict-client-without-connect") == 0) {
+        *scenario = WT_SCENARIO_STRICT_CLIENT_WITHOUT_CONNECT;
     } else if (strcmp(name, "strict-missing-dgram-tp") == 0) {
         *scenario = WT_SCENARIO_STRICT_MISSING_DGRAM_TP;
     } else if (strcmp(name, "strict-missing-reset-at") == 0) {
@@ -449,7 +449,7 @@ configure_requirement_scenario(xqc_engine_t *engine, wt_scenario_t scenario)
     xqc_bool_t h3_datagram =
         scenario == WT_SCENARIO_STRICT_MISSING_H3_DATAGRAM ? 0 : 1;
     xqc_bool_t enable_connect_protocol =
-        scenario == WT_SCENARIO_STRICT_MISSING_CONNECT ? 0 : 1;
+        scenario == WT_SCENARIO_STRICT_CLIENT_WITHOUT_CONNECT ? 0 : 1;
 
     xqc_wt_engine_set_default_settings(engine, g_ctx->mode, 1024, 1024,
         16 * 1024 * 1024, enable_webtransport, h3_datagram,
@@ -461,7 +461,6 @@ is_strict_missing_requirement_scenario(wt_scenario_t scenario)
 {
     return scenario == WT_SCENARIO_STRICT_MISSING_WT_ENABLED
         || scenario == WT_SCENARIO_STRICT_MISSING_H3_DATAGRAM
-        || scenario == WT_SCENARIO_STRICT_MISSING_CONNECT
         || scenario == WT_SCENARIO_STRICT_MISSING_DGRAM_TP
         || scenario == WT_SCENARIO_STRICT_MISSING_RESET_AT;
 }
@@ -519,6 +518,15 @@ on_session_create(xqc_webtransport_session_t *session,
             g_ctx->session_ready = 1;
             g_ctx->session_open_sent = 0;
             printf("[OK] session-setup\n");
+            if (g_ctx->scenario
+                == WT_SCENARIO_STRICT_CLIENT_WITHOUT_CONNECT)
+            {
+                printf("[OK] strict-client-without-connect\n");
+                g_ctx->echo_ok = 1;
+                g_ctx->echo_done = 1;
+                event_base_loopbreak(g_ctx->eb);
+                return 0;
+            }
             try_run_ready_scenario(g_ctx);
             return 0;
         }
@@ -1359,7 +1367,7 @@ try_run_ready_scenario(wt_ctx_t *ctx)
     case WT_SCENARIO_CLIENT_REJECT_REQUIREMENTS:
     case WT_SCENARIO_STRICT_MISSING_WT_ENABLED:
     case WT_SCENARIO_STRICT_MISSING_H3_DATAGRAM:
-    case WT_SCENARIO_STRICT_MISSING_CONNECT:
+    case WT_SCENARIO_STRICT_CLIENT_WITHOUT_CONNECT:
     case WT_SCENARIO_STRICT_MISSING_DGRAM_TP:
     case WT_SCENARIO_STRICT_MISSING_RESET_AT:
         break;

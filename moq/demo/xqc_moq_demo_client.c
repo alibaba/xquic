@@ -442,7 +442,7 @@ void on_request_keyframe(xqc_moq_user_session_t *user_session, uint64_t subscrib
 void on_bitrate_change(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, uint64_t bitrate)
 {
     DEBUG;
-    printf("on_bitrate_change: track_namespace:%s track_name:%s bitrate:%ld\n",track_info->track_namespace, track_info->track_name, bitrate);
+    printf("on_bitrate_change: track_namespace:%s track_name:%s bitrate:%" PRIu64 "\n",track_info->track_namespace, track_info->track_name, bitrate);
     /* Configure encoder target bitrate */
 }
 
@@ -678,25 +678,21 @@ xqc_client_wt_session_close_notify(xqc_webtransport_session_t *wt_session,
 {
     DEBUG;
     xqc_moq_user_session_t *user_session = (xqc_moq_user_session_t *)h3c_user_data;
-
-    /*
-     * This callback fires from within xquic's stream/request destruction
-     * chain (xqc_destroy_stream -> h3_stream_close_notify -> ... ->
-     * xqc_wt_h3_request_close_notify -> here).  Destroying the moq session
-     * synchronously here would free memory the outer chain still reads
-     * (use-after-free).  Only mark the session closing now; the actual
-     * xqc_moq_session_destroy is deferred to h3_conn_close_notify, which
-     * runs outside any stream-destruction chain — mirroring the raw-QUIC
-     * path where the session is destroyed from conn_close_notify.
-     *
-     * Sweep the WT stream registry here (Tengine pattern): the WT-layer
-     * bidi/uni objects are still alive at this point — xqc_wt_session_close
-     * frees them only AFTER this callback returns.  Subsequent individual
-     * stream close_notify callbacks will find no wrapper and safely no-op.
-     */
+    user_conn_t *user_conn = (user_conn_t *)user_session->data;
+    if (user_conn->ev_send_timer) {
+        event_del(user_conn->ev_send_timer);
+        event_free(user_conn->ev_send_timer);
+        user_conn->ev_send_timer = NULL;
+    }
+    if (user_conn->ev_wt_open) {
+        event_del(user_conn->ev_wt_open);
+        event_free(user_conn->ev_wt_open);
+        user_conn->ev_wt_open = NULL;
+    }
+    user_conn->moq_session = NULL;
     if (user_session->session) {
         user_session->session->closing = XQC_TRUE;
-        xqc_moq_wt_cleanup_stream_list(user_session->session);
+        xqc_moq_session_destroy(user_session->session);
     }
     return 0;
 }
@@ -909,28 +905,24 @@ int main(int argc, char *argv[])
                 .h3_conn_handshake_finished = xqc_client_h3_conn_handshake_finished,
             },
         };
-        ret = xqc_h3_ctx_init(ctx.engine, &h3_cbs);
-        if (ret != XQC_OK) {
-            printf("init h3 context error, ret: %d\n", ret);
-            return -1;
-        }
-
         xqc_webtransport_session_callbacks_t wt_session_cbs = {
             .webtransport_session_create_notify = xqc_client_wt_session_create_notify,
             .webtransport_session_close_notify = xqc_client_wt_session_close_notify,
         };
-        xqc_webtransport_dgram_callbacks_t wt_dgram_cbs = {0};
-        xqc_webtransport_stream_callbacks_t wt_stream_cbs = xqc_moq_wt_stream_callbacks;
-        const char *wt_alpns[] = {"h3"};
-        ret = xqc_wt_ctx_init_for_alpns(ctx.engine, &wt_dgram_cbs, &wt_session_cbs,
-            &wt_stream_cbs, 1, wt_alpns, 1);
+        ret = xqc_moq_init_webtransport(ctx.engine, &h3_cbs,
+            &wt_session_cbs);
         if (ret != XQC_OK) {
-            printf("init wt context error, ret: %d\n", ret);
+            printf("init moq webtransport error, ret: %d\n", ret);
             return -1;
         }
 
     } else {
-        xqc_moq_init_alpn(ctx.engine, &conn_cbs, XQC_MOQ_TRANSPORT_QUIC);
+        ret = xqc_moq_init_alpn(ctx.engine, &conn_cbs,
+            XQC_MOQ_TRANSPORT_QUIC);
+        if (ret != XQC_OK) {
+            printf("init moq quic error, ret: %d\n", ret);
+            return -1;
+        }
     }
 
     xqc_moq_user_session_t *user_session = calloc(1, sizeof(xqc_moq_user_session_t) + sizeof(user_conn_t));

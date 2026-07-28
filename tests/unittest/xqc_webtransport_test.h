@@ -14,5 +14,11 @@ void xqc_test_wt_bidi_create_reject_stops_read(void);
 void xqc_test_wt_uni_create_reject_stops_read(void);
 void xqc_test_wt_pending_stream_fallback_to_conn_table(void);
 void xqc_test_wt_unistream_closing_notify_dispatch(void);
+void xqc_test_wt_bidi_close_uses_cached_stream_id(void);
+void xqc_test_wt_send_bidi_preserves_stream_blocked(void);
+void xqc_test_wt_bidi_bytestream_failure_rolls_back(void);
+void xqc_test_wt_strict_requirements_are_role_aware(void);
+void xqc_test_wt_server_defers_connect_until_settings(void);
+void xqc_test_wt_finish_connect_after_peer_stop_sending(void);
 
 #endif

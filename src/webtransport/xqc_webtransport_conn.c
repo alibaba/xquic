@@ -7,6 +7,7 @@
 #include "src/webtransport/xqc_webtransport_session.h"
 #include "src/webtransport/xqc_webtransport_stream.h"
 #include "src/webtransport/xqc_webtransport_ctx.h"
+#include "src/webtransport/xqc_webtransport_request.h"
 
 static void
 xqc_wt_conn_free_pending_streams(xqc_wt_conn_t *conn)
@@ -111,6 +112,17 @@ xqc_int_t xqc_wt_conn_close(xqc_wt_conn_t* conn)
     if (conn == NULL) {
         return -XQC_EPARAM;
     }
+
+    xqc_wt_request_t *pending = conn->pending_server_connect_head;
+    while (pending) {
+        xqc_wt_request_t *next = pending->settings_next;
+        pending->settings_next = NULL;
+        pending->waiting_for_settings = XQC_FALSE;
+        pending->wt_conn = NULL;
+        pending = next;
+    }
+    conn->pending_server_connect_head = NULL;
+    conn->pending_server_connect_tail = NULL;
 
     /* destroy all sessions registered on this connection.
      * Clear wt_conn back-references first to prevent re-entrant unregister

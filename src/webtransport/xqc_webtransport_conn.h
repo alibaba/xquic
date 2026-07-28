@@ -18,6 +18,7 @@ extern "C" {
 #endif
 
 typedef struct xqc_wt_ctx_s xqc_wt_ctx_t;
+typedef struct xqc_wt_request_s xqc_wt_request_t;
 
 typedef struct xqc_wt_pending_dgram_s {
     uint64_t session_id;
@@ -53,6 +54,8 @@ typedef struct xqc_webtransport_conn_s{
     uint64_t pending_dgram_overflow_dropped;
 
     xqc_h3_request_t *pending_client_connect;
+    xqc_wt_request_t *pending_server_connect_head;
+    xqc_wt_request_t *pending_server_connect_tail;
 
     xqc_wt_ctx_t *wt_ctx; /* back-pointer to WT context (shared, not owned) */
 

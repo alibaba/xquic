@@ -43,7 +43,18 @@ xqc_test_advertised_namespace_registry_lifecycle(void)
 static void
 xqc_test_init_namespace_session(xqc_moq_session_t *session)
 {
+    const xqc_moq_alpn_policy_t *policy =
+        xqc_moq_version_policy_for_alpn(
+            XQC_ALPN_MOQ_DRAFT_14, sizeof(XQC_ALPN_MOQ_DRAFT_14) - 1);
+    uint64_t version = XQC_MOQ_VERSION_14;
+
     xqc_memzero(session, sizeof(*session));
+    if (policy == NULL
+        || xqc_moq_session_bind_policy(session, policy) != XQC_OK
+        || xqc_moq_session_negotiate_version(session, &version, 1) != XQC_OK)
+    {
+        abort();
+    }
     xqc_init_list_head(&session->local_advertised_namespace_list);
     xqc_init_list_head(&session->peer_advertised_namespace_list);
     xqc_init_list_head(&session->peer_subscribe_namespace_list);

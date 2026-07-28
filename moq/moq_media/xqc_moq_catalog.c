@@ -797,6 +797,16 @@ xqc_moq_write_catalog(xqc_moq_session_t *session, uint64_t subscribe_id, xqc_moq
     xqc_moq_stream_t *stream;
     xqc_moq_object_stream_msg_t object;
     xqc_moq_catalog_t catalog;
+
+    if (session == NULL || track == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    ret = xqc_moq_session_require_active(session);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
     xqc_moq_catalog_init(&catalog);
     catalog.version = 1;
     catalog.sequence = 0;
@@ -813,14 +823,7 @@ xqc_moq_write_catalog(xqc_moq_session_t *session, uint64_t subscribe_id, xqc_moq
         goto end;
     }
 
-    stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_UNI);
-    if (stream == NULL) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|create moq stream error|");
-        ret = -XQC_ECREATE_STREAM;
-        goto end;
-    }
-    stream->write_stream_fin = 1;
-
+    xqc_memzero(&object, sizeof(object));
     object.subscribe_id = subscribe_id;
     object.track_alias = track->track_alias;
     object.send_order = 0; //TODO
@@ -830,9 +833,39 @@ xqc_moq_write_catalog(xqc_moq_session_t *session, uint64_t subscribe_id, xqc_moq
     object.group_id = track->cur_group_id;
     object.object_id = track->cur_object_id++;
 
-    ret = xqc_moq_write_object_stream_msg(session, stream, &object);
+    if (session->profile->data_strategy == XQC_MOQ_DATA_STRATEGY_SUBGROUP) {
+        xqc_moq_subgroup_object_t subgroup;
+        xqc_memzero(&subgroup, sizeof(subgroup));
+        subgroup.subscribe_id = object.subscribe_id;
+        subgroup.track_alias = object.track_alias;
+        subgroup.group_id = object.group_id;
+        subgroup.object_id = object.object_id;
+        subgroup.subgroup_id = xqc_moq_track_next_subgroup_id(
+            track, object.group_id);
+        subgroup.object_id_delta = object.object_id;
+        subgroup.send_order = object.send_order;
+        subgroup.status = object.status;
+        subgroup.payload = object.payload;
+        subgroup.payload_len = object.payload_len;
+        ret = xqc_moq_send_subgroup(session, track, &subgroup);
+
+    } else {
+        stream = xqc_moq_stream_create_with_transport(session, XQC_STREAM_UNI);
+        if (stream == NULL) {
+            xqc_log(session->log, XQC_LOG_ERROR,
+                    "|create moq stream error|");
+            ret = -XQC_ECREATE_STREAM;
+            goto end;
+        }
+        stream->write_stream_fin = 1;
+        xqc_moq_track_on_write_stream(
+            track, stream, object.group_id, object.object_id, 0);
+        ret = xqc_moq_write_object_stream_msg(session, stream, &object);
+    }
     if (ret < 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|write_object_stream_msg error|ret:%d|", ret);
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|write catalog object error|profile:%s|ret:%d|",
+                session->profile->name, ret);
         goto end;
     }
 end:

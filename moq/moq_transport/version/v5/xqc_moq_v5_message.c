@@ -1,4 +1,5 @@
 #include "moq/moq_transport/version/v5/xqc_moq_v5_message.h"
+#include "moq/moq_transport/xqc_moq_namespace.h"
 #include "moq/moq_transport/xqc_moq_message_handler.h"
 #include "moq/moq_transport/xqc_moq_session.h"
 #include "src/common/utils/vint/xqc_variable_len_int.h"
@@ -609,6 +610,8 @@ xqc_moq_v5_destroy_subscribe(void *msg)
         return;
     }
     xqc_moq_subscribe_msg_t *subscribe = (xqc_moq_subscribe_msg_t*)msg;
+    xqc_moq_namespace_tuple_free(subscribe->track_namespace_tuple,
+                                 subscribe->track_namespace_num);
     xqc_free(subscribe->track_namespace);
     xqc_free(subscribe->track_name);
     xqc_moq_v5_destroy_params(subscribe->params, subscribe->params_num);
@@ -1080,6 +1083,7 @@ xqc_moq_v5_create_subscribe_ok()
 {
     xqc_moq_subscribe_ok_msg_t *msg = xqc_calloc(1, sizeof(*msg));
     xqc_moq_v5_msg_subscribe_ok_init_handler(&msg->msg_base);
+    msg->track_alias = XQC_MOQ_INVALID_ID;
     return msg;
 }
 

@@ -887,7 +887,12 @@ xqc_moq_publish_namespace(xqc_moq_session_t *session,
         return -XQC_EPARAM;
     }
 
-    xqc_int_t ret = xqc_moq_validate_full_track_name_for_write(session,
+    xqc_int_t ret = xqc_moq_writer_require(session, XQC_MOQ_CAP_PUBLISH);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    ret = xqc_moq_validate_full_track_name_for_write(session,
         publish_namespace->track_namespace_num, publish_namespace->track_namespace_tuple,
         NULL, 0);
     if (ret != XQC_OK) {
@@ -976,7 +981,12 @@ xqc_moq_publish_namespace_done(xqc_moq_session_t *session,
         return -XQC_EPARAM;
     }
 
-    xqc_int_t ret = xqc_moq_validate_full_track_name_for_write(session,
+    xqc_int_t ret = xqc_moq_writer_require(session, XQC_MOQ_CAP_PUBLISH);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    ret = xqc_moq_validate_full_track_name_for_write(session,
         publish_namespace_done->track_namespace_num, publish_namespace_done->track_namespace_tuple,
         NULL, 0);
     if (ret != XQC_OK) {

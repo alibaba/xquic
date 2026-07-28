@@ -1,4 +1,5 @@
 #include "moq/moq_transport/version/v5/xqc_moq_v5_message.h"
+#include "moq/moq_transport/xqc_moq_namespace.h"
 #include "moq/moq_transport/version/xqc_moq_version.h"
 #include "moq/moq_transport/xqc_moq_message.h"
 #include "moq/moq_transport/xqc_moq_stream.h"
@@ -86,6 +87,30 @@ xqc_moq_v5_prepare_data_message(xqc_moq_stream_t *stream,
     return XQC_OK;
 }
 
+static xqc_int_t
+xqc_moq_v5_adapt_subscribe(xqc_moq_subscribe_msg_t *subscribe)
+{
+    if (subscribe->track_namespace_tuple != NULL
+        && subscribe->track_namespace_num > 0)
+    {
+        return XQC_OK;
+    }
+
+    if (subscribe->track_namespace == NULL
+        || subscribe->track_namespace_len == 0)
+    {
+        return -XQC_EPARAM;
+    }
+
+    subscribe->track_namespace_tuple = xqc_moq_namespace_tuple_from_string(
+        subscribe->track_namespace, subscribe->track_namespace_len);
+    if (subscribe->track_namespace_tuple == NULL) {
+        return -XQC_EMALLOC;
+    }
+    subscribe->track_namespace_num = 1;
+    return XQC_OK;
+}
+
 const xqc_moq_version_profile_t xqc_moq_v5_profile_definition = {
     .name = "draft-05",
     .wire_version = XQC_MOQ_VERSION_5,
@@ -93,6 +118,7 @@ const xqc_moq_version_profile_t xqc_moq_v5_profile_definition = {
     .client_setup_type = XQC_MOQ_MSG_CLIENT_SETUP,
     .server_setup_type = XQC_MOQ_MSG_SERVER_SETUP,
     .include_extdata_in_default_setup = XQC_TRUE,
+    .data_strategy = XQC_MOQ_DATA_STRATEGY_OBJECT_TRACK,
     .control_codecs = xqc_moq_v5_control_codecs,
     .control_codecs_count = sizeof(xqc_moq_v5_control_codecs)
                             / sizeof(xqc_moq_v5_control_codecs[0]),
@@ -104,6 +130,7 @@ const xqc_moq_version_profile_t xqc_moq_v5_profile_definition = {
     .next_data_message = xqc_moq_v5_next_data_message,
     .prepare_data_message = xqc_moq_v5_prepare_data_message,
     .decode_datagram = NULL,
+    .adapt_subscribe = xqc_moq_v5_adapt_subscribe,
 };
 
 const xqc_moq_version_profile_t *

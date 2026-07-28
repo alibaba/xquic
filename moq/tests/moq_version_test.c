@@ -3,11 +3,13 @@
 #include <string.h>
 
 #include "moq/xqc_moq.h"
+#include "moq/moq_media/xqc_moq_datachannel.h"
 #include "moq/moq_transport/xqc_moq_message.h"
 #include "moq/moq_transport/xqc_moq_message_writer.h"
 #include "moq/moq_transport/version/xqc_moq_version.h"
 #include "moq/moq_transport/xqc_moq_session.h"
 #include "moq/moq_transport/xqc_moq_stream.h"
+#include "moq/moq_transport/xqc_moq_subscribe.h"
 
 #define XQC_TEST_ASSERT(expr)                                             \
     do {                                                                  \
@@ -554,6 +556,117 @@ xqc_test_v5_stream_preparation_requires_track_header(void)
 }
 
 static int
+xqc_test_subscribe_semantic_adapter(void)
+{
+    static unsigned char ns0[] = "ns";
+    static unsigned char ns1[] = "extra";
+    xqc_moq_track_ns_field_t one[] = {
+        {.len = 2, .data = ns0},
+    };
+    xqc_moq_track_ns_field_t two[] = {
+        {.len = 2, .data = ns0},
+        {.len = 5, .data = ns1},
+    };
+    xqc_moq_session_t session;
+    xqc_moq_stream_t stream;
+    xqc_moq_subscribe_t *subscribe;
+    xqc_moq_subscribe_msg_t decoded;
+
+    XQC_TEST_ASSERT(xqc_moq_subscribe_create_with_ns_tuple(
+        NULL, 0, 0, NULL, 0, NULL, XQC_MOQ_FILTER_LAST_GROUP,
+        0, 0, 0, 0, NULL, 1) == NULL);
+    XQC_TEST_ASSERT(xqc_moq_subscribe_create(
+        NULL, 0, 0, NULL, NULL, XQC_MOQ_FILTER_LAST_GROUP,
+        0, 0, 0, 0, NULL, 1) == NULL);
+
+    XQC_TEST_ASSERT(xqc_test_activate_session(
+        &session, XQC_ALPN_MOQ_DRAFT_05,
+        sizeof(XQC_ALPN_MOQ_DRAFT_05) - 1, XQC_MOQ_VERSION_5) == 0);
+    xqc_memzero(&stream, sizeof(stream));
+    xqc_init_list_head(&session.local_subscribe_list);
+    xqc_init_list_head(&session.peer_subscribe_list);
+
+    subscribe = xqc_moq_subscribe_create_with_ns_tuple(
+        &session, 1, 2, one, 1, "track", XQC_MOQ_FILTER_ABSOLUTE_RANGE,
+        3, 4, 5, 6, "auth", 1);
+    XQC_TEST_ASSERT(subscribe != NULL);
+    XQC_TEST_ASSERT(subscribe->subscribe_msg->track_namespace_len == 2);
+    XQC_TEST_ASSERT(memcmp(subscribe->subscribe_msg->track_namespace,
+                           "ns", 2) == 0);
+    stream.session = &session;
+    stream.kind = XQC_MOQ_STREAM_CONTROL;
+    stream.trans_ops.write = xqc_test_stream_write;
+    session.ctl_stream = &stream;
+    XQC_TEST_ASSERT(xqc_moq_write_subscribe(
+        &session, subscribe->subscribe_msg) == XQC_OK);
+    XQC_TEST_ASSERT(stream.write_buf_len == sizeof(xqc_v5_subscribe));
+    XQC_TEST_ASSERT(memcmp(stream.write_buf, xqc_v5_subscribe,
+                           sizeof(xqc_v5_subscribe)) == 0);
+    xqc_free(stream.write_buf);
+    xqc_list_del(&subscribe->list_member);
+    xqc_moq_subscribe_destroy(subscribe);
+
+    XQC_TEST_ASSERT(xqc_moq_subscribe_create_with_ns_tuple(
+        &session, 3, 4, two, 2, "track", XQC_MOQ_FILTER_LAST_GROUP,
+        0, 0, 0, 0, NULL, 1) == NULL);
+
+    xqc_memzero(&decoded, sizeof(decoded));
+    decoded.track_namespace = "ns";
+    decoded.track_namespace_len = 2;
+    XQC_TEST_ASSERT(xqc_moq_profile_adapt_subscribe(
+        &session, &decoded) == XQC_OK);
+    XQC_TEST_ASSERT(decoded.track_namespace_num == 1);
+    XQC_TEST_ASSERT(decoded.track_namespace_tuple != NULL);
+    XQC_TEST_ASSERT(decoded.track_namespace_tuple[0].len == 2);
+    XQC_TEST_ASSERT(memcmp(decoded.track_namespace_tuple[0].data,
+                           "ns", 2) == 0);
+    xqc_moq_namespace_tuple_free(decoded.track_namespace_tuple,
+                                 decoded.track_namespace_num);
+
+    XQC_TEST_ASSERT(xqc_test_activate_session(
+        &session, XQC_ALPN_MOQ_DRAFT_14,
+        sizeof(XQC_ALPN_MOQ_DRAFT_14) - 1, XQC_MOQ_VERSION_14) == 0);
+    xqc_init_list_head(&session.local_subscribe_list);
+    xqc_init_list_head(&session.peer_subscribe_list);
+    subscribe = xqc_moq_subscribe_create_with_ns_tuple(
+        &session, 5, 6, two, 2, "track", XQC_MOQ_FILTER_LAST_GROUP,
+        0, 0, 0, 0, NULL, 1);
+    XQC_TEST_ASSERT(subscribe != NULL);
+    XQC_TEST_ASSERT(subscribe->subscribe_msg->track_namespace_num == 2);
+    xqc_list_del(&subscribe->list_member);
+    xqc_moq_subscribe_destroy(subscribe);
+    return 0;
+}
+
+static int
+xqc_test_high_level_media_apis_require_active_profile(void)
+{
+    static unsigned char ns[] = "ns";
+    static uint8_t payload[] = "x";
+    xqc_moq_track_ns_field_t namespace_tuple = {
+        .len = 2,
+        .data = ns,
+    };
+    const xqc_moq_alpn_policy_t *policy;
+    xqc_moq_session_t session;
+
+    policy = xqc_moq_version_policy_for_alpn(
+        XQC_ALPN_MOQ_DRAFT_05, sizeof(XQC_ALPN_MOQ_DRAFT_05) - 1);
+    XQC_TEST_ASSERT(policy != NULL);
+    xqc_memzero(&session, sizeof(session));
+    XQC_TEST_ASSERT(xqc_moq_session_bind_policy(&session, policy) == XQC_OK);
+    xqc_init_list_head(&session.local_subscribe_list);
+    xqc_init_list_head(&session.peer_subscribe_list);
+
+    XQC_TEST_ASSERT(xqc_moq_subscribe_create_with_ns_tuple(
+        &session, 1, 2, &namespace_tuple, 1, "track",
+        XQC_MOQ_FILTER_LAST_GROUP, 0, 0, 0, 0, NULL, 1) == NULL);
+    XQC_TEST_ASSERT(xqc_moq_write_datachannel(
+        &session, payload, sizeof(payload)) == -XQC_EVERSION);
+    return 0;
+}
+
+static int
 xqc_test_v5_golden_encode(void)
 {
     xqc_moq_session_t session;
@@ -624,6 +737,11 @@ xqc_test_v5_decode_once(xqc_moq_session_t *session,
     XQC_TEST_ASSERT(finish == 1);
     XQC_TEST_ASSERT(wait_more_data == 0);
 
+    if (vector->wire_type == XQC_MOQ_MSG_SUBSCRIBE_OK) {
+        XQC_TEST_ASSERT(((xqc_moq_subscribe_ok_msg_t *)base)->track_alias
+                        == XQC_MOQ_INVALID_ID);
+    }
+
     XQC_TEST_ASSERT(base->encode_len(base) == (xqc_int_t)vector->bytes_len);
     XQC_TEST_ASSERT(base->encode(base, encoded, sizeof(encoded))
                     == (xqc_int_t)vector->bytes_len);
@@ -673,6 +791,8 @@ main(void)
         || xqc_test_v5_control_writer_uses_profile_codec() != 0
         || xqc_test_v14_stream_preparation_is_profile_local() != 0
         || xqc_test_v5_stream_preparation_requires_track_header() != 0
+        || xqc_test_subscribe_semantic_adapter() != 0
+        || xqc_test_high_level_media_apis_require_active_profile() != 0
         || xqc_test_v5_golden_encode() != 0
         || xqc_test_v5_golden_decode_split_points() != 0)
     {

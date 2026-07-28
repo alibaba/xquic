@@ -221,3 +221,23 @@ xqc_moq_profile_decode_datagram(xqc_moq_session_t *session,
 
     return session->profile->decode_datagram(session, data, data_len);
 }
+
+xqc_int_t
+xqc_moq_profile_adapt_subscribe(xqc_moq_session_t *session,
+    xqc_moq_subscribe_msg_t *subscribe)
+{
+    if (session == NULL || subscribe == NULL || session->profile == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_int_t ret = xqc_moq_session_require_active(session);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    if (session->profile->adapt_subscribe == NULL) {
+        return XQC_OK;
+    }
+
+    return session->profile->adapt_subscribe(subscribe);
+}

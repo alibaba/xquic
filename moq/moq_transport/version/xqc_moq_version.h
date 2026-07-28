@@ -16,6 +16,11 @@ typedef enum {
 } xqc_moq_stream_kind_t;
 
 typedef enum {
+    XQC_MOQ_DATA_STRATEGY_OBJECT_TRACK,
+    XQC_MOQ_DATA_STRATEGY_SUBGROUP,
+} xqc_moq_data_strategy_t;
+
+typedef enum {
     XQC_MOQ_CAP_TRACK_STREAM        = 1ULL << 0,
     XQC_MOQ_CAP_GROUP_STREAM        = 1ULL << 1,
     XQC_MOQ_CAP_SUBGROUP_STREAM     = 1ULL << 2,
@@ -49,6 +54,9 @@ typedef xqc_int_t (*xqc_moq_prepare_data_message_pt)(
 typedef xqc_int_t (*xqc_moq_decode_datagram_pt)(
     xqc_moq_session_t *session, const uint8_t *data, size_t data_len);
 
+typedef xqc_int_t (*xqc_moq_adapt_subscribe_pt)(
+    xqc_moq_subscribe_msg_t *subscribe);
+
 typedef struct xqc_moq_version_profile_s {
     const char *name;
     uint64_t wire_version;
@@ -56,6 +64,7 @@ typedef struct xqc_moq_version_profile_s {
     uint64_t client_setup_type;
     uint64_t server_setup_type;
     xqc_bool_t include_extdata_in_default_setup;
+    xqc_moq_data_strategy_t data_strategy;
     const xqc_moq_message_codec_entry_t *control_codecs;
     size_t control_codecs_count;
     const xqc_moq_message_codec_entry_t *data_codecs;
@@ -65,6 +74,7 @@ typedef struct xqc_moq_version_profile_s {
     xqc_moq_next_data_message_pt next_data_message;
     xqc_moq_prepare_data_message_pt prepare_data_message;
     xqc_moq_decode_datagram_pt decode_datagram;
+    xqc_moq_adapt_subscribe_pt adapt_subscribe;
 } xqc_moq_version_profile_t;
 
 typedef struct {
@@ -118,5 +128,8 @@ xqc_int_t xqc_moq_profile_prepare_data_message(
 
 xqc_int_t xqc_moq_profile_decode_datagram(
     xqc_moq_session_t *session, const uint8_t *data, size_t data_len);
+
+xqc_int_t xqc_moq_profile_adapt_subscribe(
+    xqc_moq_session_t *session, xqc_moq_subscribe_msg_t *subscribe);
 
 #endif

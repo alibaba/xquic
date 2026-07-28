@@ -1778,6 +1778,8 @@ xqc_moq_msg_free_subscribe(void *msg)
     xqc_moq_subscribe_msg_t *subscribe = (xqc_moq_subscribe_msg_t*)msg;
     xqc_moq_namespace_tuple_free(subscribe->track_namespace_tuple, subscribe->track_namespace_num);
     subscribe->track_namespace_tuple = NULL;
+    xqc_free(subscribe->track_namespace);
+    subscribe->track_namespace = NULL;
     xqc_free(subscribe->track_name);
     xqc_moq_msg_free_params(subscribe->params, subscribe->params_num);
     xqc_free(subscribe);

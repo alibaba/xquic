@@ -355,6 +355,15 @@ xqc_moq_on_subscribe(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, x
     xqc_int_t ret;
     xqc_moq_subscribe_msg_t *subscribe_msg = (xqc_moq_subscribe_msg_t*)msg_base;
 
+    ret = xqc_moq_profile_adapt_subscribe(session, subscribe_msg);
+    if (ret != XQC_OK) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|adapt subscribe error|profile:%s|ret:%d|",
+                session->profile != NULL ? session->profile->name : "none",
+                ret);
+        goto error;
+    }
+
     track = xqc_moq_find_track_by_ns_tuple(session, subscribe_msg->track_namespace_tuple,
                 subscribe_msg->track_namespace_num, subscribe_msg->track_name, XQC_MOQ_TRACK_FOR_PUB);
     if (track == NULL) {
@@ -362,15 +371,24 @@ xqc_moq_on_subscribe(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, x
         goto error;
     }
 
-    if (track->subscribe_id != XQC_MOQ_INVALID_ID) {
+    if (track->subscribe_id != XQC_MOQ_INVALID_ID
+        || (session->profile->data_strategy
+                == XQC_MOQ_DATA_STRATEGY_OBJECT_TRACK
+            && track->track_alias != XQC_MOQ_INVALID_ID))
+    {
         xqc_log(session->log, XQC_LOG_ERROR, "|track already subscribed|");
         goto error;
     }
 
-    if (track->track_alias == XQC_MOQ_INVALID_ID) {
+    if (session->profile->data_strategy
+        == XQC_MOQ_DATA_STRATEGY_OBJECT_TRACK)
+    {
+        xqc_moq_track_set_alias(track, subscribe_msg->track_alias);
+
+    } else if (track->track_alias == XQC_MOQ_INVALID_ID) {
         xqc_moq_track_set_alias(track, xqc_moq_session_alloc_track_alias(session));
+        subscribe_msg->track_alias = track->track_alias;
     }
-    subscribe_msg->track_alias = track->track_alias;
 
     subscribe = xqc_moq_find_subscribe(session, subscribe_msg->subscribe_id, 0);
     if (subscribe) {

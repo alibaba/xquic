@@ -31,7 +31,23 @@ xqc_moq_write_datachannel_unordered(xqc_moq_session_t *session, uint8_t *msg, si
     xqc_int_t ret = 0;
     xqc_moq_stream_t *stream;
     xqc_moq_object_stream_msg_t object;
+    if (session == NULL || msg == NULL || msg_len == 0) {
+        return -XQC_EPARAM;
+    }
+
+    ret = xqc_moq_session_require_active(session);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
     xqc_moq_track_t *track = session->datachannel.track_for_pub;
+    if (track == NULL) {
+        return -XQC_ESTREAM_ST;
+    }
+
+    if (session->profile->data_strategy == XQC_MOQ_DATA_STRATEGY_SUBGROUP) {
+        return xqc_moq_send_datachannel_msg(session, track, msg, msg_len);
+    }
 
     xqc_memzero(&object, sizeof(object));
     object.group_id = track->cur_group_id;
@@ -70,20 +86,23 @@ xqc_moq_write_datachannel(xqc_moq_session_t *session, uint8_t *msg, size_t msg_l
     xqc_stream_t *quic_stream;
     xqc_moq_stream_header_track_msg_t track_header;
     xqc_moq_track_stream_obj_msg_t obj;
+    if (session == NULL || msg == NULL || msg_len == 0) {
+        return -XQC_EPARAM;
+    }
+
+    ret = xqc_moq_session_require_active(session);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
     xqc_moq_track_t *track = session->datachannel.track_for_pub;
     xqc_int_t new_stream = 0;
 
-    if (session->datachannel.ready == 0) {
+    if (session->datachannel.ready == 0 || track == NULL) {
         return -XQC_ESTREAM_ST;
     }
 
-    /*
-     * If reuse_subgroup_stream is enabled on the default datachannel PUB track,
-     * switch to the subgroup-stream based sender (same as multi-datatrack via PUBLISH).
-     * This allows callers to configure datachannel stream reuse via
-     * xqc_moq_track_set_reuse_subgroup_stream().
-     */
-    if (track && track->reuse_subgroup_stream) {
+    if (session->profile->data_strategy == XQC_MOQ_DATA_STRATEGY_SUBGROUP) {
         return xqc_moq_send_datachannel_msg(session, track, msg, msg_len);
     }
 
@@ -159,6 +178,12 @@ xqc_moq_send_datachannel_msg(xqc_moq_session_t *session, xqc_moq_track_t *track,
 
     if (session == NULL || track == NULL || msg == NULL || msg_len == 0) {
         return -XQC_EPARAM;
+    }
+
+    xqc_int_t capability_ret = xqc_moq_profile_require(
+        session->profile, XQC_MOQ_CAP_SUBGROUP_STREAM);
+    if (capability_ret != XQC_OK) {
+        return capability_ret;
     }
 
     if (track->track_info.track_type != XQC_MOQ_TRACK_DATACHANNEL) {

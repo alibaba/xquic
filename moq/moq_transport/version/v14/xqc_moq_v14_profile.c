@@ -191,6 +191,7 @@ const xqc_moq_version_profile_t xqc_moq_v14_profile_definition = {
     .client_setup_type = XQC_MOQ_MSG_CLIENT_SETUP_V14,
     .server_setup_type = XQC_MOQ_MSG_SERVER_SETUP_V14,
     .include_extdata_in_default_setup = XQC_FALSE,
+    .data_strategy = XQC_MOQ_DATA_STRATEGY_SUBGROUP,
     .control_codecs = xqc_moq_v14_control_codecs,
     .control_codecs_count = sizeof(xqc_moq_v14_control_codecs)
                             / sizeof(xqc_moq_v14_control_codecs[0]),
@@ -202,6 +203,7 @@ const xqc_moq_version_profile_t xqc_moq_v14_profile_definition = {
     .next_data_message = xqc_moq_v14_next_data_message,
     .prepare_data_message = xqc_moq_v14_prepare_data_message,
     .decode_datagram = xqc_moq_v14_decode_datagram,
+    .adapt_subscribe = NULL,
 };
 
 const xqc_moq_version_profile_t *

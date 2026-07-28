@@ -73,10 +73,14 @@ xqc_h3_frm_parse_settings(const unsigned char *p, size_t sz, xqc_h3_frame_t *fra
     *fin = XQC_FALSE;
     xqc_h3_frame_settings_t *settings = &frame->frame_payload.settings;
     if (settings->setting == NULL) {
+        /* RFC 9114 Section 7.2.4: reject oversized SETTINGS to prevent memory exhaustion */
+        if (frame->len > XQC_H3_SETTINGS_MAX_FRAME_SIZE) {
+            return -XQC_H3_DECODE_ERROR;
+        }
         if (frame->len > XQC_VAR_BUF_INIT_SIZE) {
-            settings->setting = xqc_var_buf_create(XQC_VAR_BUF_INIT_SIZE);
+            settings->setting = xqc_var_buf_create_with_limit(XQC_VAR_BUF_INIT_SIZE, XQC_H3_SETTINGS_MAX_FRAME_SIZE);
         } else {
-            settings->setting = xqc_var_buf_create(frame->len);
+            settings->setting = xqc_var_buf_create_with_limit(frame->len, XQC_H3_SETTINGS_MAX_FRAME_SIZE);
         }
         if (settings->setting == NULL) {
             return -XQC_H3_EMALLOC;
@@ -86,7 +90,7 @@ xqc_h3_frm_parse_settings(const unsigned char *p, size_t sz, xqc_h3_frame_t *fra
     ssize_t len = xqc_min(sz, frame->len - settings->setting->data_len);
     xqc_int_t ret = xqc_var_buf_save_data(settings->setting, pos, len);
     if (ret != XQC_OK) {
-        return ret;
+        return -XQC_H3_DECODE_ERROR;
     }
     pos += len;
     *fin = settings->setting->data_len == frame->len ? XQC_TRUE : XQC_FALSE;
@@ -113,10 +117,14 @@ xqc_h3_frm_parse_push_promise(const unsigned char *p, size_t sz, xqc_h3_frame_t 
         }
         ssize_t payload_len = frame->len - xqc_vint_len_by_val(push_promise->push_id.vi);
         if (push_promise->encoded_field_section == NULL) {
+            /* reject oversized PUSH_PROMISE to prevent memory exhaustion */
+            if (payload_len > XQC_H3_PUSH_PROMISE_MAX_PAYLOAD_SIZE) {
+                return -XQC_H3_DECODE_ERROR;
+            }
             if (payload_len > XQC_VAR_BUF_INIT_SIZE) {
-                push_promise->encoded_field_section = xqc_var_buf_create(XQC_VAR_BUF_INIT_SIZE);
+                push_promise->encoded_field_section = xqc_var_buf_create_with_limit(XQC_VAR_BUF_INIT_SIZE, XQC_H3_PUSH_PROMISE_MAX_PAYLOAD_SIZE);
             } else {
-                push_promise->encoded_field_section = xqc_var_buf_create(payload_len);
+                push_promise->encoded_field_section = xqc_var_buf_create_with_limit(payload_len, XQC_H3_PUSH_PROMISE_MAX_PAYLOAD_SIZE);
             }
             if (push_promise->encoded_field_section == NULL) {
                 return -XQC_H3_EMALLOC;
@@ -125,7 +133,7 @@ xqc_h3_frm_parse_push_promise(const unsigned char *p, size_t sz, xqc_h3_frame_t 
         ssize_t len = xqc_min(sz, payload_len - push_promise->encoded_field_section->data_len);
         xqc_int_t ret = xqc_var_buf_save_data(push_promise->encoded_field_section, pos, len);
         if (ret != XQC_OK) {
-            return ret;
+            return -XQC_H3_DECODE_ERROR;
         }
         pos += len;
         *fin = xqc_vint_len_by_val(push_promise->push_id.vi) + push_promise->encoded_field_section->data_len == frame->len ? XQC_TRUE : XQC_FALSE;

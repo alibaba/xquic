@@ -252,11 +252,51 @@ xqc_test_fec_decode()
     ret = xqc_fec_bc_decoder(conn, 0, loss_cnt, 0);
     CU_ASSERT(ret == -XQC_EMALLOC);
 
+    /** test loss_src_num exceeds XQC_REPAIR_LEN (CVE: stack buffer overflow) */
+    loss_cnt = XQC_REPAIR_LEN + 1;
+    ret = xqc_fec_bc_decoder(conn, 0, loss_cnt, 0);
+    CU_ASSERT(ret == -XQC_EFEC_SCHEME_ERROR);
+
+    /** test loss_src_num exactly at XQC_REPAIR_LEN boundary (should pass overflow check) */
+    conn->fec_ctl->fec_gen_repair_symbols_buff[0].payload = NULL;  /* ensure NULL payload to distinguish error path */
+    loss_cnt = XQC_REPAIR_LEN;
+    ret = xqc_fec_bc_decoder(conn, 0, loss_cnt, 0);
+    CU_ASSERT(ret == -XQC_EMALLOC);  /* proves overflow check passed, reached NULL payload check */
+
     /** test invlid  decode process */
     conn->fec_ctl->fec_gen_repair_symbols_buff[0].payload = test_buffer;
     conn->conn_settings.fec_callback.xqc_fec_decode = xqc_xor_decode;
     ret = xqc_fec_bc_decoder(conn, 0, loss_cnt, 0);
     CU_ASSERT(ret == -XQC_EFEC_SCHEME_ERROR);
+
+    /** test cleanup path safety: loss_src_num >> XQC_REPAIR_LEN must not corrupt memory.
+     *  The bc_decoder_end cleanup loop iterates loss_src_num times; without clamping,
+     *  it would access fec_gen_repair_symbols_buff out of bounds. */
+    {
+        xqc_int_t prev_blk_num  = conn->fec_ctl->fec_processed_blk_num;
+        xqc_int_t prev_fail_cnt = conn->fec_ctl->fec_recover_failed_cnt;
+
+        /* mark an in-bounds entry as valid with a properly-sized buffer.
+         * xqc_init_object_value will memset payload with payload_size=XQC_MAX_SYMBOL_SIZE,
+         * so the buffer must be at least that large. */
+        unsigned char *safe_buf = xqc_malloc(XQC_MAX_SYMBOL_SIZE);
+        CU_ASSERT(safe_buf != NULL);
+        conn->fec_ctl->fec_gen_repair_symbols_buff[0].is_valid     = 1;
+        conn->fec_ctl->fec_gen_repair_symbols_buff[0].payload      = safe_buf;
+        conn->fec_ctl->fec_gen_repair_symbols_buff[0].payload_size = XQC_MAX_SYMBOL_SIZE;
+
+        /* use XQC_FEC_MAX_SYMBOL_NUM_PBLOCK (48) as extreme overflow value */
+        loss_cnt = XQC_FEC_MAX_SYMBOL_NUM_PBLOCK;
+        ret = xqc_fec_bc_decoder(conn, 0, loss_cnt, 0);
+        CU_ASSERT(ret == -XQC_EFEC_SCHEME_ERROR);
+
+        /* cleanup path (bc_decoder_end) was reached and executed without crash */
+        CU_ASSERT(conn->fec_ctl->fec_processed_blk_num == prev_blk_num + 1);
+        CU_ASSERT(conn->fec_ctl->fec_recover_failed_cnt == prev_fail_cnt + 1);
+
+        /* in-bounds valid entry was cleaned up by the clamped cleanup loop */
+        CU_ASSERT(conn->fec_ctl->fec_gen_repair_symbols_buff[0].is_valid == 0);
+    }
 
     xqc_engine_destroy(conn->engine);
 }

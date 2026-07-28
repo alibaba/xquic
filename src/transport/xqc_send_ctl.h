@@ -175,11 +175,21 @@ typedef struct xqc_send_ctl_s {
 } xqc_send_ctl_t;
 
 
+/*
+ * Per-path connection-level PTO estimate used by callers that do not need
+ * pns granularity (e.g. xqc_conn_get_max_pto). Per RFC 9002 6.2.1, PTO must
+ * be computed using the peer-reported max_ack_delay, hence remote_settings.
+ *
+ * The pns-specific Initial/Handshake rule (max_ack_delay term must be 0
+ * before handshake confirmation) is enforced by
+ * xqc_send_ctl_get_pto_time_and_space; callers needing that granularity
+ * must use it instead. See xqc_send_ctl.c for the canonical formula.
+ */
 static inline xqc_usec_t
 xqc_send_ctl_calc_pto(xqc_send_ctl_t *send_ctl)
 {
     return send_ctl->ctl_srtt + xqc_max(4 * send_ctl->ctl_rttvar, XQC_kGranularity * 1000)
-        + send_ctl->ctl_conn->local_settings.max_ack_delay * 1000;
+        + send_ctl->ctl_conn->remote_settings.max_ack_delay * 1000;
 }
 
 

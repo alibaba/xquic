@@ -112,6 +112,7 @@ xqc_hp_ctx_free(void *hp_ctx)
     }
 }
 
+/* AES-CTR(key, iv=sample, zeros) == AES-ECB(key, sample) per RFC 9001 S5.4.3 */
 xqc_int_t
 xqc_bssl_hp_mask(const xqc_hdr_protect_cipher_t *hp_cipher, void *hp_ctx,
     uint8_t *dest, size_t destcap, size_t *destlen,

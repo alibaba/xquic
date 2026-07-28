@@ -170,7 +170,8 @@ xqc_huffman_dec(xqc_huffman_dec_ctx *ctx,
 
             /* dest full */
             if (pchar == dst_end) {
-                return pchar - dest;
+                *write = pchar - dest;
+                return pos - src;
             }
         }
 
@@ -186,7 +187,8 @@ xqc_huffman_dec(xqc_huffman_dec_ctx *ctx,
 
         /* dest full */
         if (pchar == dst_end) {
-            return pchar - dest;
+            *write = pchar - dest;
+            return pos - src;
         }
     }
 

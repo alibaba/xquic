@@ -439,7 +439,7 @@ xqc_tls_derive_and_install_initial_keys(xqc_tls_t *tls, const xqc_cid_t *odcid)
     ret = xqc_crypto_derive_initial_secret(cli_initial_secret, INITIAL_SECRET_MAX_LEN,
                                            svr_initial_secret, INITIAL_SECRET_MAX_LEN,
                                            odcid, xqc_crypto_initial_salt[tls->version],
-                                           strlen(xqc_crypto_initial_salt[tls->version]));
+                                           XQC_INITIAL_SALT_LEN);
     if (XQC_OK != ret) {
         xqc_log(tls->log, XQC_LOG_ERROR, "|derive initial secret error|ret:%d", ret);
         return ret;
@@ -872,13 +872,19 @@ xqc_ssl_alpn_select_cb(SSL *ssl, const unsigned char **out, unsigned char *outle
     size_t alpn_list_len = 0;
     xqc_tls_ctx_get_alpn_list(tls->ctx, &alpn_list, &alpn_list_len);
 
-    /* select alp */
+    /* select alpn */
     if (SSL_select_next_proto((unsigned char **)out, outlen, alpn_list, alpn_list_len, in, inlen)
         != OPENSSL_NPN_NEGOTIATED)
     {
+        /*
+         * RFC 9001 Section 8.1: QUIC requires ALPN; if no common protocol
+         * is found the server MUST send TLS alert 120
+         * (no_application_protocol).  SSL_TLSEXT_ERR_ALERT_FATAL makes
+         * both BoringSSL and OpenSSL/BabaSSL emit that alert.
+         */
         xqc_log(tls->log, XQC_LOG_ERROR, "|select proto error|in:%*s",
                 (size_t)inlen, in);
-        return SSL_TLSEXT_ERR_NOACK;
+        return SSL_TLSEXT_ERR_ALERT_FATAL;
     }
 
     /* notify alpn selection to upper layer */
@@ -1116,17 +1122,35 @@ xqc_ssl_cert_cb(SSL *ssl, void *arg)
             goto end;
         }
 
-        ssl_ret = SSL_set1_chain(ssl, chain);
-        if (ssl_ret != XQC_SSL_SUCCESS) {
-            xqc_log(tls->log, XQC_LOG_ERROR,
-                    "|set chain error|sni:%s|ret:%d", hostname, ssl_ret);
-            return XQC_SSL_FAIL;
-        }
-
+        /*
+         * IMPORTANT: SSL_use_certificate MUST be called BEFORE SSL_set1_chain.
+         *
+         * SSL_use_certificate() internally calls ssl_set_cert(), which switches
+         * ssl->cert->key to the pkey slot matching the new certificate type
+         * (e.g., RSA → ECC).  SSL_set1_chain() operates on ssl->cert->key->chain,
+         * i.e., the *current* slot.
+         *
+         * If SSL_set1_chain is called first (old order), the chain is written to
+         * the OLD slot (inherited from xquic SSL_CTX).  Then SSL_use_certificate
+         * switches to the NEW slot, whose chain is NULL.  During handshake,
+         * BabaSSL reads ssl->cert->key->chain from the NEW slot → NULL → client
+         * receives only the leaf certificate → TLS alert unknown_ca (0x130).
+         *
+         * The correct order matches BabaSSL's own SSL_CTX_use_certificate_chain_file:
+         *   1. SSL_CTX_use_certificate  (switch slot)
+         *   2. SSL_CTX_add0_chain_cert  (add chain to current slot)
+         */
         ssl_ret = SSL_use_certificate(ssl, crt);
         if (ssl_ret != XQC_SSL_SUCCESS) {
             xqc_log(tls->log, XQC_LOG_ERROR,
                     "|set certificate error|sni:%s|ret:%d", hostname, ssl_ret);
+            return XQC_SSL_FAIL;
+        }
+
+        ssl_ret = SSL_set1_chain(ssl, chain);
+        if (ssl_ret != XQC_SSL_SUCCESS) {
+            xqc_log(tls->log, XQC_LOG_ERROR,
+                    "|set chain error|sni:%s|ret:%d", hostname, ssl_ret);
             return XQC_SSL_FAIL;
         }
 

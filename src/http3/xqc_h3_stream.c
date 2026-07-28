@@ -45,6 +45,7 @@ xqc_h3_stream_create(xqc_h3_conn_t *h3c, xqc_stream_t *stream, xqc_h3_stream_typ
     h3s->blocked_stream = NULL;
     xqc_init_list_head(&h3s->send_buf);
     xqc_init_list_head(&h3s->blocked_buf);
+    h3s->blocked_buf_size = 0;
     h3s->ctx = xqc_qpack_create_req_ctx(stream->stream_id);
     h3s->log = h3c->log;
     h3s->recv_rate_limit = stream->recv_rate_bytes_per_sec;
@@ -109,6 +110,12 @@ xqc_h3_stream_destroy(xqc_h3_stream_t *h3s)
     xqc_h3_frm_reset_pctx(&h3s->pctx.frame_pctx);
     xqc_qpack_destroy_req_ctx(h3s->ctx);
     xqc_list_buf_list_free(&h3s->send_buf);
+
+    /* update connection-level blocked buffer counter before freeing */
+    if (h3s->blocked_buf_size > 0 && h3s->h3c != NULL) {
+        h3s->h3c->total_blocked_buf_size -= h3s->blocked_buf_size;
+        h3s->blocked_buf_size = 0;
+    }
     xqc_list_buf_list_free(&h3s->blocked_buf);
 
     xqc_log(h3s->log, XQC_LOG_DEBUG, "|stream_id:%ui|h3_stream_type:%d|",
@@ -179,17 +186,6 @@ xqc_h3_stream_send_buffer(xqc_h3_stream_t *h3s)
     }
 
     return XQC_OK;
-}
-
-
-static inline uint64_t
-xqc_h3_uncompressed_fields_size(xqc_http_headers_t *headers)
-{
-    /*
-     * The size of a field list is calculated based on the uncompressed size of fields, including
-     * the length of the name and value in bytes plus an overhead of 32 bytes for each field
-     */
-    return headers->total_len + headers->count * 32;
 }
 
 
@@ -744,6 +740,26 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
 
         processed += read;
 
+        /*
+         * RFC 9114 §7.2.1/§7.2.5: DATA, HEADERS, and PUSH_PROMISE MUST NOT
+         * appear on control stream.  This check runs first because the frame
+         * parser does not consume payload for DATA/HEADERS (state stays at
+         * PAYLOAD, never advances to END), which would otherwise trip the
+         * state-error gate below when trailing bytes remain in the buffer.
+         */
+        if (pctx->state >= XQC_H3_FRM_STATE_PAYLOAD
+            && (pctx->frame.type == XQC_H3_FRM_DATA
+                || pctx->frame.type == XQC_H3_FRM_HEADERS
+                || pctx->frame.type == XQC_H3_FRM_PUSH_PROMISE))
+        {
+            xqc_log(h3c->log, XQC_LOG_ERROR,
+                    "|request-only frame on control stream|type:%xL|",
+                    pctx->frame.type);
+            xqc_h3_frm_reset_pctx(pctx);
+            XQC_H3_CONN_ERR(h3c, H3_FRAME_UNEXPECTED, -XQC_H3_CONTROL_FRAME_UNEXPECTED);
+            return -XQC_H3_CONTROL_FRAME_UNEXPECTED;
+        }
+
         if (xqc_h3_stream_is_forbidden_wt_stream_frame(h3s)) {
             xqc_log(h3c->log, XQC_LOG_ERROR,
                     "|WT_STREAM frame type on non-WT stream|stream_id:%ui|",
@@ -764,8 +780,12 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
         if (pctx->frame.type != XQC_H3_FRM_SETTINGS
             && !(h3s->h3c->flags & XQC_H3_CONN_FLAG_SETTINGS_RECVED))
         {
+            xqc_log(h3c->log, XQC_LOG_ERROR,
+                    "|first control frame is not SETTINGS|type:%xL|",
+                    pctx->frame.type);
             xqc_h3_frm_reset_pctx(pctx);
-            return -H3_FRAME_UNEXPECTED;
+            XQC_H3_CONN_ERR(h3c, H3_MISSING_SETTINGS, -XQC_H3_MISSING_SETTINGS);
+            return -XQC_H3_MISSING_SETTINGS;
         }
 
         if (pctx->state == XQC_H3_FRM_STATE_END) {
@@ -822,7 +842,7 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 break;
 
             default:
-                /* ignore unknown h3 frame */
+                /* RFC 9114 §9: ignore unknown frame types */
                 xqc_log(h3c->log, XQC_LOG_INFO, "|ignore unknown frame|"
                         "type:%xL|", pctx->frame.type);
                 break;
@@ -962,7 +982,14 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 hdrs = xqc_h3_request_get_writing_headers(h3s->h3r);
                 if (NULL == hdrs) {
                     xqc_log(h3s->log, XQC_LOG_ERROR, "|get writing header error|");
-                    XQC_H3_CONN_ERR(h3s->h3c, H3_GENERAL_PROTOCOL_ERROR, -XQC_H3_INVALID_HEADER);
+                    /* NULL here means current_header has reached
+                     * XQC_H3_REQUEST_MAX_HEADERS_CNT (=2): our internal
+                     * capacity for stored header blocks is exhausted.
+                     * This is an implementation-side limit, not malformed
+                     * peer input, so H3_INTERNAL_ERROR is the proper
+                     * wire-level code. The -XQC_H3_INVALID_HEADER internal
+                     * errno is kept to avoid wider callsite churn. */
+                    XQC_H3_CONN_ERR(h3s->h3c, H3_INTERNAL_ERROR, -XQC_H3_INVALID_HEADER);
                     return -XQC_H3_INVALID_HEADER;
                 }
 
@@ -1079,7 +1106,20 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 /* PUSH related is not implemented yet */
                 break;
 
+            /* RFC 9114 §7.2.4/§7.2.3/§7.2.6/§7.2.7: control-only frames on request stream */
+            case XQC_H3_FRM_SETTINGS:
+            case XQC_H3_FRM_CANCEL_PUSH:
+            case XQC_H3_FRM_GOAWAY:
+            case XQC_H3_FRM_MAX_PUSH_ID:
+                xqc_log(h3s->log, XQC_LOG_ERROR,
+                        "|control-only frame on request stream|type:%xL|",
+                        pctx->frame.type);
+                xqc_h3_frm_reset_pctx(pctx);
+                XQC_H3_CONN_ERR(h3s->h3c, H3_FRAME_UNEXPECTED, -XQC_H3_REQUEST_FRAME_UNEXPECTED);
+                return -XQC_H3_REQUEST_FRAME_UNEXPECTED;
+
             default:
+                /* RFC 9114 §9: ignore unknown frame types */
                 xqc_log(h3s->log, XQC_LOG_INFO, "|ignore unknown frame|"
                         "frame type:%xL|", pctx->frame.type);
                 break;
@@ -1671,7 +1711,11 @@ xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_
             }
             
             if (processed == -XQC_H3_INVALID_HEADER) {
-                XQC_H3_CONN_ERR(h3c, H3_GENERAL_PROTOCOL_ERROR, errcode);
+                /* RFC 9114 §4.1.2: malformed request/response headers
+                 * MUST be treated as H3_MESSAGE_ERROR, not as a generic
+                 * protocol error. This path covers QPACK decode failures
+                 * surfaced as -XQC_H3_INVALID_HEADER. */
+                XQC_H3_CONN_ERR(h3c, H3_MESSAGE_ERROR, errcode);
 
             } else {
                 XQC_H3_CONN_ERR(h3c, H3_FRAME_ERROR, errcode);
@@ -1686,6 +1730,28 @@ xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_
                 xqc_log(h3c->log, XQC_LOG_ERROR, "|h3_stream is not blocked|processed:%ui|"
                         "data_len:%ui", processed, data_len);
                 return XQC_ERROR;
+            }
+
+            /* check blocked buffer size limit */
+            size_t remaining_size = data_len - processed;
+            if (h3c->max_blocked_buf_per_stream
+                && (h3s->blocked_buf_size + remaining_size > h3c->max_blocked_buf_per_stream))
+            {
+                xqc_log(h3c->log, XQC_LOG_ERROR,
+                        "|blocked buffer size limit exceeded|stream_id:%ui|current:%uz|adding:%uz|limit:%uz|",
+                        h3s->stream_id, h3s->blocked_buf_size, remaining_size, h3c->max_blocked_buf_per_stream);
+                XQC_H3_CONN_ERR(h3c, H3_EXCESSIVE_LOAD, -XQC_H3_EPROC_REQUEST);
+                return -XQC_H3_EPROC_REQUEST;
+            }
+
+            if (h3c->max_blocked_buf_per_conn
+                && (h3c->total_blocked_buf_size + remaining_size > h3c->max_blocked_buf_per_conn))
+            {
+                xqc_log(h3c->log, XQC_LOG_ERROR,
+                        "|connection blocked buffer size limit exceeded|total:%uz|adding:%uz|limit:%uz|",
+                        h3c->total_blocked_buf_size, remaining_size, h3c->max_blocked_buf_per_conn);
+                XQC_H3_CONN_ERR(h3c, H3_EXCESSIVE_LOAD, -XQC_H3_EPROC_REQUEST);
+                return -XQC_H3_EPROC_REQUEST;
             }
 
             /* if blocked, store data in blocked buffer */
@@ -1705,6 +1771,10 @@ xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_
                 xqc_var_buf_free(buf);
                 return ret;
             }
+
+            /* update blocked buffer size counters  */
+            h3s->blocked_buf_size += remaining_size;
+            h3c->total_blocked_buf_size += remaining_size;
         }
     }
 
@@ -1761,6 +1831,27 @@ xqc_h3_stream_process_blocked_data(xqc_stream_t *stream, xqc_h3_stream_t *h3s, x
 
     do
     {
+        /* check blocked buffer size limit before receiving more data */
+        if (h3s->h3c->max_blocked_buf_per_stream
+            && (h3s->blocked_buf_size >= h3s->h3c->max_blocked_buf_per_stream))
+        {
+            xqc_log(h3s->log, XQC_LOG_ERROR,
+                    "|blocked buffer size limit reached|stream_id:%ui|size:%uz|limit:%uz|",
+                    h3s->stream_id, h3s->blocked_buf_size, h3s->h3c->max_blocked_buf_per_stream);
+            XQC_H3_CONN_ERR(h3s->h3c, H3_EXCESSIVE_LOAD, -XQC_H3_EPROC_REQUEST);
+            return -XQC_H3_EPROC_REQUEST;
+        }
+
+        if (h3s->h3c->max_blocked_buf_per_conn
+            && (h3s->h3c->total_blocked_buf_size >= h3s->h3c->max_blocked_buf_per_conn))
+        {
+            xqc_log(h3s->log, XQC_LOG_ERROR,
+                    "|connection blocked buffer size limit reached|total:%uz|limit:%uz|",
+                    h3s->h3c->total_blocked_buf_size, h3s->h3c->max_blocked_buf_per_conn);
+            XQC_H3_CONN_ERR(h3s->h3c, H3_EXCESSIVE_LOAD, -XQC_H3_EPROC_REQUEST);
+            return -XQC_H3_EPROC_REQUEST;
+        }
+
         buf = xqc_h3_stream_get_buf(h3s, &h3s->blocked_buf, XQC_DATA_BUF_SIZE_4K);
         if (buf == NULL) {
             return -XQC_EMALLOC;
@@ -1781,6 +1872,10 @@ xqc_h3_stream_process_blocked_data(xqc_stream_t *stream, xqc_h3_stream_t *h3s, x
 
         buf->data_len += rcvd;
         buf->fin_flag = *fin;
+
+        /* update blocked buffer size counters  */
+        h3s->blocked_buf_size += rcvd;
+        h3s->h3c->total_blocked_buf_size += rcvd;
 
         if (*fin) {
             h3s->flags |= XQC_HTTP3_STREAM_FLAG_READ_EOF;
@@ -1894,6 +1989,10 @@ xqc_h3_stream_process_blocked_stream(xqc_h3_stream_t *h3s)
             return processed;
         }
         buf->consumed_len += processed;
+
+        /* update blocked buffer size counters: subtract consumed bytes */
+        h3s->blocked_buf_size -= processed;
+        h3s->h3c->total_blocked_buf_size -= processed;
 
         if (buf->consumed_len == buf->data_len) {
             xqc_list_buf_free(list_buf);
@@ -2128,6 +2227,21 @@ xqc_h3_stream_update_stats(xqc_h3_stream_t *h3s)
     }
 }
 
+static inline xqc_bool_t
+xqc_h3_stream_is_critical(uint64_t type)
+{
+    /*
+     * RFC 9114 6.2.1 / RFC 9204 4.2: the control stream and the two QPACK
+     * unidirectional streams must remain open for the lifetime of the
+     * connection. Peer-initiated closure of any of them is a connection
+     * error of type H3_CLOSED_CRITICAL_STREAM.
+     */
+    return type == XQC_H3_STREAM_TYPE_CONTROL
+           || type == XQC_H3_STREAM_TYPE_QPACK_ENCODER
+           || type == XQC_H3_STREAM_TYPE_QPACK_DECODER;
+}
+
+
 int
 xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data)
 {
@@ -2144,6 +2258,25 @@ xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data)
     }
 
     h3s->flags |= XQC_HTTP3_STREAM_FLAG_CLOSED;
+
+    /*
+     * Detect peer-initiated closure of an HTTP/3 critical stream. The
+     * CLOSING_NOTIFY flag and conn_state guards keep us from clobbering
+     * an existing conn_err when the connection is already tearing down
+     * (e.g. local close, transport error), in which case the stream
+     * close here is just a side effect, not a protocol violation.
+     */
+    if (xqc_h3_stream_is_critical(h3s->type)
+        && !(h3s->h3c->conn->conn_flag & XQC_CONN_FLAG_CLOSING_NOTIFY)
+        && h3s->h3c->conn->conn_state < XQC_CONN_STATE_CLOSING)
+    {
+        xqc_log(h3s->log, XQC_LOG_ERROR,
+                "|peer closed critical stream|type:%ui|stream_id:%ui|h3s:%p",
+                h3s->type, h3s->stream_id, h3s);
+        XQC_H3_CONN_ERR(h3s->h3c, H3_CLOSED_CRITICAL_STREAM,
+                        -XQC_H3_CLOSE_CRITICAL_STREAM);
+    }
+
     xqc_h3_stream_get_err(h3s);
     xqc_h3_stream_get_path_info(h3s);
 

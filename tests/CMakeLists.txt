@@ -122,6 +122,10 @@ if(HAVE_CUNIT)
         ${CMAKE_SOURCE_DIR}/src/webtransport/xqc_webtransport_session.c
         ${CMAKE_SOURCE_DIR}/src/webtransport/xqc_webtransport_stream.c
         ${CMAKE_SOURCE_DIR}/src/webtransport/xqc_webtransport_wire.c
+        ${UNIT_TEST_DIR}/xqc_crypto_frame_test.c
+        ${UNIT_TEST_DIR}/xqc_send_ctl_test.c
+        ${UNIT_TEST_DIR}/xqc_vn_test.c
+        ${UNIT_TEST_DIR}/xqc_frame_type_bit_test.c
     )
 
     if(XQC_ENABLE_MOQ)
@@ -178,6 +182,8 @@ if(HAVE_CUNIT)
         ${CUTEST_DEPEND_LIBS}
     )
 
-    add_test(run_tests run_tests)
+    add_test(NAME run_tests COMMAND run_tests)
+    set_tests_properties(run_tests PROPERTIES
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
     add_dependencies(check run_tests)
 endif()

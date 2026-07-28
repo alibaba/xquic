@@ -661,6 +661,8 @@ xqc_fec_ctl_destroy(xqc_fec_ctl_t *fec_ctl)
     xqc_list_for_each_safe(pos, next, &fec_ctl->fec_recv_rpr_syb_list) {
         xqc_fec_rpr_syb_t *symbol = xqc_list_entry(pos, xqc_fec_rpr_syb_t, fec_list);
         xqc_free(symbol->payload);
+        xqc_free(symbol->repair_key);
+        xqc_free(symbol->recv_mask);
         xqc_free(symbol);
     }
 

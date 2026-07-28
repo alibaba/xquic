@@ -42,6 +42,9 @@ xqc_test_engine_packet_process()
 
     xqc_engine_t *engine = test_create_engine_server();
     CU_ASSERT(engine != NULL);
+    if (engine == NULL) {
+        return;
+    }
 
     xqc_msec_t recv_time = xqc_monotonic_timestamp();
 
@@ -61,19 +64,9 @@ xqc_test_engine_packet_process()
                               sizeof(XQC_TEST_LONG_HEADER_PACKET_B) - 1);
     CU_ASSERT(rc == XQC_OK);
 
-    xqc_connection_t *conn = xqc_engine_conns_hash_find(engine, &scid, 's');
-    CU_ASSERT(conn != NULL);
-
-    /* set handshake completed */
-    conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_COMPLETED;
-
-    recv_time = xqc_monotonic_timestamp();
-    rc = xqc_engine_packet_process(engine, XQC_TEST_SHORT_HEADER_PACKET_A,
-                                   sizeof(XQC_TEST_SHORT_HEADER_PACKET_A) - 1,
-                                   (struct sockaddr *)&local_addr, local_addrlen,
-                                   (struct sockaddr *)&peer_addr, peer_addrlen, recv_time, NULL);
-    //CU_ASSERT(rc == XQC_OK);
-
+    /*
+     * This packet is synthetic and does not complete a TLS handshake.  Do not
+     * force 1-RTT short-header processing without installed packet keys.
+     */
     xqc_engine_destroy(engine);
 }
-

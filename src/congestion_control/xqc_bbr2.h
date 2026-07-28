@@ -72,7 +72,7 @@ typedef struct xqc_bbr2_s {
     /* Start of an measurement? */
     bool                round_start;
     /* packet delivered value denoting the end of a packet-timed round trip */
-    uint32_t            next_round_delivered;
+    uint64_t            next_round_delivered;
     uint64_t            aggregation_epoch_start_time;
     /* Number of bytes acked during the aggregation time */
     uint32_t            aggregation_epoch_bytes;

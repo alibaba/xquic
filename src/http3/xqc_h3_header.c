@@ -453,3 +453,57 @@ xqc_h3_hdr_type(unsigned char *name, size_t nlen)
 
     return XQC_HDR_UNKNOWN;
 }
+
+
+/**
+ * RFC 9114 Section 4.2: reject connection-specific headers in HTTP/3.
+ *
+ * Forbidden: keep-alive, proxy-connection, transfer-encoding.
+ * Exception: "te" is allowed with value "trailers" only.
+ *
+ * "connection" and "upgrade" are intentionally NOT forbidden here to
+ * support the WebSocket-over-HTTP/3 scheme, which maps the RFC 6455
+ * upgrade handshake (Connection: Upgrade + Upgrade: websocket) onto
+ * HTTP/3 HEADERS frames.  If we migrate to WebTransport (RFC 9220,
+ * Extended CONNECT), these two headers become unnecessary and this
+ * exemption should be removed.
+ */
+xqc_bool_t
+xqc_h3_hdr_is_forbidden(const unsigned char *name, size_t nlen,
+                         const unsigned char *value, size_t vlen)
+{
+    switch (nlen) {
+    case 2:
+        /* "te" - allowed only if value is exactly "trailers" (RFC 9114 §4.2) */
+        if (memcmp(name, "te", 2) == 0) {
+            if (vlen == 8 && memcmp(value, "trailers", 8) == 0) {
+                return XQC_FALSE;
+            }
+            return XQC_TRUE;
+        }
+        break;
+
+    case 10:
+        /* "keep-alive" */
+        if (memcmp(name, "keep-alive", 10) == 0) {
+            return XQC_TRUE;
+        }
+        break;
+
+    case 16:
+        /* "proxy-connection" */
+        if (memcmp(name, "proxy-connection", 16) == 0) {
+            return XQC_TRUE;
+        }
+        break;
+
+    case 17:
+        /* "transfer-encoding" */
+        if (memcmp(name, "transfer-encoding", 17) == 0) {
+            return XQC_TRUE;
+        }
+        break;
+    }
+
+    return XQC_FALSE;
+}

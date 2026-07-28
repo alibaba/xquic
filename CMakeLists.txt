@@ -419,7 +419,7 @@ add_library(
     ${XQC_SOURCE}
 )
 
-if(PLATFORM MATCHES "mac")
+if(APPLE OR PLATFORM MATCHES "mac")
     target_link_libraries(
         xquic
         "-ldl -Wl,-all_load"

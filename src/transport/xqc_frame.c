@@ -98,6 +98,15 @@ xqc_int_t
 xqc_insert_stream_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream_frame_t *new_frame)
 {
 
+    /* CWE-770 mitigation: reject if buffered frame count exceeds cap (RFC 9000 §21.7) */
+    if (stream->stream_data_in.buffered_frame_count >= XQC_MAX_STREAM_FRAME_BUFFERED_COUNT) {
+        xqc_log(conn->log, XQC_LOG_WARN,
+                "|stream frame buffered count exceed|stream_id:%ui|count:%ui|limit:%d|",
+                stream->stream_id, stream->stream_data_in.buffered_frame_count,
+                XQC_MAX_STREAM_FRAME_BUFFERED_COUNT);
+        return -XQC_ELIMIT;
+    }
+
     /* insert xqc_stream_frame_t into stream->stream_data_in.frames_tailq in order of offset */
     unsigned char inserted = 0;
     xqc_list_head_t *pos;
@@ -168,6 +177,9 @@ xqc_insert_stream_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream
             }
         }
     }
+
+    /* update buffered resource counter */
+    stream->stream_data_in.buffered_frame_count++;
 
     return XQC_OK;
 }
@@ -728,6 +740,31 @@ xqc_insert_crypto_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream
                 "|crypto frame data buffer exceed|");
         return ret;
     }
+
+    /* CWE-770 mitigation: reject if buffered frame count or data bytes exceed caps.
+     * This prevents sparse out-of-order CRYPTO fragments from causing unbounded
+     * memory allocation when next_read_offset is pinned by gaps. */
+    if (stream->stream_data_in.buffered_frame_count >= XQC_MAX_CRYPTO_FRAME_BUFFERED_COUNT) {
+        XQC_CONN_ERR(conn, TRA_CRYPTO_BUFFER_EXCEEDED);
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|crypto frame buffered count exceed|count:%ui|limit:%d|",
+                stream->stream_data_in.buffered_frame_count,
+                XQC_MAX_CRYPTO_FRAME_BUFFERED_COUNT);
+        return -XQC_ELIMIT;
+    }
+
+    if (stream->stream_data_in.buffered_data_bytes + stream_frame->data_length
+        > XQC_MAX_CRYPTO_FRAME_BUFFERED_BYTES)
+    {
+        XQC_CONN_ERR(conn, TRA_CRYPTO_BUFFER_EXCEEDED);
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|crypto frame buffered bytes exceed|bytes:%ui|new:%ud|limit:%d|",
+                stream->stream_data_in.buffered_data_bytes,
+                stream_frame->data_length,
+                XQC_MAX_CRYPTO_FRAME_BUFFERED_BYTES);
+        return -XQC_ELIMIT;
+    }
+
     xqc_list_for_each_reverse(pos, &stream->stream_data_in.frames_tailq) {
         frame = xqc_list_entry(pos, xqc_stream_frame_t, sf_list);
 
@@ -742,6 +779,10 @@ xqc_insert_crypto_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream
         xqc_list_add(&stream_frame->sf_list, &stream->stream_data_in.frames_tailq);
     }
 
+    /* update buffered resource counters */
+    stream->stream_data_in.buffered_frame_count++;
+    stream->stream_data_in.buffered_data_bytes += stream_frame->data_length;
+
     return XQC_OK;
 }
 
@@ -750,6 +791,19 @@ xqc_int_t
 xqc_process_crypto_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
     xqc_int_t ret;
+
+    /*
+     * RFC 9001 Section 8.3: A server MUST treat receipt of a CRYPTO frame
+     * in a 0-RTT packet as a connection error of type PROTOCOL_VIOLATION.
+     * Reject before recording the frame type bit so a malformed packet does
+     * not leave residual state.
+     */
+    if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_0RTT) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|reject CRYPTO frame in 0-RTT packet|RFC 9001 8.3|");
+        XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
+        return -XQC_EPROTO;
+    }
 
     /* ack even if the token check fail */
     packet_in->pi_frame_types |= XQC_FRAME_BIT_CRYPTO;
@@ -1058,6 +1112,10 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
                 conn->local_settings.active_connection_id_limit, 
                 xqc_cid_set_get_unused_cnt(&conn->dcid_set, XQC_INITIAL_PATH_ID), 
                 xqc_cid_set_get_used_cnt(&conn->dcid_set, XQC_INITIAL_PATH_ID));
+        if (ret == -XQC_EACTIVE_CID_LIMIT) {
+            XQC_CONN_ERR(conn, TRA_CONNECTION_ID_LIMIT_ERROR);
+            return -XQC_EPROTO;
+        }
         return ret;
     }
 
@@ -1242,6 +1300,7 @@ xqc_process_reset_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
         conn->conn_flow_ctl.fc_data_recved += (int64_t)final_size - (int64_t)stream->stream_max_recv_offset;
         conn->conn_flow_ctl.fc_data_read += (int64_t)final_size - (int64_t)stream->stream_data_in.next_read_offset;
         xqc_destroy_frame_list(&stream->stream_data_in.frames_tailq);
+        stream->stream_data_in.buffered_frame_count = 0;
         xqc_stream_ready_to_read(stream);
     }
     return XQC_OK;
@@ -1478,22 +1537,37 @@ xqc_process_streams_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *packe
     uint64_t new_max_streams;
     if (bidirectional) {
         /* there is no need to increase MAX_STREAMS */
-        if (stream_limit < conn->conn_flow_ctl.fc_max_streams_bidi_can_recv) {
+        if (stream_limit <= conn->conn_flow_ctl.fc_max_streams_bidi_can_recv
+            && conn->conn_flow_ctl.fc_max_streams_bidi_can_recv == conn->conn_flow_ctl.fc_max_streams_bidi_recv_wind)
+        {
             return XQC_OK;
         }
+        if (stream_limit > conn->conn_flow_ctl.fc_max_streams_bidi_can_recv) {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|xqc_process_streams_blocked_frame stream_limit invalid|stream_limit:%ui|",
+                    stream_limit);
+            return -XQC_EIGNORE_PKT;
+        }
 
-        new_max_streams = xqc_min(stream_limit + conn->local_settings.max_streams_bidi,
-            conn->conn_flow_ctl.fc_max_streams_bidi_can_recv + conn->local_settings.max_streams_bidi);
+        new_max_streams = conn->conn_flow_ctl.fc_max_streams_bidi_recv_wind;
         conn->conn_flow_ctl.fc_max_streams_bidi_can_recv = new_max_streams;
 
     } else {
         /* there is no need to increase MAX_STREAMS */
-        if (stream_limit < conn->conn_flow_ctl.fc_max_streams_uni_can_recv) {
+        if (stream_limit <= conn->conn_flow_ctl.fc_max_streams_uni_can_recv
+            && conn->conn_flow_ctl.fc_max_streams_uni_can_recv == conn->conn_flow_ctl.fc_max_streams_uni_recv_wind)
+        {
             return XQC_OK;
         }
 
-        new_max_streams = xqc_min(stream_limit + conn->local_settings.max_streams_uni,
-            conn->conn_flow_ctl.fc_max_streams_uni_can_recv + conn->local_settings.max_streams_uni);
+        if (stream_limit > conn->conn_flow_ctl.fc_max_streams_uni_can_recv) {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|xqc_process_streams_blocked_frame stream_limit invalid|stream_limit:%ui|",
+                    stream_limit);
+            return -XQC_EIGNORE_PKT;
+        }
+
+        new_max_streams = conn->conn_flow_ctl.fc_max_streams_uni_recv_wind;
         conn->conn_flow_ctl.fc_max_streams_uni_can_recv = new_max_streams;
     }
 
@@ -1755,7 +1829,7 @@ xqc_process_path_challenge_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
 
     xqc_log(conn->log, XQC_LOG_DEBUG, 
             "|path:%ui|state:%d|RECV path_challenge_data:%*s|cid:%s|",
-            path->path_id, path->path_state, XQC_PATH_CHALLENGE_DATA_LEN, 
+            path->path_id, path->path_state, (size_t)XQC_PATH_CHALLENGE_DATA_LEN,
             path_challenge_data, xqc_dcid_str(conn->engine, &packet_in->pi_pkt.pkt_dcid));
 
     ret = xqc_write_path_response_frame_to_packet(conn, path, path_challenge_data);
@@ -1808,7 +1882,7 @@ xqc_process_path_response_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_
      * MAY generate a connection error of type PROTOCOL_VIOLATION.
      */
 
-    if (memcmp(path->path_challenge_data, path_response_data, XQC_PATH_CHALLENGE_DATA_LEN) != 0) {
+    if (memcmp(path->path_challenge_data, path_response_data, (size_t)XQC_PATH_CHALLENGE_DATA_LEN) != 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|path:%ui|ignore|no match path challenge data|", path->path_id);
         return XQC_OK;
     }
@@ -2157,6 +2231,10 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
                 xqc_cid_set_get_unused_cnt(&conn->dcid_set, path_id), 
                 xqc_cid_set_get_used_cnt(&conn->dcid_set, path_id),
                 path_id);
+        if (ret == -XQC_EACTIVE_CID_LIMIT) {
+            XQC_CONN_ERR(conn, TRA_CONNECTION_ID_LIMIT_ERROR);
+            return -XQC_EPROTO;
+        }
         return ret;
     }
 

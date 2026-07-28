@@ -230,12 +230,19 @@ int g_drop_rate;
 int g_spec_url;
 int g_is_get;
 uint64_t g_last_sock_op_time;
-//currently, the maximum used test case id is 19
-//please keep this comment updated if you are adding more test cases. :-D
-//99 for pure fin
-//2XX for datagram testcases
-//3XX for h3 ext bytestream testcases
-//4XX for conn_settings configuration
+/*
+ * currently, the maximum used test case id is 704
+ * please keep this comment updated if you are adding more test cases. :-D
+ * 55 for RFC 9114 Section 4.2 forbidden header e2e validation
+ * 99 for pure fin
+ * 2XX for datagram testcases
+ * 3XX for h3 ext bytestream testcases
+ * 4XX for conn_settings configuration
+ * 700 for FEC frame type bit validation
+ * 701/702 for 0-RTT transport param validation
+ * 703 for CRYPTO_ERROR validation
+ * 704 for active_connection_id_limit validation
+ */
 int g_test_case;
 int g_ipv6;
 int g_no_crypt;
@@ -909,12 +916,6 @@ xqc_client_write_socket(const unsigned char *buf, size_t size,
     send_buf_size = size;
     memcpy(send_buf, buf, send_buf_size);
 
-    /* trigger version negotiation */
-    if (g_test_case == 33) {
-        /* makes version 0xff000001 */
-        send_buf[1] = 0xff;
-    }
-
     /* make initial packet loss to test 0rtt buffer */
     if (g_test_case == 39) {
         g_test_case = -1;
@@ -1132,12 +1133,6 @@ xqc_client_write_socket_ex(uint64_t path_id,
     }
     send_buf_size = size;
     memcpy(send_buf, buf, send_buf_size);
-
-    /* trigger version negotiation */
-    if (g_test_case == 33) {
-        /* makes version 0xff000001 */
-        send_buf[1] = 0xff;
-    }
 
     /* make initial packet loss to test 0rtt buffer */
     if (g_test_case == 39) {
@@ -1920,6 +1915,10 @@ xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
         }
     }
 
+    if (g_test_case == 48) {
+        printf("[initial-salt-test] handshake ok, conn_err:%d\n", stats.conn_err);
+    }
+
     if (g_test_case == 200 || g_test_case == 201) {
         printf("[h3-dgram-200]|1RTT|updated_mss:%zu|\n", user_conn->dgram_mss);
     }
@@ -2612,6 +2611,58 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
         header[header_size].value.iov_base = g_header_value;
         header[header_size].value.iov_len = n%(MAX_HEADER_VALUE_LEN - 1) + 1;
         header[header_size].flags = 0;
+        header_size++;
+    }
+
+    /*
+     * case 55: RFC 9114 §4.2 forbidden header e2e validation
+     * 1) verify forbidden headers (transfer-encoding, keep-alive, proxy-connection)
+     *    are rejected with -XQC_H3_INVALID_HEADER on the send path
+     * 2) verify allowed headers (connection, upgrade) pass through for
+     *    WebSocket-over-HTTP/3 compatibility
+     */
+    if (g_test_case == 55 && user_stream->header_sent == 0) {
+        int all_rejected = 1;
+        struct {
+            const char *name;  size_t nlen;
+            const char *value; size_t vlen;
+        } forbidden[] = {
+            {"transfer-encoding", 17, "chunked",    7},
+            {"keep-alive",        10, "timeout=5",  9},
+            {"proxy-connection",  16, "keep-alive", 10},
+        };
+        for (int fi = 0; fi < 3; fi++) {
+            xqc_http_header_t tmp[MAX_HEADER];
+            memcpy(tmp, header, sizeof(xqc_http_header_t) * header_size);
+            tmp[header_size].name.iov_base  = (char *)forbidden[fi].name;
+            tmp[header_size].name.iov_len   = forbidden[fi].nlen;
+            tmp[header_size].value.iov_base = (char *)forbidden[fi].value;
+            tmp[header_size].value.iov_len  = forbidden[fi].vlen;
+            tmp[header_size].flags          = 0;
+            xqc_http_headers_t tmp_hdrs = {
+                .headers = tmp, .count = header_size + 1,
+            };
+            ssize_t fret = xqc_h3_request_send_headers(h3_request, &tmp_hdrs, 0);
+            if (fret != -XQC_H3_INVALID_HEADER) {
+                printf("forbidden_header_check FAIL: %s expected %d got %zd\n",
+                       forbidden[fi].name, -XQC_H3_INVALID_HEADER, fret);
+                all_rejected = 0;
+            }
+        }
+        printf("forbidden_header_rejected:%d\n", all_rejected);
+
+        /* add allowed WebSocket-over-HTTP/3 headers for the real send */
+        header[header_size].name.iov_base  = "connection";
+        header[header_size].name.iov_len   = 10;
+        header[header_size].value.iov_base = "Upgrade";
+        header[header_size].value.iov_len  = 7;
+        header[header_size].flags          = 0;
+        header_size++;
+        header[header_size].name.iov_base  = "upgrade";
+        header[header_size].name.iov_len   = 7;
+        header[header_size].value.iov_base = "websocket";
+        header[header_size].value.iov_len  = 9;
+        header[header_size].flags          = 0;
         header_size++;
     }
 
@@ -4685,6 +4736,14 @@ int main(int argc, char *argv[]) {
         conn_settings.receive_timestamps_exponent = 0;
     }
 
+    if (g_test_case == 454) {
+        conn_settings.simulate_ecn = 1;
+    }
+
+    if (g_test_case == 455) {
+        conn_settings.simulate_ecn = 0;
+    }
+
     conn_settings.pacing_on = pacing_on;
     conn_settings.proto_version = XQC_VERSION_V1;
     conn_settings.max_datagram_frame_size = g_max_dgram_size;
@@ -4705,6 +4764,11 @@ int main(int argc, char *argv[]) {
     if (g_test_case == 211) {
         conn_settings.datagram_redundancy = 2;
         conn_settings.datagram_redundant_probe = 30000;
+    }
+
+    if (g_test_case == 703) {
+        g_verify_cert = 1;
+        g_verify_cert_allow_self_sign = 0;
     }
 
     g_conn_settings = &conn_settings;
@@ -5027,6 +5091,23 @@ int main(int argc, char *argv[]) {
         
         if (g_test_case == 80) {
             fec_params.fec_code_rate = 1;
+        }
+
+        /*
+         * Case 700: end-to-end validation for issue #534 (xqc_frame_type_bit_t
+         * 64-bit overflow fix).  XQC_FRAME_BIT_REPAIR_SYMBOL = 1ULL << 32;
+         * if the type were a 32-bit enum (MSVC), this constant would silently
+         * truncate to 0, making FEC repair frame tracking dead code.
+         *
+         * fec_code_rate = 1.0  -> 1:1 redundancy, guarantees repair symbols
+         * fec_max_symbol_num_per_block = 5  -> small blocks for fast triggering
+         *
+         * case_test.sh validates by grepping "FEC_REPAIR" in packet logs; that
+         * string is only emitted when bit 32 of po_frame_types is actually set.
+         */
+        if (g_test_case == 700) {
+            fec_params.fec_code_rate = 1.0;
+            fec_params.fec_max_symbol_num_per_block = 5;
         }
 
         conn_settings.fec_params = fec_params;

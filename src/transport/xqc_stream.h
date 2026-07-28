@@ -24,6 +24,7 @@ typedef enum {
     XQC_SVR_BID = 1,
     XQC_CLI_UNI = 2,
     XQC_SVR_UNI = 3,
+    XQC_STREAM_TYPE_MAX = 4,
 } xqc_stream_type_t;
 
 
@@ -93,6 +94,10 @@ typedef struct xqc_stream_data_in_s {
     xqc_bool_t              stream_determined;
     xqc_bool_t              reset_at_received;
     uint64_t                reset_at_reliable_size;
+
+    /* buffered out-of-order frame resource tracking (CWE-770 mitigation) */
+    uint64_t                buffered_frame_count;   /* number of buffered frame nodes */
+    uint64_t                buffered_data_bytes;    /* total bytes of buffered frame data */
 } xqc_stream_data_in_t;
 
 

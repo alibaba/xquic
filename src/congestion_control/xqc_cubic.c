@@ -20,7 +20,13 @@
 #define XQC_CUBIC_MIN_WIN           (4 * XQC_CUBIC_MSS)
 #define XQC_CUBIC_MAX_MIN_WIN       (16 * XQC_CUBIC_MSS)
 #define XQC_CUBIC_MAX_INIT_WIN      (100 * XQC_CUBIC_MSS)
-#define XQC_CUBIC_INIT_WIN          (32 * XQC_CUBIC_MSS)
+/*
+ * RFC 9002 Section 7.2 RECOMMENDS an initial congestion window of
+ * min(10 * max_datagram_size, max(2 * max_datagram_size, 14720)).
+ * With XQC_MSS = 1436, 10 * MSS = 14360 satisfies this bound and
+ * matches Linux TCP_INIT_CWND, ngtcp2 and quiche defaults.
+ */
+#define XQC_CUBIC_INIT_WIN          (10 * XQC_CUBIC_MSS)
 
 const static uint64_t xqc_cube_factor =
     (1ull << XQC_CUBE_SCALE) / XQC_CUBIC_C / XQC_CUBIC_MSS;

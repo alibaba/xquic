@@ -11,6 +11,12 @@
 #include "src/http3/frame/xqc_h3_frame.h"
 #include "src/transport/xqc_stream.h"
 
+/* Default maximum size of blocked buffer per stream (1 MB) */
+#define XQC_H3_STREAM_MAX_BLOCKED_BUF_SIZE_DEFAULT (1 * 1024 * 1024)
+
+/* Default maximum total size of blocked buffers per connection (8 MB) */
+#define XQC_H3_CONN_MAX_BLOCKED_BUF_SIZE_DEFAULT (8 * 1024 * 1024)
+
 typedef struct xqc_h3_conn_s    xqc_h3_conn_t;
 typedef struct xqc_h3_stream_s  xqc_h3_stream_t;
 
@@ -144,6 +150,8 @@ typedef struct xqc_h3_stream_s {
     /* blocked data buffer, used to store request
        stream data when stream is blocked */
     xqc_list_head_t                 blocked_buf;
+    /* current size of blocked buffer */
+    size_t                          blocked_buf_size;
     xqc_h3_blocked_stream_t        *blocked_stream;
 
     /* context of representation */
@@ -166,6 +174,17 @@ typedef struct xqc_h3_stream_s {
     char                            end_trans_state[XQC_STREAM_TRANSPORT_STATE_SZ];
 
 } xqc_h3_stream_t;
+
+
+static inline uint64_t
+xqc_h3_uncompressed_fields_size(xqc_http_headers_t *headers)
+{
+    /*
+     * RFC 9114 Section 4.2.2: the size of a field list is the sum of the
+     * uncompressed name and value lengths plus 32 bytes of overhead per field.
+     */
+    return headers->total_len + headers->count * 32;
+}
 
 
 /* transport layer callback hook */
@@ -206,7 +225,13 @@ void xqc_h3_stream_get_path_info(xqc_h3_stream_t *h3s);
 
 void xqc_h3_stream_set_priority(xqc_h3_stream_t *h3s, xqc_h3_priority_t *prio);
 
-xqc_int_t xqc_h3_stream_send_bidi_stream_type(xqc_h3_stream_t *h3s, 
+xqc_int_t xqc_h3_stream_send_bidi_stream_type(xqc_h3_stream_t *h3s,
    xqc_h3_bidi_stream_type_t stype, uint8_t fin);
+
+ssize_t xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data,
+    size_t data_len);
+
+ssize_t xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data,
+    size_t data_len, xqc_bool_t fin_flag);
 
 #endif

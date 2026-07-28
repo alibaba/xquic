@@ -7,5 +7,7 @@
 
 void xqc_test_transport_params();
 void xqc_test_reset_stream_at_codepoints();
+void xqc_test_tp_cid_overflow();
+void xqc_test_check_transport_params_cids();
 
 #endif

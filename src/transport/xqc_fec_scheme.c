@@ -84,6 +84,9 @@ xqc_process_recovered_packet(xqc_connection_t *conn, unsigned char *recovered_pa
     new_packet->pi_path_id = 0;
     new_packet->pi_flag |= XQC_PIF_FEC_RECOVERED;
     new_packet->pi_fec_process_time = rpr_recv_time;
+    // Without setting pkt_type, the zero-initialized value equals XQC_PTYPE_INIT;
+    // Set it to XQC_PTYPE_SHORT_HEADER for 1-rtt data.
+    new_packet->pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
 
     ret = xqc_process_frames(conn, new_packet);
     xqc_free(new_packet);
@@ -173,6 +176,16 @@ xqc_fec_bc_decoder(xqc_connection_t *conn, xqc_int_t block_id, xqc_int_t loss_sr
     /* proceeds if there's no loss src symbol */
     if (loss_src_num == 0) {
         ret = XQC_OK;
+        goto bc_decoder_end;
+    }
+
+    /* cap loss_src_num to XQC_REPAIR_LEN to prevent stack buffer overflow.
+     * Also clamp loss_src_num so the bc_decoder_end cleanup loop stays in bounds. */
+    if (loss_src_num > XQC_REPAIR_LEN) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|loss_src_num %d exceeds XQC_REPAIR_LEN %d|",
+                loss_src_num, XQC_REPAIR_LEN);
+        ret = -XQC_EFEC_SCHEME_ERROR;
+        loss_src_num = XQC_REPAIR_LEN;
         goto bc_decoder_end;
     }
 

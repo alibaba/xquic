@@ -387,8 +387,9 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
         .on_video = on_video_frame,
         .on_audio = on_audio_frame,
     };
-    xqc_moq_session_t *session = xqc_moq_session_create(conn, user_session, XQC_MOQ_TRANSPORT_QUIC,
-        XQC_MOQ_PUBSUB, callbacks, NULL, 0);
+    xqc_moq_session_t *session = xqc_moq_session_create_ex(
+        conn, user_session, XQC_MOQ_TRANSPORT_QUIC, XQC_MOQ_PUBSUB,
+        callbacks, NULL);
     if (session == NULL) {
         printf("create session error\n");
         return -1;

@@ -301,11 +301,8 @@ error:
 xqc_moq_session_t *
 xqc_moq_session_create(void *conn, xqc_moq_user_session_t *user_session,
     xqc_moq_transport_type_t transport_type, xqc_moq_role_t role,
-    xqc_moq_session_callbacks_t callbacks, char *extdata,
-    xqc_int_t enable_client_setup_v14)
+    xqc_moq_session_callbacks_t callbacks, char *extdata)
 {
-    (void) enable_client_setup_v14;
-
     return xqc_moq_session_create_internal(conn, user_session, transport_type,
                                            role, callbacks, extdata, NULL);
 }
@@ -324,10 +321,8 @@ xqc_moq_session_t *
 xqc_moq_session_create_with_params(void *conn, xqc_moq_user_session_t *user_session,
     xqc_moq_transport_type_t transport_type, xqc_moq_role_t role,
     xqc_moq_session_callbacks_t callbacks, char *extdata,
-    xqc_int_t enable_client_setup_v14,
     xqc_moq_message_parameter_t *setup_params, uint64_t setup_params_num)
 {
-    (void) enable_client_setup_v14;
     xqc_moq_session_config_t config = {
         .setup_params = setup_params,
         .setup_params_num = setup_params_num,

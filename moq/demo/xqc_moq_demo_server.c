@@ -57,7 +57,6 @@ int g_fec_on = 0;
 int g_frame_num = 5;
 xqc_moq_role_t g_role = XQC_MOQ_PUBSUB;
 int g_publish_mode = 0;
-int g_enable_client_setup_v14 = 0;
 int g_raw_object_mode = 0;
 int g_publish_reply_mode = 0;
 int g_reuse_datachannel_stream = 0;
@@ -1074,8 +1073,8 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
     } else if (g_ns_callback_mode == 6) {
         callbacks.on_subscribe_namespace = on_subscribe_namespace_sibling_done;
     }
-    xqc_moq_session_t *session = xqc_moq_session_create(conn, user_session, XQC_MOQ_TRANSPORT_QUIC,
-        g_role, callbacks, NULL, g_enable_client_setup_v14);
+    xqc_moq_session_t *session = xqc_moq_session_create_ex(
+        conn, user_session, XQC_MOQ_TRANSPORT_QUIC, g_role, callbacks, NULL);
     if (session == NULL) {
         printf("create session error\n");
         return -1;
@@ -1319,7 +1318,7 @@ int main(int argc, char *argv[])
     int server_port = TEST_PORT;
     xqc_cong_ctrl_callback_t cong_ctrl;
     cong_ctrl = xqc_bbr_cb;
-    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MVRoeUTCWmK:Z:")) != -1) {
+    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MRoeUTCWmK:Z:")) != -1) {
         switch (ch) {
         /* listen port */
         case 'p':
@@ -1384,10 +1383,6 @@ int main(int argc, char *argv[])
             printf("option publish mode : on\n");
             g_publish_mode = 1;
             break;
-        case 'V':
-            printf("option draft14 client setup : on\n");
-            g_enable_client_setup_v14 = 1;
-            break;
         case 'R':
             printf("option raw object mode : on\n");
             g_raw_object_mode = 1;
@@ -1434,7 +1429,7 @@ int main(int argc, char *argv[])
     }
 
     if (g_enable_catalog < 0) {
-        g_enable_catalog = g_enable_client_setup_v14 ? 0 : 1;
+        g_enable_catalog = 1;
     }
 
     memset(&ctx, 0, sizeof(ctx));

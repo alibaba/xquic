@@ -12,6 +12,7 @@ cd ../build
 
 CLIENT_BIN="moq/demo/moq_demo_client"
 SERVER_BIN="moq/demo/moq_demo_server"
+CLIENT_BASE_ARGS=("-A" "moq-quic")
 
 
 clear_log() {
@@ -46,7 +47,7 @@ sleep 1
 
 clear_log
 echo -e "moq subscribe ...\c"
-${CLIENT_BIN} -r sub > stdlog
+${CLIENT_BIN} "${CLIENT_BASE_ARGS[@]}" -r sub > stdlog
 cli_res=`grep "|on_video|" clog |grep "seq:99"`
 errlog=`grep_err_log`
 if [ -n "$cli_res" ] && [ -z "$errlog" ]; then
@@ -65,7 +66,7 @@ ${SERVER_BIN} -n 100 -c b > /dev/null &
 sleep 1
 clear_log
 echo -e "moq subscribe and publish ...\c"
-${CLIENT_BIN} -n 100 > stdlog
+${CLIENT_BIN} "${CLIENT_BASE_ARGS[@]}" -n 100 > stdlog
 cli_res=`grep "|on_video|" clog |grep "seq:99"`
 svr_res=`grep "|on_video|" slog |grep "seq:99"`
 errlog=`grep_err_log`
@@ -86,7 +87,7 @@ moq/demo/moq_demo_audio_server -c b -p 8443 > /dev/null &
 sleep 1
 clear_log
 echo -e "moq audio server ...\c"
-${CLIENT_BIN} -n 100 > stdlog
+${CLIENT_BIN} "${CLIENT_BASE_ARGS[@]}" -n 100 > stdlog
 cli_res=`grep "|on_audio|" clog |grep "seq:99"`
 svr_res=`grep "|on_audio|" slog |grep "seq:99"`
 errlog=`grep_err_log`
@@ -108,7 +109,7 @@ killall moq_demo_server 2> /dev/null
 ${SERVER_BIN} -r pub -n 100 -f -d 10 > /dev/null &
 sleep 1
 echo -e "moq test fec negotiation ...\c"
-${CLIENT_BIN} -r sub -f > stdlog
+${CLIENT_BIN} "${CLIENT_BASE_ARGS[@]}" -r sub -f > stdlog
 cli_res=`grep "|xqc_negotiate_fec_schemes|set final encoder fec scheme: Packet-Mask|fec_level: FEC_STREAM_LEVEL|" clog`
 svr_res=`grep "|xqc_negotiate_fec_schemes|set final encoder fec scheme: Packet-Mask|fec_level: FEC_STREAM_LEVEL|" slog`
 errlog=`grep_err_log`
@@ -124,7 +125,7 @@ else
 fi
 
 echo -e "check fec recovery effect on moq requests using Packet-Mask scheme ...\c"
-${CLIENT_BIN} -r sub -f > stdlog
+${CLIENT_BIN} "${CLIENT_BASE_ARGS[@]}" -r sub -f > stdlog
 cli_res=`grep "|process packet of block .\{1,3\} successfully" clog`
 errlog=`grep_err_log`
 cconn_res=`grep "xqc_conn_destroy" clog`

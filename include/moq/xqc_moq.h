@@ -574,13 +574,16 @@ XQC_EXPORT_PUBLIC_API
 void xqc_moq_init_alpn(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs, xqc_moq_transport_type_t transport_type);
 
 /**
- * @param extdata The client can send extdata when creating a session. 
+ * The MoQ version and message format are selected exclusively by the
+ * negotiated ALPN.
+ *
+ * @param extdata The client can send extdata when creating a session.
  *                This extdata will be received by the server in the on_session_setup callback.
  */
 XQC_EXPORT_PUBLIC_API
 xqc_moq_session_t *xqc_moq_session_create(void *conn, xqc_moq_user_session_t *user_session,
     xqc_moq_transport_type_t type, xqc_moq_role_t role, xqc_moq_session_callbacks_t callbacks,
-    char *extdata, xqc_int_t enable_client_setup_v14);
+    char *extdata);
 
 /**
  * Create a MoQ session using the version profile selected by negotiated ALPN.
@@ -603,8 +606,8 @@ xqc_moq_session_t *xqc_moq_session_create_ex(void *conn,
 XQC_EXPORT_PUBLIC_API
 xqc_moq_session_t *xqc_moq_session_create_with_params(void *conn, xqc_moq_user_session_t *user_session,
     xqc_moq_transport_type_t type, xqc_moq_role_t role, xqc_moq_session_callbacks_t callbacks,
-    char *extdata, xqc_int_t enable_client_setup_v14,
-    xqc_moq_message_parameter_t *setup_params, uint64_t setup_params_num);
+    char *extdata, xqc_moq_message_parameter_t *setup_params,
+    uint64_t setup_params_num);
 
 XQC_EXPORT_PUBLIC_API
 void xqc_moq_session_destroy(xqc_moq_session_t *session);

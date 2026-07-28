@@ -15,8 +15,8 @@ SERVER_BIN="moq/demo/moq_demo_server"
 SERVER_PID=""
 CLIENT_STDLOG=""
 SERVER_STDLOG=""
-SERVER_BASE_ARGS=("-c" "b" "-p" "4433" "-V")
-CLIENT_BASE_ARGS=("-a" "127.0.0.1" "-p" "4433" "-V")
+SERVER_BASE_ARGS=("-c" "b" "-p" "4433")
+CLIENT_BASE_ARGS=("-a" "127.0.0.1" "-p" "4433" "-A" "moq-14")
 TOTAL_CASES=0
 PASSED_CASES=0
 FAILED_CASES=()
@@ -518,8 +518,8 @@ run_subgroup_multi_object_case() {
     local status="fail"
     echo -e "moq subgroup multi-object on single stream ...\c"
     reset_runtime
-    if start_server "${case_name}" "${SERVER_BASE_ARGS[@]}" -n 10 -V -M; then
-        run_client "${case_name}" "${CLIENT_BASE_ARGS[@]}" -n 10 -V -M
+    if start_server "${case_name}" "${SERVER_BASE_ARGS[@]}" -n 10 -M; then
+        run_client "${case_name}" "${CLIENT_BASE_ARGS[@]}" -n 10 -M
     else
         CLIENT_STDLOG="client_${case_name}.log"
         LAST_CLIENT_RC=1

@@ -64,7 +64,7 @@ int g_spec_local_addr = 0;
 int g_frame_num = 5;
 int g_fec_on = 0;
 xqc_moq_role_t g_role = XQC_MOQ_PUBSUB;
-int g_enable_client_setup_v14 = 0;
+const char *g_moq_alpn = XQC_ALPN_MOQ_LEGACY;
 int g_publish_mode = 0;
 int g_raw_object_mode = 0;
 int g_reuse_datachannel_stream = 0;
@@ -74,6 +74,20 @@ int g_enable_catalog = -1;
 int g_subscribe_namespace_mode = 0;
 int g_multi_ns_mode = 0;
 uint64_t g_audio_cancel_next_group_id = XQC_MOQ_INVALID_ID;
+
+static uint64_t
+xqc_demo_requested_moq_version(void)
+{
+    if (strcmp(g_moq_alpn, XQC_ALPN_MOQ_DRAFT_14) == 0) {
+        return XQC_MOQ_VERSION_14;
+    }
+    if (strcmp(g_moq_alpn, XQC_ALPN_MOQ_DRAFT_05) == 0
+        || strcmp(g_moq_alpn, XQC_ALPN_MOQ_LEGACY) == 0)
+    {
+        return XQC_MOQ_VERSION_5;
+    }
+    return 0;
+}
 
 static void xqc_app_timestamp_callback(int fd, short what, void *arg);
 
@@ -1593,39 +1607,48 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
         .on_object = on_raw_object,
         .on_datagram_object = on_datagram_object,
     };
-    xqc_moq_session_t *session;
+    xqc_moq_message_parameter_t setup_params[3];
+    xqc_moq_session_config_t config;
+    uint64_t requested_version = xqc_demo_requested_moq_version();
+    memset(setup_params, 0, sizeof(setup_params));
+    memset(&config, 0, sizeof(config));
 
-    if (g_enable_client_setup_v14) {
-        xqc_moq_message_parameter_t setup_params[3];
-        memset(setup_params, 0, sizeof(setup_params));
+    setup_params[0].type = XQC_MOQ_PARAM_ROLE;
+    setup_params[0].length = 1;
+    setup_params[0].value = (uint8_t *)&g_role;
+    setup_params[0].is_integer = 1;
+    setup_params[0].int_value = g_role;
 
-        // ROLE (required).
-        setup_params[0].type = XQC_MOQ_PARAM_ROLE;
-        setup_params[0].is_integer = 1;
-        setup_params[0].int_value = g_role;
-
-        // AUTHORIZATION_TOKEN (bytes, odd type => bytes in v14).
+    if (requested_version == XQC_MOQ_VERSION_14) {
         const char *authz = "Bearer test-token-123";
+        const char *ext = "extdata-extra-length";
+
         setup_params[1].type = XQC_MOQ_PARAM_AUTHORIZATION_TOKEN;
-        setup_params[1].is_integer = 0;
         setup_params[1].value = (uint8_t *)authz;
         setup_params[1].length = strlen(authz);
-
-        // Optional EXTDATA as bytes.
-        const char *ext = "extdata-extra-length";
         setup_params[2].type = XQC_MOQ_PARAM_EXTDATA;
-        setup_params[2].is_integer = 0;
         setup_params[2].value = (uint8_t *)ext;
         setup_params[2].length = strlen(ext) + 1;
+        config.setup_params = setup_params;
+        config.setup_params_num = 3;
 
-        session = xqc_moq_session_create_with_params(conn, user_session, XQC_MOQ_TRANSPORT_QUIC,
-            g_role, callbacks, NULL, g_enable_client_setup_v14,
-            setup_params, sizeof(setup_params) / sizeof(setup_params[0]));
-    } else {
-        // V5
-        session = xqc_moq_session_create(conn, user_session, XQC_MOQ_TRANSPORT_QUIC,
-            g_role, callbacks, "extdata", g_enable_client_setup_v14);
+    } else if (requested_version == XQC_MOQ_VERSION_5) {
+        const char *path = "path";
+        const char *ext = "extdata";
+
+        setup_params[1].type = XQC_MOQ_PARAM_PATH;
+        setup_params[1].value = (uint8_t *)path;
+        setup_params[1].length = strlen(path) + 1;
+        setup_params[2].type = XQC_MOQ_PARAM_EXTDATA;
+        setup_params[2].value = (uint8_t *)ext;
+        setup_params[2].length = strlen(ext) + 1;
+        config.setup_params = setup_params;
+        config.setup_params_num = 3;
     }
+
+    xqc_moq_session_t *session = xqc_moq_session_create_ex(
+        conn, user_session, XQC_MOQ_TRANSPORT_QUIC, g_role, callbacks,
+        &config);
     if (session == NULL) {
         printf("create session error\n");
         return -1;
@@ -1834,7 +1857,7 @@ int main(int argc, char *argv[])
     uint8_t secret_key[16] = {0};
     int use_proxy = 0;
     int use_1rtt = 0;
-    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:S:f1MVRUDTCmN:")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:X:P:k:n:S:f1MVRUDTCmN:")) != -1) {
         switch (ch) {
             case 'a':
                 printf("option addr :%s\n", optarg);
@@ -1886,6 +1909,10 @@ int main(int argc, char *argv[])
                 c_log_level = optarg[0];
                 break;
             case 'A':
+                g_moq_alpn = optarg;
+                printf("option MoQ ALPN :%s\n", g_moq_alpn);
+                break;
+            case 'X':
                 printf("option proxy_pass_addr :%s\n", optarg);
                 snprintf(proxy_pass_addr, sizeof(proxy_pass_addr), optarg);
                 use_proxy = 1;
@@ -1927,8 +1954,10 @@ int main(int argc, char *argv[])
                 g_raw_object_mode = 1;
                 break;
             case 'V':
-                printf("option draft14 client setup : on\n");
-                g_enable_client_setup_v14 = 1;
+                fprintf(stderr,
+                        "warning: -V is deprecated; use -A %s\n",
+                        XQC_ALPN_MOQ_DRAFT_14);
+                g_moq_alpn = XQC_ALPN_MOQ_DRAFT_14;
                 break;
             case 'U':
                 printf("option reuse datachannel stream : on\n");
@@ -1965,8 +1994,18 @@ int main(int argc, char *argv[])
                 exit(0);
         }
     }
+
+    if (xqc_demo_requested_moq_version() == 0) {
+        fprintf(stderr,
+                "unsupported MoQ ALPN: %s (expected %s, %s, or %s)\n",
+                g_moq_alpn, XQC_ALPN_MOQ_LEGACY,
+                XQC_ALPN_MOQ_DRAFT_05, XQC_ALPN_MOQ_DRAFT_14);
+        return -1;
+    }
+
     if (g_enable_catalog < 0) {
-        g_enable_catalog = g_enable_client_setup_v14 ? 0 : 1;
+        g_enable_catalog =
+            xqc_demo_requested_moq_version() == XQC_MOQ_VERSION_14 ? 0 : 1;
     }
 
     memset(&ctx, 0, sizeof(ctx));
@@ -2100,7 +2139,7 @@ int main(int argc, char *argv[])
     }
 
     const xqc_cid_t *cid;
-    const char *alpn = g_enable_client_setup_v14 ? XQC_ALPN_MOQ_QUIC_INTEROP : XQC_ALPN_MOQ_QUIC;
+    const char *alpn = g_moq_alpn;
     cid = xqc_connect(ctx.engine, &conn_settings, user_conn->token, user_conn->token_len,
                       server_addr, 0, &conn_ssl_config, user_conn->peer_addr,
                       user_conn->peer_addrlen, alpn, user_session);

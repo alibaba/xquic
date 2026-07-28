@@ -90,6 +90,9 @@ xqc_int_t xqc_moq_session_negotiate_version(xqc_moq_session_t *session,
 
 xqc_int_t xqc_moq_session_require_active(const xqc_moq_session_t *session);
 
+xqc_int_t xqc_moq_session_negotiate_version(xqc_moq_session_t *session,
+    const uint64_t *offered_versions, uint64_t offered_versions_num);
+
 typedef enum {
     MOQ_NO_ERROR                    =   0x0,
     MOQ_INTERNAL_ERROR              =   0x1,

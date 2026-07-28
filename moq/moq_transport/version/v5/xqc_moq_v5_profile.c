@@ -1,29 +1,39 @@
 #include "moq/moq_transport/version/v5/xqc_moq_v5_message.h"
 #include "moq/moq_transport/version/xqc_moq_version.h"
 #include "moq/moq_transport/xqc_moq_message.h"
+#include "moq/moq_transport/xqc_moq_stream.h"
 
 static const xqc_moq_message_codec_entry_t xqc_moq_v5_control_codecs[] = {
     {XQC_MOQ_MSG_CLIENT_SETUP, xqc_moq_v5_create_client_setup,
-     xqc_moq_v5_destroy_client_setup},
+     xqc_moq_v5_destroy_client_setup,
+     xqc_moq_v5_msg_client_setup_init_handler},
     {XQC_MOQ_MSG_SERVER_SETUP, xqc_moq_v5_create_server_setup,
-     xqc_moq_v5_destroy_server_setup},
+     xqc_moq_v5_destroy_server_setup,
+     xqc_moq_v5_msg_server_setup_init_handler},
     {XQC_MOQ_MSG_SUBSCRIBE, xqc_moq_v5_create_subscribe,
-     xqc_moq_v5_destroy_subscribe},
+     xqc_moq_v5_destroy_subscribe,
+     xqc_moq_v5_msg_subscribe_init_handler},
     {XQC_MOQ_MSG_SUBSCRIBE_UPDATE, xqc_moq_v5_create_subscribe_update,
-     xqc_moq_v5_destroy_subscribe_update},
+     xqc_moq_v5_destroy_subscribe_update,
+     xqc_moq_v5_msg_subscribe_update_init_handler},
     {XQC_MOQ_MSG_SUBSCRIBE_OK, xqc_moq_v5_create_subscribe_ok,
-     xqc_moq_v5_destroy_subscribe_ok},
+     xqc_moq_v5_destroy_subscribe_ok,
+     xqc_moq_v5_msg_subscribe_ok_init_handler},
     {XQC_MOQ_MSG_SUBSCRIBE_ERROR, xqc_moq_v5_create_subscribe_error,
-     xqc_moq_v5_destroy_subscribe_error},
+     xqc_moq_v5_destroy_subscribe_error,
+     xqc_moq_v5_msg_subscribe_error_init_handler},
 };
 
 static const xqc_moq_message_codec_entry_t xqc_moq_v5_data_codecs[] = {
     {XQC_MOQ_MSG_OBJECT_STREAM, xqc_moq_v5_create_object_stream,
-     xqc_moq_v5_destroy_object_stream},
+     xqc_moq_v5_destroy_object_stream,
+     xqc_moq_v5_msg_object_stream_init_handler},
     {XQC_MOQ_MSG_STREAM_HEADER_TRACK, xqc_moq_v5_create_track_header,
-     xqc_moq_v5_destroy_track_header},
+     xqc_moq_v5_destroy_track_header,
+     xqc_moq_v5_msg_track_header_init_handler},
     {XQC_MOQ_MSG_TRACK_STREAM_OBJECT, xqc_moq_v5_create_track_stream_obj,
-     xqc_moq_v5_destroy_track_stream_obj},
+     xqc_moq_v5_destroy_track_stream_obj,
+     xqc_moq_v5_msg_track_stream_obj_init_handler},
 };
 
 static xqc_moq_stream_kind_t
@@ -60,12 +70,29 @@ xqc_moq_v5_next_data_message(xqc_moq_stream_kind_t stream_kind,
     return XQC_FALSE;
 }
 
+static xqc_int_t
+xqc_moq_v5_prepare_data_message(xqc_moq_stream_t *stream,
+    uint64_t wire_type, xqc_moq_msg_base_t *msg_base)
+{
+    (void)msg_base;
+
+    if (wire_type == XQC_MOQ_MSG_TRACK_STREAM_OBJECT
+        && (stream->kind != XQC_MOQ_STREAM_V5_TRACK
+            || !stream->track_header_valid))
+    {
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    return XQC_OK;
+}
+
 const xqc_moq_version_profile_t xqc_moq_v5_profile_definition = {
     .name = "draft-05",
     .wire_version = XQC_MOQ_VERSION_5,
     .capabilities = XQC_MOQ_CAP_TRACK_STREAM,
     .client_setup_type = XQC_MOQ_MSG_CLIENT_SETUP,
     .server_setup_type = XQC_MOQ_MSG_SERVER_SETUP,
+    .include_extdata_in_default_setup = XQC_TRUE,
     .control_codecs = xqc_moq_v5_control_codecs,
     .control_codecs_count = sizeof(xqc_moq_v5_control_codecs)
                             / sizeof(xqc_moq_v5_control_codecs[0]),
@@ -75,6 +102,8 @@ const xqc_moq_version_profile_t xqc_moq_v5_profile_definition = {
     .classify_stream = xqc_moq_v5_classify_stream,
     .normalize_wire_type = NULL,
     .next_data_message = xqc_moq_v5_next_data_message,
+    .prepare_data_message = xqc_moq_v5_prepare_data_message,
+    .decode_datagram = NULL,
 };
 
 const xqc_moq_version_profile_t *

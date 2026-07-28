@@ -4,8 +4,10 @@
 
 #include "moq/xqc_moq.h"
 #include "moq/moq_transport/xqc_moq_message.h"
+#include "moq/moq_transport/xqc_moq_message_writer.h"
 #include "moq/moq_transport/version/xqc_moq_version.h"
 #include "moq/moq_transport/xqc_moq_session.h"
+#include "moq/moq_transport/xqc_moq_stream.h"
 
 #define XQC_TEST_ASSERT(expr)                                             \
     do {                                                                  \
@@ -274,6 +276,13 @@ xqc_test_profile_lookup(void)
         xqc_moq_v5_profile(), XQC_MOQ_CAP_SUBGROUP_STREAM));
     XQC_TEST_ASSERT(xqc_moq_profile_has_capability(
         xqc_moq_v14_profile(), XQC_MOQ_CAP_SUBGROUP_STREAM));
+    XQC_TEST_ASSERT(xqc_moq_profile_validate_setup(
+        xqc_moq_v14_profile(), XQC_MOQ_VERSION_5) == -XQC_EVERSION);
+    XQC_TEST_ASSERT(xqc_moq_profile_validate_setup(
+        xqc_moq_v14_profile(), XQC_MOQ_VERSION_14) == XQC_OK);
+    XQC_TEST_ASSERT(xqc_moq_profile_require(
+        xqc_moq_v5_profile(), XQC_MOQ_CAP_OBJECT_DATAGRAM)
+        == -XQC_EALPN_NOT_SUPPORTED);
     return 0;
 }
 
@@ -319,7 +328,6 @@ xqc_test_session_profile_state(void)
     XQC_TEST_ASSERT(xqc_moq_session_negotiate_version(
         &session, v14_versions, 1) == -XQC_EVERSION);
     XQC_TEST_ASSERT(xqc_moq_session_require_active(&session) == -XQC_EVERSION);
-
     return 0;
 }
 
@@ -362,6 +370,186 @@ xqc_test_message_collision_is_profile_local(void)
                      XQC_MOQ_MSG_SUBSCRIBE, v5_subscribe);
     xqc_moq_msg_free(&v14_session, XQC_MOQ_STREAM_CONTROL,
                      XQC_MOQ_MSG_SUBSCRIBE, v14_subscribe);
+    return 0;
+}
+
+static ssize_t
+xqc_test_stream_write(void *stream, uint8_t *data, size_t data_len,
+    uint8_t fin)
+{
+    (void)stream;
+    (void)data;
+    (void)fin;
+    return (ssize_t)data_len;
+}
+
+static int
+xqc_test_unsupported_write_is_side_effect_free(void)
+{
+    xqc_moq_session_t session;
+    xqc_moq_stream_t stream;
+    xqc_moq_subgroup_msg_t subgroup;
+    xqc_moq_object_t datagram;
+    xqc_moq_publish_msg_t publish;
+    xqc_moq_subscribe_namespace_msg_t subscribe_namespace;
+
+    xqc_memzero(&stream, sizeof(stream));
+    xqc_memzero(&subgroup, sizeof(subgroup));
+    xqc_memzero(&datagram, sizeof(datagram));
+    xqc_memzero(&publish, sizeof(publish));
+    xqc_memzero(&subscribe_namespace, sizeof(subscribe_namespace));
+    XQC_TEST_ASSERT(xqc_test_activate_session(
+        &session, XQC_ALPN_MOQ_DRAFT_05,
+        sizeof(XQC_ALPN_MOQ_DRAFT_05) - 1, XQC_MOQ_VERSION_5) == 0);
+
+    stream.session = &session;
+    stream.trans_ops.write = xqc_test_stream_write;
+    XQC_TEST_ASSERT(xqc_moq_write_subgroup_msg(
+        &session, &stream, &subgroup) == -XQC_EALPN_NOT_SUPPORTED);
+    XQC_TEST_ASSERT(stream.write_buf_len == 0);
+    XQC_TEST_ASSERT(xqc_moq_write_publish(
+        &session, &publish) == -XQC_EALPN_NOT_SUPPORTED);
+    XQC_TEST_ASSERT(stream.write_buf_len == 0);
+    XQC_TEST_ASSERT(xqc_moq_write_subscribe_namespace(
+        &session, &subscribe_namespace) == -XQC_EALPN_NOT_SUPPORTED);
+    XQC_TEST_ASSERT(stream.write_buf_len == 0);
+
+    datagram.track_alias = 1;
+    XQC_TEST_ASSERT(xqc_moq_send_object_datagram(
+        &session, &datagram) == -XQC_EALPN_NOT_SUPPORTED);
+    {
+        const uint8_t encoded_datagram[] = {0};
+        XQC_TEST_ASSERT(xqc_moq_profile_decode_datagram(
+            &session, encoded_datagram, sizeof(encoded_datagram))
+            == -XQC_EALPN_NOT_SUPPORTED);
+    }
+    return 0;
+}
+
+static int
+xqc_test_datagram_requires_active_profile(void)
+{
+    const uint8_t encoded_datagram[] = {0};
+    const xqc_moq_alpn_policy_t *policy;
+    xqc_moq_session_t session;
+
+    policy = xqc_moq_version_policy_for_alpn(
+        XQC_ALPN_MOQ_DRAFT_14, sizeof(XQC_ALPN_MOQ_DRAFT_14) - 1);
+    XQC_TEST_ASSERT(policy != NULL);
+    xqc_memzero(&session, sizeof(session));
+    XQC_TEST_ASSERT(xqc_moq_session_bind_policy(&session, policy) == XQC_OK);
+    XQC_TEST_ASSERT(xqc_moq_profile_decode_datagram(
+        &session, encoded_datagram, sizeof(encoded_datagram))
+        == -XQC_EVERSION);
+
+    XQC_TEST_ASSERT(xqc_moq_session_validate_setup_type(
+        &session, XQC_MOQ_MSG_CLIENT_SETUP) == -XQC_EVERSION);
+    XQC_TEST_ASSERT(session.profile_state == XQC_MOQ_PROFILE_FAILED);
+    XQC_TEST_ASSERT(xqc_moq_profile_decode_datagram(
+        &session, encoded_datagram, sizeof(encoded_datagram))
+        == -XQC_EVERSION);
+    return 0;
+}
+
+static int
+xqc_test_v5_control_writer_uses_profile_codec(void)
+{
+    static uint8_t namespace_value[] = "ns";
+    xqc_moq_track_ns_field_t namespace_tuple = {
+        .len = 2,
+        .data = namespace_value,
+    };
+    xqc_moq_session_t session;
+    xqc_moq_stream_t stream;
+    xqc_moq_client_setup_msg_t client_setup;
+    xqc_moq_subscribe_msg_t subscribe;
+
+    xqc_memzero(&stream, sizeof(stream));
+    xqc_memzero(&client_setup, sizeof(client_setup));
+    xqc_memzero(&subscribe, sizeof(subscribe));
+    XQC_TEST_ASSERT(xqc_test_activate_session(
+        &session, XQC_ALPN_MOQ_DRAFT_05,
+        sizeof(XQC_ALPN_MOQ_DRAFT_05) - 1, XQC_MOQ_VERSION_5) == 0);
+
+    stream.session = &session;
+    stream.kind = XQC_MOQ_STREAM_CONTROL;
+    stream.trans_ops.write = xqc_test_stream_write;
+    session.ctl_stream = &stream;
+    xqc_test_configure_subscribe(&subscribe);
+    subscribe.track_namespace_num = 1;
+    subscribe.track_namespace_tuple = &namespace_tuple;
+
+    XQC_TEST_ASSERT(xqc_moq_write_subscribe(
+        &session, &subscribe) == XQC_OK);
+    XQC_TEST_ASSERT(stream.write_buf_len == sizeof(xqc_v5_subscribe));
+    XQC_TEST_ASSERT(memcmp(stream.write_buf, xqc_v5_subscribe,
+                           sizeof(xqc_v5_subscribe)) == 0);
+
+    xqc_test_configure_client_setup(&client_setup);
+    XQC_TEST_ASSERT(xqc_moq_write_client_setup_for_profile(
+        &session, client_setup.params, client_setup.params_num) == XQC_OK);
+    XQC_TEST_ASSERT(stream.write_buf_len == sizeof(xqc_v5_client_setup));
+    XQC_TEST_ASSERT(memcmp(stream.write_buf, xqc_v5_client_setup,
+                           sizeof(xqc_v5_client_setup)) == 0);
+
+    xqc_free(stream.write_buf);
+    return 0;
+}
+
+static int
+xqc_test_v14_stream_preparation_is_profile_local(void)
+{
+    xqc_moq_session_t session;
+    xqc_moq_stream_t stream;
+    xqc_moq_subgroup_msg_t subgroup;
+
+    xqc_memzero(&stream, sizeof(stream));
+    xqc_memzero(&subgroup, sizeof(subgroup));
+    XQC_TEST_ASSERT(xqc_test_activate_session(
+        &session, XQC_ALPN_MOQ_DRAFT_14,
+        sizeof(XQC_ALPN_MOQ_DRAFT_14) - 1, XQC_MOQ_VERSION_14) == 0);
+
+    stream.session = &session;
+    stream.subgroup_header_valid = 1;
+    stream.subgroup_header.track_alias = 11;
+    stream.subgroup_header.group_id = 12;
+    stream.subgroup_header.subgroup_id = 13;
+    stream.subgroup_header.subgroup_type = XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
+    stream.subgroup_header.subgroup_priority = 14;
+    XQC_TEST_ASSERT(xqc_moq_profile_prepare_data_message(
+        &stream, XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT, &subgroup.msg_base)
+        == XQC_OK);
+    XQC_TEST_ASSERT(subgroup.track_alias == 11);
+    XQC_TEST_ASSERT(subgroup.group_id == 12);
+    XQC_TEST_ASSERT(subgroup.subgroup_id == 13);
+    XQC_TEST_ASSERT(subgroup.subgroup_priority == 14);
+    XQC_TEST_ASSERT(stream.decode_msg_ctx.cur_field_idx == 4);
+    return 0;
+}
+
+static int
+xqc_test_v5_stream_preparation_requires_track_header(void)
+{
+    xqc_moq_session_t session;
+    xqc_moq_stream_t stream;
+    xqc_moq_track_stream_obj_msg_t object;
+
+    xqc_memzero(&stream, sizeof(stream));
+    xqc_memzero(&object, sizeof(object));
+    XQC_TEST_ASSERT(xqc_test_activate_session(
+        &session, XQC_ALPN_MOQ_DRAFT_05,
+        sizeof(XQC_ALPN_MOQ_DRAFT_05) - 1, XQC_MOQ_VERSION_5) == 0);
+
+    stream.session = &session;
+    stream.kind = XQC_MOQ_STREAM_V5_TRACK;
+    XQC_TEST_ASSERT(xqc_moq_profile_prepare_data_message(
+        &stream, XQC_MOQ_MSG_TRACK_STREAM_OBJECT, &object.msg_base)
+        == -XQC_EILLEGAL_FRAME);
+
+    stream.track_header_valid = 1;
+    XQC_TEST_ASSERT(xqc_moq_profile_prepare_data_message(
+        &stream, XQC_MOQ_MSG_TRACK_STREAM_OBJECT, &object.msg_base)
+        == XQC_OK);
     return 0;
 }
 
@@ -480,6 +668,11 @@ main(void)
     if (xqc_test_profile_lookup() != 0
         || xqc_test_session_profile_state() != 0
         || xqc_test_message_collision_is_profile_local() != 0
+        || xqc_test_unsupported_write_is_side_effect_free() != 0
+        || xqc_test_datagram_requires_active_profile() != 0
+        || xqc_test_v5_control_writer_uses_profile_codec() != 0
+        || xqc_test_v14_stream_preparation_is_profile_local() != 0
+        || xqc_test_v5_stream_preparation_requires_track_header() != 0
         || xqc_test_v5_golden_encode() != 0
         || xqc_test_v5_golden_decode_split_points() != 0)
     {

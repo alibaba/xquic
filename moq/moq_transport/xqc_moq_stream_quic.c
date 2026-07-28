@@ -219,44 +219,20 @@ xqc_moq_quic_datagram_read_notify(xqc_connection_t *conn, void *user_data,
     }
     xqc_moq_session_t *session = user_session->session;
 
-    xqc_moq_object_datagram_msg_t dgram;
-    xqc_memzero(&dgram, sizeof(dgram));
-    xqc_int_t ret = xqc_moq_object_datagram_decode((uint8_t *)data, data_len, &dgram);
+    xqc_int_t ret = xqc_moq_profile_decode_datagram(
+        session, (const uint8_t *)data, data_len);
     if (ret < 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|moq_datagram_decode error|ret:%d|len:%uz|", ret, data_len);
-        if (ret == -XQC_EPROTO) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|moq_datagram_decode error|profile:%s|ret:%d|len:%uz|",
+                session->profile != NULL ? session->profile->name : "none",
+                ret, data_len);
+        if (ret == -XQC_EPROTO
+            || ret == -XQC_EALPN_NOT_SUPPORTED
+            || ret == -XQC_EVERSION)
+        {
             xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION, "invalid object datagram type");
         }
-        xqc_moq_object_datagram_free_fields(&dgram);
-        return;
     }
-
-    xqc_moq_object_t object;
-    xqc_memzero(&object, sizeof(object));
-    object.subscribe_id = 0;
-    object.track_alias = dgram.track_alias;
-    object.group_id = dgram.group_id;
-    object.object_id = dgram.object_id;
-    object.subgroup_id = 0;
-    object.object_id_delta = 0;
-    object.send_order = 0;
-    object.publisher_priority_set = 1;
-    object.publisher_priority = dgram.publisher_priority;
-    object.status = dgram.payload_len > 0 ? XQC_MOQ_OBJ_STATUS_NORMAL : dgram.status;
-    object.ext_params_num = dgram.ext_params_num;
-    object.ext_params = dgram.ext_params;
-    object.payload = dgram.payload;
-    object.payload_len = dgram.payload_len;
-    object.custom_id_flag = 0;
-    object.forwarding_preference = XQC_MOQ_FORWARDING_DATAGRAM;
-
-    xqc_log(session->log, XQC_LOG_DEBUG,
-            "|moq_datagram_recv|type:%ui|track_alias:%ui|group_id:%ui|object_id:%ui|prio:%ud|payload_len:%ui|",
-            dgram.type, dgram.track_alias, dgram.group_id, dgram.object_id,
-            dgram.publisher_priority, dgram.payload_len);
-
-    xqc_moq_on_datagram_object(session, &object);
-    xqc_moq_object_datagram_free_fields(&dgram);
 }
 
 static void

@@ -15,9 +15,17 @@ xqc_int_t xqc_moq_write_client_setup(xqc_moq_session_t *session, xqc_moq_client_
 xqc_int_t xqc_moq_write_client_setup_v14(xqc_moq_session_t *session, xqc_moq_client_setup_v14_msg_t *client_setup,
     xqc_moq_message_parameter_t *params, uint64_t params_num);
 
+xqc_int_t xqc_moq_write_client_setup_for_profile(
+    xqc_moq_session_t *session,
+    const xqc_moq_message_parameter_t *params, uint64_t params_num);
+
 xqc_int_t xqc_moq_write_server_setup(xqc_moq_session_t *session, xqc_moq_server_setup_msg_t *server_setup);
 
 xqc_int_t xqc_moq_write_server_setup_v14(xqc_moq_session_t *session, xqc_moq_server_setup_v14_msg_t *server_setup);
+
+xqc_int_t xqc_moq_write_server_setup_for_profile(
+    xqc_moq_session_t *session,
+    const xqc_moq_message_parameter_t *params, uint64_t params_num);
 
 xqc_int_t xqc_moq_write_subscribe(xqc_moq_session_t *session, xqc_moq_subscribe_msg_t *subscribe);
 

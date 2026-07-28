@@ -28,19 +28,16 @@ xqc_moq_on_client_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
         return;
     }
 
-    for (int i = 0; i < client_setup->versions_num; i++) {
-        if (/*client_setup->versions[i] == XQC_MOQ_VERSION ||*/ client_setup->versions[i] == XQC_MOQ_VERSION_5) {
-            version = client_setup->versions[i];
-            break;
-        }
+    ret = xqc_moq_session_negotiate_version(
+        session, client_setup->versions, client_setup->versions_num);
+    if (ret != XQC_OK) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|client setup version mismatch|profile:%s|ret:%d|",
+                session->profile != NULL ? session->profile->name : "none",
+                ret);
+        goto version_error;
     }
-
-    if (version) {
-        session->version = version;
-    } else {
-        xqc_log(session->log, XQC_LOG_ERROR, "|version is not support|");
-        goto error;
-    }
+    version = session->version;
 
     for (int i = 0; i < client_setup->params_num; i++) {
         xqc_moq_message_parameter_t *param = &client_setup->params[i];
@@ -75,11 +72,8 @@ xqc_moq_on_client_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
     xqc_moq_message_parameter_t params[] = {
             {XQC_MOQ_PARAM_ROLE, 1, (uint8_t * ) & session->role, 1, (uint64_t)session->role},
     };
-    xqc_moq_server_setup_msg_t server_setup;
-    server_setup.version = version;
-    server_setup.params_num = sizeof(params) / sizeof(params[0]);
-    server_setup.params = params;
-    ret = xqc_moq_write_server_setup(session, &server_setup);
+    ret = xqc_moq_write_server_setup_for_profile(
+        session, params, sizeof(params) / sizeof(params[0]));
     if (ret < 0) {
         xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_write_server_setup error|ret:%d|", ret);
         goto error;
@@ -109,6 +103,11 @@ xqc_moq_on_client_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
 
 error:
     xqc_moq_session_error(session, MOQ_INTERNAL_ERROR, "on client setup");
+    return;
+
+version_error:
+    xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                          "client setup version mismatch");
 }
 
 void
@@ -123,18 +122,16 @@ xqc_moq_on_client_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
         return;
     }
 
-    uint32_t version = 0;
-    for (int i = 0; i < client_setup->versions_num; i++) {
-        if (client_setup->versions[i] == XQC_MOQ_VERSION_14) {
-            version = client_setup->versions[i];
-            break;
-        }
+    ret = xqc_moq_session_negotiate_version(
+        session, client_setup->versions, client_setup->versions_num);
+    if (ret != XQC_OK) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|client setup version mismatch|profile:%s|ret:%d|",
+                session->profile != NULL ? session->profile->name : "none",
+                ret);
+        goto version_error;
     }
-    if (version == 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|unsupported version in client_setup_v14|");
-        goto error;
-    }
-    session->version = version;
+    uint32_t version = session->version;
     xqc_log(session->log, XQC_LOG_INFO, "|client_setup_v14|versions_num:%ui|params_num:%ui|selected_version:%ui|",
             client_setup->versions_num, client_setup->params_num, version);
 
@@ -168,13 +165,7 @@ xqc_moq_on_client_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
         xqc_log(session->log, XQC_LOG_WARN, "|role not found, default to subscriber|");
     }
 
-    xqc_moq_message_parameter_t params[] = {
-        {XQC_MOQ_PARAM_ROLE, 1, (uint8_t *)&session->role, 1, (uint64_t)session->role},
-    };
-    xqc_moq_server_setup_v14_msg_t server_setup;
-    memset(&server_setup, 0, sizeof(server_setup));
-    server_setup.selected_version = version;
-    ret = xqc_moq_write_server_setup_v14(session, &server_setup);
+    ret = xqc_moq_write_server_setup_for_profile(session, NULL, 0);
     if (ret < 0) {
         xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_write_server_setup_v14 error|ret:%d|", ret);
         goto error;
@@ -204,6 +195,11 @@ xqc_moq_on_client_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
 
 error:
     xqc_moq_session_error(session, MOQ_INTERNAL_ERROR, "on client setup v14");
+    return;
+
+version_error:
+    xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                          "client setup version mismatch");
 }
 
 void
@@ -217,11 +213,14 @@ xqc_moq_on_server_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
         return;
     }
 
-    if (/*server_setup->version == XQC_MOQ_VERSION ||*/ server_setup->version == XQC_MOQ_VERSION_5) {
-        session->version = server_setup->version;
-    } else {
-        xqc_log(session->log, XQC_LOG_ERROR, "|illegal version:%ui|", server_setup->version);
-        goto error;
+    ret = xqc_moq_session_negotiate_version(
+        session, &server_setup->version, 1);
+    if (ret != XQC_OK) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|server setup version mismatch|profile:%s|version:%ui|ret:%d|",
+                session->profile != NULL ? session->profile->name : "none",
+                server_setup->version, ret);
+        goto version_error;
     }
 
     for (int i = 0; i < server_setup->params_num; i++) {
@@ -270,6 +269,11 @@ xqc_moq_on_server_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
 
 error:
     xqc_moq_session_error(session, MOQ_INTERNAL_ERROR, "on server setup");
+    return;
+
+version_error:
+    xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                          "server setup version mismatch");
 }
 
 void
@@ -283,7 +287,15 @@ xqc_moq_on_server_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
         return;
     }
 
-    session->version = XQC_MOQ_VERSION_14;
+    ret = xqc_moq_session_negotiate_version(
+        session, &server_setup->selected_version, 1);
+    if (ret != XQC_OK) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|server setup version mismatch|profile:%s|version:%ui|ret:%d|",
+                session->profile != NULL ? session->profile->name : "none",
+                server_setup->selected_version, ret);
+        goto version_error;
+    }
     xqc_log(session->log, XQC_LOG_INFO, "|server_setup_v14|params_num:%ui|", server_setup->params_num);
 
     for (int i = 0; i < server_setup->params_num; i++) {
@@ -328,6 +340,11 @@ xqc_moq_on_server_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_st
 
 error:
     xqc_moq_session_error(session, MOQ_INTERNAL_ERROR, "on server setup v14");
+    return;
+
+version_error:
+    xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                          "server setup version mismatch");
 }
 
 void
@@ -1146,6 +1163,7 @@ xqc_moq_on_track_header(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
 {
     xqc_moq_stream_header_track_msg_t *track_header = (xqc_moq_stream_header_track_msg_t*)msg_base;
     moq_stream->track_header = *track_header;
+    moq_stream->track_header_valid = 1;
 }
 
 void

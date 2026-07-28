@@ -6,6 +6,22 @@
 #include "moq/moq_transport/xqc_moq_namespace.h"
 #include "src/common/xqc_time.h"
 
+static xqc_int_t
+xqc_moq_writer_require(xqc_moq_session_t *session,
+    xqc_moq_capability_t capability)
+{
+    if (session == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_int_t ret = xqc_moq_session_require_active(session);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    return xqc_moq_profile_require(session->profile, capability);
+}
+
 xqc_int_t
 xqc_moq_msg_write(xqc_moq_session_t *session, xqc_moq_stream_t *stream, xqc_moq_msg_base_t *msg_base)
 {
@@ -46,12 +62,60 @@ xqc_moq_msg_write(xqc_moq_session_t *session, xqc_moq_stream_t *stream, xqc_moq_
     return XQC_OK;
 }
 
+static xqc_int_t
+xqc_moq_write_profile_message(xqc_moq_session_t *session,
+    xqc_moq_stream_t *stream, xqc_moq_msg_base_t *msg_base,
+    uint64_t wire_type)
+{
+    const xqc_moq_message_codec_entry_t *codec;
+
+    if (session == NULL || stream == NULL || msg_base == NULL
+        || session->profile == NULL)
+    {
+        return -XQC_EPARAM;
+    }
+
+    if (wire_type == session->profile->client_setup_type
+        || wire_type == session->profile->server_setup_type)
+    {
+        if (session->profile_state != XQC_MOQ_PROFILE_ALPN_SELECTED
+            && session->profile_state != XQC_MOQ_PROFILE_ACTIVE)
+        {
+            return -XQC_EVERSION;
+        }
+
+    } else {
+        xqc_int_t ret = xqc_moq_session_require_active(session);
+        if (ret != XQC_OK) {
+            return ret;
+        }
+    }
+
+    codec = xqc_moq_profile_find_codec(session->profile, stream->kind,
+                                       wire_type);
+    if (codec == NULL || codec->initialize == NULL) {
+        return -XQC_EALPN_NOT_SUPPORTED;
+    }
+
+    codec->initialize(msg_base);
+    return xqc_moq_msg_write(session, stream, msg_base);
+}
+
 xqc_int_t
 xqc_moq_write_msg_generic(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
     xqc_moq_msg_base_t *msg_base, xqc_moq_msg_init_handler_pt init_handler)
 {
+    if (msg_base == NULL || init_handler == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    /*
+     * The caller identifies the semantic message family.  The ALPN-selected
+     * profile replaces this temporary initializer with its wire codec.
+     */
     init_handler(msg_base);
-    return xqc_moq_msg_write(session, stream, msg_base);
+    return xqc_moq_write_profile_message(
+        session, stream, msg_base, msg_base->type());
 }
 
 xqc_int_t
@@ -74,6 +138,29 @@ xqc_moq_write_client_setup_v14(xqc_moq_session_t *session, xqc_moq_client_setup_
 }
 
 xqc_int_t
+xqc_moq_write_client_setup_for_profile(xqc_moq_session_t *session,
+    const xqc_moq_message_parameter_t *params, uint64_t params_num)
+{
+    xqc_moq_client_setup_msg_t client_setup;
+    uint64_t versions[1];
+
+    if (session == NULL || session->profile == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_memzero(&client_setup, sizeof(client_setup));
+    versions[0] = session->profile->wire_version;
+    client_setup.versions_num = 1;
+    client_setup.versions = versions;
+    client_setup.params = (xqc_moq_message_parameter_t *)params;
+    client_setup.params_num = params_num;
+
+    return xqc_moq_write_profile_message(
+        session, session->ctl_stream, &client_setup.msg_base,
+        session->profile->client_setup_type);
+}
+
+xqc_int_t
 xqc_moq_write_server_setup(xqc_moq_session_t *session, xqc_moq_server_setup_msg_t *server_setup)
 {
     return xqc_moq_write_msg_generic(session, session->ctl_stream, &server_setup->msg_base,
@@ -85,6 +172,26 @@ xqc_moq_write_server_setup_v14(xqc_moq_session_t *session, xqc_moq_server_setup_
 {
     return xqc_moq_write_msg_generic(session, session->ctl_stream, &server_setup->msg_base,
                                      xqc_moq_msg_server_setup_v14_init_handler);
+}
+
+xqc_int_t
+xqc_moq_write_server_setup_for_profile(xqc_moq_session_t *session,
+    const xqc_moq_message_parameter_t *params, uint64_t params_num)
+{
+    xqc_moq_server_setup_msg_t server_setup;
+
+    if (session == NULL || session->profile == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_memzero(&server_setup, sizeof(server_setup));
+    server_setup.version = session->profile->wire_version;
+    server_setup.params = (xqc_moq_message_parameter_t *)params;
+    server_setup.params_num = params_num;
+
+    return xqc_moq_write_profile_message(
+        session, session->ctl_stream, &server_setup.msg_base,
+        session->profile->server_setup_type);
 }
 
 xqc_int_t
@@ -132,7 +239,16 @@ xqc_moq_write_subscribe_error(xqc_moq_session_t *session, xqc_moq_subscribe_erro
 xqc_int_t
 xqc_moq_write_publish(xqc_moq_session_t *session, xqc_moq_publish_msg_t *publish)
 {
-    xqc_int_t ret = xqc_moq_validate_full_track_name_for_write(session,
+    if (publish == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_int_t ret = xqc_moq_writer_require(session, XQC_MOQ_CAP_PUBLISH);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    ret = xqc_moq_validate_full_track_name_for_write(session,
         publish->track_namespace_num, publish->track_namespace_tuple,
         publish->track_name, publish->track_name_len);
     if (ret != XQC_OK) {
@@ -146,6 +262,15 @@ xqc_moq_write_publish(xqc_moq_session_t *session, xqc_moq_publish_msg_t *publish
 xqc_int_t
 xqc_moq_write_publish_ok(xqc_moq_session_t *session, xqc_moq_publish_ok_msg_t *publish_ok)
 {
+    if (publish_ok == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_int_t ret = xqc_moq_writer_require(session, XQC_MOQ_CAP_PUBLISH);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
     return xqc_moq_write_msg_generic(session, session->ctl_stream, &publish_ok->msg_base,
                                      xqc_moq_msg_publish_ok_init_handler);
 }
@@ -153,6 +278,15 @@ xqc_moq_write_publish_ok(xqc_moq_session_t *session, xqc_moq_publish_ok_msg_t *p
 xqc_int_t
 xqc_moq_write_publish_error(xqc_moq_session_t *session, xqc_moq_publish_error_msg_t *publish_error)
 {
+    if (publish_error == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_int_t ret = xqc_moq_writer_require(session, XQC_MOQ_CAP_PUBLISH);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
     return xqc_moq_write_msg_generic(session, session->ctl_stream, &publish_error->msg_base,
                                      xqc_moq_msg_publish_error_init_handler);
 }
@@ -162,6 +296,11 @@ xqc_moq_write_publish_done(xqc_moq_session_t *session, xqc_moq_publish_done_msg_
 {
     if (session == NULL || publish_done == NULL) {
         return -XQC_EPARAM;
+    }
+
+    xqc_int_t ret = xqc_moq_writer_require(session, XQC_MOQ_CAP_PUBLISH);
+    if (ret != XQC_OK) {
+        return ret;
     }
 
     if (publish_done->stream_count == 0) {
@@ -202,8 +341,15 @@ xqc_int_t
 xqc_moq_write_subgroup_msg(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
     xqc_moq_subgroup_msg_t *object)
 {
-    xqc_int_t ret = xqc_moq_write_msg_generic(session, stream, &object->msg_base,
-                                              xqc_moq_msg_subgroup_init_handler);
+    xqc_int_t ret = xqc_moq_profile_require(
+        session != NULL ? session->profile : NULL,
+        XQC_MOQ_CAP_SUBGROUP_STREAM);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    ret = xqc_moq_write_msg_generic(session, stream, &object->msg_base,
+                                    xqc_moq_msg_subgroup_init_handler);
     if (ret == XQC_OK) {
         xqc_moq_mark_object_write_time(stream);
     }
@@ -219,6 +365,11 @@ xqc_moq_append_subgroup_object(xqc_moq_session_t *session, xqc_moq_stream_t *str
 
     if (session == NULL || stream == NULL || object == NULL) {
         return -XQC_EPARAM;
+    }
+
+    ret = xqc_moq_writer_require(session, XQC_MOQ_CAP_SUBGROUP_STREAM);
+    if (ret != XQC_OK) {
+        return ret;
     }
 
     encode_len = xqc_moq_msg_append_subgroup_object_len(object);
@@ -278,6 +429,12 @@ xqc_moq_send_subgroup(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_mo
         return -XQC_EPARAM;
     }
 
+    xqc_int_t ret = xqc_moq_writer_require(
+        session, XQC_MOQ_CAP_SUBGROUP_STREAM);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
     if (subgroup->payload_len > XQC_MOQ_MAX_OBJECT_LEN) {
         return -XQC_ELIMIT;
     }
@@ -319,7 +476,7 @@ xqc_moq_send_subgroup(xqc_moq_session_t *session, xqc_moq_track_t *track, xqc_mo
 
     xqc_moq_track_on_write_stream(track, stream, object.group_id, object.object_id, 0);
 
-    xqc_int_t ret = xqc_moq_write_subgroup_msg(session, stream, &object);
+    ret = xqc_moq_write_subgroup_msg(session, stream, &object);
     if (ret < 0) {
         xqc_moq_stream_close(stream);
         return ret;
@@ -334,6 +491,13 @@ xqc_moq_send_object_datagram(xqc_moq_session_t *session, xqc_moq_object_t *objec
     if (session == NULL || object == NULL) {
         return -XQC_EPARAM;
     }
+
+    xqc_int_t ret = xqc_moq_profile_require(
+        session->profile, XQC_MOQ_CAP_OBJECT_DATAGRAM);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
     if (object->track_alias == XQC_MOQ_INVALID_ID) {
         return -XQC_EPARAM;
     }
@@ -385,7 +549,7 @@ xqc_moq_send_object_datagram(xqc_moq_session_t *session, xqc_moq_object_t *objec
     if (buf == NULL) {
         return -XQC_EMALLOC;
     }
-    xqc_int_t ret = xqc_moq_object_datagram_encode(&dgram, buf, enc_len);
+    ret = xqc_moq_object_datagram_encode(&dgram, buf, enc_len);
     if (ret < 0) {
         xqc_free(buf);
         return ret;
@@ -416,7 +580,17 @@ xqc_int_t
 xqc_moq_write_subscribe_namespace(xqc_moq_session_t *session,
     xqc_moq_subscribe_namespace_msg_t *subscribe_namespace)
 {
-    xqc_int_t ret = xqc_moq_validate_full_track_name_for_write(session,
+    if (subscribe_namespace == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_int_t ret = xqc_moq_writer_require(
+        session, XQC_MOQ_CAP_SUBSCRIBE_NAMESPACE);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    ret = xqc_moq_validate_full_track_name_for_write(session,
         subscribe_namespace->track_namespace_num, subscribe_namespace->track_namespace_tuple,
         NULL, 0);
     if (ret != XQC_OK) {
@@ -447,8 +621,19 @@ xqc_int_t
 xqc_moq_write_subscribe_namespace_ok(xqc_moq_session_t *session,
     xqc_moq_subscribe_namespace_ok_msg_t *subscribe_namespace_ok)
 {
-    xqc_int_t ret = xqc_moq_write_msg_generic(session, session->ctl_stream, &subscribe_namespace_ok->msg_base,
-                                     xqc_moq_msg_subscribe_namespace_ok_init_handler);
+    if (subscribe_namespace_ok == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_int_t ret = xqc_moq_writer_require(
+        session, XQC_MOQ_CAP_SUBSCRIBE_NAMESPACE);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    ret = xqc_moq_write_msg_generic(
+        session, session->ctl_stream, &subscribe_namespace_ok->msg_base,
+        xqc_moq_msg_subscribe_namespace_ok_init_handler);
     if (ret == XQC_OK) {
         const xqc_moq_track_ns_field_t *prefix_tuple = NULL;
         uint64_t prefix_num = 0;
@@ -466,8 +651,19 @@ xqc_int_t
 xqc_moq_write_subscribe_namespace_error(xqc_moq_session_t *session,
     xqc_moq_subscribe_namespace_error_msg_t *subscribe_namespace_error)
 {
-    xqc_int_t ret = xqc_moq_write_msg_generic(session, session->ctl_stream, &subscribe_namespace_error->msg_base,
-                                     xqc_moq_msg_subscribe_namespace_error_init_handler);
+    if (subscribe_namespace_error == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_int_t ret = xqc_moq_writer_require(
+        session, XQC_MOQ_CAP_SUBSCRIBE_NAMESPACE);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    ret = xqc_moq_write_msg_generic(
+        session, session->ctl_stream, &subscribe_namespace_error->msg_base,
+        xqc_moq_msg_subscribe_namespace_error_init_handler);
     if (ret == XQC_OK) {
         xqc_moq_session_reject_pending_inbound_ns(session, subscribe_namespace_error->request_id);
     }
@@ -478,7 +674,17 @@ xqc_int_t
 xqc_moq_write_unsubscribe_namespace(xqc_moq_session_t *session,
     xqc_moq_unsubscribe_namespace_msg_t *unsubscribe_namespace)
 {
-    xqc_int_t ret = xqc_moq_validate_full_track_name_for_write(session,
+    if (unsubscribe_namespace == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_int_t ret = xqc_moq_writer_require(
+        session, XQC_MOQ_CAP_SUBSCRIBE_NAMESPACE);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    ret = xqc_moq_validate_full_track_name_for_write(session,
         unsubscribe_namespace->track_namespace_num, unsubscribe_namespace->track_namespace_tuple,
         NULL, 0);
     if (ret != XQC_OK) {
@@ -607,7 +813,12 @@ xqc_moq_write_publish_namespace(xqc_moq_session_t *session,
         return -XQC_EPARAM;
     }
 
-    xqc_int_t ret = xqc_moq_validate_full_track_name_for_write(session,
+    xqc_int_t ret = xqc_moq_writer_require(session, XQC_MOQ_CAP_PUBLISH);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    ret = xqc_moq_validate_full_track_name_for_write(session,
         publish_namespace->track_namespace_num, publish_namespace->track_namespace_tuple,
         NULL, 0);
     if (ret != XQC_OK) {
@@ -630,7 +841,12 @@ xqc_moq_write_publish_namespace_done(xqc_moq_session_t *session,
         return -XQC_EPARAM;
     }
 
-    xqc_int_t ret = xqc_moq_validate_full_track_name_for_write(session,
+    xqc_int_t ret = xqc_moq_writer_require(session, XQC_MOQ_CAP_PUBLISH);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    ret = xqc_moq_validate_full_track_name_for_write(session,
         publish_namespace_done->track_namespace_num, publish_namespace_done->track_namespace_tuple,
         NULL, 0);
     if (ret != XQC_OK) {

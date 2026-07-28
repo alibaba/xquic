@@ -255,28 +255,11 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
 
         /* If upper layer provided explicit setup params, use them as-is. */
         if (setup_params && setup_params_num > 0) {
-            if (session->profile->wire_version == XQC_MOQ_VERSION_14) {
-                xqc_moq_client_setup_v14_msg_t client_setup_v14;
-                uint64_t versions_v14[] = {XQC_MOQ_VERSION_14};
-                client_setup_v14.versions_num = sizeof(versions_v14) / sizeof(versions_v14[0]);
-                client_setup_v14.versions = versions_v14;
-                xqc_log(session->log, XQC_LOG_INFO, "|send_client_setup_v14(custom)|params_num:%ui|",
-                        setup_params_num);
-                ret = xqc_moq_write_client_setup_v14(session, &client_setup_v14,
-                    (xqc_moq_message_parameter_t *)setup_params,
-                    setup_params_num);
-            } else {
-                xqc_moq_client_setup_msg_t client_setup;
-                uint64_t versions[] = {XQC_MOQ_VERSION_5};
-                client_setup.versions_num = sizeof(versions) / sizeof(versions[0]);
-                client_setup.versions = versions;
-                client_setup.params_num = setup_params_num;
-                client_setup.params =
-                    (xqc_moq_message_parameter_t *)setup_params;
-                xqc_log(session->log, XQC_LOG_INFO, "|send_client_setup(custom)|params_num:%ui|",
-                        setup_params_num);
-                ret = xqc_moq_write_client_setup(session, &client_setup);
-            }
+            xqc_log(session->log, XQC_LOG_INFO,
+                    "|send_client_setup|profile:%s|custom:1|params_num:%ui|",
+                    session->profile->name, setup_params_num);
+            ret = xqc_moq_write_client_setup_for_profile(
+                session, setup_params, setup_params_num);
         } else {
             /* Default setup params: ROLE + PATH (+ optional EXTDATA for v5). */
             xqc_int_t params_num = 2;
@@ -285,7 +268,7 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
                     {XQC_MOQ_PARAM_PATH, sizeof("path"), (uint8_t*)"path", 0, 0},
             };
             if (extdata && strlen(extdata) > 0
-                && session->profile->wire_version == XQC_MOQ_VERSION_5)
+                && session->profile->include_extdata_in_default_setup)
             {
                 params[params_num].type = XQC_MOQ_PARAM_EXTDATA;
                 params[params_num].length = strlen(extdata) + 1;
@@ -295,24 +278,11 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
                 params_num++;
             }
 
-            if (session->profile->wire_version == XQC_MOQ_VERSION_14) {
-                xqc_moq_client_setup_v14_msg_t client_setup_v14;
-                uint64_t versions_v14[] = {XQC_MOQ_VERSION_14};
-                client_setup_v14.versions_num = sizeof(versions_v14) / sizeof(versions_v14[0]);
-                client_setup_v14.versions = versions_v14;
-                xqc_log(session->log, XQC_LOG_INFO, "|send_client_setup_v14|params_num:%d|", params_num);
-                ret = xqc_moq_write_client_setup_v14(session, &client_setup_v14,
-                                                     params, params_num);
-            } else {
-                xqc_moq_client_setup_msg_t client_setup;
-                uint64_t versions[] = {XQC_MOQ_VERSION_5};
-                client_setup.versions_num = sizeof(versions) / sizeof(versions[0]);
-                client_setup.versions = versions;
-                client_setup.params_num = params_num;
-                client_setup.params = params;
-                xqc_log(session->log, XQC_LOG_INFO, "|send_client_setup|params_num:%d|", params_num);
-                ret = xqc_moq_write_client_setup(session, &client_setup);
-            }
+            xqc_log(session->log, XQC_LOG_INFO,
+                    "|send_client_setup|profile:%s|custom:0|params_num:%d|",
+                    session->profile->name, params_num);
+            ret = xqc_moq_write_client_setup_for_profile(
+                session, params, params_num);
         }
         if (ret < 0) {
             xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_write_client_setup error|ret:%d|", ret);

@@ -350,20 +350,11 @@ xqc_moq_stream_process_msg(xqc_moq_stream_t *moq_stream, uint8_t stream_fin, xqc
         return ret;
     }
 
-    if (moq_stream->decode_msg_ctx.cur_msg_type == XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT) {
-        if (!moq_stream->subgroup_header_valid) {
-            xqc_log(moq_stream->session->log, XQC_LOG_ERROR,
-                    "|subgroup stream object without header|");
-            return -XQC_EILLEGAL_FRAME;
-        }
-        xqc_moq_subgroup_msg_t *subgroup = (xqc_moq_subgroup_msg_t *)msg_base;
-        subgroup->track_alias = moq_stream->subgroup_header.track_alias;
-        subgroup->group_id = moq_stream->subgroup_header.group_id;
-        subgroup->subgroup_id = moq_stream->subgroup_header.subgroup_id;
-        subgroup->subgroup_type = moq_stream->subgroup_header.subgroup_type;
-        subgroup->subgroup_priority = moq_stream->subgroup_header.subgroup_priority;
-        if (moq_stream->decode_msg_ctx.cur_field_idx < 4) {
-            moq_stream->decode_msg_ctx.cur_field_idx = 4; // start decoding from object_delta
+    if (moq_stream->kind != XQC_MOQ_STREAM_CONTROL) {
+        ret = xqc_moq_profile_prepare_data_message(
+            moq_stream, moq_stream->decode_msg_ctx.cur_msg_type, msg_base);
+        if (ret != XQC_OK) {
+            return ret;
         }
     }
     ret = msg_base->decode(moq_stream->read_buf + moq_stream->read_buf_processed,

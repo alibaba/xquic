@@ -41,6 +41,7 @@ typedef struct xqc_moq_stream_s {
         xqc_moq_stream_header_track_msg_t track_header;
         xqc_moq_stream_header_group_msg_t group_header;
     };
+    uint8_t                     track_header_valid;
 
     uint8_t                     *read_buf;
     size_t                      read_buf_cap;

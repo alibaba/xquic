@@ -1,5 +1,7 @@
 #include <string.h>
 
+#include "moq/moq_transport/xqc_moq_session.h"
+#include "moq/moq_transport/xqc_moq_stream.h"
 #include "moq/moq_transport/version/xqc_moq_version.h"
 
 static const xqc_moq_alpn_policy_t xqc_moq_alpn_policies[] = {
@@ -83,6 +85,29 @@ xqc_moq_profile_has_capability(const xqc_moq_version_profile_t *profile,
     return (profile->capabilities & (uint64_t) capability) != 0;
 }
 
+xqc_int_t
+xqc_moq_profile_validate_setup(const xqc_moq_version_profile_t *profile,
+    uint64_t wire_version)
+{
+    if (profile == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    return profile->wire_version == wire_version ? XQC_OK : -XQC_EVERSION;
+}
+
+xqc_int_t
+xqc_moq_profile_require(const xqc_moq_version_profile_t *profile,
+    xqc_moq_capability_t capability)
+{
+    if (profile == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    return xqc_moq_profile_has_capability(profile, capability)
+           ? XQC_OK : -XQC_EALPN_NOT_SUPPORTED;
+}
+
 xqc_moq_stream_kind_t
 xqc_moq_profile_classify_stream(const xqc_moq_version_profile_t *profile,
     xqc_moq_stream_kind_t current_kind, uint64_t wire_type)
@@ -144,4 +169,55 @@ xqc_moq_profile_next_data_message(const xqc_moq_version_profile_t *profile,
 
     return profile->next_data_message(stream_kind, current_wire_type,
                                       next_wire_type);
+}
+
+xqc_int_t
+xqc_moq_profile_prepare_data_message(xqc_moq_stream_t *stream,
+    uint64_t wire_type, xqc_moq_msg_base_t *msg_base)
+{
+    if (stream == NULL || stream->session == NULL || msg_base == NULL
+        || stream->session->profile == NULL)
+    {
+        return -XQC_EPARAM;
+    }
+
+    xqc_int_t ret = xqc_moq_session_require_active(stream->session);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    if (stream->session->profile->prepare_data_message == NULL) {
+        return XQC_OK;
+    }
+
+    return stream->session->profile->prepare_data_message(
+        stream, wire_type, msg_base);
+}
+
+xqc_int_t
+xqc_moq_profile_decode_datagram(xqc_moq_session_t *session,
+    const uint8_t *data, size_t data_len)
+{
+    xqc_int_t ret;
+
+    if (session == NULL || data == NULL || data_len == 0) {
+        return -XQC_EPARAM;
+    }
+
+    ret = xqc_moq_session_require_active(session);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    ret = xqc_moq_profile_require(session->profile,
+                                  XQC_MOQ_CAP_OBJECT_DATAGRAM);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    if (session->profile->decode_datagram == NULL) {
+        return -XQC_EALPN_NOT_SUPPORTED;
+    }
+
+    return session->profile->decode_datagram(session, data, data_len);
 }

@@ -29,6 +29,7 @@ typedef struct xqc_moq_message_codec_entry_s {
     uint64_t wire_type;
     void *(*create)(void);
     void (*destroy)(void *);
+    void (*initialize)(xqc_moq_msg_base_t *);
 } xqc_moq_message_codec_entry_t;
 
 typedef xqc_moq_stream_kind_t (*xqc_moq_classify_stream_pt)(
@@ -41,12 +42,20 @@ typedef xqc_bool_t (*xqc_moq_next_data_message_pt)(
     xqc_moq_stream_kind_t stream_kind, uint64_t current_wire_type,
     uint64_t *next_wire_type);
 
+typedef xqc_int_t (*xqc_moq_prepare_data_message_pt)(
+    xqc_moq_stream_t *stream, uint64_t wire_type,
+    xqc_moq_msg_base_t *msg_base);
+
+typedef xqc_int_t (*xqc_moq_decode_datagram_pt)(
+    xqc_moq_session_t *session, const uint8_t *data, size_t data_len);
+
 typedef struct xqc_moq_version_profile_s {
     const char *name;
     uint64_t wire_version;
     uint64_t capabilities;
     uint64_t client_setup_type;
     uint64_t server_setup_type;
+    xqc_bool_t include_extdata_in_default_setup;
     const xqc_moq_message_codec_entry_t *control_codecs;
     size_t control_codecs_count;
     const xqc_moq_message_codec_entry_t *data_codecs;
@@ -54,6 +63,8 @@ typedef struct xqc_moq_version_profile_s {
     xqc_moq_classify_stream_pt classify_stream;
     xqc_moq_normalize_wire_type_pt normalize_wire_type;
     xqc_moq_next_data_message_pt next_data_message;
+    xqc_moq_prepare_data_message_pt prepare_data_message;
+    xqc_moq_decode_datagram_pt decode_datagram;
 } xqc_moq_version_profile_t;
 
 typedef struct {
@@ -81,6 +92,13 @@ xqc_bool_t xqc_moq_profile_has_capability(
     const xqc_moq_version_profile_t *profile,
     xqc_moq_capability_t capability);
 
+xqc_int_t xqc_moq_profile_validate_setup(
+    const xqc_moq_version_profile_t *profile, uint64_t wire_version);
+
+xqc_int_t xqc_moq_profile_require(
+    const xqc_moq_version_profile_t *profile,
+    xqc_moq_capability_t capability);
+
 xqc_moq_stream_kind_t xqc_moq_profile_classify_stream(
     const xqc_moq_version_profile_t *profile,
     xqc_moq_stream_kind_t current_kind, uint64_t wire_type);
@@ -93,5 +111,12 @@ xqc_bool_t xqc_moq_profile_next_data_message(
     const xqc_moq_version_profile_t *profile,
     xqc_moq_stream_kind_t stream_kind, uint64_t current_wire_type,
     uint64_t *next_wire_type);
+
+xqc_int_t xqc_moq_profile_prepare_data_message(
+    xqc_moq_stream_t *stream, uint64_t wire_type,
+    xqc_moq_msg_base_t *msg_base);
+
+xqc_int_t xqc_moq_profile_decode_datagram(
+    xqc_moq_session_t *session, const uint8_t *data, size_t data_len);
 
 #endif

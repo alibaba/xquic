@@ -1,4 +1,6 @@
 build/
+build-*/
+build_*/
 bss/
 *.swp
 third_party/

@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "moq/xqc_moq.h"
+#include "moq/moq_transport/xqc_moq_message.h"
 #include "moq/moq_transport/version/xqc_moq_version.h"
 #include "moq/moq_transport/xqc_moq_session.h"
 
@@ -106,10 +107,53 @@ xqc_test_session_profile_state(void)
     return 0;
 }
 
+static int
+xqc_test_message_collision_is_profile_local(void)
+{
+    xqc_moq_session_t v5_session;
+    xqc_moq_session_t v14_session;
+    const xqc_moq_alpn_policy_t *v5_policy;
+    const xqc_moq_alpn_policy_t *v14_policy;
+    uint64_t v5_version[] = {XQC_MOQ_VERSION_5};
+    uint64_t v14_version[] = {XQC_MOQ_VERSION_14};
+    xqc_moq_msg_base_t *v5_subscribe;
+    xqc_moq_msg_base_t *v14_subscribe;
+
+    v5_policy = xqc_moq_version_policy_for_alpn("moq-05", 6);
+    v14_policy = xqc_moq_version_policy_for_alpn("moq-14", 6);
+    memset(&v5_session, 0, sizeof(v5_session));
+    memset(&v14_session, 0, sizeof(v14_session));
+
+    XQC_TEST_ASSERT(xqc_moq_session_bind_policy(
+        &v5_session, v5_policy) == XQC_OK);
+    XQC_TEST_ASSERT(xqc_moq_session_negotiate_version(
+        &v5_session, v5_version, 1) == XQC_OK);
+    XQC_TEST_ASSERT(xqc_moq_session_bind_policy(
+        &v14_session, v14_policy) == XQC_OK);
+    XQC_TEST_ASSERT(xqc_moq_session_negotiate_version(
+        &v14_session, v14_version, 1) == XQC_OK);
+
+    v5_subscribe = xqc_moq_msg_create(&v5_session,
+        XQC_MOQ_STREAM_CONTROL, XQC_MOQ_MSG_SUBSCRIBE);
+    v14_subscribe = xqc_moq_msg_create(&v14_session,
+        XQC_MOQ_STREAM_CONTROL, XQC_MOQ_MSG_SUBSCRIBE);
+
+    XQC_TEST_ASSERT(v5_subscribe != NULL);
+    XQC_TEST_ASSERT(v14_subscribe != NULL);
+    XQC_TEST_ASSERT(v5_subscribe->encode != v14_subscribe->encode);
+
+    xqc_moq_msg_free(&v5_session, XQC_MOQ_STREAM_CONTROL,
+                     XQC_MOQ_MSG_SUBSCRIBE, v5_subscribe);
+    xqc_moq_msg_free(&v14_session, XQC_MOQ_STREAM_CONTROL,
+                     XQC_MOQ_MSG_SUBSCRIBE, v14_subscribe);
+    return 0;
+}
+
 int
 main(void)
 {
     return xqc_test_profile_lookup() == 0
            && xqc_test_session_profile_state() == 0
+           && xqc_test_message_collision_is_profile_local() == 0
            ? EXIT_SUCCESS : EXIT_FAILURE;
 }

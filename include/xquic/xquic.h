@@ -1881,6 +1881,16 @@ xqc_int_t xqc_conn_close_with_error(xqc_connection_t *conn, uint64_t err_code);
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_conn_get_errno(xqc_connection_t *conn);
 
+/**
+ * Get the negotiated application-layer protocol.
+ *
+ * The returned ALPN bytes are owned by the connection and remain valid until
+ * the connection is destroyed.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_conn_get_alpn(xqc_connection_t *conn,
+    const char **alpn, size_t *alpn_len);
+
 
 /**
  * Get ssl handler of specified connection
@@ -2300,4 +2310,3 @@ xqc_conn_settings_t xqc_conn_get_conn_settings_template(xqc_conn_settings_type_t
 #endif
 
 #endif /* _XQUIC_H_INCLUDED_ */
-

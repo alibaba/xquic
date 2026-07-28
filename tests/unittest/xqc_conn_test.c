@@ -4,6 +4,7 @@
 
 #include <CUnit/CUnit.h>
 #include <stdint.h>
+#include <string.h>
 #include "xquic/xquic.h"
 #include "xquic/xqc_errno.h"
 #include "src/transport/xqc_conn.h"
@@ -728,4 +729,23 @@ xqc_test_alpn_client_handshake_no_alpn(void)
     CU_ASSERT(conn->conn_flag & XQC_CONN_FLAG_ERROR);
 
     xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_conn_get_alpn(void)
+{
+    xqc_connection_t conn;
+    const char *alpn = NULL;
+    size_t alpn_len = 0;
+
+    xqc_memzero(&conn, sizeof(conn));
+    CU_ASSERT(xqc_conn_get_alpn(NULL, &alpn, &alpn_len) == -XQC_EPARAM);
+    CU_ASSERT(xqc_conn_get_alpn(&conn, &alpn, &alpn_len)
+              == -XQC_EALPN_NOT_REGISTERED);
+
+    conn.alpn = "moq-14";
+    conn.alpn_len = strlen(conn.alpn);
+    CU_ASSERT(xqc_conn_get_alpn(&conn, &alpn, &alpn_len) == XQC_OK);
+    CU_ASSERT(alpn == conn.alpn);
+    CU_ASSERT(alpn_len == 6);
 }

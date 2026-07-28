@@ -3221,6 +3221,22 @@ xqc_conn_get_errno(xqc_connection_t *conn)
     return conn->conn_err;
 }
 
+xqc_int_t
+xqc_conn_get_alpn(xqc_connection_t *conn, const char **alpn, size_t *alpn_len)
+{
+    if (conn == NULL || alpn == NULL || alpn_len == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    if (conn->alpn == NULL || conn->alpn_len == 0) {
+        return -XQC_EALPN_NOT_REGISTERED;
+    }
+
+    *alpn = conn->alpn;
+    *alpn_len = conn->alpn_len;
+    return XQC_OK;
+}
+
 void *
 xqc_conn_get_ssl(xqc_connection_t *conn)
 {

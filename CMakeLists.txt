@@ -172,6 +172,7 @@ endif()
 
 # testing
 if(XQC_ENABLE_TESTING)
+    enable_testing()
     add_subdirectory(tests)
     add_subdirectory(demo)
     add_subdirectory(mini)
@@ -430,4 +431,3 @@ if(CMAKE_BUILD_TYPE STREQUAL MinSizeRel)
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
             COMMAND ${CMAKE_STRIP} libxquic.so)
 endif()
-

@@ -34,13 +34,16 @@ include_directories(
 
 add_executable(catalog_test ${CATALOG_TEST_SOURCE})
 target_link_libraries(catalog_test ${APP_DEPEND_LIBS})
+add_test(NAME catalog_test COMMAND catalog_test)
 
 
 add_executable(jitter_buffer_test ${JITTERBUFFER_TEST_SOURCE})
 target_link_libraries(jitter_buffer_test ${APP_DEPEND_LIBS})
+add_test(NAME jitter_buffer_test COMMAND jitter_buffer_test)
 
 add_executable(moq_message_test ${MOQ_MESSAGE_TEST_SOURCE})
 target_link_libraries(moq_message_test ${APP_DEPEND_LIBS})
+add_test(NAME moq_message_test COMMAND moq_message_test)
 
 add_executable(moq_cancel_write_test ${MOQ_CANCEL_WRITE_TEST_SOURCE})
 target_link_libraries(moq_cancel_write_test ${APP_DEPEND_LIBS})

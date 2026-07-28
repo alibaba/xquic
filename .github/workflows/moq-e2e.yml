@@ -6,12 +6,20 @@ on:
     paths:
       - 'moq/**'
       - 'include/moq/**'
+      - 'include/xquic/xquic.h'
+      - 'src/transport/**'
+      - 'scripts/xquic.lds'
+      - 'CMakeLists.txt'
       - '.github/workflows/moq-e2e.yml'
   pull_request:
     branches: [main]
     paths:
       - 'moq/**'
       - 'include/moq/**'
+      - 'include/xquic/xquic.h'
+      - 'src/transport/**'
+      - 'scripts/xquic.lds'
+      - 'CMakeLists.txt'
       - '.github/workflows/moq-e2e.yml'
 
 jobs:
@@ -63,6 +71,9 @@ jobs:
               -DSSL_LIB_PATH=${SSL_LIB_PATH_STR} \
               ..
         make -j$(nproc)
+
+    - name: Run MoQ unit tests
+      run: ctest --test-dir build --output-on-failure
 
     - name: Generate TLS certificates
       run: |

@@ -45,3 +45,7 @@ target_link_libraries(moq_message_test ${APP_DEPEND_LIBS})
 add_executable(moq_cancel_write_test ${MOQ_CANCEL_WRITE_TEST_SOURCE})
 target_link_libraries(moq_cancel_write_test ${APP_DEPEND_LIBS})
 add_test(NAME moq_cancel_write_test COMMAND moq_cancel_write_test)
+
+add_executable(moq_version_test "moq_version_test.c")
+target_link_libraries(moq_version_test ${APP_DEPEND_LIBS})
+add_test(NAME moq_version_test COMMAND moq_version_test)

@@ -129,6 +129,10 @@ XQUIC_VERS_1.0 {
         xqc_xor_code_cb;
         xqc_packet_mask_code_cb;
         xqc_conn_set_init_idle_timeout;
+        xqc_wt_*;
+        xqc_webtransport_*;
+        xqc_h3_conn_get_xqc_conn;
+        xqc_conn_get_public_remote_trans_settings;
     local:
         *;
 };

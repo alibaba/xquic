@@ -209,7 +209,9 @@ xqc_h3_ext_bytestream_create(xqc_engine_t *engine,
 
     h3_conn = (xqc_h3_conn_t*)stream->stream_conn->proto_data;
 
-    if (!(h3_conn->flags & XQC_H3_CONN_FLAG_EXT_ENABLED)) {
+    if (!(h3_conn->flags & XQC_H3_CONN_FLAG_EXT_ENABLED)
+        && !h3_conn->local_h3_conn_settings.enable_webtransport)
+    {
         // it is safe to destroy the stream here, as it is not notified to upper layer.
         xqc_destroy_stream(stream);
         xqc_log(engine->log, XQC_LOG_ERROR, "|try to create bytestream while it is disabled on the connection|");
@@ -510,6 +512,12 @@ xqc_h3_ext_bytestream_get_h3_conn(xqc_h3_ext_bytestream_t *h3_ext_bs)
     return h3_ext_bs->h3_stream->h3c;
 }
 
+xqc_h3_stream_t*
+xqc_h3_ext_bytestream_get_h3_stream(xqc_h3_ext_bytestream_t *h3_ext_bs)
+{
+    return h3_ext_bs->h3_stream;
+}
+
 xqc_int_t 
 xqc_h3_ext_bytestream_append_data_buf(xqc_h3_ext_bytestream_t *bs, 
     xqc_var_buf_t *buf)
@@ -630,7 +638,23 @@ xqc_h3_ext_bytestream_should_notify_read(xqc_h3_ext_bytestream_t *bs)
     return XQC_FALSE;
 }
 
-xqc_int_t 
+xqc_int_t
+xqc_h3_ext_bytestream_deliver_raw(xqc_h3_ext_bytestream_t *bs,
+    unsigned char *data, size_t data_len, uint8_t fin)
+{
+    if (bs == NULL) {
+        return -XQC_EPARAM;
+    }
+    if (bs->bs_callbacks && bs->bs_callbacks->bs_read_notify
+        && (bs->flag & XQC_H3_EXT_BYTESTREAM_FLAG_UPPER_LAYER_EXIST))
+    {
+        return bs->bs_callbacks->bs_read_notify(bs, data, data_len, fin,
+                                                 bs->user_data, 0);
+    }
+    return XQC_OK;
+}
+
+xqc_int_t
 xqc_h3_ext_bytestream_notify_read(xqc_h3_ext_bytestream_t *bs)
 {
     xqc_int_t ret = XQC_OK;

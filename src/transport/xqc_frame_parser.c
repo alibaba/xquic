@@ -1467,6 +1467,98 @@ xqc_parse_reset_stream_frame(xqc_packet_in_t *packet_in, xqc_stream_id_t *stream
     return XQC_OK;
 }
 
+ssize_t
+xqc_gen_reset_stream_at_frame(xqc_packet_out_t *packet_out,
+    xqc_stream_id_t stream_id, uint64_t err_code, uint64_t final_size,
+    uint64_t reliable_size)
+{
+    unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
+    const unsigned char *begin = dst_buf;
+
+    unsigned frame_type_bits = xqc_vint_get_2bit(XQC_TRANS_FRAME_TYPE_RESET_STREAM_AT);
+    unsigned stream_id_bits = xqc_vint_get_2bit(stream_id);
+    unsigned err_code_bits = xqc_vint_get_2bit(err_code);
+    unsigned final_size_bits = xqc_vint_get_2bit(final_size);
+    unsigned reliable_size_bits = xqc_vint_get_2bit(reliable_size);
+
+    unsigned need = xqc_vint_len(frame_type_bits)
+                    + xqc_vint_len(stream_id_bits)
+                    + xqc_vint_len(err_code_bits)
+                    + xqc_vint_len(final_size_bits)
+                    + xqc_vint_len(reliable_size_bits);
+    if (need > xqc_get_po_remained_size(packet_out)) {
+        return -XQC_ENOBUF;
+    }
+
+    xqc_vint_write(dst_buf, XQC_TRANS_FRAME_TYPE_RESET_STREAM_AT,
+        frame_type_bits, xqc_vint_len(frame_type_bits));
+    dst_buf += xqc_vint_len(frame_type_bits);
+
+    xqc_vint_write(dst_buf, stream_id, stream_id_bits, xqc_vint_len(stream_id_bits));
+    dst_buf += xqc_vint_len(stream_id_bits);
+
+    xqc_vint_write(dst_buf, err_code, err_code_bits, xqc_vint_len(err_code_bits));
+    dst_buf += xqc_vint_len(err_code_bits);
+
+    xqc_vint_write(dst_buf, final_size, final_size_bits, xqc_vint_len(final_size_bits));
+    dst_buf += xqc_vint_len(final_size_bits);
+
+    xqc_vint_write(dst_buf, reliable_size, reliable_size_bits,
+        xqc_vint_len(reliable_size_bits));
+    dst_buf += xqc_vint_len(reliable_size_bits);
+
+    packet_out->po_frame_types |= XQC_FRAME_BIT_RESET_STREAM_AT;
+    return dst_buf - begin;
+}
+
+xqc_int_t
+xqc_parse_reset_stream_at_frame(xqc_packet_in_t *packet_in,
+    xqc_stream_id_t *stream_id, uint64_t *err_code, uint64_t *final_size,
+    uint64_t *reliable_size, xqc_connection_t *conn)
+{
+    unsigned char *p = packet_in->pos;
+    const unsigned char *end = packet_in->last;
+    uint64_t frame_type = 0;
+    int vlen;
+
+    vlen = xqc_vint_read(p, end, &frame_type);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    vlen = xqc_vint_read(p, end, stream_id);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    vlen = xqc_vint_read(p, end, err_code);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    vlen = xqc_vint_read(p, end, final_size);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    vlen = xqc_vint_read(p, end, reliable_size);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    packet_in->pos = p;
+    packet_in->pi_frame_types |= XQC_FRAME_BIT_RESET_STREAM_AT;
+
+    xqc_log_event(conn->log, TRA_FRAMES_PROCESSED, XQC_FRAME_RESET_STREAM_AT,
+        *stream_id, *err_code, *final_size, *reliable_size);
+    return XQC_OK;
+}
+
 /*
  *
     0                   1                   2                   3

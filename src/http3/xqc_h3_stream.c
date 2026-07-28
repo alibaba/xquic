@@ -9,6 +9,17 @@
 #include "src/transport/xqc_engine.h"
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_ext_bytestream.h"
+#include "src/webtransport/xqc_webtransport_ctx.h"
+#include "src/common/utils/vint/xqc_variable_len_int.h"
+
+static xqc_bool_t
+xqc_h3_stream_is_forbidden_wt_stream_frame(xqc_h3_stream_t *h3s)
+{
+    xqc_h3_frame_pctx_t *pctx = &h3s->pctx.frame_pctx;
+
+    return pctx->frame.type == (xqc_h3_frm_type_t)XQC_H3_STREAM_TYPE_WT_BIDI
+           && !(h3s->flags & XQC_HTTP3_STREAM_FLAG_WT_BIDI);
+}
 
 xqc_h3_stream_t *
 xqc_h3_stream_create(xqc_h3_conn_t *h3c, xqc_stream_t *stream, xqc_h3_stream_type_t type,
@@ -565,7 +576,7 @@ xqc_h3_stream_send_finish(xqc_h3_stream_t *h3s)
     /* send buffer */
     ret = xqc_h3_stream_send_buffer(h3s);
     if (ret != XQC_OK) {
-        if (ret != -XQC_EAGAIN) {
+        if (ret != -XQC_EAGAIN && ret != -XQC_ESTREAM_RESET) {
             xqc_log(h3s->log, XQC_LOG_ERROR, "|h3 stream send buffer error|ret:%d|", ret);
         }
         return ret;
@@ -749,6 +760,14 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
             return -XQC_H3_CONTROL_FRAME_UNEXPECTED;
         }
 
+        if (xqc_h3_stream_is_forbidden_wt_stream_frame(h3s)) {
+            xqc_log(h3c->log, XQC_LOG_ERROR,
+                    "|WT_STREAM frame type on non-WT stream|stream_id:%ui|",
+                    h3s->stream_id);
+            xqc_h3_frm_reset_pctx(pctx);
+            return -H3_FRAME_ERROR;
+        }
+
         if (pctx->state != XQC_H3_FRM_STATE_END && data_len != processed) {
             xqc_log(h3c->log, XQC_LOG_ERROR, "|parse frame state error|state:%d"
                     "|data_len:%uz|processed:%uz|type:%xL|len:%uz|consumed:%uz",
@@ -786,6 +805,14 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 if (xqc_h3_frm_parse_setting(pl->settings.setting, (void *)h3c) < 0) {
                     xqc_h3_frm_reset_pctx(pctx);
                     return -H3_SETTINGS_ERROR;
+                }
+                {
+                    xqc_int_t settings_ret =
+                        xqc_wt_h3_settings_received(h3s->h3c);
+                    if (settings_ret != XQC_OK) {
+                        xqc_h3_frm_reset_pctx(pctx);
+                        return settings_ret;
+                    }
                 }
                 break;
 
@@ -846,6 +873,14 @@ xqc_h3_stream_process_push(xqc_h3_stream_t *h3s, unsigned char *data, size_t dat
         }
 
         processed += read;
+
+        if (xqc_h3_stream_is_forbidden_wt_stream_frame(h3s)) {
+            xqc_log(h3s->log, XQC_LOG_ERROR,
+                    "|WT_STREAM frame type on non-WT stream|stream_id:%ui|",
+                    h3s->stream_id);
+            xqc_h3_frm_reset_pctx(pctx);
+            return -H3_FRAME_ERROR;
+        }
 
         if (pctx->state != XQC_H3_FRM_STATE_END && data_len != processed) {
             xqc_log(h3s->log, XQC_LOG_ERROR, "|parse frame state error|state:%d||data_len:%uz|"
@@ -928,6 +963,14 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
         xqc_log(h3s->log, XQC_LOG_DEBUG, "|parse frame success|frame_type:%xL|len:%ui|read:%z|",
                 pctx->frame.type, pctx->frame.len, read);
         processed += read;
+
+        if (xqc_h3_stream_is_forbidden_wt_stream_frame(h3s)) {
+            xqc_log(h3s->log, XQC_LOG_ERROR,
+                    "|WT_STREAM frame type outside WT stream prefix|stream_id:%ui|",
+                    h3s->stream_id);
+            xqc_h3_frm_reset_pctx(pctx);
+            return -H3_FRAME_ERROR;
+        }
 
         xqc_bool_t fin = pctx->state == XQC_H3_FRM_STATE_END ? XQC_TRUE : XQC_FALSE;
 
@@ -1108,6 +1151,22 @@ xqc_h3_stream_process_bytestream(xqc_h3_stream_t *h3s,
     xqc_int_t ret;
     xqc_h3_ext_bytestream_data_buf_t *buf;
 
+    /* WebTransport bidi streams (RFC 9297) carry raw payload (session_id +
+     * application data) without H3 DATA frame wrapping.  Bypass the H3 frame
+     * parser and deliver via xqc_h3_ext_bytestream_deliver_raw, which calls
+     * wt_bs_read_notify → session_id parsing → application callback. */
+    if (h3s->flags & XQC_HTTP3_STREAM_FLAG_WT_BIDI) {
+        if (data_len > 0 || fin_flag) {
+            int wt_ret = 0;
+            xqc_wt_h3_bidi_stream_recv(h3s->h3c, h3s, data, data_len,
+                fin_flag, &wt_ret);
+            if (wt_ret < 0) {
+                return wt_ret;
+            }
+        }
+        return data_len;
+    }
+
     /* process bytestream bytes */
     while (processed < data_len) {
         xqc_log(h3s->log, XQC_LOG_DEBUG, "|parse frame|state:%d|data_len:%uz|process:%z|",
@@ -1125,6 +1184,14 @@ xqc_h3_stream_process_bytestream(xqc_h3_stream_t *h3s,
         xqc_log(h3s->log, XQC_LOG_DEBUG, "|parse frame success|frame_type:%xL|len:%ui|read:%z|",
                 pctx->frame.type, pctx->frame.len, read);
         processed += read;
+
+        if (xqc_h3_stream_is_forbidden_wt_stream_frame(h3s)) {
+            xqc_log(h3s->log, XQC_LOG_ERROR,
+                    "|WT_STREAM frame type outside WT stream prefix|stream_id:%ui|",
+                    h3s->stream_id);
+            xqc_h3_frm_reset_pctx(pctx);
+            return -H3_FRAME_ERROR;
+        }
 
         xqc_bool_t fin = pctx->state == XQC_H3_FRM_STATE_END ? XQC_TRUE : XQC_FALSE;
 
@@ -1234,7 +1301,8 @@ xqc_h3_stream_process_uni_payload(xqc_h3_stream_t *h3s, unsigned char *data, siz
 
 
 ssize_t
-xqc_h3_stream_process_uni(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_len)
+xqc_h3_stream_process_uni(xqc_h3_stream_t *h3s, unsigned char *data,
+    size_t data_len, xqc_bool_t fin_flag)
 {
     ssize_t processed = 0;
 
@@ -1270,6 +1338,23 @@ xqc_h3_stream_process_uni(xqc_h3_stream_t *h3s, unsigned char *data, size_t data
         }
     }
 
+    /* WebTransport uni stream (RFC 9297 Section 5): route to WT layer */
+    if (h3s->type == (xqc_h3_stream_type_t)XQC_H3_STREAM_TYPE_WT_UNI) {
+        if (!(h3s->flags & XQC_HTTP3_STREAM_FLAG_WT_UNI_CREATED)) {
+            h3s->flags |= XQC_HTTP3_STREAM_FLAG_WT_UNI_CREATED;
+            int wt_ret = 0;
+            xqc_wt_h3_uni_stream_created(h3s->h3c, h3s, &wt_ret);
+        }
+        if (data_len > processed || fin_flag) {
+            int wt_ret = 0;
+            uint8_t *wt_data = data_len > processed ? data + processed : NULL;
+            xqc_wt_h3_uni_stream_recv(h3s->h3c, h3s,
+                wt_data, data_len - processed, fin_flag, &wt_ret);
+            processed = data_len;
+        }
+        return processed;
+    }
+
     if (data_len != processed) {
         /* deliver data to modules which is concerned */
         ssize_t read = xqc_h3_stream_process_uni_payload(h3s, data + processed,
@@ -1298,7 +1383,6 @@ xqc_h3_stream_process_bidi_payload(xqc_h3_stream_t *h3s, unsigned char *data, si
         break;
 
     case XQC_H3_STREAM_TYPE_BYTESTEAM:
-        //TODO: process bytestream 
         processed = xqc_h3_stream_process_bytestream(h3s, data, data_len, fin_flag);
         break; 
 
@@ -1375,6 +1459,41 @@ xqc_h3_stream_process_bidi_type_unknown(xqc_h3_stream_t *h3s,
     ssize_t processed = 0;
     xqc_int_t ret = 0;
     xqc_h3_bidi_stream_type_t bidi_stream_type = 0;
+    uint64_t wt_stream_type = 0;
+    int wt_stream_type_len = xqc_vint_read(data, data + data_len, &wt_stream_type);
+    if (wt_stream_type_len > 0
+        && wt_stream_type == (uint64_t)XQC_H3_STREAM_TYPE_WT_BIDI)
+    {
+        uint64_t wt_session_id = 0;
+        int wt_session_id_len = xqc_vint_read(data + wt_stream_type_len,
+            data + data_len, &wt_session_id);
+        if (wt_session_id_len <= 0) {
+            return 0;
+        }
+
+        h3s->type = XQC_H3_STREAM_TYPE_BYTESTEAM;
+        h3s->flags |= XQC_HTTP3_STREAM_FLAG_WT_BIDI;
+        pctx->frame.type = (xqc_h3_frm_type_t)XQC_H3_STREAM_TYPE_WT_BIDI;
+        pctx->frame.len = wt_session_id;
+        pctx->frame.consumed_len = 0;
+        pctx->state = XQC_H3_FRM_STATE_END;
+
+        ret = xqc_h3_stream_create_inner_bytestream(h3s);
+        if (ret != XQC_OK) {
+            xqc_h3_frm_reset_pctx(pctx);
+            return ret;
+        }
+        int wt_ret = 0;
+        xqc_wt_h3_bidi_stream_created(h3s->h3c, h3s, &wt_ret);
+        if (wt_ret < 0) {
+            xqc_h3_frm_reset_pctx(pctx);
+            return wt_ret;
+        }
+        /* H3 consumes only the WT stream type marker.  The session_id is
+         * part of the WebTransport stream payload and must be delivered to
+         * the WT layer so it can route the stream to the owning session. */
+        return wt_stream_type_len;
+    }
 
     /* trying to parse the first frame */
     xqc_log(h3s->log, XQC_LOG_DEBUG, "|parse frame|state:%d|data_len:%uz|process:%z|",
@@ -1398,7 +1517,20 @@ xqc_h3_stream_process_bidi_type_unknown(xqc_h3_stream_t *h3s,
         xqc_log(h3s->log, XQC_LOG_DEBUG, "|parse frame type success|frame_type:%xL|read:%z|",
                 pctx->frame.type, read);
         
-        if (pctx->frame.type != XQC_H3_EXT_FRM_BIDI_STREAM_TYPE) {
+        if (pctx->frame.type == (xqc_h3_frm_type_t)XQC_H3_STREAM_TYPE_WT_BIDI) {
+            /* WebTransport bidi stream (RFC 9297 Section 5): raw payload, no H3 frames */
+            h3s->type = XQC_H3_STREAM_TYPE_BYTESTEAM;
+            h3s->flags |= XQC_HTTP3_STREAM_FLAG_WT_BIDI;
+            ret = xqc_h3_stream_create_inner_bytestream(h3s);
+            if (ret == XQC_OK) {
+                int wt_ret = 0;
+                xqc_wt_h3_bidi_stream_created(h3s->h3c, h3s, &wt_ret);
+                if (wt_ret < 0) {
+                    ret = wt_ret;
+                }
+            }
+
+        } else if (pctx->frame.type != XQC_H3_EXT_FRM_BIDI_STREAM_TYPE) {
             /* the first frame is not BIDI_STREAM_TYPE */
             ret = xqc_h3_stream_create_inner_request_stream(h3s);
 
@@ -1475,6 +1607,38 @@ xqc_h3_stream_process_bidi(xqc_h3_stream_t *h3s, unsigned char *data, size_t dat
      */
 
     if (XQC_H3_STREAM_TYPE_UNKNOWN == h3s->type) {
+        uint64_t wt_stream_type = 0;
+        int wt_stream_type_len = xqc_vint_read(data, data + data_len,
+            &wt_stream_type);
+        if (wt_stream_type_len > 0
+            && wt_stream_type == (uint64_t)XQC_H3_STREAM_TYPE_WT_BIDI)
+        {
+            h3s->type = XQC_H3_STREAM_TYPE_BYTESTEAM;
+            h3s->flags |= XQC_HTTP3_STREAM_FLAG_WT_BIDI;
+            processed = xqc_h3_stream_create_inner_bytestream(h3s);
+            if (processed != XQC_OK) {
+                return processed;
+            }
+
+            int wt_ret = 0;
+            xqc_wt_h3_bidi_stream_created(h3s->h3c, h3s, &wt_ret);
+            if (wt_ret < 0) {
+                return wt_ret;
+            }
+
+            processed = wt_stream_type_len;
+            total_processed += processed;
+
+            processed = xqc_h3_stream_process_bytestream(h3s,
+                data + processed, data_len - processed, fin_flag);
+            if (processed < 0) {
+                return processed;
+            }
+            total_processed += processed;
+
+            return total_processed;
+        }
+
         if (h3s->h3c->flags & XQC_H3_CONN_FLAG_EXT_ENABLED) {
             processed = xqc_h3_stream_process_bidi_type_unknown(h3s, data, data_len, fin_flag);
 
@@ -1522,7 +1686,7 @@ xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_
 
     if (xqc_stream_is_uni(h3s->stream_id)) {
         /* process uni stream bytes */
-        processed = xqc_h3_stream_process_uni(h3s, data, data_len);
+        processed = xqc_h3_stream_process_uni(h3s, data, data_len, fin_flag);
         if (processed < 0 || processed != data_len) {
             xqc_log(h3c->log, XQC_LOG_ERROR, "|xqc_h3_stream_process_uni error|processed:%z"
                     "|size:%uz|stream_id:%ui|", processed, data_len, h3s->stream_id);
@@ -1882,15 +2046,16 @@ xqc_h3_stream_create_notify(xqc_stream_t *stream, void *user_data)
     xqc_connection_t *conn = stream->stream_conn;
     xqc_h3_conn_t    *h3c = conn->proto_data;
     
-    /* do not accept server initiated bidirectional streams at client */
     if (conn->conn_type == XQC_CONN_TYPE_CLIENT
         && stream->stream_type == XQC_SVR_BID)
     {
-        /* xquic do not support server-inited bidi stream, return error and
-           discard all subsequent stream data */
-        xqc_log(h3c->log, XQC_LOG_ERROR, 
-                "|ignore server initiated bidi-streams at client|");
-        return -XQC_ECREATE_STREAM;
+        if (!(h3c->flags & XQC_H3_CONN_FLAG_EXT_ENABLED)
+            && !h3c->local_h3_conn_settings.enable_webtransport)
+        {
+            xqc_log(h3c->log, XQC_LOG_ERROR,
+                    "|ignore server initiated bidi-streams at client|");
+            return -XQC_ECREATE_STREAM;
+        }
     }
 
     return XQC_OK;
@@ -1928,7 +2093,9 @@ xqc_h3_stream_read_notify(xqc_stream_t *stream, void *user_data)
     h3s->flags |= XQC_HTTP3_STREAM_IN_READING;
 
     /* check goaway */
-    if (xqc_h3_conn_is_goaway_recved(h3c, stream->stream_id) == XQC_TRUE) {
+    if (h3s->type == XQC_H3_STREAM_TYPE_REQUEST
+        && xqc_h3_conn_is_goaway_recved(h3c, stream->stream_id) == XQC_TRUE)
+    {
         /*
          * peer sent goaway and keep on sending data, 
          * stop it with STOP_SENDING frame 
@@ -2085,6 +2252,11 @@ xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data)
     }
 
     xqc_h3_stream_t *h3s = (xqc_h3_stream_t*)user_data;
+
+    if (h3s->type == XQC_H3_STREAM_TYPE_WT_UNI && h3s->h3c) {
+        xqc_wt_h3_uni_stream_closed(h3s->h3c, h3s);
+    }
+
     h3s->flags |= XQC_HTTP3_STREAM_FLAG_CLOSED;
 
     /*
@@ -2168,6 +2340,10 @@ xqc_h3_stream_closing_notify(xqc_stream_t *stream,
         && h3s->h3r)
     {
         xqc_h3_request_closing(h3s->h3r, err_code);
+    }
+
+    if (h3s->type == XQC_H3_STREAM_TYPE_WT_UNI && h3s->h3c) {
+        xqc_wt_h3_uni_stream_closing(h3s->h3c, h3s, err_code);
     }
 }
 

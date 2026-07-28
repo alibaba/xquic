@@ -20,6 +20,7 @@ typedef enum {
     XQC_FRAME_PING,
     XQC_FRAME_ACK,
     XQC_FRAME_RESET_STREAM,
+    XQC_FRAME_RESET_STREAM_AT,
     XQC_FRAME_STOP_SENDING,
     XQC_FRAME_CRYPTO,
     XQC_FRAME_NEW_TOKEN,
@@ -67,6 +68,8 @@ typedef uint64_t xqc_frame_type_bit_t;
     (1ULL << XQC_FRAME_ACK)
 #define XQC_FRAME_BIT_RESET_STREAM \
     (1ULL << XQC_FRAME_RESET_STREAM)
+#define XQC_FRAME_BIT_RESET_STREAM_AT \
+    (1ULL << XQC_FRAME_RESET_STREAM_AT)
 #define XQC_FRAME_BIT_STOP_SENDING \
     (1ULL << XQC_FRAME_STOP_SENDING)
 #define XQC_FRAME_BIT_CRYPTO \
@@ -191,6 +194,7 @@ xqc_int_t xqc_process_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in
 xqc_int_t xqc_process_conn_close_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 xqc_int_t xqc_process_reset_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
+xqc_int_t xqc_process_reset_stream_at_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 xqc_int_t xqc_process_stop_sending_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 

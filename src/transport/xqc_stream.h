@@ -92,6 +92,8 @@ typedef struct xqc_stream_data_in_s {
     uint64_t                next_read_offset;   /* next offset in stream */
     uint64_t                stream_length;
     xqc_bool_t              stream_determined;
+    xqc_bool_t              reset_at_received;
+    uint64_t                reset_at_reliable_size;
 
     /* buffered out-of-order frame resource tracking (CWE-770 mitigation) */
     uint64_t                buffered_frame_count;   /* number of buffered frame nodes */
@@ -303,4 +305,3 @@ xqc_bool_t xqc_is_stream_finished(xqc_stream_t *stream);
 
 void xqc_record_stream_state(xqc_stream_t *stream);
 #endif /* _XQC_STREAM_H_INCLUDED_ */
-

@@ -101,14 +101,17 @@ xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     xqc_int_t write_fps = xqc_moq_fps_counter_get(&media_track->fps_counter, now, 1000000);
 
     xqc_stream_t *quic_stream = stream->trans_ops.quic_stream(stream->trans_stream);
+    uint64_t stream_id = quic_stream ? quic_stream->stream_id : 0;
     
     xqc_free(buf);
     xqc_log(session->log, XQC_LOG_INFO,
             "|write video frame success|track_name:%s|subscribe_id:%ui|seq:%ui|"
-            "group_id:%ui|object_id:%ui|stream_id:%ui|video_len:%ui|type:%d|fps:%d|",
+            "group_id:%ui|object_id:%ui|stream_id:%ui|stream_pending:%d|"
+            "video_len:%ui|type:%d|fps:%d|",
             track->track_info.track_name, subscribe_id, video_frame->seq_num, 
-            object.group_id, object.object_id, quic_stream->stream_id, video_frame->video_len, 
-            video_frame->type, write_fps);
+            object.group_id, object.object_id, stream_id,
+            quic_stream == NULL, video_frame->video_len, video_frame->type,
+            write_fps);
     return XQC_OK;
 
 error:
@@ -160,13 +163,16 @@ xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     }
     
     xqc_stream_t *quic_stream = stream->trans_ops.quic_stream(stream->trans_stream);
+    uint64_t stream_id = quic_stream ? quic_stream->stream_id : 0;
 
     xqc_free(buf);
     xqc_log(session->log, XQC_LOG_INFO,
             "|write audio frame success|track_name:%s|subscribe_id:%ui|seq:%ui|"
-            "group_id:%ui|object_id:%ui|stream_id:%ui|audio_len:%ui|",
+            "group_id:%ui|object_id:%ui|stream_id:%ui|stream_pending:%d|"
+            "audio_len:%ui|",
             track->track_info.track_name, subscribe_id, audio_frame->seq_num, 
-            object.group_id, object.object_id, quic_stream->stream_id, audio_frame->audio_len);
+            object.group_id, object.object_id, stream_id,
+            quic_stream == NULL, audio_frame->audio_len);
     return XQC_OK;
 
 error:
@@ -193,15 +199,19 @@ search_from_head:
         quic_stream = stream->trans_ops.quic_stream(stream->trans_stream);
         if (stream->group_id < group_id
             || (stream->group_id == group_id && stream->object_id < object_id)) {
+            uint64_t stream_group_id = stream->group_id;
+            uint64_t stream_object_id = stream->object_id;
+            xqc_int_t send_state = quic_stream
+                ? quic_stream->stream_state_send : -1;
             xqc_log(session->log, XQC_LOG_INFO, "|do cancel stream|group_id:%ui|object_id:%ui|send_state:%d|",
-                    stream->group_id, stream->object_id, quic_stream->stream_state_send);
+                    stream_group_id, stream_object_id, send_state);
             xqc_list_del_init(&stream->list_member); /* Delete here or on moq stream destroy */
             xqc_moq_stream_close(stream);
             
             /* If the next node is deleted in xqc_moq_stream_close, search from head */
             if (next->next == next) {
                 xqc_log(session->log, XQC_LOG_WARN, "|next node deleted|group_id:%ui|object_id:%ui|send_state:%d|",
-                        stream->group_id, stream->object_id, quic_stream->stream_state_send);
+                        stream_group_id, stream_object_id, send_state);
                 goto search_from_head;
             }
         } else {
@@ -225,11 +235,14 @@ xqc_moq_media_maybe_cancel_write(xqc_moq_session_t *session, uint64_t subscribe_
     xqc_list_for_each_safe(pos, next, &media_track->write_stream_list) {
         stream = xqc_list_entry(pos, xqc_moq_stream_t, list_member);
         quic_stream = stream->trans_ops.quic_stream(stream->trans_stream);
-        create_time = quic_stream->stream_stats.create_time;
+        create_time = quic_stream
+            ? quic_stream->stream_stats.create_time : stream->create_time;
         if (now - create_time < XQC_MOQ_MEDIA_MAX_SEND_DELAY) {
             break;
         }
-        if (quic_stream->stream_state_send < XQC_SEND_STREAM_ST_DATA_RECVD) {
+        if (quic_stream == NULL
+            || quic_stream->stream_state_send < XQC_SEND_STREAM_ST_DATA_RECVD)
+        {
             xqc_log(session->log, XQC_LOG_INFO, "|video frame timeout|seq:%ui|group_id:%ui|object_id:%ui|",
                     video_frame->seq_num, stream->group_id, stream->object_id);
             
@@ -435,14 +448,16 @@ static void
 xqc_moq_media_on_subscribe_ok(xqc_moq_session_t *session, xqc_moq_track_t *track,
     xqc_moq_subscribe_ok_msg_t *subscribe_ok)
 {
-    session->session_callbacks.on_subscribe_ok(session->user_session, subscribe_ok);
+    session->session_callbacks.on_subscribe_ok(session->user_session, track,
+        &track->track_info, subscribe_ok);
 }
 
 static void
 xqc_moq_media_on_subscribe_error(xqc_moq_session_t *session, xqc_moq_track_t *track,
     xqc_moq_subscribe_error_msg_t *subscribe_error)
 {
-    session->session_callbacks.on_subscribe_error(session->user_session, subscribe_error);
+    session->session_callbacks.on_subscribe_error(session->user_session, track,
+        &track->track_info, subscribe_error);
 }
 
 static void

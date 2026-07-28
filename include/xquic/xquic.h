@@ -1357,6 +1357,7 @@ typedef struct xqc_conn_settings_s {
      * 65535: the local end is willing to receive a datagram with any length as long as it fits in a QUIC packet
      */
     uint16_t                    max_datagram_frame_size;
+    uint8_t                     reset_stream_at;
     
     /** 
      * multipath option:
@@ -2300,4 +2301,3 @@ xqc_conn_settings_t xqc_conn_get_conn_settings_template(xqc_conn_settings_type_t
 #endif
 
 #endif /* _XQUIC_H_INCLUDED_ */
-

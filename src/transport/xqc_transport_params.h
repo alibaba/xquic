@@ -68,6 +68,8 @@ typedef enum {
 
     /* max datagram frame size */
     XQC_TRANSPORT_PARAM_MAX_DATAGRAM_FRAME_SIZE             = 0x0020,
+    XQC_TRANSPORT_PARAM_RESET_STREAM_AT                     = 0x001d,
+    XQC_TRANSPORT_PARAM_RESET_STREAM_AT_LEGACY              = 0x17f7586d2cb571,
 
     /* do no cryption on 0-RTT and 1-RTT packets */
     XQC_TRANSPORT_PARAM_NO_CRYPTO                           = 0x1000,
@@ -142,6 +144,7 @@ typedef struct {
     * special: 65535, accept datagram frames with any length in a QUIC packet
     */
     uint64_t                max_datagram_frame_size;
+    uint8_t                 reset_stream_at;
 
     /**
      * no_crypto is a self-defined experimental transport parameter by xquic, xquic will do no

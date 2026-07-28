@@ -22,6 +22,71 @@
 char test_encode_tp_buf[XQC_MAX_TRANSPORT_PARAM_BUF_LEN];
 
 void
+xqc_test_reset_stream_at_codepoints()
+{
+    static const uint64_t current_codepoint = 0x1d;
+    static const uint64_t legacy_codepoint = 0x17f7586d2cb571;
+
+    uint8_t current_buf[] = {0x1d, 0x00};
+    xqc_transport_params_t params;
+    memset(&params, 0, sizeof(params));
+    xqc_int_t ret = xqc_decode_transport_params(&params,
+        XQC_TP_TYPE_ENCRYPTED_EXTENSIONS, current_buf, sizeof(current_buf));
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(params.reset_stream_at, 1);
+
+    uint8_t legacy_buf[16] = {0};
+    uint8_t *legacy_end = xqc_put_varint(legacy_buf, legacy_codepoint);
+    legacy_end = xqc_put_varint(legacy_end, 0);
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params,
+        XQC_TP_TYPE_ENCRYPTED_EXTENSIONS, legacy_buf,
+        (size_t)(legacy_end - legacy_buf));
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(params.reset_stream_at, 1);
+
+    memset(&params, 0, sizeof(params));
+    params.reset_stream_at = 1;
+    size_t nwrite = 0;
+    ret = xqc_encode_transport_params(&params, XQC_TP_TYPE_CLIENT_HELLO,
+        test_encode_tp_buf, sizeof(test_encode_tp_buf), &nwrite);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT(nwrite > 0);
+
+    xqc_bool_t found_current = XQC_FALSE;
+    xqc_bool_t found_legacy = XQC_FALSE;
+    const uint8_t *p = (const uint8_t *)test_encode_tp_buf;
+    const uint8_t *end = p + nwrite;
+    while (p < end) {
+        uint64_t param_type = 0;
+        uint64_t param_len = 0;
+        int nread = xqc_vint_read(p, end, &param_type);
+        CU_ASSERT(nread > 0);
+        if (nread <= 0) {
+            break;
+        }
+        p += nread;
+
+        nread = xqc_vint_read(p, end, &param_len);
+        CU_ASSERT(nread > 0);
+        if (nread <= 0) {
+            break;
+        }
+        p += nread;
+        CU_ASSERT((uint64_t)(end - p) >= param_len);
+        if ((uint64_t)(end - p) < param_len) {
+            break;
+        }
+
+        found_current |= param_type == current_codepoint;
+        found_legacy |= param_type == legacy_codepoint;
+        p += param_len;
+    }
+    CU_ASSERT_TRUE(found_current);
+    CU_ASSERT_FALSE(found_legacy);
+}
+
+void
 xqc_test_encode_transport_params()
 {
     xqc_int_t ret = XQC_OK;

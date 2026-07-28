@@ -1,0 +1,81 @@
+FROM ubuntu:24.04
+
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    build-essential cmake git libevent-dev libcunit1-dev \
+    openssl golang-go ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# ===== Build Go WT echo server =====
+WORKDIR /go_wt
+COPY go_wt_echo/go.mod go_wt_echo/go.sum ./
+RUN go mod download
+COPY go_wt_echo/main.go .
+RUN CGO_ENABLED=0 go build -o /usr/local/bin/wt_echo_server .
+
+# ===== Build xquic =====
+WORKDIR /xquic
+COPY xquic_src/ .
+
+# Build BabaSSL
+RUN cd third_party/babassl && \
+    ./config --prefix=$PWD/output && \
+    make -j$(nproc) && make install
+
+# Build xquic with WebTransport
+RUN mkdir -p build && cd build && \
+    cmake .. \
+      -DXQC_ENABLE_WEBTRANSPORT=ON \
+      -DXQC_ENABLE_TESTING=ON \
+      -DSSL_TYPE=babassl \
+      -DSSL_PATH=/xquic/third_party/babassl \
+      -DCMAKE_BUILD_TYPE=Release && \
+    make wt_test_server wt_test_client -j$(nproc)
+
+RUN cp build/src/webtransport/wt_test_server /usr/local/bin/ && \
+    cp build/src/webtransport/wt_test_client /usr/local/bin/
+
+# ===== Test environment =====
+WORKDIR /test
+RUN mkdir -p certs && openssl req -x509 -newkey ec \
+    -pkeyopt ec_paramgen_curve:prime256v1 \
+    -keyout certs/localhost.key -out certs/localhost.crt \
+    -days 14 -nodes -subj "/CN=localhost"
+
+# Test script
+RUN cat > /test/run_interop.sh << 'SCRIPT'
+#!/bin/bash
+set -e
+
+echo "=== Test 1: xquic server ← Go client (via aioquic proxy) ==="
+echo "Skipped (no aioquic in container)"
+
+echo ""
+echo "=== Test 2: xquic client → Go server ==="
+wt_echo_server 127.0.0.1:4434 &
+GO_PID=$!
+sleep 1
+timeout 15 wt_test_client 127.0.0.1 4434
+GO_RESULT=$?
+kill $GO_PID 2>/dev/null; wait $GO_PID 2>/dev/null
+
+echo ""
+echo "=== Test 3: Go server ← xquic server (bidirectional) ==="
+wt_test_server &
+XQUIC_PID=$!
+sleep 1
+# Use Go client would need a Go WT client, skip for now
+kill $XQUIC_PID 2>/dev/null; wait $XQUIC_PID 2>/dev/null
+
+echo ""
+echo "========================================"
+if [ $GO_RESULT -eq 0 ]; then
+  echo "xquic client → Go server: PASS"
+else
+  echo "xquic client → Go server: FAIL (exit=$GO_RESULT)"
+fi
+echo "========================================"
+exit $GO_RESULT
+SCRIPT
+chmod +x /test/run_interop.sh
+
+CMD ["/test/run_interop.sh"]

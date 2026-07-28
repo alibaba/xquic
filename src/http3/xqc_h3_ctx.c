@@ -27,65 +27,62 @@ xqc_h3_ctx_create(xqc_h3_callbacks_t *h3_cbs)
 }
 
 xqc_int_t
+xqc_h3_ctx_init_for_alpn(xqc_engine_t *engine, const char *alpn,
+    size_t alpn_len, xqc_h3_callbacks_t *h3_cbs)
+{
+    if (engine == NULL || alpn == NULL || alpn_len == 0 || h3_cbs == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_app_proto_callbacks_t ap_cbs = {
+        .conn_cbs   = h3_conn_callbacks,
+        .stream_cbs = h3_stream_callbacks,
+    };
+    if (engine->config->enable_h3_ext) {
+        ap_cbs.dgram_cbs = h3_ext_datagram_callbacks;
+    }
+
+    xqc_h3_ctx_t *h3_ctx = xqc_h3_ctx_create(h3_cbs);
+    if (h3_ctx == NULL) {
+        return -XQC_EMALLOC;
+    }
+
+    if (xqc_engine_register_alpn(engine, alpn, alpn_len, &ap_cbs, h3_ctx) != XQC_OK) {
+        xqc_free(h3_ctx);
+        return -XQC_EFATAL;
+    }
+
+    return XQC_OK;
+}
+
+xqc_int_t
 xqc_h3_ctx_init(xqc_engine_t *engine, xqc_h3_callbacks_t *h3_cbs)
 {
     if (engine == NULL || h3_cbs == NULL) {
         return -XQC_EPARAM;
     }
 
-    xqc_h3_ctx_t *h3_ctx = NULL;
-    xqc_int_t ret = XQC_OK;
-
-    /* init http3 layer callbacks */
-    xqc_app_proto_callbacks_t ap_cbs = {
-        .conn_cbs       = h3_conn_callbacks,
-        .stream_cbs     = h3_stream_callbacks,
-    };
-
-    h3_ctx = xqc_h3_ctx_create(h3_cbs);
-    if (h3_ctx == NULL) {
-        return -XQC_EMALLOC;
-    }
-
-    /* register H3 */
-    if (xqc_engine_register_alpn(engine, XQC_ALPN_H3, strlen(XQC_ALPN_H3), &ap_cbs, h3_ctx) != XQC_OK) {
-        xqc_free(h3_ctx);
-        ret = -XQC_EFATAL;
+    xqc_int_t ret = xqc_h3_ctx_init_for_alpn(engine, XQC_ALPN_H3,
+        strlen(XQC_ALPN_H3), h3_cbs);
+    if (ret != XQC_OK) {
         goto error;
     }
 
-    h3_ctx = xqc_h3_ctx_create(h3_cbs);
-    if (h3_ctx == NULL) {
-        ret = -XQC_EMALLOC;
-        goto error;
-    }
-
-    /* register H3-29 */
-    if (xqc_engine_register_alpn(engine, XQC_ALPN_H3_29, strlen(XQC_ALPN_H3_29), &ap_cbs, h3_ctx) != XQC_OK) {
-        xqc_free(h3_ctx);
-        ret = -XQC_EFATAL;
+    ret = xqc_h3_ctx_init_for_alpn(engine, XQC_ALPN_H3_29,
+        strlen(XQC_ALPN_H3_29), h3_cbs);
+    if (ret != XQC_OK) {
         goto error;
     }
 
     if (engine->config->enable_h3_ext) {
-
-        ap_cbs.dgram_cbs = h3_ext_datagram_callbacks;
-
-        h3_ctx = xqc_h3_ctx_create(h3_cbs);
-        if (h3_ctx == NULL) {
-            ret = -XQC_EMALLOC;
-            goto error;
-        }
-
-        /* register h3-ext ALPN */
-        if (xqc_engine_register_alpn(engine, XQC_ALPN_H3_EXT, strlen(XQC_ALPN_H3_EXT), &ap_cbs, h3_ctx) != XQC_OK) {
-            xqc_free(h3_ctx);
-            ret = -XQC_EFATAL;
+        ret = xqc_h3_ctx_init_for_alpn(engine, XQC_ALPN_H3_EXT,
+            strlen(XQC_ALPN_H3_EXT), h3_cbs);
+        if (ret != XQC_OK) {
             goto error;
         }
     }
 
-    return ret;
+    return XQC_OK;
 
 error:
     xqc_h3_ctx_destroy(engine);

@@ -1,0 +1,46 @@
+[project]
+name = "pyxquic-wt"
+version = "0.1.0"
+description = "WebTransport client/server powered by xquic QUIC/HTTP3 stack"
+requires-python = ">=3.9"
+dependencies = ["cffi>=1.15"]
+license = {text = "Apache-2.0"}
+readme = "README.md"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: C",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: System :: Networking",
+    "Framework :: AsyncIO",
+    "Development Status :: 3 - Alpha",
+]
+
+[project.optional-dependencies]
+cert = ["cryptography>=3.0"]
+
+[project.scripts]
+pyxquic-wt = "pyxquic_wt.cli:main"
+
+[build-system]
+requires = ["setuptools>=42", "cffi>=1.15", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+
+[tool.cibuildwheel]
+build = "cp39-* cp310-* cp311-* cp312-* cp313-*"
+skip = "*-win* *-musllinux* pp*"
+test-command = "python -c \"from pyxquic_wt import serve; print('OK')\""
+
+before-build = [
+    "SSL_BACKEND=boringssl bash {project}/../../scripts/build_wt_py.sh",
+]
+
+[tool.cibuildwheel.linux]
+manylinux-x86_64-image = "manylinux2014"
+manylinux-aarch64-image = "manylinux2014"
+repair-wheel-command = "auditwheel repair -w {dest_dir} {wheel}"
+
+[tool.cibuildwheel.macos]
+repair-wheel-command = "delocate-wheel --require-archs {delocate_archs} -w {dest_dir} {wheel}"

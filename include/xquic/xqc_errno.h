@@ -77,6 +77,7 @@ typedef enum {
     H3_MESSAGE_ERROR                = 0x10E,
     H3_CONNECT_ERROR                = 0x10F,
     H3_VERSION_FALLBACK             = 0x110,
+    H3_DATAGRAM_ERROR               = 0x33,
 } xqc_h3_err_code_t;
 
 /**

@@ -2,13 +2,15 @@
 #define _XQC_MOQ_H_INCLUDED_
 
 #include <xquic/xquic.h>
+#include <xquic/xqc_http3.h>
+#include <xquic/xqc_webtransport.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #define XQC_ALPN_MOQ_QUIC         "moq-quic"
-#define XQC_ALPN_MOQ_WEBTRANSPORT "moq-wt"
+#define XQC_MOQ_WT_PATH           "/moq"
 
 typedef enum {
     XQC_MOQ_VIDEO_KEY,
@@ -193,23 +195,33 @@ typedef struct xqc_moq_subscribe_error_msg_s {
     uint64_t                    track_alias;
 } xqc_moq_subscribe_error_msg_t;
 
+typedef struct xqc_moq_unsubscribe_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    subscribe_id;
+} xqc_moq_unsubscribe_msg_t;
+
 typedef void (*xqc_moq_on_session_setup_pt)(xqc_moq_user_session_t *user_session, char *extdata);
 
-typedef void (*xqc_moq_on_datachannel_pt)(xqc_moq_user_session_t *user_session);
+typedef void (*xqc_moq_on_datachannel_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_track_info_t *track_info);
 
-typedef void (*xqc_moq_on_datachannel_msg_pt)(xqc_moq_user_session_t *user_session, uint8_t *msg, size_t msg_len);
+typedef void (*xqc_moq_on_datachannel_msg_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_track_info_t *track_info, uint8_t *msg, size_t msg_len);
 
 typedef void (*xqc_moq_on_subscribe_pt)(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     xqc_moq_track_t *track, xqc_moq_subscribe_msg_t *msg);
 
+typedef void (*xqc_moq_on_unsubscribe_pt)(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
+    xqc_moq_track_t *track);
+
 typedef void (*xqc_moq_on_request_keyframe_pt)(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     xqc_moq_track_t *track);
 
-typedef void (*xqc_moq_on_subscribe_ok_pt)(xqc_moq_user_session_t *user_session,
-    xqc_moq_subscribe_ok_msg_t *subscribe_ok);
+typedef void (*xqc_moq_on_subscribe_ok_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_track_info_t *track_info, xqc_moq_subscribe_ok_msg_t *subscribe_ok);
 
-typedef void (*xqc_moq_on_subscribe_error_pt)(xqc_moq_user_session_t *user_session,
-    xqc_moq_subscribe_error_msg_t *subscribe_error);
+typedef void (*xqc_moq_on_subscribe_error_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_track_info_t *track_info, xqc_moq_subscribe_error_msg_t *subscribe_error);
 
 typedef void (*xqc_moq_on_catalog_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_info_t **track_info_array,
     xqc_int_t array_size);
@@ -224,8 +236,11 @@ typedef void (*xqc_moq_on_audio_frame_pt)(xqc_moq_user_session_t *user_session, 
  * @brief There are two ways to get the target bitrate. 
  * 1. Call xqc_moq_target_bitrate before encoding. 
  * 2. Register the xqc_moq_on_bitrate_change_pt callback. A callback notification occurs when the target bitrate changes
+ * @param track The track whose bitrate changes, NULL if unavailable
+ * @param track_info The metadata of the track, NULL if unavailable
  */
-typedef void (*xqc_moq_on_bitrate_change_pt)(xqc_moq_user_session_t *user_session, uint64_t bitrate);
+typedef void (*xqc_moq_on_bitrate_change_pt)(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
+    xqc_moq_track_info_t *track_info, uint64_t bitrate);
 
 typedef struct {
     xqc_moq_on_session_setup_pt     on_session_setup; /* Required */
@@ -233,6 +248,7 @@ typedef struct {
     xqc_moq_on_datachannel_msg_pt   on_datachannel_msg; /* Required */
     /* For Publisher */
     xqc_moq_on_subscribe_pt         on_subscribe; /* Required */
+    xqc_moq_on_unsubscribe_pt       on_unsubscribe; /* Optional */
     xqc_moq_on_request_keyframe_pt  on_request_keyframe; /* Required */
     xqc_moq_on_bitrate_change_pt    on_bitrate_change; /* Optional */
     /* For Subscriber */
@@ -244,7 +260,22 @@ typedef struct {
 } xqc_moq_session_callbacks_t;
 
 XQC_EXPORT_PUBLIC_API
-void xqc_moq_init_alpn(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs, xqc_moq_transport_type_t transport_type);
+xqc_int_t xqc_moq_init_alpn(xqc_engine_t *engine,
+    xqc_conn_callbacks_t *conn_cbs,
+    xqc_moq_transport_type_t transport_type);
+
+/**
+ * @brief Initialize HTTP/3, WebTransport, and MoQ-over-WebTransport callbacks.
+ *
+ * The H3 and WT session callback structs are copied. The MoQ /moq path
+ * selector and MoQ WT stream callbacks are installed by this function.
+ * session_cbs and webtransport_session_create_notify are required because
+ * the application creates and owns the xqc_moq_session_t from that callback.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_init_webtransport(xqc_engine_t *engine,
+    xqc_h3_callbacks_t *h3_cbs,
+    xqc_webtransport_session_callbacks_t *session_cbs);
 
 /**
  * @param extdata The client can send extdata when creating a session. 
@@ -297,6 +328,9 @@ xqc_int_t xqc_moq_subscribe(xqc_moq_session_t *session, const char *track_namesp
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_subscribe_latest(xqc_moq_session_t *session, const char *track_namespace, const char *track_name);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_unsubscribe(xqc_moq_session_t *session, uint64_t subscribe_id);
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_request_keyframe(xqc_moq_session_t *session, uint64_t subscribe_id);

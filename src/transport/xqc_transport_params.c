@@ -245,6 +245,11 @@ xqc_transport_params_calc_length(const xqc_transport_params_t *params,
                xqc_put_varint_len(params->max_datagram_frame_size);
     }
 
+    if (params->reset_stream_at) {
+        len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_RESET_STREAM_AT)
+               + xqc_put_varint_len(0);
+    }
+
     if (params->conn_option_num) {
         len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_GOOGLE_CO) + 
                xqc_put_varint_len(params->conn_option_num * sizeof(uint32_t)) +
@@ -408,6 +413,10 @@ xqc_encode_transport_params(const xqc_transport_params_t *params,
     if (params->max_datagram_frame_size) {
         p = xqc_put_varint_param(p, XQC_TRANSPORT_PARAM_MAX_DATAGRAM_FRAME_SIZE,
                                  params->max_datagram_frame_size);
+    }
+
+    if (params->reset_stream_at) {
+        p = xqc_put_zero_length_param(p, XQC_TRANSPORT_PARAM_RESET_STREAM_AT);
     }
 
     if (params->no_crypto) {
@@ -911,6 +920,17 @@ xqc_decode_max_datagram_frame_size(xqc_transport_params_t *params, xqc_transport
     XQC_DECODE_VINT_VALUE(&params->max_datagram_frame_size, p, end);
 }
 
+static xqc_int_t
+xqc_decode_reset_stream_at(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
+    const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
+{
+    if (param_len != 0) {
+        return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+    }
+    params->reset_stream_at = 1;
+    return XQC_OK;
+}
+
 typedef enum {
     XQC_TP_DECODER_ORIGINAL_DEST_CONNECTION_ID = 0x0000,
     XQC_TP_DECODER_MAX_IDLE_TIMEOUT                    ,
@@ -932,6 +952,7 @@ typedef enum {
 
     XQC_TP_DECODER_ENABLE_MULTIPATH                    ,
     XQC_TP_DECODER_MAX_DATAGRAM_FRAME_SIZE             ,
+    XQC_TP_DECODER_RESET_STREAM_AT                     ,
     
     /* whether enable datagram reduncy */
     XQC_TP_DECODER_CLOSE_DGRAM_REDUNDANCY              ,
@@ -975,6 +996,7 @@ xqc_trans_param_decode_func xqc_trans_param_decode_func_list[] = {
     xqc_decode_retry_scid,
     xqc_decode_enable_multipath,
     xqc_decode_max_datagram_frame_size,
+    xqc_decode_reset_stream_at,
     xqc_decode_close_dgram_redundancy,
 #ifdef XQC_ENABLE_FEC
     xqc_decode_fec_version,
@@ -1020,6 +1042,10 @@ xqc_trans_param_get_index(uint64_t param_type)
 
     case XQC_TRANSPORT_PARAM_MAX_DATAGRAM_FRAME_SIZE:
         return XQC_TP_DECODER_MAX_DATAGRAM_FRAME_SIZE;
+
+    case XQC_TRANSPORT_PARAM_RESET_STREAM_AT:
+    case XQC_TRANSPORT_PARAM_RESET_STREAM_AT_LEGACY:
+        return XQC_TP_DECODER_RESET_STREAM_AT;
     
     case XQC_TRANSPORT_PARAM_CLOSE_DGRAM_REDUNDANCY:
         return XQC_TP_DECODER_CLOSE_DGRAM_REDUNDANCY;

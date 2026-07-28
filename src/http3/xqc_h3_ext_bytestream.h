@@ -43,8 +43,14 @@ xqc_bool_t xqc_h3_ext_bytestream_should_notify_read(xqc_h3_ext_bytestream_t *bs)
 
 xqc_int_t xqc_h3_ext_bytestream_notify_read(xqc_h3_ext_bytestream_t *bs);
 
-void xqc_h3_ext_bytestream_save_stats_from_stream(xqc_h3_ext_bytestream_t *bs, 
+void xqc_h3_ext_bytestream_save_stats_from_stream(xqc_h3_ext_bytestream_t *bs,
     xqc_stream_t *stream);
+
+/* deliver raw payload directly to bytestream read callback (for WebTransport) */
+xqc_int_t xqc_h3_ext_bytestream_deliver_raw(xqc_h3_ext_bytestream_t *bs,
+    unsigned char *data, size_t data_len, uint8_t fin);
+
+xqc_h3_stream_t *xqc_h3_ext_bytestream_get_h3_stream(xqc_h3_ext_bytestream_t *h3_ext_bs);
 
 /* to record performance statistics */
 void xqc_h3_ext_bytestream_recv_begin(xqc_h3_ext_bytestream_t *bs);

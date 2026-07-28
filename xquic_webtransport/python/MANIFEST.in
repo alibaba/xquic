@@ -1,0 +1,7 @@
+include pyxquic_wt/libxquic_wt_py.so*
+include pyxquic_wt/libxquic_wt_py.dylib
+include pyxquic_wt/py.typed
+recursive-include pyxquic_wt *.pyi
+include README.md
+include LICENSE
+recursive-include examples *.py

@@ -9,6 +9,7 @@
 #include <xquic/xquic_typedef.h>
 #include <xquic/xquic.h>
 #include <xquic/xqc_http3.h>
+#include <xquic/xqc_webtransport.h>
 #include <time.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -30,6 +31,8 @@
 #endif
 
 #include <moq/xqc_moq.h>
+#include "moq/moq_transport/xqc_moq_stream_webtransport.h"
+#include "moq/moq_transport/xqc_moq_session.h"
 
 #define DEBUG printf("%s:%d (%s)\n", __FILE__, __LINE__, __FUNCTION__);
 
@@ -58,6 +61,7 @@ int g_ipv6 = 0;
 int g_spec_local_addr = 0;
 int g_frame_num = 5;
 int g_fec_on = 0;
+int g_use_wt = 0;
 xqc_moq_role_t g_role = XQC_MOQ_PUBSUB;
 
 static void
@@ -361,9 +365,12 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata)
     user_conn->audio_track = audio_track;
 }
 
-void on_datachannel(xqc_moq_user_session_t *user_session)
+void on_datachannel(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info)
 {
     DEBUG;
+    printf("on_datachannel: track_namespace:%s track_name:%s\n",
+           track_info ? track_info->track_namespace : "null",
+           track_info ? track_info->track_name : "null");
 
     xqc_int_t ret;
     xqc_moq_session_t *session = user_session->session;
@@ -373,9 +380,12 @@ void on_datachannel(xqc_moq_user_session_t *user_session)
     }
 }
 
-void on_datachannel_msg(struct xqc_moq_user_session_s *user_session, uint8_t *msg, size_t msg_len)
+void on_datachannel_msg(struct xqc_moq_user_session_s *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, uint8_t *msg, size_t msg_len)
 {
     DEBUG;
+    printf("on_datachannel_msg: track_namespace:%s track_name:%s\n",
+           track_info ? track_info->track_namespace : "null",
+           track_info ? track_info->track_name : "null");
 }
 
 void on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
@@ -429,23 +439,30 @@ void on_request_keyframe(xqc_moq_user_session_t *user_session, uint64_t subscrib
     user_conn->request_keyframe = 1;
 }
 
-void on_bitrate_change(xqc_moq_user_session_t *user_session, uint64_t bitrate)
+void on_bitrate_change(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, uint64_t bitrate)
 {
     DEBUG;
+    printf("on_bitrate_change: track_namespace:%s track_name:%s bitrate:%" PRIu64 "\n",track_info->track_namespace, track_info->track_name, bitrate);
     /* Configure encoder target bitrate */
 }
 
-void on_subscribe_ok(xqc_moq_user_session_t *user_session, xqc_moq_subscribe_ok_msg_t *subscribe_ok)
+void on_subscribe_ok(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, xqc_moq_subscribe_ok_msg_t *subscribe_ok)
 {
     DEBUG;
+    printf("on_subscribe_ok: track_namespace:%s track_name:%s\n",
+           track_info ? track_info->track_namespace : "null",
+           track_info ? track_info->track_name : "null");
     printf("subscribe_id:%d expire_ms:%d content_exist:%d largest_group_id:%d largest_object_id:%d\n",
            (int)subscribe_ok->subscribe_id, (int)subscribe_ok->expire_ms, (int)subscribe_ok->content_exist,
            (int)subscribe_ok->largest_group_id, (int)subscribe_ok->largest_object_id);
 }
 
-void on_subscribe_error(xqc_moq_user_session_t *user_session, xqc_moq_subscribe_error_msg_t *subscribe_error)
+void on_subscribe_error(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, xqc_moq_subscribe_error_msg_t *subscribe_error)
 {
     DEBUG;
+    printf("on_subscribe_error: track_namespace:%s track_name:%s\n",
+           track_info ? track_info->track_namespace : "null",
+           track_info ? track_info->track_name : "null");
     printf("subscribe_id:%d error_code:%d reason_phrase:%s track_alias:%d\n",
            (int)subscribe_error->subscribe_id, (int)subscribe_error->error_code, subscribe_error->reason_phrase, (int)subscribe_error->track_alias);
 }
@@ -506,13 +523,9 @@ void on_audio_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     //printf("audio_data:%s\n",audio_frame->audio_data);
 }
 
-int
-xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data, void *conn_proto_data)
+static xqc_moq_session_callbacks_t
+xqc_client_get_moq_callbacks(void)
 {
-    DEBUG;
-    xqc_moq_user_session_t *user_session = (xqc_moq_user_session_t *)user_data;
-    user_conn_t *user_conn = (user_conn_t *)user_session->data;
-
     xqc_moq_session_callbacks_t callbacks = {
         .on_session_setup = on_session_setup,
         .on_datachannel = on_datachannel,
@@ -528,6 +541,17 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
         .on_video = on_video_frame,
         .on_audio = on_audio_frame,
     };
+    return callbacks;
+}
+
+int
+xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data, void *conn_proto_data)
+{
+    DEBUG;
+    xqc_moq_user_session_t *user_session = (xqc_moq_user_session_t *)user_data;
+    user_conn_t *user_conn = (user_conn_t *)user_session->data;
+
+    xqc_moq_session_callbacks_t callbacks = xqc_client_get_moq_callbacks();
     xqc_moq_session_t *session = xqc_moq_session_create(conn, user_session, XQC_MOQ_TRANSPORT_QUIC, g_role, callbacks, "extdata");
     if (session == NULL) {
         printf("create session error\n");
@@ -572,6 +596,105 @@ xqc_client_conn_handshake_finished(xqc_connection_t *conn, void *user_data, void
     DEBUG;
     xqc_moq_user_session_t *user_session = (xqc_moq_user_session_t *)user_data;
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
+}
+
+/* ---- WebTransport transport path (-w) ---- */
+
+int
+xqc_client_h3_conn_create_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, void *h3c_user_data)
+{
+    DEBUG;
+    xqc_moq_user_session_t *user_session = (xqc_moq_user_session_t *)h3c_user_data;
+    user_conn_t *user_conn = (user_conn_t *)user_session->data;
+    memcpy(&user_conn->cid, cid, sizeof(xqc_cid_t));
+    return 0;
+}
+
+int
+xqc_client_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, void *h3c_user_data)
+{
+    DEBUG;
+    xqc_moq_user_session_t *user_session = (xqc_moq_user_session_t *)h3c_user_data;
+    if (user_session->session) {
+        xqc_moq_session_destroy(user_session->session);
+        user_session->session = NULL;
+    }
+    free(user_session);
+    event_base_loopbreak(eb);
+    return 0;
+}
+
+static void
+xqc_client_wt_open_session_retry(int fd, short what, void *arg)
+{
+    xqc_moq_user_session_t *user_session = (xqc_moq_user_session_t *)arg;
+    user_conn_t *user_conn = (user_conn_t *)user_session->data;
+
+    xqc_int_t ret = xqc_wt_client_open_session(ctx.engine, &user_conn->cid,
+        XQC_MOQ_WT_PATH, TEST_ADDR, user_session);
+    if (ret == -XQC_EAGAIN) {
+        /* h3_request created, retry to actually send Extended CONNECT headers */
+        struct timeval tv = { 0, 10000 };
+        event_add(user_conn->ev_wt_open, &tv);
+
+    } else if (ret != XQC_OK) {
+        printf("xqc_wt_client_open_session error, ret:%d\n", ret);
+    }
+}
+
+void
+xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *h3c_user_data)
+{
+    DEBUG;
+    xqc_moq_user_session_t *user_session = (xqc_moq_user_session_t *)h3c_user_data;
+    user_conn_t *user_conn = (user_conn_t *)user_session->data;
+
+    user_conn->ev_wt_open = evtimer_new(eb, xqc_client_wt_open_session_retry, user_session);
+    struct timeval tv = { 0, 0 };
+    event_add(user_conn->ev_wt_open, &tv);
+}
+
+int
+xqc_client_wt_session_create_notify(xqc_webtransport_session_t *wt_session,
+    xqc_http_headers_t *headers, const xqc_cid_t *cid, void *h3c_user_data)
+{
+    DEBUG;
+    xqc_moq_user_session_t *user_session = (xqc_moq_user_session_t *)h3c_user_data;
+
+    xqc_moq_session_callbacks_t callbacks = xqc_client_get_moq_callbacks();
+    xqc_moq_session_t *session = xqc_moq_session_create(wt_session, user_session,
+        XQC_MOQ_TRANSPORT_WEBTRANSPORT, g_role, callbacks, "extdata");
+    if (session == NULL) {
+        printf("create wt moq session error\n");
+        return 0;
+    }
+    xqc_moq_configure_bitrate(session, 1000000, 8000000, 1000000);
+    return 1;
+}
+
+int
+xqc_client_wt_session_close_notify(xqc_webtransport_session_t *wt_session,
+    xqc_http_headers_t *headers, const xqc_cid_t *cid, void *h3c_user_data)
+{
+    DEBUG;
+    xqc_moq_user_session_t *user_session = (xqc_moq_user_session_t *)h3c_user_data;
+    user_conn_t *user_conn = (user_conn_t *)user_session->data;
+    if (user_conn->ev_send_timer) {
+        event_del(user_conn->ev_send_timer);
+        event_free(user_conn->ev_send_timer);
+        user_conn->ev_send_timer = NULL;
+    }
+    if (user_conn->ev_wt_open) {
+        event_del(user_conn->ev_wt_open);
+        event_free(user_conn->ev_wt_open);
+        user_conn->ev_wt_open = NULL;
+    }
+    user_conn->moq_session = NULL;
+    if (user_session->session) {
+        user_session->session->closing = XQC_TRUE;
+        xqc_moq_session_destroy(user_session->session);
+    }
+    return 0;
 }
 
 void
@@ -637,7 +760,7 @@ int main(int argc, char *argv[])
     uint8_t secret_key[16] = {0};
     int use_proxy = 0;
     int use_1rtt = 0;
-    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:f1")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:f1w")) != -1) {
         switch (ch) {
             case 'a':
                 printf("option addr :%s\n", optarg);
@@ -717,6 +840,10 @@ int main(int argc, char *argv[])
                 printf("option 1RTT :%s\n", "on");
                 use_1rtt = 1;
                 break;
+            case 'w': /* Use WebTransport instead of raw QUIC. */
+                printf("option webtransport :%s\n", "on");
+                g_use_wt = 1;
+                break;
             default:
                 printf("other option :%c\n", ch);
                 //usage(argc, argv);
@@ -770,7 +897,33 @@ int main(int argc, char *argv[])
             .conn_close_notify = xqc_client_conn_close_notify,
             .conn_handshake_finished = xqc_client_conn_handshake_finished,
     };
-    xqc_moq_init_alpn(ctx.engine, &conn_cbs, XQC_MOQ_TRANSPORT_QUIC);
+    if (g_use_wt) {
+        xqc_h3_callbacks_t h3_cbs = {
+            .h3c_cbs = {
+                .h3_conn_create_notify = xqc_client_h3_conn_create_notify,
+                .h3_conn_close_notify = xqc_client_h3_conn_close_notify,
+                .h3_conn_handshake_finished = xqc_client_h3_conn_handshake_finished,
+            },
+        };
+        xqc_webtransport_session_callbacks_t wt_session_cbs = {
+            .webtransport_session_create_notify = xqc_client_wt_session_create_notify,
+            .webtransport_session_close_notify = xqc_client_wt_session_close_notify,
+        };
+        ret = xqc_moq_init_webtransport(ctx.engine, &h3_cbs,
+            &wt_session_cbs);
+        if (ret != XQC_OK) {
+            printf("init moq webtransport error, ret: %d\n", ret);
+            return -1;
+        }
+
+    } else {
+        ret = xqc_moq_init_alpn(ctx.engine, &conn_cbs,
+            XQC_MOQ_TRANSPORT_QUIC);
+        if (ret != XQC_OK) {
+            printf("init moq quic error, ret: %d\n", ret);
+            return -1;
+        }
+    }
 
     xqc_moq_user_session_t *user_session = calloc(1, sizeof(xqc_moq_user_session_t) + sizeof(user_conn_t));
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
@@ -798,7 +951,15 @@ int main(int argc, char *argv[])
             .fec_code_rate = 0.1
         }
     };
-    
+
+    if (g_use_wt) {
+        /* xqc_h3_connect() picks ALPN from proto_version; must be V1 for "h3" */
+        conn_settings.proto_version = XQC_VERSION_V1;
+        /* WT draft-15 requires QUIC datagram + RESET_STREAM_AT support */
+        conn_settings.max_datagram_frame_size = 65535;
+        conn_settings.reset_stream_at = 1;
+    }
+
 #ifdef XQC_ENABLE_PROXY
     if (use_proxy) {
         uint8_t dcid[XQC_MOQ_PROXY_CID_LEN];
@@ -853,9 +1014,15 @@ int main(int argc, char *argv[])
     }
 
     const xqc_cid_t *cid;
-    cid = xqc_connect(ctx.engine, &conn_settings, user_conn->token, user_conn->token_len,
-                      server_addr, 0, &conn_ssl_config, user_conn->peer_addr,
-                      user_conn->peer_addrlen, XQC_ALPN_MOQ_QUIC, user_session);
+    if (g_use_wt) {
+        cid = xqc_h3_connect(ctx.engine, &conn_settings, user_conn->token, user_conn->token_len,
+                            server_addr, 0, &conn_ssl_config, user_conn->peer_addr,
+                            user_conn->peer_addrlen, user_session);
+    } else {
+        cid = xqc_connect(ctx.engine, &conn_settings, user_conn->token, user_conn->token_len,
+                          server_addr, 0, &conn_ssl_config, user_conn->peer_addr,
+                          user_conn->peer_addrlen, XQC_ALPN_MOQ_QUIC, user_session);
+    }
     if (cid == NULL) {
         printf("xqc_connect error, delete cache files then retry once\n");
         xqc_app_delete_file(FILE_SESSION_TICKET);
@@ -867,10 +1034,16 @@ int main(int argc, char *argv[])
         conn_ssl_config.session_ticket_len = 0;
         conn_ssl_config.transport_parameter_data = NULL;
         conn_ssl_config.transport_parameter_data_len = 0;
-        
-        cid = xqc_connect(ctx.engine, &conn_settings, user_conn->token, user_conn->token_len,
-                          server_addr, 0, &conn_ssl_config, user_conn->peer_addr,
-                          user_conn->peer_addrlen, XQC_ALPN_MOQ_QUIC, user_session);
+
+        if (g_use_wt) {
+            cid = xqc_h3_connect(ctx.engine, &conn_settings, user_conn->token, user_conn->token_len,
+                                server_addr, 0, &conn_ssl_config, user_conn->peer_addr,
+                                user_conn->peer_addrlen, user_session);
+        } else {
+            cid = xqc_connect(ctx.engine, &conn_settings, user_conn->token, user_conn->token_len,
+                              server_addr, 0, &conn_ssl_config, user_conn->peer_addr,
+                              user_conn->peer_addrlen, XQC_ALPN_MOQ_QUIC, user_session);
+        }
     }
     if (cid == NULL) {
         printf("xqc_connect error\n");

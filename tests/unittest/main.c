@@ -3,6 +3,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <CUnit/Basic.h>
 #include <CUnit/CUnit.h>
@@ -37,6 +38,10 @@
 #include "xqc_retry_test.h"
 #include "xqc_datagram_test.h"
 #include "xqc_h3_ext_test.h"
+#include "xqc_webtransport_test.h"
+#ifdef XQC_ENABLE_MOQ
+#include "xqc_moq_webtransport_test.h"
+#endif
 #include "xqc_galois_test.h"
 #include "xqc_fec_scheme_test.h"
 #include "xqc_fec_test.h"
@@ -129,6 +134,7 @@ main()
         || !CU_add_test(pSuite, "xqc_test_new_conn_id_active_limit_exceeded",
                         xqc_test_new_conn_id_active_limit_exceeded)
         || !CU_add_test(pSuite, "xqc_test_h3_frame", xqc_test_frame)
+        || !CU_add_test(pSuite, "xqc_test_reset_stream_at_codepoints", xqc_test_reset_stream_at_codepoints)
         || !CU_add_test(pSuite, "xqc_test_tls", xqc_test_tls)
         || !CU_add_test(pSuite, "xqc_test_h3_stream", xqc_test_stream)
         || !CU_add_test(pSuite, "xqc_test_h3_critical_stream_close", xqc_test_h3_critical_stream_close)
@@ -166,6 +172,30 @@ main()
         || !CU_add_test(pSuite, "xqc_test_retry", xqc_test_retry)
         || !CU_add_test(pSuite, "xqc_test_receive_invalid_dgram", xqc_test_receive_invalid_dgram)
         || !CU_add_test(pSuite, "xqc_test_h3_ext_frame", xqc_test_h3_ext_frame)
+        || !CU_add_test(pSuite, "xqc_test_wt_request_lifecycle", xqc_test_wt_request_lifecycle)
+        || !CU_add_test(pSuite, "xqc_test_wt_h3_passthrough_callbacks", xqc_test_wt_h3_passthrough_callbacks)
+        || !CU_add_test(pSuite, "xqc_test_wt_bidi_create_notify_after_session_id", xqc_test_wt_bidi_create_notify_after_session_id)
+        || !CU_add_test(pSuite, "xqc_test_wt_browser_dgram_fallback_on_establish", xqc_test_wt_browser_dgram_fallback_on_establish)
+        || !CU_add_test(pSuite, "xqc_test_wt_max_sessions_setting_survives_default_update", xqc_test_wt_max_sessions_setting_survives_default_update)
+        || !CU_add_test(pSuite, "xqc_test_wt_bidi_create_reject_stops_read", xqc_test_wt_bidi_create_reject_stops_read)
+        || !CU_add_test(pSuite, "xqc_test_wt_uni_create_reject_stops_read", xqc_test_wt_uni_create_reject_stops_read)
+        || !CU_add_test(pSuite, "xqc_test_wt_pending_stream_fallback_to_conn_table", xqc_test_wt_pending_stream_fallback_to_conn_table)
+        || !CU_add_test(pSuite, "xqc_test_wt_unistream_closing_notify_dispatch", xqc_test_wt_unistream_closing_notify_dispatch)
+        || !CU_add_test(pSuite, "xqc_test_wt_bidi_close_uses_cached_stream_id", xqc_test_wt_bidi_close_uses_cached_stream_id)
+        || !CU_add_test(pSuite, "xqc_test_wt_send_bidi_preserves_stream_blocked", xqc_test_wt_send_bidi_preserves_stream_blocked)
+        || !CU_add_test(pSuite, "xqc_test_wt_bidi_bytestream_failure_rolls_back", xqc_test_wt_bidi_bytestream_failure_rolls_back)
+        || !CU_add_test(pSuite, "xqc_test_wt_strict_requirements_are_role_aware", xqc_test_wt_strict_requirements_are_role_aware)
+        || !CU_add_test(pSuite, "xqc_test_wt_server_defers_connect_until_settings", xqc_test_wt_server_defers_connect_until_settings)
+        || !CU_add_test(pSuite, "xqc_test_wt_finish_connect_after_peer_stop_sending", xqc_test_wt_finish_connect_after_peer_stop_sending)
+#ifdef XQC_ENABLE_MOQ
+        || !CU_add_test(pSuite, "xqc_test_moq_stream_retries_after_short_write", xqc_test_moq_stream_retries_after_short_write)
+        || !CU_add_test(pSuite, "xqc_test_moq_session_destroy_clears_user_session", xqc_test_moq_session_destroy_clears_user_session)
+        || !CU_add_test(pSuite, "xqc_test_moq_wt_rejects_duplicate_control_stream", xqc_test_moq_wt_rejects_duplicate_control_stream)
+        || !CU_add_test(pSuite, "xqc_test_moq_legacy_wt_init_requires_session_callbacks", xqc_test_moq_legacy_wt_init_requires_session_callbacks)
+        || !CU_add_test(pSuite, "xqc_test_moq_wt_init_requires_session_create_notify", xqc_test_moq_wt_init_requires_session_create_notify)
+        || !CU_add_test(pSuite, "xqc_test_moq_wt_uni_retries_after_stream_credit", xqc_test_moq_wt_uni_retries_after_stream_credit)
+        || !CU_add_test(pSuite, "xqc_test_moq_wt_uni_reset_waits_for_final_close", xqc_test_moq_wt_uni_reset_waits_for_final_close)
+#endif
 #ifdef XQC_ENABLE_FEC
         || !CU_add_test(pSuite, "xqc_test_galois_calculation", xqc_test_galois_calculation)
         || !CU_add_test(pSuite, "xqc_test_fec_scheme", xqc_test_fec_scheme)
@@ -249,7 +279,18 @@ main()
     }
 
     CU_basic_set_mode(CU_BRM_VERBOSE);
-    CU_basic_run_tests();
+    const char *test_filter = getenv("XQC_CUNIT_TEST");
+    if (test_filter && test_filter[0]) {
+        CU_pTest pTest = CU_get_test_by_name(test_filter, pSuite);
+        if (pTest == NULL) {
+            printf("CUnit test not found: %s\n", test_filter);
+            CU_cleanup_registry();
+            return 1;
+        }
+        CU_basic_run_test(pSuite, pTest);
+    } else {
+        CU_basic_run_tests();
+    }
     failed_tests_count = CU_get_number_of_tests_failed();
 
     CU_cleanup_registry();

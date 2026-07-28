@@ -1,0 +1,73 @@
+### hq demo client/server ###
+set(
+    HQ_SOURCES
+    "../../demo/xqc_hq_ctx.c"
+    "../../demo/xqc_hq_conn.c"
+    "../../demo/xqc_hq_request.c"
+)
+
+
+set(WT_DEMO_BASE_SOURCES ${WEBTRANSPORT_SOURCES})
+list(TRANSFORM WT_DEMO_BASE_SOURCES REPLACE "^src/webtransport/" "")
+set (
+    NEW_WT_DEMO_SERVER_SOURCES
+    ${WT_DEMO_BASE_SOURCES}
+    "wt_demo_server.c"
+)
+
+
+set(
+    WT_VIDEO_SYNC_SERVER_SOURCES
+    ${WT_DEMO_BASE_SOURCES}
+    "wt_video_sync_server.cpp"
+    "wt_video_sync.cpp"
+)
+
+
+if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+    set(DEMO_SERVER_SOURCES
+        ${DEMO_SERVER_SOURCES}
+        ${GETOPT_SOURCES}
+    )
+
+    set(WT_DEMO_SERVER_SOURCES
+        ${WT_DEMO_SERVER_SOURCES}
+        ${GETOPT_SOURCES}
+    )
+
+    set(DEMO_CLIENT_SOURCES
+        ${DEMO_CLIENT_SOURCES}
+        ${GETOPT_SOURCES}
+    )
+endif()
+
+include_directories(
+    "${CMAKE_SOURCE_DIR}/"
+    "${CMAKE_SOURCE_DIR}/include"
+    ${CMAKE_SOURCE_DIR}
+    ${CUNIT_INCLUDE_DIRS}
+    ${LIBEVENT_INCLUDE_DIR}
+)
+
+
+
+# add_executable(wt_test_server ${WT_DEMO_SERVER_SOURCES})
+# add_executable(wt_video_sync_server ${WT_VIDEO_SYNC_SERVER_SOURCES})
+add_executable(wt_test_server ${NEW_WT_DEMO_SERVER_SOURCES})
+target_link_libraries(wt_test_server ${APP_DEPEND_LIBS})
+
+add_executable(wt_test_client "wt_test_client.c")
+target_link_libraries(wt_test_client ${APP_DEPEND_LIBS})
+
+# Shared library for Python CFFI bindings (pyxquic-wt)
+set(
+    WT_PY_API_SOURCES
+    ${WT_DEMO_BASE_SOURCES}
+    "xqc_wt_py_api.c"
+)
+add_library(xquic_wt_py SHARED ${WT_PY_API_SOURCES})
+target_link_libraries(xquic_wt_py ${APP_DEPEND_LIBS})
+set_target_properties(xquic_wt_py PROPERTIES
+    OUTPUT_NAME "xquic_wt_py"
+    POSITION_INDEPENDENT_CODE ON
+)

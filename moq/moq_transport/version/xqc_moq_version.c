@@ -119,6 +119,18 @@ xqc_moq_profile_classify_stream(const xqc_moq_version_profile_t *profile,
     return profile->classify_stream(current_kind, wire_type);
 }
 
+xqc_moq_stream_kind_t
+xqc_moq_profile_classify_outbound_stream(
+    const xqc_moq_version_profile_t *profile,
+    xqc_moq_stream_kind_t current_kind, uint64_t message_type)
+{
+    if (profile == NULL || profile->classify_outbound_stream == NULL) {
+        return current_kind;
+    }
+
+    return profile->classify_outbound_stream(current_kind, message_type);
+}
+
 const xqc_moq_message_codec_entry_t *
 xqc_moq_profile_find_codec(const xqc_moq_version_profile_t *profile,
     xqc_moq_stream_kind_t stream_kind, uint64_t wire_type)

@@ -91,6 +91,8 @@ xqc_moq_write_profile_message(xqc_moq_session_t *session,
         }
     }
 
+    stream->kind = xqc_moq_profile_classify_outbound_stream(
+        session->profile, stream->kind, wire_type);
     codec = xqc_moq_profile_find_codec(session->profile, stream->kind,
                                        wire_type);
     if (codec == NULL || codec->initialize == NULL) {

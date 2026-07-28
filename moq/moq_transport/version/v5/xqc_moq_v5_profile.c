@@ -126,6 +126,7 @@ const xqc_moq_version_profile_t xqc_moq_v5_profile_definition = {
     .data_codecs_count = sizeof(xqc_moq_v5_data_codecs)
                          / sizeof(xqc_moq_v5_data_codecs[0]),
     .classify_stream = xqc_moq_v5_classify_stream,
+    .classify_outbound_stream = xqc_moq_v5_classify_stream,
     .normalize_wire_type = NULL,
     .next_data_message = xqc_moq_v5_next_data_message,
     .prepare_data_message = xqc_moq_v5_prepare_data_message,

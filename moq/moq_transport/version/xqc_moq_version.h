@@ -40,6 +40,9 @@ typedef struct xqc_moq_message_codec_entry_s {
 typedef xqc_moq_stream_kind_t (*xqc_moq_classify_stream_pt)(
     xqc_moq_stream_kind_t current_kind, uint64_t wire_type);
 
+typedef xqc_moq_stream_kind_t (*xqc_moq_classify_outbound_stream_pt)(
+    xqc_moq_stream_kind_t current_kind, uint64_t message_type);
+
 typedef uint64_t (*xqc_moq_normalize_wire_type_pt)(
     xqc_moq_stream_kind_t stream_kind, uint64_t wire_type);
 
@@ -70,6 +73,7 @@ typedef struct xqc_moq_version_profile_s {
     const xqc_moq_message_codec_entry_t *data_codecs;
     size_t data_codecs_count;
     xqc_moq_classify_stream_pt classify_stream;
+    xqc_moq_classify_outbound_stream_pt classify_outbound_stream;
     xqc_moq_normalize_wire_type_pt normalize_wire_type;
     xqc_moq_next_data_message_pt next_data_message;
     xqc_moq_prepare_data_message_pt prepare_data_message;
@@ -112,6 +116,10 @@ xqc_int_t xqc_moq_profile_require(
 xqc_moq_stream_kind_t xqc_moq_profile_classify_stream(
     const xqc_moq_version_profile_t *profile,
     xqc_moq_stream_kind_t current_kind, uint64_t wire_type);
+
+xqc_moq_stream_kind_t xqc_moq_profile_classify_outbound_stream(
+    const xqc_moq_version_profile_t *profile,
+    xqc_moq_stream_kind_t current_kind, uint64_t message_type);
 
 const xqc_moq_message_codec_entry_t *xqc_moq_profile_find_codec(
     const xqc_moq_version_profile_t *profile,

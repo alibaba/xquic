@@ -80,6 +80,21 @@ xqc_moq_v14_classify_stream(xqc_moq_stream_kind_t current_kind,
     return XQC_MOQ_STREAM_UNKNOWN;
 }
 
+static xqc_moq_stream_kind_t
+xqc_moq_v14_classify_outbound_stream(xqc_moq_stream_kind_t current_kind,
+    uint64_t message_type)
+{
+    if (current_kind != XQC_MOQ_STREAM_UNKNOWN) {
+        return current_kind;
+    }
+
+    if (message_type == XQC_MOQ_MSG_SUBGROUP) {
+        return XQC_MOQ_STREAM_V14_SUBGROUP;
+    }
+
+    return XQC_MOQ_STREAM_UNKNOWN;
+}
+
 static uint64_t
 xqc_moq_v14_normalize_wire_type(xqc_moq_stream_kind_t stream_kind,
     uint64_t wire_type)
@@ -199,6 +214,7 @@ const xqc_moq_version_profile_t xqc_moq_v14_profile_definition = {
     .data_codecs_count = sizeof(xqc_moq_v14_data_codecs)
                          / sizeof(xqc_moq_v14_data_codecs[0]),
     .classify_stream = xqc_moq_v14_classify_stream,
+    .classify_outbound_stream = xqc_moq_v14_classify_outbound_stream,
     .normalize_wire_type = xqc_moq_v14_normalize_wire_type,
     .next_data_message = xqc_moq_v14_next_data_message,
     .prepare_data_message = xqc_moq_v14_prepare_data_message,

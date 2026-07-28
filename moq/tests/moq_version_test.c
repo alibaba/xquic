@@ -499,6 +499,71 @@ xqc_test_v5_control_writer_uses_profile_codec(void)
 }
 
 static int
+xqc_test_v5_outbound_object_stream_is_classified_by_profile(void)
+{
+    xqc_moq_session_t session;
+    xqc_moq_stream_t stream;
+    xqc_moq_object_stream_msg_t object;
+
+    xqc_memzero(&stream, sizeof(stream));
+    xqc_memzero(&object, sizeof(object));
+    XQC_TEST_ASSERT(xqc_test_activate_session(
+        &session, XQC_ALPN_MOQ_DRAFT_05,
+        sizeof(XQC_ALPN_MOQ_DRAFT_05) - 1, XQC_MOQ_VERSION_5) == 0);
+
+    stream.session = &session;
+    stream.kind = XQC_MOQ_STREAM_UNKNOWN;
+    stream.trans_ops.write = xqc_test_stream_write;
+    xqc_test_configure_object_stream(&object);
+
+    XQC_TEST_ASSERT(xqc_moq_write_object_stream_msg(
+        &session, &stream, &object) == XQC_OK);
+    XQC_TEST_ASSERT(stream.kind == XQC_MOQ_STREAM_V5_OBJECT);
+    XQC_TEST_ASSERT(stream.write_buf_len == sizeof(xqc_v5_object_stream));
+    XQC_TEST_ASSERT(memcmp(stream.write_buf, xqc_v5_object_stream,
+                           sizeof(xqc_v5_object_stream)) == 0);
+
+    xqc_free(stream.write_buf);
+    return 0;
+}
+
+static int
+xqc_test_v14_outbound_subgroup_stream_is_classified_by_profile(void)
+{
+    static uint8_t payload[] = "obj";
+    xqc_moq_session_t session;
+    xqc_moq_stream_t stream;
+    xqc_moq_subgroup_msg_t subgroup;
+
+    xqc_memzero(&stream, sizeof(stream));
+    xqc_memzero(&subgroup, sizeof(subgroup));
+    XQC_TEST_ASSERT(xqc_test_activate_session(
+        &session, XQC_ALPN_MOQ_DRAFT_14,
+        sizeof(XQC_ALPN_MOQ_DRAFT_14) - 1, XQC_MOQ_VERSION_14) == 0);
+
+    stream.session = &session;
+    stream.kind = XQC_MOQ_STREAM_UNKNOWN;
+    stream.trans_ops.write = xqc_test_stream_write;
+    subgroup.track_alias = 1;
+    subgroup.group_id = 2;
+    subgroup.subgroup_id = 3;
+    subgroup.subgroup_type = XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
+    subgroup.subgroup_priority = 4;
+    subgroup.object_id_delta = 5;
+    subgroup.payload = payload;
+    subgroup.payload_len = 3;
+
+    XQC_TEST_ASSERT(xqc_moq_write_subgroup_msg(
+        &session, &stream, &subgroup) == XQC_OK);
+    XQC_TEST_ASSERT(stream.kind == XQC_MOQ_STREAM_V14_SUBGROUP);
+    XQC_TEST_ASSERT(stream.write_buf_len > 0);
+    XQC_TEST_ASSERT(stream.write_buf[0] == XQC_MOQ_SUBGROUP_TYPE_WITH_ID);
+
+    xqc_free(stream.write_buf);
+    return 0;
+}
+
+static int
 xqc_test_v14_stream_preparation_is_profile_local(void)
 {
     xqc_moq_session_t session;
@@ -789,6 +854,8 @@ main(void)
         || xqc_test_unsupported_write_is_side_effect_free() != 0
         || xqc_test_datagram_requires_active_profile() != 0
         || xqc_test_v5_control_writer_uses_profile_codec() != 0
+        || xqc_test_v5_outbound_object_stream_is_classified_by_profile() != 0
+        || xqc_test_v14_outbound_subgroup_stream_is_classified_by_profile() != 0
         || xqc_test_v14_stream_preparation_is_profile_local() != 0
         || xqc_test_v5_stream_preparation_requires_track_header() != 0
         || xqc_test_subscribe_semantic_adapter() != 0

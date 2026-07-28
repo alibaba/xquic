@@ -23,6 +23,38 @@ static const xqc_moq_message_codec_entry_t xqc_moq_v5_control_codecs[] = {
     {XQC_MOQ_MSG_SUBSCRIBE_ERROR, xqc_moq_v5_create_subscribe_error,
      xqc_moq_v5_destroy_subscribe_error,
      xqc_moq_v5_msg_subscribe_error_init_handler},
+    {XQC_MOQ_MSG_UNSUBSCRIBE, xqc_moq_v5_create_unsubscribe,
+     xqc_moq_v5_destroy_unsubscribe,
+     xqc_moq_v5_msg_unsubscribe_init_handler},
+    {XQC_MOQ_MSG_GOAWAY, xqc_moq_v5_create_goaway,
+     xqc_moq_v5_destroy_goaway,
+     xqc_moq_v5_msg_goaway_init_handler},
+    {XQC_MOQ_V5_MSG_ANNOUNCE, xqc_moq_v5_create_announce,
+     xqc_moq_v5_destroy_announce,
+     xqc_moq_v5_msg_announce_init_handler},
+    {XQC_MOQ_V5_MSG_ANNOUNCE_OK, xqc_moq_v5_create_announce_ok,
+     xqc_moq_v5_destroy_announce_ok,
+     xqc_moq_v5_msg_announce_ok_init_handler},
+    {XQC_MOQ_V5_MSG_ANNOUNCE_ERROR, xqc_moq_v5_create_announce_error,
+     xqc_moq_v5_destroy_announce_error,
+     xqc_moq_v5_msg_announce_error_init_handler},
+    {XQC_MOQ_V5_MSG_UNANNOUNCE, xqc_moq_v5_create_unannounce,
+     xqc_moq_v5_destroy_unannounce,
+     xqc_moq_v5_msg_unannounce_init_handler},
+    {XQC_MOQ_V5_MSG_SUBSCRIBE_DONE, xqc_moq_v5_create_subscribe_done,
+     xqc_moq_v5_destroy_subscribe_done,
+     xqc_moq_v5_msg_subscribe_done_init_handler},
+    {XQC_MOQ_V5_MSG_ANNOUNCE_CANCEL,
+     xqc_moq_v5_create_announce_cancel,
+     xqc_moq_v5_destroy_announce_cancel,
+     xqc_moq_v5_msg_announce_cancel_init_handler},
+    {XQC_MOQ_MSG_TRACK_STATUS_REQUEST,
+     xqc_moq_v5_create_track_status_request,
+     xqc_moq_v5_destroy_track_status_request,
+     xqc_moq_v5_msg_track_status_request_init_handler},
+    {XQC_MOQ_MSG_TRACK_STATUS, xqc_moq_v5_create_track_status,
+     xqc_moq_v5_destroy_track_status,
+     xqc_moq_v5_msg_track_status_init_handler},
 };
 
 static const xqc_moq_message_codec_entry_t xqc_moq_v5_data_codecs[] = {
@@ -32,7 +64,8 @@ static const xqc_moq_message_codec_entry_t xqc_moq_v5_data_codecs[] = {
     {XQC_MOQ_MSG_STREAM_HEADER_TRACK, xqc_moq_v5_create_track_header,
      xqc_moq_v5_destroy_track_header,
      xqc_moq_v5_msg_track_header_init_handler},
-    {XQC_MOQ_MSG_TRACK_STREAM_OBJECT, xqc_moq_v5_create_track_stream_obj,
+    {XQC_MOQ_INTERNAL_TRACK_STREAM_OBJECT,
+     xqc_moq_v5_create_track_stream_obj,
      xqc_moq_v5_destroy_track_stream_obj,
      xqc_moq_v5_msg_track_stream_obj_init_handler},
 };
@@ -62,9 +95,9 @@ xqc_moq_v5_next_data_message(xqc_moq_stream_kind_t stream_kind,
 {
     if (stream_kind == XQC_MOQ_STREAM_V5_TRACK
         && (current_wire_type == XQC_MOQ_MSG_STREAM_HEADER_TRACK
-            || current_wire_type == XQC_MOQ_MSG_TRACK_STREAM_OBJECT))
+            || current_wire_type == XQC_MOQ_INTERNAL_TRACK_STREAM_OBJECT))
     {
-        *next_wire_type = XQC_MOQ_MSG_TRACK_STREAM_OBJECT;
+        *next_wire_type = XQC_MOQ_INTERNAL_TRACK_STREAM_OBJECT;
         return XQC_TRUE;
     }
 
@@ -77,7 +110,7 @@ xqc_moq_v5_prepare_data_message(xqc_moq_stream_t *stream,
 {
     (void)msg_base;
 
-    if (wire_type == XQC_MOQ_MSG_TRACK_STREAM_OBJECT
+    if (wire_type == XQC_MOQ_INTERNAL_TRACK_STREAM_OBJECT
         && (stream->kind != XQC_MOQ_STREAM_V5_TRACK
             || !stream->track_header_valid))
     {

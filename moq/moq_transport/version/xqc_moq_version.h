@@ -10,7 +10,6 @@ typedef enum {
     XQC_MOQ_STREAM_CONTROL,
     XQC_MOQ_STREAM_V5_OBJECT,
     XQC_MOQ_STREAM_V5_TRACK,
-    XQC_MOQ_STREAM_V5_GROUP,
     XQC_MOQ_STREAM_V14_SUBGROUP,
     XQC_MOQ_STREAM_UNKNOWN,
 } xqc_moq_stream_kind_t;
@@ -22,7 +21,6 @@ typedef enum {
 
 typedef enum {
     XQC_MOQ_CAP_TRACK_STREAM        = 1ULL << 0,
-    XQC_MOQ_CAP_GROUP_STREAM        = 1ULL << 1,
     XQC_MOQ_CAP_SUBGROUP_STREAM     = 1ULL << 2,
     XQC_MOQ_CAP_OBJECT_DATAGRAM     = 1ULL << 3,
     XQC_MOQ_CAP_PUBLISH             = 1ULL << 4,

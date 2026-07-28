@@ -4,6 +4,9 @@
 #include "moq/moq_transport/xqc_moq_stream.h"
 #include "moq/moq_transport/version/xqc_moq_version.h"
 
+#define XQC_MOQ_V14_SUBGROUP_WIRE_TYPE_MIN 0x10
+#define XQC_MOQ_V14_SUBGROUP_WIRE_TYPE_MAX 0x1d
+
 static const xqc_moq_message_codec_entry_t xqc_moq_v14_control_codecs[] = {
     {XQC_MOQ_MSG_SUBSCRIBE_UPDATE, xqc_moq_msg_create_subscribe_update,
      xqc_moq_msg_free_subscribe_update,
@@ -61,9 +64,21 @@ static const xqc_moq_message_codec_entry_t xqc_moq_v14_control_codecs[] = {
 };
 
 static const xqc_moq_message_codec_entry_t xqc_moq_v14_data_codecs[] = {
-    {XQC_MOQ_MSG_SUBGROUP, xqc_moq_msg_create_subgroup,
+    {XQC_MOQ_INTERNAL_SUBGROUP, xqc_moq_msg_create_subgroup,
      xqc_moq_msg_free_subgroup, xqc_moq_msg_subgroup_init_handler},
 };
+
+static xqc_bool_t
+xqc_moq_v14_is_subgroup_wire_type(uint64_t wire_type)
+{
+    /*
+     * draft-14 assigns 0x10..0x1d to Subgroup Header variants on a
+     * unidirectional data stream. Control-stream values in the same numeric
+     * range are classified separately by stream kind.
+     */
+    return wire_type >= XQC_MOQ_V14_SUBGROUP_WIRE_TYPE_MIN
+           && wire_type <= XQC_MOQ_V14_SUBGROUP_WIRE_TYPE_MAX;
+}
 
 static xqc_moq_stream_kind_t
 xqc_moq_v14_classify_stream(xqc_moq_stream_kind_t current_kind,
@@ -73,7 +88,7 @@ xqc_moq_v14_classify_stream(xqc_moq_stream_kind_t current_kind,
         return current_kind;
     }
 
-    if (wire_type >= 0x10 && wire_type <= 0x1d) {
+    if (xqc_moq_v14_is_subgroup_wire_type(wire_type)) {
         return XQC_MOQ_STREAM_V14_SUBGROUP;
     }
 
@@ -88,7 +103,7 @@ xqc_moq_v14_classify_outbound_stream(xqc_moq_stream_kind_t current_kind,
         return current_kind;
     }
 
-    if (message_type == XQC_MOQ_MSG_SUBGROUP) {
+    if (message_type == XQC_MOQ_INTERNAL_SUBGROUP) {
         return XQC_MOQ_STREAM_V14_SUBGROUP;
     }
 
@@ -100,10 +115,10 @@ xqc_moq_v14_normalize_wire_type(xqc_moq_stream_kind_t stream_kind,
     uint64_t wire_type)
 {
     if (stream_kind == XQC_MOQ_STREAM_V14_SUBGROUP
-        && ((wire_type >= 0x10 && wire_type <= 0x1d)
-            || wire_type == XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT))
+        && (xqc_moq_v14_is_subgroup_wire_type(wire_type)
+            || wire_type == XQC_MOQ_INTERNAL_SUBGROUP_STREAM_OBJECT))
     {
-        return XQC_MOQ_MSG_SUBGROUP;
+        return XQC_MOQ_INTERNAL_SUBGROUP;
     }
 
     return wire_type;
@@ -117,10 +132,10 @@ xqc_moq_v14_next_data_message(xqc_moq_stream_kind_t stream_kind,
         return XQC_FALSE;
     }
 
-    if ((current_wire_type >= 0x10 && current_wire_type <= 0x1d)
-        || current_wire_type == XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT)
+    if (xqc_moq_v14_is_subgroup_wire_type(current_wire_type)
+        || current_wire_type == XQC_MOQ_INTERNAL_SUBGROUP_STREAM_OBJECT)
     {
-        *next_wire_type = XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT;
+        *next_wire_type = XQC_MOQ_INTERNAL_SUBGROUP_STREAM_OBJECT;
         return XQC_TRUE;
     }
 
@@ -133,7 +148,7 @@ xqc_moq_v14_prepare_data_message(xqc_moq_stream_t *stream,
 {
     xqc_moq_subgroup_msg_t *subgroup;
 
-    if (wire_type != XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT) {
+    if (wire_type != XQC_MOQ_INTERNAL_SUBGROUP_STREAM_OBJECT) {
         return XQC_OK;
     }
 

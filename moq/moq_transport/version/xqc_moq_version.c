@@ -143,6 +143,16 @@ xqc_moq_profile_find_codec(const xqc_moq_version_profile_t *profile,
         return NULL;
     }
 
+    if ((stream_kind == XQC_MOQ_STREAM_V5_TRACK
+         && !xqc_moq_profile_has_capability(
+             profile, XQC_MOQ_CAP_TRACK_STREAM))
+        || (stream_kind == XQC_MOQ_STREAM_V14_SUBGROUP
+            && !xqc_moq_profile_has_capability(
+                profile, XQC_MOQ_CAP_SUBGROUP_STREAM)))
+    {
+        return NULL;
+    }
+
     if (profile->normalize_wire_type != NULL) {
         wire_type = profile->normalize_wire_type(stream_kind, wire_type);
     }

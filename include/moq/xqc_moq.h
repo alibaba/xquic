@@ -217,11 +217,6 @@ typedef enum {
     XQC_MOQ_MSG_PUBLISH             = 0x1D,
     XQC_MOQ_MSG_PUBLISH_OK          = 0x1E,
     XQC_MOQ_MSG_PUBLISH_ERROR       = 0x1F,
-    /* Phony message types */
-    XQC_MOQ_MSG_TRACK_STREAM_OBJECT = 0xA0,
-    XQC_MOQ_MSG_GROUP_STREAM_OBJECT = 0xA1,
-    XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT = 0xA2,
-    XQC_MOQ_MSG_SUBGROUP            = 0xA3,
 } xqc_moq_msg_type_t;
 
 typedef enum {

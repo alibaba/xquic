@@ -270,7 +270,15 @@ xqc_moq_stream_process(xqc_moq_stream_t *moq_stream, uint8_t *buf, size_t buf_le
                 break;
             case XQC_MOQ_DECODE_MSG:
                 ret = xqc_moq_stream_process_msg(moq_stream, fin, &msg_finish, &wait_more_data);
-                if (ret < 0 || (ret == 0 && wait_more_data == 0)) {
+                if (ret < 0) {
+                    xqc_log(moq_stream->session->log, XQC_LOG_ERROR,
+                            "|decode message error|ret:%d|msg_type:0x%xi|cur_field_idx:%d|",
+                            ret, moq_stream->decode_msg_ctx.cur_msg_type,
+                            moq_stream->decode_msg_ctx.cur_field_idx);
+                    xqc_moq_stream_clean_decode_msg_ctx(moq_stream);
+                    return ret;
+                }
+                if (ret == 0 && wait_more_data == 0) {
                     xqc_log(moq_stream->session->log, XQC_LOG_ERROR,
                             "|decode message error|ret:%d|msg_type:0x%xi|cur_field_idx:%d|",
                             ret, moq_stream->decode_msg_ctx.cur_msg_type, moq_stream->decode_msg_ctx.cur_field_idx);
@@ -347,7 +355,7 @@ xqc_moq_stream_process_msg(xqc_moq_stream_t *moq_stream, uint8_t stream_fin, xqc
     if (msg_base == NULL) {
         xqc_log(moq_stream->session->log, XQC_LOG_ERROR, "|unkonwn message type|msg_type:0x%xi|",
                 moq_stream->decode_msg_ctx.cur_msg_type);
-        return ret;
+        return -XQC_EALPN_NOT_SUPPORTED;
     }
 
     if (moq_stream->kind != XQC_MOQ_STREAM_CONTROL) {

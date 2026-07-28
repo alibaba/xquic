@@ -4004,7 +4004,7 @@ xqc_moq_msg_free_subgroup(void *msg)
 xqc_moq_msg_type_t
 xqc_moq_msg_subgroup_type()
 {
-    return XQC_MOQ_MSG_SUBGROUP;
+    return (xqc_moq_msg_type_t)XQC_MOQ_INTERNAL_SUBGROUP;
 }
 
 void
@@ -4477,7 +4477,7 @@ xqc_moq_msg_free_track_stream_obj(void *msg)
 xqc_moq_msg_type_t
 xqc_moq_msg_track_stream_obj_type()
 {
-    return XQC_MOQ_MSG_TRACK_STREAM_OBJECT;
+    return (xqc_moq_msg_type_t)XQC_MOQ_INTERNAL_TRACK_STREAM_OBJECT;
 }
 
 void
@@ -4491,7 +4491,7 @@ xqc_moq_msg_encode_track_stream_obj_len(xqc_moq_msg_base_t *msg_base)
 {
     xqc_int_t len = 0;
     xqc_moq_track_stream_obj_msg_t *object = (xqc_moq_track_stream_obj_msg_t*)msg_base;
-    //len += xqc_put_varint_len(XQC_MOQ_MSG_TRACK_STREAM_OBJECT); No type on the wire
+    // No message type is carried by a Track Stream Object.
     len += xqc_put_varint_len(object->group_id);
     len += xqc_put_varint_len(object->object_id);
     len += xqc_put_varint_len(object->payload_len);
@@ -4512,7 +4512,7 @@ xqc_moq_msg_encode_track_stream_obj(xqc_moq_msg_base_t *msg_base, uint8_t *buf, 
     }
 
     uint8_t *p = buf;
-    //p = xqc_put_varint(p, XQC_MOQ_MSG_TRACK_STREAM_OBJECT); No type on the wire
+    // No message type is carried by a Track Stream Object.
     p = xqc_put_varint(p, object->group_id);
     p = xqc_put_varint(p, object->object_id);
     p = xqc_put_varint(p, object->payload_len);

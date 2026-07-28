@@ -10,6 +10,7 @@
 #include "moq/moq_transport/xqc_moq_session.h"
 #include "moq/moq_transport/xqc_moq_stream.h"
 #include "moq/moq_transport/xqc_moq_subscribe.h"
+#include "src/common/xqc_log.h"
 
 #define XQC_TEST_ASSERT(expr)                                             \
     do {                                                                  \
@@ -31,6 +32,66 @@ typedef struct {
     size_t bytes_len;
     xqc_test_configure_message_pt configure;
 } xqc_test_v5_vector_t;
+
+typedef struct {
+    xqc_moq_msg_base_t          msg_base;
+    char                        *track_namespace;
+    size_t                      track_namespace_len;
+    uint64_t                    params_num;
+    xqc_moq_message_parameter_t *params;
+} xqc_test_v5_announce_msg_t;
+
+typedef struct {
+    xqc_moq_msg_base_t          msg_base;
+    char                        *track_namespace;
+    size_t                      track_namespace_len;
+} xqc_test_v5_namespace_msg_t;
+
+typedef struct {
+    xqc_moq_msg_base_t          msg_base;
+    char                        *track_namespace;
+    size_t                      track_namespace_len;
+    uint64_t                    error_code;
+    char                        *reason_phrase;
+    size_t                      reason_phrase_len;
+} xqc_test_v5_announce_error_msg_t;
+
+typedef struct {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    subscribe_id;
+    uint64_t                    status_code;
+    char                        *reason_phrase;
+    size_t                      reason_phrase_len;
+    uint8_t                     content_exist;
+    uint64_t                    final_group;
+    uint64_t                    final_object;
+} xqc_test_v5_subscribe_done_msg_t;
+
+typedef struct {
+    xqc_moq_msg_base_t          msg_base;
+    char                        *track_namespace;
+    size_t                      track_namespace_len;
+    char                        *track_name;
+    size_t                      track_name_len;
+} xqc_test_v5_track_status_request_msg_t;
+
+typedef struct {
+    xqc_moq_msg_base_t          msg_base;
+    char                        *track_namespace;
+    size_t                      track_namespace_len;
+    char                        *track_name;
+    size_t                      track_name_len;
+    uint64_t                    status_code;
+    uint64_t                    last_group_id;
+    uint64_t                    last_object_id;
+} xqc_test_v5_track_status_msg_t;
+
+#define XQC_TEST_MOQ_V5_MSG_ANNOUNCE             0x06
+#define XQC_TEST_MOQ_V5_MSG_ANNOUNCE_OK          0x07
+#define XQC_TEST_MOQ_V5_MSG_ANNOUNCE_ERROR       0x08
+#define XQC_TEST_MOQ_V5_MSG_UNANNOUNCE           0x09
+#define XQC_TEST_MOQ_V5_MSG_SUBSCRIBE_DONE       0x0b
+#define XQC_TEST_MOQ_V5_MSG_ANNOUNCE_CANCEL      0x0c
 
 static int
 xqc_test_activate_session(xqc_moq_session_t *session, const char *alpn,
@@ -140,6 +201,96 @@ xqc_test_configure_subscribe_error(void *ptr)
 }
 
 static void
+xqc_test_configure_unsubscribe(void *ptr)
+{
+    xqc_moq_unsubscribe_msg_t *msg = ptr;
+    msg->subscribe_id = 1;
+}
+
+static void
+xqc_test_configure_goaway(void *ptr)
+{
+    xqc_moq_goaway_msg_t *msg = ptr;
+    msg->new_session_uri = "next";
+    msg->new_session_uri_len = 4;
+}
+
+static void
+xqc_test_configure_announce(void *ptr)
+{
+    static uint8_t auth[] = "auth";
+    static xqc_moq_message_parameter_t params[] = {
+        {.type = XQC_MOQ_PARAM_AUTH, .length = 4, .value = auth},
+    };
+    xqc_test_v5_announce_msg_t *msg = ptr;
+
+    msg->track_namespace = "ns";
+    msg->track_namespace_len = 2;
+    msg->params_num = 1;
+    msg->params = params;
+}
+
+static void
+xqc_test_configure_namespace_message(void *ptr)
+{
+    xqc_test_v5_namespace_msg_t *msg = ptr;
+
+    msg->track_namespace = "ns";
+    msg->track_namespace_len = 2;
+}
+
+static void
+xqc_test_configure_announce_error(void *ptr)
+{
+    xqc_test_v5_announce_error_msg_t *msg = ptr;
+
+    msg->track_namespace = "ns";
+    msg->track_namespace_len = 2;
+    msg->error_code = 2;
+    msg->reason_phrase = "bad";
+    msg->reason_phrase_len = 3;
+}
+
+static void
+xqc_test_configure_subscribe_done(void *ptr)
+{
+    xqc_test_v5_subscribe_done_msg_t *msg = ptr;
+
+    msg->subscribe_id = 1;
+    msg->status_code = 2;
+    msg->reason_phrase = "bye";
+    msg->reason_phrase_len = 3;
+    msg->content_exist = 1;
+    msg->final_group = 3;
+    msg->final_object = 4;
+}
+
+static void
+xqc_test_configure_track_status_request(void *ptr)
+{
+    xqc_test_v5_track_status_request_msg_t *msg = ptr;
+
+    msg->track_namespace = "ns";
+    msg->track_namespace_len = 2;
+    msg->track_name = "track";
+    msg->track_name_len = 5;
+}
+
+static void
+xqc_test_configure_track_status(void *ptr)
+{
+    xqc_test_v5_track_status_msg_t *msg = ptr;
+
+    msg->track_namespace = "ns";
+    msg->track_namespace_len = 2;
+    msg->track_name = "track";
+    msg->track_name_len = 5;
+    msg->status_code = 1;
+    msg->last_group_id = 3;
+    msg->last_object_id = 4;
+}
+
+static void
 xqc_test_configure_object_stream(void *ptr)
 {
     static uint8_t payload[] = "obj";
@@ -196,6 +347,37 @@ static const uint8_t xqc_v5_subscribe_ok[] = {
 static const uint8_t xqc_v5_subscribe_error[] = {
     0x05, 0x01, 0x02, 0x03, 0x62, 0x61, 0x64, 0x0d,
 };
+static const uint8_t xqc_v5_unsubscribe[] = {
+    0x0a, 0x01,
+};
+static const uint8_t xqc_v5_goaway[] = {
+    0x10, 0x04, 0x6e, 0x65, 0x78, 0x74,
+};
+static const uint8_t xqc_v5_announce[] = {
+    0x06, 0x02, 0x6e, 0x73, 0x01, 0x02, 0x04, 0x61, 0x75, 0x74, 0x68,
+};
+static const uint8_t xqc_v5_announce_ok[] = {
+    0x07, 0x02, 0x6e, 0x73,
+};
+static const uint8_t xqc_v5_announce_error[] = {
+    0x08, 0x02, 0x6e, 0x73, 0x02, 0x03, 0x62, 0x61, 0x64,
+};
+static const uint8_t xqc_v5_unannounce[] = {
+    0x09, 0x02, 0x6e, 0x73,
+};
+static const uint8_t xqc_v5_subscribe_done[] = {
+    0x0b, 0x01, 0x02, 0x03, 0x62, 0x79, 0x65, 0x01, 0x03, 0x04,
+};
+static const uint8_t xqc_v5_announce_cancel[] = {
+    0x0c, 0x02, 0x6e, 0x73,
+};
+static const uint8_t xqc_v5_track_status_request[] = {
+    0x0d, 0x02, 0x6e, 0x73, 0x05, 0x74, 0x72, 0x61, 0x63, 0x6b,
+};
+static const uint8_t xqc_v5_track_status[] = {
+    0x0e, 0x02, 0x6e, 0x73, 0x05, 0x74, 0x72, 0x61, 0x63, 0x6b,
+    0x01, 0x03, 0x04,
+};
 static const uint8_t xqc_v5_object_stream[] = {
     0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x00, 0x6f, 0x62, 0x6a,
 };
@@ -225,6 +407,35 @@ static const xqc_test_v5_vector_t xqc_v5_vectors[] = {
     {"subscribe_error", XQC_MOQ_STREAM_CONTROL,
      XQC_MOQ_MSG_SUBSCRIBE_ERROR, 1, xqc_v5_subscribe_error,
      sizeof(xqc_v5_subscribe_error), xqc_test_configure_subscribe_error},
+    {"unsubscribe", XQC_MOQ_STREAM_CONTROL, XQC_MOQ_MSG_UNSUBSCRIBE, 1,
+     xqc_v5_unsubscribe, sizeof(xqc_v5_unsubscribe),
+     xqc_test_configure_unsubscribe},
+    {"goaway", XQC_MOQ_STREAM_CONTROL, XQC_MOQ_MSG_GOAWAY, 1,
+     xqc_v5_goaway, sizeof(xqc_v5_goaway), xqc_test_configure_goaway},
+    {"announce", XQC_MOQ_STREAM_CONTROL, XQC_TEST_MOQ_V5_MSG_ANNOUNCE, 1,
+     xqc_v5_announce, sizeof(xqc_v5_announce), xqc_test_configure_announce},
+    {"announce_ok", XQC_MOQ_STREAM_CONTROL,
+     XQC_TEST_MOQ_V5_MSG_ANNOUNCE_OK, 1, xqc_v5_announce_ok,
+     sizeof(xqc_v5_announce_ok), xqc_test_configure_namespace_message},
+    {"announce_error", XQC_MOQ_STREAM_CONTROL,
+     XQC_TEST_MOQ_V5_MSG_ANNOUNCE_ERROR, 1, xqc_v5_announce_error,
+     sizeof(xqc_v5_announce_error), xqc_test_configure_announce_error},
+    {"unannounce", XQC_MOQ_STREAM_CONTROL,
+     XQC_TEST_MOQ_V5_MSG_UNANNOUNCE, 1, xqc_v5_unannounce,
+     sizeof(xqc_v5_unannounce), xqc_test_configure_namespace_message},
+    {"subscribe_done", XQC_MOQ_STREAM_CONTROL,
+     XQC_TEST_MOQ_V5_MSG_SUBSCRIBE_DONE, 1, xqc_v5_subscribe_done,
+     sizeof(xqc_v5_subscribe_done), xqc_test_configure_subscribe_done},
+    {"announce_cancel", XQC_MOQ_STREAM_CONTROL,
+     XQC_TEST_MOQ_V5_MSG_ANNOUNCE_CANCEL, 1, xqc_v5_announce_cancel,
+     sizeof(xqc_v5_announce_cancel), xqc_test_configure_namespace_message},
+    {"track_status_request", XQC_MOQ_STREAM_CONTROL,
+     XQC_MOQ_MSG_TRACK_STATUS_REQUEST, 1, xqc_v5_track_status_request,
+     sizeof(xqc_v5_track_status_request),
+     xqc_test_configure_track_status_request},
+    {"track_status", XQC_MOQ_STREAM_CONTROL, XQC_MOQ_MSG_TRACK_STATUS, 1,
+     xqc_v5_track_status, sizeof(xqc_v5_track_status),
+     xqc_test_configure_track_status},
     {"object_stream", XQC_MOQ_STREAM_V5_OBJECT, XQC_MOQ_MSG_OBJECT_STREAM, 1,
      xqc_v5_object_stream, sizeof(xqc_v5_object_stream),
      xqc_test_configure_object_stream},
@@ -232,7 +443,7 @@ static const xqc_test_v5_vector_t xqc_v5_vectors[] = {
      XQC_MOQ_MSG_STREAM_HEADER_TRACK, 2, xqc_v5_track_header,
      sizeof(xqc_v5_track_header), xqc_test_configure_track_header},
     {"track_object", XQC_MOQ_STREAM_V5_TRACK,
-     XQC_MOQ_MSG_TRACK_STREAM_OBJECT, 0, xqc_v5_track_object,
+     XQC_MOQ_INTERNAL_TRACK_STREAM_OBJECT, 0, xqc_v5_track_object,
      sizeof(xqc_v5_track_object), xqc_test_configure_track_object},
 };
 
@@ -372,6 +583,75 @@ xqc_test_message_collision_is_profile_local(void)
                      XQC_MOQ_MSG_SUBSCRIBE, v5_subscribe);
     xqc_moq_msg_free(&v14_session, XQC_MOQ_STREAM_CONTROL,
                      XQC_MOQ_MSG_SUBSCRIBE, v14_subscribe);
+    return 0;
+}
+
+static int
+xqc_test_internal_message_ids_are_not_wire_types(void)
+{
+    const xqc_moq_version_profile_t *profile = xqc_moq_v14_profile();
+    xqc_moq_stream_kind_t kind;
+
+    kind = xqc_moq_profile_classify_stream(
+        profile, XQC_MOQ_STREAM_UNKNOWN,
+        XQC_MOQ_INTERNAL_SUBGROUP_STREAM_OBJECT);
+    XQC_TEST_ASSERT(kind == XQC_MOQ_STREAM_UNKNOWN);
+    XQC_TEST_ASSERT(xqc_moq_profile_find_codec(
+        profile, kind, XQC_MOQ_INTERNAL_SUBGROUP_STREAM_OBJECT) == NULL);
+
+    kind = xqc_moq_profile_classify_stream(
+        profile, XQC_MOQ_STREAM_UNKNOWN, XQC_MOQ_INTERNAL_SUBGROUP);
+    XQC_TEST_ASSERT(kind == XQC_MOQ_STREAM_UNKNOWN);
+    XQC_TEST_ASSERT(xqc_moq_profile_find_codec(
+        profile, kind, XQC_MOQ_INTERNAL_SUBGROUP) == NULL);
+
+    kind = xqc_moq_profile_classify_stream(
+        profile, XQC_MOQ_STREAM_UNKNOWN, 0x10);
+    XQC_TEST_ASSERT(kind == XQC_MOQ_STREAM_V14_SUBGROUP);
+    return 0;
+}
+
+static int
+xqc_test_v5_track_codec_requires_capability(void)
+{
+    xqc_moq_version_profile_t profile = *xqc_moq_v5_profile();
+
+    profile.capabilities &= ~(uint64_t)XQC_MOQ_CAP_TRACK_STREAM;
+    XQC_TEST_ASSERT(xqc_moq_profile_find_codec(
+        &profile, XQC_MOQ_STREAM_V5_TRACK,
+        XQC_MOQ_MSG_STREAM_HEADER_TRACK) == NULL);
+    XQC_TEST_ASSERT(xqc_moq_profile_find_codec(
+        xqc_moq_v5_profile(), XQC_MOQ_STREAM_V5_TRACK,
+        XQC_MOQ_MSG_STREAM_HEADER_TRACK) != NULL);
+    return 0;
+}
+
+static int
+xqc_test_missing_profile_codec_returns_specific_error(void)
+{
+    xqc_moq_session_t session;
+    xqc_moq_stream_t stream;
+    xqc_log_callbacks_t log_callbacks;
+    xqc_log_t log;
+    xqc_int_t finish;
+    xqc_int_t wait_more_data;
+
+    xqc_memzero(&stream, sizeof(stream));
+    xqc_memzero(&log_callbacks, sizeof(log_callbacks));
+    xqc_memzero(&log, sizeof(log));
+    XQC_TEST_ASSERT(xqc_test_activate_session(
+        &session, XQC_ALPN_MOQ_DRAFT_05,
+        sizeof(XQC_ALPN_MOQ_DRAFT_05) - 1, XQC_MOQ_VERSION_5) == 0);
+    stream.session = &session;
+    stream.kind = XQC_MOQ_STREAM_CONTROL;
+    stream.decode_msg_ctx.cur_msg_type = (xqc_moq_msg_type_t)0x3f;
+    log.log_level = XQC_LOG_DEBUG;
+    log.log_callbacks = &log_callbacks;
+    session.log = &log;
+
+    XQC_TEST_ASSERT(xqc_moq_stream_process_msg(
+        &stream, 0, &finish, &wait_more_data)
+        == -XQC_EALPN_NOT_SUPPORTED);
     return 0;
 }
 
@@ -584,7 +864,8 @@ xqc_test_v14_stream_preparation_is_profile_local(void)
     stream.subgroup_header.subgroup_type = XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
     stream.subgroup_header.subgroup_priority = 14;
     XQC_TEST_ASSERT(xqc_moq_profile_prepare_data_message(
-        &stream, XQC_MOQ_MSG_SUBGROUP_STREAM_OBJECT, &subgroup.msg_base)
+        &stream, XQC_MOQ_INTERNAL_SUBGROUP_STREAM_OBJECT,
+        &subgroup.msg_base)
         == XQC_OK);
     XQC_TEST_ASSERT(subgroup.track_alias == 11);
     XQC_TEST_ASSERT(subgroup.group_id == 12);
@@ -610,12 +891,12 @@ xqc_test_v5_stream_preparation_requires_track_header(void)
     stream.session = &session;
     stream.kind = XQC_MOQ_STREAM_V5_TRACK;
     XQC_TEST_ASSERT(xqc_moq_profile_prepare_data_message(
-        &stream, XQC_MOQ_MSG_TRACK_STREAM_OBJECT, &object.msg_base)
+        &stream, XQC_MOQ_INTERNAL_TRACK_STREAM_OBJECT, &object.msg_base)
         == -XQC_EILLEGAL_FRAME);
 
     stream.track_header_valid = 1;
     XQC_TEST_ASSERT(xqc_moq_profile_prepare_data_message(
-        &stream, XQC_MOQ_MSG_TRACK_STREAM_OBJECT, &object.msg_base)
+        &stream, XQC_MOQ_INTERNAL_TRACK_STREAM_OBJECT, &object.msg_base)
         == XQC_OK);
     return 0;
 }
@@ -851,6 +1132,9 @@ main(void)
     if (xqc_test_profile_lookup() != 0
         || xqc_test_session_profile_state() != 0
         || xqc_test_message_collision_is_profile_local() != 0
+        || xqc_test_internal_message_ids_are_not_wire_types() != 0
+        || xqc_test_v5_track_codec_requires_capability() != 0
+        || xqc_test_missing_profile_codec_returns_specific_error() != 0
         || xqc_test_unsupported_write_is_side_effect_free() != 0
         || xqc_test_datagram_requires_active_profile() != 0
         || xqc_test_v5_control_writer_uses_profile_codec() != 0

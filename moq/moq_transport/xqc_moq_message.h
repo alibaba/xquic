@@ -52,6 +52,16 @@ typedef enum {
     XQC_MOQ_DECODE_MSG,
 } xqc_moq_decode_state_t;
 
+/*
+ * Parser/codec identities for stream objects that do not carry a wire type.
+ * These values are never accepted as a first message type from the wire.
+ */
+typedef enum {
+    XQC_MOQ_INTERNAL_TRACK_STREAM_OBJECT    = 0xA0,
+    XQC_MOQ_INTERNAL_SUBGROUP_STREAM_OBJECT = 0xA2,
+    XQC_MOQ_INTERNAL_SUBGROUP               = 0xA3,
+} xqc_moq_internal_msg_type_t;
+
 typedef struct {
     xqc_int_t                   cur_param_idx; //Params[idx]
     xqc_int_t                   cur_field_idx; //0:Type, 1:Length, 2:Value

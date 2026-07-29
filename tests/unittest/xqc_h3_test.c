@@ -1762,6 +1762,81 @@ xqc_test_h3_request_frame_unexpected()
 
 
 void
+xqc_test_h3_server_reserved_request_frame_accepted()
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+
+    /*
+     * RFC 9114 Section 9 requires unknown frame types, including the
+     * reserved type 0x21, to be ignored.
+     */
+    unsigned char reserved_frame[] = { 0x21, 0x00 };
+    ssize_t processed = xqc_h3_stream_process_request(h3s, reserved_frame,
+            sizeof(reserved_frame), XQC_FALSE);
+
+    CU_ASSERT(processed == sizeof(reserved_frame));
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
+
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
+}
+
+
+void
+xqc_test_h3_server_push_promise_rejected()
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+
+    /*
+     * RFC 9114 Section 7.2.5: a server that receives PUSH_PROMISE from a
+     * client must close the connection with H3_FRAME_UNEXPECTED.
+     */
+    unsigned char push_promise[] = { 0x05, 0x02, 0x00, 0x00 };
+    ssize_t processed = xqc_h3_stream_process_request(h3s, push_promise,
+            sizeof(push_promise), XQC_FALSE);
+
+    CU_ASSERT(processed == -XQC_H3_REQUEST_FRAME_UNEXPECTED);
+    CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
+    CU_ASSERT(conn->conn_err == 0x0105);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
+
+    /*
+     * Cover a PUSH_PROMISE as the first frame on a peer-created bidi
+     * stream. The unknown-type dispatcher parses that first frame before
+     * request-stream processing, so it must enforce the same rule.
+     */
+    conn = NULL;
+    h3c = NULL;
+    h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    xqc_h3_request_destroy(h3s->h3r);
+    h3s->h3r = NULL;
+    h3s->type = XQC_H3_STREAM_TYPE_UNKNOWN;
+
+    processed = xqc_h3_stream_process_in(h3s, push_promise,
+            sizeof(push_promise), XQC_FALSE);
+
+    CU_ASSERT(processed == -XQC_H3_EPROC_REQUEST);
+    CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
+    CU_ASSERT(conn->conn_err == 0x0105);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
+}
+
+
+void
 xqc_test_h3_allowed_headers_pass()
 {
     /* content-type: normal header, never forbidden */

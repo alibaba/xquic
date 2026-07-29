@@ -28,6 +28,10 @@ void xqc_test_h3_missing_settings();
 /* issue #609: RFC 9114 §7.2 control-only frames on request stream */
 void xqc_test_h3_request_frame_unexpected();
 
+/* issue #849: RFC 9114 §7.2.5 PUSH_PROMISE sender role */
+void xqc_test_h3_server_reserved_request_frame_accepted();
+void xqc_test_h3_server_push_promise_rejected();
+
 /* issue #746: RFC 9114 §4.2 forbidden connection-specific headers */
 void xqc_test_h3_message_error_enum();
 void xqc_test_h3_forbidden_headers_rejected();

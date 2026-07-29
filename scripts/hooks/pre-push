@@ -1,0 +1,40 @@
+#!/bin/bash
+#
+# Optional complete local validation gate installed by setup_harness.sh.
+
+set -euo pipefail
+
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+OUTPUT_FILE="$(mktemp "${TMPDIR:-/tmp}/xquic-pre-push.XXXXXX")"
+
+cleanup()
+{
+    rm -f "${OUTPUT_FILE}"
+}
+
+trap cleanup EXIT HUP INT TERM
+
+echo "xquic pre-push: running the complete local validation gate"
+echo "xquic pre-push: use git push --no-verify only for an explicit exception"
+
+unset XQC_TEST_NAME
+
+set +e
+XQC_BUILD_DIR="${XQC_BUILD_DIR:-build}" \
+    "${ROOT_DIR}/scripts/validate.sh" full 2>&1 | tee "${OUTPUT_FILE}"
+VALIDATION_STATUS="${PIPESTATUS[0]}"
+set -e
+
+if [[ "${VALIDATION_STATUS}" -ne 0 ]]; then
+    echo "xquic pre-push: validation command failed" >&2
+    exit "${VALIDATION_STATUS}"
+fi
+
+if grep -Eq '\[[[:space:]]+FAIL[[:space:]]+\]|>>>>>>>> pass:0' \
+    "${OUTPUT_FILE}"
+then
+    echo "xquic pre-push: case-test failure output detected" >&2
+    exit 1
+fi
+
+echo "xquic pre-push: complete local validation passed"

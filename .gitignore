@@ -3,4 +3,5 @@ bss/
 *.swp
 third_party/
 .idea/
+.agents/
 cmake-build-debug/

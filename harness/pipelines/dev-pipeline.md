@@ -9,8 +9,9 @@ it before planning, inspecting implementation paths, or editing source,
 tests, build scripts, validation tooling, or repository automation.
 
 ```text
-Requirement analysis -> Acceptance criteria -> Implementation
-                     -> Validation -> Review and PR evidence
+Requirement analysis -> Acceptance criteria -> Working branch
+                     -> Implementation -> Validation
+                     -> Review and PR evidence
 ```
 
 ## Stage 1: Requirement Analysis
@@ -58,7 +59,38 @@ blocking evidence must be explicit.
 Exit when the criteria can distinguish the intended behavior from the
 pre-change behavior.
 
-## Stage 3: Implementation
+## Stage 3: Working Branch
+
+1. Classify the accepted task and select the exact branch pattern from
+   [`CONTRIBUTING.md`](../../CONTRIBUTING.md#working-branch):
+
+   - New feature: `dev/${feature_name}`
+   - Bug fix: `fix/${function_or_module_name}`
+   - Performance optimization or other enhancement:
+     `perf/${optimization_item}`
+   - Documentation: `doc/${documentation_name}`
+
+2. Treat the `${...}` values as descriptive placeholders. The contribution
+   guide does not require underscores or define a stricter character set for
+   the expanded suffix.
+3. Create the working branch from its intended base, normally `main`, before
+   editing implementation files:
+
+   ```bash
+   git checkout -b <branch-name> main
+   ```
+
+4. Verify the result with `git branch --show-current`. The prefix must match
+   the accepted task type; the four prefixes are not interchangeable, and an
+   unlisted prefix such as `feat/` does not satisfy the contribution guide.
+5. If the current branch contains unrelated local changes, preserve them and
+   isolate the task in a separate worktree or clean checkout instead of
+   moving or mixing them into the new branch.
+
+Exit when the current branch was created from the intended base, contains
+only the scoped task, and its name matches the task-type mapping above.
+
+## Stage 4: Implementation
 
 1. For an issue fix, read
    `build/harness/<task-id>/issue-check.md` before editing production code.
@@ -76,7 +108,7 @@ pre-change behavior.
 
 Exit when the implementation, tests, and durable documentation agree.
 
-## Stage 4: Validation
+## Stage 5: Validation
 
 Follow the [`validate` skill](../skills/validate/SKILL.md). Before a production
 code pull request, run the complete local unit suite with `XQC_TEST_NAME`
@@ -93,7 +125,7 @@ and results. Keep the pull request in draft after a missing or failed gate.
 
 Exit only when the complete unit suite and both relevant case tests pass.
 
-## Stage 5: Review and PR Evidence
+## Stage 6: Review and PR Evidence
 
 1. Review staged and unstaged diffs separately and verify the final scope.
 2. Confirm generated headers, validation artifacts, and task-scoped

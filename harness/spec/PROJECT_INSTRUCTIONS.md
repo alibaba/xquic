@@ -63,7 +63,11 @@ tests, build scripts, validation tooling, or repository automation.
 ## Git and Scope
 
 - Never push directly to a remote `main` or `master` branch.
-- Use a scoped feature branch and submit changes through a pull request.
+- After acceptance criteria and before implementation, follow the
+  [working-branch stage](../pipelines/dev-pipeline.md#stage-3-working-branch).
+- Match the accepted task to its exact `CONTRIBUTING.md` branch pattern;
+  `dev/`, `fix/`, `perf/`, and `doc/` are not interchangeable.
+- Use a scoped working branch and submit changes through a pull request.
 - Preserve unrelated user changes, staged state, and untracked files.
 - Do not edit vendored content under `third_party/`.
 - Keep generated headers, validation logs, and temporary evidence out of

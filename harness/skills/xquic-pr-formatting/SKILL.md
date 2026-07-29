@@ -14,9 +14,10 @@ description: Format and update XQUIC pull request descriptions, comments, and re
 3. Treat that template as the canonical PR body structure. Preserve its
    contribution checklist and harness validation sections rather than
    replacing them with a shorter body.
-4. Check the branch prefix, commit format, CLA state, rebase and squash state,
-   code style, full-suite result, relevant tests, CI state, and issue-closing
-   syntax against `CONTRIBUTING.md`.
+4. Check the branch name against the task-to-prefix mapping in
+   `CONTRIBUTING.md`, then check commit format, CLA state, rebase and squash
+   state, code style, full-suite result, relevant tests, CI state, and
+   issue-closing syntax.
 5. For a production behavior change, require the PR body to name paired
    happy-path and abnormal-path unit tests plus paired client-to-server case
    tests.
@@ -48,6 +49,8 @@ branch, commit, command, result, or contributor state supports it.
   test or case name, result, and current-head evidence.
 - Do not mark a `CONTRIBUTING.md` checkbox complete when the branch, commits,
   CLA, rebase state, style, tests, CI, or issue syntax do not support it.
+- Do not accept an allowed branch prefix when it belongs to a different task
+  type.
 - Do not include internal agent names, temporary artifacts, or process
   chatter in contributor-facing content.
 - Preserve the distinction between issue-independent harness work and a

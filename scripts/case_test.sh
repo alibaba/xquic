@@ -1947,6 +1947,44 @@ else
 fi
 rm -f test_session tp_localhost xqc_token
 
+# issue #672: RFC 9000 7.4.1 forbidden remembered transport params must not be used in 0-RTT
+killall test_server
+${SERVER_BIN} -l d -e > /dev/null &
+sleep 1
+clear_log
+echo -e "0RTT forbidden remembered params (normal) ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
+clear_log
+${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
+cli_restore=`grep "|0RTT_transport_params|" clog`
+cli_pto=`grep "max_ack_delay:25|" clog`
+flag=`grep "early_data_flag:1" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_restore" ] && [ -n "$cli_pto" ] && [ -n "$flag" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "0rtt_forbidden_remembered_params_normal" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "0rtt_forbidden_remembered_params_normal" "fail"
+fi
+
+clear_log
+echo -e "0RTT forbidden remembered params (stale max_ack_delay not used) ...\c"
+sed -i 's/max_ack_delay=[0-9]*/max_ack_delay=100/' tp_localhost
+${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
+cli_restore=`grep "|0RTT_transport_params|" clog`
+cli_stale=`grep "max_ack_delay:100|" clog`
+flag=`grep "early_data_flag:1" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_restore" ] && [ -z "$cli_stale" ] && [ -n "$flag" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "0rtt_forbidden_remembered_params_stale_not_used" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "0rtt_forbidden_remembered_params_stale_not_used" "fail"
+fi
+rm -f test_session tp_localhost xqc_token
+
 killall test_server
 if [ -f test_session ]; then
     rm -f test_session

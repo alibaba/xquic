@@ -114,6 +114,8 @@ extern const xqc_conn_callbacks_t  h3_conn_callbacks;
  */
 xqc_h3_conn_t *xqc_h3_conn_create(xqc_connection_t *conn, void *user_data);
 void xqc_h3_conn_destroy(xqc_h3_conn_t *h3c);
+xqc_h3_stream_t *xqc_h3_conn_create_uni_stream(xqc_h3_conn_t *h3c,
+    xqc_h3_stream_type_t h3s_type);
 
 /**
  * validate the uni stream creation event

@@ -5267,4 +5267,47 @@ else
 fi
 rm -f test_session xqc_token tp_localhost
 
+## RFC 9114 Section 6.2 unidirectional stream handling
+
+killall test_server 2> /dev/null
+clear_log
+rm -f test_session xqc_token tp_localhost
+${SERVER_BIN} -l d -e > /dev/null &
+sleep 1
+echo -e "HTTP/3 reserved unidirectional stream remains usable ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1000 > stdlog
+sent=`grep "\\[h3-uni-stream-test\\]|type:0x21|ret:0|" stdlog`
+received=`grep "|remote|stream_id:.*|stream_type:33|" slog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+conn_err_zero=`grep -E "conn_err:0[^0-9]" stdlog`
+if [ -n "$sent" ] && [ -n "$received" ] && [ -n "$result" ] \
+    && [ -n "$conn_err_zero" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_reserved_uni_stream_survives" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_reserved_uni_stream_survives" "fail"
+fi
+
+killall test_server 2> /dev/null
+clear_log
+rm -f test_session xqc_token tp_localhost
+${SERVER_BIN} -l d -e > /dev/null &
+sleep 1
+echo -e "HTTP/3 client push stream gets stream creation error ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1001 > stdlog
+sent=`grep "\\[h3-uni-stream-test\\]|type:0x1|ret:0|" stdlog`
+received=`grep "|remote|stream_id:.*|stream_type:1|" slog`
+server_err=`grep "err:0x103" slog`
+client_err=`grep -E "(conn errno:259|conn_err:259)" stdlog`
+if [ -n "$sent" ] && [ -n "$received" ] && [ -n "$server_err" ] \
+    && [ -n "$client_err" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_client_push_stream_creation_error" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_client_push_stream_creation_error" "fail"
+fi
+killall test_server 2> /dev/null
+
 cd -

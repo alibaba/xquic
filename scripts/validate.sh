@@ -61,6 +61,71 @@ run_command()
     "$@" 2>&1 | tee -a "${LOG_FILE}"
 }
 
+extract_cunit_summary()
+{
+    awk '
+    {
+        line = $0
+        sub(/^[0-9]+:[[:space:]]*/, "", line)
+        sub(/^[[:space:]]+/, "", line)
+        field_count = split(line, fields, /[[:space:]]+/)
+        is_summary = field_count == 6
+        is_summary = is_summary && fields[1] == "tests"
+        is_summary = is_summary && fields[2] ~ /^[0-9]+$/
+        is_summary = is_summary && fields[3] ~ /^[0-9]+$/
+        is_summary = is_summary && fields[4] ~ /^[0-9]+$/
+        is_summary = is_summary && fields[5] ~ /^[0-9]+$/
+
+        if (is_summary) {
+            summary = fields[2] " " fields[3] " " fields[4] " " fields[5]
+        }
+    }
+    END {
+        if (summary != "") {
+            print summary
+        }
+    }
+    ' "${LOG_FILE}"
+}
+
+verify_cunit_summary()
+{
+    local summary
+    local total
+    local ran
+    local passed
+    local failed
+
+    summary="$(extract_cunit_summary)"
+    if [[ -z "${summary}" ]]; then
+        log_line "CUnit gate failed: test summary was not found"
+        return 1
+    fi
+
+    read -r total ran passed failed <<< "${summary}"
+    log_line "CUnit summary: Total=${total} Ran=${ran}" \
+        "Passed=${passed} Failed=${failed}"
+
+    if (( failed != 0 )); then
+        log_line "CUnit gate failed: Failed=${failed}, expected 0"
+        return 1
+    fi
+
+    if [[ -z "${TEST_NAME}" ]]; then
+        if (( ran != total )); then
+            log_line \
+                "CUnit gate failed: Ran=${ran} does not match Total=${total}"
+            return 1
+        fi
+
+        log_line "CUnit result: ${ran}/${total} CUnit tests, Failed=${failed}"
+
+    else
+        log_line "CUnit focused result: ${ran}/${total} CUnit tests selected," \
+            "Failed=${failed}"
+    fi
+}
+
 write_environment()
 {
     {
@@ -138,6 +203,7 @@ ensure_test_certificate()
 run_unit_tests()
 {
     local discovery_output
+    local test_status=0
 
     ensure_test_certificate
     discovery_output="$(ctest --test-dir "${BUILD_DIR}/tests" --show-only)"
@@ -149,13 +215,30 @@ run_unit_tests()
     fi
 
     if [[ -n "${TEST_NAME}" ]]; then
-        (
+        if (
             cd "${BUILD_DIR}"
             run_command "${BUILD_DIR}/tests/run_tests" "${TEST_NAME}"
         )
+        then
+            :
+
+        else
+            test_status=$?
+        fi
 
     else
-        run_command ctest --test-dir "${BUILD_DIR}/tests" --output-on-failure
+        if run_command ctest --test-dir "${BUILD_DIR}/tests" --verbose; then
+            :
+
+        else
+            test_status=$?
+        fi
+    fi
+
+    verify_cunit_summary
+
+    if (( test_status != 0 )); then
+        return "${test_status}"
     fi
 }
 

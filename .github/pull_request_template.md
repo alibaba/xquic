@@ -51,14 +51,16 @@ explain why runtime coverage does not apply. -->
 - [ ] Tested commit SHA: `<sha>`
 - [ ] Complete local unit suite:
   - Command: `unset XQC_TEST_NAME && ./scripts/validate.sh test`
-  - Result: `<pass/fail and concise summary>`
+  - Result: `<Ran>/<Total> CUnit tests, Failed=<count>`
 - [ ] Happy-path unit test: `<test name and result>`
 - [ ] Abnormal-path unit test: `<test name and result>`
 - [ ] Happy-path client-to-server case:
+  - Case ID and namespace: `<id; [A, B] module>`
   - Case name: `<case_print_result name>`
   - Command: `<exact command>`
   - Result: `<pass/fail>`
 - [ ] Abnormal-path client-to-server case:
+  - Case ID and namespace: `<different id; [A, B] module>`
   - Case name: `<case_print_result name>`
   - Command: `<exact command>`
   - Result: `<pass/fail>`

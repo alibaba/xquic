@@ -50,9 +50,12 @@ blocking evidence must be explicit.
 4. Identify an abnormal, rejection, boundary, or error-branch unit test.
 5. Identify matching happy-path and abnormal-path client-to-server cases in
    `scripts/case_test.sh`.
-6. Identify broader compatibility or interoperability evidence when the
+6. If either client-to-server case is new, select a distinct, never-used ID
+   for each case from the owning layer or module namespace in the
+   [validation specification](../spec/validation.md#client-to-server-case-id-namespace).
+7. Identify broader compatibility or interoperability evidence when the
    paired tests cannot establish the peer-visible result.
-7. Choose the expected validation level from the
+8. Choose the expected validation level from the
    [validation specification](../spec/validation.md).
 
 Exit when the criteria can distinguish the intended behavior from the
@@ -67,7 +70,8 @@ pre-change behavior.
    issue claim, specification revision, or source path changed.
 2. Add or update paired happy-path and abnormal-path unit tests.
 3. Add or update paired happy-path and abnormal-path client-to-server case
-   tests.
+   tests. Give every new case its allocated ID and update the validation
+   namespace registry in the same change.
 4. Make the smallest production change that satisfies the criteria.
 5. Follow `CONTRIBUTING.md` and adjacent project conventions.
 6. Re-read the modified path and trace affected callers and callees.
@@ -108,7 +112,8 @@ Exit only when the complete unit suite and both relevant case tests pass.
    [pull-request template](../../.github/pull_request_template.md) with
    current-head local validation results. For production behavior changes,
    name the complete unit-suite command and the paired happy-path and
-   abnormal-path unit and client-to-server case tests.
+   abnormal-path unit and client-to-server case tests, including each case ID
+   and namespace.
 
 Complete the loop only when the acceptance criteria, paired unit and case-test
 coverage, validation evidence, scope review, and pull request evidence are
@@ -124,12 +129,14 @@ consistent.
    abnormal-path unit tests.
 4. Every production behavior change requires paired happy-path and
    abnormal-path client-to-server case tests.
-5. A failed build is resolved before tests continue.
-6. The complete local unit suite and relevant case-test pair must pass before
+5. Every new client-to-server case has a distinct, never-used ID from the
+   documented namespace, and active or retired IDs are never reused.
+6. A failed build is resolved before tests continue.
+7. The complete local unit suite and relevant case-test pair must pass before
    review.
-7. Generated and temporary artifacts are never committed as source.
-8. A production code pull request remains draft while any required local
+8. Generated and temporary artifacts are never committed as source.
+9. A production code pull request remains draft while any required local
    result or paired test name is missing from its description.
-9. An issue fix must not enter implementation with a false or inconclusive
+10. An issue fix must not enter implementation with a false or inconclusive
    issue-check gate, and its task-scoped issue-check report must never be
    committed.

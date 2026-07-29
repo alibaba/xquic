@@ -5357,4 +5357,67 @@ killall test_server 2> /dev/null
 rm -f h3_request_frame_server.log
 
 
+## RFC 9114 Section 7.2.7 MAX_PUSH_ID handling
+
+clear_log
+rm -f test_session xqc_token tp_localhost
+${SERVER_BIN} -l d -e -x 1005 > /dev/null &
+sleep 1
+echo -e "HTTP/3 increasing MAX_PUSH_ID values are accepted ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1005 > stdlog
+sent=`grep "\\[h3-max-push-id-test\\]|first:1|second:3|write:0,0|send:0|" \
+    stdlog`
+first_received=`grep "|H3_MAX_PUSH_ID|max_push_id:1|" slog`
+second_received=`grep "|H3_MAX_PUSH_ID|max_push_id:3|" slog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+conn_err_zero=`grep -E "conn_err:0[^0-9]" stdlog`
+if [ -n "$sent" ] && [ -n "$first_received" ] \
+    && [ -n "$second_received" ] && [ -n "$result" ] \
+    && [ -n "$conn_err_zero" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_max_push_id_increase_accepted" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_max_push_id_increase_accepted" "fail"
+fi
+
+killall test_server 2> /dev/null
+clear_log
+rm -f test_session xqc_token tp_localhost
+${SERVER_BIN} -l d -e -x 1006 > /dev/null &
+sleep 1
+echo -e "HTTP/3 decreasing MAX_PUSH_ID gets H3_ID_ERROR ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1006 > stdlog
+sent=`grep "\\[h3-max-push-id-test\\]|first:3|second:1|write:0,0|send:0|" \
+    stdlog`
+server_err=`grep "err:0x108" slog`
+client_err=`grep -E "(conn errno:264|conn_err:264)" stdlog`
+if [ -n "$sent" ] && [ -n "$server_err" ] && [ -n "$client_err" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_max_push_id_decrease_rejected" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_max_push_id_decrease_rejected" "fail"
+fi
+
+killall test_server 2> /dev/null
+clear_log
+rm -f test_session xqc_token tp_localhost
+stdbuf -oL ${SERVER_BIN} -l d -e -x 1004 > svr_stdlog &
+sleep 1
+echo -e "HTTP/3 server MAX_PUSH_ID gets H3_FRAME_UNEXPECTED ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1004 > stdlog
+sent=`grep "\\[h3-max-push-id-test\\]|server_send:1|write:0|send:0|" svr_stdlog`
+client_err_log=`grep "err:0x105" clog`
+server_err=`grep -E "(conn errno:261|conn_err:261)" svr_stdlog`
+if [ -n "$sent" ] && [ -n "$client_err_log" ] && [ -n "$server_err" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_max_push_id_wrong_role_rejected" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_max_push_id_wrong_role_rejected" "fail"
+fi
+
+killall test_server 2> /dev/null
+
 cd -

@@ -18,6 +18,7 @@
 #include <stdint.h>
 
 #include "platform.h"
+#include "src/http3/xqc_h3_conn.h"
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_packet_out.h"
 
@@ -55,6 +56,7 @@ printf_null(const char *format, ...)
 
 #define XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME 1002
 #define XQC_TEST_CASE_H3_CLIENT_PUSH_PROMISE 1003
+#define XQC_TEST_CASE_H3_MAX_PUSH_ID_WRONG_ROLE 1004
 
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
@@ -1023,6 +1025,16 @@ xqc_server_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *conn_user_da
     if (g_test_case == 48) {
         printf("[initial-salt-test] server handshake ok, conn_err:%d\n",
                stats.conn_err);
+    }
+
+    if (g_test_case == XQC_TEST_CASE_H3_MAX_PUSH_ID_WRONG_ROLE) {
+        xqc_h3_stream_t *control = h3_conn->control_stream_out;
+        xqc_int_t write_ret = xqc_h3_frm_write_max_push_id(
+            &control->send_buf, 1, XQC_FALSE);
+        xqc_int_t send_ret = xqc_h3_stream_send_buffer(control);
+
+        printf("[h3-max-push-id-test]|server_send:1|write:%d|send:%d|\n",
+               write_ret, send_ret);
     }
 
     if (g_test_case == 704) {

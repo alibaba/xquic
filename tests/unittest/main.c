@@ -49,11 +49,17 @@
 static int xqc_init_suite(void) { return 0; }
 static int xqc_clean_suite(void) { return 0; }
 
-int 
-main()
+int
+main(int argc, char *argv[])
 {
     CU_pSuite pSuite = NULL;
+    CU_pTest pTest = NULL;
     unsigned int failed_tests_count;
+
+    if (argc > 2) {
+        fprintf(stderr, "usage: %s [test-name]\n", argv[0]);
+        return 2;
+    }
 
     if (CU_initialize_registry() != CUE_SUCCESS) {
         printf("CU_initialize error\n");
@@ -249,7 +255,20 @@ main()
     }
 
     CU_basic_set_mode(CU_BRM_VERBOSE);
-    CU_basic_run_tests();
+    if (argc == 2) {
+        pTest = CU_get_test_by_name(argv[1], pSuite);
+        if (pTest == NULL) {
+            fprintf(stderr, "unknown test: %s\n", argv[1]);
+            CU_cleanup_registry();
+            return 2;
+        }
+
+        CU_basic_run_test(pSuite, pTest);
+
+    } else {
+        CU_basic_run_tests();
+    }
+
     failed_tests_count = CU_get_number_of_tests_failed();
 
     CU_cleanup_registry();

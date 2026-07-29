@@ -16,6 +16,7 @@
 #include <xquic/xquic.h>
 #include <xquic/xquic_typedef.h>
 #include <xquic/xqc_http3.h>
+#include "src/http3/xqc_h3_conn.h"
 #include "platform.h"
 #ifndef XQC_SYS_WINDOWS
 #include <unistd.h>
@@ -64,7 +65,13 @@ printf_null(const char *format, ...)
 
 #define XQC_MAX_LOG_LEN 2048
 
+#define XQC_TEST_CASE_H3_RESERVED_UNI_STREAM 1000
+#define XQC_TEST_CASE_H3_CLIENT_PUSH_STREAM 1001
+
 typedef struct user_conn_s user_conn_t;
+
+static void xqc_client_send_test_uni_stream(xqc_h3_conn_t *h3_conn,
+    xqc_h3_stream_type_t stream_type);
 
 
 #define XQC_TEST_DGRAM_BATCH_SZ 32
@@ -1919,6 +1926,15 @@ xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
         printf("[initial-salt-test] handshake ok, conn_err:%d\n", stats.conn_err);
     }
 
+    if (g_test_case == XQC_TEST_CASE_H3_RESERVED_UNI_STREAM) {
+        xqc_client_send_test_uni_stream(h3_conn,
+                (xqc_h3_stream_type_t)0x21);
+
+    } else if (g_test_case == XQC_TEST_CASE_H3_CLIENT_PUSH_STREAM) {
+        xqc_client_send_test_uni_stream(h3_conn,
+                XQC_H3_STREAM_TYPE_PUSH);
+    }
+
     if (g_test_case == 200 || g_test_case == 201) {
         printf("[h3-dgram-200]|1RTT|updated_mss:%zu|\n", user_conn->dgram_mss);
     }
@@ -1927,6 +1943,25 @@ xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
         xqc_client_h3_ext_datagram_send(user_conn);
     }
 }
+
+
+static void
+xqc_client_send_test_uni_stream(xqc_h3_conn_t *h3_conn,
+    xqc_h3_stream_type_t stream_type)
+{
+    xqc_h3_stream_t *h3_stream =
+        xqc_h3_conn_create_uni_stream(h3_conn, stream_type);
+    if (h3_stream == NULL) {
+        printf("[h3-uni-stream-test]|type:0x%" PRIx64 "|create_failed|\n",
+               (uint64_t)stream_type);
+        return;
+    }
+
+    xqc_int_t ret = xqc_h3_stream_send_finish(h3_stream);
+    printf("[h3-uni-stream-test]|type:0x%" PRIx64 "|ret:%d|\n",
+           (uint64_t)stream_type, ret);
+}
+
 
 void
 xqc_client_h3_conn_ping_acked_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *ping_user_data, void *user_data)

@@ -623,7 +623,6 @@ xqc_test_h3_critical_stream_close()
  * xqc_h3_conn_on_uni_stream_created must:
  *   - Accept first CONTROL/QPACK_ENCODER/QPACK_DECODER (set creation flag)
  *   - Reject second instance with H3_STREAM_CREATION_ERROR (0x103)
- *   - Reject PUSH with H3_ID_ERROR (0x108) since xquic does not support push
  *
  * Each sub-case uses a fresh test_engine_connect() for state isolation.
  */
@@ -667,10 +666,12 @@ xqc_test_h3_second_stream_one(uint64_t stype, uint64_t expected_err_second)
 }
 
 static void
-xqc_test_h3_push_stream_rejected(void)
+xqc_test_h3_push_stream_rejected(xqc_conn_type_t conn_type,
+    uint64_t expected_err)
 {
     xqc_connection_t *conn = test_engine_connect();
     CU_ASSERT_FATAL(conn != NULL);
+    conn->conn_type = conn_type;
 
     if (conn->alpn) {
         xqc_free(conn->alpn);
@@ -684,16 +685,10 @@ xqc_test_h3_push_stream_rejected(void)
 
     CU_ASSERT(conn->conn_err == 0);
 
-    /*
-     * PUSH stream: xquic does not support server push, so even the first
-     * push stream must be rejected with H3_ID_ERROR (0x108).
-     * RFC 9114 Section 4.6 / Section 6.2.2
-     */
     xqc_int_t ret = xqc_h3_conn_on_uni_stream_created(h3c,
             XQC_H3_STREAM_TYPE_PUSH);
     CU_ASSERT(ret == -XQC_H3_INVALID_STREAM);
-    CU_ASSERT(conn->conn_err == H3_ID_ERROR);
-    CU_ASSERT(conn->conn_err == 0x108);  /* literal H3_ID_ERROR */
+    CU_ASSERT(conn->conn_err == expected_err);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
 
     xqc_h3_conn_destroy(h3c);
@@ -719,10 +714,55 @@ xqc_test_h3_second_control_stream_rejected()
      * per RFC 9204 Section 4.2 */
     xqc_test_h3_second_stream_one(XQC_H3_STREAM_TYPE_QPACK_DECODER,
             H3_STREAM_CREATION_ERROR);
+}
 
-    /* Case 4: PUSH stream (unsupported) -> H3_ID_ERROR
-     * per RFC 9114 Section 4.6 / 6.2.2 */
-    xqc_test_h3_push_stream_rejected();
+
+void
+xqc_test_h3_reserved_uni_stream_accepted()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+
+    xqc_h3_conn_t *h3c = xqc_h3_conn_create(conn, NULL);
+    CU_ASSERT_FATAL(h3c != NULL);
+
+    /* RFC 9114 Section 6.2.3 requires reserved stream types to be ignored. */
+    xqc_int_t ret = xqc_h3_conn_on_uni_stream_created(h3c, 0x21);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
+
+    xqc_h3_conn_destroy(h3c);
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+}
+
+
+void
+xqc_test_h3_push_stream_error_codes()
+{
+    /*
+     * RFC 9114 Section 4.6: a client that has not sent MAX_PUSH_ID must
+     * close the connection with H3_ID_ERROR upon receiving any push stream.
+     * XQUIC has no production path that sends MAX_PUSH_ID.
+     */
+    xqc_test_h3_push_stream_rejected(XQC_CONN_TYPE_CLIENT, H3_ID_ERROR);
+
+    /*
+     * RFC 9114 Section 6.2.2: a server rejects a client-initiated push
+     * stream with H3_STREAM_CREATION_ERROR.
+     */
+    xqc_test_h3_push_stream_rejected(XQC_CONN_TYPE_SERVER,
+            H3_STREAM_CREATION_ERROR);
 }
 
 

@@ -57,10 +57,15 @@ SKILLS_DIR="${TEST_DIR}/positive/skills"
 PIPELINES_DIR="${TEST_DIR}/positive/pipelines"
 HOOKS_DIR="${TEST_DIR}/positive/hooks"
 EXPECTED_SKILLS=(
+    gh-address-comments
+    gh-fix-ci
+    gh-pr-review
+    git-workflow
     issue-check
     issue-submit
     validate
     xquic-pr-formatting
+    xquic-safe-push
 )
 
 run_setup

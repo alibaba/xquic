@@ -21,6 +21,12 @@ harness/
 - [Issue verification skill](skills/issue-check/SKILL.md)
 - [Issue submission skill](skills/issue-submit/SKILL.md)
 - [Pull request formatting skill](skills/xquic-pr-formatting/SKILL.md)
+- [Git workflow skill](skills/git-workflow/SKILL.md)
+- [Safe push skill](skills/xquic-safe-push/SKILL.md)
+- [GitHub CI fix skill](skills/gh-fix-ci/SKILL.md)
+- [GitHub PR review skill](skills/gh-pr-review/SKILL.md)
+- [GitHub review comment skill](skills/gh-address-comments/SKILL.md)
+- [OpenSpec integration guide](spec/openspec.md)
 
 ## Setup
 
@@ -68,6 +74,9 @@ results in the pull request.
   in `harness/`.
 - Task-scoped issue-check reports belong under the ignored
   `build/harness/<task-id>/` directory and must not be committed.
+- Tool-native local adapters such as `.claude/` are allowed locally but
+  must not become committed sources of truth. Migrate durable skill content to
+  `harness/skills/`.
 
 ## Portability
 

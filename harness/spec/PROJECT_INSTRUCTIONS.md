@@ -40,6 +40,7 @@ remain in the root [`README.md`](../../README.md).
 
 | Task | Required entry point |
 |------|----------------------|
+| Long-running feature, refactor, or cross-module task | Codex native goal directive plus [OpenSpec integration](openspec.md) |
 | Code change, feature, refactor, or bug fix | [Development pipeline](../pipelines/dev-pipeline.md) |
 | Build, test, or validation | [Validation specification](validation.md) and [`validate` skill](../skills/validate/SKILL.md) |
 | Verify an issue or protocol-defect claim | [`issue-check` skill](../skills/issue-check/SKILL.md) |
@@ -55,6 +56,9 @@ an explicit opt-in.
 
 Read the selected entry point in full before changing code, build behavior, or
 pull-request artifacts.
+
+Long tasks use the active agent runtime's native goal or background-task
+mechanism and keep OpenSpec artifacts current before implementation.
 
 For every code task, the development pipeline is a mandatory preflight. Read
 it before planning, inspecting implementation paths, or editing source,

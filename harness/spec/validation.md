@@ -43,6 +43,12 @@ use link, format, and command-syntax checks. Validation-tooling changes require
 the closest deterministic self-checks. The pull request must state why paired
 runtime coverage does not apply.
 
+Harness-only changes must also run:
+
+```bash
+bash scripts/xqc_harness_check.sh
+```
+
 ## Levels
 
 ### Build

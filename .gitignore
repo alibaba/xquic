@@ -4,4 +4,7 @@ bss/
 third_party/
 .idea/
 .agents/
+.claude/
+.ai-context/
+.worktrees/
 cmake-build-debug/

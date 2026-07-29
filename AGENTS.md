@@ -37,6 +37,8 @@ branch.
   a pull request.
 - Read the [harness index](harness/README.md) to locate project specifications,
   pipelines, and reusable skills.
+- Read the [harness manifest](harness/spec/harness-manifest.yml) for canonical
+  path, module, feature-gate, and validation routing.
 - Read the
   [project instructions](harness/spec/PROJECT_INSTRUCTIONS.md) for task
   routing and repository-wide constraints.
@@ -47,6 +49,14 @@ branch.
   [`issue-submit`](harness/skills/issue-submit/SKILL.md).
 - Read the closest module documentation and protocol specification before
   changing wire behavior.
+
+## Long Tasks and OpenSpec
+
+Use the active agent runtime's native goal or background-task mechanism for
+background work. For long-running feature, refactor, or cross-module work,
+create or update an OpenSpec change first; follow the
+[OpenSpec integration guide](harness/spec/openspec.md) so proposal, design,
+tasks, and requirement deltas are reviewable before implementation.
 
 ## Build and Validate
 
@@ -67,6 +77,12 @@ enabled. It writes only ignored build output beneath `build/validation/`.
 Environment overrides and validation levels are documented in the
 [validation specification](harness/spec/validation.md). For validation tasks,
 also follow the [`validate` skill](harness/skills/validate/SKILL.md).
+
+Harness-only changes must run:
+
+```bash
+bash scripts/xqc_harness_check.sh
+```
 
 ## Change Rules
 

@@ -1,0 +1,247 @@
+#!/bin/bash
+#
+# Static checks for repository-owned agent harness routing drift.
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+FAILURES=0
+
+pass()
+{
+    echo "PASS: $*"
+}
+
+fail()
+{
+    echo "FAIL: $*" >&2
+    FAILURES=$((FAILURES + 1))
+}
+
+require_file()
+{
+    local path="$1"
+
+    if [[ -f "${ROOT_DIR}/${path}" ]]; then
+        pass "found ${path}"
+    else
+        fail "missing ${path}"
+    fi
+}
+
+require_grep()
+{
+    local pattern="$1"
+    local path="$2"
+    local label="$3"
+
+    if grep -Eq "${pattern}" "${ROOT_DIR}/${path}"; then
+        pass "${label}"
+    else
+        fail "${label}"
+    fi
+}
+
+require_manifest_schema()
+{
+    local output
+
+    if output="$(ruby - "${ROOT_DIR}" <<'RUBY'
+require "yaml"
+
+root = ARGV.fetch(0)
+manifest_path = File.join(root, "harness/spec/harness-manifest.yml")
+errors = []
+
+data = YAML.load_file(manifest_path)
+
+def require_hash(value, path, errors)
+  errors << "#{path} must be a map" unless value.is_a?(Hash)
+end
+
+def require_nonempty_array(value, path, errors)
+  unless value.is_a?(Array) && value.any?
+    errors << "#{path} must be a non-empty list"
+  end
+end
+
+def validate_validation(value, path, errors)
+  require_hash(value, path, errors)
+  return unless value.is_a?(Hash)
+
+  unless value.key?("level") || value.key?("command")
+    errors << "#{path} must define level or command"
+  end
+
+  if value.key?("hints") && !value["hints"].is_a?(Array)
+    errors << "#{path}.hints must be a list"
+  end
+
+  if value.key?("unit") && !value["unit"].is_a?(Array)
+    errors << "#{path}.unit must be a list"
+  end
+end
+
+def validate_route(name, route, path, errors, allow_missing_paths: false)
+  if name.to_s.include?(":")
+    errors << "#{path} uses ':' in key; use nested submodules/features instead"
+  end
+
+  require_hash(route, path, errors)
+  return unless route.is_a?(Hash)
+
+  require_nonempty_array(route["paths"], "#{path}.paths", errors) unless allow_missing_paths
+  validate_validation(route["validation"], "#{path}.validation", errors) if route.key?("validation")
+
+  if route.key?("read") && !route["read"].is_a?(Array)
+    errors << "#{path}.read must be a list"
+  end
+
+  if route.key?("feature_flags")
+    require_nonempty_array(route["feature_flags"], "#{path}.feature_flags", errors)
+  end
+
+  {"submodules" => false, "features" => false}.each_key do |collection|
+    next unless route.key?(collection)
+
+    children = route[collection]
+    require_hash(children, "#{path}.#{collection}", errors)
+    next unless children.is_a?(Hash)
+
+    children.each do |child_name, child_route|
+      validate_route(child_name, child_route, "#{path}.#{collection}.#{child_name}", errors)
+    end
+  end
+end
+
+require_hash(data, "manifest", errors)
+
+if data.is_a?(Hash)
+  require_hash(data["entrypoints"], "entrypoints", errors)
+  require_hash(data["modules"], "modules", errors)
+
+  if data["modules"].is_a?(Hash) && data["modules"].any?
+    data["modules"].each do |module_name, module_route|
+      validate_route(module_name, module_route, "modules.#{module_name}", errors)
+    end
+  else
+    errors << "modules must contain at least one module"
+  end
+
+  if data.key?("features")
+    errors << "top-level features are not allowed; nest features under their owning module"
+  end
+end
+
+if errors.empty?
+  puts "manifest schema ok"
+  exit 0
+end
+
+errors.each { |error| warn error }
+exit 1
+RUBY
+    )"; then
+        pass "${output}"
+    else
+        echo "${output}" >&2
+        fail "manifest schema is invalid"
+    fi
+}
+
+require_skill_schema()
+{
+    local output
+
+    if output="$(ruby - "${ROOT_DIR}" <<'RUBY'
+root = ARGV.fetch(0)
+skills_dir = File.join(root, "harness/skills")
+errors = []
+skills = Dir.glob(File.join(skills_dir, "*/SKILL.md")).sort
+
+errors << "harness/skills must contain at least one skill" if skills.empty?
+
+skills.each do |skill_file|
+  skill_dir = File.basename(File.dirname(skill_file))
+  text = File.read(skill_file)
+
+  unless text.start_with?("---\n")
+    errors << "#{skill_file.sub(root + "/", "")} must start with YAML front matter"
+    next
+  end
+
+  front_matter = text.split(/^---\s*$/, 3)[1].to_s
+  name = front_matter[/^name:\s*([^\n]+)\s*$/, 1].to_s.strip
+  description = front_matter[/^description:\s*([^\n]+)\s*$/, 1].to_s.strip
+
+  errors << "#{skill_dir}: front matter name must match directory" unless name == skill_dir
+  errors << "#{skill_dir}: description is required" if description.empty?
+end
+
+if errors.empty?
+  puts "skill schema ok (#{skills.length} skills)"
+  exit 0
+end
+
+errors.each { |error| warn error }
+exit 1
+RUBY
+    )"; then
+        pass "${output}"
+    else
+        echo "${output}" >&2
+        fail "skill schema is invalid"
+    fi
+}
+
+reject_tree_grep()
+{
+    local pattern="$1"
+    local label="$2"
+    local matches
+
+    matches="$(
+        grep -RInE "${pattern}" \
+            "${ROOT_DIR}/AGENTS.md" \
+            "${ROOT_DIR}/harness" \
+            "${ROOT_DIR}/.github/workflows" 2>/dev/null || true
+    )"
+
+    if [[ -n "${matches}" ]]; then
+        echo "${matches}" >&2
+        fail "${label}"
+    else
+        pass "${label}"
+    fi
+}
+
+require_file "AGENTS.md"
+require_file "harness/README.md"
+require_file "harness/spec/PROJECT_INSTRUCTIONS.md"
+require_file "harness/spec/harness-manifest.yml"
+require_file "harness/spec/openspec.md"
+require_file "harness/skills/validate/SKILL.md"
+require_file "scripts/validate.sh"
+
+require_grep "harness/spec/harness-manifest.yml" \
+    "AGENTS.md" \
+    "AGENTS points to harness manifest"
+require_grep "OpenSpec" \
+    "AGENTS.md" \
+    "AGENTS documents OpenSpec long-task routing"
+require_manifest_schema
+require_grep "scripts/xqc_harness_check.sh" \
+    ".github/workflows/build.yml" \
+    "GitHub workflow runs harness check"
+require_skill_schema
+
+reject_tree_grep "docs_ai/harness_manifest.yml|\\.claude/skills" \
+    "committed harness does not depend on docs_ai manifest or .claude skills"
+
+echo ""
+if [[ "${FAILURES}" -eq 0 ]]; then
+    echo "Harness check: PASS"
+else
+    echo "Harness check: FAIL (${FAILURES} issue(s))" >&2
+    exit 1
+fi

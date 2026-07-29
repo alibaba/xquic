@@ -8,9 +8,27 @@ on:
 
 jobs:
 
+  harness-check:
+
+    name: Harness Check
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 2
+
+    - name: Check agent harness
+      run: |
+        bash scripts/xqc_harness_check.sh
+
   build-ubuntu:
 
     name: Build on Ubuntu
+
+    needs: harness-check
 
     runs-on: ${{ matrix.runs-on }}
 
@@ -110,6 +128,8 @@ jobs:
 
     name: Build on macOS
 
+    needs: harness-check
+
     runs-on: ${{ matrix.runs-on }}
 
     strategy:
@@ -146,5 +166,4 @@ jobs:
         cd build
         cmake -DPLATFORM=mac -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} -DSSL_INC_PATH=${SSL_INC_PATH_STR} -DSSL_LIB_PATH=${SSL_LIB_PATH_STR} ..
         make -j
-
 

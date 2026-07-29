@@ -27,7 +27,8 @@ build script, validation tool, or repository automation, read the
 [development pipeline](harness/pipelines/dev-pipeline.md) in full. Apply this
 gate at the start of every code task, including a new task in an existing
 session. Do not begin implementation until the requirement and acceptance
-criteria stages have been completed.
+criteria stages have been completed and the task is on a conforming working
+branch.
 
 ## Start Here
 

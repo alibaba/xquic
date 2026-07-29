@@ -23,8 +23,9 @@ previous wire behavior. Otherwise write `Not applicable`. -->
 <!-- These checks come from CONTRIBUTING.md and apply in addition to the
 harness validation evidence below. -->
 
-- [ ] The branch uses the documented `dev/`, `fix/`, `perf/`, or `doc/`
-      prefix.
+- [ ] The branch prefix matches the task type: `dev/` for a new feature,
+      `fix/` for a bug fix, `perf/` for a performance optimization or other
+      enhancement, or `doc/` for documentation.
 - [ ] Commit messages follow `[<type>]: <subject>` using `+`, `-`, `=`, or
       `~`.
 - [ ] The change follows the Nginx-derived XQUIC code style, or is

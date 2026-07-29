@@ -20,7 +20,9 @@ The repository [contribution guide](../../CONTRIBUTING.md) remains the
 authoritative contribution contract. Harness evidence extends it and does not
 replace it. Before review, confirm:
 
-- the branch uses the documented `dev/`, `fix/`, `perf/`, or `doc/` prefix;
+- the branch uses the documented pattern for its task type: `dev/` for a new
+  feature, `fix/` for a bug fix, `perf/` for a performance optimization or
+  other enhancement, or `doc/` for documentation;
 - every commit header follows `[<type>]: <subject>` with an allowed `+`, `-`,
   `=`, or `~` type;
 - the contributor has signed or will complete the CLA before merge;

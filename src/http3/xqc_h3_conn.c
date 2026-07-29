@@ -587,11 +587,22 @@ xqc_h3_conn_on_uni_stream_created(xqc_h3_conn_t *h3c, uint64_t stype)
         break;
 
     case XQC_H3_STREAM_TYPE_PUSH:
-        /* xquic does not implement server push, reject with H3_ID_ERROR */
         xqc_log(h3c->log, XQC_LOG_ERROR,
                 "|h3 push stream not supported|type:%ui|", stype);
 
-        XQC_H3_CONN_ERR(h3c, H3_ID_ERROR, -XQC_H3_INVALID_STREAM);
+        /*
+         * RFC 9114 Section 6.2.2 requires H3_STREAM_CREATION_ERROR when a
+         * server receives a client-initiated push stream. A client uses
+         * H3_ID_ERROR because xquic does not advertise server push support.
+         */
+        if (h3c->conn->conn_type == XQC_CONN_TYPE_SERVER) {
+            XQC_H3_CONN_ERR(h3c, H3_STREAM_CREATION_ERROR,
+                            -XQC_H3_INVALID_STREAM);
+
+        } else {
+            XQC_H3_CONN_ERR(h3c, H3_ID_ERROR, -XQC_H3_INVALID_STREAM);
+        }
+
         return -XQC_H3_INVALID_STREAM;
 
     case XQC_H3_STREAM_TYPE_REQUEST:

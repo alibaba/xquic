@@ -133,6 +133,8 @@ main()
         || !CU_add_test(pSuite, "xqc_test_h3_stream", xqc_test_stream)
         || !CU_add_test(pSuite, "xqc_test_h3_critical_stream_close", xqc_test_h3_critical_stream_close)
         || !CU_add_test(pSuite, "xqc_test_h3_second_control_stream_rejected", xqc_test_h3_second_control_stream_rejected)
+        || !CU_add_test(pSuite, "xqc_test_h3_push_stream_error_codes",
+                        xqc_test_h3_push_stream_error_codes)
         /* RFC 9114 §4.2.2 field-section-size 32B overhead (issue 751) */
         || !CU_add_test(pSuite, "xqc_test_h3_uncompressed_fields_size", xqc_test_h3_uncompressed_fields_size)
         || !CU_add_test(pSuite, "xqc_test_h3_recv_header_field_section_size", xqc_test_h3_recv_header_field_section_size)

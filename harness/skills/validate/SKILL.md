@@ -19,22 +19,32 @@ diff contains:
 4. A client-to-server happy-path case in `scripts/case_test.sh`.
 5. A client-to-server abnormal-path case that proves the expected rejection,
    error, close, or recovery behavior.
+6. A distinct, never-before-used ID for each new client-to-server case,
+   allocated from the owning layer or module namespace in the
+   [validation specification](../../spec/validation.md#client-to-server-case-id-namespace).
+7. The new IDs recorded in the namespace registry in the same change.
 
 Give the two case tests distinct `case_print_result` names. Assert the
 observable client and server results needed to prove the behavior. Reusing an
-unrelated test or asserting only that the process exited is not sufficient.
+unrelated test or case ID, or asserting only that the process exited, is not
+sufficient. Active and retired case IDs are both permanently unavailable for
+new behavior.
 
 ## Workflow
 
 1. Inspect the changed-file scope and preserve unrelated user changes.
 2. Apply the Coverage Gate before treating validation as complete.
-3. During development, use a focused registered CUnit test for fast feedback:
+3. For every new case ID, check `scripts/case_test.sh`,
+   `tests/test_client.c`, `tests/test_server.c`, and their Git history. Require
+   no previous allocation and confirm the registry range matches the owning
+   protocol layer or module.
+4. During development, use a focused registered CUnit test for fast feedback:
 
    ```bash
    XQC_TEST_NAME=<test-name> ./scripts/validate.sh test
    ```
 
-4. Before creating or updating a code pull request, clear the focused-test
+5. Before creating or updating a code pull request, clear the focused-test
    selector and run the complete unit suite:
 
    ```bash
@@ -42,7 +52,10 @@ unrelated test or asserting only that the process exited is not sufficient.
    ./scripts/validate.sh test
    ```
 
-5. Run both relevant client-to-server case-test blocks, including their setup,
+6. Require the emitted CUnit summary to show `Ran == Total` and `Failed == 0`.
+   Record the result as `<Ran>/<Total> CUnit tests`; `CTest 1/1` alone is not
+   complete-unit-suite evidence.
+7. Run both relevant client-to-server case-test blocks, including their setup,
    cleanup, and assertions. Because `scripts/case_test.sh` has no generic
    name filter, use the following conservative command unless the exact
    standalone commands for both blocks are executed and recorded:
@@ -51,15 +64,16 @@ unrelated test or asserting only that the process exited is not sufficient.
    XQC_BUILD_DIR=build ./scripts/validate.sh full
    ```
 
-6. Require the complete unit suite and both relevant case tests to pass. Check
+8. Require the complete unit suite and both relevant case tests to pass. Check
    the case output for both expected `[       OK ]` names and for any
    `[     FAIL ]` or `>>>>>>>> pass:0` result; do not rely only on the script's
    exit code.
-7. Verify that `include/xquic/xqc_configure.h` and other generated artifacts
+9. Verify that `include/xquic/xqc_configure.h` and other generated artifacts
    did not enter the source diff.
-8. Report the changed scope, paired unit-test names, paired case-test names,
-   exact commands, and pass/fail results.
-9. Put those current-head results in the repository
+10. Report the changed scope, CUnit `<Ran>/<Total>` and failed counts, paired
+    unit-test names, paired case IDs and namespaces, case-test names, exact
+    commands, and results.
+11. Put those current-head results in the repository
    [pull-request template](../../../.github/pull_request_template.md).
    Missing, stale, focused-only, or failed local evidence does not pass the
    PR gate.
@@ -79,8 +93,12 @@ applicable.
   unit test.
 - Do not submit a code pull request with a missing happy-path or abnormal-path
   client-to-server case test.
+- Do not reuse an active or retired case ID, use an ID outside its documented
+  namespace, or give the paired happy and abnormal cases the same ID.
 - Do not use a focused test as pull-request evidence in place of the complete
   local unit suite.
+- Do not use the aggregate `CTest 1/1` result in place of the CUnit
+  `<Ran>/<Total>` and failed counts.
 - Do not treat an environment blocker as a passing gate; keep the pull request
   in draft or resolve the blocker before review.
 - Keep raw logs under the ignored validation artifact directory.

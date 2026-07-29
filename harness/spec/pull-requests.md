@@ -72,20 +72,30 @@ Every production behavior change must identify:
 
 - a happy-path unit test;
 - an abnormal, rejection, boundary, or error-branch unit test;
-- a happy-path client-to-server case in `scripts/case_test.sh`; and
-- an abnormal-path client-to-server case in `scripts/case_test.sh`.
+- a happy-path client-to-server case in `scripts/case_test.sh`, including its
+  case ID and documented namespace; and
+- an abnormal-path client-to-server case in `scripts/case_test.sh`, including
+  its different case ID and documented namespace.
+
+New case IDs must be absent from both the current tree and repository history
+before allocation. Active and retired IDs cannot be reused, and every new ID
+must be recorded in the
+[case ID namespace registry](validation.md#client-to-server-case-id-namespace)
+in the same change.
 
 The pull request must show that `XQC_TEST_NAME` was unset when the complete
-local unit suite ran. It must also show that both relevant case tests passed.
-If the case pair cannot run independently, use
+local unit suite ran. Report its result as `<Ran>/<Total> CUnit tests` and
+include the failed count; the aggregate `CTest 1/1` result is not sufficient
+evidence. It must also show that both relevant case tests passed. If the case
+pair cannot run independently, use
 `XQC_BUILD_DIR=build ./scripts/validate.sh full`. Evidence must come from the
 current pull request head and be refreshed after every code revision.
 
 The PR validation gate is not satisfied by a checkbox alone. The description
 must contain the exact complete-suite command and result, both unit-test
-names, both client-to-server case names and commands, and the tested commit
-SHA. Keep a production code pull request in draft when any field is missing,
-failed, stale, or replaced by focused-test output.
+names, both client-to-server case IDs, namespaces, names and commands, and the
+tested commit SHA. Keep a production code pull request in draft when any
+field is missing, failed, stale, or replaced by focused-test output.
 
 Documentation-only changes may replace runtime evidence with link, format, and
 command-syntax checks. Validation-tooling changes use the closest

@@ -45,6 +45,9 @@ branch.
 - Before submitting an issue, use
   [`issue-check`](harness/skills/issue-check/SKILL.md) and then
   [`issue-submit`](harness/skills/issue-submit/SKILL.md).
+- After submitting a code pull request as draft and before moving it to
+  review, use
+  [`xquic-pr-pre-review`](harness/skills/xquic-pr-pre-review/SKILL.md).
 - Read the closest module documentation and protocol specification before
   changing wire behavior.
 
@@ -92,9 +95,14 @@ A code change is done when:
 - paired client-to-server case tests cover the corresponding end-to-end
   behavior;
 - the complete local unit suite and both relevant case tests pass;
+- the five-part local pre-review report passes and remains uncommitted;
 - the diff has been reviewed for scope and regressions; and
 - the pull request contains the evidence required by the
   [pull-request specification](harness/spec/pull-requests.md).
 
-When preparing or updating a pull request, follow the
-[`xquic-pr-formatting` skill](harness/skills/xquic-pr-formatting/SKILL.md).
+When preparing or updating a pull request, follow
+[`xquic-pr-formatting`](harness/skills/xquic-pr-formatting/SKILL.md) to publish
+the draft, run
+[`xquic-pr-pre-review`](harness/skills/xquic-pr-pre-review/SKILL.md), then
+return to the formatting skill to update the pull request and move it to
+review.

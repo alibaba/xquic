@@ -60,6 +60,7 @@ EXPECTED_SKILLS=(
     issue-check
     issue-submit
     validate
+    xquic-pr-pre-review
     xquic-pr-formatting
 )
 

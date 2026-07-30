@@ -98,6 +98,14 @@ Mark `Overall: Passed` only when the complete internal contribution checklist,
 local regression, CI, and case-ID coordination all pass. Do not expand the
 internal checklist into additional PR fields.
 
+Submit a new code PR as draft after local validation. Then run the
+[`xquic-pr-pre-review` skill](../skills/xquic-pr-pre-review/SKILL.md) against
+the published PR's exact base and head. Require `pre_review_result: true` from
+all five sections before ready-for-review state, and keep
+`build/harness/pr-<number>/pre-review.md` uncommitted. The local report is a
+gate input; do not copy it into the concise PR body. A changed published head
+invalidates the report and must be reviewed again.
+
 ## Scope Rules
 
 - Do not mix harness construction with unrelated product fixes unless the

@@ -1060,7 +1060,18 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 break;
 
             case XQC_H3_FRM_PUSH_PROMISE:
-                /* PUSH related is not implemented yet */
+                /*
+                 * RFC 9114 Section 7.2.5: clients cannot send PUSH_PROMISE.
+                 * Servers must reject one with H3_FRAME_UNEXPECTED.
+                 */
+                if (h3s->h3c->conn->conn_type == XQC_CONN_TYPE_SERVER) {
+                    xqc_log(h3s->log, XQC_LOG_ERROR,
+                            "|client PUSH_PROMISE on request stream|");
+                    xqc_h3_frm_reset_pctx(pctx);
+                    XQC_H3_CONN_ERR(h3s->h3c, H3_FRAME_UNEXPECTED,
+                                    -XQC_H3_REQUEST_FRAME_UNEXPECTED);
+                    return -XQC_H3_REQUEST_FRAME_UNEXPECTED;
+                }
                 break;
 
             /* RFC 9114 §7.2.4/§7.2.3/§7.2.6/§7.2.7: control-only frames on request stream */
@@ -1397,6 +1408,22 @@ xqc_h3_stream_process_bidi_type_unknown(xqc_h3_stream_t *h3s,
         /* the type of the 1st frame is determined */
         xqc_log(h3s->log, XQC_LOG_DEBUG, "|parse frame type success|frame_type:%xL|read:%z|",
                 pctx->frame.type, read);
+
+        /*
+         * RFC 9114 Section 7.2.5: reject a client PUSH_PROMISE even
+         * when it is the first frame and this stream's type is not
+         * determined yet.
+         */
+        if (pctx->frame.type == XQC_H3_FRM_PUSH_PROMISE
+            && h3s->h3c->conn->conn_type == XQC_CONN_TYPE_SERVER)
+        {
+            xqc_log(h3s->log, XQC_LOG_ERROR,
+                    "|client PUSH_PROMISE on unknown bidi stream|");
+            xqc_h3_frm_reset_pctx(pctx);
+            XQC_H3_CONN_ERR(h3s->h3c, H3_FRAME_UNEXPECTED,
+                            -XQC_H3_REQUEST_FRAME_UNEXPECTED);
+            return -XQC_H3_REQUEST_FRAME_UNEXPECTED;
+        }
         
         if (pctx->frame.type != XQC_H3_EXT_FRM_BIDI_STREAM_TYPE) {
             /* the first frame is not BIDI_STREAM_TYPE */

@@ -5310,4 +5310,51 @@ else
 fi
 killall test_server 2> /dev/null
 
+
+## RFC 9114 Sections 7.2.5 and 9 request-stream frame handling
+
+clear_log
+rm -f test_session xqc_token tp_localhost h3_request_frame_server.log
+${SERVER_BIN} -l d -e -x 1002 > h3_request_frame_server.log &
+sleep 1
+echo -e "HTTP/3 reserved request frame remains usable ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1002 > stdlog
+sent=`grep "\\[h3-request-frame-test\\]|type:0x21|ret:0|" stdlog`
+received=`grep "parse frame type success|frame_type:21|" slog`
+server_ok=`grep "\\[h3-request-frame-test\\]|reserved-frame|conn_err:0|" \
+    h3_request_frame_server.log`
+client_ok=`grep "conn errno:256" stdlog`
+if [ -n "$sent" ] && [ -n "$received" ] && [ -n "$server_ok" ] \
+    && [ -n "$client_ok" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_reserved_request_frame_accepted" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_reserved_request_frame_accepted" "fail"
+fi
+
+killall test_server 2> /dev/null
+clear_log
+rm -f test_session xqc_token tp_localhost h3_request_frame_server.log
+${SERVER_BIN} -l d -e -x 1003 > h3_request_frame_server.log &
+sleep 1
+echo -e "HTTP/3 client PUSH_PROMISE gets frame unexpected ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1003 > stdlog
+sent=`grep "\\[h3-request-frame-test\\]|type:0x5|ret:0|" stdlog`
+server_err=`grep "\\[h3-request-frame-test\\]|push-promise|conn_err:261|" \
+    h3_request_frame_server.log`
+wire_err=`grep "err:0x105" slog`
+client_err=`grep -E "(conn errno:261|conn_err:261)" stdlog`
+if [ -n "$sent" ] && [ -n "$server_err" ] && [ -n "$wire_err" ] \
+    && [ -n "$client_err" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_client_push_promise_rejected" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_client_push_promise_rejected" "fail"
+fi
+killall test_server 2> /dev/null
+rm -f h3_request_frame_server.log
+
+
 cd -

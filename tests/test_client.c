@@ -17,6 +17,7 @@
 #include <xquic/xquic_typedef.h>
 #include <xquic/xqc_http3.h>
 #include "src/http3/xqc_h3_conn.h"
+#include "src/http3/xqc_h3_request.h"
 #include "platform.h"
 #ifndef XQC_SYS_WINDOWS
 #include <unistd.h>
@@ -67,11 +68,15 @@ printf_null(const char *format, ...)
 
 #define XQC_TEST_CASE_H3_RESERVED_UNI_STREAM 1000
 #define XQC_TEST_CASE_H3_CLIENT_PUSH_STREAM 1001
+#define XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME 1002
+#define XQC_TEST_CASE_H3_CLIENT_PUSH_PROMISE 1003
 
 typedef struct user_conn_s user_conn_t;
 
 static void xqc_client_send_test_uni_stream(xqc_h3_conn_t *h3_conn,
     xqc_h3_stream_type_t stream_type);
+static xqc_int_t xqc_client_send_test_request_frame(
+    xqc_h3_request_t *h3_request, uint64_t frame_type);
 
 
 #define XQC_TEST_DGRAM_BATCH_SZ 32
@@ -116,6 +121,7 @@ typedef struct user_stream_s {
     xqc_usec_t               last_read_time;
     int                      abnormal_count;
     int                      body_read_notify_cnt;
+    int                      h3_test_frame_queued;
     xqc_usec_t               last_recv_log_time;
     uint64_t                 recv_log_bytes;
 
@@ -1963,6 +1969,45 @@ xqc_client_send_test_uni_stream(xqc_h3_conn_t *h3_conn,
 }
 
 
+static xqc_int_t
+xqc_client_send_test_request_frame(xqc_h3_request_t *h3_request,
+    uint64_t frame_type)
+{
+    xqc_h3_stream_t *h3_stream = h3_request->h3_stream;
+    xqc_var_buf_t *buf = xqc_var_buf_create(2);
+    if (buf == NULL) {
+        return -XQC_EMALLOC;
+    }
+
+    xqc_int_t ret;
+    if (frame_type == XQC_H3_FRM_PUSH_PROMISE) {
+        ret = xqc_h3_frm_write_push_promise(&h3_stream->send_buf, 0, buf,
+                                            XQC_FALSE);
+
+    } else {
+        unsigned char frame[] = { 0x21, 0x00 };
+        ret = xqc_var_buf_save_data(buf, frame, sizeof(frame));
+        if (ret == XQC_OK) {
+            ret = xqc_list_buf_to_tail(&h3_stream->send_buf, buf);
+        }
+    }
+
+    if (ret != XQC_OK) {
+        xqc_var_buf_free(buf);
+        return ret;
+    }
+
+    ret = xqc_h3_stream_send_buffer(h3_stream);
+    if (ret == -XQC_EAGAIN) {
+        ret = XQC_OK;
+    }
+
+    printf("[h3-request-frame-test]|type:0x%" PRIx64 "|ret:%d|\n",
+           frame_type, ret);
+    return ret;
+}
+
+
 void
 xqc_client_h3_conn_ping_acked_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *ping_user_data, void *user_data)
 {
@@ -2436,6 +2481,27 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
     }
     ssize_t ret = 0;
     char content_len[10];
+
+    if (!user_stream->h3_test_frame_queued
+        && (g_test_case == XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME
+            || g_test_case == XQC_TEST_CASE_H3_CLIENT_PUSH_PROMISE))
+    {
+        uint64_t frame_type =
+            g_test_case == XQC_TEST_CASE_H3_CLIENT_PUSH_PROMISE
+            ? XQC_H3_FRM_PUSH_PROMISE
+            : 0x21;
+        ret = xqc_client_send_test_request_frame(h3_request, frame_type);
+        if (ret != XQC_OK) {
+            return ret;
+        }
+        user_stream->h3_test_frame_queued = 1;
+    }
+
+    if (g_test_case == XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME
+        || g_test_case == XQC_TEST_CASE_H3_CLIENT_PUSH_PROMISE)
+    {
+        return XQC_OK;
+    }
 
     if (user_stream->send_body == NULL && !g_is_get /* POST */) {
         user_stream->send_body_max = MAX_BUF_SIZE;

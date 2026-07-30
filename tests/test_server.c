@@ -53,6 +53,9 @@ printf_null(const char *format, ...)
 
 #define XQC_TEST_DGRAM_BATCH_SZ 32
 
+#define XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME 1002
+#define XQC_TEST_CASE_H3_CLIENT_PUSH_PROMISE 1003
+
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
 
@@ -961,6 +964,17 @@ xqc_server_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, vo
     xqc_conn_stats_t stats = xqc_conn_get_stats(ctx.engine, cid);
     printf("send_count:%u, lost_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" early_data_flag:%d, conn_err:%d, ack_info:%s, conn_info:%s, alpn:%s\n",
            stats.send_count, stats.lost_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.ack_info, stats.conn_info, stats.alpn);
+
+    if (g_test_case == XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME) {
+        printf("[h3-request-frame-test]|reserved-frame|conn_err:%d|\n",
+               stats.conn_err);
+        fflush(stdout);
+
+    } else if (g_test_case == XQC_TEST_CASE_H3_CLIENT_PUSH_PROMISE) {
+        printf("[h3-request-frame-test]|push-promise|conn_err:%d|\n",
+               stats.conn_err);
+        fflush(stdout);
+    }
 
     printf("[h3-dgram]|recv_dgram_bytes:%zu|sent_dgram_bytes:%zu|lost_dgram_bytes:%zu|lost_cnt:%zu|\n", 
            user_conn->dgram_blk->data_recv, user_conn->dgram_blk->data_sent,

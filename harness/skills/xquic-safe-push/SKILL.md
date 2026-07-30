@@ -1,9 +1,13 @@
 ---
 name: xquic-safe-push
-description: Safely commit and push xquic changes after scoped Git checks. Use when asked to stage, commit, push, publish to a fork, create a PR branch, or verify that only intended files will be sent to a remote.
+description: Safely stage, commit, and push XQUIC changes after scoped Git checks. Use when asked to stage, commit, push, publish a branch to a fork, or verify that only intended files will be sent to a remote.
 ---
 
 # XQUIC Safe Push
+
+This skill owns local Git scope, commit, and push safety. It does not own pull
+request body content, review state, validation semantics, or PR pre-review.
+Use PR-specific skills only when those tasks are explicitly in scope.
 
 ## Preflight
 
@@ -14,10 +18,8 @@ description: Safely commit and push xquic changes after scoped Git checks. Use w
    git remote get-url fork 2>/dev/null || \
      git remote add fork git@github.com:cherylsy/xquic.git
    ```
-4. **Determine push target**:
-   - Issue branches (`issue-*`) -> push to `fork` remote (ALWAYS)
-   - Maintenance branches (`dev/agent`, etc.) -> push to `origin` (ops repo only)
-   - If uncertain, default to `fork`
+4. Determine the push target from the user request and repository remotes. For
+   alibaba/xquic contributions, push contribution branches to `fork`.
 5. Show staged and unstaged scopes separately using `git diff --cached --name-status` and `git diff --name-status`.
 6. If the user requested staged-only behavior, do not add any other files.
 7. If user-owned unrelated edits exist, leave them untouched and name them before proceeding.
@@ -26,7 +28,10 @@ description: Safely commit and push xquic changes after scoped Git checks. Use w
 ## Commit
 
 - Commit only the intended staged files.
-- Follow `harness/skills/git-workflow/SKILL.md` for the bracket-prefix marker format (issue-linked `[+] #<N> ...`, maintenance `[~] ...`).
+- Follow `CONTRIBUTING.md`: commit headers use `[<type>]: <subject>` with
+  `+`, `-`, `=`, or `~`.
+- Use one concern per commit and keep debug/log-only commits out of the final
+  branch history.
 - After commit, verify the new commit with `git log --oneline --decorate --max-count=3`.
 
 ## Push
@@ -34,20 +39,20 @@ description: Safely commit and push xquic changes after scoped Git checks. Use w
 Before pushing, show:
 
 - current branch
-- target remote and branch (must be `fork` for issue branches)
+- target remote and branch (must be `fork` for contribution branches unless the
+  user names another writable fork)
 - commits that will be pushed
 - local uncommitted files that will remain local
 
 Push only after the user confirms, unless the same message already explicitly requested the push target and branch.
 
-For issue branches:
+For contribution branches:
 ```bash
 git push fork <branch-name>
 ```
 
 ## Forbidden
 
-- **Do not push issue branches to `origin`**. All issue branches (`issue-*`) must go to the `fork` remote.
 - Do not push to `origin main`, `origin master`, or any remote main/master.
 - Do not push to `origin` at all for xquic code changes (origin is the upstream `alibaba/xquic` -- read-only for pushes).
 - Do not use `--force` unless the user explicitly requested it. Prefer `--force-with-lease` when force is necessary.
@@ -59,11 +64,11 @@ git push fork <branch-name>
 
 ```
 origin  -> git@github.com:alibaba/xquic.git     (upstream, read-only for pushes)
-fork    -> git@github.com:cherylsy/xquic.git     (fork, push target for issue branches)
+fork    -> git@github.com:cherylsy/xquic.git     (fork, default contribution push target)
 ```
 
-- Issue branches (`issue-<N>-*`) are pushed to the `fork` remote.
-- PRs target origin: `gh pr create --repo alibaba/xquic --head cherylsy:<branch>`.
+- Contribution branches are pushed to the `fork` remote unless the user names
+  a different writable fork.
 
 ### Worktree Convention
 
@@ -74,4 +79,5 @@ Each issue uses an independent git worktree for parallel isolation:
 ../xquic-issue-<N>/                 (issue worktree)
 ```
 
-Lifecycle: `git worktree add` -> work -> push to fork -> create PR -> `git worktree remove`.
+Lifecycle: `git worktree add` -> work -> push to fork -> PR handling by the
+relevant PR skill -> `git worktree remove`.

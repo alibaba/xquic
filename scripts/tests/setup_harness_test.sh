@@ -59,8 +59,6 @@ HOOKS_DIR="${TEST_DIR}/positive/hooks"
 EXPECTED_SKILLS=(
     gh-address-comments
     gh-fix-ci
-    gh-pr-review
-    git-workflow
     issue-check
     issue-submit
     validate

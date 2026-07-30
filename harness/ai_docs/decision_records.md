@@ -102,3 +102,47 @@ Evidence:
 - `harness/spec/run-artifacts.md`
 - `scripts/harness_trace.sh`
 - `harness/spec/openspec.md`
+
+## ADR-H004: Keep Git And PR Skills Purpose-Bound
+
+Status: Accepted
+
+Date: 2026-07-30
+
+Context:
+- A single Git workflow skill duplicated branch, commit, PR, and push rules
+  already present in `CONTRIBUTING.md`, PR specs, and narrower skills.
+- Chaining issue, Git, PR formatting, pre-review, comments, and CI
+  skills into one mandatory path reduces agent autonomy and creates redundant
+  update points.
+- The general PR review trigger overlapped the code-PR pre-review gate, while
+  the pre-review skill has the stricter XQUIC-specific report and fail-closed
+  output needed before ready-for-review state.
+
+Decision:
+- Remove the standalone Git workflow skill.
+- Remove the general `gh-pr-review` skill and keep `xquic-pr-pre-review` as the
+  code-PR review gate.
+- Keep `gh-address-comments` as the post-review comment-fix entry point.
+- Keep shared contribution rules in `CONTRIBUTING.md` and PR specs.
+- Keep `xquic-safe-push` limited to local Git scope, commit, branch target, and
+  push safety.
+- Keep `xquic-pr-formatting` limited to PR body content and draft/review state
+  checks.
+- Select PR, comment-fix, CI, and Git skills by task purpose rather than by a
+  fixed skill chain.
+
+Consequences:
+- Agents can choose only the skill that matches the active task, without a
+  second general PR-review trigger competing with the stricter pre-review gate.
+- Git/PR policy changes have fewer sources to update.
+- Code-PR pre-review remains a state gate before moving a draft code PR to
+  review, not a universal PR-workflow chain step.
+
+Evidence:
+- `harness/skills/xquic-pr-pre-review/SKILL.md`
+- `harness/skills/gh-address-comments/SKILL.md`
+- `harness/skills/xquic-safe-push/SKILL.md`
+- `harness/skills/xquic-pr-formatting/SKILL.md`
+- `harness/spec/pull-requests.md`
+- `harness/pipelines/dev-pipeline.md`

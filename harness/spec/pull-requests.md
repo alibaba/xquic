@@ -1,8 +1,8 @@
 # Pull Request Evidence
 
 See the [project instructions](PROJECT_INSTRUCTIONS.md) for related
-architecture and validation contracts. When drafting or updating a pull
-request, follow the
+architecture and validation contracts. When PR body or state handling is the
+active task, use the
 [`xquic-pr-formatting` skill](../skills/xquic-pr-formatting/SKILL.md).
 Start from the repository
 [pull-request template](../../.github/pull_request_template.md).
@@ -98,7 +98,8 @@ Mark `Overall: Passed` only when the complete internal contribution checklist,
 local regression, CI, and case-ID coordination all pass. Do not expand the
 internal checklist into additional PR fields.
 
-Submit a new code PR as draft after local validation. Then run the
+Submit a new code PR as draft after local validation. Before moving it out of
+draft, run the
 [`xquic-pr-pre-review` skill](../skills/xquic-pr-pre-review/SKILL.md) against
 the published PR's exact base and head. Require `pre_review_result: true` from
 all five sections before ready-for-review state, and keep

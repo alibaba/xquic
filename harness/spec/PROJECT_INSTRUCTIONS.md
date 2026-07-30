@@ -54,7 +54,7 @@ remain in the root [`README.md`](../../README.md).
 | Verify an issue or protocol-defect claim | [`issue-check` skill](../skills/issue-check/SKILL.md) |
 | Prepare or submit a GitHub issue | [`issue-submit` skill](../skills/issue-submit/SKILL.md), gated by [`issue-check`](../skills/issue-check/SKILL.md) |
 | Pre-review a code pull request | [`xquic-pr-pre-review` skill](../skills/xquic-pr-pre-review/SKILL.md), after draft PR publication and before ready-for-review state |
-| Pull request preparation or update | [Pull-request specification](pull-requests.md) and [`xquic-pr-formatting` skill](../skills/xquic-pr-formatting/SKILL.md) |
+| Pull request preparation or update | [Pull-request specification](pull-requests.md) and the relevant PR skill for formatting, review, comments, or CI |
 | Query or analysis | Relevant source, tests, module docs, and [architecture map](architecture.md) |
 
 Before task routing in a fresh checkout, follow the

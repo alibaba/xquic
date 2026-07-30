@@ -40,6 +40,25 @@ These invariants keep the harness useful to agents and safe for public review.
 - Detailed procedures live in on-demand pipelines, skills, and specs.
 - The manifest is the single source of truth for path-to-module routing.
 - AI docs explain durable context; they do not duplicate workflow steps.
+- Skills are selected by the current task purpose. Skill names are entry
+  points, not a required linear route.
+
+## Skill Boundaries
+
+- Code-PR pre-review, review-comment fixes, CI fixes, PR formatting, and safe
+  push remain separate entry points.
+- `xquic-pr-pre-review` is the only review gate for moving a code pull request
+  toward ready-for-review state.
+- `gh-address-comments` remains the entry point for editing after reviewer
+  comments or requested changes.
+- `xquic-safe-push` owns local Git scope, commits, branch targets, and push
+  safety. It does not own PR body content, PR review state, CI diagnosis, or
+  review-comment fixes.
+- `xquic-pr-formatting` owns concise PR body content and draft/review state
+  checks. It does not stage, commit, push, rebase, force-push, diagnose CI, or
+  perform code review.
+- Shared contribution rules point to `CONTRIBUTING.md` and PR specs instead of
+  a separate Git workflow skill.
 
 ## Validation Behavior
 

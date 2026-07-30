@@ -37,9 +37,12 @@ gate are satisfied.
 - Read [`harness/spec/architecture.md`](harness/spec/architecture.md)
   before changing module boundaries.
 - Read [`doc-style.md`](harness/spec/doc-style.md) before durable comments or docs.
-- Before submitting an issue, use [`issue-check`](harness/skills/issue-check/SKILL.md)
-  and then [`issue-submit`](harness/skills/issue-submit/SKILL.md).
-- After draft code PR submission, use [`xquic-pr-pre-review`](harness/skills/xquic-pr-pre-review/SKILL.md) before review.
+- For issues and pull requests, choose the relevant skill by task purpose:
+  issue checking, issue submission, PR formatting, PR review, comment fixes,
+  CI fixes, safe push, and code-PR pre-review are separate entry points.
+- Before moving a code PR out of draft, run
+  [`xquic-pr-pre-review`](harness/skills/xquic-pr-pre-review/SKILL.md)
+  against the published current head.
 - Read the closest module documentation and protocol specification before
   changing wire behavior.
 
@@ -92,9 +95,6 @@ bash scripts/xqc_harness_check.sh
 
 A code change is done when acceptance criteria are satisfied, paired unit and
 client-to-server tests cover happy and abnormal paths, validation passes,
-durable docs are synchronized, the five-part local pre-review report passes
-and remains uncommitted, and PR evidence follows
-[`harness/spec/pull-requests.md`](harness/spec/pull-requests.md). PR work uses
-[`xquic-pr-formatting`](harness/skills/xquic-pr-formatting/SKILL.md), then
-[`xquic-pr-pre-review`](harness/skills/xquic-pr-pre-review/SKILL.md), then
-returns to formatting before review.
+durable docs are synchronized, any required local pre-review report remains
+uncommitted and passes, and PR evidence follows
+[`harness/spec/pull-requests.md`](harness/spec/pull-requests.md).

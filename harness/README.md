@@ -27,10 +27,8 @@ harness/
 - [Issue submission skill](skills/issue-submit/SKILL.md)
 - [Pull request pre-review skill](skills/xquic-pr-pre-review/SKILL.md)
 - [Pull request formatting skill](skills/xquic-pr-formatting/SKILL.md)
-- [Git workflow skill](skills/git-workflow/SKILL.md)
 - [Safe push skill](skills/xquic-safe-push/SKILL.md)
 - [GitHub CI fix skill](skills/gh-fix-ci/SKILL.md)
-- [GitHub PR review skill](skills/gh-pr-review/SKILL.md)
 - [GitHub review comment skill](skills/gh-address-comments/SKILL.md)
 - [OpenSpec integration guide](spec/openspec.md)
 

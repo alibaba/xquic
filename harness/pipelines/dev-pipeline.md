@@ -8,11 +8,9 @@ Reading this file in full is a mandatory preflight for every code task. Read
 it before planning, inspecting implementation paths, or editing source,
 tests, build scripts, validation tooling, or repository automation.
 
-```text
-Requirement analysis -> Acceptance criteria -> Working branch
-                     -> Implementation -> Validation
-                     -> Draft PR -> Pre-review -> Ready for review
-```
+Use the stages below as gates. Select task-specific skills when their
+triggered purpose matches the current work. Skill names are entry points, not a
+required linear route.
 
 ## Stage 1: Requirement Analysis
 
@@ -141,7 +139,7 @@ the open-PR query, fetch, or head-SHA verification is incomplete.
 Exit only when the complete unit suite and both relevant case tests pass and
 the final reservation snapshot is complete and conflict-free.
 
-## Stage 6: Draft PR, Pre-Review, and Review Submission
+## Stage 6: Pull Request Evidence and State Gates
 
 1. Review staged and unstaged diffs separately and verify the final scope.
 2. Confirm generated headers, validation artifacts, and task-scoped
@@ -160,13 +158,14 @@ the final reservation snapshot is complete and conflict-free.
      and concise failing cases.
    Do not copy commands, test function names, logs, namespace ranges, tested
    SHA, or successful reservation snapshots into the PR body.
-6. After Stage 5 passes, invoke the
-   [`xquic-pr-formatting` skill](../skills/xquic-pr-formatting/SKILL.md) to
-   format and submit every new code pull request as draft, or update an
-   existing pull request after a follow-up revision and keep it in draft,
-   through the available GitHub client.
-7. Fetch the published pull request and verify its number, URL, base commit,
-   head commit, title, body, and draft state. Run the
+6. After Stage 5 passes, a new code pull request may be submitted as draft, or
+   an existing pull request may be updated after a follow-up revision and kept
+   in draft. Use
+   [`xquic-pr-formatting`](../skills/xquic-pr-formatting/SKILL.md) when PR
+   body or state handling is the active task.
+7. Before moving a code pull request from draft to review, fetch the published
+   pull request and verify its number, URL, base commit, head commit, title,
+   body, and draft state. Run the
    [`xquic-pr-pre-review` skill](../skills/xquic-pr-pre-review/SKILL.md)
    against that exact published base-to-head diff. Write its five-part report
    to `build/harness/pr-<number>/pre-review.md`.
@@ -182,12 +181,12 @@ the final reservation snapshot is complete and conflict-free.
 10. Reflect a post-publication collision as an incomplete local-regression
    blocker; keep successful scan details in local evidence. Fetch the published
    pull request and verify its title, concise body, real line breaks, issue and
-    RFC linkage, aggregate gates, base, head, draft or review state, and URL.
-    Only then update the concise body and move an otherwise complete PR to
-    review.
+   RFC linkage, aggregate gates, base, head, draft or review state, and URL.
+   Only then update the concise body and move an otherwise complete PR to
+   review.
 
 Complete the loop only when the acceptance criteria, paired unit and case-test
-coverage, validation evidence, five-part pre-review, scope review, and
+coverage, validation evidence, required state-gate evidence, scope review, and
 published pull request are consistent.
 
 ## Enforcement Rules
@@ -214,8 +213,8 @@ published pull request are consistent.
     issue-check gate, and its task-scoped issue-check report must never be
     committed.
 11. A new pull request is submitted only after the Stage 5 validation gate
-    passes, and every submission or follow-up update uses
-    `xquic-pr-formatting` and verifies the published result.
+    passes, and every submission or follow-up update verifies the published
+    result.
 12. Case-ID allocation fails closed unless the base, repository history, and
     all open PR heads were checked. A post-publication collision is resolved in
     favor of the lowest PR number; a later PR must reallocate and revalidate.

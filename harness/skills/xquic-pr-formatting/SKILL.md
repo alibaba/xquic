@@ -1,9 +1,13 @@
 ---
 name: xquic-pr-formatting
-description: Format, submit, and update concise XQUIC pull requests, descriptions, comments, and review summaries. Use after the development-pipeline validation gate passes when creating or editing an alibaba/xquic pull request or issue-linked PR body so protocol mechanisms, case summaries, aggregate contribution gates, and Markdown formatting remain consistent.
+description: Format, create, and update concise XQUIC pull request bodies and review-state transitions. Use when asked to prepare or edit an alibaba/xquic PR body, create a draft PR from an already-pushed branch, or move a validated draft toward review.
 ---
 
 # XQUIC PR Formatting
+
+This skill owns contributor-facing PR content and PR state checks. It does not
+own local staging, commits, branch pushes, CI diagnosis, review-comment fixes,
+or general PR code review.
 
 ## Required Workflow
 
@@ -30,20 +34,18 @@ description: Format, submit, and update concise XQUIC pull requests, description
    `Local regression: Complete` or concise failed cases, and `CI: Complete` or
    only incomplete check names.
 9. Write multiline descriptions or comments to a Markdown file first.
-10. After the development pipeline's validation gate passes, create every new
-    code pull request as draft through the available GitHub client using that
-    file. Keep follow-up updates in draft until their current head passes
-    pre-review.
+10. After the development pipeline's validation gate passes and the branch is
+    already pushed, create every new code pull request as draft through the
+    available GitHub client using that file. Keep follow-up updates in draft
+    unless the active task is to move the current published head toward review.
 11. Fetch the published pull request and confirm its number, URL, base, head,
     title, body, real line breaks, and draft state.
-12. Run
-    [`xquic-pr-pre-review`](../xquic-pr-pre-review/SKILL.md) against the
-    published pull request. Read
-    `build/harness/pr-<number>/pre-review.md` and require
-    `pre_review_result: true` for its exact published head. Keep the report out
-    of the commit and concise PR body.
-13. Immediately repeat the reservation scan with the published current PR
-    included. If duplicate case IDs exist, the lowest PR number keeps them.
+12. When the active task is to move a code PR out of draft, require
+    [`xquic-pr-pre-review`](../xquic-pr-pre-review/SKILL.md) to pass for the
+    exact published head. Keep the report out of the commit and concise PR body.
+13. When moving a PR toward review, immediately repeat the reservation scan with
+    the published current PR included. If duplicate case IDs exist, the lowest
+    PR number keeps them.
     Keep or return every later PR to draft and send it back through allocation
     and validation before another update.
 14. Reflect a collision as an incomplete local gate; keep successful details
@@ -93,5 +95,7 @@ List cases only as:
   type.
 - Do not include internal agent names, temporary artifacts, or process
   chatter in contributor-facing content.
+- Do not stage, commit, push, rebase, or force-push while acting only on PR
+  formatting or state.
 - Preserve the distinction between issue-independent harness work and a
   product change that happens to exercise it.

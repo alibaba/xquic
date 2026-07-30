@@ -12,6 +12,12 @@ mechanism, concise validation cases, and the aggregate contribution gate.
 Detailed commands, logs, test function names, and reservation snapshots remain
 in code, CI, or ignored local validation artifacts.
 
+When a code push changes the published pull-request head, update the concise
+body with the [`xquic-pr-formatting` skill](../skills/xquic-pr-formatting/SKILL.md)
+before review-state movement. The mechanism, validation cases, and aggregate
+gate must describe the current base-to-head diff and current validation
+evidence.
+
 ## CONTRIBUTING.md Compliance
 
 The repository [contribution guide](../../CONTRIBUTING.md) remains the
@@ -105,7 +111,8 @@ the published PR's exact base and head. Require `pre_review_result: true` from
 all five sections before ready-for-review state, and keep
 `build/harness/pr-<number>/pre-review.md` uncommitted. The local report is a
 gate input; do not copy it into the concise PR body. A changed published head
-invalidates the report and must be reviewed again.
+invalidates the report and must be reviewed again. The PR body must also be
+refreshed for that head before the PR moves forward.
 
 ## Scope Rules
 

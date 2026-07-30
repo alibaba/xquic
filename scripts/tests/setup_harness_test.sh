@@ -59,6 +59,7 @@ HOOKS_DIR="${TEST_DIR}/positive/hooks"
 EXPECTED_SKILLS=(
     gh-address-comments
     gh-fix-ci
+    harness-review
     issue-check
     issue-submit
     validate

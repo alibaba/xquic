@@ -1,6 +1,6 @@
 ---
 name: xquic-pr-pre-review
-description: Perform a fail-closed pre-review of a published draft XQUIC code pull request before ready-for-review state. Verify its exact published base-to-head implementation against authoritative RFC or pinned Internet-Draft text, paired positive and negative unit and client-to-server case coverage, an attempted adversarial bypass, protocol-stack performance and compiler optimization, and memory safety, ownership, bounds, and footprint; write the five-part conclusion to an ignored local review file.
+description: Fail closed on published draft XQUIC code pull requests before ready-for-review state. Use when asked to pre-review a code PR or move it out of draft; verify current base-to-head code, protocol conformance, validation coverage, adversarial bad cases, hot-path performance, and memory safety in a five-part local report.
 ---
 
 # XQUIC PR Pre-Review

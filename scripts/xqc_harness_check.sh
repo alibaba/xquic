@@ -99,6 +99,13 @@ skills.each do |skill_file|
 
   errors << "#{skill_dir}: front matter name must match directory" unless name == skill_dir
   errors << "#{skill_dir}: description is required" if description.empty?
+  errors << "#{skill_dir}: description must include a Use when trigger" unless description.include?("Use when")
+  if description.length > 420
+    errors << "#{skill_dir}: description is too long (#{description.length}, max 420)"
+  end
+  if text.lines.length > 180
+    errors << "#{skill_dir}: skill body is too long (#{text.lines.length}, max 180)"
+  end
 end
 
 if errors.empty?
@@ -169,6 +176,7 @@ require_file "harness/spec/doc-style.md"
 require_file "harness/spec/run-artifacts.md"
 require_file "harness/spec/harness-manifest.yml"
 require_file "harness/spec/openspec.md"
+require_file "harness/skills/harness-review/SKILL.md"
 require_file "harness/skills/validate/SKILL.md"
 require_file "scripts/harness_trace.sh"
 require_file "scripts/harness_manifest_check.rb"

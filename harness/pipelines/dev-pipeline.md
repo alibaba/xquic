@@ -160,7 +160,9 @@ the final reservation snapshot is complete and conflict-free.
    SHA, or successful reservation snapshots into the PR body.
 6. After Stage 5 passes, a new code pull request may be submitted as draft, or
    an existing pull request may be updated after a follow-up revision and kept
-   in draft. Use
+   in draft. Whenever the published PR head changes because code was pushed,
+   rerun PR formatting against the current base-to-head diff and update the PR
+   summary before moving on. Use
    [`xquic-pr-formatting`](../skills/xquic-pr-formatting/SKILL.md) when PR
    body or state handling is the active task.
 7. Before moving a code pull request from draft to review, fetch the published

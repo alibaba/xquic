@@ -45,6 +45,9 @@ These invariants keep the harness useful to agents and safe for public review.
 
 ## Skill Boundaries
 
+- `harness-review` owns harness structure review for bloat, duplicate facts,
+  trigger overlap, reference drift, and missing hard checks. It does not own
+  product validation or PR content updates.
 - Code-PR pre-review, review-comment fixes, CI fixes, PR formatting, and safe
   push remain separate entry points.
 - `xquic-pr-pre-review` is the only review gate for moving a code pull request
@@ -54,9 +57,10 @@ These invariants keep the harness useful to agents and safe for public review.
 - `xquic-safe-push` owns local Git scope, commits, branch targets, and push
   safety. It does not own PR body content, PR review state, CI diagnosis, or
   review-comment fixes.
-- `xquic-pr-formatting` owns concise PR body content and draft/review state
-  checks. It does not stage, commit, push, rebase, force-push, diagnose CI, or
-  perform code review.
+- `xquic-pr-formatting` owns concise PR body content, summary-to-code
+  consistency after published head changes, and draft/review state checks. It
+  does not stage, commit, push, rebase, force-push, diagnose CI, or perform
+  code review.
 - Shared contribution rules point to `CONTRIBUTING.md` and PR specs instead of
   a separate Git workflow skill.
 

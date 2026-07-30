@@ -1,13 +1,13 @@
 ---
 name: xquic-pr-formatting
-description: Format, create, and update concise XQUIC pull request bodies and review-state transitions. Use when asked to prepare or edit an alibaba/xquic PR body, create a draft PR from an already-pushed branch, or move a validated draft toward review.
+description: Format, create, and update concise XQUIC pull request bodies and review-state transitions. Use when asked to prepare or edit an alibaba/xquic PR body, create a draft PR from an already-pushed branch, update a PR after code changes pushed a new head, or move a validated draft toward review.
 ---
 
 # XQUIC PR Formatting
 
-This skill owns contributor-facing PR content and PR state checks. It does not
-own local staging, commits, branch pushes, CI diagnosis, review-comment fixes,
-or general PR code review.
+This skill owns contributor-facing PR content, summary-to-code consistency, and
+PR state checks. It does not own local staging, commits, branch pushes, CI
+diagnosis, review-comment fixes, or code review.
 
 ## Required Workflow
 
@@ -38,17 +38,24 @@ or general PR code review.
     already pushed, create every new code pull request as draft through the
     available GitHub client using that file. Keep follow-up updates in draft
     unless the active task is to move the current published head toward review.
-11. Fetch the published pull request and confirm its number, URL, base, head,
+11. After any code push changes the published PR head, rerun this skill against
+    the current base-to-head diff before the PR is updated or moved forward.
+    Update the mechanism, validation cases, and aggregate gate summary so they
+    describe the current code and validation evidence, not a prior head.
+12. Fetch the published pull request and confirm its number, URL, base, head,
     title, body, real line breaks, and draft state.
-12. When the active task is to move a code PR out of draft, require
+13. Verify the published PR summary matches the current base-to-head diff:
+    changed mechanism, protocol citations, issue linkage, case IDs, local gate,
+    and CI status must all be current and source-backed.
+14. When the active task is to move a code PR out of draft, require
     [`xquic-pr-pre-review`](../xquic-pr-pre-review/SKILL.md) to pass for the
     exact published head. Keep the report out of the commit and concise PR body.
-13. When moving a PR toward review, immediately repeat the reservation scan with
+15. When moving a PR toward review, immediately repeat the reservation scan with
     the published current PR included. If duplicate case IDs exist, the lowest
     PR number keeps them.
     Keep or return every later PR to draft and send it back through allocation
     and validation before another update.
-14. Reflect a collision as an incomplete local gate; keep successful details
+16. Reflect a collision as an incomplete local gate; keep successful details
     out of the body. Fetch the published pull request and verify its title,
     concise body, real line breaks, RFC and issue links, aggregate statuses,
     base, head, draft or review state, and URL. Update the concise body and
@@ -73,6 +80,8 @@ List cases only as:
   local validation artifacts.
 - Do not use escaped newline strings for multiline GitHub content.
 - Do not claim a full suite passed when only a focused test ran.
+- Do not leave a PR summary describing an older head after code changes are
+  pushed.
 - Do not move a production code pull request to review without paired coverage
   and passing local gate evidence.
 - Do not submit a new production code pull request before the development

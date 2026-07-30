@@ -1,6 +1,6 @@
 ---
 name: validate
-description: Enforce XQUIC test coverage and local validation gates. Use after code, build, or test changes; before commit or pull request; or when asked to build, test, validate, or verify XQUIC. Requires paired happy-path and abnormal-path unit tests, paired client-to-server case tests, the complete local unit suite, and the relevant case tests for production behavior changes.
+description: Enforce XQUIC test coverage and local validation gates. Use when code, build, or test changes need verification; before commit or pull request; or when asked to build, test, validate, or verify XQUIC. Requires paired happy-path and abnormal-path unit tests, paired client-to-server case tests, the complete local unit suite, and relevant case tests for production behavior changes.
 ---
 
 # XQUIC Validate

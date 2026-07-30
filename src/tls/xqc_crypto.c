@@ -797,16 +797,16 @@ xqc_aead_integrity_limit(uint32_t cipher_id)
     /* RFC 9001 §6.6: integrity limits for each AEAD algorithm */
     switch (cipher_id) {
     case XQC_TLS13_AES_128_GCM_SHA256:
+        return XQC_AES_128_GCM_INTEGRITY_LIMIT;
+
     case XQC_TLS13_AES_256_GCM_SHA384:
-        /* AES-GCM integrity limit: 2^52 = 4503599627370496 */
-        return 4503599627370496ULL;
+        return XQC_AES_256_GCM_INTEGRITY_LIMIT;
 
     case XQC_TLS13_CHACHA20_POLY1305_SHA256:
-        /* ChaCha20-Poly1305 integrity limit: 2^36 = 68719476736 */
-        return 68719476736ULL;
+        return XQC_CHACHA20_POLY1305_INTEGRITY_LIMIT;
 
     default:
         /* unknown cipher, use conservative limit */
-        return 68719476736ULL;
+        return XQC_AEAD_CONSERVATIVE_INTEGRITY_LIMIT;
     }
 }

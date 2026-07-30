@@ -11,7 +11,7 @@ tests, build scripts, validation tooling, or repository automation.
 ```text
 Requirement analysis -> Acceptance criteria -> Working branch
                      -> Implementation -> Validation
-                     -> Review and PR submission
+                     -> Draft PR -> Pre-review -> Ready for review
 ```
 
 ## Stage 1: Requirement Analysis
@@ -141,7 +141,7 @@ the open-PR query, fetch, or head-SHA verification is incomplete.
 Exit only when the complete unit suite and both relevant case tests pass and
 the final reservation snapshot is complete and conflict-free.
 
-## Stage 6: Review and PR Submission
+## Stage 6: Draft PR, Pre-Review, and Review Submission
 
 1. Review staged and unstaged diffs separately and verify the final scope.
 2. Confirm generated headers, validation artifacts, and task-scoped
@@ -162,24 +162,33 @@ the final reservation snapshot is complete and conflict-free.
    SHA, or successful reservation snapshots into the PR body.
 6. After Stage 5 passes, invoke the
    [`xquic-pr-formatting` skill](../skills/xquic-pr-formatting/SKILL.md) to
-   format and submit a new pull request, or update an existing pull request
-   after a follow-up revision, through the available GitHub client. Publish a
-   new-case PR or a head that changes case IDs in draft until the
-   post-publication scan passes.
-7. Immediately scan open pull requests again with the published current PR
+   format and submit every new code pull request as draft, or update an
+   existing pull request after a follow-up revision and keep it in draft,
+   through the available GitHub client.
+7. Fetch the published pull request and verify its number, URL, base commit,
+   head commit, title, body, and draft state. Run the
+   [`xquic-pr-pre-review` skill](../skills/xquic-pr-pre-review/SKILL.md)
+   against that exact published base-to-head diff. Write its five-part report
+   to `build/harness/pr-<number>/pre-review.md`.
+8. Continue only when the report reviews the published current head and says
+   `pre_review_result: true`. Keep the report and any exploratory bad-case
+   artifacts unstaged and uncommitted. A changed published head invalidates
+   the report and returns the pull request to this step.
+9. Immediately scan open pull requests again with the published current PR
    included. If two PRs contain the same case ID, the lower-numbered PR keeps
    it. Keep or return every later PR to draft, then go back to Stage 2,
    reallocate the colliding ID, update the selectors and registry, and rerun
    Stage 5 before publishing another head.
-8. Reflect a post-publication collision as an incomplete local-regression
+10. Reflect a post-publication collision as an incomplete local-regression
    blocker; keep successful scan details in local evidence. Fetch the published
    pull request and verify its title, concise body, real line breaks, issue and
-   RFC linkage, aggregate gates, draft or review state, and URL. Only then move
-   an otherwise complete PR to review.
+    RFC linkage, aggregate gates, base, head, draft or review state, and URL.
+    Only then update the concise body and move an otherwise complete PR to
+    review.
 
 Complete the loop only when the acceptance criteria, paired unit and case-test
-coverage, validation evidence, scope review, and published pull request are
-consistent.
+coverage, validation evidence, five-part pre-review, scope review, and
+published pull request are consistent.
 
 ## Enforcement Rules
 
@@ -210,3 +219,7 @@ consistent.
 12. Case-ID allocation fails closed unless the base, repository history, and
     all open PR heads were checked. A post-publication collision is resolved in
     favor of the lowest PR number; a later PR must reallocate and revalidate.
+13. Every new code pull request is submitted as draft after validation. It is
+    moved to review only when its exact published current head has a true
+    five-part pre-review result; the local report and exploratory artifacts
+    are never committed.

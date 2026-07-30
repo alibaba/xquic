@@ -30,18 +30,27 @@ description: Format, submit, and update concise XQUIC pull requests, description
    `Local regression: Complete` or concise failed cases, and `CI: Complete` or
    only incomplete check names.
 9. Write multiline descriptions or comments to a Markdown file first.
-10. After the development pipeline's validation gate passes, create or update
-    the pull request through the available GitHub client using that file.
-    Publish a new-case PR, or a head that changes case IDs, in draft.
-11. Immediately repeat the reservation scan with the published current PR
+10. After the development pipeline's validation gate passes, create every new
+    code pull request as draft through the available GitHub client using that
+    file. Keep follow-up updates in draft until their current head passes
+    pre-review.
+11. Fetch the published pull request and confirm its number, URL, base, head,
+    title, body, real line breaks, and draft state.
+12. Run
+    [`xquic-pr-pre-review`](../xquic-pr-pre-review/SKILL.md) against the
+    published pull request. Read
+    `build/harness/pr-<number>/pre-review.md` and require
+    `pre_review_result: true` for its exact published head. Keep the report out
+    of the commit and concise PR body.
+13. Immediately repeat the reservation scan with the published current PR
     included. If duplicate case IDs exist, the lowest PR number keeps them.
     Keep or return every later PR to draft and send it back through allocation
     and validation before another update.
-12. Reflect a collision as an incomplete local gate; keep successful details
+14. Reflect a collision as an incomplete local gate; keep successful details
     out of the body. Fetch the published pull request and verify its title,
     concise body, real line breaks, RFC and issue links, aggregate statuses,
-    draft or review state, and URL. Move an otherwise complete PR to review
-    only after this check passes.
+    base, head, draft or review state, and URL. Update the concise body and
+    move an otherwise complete PR to review only after this check passes.
 
 ## Pull Request Body
 
@@ -65,7 +74,10 @@ List cases only as:
 - Do not move a production code pull request to review without paired coverage
   and passing local gate evidence.
 - Do not submit a new production code pull request before the development
-  pipeline's validation gate passes.
+  pipeline's validation gate passes, and do not create it initially as ready.
+- Do not move a production code pull request to review before its exact
+  published current head passes pre-review.
+- Do not accept a missing, stale, false, or inconclusive pre-review report.
 - Do not publish or update a ready-for-review production PR with a case ID
   reserved by another open PR.
 - Do not treat a failed or incomplete open-PR query as an empty reservation

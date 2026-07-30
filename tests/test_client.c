@@ -70,6 +70,9 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_CLIENT_PUSH_STREAM 1001
 #define XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME 1002
 #define XQC_TEST_CASE_H3_CLIENT_PUSH_PROMISE 1003
+#define XQC_TEST_CASE_H3_MAX_PUSH_ID_WRONG_ROLE 1004
+#define XQC_TEST_CASE_H3_MAX_PUSH_ID_VALID 1005
+#define XQC_TEST_CASE_H3_MAX_PUSH_ID_DECREASE 1006
 
 typedef struct user_conn_s user_conn_t;
 
@@ -77,6 +80,8 @@ static void xqc_client_send_test_uni_stream(xqc_h3_conn_t *h3_conn,
     xqc_h3_stream_type_t stream_type);
 static xqc_int_t xqc_client_send_test_request_frame(
     xqc_h3_request_t *h3_request, uint64_t frame_type);
+static void xqc_client_send_test_max_push_ids(xqc_h3_conn_t *h3_conn,
+    uint64_t first, uint64_t second);
 
 
 #define XQC_TEST_DGRAM_BATCH_SZ 32
@@ -1939,6 +1944,12 @@ xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
     } else if (g_test_case == XQC_TEST_CASE_H3_CLIENT_PUSH_STREAM) {
         xqc_client_send_test_uni_stream(h3_conn,
                 XQC_H3_STREAM_TYPE_PUSH);
+
+    } else if (g_test_case == XQC_TEST_CASE_H3_MAX_PUSH_ID_VALID) {
+        xqc_client_send_test_max_push_ids(h3_conn, 1, 3);
+
+    } else if (g_test_case == XQC_TEST_CASE_H3_MAX_PUSH_ID_DECREASE) {
+        xqc_client_send_test_max_push_ids(h3_conn, 3, 1);
     }
 
     if (g_test_case == 200 || g_test_case == 201) {
@@ -2005,6 +2016,23 @@ xqc_client_send_test_request_frame(xqc_h3_request_t *h3_request,
     printf("[h3-request-frame-test]|type:0x%" PRIx64 "|ret:%d|\n",
            frame_type, ret);
     return ret;
+}
+
+
+static void
+xqc_client_send_test_max_push_ids(xqc_h3_conn_t *h3_conn,
+    uint64_t first, uint64_t second)
+{
+    xqc_h3_stream_t *control = h3_conn->control_stream_out;
+    xqc_int_t first_ret = xqc_h3_frm_write_max_push_id(
+        &control->send_buf, first, XQC_FALSE);
+    xqc_int_t second_ret = xqc_h3_frm_write_max_push_id(
+        &control->send_buf, second, XQC_FALSE);
+    xqc_int_t send_ret = xqc_h3_stream_send_buffer(control);
+
+    printf("[h3-max-push-id-test]|first:%" PRIu64 "|second:%" PRIu64
+           "|write:%d,%d|send:%d|\n",
+           first, second, first_ret, second_ret, send_ret);
 }
 
 

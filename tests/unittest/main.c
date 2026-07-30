@@ -143,6 +143,10 @@ main(int argc, char *argv[])
                         xqc_test_h3_reserved_uni_stream_accepted)
         || !CU_add_test(pSuite, "xqc_test_h3_push_stream_error_codes",
                         xqc_test_h3_push_stream_error_codes)
+        || !CU_add_test(pSuite, "xqc_test_h3_max_push_id_valid",
+                        xqc_test_h3_max_push_id_valid)
+        || !CU_add_test(pSuite, "xqc_test_h3_max_push_id_errors",
+                        xqc_test_h3_max_push_id_errors)
         /* RFC 9114 §4.2.2 field-section-size 32B overhead (issue 751) */
         || !CU_add_test(pSuite, "xqc_test_h3_uncompressed_fields_size", xqc_test_h3_uncompressed_fields_size)
         || !CU_add_test(pSuite, "xqc_test_h3_recv_header_field_section_size", xqc_test_h3_recv_header_field_section_size)

@@ -272,6 +272,7 @@ typedef enum {
     XQC_H3_CONTROL_FRAME_UNEXPECTED     = 833,  /**< request-only frame received on control stream (RFC 9114 §7.2.1/§7.2.5) */
     XQC_H3_MISSING_SETTINGS             = 834,  /**< first frame on control stream is not SETTINGS, RFC 9114 §6.2.1 */
     XQC_H3_REQUEST_FRAME_UNEXPECTED     = 835,  /**< control-only frame received on request stream (RFC 9114 §7.2) */
+    XQC_H3_INVALID_MAX_PUSH_ID          = 836,  /**< RFC 9114 §7.2.7 */
 
     XQC_H3_ERR_MAX,
 } xqc_h3_error_t;

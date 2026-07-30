@@ -1284,6 +1284,83 @@ xqc_h3_ctrl_feed_settings(xqc_h3_stream_t *h3s)
     return xqc_h3_stream_process_control(h3s, settings, sizeof(settings));
 }
 
+
+static ssize_t
+xqc_h3_ctrl_feed_max_push_id(xqc_h3_stream_t *h3s, unsigned char push_id)
+{
+    unsigned char frame[] = { XQC_H3_FRM_MAX_PUSH_ID, 0x01, push_id };
+    return xqc_h3_stream_process_control(h3s, frame, sizeof(frame));
+}
+
+
+void
+xqc_test_h3_max_push_id_valid()
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    CU_ASSERT_FATAL(xqc_h3_ctrl_feed_settings(h3s) > 0);
+
+    /*
+     * RFC 9114 Section 7.2.7: a server accepts MAX_PUSH_ID from a client,
+     * including the first value zero, later increases, and equal values.
+     */
+    CU_ASSERT(xqc_h3_ctrl_feed_max_push_id(h3s, 0) == 3);
+    CU_ASSERT(h3c->max_stream_id_recvd == 0);
+    CU_ASSERT(xqc_h3_ctrl_feed_max_push_id(h3s, 5) == 3);
+    CU_ASSERT(h3c->max_stream_id_recvd == 5);
+    CU_ASSERT(xqc_h3_ctrl_feed_max_push_id(h3s, 5) == 3);
+    CU_ASSERT(h3c->max_stream_id_recvd == 5);
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
+
+    xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+}
+
+
+void
+xqc_test_h3_max_push_id_errors()
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    CU_ASSERT_FATAL(conn->conn_type == XQC_CONN_TYPE_CLIENT);
+    CU_ASSERT_FATAL(xqc_h3_ctrl_feed_settings(h3s) > 0);
+
+    /* A client cannot receive MAX_PUSH_ID from a server. */
+    CU_ASSERT(xqc_h3_ctrl_feed_max_push_id(h3s, 1)
+              == -XQC_H3_INVALID_MAX_PUSH_ID);
+    CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    CU_ASSERT(h3c->max_stream_id_recvd == 0);
+
+    xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+
+    conn = NULL;
+    h3c = NULL;
+    h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    CU_ASSERT_FATAL(xqc_h3_ctrl_feed_settings(h3s) > 0);
+    CU_ASSERT_FATAL(xqc_h3_ctrl_feed_max_push_id(h3s, 5) == 3);
+
+    /* A decreasing value is H3_ID_ERROR and cannot replace the maximum. */
+    CU_ASSERT(xqc_h3_ctrl_feed_max_push_id(h3s, 4)
+              == -XQC_H3_INVALID_MAX_PUSH_ID);
+    CU_ASSERT(conn->conn_err == H3_ID_ERROR);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    CU_ASSERT(h3c->max_stream_id_recvd == 5);
+
+    xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+}
+
+
 /* Case 1: DATA frame (with payload) rejected on control stream */
 static void
 xqc_test_h3_ctrl_reject_data(void)

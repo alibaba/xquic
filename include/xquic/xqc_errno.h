@@ -8,6 +8,18 @@
 #include <stdint.h>
 
 /**
+ * @brief namespace of an error code received in CONNECTION_CLOSE
+ */
+typedef enum {
+    /** no peer CONNECTION_CLOSE frame has been received */
+    XQC_CONN_ERR_TYPE_UNKNOWN       = 0,
+    /** error code from CONNECTION_CLOSE type 0x1c */
+    XQC_CONN_ERR_TYPE_TRANSPORT     = 1,
+    /** error code from CONNECTION_CLOSE type 0x1d */
+    XQC_CONN_ERR_TYPE_APPLICATION   = 2,
+} xqc_conn_err_type_t;
+
+/**
  * @brief QUIC Transport Protocol error codes
  */
 typedef enum {

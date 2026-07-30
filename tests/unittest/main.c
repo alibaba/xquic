@@ -134,6 +134,11 @@ main(int argc, char *argv[])
                         xqc_test_new_conn_id_active_limit_accept)
         || !CU_add_test(pSuite, "xqc_test_new_conn_id_active_limit_exceeded",
                         xqc_test_new_conn_id_active_limit_exceeded)
+        || !CU_add_test(pSuite, "xqc_test_conn_close_application_error_type",
+                        xqc_test_conn_close_application_error_type)
+        || !CU_add_test(pSuite,
+                        "xqc_test_conn_close_transport_error_type_overlap",
+                        xqc_test_conn_close_transport_error_type_overlap)
         || !CU_add_test(pSuite, "xqc_test_h3_frame", xqc_test_frame)
         || !CU_add_test(pSuite, "xqc_test_tls", xqc_test_tls)
         || !CU_add_test(pSuite, "xqc_test_h3_stream", xqc_test_stream)

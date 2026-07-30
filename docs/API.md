@@ -79,6 +79,21 @@ No 0-RTT packets were sent or received.
 #### XQC_0RTT_REJECT (0x02)
 0-RTT packets were rejected.
 
+### xqc_conn_err_type_t
+Namespace of an error code received in the first CONNECTION_CLOSE frame, as
+defined by RFC 9000 Section 19.19.
+
+#### XQC_CONN_ERR_TYPE_UNKNOWN (0x00)
+No peer CONNECTION_CLOSE frame has been received.
+
+#### XQC_CONN_ERR_TYPE_TRANSPORT (0x01)
+The error code was received in a transport CONNECTION_CLOSE frame of type
+0x1c.
+
+#### XQC_CONN_ERR_TYPE_APPLICATION (0x02)
+The error code was received in an application CONNECTION_CLOSE frame of type
+0x1d.
+
 ## Types
 ### xqc_engine_t
 xquic engine, manages connections, alpn registrations, generic environmental config and callback functions. Instance of xqc_engine_t can be created by _**xqc_engine_create**_ and be destroyed by _**xqc_engine_destroy**_.
@@ -462,6 +477,13 @@ _xqc_conn_close_ will close the connection. xquic will send CONNECTION_CLOSE fra
 xqc_int_t xqc_conn_get_errno(xqc_connection_t *conn);
 ```
 Get error code of specified connection.
+
+#### xqc_conn_get_err_type
+```
+xqc_conn_err_type_t xqc_conn_get_err_type(xqc_connection_t *conn);
+```
+Get the namespace of the first error received from a peer. Pair the result
+with _**xqc_conn_get_errno**_ when the peer closed the connection.
 
 
 #### xqc_conn_get_ssl

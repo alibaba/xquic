@@ -857,7 +857,9 @@ ${CLIENT_BIN} -s 1024 -l d -t 2 -E > stdlog 2>&1
 forced_cid=`grep "\[active-cid-limit-test\]" svr_stdlog`
 conn_id_limit_err=`grep -E "(conn errno:9|conn_err:9)" stdlog`
 frame_encoding_err=`grep -E "(conn errno:7|conn_err:7)" stdlog`
-if [ -n "$forced_cid" ] && [ -n "$conn_id_limit_err" ] && [ -z "$frame_encoding_err" ]; then
+transport_type=`grep "conn_err_type:1" stdlog`
+if [ -n "$forced_cid" ] && [ -n "$conn_id_limit_err" ] \
+    && [ -z "$frame_encoding_err" ] && [ -n "$transport_type" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "active_cid_limit_exceeded" "pass"
 else
@@ -5383,8 +5385,9 @@ server_err=`grep "\\[h3-request-frame-test\\]|push-promise|conn_err:261|" \
     h3_request_frame_server.log`
 wire_err=`grep "err:0x105" slog`
 client_err=`grep -E "(conn errno:261|conn_err:261)" stdlog`
+application_type=`grep "conn_err_type:2" stdlog`
 if [ -n "$sent" ] && [ -n "$server_err" ] && [ -n "$wire_err" ] \
-    && [ -n "$client_err" ]; then
+    && [ -n "$client_err" ] && [ -n "$application_type" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "h3_client_push_promise_rejected" "pass"
 else

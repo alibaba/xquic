@@ -1,14 +1,37 @@
 ---
 name: xquic-pr-pre-review
-description: Perform a fail-closed pre-review of a published draft XQUIC code pull request before ready-for-review state. Verify its exact published base-to-head implementation against authoritative RFC or pinned Internet-Draft text, paired positive and negative unit and client-to-server case coverage, an attempted adversarial bypass, protocol-stack performance and compiler optimization, and memory safety, ownership, bounds, and footprint; write the five-part conclusion to an ignored local review file.
+description: Pre-review a published draft XQUIC code pull request before ready-for-review state. Use for a fail-closed gate over the exact published base-to-head diff covering RFC or pinned-draft conformance, paired positive and negative unit and client-to-server cases, adversarial bypasses, performance and compiler optimization, and memory safety and footprint; preserve the five-part retrospective and reviewer-built abnormal-case artifacts in the fixed local PR review workspace for the next iteration.
 ---
 
 # XQUIC PR Pre-Review
 
 Review the published pull request's exact base-to-head diff and write the
-result to `build/harness/pr-<number>/pre-review.md`. Require a GitHub PR number
-and URL; do not substitute a local branch candidate. Never stage or commit the
-report or exploratory review artifacts.
+result to
+`~/build/harness/pr-review-<number>/pr-review-<number>.md`. Require a GitHub
+PR number and URL; do not substitute a local branch candidate. Never stage or
+commit the report or other local review artifacts.
+
+## Local Review Workspace
+
+1. Expand `~` to the current user's home directory and use exactly
+   `~/build/harness/pr-review-<number>/` as the review directory. Do not place
+   the workspace under the repository checkout.
+2. Use `pr-review-<number>.md` as the single current retrospective. Before
+   rerunning a changed PR head, read the existing retrospective and local
+   artifacts as hypotheses and reproduction inputs, then rewrite the current
+   retrospective for the new head.
+3. Keep every reviewer-created abnormal-case source file, patch, build or run
+   script, peer input, packet, compiler output, and log inside the same review
+   directory. Use descriptive filenames and preserve reusable abnormal-case
+   code across iterations.
+4. Do not edit the submitted PR diff to construct a review case. Build or run
+   reviewer-created code from the local review directory against the exact
+   published PR head.
+5. Index every retained artifact in the retrospective with its relative path,
+   purpose, reviewed head, exact reproduction command, and result. Mark stale
+   artifacts explicitly; never treat a prior-head result as current evidence.
+6. Keep the entire review directory local and uncommitted. It is both the
+   output of the current review and an input to the next PR iteration.
 
 ## Inputs and Gate
 
@@ -70,8 +93,8 @@ evidence cannot be inspected, return `inconclusive`; never infer a pass.
 - Trace the bad case through the actual parser and state machine. Attempt an
   executable focused unit or client-to-server reproduction when the local
   environment permits it.
-- Keep exploratory code, packets, and logs under the task review directory;
-  do not modify the submitted diff.
+- Keep all abnormal-case code and supporting artifacts in the fixed local
+  review directory; do not modify the submitted diff.
 - Fail when the bad case bypasses the intended restriction or exposes an
   unhandled state. Return `inconclusive` when a material bad case cannot be
   executed or ruled out.
@@ -120,6 +143,8 @@ reviewed_base: <commit>
 reviewed_head: <commit>
 review_target: <PR URL>
 review_time_utc: <timestamp>
+review_artifact_dir: <expanded absolute review directory>
+review_artifacts: <relative paths and reviewed heads, or none>
 pre_review_result: <true|false>
 ---
 
@@ -141,6 +166,7 @@ Conclusion: <...>
 ## 3. Adversarial Bad Case
 Status: <...>
 Attempt: <constructed input or sequence and execution result>
+Artifacts: <relative paths, reviewed heads, commands, and results, or none>
 Findings: <...>
 Conclusion: <...>
 

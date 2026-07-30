@@ -102,9 +102,11 @@ Submit a new code PR as draft after local validation. Then run the
 [`xquic-pr-pre-review` skill](../skills/xquic-pr-pre-review/SKILL.md) against
 the published PR's exact base and head. Require `pre_review_result: true` from
 all five sections before ready-for-review state, and keep
-`build/harness/pr-<number>/pre-review.md` uncommitted. The local report is a
-gate input; do not copy it into the concise PR body. A changed published head
-invalidates the report and must be reviewed again.
+`~/build/harness/pr-review-<number>/pr-review-<number>.md` and every sibling
+abnormal-case artifact local and uncommitted. The review directory is a gate
+input and a reusable input to the next iteration; do not copy it into the
+concise PR body. A changed published head invalidates the report, and retained
+cases must be rerun against the new head.
 
 ## Scope Rules
 

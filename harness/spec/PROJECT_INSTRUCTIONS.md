@@ -129,8 +129,8 @@ A change is complete when:
 - the complete local unit suite and both relevant case tests pass;
 - generated and temporary artifacts are absent from the diff;
 - durable documentation and relative links remain accurate;
-- the task-scoped five-part pre-review report remains uncommitted and
-  passes; and
+- the PR-scoped five-part pre-review report passes, and its local review
+  workspace remains uncommitted and reusable for the next iteration; and
 - the pull request contains the evidence required by
   [pull-requests.md](pull-requests.md).
 

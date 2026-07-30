@@ -169,11 +169,15 @@ the final reservation snapshot is complete and conflict-free.
    head commit, title, body, and draft state. Run the
    [`xquic-pr-pre-review` skill](../skills/xquic-pr-pre-review/SKILL.md)
    against that exact published base-to-head diff. Write its five-part report
-   to `build/harness/pr-<number>/pre-review.md`.
+   to
+   `~/build/harness/pr-review-<number>/pr-review-<number>.md`. Keep all
+   reviewer-created abnormal-case code and supporting artifacts in the same
+   local review directory so they can be reused in the next iteration.
 8. Continue only when the report reviews the published current head and says
-   `pre_review_result: true`. Keep the report and any exploratory bad-case
-   artifacts unstaged and uncommitted. A changed published head invalidates
-   the report and returns the pull request to this step.
+   `pre_review_result: true`. Keep the complete local review directory
+   unstaged and uncommitted. A changed published head invalidates the report,
+   returns the pull request to this step, and may reuse retained abnormal-case
+   artifacts only after rerunning them against the new head.
 9. Immediately scan open pull requests again with the published current PR
    included. If two PRs contain the same case ID, the lower-numbered PR keeps
    it. Keep or return every later PR to draft, then go back to Stage 2,
@@ -221,5 +225,5 @@ published pull request are consistent.
     favor of the lowest PR number; a later PR must reallocate and revalidate.
 13. Every new code pull request is submitted as draft after validation. It is
     moved to review only when its exact published current head has a true
-    five-part pre-review result; the local report and exploratory artifacts
-    are never committed.
+    five-part pre-review result; the PR-scoped local retrospective and
+    abnormal-case artifacts are never committed.

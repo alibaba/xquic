@@ -772,8 +772,20 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
         if (pctx->state == XQC_H3_FRM_STATE_END) {
             switch (pctx->frame.type) {
             case XQC_H3_FRM_CANCEL_PUSH:
-                /* TODO: not implemented */
-                break;
+                /*
+                 * RFC 9114 Sections 4.6 and 7.2.3 require H3_ID_ERROR
+                 * when the push ID exceeds the allowed maximum or, at a
+                 * server, has not been mentioned in PUSH_PROMISE. XQUIC
+                 * neither sends MAX_PUSH_ID nor PUSH_PROMISE in production,
+                 * so no received CANCEL_PUSH ID is valid in either role.
+                 */
+                xqc_log(h3c->log, XQC_LOG_ERROR,
+                        "|invalid CANCEL_PUSH|push_id:%ui|",
+                        pl->cancel_push.push_id.vi);
+                xqc_h3_frm_reset_pctx(pctx);
+                XQC_H3_CONN_ERR(h3c, H3_ID_ERROR,
+                                -XQC_H3_INVALID_CANCEL_PUSH_ID);
+                return -XQC_H3_INVALID_CANCEL_PUSH_ID;
 
             case XQC_H3_FRM_SETTINGS:
                 if (h3s->h3c->flags & XQC_H3_CONN_FLAG_SETTINGS_RECVED) {

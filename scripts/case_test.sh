@@ -5512,6 +5512,58 @@ killall test_server 2> /dev/null
 rm -f h3_frame_length_server.log
 
 
+## RFC 9114 Sections 7.2.3 and 9 control-frame handling
+
+clear_log
+rm -f test_session xqc_token tp_localhost h3_control_frame_server.log
+stdbuf -oL ${SERVER_BIN} -l d -e -x 1009 > h3_control_frame_server.log &
+sleep 1
+echo -e "HTTP/3 reserved control frame remains usable ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1009 > stdlog
+sent=`grep "\\[h3-control-frame-test\\]|type:0x21|write:0|send:0|" \
+    h3_control_frame_server.log`
+received=`grep "ignore unknown frame|type:21|" clog`
+client_ok=`grep "\\[h3-control-frame-test\\]|case:1009|conn_err:0|" stdlog`
+server_ok=`grep "\\[h3-control-frame-test\\]|case:1009|conn_err:0|" \
+    h3_control_frame_server.log`
+result=`grep ">>>>>>>> pass:1" stdlog`
+if [ -n "$sent" ] && [ -n "$received" ] && [ -n "$client_ok" ] \
+    && [ -n "$server_ok" ] && [ -n "$result" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_reserved_control_frame_accepted" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_reserved_control_frame_accepted" "fail"
+fi
+
+killall test_server 2> /dev/null
+clear_log
+rm -f test_session xqc_token tp_localhost h3_control_frame_server.log
+stdbuf -oL ${SERVER_BIN} -l d -e -x 1010 > h3_control_frame_server.log &
+sleep 1
+echo -e "HTTP/3 CANCEL_PUSH above unset maximum gets H3_ID_ERROR ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1010 > stdlog
+sent=`grep "\\[h3-control-frame-test\\]|type:0x3|write:0|send:0|" \
+    h3_control_frame_server.log`
+wire_err=`grep "err:0x108" clog`
+client_err=`grep "\\[h3-control-frame-test\\]|case:1010|conn_err:264|" \
+    stdlog`
+server_err=`grep "\\[h3-control-frame-test\\]|case:1010|conn_err:264|" \
+    h3_control_frame_server.log`
+application_type=`grep "conn_err_type:2" stdlog`
+if [ -n "$sent" ] && [ -n "$wire_err" ] && [ -n "$client_err" ] \
+    && [ -n "$server_err" ] && [ -n "$application_type" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_cancel_push_unset_rejected" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_cancel_push_unset_rejected" "fail"
+fi
+
+killall test_server 2> /dev/null
+rm -f h3_control_frame_server.log
+
+
 ## RFC 9114 Sections 4.1.2 and 10.5.1 field-section limits
 
 clear_log

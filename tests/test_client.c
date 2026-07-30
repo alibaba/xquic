@@ -76,6 +76,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_MAX_PUSH_ID_DECREASE 1006
 #define XQC_TEST_CASE_H3_SINGLE_VINT_VALID 1007
 #define XQC_TEST_CASE_H3_SINGLE_VINT_OVERLONG 1008
+#define XQC_TEST_CASE_H3_RESERVED_CONTROL_FRAME 1009
+#define XQC_TEST_CASE_H3_CANCEL_PUSH_UNSET 1010
 #define XQC_TEST_CASE_H3_FIELD_SECTION_VALID 1011
 #define XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT 1012
 #define XQC_TEST_CASE_H3_LOWERCASE_RESPONSE 1013
@@ -1897,6 +1899,12 @@ xqc_client_h3_conn_close_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void 
         printf("[h3-field-section-test]|client_conn_close|case:%d|"
                "conn_err:%d|\n", g_test_case, stats.conn_err);
         fflush(stdout);
+
+    } else if (g_test_case == XQC_TEST_CASE_H3_RESERVED_CONTROL_FRAME
+        || g_test_case == XQC_TEST_CASE_H3_CANCEL_PUSH_UNSET)
+    {
+        printf("[h3-control-frame-test]|case:%d|conn_err:%d|\n",
+               g_test_case, stats.conn_err);
     }
 
     if (!g_test_qch_mode) {

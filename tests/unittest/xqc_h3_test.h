@@ -17,6 +17,8 @@ void xqc_test_h3_reserved_uni_stream_accepted();
 void xqc_test_h3_push_stream_error_codes();
 void xqc_test_h3_max_push_id_valid();
 void xqc_test_h3_max_push_id_errors();
+void xqc_test_h3_reserved_control_frame_accepted();
+void xqc_test_h3_cancel_push_rejected();
 void xqc_test_h3_uncompressed_fields_size();
 void xqc_test_h3_recv_header_field_section_size();
 

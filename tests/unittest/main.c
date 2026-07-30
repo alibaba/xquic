@@ -165,6 +165,11 @@ main(int argc, char *argv[])
                         xqc_test_h3_max_push_id_valid)
         || !CU_add_test(pSuite, "xqc_test_h3_max_push_id_errors",
                         xqc_test_h3_max_push_id_errors)
+        || !CU_add_test(pSuite,
+                        "xqc_test_h3_reserved_control_frame_accepted",
+                        xqc_test_h3_reserved_control_frame_accepted)
+        || !CU_add_test(pSuite, "xqc_test_h3_cancel_push_rejected",
+                        xqc_test_h3_cancel_push_rejected)
         /* RFC 9114 §4.2.2 field-section-size 32B overhead (issue 751) */
         || !CU_add_test(pSuite, "xqc_test_h3_uncompressed_fields_size", xqc_test_h3_uncompressed_fields_size)
         || !CU_add_test(pSuite, "xqc_test_h3_recv_header_field_section_size", xqc_test_h3_recv_header_field_section_size)

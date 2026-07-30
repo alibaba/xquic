@@ -57,7 +57,7 @@ runtime coverage does not apply.
 Harness-only changes must also run:
 
 ```bash
-bash scripts/xqc_harness_check.sh
+bash harness/scripts/xqc_harness_check.sh
 ```
 
 ## Client-to-Server Case ID Namespace
@@ -288,7 +288,7 @@ the gate even when all runtime tests passed with that ID.
 Register the repository harness and install its optional pre-push hook with:
 
 ```bash
-./scripts/setup_harness.sh --install-pre-push-hook
+./harness/scripts/setup_harness.sh --install-pre-push-hook
 ```
 
 The hook clears `XQC_TEST_NAME`, runs

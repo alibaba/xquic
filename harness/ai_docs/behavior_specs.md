@@ -66,8 +66,8 @@ These invariants keep the harness useful to agents and safe for public review.
 
 ## Validation Behavior
 
-- Harness changes run `bash scripts/xqc_harness_check.sh`.
-- Registration changes run `bash scripts/tests/setup_harness_test.sh`.
-- Hook changes run `bash scripts/tests/pre_push_hook_test.sh`.
+- Harness changes run `bash harness/scripts/xqc_harness_check.sh`.
+- The harness check validates committed harness structure and synchronization
+  with repository code entry points.
 - Runtime product validation stays in `scripts/validate.sh` and related
   validation specs.

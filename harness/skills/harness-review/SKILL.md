@@ -15,7 +15,7 @@ produce findings first, then edit only when the user asks for fixes.
 2. Read `harness/ai_docs/change_map.md` for the affected harness change type.
 3. Read the changed specs, pipelines, skills, setup scripts, or validation
    scripts.
-4. Run `bash scripts/xqc_harness_check.sh` after any committed-harness change.
+4. Run `bash harness/scripts/xqc_harness_check.sh` after any committed-harness change.
 
 ## Checks
 

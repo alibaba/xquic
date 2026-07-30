@@ -32,11 +32,11 @@ ignored `harness/private/`, not in committed docs.
    modules, docs, tests, feature flags, and validation levels.
 4. Explanation layer: `structure_map.md`, `behavior_specs.md`, and
    `decision_records.md` keep durable context without repeating workflows.
-5. Self-check layer: `scripts/xqc_harness_check.sh` and the GitHub workflow
+5. Self-check layer: `harness/scripts/xqc_harness_check.sh` and the GitHub workflow
    detect drift across AGENTS, docs, skills, scripts, and manifest routing.
 
 Task-local evidence is not part of the durable explanation layer. Store it in
-`build/harness/runs/<task-id>/` using `scripts/harness_trace.sh init
+`build/harness/runs/<task-id>/` using `harness/scripts/harness_trace.sh init
 <task-id>`.
 
 ## Read Order
@@ -50,4 +50,4 @@ For harness structure changes:
 5. `harness/spec/harness-manifest.yml`
 6. The affected `spec/`, `pipelines/`, `skills/`, or `scripts/` files
 
-Run `bash scripts/xqc_harness_check.sh` after changes.
+Run `bash harness/scripts/xqc_harness_check.sh` after changes.

@@ -43,10 +43,10 @@ harness/
 ## Setup
 
 From the repository root, run
-[`setup_harness.sh`](../scripts/setup_harness.sh) to register the harness:
+[`setup_harness.sh`](scripts/setup_harness.sh) to register the harness:
 
 ```bash
-./scripts/setup_harness.sh
+./harness/scripts/setup_harness.sh
 ```
 
 Root [`AGENTS.md`](../AGENTS.md#first-time-harness-setup) directs agents to
@@ -63,10 +63,10 @@ Use `--skills-dir` and `--pipelines-dir` to target a tool-native discovery
 directory. To install the optional pre-push validation hook:
 
 ```bash
-./scripts/setup_harness.sh --install-pre-push-hook
+./harness/scripts/setup_harness.sh --install-pre-push-hook
 ```
 
-The [pre-push hook](../scripts/hooks/pre-push) runs the complete local unit
+The [pre-push hook](scripts/hooks/pre-push) runs the complete local unit
 and case-test suites. It is an early failure signal, not a substitute for
 the validation gate or the local pre-review report.
 
@@ -87,7 +87,7 @@ the validation gate or the local pre-review report.
   `build/harness/<task-id>/` directory and must not be committed.
 - Task-local run evidence belongs under ignored
   `build/harness/runs/<task-id>/`; initialize it with
-  `scripts/harness_trace.sh init <task-id>`.
+  `harness/scripts/harness_trace.sh init <task-id>`.
 - Tool-native local adapters such as `.claude/` are allowed locally but
   must not become committed sources of truth. Migrate durable skill content to
   `harness/skills/`.

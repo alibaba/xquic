@@ -22,7 +22,7 @@ jobs:
 
     - name: Check agent harness
       run: |
-        bash scripts/xqc_harness_check.sh
+        bash harness/scripts/xqc_harness_check.sh
 
   build-ubuntu:
 

@@ -9,9 +9,9 @@ Reusable harness shape that should remain project-neutral:
 - `harness/README.md`: portable harness layout, setup, naming, and portability.
 - `harness/pipelines/`: ordered workflows.
 - `harness/skills/*/SKILL.md`: reusable task procedures with portable front matter.
-- `scripts/setup_harness.sh`: adapter registration into tool-native discovery paths.
-- `scripts/harness_trace.sh`: ignored task-local evidence directory setup.
-- `scripts/xqc_harness_check.sh`: structural drift checks.
+- `harness/scripts/setup_harness.sh`: adapter registration into tool-native discovery paths.
+- `harness/scripts/harness_trace.sh`: ignored task-local evidence directory setup.
+- `harness/scripts/xqc_harness_check.sh`: structural drift checks.
 - `harness/spec/doc-style.md`: reusable rules for concise durable docs and comments.
 - `harness/spec/run-artifacts.md`: reusable task evidence directory contract.
 

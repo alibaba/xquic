@@ -9,7 +9,7 @@ Default adapters are `.agents/skills/` and
 `.agents/pipelines/dev-pipeline.md`; if absent, run:
 
 ```bash
-./scripts/setup_harness.sh
+./harness/scripts/setup_harness.sh
 ```
 
 Run it once per checkout; it is idempotent and refuses to overwrite paths. Do
@@ -71,7 +71,7 @@ also use [`validate`](harness/skills/validate/SKILL.md). Harness-only changes
 must run:
 
 ```bash
-bash scripts/xqc_harness_check.sh
+bash harness/scripts/xqc_harness_check.sh
 ```
 
 ## Change Rules

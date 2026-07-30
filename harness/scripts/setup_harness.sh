@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HARNESS_DIR="${ROOT_DIR}/harness"
 AGENT_DIR="${ROOT_DIR}/.agents"
 SKILLS_DIR="${XQUIC_HARNESS_SKILLS_DIR:-${AGENT_DIR}/skills}"
@@ -15,7 +15,7 @@ INSTALL_PRE_PUSH_HOOK=0
 usage()
 {
     cat <<'EOF'
-usage: ./scripts/setup_harness.sh [options]
+usage: ./harness/scripts/setup_harness.sh [options]
 
 Register the canonical XQUIC harness using symbolic links.
 
@@ -146,7 +146,7 @@ if [[ "${INSTALL_PRE_PUSH_HOOK}" -eq 1 ]]; then
         HOOKS_DIR="$(absolute_path "${HOOKS_DIR}")"
     fi
 
-    register_link "${ROOT_DIR}/scripts/hooks/pre-push" \
+    register_link "${ROOT_DIR}/harness/scripts/hooks/pre-push" \
         "${HOOKS_DIR}/pre-push"
 fi
 

@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FAILURES=0
 
 pass()
@@ -64,7 +64,7 @@ require_manifest_schema()
 {
     local output
 
-    if output="$(ruby "${ROOT_DIR}/scripts/harness_manifest_check.rb" "${ROOT_DIR}")"; then
+    if output="$(ruby "${ROOT_DIR}/harness/scripts/harness_manifest_check.rb" "${ROOT_DIR}")"; then
         pass "${output}"
     else
         echo "${output}" >&2
@@ -134,7 +134,8 @@ reject_tree_grep()
         grep -RInE "${pattern}" \
             "${ROOT_DIR}/AGENTS.md" \
             "${ROOT_DIR}/harness" \
-            "${ROOT_DIR}/.github/workflows" 2>/dev/null || true
+            "${ROOT_DIR}/.github/workflows" 2>/dev/null \
+        | grep -vF "${ROOT_DIR}/harness/scripts/xqc_harness_check.sh:" || true
     )"
 
     if [[ -n "${matches}" ]]; then
@@ -178,8 +179,10 @@ require_file "harness/spec/harness-manifest.yml"
 require_file "harness/spec/openspec.md"
 require_file "harness/skills/harness-review/SKILL.md"
 require_file "harness/skills/validate/SKILL.md"
-require_file "scripts/harness_trace.sh"
-require_file "scripts/harness_manifest_check.rb"
+require_file "harness/scripts/setup_harness.sh"
+require_file "harness/scripts/hooks/pre-push"
+require_file "harness/scripts/harness_trace.sh"
+require_file "harness/scripts/harness_manifest_check.rb"
 require_file "scripts/validate.sh"
 
 require_line_count "AGENTS.md" 60 100 \
@@ -206,7 +209,7 @@ require_grep "build/harness/runs/<task-id>" \
     "harness/spec/run-artifacts.md" \
     "run artifact contract defines canonical task evidence directory"
 require_manifest_schema
-require_grep "scripts/xqc_harness_check.sh" \
+require_grep "harness/scripts/xqc_harness_check.sh" \
     ".github/workflows/build.yml" \
     "GitHub workflow runs harness check"
 require_skill_schema

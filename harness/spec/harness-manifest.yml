@@ -12,7 +12,7 @@ entrypoints:
   doc_style: harness/spec/doc-style.md
   run_artifacts: harness/spec/run-artifacts.md
   validation: scripts/validate.sh
-  harness_check: scripts/xqc_harness_check.sh
+  harness_check: harness/scripts/xqc_harness_check.sh
   openspec_long_tasks: harness/spec/openspec.md
 
 global_docs:
@@ -220,10 +220,11 @@ modules:
       - AGENTS.md
       - harness/ai_docs/*
       - harness/*
-      - scripts/setup_harness.sh
-      - scripts/harness_trace.sh
-      - scripts/harness_manifest_check.rb
-      - scripts/xqc_harness_check.sh
+      - harness/scripts/setup_harness.sh
+      - harness/scripts/hooks/pre-push
+      - harness/scripts/harness_trace.sh
+      - harness/scripts/harness_manifest_check.rb
+      - harness/scripts/xqc_harness_check.sh
       - .github/workflows/*
     read:
       - harness/README.md
@@ -242,7 +243,7 @@ modules:
         - harness/spec/harness-manifest.yml
     validation:
       level: harness
-      command: bash scripts/xqc_harness_check.sh
+      command: bash harness/scripts/xqc_harness_check.sh
 
 harness_layers:
   strong_injection:
@@ -276,8 +277,8 @@ harness_layers:
   self_check:
     purpose: "Deterministic drift checks across entry points, docs, skills, scripts, and workflow wiring."
     files:
-      - scripts/xqc_harness_check.sh
-      - scripts/harness_manifest_check.rb
+      - harness/scripts/xqc_harness_check.sh
+      - harness/scripts/harness_manifest_check.rb
       - .github/workflows/build.yml
   local_adapters:
     purpose: "Ignored tool-native discovery copies; never the source of truth."

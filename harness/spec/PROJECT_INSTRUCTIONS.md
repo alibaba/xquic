@@ -59,7 +59,7 @@ remain in the root [`README.md`](../../README.md).
 
 Before task routing in a fresh checkout, follow the
 [first-time harness setup](../../AGENTS.md#first-time-harness-setup). Run
-`scripts/setup_harness.sh` only when the active skill or pipeline discovery
+`harness/scripts/setup_harness.sh` only when the active skill or pipeline discovery
 targets lack their adapters. Do not install the optional pre-push hook without
 an explicit opt-in.
 
@@ -70,7 +70,7 @@ Long tasks use the active agent runtime's native goal or background-task
 mechanism and keep OpenSpec artifacts current before implementation.
 
 Task-local evidence follows [run-artifacts.md](run-artifacts.md). Use
-`scripts/harness_trace.sh init <task-id>` when a task needs durable command
+`harness/scripts/harness_trace.sh init <task-id>` when a task needs durable command
 logs, detection output, failed-test hypotheses, or final evidence.
 
 For every code task, the development pipeline is a mandatory preflight. Read
@@ -165,7 +165,7 @@ documentation in the same change when it affects future work.
 | Documentation style | [doc-style.md](doc-style.md) |
 | Architecture and dependency boundaries | [architecture.md](architecture.md) |
 | Development workflow | [dev-pipeline.md](../pipelines/dev-pipeline.md) |
-| Harness registration | [setup_harness.sh](../../scripts/setup_harness.sh) |
+| Harness registration | [setup_harness.sh](../scripts/setup_harness.sh) |
 | Task run artifacts | [run-artifacts.md](run-artifacts.md) |
 | Build and test validation | [validation.md](validation.md) |
 | Pull-request pre-review | [xquic-pr-pre-review](../skills/xquic-pr-pre-review/SKILL.md) |

@@ -20,12 +20,10 @@ Read:
 Update:
 - `harness/README.md` if layout or entry points change.
 - `harness/spec/harness-manifest.yml` if routing changes.
-- `scripts/tests/setup_harness_test.sh` if registration output changes.
-- `scripts/xqc_harness_check.sh` if a new harness source must be enforced.
+- `harness/scripts/xqc_harness_check.sh` if a new harness source must be enforced.
 
 Validate:
-- `bash scripts/xqc_harness_check.sh`
-- `bash scripts/tests/setup_harness_test.sh`
+- `bash harness/scripts/xqc_harness_check.sh`
 
 ## Custom Public XQUIC Harness Change
 
@@ -46,8 +44,7 @@ Update:
 - `harness/spec/doc-style.md` when the durable documentation rules change.
 
 Validate:
-- `bash scripts/xqc_harness_check.sh`
-- Closest affected script or harness test.
+- `bash harness/scripts/xqc_harness_check.sh`
 
 ## Private Extension Change
 
@@ -62,4 +59,4 @@ Rules:
   sanitized public contract into `harness/`.
 
 Validate:
-- `bash scripts/xqc_harness_check.sh` to ensure committed docs do not require private content.
+- `bash harness/scripts/xqc_harness_check.sh` to ensure committed docs do not require private content.

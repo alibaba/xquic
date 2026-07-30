@@ -37,7 +37,7 @@ Evidence:
 - `harness/README.md`
 - `harness/ai_docs/README.md`
 - `harness/spec/harness-manifest.yml`
-- `scripts/xqc_harness_check.sh`
+- `harness/scripts/xqc_harness_check.sh`
 
 ## ADR-H002: Use Five Harness Loading Layers
 
@@ -58,7 +58,7 @@ Decision:
 - Keep path, module, docs, tests, feature flags, and validation routing in the
   manifest as the machine mapping layer.
 - Keep durable context in AI docs and avoid duplicating procedural workflows.
-- Enforce reference consistency through `scripts/xqc_harness_check.sh`.
+- Enforce reference consistency through `harness/scripts/xqc_harness_check.sh`.
 
 Consequences:
 - Root prompt size stays bounded.
@@ -72,7 +72,7 @@ Evidence:
 - `harness/spec/doc-style.md`
 - `harness/spec/run-artifacts.md`
 - `harness/spec/harness-manifest.yml`
-- `scripts/xqc_harness_check.sh`
+- `harness/scripts/xqc_harness_check.sh`
 
 ## ADR-H003: Keep Runtime Evidence Outside Durable Docs
 
@@ -89,7 +89,7 @@ Context:
 Decision:
 - Use ignored `build/harness/runs/<task-id>/` as the task-local run evidence
   directory.
-- Initialize the directory with `scripts/harness_trace.sh init <task-id>`.
+- Initialize the directory with `harness/scripts/harness_trace.sh init <task-id>`.
 - Keep OpenSpec proposal, design, tasks, and requirement deltas in
   `openspec/`, and link to them from the run evidence when applicable.
 
@@ -100,7 +100,7 @@ Consequences:
 
 Evidence:
 - `harness/spec/run-artifacts.md`
-- `scripts/harness_trace.sh`
+- `harness/scripts/harness_trace.sh`
 - `harness/spec/openspec.md`
 
 ## ADR-H004: Keep Git And PR Skills Purpose-Bound

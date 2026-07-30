@@ -39,7 +39,7 @@ OpenSpec change path from `task.md` or `evidence.md`.
 From the repository root:
 
 ```bash
-scripts/harness_trace.sh init <task-id>
+harness/scripts/harness_trace.sh init <task-id>
 ```
 
 The command prints the created run directory. Re-running it preserves existing

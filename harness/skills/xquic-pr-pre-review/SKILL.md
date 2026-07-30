@@ -6,12 +6,33 @@ description: Fail closed on published draft XQUIC code pull requests before read
 # XQUIC PR Pre-Review
 
 Review the published pull request's exact base-to-head diff and write the
-result to `build/harness/pr-<number>/pre-review.md`. Require a GitHub PR number
-and URL; do not substitute a local branch candidate. Never stage or commit the
-report or exploratory review artifacts.
+result to
+`~/build/harness/pr-review-<number>/pr-review-<number>.md`. Require a GitHub
+PR number and URL; do not substitute a local branch candidate. Never stage or
+commit the report or other local review artifacts.
+
+## Local Review Workspace
+1. Expand `~` to the current user's home directory and use exactly
+   `~/build/harness/pr-review-<number>/` as the review directory. Do not place
+   the workspace under the repository checkout.
+2. Use `pr-review-<number>.md` as the single current retrospective. Before
+   rerunning a changed PR head, read the existing retrospective and local
+   artifacts as hypotheses and reproduction inputs, then rewrite the current
+   retrospective for the new head.
+3. Keep every reviewer-created abnormal-case source file, patch, build or run
+   script, peer input, packet, compiler output, and log inside the same review
+   directory. Use descriptive filenames and preserve reusable abnormal-case
+   code across iterations.
+4. Do not edit the submitted PR diff to construct a review case. Build or run
+   reviewer-created code from the local review directory against the exact
+   published PR head.
+5. Index every retained artifact in the retrospective with its relative path,
+   purpose, reviewed head, exact reproduction command, and result. Mark stale
+   artifacts explicitly; never treat a prior-head result as current evidence.
+6. Keep the entire review directory local and uncommitted. It is both the
+   output of the current review and an input to the next PR iteration.
 
 ## Inputs and Gate
-
 1. Fetch the pull request from GitHub. Record its number, URL, base commit,
    published head commit, changed files, draft state, and review time.
 2. Confirm the fetched head matches the PR's published head, then read the
@@ -33,7 +54,6 @@ If the official specification, reviewed source, or current-head validation
 evidence cannot be inspected, return `inconclusive`; never infer a pass.
 
 ## 1. RFC Conformance
-
 - Derive the affected protocol mechanism from the code and wire behavior.
 - Compare every changed state transition, limit, role restriction, error code,
   and peer-visible result with the authoritative section.
@@ -47,7 +67,6 @@ evidence cannot be inspected, return `inconclusive`; never infer a pass.
   choice and the report explains that allowance.
 
 ## 2. Validation Coverage
-
 - Inspect committed tests rather than trusting the PR summary.
 - Require a positive and negative CUnit case tied to each changed production
   path.
@@ -61,7 +80,6 @@ evidence cannot be inspected, return `inconclusive`; never infer a pass.
   missing.
 
 ## 3. Adversarial Bad Case
-
 - Construct the smallest peer-controlled input or event sequence that could
   bypass the RFC guard. Consider boundary values, duplicate or reordered
   frames, wrong endpoint roles, invalid state transitions, truncated or
@@ -70,14 +88,13 @@ evidence cannot be inspected, return `inconclusive`; never infer a pass.
 - Trace the bad case through the actual parser and state machine. Attempt an
   executable focused unit or client-to-server reproduction when the local
   environment permits it.
-- Keep exploratory code, packets, and logs under the task review directory;
-  do not modify the submitted diff.
+- Keep all abnormal-case code and supporting artifacts in the fixed local
+  review directory; do not modify the submitted diff.
 - Fail when the bad case bypasses the intended restriction or exposes an
   unhandled state. Return `inconclusive` when a material bad case cannot be
   executed or ruled out.
 
 ## 4. Performance and Compiler Optimization
-
 - Identify whether the change is on a packet, frame, stream, request, timer, or
   connection hot path and estimate its invocation frequency.
 - Compare the time complexity and critical-path work with viable alternatives.
@@ -95,7 +112,6 @@ evidence cannot be inspected, return `inconclusive`; never infer a pass.
   without a correctness requirement or measured tradeoff.
 
 ## 5. Memory Safety and Footprint
-
 - Build an ownership and lifetime map for every touched allocation, buffer,
   pointer, list node, callback context, and borrowed reference.
 - Check success, error, timeout, close, retry, and reentrant callback paths for
@@ -111,45 +127,41 @@ evidence cannot be inspected, return `inconclusive`; never infer a pass.
   benefit, and why the retained memory is bounded and acceptable.
 
 ## Report Format
-
 Write exactly five numbered review sections after the metadata:
-
 ```markdown
 ---
 reviewed_base: <commit>
 reviewed_head: <commit>
 review_target: <PR URL>
 review_time_utc: <timestamp>
+review_artifact_dir: <expanded absolute review directory>
+review_artifacts: <relative paths and reviewed heads, or none>
 pre_review_result: <true|false>
 ---
 
 # XQUIC PR Pre-Review
-
 ## 1. RFC Conformance
 Status: <pass|fail|inconclusive|not-applicable>
 Sources: <official document, section, URL>
 Evidence: <source/tests and short authoritative excerpt>
 Findings: <blocking and non-blocking findings, or none>
 Conclusion: <reasoned conclusion>
-
 ## 2. Validation Coverage
 Status: <...>
 Evidence: <positive/negative unit and end-to-end case IDs/results>
 Findings: <...>
 Conclusion: <...>
-
 ## 3. Adversarial Bad Case
 Status: <...>
 Attempt: <constructed input or sequence and execution result>
+Artifacts: <relative paths, reviewed heads, commands, and results, or none>
 Findings: <...>
 Conclusion: <...>
-
 ## 4. Performance and Compiler Optimization
 Status: <...>
 Evidence: <hot path, complexity, compiler and measurement evidence>
 Findings: <...>
 Conclusion: <...>
-
 ## 5. Memory Safety and Footprint
 Status: <...>
 Evidence: <ownership, bounds, per-scope footprint and concurrency estimate>

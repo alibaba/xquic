@@ -95,8 +95,10 @@ the validation gate or the local pre-review report.
   `harness/private/` and must not be referenced as required public harness
   inputs.
 - Pull-request pre-review reports and exploratory bad-case artifacts belong
-  under the ignored `build/harness/pr-<number>/` directory and must not be
-  committed.
+  together under the local
+  `~/build/harness/pr-review-<number>/` directory. The current retrospective
+  is `pr-review-<number>.md`; the complete directory remains uncommitted and
+  may be reused as input to the next PR iteration.
 
 ## Portability
 

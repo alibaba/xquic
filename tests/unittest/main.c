@@ -134,7 +134,17 @@ main(int argc, char *argv[])
                         xqc_test_new_conn_id_active_limit_accept)
         || !CU_add_test(pSuite, "xqc_test_new_conn_id_active_limit_exceeded",
                         xqc_test_new_conn_id_active_limit_exceeded)
+        || !CU_add_test(pSuite, "xqc_test_conn_close_application_error_type",
+                        xqc_test_conn_close_application_error_type)
+        || !CU_add_test(pSuite,
+                        "xqc_test_conn_close_transport_error_type_overlap",
+                        xqc_test_conn_close_transport_error_type_overlap)
         || !CU_add_test(pSuite, "xqc_test_h3_frame", xqc_test_frame)
+        || !CU_add_test(pSuite, "xqc_test_h3_single_vint_frame_valid",
+                        xqc_test_h3_single_vint_frame_valid)
+        || !CU_add_test(pSuite,
+                        "xqc_test_h3_single_vint_frame_length_error",
+                        xqc_test_h3_single_vint_frame_length_error)
         || !CU_add_test(pSuite, "xqc_test_tls", xqc_test_tls)
         || !CU_add_test(pSuite, "xqc_test_h3_stream", xqc_test_stream)
         || !CU_add_test(pSuite, "xqc_test_h3_critical_stream_close", xqc_test_h3_critical_stream_close)
@@ -267,6 +277,15 @@ main(int argc, char *argv[])
                         xqc_test_0rtt_ack_delay_exponent_default_in_parse)
         || !CU_add_test(pSuite, "xqc_test_0rtt_remote_mad_timeline",
                         xqc_test_0rtt_remote_mad_timeline)
+        /* issue #704: AEAD integrity limit per RFC 9001 §6.6 */
+        || !CU_add_test(pSuite, "xqc_test_aead_integrity_limit",
+                        xqc_test_aead_integrity_limit)
+        || !CU_add_test(pSuite, "xqc_test_aead_integrity_limit_unknown_cipher",
+                        xqc_test_aead_integrity_limit_unknown_cipher)
+        || !CU_add_test(pSuite, "xqc_test_aead_integrity_limit_conn_triggered",
+                        xqc_test_aead_integrity_limit_conn_triggered)
+        || !CU_add_test(pSuite, "xqc_test_aead_integrity_limit_conn_no_crypto",
+                        xqc_test_aead_integrity_limit_conn_no_crypto)
         /* ALPN negotiation tests (issue #709) */
         || !CU_add_test(pSuite, "xqc_test_alpn_error_code_value",
                         xqc_test_alpn_error_code_value)

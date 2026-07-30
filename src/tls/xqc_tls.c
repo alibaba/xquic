@@ -741,6 +741,16 @@ xqc_tls_aead_tag_len(xqc_tls_t *tls, xqc_encrypt_level_t level)
     return xqc_crypto_aead_tag_len(crypto);
 }
 
+uint32_t
+xqc_tls_get_1rtt_cipher_id(xqc_tls_t *tls)
+{
+    xqc_crypto_t *crypto = tls->crypto[XQC_ENC_LEV_1RTT];
+    if (crypto == NULL) {
+        return 0;
+    }
+    return crypto->cipher_id;
+}
+
 void
 xqc_tls_set_no_crypto(xqc_tls_t *tls)
 {

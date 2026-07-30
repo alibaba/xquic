@@ -17,4 +17,10 @@ void xqc_test_rfc9001_derive_initial_secrets();
 void xqc_test_rfc9001_client_initial_keys();
 void xqc_test_rfc9001_server_initial_keys();
 
+/* RFC 9001 §6.6 AEAD integrity limit */
+void xqc_test_aead_integrity_limit();
+void xqc_test_aead_integrity_limit_unknown_cipher();
+void xqc_test_aead_integrity_limit_conn_triggered();
+void xqc_test_aead_integrity_limit_conn_no_crypto();
+
 #endif

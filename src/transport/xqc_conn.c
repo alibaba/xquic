@@ -3221,6 +3221,12 @@ xqc_conn_get_errno(xqc_connection_t *conn)
     return conn->conn_err;
 }
 
+xqc_conn_err_type_t
+xqc_conn_get_err_type(xqc_connection_t *conn)
+{
+    return conn->conn_err_type;
+}
+
 void *
 xqc_conn_get_ssl(xqc_connection_t *conn)
 {

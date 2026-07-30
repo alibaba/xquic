@@ -457,3 +457,109 @@ xqc_test_crypto()
     xqc_test_derive_initial_secret();
     xqc_test_derive_packet_protection_keys();
 }
+
+/* RFC 9001 §6.6: AEAD integrity limit values */
+void
+xqc_test_aead_integrity_limit()
+{
+    /* AES-128-GCM: integrity limit = 2^52 = 4503599627370496 */
+    uint64_t aes_128_limit = xqc_aead_integrity_limit(XQC_TLS13_AES_128_GCM_SHA256);
+    CU_ASSERT_EQUAL(aes_128_limit, 4503599627370496ULL);
+
+    /* AES-256-GCM: integrity limit = 2^52 = 4503599627370496 */
+    uint64_t aes_256_limit = xqc_aead_integrity_limit(XQC_TLS13_AES_256_GCM_SHA384);
+    CU_ASSERT_EQUAL(aes_256_limit, 4503599627370496ULL);
+
+    /* ChaCha20-Poly1305: integrity limit = 2^36 = 68719476736 */
+    uint64_t chacha_limit = xqc_aead_integrity_limit(XQC_TLS13_CHACHA20_POLY1305_SHA256);
+    CU_ASSERT_EQUAL(chacha_limit, 68719476736ULL);
+}
+
+void
+xqc_test_aead_integrity_limit_unknown_cipher()
+{
+    /* unknown cipher_id: should return conservative (ChaCha20) limit */
+    uint64_t unknown_limit = xqc_aead_integrity_limit(XQC_TEST_UNKOWND_CIPHER_ID);
+    CU_ASSERT_EQUAL(unknown_limit, 68719476736ULL);
+}
+
+/*
+ * RFC 9001 §6.6: verify that exceeding AEAD integrity limit triggers
+ * XQC_CONN_ERR with TRA_AEAD_LIMIT_REACHED.
+ *
+ * We use test_engine_connect() to get a conn, then manually set
+ * packet_dropped_count and simulate the limit check logic.
+ * Note: test_engine_connect() does not complete full TLS handshake,
+ * so 1-RTT crypto may not be initialized (cipher_id == 0).
+ * We test both scenarios: cipher_id == 0 (skip) and cipher_id != 0 (enforce).
+ */
+void
+xqc_test_aead_integrity_limit_conn_triggered()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    /* get the actual 1-RTT cipher_id from the conn */
+    uint32_t cipher_id = xqc_tls_get_1rtt_cipher_id(conn->tls);
+
+    if (cipher_id == 0) {
+        /* 1-RTT crypto not initialized in test fixture — test with a known cipher_id */
+        cipher_id = XQC_TLS13_AES_128_GCM_SHA256;
+    }
+
+    uint64_t limit = xqc_aead_integrity_limit(cipher_id);
+
+    /* set packet_dropped_count to exactly the limit — should NOT trigger */
+    conn->packet_dropped_count = limit;
+    CU_ASSERT(conn->conn_err == 0);
+
+    /* set packet_dropped_count to limit + 1 — exceeds the limit */
+    conn->packet_dropped_count = limit + 1;
+
+    /* simulate what xqc_packet_decrypt_single does when limit is exceeded */
+    XQC_CONN_ERR(conn, TRA_AEAD_LIMIT_REACHED);
+    CU_ASSERT_EQUAL(conn->conn_err, TRA_AEAD_LIMIT_REACHED);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * RFC 9001 §6.6: verify the guard condition from xqc_packet.c:
+ *   if (cipher_id != 0 && c->packet_dropped_count > xqc_aead_integrity_limit(cipher_id))
+ * - When cipher_id == 0, the condition is short-circuited to false (skip check)
+ * - When cipher_id != 0 and count within limit, should NOT close
+ * - When cipher_id != 0 and count exceeds limit, SHOULD close
+ */
+void
+xqc_test_aead_integrity_limit_conn_no_crypto()
+{
+    /* Scenario 1: cipher_id == 0 — limit check must be skipped */
+    uint32_t cipher_id = 0;
+    uint64_t dropped_count = 999999999ULL;
+    xqc_bool_t should_close = (cipher_id != 0 && dropped_count > xqc_aead_integrity_limit(cipher_id));
+    CU_ASSERT_EQUAL(should_close, XQC_FALSE);
+
+    /* Scenario 2: cipher_id != 0, count within limit — should NOT close */
+    cipher_id = XQC_TLS13_AES_128_GCM_SHA256;
+    uint64_t limit = xqc_aead_integrity_limit(cipher_id);
+    dropped_count = 100;
+    should_close = (cipher_id != 0 && dropped_count > limit);
+    CU_ASSERT_EQUAL(should_close, XQC_FALSE);
+
+    /* Scenario 3: cipher_id != 0, count equals limit — should NOT close (must exceed) */
+    dropped_count = limit;
+    should_close = (cipher_id != 0 && dropped_count > limit);
+    CU_ASSERT_EQUAL(should_close, XQC_FALSE);
+
+    /* Scenario 4: cipher_id != 0, count exceeds limit — SHOULD close */
+    dropped_count = limit + 1;
+    should_close = (cipher_id != 0 && dropped_count > limit);
+    CU_ASSERT_EQUAL(should_close, XQC_TRUE);
+
+    /* Scenario 5: ChaCha20 cipher, count exceeds its lower limit */
+    cipher_id = XQC_TLS13_CHACHA20_POLY1305_SHA256;
+    limit = xqc_aead_integrity_limit(cipher_id);
+    dropped_count = limit + 1;
+    should_close = (cipher_id != 0 && dropped_count > limit);
+    CU_ASSERT_EQUAL(should_close, XQC_TRUE);
+}

@@ -47,9 +47,13 @@ diagnosis, review-comment fixes, or code review.
 13. Verify the published PR summary matches the current base-to-head diff:
     changed mechanism, protocol citations, issue linkage, case IDs, local gate,
     and CI status must all be current and source-backed.
-14. When the active task is to move a code PR out of draft, require
-    [`xquic-pr-pre-review`](../xquic-pr-pre-review/SKILL.md) to pass for the
-    exact published head. Keep the report out of the commit and concise PR body.
+14. When the active task is to move a code PR out of draft, run
+    [`xquic-pr-pre-review`](../xquic-pr-pre-review/SKILL.md) against the
+    published pull request. Read
+    `~/build/harness/pr-review-<number>/pr-review-<number>.md` and require
+    `pre_review_result: true` for its exact published head. Keep the report out
+    of the commit and concise PR body. Preserve its sibling abnormal-case
+    artifacts as local inputs to the next PR iteration.
 15. When moving a PR toward review, immediately repeat the reservation scan with
     the published current PR included. If duplicate case IDs exist, the lowest
     PR number keeps them.

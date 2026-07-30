@@ -161,6 +161,9 @@ typedef struct xqc_crypto_s {
     /* key phase, 1-RTT : 1 or 0, others is always 0 */
     xqc_uint_t                  key_phase;
 
+    /* cipher_id used to determine AEAD integrity limit per RFC 9001 §6.6 */
+    uint32_t                    cipher_id;
+
 } xqc_crypto_t;
 
 
@@ -173,6 +176,24 @@ xqc_crypto_t *xqc_crypto_create(uint32_t cipher_id, xqc_log_t *log);
  * @brief destroy crypto instance
  */
 void xqc_crypto_destroy(xqc_crypto_t *crypto);
+
+/**
+ * AEAD integrity limits, RFC 9001 §6.6:
+ * "For AEAD_AES_128_GCM and AEAD_AES_256_GCM, the integrity limit is 2^52
+ *  invalid packets."
+ * "For AEAD_CHACHA20_POLY1305, the integrity limit is 2^36 invalid packets."
+ * Unknown AEADs fall back to the most conservative published limit (2^36).
+ */
+#define XQC_AES_128_GCM_INTEGRITY_LIMIT         (1ULL << 52)
+#define XQC_AES_256_GCM_INTEGRITY_LIMIT         (1ULL << 52)
+#define XQC_CHACHA20_POLY1305_INTEGRITY_LIMIT   (1ULL << 36)
+#define XQC_AEAD_CONSERVATIVE_INTEGRITY_LIMIT   XQC_CHACHA20_POLY1305_INTEGRITY_LIMIT
+
+/**
+ * @brief return AEAD integrity limit for the given cipher_id per RFC 9001 §6.6
+ * AES-128/256-GCM: 2^52, ChaCha20-Poly1305: 2^36
+ */
+uint64_t xqc_aead_integrity_limit(uint32_t cipher_id);
 
 /**
  * @brief install keys from secret

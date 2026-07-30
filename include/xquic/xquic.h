@@ -1881,6 +1881,16 @@ xqc_int_t xqc_conn_close_with_error(xqc_connection_t *conn, uint64_t err_code);
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_conn_get_errno(xqc_connection_t *conn);
 
+/**
+ * Get the namespace of an error received in the first CONNECTION_CLOSE frame.
+ *
+ * Pair this with xqc_conn_get_errno() when the connection was closed by the
+ * peer. XQC_CONN_ERR_TYPE_UNKNOWN is returned before a peer CONNECTION_CLOSE
+ * frame is received.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_conn_err_type_t xqc_conn_get_err_type(xqc_connection_t *conn);
+
 
 /**
  * Get ssl handler of specified connection
@@ -2300,4 +2310,3 @@ xqc_conn_settings_t xqc_conn_get_conn_settings_template(xqc_conn_settings_type_t
 #endif
 
 #endif /* _XQUIC_H_INCLUDED_ */
-

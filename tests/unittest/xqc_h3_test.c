@@ -176,6 +176,91 @@ xqc_test_frame()
     xqc_var_buf_free(buf);
 }
 
+
+void
+xqc_test_h3_single_vint_frame_valid()
+{
+    const unsigned char frames[][4] = {
+        { XQC_H3_FRM_CANCEL_PUSH, 0x02, 0x40, 0x01 },
+        { XQC_H3_FRM_GOAWAY, 0x02, 0x40, 0x04 },
+        { XQC_H3_FRM_MAX_PUSH_ID, 0x02, 0x40, 0x01 },
+    };
+    const uint64_t types[] = {
+        XQC_H3_FRM_CANCEL_PUSH,
+        XQC_H3_FRM_GOAWAY,
+        XQC_H3_FRM_MAX_PUSH_ID,
+    };
+
+    for (size_t i = 0; i < sizeof(frames) / sizeof(frames[0]); i++) {
+        xqc_h3_frame_pctx_t pctx;
+        memset(&pctx, 0, sizeof(pctx));
+
+        ssize_t processed = xqc_h3_frm_parse(frames[i], 3, &pctx);
+        CU_ASSERT(processed == 3);
+        CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_PAYLOAD);
+        CU_ASSERT(pctx.frame.consumed_len == 1);
+
+        processed = xqc_h3_frm_parse(frames[i] + 3, 1, &pctx);
+        CU_ASSERT(processed == 1);
+        CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_END);
+        CU_ASSERT(pctx.frame.type == types[i]);
+        CU_ASSERT(pctx.frame.len == 2);
+        CU_ASSERT(pctx.frame.consumed_len == 2);
+
+        xqc_h3_frm_reset_pctx(&pctx);
+    }
+}
+
+
+void
+xqc_test_h3_single_vint_frame_length_error()
+{
+    const unsigned char overlong[][7] = {
+        { XQC_H3_FRM_CANCEL_PUSH, 0x05, 0x40, 0x01, 0x21, 0x01, 0x00 },
+        { XQC_H3_FRM_GOAWAY, 0x05, 0x40, 0x04, 0x21, 0x01, 0x00 },
+        { XQC_H3_FRM_MAX_PUSH_ID, 0x05, 0x40, 0x01, 0x21, 0x01, 0x00 },
+    };
+    const unsigned char short_payload[][4] = {
+        { XQC_H3_FRM_CANCEL_PUSH, 0x01, 0x40, 0x01 },
+        { XQC_H3_FRM_GOAWAY, 0x01, 0x40, 0x04 },
+        { XQC_H3_FRM_MAX_PUSH_ID, 0x01, 0x40, 0x01 },
+    };
+
+    for (size_t i = 0; i < sizeof(overlong) / sizeof(overlong[0]); i++) {
+        xqc_h3_frame_pctx_t pctx;
+        memset(&pctx, 0, sizeof(pctx));
+
+        ssize_t processed = xqc_h3_frm_parse(overlong[i], 3, &pctx);
+        CU_ASSERT(processed == 3);
+        CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_PAYLOAD);
+        CU_ASSERT(pctx.frame.consumed_len == 1);
+
+        processed = xqc_h3_frm_parse(overlong[i] + 3,
+                                     sizeof(overlong[i]) - 3, &pctx);
+        CU_ASSERT(processed == -XQC_H3_DECODE_ERROR);
+        CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_PAYLOAD);
+        CU_ASSERT(pctx.frame.consumed_len == 2);
+
+        xqc_h3_frm_reset_pctx(&pctx);
+    }
+
+    for (size_t i = 0;
+         i < sizeof(short_payload) / sizeof(short_payload[0]); i++)
+    {
+        xqc_h3_frame_pctx_t pctx;
+        memset(&pctx, 0, sizeof(pctx));
+
+        ssize_t processed = xqc_h3_frm_parse(short_payload[i],
+                                             sizeof(short_payload[i]), &pctx);
+        CU_ASSERT(processed == -XQC_H3_DECODE_ERROR);
+        CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_PAYLOAD);
+        CU_ASSERT(pctx.frame.consumed_len == 2);
+
+        xqc_h3_frm_reset_pctx(&pctx);
+    }
+}
+
+
 void
 xqc_test_ins()
 {

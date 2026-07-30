@@ -69,8 +69,10 @@ the validation gate or the local pre-review report.
 - Task-scoped issue-check reports belong under the ignored
   `build/harness/<task-id>/` directory and must not be committed.
 - Pull-request pre-review reports and exploratory bad-case artifacts belong
-  under the ignored `build/harness/pr-<number>/` directory and must not be
-  committed.
+  together under the local
+  `~/build/harness/pr-review-<number>/` directory. The current retrospective
+  is `pr-review-<number>.md`; the complete directory remains uncommitted and
+  may be reused as input to the next PR iteration.
 
 ## Portability
 

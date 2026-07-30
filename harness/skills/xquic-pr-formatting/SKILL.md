@@ -39,9 +39,10 @@ description: Format, submit, and update concise XQUIC pull requests, description
 12. Run
     [`xquic-pr-pre-review`](../xquic-pr-pre-review/SKILL.md) against the
     published pull request. Read
-    `build/harness/pr-<number>/pre-review.md` and require
+    `~/build/harness/pr-review-<number>/pr-review-<number>.md` and require
     `pre_review_result: true` for its exact published head. Keep the report out
-    of the commit and concise PR body.
+    of the commit and concise PR body. Preserve its sibling abnormal-case
+    artifacts as local inputs to the next PR iteration.
 13. Immediately repeat the reservation scan with the published current PR
     included. If duplicate case IDs exist, the lowest PR number keeps them.
     Keep or return every later PR to draft and send it back through allocation

@@ -396,6 +396,7 @@ struct xqc_connection_s {
     uint32_t                        wakeup_pq_index;
 
     uint64_t                        conn_err;
+    xqc_conn_err_type_t             conn_err_type;
     const char                     *conn_close_msg;
 
     /* for multi-path */

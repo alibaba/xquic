@@ -1863,7 +1863,10 @@ xqc_client_h3_conn_close_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void 
     DEBUG;
 
     user_conn_t *user_conn = (user_conn_t *) user_data;
+    xqc_connection_t *transport_conn = xqc_h3_conn_get_xqc_conn(conn);
     printf("conn errno:%d\n", xqc_h3_conn_get_errno(conn));
+    printf("conn_err_type:%d\n",
+           (int)xqc_conn_get_err_type(transport_conn));
     client_ctx_t *p_ctx;
     if (g_test_qch_mode) {
         p_ctx = user_conn->ctx;

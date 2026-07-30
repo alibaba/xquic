@@ -17,6 +17,9 @@ char XQC_TEST_ILL_FRAME_1[] = {0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 char XQC_TEST_ZERO_LEN_NEW_TOKEN_FRAME[] = {0x07, 0x00};
 char XQC_TEST_STREAM_FRAME[] = {0x0a, 0x00, 0x01, 0x00};
 
+static void xqc_test_conn_close_error_type(unsigned char *frame,
+    size_t frame_len, xqc_conn_err_type_t expected_type);
+
 
 static xqc_int_t
 xqc_test_parse_stream_frame_inner(unsigned char *frame_buf,
@@ -96,6 +99,92 @@ xqc_test_parse_padding_frame()
     CU_ASSERT(pi_padding_mix.pi_frame_types == (XQC_FRAME_BIT_PADDING | XQC_FRAME_BIT_MAX_DATA));
 
     xqc_engine_destroy(conn->engine);
+}
+
+static void
+xqc_test_conn_close_error_type(unsigned char *frame, size_t frame_len,
+    xqc_conn_err_type_t expected_type)
+{
+    unsigned char application_frame[] = {
+        0x1d, 0x41, 0x02, 0x00
+    };
+    unsigned char transport_frame[] = {
+        0x1c, 0x41, 0x02, 0x01, 0x00
+    };
+    xqc_connection_t *conn;
+    xqc_packet_in_t packet_in;
+    unsigned char *second_frame;
+    size_t second_frame_len;
+    uint64_t err_code;
+    xqc_int_t ret;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pos = frame;
+    packet_in.last = frame + frame_len;
+
+    CU_ASSERT(xqc_conn_get_err_type(conn) == XQC_CONN_ERR_TYPE_UNKNOWN);
+
+    ret = xqc_parse_conn_close_frame(&packet_in, &err_code, conn);
+
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(err_code == H3_INTERNAL_ERROR);
+    CU_ASSERT(packet_in.pos == packet_in.last);
+    CU_ASSERT(xqc_conn_get_err_type(conn) == expected_type);
+
+    /*
+     * CONNECTION_CLOSE can be retransmitted. Preserve the namespace of the
+     * first received frame so it remains aligned with first-write-wins error
+     * reporting.
+     */
+    if (expected_type == XQC_CONN_ERR_TYPE_APPLICATION) {
+        second_frame = transport_frame;
+        second_frame_len = sizeof(transport_frame);
+
+    } else {
+        second_frame = application_frame;
+        second_frame_len = sizeof(application_frame);
+    }
+
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pos = second_frame;
+    packet_in.last = second_frame + second_frame_len;
+    ret = xqc_parse_conn_close_frame(&packet_in, &err_code, conn);
+
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(packet_in.pos == packet_in.last);
+    CU_ASSERT(xqc_conn_get_err_type(conn) == expected_type);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_conn_close_application_error_type(void)
+{
+    unsigned char frame[] = {
+        0x1d, 0x41, 0x02, 0x00
+    };
+
+    xqc_test_conn_close_error_type(frame, sizeof(frame),
+                                   XQC_CONN_ERR_TYPE_APPLICATION);
+}
+
+void
+xqc_test_conn_close_transport_error_type_overlap(void)
+{
+    unsigned char frame[] = {
+        0x1c, 0x41, 0x02, 0x01, 0x00
+    };
+
+    /*
+     * 0x102 is both a transport CRYPTO_ERROR value and
+     * H3_INTERNAL_ERROR. The 0x1c frame type is the only reliable
+     * discriminator.
+     */
+    xqc_test_conn_close_error_type(frame, sizeof(frame),
+                                   XQC_CONN_ERR_TYPE_TRANSPORT);
 }
 
 

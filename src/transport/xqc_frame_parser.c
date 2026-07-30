@@ -1378,6 +1378,17 @@ xqc_parse_conn_close_frame(xqc_packet_in_t *packet_in, uint64_t *err_code, xqc_c
 
     packet_in->pi_frame_types |= XQC_FRAME_BIT_CONNECTION_CLOSE;
 
+    /*
+     * RFC 9000 Section 19.19: the frame type selects the error-code
+     * namespace. Preserve it because transport CRYPTO_ERROR values overlap
+     * application error-code ranges.
+     */
+    if (conn->conn_err_type == XQC_CONN_ERR_TYPE_UNKNOWN) {
+        conn->conn_err_type = first_byte == 0x1c
+                              ? XQC_CONN_ERR_TYPE_TRANSPORT
+                              : XQC_CONN_ERR_TYPE_APPLICATION;
+    }
+
     xqc_log_event(conn->log, TRA_FRAMES_PROCESSED, XQC_FRAME_CONNECTION_CLOSE, *err_code);
     return XQC_OK;
 }

@@ -101,7 +101,7 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid, uint64
     if (path->path_pn_ctl == NULL) {
         goto err;
     }
-    if (conn->local_settings.extended_ack_features & XQC_ACK_EXT_FEATURE_BIT_RECV_TS) {
+    if (conn->local_settings.max_receive_timestamps_per_ack > 0) {
         path->recv_ts_info = xqc_recv_timestamps_info_create();
     }
 

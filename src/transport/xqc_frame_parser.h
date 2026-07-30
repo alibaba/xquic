@@ -27,8 +27,6 @@
 #define XQC_TRANS_FRAME_TYPE_MAX_PATH_ID                0x15228c0c
 #define XQC_TRANS_FRAME_TYPE_MP_FROZEN                  0x15228cff
 
-#define XQC_TRANS_FRAME_TYPE_ACK_EXT                    0xB1
-
 /**
  * generate datagram frame
  */
@@ -68,6 +66,9 @@ xqc_int_t xqc_parse_ping_frame(xqc_packet_in_t *packet_in, xqc_connection_t *con
 
 ssize_t xqc_gen_ack_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec_t now, int ack_delay_exponent,
     xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, int *has_gap, xqc_packet_number_t *largest_ack);
+
+size_t xqc_write_packet_receive_timestamps_into_buf(xqc_connection_t *conn, unsigned char *dst_buf, size_t dst_buf_len,
+    xqc_recv_timestamps_info_t *recv_timestamps, uint64_t po_largest_ack);
 
 xqc_int_t xqc_parse_ack_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_ack_info_t *ack_info);
 
@@ -187,11 +188,11 @@ void xqc_try_process_fec_decode(xqc_connection_t *conn, xqc_int_t block_id);
 void xqc_get_lack_src_syb(unsigned char* pm, unsigned char* recv_mask, xqc_int_t m_size,
     uint8_t *syb_idx, uint8_t *syb_num);
 
-ssize_t xqc_gen_ack_ext_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec_t now,
+ssize_t xqc_gen_ack_with_receive_timestamps_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec_t now,
     int ack_delay_exponent, xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, int *has_gap, 
     xqc_packet_number_t *largest_ack, xqc_recv_timestamps_info_t *recv_ts_info);
 
-xqc_int_t xqc_parse_ack_ext_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
+xqc_int_t xqc_parse_ack_with_receive_timestamps_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
     xqc_ack_info_t *ack_info, xqc_ack_timestamp_info_t *ack_ts_info);
 
 #endif /*_XQC_FRAME_PARSER_H_INCLUDED_*/

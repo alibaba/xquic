@@ -23,7 +23,7 @@ typedef struct xqc_recv_timestamps_info_s {
     */
     uint64_t                new_range_flag;
     uint8_t                 is_first_pkt;
-    uint8_t                 nobuf_for_ts_in_last_ext_ack;
+    uint8_t                 nobuf_for_ts_in_last_ack;
 } xqc_recv_timestamps_info_t;
 
 typedef struct xqc_ack_timestamp_info_s {
@@ -48,6 +48,6 @@ int xqc_recv_timestamps_info_fetch(xqc_recv_timestamps_info_t *ts_info, uint32_t
 
 size_t xqc_recv_timestamps_info_need_bytes_estimate(xqc_recv_timestamps_info_t *ts_info);
 
-void xqc_recv_timestamps_info_set_nobuf_flag(xqc_recv_timestamps_info_t *ts_info, uint8_t has_ts_in_ack_ext);
+void xqc_recv_timestamps_info_set_nobuf_flag(xqc_recv_timestamps_info_t *ts_info, uint8_t nobuf_for_ts);
 
 #endif /* _XQC_RECV_TIMESTAMPS_INFO_H_INCLUDED_ */

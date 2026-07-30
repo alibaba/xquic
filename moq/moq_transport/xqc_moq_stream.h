@@ -11,13 +11,26 @@ typedef struct {
     xqc_stream_t *(*quic_stream)(void *stream);
     ssize_t (*write)(void *stream, uint8_t *send_data, size_t send_data_size, uint8_t fin);
     xqc_int_t (*close)(void *stream);
+    xqc_int_t (*cancel)(void *stream, uint64_t err_code);
+    xqc_int_t (*stop_sending)(void *stream, uint64_t err_code);
 } xqc_moq_trans_stream_ops_t;
+
+#define XQC_MOQ_DATA_STREAM_CANCELLED 0x1
 
 /** defined for uint16_t moq_frame_type in structure xqc_moq_stream_t */
 typedef enum {
     MOQ_VIDEO_FRAME,
     MOQ_AUDIO_FRAME
 } xqc_moq_frame_type_t;
+
+
+typedef struct xqc_moq_subgroup_header_s {
+    uint64_t                    track_alias;
+    uint64_t                    group_id;
+    uint64_t                    subgroup_id;
+    uint8_t                     subgroup_type;
+    uint8_t                     subgroup_priority;
+} xqc_moq_subgroup_header_t;
 
 
 typedef struct xqc_moq_stream_s {
@@ -43,16 +56,33 @@ typedef struct xqc_moq_stream_s {
     size_t                      write_buf_processed;
     uint8_t                     write_stream_fin;
 
+    uint8_t                     local_request;
+    uint8_t                     peer_request;
+    uint8_t                     response_received;
+    uint8_t                     response_sent;
+    uint8_t                     request_closed_notified;
+    xqc_moq_msg_type_t          request_type;
+    uint64_t                    request_id;
+    xqc_list_head_t             request_list_member;
+
     xqc_moq_track_t             *track;
     xqc_list_head_t             list_member; /* track write_stream_list */
+    xqc_list_head_t             recv_list_member; /* track recv_stream_list */
     uint64_t                    group_id;
+    uint64_t                    subgroup_id; /* for subgroup stream reuse (sender-side bookkeeping) */
     uint64_t                    object_id;
     uint64_t                    seq_num;
+    uint8_t                     cancel_write_close;
+    xqc_usec_t                  last_moq_object_write_time;
 
     xqc_flag_t                  enable_fec;
     float                       fec_code_rate;
 
     uint16_t                    moq_frame_type;
+    xqc_moq_subgroup_header_t   subgroup_header;
+    uint8_t                     subgroup_header_valid;
+    uint64_t                    subgroup_prev_object_id;
+    uint8_t                     subgroup_prev_object_id_valid;
 } xqc_moq_stream_t;
 
 xqc_moq_stream_t *xqc_moq_stream_create(xqc_moq_session_t *session);
@@ -62,6 +92,10 @@ void xqc_moq_stream_destroy(xqc_moq_stream_t *moq_stream);
 xqc_moq_stream_t *xqc_moq_stream_create_with_transport(xqc_moq_session_t *session, xqc_stream_direction_t direction);
 
 xqc_int_t xqc_moq_stream_close(xqc_moq_stream_t *moq_stream);
+
+xqc_int_t xqc_moq_stream_cancel(xqc_moq_stream_t *moq_stream, uint64_t err_code);
+
+xqc_int_t xqc_moq_stream_stop_sending(xqc_moq_stream_t *moq_stream, uint64_t err_code);
 
 xqc_int_t xqc_moq_stream_write(xqc_moq_stream_t *moq_stream);
 
@@ -78,5 +112,8 @@ xqc_int_t xqc_moq_stream_process(xqc_moq_stream_t *moq_stream, uint8_t *buf, siz
 
 xqc_int_t xqc_moq_stream_process_msg(xqc_moq_stream_t *moq_stream, uint8_t stream_fin,
     xqc_int_t *msg_finish, xqc_int_t *wait_more_data);
+
+void xqc_moq_stream_on_request_closed(xqc_moq_stream_t *moq_stream,
+    uint64_t error_code);
 
 #endif /* _XQC_MOQ_STREAM_H_INCLUDED_ */

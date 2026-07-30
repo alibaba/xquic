@@ -529,15 +529,15 @@ xqc_write_repair_packets(xqc_connection_t *conn, xqc_int_t fss_esi, xqc_list_hea
 }
 #endif
 xqc_int_t
-xqc_write_ack_or_mp_ack_or_ext_ack_to_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_pkt_num_space_t pns,
-    xqc_path_ctx_t *path, xqc_bool_t is_mp_ack, xqc_bool_t is_ext_ack, xqc_bool_t is_new_pkt)
+xqc_write_ack_variant_to_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_pkt_num_space_t pns,
+    xqc_path_ctx_t *path, xqc_bool_t is_mp_ack, xqc_bool_t is_recv_ts_ack, xqc_bool_t is_new_pkt)
 {
     int ret;
     if (is_mp_ack) {
         ret = xqc_write_ack_mp_to_one_packet(conn, path, packet_out, pns);
     } else {
-        if (is_ext_ack) {
-            ret = xqc_write_ack_ext_to_one_packet(conn, packet_out, pns, is_new_pkt);
+        if (is_recv_ts_ack) {
+            ret = xqc_write_ack_with_receive_timestamps_to_one_packet(conn, path, packet_out, pns, is_new_pkt);
         } else {
             ret = xqc_write_ack_to_one_packet(conn, packet_out, pns);
         }
@@ -546,15 +546,13 @@ xqc_write_ack_or_mp_ack_or_ext_ack_to_one_packet(xqc_connection_t *conn, xqc_pac
 }
 
 xqc_int_t
-xqc_write_ack_or_mp_ack_or_ext_ack_to_packets(xqc_connection_t *conn)
+xqc_write_ack_variant_to_packets(xqc_connection_t *conn)
 {
     XQC_DEBUG_PRINT
     xqc_pkt_num_space_t pns;
     xqc_packet_out_t *packet_out;
     xqc_pkt_type_t pkt_type;
     xqc_list_head_t *pos, *next;
-    xqc_bool_t is_mp_ack = 0;       /* Send ack in default case */
-    xqc_bool_t is_ext_ack = 0;
     int ret = XQC_OK;
     xqc_path_ctx_t *path;
     xqc_list_head_t *path_pos, *path_next;
@@ -569,6 +567,8 @@ xqc_write_ack_or_mp_ack_or_ext_ack_to_packets(xqc_connection_t *conn)
         }
 
         for (pns = 0; pns < XQC_PNS_N; ++pns) {
+            xqc_bool_t is_mp_ack = 0;
+            xqc_bool_t is_recv_ts_ack = 0;
 
             /* If there's no such pns in the connection, continue the loop */
             if (!(path->path_flag & (XQC_PATH_FLAG_SHOULD_ACK_INIT << pns))) {
@@ -599,23 +599,25 @@ xqc_write_ack_or_mp_ack_or_ext_ack_to_packets(xqc_connection_t *conn)
             /* Acknowledgements of Initial and Handshake packets MUST be carried using ACK frames */
             if (pkt_type > XQC_PTYPE_HSK && conn->enable_multipath == XQC_CONN_MP_ENABLED) {
                 is_mp_ack = 1;
-            } else if ((conn->conn_settings.extended_ack_features & XQC_ACK_EXT_FEATURE_BIT_RECV_TS)
-                        && pns == XQC_PNS_APP_DATA
-                        && xqc_recv_timestamps_info_length(path->recv_ts_info) > 0)
+            } else if (conn->conn_settings.max_receive_timestamps_per_ack > 0
+                       && pns == XQC_PNS_APP_DATA)
             {
-                /* ENC count is not supported */
-                is_ext_ack = 1;
+                is_recv_ts_ack = 1;
             }
-            
+            if (is_recv_ts_ack) {
+                /* Receive Timestamps have no explicit length; keep this ACK as the last frame. */
+                goto write_new;
+            }
+
 path_buffer:
             /* Try to attach ack or mp_ack to packet_out in path_buffer */
             xqc_list_for_each_safe(pos, next, &path->path_schedule_buf[XQC_SEND_TYPE_NORMAL]) {
                 packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
 
                 if (xqc_packet_out_can_attach_ack(packet_out, path, pkt_type)) {
-                    ret = xqc_write_ack_or_mp_ack_or_ext_ack_to_one_packet(conn, packet_out, pns, path, is_mp_ack, is_ext_ack, 0);
+                    ret = xqc_write_ack_variant_to_one_packet(conn, packet_out, pns, path, is_mp_ack, is_recv_ts_ack, 0);
                     if (ret == -XQC_ENOBUF) {
-                        xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_write_ack_or_mp_ack_or_ext_ack_to_one_packet try new packet|");
+                        xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_write_ack_variant_to_one_packet try new packet|");
                         goto write_new;
                     } else if (ret == XQC_OK) {
                         goto done;
@@ -632,8 +634,8 @@ conn_buffer:
                     packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
 
                     if (xqc_packet_out_can_attach_ack(packet_out, path, pkt_type)) {
-                        if (is_ext_ack) {
-                            ret = xqc_write_ack_ext_to_one_packet(conn, packet_out, pns, 0);
+                        if (is_recv_ts_ack) {
+                            ret = xqc_write_ack_with_receive_timestamps_to_one_packet(conn, path, packet_out, pns, 0);
                         } else {
                             ret = xqc_write_ack_to_one_packet(conn, packet_out, pns);
                         }
@@ -656,10 +658,10 @@ write_new:
                 xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");
                 return -XQC_EWRITE_PKT;
             }
-            ret = xqc_write_ack_or_mp_ack_or_ext_ack_to_one_packet(conn, packet_out, pns, path, is_mp_ack, is_ext_ack, 1);
+            ret = xqc_write_ack_variant_to_one_packet(conn, packet_out, pns, path, is_mp_ack, is_recv_ts_ack, 1);
             if (ret != XQC_OK) {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_ack_or_mp_ack_or_ext_ack_to_one_packet write to new packet error|ret:%d|is_mp_ack:%d|is_ext_ack:%d|",
-                                        ret, is_mp_ack, is_ext_ack);
+                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_ack_variant_to_one_packet write to new packet error|ret:%d|is_mp_ack:%d|is_recv_ts_ack:%d|",
+                                        ret, is_mp_ack, is_recv_ts_ack);
                 return ret;
             }
 
@@ -1874,26 +1876,46 @@ error:
 }
 
 int
-xqc_write_ack_ext_to_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
-    xqc_pkt_num_space_t pns, xqc_bool_t is_new_pkt)
+xqc_write_ack_with_receive_timestamps_to_one_packet(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    xqc_packet_out_t *packet_out, xqc_pkt_num_space_t pns, xqc_bool_t is_new_pkt)
 {
     ssize_t ret;
     int has_gap;
     xqc_packet_number_t largest_ack;
     xqc_usec_t now = xqc_monotonic_timestamp();
 
-    xqc_path_ctx_t *path = conn->conn_initial_path;
     xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path);
 
-    if (path->recv_ts_info->nobuf_for_ts_in_last_ext_ack && !is_new_pkt) {
+    if (path->recv_ts_info && path->recv_ts_info->nobuf_for_ts_in_last_ack && !is_new_pkt) {
         return -XQC_ENOBUF;
     }
 
-    ret = xqc_gen_ack_ext_frame(conn, packet_out, now, conn->local_settings.ack_delay_exponent,
+    ret = xqc_gen_ack_frame(conn, packet_out, now, conn->local_settings.ack_delay_exponent,
                             &pn_ctl->ctl_recv_record[pns], path->path_send_ctl->ctl_largest_recv_time[pns],
-                            &has_gap, &largest_ack, path->recv_ts_info);
+                            &has_gap, &largest_ack);
     if (ret < 0) {
         goto error;
+    }
+
+    size_t left_buf_len = xqc_get_po_remained_size_with_ack_spc(packet_out) - ret;
+    if (path->recv_ts_info == NULL) {
+        if (left_buf_len < 1) {
+            goto error;
+        }
+        packet_out->po_buf[packet_out->po_used_size + ret] = 0;
+        ret += 1;
+    } else {
+        size_t ts_need = xqc_recv_timestamps_info_need_bytes_estimate(path->recv_ts_info);
+        if (left_buf_len < ts_need) {
+            xqc_recv_timestamps_info_set_nobuf_flag(path->recv_ts_info, 1);
+        } else {
+            size_t ts_written = xqc_write_packet_receive_timestamps_into_buf(conn,
+                packet_out->po_buf + packet_out->po_used_size + ret, left_buf_len,
+                path->recv_ts_info, largest_ack);
+            xqc_recv_timestamps_info_set_nobuf_flag(path->recv_ts_info, 0);
+            xqc_recv_timestamps_info_clear(path->recv_ts_info);
+            ret += ts_written;
+        }
     }
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|ack_size:%ui|path:%ui|path_largest_recv:%ui|frame_largest_recv:%ui|", 

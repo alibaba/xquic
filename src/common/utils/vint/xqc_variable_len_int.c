@@ -99,3 +99,67 @@ xqc_put_varint(uint8_t *p, uint64_t n)
     *p |= 0xc0;
     return rv;
 }
+
+size_t
+xqc_vi64_len(uint64_t value)
+{
+    for (size_t len = 1; len < XQC_VI64_MAX_LEN; len++) {
+        uint64_t max = (UINT64_C(1) << (7 * len)) - 1;
+        if (value <= max) {
+            return len;
+        }
+    }
+
+    return XQC_VI64_MAX_LEN;
+}
+
+uint8_t *
+xqc_vi64_write(uint8_t *p, uint64_t value)
+{
+    size_t len = xqc_vi64_len(value);
+    if (len == XQC_VI64_MAX_LEN) {
+        p[0] = 0xff;
+        for (size_t i = XQC_VI64_MAX_LEN - 1; i > 0; i--) {
+            p[i] = (uint8_t)(value & 0xff);
+            value >>= 8;
+        }
+        return p + XQC_VI64_MAX_LEN;
+    }
+
+    for (size_t i = len; i > 0; i--) {
+        p[i - 1] = (uint8_t)(value & 0xff);
+        value >>= 8;
+    }
+    p[0] |= (uint8_t)(0xffu << (XQC_VI64_MAX_LEN - len));
+    return p + len;
+}
+
+int
+xqc_vi64_read(const uint8_t *p, const uint8_t *end, uint64_t *value)
+{
+    if (p == NULL || end == NULL || value == NULL || p >= end) {
+        return -1;
+    }
+
+    uint8_t first = p[0];
+    size_t leading_ones = 0;
+    for (uint8_t marker = 0x80; marker != 0 && (first & marker); marker >>= 1) {
+        leading_ones++;
+    }
+
+    size_t len = leading_ones + 1;
+    if ((size_t)(end - p) < len) {
+        return -1;
+    }
+
+    uint64_t decoded = 0;
+    if (len < XQC_VI64_MAX_LEN) {
+        decoded = first & (uint8_t)(0xffu >> len);
+    }
+    for (size_t i = 1; i < len; i++) {
+        decoded = (decoded << 8) | p[i];
+    }
+
+    *value = decoded;
+    return (int)len;
+}

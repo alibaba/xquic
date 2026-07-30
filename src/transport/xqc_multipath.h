@@ -151,10 +151,7 @@ struct xqc_path_ctx_s {
     size_t              curr_pkt_out_size;
     size_t              path_max_pkt_out_size;
 
-    /* 
-     * Record pkt receive timestamp info. Null if local 
-     * conn_setting.extended_ack_features & XQC_ACK_EXT_FEATURE_BIT_RECV_TS == 0
-     */
+    /* Record packet receive timestamp info for draft-ietf-quic-receive-ts. */
     xqc_recv_timestamps_info_t *recv_ts_info;
 };
 

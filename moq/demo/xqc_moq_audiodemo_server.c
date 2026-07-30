@@ -200,12 +200,24 @@ xqc_server_socket_event_callback(int fd, short what, void *arg)
     }
 }
 
-void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata)
+void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
+    const xqc_moq_message_parameter_t *params, uint64_t params_num)
 {
     DEBUG;
 
     int ret;
     xqc_moq_session_t *session = user_session->session;
+
+    if (extdata) {
+        printf("extdata:%s\n", extdata);
+    }
+    if (params && params_num > 0) {
+        // for test
+        printf("setup_params_num:%"PRIu64"\n", params_num);
+        for (uint64_t i = 0; i < params_num; i++) {
+            printf("  setup_param[%"PRIu64"] type:0x%"PRIx64"\n", i, params[i].type);
+        }
+    }
 
     xqc_moq_selection_params_t audio_params;
     memset(&audio_params, 0, sizeof(xqc_moq_selection_params_t));
@@ -224,14 +236,20 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata)
 
 }
 
-void on_datachannel(xqc_moq_user_session_t *user_session)
+void on_datachannel(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info)
 {
     DEBUG;
+    printf("on_datachannel: track_namespace:%s track_name:%s\n",
+           track_info ? track_info->track_namespace : "null",
+           track_info ? track_info->track_name : "null");
 }
 
-void on_datachannel_msg(struct xqc_moq_user_session_s *user_session, uint8_t *msg, size_t msg_len)
+void on_datachannel_msg(struct xqc_moq_user_session_s *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, uint8_t *msg, size_t msg_len)
 {
     DEBUG;
+    printf("on_datachannel_msg: track_namespace:%s track_name:%s\n",
+           track_info ? track_info->track_namespace : "null",
+           track_info ? track_info->track_name : "null");
     xqc_int_t ret;
     xqc_moq_session_t *session = user_session->session;
     if (strncmp((char*)msg, "datachannel req", strlen("datachannel req")) == 0) {
@@ -254,8 +272,11 @@ void on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
         user_conn->audio_track = track;
 
         xqc_moq_subscribe_ok_msg_t subscribe_ok;
+        memset(&subscribe_ok, 0, sizeof(subscribe_ok));
         subscribe_ok.subscribe_id = subscribe_id;
+        subscribe_ok.track_alias = msg ? msg->track_alias : 0;
         subscribe_ok.expire_ms = 0;
+        subscribe_ok.group_order = 0;
         subscribe_ok.content_exist = 1;
         subscribe_ok.largest_group_id = 0;
         subscribe_ok.largest_object_id = 0;
@@ -266,19 +287,25 @@ void on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     }
 }
 
-void on_subscribe_ok(xqc_moq_user_session_t *user_session, xqc_moq_subscribe_ok_msg_t *subscribe_ok)
+void on_subscribe_ok(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, xqc_moq_subscribe_ok_msg_t *subscribe_ok)
 {
     DEBUG;
+    printf("on_subscribe_ok: track_namespace:%s track_name:%s\n",
+           track_info ? track_info->track_namespace : "null",
+           track_info ? track_info->track_name : "null");
     printf("subscribe_id:%d expire_ms:%d content_exist:%d largest_group_id:%d largest_object_id:%d\n",
            (int)subscribe_ok->subscribe_id, (int)subscribe_ok->expire_ms, (int)subscribe_ok->content_exist,
            (int)subscribe_ok->largest_group_id, (int)subscribe_ok->largest_object_id);
 }
 
-void on_subscribe_error(xqc_moq_user_session_t *user_session, xqc_moq_subscribe_error_msg_t *subscribe_error)
+void on_subscribe_error(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track, xqc_moq_track_info_t *track_info, xqc_moq_subscribe_error_msg_t *subscribe_error)
 {
     DEBUG;
-    printf("subscribe_id:%d error_code:%d reason_phrase:%s track_alias:%d\n",
-           (int)subscribe_error->subscribe_id, (int)subscribe_error->error_code, subscribe_error->reason_phrase, (int)subscribe_error->track_alias);
+    printf("on_subscribe_error: track_namespace:%s track_name:%s\n",
+           track_info ? track_info->track_namespace : "null",
+           track_info ? track_info->track_name : "null");
+    printf("subscribe_id:%d error_code:%d reason_phrase:%s\n",
+           (int)subscribe_error->subscribe_id, (int)subscribe_error->error_code, subscribe_error->reason_phrase);
 }
 
 void on_catalog(xqc_moq_user_session_t *user_session, xqc_moq_track_info_t **track_info_array, xqc_int_t array_size)
@@ -360,7 +387,8 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
         .on_video = on_video_frame,
         .on_audio = on_audio_frame,
     };
-    xqc_moq_session_t *session = xqc_moq_session_create(conn, user_session, XQC_MOQ_TRANSPORT_QUIC, XQC_MOQ_PUBSUB, callbacks, NULL);
+    xqc_moq_session_t *session = xqc_moq_session_create(conn, user_session, XQC_MOQ_TRANSPORT_QUIC,
+        XQC_MOQ_PUBSUB, callbacks, NULL, 0);
     if (session == NULL) {
         printf("create session error\n");
         return -1;
@@ -535,6 +563,7 @@ int main(int argc, char *argv[])
            .customize_on = 1, 
            .bbr_ignore_app_limit = 1,
         },
+        .max_datagram_frame_size = 65535,
     };
 
     xqc_config_t config;

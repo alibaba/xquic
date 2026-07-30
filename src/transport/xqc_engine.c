@@ -768,9 +768,9 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
     XQC_CHECK_IMMEDIATE_CLOSE();
 
     if (conn->ack_flag) {
-        ret = xqc_write_ack_or_mp_ack_or_ext_ack_to_packets(conn);
+        ret = xqc_write_ack_variant_to_packets(conn);
         if (ret) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_ack_or_mp_ack_or_ext_ack_to_packets error|");
+            xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_ack_variant_to_packets error|");
             XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
         }
     }

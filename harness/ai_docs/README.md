@@ -35,6 +35,10 @@ ignored `harness/private/`, not in committed docs.
 5. Self-check layer: `scripts/xqc_harness_check.sh` and the GitHub workflow
    detect drift across AGENTS, docs, skills, scripts, and manifest routing.
 
+Task-local evidence is not part of the durable explanation layer. Store it in
+`build/harness/runs/<task-id>/` using `scripts/harness_trace.sh init
+<task-id>`.
+
 ## Read Order
 
 For harness structure changes:

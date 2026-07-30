@@ -5,7 +5,54 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VALIDATION_LEVEL="${1:-test}"
+VALIDATION_LEVEL="test"
+VALIDATION_LEVEL_SET=0
+FEATURE_NAME=""
+DRY_RUN=0
+LIST_FEATURES=0
+
+usage()
+{
+    echo "usage: $0 [build|test|full] [--feature <name>] [--dry-run] [--list-features]" >&2
+}
+
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+        build|test|full)
+            if [[ "${VALIDATION_LEVEL_SET}" -eq 1 ]]; then
+                usage
+                exit 2
+            fi
+            VALIDATION_LEVEL="$1"
+            VALIDATION_LEVEL_SET=1
+            shift
+            ;;
+        --feature)
+            if [[ "$#" -lt 2 ]]; then
+                usage
+                exit 2
+            fi
+            FEATURE_NAME="$2"
+            shift 2
+            ;;
+        --dry-run)
+            DRY_RUN=1
+            shift
+            ;;
+        --list-features)
+            LIST_FEATURES=1
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage
+            exit 2
+            ;;
+    esac
+done
 
 case "${VALIDATION_LEVEL}" in
     build|test|full)
@@ -15,6 +62,45 @@ case "${VALIDATION_LEVEL}" in
         exit 2
         ;;
 esac
+
+manifest_query()
+{
+    ruby - "${ROOT_DIR}" "${FEATURE_NAME}" "$1" <<'RUBY'
+require "yaml"
+
+root = ARGV.fetch(0)
+feature_name = ARGV.fetch(1)
+mode = ARGV.fetch(2)
+manifest = YAML.load_file(File.join(root, "harness/spec/harness-manifest.yml"))
+
+features = {}
+manifest.fetch("modules", {}).each do |module_name, route|
+  route.fetch("features", {}).each do |name, feature|
+    features[name] = feature.merge("module" => module_name)
+  end
+end
+
+case mode
+when "list"
+  puts features.keys.sort
+when "flags"
+  feature = features[feature_name]
+  abort "unknown feature: #{feature_name}" unless feature
+  puts feature.fetch("feature_flags", [])
+when "units"
+  feature = features[feature_name]
+  abort "unknown feature: #{feature_name}" unless feature
+  puts feature.fetch("validation", {}).fetch("unit", [])
+else
+  abort "unknown manifest query mode: #{mode}"
+end
+RUBY
+}
+
+if [[ "${LIST_FEATURES}" -eq 1 ]]; then
+    manifest_query list
+    exit 0
+fi
 
 BUILD_DIR="${XQC_BUILD_DIR:-${ROOT_DIR}/build/validation}"
 if [[ "${BUILD_DIR}" != /* ]]; then
@@ -32,6 +118,49 @@ ARTIFACT_DIR="${XQC_VALIDATION_ARTIFACT_DIR:-${BUILD_DIR}/artifacts}"
 LOG_FILE="${ARTIFACT_DIR}/${VALIDATION_LEVEL}.log"
 CONFIG_HEADER="${ROOT_DIR}/include/xquic/xqc_configure.h"
 CONFIG_HEADER_BACKUP="${BUILD_DIR}/xqc_configure.h.before-validation"
+FEATURE_CMAKE_ARGS=()
+FEATURE_UNIT_TESTS=()
+
+if [[ -n "${FEATURE_NAME}" ]]; then
+    FEATURE_FLAGS="$(manifest_query flags)" || exit 2
+    FEATURE_UNITS="$(manifest_query units)" || exit 2
+
+    while IFS= read -r flag; do
+        [[ -n "${flag}" ]] || continue
+        FEATURE_CMAKE_ARGS+=("-D${flag}")
+    done <<< "${FEATURE_FLAGS}"
+
+    while IFS= read -r test_name; do
+        [[ -n "${test_name}" ]] || continue
+        FEATURE_UNIT_TESTS+=("${test_name}")
+    done <<< "${FEATURE_UNITS}"
+fi
+
+print_plan()
+{
+    local arg
+
+    echo "level=${VALIDATION_LEVEL}"
+    echo "feature=${FEATURE_NAME:-<none>}"
+    echo "build_dir=${BUILD_DIR}"
+    echo "artifact_dir=${ARTIFACT_DIR}"
+    echo "test_name=${TEST_NAME:-<all>}"
+    if [[ "${#FEATURE_CMAKE_ARGS[@]}" -gt 0 ]]; then
+        for arg in "${FEATURE_CMAKE_ARGS[@]}"; do
+            echo "feature_cmake_arg=${arg}"
+        done
+    fi
+    if [[ "${#FEATURE_UNIT_TESTS[@]}" -gt 0 ]]; then
+        for arg in "${FEATURE_UNIT_TESTS[@]}"; do
+            echo "feature_unit_test=${arg}"
+        done
+    fi
+}
+
+if [[ "${DRY_RUN}" -eq 1 ]]; then
+    print_plan
+    exit 0
+fi
 
 mkdir -p "${BUILD_DIR}" "${ARTIFACT_DIR}"
 : > "${LOG_FILE}"
@@ -76,6 +205,17 @@ write_environment()
         echo "ssl_type=${SSL_TYPE}"
         echo "ssl_path=${SSL_PATH}"
         echo "test_name=${TEST_NAME}"
+        echo "feature=${FEATURE_NAME}"
+        printf 'feature_cmake_args='
+        if [[ "${#FEATURE_CMAKE_ARGS[@]}" -gt 0 ]]; then
+            printf '%s ' "${FEATURE_CMAKE_ARGS[@]}"
+        fi
+        echo ""
+        printf 'feature_unit_tests='
+        if [[ "${#FEATURE_UNIT_TESTS[@]}" -gt 0 ]]; then
+            printf '%s ' "${FEATURE_UNIT_TESTS[@]}"
+        fi
+        echo ""
     } > "${ARTIFACT_DIR}/environment.txt"
 }
 
@@ -104,6 +244,9 @@ configure_project()
         "-DSSL_INC_PATH=${SSL_INCLUDE}"
         "-DSSL_LIB_PATH=${SSL_LIBS}"
     )
+    if [[ "${#FEATURE_CMAKE_ARGS[@]}" -gt 0 ]]; then
+        cmake_args+=("${FEATURE_CMAKE_ARGS[@]}")
+    fi
 
     if [[ "$(uname -s)" == "Darwin" ]]; then
         cmake_args+=("-DPLATFORM=mac")
@@ -159,6 +302,28 @@ run_unit_tests()
     fi
 }
 
+run_feature_unit_tests()
+{
+    local test_name
+
+    if [[ -z "${FEATURE_NAME}" || "${#FEATURE_UNIT_TESTS[@]}" -eq 0 ]]; then
+        return
+    fi
+
+    if [[ -n "${TEST_NAME}" ]]; then
+        log_line "skipping manifest feature unit tests because XQC_TEST_NAME is set"
+        return
+    fi
+
+    ensure_test_certificate
+    for test_name in "${FEATURE_UNIT_TESTS[@]}"; do
+        (
+            cd "${BUILD_DIR}"
+            run_command "${BUILD_DIR}/tests/run_tests" "${test_name}"
+        )
+    done
+}
+
 run_integration_tests()
 {
     (
@@ -175,6 +340,7 @@ if [[ "${VALIDATION_LEVEL}" == "test"
     || "${VALIDATION_LEVEL}" == "full" ]]
 then
     run_unit_tests
+    run_feature_unit_tests
 fi
 
 if [[ "${VALIDATION_LEVEL}" == "full" ]]; then

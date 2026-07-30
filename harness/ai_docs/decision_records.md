@@ -70,5 +70,35 @@ Evidence:
 - `AGENTS.md`
 - `harness/ai_docs/README.md`
 - `harness/spec/doc-style.md`
+- `harness/spec/run-artifacts.md`
 - `harness/spec/harness-manifest.yml`
 - `scripts/xqc_harness_check.sh`
+
+## ADR-H003: Keep Runtime Evidence Outside Durable Docs
+
+Status: Accepted
+
+Date: 2026-07-30
+
+Context:
+- Long tasks and failed validation often need command logs, detection output,
+  hypotheses, and final evidence that should not be committed as docs.
+- Previous ad hoc locations made it hard for another agent to resume from the
+  same evidence chain.
+
+Decision:
+- Use ignored `build/harness/runs/<task-id>/` as the task-local run evidence
+  directory.
+- Initialize the directory with `scripts/harness_trace.sh init <task-id>`.
+- Keep OpenSpec proposal, design, tasks, and requirement deltas in
+  `openspec/`, and link to them from the run evidence when applicable.
+
+Consequences:
+- Durable docs stay concise.
+- Validation logs and failed-test analysis have a predictable place.
+- Agents can resume a task by reading the same evidence files.
+
+Evidence:
+- `harness/spec/run-artifacts.md`
+- `scripts/harness_trace.sh`
+- `harness/spec/openspec.md`

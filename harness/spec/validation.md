@@ -22,6 +22,17 @@ Build and unit-test validation default to `build/validation/`. The full
 command uses the root `build/` directory expected by the existing
 `scripts/case_test.sh`.
 
+For feature-gated code, select the feature by manifest key:
+
+```bash
+./scripts/validate.sh build --feature <feature>
+./scripts/validate.sh test --feature <feature>
+```
+
+The script reads feature flags and feature unit-test names from
+`harness/spec/harness-manifest.yml`. The default profile does not enable any
+optional feature-gated build flags.
+
 ## Required Coverage Contract
 
 Every production behavior change must include tests tied to the changed path.
@@ -74,6 +85,10 @@ pre-PR evidence for a production behavior change.
 Runs the Build level and then the CTest unit suite with failure output. This is
 the mandatory complete-unit-suite gate for every production code pull request.
 `XQC_TEST_NAME` must be unset for this gate.
+
+With `--feature <feature>`, the script applies only that feature's manifest
+flags, runs the complete unit suite, then reruns the feature unit tests listed
+in the manifest so the log contains explicit feature evidence.
 
 ### Full
 
@@ -178,6 +193,14 @@ Supported environment variables:
 - `XQC_TEST_NAME`: optional registered CUnit test name for focused feedback.
 - `XQC_VALIDATION_ARTIFACT_DIR`: validation evidence directory.
 
+Supported feature-profile options:
+
+- `--feature <feature>`: enable only the feature flags listed for that
+  manifest feature.
+- `--list-features`: print available manifest feature keys.
+- `--dry-run`: print the selected level, feature, feature CMake arguments,
+  and feature unit tests without configuring or building.
+
 The script does not install packages, clone dependencies, or modify external
 services. Dependency provisioning remains an explicit environment setup step.
 
@@ -186,6 +209,9 @@ services. Dependency provisioning remains an explicit environment setup step.
 Each invocation writes ignored artifacts below
 `build/validation/artifacts/` by default. The conservative full command writes
 them below `build/artifacts/` because it selects `XQC_BUILD_DIR=build`.
+For task-local command logs, failed-test hypotheses, and final evidence, use
+the [run artifact contract](run-artifacts.md) under
+`build/harness/runs/<task-id>/`.
 
 - `environment.txt`: commit, branch, platform, compiler, CMake version, and
   selected profile;

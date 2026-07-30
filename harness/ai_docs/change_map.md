@@ -8,17 +8,20 @@ Examples:
 - Add a reusable skill.
 - Change setup/link registration.
 - Change generic schema checks.
+- Change task-local evidence layout.
 
 Read:
 - `harness/README.md`
 - `harness/ai_docs/behavior_specs.md`
 - `harness/spec/doc-style.md` when adding or reshaping durable docs.
+- `harness/spec/run-artifacts.md` when evidence directories or logs change.
 - Affected `harness/skills/*/SKILL.md`, `harness/pipelines/*`, or scripts.
 
 Update:
 - `harness/README.md` if layout or entry points change.
 - `harness/spec/harness-manifest.yml` if routing changes.
 - `scripts/tests/setup_harness_test.sh` if registration output changes.
+- `scripts/xqc_harness_check.sh` if a new harness source must be enforced.
 
 Validate:
 - `bash scripts/xqc_harness_check.sh`

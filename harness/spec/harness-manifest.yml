@@ -10,6 +10,7 @@ entrypoints:
   project_instructions: harness/spec/PROJECT_INSTRUCTIONS.md
   code_change: harness/pipelines/dev-pipeline.md
   doc_style: harness/spec/doc-style.md
+  run_artifacts: harness/spec/run-artifacts.md
   validation: scripts/validate.sh
   harness_check: scripts/xqc_harness_check.sh
   openspec_long_tasks: harness/spec/openspec.md
@@ -28,6 +29,8 @@ global_docs:
     - harness/skills/validate/SKILL.md
   doc_style:
     - harness/spec/doc-style.md
+  run_artifacts:
+    - harness/spec/run-artifacts.md
   pull_requests:
     - harness/spec/pull-requests.md
     - harness/skills/xquic-pr-formatting/SKILL.md
@@ -131,7 +134,10 @@ modules:
             - harness/spec/harness-manifest.yml
         validation:
           level: targeted
-          unit: [fec_test, fec_scheme_test, galois_test]
+          unit:
+            - xqc_test_galois_calculation
+            - xqc_test_fec_scheme
+            - xqc_test_fec
           hints: [fec, repair]
 
   http3:
@@ -215,12 +221,15 @@ modules:
       - harness/ai_docs/*
       - harness/*
       - scripts/setup_harness.sh
+      - scripts/harness_trace.sh
+      - scripts/harness_manifest_check.rb
       - scripts/xqc_harness_check.sh
       - .github/workflows/*
     read:
       - harness/README.md
       - harness/ai_docs/README.md
       - harness/spec/doc-style.md
+      - harness/spec/run-artifacts.md
       - harness/spec/PROJECT_INSTRUCTIONS.md
       - harness/spec/harness-manifest.yml
     update_when:
@@ -228,6 +237,7 @@ modules:
         - harness/README.md
         - harness/ai_docs/README.md
         - harness/spec/doc-style.md
+        - harness/spec/run-artifacts.md
         - harness/spec/PROJECT_INSTRUCTIONS.md
         - harness/spec/harness-manifest.yml
     validation:
@@ -246,11 +256,15 @@ harness_layers:
       - harness/skills/*/SKILL.md
       - harness/spec/PROJECT_INSTRUCTIONS.md
       - harness/spec/doc-style.md
+      - harness/spec/run-artifacts.md
       - harness/spec/validation.md
   machine_mapping:
     purpose: "Single source for path, module, docs, tests, feature flags, and validation routing."
     files:
       - harness/spec/harness-manifest.yml
+    single_source_of_truth:
+      route_mapping: harness/spec/harness-manifest.yml
+      secondary_maps: explanation_only
   explanation:
     purpose: "Durable context and rationale that do not repeat workflows."
     files:
@@ -263,6 +277,7 @@ harness_layers:
     purpose: "Deterministic drift checks across entry points, docs, skills, scripts, and workflow wiring."
     files:
       - scripts/xqc_harness_check.sh
+      - scripts/harness_manifest_check.rb
       - .github/workflows/build.yml
   local_adapters:
     purpose: "Ignored tool-native discovery copies; never the source of truth."

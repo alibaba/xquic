@@ -50,6 +50,7 @@ remain in the root [`README.md`](../../README.md).
 | Code change, feature, refactor, or bug fix | [Development pipeline](../pipelines/dev-pipeline.md) |
 | Build, test, or validation | [Validation specification](validation.md) and [`validate` skill](../skills/validate/SKILL.md) |
 | Documentation or comment change | [Documentation style](doc-style.md) plus the closest owning spec |
+| Task evidence, command logs, failure trace | [Run artifact contract](run-artifacts.md) |
 | Verify an issue or protocol-defect claim | [`issue-check` skill](../skills/issue-check/SKILL.md) |
 | Prepare or submit a GitHub issue | [`issue-submit` skill](../skills/issue-submit/SKILL.md), gated by [`issue-check`](../skills/issue-check/SKILL.md) |
 | Pull request preparation or update | [Pull-request specification](pull-requests.md) and [`xquic-pr-formatting` skill](../skills/xquic-pr-formatting/SKILL.md) |
@@ -66,6 +67,10 @@ pull-request artifacts.
 
 Long tasks use the active agent runtime's native goal or background-task
 mechanism and keep OpenSpec artifacts current before implementation.
+
+Task-local evidence follows [run-artifacts.md](run-artifacts.md). Use
+`scripts/harness_trace.sh init <task-id>` when a task needs durable command
+logs, detection output, failed-test hypotheses, or final evidence.
 
 For every code task, the development pipeline is a mandatory preflight. Read
 it before planning, inspecting implementation paths, or editing source,
@@ -158,6 +163,7 @@ documentation in the same change when it affects future work.
 | Architecture and dependency boundaries | [architecture.md](architecture.md) |
 | Development workflow | [dev-pipeline.md](../pipelines/dev-pipeline.md) |
 | Harness registration | [setup_harness.sh](../../scripts/setup_harness.sh) |
+| Task run artifacts | [run-artifacts.md](run-artifacts.md) |
 | Build and test validation | [validation.md](validation.md) |
 | Pull-request evidence | [pull-requests.md](pull-requests.md) |
 | Contribution and code style | [CONTRIBUTING.md](../../CONTRIBUTING.md) |

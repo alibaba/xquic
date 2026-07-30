@@ -34,7 +34,17 @@ unrelated test or asserting only that the process exited is not sufficient.
    XQC_TEST_NAME=<test-name> ./scripts/validate.sh test
    ```
 
-4. Before creating or updating a code pull request, clear the focused-test
+4. For feature-gated paths, select the feature by manifest key:
+
+   ```bash
+   ./scripts/validate.sh test --feature <feature>
+   ```
+
+   The script reads feature flags and feature unit tests from
+   `harness/spec/harness-manifest.yml`. Do not add feature-specific script
+   branches when manifest data is sufficient.
+
+5. Before creating or updating a code pull request, clear the focused-test
    selector and run the complete unit suite:
 
    ```bash
@@ -42,7 +52,7 @@ unrelated test or asserting only that the process exited is not sufficient.
    ./scripts/validate.sh test
    ```
 
-5. Run both relevant client-to-server case-test blocks, including their setup,
+6. Run both relevant client-to-server case-test blocks, including their setup,
    cleanup, and assertions. Because `scripts/case_test.sh` has no generic
    name filter, use the following conservative command unless the exact
    standalone commands for both blocks are executed and recorded:
@@ -51,15 +61,15 @@ unrelated test or asserting only that the process exited is not sufficient.
    XQC_BUILD_DIR=build ./scripts/validate.sh full
    ```
 
-6. Require the complete unit suite and both relevant case tests to pass. Check
+7. Require the complete unit suite and both relevant case tests to pass. Check
    the case output for both expected `[       OK ]` names and for any
    `[     FAIL ]` or `>>>>>>>> pass:0` result; do not rely only on the script's
    exit code.
-7. Verify that `include/xquic/xqc_configure.h` and other generated artifacts
+8. Verify that `include/xquic/xqc_configure.h` and other generated artifacts
    did not enter the source diff.
-8. Report the changed scope, paired unit-test names, paired case-test names,
+9. Report the changed scope, paired unit-test names, paired case-test names,
    exact commands, and pass/fail results.
-9. Put those current-head results in the repository
+10. Put those current-head results in the repository
    [pull-request template](../../../.github/pull_request_template.md).
    Missing, stale, focused-only, or failed local evidence does not pass the
    PR gate.
@@ -72,6 +82,8 @@ applicable.
 ## Guardrails
 
 - Do not add issue-specific validation modes, targets, paths, or flags.
+- Do not hard-code one feature's validation path in `scripts/validate.sh`;
+  add or update manifest feature data instead.
 - Do not install packages, clone dependencies, or modify external services.
 - Do not edit production code while acting only on a validation request.
 - Stop after a failed build; diagnose it before running tests.
@@ -84,5 +96,8 @@ applicable.
 - Do not treat an environment blocker as a passing gate; keep the pull request
   in draft or resolve the blocker before review.
 - Keep raw logs under the ignored validation artifact directory.
+- For task-local diagnosis and final evidence, use
+  `scripts/harness_trace.sh init <task-id>` and the run artifact contract in
+  `harness/spec/run-artifacts.md`.
 - Treat the optional pre-push hook as an early check only. The pull request
   must still contain the required named local evidence.

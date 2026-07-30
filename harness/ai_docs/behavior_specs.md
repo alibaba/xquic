@@ -25,10 +25,14 @@ These invariants keep the harness useful to agents and safe for public review.
 
 - Root docs point to durable sources instead of duplicating their tables.
 - Mapping data belongs in `harness/spec/harness-manifest.yml`.
+- AI docs and skills may point to the manifest but must not maintain a second
+  path-to-module or path-to-validation map.
 - Explanatory docs may describe how to use mapping data but should not
   maintain competing maps.
 - Durable comments and documentation follow `harness/spec/doc-style.md`.
 - Private extension points may be documented as optional, not mandatory.
+- Task-local logs, detection output, failure hypotheses, and final evidence
+  stay under ignored `build/harness/runs/<task-id>/`.
 
 ## Loading Behavior
 

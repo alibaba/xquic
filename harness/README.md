@@ -21,6 +21,7 @@ harness/
 - [AI docs index](ai_docs/README.md)
 - [Development pipeline](pipelines/dev-pipeline.md)
 - [Documentation style](spec/doc-style.md)
+- [Run artifact contract](spec/run-artifacts.md)
 - [Validation skill](skills/validate/SKILL.md)
 - [Issue verification skill](skills/issue-check/SKILL.md)
 - [Issue submission skill](skills/issue-submit/SKILL.md)
@@ -31,6 +32,13 @@ harness/
 - [GitHub PR review skill](skills/gh-pr-review/SKILL.md)
 - [GitHub review comment skill](skills/gh-address-comments/SKILL.md)
 - [OpenSpec integration guide](spec/openspec.md)
+
+## External References
+
+- [OpenSpec](https://openspec.dev/): open-source spec-driven development
+  framework for AI coding assistants.
+- [Fission-AI/OpenSpec](https://github.com/Fission-AI/OpenSpec): upstream
+  project source and CLI installation reference.
 
 ## Setup
 
@@ -78,6 +86,9 @@ results in the pull request.
   in `harness/`.
 - Task-scoped issue-check reports belong under the ignored
   `build/harness/<task-id>/` directory and must not be committed.
+- Task-local run evidence belongs under ignored
+  `build/harness/runs/<task-id>/`; initialize it with
+  `scripts/harness_trace.sh init <task-id>`.
 - Tool-native local adapters such as `.claude/` are allowed locally but
   must not become committed sources of truth. Migrate durable skill content to
   `harness/skills/`.

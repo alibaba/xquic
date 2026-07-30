@@ -35,7 +35,7 @@ require_grep()
     local path="$2"
     local label="$3"
 
-    if grep -Eq "${pattern}" "${ROOT_DIR}/${path}"; then
+    if grep -Eq -- "${pattern}" "${ROOT_DIR}/${path}"; then
         pass "${label}"
     else
         fail "${label}"
@@ -64,124 +64,7 @@ require_manifest_schema()
 {
     local output
 
-    if output="$(ruby - "${ROOT_DIR}" <<'RUBY'
-require "yaml"
-
-root = ARGV.fetch(0)
-manifest_path = File.join(root, "harness/spec/harness-manifest.yml")
-errors = []
-
-data = YAML.load_file(manifest_path)
-
-def require_hash(value, path, errors)
-  errors << "#{path} must be a map" unless value.is_a?(Hash)
-end
-
-def require_nonempty_array(value, path, errors)
-  unless value.is_a?(Array) && value.any?
-    errors << "#{path} must be a non-empty list"
-  end
-end
-
-def validate_validation(value, path, errors)
-  require_hash(value, path, errors)
-  return unless value.is_a?(Hash)
-
-  unless value.key?("level") || value.key?("command")
-    errors << "#{path} must define level or command"
-  end
-
-  if value.key?("hints") && !value["hints"].is_a?(Array)
-    errors << "#{path}.hints must be a list"
-  end
-
-  if value.key?("unit") && !value["unit"].is_a?(Array)
-    errors << "#{path}.unit must be a list"
-  end
-end
-
-def validate_route(name, route, path, errors, allow_missing_paths: false)
-  if name.to_s.include?(":")
-    errors << "#{path} uses ':' in key; use nested submodules/features instead"
-  end
-
-  require_hash(route, path, errors)
-  return unless route.is_a?(Hash)
-
-  require_nonempty_array(route["paths"], "#{path}.paths", errors) unless allow_missing_paths
-  validate_validation(route["validation"], "#{path}.validation", errors) if route.key?("validation")
-
-  if route.key?("read") && !route["read"].is_a?(Array)
-    errors << "#{path}.read must be a list"
-  end
-
-  if route.key?("feature_flags")
-    require_nonempty_array(route["feature_flags"], "#{path}.feature_flags", errors)
-  end
-
-  {"submodules" => false, "features" => false}.each_key do |collection|
-    next unless route.key?(collection)
-
-    children = route[collection]
-    require_hash(children, "#{path}.#{collection}", errors)
-    next unless children.is_a?(Hash)
-
-    children.each do |child_name, child_route|
-      validate_route(child_name, child_route, "#{path}.#{collection}.#{child_name}", errors)
-    end
-  end
-end
-
-require_hash(data, "manifest", errors)
-
-if data.is_a?(Hash)
-  require_hash(data["entrypoints"], "entrypoints", errors)
-  require_hash(data["modules"], "modules", errors)
-  require_hash(data["harness_layers"], "harness_layers", errors)
-
-  if data["harness_layers"].is_a?(Hash)
-    required_layers = %w[
-      strong_injection
-      on_demand_reading
-      machine_mapping
-      explanation
-      self_check
-    ]
-    missing = required_layers - data["harness_layers"].keys
-    errors << "harness_layers missing #{missing.join(', ')}" unless missing.empty?
-
-    data["harness_layers"].each do |layer_name, layer|
-      require_hash(layer, "harness_layers.#{layer_name}", errors)
-      next unless layer.is_a?(Hash)
-
-      if !layer.key?("files") && !layer.key?("examples")
-        errors << "harness_layers.#{layer_name} must define files or examples"
-      end
-    end
-  end
-
-  if data["modules"].is_a?(Hash) && data["modules"].any?
-    data["modules"].each do |module_name, module_route|
-      validate_route(module_name, module_route, "modules.#{module_name}", errors)
-    end
-  else
-    errors << "modules must contain at least one module"
-  end
-
-  if data.key?("features")
-    errors << "top-level features are not allowed; nest features under their owning module"
-  end
-end
-
-if errors.empty?
-  puts "manifest schema ok"
-  exit 0
-end
-
-errors.each { |error| warn error }
-exit 1
-RUBY
-    )"; then
+    if output="$(ruby "${ROOT_DIR}/scripts/harness_manifest_check.rb" "${ROOT_DIR}")"; then
         pass "${output}"
     else
         echo "${output}" >&2
@@ -283,9 +166,12 @@ require_file "harness/ai_docs/behavior_specs.md"
 require_file "harness/ai_docs/decision_records.md"
 require_file "harness/spec/PROJECT_INSTRUCTIONS.md"
 require_file "harness/spec/doc-style.md"
+require_file "harness/spec/run-artifacts.md"
 require_file "harness/spec/harness-manifest.yml"
 require_file "harness/spec/openspec.md"
 require_file "harness/skills/validate/SKILL.md"
+require_file "scripts/harness_trace.sh"
+require_file "scripts/harness_manifest_check.rb"
 require_file "scripts/validate.sh"
 
 require_line_count "AGENTS.md" 60 100 \
@@ -302,6 +188,15 @@ require_grep "harness/spec/doc-style.md" \
 require_grep "OpenSpec" \
     "AGENTS.md" \
     "AGENTS documents OpenSpec long-task routing"
+require_grep "harness/spec/harness-manifest.yml" \
+    "scripts/validate.sh" \
+    "validate script reads feature profiles from the manifest"
+require_grep "--feature" \
+    "scripts/validate.sh" \
+    "validate script exposes a generic feature profile option"
+require_grep "build/harness/runs/<task-id>" \
+    "harness/spec/run-artifacts.md" \
+    "run artifact contract defines canonical task evidence directory"
 require_manifest_schema
 require_grep "scripts/xqc_harness_check.sh" \
     ".github/workflows/build.yml" \

@@ -140,6 +140,11 @@ main(int argc, char *argv[])
                         "xqc_test_conn_close_transport_error_type_overlap",
                         xqc_test_conn_close_transport_error_type_overlap)
         || !CU_add_test(pSuite, "xqc_test_h3_frame", xqc_test_frame)
+        || !CU_add_test(pSuite, "xqc_test_h3_single_vint_frame_valid",
+                        xqc_test_h3_single_vint_frame_valid)
+        || !CU_add_test(pSuite,
+                        "xqc_test_h3_single_vint_frame_length_error",
+                        xqc_test_h3_single_vint_frame_length_error)
         || !CU_add_test(pSuite, "xqc_test_tls", xqc_test_tls)
         || !CU_add_test(pSuite, "xqc_test_h3_stream", xqc_test_stream)
         || !CU_add_test(pSuite, "xqc_test_h3_critical_stream_close", xqc_test_h3_critical_stream_close)

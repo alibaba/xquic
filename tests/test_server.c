@@ -57,6 +57,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME 1002
 #define XQC_TEST_CASE_H3_CLIENT_PUSH_PROMISE 1003
 #define XQC_TEST_CASE_H3_MAX_PUSH_ID_WRONG_ROLE 1004
+#define XQC_TEST_CASE_H3_SINGLE_VINT_VALID 1007
+#define XQC_TEST_CASE_H3_SINGLE_VINT_OVERLONG 1008
 
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
@@ -975,6 +977,13 @@ xqc_server_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, vo
     } else if (g_test_case == XQC_TEST_CASE_H3_CLIENT_PUSH_PROMISE) {
         printf("[h3-request-frame-test]|push-promise|conn_err:%d|\n",
                stats.conn_err);
+        fflush(stdout);
+
+    } else if (g_test_case == XQC_TEST_CASE_H3_SINGLE_VINT_VALID
+               || g_test_case == XQC_TEST_CASE_H3_SINGLE_VINT_OVERLONG)
+    {
+        printf("[h3-frame-length-test]|case:%d|conn_err:%d|\n",
+               g_test_case, stats.conn_err);
         fflush(stdout);
     }
 

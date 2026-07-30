@@ -6,6 +6,8 @@
 #define XQUIC_XQC_H3_TEST_H
 
 void xqc_test_frame();
+void xqc_test_h3_single_vint_frame_valid();
+void xqc_test_h3_single_vint_frame_length_error();
 void xqc_test_stream();
 void xqc_test_ins();
 void xqc_test_rep();

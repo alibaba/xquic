@@ -25,6 +25,36 @@
         sz -= nread;                                   \
     } while(0)
 
+static ssize_t xqc_h3_frm_parse_single_vint_payload(
+    const unsigned char *p, size_t sz, xqc_discrete_int_pctx_t *vint,
+    xqc_h3_frame_t *frame, xqc_bool_t *fin);
+
+
+static ssize_t
+xqc_h3_frm_parse_single_vint_payload(const unsigned char *p, size_t sz,
+    xqc_discrete_int_pctx_t *vint, xqc_h3_frame_t *frame, xqc_bool_t *fin)
+{
+    ssize_t nread = xqc_discrete_vint_parse(p, sz, vint, fin);
+    if (nread < 0) {
+        return -XQC_H3_DECODE_ERROR;
+    }
+
+    /*
+     * RFC 9114 Section 7.1 requires the payload to contain exactly its
+     * identified fields. Track encoded bytes because RFC 9000 Section 16
+     * permits a varint to use more than its minimum encoding length.
+     */
+    frame->consumed_len += nread;
+    if (frame->consumed_len > frame->len
+        || (*fin && frame->consumed_len != frame->len))
+    {
+        return -XQC_H3_DECODE_ERROR;
+    }
+
+    return nread;
+}
+
+
 void
 xqc_h3_frm_reset_pctx(xqc_h3_frame_pctx_t *pctx)
 {
@@ -59,11 +89,9 @@ xqc_h3_frm_reset_pctx(xqc_h3_frame_pctx_t *pctx)
 ssize_t
 xqc_h3_frm_parse_cancel_push(const unsigned char *p, size_t sz, xqc_h3_frame_t *frame, xqc_bool_t *fin)
 {
-    const unsigned char *pos = p;
-    *fin = XQC_FALSE;
     xqc_h3_frame_cancel_push_t *cancel_push = &frame->frame_payload.cancel_push;
-    XQC_H3_DECODE_DISCRETE_VINT_VALUE(pos, sz, cancel_push->push_id, fin);
-    return pos -p;
+    return xqc_h3_frm_parse_single_vint_payload(p, sz,
+        &cancel_push->push_id, frame, fin);
 }
 
 ssize_t
@@ -144,21 +172,17 @@ xqc_h3_frm_parse_push_promise(const unsigned char *p, size_t sz, xqc_h3_frame_t 
 ssize_t
 xqc_h3_frm_parse_goaway(const unsigned char *p, size_t sz, xqc_h3_frame_t *frame, xqc_bool_t *fin)
 {
-    const unsigned char *pos = p;
-    *fin = XQC_FALSE;
     xqc_h3_frame_goaway_t *goaway = &frame->frame_payload.goaway;
-    XQC_H3_DECODE_DISCRETE_VINT_VALUE(pos, sz, goaway->stream_id, fin);
-    return pos -p;
+    return xqc_h3_frm_parse_single_vint_payload(p, sz,
+        &goaway->stream_id, frame, fin);
 }
 
 ssize_t
 xqc_h3_frm_parse_max_push_id(const unsigned char *p, size_t sz, xqc_h3_frame_t *frame, xqc_bool_t *fin)
 {
-    const unsigned char *pos = p;
-    *fin = XQC_FALSE;
     xqc_h3_frame_max_push_id_t *max_push_id = &frame->frame_payload.max_push_id;
-    XQC_H3_DECODE_DISCRETE_VINT_VALUE(pos, sz, max_push_id->push_id, fin);
-    return pos - p;
+    return xqc_h3_frm_parse_single_vint_payload(p, sz,
+        &max_push_id->push_id, frame, fin);
 }
 
 ssize_t

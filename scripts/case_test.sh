@@ -5458,4 +5458,54 @@ fi
 
 killall test_server 2> /dev/null
 
+
+## RFC 9114 Section 7.1 single-varint frame payload lengths
+
+clear_log
+rm -f test_session xqc_token tp_localhost h3_frame_length_server.log
+${SERVER_BIN} -l d -e -x 1007 > h3_frame_length_server.log &
+sleep 1
+echo -e "HTTP/3 non-minimal MAX_PUSH_ID length is accepted ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1007 > stdlog
+sent=`grep "\\[h3-frame-length-test\\]|declared:2|actual:2|write:0|send:0|" \
+    stdlog`
+received=`grep "|H3_MAX_PUSH_ID|max_push_id:1|" slog`
+server_ok=`grep "\\[h3-frame-length-test\\]|case:1007|conn_err:0|" \
+    h3_frame_length_server.log`
+result=`grep ">>>>>>>> pass:1" stdlog`
+if [ -n "$sent" ] && [ -n "$received" ] && [ -n "$server_ok" ] \
+    && [ -n "$result" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_non_minimal_max_push_id_accepted" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_non_minimal_max_push_id_accepted" "fail"
+fi
+
+killall test_server 2> /dev/null
+clear_log
+rm -f test_session xqc_token tp_localhost h3_frame_length_server.log
+${SERVER_BIN} -l d -e -x 1008 > h3_frame_length_server.log &
+sleep 1
+echo -e "HTTP/3 overlong MAX_PUSH_ID gets H3_FRAME_ERROR ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1008 > stdlog
+sent=`grep "\\[h3-frame-length-test\\]|declared:5|actual:2|write:0|send:0|" \
+    stdlog`
+server_err=`grep "\\[h3-frame-length-test\\]|case:1008|conn_err:262|" \
+    h3_frame_length_server.log`
+wire_err=`grep "err:0x106" slog`
+client_err=`grep -E "(conn errno:262|conn_err:262)" stdlog`
+applied=`grep "|H3_MAX_PUSH_ID|max_push_id:1|" slog`
+if [ -n "$sent" ] && [ -n "$server_err" ] && [ -n "$wire_err" ] \
+    && [ -n "$client_err" ] && [ -z "$applied" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_overlong_max_push_id_rejected" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_overlong_max_push_id_rejected" "fail"
+fi
+
+killall test_server 2> /dev/null
+rm -f h3_frame_length_server.log
+
 cd -

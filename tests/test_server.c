@@ -59,6 +59,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_MAX_PUSH_ID_WRONG_ROLE 1004
 #define XQC_TEST_CASE_H3_SINGLE_VINT_VALID 1007
 #define XQC_TEST_CASE_H3_SINGLE_VINT_OVERLONG 1008
+#define XQC_TEST_CASE_H3_FIELD_SECTION_VALID 1011
+#define XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT 1012
 
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
@@ -985,6 +987,14 @@ xqc_server_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, vo
         printf("[h3-frame-length-test]|case:%d|conn_err:%d|\n",
                g_test_case, stats.conn_err);
         fflush(stdout);
+
+    } else if (g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_VALID
+               || g_test_case
+                  == XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT)
+    {
+        printf("[h3-field-section-test]|server_conn_close|case:%d|"
+               "conn_err:%d|\n", g_test_case, stats.conn_err);
+        fflush(stdout);
     }
 
     printf("[h3-dgram]|recv_dgram_bytes:%zu|sent_dgram_bytes:%zu|lost_dgram_bytes:%zu|lost_cnt:%zu|\n", 
@@ -1030,6 +1040,13 @@ xqc_server_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *conn_user_da
     printf("0rtt_flag:%d\n", stats.early_data_flag);
     printf("h3_datagram_mss:%zd\n", xqc_h3_ext_datagram_get_mss(h3_conn));
 
+    if (g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_VALID
+        || g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT)
+    {
+        printf("[h3-field-section-test]|server_limit:%"PRIu64"|\n",
+               h3_conn->local_h3_conn_settings.max_field_section_size);
+        fflush(stdout);
+    }
 
     if (g_test_case == 48) {
         printf("[initial-salt-test] server handshake ok, conn_err:%d\n",
@@ -1428,6 +1445,17 @@ xqc_server_request_close_notify(xqc_h3_request_t *h3_request, void *user_data)
     DEBUG;
     user_stream_t *user_stream = (user_stream_t*)user_data;
 
+    if (g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_VALID
+        || g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT)
+    {
+        xqc_request_stats_t stats =
+            xqc_h3_request_get_stats(h3_request);
+        printf("[h3-field-section-test]|server_stream_close|"
+               "stream_id:%"PRIu64"|stream_err:%d|\n",
+               xqc_h3_stream_id(h3_request), stats.stream_err);
+        fflush(stdout);
+    }
+
     if (g_test_case == 100) {
         if (user_stream->ev_timeout) {
             event_free(user_stream->ev_timeout);
@@ -1489,6 +1517,15 @@ xqc_server_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
         }
 
         user_stream->header_recvd++;
+
+        if (g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_VALID
+            || g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT)
+        {
+            printf("[h3-field-section-test]|request_received|"
+                   "stream_id:%"PRIu64"|\n",
+                   xqc_h3_stream_id(h3_request));
+            fflush(stdout);
+        }
 
         if (fin) {
             /* only header. request received, start processing business logic. */
@@ -2889,6 +2926,12 @@ int main(int argc, char *argv[]) {
 
     if (g_test_case == 10) {
         xqc_h3_engine_set_max_field_section_size(ctx.engine, 10000000);
+    }
+
+    if (g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_VALID
+        || g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT)
+    {
+        xqc_h3_engine_set_max_field_section_size(ctx.engine, 512);
     }
 
     /* for lb cid generate */

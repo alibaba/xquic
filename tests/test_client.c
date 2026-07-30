@@ -75,6 +75,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_MAX_PUSH_ID_DECREASE 1006
 #define XQC_TEST_CASE_H3_SINGLE_VINT_VALID 1007
 #define XQC_TEST_CASE_H3_SINGLE_VINT_OVERLONG 1008
+#define XQC_TEST_CASE_H3_FIELD_SECTION_VALID 1011
+#define XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT 1012
 
 typedef struct user_conn_s user_conn_t;
 
@@ -131,6 +133,7 @@ typedef struct user_stream_s {
     int                      abnormal_count;
     int                      body_read_notify_cnt;
     int                      h3_test_frame_queued;
+    int                      h3_test_request_index;
     xqc_usec_t               last_recv_log_time;
     uint64_t                 recv_log_bytes;
 
@@ -1885,6 +1888,14 @@ xqc_client_h3_conn_close_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void 
     printf("send_count:%u, lost_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" early_data_flag:%d, conn_err:%d, mp_state:%d, ack_info:%s, alpn:%s, conn_info:%s\n",
            stats.send_count, stats.lost_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.mp_state, stats.ack_info, stats.alpn, stats.conn_info);
 
+    if (g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_VALID
+        || g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT)
+    {
+        printf("[h3-field-section-test]|client_conn_close|case:%d|"
+               "conn_err:%d|\n", g_test_case, stats.conn_err);
+        fflush(stdout);
+    }
+
     if (!g_test_qch_mode) {
         printf("[h3-dgram]|recv_dgram_bytes:%zu|sent_dgram_bytes:%zu|lost_dgram_bytes:%zu|lost_cnt:%zu|\n", 
                user_conn->dgram_blk->data_recv, user_conn->dgram_blk->data_sent,
@@ -2664,6 +2675,20 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
         },
     };
 
+    if (g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT
+        && user_stream->h3_test_request_index == 1)
+    {
+        memset(test_long_value, 'a', 1024);
+        header[header_size].name.iov_base = "x-test-large";
+        header[header_size].name.iov_len = 12;
+        header[header_size].value.iov_base = test_long_value;
+        header[header_size].value.iov_len = 1024;
+        header[header_size].flags = 0;
+        header_size++;
+        printf("[h3-field-section-test]|oversized_request_sent|"
+               "stream_id:%"PRIu64"|\n", xqc_h3_stream_id(h3_request));
+    }
+
     if (g_test_case == 47) {
         header[header_size].name.iov_base = "test_null_hdr";
         header[header_size].name.iov_len = 13;
@@ -3237,9 +3262,13 @@ xqc_client_request_close_notify(xqc_h3_request_t *h3_request, void *user_data)
            stats.mp_standby_path_send_weight, stats.mp_standby_path_recv_weight,
            stats.stream_info);
 
-    printf("retx:%u, sent:%u, max_pto:%u\n", stats.retrans_cnt, stats.sent_pkt_cnt, stats.max_pto_backoff);
+    printf("retx:%u, sent:%u, max_pto:%u\n", stats.retrans_cnt,
+           stats.sent_pkt_cnt, stats.max_pto_backoff);
 
-    if (g_echo_check) {
+    if (g_echo_check
+        && !(g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT
+             && stats.stream_err == H3_MESSAGE_ERROR))
+    {
         int pass = 0;
         if (user_stream->recv_fin && user_stream->send_body_len == user_stream->recv_body_len
             && memcmp(user_stream->send_body, user_stream->recv_body, user_stream->send_body_len) == 0)
@@ -3284,6 +3313,12 @@ xqc_client_request_closing_notify(xqc_h3_request_t *h3_request,
     user_stream_t *user_stream = (user_stream_t *)h3s_user_data;
 
     printf("***** request closing notify triggered\n");
+    if (g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT) {
+        printf("[h3-field-section-test]|client_stream_closing|"
+               "stream_id:%"PRIu64"|err:%d|\n",
+               xqc_h3_stream_id(h3_request), err);
+        fflush(stdout);
+    }
 }
 
 void
@@ -5483,6 +5518,7 @@ int main(int argc, char *argv[]) {
                 g_req_cnt++;
                 user_stream_t *user_stream = calloc(1, sizeof(user_stream_t));
                 user_stream->user_conn = user_conn;
+                user_stream->h3_test_request_index = g_req_cnt;
                 user_stream->last_recv_log_time = xqc_now();
                 user_stream->recv_log_bytes = 0;
                 if (user_conn->h3 == 0 || user_conn->h3 == 2) {

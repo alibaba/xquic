@@ -1286,11 +1286,10 @@ echo "$result"
 clear_log
 echo -e "test client long header ...\c"
 ${CLIENT_BIN} -l d -x 29 >> clog
-#clog_res=`grep "xqc_process_conn_close_frame|with err:" clog`
-#slog_res=`grep "READ_VALUE error" slog`
 slog_res=`grep -a "large nv|conn" slog`
-clog_res=`grep -a "xqc_process_conn_close_frame|with err:" clog`
-if [ -n "$clog_res" ] && [ -n "$slog_res" ]; then
+stream_reset=`grep -a "xqc_parse_reset_stream_frame|" clog \
+    | grep "err_code:270"`
+if [ -n "$stream_reset" ] && [ -n "$slog_res" ]; then
     case_print_result "test_client_long_header" "pass"
 else
     case_print_result "test_client_long_header" "fail"
@@ -5510,5 +5509,66 @@ fi
 
 killall test_server 2> /dev/null
 rm -f h3_frame_length_server.log
+
+
+## RFC 9114 Sections 4.1.2 and 10.5.1 field-section limits
+
+clear_log
+rm -f test_session xqc_token tp_localhost h3_field_section_server.log
+${SERVER_BIN} -l d -e -x 1011 > h3_field_section_server.log &
+sleep 1
+echo -e "HTTP/3 fields within limit keep all request streams usable ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -P 2 -n 2 -x 1011 > stdlog
+server_limit=`grep "\\[h3-field-section-test\\]|server_limit:512|" \
+    h3_field_section_server.log`
+received_count=`grep -c "\\[h3-field-section-test\\]|request_received|" \
+    h3_field_section_server.log`
+success_count=`grep -c ">>>>>>>> pass:1" stdlog`
+server_ok=`grep "\\[h3-field-section-test\\]|server_conn_close|case:1011|"\
+"conn_err:0|" h3_field_section_server.log`
+client_ok=`grep "\\[h3-field-section-test\\]|client_conn_close|case:1011|"\
+"conn_err:0|" stdlog`
+if [ -n "$server_limit" ] && [ "$received_count" -eq 2 ] \
+    && [ "$success_count" -eq 2 ] && [ -n "$server_ok" ] \
+    && [ -n "$client_ok" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_field_section_within_limit_succeeds" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_field_section_within_limit_succeeds" "fail"
+fi
+
+killall test_server 2> /dev/null
+clear_log
+rm -f test_session xqc_token tp_localhost h3_field_section_server.log
+${SERVER_BIN} -l d -e -x 1012 > h3_field_section_server.log &
+sleep 1
+echo -e "HTTP/3 oversized fields reset one stream only ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -P 2 -n 2 -x 1012 > stdlog
+oversized=`grep "\\[h3-field-section-test\\]|oversized_request_sent|" stdlog`
+stream_reset=`grep "\\[h3-field-section-test\\]|server_stream_close|"\
+".*|stream_err:270|" h3_field_section_server.log`
+peer_error=`grep "\\[h3-field-section-test\\]|client_stream_closing|"\
+".*|err:270|" stdlog`
+received_count=`grep -c "\\[h3-field-section-test\\]|request_received|" \
+    h3_field_section_server.log`
+success_count=`grep -c ">>>>>>>> pass:1" stdlog`
+server_ok=`grep "\\[h3-field-section-test\\]|server_conn_close|case:1012|"\
+"conn_err:0|" h3_field_section_server.log`
+client_ok=`grep "\\[h3-field-section-test\\]|client_conn_close|case:1012|"\
+"conn_err:0|" stdlog`
+if [ -n "$oversized" ] && [ -n "$stream_reset" ] \
+    && [ -n "$peer_error" ] && [ "$received_count" -eq 1 ] \
+    && [ "$success_count" -eq 1 ] && [ -n "$server_ok" ] \
+    && [ -n "$client_ok" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_field_section_over_limit_is_stream_error" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_field_section_over_limit_is_stream_error" "fail"
+fi
+
+killall test_server 2> /dev/null
+rm -f h3_field_section_server.log
 
 cd -

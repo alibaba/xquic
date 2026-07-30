@@ -53,6 +53,7 @@ remain in the root [`README.md`](../../README.md).
 | Task evidence, command logs, failure trace | [Run artifact contract](run-artifacts.md) |
 | Verify an issue or protocol-defect claim | [`issue-check` skill](../skills/issue-check/SKILL.md) |
 | Prepare or submit a GitHub issue | [`issue-submit` skill](../skills/issue-submit/SKILL.md), gated by [`issue-check`](../skills/issue-check/SKILL.md) |
+| Pre-review a code pull request | [`xquic-pr-pre-review` skill](../skills/xquic-pr-pre-review/SKILL.md), after draft PR publication and before ready-for-review state |
 | Pull request preparation or update | [Pull-request specification](pull-requests.md) and [`xquic-pr-formatting` skill](../skills/xquic-pr-formatting/SKILL.md) |
 | Query or analysis | Relevant source, tests, module docs, and [architecture map](architecture.md) |
 
@@ -143,7 +144,9 @@ A change is complete when:
   corresponding end-to-end behavior;
 - the complete local unit suite and both relevant case tests pass;
 - generated and temporary artifacts are absent from the diff;
-- durable documentation and relative links remain accurate; and
+- durable documentation and relative links remain accurate;
+- the task-scoped five-part pre-review report remains uncommitted and
+  passes; and
 - the pull request contains the evidence required by
   [pull-requests.md](pull-requests.md).
 
@@ -165,6 +168,7 @@ documentation in the same change when it affects future work.
 | Harness registration | [setup_harness.sh](../../scripts/setup_harness.sh) |
 | Task run artifacts | [run-artifacts.md](run-artifacts.md) |
 | Build and test validation | [validation.md](validation.md) |
+| Pull-request pre-review | [xquic-pr-pre-review](../skills/xquic-pr-pre-review/SKILL.md) |
 | Pull-request evidence | [pull-requests.md](pull-requests.md) |
 | Contribution and code style | [CONTRIBUTING.md](../../CONTRIBUTING.md) |
 | Supported features and setup | [README.md](../../README.md) |

@@ -587,11 +587,24 @@ xqc_h3_conn_on_uni_stream_created(xqc_h3_conn_t *h3c, uint64_t stype)
         break;
 
     case XQC_H3_STREAM_TYPE_PUSH:
-        /* xquic does not implement server push, reject with H3_ID_ERROR */
         xqc_log(h3c->log, XQC_LOG_ERROR,
-                "|h3 push stream not supported|type:%ui|", stype);
+                "|peer push stream rejected|type:%ui|", stype);
 
-        XQC_H3_CONN_ERR(h3c, H3_ID_ERROR, -XQC_H3_INVALID_STREAM);
+        /*
+         * RFC 9114 Section 6.2.2 requires H3_STREAM_CREATION_ERROR when a
+         * server receives a client-initiated push stream. Section 4.6
+         * requires a client that has not sent MAX_PUSH_ID to close the
+         * connection with H3_ID_ERROR upon receiving any push stream.
+         * XQUIC has no production path that sends MAX_PUSH_ID.
+         */
+        if (h3c->conn->conn_type == XQC_CONN_TYPE_SERVER) {
+            XQC_H3_CONN_ERR(h3c, H3_STREAM_CREATION_ERROR,
+                            -XQC_H3_INVALID_STREAM);
+
+        } else {
+            XQC_H3_CONN_ERR(h3c, H3_ID_ERROR, -XQC_H3_INVALID_STREAM);
+        }
+
         return -XQC_H3_INVALID_STREAM;
 
     case XQC_H3_STREAM_TYPE_REQUEST:
@@ -925,4 +938,3 @@ const xqc_conn_callbacks_t h3_conn_callbacks = {
     .conn_handshake_finished    = xqc_h3_conn_handshake_finished,
     .conn_ping_acked            = xqc_h3_conn_ping_acked_notify,
 };
-

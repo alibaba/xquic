@@ -4,42 +4,44 @@ Keep this file short: it is the strong injection layer, not the full harness.
 
 ## Bootstrap
 
-In a fresh checkout, make sure the active discovery directories contain the
-project skills and pipeline. The default local adapters are `.agents/skills/`
-and `.agents/pipelines/dev-pipeline.md`. If they are absent, run:
+In a fresh checkout, ensure active discovery has project skills and pipeline.
+Default adapters are `.agents/skills/` and
+`.agents/pipelines/dev-pipeline.md`; if absent, run:
 
 ```bash
 ./scripts/setup_harness.sh
 ```
 
-Run it once per checkout. The script is idempotent and refuses to overwrite
-existing paths. Do not install the optional pre-push hook without explicit
-opt-in.
+Run it once per checkout; it is idempotent and refuses to overwrite paths. Do
+not install the optional pre-push hook without explicit opt-in.
 
 ## Mandatory Preflight
 
-Before planning, inspecting implementation paths, or editing any code, test,
-build script, validation tool, or repository automation, read the
+Before planning, inspecting implementation paths, or editing code, tests,
+build scripts, validation tools, or automation, read the
 [development pipeline](harness/pipelines/dev-pipeline.md) in full. Do not
-begin implementation until requirement analysis, acceptance criteria, and the
-working-branch gate are satisfied.
+implement before requirement analysis, acceptance criteria, and working-branch
+gate are satisfied.
 
 ## Sources Of Truth
 
-- Read [`README.md`](README.md) for supported features and dependency setup.
-- Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before changing code or preparing
-  a pull request.
-- Read the [harness index](harness/README.md) for pipelines, specs, and skills.
-- Read the [AI docs index](harness/ai_docs/README.md) before changing harness
-  structure, routing, documentation layers, or injection rules.
-- Read the [harness manifest](harness/spec/harness-manifest.yml) for canonical
-  path, module, docs, feature-gate, and validation routing.
+- Read [`README.md`](README.md) for features and dependency setup.
+- Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before code or PR work.
+- Read the [harness index](harness/README.md) for specs, pipelines, and skills.
+- Read [AI docs](harness/ai_docs/README.md) before changing harness structure,
+  routing, documentation layers, or injection rules.
+- Read the [manifest](harness/spec/harness-manifest.yml) for canonical path,
+  module, docs, feature-gate, and validation routing.
 - Read the [project instructions](harness/spec/PROJECT_INSTRUCTIONS.md) for
   task routing and repository-wide constraints.
 - Read [`harness/spec/architecture.md`](harness/spec/architecture.md)
   before changing module boundaries.
-- Read [`harness/spec/doc-style.md`](harness/spec/doc-style.md) before adding
-  durable comments or documentation.
+- Read [`doc-style.md`](harness/spec/doc-style.md) before durable comments or docs.
+- Before submitting an issue, use [`issue-check`](harness/skills/issue-check/SKILL.md)
+  and then [`issue-submit`](harness/skills/issue-submit/SKILL.md).
+- After draft code PR submission, use [`xquic-pr-pre-review`](harness/skills/xquic-pr-pre-review/SKILL.md) before review.
+- Read the closest module documentation and protocol specification before
+  changing wire behavior.
 
 ## Long Tasks and OpenSpec
 
@@ -59,12 +61,11 @@ The repository-wide validation entry point is:
 XQC_BUILD_DIR=build ./scripts/validate.sh full
 ```
 
-These commands must remain independent of any feature, bug, issue number, or
-pull request. Use tests, not issue-specific build modes, to express a
-regression. Validation levels are in
-[`harness/spec/validation.md`](harness/spec/validation.md); validation tasks
-also use [`harness/skills/validate/SKILL.md`](harness/skills/validate/SKILL.md).
-Harness-only changes must run:
+These commands stay independent of features, bugs, issues, and PRs. Use tests,
+not issue-specific build modes, to express regressions. Validation levels are
+in [`harness/spec/validation.md`](harness/spec/validation.md); validation tasks
+also use [`validate`](harness/skills/validate/SKILL.md). Harness-only changes
+must run:
 
 ```bash
 bash scripts/xqc_harness_check.sh
@@ -90,7 +91,10 @@ bash scripts/xqc_harness_check.sh
 ## Done Evidence
 
 A code change is done when acceptance criteria are satisfied, paired unit and
-client-to-server tests cover happy and abnormal paths, required validation
-passes, durable docs are synchronized, and PR evidence follows
-[`harness/spec/pull-requests.md`](harness/spec/pull-requests.md). PR work also
-uses [`xquic-pr-formatting`](harness/skills/xquic-pr-formatting/SKILL.md).
+client-to-server tests cover happy and abnormal paths, validation passes,
+durable docs are synchronized, the five-part local pre-review report passes
+and remains uncommitted, and PR evidence follows
+[`harness/spec/pull-requests.md`](harness/spec/pull-requests.md). PR work uses
+[`xquic-pr-formatting`](harness/skills/xquic-pr-formatting/SKILL.md), then
+[`xquic-pr-pre-review`](harness/skills/xquic-pr-pre-review/SKILL.md), then
+returns to formatting before review.

@@ -7,18 +7,15 @@ request, follow the
 Start from the repository
 [pull-request template](../../.github/pull_request_template.md).
 
-Every pull request should let a reviewer answer four questions quickly:
-
-1. What behavior or project capability changes?
-2. Why is the change correct?
-3. How was it validated?
-4. What remains risky or unverified?
+Keep the pull request body short enough to scan. It contains only the changed
+mechanism, concise validation cases, and the aggregate contribution gate.
+Detailed commands, logs, test function names, and reservation snapshots remain
+in code, CI, or ignored local validation artifacts.
 
 ## CONTRIBUTING.md Compliance
 
 The repository [contribution guide](../../CONTRIBUTING.md) remains the
-authoritative contribution contract. Harness evidence extends it and does not
-replace it. Before review, confirm:
+authoritative contribution contract. Check every requirement before review:
 
 - the branch uses the documented pattern for its task type: `dev/` for a new
   feature, `fix/` for a bug fix, `perf/` for a performance optimization or
@@ -37,59 +34,77 @@ Documentation-only changes follow the same review process. They may use the
 documented runtime-test exemption, but must provide their applicable link,
 format, and command-syntax evidence.
 
-## Required Content
+Do not copy this internal checklist into the pull request. Publish only:
 
-- **Problem:** current behavior and user or protocol impact.
-- **Acceptance criteria:** observable conditions that define completion.
-- **Approach:** the smallest useful explanation of the implementation.
-- **Validation:** the complete local unit-suite command, exact relevant
-  case-test commands, and concise pass/fail results.
-- **Coverage map:** the happy-path and abnormal-path unit-test names plus the
-  matching happy-path and abnormal-path client-to-server case names.
-- **Evidence:** relevant tests and, when applicable, logs, traces, packet
-  captures, interoperability reports, or screenshots.
-- **Risk:** affected layers, compatibility concerns, and untested platforms or
-  configurations.
-- **Documentation impact:** durable guidance updated, or an explicit statement
-  that no project documentation changed.
-- **Issue link:** use the repository convention, for example `Fixes: #123`.
+- `Overall: Passed` when every item passes, otherwise `Pending` or
+  `Not passed`;
+- `Local regression: Complete` when the required local gate passes, otherwise
+  list only the failing case IDs and their concise behavior;
+- `CI: Complete` when all required checks pass, otherwise list only pending or
+  failed checks.
 
-## Protocol Changes
+## Mechanism
 
-For QUIC, HTTP/3, QPACK, or MoQ behavior, also include:
+Explain the behavioral or project mechanism being changed and why the new
+mechanism is correct. Avoid a file-by-file change inventory. For QUIC, HTTP/3,
+QPACK, or MoQ behavior, cite the exact RFC or draft section number beside the
+mechanism. For non-protocol work, state that no RFC applies.
 
-- the exact RFC or draft section;
-- whether the requirement is normative;
-- the wire-visible behavior before and after the change; and
-- the lowest-level regression test that proves the required behavior.
+When the pull request closes an issue, retain the exact standalone
+`Fixes: #<number>` line required by `CONTRIBUTING.md`.
 
-Use interoperability and packet-capture evidence when unit tests cannot prove
-the peer-visible outcome.
+## Validation Cases
 
-## Required Test Evidence
+The full validation gate remains mandatory. Its local record retains exact
+commands, the CUnit `Total/Ran/Passed/Failed` summary, unit-test names, case
+names, logs, and reservation snapshots. Do not copy those details into the
+pull request.
 
-Every production behavior change must identify:
+In the pull request, describe paired client-to-server coverage with one line
+per case:
 
-- a happy-path unit test;
-- an abnormal, rejection, boundary, or error-branch unit test;
-- a happy-path client-to-server case in `scripts/case_test.sh`; and
-- an abnormal-path client-to-server case in `scripts/case_test.sh`.
+```text
+<case ID> — <concise behavior proved by the case>
+```
 
-The pull request must show that `XQC_TEST_NAME` was unset when the complete
-local unit suite ran. It must also show that both relevant case tests passed.
-If the case pair cannot run independently, use
-`XQC_BUILD_DIR=build ./scripts/validate.sh full`. Evidence must come from the
-current pull request head and be refreshed after every code revision.
+Include the happy path and abnormal path. Do not include commands, unit-test
+function names, `case_print_result` names, logs, namespace ranges, tested
+commit SHA, or successful reservation-scan details. Those are discoverable in
+the change and its validation artifacts.
 
-The PR validation gate is not satisfied by a checkbox alone. The description
-must contain the exact complete-suite command and result, both unit-test
-names, both client-to-server case names and commands, and the tested commit
-SHA. Keep a production code pull request in draft when any field is missing,
-failed, stale, or replaced by focused-test output.
+If runtime cases do not apply, state the reason in one line. For a failed local
+gate, list only each failing case ID and its concise behavior under
+`Local regression`; use a short suite-level description when the failure has
+no client-to-server case ID.
 
-Documentation-only changes may replace runtime evidence with link, format, and
-command-syntax checks. Validation-tooling changes use the closest
-deterministic self-checks and explain why runtime coverage does not apply.
+## Case-ID Coordination
+
+New case IDs must still pass the allocation and open-PR reservation procedure
+in the [validation specification](validation.md#client-to-server-case-id-namespace).
+Keep its detailed snapshots out of a passing PR body. A conflict makes local
+regression incomplete and must be named concisely as a blocker.
+
+Publish new-case PRs and case-ID-changing updates in draft until the
+post-publication scan passes. If two open PRs claim the same ID, the lower PR
+number keeps it. The later PR must remain draft, reallocate, and rerun the
+complete validation gate.
+
+## Aggregate Gate
+
+Use exactly one aggregate `CONTRIBUTING.md` section. Mark local regression and
+CI `Complete` when they pass. If either has not run, is pending, or failed,
+state that status and list only the incomplete checks or concise failed cases.
+Mark `Overall: Passed` only when the complete internal contribution checklist,
+local regression, CI, and case-ID coordination all pass. Do not expand the
+internal checklist into additional PR fields.
+
+Submit a new code PR as draft after local validation. Then run the
+[`xquic-pr-pre-review` skill](../skills/xquic-pr-pre-review/SKILL.md) against
+the published PR's exact base and head. Require `pre_review_result: true` from
+all five sections before ready-for-review state, and keep
+`build/harness/pr-<number>/pre-review.md` uncommitted. The local report is a
+gate input; do not copy it into the concise PR body. A changed published head
+invalidates the report and must be reviewed again.
 
 ## Scope Rules
 
@@ -103,3 +118,7 @@ deterministic self-checks and explain why runtime coverage does not apply.
 - Keep a production code pull request in draft while paired coverage is
   missing, the complete local unit suite fails, or either relevant case test
   fails.
+- Keep the later-numbered pull request in draft while it duplicates a case ID
+  reserved by another open pull request.
+- Do not turn the PR body into a validation log; preserve detailed evidence in
+  its source artifact and publish the concise aggregate.

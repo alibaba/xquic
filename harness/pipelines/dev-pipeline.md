@@ -11,7 +11,7 @@ tests, build scripts, validation tooling, or repository automation.
 ```text
 Requirement analysis -> Acceptance criteria -> Working branch
                      -> Implementation -> Validation
-                     -> Review and PR evidence
+                     -> Draft PR -> Pre-review -> Ready for review
 ```
 
 ## Stage 1: Requirement Analysis
@@ -51,13 +51,20 @@ blocking evidence must be explicit.
 4. Identify an abnormal, rejection, boundary, or error-branch unit test.
 5. Identify matching happy-path and abnormal-path client-to-server cases in
    `scripts/case_test.sh`.
-6. Identify broader compatibility or interoperability evidence when the
+6. If either client-to-server case is new, select a distinct, never-used ID
+   for each case from the owning layer or module namespace in the
+   [validation specification](../spec/validation.md#client-to-server-case-id-namespace).
+   Refresh the base, search repository history, then inspect the published head
+   SHA of every open pull request targeting `main`; do not select an ID already
+   reserved in another PR's case selectors.
+7. Identify broader compatibility or interoperability evidence when the
    paired tests cannot establish the peer-visible result.
-7. Choose the expected validation level from the
+8. Choose the expected validation level from the
    [validation specification](../spec/validation.md).
 
 Exit when the criteria can distinguish the intended behavior from the
-pre-change behavior.
+pre-change behavior and every proposed case ID has a complete, conflict-free
+allocation snapshot.
 
 ## Stage 3: Working Branch
 
@@ -99,7 +106,8 @@ only the scoped task, and its name matches the task-type mapping above.
    issue claim, specification revision, or source path changed.
 2. Add or update paired happy-path and abnormal-path unit tests.
 3. Add or update paired happy-path and abnormal-path client-to-server case
-   tests.
+   tests. Give every new case its allocated ID and update the validation
+   namespace registry in the same change.
 4. Make the smallest production change that satisfies the criteria.
 5. Follow `CONTRIBUTING.md` and adjacent project conventions.
 6. Re-read the modified path and trace affected callers and callees.
@@ -121,11 +129,19 @@ unset XQC_TEST_NAME
 
 Use `XQC_BUILD_DIR=build ./scripts/validate.sh full` when the paired case-test
 blocks cannot be run independently. Record exact commands, paired test names,
-and results. Keep the pull request in draft after a missing or failed gate.
+and results in ignored local validation artifacts. Do not submit a new pull
+request or move an existing pull request to review after a missing or failed
+gate.
 
-Exit only when the complete unit suite and both relevant case tests pass.
+For every new case ID, repeat the open-PR reservation scan after the tests pass
+and immediately before Stage 6. Record the candidate IDs, query time, number of
+published PR heads inspected, current PR exclusion, and result. Fail closed if
+the open-PR query, fetch, or head-SHA verification is incomplete.
 
-## Stage 6: Review and PR Evidence
+Exit only when the complete unit suite and both relevant case tests pass and
+the final reservation snapshot is complete and conflict-free.
+
+## Stage 6: Draft PR, Pre-Review, and Review Submission
 
 1. Review staged and unstaged diffs separately and verify the final scope.
 2. Confirm generated headers, validation artifacts, and task-scoped
@@ -133,18 +149,46 @@ Exit only when the complete unit suite and both relevant case tests pass.
 3. Check that documentation links and referenced commands still resolve.
 4. Assemble the evidence required by the
    [pull-request specification](../spec/pull-requests.md).
-5. Use the
-   [`xquic-pr-formatting` skill](../skills/xquic-pr-formatting/SKILL.md)
-   when drafting or updating the pull request.
-6. Complete the repository
-   [pull-request template](../../.github/pull_request_template.md) with
-   current-head local validation results. For production behavior changes,
-   name the complete unit-suite command and the paired happy-path and
-   abnormal-path unit and client-to-server case tests.
+5. Complete the repository
+   [pull-request template](../../.github/pull_request_template.md) as a concise
+   review summary:
+   - explain the changed mechanism and cite the exact RFC or draft section
+     when protocol behavior changes;
+   - list each client-to-server case as only `<ID> — <concise behavior>`;
+   - report one aggregate `CONTRIBUTING.md` result; and
+   - mark local regression and CI `Complete`, or name only incomplete checks
+     and concise failing cases.
+   Do not copy commands, test function names, logs, namespace ranges, tested
+   SHA, or successful reservation snapshots into the PR body.
+6. After Stage 5 passes, invoke the
+   [`xquic-pr-formatting` skill](../skills/xquic-pr-formatting/SKILL.md) to
+   format and submit every new code pull request as draft, or update an
+   existing pull request after a follow-up revision and keep it in draft,
+   through the available GitHub client.
+7. Fetch the published pull request and verify its number, URL, base commit,
+   head commit, title, body, and draft state. Run the
+   [`xquic-pr-pre-review` skill](../skills/xquic-pr-pre-review/SKILL.md)
+   against that exact published base-to-head diff. Write its five-part report
+   to `build/harness/pr-<number>/pre-review.md`.
+8. Continue only when the report reviews the published current head and says
+   `pre_review_result: true`. Keep the report and any exploratory bad-case
+   artifacts unstaged and uncommitted. A changed published head invalidates
+   the report and returns the pull request to this step.
+9. Immediately scan open pull requests again with the published current PR
+   included. If two PRs contain the same case ID, the lower-numbered PR keeps
+   it. Keep or return every later PR to draft, then go back to Stage 2,
+   reallocate the colliding ID, update the selectors and registry, and rerun
+   Stage 5 before publishing another head.
+10. Reflect a post-publication collision as an incomplete local-regression
+   blocker; keep successful scan details in local evidence. Fetch the published
+   pull request and verify its title, concise body, real line breaks, issue and
+    RFC linkage, aggregate gates, base, head, draft or review state, and URL.
+    Only then update the concise body and move an otherwise complete PR to
+    review.
 
 Complete the loop only when the acceptance criteria, paired unit and case-test
-coverage, validation evidence, scope review, and pull request evidence are
-consistent.
+coverage, validation evidence, five-part pre-review, scope review, and
+published pull request are consistent.
 
 ## Enforcement Rules
 
@@ -156,12 +200,26 @@ consistent.
    abnormal-path unit tests.
 4. Every production behavior change requires paired happy-path and
    abnormal-path client-to-server case tests.
-5. A failed build is resolved before tests continue.
-6. The complete local unit suite and relevant case-test pair must pass before
+5. Every new client-to-server case has a distinct, never-used ID from the
+   documented namespace, active or retired IDs are never reused, and an ID
+   reserved by another open pull request is unavailable.
+6. A failed build is resolved before tests continue.
+7. The complete local unit suite and relevant case-test pair must pass before
    review.
-7. Generated and temporary artifacts are never committed as source.
-8. A production code pull request remains draft while any required local
-   result or paired test name is missing from its description.
-9. An issue fix must not enter implementation with a false or inconclusive
-   issue-check gate, and its task-scoped issue-check report must never be
-   committed.
+8. Generated and temporary artifacts are never committed as source.
+9. A production code pull request reports incomplete local or CI gates
+   truthfully and remains draft while required paired coverage or local
+   validation is missing or failed.
+10. An issue fix must not enter implementation with a false or inconclusive
+    issue-check gate, and its task-scoped issue-check report must never be
+    committed.
+11. A new pull request is submitted only after the Stage 5 validation gate
+    passes, and every submission or follow-up update uses
+    `xquic-pr-formatting` and verifies the published result.
+12. Case-ID allocation fails closed unless the base, repository history, and
+    all open PR heads were checked. A post-publication collision is resolved in
+    favor of the lowest PR number; a later PR must reallocate and revalidate.
+13. Every new code pull request is submitted as draft after validation. It is
+    moved to review only when its exact published current head has a true
+    five-part pre-review result; the local report and exploratory artifacts
+    are never committed.

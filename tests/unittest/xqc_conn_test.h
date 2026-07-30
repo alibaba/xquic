@@ -22,6 +22,16 @@ void xqc_test_0rtt_params_all_equal(void);
 void xqc_test_0rtt_params_all_increased(void);
 void xqc_test_0rtt_params_each_reduced(void);
 
+/* RFC 9000 §7.4.1: forbidden remembered fields must be reset (issue #672) */
+void xqc_test_early_params_forbidden_fields_reset(void);
+
+/* issue #672 computation-level coverage: ungated consumers of remote settings */
+void xqc_test_0rtt_calc_pto_ignores_stale_max_ack_delay(void);
+void xqc_test_0rtt_persistent_congestion_default_max_ack_delay(void);
+void xqc_test_pto_space_no_max_ack_delay_before_confirm(void);
+void xqc_test_0rtt_ack_delay_exponent_default_in_parse(void);
+void xqc_test_0rtt_remote_mad_timeline(void);
+
 /* ALPN negotiation tests (issue #709) */
 void xqc_test_alpn_error_code_value(void);
 void xqc_test_alpn_server_cb_propagates_error(void);

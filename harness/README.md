@@ -25,6 +25,7 @@ harness/
 - [Validation skill](skills/validate/SKILL.md)
 - [Issue verification skill](skills/issue-check/SKILL.md)
 - [Issue submission skill](skills/issue-submit/SKILL.md)
+- [Pull request pre-review skill](skills/xquic-pr-pre-review/SKILL.md)
 - [Pull request formatting skill](skills/xquic-pr-formatting/SKILL.md)
 - [Git workflow skill](skills/git-workflow/SKILL.md)
 - [Safe push skill](skills/xquic-safe-push/SKILL.md)
@@ -68,8 +69,7 @@ directory. To install the optional pre-push validation hook:
 
 The [pre-push hook](../scripts/hooks/pre-push) runs the complete local unit
 and case-test suites. It is an early failure signal, not a substitute for
-naming the relevant happy-path and abnormal-path tests and their current-head
-results in the pull request.
+the validation gate or the local pre-review report.
 
 ## Naming
 
@@ -95,6 +95,9 @@ results in the pull request.
 - Closed-source or environment-specific rules belong under ignored
   `harness/private/` and must not be referenced as required public harness
   inputs.
+- Pull-request pre-review reports and exploratory bad-case artifacts belong
+  under the ignored `build/harness/pr-<number>/` directory and must not be
+  committed.
 
 ## Portability
 

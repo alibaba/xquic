@@ -11,6 +11,10 @@ void xqc_test_ins();
 void xqc_test_rep();
 void xqc_test_h3_critical_stream_close();
 void xqc_test_h3_second_control_stream_rejected();
+void xqc_test_h3_reserved_uni_stream_accepted();
+void xqc_test_h3_push_stream_error_codes();
+void xqc_test_h3_max_push_id_valid();
+void xqc_test_h3_max_push_id_errors();
 void xqc_test_h3_uncompressed_fields_size();
 void xqc_test_h3_recv_header_field_section_size();
 
@@ -25,6 +29,10 @@ void xqc_test_h3_missing_settings();
 
 /* issue #609: RFC 9114 §7.2 control-only frames on request stream */
 void xqc_test_h3_request_frame_unexpected();
+
+/* issue #849: RFC 9114 §7.2.5 PUSH_PROMISE sender role */
+void xqc_test_h3_server_reserved_request_frame_accepted();
+void xqc_test_h3_server_push_promise_rejected();
 
 /* issue #746: RFC 9114 §4.2 forbidden connection-specific headers */
 void xqc_test_h3_message_error_enum();

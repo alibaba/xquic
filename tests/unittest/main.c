@@ -255,6 +255,18 @@ main(int argc, char *argv[])
                         xqc_test_0rtt_params_all_increased)
         || !CU_add_test(pSuite, "xqc_test_0rtt_params_each_reduced",
                         xqc_test_0rtt_params_each_reduced)
+        || !CU_add_test(pSuite, "xqc_test_early_params_forbidden_fields_reset",
+                        xqc_test_early_params_forbidden_fields_reset)
+        || !CU_add_test(pSuite, "xqc_test_0rtt_calc_pto_ignores_stale_max_ack_delay",
+                        xqc_test_0rtt_calc_pto_ignores_stale_max_ack_delay)
+        || !CU_add_test(pSuite, "xqc_test_0rtt_persistent_congestion_default_max_ack_delay",
+                        xqc_test_0rtt_persistent_congestion_default_max_ack_delay)
+        || !CU_add_test(pSuite, "xqc_test_pto_space_no_max_ack_delay_before_confirm",
+                        xqc_test_pto_space_no_max_ack_delay_before_confirm)
+        || !CU_add_test(pSuite, "xqc_test_0rtt_ack_delay_exponent_default_in_parse",
+                        xqc_test_0rtt_ack_delay_exponent_default_in_parse)
+        || !CU_add_test(pSuite, "xqc_test_0rtt_remote_mad_timeline",
+                        xqc_test_0rtt_remote_mad_timeline)
         /* ALPN negotiation tests (issue #709) */
         || !CU_add_test(pSuite, "xqc_test_alpn_error_code_value",
                         xqc_test_alpn_error_code_value)

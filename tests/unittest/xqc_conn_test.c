@@ -18,6 +18,10 @@
 #include "src/transport/xqc_engine.h"
 #include "src/transport/xqc_transport_params.h"
 #include "src/transport/xqc_cid.h"
+#include "src/transport/xqc_send_ctl.h"
+#include "src/transport/xqc_frame_parser.h"
+#include "src/transport/xqc_packet_in.h"
+#include "src/transport/xqc_recv_record.h"
 
 extern void xqc_conn_tls_error_cb(xqc_int_t tls_err, void *user_data);
 
@@ -643,6 +647,235 @@ xqc_test_0rtt_params_each_reduced(void)
 
         xqc_engine_destroy(conn->engine);
     }
+}
+
+
+/*
+ * RFC 9000 §7.4.1: client MUST NOT use remembered values for max_ack_delay,
+ * ack_delay_exponent, or stateless_reset_token.  Verify that
+ * xqc_conn_set_early_remote_transport_params resets them to defaults.
+ */
+void
+xqc_test_early_params_forbidden_fields_reset(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_transport_params_t params;
+    memset(&params, 0, sizeof(params));
+
+    /* set forbidden fields to non-default values */
+    params.max_ack_delay = 100;  /* default is 25 */
+    params.ack_delay_exponent = 10;  /* default is 3 */
+    params.stateless_reset_token_present = 1;
+    memset(params.stateless_reset_token, 0xAB, sizeof(params.stateless_reset_token));
+
+    /* also set allowed fields */
+    params.initial_max_data = 65536;
+    params.initial_max_streams_bidi = 100;
+
+    xqc_int_t ret = xqc_conn_set_early_remote_transport_params(conn, &params);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+
+    /* forbidden fields must be reset to defaults */
+    CU_ASSERT_EQUAL(conn->remote_settings.max_ack_delay, XQC_DEFAULT_MAX_ACK_DELAY);
+    CU_ASSERT_EQUAL(conn->remote_settings.ack_delay_exponent, XQC_DEFAULT_ACK_DELAY_EXPONENT);
+    CU_ASSERT_EQUAL(conn->remote_settings.stateless_reset_token_present, 0);
+
+    /* allowed fields must be preserved */
+    CU_ASSERT_EQUAL(conn->remote_settings.max_data, 65536);
+    CU_ASSERT_EQUAL(conn->remote_settings.max_streams_bidi, 100);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/* shared setup for the computation-level cases: client conn with a stale
+ * remembered max_ack_delay injected through the 0-RTT restore entry point */
+static xqc_connection_t *
+xqc_0rtt_stale_mad_conn(uint64_t stale_mad)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_transport_params_t params;
+    memset(&params, 0, sizeof(params));
+    params.max_ack_delay = stale_mad;
+    params.ack_delay_exponent = 10;
+    CU_ASSERT_EQUAL(xqc_conn_set_early_remote_transport_params(conn, &params), XQC_OK);
+    return conn;
+}
+
+
+/*
+ * issue #672 computation-level: xqc_send_ctl_calc_pto has no handshake gate,
+ * so it is the path where a stale remembered max_ack_delay would actually be
+ * consumed during 0-RTT. Verify it computes with the default, and that the
+ * assertion really observes the formula (contrast sub-case).
+ */
+void
+xqc_test_0rtt_calc_pto_ignores_stale_max_ack_delay(void)
+{
+    xqc_connection_t *conn = xqc_0rtt_stale_mad_conn(100);
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+
+    send_ctl->ctl_srtt = 10000;
+    send_ctl->ctl_rttvar = 2000;
+
+    /* srtt + max(4*rttvar, granularity) + default 25ms, not stale 100ms */
+    CU_ASSERT_EQUAL(xqc_send_ctl_calc_pto(send_ctl), 10000 + 8000 + 25000);
+
+    /* contrast: prove the formula consumes the field */
+    conn->remote_settings.max_ack_delay = 100;
+    CU_ASSERT_EQUAL(xqc_send_ctl_calc_pto(send_ctl), 10000 + 8000 + 100000);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * issue #672 computation-level: persistent congestion duration is another
+ * ungated consumer of remote_settings.max_ack_delay. Elapsed time 200ms sits
+ * between duration(default 25ms)=129ms and duration(stale 100ms)=354ms, so
+ * one boundary discriminates both behaviors.
+ */
+void
+xqc_test_0rtt_persistent_congestion_default_max_ack_delay(void)
+{
+    xqc_connection_t *conn = xqc_0rtt_stale_mad_conn(100);
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+
+    send_ctl->ctl_srtt = 10000;
+    send_ctl->ctl_rttvar = 2000;
+    send_ctl->ctl_pto_count = XQC_CONSECUTIVE_PTO_THRESH;
+
+    xqc_packet_out_t po;
+    memset(&po, 0, sizeof(po));
+    xqc_usec_t now = 1000000;
+    po.po_sent_time = now - 200000;
+
+    /* (18000 + 25000) * 3 = 129000 < 200000: persistent congestion */
+    CU_ASSERT_EQUAL(xqc_send_ctl_in_persistent_congestion(send_ctl, &po, now), XQC_TRUE);
+
+    /* stale 100ms would give (18000 + 100000) * 3 = 354000 > 200000 */
+    conn->remote_settings.max_ack_delay = 100;
+    CU_ASSERT_EQUAL(xqc_send_ctl_in_persistent_congestion(send_ctl, &po, now), XQC_FALSE);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * RFC 9002 6.2.1: before handshake confirmation the APP_DATA PTO must not be
+ * armed at all (max_ack_delay term unreachable); after confirmation the term
+ * enters with the default value restored by the issue #672 fix.
+ */
+void
+xqc_test_pto_space_no_max_ack_delay_before_confirm(void)
+{
+    xqc_connection_t *conn = xqc_0rtt_stale_mad_conn(100);
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+
+    send_ctl->ctl_srtt = 10000;
+    send_ctl->ctl_rttvar = 2000;
+    send_ctl->ctl_pto_count = 0;
+    send_ctl->ctl_first_rtt_sample_time = 1;
+    send_ctl->ctl_bytes_in_flight = 1000;
+    /* fixture already sent Initial packets; isolate the APP_DATA branch */
+    send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_INIT] = 0;
+    send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_HSK] = 0;
+    send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA] = 1000;
+    send_ctl->ctl_time_of_last_sent_ack_eliciting_packet[XQC_PNS_APP_DATA] = 500000;
+
+    xqc_pkt_num_space_t pns_ret;
+
+    /* not confirmed: APP_DATA skipped entirely, no PTO armed */
+    xqc_usec_t t = xqc_send_ctl_get_pto_time_and_space(send_ctl, 400000, &pns_ret);
+    CU_ASSERT_EQUAL(t, XQC_MAX_UINT64_VALUE);
+    CU_ASSERT_EQUAL(pns_ret, XQC_PNS_INIT);
+
+    /* confirmed: max_ack_delay term enters with default 25ms (backoff=1) */
+    conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_CONFIRMED;
+    t = xqc_send_ctl_get_pto_time_and_space(send_ctl, 400000, &pns_ret);
+    CU_ASSERT_EQUAL(pns_ret, XQC_PNS_APP_DATA);
+    CU_ASSERT_EQUAL(t, 500000 + 18000 + 25000);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * issue #672 computation-level: ACK delay scaling in xqc_parse_ack_frame is
+ * ungated, so a stale remembered ack_delay_exponent would distort every RTT
+ * sample. Verify parsing scales with the default exponent 3.
+ */
+void
+xqc_test_0rtt_ack_delay_exponent_default_in_parse(void)
+{
+    xqc_connection_t *conn = xqc_0rtt_stale_mad_conn(100);
+
+    /* ACK: type=0x02 largest=5 ack_delay=4 range_count=0 first_range=2 */
+    unsigned char buf[] = {0x02, 0x05, 0x04, 0x00, 0x02};
+    xqc_packet_in_t packet_in;
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pos = buf;
+    packet_in.last = buf + sizeof(buf);
+    packet_in.pi_pkt.pkt_pns = XQC_PNS_APP_DATA;
+
+    xqc_ack_info_t ack_info;
+    memset(&ack_info, 0, sizeof(ack_info));
+    CU_ASSERT_EQUAL(xqc_parse_ack_frame(&packet_in, conn, &ack_info), XQC_OK);
+    CU_ASSERT_EQUAL(ack_info.ack_delay, 4 << 3);  /* default exponent 3 */
+
+    /* contrast: stale exponent 10 would inflate the delay 128x */
+    conn->remote_settings.ack_delay_exponent = 10;
+    packet_in.pos = buf;
+    memset(&ack_info, 0, sizeof(ack_info));
+    CU_ASSERT_EQUAL(xqc_parse_ack_frame(&packet_in, conn, &ack_info), XQC_OK);
+    CU_ASSERT_EQUAL(ack_info.ack_delay, 4 << 10);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * issue #672 timeline: on the client, remote max_ack_delay equals the
+ * default at every externally observable instant -- at conn birth (before
+ * 0-RTT restore) and right after restore returns. The stale value only
+ * lives between the copy and the reset inside
+ * xqc_conn_set_early_remote_transport_params (adjacent statements,
+ * single-threaded engine), and the first PTO consumer runs only after
+ * xqc_client_create_connection returns, so consumption always sees 25.
+ */
+void
+xqc_test_0rtt_remote_mad_timeline(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    /* T0-T2a: born with the default, before any restore happens */
+    CU_ASSERT_EQUAL(conn->remote_settings.max_ack_delay, XQC_DEFAULT_MAX_ACK_DELAY);
+    CU_ASSERT_EQUAL(conn->remote_settings.ack_delay_exponent, XQC_DEFAULT_ACK_DELAY_EXPONENT);
+
+    /* T2: restore with a stale remembered value */
+    xqc_transport_params_t params;
+    memset(&params, 0, sizeof(params));
+    params.max_ack_delay = 100;
+    params.ack_delay_exponent = 10;
+    CU_ASSERT_EQUAL(xqc_conn_set_early_remote_transport_params(conn, &params), XQC_OK);
+
+    /* T2b onward: back to the default before the function even returns */
+    CU_ASSERT_EQUAL(conn->remote_settings.max_ack_delay, XQC_DEFAULT_MAX_ACK_DELAY);
+    CU_ASSERT_EQUAL(conn->remote_settings.ack_delay_exponent, XQC_DEFAULT_ACK_DELAY_EXPONENT);
+
+    /* T4: the earliest PTO consumer computes with the default */
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    send_ctl->ctl_srtt = 10000;
+    send_ctl->ctl_rttvar = 2000;
+    CU_ASSERT_EQUAL(xqc_send_ctl_calc_pto(send_ctl), 10000 + 8000 + 25000);
+
+    xqc_engine_destroy(conn->engine);
 }
 
 

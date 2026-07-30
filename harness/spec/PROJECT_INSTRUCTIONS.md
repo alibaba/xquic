@@ -18,12 +18,18 @@ remain in the root [`README.md`](../../README.md).
   `README.md`, `CONTRIBUTING.md`, and `AGENTS.md`.
 - Specification documents use lowercase kebab-case names;
   `PROJECT_INSTRUCTIONS.md` retains its adapter-template name.
+- Agent-facing structure maps, change obligations, behavior contracts, and
+  design rationale live under `harness/ai_docs/`.
 - Capability-specific behavioral specifications belong under
   `spec/<capability>/spec.md`.
 - Pipelines and skills live in the sibling `pipelines/` and `skills/`
   directories rather than being mixed with project facts.
+- Durable comments and documentation follow [doc-style.md](doc-style.md).
 - Task-specific notes, retrospectives, logs, and generated evidence remain
   outside `harness/`.
+- Closed-source or environment-specific instructions remain under ignored
+  `harness/private/`; committed harness docs may describe the contract but
+  must not require private content to perform ordinary open-source tasks.
 
 ## Principles
 
@@ -43,6 +49,7 @@ remain in the root [`README.md`](../../README.md).
 | Long-running feature, refactor, or cross-module task | Codex native goal directive plus [OpenSpec integration](openspec.md) |
 | Code change, feature, refactor, or bug fix | [Development pipeline](../pipelines/dev-pipeline.md) |
 | Build, test, or validation | [Validation specification](validation.md) and [`validate` skill](../skills/validate/SKILL.md) |
+| Documentation or comment change | [Documentation style](doc-style.md) plus the closest owning spec |
 | Verify an issue or protocol-defect claim | [`issue-check` skill](../skills/issue-check/SKILL.md) |
 | Prepare or submit a GitHub issue | [`issue-submit` skill](../skills/issue-submit/SKILL.md), gated by [`issue-check`](../skills/issue-check/SKILL.md) |
 | Pull request preparation or update | [Pull-request specification](pull-requests.md) and [`xquic-pr-formatting` skill](../skills/xquic-pr-formatting/SKILL.md) |
@@ -146,6 +153,8 @@ documentation in the same change when it affects future work.
 |-------|------|
 | Root discovery and definition of done | [AGENTS.md](../../AGENTS.md) |
 | Harness layout and naming | [Harness README](../README.md) |
+| Harness AI docs structure | [ai_docs/README.md](../ai_docs/README.md) |
+| Documentation style | [doc-style.md](doc-style.md) |
 | Architecture and dependency boundaries | [architecture.md](architecture.md) |
 | Development workflow | [dev-pipeline.md](../pipelines/dev-pipeline.md) |
 | Harness registration | [setup_harness.sh](../../scripts/setup_harness.sh) |

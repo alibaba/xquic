@@ -9,16 +9,25 @@ version: 2
 entrypoints:
   project_instructions: harness/spec/PROJECT_INSTRUCTIONS.md
   code_change: harness/pipelines/dev-pipeline.md
+  doc_style: harness/spec/doc-style.md
   validation: scripts/validate.sh
   harness_check: scripts/xqc_harness_check.sh
   openspec_long_tasks: harness/spec/openspec.md
 
 global_docs:
+  ai_docs:
+    - harness/ai_docs/README.md
+    - harness/ai_docs/structure_map.md
+    - harness/ai_docs/change_map.md
+    - harness/ai_docs/behavior_specs.md
+    - harness/ai_docs/decision_records.md
   architecture:
     - harness/spec/architecture.md
   validation:
     - harness/spec/validation.md
     - harness/skills/validate/SKILL.md
+  doc_style:
+    - harness/spec/doc-style.md
   pull_requests:
     - harness/spec/pull-requests.md
     - harness/skills/xquic-pr-formatting/SKILL.md
@@ -203,17 +212,22 @@ modules:
   harness:
     paths:
       - AGENTS.md
+      - harness/ai_docs/*
       - harness/*
       - scripts/setup_harness.sh
       - scripts/xqc_harness_check.sh
       - .github/workflows/*
     read:
       - harness/README.md
+      - harness/ai_docs/README.md
+      - harness/spec/doc-style.md
       - harness/spec/PROJECT_INSTRUCTIONS.md
       - harness/spec/harness-manifest.yml
     update_when:
       routing_or_skill_changed:
         - harness/README.md
+        - harness/ai_docs/README.md
+        - harness/spec/doc-style.md
         - harness/spec/PROJECT_INSTRUCTIONS.md
         - harness/spec/harness-manifest.yml
     validation:
@@ -222,21 +236,40 @@ modules:
 
 harness_layers:
   strong_injection:
-    purpose: "Short root routing and hard constraints."
+    purpose: "Short always-loaded routing, stop conditions, validation gates, and document-sync principles."
     files:
       - AGENTS.md
-      - harness/spec/PROJECT_INSTRUCTIONS.md
-  reusable_skills:
-    purpose: "Committed, tool-neutral skill source."
+  on_demand_reading:
+    purpose: "Detailed procedures loaded only for matching tasks."
     files:
+      - harness/pipelines/dev-pipeline.md
       - harness/skills/*/SKILL.md
+      - harness/spec/PROJECT_INSTRUCTIONS.md
+      - harness/spec/doc-style.md
+      - harness/spec/validation.md
+  machine_mapping:
+    purpose: "Single source for path, module, docs, tests, feature flags, and validation routing."
+    files:
+      - harness/spec/harness-manifest.yml
+  explanation:
+    purpose: "Durable context and rationale that do not repeat workflows."
+    files:
+      - harness/ai_docs/README.md
+      - harness/ai_docs/structure_map.md
+      - harness/ai_docs/change_map.md
+      - harness/ai_docs/behavior_specs.md
+      - harness/ai_docs/decision_records.md
+  self_check:
+    purpose: "Deterministic drift checks across entry points, docs, skills, scripts, and workflow wiring."
+    files:
+      - scripts/xqc_harness_check.sh
+      - .github/workflows/build.yml
   local_adapters:
-    purpose: "Ignored or local tool discovery copies; never the source of truth."
+    purpose: "Ignored tool-native discovery copies; never the source of truth."
     examples:
       - .agents/skills/
       - .claude/
-  machine_checks:
-    purpose: "Deterministic validation and harness drift checks."
+  private_extensions:
+    purpose: "Ignored closed-source or environment-specific adapters."
     files:
-      - scripts/validate.sh
-      - scripts/xqc_harness_check.sh
+      - harness/private/

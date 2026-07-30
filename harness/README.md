@@ -8,15 +8,19 @@ specifications, development pipelines, and reusable agent skills. Root
 
 ```text
 harness/
+├── ai_docs/     structure maps, change obligations, behavior specs, decisions
 ├── spec/        project instructions, facts, and evidence contracts
 ├── pipelines/   ordered workflows that apply the specifications
-└── skills/      reusable task procedures, one SKILL.md per skill
+├── skills/      reusable task procedures, one SKILL.md per skill
+└── private/     ignored closed-source adapters and local/private runbooks
 ```
 
 ## Entry Points
 
 - [Project instructions](spec/PROJECT_INSTRUCTIONS.md)
+- [AI docs index](ai_docs/README.md)
 - [Development pipeline](pipelines/dev-pipeline.md)
+- [Documentation style](spec/doc-style.md)
 - [Validation skill](skills/validate/SKILL.md)
 - [Issue verification skill](skills/issue-check/SKILL.md)
 - [Issue submission skill](skills/issue-submit/SKILL.md)
@@ -61,8 +65,8 @@ results in the pull request.
 
 ## Naming
 
-- Top-level harness directories use the stable names `spec/`, `pipelines/`,
-  and `skills/`.
+- Top-level harness directories use the stable names `ai_docs/`, `spec/`,
+  `pipelines/`, and `skills/`.
 - Markdown filenames use lowercase kebab-case, except conventional
   `README.md`, `SKILL.md`, and the adapter template
   `PROJECT_INSTRUCTIONS.md`.
@@ -77,6 +81,9 @@ results in the pull request.
 - Tool-native local adapters such as `.claude/` are allowed locally but
   must not become committed sources of truth. Migrate durable skill content to
   `harness/skills/`.
+- Closed-source or environment-specific rules belong under ignored
+  `harness/private/` and must not be referenced as required public harness
+  inputs.
 
 ## Portability
 

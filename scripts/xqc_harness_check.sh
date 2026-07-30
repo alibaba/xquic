@@ -42,6 +42,24 @@ require_grep()
     fi
 }
 
+require_line_count()
+{
+    local path="$1"
+    local min_lines="$2"
+    local max_lines="$3"
+    local label="$4"
+    local lines
+
+    lines="$(wc -l < "${ROOT_DIR}/${path}")"
+    lines="${lines//[[:space:]]/}"
+
+    if [[ "${lines}" -ge "${min_lines}" && "${lines}" -le "${max_lines}" ]]; then
+        pass "${label} (${lines} lines)"
+    else
+        fail "${label} (${lines} lines, expected ${min_lines}-${max_lines})"
+    fi
+}
+
 require_manifest_schema()
 {
     local output
@@ -119,6 +137,28 @@ require_hash(data, "manifest", errors)
 if data.is_a?(Hash)
   require_hash(data["entrypoints"], "entrypoints", errors)
   require_hash(data["modules"], "modules", errors)
+  require_hash(data["harness_layers"], "harness_layers", errors)
+
+  if data["harness_layers"].is_a?(Hash)
+    required_layers = %w[
+      strong_injection
+      on_demand_reading
+      machine_mapping
+      explanation
+      self_check
+    ]
+    missing = required_layers - data["harness_layers"].keys
+    errors << "harness_layers missing #{missing.join(', ')}" unless missing.empty?
+
+    data["harness_layers"].each do |layer_name, layer|
+      require_hash(layer, "harness_layers.#{layer_name}", errors)
+      next unless layer.is_a?(Hash)
+
+      if !layer.key?("files") && !layer.key?("examples")
+        errors << "harness_layers.#{layer_name} must define files or examples"
+      end
+    end
+  end
 
   if data["modules"].is_a?(Hash) && data["modules"].any?
     data["modules"].each do |module_name, module_route|
@@ -215,17 +255,50 @@ reject_tree_grep()
     fi
 }
 
+check_optional_claude_adapter()
+{
+    local path="${ROOT_DIR}/CLAUDE.md"
+
+    if [[ ! -f "${path}" ]]; then
+        pass "CLAUDE.md adapter is not committed"
+        return
+    fi
+
+    require_grep "harness/" "CLAUDE.md" \
+        "CLAUDE.md points back to repository harness sources"
+
+    if grep -Eq "docs_ai/harness_manifest.yml|\\.claude/skills" "${path}"; then
+        fail "CLAUDE.md must not depend on docs_ai manifest or .claude skills"
+    else
+        pass "CLAUDE.md does not depend on docs_ai manifest or .claude skills"
+    fi
+}
+
 require_file "AGENTS.md"
 require_file "harness/README.md"
+require_file "harness/ai_docs/README.md"
+require_file "harness/ai_docs/structure_map.md"
+require_file "harness/ai_docs/change_map.md"
+require_file "harness/ai_docs/behavior_specs.md"
+require_file "harness/ai_docs/decision_records.md"
 require_file "harness/spec/PROJECT_INSTRUCTIONS.md"
+require_file "harness/spec/doc-style.md"
 require_file "harness/spec/harness-manifest.yml"
 require_file "harness/spec/openspec.md"
 require_file "harness/skills/validate/SKILL.md"
 require_file "scripts/validate.sh"
 
+require_line_count "AGENTS.md" 60 100 \
+    "AGENTS remains bounded as the strong injection layer"
 require_grep "harness/spec/harness-manifest.yml" \
     "AGENTS.md" \
     "AGENTS points to harness manifest"
+require_grep "harness/ai_docs/README.md" \
+    "AGENTS.md" \
+    "AGENTS points to AI docs for harness structure changes"
+require_grep "harness/spec/doc-style.md" \
+    "AGENTS.md" \
+    "AGENTS points to documentation style guidance"
 require_grep "OpenSpec" \
     "AGENTS.md" \
     "AGENTS documents OpenSpec long-task routing"
@@ -234,6 +307,7 @@ require_grep "scripts/xqc_harness_check.sh" \
     ".github/workflows/build.yml" \
     "GitHub workflow runs harness check"
 require_skill_schema
+check_optional_claude_adapter
 
 reject_tree_grep "docs_ai/harness_manifest.yml|\\.claude/skills" \
     "committed harness does not depend on docs_ai manifest or .claude skills"

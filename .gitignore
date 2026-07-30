@@ -7,4 +7,5 @@ third_party/
 .claude/
 .ai-context/
 .worktrees/
+harness/private/
 cmake-build-debug/

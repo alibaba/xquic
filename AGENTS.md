@@ -1,54 +1,45 @@
 # XQUIC Agent Guide
 
-Keep this file short. It is a map to the repository's sources of truth, not a
-replacement for them.
+Keep this file short: it is the strong injection layer, not the full harness.
 
-## First-Time Harness Setup
+## Bootstrap
 
-At the first task in a fresh checkout, ensure that the harness skills and
-pipeline are registered in the active discovery directories. The default
-project-local adapters are `.agents/skills/` and
-`.agents/pipelines/dev-pipeline.md`. If either registration is absent, run:
+In a fresh checkout, make sure the active discovery directories contain the
+project skills and pipeline. The default local adapters are `.agents/skills/`
+and `.agents/pipelines/dev-pipeline.md`. If they are absent, run:
 
 ```bash
 ./scripts/setup_harness.sh
 ```
 
-Run this bootstrap once per checkout, not once per task. The script is
-idempotent and refuses to overwrite existing paths. Pass its directory options
-when the active tool uses native discovery paths, and check those targets on
-later tasks. Do not install the optional pre-push hook unless the user or
-contributor explicitly opts in.
+Run it once per checkout. The script is idempotent and refuses to overwrite
+existing paths. Do not install the optional pre-push hook without explicit
+opt-in.
 
-## Mandatory Code-Task Preflight
+## Mandatory Preflight
 
 Before planning, inspecting implementation paths, or editing any code, test,
 build script, validation tool, or repository automation, read the
-[development pipeline](harness/pipelines/dev-pipeline.md) in full. Apply this
-gate at the start of every code task, including a new task in an existing
-session. Do not begin implementation until the requirement and acceptance
-criteria stages have been completed and the task is on a conforming working
-branch.
+[development pipeline](harness/pipelines/dev-pipeline.md) in full. Do not
+begin implementation until requirement analysis, acceptance criteria, and the
+working-branch gate are satisfied.
 
-## Start Here
+## Sources Of Truth
 
 - Read [`README.md`](README.md) for supported features and dependency setup.
 - Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before changing code or preparing
   a pull request.
-- Read the [harness index](harness/README.md) to locate project specifications,
-  pipelines, and reusable skills.
+- Read the [harness index](harness/README.md) for pipelines, specs, and skills.
+- Read the [AI docs index](harness/ai_docs/README.md) before changing harness
+  structure, routing, documentation layers, or injection rules.
 - Read the [harness manifest](harness/spec/harness-manifest.yml) for canonical
-  path, module, feature-gate, and validation routing.
-- Read the
-  [project instructions](harness/spec/PROJECT_INSTRUCTIONS.md) for task
-  routing and repository-wide constraints.
+  path, module, docs, feature-gate, and validation routing.
+- Read the [project instructions](harness/spec/PROJECT_INSTRUCTIONS.md) for
+  task routing and repository-wide constraints.
 - Read [`harness/spec/architecture.md`](harness/spec/architecture.md)
   before changing module boundaries.
-- Before submitting an issue, use
-  [`issue-check`](harness/skills/issue-check/SKILL.md) and then
-  [`issue-submit`](harness/skills/issue-submit/SKILL.md).
-- Read the closest module documentation and protocol specification before
-  changing wire behavior.
+- Read [`harness/spec/doc-style.md`](harness/spec/doc-style.md) before adding
+  durable comments or documentation.
 
 ## Long Tasks and OpenSpec
 
@@ -58,7 +49,7 @@ create or update an OpenSpec change first; follow the
 [OpenSpec integration guide](harness/spec/openspec.md) so proposal, design,
 tasks, and requirement deltas are reviewable before implementation.
 
-## Build and Validate
+## Validate
 
 The repository-wide validation entry point is:
 
@@ -70,14 +61,9 @@ XQC_BUILD_DIR=build ./scripts/validate.sh full
 
 These commands must remain independent of any feature, bug, issue number, or
 pull request. Use tests, not issue-specific build modes, to express a
-regression.
-
-The default validation profile is a Debug build with BoringSSL and tests
-enabled. It writes only ignored build output beneath `build/validation/`.
-Environment overrides and validation levels are documented in the
-[validation specification](harness/spec/validation.md). For validation tasks,
-also follow the [`validate` skill](harness/skills/validate/SKILL.md).
-
+regression. Validation levels are in
+[`harness/spec/validation.md`](harness/spec/validation.md); validation tasks
+also use [`harness/skills/validate/SKILL.md`](harness/skills/validate/SKILL.md).
 Harness-only changes must run:
 
 ```bash
@@ -89,6 +75,9 @@ bash scripts/xqc_harness_check.sh
 - Keep changes scoped to the requested behavior.
 - Preserve unrelated user changes and untracked files.
 - Do not edit vendored content under `third_party/`.
+- Stop and request confirmation before destructive operations, pushing to
+  protected branches, requiring private context, or changing public protocol
+  behavior without a source of truth.
 - For every production behavior change, add or update unit tests that cover
   both the happy path and an abnormal or error branch.
 - Add matching client-to-server case tests for both the successful and
@@ -98,19 +87,10 @@ bash scripts/xqc_harness_check.sh
 - Follow the Nginx-derived C style in `CONTRIBUTING.md`, including 4-space
   indentation, no `//` comments, and an 80-column target.
 
-## Definition of Done
+## Done Evidence
 
-A code change is done when:
-
-- the requested behavior and its acceptance criteria are satisfied;
-- paired happy-path and abnormal-path unit tests cover each production
-  behavior change;
-- paired client-to-server case tests cover the corresponding end-to-end
-  behavior;
-- the complete local unit suite and both relevant case tests pass;
-- the diff has been reviewed for scope and regressions; and
-- the pull request contains the evidence required by the
-  [pull-request specification](harness/spec/pull-requests.md).
-
-When preparing or updating a pull request, follow the
-[`xquic-pr-formatting` skill](harness/skills/xquic-pr-formatting/SKILL.md).
+A code change is done when acceptance criteria are satisfied, paired unit and
+client-to-server tests cover happy and abnormal paths, required validation
+passes, durable docs are synchronized, and PR evidence follows
+[`harness/spec/pull-requests.md`](harness/spec/pull-requests.md). PR work also
+uses [`xquic-pr-formatting`](harness/skills/xquic-pr-formatting/SKILL.md).

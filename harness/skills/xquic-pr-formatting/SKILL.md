@@ -19,14 +19,14 @@ diagnosis, review-comment fixes, or code review.
    mechanism, validation cases, and aggregate `CONTRIBUTING.md` status.
 4. Check the branch name against the task-to-prefix mapping in
    `CONTRIBUTING.md`, then check commit format, CLA state, rebase and squash
-   state, code style, full-suite result, relevant tests, CI state, and
+   state, code style, complete-unit-suite result, relevant tests, CI state, and
    issue-closing syntax.
 5. Explain the changed mechanism and cite the exact RFC or draft section for
    protocol behavior. Include the exact `Fixes: #<issue-number>` line for an
    issue fix.
-6. Verify internally that the complete local unit suite and both relevant
-   case tests passed; a focused unit test is insufficient. In the PR, list
-   only each client-to-server case ID and its concise behavior.
+6. Verify internally that the complete local unit suite passed; a focused unit
+   test is insufficient. In the PR, list only executed client-to-server case
+   IDs and concise behavior, or concise missing case evidence.
 7. For new case IDs, require a fresh, conflict-free reservation scan across
    every other open PR's published head. Keep successful scan details in local
    evidence; expose only a concise blocker when a conflict exists.
@@ -83,11 +83,12 @@ List cases only as:
 - Keep the PR body concise; detailed evidence belongs in code, CI, or ignored
   local validation artifacts.
 - Do not use escaped newline strings for multiline GitHub content.
-- Do not claim a full suite passed when only a focused test ran.
+- Do not claim the complete local unit suite passed when only a focused test
+  ran.
 - Do not leave a PR summary describing an older head after code changes are
   pushed.
-- Do not move a production code pull request to review without paired coverage
-  and passing local gate evidence.
+- Do not move a production code pull request to review without required unit
+  coverage and accepted local gate evidence.
 - Do not submit a new production code pull request before the development
   pipeline's validation gate passes, and do not create it initially as ready.
 - Do not move a production code pull request to review before its exact

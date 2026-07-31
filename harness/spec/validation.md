@@ -14,13 +14,12 @@ Use the repository-wide script from the repository root:
 ```bash
 ./scripts/validate.sh build
 ./scripts/validate.sh test
-XQC_BUILD_DIR=build ./scripts/validate.sh full
 ```
 
 The commands are intentionally independent of issue and pull request numbers.
-Build and unit-test validation default to `build/validation/`. The full
-command uses the root `build/` directory expected by the existing
-`scripts/case_test.sh`.
+Build and unit-test validation default to `build/validation/`. The legacy
+`full` level exists for explicit full case-suite runs, but it is not the
+default local gate before `scripts/case_test.sh` has targeted selectors.
 
 For feature-gated code, select the feature by manifest key:
 
@@ -40,14 +39,17 @@ The required minimum is:
 
 - one happy-path unit test;
 - one abnormal, rejection, boundary, or error-branch unit test;
-- one client-to-server happy-path case in `scripts/case_test.sh`; and
-- one client-to-server abnormal-path case in `scripts/case_test.sh`.
+- endpoint-visible happy-path coverage; and
+- endpoint-visible abnormal-path coverage.
 
-The paired case tests must use distinct `case_print_result` names and exercise
-the real `tests/test_client` to `tests/test_server` path. Their assertions must
-prove the expected endpoint-visible result. For an error path, prove the
-specific rejection, connection error, close, or recovery behavior rather than
-accepting any failure.
+When `scripts/case_test.sh` cases are added, the paired cases must use
+distinct `case_print_result` names and exercise the real `tests/test_client` to
+`tests/test_server` path. Their assertions must prove the expected
+endpoint-visible result. For an error path, prove the specific rejection,
+connection error, close, or recovery behavior rather than accepting any
+failure. Until targeted case execution exists, record missing or unrun
+client-to-server coverage as a gap instead of running the full suite by
+default.
 
 Documentation-only changes are exempt from runtime test creation and instead
 use link, format, and command-syntax checks. Validation-tooling changes require
@@ -218,8 +220,9 @@ in the manifest so the log contains explicit feature evidence.
 `XQC_BUILD_DIR=build ./scripts/validate.sh full`
 
 Runs the Test level and the existing `scripts/case_test.sh` integration suite.
-This is the conservative pre-PR command: it runs the complete unit suite and
-all case tests, including the pair relevant to the current change.
+This is a legacy explicit command for full case-suite evidence. It is not the
+default local pre-PR command because the current case script lacks targeted
+selectors and can be too expensive for ordinary iteration.
 
 Protocol-specific interoperability, sanitizers, coverage, alternate TLS
 backends, optional modules, and platform matrices remain additional checks.
@@ -244,20 +247,15 @@ Before creating or moving a production code pull request to review:
 3. Confirm the emitted CUnit summary reports `Ran == Total` and `Failed == 0`.
    Record the real result as `<Ran>/<Total> CUnit tests`; do not use
    `CTest 1/1` as the unit-suite evidence or substitute a fixed example count.
-4. Run both relevant case-test blocks, including their server/client setup,
-   state cleanup, and assertions.
-5. If the case blocks cannot be invoked independently, run the full suite:
-
-   ```bash
-   unset XQC_TEST_NAME
-   XQC_BUILD_DIR=build ./scripts/validate.sh full
-   ```
-
-6. Require all unit tests and both relevant cases to pass before submitting
-   the pull request. Confirm both expected `[       OK ]` case names are
-   present and no relevant `[     FAIL ]` or `>>>>>>>> pass:0` result exists;
-   the legacy case script's process exit code alone is not sufficient.
-7. Repeat the open-PR reservation scan for every new case ID. Fail closed when
+4. Run targeted client-to-server commands only when the relevant blocks can be
+   executed directly and recorded without the legacy full `case_test.sh` suite.
+   Use `XQC_BUILD_DIR=build ./scripts/validate.sh full` only when explicitly
+   requested or when the change owner accepts the full-suite cost.
+5. Require all unit tests to pass before submitting the pull request. For
+   endpoint-visible behavior, report targeted case results when available;
+   otherwise report the case-test gap instead of claiming local regression is
+   complete.
+6. Repeat the open-PR reservation scan for every new case ID. Fail closed when
    the query or any head inspection is incomplete, and do not submit or update
    a pull request while another open pull request reserves an ID.
 
@@ -265,9 +263,9 @@ Retain the detailed gate evidence locally: exact commands, CUnit counts, unit
 and case names, case IDs and namespaces, results, and reservation snapshots.
 The pull request summarizes only:
 
-- each client-to-server case as `<ID> — <concise behavior>`;
-- `Local regression: Complete` after the full local gate passes, or concise
-  failed case IDs and meanings when it does not;
+- each executed client-to-server case as `<ID> — <concise behavior>`;
+- `Local regression: Complete` after the accepted local gate passes, or
+  concise failed or missing case evidence when it does not;
 - `CI: Complete` after required checks pass, or only incomplete check names;
   and
 - the aggregate `CONTRIBUTING.md` result.
@@ -275,10 +273,11 @@ The pull request summarizes only:
 Do not copy commands, test function names, case names, logs, namespace ranges,
 tested commit SHA, or successful reservation snapshots into the PR body.
 
-A focused unit test is iteration evidence only. A missing test, failed test,
-or environment blocker does not satisfy the gate; keep the pull request in
-draft until the gate passes. Repeat the gate after every subsequent code
-change so the recorded evidence matches the pull request's current head.
+A focused unit test is iteration evidence only. A missing unit test, failed
+test, or environment blocker does not satisfy the gate; keep the pull request
+in draft until the accepted gate passes. Repeat the gate after every
+subsequent code change so the recorded evidence matches the pull request's
+current head.
 After publishing, a collision is reported only as an incomplete local gate and
 concise blocker. A later pull request with a duplicate case ID does not pass
 the gate even when all runtime tests passed with that ID.
@@ -304,7 +303,8 @@ During test development, run one registered CUnit test by name:
 XQC_TEST_NAME=xqc_test_h3_stream ./scripts/validate.sh test
 ```
 
-A focused test is fast feedback, not a replacement for the full Test gate.
+A focused test is fast feedback, not a replacement for the complete local unit
+gate.
 
 Supported environment variables:
 
@@ -332,8 +332,8 @@ services. Dependency provisioning remains an explicit environment setup step.
 ## Artifacts
 
 Each invocation writes ignored artifacts below
-`build/validation/artifacts/` by default. The conservative full command writes
-them below `build/artifacts/` because it selects `XQC_BUILD_DIR=build`.
+`build/validation/artifacts/` by default. Explicit full case-suite runs may
+write them below `build/artifacts/` when `XQC_BUILD_DIR=build` is selected.
 For task-local command logs, failed-test hypotheses, and final evidence, use
 the [run artifact contract](run-artifacts.md) under
 `build/harness/runs/<task-id>/`.

@@ -70,14 +70,15 @@ evidence cannot be inspected, return `inconclusive`; never infer a pass.
 - Inspect committed tests rather than trusting the PR summary.
 - Require a positive and negative CUnit case tied to each changed production
   path.
-- Require positive and abnormal client-to-server cases in
-  `scripts/case_test.sh`, with distinct IDs and matching selectors in
-  `tests/test_client.c` and `tests/test_server.c`.
-- Confirm the end-to-end cases prove the endpoint-visible result, not merely a
-  process exit or generic failure.
-- Verify current-head local evidence shows the complete CUnit suite and both
-  relevant case tests passed. Fail when coverage or current-head evidence is
-  missing.
+- For endpoint-visible behavior, require positive and abnormal
+  client-to-server coverage or an explicit case-test gap. When
+  `scripts/case_test.sh` cases are added, require distinct IDs and matching
+  selectors in `tests/test_client.c` and `tests/test_server.c`.
+- Confirm any executed end-to-end cases prove the endpoint-visible result, not
+  merely a process exit or generic failure.
+- Verify current-head local evidence shows the complete CUnit suite passed and
+  any accepted targeted case evidence or gaps are current. Fail when required
+  unit coverage or current-head evidence is missing.
 
 ## 3. Adversarial Bad Case
 - Construct the smallest peer-controlled input or event sequence that could

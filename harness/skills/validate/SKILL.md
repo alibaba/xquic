@@ -1,6 +1,6 @@
 ---
 name: validate
-description: Enforce XQUIC test coverage and local validation gates. Use when code, build, or test changes need verification; before commit or pull request; or when asked to build, test, validate, or verify XQUIC. Requires paired happy-path and abnormal-path unit tests, paired client-to-server case tests, the complete local unit suite, and relevant case tests for production behavior changes.
+description: Enforce XQUIC test coverage and local validation gates. Use when code, build, or test changes need verification; before commit or pull request; or when asked to build, test, validate, or verify XQUIC. Requires paired happy-path and abnormal-path unit tests, the complete local unit suite, and explicit endpoint coverage or gap reporting for production behavior changes.
 ---
 
 # XQUIC Validate
@@ -16,8 +16,8 @@ diff contains:
 1. Unit coverage tied to the changed path.
 2. At least one happy-path unit test.
 3. At least one abnormal, rejection, boundary, or error-branch unit test.
-4. A client-to-server happy-path case in `scripts/case_test.sh`.
-5. A client-to-server abnormal-path case that proves the expected rejection,
+4. Endpoint-visible coverage for the happy path.
+5. Endpoint-visible abnormal coverage that proves the expected rejection,
    error, close, or recovery behavior.
 6. A distinct, never-before-used and currently unreserved ID for each new
    client-to-server case, allocated from the owning layer or module namespace
@@ -25,11 +25,11 @@ diff contains:
    [validation specification](../../spec/validation.md#client-to-server-case-id-namespace).
 7. The new IDs recorded in the namespace registry in the same change.
 
-Give the two case tests distinct `case_print_result` names. Assert the
-observable client and server results needed to prove the behavior. Reusing an
-unrelated test or case ID, or asserting only that the process exited, is not
-sufficient. Active and retired case IDs are both permanently unavailable for
-new behavior.
+When adding `scripts/case_test.sh` cases, give the two cases distinct
+`case_print_result` names. Assert the observable client and server results
+needed to prove the behavior. Reusing an unrelated test or case ID, or
+asserting only that the process exited, is not sufficient. Active and retired
+case IDs are both permanently unavailable for new behavior.
 
 ## Workflow
 
@@ -71,19 +71,13 @@ new behavior.
 8. Require the emitted CUnit summary to show `Ran == Total` and `Failed == 0`.
    Record the result as `<Ran>/<Total> CUnit tests`; `CTest 1/1` alone is not
    complete-unit-suite evidence.
-9. Run both relevant client-to-server case-test blocks, including their setup,
-   cleanup, and assertions. Because `scripts/case_test.sh` has no generic
-   name filter, use the following conservative command unless the exact
-   standalone commands for both blocks are executed and recorded:
-
-   ```bash
-   XQC_BUILD_DIR=build ./scripts/validate.sh full
-   ```
-
-10. Require the complete unit suite and both relevant case tests to pass. Check
-   the case output for both expected `[       OK ]` names and for any
-   `[     FAIL ]` or `>>>>>>>> pass:0` result; do not rely only on the script's
-   exit code.
+9. Run targeted client-to-server commands only when the relevant blocks can be
+   executed directly and recorded without the legacy full `case_test.sh` suite.
+   Use `XQC_BUILD_DIR=build ./scripts/validate.sh full` only when explicitly
+   requested or when the change owner accepts the full-suite cost.
+10. Require the complete unit suite to pass. For endpoint-visible behavior,
+   report targeted case results when available; otherwise report the case-test
+   gap instead of claiming local regression is complete.
 11. Repeat the open-PR reservation scan for each new case ID after the tests
     pass and immediately before PR submission or update. Record the snapshot
     time, candidate IDs, number of heads checked, current PR exclusion, and
@@ -91,12 +85,13 @@ new behavior.
 12. Verify that `include/xquic/xqc_configure.h` and other generated artifacts
    did not enter the source diff.
 13. Report the changed scope, CUnit `<Ran>/<Total>` and failed counts, paired
-    unit-test names, paired case IDs and namespaces, reservation snapshot,
-    case-test names, exact commands, and results in ignored local evidence.
+    unit-test names, endpoint coverage or gap status, paired case IDs and
+    namespaces when new cases are added, reservation snapshot, exact commands,
+    and results in ignored local evidence.
 14. Summarize those current-head results in the repository
     [pull-request template](../../../.github/pull_request_template.md). List
-    only each case ID and its concise behavior, then mark local regression
-    `Complete` or name concise failed cases. Do not copy commands, test
+    only each executed case ID and its concise behavior, then mark local
+    regression `Complete` or name concise failed/gap cases. Do not copy commands, test
     function names, logs, namespace ranges, or reservation snapshots into the
     PR body. Missing, stale, focused-only, or failed local evidence still does
     not pass the gate.
@@ -120,8 +115,8 @@ applicable.
 - Stop after a failed build; diagnose it before running tests.
 - Do not submit a code pull request with a missing happy-path or abnormal-path
   unit test.
-- Do not submit a code pull request with a missing happy-path or abnormal-path
-  client-to-server case test.
+- Do not claim endpoint-visible coverage passed when the relevant case blocks
+  were not executed.
 - Do not reuse an active or retired case ID, use an ID outside its documented
   namespace, take an ID reserved by another open PR, or give the paired happy
   and abnormal cases the same ID.

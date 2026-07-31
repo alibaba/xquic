@@ -47,8 +47,10 @@ blocking evidence must be explicit.
    build mode, branch name, or configuration flag.
 3. Identify a happy-path unit test for the changed behavior.
 4. Identify an abnormal, rejection, boundary, or error-branch unit test.
-5. Identify matching happy-path and abnormal-path client-to-server cases in
-   `scripts/case_test.sh`.
+5. For endpoint-visible behavior, identify matching happy-path and
+   abnormal-path client-to-server coverage. Until `scripts/case_test.sh` has
+   targeted selectors, record gaps instead of treating the full case suite as
+   the default local gate.
 6. If either client-to-server case is new, select a distinct, never-used ID
    for each case from the owning layer or module namespace in the
    [validation specification](../spec/validation.md#client-to-server-case-id-namespace).
@@ -103,9 +105,9 @@ only the scoped task, and its name matches the task-type mapping above.
    evidence as implementation inputs. Rerun `issue-check` if a relevant
    issue claim, specification revision, or source path changed.
 2. Add or update paired happy-path and abnormal-path unit tests.
-3. Add or update paired happy-path and abnormal-path client-to-server case
-   tests. Give every new case its allocated ID and update the validation
-   namespace registry in the same change.
+3. Add or update endpoint-visible coverage when targeted client-to-server
+   execution is available. Give every new case its allocated ID and update the
+   validation namespace registry in the same change.
 4. Make the smallest production change that satisfies the criteria.
 5. Follow `CONTRIBUTING.md` and adjacent project conventions.
 6. Re-read the modified path and trace affected callers and callees.
@@ -118,26 +120,27 @@ Exit when the implementation, tests, and durable documentation agree.
 
 Follow the [`validate` skill](../skills/validate/SKILL.md). Before a production
 code pull request, run the complete local unit suite with `XQC_TEST_NAME`
-unset, then run both relevant client-to-server case tests:
+unset:
 
 ```bash
 unset XQC_TEST_NAME
 ./scripts/validate.sh test
 ```
 
-Use `XQC_BUILD_DIR=build ./scripts/validate.sh full` when the paired case-test
-blocks cannot be run independently. Record exact commands, paired test names,
-and results in ignored local validation artifacts. Do not submit a new pull
-request or move an existing pull request to review after a missing or failed
-gate.
+Use `XQC_BUILD_DIR=build ./scripts/validate.sh full` only when explicitly
+requested or when the change owner accepts the legacy full case-suite cost.
+Record exact commands, identified case coverage, gaps, and results in ignored
+local validation artifacts. Do not report a missing or unrun case-test block as
+passing evidence.
 
 For every new case ID, repeat the open-PR reservation scan after the tests pass
 and immediately before Stage 6. Record the candidate IDs, query time, number of
 published PR heads inspected, current PR exclusion, and result. Fail closed if
 the open-PR query, fetch, or head-SHA verification is incomplete.
 
-Exit only when the complete unit suite and both relevant case tests pass and
-the final reservation snapshot is complete and conflict-free.
+Exit only when the complete unit suite passes, accepted targeted case evidence
+or gaps are recorded, and the final reservation snapshot is complete and
+conflict-free.
 
 ## Stage 6: Pull Request Evidence and State Gates
 
@@ -152,7 +155,8 @@ the final reservation snapshot is complete and conflict-free.
    review summary:
    - explain the changed mechanism and cite the exact RFC or draft section
      when protocol behavior changes;
-   - list each client-to-server case as only `<ID> — <concise behavior>`;
+   - list each executed client-to-server case as only
+     `<ID> — <concise behavior>`;
    - report one aggregate `CONTRIBUTING.md` result; and
    - mark local regression and CI `Complete`, or name only incomplete checks
      and concise failing cases.
@@ -203,17 +207,19 @@ published pull request are consistent.
    documentation.
 3. Every production behavior change requires paired happy-path and
    abnormal-path unit tests.
-4. Every production behavior change requires paired happy-path and
-   abnormal-path client-to-server case tests.
+4. Endpoint-visible behavior changes identify paired happy-path and
+   abnormal-path client-to-server coverage, and record any case-test gap until
+   targeted case execution exists.
 5. Every new client-to-server case has a distinct, never-used ID from the
    documented namespace, active or retired IDs are never reused, and an ID
    reserved by another open pull request is unavailable.
 6. A failed build is resolved before tests continue.
-7. The complete local unit suite and relevant case-test pair must pass before
-   review.
+7. The complete local unit suite must pass before review; case-test evidence is
+   required only when the relevant blocks can be run without the legacy full
+   suite or when full execution is explicitly accepted.
 8. Generated and temporary artifacts are never committed as source.
 9. A production code pull request reports incomplete local or CI gates
-   truthfully and remains draft while required paired coverage or local
+   truthfully and remains draft while required unit coverage or accepted local
    validation is missing or failed.
 10. An issue fix must not enter implementation with a false or inconclusive
     issue-check gate, and its task-scoped issue-check report must never be

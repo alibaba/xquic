@@ -94,8 +94,10 @@ tests, build scripts, validation tooling, or repository automation.
    Nginx-derived C style and commit convention.
 5. Add or update happy-path and abnormal-path unit tests for each production
    behavior change.
-6. Add or update matching happy-path and abnormal-path client-to-server cases
-   in `scripts/case_test.sh`.
+6. Identify matching happy-path and abnormal-path client-to-server coverage
+   for endpoint-visible behavior. Add `scripts/case_test.sh` cases only when
+   they can be maintained without relying on the legacy full suite as the
+   default local gate.
 7. Re-read the modified path and trace affected callers and callees.
 8. Update durable project or module documentation when a contract, boundary,
    command, or public API changes.
@@ -121,11 +123,13 @@ unset XQC_TEST_NAME
 ./scripts/validate.sh test
 ```
 
-Then run the matching happy-path and abnormal-path client-to-server case
-tests. Use `XQC_BUILD_DIR=build ./scripts/validate.sh full` when they cannot
-be invoked independently. Record exact commands, paired test names, and
-results. A focused unit test is useful during development but cannot satisfy
-the pull-request gate.
+Run targeted client-to-server commands only when the relevant blocks can be
+invoked independently and recorded. Use
+`XQC_BUILD_DIR=build ./scripts/validate.sh full` only when explicitly requested
+or when the change owner accepts the legacy full case-suite cost. Record exact
+commands, paired test names, endpoint coverage or gap status, and results. A
+focused unit test is useful during development but cannot satisfy the
+pull-request gate.
 
 ## Definition of Done
 
@@ -134,9 +138,9 @@ A change is complete when:
 - its acceptance criteria are satisfied;
 - paired happy-path and abnormal-path unit tests cover every production
   behavior change;
-- paired happy-path and abnormal-path client-to-server case tests cover the
-  corresponding end-to-end behavior;
-- the complete local unit suite and both relevant case tests pass;
+- endpoint-visible behavior has paired happy-path and abnormal-path coverage
+  or an explicit case-test gap;
+- the complete local unit suite passes and accepted targeted case checks pass;
 - generated and temporary artifacts are absent from the diff;
 - durable documentation and relative links remain accurate;
 - the PR-scoped five-part pre-review report passes, and its local review

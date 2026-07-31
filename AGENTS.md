@@ -48,14 +48,14 @@ The repository-wide validation entry point is:
 ```bash
 ./scripts/validate.sh build
 ./scripts/validate.sh test
-XQC_BUILD_DIR=build ./scripts/validate.sh full
 ```
 
 These commands stay independent of features, bugs, issues, and PRs. Use tests,
 not issue-specific build modes, to express regressions. Validation levels are
-in [`harness/spec/validation.md`](harness/spec/validation.md); validation tasks
-also use [`validate`](harness/skills/validate/SKILL.md). Harness-only changes
-must run:
+in [`harness/spec/validation.md`](harness/spec/validation.md); `full` is an
+explicit legacy case-suite check, not the default local gate before
+`scripts/case_test.sh` has targeted selectors. Validation tasks also use
+[`validate`](harness/skills/validate/SKILL.md). Harness-only changes must run:
 
 ```bash
 bash harness/scripts/xqc_harness_check.sh
@@ -71,8 +71,8 @@ bash harness/scripts/xqc_harness_check.sh
   behavior without a source of truth.
 - For every production behavior change, add or update unit tests that cover
   both the happy path and an abnormal or error branch.
-- Add matching client-to-server case tests for both the successful and
-  abnormal end-to-end paths.
+- For endpoint-visible behavior, identify matching client-to-server coverage
+  and record any case-test gap until targeted case execution exists.
 - For protocol behavior, cite the exact RFC or draft section in the test or
   nearby implementation comment when it materially explains the invariant.
 - Follow the Nginx-derived C style in `CONTRIBUTING.md`, including 4-space
@@ -80,8 +80,8 @@ bash harness/scripts/xqc_harness_check.sh
 
 ## Done Evidence
 
-A code change is done when acceptance criteria are satisfied, paired unit and
-client-to-server tests cover happy and abnormal paths, validation passes,
-durable docs are synchronized, any required local pre-review report remains
-uncommitted and passes, and PR evidence follows
+A code change is done when acceptance criteria are satisfied, paired unit tests
+cover happy and abnormal paths, endpoint-visible coverage or gaps are recorded,
+validation passes, durable docs are synchronized, any required local
+pre-review report remains uncommitted and passes, and PR evidence follows
 [`harness/spec/pull-requests.md`](harness/spec/pull-requests.md).

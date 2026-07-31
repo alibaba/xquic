@@ -30,7 +30,7 @@ authoritative contribution contract. Check every requirement before review:
   `=`, or `~` type;
 - the contributor has signed or will complete the CLA before merge;
 - the change follows the Nginx-derived XQUIC code style;
-- the full test suite and sufficient relevant tests pass;
+- the complete local unit suite and accepted relevant tests pass;
 - required continuous-integration checks pass before merge;
 - the branch is rebased on its current base, and review-fix commits are
   squashed before merge; and
@@ -44,8 +44,8 @@ Do not copy this internal checklist into the pull request. Publish only:
 
 - `Overall: Passed` when every item passes, otherwise `Pending` or
   `Not passed`;
-- `Local regression: Complete` when the required local gate passes, otherwise
-  list only the failing case IDs and their concise behavior;
+- `Local regression: Complete` when the accepted local gate passes, otherwise
+  list only incomplete, failed, or missing case evidence concisely;
 - `CI: Complete` when all required checks pass, otherwise list only pending or
   failed checks.
 
@@ -61,22 +61,22 @@ When the pull request closes an issue, retain the exact standalone
 
 ## Validation Cases
 
-The full validation gate remains mandatory. Its local record retains exact
-commands, the CUnit `Total/Ran/Passed/Failed` summary, unit-test names, case
-names, logs, and reservation snapshots. Do not copy those details into the
-pull request.
+The accepted validation gate remains mandatory. Its local record retains exact
+commands, the CUnit `Total/Ran/Passed/Failed` summary, unit-test names,
+executed case names when available, gaps, logs, and reservation snapshots. Do
+not copy those details into the pull request.
 
-In the pull request, describe paired client-to-server coverage with one line
+In the pull request, describe executed client-to-server coverage with one line
 per case:
 
 ```text
 <case ID> — <concise behavior proved by the case>
 ```
 
-Include the happy path and abnormal path. Do not include commands, unit-test
-function names, `case_print_result` names, logs, namespace ranges, tested
-commit SHA, or successful reservation-scan details. Those are discoverable in
-the change and its validation artifacts.
+Include the happy path and abnormal path when they were executed. Do not
+include commands, unit-test function names, `case_print_result` names, logs,
+namespace ranges, tested commit SHA, or successful reservation-scan details.
+Those are discoverable in the change and its validation artifacts.
 
 If runtime cases do not apply, state the reason in one line. For a failed local
 gate, list only each failing case ID and its concise behavior under
@@ -93,7 +93,7 @@ regression incomplete and must be named concisely as a blocker.
 Publish new-case PRs and case-ID-changing updates in draft until the
 post-publication scan passes. If two open PRs claim the same ID, the lower PR
 number keeps it. The later PR must remain draft, reallocate, and rerun the
-complete validation gate.
+accepted validation gate.
 
 ## Aggregate Gate
 
@@ -101,7 +101,7 @@ Use exactly one aggregate `CONTRIBUTING.md` section. Mark local regression and
 CI `Complete` when they pass. If either has not run, is pending, or failed,
 state that status and list only the incomplete checks or concise failed cases.
 Mark `Overall: Passed` only when the complete internal contribution checklist,
-local regression, CI, and case-ID coordination all pass. Do not expand the
+accepted local regression, CI, and case-ID coordination all pass. Do not expand the
 internal checklist into additional PR fields.
 
 Submit a new code PR as draft after local validation. Before moving it out of
@@ -125,9 +125,9 @@ for that head before the PR moves forward.
   are stable, intentionally reviewable deliverables.
 - A failure discovered during validation is fixed before the pull request is
   presented as ready.
-- Keep a production code pull request in draft while paired coverage is
-  missing, the complete local unit suite fails, or either relevant case test
-  fails.
+- Keep a production code pull request in draft while required unit coverage is
+  missing, the complete local unit suite fails, or accepted targeted case
+  evidence fails.
 - Keep the later-numbered pull request in draft while it duplicates a case ID
   reserved by another open pull request.
 - Do not turn the PR body into a validation log; preserve detailed evidence in

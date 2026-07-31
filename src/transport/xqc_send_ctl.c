@@ -958,6 +958,19 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
         return XQC_OK;
     }
 
+    /* §6.1: peer ACKed a new-phase packet — key update confirmed,
+     * clear initiator flag to unlock the next initiation. */
+    if (pns == XQC_PNS_APP_DATA
+        && conn->key_update_ctx.key_update_initiator
+        && xqc_key_update_acked(&conn->key_update_ctx,
+                                send_ctl->ctl_largest_acked[pns]))
+    {
+        conn->key_update_ctx.key_update_initiator = XQC_FALSE;
+        xqc_log(conn->log, XQC_LOG_DEBUG,
+                 "|key update confirmed by ACK|largest_acked:%ui|first_sent_pktno:%ui|",
+                 send_ctl->ctl_largest_acked[pns], conn->key_update_ctx.first_sent_pktno);
+    }
+
     if (update_largest_ack && has_ack_eliciting && ack_on_same_path) {
         if (!ignore_rtt) {
             /* 更新 ctl_latest_rtt */

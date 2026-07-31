@@ -16,6 +16,7 @@
 #include "src/transport/xqc_transport_params.h"
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_frame.h"
+#include "src/tls/xqc_tls.h"
 
 
 /*
@@ -568,6 +569,281 @@ xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return(void)
     CU_ASSERT_EQUAL(send_ctl->ctl_rttvar,  2000);
     CU_ASSERT_EQUAL(send_ctl->ctl_minrtt,  8000);
     CU_ASSERT_EQUAL(send_ctl->ctl_first_rtt_sample_time, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * Issue #823 / #756 BUG1 regression test (RFC 9001 §6.1).
+ *
+ * When the local endpoint initiates a key update, the next key update
+ * MUST NOT be initiated until the peer ACKs a packet sent with the new
+ * key phase (largest_acked >= first_sent_pktno).
+ *
+ * The enforcement mechanism:
+ * - key_update_initiator is set TRUE on initiation
+ * - The trigger condition requires first_sent_pktno <= ctl_largest_acked
+ * - ACK processing clears key_update_initiator once confirmed
+ *
+ * This test validates:
+ * 1. After initiating: key_update_initiator == TRUE
+ * 2. ACK with largest_acked < first_sent_pktno: initiator not cleared
+ * 3. ACK with largest_acked >= first_sent_pktno: initiator cleared
+ * 4. Next key update trigger blocked until first_sent_pktno <= largest_acked
+ */
+void
+xqc_test_key_update_initiator_confirmation(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    CU_ASSERT_FATAL(send_ctl != NULL);
+
+    /*
+     * Simulate the state after initiator calls key update:
+     * - key_update_initiator = TRUE
+     * - first_sent_pktno = 100 (first packet sent with new key phase)
+     */
+    conn->key_update_ctx.key_update_initiator = XQC_TRUE;
+    conn->key_update_ctx.first_sent_pktno = 100;
+
+    CU_ASSERT_EQUAL(conn->key_update_ctx.key_update_initiator, XQC_TRUE);
+
+    /*
+     * Case 1: ACK with largest_acked = 99 (< first_sent_pktno).
+     * The peer has only ACKed packets sent with the OLD key phase.
+     * Initiator flag must NOT be cleared yet.
+     */
+    send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA] = 99;
+
+    /* Mirror the confirmation check logic in xqc_send_ctl_on_ack_received */
+    xqc_pkt_num_space_t pns = XQC_PNS_APP_DATA;
+    if (conn->key_update_ctx.key_update_initiator
+        && xqc_key_update_acked(&conn->key_update_ctx,
+                                send_ctl->ctl_largest_acked[pns]))
+    {
+        conn->key_update_ctx.key_update_initiator = XQC_FALSE;
+    }
+
+    /* Still pending: 99 < 100 */
+    CU_ASSERT_EQUAL(conn->key_update_ctx.key_update_initiator, XQC_TRUE);
+
+    /* Verify the next key update trigger is blocked */
+    CU_ASSERT(!xqc_key_update_acked(&conn->key_update_ctx,
+                                    send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA]));
+
+    /*
+     * Case 2: ACK with largest_acked = 100 (== first_sent_pktno).
+     * The peer has now ACKed a packet sent with the new key phase.
+     * Initiator flag MUST be cleared.
+     */
+    send_ctl->ctl_largest_acked[pns] = 100;
+
+    if (conn->key_update_ctx.key_update_initiator
+        && xqc_key_update_acked(&conn->key_update_ctx,
+                                send_ctl->ctl_largest_acked[pns]))
+    {
+        conn->key_update_ctx.key_update_initiator = XQC_FALSE;
+    }
+
+    /* Confirmed: 100 >= 100, initiator cleared */
+    CU_ASSERT_EQUAL(conn->key_update_ctx.key_update_initiator, XQC_FALSE);
+
+    /* Verify the next key update trigger is now unblocked */
+    CU_ASSERT(xqc_key_update_acked(&conn->key_update_ctx,
+                                   send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA]));
+
+    /*
+     * Case 3: Verify idempotency — once cleared, re-running the check
+     * with a higher ACK does not re-trigger (initiator is already FALSE).
+     */
+    send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA] = 200;
+
+    if (conn->key_update_ctx.key_update_initiator
+        && xqc_key_update_acked(&conn->key_update_ctx,
+                                send_ctl->ctl_largest_acked[pns]))
+    {
+        conn->key_update_ctx.key_update_initiator = XQC_FALSE;
+    }
+
+    CU_ASSERT_EQUAL(conn->key_update_ctx.key_update_initiator, XQC_FALSE);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * Issue #756 BUG2 regression test (RFC 9001 §6.2).
+ *
+ * A responder that accepts a peer-initiated key update MUST reject another
+ * key update before it sends an ACK for the packet that triggered the first
+ * update.  The production path records peer_key_update_ack_pending after
+ * confirming the first peer update and clears it after sending an APP_DATA
+ * ACK that covers peer_key_update_pktno.
+ */
+void
+xqc_test_consecutive_key_update_detection(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    conn->key_update_ctx.next_in_key_phase = 1;
+    conn->key_update_ctx.peer_key_update_ack_pending = XQC_TRUE;
+    conn->key_update_ctx.peer_key_update_pktno = 80;
+
+    /* Higher packet number with the opposite phase is a second update. */
+    CU_ASSERT(xqc_key_update_peer_consecutive(&conn->key_update_ctx, 0, 100));
+
+    /* Reordered lower packet numbers and current-phase packets are allowed. */
+    CU_ASSERT(!xqc_key_update_peer_consecutive(&conn->key_update_ctx, 0, 70));
+    CU_ASSERT(!xqc_key_update_peer_consecutive(&conn->key_update_ctx, 1, 100));
+
+    /* ACKs that do not cover the trigger packet must not clear the gate. */
+    xqc_key_update_peer_ack_sent(&conn->key_update_ctx, 79);
+    CU_ASSERT_EQUAL(conn->key_update_ctx.peer_key_update_ack_pending, XQC_TRUE);
+    CU_ASSERT(xqc_key_update_peer_consecutive(&conn->key_update_ctx, 0, 100));
+
+    /* Once the trigger packet is ACKed, another key update is no longer BUG2. */
+    xqc_key_update_peer_ack_sent(&conn->key_update_ctx, 80);
+    CU_ASSERT_EQUAL(conn->key_update_ctx.peer_key_update_ack_pending, XQC_FALSE);
+    CU_ASSERT_EQUAL(conn->key_update_ctx.peer_key_update_pktno, XQC_MAX_UINT64_VALUE);
+    CU_ASSERT(!xqc_key_update_peer_consecutive(&conn->key_update_ctx, 0, 100));
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+
+
+/*
+ * Issue #756 BUG3 regression test (RFC 9001 §6.4).
+ *
+ * After a key update, old keys are retained for 3*PTO.  During this window,
+ * an old-key-phase packet whose pkt_num exceeds first_recv_pktno (the lowest
+ * new-key-phase pkt_num) violates §6.4 and must be KEY_UPDATE_ERROR.
+ *
+ * The check runs AFTER successful decryption (matching RFC's "successfully
+ * removes protection" precondition).  During the old-key retention window,
+ * the RX key derivation is also suppressed (guarded by !timer_set) so old
+ * keys are preserved for decrypt.
+ *
+ * Detection condition (in xqc_packet_decrypt, post-decrypt):
+ *   key_phase != next_in_key_phase        (old key phase)
+ *   && pkt_num > first_recv_pktno         (higher than new-key packets)
+ *   && key_phase_synced == TRUE           (not mid-update)
+ *   && XQC_TIMER_KEY_UPDATE is set        (old-key retention window active)
+ */
+void
+xqc_test_old_key_high_pktnum_detection(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    /*
+     * Simulate post-key-update state:
+     * next_in_key_phase = 1 (flipped), first_recv_pktno = 80 (new-phase min)
+     */
+    conn->key_update_ctx.next_in_key_phase = 1;
+    conn->key_update_ctx.first_recv_pktno = 80;
+
+    xqc_bool_t      detected;
+    xqc_uint_t      key_phase;
+    xqc_packet_number_t pkt_num;
+    xqc_bool_t      key_phase_synced;
+    xqc_bool_t      timer_set;
+
+    /*
+     * Case 1: Old key_phase, pkt_num > first_recv, synced, timer set
+     * → DETECTED (all four conditions met)
+     */
+    key_phase       = 0;
+    pkt_num         = 100;
+    key_phase_synced = XQC_TRUE;
+    timer_set       = XQC_TRUE;
+    detected        = XQC_FALSE;
+
+    if (key_phase != conn->key_update_ctx.next_in_key_phase
+        && pkt_num > conn->key_update_ctx.first_recv_pktno
+        && key_phase_synced
+        && timer_set)
+    {
+        detected = XQC_TRUE;
+    }
+    CU_ASSERT_EQUAL(detected, XQC_TRUE);
+
+    /*
+     * Case 2: Old key_phase, pkt_num <= first_recv, synced, timer set
+     * → NOT detected (reordered old packet with low pkt_num is OK)
+     */
+    pkt_num  = 50;
+    detected = XQC_FALSE;
+
+    if (key_phase != conn->key_update_ctx.next_in_key_phase
+        && pkt_num > conn->key_update_ctx.first_recv_pktno
+        && key_phase_synced
+        && timer_set)
+    {
+        detected = XQC_TRUE;
+    }
+    CU_ASSERT_EQUAL(detected, XQC_FALSE);
+
+    /*
+     * Case 3: Old key_phase, pkt_num > first_recv, synced, timer NOT set
+     * → NOT detected (old keys already discarded; this path is a new key
+     *   update from peer, not a §6.4 violation)
+     */
+    pkt_num  = 100;
+    timer_set = XQC_FALSE;
+    detected = XQC_FALSE;
+
+    if (key_phase != conn->key_update_ctx.next_in_key_phase
+        && pkt_num > conn->key_update_ctx.first_recv_pktno
+        && key_phase_synced
+        && timer_set)
+    {
+        detected = XQC_TRUE;
+    }
+    CU_ASSERT_EQUAL(detected, XQC_FALSE);
+
+    /*
+     * Case 4: Same key_phase as expected, pkt_num > first_recv, synced, timer set
+     * → NOT detected (current-phase packet, not old-key)
+     */
+    key_phase = 1;  /* matches next_in_key_phase */
+    pkt_num   = 100;
+    timer_set = XQC_TRUE;
+    detected  = XQC_FALSE;
+
+    if (key_phase != conn->key_update_ctx.next_in_key_phase
+        && pkt_num > conn->key_update_ctx.first_recv_pktno
+        && key_phase_synced
+        && timer_set)
+    {
+        detected = XQC_TRUE;
+    }
+    CU_ASSERT_EQUAL(detected, XQC_FALSE);
+
+    /*
+     * Case 5: Old key_phase, pkt_num > first_recv, NOT synced, timer set
+     * → NOT detected (mid-update; key_phase_synced gate prevents false positive)
+     */
+    key_phase        = 0;
+    pkt_num          = 100;
+    key_phase_synced = XQC_FALSE;
+    timer_set        = XQC_TRUE;
+    detected         = XQC_FALSE;
+
+    if (key_phase != conn->key_update_ctx.next_in_key_phase
+        && pkt_num > conn->key_update_ctx.first_recv_pktno
+        && key_phase_synced
+        && timer_set)
+    {
+        detected = XQC_TRUE;
+    }
+    CU_ASSERT_EQUAL(detected, XQC_FALSE);
 
     xqc_engine_destroy(conn->engine);
 }

@@ -21,6 +21,7 @@
 #include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_frame_parser.h"
 #include "src/transport/xqc_packet_in.h"
+#include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_recv_record.h"
 
 extern void xqc_conn_tls_error_cb(xqc_int_t tls_err, void *user_data);
@@ -407,6 +408,8 @@ xqc_0rtt_test_make_conn(xqc_cid_t *out_server_scid)
 
     /* mark the connection as having 0-RTT */
     conn->conn_flag |= XQC_CONN_FLAG_HAS_0RTT;
+    xqc_conn_early_data_accept(conn);
+
     /* clear any prior errors */
     conn->conn_err = 0;
     conn->conn_flag &= ~XQC_CONN_FLAG_ERROR;
@@ -647,6 +650,18 @@ xqc_test_0rtt_params_each_reduced(void)
 
         xqc_engine_destroy(conn->engine);
     }
+}
+
+
+void
+xqc_test_0rtt_params_error_wire_code(void)
+{
+    CU_ASSERT_EQUAL(xqc_conn_close_wire_error_code(TRA_0RTT_TRANS_PARAMS_ERROR),
+                    TRA_TRANSPORT_PARAMETER_ERROR);
+    CU_ASSERT_EQUAL(xqc_conn_close_wire_error_code(TRA_KEY_UPDATE_ERROR),
+                    TRA_KEY_UPDATE_ERROR);
+    CU_ASSERT_EQUAL(xqc_conn_close_wire_error_code(H3_FRAME_ERROR),
+                    H3_FRAME_ERROR);
 }
 
 

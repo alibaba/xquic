@@ -770,6 +770,17 @@ error:
     return ret;
 }
 
+uint64_t
+xqc_conn_close_wire_error_code(uint64_t err_code)
+{
+    if (err_code == TRA_0RTT_TRANS_PARAMS_ERROR) {
+        return TRA_TRANSPORT_PARAMETER_ERROR;
+    }
+
+    return err_code;
+}
+
+
 int
 xqc_write_conn_close_to_packet(xqc_connection_t *conn, uint64_t err_code)
 {
@@ -795,6 +806,7 @@ xqc_write_conn_close_to_packet(xqc_connection_t *conn, uint64_t err_code)
         return -XQC_EWRITE_PKT;
     }
 
+    err_code = xqc_conn_close_wire_error_code(err_code);
     ret = xqc_gen_conn_close_frame(packet_out, err_code, err_code >= H3_NO_ERROR ? 1:0, 0);
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_conn_close_frame error|");

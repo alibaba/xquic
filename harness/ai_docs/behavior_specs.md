@@ -69,5 +69,8 @@ These invariants keep the harness useful to agents and safe for public review.
 - Harness changes run `bash harness/scripts/xqc_harness_check.sh`.
 - The harness check validates committed harness structure and synchronization
   with repository code entry points.
+- Pull request events pass the PR body to the same harness check so
+  contributor-facing summaries cannot keep references to missing repository
+  paths after a pushed head changes.
 - Runtime product validation stays in `scripts/validate.sh` and related
   validation specs.

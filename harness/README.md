@@ -50,8 +50,9 @@ bash harness/scripts/xqc_harness_check.sh
 ```
 
 That entry point verifies harness structure and manifest-to-code
-synchronization. Product build and runtime validation stay in
-`scripts/validate.sh`.
+synchronization. On pull request events, the workflow also passes the PR body
+to the same check so stale repository-path references fail with the current
+head. Product build and runtime validation stay in `scripts/validate.sh`.
 
 ## Naming
 

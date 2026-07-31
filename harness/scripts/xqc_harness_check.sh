@@ -147,6 +147,88 @@ EOF
     fi
 }
 
+check_pr_body_paths()
+{
+    local path="${XQC_PR_BODY_PATH:-}"
+    local output
+    local output_file
+
+    if [[ -z "${path}" ]]; then
+        pass "PR body path check not requested"
+        return
+    fi
+
+    if [[ ! -f "${path}" ]]; then
+        fail "PR body path file is missing"
+        return
+    fi
+
+    output_file="$(mktemp "${TMPDIR:-/tmp}/xqc-pr-body-check.XXXXXX")"
+
+    if ruby - "${ROOT_DIR}" "${path}" >"${output_file}" 2>&1 <<'RUBY'
+root = ARGV.fetch(0)
+body_path = ARGV.fetch(1)
+body = File.read(body_path)
+errors = []
+
+def candidate_paths(code)
+  code.split(/\s+/).each_with_object([]) do |token, paths|
+    token = token.sub(/\A[A-Za-z_][A-Za-z0-9_]*=/, "")
+    token = token.sub(/\A\.\//, "")
+    token = token.gsub(/\A['"]|['",.;:)]\z/, "")
+    next if token.empty?
+    next if token.start_with?("-", "$", "http://", "https://")
+    next unless token.include?("/") || token.end_with?(".md", ".rb", ".sh", ".yml", ".yaml")
+
+    paths << token
+  end
+end
+
+tick = 0x60.chr
+in_code = false
+current = +""
+code_spans = []
+
+body.each_char do |char|
+  if char == tick
+    code_spans << current if in_code
+    current = +""
+    in_code = !in_code
+    next
+  end
+
+  current << char if in_code && char != "\n"
+end
+
+code_spans.each do |code|
+  candidate_paths(code).each do |relative_path|
+    next if relative_path.include?("<") || relative_path.include?(">")
+    next if File.exist?(File.join(root, relative_path))
+
+    errors << "PR body references missing path #{relative_path}"
+  end
+end
+
+if errors.empty?
+  puts "PR body path references ok"
+  exit 0
+end
+
+errors.uniq.each { |error| warn error }
+exit 1
+RUBY
+    then
+        output="$(cat "${output_file}")"
+        rm -f "${output_file}"
+        pass "${output}"
+    else
+        output="$(cat "${output_file}")"
+        rm -f "${output_file}"
+        echo "${output}" >&2
+        fail "PR body references missing repository paths"
+    fi
+}
+
 reject_tree_grep()
 {
     local pattern="$1"
@@ -234,6 +316,7 @@ require_harness_script_set
 require_grep "harness/scripts/xqc_harness_check.sh" \
     ".github/workflows/build.yml" \
     "GitHub workflow runs harness check"
+check_pr_body_paths
 require_skill_schema
 check_optional_claude_adapter
 

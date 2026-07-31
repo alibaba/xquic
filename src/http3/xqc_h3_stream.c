@@ -1606,12 +1606,18 @@ xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_
                 errcode = -XQC_H3_EPROC_BYTESTREAM;
             }
             
-            if (processed == -XQC_H3_INVALID_HEADER) {
-                /* RFC 9114 §4.1.2: malformed request/response headers
-                 * MUST be treated as H3_MESSAGE_ERROR, not as a generic
-                 * protocol error. This path covers QPACK decode failures
-                 * surfaced as -XQC_H3_INVALID_HEADER. */
-                XQC_H3_CONN_ERR(h3c, H3_MESSAGE_ERROR, errcode);
+            if (processed == -XQC_H3_INVALID_HEADER
+                && h3c->conn->conn_err == 0)
+            {
+                /*
+                 * RFC 9114 Section 4.1.2 requires a malformed message to
+                 * be treated as an H3_MESSAGE_ERROR stream error. Consume
+                 * the processing error after resetting this stream so the
+                 * caller does not promote it to a connection error.
+                 */
+                xqc_stream_close_with_error(h3s->stream,
+                                            H3_MESSAGE_ERROR);
+                return XQC_OK;
 
             } else {
                 XQC_H3_CONN_ERR(h3c, H3_FRAME_ERROR, errcode);

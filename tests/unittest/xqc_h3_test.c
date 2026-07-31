@@ -1174,11 +1174,17 @@ xqc_test_h3_malformed_headers_uses_message_error()
     xqc_int_t ret = xqc_h3_stream_process_in(h3s, buf, sizeof(buf),
             XQC_TRUE);
 
-    /* process_in collapses sub-errors to -XQC_H3_EPROC_REQUEST */
-    CU_ASSERT(ret == -XQC_H3_EPROC_REQUEST);
-    CU_ASSERT(conn->conn_err == H3_MESSAGE_ERROR);
-    CU_ASSERT(conn->conn_err == 0x10E);
-    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    /*
+     * RFC 9114 Section 4.1.2 makes this a stream error. process_in
+     * consumes the handled parse failure after scheduling RESET_STREAM.
+     */
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(h3s->stream->stream_err == H3_MESSAGE_ERROR);
+    CU_ASSERT(h3s->stream->stream_err == 0x10E);
+    CU_ASSERT(h3s->stream->stream_state_send
+              == XQC_SEND_STREAM_ST_RESET_SENT);
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
 
     xqc_h3_msgerr_teardown(h3s, h3c, conn);
 }
@@ -1244,6 +1250,9 @@ xqc_test_h3_valid_headers_smoke()
     CU_ASSERT(ret == XQC_OK);
     CU_ASSERT(conn->conn_err == 0);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
+    CU_ASSERT(h3s->stream->stream_err == 0);
+    CU_ASSERT(h3s->stream->stream_state_send
+              < XQC_SEND_STREAM_ST_RESET_SENT);
     /* the HEADERS frame should have advanced the request to 1 section */
     CU_ASSERT(h3s->h3r->current_header == 1);
 

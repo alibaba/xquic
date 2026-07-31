@@ -230,6 +230,9 @@ void xqc_stream_record_trans_state(xqc_stream_t *stream, xqc_bool_t begin);
 
 void xqc_destroy_stream(xqc_stream_t *stream);
 
+xqc_int_t xqc_stream_close_with_error(xqc_stream_t *stream,
+    uint64_t err_code);
+
 void xqc_process_write_streams(xqc_connection_t *conn);
 
 void xqc_process_read_streams(xqc_connection_t *conn);
@@ -303,4 +306,3 @@ xqc_bool_t xqc_is_stream_finished(xqc_stream_t *stream);
 
 void xqc_record_stream_state(xqc_stream_t *stream);
 #endif /* _XQC_STREAM_H_INCLUDED_ */
-

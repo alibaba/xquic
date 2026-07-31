@@ -6,7 +6,7 @@ Use this file after locating the affected area in `structure_map.md`.
 
 Examples:
 - Add a reusable skill.
-- Change setup/link registration.
+- Change harness check routing.
 - Change generic schema checks.
 - Change task-local evidence layout.
 

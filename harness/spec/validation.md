@@ -283,23 +283,9 @@ After publishing, a collision is reported only as an incomplete local gate and
 concise blocker. A later pull request with a duplicate case ID does not pass
 the gate even when all runtime tests passed with that ID.
 
-## Optional Pre-Push Gate
-
-Register the repository harness and install its optional pre-push hook with:
-
-```bash
-./harness/scripts/setup_harness.sh --install-pre-push-hook
-```
-
-The hook clears `XQC_TEST_NAME`, runs
-`XQC_BUILD_DIR=build ./scripts/validate.sh full`, and rejects the push if the
-command fails or the legacy case output contains a failure result. Existing
-hooks are never overwritten. Use `git push --no-verify` only for an explicit
-exception; bypassing the hook does not relax the pull-request gate.
-
-Regardless of hook use, a production code pull request must show the concise
-current-head local-regression status and paired client-to-server case summary
-required above.
+Regardless of local helper usage, a production code pull request must show the
+concise current-head local-regression status and paired client-to-server case
+summary required above.
 
 ## Configuration
 

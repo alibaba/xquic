@@ -89,7 +89,7 @@ Context:
 Decision:
 - Use ignored `build/harness/runs/<task-id>/` as the task-local run evidence
   directory.
-- Initialize the directory with `harness/scripts/harness_trace.sh init <task-id>`.
+- Create the directory directly when durable task-local evidence is needed.
 - Keep OpenSpec proposal, design, tasks, and requirement deltas in
   `openspec/`, and link to them from the run evidence when applicable.
 
@@ -100,7 +100,6 @@ Consequences:
 
 Evidence:
 - `harness/spec/run-artifacts.md`
-- `harness/scripts/harness_trace.sh`
 - `harness/spec/openspec.md`
 
 ## ADR-H004: Keep Git And PR Skills Purpose-Bound

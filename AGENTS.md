@@ -2,19 +2,6 @@
 
 Keep this file short: it is the strong injection layer, not the full harness.
 
-## Bootstrap
-
-In a fresh checkout, ensure active discovery has project skills and pipeline.
-Default adapters are `.agents/skills/` and
-`.agents/pipelines/dev-pipeline.md`; if absent, run:
-
-```bash
-./harness/scripts/setup_harness.sh
-```
-
-Run it once per checkout; it is idempotent and refuses to overwrite paths. Do
-not install the optional pre-push hook without explicit opt-in.
-
 ## Mandatory Preflight
 
 Before planning, inspecting implementation paths, or editing code, tests,

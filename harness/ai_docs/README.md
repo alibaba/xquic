@@ -36,8 +36,7 @@ ignored `harness/private/`, not in committed docs.
    detect drift across AGENTS, docs, skills, scripts, and manifest routing.
 
 Task-local evidence is not part of the durable explanation layer. Store it in
-`build/harness/runs/<task-id>/` using `harness/scripts/harness_trace.sh init
-<task-id>`.
+`build/harness/runs/<task-id>/`.
 
 ## Read Order
 

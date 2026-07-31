@@ -39,11 +39,11 @@ OpenSpec change path from `task.md` or `evidence.md`.
 From the repository root:
 
 ```bash
-harness/scripts/harness_trace.sh init <task-id>
+mkdir -p build/harness/runs/<task-id>
 ```
 
-The command prints the created run directory. Re-running it preserves existing
-files and creates only missing templates.
+Create only the files needed for the current task. Do not add generated run
+artifacts to Git.
 
 ## Use
 

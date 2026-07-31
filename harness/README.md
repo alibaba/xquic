@@ -11,6 +11,7 @@ harness/
 ├── ai_docs/     structure maps, change obligations, behavior specs, decisions
 ├── spec/        project instructions, facts, and evidence contracts
 ├── pipelines/   ordered workflows that apply the specifications
+├── scripts/     harness structure and code-synchronization checks
 ├── skills/      reusable task procedures, one SKILL.md per skill
 └── private/     ignored closed-source adapters and local/private runbooks
 ```
@@ -40,35 +41,17 @@ harness/
 - [Fission-AI/OpenSpec](https://github.com/Fission-AI/OpenSpec): upstream
   project source and CLI installation reference.
 
-## Setup
+## Checks
 
-From the repository root, run
-[`setup_harness.sh`](scripts/setup_harness.sh) to register the harness:
-
-```bash
-./harness/scripts/setup_harness.sh
-```
-
-Root [`AGENTS.md`](../AGENTS.md#first-time-harness-setup) directs agents to
-run this bootstrap once when a fresh checkout's active discovery targets have
-no registered adapters.
-
-The default registration creates project-local symbolic links under
-`.agents/skills/` and `.agents/pipelines/`. These generated adapters are
-ignored by Git; `harness/` remains the only committed source. Re-running the
-command is safe. Existing files or links to another source are never
-overwritten.
-
-Use `--skills-dir` and `--pipelines-dir` to target a tool-native discovery
-directory. To install the optional pre-push validation hook:
+Harness scripts are limited to repository-owned consistency checks:
 
 ```bash
-./harness/scripts/setup_harness.sh --install-pre-push-hook
+bash harness/scripts/xqc_harness_check.sh
 ```
 
-The [pre-push hook](scripts/hooks/pre-push) runs the complete local unit
-and case-test suites. It is an early failure signal, not a substitute for
-the validation gate or the local pre-review report.
+That entry point verifies harness structure and manifest-to-code
+synchronization. Product build and runtime validation stay in
+`scripts/validate.sh`.
 
 ## Naming
 
@@ -86,8 +69,7 @@ the validation gate or the local pre-review report.
 - Task-scoped issue-check reports belong under the ignored
   `build/harness/<task-id>/` directory and must not be committed.
 - Task-local run evidence belongs under ignored
-  `build/harness/runs/<task-id>/`; initialize it with
-  `harness/scripts/harness_trace.sh init <task-id>`.
+  `build/harness/runs/<task-id>/`.
 - Tool-native local adapters such as `.claude/` are allowed locally but
   must not become committed sources of truth. Migrate durable skill content to
   `harness/skills/`.

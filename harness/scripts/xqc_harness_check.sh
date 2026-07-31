@@ -124,6 +124,29 @@ RUBY
     fi
 }
 
+require_harness_script_set()
+{
+    local actual
+    local expected
+
+    actual="$(
+        cd "${ROOT_DIR}" &&
+            find harness/scripts -type f | sort
+    )"
+    expected="$(cat <<'EOF'
+harness/scripts/harness_manifest_check.rb
+harness/scripts/xqc_harness_check.sh
+EOF
+)"
+
+    if [[ "${actual}" == "${expected}" ]]; then
+        pass "harness scripts stay limited to structure and code-sync checks"
+    else
+        echo "${actual}" >&2
+        fail "harness scripts must only contain harness check entry points"
+    fi
+}
+
 reject_tree_grep()
 {
     local pattern="$1"
@@ -179,10 +202,8 @@ require_file "harness/spec/harness-manifest.yml"
 require_file "harness/spec/openspec.md"
 require_file "harness/skills/harness-review/SKILL.md"
 require_file "harness/skills/validate/SKILL.md"
-require_file "harness/scripts/setup_harness.sh"
-require_file "harness/scripts/hooks/pre-push"
-require_file "harness/scripts/harness_trace.sh"
 require_file "harness/scripts/harness_manifest_check.rb"
+require_file "harness/scripts/xqc_harness_check.sh"
 require_file "scripts/validate.sh"
 
 require_line_count "AGENTS.md" 60 100 \
@@ -209,6 +230,7 @@ require_grep "build/harness/runs/<task-id>" \
     "harness/spec/run-artifacts.md" \
     "run artifact contract defines canonical task evidence directory"
 require_manifest_schema
+require_harness_script_set
 require_grep "harness/scripts/xqc_harness_check.sh" \
     ".github/workflows/build.yml" \
     "GitHub workflow runs harness check"

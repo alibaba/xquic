@@ -135,8 +135,5 @@ applicable.
 - Do not treat an environment blocker as a passing gate; keep the pull request
   in draft or resolve the blocker before review.
 - Keep raw logs under the ignored validation artifact directory.
-- For task-local diagnosis and final evidence, use
-  `harness/scripts/harness_trace.sh init <task-id>` and the run artifact contract in
-  `harness/spec/run-artifacts.md`.
-- Treat the optional pre-push hook as an early check only. The pull request
-  must still contain the required concise case and aggregate gate summary.
+- For task-local diagnosis and final evidence, use the run artifact contract
+  in `harness/spec/run-artifacts.md`.

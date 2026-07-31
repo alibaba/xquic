@@ -177,7 +177,7 @@ def candidate_paths(code)
     token = token.sub(/\A\.\//, "")
     token = token.gsub(/\A['"]|['",.;:)]\z/, "")
     next if token.empty?
-    next if token.start_with?("-", "$", "http://", "https://")
+    next if token.start_with?("-", "$", "/", "http://", "https://")
     next unless token.include?("/") || token.end_with?(".md", ".rb", ".sh", ".yml", ".yaml")
 
     paths << token

@@ -1206,6 +1206,23 @@ xqc_tls_get_ssl(xqc_tls_t *tls)
  * ============================================================================
  */
 
+const char *
+xqc_tls_key_install_error_direction(xqc_key_type_t key_type, xqc_int_t ret)
+{
+    if (ret == XQC_OK) {
+        return NULL;
+    }
+
+    switch (key_type) {
+    case XQC_KEY_TYPE_RX_READ:
+        return "read";
+    case XQC_KEY_TYPE_TX_WRITE:
+        return "write";
+    default:
+        return "unknown";
+    }
+}
+
 int 
 xqc_tls_set_read_secret(SSL *ssl, enum ssl_encryption_level_t level,
     const SSL_CIPHER *cipher, const uint8_t *secret, size_t secret_len)
@@ -1240,8 +1257,12 @@ xqc_tls_set_read_secret(SSL *ssl, enum ssl_encryption_level_t level,
     /* derive and install read key */
     xqc_crypto_t *crypto = tls->crypto[level];
     ret = xqc_crypto_derive_keys(crypto, secret, secret_len, XQC_KEY_TYPE_RX_READ);
-    if (ret != XQC_OK) {
-        xqc_log(tls->log, XQC_LOG_ERROR, "|install write key error|level:%d|ret:%d", level, ret);
+    const char *key_direction = xqc_tls_key_install_error_direction(
+        XQC_KEY_TYPE_RX_READ, ret);
+    if (key_direction != NULL) {
+        xqc_log(tls->log, XQC_LOG_ERROR,
+                "|install %s key error|level:%d|ret:%d",
+                key_direction, level, ret);
         return XQC_SSL_FAIL;
     }
 
@@ -1283,8 +1304,12 @@ xqc_tls_set_write_secret(SSL *ssl, enum ssl_encryption_level_t level,
     /* derive and install write key */
     xqc_crypto_t *crypto = tls->crypto[level];
     ret = xqc_crypto_derive_keys(crypto, secret, secret_len, XQC_KEY_TYPE_TX_WRITE);
-    if (ret != XQC_OK) {
-        xqc_log(tls->log, XQC_LOG_ERROR, "|install write key error|level:%d|ret:%d", level, ret);
+    const char *key_direction = xqc_tls_key_install_error_direction(
+        XQC_KEY_TYPE_TX_WRITE, ret);
+    if (key_direction != NULL) {
+        xqc_log(tls->log, XQC_LOG_ERROR,
+                "|install %s key error|level:%d|ret:%d",
+                key_direction, level, ret);
         return XQC_SSL_FAIL;
     }
 

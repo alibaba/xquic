@@ -882,6 +882,36 @@ void xqc_test_destroy_tls_ctx()
 }
 
 void
+xqc_test_tls_key_install_success()
+{
+    const char *direction;
+
+    direction = xqc_tls_key_install_error_direction(
+        XQC_KEY_TYPE_RX_READ, XQC_OK);
+    CU_ASSERT(direction == NULL);
+
+    direction = xqc_tls_key_install_error_direction(
+        XQC_KEY_TYPE_TX_WRITE, XQC_OK);
+    CU_ASSERT(direction == NULL);
+}
+
+void
+xqc_test_tls_key_install_failure()
+{
+    const char *direction;
+
+    direction = xqc_tls_key_install_error_direction(
+        XQC_KEY_TYPE_RX_READ, -XQC_TLS_DERIVE_KEY_ERROR);
+    CU_ASSERT(direction != NULL);
+    CU_ASSERT(strcmp(direction, "read") == 0);
+
+    direction = xqc_tls_key_install_error_direction(
+        XQC_KEY_TYPE_TX_WRITE, -XQC_TLS_DERIVE_KEY_ERROR);
+    CU_ASSERT(direction != NULL);
+    CU_ASSERT(strcmp(direction, "write") == 0);
+}
+
+void
 xqc_test_tls()
 {
     xqc_log_callbacks_t log_cb =  xqc_null_log_cb;

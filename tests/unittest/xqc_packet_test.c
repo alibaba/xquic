@@ -19,6 +19,9 @@
 
 #define XQC_TEST_SHORT_HEADER_PACKET_A "\x40\xAB\x3f\x12\x0a\xcd\xef\x00\x89"
 #define XQC_TEST_LONG_HEADER_PACKET_B "\xC0\x00\x00\x00\x01\x08\xAB\x3f\x12\x0a\xcd\xef\x00\x89\x08\xAB\x3f\x12\x0a\xcd\xef\x00\x89"
+#define XQC_TEST_ZERO_RTT_PACKET                                         \
+    "\xD0\x00\x00\x00\x01\x08\xAB\x3f\x12\x0a\xcd\xef\x00\x89" \
+    "\x08\xAB\x3f\x12\x0a\xcd\xef\x00\x89\x01\x00"
 
 #define XQC_TEST_CHECK_CID "ab3f120acdef0089"
 
@@ -64,6 +67,59 @@ xqc_test_long_header_packet_parse_cid()
 {
     xqc_test_packet_parse_cid((unsigned char *)XQC_TEST_LONG_HEADER_PACKET_B,
                               sizeof(XQC_TEST_LONG_HEADER_PACKET_B)-1, 0);
+}
+
+
+void
+xqc_test_client_discards_received_zero_rtt(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_packet_in_t packet_in;
+    xqc_int_t ret;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    CU_ASSERT_EQUAL_FATAL(conn->conn_type, XQC_CONN_TYPE_CLIENT);
+
+    xqc_packet_in_init(&packet_in,
+                       (unsigned char *)XQC_TEST_ZERO_RTT_PACKET,
+                       sizeof(XQC_TEST_ZERO_RTT_PACKET) - 1, NULL, 0, 0);
+
+    ret = xqc_packet_process_single(conn, &packet_in);
+
+    /*
+     * RFC 9001 Section 5.6 requires discard before decryption. The receive
+     * path must not retain the packet or mark client-side 0-RTT state.
+     */
+    CU_ASSERT_EQUAL(ret, -XQC_EIGNORE_PKT);
+    CU_ASSERT_EQUAL(conn->undecrypt_count[XQC_ENC_LEV_0RTT], 0);
+    CU_ASSERT_FALSE(conn->conn_flag & XQC_CONN_FLAG_HAS_0RTT);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_server_buffers_received_zero_rtt(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_packet_in_t packet_in;
+    xqc_int_t ret;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+
+    xqc_packet_in_init(&packet_in,
+                       (unsigned char *)XQC_TEST_ZERO_RTT_PACKET,
+                       sizeof(XQC_TEST_ZERO_RTT_PACKET) - 1, NULL, 0, 0);
+
+    ret = xqc_packet_process_single(conn, &packet_in);
+
+    CU_ASSERT_EQUAL(ret, -XQC_EWAITING);
+    CU_ASSERT_EQUAL(conn->undecrypt_count[XQC_ENC_LEV_0RTT], 1);
+    CU_ASSERT_TRUE(conn->conn_flag & XQC_CONN_FLAG_HAS_0RTT);
+
+    conn->conn_type = XQC_CONN_TYPE_CLIENT;
+    xqc_engine_destroy(conn->engine);
 }
 
 

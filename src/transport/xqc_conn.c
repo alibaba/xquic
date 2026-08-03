@@ -656,6 +656,7 @@ xqc_conn_init_key_update_ctx(xqc_connection_t *conn)
     ctx->first_sent_pktno  = 0;
     ctx->first_recv_pktno  = 0;
     ctx->enc_pkt_cnt       = 0;
+    ctx->aead_confidentiality_limit = 0;
 
     ctx->initiate_time_guard   = 0;
 }

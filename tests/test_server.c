@@ -61,6 +61,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_SINGLE_VINT_OVERLONG 1008
 #define XQC_TEST_CASE_H3_FIELD_SECTION_VALID 1011
 #define XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT 1012
+#define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_BELOW_LIMIT 902
+#define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT 903
 
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
@@ -155,7 +157,7 @@ int g_send_body_size_defined;
 int g_save_body;
 int g_read_body;
 int g_spec_url;
-/* 99 pure fin, 7XX for 0-RTT transport param validation */
+/* 99 pure fin, 7XX for transport, 9XX for QUIC-TLS */
 int g_test_case;
 int g_server_conn_cnt;
 xqc_conn_settings_t g_conn_settings;
@@ -1517,6 +1519,15 @@ xqc_server_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
         }
 
         user_stream->header_recvd++;
+
+        if (g_test_case == XQC_TEST_CASE_AEAD_CONFIDENTIALITY_BELOW_LIMIT
+            || g_test_case == XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT)
+        {
+            printf("[aead-confidentiality-test]|request_received|case:%d|"
+                   "stream_id:%"PRIu64"|\n", g_test_case,
+                   xqc_h3_stream_id(h3_request));
+            fflush(stdout);
+        }
 
         if (g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_VALID
             || g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT)

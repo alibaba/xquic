@@ -71,20 +71,64 @@ end
 require_hash(data, "manifest", errors)
 
 if data.is_a?(Hash)
+  errors << "manifest version must be 3" unless data["version"] == 3
   require_hash(data["entrypoints"], "entrypoints", errors)
+  require_hash(data["document_roles"], "document_roles", errors)
+  require_hash(data["global_docs"], "global_docs", errors)
   require_hash(data["modules"], "modules", errors)
   require_hash(data["harness_layers"], "harness_layers", errors)
 
+  if data["document_roles"].is_a?(Hash)
+    expected_roles = {
+      "specification" => {
+        "authority" => "normative",
+        "may_define_requirements" => true,
+        "paths" => ["harness/spec/*"]
+      },
+      "documentation" => {
+        "authority" => "informative",
+        "may_define_requirements" => false,
+        "paths" => ["harness/docs/*"]
+      },
+      "decision" => {
+        "authority" => "rationale",
+        "may_define_requirements" => false,
+        "paths" => ["harness/decisions/*"]
+      }
+    }
+
+    missing = expected_roles.keys - data["document_roles"].keys
+    extra = data["document_roles"].keys - expected_roles.keys
+    errors << "document_roles missing #{missing.join(', ')}" unless missing.empty?
+    errors << "document_roles has unknown roles #{extra.join(', ')}" unless extra.empty?
+
+    expected_roles.each do |role_name, expected|
+      role = data["document_roles"][role_name]
+      require_hash(role, "document_roles.#{role_name}", errors)
+      next unless role.is_a?(Hash)
+
+      expected.each do |field, value|
+        unless role[field] == value
+          errors << "document_roles.#{role_name}.#{field} must be #{value.inspect}"
+        end
+      end
+    end
+  end
+
   if data["harness_layers"].is_a?(Hash)
-    required_layers = %w[
+    expected_layers = %w[
       strong_injection
       on_demand_reading
       machine_mapping
       explanation
       self_check
+      local_adapters
+      private_extensions
     ]
-    missing = required_layers - data["harness_layers"].keys
+    missing = expected_layers - data["harness_layers"].keys
+    extra = data["harness_layers"].keys - expected_layers
     errors << "harness_layers missing #{missing.join(', ')}" unless missing.empty?
+    errors << "harness_layers has unknown layers #{extra.join(', ')}" unless extra.empty?
 
     data["harness_layers"].each do |layer_name, layer|
       require_hash(layer, "harness_layers.#{layer_name}", errors)
@@ -111,6 +155,12 @@ if data.is_a?(Hash)
   end
 
   if data["global_docs"].is_a?(Hash)
+    required_groups = %w[documentation decisions governance]
+    missing_groups = required_groups - data["global_docs"].keys
+    unless missing_groups.empty?
+      errors << "global_docs missing #{missing_groups.join(', ')}"
+    end
+
     data["global_docs"].each do |name, docs|
       require_nonempty_array(docs, "global_docs.#{name}", errors)
       next unless docs.is_a?(Array)
@@ -120,16 +170,25 @@ if data.is_a?(Hash)
       end
     end
 
-    ai_docs = data["global_docs"]["ai_docs"]
-    if ai_docs.is_a?(Array)
-      actual_ai_docs = Dir.glob(File.join(root, "harness/ai_docs/*.md")).
+    {
+      "documentation" => "harness/docs/*.md",
+      "decisions" => "harness/decisions/*.md"
+    }.each do |group_name, pattern|
+      listed = data["global_docs"][group_name]
+      next unless listed.is_a?(Array)
+
+      actual = Dir.glob(File.join(root, pattern)).
         map { |path| path.sub(root + "/", "") }.
         sort
-      listed_ai_docs = ai_docs.map(&:to_s).sort
-      missing_from_manifest = actual_ai_docs - listed_ai_docs
-      stale_manifest_docs = listed_ai_docs - actual_ai_docs
-      errors << "global_docs.ai_docs missing #{missing_from_manifest.join(', ')}" unless missing_from_manifest.empty?
-      errors << "global_docs.ai_docs lists missing #{stale_manifest_docs.join(', ')}" unless stale_manifest_docs.empty?
+      expected = listed.map(&:to_s).sort
+      missing_from_manifest = actual - expected
+      stale_manifest_docs = expected - actual
+      unless missing_from_manifest.empty?
+        errors << "global_docs.#{group_name} missing #{missing_from_manifest.join(', ')}"
+      end
+      unless stale_manifest_docs.empty?
+        errors << "global_docs.#{group_name} lists missing #{stale_manifest_docs.join(', ')}"
+      end
     end
   end
 

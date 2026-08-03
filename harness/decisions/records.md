@@ -17,7 +17,7 @@ Context:
   specific, or private.
 
 Decision:
-- Use `harness/ai_docs/` to document the four-quadrant model:
+- Use `harness/docs/README.md` to explain the four-quadrant model:
   public common, public custom, private common, and private custom.
 - Keep committed `harness/` public/open by default.
 - Keep closed-source content under ignored `harness/private/`.
@@ -35,7 +35,8 @@ Update triggers:
 
 Evidence:
 - `harness/README.md`
-- `harness/ai_docs/README.md`
+- `harness/docs/README.md`
+- `harness/spec/harness-behavior.md`
 - `harness/spec/harness-manifest.yml`
 - `harness/scripts/xqc_harness_check.sh`
 
@@ -48,8 +49,8 @@ Date: 2026-07-30
 Context:
 - Agents need a small always-injected prompt plus enough structure to fetch
   detailed context only when a task needs it.
-- Repeating task procedures in root docs, AI docs, skills, and scripts makes
-  the harness harder to update safely.
+- Repeating task procedures in root docs, explanatory docs, skills, and
+  scripts makes the harness harder to update safely.
 - Machine-readable routing must be separated from explanatory rationale.
 
 Decision:
@@ -57,7 +58,8 @@ Decision:
 - Put detailed workflows in on-demand pipelines, skills, and specs.
 - Keep path, module, docs, tests, feature flags, and validation routing in the
   manifest as the machine mapping layer.
-- Keep durable context in AI docs and avoid duplicating procedural workflows.
+- Keep durable explanations in `harness/docs/`, design rationale in
+  `harness/decisions/`, and avoid duplicating procedural workflows.
 - Enforce reference consistency through `harness/scripts/xqc_harness_check.sh`.
 
 Consequences:
@@ -68,7 +70,8 @@ Consequences:
 
 Evidence:
 - `AGENTS.md`
-- `harness/ai_docs/README.md`
+- `harness/docs/README.md`
+- `harness/spec/harness-behavior.md`
 - `harness/spec/doc-style.md`
 - `harness/spec/run-artifacts.md`
 - `harness/spec/harness-manifest.yml`
@@ -145,3 +148,84 @@ Evidence:
 - `harness/skills/xquic-pr-formatting/SKILL.md`
 - `harness/spec/pull-requests.md`
 - `harness/pipelines/dev-pipeline.md`
+
+## ADR-H005: Classify Documents By Authority Rather Than Audience
+
+Status: Accepted
+
+Date: 2026-08-03
+
+Context:
+
+- An `ai_docs` category described a consumer while `spec` described an
+  authority level, so the two categories were not mutually exclusive.
+- The explanation layer contained behavior specifications and procedural
+  change instructions, making it unclear which files could define
+  requirements.
+- The repository needs paths whose semantic role remains stable for both human
+  and agent consumers.
+
+Decision:
+
+- Keep normative requirements and contracts under `harness/spec/`.
+- Keep informative maps and maintenance guidance under `harness/docs/`.
+- Keep design rationale under `harness/decisions/`.
+- Treat audience and loading strategy as independent from document authority.
+- Declare document roles in the manifest and validate the directory contract
+  in the harness self-check.
+
+Consequences:
+
+- A file's directory identifies whether it can define requirements.
+- Informative documents and ADRs link to specifications instead of creating
+  independent constraints.
+- The same source can serve maintainers, contributors, and agents without an
+  audience-specific duplicate.
+
+Evidence:
+
+- `harness/spec/harness-behavior.md`
+- `harness/spec/harness-manifest.yml`
+- `harness/docs/README.md`
+- `harness/scripts/harness_manifest_check.rb`
+- `harness/scripts/xqc_harness_check.sh`
+
+## ADR-H006: Keep Public Skills Free Of Contributor Configuration
+
+Status: Accepted
+
+Date: 2026-08-03
+
+Context:
+
+- A public push skill embedded one contributor's fork URL and treated local
+  remote names as stable repository identities.
+- Remote aliases, writable forks, usernames, and worktree locations vary by
+  contributor and machine.
+- Executing a hard-coded remote setup can publish to the wrong repository or
+  mutate a contributor's Git configuration unexpectedly.
+
+Decision:
+
+- Public skills derive remote names, push URLs, and workspace locations from
+  the current repository and explicit user request.
+- Public skills do not embed contributor usernames, personal fork URLs, or
+  user-specific absolute home paths.
+- Push workflows inspect configured remotes and do not create, rename, or
+  repoint them without an explicit request.
+- Harness self-checks reject hard-coded Git remote URLs in public skills and
+  user-specific absolute home paths in committed harness content.
+
+Consequences:
+
+- The same public skill works for maintainers and fork-based contributors.
+- Local Git configuration remains user-owned instead of being silently
+  rewritten by a repository instruction.
+- Canonical public project URLs remain available where repository identity is
+  part of the documentation rather than an operational default.
+
+Evidence:
+
+- `harness/skills/xquic-safe-push/SKILL.md`
+- `harness/spec/harness-behavior.md`
+- `harness/scripts/xqc_harness_check.sh`

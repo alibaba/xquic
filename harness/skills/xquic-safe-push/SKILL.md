@@ -13,13 +13,19 @@ Use PR-specific skills only when those tasks are explicitly in scope.
 
 1. Read `AGENTS.md` and honor branch policy: never push directly to remote `main` or `master`.
 2. Check `git status --short --untracked-files=all`, `git branch --show-current`, and `git remote -v`.
-3. **Fork remote check**: Verify the `fork` remote exists and points to `git@github.com:cherylsy/xquic.git`:
+3. Resolve the intended push remote from the user request and the repository's
+   current configuration:
    ```bash
-   git remote get-url fork 2>/dev/null || \
-     git remote add fork git@github.com:cherylsy/xquic.git
+   git remote -v
+   git remote get-url --push <target-remote>
    ```
-4. Determine the push target from the user request and repository remotes. For
-   alibaba/xquic contributions, push contribution branches to `fork`.
+   Remote names such as `origin`, `upstream`, or `fork` are local conventions,
+   not portable identities. Do not create, rename, or repoint a remote unless
+   the user explicitly requests that configuration change.
+4. Use an explicitly named target when the user provides one. Otherwise use
+   the current branch's configured upstream only when its push URL and intended
+   ownership are unambiguous; ask before pushing when multiple or unclear
+   writable targets exist.
 5. Show staged and unstaged scopes separately using `git diff --cached --name-status` and `git diff --name-status`.
 6. If the user requested staged-only behavior, do not add any other files.
 7. If user-owned unrelated edits exist, leave them untouched and name them before proceeding.
@@ -39,22 +45,25 @@ Use PR-specific skills only when those tasks are explicitly in scope.
 Before pushing, show:
 
 - current branch
-- target remote and branch (must be `fork` for contribution branches unless the
-  user names another writable fork)
+- target remote, resolved push URL, and branch
 - commits that will be pushed
 - local uncommitted files that will remain local
 
 Push only after the user confirms, unless the same message already explicitly requested the push target and branch.
 
-For contribution branches:
+Push to the resolved target without embedding repository ownership in the
+skill:
+
 ```bash
-git push fork <branch-name>
+git push <target-remote> <branch-name>
 ```
 
 ## Forbidden
 
 - Do not push to `origin main`, `origin master`, or any remote main/master.
-- Do not push to `origin` at all for xquic code changes (origin is the upstream `alibaba/xquic` -- read-only for pushes).
+- Do not assume a remote name identifies an upstream repository, a personal
+  fork, or a writable target; resolve its configured push URL first.
+- Do not hard-code or automatically add a contributor-owned repository URL.
 - Do not use `--force` unless the user explicitly requested it. Prefer `--force-with-lease` when force is necessary.
 - Do not reset, checkout, clean, or remove files to simplify the state unless explicitly requested.
 
@@ -62,22 +71,22 @@ git push fork <branch-name>
 
 ### Remotes
 
-```
-origin  -> git@github.com:alibaba/xquic.git     (upstream, read-only for pushes)
-fork    -> git@github.com:cherylsy/xquic.git     (fork, default contribution push target)
-```
-
-- Contribution branches are pushed to the `fork` remote unless the user names
-  a different writable fork.
+- Treat all remote names and URLs as repository-local configuration.
+- Resolve the selected remote with `git remote get-url --push` immediately
+  before pushing.
+- Prefer the target named by the user. If none is named, use a configured
+  branch upstream only when it is clearly intended and writable.
+- Keep contributor usernames, fork URLs, and machine-specific paths out of
+  this public skill.
 
 ### Worktree Convention
 
 Each issue uses an independent git worktree for parallel isolation:
 
 ```
-<project-root>/                     (main worktree)
-../xquic-issue-<N>/                 (issue worktree)
+<project-root>/                         (main worktree)
+<workspace-parent>/<repo>-<task-id>/    (task worktree)
 ```
 
-Lifecycle: `git worktree add` -> work -> push to fork -> PR handling by the
-relevant PR skill -> `git worktree remove`.
+Lifecycle: `git worktree add` -> work -> push to the resolved target -> PR
+handling by the relevant PR skill -> `git worktree remove`.

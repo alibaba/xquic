@@ -263,6 +263,27 @@ reject_tree_grep()
     fi
 }
 
+reject_path_grep()
+{
+    local pattern="$1"
+    local path="$2"
+    local label="$3"
+    local matches
+
+    matches="$(
+        grep -RInE "${pattern}" "${ROOT_DIR}/${path}" 2>/dev/null \
+        | grep -vF "${ROOT_DIR}/harness/scripts/xqc_harness_check.sh:" \
+        || true
+    )"
+
+    if [[ -n "${matches}" ]]; then
+        echo "${matches}" >&2
+        fail "${label}"
+    else
+        pass "${label}"
+    fi
+}
+
 check_optional_claude_adapter()
 {
     local path="${ROOT_DIR}/CLAUDE.md"
@@ -341,6 +362,13 @@ reject_tree_grep "docs_ai/harness_manifest.yml|\\.claude/skills" \
     "committed harness does not depend on docs_ai manifest or .claude skills"
 reject_tree_grep "harness/ai_docs" \
     "committed harness does not reference the retired ai_docs path"
+reject_path_grep \
+    "git@github\\.com:|ssh://git@github\\.com/|git://github\\.com/|https://github\\.com/[^[:space:]]+\\.git" \
+    "harness/skills" \
+    "public skills do not hard-code Git remote URLs"
+reject_path_grep "/Users/[A-Za-z0-9._-]+/|/home/[A-Za-z0-9._-]+/" \
+    "harness" \
+    "committed harness does not contain user-specific absolute home paths"
 
 echo ""
 if [[ "${FAILURES}" -eq 0 ]]; then

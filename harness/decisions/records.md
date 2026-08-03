@@ -189,3 +189,43 @@ Evidence:
 - `harness/docs/README.md`
 - `harness/scripts/harness_manifest_check.rb`
 - `harness/scripts/xqc_harness_check.sh`
+
+## ADR-H006: Keep Public Skills Free Of Contributor Configuration
+
+Status: Accepted
+
+Date: 2026-08-03
+
+Context:
+
+- A public push skill embedded one contributor's fork URL and treated local
+  remote names as stable repository identities.
+- Remote aliases, writable forks, usernames, and worktree locations vary by
+  contributor and machine.
+- Executing a hard-coded remote setup can publish to the wrong repository or
+  mutate a contributor's Git configuration unexpectedly.
+
+Decision:
+
+- Public skills derive remote names, push URLs, and workspace locations from
+  the current repository and explicit user request.
+- Public skills do not embed contributor usernames, personal fork URLs, or
+  user-specific absolute home paths.
+- Push workflows inspect configured remotes and do not create, rename, or
+  repoint them without an explicit request.
+- Harness self-checks reject hard-coded Git remote URLs in public skills and
+  user-specific absolute home paths in committed harness content.
+
+Consequences:
+
+- The same public skill works for maintainers and fork-based contributors.
+- Local Git configuration remains user-owned instead of being silently
+  rewritten by a repository instruction.
+- Canonical public project URLs remain available where repository identity is
+  part of the documentation rather than an operational default.
+
+Evidence:
+
+- `harness/skills/xquic-safe-push/SKILL.md`
+- `harness/spec/harness-behavior.md`
+- `harness/scripts/xqc_harness_check.sh`

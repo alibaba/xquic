@@ -30,6 +30,12 @@ do not create competing requirements.
   committed sources of truth.
 - Public harness tasks must be executable without private context unless the
   user explicitly provides that context.
+- Public skills must derive contributor-owned repositories, remote aliases,
+  and workspace locations from the current repository or user request.
+- Public skills must not encode contributor usernames, personal fork URLs, or
+  user-specific absolute home paths.
+- A canonical project URL may identify a public source, but operational Git
+  instructions must still resolve the configured remote and push URL.
 
 ## Structure Boundaries
 

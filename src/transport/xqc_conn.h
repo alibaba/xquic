@@ -286,6 +286,8 @@ typedef struct {
     xqc_packet_number_t     first_sent_pktno;  /* lowest packet number sent with each key phase */
     xqc_packet_number_t     first_recv_pktno;  /* lowest packet number recv with each key phase */
     uint64_t                enc_pkt_cnt;       /* number of packet encrypt with each key phase */
+    /* cached RFC 9001 Section 6.6 confidentiality limit */
+    uint64_t                aead_confidentiality_limit;
     xqc_usec_t              initiate_time_guard;  /* time limit for initiating next key update */
 
 } xqc_key_update_ctx_t;

@@ -5262,6 +5262,54 @@ else
     case_print_result "crypto_error_not_fixed_enum" "fail"
 fi
 
+## RFC 9001 Section 6.6: AEAD confidentiality limits
+
+killall test_server 2> /dev/null
+clear_log
+rm -f test_session xqc_token tp_localhost aead_confidentiality_server.log
+${SERVER_BIN} -l d -e -x 902 > aead_confidentiality_server.log &
+sleep 1
+echo -e "AEAD confidentiality: last permitted packet updates keys ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 902 > stdlog
+injected=`grep "\[aead-confidentiality-test\]|case:902|" stdlog`
+updated=`grep "|key phase changed to" clog`
+received=`grep "\[aead-confidentiality-test\]|request_received|case:902|" \
+    aead_confidentiality_server.log`
+success=`grep ">>>>>>>> pass:1" stdlog`
+limit_error=`grep "|AEAD confidentiality limit reached|" clog`
+if [ -n "$injected" ] && [ -n "$updated" ] && [ -n "$received" ] \
+    && [ -n "$success" ] && [ -z "$limit_error" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "aead_confidentiality_boundary_updates_keys" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "aead_confidentiality_boundary_updates_keys" "fail"
+fi
+
+killall test_server 2> /dev/null
+clear_log
+rm -f test_session xqc_token tp_localhost aead_confidentiality_server.log
+${SERVER_BIN} -l d -e -x 903 > aead_confidentiality_server.log &
+sleep 1
+echo -e "AEAD confidentiality: exhausted keys reject next packet ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 903 > stdlog
+injected=`grep "\[aead-confidentiality-test\]|case:903|" stdlog`
+limit_error=`grep "|AEAD confidentiality limit reached|" clog`
+wire_error=`grep "|err:0xf" clog`
+received=`grep "\[aead-confidentiality-test\]|request_received|case:903|" \
+    aead_confidentiality_server.log`
+if [ -n "$injected" ] && [ -n "$limit_error" ] && [ -n "$wire_error" ] \
+    && [ -z "$received" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "aead_confidentiality_exhaustion_stops_sender" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "aead_confidentiality_exhaustion_stops_sender" "fail"
+fi
+
+killall test_server 2> /dev/null
+rm -f aead_confidentiality_server.log
+
 ## RFC 9000 Section 7.4.1: 0-RTT transport parameter validation
 
 # test 701: server reduces max_streams_bidi after first connection,

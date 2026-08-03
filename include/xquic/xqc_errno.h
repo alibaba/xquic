@@ -133,7 +133,6 @@ typedef enum {
     XQC_ESTREAM_BLOCKED                 = 620,      /**< stream-level flow control */
     XQC_EENCRYPT                        = 621,      /**< encryption error */
     XQC_EDECRYPT                        = 622,      /**< decryption error */
-    XQC_EAEAD_LIMIT                     = 623,      /**< AEAD integrity limit reached per RFC 9001 §6.6 */
     XQC_ESTREAM_NFOUND                  = 623,      /**< fail to find the corresponding stream */
     XQC_EWRITE_PKT                      = 624,      /**< fail to create a package or write a package header */
     XQC_ECREATE_STREAM                  = 625,      /**< fail to create stream */
@@ -155,6 +154,7 @@ typedef enum {
     XQC_ESTATELESS_RESET                = 641,      /**< connection is reset by peer */
     XQC_EPACKET_FILETER_CALLBACK        = 642,      /**< error with packet filter callback function */
     XQC_EVERSION_NEGOTIATION            = 643,      /**< client received a Version Negotiation packet, RFC 9000 §6.2 mandates abandoning the connection attempt */
+    XQC_EAEAD_LIMIT                     = 644,      /**< AEAD integrity limit reached per RFC 9001 §6.6 */
 
     XQC_EMP_NOT_SUPPORT_MP              = 650,      /**< Multipath - don't support multipath */
     XQC_EMP_NO_AVAIL_PATH_ID            = 651,      /**< Multipath - no available path id */

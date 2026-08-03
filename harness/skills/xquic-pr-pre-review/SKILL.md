@@ -1,6 +1,6 @@
 ---
 name: xquic-pr-pre-review
-description: Pre-review a published draft XQUIC code pull request before ready-for-review state. Use for a fail-closed gate over the exact published base-to-head diff covering RFC or pinned-draft conformance, paired positive and negative unit and client-to-server cases, adversarial bypasses, performance and compiler optimization, and memory safety and footprint; preserve the five-part retrospective and reviewer-built abnormal-case artifacts in the fixed local PR review workspace for the next iteration.
+description: Fail closed on published draft XQUIC code pull requests before ready-for-review state. Use when asked to pre-review a code PR or move it out of draft; verify current base-to-head code, protocol conformance, validation coverage, adversarial bad cases, hot-path performance, and memory safety in a five-part local report.
 ---
 
 # XQUIC PR Pre-Review
@@ -12,7 +12,6 @@ PR number and URL; do not substitute a local branch candidate. Never stage or
 commit the report or other local review artifacts.
 
 ## Local Review Workspace
-
 1. Expand `~` to the current user's home directory and use exactly
    `~/build/harness/pr-review-<number>/` as the review directory. Do not place
    the workspace under the repository checkout.
@@ -34,7 +33,6 @@ commit the report or other local review artifacts.
    output of the current review and an input to the next PR iteration.
 
 ## Inputs and Gate
-
 1. Fetch the pull request from GitHub. Record its number, URL, base commit,
    published head commit, changed files, draft state, and review time.
 2. Confirm the fetched head matches the PR's published head, then read the
@@ -56,7 +54,6 @@ If the official specification, reviewed source, or current-head validation
 evidence cannot be inspected, return `inconclusive`; never infer a pass.
 
 ## 1. RFC Conformance
-
 - Derive the affected protocol mechanism from the code and wire behavior.
 - Compare every changed state transition, limit, role restriction, error code,
   and peer-visible result with the authoritative section.
@@ -70,21 +67,20 @@ evidence cannot be inspected, return `inconclusive`; never infer a pass.
   choice and the report explains that allowance.
 
 ## 2. Validation Coverage
-
 - Inspect committed tests rather than trusting the PR summary.
 - Require a positive and negative CUnit case tied to each changed production
   path.
-- Require positive and abnormal client-to-server cases in
-  `scripts/case_test.sh`, with distinct IDs and matching selectors in
-  `tests/test_client.c` and `tests/test_server.c`.
-- Confirm the end-to-end cases prove the endpoint-visible result, not merely a
-  process exit or generic failure.
-- Verify current-head local evidence shows the complete CUnit suite and both
-  relevant case tests passed. Fail when coverage or current-head evidence is
-  missing.
+- For endpoint-visible behavior, require positive and abnormal
+  client-to-server coverage or an explicit case-test gap. When
+  `scripts/case_test.sh` cases are added, require distinct IDs and matching
+  selectors in `tests/test_client.c` and `tests/test_server.c`.
+- Confirm any executed end-to-end cases prove the endpoint-visible result, not
+  merely a process exit or generic failure.
+- Verify current-head local evidence shows the complete CUnit suite passed and
+  any accepted targeted case evidence or gaps are current. Fail when required
+  unit coverage or current-head evidence is missing.
 
 ## 3. Adversarial Bad Case
-
 - Construct the smallest peer-controlled input or event sequence that could
   bypass the RFC guard. Consider boundary values, duplicate or reordered
   frames, wrong endpoint roles, invalid state transitions, truncated or
@@ -100,7 +96,6 @@ evidence cannot be inspected, return `inconclusive`; never infer a pass.
   executed or ruled out.
 
 ## 4. Performance and Compiler Optimization
-
 - Identify whether the change is on a packet, frame, stream, request, timer, or
   connection hot path and estimate its invocation frequency.
 - Compare the time complexity and critical-path work with viable alternatives.
@@ -118,7 +113,6 @@ evidence cannot be inspected, return `inconclusive`; never infer a pass.
   without a correctness requirement or measured tradeoff.
 
 ## 5. Memory Safety and Footprint
-
 - Build an ownership and lifetime map for every touched allocation, buffer,
   pointer, list node, callback context, and borrowed reference.
 - Check success, error, timeout, close, retry, and reentrant callback paths for
@@ -134,9 +128,7 @@ evidence cannot be inspected, return `inconclusive`; never infer a pass.
   benefit, and why the retained memory is bounded and acceptable.
 
 ## Report Format
-
 Write exactly five numbered review sections after the metadata:
-
 ```markdown
 ---
 reviewed_base: <commit>
@@ -149,33 +141,28 @@ pre_review_result: <true|false>
 ---
 
 # XQUIC PR Pre-Review
-
 ## 1. RFC Conformance
 Status: <pass|fail|inconclusive|not-applicable>
 Sources: <official document, section, URL>
 Evidence: <source/tests and short authoritative excerpt>
 Findings: <blocking and non-blocking findings, or none>
 Conclusion: <reasoned conclusion>
-
 ## 2. Validation Coverage
 Status: <...>
 Evidence: <positive/negative unit and end-to-end case IDs/results>
 Findings: <...>
 Conclusion: <...>
-
 ## 3. Adversarial Bad Case
 Status: <...>
 Attempt: <constructed input or sequence and execution result>
 Artifacts: <relative paths, reviewed heads, commands, and results, or none>
 Findings: <...>
 Conclusion: <...>
-
 ## 4. Performance and Compiler Optimization
 Status: <...>
 Evidence: <hot path, complexity, compiler and measurement evidence>
 Findings: <...>
 Conclusion: <...>
-
 ## 5. Memory Safety and Footprint
 Status: <...>
 Evidence: <ownership, bounds, per-scope footprint and concurrency estimate>

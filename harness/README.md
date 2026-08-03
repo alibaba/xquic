@@ -1,62 +1,67 @@
 # XQUIC Development Harness
 
 This directory is the repository-owned, tool-neutral source for project
-specifications, development pipelines, and reusable agent skills. Root
-`AGENTS.md` remains the broadly discoverable entry point and links here.
+specifications, explanatory documentation, design decisions, development
+pipelines, and reusable agent skills. Root `AGENTS.md` remains the broadly
+discoverable entry point and links here.
 
 ## Layout
 
 ```text
 harness/
-├── spec/        project instructions, facts, and evidence contracts
+├── docs/        informative structure maps and maintenance guidance
+├── decisions/   durable design rationale and ADRs
+├── spec/        authoritative requirements, facts, and evidence contracts
 ├── pipelines/   ordered workflows that apply the specifications
-└── skills/      reusable task procedures, one SKILL.md per skill
+├── scripts/     harness structure and code-synchronization checks
+├── skills/      reusable task procedures, one SKILL.md per skill
+└── private/     ignored closed-source adapters and local/private runbooks
 ```
 
 ## Entry Points
 
 - [Project instructions](spec/PROJECT_INSTRUCTIONS.md)
+- [Harness behavior specification](spec/harness-behavior.md)
+- [Harness documentation](docs/README.md)
+- [Decision records](decisions/records.md)
 - [Development pipeline](pipelines/dev-pipeline.md)
+- [Documentation style](spec/doc-style.md)
+- [Run artifact contract](spec/run-artifacts.md)
+- [Harness review skill](skills/harness-review/SKILL.md)
 - [Validation skill](skills/validate/SKILL.md)
 - [Issue verification skill](skills/issue-check/SKILL.md)
 - [Issue submission skill](skills/issue-submit/SKILL.md)
 - [Pull request pre-review skill](skills/xquic-pr-pre-review/SKILL.md)
 - [Pull request formatting skill](skills/xquic-pr-formatting/SKILL.md)
+- [Safe push skill](skills/xquic-safe-push/SKILL.md)
+- [GitHub CI fix skill](skills/gh-fix-ci/SKILL.md)
+- [GitHub review comment skill](skills/gh-address-comments/SKILL.md)
+- [OpenSpec integration guide](spec/openspec.md)
 
-## Setup
+## External References
 
-From the repository root, run
-[`setup_harness.sh`](../scripts/setup_harness.sh) to register the harness:
+- [OpenSpec](https://openspec.dev/): open-source spec-driven development
+  framework for AI coding assistants.
+- [Fission-AI/OpenSpec](https://github.com/Fission-AI/OpenSpec): upstream
+  project source and CLI installation reference.
 
-```bash
-./scripts/setup_harness.sh
-```
+## Checks
 
-Root [`AGENTS.md`](../AGENTS.md#first-time-harness-setup) directs agents to
-run this bootstrap once when a fresh checkout's active discovery targets have
-no registered adapters.
-
-The default registration creates project-local symbolic links under
-`.agents/skills/` and `.agents/pipelines/`. These generated adapters are
-ignored by Git; `harness/` remains the only committed source. Re-running the
-command is safe. Existing files or links to another source are never
-overwritten.
-
-Use `--skills-dir` and `--pipelines-dir` to target a tool-native discovery
-directory. To install the optional pre-push validation hook:
+Harness scripts are limited to repository-owned consistency checks:
 
 ```bash
-./scripts/setup_harness.sh --install-pre-push-hook
+bash harness/scripts/xqc_harness_check.sh
 ```
 
-The [pre-push hook](../scripts/hooks/pre-push) runs the complete local unit
-and case-test suites. It is an early failure signal, not a substitute for
-the validation gate or the local pre-review report.
+That entry point verifies harness structure and manifest-to-code
+synchronization. On pull request events, the workflow also passes the PR body
+to the same check so stale repository-path references fail with the current
+head. Product build and runtime validation stay in `scripts/validate.sh`.
 
 ## Naming
 
-- Top-level harness directories use the stable names `spec/`, `pipelines/`,
-  and `skills/`.
+- Top-level harness directories use the stable names `docs/`, `decisions/`,
+  `spec/`, `pipelines/`, and `skills/`.
 - Markdown filenames use lowercase kebab-case, except conventional
   `README.md`, `SKILL.md`, and the adapter template
   `PROJECT_INSTRUCTIONS.md`.
@@ -64,10 +69,19 @@ the validation gate or the local pre-review report.
   field in their `SKILL.md`.
 - Capability behavior specifications use
   `spec/<capability>/spec.md`.
+- Harness-wide normative requirements use `spec/harness-behavior.md`.
 - Temporary plans, retrospectives, logs, and validation output do not belong
   in `harness/`.
 - Task-scoped issue-check reports belong under the ignored
   `build/harness/<task-id>/` directory and must not be committed.
+- Task-local run evidence belongs under ignored
+  `build/harness/runs/<task-id>/`.
+- Tool-native local adapters such as `.claude/` are allowed locally but
+  must not become committed sources of truth. Migrate durable skill content to
+  `harness/skills/`.
+- Closed-source or environment-specific rules belong under ignored
+  `harness/private/` and must not be referenced as required public harness
+  inputs.
 - Pull-request pre-review reports and exploratory bad-case artifacts belong
   together under the local
   `~/build/harness/pr-review-<number>/` directory. The current retrospective
@@ -83,3 +97,11 @@ second committed copy. Every skill keeps its portable instructions in
 `SKILL.md`; platform-specific metadata is optional. Project-instruction
 adapters should link to or be generated from
 `spec/PROJECT_INSTRUCTIONS.md`.
+
+## Document Roles
+
+Document roles are semantic, not audience-specific. The normative boundaries
+for specifications, informative documents, and decision records are defined
+in [`spec/harness-behavior.md`](spec/harness-behavior.md). Their
+machine-readable path assignment is defined in
+[`spec/harness-manifest.yml`](spec/harness-manifest.yml).

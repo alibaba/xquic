@@ -1,0 +1,314 @@
+# XQUIC Harness Manifest
+#
+# Canonical routing data for harness paths, document roles, validation,
+# feature gates, and loading layers. Narrative documents may explain this file
+# but should not maintain competing maps.
+#
+# document_roles defines authority; harness_layers defines loading behavior.
+
+version: 3
+
+entrypoints:
+  project_instructions: harness/spec/PROJECT_INSTRUCTIONS.md
+  code_change: harness/pipelines/dev-pipeline.md
+  doc_style: harness/spec/doc-style.md
+  validation: scripts/validate.sh
+  harness_check: harness/scripts/xqc_harness_check.sh
+  openspec_long_tasks: harness/spec/openspec.md
+
+document_roles:
+  specification:
+    authority: normative
+    may_define_requirements: true
+    paths:
+      - harness/spec/*
+  documentation:
+    authority: informative
+    may_define_requirements: false
+    paths:
+      - harness/docs/*
+  decision:
+    authority: rationale
+    may_define_requirements: false
+    paths:
+      - harness/decisions/*
+
+global_docs:
+  documentation:
+    - harness/docs/README.md
+    - harness/docs/structure-map.md
+    - harness/docs/change-guide.md
+  decisions:
+    - harness/decisions/records.md
+  governance:
+    - harness/spec/harness-behavior.md
+    - harness/spec/doc-style.md
+  architecture:
+    - harness/spec/architecture.md
+  validation:
+    - harness/spec/validation.md
+    - harness/skills/validate/SKILL.md
+  doc_style:
+    - harness/spec/doc-style.md
+  pull_requests:
+    - harness/spec/pull-requests.md
+    - harness/skills/xquic-pr-formatting/SKILL.md
+
+modules:
+  api:
+    paths:
+      - include/xquic/*
+    read:
+      - harness/spec/architecture.md
+      - docs/API.md
+    update_when:
+      public_contract_changed:
+        - docs/API.md
+        - harness/spec/architecture.md
+        - harness/spec/harness-manifest.yml
+    validation:
+      level: full
+
+  transport:
+    paths:
+      - src/transport/*
+    read:
+      - harness/spec/architecture.md
+    update_when:
+      behavior_or_boundary_changed:
+        - harness/spec/architecture.md
+        - harness/spec/harness-manifest.yml
+    validation:
+      level: targeted
+    submodules:
+      conn:
+        paths:
+          - src/transport/xqc_conn*
+        validation:
+          level: full
+          hints: [connection, handshake, close]
+      engine:
+        paths:
+          - src/transport/xqc_engine*
+        validation:
+          level: full
+          hints: [connection, handshake]
+      stream:
+        paths:
+          - src/transport/xqc_stream*
+        validation:
+          level: targeted
+          hints: [stream, flow-control]
+      packet:
+        paths:
+          - src/transport/xqc_packet*
+        validation:
+          level: targeted
+          hints: [packet, illegal-packet]
+      frame:
+        paths:
+          - src/transport/xqc_frame*
+        validation:
+          level: targeted
+          hints: [frame, packet]
+      send_ctl:
+        paths:
+          - src/transport/xqc_send_ctl*
+        validation:
+          level: targeted
+          hints: [send, loss, pacing]
+      datagram:
+        paths:
+          - src/transport/xqc_datagram*
+        validation:
+          level: targeted
+          hints: [datagram]
+      multipath:
+        paths:
+          - src/transport/xqc_multipath*
+          - src/transport/scheduler/*
+          - src/transport/reinjection_control/*
+        validation:
+          level: targeted
+          hints: [multipath, MP, MPNS]
+    features:
+      fec:
+        paths:
+          - src/transport/xqc_fec*
+          - src/transport/fec_schemes/*
+        feature_flags:
+          - XQC_ENABLE_FEC=1
+          - XQC_ENABLE_XOR=1
+          - XQC_ENABLE_RSC=1
+          - XQC_ENABLE_PKM=1
+        read:
+          - harness/spec/architecture.md
+          - tests/unittest/xqc_fec_test.c
+          - tests/unittest/xqc_fec_scheme_test.c
+          - tests/unittest/xqc_galois_test.c
+        update_when:
+          fec_behavior_or_gate_changed:
+            - harness/spec/architecture.md
+            - harness/spec/validation.md
+            - harness/spec/harness-manifest.yml
+        validation:
+          level: targeted
+          unit:
+            - xqc_test_galois_calculation
+            - xqc_test_fec_scheme
+            - xqc_test_fec
+          hints: [fec, repair]
+
+  http3:
+    paths:
+      - src/http3/*
+    read:
+      - harness/spec/architecture.md
+    update_when:
+      behavior_or_api_changed:
+        - docs/API.md
+        - harness/spec/architecture.md
+    validation:
+      level: targeted
+      hints: [h3, header, settings]
+    submodules:
+      qpack:
+        paths:
+          - src/http3/qpack/*
+        validation:
+          level: targeted
+          hints: [qpack]
+
+  tls:
+    paths:
+      - src/tls/*
+    read:
+      - harness/spec/architecture.md
+      - harness/spec/validation.md
+    update_when:
+      backend_or_crypto_changed:
+        - harness/spec/architecture.md
+        - harness/spec/validation.md
+    validation:
+      level: targeted
+      hints: [handshake, cert, 0RTT, 1RTT, key-update]
+
+  congestion_control:
+    paths:
+      - src/congestion_control/*
+    read:
+      - harness/spec/architecture.md
+    update_when:
+      cc_behavior_changed:
+        - harness/spec/architecture.md
+        - harness/spec/harness-manifest.yml
+    validation:
+      level: targeted
+      hints: [congestion]
+
+  common:
+    paths:
+      - src/common/*
+      - src/common/utils/*
+    read:
+      - harness/spec/architecture.md
+    update_when:
+      utility_semantics_changed:
+        - harness/spec/architecture.md
+        - harness/spec/harness-manifest.yml
+    validation:
+      level: test
+
+  build:
+    paths:
+      - CMakeLists.txt
+      - cmake/*
+      - xqc_configure.h.in
+      - scripts/validate.sh
+    read:
+      - harness/spec/validation.md
+    update_when:
+      build_behavior_changed:
+        - harness/spec/validation.md
+        - harness/spec/harness-manifest.yml
+    validation:
+      level: build
+
+  harness:
+    paths:
+      - AGENTS.md
+      - harness/docs/*
+      - harness/decisions/*
+      - harness/spec/*
+      - harness/*
+      - harness/scripts/harness_manifest_check.rb
+      - harness/scripts/xqc_harness_check.sh
+      - .github/workflows/*
+    read:
+      - harness/README.md
+      - harness/spec/harness-behavior.md
+      - harness/docs/README.md
+      - harness/spec/doc-style.md
+      - harness/spec/PROJECT_INSTRUCTIONS.md
+      - harness/spec/harness-manifest.yml
+    update_when:
+      routing_or_skill_changed:
+        - harness/README.md
+        - harness/docs/change-guide.md
+        - harness/spec/PROJECT_INSTRUCTIONS.md
+        - harness/spec/harness-manifest.yml
+      document_role_or_structure_changed:
+        - harness/README.md
+        - harness/docs/README.md
+        - harness/decisions/records.md
+        - harness/spec/harness-behavior.md
+        - harness/spec/doc-style.md
+        - harness/spec/PROJECT_INSTRUCTIONS.md
+        - harness/spec/harness-manifest.yml
+    validation:
+      level: harness
+      command: bash harness/scripts/xqc_harness_check.sh
+
+harness_layers:
+  strong_injection:
+    purpose: "Short always-loaded routing, stop conditions, validation gates, and document-sync principles."
+    files:
+      - AGENTS.md
+  on_demand_reading:
+    purpose: "Detailed procedures loaded only for matching tasks."
+    files:
+      - harness/pipelines/dev-pipeline.md
+      - harness/skills/*/SKILL.md
+      - harness/spec/PROJECT_INSTRUCTIONS.md
+      - harness/spec/doc-style.md
+      - harness/spec/validation.md
+      - harness/spec/harness-behavior.md
+      - harness/decisions/records.md
+  machine_mapping:
+    purpose: "Single source for path, module, docs, tests, feature flags, and validation routing."
+    files:
+      - harness/spec/harness-manifest.yml
+    single_source_of_truth:
+      route_mapping: harness/spec/harness-manifest.yml
+      secondary_maps: informative_only
+  explanation:
+    purpose: "Informative context and navigation that do not define requirements or repeat workflows."
+    files:
+      - harness/docs/README.md
+      - harness/docs/structure-map.md
+      - harness/docs/change-guide.md
+  self_check:
+    purpose: "Deterministic drift checks across entry points, docs, skills, scripts, and workflow wiring."
+    files:
+      - harness/scripts/xqc_harness_check.sh
+      - harness/scripts/harness_manifest_check.rb
+      - .github/workflows/build.yml
+  local_adapters:
+    purpose: "Ignored tool-native discovery copies; never the source of truth."
+    examples:
+      - .agents/skills/
+      - .claude/
+  private_extensions:
+    purpose: "Ignored closed-source or environment-specific adapters."
+    files:
+      - harness/private/

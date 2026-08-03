@@ -1,15 +1,17 @@
 # XQUIC Development Harness
 
 This directory is the repository-owned, tool-neutral source for project
-specifications, development pipelines, and reusable agent skills. Root
-`AGENTS.md` remains the broadly discoverable entry point and links here.
+specifications, explanatory documentation, design decisions, development
+pipelines, and reusable agent skills. Root `AGENTS.md` remains the broadly
+discoverable entry point and links here.
 
 ## Layout
 
 ```text
 harness/
-├── ai_docs/     structure maps, change obligations, behavior specs, decisions
-├── spec/        project instructions, facts, and evidence contracts
+├── docs/        informative structure maps and maintenance guidance
+├── decisions/   durable design rationale and ADRs
+├── spec/        authoritative requirements, facts, and evidence contracts
 ├── pipelines/   ordered workflows that apply the specifications
 ├── scripts/     harness structure and code-synchronization checks
 ├── skills/      reusable task procedures, one SKILL.md per skill
@@ -19,7 +21,9 @@ harness/
 ## Entry Points
 
 - [Project instructions](spec/PROJECT_INSTRUCTIONS.md)
-- [AI docs index](ai_docs/README.md)
+- [Harness behavior specification](spec/harness-behavior.md)
+- [Harness documentation](docs/README.md)
+- [Decision records](decisions/records.md)
 - [Development pipeline](pipelines/dev-pipeline.md)
 - [Documentation style](spec/doc-style.md)
 - [Run artifact contract](spec/run-artifacts.md)
@@ -56,8 +60,8 @@ head. Product build and runtime validation stay in `scripts/validate.sh`.
 
 ## Naming
 
-- Top-level harness directories use the stable names `ai_docs/`, `spec/`,
-  `pipelines/`, and `skills/`.
+- Top-level harness directories use the stable names `docs/`, `decisions/`,
+  `spec/`, `pipelines/`, and `skills/`.
 - Markdown filenames use lowercase kebab-case, except conventional
   `README.md`, `SKILL.md`, and the adapter template
   `PROJECT_INSTRUCTIONS.md`.
@@ -65,6 +69,7 @@ head. Product build and runtime validation stay in `scripts/validate.sh`.
   field in their `SKILL.md`.
 - Capability behavior specifications use
   `spec/<capability>/spec.md`.
+- Harness-wide normative requirements use `spec/harness-behavior.md`.
 - Temporary plans, retrospectives, logs, and validation output do not belong
   in `harness/`.
 - Task-scoped issue-check reports belong under the ignored
@@ -92,3 +97,11 @@ second committed copy. Every skill keeps its portable instructions in
 `SKILL.md`; platform-specific metadata is optional. Project-instruction
 adapters should link to or be generated from
 `spec/PROJECT_INSTRUCTIONS.md`.
+
+## Document Roles
+
+Document roles are semantic, not audience-specific. The normative boundaries
+for specifications, informative documents, and decision records are defined
+in [`spec/harness-behavior.md`](spec/harness-behavior.md). Their
+machine-readable path assignment is defined in
+[`spec/harness-manifest.yml`](spec/harness-manifest.yml).

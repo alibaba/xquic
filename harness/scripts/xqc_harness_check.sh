@@ -29,6 +29,18 @@ require_file()
     fi
 }
 
+reject_path()
+{
+    local path="$1"
+    local label="$2"
+
+    if [[ -e "${ROOT_DIR}/${path}" ]]; then
+        fail "${label}"
+    else
+        pass "${label}"
+    fi
+}
+
 require_grep()
 {
     local pattern="$1"
@@ -272,13 +284,13 @@ check_optional_claude_adapter()
 
 require_file "AGENTS.md"
 require_file "harness/README.md"
-require_file "harness/ai_docs/README.md"
-require_file "harness/ai_docs/structure_map.md"
-require_file "harness/ai_docs/change_map.md"
-require_file "harness/ai_docs/behavior_specs.md"
-require_file "harness/ai_docs/decision_records.md"
+require_file "harness/docs/README.md"
+require_file "harness/docs/structure-map.md"
+require_file "harness/docs/change-guide.md"
+require_file "harness/decisions/records.md"
 require_file "harness/spec/PROJECT_INSTRUCTIONS.md"
 require_file "harness/spec/doc-style.md"
+require_file "harness/spec/harness-behavior.md"
 require_file "harness/spec/run-artifacts.md"
 require_file "harness/spec/harness-manifest.yml"
 require_file "harness/spec/openspec.md"
@@ -293,9 +305,12 @@ require_line_count "AGENTS.md" 60 100 \
 require_grep "harness/spec/harness-manifest.yml" \
     "AGENTS.md" \
     "AGENTS points to harness manifest"
-require_grep "harness/ai_docs/README.md" \
+require_grep "harness/spec/harness-behavior.md" \
     "AGENTS.md" \
-    "AGENTS points to AI docs for harness structure changes"
+    "AGENTS points to normative harness behavior"
+require_grep "harness/docs/README.md" \
+    "AGENTS.md" \
+    "AGENTS points to informative harness documentation"
 require_grep "harness/spec/doc-style.md" \
     "AGENTS.md" \
     "AGENTS points to documentation style guidance"
@@ -319,9 +334,13 @@ require_grep "harness/scripts/xqc_harness_check.sh" \
 check_pr_body_paths
 require_skill_schema
 check_optional_claude_adapter
+reject_path "harness/ai_docs" \
+    "audience-specific ai_docs directory is not a committed source"
 
 reject_tree_grep "docs_ai/harness_manifest.yml|\\.claude/skills" \
     "committed harness does not depend on docs_ai manifest or .claude skills"
+reject_tree_grep "harness/ai_docs" \
+    "committed harness does not reference the retired ai_docs path"
 
 echo ""
 if [[ "${FAILURES}" -eq 0 ]]; then

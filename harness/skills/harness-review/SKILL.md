@@ -11,8 +11,8 @@ produce findings first, then edit only when the user asks for fixes.
 ## Review Inputs
 
 1. Read `AGENTS.md`, `harness/README.md`, and
-   `harness/ai_docs/behavior_specs.md`.
-2. Read `harness/ai_docs/change_map.md` for the affected harness change type.
+   `harness/spec/harness-behavior.md`.
+2. Read `harness/docs/change-guide.md` for the affected harness change type.
 3. Read the changed specs, pipelines, skills, setup scripts, or validation
    scripts.
 4. Run `bash harness/scripts/xqc_harness_check.sh` after any committed-harness change.
@@ -23,8 +23,10 @@ produce findings first, then edit only when the user asks for fixes.
   repeating them.
 - New procedures live in skills or pipelines, not root instructions.
 - Machine mappings stay in `harness/spec/harness-manifest.yml`.
-- Durable AI docs store context and decisions, not command transcripts or
-  regenerated summaries.
+- Normative requirements stay in `harness/spec/`; informative documents do
+  not create independent requirements; rationale stays in
+  `harness/decisions/`.
+- Document authority is independent of whether a human or agent consumes it.
 - Skill descriptions declare a narrow trigger. Skill bodies declare ownership
   boundaries and avoid competing with existing skills.
 - Repeated requirements have one source of truth; other files link to it.

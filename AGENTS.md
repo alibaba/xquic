@@ -15,8 +15,9 @@ gate are satisfied.
 - Read [`README.md`](README.md) for features and dependency setup.
 - Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before code or PR work.
 - Read the [harness index](harness/README.md) for specs, pipelines, and skills.
-- Read [AI docs](harness/ai_docs/README.md) before changing harness structure,
-  routing, documentation layers, or injection rules.
+- Read the [harness behavior specification](harness/spec/harness-behavior.md)
+  and [harness documentation](harness/docs/README.md) before changing harness
+  structure, routing, document roles, or injection rules.
 - Read the [manifest](harness/spec/harness-manifest.yml) for canonical path,
   module, docs, feature-gate, and validation routing.
 - Read the [project instructions](harness/spec/PROJECT_INSTRUCTIONS.md) for

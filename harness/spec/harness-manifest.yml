@@ -1,10 +1,12 @@
 # XQUIC Harness Manifest
 #
-# Canonical routing data for agent-facing paths, documentation, validation,
-# feature gates, and harness layers. Narrative docs may explain this file but
-# should not maintain competing maps.
+# Canonical routing data for harness paths, document roles, validation,
+# feature gates, and loading layers. Narrative documents may explain this file
+# but should not maintain competing maps.
+#
+# document_roles defines authority; harness_layers defines loading behavior.
 
-version: 2
+version: 3
 
 entrypoints:
   project_instructions: harness/spec/PROJECT_INSTRUCTIONS.md
@@ -14,13 +16,33 @@ entrypoints:
   harness_check: harness/scripts/xqc_harness_check.sh
   openspec_long_tasks: harness/spec/openspec.md
 
+document_roles:
+  specification:
+    authority: normative
+    may_define_requirements: true
+    paths:
+      - harness/spec/*
+  documentation:
+    authority: informative
+    may_define_requirements: false
+    paths:
+      - harness/docs/*
+  decision:
+    authority: rationale
+    may_define_requirements: false
+    paths:
+      - harness/decisions/*
+
 global_docs:
-  ai_docs:
-    - harness/ai_docs/README.md
-    - harness/ai_docs/structure_map.md
-    - harness/ai_docs/change_map.md
-    - harness/ai_docs/behavior_specs.md
-    - harness/ai_docs/decision_records.md
+  documentation:
+    - harness/docs/README.md
+    - harness/docs/structure-map.md
+    - harness/docs/change-guide.md
+  decisions:
+    - harness/decisions/records.md
+  governance:
+    - harness/spec/harness-behavior.md
+    - harness/spec/doc-style.md
   architecture:
     - harness/spec/architecture.md
   validation:
@@ -215,21 +237,31 @@ modules:
   harness:
     paths:
       - AGENTS.md
-      - harness/ai_docs/*
+      - harness/docs/*
+      - harness/decisions/*
+      - harness/spec/*
       - harness/*
       - harness/scripts/harness_manifest_check.rb
       - harness/scripts/xqc_harness_check.sh
       - .github/workflows/*
     read:
       - harness/README.md
-      - harness/ai_docs/README.md
+      - harness/spec/harness-behavior.md
+      - harness/docs/README.md
       - harness/spec/doc-style.md
       - harness/spec/PROJECT_INSTRUCTIONS.md
       - harness/spec/harness-manifest.yml
     update_when:
       routing_or_skill_changed:
         - harness/README.md
-        - harness/ai_docs/README.md
+        - harness/docs/change-guide.md
+        - harness/spec/PROJECT_INSTRUCTIONS.md
+        - harness/spec/harness-manifest.yml
+      document_role_or_structure_changed:
+        - harness/README.md
+        - harness/docs/README.md
+        - harness/decisions/records.md
+        - harness/spec/harness-behavior.md
         - harness/spec/doc-style.md
         - harness/spec/PROJECT_INSTRUCTIONS.md
         - harness/spec/harness-manifest.yml
@@ -250,21 +282,21 @@ harness_layers:
       - harness/spec/PROJECT_INSTRUCTIONS.md
       - harness/spec/doc-style.md
       - harness/spec/validation.md
+      - harness/spec/harness-behavior.md
+      - harness/decisions/records.md
   machine_mapping:
     purpose: "Single source for path, module, docs, tests, feature flags, and validation routing."
     files:
       - harness/spec/harness-manifest.yml
     single_source_of_truth:
       route_mapping: harness/spec/harness-manifest.yml
-      secondary_maps: explanation_only
+      secondary_maps: informative_only
   explanation:
-    purpose: "Durable context and rationale that do not repeat workflows."
+    purpose: "Informative context and navigation that do not define requirements or repeat workflows."
     files:
-      - harness/ai_docs/README.md
-      - harness/ai_docs/structure_map.md
-      - harness/ai_docs/change_map.md
-      - harness/ai_docs/behavior_specs.md
-      - harness/ai_docs/decision_records.md
+      - harness/docs/README.md
+      - harness/docs/structure-map.md
+      - harness/docs/change-guide.md
   self_check:
     purpose: "Deterministic drift checks across entry points, docs, skills, scripts, and workflow wiring."
     files:

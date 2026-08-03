@@ -18,8 +18,10 @@ remain in the root [`README.md`](../../README.md).
   `README.md`, `CONTRIBUTING.md`, and `AGENTS.md`.
 - Specification documents use lowercase kebab-case names;
   `PROJECT_INSTRUCTIONS.md` retains its adapter-template name.
-- Agent-facing structure maps, change obligations, behavior contracts, and
-  design rationale live under `harness/ai_docs/`.
+- Informative structure maps and change guidance live under `harness/docs/`.
+- Durable design rationale lives under `harness/decisions/`.
+- Normative harness requirements live under `harness/spec/`, independently of
+  whether their reader is a maintainer, contributor, or agent.
 - Capability-specific behavioral specifications belong under
   `spec/<capability>/spec.md`.
 - Pipelines and skills live in the sibling `pipelines/` and `skills/`
@@ -159,7 +161,9 @@ documentation in the same change when it affects future work.
 |-------|------|
 | Root discovery and definition of done | [AGENTS.md](../../AGENTS.md) |
 | Harness layout and naming | [Harness README](../README.md) |
-| Harness AI docs structure | [ai_docs/README.md](../ai_docs/README.md) |
+| Harness behavior requirements | [harness-behavior.md](harness-behavior.md) |
+| Harness documentation structure | [docs/README.md](../docs/README.md) |
+| Harness design rationale | [decision records](../decisions/records.md) |
 | Documentation style | [doc-style.md](doc-style.md) |
 | Architecture and dependency boundaries | [architecture.md](architecture.md) |
 | Development workflow | [dev-pipeline.md](../pipelines/dev-pipeline.md) |

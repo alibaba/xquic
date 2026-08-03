@@ -196,6 +196,25 @@ void xqc_crypto_destroy(xqc_crypto_t *crypto);
 uint64_t xqc_aead_integrity_limit(uint32_t cipher_id);
 
 /**
+ * AEAD confidentiality limits, RFC 9001 Section 6.6. XQUIC uses the
+ * conservative default AES-GCM limit instead of the larger packet-size-based
+ * allowance in Appendix B.1.1.
+ */
+#define XQC_AES_128_GCM_CONFIDENTIALITY_LIMIT         (1ULL << 23)
+#define XQC_AES_256_GCM_CONFIDENTIALITY_LIMIT         (1ULL << 23)
+#define XQC_CHACHA20_POLY1305_CONFIDENTIALITY_LIMIT   (1ULL << 62)
+#define XQC_AEAD_CONSERVATIVE_CONFIDENTIALITY_LIMIT   \
+    XQC_AES_128_GCM_CONFIDENTIALITY_LIMIT
+
+/**
+ * @brief return AEAD confidentiality limit for the given cipher_id
+ *
+ * AES-128/256-GCM: 2^23, ChaCha20-Poly1305: 2^62. Unknown AEADs use the
+ * conservative AES-GCM limit.
+ */
+uint64_t xqc_aead_confidentiality_limit(uint32_t cipher_id);
+
+/**
  * @brief install keys from secret
  */
 xqc_int_t xqc_crypto_derive_keys(xqc_crypto_t *crypto, const uint8_t *secret, size_t secretlen,

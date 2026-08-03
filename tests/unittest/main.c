@@ -340,6 +340,13 @@ main(int argc, char *argv[])
                         xqc_test_aead_integrity_limit_conn_triggered)
         || !CU_add_test(pSuite, "xqc_test_aead_integrity_limit_conn_no_crypto",
                         xqc_test_aead_integrity_limit_conn_no_crypto)
+        /* issue #703: AEAD confidentiality limit, RFC 9001 Section 6.6 */
+        || !CU_add_test(pSuite, "xqc_test_aead_confidentiality_limit",
+                        xqc_test_aead_confidentiality_limit)
+        || !CU_add_test(pSuite, "xqc_test_aead_confidentiality_below_limit",
+                        xqc_test_aead_confidentiality_below_limit)
+        || !CU_add_test(pSuite, "xqc_test_aead_confidentiality_at_limit",
+                        xqc_test_aead_confidentiality_at_limit)
         /* ALPN negotiation tests (issue #709) */
         || !CU_add_test(pSuite, "xqc_test_alpn_error_code_value",
                         xqc_test_alpn_error_code_value)

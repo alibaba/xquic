@@ -31,6 +31,10 @@ typedef struct xqc_moq_track_s {
     uint64_t                            track_alias;
     uint64_t                            subscribe_id;
     uint64_t                            streams_count;
+    uint8_t                             publish_done_received;
+    uint8_t                             publish_done_stream_count_exact;
+    uint64_t                            recv_streams_opened;
+    uint64_t                            recv_streams_processed;
     xqc_moq_container_t                 container_format;
     char                                *packaging;
     xqc_int_t                           render_group;
@@ -64,6 +68,15 @@ uint64_t xqc_moq_track_next_subgroup_id(xqc_moq_track_t *track, uint64_t group_i
 
 void xqc_moq_track_add_streams_count(xqc_moq_track_t *track);
 
+xqc_bool_t xqc_moq_track_can_send_data(const xqc_moq_track_t *track);
+
+xqc_int_t xqc_moq_track_finish_write_streams(xqc_moq_track_t *track);
+
+xqc_bool_t xqc_moq_track_publish_done_recv_complete(
+    const xqc_moq_track_t *track);
+
+xqc_bool_t xqc_moq_track_on_recv_stream_closed(xqc_moq_track_t *track);
+
 void xqc_moq_track_copy_params(xqc_moq_selection_params_t *dst, xqc_moq_selection_params_t *src);
 
 void xqc_moq_track_free_params(xqc_moq_selection_params_t *params);
@@ -73,13 +86,17 @@ void xqc_moq_track_set_params(xqc_moq_track_t *track, xqc_moq_selection_params_t
 void xqc_moq_track_on_write_stream(xqc_moq_track_t *track, xqc_moq_stream_t *stream,
     uint64_t group_id, uint64_t object_id, uint64_t seq_num);
 
+xqc_int_t xqc_moq_track_on_recv_stream(xqc_moq_track_t *track,
+    xqc_moq_stream_t *stream, uint64_t group_id, uint64_t object_id,
+    uint64_t subgroup_id);
+
 xqc_bool_t xqc_moq_track_should_drop_write_object(xqc_moq_track_t *track,
     uint64_t group_id, uint64_t object_id);
 
 void xqc_moq_track_advance_write_location(xqc_moq_track_t *track,
     uint64_t *group_id, uint64_t *object_id);
 
-void xqc_moq_track_on_recv_object(xqc_moq_track_t *track, xqc_moq_stream_t *stream,
+xqc_int_t xqc_moq_track_on_recv_object(xqc_moq_track_t *track, xqc_moq_stream_t *stream,
     xqc_moq_object_t *object);
 
 xqc_bool_t xqc_moq_track_should_drop_recv_object(xqc_moq_track_t *track,

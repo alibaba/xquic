@@ -130,9 +130,19 @@ xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
         return -XQC_EPARAM;
     }
 
+    xqc_memzero(&object, sizeof(object));
+
     ret = xqc_moq_session_require_active(session);
     if (ret != XQC_OK) {
         return ret;
+    }
+
+    if (!(session->profile->capabilities & XQC_MOQ_CAP_HEADER_EXTENSION)
+        && (video_frame->has_video_config
+            || video_frame->has_video_frame_marking
+            || video_frame->has_bizinfo))
+    {
+        return -XQC_EALPN_NOT_SUPPORTED;
     }
     
     if (xqc_moq_media_maybe_cancel_write(session, subscribe_id, track, video_frame)) {
@@ -262,6 +272,17 @@ xqc_moq_write_video_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
         ext_num++;
     }
 
+    if (!(session->profile->capabilities
+          & XQC_MOQ_CAP_HEADER_EXTENSION))
+    {
+        /*
+         * LOC already carries timestamp and the key/delta frame identity.
+         * Do not duplicate the timestamp as a header extension on draft-05,
+         * but reject optional metadata that LOC cannot preserve.
+         */
+        ext_num = 0;
+    }
+
     object.ext_params = ext_headers;
     object.ext_params_num = ext_num;
 
@@ -371,9 +392,17 @@ xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
         return -XQC_EPARAM;
     }
 
+    xqc_memzero(&object, sizeof(object));
+
     ret = xqc_moq_session_require_active(session);
     if (ret != XQC_OK) {
         return ret;
+    }
+
+    if (!(session->profile->capabilities & XQC_MOQ_CAP_HEADER_EXTENSION)
+        && (audio_frame->has_audio_level || audio_frame->has_bizinfo))
+    {
+        return -XQC_EALPN_NOT_SUPPORTED;
     }
 
     if (track->container_format == XQC_MOQ_CONTAINER_NONE) {
@@ -480,6 +509,13 @@ xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
         ext_num++;
     }
 
+    if (!(session->profile->capabilities
+          & XQC_MOQ_CAP_HEADER_EXTENSION))
+    {
+        /* LOC carries timestamp; audio level and bizinfo would be lost. */
+        ext_num = 0;
+    }
+
     object.ext_params = ext_headers;
     object.ext_params_num = ext_num;
 
@@ -520,6 +556,10 @@ xqc_moq_write_audio_frame(xqc_moq_session_t *session, uint64_t subscribe_id,
     }
 
     if (session->profile->data_strategy == XQC_MOQ_DATA_STRATEGY_SUBGROUP) {
+        stream->enable_fec = session->enable_fec;
+        stream->fec_code_rate = session->fec_code_rate;
+        stream->moq_frame_type |= (1 << MOQ_AUDIO_FRAME);
+
         xqc_moq_track_on_write_stream(track, stream, object.group_id,
                                       object.object_id, audio_frame->seq_num);
         stream->subgroup_id = object.subgroup_id;
@@ -578,6 +618,12 @@ xqc_moq_write_raw_object(xqc_moq_session_t *session,
     xqc_int_t ret = xqc_moq_session_require_active(session);
     if (ret != XQC_OK) {
         return ret;
+    }
+
+    if (!(session->profile->capabilities & XQC_MOQ_CAP_HEADER_EXTENSION)
+        && object->ext_params_num > 0)
+    {
+        return -XQC_EALPN_NOT_SUPPORTED;
     }
 
     if (!track->raw_object) {
@@ -708,14 +754,17 @@ xqc_moq_write_raw_object(xqc_moq_session_t *session,
     }
     obj_msg.ext_params = object->ext_params;
     obj_msg.ext_params_num = object->ext_params_num;
+    obj_msg.object_properties_present =
+        object->object_properties_present;
+    obj_msg.object_properties = object->object_properties;
+    obj_msg.object_properties_len = object->object_properties_len;
+    obj_msg.first_of_subgroup = object->first_of_subgroup;
+    obj_msg.end_of_group = object->end_of_group;
+    obj_msg.end_of_stream = object->end_of_stream;
 
     if (session->profile->data_strategy
         == XQC_MOQ_DATA_STRATEGY_OBJECT_TRACK)
     {
-        if (obj_msg.ext_params_num > 0) {
-            return -XQC_EALPN_NOT_SUPPORTED;
-        }
-
         ret = xqc_moq_media_write_object_stream(
             session, track, &obj_msg, 0, 0, &stream);
         if (ret != XQC_OK) {

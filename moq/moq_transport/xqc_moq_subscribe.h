@@ -38,7 +38,17 @@ xqc_int_t xqc_moq_subscribe_with_ns_tuple(xqc_moq_session_t *session,
 void xqc_moq_session_forward_matching_namespaces(xqc_moq_session_t *session,
     const xqc_moq_track_ns_field_t *namespace_prefix_tuple, uint64_t namespace_prefix_num);
 
+xqc_int_t xqc_moq_session_forward_namespace_update(
+    xqc_moq_session_t *session,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    uint64_t track_namespace_num, xqc_int_t done);
+
+xqc_int_t xqc_moq_prepare_d18_discovered_publish(
+    xqc_moq_publish_msg_t *publish, xqc_moq_track_t *track,
+    uint8_t forward, xqc_moq_message_parameter_t *forward_param);
+
 void xqc_moq_session_forward_matching_publishes(xqc_moq_session_t *session,
-    const xqc_moq_track_ns_field_t *namespace_prefix_tuple, uint64_t namespace_prefix_num);
+    const xqc_moq_track_ns_field_t *namespace_prefix_tuple,
+    uint64_t namespace_prefix_num, uint8_t forward);
 
 #endif /* _XQC_MOQ_SUBSCRIBE_H_INCLUDED_ */

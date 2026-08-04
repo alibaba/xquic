@@ -14,6 +14,7 @@ typedef struct xqc_moq_namespace_prefix_s {
 
 typedef struct xqc_moq_namespace_advertisement_s {
     xqc_list_head_t              list_member;
+    uint64_t                     request_id;
     uint64_t                     track_namespace_num;
     xqc_moq_track_ns_field_t     *track_namespace_tuple;
     uint64_t                     track_refcnt;
@@ -36,14 +37,41 @@ xqc_int_t xqc_moq_namespace_tuple_is_prefix(const xqc_moq_track_ns_field_t *a, u
 xqc_int_t xqc_moq_namespace_tuple_overlaps(const xqc_moq_track_ns_field_t *a, uint64_t na,
     const xqc_moq_track_ns_field_t *b, uint64_t nb);
 
+xqc_int_t xqc_moq_namespace_update_overlaps(
+    xqc_moq_session_t *session, xqc_moq_stream_t *stream,
+    const xqc_moq_namespace_prefix_t *candidate);
+
 xqc_moq_track_ns_field_t *xqc_moq_namespace_tuple_copy(const xqc_moq_track_ns_field_t *src, uint64_t num);
+
+xqc_moq_track_ns_field_t *xqc_moq_namespace_tuple_concat(
+    const xqc_moq_track_ns_field_t *prefix, uint64_t prefix_num,
+    const xqc_moq_track_ns_field_t *suffix, uint64_t suffix_num);
 
 void xqc_moq_namespace_tuple_free(xqc_moq_track_ns_field_t *tuple, uint64_t num);
 
 xqc_moq_namespace_prefix_t *xqc_moq_namespace_prefix_create_copy(
     const xqc_moq_track_ns_field_t *prefix_tuple, uint64_t prefix_num);
 
+xqc_moq_namespace_prefix_t *xqc_moq_namespace_prefix_create_serialized(
+    const uint8_t *serialized, size_t serialized_len);
+
 void xqc_moq_namespace_prefix_destroy(xqc_moq_namespace_prefix_t *prefix);
+
+xqc_moq_namespace_advertisement_t *
+xqc_moq_namespace_prefix_find_advertised(
+    xqc_moq_namespace_prefix_t *prefix,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    uint64_t track_namespace_num);
+
+xqc_int_t xqc_moq_namespace_prefix_add_advertised(
+    xqc_moq_namespace_prefix_t *prefix,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    uint64_t track_namespace_num);
+
+xqc_int_t xqc_moq_namespace_prefix_remove_advertised(
+    xqc_moq_namespace_prefix_t *prefix,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    uint64_t track_namespace_num);
 
 xqc_moq_namespace_advertisement_t *xqc_moq_namespace_advertisement_create_copy(
     const xqc_moq_track_ns_field_t *track_namespace_tuple, uint64_t track_namespace_num);

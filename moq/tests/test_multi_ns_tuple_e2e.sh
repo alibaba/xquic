@@ -41,6 +41,16 @@ elif [ -f "$BUILD_DIR/server.crt" ]; then
     cp "$BUILD_DIR/server.crt" "$TMPDIR/"
     cp "$BUILD_DIR/server.key" "$TMPDIR/"
 fi
+if [ ! -s "$TMPDIR/server.crt" ] || [ ! -s "$TMPDIR/server.key" ]; then
+    openssl req -x509 -newkey rsa:2048 -nodes \
+        -keyout "$TMPDIR/server.key" -out "$TMPDIR/server.crt" \
+        -days 1 -subj "/CN=localhost" >/dev/null 2>&1
+fi
+mkdir -p "$TMPDIR/bin"
+cp "$SERVER" "$TMPDIR/bin/moq_demo_server"
+cp "$CLIENT" "$TMPDIR/bin/moq_demo_client"
+SERVER="$TMPDIR/bin/moq_demo_server"
+CLIENT="$TMPDIR/bin/moq_demo_client"
 
 echo "=== Multi-Element Namespace Tuple E2E Tests ==="
 echo ""
@@ -54,11 +64,11 @@ PORT=$((PORT + 1))
 cd "$TMPDIR"
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -m -n 2 > srv1.log 2>&1 &
+"$SERVER" -l d -p $PORT -m -n 2 > srv1.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -m > cli1.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -m > cli1.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
@@ -92,11 +102,11 @@ PORT=$((PORT + 1))
 cd "$TMPDIR"
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -m -n 2 > srv2.log 2>&1 &
+"$SERVER" -l d -p $PORT -m -n 2 > srv2.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V > cli2.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 > cli2.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 

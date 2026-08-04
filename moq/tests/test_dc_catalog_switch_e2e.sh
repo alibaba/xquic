@@ -55,6 +55,16 @@ else
     cp "$(dirname "$SERVER")/server.crt" "$TMPDIR/server.crt" 2>/dev/null || true
     cp "$(dirname "$SERVER")/server.key" "$TMPDIR/server.key" 2>/dev/null || true
 fi
+if [ ! -s "$TMPDIR/server.crt" ] || [ ! -s "$TMPDIR/server.key" ]; then
+    openssl req -x509 -newkey rsa:2048 -nodes \
+        -keyout "$TMPDIR/server.key" -out "$TMPDIR/server.crt" \
+        -days 1 -subj "/CN=localhost" >/dev/null 2>&1
+fi
+mkdir -p "$TMPDIR/bin"
+cp "$SERVER" "$TMPDIR/bin/moq_demo_server"
+cp "$CLIENT" "$TMPDIR/bin/moq_demo_client"
+SERVER="$TMPDIR/bin/moq_demo_server"
+CLIENT="$TMPDIR/bin/moq_demo_client"
 
 echo "=== Datachannel & Catalog Switch E2E Tests ==="
 echo ""
@@ -66,11 +76,11 @@ PORT=$((PORT + 1))
 cd "$TMPDIR" || exit 1
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V > srv1.log 2>&1 &
+"$SERVER" -l d -p $PORT > srv1.log 2>&1 &
 SRV_PID=$!
 sleep 1
 
-timeout 10 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V > cli1.log 2>&1 || true
+timeout 10 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 > cli1.log 2>&1 || true
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
 run_test "1a: default — client on_datachannel fires" \
@@ -79,6 +89,8 @@ run_test "1b: default — server subscribe_datachannel OK" \
     grep_in "xqc_moq_subscribe_datachannel\|subscribe_datachannel\|on_datachannel" slog
 run_test "1c: default — no crash" \
     grep_not_in "segfault\|SIGSEGV\|Aborted" srv1.log
+run_test "1d: default v14 — catalog follows disabled profile default" \
+    grep_not_in "track create success|track_name:catalog" clog
 
 # ============================================================
 # Test 2: -T (disable datachannel) on both sides
@@ -86,11 +98,11 @@ run_test "1c: default — no crash" \
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -T > srv2.log 2>&1 &
+"$SERVER" -l d -p $PORT -T > srv2.log 2>&1 &
 SRV_PID=$!
 sleep 1
 
-timeout 10 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -T > cli2.log 2>&1 || true
+timeout 10 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -T > cli2.log 2>&1 || true
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
 run_test "2a: -T — client on_datachannel does NOT fire" \
@@ -103,42 +115,42 @@ run_test "2d: -T — no crash" \
     grep_not_in "segfault\|SIGSEGV\|Aborted" srv2.log
 
 # ============================================================
-# Test 3: -C (disable catalog) on both sides
+# Test 3: -C explicitly enables catalog on both sides
 # ============================================================
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -C > srv3.log 2>&1 &
+"$SERVER" -l d -p $PORT -C > srv3.log 2>&1 &
 SRV_PID=$!
 sleep 1
 
-timeout 10 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -C > cli3.log 2>&1 || true
+timeout 10 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -C > cli3.log 2>&1 || true
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
-run_test "3a: -C — no catalog subscription in client log" \
-    grep_not_in "subscribe_catalog\|subscribe_latest.*catalog" clog
+run_test "3a: -C — client created catalog track" \
+    grep_in "track create success|track_name:catalog" clog
 run_test "3b: -C — datachannel still works" \
     grep_in "on_datachannel" cli3.log
 run_test "3c: -C — no crash" \
     grep_not_in "segfault\|SIGSEGV\|Aborted" srv3.log
 
 # ============================================================
-# Test 4: -T -C (both disabled)
+# Test 4: -T disables datachannel while -C enables catalog
 # ============================================================
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -T -C > srv4.log 2>&1 &
+"$SERVER" -l d -p $PORT -T -C > srv4.log 2>&1 &
 SRV_PID=$!
 sleep 1
 
-timeout 10 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -T -C > cli4.log 2>&1 || true
+timeout 10 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -T -C > cli4.log 2>&1 || true
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
 run_test "4a: -T -C — no datachannel" \
     grep_not_in "on_datachannel" cli4.log
-run_test "4b: -T -C — no catalog" \
-    grep_not_in "subscribe_catalog" clog
+run_test "4b: -T -C — catalog remains enabled" \
+    grep_in "track create success|track_name:catalog" clog
 run_test "4c: -T -C — session setup completes" \
     grep_in "on_session_setup\|session_setup_done" cli4.log
 run_test "4d: -T -C — no crash on server" \

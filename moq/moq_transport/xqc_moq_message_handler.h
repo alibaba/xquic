@@ -11,6 +11,8 @@ void xqc_moq_on_server_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_s
 
 void xqc_moq_on_server_setup_v14(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
 
+void xqc_moq_on_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
+
 void xqc_moq_on_subscribe(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
 
 void xqc_moq_on_subscribe_update(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
@@ -20,6 +22,25 @@ void xqc_moq_on_subscribe_ok(xqc_moq_session_t *session, xqc_moq_stream_t *moq_s
 void xqc_moq_on_subscribe_error(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
 
 void xqc_moq_on_publish_namespace(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
+
+void xqc_moq_on_subscribe_tracks(xqc_moq_session_t *session,
+    xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
+
+void xqc_moq_on_request_ok(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
+
+void xqc_moq_on_request_error(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
+
+void xqc_moq_on_request_update(xqc_moq_session_t *session,
+    xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
+
+void xqc_moq_on_publish_blocked(xqc_moq_session_t *session,
+    xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
+
+void xqc_moq_on_namespace(xqc_moq_session_t *session,
+    xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
+
+void xqc_moq_on_namespace_done(xqc_moq_session_t *session,
+    xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
 
 void xqc_moq_on_publish_namespace_done(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
 
@@ -31,6 +52,18 @@ void xqc_moq_on_publish_error(xqc_moq_session_t *session, xqc_moq_stream_t *moq_
 
 void xqc_moq_on_publish_done(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
 
+void xqc_moq_on_fetch(xqc_moq_session_t *session,
+    xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
+
+void xqc_moq_on_fetch_ok(xqc_moq_session_t *session,
+    xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
+
+void xqc_moq_on_track_status(xqc_moq_session_t *session,
+    xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
+
+void xqc_moq_on_fetch_header(xqc_moq_session_t *session,
+    xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
+
 void xqc_moq_on_object(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_object_t *object);
 
 void xqc_moq_on_datagram_object(xqc_moq_session_t *session, xqc_moq_object_t *object);
@@ -39,6 +72,9 @@ void xqc_moq_on_object_stream(xqc_moq_session_t *session, xqc_moq_stream_t *moq_
 
 void xqc_moq_on_subgroup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
 
+xqc_int_t xqc_moq_on_subgroup_header(xqc_moq_session_t *session,
+    xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
+
 void xqc_moq_on_track_stream_obj(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
 
 void xqc_moq_on_track_header(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
@@ -46,6 +82,9 @@ void xqc_moq_on_track_header(xqc_moq_session_t *session, xqc_moq_stream_t *moq_s
 void xqc_moq_on_unsubscribe(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
 
 void xqc_moq_on_goaway(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
+
+void xqc_moq_on_goaway_draft18(xqc_moq_session_t *session,
+    xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
 
 void xqc_moq_on_subscribe_namespace(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base);
 

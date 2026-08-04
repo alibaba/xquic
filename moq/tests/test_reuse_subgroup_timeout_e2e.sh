@@ -54,17 +54,27 @@ else
     cp "$(dirname "$SERVER")/server.crt" "$TMPDIR/server.crt" 2>/dev/null || true
     cp "$(dirname "$SERVER")/server.key" "$TMPDIR/server.key" 2>/dev/null || true
 fi
+if [ ! -s "$TMPDIR/server.crt" ] || [ ! -s "$TMPDIR/server.key" ]; then
+    openssl req -x509 -newkey rsa:2048 -nodes \
+        -keyout "$TMPDIR/server.key" -out "$TMPDIR/server.crt" \
+        -days 1 -subj "/CN=localhost" >/dev/null 2>&1
+fi
+mkdir -p "$TMPDIR/bin"
+cp "$SERVER" "$TMPDIR/bin/moq_demo_server"
+cp "$CLIENT" "$TMPDIR/bin/moq_demo_client"
+SERVER="$TMPDIR/bin/moq_demo_server"
+CLIENT="$TMPDIR/bin/moq_demo_client"
 
 echo "=== Reused Video Subgroup Timeout E2E Tests ==="
 echo ""
 
 cd "$TMPDIR" || exit 1
 
-"$SERVER" -l d -p "$PORT" -V -W -n 25 > srv.log 2>&1 &
+"$SERVER" -l d -p "$PORT" -W -n 25 > srv.log 2>&1 &
 SRV_PID=$!
 sleep 1
 
-timeout 15 "$CLIENT" -a 127.0.0.1 -p "$PORT" -l d -V -n 25 > cli.log 2>&1 || true
+timeout 15 "$CLIENT" -a 127.0.0.1 -p "$PORT" -l d -A moq-14 -n 25 > cli.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 

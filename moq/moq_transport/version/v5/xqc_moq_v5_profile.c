@@ -64,10 +64,15 @@ static const xqc_moq_message_codec_entry_t xqc_moq_v5_data_codecs[] = {
     {XQC_MOQ_MSG_STREAM_HEADER_TRACK, xqc_moq_v5_create_track_header,
      xqc_moq_v5_destroy_track_header,
      xqc_moq_v5_msg_track_header_init_handler},
-    {XQC_MOQ_INTERNAL_TRACK_STREAM_OBJECT,
+};
+
+static const xqc_moq_message_codec_entry_t
+xqc_moq_v5_continuation_codecs[] = {
+    {0,
      xqc_moq_v5_create_track_stream_obj,
      xqc_moq_v5_destroy_track_stream_obj,
-     xqc_moq_v5_msg_track_stream_obj_init_handler},
+     xqc_moq_v5_msg_track_stream_obj_init_handler,
+     XQC_MOQ_SEMANTIC_TRACK_STREAM_OBJECT},
 };
 
 static xqc_moq_stream_kind_t
@@ -89,15 +94,32 @@ xqc_moq_v5_classify_stream(xqc_moq_stream_kind_t current_kind,
     return XQC_MOQ_STREAM_UNKNOWN;
 }
 
+static xqc_moq_stream_kind_t
+xqc_moq_v5_classify_outbound_stream(
+    xqc_moq_stream_kind_t current_kind,
+    xqc_moq_semantic_id_t semantic, uint64_t wire_type)
+{
+    if (current_kind != XQC_MOQ_STREAM_UNKNOWN) {
+        return current_kind;
+    }
+    if (semantic == XQC_MOQ_SEMANTIC_OBJECT_STREAM) {
+        return XQC_MOQ_STREAM_V5_OBJECT;
+    }
+    if (semantic == XQC_MOQ_SEMANTIC_TRACK_HEADER) {
+        return XQC_MOQ_STREAM_V5_TRACK;
+    }
+    return xqc_moq_v5_classify_stream(current_kind, wire_type);
+}
+
 static xqc_bool_t
-xqc_moq_v5_next_data_message(xqc_moq_stream_kind_t stream_kind,
-    uint64_t current_wire_type, uint64_t *next_wire_type)
+xqc_moq_v5_next_data_semantic(xqc_moq_stream_kind_t stream_kind,
+    uint64_t current_wire_type,
+    xqc_moq_semantic_id_t *next_semantic)
 {
     if (stream_kind == XQC_MOQ_STREAM_V5_TRACK
-        && (current_wire_type == XQC_MOQ_MSG_STREAM_HEADER_TRACK
-            || current_wire_type == XQC_MOQ_INTERNAL_TRACK_STREAM_OBJECT))
+        && current_wire_type == XQC_MOQ_MSG_STREAM_HEADER_TRACK)
     {
-        *next_wire_type = XQC_MOQ_INTERNAL_TRACK_STREAM_OBJECT;
+        *next_semantic = XQC_MOQ_SEMANTIC_TRACK_STREAM_OBJECT;
         return XQC_TRUE;
     }
 
@@ -106,11 +128,12 @@ xqc_moq_v5_next_data_message(xqc_moq_stream_kind_t stream_kind,
 
 static xqc_int_t
 xqc_moq_v5_prepare_data_message(xqc_moq_stream_t *stream,
-    uint64_t wire_type, xqc_moq_msg_base_t *msg_base)
+    const xqc_moq_message_codec_entry_t *codec,
+    xqc_moq_msg_base_t *msg_base)
 {
     (void)msg_base;
 
-    if (wire_type == XQC_MOQ_INTERNAL_TRACK_STREAM_OBJECT
+    if (codec->semantic == XQC_MOQ_SEMANTIC_TRACK_STREAM_OBJECT
         && (stream->kind != XQC_MOQ_STREAM_V5_TRACK
             || !stream->track_header_valid))
     {
@@ -151,6 +174,7 @@ const xqc_moq_version_profile_t xqc_moq_v5_profile_definition = {
     .client_setup_type = XQC_MOQ_MSG_CLIENT_SETUP,
     .server_setup_type = XQC_MOQ_MSG_SERVER_SETUP,
     .include_extdata_in_default_setup = XQC_TRUE,
+    .catalog_default_enabled = XQC_TRUE,
     .data_strategy = XQC_MOQ_DATA_STRATEGY_OBJECT_TRACK,
     .control_codecs = xqc_moq_v5_control_codecs,
     .control_codecs_count = sizeof(xqc_moq_v5_control_codecs)
@@ -158,10 +182,14 @@ const xqc_moq_version_profile_t xqc_moq_v5_profile_definition = {
     .data_codecs = xqc_moq_v5_data_codecs,
     .data_codecs_count = sizeof(xqc_moq_v5_data_codecs)
                          / sizeof(xqc_moq_v5_data_codecs[0]),
+    .continuation_codecs = xqc_moq_v5_continuation_codecs,
+    .continuation_codecs_count =
+        sizeof(xqc_moq_v5_continuation_codecs)
+        / sizeof(xqc_moq_v5_continuation_codecs[0]),
     .classify_stream = xqc_moq_v5_classify_stream,
-    .classify_outbound_stream = xqc_moq_v5_classify_stream,
+    .classify_outbound_stream = xqc_moq_v5_classify_outbound_stream,
     .normalize_wire_type = NULL,
-    .next_data_message = xqc_moq_v5_next_data_message,
+    .next_data_semantic = xqc_moq_v5_next_data_semantic,
     .prepare_data_message = xqc_moq_v5_prepare_data_message,
     .decode_datagram = NULL,
     .adapt_subscribe = xqc_moq_v5_adapt_subscribe,

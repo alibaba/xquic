@@ -1,7 +1,11 @@
 #include <string.h>
 
 #include "src/common/xqc_malloc.h"
+#include "src/common/utils/vint/xqc_variable_len_int.h"
+#include "moq/moq_transport/xqc_moq_message.h"
 #include "moq/moq_transport/xqc_moq_namespace.h"
+#include "moq/moq_transport/xqc_moq_session.h"
+#include "moq/moq_transport/xqc_moq_stream.h"
 
 static xqc_int_t
 xqc_moq_namespace_tuple_field_equal(const xqc_moq_track_ns_field_t *a, const xqc_moq_track_ns_field_t *b)
@@ -25,10 +29,13 @@ xqc_int_t
 xqc_moq_namespace_tuple_equal(const xqc_moq_track_ns_field_t *a, uint64_t na,
     const xqc_moq_track_ns_field_t *b, uint64_t nb)
 {
-    if (a == NULL || b == NULL || na == 0 || nb == 0) {
+    if (na != nb) {
         return 0;
     }
-    if (na != nb) {
+    if (na == 0) {
+        return 1;
+    }
+    if (a == NULL || b == NULL) {
         return 0;
     }
     for (uint64_t i = 0; i < na; i++) {
@@ -43,8 +50,11 @@ xqc_int_t
 xqc_moq_namespace_tuple_is_prefix(const xqc_moq_track_ns_field_t *a, uint64_t na,
     const xqc_moq_track_ns_field_t *b, uint64_t nb)
 {
-    if (a == NULL || b == NULL || na == 0 || nb == 0 || na > nb) {
+    if (na > nb || (na > 0 && a == NULL) || (nb > 0 && b == NULL)) {
         return 0;
+    }
+    if (na == 0) {
+        return 1;
     }
     for (uint64_t i = 0; i < na; i++) {
         if (!xqc_moq_namespace_tuple_field_equal(&a[i], &b[i])) {
@@ -60,6 +70,66 @@ xqc_moq_namespace_tuple_overlaps(const xqc_moq_track_ns_field_t *a, uint64_t na,
 {
     return xqc_moq_namespace_tuple_is_prefix(a, na, b, nb)
         || xqc_moq_namespace_tuple_is_prefix(b, nb, a, na);
+}
+
+xqc_int_t
+xqc_moq_namespace_update_overlaps(
+    xqc_moq_session_t *session, xqc_moq_stream_t *stream,
+    const xqc_moq_namespace_prefix_t *candidate)
+{
+    if (session == NULL || stream == NULL || candidate == NULL) {
+        return 0;
+    }
+
+    if (stream->request_type == XQC_MOQ_MSG_SUBSCRIBE_TRACKS) {
+        xqc_list_head_t *pos;
+        xqc_list_for_each(pos, &session->peer_request_stream_list) {
+            xqc_moq_stream_t *other =
+                xqc_list_entry(pos, xqc_moq_stream_t,
+                               request_list_member);
+            if (other == stream || !other->peer_request
+                || other->request_type != XQC_MOQ_MSG_SUBSCRIBE_TRACKS
+                || !other->subscribe_tracks_active
+                || other->tracks_subscription == NULL)
+            {
+                continue;
+            }
+            if (xqc_moq_namespace_tuple_overlaps(
+                    candidate->prefix_tuple, candidate->prefix_num,
+                    other->tracks_subscription->prefix_tuple,
+                    other->tracks_subscription->prefix_num))
+            {
+                return 1;
+            }
+        }
+        return 0;
+    }
+
+    if (stream->request_type == XQC_MOQ_MSG_SUBSCRIBE_NAMESPACE) {
+        xqc_list_head_t *lists[] = {
+            &session->peer_subscribe_namespace_list,
+            &session->peer_ns_pending_inbound_list,
+        };
+        for (size_t i = 0; i < sizeof(lists) / sizeof(lists[0]); i++) {
+            xqc_list_head_t *pos;
+            xqc_list_for_each(pos, lists[i]) {
+                xqc_moq_namespace_prefix_t *other =
+                    xqc_list_entry(pos, xqc_moq_namespace_prefix_t,
+                                   list_member);
+                if (other->request_id == stream->request_id) {
+                    continue;
+                }
+                if (xqc_moq_namespace_tuple_overlaps(
+                        candidate->prefix_tuple,
+                        candidate->prefix_num,
+                        other->prefix_tuple, other->prefix_num))
+                {
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
 }
 
 xqc_moq_track_ns_field_t *
@@ -87,6 +157,44 @@ xqc_moq_namespace_tuple_copy(const xqc_moq_track_ns_field_t *src, uint64_t num)
     return dst;
 }
 
+xqc_moq_track_ns_field_t *
+xqc_moq_namespace_tuple_concat(
+    const xqc_moq_track_ns_field_t *prefix, uint64_t prefix_num,
+    const xqc_moq_track_ns_field_t *suffix, uint64_t suffix_num)
+{
+    if ((prefix_num > 0 && prefix == NULL)
+        || (suffix_num > 0 && suffix == NULL)
+        || prefix_num > UINT64_MAX - suffix_num
+        || prefix_num + suffix_num == 0)
+    {
+        return NULL;
+    }
+
+    uint64_t total_num = prefix_num + suffix_num;
+    xqc_moq_track_ns_field_t *joined =
+        xqc_calloc(total_num, sizeof(*joined));
+    if (joined == NULL) {
+        return NULL;
+    }
+
+    for (uint64_t i = 0; i < total_num; i++) {
+        const xqc_moq_track_ns_field_t *source =
+            i < prefix_num ? &prefix[i] : &suffix[i - prefix_num];
+        joined[i].len = source->len;
+        if (source->len == 0 || source->data == NULL) {
+            xqc_moq_namespace_tuple_free(joined, total_num);
+            return NULL;
+        }
+        joined[i].data = xqc_malloc(source->len);
+        if (joined[i].data == NULL) {
+            xqc_moq_namespace_tuple_free(joined, total_num);
+            return NULL;
+        }
+        memcpy(joined[i].data, source->data, source->len);
+    }
+    return joined;
+}
+
 void
 xqc_moq_namespace_tuple_free(xqc_moq_track_ns_field_t *tuple, uint64_t num)
 {
@@ -104,7 +212,7 @@ xqc_moq_namespace_tuple_free(xqc_moq_track_ns_field_t *tuple, uint64_t num)
 xqc_moq_namespace_prefix_t *
 xqc_moq_namespace_prefix_create_copy(const xqc_moq_track_ns_field_t *prefix_tuple, uint64_t prefix_num)
 {
-    if (prefix_tuple == NULL || prefix_num == 0) {
+    if (prefix_num > 0 && prefix_tuple == NULL) {
         return NULL;
     }
 
@@ -115,12 +223,66 @@ xqc_moq_namespace_prefix_create_copy(const xqc_moq_track_ns_field_t *prefix_tupl
     xqc_init_list_head(&namespace_prefix->list_member);
     xqc_init_list_head(&namespace_prefix->advertised_namespace_list);
     namespace_prefix->prefix_num = prefix_num;
-    namespace_prefix->prefix_tuple = xqc_moq_namespace_tuple_copy(prefix_tuple, prefix_num);
-    if (namespace_prefix->prefix_tuple == NULL) {
-        xqc_free(namespace_prefix);
-        return NULL;
+    if (prefix_num > 0) {
+        namespace_prefix->prefix_tuple =
+            xqc_moq_namespace_tuple_copy(prefix_tuple, prefix_num);
+        if (namespace_prefix->prefix_tuple == NULL) {
+            xqc_free(namespace_prefix);
+            return NULL;
+        }
     }
     return namespace_prefix;
+}
+
+xqc_moq_namespace_prefix_t *
+xqc_moq_namespace_prefix_create_serialized(
+    const uint8_t *serialized, size_t serialized_len)
+{
+    if (serialized == NULL || serialized_len == 0) {
+        return NULL;
+    }
+
+    const uint8_t *pos = serialized;
+    const uint8_t *end = serialized + serialized_len;
+    uint64_t field_count = 0;
+    xqc_int_t ret = xqc_vi64_read(pos, end, &field_count);
+    if (ret < 0 || field_count > XQC_MOQ_MAX_NAMESPACE_TUPLE_ELEMS) {
+        return NULL;
+    }
+    pos += ret;
+
+    xqc_moq_track_ns_field_t *fields = NULL;
+    if (field_count > 0) {
+        fields = xqc_calloc((size_t)field_count, sizeof(*fields));
+        if (fields == NULL) {
+            return NULL;
+        }
+    }
+    for (uint64_t i = 0; i < field_count; i++) {
+        uint64_t field_len = 0;
+        ret = xqc_vi64_read(pos, end, &field_len);
+        if (ret < 0) {
+            xqc_free(fields);
+            return NULL;
+        }
+        pos += ret;
+        if (field_len == 0 || field_len > (uint64_t)(end - pos)) {
+            xqc_free(fields);
+            return NULL;
+        }
+        fields[i].len = (size_t)field_len;
+        fields[i].data = (unsigned char *)pos;
+        pos += field_len;
+    }
+    if (pos != end) {
+        xqc_free(fields);
+        return NULL;
+    }
+
+    xqc_moq_namespace_prefix_t *prefix =
+        xqc_moq_namespace_prefix_create_copy(fields, field_count);
+    xqc_free(fields);
+    return prefix;
 }
 
 void
@@ -143,6 +305,79 @@ xqc_moq_namespace_prefix_destroy(xqc_moq_namespace_prefix_t *prefix)
 }
 
 xqc_moq_namespace_advertisement_t *
+xqc_moq_namespace_prefix_find_advertised(
+    xqc_moq_namespace_prefix_t *prefix,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    uint64_t track_namespace_num)
+{
+    if (prefix == NULL || track_namespace_tuple == NULL
+        || track_namespace_num == 0)
+    {
+        return NULL;
+    }
+
+    xqc_list_head_t *pos;
+    xqc_list_for_each(pos, &prefix->advertised_namespace_list) {
+        xqc_moq_namespace_advertisement_t *advertisement =
+            xqc_list_entry(pos, xqc_moq_namespace_advertisement_t,
+                           list_member);
+        if (xqc_moq_namespace_tuple_equal(
+                track_namespace_tuple, track_namespace_num,
+                advertisement->track_namespace_tuple,
+                advertisement->track_namespace_num))
+        {
+            return advertisement;
+        }
+    }
+    return NULL;
+}
+
+xqc_int_t
+xqc_moq_namespace_prefix_add_advertised(
+    xqc_moq_namespace_prefix_t *prefix,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    uint64_t track_namespace_num)
+{
+    if (prefix == NULL || track_namespace_tuple == NULL
+        || track_namespace_num == 0)
+    {
+        return -XQC_EPARAM;
+    }
+    if (xqc_moq_namespace_prefix_find_advertised(
+            prefix, track_namespace_tuple, track_namespace_num) != NULL)
+    {
+        return XQC_OK;
+    }
+
+    xqc_moq_namespace_advertisement_t *advertisement =
+        xqc_moq_namespace_advertisement_create_copy(
+            track_namespace_tuple, track_namespace_num);
+    if (advertisement == NULL) {
+        return -XQC_EMALLOC;
+    }
+    xqc_list_add_tail(&advertisement->list_member,
+                      &prefix->advertised_namespace_list);
+    return XQC_OK;
+}
+
+xqc_int_t
+xqc_moq_namespace_prefix_remove_advertised(
+    xqc_moq_namespace_prefix_t *prefix,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    uint64_t track_namespace_num)
+{
+    xqc_moq_namespace_advertisement_t *advertisement =
+        xqc_moq_namespace_prefix_find_advertised(
+            prefix, track_namespace_tuple, track_namespace_num);
+    if (advertisement == NULL) {
+        return 0;
+    }
+    xqc_list_del_init(&advertisement->list_member);
+    xqc_moq_namespace_advertisement_destroy(advertisement);
+    return 1;
+}
+
+xqc_moq_namespace_advertisement_t *
 xqc_moq_namespace_advertisement_create_copy(const xqc_moq_track_ns_field_t *track_namespace_tuple,
     uint64_t track_namespace_num)
 {
@@ -157,6 +392,7 @@ xqc_moq_namespace_advertisement_create_copy(const xqc_moq_track_ns_field_t *trac
     }
     xqc_init_list_head(&namespace_advertisement->list_member);
     xqc_init_list_head(&namespace_advertisement->advertised_track_list);
+    namespace_advertisement->request_id = XQC_MOQ_INVALID_ID;
     namespace_advertisement->track_namespace_num = track_namespace_num;
     namespace_advertisement->track_namespace_tuple =
         xqc_moq_namespace_tuple_copy(track_namespace_tuple, track_namespace_num);

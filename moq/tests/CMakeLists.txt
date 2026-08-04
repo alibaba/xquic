@@ -23,6 +23,18 @@ set(
     "moq_cancel_write_test.c"
 )
 
+set(MOQ_D18_TESTS
+    moq_d18_int_test
+    moq_d18_registry_test
+    moq_d18_setup_test
+    moq_d18_params_test
+    moq_d18_properties_test
+    moq_d18_data_test
+    moq_d18_control_test
+    moq_d18_namespace_response_test
+    moq_d18_subscribe_tracks_test
+)
+
 include_directories(
     "${CMAKE_SOURCE_DIR}/"
     "${CMAKE_SOURCE_DIR}/include"
@@ -52,3 +64,9 @@ add_test(NAME moq_cancel_write_test COMMAND moq_cancel_write_test)
 add_executable(moq_version_test "moq_version_test.c")
 target_link_libraries(moq_version_test ${APP_DEPEND_LIBS})
 add_test(NAME moq_version_test COMMAND moq_version_test)
+
+foreach(D18_TEST ${MOQ_D18_TESTS})
+    add_executable(${D18_TEST} "${D18_TEST}.c")
+    target_link_libraries(${D18_TEST} ${APP_DEPEND_LIBS})
+    add_test(NAME ${D18_TEST} COMMAND ${D18_TEST})
+endforeach()

@@ -31,7 +31,7 @@ assert_no_match() { grep -q "$1" "$2" && return 1 || return 0; }
 assert_count_ge() {
     local pattern="$1" file="$2" min="$3"
     local count
-    count=$(grep -c "$pattern" "$file" 2>/dev/null || echo 0)
+    count=$(grep -c "$pattern" "$file" 2>/dev/null) || count=0
     [ "$count" -ge "$min" ]
 }
 
@@ -47,6 +47,16 @@ elif [ -f "$BUILD_DIR/server.crt" ]; then
     cp "$BUILD_DIR/server.crt" "$TMPDIR/"
     cp "$BUILD_DIR/server.key" "$TMPDIR/"
 fi
+if [ ! -s "$TMPDIR/server.crt" ] || [ ! -s "$TMPDIR/server.key" ]; then
+    openssl req -x509 -newkey rsa:2048 -nodes \
+        -keyout "$TMPDIR/server.key" -out "$TMPDIR/server.crt" \
+        -days 1 -subj "/CN=localhost" >/dev/null 2>&1
+fi
+mkdir -p "$TMPDIR/bin"
+cp "$SERVER" "$TMPDIR/bin/moq_demo_server"
+cp "$CLIENT" "$TMPDIR/bin/moq_demo_client"
+SERVER="$TMPDIR/bin/moq_demo_server"
+CLIENT="$TMPDIR/bin/moq_demo_client"
 
 echo "=== SUBSCRIBE_NAMESPACE E2E Tests ==="
 echo ""
@@ -60,11 +70,11 @@ PORT=$((PORT + 1))
 cd "$TMPDIR"
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -n 2 > srv1.log 2>&1 &
+"$SERVER" -l d -p $PORT -n 2 > srv1.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 1 > cli1.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -N 1 > cli1.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
@@ -94,11 +104,11 @@ echo "--- Test 2: Overlap rejection (identical namespace) ---"
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -n 2 > srv2.log 2>&1 &
+"$SERVER" -l d -p $PORT -n 2 > srv2.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 2 > cli2.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -N 2 > cli2.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
@@ -129,11 +139,11 @@ echo "--- Test 3: SUBSCRIBE then UNSUBSCRIBE_NAMESPACE ---"
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -n 2 > srv3.log 2>&1 &
+"$SERVER" -l d -p $PORT -n 2 > srv3.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 3 > cli3.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -N 3 > cli3.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
@@ -162,11 +172,11 @@ echo "--- Test 4: Multi-element namespace tuple ---"
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -n 2 > srv4.log 2>&1 &
+"$SERVER" -l d -p $PORT -n 2 > srv4.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 4 > cli4.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -N 4 > cli4.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
@@ -191,11 +201,11 @@ echo "--- Test 5: Two non-overlapping namespaces ---"
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -n 2 > srv5.log 2>&1 &
+"$SERVER" -l d -p $PORT -n 2 > srv5.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 5 > cli5.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -N 5 > cli5.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
@@ -223,11 +233,11 @@ echo "--- Test 6: Prefix overlap (parent subsumes child) ---"
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -n 2 > srv6.log 2>&1 &
+"$SERVER" -l d -p $PORT -n 2 > srv6.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 6 > cli6.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -N 6 > cli6.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
@@ -257,11 +267,11 @@ echo "--- Test 7: Reverse overlap (child first, parent second) ---"
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -n 2 > srv7.log 2>&1 &
+"$SERVER" -l d -p $PORT -n 2 > srv7.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 7 > cli7.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -N 7 > cli7.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
@@ -293,11 +303,11 @@ echo "--- Test 8: Unsubscribe then resubscribe ---"
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -n 2 > srv8.log 2>&1 &
+"$SERVER" -l d -p $PORT -n 2 > srv8.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 8 > cli8.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -N 8 > cli8.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
@@ -329,11 +339,11 @@ echo "--- Test 9: Callback override ---"
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -K 1 -n 2 > srv9.log 2>&1 &
+"$SERVER" -l d -p $PORT -K 1 -n 2 > srv9.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 9 > cli9.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -N 9 > cli9.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
@@ -361,11 +371,11 @@ echo "--- Test 10: Request ID reuse after overlap ERROR ---"
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -n 2 > srv10.log 2>&1 &
+"$SERVER" -l d -p $PORT -n 2 > srv10.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 10 > cli10.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -N 10 > cli10.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
@@ -393,11 +403,11 @@ echo "--- Test 11: Request ID parity error ---"
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -n 2 > srv11.log 2>&1 &
+"$SERVER" -l d -p $PORT -n 2 > srv11.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 11 > cli11.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -N 11 > cli11.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
@@ -424,11 +434,11 @@ echo "--- Test 12: Unsubscribe non-existent namespace ---"
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -n 2 > srv12.log 2>&1 &
+"$SERVER" -l d -p $PORT -n 2 > srv12.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 12 > cli12.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -N 12 > cli12.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
@@ -457,11 +467,11 @@ echo "--- Test 13: Unsubscribe child does not delete parent ---"
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -n 2 > srv13.log 2>&1 &
+"$SERVER" -l d -p $PORT -n 2 > srv13.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 13 > cli13.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -N 13 > cli13.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
@@ -489,11 +499,11 @@ echo "--- Test 14: Wrong request_id in OK response ---"
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -K 2 -n 2 > srv14.log 2>&1 &
+"$SERVER" -l d -p $PORT -K 2 -n 2 > srv14.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 14 > cli14.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -N 14 > cli14.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
@@ -521,11 +531,11 @@ echo "--- Test 15: Duplicate OK response ---"
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -K 3 -n 2 > srv15.log 2>&1 &
+"$SERVER" -l d -p $PORT -K 3 -n 2 > srv15.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 15 > cli15.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -N 15 > cli15.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
@@ -553,11 +563,11 @@ echo "--- Test 16: Callback mode + parity error ---"
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -K 1 -n 2 > srv16.log 2>&1 &
+"$SERVER" -l d -p $PORT -K 1 -n 2 > srv16.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 11 > cli16.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -N 11 > cli16.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
@@ -584,11 +594,11 @@ echo "--- Test 17: PUBLISH forwarding after SUBSCRIBE_NAMESPACE_OK ---"
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -n 2 > srv17.log 2>&1 &
+"$SERVER" -l d -p $PORT -n 2 > srv17.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 1 > cli17.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -N 1 > cli17.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
@@ -624,11 +634,11 @@ echo "--- Test 18: Explicit PUBLISH_NAMESPACE/DONE future update ---"
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -n 2 -K 4 > srv18.log 2>&1 &
+"$SERVER" -l d -p $PORT -n 2 -K 4 > srv18.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 16 > cli18.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -N 16 > cli18.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
@@ -664,11 +674,11 @@ echo "--- Test 19: Existing parent namespace is not duplicated ---"
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -n 2 -K 5 > srv19.log 2>&1 &
+"$SERVER" -l d -p $PORT -n 2 -K 5 > srv19.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 17 > cli19.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -N 17 > cli19.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
@@ -697,11 +707,11 @@ echo "--- Test 20: Sibling DONE keeps sticky parent ---"
 PORT=$((PORT + 1))
 rm -f clog slog
 
-"$SERVER" -l d -p $PORT -V -n 2 -K 6 > srv20.log 2>&1 &
+"$SERVER" -l d -p $PORT -n 2 -K 6 > srv20.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -V -N 18 > cli20.log 2>&1 || true
+timeout 8 "$CLIENT" -a 127.0.0.1 -p $PORT -l d -A moq-14 -N 18 > cli20.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 

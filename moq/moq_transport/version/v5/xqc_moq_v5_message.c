@@ -2,6 +2,8 @@
 #include "moq/moq_transport/xqc_moq_namespace.h"
 #include "moq/moq_transport/xqc_moq_message_handler.h"
 #include "moq/moq_transport/xqc_moq_session.h"
+#include "moq/moq_transport/xqc_moq_subscribe.h"
+#include "moq/moq_transport/xqc_moq_track.h"
 #include "src/common/utils/vint/xqc_variable_len_int.h"
 
 static void
@@ -12,6 +14,41 @@ xqc_moq_v5_on_unhandled_control(xqc_moq_session_t *session,
     xqc_log(session->log, XQC_LOG_WARN,
             "|draft-05 control message has no application handler|type:0x%xi|",
             msg_base->type());
+    xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                          "unsupported draft-05 control message");
+}
+
+static void
+xqc_moq_v5_on_subscribe_done(xqc_moq_session_t *session,
+    xqc_moq_stream_t *moq_stream, xqc_moq_msg_base_t *msg_base)
+{
+    xqc_moq_v5_subscribe_done_msg_t *done =
+        (xqc_moq_v5_subscribe_done_msg_t *)msg_base;
+    xqc_moq_subscribe_t *subscribe;
+    xqc_moq_track_t *track;
+
+    (void)moq_stream;
+    subscribe = xqc_moq_find_subscribe(session, done->subscribe_id, 1);
+    if (subscribe == NULL) {
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|subscribe_done target not found|subscribe_id:%ui|",
+                done->subscribe_id);
+        xqc_moq_session_error(session, MOQ_PROTOCOL_VIOLATION,
+                              "unknown subscribe done");
+        return;
+    }
+
+    track = xqc_moq_find_track_by_alias(
+        session, subscribe->subscribe_msg->track_alias,
+        XQC_MOQ_TRACK_FOR_SUB);
+    if (track != NULL) {
+        xqc_moq_track_set_subscribe_id(track, XQC_MOQ_INVALID_ID);
+        xqc_moq_track_set_alias(track, XQC_MOQ_INVALID_ID);
+    }
+
+    xqc_list_del(&subscribe->list_member);
+    xqc_moq_subscribe_destroy(subscribe);
+    xqc_moq_session_check_drain_complete(session);
 }
 
 const xqc_moq_v5_msg_base_t xqc_moq_v5_client_setup_base = {
@@ -115,7 +152,7 @@ const xqc_moq_v5_msg_base_t xqc_moq_v5_subscribe_done_base = {
     .encode_len = xqc_moq_v5_msg_encode_subscribe_done_len,
     .encode     = xqc_moq_v5_msg_encode_subscribe_done,
     .decode     = xqc_moq_v5_msg_decode_subscribe_done,
-    .on_msg     = xqc_moq_v5_on_unhandled_control,
+    .on_msg     = xqc_moq_v5_on_subscribe_done,
 };
 
 const xqc_moq_v5_msg_base_t xqc_moq_v5_announce_cancel_base = {
@@ -166,44 +203,6 @@ const xqc_moq_v5_msg_base_t xqc_moq_v5_track_header_base = {
     .on_msg     = xqc_moq_on_track_header,
 };
 
-void xqc_moq_v5_msg_set_object_by_object(xqc_moq_object_t *obj, xqc_moq_object_stream_msg_t *msg)
-{
-    obj->subscribe_id = msg->subscribe_id;
-    obj->track_alias = msg->track_alias;
-    obj->group_id = msg->group_id;
-    obj->object_id = msg->object_id;
-    obj->send_order = msg->send_order;
-    obj->status = msg->status;
-    obj->payload = msg->payload;
-    obj->payload_len = msg->payload_len;
-}
-
-void xqc_moq_v5_msg_set_object_by_track(xqc_moq_object_t *obj, xqc_moq_stream_header_track_msg_t *header,
-    xqc_moq_track_stream_obj_msg_t *msg)
-{
-    obj->subscribe_id = header->subscribe_id;
-    obj->track_alias = header->track_alias;
-    obj->send_order = header->send_order;
-    obj->group_id = msg->group_id;
-    obj->object_id = msg->object_id;
-    obj->status = msg->status;
-    obj->payload = msg->payload;
-    obj->payload_len = msg->payload_len;
-}
-
-void xqc_moq_v5_msg_set_object_by_group(xqc_moq_object_t *obj, xqc_moq_stream_header_group_msg_t *header,
-    xqc_moq_group_stream_obj_msg_t *msg)
-{
-    obj->subscribe_id = header->subscribe_id;
-    obj->track_alias = header->track_alias;
-    obj->send_order = header->send_order;
-    obj->group_id = header->group_id;
-    obj->object_id = msg->object_id;
-    obj->status = msg->status;
-    obj->payload = msg->payload;
-    obj->payload_len = msg->payload_len;
-}
-
 void
 xqc_moq_v5_decode_msg_ctx_reset(xqc_moq_decode_msg_ctx_t *ctx)
 {
@@ -225,6 +224,15 @@ xqc_moq_v5_msg_alloc_params(xqc_int_t params_num)
 void
 xqc_moq_v5_destroy_params(xqc_moq_message_parameter_t *params, xqc_int_t params_num)
 {
+    /*
+     * Decoders record params_num from the wire before validating it against
+     * XQC_MOQ_MAX_PARAMS, so a rejected message reaches destroy with a
+     * non-zero params_num and params still unallocated.
+     */
+    if (params == NULL) {
+        return;
+    }
+
     for (xqc_int_t i = 0; i < params_num; i++) {
         xqc_free(params[i].value);
     }
@@ -290,10 +298,6 @@ xqc_moq_v5_msg_decode_one_param(uint8_t *buf, size_t buf_len, xqc_moq_decode_par
             processed += ret;
 
             DEBUG_PRINTF("====>param[%d] type:%d\n",ctx->cur_param_idx, (int)param->type);
-            if (param->type > XQC_MOQ_PARAM_EXTDATA) {
-                return -XQC_EILLEGAL_FRAME;
-            }
-
             ctx->cur_field_idx = 1;
         case 1: //Parameter Length (i)
             ret = xqc_vint_read(buf + processed, buf + buf_len, &param->length);
@@ -304,11 +308,14 @@ xqc_moq_v5_msg_decode_one_param(uint8_t *buf, size_t buf_len, xqc_moq_decode_par
             processed += ret;
 
             DEBUG_PRINTF("====>length:%d\n",(int)param->length);
-            if (param->length <= 0) {
-                return -XQC_EILLEGAL_FRAME;
-            }
             if (param->length > XQC_MOQ_MAX_PARAM_VALUE_LEN) {
                 return -XQC_ELIMIT;
+            }
+            if (param->length == 0) {
+                *finish = 1;
+                ctx->value_processed = 0;
+                ctx->cur_field_idx = 0;
+                return processed;
             }
             param->value = xqc_realloc(param->value, param->length);
             ctx->value_processed = 0;
@@ -819,7 +826,7 @@ xqc_moq_v5_msg_decode_subscribe(uint8_t *buf, size_t buf_len, uint8_t stream_fin
             DEBUG_PRINTF("==>track_alias:%d\n",(int)subscribe->track_alias);
             msg_ctx->cur_field_idx = 2;
         case 2: //Track Namespace (b)
-            if (subscribe->track_namespace_len == 0) {
+            if (!msg_ctx->str_len_ready) {
                 ret = xqc_vint_read(buf + processed, buf + buf_len, (uint64_t *)&subscribe->track_namespace_len);
                 if (ret < 0) {
                     *wait_more_data = 1;
@@ -827,12 +834,14 @@ xqc_moq_v5_msg_decode_subscribe(uint8_t *buf, size_t buf_len, uint8_t stream_fin
                 }
                 DEBUG_PRINTF("==>namespace_len:%d\n",(int)subscribe->track_namespace_len);
                 processed += ret;
-            }
-            if (subscribe->track_namespace == NULL) {
+                msg_ctx->str_len_ready = 1;
                 if (subscribe->track_namespace_len > XQC_MOQ_MAX_NAME_LEN) {
                     return -XQC_ELIMIT;
                 }
                 subscribe->track_namespace = xqc_calloc(1, subscribe->track_namespace_len + 1);
+                if (subscribe->track_namespace == NULL) {
+                    return -XQC_EMALLOC;
+                }
             }
             if (processed == buf_len) {
                 *wait_more_data = 1;
@@ -851,9 +860,10 @@ xqc_moq_v5_msg_decode_subscribe(uint8_t *buf, size_t buf_len, uint8_t stream_fin
                 break;
             }
             DEBUG_PRINTF("==>track_namespace:%s\n",subscribe->track_namespace);
+            msg_ctx->str_len_ready = 0;
             msg_ctx->cur_field_idx = 3;
         case 3: //Track Name (b)
-            if (subscribe->track_name_len == 0) {
+            if (!msg_ctx->str_len_ready) {
                 ret = xqc_vint_read(buf + processed, buf + buf_len, (uint64_t *)&subscribe->track_name_len);
                 if (ret < 0) {
                     *wait_more_data = 1;
@@ -861,12 +871,14 @@ xqc_moq_v5_msg_decode_subscribe(uint8_t *buf, size_t buf_len, uint8_t stream_fin
                 }
                 DEBUG_PRINTF("==>name_len:%d\n",(int)subscribe->track_name_len);
                 processed += ret;
-            }
-            if (subscribe->track_name == NULL) {
+                msg_ctx->str_len_ready = 1;
                 if (subscribe->track_name_len > XQC_MOQ_MAX_NAME_LEN) {
                     return -XQC_ELIMIT;
                 }
                 subscribe->track_name = xqc_calloc(1, subscribe->track_name_len + 1);
+                if (subscribe->track_name == NULL) {
+                    return -XQC_EMALLOC;
+                }
             }
             if (processed == buf_len) {
                 *wait_more_data = 1;
@@ -885,6 +897,7 @@ xqc_moq_v5_msg_decode_subscribe(uint8_t *buf, size_t buf_len, uint8_t stream_fin
                 break;
             }
             DEBUG_PRINTF("==>track_name:%s\n",subscribe->track_name);
+            msg_ctx->str_len_ready = 0;
             msg_ctx->cur_field_idx = 4;
         case 4: //Filter Type (i)
             ret = xqc_vint_read(buf + processed, buf + buf_len, &subscribe->filter_type);

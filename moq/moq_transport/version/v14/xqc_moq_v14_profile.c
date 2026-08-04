@@ -64,8 +64,17 @@ static const xqc_moq_message_codec_entry_t xqc_moq_v14_control_codecs[] = {
 };
 
 static const xqc_moq_message_codec_entry_t xqc_moq_v14_data_codecs[] = {
-    {XQC_MOQ_INTERNAL_SUBGROUP, xqc_moq_msg_create_subgroup,
-     xqc_moq_msg_free_subgroup, xqc_moq_msg_subgroup_init_handler},
+    {XQC_MOQ_SUBGROUP_TYPE_WITH_ID, xqc_moq_msg_create_subgroup,
+     xqc_moq_msg_free_subgroup, xqc_moq_msg_subgroup_init_handler,
+     XQC_MOQ_SEMANTIC_SUBGROUP},
+};
+
+static const xqc_moq_message_codec_entry_t
+xqc_moq_v14_continuation_codecs[] = {
+    {0, xqc_moq_msg_create_subgroup,
+     xqc_moq_msg_free_subgroup,
+     xqc_moq_msg_subgroup_object_init_handler,
+     XQC_MOQ_SEMANTIC_SUBGROUP_OBJECT},
 };
 
 static xqc_bool_t
@@ -97,13 +106,15 @@ xqc_moq_v14_classify_stream(xqc_moq_stream_kind_t current_kind,
 
 static xqc_moq_stream_kind_t
 xqc_moq_v14_classify_outbound_stream(xqc_moq_stream_kind_t current_kind,
-    uint64_t message_type)
+    xqc_moq_semantic_id_t semantic, uint64_t wire_type)
 {
     if (current_kind != XQC_MOQ_STREAM_UNKNOWN) {
         return current_kind;
     }
 
-    if (message_type == XQC_MOQ_INTERNAL_SUBGROUP) {
+    if (semantic == XQC_MOQ_SEMANTIC_SUBGROUP
+        || xqc_moq_v14_is_subgroup_wire_type(wire_type))
+    {
         return XQC_MOQ_STREAM_V14_SUBGROUP;
     }
 
@@ -115,27 +126,26 @@ xqc_moq_v14_normalize_wire_type(xqc_moq_stream_kind_t stream_kind,
     uint64_t wire_type)
 {
     if (stream_kind == XQC_MOQ_STREAM_V14_SUBGROUP
-        && (xqc_moq_v14_is_subgroup_wire_type(wire_type)
-            || wire_type == XQC_MOQ_INTERNAL_SUBGROUP_STREAM_OBJECT))
+        && xqc_moq_v14_is_subgroup_wire_type(wire_type))
     {
-        return XQC_MOQ_INTERNAL_SUBGROUP;
+        return XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
     }
 
     return wire_type;
 }
 
 static xqc_bool_t
-xqc_moq_v14_next_data_message(xqc_moq_stream_kind_t stream_kind,
-    uint64_t current_wire_type, uint64_t *next_wire_type)
+xqc_moq_v14_next_data_semantic(xqc_moq_stream_kind_t stream_kind,
+    uint64_t current_wire_type,
+    xqc_moq_semantic_id_t *next_semantic)
 {
     if (stream_kind != XQC_MOQ_STREAM_V14_SUBGROUP) {
         return XQC_FALSE;
     }
 
-    if (xqc_moq_v14_is_subgroup_wire_type(current_wire_type)
-        || current_wire_type == XQC_MOQ_INTERNAL_SUBGROUP_STREAM_OBJECT)
+    if (xqc_moq_v14_is_subgroup_wire_type(current_wire_type))
     {
-        *next_wire_type = XQC_MOQ_INTERNAL_SUBGROUP_STREAM_OBJECT;
+        *next_semantic = XQC_MOQ_SEMANTIC_SUBGROUP_OBJECT;
         return XQC_TRUE;
     }
 
@@ -144,11 +154,12 @@ xqc_moq_v14_next_data_message(xqc_moq_stream_kind_t stream_kind,
 
 static xqc_int_t
 xqc_moq_v14_prepare_data_message(xqc_moq_stream_t *stream,
-    uint64_t wire_type, xqc_moq_msg_base_t *msg_base)
+    const xqc_moq_message_codec_entry_t *codec,
+    xqc_moq_msg_base_t *msg_base)
 {
     xqc_moq_subgroup_msg_t *subgroup;
 
-    if (wire_type != XQC_MOQ_INTERNAL_SUBGROUP_STREAM_OBJECT) {
+    if (codec->semantic != XQC_MOQ_SEMANTIC_SUBGROUP_OBJECT) {
         return XQC_OK;
     }
 
@@ -162,10 +173,6 @@ xqc_moq_v14_prepare_data_message(xqc_moq_stream_t *stream,
     subgroup->subgroup_id = stream->subgroup_header.subgroup_id;
     subgroup->subgroup_type = stream->subgroup_header.subgroup_type;
     subgroup->subgroup_priority = stream->subgroup_header.subgroup_priority;
-    if (stream->decode_msg_ctx.cur_field_idx < 4) {
-        stream->decode_msg_ctx.cur_field_idx = 4;
-    }
-
     return XQC_OK;
 }
 
@@ -191,8 +198,7 @@ xqc_moq_v14_decode_datagram(xqc_moq_session_t *session,
     object.object_id = dgram.object_id;
     object.publisher_priority_set = 1;
     object.publisher_priority = dgram.publisher_priority;
-    object.status = dgram.payload_len > 0
-                    ? XQC_MOQ_OBJ_STATUS_NORMAL : dgram.status;
+    object.status = dgram.status;
     object.ext_params_num = dgram.ext_params_num;
     object.ext_params = dgram.ext_params;
     object.payload = dgram.payload;
@@ -221,6 +227,7 @@ const xqc_moq_version_profile_t xqc_moq_v14_profile_definition = {
     .client_setup_type = XQC_MOQ_MSG_CLIENT_SETUP_V14,
     .server_setup_type = XQC_MOQ_MSG_SERVER_SETUP_V14,
     .include_extdata_in_default_setup = XQC_FALSE,
+    .catalog_default_enabled = XQC_FALSE,
     .data_strategy = XQC_MOQ_DATA_STRATEGY_SUBGROUP,
     .control_codecs = xqc_moq_v14_control_codecs,
     .control_codecs_count = sizeof(xqc_moq_v14_control_codecs)
@@ -228,10 +235,14 @@ const xqc_moq_version_profile_t xqc_moq_v14_profile_definition = {
     .data_codecs = xqc_moq_v14_data_codecs,
     .data_codecs_count = sizeof(xqc_moq_v14_data_codecs)
                          / sizeof(xqc_moq_v14_data_codecs[0]),
+    .continuation_codecs = xqc_moq_v14_continuation_codecs,
+    .continuation_codecs_count =
+        sizeof(xqc_moq_v14_continuation_codecs)
+        / sizeof(xqc_moq_v14_continuation_codecs[0]),
     .classify_stream = xqc_moq_v14_classify_stream,
     .classify_outbound_stream = xqc_moq_v14_classify_outbound_stream,
     .normalize_wire_type = xqc_moq_v14_normalize_wire_type,
-    .next_data_message = xqc_moq_v14_next_data_message,
+    .next_data_semantic = xqc_moq_v14_next_data_semantic,
     .prepare_data_message = xqc_moq_v14_prepare_data_message,
     .decode_datagram = xqc_moq_v14_decode_datagram,
     .adapt_subscribe = NULL,

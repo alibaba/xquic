@@ -17,6 +17,11 @@
 
 #include "tests/platform.h"
 #include "xqc_moq_demo_comm.h"
+#include "moq/moq_transport/draft18/xqc_moq_d18_params.h"
+#include "moq/moq_transport/xqc_moq_message_writer.h"
+#include "moq/moq_transport/xqc_moq_session.h"
+#include "moq/moq_transport/xqc_moq_stream.h"
+#include "moq/moq_transport/xqc_moq_track.h"
 
 #ifndef XQC_SYS_WINDOWS
 #include <unistd.h>
@@ -58,6 +63,7 @@ int g_frame_num = 5;
 xqc_moq_role_t g_role = XQC_MOQ_PUBSUB;
 int g_publish_mode = 0;
 int g_raw_object_mode = 0;
+int g_datagram_mode = 0;
 int g_publish_reply_mode = 0;
 int g_reuse_datachannel_stream = 0;
 int g_enable_datachannel = 1;
@@ -65,8 +71,665 @@ int g_enable_catalog = -1;
 int g_reuse_video_subgroup_stream = 0;
 int g_multi_ns_mode = 0;
 int g_ns_callback_mode = 0;
+int g_lifecycle_mode = 0;
 int g_server_cancel_write_before_group = -1;
 int g_server_cancel_write_done = 0;
+
+typedef struct xqc_demo_lifecycle_state_s {
+    user_conn_t                                *user_conn;
+    uint64_t                                    first_request_id;
+    uint64_t                                    second_request_id;
+    uint64_t                                    pending_subscribe_id;
+    uint64_t                                    pending_track_alias;
+    int                                         pending_subscribe;
+    int                                         control_cutoff_callback_count;
+    xqc_int_t                                   control_goaway_ret;
+    uint64_t                                    fetch_request_id;
+    unsigned                                    fetch_object_count;
+    struct event                               *delayed_action;
+} xqc_demo_lifecycle_state_t;
+
+static int g_interop_namespace_announced = 0;
+static xqc_demo_lifecycle_state_t *g_interop_pending_subscribe = NULL;
+
+static xqc_demo_lifecycle_state_t *
+xqc_demo_lifecycle_state(xqc_moq_user_session_t *user_session)
+{
+    if (user_session == NULL) {
+        return NULL;
+    }
+    user_conn_t *user_conn = (user_conn_t *)user_session->data;
+    return (xqc_demo_lifecycle_state_t *)(user_conn + 1);
+}
+
+static void
+xqc_demo_lifecycle_cancel_delayed_action(
+    xqc_demo_lifecycle_state_t *state)
+{
+    if (state == NULL || state->delayed_action == NULL) {
+        return;
+    }
+    struct event *delayed_action = state->delayed_action;
+    state->delayed_action = NULL;
+    event_del(delayed_action);
+    event_free(delayed_action);
+}
+
+static xqc_int_t
+xqc_demo_lifecycle_schedule_delayed_action(
+    xqc_demo_lifecycle_state_t *state, event_callback_fn callback,
+    const struct timeval *delay)
+{
+    if (state == NULL || state->user_conn == NULL || callback == NULL
+        || delay == NULL || state->delayed_action != NULL)
+    {
+        return -XQC_EPARAM;
+    }
+    state->delayed_action = event_new(
+        eb, -1, EV_TIMEOUT, callback, state);
+    if (state->delayed_action == NULL
+        || event_add(state->delayed_action, delay) != 0)
+    {
+        xqc_demo_lifecycle_cancel_delayed_action(state);
+        return -XQC_ESYS;
+    }
+    return XQC_OK;
+}
+
+static struct timeval
+xqc_demo_lifecycle_action_delay(long default_delay_ms)
+{
+    long delay_ms = default_delay_ms;
+    const char *configured_delay =
+        getenv("XQC_DEMO_LIFECYCLE_ACTION_DELAY_MS");
+    if (configured_delay != NULL && configured_delay[0] != '\0') {
+        char *end = NULL;
+        long parsed_delay = strtol(configured_delay, &end, 10);
+        if (end != configured_delay && *end == '\0'
+            && parsed_delay >= 0 && parsed_delay <= 5000)
+        {
+            delay_ms = parsed_delay;
+        }
+    }
+    struct timeval delay = {
+        .tv_sec = delay_ms / 1000,
+        .tv_usec = (delay_ms % 1000) * 1000,
+    };
+    return delay;
+}
+
+static int
+xqc_demo_lifecycle_forward_is_zero(
+    const xqc_moq_subscribe_tracks_msg_t *msg)
+{
+    if (msg == NULL) {
+        return 0;
+    }
+    for (uint64_t i = 0; i < msg->params_num; i++) {
+        if (msg->params[i].type == XQC_MOQ_D18_PARAM_FORWARD
+            && msg->params[i].is_integer
+            && msg->params[i].int_value == 0)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static xqc_int_t
+xqc_demo_lifecycle_write_tracks_ok(
+    xqc_moq_user_session_t *user_session, uint64_t request_id)
+{
+    xqc_moq_request_ok_msg_t ok;
+    memset(&ok, 0, sizeof(ok));
+    return xqc_moq_write_request_ok(
+        user_session->session, request_id, &ok);
+}
+
+static xqc_int_t
+xqc_demo_interop_accept_pending_subscribe(
+    xqc_demo_lifecycle_state_t *state)
+{
+    if (state == NULL || !state->pending_subscribe
+        || state->user_conn == NULL || state->user_conn->moq_session == NULL)
+    {
+        return -XQC_EPARAM;
+    }
+    xqc_moq_subscribe_ok_msg_t subscribe_ok;
+    memset(&subscribe_ok, 0, sizeof(subscribe_ok));
+    subscribe_ok.subscribe_id = state->pending_subscribe_id;
+    subscribe_ok.track_alias = state->pending_track_alias;
+    subscribe_ok.group_order = 0x1;
+    xqc_int_t ret = xqc_moq_write_subscribe_ok(
+        state->user_conn->moq_session, &subscribe_ok);
+    printf("control_e2e_server|subscribe_response|request_id:%"PRIu64
+           "|result:ok|namespace_ready:%d|ret:%d\n",
+           state->pending_subscribe_id,
+           g_interop_namespace_announced, ret);
+    if (ret == XQC_OK) {
+        state->pending_subscribe = 0;
+        if (g_interop_pending_subscribe == state) {
+            g_interop_pending_subscribe = NULL;
+        }
+    }
+    return ret;
+}
+
+static xqc_int_t
+xqc_demo_lifecycle_send_request_goaway(
+    xqc_moq_user_session_t *user_session,
+    xqc_demo_lifecycle_state_t *state, uint64_t other_request_id)
+{
+    state->second_request_id = other_request_id;
+    xqc_int_t ret = xqc_moq_send_request_goaway_draft18(
+        user_session->session, state->first_request_id,
+        NULL, 0, 100);
+    printf("control_e2e_server|send_request_goaway|target_id:%"PRIu64
+           "|other_id:%"PRIu64"|timeout_ms:100|ret:%d\n",
+           state->first_request_id, state->second_request_id, ret);
+    return ret;
+}
+
+static void
+xqc_demo_lifecycle_verify_control_goaway_admission(
+    int fd, short what, void *arg)
+{
+    (void)fd;
+    (void)what;
+    xqc_demo_lifecycle_state_t *state = arg;
+    struct event *delayed_action =
+        state != NULL ? state->delayed_action : NULL;
+    if (state != NULL) {
+        state->delayed_action = NULL;
+    }
+    if (state == NULL || state->user_conn == NULL
+        || state->user_conn->closing_notified
+        || state->user_conn->moq_session == NULL)
+    {
+        if (delayed_action != NULL) {
+            event_free(delayed_action);
+        }
+        return;
+    }
+    printf("control_e2e_server|control_goaway_admission|request_id:%"PRIu64
+           "|callback_count:%d|ret:%d\n",
+           state->first_request_id + 2,
+           state->control_cutoff_callback_count,
+           state->control_goaway_ret);
+    event_free(delayed_action);
+}
+
+static void
+xqc_demo_lifecycle_send_publish_blocked(int fd, short what, void *arg)
+{
+    (void)fd;
+    (void)what;
+    xqc_demo_lifecycle_state_t *state = arg;
+    struct event *delayed_action =
+        state != NULL ? state->delayed_action : NULL;
+    if (state != NULL) {
+        state->delayed_action = NULL;
+    }
+    if (state == NULL || state->user_conn == NULL
+        || state->user_conn->closing_notified
+        || state->user_conn->moq_session == NULL)
+    {
+        if (delayed_action != NULL) {
+            event_free(delayed_action);
+        }
+        return;
+    }
+    xqc_moq_track_ns_field_t full_namespace[3] = {
+        {
+            .len = sizeof("blocked") - 1,
+            .data = (unsigned char *)"blocked",
+        },
+        {
+            .len = sizeof("base") - 1,
+            .data = (unsigned char *)"base",
+        },
+        {
+            .len = sizeof("child") - 1,
+            .data = (unsigned char *)"child",
+        },
+    };
+    xqc_int_t ret = xqc_moq_write_publish_blocked(
+        state->user_conn->moq_session, state->first_request_id,
+        full_namespace, 3, "audio", sizeof("audio") - 1);
+    printf("control_e2e_server|send_publish_blocked|request_id:%"PRIu64
+           "|full_name:blocked/base/child/audio|ret:%d\n",
+           state->first_request_id, ret);
+    event_free(delayed_action);
+}
+
+static xqc_int_t
+xqc_demo_lifecycle_publish_done_track(
+    xqc_moq_user_session_t *user_session)
+{
+    xqc_moq_track_ns_field_t full_namespace[2] = {
+        {
+            .len = sizeof("done") - 1,
+            .data = (unsigned char *)"done",
+        },
+        {
+            .len = sizeof("lifecycle") - 1,
+            .data = (unsigned char *)"lifecycle",
+        },
+    };
+    xqc_moq_track_t *track = xqc_moq_track_create_with_ns_tuple(
+        user_session->session, full_namespace, 2, "audio",
+        XQC_MOQ_TRACK_AUDIO, NULL, XQC_MOQ_CONTAINER_NONE,
+        XQC_MOQ_TRACK_FOR_PUB);
+    if (track == NULL) {
+        return -XQC_EMALLOC;
+    }
+
+    xqc_moq_publish_msg_t publish;
+    memset(&publish, 0, sizeof(publish));
+    publish.track_namespace_tuple = full_namespace;
+    publish.track_namespace_num = 2;
+    publish.track_name = "audio";
+    publish.track_name_len = sizeof("audio") - 1;
+    publish.group_order = 1;
+    publish.forward = 1;
+    return xqc_moq_publish(user_session->session, &publish);
+}
+
+static void
+on_subscribe_tracks_lifecycle(xqc_moq_user_session_t *user_session,
+    xqc_moq_subscribe_tracks_msg_t *msg)
+{
+    if (g_lifecycle_mode == 0 || user_session == NULL || msg == NULL) {
+        return;
+    }
+    xqc_demo_lifecycle_state_t *state =
+        xqc_demo_lifecycle_state(user_session);
+    if (state == NULL) {
+        return;
+    }
+
+    if (g_lifecycle_mode == 5
+        && state->first_request_id != XQC_MOQ_INVALID_ID)
+    {
+        state->control_cutoff_callback_count++;
+        return;
+    }
+
+    if (g_lifecycle_mode == 1) {
+        xqc_int_t ret = xqc_demo_lifecycle_forward_is_zero(msg)
+            ? xqc_demo_lifecycle_write_tracks_ok(
+                user_session, msg->request_id)
+            : -XQC_EPARAM;
+        if (ret == XQC_OK) {
+            state->first_request_id = msg->request_id;
+        }
+        printf("control_e2e_server|request_update_initial|request_id:%"PRIu64
+               "|forward:0|prefix:update/old|ret:%d\n",
+               msg->request_id, ret);
+        return;
+    }
+
+    if (g_lifecycle_mode == 2) {
+        xqc_int_t ret = xqc_demo_lifecycle_write_tracks_ok(
+            user_session, msg->request_id);
+        if (state->first_request_id == XQC_MOQ_INVALID_ID) {
+            state->first_request_id = msg->request_id;
+        } else {
+            state->second_request_id = msg->request_id;
+        }
+        printf("control_e2e_server|overlap_initial|request_id:%"PRIu64
+               "|ret:%d\n", msg->request_id, ret);
+        return;
+    }
+
+    if (g_lifecycle_mode == 3) {
+        xqc_int_t ret = xqc_demo_lifecycle_write_tracks_ok(
+            user_session, msg->request_id);
+        if (ret == XQC_OK) {
+            state->first_request_id = msg->request_id;
+            struct timeval next_tick =
+                xqc_demo_lifecycle_action_delay(0);
+            ret = xqc_demo_lifecycle_schedule_delayed_action(
+                state, xqc_demo_lifecycle_send_publish_blocked,
+                &next_tick);
+        }
+        printf("control_e2e_server|schedule_publish_blocked|request_id:%"PRIu64
+               "|ret:%d\n", msg->request_id, ret);
+        return;
+    }
+
+    if (g_lifecycle_mode == 4) {
+        xqc_int_t ret = xqc_demo_lifecycle_write_tracks_ok(
+            user_session, msg->request_id);
+        if (ret == XQC_OK) {
+            ret = xqc_demo_lifecycle_publish_done_track(user_session);
+        }
+        printf("control_e2e_server|start_publish_done|tracks_request_id:%"PRIu64
+               "|ret:%d\n", msg->request_id, ret);
+        return;
+    }
+
+    if (state->first_request_id == XQC_MOQ_INVALID_ID) {
+        xqc_int_t ret = xqc_demo_lifecycle_write_tracks_ok(
+            user_session, msg->request_id);
+        if (ret == XQC_OK) {
+            state->first_request_id = msg->request_id;
+        }
+        printf("control_e2e_server|establish_request|request_id:%"PRIu64
+               "|ret:%d\n", msg->request_id, ret);
+        if (ret == XQC_OK && g_lifecycle_mode == 5) {
+            uint64_t cutoff = msg->request_id + 2;
+            ret = xqc_moq_send_session_goaway_draft18(
+                user_session->session, NULL, 0, 1000, cutoff);
+            state->control_goaway_ret = ret;
+            printf("control_e2e_server|send_control_goaway|cutoff:%"PRIu64
+                   "|timeout_ms:1000|ret:%d\n", cutoff, ret);
+            if (ret == XQC_OK) {
+                struct timeval admission_delay =
+                    xqc_demo_lifecycle_action_delay(50);
+                ret = xqc_demo_lifecycle_schedule_delayed_action(
+                    state,
+                    xqc_demo_lifecycle_verify_control_goaway_admission,
+                    &admission_delay);
+                if (ret != XQC_OK) {
+                    state->control_goaway_ret = ret;
+                }
+            }
+        }
+        return;
+    }
+
+    xqc_int_t ret = xqc_demo_lifecycle_write_tracks_ok(
+        user_session, msg->request_id);
+    if (ret == XQC_OK && g_lifecycle_mode == 6) {
+        xqc_demo_lifecycle_send_request_goaway(
+            user_session, state, msg->request_id);
+    }
+}
+
+static void
+on_request_update_lifecycle(
+    xqc_moq_user_session_t *user_session, uint64_t target_request_id,
+    xqc_moq_msg_type_t request_type,
+    const xqc_moq_request_update_msg_t *update)
+{
+    static const uint8_t expected_prefix[] = {
+        0x02, 0x06, 'u', 'p', 'd', 'a', 't', 'e',
+        0x03, 'n', 'e', 'w',
+    };
+    static const uint8_t imquic_prefix[] = {
+        0x02, 0x04, 't', 'e', 's', 't',
+        0x09, 'n', 'a', 'm', 'e', 's', 'p', 'a', 'c', 'e',
+    };
+    xqc_demo_lifecycle_state_t *state =
+        xqc_demo_lifecycle_state(user_session);
+    int targets_tracks = state != NULL
+        && request_type == XQC_MOQ_MSG_SUBSCRIBE_TRACKS
+        && target_request_id == state->first_request_id;
+    int targets_namespace = state != NULL
+        && request_type == XQC_MOQ_MSG_SUBSCRIBE_NAMESPACE
+        && target_request_id == state->second_request_id;
+    int enables_forwarding = 0;
+    if (update != NULL) {
+        for (uint64_t i = 0; i < update->params_num; i++) {
+            if (update->params[i].type == XQC_MOQ_D18_PARAM_FORWARD
+                && update->params[i].is_integer
+                && update->params[i].int_value == 1)
+            {
+                enables_forwarding = 1;
+                break;
+            }
+        }
+    }
+    if (g_lifecycle_mode == 1 && targets_tracks && enables_forwarding) {
+        printf("control_e2e|request_update_received|target_id:%"PRIu64
+               "|update_id:%"PRIu64"|forward:1|prefix:unchanged\n",
+               target_request_id, update->request_id);
+        xqc_moq_request_ok_msg_t ok;
+        memset(&ok, 0, sizeof(ok));
+        xqc_int_t ret = xqc_moq_write_request_ok(
+            user_session->session, update->request_id, &ok);
+        printf("control_e2e_server|forward_request_update_ok|target_id:%"PRIu64
+               "|update_id:%"PRIu64"|ret:%d\n",
+               target_request_id, update->request_id, ret);
+        return;
+    }
+    int uses_expected_prefix = update != NULL && update->params_num == 1
+        && update->params[0].length == sizeof(expected_prefix)
+        && memcmp(update->params[0].value, expected_prefix,
+                  sizeof(expected_prefix)) == 0;
+    int uses_imquic_prefix = update != NULL && update->params_num == 1
+        && update->params[0].length == sizeof(imquic_prefix)
+        && memcmp(update->params[0].value, imquic_prefix,
+                  sizeof(imquic_prefix)) == 0;
+    if (g_lifecycle_mode != 1 || state == NULL || update == NULL
+        || (!targets_tracks && !targets_namespace)
+        || update->params_num != 1
+        || update->params[0].type
+            != XQC_MOQ_D18_PARAM_TRACK_NAMESPACE_PREFIX
+        || (!uses_expected_prefix && !uses_imquic_prefix))
+    {
+        return;
+    }
+
+    printf("control_e2e|request_update_received|target_id:%"PRIu64
+           "|update_id:%"PRIu64
+           "|forward:0|prefix:%s\n",
+           target_request_id, update->request_id,
+           uses_expected_prefix ? "update/new" : "test/namespace");
+    xqc_moq_request_ok_msg_t ok;
+    memset(&ok, 0, sizeof(ok));
+    xqc_int_t ret = xqc_moq_write_request_ok(
+        user_session->session, update->request_id, &ok);
+    if (ret != XQC_OK) {
+        return;
+    }
+    if (targets_namespace) {
+        printf("control_e2e_server|namespace_request_update_ok|target_id:%"PRIu64
+               "|update_id:%"PRIu64"|ret:0\n",
+               target_request_id, update->request_id);
+        return;
+    }
+
+    xqc_moq_track_ns_field_t full_namespace[3] = {
+        {
+            .len = uses_expected_prefix
+                ? sizeof("update") - 1 : sizeof("test") - 1,
+            .data = uses_expected_prefix
+                ? (unsigned char *)"update" : (unsigned char *)"test",
+        },
+        {
+            .len = uses_expected_prefix
+                ? sizeof("new") - 1 : sizeof("namespace") - 1,
+            .data = uses_expected_prefix
+                ? (unsigned char *)"new" : (unsigned char *)"namespace",
+        },
+        {
+            .len = sizeof("probe") - 1,
+            .data = (unsigned char *)"probe",
+        },
+    };
+    ret = xqc_moq_write_publish_blocked(
+        user_session->session, target_request_id,
+        full_namespace, 3, "audio", sizeof("audio") - 1);
+    printf("control_e2e_server|request_update_commit_probe|target_id:%"PRIu64
+           "|update_id:%"PRIu64"|ret:%d\n",
+           target_request_id, update->request_id, ret);
+}
+
+static xqc_moq_stream_t *
+xqc_demo_find_peer_request_stream(xqc_moq_session_t *session,
+    uint64_t request_id, xqc_moq_msg_type_t request_type)
+{
+    xqc_list_head_t *pos;
+    xqc_list_for_each(pos, &session->peer_request_stream_list) {
+        xqc_moq_stream_t *stream = xqc_list_entry(
+            pos, xqc_moq_stream_t, request_list_member);
+        if (stream->peer_request && stream->request_id == request_id
+            && stream->request_type == request_type)
+        {
+            return stream;
+        }
+    }
+    return NULL;
+}
+
+static xqc_int_t
+xqc_demo_write_finite_request_error(xqc_moq_session_t *session,
+    uint64_t request_id, const char *reason)
+{
+    xqc_moq_request_error_msg_t error;
+    memset(&error, 0, sizeof(error));
+    error.error_code = XQC_MOQ_REQUEST_ERROR_DOES_NOT_EXIST;
+    error.reason_phrase = (char *)reason;
+    error.reason_phrase_len = strlen(reason);
+    return xqc_moq_write_request_error(session, request_id, &error);
+}
+
+static void
+on_track_status_lifecycle(xqc_moq_user_session_t *user_session,
+    xqc_moq_track_status_msg_t *msg)
+{
+    if (user_session == NULL || user_session->session == NULL || msg == NULL
+        || (g_lifecycle_mode != 7 && g_lifecycle_mode != 8))
+    {
+        return;
+    }
+    xqc_moq_session_t *session = user_session->session;
+    xqc_moq_stream_t *request_stream =
+        xqc_demo_find_peer_request_stream(
+            session, msg->request_id,
+            (xqc_moq_msg_type_t)XQC_MOQ_D18_MSG_TRACK_STATUS);
+    xqc_int_t ret;
+    const char *result;
+    if (g_lifecycle_mode == 7) {
+        static uint8_t properties[] = {0x02, 0x01};
+        xqc_moq_request_ok_msg_t response;
+        memset(&response, 0, sizeof(response));
+        response.track_properties = properties;
+        response.track_properties_len = sizeof(properties);
+        ret = xqc_moq_write_request_ok(
+            session, msg->request_id, &response);
+        result = "ok";
+
+    } else {
+        ret = xqc_demo_write_finite_request_error(
+            session, msg->request_id, "track does not exist");
+        result = "error";
+    }
+    printf("control_e2e_server|track_status_response|request_id:%"PRIu64
+           "|result:%s|properties:%s|ret:%d|fin:%u|closed:%u\n",
+           msg->request_id, result,
+           g_lifecycle_mode == 7 ? "0201" : "none", ret,
+           request_stream != NULL ? request_stream->write_stream_fin : 0,
+           request_stream != NULL
+               ? request_stream->request_closed_notified : 0);
+}
+
+static void
+on_fetch_lifecycle(xqc_moq_user_session_t *user_session,
+    xqc_moq_fetch_msg_t *msg)
+{
+    if (user_session == NULL || user_session->session == NULL || msg == NULL
+        || (g_lifecycle_mode != 9 && g_lifecycle_mode != 10))
+    {
+        return;
+    }
+    xqc_moq_session_t *session = user_session->session;
+    xqc_moq_stream_t *request_stream =
+        xqc_demo_find_peer_request_stream(
+            session, msg->request_id, XQC_MOQ_MSG_FETCH);
+    if (g_lifecycle_mode == 10) {
+        xqc_int_t ret = xqc_demo_write_finite_request_error(
+            session, msg->request_id, "fetch track does not exist");
+        printf("control_e2e_server|fetch_response|request_id:%"PRIu64
+               "|result:error|end:none|fetch_ok_ret:%d"
+               "|fetch_header_ret:not-sent|fin:%u|closed:%u\n",
+               msg->request_id, ret,
+               request_stream != NULL ? request_stream->write_stream_fin : 0,
+               request_stream != NULL
+                   ? request_stream->request_closed_notified : 0);
+        return;
+    }
+
+    static uint8_t properties[] = {0x02, 0x01};
+    xqc_moq_fetch_ok_msg_t ok;
+    memset(&ok, 0, sizeof(ok));
+    ok.end_of_track = 1;
+    ok.end_group_id = 6;
+    ok.end_object_id = 9;
+    ok.track_properties = properties;
+    ok.track_properties_len = sizeof(properties);
+    xqc_int_t ok_ret = xqc_moq_write_fetch_ok(
+        session, msg->request_id, &ok);
+    xqc_int_t header_ret = -XQC_ECREATE_STREAM;
+    xqc_moq_stream_t *data_stream = NULL;
+    if (ok_ret == XQC_OK) {
+        data_stream = xqc_moq_stream_create_with_transport(
+            session, XQC_STREAM_UNI);
+        if (data_stream != NULL) {
+            xqc_moq_fetch_header_msg_t header;
+            memset(&header, 0, sizeof(header));
+            header.request_id = msg->request_id;
+            header_ret = xqc_moq_write_fetch_header(
+                session, data_stream, &header, 0);
+            if (header_ret != XQC_OK) {
+                xqc_moq_stream_close(data_stream);
+            }
+        }
+    }
+    xqc_int_t object_rets[3] = {
+        -XQC_ESTREAM_ST, -XQC_ESTREAM_ST, -XQC_ESTREAM_ST
+    };
+    xqc_int_t range_ret = -XQC_ESTREAM_ST;
+    if (header_ret == XQC_OK) {
+        static uint8_t object_properties[] = {0x3e, 0x01};
+        static uint8_t payload_a[] = "fetch-A";
+        static uint8_t payload_c[] = "fetch-C";
+        xqc_moq_object_t object;
+        memset(&object, 0, sizeof(object));
+        object.group_id = 2;
+        object.subgroup_id = 3;
+        object.object_id = 4;
+        object.publisher_priority_set = 1;
+        object.publisher_priority = 7;
+        object.object_properties_present = 1;
+        object.object_properties = object_properties;
+        object.object_properties_len = sizeof(object_properties);
+        object.payload = payload_a;
+        object.payload_len = sizeof(payload_a) - 1;
+        object.forwarding_preference = XQC_MOQ_FORWARDING_SUBGROUP;
+        object_rets[0] = xqc_moq_write_fetch_object(
+            session, data_stream, &object, 0);
+
+        object.object_properties_present = 0;
+        object.object_properties = NULL;
+        object.object_properties_len = 0;
+        object.object_id = 5;
+        object.payload = NULL;
+        object.payload_len = 0;
+        object_rets[1] = xqc_moq_write_fetch_object(
+            session, data_stream, &object, 0);
+
+        object.group_id = 4;
+        object.subgroup_id = 4;
+        object.object_id = 0;
+        object.payload = payload_c;
+        object.payload_len = sizeof(payload_c) - 1;
+        object_rets[2] = xqc_moq_write_fetch_object(
+            session, data_stream, &object, 0);
+        range_ret = xqc_moq_write_fetch_range_end(
+            session, data_stream, 6, 9, 1, 1);
+    }
+    printf("control_e2e_server|fetch_response|request_id:%"PRIu64
+           "|result:ok|end:6/9|fetch_ok_ret:%d|fetch_header_ret:%d"
+           "|objects:%d,%d,%d|range:%d|fin:%u|closed:%u\n",
+           msg->request_id, ok_ret, header_ret,
+           object_rets[0], object_rets[1], object_rets[2], range_ret,
+           data_stream != NULL ? data_stream->write_stream_fin : 0,
+           request_stream != NULL
+               ? request_stream->request_closed_notified : 0);
+}
 
 static void
 on_subscribe_namespace_callback(xqc_moq_user_session_t *user_session,
@@ -74,6 +737,58 @@ on_subscribe_namespace_callback(xqc_moq_user_session_t *user_session,
 {
     printf("custom_subscribe_namespace_callback|request_id:%lu|prefix_num:%lu\n",
            (unsigned long)msg->request_id, (unsigned long)msg->track_namespace_num);
+    if ((g_lifecycle_mode != 1 && g_lifecycle_mode != 6)
+        || user_session == NULL || msg == NULL)
+    {
+        return;
+    }
+    xqc_demo_lifecycle_state_t *state =
+        xqc_demo_lifecycle_state(user_session);
+    if (state == NULL) {
+        return;
+    }
+    xqc_moq_subscribe_namespace_ok_msg_t ok;
+    memset(&ok, 0, sizeof(ok));
+    ok.request_id = msg->request_id;
+    xqc_int_t ret = xqc_moq_write_subscribe_namespace_ok(
+        user_session->session, &ok);
+    if (ret != XQC_OK) {
+        printf("control_e2e_server|namespace_request_ok|request_id:%"PRIu64
+               "|ret:%d\n", msg->request_id, ret);
+        return;
+    }
+    if (state->first_request_id == XQC_MOQ_INVALID_ID) {
+        state->first_request_id = msg->request_id;
+        printf("control_e2e_server|establish_namespace_request|request_id:%"PRIu64
+               "|ret:%d\n", msg->request_id, ret);
+        return;
+    }
+    state->second_request_id = msg->request_id;
+    if (g_lifecycle_mode == 1) {
+        printf("control_e2e_server|track_namespace_request|request_id:%"PRIu64
+               "|ret:%d\n", msg->request_id, ret);
+        return;
+    }
+    xqc_demo_lifecycle_send_request_goaway(
+        user_session, state, msg->request_id);
+}
+
+static void
+on_publish_namespace_lifecycle(xqc_moq_user_session_t *user_session,
+    xqc_moq_publish_namespace_msg_t *msg)
+{
+    (void)user_session;
+    if (g_lifecycle_mode != 11 || msg == NULL) {
+        return;
+    }
+    g_interop_namespace_announced = 1;
+    printf("control_e2e_server|publish_namespace_ready|request_id:%"PRIu64
+           "|namespace_num:%"PRIu64"\n",
+           msg->request_id, msg->track_namespace_num);
+    if (g_interop_pending_subscribe != NULL) {
+        xqc_demo_interop_accept_pending_subscribe(
+            g_interop_pending_subscribe);
+    }
 }
 
 static void
@@ -283,7 +998,22 @@ xqc_demo_write_raw_object(user_conn_t *user_conn, xqc_moq_track_t *track,
     obj.payload = (uint8_t*)payload;
     obj.payload_len = (size_t)payload_len;
 
-    xqc_int_t ret = xqc_moq_write_raw_object(user_conn->moq_session, track, &obj);
+    xqc_int_t ret;
+    if (g_datagram_mode) {
+        obj.track_alias = track->track_alias;
+        obj.group_id = 1;
+        obj.object_id = user_conn->video_seq++;
+        obj.publisher_priority_set = 1;
+        obj.publisher_priority = 7;
+        obj.status = XQC_MOQ_OBJ_STATUS_NORMAL;
+        ret = xqc_moq_send_object_datagram(user_conn->moq_session, &obj);
+        printf("server_send_object_datagram|track:%s|alias:%"PRIu64
+               "|group:%"PRIu64"|object:%"PRIu64"|payload:%zu|ret:%d\n",
+               label ? label : "object", obj.track_alias, obj.group_id,
+               obj.object_id, (size_t)obj.payload_len, ret);
+    } else {
+        ret = xqc_moq_write_raw_object(user_conn->moq_session, track, &obj);
+    }
     if (ret < 0) {
         printf("xqc_moq_write_raw_object %s error:%d\n", label ? label : "object", ret);
     }
@@ -492,6 +1222,53 @@ xqc_server_socket_event_callback(int fd, short what, void *arg)
     }
 }
 
+static xqc_int_t
+xqc_demo_send_interop_fetch(xqc_moq_user_session_t *user_session)
+{
+    if (user_session == NULL || user_session->session == NULL) {
+        return -XQC_EPARAM;
+    }
+    xqc_moq_session_t *session = user_session->session;
+    xqc_moq_stream_t *stream = xqc_moq_stream_create_with_transport(
+        session, XQC_STREAM_BIDI);
+    if (stream == NULL) {
+        return -XQC_ECREATE_STREAM;
+    }
+
+    xqc_moq_track_ns_field_t ns = {
+        .len = sizeof("interop") - 1,
+        .data = (unsigned char *)"interop",
+    };
+    xqc_moq_fetch_msg_t request;
+    memset(&request, 0, sizeof(request));
+    request.request_id = xqc_moq_session_alloc_request_id(session);
+    request.fetch_type = XQC_MOQ_FETCH_STANDALONE;
+    request.track_namespace_num = 1;
+    request.track_namespace_tuple = &ns;
+    request.track_name = "data";
+    request.track_name_len = sizeof("data") - 1;
+    request.start_group_id = 1;
+    request.start_object_id = 0;
+    request.end_group_id = 5;
+    request.end_object_id = UINT64_MAX;
+
+    xqc_int_t ret = xqc_moq_write_fetch(session, stream, &request);
+    if (ret != XQC_OK) {
+        xqc_moq_stream_close(stream);
+        return ret;
+    }
+    xqc_demo_lifecycle_state_t *state =
+        xqc_demo_lifecycle_state(user_session);
+    if (state != NULL) {
+        state->fetch_request_id = request.request_id;
+        state->fetch_object_count = 0;
+    }
+    printf("control_e2e_server|fetch_sent|request_id:%"PRIu64
+           "|track:interop/data|range:1/0-5/max|ret:%d\n",
+           request.request_id, ret);
+    return ret;
+}
+
 void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
     const xqc_moq_message_parameter_t *params, uint64_t params_num)
 {
@@ -518,7 +1295,17 @@ void on_session_setup(xqc_moq_user_session_t *user_session, char *extdata,
     user_conn->publish_started = 0;
     user_conn->publish_request_sent = 0;
 
-    if (g_role == XQC_MOQ_SUBSCRIBER) {
+    if (g_lifecycle_mode == 14) {
+        xqc_int_t ret = xqc_demo_send_interop_fetch(user_session);
+        if (ret != XQC_OK) {
+            printf("control_e2e_server|fetch_send_failed|ret:%d\n", ret);
+        }
+        return;
+    }
+
+    if (g_role == XQC_MOQ_SUBSCRIBER
+        || (g_lifecycle_mode != 0 && g_lifecycle_mode != 4))
+    {
         return;
     }
 
@@ -651,6 +1438,36 @@ void on_subscribe(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     int ret;
     xqc_moq_session_t *session = user_session->session;
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
+
+    if (g_lifecycle_mode == 11) {
+        xqc_demo_lifecycle_state_t *state =
+            xqc_demo_lifecycle_state(user_session);
+        state->pending_subscribe_id = subscribe_id;
+        state->pending_track_alias = msg != NULL ? msg->track_alias : 0;
+        state->pending_subscribe = 1;
+        g_interop_pending_subscribe = state;
+        printf("control_e2e_server|subscribe_pending|request_id:%"PRIu64
+               "|namespace_ready:%d\n",
+               subscribe_id, g_interop_namespace_announced);
+        if (g_interop_namespace_announced) {
+            xqc_demo_interop_accept_pending_subscribe(state);
+        }
+        return;
+    }
+
+    if (g_lifecycle_mode == 12) {
+        xqc_moq_subscribe_error_msg_t subscribe_error;
+        memset(&subscribe_error, 0, sizeof(subscribe_error));
+        subscribe_error.subscribe_id = subscribe_id;
+        subscribe_error.error_code = XQC_MOQ_REQUEST_ERROR_DOES_NOT_EXIST;
+        subscribe_error.reason_phrase = "track does not exist";
+        subscribe_error.reason_phrase_len =
+            sizeof("track does not exist") - 1;
+        ret = xqc_moq_write_subscribe_error(session, &subscribe_error);
+        printf("control_e2e_server|subscribe_response|request_id:%"PRIu64
+               "|result:error|code:0x10|ret:%d\n", subscribe_id, ret);
+        return;
+    }
 
     if (strcmp(msg->track_name, "video") == 0) {
         user_conn->video_subscribe_id = subscribe_id;
@@ -843,6 +1660,43 @@ void on_publish_ok_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *tr
            publish_ok->subscribe_id,
            (void*)track,
            publish_ok->forward, publish_ok->subscriber_priority, publish_ok->filter_type);
+
+    if (g_lifecycle_mode == 4) {
+        xqc_moq_publish_done_msg_t done;
+        memset(&done, 0, sizeof(done));
+        done.subscribe_id = publish_ok->subscribe_id;
+        done.status_code = XQC_MOQ_PUBLISH_DONE_TRACK_ENDED;
+        done.stream_count = 0;
+        done.reason_phrase = "e2e done";
+        done.reason_phrase_len = sizeof("e2e done") - 1;
+        xqc_int_t ret = xqc_moq_write_publish_done(
+            user_session->session, &done);
+        printf("control_e2e_server|send_publish_done|stream_request_id:%"PRIu64
+               "|wire_request_id:none|status:0x2|ret:%d\n",
+               publish_ok->subscribe_id, ret);
+        return;
+    }
+
+    user_conn_t *user_conn = (user_conn_t *)user_session->data;
+    const char *track_name = "unknown";
+    if (track == user_conn->video_track) {
+        user_conn->video_subscribe_id = publish_ok->subscribe_id;
+        track_name = "video";
+    } else if (track == user_conn->audio_track) {
+        user_conn->audio_subscribe_id = publish_ok->subscribe_id;
+        track_name = "audio";
+    }
+    printf("server_publish_ok|track:%s|subscribe_id:%"PRIu64"|\n",
+           track_name, publish_ok->subscribe_id);
+
+    if (user_conn->ev_send_timer == NULL) {
+        user_conn->ev_send_timer = evtimer_new(
+            eb, xqc_app_send_callback, user_conn);
+        if (user_conn->ev_send_timer != NULL) {
+            struct timeval time = { 0, 10000 };
+            event_add(user_conn->ev_send_timer, &time);
+        }
+    }
 }
 
 void on_publish_error_msg(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
@@ -998,8 +1852,18 @@ void on_raw_object(xqc_moq_user_session_t *user_session, xqc_moq_track_t *track,
     uint64_t payload_len = object ? object->payload_len : 0;
 
     printf("on_raw_object: track_namespace:%s track_name:%s "
-           "subscribe_id:%"PRIu64" group_id:%"PRIu64" object_id:%"PRIu64" payload_len:%"PRIu64"\n",
-           ns, name, subscribe_id, group_id, object_id, payload_len);
+           "subscribe_id:%"PRIu64" group_id:%"PRIu64" subgroup_id:%"PRIu64
+           " object_id:%"PRIu64" status:%"PRIu64" payload_len:%"PRIu64
+           " properties_present:%u properties_len:%"PRIu64
+           " priority:%u forwarding:%u eos:%u\n",
+           ns, name, subscribe_id, group_id,
+           object ? object->subgroup_id : 0, object_id,
+           object ? object->status : 0, payload_len,
+           object ? object->object_properties_present : 0,
+           object ? object->object_properties_len : 0,
+           object ? object->publisher_priority : 0,
+           object ? object->forwarding_preference : 0,
+           object ? object->end_of_stream : 0);
 
     const uint8_t *payload = object ? object->payload : NULL;
     if (payload && payload_len > 0) {
@@ -1019,16 +1883,80 @@ void on_datagram_object(xqc_moq_user_session_t *user_session, xqc_moq_track_t *t
     const char *ns = (track_info && track_info->track_namespace) ? track_info->track_namespace : "null";
     const char *name = (track_info && track_info->track_name) ? track_info->track_name : "null";
     printf("on_datagram_object: ns:%s name:%s alias:%"PRIu64" group:%"PRIu64" id:%"PRIu64
-           " status:%"PRIu64" payload_len:%"PRIu64" priority:%u forwarding:%u\n",
+           " status:%"PRIu64" payload_len:%"PRIu64" priority:%u forwarding:%u"
+           " properties_present:%u properties_len:%"PRIu64" eos:%u\n",
            ns, name, object->track_alias, object->group_id, object->object_id,
            object->status, object->payload_len,
-           object->publisher_priority, object->forwarding_preference);
+           object->publisher_priority, object->forwarding_preference,
+           object->object_properties_present, object->object_properties_len,
+           object->end_of_stream);
     if (object->payload && object->payload_len > 0) {
         char buf[128] = {0};
         size_t copy = object->payload_len < sizeof(buf) - 1 ? object->payload_len : sizeof(buf) - 1;
         memcpy(buf, object->payload, copy);
         printf("datagram payload: %s\n", buf);
     }
+}
+
+static void
+on_fetch_ok_interop(xqc_moq_user_session_t *user_session,
+    uint64_t request_id, xqc_moq_fetch_ok_msg_t *msg)
+{
+    xqc_demo_lifecycle_state_t *state =
+        xqc_demo_lifecycle_state(user_session);
+    printf("control_e2e_server|fetch_ok|request_id:%"PRIu64
+           "|expected:%"PRIu64"|end_of_track:%u|end:%"PRIu64
+           "/%"PRIu64"|properties:%zu\n",
+           request_id, state ? state->fetch_request_id : XQC_MOQ_INVALID_ID,
+           msg ? msg->end_of_track : 0,
+           msg ? msg->end_group_id : 0, msg ? msg->end_object_id : 0,
+           msg ? msg->track_properties_len : 0);
+}
+
+static void
+on_fetch_header_interop(xqc_moq_user_session_t *user_session,
+    uint64_t request_id, uint8_t fin)
+{
+    (void)user_session;
+    printf("control_e2e_server|fetch_header|request_id:%"PRIu64
+           "|fin:%u\n", request_id, fin);
+}
+
+static void
+on_fetch_object_interop(xqc_moq_user_session_t *user_session,
+    uint64_t request_id, xqc_moq_object_t *object)
+{
+    xqc_demo_lifecycle_state_t *state =
+        xqc_demo_lifecycle_state(user_session);
+    unsigned index = state ? state->fetch_object_count++ : 0;
+    printf("control_e2e_server|fetch_object|request_id:%"PRIu64
+           "|index:%u|group:%"PRIu64"|subgroup:%"PRIu64
+           "|object:%"PRIu64"|priority:%u|payload:%"PRIu64
+           "|properties:%"PRIu64"|status:%"PRIu64"|eos:%u\n",
+           request_id, index, object ? object->group_id : 0,
+           object ? object->subgroup_id : 0,
+           object ? object->object_id : 0,
+           object ? object->publisher_priority : 0,
+           object ? object->payload_len : 0,
+           object ? object->object_properties_len : 0,
+           object ? object->status : 0,
+           object ? object->end_of_stream : 0);
+    if (object != NULL && object->payload != NULL && object->payload_len > 0) {
+        size_t copy = object->payload_len < 80 ? object->payload_len : 80;
+        printf("control_e2e_server|fetch_payload|index:%u|value:%.*s\n",
+               index, (int)copy, (const char *)object->payload);
+    }
+}
+
+static void
+on_fetch_range_interop(xqc_moq_user_session_t *user_session,
+    uint64_t request_id, uint64_t group_id, uint64_t object_id,
+    uint8_t unknown, uint8_t end_of_stream)
+{
+    (void)user_session;
+    printf("control_e2e_server|fetch_range|request_id:%"PRIu64
+           "|group:%"PRIu64"|object:%"PRIu64"|unknown:%u|eos:%u\n",
+           request_id, group_id, object_id, unknown, end_of_stream);
 }
 
 static xqc_int_t
@@ -1069,12 +1997,36 @@ xqc_server_create_moq_session(xqc_connection_t *conn,
         callbacks.on_subscribe_namespace = on_subscribe_namespace_duplicate_parent;
     } else if (g_ns_callback_mode == 6) {
         callbacks.on_subscribe_namespace = on_subscribe_namespace_sibling_done;
+    } else if (g_lifecycle_mode == 1 || g_lifecycle_mode == 6) {
+        callbacks.on_subscribe_namespace = on_subscribe_namespace_callback;
+    }
+    if (g_lifecycle_mode >= 1 && g_lifecycle_mode <= 6) {
+        callbacks.on_subscribe_tracks = on_subscribe_tracks_lifecycle;
+    }
+    if (g_lifecycle_mode == 11) {
+        callbacks.on_publish_namespace = on_publish_namespace_lifecycle;
+    }
+    if (g_lifecycle_mode == 7 || g_lifecycle_mode == 8) {
+        callbacks.on_track_status = on_track_status_lifecycle;
+    }
+    if (g_lifecycle_mode == 9 || g_lifecycle_mode == 10) {
+        callbacks.on_fetch = on_fetch_lifecycle;
+    }
+    if (g_lifecycle_mode == 14) {
+        callbacks.on_fetch_ok = on_fetch_ok_interop;
+        callbacks.on_fetch_header = on_fetch_header_interop;
+        callbacks.on_fetch_object = on_fetch_object_interop;
+        callbacks.on_fetch_range = on_fetch_range_interop;
     }
     xqc_moq_session_t *session = xqc_moq_session_create_ex(
         conn, user_session, XQC_MOQ_TRANSPORT_QUIC, g_role, callbacks, NULL);
     if (session == NULL) {
         printf("create session error\n");
         return -1;
+    }
+    if (g_lifecycle_mode == 1) {
+        xqc_moq_session_set_request_update_callback(
+            session, on_request_update_lifecycle);
     }
     xqc_moq_configure_bitrate(session, 1000000, 8000000, 1000000);
     xqc_moq_session_set_enable_datachannel(session, g_enable_datachannel);
@@ -1086,8 +2038,19 @@ int
 xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data)
 {
     DEBUG;
-    xqc_moq_user_session_t *user_session = calloc(1, sizeof(xqc_moq_user_session_t) + sizeof(user_conn_t));
+    xqc_moq_user_session_t *user_session = calloc(
+        1, sizeof(xqc_moq_user_session_t) + sizeof(user_conn_t)
+            + sizeof(xqc_demo_lifecycle_state_t));
+    if (user_session == NULL) {
+        return -1;
+    }
     user_conn_t *user_conn = (user_conn_t *)(user_session->data);
+    xqc_demo_lifecycle_state_t *lifecycle_state =
+        xqc_demo_lifecycle_state(user_session);
+    lifecycle_state->user_conn = user_conn;
+    lifecycle_state->first_request_id = XQC_MOQ_INVALID_ID;
+    lifecycle_state->second_request_id = XQC_MOQ_INVALID_ID;
+    lifecycle_state->control_goaway_ret = -XQC_EPARAM;
 
     xqc_conn_set_transport_user_data(conn, user_session);
 
@@ -1152,6 +2115,17 @@ xqc_server_conn_closing_notify(xqc_connection_t *conn,
     xqc_moq_user_session_t *user_session = (xqc_moq_user_session_t *)conn_user_data;
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
     user_conn->closing_notified = 1;
+    xqc_demo_lifecycle_state_t *lifecycle_state =
+        xqc_demo_lifecycle_state(user_session);
+    if (g_lifecycle_mode >= 1 && g_lifecycle_mode <= 6) {
+        printf("control_e2e_server|lifecycle_close|pending_action:%d\n",
+               lifecycle_state->delayed_action != NULL);
+        fflush(stdout);
+    }
+    xqc_demo_lifecycle_cancel_delayed_action(lifecycle_state);
+    if (g_interop_pending_subscribe == lifecycle_state) {
+        g_interop_pending_subscribe = NULL;
+    }
     return XQC_OK;
 }
 
@@ -1177,6 +2151,17 @@ xqc_server_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void 
     printf("send_count:%u, lost_count:%u, lost_dgram_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" early_data_flag:%d, conn_err:%d, ack_info:%s, alpn:%s, fec_recovered:%d\n",
             stats.send_count, stats.lost_count, stats.lost_dgram_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.ack_info, stats.alpn, stats.fec_recover_pkt_cnt);
 
+    xqc_demo_lifecycle_state_t *lifecycle_state =
+        xqc_demo_lifecycle_state(user_session);
+    if (g_lifecycle_mode >= 1 && g_lifecycle_mode <= 6) {
+        printf("control_e2e_server|lifecycle_close|pending_action:%d\n",
+               lifecycle_state->delayed_action != NULL);
+    }
+    xqc_demo_lifecycle_cancel_delayed_action(lifecycle_state);
+    if (g_interop_pending_subscribe == lifecycle_state) {
+        g_interop_pending_subscribe = NULL;
+    }
+    lifecycle_state->user_conn = NULL;
     if (user_session->session != NULL) {
         xqc_moq_session_destroy(user_session->session);
     }
@@ -1317,6 +2302,7 @@ stop(int signo)
 
 int main(int argc, char *argv[])
 {
+    setvbuf(stdout, NULL, _IOLBF, 0);
     signal(SIGINT, stop);
     signal(SIGTERM, stop);
     
@@ -1326,7 +2312,7 @@ int main(int argc, char *argv[])
     int server_port = TEST_PORT;
     xqc_cong_ctrl_callback_t cong_ctrl;
     cong_ctrl = xqc_bbr_cb;
-    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MRoeUTCWmK:Z:")) != -1) {
+    while ((ch = getopt(argc, argv, "p:r:c:l:n:fd:MRGoeUTCWmK:Q:Z:")) != -1) {
         switch (ch) {
         /* listen port */
         case 'p':
@@ -1395,6 +2381,11 @@ int main(int argc, char *argv[])
             printf("option raw object mode : on\n");
             g_raw_object_mode = 1;
             break;
+        case 'G':
+            printf("option object datagram mode : on\n");
+            g_raw_object_mode = 1;
+            g_datagram_mode = 1;
+            break;
         case 'o':
             printf("option publish reply ok : on\n");
             g_publish_reply_mode = 1;
@@ -1427,6 +2418,10 @@ int main(int argc, char *argv[])
             g_ns_callback_mode = atoi(optarg);
             printf("option namespace callback mode : %d\n", g_ns_callback_mode);
             break;
+        case 'Q':
+            g_lifecycle_mode = atoi(optarg);
+            printf("option control lifecycle mode : %d\n", g_lifecycle_mode);
+            break;
         case 'Z':
             g_server_cancel_write_before_group = atoi(optarg);
             printf("option server cancel write before group : %d\n", g_server_cancel_write_before_group);
@@ -1436,9 +2431,11 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (g_enable_catalog < 0) {
-        g_enable_catalog = 1;
-    }
+    /*
+     * Leave g_enable_catalog negative unless the operator asked for a specific
+     * value: the session then follows the profile selected by the ALPN, which
+     * keeps both ends in agreement.
+     */
 
     memset(&ctx, 0, sizeof(ctx));
 
@@ -1529,6 +2526,8 @@ int main(int argc, char *argv[])
         printf("xqc_create_socket error\n");
         return 0;
     }
+    printf("MoQ server ready on UDP port %d\n", server_port);
+    fflush(stdout);
 
     eb = event_base_new();
     ctx.ev_engine = event_new(eb, -1, 0, xqc_app_engine_callback, &ctx);

@@ -20,6 +20,11 @@ static const xqc_moq_alpn_policy_t xqc_moq_alpn_policies[] = {
         sizeof(XQC_ALPN_MOQ_DRAFT_14) - 1,
         &xqc_moq_v14_profile_definition,
     },
+    {
+        XQC_ALPN_MOQ_DRAFT_18,
+        sizeof(XQC_ALPN_MOQ_DRAFT_18) - 1,
+        &xqc_moq_v18_profile_definition,
+    },
 };
 
 size_t
@@ -69,6 +74,8 @@ xqc_moq_version_profile_for_version(uint64_t wire_version)
         return xqc_moq_v5_profile();
     case XQC_MOQ_VERSION_14:
         return xqc_moq_v14_profile();
+    case XQC_MOQ_VERSION_18:
+        return xqc_moq_v18_profile();
     default:
         return NULL;
     }
@@ -122,13 +129,15 @@ xqc_moq_profile_classify_stream(const xqc_moq_version_profile_t *profile,
 xqc_moq_stream_kind_t
 xqc_moq_profile_classify_outbound_stream(
     const xqc_moq_version_profile_t *profile,
-    xqc_moq_stream_kind_t current_kind, uint64_t message_type)
+    xqc_moq_stream_kind_t current_kind,
+    xqc_moq_semantic_id_t semantic, uint64_t wire_type)
 {
     if (profile == NULL || profile->classify_outbound_stream == NULL) {
         return current_kind;
     }
 
-    return profile->classify_outbound_stream(current_kind, message_type);
+    return profile->classify_outbound_stream(
+        current_kind, semantic, wire_type);
 }
 
 const xqc_moq_message_codec_entry_t *
@@ -146,7 +155,8 @@ xqc_moq_profile_find_codec(const xqc_moq_version_profile_t *profile,
     if ((stream_kind == XQC_MOQ_STREAM_V5_TRACK
          && !xqc_moq_profile_has_capability(
              profile, XQC_MOQ_CAP_TRACK_STREAM))
-        || (stream_kind == XQC_MOQ_STREAM_V14_SUBGROUP
+        || ((stream_kind == XQC_MOQ_STREAM_V14_SUBGROUP
+             || stream_kind == XQC_MOQ_STREAM_D18_SUBGROUP)
             && !xqc_moq_profile_has_capability(
                 profile, XQC_MOQ_CAP_SUBGROUP_STREAM)))
     {
@@ -170,6 +180,12 @@ xqc_moq_profile_find_codec(const xqc_moq_version_profile_t *profile,
     }
 
     for (i = 0; i < codecs_count; ++i) {
+        if (codecs[i].stream_kind_mask != 0
+            && (codecs[i].stream_kind_mask
+                & XQC_MOQ_STREAM_KIND_MASK(stream_kind)) == 0)
+        {
+            continue;
+        }
         if (codecs[i].wire_type == wire_type) {
             return &codecs[i];
         }
@@ -178,26 +194,226 @@ xqc_moq_profile_find_codec(const xqc_moq_version_profile_t *profile,
     return NULL;
 }
 
-xqc_bool_t
-xqc_moq_profile_next_data_message(const xqc_moq_version_profile_t *profile,
-    xqc_moq_stream_kind_t stream_kind, uint64_t current_wire_type,
-    uint64_t *next_wire_type)
+const xqc_moq_message_codec_entry_t *
+xqc_moq_profile_find_semantic_codec(
+    const xqc_moq_version_profile_t *profile,
+    xqc_moq_semantic_id_t semantic)
 {
-    if (profile == NULL || profile->next_data_message == NULL
-        || next_wire_type == NULL)
+    if (profile == NULL) {
+        return NULL;
+    }
+
+    const xqc_moq_message_codec_entry_t *tables[] = {
+        profile->control_codecs,
+        profile->data_codecs,
+        profile->continuation_codecs,
+    };
+    const size_t counts[] = {
+        profile->control_codecs_count,
+        profile->data_codecs_count,
+        profile->continuation_codecs_count,
+    };
+    for (size_t table = 0;
+         table < sizeof(tables) / sizeof(tables[0]); table++)
+    {
+        for (size_t i = 0; i < counts[table]; i++) {
+            if (tables[table][i].semantic == semantic) {
+                return &tables[table][i];
+            }
+        }
+    }
+    return NULL;
+}
+
+static const xqc_moq_message_codec_entry_t *
+xqc_moq_profile_find_semantic_codec_for_kind(
+    const xqc_moq_version_profile_t *profile,
+    xqc_moq_semantic_id_t semantic,
+    xqc_moq_stream_kind_t stream_kind)
+{
+    if (profile == NULL || stream_kind == XQC_MOQ_STREAM_UNKNOWN) {
+        return NULL;
+    }
+    const xqc_moq_message_codec_entry_t *tables[] = {
+        profile->control_codecs,
+        profile->data_codecs,
+        profile->continuation_codecs,
+    };
+    const size_t counts[] = {
+        profile->control_codecs_count,
+        profile->data_codecs_count,
+        profile->continuation_codecs_count,
+    };
+    uint64_t kind_mask = XQC_MOQ_STREAM_KIND_MASK(stream_kind);
+    for (size_t table = 0;
+         table < sizeof(tables) / sizeof(tables[0]); table++)
+    {
+        for (size_t i = 0; i < counts[table]; i++) {
+            const xqc_moq_message_codec_entry_t *codec =
+                &tables[table][i];
+            if (codec->semantic == semantic
+                && (codec->stream_kind_mask == 0
+                    || (codec->stream_kind_mask & kind_mask) != 0))
+            {
+                return codec;
+            }
+        }
+    }
+    return NULL;
+}
+
+static xqc_int_t
+xqc_moq_profile_default_wire_type(
+    const xqc_moq_version_profile_t *profile,
+    xqc_moq_semantic_id_t semantic, uint64_t *wire_type)
+{
+    if (profile == NULL || wire_type == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    switch (semantic) {
+    case XQC_MOQ_SEMANTIC_CLIENT_SETUP:
+        *wire_type = profile->client_setup_type;
+        break;
+    case XQC_MOQ_SEMANTIC_SERVER_SETUP:
+        *wire_type = profile->server_setup_type;
+        break;
+    case XQC_MOQ_SEMANTIC_SUBSCRIBE:
+        *wire_type = XQC_MOQ_MSG_SUBSCRIBE;
+        break;
+    case XQC_MOQ_SEMANTIC_SUBSCRIBE_UPDATE:
+        *wire_type = XQC_MOQ_MSG_SUBSCRIBE_UPDATE;
+        break;
+    case XQC_MOQ_SEMANTIC_UNSUBSCRIBE:
+        *wire_type = XQC_MOQ_MSG_UNSUBSCRIBE;
+        break;
+    case XQC_MOQ_SEMANTIC_SUBSCRIBE_OK:
+        *wire_type = XQC_MOQ_MSG_SUBSCRIBE_OK;
+        break;
+    case XQC_MOQ_SEMANTIC_SUBSCRIBE_ERROR:
+        *wire_type = XQC_MOQ_MSG_SUBSCRIBE_ERROR;
+        break;
+    case XQC_MOQ_SEMANTIC_PUBLISH:
+        *wire_type = XQC_MOQ_MSG_PUBLISH;
+        break;
+    case XQC_MOQ_SEMANTIC_PUBLISH_OK:
+        *wire_type = XQC_MOQ_MSG_PUBLISH_OK;
+        break;
+    case XQC_MOQ_SEMANTIC_PUBLISH_ERROR:
+        *wire_type = XQC_MOQ_MSG_PUBLISH_ERROR;
+        break;
+    case XQC_MOQ_SEMANTIC_PUBLISH_DONE:
+        *wire_type = XQC_MOQ_MSG_PUBLISH_DONE;
+        break;
+    case XQC_MOQ_SEMANTIC_OBJECT_STREAM:
+        *wire_type = XQC_MOQ_MSG_OBJECT_STREAM;
+        break;
+    case XQC_MOQ_SEMANTIC_SUBGROUP:
+        *wire_type = XQC_MOQ_SUBGROUP_TYPE_WITH_ID;
+        break;
+    case XQC_MOQ_SEMANTIC_SUBGROUP_OBJECT:
+    case XQC_MOQ_SEMANTIC_TRACK_STREAM_OBJECT:
+        *wire_type = 0;
+        break;
+    case XQC_MOQ_SEMANTIC_TRACK_HEADER:
+        *wire_type = XQC_MOQ_MSG_STREAM_HEADER_TRACK;
+        break;
+    case XQC_MOQ_SEMANTIC_GOAWAY:
+        *wire_type = XQC_MOQ_MSG_GOAWAY;
+        break;
+    case XQC_MOQ_SEMANTIC_SUBSCRIBE_NAMESPACE:
+        *wire_type = XQC_MOQ_MSG_SUBSCRIBE_NAMESPACE;
+        break;
+    case XQC_MOQ_SEMANTIC_SUBSCRIBE_NAMESPACE_OK:
+        *wire_type = XQC_MOQ_MSG_SUBSCRIBE_NAMESPACE_OK;
+        break;
+    case XQC_MOQ_SEMANTIC_SUBSCRIBE_NAMESPACE_ERROR:
+        *wire_type = XQC_MOQ_MSG_SUBSCRIBE_NAMESPACE_ERROR;
+        break;
+    case XQC_MOQ_SEMANTIC_UNSUBSCRIBE_NAMESPACE:
+        *wire_type = XQC_MOQ_MSG_UNSUBSCRIBE_NAMESPACE;
+        break;
+    case XQC_MOQ_SEMANTIC_PUBLISH_NAMESPACE:
+        *wire_type = XQC_MOQ_MSG_PUBLISH_NAMESPACE;
+        break;
+    case XQC_MOQ_SEMANTIC_PUBLISH_NAMESPACE_DONE:
+        *wire_type = XQC_MOQ_MSG_PUBLISH_NAMESPACE_DONE;
+        break;
+    default:
+        return -XQC_EALPN_NOT_SUPPORTED;
+    }
+
+    return XQC_OK;
+}
+
+xqc_int_t
+xqc_moq_profile_resolve_outbound(
+    const xqc_moq_version_profile_t *profile,
+    xqc_moq_stream_kind_t current_kind,
+    xqc_moq_semantic_id_t semantic,
+    xqc_moq_message_resolution_t *resolution)
+{
+    uint64_t wire_type;
+    xqc_int_t ret;
+
+    if (profile == NULL || resolution == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    if (profile->resolve_outbound != NULL) {
+        ret = profile->resolve_outbound(current_kind, semantic, &wire_type);
+    } else {
+        ret = xqc_moq_profile_default_wire_type(profile, semantic, &wire_type);
+    }
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    resolution->semantic = semantic;
+    resolution->wire_type = wire_type;
+    resolution->stream_kind = xqc_moq_profile_classify_outbound_stream(
+        profile, current_kind, semantic, wire_type);
+    resolution->codec = xqc_moq_profile_find_semantic_codec_for_kind(
+        profile, semantic, resolution->stream_kind);
+    if (resolution->codec == NULL) {
+        resolution->codec = xqc_moq_profile_find_codec(
+            profile, resolution->stream_kind, wire_type);
+    }
+    if (resolution->codec == NULL || resolution->codec->initialize == NULL) {
+        return -XQC_EALPN_NOT_SUPPORTED;
+    }
+
+    return XQC_OK;
+}
+
+xqc_bool_t
+xqc_moq_profile_next_data_codec(const xqc_moq_version_profile_t *profile,
+    xqc_moq_stream_kind_t stream_kind, uint64_t current_wire_type,
+    const xqc_moq_message_codec_entry_t **next_codec)
+{
+    if (profile == NULL || profile->next_data_semantic == NULL
+        || next_codec == NULL)
     {
         return XQC_FALSE;
     }
 
-    return profile->next_data_message(stream_kind, current_wire_type,
-                                      next_wire_type);
+    xqc_moq_semantic_id_t semantic;
+    if (!profile->next_data_semantic(
+            stream_kind, current_wire_type, &semantic))
+    {
+        return XQC_FALSE;
+    }
+    *next_codec = xqc_moq_profile_find_semantic_codec(profile, semantic);
+    return *next_codec != NULL;
 }
 
 xqc_int_t
 xqc_moq_profile_prepare_data_message(xqc_moq_stream_t *stream,
-    uint64_t wire_type, xqc_moq_msg_base_t *msg_base)
+    const xqc_moq_message_codec_entry_t *codec,
+    xqc_moq_msg_base_t *msg_base)
 {
-    if (stream == NULL || stream->session == NULL || msg_base == NULL
+    if (stream == NULL || stream->session == NULL || codec == NULL
+        || msg_base == NULL
         || stream->session->profile == NULL)
     {
         return -XQC_EPARAM;
@@ -213,7 +429,7 @@ xqc_moq_profile_prepare_data_message(xqc_moq_stream_t *stream,
     }
 
     return stream->session->profile->prepare_data_message(
-        stream, wire_type, msg_base);
+        stream, codec, msg_base);
 }
 
 xqc_int_t

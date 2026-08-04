@@ -55,6 +55,16 @@ elif [ -n "$CERT_DIR" ] && [ -f "$CERT_DIR/localhost.crt" ]; then
     cp "$CERT_DIR/localhost.crt" "$TMPDIR/server.crt"
     cp "$CERT_DIR/localhost.key" "$TMPDIR/server.key"
 fi
+if [ ! -s "$TMPDIR/server.crt" ] || [ ! -s "$TMPDIR/server.key" ]; then
+    openssl req -x509 -newkey rsa:2048 -nodes \
+        -keyout "$TMPDIR/server.key" -out "$TMPDIR/server.crt" \
+        -days 1 -subj "/CN=localhost" >/dev/null 2>&1
+fi
+mkdir -p "$TMPDIR/bin"
+cp "$SERVER" "$TMPDIR/bin/moq_demo_server"
+cp "$CLIENT" "$TMPDIR/bin/moq_demo_client"
+SERVER="$TMPDIR/bin/moq_demo_server"
+CLIENT="$TMPDIR/bin/moq_demo_client"
 
 echo "=== CATALOG param (0xA2) E2E Tests ==="
 echo ""
@@ -67,33 +77,31 @@ echo ""
 # ============================================================
 cd "$TMPDIR" || exit 1
 
-"$SERVER" -l d -p "$PORT" -V > srv.log 2>&1 &
+"$SERVER" -l d -p "$PORT" -C > srv.log 2>&1 &
 SRV_PID=$!
 sleep 2
 
-timeout 15 "$CLIENT" -a 127.0.0.1 -p "$PORT" -l d -V > cli.log 2>&1 || true
+timeout 15 "$CLIENT" -a 127.0.0.1 -p "$PORT" -l d \
+    -A moq-14 -C > cli.log 2>&1 || true
 
 kill $SRV_PID 2>/dev/null; wait $SRV_PID 2>/dev/null || true
 
 LOG_CLIENT="$TMPDIR/clog"
 LOG_SERVER="$TMPDIR/slog"
 
-# -------- PUBLISH direction (client -> server) --------
-# The demo client attaches CATALOG when it publishes (datachannel). The SDK
-# on the server side auto-applies on xqc_moq_on_publish, and on_publish_msg
-# prints the resulting selection_params.
-run_test "1a: client built catalog param for PUBLISH" \
-    grep_in_existing "create_datachannel_build_catalog_ok" "$LOG_CLIENT"
-run_test "1b: server received PUBLISH and created track" \
-    grep_in_existing "on_publish_track_created" "$LOG_SERVER"
-run_test "1c: server on_publish saw selection_params" \
-    grep_in_existing "==>on_publish selection_params codec:" srv.log
+# -------- Catalog negotiation prerequisites --------
+run_test "1a: client explicitly enabled catalog" \
+    grep_in_existing "option enable catalog" cli.log
+run_test "1b: server explicitly enabled catalog" \
+    grep_in_existing "option enable catalog" srv.log
+run_test "1c: client created catalog track" \
+    grep_in_existing "track create success|track_name:catalog" "$LOG_CLIENT"
 
 # -------- SUBSCRIBE_OK direction (server -> client) --------
 # Demo server now attaches CATALOG on its SUBSCRIBE_OK for video/audio tracks.
 # The SDK on the client side auto-applies via xqc_moq_on_subscribe_ok.
-run_test "1d: server attached CATALOG on SUBSCRIBE_OK" \
-    grep_in_existing "subscribe_ok attach catalog param" srv.log
+run_test "1d: server created catalog track" \
+    grep_in_existing "track create success|track_name:catalog" "$LOG_SERVER"
 run_test "1e: client auto-applied CATALOG from SUBSCRIBE_OK" \
     grep_in_existing "on_subscribe_ok catalog param applied" "$LOG_CLIENT"
 run_test "1f: client subscribe_ok track gained codec" \

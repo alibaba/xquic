@@ -1882,7 +1882,11 @@ XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_conn_get_errno(xqc_connection_t *conn);
 
 /**
- * Get the negotiated application-layer protocol.
+ * Get the connection's application-layer protocol.
+ *
+ * On a client this is the ALPN configured for the connection and is available
+ * before the handshake completes. A successful handshake guarantees that the
+ * peer selected that protocol. On a server it is the protocol selected by TLS.
  *
  * The returned ALPN bytes are owned by the connection and remain valid until
  * the connection is destroyed.
@@ -2047,6 +2051,14 @@ xqc_stream_id_t xqc_stream_id(xqc_stream_t *stream);
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_stream_close(xqc_stream_t *stream);
+
+/**
+ * Send RESET_STREAM and STOP_SENDING with an application error code.
+ * stream_close_notify is invoked when the stream is destroyed.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_stream_close_with_error(xqc_stream_t *stream,
+    uint64_t error_code);
 
 /**
  * Recv data in stream.

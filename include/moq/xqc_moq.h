@@ -9,15 +9,24 @@ extern "C" {
 
 #define XQC_ALPN_MOQ_DRAFT_05        "moq-05"
 #define XQC_ALPN_MOQ_DRAFT_14        "moq-14"
+#define XQC_ALPN_MOQ_DRAFT_18        "moqt-18"
 #define XQC_ALPN_MOQ_LEGACY          "moq-quic"
+
+/*
+ * moq-05 and moq-14 are private version-selection ALPNs used by this
+ * implementation. A peer that only advertises the standards-defined moq-00
+ * ALPN will not interoperate with these modes.
+ */
 
 /* Source-compatible aliases for the ALPN names used before profiles. */
 #define XQC_ALPN_MOQ_QUIC            XQC_ALPN_MOQ_LEGACY
 #define XQC_ALPN_MOQ_QUIC_INTEROP    XQC_ALPN_MOQ_DRAFT_14
-#define XQC_ALPN_MOQ_WEBTRANSPORT "moq-wt"
+/* Reserved for future WebTransport support; no profile is registered today. */
+#define XQC_ALPN_MOQ_WEBTRANSPORT    "moq-wt"
 
 #define XQC_MOQ_VERSION_5            0xff000005
 #define XQC_MOQ_VERSION_14           0xff00000E
+#define XQC_MOQ_VERSION_18           0xff000012
 
 typedef enum {
     XQC_MOQ_VIDEO_KEY,
@@ -83,7 +92,15 @@ typedef enum {
 typedef enum {
     XQC_MOQ_FORWARDING_SUBGROUP     = 0,
     XQC_MOQ_FORWARDING_DATAGRAM     = 1,
+    XQC_MOQ_FORWARDING_OBJECT       = 2,
+    XQC_MOQ_FORWARDING_TRACK        = 3,
+    XQC_MOQ_FORWARDING_GROUP        = 4,
 } xqc_moq_forwarding_preference_t;
+
+typedef enum {
+    XQC_MOQ_GROUP_ORDER_ASCENDING  = 1,
+    XQC_MOQ_GROUP_ORDER_DESCENDING = 2,
+} xqc_moq_group_order_t;
 
 typedef struct {
     /* Common */
@@ -168,7 +185,20 @@ typedef struct xqc_moq_announce_error_msg_s xqc_moq_announce_error_msg_t;
 typedef struct xqc_moq_unannounce_msg_s xqc_moq_unannounce_msg_t;
 typedef struct xqc_moq_unsubscribe_msg_s xqc_moq_unsubscribe_msg_t;
 typedef struct xqc_moq_publish_done_msg_s xqc_moq_publish_done_msg_t;
+typedef struct xqc_moq_request_ok_msg_s xqc_moq_request_ok_msg_t;
+typedef struct xqc_moq_request_error_msg_s xqc_moq_request_error_msg_t;
+typedef struct xqc_moq_request_update_msg_s xqc_moq_request_update_msg_t;
+typedef struct xqc_moq_publish_blocked_msg_s xqc_moq_publish_blocked_msg_t;
+typedef struct xqc_moq_d18_goaway_msg_s xqc_moq_d18_goaway_msg_t;
+typedef struct xqc_moq_fetch_msg_s xqc_moq_fetch_msg_t;
+typedef struct xqc_moq_fetch_ok_msg_s xqc_moq_fetch_ok_msg_t;
+typedef struct xqc_moq_track_status_msg_s xqc_moq_track_status_msg_t;
+typedef struct xqc_moq_fetch_header_msg_s xqc_moq_fetch_header_msg_t;
+
+#define XQC_MOQ_REQUEST_CANCELLED 0x1
+#define XQC_MOQ_REQUEST_STREAM_GOING_AWAY 0x4
 typedef struct xqc_moq_subscribe_namespace_msg_s xqc_moq_subscribe_namespace_msg_t;
+typedef struct xqc_moq_subscribe_tracks_msg_s xqc_moq_subscribe_tracks_msg_t;
 typedef struct xqc_moq_subscribe_namespace_ok_msg_s xqc_moq_subscribe_namespace_ok_msg_t;
 typedef struct xqc_moq_subscribe_namespace_error_msg_s xqc_moq_subscribe_namespace_error_msg_t;
 typedef struct xqc_moq_unsubscribe_namespace_msg_s xqc_moq_unsubscribe_namespace_msg_t;
@@ -195,8 +225,10 @@ typedef enum {
     XQC_MOQ_MSG_SUBSCRIBE_UPDATE    = 0x2,
     XQC_MOQ_MSG_SUBSCRIBE           = 0x3,
     XQC_MOQ_MSG_SUBSCRIBE_OK        = 0x4,
-    XQC_MOQ_MSG_SUBSCRIBE_ERROR     = 0x5,
+    XQC_MOQ_MSG_REQUEST_ERROR       = 0x5,
+    XQC_MOQ_MSG_SUBSCRIBE_ERROR     = XQC_MOQ_MSG_REQUEST_ERROR,
     XQC_MOQ_MSG_PUBLISH_NAMESPACE   = 0x6,
+    XQC_MOQ_MSG_REQUEST_OK          = 0x7,
     XQC_MOQ_MSG_PUBLISH_NAMESPACE_DONE = 0x9,
     XQC_MOQ_MSG_UNSUBSCRIBE         = 0xA,
     // XQC_MOQ_MSG_SUBSCRIBE_DONE      = 0xB,
@@ -210,6 +242,7 @@ typedef enum {
     XQC_MOQ_MSG_UNSUBSCRIBE_NAMESPACE      = 0x14,
     XQC_MOQ_MSG_CLIENT_SETUP_V14    = 0x20,
     XQC_MOQ_MSG_SERVER_SETUP_V14    = 0x21,
+    XQC_MOQ_MSG_SETUP               = 0x2F00,
     XQC_MOQ_MSG_CLIENT_SETUP        = 0x40,
     XQC_MOQ_MSG_SERVER_SETUP        = 0x41,
     XQC_MOQ_MSG_STREAM_HEADER_TRACK = 0x50,
@@ -217,6 +250,9 @@ typedef enum {
     XQC_MOQ_MSG_PUBLISH             = 0x1D,
     XQC_MOQ_MSG_PUBLISH_OK          = 0x1E,
     XQC_MOQ_MSG_PUBLISH_ERROR       = 0x1F,
+    XQC_MOQ_MSG_FETCH               = 0x16,
+    XQC_MOQ_MSG_FETCH_OK            = 0x18,
+    XQC_MOQ_MSG_SUBSCRIBE_TRACKS    = 0xA4,
 } xqc_moq_msg_type_t;
 
 typedef enum {
@@ -235,6 +271,17 @@ typedef struct {
     uint8_t                     is_integer;
     uint64_t                    int_value;
 } xqc_moq_message_parameter_t;
+
+typedef struct {
+    uint64_t                    token_type;
+    uint8_t                     *token_value;
+    size_t                      token_value_len;
+} xqc_moq_resolved_auth_token_t;
+
+typedef struct {
+    xqc_moq_resolved_auth_token_t *tokens;
+    size_t                      count;
+} xqc_moq_request_auth_t;
 
 typedef struct {
     const xqc_moq_message_parameter_t *setup_params;
@@ -259,6 +306,14 @@ typedef struct xqc_moq_object_s {
     /* Publisher Priority from OBJECT_DATAGRAM (draft-14); not related to send_order */
     uint8_t                     publisher_priority_set;
     uint8_t                     publisher_priority;
+    /* Draft-18 Object Properties, encoded as Property key/value pairs. */
+    uint8_t                     object_properties_present;
+    uint8_t                     *object_properties;
+    uint64_t                    object_properties_len;
+    /* Draft-18 data-stream metadata. */
+    uint8_t                     first_of_subgroup;
+    uint8_t                     end_of_group;
+    uint8_t                     end_of_stream;
     /* Object Forwarding Preference (draft-14 Section 10.2.1): Subgroup or Datagram */
     uint8_t                     forwarding_preference;
 } xqc_moq_object_t;
@@ -292,6 +347,11 @@ typedef struct xqc_moq_subscribe_msg_s {
     uint64_t                    end_object_id;
     uint64_t                    params_num;
     xqc_moq_message_parameter_t *params;
+    xqc_moq_request_auth_t      request_auth;
+    /* Internal receive buffer for fragmented request-stream input. */
+    uint8_t                     *payload;
+    size_t                      payload_len;
+    size_t                      payload_processed;
 } xqc_moq_subscribe_msg_t;
 
 typedef struct xqc_moq_subscribe_ok_msg_s {
@@ -305,6 +365,12 @@ typedef struct xqc_moq_subscribe_ok_msg_s {
     uint64_t                    largest_object_id;
     uint64_t                    params_num;
     xqc_moq_message_parameter_t *params;
+    uint8_t                     *track_properties;
+    size_t                      track_properties_len;
+    /* Internal receive buffer for fragmented request-stream input. */
+    uint8_t                     *payload;
+    size_t                      payload_len;
+    size_t                      payload_processed;
 } xqc_moq_subscribe_ok_msg_t;
 
 typedef struct xqc_moq_subscribe_error_msg_s {
@@ -315,6 +381,151 @@ typedef struct xqc_moq_subscribe_error_msg_s {
     size_t                      reason_phrase_len;
     uint64_t                    track_alias;
 } xqc_moq_subscribe_error_msg_t;
+
+typedef struct xqc_moq_request_error_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    error_code;
+    uint64_t                    retry_interval;
+    char                        *reason_phrase;
+    size_t                      reason_phrase_len;
+    uint8_t                     *redirect;
+    size_t                      redirect_len;
+    uint8_t                     *payload;
+    size_t                      payload_len;
+    size_t                      payload_processed;
+} xqc_moq_request_error_msg_t;
+
+typedef struct xqc_moq_request_update_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    request_id;
+    uint64_t                    params_num;
+    xqc_moq_message_parameter_t *params;
+    xqc_moq_request_auth_t      request_auth;
+    uint8_t                     d18_param_context;
+    uint8_t                     *payload;
+    size_t                      payload_len;
+    size_t                      payload_processed;
+    uint64_t                    d18_error_code;
+} xqc_moq_request_update_msg_t;
+
+typedef struct xqc_moq_publish_blocked_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    track_namespace_suffix_num;
+    xqc_moq_track_ns_field_t    *track_namespace_suffix;
+    char                        *track_name;
+    size_t                      track_name_len;
+    uint8_t                     *payload;
+    size_t                      payload_len;
+    size_t                      payload_processed;
+} xqc_moq_publish_blocked_msg_t;
+
+typedef struct xqc_moq_d18_goaway_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    char                        *new_session_uri;
+    size_t                      new_session_uri_len;
+    uint64_t                    timeout_ms;
+    uint64_t                    request_id;
+    uint8_t                     has_request_id;
+    uint8_t                     *payload;
+    size_t                      payload_len;
+    size_t                      payload_processed;
+} xqc_moq_d18_goaway_msg_t;
+
+typedef enum {
+    XQC_MOQ_FETCH_STANDALONE = 0x01,
+    XQC_MOQ_FETCH_JOINING_RELATIVE = 0x02,
+    XQC_MOQ_FETCH_JOINING_ABSOLUTE = 0x03,
+} xqc_moq_fetch_type_t;
+
+typedef struct xqc_moq_fetch_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    request_id;
+    xqc_moq_fetch_type_t        fetch_type;
+    uint64_t                    track_namespace_num;
+    xqc_moq_track_ns_field_t    *track_namespace_tuple;
+    char                        *track_name;
+    size_t                      track_name_len;
+    uint64_t                    start_group_id;
+    uint64_t                    start_object_id;
+    uint64_t                    end_group_id;
+    uint64_t                    end_object_id;
+    uint64_t                    joining_request_id;
+    uint64_t                    joining_start;
+    uint64_t                    params_num;
+    xqc_moq_message_parameter_t *params;
+    xqc_moq_request_auth_t      request_auth;
+    uint8_t                     *payload;
+    size_t                      payload_len;
+    size_t                      payload_processed;
+} xqc_moq_fetch_msg_t;
+
+typedef struct xqc_moq_fetch_ok_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint8_t                     end_of_track;
+    uint64_t                    end_group_id;
+    uint64_t                    end_object_id;
+    uint64_t                    params_num;
+    xqc_moq_message_parameter_t *params;
+    uint8_t                     *track_properties;
+    size_t                      track_properties_len;
+    uint8_t                     *payload;
+    size_t                      payload_len;
+    size_t                      payload_processed;
+} xqc_moq_fetch_ok_msg_t;
+
+typedef struct xqc_moq_track_status_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    request_id;
+    uint64_t                    track_namespace_num;
+    xqc_moq_track_ns_field_t    *track_namespace_tuple;
+    char                        *track_name;
+    size_t                      track_name_len;
+    uint64_t                    params_num;
+    xqc_moq_message_parameter_t *params;
+    xqc_moq_request_auth_t      request_auth;
+    uint8_t                     *payload;
+    size_t                      payload_len;
+    size_t                      payload_processed;
+} xqc_moq_track_status_msg_t;
+
+typedef struct xqc_moq_fetch_header_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    request_id;
+    uint8_t                     fin_received;
+} xqc_moq_fetch_header_msg_t;
+
+typedef enum {
+    XQC_MOQ_REQUEST_ERROR_INTERNAL       = 0x0,
+    XQC_MOQ_REQUEST_ERROR_UNAUTHORIZED   = 0x1,
+    XQC_MOQ_REQUEST_ERROR_TIMEOUT        = 0x2,
+    XQC_MOQ_REQUEST_ERROR_NOT_SUPPORTED  = 0x3,
+    XQC_MOQ_REQUEST_ERROR_MALFORMED_AUTH_TOKEN = 0x4,
+    XQC_MOQ_REQUEST_ERROR_EXPIRED_AUTH_TOKEN   = 0x5,
+    XQC_MOQ_REQUEST_ERROR_GOING_AWAY    = 0x6,
+    XQC_MOQ_REQUEST_ERROR_DOES_NOT_EXIST = 0x10,
+    XQC_MOQ_REQUEST_ERROR_INVALID_RANGE = 0x11,
+    XQC_MOQ_REQUEST_ERROR_DUPLICATE_SUBSCRIPTION = 0x19,
+    XQC_MOQ_REQUEST_ERROR_PREFIX_OVERLAP = 0x30,
+    XQC_MOQ_REQUEST_ERROR_INVALID_JOINING_REQUEST_ID = 0x32,
+    XQC_MOQ_REQUEST_ERROR_UNSUPPORTED_EXTENSION = 0x33,
+    XQC_MOQ_REQUEST_ERROR_REDIRECT       = 0x34,
+} xqc_moq_request_error_code_t;
+
+typedef enum {
+    XQC_MOQ_PUBLISH_DONE_INTERNAL_ERROR = 0x0,
+    XQC_MOQ_PUBLISH_DONE_UNAUTHORIZED = 0x1,
+    XQC_MOQ_PUBLISH_DONE_TRACK_ENDED = 0x2,
+    XQC_MOQ_PUBLISH_DONE_SUBSCRIPTION_ENDED = 0x3,
+    XQC_MOQ_PUBLISH_DONE_GOING_AWAY = 0x4,
+    XQC_MOQ_PUBLISH_DONE_TOO_FAR_BEHIND = 0x5,
+    XQC_MOQ_PUBLISH_DONE_EXPIRED = 0x6,
+    XQC_MOQ_PUBLISH_DONE_UPDATE_FAILED = 0x8,
+    XQC_MOQ_PUBLISH_DONE_EXCESSIVE_LOAD = 0x9,
+    XQC_MOQ_PUBLISH_DONE_MALFORMED_TRACK = 0x12,
+} xqc_moq_publish_done_status_t;
+
+#define XQC_MOQ_PUBLISH_DONE_UNKNOWN_STREAM_COUNT \
+    ((UINT64_C(1) << 62) - 1)
 
 typedef struct xqc_moq_publish_msg_s {
     xqc_moq_msg_base_t          msg_base;
@@ -331,6 +542,12 @@ typedef struct xqc_moq_publish_msg_s {
     uint8_t                     forward;
     uint64_t                    params_num;
     xqc_moq_message_parameter_t *params;
+    uint8_t                     *track_properties;
+    size_t                      track_properties_len;
+    xqc_moq_request_auth_t      request_auth;
+    uint8_t                     *payload;
+    size_t                      payload_len;
+    size_t                      payload_processed;
 } xqc_moq_publish_msg_t;
 
 typedef struct xqc_moq_publish_ok_msg_s {
@@ -382,10 +599,26 @@ typedef struct xqc_moq_publish_namespace_msg_s {
     xqc_moq_track_ns_field_t    *track_namespace_tuple;
     uint64_t                    params_num;
     xqc_moq_message_parameter_t *params;
+    xqc_moq_request_auth_t      request_auth;
+    uint8_t                     *payload;
+    uint64_t                    payload_len;
 } xqc_moq_publish_namespace_msg_t;
+
+typedef struct xqc_moq_request_ok_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    params_num;
+    xqc_moq_message_parameter_t *params;
+    uint8_t                     *track_properties;
+    size_t                      track_properties_len;
+    uint8_t                     d18_param_context;
+    uint8_t                     *payload;
+    size_t                      payload_len;
+    size_t                      payload_processed;
+} xqc_moq_request_ok_msg_t;
 
 typedef struct xqc_moq_publish_namespace_done_msg_s {
     xqc_moq_msg_base_t          msg_base;
+    uint64_t                    request_id;
     uint64_t                    track_namespace_num;
     xqc_moq_track_ns_field_t    *track_namespace_tuple;
 } xqc_moq_publish_namespace_done_msg_t;
@@ -397,7 +630,22 @@ typedef struct xqc_moq_subscribe_namespace_msg_s {
     xqc_moq_track_ns_field_t    *track_namespace_tuple;
     uint64_t                    params_num;
     xqc_moq_message_parameter_t *params;
+    xqc_moq_request_auth_t      request_auth;
+    uint8_t                     *payload;
+    uint64_t                    payload_len;
 } xqc_moq_subscribe_namespace_msg_t;
+
+typedef struct xqc_moq_subscribe_tracks_msg_s {
+    xqc_moq_msg_base_t          msg_base;
+    uint64_t                    request_id;
+    uint64_t                    track_namespace_num;
+    xqc_moq_track_ns_field_t    *track_namespace_tuple;
+    uint64_t                    params_num;
+    xqc_moq_message_parameter_t *params;
+    xqc_moq_request_auth_t      request_auth;
+    uint8_t                     *payload;
+    uint64_t                    payload_len;
+} xqc_moq_subscribe_tracks_msg_t;
 
 typedef struct xqc_moq_subscribe_namespace_ok_msg_s {
     xqc_moq_msg_base_t          msg_base;
@@ -523,8 +771,108 @@ typedef void (*xqc_moq_on_datagram_object_pt)(xqc_moq_user_session_t *user_sessi
 typedef void (*xqc_moq_on_goaway_pt)(xqc_moq_user_session_t *user_session,
     const char *new_session_uri, size_t new_session_uri_len);
 
+typedef enum {
+    XQC_MOQ_GOAWAY_SCOPE_CONTROL = 0,
+    XQC_MOQ_GOAWAY_SCOPE_REQUEST = 1,
+} xqc_moq_goaway_scope_t;
+
+/**
+ * The URI view is owned by the session or request stream and remains valid
+ * for the duration of the callback. first_unprocessed_request_id is only set
+ * for control-scope GOAWAY; target_request_id is only set for request scope.
+ */
+typedef void (*xqc_moq_on_goaway_draft18_pt)(
+    xqc_moq_user_session_t *user_session, xqc_moq_goaway_scope_t scope,
+    uint64_t target_request_id, const char *uri, size_t uri_len,
+    uint64_t timeout_ms, uint64_t first_unprocessed_request_id);
+
+typedef void (*xqc_moq_on_request_ok_pt)(xqc_moq_user_session_t *user_session,
+    uint64_t request_id, xqc_moq_msg_type_t request_type,
+    xqc_moq_request_ok_msg_t *msg);
+
+typedef void (*xqc_moq_on_request_error_pt)(xqc_moq_user_session_t *user_session,
+    uint64_t request_id, xqc_moq_msg_type_t request_type,
+    xqc_moq_request_error_msg_t *msg);
+
+/**
+ * The REQUEST_UPDATE view, its parameters, and resolved authorization tokens
+ * are stream-owned and remain valid until the corresponding REQUEST_OK,
+ * REQUEST_ERROR, or request-stream terminal event. If a response is written
+ * synchronously inside this callback, the view remains valid until the
+ * callback returns.
+ */
+typedef void (*xqc_moq_on_request_update_pt)(
+    xqc_moq_user_session_t *user_session, uint64_t target_request_id,
+    xqc_moq_msg_type_t request_type,
+    const xqc_moq_request_update_msg_t *update);
+
+typedef void (*xqc_moq_on_request_cancelled_pt)(
+    xqc_moq_user_session_t *user_session, uint64_t request_id,
+    xqc_moq_msg_type_t request_type, uint8_t locally_initiated,
+    uint64_t error_code);
+
+/**
+ * The reconstructed Full Track Name view is handler-owned and remains valid
+ * only for the duration of this callback.
+ */
+typedef void (*xqc_moq_on_publish_blocked_pt)(
+    xqc_moq_user_session_t *user_session, uint64_t request_id,
+    const xqc_moq_track_ns_field_t *full_namespace,
+    uint64_t full_namespace_num, const char *track_name,
+    size_t track_name_len);
+
+typedef void (*xqc_moq_on_publish_namespace_pt)(xqc_moq_user_session_t *user_session,
+    xqc_moq_publish_namespace_msg_t *msg);
+
+typedef void (*xqc_moq_on_publish_namespace_done_pt)(xqc_moq_user_session_t *user_session,
+    uint64_t request_id, const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    uint64_t track_namespace_num, uint64_t error_code);
+
+/* Callback namespace tuple storage is valid only for the callback duration. */
+typedef void (*xqc_moq_on_namespace_pt)(xqc_moq_user_session_t *user_session,
+    uint64_t request_id,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    uint64_t track_namespace_num);
+
+typedef void (*xqc_moq_on_namespace_done_pt)(
+    xqc_moq_user_session_t *user_session, uint64_t request_id,
+    const xqc_moq_track_ns_field_t *track_namespace_tuple,
+    uint64_t track_namespace_num);
+
 typedef void (*xqc_moq_on_subscribe_namespace_pt)(xqc_moq_user_session_t *user_session,
     xqc_moq_subscribe_namespace_msg_t *msg);
+
+typedef void (*xqc_moq_on_subscribe_tracks_pt)(
+    xqc_moq_user_session_t *user_session,
+    xqc_moq_subscribe_tracks_msg_t *msg);
+
+typedef void (*xqc_moq_on_fetch_pt)(xqc_moq_user_session_t *user_session,
+    xqc_moq_fetch_msg_t *msg);
+
+typedef void (*xqc_moq_on_track_status_pt)(
+    xqc_moq_user_session_t *user_session,
+    xqc_moq_track_status_msg_t *msg);
+
+typedef void (*xqc_moq_on_fetch_ok_pt)(
+    xqc_moq_user_session_t *user_session, uint64_t request_id,
+    xqc_moq_fetch_ok_msg_t *msg);
+
+typedef void (*xqc_moq_on_fetch_header_pt)(
+    xqc_moq_user_session_t *user_session, uint64_t request_id,
+    uint8_t fin);
+
+typedef void (*xqc_moq_on_fetch_object_pt)(
+    xqc_moq_user_session_t *user_session, uint64_t request_id,
+    xqc_moq_object_t *object);
+
+typedef void (*xqc_moq_on_fetch_range_pt)(
+    xqc_moq_user_session_t *user_session, uint64_t request_id,
+    uint64_t group_id, uint64_t object_id, uint8_t unknown,
+    uint8_t end_of_stream);
+
+typedef void (*xqc_moq_on_track_status_ok_pt)(
+    xqc_moq_user_session_t *user_session, uint64_t request_id,
+    xqc_moq_request_ok_msg_t *msg);
 
 typedef void (*xqc_moq_on_subscribe_namespace_ok_pt)(xqc_moq_user_session_t *user_session,
     xqc_moq_subscribe_namespace_ok_msg_t *msg);
@@ -559,14 +907,57 @@ typedef struct {
     xqc_moq_on_object_pt            on_object; /* Optional, raw object callback for CONTAINER_NONE */
     xqc_moq_on_datagram_object_pt   on_datagram_object; /* Optional, callback for OBJECT_DATAGRAM */
     xqc_moq_on_goaway_pt            on_goaway; /* Optional, callback for GOAWAY message */
+    xqc_moq_on_request_ok_pt        on_request_ok; /* Optional, response on a local request stream */
+    xqc_moq_on_request_error_pt     on_request_error; /* Optional, error response on a local request stream */
+    xqc_moq_on_publish_namespace_pt on_publish_namespace; /* Optional, incoming namespace advertisement */
+    xqc_moq_on_publish_namespace_done_pt on_publish_namespace_done; /* Optional, namespace request ended */
     xqc_moq_on_subscribe_namespace_pt         on_subscribe_namespace; /* Optional, server-side: incoming request */
+    xqc_moq_on_subscribe_tracks_pt            on_subscribe_tracks; /* Optional, incoming track discovery request */
+    xqc_moq_on_fetch_pt                       on_fetch; /* Optional, incoming FETCH request */
+    xqc_moq_on_track_status_pt                on_track_status; /* Optional, incoming TRACK_STATUS request */
+    xqc_moq_on_fetch_ok_pt                    on_fetch_ok; /* Optional, FETCH accepted */
+    xqc_moq_on_fetch_header_pt                on_fetch_header; /* Optional, FETCH data stream opened */
+    xqc_moq_on_fetch_object_pt                on_fetch_object; /* Optional, Object on a FETCH stream */
+    xqc_moq_on_fetch_range_pt                 on_fetch_range; /* Optional, FETCH end-of-range record */
+    xqc_moq_on_track_status_ok_pt             on_track_status_ok; /* Optional, TRACK_STATUS accepted */
     xqc_moq_on_subscribe_namespace_ok_pt      on_subscribe_namespace_ok; /* Optional, client-side: response */
     xqc_moq_on_subscribe_namespace_error_pt   on_subscribe_namespace_error; /* Optional, client-side: response */
     xqc_moq_on_unsubscribe_namespace_pt       on_unsubscribe_namespace; /* Optional */
+    xqc_moq_on_namespace_pt         on_namespace; /* Optional, draft-18 namespace discovered */
+    xqc_moq_on_namespace_done_pt    on_namespace_done; /* Optional, draft-18 namespace withdrawn */
 } xqc_moq_session_callbacks_t;
+
+typedef enum {
+    XQC_MOQ_DRAFT18_AUTH_DELETE = 0x00,
+    XQC_MOQ_DRAFT18_AUTH_REGISTER = 0x01,
+    XQC_MOQ_DRAFT18_AUTH_USE_ALIAS = 0x02,
+    XQC_MOQ_DRAFT18_AUTH_USE_VALUE = 0x03,
+} xqc_moq_draft18_auth_alias_type_t;
+
+typedef struct {
+    uint64_t                    alias_type;
+    uint64_t                    token_alias;
+    uint64_t                    token_type;
+    const uint8_t               *token_value;
+    size_t                      token_value_len;
+} xqc_moq_draft18_auth_token_t;
+
+typedef struct {
+    const char                  *authority;
+    const char                  *path;
+    const char                  *implementation;
+    const xqc_moq_draft18_auth_token_t *authorization_tokens;
+    size_t                      authorization_token_count;
+    uint64_t                    max_auth_token_cache_size;
+    uint8_t                     has_max_auth_token_cache_size;
+} xqc_moq_draft18_setup_config_t;
 
 XQC_EXPORT_PUBLIC_API
 void xqc_moq_init_alpn(xqc_engine_t *engine, xqc_conn_callbacks_t *conn_cbs, xqc_moq_transport_type_t transport_type);
+
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_init_alpn_draft18(xqc_engine_t *engine,
+    xqc_conn_callbacks_t *conn_cbs, xqc_moq_transport_type_t transport_type);
 
 /**
  * The MoQ version and message format are selected exclusively by the
@@ -605,6 +996,32 @@ xqc_moq_session_t *xqc_moq_session_create_with_params(void *conn, xqc_moq_user_s
     uint64_t setup_params_num);
 
 XQC_EXPORT_PUBLIC_API
+xqc_moq_session_t *xqc_moq_session_create_draft18(void *conn,
+    xqc_moq_user_session_t *user_session, xqc_moq_transport_type_t type,
+    xqc_moq_role_t role, xqc_moq_session_callbacks_t callbacks,
+    const char *authority, const char *path);
+
+XQC_EXPORT_PUBLIC_API
+xqc_moq_session_t *xqc_moq_session_create_draft18_with_config(
+    void *conn, xqc_moq_user_session_t *user_session,
+    xqc_moq_transport_type_t type, xqc_moq_role_t role,
+    xqc_moq_session_callbacks_t callbacks,
+    const xqc_moq_draft18_setup_config_t *config);
+
+XQC_EXPORT_PUBLIC_API
+size_t xqc_moq_session_get_peer_setup_auth_token_count(
+    const xqc_moq_session_t *session);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_session_get_peer_setup_auth_token(
+    const xqc_moq_session_t *session, size_t index, uint64_t *token_type,
+    const uint8_t **token_value, size_t *token_value_len);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_session_mark_peer_auth_token_expired(
+    xqc_moq_session_t *session, uint64_t token_alias);
+
+XQC_EXPORT_PUBLIC_API
 void xqc_moq_session_destroy(xqc_moq_session_t *session);
 
 /**
@@ -641,6 +1058,33 @@ void xqc_moq_session_set_enable_datachannel(xqc_moq_session_t *session, xqc_int_
 
 XQC_EXPORT_PUBLIC_API
 void xqc_moq_session_set_enable_catalog(xqc_moq_session_t *session, xqc_int_t enable);
+
+/**
+ * @brief Set the optional callback for abrupt draft-18 request-stream
+ *        termination without changing the legacy callbacks structure ABI.
+ */
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_session_set_request_cancelled_callback(
+    xqc_moq_session_t *session,
+    xqc_moq_on_request_cancelled_pt callback);
+
+/* Additive setter: keeps xqc_moq_session_callbacks_t ABI unchanged. */
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_session_set_request_update_callback(
+    xqc_moq_session_t *session,
+    xqc_moq_on_request_update_pt callback);
+
+/* Additive setter: keeps xqc_moq_session_callbacks_t ABI unchanged. */
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_session_set_publish_blocked_callback(
+    xqc_moq_session_t *session,
+    xqc_moq_on_publish_blocked_pt callback);
+
+/* Additive setter: keeps xqc_moq_session_callbacks_t ABI unchanged. */
+XQC_EXPORT_PUBLIC_API
+void xqc_moq_session_set_goaway_draft18_callback(
+    xqc_moq_session_t *session,
+    xqc_moq_on_goaway_draft18_pt callback);
 
 /**
  * @brief There are two ways to get the target bitrate. 
@@ -709,19 +1153,29 @@ xqc_int_t xqc_moq_subscribe_update(xqc_moq_session_t *session, uint64_t subscrib
     uint64_t start_group_id, uint64_t start_object_id, uint64_t end_group_id);
 
 /*
- * Advertise a namespace and fan out PUBLISH_NAMESPACE to active matching
- * SUBSCRIBE_NAMESPACE prefixes. Applications that need draft-14 namespace
- * subscription semantics should call this before publishing tracks in that
- * namespace; xqc_moq_publish() does not implicitly send PUBLISH_NAMESPACE.
+ * Advertise a namespace and notify active matching SUBSCRIBE_NAMESPACE
+ * prefixes. Draft-18 sends NAMESPACE on each accepted request stream;
+ * draft-14 keeps the legacy PUBLISH_NAMESPACE control-stream path.
+ * Applications should call this before publishing tracks in that namespace;
+ * xqc_moq_publish() does not implicitly advertise the namespace.
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_publish_namespace(xqc_moq_session_t *session,
     xqc_moq_publish_namespace_msg_t *publish_namespace);
 
 /*
- * End an advertised namespace and fan out PUBLISH_NAMESPACE_DONE to active
- * matching SUBSCRIBE_NAMESPACE prefixes. The call fails while an exact-match
- * namespace publish is still active.
+ * Cancel a draft-18 request stream by Request ID. Both open stream directions
+ * are abruptly terminated with the MOQT CANCELLED (0x1) stream error code.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_cancel_request(xqc_moq_session_t *session, uint64_t request_id);
+
+/*
+ * End an advertised namespace and notify active matching
+ * SUBSCRIBE_NAMESPACE prefixes. Draft-18 sends NAMESPACE_DONE on each
+ * accepted request stream; draft-14 keeps the legacy
+ * PUBLISH_NAMESPACE_DONE control-stream path. The call fails while an
+ * exact-match namespace publish is still active.
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_publish_namespace_done(xqc_moq_session_t *session,
@@ -746,6 +1200,31 @@ xqc_int_t xqc_moq_write_subscribe_ok(xqc_moq_session_t *session, xqc_moq_subscri
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_subscribe_error(xqc_moq_session_t *session, xqc_moq_subscribe_error_msg_t *subscribe_error);
 
+/*
+ * Send a draft-18 REQUEST_OK on the peer-initiated request stream identified
+ * by request_id. A request stream can receive exactly one response.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_request_ok(xqc_moq_session_t *session,
+    uint64_t request_id, xqc_moq_request_ok_msg_t *request_ok);
+
+/*
+ * Send a draft-18 REQUEST_ERROR on the peer-initiated request stream
+ * identified by request_id. A request stream can receive exactly one response.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_request_error(xqc_moq_session_t *session,
+    uint64_t request_id, xqc_moq_request_error_msg_t *request_error);
+
+/*
+ * Send a draft-18 REQUEST_UPDATE on an established request stream.
+ * target_request_id identifies the initial request.  request_id is allocated
+ * from the session-wide Request ID space when update->request_id is zero.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_request_update(xqc_moq_session_t *session,
+    uint64_t target_request_id, xqc_moq_request_update_msg_t *update);
+
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_publish_ok(xqc_moq_session_t *session, xqc_moq_publish_ok_msg_t *publish_ok);
 
@@ -759,10 +1238,41 @@ XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_subscribe_namespace(xqc_moq_session_t *session,
     xqc_moq_subscribe_namespace_msg_t *subscribe_namespace);
 
+/*
+ * Subscribe to all current and future tracks whose namespace matches the
+ * supplied draft-18 prefix. The request is sent on a new bidirectional
+ * request stream; request_id is allocated when the field is zero.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_subscribe_tracks(xqc_moq_session_t *session,
+    xqc_moq_subscribe_tracks_msg_t *subscribe_tracks);
+
+/*
+ * Notify an established peer SUBSCRIBE_TRACKS request that a matching Full
+ * Track Name is currently blocked. The wire namespace is shortened relative
+ * to that request stream's accepted prefix.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_publish_blocked(
+    xqc_moq_session_t *session, uint64_t subscribe_tracks_request_id,
+    const xqc_moq_track_ns_field_t *full_namespace,
+    uint64_t full_namespace_num, const char *track_name,
+    size_t track_name_len);
+
+/*
+ * Send a namespace acceptance response. Draft-18 sessions use REQUEST_OK on
+ * the peer request stream; legacy sessions retain SUBSCRIBE_NAMESPACE_OK on
+ * the control stream.
+ */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_subscribe_namespace_ok(xqc_moq_session_t *session,
     xqc_moq_subscribe_namespace_ok_msg_t *subscribe_namespace_ok);
 
+/*
+ * Send a namespace rejection response. Draft-18 sessions use REQUEST_ERROR
+ * and draft-18 request error codes on the peer request stream; legacy
+ * sessions retain SUBSCRIBE_NAMESPACE_ERROR on the control stream.
+ */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_write_subscribe_namespace_error(xqc_moq_session_t *session,
     xqc_moq_subscribe_namespace_error_msg_t *subscribe_namespace_error);
@@ -846,6 +1356,17 @@ xqc_int_t xqc_moq_write_raw_object(xqc_moq_session_t *session,
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_send_object_datagram(xqc_moq_session_t *session, xqc_moq_object_t *object);
 
+/** Append one Draft-18 Object to an established FETCH data stream. */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_fetch_object(xqc_moq_session_t *session,
+    xqc_moq_stream_t *stream, xqc_moq_object_t *object, uint8_t fin);
+
+/** Append a Draft-18 End of Non-Existent/Unknown Range record. */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_write_fetch_range_end(xqc_moq_session_t *session,
+    xqc_moq_stream_t *stream, uint64_t group_id, uint64_t object_id,
+    uint8_t unknown, uint8_t fin);
+
 /**
  * @brief Send a GOAWAY message to the peer (draft-ietf-moq-transport-14, Section 9.4).
  *        Signals the intent to close the session soon. Can only be sent once per session.
@@ -855,6 +1376,18 @@ xqc_int_t xqc_moq_send_object_datagram(xqc_moq_session_t *session, xqc_moq_objec
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moq_send_goaway(xqc_moq_session_t *session, const char *new_session_uri, size_t uri_len);
+
+/** Send draft-18 GOAWAY on the control stream. */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_send_session_goaway_draft18(
+    xqc_moq_session_t *session, const char *uri, size_t uri_len,
+    uint64_t timeout_ms, uint64_t first_unprocessed_request_id);
+
+/** Send draft-18 GOAWAY on an established request stream. */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_send_request_goaway_draft18(
+    xqc_moq_session_t *session, uint64_t target_request_id,
+    const char *uri, size_t uri_len, uint64_t timeout_ms);
 
 #ifdef __cplusplus
 }

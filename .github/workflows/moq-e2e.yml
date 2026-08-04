@@ -2,22 +2,26 @@ name: MoQ E2E Tests
 
 on:
   push:
-    branches: [main, moq_draft_14_dev]
+    branches: [main, moq_draft_14_dev, 'moq/draft_18_dev']
     paths:
       - 'moq/**'
       - 'include/moq/**'
-      - 'include/xquic/xquic.h'
+      - 'include/xquic/**'
       - 'src/transport/**'
+      - 'tests/unittest/**'
+      - 'scripts/moq_scripts/**'
       - 'scripts/xquic.lds'
       - 'CMakeLists.txt'
       - '.github/workflows/moq-e2e.yml'
   pull_request:
-    branches: [main]
+    branches: [main, moq_draft_14_dev, 'moq/draft_18_dev']
     paths:
       - 'moq/**'
       - 'include/moq/**'
-      - 'include/xquic/xquic.h'
+      - 'include/xquic/**'
       - 'src/transport/**'
+      - 'tests/unittest/**'
+      - 'scripts/moq_scripts/**'
       - 'scripts/xquic.lds'
       - 'CMakeLists.txt'
       - '.github/workflows/moq-e2e.yml'
@@ -72,9 +76,8 @@ jobs:
               ..
         make -j$(nproc)
 
-    - name: Run MoQ unit tests
-      run: ctest --test-dir build --output-on-failure
-
+    # ctest also runs the upstream unittest suite, which loads ./server.key and
+    # ./server.crt from the build directory. Generate them first.
     - name: Generate TLS certificates
       run: |
         cd build
@@ -82,7 +85,18 @@ jobs:
           -keyout server.key -out server.crt \
           -subj '/CN=localhost' -days 1
 
+    - name: Run upstream unit tests
+      run: ctest --test-dir build -R '^run_tests$' --output-on-failure
+
+    - name: Run MoQ CTest targets
+      run: |
+        ctest --test-dir build \
+          -R 'catalog_test|jitter_buffer_test|moq_(message|cancel_write|version)_test|moq_d18_.*_test' \
+          --output-on-failure
+
     - name: Run MoQ E2E tests
+      env:
+        MOQ_E2E_LOG_DIR: ${{ github.workspace }}/build/moq-e2e-logs
       run: |
         DEMO_DIR="${PWD}/build/moq/demo"
         PASS_TOTAL=0
@@ -103,6 +117,19 @@ jobs:
           fi
         done
 
+        lifecycle_harness=moq/tests/test_draft18_control_lifecycle_harness.sh
+        echo ""
+        echo "========================================"
+        echo "Running: $lifecycle_harness"
+        echo "========================================"
+        chmod +x "$lifecycle_harness"
+        if bash "$lifecycle_harness" "$DEMO_DIR"; then
+          PASS_TOTAL=$((PASS_TOTAL + 1))
+        else
+          FAIL_TOTAL=$((FAIL_TOTAL + 1))
+          FAILED_TESTS="$FAILED_TESTS $lifecycle_harness"
+        fi
+
         echo ""
         echo "========================================"
         echo "MoQ E2E Summary: $PASS_TOTAL scripts passed, $FAIL_TOTAL scripts failed"
@@ -111,3 +138,11 @@ jobs:
           exit 1
         fi
         echo "All MoQ E2E tests passed!"
+
+    - name: Upload MoQ E2E failure logs
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: moq-e2e-logs
+        path: build/moq-e2e-logs
+        if-no-files-found: ignore

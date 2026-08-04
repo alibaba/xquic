@@ -100,6 +100,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_cubic_init_cwnd", xqc_test_cubic_init_cwnd)
         || !CU_add_test(pSuite, "xqc_test_short_header_parse_cid", xqc_test_short_header_packet_parse_cid)
         || !CU_add_test(pSuite, "xqc_test_long_header_parse_cid", xqc_test_long_header_packet_parse_cid)
+        || !CU_add_test(pSuite, "xqc_test_client_discards_received_zero_rtt",
+                        xqc_test_client_discards_received_zero_rtt)
+        || !CU_add_test(pSuite, "xqc_test_server_buffers_received_zero_rtt",
+                        xqc_test_server_buffers_received_zero_rtt)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_flood", xqc_test_crypto_frame_flood)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_bytes_limit", xqc_test_crypto_frame_bytes_limit)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_recycle", xqc_test_crypto_frame_recycle)

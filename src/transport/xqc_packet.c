@@ -155,6 +155,17 @@ xqc_packet_parse_single(xqc_connection_t *c, xqc_packet_in_t *packet_in)
     } else if (XQC_PACKET_IS_LONG_HEADER(pos)) {    /* long header */
         /* buffer packets if key is not ready */
         if (XQC_PACKET_LONG_HEADER_GET_TYPE(packet_in->pos) == XQC_PTYPE_0RTT) {
+            /*
+             * RFC 9001 Section 5.6: a client MUST NOT attempt to decrypt a
+             * received 0-RTT packet and MUST discard it.
+             */
+            if (c->conn_type == XQC_CONN_TYPE_CLIENT) {
+                xqc_log(c->log, XQC_LOG_INFO,
+                        "|discard 0-RTT packet received by client|"
+                        "RFC 9001 5.6|");
+                return -XQC_EIGNORE_PKT;
+            }
+
             c->conn_flag |= XQC_CONN_FLAG_HAS_0RTT;
 
             if (!xqc_tls_is_key_ready(c->tls, XQC_ENC_LEV_0RTT, XQC_KEY_TYPE_RX_READ)) {
@@ -280,7 +291,6 @@ xqc_packet_process_single(xqc_connection_t *c,
 
     return XQC_OK;
 }
-
 
 
 

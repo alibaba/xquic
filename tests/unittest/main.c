@@ -159,6 +159,29 @@ main(int argc, char *argv[])
                         xqc_test_conn_close_transport_error_type_overlap)
         || !CU_add_test(pSuite, "xqc_test_peer_key_update_error_not_0rtt",
                         xqc_test_peer_key_update_error_not_0rtt)
+        /* issues #565/#566/#567: RFC 9000 stream directionality checks */
+        || !CU_add_test(pSuite, "xqc_test_reset_stream_on_send_only_stream",
+                        xqc_test_reset_stream_on_send_only_stream)
+        || !CU_add_test(pSuite, "xqc_test_reset_stream_on_send_only_stream_server",
+                        xqc_test_reset_stream_on_send_only_stream_server)
+        || !CU_add_test(pSuite, "xqc_test_reset_stream_on_recv_only_stream_accepted",
+                        xqc_test_reset_stream_on_recv_only_stream_accepted)
+        || !CU_add_test(pSuite, "xqc_test_stop_sending_on_recv_only_stream",
+                        xqc_test_stop_sending_on_recv_only_stream)
+        || !CU_add_test(pSuite, "xqc_test_stop_sending_on_recv_only_stream_server",
+                        xqc_test_stop_sending_on_recv_only_stream_server)
+        || !CU_add_test(pSuite, "xqc_test_stop_sending_on_send_only_stream_accepted",
+                        xqc_test_stop_sending_on_send_only_stream_accepted)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_on_send_only_stream",
+                        xqc_test_stream_frame_on_send_only_stream)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_on_send_only_stream_server",
+                        xqc_test_stream_frame_on_send_only_stream_server)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_on_recv_only_stream_accepted",
+                        xqc_test_stream_frame_on_recv_only_stream_accepted)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_on_local_uncreated_stream",
+                        xqc_test_stream_frame_on_local_uncreated_stream)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_on_local_closed_stream_tolerated",
+                        xqc_test_stream_frame_on_local_closed_stream_tolerated)
         || !CU_add_test(pSuite, "xqc_test_h3_frame", xqc_test_frame)
         || !CU_add_test(pSuite, "xqc_test_h3_single_vint_frame_valid",
                         xqc_test_h3_single_vint_frame_valid)

@@ -6222,7 +6222,7 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
                 "remembered:%ui|new:%ui|",
                 conn->remote_settings.max_datagram_frame_size,
                 params.max_datagram_frame_size);
-        XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
+        XQC_CONN_ERR(conn, TRA_0RTT_DGRAM_PARAMS_ERROR);
         return;
     }
 
@@ -7159,7 +7159,9 @@ xqc_conn_destroy_ping_notification_list(xqc_connection_t *conn)
 xqc_bool_t 
 xqc_conn_should_clear_0rtt_ticket(xqc_int_t conn_err)
 {
-    if (conn_err == TRA_0RTT_TRANS_PARAMS_ERROR) {
+    if (conn_err == TRA_0RTT_TRANS_PARAMS_ERROR
+        || conn_err == TRA_0RTT_DGRAM_PARAMS_ERROR)
+    {
         return XQC_TRUE;
     }
     return XQC_FALSE;

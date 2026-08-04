@@ -1980,8 +1980,8 @@ clear_log
 echo -e "0RTT max_datagram_frame_size is invalid...\c"
 ${CLIENT_BIN} -l d >> stdlog
 cli_result=`grep "|0RTT_transport_params|max_datagram_frame_size:9000|" clog`
-cli_err=`grep "[error].*err:0xe" clog`
-svr_err=`grep "[error].*err:0xe" slog`
+cli_err=`grep "[error].*err:0x55" clog`
+svr_err=`grep "[error].*err:0xa" slog`
 if [ -n "$cli_result" ] && [ -n "$cli_err" ] && [ -n "$svr_err" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "0rtt_max_datagram_frame_size_is_invalid" "pass"
@@ -3962,7 +3962,7 @@ sleep 1
 clear_log
 echo -e "check_clear_0rtt_ticket_flag_in_close_notify...\c"
 ${CLIENT_BIN} -l d -T 1 -s 4800 -U 1 -Q 65535 -E > stdlog
-cli_res2=`grep "should_clear_0rtt_ticket, conn_err:14, clear_0rtt_ticket:1" stdlog`
+cli_res2=`grep "conn_err:85, clear_0rtt_ticket:1" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res2" ] && [ -n "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -3984,7 +3984,7 @@ sleep 1
 clear_log
 echo -e "check_clear_0rtt_ticket_flag_in_h3_close_notify...\c"
 ${CLIENT_BIN} -l d -s 4800 -Q 65535 -E > stdlog
-cli_res2=`grep "should_clear_0rtt_ticket, conn_err:14, clear_0rtt_ticket:1" stdlog`
+cli_res2=`grep "conn_err:85, clear_0rtt_ticket:1" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res2" ] && [ -n "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -4006,7 +4006,7 @@ sleep 1
 clear_log
 echo -e "check_clear_0rtt_ticket_flag_in_h3_close_notify...\c"
 ${CLIENT_BIN} -l d -s 4800 -Q 65535 -E > stdlog
-cli_res2=`grep "should_clear_0rtt_ticket, conn_err:14, clear_0rtt_ticket:1" stdlog`
+cli_res2=`grep "conn_err:85, clear_0rtt_ticket:1" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res2" ] && [ -n "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -5266,8 +5266,8 @@ fi
 ## RFC 9000 Section 7.4.1: 0-RTT transport parameter validation
 
 # test 701: server reduces max_streams_bidi after first connection,
-# client detects reduction on 0-RTT resumption and closes with
-# TRANSPORT_PARAMETER_ERROR (0x0E = conn_err:14)
+# client detects reduction on 0-RTT resumption, reports its local cleanup
+# reason (0x54 = conn_err:84), and sends TRANSPORT_PARAMETER_ERROR (0x08)
 killall test_server 2> /dev/null
 clear_log
 rm -f test_session xqc_token tp_localhost
@@ -5278,8 +5278,9 @@ sleep 1
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
 # second connection: 0-RTT with reduced max_streams_bidi on server
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
-conn_err=`grep "conn_err:14" stdlog`
-if [ -n "$conn_err" ]; then
+conn_err=`grep "conn_err:84" stdlog`
+peer_err=`grep "[error].*err:0x8" slog`
+if [ -n "$conn_err" ] && [ -n "$peer_err" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "0RTT_param_reduction" "pass"
 else

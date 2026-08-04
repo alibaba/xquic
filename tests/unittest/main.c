@@ -86,6 +86,10 @@ main(int argc, char *argv[])
         /* RFC 9000 §20.1 CRYPTO_ERROR dynamic construction */
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_constructs_crypto_error", xqc_test_conn_tls_error_cb_constructs_crypto_error)
         || !CU_add_test(pSuite, "xqc_test_conn_crypto_error_base_value", xqc_test_conn_crypto_error_base_value)
+        || !CU_add_test(pSuite, "xqc_test_transport_error_code_passthrough",
+                        xqc_test_transport_error_code_passthrough)
+        || !CU_add_test(pSuite, "xqc_test_0rtt_error_wire_codes",
+                        xqc_test_0rtt_error_wire_codes)
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_first_writer_wins", xqc_test_conn_tls_error_first_writer_wins)
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_alert_zero", xqc_test_conn_tls_error_cb_alert_zero)
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_max_alert", xqc_test_conn_tls_error_cb_max_alert)
@@ -143,6 +147,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_conn_close_transport_error_type_overlap",
                         xqc_test_conn_close_transport_error_type_overlap)
+        || !CU_add_test(pSuite, "xqc_test_peer_key_update_error_not_0rtt",
+                        xqc_test_peer_key_update_error_not_0rtt)
         || !CU_add_test(pSuite, "xqc_test_h3_frame", xqc_test_frame)
         || !CU_add_test(pSuite, "xqc_test_h3_single_vint_frame_valid",
                         xqc_test_h3_single_vint_frame_valid)

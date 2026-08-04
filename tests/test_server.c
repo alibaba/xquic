@@ -946,6 +946,28 @@ xqc_server_h3_conn_create_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, v
     user_conn_t *user_conn = calloc(1, sizeof(user_conn_t));
 
     user_conn->h3_conn = h3_conn;
+
+    /*
+     * The limit has to be planted while this callback is still running, and
+     * XQC_CONN_FLAG_LOCAL_TP_UPDATED has to be raised, because
+     * xqc_conn_server_on_alpn re-encodes the local transport parameters only
+     * after the callback returns. RFC 9000 Section 18.2 requires a peer that
+     * receives a value below 2 to close with TRANSPORT_PARAMETER_ERROR.
+     */
+    if (g_test_case == 709 || g_test_case == 710) {
+        xqc_connection_t *conn = xqc_h3_conn_get_xqc_conn(h3_conn);
+        if (conn == NULL) {
+            printf("[active-cid-limit-min-test] conn unavailable\n");
+
+        } else {
+            conn->local_settings.active_connection_id_limit =
+                (g_test_case == 709) ? 1 : 2;
+            conn->conn_flag |= XQC_CONN_FLAG_LOCAL_TP_UPDATED;
+            printf("[active-cid-limit-min-test] advertised_limit:%"PRIu64"\n",
+                   conn->local_settings.active_connection_id_limit);
+        }
+    }
+
     user_conn->dgram_blk = calloc(1, sizeof(user_dgram_blk_t));
     user_conn->dgram_blk->data_recv = 0;
     user_conn->dgram_blk->data_sent = 0;

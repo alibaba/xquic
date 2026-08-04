@@ -871,6 +871,53 @@ else
     echo "$frame_encoding_err"
 fi
 
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "active_connection_id_limit accepts minimum value ...\c"
+killall test_server 2> /dev/null
+${SERVER_BIN} -l d -e -x 710 > svr_stdlog &
+sleep 1
+${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog 2>&1
+advertised=`grep "\[active-cid-limit-min-test\] advertised_limit:2" svr_stdlog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+tp_err=`grep -E "(conn errno:8|conn_err:8[^0-9])" stdlog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$advertised" ] && [ -z "$tp_err" ] \
+    && [ "$result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "active_cid_limit_minimum_accept" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "active_cid_limit_minimum_accept" "fail"
+    echo "$advertised"
+    echo "$errlog"
+fi
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "active_connection_id_limit rejects value below minimum ...\c"
+killall test_server 2> /dev/null
+${SERVER_BIN} -l d -e -x 709 > svr_stdlog &
+sleep 1
+${CLIENT_BIN} -s 1024 -l d -t 2 -E > stdlog 2>&1
+advertised=`grep "\[active-cid-limit-min-test\] advertised_limit:1" svr_stdlog`
+tp_err=`grep -E "(conn errno:8|conn_err:8[^0-9])" stdlog`
+transport_type=`grep "conn_err_type:1" stdlog`
+req_ok=`grep ">>>>>>>> pass:1" stdlog`
+cid_limit_err=`grep -E "(conn errno:9|conn_err:9[^0-9])" stdlog`
+if [ -n "$advertised" ] && [ -n "$tp_err" ] && [ -n "$transport_type" ] \
+    && [ -z "$req_ok" ] && [ -z "$cid_limit_err" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "active_cid_limit_below_minimum" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "active_cid_limit_below_minimum" "fail"
+    echo "$advertised"
+    echo "$tp_err"
+    echo "$cid_limit_err"
+fi
+
+rm -rf tp_localhost test_session xqc_token
 killall test_server 2> /dev/null
 ${SERVER_BIN} -l d -e > /dev/null &
 sleep 1

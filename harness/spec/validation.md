@@ -97,7 +97,7 @@ its case is retired so later changes cannot reuse it.
 
 | Range | New-case namespace | Allocated IDs |
 |-------|--------------------|---------------|
-| `[705, 799]` | QUIC Transport core | None |
+| `[705, 799]` | QUIC Transport core | `709-710` |
 | `[800, 899]` | Recovery and congestion control | None |
 | `[900, 999]` | QUIC-TLS | None |
 | `[1000, 1099]` | HTTP/3 framing, streams, and settings | `1000-1014` |

@@ -20,6 +20,23 @@
 #include "src/tls/xqc_tls.h"
 
 
+/*
+ * Whether stream_id denotes a locally initiated bidirectional stream that has
+ * never been created.  xqc_gen_stream_id() assigns each locally initiated
+ * stream its index by post-incrementing cur_stream_id_bidi_local, so indexes
+ * [0, counter) have been created and anything at or above it has not.
+ *
+ * Only locally initiated bidirectional streams reach the caller: locally
+ * initiated unidirectional streams are send-only and are already rejected
+ * while parsing, and peer initiated streams are created passively.
+ */
+static inline xqc_int_t
+xqc_stream_local_bidi_uncreated(xqc_connection_t *conn, xqc_stream_id_t stream_id)
+{
+    return (stream_id >> 2) >= conn->cur_stream_id_bidi_local;
+}
+
+
 
 static const char * const frame_type_2_str[XQC_FRAME_NUM] = {
     [XQC_FRAME_PADDING]              = "PADDING",
@@ -496,6 +513,21 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
             if (!stream) {
                 goto free;
             }
+
+        } else if (xqc_stream_local_bidi_uncreated(conn, stream_id)) {
+            /*
+             * RFC 9000 19.8: receiving a STREAM frame for a locally initiated
+             * stream that has not yet been created MUST be treated as a
+             * connection error of type STREAM_STATE_ERROR.  A stream index
+             * below the local counter was created earlier and has since been
+             * closed, so a retransmitted frame for it is still tolerated below.
+             */
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|STREAM frame on locally initiated uncreated stream|stream_id:%ui|",
+                    stream_id);
+            XQC_CONN_ERR(conn, TRA_STREAM_STATE_ERROR);
+            ret = -XQC_EPROTO;
+            goto error;
 
         } else {
             xqc_log(conn->log, XQC_LOG_WARN, "|cannot find stream|stream_id:%ui|", stream_id);

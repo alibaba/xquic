@@ -221,6 +221,28 @@ xqc_stream_is_uni(xqc_stream_id_t stream_id)
     return stream_id & 0x02;
 }
 
+/*
+ * RFC 9000 2.1: the two low bits of a stream ID identify the initiator and the
+ * directionality.  A unidirectional stream initiated by the local endpoint has
+ * no receive side (send-only); one initiated by the peer has no send side
+ * (recv-only).  Bidirectional streams are neither.
+ */
+static inline xqc_int_t
+xqc_stream_is_send_only(xqc_conn_type_t conn_type, xqc_stream_id_t stream_id)
+{
+    xqc_stream_type_t stype = xqc_get_stream_type(stream_id);
+    return (conn_type == XQC_CONN_TYPE_CLIENT && stype == XQC_CLI_UNI)
+           || (conn_type == XQC_CONN_TYPE_SERVER && stype == XQC_SVR_UNI);
+}
+
+static inline xqc_int_t
+xqc_stream_is_recv_only(xqc_conn_type_t conn_type, xqc_stream_id_t stream_id)
+{
+    xqc_stream_type_t stype = xqc_get_stream_type(stream_id);
+    return (conn_type == XQC_CONN_TYPE_CLIENT && stype == XQC_SVR_UNI)
+           || (conn_type == XQC_CONN_TYPE_SERVER && stype == XQC_CLI_UNI);
+}
+
 void xqc_stream_set_priority(xqc_stream_t *stream, xqc_stream_priority_t priority);
 
 xqc_stream_t *xqc_create_stream_with_conn (xqc_connection_t *conn, xqc_stream_id_t stream_id,

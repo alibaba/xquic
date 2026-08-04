@@ -46,4 +46,9 @@ void xqc_test_h3_blocked_stream_limit_uses_local();
 /* ALIBABA-2026-42073004: SETTINGS frame size limit */
 void xqc_test_h3_settings_frame_size_limit();
 
+/* issue #748: RFC 9114 §4.2 uppercase field name rejection */
+void xqc_test_h3_field_name_uppercase_rejection();
+void xqc_test_h3_lowercase_field_name_stream_accepted();
+void xqc_test_h3_uppercase_field_name_stream_rejected();
+
 #endif //XQUIC_XQC_H3_TEST_H

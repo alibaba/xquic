@@ -440,6 +440,7 @@ else
 fi
 
 
+
 clear_log
 echo -e "forbidden_header_e2e ...\c"
 ${CLIENT_BIN} -s 5120 -l d -t 1 -E -x 55 >> clog
@@ -5570,5 +5571,45 @@ fi
 
 killall test_server 2> /dev/null
 rm -f h3_field_section_server.log
+
+
+## RFC 9114 Sections 4.2 and 4.1.2 field-name validation
+
+clear_log
+rm -f test_session xqc_token tp_localhost
+${SERVER_BIN} -l d -e -x 1013 > /dev/null &
+sleep 1
+echo -e "HTTP/3 lowercase response field name is accepted ...\c"
+${CLIENT_BIN} -G -l d -t 1 -x 1013 >> clog
+lowercase_ok=`grep "lowercase_header_received:1" clog`
+stream_ok=`grep "lowercase_header_request_succeeded:1" clog`
+if [ -n "$lowercase_ok" ] && [ -n "$stream_ok" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_lowercase_response_field_name_accepted" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_lowercase_response_field_name_accepted" "fail"
+fi
+
+killall test_server 2> /dev/null
+clear_log
+rm -f test_session xqc_token tp_localhost
+${SERVER_BIN} -l d -e -x 1014 > /dev/null &
+sleep 1
+echo -e "HTTP/3 uppercase response field name resets only stream ...\c"
+${CLIENT_BIN} -G -l d -n 2 -t 2 -x 1014 >> clog
+stream_error_ok=`grep "uppercase_header_stream_error:1" clog`
+connection_reuse_ok=`grep "post_error_request_succeeded:1" clog`
+transport_error=`grep "conn_err:1" clog`
+if [ -n "$stream_error_ok" ] && [ -n "$connection_reuse_ok" ] \
+    && [ -z "$transport_error" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_uppercase_response_field_name_rejected" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_uppercase_response_field_name_rejected" "fail"
+fi
+
+killall test_server 2> /dev/null
 
 cd -

@@ -21,6 +21,7 @@ void xqc_test_conn_tls_error_cb_max_alert();
 void xqc_test_0rtt_params_all_equal(void);
 void xqc_test_0rtt_params_all_increased(void);
 void xqc_test_0rtt_params_each_reduced(void);
+void xqc_test_0rtt_params_error_wire_code(void);
 
 /* RFC 9000 §7.4.1: forbidden remembered fields must be reset (issue #672) */
 void xqc_test_early_params_forbidden_fields_reset(void);

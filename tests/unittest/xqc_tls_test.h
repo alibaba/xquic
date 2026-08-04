@@ -6,7 +6,5 @@
 #define _XQC_TLS_TEST_INCLUDE_
 
 void xqc_test_tls();
-void xqc_test_tls_key_install_success();
-void xqc_test_tls_key_install_failure();
 
 #endif

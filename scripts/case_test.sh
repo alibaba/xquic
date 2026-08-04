@@ -27,7 +27,7 @@ grep_err_log() {
 }
 
 # params: case_name, result
-function case_print_result() {
+case_print_result() {
     echo "[ RUN      ] xquic_case_test.$1"
     if [ "$2" = "pass" ];then
         echo "[       OK ] xquic_case_test.$1 (1 ms)"

@@ -165,9 +165,6 @@ xqc_int_t xqc_tls_decrypt_payload(xqc_tls_t *tls, xqc_encrypt_level_t level,
  */
 xqc_bool_t xqc_tls_is_key_ready(xqc_tls_t *tls, xqc_encrypt_level_t level, xqc_key_type_t key_type);
 
-const char *xqc_tls_key_install_error_direction(xqc_key_type_t key_type,
-    xqc_int_t ret);
-
 /**
  * @brief check whether it is adequate to send early data
  */

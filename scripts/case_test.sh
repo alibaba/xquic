@@ -5712,4 +5712,50 @@ fi
 
 killall test_server 2> /dev/null
 
+
+# issues #565 / #566 / #567: a frame naming a stream the peer does not own must
+# close the connection with STREAM_STATE_ERROR (0x5) per RFC 9000 section 19.4,
+# section 19.5 and section 19.8. Each case asserts both the server side reason
+# and the error code the client actually observes in CONNECTION_CLOSE, so a
+# generic failure or an unrelated close cannot satisfy it.
+
+function wrong_direction_stream_case() {
+    case_id=$1
+    case_name=$2
+    server_reason=$3
+
+    killall test_server 2> /dev/null
+    clear_log
+    rm -f test_session xqc_token tp_localhost
+    ${SERVER_BIN} -l d -e > /dev/null &
+    sleep 1
+    echo -e "${case_name} ...\c"
+    ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x ${case_id} >> clog
+    sleep 1
+    server_rejected=`grep "${server_reason}" slog`
+    client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
+    if [ -n "$server_rejected" ] && [ -n "$client_close_code" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "${case_name}" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "${case_name}" "fail"
+    fi
+    killall test_server 2> /dev/null
+}
+
+wrong_direction_stream_case 705 "reset_stream_on_send_only_stream" \
+    "RESET_STREAM on send-only stream|stream_id:3|"
+
+wrong_direction_stream_case 706 "stop_sending_on_recv_only_stream" \
+    "STOP_SENDING on recv-only stream|stream_id:2|"
+
+wrong_direction_stream_case 707 "stream_frame_on_send_only_stream" \
+    "STREAM frame on send-only stream|stream_id:3|"
+
+wrong_direction_stream_case 708 "stream_frame_on_local_uncreated_stream" \
+    "STREAM frame on locally initiated uncreated stream|stream_id:1|"
+
+killall test_server 2> /dev/null
+
 cd -

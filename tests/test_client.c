@@ -19,6 +19,8 @@
 #include <xquic/xqc_http3.h>
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_request.h"
+#include "src/transport/xqc_packet_out.h"
+#include "src/transport/xqc_frame_parser.h"
 #include "platform.h"
 #ifndef XQC_SYS_WINDOWS
 #include <unistd.h>
@@ -1925,6 +1927,73 @@ xqc_client_h3_conn_close_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void 
     return 0;
 }
 
+/*
+ * issues #565 / #566 / #567: emit a frame that names a stream this endpoint
+ * does not own, so the peer must close the connection with STREAM_STATE_ERROR
+ * (RFC 9000 section 19.4, section 19.5 and section 19.8).
+ *
+ * The library never generates such a frame, and the illegal frame lives inside
+ * the encrypted 1-RTT payload, so it cannot be produced by corrupting bytes in
+ * the send callback the way the Initial-header cases do. The frame generators
+ * take a stream ID directly, so they are called on a freshly allocated packet
+ * without going through a stream object.
+ *
+ * Stream IDs, seen from the server that receives the frame:
+ *   2 -> XQC_CLI_UNI  client initiated, unidirectional: recv-only for server
+ *   3 -> XQC_SVR_UNI  server initiated, unidirectional: send-only for server
+ *   1 -> XQC_SVR_BID  server initiated, bidirectional: never created by server
+ */
+static void
+xqc_client_send_wrong_direction_frame(xqc_connection_t *conn)
+{
+    xqc_packet_out_t *packet_out;
+    ssize_t           ret = -1;
+    size_t            written = 0;
+    const unsigned char payload[1] = {0x00};
+
+    packet_out = xqc_write_new_packet(conn, XQC_PTYPE_SHORT_HEADER);
+    if (packet_out == NULL) {
+        printf("test case %d, xqc_write_new_packet error\n", g_test_case);
+        return;
+    }
+
+    switch (g_test_case) {
+    case 705:
+        /* RESET_STREAM on a stream that is send-only for the server */
+        ret = xqc_gen_reset_stream_frame(packet_out, 3, 0, 0);
+        break;
+
+    case 706:
+        /* STOP_SENDING on a stream that is recv-only for the server */
+        ret = xqc_gen_stop_sending_frame(packet_out, 2, 0);
+        break;
+
+    case 707:
+        /* STREAM on a stream that is send-only for the server */
+        ret = xqc_gen_stream_frame(packet_out, 3, 0, 0, payload,
+                                   sizeof(payload), &written);
+        break;
+
+    case 708:
+        /* STREAM on a server initiated stream the server never created */
+        ret = xqc_gen_stream_frame(packet_out, 1, 0, 0, payload,
+                                   sizeof(payload), &written);
+        break;
+
+    default:
+        break;
+    }
+
+    if (ret < 0) {
+        printf("test case %d, frame generation error:%zd\n", g_test_case, ret);
+        xqc_maybe_recycle_packet_out(packet_out, conn);
+        return;
+    }
+
+    packet_out->po_used_size += ret;
+    printf("test case %d, wrong direction frame written\n", g_test_case);
+}
+
 void
 xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
 {
@@ -1940,6 +2009,11 @@ xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
     if (!g_mp_ping_on) {
         xqc_h3_conn_send_ping(p_ctx->engine, &user_conn->cid, NULL);
         xqc_h3_conn_send_ping(p_ctx->engine, &user_conn->cid, &g_ping_id);
+    }
+
+    /* issues #565/#566/#567: wrong direction frame, 1-RTT is available here */
+    if (g_test_case >= 705 && g_test_case <= 708) {
+        xqc_client_send_wrong_direction_frame(h3_conn->conn);
     }
 
     xqc_conn_stats_t stats = xqc_conn_get_stats(p_ctx->engine, &user_conn->cid);

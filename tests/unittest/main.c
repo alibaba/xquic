@@ -135,6 +135,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_ack_ecn_truncated", xqc_test_ack_ecn_truncated)
         || !CU_add_test(pSuite, "xqc_test_ack_ecn_followed_by_ping", xqc_test_ack_ecn_followed_by_ping)
         || !CU_add_test(pSuite, "xqc_test_new_conn_id_zero_len_cid", xqc_test_new_conn_id_zero_len_cid)
+        || !CU_add_test(pSuite, "xqc_test_gen_new_conn_id_frame_min_cid",
+                        xqc_test_gen_new_conn_id_frame_min_cid)
+        || !CU_add_test(pSuite, "xqc_test_gen_new_conn_id_frame_zero_cid",
+                        xqc_test_gen_new_conn_id_frame_zero_cid)
         || !CU_add_test(pSuite, "xqc_test_new_conn_id_active_limit_accept",
                         xqc_test_new_conn_id_active_limit_accept)
         || !CU_add_test(pSuite, "xqc_test_new_conn_id_active_limit_exceeded",

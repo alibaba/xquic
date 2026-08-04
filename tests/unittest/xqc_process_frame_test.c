@@ -9,6 +9,7 @@
 #include "src/transport/xqc_frame_parser.h"
 #include "src/transport/xqc_packet.h"
 #include "src/transport/xqc_packet_in.h"
+#include "src/transport/xqc_packet_out.h"
 #include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "src/transport/xqc_conn.h"
 #include "xquic/xqc_errno.h"
@@ -803,6 +804,68 @@ xqc_test_new_conn_id_zero_len_cid(void)
     CU_ASSERT(conn->conn_err == TRA_FRAME_ENCODING_ERROR);
 
     xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_gen_new_conn_id_frame_min_cid(void)
+{
+    xqc_packet_out_t *packet_out;
+    xqc_cid_t cid;
+    uint8_t sr_token[XQC_STATELESS_RESET_TOKENLEN] = {0};
+    ssize_t ret;
+
+    packet_out = xqc_packet_out_create(XQC_QUIC_MAX_MSS);
+    CU_ASSERT(packet_out != NULL);
+    if (packet_out == NULL) {
+        return;
+    }
+
+    memset(&cid, 0, sizeof(cid));
+    cid.cid_len = 1;
+    cid.cid_seq_num = 1;
+    cid.cid_buf[0] = 0xa5;
+
+    ret = xqc_gen_new_conn_id_frame(packet_out, &cid, 0, sr_token);
+
+    CU_ASSERT(ret == 5 + XQC_STATELESS_RESET_TOKENLEN);
+    CU_ASSERT(packet_out->po_buf[0] == 0x18);
+    CU_ASSERT(packet_out->po_buf[1] == 0x01);
+    CU_ASSERT(packet_out->po_buf[2] == 0x00);
+    CU_ASSERT(packet_out->po_buf[3] == 0x01);
+    CU_ASSERT(packet_out->po_buf[4] == 0xa5);
+    CU_ASSERT(packet_out->po_frame_types
+              == XQC_FRAME_BIT_NEW_CONNECTION_ID);
+
+    xqc_packet_out_destroy(packet_out);
+}
+
+
+void
+xqc_test_gen_new_conn_id_frame_zero_cid(void)
+{
+    xqc_packet_out_t *packet_out;
+    xqc_cid_t cid;
+    uint8_t sr_token[XQC_STATELESS_RESET_TOKENLEN] = {0};
+    ssize_t ret;
+
+    packet_out = xqc_packet_out_create(XQC_QUIC_MAX_MSS);
+    CU_ASSERT(packet_out != NULL);
+    if (packet_out == NULL) {
+        return;
+    }
+
+    memset(&cid, 0, sizeof(cid));
+    packet_out->po_buf[0] = 0xa5;
+    packet_out->po_frame_types = XQC_FRAME_BIT_PING;
+
+    ret = xqc_gen_new_conn_id_frame(packet_out, &cid, 0, sr_token);
+
+    CU_ASSERT(ret == -XQC_EPARAM);
+    CU_ASSERT(packet_out->po_buf[0] == 0xa5);
+    CU_ASSERT(packet_out->po_frame_types == XQC_FRAME_BIT_PING);
+
+    xqc_packet_out_destroy(packet_out);
 }
 
 static size_t

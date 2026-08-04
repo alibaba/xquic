@@ -1994,7 +1994,7 @@ xqc_parse_handshake_done_frame(xqc_packet_in_t *packet_in, xqc_connection_t *con
 }
 
 /*
- * https://tools.ietf.org/html/draft-ietf-quic-transport-34#section-19.15
+ * https://www.rfc-editor.org/rfc/rfc9000.html#section-19.15
  *
  * NEW_CONNECTION_ID Frame {
  *    Type (i) = 0x18,
@@ -2011,6 +2011,13 @@ ssize_t
 xqc_gen_new_conn_id_frame(xqc_packet_out_t *packet_out, xqc_cid_t *new_cid,
     uint64_t retire_prior_to, const uint8_t *sr_token)
 {
+    uint64_t cid_len = new_cid->cid_len;
+
+    /* RFC 9000 Section 19.15 requires CID lengths from 1 to 20. */
+    if (cid_len == 0 || cid_len > XQC_MAX_CID_LEN) {
+        return -XQC_EPARAM;
+    }
+
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
     const unsigned char *begin = dst_buf;
 
@@ -2018,13 +2025,7 @@ xqc_gen_new_conn_id_frame(xqc_packet_out_t *packet_out, xqc_cid_t *new_cid,
 
     unsigned sequence_number_bits = xqc_vint_get_2bit(new_cid->cid_seq_num);
     unsigned retire_prior_to_bits = xqc_vint_get_2bit(retire_prior_to);
-    uint64_t cid_len = new_cid->cid_len;
     uint8_t cid_len_bits = xqc_vint_get_2bit(cid_len);
-
-    /* make sure cid_len won't exceed XQC_MAX_CID_LEN */
-    if (cid_len > XQC_MAX_CID_LEN) {
-        return -XQC_EPARAM;
-    }
 
     xqc_vint_write(dst_buf, new_cid->cid_seq_num, 
                    sequence_number_bits, xqc_vint_len(sequence_number_bits));

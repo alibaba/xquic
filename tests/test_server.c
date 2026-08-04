@@ -60,6 +60,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_MAX_PUSH_ID_WRONG_ROLE 1004
 #define XQC_TEST_CASE_H3_SINGLE_VINT_VALID 1007
 #define XQC_TEST_CASE_H3_SINGLE_VINT_OVERLONG 1008
+#define XQC_TEST_CASE_H3_RESERVED_CONTROL_FRAME 1009
+#define XQC_TEST_CASE_H3_CANCEL_PUSH_UNSET 1010
 #define XQC_TEST_CASE_H3_FIELD_SECTION_VALID 1011
 #define XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT 1012
 #define XQC_TEST_CASE_H3_LOWERCASE_RESPONSE 1013
@@ -67,6 +69,9 @@ printf_null(const char *format, ...)
 
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
+
+static void xqc_server_send_test_control_frame(xqc_h3_conn_t *h3_conn,
+    uint64_t frame_type);
 
 
 typedef struct user_datagram_block_s {
@@ -998,6 +1003,13 @@ xqc_server_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, vo
         printf("[h3-field-section-test]|server_conn_close|case:%d|"
                "conn_err:%d|\n", g_test_case, stats.conn_err);
         fflush(stdout);
+
+    } else if (g_test_case == XQC_TEST_CASE_H3_RESERVED_CONTROL_FRAME
+               || g_test_case == XQC_TEST_CASE_H3_CANCEL_PUSH_UNSET)
+    {
+        printf("[h3-control-frame-test]|case:%d|conn_err:%d|\n",
+               g_test_case, stats.conn_err);
+        fflush(stdout);
     }
 
     printf("[h3-dgram]|recv_dgram_bytes:%zu|sent_dgram_bytes:%zu|lost_dgram_bytes:%zu|lost_cnt:%zu|\n", 
@@ -1064,6 +1076,13 @@ xqc_server_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *conn_user_da
 
         printf("[h3-max-push-id-test]|server_send:1|write:%d|send:%d|\n",
                write_ret, send_ret);
+
+    } else if (g_test_case == XQC_TEST_CASE_H3_RESERVED_CONTROL_FRAME) {
+        xqc_server_send_test_control_frame(h3_conn, 0x21);
+
+    } else if (g_test_case == XQC_TEST_CASE_H3_CANCEL_PUSH_UNSET) {
+        xqc_server_send_test_control_frame(h3_conn,
+                                           XQC_H3_FRM_CANCEL_PUSH);
     }
 
     if (g_test_case == 704) {
@@ -1116,6 +1135,43 @@ xqc_server_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *conn_user_da
 
     }
 
+}
+
+
+static void
+xqc_server_send_test_control_frame(xqc_h3_conn_t *h3_conn,
+    uint64_t frame_type)
+{
+    xqc_h3_stream_t *control = h3_conn->control_stream_out;
+    xqc_int_t write_ret;
+
+    if (frame_type == XQC_H3_FRM_CANCEL_PUSH) {
+        write_ret = xqc_h3_frm_write_cancel_push(&control->send_buf, 0,
+                                                 XQC_FALSE);
+
+    } else {
+        unsigned char frame[] = { 0x21, 0x01, 0x00 };
+        xqc_var_buf_t *buf = xqc_var_buf_create(sizeof(frame));
+        write_ret = -XQC_EMALLOC;
+        if (buf != NULL) {
+            write_ret = xqc_var_buf_save_data(buf, frame, sizeof(frame));
+            if (write_ret == XQC_OK) {
+                write_ret = xqc_list_buf_to_tail(&control->send_buf, buf);
+            }
+
+            if (write_ret != XQC_OK) {
+                xqc_var_buf_free(buf);
+            }
+        }
+    }
+
+    xqc_int_t send_ret = XQC_ERROR;
+    if (write_ret == XQC_OK) {
+        send_ret = xqc_h3_stream_send_buffer(control);
+    }
+
+    printf("[h3-control-frame-test]|type:0x%" PRIx64
+           "|write:%d|send:%d|\n", frame_type, write_ret, send_ret);
 }
 
 void

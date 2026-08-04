@@ -288,6 +288,7 @@ typedef enum {
     XQC_H3_REQUEST_FRAME_UNEXPECTED     = 835,  /**< control-only frame received on request stream (RFC 9114 §7.2) */
     XQC_H3_INVALID_MAX_PUSH_ID          = 836,  /**< RFC 9114 §7.2.7 */
     XQC_H3_EMALFORMED_HEADER            = 837,  /**< malformed HTTP/3 header field (RFC 9114 4.1.2 / 4.2) */
+    XQC_H3_INVALID_CANCEL_PUSH_ID       = 838,  /**< RFC 9114 §7.2.3 */
 
     XQC_H3_ERR_MAX,
 } xqc_h3_error_t;

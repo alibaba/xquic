@@ -1398,6 +1398,83 @@ xqc_h3_ctrl_feed_max_push_id(xqc_h3_stream_t *h3s, unsigned char push_id)
 }
 
 
+static ssize_t
+xqc_h3_ctrl_feed_cancel_push(xqc_h3_stream_t *h3s, unsigned char push_id)
+{
+    unsigned char frame[] = { XQC_H3_FRM_CANCEL_PUSH, 0x01, push_id };
+    return xqc_h3_stream_process_control(h3s, frame, sizeof(frame));
+}
+
+
+void
+xqc_test_h3_reserved_control_frame_accepted()
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    CU_ASSERT_FATAL(xqc_h3_ctrl_feed_settings(h3s) > 0);
+
+    /*
+     * RFC 9114 Section 9: the CANCEL_PUSH rejection must remain narrow;
+     * an unknown reserved control frame is ignored.
+     */
+    unsigned char reserved[] = { 0x21, 0x01, 0x00 };
+    CU_ASSERT(xqc_h3_stream_process_control(h3s, reserved,
+              sizeof(reserved)) == sizeof(reserved));
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
+
+    xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+}
+
+
+void
+xqc_test_h3_cancel_push_rejected()
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    CU_ASSERT_FATAL(conn->conn_type == XQC_CONN_TYPE_CLIENT);
+    CU_ASSERT_FATAL(xqc_h3_ctrl_feed_settings(h3s) > 0);
+
+    /*
+     * RFC 9114 Sections 4.6 and 7.2.3: XQUIC has no production path that
+     * sends MAX_PUSH_ID, so even push ID zero exceeds the unset maximum.
+     */
+    CU_ASSERT(xqc_h3_ctrl_feed_cancel_push(h3s, 0)
+              == -XQC_H3_INVALID_CANCEL_PUSH_ID);
+    CU_ASSERT(conn->conn_err == H3_ID_ERROR);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+
+    xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+
+    conn = NULL;
+    h3c = NULL;
+    h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    CU_ASSERT_FATAL(xqc_h3_ctrl_feed_settings(h3s) > 0);
+    CU_ASSERT_FATAL(xqc_h3_ctrl_feed_max_push_id(h3s, 5) == 3);
+
+    /*
+     * XQUIC never sends PUSH_PROMISE in production. A cancellation from the
+     * client is therefore for an unmentioned push ID, even when the ID is
+     * within the received MAX_PUSH_ID range.
+     */
+    CU_ASSERT(xqc_h3_ctrl_feed_cancel_push(h3s, 0)
+              == -XQC_H3_INVALID_CANCEL_PUSH_ID);
+    CU_ASSERT(conn->conn_err == H3_ID_ERROR);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+
+    xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+}
+
+
 void
 xqc_test_h3_max_push_id_valid()
 {

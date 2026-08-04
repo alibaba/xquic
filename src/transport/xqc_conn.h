@@ -39,6 +39,16 @@
 
 #define XQC_MAX_RECV_WINDOW (16 * 1024 * 1024)
 
+/* RFC 9000: variable-length integer max value, used as flow control upper bound */
+#define XQC_MAX_FLOW_CONTROL_WINDOW (((uint64_t)1 << 62) - 1)
+
+/* clamp a flow control value to the RFC 9000 variable-length integer maximum */
+static inline uint64_t
+xqc_clamp_to_max_flow_ctl(uint64_t value)
+{
+    return value > XQC_MAX_FLOW_CONTROL_WINDOW ? XQC_MAX_FLOW_CONTROL_WINDOW : value;
+}
+
 #define XQC_MP_SETTINGS_STR_LEN (30)
 
 static const uint32_t MAX_RSP_CONN_CLOSE_CNT = 3;

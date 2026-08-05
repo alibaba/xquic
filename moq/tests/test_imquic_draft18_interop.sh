@@ -8,6 +8,7 @@ IMQUIC_ROOT=${IMQUIC_ROOT:-}
 CLIENT=${XQUIC_INTEROP_CLIENT:-"${BUILD_DIR}/moq/demo/moq_interop_client"}
 RELAY=${IMQUIC_RELAY:-"${IMQUIC_ROOT}/examples/imquic-moq-relay"}
 PUBLISHER=${IMQUIC_PUBLISHER:-"${IMQUIC_ROOT}/examples/imquic-moq-pub"}
+SUBSCRIBER=${IMQUIC_SUBSCRIBER:-"${IMQUIC_ROOT}/examples/imquic-moq-sub"}
 LOG_PARENT=${MOQ_IMQUIC_LOG_PARENT:-"${TMPDIR:-/tmp}"}
 
 if [[ -z "${IMQUIC_ROOT}" ]]; then
@@ -26,6 +27,13 @@ if [[ ! -x "${PUBLISHER}" ]]; then
     echo "imquic publisher not found: ${PUBLISHER}" >&2
     exit 2
 fi
+if [[ ! -x "${SUBSCRIBER}" ]]; then
+    echo "imquic subscriber not found: ${SUBSCRIBER}" >&2
+    exit 2
+fi
+
+bash "${ROOT_DIR}/moq/tests/check_imquic_draft18_peer.sh" "${IMQUIC_ROOT}" \
+    || exit 2
 
 mkdir -p "${LOG_PARENT}"
 RUN_DIR=$(mktemp -d "${LOG_PARENT%/}/xquic-imquic-d18.XXXXXX") || exit 2
@@ -67,6 +75,10 @@ DEFAULT_CASES=(
     track-status-success
     track-status-rejection
     fetch-success
+    fetch-partial-cache
+    fetch-cancel
+    fetch-publisher-disconnect-before-ok
+    fetch-publisher-disconnect-after-ok
     fetch-rejection
 )
 
@@ -78,7 +90,21 @@ fi
 
 RELAY_PID=
 PUBLISHER_PID=
+SUBSCRIBER_PID=
+CLIENT_PID=
 cleanup_relay() {
+    if [[ -n "${CLIENT_PID}" ]] && kill -0 "${CLIENT_PID}" 2>/dev/null; then
+        kill "${CLIENT_PID}" 2>/dev/null || true
+        wait "${CLIENT_PID}" 2>/dev/null || true
+    fi
+    CLIENT_PID=
+    if [[ -n "${SUBSCRIBER_PID}" ]] \
+        && kill -0 "${SUBSCRIBER_PID}" 2>/dev/null
+    then
+        kill "${SUBSCRIBER_PID}" 2>/dev/null || true
+        wait "${SUBSCRIBER_PID}" 2>/dev/null || true
+    fi
+    SUBSCRIBER_PID=
     if [[ -n "${PUBLISHER_PID}" ]] \
         && kill -0 "${PUBLISHER_PID}" 2>/dev/null
     then
@@ -137,6 +163,7 @@ for case_name in "${CASES[@]}"; do
     mkdir -p "${case_dir}"
     relay_log="${case_dir}/relay.out"
     publisher_log="${case_dir}/publisher.out"
+    subscriber_log="${case_dir}/cache-subscriber.out"
     client_log="${case_dir}/client.out"
 
     "${RELAY}" -M 18 -q -b 127.0.0.1 -p 0 \
@@ -151,7 +178,27 @@ for case_name in "${CASES[@]}"; do
         continue
     fi
 
-    if [[ "${case_name}" == "fetch-success" ]]; then
+    publisher_mode=normal
+    publisher_required=0
+    case "${case_name}" in
+        fetch-success|fetch-partial-cache|fetch-cancel|fetch-publisher-disconnect-before-ok|fetch-publisher-disconnect-after-ok)
+            publisher_required=1
+            ;;
+    esac
+    case "${case_name}" in
+        fetch-cancel)
+            publisher_mode=hold-after-ok
+            ;;
+        fetch-publisher-disconnect-before-ok)
+            publisher_mode=hold-before-ok
+            ;;
+        fetch-publisher-disconnect-after-ok)
+            publisher_mode=hold-after-first
+            ;;
+    esac
+
+    if [[ ${publisher_required} -eq 1 ]]; then
+        IMQUIC_INTEROP_FETCH_MODE="${publisher_mode}" \
         "${PUBLISHER}" -M 18 -q -X -b 127.0.0.1 \
             -r 127.0.0.1 -R "${relay_port}" \
             -S localhost -n moq-test -n interop -N test-track \
@@ -170,13 +217,87 @@ for case_name in "${CASES[@]}"; do
         fi
     fi
 
-    "${CLIENT}" --relay "moqt://127.0.0.1:${relay_port}" \
-        --sni localhost --tls-disable-verify --verbose \
-        --test "${case_name}" >"${client_log}" 2>&1
-    client_status=$?
+    if [[ "${case_name}" == "fetch-partial-cache" ]]; then
+        "${SUBSCRIBER}" -M 18 -q -b 127.0.0.1 \
+            -r 127.0.0.1 -R "${relay_port}" \
+            -S localhost -n moq-test -n interop -N test-track -d 7 \
+            >"${subscriber_log}" 2>&1 &
+        SUBSCRIBER_PID=$!
+        if ! wait_for_process_pattern "${RELAY_PID}" "${relay_log}" \
+            'interop_fetch_cache|track_alias:'
+        then
+            printf '  %-42s FAIL (partial cache was not populated)\n' \
+                "${case_name}"
+            FAIL=$((FAIL + 1))
+            cleanup_relay
+            continue
+        fi
+        kill "${SUBSCRIBER_PID}" 2>/dev/null || true
+        wait "${SUBSCRIBER_PID}" 2>/dev/null || true
+        SUBSCRIBER_PID=
+    fi
+
+    if [[ "${case_name}" == "fetch-publisher-disconnect-before-ok" \
+        || "${case_name}" == "fetch-publisher-disconnect-after-ok" ]]
+    then
+        XQC_MOQ_INTEROP_PEER=imquic "${CLIENT}" \
+            --relay "moqt://127.0.0.1:${relay_port}" \
+            --sni localhost --tls-disable-verify --verbose \
+            --test "${case_name}" >"${client_log}" 2>&1 &
+        CLIENT_PID=$!
+        if [[ "${case_name}" == "fetch-publisher-disconnect-before-ok" ]]; then
+            disconnect_marker='interop_fetch_responder|hold-before-ok|'
+        else
+            disconnect_marker='interop_fetch_responder|hold-after-first|'
+        fi
+        if wait_for_process_pattern "${PUBLISHER_PID}" "${publisher_log}" \
+            "${disconnect_marker}"
+        then
+            kill "${PUBLISHER_PID}" 2>/dev/null || true
+            wait "${PUBLISHER_PID}" 2>/dev/null || true
+            PUBLISHER_PID=
+            wait "${CLIENT_PID}"
+            client_status=$?
+            CLIENT_PID=
+        else
+            client_status=124
+        fi
+    else
+        XQC_MOQ_INTEROP_PEER=imquic "${CLIENT}" \
+            --relay "moqt://127.0.0.1:${relay_port}" \
+            --sni localhost --tls-disable-verify --verbose \
+            --test "${case_name}" >"${client_log}" 2>&1
+        client_status=$?
+    fi
+
+    evidence_ok=1
+    if [[ ${publisher_required} -eq 1 ]]; then
+        grep -Fq 'range:1/2-5/0' "${publisher_log}" || evidence_ok=0
+        grep -Eq 'interop_fetch_relay\|downstream:[0-9]+\|upstream:[0-9]+\|range:1/2-5/0\|cached:[0-9]+' \
+            "${relay_log}" || evidence_ok=0
+    fi
+    if [[ "${case_name}" == "fetch-partial-cache" ]]; then
+        grep -Eq 'interop_fetch_relay\|.*\|range:1/2-5/0\|cached:[1-9][0-9]*' \
+            "${relay_log}" || evidence_ok=0
+    fi
+    if [[ "${case_name}" == "fetch-cancel" ]]; then
+        wait_for_process_pattern "${PUBLISHER_PID}" "${publisher_log}" \
+            'interop_fetch_responder|cancelled|' || evidence_ok=0
+        grep -Eq 'interop_fetch_cancel_relay\|downstream:[0-9]+\|upstream:[0-9]+\|ret:0' \
+            "${relay_log}" || evidence_ok=0
+    fi
+    if [[ "${case_name}" == "fetch-publisher-disconnect-before-ok" ]]; then
+        grep -Eq 'interop_fetch_abort\|phase:before-ok\|request_id:[0-9]+\|ret:0' \
+            "${relay_log}" || evidence_ok=0
+    fi
+    if [[ "${case_name}" == "fetch-publisher-disconnect-after-ok" ]]; then
+        grep -Eq 'interop_fetch_abort\|phase:after-ok\|request_id:[0-9]+\|ret:0' \
+            "${relay_log}" || evidence_ok=0
+    fi
     cleanup_relay
 
     if [[ ${client_status} -eq 0 ]] \
+        && [[ ${evidence_ok} -eq 1 ]] \
         && grep -Fqx "ok 1 - ${case_name}" "${client_log}" \
         && ! grep -q '^not ok ' "${client_log}"; then
         printf '  %-42s PASS\n' "${case_name}"
@@ -189,6 +310,8 @@ for case_name in "${CASES[@]}"; do
             grep -E 'interop_fetch_responder|error|Error|failed' \
                 "${publisher_log}" | sed 's/^/    publisher: /' || true
         fi
+        grep -E 'interop_fetch_(relay|cache)' "${relay_log}" \
+            | sed 's/^/    relay: /' || true
         FAIL=$((FAIL + 1))
     fi
 done

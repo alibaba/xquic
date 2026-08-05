@@ -870,6 +870,10 @@ typedef void (*xqc_moq_on_fetch_range_pt)(
     uint64_t group_id, uint64_t object_id, uint8_t unknown,
     uint8_t end_of_stream);
 
+typedef void (*xqc_moq_on_fetch_complete_pt)(
+    xqc_moq_user_session_t *user_session, uint64_t request_id,
+    uint64_t error_code);
+
 typedef void (*xqc_moq_on_track_status_ok_pt)(
     xqc_moq_user_session_t *user_session, uint64_t request_id,
     xqc_moq_request_ok_msg_t *msg);
@@ -907,11 +911,21 @@ typedef struct {
     xqc_moq_on_object_pt            on_object; /* Optional, raw object callback for CONTAINER_NONE */
     xqc_moq_on_datagram_object_pt   on_datagram_object; /* Optional, callback for OBJECT_DATAGRAM */
     xqc_moq_on_goaway_pt            on_goaway; /* Optional, callback for GOAWAY message */
+    xqc_moq_on_subscribe_namespace_pt         on_subscribe_namespace; /* Optional, server-side: incoming request */
+    xqc_moq_on_subscribe_namespace_ok_pt      on_subscribe_namespace_ok; /* Optional, client-side: response */
+    xqc_moq_on_subscribe_namespace_error_pt   on_subscribe_namespace_error; /* Optional, client-side: response */
+    xqc_moq_on_unsubscribe_namespace_pt       on_unsubscribe_namespace; /* Optional */
+} xqc_moq_session_callbacks_t;
+
+#define XQC_MOQ_SESSION_CALLBACKS_EXT_ABI_VERSION 1u
+
+typedef struct {
+    size_t                                  struct_size;
+    uint32_t                                abi_version;
     xqc_moq_on_request_ok_pt        on_request_ok; /* Optional, response on a local request stream */
     xqc_moq_on_request_error_pt     on_request_error; /* Optional, error response on a local request stream */
     xqc_moq_on_publish_namespace_pt on_publish_namespace; /* Optional, incoming namespace advertisement */
     xqc_moq_on_publish_namespace_done_pt on_publish_namespace_done; /* Optional, namespace request ended */
-    xqc_moq_on_subscribe_namespace_pt         on_subscribe_namespace; /* Optional, server-side: incoming request */
     xqc_moq_on_subscribe_tracks_pt            on_subscribe_tracks; /* Optional, incoming track discovery request */
     xqc_moq_on_fetch_pt                       on_fetch; /* Optional, incoming FETCH request */
     xqc_moq_on_track_status_pt                on_track_status; /* Optional, incoming TRACK_STATUS request */
@@ -919,13 +933,11 @@ typedef struct {
     xqc_moq_on_fetch_header_pt                on_fetch_header; /* Optional, FETCH data stream opened */
     xqc_moq_on_fetch_object_pt                on_fetch_object; /* Optional, Object on a FETCH stream */
     xqc_moq_on_fetch_range_pt                 on_fetch_range; /* Optional, FETCH end-of-range record */
+    xqc_moq_on_fetch_complete_pt              on_fetch_complete; /* Optional, FETCH data stream completed */
     xqc_moq_on_track_status_ok_pt             on_track_status_ok; /* Optional, TRACK_STATUS accepted */
-    xqc_moq_on_subscribe_namespace_ok_pt      on_subscribe_namespace_ok; /* Optional, client-side: response */
-    xqc_moq_on_subscribe_namespace_error_pt   on_subscribe_namespace_error; /* Optional, client-side: response */
-    xqc_moq_on_unsubscribe_namespace_pt       on_unsubscribe_namespace; /* Optional */
     xqc_moq_on_namespace_pt         on_namespace; /* Optional, draft-18 namespace discovered */
     xqc_moq_on_namespace_done_pt    on_namespace_done; /* Optional, draft-18 namespace withdrawn */
-} xqc_moq_session_callbacks_t;
+} xqc_moq_session_callbacks_ext_t;
 
 typedef enum {
     XQC_MOQ_DRAFT18_AUTH_DELETE = 0x00,
@@ -1058,6 +1070,15 @@ void xqc_moq_session_set_enable_datachannel(xqc_moq_session_t *session, xqc_int_
 
 XQC_EXPORT_PUBLIC_API
 void xqc_moq_session_set_enable_catalog(xqc_moq_session_t *session, xqc_int_t enable);
+
+/**
+ * Install additive Draft-18 callbacks without changing the legacy by-value
+ * xqc_moq_session_callbacks_t ABI. The callback table is copied by value.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moq_session_set_callbacks_ext(
+    xqc_moq_session_t *session,
+    const xqc_moq_session_callbacks_ext_t *callbacks);
 
 /**
  * @brief Set the optional callback for abrupt draft-18 request-stream

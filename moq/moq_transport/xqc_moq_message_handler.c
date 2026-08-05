@@ -1200,8 +1200,8 @@ xqc_moq_on_publish_namespace(xqc_moq_session_t *session, xqc_moq_stream_t *moq_s
                 msg->request_id);
     }
 
-    if (session->session_callbacks.on_publish_namespace != NULL) {
-        session->session_callbacks.on_publish_namespace(session->user_session,
+    if (session->session_callbacks_ext.on_publish_namespace != NULL) {
+        session->session_callbacks_ext.on_publish_namespace(session->user_session,
                                                          msg);
     }
 }
@@ -1274,8 +1274,8 @@ xqc_moq_on_request_ok(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream,
             &moq_stream->d18_local_update_queue);
         uint64_t update_id = record->request_id;
         xqc_moq_d18_update_record_destroy(record);
-        if (session->session_callbacks.on_request_ok != NULL) {
-            session->session_callbacks.on_request_ok(
+        if (session->session_callbacks_ext.on_request_ok != NULL) {
+            session->session_callbacks_ext.on_request_ok(
                 session->user_session, update_id,
                 XQC_MOQ_MSG_SUBSCRIBE_UPDATE, msg);
         }
@@ -1351,15 +1351,15 @@ xqc_moq_on_request_ok(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream,
     xqc_log(session->log, XQC_LOG_INFO,
             "|request_ok|request_id:%ui|request_type:0x%xi|params_num:%ui|",
             moq_stream->request_id, moq_stream->request_type, msg->params_num);
-    if (session->session_callbacks.on_request_ok) {
-        session->session_callbacks.on_request_ok(session->user_session,
+    if (session->session_callbacks_ext.on_request_ok) {
+        session->session_callbacks_ext.on_request_ok(session->user_session,
             moq_stream->request_id, moq_stream->request_type, msg);
     }
     if (moq_stream->request_type
             == (xqc_moq_msg_type_t)XQC_MOQ_D18_MSG_TRACK_STATUS
-        && session->session_callbacks.on_track_status_ok != NULL)
+        && session->session_callbacks_ext.on_track_status_ok != NULL)
     {
-        session->session_callbacks.on_track_status_ok(
+        session->session_callbacks_ext.on_track_status_ok(
             session->user_session, moq_stream->request_id, msg);
     }
 
@@ -1487,8 +1487,8 @@ xqc_moq_on_request_error(xqc_moq_session_t *session,
             xqc_moq_stream_finish_request(
                 moq_stream, msg->error_code);
         }
-        if (session->session_callbacks.on_request_error != NULL) {
-            session->session_callbacks.on_request_error(
+        if (session->session_callbacks_ext.on_request_error != NULL) {
+            session->session_callbacks_ext.on_request_error(
                 session->user_session, update_id,
                 XQC_MOQ_MSG_SUBSCRIBE_UPDATE, msg);
         }
@@ -1549,8 +1549,8 @@ xqc_moq_on_request_error(xqc_moq_session_t *session,
             moq_stream, msg->error_code);
     }
 
-    if (session->session_callbacks.on_request_error) {
-        session->session_callbacks.on_request_error(session->user_session,
+    if (session->session_callbacks_ext.on_request_error) {
+        session->session_callbacks_ext.on_request_error(session->user_session,
             moq_stream->request_id, moq_stream->request_type, msg);
 
     } else if (track != NULL && track->track_ops.on_subscribe_error != NULL) {
@@ -1704,8 +1704,8 @@ xqc_moq_on_namespace(xqc_moq_session_t *session,
         return;
     }
 
-    if (session->session_callbacks.on_namespace != NULL) {
-        session->session_callbacks.on_namespace(
+    if (session->session_callbacks_ext.on_namespace != NULL) {
+        session->session_callbacks_ext.on_namespace(
             session->user_session, moq_stream->request_id,
             full, full_num);
     }
@@ -1747,8 +1747,8 @@ xqc_moq_on_namespace_done(xqc_moq_session_t *session,
     }
 
     xqc_list_del_init(&active->list_member);
-    if (session->session_callbacks.on_namespace_done != NULL) {
-        session->session_callbacks.on_namespace_done(
+    if (session->session_callbacks_ext.on_namespace_done != NULL) {
+        session->session_callbacks_ext.on_namespace_done(
             session->user_session, moq_stream->request_id,
             active->track_namespace_tuple,
             active->track_namespace_num);
@@ -2942,8 +2942,8 @@ xqc_moq_on_subscribe_tracks(xqc_moq_session_t *session,
         }
     }
 
-    if (session->session_callbacks.on_subscribe_tracks != NULL) {
-        session->session_callbacks.on_subscribe_tracks(
+    if (session->session_callbacks_ext.on_subscribe_tracks != NULL) {
+        session->session_callbacks_ext.on_subscribe_tracks(
             session->user_session, msg);
         return;
     }
@@ -3438,8 +3438,8 @@ xqc_moq_on_fetch(xqc_moq_session_t *session,
             return;
         }
     }
-    if (session->session_callbacks.on_fetch != NULL) {
-        session->session_callbacks.on_fetch(session->user_session, msg);
+    if (session->session_callbacks_ext.on_fetch != NULL) {
+        session->session_callbacks_ext.on_fetch(session->user_session, msg);
         return;
     }
     xqc_moq_d18_reject_unhandled_track_request(
@@ -3460,8 +3460,8 @@ xqc_moq_on_track_status(xqc_moq_session_t *session,
     {
         return;
     }
-    if (session->session_callbacks.on_track_status != NULL) {
-        session->session_callbacks.on_track_status(
+    if (session->session_callbacks_ext.on_track_status != NULL) {
+        session->session_callbacks_ext.on_track_status(
             session->user_session, msg);
         return;
     }
@@ -3502,8 +3502,8 @@ xqc_moq_on_fetch_ok(xqc_moq_session_t *session,
             "|fetch_ok|request_id:%ui|end_of_track:%d|end_group:%ui|end_object:%ui|",
             moq_stream->request_id, msg->end_of_track,
             msg->end_group_id, msg->end_object_id);
-    if (session->session_callbacks.on_fetch_ok != NULL) {
-        session->session_callbacks.on_fetch_ok(
+    if (session->session_callbacks_ext.on_fetch_ok != NULL) {
+        session->session_callbacks_ext.on_fetch_ok(
             session->user_session, moq_stream->request_id, msg);
     }
 }
@@ -3546,8 +3546,8 @@ xqc_moq_on_fetch_header(xqc_moq_session_t *session,
     moq_stream->request_type = XQC_MOQ_MSG_FETCH;
     moq_stream->d18_fetch_group_order =
         request_stream->d18_fetch_group_order;
-    if (session->session_callbacks.on_fetch_header != NULL) {
-        session->session_callbacks.on_fetch_header(
+    if (session->session_callbacks_ext.on_fetch_header != NULL) {
+        session->session_callbacks_ext.on_fetch_header(
             session->user_session, msg->request_id, msg->fin_received);
     }
     if (msg->fin_received) {

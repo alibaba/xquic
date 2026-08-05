@@ -1959,6 +1959,17 @@ on_fetch_range_interop(xqc_moq_user_session_t *user_session,
            request_id, group_id, object_id, unknown, end_of_stream);
 }
 
+static void
+on_fetch_complete_interop(xqc_moq_user_session_t *user_session,
+    uint64_t request_id, uint64_t error_code)
+{
+    xqc_demo_lifecycle_state_t *state =
+        xqc_demo_lifecycle_state(user_session);
+    printf("control_e2e_server|fetch_complete|request_id:%"PRIu64
+           "|error:%"PRIu64"|objects:%u\n",
+           request_id, error_code, state ? state->fetch_object_count : 0);
+}
+
 static xqc_int_t
 xqc_server_create_moq_session(xqc_connection_t *conn,
     xqc_moq_user_session_t *user_session)
@@ -1985,6 +1996,10 @@ xqc_server_create_moq_session(xqc_connection_t *conn,
         .on_object = on_raw_object,
         .on_datagram_object = on_datagram_object,
     };
+    xqc_moq_session_callbacks_ext_t callbacks_ext = {
+        .struct_size = sizeof(callbacks_ext),
+        .abi_version = XQC_MOQ_SESSION_CALLBACKS_EXT_ABI_VERSION,
+    };
     if (g_ns_callback_mode == 1) {
         callbacks.on_subscribe_namespace = on_subscribe_namespace_callback;
     } else if (g_ns_callback_mode == 2) {
@@ -2001,27 +2016,34 @@ xqc_server_create_moq_session(xqc_connection_t *conn,
         callbacks.on_subscribe_namespace = on_subscribe_namespace_callback;
     }
     if (g_lifecycle_mode >= 1 && g_lifecycle_mode <= 6) {
-        callbacks.on_subscribe_tracks = on_subscribe_tracks_lifecycle;
+        callbacks_ext.on_subscribe_tracks = on_subscribe_tracks_lifecycle;
     }
     if (g_lifecycle_mode == 11) {
-        callbacks.on_publish_namespace = on_publish_namespace_lifecycle;
+        callbacks_ext.on_publish_namespace = on_publish_namespace_lifecycle;
     }
     if (g_lifecycle_mode == 7 || g_lifecycle_mode == 8) {
-        callbacks.on_track_status = on_track_status_lifecycle;
+        callbacks_ext.on_track_status = on_track_status_lifecycle;
     }
     if (g_lifecycle_mode == 9 || g_lifecycle_mode == 10) {
-        callbacks.on_fetch = on_fetch_lifecycle;
+        callbacks_ext.on_fetch = on_fetch_lifecycle;
     }
     if (g_lifecycle_mode == 14) {
-        callbacks.on_fetch_ok = on_fetch_ok_interop;
-        callbacks.on_fetch_header = on_fetch_header_interop;
-        callbacks.on_fetch_object = on_fetch_object_interop;
-        callbacks.on_fetch_range = on_fetch_range_interop;
+        callbacks_ext.on_fetch_ok = on_fetch_ok_interop;
+        callbacks_ext.on_fetch_header = on_fetch_header_interop;
+        callbacks_ext.on_fetch_object = on_fetch_object_interop;
+        callbacks_ext.on_fetch_range = on_fetch_range_interop;
+        callbacks_ext.on_fetch_complete = on_fetch_complete_interop;
     }
     xqc_moq_session_t *session = xqc_moq_session_create_ex(
         conn, user_session, XQC_MOQ_TRANSPORT_QUIC, g_role, callbacks, NULL);
     if (session == NULL) {
         printf("create session error\n");
+        return -1;
+    }
+    if (xqc_moq_session_set_callbacks_ext(session, &callbacks_ext)
+        != XQC_OK)
+    {
+        xqc_moq_session_destroy(session);
         return -1;
     }
     if (g_lifecycle_mode == 1) {

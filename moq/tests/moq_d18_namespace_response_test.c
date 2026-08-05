@@ -548,7 +548,7 @@ xqc_test_namespace_request_update_installs_prefix_after_ok(void)
     xqc_moq_session_t session;
     xqc_test_init_session(&session);
     session.version = XQC_MOQ_VERSION_18;
-    session.session_callbacks.on_namespace =
+    session.session_callbacks_ext.on_namespace =
         xqc_test_on_updated_namespace;
     xqc_moq_d18_request_registry_init(
         &session.d18_request_registry, 1);
@@ -669,8 +669,8 @@ xqc_test_namespace_receive_state_and_done(void)
     xqc_moq_session_t session;
     xqc_test_init_session(&session);
     session.version = XQC_MOQ_VERSION_18;
-    session.session_callbacks.on_namespace = xqc_test_on_namespace;
-    session.session_callbacks.on_namespace_done =
+    session.session_callbacks_ext.on_namespace = xqc_test_on_namespace;
+    session.session_callbacks_ext.on_namespace_done =
         xqc_test_on_namespace_done;
 
     xqc_test_write_capture_t capture = {0};
@@ -726,7 +726,7 @@ xqc_test_namespace_done_before_namespace_is_violation(void)
     xqc_test_init_session(&session);
     session.version = XQC_MOQ_VERSION_18;
     session.quic_conn = &quic_conn;
-    session.session_callbacks.on_namespace_done =
+    session.session_callbacks_ext.on_namespace_done =
         xqc_test_on_namespace_done;
 
     xqc_test_write_capture_t capture = {0};
@@ -765,8 +765,8 @@ xqc_test_namespace_fin_clears_active_state(void)
     xqc_moq_session_t session;
     xqc_test_init_session(&session);
     session.version = XQC_MOQ_VERSION_18;
-    session.session_callbacks.on_namespace = xqc_test_on_namespace;
-    session.session_callbacks.on_namespace_done =
+    session.session_callbacks_ext.on_namespace = xqc_test_on_namespace;
+    session.session_callbacks_ext.on_namespace_done =
         xqc_test_on_namespace_done;
 
     xqc_test_write_capture_t capture = {0};
@@ -1030,7 +1030,7 @@ xqc_test_namespace_ok_consumes_pending_and_calls_callbacks(void)
 {
     xqc_moq_session_t session;
     xqc_test_init_session(&session);
-    session.session_callbacks.on_request_ok = xqc_test_on_request_ok;
+    session.session_callbacks_ext.on_request_ok = xqc_test_on_request_ok;
     session.session_callbacks.on_subscribe_namespace_ok =
         xqc_test_on_namespace_ok;
     XQC_TEST_ASSERT(xqc_moq_session_add_pending_ns_request(
@@ -1067,7 +1067,7 @@ xqc_test_namespace_error_consumes_pending_and_calls_callbacks(void)
     };
     xqc_moq_session_t session;
     xqc_test_init_session(&session);
-    session.session_callbacks.on_request_error = xqc_test_on_request_error;
+    session.session_callbacks_ext.on_request_error = xqc_test_on_request_error;
     session.session_callbacks.on_subscribe_namespace_error =
         xqc_test_on_namespace_error;
     XQC_TEST_ASSERT(xqc_moq_session_add_pending_ns_request(
@@ -1219,7 +1219,7 @@ xqc_test_namespace_response_rejects_missing_or_duplicate_state(void)
     xqc_test_init_session(&session);
     session.quic_conn = &quic_conn;
     session.log = &log;
-    session.session_callbacks.on_request_ok = xqc_test_on_request_ok;
+    session.session_callbacks_ext.on_request_ok = xqc_test_on_request_ok;
     session.session_callbacks.on_subscribe_namespace_ok =
         xqc_test_on_namespace_ok;
 

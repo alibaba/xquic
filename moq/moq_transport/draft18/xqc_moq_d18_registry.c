@@ -57,7 +57,8 @@ xqc_moq_d18_find_entry(const xqc_moq_d18_registry_entry_t *entries,
 int
 xqc_moq_d18_is_subgroup_header_type(uint64_t wire_type)
 {
-    return wire_type <= 0x7f && (wire_type & 0x10) == 0x10;
+    return wire_type <= 0x7f && (wire_type & 0x10) == 0x10
+        && (wire_type & 0x06) != 0x06;
 }
 
 static int

@@ -188,6 +188,43 @@ xqc_test_d18_subgroup_vectors_and_fragmentation(void)
 }
 
 static int
+xqc_test_d18_subgroup_alias_64_uses_vi64(void)
+{
+    static const uint8_t expected[] = {
+        0x15, 0x40, 0x01, 0x01, 0x00, 0x00, 0x00, 0x01, 'x',
+    };
+    uint8_t encoded[32] = {0};
+    xqc_moq_d18_data_msg_t *msg = xqc_moq_d18_data_msg_create();
+
+    XQC_TEST_ASSERT(msg != NULL);
+    xqc_moq_d18_subgroup_header_init(&msg->msg_base);
+    msg->subgroup_wire_type = 0x15;
+    msg->include_subgroup_header = 1;
+    msg->subgroup_id_mode = 2;
+    msg->properties_present = 1;
+    msg->has_object = 1;
+    msg->object.track_alias = 64;
+    msg->object.group_id = 1;
+    msg->object.subgroup_id = 1;
+    msg->object.object_id_delta = 0;
+    msg->object.publisher_priority_set = 1;
+    msg->object.publisher_priority = 0;
+    msg->object.payload = xqc_malloc(1);
+    XQC_TEST_ASSERT(msg->object.payload != NULL);
+    msg->object.payload[0] = 'x';
+    msg->object.payload_len = 1;
+
+    XQC_TEST_ASSERT(msg->msg_base.encode_len(&msg->msg_base)
+                    == (xqc_int_t)sizeof(expected));
+    XQC_TEST_ASSERT(msg->msg_base.encode(
+        &msg->msg_base, encoded, sizeof(encoded))
+        == (xqc_int_t)sizeof(expected));
+    XQC_TEST_ASSERT(memcmp(encoded, expected, sizeof(expected)) == 0);
+    xqc_moq_d18_data_msg_destroy(msg);
+    return 0;
+}
+
+static int
 xqc_test_d18_subgroup_delta_overflow(void)
 {
     static const uint8_t wire[] = {0x00, 0x01, 'x'};
@@ -404,6 +441,7 @@ main(void)
     if (xqc_test_d18_datagram_vectors() != 0
         || xqc_test_d18_datagram_rejects_invalid_combinations() != 0
         || xqc_test_d18_subgroup_vectors_and_fragmentation() != 0
+        || xqc_test_d18_subgroup_alias_64_uses_vi64() != 0
         || xqc_test_d18_subgroup_delta_overflow() != 0
         || xqc_test_d18_fetch_vectors() != 0
         || xqc_test_d18_fetch_zero_length_and_reference_rules() != 0

@@ -1759,13 +1759,17 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
         .on_publish_ok = on_publish_ok_msg,
         .on_publish_error = on_publish_error_msg,
         .on_publish_done = on_publish_done_msg,
-        .on_request_ok = on_request_ok,
         .on_catalog = on_catalog,
         .on_video = on_video_frame,
         .on_audio = on_audio_frame,
         .on_object = on_raw_object,
         .on_datagram_object = on_datagram_object,
         .on_goaway = on_goaway,
+    };
+    xqc_moq_session_callbacks_ext_t callbacks_ext = {
+        .struct_size = sizeof(callbacks_ext),
+        .abi_version = XQC_MOQ_SESSION_CALLBACKS_EXT_ABI_VERSION,
+        .on_request_ok = on_request_ok,
     };
     xqc_moq_message_parameter_t setup_params[3];
     xqc_moq_session_config_t config;
@@ -1821,6 +1825,12 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
         return -1;
     }
     if (requested_version == XQC_MOQ_VERSION_18) {
+        if (xqc_moq_session_set_callbacks_ext(session, &callbacks_ext)
+            != XQC_OK)
+        {
+            xqc_moq_session_destroy(session);
+            return -1;
+        }
         xqc_moq_session_set_request_update_callback(
             session, on_request_update_draft18);
         xqc_moq_session_set_publish_blocked_callback(

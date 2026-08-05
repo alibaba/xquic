@@ -36,7 +36,7 @@
 #define XQC_INTEROP_VERSION       "0.7.0-draft18"
 #define XQC_INTEROP_CID_LEN       12
 #define XQC_INTEROP_TIMEOUT_SEC   2
-#define XQC_INTEROP_MAX_TESTS     21
+#define XQC_INTEROP_MAX_TESTS     25
 
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
@@ -62,6 +62,10 @@ typedef enum {
     XQC_DEMO_TEST_TRACK_STATUS_SUCCESS,
     XQC_DEMO_TEST_TRACK_STATUS_REJECTION,
     XQC_DEMO_TEST_FETCH_SUCCESS,
+    XQC_DEMO_TEST_FETCH_PARTIAL_CACHE,
+    XQC_DEMO_TEST_FETCH_CANCEL,
+    XQC_DEMO_TEST_FETCH_PUBLISHER_DISCONNECT_BEFORE_OK,
+    XQC_DEMO_TEST_FETCH_PUBLISHER_DISCONNECT_AFTER_OK,
     XQC_DEMO_TEST_FETCH_REJECTION,
     XQC_DEMO_TEST_ALL,
     XQC_DEMO_TEST_UNKNOWN,
@@ -88,6 +92,10 @@ static const char *g_test_case_names[] = {
     "track-status-success",
     "track-status-rejection",
     "fetch-success",
+    "fetch-partial-cache",
+    "fetch-cancel",
+    "fetch-publisher-disconnect-before-ok",
+    "fetch-publisher-disconnect-after-ok",
     "fetch-rejection",
 };
 
@@ -174,6 +182,7 @@ typedef struct xqc_demo_interop_conn_s {
     int                  fetch_header_fin;
     unsigned             fetch_object_count;
     int                  fetch_range_seen;
+    int                  fetch_cancel_sent;
     int                  finite_completion_scheduled;
     unsigned             finite_completion_attempts;
 } xqc_demo_interop_conn_t;
@@ -193,6 +202,13 @@ static int      g_disconnect_after_request = 0;
 static xqc_moq_transport_type_t g_transport_type = XQC_MOQ_TRANSPORT_QUIC;
 
 static xqc_demo_test_case_t  g_current_test = XQC_DEMO_TEST_UNKNOWN;
+
+static int
+xqc_demo_interop_uses_imquic_contract(void)
+{
+    const char *peer = getenv("XQC_MOQ_INTEROP_PEER");
+    return peer != NULL && strcmp(peer, "imquic") == 0;
+}
 static int          g_test_passed = 0;
 static char         g_fail_reason[512] = "";
 static xqc_usec_t   g_test_start_us = 0;
@@ -496,6 +512,28 @@ xqc_demo_interop_find_local_request(xqc_demo_interop_conn_t *conn,
 static void xqc_demo_interop_schedule_finite_completion(
     xqc_demo_interop_conn_t *conn);
 
+static int
+xqc_demo_interop_fetch_full_success_case(void)
+{
+    return g_current_test == XQC_DEMO_TEST_FETCH_SUCCESS
+        || g_current_test == XQC_DEMO_TEST_FETCH_PARTIAL_CACHE;
+}
+
+static int
+xqc_demo_interop_fetch_fin_success_case(void)
+{
+    return xqc_demo_interop_fetch_full_success_case()
+        || g_current_test
+            == XQC_DEMO_TEST_FETCH_PUBLISHER_DISCONNECT_AFTER_OK;
+}
+
+static int
+xqc_demo_interop_fetch_ok_case(void)
+{
+    return xqc_demo_interop_fetch_fin_success_case()
+        || g_current_test == XQC_DEMO_TEST_FETCH_CANCEL;
+}
+
 static void
 xqc_demo_interop_complete_finite_request(int fd, short what, void *arg)
 {
@@ -508,10 +546,18 @@ xqc_demo_interop_complete_finite_request(int fd, short what, void *arg)
     if (g_current_test == XQC_DEMO_TEST_TRACK_STATUS_SUCCESS) {
         callbacks_complete =
             conn->finite_generic_ok && conn->finite_specific_ok;
-    } else if (g_current_test == XQC_DEMO_TEST_FETCH_SUCCESS) {
+    } else if (xqc_demo_interop_fetch_full_success_case()) {
         callbacks_complete = conn->fetch_ok_seen
             && conn->fetch_header_seen && conn->fetch_object_count == 3
-            && conn->fetch_range_seen && conn->fetch_header_fin;
+            && conn->fetch_header_fin
+            && (xqc_demo_interop_uses_imquic_contract()
+                || conn->fetch_range_seen);
+    } else if (g_current_test
+               == XQC_DEMO_TEST_FETCH_PUBLISHER_DISCONNECT_AFTER_OK)
+    {
+        callbacks_complete = conn->fetch_ok_seen
+            && conn->fetch_header_seen && conn->fetch_object_count == 1
+            && conn->fetch_header_fin;
     } else {
         callbacks_complete = conn->finite_error_seen;
     }
@@ -522,7 +568,7 @@ xqc_demo_interop_complete_finite_request(int fd, short what, void *arg)
     xqc_moq_stream_t *stream = xqc_demo_interop_find_local_request(
         conn, conn->finite_request_id);
     uint8_t terminal_fin =
-        g_current_test == XQC_DEMO_TEST_FETCH_SUCCESS
+        xqc_demo_interop_fetch_fin_success_case()
         ? (uint8_t)conn->fetch_header_fin
         : (stream != NULL ? stream->peer_fin_received : 0);
     if (stream == NULL || !stream->response_received || !terminal_fin
@@ -543,7 +589,7 @@ xqc_demo_interop_complete_finite_request(int fd, short what, void *arg)
            "|request_id:%"PRIu64
            "|response_received:1|%s:1|closed_notified:1\n",
            case_name, conn->finite_request_id,
-           g_current_test == XQC_DEMO_TEST_FETCH_SUCCESS
+           xqc_demo_interop_fetch_fin_success_case()
                ? "data_fin" : "peer_fin");
     xqc_demo_test_pass();
     if (g_test_timeout_event != NULL) {
@@ -568,6 +614,26 @@ xqc_demo_interop_schedule_finite_completion(xqc_demo_interop_conn_t *conn)
         xqc_demo_test_fail("failed to schedule finite request completion");
         xqc_demo_interop_close_conn(conn);
     }
+}
+
+static void
+xqc_demo_interop_complete_fetch_cancel(int fd, short what, void *arg)
+{
+    (void)fd;
+    (void)what;
+    xqc_demo_interop_conn_t *conn = arg;
+    if (!conn->fetch_cancel_sent) {
+        xqc_demo_test_fail("FETCH cancellation was not sent");
+        xqc_demo_interop_close_conn(conn);
+        return;
+    }
+    printf("control_e2e|fetch_cancel_complete|request_id:%"PRIu64"\n",
+           conn->finite_request_id);
+    xqc_demo_test_pass();
+    if (g_test_timeout_event != NULL) {
+        event_del(g_test_timeout_event);
+    }
+    xqc_demo_interop_close_conn(conn);
 }
 
 static void
@@ -720,8 +786,9 @@ xqc_demo_interop_send_announce(xqc_demo_interop_conn_t *conn)
     if (g_current_test == XQC_DEMO_TEST_ANNOUNCE_SUBSCRIBE
         || g_current_test == XQC_DEMO_TEST_SUBSCRIBE_BEFORE_ANNOUNCE)
     {
-        xqc_moq_track_t *track = xqc_moq_track_create(conn->session,
-            (char *)XQC_INTEROP_NS_STR, (char *)XQC_INTEROP_TRACK_NAME,
+        xqc_moq_track_t *track = xqc_moq_track_create_with_ns_tuple(
+            conn->session, interop_ns_tuple, 2,
+            (char *)XQC_INTEROP_TRACK_NAME,
             XQC_MOQ_TRACK_VIDEO, NULL, XQC_MOQ_CONTAINER_NONE,
             XQC_MOQ_TRACK_FOR_PUB);
         if (track == NULL) {
@@ -1216,14 +1283,16 @@ xqc_demo_interop_send_subscribe_nonexistent(xqc_moq_session_t *session)
 static int
 xqc_demo_interop_send_subscribe_interop(xqc_moq_session_t *session)
 {
-    xqc_moq_track_t *track = xqc_moq_track_create(session,
-        (char *)XQC_INTEROP_NS_STR, (char *)XQC_INTEROP_TRACK_NAME,
+    xqc_moq_track_t *track = xqc_moq_track_create_with_ns_tuple(
+        session, interop_ns_tuple, 2, (char *)XQC_INTEROP_TRACK_NAME,
         XQC_MOQ_TRACK_VIDEO, NULL, XQC_MOQ_CONTAINER_NONE, XQC_MOQ_TRACK_FOR_SUB);
     if (track == NULL) {
         VERBOSE("failed to create track for interop subscribe");
         return -1;
     }
-    int ret = xqc_moq_subscribe_latest(session, XQC_INTEROP_NS_STR, XQC_INTEROP_TRACK_NAME);
+    int ret = xqc_moq_subscribe_with_ns_tuple(
+        session, interop_ns_tuple, 2, XQC_INTEROP_TRACK_NAME,
+        XQC_MOQ_FILTER_LAST_GROUP, 0, 0, 0, 0, NULL);
     VERBOSE("send SUBSCRIBE(%s/%s) ret=%d", XQC_INTEROP_NS_STR, XQC_INTEROP_TRACK_NAME, ret);
     return ret;
 }
@@ -1306,8 +1375,8 @@ xqc_demo_interop_send_fetch(xqc_demo_interop_conn_t *conn)
     request.track_name_len = sizeof(XQC_INTEROP_TRACK_NAME) - 1;
     request.start_group_id = 1;
     request.start_object_id = 2;
-    request.end_group_id = 3;
-    request.end_object_id = 4;
+    request.end_group_id = xqc_demo_interop_uses_imquic_contract() ? 5 : 3;
+    request.end_object_id = xqc_demo_interop_uses_imquic_contract() ? 0 : 4;
     xqc_int_t ret = xqc_moq_write_fetch(conn->session, stream, &request);
     if (ret != XQC_OK) {
         xqc_moq_stream_close(stream);
@@ -1315,8 +1384,10 @@ xqc_demo_interop_send_fetch(xqc_demo_interop_conn_t *conn)
     }
     conn->finite_request_id = request.request_id;
     printf("control_e2e|fetch_sent|request_id:%"PRIu64
-           "|track:%s/%s|range:1/2-3/4\n", request.request_id,
-           track_namespace_str, XQC_INTEROP_TRACK_NAME);
+           "|track:%s/%s|range:1/2-%"PRIu64"/%"PRIu64"\n",
+           request.request_id, track_namespace_str,
+           XQC_INTEROP_TRACK_NAME, request.end_group_id,
+           request.end_object_id);
     return XQC_OK;
 }
 
@@ -1579,6 +1650,10 @@ xqc_demo_interop_on_session_setup(xqc_moq_user_session_t *user_session, char *ex
         break;
 
     case XQC_DEMO_TEST_FETCH_SUCCESS:
+    case XQC_DEMO_TEST_FETCH_PARTIAL_CACHE:
+    case XQC_DEMO_TEST_FETCH_CANCEL:
+    case XQC_DEMO_TEST_FETCH_PUBLISHER_DISCONNECT_BEFORE_OK:
+    case XQC_DEMO_TEST_FETCH_PUBLISHER_DISCONNECT_AFTER_OK:
     case XQC_DEMO_TEST_FETCH_REJECTION:
         if (conn->conn_role == 1
             && xqc_demo_interop_send_fetch(conn) != XQC_OK)
@@ -2097,16 +2172,21 @@ xqc_demo_interop_on_request_error(xqc_moq_user_session_t *user_session,
             request_error->reason_phrase ? request_error->reason_phrase : "");
 
     if (g_current_test == XQC_DEMO_TEST_TRACK_STATUS_REJECTION
-        || g_current_test == XQC_DEMO_TEST_FETCH_REJECTION)
+        || g_current_test == XQC_DEMO_TEST_FETCH_REJECTION
+        || g_current_test
+            == XQC_DEMO_TEST_FETCH_PUBLISHER_DISCONNECT_BEFORE_OK)
     {
         xqc_moq_msg_type_t expected_type =
             g_current_test == XQC_DEMO_TEST_TRACK_STATUS_REJECTION
             ? (xqc_moq_msg_type_t)XQC_MOQ_D18_MSG_TRACK_STATUS
             : XQC_MOQ_MSG_FETCH;
+        uint64_t expected_error = g_current_test
+                == XQC_DEMO_TEST_FETCH_PUBLISHER_DISCONNECT_BEFORE_OK
+            ? XQC_MOQ_REQUEST_ERROR_INTERNAL
+            : XQC_MOQ_REQUEST_ERROR_DOES_NOT_EXIST;
         if (request_id != conn->finite_request_id
             || request_type != expected_type
-            || request_error->error_code
-                != XQC_MOQ_REQUEST_ERROR_DOES_NOT_EXIST
+            || request_error->error_code != expected_error
             || request_error->retry_interval != 0)
         {
             xqc_demo_test_fail("finite REQUEST_ERROR mismatch id=%"PRIu64
@@ -2118,8 +2198,9 @@ xqc_demo_interop_on_request_error(xqc_moq_user_session_t *user_session,
         }
         conn->finite_error_seen = 1;
         printf("control_e2e|finite_request_error|case:%s"
-               "|request_id:%"PRIu64"|code:0x10|retry:0\n",
-               g_test_case_names[g_current_test], request_id);
+               "|request_id:%"PRIu64"|code:0x%"PRIx64"|retry:0\n",
+               g_test_case_names[g_current_test], request_id,
+               request_error->error_code);
         xqc_demo_interop_schedule_finite_completion(conn);
         return;
     }
@@ -2357,13 +2438,20 @@ xqc_demo_interop_on_fetch_ok(xqc_moq_user_session_t *user_session,
 {
     xqc_demo_interop_conn_t *conn =
         (xqc_demo_interop_conn_t *)user_session->data;
-    if (g_current_test != XQC_DEMO_TEST_FETCH_SUCCESS
-        || request_id != conn->finite_request_id || msg == NULL
-        || msg->end_of_track != 1 || msg->end_group_id != 6
-        || msg->end_object_id != 9 || msg->track_properties_len != 2
-        || msg->track_properties == NULL
-        || msg->track_properties[0] != 0x02
-        || msg->track_properties[1] != 0x01)
+    int valid = xqc_demo_interop_fetch_ok_case()
+        && request_id == conn->finite_request_id && msg != NULL
+        && msg->end_of_track == 1;
+    if (valid && xqc_demo_interop_uses_imquic_contract()) {
+        valid = msg->end_group_id == 4 && msg->end_object_id == 0
+            && msg->track_properties_len == 0;
+    } else if (valid) {
+        valid = msg->end_group_id == 6 && msg->end_object_id == 9
+            && msg->track_properties_len == 2
+            && msg->track_properties != NULL
+            && msg->track_properties[0] == 0x02
+            && msg->track_properties[1] == 0x01;
+    }
+    if (!valid)
     {
         xqc_demo_test_fail("FETCH_OK callback mismatch");
         xqc_demo_interop_close_conn(conn);
@@ -2371,7 +2459,30 @@ xqc_demo_interop_on_fetch_ok(xqc_moq_user_session_t *user_session,
     }
     conn->fetch_ok_seen = 1;
     printf("control_e2e|fetch_ok|request_id:%"PRIu64
-           "|end_of_track:1|end:6/9|properties:0201\n", request_id);
+           "|end_of_track:1|end:%"PRIu64"/%"PRIu64
+           "|properties:%zu\n", request_id, msg->end_group_id,
+           msg->end_object_id, msg->track_properties_len);
+    if (g_current_test == XQC_DEMO_TEST_FETCH_CANCEL) {
+        xqc_int_t ret = xqc_moq_cancel_request(
+            conn->session, conn->finite_request_id);
+        if (ret != XQC_OK) {
+            xqc_demo_test_fail("FETCH cancel failed ret=%d", ret);
+            xqc_demo_interop_close_conn(conn);
+            return;
+        }
+        conn->fetch_cancel_sent = 1;
+        printf("control_e2e|fetch_cancel_sent|request_id:%"PRIu64
+               "|ret:0\n", request_id);
+        struct timeval delay = {0, 300000};
+        if (event_base_once(g_eb, -1, EV_TIMEOUT,
+                            xqc_demo_interop_complete_fetch_cancel,
+                            conn, &delay) < 0)
+        {
+            xqc_demo_test_fail("failed to schedule FETCH cancel completion");
+            xqc_demo_interop_close_conn(conn);
+        }
+        return;
+    }
     xqc_demo_interop_schedule_finite_completion(conn);
 }
 
@@ -2381,7 +2492,7 @@ xqc_demo_interop_on_fetch_header(xqc_moq_user_session_t *user_session,
 {
     xqc_demo_interop_conn_t *conn =
         (xqc_demo_interop_conn_t *)user_session->data;
-    if (g_current_test != XQC_DEMO_TEST_FETCH_SUCCESS
+    if (!xqc_demo_interop_fetch_fin_success_case()
         || request_id != conn->finite_request_id || fin != 0)
     {
         xqc_demo_test_fail("FETCH_HEADER callback mismatch id=%"PRIu64
@@ -2396,13 +2507,33 @@ xqc_demo_interop_on_fetch_header(xqc_moq_user_session_t *user_session,
 }
 
 static void
+xqc_demo_interop_on_fetch_complete(xqc_moq_user_session_t *user_session,
+    uint64_t request_id, uint64_t error_code)
+{
+    xqc_demo_interop_conn_t *conn =
+        (xqc_demo_interop_conn_t *)user_session->data;
+    if (!xqc_demo_interop_fetch_fin_success_case()
+        || request_id != conn->finite_request_id || error_code != XQC_OK)
+    {
+        xqc_demo_test_fail("FETCH completion mismatch id=%"PRIu64
+                           " error=%"PRIu64, request_id, error_code);
+        xqc_demo_interop_close_conn(conn);
+        return;
+    }
+    conn->fetch_header_fin = 1;
+    printf("control_e2e|fetch_complete|request_id:%"PRIu64
+           "|error:0\n", request_id);
+    xqc_demo_interop_schedule_finite_completion(conn);
+}
+
+static void
 xqc_demo_interop_on_fetch_object(xqc_moq_user_session_t *user_session,
     uint64_t request_id, xqc_moq_object_t *object)
 {
     xqc_demo_interop_conn_t *conn =
         (xqc_demo_interop_conn_t *)user_session->data;
     unsigned index = conn->fetch_object_count;
-    int valid = g_current_test == XQC_DEMO_TEST_FETCH_SUCCESS
+    int valid = xqc_demo_interop_fetch_fin_success_case()
         && request_id == conn->finite_request_id && object != NULL;
     if (valid && index == 0) {
         valid = object->group_id == 2 && object->subgroup_id == 3
@@ -2414,11 +2545,19 @@ xqc_demo_interop_on_fetch_object(xqc_moq_user_session_t *user_session,
             && object->payload_len == sizeof("imquic-fetch-A") - 1
             && memcmp(object->payload, "imquic-fetch-A",
                       sizeof("imquic-fetch-A") - 1) == 0;
-    } else if (valid && index == 1) {
+    } else if (valid
+               && g_current_test
+                    != XQC_DEMO_TEST_FETCH_PUBLISHER_DISCONNECT_AFTER_OK
+               && index == 1)
+    {
         valid = object->group_id == 2 && object->subgroup_id == 3
             && object->object_id == 5 && object->payload_len == 0
             && object->status == XQC_MOQ_OBJ_STATUS_NORMAL;
-    } else if (valid && index == 2) {
+    } else if (valid
+               && g_current_test
+                    != XQC_DEMO_TEST_FETCH_PUBLISHER_DISCONNECT_AFTER_OK
+               && index == 2)
+    {
         valid = object->group_id == 4 && object->subgroup_id == 4
             && object->object_id == 0
             && object->payload_len == sizeof("imquic-fetch-C") - 1
@@ -2477,7 +2616,6 @@ xqc_demo_interop_on_fetch_range(xqc_moq_user_session_t *user_session,
         return;
     }
     conn->fetch_range_seen = 1;
-    conn->fetch_header_fin = 1;
     printf("control_e2e|fetch_range|location:6/9|unknown:1|eos:1\n");
     xqc_demo_interop_schedule_finite_completion(conn);
 }
@@ -3154,23 +3292,27 @@ xqc_demo_interop_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid
         .on_publish_ok              = xqc_demo_interop_on_publish_ok,
         .on_publish_error           = xqc_demo_interop_on_publish_error,
         .on_publish_done            = xqc_demo_interop_on_publish_done,
+        .on_subscribe_namespace_ok  =
+            xqc_demo_interop_on_subscribe_namespace_ok,
+        .on_subscribe_namespace_error =
+            xqc_demo_interop_on_subscribe_namespace_error,
+        .on_catalog                 = xqc_demo_interop_on_catalog,
+        .on_video                   = xqc_demo_interop_on_video,
+        .on_audio                   = xqc_demo_interop_on_audio,
+    };
+    xqc_moq_session_callbacks_ext_t callbacks_ext = {
+        .struct_size                = sizeof(callbacks_ext),
+        .abi_version                = XQC_MOQ_SESSION_CALLBACKS_EXT_ABI_VERSION,
         .on_request_ok              = xqc_demo_interop_on_request_ok,
         .on_request_error           = xqc_demo_interop_on_request_error,
         .on_fetch_ok                = xqc_demo_interop_on_fetch_ok,
         .on_fetch_header            = xqc_demo_interop_on_fetch_header,
         .on_fetch_object            = xqc_demo_interop_on_fetch_object,
         .on_fetch_range             = xqc_demo_interop_on_fetch_range,
+        .on_fetch_complete          = xqc_demo_interop_on_fetch_complete,
         .on_track_status_ok         = xqc_demo_interop_on_track_status_ok,
-        .on_subscribe_namespace_ok  =
-            xqc_demo_interop_on_subscribe_namespace_ok,
-        .on_subscribe_namespace_error =
-            xqc_demo_interop_on_subscribe_namespace_error,
         .on_namespace               = xqc_demo_interop_on_namespace,
-        .on_namespace_done          =
-            xqc_demo_interop_on_namespace_done,
-        .on_catalog                 = xqc_demo_interop_on_catalog,
-        .on_video                   = xqc_demo_interop_on_video,
-        .on_audio                   = xqc_demo_interop_on_audio,
+        .on_namespace_done          = xqc_demo_interop_on_namespace_done,
     };
 
     xqc_moq_role_t role = XQC_MOQ_PUBSUB;
@@ -3184,6 +3326,13 @@ xqc_demo_interop_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid
         return -1;
     }
     iconn->session = session;
+    if (xqc_moq_session_set_callbacks_ext(session, &callbacks_ext)
+        != XQC_OK)
+    {
+        xqc_moq_session_destroy(session);
+        iconn->session = NULL;
+        return -1;
+    }
     xqc_moq_session_set_publish_blocked_callback(
         session, xqc_demo_interop_on_publish_blocked);
     xqc_moq_session_set_goaway_draft18_callback(
@@ -3645,23 +3794,27 @@ xqc_demo_wt_h3_request_read_notify(xqc_h3_request_t *h3_request,
         .on_publish_ok              = xqc_demo_interop_on_publish_ok,
         .on_publish_error           = xqc_demo_interop_on_publish_error,
         .on_publish_done            = xqc_demo_interop_on_publish_done,
+        .on_subscribe_namespace_ok  =
+            xqc_demo_interop_on_subscribe_namespace_ok,
+        .on_subscribe_namespace_error =
+            xqc_demo_interop_on_subscribe_namespace_error,
+        .on_catalog                 = xqc_demo_interop_on_catalog,
+        .on_video                   = xqc_demo_interop_on_video,
+        .on_audio                   = xqc_demo_interop_on_audio,
+    };
+    xqc_moq_session_callbacks_ext_t callbacks_ext = {
+        .struct_size                = sizeof(callbacks_ext),
+        .abi_version                = XQC_MOQ_SESSION_CALLBACKS_EXT_ABI_VERSION,
         .on_request_ok              = xqc_demo_interop_on_request_ok,
         .on_request_error           = xqc_demo_interop_on_request_error,
         .on_fetch_ok                = xqc_demo_interop_on_fetch_ok,
         .on_fetch_header            = xqc_demo_interop_on_fetch_header,
         .on_fetch_object            = xqc_demo_interop_on_fetch_object,
         .on_fetch_range             = xqc_demo_interop_on_fetch_range,
+        .on_fetch_complete          = xqc_demo_interop_on_fetch_complete,
         .on_track_status_ok         = xqc_demo_interop_on_track_status_ok,
-        .on_subscribe_namespace_ok  =
-            xqc_demo_interop_on_subscribe_namespace_ok,
-        .on_subscribe_namespace_error =
-            xqc_demo_interop_on_subscribe_namespace_error,
         .on_namespace               = xqc_demo_interop_on_namespace,
-        .on_namespace_done          =
-            xqc_demo_interop_on_namespace_done,
-        .on_catalog                 = xqc_demo_interop_on_catalog,
-        .on_video                   = xqc_demo_interop_on_video,
-        .on_audio                   = xqc_demo_interop_on_audio,
+        .on_namespace_done          = xqc_demo_interop_on_namespace_done,
     };
 
     xqc_connection_t *quic_conn = xqc_h3_conn_get_xqc_conn(ctx->h3_conn);
@@ -3673,6 +3826,13 @@ xqc_demo_wt_h3_request_read_notify(xqc_h3_request_t *h3_request,
         return -1;
     }
     iconn->session = session;
+    if (xqc_moq_session_set_callbacks_ext(session, &callbacks_ext)
+        != XQC_OK)
+    {
+        xqc_moq_session_destroy(session);
+        iconn->session = NULL;
+        return -1;
+    }
 
 #if 0
     /* WebTransport session context APIs not available on moq_draft_14_dev_relay branch */
@@ -3808,6 +3968,10 @@ xqc_demo_run_single_test(xqc_demo_test_case_t tc)
         || tc == XQC_DEMO_TEST_TRACK_STATUS_SUCCESS
         || tc == XQC_DEMO_TEST_TRACK_STATUS_REJECTION
         || tc == XQC_DEMO_TEST_FETCH_SUCCESS
+        || tc == XQC_DEMO_TEST_FETCH_PARTIAL_CACHE
+        || tc == XQC_DEMO_TEST_FETCH_CANCEL
+        || tc == XQC_DEMO_TEST_FETCH_PUBLISHER_DISCONNECT_BEFORE_OK
+        || tc == XQC_DEMO_TEST_FETCH_PUBLISHER_DISCONNECT_AFTER_OK
         || tc == XQC_DEMO_TEST_FETCH_REJECTION)
     {
         timeout_sec = 4;
@@ -3834,6 +3998,10 @@ xqc_demo_run_single_test(xqc_demo_test_case_t tc)
     case XQC_DEMO_TEST_TRACK_STATUS_SUCCESS:
     case XQC_DEMO_TEST_TRACK_STATUS_REJECTION:
     case XQC_DEMO_TEST_FETCH_SUCCESS:
+    case XQC_DEMO_TEST_FETCH_PARTIAL_CACHE:
+    case XQC_DEMO_TEST_FETCH_CANCEL:
+    case XQC_DEMO_TEST_FETCH_PUBLISHER_DISCONNECT_BEFORE_OK:
+    case XQC_DEMO_TEST_FETCH_PUBLISHER_DISCONNECT_AFTER_OK:
     case XQC_DEMO_TEST_FETCH_REJECTION:
         first_role = 1;
         break;

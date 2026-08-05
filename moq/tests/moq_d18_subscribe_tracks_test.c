@@ -990,7 +990,7 @@ xqc_test_publish_reverse_request_update_directions(void)
     quic_conn.conn_err = UINT64_MAX;
     quic_conn.log = &xqc_test_log;
     session.quic_conn = &quic_conn;
-    session.session_callbacks.on_request_ok = xqc_test_on_request_ok;
+    session.session_callbacks_ext.on_request_ok = xqc_test_on_request_ok;
 
     xqc_test_write_capture_t peer_capture = {0};
     xqc_moq_stream_t peer_publish;
@@ -2305,7 +2305,7 @@ xqc_test_request_update_results_consume_local_fifo_and_merge(void)
     xqc_memzero(&quic_conn, sizeof(quic_conn));
     quic_conn.log = &xqc_test_log;
     session.quic_conn = &quic_conn;
-    session.session_callbacks.on_request_ok = xqc_test_on_request_ok;
+    session.session_callbacks_ext.on_request_ok = xqc_test_on_request_ok;
 
     xqc_test_write_capture_t capture = {0};
     xqc_moq_stream_t stream;
@@ -3393,7 +3393,7 @@ xqc_test_update_error_callback_observes_terminal_publish_state(void)
         .session = &session,
     };
     session.user_session = &user_session;
-    session.session_callbacks.on_request_error =
+    session.session_callbacks_ext.on_request_error =
         xqc_test_on_update_error_reentrant;
 
     xqc_moq_track_ns_field_t live = {
@@ -3486,7 +3486,7 @@ xqc_test_subscriber_update_error_waits_for_publish_done(void)
         .session = &session,
     };
     session.user_session = &user_session;
-    session.session_callbacks.on_request_error =
+    session.session_callbacks_ext.on_request_error =
         xqc_test_on_update_error_observe;
     session.session_callbacks.on_publish_done =
         xqc_test_on_publish_done_observe;
@@ -3605,7 +3605,7 @@ xqc_test_peer_publish_update_error_waits_for_publish_done(void)
     session.user_session = &user_session;
     session.session_callbacks.on_publish =
         xqc_test_on_publish_observe;
-    session.session_callbacks.on_request_error =
+    session.session_callbacks_ext.on_request_error =
         xqc_test_on_update_error_observe;
     session.session_callbacks.on_publish_done =
         xqc_test_on_publish_done_observe;
@@ -4043,7 +4043,7 @@ xqc_test_subscribe_tracks_application_decides_response(void)
         .session = &session,
     };
     session.user_session = &user_session;
-    session.session_callbacks.on_subscribe_tracks =
+    session.session_callbacks_ext.on_subscribe_tracks =
         xqc_test_on_subscribe_tracks;
 
     xqc_test_write_capture_t capture = {0};
@@ -4618,7 +4618,7 @@ xqc_test_publish_request_ok_reaches_compatibility_callback(void)
         .session = &session,
     };
     session.user_session = &user_session;
-    session.session_callbacks.on_request_ok =
+    session.session_callbacks_ext.on_request_ok =
         xqc_test_on_request_ok;
     session.session_callbacks.on_publish_ok =
         xqc_test_on_publish_ok;
@@ -4696,7 +4696,7 @@ xqc_test_publish_request_error_uses_stream_and_callbacks(void)
                     == XQC_MOQ_D18_MSG_REQUEST_ERROR);
     XQC_TEST_ASSERT(request_capture.fin == 1);
 
-    session.session_callbacks.on_request_error =
+    session.session_callbacks_ext.on_request_error =
         xqc_test_on_request_error;
     session.session_callbacks.on_publish_error =
         xqc_test_on_publish_error;
@@ -7372,9 +7372,30 @@ static int
 xqc_test_public_session_callbacks_layout_stays_compatible(void)
 {
     size_t expected_size =
-        offsetof(xqc_moq_session_callbacks_t, on_namespace_done)
-        + sizeof(((xqc_moq_session_callbacks_t *)0)->on_namespace_done);
+        offsetof(xqc_moq_session_callbacks_t, on_unsubscribe_namespace)
+        + sizeof(((xqc_moq_session_callbacks_t *)0)->on_unsubscribe_namespace);
     XQC_TEST_ASSERT(sizeof(xqc_moq_session_callbacks_t) == expected_size);
+    XQC_TEST_ASSERT(offsetof(xqc_moq_session_callbacks_t,
+        on_subscribe_namespace)
+        == offsetof(xqc_moq_session_callbacks_t, on_goaway)
+            + sizeof(((xqc_moq_session_callbacks_t *)0)->on_goaway));
+    XQC_TEST_ASSERT(offsetof(xqc_moq_session_callbacks_t,
+        on_subscribe_namespace_ok)
+        == offsetof(xqc_moq_session_callbacks_t, on_subscribe_namespace)
+            + sizeof(((xqc_moq_session_callbacks_t *)0)
+                ->on_subscribe_namespace));
+
+    xqc_moq_session_t session;
+    xqc_memzero(&session, sizeof(session));
+    xqc_moq_session_callbacks_ext_t ext = {
+        .struct_size = sizeof(ext),
+        .abi_version = XQC_MOQ_SESSION_CALLBACKS_EXT_ABI_VERSION,
+    };
+    XQC_TEST_ASSERT(xqc_moq_session_set_callbacks_ext(&session, &ext)
+                    == XQC_OK);
+    ext.abi_version++;
+    XQC_TEST_ASSERT(xqc_moq_session_set_callbacks_ext(&session, &ext)
+                    == -XQC_EVERSION);
     return 0;
 }
 
@@ -8428,7 +8449,7 @@ xqc_test_goaway_admission_rejects_all_initial_request_families(void)
     xqc_moq_user_session_t user_session = {.session = &session};
     session.user_session = &user_session;
     session.session_callbacks.on_publish = xqc_test_on_publish_observe;
-    session.session_callbacks.on_subscribe_tracks =
+    session.session_callbacks_ext.on_subscribe_tracks =
         xqc_test_on_subscribe_tracks;
     xqc_test_publish_callback_count = 0;
     xqc_test_subscribe_tracks_callback_count = 0;
@@ -8750,6 +8771,71 @@ xqc_test_control_goaway_cutoff_preserves_only_earlier_requests(void)
     xqc_test_clean_stream(&ctl_stream);
     xqc_moq_d18_auth_cache_destroy(&session.peer_auth_cache);
     xqc_moq_d18_request_registry_destroy(&session.d18_request_registry);
+    return 0;
+}
+
+typedef struct {
+    xqc_timer_manager_t *manager;
+    xqc_gp_timer_id_t    timer_to_remove;
+    xqc_int_t            unregister_ret;
+    unsigned             remover_calls;
+    unsigned             removed_calls;
+} xqc_test_gp_timer_delete_next_ctx_t;
+
+static void
+xqc_test_gp_timer_removed_callback(xqc_gp_timer_id_t timer_id,
+    xqc_usec_t now, void *user_data)
+{
+    (void)timer_id;
+    (void)now;
+    xqc_test_gp_timer_delete_next_ctx_t *ctx = user_data;
+    ctx->removed_calls++;
+}
+
+static void
+xqc_test_gp_timer_remover_callback(xqc_gp_timer_id_t timer_id,
+    xqc_usec_t now, void *user_data)
+{
+    (void)timer_id;
+    (void)now;
+    xqc_test_gp_timer_delete_next_ctx_t *ctx = user_data;
+    ctx->remover_calls++;
+    ctx->unregister_ret = xqc_timer_unregister_gp_timer(
+        ctx->manager, ctx->timer_to_remove);
+}
+
+static int
+xqc_test_gp_timer_callback_can_delete_next(void)
+{
+
+    xqc_timer_manager_t timers;
+    xqc_timer_init(&timers, &xqc_test_log, NULL);
+    xqc_test_gp_timer_delete_next_ctx_t ctx = {
+        .manager = &timers,
+        .unregister_ret = XQC_ERROR,
+    };
+    xqc_gp_timer_id_t remover_id = xqc_timer_register_gp_timer(
+        &timers, "delete_next_remover",
+        xqc_test_gp_timer_remover_callback, &ctx);
+    XQC_TEST_ASSERT(remover_id >= 0);
+    ctx.timer_to_remove = xqc_timer_register_gp_timer(
+        &timers, "delete_next_victim",
+        xqc_test_gp_timer_removed_callback, &ctx);
+    XQC_TEST_ASSERT(ctx.timer_to_remove >= 0);
+
+    xqc_usec_t expires = xqc_monotonic_timestamp() + 1;
+    XQC_TEST_ASSERT(xqc_timer_gp_timer_set(
+        &timers, remover_id, expires) == XQC_OK);
+    XQC_TEST_ASSERT(xqc_timer_gp_timer_set(
+        &timers, ctx.timer_to_remove, expires) == XQC_OK);
+    xqc_timer_expire(&timers, expires);
+
+    XQC_TEST_ASSERT(ctx.remover_calls == 1);
+    XQC_TEST_ASSERT(ctx.removed_calls == 0);
+    XQC_TEST_ASSERT(ctx.unregister_ret == XQC_OK);
+    XQC_TEST_ASSERT(xqc_timer_unregister_gp_timer(
+        &timers, remover_id) == XQC_OK);
+    XQC_TEST_ASSERT(xqc_list_empty(&timers.gp_timer_list));
     return 0;
 }
 
@@ -9337,6 +9423,9 @@ main(void)
         return 1;
     }
     if (xqc_test_goaway_timers_and_teardown() != 0) {
+        return 1;
+    }
+    if (xqc_test_gp_timer_callback_can_delete_next() != 0) {
         return 1;
     }
     if (xqc_test_goaway_decode_errors_map_session_error() != 0) {

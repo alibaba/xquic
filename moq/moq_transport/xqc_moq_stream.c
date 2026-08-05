@@ -87,10 +87,10 @@ xqc_moq_stream_clear_local_namespace_subscription(
                            list_member);
         xqc_list_del_init(pos);
         if (stream->session != NULL
-            && stream->session->session_callbacks.on_namespace_done
+            && stream->session->session_callbacks_ext.on_namespace_done
                 != NULL)
         {
-            stream->session->session_callbacks.on_namespace_done(
+            stream->session->session_callbacks_ext.on_namespace_done(
                 stream->session->user_session, stream->request_id,
                 advertisement->track_namespace_tuple,
                 advertisement->track_namespace_num);
@@ -170,6 +170,10 @@ xqc_moq_stream_destroy(xqc_moq_stream_t *stream)
     xqc_stream_t *quic_stream = stream->trans_ops.quic_stream(stream->trans_stream);
     xqc_usec_t now = xqc_monotonic_timestamp();
 
+    xqc_moq_stream_unregister_goaway_timer(stream);
+    xqc_moq_stream_finish_request_internal(
+        stream, xqc_moq_stream_peer_close_error(stream), 1, 0);
+
     if (stream->fetch_request_stream != NULL
         && stream->fetch_request_stream->fetch_data_stream == stream)
     {
@@ -182,10 +186,6 @@ xqc_moq_stream_destroy(xqc_moq_stream_t *stream)
     }
     stream->fetch_request_stream = NULL;
     stream->fetch_data_stream = NULL;
-
-    xqc_moq_stream_unregister_goaway_timer(stream);
-    xqc_moq_stream_finish_request_internal(
-        stream, xqc_moq_stream_peer_close_error(stream), 1, 0);
 
     if (stream->d18_waiting_for_setup) {
         xqc_list_del_init(&stream->d18_deferred_list_member);
@@ -948,6 +948,20 @@ xqc_moq_stream_process(xqc_moq_stream_t *moq_stream, uint8_t *buf, size_t buf_le
     }
     moq_stream->read_buf_processed = 0;
 
+    /* A FETCH data stream may end with a FIN-only frame after its last Object.
+     * The prior Object may leave an empty decoder pre-created for the next
+     * record.  No buffered bytes and no decoded fields is a clean record
+     * boundary, not a truncated record. */
+    if (fin && moq_stream->read_buf_len == 0
+        && moq_stream->decode_msg_ctx.cur_field_idx == 0
+        && moq_stream->fetch_request_stream != NULL)
+    {
+        xqc_moq_stream_clean_decode_msg_ctx(moq_stream);
+        moq_stream->peer_fin_received = 1;
+        xqc_moq_stream_finish_request(moq_stream, XQC_OK);
+        return 0;
+    }
+
     do {
         switch (moq_stream->decode_msg_ctx.cur_decode_state) {
             case XQC_MOQ_DECODE_MSG_TYPE:
@@ -1240,12 +1254,23 @@ xqc_moq_stream_finish_request_internal(xqc_moq_stream_t *moq_stream,
     if (moq_stream->fetch_request_stream != NULL) {
         xqc_moq_stream_t *request_stream =
             moq_stream->fetch_request_stream;
+        uint64_t request_id = request_stream->request_id;
+        xqc_int_t notify_fetch_complete = request_stream->local_request
+            && request_stream->request_type == XQC_MOQ_MSG_FETCH
+            && !request_stream->request_closed_notified
+            && session->session_callbacks_ext.on_fetch_complete != NULL;
         moq_stream->fetch_request_stream = NULL;
         if (request_stream->fetch_data_stream == moq_stream) {
             request_stream->fetch_data_stream = NULL;
         }
         xqc_moq_stream_finish_request_internal(
             request_stream, error_code, notify_cancelled, 0);
+        if (notify_fetch_complete) {
+            xqc_moq_session_callback_enter(session);
+            session->session_callbacks_ext.on_fetch_complete(
+                session->user_session, request_id, error_code);
+            xqc_moq_session_callback_leave(session);
+        }
     }
     if (moq_stream->local_request
         && moq_stream->request_type
@@ -1356,9 +1381,9 @@ xqc_moq_stream_finish_request_internal(xqc_moq_stream_t *moq_stream,
             "|publish_namespace request ended|request_id:%ui|error_code:%ui|",
             moq_stream->request_id, error_code);
     if (!is_local_advertisement
-        && session->session_callbacks.on_publish_namespace_done != NULL)
+        && session->session_callbacks_ext.on_publish_namespace_done != NULL)
     {
-        session->session_callbacks.on_publish_namespace_done(
+        session->session_callbacks_ext.on_publish_namespace_done(
             session->user_session, moq_stream->request_id,
             advertisement->track_namespace_tuple,
             advertisement->track_namespace_num, error_code);

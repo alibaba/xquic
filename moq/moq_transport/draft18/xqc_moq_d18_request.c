@@ -133,6 +133,28 @@ xqc_moq_d18_request_id_register_local(
 }
 
 xqc_moq_d18_request_id_result_t
+xqc_moq_d18_request_id_unregister_local(
+    xqc_moq_d18_request_registry_t *registry, uint64_t request_id)
+{
+    if (registry == NULL) {
+        return XQC_MOQ_D18_REQUEST_ID_INVALID_PARITY;
+    }
+    xqc_list_head_t *pos;
+    xqc_list_head_t *next;
+    xqc_list_for_each_safe(pos, next, &registry->local_ids) {
+        xqc_moq_d18_request_id_entry_t *entry =
+            xqc_list_entry(pos, xqc_moq_d18_request_id_entry_t,
+                           list_member);
+        if (entry->request_id == request_id) {
+            xqc_list_del_init(&entry->list_member);
+            xqc_free(entry);
+            return XQC_MOQ_D18_REQUEST_ID_OK;
+        }
+    }
+    return XQC_MOQ_D18_REQUEST_ID_DUPLICATE;
+}
+
+xqc_moq_d18_request_id_result_t
 xqc_moq_d18_request_id_register_peer(
     xqc_moq_d18_request_registry_t *registry, uint64_t request_id)
 {

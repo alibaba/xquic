@@ -305,6 +305,18 @@ xqc_moq_write_msg_generic(xqc_moq_session_t *session, xqc_moq_stream_t *stream,
     return xqc_moq_write_profile_message(session, stream, msg_base, semantic);
 }
 
+static xqc_int_t
+xqc_moq_write_msg_generic_atomic(xqc_moq_session_t *session,
+    xqc_moq_stream_t *stream, xqc_moq_msg_base_t *msg_base,
+    xqc_moq_semantic_id_t semantic)
+{
+    if (msg_base == NULL) {
+        return -XQC_EPARAM;
+    }
+    return xqc_moq_write_profile_message_internal(
+        session, stream, msg_base, semantic, XQC_TRUE);
+}
+
 xqc_int_t
 xqc_moq_write_client_setup(xqc_moq_session_t *session, xqc_moq_client_setup_msg_t *client_setup)
 {
@@ -2548,9 +2560,12 @@ xqc_moq_write_initial_track_request(xqc_moq_session_t *session,
     stream->request_id = request_id;
     xqc_list_add_tail(&stream->request_list_member,
                       &session->local_request_stream_list);
-    ret = xqc_moq_write_msg_generic(session, stream, base, semantic);
+    ret = xqc_moq_write_msg_generic_atomic(
+        session, stream, base, semantic);
     if (ret != XQC_OK) {
         xqc_list_del_init(&stream->request_list_member);
+        (void)xqc_moq_session_unregister_local_request_id(
+            session, request_id);
         xqc_moq_d18_params_free(
             stream->d18_accepted_params, stream->d18_accepted_params_num);
         stream->d18_accepted_params = NULL;
@@ -3328,12 +3343,6 @@ xqc_moq_write_request_update(xqc_moq_session_t *session,
     if (update->request_id == 0) {
         update->request_id = xqc_moq_session_alloc_request_id(session);
     }
-    xqc_int_t ret = xqc_moq_register_local_request_id(
-        session, update->request_id);
-    if (ret != XQC_OK) {
-        return ret;
-    }
-
     xqc_moq_d18_update_record_t *record = NULL;
     if (xqc_moq_d18_update_record_create(
             update->request_id, update->params,
@@ -3371,24 +3380,30 @@ xqc_moq_write_request_update(xqc_moq_session_t *session,
             record->candidate_prefix->request_id = target_request_id;
         }
     }
+    xqc_int_t ret = xqc_moq_register_local_request_id(
+        session, update->request_id);
+    if (ret != XQC_OK) {
+        xqc_moq_d18_update_record_destroy(record);
+        return ret;
+    }
     if (xqc_moq_d18_update_queue_push(
             &request_stream->d18_local_update_queue, record)
         != XQC_MOQ_D18_UPDATE_OK)
     {
+        (void)xqc_moq_session_unregister_local_request_id(
+            session, update->request_id);
         xqc_moq_d18_update_record_destroy(record);
         return -XQC_EPARAM;
     }
 
     update->d18_param_context = (uint8_t)context;
-    size_t previous_write_len = request_stream->write_buf_len;
-    size_t previous_write_processed =
-        request_stream->write_buf_processed;
-    ret = xqc_moq_write_msg_generic(session, request_stream,
-        &update->msg_base, XQC_MOQ_SEMANTIC_REQUEST_UPDATE);
+    ret = xqc_moq_write_msg_generic_atomic(
+        session, request_stream, &update->msg_base,
+        XQC_MOQ_SEMANTIC_REQUEST_UPDATE);
     if (ret != XQC_OK) {
-        request_stream->write_buf_len = previous_write_len;
-        request_stream->write_buf_processed =
-            previous_write_processed;
+        xqc_list_del_init(&record->list_member);
+        (void)xqc_moq_session_unregister_local_request_id(
+            session, update->request_id);
         xqc_moq_d18_update_record_destroy(record);
     }
     return ret;

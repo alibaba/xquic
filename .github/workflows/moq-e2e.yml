@@ -40,7 +40,9 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential libevent-dev libcunit1-dev cmake
+        sudo apt-get install -y \
+          autoconf automake build-essential cmake libcunit1-dev libevent-dev \
+          libglib2.0-dev libjansson-dev libssl-dev libtool pkg-config
 
     - name: Cache BoringSSL
       id: cache-boringssl
@@ -76,6 +78,36 @@ jobs:
               ..
         make -j$(nproc)
 
+    - name: Build pinned imquic Draft-18 peer
+      env:
+        IMQUIC_COMMIT: 1f4cbf8a638b80ef40f251fe9787b29f192b0cee
+        PICOQUIC_COMMIT: 0dc8ba8b2be30246720934d3f43a144b372e1a90
+      run: |
+        IMQUIC_ROOT="${PWD}/build/imquic"
+        git clone https://github.com/meetecho/imquic.git "${IMQUIC_ROOT}"
+        git -C "${IMQUIC_ROOT}" checkout --detach "${IMQUIC_COMMIT}"
+        git -C "${IMQUIC_ROOT}" apply \
+          "${PWD}/moq/tests/patches/imquic-draft18-lifecycle.patch"
+
+        git clone https://github.com/private-octopus/picoquic.git \
+          "${IMQUIC_ROOT}/picoquic"
+        git -C "${IMQUIC_ROOT}/picoquic" checkout --detach \
+          "${PICOQUIC_COMMIT}"
+        cmake -S "${IMQUIC_ROOT}/picoquic" \
+          -B "${IMQUIC_ROOT}/picoquic" \
+          -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+          -DPICOQUIC_FETCH_PTLS=Y
+        cmake --build "${IMQUIC_ROOT}/picoquic" -j"$(nproc)"
+
+        cd "${IMQUIC_ROOT}"
+        sh autogen.sh
+        ./configure --enable-moq-examples
+        make -j"$(nproc)"
+        "${GITHUB_WORKSPACE}/moq/tests/check_imquic_draft18_peer.sh" \
+          "${IMQUIC_ROOT}"
+        bash "${GITHUB_WORKSPACE}/moq/tests/check_imquic_draft18_peer_test.sh" \
+          "${IMQUIC_ROOT}"
+
     # ctest also runs the upstream unittest suite, which loads ./server.key and
     # ./server.crt from the build directory. Generate them first.
     - name: Generate TLS certificates
@@ -96,7 +128,10 @@ jobs:
 
     - name: Run MoQ E2E tests
       env:
+        IMQUIC_ROOT: ${{ github.workspace }}/build/imquic
+        XQUIC_BUILD_DIR: ${{ github.workspace }}/build
         MOQ_E2E_LOG_DIR: ${{ github.workspace }}/build/moq-e2e-logs
+        MOQ_IMQUIC_LOG_PARENT: ${{ github.workspace }}/build/moq-e2e-logs
       run: |
         DEMO_DIR="${PWD}/build/moq/demo"
         PASS_TOTAL=0

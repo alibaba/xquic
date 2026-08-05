@@ -35,6 +35,9 @@ xqc_moq_d18_request_id_result_t xqc_moq_d18_request_id_validate_local(
 xqc_moq_d18_request_id_result_t xqc_moq_d18_request_id_register_local(
     xqc_moq_d18_request_registry_t *registry, uint64_t request_id);
 
+xqc_moq_d18_request_id_result_t xqc_moq_d18_request_id_unregister_local(
+    xqc_moq_d18_request_registry_t *registry, uint64_t request_id);
+
 xqc_moq_d18_request_id_result_t xqc_moq_d18_request_id_register_peer(
     xqc_moq_d18_request_registry_t *registry, uint64_t request_id);
 

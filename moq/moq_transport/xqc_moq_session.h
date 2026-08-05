@@ -72,6 +72,7 @@ typedef struct xqc_moq_session_s {
     xqc_moq_stream_t                *peer_ctl_stream;
     xqc_moq_datachannel_t           datachannel;
     xqc_moq_session_callbacks_t     session_callbacks;
+    xqc_moq_session_callbacks_ext_t session_callbacks_ext;
     xqc_moq_on_request_cancelled_pt on_request_cancelled;
     uint32_t                        callback_depth;
     uint8_t                         destroy_pending;
@@ -179,6 +180,10 @@ uint64_t xqc_moq_session_alloc_request_id(xqc_moq_session_t *session);
 
 xqc_moq_d18_request_id_result_t
 xqc_moq_session_register_local_request_id(xqc_moq_session_t *session,
+    uint64_t request_id);
+
+xqc_moq_d18_request_id_result_t
+xqc_moq_session_unregister_local_request_id(xqc_moq_session_t *session,
     uint64_t request_id);
 
 xqc_moq_d18_request_id_result_t

@@ -30,6 +30,8 @@ if [[ ! -x "${PUBLISHER}" ]]; then
     echo "imquic publisher not found: ${PUBLISHER}" >&2
     exit 2
 fi
+bash "${ROOT_DIR}/moq/tests/check_imquic_draft18_peer.sh" "${IMQUIC_ROOT}" \
+    || exit 2
 case "${CASE_TIMEOUT}" in
     ''|*[!0-9]*|0)
         echo "MOQ_IMQUIC_CASE_TIMEOUT_SEC must be a positive integer" >&2
@@ -399,6 +401,7 @@ run_case() {
                 'control_e2e_server|fetch_object|request_id:1|index:1|group:2|subgroup:3|object:5|priority:7|payload:0|'
                 'control_e2e_server|fetch_object|request_id:1|index:2|group:4|subgroup:4|object:0|priority:7|payload:14|'
                 'control_e2e_server|fetch_payload|index:2|value:imquic-fetch-C'
+                'control_e2e_server|fetch_complete|request_id:1|error:0|objects:3'
             )
             ;;
         *)

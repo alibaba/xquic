@@ -1204,7 +1204,7 @@ xqc_test_track_status_success_finishes_without_subscription(void)
 
     xqc_test_init_peer_request_session(
         &session, &stream, &user_session, &engine, &capture);
-    session.session_callbacks.on_track_status =
+    session.session_callbacks_ext.on_track_status =
         xqc_test_on_track_status_respond_ok;
     xqc_test_track_status_response_ret = -XQC_ERROR;
     xqc_moq_on_track_status(&session, &stream, &status.msg_base);
@@ -1470,9 +1470,11 @@ xqc_test_fetch_track_status_and_empty_fetch_writers(void)
 
 static int xqc_test_fetch_ok_callback_count;
 static int xqc_test_fetch_header_callback_count;
+static int xqc_test_fetch_complete_callback_count;
 static int xqc_test_track_status_ok_callback_count;
 static int xqc_test_finite_request_cancelled_count;
 static uint64_t xqc_test_fetch_callback_request_id;
+static uint64_t xqc_test_fetch_complete_error;
 static uint8_t xqc_test_fetch_callback_fin;
 
 static void
@@ -1512,6 +1514,16 @@ xqc_test_on_fetch_header(xqc_moq_user_session_t *user_session,
 }
 
 static void
+xqc_test_on_fetch_complete(xqc_moq_user_session_t *user_session,
+    uint64_t request_id, uint64_t error_code)
+{
+    (void)user_session;
+    xqc_test_fetch_callback_request_id = request_id;
+    xqc_test_fetch_complete_error = error_code;
+    xqc_test_fetch_complete_callback_count++;
+}
+
+static void
 xqc_test_on_track_status_ok(xqc_moq_user_session_t *user_session,
     uint64_t request_id, xqc_moq_request_ok_msg_t *msg)
 {
@@ -1533,10 +1545,16 @@ xqc_test_fetch_and_track_status_receive_lifecycle(void)
     xqc_test_setup_write_capture_t seed_capture = {0};
     xqc_test_init_peer_request_session(
         &session, &seed_stream, &user_session, &engine, &seed_capture);
-    session.session_callbacks.on_fetch_ok = xqc_test_on_fetch_ok;
-    session.session_callbacks.on_fetch_header = xqc_test_on_fetch_header;
-    session.session_callbacks.on_track_status_ok =
-        xqc_test_on_track_status_ok;
+    xqc_moq_session_callbacks_ext_t callbacks_ext = {
+        .struct_size = sizeof(callbacks_ext),
+        .abi_version = XQC_MOQ_SESSION_CALLBACKS_EXT_ABI_VERSION,
+        .on_fetch_ok = xqc_test_on_fetch_ok,
+        .on_fetch_header = xqc_test_on_fetch_header,
+        .on_fetch_complete = xqc_test_on_fetch_complete,
+        .on_track_status_ok = xqc_test_on_track_status_ok,
+    };
+    XQC_TEST_ASSERT(xqc_moq_session_set_callbacks_ext(
+        &session, &callbacks_ext) == XQC_OK);
     session.on_request_cancelled =
         xqc_test_on_finite_request_cancelled;
 
@@ -1558,6 +1576,8 @@ xqc_test_fetch_and_track_status_receive_lifecycle(void)
 
     xqc_test_fetch_ok_callback_count = 0;
     xqc_test_fetch_header_callback_count = 0;
+    xqc_test_fetch_complete_callback_count = 0;
+    xqc_test_fetch_complete_error = UINT64_MAX;
     xqc_moq_fetch_ok_msg_t fetch_ok = {
         .end_of_track = 1,
         .end_group_id = 3,
@@ -1609,6 +1629,9 @@ xqc_test_fetch_and_track_status_receive_lifecycle(void)
     XQC_TEST_ASSERT(fetch_request.fetch_data_stream == NULL);
     XQC_TEST_ASSERT(fetch_data.fetch_request_stream == NULL);
     XQC_TEST_ASSERT(xqc_test_finite_request_cancelled_count == 0);
+    XQC_TEST_ASSERT(xqc_test_fetch_complete_callback_count == 1);
+    XQC_TEST_ASSERT(xqc_test_fetch_callback_request_id == 1);
+    XQC_TEST_ASSERT(xqc_test_fetch_complete_error == XQC_OK);
 
     xqc_moq_stream_t status_request;
     xqc_test_setup_write_capture_t status_capture = {0};
@@ -1684,7 +1707,7 @@ xqc_test_fetch_state_rules_precede_application_callback(void)
         xqc_test_setup_write_capture_t seed_capture = {0};
         xqc_test_init_peer_request_session(
             &session, &seed_stream, &user_session, &engine, &seed_capture);
-        session.session_callbacks.on_fetch = xqc_test_on_incoming_fetch;
+        session.session_callbacks_ext.on_fetch = xqc_test_on_incoming_fetch;
 
         xqc_moq_message_parameter_t forward = {
             .type = XQC_MOQ_D18_PARAM_FORWARD,
@@ -2546,6 +2569,116 @@ xqc_test_d18_update_queues_are_owned_fifo(void)
     return 0;
 }
 
+static int
+xqc_test_initial_request_write_failure_is_transactional(void)
+{
+    xqc_moq_session_t session;
+    xqc_moq_stream_t seed_stream;
+    xqc_moq_user_session_t user_session;
+    xqc_engine_t engine;
+    xqc_test_setup_write_capture_t seed_capture = {0};
+    xqc_test_init_peer_request_session(
+        &session, &seed_stream, &user_session, &engine, &seed_capture);
+
+    xqc_moq_stream_t stream;
+    xqc_test_setup_write_capture_t capture = {0};
+    capture.scripted_results[0] = -XQC_ESYS;
+    capture.scripted_results_count = 1;
+    xqc_test_init_outbound_d18_stream(
+        &stream, &session, &capture, XQC_MOQ_D18_DIRECTION_BIDI);
+    xqc_moq_track_ns_field_t ns = {
+        .data = (uint8_t *)"ns",
+        .len = 2,
+    };
+    xqc_moq_fetch_msg_t fetch = {
+        .request_id = 1,
+        .fetch_type = XQC_MOQ_FETCH_STANDALONE,
+        .track_namespace_num = 1,
+        .track_namespace_tuple = &ns,
+        .track_name = "video",
+        .track_name_len = 5,
+        .start_group_id = 1,
+        .start_object_id = 2,
+        .end_group_id = 3,
+        .end_object_id = 4,
+    };
+
+    XQC_TEST_ASSERT(xqc_moq_write_fetch(&session, &stream, &fetch)
+                    == -XQC_ESYS);
+    XQC_TEST_ASSERT(xqc_moq_d18_request_id_validate_local(
+        &session.d18_request_registry, 1) == XQC_MOQ_D18_REQUEST_ID_OK);
+    XQC_TEST_ASSERT(xqc_list_empty(&session.local_request_stream_list));
+    XQC_TEST_ASSERT(stream.local_request == 0);
+    XQC_TEST_ASSERT(stream.write_buf_len == 0);
+    XQC_TEST_ASSERT(stream.write_buf_processed == 0);
+
+    XQC_TEST_ASSERT(xqc_moq_write_fetch(&session, &stream, &fetch) == XQC_OK);
+    XQC_TEST_ASSERT(stream.local_request == 1);
+    XQC_TEST_ASSERT(stream.request_id == 1);
+    XQC_TEST_ASSERT(capture.write_call_count == 2);
+
+    xqc_list_del_init(&stream.request_list_member);
+    free(stream.write_buf);
+    xqc_moq_d18_auth_cache_destroy(&session.peer_auth_cache);
+    xqc_moq_d18_request_registry_destroy(&session.d18_request_registry);
+    return 0;
+}
+
+static int
+xqc_test_request_update_write_failure_is_transactional(void)
+{
+    xqc_moq_session_t session;
+    xqc_moq_stream_t target;
+    xqc_moq_user_session_t user_session;
+    xqc_engine_t engine;
+    xqc_test_setup_write_capture_t capture = {0};
+    xqc_test_init_peer_request_session(
+        &session, &target, &user_session, &engine, &capture);
+    target.local_request = 1;
+    target.request_type = XQC_MOQ_MSG_SUBSCRIBE;
+    target.request_id = 1;
+    target.response_received = 1;
+    xqc_list_add_tail(
+        &target.request_list_member, &session.local_request_stream_list);
+    XQC_TEST_ASSERT(xqc_moq_session_register_local_request_id(&session, 1)
+                    == XQC_MOQ_D18_REQUEST_ID_OK);
+
+    capture.scripted_results[0] = -XQC_ESYS;
+    capture.scripted_results_count = 1;
+    xqc_moq_message_parameter_t forward = {
+        .type = XQC_MOQ_D18_PARAM_FORWARD,
+        .is_integer = 1,
+        .int_value = 0,
+    };
+    xqc_moq_request_update_msg_t update = {
+        .request_id = 3,
+        .params = &forward,
+        .params_num = 1,
+    };
+
+    XQC_TEST_ASSERT(xqc_moq_write_request_update(&session, 1, &update)
+                    == -XQC_ESYS);
+    XQC_TEST_ASSERT(xqc_moq_d18_request_id_validate_local(
+        &session.d18_request_registry, 3) == XQC_MOQ_D18_REQUEST_ID_OK);
+    XQC_TEST_ASSERT(xqc_moq_d18_update_queue_peek(
+        &target.d18_local_update_queue) == NULL);
+    XQC_TEST_ASSERT(target.write_buf_len == 0);
+    XQC_TEST_ASSERT(target.write_buf_processed == 0);
+
+    XQC_TEST_ASSERT(xqc_moq_write_request_update(&session, 1, &update)
+                    == XQC_OK);
+    XQC_TEST_ASSERT(xqc_moq_d18_update_queue_peek(
+        &target.d18_local_update_queue)->request_id == 3);
+    XQC_TEST_ASSERT(capture.write_call_count == 2);
+
+    xqc_list_del_init(&target.request_list_member);
+    xqc_moq_d18_update_queue_destroy(&target.d18_local_update_queue);
+    free(target.write_buf);
+    xqc_moq_d18_auth_cache_destroy(&session.peer_auth_cache);
+    xqc_moq_d18_request_registry_destroy(&session.d18_request_registry);
+    return 0;
+}
+
 static int xqc_test_request_goaway_cancel_count;
 static uint64_t xqc_test_request_goaway_cancel_id;
 static uint64_t xqc_test_request_goaway_cancel_error;
@@ -2688,6 +2821,8 @@ main(void)
         || xqc_test_d18_params_merge_replaces_type_groups() != 0
         || xqc_test_d18_params_merge_failure_is_atomic() != 0
         || xqc_test_d18_update_queues_are_owned_fifo() != 0
+        || xqc_test_initial_request_write_failure_is_transactional() != 0
+        || xqc_test_request_update_write_failure_is_transactional() != 0
         || xqc_test_request_goaway_fin_cancels_only_target() != 0)
     {
         return 1;

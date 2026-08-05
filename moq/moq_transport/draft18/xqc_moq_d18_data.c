@@ -1355,20 +1355,6 @@ xqc_moq_d18_on_subgroup(xqc_moq_session_t *session,
 }
 
 static void
-xqc_moq_d18_finish_fetch_stream(xqc_moq_stream_t *stream)
-{
-    if (stream == NULL || stream->fetch_request_stream == NULL) {
-        return;
-    }
-    xqc_moq_stream_t *request_stream = stream->fetch_request_stream;
-    stream->fetch_request_stream = NULL;
-    if (request_stream->fetch_data_stream == stream) {
-        request_stream->fetch_data_stream = NULL;
-    }
-    xqc_moq_stream_finish_request(request_stream, XQC_OK);
-}
-
-static void
 xqc_moq_d18_on_fetch_object(xqc_moq_session_t *session,
     xqc_moq_stream_t *stream, xqc_moq_msg_base_t *base)
 {
@@ -1380,23 +1366,20 @@ xqc_moq_d18_on_fetch_object(xqc_moq_session_t *session,
         stream->d18_fetch_previous_actual_valid = 1;
         stream->d18_fetch_previous_subgroup_id = msg->object.subgroup_id;
         stream->d18_fetch_previous_priority = msg->object.publisher_priority;
-        if (session->session_callbacks.on_fetch_object != NULL) {
+        if (session->session_callbacks_ext.on_fetch_object != NULL) {
             xqc_moq_session_callback_enter(session);
-            session->session_callbacks.on_fetch_object(
+            session->session_callbacks_ext.on_fetch_object(
                 session->user_session, stream->request_id, &msg->object);
             xqc_moq_session_callback_leave(session);
         }
-    } else if (session->session_callbacks.on_fetch_range != NULL) {
+    } else if (session->session_callbacks_ext.on_fetch_range != NULL) {
         xqc_moq_session_callback_enter(session);
-        session->session_callbacks.on_fetch_range(
+        session->session_callbacks_ext.on_fetch_range(
             session->user_session, stream->request_id,
             msg->object.group_id, msg->object.object_id,
             msg->record_kind == XQC_MOQ_D18_RECORD_UNKNOWN_RANGE,
             msg->fin_received);
         xqc_moq_session_callback_leave(session);
-    }
-    if (msg->fin_received) {
-        xqc_moq_d18_finish_fetch_stream(stream);
     }
 }
 

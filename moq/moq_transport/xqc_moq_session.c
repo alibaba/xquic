@@ -237,31 +237,13 @@ xqc_moq_init_alpn_draft18(xqc_engine_t *engine,
 
 static xqc_int_t
 xqc_moq_write_initial_setup(xqc_moq_session_t *session,
-    const xqc_moq_draft18_setup_config_t *config)
+    uint8_t *options, size_t options_len)
 {
     xqc_moq_setup_msg_t setup;
     xqc_memzero(&setup, sizeof(setup));
-
-    uint8_t *options = NULL;
-    size_t options_len = 0;
-    xqc_moq_d18_setup_sender_t sender =
-        session->engine->eng_type == XQC_ENGINE_CLIENT
-        ? XQC_MOQ_D18_SETUP_SENDER_CLIENT
-        : XQC_MOQ_D18_SETUP_SENDER_SERVER;
-    xqc_moq_d18_setup_transport_t transport =
-        session->transport_type == XQC_MOQ_TRANSPORT_QUIC
-        ? XQC_MOQ_D18_SETUP_TRANSPORT_NATIVE_QUIC
-        : XQC_MOQ_D18_SETUP_TRANSPORT_WEBTRANSPORT;
-    xqc_int_t ret = xqc_moq_session_encode_draft18_setup_config(
-        config, sender, transport, &options, &options_len);
-    if (ret != XQC_OK) {
-        return ret;
-    }
     setup.options = options;
     setup.options_len = options_len;
-    ret = xqc_moq_write_setup(session, &setup);
-    xqc_free(options);
-    return ret;
+    return xqc_moq_write_setup(session, &setup);
 }
 
 xqc_int_t
@@ -406,6 +388,8 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
 {
     xqc_int_t ret = 0;
     xqc_moq_draft18_setup_config_t default_draft18_config;
+    uint8_t *draft18_setup_options = NULL;
+    size_t draft18_setup_options_len = 0;
     const xqc_moq_message_parameter_t *setup_params =
         config != NULL ? config->setup_params : NULL;
     uint64_t setup_params_num =
@@ -462,6 +446,12 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
         goto error;
     }
 
+    session->use_unified_setup = session->profile->unified_setup;
+    if (draft18_config != NULL && !session->use_unified_setup) {
+        ret = -XQC_EVERSION;
+        goto error;
+    }
+
     user_session->session = session;
     xqc_datagram_set_user_data(quic_conn, user_session);
 
@@ -478,7 +468,6 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
     xqc_init_list_head(&session->d18_deferred_stream_list);
     xqc_init_list_head(&session->local_ns_pending_list);
 
-    session->use_unified_setup = session->profile->unified_setup;
     if (session->use_unified_setup
         && draft18_config == NULL
         && session->engine->eng_type != XQC_ENGINE_CLIENT)
@@ -488,6 +477,20 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
         draft18_config = &default_draft18_config;
     }
     if (session->use_unified_setup) {
+        xqc_moq_d18_setup_sender_t sender =
+            session->engine->eng_type == XQC_ENGINE_CLIENT
+            ? XQC_MOQ_D18_SETUP_SENDER_CLIENT
+            : XQC_MOQ_D18_SETUP_SENDER_SERVER;
+        xqc_moq_d18_setup_transport_t transport =
+            session->transport_type == XQC_MOQ_TRANSPORT_QUIC
+            ? XQC_MOQ_D18_SETUP_TRANSPORT_NATIVE_QUIC
+            : XQC_MOQ_D18_SETUP_TRANSPORT_WEBTRANSPORT;
+        ret = xqc_moq_session_encode_draft18_setup_config(
+            draft18_config, sender, transport, &draft18_setup_options,
+            &draft18_setup_options_len);
+        if (ret != XQC_OK) {
+            goto error;
+        }
         uint8_t local_is_server =
             session->engine->eng_type == XQC_ENGINE_CLIENT ? 0 : 1;
         xqc_moq_d18_request_registry_init(
@@ -512,7 +515,11 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
         }
         session->ctl_stream = stream;
         stream->kind = XQC_MOQ_STREAM_CONTROL;
-        ret = xqc_moq_write_initial_setup(session, draft18_config);
+        ret = xqc_moq_write_initial_setup(session, draft18_setup_options,
+                                          draft18_setup_options_len);
+        xqc_free(draft18_setup_options);
+        draft18_setup_options = NULL;
+        draft18_setup_options_len = 0;
         if (ret < 0) {
             xqc_log(session->log, XQC_LOG_ERROR,
                     "|write unified SETUP error|ret:%d|", ret);
@@ -568,7 +575,11 @@ xqc_moq_session_create_internal(void *conn, xqc_moq_user_session_t *user_session
     return session;
 
 error:
+    xqc_free(draft18_setup_options);
     if (session->active_stream_count > 0) {
+        if (session->ctl_stream != NULL) {
+            (void)xqc_moq_stream_close(session->ctl_stream);
+        }
         xqc_moq_session_destroy(session);
         return NULL;
     }
@@ -1345,6 +1356,14 @@ xqc_moq_session_register_local_request_id(xqc_moq_session_t *session,
 }
 
 xqc_moq_d18_request_id_result_t
+xqc_moq_session_unregister_local_request_id(xqc_moq_session_t *session,
+    uint64_t request_id)
+{
+    return xqc_moq_d18_request_id_unregister_local(
+        &session->d18_request_registry, request_id);
+}
+
+xqc_moq_d18_request_id_result_t
 xqc_moq_session_register_peer_request_id(xqc_moq_session_t *session,
     uint64_t request_id)
 {
@@ -2015,6 +2034,35 @@ xqc_moq_session_forward_publish_blocked(
     }
     return first_error;
 }
+xqc_int_t
+xqc_moq_session_set_callbacks_ext(xqc_moq_session_t *session,
+    const xqc_moq_session_callbacks_ext_t *callbacks)
+{
+    const size_t header_size = offsetof(
+        xqc_moq_session_callbacks_ext_t, on_request_ok);
+    if (session == NULL || callbacks == NULL
+        || callbacks->struct_size < header_size)
+    {
+        return -XQC_EPARAM;
+    }
+    if (callbacks->abi_version
+        != XQC_MOQ_SESSION_CALLBACKS_EXT_ABI_VERSION)
+    {
+        return -XQC_EVERSION;
+    }
+
+    xqc_memzero(&session->session_callbacks_ext,
+                sizeof(session->session_callbacks_ext));
+    size_t copy_size = callbacks->struct_size;
+    if (copy_size > sizeof(session->session_callbacks_ext)) {
+        copy_size = sizeof(session->session_callbacks_ext);
+    }
+    xqc_memcpy(&session->session_callbacks_ext, callbacks, copy_size);
+    session->session_callbacks_ext.struct_size =
+        sizeof(session->session_callbacks_ext);
+    return XQC_OK;
+}
+
 void
 xqc_moq_session_set_request_cancelled_callback(
     xqc_moq_session_t *session,

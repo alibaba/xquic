@@ -198,6 +198,24 @@ xqc_test_d18_invalid_placements(void)
 }
 
 static int
+xqc_test_d18_reserved_subgroup_types_are_unknown(void)
+{
+    static const uint64_t reserved[] = {
+        0x16, 0x17, 0x1e, 0x1f, 0x56, 0x57, 0x5e, 0x5f,
+    };
+    xqc_moq_d18_message_desc_t desc;
+
+    for (size_t i = 0; i < sizeof(reserved) / sizeof(reserved[0]); i++) {
+        XQC_TEST_ASSERT(!xqc_moq_d18_is_subgroup_header_type(reserved[i]));
+        XQC_TEST_ASSERT(xqc_moq_d18_registry_lookup(
+            XQC_MOQ_D18_VERSION, XQC_MOQ_D18_DIRECTION_UNI,
+            XQC_MOQ_D18_STREAM_UNCLASSIFIED, XQC_MOQ_D18_POSITION_FIRST,
+            reserved[i], &desc) != XQC_MOQ_D18_REGISTRY_OK);
+    }
+    return 0;
+}
+
+static int
 xqc_test_d18_control_kinds_require_version_and_context(void)
 {
     static const uint64_t wire_types[] = {
@@ -314,6 +332,24 @@ xqc_test_d18_local_request_ids_are_reserved_once(void)
 }
 
 static int
+xqc_test_d18_local_request_id_can_be_unregistered(void)
+{
+    xqc_moq_d18_request_registry_t registry;
+
+    xqc_moq_d18_request_registry_init(&registry, 0);
+    XQC_TEST_ASSERT(xqc_moq_d18_request_id_register_local(&registry, 4)
+                    == XQC_MOQ_D18_REQUEST_ID_OK);
+    XQC_TEST_ASSERT(xqc_moq_d18_request_id_unregister_local(&registry, 4)
+                    == XQC_MOQ_D18_REQUEST_ID_OK);
+    XQC_TEST_ASSERT(xqc_moq_d18_request_id_validate_local(&registry, 4)
+                    == XQC_MOQ_D18_REQUEST_ID_OK);
+    XQC_TEST_ASSERT(xqc_moq_d18_request_id_unregister_local(&registry, 4)
+                    == XQC_MOQ_D18_REQUEST_ID_DUPLICATE);
+    xqc_moq_d18_request_registry_destroy(&registry);
+    return 0;
+}
+
+static int
 xqc_test_d18_stream_context_commits_after_message(void)
 {
     xqc_moq_d18_stream_context_t context = {
@@ -418,6 +454,10 @@ main(void)
         return EXIT_FAILURE;
     }
 
+    if (xqc_test_d18_reserved_subgroup_types_are_unknown() != 0) {
+        return EXIT_FAILURE;
+    }
+
     if (xqc_test_d18_control_kinds_require_version_and_context() != 0) {
         return EXIT_FAILURE;
     }
@@ -431,6 +471,10 @@ main(void)
     }
 
     if (xqc_test_d18_local_request_ids_are_reserved_once() != 0) {
+        return EXIT_FAILURE;
+    }
+
+    if (xqc_test_d18_local_request_id_can_be_unregistered() != 0) {
         return EXIT_FAILURE;
     }
 

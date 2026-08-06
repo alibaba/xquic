@@ -12,6 +12,7 @@ SELECTOR_ARGS=()
 SELECTOR_COUNT=0
 EXECUTE=0
 PARALLEL=0
+REQUIRE_COMPLETE=0
 JOBS=1
 PORT_BASE="${CASE_TEST_PORT_BASE:-18000}"
 
@@ -32,6 +33,7 @@ selector options:
 execution options:
   --execute
   --parallel
+  --require-complete
   --jobs <count>
   --port-base <port>
 USAGE
@@ -45,6 +47,10 @@ while [[ "$#" -gt 0 ]]; do
             ;;
         --parallel)
             PARALLEL=1
+            shift
+            ;;
+        --require-complete)
+            REQUIRE_COMPLETE=1
             shift
             ;;
         --jobs)
@@ -88,7 +94,28 @@ fi
 
 BUILD_DIR="$(case_test_build_dir "${ROOT_DIR}")"
 MAP_FILE="$(mktemp "${TMPDIR:-/tmp}/xquic_case_runners.XXXXXX")"
+PLAN_FILE="$(mktemp "${TMPDIR:-/tmp}/xquic_case_plan.XXXXXX")"
 trap 'rm -f "${MAP_FILE}"' EXIT
+trap 'rm -f "${MAP_FILE}" "${PLAN_FILE}"' EXIT
+
+selector_plan()
+{
+    if [[ "${SELECTOR_COUNT}" -eq 0 ]]; then
+        ruby "${ROOT_DIR}/case_test/lib/selector.rb" "${ROOT_DIR}" \
+            --execution-plan > "${PLAN_FILE}"
+
+    else
+        ruby "${ROOT_DIR}/case_test/lib/selector.rb" "${ROOT_DIR}" \
+            --execution-plan "${SELECTOR_ARGS[@]}" > "${PLAN_FILE}"
+    fi
+}
+
+if selector_plan; then
+    PLAN_COMPLETE=1
+
+else
+    PLAN_COMPLETE=0
+fi
 
 if [[ "${SELECTOR_COUNT}" -eq 0 ]]; then
     ruby "${ROOT_DIR}/case_test/lib/selector.rb" "${ROOT_DIR}" \
@@ -97,6 +124,25 @@ if [[ "${SELECTOR_COUNT}" -eq 0 ]]; then
 else
     ruby "${ROOT_DIR}/case_test/lib/selector.rb" "${ROOT_DIR}" \
         --runners "${SELECTOR_ARGS[@]}" > "${MAP_FILE}"
+fi
+
+if [[ "${REQUIRE_COMPLETE}" -eq 1 ]]; then
+    if [[ "${PLAN_COMPLETE}" -eq 0 ]]; then
+        cat "${PLAN_FILE}" >&2
+        echo "case_test: selected executable shards do not cover all selected legacy cases" >&2
+        exit 1
+    fi
+fi
+
+if [[ "${SELECTOR_COUNT}" -eq 0 && "${JOBS}" -eq 1 && "${PLAN_COMPLETE}" -eq 0 ]]; then
+    echo "[case-test] executable shards are incomplete; running legacy full suite as one shard"
+    exec "${LEGACY_SUITE}"
+fi
+
+if [[ "${SELECTOR_COUNT}" -eq 0 && "${PLAN_COMPLETE}" -eq 0 ]]; then
+    cat "${PLAN_FILE}" >&2
+    echo "case_test: full-suite executable shards are incomplete; use --jobs 1 for legacy fallback" >&2
+    exit 1
 fi
 
 if [[ ! -s "${MAP_FILE}" ]]; then

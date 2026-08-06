@@ -182,6 +182,7 @@ groups:
   - unlimited_cc
 - id: observability.qlog
   module: common
+  execution: implemented
   source_paths:
   - src/common/*
   - src/common/utils/*

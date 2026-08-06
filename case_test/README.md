@@ -39,10 +39,16 @@ Selected execution is opt-in:
 ```bash
 bash scripts/case_test.sh --execute --from-path src/transport/xqc_stream.c
 bash scripts/case_test.sh --execute --parallel --jobs 4 --module transport
+bash scripts/case_test.sh --execution-plan
 ```
 
 Only groups marked `execution: implemented` in `manifest.yml` are scheduled.
 Groups whose bodies still live in the legacy suite fail clearly instead of
-reporting a false pass. Until case bodies are migrated into implemented group
-runners, the maximum safe CI case-test job count is `1`; that runs the legacy
-full suite as one shard and preserves all legacy case coverage.
+reporting a false pass. Use `--execution-plan` to inspect implemented groups,
+missing cases, and the current maximum safe job count.
+
+For full-suite CI, the maximum safe case-test job count remains `1` until
+implemented shards cover all 319 unique legacy cases. `observability.qlog` is
+the first implemented shard; it can run as selected coverage, but the full CI
+entry point falls back to the legacy full suite as one shard while other groups
+remain pending.

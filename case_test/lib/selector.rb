@@ -11,6 +11,7 @@ options = {
   dry_run: false,
   inventory: false,
   runners: false,
+  execution_plan: false,
   cases: [],
   modules: [],
   features: [],
@@ -28,6 +29,8 @@ until args.empty?
     options[:inventory] = true
   when "--runners"
     options[:runners] = true
+  when "--execution-plan"
+    options[:execution_plan] = true
   when "--case"
     options[:cases] << (args.shift || abort("--case requires a value"))
   when "--module"
@@ -37,7 +40,7 @@ until args.empty?
   when "--from-path"
     options[:paths] << (args.shift || abort("--from-path requires a value"))
   when "-h", "--help"
-    puts "usage: scripts/case_test.sh [--list] [--inventory] [--dry-run] [--runners] [--case <id-or-name>] [--module <name>] [--feature <name>] [--from-path <path>]"
+    puts "usage: scripts/case_test.sh [--list] [--inventory] [--dry-run] [--runners] [--execution-plan] [--case <id-or-name>] [--module <name>] [--feature <name>] [--from-path <path>]"
     exit 0
   else
     abort("unknown case_test selector: #{arg}")
@@ -113,6 +116,30 @@ end
 if selected.empty? && !options[:list]
   warn "no matching case-test groups"
   exit 1
+end
+
+if options[:execution_plan]
+  selected_legacy = selected.flat_map { |group| group.fetch("legacy_names", []) }.uniq.sort
+  implemented = selected.select { |group| group.fetch("execution", "pending") == "implemented" }
+  implemented_legacy = implemented.flat_map { |group| group.fetch("legacy_names", []) }.uniq.sort
+  pending = selected.reject { |group| group.fetch("execution", "pending") == "implemented" }
+  missing = selected_legacy - implemented_legacy
+
+  puts "selected_groups=#{selected.length}"
+  puts "implemented_groups=#{implemented.length}"
+  puts "pending_groups=#{pending.length}"
+  puts "selected_unique_cases=#{selected_legacy.length}"
+  puts "implemented_unique_cases=#{implemented_legacy.length}"
+  puts "missing_unique_cases=#{missing.length}"
+  puts "complete=#{missing.empty?}"
+  puts "max_safe_jobs=#{missing.empty? ? [implemented.length, 1].max : 1}"
+  implemented.sort_by { |group| group.fetch("id") }.each do |group|
+    puts "implemented_group=#{group.fetch("id")} legacy_count=#{group.fetch("legacy_names", []).length}"
+  end
+  pending.sort_by { |group| group.fetch("id") }.each do |group|
+    puts "pending_group=#{group.fetch("id")} legacy_count=#{group.fetch("legacy_names", []).length}"
+  end
+  exit missing.empty? ? 0 : 3
 end
 
 if options[:runners]

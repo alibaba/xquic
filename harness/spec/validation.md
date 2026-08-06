@@ -366,6 +366,7 @@ bash scripts/case_test.sh --list
 bash scripts/case_test.sh --inventory
 bash scripts/case_test.sh --from-path src/transport/xqc_stream.c --dry-run
 bash scripts/case_test.sh --feature fec --dry-run
+bash scripts/case_test.sh --execution-plan
 bash scripts/case_test.sh --execute --parallel --jobs 4 --module transport
 case_test/lib/architecture_check.rb "$(pwd)" --all
 ```
@@ -382,7 +383,10 @@ assignment, and static equivalence between the current legacy full suite and
 CI may invoke the selected-execution entry point with `--parallel`, but the
 safe job count is the number of executable shards that still preserves all
 legacy cases. While all 319 unique legacy cases remain in the full-suite body,
-the maximum safe CI value is `CASE_TEST_JOBS=1`.
+the maximum safe full-suite CI value is `CASE_TEST_JOBS=1`. Selected shards
+such as `observability.qlog` may run independently when their execution plan is
+complete; a full-suite request with incomplete executable shards fails closed
+for `jobs > 1` and falls back to the legacy full suite for `jobs = 1`.
 
 Unit-test execution remains unchanged in this endpoint-case routing change.
 Sequential `./scripts/validate.sh test` remains the default complete-unit gate.

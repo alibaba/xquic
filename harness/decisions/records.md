@@ -259,6 +259,8 @@ Decision:
   documents.
 - Add selected execution and parallel scheduling only for groups marked
   `execution: implemented`.
+- Treat `observability.qlog` as the first implemented shard and keep full-suite
+  CI at one legacy shard until implemented shards cover every legacy case.
 - Move case bodies into `case_test/<module>/` incrementally after routing and
   dry-run discovery are stable.
 
@@ -271,6 +273,9 @@ Consequences:
   execution states.
 - Selector output is discovery evidence, not a passing endpoint test result,
   until selected execution is implemented for the group.
+- Full-suite parallel requests fail closed while executable shards are
+  incomplete; CI falls back to the legacy full suite as one shard to preserve
+  coverage.
 - Pending module runners fail clearly when invoked directly.
 
 Evidence:

@@ -366,15 +366,14 @@ bash scripts/case_test.sh --list
 bash scripts/case_test.sh --inventory
 bash scripts/case_test.sh --from-path src/transport/xqc_stream.c --dry-run
 bash scripts/case_test.sh --feature fec --dry-run
+bash scripts/case_test.sh --execute --parallel --jobs 4 --module transport
 ```
 
 Running `scripts/case_test.sh` without selector arguments preserves the legacy
 full-suite behavior. Do not report selector output as a passing endpoint case
 result; report it as identified coverage or a case-test gap until the selected
-case body is executable.
+case body is executable. Selected execution schedules only groups marked
+`execution: implemented` in `case_test/manifest.yml`.
 
-Unit-test parallelism is opt-in only after suite resources are isolated.
-`tests/unittest/manifest.yml` records suite ownership and deterministic port
-ranges for suites that may need network resources. Sequential
-`./scripts/validate.sh test` remains the default complete-unit gate until
-`XQC_TEST_JOBS` support is implemented and validated.
+Unit-test execution remains unchanged in this endpoint-case routing change.
+Sequential `./scripts/validate.sh test` remains the default complete-unit gate.

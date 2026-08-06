@@ -1,2 +1,2 @@
 #!/bin/bash
-# Placeholder runner for TLS and handshake endpoint cases.
+exec "$(dirname "${BASH_SOURCE[0]}")/../lib/pending_runner.sh" "tls.handshake"

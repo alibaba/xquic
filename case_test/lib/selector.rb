@@ -10,6 +10,7 @@ options = {
   list: false,
   dry_run: false,
   inventory: false,
+  runners: false,
   cases: [],
   modules: [],
   features: [],
@@ -25,6 +26,8 @@ until args.empty?
     options[:dry_run] = true
   when "--inventory"
     options[:inventory] = true
+  when "--runners"
+    options[:runners] = true
   when "--case"
     options[:cases] << (args.shift || abort("--case requires a value"))
   when "--module"
@@ -34,7 +37,7 @@ until args.empty?
   when "--from-path"
     options[:paths] << (args.shift || abort("--from-path requires a value"))
   when "-h", "--help"
-    puts "usage: scripts/case_test.sh [--list] [--inventory] [--dry-run] [--case <id-or-name>] [--module <name>] [--feature <name>] [--from-path <path>]"
+    puts "usage: scripts/case_test.sh [--list] [--inventory] [--dry-run] [--runners] [--case <id-or-name>] [--module <name>] [--feature <name>] [--from-path <path>]"
     exit 0
   else
     abort("unknown case_test selector: #{arg}")
@@ -42,7 +45,7 @@ until args.empty?
 end
 
 manifest_path = File.join(root, "case_test/manifest.yml")
-script_path = File.join(root, "scripts/case_test.sh")
+script_path = File.join(root, "case_test/legacy/full_suite.sh")
 manifest = YAML.load_file(manifest_path)
 legacy_names = File.read(script_path).
   scan(/case_print_result\s+"([^"]+)"/).
@@ -112,8 +115,18 @@ if selected.empty? && !options[:list]
   exit 1
 end
 
+if options[:runners]
+  selected.
+    select { |group| group.fetch("execution", "pending") == "implemented" }.
+    sort_by { |group| group.fetch("id") }.
+    each do |group|
+      puts "#{group.fetch("id")}\t#{group.fetch("runner")}"
+    end
+  exit 0
+end
+
 puts "mode=#{options[:list] ? "list" : "dry-run"}"
-puts "selected_execution=not-yet-implemented"
+puts "selected_execution=#{selected.any? { |group| group.fetch("execution", "pending") == "implemented" } ? "partial" : "pending"}"
 selected.sort_by { |group| group.fetch("id") }.each do |group|
   puts ""
   puts "case_group=#{group.fetch("id")}"
@@ -121,6 +134,7 @@ selected.sort_by { |group| group.fetch("id") }.each do |group|
   puts "submodule=#{group["submodule"]}" if group["submodule"]
   puts "feature=#{group["feature"]}" if group["feature"]
   puts "status=#{group["status"]}" if group["status"]
+  puts "execution=#{group.fetch("execution", "pending")}"
   puts "runner=#{group.fetch("runner")}"
   puts "legacy_count=#{group.fetch("legacy_names").length}"
   group.fetch("legacy_names").each do |name|

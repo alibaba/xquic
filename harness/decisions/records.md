@@ -238,8 +238,8 @@ Date: 2026-08-06
 
 Context:
 
-- `scripts/case_test.sh` contains hundreds of endpoint checks in one legacy
-  script.
+- `case_test/legacy/full_suite.sh` contains hundreds of endpoint checks that
+  previously lived in `scripts/case_test.sh`.
 - Agents need to identify relevant endpoint cases from changed source paths
   without running the full suite during ordinary iteration.
 - Moving every case body at once would create high review risk and make
@@ -248,13 +248,16 @@ Context:
 Decision:
 
 - Keep `scripts/case_test.sh` as the compatibility entry point.
+- Move the full-suite body to `case_test/legacy/full_suite.sh` so the public
+  entry point can stay small.
 - Add `case_test/manifest.yml` for endpoint case group metadata.
 - Let selector mode classify legacy `case_print_result` names from the current
-  script instead of copying every legacy name into multiple durable documents.
+  full-suite body instead of copying every legacy name into multiple durable
+  documents.
+- Add selected execution and parallel scheduling only for groups marked
+  `execution: implemented`.
 - Move case bodies into `case_test/<module>/` incrementally after routing and
   dry-run discovery are stable.
-- Track unit suite ownership and planned port ranges in
-  `tests/unittest/manifest.yml` before enabling opt-in parallel execution.
 
 Consequences:
 
@@ -264,11 +267,12 @@ Consequences:
   features, duplicate group IDs, and overlapping planned port ranges.
 - Selector output is discovery evidence, not a passing endpoint test result,
   until selected execution is implemented for the group.
+- Pending module runners fail clearly when invoked directly.
 
 Evidence:
 
 - `case_test/manifest.yml`
-- `tests/unittest/manifest.yml`
+- `case_test/legacy/full_suite.sh`
 - `scripts/case_test.sh`
 - `harness/spec/validation.md`
 - `harness/spec/harness-manifest.yml`

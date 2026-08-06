@@ -53,11 +53,12 @@ The source boundaries governing both private categories are defined in
 
 - `case_test/manifest.yml`: endpoint case group metadata for mapping changed
   paths to legacy `case_print_result` names.
-- `case_test/lib/selector.rb`: list, inventory, and dry-run selector
-  implementation used by `scripts/case_test.sh`.
-- `case_test/<module>/`: future module-owned endpoint case runners.
-- `tests/unittest/manifest.yml`: unit-test suite ownership and planned port
-  ranges for opt-in parallel execution.
+- `case_test/lib/selector.rb`: list, inventory, dry-run, and runner-map output
+  used by `scripts/case_test.sh`.
+- `case_test/lib/runner.sh`: compatibility and selected execution scheduler.
+- `case_test/legacy/full_suite.sh`: current full endpoint suite body.
+- `case_test/<module>/`: module-owned endpoint case runners, enabled only
+  after their case bodies are migrated.
 
 The authoritative module and feature map remains
 `harness/spec/harness-manifest.yml`.

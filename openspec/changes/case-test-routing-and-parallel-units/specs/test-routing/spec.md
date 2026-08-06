@@ -44,21 +44,29 @@ path-to-module map in case-test documentation.
 - **THEN** it links to the harness manifest and case-test metadata instead of
   maintaining a competing path-to-module table.
 
-### Requirement: Unit-Test Parallel Safety
+### Requirement: Endpoint Case Selected Execution
 
-The repository SHALL only enable parallel unit-test execution for suites whose
-shared resources are isolated.
+The repository SHALL only execute selected endpoint case groups when their case
+bodies have been migrated into runnable group files.
 
-#### Scenario: Run unit suites in parallel without port collision
+#### Scenario: Refuse pending selected execution
 
-- **GIVEN** a unit-test suite opens sockets
-- **WHEN** the suite runs under an opt-in parallel validation mode
-- **THEN** it uses a deterministic port range assigned to that suite
-- **AND** no other parallel suite uses the same range.
+- **GIVEN** a changed path maps only to pending case-test groups
+- **WHEN** selected endpoint execution is requested
+- **THEN** the command fails clearly
+- **AND** it tells the maintainer to use dry-run output as discovery evidence.
 
-#### Scenario: Keep sequential validation as default
+#### Scenario: Run migrated endpoint groups in parallel without port collision
 
-- **GIVEN** no parallel job count is requested
-- **WHEN** `./scripts/validate.sh test` runs
-- **THEN** the unit-test validation remains sequential and preserves the
-  existing complete-suite gate.
+- **GIVEN** multiple selected endpoint case groups are marked implemented
+- **WHEN** selected endpoint execution is requested with parallel jobs
+- **THEN** each scheduled group receives an isolated work directory
+- **AND** each scheduled group receives a deterministic port derived from the
+  configured port base.
+
+#### Scenario: Keep legacy full-suite behavior explicit
+
+- **GIVEN** no selector or selected execution flag is provided
+- **WHEN** `scripts/case_test.sh` runs
+- **THEN** it runs the legacy full endpoint suite through the compatibility
+  entry point.

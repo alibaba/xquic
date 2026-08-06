@@ -1,2 +1,2 @@
 #!/bin/bash
-# Placeholder runner for HTTP/3 endpoint cases.
+exec "$(dirname "${BASH_SOURCE[0]}")/../lib/pending_runner.sh" "http3.core"

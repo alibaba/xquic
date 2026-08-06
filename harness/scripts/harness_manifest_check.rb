@@ -13,10 +13,6 @@ unit_main_path = File.join(root, "tests/unittest/main.c")
 unit_main_text = File.exist?(unit_main_path) ? File.read(unit_main_path) : ""
 cmake_options = cmake_text.scan(/^\s*option\s*\(\s*([A-Za-z0-9_]+)/).flatten
 cunit_tests = unit_main_text.scan(/CU_add_test\s*\(\s*pSuite,\s*"([^"]+)"/).flatten
-case_script_path = File.join(root, "scripts/case_test.sh")
-legacy_case_names = File.exist?(case_script_path) ? File.read(case_script_path).
-  scan(/case_print_result\s+"([^"]+)"/).
-  flatten.uniq : []
 
 def require_hash(value, path, errors)
   errors << "#{path} must be a map" unless value.is_a?(Hash)
@@ -53,7 +49,7 @@ def route_features(modules)
   features
 end
 
-def validate_test_routing(root, data, legacy_case_names, errors)
+def validate_test_routing(root, data, errors)
   routing = data["test_routing"]
   return unless routing
 
@@ -65,27 +61,24 @@ def validate_test_routing(root, data, legacy_case_names, errors)
   feature_owners = route_features(modules)
 
   case_manifest_path = routing["case_manifest"]
-  unit_manifest_path = routing["unit_manifest"]
+  legacy_full_suite_path = routing["case_legacy_full_suite"]
   check_file_exists(root, case_manifest_path, "test_routing.case_manifest", errors)
-  check_file_exists(root, unit_manifest_path, "test_routing.unit_manifest", errors)
+  check_file_exists(root, legacy_full_suite_path, "test_routing.case_legacy_full_suite", errors)
 
   if case_manifest_path && File.exist?(File.join(root, case_manifest_path.to_s))
+    legacy_case_names = []
+    if legacy_full_suite_path && File.exist?(File.join(root, legacy_full_suite_path.to_s))
+      legacy_case_names = File.read(File.join(root, legacy_full_suite_path.to_s)).
+        scan(/case_print_result\s+"([^"]+)"/).
+        flatten.uniq
+    end
+
     validate_case_manifest(
       root,
       File.join(root, case_manifest_path.to_s),
       module_names,
       feature_owners,
       legacy_case_names,
-      errors
-    )
-  end
-
-  if unit_manifest_path && File.exist?(File.join(root, unit_manifest_path.to_s))
-    validate_unit_manifest(
-      root,
-      File.join(root, unit_manifest_path.to_s),
-      module_names,
-      feature_owners,
       errors
     )
   end
@@ -132,6 +125,11 @@ def validate_case_manifest(root, path, module_names, feature_owners, legacy_case
 
     patterns = group["legacy_name_patterns"]
     status = group["status"].to_s
+    execution = group.fetch("execution", "pending").to_s
+    unless %w[pending implemented].include?(execution)
+      errors << "#{group_path}.execution must be pending or implemented"
+    end
+
     if status == "gap"
       errors << "#{group_path}.legacy_name_patterns must be a list" unless patterns.is_a?(Array)
       next
@@ -152,67 +150,6 @@ def validate_case_manifest(root, path, module_names, feature_owners, legacy_case
 
   duplicate_ids = ids.group_by(&:itself).select { |_id, values| values.length > 1 }.keys
   errors << "#{relative}.groups has duplicate ids #{duplicate_ids.join(', ')}" unless duplicate_ids.empty?
-end
-
-def validate_unit_manifest(root, path, module_names, feature_owners, errors)
-  manifest = YAML.load_file(path)
-  relative = path.sub(root + "/", "")
-  require_hash(manifest, relative, errors)
-  return unless manifest.is_a?(Hash)
-
-  errors << "#{relative}.version must be 1" unless manifest["version"] == 1
-  suites = manifest["suites"]
-  require_nonempty_array(suites, "#{relative}.suites", errors)
-  return unless suites.is_a?(Array)
-
-  ids = []
-  port_ranges = []
-  suites.each_with_index do |suite, index|
-    suite_path = "#{relative}.suites[#{index}]"
-    require_hash(suite, suite_path, errors)
-    next unless suite.is_a?(Hash)
-
-    id = suite["id"].to_s
-    ids << id
-    errors << "#{suite_path}.id is required" if id.empty?
-
-    module_name = suite["module"].to_s
-    unless module_names.include?(module_name)
-      errors << "#{suite_path}.module references unknown module #{module_name}"
-    end
-
-    feature_name = suite["feature"].to_s
-    if !feature_name.empty? && feature_owners[feature_name] != module_name
-      errors << "#{suite_path}.feature references unknown feature #{feature_name} for module #{module_name}"
-    end
-
-    require_nonempty_array(suite["sources"], "#{suite_path}.sources", errors)
-    if suite["sources"].is_a?(Array)
-      suite["sources"].each do |source_path|
-        check_file_exists(root, source_path, "#{suite_path}.sources", errors)
-      end
-    end
-
-    next unless suite.key?("port_base") || suite.key?("port_count")
-
-    port_base = suite["port_base"]
-    port_count = suite["port_count"]
-    unless port_base.is_a?(Integer) && port_count.is_a?(Integer) && port_count.positive?
-      errors << "#{suite_path}.port_base and port_count must be positive integers"
-      next
-    end
-
-    port_ranges << [id, port_base, port_base + port_count - 1]
-  end
-
-  duplicate_ids = ids.group_by(&:itself).select { |_id, values| values.length > 1 }.keys
-  errors << "#{relative}.suites has duplicate ids #{duplicate_ids.join(', ')}" unless duplicate_ids.empty?
-
-  port_ranges.combination(2) do |left, right|
-    next if left[2] < right[1] || right[2] < left[1]
-
-    errors << "#{relative}.suites port ranges overlap: #{left[0]} and #{right[0]}"
-  end
 end
 
 def validate_validation(value, path, errors)
@@ -410,7 +347,7 @@ if data.is_a?(Hash)
     errors << "modules must contain at least one module"
   end
 
-  validate_test_routing(root, data, legacy_case_names, errors)
+  validate_test_routing(root, data, errors)
 
   errors << "top-level features are not allowed; nest features under their owning module" if data.key?("features")
 end

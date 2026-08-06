@@ -1,2 +1,2 @@
 #!/bin/bash
-# Placeholder runner for qlog endpoint cases.
+exec "$(dirname "${BASH_SOURCE[0]}")/../lib/pending_runner.sh" "observability.qlog"

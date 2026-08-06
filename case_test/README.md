@@ -8,10 +8,13 @@ client-to-server case tests. The legacy executable entry point remains
 
 - `manifest.yml` maps source paths, modules, features, and legacy
   `case_print_result` names to case-test groups.
-- `lib/selector.rb` powers list and dry-run selectors for
+- `lib/selector.rb` powers list, inventory, dry-run, and runner-map output for
   `scripts/case_test.sh`.
+- `lib/runner.sh` preserves full-suite compatibility and provides selected
+  execution scheduling.
+- `legacy/full_suite.sh` contains the current full endpoint suite.
 - Module directories hold future case runners. Existing case bodies may remain
-  in `scripts/case_test.sh` until they are moved incrementally.
+  in `legacy/full_suite.sh` until they are moved incrementally.
 
 ## Compatibility
 
@@ -21,3 +24,16 @@ while case bodies are migrated.
 
 Use `bash scripts/case_test.sh --inventory` to audit how many legacy case
 names are matched, unmatched, or matched by multiple groups.
+
+## Selected Execution
+
+Selected execution is opt-in:
+
+```bash
+bash scripts/case_test.sh --execute --from-path src/transport/xqc_stream.c
+bash scripts/case_test.sh --execute --parallel --jobs 4 --module transport
+```
+
+Only groups marked `execution: implemented` in `manifest.yml` are scheduled.
+Groups whose bodies still live in the legacy suite fail clearly instead of
+reporting a false pass.

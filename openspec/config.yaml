@@ -3,4 +3,6 @@ schema: spec-driven
 context: |
   XQUIC uses the repository harness for project rules.
   Read harness/spec/openspec.md before long-task implementation.
-  Keep OpenSpec proposal, design, tasks, and spec deltas under openspec/.
+  Use openspec/changes/ for reviewable long-task proposals and deltas.
+  When a change is implemented, fold durable conclusions back into harness/
+  specs, docs, decisions, and machine manifests before opening a code PR.

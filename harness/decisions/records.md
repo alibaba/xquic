@@ -94,7 +94,10 @@ Decision:
   directory.
 - Create the directory directly when durable task-local evidence is needed.
 - Keep OpenSpec proposal, design, tasks, and requirement deltas in
-  `openspec/`, and link to them from the run evidence when applicable.
+  `openspec/` while the task is being reviewed or implemented.
+- Before a code PR for the implemented result, fold durable conclusions into
+  `harness/spec/`, `harness/docs/`, `harness/decisions/`, and machine
+  manifests; do not commit completed task checklists as the lasting harness.
 
 Consequences:
 - Durable docs stay concise.
@@ -264,7 +267,8 @@ Consequences:
 - Changed paths can be mapped to endpoint case groups while the legacy full
   suite remains available.
 - The harness check can detect stale runner paths, unknown modules, unknown
-  features, duplicate group IDs, and overlapping planned port ranges.
+  features, duplicate group IDs, stale legacy patterns, and invalid selected
+  execution states.
 - Selector output is discovery evidence, not a passing endpoint test result,
   until selected execution is implemented for the group.
 - Pending module runners fail clearly when invoked directly.

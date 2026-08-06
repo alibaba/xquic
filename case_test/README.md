@@ -25,6 +25,13 @@ while case bodies are migrated.
 Use `bash scripts/case_test.sh --inventory` to audit how many legacy case
 names are matched, unmatched, or matched by multiple groups.
 
+Use the architecture check when changing the runner, selector, or legacy
+compatibility wrapper:
+
+```bash
+case_test/lib/architecture_check.rb "$(pwd)" --all
+```
+
 ## Selected Execution
 
 Selected execution is opt-in:

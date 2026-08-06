@@ -44,8 +44,8 @@ until args.empty?
   end
 end
 
-manifest_path = File.join(root, "case_test/manifest.yml")
-script_path = File.join(root, "case_test/legacy/full_suite.sh")
+manifest_path = ENV.fetch("CASE_TEST_MANIFEST", File.join(root, "case_test/manifest.yml"))
+script_path = ENV.fetch("CASE_TEST_LEGACY_SUITE", File.join(root, "case_test/legacy/full_suite.sh"))
 manifest = YAML.load_file(manifest_path)
 legacy_names = File.read(script_path).
   scan(/case_print_result\s+"([^"]+)"/).

@@ -65,5 +65,6 @@
 - [x] Run `bash scripts/case_test.sh --inventory`.
 - [x] Run a representative `--from-path` dry run.
 - [x] Run a representative pending selected execution check.
+- [x] Run `case_test/lib/architecture_check.rb "$(pwd)" --all`.
 - [x] Run `./scripts/validate.sh test --dry-run`.
 - [ ] Run `./scripts/validate.sh test`.

@@ -56,6 +56,8 @@ The source boundaries governing both private categories are defined in
 - `case_test/lib/selector.rb`: list, inventory, dry-run, and runner-map output
   used by `scripts/case_test.sh`.
 - `case_test/lib/runner.sh`: compatibility and selected execution scheduler.
+- `case_test/lib/architecture_check.rb`: repeatable checks for parallel
+  scheduling and legacy full-suite static equivalence.
 - `case_test/legacy/full_suite.sh`: current full endpoint suite body.
 - `case_test/<module>/`: module-owned endpoint case runners, enabled only
   after their case bodies are migrated.

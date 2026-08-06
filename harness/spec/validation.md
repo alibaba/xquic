@@ -367,13 +367,17 @@ bash scripts/case_test.sh --inventory
 bash scripts/case_test.sh --from-path src/transport/xqc_stream.c --dry-run
 bash scripts/case_test.sh --feature fec --dry-run
 bash scripts/case_test.sh --execute --parallel --jobs 4 --module transport
+case_test/lib/architecture_check.rb "$(pwd)" --all
 ```
 
 Running `scripts/case_test.sh` without selector arguments preserves the legacy
 full-suite behavior. Do not report selector output as a passing endpoint case
 result; report it as identified coverage or a case-test gap until the selected
 case body is executable. Selected execution schedules only groups marked
-`execution: implemented` in `case_test/manifest.yml`.
+`execution: implemented` in `case_test/manifest.yml`. The architecture check
+uses temporary mock runners to verify parallel scheduling, unique port/work-dir
+assignment, and static equivalence between the current legacy full suite and
+`origin/main:scripts/case_test.sh`.
 
 Unit-test execution remains unchanged in this endpoint-case routing change.
 Sequential `./scripts/validate.sh test` remains the default complete-unit gate.

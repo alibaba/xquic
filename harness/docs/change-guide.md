@@ -98,3 +98,5 @@ Validate:
 - `bash scripts/case_test.sh --from-path <path> --dry-run`
 - `bash scripts/case_test.sh --execute --from-path <path>` only for groups
   marked `execution: implemented`.
+- `case_test/lib/architecture_check.rb "$(pwd)" --all` after runner,
+  selector, or compatibility-wrapper changes.

@@ -7,7 +7,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "${ROOT_DIR}/case_test/lib/common.sh"
 
+LEGACY_SUITE="${CASE_TEST_LEGACY_SUITE:-${ROOT_DIR}/case_test/legacy/full_suite.sh}"
 SELECTOR_ARGS=()
+SELECTOR_COUNT=0
 EXECUTE=0
 PARALLEL=0
 JOBS=1
@@ -59,13 +61,14 @@ while [[ "$#" -gt 0 ]]; do
             ;;
         *)
             SELECTOR_ARGS+=("$1")
+            SELECTOR_COUNT=$((SELECTOR_COUNT + 1))
             shift
             ;;
     esac
 done
 
-if [[ "${EXECUTE}" -eq 0 && "${#SELECTOR_ARGS[@]}" -eq 0 ]]; then
-    exec "${ROOT_DIR}/case_test/legacy/full_suite.sh"
+if [[ "${EXECUTE}" -eq 0 && "${SELECTOR_COUNT}" -eq 0 ]]; then
+    exec "${LEGACY_SUITE}"
 fi
 
 if [[ "${EXECUTE}" -eq 0 ]]; then
@@ -87,10 +90,21 @@ BUILD_DIR="$(case_test_build_dir "${ROOT_DIR}")"
 MAP_FILE="$(mktemp "${TMPDIR:-/tmp}/xquic_case_runners.XXXXXX")"
 trap 'rm -f "${MAP_FILE}"' EXIT
 
-ruby "${ROOT_DIR}/case_test/lib/selector.rb" "${ROOT_DIR}" \
-    --runners "${SELECTOR_ARGS[@]}" > "${MAP_FILE}"
+if [[ "${SELECTOR_COUNT}" -eq 0 ]]; then
+    ruby "${ROOT_DIR}/case_test/lib/selector.rb" "${ROOT_DIR}" \
+        --runners > "${MAP_FILE}"
+
+else
+    ruby "${ROOT_DIR}/case_test/lib/selector.rb" "${ROOT_DIR}" \
+        --runners "${SELECTOR_ARGS[@]}" > "${MAP_FILE}"
+fi
 
 if [[ ! -s "${MAP_FILE}" ]]; then
+    if [[ "${SELECTOR_COUNT}" -eq 0 && "${JOBS}" -eq 1 ]]; then
+        echo "[case-test] no migrated groups; running legacy full suite as one shard"
+        exec "${LEGACY_SUITE}"
+    fi
+
     echo "case_test: selected case-test groups are not executable yet" >&2
     echo "case_test: run with --dry-run to inspect matching legacy cases" >&2
     exit 1

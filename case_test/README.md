@@ -43,4 +43,6 @@ bash scripts/case_test.sh --execute --parallel --jobs 4 --module transport
 
 Only groups marked `execution: implemented` in `manifest.yml` are scheduled.
 Groups whose bodies still live in the legacy suite fail clearly instead of
-reporting a false pass.
+reporting a false pass. Until case bodies are migrated into implemented group
+runners, the maximum safe CI case-test job count is `1`; that runs the legacy
+full suite as one shard and preserves all legacy case coverage.

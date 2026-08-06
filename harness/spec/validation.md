@@ -379,5 +379,10 @@ uses temporary mock runners to verify parallel scheduling, unique port/work-dir
 assignment, and static equivalence between the current legacy full suite and
 `origin/main:scripts/case_test.sh`.
 
+CI may invoke the selected-execution entry point with `--parallel`, but the
+safe job count is the number of executable shards that still preserves all
+legacy cases. While all 319 unique legacy cases remain in the full-suite body,
+the maximum safe CI value is `CASE_TEST_JOBS=1`.
+
 Unit-test execution remains unchanged in this endpoint-case routing change.
 Sequential `./scripts/validate.sh test` remains the default complete-unit gate.

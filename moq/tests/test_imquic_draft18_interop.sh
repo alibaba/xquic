@@ -32,7 +32,9 @@ if [[ ! -x "${SUBSCRIBER}" ]]; then
     exit 2
 fi
 
-bash "${ROOT_DIR}/moq/tests/check_imquic_draft18_peer.sh" "${IMQUIC_ROOT}" \
+bash "${ROOT_DIR}/moq/tests/check_imquic_draft18_peer.sh" \
+    "${IMQUIC_ROOT}" relay "${RELAY}" publisher "${PUBLISHER}" \
+    subscriber "${SUBSCRIBER}" \
     || exit 2
 
 mkdir -p "${LOG_PARENT}"
@@ -240,7 +242,7 @@ for case_name in "${CASES[@]}"; do
     if [[ "${case_name}" == "fetch-publisher-disconnect-before-ok" \
         || "${case_name}" == "fetch-publisher-disconnect-after-ok" ]]
     then
-        XQC_MOQ_INTEROP_PEER=imquic "${CLIENT}" \
+        "${CLIENT}" \
             --relay "moqt://127.0.0.1:${relay_port}" \
             --sni localhost --tls-disable-verify --verbose \
             --test "${case_name}" >"${client_log}" 2>&1 &
@@ -263,7 +265,7 @@ for case_name in "${CASES[@]}"; do
             client_status=124
         fi
     else
-        XQC_MOQ_INTEROP_PEER=imquic "${CLIENT}" \
+        "${CLIENT}" \
             --relay "moqt://127.0.0.1:${relay_port}" \
             --sni localhost --tls-disable-verify --verbose \
             --test "${case_name}" >"${client_log}" 2>&1

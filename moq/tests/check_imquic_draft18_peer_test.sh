@@ -16,6 +16,7 @@ TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/imquic-peer-check.XXXXXX")
 trap 'rm -rf -- "${TMP_DIR}"' EXIT
 PEER_DIR="${TMP_DIR}/imquic"
 FAILURE_LOG="${TMP_DIR}/unexpected-source.log"
+BINARY_FAILURE_LOG="${TMP_DIR}/unexpected-binary.log"
 
 git clone --quiet --no-hardlinks "${IMQUIC_SOURCE}" "${PEER_DIR}"
 git -C "${PEER_DIR}" checkout --quiet --detach \
@@ -32,6 +33,21 @@ fi
 if [[ $(<"${FAILURE_LOG}") != *"source tree mismatch"* ]]; then
     cat "${FAILURE_LOG}" >&2
     echo "peer checker failed for an unexpected reason" >&2
+    exit 1
+fi
+
+if bash "${CHECKER}" "${IMQUIC_SOURCE}" \
+        relay /usr/bin/true \
+        publisher "${IMQUIC_SOURCE}/examples/imquic-moq-pub" \
+        subscriber "${IMQUIC_SOURCE}/examples/imquic-moq-sub" \
+        >"${BINARY_FAILURE_LOG}" 2>&1
+then
+    echo "peer checker accepted a relay binary outside the verified tree" >&2
+    exit 1
+fi
+if [[ $(<"${BINARY_FAILURE_LOG}") != *"binary path mismatch"* ]]; then
+    cat "${BINARY_FAILURE_LOG}" >&2
+    echo "peer binary check failed for an unexpected reason" >&2
     exit 1
 fi
 

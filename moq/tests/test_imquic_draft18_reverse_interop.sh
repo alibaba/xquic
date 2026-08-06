@@ -14,50 +14,6 @@ CASE_TIMEOUT=${MOQ_IMQUIC_CASE_TIMEOUT_SEC:-20}
 PORT_LEASE_ROOT=${MOQ_IMQUIC_PORT_LEASE_ROOT:-"${TMPDIR:-/tmp}/xquic-imquic-d18-port-leases-${UID:-user}"}
 BASE_PORT=${BASE_PORT:-$((40000 + ($$ % 10000)))}
 
-if [[ -z "${IMQUIC_ROOT}" ]]; then
-    echo "IMQUIC_ROOT must point to an imquic checkout" >&2
-    exit 2
-fi
-if [[ ! -x "${SERVER}" ]]; then
-    echo "xquic server not found: ${SERVER}" >&2
-    exit 2
-fi
-if [[ ! -x "${SUBSCRIBER}" ]]; then
-    echo "imquic subscriber not found: ${SUBSCRIBER}" >&2
-    exit 2
-fi
-if [[ ! -x "${PUBLISHER}" ]]; then
-    echo "imquic publisher not found: ${PUBLISHER}" >&2
-    exit 2
-fi
-bash "${ROOT_DIR}/moq/tests/check_imquic_draft18_peer.sh" "${IMQUIC_ROOT}" \
-    || exit 2
-case "${CASE_TIMEOUT}" in
-    ''|*[!0-9]*|0)
-        echo "MOQ_IMQUIC_CASE_TIMEOUT_SEC must be a positive integer" >&2
-        exit 2
-        ;;
-esac
-
-mkdir -p "${LOG_PARENT}" "${PORT_LEASE_ROOT}"
-RUN_DIR=$(mktemp -d "${LOG_PARENT%/}/imquic-xquic-d18.XXXXXX") || exit 2
-CERT_FILE="${RUN_DIR}/server.crt"
-KEY_FILE="${RUN_DIR}/server.key"
-
-if [[ -n "${MOQ_IMQUIC_CERT:-}" && -n "${MOQ_IMQUIC_KEY:-}" ]]; then
-    cp "${MOQ_IMQUIC_CERT}" "${CERT_FILE}"
-    cp "${MOQ_IMQUIC_KEY}" "${KEY_FILE}"
-else
-    openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
-        -subj "/CN=localhost" -keyout "${KEY_FILE}" \
-        -out "${CERT_FILE}" >/dev/null 2>&1 || exit 2
-fi
-
-IMQUIC_LIB_DIR="${IMQUIC_ROOT}/src/.libs"
-export DYLD_LIBRARY_PATH="${IMQUIC_LIB_DIR}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
-export DYLD_FALLBACK_LIBRARY_PATH="${IMQUIC_LIB_DIR}${DYLD_FALLBACK_LIBRARY_PATH:+:${DYLD_FALLBACK_LIBRARY_PATH}}"
-export LD_LIBRARY_PATH="${IMQUIC_LIB_DIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-
 DEFAULT_CASES=(
     namespace-events
     request-update
@@ -88,10 +44,62 @@ elif [[ -n "${MOQ_IMQUIC_REVERSE_CASES:-}" ]]; then
 else
     OFFICIAL_CASE_LIST=${DEFAULT_OFFICIAL_CASES}
 fi
+
+if [[ -z "${IMQUIC_ROOT}" ]]; then
+    echo "IMQUIC_ROOT must point to an imquic checkout" >&2
+    exit 2
+fi
+if [[ ! -x "${SERVER}" ]]; then
+    echo "xquic server not found: ${SERVER}" >&2
+    exit 2
+fi
+if [[ ! -x "${SUBSCRIBER}" ]]; then
+    echo "imquic subscriber not found: ${SUBSCRIBER}" >&2
+    exit 2
+fi
+if [[ ! -x "${PUBLISHER}" ]]; then
+    echo "imquic publisher not found: ${PUBLISHER}" >&2
+    exit 2
+fi
 if [[ -n "${OFFICIAL_CASE_LIST}" && ! -x "${OFFICIAL_CLIENT}" ]]; then
     echo "imquic official interop client not found: ${OFFICIAL_CLIENT}" >&2
     exit 2
 fi
+PEER_BINARIES=(
+    subscriber "${SUBSCRIBER}"
+    publisher "${PUBLISHER}"
+)
+if [[ -n "${OFFICIAL_CASE_LIST}" ]]; then
+    PEER_BINARIES+=(interop-test "${OFFICIAL_CLIENT}")
+fi
+bash "${ROOT_DIR}/moq/tests/check_imquic_draft18_peer.sh" \
+    "${IMQUIC_ROOT}" "${PEER_BINARIES[@]}" \
+    || exit 2
+case "${CASE_TIMEOUT}" in
+    ''|*[!0-9]*|0)
+        echo "MOQ_IMQUIC_CASE_TIMEOUT_SEC must be a positive integer" >&2
+        exit 2
+        ;;
+esac
+
+mkdir -p "${LOG_PARENT}" "${PORT_LEASE_ROOT}"
+RUN_DIR=$(mktemp -d "${LOG_PARENT%/}/imquic-xquic-d18.XXXXXX") || exit 2
+CERT_FILE="${RUN_DIR}/server.crt"
+KEY_FILE="${RUN_DIR}/server.key"
+
+if [[ -n "${MOQ_IMQUIC_CERT:-}" && -n "${MOQ_IMQUIC_KEY:-}" ]]; then
+    cp "${MOQ_IMQUIC_CERT}" "${CERT_FILE}"
+    cp "${MOQ_IMQUIC_KEY}" "${KEY_FILE}"
+else
+    openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+        -subj "/CN=localhost" -keyout "${KEY_FILE}" \
+        -out "${CERT_FILE}" >/dev/null 2>&1 || exit 2
+fi
+
+IMQUIC_LIB_DIR="${IMQUIC_ROOT}/src/.libs"
+export DYLD_LIBRARY_PATH="${IMQUIC_LIB_DIR}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
+export DYLD_FALLBACK_LIBRARY_PATH="${IMQUIC_LIB_DIR}${DYLD_FALLBACK_LIBRARY_PATH:+:${DYLD_FALLBACK_LIBRARY_PATH}}"
+export LD_LIBRARY_PATH="${IMQUIC_LIB_DIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
 SERVER_PID=
 CLIENT_PID=

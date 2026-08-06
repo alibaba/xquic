@@ -8,6 +8,13 @@
 LOCAL_TEST=0
 #LOCAL_TEST=1
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ "$#" -gt 0 ]; then
+    ruby "${ROOT_DIR}/case_test/lib/selector.rb" "${ROOT_DIR}" "$@"
+    exit $?
+fi
+
 cd ../build
 
 CLIENT_BIN="tests/test_client"

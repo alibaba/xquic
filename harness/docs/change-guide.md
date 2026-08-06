@@ -68,3 +68,31 @@ Apply the private-extension rules in
 `harness/spec/harness-behavior.md#source-boundaries`, then run:
 
 - `bash harness/scripts/xqc_harness_check.sh`
+
+## Endpoint Test Routing Change
+
+Examples:
+
+- Add or reclassify endpoint case-test metadata.
+- Add a targeted selector for legacy `scripts/case_test.sh` cases.
+- Add suite metadata for parallel unit-test planning.
+
+Read:
+
+- `harness/spec/validation.md`
+- `harness/spec/harness-manifest.yml`
+- `case_test/manifest.yml`
+- `tests/unittest/manifest.yml`
+
+Update when affected:
+
+- `case_test/manifest.yml` for endpoint case group metadata.
+- `tests/unittest/manifest.yml` for unit suite ownership or port ranges.
+- `harness/spec/harness-manifest.yml` for test-routing entry points.
+- `harness/spec/validation.md` when validation contracts change.
+
+Validate:
+
+- `bash harness/scripts/xqc_harness_check.sh`
+- `bash scripts/case_test.sh --inventory`
+- `bash scripts/case_test.sh --from-path <path> --dry-run`

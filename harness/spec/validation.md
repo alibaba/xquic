@@ -349,3 +349,32 @@ commands. Raw logs retain the detailed evidence for diagnosis and audit.
 The current CMake configuration generates `include/xquic/xqc_configure.h` in
 the source tree. The validation script preserves and restores its pre-build
 contents so validation does not leave a source diff.
+
+## Targeted Endpoint Case Discovery
+
+Endpoint case routing is discovered through `scripts/case_test.sh` selector
+mode and `case_test/manifest.yml`. The harness manifest remains the source of
+truth for module and feature ownership; the case-test manifest classifies
+legacy endpoint case names into runnable groups without duplicating the full
+source-path map in documentation.
+
+Selector mode is discovery evidence until a group runner implements selected
+execution:
+
+```bash
+bash scripts/case_test.sh --list
+bash scripts/case_test.sh --inventory
+bash scripts/case_test.sh --from-path src/transport/xqc_stream.c --dry-run
+bash scripts/case_test.sh --feature fec --dry-run
+```
+
+Running `scripts/case_test.sh` without selector arguments preserves the legacy
+full-suite behavior. Do not report selector output as a passing endpoint case
+result; report it as identified coverage or a case-test gap until the selected
+case body is executable.
+
+Unit-test parallelism is opt-in only after suite resources are isolated.
+`tests/unittest/manifest.yml` records suite ownership and deterministic port
+ranges for suites that may need network resources. Sequential
+`./scripts/validate.sh test` remains the default complete-unit gate until
+`XQC_TEST_JOBS` support is implemented and validated.

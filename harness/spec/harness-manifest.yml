@@ -54,6 +54,10 @@ global_docs:
     - harness/spec/pull-requests.md
     - harness/skills/xquic-pr-formatting/SKILL.md
 
+test_routing:
+  case_manifest: case_test/manifest.yml
+  unit_manifest: tests/unittest/manifest.yml
+
 modules:
   api:
     paths:

@@ -229,3 +229,47 @@ Evidence:
 - `harness/skills/xquic-safe-push/SKILL.md`
 - `harness/spec/harness-behavior.md`
 - `harness/scripts/xqc_harness_check.sh`
+
+## ADR-H007: Route Endpoint Cases Through Metadata Before Moving Bodies
+
+Status: Accepted
+
+Date: 2026-08-06
+
+Context:
+
+- `scripts/case_test.sh` contains hundreds of endpoint checks in one legacy
+  script.
+- Agents need to identify relevant endpoint cases from changed source paths
+  without running the full suite during ordinary iteration.
+- Moving every case body at once would create high review risk and make
+  behavior drift hard to isolate.
+
+Decision:
+
+- Keep `scripts/case_test.sh` as the compatibility entry point.
+- Add `case_test/manifest.yml` for endpoint case group metadata.
+- Let selector mode classify legacy `case_print_result` names from the current
+  script instead of copying every legacy name into multiple durable documents.
+- Move case bodies into `case_test/<module>/` incrementally after routing and
+  dry-run discovery are stable.
+- Track unit suite ownership and planned port ranges in
+  `tests/unittest/manifest.yml` before enabling opt-in parallel execution.
+
+Consequences:
+
+- Changed paths can be mapped to endpoint case groups while the legacy full
+  suite remains available.
+- The harness check can detect stale runner paths, unknown modules, unknown
+  features, duplicate group IDs, and overlapping planned port ranges.
+- Selector output is discovery evidence, not a passing endpoint test result,
+  until selected execution is implemented for the group.
+
+Evidence:
+
+- `case_test/manifest.yml`
+- `tests/unittest/manifest.yml`
+- `scripts/case_test.sh`
+- `harness/spec/validation.md`
+- `harness/spec/harness-manifest.yml`
+- `harness/scripts/harness_manifest_check.rb`

@@ -48,3 +48,16 @@ dashboards, or private runbooks.
 
 The source boundaries governing both private categories are defined in
 `harness/spec/harness-behavior.md`.
+
+## Test Routing
+
+- `case_test/manifest.yml`: endpoint case group metadata for mapping changed
+  paths to legacy `case_print_result` names.
+- `case_test/lib/selector.rb`: list, inventory, and dry-run selector
+  implementation used by `scripts/case_test.sh`.
+- `case_test/<module>/`: future module-owned endpoint case runners.
+- `tests/unittest/manifest.yml`: unit-test suite ownership and planned port
+  ranges for opt-in parallel execution.
+
+The authoritative module and feature map remains
+`harness/spec/harness-manifest.yml`.

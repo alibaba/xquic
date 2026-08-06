@@ -94,7 +94,10 @@ Decision:
   directory.
 - Create the directory directly when durable task-local evidence is needed.
 - Keep OpenSpec proposal, design, tasks, and requirement deltas in
-  `openspec/`, and link to them from the run evidence when applicable.
+  `openspec/` while the task is being reviewed or implemented.
+- Before a code PR for the implemented result, fold durable conclusions into
+  `harness/spec/`, `harness/docs/`, `harness/decisions/`, and machine
+  manifests; do not commit completed task checklists as the lasting harness.
 
 Consequences:
 - Durable docs stay concise.
@@ -229,3 +232,57 @@ Evidence:
 - `harness/skills/xquic-safe-push/SKILL.md`
 - `harness/spec/harness-behavior.md`
 - `harness/scripts/xqc_harness_check.sh`
+
+## ADR-H007: Route Endpoint Cases Through Metadata Before Moving Bodies
+
+Status: Accepted
+
+Date: 2026-08-06
+
+Context:
+
+- `case_test/legacy/full_suite.sh` contains hundreds of endpoint checks that
+  previously lived in `scripts/case_test.sh`.
+- Agents need to identify relevant endpoint cases from changed source paths
+  without running the full suite during ordinary iteration.
+- Moving every case body at once would create high review risk and make
+  behavior drift hard to isolate.
+
+Decision:
+
+- Keep `scripts/case_test.sh` as the compatibility entry point.
+- Move the full-suite body to `case_test/legacy/full_suite.sh` so the public
+  entry point can stay small.
+- Add `case_test/manifest.yml` for endpoint case group metadata.
+- Let selector mode classify legacy `case_print_result` names from the current
+  full-suite body instead of copying every legacy name into multiple durable
+  documents.
+- Add selected execution and parallel scheduling only for groups marked
+  `execution: implemented`.
+- Treat `observability.qlog` as the first implemented shard and keep full-suite
+  CI at one legacy shard until implemented shards cover every legacy case.
+- Move case bodies into `case_test/<module>/` incrementally after routing and
+  dry-run discovery are stable.
+
+Consequences:
+
+- Changed paths can be mapped to endpoint case groups while the legacy full
+  suite remains available.
+- The harness check can detect stale runner paths, unknown modules, unknown
+  features, duplicate group IDs, stale legacy patterns, and invalid selected
+  execution states.
+- Selector output is discovery evidence, not a passing endpoint test result,
+  until selected execution is implemented for the group.
+- Full-suite parallel requests fail closed while executable shards are
+  incomplete; CI falls back to the legacy full suite as one shard to preserve
+  coverage.
+- Pending module runners fail clearly when invoked directly.
+
+Evidence:
+
+- `case_test/manifest.yml`
+- `case_test/legacy/full_suite.sh`
+- `scripts/case_test.sh`
+- `harness/spec/validation.md`
+- `harness/spec/harness-manifest.yml`
+- `harness/scripts/harness_manifest_check.rb`

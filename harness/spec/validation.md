@@ -349,3 +349,44 @@ commands. Raw logs retain the detailed evidence for diagnosis and audit.
 The current CMake configuration generates `include/xquic/xqc_configure.h` in
 the source tree. The validation script preserves and restores its pre-build
 contents so validation does not leave a source diff.
+
+## Targeted Endpoint Case Discovery
+
+Endpoint case routing is discovered through `scripts/case_test.sh` selector
+mode and `case_test/manifest.yml`. The harness manifest remains the source of
+truth for module and feature ownership; the case-test manifest classifies
+legacy endpoint case names into runnable groups without duplicating the full
+source-path map in documentation.
+
+Selector mode is discovery evidence until a group runner implements selected
+execution:
+
+```bash
+bash scripts/case_test.sh --list
+bash scripts/case_test.sh --inventory
+bash scripts/case_test.sh --from-path src/transport/xqc_stream.c --dry-run
+bash scripts/case_test.sh --feature fec --dry-run
+bash scripts/case_test.sh --execution-plan
+bash scripts/case_test.sh --execute --parallel --jobs 4 --module transport
+case_test/lib/architecture_check.rb "$(pwd)" --all
+```
+
+Running `scripts/case_test.sh` without selector arguments preserves the legacy
+full-suite behavior. Do not report selector output as a passing endpoint case
+result; report it as identified coverage or a case-test gap until the selected
+case body is executable. Selected execution schedules only groups marked
+`execution: implemented` in `case_test/manifest.yml`. The architecture check
+uses temporary mock runners to verify parallel scheduling, unique port/work-dir
+assignment, and static equivalence between the current legacy full suite and
+`origin/main:scripts/case_test.sh`.
+
+CI may invoke the selected-execution entry point with `--parallel`, but the
+safe job count is the number of executable shards that still preserves all
+legacy cases. While all 319 unique legacy cases remain in the full-suite body,
+the maximum safe full-suite CI value is `CASE_TEST_JOBS=1`. Selected shards
+such as `observability.qlog` may run independently when their execution plan is
+complete; a full-suite request with incomplete executable shards fails closed
+for `jobs > 1` and falls back to the legacy full suite for `jobs = 1`.
+
+Unit-test execution remains unchanged in this endpoint-case routing change.
+Sequential `./scripts/validate.sh test` remains the default complete-unit gate.

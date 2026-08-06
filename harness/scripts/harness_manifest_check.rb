@@ -24,6 +24,134 @@ def require_nonempty_array(value, path, errors)
   end
 end
 
+def check_path_or_glob_exists(root, relative_path, path, errors)
+  value = relative_path.to_s
+  matches = if value.include?("*")
+    Dir.glob(File.join(root, value))
+  else
+    [File.join(root, value)].select { |candidate| File.exist?(candidate) }
+  end
+
+  errors << "#{path} points to missing path or glob #{relative_path}" if matches.empty?
+end
+
+def route_features(modules)
+  features = {}
+  return features unless modules.is_a?(Hash)
+
+  modules.each do |module_name, route|
+    next unless route.is_a?(Hash)
+
+    route.fetch("features", {}).each_key do |feature_name|
+      features[feature_name.to_s] = module_name.to_s
+    end
+  end
+  features
+end
+
+def validate_test_routing(root, data, errors)
+  routing = data["test_routing"]
+  return unless routing
+
+  require_hash(routing, "test_routing", errors)
+  return unless routing.is_a?(Hash)
+
+  modules = data.fetch("modules", {})
+  module_names = modules.is_a?(Hash) ? modules.keys.map(&:to_s) : []
+  feature_owners = route_features(modules)
+
+  case_manifest_path = routing["case_manifest"]
+  legacy_full_suite_path = routing["case_legacy_full_suite"]
+  check_file_exists(root, case_manifest_path, "test_routing.case_manifest", errors)
+  check_file_exists(root, legacy_full_suite_path, "test_routing.case_legacy_full_suite", errors)
+
+  if case_manifest_path && File.exist?(File.join(root, case_manifest_path.to_s))
+    legacy_case_names = []
+    if legacy_full_suite_path && File.exist?(File.join(root, legacy_full_suite_path.to_s))
+      legacy_case_names = File.read(File.join(root, legacy_full_suite_path.to_s)).
+        scan(/case_print_result\s+"([^"]+)"/).
+        flatten.uniq
+    end
+
+    validate_case_manifest(
+      root,
+      File.join(root, case_manifest_path.to_s),
+      module_names,
+      feature_owners,
+      legacy_case_names,
+      errors
+    )
+  end
+end
+
+def validate_case_manifest(root, path, module_names, feature_owners, legacy_case_names, errors)
+  manifest = YAML.load_file(path)
+  relative = path.sub(root + "/", "")
+  require_hash(manifest, relative, errors)
+  return unless manifest.is_a?(Hash)
+
+  errors << "#{relative}.version must be 1" unless manifest["version"] == 1
+  groups = manifest["groups"]
+  require_nonempty_array(groups, "#{relative}.groups", errors)
+  return unless groups.is_a?(Array)
+
+  ids = []
+  groups.each_with_index do |group, index|
+    group_path = "#{relative}.groups[#{index}]"
+    require_hash(group, group_path, errors)
+    next unless group.is_a?(Hash)
+
+    id = group["id"].to_s
+    ids << id
+    errors << "#{group_path}.id is required" if id.empty?
+
+    module_name = group["module"].to_s
+    unless module_names.include?(module_name)
+      errors << "#{group_path}.module references unknown module #{module_name}"
+    end
+
+    feature_name = group["feature"].to_s
+    if !feature_name.empty? && feature_owners[feature_name] != module_name
+      errors << "#{group_path}.feature references unknown feature #{feature_name} for module #{module_name}"
+    end
+
+    check_file_exists(root, group["runner"], "#{group_path}.runner", errors)
+    require_nonempty_array(group["source_paths"], "#{group_path}.source_paths", errors)
+    if group["source_paths"].is_a?(Array)
+      group["source_paths"].each do |source_path|
+        check_path_or_glob_exists(root, source_path, "#{group_path}.source_paths", errors)
+      end
+    end
+
+    patterns = group["legacy_name_patterns"]
+    status = group["status"].to_s
+    execution = group.fetch("execution", "pending").to_s
+    unless %w[pending implemented].include?(execution)
+      errors << "#{group_path}.execution must be pending or implemented"
+    end
+
+    if status == "gap"
+      errors << "#{group_path}.legacy_name_patterns must be a list" unless patterns.is_a?(Array)
+      next
+    end
+
+    require_nonempty_array(patterns, "#{group_path}.legacy_name_patterns", errors)
+    next unless patterns.is_a?(Array)
+
+    matched = []
+    patterns.each do |pattern|
+      regexp = Regexp.new("\\A(?:#{pattern})\\z")
+      matched.concat(legacy_case_names.select { |name| regexp.match?(name) })
+    rescue RegexpError => e
+      errors << "#{group_path}.legacy_name_patterns has invalid regexp #{pattern.inspect}: #{e.message}"
+    end
+    errors << "#{group_path}.legacy_name_patterns match no legacy cases" if matched.empty?
+  end
+
+  duplicate_ids = ids.group_by(&:itself).select { |_id, values| values.length > 1 }.keys
+  errors << "#{relative}.groups has duplicate ids #{duplicate_ids.join(', ')}" unless duplicate_ids.empty?
+end
+
 def validate_validation(value, path, errors)
   require_hash(value, path, errors)
   return unless value.is_a?(Hash)
@@ -218,6 +346,8 @@ if data.is_a?(Hash)
   else
     errors << "modules must contain at least one module"
   end
+
+  validate_test_routing(root, data, errors)
 
   errors << "top-level features are not allowed; nest features under their owning module" if data.key?("features")
 end

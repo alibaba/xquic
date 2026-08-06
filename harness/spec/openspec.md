@@ -44,6 +44,24 @@ Keep OpenSpec artifacts out of `harness/`; they belong under the
 tool-managed `openspec/` tree. Do not vendor the OpenSpec project source into
 this repository.
 
+## Completion
+
+Before opening or updating a code pull request for an implemented OpenSpec
+change, fold durable conclusions into the repository harness:
+
+- ongoing requirements belong in `harness/spec/`;
+- machine routing belongs in `harness/spec/harness-manifest.yml` or another
+  declared manifest;
+- explanatory navigation belongs in `harness/docs/`;
+- durable rationale belongs in `harness/decisions/`; and
+- temporary proposals, task lists, and design drafts remain outside the final
+  PR unless the PR's explicit purpose is to review the OpenSpec change itself.
+
+If the OpenSpec CLI is available, archive the completed change with the
+installed OpenSpec command. If the archive workflow is not available, remove
+the completed change directory after its durable content is represented in the
+harness.
+
 ## Local Setup
 
 If OpenSpec is not installed, prefer a local ignored install before global

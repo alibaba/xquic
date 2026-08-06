@@ -8778,6 +8778,9 @@ typedef struct {
     xqc_timer_manager_t *manager;
     xqc_gp_timer_id_t    timer_to_remove;
     xqc_int_t            unregister_ret;
+    xqc_int_t            pending_set_ret;
+    xqc_int_t            pending_unset_ret;
+    xqc_int_t            pending_get_info_ret;
     unsigned             remover_calls;
     unsigned             removed_calls;
 } xqc_test_gp_timer_delete_next_ctx_t;
@@ -8802,6 +8805,14 @@ xqc_test_gp_timer_remover_callback(xqc_gp_timer_id_t timer_id,
     ctx->remover_calls++;
     ctx->unregister_ret = xqc_timer_unregister_gp_timer(
         ctx->manager, ctx->timer_to_remove);
+    xqc_bool_t is_set = XQC_FALSE;
+    xqc_usec_t expire_time = 0;
+    ctx->pending_set_ret = xqc_timer_gp_timer_set(
+        ctx->manager, ctx->timer_to_remove, now + 1);
+    ctx->pending_unset_ret = xqc_timer_gp_timer_unset(
+        ctx->manager, ctx->timer_to_remove);
+    ctx->pending_get_info_ret = xqc_timer_gp_timer_get_info(
+        ctx->manager, ctx->timer_to_remove, &is_set, &expire_time);
 }
 
 static int
@@ -8813,6 +8824,9 @@ xqc_test_gp_timer_callback_can_delete_next(void)
     xqc_test_gp_timer_delete_next_ctx_t ctx = {
         .manager = &timers,
         .unregister_ret = XQC_ERROR,
+        .pending_set_ret = XQC_OK,
+        .pending_unset_ret = XQC_OK,
+        .pending_get_info_ret = XQC_OK,
     };
     xqc_gp_timer_id_t remover_id = xqc_timer_register_gp_timer(
         &timers, "delete_next_remover",
@@ -8833,8 +8847,73 @@ xqc_test_gp_timer_callback_can_delete_next(void)
     XQC_TEST_ASSERT(ctx.remover_calls == 1);
     XQC_TEST_ASSERT(ctx.removed_calls == 0);
     XQC_TEST_ASSERT(ctx.unregister_ret == XQC_OK);
+    XQC_TEST_ASSERT(ctx.pending_set_ret == XQC_ERROR);
+    XQC_TEST_ASSERT(ctx.pending_unset_ret == XQC_ERROR);
+    XQC_TEST_ASSERT(ctx.pending_get_info_ret == XQC_ERROR);
     XQC_TEST_ASSERT(xqc_timer_unregister_gp_timer(
         &timers, remover_id) == XQC_OK);
+    XQC_TEST_ASSERT(xqc_list_empty(&timers.gp_timer_list));
+    return 0;
+}
+
+typedef struct {
+    xqc_timer_manager_t *manager;
+    xqc_int_t            unregister_ret;
+    unsigned             owner_calls;
+    unsigned             sibling_calls;
+} xqc_test_gp_timer_reentrant_expire_ctx_t;
+
+static void
+xqc_test_gp_timer_reentrant_sibling_callback(xqc_gp_timer_id_t timer_id,
+    xqc_usec_t now, void *user_data)
+{
+    (void)timer_id;
+    (void)now;
+    xqc_test_gp_timer_reentrant_expire_ctx_t *ctx = user_data;
+    ctx->sibling_calls++;
+}
+
+static void
+xqc_test_gp_timer_reentrant_owner_callback(xqc_gp_timer_id_t timer_id,
+    xqc_usec_t now, void *user_data)
+{
+    xqc_test_gp_timer_reentrant_expire_ctx_t *ctx = user_data;
+    ctx->owner_calls++;
+    ctx->unregister_ret = xqc_timer_unregister_gp_timer(
+        ctx->manager, timer_id);
+    xqc_timer_expire(ctx->manager, now);
+}
+
+static int
+xqc_test_gp_timer_expire_is_not_reentrant(void)
+{
+    xqc_timer_manager_t timers;
+    xqc_timer_init(&timers, &xqc_test_log, NULL);
+    xqc_test_gp_timer_reentrant_expire_ctx_t ctx = {
+        .manager = &timers,
+        .unregister_ret = XQC_ERROR,
+    };
+    xqc_gp_timer_id_t owner_id = xqc_timer_register_gp_timer(
+        &timers, "reentrant_owner",
+        xqc_test_gp_timer_reentrant_owner_callback, &ctx);
+    XQC_TEST_ASSERT(owner_id >= 0);
+    xqc_gp_timer_id_t sibling_id = xqc_timer_register_gp_timer(
+        &timers, "reentrant_sibling",
+        xqc_test_gp_timer_reentrant_sibling_callback, &ctx);
+    XQC_TEST_ASSERT(sibling_id >= 0);
+
+    xqc_usec_t expires = xqc_monotonic_timestamp() + 1;
+    XQC_TEST_ASSERT(xqc_timer_gp_timer_set(
+        &timers, owner_id, expires) == XQC_OK);
+    XQC_TEST_ASSERT(xqc_timer_gp_timer_set(
+        &timers, sibling_id, expires) == XQC_OK);
+    xqc_timer_expire(&timers, expires);
+
+    XQC_TEST_ASSERT(ctx.owner_calls == 1);
+    XQC_TEST_ASSERT(ctx.sibling_calls == 1);
+    XQC_TEST_ASSERT(ctx.unregister_ret == XQC_OK);
+    XQC_TEST_ASSERT(xqc_timer_unregister_gp_timer(
+        &timers, sibling_id) == XQC_OK);
     XQC_TEST_ASSERT(xqc_list_empty(&timers.gp_timer_list));
     return 0;
 }
@@ -9426,6 +9505,9 @@ main(void)
         return 1;
     }
     if (xqc_test_gp_timer_callback_can_delete_next() != 0) {
+        return 1;
+    }
+    if (xqc_test_gp_timer_expire_is_not_reentrant() != 0) {
         return 1;
     }
     if (xqc_test_goaway_decode_errors_map_session_error() != 0) {

@@ -75,6 +75,7 @@ typedef struct xqc_gp_timer_s {
     xqc_list_head_t             list;
     xqc_gp_timer_id_t           id;
     xqc_bool_t                  timer_is_set;
+    xqc_bool_t                  delete_pending;
     xqc_usec_t                  expire_time;
 
     /* callback function and user_data */
@@ -89,6 +90,7 @@ typedef struct xqc_timer_manager_s {
     /* general purpose timer */
     xqc_list_head_t             gp_timer_list;
     xqc_gp_timer_id_t           next_gp_timer_id;
+    xqc_bool_t                  gp_timer_expiring;
 } xqc_timer_manager_t;
 
 /* APIs for gp timer */
@@ -114,6 +116,9 @@ xqc_timer_gp_timer_set(xqc_timer_manager_t *manager, xqc_gp_timer_id_t gp_timer_
     xqc_list_for_each_safe(pos, next, &manager->gp_timer_list) {
         gp_timer = xqc_list_entry(pos, xqc_gp_timer_t, list);
         if (gp_timer->id == gp_timer_id) {
+            if (gp_timer->delete_pending) {
+                return XQC_ERROR;
+            }
             gp_timer->expire_time = expire_time;
             gp_timer->timer_is_set = XQC_TRUE;
             xqc_log(manager->log, XQC_LOG_DEBUG, "|gp_timer_set|id:%d|name:%s|expire_time:%ui|", 
@@ -137,6 +142,9 @@ xqc_timer_gp_timer_unset(xqc_timer_manager_t *manager, xqc_gp_timer_id_t gp_time
     xqc_list_for_each_safe(pos, next, &manager->gp_timer_list) {
         gp_timer = xqc_list_entry(pos, xqc_gp_timer_t, list);
         if (gp_timer->id == gp_timer_id) {
+            if (gp_timer->delete_pending) {
+                return XQC_ERROR;
+            }
             gp_timer->expire_time = 0;
             gp_timer->timer_is_set = XQC_FALSE;
             xqc_log(manager->log, XQC_LOG_DEBUG, "|gp_timer_unset|id:%d|name:%s|expire_time:%ui|", 
@@ -160,6 +168,9 @@ xqc_timer_gp_timer_get_info(xqc_timer_manager_t *manager, xqc_gp_timer_id_t gp_t
     xqc_list_for_each_safe(pos, next, &manager->gp_timer_list) {
         gp_timer = xqc_list_entry(pos, xqc_gp_timer_t, list);
         if (gp_timer->id == gp_timer_id) {
+            if (gp_timer->delete_pending) {
+                return XQC_ERROR;
+            }
             *is_set = gp_timer->timer_is_set;
             *expire_time = gp_timer->expire_time;
             xqc_log(manager->log, XQC_LOG_DEBUG, "|gp_timer_get_info|id:%d|name:%s|is_set:%d|expire_time:%ui|", 
@@ -254,43 +265,40 @@ xqc_timer_expire(xqc_timer_manager_t *manager, xqc_usec_t now)
         }
     }
 
+    /* A GP callback can re-enter connection processing.  Let the outer pass
+     * retain ownership of its list cursor and deferred-delete sweep. */
+    if (manager->gp_timer_expiring) {
+        return;
+    }
+
     /* expire gp timer */
-    xqc_gp_timer_id_t next_timer_id = 0;
     xqc_gp_timer_id_t timer_id_limit = manager->next_gp_timer_id;
-    while (next_timer_id < timer_id_limit) {
-        xqc_list_head_t *pos;
-        xqc_gp_timer_t *gp_timer = NULL;
-        xqc_list_for_each(pos, &manager->gp_timer_list) {
-            xqc_gp_timer_t *candidate = xqc_list_entry(
-                pos, xqc_gp_timer_t, list);
-            if (candidate->id < next_timer_id
-                || candidate->id >= timer_id_limit
-                || !candidate->timer_is_set
-                || candidate->expire_time > now)
-            {
-                continue;
-            }
-            if (gp_timer == NULL || candidate->id < gp_timer->id) {
-                gp_timer = candidate;
-            }
-        }
-        if (gp_timer == NULL) {
+    xqc_list_head_t *pos, *next;
+    xqc_gp_timer_t *gp_timer;
+    manager->gp_timer_expiring = XQC_TRUE;
+    xqc_list_for_each(pos, &manager->gp_timer_list) {
+        gp_timer = xqc_list_entry(pos, xqc_gp_timer_t, list);
+        if (gp_timer->id >= timer_id_limit) {
             break;
         }
-
-        /* A callback may unregister itself or any other GP timer.  Never
-         * retain a list pointer across the callback; resume by timer ID and
-         * look up the next due timer from the live list.  The ID limit keeps
-         * timers registered by callbacks for the next expiration pass. */
-        xqc_gp_timer_id_t timer_id = gp_timer->id;
-        xqc_gp_timer_timeout_pt timeout_cb = gp_timer->timeout_cb;
-        void *user_data = gp_timer->user_data;
+        if (gp_timer->delete_pending || !gp_timer->timer_is_set
+            || gp_timer->expire_time > now)
+        {
+            continue;
+        }
         xqc_log(manager->log, XQC_LOG_DEBUG,
                 "|gp_timer_expire|id:%d|name:%s|expire_time:%ui|now:%ui|",
-                timer_id, gp_timer->name, gp_timer->expire_time, now);
+                gp_timer->id, gp_timer->name, gp_timer->expire_time, now);
         gp_timer->timer_is_set = XQC_FALSE;
-        timeout_cb(timer_id, now, user_data);
-        next_timer_id = timer_id + 1;
+        gp_timer->timeout_cb(gp_timer->id, now, gp_timer->user_data);
+    }
+    manager->gp_timer_expiring = XQC_FALSE;
+
+    xqc_list_for_each_safe(pos, next, &manager->gp_timer_list) {
+        gp_timer = xqc_list_entry(pos, xqc_gp_timer_t, list);
+        if (gp_timer->delete_pending) {
+            xqc_timer_destroy_gp_timer(gp_timer);
+        }
     }
 }
 

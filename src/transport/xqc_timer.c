@@ -424,6 +424,7 @@ xqc_timer_init(xqc_timer_manager_t *manager, xqc_log_t *log, void *user_data)
     /* init gp timer list */
     xqc_init_list_head(&manager->gp_timer_list);
     manager->next_gp_timer_id = 0;
+    manager->gp_timer_expiring = XQC_FALSE;
 }
 
 xqc_gp_timer_id_t xqc_timer_register_gp_timer(xqc_timer_manager_t *manager, 
@@ -469,13 +470,21 @@ xqc_timer_unregister_gp_timer(xqc_timer_manager_t *manager, xqc_gp_timer_id_t gp
         return -XQC_EPARAM;
     }
 
-    xqc_list_head_t *pos, *next;
+    xqc_list_head_t *pos;
     xqc_gp_timer_t *gp_timer;
 
-    xqc_list_for_each_safe(pos, next, &manager->gp_timer_list) {
+    xqc_list_for_each(pos, &manager->gp_timer_list) {
         gp_timer = xqc_list_entry(pos, xqc_gp_timer_t, list);
         if (gp_timer->id == gp_timer_id) {
-            xqc_timer_destroy_gp_timer(gp_timer);
+            if (gp_timer->delete_pending) {
+                return XQC_ERROR;
+            }
+            if (manager->gp_timer_expiring) {
+                gp_timer->timer_is_set = XQC_FALSE;
+                gp_timer->delete_pending = XQC_TRUE;
+            } else {
+                xqc_timer_destroy_gp_timer(gp_timer);
+            }
             return XQC_OK;
         }
     }

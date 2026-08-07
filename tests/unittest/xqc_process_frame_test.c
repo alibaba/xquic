@@ -190,6 +190,35 @@ xqc_test_conn_close_transport_error_type_overlap(void)
 
 
 void
+xqc_test_peer_key_update_error_not_0rtt(void)
+{
+    unsigned char frame[] = {
+        0x1c, 0x0e, 0x00, 0x00
+    };
+    xqc_connection_t *conn;
+    xqc_packet_in_t packet_in;
+    xqc_int_t ret;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pos = frame;
+    packet_in.last = frame + sizeof(frame);
+
+    ret = xqc_process_conn_close_frame(conn, &packet_in);
+
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(conn->conn_err, TRA_KEY_UPDATE_ERROR);
+    CU_ASSERT_EQUAL(xqc_conn_get_err_type(conn),
+                    XQC_CONN_ERR_TYPE_TRANSPORT);
+    CU_ASSERT_FALSE(xqc_conn_should_clear_0rtt_ticket(conn->conn_err));
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
 xqc_test_large_ack_frame()
 {
     xqc_connection_t *conn = test_engine_connect();

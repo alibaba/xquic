@@ -21,6 +21,7 @@
 #include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_frame_parser.h"
 #include "src/transport/xqc_packet_in.h"
+#include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_recv_record.h"
 
 extern void xqc_conn_tls_error_cb(xqc_int_t tls_err, void *user_data);
@@ -487,10 +488,15 @@ xqc_0rtt_test_fire(xqc_connection_t *conn, xqc_transport_params_t *params)
         || params->initial_max_stream_data_uni < remembered->max_stream_data_uni
         || params->initial_max_streams_bidi < remembered->max_streams_bidi
         || params->initial_max_streams_uni < remembered->max_streams_uni
-        || params->active_connection_id_limit < remembered->active_connection_id_limit
-        || params->max_datagram_frame_size < remembered->max_datagram_frame_size)
+        || params->active_connection_id_limit
+           < remembered->active_connection_id_limit)
     {
         XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
+
+    } else if (params->max_datagram_frame_size
+               < remembered->max_datagram_frame_size)
+    {
+        XQC_CONN_ERR(conn, TRA_0RTT_DGRAM_PARAMS_ERROR);
     }
 
     return conn->conn_err;
@@ -526,6 +532,45 @@ xqc_test_conn_crypto_error_base_value()
      */
     CU_ASSERT(TRA_CRYPTO_ERROR_BASE == 0x100);
     CU_ASSERT(TRA_INTERNAL_ERROR == 0x1);
+}
+
+
+void
+xqc_test_transport_error_code_passthrough(void)
+{
+    /* RFC 9000 Section 20.1 fixes these transport-error codepoints. */
+    CU_ASSERT_EQUAL(TRA_KEY_UPDATE_ERROR, 0x0e);
+    CU_ASSERT_EQUAL(TRA_NO_VIABLE_PATH, 0x10);
+
+    CU_ASSERT_EQUAL(xqc_conn_close_wire_error_code(TRA_KEY_UPDATE_ERROR),
+                    TRA_KEY_UPDATE_ERROR);
+    CU_ASSERT_EQUAL(xqc_conn_close_wire_error_code(TRA_NO_VIABLE_PATH),
+                    TRA_NO_VIABLE_PATH);
+
+    CU_ASSERT_FALSE(
+        xqc_conn_should_clear_0rtt_ticket(TRA_KEY_UPDATE_ERROR));
+}
+
+
+void
+xqc_test_0rtt_error_wire_codes(void)
+{
+    CU_ASSERT_NOT_EQUAL(TRA_0RTT_TRANS_PARAMS_ERROR,
+                        TRA_KEY_UPDATE_ERROR);
+    CU_ASSERT_NOT_EQUAL(TRA_0RTT_DGRAM_PARAMS_ERROR,
+                        TRA_KEY_UPDATE_ERROR);
+
+    CU_ASSERT_TRUE(xqc_conn_should_clear_0rtt_ticket(
+        TRA_0RTT_TRANS_PARAMS_ERROR));
+    CU_ASSERT_TRUE(xqc_conn_should_clear_0rtt_ticket(
+        TRA_0RTT_DGRAM_PARAMS_ERROR));
+
+    CU_ASSERT_EQUAL(
+        xqc_conn_close_wire_error_code(TRA_0RTT_TRANS_PARAMS_ERROR),
+        TRA_TRANSPORT_PARAMETER_ERROR);
+    CU_ASSERT_EQUAL(
+        xqc_conn_close_wire_error_code(TRA_0RTT_DGRAM_PARAMS_ERROR),
+        TRA_PROTOCOL_VIOLATION);
 }
 
 
@@ -603,31 +648,34 @@ void
 xqc_test_0rtt_params_each_reduced(void)
 {
     /*
-     * Reduce each MUST parameter individually and verify that every
-     * branch in the validation code triggers TRA_0RTT_TRANS_PARAMS_ERROR.
-     * Uses offset-based mutation so one loop covers all 8 fields.
+     * RFC 9000 Section 7.4.1 requires TRANSPORT_PARAMETER_ERROR for core
+     * parameters; RFC 9221 Section 3 requires PROTOCOL_VIOLATION for the
+     * DATAGRAM parameter. Local reasons keep both paths distinguishable.
      */
     struct {
-        size_t   tp_offset;       /* offset into xqc_transport_params_t */
-        size_t   rs_offset;       /* offset into xqc_trans_settings_t (for datagram) */
+        size_t   tp_offset;
         uint64_t remembered_val;
+        xqc_int_t expected_err;
     } cases[] = {
         { offsetof(xqc_transport_params_t, initial_max_data),
-          0, REMEMBERED_MAX_DATA },
+          REMEMBERED_MAX_DATA, TRA_0RTT_TRANS_PARAMS_ERROR },
         { offsetof(xqc_transport_params_t, initial_max_stream_data_bidi_local),
-          0, REMEMBERED_MAX_STREAM_DATA_BIDI_LOCAL },
+          REMEMBERED_MAX_STREAM_DATA_BIDI_LOCAL,
+          TRA_0RTT_TRANS_PARAMS_ERROR },
         { offsetof(xqc_transport_params_t, initial_max_stream_data_bidi_remote),
-          0, REMEMBERED_MAX_STREAM_DATA_BIDI_REMOTE },
+          REMEMBERED_MAX_STREAM_DATA_BIDI_REMOTE,
+          TRA_0RTT_TRANS_PARAMS_ERROR },
         { offsetof(xqc_transport_params_t, initial_max_stream_data_uni),
-          0, REMEMBERED_MAX_STREAM_DATA_UNI },
+          REMEMBERED_MAX_STREAM_DATA_UNI, TRA_0RTT_TRANS_PARAMS_ERROR },
         { offsetof(xqc_transport_params_t, initial_max_streams_bidi),
-          0, REMEMBERED_MAX_STREAMS_BIDI },
+          REMEMBERED_MAX_STREAMS_BIDI, TRA_0RTT_TRANS_PARAMS_ERROR },
         { offsetof(xqc_transport_params_t, initial_max_streams_uni),
-          0, REMEMBERED_MAX_STREAMS_UNI },
+          REMEMBERED_MAX_STREAMS_UNI, TRA_0RTT_TRANS_PARAMS_ERROR },
         { offsetof(xqc_transport_params_t, active_connection_id_limit),
-          0, REMEMBERED_ACTIVE_CID_LIMIT },
+          REMEMBERED_ACTIVE_CID_LIMIT, TRA_0RTT_TRANS_PARAMS_ERROR },
         { offsetof(xqc_transport_params_t, max_datagram_frame_size),
-          0, REMEMBERED_MAX_DGRAM_FRAME_SIZE },
+          REMEMBERED_MAX_DGRAM_FRAME_SIZE,
+          TRA_0RTT_DGRAM_PARAMS_ERROR },
     };
     size_t n = sizeof(cases) / sizeof(cases[0]);
 
@@ -643,7 +691,7 @@ xqc_test_0rtt_params_each_reduced(void)
         *field = cases[i].remembered_val - 1;
 
         xqc_int_t err = xqc_0rtt_test_fire(conn, &params);
-        CU_ASSERT_EQUAL(err, TRA_0RTT_TRANS_PARAMS_ERROR);
+        CU_ASSERT_EQUAL(err, cases[i].expected_err);
 
         xqc_engine_destroy(conn->engine);
     }

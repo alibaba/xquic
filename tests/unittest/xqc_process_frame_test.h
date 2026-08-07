@@ -47,4 +47,6 @@ void xqc_test_conn_close_application_error_type(void);
 
 void xqc_test_conn_close_transport_error_type_overlap(void);
 
+void xqc_test_peer_key_update_error_not_0rtt(void);
+
 #endif /* _XQC_PROCESS_FRAME_TEST_H_INCLUDED_ */

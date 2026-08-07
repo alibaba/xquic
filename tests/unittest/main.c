@@ -16,6 +16,7 @@
 #include "xqc_recv_record_test.h"
 #include "xqc_reno_test.h"
 #include "xqc_cubic_test.h"
+#include "xqc_bbr_test.h"
 #include "xqc_packet_test.h"
 #include "xqc_stream_frame_test.h"
 #include "xqc_process_frame_test.h"
@@ -98,6 +99,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_reno_init_cwnd_override", xqc_test_reno_init_cwnd_override)
         || !CU_add_test(pSuite, "xqc_test_cubic", xqc_test_cubic)
         || !CU_add_test(pSuite, "xqc_test_cubic_init_cwnd", xqc_test_cubic_init_cwnd)
+        || !CU_add_test(pSuite, "xqc_test_bbr_init_cwnd",
+                        xqc_test_bbr_init_cwnd)
+        || !CU_add_test(pSuite, "xqc_test_bbr_init_cwnd_override",
+                        xqc_test_bbr_init_cwnd_override)
         || !CU_add_test(pSuite, "xqc_test_short_header_parse_cid", xqc_test_short_header_packet_parse_cid)
         || !CU_add_test(pSuite, "xqc_test_long_header_parse_cid", xqc_test_long_header_packet_parse_cid)
         || !CU_add_test(pSuite, "xqc_test_client_discards_received_zero_rtt",

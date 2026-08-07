@@ -141,11 +141,23 @@ xqc_test_need_repair_with_high_bit()
     types = XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_REPAIR_SYMBOL;
     CU_ASSERT(XQC_NEED_REPAIR(types) != 0);
 
-    /* ACK + PADDING + PING + CONN_CLOSE + DATAGRAM + SID + REPAIR_SYMBOL:
-     * all are excluded from repair; result should be 0 */
+    /* PATH_RESPONSE alone: should NOT need repair. RFC 9000 Section 13.3 /
+     * Section 8.2.2 require PATH_RESPONSE to be sent just once and not
+     * retransmitted on loss. */
+    types = XQC_FRAME_BIT_PATH_RESPONSE;
+    CU_ASSERT(XQC_NEED_REPAIR(types) == 0);
+
+    /* STREAM + PATH_RESPONSE: should need repair (STREAM triggers it, other
+     * repairable frames sharing the packet are still retransmitted) */
+    types = XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_PATH_RESPONSE;
+    CU_ASSERT(XQC_NEED_REPAIR(types) != 0);
+
+    /* ACK + PADDING + PING + CONN_CLOSE + DATAGRAM + SID + REPAIR_SYMBOL +
+     * PATH_RESPONSE: all are excluded from repair; result should be 0 */
     types = XQC_FRAME_BIT_ACK | XQC_FRAME_BIT_PADDING | XQC_FRAME_BIT_PING
           | XQC_FRAME_BIT_CONNECTION_CLOSE | XQC_FRAME_BIT_DATAGRAM
-          | XQC_FRAME_BIT_SID | XQC_FRAME_BIT_REPAIR_SYMBOL;
+          | XQC_FRAME_BIT_SID | XQC_FRAME_BIT_REPAIR_SYMBOL
+          | XQC_FRAME_BIT_PATH_RESPONSE;
     CU_ASSERT(XQC_NEED_REPAIR(types) == 0);
 }
 

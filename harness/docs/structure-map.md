@@ -60,8 +60,8 @@ The source boundaries governing both private categories are defined in
 - `case_test/lib/architecture_check.rb`: repeatable checks for parallel
   scheduling and legacy full-suite static equivalence.
 - `case_test/legacy/full_suite.sh`: current full endpoint suite body.
-- `case_test/<module>/`: module-owned endpoint case runners, enabled only
-  after their case bodies are migrated.
+- `case_test/<module>/`: module-owned endpoint case runners, implemented
+  either as hand-migrated bodies or generated legacy-owned block runners.
 
 The authoritative module and feature map remains
 `harness/spec/harness-manifest.yml`.

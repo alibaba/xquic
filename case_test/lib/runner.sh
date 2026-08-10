@@ -225,6 +225,10 @@ run_group()
     fail_count="$(wc -l < "${failures_file}" | tr -d ' ')"
 
     echo "[case-test] ${group_id} result=$([[ "${runner_status}" -eq 0 && "${fail_count}" -eq 0 ]] && echo pass || echo fail) exit=${runner_status} run=${run_count} ok=${ok_count} fail=${fail_count} log=${log_file}"
+    grep -E '^\[       OK \] xquic_case_test\.' "${log_file}" \
+        | sed -E "s/^\\[       OK \\] xquic_case_test\\.([^ ]+) .*/[case-test:${group_id}] \\1 >>>>>>>> pass:1/" || true
+    sed -E "s/^\\[     FAIL \\] xquic_case_test\\.([^ ]+) .*/[case-test:${group_id}] \\1 >>>>>>>> pass:0/" \
+        "${failures_file}" || true
 
     if [[ "${fail_count}" -gt 0 ]]; then
         sed "s/^/[case-test:${group_id}] /" "${failures_file}"

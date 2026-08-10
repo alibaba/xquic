@@ -66,9 +66,11 @@ Parallel execution writes each shard's raw output to
 result lines in `<build>/case_test_parallel/<shard>/case_test.failures`.
 The parent runner reports each shard's exit status and parsed fail count, and
 returns nonzero if a shard exits nonzero or prints any `[     FAIL ]` case
-result. On failure, terminal output shows the failed result lines and a bounded
-tail of the shard log; use the per-shard log files, not interleaved terminal
-output, as the authoritative failure evidence.
+result. It also emits ordered legacy-compatible `pass:1` and `pass:0` result
+lines parsed from the shard log so existing CI summary checks can count cases
+without reading interleaved raw output. On failure, terminal output shows the
+failed result lines and a bounded tail of the shard log; use the per-shard log
+files, not interleaved terminal output, as the authoritative failure evidence.
 
 Some legacy cases require sudo for client-side network setup. Run `sudo -v`
 in the same shell before executing those shards. Generated shards that contain

@@ -17,7 +17,29 @@ def run!(env, *cmd)
 end
 
 def case_names(text)
-  static_names = text.scan(/case_print_result\s+"([^"]+)"/).flatten.reject { |name| name.include?("$") }
+  static_names = []
+  depth = 0
+  local_test_depths = []
+
+  text.each_line do |line|
+    stripped = line.strip
+    opens_if = stripped.start_with?("if ")
+    if opens_if
+      depth += 1
+      local_test_depths << depth if stripped =~ /\Aif\s+\[\s+\$LOCAL_TEST\s+-ne\s+0\s+\];\s+then\z/
+    end
+
+    if local_test_depths.empty?
+      static_names.concat(line.scan(/case_print_result\s+"([^"]+)"/).flatten)
+    end
+
+    if stripped == "fi"
+      local_test_depths.pop if local_test_depths.last == depth
+      depth -= 1 if depth.positive?
+    end
+  end
+
+  static_names = static_names.reject { |name| name.include?("$") }
   dynamic_names = text.scan(/wrong_direction_stream_case\s+\d+\s+"([^"]+)"/).flatten
 
   static_names + dynamic_names.flat_map { |name| [name, name] }

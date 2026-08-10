@@ -78,6 +78,6 @@ sudo commands check this before running any case, so missing credentials are
 reported as an environment failure rather than case-result failures.
 
 For full-suite CI, the maximum safe case-test job count is the number of
-implemented executable shards that together cover all 319 unique legacy cases.
+implemented executable shards that together cover all default legacy cases.
 `observability.qlog` is hand-migrated; the other implemented shards are
 generated from legacy-owned case blocks until their bodies are migrated.

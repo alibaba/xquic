@@ -10,7 +10,34 @@ group_id = ARGV.fetch(1)
 manifest = YAML.load_file(File.join(root, "case_test/manifest.yml"))
 legacy_path = File.join(root, "case_test/legacy/full_suite.sh")
 legacy_lines = File.readlines(legacy_path)
-legacy_names = legacy_lines.join.scan(/case_print_result\s+"([^"]+)"/).flatten.uniq.sort
+
+def default_legacy_case_names(lines)
+  names = []
+  depth = 0
+  local_test_depths = []
+
+  lines.each do |line|
+    stripped = line.strip
+    opens_if = stripped.start_with?("if ")
+    if opens_if
+      depth += 1
+      local_test_depths << depth if stripped =~ /\Aif\s+\[\s+\$LOCAL_TEST\s+-ne\s+0\s+\];\s+then\z/
+    end
+
+    if local_test_depths.empty? && line =~ /case_print_result\s+"([^"]+)"/
+      names << Regexp.last_match(1)
+    end
+
+    if stripped == "fi"
+      local_test_depths.pop if local_test_depths.last == depth
+      depth -= 1 if depth.positive?
+    end
+  end
+
+  names.uniq.sort
+end
+
+legacy_names = default_legacy_case_names(legacy_lines)
 
 group = manifest.fetch("groups").find { |candidate| candidate.fetch("id") == group_id }
 abort "unknown case-test group: #{group_id}" unless group
@@ -155,7 +182,7 @@ File.open(script_path, "w", 0o755) do |file|
   file.puts "set -u"
   file.puts "ROOT_DIR=#{root.inspect}"
   file.puts "source \"${ROOT_DIR}/case_test/lib/common.sh\""
-  file.puts "LOCAL_TEST=${CASE_TEST_LOCAL_TEST:-0}"
+  file.puts "LOCAL_TEST=0"
   file.puts "case_test_enter_work_dir"
   file.puts "trap case_test_stop_server EXIT"
   file.puts "rm -rf tp_localhost test_session xqc_token"

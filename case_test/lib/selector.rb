@@ -53,11 +53,34 @@ end
 manifest_path = ENV.fetch("CASE_TEST_MANIFEST", File.join(root, "case_test/manifest.yml"))
 script_path = ENV.fetch("CASE_TEST_LEGACY_SUITE", File.join(root, "case_test/legacy/full_suite.sh"))
 manifest = YAML.load_file(manifest_path)
-legacy_names = File.read(script_path).
-  scan(/case_print_result\s+"([^"]+)"/).
-  flatten.
-  uniq.
-  sort
+
+def default_legacy_case_names(text)
+  names = []
+  depth = 0
+  local_test_depths = []
+
+  text.each_line do |line|
+    stripped = line.strip
+    opens_if = stripped.start_with?("if ")
+    if opens_if
+      depth += 1
+      local_test_depths << depth if stripped =~ /\Aif\s+\[\s+\$LOCAL_TEST\s+-ne\s+0\s+\];\s+then\z/
+    end
+
+    if local_test_depths.empty?
+      names.concat(line.scan(/case_print_result\s+"([^"]+)"/).flatten)
+    end
+
+    if stripped == "fi"
+      local_test_depths.pop if local_test_depths.last == depth
+      depth -= 1 if depth.positive?
+    end
+  end
+
+  names.uniq.sort
+end
+
+legacy_names = default_legacy_case_names(File.read(script_path))
 
 groups = manifest.fetch("groups").map do |group|
   patterns = group.fetch("owned_legacy_name_patterns", []).map { |pattern| Regexp.new("\\A(?:#{pattern})\\z") }

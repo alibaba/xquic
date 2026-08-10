@@ -188,6 +188,7 @@ run_group()
     local work_dir
     local log_file
     local failures_file
+    local results_file
     local runner_status
     local run_count
     local ok_count
@@ -199,11 +200,13 @@ run_group()
     work_dir="${BUILD_DIR}/case_test_parallel/${shard_id}"
     log_file="${work_dir}/case_test.log"
     failures_file="${work_dir}/case_test.failures"
+    results_file="${work_dir}/case_test.results"
     failure_context_lines="${CASE_TEST_FAILURE_CONTEXT_LINES:-120}"
 
     case_test_prepare_work_dir "${BUILD_DIR}" "${work_dir}"
     : > "${log_file}"
     : > "${failures_file}"
+    : > "${results_file}"
 
     echo "[case-test] ${group_id} port=${port} runner=${runner}"
     if (
@@ -219,19 +222,58 @@ run_group()
         runner_status="$?"
     fi
 
-    grep -E '^\[     FAIL \] xquic_case_test\.' "${log_file}" > "${failures_file}" || true
-    run_count="$(grep -c -E '^\[ RUN      \] xquic_case_test\.' "${log_file}" || true)"
-    ok_count="$(grep -c -E '^\[       OK \] xquic_case_test\.' "${log_file}" || true)"
+    awk -v group_id="${group_id}" '
+        function emit(name, result) {
+            print "[case-test:" group_id "] " name " >>>>>>>> pass:" result
+            emitted[name] = 1
+        }
+
+        />>>>>>>> pass:[01]/ {
+            result = $0
+            sub(/^.*>>>>>>>> pass:/, "", result)
+            result = substr(result, 1, 1)
+            pending_result = result
+            next
+        }
+        /^\[ RUN      \] xquic_case_test\./ {
+            name = $0
+            sub(/^\[ RUN      \] xquic_case_test\./, "", name)
+            sub(/ .*/, "", name)
+            if (pending_result != "") {
+                emit(name, pending_result)
+                pending_result = ""
+            }
+            next
+        }
+        /^\[       OK \] xquic_case_test\./ {
+            name = $0
+            sub(/^\[       OK \] xquic_case_test\./, "", name)
+            sub(/ .*/, "", name)
+            if (!emitted[name]) {
+                emit(name, "1")
+            }
+            next
+        }
+        /^\[     FAIL \] xquic_case_test\./ {
+            name = $0
+            sub(/^\[     FAIL \] xquic_case_test\./, "", name)
+            sub(/ .*/, "", name)
+            if (!emitted[name]) {
+                emit(name, "0")
+            }
+            next
+        }
+    ' "${log_file}" > "${results_file}"
+    grep '>>>>>>>> pass:0' "${results_file}" > "${failures_file}" || true
+    run_count="$(wc -l < "${results_file}" | tr -d ' ')"
+    ok_count="$(grep -c '>>>>>>>> pass:1' "${results_file}" || true)"
     fail_count="$(wc -l < "${failures_file}" | tr -d ' ')"
 
     echo "[case-test] ${group_id} result=$([[ "${runner_status}" -eq 0 && "${fail_count}" -eq 0 ]] && echo pass || echo fail) exit=${runner_status} run=${run_count} ok=${ok_count} fail=${fail_count} log=${log_file}"
-    grep -E '^\[       OK \] xquic_case_test\.' "${log_file}" \
-        | sed -E "s/^\\[       OK \\] xquic_case_test\\.([^ ]+) .*/[case-test:${group_id}] \\1 >>>>>>>> pass:1/" || true
-    sed -E "s/^\\[     FAIL \\] xquic_case_test\\.([^ ]+) .*/[case-test:${group_id}] \\1 >>>>>>>> pass:0/" \
-        "${failures_file}" || true
+    cat "${results_file}"
 
     if [[ "${fail_count}" -gt 0 ]]; then
-        sed "s/^/[case-test:${group_id}] /" "${failures_file}"
+        cat "${failures_file}"
     fi
 
     if [[ "${runner_status}" -ne 0 || "${fail_count}" -ne 0 ]]; then

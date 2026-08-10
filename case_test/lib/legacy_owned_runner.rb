@@ -158,17 +158,6 @@ File.open(script_path, "w", 0o755) do |file|
   file.puts "LOCAL_TEST=0"
   file.puts "case_test_enter_work_dir"
   file.puts "trap case_test_stop_server EXIT"
-  file.puts "CASE_TEST_FAILURES=0"
-  file.puts "case_print_result()"
-  file.puts "{"
-  file.puts "    echo \"[ RUN      ] xquic_case_test.$1\""
-  file.puts "    if [ \"$2\" = \"pass\" ]; then"
-  file.puts "        echo \"[       OK ] xquic_case_test.$1 (1 ms)\""
-  file.puts "    else"
-  file.puts "        echo \"[     FAIL ] xquic_case_test.$1 (1 ms)\""
-  file.puts "        CASE_TEST_FAILURES=$((CASE_TEST_FAILURES + 1))"
-  file.puts "    fi"
-  file.puts "}"
   file.puts "rm -rf tp_localhost test_session xqc_token"
   file.puts "case_test_require_sudo" if sudo_required
   file.puts
@@ -181,9 +170,6 @@ File.open(script_path, "w", 0o755) do |file|
     file.puts
   end
   file.puts "case_test_stop_server"
-  file.puts "if [ \"${CASE_TEST_FAILURES}\" -ne 0 ]; then"
-  file.puts "    exit 1"
-  file.puts "fi"
 end
 
 if ENV["CASE_TEST_GENERATE_ONLY"] == "1"

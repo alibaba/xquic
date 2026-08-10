@@ -208,6 +208,7 @@ def parallel_failure_selftest(root)
     File.write(runner_path, <<~SH)
       #!/bin/bash
       source #{File.join(root, "case_test/lib/common.sh").inspect}
+      echo "#{group_id} ...>>>>>>>> pass:#{result == "pass" ? "1" : "0"}"
       case_print_result "#{group_id}" "#{result}"
       exit 0
     SH
@@ -256,7 +257,7 @@ def parallel_failure_selftest(root)
 
   raise "failure selftest unexpectedly passed\n#{output}" if status.success?
   unless output.include?("[case-test] selftest.fail result=fail") &&
-      output.include?("[     FAIL ] xquic_case_test.selftest.fail")
+      output.include?("[case-test:selftest.fail] selftest.fail >>>>>>>> pass:0")
     raise "failure selftest did not report failed case\n#{output}"
   end
 

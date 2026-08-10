@@ -155,7 +155,7 @@ File.open(script_path, "w", 0o755) do |file|
   file.puts "set -u"
   file.puts "ROOT_DIR=#{root.inspect}"
   file.puts "source \"${ROOT_DIR}/case_test/lib/common.sh\""
-  file.puts "LOCAL_TEST=0"
+  file.puts "LOCAL_TEST=${CASE_TEST_LOCAL_TEST:-0}"
   file.puts "case_test_enter_work_dir"
   file.puts "trap case_test_stop_server EXIT"
   file.puts "rm -rf tp_localhost test_session xqc_token"

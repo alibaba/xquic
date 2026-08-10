@@ -1,11 +1,11 @@
 #!/bin/bash
 #
-# Fails clearly for case-test groups whose bodies still live in the legacy suite.
+# Runs one case-test group by extracting its owned cases from the legacy suite.
 
 set -euo pipefail
 
 GROUP_ID="${1:?missing case-test group id}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-echo "case_test: ${GROUP_ID} runner is not implemented yet" >&2
-echo "case_test: use scripts/case_test.sh --dry-run to inspect legacy coverage" >&2
-exit 2
+exec ruby "${ROOT_DIR}/case_test/lib/legacy_owned_runner.rb" \
+    "${ROOT_DIR}" "${GROUP_ID}"

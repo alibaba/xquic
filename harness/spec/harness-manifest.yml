@@ -47,6 +47,7 @@ global_docs:
     - harness/spec/architecture.md
   validation:
     - harness/spec/validation.md
+    - harness/skills/xquic-build/SKILL.md
     - harness/skills/validate/SKILL.md
   doc_style:
     - harness/spec/doc-style.md

@@ -28,6 +28,7 @@ harness/
 - [Documentation style](spec/doc-style.md)
 - [Run artifact contract](spec/run-artifacts.md)
 - [Harness review skill](skills/harness-review/SKILL.md)
+- [XQUIC build skill](skills/xquic-build/SKILL.md)
 - [Validation skill](skills/validate/SKILL.md)
 - [Issue verification skill](skills/issue-check/SKILL.md)
 - [Issue submission skill](skills/issue-submit/SKILL.md)

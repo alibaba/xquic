@@ -12,6 +12,7 @@ options = {
   inventory: false,
   runners: false,
   execution_plan: false,
+  groups: [],
   cases: [],
   modules: [],
   features: [],
@@ -31,6 +32,8 @@ until args.empty?
     options[:runners] = true
   when "--execution-plan"
     options[:execution_plan] = true
+  when "--group"
+    options[:groups] << (args.shift || abort("--group requires a value"))
   when "--case"
     options[:cases] << (args.shift || abort("--case requires a value"))
   when "--module"
@@ -40,7 +43,7 @@ until args.empty?
   when "--from-path"
     options[:paths] << (args.shift || abort("--from-path requires a value"))
   when "-h", "--help"
-    puts "usage: scripts/case_test.sh [--list] [--inventory] [--dry-run] [--runners] [--execution-plan] [--case <id-or-name>] [--module <name>] [--feature <name>] [--from-path <path>]"
+    puts "usage: scripts/case_test.sh [--list] [--inventory] [--dry-run] [--runners] [--execution-plan] [--group <id>] [--case <id-or-name>] [--module <name>] [--feature <name>] [--from-path <path>]"
     exit 0
   else
     abort("unknown case_test selector: #{arg}")
@@ -57,7 +60,7 @@ legacy_names = File.read(script_path).
   sort
 
 groups = manifest.fetch("groups").map do |group|
-  patterns = group.fetch("legacy_name_patterns", []).map { |pattern| Regexp.new("\\A(?:#{pattern})\\z") }
+  patterns = group.fetch("owned_legacy_name_patterns", []).map { |pattern| Regexp.new("\\A(?:#{pattern})\\z") }
   names = legacy_names.select { |name| patterns.any? { |pattern| pattern.match?(name) } }
   group.merge("legacy_names" => names)
 end
@@ -85,7 +88,7 @@ if options[:inventory]
   unmatched.each do |name|
     puts "unmatched=#{name}"
   end
-  exit 0
+  exit repeated.empty? && unmatched.empty? ? 0 : 3
 end
 
 def path_matches?(path, pattern)
@@ -93,6 +96,7 @@ def path_matches?(path, pattern)
 end
 
 selected = groups
+selected = selected.select { |group| options[:groups].include?(group["id"].to_s) } unless options[:groups].empty?
 selected = selected.select { |group| options[:modules].include?(group["module"].to_s) } unless options[:modules].empty?
 selected = selected.select { |group| options[:features].include?(group["feature"].to_s) } unless options[:features].empty?
 
@@ -147,7 +151,7 @@ if options[:runners]
     select { |group| group.fetch("execution", "pending") == "implemented" }.
     sort_by { |group| group.fetch("id") }.
     each do |group|
-      puts "#{group.fetch("id")}\t#{group.fetch("runner")}"
+      puts "#{group.fetch("id")}\t#{group.fetch("runner")}\t#{group.fetch("port_offset")}"
     end
   exit 0
 end
@@ -163,6 +167,7 @@ selected.sort_by { |group| group.fetch("id") }.each do |group|
   puts "status=#{group["status"]}" if group["status"]
   puts "execution=#{group.fetch("execution", "pending")}"
   puts "runner=#{group.fetch("runner")}"
+  puts "port_offset=#{group.fetch("port_offset")}"
   puts "legacy_count=#{group.fetch("legacy_names").length}"
   group.fetch("legacy_names").each do |name|
     puts "legacy_name=#{name}"

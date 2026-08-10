@@ -5,7 +5,9 @@ pull requests can provide broader evidence.
 
 See the [project instructions](PROJECT_INSTRUCTIONS.md) for related
 architecture and pull-request contracts. Agents executing these commands
-should also follow the [`validate` skill](../skills/validate/SKILL.md).
+should use the [`xquic-build` skill](../skills/xquic-build/SKILL.md) for
+build-only platform orientation and the
+[`validate` skill](../skills/validate/SKILL.md) for test or validation gates.
 
 ## Entry Point
 
@@ -195,7 +197,11 @@ Apply these allocation rules before running a new case:
 - enables the congestion-control and QPACK compatibility symbols required by
   the existing test and example targets;
 - disables optional MoQ support; and
-- compiles the configured targets.
+- compiles the configured targets;
+- builds BoringSSL from an already-present local source checkout when the
+  default static libraries are missing; and
+- prepares local runtime fixture files, including the test server certificate,
+  without running tests.
 
 This is the minimum check for documentation that changes build commands and
 for implementation work that cannot yet run tests. It is not sufficient
@@ -315,6 +321,9 @@ Supported environment variables:
 - `XQC_SSL_PATH`: TLS backend root.
 - `XQC_SSL_INCLUDE`: explicit TLS include directory.
 - `XQC_SSL_LIBS`: semicolon-separated TLS library paths.
+- `XQC_BUILD_SSL`: TLS backend build mode, `auto`, `on`, or `off`.
+- `XQC_PREPARE_RUNTIME_FILES`: whether to prepare local runtime fixture files,
+  `on` or `off`.
 - `XQC_TEST_NAME`: optional registered CUnit test name for focused feedback.
 - `XQC_VALIDATION_ARTIFACT_DIR`: validation evidence directory.
 
@@ -356,7 +365,9 @@ Endpoint case routing is discovered through `scripts/case_test.sh` selector
 mode and `case_test/manifest.yml`. The harness manifest remains the source of
 truth for module and feature ownership; the case-test manifest classifies
 legacy endpoint case names into runnable groups without duplicating the full
-source-path map in documentation.
+source-path map in documentation. Each legacy `case_print_result` name must
+have exactly one executable owner in `owned_legacy_name_patterns`; overlapping
+feature relevance is documentation context, not a second shard owner.
 
 Selector mode is discovery evidence until a group runner implements selected
 execution:
@@ -376,17 +387,16 @@ full-suite behavior. Do not report selector output as a passing endpoint case
 result; report it as identified coverage or a case-test gap until the selected
 case body is executable. Selected execution schedules only groups marked
 `execution: implemented` in `case_test/manifest.yml`. The architecture check
-uses temporary mock runners to verify parallel scheduling, unique port/work-dir
-assignment, and static equivalence between the current legacy full suite and
-`origin/main:scripts/case_test.sh`.
+verifies complete and unique legacy case ownership, uses temporary mock
+runners to verify parallel scheduling and stable per-shard port/work-dir
+assignment, and checks static equivalence between the current legacy full
+suite and `origin/main:scripts/case_test.sh`.
 
-CI may invoke the selected-execution entry point with `--parallel`, but the
-safe job count is the number of executable shards that still preserves all
-legacy cases. While all 319 unique legacy cases remain in the full-suite body,
-the maximum safe full-suite CI value is `CASE_TEST_JOBS=1`. Selected shards
-such as `observability.qlog` may run independently when their execution plan is
-complete; a full-suite request with incomplete executable shards fails closed
-for `jobs > 1` and falls back to the legacy full suite for `jobs = 1`.
+CI may invoke the selected-execution entry point with `--parallel`. The safe
+job count is the number of executable shards that preserve complete and unique
+legacy-case coverage. Hand-migrated shards and legacy-owned generated shards
+both count as executable only when `--execution-plan` reports
+`missing_unique_cases=0`; otherwise a full-suite parallel request fails closed.
 
 Unit-test execution remains unchanged in this endpoint-case routing change.
 Sequential `./scripts/validate.sh test` remains the default complete-unit gate.

@@ -25,6 +25,7 @@ selector options:
   --list
   --inventory
   --dry-run
+  --group <id>
   --case <id-or-name>
   --module <name>
   --feature <name>
@@ -77,6 +78,19 @@ if [[ "${EXECUTE}" -eq 0 && "${SELECTOR_COUNT}" -eq 0 ]]; then
     exec "${LEGACY_SUITE}"
 fi
 
+if [[ "${EXECUTE}" -eq 1 ]]; then
+    if [[ "${SELECTOR_COUNT}" -gt 0 ]]; then
+        for selector_arg in "${SELECTOR_ARGS[@]}"; do
+            case "${selector_arg}" in
+                --list|--inventory|--dry-run|--runners|--execution-plan)
+                    echo "case_test: ${selector_arg} cannot be combined with --execute" >&2
+                    exit 2
+                    ;;
+            esac
+        done
+    fi
+fi
+
 if [[ "${EXECUTE}" -eq 0 ]]; then
     exec ruby "${ROOT_DIR}/case_test/lib/selector.rb" "${ROOT_DIR}" \
         "${SELECTOR_ARGS[@]}"
@@ -95,8 +109,16 @@ fi
 BUILD_DIR="$(case_test_build_dir "${ROOT_DIR}")"
 MAP_FILE="$(mktemp "${TMPDIR:-/tmp}/xquic_case_runners.XXXXXX")"
 PLAN_FILE="$(mktemp "${TMPDIR:-/tmp}/xquic_case_plan.XXXXXX")"
-trap 'rm -f "${MAP_FILE}"' EXIT
-trap 'rm -f "${MAP_FILE}" "${PLAN_FILE}"' EXIT
+OWNERSHIP_FILE="$(mktemp "${TMPDIR:-/tmp}/xquic_case_ownership.XXXXXX")"
+trap 'rm -f "${MAP_FILE}" "${PLAN_FILE}" "${OWNERSHIP_FILE}"' EXIT
+
+if ! ruby "${ROOT_DIR}/case_test/lib/selector.rb" "${ROOT_DIR}" \
+    --inventory > "${OWNERSHIP_FILE}"
+then
+    cat "${OWNERSHIP_FILE}" >&2
+    echo "case_test: legacy case ownership must be complete and unique before execution" >&2
+    exit 1
+fi
 
 selector_plan()
 {
@@ -160,25 +182,67 @@ run_group()
 {
     local group_id="$1"
     local runner="$2"
-    local index="$3"
-    local port=$((PORT_BASE + index))
-    local work_dir="${BUILD_DIR}/case_test_parallel/${group_id}"
+    local port_offset="$3"
+    local shard_id
+    local port
+    local work_dir
+    local log_file
+    local failures_file
+    local runner_status
+    local run_count
+    local ok_count
+    local fail_count
+    local failure_context_lines
+
+    shard_id="$(case_test_sanitize_id "${group_id}")"
+    port=$((PORT_BASE + port_offset))
+    work_dir="${BUILD_DIR}/case_test_parallel/${shard_id}"
+    log_file="${work_dir}/case_test.log"
+    failures_file="${work_dir}/case_test.failures"
+    failure_context_lines="${CASE_TEST_FAILURE_CONTEXT_LINES:-120}"
 
     case_test_prepare_work_dir "${BUILD_DIR}" "${work_dir}"
+    : > "${log_file}"
+    : > "${failures_file}"
 
     echo "[case-test] ${group_id} port=${port} runner=${runner}"
-    (
+    if (
         export XQC_BUILD_DIR="${BUILD_DIR}"
         export CASE_TEST_WORK_DIR="${work_dir}"
         export CASE_TEST_PORT="${port}"
+        export CASE_TEST_SHARD_ID="${shard_id}"
         exec "${ROOT_DIR}/${runner}"
-    )
+    ) > "${log_file}" 2>&1
+    then
+        runner_status=0
+    else
+        runner_status="$?"
+    fi
+
+    grep -E '^\[     FAIL \] xquic_case_test\.' "${log_file}" > "${failures_file}" || true
+    run_count="$(grep -c -E '^\[ RUN      \] xquic_case_test\.' "${log_file}" || true)"
+    ok_count="$(grep -c -E '^\[       OK \] xquic_case_test\.' "${log_file}" || true)"
+    fail_count="$(wc -l < "${failures_file}" | tr -d ' ')"
+
+    echo "[case-test] ${group_id} result=$([[ "${runner_status}" -eq 0 && "${fail_count}" -eq 0 ]] && echo pass || echo fail) exit=${runner_status} run=${run_count} ok=${ok_count} fail=${fail_count} log=${log_file}"
+
+    if [[ "${fail_count}" -gt 0 ]]; then
+        sed "s/^/[case-test:${group_id}] /" "${failures_file}"
+    fi
+
+    if [[ "${runner_status}" -ne 0 || "${fail_count}" -ne 0 ]]; then
+        echo "[case-test] ${group_id} failed output tail follows; full log=${log_file}"
+        tail -n "${failure_context_lines}" "${log_file}" | sed "s/^/[case-test:${group_id}] /"
+        return 1
+    fi
+
+    return 0
 }
 
 if [[ "${PARALLEL}" -eq 0 || "${JOBS}" -eq 1 ]]; then
     index=0
-    while IFS=$'\t' read -r group_id runner; do
-        run_group "${group_id}" "${runner}" "${index}"
+    while IFS=$'\t' read -r group_id runner port_offset; do
+        run_group "${group_id}" "${runner}" "${port_offset:-${index}}"
         index=$((index + 1))
     done < "${MAP_FILE}"
     exit 0
@@ -189,8 +253,8 @@ index=0
 status=0
 pids=()
 
-while IFS=$'\t' read -r group_id runner; do
-    run_group "${group_id}" "${runner}" "${index}" &
+while IFS=$'\t' read -r group_id runner port_offset; do
+    run_group "${group_id}" "${runner}" "${port_offset:-${index}}" &
     pids+=("$!")
     active=$((active + 1))
     index=$((index + 1))

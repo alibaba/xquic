@@ -96,6 +96,8 @@ def validate_case_manifest(root, path, module_names, feature_owners, legacy_case
   return unless groups.is_a?(Array)
 
   ids = []
+  port_offsets = []
+  owned_by = Hash.new { |hash, key| hash[key] = [] }
   groups.each_with_index do |group, index|
     group_path = "#{relative}.groups[#{index}]"
     require_hash(group, group_path, errors)
@@ -116,6 +118,12 @@ def validate_case_manifest(root, path, module_names, feature_owners, legacy_case
     end
 
     check_file_exists(root, group["runner"], "#{group_path}.runner", errors)
+    port_offset = group["port_offset"]
+    unless port_offset.is_a?(Integer) && port_offset >= 0
+      errors << "#{group_path}.port_offset must be a non-negative integer"
+    end
+    port_offsets << port_offset if port_offset.is_a?(Integer)
+
     require_nonempty_array(group["source_paths"], "#{group_path}.source_paths", errors)
     if group["source_paths"].is_a?(Array)
       group["source_paths"].each do |source_path|
@@ -123,7 +131,7 @@ def validate_case_manifest(root, path, module_names, feature_owners, legacy_case
       end
     end
 
-    patterns = group["legacy_name_patterns"]
+    patterns = group["owned_legacy_name_patterns"]
     status = group["status"].to_s
     execution = group.fetch("execution", "pending").to_s
     unless %w[pending implemented].include?(execution)
@@ -131,11 +139,11 @@ def validate_case_manifest(root, path, module_names, feature_owners, legacy_case
     end
 
     if status == "gap"
-      errors << "#{group_path}.legacy_name_patterns must be a list" unless patterns.is_a?(Array)
+      errors << "#{group_path}.owned_legacy_name_patterns must be a list" unless patterns.is_a?(Array)
       next
     end
 
-    require_nonempty_array(patterns, "#{group_path}.legacy_name_patterns", errors)
+    require_nonempty_array(patterns, "#{group_path}.owned_legacy_name_patterns", errors)
     next unless patterns.is_a?(Array)
 
     matched = []
@@ -143,13 +151,28 @@ def validate_case_manifest(root, path, module_names, feature_owners, legacy_case
       regexp = Regexp.new("\\A(?:#{pattern})\\z")
       matched.concat(legacy_case_names.select { |name| regexp.match?(name) })
     rescue RegexpError => e
-      errors << "#{group_path}.legacy_name_patterns has invalid regexp #{pattern.inspect}: #{e.message}"
+      errors << "#{group_path}.owned_legacy_name_patterns has invalid regexp #{pattern.inspect}: #{e.message}"
     end
-    errors << "#{group_path}.legacy_name_patterns match no legacy cases" if matched.empty?
+    errors << "#{group_path}.owned_legacy_name_patterns match no legacy cases" if matched.empty?
+    matched.uniq.each { |name| owned_by[name] << id }
   end
 
   duplicate_ids = ids.group_by(&:itself).select { |_id, values| values.length > 1 }.keys
   errors << "#{relative}.groups has duplicate ids #{duplicate_ids.join(', ')}" unless duplicate_ids.empty?
+  duplicate_offsets = port_offsets.group_by(&:itself).select { |_offset, values| values.length > 1 }.keys
+  unless duplicate_offsets.empty?
+    errors << "#{relative}.groups has duplicate port_offset values #{duplicate_offsets.join(', ')}"
+  end
+
+  repeated_cases = owned_by.select { |_name, owners| owners.length > 1 }
+  repeated_cases.each do |name, owners|
+    errors << "#{relative} legacy case #{name} has multiple owners #{owners.sort.join(', ')}"
+  end
+
+  missing_cases = legacy_case_names - owned_by.keys
+  missing_cases.each do |name|
+    errors << "#{relative} legacy case #{name} has no owner"
+  end
 end
 
 def validate_validation(value, path, errors)

@@ -52,10 +52,11 @@ The source boundaries governing both private categories are defined in
 ## Test Routing
 
 - `case_test/manifest.yml`: endpoint case group metadata for mapping changed
-  paths to legacy `case_print_result` names.
+  paths to exactly one legacy `case_print_result` owner and stable shard port.
 - `case_test/lib/selector.rb`: list, inventory, dry-run, and runner-map output
   used by `scripts/case_test.sh`.
-- `case_test/lib/runner.sh`: compatibility and selected execution scheduler.
+- `case_test/lib/runner.sh`: compatibility and selected execution scheduler
+  with per-shard work directory, port, and shard ID assignment.
 - `case_test/lib/architecture_check.rb`: repeatable checks for parallel
   scheduling and legacy full-suite static equivalence.
 - `case_test/legacy/full_suite.sh`: current full endpoint suite body.

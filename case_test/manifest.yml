@@ -9,7 +9,9 @@ groups:
   - src/transport/xqc_cid*
   - src/transport/xqc_transport_params*
   runner: case_test/transport/core.sh
-  legacy_name_patterns:
+  execution: implemented
+  port_offset: 0
+  owned_legacy_name_patterns:
   - log_switch_off
   - server_refuse
   - server_refuse_connection
@@ -39,7 +41,9 @@ groups:
   source_paths:
   - src/transport/xqc_stream*
   runner: case_test/transport/stream.sh
-  legacy_name_patterns:
+  execution: implemented
+  port_offset: 10
+  owned_legacy_name_patterns:
   - server_inited_stream
   - stream_.*
   - create_stream_fail
@@ -49,9 +53,11 @@ groups:
   - fin_only
   - NULL_stream_callback
   - connection_level_flow_control
+  - conn_rate_throttling
   - send_4K_every_time
   - send_queue_full.*
   - send_(1K|1M|10M)_data.*
+  - stream_rate_throttling
 - id: transport.packet
   module: transport
   submodule: packet
@@ -61,7 +67,9 @@ groups:
   - src/transport/xqc_packet_parser*
   - src/transport/xqc_frame_parser*
   runner: case_test/transport/packet.sh
-  legacy_name_patterns:
+  execution: implemented
+  port_offset: 20
+  owned_legacy_name_patterns:
   - illegal_packet
   - duplicate_packet
   - packet_with_wrong_cid
@@ -70,7 +78,7 @@ groups:
   - large_ack_range.*
   - ack_ecn_parse_.*
   - ack_timestamp_frame_.*
-  - frame_type_bit_.*
+  - frame_type_bit_(?!repair_).*
   - retry_packet_send
 - id: transport.datagram
   module: transport
@@ -78,10 +86,13 @@ groups:
   source_paths:
   - src/transport/xqc_datagram*
   runner: case_test/transport/datagram.sh
-  legacy_name_patterns:
-  - ".*datagram.*"
-  - ".*dgram.*"
-  - ".*PMTUD.*"
+  execution: implemented
+  port_offset: 30
+  owned_legacy_name_patterns:
+  - 0rtt_max_datagram_frame_size_is_.*
+  - (?!(MP|No_reinjection|h3_ext|fec_)).*datagram.*
+  - (?!h3_ext_).*dgram.*
+  - (?!(MP|MP_h3_ext)).*PMTUD.*
 - id: transport.multipath
   module: transport
   submodule: multipath
@@ -90,7 +101,9 @@ groups:
   - src/transport/scheduler/*
   - src/transport/reinjection_control/*
   runner: case_test/transport/multipath.sh
-  legacy_name_patterns:
+  execution: implemented
+  port_offset: 40
+  owned_legacy_name_patterns:
   - MP.*
   - MPNS.*
   - Multipath_.*
@@ -105,7 +118,9 @@ groups:
   - src/transport/xqc_fec*
   - src/transport/fec_schemes/*
   runner: case_test/transport/fec.sh
-  legacy_name_patterns:
+  execution: implemented
+  port_offset: 50
+  owned_legacy_name_patterns:
   - ".*fec.*"
   - ".*repair.*"
   - negotiate_.*_fec_scheme
@@ -114,7 +129,9 @@ groups:
   source_paths:
   - src/http3/*
   runner: case_test/http3/core.sh
-  legacy_name_patterns:
+  execution: implemented
+  port_offset: 60
+  owned_legacy_name_patterns:
   - h3_(?!ext_).*
   - header_.*
   - GET_request
@@ -132,13 +149,16 @@ groups:
   source_paths:
   - src/http3/qpack/*
   runner: case_test/http3/qpack.sh
-  legacy_name_patterns: []
+  port_offset: 70
+  owned_legacy_name_patterns: []
 - id: http3.ext
   module: http3
   source_paths:
   - src/http3/*
   runner: case_test/http3/h3-ext.sh
-  legacy_name_patterns:
+  execution: implemented
+  port_offset: 80
+  owned_legacy_name_patterns:
   - h3_ext_.*
   - connect_to_an_h3_ext_disabled_server
 - id: tls.handshake
@@ -146,14 +166,12 @@ groups:
   source_paths:
   - src/tls/*
   runner: case_test/tls/handshake.sh
-  legacy_name_patterns:
+  execution: implemented
+  port_offset: 90
+  owned_legacy_name_patterns:
   - 0RTT_accept
   - 0RTT_reject
   - 0RTT_buffer_limit_before_Initial
-  - 0RTT_param_reduction
-  - 0RTT_rejected_param_reduction
-  - 0rtt_forbidden_remembered_params_.*
-  - 0rtt_max_datagram_frame_size_is_.*
   - 1RTT
   - cert_verify
   - crypto_error_.*
@@ -169,15 +187,16 @@ groups:
   - src/congestion_control/*
   - src/transport/xqc_send_ctl*
   runner: case_test/congestion/core.sh
-  legacy_name_patterns:
+  execution: implemented
+  port_offset: 100
+  owned_legacy_name_patterns:
   - BBR.*
   - reno_.*
   - cubic_.*
   - copa_.*
-  - ".*loss.*"
+  - (?!(MPNS_multipath_|large_ack_range_)).*loss.*
   - low_delay_settings
   - max_pkt_out_size
-  - ".*rate_throttling"
   - send_ctl.*
   - unlimited_cc
 - id: observability.qlog
@@ -188,5 +207,6 @@ groups:
   - src/common/utils/*
   - scripts/qlog_parser.py
   runner: case_test/observability/qlog.sh
-  legacy_name_patterns:
+  port_offset: 110
+  owned_legacy_name_patterns:
   - qlog_.*

@@ -257,25 +257,33 @@ Decision:
 - Let selector mode classify legacy `case_print_result` names from the current
   full-suite body instead of copying every legacy name into multiple durable
   documents.
-- Add selected execution and parallel scheduling only for groups marked
+- Treat `owned_legacy_name_patterns` as the single execution owner map: every
+  legacy case has exactly one shard owner even when multiple features are
+  relevant to diagnosis.
+- Add selected execution and parallel scheduling for groups marked
   `execution: implemented`.
-- Treat `observability.qlog` as the first implemented shard and keep full-suite
-  CI at one legacy shard until implemented shards cover every legacy case.
-- Move case bodies into `case_test/<module>/` incrementally after routing and
-  dry-run discovery are stable.
+- Give each shard a stable manifest-owned port offset and an isolated work
+  directory. Use PID cleanup for migrated shards instead of global process
+  termination; keep build-generated certificates as read-only shared inputs.
+- Use hand-migrated runners where available, and use the legacy-owned runner
+  to extract only a shard's owned case blocks from the legacy suite until the
+  bodies are migrated by module.
+- Keep moving case bodies into `case_test/<module>/` incrementally after
+  generated selected execution is stable.
 
 Consequences:
 
 - Changed paths can be mapped to endpoint case groups while the legacy full
   suite remains available.
 - The harness check can detect stale runner paths, unknown modules, unknown
-  features, duplicate group IDs, stale legacy patterns, and invalid selected
-  execution states.
-- Selector output is discovery evidence, not a passing endpoint test result,
-  until selected execution is implemented for the group.
+  features, duplicate group IDs, duplicate port offsets, stale legacy
+  ownership patterns, repeated case owners, missing case owners, and invalid
+  selected execution states.
+- Selector output is discovery evidence, not a passing endpoint test result.
+  Selected execution evidence requires actually running the owning shard.
 - Full-suite parallel requests fail closed while executable shards are
-  incomplete; CI falls back to the legacy full suite as one shard to preserve
-  coverage.
+  incomplete. Once the execution plan has no missing cases, each unique legacy
+  case is executed by exactly one shard.
 - Pending module runners fail clearly when invoked directly.
 
 Evidence:

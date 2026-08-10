@@ -5,7 +5,7 @@ require "fileutils"
 require "open3"
 require "yaml"
 
-root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--parallel-selftest|--legacy-equivalence|--all]")
+root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--parallel-selftest|--legacy-equivalence|--all]")
 modes = ARGV.empty? ? ["--all"] : ARGV
 base_ref = ENV.fetch("CASE_TEST_BASE_REF", "origin/main")
 
@@ -25,6 +25,86 @@ def anchored_body(text)
   raise "missing clear_log anchor" unless anchor
 
   text[anchor..]
+end
+
+def parse_key_values(text)
+  text.lines.each_with_object({}) do |line, values|
+    key, value = line.chomp.split("=", 2)
+    values[key] = value if value
+  end
+end
+
+def ownership(root)
+  output = run!({}, "bash", File.join(root, "scripts/case_test.sh"), "--inventory")
+  values = parse_key_values(output)
+
+  unless values["legacy_total"] == values["matched_total"]
+    raise "legacy ownership is incomplete\n#{output}"
+  end
+
+  unless values["unmatched_total"] == "0"
+    raise "legacy ownership has unmatched cases\n#{output}"
+  end
+
+  unless values["repeated_total"] == "0"
+    raise "legacy ownership has repeated cases\n#{output}"
+  end
+
+  puts "ownership=pass"
+  puts "legacy_total=#{values.fetch("legacy_total")}"
+  puts "matched_total=#{values.fetch("matched_total")}"
+  puts "unmatched_total=#{values.fetch("unmatched_total")}"
+  puts "repeated_total=#{values.fetch("repeated_total")}"
+end
+
+def generated_shard_coverage(root)
+  build_dir = File.join(root, "build/validation")
+  work_dir = File.join(build_dir, "case_test_generate_check")
+  FileUtils.rm_rf(work_dir)
+  FileUtils.mkdir_p(work_dir)
+
+  runner_map = run!({}, "bash", File.join(root, "scripts/case_test.sh"), "--runners")
+  generated = []
+  runner_map.each_line do |line|
+    group_id, runner, port_offset = line.chomp.split("\t")
+    next if group_id == "observability.qlog"
+
+    shard_work_dir = File.join(work_dir, group_id.tr(".", "_"))
+    FileUtils.mkdir_p(shard_work_dir)
+    env = {
+      "XQC_BUILD_DIR" => build_dir,
+      "CASE_TEST_WORK_DIR" => shard_work_dir,
+      "CASE_TEST_PORT" => (18_000 + port_offset.to_i).to_s,
+      "CASE_TEST_SHARD_ID" => group_id.tr(".", "_"),
+      "CASE_TEST_GENERATE_ONLY" => "1"
+    }
+    script_path = run!(env, "bash", File.join(root, runner)).lines.last.to_s.chomp
+    raise "missing generated script for #{group_id}: #{script_path}" unless File.file?(script_path)
+
+    run!({}, "bash", "-n", script_path)
+    names = case_names(File.read(script_path)).uniq
+    puts "generated_group=#{group_id} legacy_count=#{names.length}"
+    generated.concat(names.map { |name| [name, group_id] })
+  end
+
+  qlog_path = File.join(root, "case_test/observability/qlog.sh")
+  run!({}, "bash", "-n", qlog_path)
+  generated.concat(case_names(File.read(qlog_path)).uniq.map { |name| [name, "observability.qlog"] })
+
+  legacy_names = case_names(File.read(File.join(root, "case_test/legacy/full_suite.sh"))).uniq
+  owners = Hash.new { |hash, key| hash[key] = [] }
+  generated.each { |name, group_id| owners[name] << group_id }
+  missing = legacy_names - owners.keys
+  repeated = owners.select { |_name, group_ids| group_ids.length > 1 }
+
+  raise "generated shard coverage has missing cases: #{missing.inspect}" unless missing.empty?
+  raise "generated shard coverage has repeated cases: #{repeated.inspect}" unless repeated.empty?
+
+  puts "generated_shard_coverage=pass"
+  puts "generated_total=#{owners.length}"
+  puts "legacy_total=#{legacy_names.length}"
+  puts "missing=0"
+  puts "repeated=0"
 end
 
 def parallel_selftest(root)
@@ -59,7 +139,8 @@ def parallel_selftest(root)
         "source_paths" => ["README.md"],
         "runner" => "build/case_test_arch_check/#{group_id.tr(".", "_")}.sh",
         "execution" => "implemented",
-        "legacy_name_patterns" => [Regexp.escape(group_id)]
+        "port_offset" => groups.index(group_id),
+        "owned_legacy_name_patterns" => [Regexp.escape(group_id)]
       }
     end
   }
@@ -101,6 +182,77 @@ def parallel_selftest(root)
   puts output
 end
 
+def parallel_failure_selftest(root)
+  work_dir = File.join(root, "build/case_test_arch_check_fail")
+  FileUtils.rm_rf(work_dir)
+  FileUtils.mkdir_p(work_dir)
+
+  legacy_path = File.join(work_dir, "legacy.sh")
+  manifest_path = File.join(work_dir, "manifest.yml")
+
+  {
+    "selftest.pass" => "pass",
+    "selftest.fail" => "fail"
+  }.each do |group_id, result|
+    runner_path = File.join(work_dir, "#{group_id.tr(".", "_")}.sh")
+    File.write(runner_path, <<~SH)
+      #!/bin/bash
+      source #{File.join(root, "case_test/lib/common.sh").inspect}
+      case_print_result "#{group_id}" "#{result}"
+      exit 0
+    SH
+    FileUtils.chmod("+x", runner_path)
+  end
+
+  File.write(
+    legacy_path,
+    "case_print_result \"selftest.pass\" \"pass\"\n" \
+      "case_print_result \"selftest.fail\" \"fail\"\n"
+  )
+  manifest = {
+    "version" => 1,
+    "groups" => [
+      {
+        "id" => "selftest.pass",
+        "module" => "common",
+        "source_paths" => ["README.md"],
+        "runner" => "build/case_test_arch_check_fail/selftest_pass.sh",
+        "execution" => "implemented",
+        "port_offset" => 0,
+        "owned_legacy_name_patterns" => ["selftest\\.pass"]
+      },
+      {
+        "id" => "selftest.fail",
+        "module" => "common",
+        "source_paths" => ["README.md"],
+        "runner" => "build/case_test_arch_check_fail/selftest_fail.sh",
+        "execution" => "implemented",
+        "port_offset" => 1,
+        "owned_legacy_name_patterns" => ["selftest\\.fail"]
+      }
+    ]
+  }
+  File.write(manifest_path, manifest.to_yaml)
+
+  output, status = Open3.capture2e(
+    {
+      "CASE_TEST_MANIFEST" => manifest_path,
+      "CASE_TEST_LEGACY_SUITE" => legacy_path,
+      "CASE_TEST_PORT_BASE" => "19100"
+    },
+    "bash", File.join(root, "scripts/case_test.sh"),
+    "--execute", "--parallel", "--jobs", "2", "--module", "common"
+  )
+
+  raise "failure selftest unexpectedly passed\n#{output}" if status.success?
+  unless output.include?("[case-test] selftest.fail result=fail") &&
+      output.include?("[     FAIL ] xquic_case_test.selftest.fail")
+    raise "failure selftest did not report failed case\n#{output}"
+  end
+
+  puts "parallel_failure_selftest=pass"
+end
+
 def legacy_equivalence(root, base_ref)
   base_text = run!({}, "git", "-C", root, "show", "#{base_ref}:scripts/case_test.sh")
   current_text = File.read(File.join(root, "case_test/legacy/full_suite.sh"))
@@ -131,8 +283,20 @@ def legacy_equivalence(root, base_ref)
   puts "body_anchor=clear_log"
 end
 
+if modes.include?("--all") || modes.include?("--ownership")
+  ownership(root)
+end
+
+if modes.include?("--all") || modes.include?("--generated-shard-coverage")
+  generated_shard_coverage(root)
+end
+
 if modes.include?("--all") || modes.include?("--parallel-selftest")
   parallel_selftest(root)
+end
+
+if modes.include?("--all") || modes.include?("--parallel-failure-selftest")
+  parallel_failure_selftest(root)
 end
 
 if modes.include?("--all") || modes.include?("--legacy-equivalence")

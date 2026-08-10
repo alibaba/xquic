@@ -86,7 +86,8 @@ Read:
 
 Update when affected:
 
-- `case_test/manifest.yml` for endpoint case group metadata.
+- `case_test/manifest.yml` for endpoint case group metadata, unique legacy
+  ownership, and stable shard ports.
 - `case_test/<module>/` when selected endpoint execution changes.
 - `harness/spec/harness-manifest.yml` for test-routing entry points.
 - `harness/spec/validation.md` when validation contracts change.

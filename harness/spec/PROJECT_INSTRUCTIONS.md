@@ -50,7 +50,8 @@ remain in the root [`README.md`](../../README.md).
 |------|----------------------|
 | Long-running feature, refactor, or cross-module task | Codex native goal directive plus [OpenSpec integration](openspec.md) |
 | Code change, feature, refactor, or bug fix | [Development pipeline](../pipelines/dev-pipeline.md) |
-| Build, test, or validation | [Validation specification](validation.md) and [`validate` skill](../skills/validate/SKILL.md) |
+| Compile or configure local build | [Validation specification](validation.md) and [`xquic-build` skill](../skills/xquic-build/SKILL.md) |
+| Test, validation, or PR evidence | [Validation specification](validation.md) and [`validate` skill](../skills/validate/SKILL.md) |
 | Documentation or comment change | [Documentation style](doc-style.md) plus the closest owning spec |
 | Task evidence, command logs, failure trace | [Run artifact contract](run-artifacts.md) |
 | Verify an issue or protocol-defect claim | [`issue-check` skill](../skills/issue-check/SKILL.md) |

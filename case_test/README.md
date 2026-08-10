@@ -13,8 +13,9 @@ client-to-server case tests. The legacy executable entry point remains
 - `lib/runner.sh` preserves full-suite compatibility and provides selected
   execution scheduling.
 - `legacy/full_suite.sh` contains the current full endpoint suite.
-- Module directories hold future case runners. Existing case bodies may remain
-  in `legacy/full_suite.sh` until they are moved incrementally.
+- Module directories hold executable case runners. A runner may contain
+  hand-migrated case bodies or delegate to the legacy-owned runner while the
+  body remains in `legacy/full_suite.sh`.
 
 ## Compatibility
 
@@ -81,3 +82,74 @@ For full-suite CI, the maximum safe case-test job count is the number of
 implemented executable shards that together cover all default legacy cases.
 `observability.qlog` is hand-migrated; the other implemented shards are
 generated from legacy-owned case blocks until their bodies are migrated.
+
+## Extending Case Tests
+
+Use the case-test manifest as the routing source of truth. Documentation can
+explain related cases, but executable ownership belongs in exactly one
+`owned_legacy_name_patterns` list.
+
+### Classify An Existing Legacy Case
+
+1. Find the emitted case name in `legacy/full_suite.sh`:
+
+   ```bash
+   rg -n 'case_print_result ".*fec|case_print_result ".*repair' \
+       case_test/legacy/full_suite.sh
+   ```
+
+2. Add or narrow a pattern in `case_test/manifest.yml` under the owning group.
+   For FEC behavior, use `transport.fec` unless the behavior is owned by a
+   lower transport primitive such as packet parsing or DATAGRAM negotiation.
+3. Confirm the case has one owner and the executable plan is still complete:
+
+   ```bash
+   bash scripts/case_test.sh --inventory
+   bash scripts/case_test.sh --execution-plan
+   bash scripts/case_test.sh --group transport.fec --list
+   ```
+
+4. Run the owning shard when the build artifacts exist:
+
+   ```bash
+   bash scripts/case_test.sh --execute --group transport.fec
+   ```
+
+### Add A New FEC Endpoint Case
+
+When the behavior does not already exist in the legacy suite, add one endpoint
+case with one stable `case_print_result` name and one numeric `-x` selector.
+For example, a FEC repair-timeout regression might use:
+
+- case ID: the next available ID in the `[1600, 1699]` FEC namespace from
+  `harness/spec/validation.md`;
+- case name: `fec_repair_timeout_closes_gap`;
+- owner: `transport.fec`;
+- client/server selector: matching `-x <id>` handling in
+  `tests/test_client.c` and `tests/test_server.c`;
+- legacy suite body: a block in `legacy/full_suite.sh` that starts the needed
+  server mode, runs the client with the allocated ID, checks the observable
+  FEC result in `clog`, `slog`, or `stdlog`, emits `>>>>>>>> pass:1` or
+  `>>>>>>>> pass:0`, and calls
+  `case_print_result "fec_repair_timeout_closes_gap" "pass|fail"`;
+- manifest routing: `transport.fec.owned_legacy_name_patterns` must match the
+  new case name, for example the existing `.*fec.*` pattern.
+
+Before reserving the ID, search the current tree, history, and open pull
+requests as described in `harness/spec/validation.md`. After implementing the
+case, use these checks as the minimum routing evidence:
+
+```bash
+bash scripts/case_test.sh --inventory
+bash scripts/case_test.sh --execution-plan
+bash scripts/case_test.sh --group transport.fec --list
+bash scripts/case_test.sh --execute --group transport.fec
+case_test/lib/architecture_check.rb "$(pwd)" --all
+```
+
+Expected routing observations:
+
+- `--inventory` has no missing or repeated legacy case owners;
+- `--execution-plan` has `complete=true` and `missing_unique_cases=0`;
+- `--group transport.fec --list` includes the new FEC case name exactly once;
+- selected execution reports `pass:1` for the new case and no shard failure.

@@ -37,8 +37,9 @@ typedef enum {
     TRA_INVALID_TOKEN               =  0xB,
     TRA_APPLICATION_ERROR           =  0xC,
     TRA_CRYPTO_BUFFER_EXCEEDED      =  0xD,
-    TRA_0RTT_TRANS_PARAMS_ERROR     =  0xE,   /**< MUST delete the current saved 0RTT transport parameters */
+    TRA_KEY_UPDATE_ERROR            =  0xE,   /**< RFC 9001 Section 6.7 */
     TRA_AEAD_LIMIT_REACHED          =  0x1e,  /**< RFC 9001 §6.6: AEAD integrity limit reached */
+    TRA_NO_VIABLE_PATH              =  0x10,  /**< RFC 9000 Section 8.2.4 */
     /*
      * RFC 9000 Section 6.2 does not assign a CONNECTION_CLOSE code for
      * the Version Negotiation abort path, because the client cannot
@@ -48,6 +49,14 @@ typedef enum {
      * close reasons, but it is never serialised onto the wire.
      */
     TRA_VERSION_NEGOTIATION_ERROR   =  0x53,
+    /*
+     * Library-internal close reasons. They remain visible through
+     * xqc_conn_get_errno() so callers can discard incompatible 0-RTT state,
+     * but CONNECTION_CLOSE serialization maps them to the errors required by
+     * RFC 9000 Section 7.4.1 and RFC 9221 Section 3.
+     */
+    TRA_0RTT_TRANS_PARAMS_ERROR     =  0x54,
+    TRA_0RTT_DGRAM_PARAMS_ERROR     =  0x55,
     /* RFC 9001 Section 4.8: TLS alert 120 maps to 0x100 + 120 = 0x178 */
     TRA_NO_APPLICATION_PROTOCOL     =  0x178,
 } xqc_trans_err_code_t;

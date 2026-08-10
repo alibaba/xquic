@@ -47,4 +47,29 @@ void xqc_test_conn_close_application_error_type(void);
 
 void xqc_test_conn_close_transport_error_type_overlap(void);
 
+void xqc_test_peer_key_update_error_not_0rtt(void);
+
+/* issues #565 / #566 / #567: RFC 9000 stream directionality checks */
+void xqc_test_reset_stream_on_send_only_stream(void);
+
+void xqc_test_reset_stream_on_send_only_stream_server(void);
+
+void xqc_test_reset_stream_on_recv_only_stream_accepted(void);
+
+void xqc_test_stop_sending_on_recv_only_stream(void);
+
+void xqc_test_stop_sending_on_recv_only_stream_server(void);
+
+void xqc_test_stop_sending_on_send_only_stream_accepted(void);
+
+void xqc_test_stream_frame_on_send_only_stream(void);
+
+void xqc_test_stream_frame_on_send_only_stream_server(void);
+
+void xqc_test_stream_frame_on_recv_only_stream_accepted(void);
+
+void xqc_test_stream_frame_on_local_uncreated_stream(void);
+
+void xqc_test_stream_frame_on_local_closed_stream_tolerated(void);
+
 #endif /* _XQC_PROCESS_FRAME_TEST_H_INCLUDED_ */

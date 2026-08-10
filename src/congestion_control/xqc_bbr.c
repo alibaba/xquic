@@ -21,11 +21,16 @@
 #define XQC_BBR_MAX_DATAGRAMSIZE    XQC_MSS
 #define XQC_BBR_MIN_WINDOW          (4 * XQC_BBR_MAX_DATAGRAMSIZE)
 #define XQC_BBR_MAX_WINDOW          (100 * XQC_BBR_MAX_DATAGRAMSIZE)
-/* The RECOMMENDED value is the minimum of 10 * kMaxDatagramSize and max(2* kMaxDatagramSize, 14720)) */
-/* same init window as cubic */
-/* 32 is too aggressive. we have observed heavy bufferbloat events from online deployment */
-/* 1440 * 10 / 1200 = 12 */
-#define XQC_BBR_INITIAL_WINDOW  (32 * XQC_BBR_MAX_DATAGRAMSIZE) 
+
+/*
+ * RFC 9002 Section 7.2 RECOMMENDS an initial congestion window of
+ * min(10 * max_datagram_size, max(2 * max_datagram_size, 14720)).
+ */
+#define XQC_BBR_INITIAL_WINDOW_MIN_BYTES 14720
+#define XQC_BBR_INITIAL_WINDOW                                           \
+    xqc_min(10 * XQC_BBR_MAX_DATAGRAMSIZE,                               \
+            xqc_max(2 * XQC_BBR_MAX_DATAGRAMSIZE,                        \
+                    XQC_BBR_INITIAL_WINDOW_MIN_BYTES))
 /* Pacing gain cycle rounds */
 #define XQC_BBR_CYCLE_LENGTH    8
 #define XQC_BBR_INF             0x7fffffff

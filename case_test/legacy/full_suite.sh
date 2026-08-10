@@ -2037,8 +2037,8 @@ clear_log
 echo -e "0RTT max_datagram_frame_size is invalid...\c"
 ${CLIENT_BIN} -l d >> stdlog
 cli_result=`grep "|0RTT_transport_params|max_datagram_frame_size:9000|" clog`
-cli_err=`grep "[error].*err:0xe" clog`
-svr_err=`grep "[error].*err:0xe" slog`
+cli_err=`grep "[error].*err:0x55" clog`
+svr_err=`grep "[error].*err:0xa" slog`
 if [ -n "$cli_result" ] && [ -n "$cli_err" ] && [ -n "$svr_err" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "0rtt_max_datagram_frame_size_is_invalid" "pass"
@@ -4019,7 +4019,7 @@ sleep 1
 clear_log
 echo -e "check_clear_0rtt_ticket_flag_in_close_notify...\c"
 ${CLIENT_BIN} -l d -T 1 -s 4800 -U 1 -Q 65535 -E > stdlog
-cli_res2=`grep "should_clear_0rtt_ticket, conn_err:14, clear_0rtt_ticket:1" stdlog`
+cli_res2=`grep "conn_err:85, clear_0rtt_ticket:1" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res2" ] && [ -n "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -4041,7 +4041,7 @@ sleep 1
 clear_log
 echo -e "check_clear_0rtt_ticket_flag_in_h3_close_notify...\c"
 ${CLIENT_BIN} -l d -s 4800 -Q 65535 -E > stdlog
-cli_res2=`grep "should_clear_0rtt_ticket, conn_err:14, clear_0rtt_ticket:1" stdlog`
+cli_res2=`grep "conn_err:85, clear_0rtt_ticket:1" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res2" ] && [ -n "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -4063,7 +4063,7 @@ sleep 1
 clear_log
 echo -e "check_clear_0rtt_ticket_flag_in_h3_close_notify...\c"
 ${CLIENT_BIN} -l d -s 4800 -Q 65535 -E > stdlog
-cli_res2=`grep "should_clear_0rtt_ticket, conn_err:14, clear_0rtt_ticket:1" stdlog`
+cli_res2=`grep "conn_err:85, clear_0rtt_ticket:1" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res2" ] && [ -n "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -5323,8 +5323,8 @@ fi
 ## RFC 9000 Section 7.4.1: 0-RTT transport parameter validation
 
 # test 701: server reduces max_streams_bidi after first connection,
-# client detects reduction on 0-RTT resumption and closes with
-# TRANSPORT_PARAMETER_ERROR (0x0E = conn_err:14)
+# client detects reduction on 0-RTT resumption, reports its local cleanup
+# reason (0x54 = conn_err:84), and sends TRANSPORT_PARAMETER_ERROR (0x08)
 killall test_server 2> /dev/null
 clear_log
 rm -f test_session xqc_token tp_localhost
@@ -5335,8 +5335,9 @@ sleep 1
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
 # second connection: 0-RTT with reduced max_streams_bidi on server
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
-conn_err=`grep "conn_err:14" stdlog`
-if [ -n "$conn_err" ]; then
+conn_err=`grep "conn_err:84" stdlog`
+peer_err=`grep "[error].*err:0x8" slog`
+if [ -n "$conn_err" ] && [ -n "$peer_err" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "0RTT_param_reduction" "pass"
 else
@@ -5717,6 +5718,87 @@ if [ -n "$stream_error_ok" ] && [ -n "$connection_reuse_ok" ] \
 else
     echo ">>>>>>>> pass:0"
     case_print_result "h3_uppercase_response_field_name_rejected" "fail"
+fi
+
+killall test_server 2> /dev/null
+
+
+# issues #565 / #566 / #567: a frame naming a stream the peer does not own must
+# close the connection with STREAM_STATE_ERROR (0x5) per RFC 9000 section 19.4,
+# section 19.5 and section 19.8. Each case asserts both the server side reason
+# and the error code the client actually observes in CONNECTION_CLOSE, so a
+# generic failure or an unrelated close cannot satisfy it.
+
+killall test_server 2> /dev/null
+clear_log
+rm -f test_session xqc_token tp_localhost
+${SERVER_BIN} -l d -e > /dev/null &
+sleep 1
+echo -e "reset_stream_on_send_only_stream ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 705 >> clog
+sleep 1
+server_rejected=`grep "RESET_STREAM on send-only stream|stream_id:3|" slog`
+client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
+if [ -n "$server_rejected" ] && [ -n "$client_close_code" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "reset_stream_on_send_only_stream" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "reset_stream_on_send_only_stream" "fail"
+fi
+
+killall test_server 2> /dev/null
+clear_log
+rm -f test_session xqc_token tp_localhost
+${SERVER_BIN} -l d -e > /dev/null &
+sleep 1
+echo -e "stop_sending_on_recv_only_stream ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 706 >> clog
+sleep 1
+server_rejected=`grep "STOP_SENDING on recv-only stream|stream_id:2|" slog`
+client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
+if [ -n "$server_rejected" ] && [ -n "$client_close_code" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "stop_sending_on_recv_only_stream" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "stop_sending_on_recv_only_stream" "fail"
+fi
+
+killall test_server 2> /dev/null
+clear_log
+rm -f test_session xqc_token tp_localhost
+${SERVER_BIN} -l d -e > /dev/null &
+sleep 1
+echo -e "stream_frame_on_send_only_stream ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 707 >> clog
+sleep 1
+server_rejected=`grep "STREAM frame on send-only stream|stream_id:3|" slog`
+client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
+if [ -n "$server_rejected" ] && [ -n "$client_close_code" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "stream_frame_on_send_only_stream" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "stream_frame_on_send_only_stream" "fail"
+fi
+
+killall test_server 2> /dev/null
+clear_log
+rm -f test_session xqc_token tp_localhost
+${SERVER_BIN} -l d -e > /dev/null &
+sleep 1
+echo -e "stream_frame_on_local_uncreated_stream ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 708 >> clog
+sleep 1
+server_rejected=`grep "STREAM frame on locally initiated uncreated stream|stream_id:1|" slog`
+client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
+if [ -n "$server_rejected" ] && [ -n "$client_close_code" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "stream_frame_on_local_uncreated_stream" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "stream_frame_on_local_uncreated_stream" "fail"
 fi
 
 killall test_server 2> /dev/null

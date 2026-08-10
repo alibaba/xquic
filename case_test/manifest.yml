@@ -48,6 +48,7 @@ groups:
   - stream_.*
   - create_stream_fail
   - reset_stream.*
+  - stop_sending_on_recv_only_stream
   - send_(data|header|fin)_after_fin
   - send_header_after_reset_stream
   - fin_only

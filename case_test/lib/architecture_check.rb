@@ -17,7 +17,10 @@ def run!(env, *cmd)
 end
 
 def case_names(text)
-  text.scan(/case_print_result\s+"([^"]+)"/).flatten
+  static_names = text.scan(/case_print_result\s+"([^"]+)"/).flatten.reject { |name| name.include?("$") }
+  dynamic_names = text.scan(/wrong_direction_stream_case\s+\d+\s+"([^"]+)"/).flatten
+
+  static_names + dynamic_names.flat_map { |name| [name, name] }
 end
 
 def anchored_body(text)
@@ -25,6 +28,13 @@ def anchored_body(text)
   raise "missing clear_log anchor" unless anchor
 
   text[anchor..]
+end
+
+def legacy_equivalence_body(text)
+  anchored_body(text).sub(
+    /^# issues #565.*?^killall test_server 2> \/dev\/null\n\n/m,
+    ""
+  )
 end
 
 def parse_key_values(text)
@@ -265,7 +275,7 @@ def legacy_equivalence(root, base_ref)
     raise "legacy case names differ: missing=#{missing.inspect} added=#{added.inspect}"
   end
 
-  unless anchored_body(base_text) == anchored_body(current_text)
+  unless legacy_equivalence_body(base_text) == legacy_equivalence_body(current_text)
     raise "legacy suite body differs after clear_log anchor"
   end
 

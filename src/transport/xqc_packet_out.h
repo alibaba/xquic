@@ -170,6 +170,8 @@ int xqc_write_ack_to_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet
 int xqc_write_ping_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path, 
     void *po_user_data, xqc_bool_t notify, xqc_ping_record_t *pr);
 
+uint64_t xqc_conn_close_wire_error_code(uint64_t err_code);
+
 int xqc_write_conn_close_to_packet(xqc_connection_t *conn, uint64_t err_code);
 
 int xqc_write_reset_stream_to_packet(xqc_connection_t *conn, xqc_stream_t *stream, uint64_t err_code, uint64_t final_size);

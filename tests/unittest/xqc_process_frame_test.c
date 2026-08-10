@@ -190,6 +190,35 @@ xqc_test_conn_close_transport_error_type_overlap(void)
 
 
 void
+xqc_test_peer_key_update_error_not_0rtt(void)
+{
+    unsigned char frame[] = {
+        0x1c, 0x0e, 0x00, 0x00
+    };
+    xqc_connection_t *conn;
+    xqc_packet_in_t packet_in;
+    xqc_int_t ret;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pos = frame;
+    packet_in.last = frame + sizeof(frame);
+
+    ret = xqc_process_conn_close_frame(conn, &packet_in);
+
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(conn->conn_err, TRA_KEY_UPDATE_ERROR);
+    CU_ASSERT_EQUAL(xqc_conn_get_err_type(conn),
+                    XQC_CONN_ERR_TYPE_TRANSPORT);
+    CU_ASSERT_FALSE(xqc_conn_should_clear_0rtt_ticket(conn->conn_err));
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
 xqc_test_large_ack_frame()
 {
     xqc_connection_t *conn = test_engine_connect();
@@ -964,6 +993,310 @@ xqc_test_new_conn_id_active_limit_exceeded(void)
     if (inner_set != NULL) {
         CU_ASSERT(xqc_cid_set_countable_cnt(inner_set) == 2);
     }
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/* ---- RFC 9000 stream directionality checks (issues #565 / #566 / #567) ----
+ *
+ * RFC 9000 section 2.1: the two low bits of a stream ID carry the initiator and
+ * the directionality, so with test_engine_connect() building a CLIENT
+ * connection:
+ *   stream_id 0 -> XQC_CLI_BID  client initiated, bidirectional
+ *   stream_id 2 -> XQC_CLI_UNI  client initiated, unidirectional: send-only
+ *                               for the client, recv-only for the server
+ *   stream_id 3 -> XQC_SVR_UNI  server initiated, unidirectional: send-only
+ *                               for the server, recv-only for the client
+ *
+ * The parser only reads conn->conn_type, so the server side of each check is
+ * exercised by flipping that field rather than by building a server engine.
+ */
+
+static xqc_connection_t *
+xqc_test_dir_make_conn(xqc_conn_type_t conn_type)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    if (conn == NULL) {
+        return NULL;
+    }
+
+    conn->conn_type = conn_type;
+    conn->conn_err = 0;
+    return conn;
+}
+
+static void
+xqc_test_dir_init_pi(xqc_packet_in_t *pi, unsigned char *buf, size_t len)
+{
+    memset(pi, 0, sizeof(*pi));
+    pi->pos = buf;
+    pi->last = buf + len;
+    pi->pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+}
+
+
+/* ---- issue #566: RESET_STREAM on a send-only stream ---- */
+
+void
+xqc_test_reset_stream_on_send_only_stream(void)
+{
+    /* client + CLI_UNI: the client is the sender, so RESET_STREAM is illegal */
+    xqc_connection_t *conn = xqc_test_dir_make_conn(XQC_CONN_TYPE_CLIENT);
+    CU_ASSERT_FATAL(conn != NULL);
+
+    /* type(0x04) + stream_id(2) + err_code(0) + final_size(0) */
+    unsigned char frame_buf[] = {0x04, 0x02, 0x00, 0x00};
+    xqc_stream_id_t stream_id;
+    uint64_t err_code, final_size;
+    xqc_packet_in_t pi;
+    xqc_test_dir_init_pi(&pi, frame_buf, sizeof(frame_buf));
+
+    xqc_int_t ret = xqc_parse_reset_stream_frame(&pi, &stream_id, &err_code, &final_size, conn);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_STREAM_STATE_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_reset_stream_on_send_only_stream_server(void)
+{
+    /* server + SVR_UNI: the server is the sender, so RESET_STREAM is illegal */
+    xqc_connection_t *conn = xqc_test_dir_make_conn(XQC_CONN_TYPE_SERVER);
+    CU_ASSERT_FATAL(conn != NULL);
+
+    unsigned char frame_buf[] = {0x04, 0x03, 0x00, 0x00};
+    xqc_stream_id_t stream_id;
+    uint64_t err_code, final_size;
+    xqc_packet_in_t pi;
+    xqc_test_dir_init_pi(&pi, frame_buf, sizeof(frame_buf));
+
+    xqc_int_t ret = xqc_parse_reset_stream_frame(&pi, &stream_id, &err_code, &final_size, conn);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_STREAM_STATE_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_reset_stream_on_recv_only_stream_accepted(void)
+{
+    /*
+     * Control case: client + SVR_UNI is recv-only for the client, so the peer
+     * resetting its own sending side is legal and MUST still be accepted.
+     * Without this a check that rejected every unidirectional stream
+     * regardless of conn_type would go unnoticed.
+     */
+    xqc_connection_t *conn = xqc_test_dir_make_conn(XQC_CONN_TYPE_CLIENT);
+    CU_ASSERT_FATAL(conn != NULL);
+
+    /* err_code 10 and final_size 5 so the parsed values can be asserted */
+    unsigned char frame_buf[] = {0x04, 0x03, 0x0a, 0x05};
+    xqc_stream_id_t stream_id;
+    uint64_t err_code, final_size;
+    xqc_packet_in_t pi;
+    xqc_test_dir_init_pi(&pi, frame_buf, sizeof(frame_buf));
+
+    xqc_int_t ret = xqc_parse_reset_stream_frame(&pi, &stream_id, &err_code, &final_size, conn);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT(stream_id == 3);
+    CU_ASSERT(err_code == 10);
+    CU_ASSERT(final_size == 5);
+    CU_ASSERT(pi.pi_frame_types & XQC_FRAME_BIT_RESET_STREAM);
+    CU_ASSERT(pi.pos == frame_buf + sizeof(frame_buf));
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/* ---- issue #567: STOP_SENDING on a recv-only stream ---- */
+
+void
+xqc_test_stop_sending_on_recv_only_stream(void)
+{
+    /* client + SVR_UNI: the client only receives, so STOP_SENDING is illegal */
+    xqc_connection_t *conn = xqc_test_dir_make_conn(XQC_CONN_TYPE_CLIENT);
+    CU_ASSERT_FATAL(conn != NULL);
+
+    /* type(0x05) + stream_id(3) + err_code(0) */
+    unsigned char frame_buf[] = {0x05, 0x03, 0x00};
+    xqc_stream_id_t stream_id;
+    uint64_t err_code;
+    xqc_packet_in_t pi;
+    xqc_test_dir_init_pi(&pi, frame_buf, sizeof(frame_buf));
+
+    xqc_int_t ret = xqc_parse_stop_sending_frame(&pi, &stream_id, &err_code, conn);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_STREAM_STATE_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_stop_sending_on_recv_only_stream_server(void)
+{
+    /* server + CLI_UNI: the server only receives, so STOP_SENDING is illegal */
+    xqc_connection_t *conn = xqc_test_dir_make_conn(XQC_CONN_TYPE_SERVER);
+    CU_ASSERT_FATAL(conn != NULL);
+
+    unsigned char frame_buf[] = {0x05, 0x02, 0x00};
+    xqc_stream_id_t stream_id;
+    uint64_t err_code;
+    xqc_packet_in_t pi;
+    xqc_test_dir_init_pi(&pi, frame_buf, sizeof(frame_buf));
+
+    xqc_int_t ret = xqc_parse_stop_sending_frame(&pi, &stream_id, &err_code, conn);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_STREAM_STATE_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_stop_sending_on_send_only_stream_accepted(void)
+{
+    /*
+     * Control case: client + CLI_UNI is send-only for the client, so the peer
+     * asking it to stop sending is legal and MUST still be accepted.  This is
+     * the normal case for an HTTP/3 client control stream.
+     */
+    xqc_connection_t *conn = xqc_test_dir_make_conn(XQC_CONN_TYPE_CLIENT);
+    CU_ASSERT_FATAL(conn != NULL);
+
+    /* err_code 7 so the parsed value can be asserted */
+    unsigned char frame_buf[] = {0x05, 0x02, 0x07};
+    xqc_stream_id_t stream_id;
+    uint64_t err_code;
+    xqc_packet_in_t pi;
+    xqc_test_dir_init_pi(&pi, frame_buf, sizeof(frame_buf));
+
+    xqc_int_t ret = xqc_parse_stop_sending_frame(&pi, &stream_id, &err_code, conn);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT(stream_id == 2);
+    CU_ASSERT(err_code == 7);
+    CU_ASSERT(pi.pi_frame_types & XQC_FRAME_BIT_STOP_SENDING);
+    CU_ASSERT(pi.pos == frame_buf + sizeof(frame_buf));
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/* ---- issue #565: STREAM frame direction and locally initiated stream ---- */
+
+void
+xqc_test_stream_frame_on_send_only_stream(void)
+{
+    /*
+     * RFC 9000 section 19.8 first MUST: client + CLI_UNI is send-only for the
+     * client, so carrying stream data towards it is illegal.
+     * xqc_process_stream_frame() expects pos at the type byte.
+     */
+    xqc_connection_t *conn = xqc_test_dir_make_conn(XQC_CONN_TYPE_CLIENT);
+    CU_ASSERT_FATAL(conn != NULL);
+
+    /* type(0x0a = STREAM|LEN) + stream_id(2) + len(1) + data */
+    unsigned char frame_buf[] = {0x0a, 0x02, 0x01, 0x00};
+    xqc_packet_in_t pi;
+    xqc_test_dir_init_pi(&pi, frame_buf, sizeof(frame_buf));
+
+    xqc_int_t ret = xqc_process_stream_frame(conn, &pi);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_STREAM_STATE_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_stream_frame_on_send_only_stream_server(void)
+{
+    /* server + SVR_UNI is send-only for the server */
+    xqc_connection_t *conn = xqc_test_dir_make_conn(XQC_CONN_TYPE_SERVER);
+    CU_ASSERT_FATAL(conn != NULL);
+
+    unsigned char frame_buf[] = {0x0a, 0x03, 0x01, 0x00};
+    xqc_packet_in_t pi;
+    xqc_test_dir_init_pi(&pi, frame_buf, sizeof(frame_buf));
+
+    xqc_int_t ret = xqc_process_stream_frame(conn, &pi);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_STREAM_STATE_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_stream_frame_on_recv_only_stream_accepted(void)
+{
+    /*
+     * Control case: client + SVR_UNI is recv-only for the client, so stream
+     * data on it is legal.  The stream does not exist yet, so it must be
+     * created passively rather than rejected.
+     */
+    xqc_connection_t *conn = xqc_test_dir_make_conn(XQC_CONN_TYPE_CLIENT);
+    CU_ASSERT_FATAL(conn != NULL);
+
+    unsigned char frame_buf[] = {0x0a, 0x03, 0x01, 0x00};
+    xqc_packet_in_t pi;
+    xqc_test_dir_init_pi(&pi, frame_buf, sizeof(frame_buf));
+
+    xqc_int_t ret = xqc_process_stream_frame(conn, &pi);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT(xqc_find_stream_by_id(3, conn->streams_hash) != NULL);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_stream_frame_on_local_uncreated_stream(void)
+{
+    /*
+     * RFC 9000 section 19.8 second MUST: a STREAM frame for a locally
+     * initiated stream that has not yet been created must be rejected.
+     *
+     * client + CLI_BID stream_id 4 -> index 1.  With the local counter at 1 no
+     * stream of index 1 has ever been created, so the frame is illegal.
+     */
+    xqc_connection_t *conn = xqc_test_dir_make_conn(XQC_CONN_TYPE_CLIENT);
+    CU_ASSERT_FATAL(conn != NULL);
+
+    conn->cur_stream_id_bidi_local = 1;
+
+    unsigned char frame_buf[] = {0x0a, 0x04, 0x01, 0x00};
+    xqc_packet_in_t pi;
+    xqc_test_dir_init_pi(&pi, frame_buf, sizeof(frame_buf));
+
+    xqc_int_t ret = xqc_process_stream_frame(conn, &pi);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_STREAM_STATE_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_stream_frame_on_local_closed_stream_tolerated(void)
+{
+    /*
+     * Control case for the above: same frame, same stream id, only the local
+     * counter differs.  With the counter at 2 index 1 was created earlier and
+     * has since been closed, so this is a retransmission and must still be
+     * tolerated instead of killing the connection.
+     */
+    xqc_connection_t *conn = xqc_test_dir_make_conn(XQC_CONN_TYPE_CLIENT);
+    CU_ASSERT_FATAL(conn != NULL);
+
+    conn->cur_stream_id_bidi_local = 2;
+
+    unsigned char frame_buf[] = {0x0a, 0x04, 0x01, 0x00};
+    xqc_packet_in_t pi;
+    xqc_test_dir_init_pi(&pi, frame_buf, sizeof(frame_buf));
+
+    xqc_int_t ret = xqc_process_stream_frame(conn, &pi);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
 
     xqc_engine_destroy(conn->engine);
 }

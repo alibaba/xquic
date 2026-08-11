@@ -42,6 +42,10 @@ ssize_t xqc_gen_long_packet_header(xqc_packet_out_t *packet_out,
 
 xqc_int_t xqc_packet_parse_long_header(xqc_connection_t *c, xqc_packet_in_t *packet_in);
 
+/* Delimit one packet without decrypting or applying connection state. */
+xqc_int_t xqc_packet_parse_packet_size(const unsigned char *buf, size_t size,
+    uint8_t cid_len, size_t *packet_size);
+
 xqc_int_t xqc_packet_parse_initial(xqc_connection_t *c, xqc_packet_in_t *packet_in);
 
 xqc_int_t xqc_packet_parse_zero_rtt(xqc_connection_t *c, xqc_packet_in_t *packet_in);

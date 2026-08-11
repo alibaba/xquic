@@ -12,6 +12,7 @@
 #include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_recv_record.h"
 #include "src/transport/xqc_packet_parser.h"
+#include "src/transport/xqc_cid.h"
 #include "src/transport/xqc_utils.h"
 #include "src/transport/xqc_engine.h"
 #include "src/tls/xqc_tls.h"
@@ -293,4 +294,68 @@ xqc_packet_process_single(xqc_connection_t *c,
 }
 
 
+xqc_int_t
+xqc_packet_process_single_with_dcid(xqc_connection_t *c,
+    xqc_packet_in_t *packet_in, const xqc_cid_t *first_dcid,
+    xqc_bool_t *dcid_mismatch)
+{
+    xqc_cid_t packet_dcid;
+    xqc_cid_t packet_scid;
+    size_t packet_size;
+    xqc_int_t ret;
 
+    if (first_dcid == NULL || dcid_mismatch == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    *dcid_mismatch = XQC_FALSE;
+    xqc_cid_init_zero(&packet_dcid);
+    xqc_cid_init_zero(&packet_scid);
+
+    ret = xqc_packet_parse_cid(&packet_dcid, &packet_scid,
+                               c->engine->config->cid_len,
+                               packet_in->buf, packet_in->buf_size);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    if (xqc_cid_is_equal(first_dcid, &packet_dcid) == XQC_OK) {
+        return xqc_packet_process_single(c, packet_in);
+    }
+
+    ret = xqc_packet_parse_packet_size(packet_in->buf, packet_in->buf_size,
+                                       c->engine->config->cid_len,
+                                       &packet_size);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    packet_in->last = packet_in->pos + packet_size;
+    packet_in->pi_pkt.length = packet_size;
+    xqc_cid_set(&packet_in->pi_pkt.pkt_dcid, packet_dcid.cid_buf,
+                packet_dcid.cid_len);
+
+    if (XQC_PACKET_IS_SHORT_HEADER(packet_in->buf)) {
+        packet_in->pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+
+    } else if (xqc_parse_uint32(packet_in->buf + 1) == 0) {
+        packet_in->pi_pkt.pkt_type = XQC_PTYPE_VERSION_NEGOTIATION;
+
+    } else {
+        packet_in->pi_pkt.pkt_type =
+            XQC_PACKET_LONG_HEADER_GET_TYPE(packet_in->buf);
+    }
+
+    xqc_log(c->log, XQC_LOG_WARN,
+            "|ignore coalesced packet with different DCID|first:%s|current:%s|",
+            xqc_dcid_str(c->engine, first_dcid),
+            xqc_scid_str(c->engine, &packet_dcid));
+    xqc_log_event(c->log, TRA_PACKET_DROPPED,
+                  "coalesced packet with different DCID", -XQC_EIGNORE_PKT,
+                  xqc_pkt_type_2_str(packet_in->pi_pkt.pkt_type), 0);
+
+    /* packet_dropped_count is reserved for RFC 9001 AEAD failures. */
+
+    *dcid_mismatch = XQC_TRUE;
+    return -XQC_EIGNORE_PKT;
+}

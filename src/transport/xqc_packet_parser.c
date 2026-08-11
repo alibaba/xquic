@@ -110,6 +110,103 @@ xqc_packet_parse_cid(xqc_cid_t *dcid, xqc_cid_t *scid, uint8_t cid_len, const un
 }
 
 
+xqc_int_t
+xqc_packet_parse_packet_size(const unsigned char *buf, size_t size,
+    uint8_t cid_len, size_t *packet_size)
+{
+    const unsigned char *pos;
+    const unsigned char *end;
+    uint32_t version;
+    uint64_t length;
+    uint64_t token_len;
+    ssize_t len;
+    uint8_t parsed_cid_len;
+    uint8_t type;
+
+    if (buf == NULL || packet_size == NULL || size == 0) {
+        return -XQC_EPARAM;
+    }
+
+    end = buf + size;
+
+    if (XQC_PACKET_IS_SHORT_HEADER(buf)) {
+        if (size < 1 + cid_len) {
+            return -XQC_EILLPKT;
+        }
+
+        /* A short-header packet can only be the last packet. */
+        *packet_size = size;
+        return XQC_OK;
+    }
+
+    if (!XQC_PACKET_IS_LONG_HEADER(buf)
+        || size < XQC_PACKET_LONG_HEADER_PREFIX_LENGTH + 2)
+    {
+        return -XQC_EILLPKT;
+    }
+
+    type = XQC_PACKET_LONG_HEADER_GET_TYPE(buf);
+    version = xqc_parse_uint32(buf + 1);
+    pos = buf + XQC_PACKET_LONG_HEADER_PREFIX_LENGTH;
+
+    parsed_cid_len = *pos++;
+    if (parsed_cid_len > XQC_MAX_CID_LEN
+        || XQC_BUFF_LEFT_SIZE(pos, end) < parsed_cid_len + 1)
+    {
+        return -XQC_EILLPKT;
+    }
+    pos += parsed_cid_len;
+
+    parsed_cid_len = *pos++;
+    if (parsed_cid_len > XQC_MAX_CID_LEN
+        || XQC_BUFF_LEFT_SIZE(pos, end) < parsed_cid_len)
+    {
+        return -XQC_EILLPKT;
+    }
+    pos += parsed_cid_len;
+
+    /* These packets cannot be followed by another coalesced packet. */
+    if (version == 0 || type == XQC_PTYPE_RETRY) {
+        *packet_size = size;
+        return XQC_OK;
+    }
+
+    /* Packet type and Length encoding are version-specific. */
+    if (version != XQC_VERSION_V1_VALUE
+        && version != XQC_IDRAFT_VER_29_VALUE)
+    {
+        *packet_size = size;
+        return XQC_OK;
+    }
+
+    if (type == XQC_PTYPE_INIT) {
+        len = xqc_vint_read(pos, end, &token_len);
+        if (len < 0 || XQC_BUFF_LEFT_SIZE(pos, end) < len) {
+            return -XQC_EILLPKT;
+        }
+        pos += len;
+
+        if (token_len > (uint64_t)XQC_BUFF_LEFT_SIZE(pos, end)) {
+            return -XQC_EILLPKT;
+        }
+        pos += token_len;
+    }
+
+    len = xqc_vint_read(pos, end, &length);
+    if (len < 0 || XQC_BUFF_LEFT_SIZE(pos, end) < len) {
+        return -XQC_EILLPKT;
+    }
+    pos += len;
+
+    if (length > (uint64_t)XQC_BUFF_LEFT_SIZE(pos, end)) {
+        return -XQC_EILLPKT;
+    }
+
+    *packet_size = pos - buf + (size_t)length;
+    return XQC_OK;
+}
+
+
 void
 xqc_packet_parse_packet_number(uint8_t *pos, xqc_uint_t packet_number_len, uint64_t *packet_num)
 {

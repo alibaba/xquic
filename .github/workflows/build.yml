@@ -147,7 +147,7 @@ jobs:
 
   case-test-ubuntu:
 
-    name: Case Test on Ubuntu (${{ matrix.group }})
+    name: Case Test on Ubuntu (${{ matrix.shard }})
 
     needs: build-ubuntu
 
@@ -157,28 +157,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - group: congestion.core
-          expected: 18
-        - group: http3.core
-          expected: 40
-        - group: http3.ext
-          expected: 33
-        - group: observability.qlog
-          expected: 7
-        - group: tls.handshake
-          expected: 19
-        - group: transport.core
-          expected: 40
-        - group: transport.datagram
-          expected: 61
-        - group: transport.fec
-          expected: 13
-        - group: transport.multipath
-          expected: 28
-        - group: transport.packet
-          expected: 18
-        - group: transport.stream
-          expected: 28
+        - shard: transport-data
+          groups: transport.datagram transport.fec observability.qlog
+          expected: 81
+        - shard: http3-tls-stream
+          groups: http3.core transport.stream tls.handshake
+          expected: 87
+        - shard: core-h3ext
+          groups: transport.core http3.ext
+          expected: 73
+        - shard: multipath-packet-cc
+          groups: transport.multipath transport.packet congestion.core
+          expected: 64
 
     steps:
     - name: Checkout repository
@@ -197,20 +187,32 @@ jobs:
         name: xquic-ubuntu-test-binaries
         path: build
 
-    - name: Run case-test group
+    - name: Run case-test shard
       run: |
         set +e
         chmod +x build/tests/test_client build/tests/test_server
+        case_args=()
+        for group in ${{ matrix.groups }}; do
+          case_args+=(--group "$group")
+        done
+        case_plan="$(bash scripts/case_test.sh --execution-plan "${case_args[@]}")"
+        echo "$case_plan"
+        planned_cases="$(printf '%s\n' "$case_plan" | awk -F= '/^implemented_unique_cases=/{print $2}')"
+        plan_complete="$(printf '%s\n' "$case_plan" | awk -F= '/^complete=/{print $2}')"
+        if [ "$plan_complete" != "true" ] || [ "$planned_cases" != "${{ matrix.expected }}" ]; then
+          echo "case-test shard plan mismatch: planned=$planned_cases complete=$plan_complete expected=${{ matrix.expected }}"
+          exit 1
+        fi
         XQC_BUILD_DIR="${PWD}/build" \
           CASE_TEST_CASE_TIMEOUT=300 \
-          bash scripts/case_test.sh --execute --group "${{ matrix.group }}" --require-complete \
-          2>&1 | tee "xquic_case_${{ matrix.group }}.log"
+          bash scripts/case_test.sh --execute "${case_args[@]}" --require-complete \
+          2>&1 | tee "xquic_case_${{ matrix.shard }}.log"
         case_status=${PIPESTATUS[0]}
         set -e
 
-        case_passed=`grep "pass:" "xquic_case_${{ matrix.group }}.log" | grep "pass:1" | wc -l`
-        case_failed=`grep "pass:" "xquic_case_${{ matrix.group }}.log" | grep "pass:0" | wc -l`
-        echo -e "\033[32m case test group:${{ matrix.group }} passed:$case_passed failed:$case_failed expected:${{ matrix.expected }} status:$case_status \033[0m\n"
+        case_passed=`grep "pass:" "xquic_case_${{ matrix.shard }}.log" | grep "pass:1" | wc -l`
+        case_failed=`grep "pass:" "xquic_case_${{ matrix.shard }}.log" | grep "pass:0" | wc -l`
+        echo -e "\033[32m case test shard:${{ matrix.shard }} groups:${{ matrix.groups }} passed:$case_passed failed:$case_failed expected:${{ matrix.expected }} status:$case_status \033[0m\n"
 
         if [ "$case_status" -ne 0 ] || [ "$case_failed" -ne 0 ] || [ "$case_passed" -ne "${{ matrix.expected }}" ]; then
           echo "====== Find case test failed or missing! ======"
@@ -221,10 +223,10 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: case-test-${{ matrix.group }}-logs
+        name: case-test-${{ matrix.shard }}-logs
         path: |
-          xquic_case_${{ matrix.group }}.log
-          build/case_test_parallel/${{ matrix.group }}/case_test.log
+          xquic_case_${{ matrix.shard }}.log
+          build/case_test_parallel/*/case_test.log
         retention-days: 1
 
   build-macos:

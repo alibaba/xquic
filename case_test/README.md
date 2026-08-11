@@ -89,10 +89,10 @@ environment failure rather than case-result failures.
 For single-runner full-suite execution, use
 `bash scripts/case_test.sh --execution-plan` to confirm the current case count
 and `max_safe_jobs` before changing parallelism. The GitHub workflow gets
-parallelism by running implemented groups as separate matrix jobs, not by
-backgrounding multiple endpoint groups on the same runner. Keep all
-implemented groups in the suite; each matrix job runs one group and checks the
-group's expected case count.
+parallelism by running balanced matrix shards, not by backgrounding multiple
+endpoint groups on the same runner. Keep all implemented groups in the suite;
+each matrix shard runs one or more groups serially and checks the shard's
+aggregate expected case count.
 
 ## Extending Case Tests
 

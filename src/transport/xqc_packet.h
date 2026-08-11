@@ -100,5 +100,13 @@ xqc_pkt_type_t xqc_state_to_pkt_type(xqc_connection_t *conn);
  */
 xqc_int_t xqc_packet_process_single(xqc_connection_t *c, xqc_packet_in_t *packet_in);
 
+/**
+ * Check a subsequent packet in a coalesced datagram against the first DCID.
+ * A mismatch is delimited and returned with dcid_mismatch set to XQC_TRUE.
+ */
+xqc_int_t xqc_packet_check_coalesced_dcid(xqc_connection_t *c,
+    xqc_packet_in_t *packet_in, const xqc_cid_t *first_dcid,
+    xqc_bool_t *dcid_mismatch);
+
 
 #endif /* _XQC_PACKET_H_INCLUDED_ */

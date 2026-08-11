@@ -147,6 +147,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_packet_encrypt_hp_sample_boundary", xqc_test_packet_encrypt_hp_sample_boundary)
         || !CU_add_test(pSuite, "xqc_test_empty_pkt", xqc_test_empty_pkt)
         || !CU_add_test(pSuite, "xqc_test_stateless_reset_parse_boundary", xqc_test_stateless_reset_parse_boundary)
+        || !CU_add_test(pSuite, "xqc_test_coalesced_matching_dcid_processed",
+                        xqc_test_coalesced_matching_dcid_processed)
+        || !CU_add_test(pSuite, "xqc_test_coalesced_mismatching_dcid_ignored",
+                        xqc_test_coalesced_mismatching_dcid_ignored)
         || !CU_add_test(pSuite, "xqc_test_transport_params", xqc_test_transport_params)
         || !CU_add_test(pSuite, "xqc_test_max_ack_delay_default_when_absent",
                         xqc_test_max_ack_delay_default_when_absent)

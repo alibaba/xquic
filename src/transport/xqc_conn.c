@@ -5095,9 +5095,11 @@ xqc_conn_process_packet(xqc_connection_t *c,
     const unsigned char *end = packet_in_buf + packet_in_size;  /* end of udp datagram */
     xqc_packet_in_t packet;
     unsigned char decrypt_payload[XQC_MAX_PACKET_IN_LEN];
+    xqc_cid_t first_dcid;
 
     /* process all QUIC packets in UDP datagram */
     while (pos < end) {
+        xqc_bool_t dcid_mismatch = XQC_FALSE;
         last_pos = pos;
 
         /* init packet in */
@@ -5107,13 +5109,29 @@ xqc_conn_process_packet(xqc_connection_t *c,
 
         packet_in->pi_path_id = XQC_UNKNOWN_PATH_ID;
 
+        if (pos != packet_in_buf) {
+            ret = xqc_packet_check_coalesced_dcid(c, packet_in,
+                                                  &first_dcid,
+                                                  &dcid_mismatch);
+        }
+
         /* packet_in->pos will update inside */
-        ret = xqc_packet_process_single(c, packet_in);
+        if (ret == XQC_OK) {
+            ret = xqc_packet_process_single(c, packet_in);
+            if (ret == XQC_OK && pos == packet_in_buf) {
+                xqc_cid_copy(&first_dcid, &packet_in->pi_pkt.pkt_dcid);
+            }
+        }
 
         xqc_conn_log_recvd_packet(c, packet_in, packet_in_size, ret, recv_time);
 
         if (ret == XQC_OK) {
             ret = xqc_conn_on_pkt_processed(c, packet_in, recv_time);
+
+        } else if (dcid_mismatch) {
+            pos = packet_in->last;
+            ret = XQC_OK;
+            continue;
 
         } else if (xqc_conn_tolerant_error(ret)) {
             /* ignore the remain bytes */

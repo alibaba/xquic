@@ -12,10 +12,15 @@
 #include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_recv_record.h"
 #include "src/transport/xqc_packet_parser.h"
+#include "src/transport/xqc_cid.h"
 #include "src/transport/xqc_utils.h"
 #include "src/transport/xqc_engine.h"
 #include "src/tls/xqc_tls.h"
 #include "src/tls/xqc_crypto.h"
+
+
+static xqc_int_t xqc_packet_parse_size(const unsigned char *buf, size_t size,
+    uint8_t cid_len, size_t *packet_size);
 
 
 
@@ -293,4 +298,163 @@ xqc_packet_process_single(xqc_connection_t *c,
 }
 
 
+static xqc_int_t
+xqc_packet_parse_size(const unsigned char *buf, size_t size,
+    uint8_t cid_len, size_t *packet_size)
+{
+    const unsigned char *pos;
+    const unsigned char *end;
+    uint32_t version;
+    uint64_t length;
+    uint64_t token_len;
+    ssize_t len;
+    uint8_t parsed_cid_len;
+    uint8_t type;
 
+    if (buf == NULL || packet_size == NULL || size == 0) {
+        return -XQC_EPARAM;
+    }
+
+    end = buf + size;
+
+    if (XQC_PACKET_IS_SHORT_HEADER(buf)) {
+        if (size < 1 + cid_len) {
+            return -XQC_EILLPKT;
+        }
+
+        /* A short-header packet can only be the last packet. */
+        *packet_size = size;
+        return XQC_OK;
+    }
+
+    if (!XQC_PACKET_IS_LONG_HEADER(buf)
+        || size < XQC_PACKET_LONG_HEADER_PREFIX_LENGTH + 2)
+    {
+        return -XQC_EILLPKT;
+    }
+
+    type = XQC_PACKET_LONG_HEADER_GET_TYPE(buf);
+    version = xqc_parse_uint32(buf + 1);
+    pos = buf + XQC_PACKET_LONG_HEADER_PREFIX_LENGTH;
+
+    parsed_cid_len = *pos++;
+    if (parsed_cid_len > XQC_MAX_CID_LEN
+        || XQC_BUFF_LEFT_SIZE(pos, end) < parsed_cid_len + 1)
+    {
+        return -XQC_EILLPKT;
+    }
+    pos += parsed_cid_len;
+
+    parsed_cid_len = *pos++;
+    if (parsed_cid_len > XQC_MAX_CID_LEN
+        || XQC_BUFF_LEFT_SIZE(pos, end) < parsed_cid_len)
+    {
+        return -XQC_EILLPKT;
+    }
+    pos += parsed_cid_len;
+
+    /* These packets cannot be followed by another coalesced packet. */
+    if (version == 0 || type == XQC_PTYPE_RETRY) {
+        *packet_size = size;
+        return XQC_OK;
+    }
+
+    /* The packet type and Length encoding are version-specific. */
+    if (version != XQC_VERSION_V1_VALUE
+        && version != XQC_IDRAFT_VER_29_VALUE)
+    {
+        *packet_size = size;
+        return XQC_OK;
+    }
+
+    if (type == XQC_PTYPE_INIT) {
+        len = xqc_vint_read(pos, end, &token_len);
+        if (len < 0 || XQC_BUFF_LEFT_SIZE(pos, end) < len) {
+            return -XQC_EILLPKT;
+        }
+        pos += len;
+
+        if (token_len > (uint64_t)XQC_BUFF_LEFT_SIZE(pos, end)) {
+            return -XQC_EILLPKT;
+        }
+        pos += token_len;
+    }
+
+    len = xqc_vint_read(pos, end, &length);
+    if (len < 0 || XQC_BUFF_LEFT_SIZE(pos, end) < len) {
+        return -XQC_EILLPKT;
+    }
+    pos += len;
+
+    if (length > (uint64_t)XQC_BUFF_LEFT_SIZE(pos, end)) {
+        return -XQC_EILLPKT;
+    }
+
+    *packet_size = pos - buf + (size_t)length;
+    return XQC_OK;
+}
+
+
+xqc_int_t
+xqc_packet_check_coalesced_dcid(xqc_connection_t *c,
+    xqc_packet_in_t *packet_in, const xqc_cid_t *first_dcid,
+    xqc_bool_t *dcid_mismatch)
+{
+    xqc_cid_t packet_dcid;
+    xqc_cid_t packet_scid;
+    size_t packet_size;
+    xqc_int_t ret;
+
+    if (first_dcid == NULL || dcid_mismatch == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    *dcid_mismatch = XQC_FALSE;
+    xqc_cid_init_zero(&packet_dcid);
+    xqc_cid_init_zero(&packet_scid);
+
+    ret = xqc_packet_parse_cid(&packet_dcid, &packet_scid,
+                               c->engine->config->cid_len,
+                               packet_in->buf, packet_in->buf_size);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    if (xqc_cid_is_equal(first_dcid, &packet_dcid) == XQC_OK) {
+        return XQC_OK;
+    }
+
+    ret = xqc_packet_parse_size(packet_in->buf, packet_in->buf_size,
+                                c->engine->config->cid_len, &packet_size);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    packet_in->last = packet_in->pos + packet_size;
+    packet_in->pi_pkt.length = packet_size;
+    xqc_cid_set(&packet_in->pi_pkt.pkt_dcid, packet_dcid.cid_buf,
+                packet_dcid.cid_len);
+
+    if (XQC_PACKET_IS_SHORT_HEADER(packet_in->buf)) {
+        packet_in->pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+
+    } else if (xqc_parse_uint32(packet_in->buf + 1) == 0) {
+        packet_in->pi_pkt.pkt_type = XQC_PTYPE_VERSION_NEGOTIATION;
+
+    } else {
+        packet_in->pi_pkt.pkt_type =
+            XQC_PACKET_LONG_HEADER_GET_TYPE(packet_in->buf);
+    }
+
+    /* RFC 9000 Section 12.2: ignore a later packet with another DCID. */
+    xqc_log(c->log, XQC_LOG_WARN,
+            "|ignore coalesced packet with different DCID|first:%s|current:%s|",
+            xqc_dcid_str(c->engine, first_dcid),
+            xqc_scid_str(c->engine, &packet_dcid));
+    xqc_log_event(c->log, TRA_PACKET_DROPPED,
+                  "coalesced packet with different DCID", -XQC_EIGNORE_PKT,
+                  xqc_pkt_type_2_str(packet_in->pi_pkt.pkt_type), 0);
+
+    *dcid_mismatch = XQC_TRUE;
+    return -XQC_EIGNORE_PKT;
+}

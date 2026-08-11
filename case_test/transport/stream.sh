@@ -2,7 +2,6 @@
 #
 # transport.stream endpoint case-test group.
 
-set -u
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "${ROOT_DIR}/case_test/lib/common.sh"

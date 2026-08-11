@@ -318,13 +318,14 @@ run_group()
     echo "[case-test] ${group_id} result=$([[ "${runner_status}" -eq 0 && "${fail_count}" -eq 0 ]] && echo pass || echo fail) exit=${runner_status} elapsed=$((end_epoch - start_epoch))s run=${run_count} ok=${ok_count} fail=${fail_count} log=${log_file}"
     cat "${results_file}"
 
-    if [[ "${fail_count}" -gt 0 ]]; then
-        cat "${failures_file}"
-    fi
-
     if [[ "${runner_status}" -ne 0 || "${fail_count}" -ne 0 ]]; then
+        if [[ "${fail_count}" -gt 0 ]]; then
+            sed 's/>>>>>>>> pass:0/failed/' "${failures_file}"
+        fi
         echo "[case-test] ${group_id} failed output tail follows; full log=${log_file}"
-        tail -n "${failure_context_lines}" "${log_file}" | sed "s/^/[case-test:${group_id}] /"
+        tail -n "${failure_context_lines}" "${log_file}" |
+            sed 's/pass:/raw-pass:/g' |
+            sed "s/^/[case-test:${group_id}] /"
         return 1
     fi
 

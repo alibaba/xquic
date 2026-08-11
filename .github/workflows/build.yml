@@ -140,6 +140,54 @@ jobs:
           echo "No CODACY_PROJECT_TOKEN provided for Codacy report"
         fi
 
+  build-ubuntu-24-babassl:
+
+    name: Build BabaSSL on Ubuntu 24.04 with GCC 13
+
+    needs: harness-check
+
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 2
+        submodules: 'recursive'
+
+    - name: Linux Setup
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc-13
+
+    - name: Build BabaSSL
+      run: |
+        git clone --branch 8.3-stable --depth 1 \
+          https://github.com/Tongsuo-Project/Tongsuo.git \
+          ./third_party/babassl
+        cd ./third_party/babassl
+        CC=gcc-13 ./config --prefix=/usr/local/babassl
+        make -j"$(nproc)" build_libs
+
+    - name: Build XQUIC
+      run: |
+        SSL_PATH_STR="${PWD}/third_party/babassl"
+        SSL_INC_PATH_STR="${SSL_PATH_STR}/include"
+        SSL_LIB_PATH_STR="${SSL_PATH_STR}/libssl.a;${SSL_PATH_STR}/libcrypto.a"
+        cmake -S . -B build/ubuntu-24-babassl \
+          -DCMAKE_C_COMPILER=gcc-13 \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DXQC_ENABLE_TESTING=0 \
+          -DXQC_SUPPORT_SENDMMSG_BUILD=1 \
+          -DXQC_ENABLE_EVENT_LOG=1 \
+          -DXQC_ENABLE_BBR2=1 \
+          -DXQC_ENABLE_RENO=1 \
+          -DSSL_TYPE=babassl \
+          -DSSL_PATH="${SSL_PATH_STR}" \
+          -DSSL_INC_PATH="${SSL_INC_PATH_STR}" \
+          -DSSL_LIB_PATH="${SSL_LIB_PATH_STR}"
+        cmake --build build/ubuntu-24-babassl --parallel
+
   build-macos:
 
     name: Build on macOS

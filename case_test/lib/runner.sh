@@ -220,6 +220,7 @@ run_group()
     : > "${log_file}"
     : > "${failures_file}"
     : > "${results_file}"
+    echo "[case-test] runner-start group=${group_id} runner=${runner} port=${port} work_dir=${work_dir}" > "${log_file}"
 
     start_epoch="$(date +%s)"
     echo "[case-test] ${group_id} start ts=$(date -u +%Y-%m-%dT%H:%M:%SZ) port=${port} runner=${runner} log=${log_file}"
@@ -235,7 +236,7 @@ run_group()
             exec timeout "${SHARD_TIMEOUT}" "${ROOT_DIR}/${runner}"
         fi
         exec "${ROOT_DIR}/${runner}"
-    ) > "${log_file}" 2>&1 &
+    ) >> "${log_file}" 2>&1 &
     runner_pid="$!"
 
     heartbeat_pid=""

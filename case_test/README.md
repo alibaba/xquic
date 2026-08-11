@@ -83,10 +83,13 @@ same shell before executing those shards. Shards that contain sudo commands
 check this before running any case, so missing credentials are reported as an
 environment failure rather than case-result failures.
 
-For full-suite CI, use `bash scripts/case_test.sh --execution-plan` to confirm
-the current case count and `max_safe_jobs` before changing parallelism. Keep
-all implemented groups in the suite; the runner schedules each group exactly
-once and limits concurrency with `--jobs`.
+For single-runner full-suite execution, use
+`bash scripts/case_test.sh --execution-plan` to confirm the current case count
+and `max_safe_jobs` before changing parallelism. The GitHub workflow gets
+parallelism by running implemented groups as separate matrix jobs, not by
+backgrounding multiple endpoint groups on the same runner. Keep all
+implemented groups in the suite; each matrix job runs one group and checks the
+group's expected case count.
 
 ## Extending Case Tests
 

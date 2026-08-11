@@ -106,10 +106,8 @@ jobs:
         certfile=server.crt
         openssl req -newkey rsa:2048 -x509 -nodes -keyout "$keyfile" -new -out "$certfile" -subj /CN=test.xquic.com
         ./tests/run_tests | tee -a ../xquic_test.log
-        CASE_TEST_JOBS=4
-        ../scripts/case_test.sh --execute --parallel --jobs "$CASE_TEST_JOBS" | tee -a ../xquic_test.log
         gcovr -r .. --xml --gcov-ignore-parse-errors -o ../coverage.xml
-    
+
     - name: Check Test Result
       run: |
         echo "unit test:"
@@ -118,18 +116,23 @@ jobs:
         unit_failed=`cat xquic_test.log | grep "Test:" | grep "FAILED" | wc -l`
         echo -e "\033[32m unit test passed:$unit_passed failed:$unit_failed \033[0m\n"
 
-        echo "case test:"
-        cat xquic_test.log | grep "pass:"
-        case_passed=`cat xquic_test.log | grep "pass:" | grep "pass:1" | wc -l`
-        case_failed=`cat xquic_test.log | grep "pass:" | grep "pass:0" | wc -l`
-        echo -e "\033[32m case test passed:$case_passed failed:$case_failed \033[0m\n"
-
-        if [ $unit_failed -eq 0 ] && [ $case_failed -eq 0 ] ; then
-          echo "===== All test case passed! ======"
+        if [ $unit_failed -eq 0 ] ; then
+          echo "===== All unit tests passed! ======"
         else
-          echo "====== Find test case failed! ======"
+          echo "====== Find unit test failed! ======"
           exit 1
         fi
+
+    - name: Upload Ubuntu test binaries
+      uses: actions/upload-artifact@v4
+      with:
+        name: xquic-ubuntu-test-binaries
+        path: |
+          build/tests/test_client
+          build/tests/test_server
+          build/server.key
+          build/server.crt
+        retention-days: 1
 
     - name: Report coverage to Codacy
       shell: bash
@@ -141,6 +144,87 @@ jobs:
         else
           echo "No CODACY_PROJECT_TOKEN provided for Codacy report"
         fi
+
+  case-test-ubuntu:
+
+    name: Case Test on Ubuntu (${{ matrix.group }})
+
+    needs: build-ubuntu
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - group: congestion.core
+          expected: 18
+        - group: http3.core
+          expected: 40
+        - group: http3.ext
+          expected: 33
+        - group: observability.qlog
+          expected: 7
+        - group: tls.handshake
+          expected: 19
+        - group: transport.core
+          expected: 40
+        - group: transport.datagram
+          expected: 61
+        - group: transport.fec
+          expected: 13
+        - group: transport.multipath
+          expected: 28
+        - group: transport.packet
+          expected: 18
+        - group: transport.stream
+          expected: 28
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 2
+
+    - name: Linux runtime setup
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libevent-dev libcunit1
+
+    - name: Download Ubuntu test binaries
+      uses: actions/download-artifact@v4
+      with:
+        name: xquic-ubuntu-test-binaries
+        path: build
+
+    - name: Run case-test group
+      run: |
+        set +e
+        chmod +x build/tests/test_client build/tests/test_server
+        XQC_BUILD_DIR="${PWD}/build" \
+          bash scripts/case_test.sh --execute --group "${{ matrix.group }}" --require-complete \
+          2>&1 | tee "xquic_case_${{ matrix.group }}.log"
+        case_status=${PIPESTATUS[0]}
+        set -e
+
+        case_passed=`grep "pass:" "xquic_case_${{ matrix.group }}.log" | grep "pass:1" | wc -l`
+        case_failed=`grep "pass:" "xquic_case_${{ matrix.group }}.log" | grep "pass:0" | wc -l`
+        echo -e "\033[32m case test group:${{ matrix.group }} passed:$case_passed failed:$case_failed expected:${{ matrix.expected }} status:$case_status \033[0m\n"
+
+        if [ "$case_status" -ne 0 ] || [ "$case_failed" -ne 0 ] || [ "$case_passed" -ne "${{ matrix.expected }}" ]; then
+          echo "====== Find case test failed or missing! ======"
+          exit 1
+        fi
+
+    - name: Upload case-test logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: case-test-${{ matrix.group }}-logs
+        path: |
+          xquic_case_${{ matrix.group }}.log
+          build/case_test_parallel/${{ matrix.group }}/case_test.log
+        retention-days: 1
 
   build-macos:
 

@@ -1,6 +1,6 @@
 ---
 version: 1
-max_parallel_jobs: 4
+max_parallel_jobs: 1
 groups:
 - id: transport.core
   module: transport

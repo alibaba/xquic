@@ -4228,6 +4228,57 @@ grep_err_log
 
 
 killall test_server
+stdbuf -oL ${SERVER_BIN} -l d -e -Q 65535 -U 1 -x 711 > /dev/null &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "PMTUD force enable with peer option omitted...\c"
+sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 711 -Q 65535 -U 1 -T 1 > stdlog
+sleep 1
+result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+probe_res=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*enable_pmtud:1" clog`
+svr_res=`grep -E "xqc_conn_destroy.*enable_pmtud:0" slog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$probe_res" ] \
+    && [ -n "$cli_res" ] && [ -n "$svr_res" ]
+then
+    echo ">>>>>>>> pass:1"
+    case_print_result "PMTUD_force_enable_peer_omits_option" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "PMTUD_force_enable_peer_omits_option" "fail"
+fi
+grep_err_log
+
+killall test_server
+stdbuf -oL ${SERVER_BIN} -l d -e -Q 65535 -U 1 -x 712 > /dev/null &
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "PMTUD negotiated mode with peer option omitted...\c"
+sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 712 -Q 65535 -U 1 -T 1 > stdlog
+sleep 1
+result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+probe_res=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*enable_pmtud:0" clog`
+svr_res=`grep -E "xqc_conn_destroy.*enable_pmtud:0" slog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -z "$probe_res" ] \
+    && [ -n "$cli_res" ] && [ -n "$svr_res" ]
+then
+    echo ">>>>>>>> pass:1"
+    case_print_result "PMTUD_negotiated_mode_peer_omits_option" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "PMTUD_negotiated_mode_peer_omits_option" "fail"
+fi
+grep_err_log
+
+
+killall test_server
 stdbuf -oL ${SERVER_BIN} -l d -e -M -Q 65535 -U 1 --pmtud 1 -x 200 > svr_stdlog &
 sleep 1
 

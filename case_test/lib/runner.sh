@@ -16,6 +16,7 @@ JOBS=1
 PORT_BASE="${CASE_TEST_PORT_BASE:-18000}"
 SHARD_TIMEOUT="${CASE_TEST_SHARD_TIMEOUT:-1800}"
 HEARTBEAT_INTERVAL="${CASE_TEST_HEARTBEAT_INTERVAL:-60}"
+CASE_TIMEOUT="${CASE_TEST_CASE_TIMEOUT:-0}"
 
 usage()
 {
@@ -114,6 +115,11 @@ fi
 
 if ! [[ "${HEARTBEAT_INTERVAL}" =~ ^[0-9]+$ ]]; then
     echo "case_test: CASE_TEST_HEARTBEAT_INTERVAL must be a non-negative integer" >&2
+    exit 2
+fi
+
+if ! [[ "${CASE_TIMEOUT}" =~ ^[0-9]+$ ]]; then
+    echo "case_test: CASE_TEST_CASE_TIMEOUT must be a non-negative integer" >&2
     exit 2
 fi
 
@@ -253,7 +259,7 @@ run_group()
         heartbeat_pid="$!"
     fi
 
-    if wait "${runner_pid}"; then
+    if wait "${runner_pid}" 2> /dev/null; then
         runner_status=0
     else
         runner_status="$?"
@@ -305,6 +311,25 @@ run_group()
             sub(/^\[     FAIL \] xquic_case_test\./, "", name)
             sub(/ .*/, "", name)
             if (!emitted[name]) {
+                emit(name, "0")
+            }
+            next
+        }
+        /^\[case-test\] case-start / {
+            name = $0
+            sub(/^.* case=/, "", name)
+            sub(/ .*/, "", name)
+            current_case = name
+            next
+        }
+        /^\[case-test\] case-timeout / {
+            name = $0
+            sub(/^.* case=/, "", name)
+            sub(/ .*/, "", name)
+            if (name == "" && current_case != "") {
+                name = current_case
+            }
+            if (name != "" && !emitted[name]) {
                 emit(name, "0")
             }
             next

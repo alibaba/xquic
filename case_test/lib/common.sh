@@ -68,6 +68,7 @@ case_test_enter_work_dir()
     CLIENT_BIN="${CASE_TEST_CLIENT_BIN:-${build_dir}/tests/test_client ${CASE_TEST_PORT_ARG} -o ${CASE_TEST_CLIENT_LOG}}"
     SERVER_BIN="${CASE_TEST_SERVER_BIN:-${build_dir}/tests/test_server ${CASE_TEST_PORT_ARG} -o ${CASE_TEST_SERVER_LOG}}"
     CASE_TEST_SERVER_PID=""
+    trap 'case_test_case_watchdog_stop; case_test_stop_server' EXIT
 }
 
 case_test_stop_server()
@@ -88,6 +89,61 @@ case_test_group()
 case_test_is_discovery()
 {
     [[ "${CASE_TEST_DISCOVER:-0}" = "1" ]]
+}
+
+case_test_case_watchdog_start()
+{
+    local name="$1"
+    local id="$2"
+    local timeout_s="${CASE_TEST_CASE_TIMEOUT:-0}"
+    local owner_pid="$$"
+
+    CASE_TEST_CASE_WATCHDOG_PID=""
+
+    if ! [[ "${timeout_s}" =~ ^[0-9]+$ ]]; then
+        echo "case_test: CASE_TEST_CASE_TIMEOUT must be a non-negative integer" >&2
+        return 2
+    fi
+
+    if [[ "${timeout_s}" -eq 0 ]]; then
+        return 0
+    fi
+
+    (
+        sleep "${timeout_s}"
+        echo "[case-test] case-timeout group=${CASE_TEST_GROUP:-} case=${name} id=${id} elapsed=${timeout_s}s"
+        pkill -TERM -P "${owner_pid}" 2> /dev/null || true
+        kill -TERM "${owner_pid}" 2> /dev/null || true
+    ) &
+    CASE_TEST_CASE_WATCHDOG_PID="$!"
+}
+
+case_test_case_watchdog_stop()
+{
+    if [[ -n "${CASE_TEST_CASE_WATCHDOG_PID:-}" ]]; then
+        kill "${CASE_TEST_CASE_WATCHDOG_PID}" 2> /dev/null || true
+        wait "${CASE_TEST_CASE_WATCHDOG_PID}" 2> /dev/null || true
+        CASE_TEST_CASE_WATCHDOG_PID=""
+    fi
+}
+
+case_test_case_begin()
+{
+    local name="$1"
+    local id="$2"
+
+    echo "[case-test] case-start group=${CASE_TEST_GROUP:-} case=${name} id=${id} ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    case_test_case_watchdog_start "${name}" "${id}"
+}
+
+case_test_case_end()
+{
+    local name="$1"
+    local id="$2"
+    local status="$3"
+
+    case_test_case_watchdog_stop
+    echo "[case-test] case-end group=${CASE_TEST_GROUP:-} case=${name} id=${id} status=${status} ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 
 case_test_case()
@@ -202,10 +258,12 @@ case_test_run()
             continue
         fi
 
+        case_test_case_begin "${name}" "${id}" || return 2
         if [[ "${mode}" = "self-reporting" ]]; then
             if case_test_run_self_reporting_case "${name}" "${run_func}"; then
-                :
+                case_test_case_end "${name}" "${id}" "pass"
             else
+                case_test_case_end "${name}" "${id}" "fail"
                 status=1
             fi
             continue
@@ -214,9 +272,11 @@ case_test_run()
         if "${run_func}"; then
             echo ">>>>>>>> pass:1"
             case_print_result "${name}" "pass"
+            case_test_case_end "${name}" "${id}" "pass"
         else
             echo ">>>>>>>> pass:0"
             case_print_result "${name}" "fail"
+            case_test_case_end "${name}" "${id}" "fail"
             status=1
         fi
     done
@@ -272,3 +332,4 @@ CASE_TEST_CASE_NAMES=()
 CASE_TEST_CASE_IDS=()
 CASE_TEST_CASE_MODES=()
 CASE_TEST_CASE_RUNNERS=()
+CASE_TEST_CASE_WATCHDOG_PID=""

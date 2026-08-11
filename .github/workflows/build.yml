@@ -202,6 +202,7 @@ jobs:
         set +e
         chmod +x build/tests/test_client build/tests/test_server
         XQC_BUILD_DIR="${PWD}/build" \
+          CASE_TEST_CASE_TIMEOUT=300 \
           bash scripts/case_test.sh --execute --group "${{ matrix.group }}" --require-complete \
           2>&1 | tee "xquic_case_${{ matrix.group }}.log"
         case_status=${PIPESTATUS[0]}

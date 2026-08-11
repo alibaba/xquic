@@ -60,13 +60,21 @@ directory.
 Parallel execution writes each shard's raw output to
 `<build>/case_test_parallel/<shard>/case_test.log` and records failed case
 result lines in `<build>/case_test_parallel/<shard>/case_test.failures`.
-The parent runner reports each shard's exit status and parsed fail count, and
-returns nonzero if a shard exits nonzero or prints any `[     FAIL ]` case
-result. It also emits ordered legacy-compatible `pass:1` and `pass:0` result
-lines parsed from the shard log so existing CI summary checks can count cases
-without reading interleaved raw output. On failure, terminal output shows the
-failed result lines and a bounded tail of the shard log; use the per-shard log
-files, not interleaved terminal output, as the authoritative failure evidence.
+The parent runner reports each shard's start line, heartbeat, exit status,
+elapsed time, and parsed fail count, and returns nonzero if a shard exits
+nonzero or prints any `[     FAIL ]` case result. It also emits ordered
+legacy-compatible `pass:1` and `pass:0` result lines parsed from the shard log
+so existing CI summary checks can count cases without reading interleaved raw
+output. On failure, terminal output shows the failed result lines and a bounded
+tail of the shard log; use the per-shard log files, not interleaved terminal
+output, as the authoritative failure evidence.
+
+Shard observability is controlled by environment variables:
+
+- `CASE_TEST_HEARTBEAT_INTERVAL`: seconds between running-shard progress lines;
+  default `60`, `0` disables heartbeat output.
+- `CASE_TEST_SHARD_TIMEOUT`: per-shard timeout in seconds when the platform
+  provides `timeout`; default `1800`, `0` disables the timeout.
 
 Some cases require sudo for client-side network setup. Run `sudo -v` in the
 same shell before executing those shards. Shards that contain sudo commands

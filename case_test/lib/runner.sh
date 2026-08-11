@@ -14,6 +14,8 @@ PARALLEL=0
 REQUIRE_COMPLETE=0
 JOBS=1
 PORT_BASE="${CASE_TEST_PORT_BASE:-18000}"
+SHARD_TIMEOUT="${CASE_TEST_SHARD_TIMEOUT:-1800}"
+HEARTBEAT_INTERVAL="${CASE_TEST_HEARTBEAT_INTERVAL:-60}"
 
 usage()
 {
@@ -105,6 +107,16 @@ if ! [[ "${PORT_BASE}" =~ ^[1-9][0-9]*$ ]]; then
     exit 2
 fi
 
+if ! [[ "${SHARD_TIMEOUT}" =~ ^[0-9]+$ ]]; then
+    echo "case_test: CASE_TEST_SHARD_TIMEOUT must be a non-negative integer" >&2
+    exit 2
+fi
+
+if ! [[ "${HEARTBEAT_INTERVAL}" =~ ^[0-9]+$ ]]; then
+    echo "case_test: CASE_TEST_HEARTBEAT_INTERVAL must be a non-negative integer" >&2
+    exit 2
+fi
+
 BUILD_DIR="$(case_test_build_dir "${ROOT_DIR}")"
 MAP_FILE="$(mktemp "${TMPDIR:-/tmp}/xquic_case_runners.XXXXXX")"
 PLAN_FILE="$(mktemp "${TMPDIR:-/tmp}/xquic_case_plan.XXXXXX")"
@@ -185,6 +197,10 @@ run_group()
     local ok_count
     local fail_count
     local failure_context_lines
+    local start_epoch
+    local end_epoch
+    local runner_pid
+    local heartbeat_pid
 
     shard_id="$(case_test_sanitize_id "${group_id}")"
     port=$((PORT_BASE + port_offset))
@@ -199,8 +215,9 @@ run_group()
     : > "${failures_file}"
     : > "${results_file}"
 
-    echo "[case-test] ${group_id} port=${port} runner=${runner}"
-    if (
+    start_epoch="$(date +%s)"
+    echo "[case-test] ${group_id} start ts=$(date -u +%Y-%m-%dT%H:%M:%SZ) port=${port} runner=${runner} log=${log_file}"
+    (
         export XQC_BUILD_DIR="${BUILD_DIR}"
         export CASE_TEST_WORK_DIR="${work_dir}"
         export CASE_TEST_PORT="${port}"
@@ -208,12 +225,47 @@ run_group()
         export CASE_TEST_GROUP="${group_id}"
         export CASE_TEST_MODULE="${module}"
         export CASE_TEST_FEATURE="${feature}"
+        if [[ "${SHARD_TIMEOUT}" -gt 0 ]] && command -v timeout > /dev/null 2>&1; then
+            exec timeout "${SHARD_TIMEOUT}" "${ROOT_DIR}/${runner}"
+        fi
         exec "${ROOT_DIR}/${runner}"
-    ) > "${log_file}" 2>&1
-    then
+    ) > "${log_file}" 2>&1 &
+    runner_pid="$!"
+
+    heartbeat_pid=""
+    if [[ "${HEARTBEAT_INTERVAL}" -gt 0 ]]; then
+        (
+            sleep_pid=""
+            trap 'if [[ -n "${sleep_pid}" ]]; then kill "${sleep_pid}" 2> /dev/null || true; fi; exit 0' TERM INT
+
+            while true; do
+                sleep "${HEARTBEAT_INTERVAL}" &
+                sleep_pid="$!"
+                wait "${sleep_pid}" 2> /dev/null || exit 0
+                sleep_pid=""
+
+                if ! kill -0 "${runner_pid}" 2> /dev/null; then
+                    exit 0
+                fi
+                echo "[case-test] ${group_id} running elapsed=$(($(date +%s) - start_epoch))s log=${log_file}"
+            done
+        ) &
+        heartbeat_pid="$!"
+    fi
+
+    if wait "${runner_pid}"; then
         runner_status=0
     else
         runner_status="$?"
+    fi
+
+    if [[ -n "${heartbeat_pid}" ]]; then
+        kill "${heartbeat_pid}" 2> /dev/null || true
+    fi
+
+    end_epoch="$(date +%s)"
+    if [[ "${runner_status}" -eq 124 ]]; then
+        echo "[case-test] ${group_id} timeout elapsed=$((end_epoch - start_epoch))s limit=${SHARD_TIMEOUT}s log=${log_file}"
     fi
 
     awk -v group_id="${group_id}" '
@@ -263,7 +315,7 @@ run_group()
     ok_count="$(grep -c '>>>>>>>> pass:1' "${results_file}" || true)"
     fail_count="$(wc -l < "${failures_file}" | tr -d ' ')"
 
-    echo "[case-test] ${group_id} result=$([[ "${runner_status}" -eq 0 && "${fail_count}" -eq 0 ]] && echo pass || echo fail) exit=${runner_status} run=${run_count} ok=${ok_count} fail=${fail_count} log=${log_file}"
+    echo "[case-test] ${group_id} result=$([[ "${runner_status}" -eq 0 && "${fail_count}" -eq 0 ]] && echo pass || echo fail) exit=${runner_status} elapsed=$((end_epoch - start_epoch))s run=${run_count} ok=${ok_count} fail=${fail_count} log=${log_file}"
     cat "${results_file}"
 
     if [[ "${fail_count}" -gt 0 ]]; then

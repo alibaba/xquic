@@ -38,7 +38,7 @@ typedef enum {
     TRA_APPLICATION_ERROR           =  0xC,
     TRA_CRYPTO_BUFFER_EXCEEDED      =  0xD,
     TRA_KEY_UPDATE_ERROR            =  0xE,   /**< RFC 9001 Section 6.7 */
-    TRA_AEAD_LIMIT_REACHED          =  0x1e,  /**< RFC 9001 §6.6: AEAD integrity limit reached */
+    TRA_AEAD_LIMIT_REACHED          =  0xF,   /**< RFC 9000 Section 20.1 */
     TRA_NO_VIABLE_PATH              =  0x10,  /**< RFC 9000 Section 8.2.4 */
     /*
      * RFC 9000 Section 6.2 does not assign a CONNECTION_CLOSE code for
@@ -163,7 +163,8 @@ typedef enum {
     XQC_ESTATELESS_RESET                = 641,      /**< connection is reset by peer */
     XQC_EPACKET_FILETER_CALLBACK        = 642,      /**< error with packet filter callback function */
     XQC_EVERSION_NEGOTIATION            = 643,      /**< client received a Version Negotiation packet, RFC 9000 §6.2 mandates abandoning the connection attempt */
-    XQC_EAEAD_LIMIT                     = 644,      /**< AEAD integrity limit reached per RFC 9001 §6.6 */
+    /** RFC 9001 Section 6.6: AEAD confidentiality or integrity limit */
+    XQC_EAEAD_LIMIT                     = 644,
 
     XQC_EMP_NOT_SUPPORT_MP              = 650,      /**< Multipath - don't support multipath */
     XQC_EMP_NO_AVAIL_PATH_ID            = 651,      /**< Multipath - no available path id */

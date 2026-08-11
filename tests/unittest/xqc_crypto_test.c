@@ -6,6 +6,7 @@
 #include <CUnit/CUnit.h>
 #include "xqc_common_test.h"
 #include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_packet_parser.h"
 #include "src/tls/xqc_tls_defs.h"
 #include "src/tls/xqc_tls.h"
 #include "src/tls/xqc_crypto.h"
@@ -481,6 +482,60 @@ xqc_test_aead_integrity_limit_unknown_cipher()
     /* unknown cipher_id: should return conservative (ChaCha20) limit */
     uint64_t unknown_limit = xqc_aead_integrity_limit(XQC_TEST_UNKOWND_CIPHER_ID);
     CU_ASSERT_EQUAL(unknown_limit, 68719476736ULL);
+}
+
+void
+xqc_test_aead_confidentiality_limit()
+{
+    CU_ASSERT_EQUAL(xqc_aead_confidentiality_limit(
+                        XQC_TLS13_AES_128_GCM_SHA256),
+                    8388608ULL);
+    CU_ASSERT_EQUAL(xqc_aead_confidentiality_limit(
+                        XQC_TLS13_AES_256_GCM_SHA384),
+                    8388608ULL);
+    CU_ASSERT_EQUAL(xqc_aead_confidentiality_limit(
+                        XQC_TLS13_CHACHA20_POLY1305_SHA256),
+                    4611686018427387904ULL);
+    CU_ASSERT_EQUAL(xqc_aead_confidentiality_limit(
+                        XQC_TEST_UNKOWND_CIPHER_ID),
+                    8388608ULL);
+}
+
+void
+xqc_test_aead_confidentiality_below_limit()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    conn->key_update_ctx.enc_pkt_cnt =
+        XQC_AES_128_GCM_CONFIDENTIALITY_LIMIT - 1;
+    conn->key_update_ctx.aead_confidentiality_limit =
+        XQC_AES_128_GCM_CONFIDENTIALITY_LIMIT;
+
+    xqc_int_t ret = xqc_packet_check_aead_confidentiality_limit(conn);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_aead_confidentiality_at_limit()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    conn->key_update_ctx.enc_pkt_cnt =
+        XQC_AES_128_GCM_CONFIDENTIALITY_LIMIT;
+    conn->key_update_ctx.aead_confidentiality_limit =
+        XQC_AES_128_GCM_CONFIDENTIALITY_LIMIT;
+
+    xqc_int_t ret = xqc_packet_check_aead_confidentiality_limit(conn);
+    CU_ASSERT_EQUAL(ret, -XQC_EAEAD_LIMIT);
+    CU_ASSERT_EQUAL(conn->conn_err, TRA_AEAD_LIMIT_REACHED);
+    CU_ASSERT_EQUAL(TRA_AEAD_LIMIT_REACHED, 0x0f);
+
+    xqc_engine_destroy(conn->engine);
 }
 
 /*

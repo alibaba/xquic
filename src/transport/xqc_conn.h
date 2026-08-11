@@ -745,6 +745,9 @@ void xqc_conn_encode_mp_settings(xqc_connection_t *conn, char *buf, size_t buf_s
 void xqc_path_send_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
     xqc_list_head_t *head, int congest, xqc_send_type_t send_type);
 
+void xqc_on_packets_send_burst(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    ssize_t sent, xqc_usec_t now, xqc_send_type_t send_type);
+
 xqc_int_t xqc_conn_try_to_enable_multipath(xqc_connection_t *conn);
 xqc_int_t xqc_conn_add_path_cid_sets(xqc_connection_t *conn, uint32_t start, uint32_t end);
 xqc_msec_t xqc_conn_get_queue_fin_timeout(xqc_connection_t *conn);

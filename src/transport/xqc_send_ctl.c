@@ -552,12 +552,15 @@ xqc_send_ctl_increase_inflight(xqc_connection_t *conn, xqc_packet_out_t *packet_
     }
 
     xqc_send_ctl_t *send_ctl = path->path_send_ctl;
-    if (!(packet_out->po_flag & XQC_POF_IN_FLIGHT) && XQC_CAN_IN_FLIGHT(packet_out->po_frame_types)) {
+    if (!(packet_out->po_flag & XQC_POF_IN_FLIGHT)
+        && XQC_CAN_IN_FLIGHT(packet_out->po_frame_types))
+    {
+        send_ctl->ctl_bytes_in_flight += packet_out->po_used_size;
         if (XQC_IS_ACK_ELICITING(packet_out->po_frame_types)) {
-            send_ctl->ctl_bytes_in_flight += packet_out->po_used_size;
-            send_ctl->ctl_bytes_ack_eliciting_inflight[packet_out->po_pkt.pkt_pns] += packet_out->po_used_size;
-            packet_out->po_flag |= XQC_POF_IN_FLIGHT;
+            send_ctl->ctl_bytes_ack_eliciting_inflight[
+                packet_out->po_pkt.pkt_pns] += packet_out->po_used_size;
         }
+        packet_out->po_flag |= XQC_POF_IN_FLIGHT;
     }
 }
 
@@ -573,10 +576,15 @@ xqc_send_ctl_decrease_inflight(xqc_connection_t *conn, xqc_packet_out_t *packet_
     xqc_send_ctl_t *send_ctl = path->path_send_ctl;
     if (packet_out->po_flag & XQC_POF_IN_FLIGHT) {
         if (XQC_IS_ACK_ELICITING(packet_out->po_frame_types)) {
-            send_ctl->ctl_bytes_ack_eliciting_inflight[packet_out->po_pkt.pkt_pns] = xqc_uint32_bounded_subtract(send_ctl->ctl_bytes_ack_eliciting_inflight[packet_out->po_pkt.pkt_pns], packet_out->po_used_size);
-            send_ctl->ctl_bytes_in_flight = xqc_uint32_bounded_subtract(send_ctl->ctl_bytes_in_flight, packet_out->po_used_size);
-            packet_out->po_flag &= ~XQC_POF_IN_FLIGHT;
+            send_ctl->ctl_bytes_ack_eliciting_inflight[
+                packet_out->po_pkt.pkt_pns] = xqc_uint32_bounded_subtract(
+                    send_ctl->ctl_bytes_ack_eliciting_inflight[
+                        packet_out->po_pkt.pkt_pns],
+                    packet_out->po_used_size);
         }
+        send_ctl->ctl_bytes_in_flight = xqc_uint32_bounded_subtract(
+            send_ctl->ctl_bytes_in_flight, packet_out->po_used_size);
+        packet_out->po_flag &= ~XQC_POF_IN_FLIGHT;
     }
 }
 

@@ -392,6 +392,62 @@ fi
 # reason (0x54 = conn_err:84), and sends TRANSPORT_PARAMETER_ERROR (0x08)
 }
 
+case_tls_handshake_aead_confidentiality_boundary_updates_keys()
+{
+
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost aead_confidentiality_server.log
+case_test_start_server ${SERVER_BIN} -l d -e -x 902 > aead_confidentiality_server.log
+sleep 1
+echo -e "AEAD confidentiality: last permitted packet updates keys ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 902 > stdlog
+injected=`grep "\[aead-confidentiality-test\]|case:902|" stdlog`
+updated=`grep "|key phase changed to" clog`
+received=`grep "\[aead-confidentiality-test\]|request_received|case:902|" \
+    aead_confidentiality_server.log`
+success=`grep ">>>>>>>> pass:1" stdlog`
+limit_error=`grep "|AEAD confidentiality limit reached|" clog`
+if [ -n "$injected" ] && [ -n "$updated" ] && [ -n "$received" ] \
+    && [ -n "$success" ] && [ -z "$limit_error" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "aead_confidentiality_boundary_updates_keys" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "aead_confidentiality_boundary_updates_keys" "fail"
+fi
+
+}
+
+case_tls_handshake_aead_confidentiality_exhaustion_stops_sender()
+{
+
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost aead_confidentiality_server.log
+case_test_start_server ${SERVER_BIN} -l d -e -x 903 > aead_confidentiality_server.log
+sleep 1
+echo -e "AEAD confidentiality: exhausted keys reject next packet ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 903 > stdlog
+injected=`grep "\[aead-confidentiality-test\]|case:903|" stdlog`
+limit_error=`grep "|AEAD confidentiality limit reached|" clog`
+wire_error=`grep "|err:0xf" clog`
+received=`grep "\[aead-confidentiality-test\]|request_received|case:903|" \
+    aead_confidentiality_server.log`
+if [ -n "$injected" ] && [ -n "$limit_error" ] && [ -n "$wire_error" ] \
+    && [ -z "$received" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "aead_confidentiality_exhaustion_stops_sender" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "aead_confidentiality_exhaustion_stops_sender" "fail"
+fi
+
+case_test_stop_server
+rm -f aead_confidentiality_server.log
+
+}
+
 case_test_case "cert_verify" --id legacy --mode self-reporting --run case_tls_handshake_cert_verify
 case_test_case "1RTT" --id legacy --mode self-reporting --run case_tls_handshake__1RTT
 case_test_case "alpn_negotiation_success" --id legacy --mode self-reporting --run case_tls_handshake_alpn_negotiation_success
@@ -409,6 +465,8 @@ case_test_case "key_update_0RTT" --id legacy --mode self-reporting --run case_tl
 case_test_case "initial_salt_v1_key_derivation" --id legacy --mode self-reporting --run case_tls_handshake_initial_salt_v1_key_derivation
 case_test_case "crypto_error_cert_verify" --id legacy --mode self-reporting --run case_tls_handshake_crypto_error_cert_verify
 case_test_case "crypto_error_not_fixed_enum" --id legacy --mode self-reporting --run case_tls_handshake_crypto_error_not_fixed_enum
+case_test_case "aead_confidentiality_boundary_updates_keys" --id legacy --mode self-reporting --run case_tls_handshake_aead_confidentiality_boundary_updates_keys
+case_test_case "aead_confidentiality_exhaustion_stops_sender" --id legacy --mode self-reporting --run case_tls_handshake_aead_confidentiality_exhaustion_stops_sender
 
 if case_test_is_discovery; then
     case_test_run

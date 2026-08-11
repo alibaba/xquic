@@ -21,6 +21,7 @@
 #include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_defs.h"
 #include "src/common/xqc_random.h"
+#include "src/tls/xqc_crypto.h"
 
 #define xqc_packet_number_bits2len(b) ((b) + 1)
 
@@ -575,18 +576,95 @@ xqc_packet_parse_zero_rtt(xqc_connection_t *c, xqc_packet_in_t *packet_in)
 
 
 xqc_int_t
+xqc_packet_check_aead_confidentiality_limit(xqc_connection_t *conn)
+{
+    uint64_t limit = conn->key_update_ctx.aead_confidentiality_limit;
+
+    if (conn->key_update_ctx.enc_pkt_cnt < limit) {
+        return XQC_OK;
+    }
+
+    xqc_log(conn->log, XQC_LOG_ERROR,
+            "|AEAD confidentiality limit reached|encrypted:%ui|limit:%ui|",
+            conn->key_update_ctx.enc_pkt_cnt, limit);
+    XQC_CONN_ERR(conn, TRA_AEAD_LIMIT_REACHED);
+    return -XQC_EAEAD_LIMIT;
+}
+
+static xqc_bool_t
+xqc_packet_can_initiate_key_update(xqc_connection_t *conn)
+{
+    return conn->key_update_ctx.first_sent_pktno
+               <= conn->conn_initial_path->path_send_ctl
+                      ->ctl_largest_acked[XQC_PNS_APP_DATA]
+           && xqc_monotonic_timestamp()
+                  > conn->key_update_ctx.initiate_time_guard;
+}
+
+static xqc_int_t
+xqc_packet_initiate_key_update(xqc_connection_t *conn)
+{
+    xqc_int_t ret = xqc_tls_update_1rtt_keys(conn->tls,
+                                             XQC_KEY_TYPE_RX_READ);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_tls_update_rx_keys error|");
+        return ret;
+    }
+
+    ret = xqc_tls_update_1rtt_keys(conn->tls, XQC_KEY_TYPE_TX_WRITE);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_tls_update_tx_keys error|");
+        return ret;
+    }
+
+    ret = xqc_conn_confirm_key_update(conn);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_conn_confirm_key_update error|");
+    }
+    return ret;
+}
+
+xqc_int_t
 xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     unsigned char *enc_pkt, size_t enc_pkt_cap, size_t *enc_pkt_len)
 {
     xqc_int_t ret;
     size_t enc_payload_len = 0;
 
-    xqc_encrypt_level_t level = xqc_packet_type_to_enc_level(packet_out->po_pkt.pkt_type);
+    xqc_encrypt_level_t level =
+        xqc_packet_type_to_enc_level(packet_out->po_pkt.pkt_type);
+    xqc_bool_t is_1rtt = packet_out->po_pkt.pkt_type
+                            == XQC_PTYPE_SHORT_HEADER
+                        && level == XQC_ENC_LEV_1RTT;
    
     /* check encrypt key ready */
     if (xqc_tls_is_key_ready(conn->tls, level, XQC_KEY_TYPE_TX_WRITE) == XQC_FALSE) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|crypto not initialized|level:%d|", level);
         return -XQC_TLS_INVALID_STATE;
+    }
+
+    if (is_1rtt) {
+        if (conn->key_update_ctx.aead_confidentiality_limit == 0) {
+            uint32_t cipher_id = xqc_tls_get_1rtt_cipher_id(conn->tls);
+            if (cipher_id == 0) {
+                /* XQUIC's experimental no-crypto mode has no AEAD limit. */
+                is_1rtt = XQC_FALSE;
+
+            } else {
+                conn->key_update_ctx.aead_confidentiality_limit =
+                    xqc_aead_confidentiality_limit(cipher_id);
+            }
+        }
+
+        if (is_1rtt) {
+            ret = xqc_packet_check_aead_confidentiality_limit(conn);
+            if (ret != XQC_OK) {
+                return ret;
+            }
+        }
     }
 
     /* source buffer */
@@ -649,32 +727,26 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
         return ret;
     }
 
-    /* update enc_pkt_cnt for current 1-rtt key & maybe initiate a key update */
-    if (conn->conn_settings.keyupdate_pkt_threshold > 0
-        && packet_out->po_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER && level == XQC_ENC_LEV_1RTT)
-    {
+    /* RFC 9001 Section 6.6: count every protected packet per write key. */
+    if (is_1rtt) {
         conn->key_update_ctx.enc_pkt_cnt++;
 
-        if (conn->key_update_ctx.enc_pkt_cnt > conn->conn_settings.keyupdate_pkt_threshold
-            && conn->key_update_ctx.first_sent_pktno <=
-                conn->conn_initial_path->path_send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA]
-            && xqc_monotonic_timestamp() > conn->key_update_ctx.initiate_time_guard)
+        xqc_bool_t confidentiality_trigger =
+            conn->key_update_ctx.enc_pkt_cnt
+                >= conn->key_update_ctx.aead_confidentiality_limit;
+        xqc_bool_t configured_trigger =
+            conn->conn_settings.keyupdate_pkt_threshold > 0
+            && conn->key_update_ctx.enc_pkt_cnt
+                   > conn->conn_settings.keyupdate_pkt_threshold;
+
+        if ((confidentiality_trigger || configured_trigger)
+            && xqc_packet_can_initiate_key_update(conn))
         {
-            ret = xqc_tls_update_1rtt_keys(conn->tls, XQC_KEY_TYPE_RX_READ);
+            ret = xqc_packet_initiate_key_update(conn);
             if (ret != XQC_OK) {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_tls_update_rx_keys error|");
-                return ret;
-            }
-
-            ret = xqc_tls_update_1rtt_keys(conn->tls, XQC_KEY_TYPE_TX_WRITE);
-            if (ret != XQC_OK) {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_tls_update_tx_keys error|");
-                return ret;
-            }
-
-            ret = xqc_conn_confirm_key_update(conn);
-            if (ret != XQC_OK) {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_conn_confirm_key_update error|");
+                if (confidentiality_trigger) {
+                    XQC_CONN_ERR(conn, TRA_AEAD_LIMIT_REACHED);
+                }
                 return ret;
             }
         }

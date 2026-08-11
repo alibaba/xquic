@@ -75,8 +75,8 @@ environment failure rather than case-result failures.
 
 For full-suite CI, the maximum safe case-test job count is the number of
 implemented executable shards that together cover all registered default cases.
-At the time of writing, the full default suite covers 299 cases across 11
-implemented groups, so CI uses 11 jobs.
+Use `bash scripts/case_test.sh --execution-plan` to confirm the current case
+count and `max_safe_jobs` before changing CI parallelism.
 
 ## Extending Case Tests
 

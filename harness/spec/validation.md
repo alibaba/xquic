@@ -101,7 +101,7 @@ its case is retired so later changes cannot reuse it.
 |-------|--------------------|---------------|
 | `[705, 799]` | QUIC Transport core | `705-710` |
 | `[800, 899]` | Recovery and congestion control | None |
-| `[900, 999]` | QUIC-TLS | None |
+| `[900, 999]` | QUIC-TLS | `902-903` |
 | `[1000, 1099]` | HTTP/3 framing, streams, and settings | `1000-1014` |
 | `[1100, 1149]` | QPACK | None |
 | `[1150, 1199]` | HTTP priority | None |

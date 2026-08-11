@@ -189,38 +189,59 @@ xqc_test_conn_pmtud_force_enable()
 }
 
 void
-xqc_test_conn_pmtud_negotiated_mode()
+xqc_test_conn_pmtud_legacy_compatibility()
 {
+    static const xqc_conn_type_t roles[] = {
+        XQC_CONN_TYPE_CLIENT,
+        XQC_CONN_TYPE_SERVER,
+    };
+    static const uint8_t role_bits[] = {
+        XQC_PMTUD_ENABLE_CLIENT,
+        XQC_PMTUD_ENABLE_SERVER,
+    };
     xqc_connection_t *conn = test_engine_connect();
+    xqc_transport_params_t params;
+    size_t role_idx;
+    uint8_t local_flags, remote_flags, expected;
+
     CU_ASSERT_FATAL(conn != NULL);
 
-    xqc_pmtud_case_set(conn, XQC_CONN_TYPE_CLIENT,
-                       XQC_PMTUD_ENABLE_CLIENT, XQC_PMTUD_ENABLE_CLIENT);
-    xqc_conn_try_to_enable_pmtud(conn);
-    CU_ASSERT(conn->enable_pmtud == 1);
-    CU_ASSERT(xqc_timer_is_set(&conn->conn_timer_manager,
-                               XQC_TIMER_PMTUD_PROBING));
+    CU_ASSERT_EQUAL(XQC_PMTUD_DISABLE, 0x0);
+    CU_ASSERT_EQUAL(XQC_PMTUD_ENABLE_CLIENT, 0x1);
+    CU_ASSERT_EQUAL(XQC_PMTUD_ENABLE_SERVER, 0x2);
+    CU_ASSERT_EQUAL(XQC_PMTUD_ENABLE_MASK, 0x3);
 
-    xqc_pmtud_case_set(conn, XQC_CONN_TYPE_SERVER,
-                       XQC_PMTUD_ENABLE_SERVER, XQC_PMTUD_ENABLE_SERVER);
-    xqc_conn_try_to_enable_pmtud(conn);
-    CU_ASSERT(conn->enable_pmtud == 1);
-    CU_ASSERT(xqc_timer_is_set(&conn->conn_timer_manager,
-                               XQC_TIMER_PMTUD_PROBING));
+    for (role_idx = 0; role_idx < sizeof(roles) / sizeof(roles[0]);
+         role_idx++)
+    {
+        for (local_flags = XQC_PMTUD_DISABLE;
+             local_flags <= XQC_PMTUD_ENABLE_MASK; local_flags++)
+        {
+            for (remote_flags = XQC_PMTUD_DISABLE;
+                 remote_flags <= XQC_PMTUD_ENABLE_MASK; remote_flags++)
+            {
+                expected = (local_flags & remote_flags
+                            & role_bits[role_idx]) != 0;
+                xqc_pmtud_case_set(conn, roles[role_idx], local_flags,
+                                   remote_flags);
+                xqc_conn_try_to_enable_pmtud(conn);
+                CU_ASSERT_EQUAL(conn->enable_pmtud, expected);
+                CU_ASSERT_EQUAL(xqc_timer_is_set(&conn->conn_timer_manager,
+                                                 XQC_TIMER_PMTUD_PROBING),
+                                expected);
+            }
+        }
+    }
 
-    xqc_pmtud_case_set(conn, XQC_CONN_TYPE_CLIENT,
-                       XQC_PMTUD_ENABLE_CLIENT, XQC_PMTUD_DISABLE);
-    xqc_conn_try_to_enable_pmtud(conn);
-    CU_ASSERT(conn->enable_pmtud == 0);
-    CU_ASSERT(!xqc_timer_is_set(&conn->conn_timer_manager,
-                                XQC_TIMER_PMTUD_PROBING));
-
-    xqc_pmtud_case_set(conn, XQC_CONN_TYPE_CLIENT,
-                       XQC_PMTUD_ENABLE_SERVER, XQC_PMTUD_ENABLE_SERVER);
-    xqc_conn_try_to_enable_pmtud(conn);
-    CU_ASSERT(conn->enable_pmtud == 0);
-    CU_ASSERT(!xqc_timer_is_set(&conn->conn_timer_manager,
-                                XQC_TIMER_PMTUD_PROBING));
+    for (local_flags = XQC_PMTUD_DISABLE;
+         local_flags <= XQC_PMTUD_ENABLE_MASK; local_flags++)
+    {
+        xqc_memzero(&params, sizeof(params));
+        conn->local_settings.enable_pmtud = local_flags;
+        CU_ASSERT_EQUAL(xqc_conn_get_local_transport_params(conn, &params),
+                        XQC_OK);
+        CU_ASSERT_EQUAL(params.enable_pmtud, local_flags);
+    }
 
     xqc_engine_destroy(conn->engine);
 }

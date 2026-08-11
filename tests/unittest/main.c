@@ -84,8 +84,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_conn_idle_timeout", xqc_test_conn_idle_timeout)
         || !CU_add_test(pSuite, "xqc_test_conn_pmtud_force_enable",
                         xqc_test_conn_pmtud_force_enable)
-        || !CU_add_test(pSuite, "xqc_test_conn_pmtud_negotiated_mode",
-                        xqc_test_conn_pmtud_negotiated_mode)
+        || !CU_add_test(pSuite, "xqc_test_conn_pmtud_legacy_compatibility",
+                        xqc_test_conn_pmtud_legacy_compatibility)
         || !CU_add_test(pSuite, "xqc_test_conn_early_data_reject", xqc_test_conn_early_data_reject)
         || !CU_add_test(pSuite, "xqc_test_conn_early_data_reject_flow_ctl", xqc_test_conn_early_data_reject_flow_ctl)
         /* RFC 9000 §20.1 CRYPTO_ERROR dynamic construction */

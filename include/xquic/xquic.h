@@ -1446,6 +1446,9 @@ typedef struct xqc_conn_settings_s {
 
     /**
      * PMTUD flags:
+     * Values 0x0 through 0x3 retain their negotiated behavior and transport
+     * parameter encoding. Applications that keep those values unchanged do
+     * not change whether PMTUD is enabled.
      * XQC_PMTUD_DISABLE disables PMTUD.
      * XQC_PMTUD_ENABLE_CLIENT and XQC_PMTUD_ENABLE_SERVER are negotiated
      * role bits. Both endpoints need to advertise a role bit to enable
@@ -1454,6 +1457,8 @@ typedef struct xqc_conn_settings_s {
      * negotiation. It can be combined with the negotiated role bits and is
      * not sent in the transport parameter. This local mode follows the
      * sender-side behavior in RFC 9000 Section 14.3.1.
+     * Values outside XQC_PMTUD_ENABLE_MASK were previously undefined;
+     * XQC_PMTUD_FORCE_ENABLE assigns bit 0x4 as a local-only opt-in.
      */
     uint8_t                     enable_pmtud;
     /** probing interval (us), default: 500000 */

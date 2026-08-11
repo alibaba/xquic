@@ -4898,15 +4898,18 @@ fi
 #
 # Test 1: verify client SENDS repair symbols (grep clog)
 # Test 2: verify server RECEIVES repair symbols (grep slog)
+#
+# Keep this test single-path. Its contract is the frame-type bit, and enabling
+# multipath makes repair delivery depend on asynchronous standby-path setup.
 
 clear_log
 killall test_server 2> /dev/null
-stdbuf -oL ${SERVER_BIN} -l d -e -f -x 700 -M > /dev/null &
+stdbuf -oL ${SERVER_BIN} -l d -e -f -x 700 > /dev/null &
 sleep 1
 
 rm -rf tp_localhost test_session xqc_token
 echo -e "frame_type_bit repair symbol sent (bit 32 non-zero) ...\c"
-sudo ${CLIENT_BIN} -s 5120000 -l d -E -d 30 -g -x 700 -M -i lo -i lo > stdlog
+sudo ${CLIENT_BIN} -s 5120000 -l d -E -d 30 -g -x 700 > stdlog
 clog_repair=`grep 'frame:.*FEC_REPAIR' clog`
 echo_result=`grep ">>>>>>>> pass" stdlog`
 errlog=`grep_err_log`
@@ -4921,12 +4924,12 @@ fi
 
 clear_log
 killall test_server 2> /dev/null
-stdbuf -oL ${SERVER_BIN} -l d -e -f -x 700 -M > /dev/null &
+stdbuf -oL ${SERVER_BIN} -l d -e -f -x 700 > /dev/null &
 sleep 1
 
 rm -rf tp_localhost test_session xqc_token
 echo -e "frame_type_bit repair symbol received (bit 32 non-zero) ...\c"
-sudo ${CLIENT_BIN} -s 5120000 -l d -E -d 30 -g -x 700 -M -i lo -i lo > stdlog
+sudo ${CLIENT_BIN} -s 5120000 -l d -E -d 30 -g -x 700 > stdlog
 slog_repair=`grep 'frame:.*FEC_REPAIR' slog`
 echo_result=`grep ">>>>>>>> pass" stdlog`
 errlog=`grep_err_log`

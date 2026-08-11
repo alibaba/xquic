@@ -344,9 +344,8 @@ run_parallel_map()
     local port_offset
     local module
     local feature
-    local parallel_scope
 
-    while IFS=$'\t' read -r group_id runner port_offset module feature parallel_scope; do
+    while IFS=$'\t' read -r group_id runner port_offset module feature; do
         run_group "${group_id}" "${runner}" "${port_offset:-${index}}" "${module:-}" "${feature:-}" &
         pids+=("$!")
         active=$((active + 1))
@@ -380,9 +379,8 @@ run_serial_map()
     local port_offset
     local module
     local feature
-    local parallel_scope
 
-    while IFS=$'\t' read -r group_id runner port_offset module feature parallel_scope; do
+    while IFS=$'\t' read -r group_id runner port_offset module feature; do
         if ! run_group "${group_id}" "${runner}" "${port_offset:-${index}}" "${module:-}" "${feature:-}"; then
             status=1
         fi
@@ -397,26 +395,6 @@ if [[ "${PARALLEL}" -eq 0 || "${JOBS}" -eq 1 ]]; then
     exit "$?"
 fi
 
-status=0
-ISOLATED_MAP_FILE="$(mktemp "${TMPDIR:-/tmp}/xquic_case_isolated.XXXXXX")"
-GLOBAL_MAP_FILE="$(mktemp "${TMPDIR:-/tmp}/xquic_case_global.XXXXXX")"
-trap 'rm -f "${MAP_FILE}" "${PLAN_FILE}" "${OWNERSHIP_FILE}" "${ISOLATED_MAP_FILE}" "${GLOBAL_MAP_FILE}"' EXIT
-
-awk -F '\t' '($6 == "" || $6 == "isolated") { print }' "${MAP_FILE}" > "${ISOLATED_MAP_FILE}"
-awk -F '\t' '($6 == "global") { print }' "${MAP_FILE}" > "${GLOBAL_MAP_FILE}"
-
-if [[ -s "${ISOLATED_MAP_FILE}" ]]; then
-    echo "[case-test] scheduling isolated groups with jobs=${JOBS}"
-    if ! run_parallel_map "${ISOLATED_MAP_FILE}"; then
-        status=1
-    fi
-fi
-
-if [[ -s "${GLOBAL_MAP_FILE}" ]]; then
-    echo "[case-test] scheduling global groups serially"
-    if ! run_serial_map "${GLOBAL_MAP_FILE}"; then
-        status=1
-    fi
-fi
-
-exit "${status}"
+echo "[case-test] scheduling groups with jobs=${JOBS}"
+run_parallel_map "${MAP_FILE}"
+exit "$?"

@@ -1,5 +1,6 @@
 ---
 version: 1
+max_parallel_jobs: 4
 groups:
 - id: transport.core
   module: transport
@@ -11,7 +12,6 @@ groups:
   runner: case_test/transport/core.sh
   execution: implemented
   port_offset: 0
-  parallel_scope: global
 - id: transport.stream
   module: transport
   submodule: stream
@@ -20,7 +20,6 @@ groups:
   runner: case_test/transport/stream.sh
   execution: implemented
   port_offset: 10
-  parallel_scope: global
 - id: transport.packet
   module: transport
   submodule: packet
@@ -32,7 +31,6 @@ groups:
   runner: case_test/transport/packet.sh
   execution: implemented
   port_offset: 20
-  parallel_scope: isolated
 - id: transport.datagram
   module: transport
   submodule: datagram
@@ -41,7 +39,6 @@ groups:
   runner: case_test/transport/datagram.sh
   execution: implemented
   port_offset: 30
-  parallel_scope: global
 - id: transport.multipath
   module: transport
   submodule: multipath
@@ -52,7 +49,6 @@ groups:
   runner: case_test/transport/multipath.sh
   execution: implemented
   port_offset: 40
-  parallel_scope: global
 - id: transport.fec
   module: transport
   feature: fec
@@ -62,7 +58,6 @@ groups:
   runner: case_test/transport/fec.sh
   execution: implemented
   port_offset: 50
-  parallel_scope: global
 - id: http3.core
   module: http3
   source_paths:
@@ -70,7 +65,6 @@ groups:
   runner: case_test/http3/core.sh
   execution: implemented
   port_offset: 60
-  parallel_scope: global
 - id: http3.qpack
   module: http3
   submodule: qpack
@@ -86,7 +80,6 @@ groups:
   runner: case_test/http3/h3-ext.sh
   execution: implemented
   port_offset: 80
-  parallel_scope: isolated
 - id: tls.handshake
   module: tls
   source_paths:
@@ -94,7 +87,6 @@ groups:
   runner: case_test/tls/handshake.sh
   execution: implemented
   port_offset: 90
-  parallel_scope: isolated
 - id: congestion.core
   module: congestion_control
   source_paths:
@@ -103,7 +95,6 @@ groups:
   runner: case_test/congestion/core.sh
   execution: implemented
   port_offset: 100
-  parallel_scope: isolated
 - id: observability.qlog
   module: common
   execution: implemented
@@ -113,4 +104,3 @@ groups:
   - scripts/qlog_parser.py
   runner: case_test/observability/qlog.sh
   port_offset: 110
-  parallel_scope: isolated

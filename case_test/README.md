@@ -18,9 +18,9 @@ client-to-server case tests. The executable entry point is
 
 Running `scripts/case_test.sh` without selector arguments executes all
 implemented native groups sequentially. Use `--parallel --jobs <count>` for
-parallel execution of groups marked `parallel_scope: isolated`; groups marked
-`parallel_scope: global` are always serialized because they may use sudo,
-loopback configuration, multipath state, or other process-global resources.
+bounded parallel execution. The full-suite CI budget is recorded as
+`max_parallel_jobs` in `manifest.yml`; use it as the default ceiling unless a
+run proves a smaller or larger budget is safe.
 
 Use `bash scripts/case_test.sh --inventory` to audit native case ownership.
 Every case must be registered by exactly one group; overlapping feature
@@ -83,11 +83,10 @@ same shell before executing those shards. Shards that contain sudo commands
 check this before running any case, so missing credentials are reported as an
 environment failure rather than case-result failures.
 
-For full-suite CI, the maximum safe case-test job count is the number of
-implemented `isolated` shards. Use `bash scripts/case_test.sh --execution-plan`
-to confirm the current case count and `max_safe_jobs` before changing CI
-parallelism. Keep `global` shards in the suite; they still run, but the runner
-schedules them one at a time after the isolated wave.
+For full-suite CI, use `bash scripts/case_test.sh --execution-plan` to confirm
+the current case count and `max_safe_jobs` before changing parallelism. Keep
+all implemented groups in the suite; the runner schedules each group exactly
+once and limits concurrency with `--jobs`.
 
 ## Extending Case Tests
 

@@ -5,7 +5,7 @@ require "fileutils"
 require "open3"
 require "yaml"
 
-root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--runner-syntax|--parallel-selftest|--parallel-scope-selftest|--parallel-failure-selftest|--all]")
+root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--runner-syntax|--parallel-selftest|--parallel-budget-selftest|--parallel-failure-selftest|--all]")
 modes = ARGV.empty? ? ["--all"] : ARGV
 
 def run!(env, *cmd)
@@ -230,35 +230,37 @@ def parallel_failure_selftest(root)
   puts "parallel_failure_selftest=pass"
 end
 
-def parallel_scope_selftest(root)
-  work_dir = File.join(root, "build/case_test_arch_check_scope")
+def parallel_budget_selftest(root)
+  work_dir = File.join(root, "build/case_test_arch_check_budget")
   FileUtils.rm_rf(work_dir)
   FileUtils.mkdir_p(work_dir)
 
   trace_path = File.join(work_dir, "trace.log")
   manifest_path = File.join(work_dir, "manifest.yml")
-  groups = {
-    "selftest.alpha" => "isolated",
-    "selftest.beta" => "isolated",
-    "selftest.gamma" => "global"
-  }
+  groups = %w[
+    selftest.alpha
+    selftest.beta
+    selftest.gamma
+    selftest.delta
+    selftest.epsilon
+  ]
 
-  groups.each_key do |group_id|
+  groups.each do |group_id|
     runner_path = File.join(work_dir, "#{group_id.tr(".", "_")}.sh")
     write_selftest_runner(runner_path, root, group_id, trace_path)
   end
 
   manifest = {
     "version" => 1,
-    "groups" => groups.keys.map.with_index do |group_id, index|
+    "max_parallel_jobs" => 2,
+    "groups" => groups.map.with_index do |group_id, index|
       {
         "id" => group_id,
         "module" => "common",
         "source_paths" => ["README.md"],
-        "runner" => "build/case_test_arch_check_scope/#{group_id.tr(".", "_")}.sh",
+        "runner" => "build/case_test_arch_check_budget/#{group_id.tr(".", "_")}.sh",
         "execution" => "implemented",
-        "port_offset" => index,
-        "parallel_scope" => groups.fetch(group_id)
+        "port_offset" => index
       }
     end
   }
@@ -274,16 +276,25 @@ def parallel_scope_selftest(root)
   )
 
   trace = File.read(trace_path).lines.map { |line| line.chomp.split("\t") }
-  gamma_start = trace.index { |fields| fields[0] == "start" && fields[1] == "selftest.gamma" }
-  isolated_end_count_before_gamma = trace[0...gamma_start].count do |fields|
-    fields[0] == "end" && fields[1] != "selftest.gamma"
+  active = 0
+  max_active = 0
+  saw_overlap = false
+  trace.each do |fields|
+    case fields[0]
+    when "start"
+      active += 1
+      max_active = [max_active, active].max
+      saw_overlap = true if active > 1
+    when "end"
+      active -= 1
+    end
   end
 
-  unless gamma_start && isolated_end_count_before_gamma == 2
-    raise "global shard overlapped isolated shards\n#{trace.inspect}\n#{output}"
-  end
+  raise "parallel budget exceeded: max_active=#{max_active}\n#{trace.inspect}\n#{output}" if max_active > 2
+  raise "parallel budget did not allow overlap\n#{trace.inspect}\n#{output}" unless saw_overlap
 
-  puts "parallel_scope_selftest=pass"
+  puts "parallel_budget_selftest=pass"
+  puts "max_active=#{max_active}"
 end
 
 if modes.include?("--all") || modes.include?("--ownership")
@@ -298,8 +309,8 @@ if modes.include?("--all") || modes.include?("--parallel-selftest")
   parallel_selftest(root)
 end
 
-if modes.include?("--all") || modes.include?("--parallel-scope-selftest")
-  parallel_scope_selftest(root)
+if modes.include?("--all") || modes.include?("--parallel-budget-selftest")
+  parallel_budget_selftest(root)
 end
 
 if modes.include?("--all") || modes.include?("--parallel-failure-selftest")

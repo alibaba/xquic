@@ -7,6 +7,8 @@
 
 void xqc_test_conn_create();
 void xqc_test_conn_idle_timeout();
+void xqc_test_conn_pmtud_force_enable();
+void xqc_test_conn_pmtud_legacy_compatibility();
 void xqc_test_conn_early_data_reject();
 void xqc_test_conn_early_data_reject_flow_ctl();
 

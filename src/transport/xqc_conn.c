@@ -1569,7 +1569,7 @@ xqc_conn_destroy(xqc_connection_t *xc)
             fec_mpm_str, conn_stats.send_fec_cnt, xc->fec_ctl ? xc->fec_ctl->fec_recover_pkt_cnt : 0,
             xc->pkt_out_size, xc->max_pkt_out_size, xc->probing_pkt_out_size,
             conn_stats.extern_conn_info, xc->max_acked_po_size, 
-            xc->local_settings.enable_pmtud & xc->remote_settings.enable_pmtud, xc->conn_avg_close_delay,
+            (uint64_t) xc->enable_pmtud, xc->conn_avg_close_delay,
             xc->passive_bidi_stream_max
             );
     xqc_log_event(xc->log, CON_CONNECTION_CLOSED, xc);
@@ -4367,12 +4367,18 @@ xqc_conn_add_path_cid_sets(xqc_connection_t *conn, uint32_t start, uint32_t end)
     return XQC_OK;
 }
 
-void 
+void
 xqc_conn_try_to_enable_pmtud(xqc_connection_t *conn)
 {
-    uint64_t pmtud_check_bit = conn->conn_type == XQC_CONN_TYPE_SERVER ? 0x2 : 0x1;
+    uint64_t pmtud_check_bit = conn->conn_type == XQC_CONN_TYPE_SERVER
+                               ? XQC_PMTUD_ENABLE_SERVER
+                               : XQC_PMTUD_ENABLE_CLIENT;
     xqc_usec_t now;
-    if (((conn->remote_settings.enable_pmtud & conn->local_settings.enable_pmtud) & pmtud_check_bit) != 0) {
+    if ((conn->local_settings.enable_pmtud & XQC_PMTUD_FORCE_ENABLE)
+        || ((conn->remote_settings.enable_pmtud
+             & conn->local_settings.enable_pmtud
+             & pmtud_check_bit) != 0))
+    {
         conn->enable_pmtud = 1;
         now = xqc_monotonic_timestamp();
         if (conn->enable_multipath) {
@@ -5877,7 +5883,8 @@ xqc_conn_get_local_transport_params(xqc_connection_t *conn, xqc_transport_params
     params->multipath_version = settings->multipath_version;
     params->init_max_path_id = settings->init_max_path_id;
     params->max_datagram_frame_size = settings->max_datagram_frame_size;
-    params->enable_pmtud = settings->enable_pmtud;
+    /* XQC_PMTUD_FORCE_ENABLE is a local-only sender policy. */
+    params->enable_pmtud = settings->enable_pmtud & XQC_PMTUD_ENABLE_MASK;
 
     params->close_dgram_redundancy = settings->close_dgram_redundancy;
 

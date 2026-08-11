@@ -1305,6 +1305,62 @@ else
 fi
 }
 
+case_transport_datagram_PMTUD_force_enable_peer_omits_option()
+{
+case_test_stop_server
+case_test_start_server stdbuf -oL ${SERVER_BIN} -l d -e -Q 65535 -U 1 -x 711 > /dev/null
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "PMTUD force enable with peer option omitted...\c"
+case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 711 -Q 65535 -U 1 -T 1 > stdlog
+sleep 1
+result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+probe_res=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*enable_pmtud:1" clog`
+svr_res=`grep -E "xqc_conn_destroy.*enable_pmtud:0" slog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$probe_res" ] \
+    && [ -n "$cli_res" ] && [ -n "$svr_res" ]
+then
+    echo ">>>>>>>> pass:1"
+    case_print_result "PMTUD_force_enable_peer_omits_option" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "PMTUD_force_enable_peer_omits_option" "fail"
+fi
+grep_err_log
+}
+
+case_transport_datagram_PMTUD_negotiated_mode_peer_omits_option()
+{
+case_test_stop_server
+case_test_start_server stdbuf -oL ${SERVER_BIN} -l d -e -Q 65535 -U 1 -x 712 > /dev/null
+sleep 1
+
+rm -rf tp_localhost test_session xqc_token
+clear_log
+echo -e "PMTUD negotiated mode with peer option omitted...\c"
+case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 712 -Q 65535 -U 1 -T 1 > stdlog
+sleep 1
+result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
+probe_res=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
+cli_res=`grep -E "xqc_conn_destroy.*enable_pmtud:0" clog`
+svr_res=`grep -E "xqc_conn_destroy.*enable_pmtud:0" slog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -z "$probe_res" ] \
+    && [ -n "$cli_res" ] && [ -n "$svr_res" ]
+then
+    echo ">>>>>>>> pass:1"
+    case_print_result "PMTUD_negotiated_mode_peer_omits_option" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "PMTUD_negotiated_mode_peer_omits_option" "fail"
+fi
+grep_err_log
+}
+
 case_transport_datagram_SP_datagram_PMTUD_1RTT()
 {
 case_test_stop_server
@@ -1461,6 +1517,8 @@ case_test_case "0RTT_h3_ext_datagram_send_redundancy" --id legacy --mode self-re
 case_test_case "0RTT_h3_ext_datagram_send_multiple_redundancy" --id legacy --mode self-reporting --run case_transport_datagram__0RTT_h3_ext_datagram_send_multiple_redundancy
 case_test_case "SP_reinject_datagrams" --id legacy --mode self-reporting --run case_transport_datagram_SP_reinject_datagrams
 case_test_case "SP_reinject_h3_ext_datagrams" --id legacy --mode self-reporting --run case_transport_datagram_SP_reinject_h3_ext_datagrams
+case_test_case "PMTUD_force_enable_peer_omits_option" --id legacy --mode self-reporting --run case_transport_datagram_PMTUD_force_enable_peer_omits_option
+case_test_case "PMTUD_negotiated_mode_peer_omits_option" --id legacy --mode self-reporting --run case_transport_datagram_PMTUD_negotiated_mode_peer_omits_option
 case_test_case "SP_datagram_PMTUD_1RTT" --id legacy --mode self-reporting --run case_transport_datagram_SP_datagram_PMTUD_1RTT
 case_test_case "SP_datagram_PMTUD_0RTT" --id legacy --mode self-reporting --run case_transport_datagram_SP_datagram_PMTUD_0RTT
 case_test_case "SP_h3_ext_datagram_PMTUD_1RTT" --id legacy --mode self-reporting --run case_transport_datagram_SP_h3_ext_datagram_PMTUD_1RTT

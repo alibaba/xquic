@@ -11,6 +11,10 @@ void xqc_test_parse_padding_frame();
 
 void xqc_test_large_ack_frame();
 
+void xqc_test_ack_range_zero_boundary(void);
+
+void xqc_test_ack_range_negative_rejected(void);
+
 void xqc_test_stream_frame_offset_overflow();
 
 void xqc_test_crypto_frame_in_0rtt_rejected();

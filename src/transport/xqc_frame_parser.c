@@ -1163,7 +1163,7 @@ xqc_parse_ack_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_ack_
     uint64_t largest_acked;
     uint64_t ack_range_count;   /* the actual range cnt */
     uint64_t first_ack_range;
-    uint64_t range, gap;
+    uint64_t range, gap, range_high, range_low, previous_low;
 
     unsigned n_ranges = 0;      /* the range cnt stored */
 
@@ -1202,8 +1202,21 @@ xqc_parse_ack_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_ack_
     }
     p += vlen;
 
+    /*
+     * RFC 9000 Section 19.3.1: a negative computed packet number is a
+     * FRAME_ENCODING_ERROR.
+     */
+    if (first_ack_range > largest_acked) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|invalid ACK range|largest_acked:%ui|first_ack_range:%ui|",
+                largest_acked, first_ack_range);
+        XQC_CONN_ERR(conn, TRA_FRAME_ENCODING_ERROR);
+        return -XQC_EILLEGAL_FRAME;
+    }
+
     ack_info->ranges[n_ranges].high = largest_acked;
-    ack_info->ranges[n_ranges].low = largest_acked - first_ack_range;
+    previous_low = largest_acked - first_ack_range;
+    ack_info->ranges[n_ranges].low = previous_low;
     n_ranges++;
 
     for (int i = 0; i < ack_range_count; ++i) {
@@ -1219,11 +1232,30 @@ xqc_parse_ack_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_ack_
         }
         p += vlen;
 
+        if (previous_low < 2 || gap > previous_low - 2) {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|invalid ACK gap|previous_low:%ui|gap:%ui|",
+                    previous_low, gap);
+            XQC_CONN_ERR(conn, TRA_FRAME_ENCODING_ERROR);
+            return -XQC_EILLEGAL_FRAME;
+        }
+
+        range_high = previous_low - gap - 2;
+        if (range > range_high) {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|invalid ACK range|range_high:%ui|range:%ui|",
+                    range_high, range);
+            XQC_CONN_ERR(conn, TRA_FRAME_ENCODING_ERROR);
+            return -XQC_EILLEGAL_FRAME;
+        }
+
+        range_low = range_high - range;
         if (n_ranges < XQC_MAX_ACK_RANGE_CNT) {
-            ack_info->ranges[n_ranges].high = ack_info->ranges[n_ranges - 1].low - gap - 2;
-            ack_info->ranges[n_ranges].low = ack_info->ranges[n_ranges].high - range;
+            ack_info->ranges[n_ranges].high = range_high;
+            ack_info->ranges[n_ranges].low = range_low;
             n_ranges++;
         }
+        previous_low = range_low;
     }
 
     /* 

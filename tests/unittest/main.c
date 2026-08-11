@@ -138,6 +138,11 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_process_frame", xqc_test_process_frame)
         || !CU_add_test(pSuite, "xqc_test_parse_padding_frame", xqc_test_parse_padding_frame)
         || !CU_add_test(pSuite, "xqc_test_large_ack_frame", xqc_test_large_ack_frame)
+        /* RFC 9000 Section 19.3.1 ACK packet-number boundaries */
+        || !CU_add_test(pSuite, "xqc_test_ack_range_zero_boundary",
+                        xqc_test_ack_range_zero_boundary)
+        || !CU_add_test(pSuite, "xqc_test_ack_range_negative_rejected",
+                        xqc_test_ack_range_negative_rejected)
         /* issue #632: ACK_ECN frame parsing (RFC 9000 19.3) */
         || !CU_add_test(pSuite, "xqc_test_ack_ecn_normal_parse", xqc_test_ack_ecn_normal_parse)
         || !CU_add_test(pSuite, "xqc_test_ack_plain_regression", xqc_test_ack_plain_regression)

@@ -80,8 +80,9 @@ reported as an environment failure rather than case-result failures.
 
 For full-suite CI, the maximum safe case-test job count is the number of
 implemented executable shards that together cover all default legacy cases.
-`observability.qlog` is hand-migrated; the other implemented shards are
-generated from legacy-owned case blocks until their bodies are migrated.
+`transport.fec` is native-registered, `observability.qlog` is hand-migrated,
+and the remaining implemented shards are generated from legacy-owned case
+blocks until their bodies are migrated.
 
 ## Extending Case Tests
 
@@ -92,7 +93,8 @@ cases with the common helper.
 
 ### Native Case Pattern
 
-The FEC group contains the first native registration example:
+The FEC group is the first fully native-registered group. A case follows this
+shape:
 
 ```bash
 case_test_group "transport.fec"

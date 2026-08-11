@@ -1255,6 +1255,15 @@ typedef enum {
 } xqc_dgram_red_setting_e;
 
 typedef enum {
+    XQC_PMTUD_DISABLE           = 0,
+    XQC_PMTUD_ENABLE_CLIENT     = 1 << 0,
+    XQC_PMTUD_ENABLE_SERVER     = 1 << 1,
+    XQC_PMTUD_ENABLE_MASK       = XQC_PMTUD_ENABLE_CLIENT
+                                  | XQC_PMTUD_ENABLE_SERVER,
+    XQC_PMTUD_FORCE_ENABLE      = 1 << 2,
+} xqc_pmtud_flag_e;
+
+typedef enum {
     XQC_FEC_CONN_LEVEL      = 0,
     XQC_FEC_STREAM_LEVEL    = 1
 } xqc_fec_level_e;
@@ -1435,16 +1444,17 @@ typedef struct xqc_conn_settings_s {
     uint8_t                     datagram_force_retrans_on;
     uint64_t                    datagram_redundant_probe;
 
-     /**
-     * enable PMTUD: 
-     * 0x0 disbale, 
-     * 0x1 enable client probing, 
-     * 0x2 enable server probing, 
-     * 0x3 enable both ends probing
-     * NOTE: This option needs to be negotiated by both ends. The final decision
-     * is made by the logic AND operation of both ends' options, e.g. client:
-     * 0x3, server: 0x1 --> 0x1 (only enable client probing).
-     **/
+    /**
+     * PMTUD flags:
+     * XQC_PMTUD_DISABLE disables PMTUD.
+     * XQC_PMTUD_ENABLE_CLIENT and XQC_PMTUD_ENABLE_SERVER are negotiated
+     * role bits. Both endpoints need to advertise a role bit to enable
+     * probing for that role.
+     * XQC_PMTUD_FORCE_ENABLE enables probing on this endpoint without peer
+     * negotiation. It can be combined with the negotiated role bits and is
+     * not sent in the transport parameter. This local mode follows the
+     * sender-side behavior in RFC 9000 Section 14.3.1.
+     */
     uint8_t                     enable_pmtud;
     /** probing interval (us), default: 500000 */
     uint64_t                    pmtud_probing_interval; 

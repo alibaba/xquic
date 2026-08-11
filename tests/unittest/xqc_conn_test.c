@@ -10,6 +10,7 @@
 #include "src/transport/xqc_client.h"
 #include "src/transport/xqc_defs.h"
 #include "src/transport/xqc_stream.h"
+#include "src/transport/xqc_timer.h"
 #include "xquic/xquic_typedef.h"
 #include "src/common/xqc_str.h"
 #include "src/common/xqc_list.h"
@@ -142,6 +143,84 @@ xqc_test_conn_idle_timeout()
     xqc_idle_to_set(conn, XQC_CONN_TYPE_SERVER, 30000, 5000, 1, 0);
     got = xqc_conn_get_idle_timeout(conn);
     CU_ASSERT(got == 5000);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+static void
+xqc_pmtud_case_set(xqc_connection_t *conn, xqc_conn_type_t role,
+    uint64_t local_flags, uint64_t remote_flags)
+{
+    conn->conn_type = role;
+    conn->local_settings.enable_pmtud = local_flags;
+    conn->remote_settings.enable_pmtud = remote_flags;
+    conn->enable_pmtud = 0;
+    xqc_timer_unset(&conn->conn_timer_manager, XQC_TIMER_PMTUD_PROBING);
+}
+
+void
+xqc_test_conn_pmtud_force_enable()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_transport_params_t params = {0};
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_pmtud_case_set(conn, XQC_CONN_TYPE_CLIENT,
+                       XQC_PMTUD_FORCE_ENABLE, XQC_PMTUD_DISABLE);
+    xqc_conn_try_to_enable_pmtud(conn);
+    CU_ASSERT(conn->enable_pmtud == 1);
+    CU_ASSERT(xqc_timer_is_set(&conn->conn_timer_manager,
+                               XQC_TIMER_PMTUD_PROBING));
+
+    xqc_pmtud_case_set(conn, XQC_CONN_TYPE_SERVER,
+                       XQC_PMTUD_FORCE_ENABLE, XQC_PMTUD_DISABLE);
+    xqc_conn_try_to_enable_pmtud(conn);
+    CU_ASSERT(conn->enable_pmtud == 1);
+    CU_ASSERT(xqc_timer_is_set(&conn->conn_timer_manager,
+                               XQC_TIMER_PMTUD_PROBING));
+
+    conn->local_settings.enable_pmtud = XQC_PMTUD_FORCE_ENABLE
+                                        | XQC_PMTUD_ENABLE_SERVER;
+    CU_ASSERT(xqc_conn_get_local_transport_params(conn, &params) == XQC_OK);
+    CU_ASSERT(params.enable_pmtud == XQC_PMTUD_ENABLE_SERVER);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_conn_pmtud_negotiated_mode()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_pmtud_case_set(conn, XQC_CONN_TYPE_CLIENT,
+                       XQC_PMTUD_ENABLE_CLIENT, XQC_PMTUD_ENABLE_CLIENT);
+    xqc_conn_try_to_enable_pmtud(conn);
+    CU_ASSERT(conn->enable_pmtud == 1);
+    CU_ASSERT(xqc_timer_is_set(&conn->conn_timer_manager,
+                               XQC_TIMER_PMTUD_PROBING));
+
+    xqc_pmtud_case_set(conn, XQC_CONN_TYPE_SERVER,
+                       XQC_PMTUD_ENABLE_SERVER, XQC_PMTUD_ENABLE_SERVER);
+    xqc_conn_try_to_enable_pmtud(conn);
+    CU_ASSERT(conn->enable_pmtud == 1);
+    CU_ASSERT(xqc_timer_is_set(&conn->conn_timer_manager,
+                               XQC_TIMER_PMTUD_PROBING));
+
+    xqc_pmtud_case_set(conn, XQC_CONN_TYPE_CLIENT,
+                       XQC_PMTUD_ENABLE_CLIENT, XQC_PMTUD_DISABLE);
+    xqc_conn_try_to_enable_pmtud(conn);
+    CU_ASSERT(conn->enable_pmtud == 0);
+    CU_ASSERT(!xqc_timer_is_set(&conn->conn_timer_manager,
+                                XQC_TIMER_PMTUD_PROBING));
+
+    xqc_pmtud_case_set(conn, XQC_CONN_TYPE_CLIENT,
+                       XQC_PMTUD_ENABLE_SERVER, XQC_PMTUD_ENABLE_SERVER);
+    xqc_conn_try_to_enable_pmtud(conn);
+    CU_ASSERT(conn->enable_pmtud == 0);
+    CU_ASSERT(!xqc_timer_is_set(&conn->conn_timer_manager,
+                                XQC_TIMER_PMTUD_PROBING));
 
     xqc_engine_destroy(conn->engine);
 }

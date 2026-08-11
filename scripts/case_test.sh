@@ -1986,6 +1986,69 @@ else
 fi
 grep_err_log
 
+clear_log
+rm -f test_session tp_localhost xqc_token
+case800_pwd=`pwd`
+case800_ulimit_core_before=`ulimit -c`
+ulimit -c unlimited 2>/dev/null
+case800_ulimit_core=`ulimit -c`
+case800_files_before=`ls -l test_session tp_localhost xqc_token 2>&1`
+echo -e "NAT rebinding PATH_RESPONSE no repair ...\c"
+sudo ${CLIENT_BIN} -s 2048000 -l d -t 5 -M -i lo -i lo -E -n 2 -x 800 -N > stdlog
+client_ret=$?
+result=`grep -a ">>>>>>>> pass:0" stdlog`
+client_pass=`grep -a ">>>>>>>> pass:1" stdlog`
+errlog=`grep -a "\[error\]" clog; grep -a "\[error\]" slog`
+rebind=`grep -a "|path:0|REBINDING|validate NAT rebinding addr|" slog`
+drop_count=`grep -a -c "\[path-response-e2e\]|drop|path:0|ordinal:1|" stdlog`
+sent_pr=`grep -a "|<==|" clog | grep "|path:0|" | grep "frame:.*PATH_RESPONSE" | head -1`
+pr_pkt=`echo "$sent_pr" | sed -n 's/.*|pkt_num:\([0-9]*\)|.*/\1/p'`
+lost_pr=`grep -a "|mark lost|" clog | grep "|pkt_num:$pr_pkt|" | grep "PATH_RESPONSE"`
+bad_repair=`echo "$lost_pr" | grep -v "|repair:0|"`
+origin_pr=`grep -a -E "origin_pktnum:$pr_pkt|origin_pkt_num:$pr_pkt" clog | grep "PATH_RESPONSE"`
+path_response_cnt=`grep -a "|<==|" clog | grep "|path:0|" | grep "frame:.*PATH_RESPONSE" | wc -l`
+if [ "$client_ret" -eq 0 ] && [ -z "$errlog" ] && [ -z "$result" ] && [ -n "$client_pass" ] \
+    && [ -n "$rebind" ] && [ "$drop_count" -eq 1 ] \
+    && [ -n "$sent_pr" ] && [ -n "$pr_pkt" ] && [ -n "$lost_pr" ] \
+    && [ -z "$bad_repair" ] && [ -z "$origin_pr" ] \
+    && [ "$path_response_cnt" -ge 2 ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "NAT_rebinding_path_response_not_repaired" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    echo $errlog
+    echo $client_ret
+    echo $result
+    echo $client_pass
+    echo $rebind
+    echo $drop_count
+    echo $sent_pr
+    echo $pr_pkt
+    echo $lost_pr
+    echo $bad_repair
+    echo $origin_pr
+    echo $path_response_cnt
+    echo "[case800-debug]|client_ret:$client_ret|pwd:$case800_pwd|ulimit_core_before:$case800_ulimit_core_before|ulimit_core:$case800_ulimit_core"
+    echo "[case800-debug]|files_before:$case800_files_before"
+    echo "[case800-debug]|files_after:`ls -l test_session tp_localhost xqc_token 2>&1`"
+    echo "[case800-debug]|core_files:`ls -l core core.* tests/core tests/core.* 2>&1`"
+    echo "[case800-debug]|markers_begin"
+    grep -a "\[case800-debug\]" stdlog
+    echo "[case800-debug]|markers_end"
+    echo "[case800-debug]|stdlog_tail_begin"
+    tail -n 80 stdlog
+    echo "[case800-debug]|stdlog_tail_end"
+    echo "[case800-debug]|clog_tail_begin"
+    tail -n 120 clog
+    echo "[case800-debug]|clog_tail_end"
+    echo "[case800-debug]|slog_tail_begin"
+    tail -n 120 slog
+    echo "[case800-debug]|slog_tail_end"
+    case_print_result "NAT_rebinding_path_response_not_repaired" "fail"
+fi
+grep_err_log
+rm -f test_session tp_localhost xqc_token
+
 killall test_server
 ${SERVER_BIN} -l d -e -M -y > /dev/null &
 sleep 1

@@ -970,6 +970,22 @@ xqc_server_h3_conn_create_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, v
         }
     }
 
+    /* RFC 9000 Section 18.2: max_ack_delay must be less than 2^14. */
+    if (g_test_case == 713 || g_test_case == 714) {
+        xqc_connection_t *conn = xqc_h3_conn_get_xqc_conn(h3_conn);
+        if (conn == NULL) {
+            printf("[max-ack-delay-boundary-test] conn unavailable\n");
+
+        } else {
+            conn->local_settings.max_ack_delay =
+                (g_test_case == 713) ? (1ULL << 14) : (1ULL << 14) - 1;
+            conn->conn_flag |= XQC_CONN_FLAG_LOCAL_TP_UPDATED;
+            printf("[max-ack-delay-boundary-test] "
+                   "advertised_max_ack_delay:%"PRIu64"\n",
+                   conn->local_settings.max_ack_delay);
+        }
+    }
+
     user_conn->dgram_blk = calloc(1, sizeof(user_dgram_blk_t));
     user_conn->dgram_blk->data_recv = 0;
     user_conn->dgram_blk->data_sent = 0;

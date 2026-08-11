@@ -21,6 +21,9 @@
 /* ack_delay_exponent above 20 is invalid */
 #define XQC_MAX_ACK_DELAY_EXPONENT          20
 
+/* RFC 9000 Section 18.2: values of 2^14 or greater are invalid */
+#define XQC_MAX_ACK_DELAY                   (1ULL << 14)
+
 /* draft-smith-quic-receive-ts-01: receive_timestamps_exponent above 20 is invalid */
 #define XQC_MAX_RECEIVE_TIMESTAMPS_EXPONENT     20
 #define XQC_MAX_RECEIVE_TIMESTAMPS_PER_ACK      63
@@ -625,7 +628,12 @@ static xqc_int_t
 xqc_decode_max_ack_delay(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
     const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
 {
-    XQC_DECODE_VINT_VALUE(&params->max_ack_delay, p, end);
+    ssize_t nread = xqc_vint_read(p, end, &params->max_ack_delay);
+    if (nread < 0 || params->max_ack_delay >= XQC_MAX_ACK_DELAY) {
+        return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+    }
+
+    return XQC_OK;
 }
 
 static xqc_int_t

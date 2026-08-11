@@ -79,6 +79,96 @@ case_test_stop_server()
     fi
 }
 
+case_test_group()
+{
+    CASE_TEST_DECLARED_GROUP="$1"
+    CASE_TEST_GROUP="${CASE_TEST_GROUP:-${CASE_TEST_DECLARED_GROUP}}"
+}
+
+case_test_is_discovery()
+{
+    [[ "${CASE_TEST_DISCOVER:-0}" = "1" ]]
+}
+
+case_test_case()
+{
+    local name="$1"
+    local id="legacy"
+    local run_func=""
+
+    shift
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in
+            --id)
+                id="${2:?--id requires a value}"
+                shift 2
+                ;;
+            --run)
+                run_func="${2:?--run requires a value}"
+                shift 2
+                ;;
+            *)
+                echo "case_test_case: unknown option: $1" >&2
+                return 2
+                ;;
+        esac
+    done
+
+    if [[ -z "${run_func}" ]]; then
+        echo "case_test_case: ${name} missing --run" >&2
+        return 2
+    fi
+
+    if case_test_is_discovery; then
+        printf 'native_case\t%s\t%s\t%s\t%s\t%s\n' \
+            "${CASE_TEST_GROUP:-${CASE_TEST_DECLARED_GROUP:-}}" \
+            "${CASE_TEST_MODULE:-}" \
+            "${CASE_TEST_FEATURE:-}" \
+            "${name}" \
+            "${id}"
+        return 0
+    fi
+
+    CASE_TEST_CASE_NAMES+=("${name}")
+    CASE_TEST_CASE_IDS+=("${id}")
+    CASE_TEST_CASE_RUNNERS+=("${run_func}")
+}
+
+case_test_run()
+{
+    local selected="${CASE_TEST_CASE:-}"
+    local status=0
+    local index
+    local name
+    local id
+    local run_func
+
+    if case_test_is_discovery; then
+        return 0
+    fi
+
+    for index in "${!CASE_TEST_CASE_NAMES[@]}"; do
+        name="${CASE_TEST_CASE_NAMES[${index}]}"
+        id="${CASE_TEST_CASE_IDS[${index}]}"
+        run_func="${CASE_TEST_CASE_RUNNERS[${index}]}"
+
+        if [[ -n "${selected}" && "${selected}" != "${name}" && "${selected}" != "${id}" ]]; then
+            continue
+        fi
+
+        if "${run_func}"; then
+            echo ">>>>>>>> pass:1"
+            case_print_result "${name}" "pass"
+        else
+            echo ">>>>>>>> pass:0"
+            case_print_result "${name}" "fail"
+            status=1
+        fi
+    done
+
+    return "${status}"
+}
+
 case_test_start_server()
 {
     case_test_stop_server
@@ -122,3 +212,7 @@ case_print_result()
         echo "[     FAIL ] xquic_case_test.$1 (1 ms)"
     fi
 }
+
+CASE_TEST_CASE_NAMES=()
+CASE_TEST_CASE_IDS=()
+CASE_TEST_CASE_RUNNERS=()

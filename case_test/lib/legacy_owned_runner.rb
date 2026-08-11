@@ -46,7 +46,9 @@ patterns = group.fetch("owned_legacy_name_patterns", []).map do |pattern|
   Regexp.new("\\A(?:#{pattern})\\z")
 end
 owned = legacy_names.select { |name| patterns.any? { |pattern| pattern.match?(name) } }.sort
-abort "case-test group has no legacy cases: #{group_id}" if owned.empty?
+excluded = ENV.fetch("CASE_TEST_EXCLUDE_CASES", "").split(",").map(&:strip).reject(&:empty?)
+owned -= excluded
+exit 0 if owned.empty?
 
 def server_line?(line)
   line.include?("${SERVER_BIN}") && line.rstrip.end_with?("&")

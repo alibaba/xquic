@@ -183,6 +183,8 @@ run_group()
     local group_id="$1"
     local runner="$2"
     local port_offset="$3"
+    local module="${4:-}"
+    local feature="${5:-}"
     local shard_id
     local port
     local work_dir
@@ -214,6 +216,9 @@ run_group()
         export CASE_TEST_WORK_DIR="${work_dir}"
         export CASE_TEST_PORT="${port}"
         export CASE_TEST_SHARD_ID="${shard_id}"
+        export CASE_TEST_GROUP="${group_id}"
+        export CASE_TEST_MODULE="${module}"
+        export CASE_TEST_FEATURE="${feature}"
         exec "${ROOT_DIR}/${runner}"
     ) > "${log_file}" 2>&1
     then
@@ -287,8 +292,8 @@ run_group()
 
 if [[ "${PARALLEL}" -eq 0 || "${JOBS}" -eq 1 ]]; then
     index=0
-    while IFS=$'\t' read -r group_id runner port_offset; do
-        run_group "${group_id}" "${runner}" "${port_offset:-${index}}"
+    while IFS=$'\t' read -r group_id runner port_offset module feature; do
+        run_group "${group_id}" "${runner}" "${port_offset:-${index}}" "${module:-}" "${feature:-}"
         index=$((index + 1))
     done < "${MAP_FILE}"
     exit 0
@@ -299,8 +304,8 @@ index=0
 status=0
 pids=()
 
-while IFS=$'\t' read -r group_id runner port_offset; do
-    run_group "${group_id}" "${runner}" "${port_offset:-${index}}" &
+while IFS=$'\t' read -r group_id runner port_offset module feature; do
+    run_group "${group_id}" "${runner}" "${port_offset:-${index}}" "${module:-}" "${feature:-}" &
     pids+=("$!")
     active=$((active + 1))
     index=$((index + 1))

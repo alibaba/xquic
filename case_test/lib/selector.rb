@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require "yaml"
+require "open3"
 
 root = ARGV.shift || abort("missing repository root")
 args = ARGV.dup
@@ -82,10 +83,37 @@ end
 
 legacy_names = default_legacy_case_names(File.read(script_path))
 
+def discover_native_cases(root, group)
+  env = {
+    "CASE_TEST_DISCOVER" => "1",
+    "CASE_TEST_GROUP" => group.fetch("id").to_s,
+    "CASE_TEST_MODULE" => group.fetch("module").to_s,
+    "CASE_TEST_FEATURE" => group.fetch("feature", "").to_s
+  }
+  runner = File.join(root, group.fetch("runner"))
+  output, status = Open3.capture2e(env, "bash", runner)
+  abort "case-test discovery failed for #{group.fetch("id")}:\n#{output}" unless status.success?
+
+  output.each_line.each_with_object([]) do |line, native_cases|
+    fields = line.chomp.split("\t")
+    next unless fields[0] == "native_case"
+
+    native_cases << {
+      "group" => fields[1],
+      "module" => fields[2],
+      "feature" => fields[3],
+      "name" => fields[4],
+      "id" => fields[5]
+    }
+  end
+end
+
 groups = manifest.fetch("groups").map do |group|
   patterns = group.fetch("owned_legacy_name_patterns", []).map { |pattern| Regexp.new("\\A(?:#{pattern})\\z") }
+  native_cases = discover_native_cases(root, group)
   names = legacy_names.select { |name| patterns.any? { |pattern| pattern.match?(name) } }
-  group.merge("legacy_names" => names)
+  names = (names + native_cases.map { |native_case| native_case.fetch("name") }).uniq.sort
+  group.merge("legacy_names" => names, "native_cases" => native_cases)
 end
 
 if options[:inventory]
@@ -174,7 +202,13 @@ if options[:runners]
     select { |group| group.fetch("execution", "pending") == "implemented" }.
     sort_by { |group| group.fetch("id") }.
     each do |group|
-      puts "#{group.fetch("id")}\t#{group.fetch("runner")}\t#{group.fetch("port_offset")}"
+      puts [
+        group.fetch("id"),
+        group.fetch("runner"),
+        group.fetch("port_offset"),
+        group.fetch("module"),
+        group.fetch("feature", "")
+      ].join("\t")
     end
   exit 0
 end
@@ -191,7 +225,11 @@ selected.sort_by { |group| group.fetch("id") }.each do |group|
   puts "execution=#{group.fetch("execution", "pending")}"
   puts "runner=#{group.fetch("runner")}"
   puts "port_offset=#{group.fetch("port_offset")}"
+  puts "case_count=#{group.fetch("legacy_names").length}"
   puts "legacy_count=#{group.fetch("legacy_names").length}"
+  group.fetch("native_cases", []).each do |native_case|
+    puts "native_case=#{native_case.fetch("name")} id=#{native_case.fetch("id")}"
+  end
   group.fetch("legacy_names").each do |name|
     puts "legacy_name=#{name}"
   end

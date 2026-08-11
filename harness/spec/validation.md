@@ -362,12 +362,13 @@ contents so validation does not leave a source diff.
 ## Targeted Endpoint Case Discovery
 
 Endpoint case routing is discovered through `scripts/case_test.sh` selector
-mode and `case_test/manifest.yml`. The harness manifest remains the source of
-truth for module and feature ownership; the case-test manifest classifies
-legacy endpoint case names into runnable groups without duplicating the full
-source-path map in documentation. Each legacy `case_print_result` name must
-have exactly one executable owner in `owned_legacy_name_patterns`; overlapping
-feature relevance is documentation context, not a second shard owner.
+mode, `case_test/manifest.yml`, and native registrations in group runner
+scripts. The harness manifest remains the source of truth for repository module
+ownership. The case-test manifest owns group-level routing: source paths,
+module labels, feature labels, runner paths, and stable shard ports. New
+endpoint cases belong in the relevant `case_test/<module>/<group>.sh` runner
+and are registered with `case_test_case`; they do not require per-case manifest
+entries.
 
 Selector mode is discovery evidence until a group runner implements selected
 execution:
@@ -382,20 +383,21 @@ bash scripts/case_test.sh --execute --parallel --jobs 4 --module transport
 case_test/lib/architecture_check.rb "$(pwd)" --all
 ```
 
-Running `scripts/case_test.sh` without selector arguments preserves the legacy
-full-suite behavior. Do not report selector output as a passing endpoint case
-result; report it as identified coverage or a case-test gap until the selected
-case body is executable. Selected execution schedules only groups marked
+Running `scripts/case_test.sh` without selector arguments preserves the current
+default suite. Do not report selector output as a passing endpoint case result;
+report it as identified coverage or a case-test gap until the selected case
+body is executable. Selected execution schedules only groups marked
 `execution: implemented` in `case_test/manifest.yml`. The architecture check
-verifies complete and unique legacy case ownership, uses temporary mock
-runners to verify parallel scheduling and stable per-shard port/work-dir
-assignment, and checks static equivalence between the current legacy full
-suite and `origin/main:scripts/case_test.sh`.
+verifies complete and unique case ownership across native registrations and
+legacy-owned generated blocks, uses temporary mock runners to verify parallel
+scheduling and stable per-shard port/work-dir assignment, and checks static
+equivalence between the current legacy full suite and
+`origin/main:scripts/case_test.sh` while migration is in progress.
 
 CI may invoke the selected-execution entry point with `--parallel`. The safe
 job count is the number of executable shards that preserve complete and unique
-legacy-case coverage. Hand-migrated shards and legacy-owned generated shards
-both count as executable only when `--execution-plan` reports
+default-suite coverage. Native cases, hand-migrated shards, and legacy-owned
+generated shards count as executable only when `--execution-plan` reports
 `missing_unique_cases=0`; otherwise a full-suite parallel request fails closed.
 
 Unit-test execution remains unchanged in this endpoint-case routing change.

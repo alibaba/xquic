@@ -270,6 +270,9 @@ Decision:
   bodies are migrated by module.
 - Keep moving case bodies into `case_test/<module>/` incrementally after
   generated selected execution is stable.
+- Add native case registration helpers so new endpoint cases are inserted into
+  the owning group script instead of the legacy full-suite body. The manifest
+  remains group-level routing, not per-case registration.
 
 Consequences:
 
@@ -285,6 +288,9 @@ Consequences:
   incomplete. Once the execution plan has no missing cases, each unique legacy
   case is executed by exactly one shard.
 - Pending module runners fail clearly when invoked directly.
+- New cases can be added by appending one native registration block to the
+  owning module script. Architecture checks combine native registrations with
+  generated legacy-owned blocks until migration completes.
 
 Evidence:
 

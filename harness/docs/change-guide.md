@@ -73,8 +73,8 @@ Apply the private-extension rules in
 
 Examples:
 
-- Add or reclassify endpoint case-test metadata.
-- Add a targeted selector for legacy endpoint cases.
+- Add or reclassify endpoint case-test group metadata.
+- Add a native endpoint case registration to an existing group runner.
 - Move endpoint case bodies from the legacy full suite into module runners.
 
 Read:
@@ -86,9 +86,9 @@ Read:
 
 Update when affected:
 
-- `case_test/manifest.yml` for endpoint case group metadata, unique legacy
-  ownership, and stable shard ports.
-- `case_test/<module>/` when selected endpoint execution changes.
+- `case_test/manifest.yml` for endpoint group metadata and stable shard ports.
+- `case_test/<module>/` when native case registrations or selected endpoint
+  execution change.
 - `harness/spec/harness-manifest.yml` for test-routing entry points.
 - `harness/spec/validation.md` when validation contracts change.
 

@@ -51,8 +51,8 @@ The source boundaries governing both private categories are defined in
 
 ## Test Routing
 
-- `case_test/manifest.yml`: endpoint case group metadata for mapping changed
-  paths to exactly one legacy `case_print_result` owner and stable shard port.
+- `case_test/manifest.yml`: endpoint group metadata for mapping changed paths
+  to module runners, feature labels, and stable shard ports.
 - `case_test/lib/selector.rb`: list, inventory, dry-run, and runner-map output
   used by `scripts/case_test.sh`.
 - `case_test/lib/runner.sh`: compatibility and selected execution scheduler
@@ -60,8 +60,8 @@ The source boundaries governing both private categories are defined in
 - `case_test/lib/architecture_check.rb`: repeatable checks for parallel
   scheduling and legacy full-suite static equivalence.
 - `case_test/legacy/full_suite.sh`: current full endpoint suite body.
-- `case_test/<module>/`: module-owned endpoint case runners, implemented
-  either as hand-migrated bodies or generated legacy-owned block runners.
+- `case_test/<module>/`: module-owned endpoint case runners. New cases are
+  registered in the owning group script; not in the manifest.
 
 The authoritative module and feature map remains
 `harness/spec/harness-manifest.yml`.

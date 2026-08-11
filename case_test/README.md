@@ -6,8 +6,8 @@ client-to-server case tests. The legacy executable entry point remains
 
 ## Files
 
-- `manifest.yml` maps source paths, modules, features, fixed port offsets,
-  and legacy `case_print_result` owners to case-test groups.
+- `manifest.yml` maps source paths, modules, features, fixed port offsets, and
+  runner paths to case-test groups.
 - `lib/selector.rb` powers list, inventory, dry-run, and runner-map output for
   `scripts/case_test.sh`.
 - `lib/runner.sh` preserves full-suite compatibility and provides selected
@@ -85,55 +85,62 @@ generated from legacy-owned case blocks until their bodies are migrated.
 
 ## Extending Case Tests
 
-Use the case-test manifest as the routing source of truth. Documentation can
-explain related cases, but executable ownership belongs in exactly one
-`owned_legacy_name_patterns` list.
+Use `case_test/manifest.yml` as the group routing source of truth. Add new
+endpoint cases to the owning group script; do not add new cases to
+`legacy/full_suite.sh`. A group script declares its group once, then registers
+cases with the common helper.
 
-### Classify An Existing Legacy Case
+### Native Case Pattern
 
-1. Find the emitted case name in `legacy/full_suite.sh`:
+The FEC group contains the first native registration example:
 
-   ```bash
-   rg -n 'case_print_result ".*fec|case_print_result ".*repair' \
-       case_test/legacy/full_suite.sh
-   ```
+```bash
+case_test_group "transport.fec"
 
-2. Add or narrow a pattern in `case_test/manifest.yml` under the owning group.
-   For FEC behavior, use `transport.fec` unless the behavior is owned by a
-   lower transport primitive such as packet parsing or DATAGRAM negotiation.
-3. Confirm the case has one owner and the executable plan is still complete:
+fec_negotiate_encoder_fec_scheme()
+{
+    # Start server, run client, inspect clog/slog/stdlog, and return 0 or 1.
+}
 
-   ```bash
-   bash scripts/case_test.sh --inventory
-   bash scripts/case_test.sh --execution-plan
-   bash scripts/case_test.sh --group transport.fec --list
-   ```
+case_test_case "negotiate_encoder_fec_scheme" \
+    --id legacy \
+    --run fec_negotiate_encoder_fec_scheme
+```
 
-4. Run the owning shard when the build artifacts exist:
+The runner injects group-shared environment before executing the script:
 
-   ```bash
-   bash scripts/case_test.sh --execute --group transport.fec
-   ```
+- `CASE_TEST_GROUP`
+- `CASE_TEST_MODULE`
+- `CASE_TEST_FEATURE`
+- `CASE_TEST_PORT`
+- `CASE_TEST_SHARD_ID`
+- `CASE_TEST_WORK_DIR`
+
+Discovery mode uses the same file without running network tests:
+
+```bash
+CASE_TEST_DISCOVER=1 CASE_TEST_GROUP=transport.fec \
+    CASE_TEST_MODULE=transport CASE_TEST_FEATURE=fec \
+    bash case_test/transport/fec.sh
+```
 
 ### Add A New FEC Endpoint Case
 
-When the behavior does not already exist in the legacy suite, add one endpoint
-case with one stable `case_print_result` name and one numeric `-x` selector.
-For example, a FEC repair-timeout regression might use:
+For a new FEC behavior, add the endpoint case to
+`case_test/transport/fec.sh`. For example, a FEC repair-timeout regression
+might use:
 
 - case ID: the next available ID in the `[1600, 1699]` FEC namespace from
   `harness/spec/validation.md`;
 - case name: `fec_repair_timeout_closes_gap`;
-- owner: `transport.fec`;
 - client/server selector: matching `-x <id>` handling in
   `tests/test_client.c` and `tests/test_server.c`;
-- legacy suite body: a block in `legacy/full_suite.sh` that starts the needed
-  server mode, runs the client with the allocated ID, checks the observable
-  FEC result in `clog`, `slog`, or `stdlog`, emits `>>>>>>>> pass:1` or
-  `>>>>>>>> pass:0`, and calls
-  `case_print_result "fec_repair_timeout_closes_gap" "pass|fail"`;
-- manifest routing: `transport.fec.owned_legacy_name_patterns` must match the
-  new case name, for example the existing `.*fec.*` pattern.
+- native case body: a shell function in `case_test/transport/fec.sh` that
+  starts the needed server mode, runs the client with the allocated ID, checks
+  the observable FEC result in `clog`, `slog`, or `stdlog`, and returns success
+  or failure;
+- registration: one `case_test_case "fec_repair_timeout_closes_gap" --id
+  <id> --run <function>` line in the same group script.
 
 Before reserving the ID, search the current tree, history, and open pull
 requests as described in `harness/spec/validation.md`. After implementing the
@@ -149,7 +156,8 @@ case_test/lib/architecture_check.rb "$(pwd)" --all
 
 Expected routing observations:
 
-- `--inventory` has no missing or repeated legacy case owners;
+- `--inventory` has no missing or repeated case owners;
 - `--execution-plan` has `complete=true` and `missing_unique_cases=0`;
-- `--group transport.fec --list` includes the new FEC case name exactly once;
+- `--group transport.fec --list` includes the new FEC case name as a native
+  case and lists it exactly once in the group case set;
 - selected execution reports `pass:1` for the new case and no shard failure.

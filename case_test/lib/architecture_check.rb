@@ -66,6 +66,25 @@ def parse_key_values(text)
   end
 end
 
+def native_cases(root, group_id, runner, module_name = "", feature = "")
+  output = run!(
+    {
+      "CASE_TEST_DISCOVER" => "1",
+      "CASE_TEST_GROUP" => group_id,
+      "CASE_TEST_MODULE" => module_name,
+      "CASE_TEST_FEATURE" => feature
+    },
+    "bash", File.join(root, runner)
+  )
+
+  output.lines.each_with_object([]) do |line, cases|
+    fields = line.chomp.split("\t")
+    next unless fields[0] == "native_case"
+
+    cases << fields[4]
+  end
+end
+
 def ownership(root)
   output = run!({}, "bash", File.join(root, "scripts/case_test.sh"), "--inventory")
   values = parse_key_values(output)
@@ -98,7 +117,10 @@ def generated_shard_coverage(root)
   runner_map = run!({}, "bash", File.join(root, "scripts/case_test.sh"), "--runners")
   generated = []
   runner_map.each_line do |line|
-    group_id, runner, port_offset = line.chomp.split("\t")
+    group_id, runner, port_offset, module_name, feature = line.chomp.split("\t")
+    native_names = native_cases(root, group_id, runner, module_name.to_s, feature.to_s)
+    generated.concat(native_names.map { |name| [name, group_id] })
+
     next if group_id == "observability.qlog"
 
     shard_work_dir = File.join(work_dir, group_id.tr(".", "_"))
@@ -111,6 +133,7 @@ def generated_shard_coverage(root)
       "CASE_TEST_GENERATE_ONLY" => "1"
     }
     script_path = run!(env, "bash", File.join(root, runner)).lines.last.to_s.chomp
+    next if script_path.empty?
     raise "missing generated script for #{group_id}: #{script_path}" unless File.file?(script_path)
 
     run!({}, "bash", "-n", script_path)
@@ -154,6 +177,9 @@ def parallel_selftest(root)
     File.write(runner_path, <<~SH)
       #!/bin/bash
       set -euo pipefail
+      if [[ "${CASE_TEST_DISCOVER:-0}" = "1" ]]; then
+        exit 0
+      fi
       printf 'start\\t#{group_id}\\t%s\\t%s\\t%s\\n' "${CASE_TEST_PORT}" "${CASE_TEST_WORK_DIR}" "$(date +%s)" >> #{trace_path}
       sleep 1
       printf 'end\\t#{group_id}\\t%s\\t%s\\t%s\\n' "${CASE_TEST_PORT}" "${CASE_TEST_WORK_DIR}" "$(date +%s)" >> #{trace_path}
@@ -229,6 +255,9 @@ def parallel_failure_selftest(root)
     runner_path = File.join(work_dir, "#{group_id.tr(".", "_")}.sh")
     File.write(runner_path, <<~SH)
       #!/bin/bash
+      if [[ "${CASE_TEST_DISCOVER:-0}" = "1" ]]; then
+        exit 0
+      fi
       source #{File.join(root, "case_test/lib/common.sh").inspect}
       echo "#{group_id} ...>>>>>>>> pass:#{result == "pass" ? "1" : "0"}"
       case_print_result "#{group_id}" "#{result}"

@@ -143,6 +143,8 @@ if options[:execution_plan]
   implemented_cases = implemented.flat_map { |group| group.fetch("legacy_names", []) }.uniq.sort
   pending = selected.reject { |group| group.fetch("execution", "pending") == "implemented" }
   missing = selected_cases - implemented_cases
+  isolated_count = implemented.count { |group| group.fetch("parallel_scope", "isolated") == "isolated" }
+  max_safe_jobs = missing.empty? ? [isolated_count, 1].max : 1
 
   puts "selected_groups=#{selected.length}"
   puts "implemented_groups=#{implemented.length}"
@@ -151,9 +153,9 @@ if options[:execution_plan]
   puts "implemented_unique_cases=#{implemented_cases.length}"
   puts "missing_unique_cases=#{missing.length}"
   puts "complete=#{missing.empty?}"
-  puts "max_safe_jobs=#{missing.empty? ? [implemented.length, 1].max : 1}"
+  puts "max_safe_jobs=#{max_safe_jobs}"
   implemented.sort_by { |group| group.fetch("id") }.each do |group|
-    puts "implemented_group=#{group.fetch("id")} case_count=#{group.fetch("legacy_names", []).length}"
+    puts "implemented_group=#{group.fetch("id")} case_count=#{group.fetch("legacy_names", []).length} parallel_scope=#{group.fetch("parallel_scope", "isolated")}"
   end
   pending.sort_by { |group| group.fetch("id") }.each do |group|
     puts "pending_group=#{group.fetch("id")} case_count=#{group.fetch("legacy_names", []).length}"
@@ -171,7 +173,8 @@ if options[:runners]
         group.fetch("runner"),
         group.fetch("port_offset"),
         group.fetch("module"),
-        group.fetch("feature", "")
+        group.fetch("feature", ""),
+        group.fetch("parallel_scope", "isolated")
       ].join("\t")
     end
   exit 0

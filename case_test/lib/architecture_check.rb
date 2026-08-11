@@ -5,7 +5,7 @@ require "fileutils"
 require "open3"
 require "yaml"
 
-root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--runner-syntax|--parallel-selftest|--parallel-failure-selftest|--all]")
+root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--runner-syntax|--parallel-selftest|--parallel-scope-selftest|--parallel-failure-selftest|--all]")
 modes = ARGV.empty? ? ["--all"] : ARGV
 
 def run!(env, *cmd)
@@ -230,6 +230,62 @@ def parallel_failure_selftest(root)
   puts "parallel_failure_selftest=pass"
 end
 
+def parallel_scope_selftest(root)
+  work_dir = File.join(root, "build/case_test_arch_check_scope")
+  FileUtils.rm_rf(work_dir)
+  FileUtils.mkdir_p(work_dir)
+
+  trace_path = File.join(work_dir, "trace.log")
+  manifest_path = File.join(work_dir, "manifest.yml")
+  groups = {
+    "selftest.alpha" => "isolated",
+    "selftest.beta" => "isolated",
+    "selftest.gamma" => "global"
+  }
+
+  groups.each_key do |group_id|
+    runner_path = File.join(work_dir, "#{group_id.tr(".", "_")}.sh")
+    write_selftest_runner(runner_path, root, group_id, trace_path)
+  end
+
+  manifest = {
+    "version" => 1,
+    "groups" => groups.keys.map.with_index do |group_id, index|
+      {
+        "id" => group_id,
+        "module" => "common",
+        "source_paths" => ["README.md"],
+        "runner" => "build/case_test_arch_check_scope/#{group_id.tr(".", "_")}.sh",
+        "execution" => "implemented",
+        "port_offset" => index,
+        "parallel_scope" => groups.fetch(group_id)
+      }
+    end
+  }
+  File.write(manifest_path, manifest.to_yaml)
+
+  output = run!(
+    {
+      "CASE_TEST_MANIFEST" => manifest_path,
+      "CASE_TEST_PORT_BASE" => "19200"
+    },
+    "bash", File.join(root, "scripts/case_test.sh"),
+    "--execute", "--parallel", "--jobs", "2", "--module", "common"
+  )
+
+  trace = File.read(trace_path).lines.map { |line| line.chomp.split("\t") }
+  gamma_start = trace.index { |fields| fields[0] == "start" && fields[1] == "selftest.gamma" }
+  isolated_end_count_before_gamma = trace[0...gamma_start].count do |fields|
+    fields[0] == "end" && fields[1] != "selftest.gamma"
+  end
+
+  unless gamma_start && isolated_end_count_before_gamma == 2
+    raise "global shard overlapped isolated shards\n#{trace.inspect}\n#{output}"
+  end
+
+  puts "parallel_scope_selftest=pass"
+end
+
 if modes.include?("--all") || modes.include?("--ownership")
   ownership(root)
 end
@@ -240,6 +296,10 @@ end
 
 if modes.include?("--all") || modes.include?("--parallel-selftest")
   parallel_selftest(root)
+end
+
+if modes.include?("--all") || modes.include?("--parallel-scope-selftest")
+  parallel_scope_selftest(root)
 end
 
 if modes.include?("--all") || modes.include?("--parallel-failure-selftest")

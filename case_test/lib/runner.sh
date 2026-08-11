@@ -332,39 +332,91 @@ run_group()
     return 0
 }
 
-if [[ "${PARALLEL}" -eq 0 || "${JOBS}" -eq 1 ]]; then
-    index=0
-    while IFS=$'\t' read -r group_id runner port_offset module feature; do
-        run_group "${group_id}" "${runner}" "${port_offset:-${index}}" "${module:-}" "${feature:-}"
+run_parallel_map()
+{
+    local map_file="$1"
+    local active=0
+    local index=0
+    local status=0
+    local pids=()
+    local group_id
+    local runner
+    local port_offset
+    local module
+    local feature
+    local parallel_scope
+
+    while IFS=$'\t' read -r group_id runner port_offset module feature parallel_scope; do
+        run_group "${group_id}" "${runner}" "${port_offset:-${index}}" "${module:-}" "${feature:-}" &
+        pids+=("$!")
+        active=$((active + 1))
         index=$((index + 1))
-    done < "${MAP_FILE}"
-    exit 0
-fi
 
-active=0
-index=0
-status=0
-pids=()
+        if [[ "${active}" -ge "${JOBS}" ]]; then
+            if ! wait "${pids[0]}"; then
+                status=1
+            fi
+            pids=("${pids[@]:1}")
+            active=$((active - 1))
+        fi
+    done < "${map_file}"
 
-while IFS=$'\t' read -r group_id runner port_offset module feature; do
-    run_group "${group_id}" "${runner}" "${port_offset:-${index}}" "${module:-}" "${feature:-}" &
-    pids+=("$!")
-    active=$((active + 1))
-    index=$((index + 1))
-
-    if [[ "${active}" -ge "${JOBS}" ]]; then
-        if ! wait "${pids[0]}"; then
+    for pid in "${pids[@]}"; do
+        if ! wait "${pid}"; then
             status=1
         fi
-        pids=("${pids[@]:1}")
-        active=$((active - 1))
-    fi
-done < "${MAP_FILE}"
+    done
 
-for pid in "${pids[@]}"; do
-    if ! wait "${pid}"; then
+    return "${status}"
+}
+
+run_serial_map()
+{
+    local map_file="$1"
+    local index=0
+    local status=0
+    local group_id
+    local runner
+    local port_offset
+    local module
+    local feature
+    local parallel_scope
+
+    while IFS=$'\t' read -r group_id runner port_offset module feature parallel_scope; do
+        if ! run_group "${group_id}" "${runner}" "${port_offset:-${index}}" "${module:-}" "${feature:-}"; then
+            status=1
+        fi
+        index=$((index + 1))
+    done < "${map_file}"
+
+    return "${status}"
+}
+
+if [[ "${PARALLEL}" -eq 0 || "${JOBS}" -eq 1 ]]; then
+    run_serial_map "${MAP_FILE}"
+    exit "$?"
+fi
+
+status=0
+ISOLATED_MAP_FILE="$(mktemp "${TMPDIR:-/tmp}/xquic_case_isolated.XXXXXX")"
+GLOBAL_MAP_FILE="$(mktemp "${TMPDIR:-/tmp}/xquic_case_global.XXXXXX")"
+trap 'rm -f "${MAP_FILE}" "${PLAN_FILE}" "${OWNERSHIP_FILE}" "${ISOLATED_MAP_FILE}" "${GLOBAL_MAP_FILE}"' EXIT
+
+awk -F '\t' '($6 == "" || $6 == "isolated") { print }' "${MAP_FILE}" > "${ISOLATED_MAP_FILE}"
+awk -F '\t' '($6 == "global") { print }' "${MAP_FILE}" > "${GLOBAL_MAP_FILE}"
+
+if [[ -s "${ISOLATED_MAP_FILE}" ]]; then
+    echo "[case-test] scheduling isolated groups with jobs=${JOBS}"
+    if ! run_parallel_map "${ISOLATED_MAP_FILE}"; then
         status=1
     fi
-done
+fi
+
+if [[ -s "${GLOBAL_MAP_FILE}" ]]; then
+    echo "[case-test] scheduling global groups serially"
+    if ! run_serial_map "${GLOBAL_MAP_FILE}"; then
+        status=1
+    fi
+fi
 
 exit "${status}"

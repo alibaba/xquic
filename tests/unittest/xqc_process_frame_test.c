@@ -20,6 +20,8 @@ char XQC_TEST_STREAM_FRAME[] = {0x0a, 0x00, 0x01, 0x00};
 
 static void xqc_test_conn_close_error_type(unsigned char *frame,
     size_t frame_len, xqc_conn_err_type_t expected_type);
+static void xqc_test_ack_range_rejected(unsigned char *frame,
+    size_t frame_len);
 
 
 static xqc_int_t
@@ -254,6 +256,114 @@ xqc_test_large_ack_frame()
     CU_ASSERT(pi_ack.pi_frame_types == XQC_FRAME_BIT_ACK);
 
     xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_ack_range_zero_boundary()
+{
+    unsigned char frame[] = {
+        0x02,       /* ACK */
+        0x0a,       /* largest acknowledged = 10 */
+        0x00,       /* ACK delay */
+        0x02,       /* ACK range count = 2 */
+        0x02,       /* first ACK range: 10..8 */
+        0x01, 0x02, /* gap = 1, ACK range: 5..3 */
+        0x01, 0x00  /* gap = 1, ACK range: 0..0 */
+    };
+    xqc_connection_t *conn;
+    xqc_packet_in_t packet_in;
+    xqc_ack_info_t ack_info;
+    xqc_int_t ret;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    memset(&packet_in, 0, sizeof(packet_in));
+    memset(&ack_info, 0, sizeof(ack_info));
+    packet_in.pos = frame;
+    packet_in.last = frame + sizeof(frame);
+
+    ret = xqc_parse_ack_frame(&packet_in, conn, &ack_info);
+
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(ack_info.n_ranges, 3);
+    CU_ASSERT_EQUAL(ack_info.ranges[0].high, 10);
+    CU_ASSERT_EQUAL(ack_info.ranges[0].low, 8);
+    CU_ASSERT_EQUAL(ack_info.ranges[1].high, 5);
+    CU_ASSERT_EQUAL(ack_info.ranges[1].low, 3);
+    CU_ASSERT_EQUAL(ack_info.ranges[2].high, 0);
+    CU_ASSERT_EQUAL(ack_info.ranges[2].low, 0);
+    CU_ASSERT(packet_in.pos == packet_in.last);
+    CU_ASSERT((packet_in.pi_frame_types & XQC_FRAME_BIT_ACK) != 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+static void
+xqc_test_ack_range_rejected(unsigned char *frame, size_t frame_len)
+{
+    xqc_connection_t *conn;
+    xqc_packet_in_t packet_in;
+    xqc_ack_info_t ack_info;
+    xqc_int_t ret;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    memset(&packet_in, 0, sizeof(packet_in));
+    memset(&ack_info, 0, sizeof(ack_info));
+    packet_in.pos = frame;
+    packet_in.last = frame + frame_len;
+
+    ret = xqc_parse_ack_frame(&packet_in, conn, &ack_info);
+
+    CU_ASSERT_EQUAL(ret, -XQC_EILLEGAL_FRAME);
+    CU_ASSERT_EQUAL(conn->conn_err, TRA_FRAME_ENCODING_ERROR);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    CU_ASSERT_EQUAL(packet_in.pi_frame_types & XQC_FRAME_BIT_ACK, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_ack_range_negative_rejected()
+{
+    unsigned char first_range[] = {
+        0x02, 0x00, 0x00, 0x00, 0x01
+    };
+    unsigned char gap[] = {
+        0x02, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00
+    };
+    unsigned char range[] = {
+        0x02, 0x03, 0x00, 0x01, 0x00, 0x00, 0x02
+    };
+    unsigned char after_storage_limit[135];
+    unsigned char *p;
+
+    xqc_test_ack_range_rejected(first_range, sizeof(first_range));
+    xqc_test_ack_range_rejected(gap, sizeof(gap));
+    xqc_test_ack_range_rejected(range, sizeof(range));
+
+    p = after_storage_limit;
+    *p++ = 0x02;       /* ACK */
+    *p++ = 0x40;
+    *p++ = 0x7f;       /* largest acknowledged = 127 */
+    *p++ = 0x00;       /* ACK delay */
+    *p++ = 0x40;
+    *p++ = 0x40;       /* ACK range count = 64 */
+    *p++ = 0x00;       /* first ACK range */
+    for (int i = 0; i < 64; ++i) {
+        *p++ = 0x00;   /* gap */
+        *p++ = 0x00;   /* ACK range length */
+    }
+
+    CU_ASSERT_EQUAL(p - after_storage_limit,
+                    sizeof(after_storage_limit));
+    xqc_test_ack_range_rejected(after_storage_limit,
+                                sizeof(after_storage_limit));
 }
 
 

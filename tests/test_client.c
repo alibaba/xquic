@@ -281,6 +281,7 @@ uint64_t g_last_sock_op_time;
  * 704 for active_connection_id_limit validation
  * 709/710 for active_connection_id_limit minimum validation
  * 711/712 for PMTUD peer-option omission validation
+ * 713/714 for max_ack_delay boundary validation
  * 902/903 for AEAD confidentiality-limit validation
  * 1000-1014 for HTTP/3 protocol validation
  */

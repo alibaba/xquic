@@ -135,6 +135,64 @@ xqc_test_transport_params()
     xqc_test_encrypted_extensions();
 }
 
+/* RFC 9000 Section 18.2: absent max_ack_delay defaults to 25 milliseconds. */
+void
+xqc_test_max_ack_delay_default_when_absent(void)
+{
+    uint8_t tp[] = {
+        XQC_TRANSPORT_PARAM_DISABLE_ACTIVE_MIGRATION, 0x00
+    };
+    xqc_transport_params_t params;
+    xqc_int_t              ret;
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params,
+                                      XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      tp, sizeof(tp));
+
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(params.disable_active_migration, 1);
+    CU_ASSERT_EQUAL(params.max_ack_delay, XQC_DEFAULT_MAX_ACK_DELAY);
+}
+
+/* RFC 9000 Section 18.2: max_ack_delay values below 2^14 are valid. */
+void
+xqc_test_max_ack_delay_valid_boundary(void)
+{
+    uint8_t tp[] = {
+        XQC_TRANSPORT_PARAM_MAX_ACK_DELAY, 0x02, 0x7f, 0xff
+    };
+    xqc_transport_params_t params;
+    xqc_int_t              ret;
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params,
+                                      XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      tp, sizeof(tp));
+
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(params.max_ack_delay, 16383);
+}
+
+/* RFC 9000 Section 18.2: max_ack_delay values of 2^14 or more are invalid. */
+void
+xqc_test_max_ack_delay_invalid_boundary(void)
+{
+    uint8_t tp[] = {
+        XQC_TRANSPORT_PARAM_MAX_ACK_DELAY, 0x04,
+        0x80, 0x00, 0x40, 0x00
+    };
+    xqc_transport_params_t params;
+    xqc_int_t              ret;
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params,
+                                      XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      tp, sizeof(tp));
+
+    CU_ASSERT_EQUAL(ret, -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+}
+
 /*
  * ============================================================================
  * Tests for xqc_conn_check_transport_params (RFC 9000 Section 7.3)

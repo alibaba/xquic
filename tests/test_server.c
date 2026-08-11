@@ -2778,6 +2778,10 @@ int main(int argc, char *argv[]) {
         conn_settings.enable_pmtud = 3;
     }
 
+    if (g_test_case == 711 || g_test_case == 712) {
+        conn_settings.enable_pmtud = XQC_PMTUD_DISABLE;
+    }
+
     if (g_test_case == 6) {
         conn_settings.idle_time_out = 10000;
     }

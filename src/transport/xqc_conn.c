@@ -1569,7 +1569,7 @@ xqc_conn_destroy(xqc_connection_t *xc)
             fec_mpm_str, conn_stats.send_fec_cnt, xc->fec_ctl ? xc->fec_ctl->fec_recover_pkt_cnt : 0,
             xc->pkt_out_size, xc->max_pkt_out_size, xc->probing_pkt_out_size,
             conn_stats.extern_conn_info, xc->max_acked_po_size, 
-            xc->enable_pmtud, xc->conn_avg_close_delay,
+            (uint64_t) xc->enable_pmtud, xc->conn_avg_close_delay,
             xc->passive_bidi_stream_max
             );
     xqc_log_event(xc->log, CON_CONNECTION_CLOSED, xc);

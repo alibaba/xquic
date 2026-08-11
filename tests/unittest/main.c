@@ -133,6 +133,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_empty_pkt", xqc_test_empty_pkt)
         || !CU_add_test(pSuite, "xqc_test_stateless_reset_parse_boundary", xqc_test_stateless_reset_parse_boundary)
         || !CU_add_test(pSuite, "xqc_test_transport_params", xqc_test_transport_params)
+        || !CU_add_test(pSuite, "xqc_test_max_ack_delay_default_when_absent",
+                        xqc_test_max_ack_delay_default_when_absent)
+        || !CU_add_test(pSuite, "xqc_test_max_ack_delay_valid_boundary",
+                        xqc_test_max_ack_delay_valid_boundary)
+        || !CU_add_test(pSuite, "xqc_test_max_ack_delay_invalid_boundary",
+                        xqc_test_max_ack_delay_invalid_boundary)
         || !CU_add_test(pSuite, "xqc_test_tp_cid_overflow", xqc_test_tp_cid_overflow)
         || !CU_add_test(pSuite, "xqc_test_active_cid_limit_minimum", xqc_test_active_cid_limit_minimum)
         || !CU_add_test(pSuite, "xqc_test_check_transport_params_cids", xqc_test_check_transport_params_cids)
@@ -142,6 +148,11 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_process_frame", xqc_test_process_frame)
         || !CU_add_test(pSuite, "xqc_test_parse_padding_frame", xqc_test_parse_padding_frame)
         || !CU_add_test(pSuite, "xqc_test_large_ack_frame", xqc_test_large_ack_frame)
+        /* RFC 9000 Section 19.3.1 ACK packet-number boundaries */
+        || !CU_add_test(pSuite, "xqc_test_ack_range_zero_boundary",
+                        xqc_test_ack_range_zero_boundary)
+        || !CU_add_test(pSuite, "xqc_test_ack_range_negative_rejected",
+                        xqc_test_ack_range_negative_rejected)
         /* issue #632: ACK_ECN frame parsing (RFC 9000 19.3) */
         || !CU_add_test(pSuite, "xqc_test_ack_ecn_normal_parse", xqc_test_ack_ecn_normal_parse)
         || !CU_add_test(pSuite, "xqc_test_ack_plain_regression", xqc_test_ack_plain_regression)

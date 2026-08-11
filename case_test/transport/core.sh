@@ -450,6 +450,62 @@ fi
 rm -rf tp_localhost test_session xqc_token
 }
 
+case_transport_core_max_ack_delay_valid_boundary()
+{
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "max_ack_delay accepts the largest valid value ...\c"
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -x 714 > svr_stdlog
+sleep 1
+${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog 2>&1
+advertised=`grep "advertised_max_ack_delay:16383" svr_stdlog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+tp_err=`grep -E "(conn errno:8|conn_err:8[^0-9])" stdlog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$advertised" ] && [ -z "$tp_err" ] \
+    && [ "$result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "max_ack_delay_valid_boundary" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "max_ack_delay_valid_boundary" "fail"
+    echo "$advertised"
+    echo "$errlog"
+fi
+
+}
+
+case_transport_core_max_ack_delay_invalid_boundary()
+{
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "max_ack_delay rejects the first invalid value ...\c"
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -x 713 > svr_stdlog
+sleep 1
+${CLIENT_BIN} -s 1024 -l d -t 2 -E > stdlog 2>&1
+advertised=`grep "advertised_max_ack_delay:16384" svr_stdlog`
+tp_err=`grep -E "(conn errno:8|conn_err:8[^0-9])" stdlog`
+transport_type=`grep "conn_err_type:1" stdlog`
+req_ok=`grep ">>>>>>>> pass:1" stdlog`
+if [ -n "$advertised" ] && [ -n "$tp_err" ] && [ -n "$transport_type" ] \
+    && [ -z "$req_ok" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "max_ack_delay_invalid_boundary" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "max_ack_delay_invalid_boundary" "fail"
+    echo "$advertised"
+    echo "$tp_err"
+    echo "$transport_type"
+fi
+
+rm -rf tp_localhost test_session xqc_token
+}
+
 case_transport_core_new_client_29_new_server()
 {
 case_test_stop_server
@@ -1011,6 +1067,8 @@ case_test_case "active_cid_limit_accept" --id legacy --mode self-reporting --run
 case_test_case "active_cid_limit_exceeded" --id legacy --mode self-reporting --run case_transport_core_active_cid_limit_exceeded
 case_test_case "active_cid_limit_minimum_accept" --id legacy --mode self-reporting --run case_transport_core_active_cid_limit_minimum_accept
 case_test_case "active_cid_limit_below_minimum" --id legacy --mode self-reporting --run case_transport_core_active_cid_limit_below_minimum
+case_test_case "max_ack_delay_valid_boundary" --id legacy --mode self-reporting --run case_transport_core_max_ack_delay_valid_boundary
+case_test_case "max_ack_delay_invalid_boundary" --id legacy --mode self-reporting --run case_transport_core_max_ack_delay_invalid_boundary
 case_test_case "new_client_29_&_new_server" --id legacy --mode self-reporting --run case_transport_core_new_client_29_new_server
 case_test_case "load_balancer_cid_generate_with_encryption" --id legacy --mode self-reporting --run case_transport_core_load_balancer_cid_generate_with_encryption
 case_test_case "load_balancer_cid_generate" --id legacy --mode self-reporting --run case_transport_core_load_balancer_cid_generate

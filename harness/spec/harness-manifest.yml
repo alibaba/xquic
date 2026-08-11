@@ -57,7 +57,6 @@ global_docs:
 
 test_routing:
   case_manifest: case_test/manifest.yml
-  case_legacy_full_suite: case_test/legacy/full_suite.sh
 
 modules:
   api:

@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require "yaml"
+require "open3"
 
 root = ARGV.fetch(0)
 manifest_path = File.join(root, "harness/spec/harness-manifest.yml")
@@ -61,30 +62,49 @@ def validate_test_routing(root, data, errors)
   feature_owners = route_features(modules)
 
   case_manifest_path = routing["case_manifest"]
-  legacy_full_suite_path = routing["case_legacy_full_suite"]
   check_file_exists(root, case_manifest_path, "test_routing.case_manifest", errors)
-  check_file_exists(root, legacy_full_suite_path, "test_routing.case_legacy_full_suite", errors)
 
   if case_manifest_path && File.exist?(File.join(root, case_manifest_path.to_s))
-    legacy_case_names = []
-    if legacy_full_suite_path && File.exist?(File.join(root, legacy_full_suite_path.to_s))
-      legacy_case_names = File.read(File.join(root, legacy_full_suite_path.to_s)).
-        scan(/case_print_result\s+"([^"]+)"/).
-        flatten.uniq
-    end
-
     validate_case_manifest(
       root,
       File.join(root, case_manifest_path.to_s),
       module_names,
       feature_owners,
-      legacy_case_names,
       errors
     )
   end
 end
 
-def validate_case_manifest(root, path, module_names, feature_owners, legacy_case_names, errors)
+def discover_case_runner(root, group, errors, group_path)
+  runner_path = File.join(root, group["runner"].to_s)
+  syntax_output, syntax_status = Open3.capture2e("bash", "-n", runner_path)
+  unless syntax_status.success?
+    errors << "#{group_path}.runner has shell syntax errors: #{syntax_output.lines.first.to_s.strip}"
+    return []
+  end
+
+  output, status = Open3.capture2e(
+    {
+      "CASE_TEST_DISCOVER" => "1",
+      "CASE_TEST_GROUP" => group["id"].to_s,
+      "CASE_TEST_MODULE" => group["module"].to_s,
+      "CASE_TEST_FEATURE" => group.fetch("feature", "").to_s
+    },
+    "bash",
+    runner_path
+  )
+  unless status.success?
+    errors << "#{group_path}.runner discovery failed: #{output.lines.first.to_s.strip}"
+    return []
+  end
+
+  output.lines.each_with_object([]) do |line, names|
+    fields = line.chomp.split("\t")
+    names << fields[4] if fields[0] == "native_case"
+  end
+end
+
+def validate_case_manifest(root, path, module_names, feature_owners, errors)
   manifest = YAML.load_file(path)
   relative = path.sub(root + "/", "")
   require_hash(manifest, relative, errors)
@@ -97,7 +117,7 @@ def validate_case_manifest(root, path, module_names, feature_owners, legacy_case
 
   ids = []
   port_offsets = []
-  owned_by = Hash.new { |hash, key| hash[key] = [] }
+  registered_by = Hash.new { |hash, key| hash[key] = [] }
   groups.each_with_index do |group, index|
     group_path = "#{relative}.groups[#{index}]"
     require_hash(group, group_path, errors)
@@ -131,30 +151,18 @@ def validate_case_manifest(root, path, module_names, feature_owners, legacy_case
       end
     end
 
-    patterns = group["owned_legacy_name_patterns"]
     status = group["status"].to_s
     execution = group.fetch("execution", "pending").to_s
     unless %w[pending implemented].include?(execution)
       errors << "#{group_path}.execution must be pending or implemented"
     end
 
-    if status == "gap"
-      errors << "#{group_path}.owned_legacy_name_patterns must be a list" unless patterns.is_a?(Array)
-      next
+    discovered_cases = discover_case_runner(root, group, errors, group_path)
+    if execution == "implemented" && status != "gap" && discovered_cases.empty?
+      errors << "#{group_path}.runner must register at least one native case"
     end
 
-    require_nonempty_array(patterns, "#{group_path}.owned_legacy_name_patterns", errors)
-    next unless patterns.is_a?(Array)
-
-    matched = []
-    patterns.each do |pattern|
-      regexp = Regexp.new("\\A(?:#{pattern})\\z")
-      matched.concat(legacy_case_names.select { |name| regexp.match?(name) })
-    rescue RegexpError => e
-      errors << "#{group_path}.owned_legacy_name_patterns has invalid regexp #{pattern.inspect}: #{e.message}"
-    end
-    errors << "#{group_path}.owned_legacy_name_patterns match no legacy cases" if matched.empty?
-    matched.uniq.each { |name| owned_by[name] << id }
+    discovered_cases.each { |name| registered_by[name] << id }
   end
 
   duplicate_ids = ids.group_by(&:itself).select { |_id, values| values.length > 1 }.keys
@@ -164,14 +172,9 @@ def validate_case_manifest(root, path, module_names, feature_owners, legacy_case
     errors << "#{relative}.groups has duplicate port_offset values #{duplicate_offsets.join(', ')}"
   end
 
-  repeated_cases = owned_by.select { |_name, owners| owners.length > 1 }
+  repeated_cases = registered_by.select { |_name, owners| owners.length > 1 }
   repeated_cases.each do |name, owners|
-    errors << "#{relative} legacy case #{name} has multiple owners #{owners.sort.join(', ')}"
-  end
-
-  missing_cases = legacy_case_names - owned_by.keys
-  missing_cases.each do |name|
-    errors << "#{relative} legacy case #{name} has no owner"
+    errors << "#{relative} native case #{name} has multiple owners #{owners.sort.join(', ')}"
   end
 end
 

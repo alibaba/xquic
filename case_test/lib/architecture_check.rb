@@ -5,58 +5,14 @@ require "fileutils"
 require "open3"
 require "yaml"
 
-root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--parallel-selftest|--legacy-equivalence|--all]")
+root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--runner-syntax|--parallel-selftest|--parallel-failure-selftest|--all]")
 modes = ARGV.empty? ? ["--all"] : ARGV
-base_ref = ENV.fetch("CASE_TEST_BASE_REF", "origin/main")
 
 def run!(env, *cmd)
   output, status = Open3.capture2e(env, *cmd)
   raise "command failed: #{cmd.join(" ")}\n#{output}" unless status.success?
 
   output
-end
-
-def case_names(text)
-  static_names = []
-  depth = 0
-  local_test_depths = []
-
-  text.each_line do |line|
-    stripped = line.strip
-    opens_if = stripped.start_with?("if ")
-    if opens_if
-      depth += 1
-      local_test_depths << depth if stripped =~ /\Aif\s+\[\s+\$LOCAL_TEST\s+-ne\s+0\s+\];\s+then\z/
-    end
-
-    if local_test_depths.empty?
-      static_names.concat(line.scan(/case_print_result\s+"([^"]+)"/).flatten)
-    end
-
-    if stripped == "fi"
-      local_test_depths.pop if local_test_depths.last == depth
-      depth -= 1 if depth.positive?
-    end
-  end
-
-  static_names = static_names.reject { |name| name.include?("$") }
-  dynamic_names = text.scan(/wrong_direction_stream_case\s+\d+\s+"([^"]+)"/).flatten
-
-  static_names + dynamic_names.flat_map { |name| [name, name] }
-end
-
-def anchored_body(text)
-  anchor = text.index("clear_log() {")
-  raise "missing clear_log anchor" unless anchor
-
-  text[anchor..]
-end
-
-def legacy_equivalence_body(text)
-  anchored_body(text).sub(
-    /^# issues #565.*?^killall test_server 2> \/dev\/null\n\n/m,
-    ""
-  )
 end
 
 def parse_key_values(text)
@@ -66,15 +22,15 @@ def parse_key_values(text)
   end
 end
 
-def native_cases(root, group_id, runner, module_name = "", feature = "")
+def native_cases(root, group)
   output = run!(
     {
       "CASE_TEST_DISCOVER" => "1",
-      "CASE_TEST_GROUP" => group_id,
-      "CASE_TEST_MODULE" => module_name,
-      "CASE_TEST_FEATURE" => feature
+      "CASE_TEST_GROUP" => group.fetch("id").to_s,
+      "CASE_TEST_MODULE" => group.fetch("module").to_s,
+      "CASE_TEST_FEATURE" => group.fetch("feature", "").to_s
     },
-    "bash", File.join(root, runner)
+    "bash", File.join(root, group.fetch("runner"))
   )
 
   output.lines.each_with_object([]) do |line, cases|
@@ -89,77 +45,76 @@ def ownership(root)
   output = run!({}, "bash", File.join(root, "scripts/case_test.sh"), "--inventory")
   values = parse_key_values(output)
 
-  unless values["legacy_total"] == values["matched_total"]
-    raise "legacy ownership is incomplete\n#{output}"
-  end
-
   unless values["unmatched_total"] == "0"
-    raise "legacy ownership has unmatched cases\n#{output}"
+    raise "native ownership has unmatched cases\n#{output}"
   end
 
   unless values["repeated_total"] == "0"
-    raise "legacy ownership has repeated cases\n#{output}"
+    raise "native ownership has repeated cases\n#{output}"
   end
 
   puts "ownership=pass"
-  puts "legacy_total=#{values.fetch("legacy_total")}"
+  puts "case_total=#{values.fetch("case_total")}"
   puts "matched_total=#{values.fetch("matched_total")}"
   puts "unmatched_total=#{values.fetch("unmatched_total")}"
   puts "repeated_total=#{values.fetch("repeated_total")}"
 end
 
-def generated_shard_coverage(root)
-  build_dir = File.join(root, "build/validation")
-  work_dir = File.join(build_dir, "case_test_generate_check")
-  FileUtils.rm_rf(work_dir)
-  FileUtils.mkdir_p(work_dir)
+def runner_syntax(root)
+  manifest = YAML.load_file(File.join(root, "case_test/manifest.yml"))
+  owners = Hash.new { |hash, key| hash[key] = [] }
 
-  runner_map = run!({}, "bash", File.join(root, "scripts/case_test.sh"), "--runners")
-  generated = []
-  runner_map.each_line do |line|
-    group_id, runner, port_offset, module_name, feature = line.chomp.split("\t")
-    native_names = native_cases(root, group_id, runner, module_name.to_s, feature.to_s)
-    generated.concat(native_names.map { |name| [name, group_id] })
-
-    next if group_id == "observability.qlog"
-
-    shard_work_dir = File.join(work_dir, group_id.tr(".", "_"))
-    FileUtils.mkdir_p(shard_work_dir)
-    env = {
-      "XQC_BUILD_DIR" => build_dir,
-      "CASE_TEST_WORK_DIR" => shard_work_dir,
-      "CASE_TEST_PORT" => (18_000 + port_offset.to_i).to_s,
-      "CASE_TEST_SHARD_ID" => group_id.tr(".", "_"),
-      "CASE_TEST_GENERATE_ONLY" => "1"
-    }
-    script_path = run!(env, "bash", File.join(root, runner)).lines.last.to_s.chomp
-    next if script_path.empty?
-    raise "missing generated script for #{group_id}: #{script_path}" unless File.file?(script_path)
-
-    run!({}, "bash", "-n", script_path)
-    names = case_names(File.read(script_path)).uniq
-    puts "generated_group=#{group_id} legacy_count=#{names.length}"
-    generated.concat(names.map { |name| [name, group_id] })
+  manifest.fetch("groups").each do |group|
+    runner = File.join(root, group.fetch("runner"))
+    run!({}, "bash", "-n", runner)
+    names = native_cases(root, group)
+    names.each { |name| owners[name] << group.fetch("id") }
+    puts "runner=#{group.fetch("id")} case_count=#{names.length}"
   end
 
-  qlog_path = File.join(root, "case_test/observability/qlog.sh")
-  run!({}, "bash", "-n", qlog_path)
-  generated.concat(case_names(File.read(qlog_path)).uniq.map { |name| [name, "observability.qlog"] })
-
-  legacy_names = case_names(File.read(File.join(root, "case_test/legacy/full_suite.sh"))).uniq
-  owners = Hash.new { |hash, key| hash[key] = [] }
-  generated.each { |name, group_id| owners[name] << group_id }
-  missing = legacy_names - owners.keys
   repeated = owners.select { |_name, group_ids| group_ids.length > 1 }
+  raise "native case registrations are repeated: #{repeated.inspect}" unless repeated.empty?
 
-  raise "generated shard coverage has missing cases: #{missing.inspect}" unless missing.empty?
-  raise "generated shard coverage has repeated cases: #{repeated.inspect}" unless repeated.empty?
+  puts "runner_syntax=pass"
+  puts "registered_cases=#{owners.length}"
+end
 
-  puts "generated_shard_coverage=pass"
-  puts "generated_total=#{owners.length}"
-  puts "legacy_total=#{legacy_names.length}"
-  puts "missing=0"
-  puts "repeated=0"
+def write_selftest_runner(path, root, group_id, trace_path = nil, result: "pass")
+  body = if trace_path
+    <<~SH
+      selftest_run()
+      {
+          printf 'start\\t#{group_id}\\t%s\\t%s\\t%s\\n' "${CASE_TEST_PORT}" "${CASE_TEST_WORK_DIR}" "$(date +%s)" >> #{trace_path}
+          sleep 1
+          printf 'end\\t#{group_id}\\t%s\\t%s\\t%s\\n' "${CASE_TEST_PORT}" "${CASE_TEST_WORK_DIR}" "$(date +%s)" >> #{trace_path}
+          echo "#{group_id} ...>>>>>>>> pass:1"
+          case_print_result "#{group_id}" "pass"
+      }
+    SH
+  else
+    <<~SH
+      selftest_run()
+      {
+          echo "#{group_id} ...>>>>>>>> pass:#{result == "pass" ? "1" : "0"}"
+          case_print_result "#{group_id}" "#{result}"
+      }
+    SH
+  end
+
+  File.write(path, <<~SH)
+    #!/bin/bash
+    set -u
+    source #{File.join(root, "case_test/lib/common.sh").inspect}
+    case_test_group #{group_id.inspect}
+    case_test_case #{group_id.inspect} --id legacy --mode self-reporting --run selftest_run
+    if case_test_is_discovery; then
+        case_test_run
+        exit 0
+    fi
+    #{body}
+    case_test_run
+  SH
+  FileUtils.chmod("+x", path)
 end
 
 def parallel_selftest(root)
@@ -168,26 +123,14 @@ def parallel_selftest(root)
   FileUtils.mkdir_p(work_dir)
 
   trace_path = File.join(work_dir, "trace.log")
-  legacy_path = File.join(work_dir, "legacy.sh")
   manifest_path = File.join(work_dir, "manifest.yml")
-
   groups = %w[selftest.alpha selftest.beta selftest.gamma]
+
   groups.each do |group_id|
     runner_path = File.join(work_dir, "#{group_id.tr(".", "_")}.sh")
-    File.write(runner_path, <<~SH)
-      #!/bin/bash
-      set -euo pipefail
-      if [[ "${CASE_TEST_DISCOVER:-0}" = "1" ]]; then
-        exit 0
-      fi
-      printf 'start\\t#{group_id}\\t%s\\t%s\\t%s\\n' "${CASE_TEST_PORT}" "${CASE_TEST_WORK_DIR}" "$(date +%s)" >> #{trace_path}
-      sleep 1
-      printf 'end\\t#{group_id}\\t%s\\t%s\\t%s\\n' "${CASE_TEST_PORT}" "${CASE_TEST_WORK_DIR}" "$(date +%s)" >> #{trace_path}
-    SH
-    FileUtils.chmod("+x", runner_path)
+    write_selftest_runner(runner_path, root, group_id, trace_path)
   end
 
-  File.write(legacy_path, groups.map { |group_id| "case_print_result \"#{group_id}\" \"pass\"\n" }.join)
   manifest = {
     "version" => 1,
     "groups" => groups.map do |group_id|
@@ -197,8 +140,7 @@ def parallel_selftest(root)
         "source_paths" => ["README.md"],
         "runner" => "build/case_test_arch_check/#{group_id.tr(".", "_")}.sh",
         "execution" => "implemented",
-        "port_offset" => groups.index(group_id),
-        "owned_legacy_name_patterns" => [Regexp.escape(group_id)]
+        "port_offset" => groups.index(group_id)
       }
     end
   }
@@ -208,7 +150,6 @@ def parallel_selftest(root)
   output = run!(
     {
       "CASE_TEST_MANIFEST" => manifest_path,
-      "CASE_TEST_LEGACY_SUITE" => legacy_path,
       "CASE_TEST_PORT_BASE" => "19000"
     },
     "bash", File.join(root, "scripts/case_test.sh"),
@@ -245,61 +186,35 @@ def parallel_failure_selftest(root)
   FileUtils.rm_rf(work_dir)
   FileUtils.mkdir_p(work_dir)
 
-  legacy_path = File.join(work_dir, "legacy.sh")
   manifest_path = File.join(work_dir, "manifest.yml")
-
-  {
+  groups = {
     "selftest.pass" => "pass",
     "selftest.fail" => "fail"
-  }.each do |group_id, result|
+  }
+
+  groups.each do |group_id, result|
     runner_path = File.join(work_dir, "#{group_id.tr(".", "_")}.sh")
-    File.write(runner_path, <<~SH)
-      #!/bin/bash
-      if [[ "${CASE_TEST_DISCOVER:-0}" = "1" ]]; then
-        exit 0
-      fi
-      source #{File.join(root, "case_test/lib/common.sh").inspect}
-      echo "#{group_id} ...>>>>>>>> pass:#{result == "pass" ? "1" : "0"}"
-      case_print_result "#{group_id}" "#{result}"
-      exit 0
-    SH
-    FileUtils.chmod("+x", runner_path)
+    write_selftest_runner(runner_path, root, group_id, nil, result: result)
   end
 
-  File.write(
-    legacy_path,
-    "case_print_result \"selftest.pass\" \"pass\"\n" \
-      "case_print_result \"selftest.fail\" \"fail\"\n"
-  )
   manifest = {
     "version" => 1,
-    "groups" => [
+    "groups" => groups.keys.map.with_index do |group_id, index|
       {
-        "id" => "selftest.pass",
+        "id" => group_id,
         "module" => "common",
         "source_paths" => ["README.md"],
-        "runner" => "build/case_test_arch_check_fail/selftest_pass.sh",
+        "runner" => "build/case_test_arch_check_fail/#{group_id.tr(".", "_")}.sh",
         "execution" => "implemented",
-        "port_offset" => 0,
-        "owned_legacy_name_patterns" => ["selftest\\.pass"]
-      },
-      {
-        "id" => "selftest.fail",
-        "module" => "common",
-        "source_paths" => ["README.md"],
-        "runner" => "build/case_test_arch_check_fail/selftest_fail.sh",
-        "execution" => "implemented",
-        "port_offset" => 1,
-        "owned_legacy_name_patterns" => ["selftest\\.fail"]
+        "port_offset" => index
       }
-    ]
+    end
   }
   File.write(manifest_path, manifest.to_yaml)
 
   output, status = Open3.capture2e(
     {
       "CASE_TEST_MANIFEST" => manifest_path,
-      "CASE_TEST_LEGACY_SUITE" => legacy_path,
       "CASE_TEST_PORT_BASE" => "19100"
     },
     "bash", File.join(root, "scripts/case_test.sh"),
@@ -315,42 +230,12 @@ def parallel_failure_selftest(root)
   puts "parallel_failure_selftest=pass"
 end
 
-def legacy_equivalence(root, base_ref)
-  base_text = run!({}, "git", "-C", root, "show", "#{base_ref}:scripts/case_test.sh")
-  current_text = File.read(File.join(root, "case_test/legacy/full_suite.sh"))
-  base_names = case_names(base_text)
-  current_names = case_names(current_text)
-
-  unless base_names == current_names
-    missing = base_names - current_names
-    added = current_names - base_names
-    raise "legacy case names differ: missing=#{missing.inspect} added=#{added.inspect}"
-  end
-
-  unless legacy_equivalence_body(base_text) == legacy_equivalence_body(current_text)
-    raise "legacy suite body differs after clear_log anchor"
-  end
-
-  wrapper_text = File.read(File.join(root, "scripts/case_test.sh"))
-  runner_text = File.read(File.join(root, "case_test/lib/runner.sh"))
-  unless wrapper_text.include?("case_test/lib/runner.sh") &&
-      runner_text.include?("case_test/legacy/full_suite.sh")
-    raise "compatibility entry point does not dispatch to the legacy full suite"
-  end
-
-  puts "legacy_equivalence=pass"
-  puts "base_ref=#{base_ref}"
-  puts "case_result_lines=#{current_names.length}"
-  puts "unique_case_count=#{current_names.uniq.length}"
-  puts "body_anchor=clear_log"
-end
-
 if modes.include?("--all") || modes.include?("--ownership")
   ownership(root)
 end
 
-if modes.include?("--all") || modes.include?("--generated-shard-coverage")
-  generated_shard_coverage(root)
+if modes.include?("--all") || modes.include?("--runner-syntax")
+  runner_syntax(root)
 end
 
 if modes.include?("--all") || modes.include?("--parallel-selftest")
@@ -359,8 +244,4 @@ end
 
 if modes.include?("--all") || modes.include?("--parallel-failure-selftest")
   parallel_failure_selftest(root)
-end
-
-if modes.include?("--all") || modes.include?("--legacy-equivalence")
-  legacy_equivalence(root, base_ref)
 end

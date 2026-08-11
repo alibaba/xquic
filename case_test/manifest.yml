@@ -11,30 +11,6 @@ groups:
   runner: case_test/transport/core.sh
   execution: implemented
   port_offset: 0
-  owned_legacy_name_patterns:
-  - log_switch_off
-  - server_refuse
-  - server_refuse_connection
-  - create_connection_fail
-  - close_connection_with_error
-  - user_close_connection
-  - linger_close_.*
-  - active_cid_limit_.*
-  - server_cid_negotiate
-  - load_balancer_cid_generate.*
-  - version_negotiation.*
-  - stateless_reset.*
-  - 0RTT_param_reduction
-  - 0RTT_rejected_param_reduction
-  - 0rtt_forbidden_remembered_params_.*
-  - verify_token_.*
-  - socket_(recv|send)_fail
-  - test_application_delay
-  - transport_(only|0RTT|MP_ping|ping)
-  - server_amplification_limit
-  - new_client_29_&_new_server
-  - request_closing_notify
-  - check_clear_0rtt_ticket_flag_.*
 - id: transport.stream
   module: transport
   submodule: stream
@@ -43,22 +19,6 @@ groups:
   runner: case_test/transport/stream.sh
   execution: implemented
   port_offset: 10
-  owned_legacy_name_patterns:
-  - server_inited_stream
-  - stream_.*
-  - create_stream_fail
-  - reset_stream.*
-  - stop_sending_on_recv_only_stream
-  - send_(data|header|fin)_after_fin
-  - send_header_after_reset_stream
-  - fin_only
-  - NULL_stream_callback
-  - connection_level_flow_control
-  - conn_rate_throttling
-  - send_4K_every_time
-  - send_queue_full.*
-  - send_(1K|1M|10M)_data.*
-  - stream_rate_throttling
 - id: transport.packet
   module: transport
   submodule: packet
@@ -70,17 +30,6 @@ groups:
   runner: case_test/transport/packet.sh
   execution: implemented
   port_offset: 20
-  owned_legacy_name_patterns:
-  - illegal_packet
-  - duplicate_packet
-  - packet_with_wrong_cid
-  - ".*initial_.*corruption"
-  - ".*odcid_hash"
-  - large_ack_range.*
-  - ack_ecn_parse_.*
-  - ack_timestamp_frame_.*
-  - frame_type_bit_(?!repair_).*
-  - retry_packet_send
 - id: transport.datagram
   module: transport
   submodule: datagram
@@ -89,11 +38,6 @@ groups:
   runner: case_test/transport/datagram.sh
   execution: implemented
   port_offset: 30
-  owned_legacy_name_patterns:
-  - 0rtt_max_datagram_frame_size_is_.*
-  - (?!(MP|No_reinjection|h3_ext|fec_)).*datagram.*
-  - (?!h3_ext_).*dgram.*
-  - (?!(MP|MP_h3_ext)).*PMTUD.*
 - id: transport.multipath
   module: transport
   submodule: multipath
@@ -104,14 +48,6 @@ groups:
   runner: case_test/transport/multipath.sh
   execution: implemented
   port_offset: 40
-  owned_legacy_name_patterns:
-  - MP.*
-  - MPNS.*
-  - Multipath_.*
-  - NAT_rebinding_.*
-  - freeze_path.*
-  - probing_standby_path
-  - ".*reinjection.*"
 - id: transport.fec
   module: transport
   feature: fec
@@ -121,10 +57,6 @@ groups:
   runner: case_test/transport/fec.sh
   execution: implemented
   port_offset: 50
-  owned_legacy_name_patterns:
-  - ".*fec.*"
-  - ".*repair.*"
-  - negotiate_.*_fec_scheme
 - id: http3.core
   module: http3
   source_paths:
@@ -132,17 +64,6 @@ groups:
   runner: case_test/http3/core.sh
   execution: implemented
   port_offset: 60
-  owned_legacy_name_patterns:
-  - h3_(?!ext_).*
-  - header_.*
-  - GET_request
-  - forbidden_header_e2e
-  - empty_header_value
-  - set_h3_.*
-  - no_h3_.*
-  - uppercase_header
-  - massive_requests_with_massive_header
-  - test_(client|server)_long_header
 - id: http3.qpack
   module: http3
   submodule: qpack
@@ -151,7 +72,6 @@ groups:
   - src/http3/qpack/*
   runner: case_test/http3/qpack.sh
   port_offset: 70
-  owned_legacy_name_patterns: []
 - id: http3.ext
   module: http3
   source_paths:
@@ -159,9 +79,6 @@ groups:
   runner: case_test/http3/h3-ext.sh
   execution: implemented
   port_offset: 80
-  owned_legacy_name_patterns:
-  - h3_ext_.*
-  - connect_to_an_h3_ext_disabled_server
 - id: tls.handshake
   module: tls
   source_paths:
@@ -169,19 +86,6 @@ groups:
   runner: case_test/tls/handshake.sh
   execution: implemented
   port_offset: 90
-  owned_legacy_name_patterns:
-  - 0RTT_accept
-  - 0RTT_reject
-  - 0RTT_buffer_limit_before_Initial
-  - 1RTT
-  - cert_verify
-  - crypto_error_.*
-  - alpn_.*
-  - key_update.*
-  - initial_salt_.*
-  - without_session_ticket
-  - no_crypto_.*
-  - set_cipher_suites
 - id: congestion.core
   module: congestion_control
   source_paths:
@@ -190,16 +94,6 @@ groups:
   runner: case_test/congestion/core.sh
   execution: implemented
   port_offset: 100
-  owned_legacy_name_patterns:
-  - BBR.*
-  - reno_.*
-  - cubic_.*
-  - copa_.*
-  - (?!(MPNS_multipath_|large_ack_range_)).*loss.*
-  - low_delay_settings
-  - max_pkt_out_size
-  - send_ctl.*
-  - unlimited_cc
 - id: observability.qlog
   module: common
   execution: implemented
@@ -209,5 +103,3 @@ groups:
   - scripts/qlog_parser.py
   runner: case_test/observability/qlog.sh
   port_offset: 110
-  owned_legacy_name_patterns:
-  - qlog_.*

@@ -94,6 +94,7 @@ case_test_case()
 {
     local name="$1"
     local id="legacy"
+    local mode="return-status"
     local run_func=""
 
     shift
@@ -105,6 +106,10 @@ case_test_case()
                 ;;
             --run)
                 run_func="${2:?--run requires a value}"
+                shift 2
+                ;;
+            --mode)
+                mode="${2:?--mode requires a value}"
                 shift 2
                 ;;
             *)
@@ -131,7 +136,46 @@ case_test_case()
 
     CASE_TEST_CASE_NAMES+=("${name}")
     CASE_TEST_CASE_IDS+=("${id}")
+    CASE_TEST_CASE_MODES+=("${mode}")
     CASE_TEST_CASE_RUNNERS+=("${run_func}")
+}
+
+case_test_run_self_reporting_case()
+{
+    local name="$1"
+    local run_func="$2"
+    local output
+    local status
+
+    if output="$("${run_func}" 2>&1)"; then
+        status=0
+    else
+        status="$?"
+    fi
+
+    printf '%s\n' "${output}"
+
+    if printf '%s\n' "${output}" | grep -q ">>>>>>>> pass:0"; then
+        return 1
+    fi
+
+    if printf '%s\n' "${output}" | grep -q "\\[     FAIL \\] xquic_case_test\\.${name} "; then
+        return 1
+    fi
+
+    if [[ "${status}" -ne 0 ]]; then
+        return "${status}"
+    fi
+
+    if printf '%s\n' "${output}" | grep -q ">>>>>>>> pass:1"; then
+        return 0
+    fi
+
+    if printf '%s\n' "${output}" | grep -q "\\[       OK \\] xquic_case_test\\.${name} "; then
+        return 0
+    fi
+
+    return 1
 }
 
 case_test_run()
@@ -141,6 +185,7 @@ case_test_run()
     local index
     local name
     local id
+    local mode
     local run_func
 
     if case_test_is_discovery; then
@@ -150,9 +195,19 @@ case_test_run()
     for index in "${!CASE_TEST_CASE_NAMES[@]}"; do
         name="${CASE_TEST_CASE_NAMES[${index}]}"
         id="${CASE_TEST_CASE_IDS[${index}]}"
+        mode="${CASE_TEST_CASE_MODES[${index}]}"
         run_func="${CASE_TEST_CASE_RUNNERS[${index}]}"
 
         if [[ -n "${selected}" && "${selected}" != "${name}" && "${selected}" != "${id}" ]]; then
+            continue
+        fi
+
+        if [[ "${mode}" = "self-reporting" ]]; then
+            if case_test_run_self_reporting_case "${name}" "${run_func}"; then
+                :
+            else
+                status=1
+            fi
             continue
         fi
 
@@ -215,4 +270,5 @@ case_print_result()
 
 CASE_TEST_CASE_NAMES=()
 CASE_TEST_CASE_IDS=()
+CASE_TEST_CASE_MODES=()
 CASE_TEST_CASE_RUNNERS=()

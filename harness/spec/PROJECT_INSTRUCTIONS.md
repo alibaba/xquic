@@ -99,8 +99,8 @@ tests, build scripts, validation tooling, or repository automation.
    behavior change.
 6. Identify matching happy-path and abnormal-path client-to-server coverage
    for endpoint-visible behavior. Add `scripts/case_test.sh` cases only when
-   they can be maintained without relying on the legacy full suite as the
-   default local gate.
+   they can be maintained in the owning native group without making the full
+   suite the default local gate.
 7. Re-read the modified path and trace affected callers and callees.
 8. Update durable project or module documentation when a contract, boundary,
    command, or public API changes.

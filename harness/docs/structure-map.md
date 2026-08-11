@@ -55,11 +55,10 @@ The source boundaries governing both private categories are defined in
   to module runners, feature labels, and stable shard ports.
 - `case_test/lib/selector.rb`: list, inventory, dry-run, and runner-map output
   used by `scripts/case_test.sh`.
-- `case_test/lib/runner.sh`: compatibility and selected execution scheduler
-  with per-shard work directory, port, and shard ID assignment.
+- `case_test/lib/runner.sh`: selected execution scheduler with per-shard work
+  directory, port, and shard ID assignment.
 - `case_test/lib/architecture_check.rb`: repeatable checks for parallel
-  scheduling and legacy full-suite static equivalence.
-- `case_test/legacy/full_suite.sh`: current full endpoint suite body.
+  scheduling, native ownership, and failed-case reporting.
 - `case_test/<module>/`: module-owned endpoint case runners. New cases are
   registered in the owning group script; not in the manifest.
 

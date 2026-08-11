@@ -1,7 +1,7 @@
 # Case Test Routing
 
 This directory contains metadata and helpers for routing endpoint
-client-to-server case tests. The legacy executable entry point remains
+client-to-server case tests. The executable entry point is
 `scripts/case_test.sh`.
 
 ## Files
@@ -10,34 +10,31 @@ client-to-server case tests. The legacy executable entry point remains
   runner paths to case-test groups.
 - `lib/selector.rb` powers list, inventory, dry-run, and runner-map output for
   `scripts/case_test.sh`.
-- `lib/runner.sh` preserves full-suite compatibility and provides selected
-  execution scheduling.
-- `legacy/full_suite.sh` contains the current full endpoint suite.
-- Module directories hold executable case runners. A runner may contain
-  hand-migrated case bodies or delegate to the legacy-owned runner while the
-  body remains in `legacy/full_suite.sh`.
+- `lib/runner.sh` provides selected execution and parallel scheduling.
+- Module directories hold executable case runners. Each runner declares its
+  group and registers its own cases with `case_test_case`.
 
-## Compatibility
+## Ownership
 
-Running `scripts/case_test.sh` without selector arguments preserves the legacy
-full-suite behavior. Selector mode is used for discovery and dry-run evidence
-while case bodies are migrated.
+Running `scripts/case_test.sh` without selector arguments executes all
+implemented native groups sequentially. Use `--parallel --jobs <count>` for
+parallel execution.
 
-Use `bash scripts/case_test.sh --inventory` to audit legacy ownership. Every
-legacy case must have exactly one owner; overlapping feature relevance belongs
-in documentation or future related-case metadata, not in executable ownership
-patterns.
+Use `bash scripts/case_test.sh --inventory` to audit native case ownership.
+Every case must be registered by exactly one group; overlapping feature
+relevance belongs in documentation or future related-case metadata, not in
+executable ownership.
 
-Use the architecture check when changing the runner, selector, or legacy
-compatibility wrapper:
+Use the architecture check when changing the runner, selector, manifest, or
+group registration helpers:
 
 ```bash
 case_test/lib/architecture_check.rb "$(pwd)" --all
 ```
 
-The architecture check verifies complete and unique legacy ownership, mock
-parallel scheduling, stable shard ports and work directories, and static
-legacy full-suite equivalence.
+The architecture check verifies unique native ownership, runner syntax,
+parallel scheduling, stable shard ports and work directories, and failed-case
+reporting.
 
 ## Selected Execution
 
@@ -51,10 +48,8 @@ bash scripts/case_test.sh --execution-plan
 ```
 
 Only groups marked `execution: implemented` in `manifest.yml` are scheduled.
-Implemented module runners either contain hand-migrated case bodies or use the
-legacy-owned runner to extract only the group's owned case blocks from the
-legacy suite. Use `--execution-plan` to inspect implemented groups, missing
-cases, and the current maximum safe job count.
+Use `--execution-plan` to inspect implemented groups, missing cases, and the
+current maximum safe job count.
 
 Each scheduled shard receives a stable `CASE_TEST_SHARD_ID`, a manifest-owned
 port derived from `port_offset`, and an isolated work directory. Generated
@@ -73,28 +68,25 @@ without reading interleaved raw output. On failure, terminal output shows the
 failed result lines and a bounded tail of the shard log; use the per-shard log
 files, not interleaved terminal output, as the authoritative failure evidence.
 
-Some legacy cases require sudo for client-side network setup. Run `sudo -v`
-in the same shell before executing those shards. Generated shards that contain
-sudo commands check this before running any case, so missing credentials are
-reported as an environment failure rather than case-result failures.
+Some cases require sudo for client-side network setup. Run `sudo -v` in the
+same shell before executing those shards. Shards that contain sudo commands
+check this before running any case, so missing credentials are reported as an
+environment failure rather than case-result failures.
 
 For full-suite CI, the maximum safe case-test job count is the number of
-implemented executable shards that together cover all default legacy cases.
-`transport.fec` is native-registered, `observability.qlog` is hand-migrated,
-and the remaining implemented shards are generated from legacy-owned case
-blocks until their bodies are migrated.
+implemented executable shards that together cover all registered default cases.
+At the time of writing, the full default suite covers 299 cases across 11
+implemented groups, so CI uses 11 jobs.
 
 ## Extending Case Tests
 
 Use `case_test/manifest.yml` as the group routing source of truth. Add new
-endpoint cases to the owning group script; do not add new cases to
-`legacy/full_suite.sh`. A group script declares its group once, then registers
-cases with the common helper.
+endpoint cases to the owning group script. A group script declares its group
+once, then registers cases with the common helper.
 
 ### Native Case Pattern
 
-The FEC group is the first fully native-registered group. A case follows this
-shape:
+A normal case follows this shape:
 
 ```bash
 case_test_group "transport.fec"

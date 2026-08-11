@@ -75,7 +75,7 @@ Examples:
 
 - Add or reclassify endpoint case-test group metadata.
 - Add a native endpoint case registration to an existing group runner.
-- Move endpoint case bodies from the legacy full suite into module runners.
+- Refactor endpoint case bodies inside their owning module runners.
 
 Read:
 

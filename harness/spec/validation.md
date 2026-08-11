@@ -383,22 +383,20 @@ bash scripts/case_test.sh --execute --parallel --jobs 4 --module transport
 case_test/lib/architecture_check.rb "$(pwd)" --all
 ```
 
-Running `scripts/case_test.sh` without selector arguments preserves the current
-default suite. Do not report selector output as a passing endpoint case result;
-report it as identified coverage or a case-test gap until the selected case
-body is executable. Selected execution schedules only groups marked
-`execution: implemented` in `case_test/manifest.yml`. The architecture check
-verifies complete and unique case ownership across native registrations and
-legacy-owned generated blocks, uses temporary mock runners to verify parallel
-scheduling and stable per-shard port/work-dir assignment, and checks static
-equivalence between the current legacy full suite and
-`origin/main:scripts/case_test.sh` while migration is in progress.
+Running `scripts/case_test.sh` without selector arguments executes all
+implemented native groups sequentially. Do not report selector output as a
+passing endpoint case result; report it as identified coverage until the
+selected case body is executable. Selected execution schedules only groups
+marked `execution: implemented` in `case_test/manifest.yml`. The architecture
+check verifies complete and unique native case ownership, runner syntax, mock
+parallel scheduling, stable per-shard port/work-dir assignment, and failed-case
+reporting.
 
 CI may invoke the selected-execution entry point with `--parallel`. The safe
 job count is the number of executable shards that preserve complete and unique
-default-suite coverage. Native cases, hand-migrated shards, and legacy-owned
-generated shards count as executable only when `--execution-plan` reports
-`missing_unique_cases=0`; otherwise a full-suite parallel request fails closed.
+default-suite coverage. Native group shards count as executable only when
+`--execution-plan` reports `missing_unique_cases=0`; otherwise a full-suite
+parallel request fails closed.
 
 Unit-test execution remains unchanged in this endpoint-case routing change.
 Sequential `./scripts/validate.sh test` remains the default complete-unit gate.

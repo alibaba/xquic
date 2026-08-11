@@ -7,7 +7,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "${ROOT_DIR}/case_test/lib/common.sh"
 
-LEGACY_SUITE="${CASE_TEST_LEGACY_SUITE:-${ROOT_DIR}/case_test/legacy/full_suite.sh}"
 SELECTOR_ARGS=()
 SELECTOR_COUNT=0
 EXECUTE=0
@@ -75,7 +74,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 if [[ "${EXECUTE}" -eq 0 && "${SELECTOR_COUNT}" -eq 0 ]]; then
-    exec "${LEGACY_SUITE}"
+    EXECUTE=1
 fi
 
 if [[ "${EXECUTE}" -eq 1 ]]; then
@@ -156,23 +155,13 @@ if [[ "${REQUIRE_COMPLETE}" -eq 1 ]]; then
     fi
 fi
 
-if [[ "${SELECTOR_COUNT}" -eq 0 && "${JOBS}" -eq 1 && "${PLAN_COMPLETE}" -eq 0 ]]; then
-    echo "[case-test] executable shards are incomplete; running legacy full suite as one shard"
-    exec "${LEGACY_SUITE}"
-fi
-
 if [[ "${SELECTOR_COUNT}" -eq 0 && "${PLAN_COMPLETE}" -eq 0 ]]; then
     cat "${PLAN_FILE}" >&2
-    echo "case_test: full-suite executable shards are incomplete; use --jobs 1 for legacy fallback" >&2
+    echo "case_test: executable shards are incomplete" >&2
     exit 1
 fi
 
 if [[ ! -s "${MAP_FILE}" ]]; then
-    if [[ "${SELECTOR_COUNT}" -eq 0 && "${JOBS}" -eq 1 ]]; then
-        echo "[case-test] no migrated groups; running legacy full suite as one shard"
-        exec "${LEGACY_SUITE}"
-    fi
-
     echo "case_test: selected case-test groups are not executable yet" >&2
     echo "case_test: run with --dry-run to inspect matching legacy cases" >&2
     exit 1

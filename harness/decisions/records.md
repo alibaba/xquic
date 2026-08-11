@@ -233,7 +233,7 @@ Evidence:
 - `harness/spec/harness-behavior.md`
 - `harness/scripts/xqc_harness_check.sh`
 
-## ADR-H007: Route Endpoint Cases Through Metadata Before Moving Bodies
+## ADR-H007: Route Endpoint Cases Through Native Groups
 
 Status: Accepted
 
@@ -241,61 +241,45 @@ Date: 2026-08-06
 
 Context:
 
-- `case_test/legacy/full_suite.sh` contains hundreds of endpoint checks that
-  previously lived in `scripts/case_test.sh`.
 - Agents need to identify relevant endpoint cases from changed source paths
   without running the full suite during ordinary iteration.
-- Moving every case body at once would create high review risk and make
-  behavior drift hard to isolate.
+- Endpoint cases need stable group ownership so parallel execution can isolate
+  ports, work directories, logs, and failure evidence.
 
 Decision:
 
-- Keep `scripts/case_test.sh` as the compatibility entry point.
-- Move the full-suite body to `case_test/legacy/full_suite.sh` so the public
-  entry point can stay small.
+- Keep `scripts/case_test.sh` as the public endpoint case-test entry point.
 - Add `case_test/manifest.yml` for endpoint case group metadata.
-- Let selector mode classify legacy `case_print_result` names from the current
-  full-suite body instead of copying every legacy name into multiple durable
-  documents.
-- Treat `owned_legacy_name_patterns` as the single execution owner map: every
-  legacy case has exactly one shard owner even when multiple features are
-  relevant to diagnosis.
+- Keep the manifest group-level only: source paths, module labels, feature
+  labels, runner paths, execution state, and stable port offsets.
+- Register endpoint cases in their owning group script with `case_test_case`.
+  The manifest does not carry per-case registrations.
 - Add selected execution and parallel scheduling for groups marked
   `execution: implemented`.
 - Give each shard a stable manifest-owned port offset and an isolated work
-  directory. Use PID cleanup for migrated shards instead of global process
-  termination; keep build-generated certificates as read-only shared inputs.
-- Use hand-migrated runners where available, and use the legacy-owned runner
-  to extract only a shard's owned case blocks from the legacy suite until the
-  bodies are migrated by module.
-- Keep moving case bodies into `case_test/<module>/` incrementally after
-  generated selected execution is stable.
-- Add native case registration helpers so new endpoint cases are inserted into
-  the owning group script instead of the legacy full-suite body. The manifest
-  remains group-level routing, not per-case registration.
+  directory. Use PID cleanup for shards instead of global process termination;
+  keep build-generated certificates as read-only shared inputs.
 
 Consequences:
 
-- Changed paths can be mapped to endpoint case groups while the legacy full
-  suite remains available.
+- Changed paths can be mapped to endpoint case groups without reading a
+  monolithic case script.
 - The harness check can detect stale runner paths, unknown modules, unknown
-  features, duplicate group IDs, duplicate port offsets, stale legacy
-  ownership patterns, repeated case owners, missing case owners, and invalid
-  selected execution states.
+  features, duplicate group IDs, duplicate port offsets, repeated native case
+  owners, missing runner registrations, and invalid selected execution states.
 - Selector output is discovery evidence, not a passing endpoint test result.
   Selected execution evidence requires actually running the owning shard.
 - Full-suite parallel requests fail closed while executable shards are
-  incomplete. Once the execution plan has no missing cases, each unique legacy
-  case is executed by exactly one shard.
+  incomplete. Once the execution plan has no missing cases, each unique case is
+  executed by exactly one shard.
 - Pending module runners fail clearly when invoked directly.
 - New cases can be added by appending one native registration block to the
-  owning module script. Architecture checks combine native registrations with
-  generated legacy-owned blocks until migration completes.
+  owning module script.
 
 Evidence:
 
 - `case_test/manifest.yml`
-- `case_test/legacy/full_suite.sh`
+- `case_test/<module>/`
 - `scripts/case_test.sh`
 - `harness/spec/validation.md`
 - `harness/spec/harness-manifest.yml`

@@ -107,6 +107,128 @@ Use `case_test/manifest.yml` as the group routing source of truth. Add new
 endpoint cases to the owning group script. A group script declares its group
 once, then registers cases with the common helper.
 
+### 中文新增指引
+
+普通新增端到端 case 时，优先只改已有 group 脚本，不改
+`case_test/manifest.yml`。先根据改动路径或功能归属找到 owning group：
+
+```bash
+bash scripts/case_test.sh --from-path src/transport/xqc_fec.c --list
+bash scripts/case_test.sh --feature fec --list
+bash scripts/case_test.sh --group transport.fec --list
+```
+
+如果输出中已有合适的 group，就把新 case 函数和一行
+`case_test_case` 注册写到该 group 脚本中。只有新增模块、现有 group 无法
+表达归属、或需要新的固定端口/资源隔离边界时，才新增 group 并同步
+`case_test/manifest.yml`。
+
+新增 case 的最小步骤：
+
+1. 在 owning group 脚本中新增一个 shell 函数。
+2. 函数内启动需要的 server，运行 client，检查 `clog`、`slog` 或
+   `stdlog` 中的可观测结果。
+3. 在同一文件末尾添加一行 `case_test_case "<case-name>" --id <id>
+   --run <function>`。
+4. 跑 `--inventory`、`--execution-plan`、`--group <group> --list` 确认
+   不重复、不遗漏、能被索引。
+
+#### 新增 FEC Case 示例
+
+假设要给 FEC 增加一个 repair timeout 的端到端回归，归属
+`transport.fec`，就在 `case_test/transport/fec.sh` 中添加：
+
+```bash
+fec_repair_timeout_closes_gap()
+{
+    fec_start_datagram_server
+
+    clear_log
+    echo -e "check fec repair timeout closes recovery gap ...\c"
+    case_test_sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 \
+        -E -x 1601 -N -1 -t 1 --dgram_qos 3 -g --fec_timeout 20 \
+        > stdlog
+    slog_res=`grep '|repair timeout closes gap|' slog`
+    errlog=`grep_err_log`
+    [ -z "$errlog" ] && [ -n "$slog_res" ]
+}
+
+case_test_case "fec_repair_timeout_closes_gap" \
+    --id 1601 \
+    --run fec_repair_timeout_closes_gap
+```
+
+然后验证路由：
+
+```bash
+bash scripts/case_test.sh --inventory
+bash scripts/case_test.sh --execution-plan
+bash scripts/case_test.sh --group transport.fec --list
+bash scripts/case_test.sh --execute --group transport.fec
+```
+
+#### 新增 Group 示例
+
+如果某个新模块没有合适的现有 group，例如新增 `transport.recovery`，
+先添加 runner 文件 `case_test/transport/recovery.sh`：
+
+```bash
+#!/bin/bash
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "${ROOT_DIR}/case_test/lib/common.sh"
+
+case_test_group "transport.recovery"
+
+recovery_probe_timeout()
+{
+    case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
+
+    clear_log
+    echo -e "check recovery probe timeout ...\c"
+    ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1701 > stdlog
+    result=`grep ">>>>>>>> pass:1" stdlog`
+    errlog=`grep_err_log`
+    [ -z "$errlog" ] && [ "$result" = ">>>>>>>> pass:1" ]
+}
+
+case_test_case "recovery_probe_timeout" \
+    --id 1701 \
+    --run recovery_probe_timeout
+
+if case_test_is_discovery; then
+    case_test_run
+    exit 0
+fi
+
+case_test_enter_work_dir
+case_test_run
+```
+
+再在 `case_test/manifest.yml` 中新增 group 映射，端口偏移必须和已有
+group 不重复：
+
+```yaml
+- id: transport.recovery
+  module: transport
+  submodule: recovery
+  source_paths:
+  - src/transport/xqc_recovery*
+  runner: case_test/transport/recovery.sh
+  execution: implemented
+  port_offset: 120
+```
+
+新增 group 后必须运行：
+
+```bash
+bash -n case_test/transport/recovery.sh
+bash scripts/case_test.sh --inventory
+bash scripts/case_test.sh --execution-plan
+bash scripts/case_test.sh --from-path src/transport/xqc_recovery.c --list
+case_test/lib/architecture_check.rb "$(pwd)" --all
+```
+
 ### Native Case Pattern
 
 A normal case follows this shape:

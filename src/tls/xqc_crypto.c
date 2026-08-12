@@ -7,7 +7,6 @@
 #include "src/common/xqc_str.h"
 #include "src/common/xqc_malloc.h"
 #include "src/common/utils/vint/xqc_variable_len_int.h"
-#include <assert.h>
 
 
 #define XQC_NONCE_LEN        16
@@ -178,8 +177,6 @@ void
 xqc_crypto_create_nonce(uint8_t *dest, const uint8_t *iv, size_t ivlen, uint64_t pktno, uint32_t path_id)
 {
     size_t i;
-
-    assert(ivlen >= 8);
 
     memcpy(dest, iv, ivlen);
 

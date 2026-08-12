@@ -27,7 +27,6 @@
 #include "platform.h"
 #ifndef XQC_SYS_WINDOWS
 #include <unistd.h>
-#include <execinfo.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
@@ -247,7 +246,6 @@ size_t dgram2_size = 0;
 
 int dgram_drop_pkt1 = 0;
 int path_response_drop_pkt1 = 0;
-int path_response_debug_write_cnt = 0;
 client_ctx_t ctx;
 struct event_base *eb;
 int g_send_dgram;
@@ -332,52 +330,6 @@ char g_priority[64] = {'\0'};
 
 unsigned char g_token[XQC_MAX_TOKEN_LEN];
 int g_token_len = 0;
-
-void
-xqc_client_case800_debug_state(const char *stage)
-{
-    if (g_test_case != 800) {
-        return;
-    }
-
-#ifndef XQC_SYS_WINDOWS
-    printf("[case800-debug]|stage:%s|no_crypt:%d|multipath:%d|"
-           "interfaces:%d|max_paths:%d|send_body:%d|token:%d|"
-           "session:%d|tp:%d|\n",
-           stage, g_no_crypt, g_enable_multipath, g_multi_interface_cnt,
-           XQC_DEMO_MAX_PATH_COUNT, g_send_body_size,
-           access("xqc_token", F_OK) == 0,
-           access("test_session", F_OK) == 0,
-           access("tp_localhost", F_OK) == 0);
-#else
-    printf("[case800-debug]|stage:%s|no_crypt:%d|multipath:%d|"
-           "interfaces:%d|max_paths:%d|send_body:%d|\n",
-           stage, g_no_crypt, g_enable_multipath, g_multi_interface_cnt,
-           XQC_DEMO_MAX_PATH_COUNT, g_send_body_size);
-#endif
-    fflush(stdout);
-}
-
-#ifndef XQC_SYS_WINDOWS
-void
-xqc_client_case800_signal_handler(int sig)
-{
-    void *frames[64];
-    int frame_count;
-
-    if (g_test_case != 800) {
-        _exit(128 + sig);
-    }
-
-    frame_count = backtrace(frames, 64);
-    dprintf(STDOUT_FILENO,
-            "[case800-debug]|signal:%d|stage:signal_handler|frames:%d|\n",
-            sig, frame_count);
-    backtrace_symbols_fd(frames, frame_count, STDOUT_FILENO);
-    fsync(STDOUT_FILENO);
-    _exit(128 + sig);
-}
-#endif
 
 /* 用于路径增删debug */
 int g_debug_path = 0;
@@ -1129,12 +1081,6 @@ xqc_client_get_path_index_by_id(uint64_t path_id)
     }
 
     if (g_multi_interface_cnt > XQC_DEMO_MAX_PATH_COUNT) {
-        if (g_test_case == 800) {
-            printf("[case800-debug]|stage:path_index_bad_count|path:%"PRIu64"|"
-                   "interfaces:%d|max_paths:%d|\n", path_id,
-                   g_multi_interface_cnt, XQC_DEMO_MAX_PATH_COUNT);
-            fflush(stdout);
-        }
         return -1;
     }
 
@@ -1142,16 +1088,6 @@ xqc_client_get_path_index_by_id(uint64_t path_id)
         if (g_client_path[i].path_id == path_id) {
             return i;
         }
-    }
-
-    if (g_test_case == 800) {
-        printf("[case800-debug]|stage:path_index_miss|path:%"PRIu64"|"
-               "interfaces:%d|slot0_id:%"PRIu64"|slot0_used:%d|"
-               "slot1_id:%"PRIu64"|slot1_used:%d|\n", path_id,
-               g_multi_interface_cnt, g_client_path[0].path_id,
-               g_client_path[0].is_in_used, g_client_path[1].path_id,
-               g_client_path[1].is_in_used);
-        fflush(stdout);
     }
 
     return -1;
@@ -1189,18 +1125,6 @@ xqc_client_write_socket_ex(uint64_t path_id,
     int fd = 0;
     int header_type;
     int path_idx = -1;
-
-    if (g_test_case == 800
-        && (user_data == NULL || buf == NULL
-            || g_multi_interface_cnt > XQC_DEMO_MAX_PATH_COUNT))
-    {
-        printf("[case800-debug]|stage:write_socket_ex_bad_arg|user:%p|"
-               "buf:%p|interfaces:%d|max_paths:%d|path:%"PRIu64"|size:%zu|\n",
-               user_data, buf, g_multi_interface_cnt,
-               XQC_DEMO_MAX_PATH_COUNT, path_id, size);
-        fflush(stdout);
-        return XQC_SOCKET_ERROR;
-    }
 
     if (user_conn == NULL || buf == NULL) {
         return XQC_SOCKET_ERROR;
@@ -1314,19 +1238,6 @@ xqc_client_write_socket_ex(uint64_t path_id,
         {
             fd = g_client_path[path_idx].rebinding_path_fd;
         }
-    }
-
-    if (g_test_case == 800 && path_response_debug_write_cnt < 32) {
-        int byte0 = send_buf_size > 0 ? send_buf[0] : -1;
-        int byte13 = send_buf_size > 13 ? send_buf[13] : -1;
-        size_t path_send_size = path_idx >= 0 ? g_client_path[path_idx].send_size : 0;
-
-        printf("[case800-debug]|stage:write_socket_ex|cnt:%d|path:%"PRIu64"|"
-               "idx:%d|fd:%d|hsk:%d|size:%zu|send_size:%zu|b0:%d|b13:%d|\n",
-               path_response_debug_write_cnt, path_id, path_idx, fd,
-               hsk_completed, send_buf_size, path_send_size, byte0, byte13);
-        fflush(stdout);
-        path_response_debug_write_cnt++;
     }
 
     do {
@@ -1480,11 +1391,6 @@ xqc_client_write_mmsg(const struct iovec *msg_iov, unsigned int vlen,
     unsigned int send_vlen = vlen > MAX_SEG ? MAX_SEG : vlen;
     struct mmsghdr mmsg[MAX_SEG];
     memset(&mmsg, 0, sizeof(mmsg));
-    if (g_test_case == 800 && vlen > MAX_SEG) {
-        printf("[case800-debug]|stage:write_mmsg_cap|vlen:%u|max:%d|\n",
-               vlen, MAX_SEG);
-        fflush(stdout);
-    }
     for (int i = 0; i < send_vlen; i++) {
         mmsg[i].msg_hdr.msg_iov = (struct iovec *)&msg_iov[i];
         mmsg[i].msg_hdr.msg_iovlen = 1;
@@ -1537,12 +1443,6 @@ xqc_client_mp_write_mmsg(uint64_t path_id,
     struct mmsghdr mmsg[MAX_SEG];
     unsigned int send_vlen = vlen > MAX_SEG ? MAX_SEG : vlen;
     memset(&mmsg, 0, sizeof(mmsg));
-    if (g_test_case == 800 && vlen > MAX_SEG) {
-        printf("[case800-debug]|stage:mp_write_mmsg_cap|path:%"PRIu64"|"
-               "vlen:%u|max:%d|fd:%d|idx:%d|\n", path_id, vlen,
-               MAX_SEG, fd, path_idx);
-        fflush(stdout);
-    }
     for (int i = 0; i < send_vlen; i++) {
         mmsg[i].msg_hdr.msg_iov = (struct iovec *)&msg_iov[i];
         mmsg[i].msg_hdr.msg_iovlen = 1;
@@ -1730,14 +1630,6 @@ xqc_client_create_path_socket(xqc_user_path_t *path,
             printf("|xqc_client_create_path_socket error|");
             return XQC_ERROR;
         }
-
-        if (g_test_case == 800) {
-            printf("[case800-debug]|stage:create_path_socket|path_fd:%d|"
-                   "rebinding_fd:%d|if:%s|\n", path->path_fd,
-                   path->rebinding_path_fd,
-                   path_interface == NULL ? "null" : path_interface);
-            fflush(stdout);
-        }
     }
 #endif
 
@@ -1764,17 +1656,9 @@ xqc_client_create_path(xqc_user_path_t *path,
     path->ev_socket = event_new(eb, path->path_fd, 
                 EV_READ | EV_PERSIST, xqc_client_socket_event_callback, user_conn);
     if (path->ev_socket == NULL) {
-        printf("[case800-debug]|stage:create_path_event_fail|path_fd:%d|\n",
-               path->path_fd);
-        fflush(stdout);
         return XQC_ERROR;
     }
     int path_event_ret = event_add(path->ev_socket, NULL);
-    if (g_test_case == 800) {
-        printf("[case800-debug]|stage:create_path_event_add|ret:%d|fd:%d|\n",
-               path_event_ret, path->path_fd);
-        fflush(stdout);
-    }
     if (path_event_ret != 0) {
         return XQC_ERROR;
     }
@@ -1784,24 +1668,10 @@ xqc_client_create_path(xqc_user_path_t *path,
     {
         path->rebinding_ev_socket = event_new(eb, path->rebinding_path_fd, EV_READ | EV_PERSIST,
                                               xqc_client_socket_event_callback, user_conn);
-        if (g_test_case == 800) {
-            printf("[case800-debug]|stage:create_path_event|path_fd:%d|"
-                   "rebinding_fd:%d|ev:%p|rebinding_ev:%p|\n",
-                   path->path_fd, path->rebinding_path_fd,
-                   (void *) path->ev_socket,
-                   (void *) path->rebinding_ev_socket);
-            fflush(stdout);
-        }
         if (path->rebinding_ev_socket == NULL) {
             return XQC_ERROR;
         }
         int rebinding_event_ret = event_add(path->rebinding_ev_socket, NULL);
-        if (g_test_case == 800) {
-            printf("[case800-debug]|stage:create_rebinding_event_add|"
-                   "ret:%d|fd:%d|\n", rebinding_event_ret,
-                   path->rebinding_path_fd);
-            fflush(stdout);
-        }
         if (rebinding_event_ret != 0) {
             return XQC_ERROR;
         }
@@ -1896,22 +1766,10 @@ xqc_client_create_conn_socket(user_conn_t *user_conn)
 
     user_conn->ev_socket = event_new(eb, user_conn->fd, EV_READ | EV_PERSIST, 
                                      xqc_client_socket_event_callback, user_conn);
-    if (g_test_case == 800) {
-        printf("[case800-debug]|stage:create_conn_socket|fd:%d|ev:%p|"
-               "eb:%p|user:%p|\n", user_conn->fd,
-               (void *) user_conn->ev_socket, (void *) eb,
-               (void *) user_conn);
-        fflush(stdout);
-    }
     if (user_conn->ev_socket == NULL) {
         return -1;
     }
     int event_ret = event_add(user_conn->ev_socket, NULL);
-    if (g_test_case == 800) {
-        printf("[case800-debug]|stage:create_conn_socket_event_add|"
-               "ret:%d|fd:%d|\n", event_ret, user_conn->fd);
-        fflush(stdout);
-    }
     if (event_ret != 0) {
         return -1;
     }
@@ -1965,18 +1823,7 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
     DEBUG;
 
     user_conn_t *user_conn = (user_conn_t *)user_data;
-    if (g_test_case == 800) {
-        printf("[case800-debug]|stage:conn_create_notify|conn:%p|cid:%p|"
-               "user:%p|proto:%p|\n", (void *) conn, (void *) cid,
-               user_data, conn_proto_data);
-        fflush(stdout);
-    }
-
     if (conn == NULL || user_conn == NULL) {
-        if (g_test_case == 800) {
-            printf("[case800-debug]|stage:conn_create_notify_bad_arg|\n");
-            fflush(stdout);
-        }
         return XQC_ERROR;
     }
 
@@ -2051,23 +1898,9 @@ xqc_client_conn_update_cid_notify(xqc_connection_t *conn, const xqc_cid_t *retir
     DEBUG;
 
     user_conn_t *user_conn = (user_conn_t *) user_data;
-    if (g_test_case == 800) {
-        printf("[case800-debug]|stage:conn_update_cid|conn:%p|retire:%p|"
-               "new:%p|user:%p|\n", (void *) conn, (void *) retire_cid,
-               (void *) new_cid, user_data);
-        fflush(stdout);
-    }
-
     if (user_conn == NULL || new_cid == NULL || retire_cid == NULL
         || ctx.engine == NULL)
     {
-        if (g_test_case == 800) {
-            printf("[case800-debug]|stage:conn_update_cid_bad_arg|"
-                   "user:%p|engine:%p|retire:%p|new:%p|\n",
-                   (void *) user_conn, (void *) ctx.engine,
-                   (void *) retire_cid, (void *) new_cid);
-            fflush(stdout);
-        }
         return;
     }
 
@@ -2084,17 +1917,7 @@ xqc_client_conn_handshake_finished(xqc_connection_t *conn, void *user_data, void
 {
     DEBUG;
     user_conn_t *user_conn = (user_conn_t *) user_data;
-    if (g_test_case == 800) {
-        printf("[case800-debug]|stage:handshake_finished|conn:%p|user:%p|\n",
-               (void *) conn, user_data);
-        fflush(stdout);
-    }
-
     if (user_conn == NULL) {
-        if (g_test_case == 800) {
-            printf("[case800-debug]|stage:handshake_finished_bad_arg|\n");
-            fflush(stdout);
-        }
         return;
     }
 
@@ -2133,18 +1956,7 @@ xqc_client_h3_conn_create_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void
     DEBUG;
 
     user_conn_t *user_conn = (user_conn_t *) user_data;
-    if (g_test_case == 800) {
-        printf("[case800-debug]|stage:h3_conn_create_notify|conn:%p|"
-               "cid:%p|user:%p|\n", (void *) conn, (void *) cid,
-               user_data);
-        fflush(stdout);
-    }
-
     if (conn == NULL || user_conn == NULL) {
-        if (g_test_case == 800) {
-            printf("[case800-debug]|stage:h3_conn_create_notify_bad_arg|\n");
-            fflush(stdout);
-        }
         return XQC_ERROR;
     }
 
@@ -4442,24 +4254,9 @@ xqc_client_ready_to_create_path(const xqc_cid_t *cid,
     uint64_t path_id = 0;
     user_conn_t *user_conn = (user_conn_t *) conn_user_data;
 
-    if (g_test_case == 800) {
-        printf("[case800-debug]|stage:ready_to_create_path|cid:%p|"
-               "user:%p|engine:%p|interfaces:%d|max_paths:%d|\n",
-               (void *) cid, conn_user_data, (void *) ctx.engine,
-               g_multi_interface_cnt, XQC_DEMO_MAX_PATH_COUNT);
-        fflush(stdout);
-    }
-
     if (user_conn == NULL || ctx.engine == NULL
         || g_multi_interface_cnt > XQC_DEMO_MAX_PATH_COUNT)
     {
-        if (g_test_case == 800) {
-            printf("[case800-debug]|stage:ready_to_create_path_bad_state|"
-                   "user:%p|engine:%p|interfaces:%d|max_paths:%d|\n",
-                   (void *) user_conn, (void *) ctx.engine,
-                   g_multi_interface_cnt, XQC_DEMO_MAX_PATH_COUNT);
-            fflush(stdout);
-        }
         return;
     }
 
@@ -4473,21 +4270,7 @@ xqc_client_ready_to_create_path(const xqc_cid_t *cid,
                 continue;
             }
         
-            if (g_test_case == 800) {
-                printf("[case800-debug]|stage:before_create_path|idx:%d|"
-                       "used:%d|old_path:%"PRIu64"|\n", i,
-                       g_client_path[i].is_in_used,
-                       g_client_path[i].path_id);
-                fflush(stdout);
-            }
-
             int ret = xqc_conn_create_path(ctx.engine, &(user_conn->cid), &path_id, 0);
-
-            if (g_test_case == 800) {
-                printf("[case800-debug]|stage:after_create_path|idx:%d|"
-                       "ret:%d|path:%"PRIu64"|\n", i, ret, path_id);
-                fflush(stdout);
-            }
 
             if (ret < 0) {
                 printf("not support mp, xqc_conn_create_path err = %d\n", ret);
@@ -5248,15 +5031,6 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-#ifndef XQC_SYS_WINDOWS
-    if (g_test_case == 800) {
-        signal(SIGSEGV, xqc_client_case800_signal_handler);
-        signal(SIGABRT, xqc_client_case800_signal_handler);
-    }
-#endif
-
-    xqc_client_case800_debug_state("after_args");
-    
     memset(g_header_key, 'k', sizeof(g_header_key));
     memset(g_header_value, 'v', sizeof(g_header_value));
     memset(&ctx, 0, sizeof(ctx));
@@ -5265,7 +5039,6 @@ int main(int argc, char *argv[]) {
     xqc_client_open_log_file(&ctx);
 
     g_token_len = xqc_client_read_token(g_token, XQC_MAX_TOKEN_LEN);
-    xqc_client_case800_debug_state("after_token");
  
     xqc_platform_init_env();
 

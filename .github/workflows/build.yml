@@ -228,24 +228,25 @@ jobs:
           "$log_file")
         unit_failed=$(awk '/  Test: .*FAILED/ {count++} END {print count + 0}' \
           "$log_file")
-        case_total=$(awk \
-          '/\[ RUN      \] xquic_case_test\./ {count++} END {print count + 0}' \
+        case_total=$(awk '/pass:/ {count++} END {print count + 0}' \
           "$log_file")
         case_passed=$(awk \
-          '/\[       OK \] xquic_case_test\./ {count++} END {print count + 0}' \
+          '/pass:1([^0-9]|$)/ {count++} END {print count + 0}' \
           "$log_file")
         case_failed=$(awk \
-          '/\[     FAIL \] xquic_case_test\./ {count++} END {print count + 0}' \
+          '/pass:0([^0-9]|$)/ {count++} END {print count + 0}' \
           "$log_file")
+        case_reported=$((case_passed + case_failed))
 
         echo "unit test total:$unit_total passed:$unit_passed failed:$unit_failed"
-        echo "case test total:$case_total passed:$case_passed failed:$case_failed"
+        echo "case test total:$case_total reported:$case_reported" \
+          "passed:$case_passed failed:$case_failed"
 
         if [ "$unit_total" -gt 0 ] \
           && [ "$unit_passed" -eq "$unit_total" ] \
           && [ "$unit_failed" -eq 0 ] \
           && [ "$case_total" -gt 0 ] \
-          && [ "$case_passed" -eq "$case_total" ] \
+          && [ "$case_reported" -eq "$case_total" ] \
           && [ "$case_failed" -eq 0 ]; then
           echo "===== All unit and case tests passed! ====="
         else

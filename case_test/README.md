@@ -65,7 +65,7 @@ result lines in `<build>/case_test_parallel/<shard>/case_test.failures`.
 The parent runner reports each shard's start line, heartbeat, exit status,
 elapsed time, and parsed fail count, and returns nonzero if a shard exits
 nonzero or prints any `[     FAIL ]` case result. It also emits ordered
-legacy-compatible `pass:1` and `pass:0` result lines parsed from the shard log
+normalized `pass:1` and `pass:0` result lines parsed from the shard log
 so existing CI summary checks can count cases without reading interleaved raw
 output. On failure, terminal output shows the failed result lines and a bounded
 tail of the shard log; use the per-shard log files, not interleaved terminal
@@ -120,7 +120,7 @@ fec_negotiate_encoder_fec_scheme()
 }
 
 case_test_case "negotiate_encoder_fec_scheme" \
-    --id legacy \
+    --id native \
     --run fec_negotiate_encoder_fec_scheme
 ```
 

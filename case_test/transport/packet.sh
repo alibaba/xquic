@@ -448,24 +448,24 @@ fi
 
 }
 
-case_test_case "illegal_packet" --id legacy --mode self-reporting --run case_transport_packet_illegal_packet
-case_test_case "duplicate_packet" --id legacy --mode self-reporting --run case_transport_packet_duplicate_packet
-case_test_case "packet_with_wrong_cid" --id legacy --mode self-reporting --run case_transport_packet_packet_with_wrong_cid
-case_test_case "retry_packet_send" --id legacy --mode self-reporting --run case_transport_packet_retry_packet_send
-case_test_case "large_ack_range_with_30_percent_loss" --id legacy --mode self-reporting --run case_transport_packet_large_ack_range_with_30_percent_loss
-case_test_case "client_initial_dcid_corruption" --id legacy --mode self-reporting --run case_transport_packet_client_initial_dcid_corruption
-case_test_case "client_initial_scid_corruption" --id legacy --mode self-reporting --run case_transport_packet_client_initial_scid_corruption
-case_test_case "server_initial_dcid_corruption" --id legacy --mode self-reporting --run case_transport_packet_server_initial_dcid_corruption
-case_test_case "server_initial_scid_corruption" --id legacy --mode self-reporting --run case_transport_packet_server_initial_scid_corruption
-case_test_case "server_odcid_hash" --id legacy --mode self-reporting --run case_transport_packet_server_odcid_hash
-case_test_case "ack_timestamp_frame_case_1" --id legacy --mode self-reporting --run case_transport_packet_ack_timestamp_frame_case_1
-case_test_case "ack_timestamp_frame_case_2" --id legacy --mode self-reporting --run case_transport_packet_ack_timestamp_frame_case_2
-case_test_case "ack_timestamp_frame_case_3" --id legacy --mode self-reporting --run case_transport_packet_ack_timestamp_frame_case_3
-case_test_case "ack_timestamp_frame_case_4" --id legacy --mode self-reporting --run case_transport_packet_ack_timestamp_frame_case_4
-case_test_case "ack_timestamp_frame_case_5" --id legacy --mode self-reporting --run case_transport_packet_ack_timestamp_frame_case_5
-case_test_case "ack_timestamp_frame_case_6" --id legacy --mode self-reporting --run case_transport_packet_ack_timestamp_frame_case_6
-case_test_case "ack_ecn_parse_both" --id legacy --mode self-reporting --run case_transport_packet_ack_ecn_parse_both
-case_test_case "ack_ecn_parse_server_only" --id legacy --mode self-reporting --run case_transport_packet_ack_ecn_parse_server_only
+case_test_case "illegal_packet" --id native --mode self-reporting --run case_transport_packet_illegal_packet
+case_test_case "duplicate_packet" --id native --mode self-reporting --run case_transport_packet_duplicate_packet
+case_test_case "packet_with_wrong_cid" --id native --mode self-reporting --run case_transport_packet_packet_with_wrong_cid
+case_test_case "retry_packet_send" --id native --mode self-reporting --run case_transport_packet_retry_packet_send
+case_test_case "large_ack_range_with_30_percent_loss" --id native --mode self-reporting --run case_transport_packet_large_ack_range_with_30_percent_loss
+case_test_case "client_initial_dcid_corruption" --id native --mode self-reporting --run case_transport_packet_client_initial_dcid_corruption
+case_test_case "client_initial_scid_corruption" --id native --mode self-reporting --run case_transport_packet_client_initial_scid_corruption
+case_test_case "server_initial_dcid_corruption" --id native --mode self-reporting --run case_transport_packet_server_initial_dcid_corruption
+case_test_case "server_initial_scid_corruption" --id native --mode self-reporting --run case_transport_packet_server_initial_scid_corruption
+case_test_case "server_odcid_hash" --id native --mode self-reporting --run case_transport_packet_server_odcid_hash
+case_test_case "ack_timestamp_frame_case_1" --id native --mode self-reporting --run case_transport_packet_ack_timestamp_frame_case_1
+case_test_case "ack_timestamp_frame_case_2" --id native --mode self-reporting --run case_transport_packet_ack_timestamp_frame_case_2
+case_test_case "ack_timestamp_frame_case_3" --id native --mode self-reporting --run case_transport_packet_ack_timestamp_frame_case_3
+case_test_case "ack_timestamp_frame_case_4" --id native --mode self-reporting --run case_transport_packet_ack_timestamp_frame_case_4
+case_test_case "ack_timestamp_frame_case_5" --id native --mode self-reporting --run case_transport_packet_ack_timestamp_frame_case_5
+case_test_case "ack_timestamp_frame_case_6" --id native --mode self-reporting --run case_transport_packet_ack_timestamp_frame_case_6
+case_test_case "ack_ecn_parse_both" --id native --mode self-reporting --run case_transport_packet_ack_ecn_parse_both
+case_test_case "ack_ecn_parse_server_only" --id native --mode self-reporting --run case_transport_packet_ack_ecn_parse_server_only
 
 if case_test_is_discovery; then
     case_test_run

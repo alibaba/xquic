@@ -82,13 +82,13 @@ end
 groups = manifest.fetch("groups").map do |group|
   native_cases = discover_native_cases(root, group)
   names = native_cases.map { |native_case| native_case.fetch("name") }.uniq.sort
-  group.merge("legacy_names" => names, "native_cases" => native_cases)
+  group.merge("case_names" => names, "native_cases" => native_cases)
 end
 
 if options[:inventory]
   matched_by = Hash.new { |hash, key| hash[key] = [] }
   groups.each do |group|
-    group.fetch("legacy_names", []).each do |name|
+    group.fetch("case_names", []).each do |name|
       matched_by[name] << group.fetch("id")
     end
   end
@@ -127,7 +127,7 @@ end
 unless options[:cases].empty?
   selected = selected.select do |group|
     options[:cases].any? do |wanted|
-      wanted == group["id"] || group.fetch("legacy_names", []).include?(wanted)
+      wanted == group["id"] || group.fetch("case_names", []).include?(wanted)
     end
   end
 end
@@ -138,9 +138,9 @@ if selected.empty? && !options[:list]
 end
 
 if options[:execution_plan]
-  selected_cases = selected.flat_map { |group| group.fetch("legacy_names", []) }.uniq.sort
+  selected_cases = selected.flat_map { |group| group.fetch("case_names", []) }.uniq.sort
   implemented = selected.select { |group| group.fetch("execution", "pending") == "implemented" }
-  implemented_cases = implemented.flat_map { |group| group.fetch("legacy_names", []) }.uniq.sort
+  implemented_cases = implemented.flat_map { |group| group.fetch("case_names", []) }.uniq.sort
   pending = selected.reject { |group| group.fetch("execution", "pending") == "implemented" }
   missing = selected_cases - implemented_cases
   max_parallel_jobs = manifest.fetch("max_parallel_jobs", implemented.length)
@@ -156,10 +156,10 @@ if options[:execution_plan]
   puts "complete=#{missing.empty?}"
   puts "max_safe_jobs=#{max_safe_jobs}"
   implemented.sort_by { |group| group.fetch("id") }.each do |group|
-    puts "implemented_group=#{group.fetch("id")} case_count=#{group.fetch("legacy_names", []).length}"
+    puts "implemented_group=#{group.fetch("id")} case_count=#{group.fetch("case_names", []).length}"
   end
   pending.sort_by { |group| group.fetch("id") }.each do |group|
-    puts "pending_group=#{group.fetch("id")} case_count=#{group.fetch("legacy_names", []).length}"
+    puts "pending_group=#{group.fetch("id")} case_count=#{group.fetch("case_names", []).length}"
   end
   exit missing.empty? ? 0 : 3
 end
@@ -192,11 +192,11 @@ selected.sort_by { |group| group.fetch("id") }.each do |group|
   puts "execution=#{group.fetch("execution", "pending")}"
   puts "runner=#{group.fetch("runner")}"
   puts "port_offset=#{group.fetch("port_offset")}"
-  puts "case_count=#{group.fetch("legacy_names").length}"
+  puts "case_count=#{group.fetch("case_names").length}"
   group.fetch("native_cases", []).each do |native_case|
     puts "native_case=#{native_case.fetch("name")} id=#{native_case.fetch("id")}"
   end
-  group.fetch("legacy_names").each do |name|
+  group.fetch("case_names").each do |name|
     puts "case_name=#{name}"
   end
 end

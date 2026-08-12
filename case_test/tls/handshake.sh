@@ -447,25 +447,25 @@ rm -f aead_confidentiality_server.log
 
 }
 
-case_test_case "cert_verify" --id legacy --mode self-reporting --run case_tls_handshake_cert_verify
-case_test_case "1RTT" --id legacy --mode self-reporting --run case_tls_handshake__1RTT
-case_test_case "alpn_negotiation_success" --id legacy --mode self-reporting --run case_tls_handshake_alpn_negotiation_success
-case_test_case "alpn_negotiation_failure_0x178" --id legacy --mode self-reporting --run case_tls_handshake_alpn_negotiation_failure_0x178
-case_test_case "without_session_ticket" --id legacy --mode self-reporting --run case_tls_handshake_without_session_ticket
-case_test_case "0RTT_accept" --id legacy --mode self-reporting --run case_tls_handshake__0RTT_accept
-case_test_case "0RTT_reject" --id legacy --mode self-reporting --run case_tls_handshake__0RTT_reject
-case_test_case "no_crypto_without_0RTT" --id legacy --mode self-reporting --run case_tls_handshake_no_crypto_without_0RTT
-case_test_case "no_crypto_with_0RTT" --id legacy --mode self-reporting --run case_tls_handshake_no_crypto_with_0RTT
-case_test_case "no_crypto_with_0RTT_twice" --id legacy --mode self-reporting --run case_tls_handshake_no_crypto_with_0RTT_twice
-case_test_case "0RTT_buffer_limit_before_Initial" --id legacy --mode self-reporting --run case_tls_handshake__0RTT_buffer_limit_before_Initial
-case_test_case "set_cipher_suites" --id legacy --mode self-reporting --run case_tls_handshake_set_cipher_suites
-case_test_case "key_update" --id legacy --mode self-reporting --run case_tls_handshake_key_update
-case_test_case "key_update_0RTT" --id legacy --mode self-reporting --run case_tls_handshake_key_update_0RTT
-case_test_case "initial_salt_v1_key_derivation" --id legacy --mode self-reporting --run case_tls_handshake_initial_salt_v1_key_derivation
-case_test_case "crypto_error_cert_verify" --id legacy --mode self-reporting --run case_tls_handshake_crypto_error_cert_verify
-case_test_case "crypto_error_not_fixed_enum" --id legacy --mode self-reporting --run case_tls_handshake_crypto_error_not_fixed_enum
-case_test_case "aead_confidentiality_boundary_updates_keys" --id legacy --mode self-reporting --run case_tls_handshake_aead_confidentiality_boundary_updates_keys
-case_test_case "aead_confidentiality_exhaustion_stops_sender" --id legacy --mode self-reporting --run case_tls_handshake_aead_confidentiality_exhaustion_stops_sender
+case_test_case "cert_verify" --id native --mode self-reporting --run case_tls_handshake_cert_verify
+case_test_case "1RTT" --id native --mode self-reporting --run case_tls_handshake__1RTT
+case_test_case "alpn_negotiation_success" --id native --mode self-reporting --run case_tls_handshake_alpn_negotiation_success
+case_test_case "alpn_negotiation_failure_0x178" --id native --mode self-reporting --run case_tls_handshake_alpn_negotiation_failure_0x178
+case_test_case "without_session_ticket" --id native --mode self-reporting --run case_tls_handshake_without_session_ticket
+case_test_case "0RTT_accept" --id native --mode self-reporting --run case_tls_handshake__0RTT_accept
+case_test_case "0RTT_reject" --id native --mode self-reporting --run case_tls_handshake__0RTT_reject
+case_test_case "no_crypto_without_0RTT" --id native --mode self-reporting --run case_tls_handshake_no_crypto_without_0RTT
+case_test_case "no_crypto_with_0RTT" --id native --mode self-reporting --run case_tls_handshake_no_crypto_with_0RTT
+case_test_case "no_crypto_with_0RTT_twice" --id native --mode self-reporting --run case_tls_handshake_no_crypto_with_0RTT_twice
+case_test_case "0RTT_buffer_limit_before_Initial" --id native --mode self-reporting --run case_tls_handshake__0RTT_buffer_limit_before_Initial
+case_test_case "set_cipher_suites" --id native --mode self-reporting --run case_tls_handshake_set_cipher_suites
+case_test_case "key_update" --id native --mode self-reporting --run case_tls_handshake_key_update
+case_test_case "key_update_0RTT" --id native --mode self-reporting --run case_tls_handshake_key_update_0RTT
+case_test_case "initial_salt_v1_key_derivation" --id native --mode self-reporting --run case_tls_handshake_initial_salt_v1_key_derivation
+case_test_case "crypto_error_cert_verify" --id native --mode self-reporting --run case_tls_handshake_crypto_error_cert_verify
+case_test_case "crypto_error_not_fixed_enum" --id native --mode self-reporting --run case_tls_handshake_crypto_error_not_fixed_enum
+case_test_case "aead_confidentiality_boundary_updates_keys" --id native --mode self-reporting --run case_tls_handshake_aead_confidentiality_boundary_updates_keys
+case_test_case "aead_confidentiality_exhaustion_stops_sender" --id native --mode self-reporting --run case_tls_handshake_aead_confidentiality_exhaustion_stops_sender
 
 if case_test_is_discovery; then
     case_test_run

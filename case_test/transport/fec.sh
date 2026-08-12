@@ -192,19 +192,19 @@ fec_recovered_function_of_datagram_rsc_and_xor()
     [ -z "$errlog" ] && [ -n "$slog_res1" ]
 }
 
-case_test_case "negotiate_encoder_fec_scheme" --id legacy --run fec_negotiate_encoder_fec_scheme
-case_test_case "negotiate_decoder_fec_scheme" --id legacy --run fec_negotiate_decoder_fec_scheme
-case_test_case "fec_recovered_function_of_stream_xor" --id legacy --run fec_recovered_function_of_stream_xor
-case_test_case "fec_recovered_function_of_stream_rsc" --id legacy --run fec_recovered_function_of_stream_rsc
-case_test_case "fec_recovered_function_of_stream_pm" --id legacy --run fec_recovered_function_of_stream_pm
-case_test_case "fec_send_repair_ahead" --id legacy --run fec_send_repair_ahead
-case_test_case "frame_type_bit_repair_sent" --id legacy --run frame_type_bit_repair_sent
-case_test_case "frame_type_bit_repair_received" --id legacy --run frame_type_bit_repair_received
-case_test_case "fec_recovered_function_of_datagram_xor" --id legacy --run fec_recovered_function_of_datagram_xor
-case_test_case "fec_recovered_function_of_datagram_rsc" --id legacy --run fec_recovered_function_of_datagram_rsc
-case_test_case "fec_recovered_function_of_datagram_pm" --id legacy --run fec_recovered_function_of_datagram_pm
-case_test_case "fec_recovered_function_of_datagram_xor_and_rsc" --id legacy --run fec_recovered_function_of_datagram_xor_and_rsc
-case_test_case "fec_recovered_function_of_datagram_rsc_and_xor" --id legacy --run fec_recovered_function_of_datagram_rsc_and_xor
+case_test_case "negotiate_encoder_fec_scheme" --id native --run fec_negotiate_encoder_fec_scheme
+case_test_case "negotiate_decoder_fec_scheme" --id native --run fec_negotiate_decoder_fec_scheme
+case_test_case "fec_recovered_function_of_stream_xor" --id native --run fec_recovered_function_of_stream_xor
+case_test_case "fec_recovered_function_of_stream_rsc" --id native --run fec_recovered_function_of_stream_rsc
+case_test_case "fec_recovered_function_of_stream_pm" --id native --run fec_recovered_function_of_stream_pm
+case_test_case "fec_send_repair_ahead" --id native --run fec_send_repair_ahead
+case_test_case "frame_type_bit_repair_sent" --id native --run frame_type_bit_repair_sent
+case_test_case "frame_type_bit_repair_received" --id native --run frame_type_bit_repair_received
+case_test_case "fec_recovered_function_of_datagram_xor" --id native --run fec_recovered_function_of_datagram_xor
+case_test_case "fec_recovered_function_of_datagram_rsc" --id native --run fec_recovered_function_of_datagram_rsc
+case_test_case "fec_recovered_function_of_datagram_pm" --id native --run fec_recovered_function_of_datagram_pm
+case_test_case "fec_recovered_function_of_datagram_xor_and_rsc" --id native --run fec_recovered_function_of_datagram_xor_and_rsc
+case_test_case "fec_recovered_function_of_datagram_rsc_and_xor" --id native --run fec_recovered_function_of_datagram_rsc_and_xor
 
 if case_test_is_discovery; then
     case_test_run

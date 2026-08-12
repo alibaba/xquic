@@ -171,7 +171,7 @@ case_test_case_end()
 case_test_case()
 {
     local name="$1"
-    local id="legacy"
+    local id="native"
     local mode="return-status"
     local run_func=""
 

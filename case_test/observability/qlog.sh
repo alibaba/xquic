@@ -235,13 +235,13 @@ fi
 
 }
 
-case_test_case "qlog_disable" --id legacy --mode self-reporting --run case_observability_qlog_qlog_disable
-case_test_case "qlog_importance_selected_1" --id legacy --mode self-reporting --run case_observability_qlog_qlog_importance_selected_1
-case_test_case "qlog_importance_selected_2" --id legacy --mode self-reporting --run case_observability_qlog_qlog_importance_selected_2
-case_test_case "qlog_importance_removed" --id legacy --mode self-reporting --run case_observability_qlog_qlog_importance_removed
-case_test_case "qlog_importance_extra" --id legacy --mode self-reporting --run case_observability_qlog_qlog_importance_extra
-case_test_case "qlog_importance_base" --id legacy --mode self-reporting --run case_observability_qlog_qlog_importance_base
-case_test_case "qlog_importance_core" --id legacy --mode self-reporting --run case_observability_qlog_qlog_importance_core
+case_test_case "qlog_disable" --id native --mode self-reporting --run case_observability_qlog_qlog_disable
+case_test_case "qlog_importance_selected_1" --id native --mode self-reporting --run case_observability_qlog_qlog_importance_selected_1
+case_test_case "qlog_importance_selected_2" --id native --mode self-reporting --run case_observability_qlog_qlog_importance_selected_2
+case_test_case "qlog_importance_removed" --id native --mode self-reporting --run case_observability_qlog_qlog_importance_removed
+case_test_case "qlog_importance_extra" --id native --mode self-reporting --run case_observability_qlog_qlog_importance_extra
+case_test_case "qlog_importance_base" --id native --mode self-reporting --run case_observability_qlog_qlog_importance_base
+case_test_case "qlog_importance_core" --id native --mode self-reporting --run case_observability_qlog_qlog_importance_core
 
 if case_test_is_discovery; then
     case_test_run

@@ -106,7 +106,7 @@ def write_selftest_runner(path, root, group_id, trace_path = nil, result: "pass"
     set -u
     source #{File.join(root, "case_test/lib/common.sh").inspect}
     case_test_group #{group_id.inspect}
-    case_test_case #{group_id.inspect} --id legacy --mode self-reporting --run selftest_run
+    case_test_case #{group_id.inspect} --id native --mode self-reporting --run selftest_run
     if case_test_is_discovery; then
         case_test_run
         exit 0
@@ -249,7 +249,7 @@ def case_timeout_selftest(root)
         echo "selftest.timeout ...>>>>>>>> pass:1"
         case_print_result "selftest.timeout" "pass"
     }
-    case_test_case "selftest.timeout" --id legacy --mode self-reporting --run selftest_run
+    case_test_case "selftest.timeout" --id native --mode self-reporting --run selftest_run
     if case_test_is_discovery; then
         case_test_run
         exit 0

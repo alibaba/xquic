@@ -130,7 +130,7 @@ if ! ruby "${ROOT_DIR}/case_test/lib/selector.rb" "${ROOT_DIR}" \
     --inventory > "${OWNERSHIP_FILE}"
 then
     cat "${OWNERSHIP_FILE}" >&2
-    echo "case_test: legacy case ownership must be complete and unique before execution" >&2
+    echo "case_test: current-suite case ownership must be complete and unique before execution" >&2
     exit 1
 fi
 
@@ -165,7 +165,7 @@ fi
 if [[ "${REQUIRE_COMPLETE}" -eq 1 ]]; then
     if [[ "${PLAN_COMPLETE}" -eq 0 ]]; then
         cat "${PLAN_FILE}" >&2
-        echo "case_test: selected executable shards do not cover all selected legacy cases" >&2
+        echo "case_test: selected executable shards do not cover all selected current-suite cases" >&2
         exit 1
     fi
 fi
@@ -178,7 +178,7 @@ fi
 
 if [[ ! -s "${MAP_FILE}" ]]; then
     echo "case_test: selected case-test groups are not executable yet" >&2
-    echo "case_test: run with --dry-run to inspect matching legacy cases" >&2
+    echo "case_test: run with --dry-run to inspect matching current-suite cases" >&2
     exit 1
 fi
 

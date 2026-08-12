@@ -338,24 +338,24 @@ fi
 
 }
 
-case_test_case "BBR" --id legacy --mode self-reporting --run case_congestion_core_BBR
-case_test_case "BBR+" --id legacy --mode self-reporting --run case_congestion_core_BBR_
-case_test_case "BBRv2" --id legacy --mode self-reporting --run case_congestion_core_BBRv2
-case_test_case "BBRv2+" --id legacy --mode self-reporting --run case_congestion_core_BBRv2_
-case_test_case "reno_with_pacing" --id legacy --mode self-reporting --run case_congestion_core_reno_with_pacing
-case_test_case "reno_without_pacing" --id legacy --mode self-reporting --run case_congestion_core_reno_without_pacing
-case_test_case "cubic_with_pacing" --id legacy --mode self-reporting --run case_congestion_core_cubic_with_pacing
-case_test_case "cubic_without_pacing" --id legacy --mode self-reporting --run case_congestion_core_cubic_without_pacing
-case_test_case "unlimited_cc" --id legacy --mode self-reporting --run case_congestion_core_unlimited_cc
-case_test_case "copa_with_default_parameters" --id legacy --mode self-reporting --run case_congestion_core_copa_with_default_parameters
-case_test_case "copa_with_customized_parameters" --id legacy --mode self-reporting --run case_congestion_core_copa_with_customized_parameters
-case_test_case "low_delay_settings" --id legacy --mode self-reporting --run case_congestion_core_low_delay_settings
-case_test_case "spurious_loss_detect_on" --id legacy --mode self-reporting --run case_congestion_core_spurious_loss_detect_on
-case_test_case "1_percent_loss" --id legacy --mode self-reporting --run case_congestion_core__1_percent_loss
-case_test_case "3_percent_loss" --id legacy --mode self-reporting --run case_congestion_core__3_percent_loss
-case_test_case "10_percent_loss" --id legacy --mode self-reporting --run case_congestion_core__10_percent_loss
-case_test_case "sengmmsg_with_10_percent_loss" --id legacy --mode self-reporting --run case_congestion_core_sengmmsg_with_10_percent_loss
-case_test_case "max_pkt_out_size" --id legacy --mode self-reporting --run case_congestion_core_max_pkt_out_size
+case_test_case "BBR" --id native --mode self-reporting --run case_congestion_core_BBR
+case_test_case "BBR+" --id native --mode self-reporting --run case_congestion_core_BBR_
+case_test_case "BBRv2" --id native --mode self-reporting --run case_congestion_core_BBRv2
+case_test_case "BBRv2+" --id native --mode self-reporting --run case_congestion_core_BBRv2_
+case_test_case "reno_with_pacing" --id native --mode self-reporting --run case_congestion_core_reno_with_pacing
+case_test_case "reno_without_pacing" --id native --mode self-reporting --run case_congestion_core_reno_without_pacing
+case_test_case "cubic_with_pacing" --id native --mode self-reporting --run case_congestion_core_cubic_with_pacing
+case_test_case "cubic_without_pacing" --id native --mode self-reporting --run case_congestion_core_cubic_without_pacing
+case_test_case "unlimited_cc" --id native --mode self-reporting --run case_congestion_core_unlimited_cc
+case_test_case "copa_with_default_parameters" --id native --mode self-reporting --run case_congestion_core_copa_with_default_parameters
+case_test_case "copa_with_customized_parameters" --id native --mode self-reporting --run case_congestion_core_copa_with_customized_parameters
+case_test_case "low_delay_settings" --id native --mode self-reporting --run case_congestion_core_low_delay_settings
+case_test_case "spurious_loss_detect_on" --id native --mode self-reporting --run case_congestion_core_spurious_loss_detect_on
+case_test_case "1_percent_loss" --id native --mode self-reporting --run case_congestion_core__1_percent_loss
+case_test_case "3_percent_loss" --id native --mode self-reporting --run case_congestion_core__3_percent_loss
+case_test_case "10_percent_loss" --id native --mode self-reporting --run case_congestion_core__10_percent_loss
+case_test_case "sengmmsg_with_10_percent_loss" --id native --mode self-reporting --run case_congestion_core_sengmmsg_with_10_percent_loss
+case_test_case "max_pkt_out_size" --id native --mode self-reporting --run case_congestion_core_max_pkt_out_size
 
 if case_test_is_discovery; then
     case_test_run

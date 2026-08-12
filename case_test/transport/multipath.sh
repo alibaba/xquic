@@ -640,34 +640,34 @@ fi
 
 }
 
-case_test_case "MPNS_enable_multipath_negotiate" --id legacy --mode self-reporting --run case_transport_multipath_MPNS_enable_multipath_negotiate
-case_test_case "MPNS_send_1M_data_on_multiple_paths" --id legacy --mode self-reporting --run case_transport_multipath_MPNS_send_1M_data_on_multiple_paths
-case_test_case "MPNS_multipath_30_percent_loss" --id legacy --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss
-case_test_case "MPNS_multipath_close_initial_path" --id legacy --mode self-reporting --run case_transport_multipath_MPNS_multipath_close_initial_path
-case_test_case "MPNS_multipath_30_percent_loss_close_initial_path" --id legacy --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss_close_initial_path
-case_test_case "MPNS_multipath_close_new_path" --id legacy --mode self-reporting --run case_transport_multipath_MPNS_multipath_close_new_path
-case_test_case "MPNS_multipath_30_percent_loss_close_new_path" --id legacy --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss_close_new_path
-case_test_case "MPNS_send_data_with_multipath_10" --id legacy --mode self-reporting --run case_transport_multipath_MPNS_send_data_with_multipath_10
-case_test_case "MPNS_reinject_unack_packets_by_capacity" --id legacy --mode self-reporting --run case_transport_multipath_MPNS_reinject_unack_packets_by_capacity
-case_test_case "MPNS_reinject_unack_packets_by_deadline" --id legacy --mode self-reporting --run case_transport_multipath_MPNS_reinject_unack_packets_by_deadline
-case_test_case "NAT_rebinding_path_0" --id legacy --mode self-reporting --run case_transport_multipath_NAT_rebinding_path_0
-case_test_case "NAT_rebinding_path_1" --id legacy --mode self-reporting --run case_transport_multipath_NAT_rebinding_path_1
-case_test_case "Multipath_Compensate_and_Accelerate" --id legacy --mode self-reporting --run case_transport_multipath_Multipath_Compensate_and_Accelerate
-case_test_case "No_reinjection_for_normal_datagrams" --id legacy --mode self-reporting --run case_transport_multipath_No_reinjection_for_normal_datagrams
-case_test_case "No_reinjection_for_normal_h3_ext_datagrams" --id legacy --mode self-reporting --run case_transport_multipath_No_reinjection_for_normal_h3_ext_datagrams
-case_test_case "MP_reinject_datagrams" --id legacy --mode self-reporting --run case_transport_multipath_MP_reinject_datagrams
-case_test_case "MP_reinject_h3_ext_datagrams" --id legacy --mode self-reporting --run case_transport_multipath_MP_reinject_h3_ext_datagrams
-case_test_case "MP_datagrams_redundancy" --id legacy --mode self-reporting --run case_transport_multipath_MP_datagrams_redundancy
-case_test_case "MP_h3_ext_datagrams_redundancy" --id legacy --mode self-reporting --run case_transport_multipath_MP_h3_ext_datagrams_redundancy
-case_test_case "MP_no_reinjection_for_normal_datagrams" --id legacy --mode self-reporting --run case_transport_multipath_MP_no_reinjection_for_normal_datagrams
-case_test_case "MP_no_reinjection_for_normal_h3_ext_datagrams" --id legacy --mode self-reporting --run case_transport_multipath_MP_no_reinjection_for_normal_h3_ext_datagrams
-case_test_case "MP_datagram_PMTUD_1RTT" --id legacy --mode self-reporting --run case_transport_multipath_MP_datagram_PMTUD_1RTT
-case_test_case "MP_datagram_PMTUD_0RTT" --id legacy --mode self-reporting --run case_transport_multipath_MP_datagram_PMTUD_0RTT
-case_test_case "MP_h3_ext_datagram_PMTUD_1RTT" --id legacy --mode self-reporting --run case_transport_multipath_MP_h3_ext_datagram_PMTUD_1RTT
-case_test_case "MP_h3_ext_datagram_PMTUD_0RTT" --id legacy --mode self-reporting --run case_transport_multipath_MP_h3_ext_datagram_PMTUD_0RTT
-case_test_case "freeze_path0" --id legacy --mode self-reporting --run case_transport_multipath_freeze_path0
-case_test_case "freeze_path1" --id legacy --mode self-reporting --run case_transport_multipath_freeze_path1
-case_test_case "probing_standby_path" --id legacy --mode self-reporting --run case_transport_multipath_probing_standby_path
+case_test_case "MPNS_enable_multipath_negotiate" --id native --mode self-reporting --run case_transport_multipath_MPNS_enable_multipath_negotiate
+case_test_case "MPNS_send_1M_data_on_multiple_paths" --id native --mode self-reporting --run case_transport_multipath_MPNS_send_1M_data_on_multiple_paths
+case_test_case "MPNS_multipath_30_percent_loss" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss
+case_test_case "MPNS_multipath_close_initial_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_close_initial_path
+case_test_case "MPNS_multipath_30_percent_loss_close_initial_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss_close_initial_path
+case_test_case "MPNS_multipath_close_new_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_close_new_path
+case_test_case "MPNS_multipath_30_percent_loss_close_new_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss_close_new_path
+case_test_case "MPNS_send_data_with_multipath_10" --id native --mode self-reporting --run case_transport_multipath_MPNS_send_data_with_multipath_10
+case_test_case "MPNS_reinject_unack_packets_by_capacity" --id native --mode self-reporting --run case_transport_multipath_MPNS_reinject_unack_packets_by_capacity
+case_test_case "MPNS_reinject_unack_packets_by_deadline" --id native --mode self-reporting --run case_transport_multipath_MPNS_reinject_unack_packets_by_deadline
+case_test_case "NAT_rebinding_path_0" --id native --mode self-reporting --run case_transport_multipath_NAT_rebinding_path_0
+case_test_case "NAT_rebinding_path_1" --id native --mode self-reporting --run case_transport_multipath_NAT_rebinding_path_1
+case_test_case "Multipath_Compensate_and_Accelerate" --id native --mode self-reporting --run case_transport_multipath_Multipath_Compensate_and_Accelerate
+case_test_case "No_reinjection_for_normal_datagrams" --id native --mode self-reporting --run case_transport_multipath_No_reinjection_for_normal_datagrams
+case_test_case "No_reinjection_for_normal_h3_ext_datagrams" --id native --mode self-reporting --run case_transport_multipath_No_reinjection_for_normal_h3_ext_datagrams
+case_test_case "MP_reinject_datagrams" --id native --mode self-reporting --run case_transport_multipath_MP_reinject_datagrams
+case_test_case "MP_reinject_h3_ext_datagrams" --id native --mode self-reporting --run case_transport_multipath_MP_reinject_h3_ext_datagrams
+case_test_case "MP_datagrams_redundancy" --id native --mode self-reporting --run case_transport_multipath_MP_datagrams_redundancy
+case_test_case "MP_h3_ext_datagrams_redundancy" --id native --mode self-reporting --run case_transport_multipath_MP_h3_ext_datagrams_redundancy
+case_test_case "MP_no_reinjection_for_normal_datagrams" --id native --mode self-reporting --run case_transport_multipath_MP_no_reinjection_for_normal_datagrams
+case_test_case "MP_no_reinjection_for_normal_h3_ext_datagrams" --id native --mode self-reporting --run case_transport_multipath_MP_no_reinjection_for_normal_h3_ext_datagrams
+case_test_case "MP_datagram_PMTUD_1RTT" --id native --mode self-reporting --run case_transport_multipath_MP_datagram_PMTUD_1RTT
+case_test_case "MP_datagram_PMTUD_0RTT" --id native --mode self-reporting --run case_transport_multipath_MP_datagram_PMTUD_0RTT
+case_test_case "MP_h3_ext_datagram_PMTUD_1RTT" --id native --mode self-reporting --run case_transport_multipath_MP_h3_ext_datagram_PMTUD_1RTT
+case_test_case "MP_h3_ext_datagram_PMTUD_0RTT" --id native --mode self-reporting --run case_transport_multipath_MP_h3_ext_datagram_PMTUD_0RTT
+case_test_case "freeze_path0" --id native --mode self-reporting --run case_transport_multipath_freeze_path0
+case_test_case "freeze_path1" --id native --mode self-reporting --run case_transport_multipath_freeze_path1
+case_test_case "probing_standby_path" --id native --mode self-reporting --run case_transport_multipath_probing_standby_path
 
 if case_test_is_discovery; then
     case_test_run

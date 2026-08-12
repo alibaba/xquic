@@ -623,34 +623,34 @@ fi
 
 }
 
-case_test_case "server_inited_stream" --id legacy --mode self-reporting --run case_transport_stream_server_inited_stream
-case_test_case "stream_send_pure_fin" --id legacy --mode self-reporting --run case_transport_stream_stream_send_pure_fin
-case_test_case "stream_read_notify_fail" --id legacy --mode self-reporting --run case_transport_stream_stream_read_notify_fail
-case_test_case "create_stream_fail" --id legacy --mode self-reporting --run case_transport_stream_create_stream_fail
-case_test_case "fin_only" --id legacy --mode self-reporting --run case_transport_stream_fin_only
-case_test_case "send_data_after_fin" --id legacy --mode self-reporting --run case_transport_stream_send_data_after_fin
-case_test_case "send_header_after_fin" --id legacy --mode self-reporting --run case_transport_stream_send_header_after_fin
-case_test_case "send_fin_after_fin" --id legacy --mode self-reporting --run case_transport_stream_send_fin_after_fin
-case_test_case "reset_stream" --id legacy --mode self-reporting --run case_transport_stream_reset_stream
-case_test_case "reset_stream_when_receiving" --id legacy --mode self-reporting --run case_transport_stream_reset_stream_when_receiving
-case_test_case "send_header_after_reset_stream" --id legacy --mode self-reporting --run case_transport_stream_send_header_after_reset_stream
-case_test_case "NULL_stream_callback" --id legacy --mode self-reporting --run case_transport_stream_NULL_stream_callback
-case_test_case "send_1K_data" --id legacy --mode self-reporting --run case_transport_stream_send_1K_data
-case_test_case "send_1M_data" --id legacy --mode self-reporting --run case_transport_stream_send_1M_data
-case_test_case "send_10M_data" --id legacy --mode self-reporting --run case_transport_stream_send_10M_data
-case_test_case "send_10M_data_mempool_protected" --id legacy --mode self-reporting --run case_transport_stream_send_10M_data_mempool_protected
-case_test_case "send_4K_every_time" --id legacy --mode self-reporting --run case_transport_stream_send_4K_every_time
-case_test_case "stream_level_flow_control" --id legacy --mode self-reporting --run case_transport_stream_stream_level_flow_control
-case_test_case "connection_level_flow_control" --id legacy --mode self-reporting --run case_transport_stream_connection_level_flow_control
-case_test_case "stream_concurrency_flow_control" --id legacy --mode self-reporting --run case_transport_stream_stream_concurrency_flow_control
-case_test_case "send_queue_full" --id legacy --mode self-reporting --run case_transport_stream_send_queue_full
-case_test_case "send_queue_full_batch" --id legacy --mode self-reporting --run case_transport_stream_send_queue_full_batch
-case_test_case "conn_rate_throttling" --id legacy --mode self-reporting --run case_transport_stream_conn_rate_throttling
-case_test_case "stream_rate_throttling" --id legacy --mode self-reporting --run case_transport_stream_stream_rate_throttling
-case_test_case "reset_stream_on_send_only_stream" --id legacy --mode self-reporting --run case_transport_stream_reset_stream_on_send_only_stream
-case_test_case "stop_sending_on_recv_only_stream" --id legacy --mode self-reporting --run case_transport_stream_stop_sending_on_recv_only_stream
-case_test_case "stream_frame_on_send_only_stream" --id legacy --mode self-reporting --run case_transport_stream_stream_frame_on_send_only_stream
-case_test_case "stream_frame_on_local_uncreated_stream" --id legacy --mode self-reporting --run case_transport_stream_stream_frame_on_local_uncreated_stream
+case_test_case "server_inited_stream" --id native --mode self-reporting --run case_transport_stream_server_inited_stream
+case_test_case "stream_send_pure_fin" --id native --mode self-reporting --run case_transport_stream_stream_send_pure_fin
+case_test_case "stream_read_notify_fail" --id native --mode self-reporting --run case_transport_stream_stream_read_notify_fail
+case_test_case "create_stream_fail" --id native --mode self-reporting --run case_transport_stream_create_stream_fail
+case_test_case "fin_only" --id native --mode self-reporting --run case_transport_stream_fin_only
+case_test_case "send_data_after_fin" --id native --mode self-reporting --run case_transport_stream_send_data_after_fin
+case_test_case "send_header_after_fin" --id native --mode self-reporting --run case_transport_stream_send_header_after_fin
+case_test_case "send_fin_after_fin" --id native --mode self-reporting --run case_transport_stream_send_fin_after_fin
+case_test_case "reset_stream" --id native --mode self-reporting --run case_transport_stream_reset_stream
+case_test_case "reset_stream_when_receiving" --id native --mode self-reporting --run case_transport_stream_reset_stream_when_receiving
+case_test_case "send_header_after_reset_stream" --id native --mode self-reporting --run case_transport_stream_send_header_after_reset_stream
+case_test_case "NULL_stream_callback" --id native --mode self-reporting --run case_transport_stream_NULL_stream_callback
+case_test_case "send_1K_data" --id native --mode self-reporting --run case_transport_stream_send_1K_data
+case_test_case "send_1M_data" --id native --mode self-reporting --run case_transport_stream_send_1M_data
+case_test_case "send_10M_data" --id native --mode self-reporting --run case_transport_stream_send_10M_data
+case_test_case "send_10M_data_mempool_protected" --id native --mode self-reporting --run case_transport_stream_send_10M_data_mempool_protected
+case_test_case "send_4K_every_time" --id native --mode self-reporting --run case_transport_stream_send_4K_every_time
+case_test_case "stream_level_flow_control" --id native --mode self-reporting --run case_transport_stream_stream_level_flow_control
+case_test_case "connection_level_flow_control" --id native --mode self-reporting --run case_transport_stream_connection_level_flow_control
+case_test_case "stream_concurrency_flow_control" --id native --mode self-reporting --run case_transport_stream_stream_concurrency_flow_control
+case_test_case "send_queue_full" --id native --mode self-reporting --run case_transport_stream_send_queue_full
+case_test_case "send_queue_full_batch" --id native --mode self-reporting --run case_transport_stream_send_queue_full_batch
+case_test_case "conn_rate_throttling" --id native --mode self-reporting --run case_transport_stream_conn_rate_throttling
+case_test_case "stream_rate_throttling" --id native --mode self-reporting --run case_transport_stream_stream_rate_throttling
+case_test_case "reset_stream_on_send_only_stream" --id native --mode self-reporting --run case_transport_stream_reset_stream_on_send_only_stream
+case_test_case "stop_sending_on_recv_only_stream" --id native --mode self-reporting --run case_transport_stream_stop_sending_on_recv_only_stream
+case_test_case "stream_frame_on_send_only_stream" --id native --mode self-reporting --run case_transport_stream_stream_frame_on_send_only_stream
+case_test_case "stream_frame_on_local_uncreated_stream" --id native --mode self-reporting --run case_transport_stream_stream_frame_on_local_uncreated_stream
 
 if case_test_is_discovery; then
     case_test_run

@@ -898,39 +898,39 @@ fi
 rm -rf tp_localhost test_session xqc_token
 }
 
-case_test_case "h3_ext_bytestream_send_pure_fin" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_bytestream_send_pure_fin
-case_test_case "h3_ext_datagram_get_mss_no_saved_transport_params" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_datagram_get_mss_no_saved_transport_params
-case_test_case "h3_ext_datagram_get_mss_saved_transport_params" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_datagram_get_mss_saved_transport_params
-case_test_case "h3_ext_datagram_mss_limited_by_MTU" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_datagram_mss_limited_by_MTU
-case_test_case "h3_ext_datagram_mss_limited_by_max_datagram_frame_size" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_datagram_mss_limited_by_max_datagram_frame_size
-case_test_case "h3_ext_dgram_send_queue_full" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_dgram_send_queue_full
-case_test_case "h3_ext_dgram_send_queue_full_batch" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_dgram_send_queue_full_batch
-case_test_case "h3_ext_datagram_lost_callback" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_datagram_lost_callback
-case_test_case "h3_ext_datagram_acked_callback" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_datagram_acked_callback
-case_test_case "h3_ext_1RTT_send_test" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_1RTT_send_test
-case_test_case "h3_ext_0RTT_accept_send_test" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_0RTT_accept_send_test
-case_test_case "h3_ext_0RTT_reject_send_test" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_0RTT_reject_send_test
-case_test_case "h3_ext_1RTT_concurrent_send_test" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_1RTT_concurrent_send_test
-case_test_case "h3_ext_0RTT_accept_concurrent_send_test" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_0RTT_accept_concurrent_send_test
-case_test_case "h3_ext_0RTT_reject_concurrent_send_test" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_0RTT_reject_concurrent_send_test
-case_test_case "h3_ext_1RTT_send_pure_fin1" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_1RTT_send_pure_fin1
-case_test_case "h3_ext_1RTT_send_pure_fin2" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_1RTT_send_pure_fin2
-case_test_case "h3_ext_0RTT_accept_send_pure_fin1" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_0RTT_accept_send_pure_fin1
-case_test_case "h3_ext_0RTT_accept_send_pure_fin2" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_0RTT_accept_send_pure_fin2
-case_test_case "h3_ext_0RTT_reject_send_pure_fin1" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_0RTT_reject_send_pure_fin1
-case_test_case "h3_ext_0RTT_reject_send_pure_fin2" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_0RTT_reject_send_pure_fin2
-case_test_case "h3_ext_finish_bytestream_during_transmission" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_finish_bytestream_during_transmission
-case_test_case "h3_ext_close_bytestream_during_transmission" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_close_bytestream_during_transmission
-case_test_case "h3_ext_bytestream_blocked_by_stream_flowctl" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_bytestream_blocked_by_stream_flowctl
-case_test_case "h3_ext_bytestream_blocked_by_0RTT_limit" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_bytestream_blocked_by_0RTT_limit
-case_test_case "h3_ext_bytestream_blocked_by_no_0RTT_support" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_bytestream_blocked_by_no_0RTT_support
-case_test_case "h3_ext_bytestream_blocked_by_sndq_full" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_bytestream_blocked_by_sndq_full
-case_test_case "h3_ext_bytestream_full_message_under_flow_ctrl" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_bytestream_full_message_under_flow_ctrl
-case_test_case "h3_ext_bytestream_full_message_0RTT_blocking" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_bytestream_full_message_0RTT_blocking
-case_test_case "h3_ext_bytestream_full_message_no_0RTT_suppport" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_bytestream_full_message_no_0RTT_suppport
-case_test_case "h3_ext_bytestream_full_message_sndq_full" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_bytestream_full_message_sndq_full
-case_test_case "connect_to_an_h3_ext_disabled_server" --id legacy --mode self-reporting --run case_http3_ext_connect_to_an_h3_ext_disabled_server
-case_test_case "h3_ext_is_disabled_on_the_client" --id legacy --mode self-reporting --run case_http3_ext_h3_ext_is_disabled_on_the_client
+case_test_case "h3_ext_bytestream_send_pure_fin" --id native --mode self-reporting --run case_http3_ext_h3_ext_bytestream_send_pure_fin
+case_test_case "h3_ext_datagram_get_mss_no_saved_transport_params" --id native --mode self-reporting --run case_http3_ext_h3_ext_datagram_get_mss_no_saved_transport_params
+case_test_case "h3_ext_datagram_get_mss_saved_transport_params" --id native --mode self-reporting --run case_http3_ext_h3_ext_datagram_get_mss_saved_transport_params
+case_test_case "h3_ext_datagram_mss_limited_by_MTU" --id native --mode self-reporting --run case_http3_ext_h3_ext_datagram_mss_limited_by_MTU
+case_test_case "h3_ext_datagram_mss_limited_by_max_datagram_frame_size" --id native --mode self-reporting --run case_http3_ext_h3_ext_datagram_mss_limited_by_max_datagram_frame_size
+case_test_case "h3_ext_dgram_send_queue_full" --id native --mode self-reporting --run case_http3_ext_h3_ext_dgram_send_queue_full
+case_test_case "h3_ext_dgram_send_queue_full_batch" --id native --mode self-reporting --run case_http3_ext_h3_ext_dgram_send_queue_full_batch
+case_test_case "h3_ext_datagram_lost_callback" --id native --mode self-reporting --run case_http3_ext_h3_ext_datagram_lost_callback
+case_test_case "h3_ext_datagram_acked_callback" --id native --mode self-reporting --run case_http3_ext_h3_ext_datagram_acked_callback
+case_test_case "h3_ext_1RTT_send_test" --id native --mode self-reporting --run case_http3_ext_h3_ext_1RTT_send_test
+case_test_case "h3_ext_0RTT_accept_send_test" --id native --mode self-reporting --run case_http3_ext_h3_ext_0RTT_accept_send_test
+case_test_case "h3_ext_0RTT_reject_send_test" --id native --mode self-reporting --run case_http3_ext_h3_ext_0RTT_reject_send_test
+case_test_case "h3_ext_1RTT_concurrent_send_test" --id native --mode self-reporting --run case_http3_ext_h3_ext_1RTT_concurrent_send_test
+case_test_case "h3_ext_0RTT_accept_concurrent_send_test" --id native --mode self-reporting --run case_http3_ext_h3_ext_0RTT_accept_concurrent_send_test
+case_test_case "h3_ext_0RTT_reject_concurrent_send_test" --id native --mode self-reporting --run case_http3_ext_h3_ext_0RTT_reject_concurrent_send_test
+case_test_case "h3_ext_1RTT_send_pure_fin1" --id native --mode self-reporting --run case_http3_ext_h3_ext_1RTT_send_pure_fin1
+case_test_case "h3_ext_1RTT_send_pure_fin2" --id native --mode self-reporting --run case_http3_ext_h3_ext_1RTT_send_pure_fin2
+case_test_case "h3_ext_0RTT_accept_send_pure_fin1" --id native --mode self-reporting --run case_http3_ext_h3_ext_0RTT_accept_send_pure_fin1
+case_test_case "h3_ext_0RTT_accept_send_pure_fin2" --id native --mode self-reporting --run case_http3_ext_h3_ext_0RTT_accept_send_pure_fin2
+case_test_case "h3_ext_0RTT_reject_send_pure_fin1" --id native --mode self-reporting --run case_http3_ext_h3_ext_0RTT_reject_send_pure_fin1
+case_test_case "h3_ext_0RTT_reject_send_pure_fin2" --id native --mode self-reporting --run case_http3_ext_h3_ext_0RTT_reject_send_pure_fin2
+case_test_case "h3_ext_finish_bytestream_during_transmission" --id native --mode self-reporting --run case_http3_ext_h3_ext_finish_bytestream_during_transmission
+case_test_case "h3_ext_close_bytestream_during_transmission" --id native --mode self-reporting --run case_http3_ext_h3_ext_close_bytestream_during_transmission
+case_test_case "h3_ext_bytestream_blocked_by_stream_flowctl" --id native --mode self-reporting --run case_http3_ext_h3_ext_bytestream_blocked_by_stream_flowctl
+case_test_case "h3_ext_bytestream_blocked_by_0RTT_limit" --id native --mode self-reporting --run case_http3_ext_h3_ext_bytestream_blocked_by_0RTT_limit
+case_test_case "h3_ext_bytestream_blocked_by_no_0RTT_support" --id native --mode self-reporting --run case_http3_ext_h3_ext_bytestream_blocked_by_no_0RTT_support
+case_test_case "h3_ext_bytestream_blocked_by_sndq_full" --id native --mode self-reporting --run case_http3_ext_h3_ext_bytestream_blocked_by_sndq_full
+case_test_case "h3_ext_bytestream_full_message_under_flow_ctrl" --id native --mode self-reporting --run case_http3_ext_h3_ext_bytestream_full_message_under_flow_ctrl
+case_test_case "h3_ext_bytestream_full_message_0RTT_blocking" --id native --mode self-reporting --run case_http3_ext_h3_ext_bytestream_full_message_0RTT_blocking
+case_test_case "h3_ext_bytestream_full_message_no_0RTT_suppport" --id native --mode self-reporting --run case_http3_ext_h3_ext_bytestream_full_message_no_0RTT_suppport
+case_test_case "h3_ext_bytestream_full_message_sndq_full" --id native --mode self-reporting --run case_http3_ext_h3_ext_bytestream_full_message_sndq_full
+case_test_case "connect_to_an_h3_ext_disabled_server" --id native --mode self-reporting --run case_http3_ext_connect_to_an_h3_ext_disabled_server
+case_test_case "h3_ext_is_disabled_on_the_client" --id native --mode self-reporting --run case_http3_ext_h3_ext_is_disabled_on_the_client
 
 if case_test_is_discovery; then
     case_test_run

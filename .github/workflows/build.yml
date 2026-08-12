@@ -140,6 +140,120 @@ jobs:
           echo "No CODACY_PROJECT_TOKEN provided for Codacy report"
         fi
 
+  build-ubuntu-24-babassl:
+
+    name: Test BabaSSL on Ubuntu 24.04 with GCC 13
+
+    needs: harness-check
+
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 2
+        submodules: 'recursive'
+
+    - name: Linux Setup
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          gcc-13 \
+          libcunit1 \
+          libcunit1-dev \
+          libcunit1-doc \
+          libevent-dev \
+          openssl \
+          psmisc
+
+    - name: Build BabaSSL
+      run: |
+        git clone --branch 8.3-stable --depth 1 \
+          https://github.com/Tongsuo-Project/Tongsuo.git \
+          ./third_party/babassl
+        cd ./third_party/babassl
+        CC=gcc-13 ./config --prefix=/usr/local/babassl
+        make -j"$(nproc)" build_libs
+
+    - name: Build XQUIC
+      run: |
+        SSL_PATH_STR="${PWD}/third_party/babassl"
+        SSL_INC_PATH_STR="${SSL_PATH_STR}/include"
+        SSL_LIB_PATH_STR="${SSL_PATH_STR}/libssl.a;${SSL_PATH_STR}/libcrypto.a"
+        cmake -S . -B build \
+          -DCMAKE_C_COMPILER=gcc-13 \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DXQC_ENABLE_TESTING=1 \
+          -DXQC_PRINT_SECRET=1 \
+          -DXQC_SUPPORT_SENDMMSG_BUILD=1 \
+          -DXQC_ENABLE_EVENT_LOG=1 \
+          -DXQC_ENABLE_BBR2=1 \
+          -DXQC_ENABLE_RENO=1 \
+          -DXQC_ENABLE_UNLIMITED=1 \
+          -DXQC_ENABLE_COPA=1 \
+          -DXQC_COMPAT_DUPLICATE=1 \
+          -DXQC_ENABLE_FEC=1 \
+          -DXQC_ENABLE_XOR=1 \
+          -DXQC_ENABLE_RSC=1 \
+          -DXQC_ENABLE_PKM=1 \
+          -DSSL_TYPE=babassl \
+          -DSSL_PATH="${SSL_PATH_STR}" \
+          -DSSL_INC_PATH="${SSL_INC_PATH_STR}" \
+          -DSSL_LIB_PATH="${SSL_LIB_PATH_STR}"
+        cmake --build build --parallel
+
+    - name: Test
+      run: |
+        set -o pipefail
+        cd build
+        keyfile=server.key
+        certfile=server.crt
+        openssl req -newkey rsa:2048 -x509 -nodes \
+          -keyout "$keyfile" \
+          -new \
+          -out "$certfile" \
+          -subj /CN=test.xquic.com
+        ./tests/run_tests | tee -a ../xquic_test_ubuntu_24_babassl.log
+        ../scripts/case_test.sh \
+          | tee -a ../xquic_test_ubuntu_24_babassl.log
+
+    - name: Check Test Result
+      run: |
+        log_file=xquic_test_ubuntu_24_babassl.log
+        unit_total=$(awk '/  Test: / {count++} END {print count + 0}' \
+          "$log_file")
+        unit_passed=$(awk '/  Test: .*passed/ {count++} END {print count + 0}' \
+          "$log_file")
+        unit_failed=$(awk '/  Test: .*FAILED/ {count++} END {print count + 0}' \
+          "$log_file")
+        case_total=$(awk '/pass:/ {count++} END {print count + 0}' \
+          "$log_file")
+        case_passed=$(awk \
+          '/pass:1([^0-9]|$)/ {count++} END {print count + 0}' \
+          "$log_file")
+        case_failed=$(awk \
+          '/pass:0([^0-9]|$)/ {count++} END {print count + 0}' \
+          "$log_file")
+        case_reported=$((case_passed + case_failed))
+
+        echo "unit test total:$unit_total passed:$unit_passed failed:$unit_failed"
+        echo "case test total:$case_total reported:$case_reported" \
+          "passed:$case_passed failed:$case_failed"
+
+        if [ "$unit_total" -gt 0 ] \
+          && [ "$unit_passed" -eq "$unit_total" ] \
+          && [ "$unit_failed" -eq 0 ] \
+          && [ "$case_total" -gt 0 ] \
+          && [ "$case_reported" -eq "$case_total" ] \
+          && [ "$case_failed" -eq 0 ]; then
+          echo "===== All unit and case tests passed! ====="
+        else
+          echo "===== Unit or case test failed! ====="
+          exit 1
+        fi
+
   build-macos:
 
     name: Build on macOS

@@ -35,6 +35,9 @@ typedef struct xqc_tls_s {
     /* SSL handler */
     SSL                        *ssl;
 
+    /* SSL-owned peer transport parameter buffer */
+    const uint8_t              *peer_tp;
+
     /* tls type. instance of client and server got different behaviour */
     xqc_tls_type_t              type;
 
@@ -377,7 +380,6 @@ fail:
 void
 xqc_tls_process_trans_param(xqc_tls_t *tls)
 {
-    const uint8_t *peer_tp;
     size_t tp_len = 0;
 
     if (tls->flag & XQC_TLS_FLAG_TRANSPORT_PARAM_RCVD) {
@@ -386,14 +388,15 @@ xqc_tls_process_trans_param(xqc_tls_t *tls)
     }
 
     /* get buffer */
-    SSL_get_peer_quic_transport_params(tls->ssl, &peer_tp, &tp_len);
+    tls->peer_tp = NULL;
+    SSL_get_peer_quic_transport_params(tls->ssl, &tls->peer_tp, &tp_len);
     if (tp_len <= 0) {
         return;
     }
 
     /* callback to Transport layer */
     if (tls->cbs->tp_cb) {
-        tls->cbs->tp_cb(peer_tp, tp_len, tls->user_data);
+        tls->cbs->tp_cb(tls->peer_tp, tp_len, tls->user_data);
     }
 
     tls->flag |= XQC_TLS_FLAG_TRANSPORT_PARAM_RCVD;

@@ -51,6 +51,10 @@ void xqc_test_conn_close_application_error_type(void);
 
 void xqc_test_conn_close_transport_error_type_overlap(void);
 
+void xqc_test_conn_close_valid_packet_types(void);
+
+void xqc_test_conn_close_app_error_in_handshake_rejected(void);
+
 void xqc_test_peer_key_update_error_not_0rtt(void);
 
 /* issues #565 / #566 / #567: RFC 9000 stream directionality checks */

@@ -20,6 +20,10 @@ char XQC_TEST_STREAM_FRAME[] = {0x0a, 0x00, 0x01, 0x00};
 
 static void xqc_test_conn_close_error_type(unsigned char *frame,
     size_t frame_len, xqc_conn_err_type_t expected_type);
+static void xqc_test_conn_close_frame_accepted(unsigned char *frame,
+    size_t frame_len, xqc_pkt_type_t pkt_type, xqc_conn_type_t conn_type,
+    xqc_conn_err_type_t expected_type);
+static void xqc_test_conn_close_app_error_rejected(xqc_pkt_type_t pkt_type);
 static void xqc_test_ack_range_rejected(unsigned char *frame,
     size_t frame_len);
 
@@ -188,6 +192,95 @@ xqc_test_conn_close_transport_error_type_overlap(void)
      */
     xqc_test_conn_close_error_type(frame, sizeof(frame),
                                    XQC_CONN_ERR_TYPE_TRANSPORT);
+}
+
+
+static void
+xqc_test_conn_close_frame_accepted(unsigned char *frame, size_t frame_len,
+    xqc_pkt_type_t pkt_type, xqc_conn_type_t conn_type,
+    xqc_conn_err_type_t expected_type)
+{
+    xqc_connection_t *conn;
+    xqc_packet_in_t packet_in;
+    xqc_int_t ret;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->conn_type = conn_type;
+
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pi_pkt.pkt_type = pkt_type;
+    packet_in.pos = frame;
+    packet_in.last = frame + frame_len;
+
+    ret = xqc_process_frames(conn, &packet_in);
+
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT(packet_in.pos == packet_in.last);
+    CU_ASSERT_EQUAL(packet_in.pi_frame_types,
+                    XQC_FRAME_BIT_CONNECTION_CLOSE);
+    CU_ASSERT_EQUAL(xqc_conn_get_err_type(conn), expected_type);
+    CU_ASSERT_EQUAL(conn->conn_state, XQC_CONN_STATE_DRAINING);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_conn_close_valid_packet_types(void)
+{
+    unsigned char transport_frame[] = {0x1c, 0x00, 0x00, 0x00};
+    unsigned char application_frame[] = {0x1d, 0x00, 0x00};
+
+    xqc_test_conn_close_frame_accepted(transport_frame,
+        sizeof(transport_frame), XQC_PTYPE_INIT, XQC_CONN_TYPE_CLIENT,
+        XQC_CONN_ERR_TYPE_TRANSPORT);
+    xqc_test_conn_close_frame_accepted(transport_frame,
+        sizeof(transport_frame), XQC_PTYPE_HSK, XQC_CONN_TYPE_CLIENT,
+        XQC_CONN_ERR_TYPE_TRANSPORT);
+    xqc_test_conn_close_frame_accepted(application_frame,
+        sizeof(application_frame), XQC_PTYPE_0RTT, XQC_CONN_TYPE_SERVER,
+        XQC_CONN_ERR_TYPE_APPLICATION);
+    xqc_test_conn_close_frame_accepted(application_frame,
+        sizeof(application_frame), XQC_PTYPE_SHORT_HEADER,
+        XQC_CONN_TYPE_CLIENT, XQC_CONN_ERR_TYPE_APPLICATION);
+}
+
+
+static void
+xqc_test_conn_close_app_error_rejected(xqc_pkt_type_t pkt_type)
+{
+    unsigned char frame[] = {0x1d, 0x00, 0x00};
+    xqc_connection_t *conn;
+    xqc_packet_in_t packet_in;
+    xqc_int_t ret;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pi_pkt.pkt_type = pkt_type;
+    packet_in.pos = frame;
+    packet_in.last = frame + sizeof(frame);
+
+    ret = xqc_process_frames(conn, &packet_in);
+
+    CU_ASSERT_EQUAL(ret, -XQC_EPROTO);
+    CU_ASSERT_EQUAL(conn->conn_err, TRA_PROTOCOL_VIOLATION);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    CU_ASSERT_EQUAL(xqc_conn_get_err_type(conn), XQC_CONN_ERR_TYPE_UNKNOWN);
+    CU_ASSERT_EQUAL(packet_in.pi_frame_types, 0);
+    CU_ASSERT(packet_in.pos == frame);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_conn_close_app_error_in_handshake_rejected(void)
+{
+    xqc_test_conn_close_app_error_rejected(XQC_PTYPE_INIT);
+    xqc_test_conn_close_app_error_rejected(XQC_PTYPE_HSK);
 }
 
 

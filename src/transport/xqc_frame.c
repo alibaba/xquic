@@ -1185,6 +1185,22 @@ xqc_process_conn_close_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     xqc_int_t ret;
     uint64_t err_code;
 
+    /*
+     * RFC 9000 Section 12.5: an application CONNECTION_CLOSE frame (0x1d)
+     * MUST only appear in the application data packet number space.
+     */
+    if (packet_in->pos[0] == 0x1d
+        && (packet_in->pi_pkt.pkt_type == XQC_PTYPE_INIT
+            || packet_in->pi_pkt.pkt_type == XQC_PTYPE_HSK))
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|illegal application CONNECTION_CLOSE in %s packet, close "
+                "with PROTOCOL_VIOLATION|",
+                xqc_pkt_type_2_str(packet_in->pi_pkt.pkt_type));
+        XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
+        return -XQC_EPROTO;
+    }
+
     ret = xqc_parse_conn_close_frame(packet_in, &err_code, conn);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR,

@@ -214,6 +214,31 @@ if ! [[ "${JOBS}" =~ ^[1-9][0-9]*$ ]]; then
     exit 2
 fi
 
+selected_runners_need_sudo()
+{
+    local map_file="$1"
+    local group_id
+    local runner
+    local port_offset
+    local module
+    local feature
+
+    while IFS=$'\t' read -r group_id runner port_offset module feature; do
+        if grep -Eq 'case_test_(require_sudo|sudo)' "${ROOT_DIR}/${runner}"; then
+            return 0
+        fi
+    done < "${map_file}"
+
+    return 1
+}
+
+if selected_runners_need_sudo "${MAP_FILE}"; then
+    if ! command -v sudo > /dev/null 2>&1 || ! sudo -n true 2> /dev/null; then
+        echo "case_test: selected case-test groups require sudo; run sudo -v before execution" >&2
+        exit 125
+    fi
+fi
+
 run_group()
 {
     local group_id="$1"

@@ -84,8 +84,8 @@ Shard observability is controlled by environment variables:
 
 Some cases require sudo for client-side network setup. Run `sudo -v` in the
 same shell before executing those shards. Shards that contain sudo commands
-check this before running any case, so missing credentials are reported as an
-environment failure rather than case-result failures.
+are checked before scheduling starts, so missing credentials are reported as an
+environment failure instead of a mixed set of case-result failures.
 
 For full-suite execution, use `bash scripts/case_test.sh --execution-plan` to
 confirm the current case count and `max_safe_jobs` before changing

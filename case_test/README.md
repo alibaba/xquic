@@ -17,10 +17,10 @@ client-to-server case tests. The executable entry point is
 ## Ownership
 
 Running `scripts/case_test.sh` without selector arguments executes all
-implemented native groups sequentially. Use `--parallel --jobs <count>` for
-bounded parallel execution. The full-suite CI budget is recorded as
-`max_parallel_jobs` in `manifest.yml`; use it as the default ceiling unless a
-run proves a smaller or larger budget is safe.
+implemented native groups sequentially. Use `--parallel --jobs auto` for
+bounded parallel execution with the budget from `max_parallel_jobs` in
+`manifest.yml`. Use an explicit `--jobs <count>` only for local experiments or
+when reducing the budget to isolate a failure.
 
 Use `bash scripts/case_test.sh --inventory` to audit native case ownership.
 Every case must be registered by exactly one group; overlapping feature
@@ -45,7 +45,7 @@ Selected execution is opt-in:
 ```bash
 bash scripts/case_test.sh --execute --from-path src/transport/xqc_stream.c
 bash scripts/case_test.sh --execute --group transport.datagram
-bash scripts/case_test.sh --execute --parallel --jobs 4 --module transport
+bash scripts/case_test.sh --execute --parallel --jobs auto --module transport
 bash scripts/case_test.sh --execution-plan
 ```
 
@@ -87,13 +87,19 @@ same shell before executing those shards. Shards that contain sudo commands
 check this before running any case, so missing credentials are reported as an
 environment failure rather than case-result failures.
 
-For single-runner full-suite execution, use
-`bash scripts/case_test.sh --execution-plan` to confirm the current case count
-and `max_safe_jobs` before changing parallelism. The GitHub workflow gets
-parallelism by running balanced matrix shards, not by backgrounding multiple
-endpoint groups on the same runner. Keep all implemented groups in the suite;
-each matrix shard runs one or more groups serially and checks the shard's
-aggregate expected case count.
+For full-suite execution, use `bash scripts/case_test.sh --execution-plan` to
+confirm the current case count and `max_safe_jobs` before changing
+parallelism. The GitHub workflow uses the same native runner path as local
+execution:
+
+```bash
+bash scripts/case_test.sh --execute --parallel --jobs auto --require-complete
+```
+
+Parallelism is owned by the case-test runner, not by GitHub matrix shards. Each
+implemented group keeps a fixed manifest `port_offset`, isolated work
+directory, and per-group log, so adding a case does not require CI shard
+rebalance or a second registration file.
 
 ## Extending Case Tests
 

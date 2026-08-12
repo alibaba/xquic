@@ -13,6 +13,7 @@ EXECUTE=0
 PARALLEL=0
 REQUIRE_COMPLETE=0
 JOBS=1
+JOBS_EXPLICIT=0
 PORT_BASE="${CASE_TEST_PORT_BASE:-18000}"
 SHARD_TIMEOUT="${CASE_TEST_SHARD_TIMEOUT:-1800}"
 HEARTBEAT_INTERVAL="${CASE_TEST_HEARTBEAT_INTERVAL:-60}"
@@ -37,7 +38,7 @@ execution options:
   --execute
   --parallel
   --require-complete
-  --jobs <count>
+  --jobs <count|auto>
   --port-base <port>
 USAGE
 }
@@ -58,6 +59,7 @@ while [[ "$#" -gt 0 ]]; do
             ;;
         --jobs)
             JOBS="${2:?--jobs requires a value}"
+            JOBS_EXPLICIT=1
             shift 2
             ;;
         --port-base)
@@ -96,11 +98,6 @@ fi
 if [[ "${EXECUTE}" -eq 0 ]]; then
     exec ruby "${ROOT_DIR}/case_test/lib/selector.rb" "${ROOT_DIR}" \
         "${SELECTOR_ARGS[@]}"
-fi
-
-if ! [[ "${JOBS}" =~ ^[1-9][0-9]*$ ]]; then
-    echo "case_test: --jobs must be a positive integer" >&2
-    exit 2
 fi
 
 if ! [[ "${PORT_BASE}" =~ ^[1-9][0-9]*$ ]]; then
@@ -183,6 +180,38 @@ if [[ ! -s "${MAP_FILE}" ]]; then
     echo "case_test: selected case-test groups are not executable yet" >&2
     echo "case_test: run with --dry-run to inspect matching legacy cases" >&2
     exit 1
+fi
+
+plan_value()
+{
+    awk -F= -v key="$1" '
+        $1 == key {
+            print $2
+            found = 1
+            exit
+        }
+        END {
+            if (!found) {
+                exit 1
+            }
+        }
+    ' "${PLAN_FILE}"
+}
+
+if [[ "${PARALLEL}" -eq 1 && "${JOBS_EXPLICIT}" -eq 0 && "${JOBS}" == "1" ]]; then
+    JOBS="auto"
+fi
+
+if [[ "${JOBS}" == "auto" ]]; then
+    if ! JOBS="$(plan_value max_safe_jobs)"; then
+        echo "case_test: execution plan does not declare max_safe_jobs" >&2
+        exit 2
+    fi
+fi
+
+if ! [[ "${JOBS}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "case_test: --jobs must be a positive integer or auto" >&2
+    exit 2
 fi
 
 run_group()

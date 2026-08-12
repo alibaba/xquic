@@ -147,28 +147,11 @@ jobs:
 
   case-test-ubuntu:
 
-    name: Case Test on Ubuntu (${{ matrix.shard }})
+    name: Case Test on Ubuntu
 
     needs: build-ubuntu
 
     runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-        - shard: transport-data
-          groups: transport.datagram transport.fec observability.qlog
-          expected: 81
-        - shard: http3-tls-stream
-          groups: http3.core transport.stream tls.handshake
-          expected: 87
-        - shard: core-h3ext
-          groups: transport.core http3.ext
-          expected: 73
-        - shard: multipath-packet-cc
-          groups: transport.multipath transport.packet congestion.core
-          expected: 64
 
     steps:
     - name: Checkout repository
@@ -187,34 +170,31 @@ jobs:
         name: xquic-ubuntu-test-binaries
         path: build
 
-    - name: Run case-test shard
+    - name: Run case tests
       run: |
         set +e
         chmod +x build/tests/test_client build/tests/test_server
-        case_args=()
-        for group in ${{ matrix.groups }}; do
-          case_args+=(--group "$group")
-        done
-        case_plan="$(bash scripts/case_test.sh --execution-plan "${case_args[@]}")"
+        case_plan="$(bash scripts/case_test.sh --execution-plan)"
         echo "$case_plan"
-        planned_cases="$(printf '%s\n' "$case_plan" | awk -F= '/^implemented_unique_cases=/{print $2}')"
+        expected="$(printf '%s\n' "$case_plan" | awk -F= '/^implemented_unique_cases=/{print $2}')"
         plan_complete="$(printf '%s\n' "$case_plan" | awk -F= '/^complete=/{print $2}')"
-        if [ "$plan_complete" != "true" ] || [ "$planned_cases" != "${{ matrix.expected }}" ]; then
-          echo "case-test shard plan mismatch: planned=$planned_cases complete=$plan_complete expected=${{ matrix.expected }}"
+        max_jobs="$(printf '%s\n' "$case_plan" | awk -F= '/^max_safe_jobs=/{print $2}')"
+        if [ "$plan_complete" != "true" ] || [ "$expected" = "" ] || [ "$max_jobs" = "" ]; then
+          echo "case-test plan mismatch: expected=$expected complete=$plan_complete max_jobs=$max_jobs"
           exit 1
         fi
         XQC_BUILD_DIR="${PWD}/build" \
           CASE_TEST_CASE_TIMEOUT=300 \
-          bash scripts/case_test.sh --execute "${case_args[@]}" --require-complete \
-          2>&1 | tee "xquic_case_${{ matrix.shard }}.log"
+          bash scripts/case_test.sh --execute --parallel --jobs auto --require-complete \
+          2>&1 | tee xquic_case_test.log
         case_status=${PIPESTATUS[0]}
         set -e
 
-        case_passed=`grep "pass:" "xquic_case_${{ matrix.shard }}.log" | grep "pass:1" | wc -l`
-        case_failed=`grep "pass:" "xquic_case_${{ matrix.shard }}.log" | grep "pass:0" | wc -l`
-        echo -e "\033[32m case test shard:${{ matrix.shard }} groups:${{ matrix.groups }} passed:$case_passed failed:$case_failed expected:${{ matrix.expected }} status:$case_status \033[0m\n"
+        case_passed=`grep -E '^\[case-test:[^]]+\] .+ >>>>>>>> pass:1$' xquic_case_test.log | wc -l`
+        case_failed=`grep -E '^\[case-test:[^]]+\] .+ >>>>>>>> pass:0$' xquic_case_test.log | wc -l`
+        echo -e "\033[32m case test jobs:$max_jobs passed:$case_passed failed:$case_failed expected:$expected status:$case_status \033[0m\n"
 
-        if [ "$case_status" -ne 0 ] || [ "$case_failed" -ne 0 ] || [ "$case_passed" -ne "${{ matrix.expected }}" ]; then
+        if [ "$case_status" -ne 0 ] || [ "$case_failed" -ne 0 ] || [ "$case_passed" -ne "$expected" ]; then
           echo "====== Find case test failed or missing! ======"
           exit 1
         fi
@@ -223,10 +203,12 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: case-test-${{ matrix.shard }}-logs
+        name: case-test-ubuntu-logs
         path: |
-          xquic_case_${{ matrix.shard }}.log
+          xquic_case_test.log
           build/case_test_parallel/*/case_test.log
+          build/case_test_parallel/*/case_test.failures
+          build/case_test_parallel/*/case_test.results
         retention-days: 1
 
   build-macos:

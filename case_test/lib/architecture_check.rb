@@ -346,7 +346,7 @@ def parallel_budget_selftest(root)
       "CASE_TEST_PORT_BASE" => "19200"
     },
     "bash", File.join(root, "scripts/case_test.sh"),
-    "--execute", "--parallel", "--jobs", "2", "--module", "common"
+    "--execute", "--parallel", "--jobs", "auto", "--module", "common"
   )
 
   trace = File.read(trace_path).lines.map { |line| line.chomp.split("\t") }
@@ -366,6 +366,7 @@ def parallel_budget_selftest(root)
 
   raise "parallel budget exceeded: max_active=#{max_active}\n#{trace.inspect}\n#{output}" if max_active > 2
   raise "parallel budget did not allow overlap\n#{trace.inspect}\n#{output}" unless saw_overlap
+  raise "auto budget was not reported\n#{output}" unless output.include?("scheduling groups with jobs=2")
 
   puts "parallel_budget_selftest=pass"
   puts "max_active=#{max_active}"

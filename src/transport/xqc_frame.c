@@ -1216,7 +1216,12 @@ xqc_process_conn_close_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         xqc_log(conn->log, XQC_LOG_ERROR,
                 "|with err:0x%xi|", err_code);
         XQC_CONN_CLOSE_MSG(conn, "remote error");
-        XQC_CONN_ERR(conn, err_code);
+        if (conn->conn_err_type == XQC_CONN_ERR_TYPE_APPLICATION) {
+            XQC_CONN_APP_ERR(conn, err_code);
+
+        } else {
+            XQC_CONN_ERR(conn, err_code);
+        }
     } else {
         XQC_CONN_CLOSE_MSG(conn, "remote close");
     }

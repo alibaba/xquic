@@ -1855,6 +1855,7 @@ xqc_client_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void 
     }
 
     xqc_int_t err = xqc_conn_get_errno(conn);
+    printf("conn_err_type:%d\n", (int)xqc_conn_get_err_type(conn));
     printf("should_clear_0rtt_ticket, conn_err:%d, clear_0rtt_ticket:%d\n", err, xqc_conn_should_clear_0rtt_ticket(err));
 
     xqc_conn_stats_t stats = xqc_conn_get_stats(p_ctx->engine, cid);

@@ -792,6 +792,7 @@ xqc_write_conn_close_to_packet(xqc_connection_t *conn, uint64_t err_code)
     ssize_t ret;
     xqc_packet_out_t *packet_out;
     xqc_pkt_type_t pkt_type = XQC_PTYPE_INIT;
+    xqc_bool_t is_app;
 
     /* select packet type */
     if (xqc_tls_is_key_ready(conn->tls, XQC_ENC_LEV_HSK, XQC_KEY_TYPE_TX_WRITE)) {
@@ -811,9 +812,22 @@ xqc_write_conn_close_to_packet(xqc_connection_t *conn, uint64_t err_code)
         return -XQC_EWRITE_PKT;
     }
 
+    is_app = XQC_CONN_ERR_IS_APPLICATION(err_code);
+    err_code = XQC_CONN_ERR_CODE(err_code);
     err_code = xqc_conn_close_wire_error_code(err_code);
-    ret = xqc_gen_conn_close_frame(packet_out, err_code,
-                                   err_code >= H3_NO_ERROR ? 1 : 0, 0);
+
+    /*
+     * RFC 9000 Section 10.2.3: application close frames sent in Initial or
+     * Handshake packets use transport APPLICATION_ERROR instead.
+     */
+    if (is_app && (pkt_type == XQC_PTYPE_INIT
+                   || pkt_type == XQC_PTYPE_HSK))
+    {
+        is_app = XQC_FALSE;
+        err_code = TRA_APPLICATION_ERROR;
+    }
+
+    ret = xqc_gen_conn_close_frame(packet_out, err_code, is_app, 0);
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_conn_close_frame error|");
         goto error;

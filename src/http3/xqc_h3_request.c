@@ -401,7 +401,8 @@ xqc_h3_request_get_stats(xqc_h3_request_t *h3_request)
     /* try to update stats */
     xqc_h3_stream_update_stats(h3_request->h3_stream);
 
-    uint64_t conn_err       = h3_request->h3_stream->h3c->conn->conn_err;
+    uint64_t conn_err       = XQC_CONN_ERR_CODE(
+        h3_request->h3_stream->h3c->conn->conn_err);
     stats.recv_body_size    = h3_request->body_recvd;
     stats.send_body_size    = h3_request->body_sent;
     stats.recv_header_size  = h3_request->header_recvd;

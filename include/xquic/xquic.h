@@ -1889,7 +1889,7 @@ XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_conn_close(xqc_engine_t *engine, const xqc_cid_t *cid);
 
 /**
- * @brief close connection with error code
+ * @brief close connection with an application error code
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_conn_close_with_error(xqc_connection_t *conn, uint64_t err_code);

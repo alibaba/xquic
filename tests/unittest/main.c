@@ -96,6 +96,12 @@ main(int argc, char *argv[])
                         xqc_test_transport_error_code_passthrough)
         || !CU_add_test(pSuite, "xqc_test_0rtt_error_wire_codes",
                         xqc_test_0rtt_error_wire_codes)
+        || !CU_add_test(pSuite,
+                        "xqc_test_conn_close_transport_crypto_namespace",
+                        xqc_test_conn_close_transport_crypto_namespace)
+        || !CU_add_test(pSuite,
+                        "xqc_test_conn_close_application_namespace",
+                        xqc_test_conn_close_application_namespace)
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_first_writer_wins", xqc_test_conn_tls_error_first_writer_wins)
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_alert_zero", xqc_test_conn_tls_error_cb_alert_zero)
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_max_alert", xqc_test_conn_tls_error_cb_max_alert)

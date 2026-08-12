@@ -245,6 +245,7 @@ size_t dgram1_size = 0;
 size_t dgram2_size = 0;
 
 int dgram_drop_pkt1 = 0;
+int path_response_drop_pkt1 = 0;
 client_ctx_t ctx;
 struct event_base *eb;
 int g_send_dgram;
@@ -272,6 +273,7 @@ uint64_t g_last_sock_op_time;
  * please keep this comment updated if you are adding more test cases. :-D
  * 55 for RFC 9114 Section 4.2 forbidden header e2e validation
  * 99 for pure fin
+ * 800 for PATH_RESPONSE no-repair e2e validation
  * 2XX for datagram testcases
  * 3XX for h3 ext bytestream testcases
  * 4XX for conn_settings configuration
@@ -1072,19 +1074,39 @@ xqc_client_write_socket(const unsigned char *buf, size_t size,
 }
 
 int
+xqc_client_get_path_index_by_id(uint64_t path_id)
+{
+    if (!g_enable_multipath) {
+        return -1;
+    }
+
+    if (g_multi_interface_cnt > XQC_DEMO_MAX_PATH_COUNT) {
+        return -1;
+    }
+
+    for (int i = 0; i < g_multi_interface_cnt; i++) {
+        if (g_client_path[i].path_id == path_id) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+
+int
 xqc_client_get_path_fd_by_id(user_conn_t *user_conn, uint64_t path_id)
 {
     int fd = user_conn->fd;
+    int path_idx;
 
     if (!g_enable_multipath) {
         return fd;
     }
 
-    for (int i = 0; i < g_multi_interface_cnt; i++) {
-        if (g_client_path[i].path_id == path_id) {
-            fd = g_client_path[i].path_fd;
-            break;
-        }
+    path_idx = xqc_client_get_path_index_by_id(path_id);
+    if (path_idx >= 0) {
+        fd = g_client_path[path_idx].path_fd;
     }
 
     return fd;
@@ -1102,6 +1124,11 @@ xqc_client_write_socket_ex(uint64_t path_id,
     ssize_t res;
     int fd = 0;
     int header_type;
+    int path_idx = -1;
+
+    if (user_conn == NULL || buf == NULL) {
+        return XQC_SOCKET_ERROR;
+    }
 
     /* test stateless reset after handshake completed */
     if (g_test_case == 41) {
@@ -1164,6 +1191,7 @@ xqc_client_write_socket_ex(uint64_t path_id,
 
     /* get path fd */
     fd = xqc_client_get_path_fd_by_id(user_conn, path_id);
+    path_idx = xqc_client_get_path_index_by_id(path_id);
 
     /* COPY to run corruption test cases */
     unsigned char send_buf[XQC_PACKET_TMP_BUF_LEN];
@@ -1194,16 +1222,21 @@ xqc_client_write_socket_ex(uint64_t path_id,
         }
     }
 
-    if (g_enable_multipath) {
-        g_client_path[path_id].send_size += size;
+    if (g_enable_multipath && path_idx >= 0) {
+        g_client_path[path_idx].send_size += size;
     }
 
     if (hsk_completed) {
-        if (g_test_case == 103 && path_id == 0 && g_client_path[0].send_size > g_send_body_size/10) {
-            fd = g_client_path[0].rebinding_path_fd;
+        if ((g_test_case == 103 || g_test_case == 800)
+            && path_id == 0 && path_idx >= 0
+            && g_client_path[path_idx].send_size > g_send_body_size/10)
+        {
+            fd = g_client_path[path_idx].rebinding_path_fd;
         }
-        else if (g_test_case == 104 && path_id == 1 && g_client_path[1].send_size > 10240) {
-            fd = g_client_path[1].rebinding_path_fd;
+        else if (g_test_case == 104 && path_id == 1 && path_idx >= 0
+                 && g_client_path[path_idx].send_size > 10240)
+        {
+            fd = g_client_path[path_idx].rebinding_path_fd;
         }
     }
 
@@ -1271,6 +1304,19 @@ xqc_client_write_socket_ex(uint64_t path_id,
                     return send_buf_size;
                 }
             }
+        }
+
+        if (g_test_case == 800 && g_no_crypt && !path_response_drop_pkt1
+            && hsk_completed && path_id == 0 && path_idx >= 0
+            && g_client_path[path_idx].send_size > g_send_body_size/10
+            && send_buf_size > 13
+            && (send_buf[0] & 0x80) == 0 && send_buf[13] == 0x1b)
+        {
+            path_response_drop_pkt1 = 1;
+            printf("[path-response-e2e]|drop|path:%"PRIu64"|ordinal:1|\n",
+                   path_id);
+            fflush(stdout);
+            return send_buf_size;
         }
 
         res = sendto(fd, send_buf, send_buf_size, 0, peer_addr, peer_addrlen);
@@ -1342,9 +1388,10 @@ xqc_client_write_mmsg(const struct iovec *msg_iov, unsigned int vlen,
     user_conn_t *user_conn = (user_conn_t *) user;
     ssize_t res = 0;
     int fd = user_conn->fd;
+    unsigned int send_vlen = vlen > MAX_SEG ? MAX_SEG : vlen;
     struct mmsghdr mmsg[MAX_SEG];
     memset(&mmsg, 0, sizeof(mmsg));
-    for (int i = 0; i < vlen; i++) {
+    for (int i = 0; i < send_vlen; i++) {
         mmsg[i].msg_hdr.msg_iov = (struct iovec *)&msg_iov[i];
         mmsg[i].msg_hdr.msg_iovlen = 1;
     }
@@ -1358,7 +1405,7 @@ xqc_client_write_mmsg(const struct iovec *msg_iov, unsigned int vlen,
             return XQC_SOCKET_EAGAIN;
         }
 
-        res = sendmmsg(fd, mmsg, vlen, 0);
+        res = sendmmsg(fd, mmsg, send_vlen, 0);
         if (res < 0) {
             printf("sendmmsg err %zd %s\n", res, strerror(errno));
             if (errno == EAGAIN) {
@@ -1379,17 +1426,24 @@ xqc_client_mp_write_mmsg(uint64_t path_id,
     user_conn_t *user_conn = (user_conn_t *) user;
     ssize_t res = 0;
     int fd = 0;
+    int path_idx = -1;
 
     /* check whether it's initial path */
     if (path_id == 0) {
         fd = user_conn->fd;
     } else {
-        fd = g_client_path[path_id].path_fd;
+        path_idx = xqc_client_get_path_index_by_id(path_id);
+        if (path_idx >= 0) {
+            fd = g_client_path[path_idx].path_fd;
+        } else {
+            fd = xqc_client_get_path_fd_by_id(user_conn, path_id);
+        }
     }
 
     struct mmsghdr mmsg[MAX_SEG];
+    unsigned int send_vlen = vlen > MAX_SEG ? MAX_SEG : vlen;
     memset(&mmsg, 0, sizeof(mmsg));
-    for (int i = 0; i < vlen; i++) {
+    for (int i = 0; i < send_vlen; i++) {
         mmsg[i].msg_hdr.msg_iov = (struct iovec *)&msg_iov[i];
         mmsg[i].msg_hdr.msg_iovlen = 1;
     }
@@ -1403,7 +1457,7 @@ xqc_client_mp_write_mmsg(uint64_t path_id,
             return XQC_SOCKET_EAGAIN;
         }
 
-        res = sendmmsg(fd, mmsg, vlen, 0);
+        res = sendmmsg(fd, mmsg, send_vlen, 0);
         if (res < 0) {
             printf("sendmmsg err %zd %s\n", res, strerror(errno));
             if (errno == EAGAIN) {
@@ -1567,7 +1621,9 @@ xqc_client_create_path_socket(xqc_user_path_t *path,
         return XQC_ERROR;
     }
 
-    if (g_test_case == 103 || g_test_case == 104) {
+    if (g_test_case == 103 || g_test_case == 104
+        || g_test_case == 800)
+    {
         path->rebinding_path_fd = xqc_client_create_socket((g_ipv6 ? AF_INET6 : AF_INET), 
                                         path->peer_addr, path->peer_addrlen, path_interface);
         if (path->rebinding_path_fd < 0) {
@@ -1599,12 +1655,26 @@ xqc_client_create_path(xqc_user_path_t *path,
     
     path->ev_socket = event_new(eb, path->path_fd, 
                 EV_READ | EV_PERSIST, xqc_client_socket_event_callback, user_conn);
-    event_add(path->ev_socket, NULL);
+    if (path->ev_socket == NULL) {
+        return XQC_ERROR;
+    }
+    int path_event_ret = event_add(path->ev_socket, NULL);
+    if (path_event_ret != 0) {
+        return XQC_ERROR;
+    }
 
-    if (g_test_case == 103 || g_test_case == 104) {
+    if (g_test_case == 103 || g_test_case == 104
+        || g_test_case == 800)
+    {
         path->rebinding_ev_socket = event_new(eb, path->rebinding_path_fd, EV_READ | EV_PERSIST,
                                               xqc_client_socket_event_callback, user_conn);
-        event_add(path->rebinding_ev_socket, NULL);
+        if (path->rebinding_ev_socket == NULL) {
+            return XQC_ERROR;
+        }
+        int rebinding_event_ret = event_add(path->rebinding_ev_socket, NULL);
+        if (rebinding_event_ret != 0) {
+            return XQC_ERROR;
+        }
     }
 
     return XQC_OK;
@@ -1696,7 +1766,13 @@ xqc_client_create_conn_socket(user_conn_t *user_conn)
 
     user_conn->ev_socket = event_new(eb, user_conn->fd, EV_READ | EV_PERSIST, 
                                      xqc_client_socket_event_callback, user_conn);
-    event_add(user_conn->ev_socket, NULL);
+    if (user_conn->ev_socket == NULL) {
+        return -1;
+    }
+    int event_ret = event_add(user_conn->ev_socket, NULL);
+    if (event_ret != 0) {
+        return -1;
+    }
 
     return 0;
 }
@@ -1747,6 +1823,10 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
     DEBUG;
 
     user_conn_t *user_conn = (user_conn_t *)user_data;
+    if (conn == NULL || user_conn == NULL) {
+        return XQC_ERROR;
+    }
+
     xqc_conn_set_alp_user_data(conn, user_conn);
 
     user_conn->dgram_mss = xqc_datagram_get_mss(conn);
@@ -1818,6 +1898,11 @@ xqc_client_conn_update_cid_notify(xqc_connection_t *conn, const xqc_cid_t *retir
     DEBUG;
 
     user_conn_t *user_conn = (user_conn_t *) user_data;
+    if (user_conn == NULL || new_cid == NULL || retire_cid == NULL
+        || ctx.engine == NULL)
+    {
+        return;
+    }
 
     memcpy(&user_conn->cid, new_cid, sizeof(*new_cid));
 
@@ -1832,6 +1917,10 @@ xqc_client_conn_handshake_finished(xqc_connection_t *conn, void *user_data, void
 {
     DEBUG;
     user_conn_t *user_conn = (user_conn_t *) user_data;
+    if (user_conn == NULL) {
+        return;
+    }
+
     if (!g_test_qch_mode) {
         if (!g_mp_ping_on) {
             xqc_conn_send_ping(ctx.engine, &user_conn->cid, NULL);
@@ -1867,6 +1956,9 @@ xqc_client_h3_conn_create_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void
     DEBUG;
 
     user_conn_t *user_conn = (user_conn_t *) user_data;
+    if (conn == NULL || user_conn == NULL) {
+        return XQC_ERROR;
+    }
 
     user_conn->dgram_mss = xqc_h3_ext_datagram_get_mss(conn);
     user_conn->h3_conn = conn;
@@ -4162,6 +4254,12 @@ xqc_client_ready_to_create_path(const xqc_cid_t *cid,
     uint64_t path_id = 0;
     user_conn_t *user_conn = (user_conn_t *) conn_user_data;
 
+    if (user_conn == NULL || ctx.engine == NULL
+        || g_multi_interface_cnt > XQC_DEMO_MAX_PATH_COUNT)
+    {
+        return;
+    }
+
     if (!g_enable_multipath) {
         return;
     }
@@ -4927,7 +5025,12 @@ int main(int argc, char *argv[]) {
         }
 
     }
-    
+
+    if (g_test_case == 800 && !g_no_crypt) {
+        printf("test case 800 requires -N to inspect short-header frame type\n");
+        exit(1);
+    }
+
     memset(g_header_key, 'k', sizeof(g_header_key));
     memset(g_header_value, 'v', sizeof(g_header_value));
     memset(&ctx, 0, sizeof(ctx));

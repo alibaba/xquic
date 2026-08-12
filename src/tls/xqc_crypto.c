@@ -193,9 +193,17 @@ xqc_crypto_create_nonce(uint8_t *dest, const uint8_t *iv, size_t ivlen, uint64_t
         dest[ivlen - 8 + i] ^= ((uint8_t *)&pktno)[i];
     }
 
-    path_id = ntohl(path_id);
-    for (i = 0; i < 4; ++i) {
-        dest[ivlen - 12 + i] ^= ((uint8_t *)&path_id)[i];
+    /* the path id occupies the 32 bits before the packet number, so it can
+     * only be mixed in when the IV is at least 96 bits. shorter IVs occur
+     * with the null AEAD used by no-crypt test mode, where dest[ivlen - 12]
+     * would underflow the nonce buffer. both endpoints skip the path id in
+     * the same way, so the nonce stays symmetric.
+     */
+    if (ivlen >= 12) {
+        path_id = ntohl(path_id);
+        for (i = 0; i < 4; ++i) {
+            dest[ivlen - 12 + i] ^= ((uint8_t *)&path_id)[i];
+        }
     }
 }
 

@@ -7,6 +7,7 @@
 #include "src/common/xqc_str.h"
 #include "src/common/xqc_malloc.h"
 #include "src/common/utils/vint/xqc_variable_len_int.h"
+#include <assert.h>
 
 
 #define XQC_NONCE_LEN        16
@@ -178,6 +179,8 @@ xqc_crypto_create_nonce(uint8_t *dest, const uint8_t *iv, size_t ivlen, uint64_t
 {
     size_t i;
 
+    assert(ivlen >= 8);
+
     memcpy(dest, iv, ivlen);
 
     /* To calculate the nonce, a 96 bit path-and-packet-number is composed of the
@@ -193,9 +196,17 @@ xqc_crypto_create_nonce(uint8_t *dest, const uint8_t *iv, size_t ivlen, uint64_t
         dest[ivlen - 8 + i] ^= ((uint8_t *)&pktno)[i];
     }
 
-    path_id = ntohl(path_id);
-    for (i = 0; i < 4; ++i) {
-        dest[ivlen - 12 + i] ^= ((uint8_t *)&path_id)[i];
+    /* the path id occupies the 32 bits before the packet number, so it can
+     * only be mixed in when the IV is at least 96 bits. shorter IVs occur
+     * with the null AEAD used by no-crypt test mode, where dest[ivlen - 12]
+     * would underflow the nonce buffer. both endpoints skip the path id in
+     * the same way, so the nonce stays symmetric.
+     */
+    if (ivlen >= 12) {
+        path_id = ntohl(path_id);
+        for (i = 0; i < 4; ++i) {
+            dest[ivlen - 12 + i] ^= ((uint8_t *)&path_id)[i];
+        }
     }
 }
 

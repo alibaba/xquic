@@ -5045,8 +5045,8 @@ int main(int argc, char *argv[]) {
         .close_dgram_redundancy = XQC_RED_NOT_USE
     };
 
-    strncpy(conn_settings.conn_option_str, conn_options, XQC_CO_STR_MAX_LEN - 1);
-    conn_settings.conn_option_str[XQC_CO_STR_MAX_LEN - 1] = '\0';
+    memcpy(conn_settings.conn_option_str, conn_options,
+           XQC_CO_STR_MAX_LEN);
 
 #ifdef XQC_PROTECT_POOL_MEM
     if (g_test_case == 600) {

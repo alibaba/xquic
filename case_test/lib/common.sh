@@ -68,7 +68,7 @@ case_test_enter_work_dir()
     CLIENT_BIN="${CASE_TEST_CLIENT_BIN:-${build_dir}/tests/test_client ${CASE_TEST_PORT_ARG} -o ${CASE_TEST_CLIENT_LOG}}"
     SERVER_BIN="${CASE_TEST_SERVER_BIN:-${build_dir}/tests/test_server ${CASE_TEST_PORT_ARG} -o ${CASE_TEST_SERVER_LOG}}"
     CASE_TEST_SERVER_PID=""
-    trap 'case_test_case_watchdog_stop; case_test_stop_server' EXIT
+    trap 'case_test_stop_server' EXIT
 }
 
 case_test_stop_server()
@@ -91,6 +91,23 @@ case_test_is_discovery()
     [[ "${CASE_TEST_DISCOVER:-0}" = "1" ]]
 }
 
+case_test_kill_tree()
+{
+    local signal="$1"
+    local root_pid="$2"
+    local child_pid
+
+    if command -v pgrep > /dev/null 2>&1; then
+        while read -r child_pid; do
+            if [[ -n "${child_pid}" ]]; then
+                case_test_kill_tree "${signal}" "${child_pid}"
+            fi
+        done < <(pgrep -P "${root_pid}" 2> /dev/null || true)
+    fi
+
+    kill "-${signal}" "${root_pid}" 2> /dev/null || true
+}
+
 case_test_case_watchdog_start()
 {
     local name="$1"
@@ -111,9 +128,14 @@ case_test_case_watchdog_start()
 
     (
         sleep "${timeout_s}"
-        echo "[case-test] case-timeout group=${CASE_TEST_GROUP:-} case=${name} id=${id} elapsed=${timeout_s}s"
-        pkill -TERM -P "${owner_pid}" 2> /dev/null || true
-        kill -TERM "${owner_pid}" 2> /dev/null || true
+        if kill -0 "${owner_pid}" 2> /dev/null; then
+            echo "[case-test] case-timeout group=${CASE_TEST_GROUP:-} case=${name} id=${id} elapsed=${timeout_s}s"
+            case_test_kill_tree TERM "${owner_pid}"
+            sleep 2
+            if kill -0 "${owner_pid}" 2> /dev/null; then
+                case_test_kill_tree KILL "${owner_pid}"
+            fi
+        fi
     ) &
     CASE_TEST_CASE_WATCHDOG_PID="$!"
 }

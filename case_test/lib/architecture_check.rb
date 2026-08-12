@@ -5,7 +5,7 @@ require "fileutils"
 require "open3"
 require "yaml"
 
-root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--runner-syntax|--parallel-selftest|--parallel-budget-selftest|--parallel-failure-selftest|--all]")
+root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--runner-syntax|--parallel-selftest|--parallel-budget-selftest|--parallel-failure-selftest|--case-timeout-selftest|--all]")
 modes = ARGV.empty? ? ["--all"] : ARGV
 
 def run!(env, *cmd)
@@ -230,6 +230,80 @@ def parallel_failure_selftest(root)
   puts "parallel_failure_selftest=pass"
 end
 
+def case_timeout_selftest(root)
+  work_dir = File.join(root, "build/case_test_arch_check_timeout")
+  FileUtils.rm_rf(work_dir)
+  FileUtils.mkdir_p(work_dir)
+
+  manifest_path = File.join(work_dir, "manifest.yml")
+  runner_path = File.join(work_dir, "selftest_timeout.sh")
+  after_runner_path = File.join(work_dir, "selftest_after.sh")
+  File.write(runner_path, <<~SH)
+    #!/bin/bash
+    set -u
+    source #{File.join(root, "case_test/lib/common.sh").inspect}
+    case_test_group "selftest.timeout"
+    selftest_run()
+    {
+        sleep 5
+        echo "selftest.timeout ...>>>>>>>> pass:1"
+        case_print_result "selftest.timeout" "pass"
+    }
+    case_test_case "selftest.timeout" --id legacy --mode self-reporting --run selftest_run
+    if case_test_is_discovery; then
+        case_test_run
+        exit 0
+    fi
+    case_test_run
+  SH
+  FileUtils.chmod("+x", runner_path)
+  write_selftest_runner(after_runner_path, root, "selftest.after")
+
+  manifest = {
+    "version" => 1,
+    "groups" => [
+      {
+        "id" => "selftest.timeout",
+        "module" => "common",
+        "source_paths" => ["README.md"],
+        "runner" => "build/case_test_arch_check_timeout/selftest_timeout.sh",
+        "execution" => "implemented",
+        "port_offset" => 0
+      },
+      {
+        "id" => "selftest.after",
+        "module" => "common",
+        "source_paths" => ["README.md"],
+        "runner" => "build/case_test_arch_check_timeout/selftest_after.sh",
+        "execution" => "implemented",
+        "port_offset" => 1
+      }
+    ]
+  }
+  File.write(manifest_path, manifest.to_yaml)
+
+  started_at = Time.now
+  output, status = Open3.capture2e(
+    {
+      "CASE_TEST_MANIFEST" => manifest_path,
+      "CASE_TEST_CASE_TIMEOUT" => "1",
+      "CASE_TEST_SHARD_TIMEOUT" => "20",
+      "CASE_TEST_PORT_BASE" => "19300"
+    },
+    "bash", File.join(root, "scripts/case_test.sh"),
+    "--execute", "--module", "common"
+  )
+  elapsed = Time.now - started_at
+
+  raise "timeout selftest unexpectedly passed\n#{output}" if status.success?
+  raise "case timeout was not reported\n#{output}" unless output.include?("[case-test] case-timeout")
+  raise "runner did not continue after timeout\n#{output}" unless output.include?("[case-test] selftest.after result=pass")
+  raise "timeout selftest waited for shard timeout\n#{output}" if elapsed >= 8
+
+  puts "case_timeout_selftest=pass"
+  puts "elapsed_seconds=#{format("%.3f", elapsed)}"
+end
+
 def parallel_budget_selftest(root)
   work_dir = File.join(root, "build/case_test_arch_check_budget")
   FileUtils.rm_rf(work_dir)
@@ -315,4 +389,8 @@ end
 
 if modes.include?("--all") || modes.include?("--parallel-failure-selftest")
   parallel_failure_selftest(root)
+end
+
+if modes.include?("--all") || modes.include?("--case-timeout-selftest")
+  case_timeout_selftest(root)
 end

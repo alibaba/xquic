@@ -77,9 +77,10 @@ Shard observability is controlled by environment variables:
   default `60`, `0` disables heartbeat output.
 - `CASE_TEST_SHARD_TIMEOUT`: per-shard timeout in seconds when the platform
   provides `timeout`; default `1800`, `0` disables the timeout.
-- `CASE_TEST_CASE_TIMEOUT`: per-case watchdog timeout in seconds; default `0`
+- `CASE_TEST_CASE_TIMEOUT`: per-case timeout in seconds; default `0`
   disables it. When it fires, the shard log records the active case as
-  `case-timeout` and the parent runner reports that case as failed.
+  `case-timeout`, terminates that case's subprocess tree, and reports the case
+  as failed without waiting for the enclosing shard timeout.
 
 Some cases require sudo for client-side network setup. Run `sudo -v` in the
 same shell before executing those shards. Shards that contain sudo commands

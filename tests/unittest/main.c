@@ -139,6 +139,12 @@ main(int argc, char *argv[])
                         xqc_test_max_ack_delay_valid_boundary)
         || !CU_add_test(pSuite, "xqc_test_max_ack_delay_invalid_boundary",
                         xqc_test_max_ack_delay_invalid_boundary)
+        || !CU_add_test(pSuite,
+                        "xqc_test_max_udp_payload_size_valid_boundary",
+                        xqc_test_max_udp_payload_size_valid_boundary)
+        || !CU_add_test(pSuite,
+                        "xqc_test_max_udp_payload_size_invalid_boundary",
+                        xqc_test_max_udp_payload_size_invalid_boundary)
         || !CU_add_test(pSuite, "xqc_test_tp_cid_overflow", xqc_test_tp_cid_overflow)
         || !CU_add_test(pSuite, "xqc_test_active_cid_limit_minimum", xqc_test_active_cid_limit_minimum)
         || !CU_add_test(pSuite, "xqc_test_check_transport_params_cids", xqc_test_check_transport_params_cids)

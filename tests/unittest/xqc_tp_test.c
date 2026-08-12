@@ -193,6 +193,63 @@ xqc_test_max_ack_delay_invalid_boundary(void)
     CU_ASSERT_EQUAL(ret, -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
 }
 
+/* RFC 9000 Section 18.2: max_udp_payload_size is at least 1200. */
+void
+xqc_test_max_udp_payload_size_valid_boundary(void)
+{
+    uint8_t tp_absent[] = {
+        XQC_TRANSPORT_PARAM_DISABLE_ACTIVE_MIGRATION, 0x00
+    };
+    uint8_t tp_minimum[] = {
+        XQC_TRANSPORT_PARAM_MAX_UDP_PAYLOAD_SIZE, 0x02, 0x44, 0xb0
+    };
+    xqc_transport_params_t params;
+    xqc_int_t              ret;
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params,
+                                      XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      tp_absent, sizeof(tp_absent));
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(params.max_udp_payload_size,
+                    XQC_DEFAULT_MAX_UDP_PAYLOAD_SIZE);
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params,
+                                      XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      tp_minimum, sizeof(tp_minimum));
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(params.max_udp_payload_size,
+                    XQC_MIN_UDP_PAYLOAD_SIZE);
+}
+
+/* RFC 9000 Section 18.2: max_udp_payload_size below 1200 is invalid. */
+void
+xqc_test_max_udp_payload_size_invalid_boundary(void)
+{
+    uint8_t tp_below_minimum[] = {
+        XQC_TRANSPORT_PARAM_MAX_UDP_PAYLOAD_SIZE, 0x02, 0x44, 0xaf
+    };
+    uint8_t tp_zero[] = {
+        XQC_TRANSPORT_PARAM_MAX_UDP_PAYLOAD_SIZE, 0x01, 0x00
+    };
+    xqc_transport_params_t params;
+    xqc_int_t              ret;
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params,
+                                      XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      tp_below_minimum,
+                                      sizeof(tp_below_minimum));
+    CU_ASSERT_EQUAL(ret, -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params,
+                                      XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      tp_zero, sizeof(tp_zero));
+    CU_ASSERT_EQUAL(ret, -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+}
+
 /*
  * ============================================================================
  * Tests for xqc_conn_check_transport_params (RFC 9000 Section 7.3)

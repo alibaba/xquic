@@ -68,3 +68,36 @@ Apply the private-extension rules in
 `harness/spec/harness-behavior.md#source-boundaries`, then run:
 
 - `bash harness/scripts/xqc_harness_check.sh`
+
+## Endpoint Test Routing Change
+
+Examples:
+
+- Add or reclassify endpoint case-test group metadata.
+- Add a native endpoint case registration to an existing group runner.
+- Refactor endpoint case bodies inside their owning module runners.
+
+Read:
+
+- `harness/spec/validation.md`
+- `harness/spec/harness-manifest.yml`
+- `case_test/manifest.yml`
+- `case_test/README.md`
+
+Update when affected:
+
+- `case_test/manifest.yml` for endpoint group metadata and stable shard ports.
+- `case_test/<module>/` when native case registrations or selected endpoint
+  execution change.
+- `harness/spec/harness-manifest.yml` for test-routing entry points.
+- `harness/spec/validation.md` when validation contracts change.
+
+Validate:
+
+- `bash harness/scripts/xqc_harness_check.sh`
+- `bash scripts/case_test.sh --inventory`
+- `bash scripts/case_test.sh --from-path <path> --dry-run`
+- `bash scripts/case_test.sh --execute --from-path <path>` only for groups
+  marked `execution: implemented`.
+- `case_test/lib/architecture_check.rb "$(pwd)" --all` after runner,
+  selector, or compatibility-wrapper changes.

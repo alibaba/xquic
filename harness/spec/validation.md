@@ -5,7 +5,9 @@ pull requests can provide broader evidence.
 
 See the [project instructions](PROJECT_INSTRUCTIONS.md) for related
 architecture and pull-request contracts. Agents executing these commands
-should also follow the [`validate` skill](../skills/validate/SKILL.md).
+should use the [`xquic-build` skill](../skills/xquic-build/SKILL.md) for
+build-only platform orientation and the
+[`validate` skill](../skills/validate/SKILL.md) for test or validation gates.
 
 ## Entry Point
 
@@ -195,7 +197,11 @@ Apply these allocation rules before running a new case:
 - enables the congestion-control and QPACK compatibility symbols required by
   the existing test and example targets;
 - disables optional MoQ support; and
-- compiles the configured targets.
+- compiles the configured targets;
+- builds BoringSSL from an already-present local source checkout when the
+  default static libraries are missing; and
+- prepares local runtime fixture files, including the test server certificate,
+  without running tests.
 
 This is the minimum check for documentation that changes build commands and
 for implementation work that cannot yet run tests. It is not sufficient
@@ -315,6 +321,9 @@ Supported environment variables:
 - `XQC_SSL_PATH`: TLS backend root.
 - `XQC_SSL_INCLUDE`: explicit TLS include directory.
 - `XQC_SSL_LIBS`: semicolon-separated TLS library paths.
+- `XQC_BUILD_SSL`: TLS backend build mode, `auto`, `on`, or `off`.
+- `XQC_PREPARE_RUNTIME_FILES`: whether to prepare local runtime fixture files,
+  `on` or `off`.
 - `XQC_TEST_NAME`: optional registered CUnit test name for focused feedback.
 - `XQC_VALIDATION_ARTIFACT_DIR`: validation evidence directory.
 
@@ -349,3 +358,45 @@ commands. Raw logs retain the detailed evidence for diagnosis and audit.
 The current CMake configuration generates `include/xquic/xqc_configure.h` in
 the source tree. The validation script preserves and restores its pre-build
 contents so validation does not leave a source diff.
+
+## Targeted Endpoint Case Discovery
+
+Endpoint case routing is discovered through `scripts/case_test.sh` selector
+mode, `case_test/manifest.yml`, and native registrations in group runner
+scripts. The harness manifest remains the source of truth for repository module
+ownership. The case-test manifest owns group-level routing: source paths,
+module labels, feature labels, runner paths, and stable shard ports. New
+endpoint cases belong in the relevant `case_test/<module>/<group>.sh` runner
+and are registered with `case_test_case`; they do not require per-case manifest
+entries.
+
+Selector mode is discovery evidence until a group runner implements selected
+execution:
+
+```bash
+bash scripts/case_test.sh --list
+bash scripts/case_test.sh --inventory
+bash scripts/case_test.sh --from-path src/transport/xqc_stream.c --dry-run
+bash scripts/case_test.sh --feature fec --dry-run
+bash scripts/case_test.sh --execution-plan
+bash scripts/case_test.sh --execute --parallel --jobs 4 --module transport
+case_test/lib/architecture_check.rb "$(pwd)" --all
+```
+
+Running `scripts/case_test.sh` without selector arguments executes all
+implemented native groups sequentially. Do not report selector output as a
+passing endpoint case result; report it as identified coverage until the
+selected case body is executable. Selected execution schedules only groups
+marked `execution: implemented` in `case_test/manifest.yml`. The architecture
+check verifies complete and unique native case ownership, runner syntax, mock
+parallel scheduling, stable per-shard port/work-dir assignment, and failed-case
+reporting.
+
+CI may invoke the selected-execution entry point with `--parallel`. The safe
+job count is the number of executable shards that preserve complete and unique
+default-suite coverage. Native group shards count as executable only when
+`--execution-plan` reports `missing_unique_cases=0`; otherwise a full-suite
+parallel request fails closed.
+
+Unit-test execution remains unchanged in this endpoint-case routing change.
+Sequential `./scripts/validate.sh test` remains the default complete-unit gate.

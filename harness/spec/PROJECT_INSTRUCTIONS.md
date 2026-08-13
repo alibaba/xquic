@@ -50,7 +50,8 @@ remain in the root [`README.md`](../../README.md).
 |------|----------------------|
 | Long-running feature, refactor, or cross-module task | Codex native goal directive plus [OpenSpec integration](openspec.md) |
 | Code change, feature, refactor, or bug fix | [Development pipeline](../pipelines/dev-pipeline.md) |
-| Build, test, or validation | [Validation specification](validation.md) and [`validate` skill](../skills/validate/SKILL.md) |
+| Compile or configure local build | [Validation specification](validation.md) and [`xquic-build` skill](../skills/xquic-build/SKILL.md) |
+| Test, validation, or PR evidence | [Validation specification](validation.md) and [`validate` skill](../skills/validate/SKILL.md) |
 | Documentation or comment change | [Documentation style](doc-style.md) plus the closest owning spec |
 | Task evidence, command logs, failure trace | [Run artifact contract](run-artifacts.md) |
 | Verify an issue or protocol-defect claim | [`issue-check` skill](../skills/issue-check/SKILL.md) |
@@ -98,8 +99,8 @@ tests, build scripts, validation tooling, or repository automation.
    behavior change.
 6. Identify matching happy-path and abnormal-path client-to-server coverage
    for endpoint-visible behavior. Add `scripts/case_test.sh` cases only when
-   they can be maintained without relying on the legacy full suite as the
-   default local gate.
+   they can be maintained in the owning native group without making the full
+   suite the default local gate.
 7. Re-read the modified path and trace affected callers and callees.
 8. Update durable project or module documentation when a contract, boundary,
    command, or public API changes.

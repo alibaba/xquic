@@ -94,7 +94,10 @@ Decision:
   directory.
 - Create the directory directly when durable task-local evidence is needed.
 - Keep OpenSpec proposal, design, tasks, and requirement deltas in
-  `openspec/`, and link to them from the run evidence when applicable.
+  `openspec/` while the task is being reviewed or implemented.
+- Before a code PR for the implemented result, fold durable conclusions into
+  `harness/spec/`, `harness/docs/`, `harness/decisions/`, and machine
+  manifests; do not commit completed task checklists as the lasting harness.
 
 Consequences:
 - Durable docs stay concise.
@@ -229,3 +232,55 @@ Evidence:
 - `harness/skills/xquic-safe-push/SKILL.md`
 - `harness/spec/harness-behavior.md`
 - `harness/scripts/xqc_harness_check.sh`
+
+## ADR-H007: Route Endpoint Cases Through Native Groups
+
+Status: Accepted
+
+Date: 2026-08-06
+
+Context:
+
+- Agents need to identify relevant endpoint cases from changed source paths
+  without running the full suite during ordinary iteration.
+- Endpoint cases need stable group ownership so parallel execution can isolate
+  ports, work directories, logs, and failure evidence.
+
+Decision:
+
+- Keep `scripts/case_test.sh` as the public endpoint case-test entry point.
+- Add `case_test/manifest.yml` for endpoint case group metadata.
+- Keep the manifest group-level only: source paths, module labels, feature
+  labels, runner paths, execution state, and stable port offsets.
+- Register endpoint cases in their owning group script with `case_test_case`.
+  The manifest does not carry per-case registrations.
+- Add selected execution and parallel scheduling for groups marked
+  `execution: implemented`.
+- Give each shard a stable manifest-owned port offset and an isolated work
+  directory. Use PID cleanup for shards instead of global process termination;
+  keep build-generated certificates as read-only shared inputs.
+
+Consequences:
+
+- Changed paths can be mapped to endpoint case groups without reading a
+  monolithic case script.
+- The harness check can detect stale runner paths, unknown modules, unknown
+  features, duplicate group IDs, duplicate port offsets, repeated native case
+  owners, missing runner registrations, and invalid selected execution states.
+- Selector output is discovery evidence, not a passing endpoint test result.
+  Selected execution evidence requires actually running the owning shard.
+- Full-suite parallel requests fail closed while executable shards are
+  incomplete. Once the execution plan has no missing cases, each unique case is
+  executed by exactly one shard.
+- Pending module runners fail clearly when invoked directly.
+- New cases can be added by appending one native registration block to the
+  owning module script.
+
+Evidence:
+
+- `case_test/manifest.yml`
+- `case_test/<module>/`
+- `scripts/case_test.sh`
+- `harness/spec/validation.md`
+- `harness/spec/harness-manifest.yml`
+- `harness/scripts/harness_manifest_check.rb`

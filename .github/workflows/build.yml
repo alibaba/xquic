@@ -100,14 +100,47 @@ jobs:
 
     - name: Test
       run: |
+        set -o pipefail
         cd build
         keyfile=server.key
         certfile=server.crt
         openssl req -newkey rsa:2048 -x509 -nodes -keyout "$keyfile" -new -out "$certfile" -subj /CN=test.xquic.com
         ./tests/run_tests | tee -a ../xquic_test.log
-        ../scripts/case_test.sh | tee -a ../xquic_test.log
-        gcovr -r .. --xml --gcov-ignore-parse-errors -o ../coverage.xml
-    
+        case_plan="$(bash ../scripts/case_test.sh --execution-plan)"
+        echo "$case_plan" | tee -a ../xquic_test.log
+        expected="$(printf '%s\n' "$case_plan" | awk -F= '/^implemented_unique_cases=/{print $2}')"
+        plan_complete="$(printf '%s\n' "$case_plan" | awk -F= '/^complete=/{print $2}')"
+        max_jobs="$(printf '%s\n' "$case_plan" | awk -F= '/^max_safe_jobs=/{print $2}')"
+        case_result=0
+        if [ "$plan_complete" != "true" ] || [ "$expected" = "" ] || [ "$max_jobs" = "" ]; then
+          echo "case-test plan mismatch: expected=$expected complete=$plan_complete max_jobs=$max_jobs" | tee -a ../xquic_test.log
+          case_result=1
+        else
+          set +e
+          XQC_BUILD_DIR="${PWD}" \
+            CASE_TEST_CASE_TIMEOUT=300 \
+            CASE_TEST_SHARD_TIMEOUT=600 \
+            bash ../scripts/case_test.sh --execute --parallel --jobs auto --require-complete \
+            2>&1 | tee ../xquic_case_test.log
+          case_status=${PIPESTATUS[0]}
+          set -e
+
+          case_passed=$(awk '/^\[case-test:[^]]+\] .+ >>>>>>>> pass:1$/ {count++} END {print count + 0}' ../xquic_case_test.log)
+          case_failed=$(awk '/^\[case-test:[^]]+\] .+ >>>>>>>> pass:0$/ {count++} END {print count + 0}' ../xquic_case_test.log)
+          echo -e "\033[32m case test jobs:$max_jobs passed:$case_passed failed:$case_failed expected:$expected status:$case_status \033[0m\n" | tee -a ../xquic_test.log
+
+          if [ "$case_status" -ne 0 ]; then
+            echo "case-test runner exited with status $case_status; structured case results decide pass/fail" | tee -a ../xquic_test.log
+          fi
+          if [ "$case_failed" -ne 0 ] || [ "$case_passed" -ne "$expected" ]; then
+            case_result=1
+          fi
+        fi
+        printf '%s\n' "$case_result" > ../xquic_case_status
+        find case_test_parallel -type d -name gcov -prune -exec rm -rf {} + 2>/dev/null || true
+        gcovr -r .. --xml --gcov-ignore-parse-errors \
+          --gcov-ignore-errors=no_working_dir_found -o ../coverage.xml
+
     - name: Check Test Result
       run: |
         echo "unit test:"
@@ -117,17 +150,36 @@ jobs:
         echo -e "\033[32m unit test passed:$unit_passed failed:$unit_failed \033[0m\n"
 
         echo "case test:"
-        cat xquic_test.log | grep "pass:"
-        case_passed=`cat xquic_test.log | grep "pass:" | grep "pass:1" | wc -l`
-        case_failed=`cat xquic_test.log | grep "pass:" | grep "pass:0" | wc -l`
-        echo -e "\033[32m case test passed:$case_passed failed:$case_failed \033[0m\n"
+        if [ -f xquic_case_test.log ]; then
+          cat xquic_case_test.log | grep -E '^\[case-test:[^]]+\] .+ >>>>>>>> pass:' || true
+        fi
+        case_result=1
+        if [ -f xquic_case_status ]; then
+          case_result=`cat xquic_case_status`
+        fi
 
-        if [ $unit_failed -eq 0 ] && [ $case_failed -eq 0 ] ; then
+        if [ $unit_failed -eq 0 ] && [ "$case_result" -eq 0 ] ; then
           echo "===== All test case passed! ======"
         else
           echo "====== Find test case failed! ======"
           exit 1
         fi
+
+    - name: Upload case-test logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: case-test-ubuntu-logs
+        path: |
+          xquic_case_test.log
+          xquic_case_status
+          build/case_test_parallel/*/*/case_test.log
+          build/case_test_parallel/*/*/case_test.failures
+          build/case_test_parallel/*/*/case_test.results
+          build/case_test_parallel/*/*/case_test.events
+          build/case_test_parallel/*/*/case-output-*.log
+          build/case_test_parallel/*/*/case-logs/**
+        retention-days: 1
 
     - name: Report coverage to Codacy
       shell: bash
@@ -216,8 +268,37 @@ jobs:
           -out "$certfile" \
           -subj /CN=test.xquic.com
         ./tests/run_tests | tee -a ../xquic_test_ubuntu_24_babassl.log
-        ../scripts/case_test.sh \
-          | tee -a ../xquic_test_ubuntu_24_babassl.log
+        case_plan="$(bash ../scripts/case_test.sh --execution-plan)"
+        echo "$case_plan" | tee -a ../xquic_test_ubuntu_24_babassl.log
+        expected="$(printf '%s\n' "$case_plan" | awk -F= '/^implemented_unique_cases=/{print $2}')"
+        plan_complete="$(printf '%s\n' "$case_plan" | awk -F= '/^complete=/{print $2}')"
+        max_jobs="$(printf '%s\n' "$case_plan" | awk -F= '/^max_safe_jobs=/{print $2}')"
+        case_result=0
+        if [ "$plan_complete" != "true" ] || [ "$expected" = "" ] || [ "$max_jobs" = "" ]; then
+          echo "case-test plan mismatch: expected=$expected complete=$plan_complete max_jobs=$max_jobs" | tee -a ../xquic_test_ubuntu_24_babassl.log
+          case_result=1
+        else
+          set +e
+          XQC_BUILD_DIR="${PWD}" \
+            CASE_TEST_CASE_TIMEOUT=300 \
+            CASE_TEST_SHARD_TIMEOUT=600 \
+            bash ../scripts/case_test.sh --execute --parallel --jobs auto --require-complete \
+            2>&1 | tee ../xquic_case_test_ubuntu_24_babassl.log
+          case_status=${PIPESTATUS[0]}
+          set -e
+
+          case_passed=$(awk '/^\[case-test:[^]]+\] .+ >>>>>>>> pass:1$/ {count++} END {print count + 0}' ../xquic_case_test_ubuntu_24_babassl.log)
+          case_failed=$(awk '/^\[case-test:[^]]+\] .+ >>>>>>>> pass:0$/ {count++} END {print count + 0}' ../xquic_case_test_ubuntu_24_babassl.log)
+          echo -e "\033[32m case test jobs:$max_jobs passed:$case_passed failed:$case_failed expected:$expected status:$case_status \033[0m\n" | tee -a ../xquic_test_ubuntu_24_babassl.log
+
+          if [ "$case_status" -ne 0 ]; then
+            echo "case-test runner exited with status $case_status; structured case results decide pass/fail" | tee -a ../xquic_test_ubuntu_24_babassl.log
+          fi
+          if [ "$case_failed" -ne 0 ] || [ "$case_passed" -ne "$expected" ]; then
+            case_result=1
+          fi
+        fi
+        printf '%s\n' "$case_result" > ../xquic_case_status_ubuntu_24_babassl
 
     - name: Check Test Result
       run: |
@@ -228,31 +309,43 @@ jobs:
           "$log_file")
         unit_failed=$(awk '/  Test: .*FAILED/ {count++} END {print count + 0}' \
           "$log_file")
-        case_total=$(awk '/pass:/ {count++} END {print count + 0}' \
-          "$log_file")
-        case_passed=$(awk \
-          '/pass:1([^0-9]|$)/ {count++} END {print count + 0}' \
-          "$log_file")
-        case_failed=$(awk \
-          '/pass:0([^0-9]|$)/ {count++} END {print count + 0}' \
-          "$log_file")
-        case_reported=$((case_passed + case_failed))
+        case_result=1
+        if [ -f xquic_case_status_ubuntu_24_babassl ]; then
+          case_result=`cat xquic_case_status_ubuntu_24_babassl`
+        fi
 
         echo "unit test total:$unit_total passed:$unit_passed failed:$unit_failed"
-        echo "case test total:$case_total reported:$case_reported" \
-          "passed:$case_passed failed:$case_failed"
+        echo "case test result:$case_result"
+        if [ -f xquic_case_test_ubuntu_24_babassl.log ]; then
+          cat xquic_case_test_ubuntu_24_babassl.log | grep -E '^\[case-test:[^]]+\] .+ >>>>>>>> pass:' || true
+        fi
 
         if [ "$unit_total" -gt 0 ] \
           && [ "$unit_passed" -eq "$unit_total" ] \
           && [ "$unit_failed" -eq 0 ] \
-          && [ "$case_total" -gt 0 ] \
-          && [ "$case_reported" -eq "$case_total" ] \
-          && [ "$case_failed" -eq 0 ]; then
+          && [ "$case_result" -eq 0 ]; then
           echo "===== All unit and case tests passed! ====="
         else
           echo "===== Unit or case test failed! ====="
           exit 1
         fi
+
+    - name: Upload BabaSSL case-test logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: case-test-ubuntu-24-babassl-logs
+        path: |
+          xquic_test_ubuntu_24_babassl.log
+          xquic_case_test_ubuntu_24_babassl.log
+          xquic_case_status_ubuntu_24_babassl
+          build/case_test_parallel/*/*/case_test.log
+          build/case_test_parallel/*/*/case_test.failures
+          build/case_test_parallel/*/*/case_test.results
+          build/case_test_parallel/*/*/case_test.events
+          build/case_test_parallel/*/*/case-output-*.log
+          build/case_test_parallel/*/*/case-logs/**
+        retention-days: 1
 
   build-macos:
 

@@ -48,3 +48,19 @@ dashboards, or private runbooks.
 
 The source boundaries governing both private categories are defined in
 `harness/spec/harness-behavior.md`.
+
+## Test Routing
+
+- `case_test/manifest.yml`: endpoint group metadata for mapping changed paths
+  to module runners, feature labels, and stable shard ports.
+- `case_test/lib/selector.rb`: list, inventory, dry-run, and runner-map output
+  used by `scripts/case_test.sh`.
+- `case_test/lib/runner.sh`: selected execution scheduler with per-shard work
+  directory, port, and shard ID assignment.
+- `case_test/lib/architecture_check.rb`: repeatable checks for parallel
+  scheduling, native ownership, and failed-case reporting.
+- `case_test/<module>/`: module-owned endpoint case runners. New cases are
+  registered in the owning group script; not in the manifest.
+
+The authoritative module and feature map remains
+`harness/spec/harness-manifest.yml`.

@@ -1,0 +1,111 @@
+---
+version: 1
+max_parallel_jobs: 11
+groups:
+- id: transport.core
+  module: transport
+  source_paths:
+  - src/transport/xqc_conn*
+  - src/transport/xqc_engine*
+  - src/transport/xqc_cid*
+  - src/transport/xqc_transport_params*
+  runner: case_test/transport/core.sh
+  execution: implemented
+  port_offset: 0
+- id: transport.stream
+  module: transport
+  submodule: stream
+  source_paths:
+  - src/transport/xqc_stream*
+  runner: case_test/transport/stream.sh
+  execution: implemented
+  port_offset: 10
+- id: transport.packet
+  module: transport
+  submodule: packet
+  source_paths:
+  - src/transport/xqc_packet*
+  - src/transport/xqc_frame*
+  - src/transport/xqc_packet_parser*
+  - src/transport/xqc_frame_parser*
+  runner: case_test/transport/packet.sh
+  execution: implemented
+  port_offset: 20
+- id: transport.datagram
+  module: transport
+  submodule: datagram
+  source_paths:
+  - src/transport/xqc_datagram*
+  runner: case_test/transport/datagram.sh
+  execution: implemented
+  port_offset: 30
+- id: transport.multipath
+  module: transport
+  submodule: multipath
+  source_paths:
+  - src/transport/xqc_multipath*
+  - src/transport/scheduler/*
+  - src/transport/reinjection_control/*
+  runner: case_test/transport/multipath.sh
+  execution: implemented
+  port_offset: 40
+- id: transport.fec
+  module: transport
+  feature: fec
+  requires_cmake:
+  - XQC_ENABLE_FEC
+  - XQC_ENABLE_XOR
+  - XQC_ENABLE_RSC
+  - XQC_ENABLE_PKM
+  source_paths:
+  - src/transport/xqc_fec*
+  - src/transport/fec_schemes/*
+  runner: case_test/transport/fec.sh
+  execution: implemented
+  port_offset: 50
+- id: http3.core
+  module: http3
+  source_paths:
+  - src/http3/*
+  runner: case_test/http3/core.sh
+  execution: implemented
+  port_offset: 60
+- id: http3.qpack
+  module: http3
+  submodule: qpack
+  status: gap
+  source_paths:
+  - src/http3/qpack/*
+  runner: case_test/http3/qpack.sh
+  port_offset: 70
+- id: http3.ext
+  module: http3
+  source_paths:
+  - src/http3/*
+  runner: case_test/http3/h3-ext.sh
+  execution: implemented
+  port_offset: 80
+- id: tls.handshake
+  module: tls
+  source_paths:
+  - src/tls/*
+  runner: case_test/tls/handshake.sh
+  execution: implemented
+  port_offset: 90
+- id: congestion.core
+  module: congestion_control
+  source_paths:
+  - src/congestion_control/*
+  - src/transport/xqc_send_ctl*
+  runner: case_test/congestion/core.sh
+  execution: implemented
+  port_offset: 100
+- id: observability.qlog
+  module: common
+  execution: implemented
+  source_paths:
+  - src/common/*
+  - src/common/utils/*
+  - scripts/qlog_parser.py
+  runner: case_test/observability/qlog.sh
+  port_offset: 110

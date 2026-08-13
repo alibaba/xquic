@@ -47,12 +47,16 @@ global_docs:
     - harness/spec/architecture.md
   validation:
     - harness/spec/validation.md
+    - harness/skills/xquic-build/SKILL.md
     - harness/skills/validate/SKILL.md
   doc_style:
     - harness/spec/doc-style.md
   pull_requests:
     - harness/spec/pull-requests.md
     - harness/skills/xquic-pr-formatting/SKILL.md
+
+test_routing:
+  case_manifest: case_test/manifest.yml
 
 modules:
   api:

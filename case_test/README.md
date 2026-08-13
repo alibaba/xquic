@@ -1,0 +1,320 @@
+# Case Test Routing
+
+This directory contains metadata and helpers for routing endpoint
+client-to-server case tests. The executable entry point is
+`scripts/case_test.sh`.
+
+## Files
+
+- `manifest.yml` maps source paths, modules, features, fixed port offsets, and
+  runner paths to case-test groups.
+- `lib/selector.rb` powers list, inventory, dry-run, and runner-map output for
+  `scripts/case_test.sh`.
+- `lib/runner.sh` provides selected execution and parallel scheduling.
+- `trouble_shooting.md` records durable diagnosis patterns for routing,
+  parallel execution, environment failures, and coverage mismatches.
+- Module directories hold executable case runners. Each runner declares its
+  group and registers its own cases with `case_test_case`.
+
+## Ownership
+
+Running `scripts/case_test.sh` without selector arguments executes all
+implemented native groups sequentially. Use `--parallel --jobs auto` for
+bounded parallel execution with the budget from `max_parallel_jobs` in
+`manifest.yml`. Use an explicit `--jobs <count>` only for local experiments or
+when reducing the budget to isolate a failure.
+
+Use `bash scripts/case_test.sh --inventory` to audit native case ownership.
+Every case must be registered by exactly one group; overlapping feature
+relevance belongs in documentation or future related-case metadata, not in
+executable ownership.
+
+Use the architecture check when changing the runner, selector, manifest, or
+group registration helpers:
+
+```bash
+case_test/lib/architecture_check.rb "$(pwd)" --all
+```
+
+The architecture check verifies unique native ownership, runner syntax,
+parallel scheduling, stable shard ports and work directories, and failed-case
+reporting.
+
+## Selected Execution
+
+Selected execution is opt-in:
+
+```bash
+bash scripts/case_test.sh --execute --from-path src/transport/xqc_stream.c
+bash scripts/case_test.sh --execute --group transport.datagram
+bash scripts/case_test.sh --execute --parallel --jobs auto --module transport
+bash scripts/case_test.sh --execution-plan
+```
+
+Only groups marked `execution: implemented` in `manifest.yml` are scheduled.
+Groups with `requires_cmake` are scheduled only when the current
+`XQC_BUILD_DIR` CMake cache has the required feature flags enabled. Use
+`--execution-plan` to inspect implemented groups, skipped build-gated groups,
+missing cases, and the current maximum safe job count.
+
+Each scheduled shard receives a stable `CASE_TEST_SHARD_ID`, a manifest-owned
+port derived from `port_offset`, and an isolated work directory. Generated
+logs, tokens, transport-parameter files, and session tickets stay inside that
+work directory. Shared certificates are read-only symlinks from the build
+directory.
+
+Parallel execution writes each shard's raw output to
+`<build>/case_test_parallel/<run-id>/<shard>/case_test.log` and records failed
+case result lines in
+`<build>/case_test_parallel/<run-id>/<shard>/case_test.failures`.
+Serial diagnostic runs with multiple `--case` selectors use
+`<build>/case_test_parallel/<run-id>/<shard>/<case>/case_test.log` so each
+case keeps independent raw logs and copied `clog`/`slog` snapshots.
+The parent runner reports each shard's start line, heartbeat, exit status,
+elapsed time, expected case count, and parsed fail count, and returns nonzero
+if a shard exits nonzero, prints any failed case result, or produces fewer or
+more case events than the selector expected. It also emits ordered normalized
+`pass:1` and `pass:0` result lines from the shard event file so existing CI
+summary checks can count cases without reading interleaved raw output. On
+failure, terminal output shows the failed result lines and a bounded tail of
+the shard log; use the per-shard `case_test.log`, `case_test.events`,
+`case-output-*.log`, and `case-logs/<case>/` files as the authoritative
+failure evidence.
+
+Shard observability is controlled by environment variables:
+
+- `CASE_TEST_HEARTBEAT_INTERVAL`: seconds between running-shard progress lines;
+  default `60`, `0` disables heartbeat output.
+- `CASE_TEST_SHARD_TIMEOUT`: per-shard timeout in seconds when the platform
+  provides `timeout`; default `600`, `0` disables the timeout.
+- `CASE_TEST_CASE_TIMEOUT`: per-case timeout in seconds; default `0`
+  disables it. When it fires, the shard log records the active case as
+  `case-timeout`, terminates that case's subprocess tree, and reports the case
+  as failed without waiting for the enclosing shard timeout.
+
+Some cases require sudo for client-side network setup. Run `sudo -v` in the
+same shell before executing those shards. Shards that contain sudo commands
+are checked before scheduling starts, so missing credentials are reported as an
+environment failure instead of a mixed set of case-result failures.
+
+For full-suite execution, use `bash scripts/case_test.sh --execution-plan` to
+confirm the current build-supported case count and `max_safe_jobs` before
+changing parallelism. The GitHub workflow uses the same native runner path as
+local execution:
+
+```bash
+bash scripts/case_test.sh --execute --parallel --jobs auto --require-complete
+```
+
+Parallelism is owned by the case-test runner, not by GitHub matrix shards. Each
+implemented group keeps a fixed manifest `port_offset`, isolated per-run work
+directory, and per-group log, so adding a case does not require CI shard
+rebalance or a second registration file. The expected case count is discovered
+from the owning group scripts, so adding a `case_test_case` line changes the
+coverage check automatically.
+
+Feature-gated groups are included only when the current build directory has a
+`CMakeCache.txt` with the required flags enabled. For example, `transport.fec`
+requires `XQC_ENABLE_FEC`, `XQC_ENABLE_XOR`, `XQC_ENABLE_RSC`, and
+`XQC_ENABLE_PKM`; otherwise it appears as `skipped_build_group` in the
+execution plan and is excluded from the expected case count.
+
+## Extending Case Tests
+
+Use `case_test/manifest.yml` as the group routing source of truth. Add new
+endpoint cases to the owning group script. A group script declares its group
+once, then registers cases with the common helper.
+
+### 中文新增指引
+
+普通新增端到端 case 时，优先只改已有 group 脚本，不改
+`case_test/manifest.yml`。先根据改动路径或功能归属找到 owning group：
+
+```bash
+bash scripts/case_test.sh --from-path src/transport/xqc_fec.c --list
+bash scripts/case_test.sh --feature fec --list
+bash scripts/case_test.sh --group transport.fec --list
+```
+
+如果输出中已有合适的 group，就把新 case 函数和一行
+`case_test_case` 注册写到该 group 脚本中。只有新增模块、现有 group 无法
+表达归属、或需要新的固定端口/资源隔离边界时，才新增 group 并同步
+`case_test/manifest.yml`。
+
+新增 case 的最小步骤：
+
+1. 在 owning group 脚本中新增一个 shell 函数。
+2. 函数内启动需要的 server，运行 client，检查 `clog`、`slog` 或
+   `stdlog` 中的可观测结果。
+3. 在同一文件末尾添加一行 `case_test_case "<case-name>" --id <id>
+   --run <function>`。
+4. 跑 `--inventory`、`--execution-plan`、`--group <group> --list` 确认
+   不重复、不遗漏、能被索引。
+
+#### 新增 FEC Case 示例
+
+假设要给 FEC 增加一个 repair timeout 的端到端回归，归属
+`transport.fec`，就在 `case_test/transport/fec.sh` 中添加：
+
+```bash
+fec_repair_timeout_closes_gap()
+{
+    fec_start_datagram_server
+
+    clear_log
+    echo -e "check fec repair timeout closes recovery gap ...\c"
+    case_test_sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 \
+        -E -x 1601 -N -1 -t 1 --dgram_qos 3 -g --fec_timeout 20 \
+        > stdlog
+    slog_res=`grep '|repair timeout closes gap|' slog`
+    errlog=`grep_err_log`
+    [ -z "$errlog" ] && [ -n "$slog_res" ]
+}
+
+case_test_case "fec_repair_timeout_closes_gap" \
+    --id 1601 \
+    --run fec_repair_timeout_closes_gap
+```
+
+然后验证路由：
+
+```bash
+bash scripts/case_test.sh --inventory
+bash scripts/case_test.sh --execution-plan
+bash scripts/case_test.sh --group transport.fec --list
+bash scripts/case_test.sh --execute --group transport.fec
+```
+
+#### 新增 Group 示例
+
+如果某个新模块没有合适的现有 group，例如新增 `transport.recovery`，
+先添加 runner 文件 `case_test/transport/recovery.sh`：
+
+```bash
+#!/bin/bash
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "${ROOT_DIR}/case_test/lib/common.sh"
+
+case_test_group "transport.recovery"
+
+recovery_probe_timeout()
+{
+    case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
+
+    clear_log
+    echo -e "check recovery probe timeout ...\c"
+    ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1701 > stdlog
+    result=`grep ">>>>>>>> pass:1" stdlog`
+    errlog=`grep_err_log`
+    [ -z "$errlog" ] && [ "$result" = ">>>>>>>> pass:1" ]
+}
+
+case_test_case "recovery_probe_timeout" \
+    --id 1701 \
+    --run recovery_probe_timeout
+
+if case_test_is_discovery; then
+    case_test_run
+    exit 0
+fi
+
+case_test_enter_work_dir
+case_test_run
+```
+
+再在 `case_test/manifest.yml` 中新增 group 映射，端口偏移必须和已有
+group 不重复：
+
+```yaml
+- id: transport.recovery
+  module: transport
+  submodule: recovery
+  source_paths:
+  - src/transport/xqc_recovery*
+  runner: case_test/transport/recovery.sh
+  execution: implemented
+  port_offset: 120
+```
+
+新增 group 后必须运行：
+
+```bash
+bash -n case_test/transport/recovery.sh
+bash scripts/case_test.sh --inventory
+bash scripts/case_test.sh --execution-plan
+bash scripts/case_test.sh --from-path src/transport/xqc_recovery.c --list
+case_test/lib/architecture_check.rb "$(pwd)" --all
+```
+
+### Native Case Pattern
+
+A normal case follows this shape:
+
+```bash
+case_test_group "transport.fec"
+
+fec_negotiate_encoder_fec_scheme()
+{
+    # Start server, run client, inspect clog/slog/stdlog, and return 0 or 1.
+}
+
+case_test_case "negotiate_encoder_fec_scheme" \
+    --id native \
+    --run fec_negotiate_encoder_fec_scheme
+```
+
+The runner injects group-shared environment before executing the script:
+
+- `CASE_TEST_GROUP`
+- `CASE_TEST_MODULE`
+- `CASE_TEST_FEATURE`
+- `CASE_TEST_PORT`
+- `CASE_TEST_SHARD_ID`
+- `CASE_TEST_WORK_DIR`
+
+Discovery mode uses the same file without running network tests:
+
+```bash
+CASE_TEST_DISCOVER=1 CASE_TEST_GROUP=transport.fec \
+    CASE_TEST_MODULE=transport CASE_TEST_FEATURE=fec \
+    bash case_test/transport/fec.sh
+```
+
+### Add A New FEC Endpoint Case
+
+For a new FEC behavior, add the endpoint case to
+`case_test/transport/fec.sh`. For example, a FEC repair-timeout regression
+might use:
+
+- case ID: the next available ID in the `[1600, 1699]` FEC namespace from
+  `harness/spec/validation.md`;
+- case name: `fec_repair_timeout_closes_gap`;
+- client/server selector: matching `-x <id>` handling in
+  `tests/test_client.c` and `tests/test_server.c`;
+- native case body: a shell function in `case_test/transport/fec.sh` that
+  starts the needed server mode, runs the client with the allocated ID, checks
+  the observable FEC result in `clog`, `slog`, or `stdlog`, and returns success
+  or failure;
+- registration: one `case_test_case "fec_repair_timeout_closes_gap" --id
+  <id> --run <function>` line in the same group script.
+
+Before reserving the ID, search the current tree, history, and open pull
+requests as described in `harness/spec/validation.md`. After implementing the
+case, use these checks as the minimum routing evidence:
+
+```bash
+bash scripts/case_test.sh --inventory
+bash scripts/case_test.sh --execution-plan
+bash scripts/case_test.sh --group transport.fec --list
+bash scripts/case_test.sh --execute --group transport.fec
+case_test/lib/architecture_check.rb "$(pwd)" --all
+```
+
+Expected routing observations:
+
+- `--inventory` has no missing or repeated case owners;
+- `--execution-plan` has `complete=true` and `missing_unique_cases=0`;
+- `--group transport.fec --list` includes the new FEC case name as a native
+  case and lists it exactly once in the group case set;
+- selected execution reports `pass:1` for the new case and no shard failure.

@@ -78,18 +78,26 @@ fi
 case_tls_handshake_alpn_negotiation_failure_0x178()
 {
 
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
 clear_log
 echo -e "alpn negotiation failure (0x178) ...\c"
 rm -f test_session
 ${CLIENT_BIN} -l e -t 1 -T 1 -x 43 > stdlog
 alpn_res=`grep "xqc_ssl_alpn_select_cb|select proto error" slog`
-conn_err_178=`grep "conn_err:376" stdlog`
-if [ -n "$alpn_res" ] && [ -n "$conn_err_178" ]; then
+alert_res=`grep -E "(alert:120|NO_APPLICATION_PROTOCOL|no_application_protocol)" slog`
+conn_err_178=`grep -E "(conn_err:376([^0-9]|$)|err:0x178([^0-9a-fA-F]|$))" stdlog clog slog`
+if [ -n "$alpn_res" ] && [ -n "$alert_res" ] && [ -n "$conn_err_178" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "alpn_negotiation_failure_0x178" "pass"
 else
     echo ">>>>>>>> pass:0"
     case_print_result "alpn_negotiation_failure_0x178" "fail"
+    echo "expected ALPN failure evidence:"
+    echo "  server select proto error: ${alpn_res:-missing}"
+    echo "  TLS alert 120/no_application_protocol: ${alert_res:-missing}"
+    echo "  conn_err 0x178/376: ${conn_err_178:-missing}"
+    grep -E "(select proto error|alert:|NO_APPLICATION_PROTOCOL|no_application_protocol|conn_err:|err:0x)" stdlog clog slog 2>/dev/null || true
 fi
 
 

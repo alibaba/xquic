@@ -134,7 +134,9 @@ jobs:
           fi
         fi
         printf '%s\n' "$case_result" > ../xquic_case_status
-        gcovr -r .. --xml --gcov-ignore-parse-errors -o ../coverage.xml
+        find case_test_parallel -type d -name gcov -prune -exec rm -rf {} + 2>/dev/null || true
+        gcovr -r .. --xml --gcov-ignore-parse-errors \
+          --gcov-ignore-errors=no_working_dir_found -o ../coverage.xml
 
     - name: Check Test Result
       run: |

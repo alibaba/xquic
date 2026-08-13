@@ -137,6 +137,16 @@ bash scripts/case_test.sh --execute --parallel --jobs auto --require-complete
 如果 CI 额外逐个 group 串行调用，就会失去并行提速，也会让本地复现和
 线上行为不一致。
 
+### gcov 产物不能放进 case workdir
+
+并行 case-test 如果让多个进程直接写 build tree 下的 `.gcda`，会产生
+corrupt arc tag、mismatched counters 等并发覆盖率污染。如果把
+`GCOV_PREFIX` 放到 `build/case_test_parallel/<run-id>/<group>/gcov`，
+`gcovr -r ..` 又会扫到没有匹配 `.gcno` 的副本并报
+`no_working_dir_found`。runner 默认应把每个 shard 的 gcov 前缀放到
+build tree 外；只有显式设置 `CASE_TEST_GCOV_PREFIX=0` 时才允许直接写
+默认 coverage 路径。
+
 ## 判断失败类型
 
 ### 覆盖数量不一致

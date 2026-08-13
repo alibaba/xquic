@@ -316,9 +316,15 @@ run_group()
         export CASE_TEST_FEATURE="${feature}"
         export CASE_TEST_CASE="${case_filter}"
         export CASE_TEST_EVENT_FILE="${events_file}"
-        export GCOV_PREFIX="${work_dir}/gcov"
-        export GCOV_PREFIX_STRIP=0
-        mkdir -p "${GCOV_PREFIX}"
+        if [[ "${CASE_TEST_GCOV_PREFIX:-1}" != "0" ]]; then
+            if [[ "${CASE_TEST_GCOV_PREFIX:-}" = "" || "${CASE_TEST_GCOV_PREFIX:-}" = "1" ]]; then
+                export GCOV_PREFIX="${TMPDIR:-/tmp}/xquic-case-test-gcov/${CASE_TEST_RUN_ID}/${shard_id}"
+            else
+                export GCOV_PREFIX="${CASE_TEST_GCOV_PREFIX}"
+            fi
+            export GCOV_PREFIX_STRIP=0
+            mkdir -p "${GCOV_PREFIX}"
+        fi
         if [[ "${SHARD_TIMEOUT}" -gt 0 ]] && command -v timeout > /dev/null 2>&1; then
             exec timeout "${SHARD_TIMEOUT}" "${ROOT_DIR}/${runner}"
         fi

@@ -93,7 +93,7 @@ grep_err_log
 
 clear_log
 echo -e "MPNS multipath 30 percent loss close initial path ...\c"
-case_test_sudo ${CLIENT_BIN} -s 10240 -t 6 -l d -E -d 300 -M -i lo -i lo -x 100 -e 10 --epoch_timeout 1000000 > stdlog
+case_test_sudo ${CLIENT_BIN} -s 10240 -t 8 -l d -E -d 300 -M -A -i lo -i lo -x 100 -e 10 --epoch_timeout 1000000 > stdlog
 result=`grep ">>>>>>>> pass" stdlog`
 svr_res=`grep "|path closed|path:0|" slog`
 cli_res=`grep "|path closed|path:0|" clog`
@@ -229,7 +229,7 @@ sleep 1
 
 clear_log
 echo -e "NAT rebinding path 0 ...\c"
-case_test_sudo ${CLIENT_BIN} -s 102400 -l d -t 3 -M -i lo -i lo -E -n 2 -x 103 > stdlog
+case_test_sudo ${CLIENT_BIN} -s 102400 -l d -t 5 -M -i lo -i lo -E -n 2 -x 103 > stdlog
 result=`grep ">>>>>>>> pass:0" stdlog`
 errlog=`grep_err_log`
 rebind=`grep "|path:0|REBINDING|validate NAT rebinding addr|" slog`

@@ -55,7 +55,7 @@ grep_err_log
 
 clear_log
 echo -e "MPNS multipath 30 percent loss ...\c"
-case_test_sudo ${CLIENT_BIN} -s 10240000 -t 5 -l e -E -d 300 -M -i lo -i lo > stdlog
+case_test_sudo ${CLIENT_BIN} -s 1024000 -t 5 -l e -E -d 300 -M -i lo -i lo > stdlog
 result=`grep ">>>>>>>> pass" stdlog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then

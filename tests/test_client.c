@@ -4090,7 +4090,7 @@ xqc_client_epoch_callback(int fd, short what, void *arg)
     }
 
         /* close initial path */
-    if (g_test_case == 100 && g_cur_epoch > 3) {
+    if (g_test_case == 100 && g_cur_epoch > 5) {
         xqc_conn_close_path(ctx.engine, &user_conn->cid, 0);
     }
 

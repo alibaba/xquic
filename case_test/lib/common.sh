@@ -68,7 +68,7 @@ case_test_enter_work_dir()
     CLIENT_BIN="${CASE_TEST_CLIENT_BIN:-${build_dir}/tests/test_client ${CASE_TEST_PORT_ARG} -o ${CASE_TEST_CLIENT_LOG}}"
     SERVER_BIN="${CASE_TEST_SERVER_BIN:-${build_dir}/tests/test_server ${CASE_TEST_PORT_ARG} -o ${CASE_TEST_SERVER_LOG}}"
     CASE_TEST_SERVER_PID=""
-    trap 'case_test_stop_server' EXIT
+    trap 'case_test_stop_server; case_test_cleanup_udp_port' EXIT
 }
 
 case_test_stop_server()
@@ -78,6 +78,34 @@ case_test_stop_server()
         wait "${CASE_TEST_SERVER_PID}" 2> /dev/null || true
         CASE_TEST_SERVER_PID=""
     fi
+}
+
+case_test_cleanup_udp_port()
+{
+    local port="${1:-${CASE_TEST_PORT:-}}"
+    local pid
+
+    if [[ -z "${port}" ]] || ! command -v lsof > /dev/null 2>&1; then
+        return 0
+    fi
+
+    while read -r pid; do
+        if [[ -n "${pid}" ]]; then
+            kill "${pid}" 2> /dev/null || true
+        fi
+    done < <(lsof -nP -tiUDP:"${port}" 2> /dev/null || true)
+}
+
+case_test_replace_in_file()
+{
+    local pattern="$1"
+    local replacement="$2"
+    local path="$3"
+    local tmp
+
+    tmp="${path}.case-test-tmp.$$"
+    sed "s/${pattern}/${replacement}/" "${path}" > "${tmp}"
+    mv "${tmp}" "${path}"
 }
 
 case_test_group()
@@ -130,6 +158,9 @@ case_test_case_watchdog_start()
         sleep "${timeout_s}"
         if kill -0 "${owner_pid}" 2> /dev/null; then
             echo "[case-test] case-timeout group=${CASE_TEST_GROUP:-} case=${name} id=${id} elapsed=${timeout_s}s"
+            if [[ -n "${CASE_TEST_EVENT_FILE:-}" ]]; then
+                printf '%s\t%s\n' "${name}" "fail" >> "${CASE_TEST_EVENT_FILE}"
+            fi
             case_test_kill_tree TERM "${owner_pid}"
             sleep 2
             if kill -0 "${owner_pid}" 2> /dev/null; then
@@ -166,6 +197,9 @@ case_test_case_end()
 
     case_test_case_watchdog_stop
     echo "[case-test] case-end group=${CASE_TEST_GROUP:-} case=${name} id=${id} status=${status} ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    if [[ -n "${CASE_TEST_EVENT_FILE:-}" ]]; then
+        printf '%s\t%s\n' "${name}" "${status}" >> "${CASE_TEST_EVENT_FILE}"
+    fi
 }
 
 case_test_case()
@@ -222,38 +256,61 @@ case_test_run_self_reporting_case()
 {
     local name="$1"
     local run_func="$2"
-    local output
+    local case_file_id
+    local output_file
     local status
 
-    if output="$("${run_func}" 2>&1)"; then
-        status=0
-    else
-        status="$?"
-    fi
+    case_file_id="$(case_test_sanitize_id "${name}")"
+    output_file="${CASE_TEST_WORK_DIR:-.}/case-output-${case_file_id}.log"
+    : > "${output_file}"
 
-    printf '%s\n' "${output}"
+    set +e
+    set +o pipefail
+    "${run_func}" > "${output_file}" 2>&1
+    status="$?"
+    set -e
+    set -o pipefail
 
-    if printf '%s\n' "${output}" | grep -q ">>>>>>>> pass:0"; then
+    cat "${output_file}"
+    case_test_snapshot_case_logs "${case_file_id}"
+
+    if grep -q ">>>>>>>> pass:0" "${output_file}"; then
         return 1
     fi
 
-    if printf '%s\n' "${output}" | grep -q "\\[     FAIL \\] xquic_case_test\\.${name} "; then
+    if grep -q "\\[     FAIL \\] xquic_case_test\\.${name} " "${output_file}"; then
         return 1
+    fi
+
+    if grep -q ">>>>>>>> pass:1" "${output_file}"; then
+        return 0
+    fi
+
+    if grep -q "\\[       OK \\] xquic_case_test\\.${name} " "${output_file}"; then
+        return 0
     fi
 
     if [[ "${status}" -ne 0 ]]; then
         return "${status}"
     fi
 
-    if printf '%s\n' "${output}" | grep -q ">>>>>>>> pass:1"; then
-        return 0
-    fi
-
-    if printf '%s\n' "${output}" | grep -q "\\[       OK \\] xquic_case_test\\.${name} "; then
-        return 0
-    fi
-
     return 1
+}
+
+case_test_snapshot_case_logs()
+{
+    local case_file_id="$1"
+    local log_dir
+    local log_name
+
+    log_dir="${CASE_TEST_WORK_DIR:-.}/case-logs/${case_file_id}"
+    mkdir -p "${log_dir}"
+
+    for log_name in stdlog clog slog svr_stdlog ccfc.log; do
+        if [[ -f "${log_name}" ]]; then
+            cp "${log_name}" "${log_dir}/${log_name}"
+        fi
+    done
 }
 
 case_test_run()
@@ -265,9 +322,14 @@ case_test_run()
     local id
     local mode
     local run_func
+    local matched=0
 
     if case_test_is_discovery; then
         return 0
+    fi
+
+    if declare -F case_test_group_setup > /dev/null; then
+        case_test_group_setup
     fi
 
     for index in "${!CASE_TEST_CASE_NAMES[@]}"; do
@@ -280,6 +342,7 @@ case_test_run()
             continue
         fi
 
+        matched=$((matched + 1))
         case_test_case_begin "${name}" "${id}" || return 2
         if [[ "${mode}" = "self-reporting" ]]; then
             if case_test_run_self_reporting_case "${name}" "${run_func}"; then
@@ -302,6 +365,11 @@ case_test_run()
             status=1
         fi
     done
+
+    if [[ -n "${selected}" && "${matched}" -eq 0 ]]; then
+        echo "case_test: selected case was not found in ${CASE_TEST_GROUP:-unknown}: ${selected}" >&2
+        return 2
+    fi
 
     return "${status}"
 }

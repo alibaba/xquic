@@ -189,7 +189,7 @@ case_congestion_core_copa_with_customized_parameters()
 
 clear_log
 echo -e "Copa with customized parameters (delta=0.5, ai_unit=5.0) ...\c"
-result=`${CLIENT_BIN} -s 10240000 -l e -t 1 -E -c P --copa_delta 0.5 --copa_ai_unit 5.0 |grep ">>>>>>>> pass"`
+result=`${CLIENT_BIN} -s 1024000 -l e -t 1 -E -c P --copa_delta 0.5 --copa_ai_unit 5.0 |grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -338,6 +338,11 @@ fi
 
 }
 
+case_test_group_setup()
+{
+    case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
+}
+
 case_test_case "BBR" --id native --mode self-reporting --run case_congestion_core_BBR
 case_test_case "BBR+" --id native --mode self-reporting --run case_congestion_core_BBR_
 case_test_case "BBRv2" --id native --mode self-reporting --run case_congestion_core_BBRv2
@@ -363,6 +368,6 @@ if case_test_is_discovery; then
 fi
 
 case_test_enter_work_dir
-trap case_test_stop_server EXIT
+trap 'case_test_stop_server; case_test_cleanup_udp_port' EXIT
 
 case_test_run

@@ -126,6 +126,9 @@ sleep 1
 
 
 
+rm -f test_session xqc_token tp_localhost
+${CLIENT_BIN} -s 1024000 -l e -t 1 -E -1 > /dev/null
+
 clear_log
 echo -e "0RTT accept ...\c"
 ${CLIENT_BIN} -s 1024000 -l e -t 1 -E > stdlog
@@ -473,6 +476,6 @@ if case_test_is_discovery; then
 fi
 
 case_test_enter_work_dir
-trap case_test_stop_server EXIT
+trap 'case_test_stop_server; case_test_cleanup_udp_port' EXIT
 
 case_test_run

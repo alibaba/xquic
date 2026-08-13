@@ -1529,7 +1529,7 @@ if case_test_is_discovery; then
 fi
 
 case_test_enter_work_dir
-trap case_test_stop_server EXIT
+trap 'case_test_stop_server; case_test_cleanup_udp_port' EXIT
 case_test_require_sudo
 
 case_test_run

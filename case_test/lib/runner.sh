@@ -9,13 +9,14 @@ source "${ROOT_DIR}/case_test/lib/common.sh"
 
 SELECTOR_ARGS=()
 SELECTOR_COUNT=0
+CASE_FILTERS=()
 EXECUTE=0
 PARALLEL=0
 REQUIRE_COMPLETE=0
 JOBS=1
 JOBS_EXPLICIT=0
 PORT_BASE="${CASE_TEST_PORT_BASE:-18000}"
-SHARD_TIMEOUT="${CASE_TEST_SHARD_TIMEOUT:-1800}"
+SHARD_TIMEOUT="${CASE_TEST_SHARD_TIMEOUT:-600}"
 HEARTBEAT_INTERVAL="${CASE_TEST_HEARTBEAT_INTERVAL:-60}"
 CASE_TIMEOUT="${CASE_TEST_CASE_TIMEOUT:-0}"
 
@@ -64,6 +65,12 @@ while [[ "$#" -gt 0 ]]; do
             ;;
         --port-base)
             PORT_BASE="${2:?--port-base requires a value}"
+            shift 2
+            ;;
+        --case)
+            CASE_FILTERS+=("${2:?--case requires a value}")
+            SELECTOR_ARGS+=("$1" "$2")
+            SELECTOR_COUNT=$((SELECTOR_COUNT + 1))
             shift 2
             ;;
         -h|--help)
@@ -121,6 +128,9 @@ if ! [[ "${CASE_TIMEOUT}" =~ ^[0-9]+$ ]]; then
 fi
 
 BUILD_DIR="$(case_test_build_dir "${ROOT_DIR}")"
+CASE_TEST_RUN_ID="${CASE_TEST_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
+CASE_TEST_RUN_ID="$(case_test_sanitize_id "${CASE_TEST_RUN_ID}")"
+CASE_TEST_RUN_DIR="${CASE_TEST_RUN_DIR:-${BUILD_DIR}/case_test_parallel/${CASE_TEST_RUN_ID}}"
 MAP_FILE="$(mktemp "${TMPDIR:-/tmp}/xquic_case_runners.XXXXXX")"
 PLAN_FILE="$(mktemp "${TMPDIR:-/tmp}/xquic_case_plan.XXXXXX")"
 OWNERSHIP_FILE="$(mktemp "${TMPDIR:-/tmp}/xquic_case_ownership.XXXXXX")"
@@ -214,6 +224,11 @@ if ! [[ "${JOBS}" =~ ^[1-9][0-9]*$ ]]; then
     exit 2
 fi
 
+if [[ "${PARALLEL}" -eq 1 && "${#CASE_FILTERS[@]}" -gt 0 ]]; then
+    echo "case_test: --case execution is a serial diagnostic selector; omit --parallel" >&2
+    exit 2
+fi
+
 selected_runners_need_sudo()
 {
     local map_file="$1"
@@ -222,8 +237,13 @@ selected_runners_need_sudo()
     local port_offset
     local module
     local feature
+    local expected_count
+    local selected_cases
 
-    while IFS=$'\t' read -r group_id runner port_offset module feature; do
+    while IFS=$'\t' read -r group_id runner port_offset module feature expected_count selected_cases; do
+        if [[ "${feature:-}" = "-" ]]; then
+            feature=""
+        fi
         if grep -Eq 'case_test_(require_sudo|sudo)' "${ROOT_DIR}/${runner}"; then
             return 0
         fi
@@ -246,12 +266,15 @@ run_group()
     local port_offset="$3"
     local module="${4:-}"
     local feature="${5:-}"
+    local case_filter="${6:-}"
+    local expected_count="${7:-0}"
     local shard_id
     local port
     local work_dir
     local log_file
     local failures_file
     local results_file
+    local events_file
     local runner_status
     local run_count
     local ok_count
@@ -263,17 +286,22 @@ run_group()
     local heartbeat_pid
 
     shard_id="$(case_test_sanitize_id "${group_id}")"
+    if [[ -n "${case_filter}" ]]; then
+        shard_id="${shard_id}/$(case_test_sanitize_id "${case_filter}")"
+    fi
     port=$((PORT_BASE + port_offset))
-    work_dir="${BUILD_DIR}/case_test_parallel/${shard_id}"
+    work_dir="${CASE_TEST_RUN_DIR}/${shard_id}"
     log_file="${work_dir}/case_test.log"
     failures_file="${work_dir}/case_test.failures"
     results_file="${work_dir}/case_test.results"
+    events_file="${work_dir}/case_test.events"
     failure_context_lines="${CASE_TEST_FAILURE_CONTEXT_LINES:-120}"
 
     case_test_prepare_work_dir "${BUILD_DIR}" "${work_dir}"
     : > "${log_file}"
     : > "${failures_file}"
     : > "${results_file}"
+    : > "${events_file}"
     echo "[case-test] runner-start group=${group_id} runner=${runner} port=${port} work_dir=${work_dir}" > "${log_file}"
 
     start_epoch="$(date +%s)"
@@ -286,6 +314,11 @@ run_group()
         export CASE_TEST_GROUP="${group_id}"
         export CASE_TEST_MODULE="${module}"
         export CASE_TEST_FEATURE="${feature}"
+        export CASE_TEST_CASE="${case_filter}"
+        export CASE_TEST_EVENT_FILE="${events_file}"
+        export GCOV_PREFIX="${work_dir}/gcov"
+        export GCOV_PREFIX_STRIP=0
+        mkdir -p "${GCOV_PREFIX}"
         if [[ "${SHARD_TIMEOUT}" -gt 0 ]] && command -v timeout > /dev/null 2>&1; then
             exec timeout "${SHARD_TIMEOUT}" "${ROOT_DIR}/${runner}"
         fi
@@ -323,79 +356,51 @@ run_group()
     if [[ -n "${heartbeat_pid}" ]]; then
         kill "${heartbeat_pid}" 2> /dev/null || true
     fi
+    case_test_cleanup_udp_port "${port}"
 
     end_epoch="$(date +%s)"
     if [[ "${runner_status}" -eq 124 ]]; then
         echo "[case-test] ${group_id} timeout elapsed=$((end_epoch - start_epoch))s limit=${SHARD_TIMEOUT}s log=${log_file}"
     fi
 
-    awk -v group_id="${group_id}" '
-        function emit(name, result) {
-            print "[case-test:" group_id "] " name " >>>>>>>> pass:" result
-            emitted[name] = 1
-        }
-
-        />>>>>>>> pass:[01]/ {
-            result = $0
-            sub(/^.*>>>>>>>> pass:/, "", result)
-            result = substr(result, 1, 1)
-            pending_result = result
-            next
-        }
-        /^\[ RUN      \] xquic_case_test\./ {
-            name = $0
-            sub(/^\[ RUN      \] xquic_case_test\./, "", name)
-            sub(/ .*/, "", name)
-            if (pending_result != "") {
-                emit(name, pending_result)
-                pending_result = ""
+    awk -F '\t' -v group_id="${group_id}" '
+        NF >= 2 {
+            name = $1
+            result = ($2 == "pass") ? "1" : "0"
+            if (!(name in seen)) {
+                order[++count] = name
+                seen[name] = 1
             }
-            next
-        }
-        /^\[       OK \] xquic_case_test\./ {
-            name = $0
-            sub(/^\[       OK \] xquic_case_test\./, "", name)
-            sub(/ .*/, "", name)
-            if (!emitted[name]) {
-                emit(name, "1")
+            if (!(name in status) || result == "0") {
+                status[name] = result
             }
-            next
         }
-        /^\[     FAIL \] xquic_case_test\./ {
-            name = $0
-            sub(/^\[     FAIL \] xquic_case_test\./, "", name)
-            sub(/ .*/, "", name)
-            if (!emitted[name]) {
-                emit(name, "0")
+        END {
+            for (i = 1; i <= count; i++) {
+                name = order[i]
+                print "[case-test:" group_id "] " name " >>>>>>>> pass:" status[name]
             }
-            next
         }
-        /^\[case-test\] case-start / {
-            name = $0
-            sub(/^.* case=/, "", name)
-            sub(/ .*/, "", name)
-            current_case = name
-            next
-        }
-        /^\[case-test\] case-timeout / {
-            name = $0
-            sub(/^.* case=/, "", name)
-            sub(/ .*/, "", name)
-            if (name == "" && current_case != "") {
-                name = current_case
-            }
-            if (name != "" && !emitted[name]) {
-                emit(name, "0")
-            }
-            next
-        }
-    ' "${log_file}" > "${results_file}"
+    ' "${events_file}" > "${results_file}"
     grep '>>>>>>>> pass:0' "${results_file}" > "${failures_file}" || true
     run_count="$(wc -l < "${results_file}" | tr -d ' ')"
     ok_count="$(grep -c '>>>>>>>> pass:1' "${results_file}" || true)"
     fail_count="$(wc -l < "${failures_file}" | tr -d ' ')"
 
-    echo "[case-test] ${group_id} result=$([[ "${runner_status}" -eq 0 && "${fail_count}" -eq 0 ]] && echo pass || echo fail) exit=${runner_status} elapsed=$((end_epoch - start_epoch))s run=${run_count} ok=${ok_count} fail=${fail_count} log=${log_file}"
+    if [[ -n "${case_filter}" ]]; then
+        expected_count=1
+    fi
+
+    if ! [[ "${expected_count}" =~ ^[0-9]+$ ]]; then
+        expected_count=0
+    fi
+
+    if [[ "${expected_count}" -gt 0 && "${run_count}" -ne "${expected_count}" ]]; then
+        echo "[case-test:${group_id}] coverage-mismatch expected=${expected_count} actual=${run_count}" >> "${failures_file}"
+        fail_count=$((fail_count + 1))
+    fi
+
+    echo "[case-test] ${group_id} result=$([[ "${runner_status}" -eq 0 && "${fail_count}" -eq 0 ]] && echo pass || echo fail) exit=${runner_status} elapsed=$((end_epoch - start_epoch))s run=${run_count} expected=${expected_count} ok=${ok_count} fail=${fail_count} log=${log_file}"
     cat "${results_file}"
 
     if [[ "${runner_status}" -ne 0 || "${fail_count}" -ne 0 ]]; then
@@ -424,9 +429,14 @@ run_parallel_map()
     local port_offset
     local module
     local feature
+    local expected_count
+    local selected_cases
 
-    while IFS=$'\t' read -r group_id runner port_offset module feature; do
-        run_group "${group_id}" "${runner}" "${port_offset:-${index}}" "${module:-}" "${feature:-}" &
+    while IFS=$'\t' read -r group_id runner port_offset module feature expected_count selected_cases; do
+        if [[ "${feature:-}" = "-" ]]; then
+            feature=""
+        fi
+        run_group "${group_id}" "${runner}" "${port_offset:-${index}}" "${module:-}" "${feature:-}" "" "${expected_count:-0}" &
         pids+=("$!")
         active=$((active + 1))
         index=$((index + 1))
@@ -459,9 +469,30 @@ run_serial_map()
     local port_offset
     local module
     local feature
+    local expected_count
+    local selected_cases
+    local group_case_filters=()
+    local case_filter
 
-    while IFS=$'\t' read -r group_id runner port_offset module feature; do
-        if ! run_group "${group_id}" "${runner}" "${port_offset:-${index}}" "${module:-}" "${feature:-}"; then
+    while IFS=$'\t' read -r group_id runner port_offset module feature expected_count selected_cases; do
+        if [[ "${feature:-}" = "-" ]]; then
+            feature=""
+        fi
+        if [[ "${#CASE_FILTERS[@]}" -gt 0 ]]; then
+            if [[ -z "${selected_cases:-}" || "${selected_cases}" = "-" ]]; then
+                group_case_filters=("${CASE_FILTERS[@]}")
+
+            else
+                IFS=',' read -r -a group_case_filters <<< "${selected_cases}"
+            fi
+
+            for case_filter in "${group_case_filters[@]}"; do
+                if ! run_group "${group_id}" "${runner}" "${port_offset:-${index}}" "${module:-}" "${feature:-}" "${case_filter}" "1"; then
+                    status=1
+                fi
+            done
+
+        elif ! run_group "${group_id}" "${runner}" "${port_offset:-${index}}" "${module:-}" "${feature:-}" "" "${expected_count:-0}"; then
             status=1
         fi
         index=$((index + 1))
@@ -471,10 +502,12 @@ run_serial_map()
 }
 
 if [[ "${PARALLEL}" -eq 0 || "${JOBS}" -eq 1 ]]; then
+    echo "[case-test] run-id=${CASE_TEST_RUN_ID} run_dir=${CASE_TEST_RUN_DIR}"
     run_serial_map "${MAP_FILE}"
     exit "$?"
 fi
 
+echo "[case-test] run-id=${CASE_TEST_RUN_ID} run_dir=${CASE_TEST_RUN_DIR}"
 echo "[case-test] scheduling groups with jobs=${JOBS}"
 run_parallel_map "${MAP_FILE}"
 exit "$?"

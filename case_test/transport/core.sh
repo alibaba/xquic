@@ -10,55 +10,6 @@ case_test_group "transport.core"
 
 case_transport_core_log_switch_off()
 {
-#!/bin/bash
-#
-# Copyright (c) 2022, Alibaba Group Holding Limited
-
-#macOS
-#export EVENT_NOKQUEUE=1
-
-LOCAL_TEST=0
-#LOCAL_TEST=1
-
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BUILD_DIR="${XQC_BUILD_DIR:-${ROOT_DIR}/build}"
-CASE_TEST_WORK_DIR="${CASE_TEST_WORK_DIR:-${BUILD_DIR}}"
-CASE_TEST_PORT="${CASE_TEST_PORT:-}"
-CASE_TEST_PORT_ARG=""
-
-if [ -n "${CASE_TEST_PORT}" ]; then
-    CASE_TEST_PORT_ARG="-p ${CASE_TEST_PORT}"
-fi
-
-cd "${CASE_TEST_WORK_DIR}"
-
-CLIENT_BIN="${CASE_TEST_CLIENT_BIN:-${BUILD_DIR}/tests/test_client ${CASE_TEST_PORT_ARG}}"
-SERVER_BIN="${CASE_TEST_SERVER_BIN:-${BUILD_DIR}/tests/test_server ${CASE_TEST_PORT_ARG}}"
-
-
-clear_log() {
-    >clog
-    >slog
-}
-
-grep_err_log() {
-    grep "\[error\]" clog
-    grep "\[error\]" slog
-    #grep "retrans rate:" clog|grep -v "retrans rate:0.0000"
-    #grep "retrans rate:" slog|grep -v "retrans rate:0.0000"
-}
-
-# params: case_name, result
-function case_print_result() {
-    echo "[ RUN      ] xquic_case_test.$1"
-    if [ "$2" = "pass" ];then
-        echo "[       OK ] xquic_case_test.$1 (1 ms)"
-    else
-        echo "[     FAIL ] xquic_case_test.$1 (1 ms)"
-    fi
-}
-
-
 # start test_server
 rm -rf tp_localhost test_session xqc_token
 case_test_stop_server
@@ -851,7 +802,7 @@ case_transport_core__0rtt_forbidden_remembered_params_stale_not_used()
 
 clear_log
 echo -e "0RTT forbidden remembered params (stale max_ack_delay not used) ...\c"
-sed -i 's/max_ack_delay=[0-9]*/max_ack_delay=100/' tp_localhost
+case_test_replace_in_file 'max_ack_delay=[0-9]*' 'max_ack_delay=100' tp_localhost
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
 cli_restore=`grep "|0RTT_transport_params|" clog`
 cli_stale=`grep "max_ack_delay:100|" clog`
@@ -882,7 +833,7 @@ case_test_start_server ${SERVER_BIN} -l d -Q 65535 -e -U 1 -s 1 > /dev/null
 sleep 1
 ${CLIENT_BIN} -l d -T 1 -s 4800 -U 1 -Q 65535 -E &> /dev/null #generate 0rtt ticket
 case_test_stop_server
-${SERVER_BIN} -l d -e -s 1 > /dev/null & #disable datagram
+case_test_start_server ${SERVER_BIN} -l d -e -s 1 > /dev/null #disable datagram
 sleep 1
 clear_log
 echo -e "check_clear_0rtt_ticket_flag_in_close_notify...\c"
@@ -910,7 +861,7 @@ case_test_start_server ${SERVER_BIN} -l d -Q 65535 -e -s 1 > /dev/null
 sleep 1
 ${CLIENT_BIN} -l d -s 4800 -Q 65535 -E &> /dev/null #generate 0rtt ticket
 case_test_stop_server
-${SERVER_BIN} -l d -e -s 1 > /dev/null & #disable datagram
+case_test_start_server ${SERVER_BIN} -l d -e -s 1 > /dev/null #disable datagram
 sleep 1
 clear_log
 echo -e "check_clear_0rtt_ticket_flag_in_h3_close_notify...\c"
@@ -1029,9 +980,14 @@ case_transport_core__0RTT_rejected_param_reduction()
 case_test_stop_server
 clear_log
 echo -e "0RTT rejected with param reduction ...\c"
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
+sleep 1
+# First connection: establish a ticket with normal remembered params.
+${CLIENT_BIN} -s 1024 -l d -t 1 -E > /dev/null
+case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e -x 702 > /dev/null
 sleep 1
-# client uses stale session ticket from test 701
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
 result=`grep ">>>>>>>> pass:" stdlog`
 echo "$result"
@@ -1095,7 +1051,7 @@ if case_test_is_discovery; then
 fi
 
 case_test_enter_work_dir
-trap case_test_stop_server EXIT
+trap 'case_test_stop_server; case_test_cleanup_udp_port' EXIT
 case_test_require_sudo
 
 case_test_run

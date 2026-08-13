@@ -415,7 +415,9 @@ ensure_test_certificate()
     fi
 
     if [[ ! -f "${BUILD_DIR}/server.key"
-        || ! -f "${BUILD_DIR}/server.crt" ]]
+        || ! -f "${BUILD_DIR}/server.crt" ]] \
+        || ! openssl x509 -checkend 3600 -noout \
+            -in "${BUILD_DIR}/server.crt" > /dev/null 2>&1
     then
         run_command openssl req -newkey rsa:2048 -x509 -nodes \
             -keyout "${BUILD_DIR}/server.key" \
@@ -491,10 +493,59 @@ run_feature_unit_tests()
 
 run_integration_tests()
 {
-    (
-        cd "${BUILD_DIR}"
-        "${ROOT_DIR}/scripts/case_test.sh"
-    ) 2>&1 | tee -a "${LOG_FILE}"
+    local case_plan
+    local expected
+    local plan_complete
+    local max_jobs
+    local case_log
+    local case_status=0
+    local case_passed
+    local case_failed
+
+    case_log="${ARTIFACT_DIR}/case_test.log"
+    case_plan="$(XQC_BUILD_DIR="${BUILD_DIR}" \
+        bash "${ROOT_DIR}/scripts/case_test.sh" --execution-plan)"
+    log_line "${case_plan}"
+
+    expected="$(printf '%s\n' "${case_plan}" \
+        | awk -F= '/^implemented_unique_cases=/{print $2}')"
+    plan_complete="$(printf '%s\n' "${case_plan}" \
+        | awk -F= '/^complete=/{print $2}')"
+    max_jobs="$(printf '%s\n' "${case_plan}" \
+        | awk -F= '/^max_safe_jobs=/{print $2}')"
+
+    if [[ "${plan_complete}" != "true"
+        || -z "${expected}"
+        || -z "${max_jobs}" ]]
+    then
+        log_line "case-test plan mismatch: expected=${expected}" \
+            "complete=${plan_complete} max_jobs=${max_jobs}"
+        return 1
+    fi
+
+    set +e
+    XQC_BUILD_DIR="${BUILD_DIR}" \
+        CASE_TEST_CASE_TIMEOUT="${CASE_TEST_CASE_TIMEOUT:-300}" \
+        CASE_TEST_SHARD_TIMEOUT="${CASE_TEST_SHARD_TIMEOUT:-600}" \
+        bash "${ROOT_DIR}/scripts/case_test.sh" \
+            --execute --parallel --jobs auto --require-complete \
+        2>&1 | tee "${case_log}" | tee -a "${LOG_FILE}"
+    case_status="${PIPESTATUS[0]}"
+    set -e
+
+    case_passed="$(awk '/^\[case-test:[^]]+\] .+ >>>>>>>> pass:1$/ { count++ }
+        END { print count + 0 }' "${case_log}")"
+    case_failed="$(awk '/^\[case-test:[^]]+\] .+ >>>>>>>> pass:0$/ { count++ }
+        END { print count + 0 }' "${case_log}")"
+    log_line "case-test summary: jobs=${max_jobs} passed=${case_passed}" \
+        "failed=${case_failed} expected=${expected} status=${case_status}"
+
+    if [[ "${case_status}" -ne 0
+        || "${case_failed}" -ne 0
+        || "${case_passed}" -ne "${expected}" ]]
+    then
+        return 1
+    fi
 }
 
 write_environment

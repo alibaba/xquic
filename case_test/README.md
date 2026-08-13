@@ -11,6 +11,8 @@ client-to-server case tests. The executable entry point is
 - `lib/selector.rb` powers list, inventory, dry-run, and runner-map output for
   `scripts/case_test.sh`.
 - `lib/runner.sh` provides selected execution and parallel scheduling.
+- `trouble_shooting.md` records durable diagnosis patterns for routing,
+  parallel execution, environment failures, and coverage mismatches.
 - Module directories hold executable case runners. Each runner declares its
   group and registers its own cases with `case_test_case`.
 
@@ -50,8 +52,10 @@ bash scripts/case_test.sh --execution-plan
 ```
 
 Only groups marked `execution: implemented` in `manifest.yml` are scheduled.
-Use `--execution-plan` to inspect implemented groups, missing cases, and the
-current maximum safe job count.
+Groups with `requires_cmake` are scheduled only when the current
+`XQC_BUILD_DIR` CMake cache has the required feature flags enabled. Use
+`--execution-plan` to inspect implemented groups, skipped build-gated groups,
+missing cases, and the current maximum safe job count.
 
 Each scheduled shard receives a stable `CASE_TEST_SHARD_ID`, a manifest-owned
 port derived from `port_offset`, and an isolated work directory. Generated
@@ -60,23 +64,29 @@ work directory. Shared certificates are read-only symlinks from the build
 directory.
 
 Parallel execution writes each shard's raw output to
-`<build>/case_test_parallel/<shard>/case_test.log` and records failed case
-result lines in `<build>/case_test_parallel/<shard>/case_test.failures`.
+`<build>/case_test_parallel/<run-id>/<shard>/case_test.log` and records failed
+case result lines in
+`<build>/case_test_parallel/<run-id>/<shard>/case_test.failures`.
+Serial diagnostic runs with multiple `--case` selectors use
+`<build>/case_test_parallel/<run-id>/<shard>/<case>/case_test.log` so each
+case keeps independent raw logs and copied `clog`/`slog` snapshots.
 The parent runner reports each shard's start line, heartbeat, exit status,
-elapsed time, and parsed fail count, and returns nonzero if a shard exits
-nonzero or prints any `[     FAIL ]` case result. It also emits ordered
-normalized `pass:1` and `pass:0` result lines parsed from the shard log
-so existing CI summary checks can count cases without reading interleaved raw
-output. On failure, terminal output shows the failed result lines and a bounded
-tail of the shard log; use the per-shard log files, not interleaved terminal
-output, as the authoritative failure evidence.
+elapsed time, expected case count, and parsed fail count, and returns nonzero
+if a shard exits nonzero, prints any failed case result, or produces fewer or
+more case events than the selector expected. It also emits ordered normalized
+`pass:1` and `pass:0` result lines from the shard event file so existing CI
+summary checks can count cases without reading interleaved raw output. On
+failure, terminal output shows the failed result lines and a bounded tail of
+the shard log; use the per-shard `case_test.log`, `case_test.events`,
+`case-output-*.log`, and `case-logs/<case>/` files as the authoritative
+failure evidence.
 
 Shard observability is controlled by environment variables:
 
 - `CASE_TEST_HEARTBEAT_INTERVAL`: seconds between running-shard progress lines;
   default `60`, `0` disables heartbeat output.
 - `CASE_TEST_SHARD_TIMEOUT`: per-shard timeout in seconds when the platform
-  provides `timeout`; default `1800`, `0` disables the timeout.
+  provides `timeout`; default `600`, `0` disables the timeout.
 - `CASE_TEST_CASE_TIMEOUT`: per-case timeout in seconds; default `0`
   disables it. When it fires, the shard log records the active case as
   `case-timeout`, terminates that case's subprocess tree, and reports the case
@@ -88,18 +98,26 @@ are checked before scheduling starts, so missing credentials are reported as an
 environment failure instead of a mixed set of case-result failures.
 
 For full-suite execution, use `bash scripts/case_test.sh --execution-plan` to
-confirm the current case count and `max_safe_jobs` before changing
-parallelism. The GitHub workflow uses the same native runner path as local
-execution:
+confirm the current build-supported case count and `max_safe_jobs` before
+changing parallelism. The GitHub workflow uses the same native runner path as
+local execution:
 
 ```bash
 bash scripts/case_test.sh --execute --parallel --jobs auto --require-complete
 ```
 
 Parallelism is owned by the case-test runner, not by GitHub matrix shards. Each
-implemented group keeps a fixed manifest `port_offset`, isolated work
+implemented group keeps a fixed manifest `port_offset`, isolated per-run work
 directory, and per-group log, so adding a case does not require CI shard
-rebalance or a second registration file.
+rebalance or a second registration file. The expected case count is discovered
+from the owning group scripts, so adding a `case_test_case` line changes the
+coverage check automatically.
+
+Feature-gated groups are included only when the current build directory has a
+`CMakeCache.txt` with the required flags enabled. For example, `transport.fec`
+requires `XQC_ENABLE_FEC`, `XQC_ENABLE_XOR`, `XQC_ENABLE_RSC`, and
+`XQC_ENABLE_PKM`; otherwise it appears as `skipped_build_group` in the
+execution plan and is excluded from the expected case count.
 
 ## Extending Case Tests
 

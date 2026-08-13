@@ -52,6 +52,11 @@ groups:
 - id: transport.fec
   module: transport
   feature: fec
+  requires_cmake:
+  - XQC_ENABLE_FEC
+  - XQC_ENABLE_XOR
+  - XQC_ENABLE_RSC
+  - XQC_ENABLE_PKM
   source_paths:
   - src/transport/xqc_fec*
   - src/transport/fec_schemes/*

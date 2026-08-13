@@ -53,6 +53,38 @@ end
 
 manifest_path = ENV.fetch("CASE_TEST_MANIFEST", File.join(root, "case_test/manifest.yml"))
 manifest = YAML.load_file(manifest_path)
+build_dir = ENV.fetch("XQC_BUILD_DIR", File.join(root, "build"))
+build_dir = File.join(root, build_dir) unless build_dir.start_with?("/")
+cmake_cache_path = File.join(build_dir, "CMakeCache.txt")
+
+def cmake_cache_values(path)
+  return {} unless File.file?(path)
+
+  File.readlines(path).each_with_object({}) do |raw_line, values|
+    line = raw_line.chomp
+    next if line.start_with?("#", "//")
+    next unless line =~ /\A([^:=]+):[^=]+=(.*)\z/
+
+    values[Regexp.last_match(1)] = Regexp.last_match(2)
+  end
+end
+
+def cmake_enabled?(values, key)
+  value = values[key]
+  return false if value.nil?
+
+  %w[1 ON TRUE YES].include?(value.to_s.upcase)
+end
+
+def group_supported_by_build?(group, cmake_values)
+  required = group.fetch("requires_cmake", [])
+  return true if required.empty?
+  return false if cmake_values.empty?
+
+  required.all? { |key| cmake_enabled?(cmake_values, key.to_s) }
+end
+
+cmake_values = cmake_cache_values(cmake_cache_path)
 
 def discover_native_cases(root, group)
   env = {
@@ -110,6 +142,15 @@ def path_matches?(path, pattern)
   File.fnmatch?(pattern, path, File::FNM_PATHNAME | File::FNM_EXTGLOB)
 end
 
+def selected_case_names(group, options)
+  case_names = group.fetch("case_names", [])
+  wanted_cases = options.fetch(:cases)
+  return case_names if wanted_cases.empty?
+  return case_names if wanted_cases.include?(group.fetch("id").to_s)
+
+  case_names.select { |name| wanted_cases.include?(name) }
+end
+
 selected = groups
 selected = selected.select { |group| options[:groups].include?(group["id"].to_s) } unless options[:groups].empty?
 selected = selected.select { |group| options[:modules].include?(group["module"].to_s) } unless options[:modules].empty?
@@ -132,15 +173,50 @@ unless options[:cases].empty?
   end
 end
 
+explicit_selector = [
+  options[:groups],
+  options[:cases],
+  options[:modules],
+  options[:features],
+  options[:paths]
+].any? { |values| !values.empty? }
+
+if options[:execution_plan] || options[:runners]
+  unsupported = selected.reject { |group| group_supported_by_build?(group, cmake_values) }
+  if explicit_selector && !unsupported.empty?
+    unsupported.each do |group|
+      warn "unsupported_group=#{group.fetch("id")} requires_cmake=#{group.fetch("requires_cmake", []).join(",")} build_dir=#{build_dir}"
+    end
+    exit 3
+  end
+
+  selected = selected.select { |group| group_supported_by_build?(group, cmake_values) }
+else
+  unsupported = []
+end
+
 if selected.empty? && !options[:list]
   warn "no matching case-test groups"
   exit 1
 end
 
+unless options[:cases].empty?
+  matched_cases = selected.flat_map { |group| group.fetch("case_names", []) }.uniq
+  missing_cases = options[:cases].reject do |wanted|
+    selected.any? { |group| wanted == group.fetch("id").to_s } ||
+      matched_cases.include?(wanted)
+  end
+
+  unless missing_cases.empty?
+    missing_cases.each { |name| warn "missing_case=#{name}" }
+    exit 1
+  end
+end
+
 if options[:execution_plan]
-  selected_cases = selected.flat_map { |group| group.fetch("case_names", []) }.uniq.sort
+  selected_cases = selected.flat_map { |group| selected_case_names(group, options) }.uniq.sort
   implemented = selected.select { |group| group.fetch("execution", "pending") == "implemented" }
-  implemented_cases = implemented.flat_map { |group| group.fetch("case_names", []) }.uniq.sort
+  implemented_cases = implemented.flat_map { |group| selected_case_names(group, options) }.uniq.sort
   pending = selected.reject { |group| group.fetch("execution", "pending") == "implemented" }
   missing = selected_cases - implemented_cases
   max_parallel_jobs = manifest.fetch("max_parallel_jobs", implemented.length)
@@ -156,10 +232,13 @@ if options[:execution_plan]
   puts "complete=#{missing.empty?}"
   puts "max_safe_jobs=#{max_safe_jobs}"
   implemented.sort_by { |group| group.fetch("id") }.each do |group|
-    puts "implemented_group=#{group.fetch("id")} case_count=#{group.fetch("case_names", []).length}"
+    puts "implemented_group=#{group.fetch("id")} case_count=#{selected_case_names(group, options).length}"
   end
   pending.sort_by { |group| group.fetch("id") }.each do |group|
-    puts "pending_group=#{group.fetch("id")} case_count=#{group.fetch("case_names", []).length}"
+    puts "pending_group=#{group.fetch("id")} case_count=#{selected_case_names(group, options).length}"
+  end
+  unsupported.sort_by { |group| group.fetch("id") }.each do |group|
+    puts "skipped_build_group=#{group.fetch("id")} case_count=#{group.fetch("case_names", []).length} requires_cmake=#{group.fetch("requires_cmake", []).join(",")}"
   end
   exit missing.empty? ? 0 : 3
 end
@@ -174,7 +253,9 @@ if options[:runners]
         group.fetch("runner"),
         group.fetch("port_offset"),
         group.fetch("module"),
-        group.fetch("feature", "")
+        group.fetch("feature", "-"),
+        selected_case_names(group, options).length,
+        options[:cases].empty? ? "-" : selected_case_names(group, options).join(",")
       ].join("\t")
     end
   exit 0

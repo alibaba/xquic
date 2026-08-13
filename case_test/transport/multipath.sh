@@ -628,7 +628,7 @@ rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "probing standby paths ...\c"
 case_test_sudo ${CLIENT_BIN} -s 1024000 -l d -E -e 1 --epoch_timeout 2000000 -t 4 -M -i lo -i lo -x 501 -y > stdlog
-clog_res1=`grep -E "|xqc_path_standby_probe|PING|path:1|" clog`
+clog_res1=`grep "xqc_path_standby_probe" clog | grep "PING" | grep "path:1"`
 if [ -n "$clog_res1" ] ; then
     echo ">>>>>>>> pass:1"
     case_print_result "probing_standby_path" "pass"
@@ -675,7 +675,7 @@ if case_test_is_discovery; then
 fi
 
 case_test_enter_work_dir
-trap case_test_stop_server EXIT
+trap 'case_test_stop_server; case_test_cleanup_udp_port' EXIT
 case_test_require_sudo
 
 case_test_run

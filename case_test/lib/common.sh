@@ -393,7 +393,12 @@ case_test_require_sudo()
 case_test_sudo()
 {
     case_test_require_sudo
-    sudo "$@"
+    if [[ -n "${GCOV_PREFIX:-}" ]]; then
+        sudo env GCOV_PREFIX="${GCOV_PREFIX}" \
+            GCOV_PREFIX_STRIP="${GCOV_PREFIX_STRIP:-0}" "$@"
+    else
+        sudo "$@"
+    fi
 }
 
 clear_log()

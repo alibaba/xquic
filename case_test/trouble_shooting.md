@@ -137,6 +137,10 @@ bash scripts/case_test.sh --execute --parallel --jobs auto --require-complete
 如果 CI 额外逐个 group 串行调用，就会失去并行提速，也会让本地复现和
 线上行为不一致。
 
+CI 的最终 case 结果应以结构化 `case_test.events`/`case_test.results`
+汇总后的覆盖数和失败数为准。runner exit code 保留为诊断字段；只有
+覆盖不完整或存在 `pass:0` 时，才应把 case-test 判为失败。
+
 ### gcov 产物不能放进 case workdir
 
 并行 case-test 如果让多个进程直接写 build tree 下的 `.gcda`，会产生
@@ -146,6 +150,11 @@ corrupt arc tag、mismatched counters 等并发覆盖率污染。如果把
 `no_working_dir_found`。runner 默认应把每个 shard 的 gcov 前缀放到
 build tree 外；只有显式设置 `CASE_TEST_GCOV_PREFIX=0` 时才允许直接写
 默认 coverage 路径。
+
+需要 sudo 的 client/helper 也必须继承同一组 gcov 环境。否则 sudo 会
+清理环境变量，root 子进程仍会写回 build tree 下的 `.gcda`，并在并行
+执行时重新触发 corrupt object tag。统一通过 `case_test_sudo` 调用
+需要 sudo 的命令，不要直接写裸 `sudo`。
 
 ## 判断失败类型
 

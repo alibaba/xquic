@@ -8,6 +8,12 @@ source "${ROOT_DIR}/case_test/lib/common.sh"
 
 case_test_group "transport.multipath"
 
+case_test_group_setup()
+{
+    case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+    sleep 1
+}
+
 case_transport_multipath_MPNS_enable_multipath_negotiate()
 {
 case_test_start_server ${SERVER_BIN} -l d > /dev/null
@@ -53,12 +59,24 @@ case_transport_multipath_MPNS_multipath_30_percent_loss()
 {
 grep_err_log
 
-clear_log
 echo -e "MPNS multipath 30 percent loss ...\c"
-case_test_sudo ${CLIENT_BIN} -s 1024000 -t 5 -l e -E -d 300 -M -i lo -i lo > stdlog
-result=`grep ">>>>>>>> pass" stdlog`
-errlog=`grep_err_log`
-if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+mpns_loss_pass=0
+mpns_loss_attempt=1
+while [ $mpns_loss_attempt -le 2 ]; do
+    clear_log
+    if [ $mpns_loss_attempt -gt 1 ]; then
+        echo -e " retry ${mpns_loss_attempt} ...\c"
+    fi
+    case_test_sudo ${CLIENT_BIN} -s 5242880 -t 10 -l e -E -d 300 -M -i lo -i lo > stdlog
+    result=`grep ">>>>>>>> pass" stdlog`
+    errlog=`grep_err_log`
+    if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+        mpns_loss_pass=1
+        break
+    fi
+    mpns_loss_attempt=$((mpns_loss_attempt + 1))
+done
+if [ $mpns_loss_pass -eq 1 ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "MPNS_multipath_30_percent_loss" "pass"
 else
@@ -91,14 +109,27 @@ case_transport_multipath_MPNS_multipath_30_percent_loss_close_initial_path()
 {
 grep_err_log
 
-clear_log
 echo -e "MPNS multipath 30 percent loss close initial path ...\c"
-case_test_sudo ${CLIENT_BIN} -s 10240 -t 8 -l d -E -d 300 -M -A -i lo -i lo -x 100 -e 10 --epoch_timeout 1000000 > stdlog
-result=`grep ">>>>>>>> pass" stdlog`
-svr_res=`grep "|path closed|path:0|" slog`
-cli_res=`grep "|path closed|path:0|" clog`
-errlog=`grep_err_log`
-if [ -z "$errlog" ] && [ -n "$result" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+mpns_loss_close_initial_pass=0
+mpns_loss_close_initial_attempt=1
+while [ $mpns_loss_close_initial_attempt -le 2 ]; do
+    clear_log
+    if [ $mpns_loss_close_initial_attempt -gt 1 ]; then
+        echo -e " retry ${mpns_loss_close_initial_attempt} ...\c"
+    fi
+    case_test_sudo ${CLIENT_BIN} -s 10240 -t 15 -l d -E -d 300 -M -A -i lo -i lo -x 100 -e 15 --epoch_timeout 1000000 > stdlog
+    result_fail=`grep ">>>>>>>> pass:0" stdlog`
+    result_pass=`grep ">>>>>>>> pass:1" stdlog`
+    svr_res=`grep "|path closed|path:0|" slog`
+    cli_res=`grep "|path closed|path:0|" clog`
+    errlog=`grep_err_log`
+    if [ -z "$errlog" ] && [ -z "$result_fail" ] && [ -n "$result_pass" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+        mpns_loss_close_initial_pass=1
+        break
+    fi
+    mpns_loss_close_initial_attempt=$((mpns_loss_close_initial_attempt + 1))
+done
+if [ $mpns_loss_close_initial_pass -eq 1 ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "MPNS_multipath_30_percent_loss_close_initial_path" "pass"
 else

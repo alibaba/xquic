@@ -139,6 +139,12 @@ main(int argc, char *argv[])
                         xqc_test_max_ack_delay_valid_boundary)
         || !CU_add_test(pSuite, "xqc_test_max_ack_delay_invalid_boundary",
                         xqc_test_max_ack_delay_invalid_boundary)
+        || !CU_add_test(pSuite,
+                        "xqc_test_max_udp_payload_size_valid_boundary",
+                        xqc_test_max_udp_payload_size_valid_boundary)
+        || !CU_add_test(pSuite,
+                        "xqc_test_max_udp_payload_size_invalid_boundary",
+                        xqc_test_max_udp_payload_size_invalid_boundary)
         || !CU_add_test(pSuite, "xqc_test_tp_cid_overflow", xqc_test_tp_cid_overflow)
         || !CU_add_test(pSuite, "xqc_test_active_cid_limit_minimum", xqc_test_active_cid_limit_minimum)
         || !CU_add_test(pSuite, "xqc_test_check_transport_params_cids", xqc_test_check_transport_params_cids)
@@ -172,6 +178,11 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_conn_close_transport_error_type_overlap",
                         xqc_test_conn_close_transport_error_type_overlap)
+        || !CU_add_test(pSuite, "xqc_test_conn_close_valid_packet_types",
+                        xqc_test_conn_close_valid_packet_types)
+        || !CU_add_test(pSuite,
+                        "xqc_test_conn_close_app_error_in_handshake_rejected",
+                        xqc_test_conn_close_app_error_in_handshake_rejected)
         || !CU_add_test(pSuite, "xqc_test_peer_key_update_error_not_0rtt",
                         xqc_test_peer_key_update_error_not_0rtt)
         /* issues #565/#566/#567: RFC 9000 stream directionality checks */

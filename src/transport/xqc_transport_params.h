@@ -17,6 +17,9 @@
 /* default value for max_udp_payload_size */
 #define XQC_DEFAULT_MAX_UDP_PAYLOAD_SIZE        65527
 
+/* minimum valid value for max_udp_payload_size */
+#define XQC_MIN_UDP_PAYLOAD_SIZE                1200
+
 /* default value for active_connection_id_limit */
 #define XQC_DEFAULT_ACTIVE_CONNECTION_ID_LIMIT  2
 

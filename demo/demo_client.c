@@ -1751,8 +1751,8 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
         settings->enable_stream_rate_limit = 1;
         settings->recv_rate_bytes_per_sec = 0;
     }
-    strncpy(settings->conn_option_str, args->quic_cfg.co_str, XQC_CO_STR_MAX_LEN - 1);
-    settings->conn_option_str[XQC_CO_STR_MAX_LEN - 1] = '\0';
+    memcpy(settings->conn_option_str, args->quic_cfg.co_str,
+           XQC_CO_STR_MAX_LEN);
 }
 
 /* set client args to default values */

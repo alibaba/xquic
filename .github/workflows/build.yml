@@ -295,22 +295,27 @@ jobs:
     - name: Check Test Result
       run: |
         log_file=xquic_test_ubuntu_24_babassl.log
-        echo "unit test:"
-        cat "$log_file" | grep "Test:"
-        unit_passed=`cat "$log_file" | grep "Test:" | grep "passed" | wc -l`
-        unit_failed=`cat "$log_file" | grep "Test:" | grep "FAILED" | wc -l`
-        echo -e "\033[32m unit test passed:$unit_passed failed:$unit_failed \033[0m\n"
-
-        echo "case test:"
-        if [ -f xquic_case_test_ubuntu_24_babassl.log ]; then
-          cat xquic_case_test_ubuntu_24_babassl.log | grep -E '^\[case-test:[^]]+\] .+ >>>>>>>> pass:' || true
-        fi
+        unit_total=$(awk '/  Test: / {count++} END {print count + 0}' \
+          "$log_file")
+        unit_passed=$(awk '/  Test: .*passed/ {count++} END {print count + 0}' \
+          "$log_file")
+        unit_failed=$(awk '/  Test: .*FAILED/ {count++} END {print count + 0}' \
+          "$log_file")
         case_result=1
         if [ -f xquic_case_status_ubuntu_24_babassl ]; then
           case_result=`cat xquic_case_status_ubuntu_24_babassl`
         fi
 
-        if [ $unit_failed -eq 0 ] && [ "$case_result" -eq 0 ] ; then
+        echo "unit test total:$unit_total passed:$unit_passed failed:$unit_failed"
+        echo "case test result:$case_result"
+        if [ -f xquic_case_test_ubuntu_24_babassl.log ]; then
+          cat xquic_case_test_ubuntu_24_babassl.log | grep -E '^\[case-test:[^]]+\] .+ >>>>>>>> pass:' || true
+        fi
+
+        if [ "$unit_total" -gt 0 ] \
+          && [ "$unit_passed" -eq "$unit_total" ] \
+          && [ "$unit_failed" -eq 0 ] \
+          && [ "$case_result" -eq 0 ]; then
           echo "===== All unit and case tests passed! ====="
         else
           echo "===== Unit or case test failed! ====="

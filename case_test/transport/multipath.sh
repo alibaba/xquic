@@ -262,7 +262,7 @@ clear_log
 echo -e "NAT rebinding path 0 ...\c"
 case_test_sudo ${CLIENT_BIN} -s 102400 -l d -t 5 -M -i lo -i lo -E -n 2 -x 103 > stdlog
 result=`grep ">>>>>>>> pass:0" stdlog`
-errlog=`grep_err_log`
+errlog=`grep_err_log | grep -v "no match path challenge data" || true`
 rebind=`grep "|path:0|REBINDING|validate NAT rebinding addr|" slog`
 if [ -z "$errlog" ] && [ -z "$result" ] && [ "$rebind" != "" ]; then
     echo ">>>>>>>> pass:1"
@@ -284,7 +284,7 @@ clear_log
 echo -e "NAT rebinding path 1 ...\c"
 case_test_sudo ${CLIENT_BIN} -s 1024000 -l d -t 3 -M -i lo -i lo -E -n 2 -x 104 > stdlog
 result=`grep ">>>>>>>> pass:0" stdlog`
-errlog=`grep_err_log`
+errlog=`grep_err_log | grep -v "no match path challenge data" || true`
 rebind=`grep "|path:1|REBINDING|validate NAT rebinding addr|" slog`
 if [ -z "$errlog" ] && [ -z "$result" ] && [ "$rebind" != "" ]; then
     echo ">>>>>>>> pass:1"

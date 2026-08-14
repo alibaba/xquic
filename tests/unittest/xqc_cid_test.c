@@ -415,12 +415,9 @@ xqc_test_cid_active_limit()
  * Issue #776 — RFC 9000 §5.1.1: handshake CIDs MUST NOT count toward
  * active_connection_id_limit.
  *
- * Reproduces the nginx interop failure: server sends 7 NEW_CONNECTION_ID
- * frames (seq 1..7) with active_connection_id_limit = 8. The initial
- * handshake produced 2 USED CIDs in the dcid_set. Pre-fix, the 7th
- * NEW_CONNECTION_ID was rejected because (6 unused + 2 used) >= 8.
- * Post-fix, handshake CIDs are excluded: (7 unused + 2 used - 2 original)
- * = 7 < 8, so all 7 are accepted.
+ * Reproduces interop failures where the server sends many NEW_CONNECTION_ID
+ * frames. The initial handshake produced 2 USED CIDs in the dcid_set.
+ * Handshake CIDs are excluded from active_connection_id_limit accounting.
  */
 void
 xqc_test_cid_handshake_exclusion()
@@ -466,23 +463,23 @@ xqc_test_cid_handshake_exclusion()
      * the 2 handshake CIDs are excluded from the count.
      * (Pre-fix, the 7th would fail: (6+2) >= 8.)
      */
-    uint64_t limit = conn->local_settings.active_connection_id_limit;  /* 8 */
-    CU_ASSERT(limit == 8);
+    uint64_t limit = conn->local_settings.active_connection_id_limit;
+    CU_ASSERT(limit == XQC_CONN_ACTIVE_CID_LIMIT);
 
-    for (i = 1; i <= 7; i++) {
+    for (i = 1; i < limit; i++) {
         ret = xqc_test_cid_insert_one(conn, &conn->dcid_set,
                                       XQC_CID_UNUSED, limit, 100 + i);
         CU_ASSERT(ret == XQC_OK);
     }
 
-    /* 8th also succeeds: countable = 7 < 8 (max active NCID CIDs = limit = 8) */
+    /* The limit-th non-handshake CID also succeeds because countable was limit - 1. */
     ret = xqc_test_cid_insert_one(conn, &conn->dcid_set,
-                                  XQC_CID_UNUSED, limit, 108);
+                                  XQC_CID_UNUSED, limit, 100 + limit);
     CU_ASSERT(ret == XQC_OK);
 
-    /* 9th is rejected: countable = 8 >= 8 */
+    /* The next CID is rejected: countable == limit. */
     ret = xqc_test_cid_insert_one(conn, &conn->dcid_set,
-                                  XQC_CID_UNUSED, limit, 109);
+                                  XQC_CID_UNUSED, limit, 101 + limit);
     CU_ASSERT(ret == -XQC_EACTIVE_CID_LIMIT);
 
     /*
@@ -496,11 +493,9 @@ xqc_test_cid_handshake_exclusion()
                                        XQC_CID_RETIRED, XQC_INITIAL_PATH_ID);
     CU_ASSERT(ret == XQC_OK);
 
-    /* now countable = (8 unused + 1 used - 1 original) = 8 >= 8, still at limit */
-    /* But wait: used_cnt decreased (orig retired), so: unused=8, used=1, original=1 */
-    /* countable = 8+1-1 = 8 >= 8, still denied */
+    /* Retiring one original CID still leaves countable == limit, so it remains denied. */
     ret = xqc_test_cid_insert_one(conn, &conn->dcid_set,
-                                  XQC_CID_UNUSED, limit, 110);
+                                  XQC_CID_UNUSED, limit, 102 + limit);
     CU_ASSERT(ret == -XQC_EACTIVE_CID_LIMIT);
 
     /* retire one of the NCID CIDs to free a slot */
@@ -511,9 +506,9 @@ xqc_test_cid_handshake_exclusion()
                                        XQC_CID_RETIRED, XQC_INITIAL_PATH_ID);
     CU_ASSERT(ret == XQC_OK);
 
-    /* now countable = (7 unused + 1 used - 1 original) = 7 < 8, insert succeeds */
+    /* Retiring one non-handshake CID frees a slot, so inserting a fresh CID succeeds. */
     ret = xqc_test_cid_insert_one(conn, &conn->dcid_set,
-                                  XQC_CID_UNUSED, limit, 111);
+                                  XQC_CID_UNUSED, limit, 103 + limit);
     CU_ASSERT(ret == XQC_OK);
 
     xqc_engine_destroy(conn->engine);
@@ -605,4 +600,3 @@ xqc_test_cid_delete_original()
 
     xqc_engine_destroy(conn->engine);
 }
-

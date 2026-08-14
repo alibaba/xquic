@@ -24,8 +24,8 @@
 /* connection max UDP payload size */
 #define XQC_CONN_MAX_UDP_PAYLOAD_SIZE   1500
 
-/* connection active cid limit */
-#define XQC_CONN_ACTIVE_CID_LIMIT       8
+/* connection active cid limit. Some public H3 endpoints provide more spare CIDs than 8. */
+#define XQC_CONN_ACTIVE_CID_LIMIT       16
 
 /* version definitions */
 #define XQC_VERSION_V1_VALUE            0x00000001

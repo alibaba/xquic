@@ -5287,6 +5287,9 @@ xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
     xqc_cid_set_inner_t *inner_set;
 
     if (xqc_conn_is_handshake_confirmed(conn)) {
+        if (!conn->enable_multipath && conn->local_settings.disable_active_migration) {
+            return XQC_OK;
+        }
         if (conn->enable_multipath && conn->conn_settings.multipath_version >= XQC_MULTIPATH_10) 
         {
             /* principle #1 there are two CIDs for the next path ID */

@@ -344,13 +344,9 @@ case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l e -e > /dev/null
 sleep 1
 
-echo -e "large ack range with 30% loss ...\c"
-echo "$result"
-
-
 clear_log
 echo -e "test client long header ...\c"
-${CLIENT_BIN} -l d -x 29 >> clog
+${CLIENT_BIN} -G -l d -x 29 >> clog
 slog_res=`grep -a "large nv|conn" slog`
 stream_reset=`grep -a "xqc_parse_reset_stream_frame|" clog \
     | grep "err_code:270"`

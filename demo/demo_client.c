@@ -1792,6 +1792,34 @@ xqc_demo_cli_init_args(xqc_demo_cli_client_args_t *args)
 
 }
 
+static int
+xqc_demo_cli_set_server_addr(xqc_demo_cli_net_config_t *cfg)
+{
+    struct sockaddr_in *addr4;
+
+    memset(&cfg->addr, 0, sizeof(cfg->addr));
+    cfg->addr_len = 0;
+
+    addr4 = (struct sockaddr_in *)&cfg->addr;
+    if (inet_pton(AF_INET, cfg->server_addr, &addr4->sin_addr) == 1) {
+        addr4->sin_family = AF_INET;
+        addr4->sin_port = htons(cfg->server_port);
+        cfg->addr_len = sizeof(*addr4);
+        cfg->ipv6 = 0;
+        return 0;
+    }
+
+    if (inet_pton(AF_INET6, cfg->server_addr, &cfg->addr.sin6_addr) == 1) {
+        cfg->addr.sin6_family = AF_INET6;
+        cfg->addr.sin6_port = htons(cfg->server_port);
+        cfg->addr_len = sizeof(cfg->addr);
+        cfg->ipv6 = 1;
+        return 0;
+    }
+
+    return -1;
+}
+
 void
 xqc_demo_cli_parse_server_addr(char *url, xqc_demo_cli_net_config_t *cfg)
 {
@@ -1845,24 +1873,8 @@ xqc_demo_cli_parse_server_addr(char *url, xqc_demo_cli_net_config_t *cfg)
                 cfg->server_addr, sizeof(cfg->server_addr));
         }
         freeaddrinfo(result);
-    } else {
-
-        if (strchr(cfg->server_addr, ':') != NULL) {
-            struct sockaddr_in6 *addr6 = &cfg->addr;
-            addr6->sin6_family = AF_INET6;
-            addr6->sin6_port = htons(cfg->server_port);
-            inet_pton(AF_INET6, cfg->server_addr, &addr6->sin6_addr);
-            cfg->ipv6 = 1;
-            cfg->addr_len = sizeof(struct sockaddr_in6);
-
-        } else {
-            struct sockaddr_in *addr4 = (struct sockaddr_in*)&cfg->addr;
-            addr4->sin_family = AF_INET;
-            addr4->sin_port = htons(cfg->server_port);
-            inet_pton(AF_INET, cfg->server_addr, &addr4->sin_addr);
-            cfg->ipv6 = 0;
-            cfg->addr_len = sizeof(struct sockaddr_in);
-        }
+    } else if (xqc_demo_cli_set_server_addr(cfg) != 0) {
+        printf("invalid server address: %s\n", cfg->server_addr);
     }
     
 
@@ -1955,8 +1967,9 @@ xqc_demo_cli_usage(int argc, char *argv[])
         , prog);
 }
 
-void
-xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args)
+int
+xqc_demo_cli_parse_args(int argc, char *argv[],
+    xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
     while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:b:Z:NQT:R:V:B:I:n:e:E:F:G:r:x:y:Y:f:z:q65O")) != -1) {
@@ -1968,7 +1981,8 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             break;
         case 'a':
             printf("option addr :%s\n", optarg);
-            snprintf(args->net_cfg.server_addr, sizeof(args->net_cfg.server_addr), optarg);
+            snprintf(args->net_cfg.server_addr,
+                     sizeof(args->net_cfg.server_addr), "%s", optarg);
             args->net_cfg.addr_specified = 1;
             break;
 
@@ -2278,6 +2292,13 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
         args->req_cfg.batch_cnt = 1;
     }
 
+    if (xqc_demo_cli_set_server_addr(&args->net_cfg) != 0) {
+        printf("invalid server address: %s\n",
+               args->net_cfg.server_addr);
+        return -1;
+    }
+
+    return 0;
 }
 
 #define MAX_REQ_BUF_LEN 1500
@@ -3184,9 +3205,14 @@ main(int argc, char *argv[])
     xqc_platform_init_env();
     
     /* get input client args */
-    xqc_demo_cli_client_args_t *args = calloc(1, sizeof(xqc_demo_cli_client_args_t));
+    xqc_demo_cli_client_args_t *args;
+
+    args = calloc(1, sizeof(xqc_demo_cli_client_args_t));
     xqc_demo_cli_init_args(args);
-    xqc_demo_cli_parse_args(argc, argv, args);
+    if (xqc_demo_cli_parse_args(argc, argv, args) != 0) {
+        free(args);
+        return -1;
+    }
 
     /* init client ctx */
     xqc_demo_cli_ctx_t *ctx = calloc(1, sizeof(xqc_demo_cli_ctx_t));

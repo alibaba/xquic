@@ -17,6 +17,34 @@ xqc_hex_dump(unsigned char *dst, const unsigned char *src, size_t len)
     return dst;
 }
 
+/*
+ * xqc_log and xqc_sprintf use this formatter, not the printf grammar.
+ * The "u", "x", "X", and "m" characters are modifiers; they are not
+ * complete conversions.  In particular, use "%uD" for uint32_t and
+ * "%uL" for uint64_t, while "%u" alone is invalid.
+ *
+ * Supported formats:
+ *    %[0][width][x|X]O        off_t
+ *    %[0][width][x|X]P        int64_t
+ *    %[0][width][x|X]T        time_t
+ *    %[0][width][u][x|X]z     ssize_t/size_t
+ *    %[0][width|m][u][x|X]i   int64_t/uint64_t
+ *    %[0][width][u][x|X]d     int/unsigned int
+ *    %[0][width][u][x|X]l     long/unsigned long
+ *    %[0][width][u][x|X]D     int32_t/uint32_t
+ *    %[0][width][u][x|X]L     int64_t/uint64_t
+ *    %[0][width][.width]f     double
+ *    %[0][width][x|X]r        rlim_t (not available on Windows)
+ *    %p                       void *
+ *    %V                       xqc_str_t *
+ *    %s                       null-terminated unsigned char *
+ *    %*s                      size_t and unsigned char *
+ *    %c                       int
+ *    %Z                       '\0'
+ *    %N                       line feed
+ *    %%                       '%'
+ */
+
 unsigned char *
 xqc_vsprintf(unsigned char *buf, unsigned char *last, const char *fmt, va_list args)
 {

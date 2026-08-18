@@ -19,7 +19,6 @@
 #include <event2/event.h>
 #include "common.h"
 #include "xqc_hq.h"
-#include "xqc_demo_client_net.h"
 #include "../tests/platform.h"
 
 #ifdef XQC_SYS_WINDOWS
@@ -1764,12 +1763,8 @@ xqc_demo_cli_init_args(xqc_demo_cli_client_args_t *args)
 
     /* net cfg */
     args->net_cfg.conn_timeout = 30;
-    snprintf(args->net_cfg.server_addr, sizeof(args->net_cfg.server_addr),
-             "%s", "127.0.0.1");
+    snprintf(args->net_cfg.server_addr, sizeof(args->net_cfg.server_addr), "%s", "127.0.0.1");
     args->net_cfg.server_port = 8443;
-    xqc_demo_cli_parse_numeric_addr(args->net_cfg.server_addr,
-        args->net_cfg.server_port, &args->net_cfg.addr,
-        &args->net_cfg.addr_len);
     args->net_cfg.addr_specified = 0;
     args->net_cfg.port_specified = 0;
 
@@ -1795,6 +1790,34 @@ xqc_demo_cli_init_args(xqc_demo_cli_client_args_t *args)
 
     args->req_cfg.throttled_req = -1;
 
+}
+
+static int
+xqc_demo_cli_set_server_addr(xqc_demo_cli_net_config_t *cfg)
+{
+    struct sockaddr_in *addr4;
+
+    memset(&cfg->addr, 0, sizeof(cfg->addr));
+    cfg->addr_len = 0;
+
+    addr4 = (struct sockaddr_in *)&cfg->addr;
+    if (inet_pton(AF_INET, cfg->server_addr, &addr4->sin_addr) == 1) {
+        addr4->sin_family = AF_INET;
+        addr4->sin_port = htons(cfg->server_port);
+        cfg->addr_len = sizeof(*addr4);
+        cfg->ipv6 = 0;
+        return 0;
+    }
+
+    if (inet_pton(AF_INET6, cfg->server_addr, &cfg->addr.sin6_addr) == 1) {
+        cfg->addr.sin6_family = AF_INET6;
+        cfg->addr.sin6_port = htons(cfg->server_port);
+        cfg->addr_len = sizeof(cfg->addr);
+        cfg->ipv6 = 1;
+        return 0;
+    }
+
+    return -1;
 }
 
 void
@@ -1850,24 +1873,8 @@ xqc_demo_cli_parse_server_addr(char *url, xqc_demo_cli_net_config_t *cfg)
                 cfg->server_addr, sizeof(cfg->server_addr));
         }
         freeaddrinfo(result);
-    } else {
-
-        if (strchr(cfg->server_addr, ':') != NULL) {
-            struct sockaddr_in6 *addr6 = &cfg->addr;
-            addr6->sin6_family = AF_INET6;
-            addr6->sin6_port = htons(cfg->server_port);
-            inet_pton(AF_INET6, cfg->server_addr, &addr6->sin6_addr);
-            cfg->ipv6 = 1;
-            cfg->addr_len = sizeof(struct sockaddr_in6);
-
-        } else {
-            struct sockaddr_in *addr4 = (struct sockaddr_in*)&cfg->addr;
-            addr4->sin_family = AF_INET;
-            addr4->sin_port = htons(cfg->server_port);
-            inet_pton(AF_INET, cfg->server_addr, &addr4->sin_addr);
-            cfg->ipv6 = 0;
-            cfg->addr_len = sizeof(struct sockaddr_in);
-        }
+    } else if (xqc_demo_cli_set_server_addr(cfg) != 0) {
+        printf("invalid server address: %s\n", cfg->server_addr);
     }
     
 
@@ -2285,16 +2292,10 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
         args->req_cfg.batch_cnt = 1;
     }
 
-    if (args->net_cfg.addr_specified || args->net_cfg.port_specified) {
-        if (xqc_demo_cli_parse_numeric_addr(args->net_cfg.server_addr,
-                args->net_cfg.server_port, &args->net_cfg.addr,
-                &args->net_cfg.addr_len) != 0)
-        {
-            printf("invalid server address: %s\n",
-                   args->net_cfg.server_addr);
-            return -1;
-        }
-        args->net_cfg.ipv6 = strchr(args->net_cfg.server_addr, ':') != NULL;
+    if (xqc_demo_cli_set_server_addr(&args->net_cfg) != 0) {
+        printf("invalid server address: %s\n",
+               args->net_cfg.server_addr);
+        return -1;
     }
 
     return 0;

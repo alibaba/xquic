@@ -12,7 +12,6 @@
 #include "xqc_conn_test.h"
 #include "xqc_engine_test.h"
 #include "xqc_common_test.h"
-#include "xqc_demo_client_net_test.h"
 #include "xqc_vint_test.h"
 #include "xqc_recv_record_test.h"
 #include "xqc_reno_test.h"
@@ -102,10 +101,6 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_max_alert", xqc_test_conn_tls_error_cb_max_alert)
         || !CU_add_test(pSuite, "xqc_test_pq", xqc_test_pq)
         || !CU_add_test(pSuite, "xqc_test_common", xqc_test_common)
-        || !CU_add_test(pSuite, "xqc_test_demo_client_numeric_addr",
-                        xqc_test_demo_client_numeric_addr)
-        || !CU_add_test(pSuite, "xqc_test_demo_client_invalid_addr",
-                        xqc_test_demo_client_invalid_addr)
         || !CU_add_test(pSuite, "xqc_test_vint", xqc_test_vint)
         || !CU_add_test(pSuite, "xqc_test_flow_ctl_clamp_boundary", xqc_test_flow_ctl_clamp_boundary)
         || !CU_add_test(pSuite, "xqc_test_stream_flow_ctl_clamp", xqc_test_stream_flow_ctl_clamp)

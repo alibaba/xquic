@@ -9,6 +9,7 @@ Use this informative guide after locating the affected area in
 Examples:
 
 - Add a reusable skill.
+- Add or change issue classification and labeling guidance.
 - Change harness check routing.
 - Change generic schema checks.
 - Change task-local evidence layout.

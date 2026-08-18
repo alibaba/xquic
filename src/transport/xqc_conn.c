@@ -5714,8 +5714,12 @@ xqc_conn_on_recv_retry(xqc_connection_t *conn, xqc_cid_t *retry_scid)
     /* RFC 9000 §7.3: save Retry SCID for later retry_source_connection_id validation */
     xqc_cid_copy(&conn->retry_scid, retry_scid);
 
-    /* change the DCID it uses for sending packets in response to Retry packet. */
+    /*
+     * RFC 9000 Section 17.2.5.1: subsequent packets use the Retry SCID
+     * as their DCID. The final send path reads the per-path DCID.
+     */
     xqc_cid_copy(&conn->dcid_set.current_dcid, retry_scid);
+    xqc_cid_copy(&conn->conn_initial_path->path_dcid, retry_scid);
     xqc_datagram_record_mss(conn);
     /* reset initial keys */
     ret = xqc_tls_reset_initial(conn->tls, conn->version, retry_scid);

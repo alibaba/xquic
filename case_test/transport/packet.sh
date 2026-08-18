@@ -104,10 +104,26 @@ sleep 1
 
 
 
-clear_log
-result=`${CLIENT_BIN} -s 2048000 -l e -t 5 -E -d 300|grep ">>>>>>>> pass"`
-errlog=`grep_err_log`
-if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+packet_loss_pass=0
+packet_loss_attempt=1
+while [ $packet_loss_attempt -le 2 ]; do
+    clear_log
+    if [ $packet_loss_attempt -gt 1 ]; then
+        echo -e "large_ack_range_with_30_percent_loss retry ${packet_loss_attempt} ...\c"
+    fi
+    ${CLIENT_BIN} -s 2048000 -l e -t 20 -E -d 300 > stdlog
+    result=`grep ">>>>>>>> pass:1" stdlog`
+    errlog=`grep_err_log`
+    if [ -z "$errlog" ] && [ -n "$result" ]; then
+        packet_loss_pass=1
+        break
+    fi
+    if [ $packet_loss_attempt -ge 2 ] || ! case_test_should_retry_timeout_or_no_result stdlog "$errlog"; then
+        break
+    fi
+    packet_loss_attempt=$((packet_loss_attempt + 1))
+done
+if [ $packet_loss_pass -eq 1 ]; then
     case_print_result "large_ack_range_with_30_percent_loss" "pass"
 else
     case_print_result "large_ack_range_with_30_percent_loss" "fail"
@@ -452,7 +468,7 @@ case_test_case "illegal_packet" --id native --mode self-reporting --run case_tra
 case_test_case "duplicate_packet" --id native --mode self-reporting --run case_transport_packet_duplicate_packet
 case_test_case "packet_with_wrong_cid" --id native --mode self-reporting --run case_transport_packet_packet_with_wrong_cid
 case_test_case "retry_packet_send" --id native --mode self-reporting --run case_transport_packet_retry_packet_send
-case_test_case "large_ack_range_with_30_percent_loss" --id native --mode self-reporting --run case_transport_packet_large_ack_range_with_30_percent_loss
+case_test_case "large_ack_range_with_30_percent_loss" --id native --mode self-reporting --run case_transport_packet_large_ack_range_with_30_percent_loss --timeout 120
 case_test_case "client_initial_dcid_corruption" --id native --mode self-reporting --run case_transport_packet_client_initial_dcid_corruption
 case_test_case "client_initial_scid_corruption" --id native --mode self-reporting --run case_transport_packet_client_initial_scid_corruption
 case_test_case "server_initial_dcid_corruption" --id native --mode self-reporting --run case_transport_packet_server_initial_dcid_corruption

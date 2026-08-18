@@ -6,5 +6,6 @@
 #define XQC_RETRY_TEST_H
 
 void xqc_test_retry();
+void xqc_test_retry_same_length_dcid();
 
 #endif

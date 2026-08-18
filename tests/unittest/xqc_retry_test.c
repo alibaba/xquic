@@ -30,6 +30,8 @@ xqc_test_retry()
     xqc_connection_t *conn = test_engine_connect();
     CU_ASSERT(conn != NULL);
 
+    uint8_t initial_dcid_len = conn->conn_initial_path->path_dcid.cid_len;
+
     xqc_packet_in_t packet;
     xqc_packet_in_t *packet_in = &packet;
     memset(packet_in, 0, sizeof(*packet_in));
@@ -45,6 +47,36 @@ xqc_test_retry()
     ret = xqc_packet_parse_long_header(conn, packet_in);
     CU_ASSERT(ret == XQC_OK);
     CU_ASSERT(conn->conn_flag & XQC_CONN_FLAG_RETRY_RECVD);
+    CU_ASSERT(initial_dcid_len != packet_in->pi_pkt.pkt_scid.cid_len);
+    CU_ASSERT(xqc_cid_is_equal(&conn->dcid_set.current_dcid,
+                               &packet_in->pi_pkt.pkt_scid) == XQC_OK);
+    CU_ASSERT(xqc_cid_is_equal(&conn->conn_initial_path->path_dcid,
+                               &packet_in->pi_pkt.pkt_scid) == XQC_OK);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_retry_same_length_dcid()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+
+    xqc_cid_t retry_scid;
+    xqc_cid_copy(&retry_scid, &conn->conn_initial_path->path_dcid);
+    retry_scid.cid_buf[0] ^= 0xff;
+    CU_ASSERT(conn->conn_initial_path->path_dcid.cid_len
+              == retry_scid.cid_len);
+    CU_ASSERT(xqc_cid_is_equal(&conn->conn_initial_path->path_dcid,
+                               &retry_scid) != XQC_OK);
+
+    xqc_int_t ret = xqc_conn_on_recv_retry(conn, &retry_scid);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(xqc_cid_is_equal(&conn->dcid_set.current_dcid,
+                               &retry_scid) == XQC_OK);
+    CU_ASSERT(xqc_cid_is_equal(&conn->conn_initial_path->path_dcid,
+                               &retry_scid) == XQC_OK);
 
     xqc_engine_destroy(conn->engine);
 }

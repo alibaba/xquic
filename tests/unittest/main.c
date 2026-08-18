@@ -106,6 +106,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_alert_zero", xqc_test_conn_tls_error_cb_alert_zero)
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_max_alert", xqc_test_conn_tls_error_cb_max_alert)
         || !CU_add_test(pSuite, "xqc_test_pq", xqc_test_pq)
+        || !CU_add_test(pSuite, "xqc_test_connection_closed_log_no_error",
+                        xqc_test_connection_closed_log_no_error)
+        || !CU_add_test(pSuite, "xqc_test_connection_closed_log_with_error",
+                        xqc_test_connection_closed_log_with_error)
         || !CU_add_test(pSuite, "xqc_test_common", xqc_test_common)
         || !CU_add_test(pSuite, "xqc_test_vint", xqc_test_vint)
         || !CU_add_test(pSuite, "xqc_test_flow_ctl_clamp_boundary", xqc_test_flow_ctl_clamp_boundary)

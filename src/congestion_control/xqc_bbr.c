@@ -56,9 +56,15 @@ const float xqc_bbr_pacing_gain[] = {1.25, 0.75, 1, 1, 1, 1, 1, 1};
 const float xqc_bbr_low_pacing_gain[] = {1.1, 0.9, 1, 1, 1, 1, 1, 1};
 /* Minimum packets that need to ensure ack if there is delayed ack */
 const uint32_t xqc_bbr_min_cwnd = 4 * XQC_BBR_MAX_DATAGRAMSIZE;
-/* If bandwidth has increased by 1.25, there may be more bandwidth available */
+/*
+ * Using 1.1 instead of BBRv1's 1.25 deliberately makes Startup more
+ * aggressive and less likely to exit early. This tradeoff depends on workload
+ * and link utilization and may not benefit every deployment, especially on
+ * busy links. Deployments that prefer the reference BBRv1 behavior can change
+ * this threshold to 1.25.
+ */
 const float xqc_bbr_fullbw_thresh = 1.1;
-/* After 3 rounds bandwidth less than (1.25x), estimate the pipe is full */
+/* After 3 rounds below the threshold, estimate that the pipe is full. */
 const uint32_t xqc_bbr_fullbw_cnt = 3;
 const float xqc_bbr_probe_rtt_gain = 0.75;
 const uint32_t xqc_bbr_extra_ack_gain = 2;

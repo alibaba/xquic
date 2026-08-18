@@ -358,14 +358,14 @@ require_grep "development pipeline reaches its default publication stage" \
     "harness/skills/xquic-safe-push/SKILL.md" \
     "safe push permits the default publication stage"
 require_grep \
-    "\\[<change-id>\\] Fix #<issue-number>: <English title>" \
+    "\\[<change-id>\\] Fix #<issue-number>: <concise English summary>" \
     "harness/spec/pull-requests.md" \
     "pull request specification defines the issue-closing title shape"
 require_grep \
-    "\\[<change-id>\\] Fix #<issue-number>: <English title>" \
+    "\\[<change-id>\\] Fix #<issue-number>: <concise English summary>" \
     "harness/skills/xquic-pr-formatting/SKILL.md" \
     "PR formatting skill enforces the issue-closing title shape"
-require_grep "\\[<change-id>\\]: <English title>" \
+require_grep "\\[<change-id>\\]: <concise English summary>" \
     "harness/spec/pull-requests.md" \
     "pull request specification defines the no-issue title shape"
 require_manifest_schema

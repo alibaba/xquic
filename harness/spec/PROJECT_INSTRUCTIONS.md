@@ -151,8 +151,8 @@ A change is complete when:
 - the complete local unit suite passes and accepted targeted case checks pass;
 - generated and temporary artifacts are absent from the diff;
 - durable documentation and relative links remain accurate;
-- the published pull request uses the canonical English title and current
-  base-to-head evidence;
+- the published pull request uses the canonical title with a concise English
+  summary of the core change and current base-to-head evidence;
 - the PR-scoped five-part pre-review report passes, and its local review
   workspace remains uncommitted and reusable for the next iteration; and
 - the pull request contains the evidence required by

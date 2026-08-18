@@ -17,9 +17,10 @@ diagnosis, review-comment fixes, or code review.
    [pull-request template](../../../.github/pull_request_template.md).
 3. Build and validate the title with the exact shape from
    [Pull Request Title](../../spec/pull-requests.md#pull-request-title): use
-   `[<change-id>] Fix #<issue-number>: <English title>` when closing an issue,
-   or `[<change-id>]: <English title>` otherwise. Allow only `+`, `-`, `=`, or
-   `~` as the change identifier, and write the complete description in English.
+   `[<change-id>] Fix #<issue-number>: <concise English summary>` when closing
+   an issue, or `[<change-id>]: <concise English summary>` otherwise. Allow only
+   `+`, `-`, `=`, or `~` as the change identifier. Use one concise English
+   sentence that describes the core change.
 4. Treat the template's three concise sections as the canonical PR body
    structure:
    mechanism, validation cases, and aggregate `CONTRIBUTING.md` status.
@@ -85,10 +86,11 @@ List cases only as:
 
 ## Pull Request Title
 
-Use `[<change-id>] Fix #<issue-number>: <English title>` for an issue-closing
-pull request and `[<change-id>]: <English title>` otherwise. The marker is one
-of `+`, `-`, `=`, or `~`. Keep the description English-only and use GitHub's
-draft state instead of adding status prefixes to the title.
+Use `[<change-id>] Fix #<issue-number>: <concise English summary>` for an
+issue-closing pull request and `[<change-id>]: <concise English summary>`
+otherwise. The marker is one of `+`, `-`, `=`, or `~`. Summarize the core change
+in one concise English sentence and use GitHub's draft state instead of adding
+status prefixes to the title.
 
 ## Guardrails
 

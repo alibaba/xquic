@@ -23,16 +23,16 @@ evidence.
 Use exactly one title shape:
 
 ```text
-[<change-id>] Fix #<issue-number>: <English title>
-[<change-id>]: <English title>
+[<change-id>] Fix #<issue-number>: <concise English summary>
+[<change-id>]: <concise English summary>
 ```
 
 Use the first shape when the pull request closes an issue and the second when
 no issue is being closed. `<change-id>` is one `CONTRIBUTING.md` change marker:
-`+`, `-`, `=`, or `~`. Write the complete title description in English. Do not
-add alternative prefixes such as `WIP`, `Feat`, or `fix`; draft state belongs
-in GitHub metadata. An issue-closing title does not replace the exact
-standalone `Fixes: #<number>` line in the body.
+`+`, `-`, `=`, or `~`. Write one concise English sentence that describes the
+core change. Do not add alternative prefixes such as `WIP`, `Feat`, or `fix`;
+draft state belongs in GitHub metadata. An issue-closing title does not replace
+the exact standalone `Fixes: #<number>` line in the body.
 
 ## CONTRIBUTING.md Compliance
 

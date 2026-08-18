@@ -162,7 +162,8 @@ conflict-free.
 5. Assemble the evidence required by the
    [pull-request specification](../spec/pull-requests.md).
 6. Use [`xquic-pr-formatting`](../skills/xquic-pr-formatting/SKILL.md) to build
-   the canonical English title and complete the repository
+   the canonical title with a concise English summary and complete the
+   repository
    [pull-request template](../../.github/pull_request_template.md) as a concise
    review summary:
    - explain the changed mechanism and cite the exact RFC or draft section

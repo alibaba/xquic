@@ -23,13 +23,61 @@
 #include "src/transport/xqc_frame_parser.h"
 #include "src/transport/xqc_packet_in.h"
 #include "src/transport/xqc_packet_out.h"
+#include "src/transport/xqc_send_queue.h"
 #include "src/transport/xqc_recv_record.h"
+#include "src/common/utils/vint/xqc_variable_len_int.h"
 
 extern void xqc_conn_tls_error_cb(xqc_int_t tls_err, void *user_data);
 
 /* forward-declare: defined in xqc_conn.c, exposed via xqc_conn_tls_cbs */
 xqc_int_t xqc_conn_tls_alpn_select_cb(const char *alpn,
     size_t alpn_len, void *user_data);
+
+static xqc_packet_out_t *xqc_test_get_conn_close_packet(
+    xqc_connection_t *conn);
+static void xqc_test_conn_close_packet_value(xqc_connection_t *conn,
+    xqc_pkt_type_t pkt_type, unsigned char frame_type, uint64_t err_code);
+
+
+static xqc_packet_out_t *
+xqc_test_get_conn_close_packet(xqc_connection_t *conn)
+{
+    xqc_list_head_t *head;
+
+    head = &conn->conn_send_queue->sndq_send_packets_high_pri;
+    if (xqc_list_empty(head)) {
+        return NULL;
+    }
+
+    return xqc_list_entry(head->prev, xqc_packet_out_t, po_list);
+}
+
+
+static void
+xqc_test_conn_close_packet_value(xqc_connection_t *conn,
+    xqc_pkt_type_t pkt_type, unsigned char frame_type, uint64_t err_code)
+{
+    xqc_packet_out_t *packet_out;
+    unsigned char *pos;
+    uint64_t parsed_err_code;
+    ssize_t len;
+
+    packet_out = xqc_test_get_conn_close_packet(conn);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(packet_out);
+    CU_ASSERT_EQUAL(packet_out->po_pkt.pkt_type, pkt_type);
+
+    pos = packet_out->po_payload;
+    CU_ASSERT_FATAL(pos < packet_out->po_buf + packet_out->po_used_size);
+    CU_ASSERT_EQUAL(*pos, frame_type);
+
+    len = xqc_vint_read(pos + 1,
+                        packet_out->po_buf + packet_out->po_used_size,
+                        &parsed_err_code);
+    CU_ASSERT(len > 0);
+    if (len > 0) {
+        CU_ASSERT_EQUAL(parsed_err_code, err_code);
+    }
+}
 
 void
 xqc_test_conn_create()
@@ -671,6 +719,82 @@ xqc_test_0rtt_error_wire_codes(void)
     CU_ASSERT_EQUAL(
         xqc_conn_close_wire_error_code(TRA_0RTT_DGRAM_PARAMS_ERROR),
         TRA_PROTOCOL_VIOLATION);
+}
+
+
+void
+xqc_test_conn_close_transport_crypto_namespace(void)
+{
+    xqc_connection_t *conn;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    xqc_conn_tls_error_cb(120, conn);
+    CU_ASSERT_EQUAL(conn->conn_err, TRA_NO_APPLICATION_PROTOCOL);
+    CU_ASSERT_FALSE(XQC_CONN_ERR_IS_APPLICATION(conn->conn_err));
+    CU_ASSERT_EQUAL(xqc_conn_get_errno(conn),
+                    TRA_NO_APPLICATION_PROTOCOL);
+    CU_ASSERT_EQUAL(xqc_conn_get_err_type(conn),
+                    XQC_CONN_ERR_TYPE_UNKNOWN);
+    CU_ASSERT_EQUAL(xqc_write_conn_close_to_packet(conn, conn->conn_err),
+                    XQC_OK);
+
+    /*
+     * RFC 9000 Section 11.1: CRYPTO_ERROR is a transport error and uses
+     * CONNECTION_CLOSE type 0x1c even though its value overlaps HTTP/3.
+     */
+    xqc_test_conn_close_packet_value(conn, XQC_PTYPE_INIT, 0x1c,
+                                     TRA_NO_APPLICATION_PROTOCOL);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_conn_close_application_namespace(void)
+{
+    xqc_connection_t *conn;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_COMPLETED
+                       | XQC_CONN_FLAG_HSK_ACKED;
+
+    /*
+     * Use the same numeric value as the transport CRYPTO_ERROR test above.
+     * conn_err must preserve the namespace without changing the code exposed
+     * by xqc_conn_get_errno or the peer-error-only conn_err_type API.
+     */
+    xqc_conn_close_with_error(conn, TRA_NO_APPLICATION_PROTOCOL);
+    CU_ASSERT_TRUE(XQC_CONN_ERR_IS_APPLICATION(conn->conn_err));
+    CU_ASSERT_EQUAL(xqc_conn_get_errno(conn),
+                    TRA_NO_APPLICATION_PROTOCOL);
+    CU_ASSERT_EQUAL(xqc_conn_get_err_type(conn),
+                    XQC_CONN_ERR_TYPE_UNKNOWN);
+    CU_ASSERT_EQUAL(xqc_write_conn_close_to_packet(conn, conn->conn_err),
+                    XQC_OK);
+    xqc_test_conn_close_packet_value(conn, XQC_PTYPE_SHORT_HEADER, 0x1d,
+                                     TRA_NO_APPLICATION_PROTOCOL);
+    xqc_engine_destroy(conn->engine);
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    xqc_conn_close_with_error(conn, H3_GENERAL_PROTOCOL_ERROR);
+    CU_ASSERT_TRUE(XQC_CONN_ERR_IS_APPLICATION(conn->conn_err));
+    CU_ASSERT_EQUAL(xqc_conn_get_errno(conn),
+                    H3_GENERAL_PROTOCOL_ERROR);
+    CU_ASSERT_EQUAL(xqc_write_conn_close_to_packet(conn, conn->conn_err),
+                    XQC_OK);
+
+    /*
+     * RFC 9000 Section 10.2.3: replace an application close in an Initial
+     * or Handshake packet with transport APPLICATION_ERROR.
+     */
+    xqc_test_conn_close_packet_value(conn, XQC_PTYPE_INIT, 0x1c,
+                                     TRA_APPLICATION_ERROR);
+    xqc_engine_destroy(conn->engine);
 }
 
 

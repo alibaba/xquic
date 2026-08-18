@@ -66,16 +66,39 @@ static const uint32_t MAX_RSP_CONN_CLOSE_CNT = 3;
     }                                               \
 } while(0)                                          \
 
+/*
+ * RFC 9000 Section 16 limits QUIC variable-length integers to 62 bits.
+ * Reserve bit 63 internally so conn_err itself preserves whether the stored
+ * error belongs to the application namespace. Public and wire boundaries
+ * strip this bit before exposing the error code.
+ */
+#define XQC_CONN_ERR_APPLICATION_FLAG ((uint64_t) 1 << 63)
+#define XQC_CONN_ERR_CODE(err) \
+    ((uint64_t) (err) & ~XQC_CONN_ERR_APPLICATION_FLAG)
+#define XQC_CONN_ERR_IS_APPLICATION(err) \
+    (((uint64_t) (err) & XQC_CONN_ERR_APPLICATION_FLAG) != 0)
+#define XQC_CONN_ERR_ENCODE_APPLICATION(err) \
+    ((uint64_t) (err) | XQC_CONN_ERR_APPLICATION_FLAG)
+
 /* send CONNECTION_CLOSE with err */
-#define XQC_CONN_ERR(conn, err) do {                \
+#define XQC_CONN_ERR_INTERNAL(conn, err) do {       \
     if ((conn)->conn_err == 0) {                    \
         (conn)->conn_err = (err);                   \
         XQC_CONN_CLOSE_MSG(conn, "local error");    \
         (conn)->conn_flag |= XQC_CONN_FLAG_ERROR;   \
         xqc_conn_closing(conn);                     \
-        xqc_log((conn)->log, XQC_LOG_ERROR, "|conn:%p|err:0x%xi|%s|", (conn), (uint64_t)(err), xqc_conn_addr_str(conn)); \
+        xqc_log((conn)->log, XQC_LOG_ERROR,                    \
+                "|conn:%p|err:0x%xi|%s|", (conn),             \
+                XQC_CONN_ERR_CODE(err),                        \
+                xqc_conn_addr_str(conn));                      \
     }                                               \
 } while(0)                                          \
+
+#define XQC_CONN_ERR(conn, err)                     \
+    XQC_CONN_ERR_INTERNAL(conn, err)
+
+#define XQC_CONN_APP_ERR(conn, err)                 \
+    XQC_CONN_ERR_INTERNAL(conn, XQC_CONN_ERR_ENCODE_APPLICATION(err))
 
 extern xqc_conn_settings_t internal_default_conn_settings;
 extern const xqc_tls_callbacks_t xqc_conn_tls_cbs;

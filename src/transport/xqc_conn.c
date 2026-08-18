@@ -1552,7 +1552,9 @@ xqc_conn_destroy(xqc_connection_t *xc)
             (xc->handshake_complete_time > xc->conn_create_time) ? (xc->handshake_complete_time - xc->conn_create_time) : 0,
             (xc->first_data_send_time > xc->conn_create_time) ? (xc->first_data_send_time - xc->conn_create_time) : 0,
             xqc_monotonic_timestamp() - xc->conn_create_time, xc->key_update_ctx.key_update_cnt,
-            xc->conn_err, xc->conn_close_msg ? xc->conn_close_msg : "", xqc_conn_addr_str(xc),
+            XQC_CONN_ERR_CODE(xc->conn_err),
+            xc->conn_close_msg ? xc->conn_close_msg : "",
+            xqc_conn_addr_str(xc),
             xqc_calc_delay(xc->conn_hsk_recv_time, xc->conn_create_time),
             xqc_calc_delay(xc->conn_close_recv_time, xc->conn_create_time),
             xqc_calc_delay(xc->conn_close_send_time, xc->conn_create_time),
@@ -3212,14 +3214,14 @@ end:
 xqc_int_t
 xqc_conn_close_with_error(xqc_connection_t *conn, uint64_t err_code)
 {
-    XQC_CONN_ERR(conn, err_code);
+    XQC_CONN_APP_ERR(conn, err_code);
     return XQC_OK;
 }
 
 xqc_int_t
 xqc_conn_get_errno(xqc_connection_t *conn)
 {
-    return conn->conn_err;
+    return XQC_CONN_ERR_CODE(conn->conn_err);
 }
 
 xqc_conn_err_type_t
@@ -3688,7 +3690,7 @@ xqc_conn_get_stats_internal(xqc_connection_t *conn, xqc_conn_stats_t *conn_stats
         conn_stats->alpn[1] = '1';
     }
 
-    conn_stats->conn_err = (int)conn->conn_err;
+    conn_stats->conn_err = (int)XQC_CONN_ERR_CODE(conn->conn_err);
     conn_stats->early_data_flag = XQC_0RTT_NONE;
     conn_stats->enable_multipath = conn->enable_multipath;
     conn_stats->enable_fec = conn->conn_settings.fec_params.fec_encoder_scheme ? 1 : 0;
@@ -6974,7 +6976,9 @@ xqc_conn_closing_notify(xqc_connection_t *conn)
 
         if (!(conn->conn_flag & XQC_CONN_FLAG_CLOSING_NOTIFIED)) {
             conn->conn_flag |= XQC_CONN_FLAG_CLOSING_NOTIFIED;
-            conn->transport_cbs.conn_closing(conn, &conn->scid_set.user_scid, conn->conn_err, conn->user_data);
+            conn->transport_cbs.conn_closing(conn,
+                &conn->scid_set.user_scid,
+                XQC_CONN_ERR_CODE(conn->conn_err), conn->user_data);
         }
     }
 }

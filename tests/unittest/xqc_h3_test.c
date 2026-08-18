@@ -618,9 +618,11 @@ xqc_h3_critical_run_case(xqc_connection_t *conn, xqc_h3_conn_t *h3c,
     CU_ASSERT(ret == XQC_OK);
 
     if (tc->expected_conn_err == H3_CLOSED_CRITICAL_STREAM) {
-        CU_ASSERT(conn->conn_err == H3_CLOSED_CRITICAL_STREAM);
+        CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err)
+                  == H3_CLOSED_CRITICAL_STREAM);
     } else {
-        CU_ASSERT(conn->conn_err == tc->expected_conn_err);
+        CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err)
+                  == tc->expected_conn_err);
     }
 
     if (tc->expect_error_flag) {
@@ -740,8 +742,8 @@ xqc_test_h3_second_stream_one(uint64_t stype, uint64_t expected_err_second)
     /* second instance: must be rejected */
     ret = xqc_h3_conn_on_uni_stream_created(h3c, stype);
     CU_ASSERT(ret == -XQC_H3_INVALID_STREAM);
-    CU_ASSERT(conn->conn_err == expected_err_second);
-    CU_ASSERT(conn->conn_err == 0x103);  /* literal H3_STREAM_CREATION_ERROR */
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == expected_err_second);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == 0x103);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
 
     xqc_h3_conn_destroy(h3c);
@@ -773,7 +775,7 @@ xqc_test_h3_push_stream_rejected(xqc_conn_type_t conn_type,
     xqc_int_t ret = xqc_h3_conn_on_uni_stream_created(h3c,
             XQC_H3_STREAM_TYPE_PUSH);
     CU_ASSERT(ret == -XQC_H3_INVALID_STREAM);
-    CU_ASSERT(conn->conn_err == expected_err);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == expected_err);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
 
     xqc_h3_conn_destroy(h3c);
@@ -1231,8 +1233,9 @@ xqc_test_h3_headers_capacity_uses_internal_error()
             XQC_TRUE);
 
     CU_ASSERT(ret == -XQC_H3_EPROC_REQUEST);
-    CU_ASSERT(conn->conn_err == H3_INTERNAL_ERROR);
-    CU_ASSERT(conn->conn_err == 0x102);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_INTERNAL_ERROR);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == 0x102);
+    CU_ASSERT(XQC_CONN_ERR_IS_APPLICATION(conn->conn_err));
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
 
     xqc_h3_msgerr_teardown(h3s, h3c, conn);
@@ -1305,8 +1308,8 @@ xqc_test_h3_frame_parse_error_uses_frame_error()
             XQC_TRUE);
 
     CU_ASSERT(ret < 0);
-    CU_ASSERT(conn->conn_err == H3_FRAME_ERROR);
-    CU_ASSERT(conn->conn_err != H3_MESSAGE_ERROR);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_FRAME_ERROR);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) != H3_MESSAGE_ERROR);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
 
     xqc_h3_msgerr_teardown(h3s, h3c, conn);
@@ -1447,7 +1450,7 @@ xqc_test_h3_cancel_push_rejected()
      */
     CU_ASSERT(xqc_h3_ctrl_feed_cancel_push(h3s, 0)
               == -XQC_H3_INVALID_CANCEL_PUSH_ID);
-    CU_ASSERT(conn->conn_err == H3_ID_ERROR);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_ID_ERROR);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
 
     xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
@@ -1468,7 +1471,7 @@ xqc_test_h3_cancel_push_rejected()
      */
     CU_ASSERT(xqc_h3_ctrl_feed_cancel_push(h3s, 0)
               == -XQC_H3_INVALID_CANCEL_PUSH_ID);
-    CU_ASSERT(conn->conn_err == H3_ID_ERROR);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_ID_ERROR);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
 
     xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
@@ -1517,7 +1520,7 @@ xqc_test_h3_max_push_id_errors()
     /* A client cannot receive MAX_PUSH_ID from a server. */
     CU_ASSERT(xqc_h3_ctrl_feed_max_push_id(h3s, 1)
               == -XQC_H3_INVALID_MAX_PUSH_ID);
-    CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_FRAME_UNEXPECTED);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
     CU_ASSERT(h3c->max_stream_id_recvd == 0);
 
@@ -1535,7 +1538,7 @@ xqc_test_h3_max_push_id_errors()
     /* A decreasing value is H3_ID_ERROR and cannot replace the maximum. */
     CU_ASSERT(xqc_h3_ctrl_feed_max_push_id(h3s, 4)
               == -XQC_H3_INVALID_MAX_PUSH_ID);
-    CU_ASSERT(conn->conn_err == H3_ID_ERROR);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_ID_ERROR);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
     CU_ASSERT(h3c->max_stream_id_recvd == 5);
 
@@ -1564,7 +1567,7 @@ xqc_test_h3_ctrl_reject_data(void)
             sizeof(data_frame));
 
     CU_ASSERT(processed == -XQC_H3_CONTROL_FRAME_UNEXPECTED);
-    CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_FRAME_UNEXPECTED);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
     CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
 
@@ -1592,7 +1595,7 @@ xqc_test_h3_ctrl_reject_zero_len_data(void)
             sizeof(zero_data));
 
     CU_ASSERT(processed == -XQC_H3_CONTROL_FRAME_UNEXPECTED);
-    CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_FRAME_UNEXPECTED);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
     CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
 
@@ -1620,7 +1623,7 @@ xqc_test_h3_ctrl_reject_headers(void)
             sizeof(headers_frame));
 
     CU_ASSERT(processed == -XQC_H3_CONTROL_FRAME_UNEXPECTED);
-    CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_FRAME_UNEXPECTED);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
     CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
 
@@ -1648,7 +1651,7 @@ xqc_test_h3_ctrl_reject_push_promise(void)
             sizeof(push_promise));
 
     CU_ASSERT(processed == -XQC_H3_CONTROL_FRAME_UNEXPECTED);
-    CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_FRAME_UNEXPECTED);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
     CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
 
@@ -1676,7 +1679,7 @@ xqc_test_h3_ctrl_reject_data_before_settings(void)
             sizeof(data_frame));
 
     CU_ASSERT(processed == -XQC_H3_CONTROL_FRAME_UNEXPECTED);
-    CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_FRAME_UNEXPECTED);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
     CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
 
@@ -1714,7 +1717,7 @@ xqc_test_h3_ctrl_goaway_then_data(void)
 
     /* DATA must be rejected */
     CU_ASSERT(processed == -XQC_H3_CONTROL_FRAME_UNEXPECTED);
-    CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_FRAME_UNEXPECTED);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
     CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
 
@@ -1752,7 +1755,7 @@ xqc_test_h3_ctrl_reject_partial_feed(void)
     processed = xqc_h3_stream_process_control(h3s, len_byte, sizeof(len_byte));
 
     CU_ASSERT(processed == -XQC_H3_CONTROL_FRAME_UNEXPECTED);
-    CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_FRAME_UNEXPECTED);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
     CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
 
@@ -1854,7 +1857,7 @@ xqc_test_h3_missing_settings_one(uint64_t frame_type)
             sizeof(frame_buf));
 
     CU_ASSERT(processed == -XQC_H3_MISSING_SETTINGS);
-    CU_ASSERT(conn->conn_err == H3_MISSING_SETTINGS);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_MISSING_SETTINGS);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
 
     stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
@@ -1930,15 +1933,16 @@ xqc_test_h3_request_frame_unexpected_one(uint64_t frame_type,
         /* must return the new internal error code */
         CU_ASSERT(processed == -XQC_H3_REQUEST_FRAME_UNEXPECTED);
         /* must set the wire-level H3_FRAME_UNEXPECTED (0x0105) */
-        CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
-        CU_ASSERT(conn->conn_err == 0x0105);
+        CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_FRAME_UNEXPECTED);
+        CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == 0x0105);
         /* must set the error flag so CONNECTION_CLOSE is sent */
         CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
     } else {
         /* must NOT return the frame-unexpected error */
         CU_ASSERT(processed != -XQC_H3_REQUEST_FRAME_UNEXPECTED);
         /* must NOT set H3_FRAME_UNEXPECTED */
-        CU_ASSERT(conn->conn_err != H3_FRAME_UNEXPECTED);
+        CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err)
+                  != H3_FRAME_UNEXPECTED);
     }
 
     xqc_h3_msgerr_teardown(h3s, h3c, conn);
@@ -2063,8 +2067,8 @@ xqc_test_h3_server_push_promise_rejected()
             sizeof(push_promise), XQC_FALSE);
 
     CU_ASSERT(processed == -XQC_H3_REQUEST_FRAME_UNEXPECTED);
-    CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
-    CU_ASSERT(conn->conn_err == 0x0105);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_FRAME_UNEXPECTED);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == 0x0105);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
 
     xqc_h3_msgerr_teardown(h3s, h3c, conn);
@@ -2087,8 +2091,8 @@ xqc_test_h3_server_push_promise_rejected()
             sizeof(push_promise), XQC_FALSE);
 
     CU_ASSERT(processed == -XQC_H3_EPROC_REQUEST);
-    CU_ASSERT(conn->conn_err == H3_FRAME_UNEXPECTED);
-    CU_ASSERT(conn->conn_err == 0x0105);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_FRAME_UNEXPECTED);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == 0x0105);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
 
     xqc_h3_msgerr_teardown(h3s, h3c, conn);

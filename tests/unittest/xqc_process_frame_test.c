@@ -108,6 +108,98 @@ xqc_test_parse_padding_frame()
     xqc_engine_destroy(conn->engine);
 }
 
+
+#ifdef XQC_PING_ATTACK_PROTECT
+static xqc_connection_t *xqc_test_server_initial_connection(void);
+
+
+static xqc_connection_t *
+xqc_test_server_initial_connection(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+
+    CU_ASSERT(conn != NULL);
+    if (conn == NULL) {
+        return NULL;
+    }
+
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    conn->conn_state = XQC_CONN_STATE_SERVER_INIT;
+    conn->conn_flag &= ~XQC_CONN_FLAG_INIT_RECVD;
+
+    return conn;
+}
+
+
+void
+xqc_test_initial_ping_before_crypto_accepted(void)
+{
+    unsigned char frames[] = {
+        0x00,                   /* PADDING */
+        0x01,                   /* PING */
+        0x00,                   /* PADDING */
+        0x06, 0x00, 0x00       /* CRYPTO, offset 0, length 0 */
+    };
+    xqc_connection_t *conn;
+    xqc_packet_in_t packet_in;
+    xqc_int_t ret;
+
+    conn = xqc_test_server_initial_connection();
+    if (conn == NULL) {
+        return;
+    }
+
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pi_pkt.pkt_type = XQC_PTYPE_INIT;
+    packet_in.pos = frames;
+    packet_in.last = frames + sizeof(frames);
+
+    ret = xqc_process_frames(conn, &packet_in);
+
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(packet_in.pos == packet_in.last);
+    CU_ASSERT((packet_in.pi_frame_types & XQC_FRAME_BIT_PING) != 0);
+    CU_ASSERT((packet_in.pi_frame_types & XQC_FRAME_BIT_CRYPTO) != 0);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_INIT_RECVD) != 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_initial_ping_without_crypto_rejected(void)
+{
+    unsigned char frames[] = {
+        0x00,                   /* PADDING */
+        0x01,                   /* PING */
+        0x00                    /* PADDING */
+    };
+    xqc_connection_t *conn;
+    xqc_packet_in_t packet_in;
+    xqc_int_t ret;
+
+    conn = xqc_test_server_initial_connection();
+    if (conn == NULL) {
+        return;
+    }
+
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pi_pkt.pkt_type = XQC_PTYPE_INIT;
+    packet_in.pos = frames;
+    packet_in.last = frames + sizeof(frames);
+
+    ret = xqc_process_frames(conn, &packet_in);
+
+    CU_ASSERT(ret == XQC_ERROR);
+    CU_ASSERT(packet_in.pos == packet_in.last);
+    CU_ASSERT((packet_in.pi_frame_types & XQC_FRAME_BIT_PING) != 0);
+    CU_ASSERT((packet_in.pi_frame_types & XQC_FRAME_BIT_CRYPTO) == 0);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_INIT_RECVD) == 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+#endif
+
 static void
 xqc_test_conn_close_error_type(unsigned char *frame, size_t frame_len,
     xqc_conn_err_type_t expected_type)

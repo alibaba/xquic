@@ -206,6 +206,15 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
     xqc_int_t ret;
     unsigned char *last_pos = NULL;
+#ifdef XQC_PING_ATTACK_PROTECT
+    xqc_bool_t first_server_initial;
+
+    first_server_initial =
+        conn->conn_type == XQC_CONN_TYPE_SERVER
+        && conn->conn_state == XQC_CONN_STATE_SERVER_INIT
+        && packet_in->pi_pkt.pkt_type == XQC_PTYPE_INIT
+        && !(conn->conn_flag & XQC_CONN_FLAG_INIT_RECVD);
+#endif
 
     while (packet_in->pos < packet_in->last) {
         last_pos = packet_in->pos;
@@ -427,6 +436,22 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
             return -XQC_ESYS;
         }
     }
+
+#ifdef XQC_PING_ATTACK_PROTECT
+    /*
+     * RFC 9000 Section 17.2.2 permits PING in Initial packets and requires
+     * the first client Initial to include CRYPTO.  Check the complete packet
+     * so acceptance does not depend on the relative order of those frames.
+     */
+    if (first_server_initial
+        && (packet_in->pi_frame_types & XQC_FRAME_BIT_PING)
+        && !(packet_in->pi_frame_types & XQC_FRAME_BIT_CRYPTO))
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|first client Initial contains PING without CRYPTO|");
+        return XQC_ERROR;
+    }
+#endif
 
     /*
      * An endpoint MUST treat receipt of a packet containing no frames as a
@@ -936,16 +961,6 @@ xqc_int_t
 xqc_process_ping_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
     xqc_int_t ret;
-#ifdef XQC_PING_ATTACK_PROTECT
-    /* ping frame should not be the first frame in the first initial packet */
-    if (conn->conn_state == XQC_CONN_STATE_SERVER_INIT
-        && !(conn->conn_flag & XQC_CONN_FLAG_INIT_RECVD)) 
-    {
-        xqc_log(conn->log, XQC_LOG_ERROR,
-                "|xqc_process_ping_frame error: ping frame shoud not be the first frame|");
-        return XQC_ERROR; 
-    }
-#endif
 
     ret = xqc_parse_ping_frame(packet_in, conn);
     if (ret != XQC_OK) {

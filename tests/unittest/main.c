@@ -164,6 +164,14 @@ main(int argc, char *argv[])
                 || !CU_add_test(pSuite, "xqc_test_stream_frame_buffered_limit", xqc_test_stream_frame_buffered_limit)
         || !CU_add_test(pSuite, "xqc_test_process_frame", xqc_test_process_frame)
         || !CU_add_test(pSuite, "xqc_test_parse_padding_frame", xqc_test_parse_padding_frame)
+#ifdef XQC_PING_ATTACK_PROTECT
+        || !CU_add_test(pSuite,
+                        "xqc_test_initial_ping_before_crypto_accepted",
+                        xqc_test_initial_ping_before_crypto_accepted)
+        || !CU_add_test(pSuite,
+                        "xqc_test_initial_ping_without_crypto_rejected",
+                        xqc_test_initial_ping_without_crypto_rejected)
+#endif
         || !CU_add_test(pSuite, "xqc_test_large_ack_frame", xqc_test_large_ack_frame)
         /* RFC 9000 Section 19.3.1 ACK packet-number boundaries */
         || !CU_add_test(pSuite, "xqc_test_ack_range_zero_boundary",

@@ -9,6 +9,12 @@ void xqc_test_process_frame();
 
 void xqc_test_parse_padding_frame();
 
+#ifdef XQC_PING_ATTACK_PROTECT
+void xqc_test_initial_ping_before_crypto_accepted(void);
+
+void xqc_test_initial_ping_without_crypto_rejected(void);
+#endif
+
 void xqc_test_large_ack_frame();
 
 void xqc_test_ack_range_zero_boundary(void);

@@ -141,6 +141,20 @@ modules:
           level: targeted
           hints: [multipath, MP, MPNS]
     features:
+      ping_attack_protect:
+        paths:
+          - src/transport/xqc_frame*
+        feature_flags:
+          - XQC_PING_ATTACK_PROTECT=1
+        read:
+          - harness/spec/architecture.md
+          - tests/unittest/xqc_process_frame_test.c
+        validation:
+          level: targeted
+          unit:
+            - xqc_test_initial_ping_before_crypto_accepted
+            - xqc_test_initial_ping_without_crypto_rejected
+          hints: [frame, initial, ping]
       fec:
         paths:
           - src/transport/xqc_fec*

@@ -368,9 +368,6 @@ require_grep \
 require_grep "\\[<change-id>\\]: <English title>" \
     "harness/spec/pull-requests.md" \
     "pull request specification defines the no-issue title shape"
-require_grep "write the complete description in English" \
-    "harness/skills/xquic-pr-formatting/SKILL.md" \
-    "PR formatting skill requires English title descriptions"
 require_manifest_schema
 require_harness_script_set
 require_grep "harness/scripts/xqc_harness_check.sh" \

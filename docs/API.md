@@ -620,13 +620,13 @@ If equal, XQC_OK will be returned.
 
 #### xqc_scid_str
 ```
-unsigned char *xqc_scid_str(const xqc_cid_t *scid);
+unsigned char *xqc_scid_str(xqc_engine_t *engine, const xqc_cid_t *scid);
 ```
 Transfer scid to human-readable string.
 
 #### xqc_dcid_str
 ```
-unsigned char *xqc_dcid_str(const xqc_cid_t *dcid);
+unsigned char *xqc_dcid_str(xqc_engine_t *engine, const xqc_cid_t *dcid);
 ```
 Transfer dcid to human-readable string.
 

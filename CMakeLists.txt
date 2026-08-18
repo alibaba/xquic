@@ -1,6 +1,14 @@
 # Copyright (c) 2022, Alibaba Group Holding Limited
 
 cmake_minimum_required (VERSION 3.5)
+
+option (XQC_MOBILE_BUILD "use mobile build configuration" OFF)
+
+if(XQC_MOBILE_BUILD)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/CMakeLists.txt")
+    return()
+endif()
+
 project (xquic)
 
 set (xquic_VERSION_MAJOR 0)

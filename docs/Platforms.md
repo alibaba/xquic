@@ -4,14 +4,22 @@ XQUIC currently supports `Android` , `iOS` , `HarmonyOS` , `Linux` , `macOS` and
 
 ## Android/iOS/HarmonyOS Compile Script
 
-The Android, iOS and HarmonyOS use `.so` files, there is a [ `xqc_build.sh` ](../xqc_build.sh) script in the XQUIC library directory, execute the script to compile to complete the corresponding compilation.
+Use [`xqc_mobile_build.sh`](../xqc_mobile_build.sh) to build XQUIC for Android,
+iOS, or HarmonyOS. This helper is only for mobile builds; use the
+[README build instructions](../README.md#quickstart-guide) for Linux and
+macOS.
 
 ```bash
-sh xqc_build.sh ios/android/harmony <build_dir> <artifact_dir> <ssl_path>
+./xqc_mobile_build.sh ios|android|harmony \
+    <build_dir> <artifact_dir> [ssl_path]
 ```
-specially, `<ssl_path> can be ${PWD}/third_party/boringssl or ${PWD}/third_party/babassl`
 
-> Note: You need to specify the IOS/android/harmony build toolchain before compiling, download and set the environment variable IOS_CMAKE_TOOLCHAIN or ANDROID_NDK or HMOS_CMAKE_PATH and HMOS_CMAKE_TOOLCHAIN, or directly modify CMAKE_TOOLCHAIN_FILE and HMOS_CMAKE_TOOLCHAIN in `xqc_build.sh` .
+If `ssl_path` is omitted, the helper uses `third_party/boringssl`.
+
+Set `IOS_CMAKE_TOOLCHAIN` for iOS, `ANDROID_NDK` for Android, or both
+`HMOS_CMAKE_PATH` and `HMOS_CMAKE_TOOLCHAIN` for HarmonyOS before running the
+helper. The old `xqc_build.sh` entry point remains as a deprecated
+compatibility wrapper.
 
 ## Linux Release
 

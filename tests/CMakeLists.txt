@@ -7,6 +7,21 @@ if(HAVE_CUNIT)
     add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
 endif()
 
+add_test(
+    NAME xqc_mobile_build_happy_path
+    COMMAND bash
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/xqc_mobile_build_test.sh"
+        happy
+        "${CMAKE_SOURCE_DIR}"
+)
+add_test(
+    NAME xqc_mobile_build_missing_ssl
+    COMMAND bash
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/xqc_mobile_build_test.sh"
+        missing-ssl
+        "${CMAKE_SOURCE_DIR}"
+)
+
 # find LibEvent include and library path
 find_package(LibEvent 2.0.21)
 if(NOT LIBEVENT_FOUND)

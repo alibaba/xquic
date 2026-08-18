@@ -49,7 +49,10 @@ Before pushing, show:
 - commits that will be pushed
 - local uncommitted files that will remain local
 
-Push only after the user confirms, unless the same message already explicitly requested the push target and branch.
+Push when the requester explicitly asks to push or create a pull request. Also
+push when the development pipeline reaches its default publication stage and
+the requester has not asked to stop before publication. A missing, ambiguous,
+or apparently unwritable target still requires confirmation.
 
 Push to the resolved target without embedding repository ownership in the
 skill:

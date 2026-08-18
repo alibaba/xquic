@@ -15,51 +15,57 @@ diagnosis, review-comment fixes, or code review.
    [pull-request specification](../../spec/pull-requests.md).
 2. Start from the repository
    [pull-request template](../../../.github/pull_request_template.md).
-3. Treat its three concise sections as the canonical PR body structure:
+3. Build and validate the title with the exact shape from
+   [Pull Request Title](../../spec/pull-requests.md#pull-request-title): use
+   `[<change-id>] Fix #<issue-number>: <English title>` when closing an issue,
+   or `[<change-id>]: <English title>` otherwise. Allow only `+`, `-`, `=`, or
+   `~` as the change identifier, and write the complete description in English.
+4. Treat the template's three concise sections as the canonical PR body
+   structure:
    mechanism, validation cases, and aggregate `CONTRIBUTING.md` status.
-4. Check the branch name against the task-to-prefix mapping in
+5. Check the branch name against the task-to-prefix mapping in
    `CONTRIBUTING.md`, then check commit format, CLA state, rebase and squash
    state, code style, complete-unit-suite result, relevant tests, CI state, and
    issue-closing syntax.
-5. Explain the changed mechanism and cite the exact RFC or draft section for
+6. Explain the changed mechanism and cite the exact RFC or draft section for
    protocol behavior. Include the exact `Fixes: #<issue-number>` line for an
    issue fix.
-6. Verify internally that the complete local unit suite passed; a focused unit
+7. Verify internally that the complete local unit suite passed; a focused unit
    test is insufficient. In the PR, list only executed client-to-server case
    IDs and concise behavior, or concise missing case evidence.
-7. For new case IDs, require a fresh, conflict-free reservation scan across
+8. For new case IDs, require a fresh, conflict-free reservation scan across
    every other open PR's published head. Keep successful scan details in local
    evidence; expose only a concise blocker when a conflict exists.
-8. Check every `CONTRIBUTING.md` item internally. Publish one overall result,
+9. Check every `CONTRIBUTING.md` item internally. Publish one overall result,
    `Local regression: Complete` or concise failed cases, and `CI: Complete` or
    only incomplete check names.
-9. Write multiline descriptions or comments to a Markdown file first.
-10. After the development pipeline's validation gate passes and the branch is
+10. Write multiline descriptions or comments to a Markdown file first.
+11. After the development pipeline's validation gate passes and the branch is
     already pushed, create every new code pull request as draft through the
     available GitHub client using that file. Keep follow-up updates in draft
     unless the active task is to move the current published head toward review.
-11. After any code push changes the published PR head, rerun this skill against
+12. After any code push changes the published PR head, rerun this skill against
     the current base-to-head diff before the PR is updated or moved forward.
     Update the mechanism, validation cases, and aggregate gate summary so they
     describe the current code and validation evidence, not a prior head.
-12. Fetch the published pull request and confirm its number, URL, base, head,
-    title, body, real line breaks, and draft state.
-13. Verify the published PR summary matches the current base-to-head diff:
+13. Fetch the published pull request and confirm its number, URL, base, head,
+    canonical title, body, real line breaks, and draft state.
+14. Verify the published PR summary matches the current base-to-head diff:
     changed mechanism, protocol citations, issue linkage, case IDs, local gate,
     and CI status must all be current and source-backed.
-14. When the active task is to move a code PR out of draft, run
+15. When the active task is to move a code PR out of draft, run
     [`xquic-pr-pre-review`](../xquic-pr-pre-review/SKILL.md) against the
     published pull request. Read
     `~/build/harness/pr-review-<number>/pr-review-<number>.md` and require
     `pre_review_result: true` for its exact published head. Keep the report out
     of the commit and concise PR body. Preserve its sibling abnormal-case
     artifacts as local inputs to the next PR iteration.
-15. When moving a PR toward review, immediately repeat the reservation scan with
+16. When moving a PR toward review, immediately repeat the reservation scan with
     the published current PR included. If duplicate case IDs exist, the lowest
     PR number keeps them.
     Keep or return every later PR to draft and send it back through allocation
     and validation before another update.
-16. Reflect a collision as an incomplete local gate; keep successful details
+17. Reflect a collision as an incomplete local gate; keep successful details
     out of the body. Fetch the published pull request and verify its title,
     concise body, real line breaks, RFC and issue links, aggregate statuses,
     base, head, draft or review state, and URL. Update the concise body and
@@ -77,11 +83,20 @@ List cases only as:
 <case ID> — <concise behavior>
 ```
 
+## Pull Request Title
+
+Use `[<change-id>] Fix #<issue-number>: <English title>` for an issue-closing
+pull request and `[<change-id>]: <English title>` otherwise. The marker is one
+of `+`, `-`, `=`, or `~`. Keep the description English-only and use GitHub's
+draft state instead of adding status prefixes to the title.
+
 ## Guardrails
 
 - Keep claims factual and source-backed.
 - Keep the PR body concise; detailed evidence belongs in code, CI, or ignored
   local validation artifacts.
+- Do not publish a title that omits the canonical change marker, uses another
+  issue syntax, or contains a non-English description.
 - Do not use escaped newline strings for multiline GitHub content.
 - Do not claim the complete local unit suite passed when only a focused test
   ran.

@@ -80,17 +80,23 @@ allocation snapshot.
 2. Treat the `${...}` values as descriptive placeholders. The contribution
    guide does not require underscores or define a stricter character set for
    the expanded suffix.
-3. Create the working branch from its intended base, normally `main`, before
+3. Resolve the configured remote for the intended base, normally `main`, and
+   fetch that base before creating a branch. Do not describe a stale local ref
+   as the latest base. Record the refreshed remote-tracking SHA in the task
+   evidence.
+4. Create the working branch from the refreshed remote-tracking ref before
    editing implementation files:
 
    ```bash
-   git checkout -b <branch-name> main
+   git fetch <remote> <base-branch>
+   git checkout -b <branch-name> <remote>/<base-branch>
    ```
 
-4. Verify the result with `git branch --show-current`. The prefix must match
+5. Verify the result with `git branch --show-current`. The prefix must match
    the accepted task type; the four prefixes are not interchangeable, and an
    unlisted prefix such as `feat/` does not satisfy the contribution guide.
-5. If the current branch contains unrelated local changes, preserve them and
+   Confirm that the new branch started at the refreshed remote-tracking SHA.
+6. If the current branch contains unrelated local changes, preserve them and
    isolate the task in a separate worktree or clean checkout instead of
    moving or mixing them into the new branch.
 
@@ -148,9 +154,15 @@ conflict-free.
 2. Confirm generated headers, validation artifacts, and task-scoped
    `build/harness/` issue-check reports are absent from the commit.
 3. Check that documentation links and referenced commands still resolve.
-4. Assemble the evidence required by the
+4. Unless the requester explicitly asks to stop before publication, do not end
+   the task after local validation. Use
+   [`xquic-safe-push`](../skills/xquic-safe-push/SKILL.md) for the active Git
+   task: stage only the scoped files, create a conforming commit, resolve the
+   intended push remote, and push the working branch.
+5. Assemble the evidence required by the
    [pull-request specification](../spec/pull-requests.md).
-5. Complete the repository
+6. Use [`xquic-pr-formatting`](../skills/xquic-pr-formatting/SKILL.md) to build
+   the canonical English title and complete the repository
    [pull-request template](../../.github/pull_request_template.md) as a concise
    review summary:
    - explain the changed mechanism and cite the exact RFC or draft section
@@ -162,14 +174,14 @@ conflict-free.
      and concise failing cases.
    Do not copy commands, test function names, logs, namespace ranges, tested
    SHA, or successful reservation snapshots into the PR body.
-6. After Stage 5 passes, a new code pull request may be submitted as draft, or
-   an existing pull request may be updated after a follow-up revision and kept
-   in draft. Whenever the published PR head changes because code was pushed,
-   rerun PR formatting against the current base-to-head diff and update the PR
-   summary before moving on. Use
-   [`xquic-pr-formatting`](../skills/xquic-pr-formatting/SKILL.md) when PR
-   body or state handling is the active task.
-7. Before moving a code pull request from draft to review, fetch the published
+7. After Stage 5 passes and the branch is pushed, actively create every new
+   pull request as draft, or update the existing pull request after a follow-up
+   revision and keep it in draft. Fetch the published result and verify its
+   number, URL, base, head, canonical title, body, real line breaks, and draft
+   state. Whenever a push changes the published head, rerun PR formatting
+   against the current base-to-head diff and update the summary before moving
+   on.
+8. Before moving a code pull request from draft to review, fetch the published
    pull request and verify its number, URL, base commit, head commit, title,
    body, and draft state. Run the
    [`xquic-pr-pre-review` skill](../skills/xquic-pr-pre-review/SKILL.md)
@@ -178,17 +190,17 @@ conflict-free.
    `~/build/harness/pr-review-<number>/pr-review-<number>.md`. Keep all
    reviewer-created abnormal-case code and supporting artifacts in the same
    local review directory so they can be reused in the next iteration.
-8. Continue only when the report reviews the published current head and says
+9. Continue only when the report reviews the published current head and says
    `pre_review_result: true`. Keep the complete local review directory
    unstaged and uncommitted. A changed published head invalidates the report,
    returns the pull request to this step, and may reuse retained abnormal-case
    artifacts only after rerunning them against the new head.
-9. Immediately scan open pull requests again with the published current PR
+10. Immediately scan open pull requests again with the published current PR
    included. If two PRs contain the same case ID, the lower-numbered PR keeps
    it. Keep or return every later PR to draft, then go back to Stage 2,
    reallocate the colliding ID, update the selectors and registry, and rerun
    Stage 5 before publishing another head.
-10. Reflect a post-publication collision as an incomplete local-regression
+11. Reflect a post-publication collision as an incomplete local-regression
    blocker; keep successful scan details in local evidence. Fetch the published
    pull request and verify its title, concise body, real line breaks, issue and
    RFC linkage, aggregate gates, base, head, draft or review state, and URL.
@@ -224,9 +236,10 @@ published pull request are consistent.
 10. An issue fix must not enter implementation with a false or inconclusive
     issue-check gate, and its task-scoped issue-check report must never be
     committed.
-11. A new pull request is submitted only after the Stage 5 validation gate
-    passes, and every submission or follow-up update verifies the published
-    result.
+11. Unless the requester explicitly stops publication, every scoped change
+    continues from the refreshed-base working branch through push and draft
+    pull request creation after the Stage 5 validation gate passes. Every
+    submission or follow-up update verifies the published result.
 12. Case-ID allocation fails closed unless the base, repository history, and
     all open PR heads were checked. A post-publication collision is resolved in
     favor of the lowest PR number; a later PR must reallocate and revalidate.

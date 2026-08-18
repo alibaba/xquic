@@ -348,6 +348,29 @@ require_grep "--feature" \
 require_grep "build/harness/runs/<task-id>" \
     "harness/spec/run-artifacts.md" \
     "run artifact contract defines canonical task evidence directory"
+require_grep "fetch that base before creating a branch" \
+    "harness/pipelines/dev-pipeline.md" \
+    "development pipeline refreshes the base before branch creation"
+require_grep "explicitly asks to stop before publication" \
+    "harness/pipelines/dev-pipeline.md" \
+    "development pipeline continues through draft PR publication by default"
+require_grep "development pipeline reaches its default publication stage" \
+    "harness/skills/xquic-safe-push/SKILL.md" \
+    "safe push permits the default publication stage"
+require_grep \
+    "\\[<change-id>\\] Fix #<issue-number>: <English title>" \
+    "harness/spec/pull-requests.md" \
+    "pull request specification defines the issue-closing title shape"
+require_grep \
+    "\\[<change-id>\\] Fix #<issue-number>: <English title>" \
+    "harness/skills/xquic-pr-formatting/SKILL.md" \
+    "PR formatting skill enforces the issue-closing title shape"
+require_grep "\\[<change-id>\\]: <English title>" \
+    "harness/spec/pull-requests.md" \
+    "pull request specification defines the no-issue title shape"
+require_grep "write the complete description in English" \
+    "harness/skills/xquic-pr-formatting/SKILL.md" \
+    "PR formatting skill requires English title descriptions"
 require_manifest_schema
 require_harness_script_set
 require_grep "harness/scripts/xqc_harness_check.sh" \

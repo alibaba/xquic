@@ -84,6 +84,8 @@ if(HAVE_CUNIT)
         ${UNIT_TEST_DIR}/xqc_random_test.c
         ${UNIT_TEST_DIR}/xqc_pq_test.c
         ${UNIT_TEST_DIR}/xqc_common_test.c
+        ${UNIT_TEST_DIR}/xqc_demo_client_net_test.c
+        ${CMAKE_SOURCE_DIR}/demo/xqc_demo_client_net.c
         ${UNIT_TEST_DIR}/xqc_conn_test.c
         ${UNIT_TEST_DIR}/xqc_engine_test.c
         ${UNIT_TEST_DIR}/xqc_common_test.c

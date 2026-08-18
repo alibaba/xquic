@@ -19,6 +19,7 @@
 #include <event2/event.h>
 #include "common.h"
 #include "xqc_hq.h"
+#include "xqc_demo_client_net.h"
 #include "../tests/platform.h"
 
 #ifdef XQC_SYS_WINDOWS
@@ -1763,8 +1764,12 @@ xqc_demo_cli_init_args(xqc_demo_cli_client_args_t *args)
 
     /* net cfg */
     args->net_cfg.conn_timeout = 30;
-    snprintf(args->net_cfg.server_addr, sizeof(args->net_cfg.server_addr), "%s", "127.0.0.1");
+    snprintf(args->net_cfg.server_addr, sizeof(args->net_cfg.server_addr),
+             "%s", "127.0.0.1");
     args->net_cfg.server_port = 8443;
+    xqc_demo_cli_parse_numeric_addr(args->net_cfg.server_addr,
+        args->net_cfg.server_port, &args->net_cfg.addr,
+        &args->net_cfg.addr_len);
     args->net_cfg.addr_specified = 0;
     args->net_cfg.port_specified = 0;
 
@@ -1955,8 +1960,9 @@ xqc_demo_cli_usage(int argc, char *argv[])
         , prog);
 }
 
-void
-xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args)
+int
+xqc_demo_cli_parse_args(int argc, char *argv[],
+    xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
     while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:b:Z:NQT:R:V:B:I:n:e:E:F:G:r:x:y:Y:f:z:q65O")) != -1) {
@@ -1968,7 +1974,8 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
             break;
         case 'a':
             printf("option addr :%s\n", optarg);
-            snprintf(args->net_cfg.server_addr, sizeof(args->net_cfg.server_addr), optarg);
+            snprintf(args->net_cfg.server_addr,
+                     sizeof(args->net_cfg.server_addr), "%s", optarg);
             args->net_cfg.addr_specified = 1;
             break;
 
@@ -2278,6 +2285,19 @@ xqc_demo_cli_parse_args(int argc, char *argv[], xqc_demo_cli_client_args_t *args
         args->req_cfg.batch_cnt = 1;
     }
 
+    if (args->net_cfg.addr_specified || args->net_cfg.port_specified) {
+        if (xqc_demo_cli_parse_numeric_addr(args->net_cfg.server_addr,
+                args->net_cfg.server_port, &args->net_cfg.addr,
+                &args->net_cfg.addr_len) != 0)
+        {
+            printf("invalid server address: %s\n",
+                   args->net_cfg.server_addr);
+            return -1;
+        }
+        args->net_cfg.ipv6 = strchr(args->net_cfg.server_addr, ':') != NULL;
+    }
+
+    return 0;
 }
 
 #define MAX_REQ_BUF_LEN 1500
@@ -3184,9 +3204,14 @@ main(int argc, char *argv[])
     xqc_platform_init_env();
     
     /* get input client args */
-    xqc_demo_cli_client_args_t *args = calloc(1, sizeof(xqc_demo_cli_client_args_t));
+    xqc_demo_cli_client_args_t *args;
+
+    args = calloc(1, sizeof(xqc_demo_cli_client_args_t));
     xqc_demo_cli_init_args(args);
-    xqc_demo_cli_parse_args(argc, argv, args);
+    if (xqc_demo_cli_parse_args(argc, argv, args) != 0) {
+        free(args);
+        return -1;
+    }
 
     /* init client ctx */
     xqc_demo_cli_ctx_t *ctx = calloc(1, sizeof(xqc_demo_cli_ctx_t));

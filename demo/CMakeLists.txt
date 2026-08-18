@@ -10,6 +10,7 @@ set(
     DEMO_CLIENT_SOURCES
     ${HQ_SOURCES}
     "demo_client.c"
+    "xqc_demo_client_net.c"
 )
 
 set(

@@ -15,6 +15,7 @@ entrypoints:
   validation: scripts/validate.sh
   harness_check: harness/scripts/xqc_harness_check.sh
   openspec_long_tasks: harness/spec/openspec.md
+  issue_complexity: harness/skills/classify-issue-complexity/SKILL.md
 
 document_roles:
   specification:
@@ -54,6 +55,10 @@ global_docs:
   pull_requests:
     - harness/spec/pull-requests.md
     - harness/skills/xquic-pr-formatting/SKILL.md
+  issue_triage:
+    - harness/spec/issue-complexity/spec.md
+    - harness/skills/classify-issue-complexity/SKILL.md
+    - harness/skills/issue-check/SKILL.md
 
 test_routing:
   case_manifest: case_test/manifest.yml

@@ -31,6 +31,7 @@ harness/
 - [XQUIC build skill](skills/xquic-build/SKILL.md)
 - [Validation skill](skills/validate/SKILL.md)
 - [Issue verification skill](skills/issue-check/SKILL.md)
+- [Issue complexity classification skill](skills/classify-issue-complexity/SKILL.md)
 - [Issue submission skill](skills/issue-submit/SKILL.md)
 - [Pull request pre-review skill](skills/xquic-pr-pre-review/SKILL.md)
 - [Pull request formatting skill](skills/xquic-pr-formatting/SKILL.md)

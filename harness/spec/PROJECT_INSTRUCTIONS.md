@@ -55,6 +55,7 @@ remain in the root [`README.md`](../../README.md).
 | Documentation or comment change | [Documentation style](doc-style.md) plus the closest owning spec |
 | Task evidence, command logs, failure trace | [Run artifact contract](run-artifacts.md) |
 | Verify an issue or protocol-defect claim | [`issue-check` skill](../skills/issue-check/SKILL.md) |
+| Classify issue resolution complexity or apply L1-L4 labels | [Issue-complexity specification](issue-complexity/spec.md) and [`classify-issue-complexity` skill](../skills/classify-issue-complexity/SKILL.md) |
 | Prepare or submit a GitHub issue | [`issue-submit` skill](../skills/issue-submit/SKILL.md), gated by [`issue-check`](../skills/issue-check/SKILL.md) |
 | Pre-review a code pull request | [`xquic-pr-pre-review` skill](../skills/xquic-pr-pre-review/SKILL.md), after draft PR publication and before ready-for-review state |
 | Pull request preparation or update | [Pull-request specification](pull-requests.md) and the relevant PR skill for formatting, review, comments, or CI |

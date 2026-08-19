@@ -7,16 +7,15 @@
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_conn.h"
 #include "src/common/xqc_algorithm.h"
-#include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "src/transport/xqc_defs.h"
 #include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_recv_record.h"
 #include "src/transport/xqc_packet_parser.h"
+#include "src/transport/xqc_cid.h"
 #include "src/transport/xqc_utils.h"
 #include "src/transport/xqc_engine.h"
 #include "src/tls/xqc_tls.h"
 #include "src/tls/xqc_crypto.h"
-
 
 
 static const char * const pkt_type_2_str[XQC_PTYPE_NUM] = {
@@ -268,14 +267,27 @@ xqc_packet_decrypt_single(xqc_connection_t *c, xqc_packet_in_t *packet_in)
 
 xqc_int_t
 xqc_packet_process_single(xqc_connection_t *c,
-    xqc_packet_in_t *packet_in)
+    xqc_packet_in_t *packet_in, const xqc_cid_t *first_dcid,
+    xqc_bool_t *dcid_mismatch)
 {
     xqc_int_t ret = XQC_ERROR;
+
+    if (first_dcid != NULL && dcid_mismatch == NULL) {
+        return -XQC_EPARAM;
+    }
 
     /* parse packet */
     ret = xqc_packet_parse_single(c, packet_in);
     if (XQC_OK != ret) {
         return ret;
+    }
+
+    if (first_dcid != NULL) {
+        ret = xqc_packet_check_coalesced_dcid(c, packet_in, first_dcid);
+        if (ret != XQC_OK) {
+            *dcid_mismatch = XQC_TRUE;
+            return ret;
+        }
     }
 
     /* those packets with no packet number, don't need to be decrypt or put into CC */
@@ -293,4 +305,29 @@ xqc_packet_process_single(xqc_connection_t *c,
 }
 
 
+xqc_int_t
+xqc_packet_check_coalesced_dcid(xqc_connection_t *c,
+    xqc_packet_in_t *packet_in, const xqc_cid_t *first_dcid)
+{
+    if (first_dcid == NULL) {
+        return -XQC_EPARAM;
+    }
 
+    if (xqc_cid_is_equal(first_dcid,
+                         &packet_in->pi_pkt.pkt_dcid) == XQC_OK)
+    {
+        return XQC_OK;
+    }
+
+    /* RFC 9000 Section 12.2: ignore a later packet with another DCID. */
+    xqc_log(c->log, XQC_LOG_WARN,
+            "|ignore coalesced packet with different DCID|first:%s|current:%s|",
+            xqc_dcid_str(c->engine, first_dcid),
+            xqc_scid_str(c->engine, &packet_in->pi_pkt.pkt_dcid));
+    xqc_log_event(c->log, TRA_PACKET_DROPPED,
+                  "coalesced packet with different DCID", -XQC_EIGNORE_PKT,
+                  xqc_pkt_type_2_str(packet_in->pi_pkt.pkt_type), 0);
+
+    packet_in->pos = packet_in->last;
+    return -XQC_EIGNORE_PKT;
+}

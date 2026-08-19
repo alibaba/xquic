@@ -60,19 +60,25 @@ jobs:
         submodules: 'recursive'
 
     - name: Linux Setup
+      timeout-minutes: 3
       run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential libevent-dev
-
-    - name: Cunit Setup
-      run: |
-        sudo apt-get install -y libcunit1 libcunit1-doc libcunit1-dev
-
-    - name: Gcov Setup
-      run: |
-        sudo apt-get install -y python3-pip
-        sudo apt-get install -y python3-lxml
-        sudo pip3 install gcovr
+        apt_options=(
+          -o Acquire::Retries=3
+          -o Acquire::http::Timeout=30
+          -o Acquire::https::Timeout=30
+          -o DPkg::Lock::Timeout=60
+        )
+        sudo apt-get "${apt_options[@]}" update
+        sudo env DEBIAN_FRONTEND=noninteractive \
+          apt-get "${apt_options[@]}" install -y \
+            build-essential \
+            libcunit1 \
+            libcunit1-dev \
+            libcunit1-doc \
+            libevent-dev \
+            python3-lxml \
+            python3-pip
+        sudo pip3 install --retries 3 --timeout 30 gcovr
 
     - name: Update Submodule
       run: |
@@ -208,17 +214,25 @@ jobs:
         submodules: 'recursive'
 
     - name: Linux Setup
+      timeout-minutes: 3
       run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential \
-          gcc-13 \
-          libcunit1 \
-          libcunit1-dev \
-          libcunit1-doc \
-          libevent-dev \
-          openssl \
-          psmisc
+        apt_options=(
+          -o Acquire::Retries=3
+          -o Acquire::http::Timeout=30
+          -o Acquire::https::Timeout=30
+          -o DPkg::Lock::Timeout=60
+        )
+        sudo apt-get "${apt_options[@]}" update
+        sudo env DEBIAN_FRONTEND=noninteractive \
+          apt-get "${apt_options[@]}" install -y \
+            build-essential \
+            gcc-13 \
+            libcunit1 \
+            libcunit1-dev \
+            libcunit1-doc \
+            libevent-dev \
+            openssl \
+            psmisc
 
     - name: Build BabaSSL
       run: |

@@ -10,6 +10,10 @@
 #include "src/common/xqc_object_manager.h"
 #include "src/common/xqc_rbtree.h"
 #include "src/common/xqc_fifo.h"
+#include "src/common/xqc_log_event_callback.h"
+#include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_multipath.h"
+#include "src/transport/xqc_send_ctl.h"
 
 
 typedef struct person_s {
@@ -23,6 +27,80 @@ typedef struct xqc_item_s {
     xqc_list_head_t list;
     int data;
 } xqc_item_t;
+
+typedef struct xqc_test_log_capture_s {
+    unsigned char   buf[XQC_MAX_LOG_LEN];
+    size_t          size;
+} xqc_test_log_capture_t;
+
+static void
+xqc_test_qlog_write(qlog_event_importance_t imp, const void *buf, size_t size,
+    void *user_data)
+{
+    xqc_test_log_capture_t  *capture = user_data;
+    size_t                   copy_size;
+
+    (void) imp;
+    copy_size = xqc_min(size, sizeof(capture->buf) - 1);
+    memcpy(capture->buf, buf, copy_size);
+    capture->buf[copy_size] = '\0';
+    capture->size = copy_size;
+}
+
+static void
+xqc_test_connection_closed_log(xqc_connection_t *conn, const char *expected)
+{
+    xqc_test_log_capture_t  capture = {0};
+    xqc_log_callbacks_t     callbacks = {0};
+    xqc_log_t               log = {0};
+
+    callbacks.xqc_qlog_event_write = xqc_test_qlog_write;
+    log.log_event = 1;
+    log.qlog_importance = EVENT_IMPORTANCE_BASE;
+    log.log_callbacks = &callbacks;
+    log.user_data = &capture;
+
+    xqc_log_CON_CONNECTION_CLOSED_callback(&log, "xqc_test", conn);
+
+    CU_ASSERT(capture.size > 0);
+    CU_ASSERT_STRING_EQUAL(capture.buf, expected);
+}
+
+void
+xqc_test_connection_closed_log_no_error(void)
+{
+    xqc_connection_t  conn = {0};
+
+    conn.MTU_updated_count = 0xffffffffu;
+    conn.packet_dropped_count = 0xffffffffffffffffULL;
+
+    xqc_test_connection_closed_log(
+        &conn,
+        "|xqc_test|err_code:0|mtu_updatad_count:4294967295|"
+        "pkt_dropped:18446744073709551615|");
+}
+
+void
+xqc_test_connection_closed_log_with_error(void)
+{
+    xqc_connection_t  conn = {0};
+    xqc_path_ctx_t     path = {0};
+    xqc_send_ctl_t     send_ctl = {0};
+
+    xqc_init_list_head(&conn.conn_paths_list);
+    path.path_id = 7;
+    path.path_send_ctl = &send_ctl;
+    xqc_list_add_tail(&path.path_list, &conn.conn_paths_list);
+
+    conn.conn_err = 0x100000002ULL;
+    conn.MTU_updated_count = 0xffffffffu;
+    conn.packet_dropped_count = 0x100000004ULL;
+
+    xqc_test_connection_closed_log(
+        &conn,
+        "|xqc_test|err_code:4294967298|mtu_updatad_count:4294967295|"
+        "pkt_dropped:4294967300|recent_congestion:<path:7, (0,0,0)>|");
+}
 
 static inline void
 test_object_manager_cb(xqc_object_t *o)
@@ -352,4 +430,3 @@ test_engine_connect()
     xqc_connection_t *conn = test_connect(engine);
     return conn;
 }
-

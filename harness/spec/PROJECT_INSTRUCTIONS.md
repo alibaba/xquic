@@ -82,7 +82,11 @@ tests, build scripts, validation tooling, or repository automation.
   [working-branch stage](../pipelines/dev-pipeline.md#stage-3-working-branch).
 - Match the accepted task to its exact `CONTRIBUTING.md` branch pattern;
   `dev/`, `fix/`, `perf/`, and `doc/` are not interchangeable.
-- Use a scoped working branch and submit changes through a pull request.
+- Refresh the intended remote base and create a scoped working branch from that
+  latest base before implementation.
+- Unless the requester explicitly asks to stop before publication, continue
+  after local validation through scoped commit, push, and draft pull request
+  creation.
 - Preserve unrelated user changes, staged state, and untracked files.
 - Do not edit vendored content under `third_party/`.
 - Keep generated headers, validation logs, and temporary evidence out of
@@ -147,6 +151,8 @@ A change is complete when:
 - the complete local unit suite passes and accepted targeted case checks pass;
 - generated and temporary artifacts are absent from the diff;
 - durable documentation and relative links remain accurate;
+- the published pull request uses the canonical title with a concise English
+  summary of the core change and current base-to-head evidence;
 - the PR-scoped five-part pre-review report passes, and its local review
   workspace remains uncommitted and reusable for the next iteration; and
 - the pull request contains the evidence required by

@@ -18,6 +18,22 @@ before review-state movement. The mechanism, validation cases, and aggregate
 gate must describe the current base-to-head diff and current validation
 evidence.
 
+## Pull Request Title
+
+Use exactly one title shape:
+
+```text
+[<change-id>] Fix #<issue-number>: <concise English summary>
+[<change-id>]: <concise English summary>
+```
+
+Use the first shape when the pull request closes an issue and the second when
+no issue is being closed. `<change-id>` is one `CONTRIBUTING.md` change marker:
+`+`, `-`, `=`, or `~`. Write one concise English sentence that describes the
+core change. Do not add alternative prefixes such as `WIP`, `Feat`, or `fix`;
+draft state belongs in GitHub metadata. An issue-closing title does not replace
+the exact standalone `Fixes: #<number>` line in the body.
+
 ## CONTRIBUTING.md Compliance
 
 The repository [contribution guide](../../CONTRIBUTING.md) remains the
@@ -28,6 +44,8 @@ authoritative contribution contract. Check every requirement before review:
   other enhancement, or `doc/` for documentation;
 - every commit header follows `[<type>]: <subject>` with an allowed `+`, `-`,
   `=`, or `~` type;
+- the pull request title uses the canonical change marker, issue linkage when
+  applicable, and an English description;
 - the contributor has signed or will complete the CLA before merge;
 - the change follows the Nginx-derived XQUIC code style;
 - the complete local unit suite and accepted relevant tests pass;

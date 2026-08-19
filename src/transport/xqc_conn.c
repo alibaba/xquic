@@ -5096,10 +5096,11 @@ xqc_conn_process_packet(xqc_connection_t *c,
     xqc_packet_in_t packet;
     unsigned char decrypt_payload[XQC_MAX_PACKET_IN_LEN];
     xqc_cid_t first_dcid;
+    xqc_bool_t dcid_mismatch;
 
     /* process all QUIC packets in UDP datagram */
     while (pos < end) {
-        xqc_bool_t dcid_mismatch = XQC_FALSE;
+        dcid_mismatch = XQC_FALSE;
         last_pos = pos;
 
         /* init packet in */

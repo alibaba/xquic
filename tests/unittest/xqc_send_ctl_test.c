@@ -383,6 +383,63 @@ xqc_test_send_ctl_seed_lost_packet(xqc_connection_t *conn,
 }
 
 
+void
+xqc_test_send_ctl_granularity_marks_at_boundary(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    CU_ASSERT_FATAL(send_ctl != NULL);
+
+    send_ctl->ctl_srtt = 0;
+    send_ctl->ctl_latest_rtt = 0;
+    send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA] = 100;
+    send_ctl->ctl_reordering_packet_threshold = XQC_kPacketThreshold;
+
+    xqc_packet_out_t *po = xqc_test_send_ctl_seed_lost_packet(conn, 99, 1);
+    CU_ASSERT_FATAL(po != NULL);
+
+    xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
+                             XQC_PNS_APP_DATA, 1001);
+
+    CU_ASSERT_EQUAL(conn->detected_loss_cnt, 1);
+    CU_ASSERT_EQUAL(send_ctl->sampler.loss, 1);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_send_ctl_granularity_defers_before_boundary(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    CU_ASSERT_FATAL(send_ctl != NULL);
+
+    send_ctl->ctl_srtt = 0;
+    send_ctl->ctl_latest_rtt = 0;
+    send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA] = 100;
+    send_ctl->ctl_reordering_packet_threshold = XQC_kPacketThreshold;
+
+    xqc_packet_out_t *po = xqc_test_send_ctl_seed_lost_packet(conn, 99, 1);
+    CU_ASSERT_FATAL(po != NULL);
+
+    xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
+                             XQC_PNS_APP_DATA, 1000);
+
+    CU_ASSERT_EQUAL(conn->detected_loss_cnt, 0);
+    CU_ASSERT_EQUAL(send_ctl->sampler.loss, 0);
+    CU_ASSERT_EQUAL(send_ctl->ctl_loss_time[XQC_PNS_APP_DATA], 1001);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 /*
  * Build a send_ctl state that satisfies xqc_send_ctl_in_persistent_congestion:
  *   - pto_count == XQC_CONSECUTIVE_PTO_THRESH

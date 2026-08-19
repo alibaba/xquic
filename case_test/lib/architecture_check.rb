@@ -5,7 +5,7 @@ require "fileutils"
 require "open3"
 require "yaml"
 
-root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--runner-syntax|--parallel-selftest|--run-dir-selftest|--case-filter-run-dir-selftest|--case-filter-missing-selftest|--event-dedupe-selftest|--coverage-mismatch-selftest|--build-gate-selftest|--parallel-budget-selftest|--parallel-failure-selftest|--case-timeout-selftest|--background-fd-selftest|--all]")
+root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--runner-syntax|--parallel-selftest|--run-dir-selftest|--case-filter-run-dir-selftest|--case-filter-missing-selftest|--event-dedupe-selftest|--coverage-mismatch-selftest|--build-gate-selftest|--parallel-budget-selftest|--parallel-failure-selftest|--case-timeout-selftest|--background-fd-selftest|--wait-for-log-selftest|--all]")
 modes = ARGV.empty? ? ["--all"] : ARGV
 
 def run!(env, *cmd)
@@ -831,6 +831,32 @@ def background_fd_selftest(root)
   puts "elapsed_seconds=#{format("%.3f", elapsed)}"
 end
 
+def wait_for_log_selftest(root)
+  work_dir = File.join(root, "build/case_test_arch_check_wait_for_log")
+  FileUtils.rm_rf(work_dir)
+  FileUtils.mkdir_p(work_dir)
+
+  log_path = File.join(work_dir, "marker.log")
+  script_path = File.join(work_dir, "selftest_wait_for_log.sh")
+  File.write(script_path, <<~SH)
+    #!/bin/bash
+    set -u
+    source #{File.join(root, "case_test/lib/common.sh").inspect}
+    : > #{log_path.inspect}
+    (sleep 0.2; echo "delayed-marker" >> #{log_path.inspect}) &
+    writer_pid="$!"
+    case_test_wait_for_log #{log_path.inspect} "delayed-marker" 20 0.05
+    wait "${writer_pid}"
+    if case_test_wait_for_log #{log_path.inspect} "missing-marker" 2 0.05; then
+        exit 1
+    fi
+  SH
+  FileUtils.chmod("+x", script_path)
+
+  run!({}, "bash", script_path)
+  puts "wait_for_log_selftest=pass"
+end
+
 def parallel_budget_selftest(root)
   work_dir = File.join(root, "build/case_test_arch_check_budget")
   FileUtils.rm_rf(work_dir)
@@ -949,4 +975,8 @@ end
 
 if modes.include?("--all") || modes.include?("--background-fd-selftest")
   background_fd_selftest(root)
+end
+
+if modes.include?("--all") || modes.include?("--wait-for-log-selftest")
+  wait_for_log_selftest(root)
 end

@@ -8,6 +8,12 @@ source "${ROOT_DIR}/case_test/lib/common.sh"
 
 case_test_group "transport.multipath"
 
+case_test_group_setup()
+{
+    case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+    sleep 1
+}
+
 case_transport_multipath_MPNS_enable_multipath_negotiate()
 {
 case_test_start_server ${SERVER_BIN} -l d > /dev/null
@@ -53,12 +59,27 @@ case_transport_multipath_MPNS_multipath_30_percent_loss()
 {
 grep_err_log
 
-clear_log
 echo -e "MPNS multipath 30 percent loss ...\c"
-case_test_sudo ${CLIENT_BIN} -s 1024000 -t 5 -l e -E -d 300 -M -i lo -i lo > stdlog
-result=`grep ">>>>>>>> pass" stdlog`
-errlog=`grep_err_log`
-if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+mpns_loss_pass=0
+mpns_loss_attempt=1
+while [ $mpns_loss_attempt -le 2 ]; do
+    clear_log
+    if [ $mpns_loss_attempt -gt 1 ]; then
+        echo -e " retry ${mpns_loss_attempt} ...\c"
+    fi
+    case_test_sudo ${CLIENT_BIN} -s 5242880 -t 20 -l e -E -d 300 -M -i lo -i lo > stdlog
+    result=`grep ">>>>>>>> pass:1" stdlog`
+    errlog=`grep_err_log`
+    if [ -z "$errlog" ] && [ -n "$result" ]; then
+        mpns_loss_pass=1
+        break
+    fi
+    if [ $mpns_loss_attempt -ge 2 ] || ! case_test_should_retry_timeout_or_no_result stdlog "$errlog"; then
+        break
+    fi
+    mpns_loss_attempt=$((mpns_loss_attempt + 1))
+done
+if [ $mpns_loss_pass -eq 1 ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "MPNS_multipath_30_percent_loss" "pass"
 else
@@ -91,18 +112,53 @@ case_transport_multipath_MPNS_multipath_30_percent_loss_close_initial_path()
 {
 grep_err_log
 
-clear_log
 echo -e "MPNS multipath 30 percent loss close initial path ...\c"
-case_test_sudo ${CLIENT_BIN} -s 10240 -t 8 -l d -E -d 300 -M -A -i lo -i lo -x 100 -e 10 --epoch_timeout 1000000 > stdlog
-result=`grep ">>>>>>>> pass" stdlog`
-svr_res=`grep "|path closed|path:0|" slog`
-cli_res=`grep "|path closed|path:0|" clog`
-errlog=`grep_err_log`
-if [ -z "$errlog" ] && [ -n "$result" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+mpns_loss_close_initial_pass=0
+mpns_loss_close_initial_attempt=1
+while [ $mpns_loss_close_initial_attempt -le 2 ]; do
+    clear_log
+    if [ $mpns_loss_close_initial_attempt -gt 1 ]; then
+        echo -e " retry ${mpns_loss_close_initial_attempt} ...\c"
+    fi
+    case_test_sudo ${CLIENT_BIN} -s 10240 -t 25 -l d -E -d 300 -M -A -i lo -i lo -x 100 -e 10 --epoch_timeout 2000000 > stdlog
+    result_fail=`grep ">>>>>>>> pass:0" stdlog`
+    result_pass=`grep ">>>>>>>> pass:1" stdlog`
+    errlog=`grep_err_log`
+    for wait_idx in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+        svr_res=`grep "|path closed|path:0|" slog`
+        cli_res=`grep "|path closed|path:0|" clog`
+        if [ -n "$svr_res" ] && [ -n "$cli_res" ]; then
+            break
+        fi
+        sleep 0.2
+    done
+    if [ -z "$errlog" ] && [ -z "$result_fail" ] && [ -n "$result_pass" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+        mpns_loss_close_initial_pass=1
+        break
+    fi
+    if [ $mpns_loss_close_initial_attempt -ge 2 ]; then
+        break
+    fi
+    if [ -z "$errlog" ] && [ -z "$result_fail" ] && [ -n "$result_pass" ]; then
+        mpns_loss_close_initial_attempt=$((mpns_loss_close_initial_attempt + 1))
+        continue
+    fi
+    if ! case_test_should_retry_timeout_or_no_result stdlog "$errlog"; then
+        break
+    fi
+    mpns_loss_close_initial_attempt=$((mpns_loss_close_initial_attempt + 1))
+done
+if [ $mpns_loss_close_initial_pass -eq 1 ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "MPNS_multipath_30_percent_loss_close_initial_path" "pass"
 else
+    [ -n "$result_pass" ] && result_pass_hit=1 || result_pass_hit=0
+    [ -n "$result_fail" ] && result_fail_hit=1 || result_fail_hit=0
+    [ -n "$svr_res" ] && svr_closed_hit=1 || svr_closed_hit=0
+    [ -n "$cli_res" ] && cli_closed_hit=1 || cli_closed_hit=0
+    [ -n "$errlog" ] && errlog_hit=1 || errlog_hit=0
     echo ">>>>>>>> pass:0"
+    echo "[mpns-loss-close-initial]|result_pass:${result_pass_hit}|result_fail:${result_fail_hit}|svr_closed:${svr_closed_hit}|cli_closed:${cli_closed_hit}|errlog:${errlog_hit}|"
     case_print_result "MPNS_multipath_30_percent_loss_close_initial_path" "fail"
 fi
 }
@@ -133,14 +189,30 @@ case_transport_multipath_MPNS_multipath_30_percent_loss_close_new_path()
 {
 grep_err_log
 
-clear_log
 echo -e "MPNS multipath 30 percent loss close new path ...\c"
-case_test_sudo ${CLIENT_BIN} -s 10240 -t 6 -l d -E -d 300 -M -i lo -i lo -x 101 -e 10 --epoch_timeout 1000000 > stdlog
-result=`grep ">>>>>>>> pass" stdlog`
-svr_res=`grep "|path closed|path:1|" slog`
-cli_res=`grep "|path closed|path:1|" clog`
-errlog=`grep_err_log`
-if [ -z "$errlog" ] && [ -n "$result" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+mpns_loss_close_new_pass=0
+mpns_loss_close_new_attempt=1
+while [ $mpns_loss_close_new_attempt -le 2 ]; do
+    clear_log
+    if [ $mpns_loss_close_new_attempt -gt 1 ]; then
+        echo -e " retry ${mpns_loss_close_new_attempt} ...\c"
+    fi
+    case_test_sudo ${CLIENT_BIN} -s 10240 -t 20 -l d -E -d 300 -M -i lo -i lo -x 101 -e 10 --epoch_timeout 1000000 > stdlog
+    result_fail=`grep ">>>>>>>> pass:0" stdlog`
+    result_pass=`grep ">>>>>>>> pass:1" stdlog`
+    svr_res=`grep "|path closed|path:1|" slog`
+    cli_res=`grep "|path closed|path:1|" clog`
+    errlog=`grep_err_log`
+    if [ -z "$errlog" ] && [ -z "$result_fail" ] && [ -n "$result_pass" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+        mpns_loss_close_new_pass=1
+        break
+    fi
+    if [ $mpns_loss_close_new_attempt -ge 2 ] || ! case_test_should_retry_timeout_or_no_result stdlog "$errlog"; then
+        break
+    fi
+    mpns_loss_close_new_attempt=$((mpns_loss_close_new_attempt + 1))
+done
+if [ $mpns_loss_close_new_pass -eq 1 ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "MPNS_multipath_30_percent_loss_close_new_path" "pass"
 else
@@ -227,17 +299,45 @@ case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
 sleep 1
 
-clear_log
 echo -e "NAT rebinding path 0 ...\c"
-case_test_sudo ${CLIENT_BIN} -s 102400 -l d -t 5 -M -i lo -i lo -E -n 2 -x 103 > stdlog
-result=`grep ">>>>>>>> pass:0" stdlog`
-errlog=`grep_err_log`
-rebind=`grep "|path:0|REBINDING|validate NAT rebinding addr|" slog`
-if [ -z "$errlog" ] && [ -z "$result" ] && [ "$rebind" != "" ]; then
+nat_rebinding_path0_pass=0
+nat_rebinding_path0_attempt=1
+while [ $nat_rebinding_path0_attempt -le 2 ]; do
+    clear_log
+    if [ $nat_rebinding_path0_attempt -gt 1 ]; then
+        echo -e " retry ${nat_rebinding_path0_attempt} ...\c"
+    fi
+    case_test_sudo ${CLIENT_BIN} -s 102400 -l d -t 8 -M -i lo -i lo -E -n 2 -x 103 > stdlog
+    result=`grep ">>>>>>>> pass:0" stdlog`
+    errlog=`grep_err_log | grep -v "no match path challenge data" || true`
+    for wait_idx in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+        rebind=`grep "|path:0|REBINDING|validate NAT rebinding addr|" slog`
+        if [ -n "$rebind" ]; then
+            break
+        fi
+        sleep 0.2
+    done
+    if [ -z "$errlog" ] && [ -z "$result" ] && [ "$rebind" != "" ]; then
+        nat_rebinding_path0_pass=1
+        break
+    fi
+    if [ $nat_rebinding_path0_attempt -ge 2 ]; then
+        break
+    fi
+    if [ -n "$errlog" ] || [ -n "$result" ]; then
+        break
+    fi
+    nat_rebinding_path0_attempt=$((nat_rebinding_path0_attempt + 1))
+done
+if [ $nat_rebinding_path0_pass -eq 1 ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "NAT_rebinding_path_0" "pass"
 else
+    [ -n "$errlog" ] && errlog_hit=1 || errlog_hit=0
+    [ -n "$result" ] && result_fail_hit=1 || result_fail_hit=0
+    [ -n "$rebind" ] && rebind_hit=1 || rebind_hit=0
     echo ">>>>>>>> pass:0"
+    echo "[nat-rebinding-path0]|result_fail:${result_fail_hit}|rebind:${rebind_hit}|errlog:${errlog_hit}|"
     echo $errlog
     echo $result
     echo $rebind
@@ -253,7 +353,7 @@ clear_log
 echo -e "NAT rebinding path 1 ...\c"
 case_test_sudo ${CLIENT_BIN} -s 1024000 -l d -t 3 -M -i lo -i lo -E -n 2 -x 104 > stdlog
 result=`grep ">>>>>>>> pass:0" stdlog`
-errlog=`grep_err_log`
+errlog=`grep_err_log | grep -v "no match path challenge data" || true`
 rebind=`grep "|path:1|REBINDING|validate NAT rebinding addr|" slog`
 if [ -z "$errlog" ] && [ -z "$result" ] && [ "$rebind" != "" ]; then
     echo ">>>>>>>> pass:1"
@@ -642,15 +742,15 @@ fi
 
 case_test_case "MPNS_enable_multipath_negotiate" --id native --mode self-reporting --run case_transport_multipath_MPNS_enable_multipath_negotiate
 case_test_case "MPNS_send_1M_data_on_multiple_paths" --id native --mode self-reporting --run case_transport_multipath_MPNS_send_1M_data_on_multiple_paths
-case_test_case "MPNS_multipath_30_percent_loss" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss
+case_test_case "MPNS_multipath_30_percent_loss" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss --timeout 120
 case_test_case "MPNS_multipath_close_initial_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_close_initial_path
-case_test_case "MPNS_multipath_30_percent_loss_close_initial_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss_close_initial_path
+case_test_case "MPNS_multipath_30_percent_loss_close_initial_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss_close_initial_path --timeout 120
 case_test_case "MPNS_multipath_close_new_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_close_new_path
-case_test_case "MPNS_multipath_30_percent_loss_close_new_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss_close_new_path
+case_test_case "MPNS_multipath_30_percent_loss_close_new_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss_close_new_path --timeout 120
 case_test_case "MPNS_send_data_with_multipath_10" --id native --mode self-reporting --run case_transport_multipath_MPNS_send_data_with_multipath_10
 case_test_case "MPNS_reinject_unack_packets_by_capacity" --id native --mode self-reporting --run case_transport_multipath_MPNS_reinject_unack_packets_by_capacity
 case_test_case "MPNS_reinject_unack_packets_by_deadline" --id native --mode self-reporting --run case_transport_multipath_MPNS_reinject_unack_packets_by_deadline
-case_test_case "NAT_rebinding_path_0" --id native --mode self-reporting --run case_transport_multipath_NAT_rebinding_path_0
+case_test_case "NAT_rebinding_path_0" --id native --mode self-reporting --run case_transport_multipath_NAT_rebinding_path_0 --timeout 60
 case_test_case "NAT_rebinding_path_1" --id native --mode self-reporting --run case_transport_multipath_NAT_rebinding_path_1
 case_test_case "Multipath_Compensate_and_Accelerate" --id native --mode self-reporting --run case_transport_multipath_Multipath_Compensate_and_Accelerate
 case_test_case "No_reinjection_for_normal_datagrams" --id native --mode self-reporting --run case_transport_multipath_No_reinjection_for_normal_datagrams

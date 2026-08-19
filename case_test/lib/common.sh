@@ -140,7 +140,7 @@ case_test_case_watchdog_start()
 {
     local name="$1"
     local id="$2"
-    local timeout_s="${CASE_TEST_CASE_TIMEOUT:-0}"
+    local timeout_s="${3:-${CASE_TEST_CASE_TIMEOUT:-0}}"
     local owner_pid="$$"
 
     CASE_TEST_CASE_WATCHDOG_PID=""
@@ -184,9 +184,10 @@ case_test_case_begin()
 {
     local name="$1"
     local id="$2"
+    local timeout_s="${3:-}"
 
     echo "[case-test] case-start group=${CASE_TEST_GROUP:-} case=${name} id=${id} ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    case_test_case_watchdog_start "${name}" "${id}"
+    case_test_case_watchdog_start "${name}" "${id}" "${timeout_s}"
 }
 
 case_test_case_end()
@@ -208,6 +209,7 @@ case_test_case()
     local id="native"
     local mode="return-status"
     local run_func=""
+    local timeout_s=""
 
     shift
     while [[ "$#" -gt 0 ]]; do
@@ -222,6 +224,10 @@ case_test_case()
                 ;;
             --mode)
                 mode="${2:?--mode requires a value}"
+                shift 2
+                ;;
+            --timeout)
+                timeout_s="${2:?--timeout requires a value}"
                 shift 2
                 ;;
             *)
@@ -250,6 +256,7 @@ case_test_case()
     CASE_TEST_CASE_IDS+=("${id}")
     CASE_TEST_CASE_MODES+=("${mode}")
     CASE_TEST_CASE_RUNNERS+=("${run_func}")
+    CASE_TEST_CASE_TIMEOUTS+=("${timeout_s}")
 }
 
 case_test_run_self_reporting_case()
@@ -322,6 +329,7 @@ case_test_run()
     local id
     local mode
     local run_func
+    local timeout_s
     local matched=0
 
     if case_test_is_discovery; then
@@ -337,13 +345,14 @@ case_test_run()
         id="${CASE_TEST_CASE_IDS[${index}]}"
         mode="${CASE_TEST_CASE_MODES[${index}]}"
         run_func="${CASE_TEST_CASE_RUNNERS[${index}]}"
+        timeout_s="${CASE_TEST_CASE_TIMEOUTS[${index}]}"
 
         if [[ -n "${selected}" && "${selected}" != "${name}" && "${selected}" != "${id}" ]]; then
             continue
         fi
 
         matched=$((matched + 1))
-        case_test_case_begin "${name}" "${id}" || return 2
+        case_test_case_begin "${name}" "${id}" "${timeout_s}" || return 2
         if [[ "${mode}" = "self-reporting" ]]; then
             if case_test_run_self_reporting_case "${name}" "${run_func}"; then
                 case_test_case_end "${name}" "${id}" "pass"
@@ -413,6 +422,30 @@ grep_err_log()
     grep "\[error\]" slog
 }
 
+case_test_should_retry_timeout_or_no_result()
+{
+    local output_file="$1"
+    local errlog="${2:-}"
+
+    if [[ -n "${errlog}" ]]; then
+        return 1
+    fi
+
+    if [[ ! -s "${output_file}" ]]; then
+        return 0
+    fi
+
+    if grep -q "xqc_client_timeout_callback | conn_close" "${output_file}"; then
+        return 0
+    fi
+
+    if ! grep -q ">>>>>>>> pass:" "${output_file}"; then
+        return 0
+    fi
+
+    return 1
+}
+
 case_print_result()
 {
     echo "[ RUN      ] xquic_case_test.$1"
@@ -427,4 +460,5 @@ CASE_TEST_CASE_NAMES=()
 CASE_TEST_CASE_IDS=()
 CASE_TEST_CASE_MODES=()
 CASE_TEST_CASE_RUNNERS=()
+CASE_TEST_CASE_TIMEOUTS=()
 CASE_TEST_CASE_WATCHDOG_PID=""

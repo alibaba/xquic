@@ -2118,6 +2118,30 @@ xqc_conn_log_sent_packet(xqc_connection_t *c, xqc_packet_out_t *po,
     c->snd_pkt_stats.curr_index = (index + 1) % 3;
 }
 
+static void
+xqc_conn_complete_sent_packet(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    xqc_packet_out_t *packet_out)
+{
+    xqc_send_queue_t *send_queue = conn->conn_send_queue;
+
+    xqc_path_send_buffer_remove(path, packet_out);
+
+    /*
+     * RFC 9002 Sections 2 and 3: PADDING-only packets are in flight even
+     * though they are not ack-eliciting. Retain every in-flight packet until
+     * ACK or loss processing removes its congestion-control contribution.
+     */
+    if (XQC_CAN_IN_FLIGHT(packet_out->po_frame_types)) {
+        xqc_send_queue_insert_unacked(packet_out,
+            &send_queue->sndq_unacked_packets[packet_out->po_pkt.pkt_pns],
+            send_queue);
+
+    } else {
+        xqc_send_queue_insert_free(packet_out,
+                                   &send_queue->sndq_free_packets, send_queue);
+    }
+}
+
 void
 xqc_on_packets_send_burst(xqc_connection_t *conn, xqc_path_ctx_t *path, ssize_t sent, xqc_usec_t now, xqc_send_type_t send_type)
 {
@@ -2147,15 +2171,7 @@ xqc_on_packets_send_burst(xqc_connection_t *conn, xqc_path_ctx_t *path, ssize_t 
             }
 
             xqc_send_ctl_on_packet_sent(send_ctl, pn_ctl, packet_out, now);
-            xqc_path_send_buffer_remove(path, packet_out);
-            if (XQC_IS_ACK_ELICITING(packet_out->po_frame_types)) {
-                xqc_send_queue_insert_unacked(packet_out,
-                                              &send_queue->sndq_unacked_packets[packet_out->po_pkt.pkt_pns],
-                                              send_queue);
-
-            } else {
-                xqc_send_queue_insert_free(packet_out, &send_queue->sndq_free_packets, send_queue);
-            }
+            xqc_conn_complete_sent_packet(conn, path, packet_out);
             xqc_log(conn->log, XQC_LOG_INFO,
                     "|<==|conn:%p|path:%ui|pkt_num:%ui|size:%ud|sent:%z|pkt_type:%s|frame:%s|inflight:%ud|now:%ui|",
                     conn, path->path_id, packet_out->po_pkt.pkt_num, packet_out->po_used_size, sent,
@@ -2369,8 +2385,6 @@ xqc_path_send_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
     xqc_packet_out_t *packet_out;
 
     xqc_send_ctl_t *send_ctl = path->path_send_ctl;
-    xqc_send_queue_t *send_queue = conn->conn_send_queue;
-
     xqc_usec_t now = xqc_monotonic_timestamp();
 
     xqc_list_for_each_safe(pos, next, &path->path_schedule_buf[send_type]) {
@@ -2413,16 +2427,7 @@ xqc_path_send_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
         }
 
 
-        /* move send list to unacked list */
-        xqc_path_send_buffer_remove(path, packet_out);
-        if (XQC_IS_ACK_ELICITING(packet_out->po_frame_types)) {
-            xqc_send_queue_insert_unacked(packet_out,
-                                          &send_queue->sndq_unacked_packets[packet_out->po_pkt.pkt_pns],
-                                          send_queue);
-
-        } else {
-            xqc_send_queue_insert_free(packet_out, &send_queue->sndq_free_packets, send_queue);
-        }
+        xqc_conn_complete_sent_packet(conn, path, packet_out);
     }
 
     /* @FIXME: in the case of EAGAIN, we should not reschedule packets. */

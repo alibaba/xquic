@@ -22,6 +22,14 @@ void xqc_test_pto_remote_default_when_unset(void);
 void xqc_test_send_ctl_update_rtt_ack_delay_cap(void);
 
 /*
+ * RFC 9002 Sections 2 and 3: PADDING-only packets consume congestion budget
+ * and remain tracked until they are acknowledged or declared lost.
+ */
+void xqc_test_send_ctl_padding_ack_lifecycle(void);
+void xqc_test_send_ctl_padding_loss_lifecycle(void);
+void xqc_test_send_ctl_non_inflight_packets_not_tracked(void);
+
+/*
  * Regression tests for issue #739 (RFC 9002 5.2):
  * After persistent congestion is detected the RTT estimator on the
  * affected path must be reset, and the next RTT sample must re-seed

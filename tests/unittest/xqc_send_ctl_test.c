@@ -324,6 +324,206 @@ xqc_test_send_ctl_update_rtt_ack_delay_cap(void)
 }
 
 
+static xqc_packet_out_t *
+xqc_test_send_ctl_schedule_packet(xqc_connection_t *conn,
+    xqc_frame_type_bit_t frame_types, xqc_packet_number_t packet_number,
+    xqc_usec_t sent_time)
+{
+    xqc_packet_out_t *packet_out = xqc_packet_out_get_and_insert_send(
+        conn->conn_send_queue, XQC_PTYPE_SHORT_HEADER);
+    if (packet_out == NULL) {
+        return NULL;
+    }
+
+    packet_out->po_pkt.pkt_pns = XQC_PNS_APP_DATA;
+    packet_out->po_pkt.pkt_num = packet_number;
+    packet_out->po_frame_types = frame_types;
+    packet_out->po_used_size = 1200;
+    packet_out->po_enc_size = 1200;
+    packet_out->po_sent_time = sent_time;
+
+    xqc_path_send_buffer_append(conn->conn_initial_path, packet_out,
+        &conn->conn_initial_path->path_schedule_buf[XQC_SEND_TYPE_NORMAL]);
+    return packet_out;
+}
+
+
+/*
+ * RFC 9002 Sections 2 and 3 require a PADDING-only packet to consume
+ * congestion budget without becoming ack-eliciting. An ACK for a later
+ * ack-eliciting packet can acknowledge it, so the sender must retain enough
+ * state to remove the bytes at that point.
+ */
+void
+xqc_test_send_ctl_padding_ack_lifecycle(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    xqc_send_queue_t *send_queue = conn->conn_send_queue;
+    xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path);
+    CU_ASSERT_FATAL(send_ctl != NULL);
+    CU_ASSERT_FATAL(send_queue != NULL);
+    CU_ASSERT_FATAL(pn_ctl != NULL);
+    CU_ASSERT_FATAL(xqc_list_empty(
+        &path->path_schedule_buf[XQC_SEND_TYPE_NORMAL]));
+
+    uint32_t scheduled_before = path->path_schedule_bytes;
+    uint32_t inflight_before = send_ctl->ctl_bytes_in_flight;
+    uint32_t ack_inflight_before =
+        send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA];
+    uint64_t unacked_before = send_queue->sndq_packets_in_unacked_list;
+
+    xqc_packet_out_t *packet_out = xqc_test_send_ctl_schedule_packet(
+        conn, XQC_FRAME_BIT_PADDING, 100, 1000);
+    CU_ASSERT_FATAL(packet_out != NULL);
+    CU_ASSERT_EQUAL(path->path_schedule_bytes, scheduled_before + 1200);
+
+    xqc_on_packets_send_burst(conn, path, 1, 1000,
+                              XQC_SEND_TYPE_NORMAL);
+
+    CU_ASSERT_EQUAL(path->path_schedule_bytes, scheduled_before);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight_before + 1200);
+    CU_ASSERT_EQUAL(
+        send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA],
+        ack_inflight_before);
+    CU_ASSERT(packet_out->po_flag & XQC_POF_IN_FLIGHT);
+    CU_ASSERT(packet_out->po_flag & XQC_POF_IN_UNACK_LIST);
+    CU_ASSERT_EQUAL(send_queue->sndq_packets_in_unacked_list,
+                    unacked_before + 1);
+
+    xqc_ack_info_t ack_info;
+    memset(&ack_info, 0, sizeof(ack_info));
+    ack_info.pns = XQC_PNS_APP_DATA;
+    ack_info.path_id = path->path_id;
+    ack_info.n_ranges = 1;
+    ack_info.ranges[0].low = packet_out->po_pkt.pkt_num;
+    ack_info.ranges[0].high = packet_out->po_pkt.pkt_num;
+    ack_info.largest_acked = packet_out->po_pkt.pkt_num;
+    conn->conn_settings.disable_pn_skipping = 1;
+
+    CU_ASSERT_EQUAL(xqc_send_ctl_on_ack_received(send_ctl, pn_ctl, send_queue,
+                    &ack_info, 2000, XQC_TRUE), XQC_OK);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight_before);
+    CU_ASSERT_EQUAL(
+        send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA],
+        ack_inflight_before);
+    CU_ASSERT((packet_out->po_flag & XQC_POF_IN_FLIGHT) == 0);
+    CU_ASSERT((packet_out->po_flag & XQC_POF_IN_UNACK_LIST) == 0);
+    CU_ASSERT_EQUAL(send_queue->sndq_packets_in_unacked_list,
+                    unacked_before);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * A lost PADDING-only packet remains an in-flight congestion signal even
+ * though the frame itself does not need retransmission. Loss processing must
+ * subtract its bytes and recycle the retained packet.
+ */
+void
+xqc_test_send_ctl_padding_loss_lifecycle(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    xqc_send_queue_t *send_queue = conn->conn_send_queue;
+    CU_ASSERT_FATAL(send_ctl != NULL);
+    CU_ASSERT_FATAL(send_queue != NULL);
+
+    uint32_t inflight_before = send_ctl->ctl_bytes_in_flight;
+    uint32_t ack_inflight_before =
+        send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA];
+    uint64_t unacked_before = send_queue->sndq_packets_in_unacked_list;
+    uint64_t losses_before = conn->detected_loss_cnt;
+
+    xqc_packet_out_t *packet_out = xqc_test_send_ctl_schedule_packet(
+        conn, XQC_FRAME_BIT_PADDING, 100, 1);
+    CU_ASSERT_FATAL(packet_out != NULL);
+    xqc_on_packets_send_burst(conn, path, 1, 1, XQC_SEND_TYPE_NORMAL);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight_before + 1200);
+    CU_ASSERT(packet_out->po_flag & XQC_POF_IN_UNACK_LIST);
+
+    send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA] =
+        packet_out->po_pkt.pkt_num;
+    send_ctl->ctl_latest_rtt = 1000;
+    send_ctl->ctl_srtt = 1000;
+    xqc_send_ctl_detect_lost(send_ctl, send_queue, XQC_PNS_APP_DATA,
+                             1000000);
+
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight_before);
+    CU_ASSERT_EQUAL(
+        send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA],
+        ack_inflight_before);
+    CU_ASSERT((packet_out->po_flag & XQC_POF_IN_FLIGHT) == 0);
+    CU_ASSERT((packet_out->po_flag & XQC_POF_IN_UNACK_LIST) == 0);
+    CU_ASSERT_EQUAL(send_queue->sndq_packets_in_unacked_list,
+                    unacked_before);
+    CU_ASSERT_EQUAL(conn->detected_loss_cnt, losses_before + 1);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * RFC 9002 excludes ACK and CONNECTION_CLOSE-only packets from in-flight
+ * accounting. ACK_MP has the same role as ACK in XQUIC's multipath extension.
+ */
+void
+xqc_test_send_ctl_non_inflight_packets_not_tracked(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    xqc_send_queue_t *send_queue = conn->conn_send_queue;
+    CU_ASSERT_FATAL(send_ctl != NULL);
+    CU_ASSERT_FATAL(send_queue != NULL);
+
+    xqc_frame_type_bit_t frame_types[] = {
+        XQC_FRAME_BIT_ACK,
+        XQC_FRAME_BIT_ACK_MP,
+        XQC_FRAME_BIT_CONNECTION_CLOSE,
+    };
+    uint32_t scheduled_before = path->path_schedule_bytes;
+    uint32_t inflight_before = send_ctl->ctl_bytes_in_flight;
+    uint32_t ack_inflight_before =
+        send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA];
+    uint64_t unacked_before = send_queue->sndq_packets_in_unacked_list;
+
+    for (size_t i = 0; i < sizeof(frame_types) / sizeof(frame_types[0]); i++) {
+        xqc_packet_out_t *packet_out = xqc_test_send_ctl_schedule_packet(
+            conn, frame_types[i], 200 + i, 1000 + i);
+        CU_ASSERT_FATAL(packet_out != NULL);
+        CU_ASSERT_EQUAL(path->path_schedule_bytes, scheduled_before);
+
+        xqc_on_packets_send_burst(conn, path, 1, 1000 + i,
+                                  XQC_SEND_TYPE_NORMAL);
+
+        CU_ASSERT_EQUAL(path->path_schedule_bytes, scheduled_before);
+        CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight_before);
+        CU_ASSERT_EQUAL(
+            send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA],
+            ack_inflight_before);
+        CU_ASSERT((packet_out->po_flag & XQC_POF_IN_FLIGHT) == 0);
+        CU_ASSERT((packet_out->po_flag & XQC_POF_IN_UNACK_LIST) == 0);
+        CU_ASSERT_EQUAL(send_queue->sndq_packets_in_unacked_list,
+                        unacked_before);
+    }
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 /*
  * Issue #739 regression tests.
  *

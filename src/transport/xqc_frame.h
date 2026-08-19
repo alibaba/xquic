@@ -141,7 +141,7 @@ typedef uint64_t xqc_frame_type_bit_t;
 #define XQC_IS_ACK_ELICITING(types) ((types) & ~(XQC_FRAME_BIT_ACK | XQC_FRAME_BIT_ACK_MP| XQC_FRAME_BIT_PADDING | XQC_FRAME_BIT_CONNECTION_CLOSE))
 
 /*
- * https://tools.ietf.org/html/draft-ietf-quic-recovery-24#section-3
+ * RFC 9002 Section 3
  * Packets containing frames besides ACK or CONNECTION_CLOSE frames
       count toward congestion control limits and are considered in-
       flight.

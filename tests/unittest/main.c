@@ -309,6 +309,14 @@ main(int argc, char *argv[])
                         xqc_test_pto_remote_default_when_unset)
         || !CU_add_test(pSuite, "xqc_test_send_ctl_update_rtt_ack_delay_cap",
                         xqc_test_send_ctl_update_rtt_ack_delay_cap)
+        /* RFC 9002 Sections 2 and 3: PADDING-only in-flight lifecycle */
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_padding_ack_lifecycle",
+                        xqc_test_send_ctl_padding_ack_lifecycle)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_padding_loss_lifecycle",
+                        xqc_test_send_ctl_padding_loss_lifecycle)
+        || !CU_add_test(pSuite,
+                        "xqc_test_send_ctl_non_inflight_packets_not_tracked",
+                        xqc_test_send_ctl_non_inflight_packets_not_tracked)
         /* issue #739: persistent-congestion RTT reset (RFC 9002 §5.2) */
         || !CU_add_test(pSuite, "xqc_test_send_ctl_persistent_congestion_resets_rtt",
                         xqc_test_send_ctl_persistent_congestion_resets_rtt)

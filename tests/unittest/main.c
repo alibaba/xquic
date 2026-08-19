@@ -313,6 +313,12 @@ main(int argc, char *argv[])
                         xqc_test_pto_remote_default_when_unset)
         || !CU_add_test(pSuite, "xqc_test_send_ctl_update_rtt_ack_delay_cap",
                         xqc_test_send_ctl_update_rtt_ack_delay_cap)
+        || !CU_add_test(pSuite,
+                        "xqc_test_send_ctl_granularity_marks_at_boundary",
+                        xqc_test_send_ctl_granularity_marks_at_boundary)
+        || !CU_add_test(pSuite,
+                        "xqc_test_send_ctl_granularity_defers_before_boundary",
+                        xqc_test_send_ctl_granularity_defers_before_boundary)
         /* issue #739: persistent-congestion RTT reset (RFC 9002 §5.2) */
         || !CU_add_test(pSuite, "xqc_test_send_ctl_persistent_congestion_resets_rtt",
                         xqc_test_send_ctl_persistent_congestion_resets_rtt)

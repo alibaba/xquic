@@ -86,7 +86,7 @@ xqc_test_client_discards_received_zero_rtt(void)
                        (unsigned char *)XQC_TEST_ZERO_RTT_PACKET,
                        sizeof(XQC_TEST_ZERO_RTT_PACKET) - 1, NULL, 0, 0);
 
-    ret = xqc_packet_process_single(conn, &packet_in);
+    ret = xqc_packet_process_single(conn, &packet_in, NULL, NULL);
 
     /*
      * RFC 9001 Section 5.6 requires discard before decryption. The receive
@@ -114,7 +114,7 @@ xqc_test_server_buffers_received_zero_rtt(void)
                        (unsigned char *)XQC_TEST_ZERO_RTT_PACKET,
                        sizeof(XQC_TEST_ZERO_RTT_PACKET) - 1, NULL, 0, 0);
 
-    ret = xqc_packet_process_single(conn, &packet_in);
+    ret = xqc_packet_process_single(conn, &packet_in, NULL, NULL);
 
     CU_ASSERT_EQUAL(ret, -XQC_EWAITING);
     CU_ASSERT_EQUAL(conn->undecrypt_count[XQC_ENC_LEV_0RTT], 1);

@@ -264,6 +264,11 @@ case_test_case "negotiate_encoder_fec_scheme" \
     --run fec_negotiate_encoder_fec_scheme
 ```
 
+When a server callback can run after the client process exits, use
+`case_test_wait_for_log <file> <pattern> [attempts] [interval]` for a bounded
+wait instead of a fixed sleep. Redirect server stdout to `svr_stdlog` when the
+case needs that output so the per-case snapshot preserves the asserted log.
+
 The runner injects group-shared environment before executing the script:
 
 - `CASE_TEST_GROUP`

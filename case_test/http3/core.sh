@@ -1027,23 +1027,27 @@ fi
 case_http3_core_h3_field_section_over_limit_is_stream_error()
 {
 
+local server_close_pattern
+
 case_test_stop_server
 clear_log
 rm -f test_session xqc_token tp_localhost h3_field_section_server.log
-case_test_start_server ${SERVER_BIN} -l d -e -x 1012 > h3_field_section_server.log
+case_test_start_server ${SERVER_BIN} -l d -e -x 1012 > svr_stdlog
 sleep 1
 echo -e "HTTP/3 oversized fields reset one stream only ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -P 2 -n 2 -x 1012 > stdlog
+server_close_pattern="\\[h3-field-section-test\\]|server_conn_close|"\
+"case:1012|conn_err:0|"
+case_test_wait_for_log svr_stdlog "${server_close_pattern}" 30 0.1
 oversized=`grep "\\[h3-field-section-test\\]|oversized_request_sent|" stdlog`
 stream_reset=`grep "\\[h3-field-section-test\\]|server_stream_close|"\
-".*|stream_err:270|" h3_field_section_server.log`
+".*|stream_err:270|" svr_stdlog`
 peer_error=`grep "\\[h3-field-section-test\\]|client_stream_closing|"\
 ".*|err:270|" stdlog`
 received_count=`grep -c "\\[h3-field-section-test\\]|request_received|" \
-    h3_field_section_server.log`
+    svr_stdlog`
 success_count=`grep -c ">>>>>>>> pass:1" stdlog`
-server_ok=`grep "\\[h3-field-section-test\\]|server_conn_close|case:1012|"\
-"conn_err:0|" h3_field_section_server.log`
+server_ok=`grep "${server_close_pattern}" svr_stdlog`
 client_ok=`grep "\\[h3-field-section-test\\]|client_conn_close|case:1012|"\
 "conn_err:0|" stdlog`
 if [ -n "$oversized" ] && [ -n "$stream_reset" ] \

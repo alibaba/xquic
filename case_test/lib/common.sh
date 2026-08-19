@@ -391,6 +391,26 @@ case_test_start_server()
     sleep "${CASE_TEST_SERVER_WAIT:-1}"
 }
 
+case_test_wait_for_log()
+{
+    local log_file="$1"
+    local pattern="$2"
+    local attempts="${3:-20}"
+    local interval="${4:-0.1}"
+    local attempt=0
+
+    while [[ "${attempt}" -lt "${attempts}" ]]; do
+        if grep -q -- "${pattern}" "${log_file}" 2> /dev/null; then
+            return 0
+        fi
+
+        sleep "${interval}"
+        attempt=$((attempt + 1))
+    done
+
+    return 1
+}
+
 case_test_require_sudo()
 {
     if ! sudo -n true 2> /dev/null; then

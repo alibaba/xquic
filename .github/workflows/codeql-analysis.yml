@@ -23,7 +23,7 @@ jobs:
         submodules: 'recursive'
 
     - name: Linux Setup
-      timeout-minutes: 3
+      timeout-minutes: 5
       run: |
         apt_options=(
           -o Acquire::Retries=3

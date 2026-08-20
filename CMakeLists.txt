@@ -420,6 +420,15 @@ add_library(
     ${XQC_SOURCE}
 )
 
+# BoringSSL is largely C++, and --whole-archive pulls all of it in, so the shared
+# library has to resolve its C++ symbols even though XQUIC itself is pure C. The
+# Android NDK ships no libstdc++ and names the runtime after ANDROID_STL instead.
+if(ANDROID)
+    set(XQC_CXX_RUNTIME c++_shared)
+else()
+    set(XQC_CXX_RUNTIME -lstdc++)
+endif()
+
 if(APPLE OR PLATFORM MATCHES "mac")
     target_link_libraries(
         xquic
@@ -427,7 +436,7 @@ if(APPLE OR PLATFORM MATCHES "mac")
         ${SSL_LIB_PATH}
         "-Wl"
         -pthread
-        -lstdc++
+        ${XQC_CXX_RUNTIME}
     )
 else()
     # scripts/xquic.lds exports symbols that the feature switches above may have
@@ -447,6 +456,7 @@ else()
         "-Wl,--no-whole-archive"
         ${XQC_UNDEFINED_VERSION}
         -pthread
+        ${XQC_CXX_RUNTIME}
     )
 endif()
 

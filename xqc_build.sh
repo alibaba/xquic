@@ -57,22 +57,14 @@ create_dir_force() {
 
 platform=$(echo $platform | tr A-Z a-z )
 
-if [ x"$platform" == xios ] ; then 
-    if [ x"$IOS_CMAKE_TOOLCHAIN" == x ] ; then
-        echo "IOS_CMAKE_TOOLCHAIN MUST be defined"
-        exit 0
-    fi
-
-    archs=${ios_archs[@]} 
-    configures="-DSSL_TYPE=${ssl_type}
+# Shared by every platform. Keep one flag per line: $configures is expanded
+# unquoted below, and the newline is what stops SSL_LIB_PATH's ';' from running
+# into the flag that follows it.
+common_configures="-DSSL_TYPE=${ssl_type}
                 -DSSL_INC_PATH=${ssl_inc_path}
                 -DSSL_LIB_PATH=${ssl_lib_path}
-                -DDEPLOYMENT_TARGET=10.0
-                -DCMAKE_BUILD_TYPE=Minsizerel
                 -DXQC_ENABLE_TESTING=OFF
                 -DGCOV=OFF
-                -DCMAKE_TOOLCHAIN_FILE=${IOS_CMAKE_TOOLCHAIN}
-                -DENABLE_BITCODE=OFF
                 -DXQC_ENABLE_RENO=OFF
                 -DXQC_ENABLE_BBR2=ON
                 -DXQC_ENABLE_COPA=OFF
@@ -81,6 +73,19 @@ if [ x"$platform" == xios ] ; then
                 -DXQC_DISABLE_LOG=OFF
                 -DXQC_ONLY_ERROR_LOG=ON
                 -DXQC_COMPAT_GENERATE_SR_PKT=ON"
+
+if [ x"$platform" == xios ] ; then
+    if [ x"$IOS_CMAKE_TOOLCHAIN" == x ] ; then
+        echo "IOS_CMAKE_TOOLCHAIN MUST be defined"
+        exit 0
+    fi
+
+    archs=${ios_archs[@]}
+    configures="${common_configures}
+                -DCMAKE_BUILD_TYPE=Minsizerel
+                -DCMAKE_TOOLCHAIN_FILE=${IOS_CMAKE_TOOLCHAIN}
+                -DDEPLOYMENT_TARGET=10.0
+                -DENABLE_BITCODE=OFF"
 
 elif [ x"$platform" == xandroid ] ; then
     if [ x"$ANDROID_NDK" == x ] ; then
@@ -89,23 +94,12 @@ elif [ x"$platform" == xandroid ] ; then
     fi
 
     archs=${android_archs[@]}
-    configures="-DSSL_TYPE=${ssl_type}
-                -DSSL_INC_PATH=${ssl_inc_path}
-                -DSSL_LIB_PATH=${ssl_lib_path}
+    configures="${common_configures}
                 -DCMAKE_BUILD_TYPE=Minsizerel
-                -DXQC_ENABLE_TESTING=OFF
-                -DGCOV=OFF
                 -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake
                 -DANDROID_STL=c++_shared
-                -DANDROID_NATIVE_API_LEVEL=android-19
-                -DXQC_ENABLE_RENO=OFF
-                -DXQC_ENABLE_BBR2=ON
-                -DXQC_ENABLE_COPA=OFF
-                -DXQC_ENABLE_UNLIMITED=OFF
-                -DXQC_ENABLE_MP_INTEROP=OFF
-                -DXQC_DISABLE_LOG=OFF
-                -DXQC_ONLY_ERROR_LOG=ON
-                -DXQC_COMPAT_GENERATE_SR_PKT=ON"
+                -DANDROID_NATIVE_API_LEVEL=android-19"
+
 elif [ x"$platform" == xharmony ] ; then
     if [ x"$HMOS_CMAKE_TOOLCHAIN" == x ] ; then
         echo "HMOS_CMAKE_TOOLCHAIN MUST be defined"
@@ -121,21 +115,9 @@ elif [ x"$platform" == xharmony ] ; then
     CMAKE_CMD=${HMOS_CMAKE_PATH}
 
     archs=${hmos_archs[@]}
-    configures="-DSSL_TYPE=${ssl_type}
-                -DSSL_INC_PATH=${ssl_inc_path}
-                -DSSL_LIB_PATH=${ssl_lib_path}
+    configures="${common_configures}
                 -DCMAKE_BUILD_TYPE=Release
-                -DXQC_ENABLE_TESTING=OFF
-                -DGCOV=OFF
                 -DCMAKE_TOOLCHAIN_FILE=${HMOS_CMAKE_TOOLCHAIN}
-                -DXQC_ENABLE_RENO=OFF
-                -DXQC_ENABLE_BBR2=ON
-                -DXQC_ENABLE_COPA=OFF
-                -DXQC_ENABLE_UNLIMITED=OFF
-                -DXQC_ENABLE_MP_INTEROP=OFF
-                -DXQC_DISABLE_LOG=OFF
-                -DXQC_ONLY_ERROR_LOG=ON
-                -DXQC_COMPAT_GENERATE_SR_PKT=ON
                 -DDISABLE_WARNINGS=ON"
 else
     echo "no support platform"

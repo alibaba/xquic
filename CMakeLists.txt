@@ -426,7 +426,7 @@ if(APPLE OR PLATFORM MATCHES "mac")
         "-ldl -Wl,-all_load"
         ${SSL_LIB_PATH}
         "-Wl"
-        -lpthread
+        -pthread
         -lstdc++
     )
 else()
@@ -435,7 +435,7 @@ else()
         "-ldl -Wl,--whole-archive -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/scripts/xquic.lds"
         ${SSL_LIB_PATH}
         "-Wl,--no-whole-archive"
-        -lpthread
+        -pthread
     )
 endif()
 

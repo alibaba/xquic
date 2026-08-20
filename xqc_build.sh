@@ -63,6 +63,7 @@ platform=$(echo $platform | tr A-Z a-z )
 common_configures="-DSSL_TYPE=${ssl_type}
                 -DSSL_INC_PATH=${ssl_inc_path}
                 -DSSL_LIB_PATH=${ssl_lib_path}
+                -DCMAKE_BUILD_TYPE=Minsizerel
                 -DXQC_ENABLE_TESTING=OFF
                 -DGCOV=OFF
                 -DXQC_ENABLE_RENO=OFF
@@ -82,7 +83,6 @@ if [ x"$platform" == xios ] ; then
 
     archs=${ios_archs[@]}
     configures="${common_configures}
-                -DCMAKE_BUILD_TYPE=Minsizerel
                 -DCMAKE_TOOLCHAIN_FILE=${IOS_CMAKE_TOOLCHAIN}
                 -DDEPLOYMENT_TARGET=10.0
                 -DENABLE_BITCODE=OFF"
@@ -95,7 +95,6 @@ elif [ x"$platform" == xandroid ] ; then
 
     archs=${android_archs[@]}
     configures="${common_configures}
-                -DCMAKE_BUILD_TYPE=Minsizerel
                 -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake
                 -DANDROID_STL=c++_shared
                 -DANDROID_NATIVE_API_LEVEL=android-19"
@@ -116,7 +115,6 @@ elif [ x"$platform" == xharmony ] ; then
 
     archs=${hmos_archs[@]}
     configures="${common_configures}
-                -DCMAKE_BUILD_TYPE=Release
                 -DCMAKE_TOOLCHAIN_FILE=${HMOS_CMAKE_TOOLCHAIN}
                 -DDISABLE_WARNINGS=ON"
 else

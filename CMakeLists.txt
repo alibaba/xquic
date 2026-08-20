@@ -157,9 +157,20 @@ if(XQC_ONLY_ERROR_LOG)
     set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -DXQC_ONLY_ERROR_LOG ")
 endif()
 
+# compile out all logging
+if(XQC_DISABLE_LOG)
+    set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -DXQC_DISABLE_LOG ")
+endif()
+
 # enable event log
 if(XQC_ENABLE_EVENT_LOG)
     set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -DXQC_ENABLE_EVENT_LOG ")
+endif()
+
+# let warnings stay warnings, for toolchains whose headers do not survive the
+# -Werror set in CMAKE_C_FLAGS_OPTION above
+if(DISABLE_WARNINGS)
+    add_compile_options("-Wno-error")
 endif()
 
 # sendmmsg

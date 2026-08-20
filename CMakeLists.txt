@@ -430,11 +430,22 @@ if(APPLE OR PLATFORM MATCHES "mac")
         -lstdc++
     )
 else()
+    # scripts/xquic.lds exports symbols that the feature switches above may have
+    # compiled out (xqc_reno_cb, xqc_copa_cb, the FEC scheme callbacks, ...). GNU
+    # ld only warns about those, while lld rejects them outright, so ask lld to
+    # tolerate them. Older GNU ld does not know the flag, hence the Android scope.
+    if(ANDROID)
+        set(XQC_UNDEFINED_VERSION "-Wl,--undefined-version")
+    else()
+        set(XQC_UNDEFINED_VERSION)
+    endif()
+
     target_link_libraries(
         xquic
         "-ldl -Wl,--whole-archive -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/scripts/xquic.lds"
         ${SSL_LIB_PATH}
         "-Wl,--no-whole-archive"
+        ${XQC_UNDEFINED_VERSION}
         -pthread
     )
 endif()

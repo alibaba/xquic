@@ -440,8 +440,10 @@ else()
 endif()
 
 
-# Strip binary for release builds
-if(CMAKE_BUILD_TYPE STREQUAL MinSizeRel)
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-            COMMAND ${CMAKE_STRIP} libxquic.so)
+# Strip binary for release builds. The file is resolved by generator expression
+# because LIBRARY_OUTPUT_PATH may redirect where it lands, and a bare relative
+# name would be looked up in the build directory root instead.
+if(CMAKE_BUILD_TYPE STREQUAL Minsizerel AND CMAKE_STRIP)
+    add_custom_command(TARGET xquic POST_BUILD
+            COMMAND ${CMAKE_STRIP} $<TARGET_FILE:xquic>)
 endif()

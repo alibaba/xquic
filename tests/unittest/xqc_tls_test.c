@@ -882,6 +882,65 @@ void xqc_test_destroy_tls_ctx()
 }
 
 void
+xqc_test_cert_verify_err_tolerable()
+{
+    /*
+     * error 20: issuer cert not found in local store
+     * should be tolerated regardless of flags
+     */
+    CU_ASSERT(xqc_cert_verify_err_tolerable(
+        X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY, 0) == XQC_TRUE);
+
+    /*
+     * error 2: issuer cert of untrusted cert not found
+     * should also be tolerated (this was the bug in #693)
+     */
+    CU_ASSERT(xqc_cert_verify_err_tolerable(
+        X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT, 0) == XQC_TRUE);
+
+    /*
+     * error 18: self-signed leaf cert, allowed when flag is set
+     */
+    CU_ASSERT(xqc_cert_verify_err_tolerable(
+        X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT,
+        XQC_TLS_CERT_FLAG_ALLOW_SELF_SIGNED) == XQC_TRUE);
+
+    /*
+     * error 19: self-signed cert in chain, allowed when flag is set
+     */
+    CU_ASSERT(xqc_cert_verify_err_tolerable(
+        X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN,
+        XQC_TLS_CERT_FLAG_ALLOW_SELF_SIGNED) == XQC_TRUE);
+
+    /*
+     * error 18: self-signed leaf cert, rejected without flag
+     */
+    CU_ASSERT(xqc_cert_verify_err_tolerable(
+        X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT, 0) == XQC_FALSE);
+
+    /*
+     * error 19: self-signed in chain, rejected without flag
+     */
+    CU_ASSERT(xqc_cert_verify_err_tolerable(
+        X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN, 0) == XQC_FALSE);
+
+    /*
+     * error 10: expired cert, should always be rejected
+     */
+    CU_ASSERT(xqc_cert_verify_err_tolerable(
+        X509_V_ERR_CERT_HAS_EXPIRED, 0) == XQC_FALSE);
+    CU_ASSERT(xqc_cert_verify_err_tolerable(
+        X509_V_ERR_CERT_HAS_EXPIRED,
+        XQC_TLS_CERT_FLAG_ALLOW_SELF_SIGNED) == XQC_FALSE);
+
+    /*
+     * error 23: revoked cert, should always be rejected
+     */
+    CU_ASSERT(xqc_cert_verify_err_tolerable(
+        X509_V_ERR_CERT_REVOKED, 0) == XQC_FALSE);
+}
+
+void
 xqc_test_tls()
 {
     xqc_log_callbacks_t log_cb =  xqc_null_log_cb;
@@ -892,6 +951,7 @@ xqc_test_tls()
     xqc_test_tls_ctx_register_alpn();
     xqc_test_tls_reset_initial();
     
+    xqc_test_cert_verify_err_tolerable();
     xqc_test_tls_multiple_crypto_data();
     xqc_test_tls_generic();
     xqc_test_tls_process_truncated_crypto_handshake();

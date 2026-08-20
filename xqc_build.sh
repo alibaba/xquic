@@ -22,11 +22,19 @@ ssl_type="boringssl"
 ssl_inc_path=$4
 ssl_lib_path=$5
 
+# Optional, appended to CMAKE_C_FLAGS. Use it for macros the build has to define
+# but CMake has no switch for, such as -DBORINGSSL_PREFIX=<prefix> when linking a
+# BoringSSL whose symbols were prefixed to keep them from clashing with the system
+# libssl. Its symbol_prefix_include headers come in through ssl_inc_path.
+extra_c_flags=$6
+
 if [ -z "$ssl_inc_path" ] || [ -z "$ssl_lib_path" ] ; then
-    echo "usage: $0 <platform> <build_dir> <artifact_dir> <ssl_inc_path> <ssl_lib_path>"
-    echo "  ssl_inc_path: directory holding openssl/ssl.h"
-    echo "  ssl_lib_path: semicolon-separated libs, for example"
-    echo "                /path/to/libssl.a;/path/to/libcrypto.a"
+    echo "usage: $0 <platform> <build_dir> <artifact_dir> <ssl_inc_path> <ssl_lib_path> [extra_c_flags]"
+    echo "  ssl_inc_path:  directory holding openssl/ssl.h"
+    echo "  ssl_lib_path:  semicolon-separated libs, for example"
+    echo "                 /path/to/libssl.a;/path/to/libcrypto.a"
+    echo "  extra_c_flags: optional, appended to CMAKE_C_FLAGS, for example"
+    echo "                 \"-DBORINGSSL_PREFIX=bs\""
     exit 1
 fi
 
@@ -59,8 +67,6 @@ if [ x"$platform" == xios ] ; then
     configures="-DSSL_TYPE=${ssl_type}
                 -DSSL_INC_PATH=${ssl_inc_path}
                 -DSSL_LIB_PATH=${ssl_lib_path}
-                -DBORINGSSL_PREFIX=bs
-                -DBORINGSSL_PREFIX_SYMBOLS=$cur_dir/bssl_symbols.txt
                 -DDEPLOYMENT_TARGET=10.0
                 -DCMAKE_BUILD_TYPE=Minsizerel
                 -DXQC_ENABLE_TESTING=OFF
@@ -174,7 +180,11 @@ do
     rm -rf third_party
 
     echo "compiling xquic on $i arch"
-    "${CMAKE_CMD}"  $configures  $(generate_plat_spec $i ) -DLIBRARY_OUTPUT_PATH=`pwd`/outputs/ ..
+    # extra_c_flags is quoted as a single argument, since it may hold several
+    # space-separated flags and $configures is expanded unquoted.
+    "${CMAKE_CMD}"  $configures  $(generate_plat_spec $i ) \
+        ${extra_c_flags:+"-DCMAKE_C_FLAGS=$extra_c_flags"} \
+        -DLIBRARY_OUTPUT_PATH=`pwd`/outputs/ ..
     make -j 4
     if [ $? != 0 ] ; then
         exit 0

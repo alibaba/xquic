@@ -7,25 +7,40 @@ hmos_archs=(arm64-v8a)
 CMAKE_CMD="cmake"
 cur_dir=$(cd "$(dirname "$0")";pwd)
 
-cp -f $cur_dir/cmake/CMakeLists.txt  $cur_dir/CMakeLists.txt
-
 platform=$1
 build_dir=$2
 artifact_dir=$3
 
 # boringssl is used as default
 ssl_type="boringssl"
-ssl_path=$4
 
-# if ssl_path is not defined, try to use the default path
-if [ -z "$ssl_path" ] ; then
-    ssl_path="`pwd`/third_party/boringssl"
-    echo "use default ssl path: $ssl_path"
+# The root CMakeLists falls back to find_package(SSL) when SSL_INC_PATH and
+# SSL_LIB_PATH are both unset. Cross-compiling toolchains set
+# CMAKE_FIND_ROOT_PATH_MODE_{INCLUDE,LIBRARY}=ONLY, which confines find_path and
+# find_library to the sysroot and makes that discovery impossible, so both paths
+# have to be supplied here for CMake to merely EXISTS-check them.
+ssl_inc_path=$4
+ssl_lib_path=$5
+
+# Optional, appended to CMAKE_C_FLAGS. Use it for macros the build has to define
+# but CMake has no switch for, such as -DBORINGSSL_PREFIX=<prefix> when linking a
+# BoringSSL whose symbols were prefixed to keep them from clashing with the system
+# libssl. Its symbol_prefix_include headers come in through ssl_inc_path.
+extra_c_flags=$6
+
+if [ -z "$ssl_inc_path" ] || [ -z "$ssl_lib_path" ] ; then
+    echo "usage: $0 <platform> <build_dir> <artifact_dir> <ssl_inc_path> <ssl_lib_path> [extra_c_flags]"
+    echo "  ssl_inc_path:  directory holding openssl/ssl.h"
+    echo "  ssl_lib_path:  semicolon-separated libs, for example"
+    echo "                 /path/to/libssl.a;/path/to/libcrypto.a"
+    echo "  extra_c_flags: optional, appended to CMAKE_C_FLAGS, for example"
+    echo "                 \"-DBORINGSSL_PREFIX=bs\""
+    exit 1
 fi
 
-if [ ! -d "$ssl_path" ] ; then
-    echo "ssl environment not exists"
-    exit 0
+if [ ! -d "$ssl_inc_path" ] ; then
+    echo "ssl include directory not exists: $ssl_inc_path"
+    exit 1
 fi
 
 create_dir_force() {
@@ -42,27 +57,15 @@ create_dir_force() {
 
 platform=$(echo $platform | tr A-Z a-z )
 
-if [ x"$platform" == xios ] ; then 
-    if [ x"$IOS_CMAKE_TOOLCHAIN" == x ] ; then
-        echo "IOS_CMAKE_TOOLCHAIN MUST be defined"
-        exit 0
-    fi
-
-    archs=${ios_archs[@]} 
-    configures="-DSSL_TYPE=${ssl_type}
-                -DSSL_PATH=${ssl_path}
-                -DBORINGSSL_PREFIX=bs
-                -DBORINGSSL_PREFIX_SYMBOLS=$cur_dir/bssl_symbols.txt
-                -DDEPLOYMENT_TARGET=10.0
+# Shared by every platform. Keep one flag per line: $configures is expanded
+# unquoted below, and the newline is what stops SSL_LIB_PATH's ';' from running
+# into the flag that follows it.
+common_configures="-DSSL_TYPE=${ssl_type}
+                -DSSL_INC_PATH=${ssl_inc_path}
+                -DSSL_LIB_PATH=${ssl_lib_path}
                 -DCMAKE_BUILD_TYPE=Minsizerel
                 -DXQC_ENABLE_TESTING=OFF
-                -DXQC_BUILD_SAMPLE=OFF
                 -DGCOV=OFF
-                -DCMAKE_TOOLCHAIN_FILE=${IOS_CMAKE_TOOLCHAIN}
-                -DENABLE_BITCODE=OFF
-                -DXQC_NO_SHARED=ON
-				-DXQC_ENABLE_TH3=ON
-                -DXQC_COMPAT_GENERATE_SR_PKT=ON
                 -DXQC_ENABLE_RENO=OFF
                 -DXQC_ENABLE_BBR2=ON
                 -DXQC_ENABLE_COPA=OFF
@@ -71,6 +74,18 @@ if [ x"$platform" == xios ] ; then
                 -DXQC_DISABLE_LOG=OFF
                 -DXQC_ONLY_ERROR_LOG=ON
                 -DXQC_COMPAT_GENERATE_SR_PKT=ON"
+
+if [ x"$platform" == xios ] ; then
+    if [ x"$IOS_CMAKE_TOOLCHAIN" == x ] ; then
+        echo "IOS_CMAKE_TOOLCHAIN MUST be defined"
+        exit 0
+    fi
+
+    archs=${ios_archs[@]}
+    configures="${common_configures}
+                -DCMAKE_TOOLCHAIN_FILE=${IOS_CMAKE_TOOLCHAIN}
+                -DDEPLOYMENT_TARGET=10.0
+                -DENABLE_BITCODE=OFF"
 
 elif [ x"$platform" == xandroid ] ; then
     if [ x"$ANDROID_NDK" == x ] ; then
@@ -79,24 +94,11 @@ elif [ x"$platform" == xandroid ] ; then
     fi
 
     archs=${android_archs[@]}
-    configures="-DSSL_TYPE=${ssl_type}
-                -DSSL_PATH=${ssl_path}
-                -DCMAKE_BUILD_TYPE=Minsizerel
-                -DXQC_ENABLE_TESTING=OFF
-                -DXQC_BUILD_SAMPLE=OFF
-                -DGCOV=OFF
+    configures="${common_configures}
                 -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake
                 -DANDROID_STL=c++_shared
-                -DANDROID_NATIVE_API_LEVEL=android-19
-                -DXQC_ENABLE_RENO=OFF
-                -DXQC_ENABLE_BBR2=ON
-                -DXQC_ENABLE_COPA=OFF
-                -DXQC_ENABLE_UNLIMITED=OFF
-                -DXQC_ENABLE_MP_INTEROP=OFF
-                -DXQC_DISABLE_LOG=OFF
-                -DXQC_ONLY_ERROR_LOG=ON
-				-DXQC_ENABLE_TH3=ON
-                -DXQC_COMPAT_GENERATE_SR_PKT=ON"
+                -DANDROID_NATIVE_API_LEVEL=android-19"
+
 elif [ x"$platform" == xharmony ] ; then
     if [ x"$HMOS_CMAKE_TOOLCHAIN" == x ] ; then
         echo "HMOS_CMAKE_TOOLCHAIN MUST be defined"
@@ -112,21 +114,8 @@ elif [ x"$platform" == xharmony ] ; then
     CMAKE_CMD=${HMOS_CMAKE_PATH}
 
     archs=${hmos_archs[@]}
-    configures="-DSSL_TYPE=${ssl_type}
-                -DSSL_PATH=${ssl_path}
-                -DCMAKE_BUILD_TYPE=Release
-                -DXQC_ENABLE_TESTING=OFF
-                -DXQC_BUILD_SAMPLE=OFF
-                -DGCOV=OFF
+    configures="${common_configures}
                 -DCMAKE_TOOLCHAIN_FILE=${HMOS_CMAKE_TOOLCHAIN}
-                -DXQC_ENABLE_RENO=OFF
-                -DXQC_ENABLE_BBR2=ON
-                -DXQC_ENABLE_COPA=OFF
-                -DXQC_ENABLE_UNLIMITED=OFF
-                -DXQC_ENABLE_MP_INTEROP=OFF
-                -DXQC_DISABLE_LOG=OFF
-                -DXQC_ONLY_ERROR_LOG=ON
-                -DXQC_COMPAT_GENERATE_SR_PKT=ON
                 -DDISABLE_WARNINGS=ON"
 else
     echo "no support platform"
@@ -171,7 +160,11 @@ do
     rm -rf third_party
 
     echo "compiling xquic on $i arch"
-    "${CMAKE_CMD}"  $configures  $(generate_plat_spec $i ) -DLIBRARY_OUTPUT_PATH=`pwd`/outputs/ ..
+    # extra_c_flags is quoted as a single argument, since it may hold several
+    # space-separated flags and $configures is expanded unquoted.
+    "${CMAKE_CMD}"  $configures  $(generate_plat_spec $i ) \
+        ${extra_c_flags:+"-DCMAKE_C_FLAGS=$extra_c_flags"} \
+        -DLIBRARY_OUTPUT_PATH=`pwd`/outputs/ ..
     make -j 4
     if [ $? != 0 ] ; then
         exit 0
@@ -180,19 +173,31 @@ do
     if [ ! -d  ${artifact_dir}/$i ] ; then
         mkdir -p ${artifact_dir}/$i
     fi
-    cp -f `pwd`/outputs/*.a     ${artifact_dir}/$i/
-    cp -f `pwd`/outputs/*.so    ${artifact_dir}/$i/
+    # Copy whatever the platform produced. An unmatched glob is passed through
+    # verbatim by the shell, so guard each name: iOS builds .dylib rather than
+    # .so, and cp would otherwise complain about a file called "*.so".
+    for lib in `pwd`/outputs/*.a `pwd`/outputs/*.so `pwd`/outputs/*.dylib ; do
+        if [ -f "$lib" ] ; then
+            cp -f "$lib" ${artifact_dir}/$i/
+        fi
+    done
 done
 
 
 make_fat() {
-    script="lipo -create"
+    lib_name=$1
+    lipo_args=
     for i in ${archs[@]} ;
     do
-        script="$script -arch $i $artifact_dir/$i/$1  "
+        lipo_args="$lipo_args -arch $i $artifact_dir/$i/$lib_name"
     done
-    script="$script -output $cur_dir/ios/xquic/xquic/Libs/$1"
-    $($script) 
+
+    # Run lipo directly. The old form was $($script), which executed lipo's
+    # output as a command instead of reporting it, so failures went unnoticed.
+    if ! lipo -create $lipo_args -output "$cur_dir/ios/xquic/xquic/Libs/$lib_name" ; then
+        echo "lipo failed for $lib_name"
+        exit 1
+    fi
 }
 
 
@@ -203,7 +208,7 @@ if [ x"$platform" == xios ] ; then
     if [ ! -d $cur_dir/ios/xquic/xquic/Libs ] ; then
         mkdir -p $cur_dir/ios/xquic/xquic/Libs
     fi
-    make_fat libxquic.a
+    make_fat libxquic-static.a
     make_fat libcrypto.a
     make_fat libssl.a
     cp -f $cur_dir/include/xquic/*   $cur_dir/ios/xquic/xquic/Headers/

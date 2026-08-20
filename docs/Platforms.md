@@ -4,12 +4,45 @@ XQUIC currently supports `Android` , `iOS` , `HarmonyOS` , `Linux` , `macOS` and
 
 ## Android/iOS/HarmonyOS Compile Script
 
-The Android, iOS and HarmonyOS use `.so` files, there is a [ `xqc_build.sh` ](../xqc_build.sh) script in the XQUIC library directory, execute the script to compile to complete the corresponding compilation.
+For Android, iOS and HarmonyOS there is a [ `xqc_build.sh` ](../xqc_build.sh) script in the XQUIC library directory, execute the script to compile to complete the corresponding compilation. All platforms build from the root `CMakeLists.txt` .
 
 ```bash
-sh xqc_build.sh ios/android/harmony <build_dir> <artifact_dir> <ssl_path>
+sh xqc_build.sh ios/android/harmony <build_dir> <artifact_dir> <ssl_inc_path> <ssl_lib_path> [extra_c_flags]
 ```
-specially, `<ssl_path> can be ${PWD}/third_party/boringssl or ${PWD}/third_party/babassl`
+
+`<ssl_inc_path>` is the directory holding `openssl/ssl.h` , and `<ssl_lib_path>` is a
+semicolon-separated list of the libraries to link:
+
+```bash
+sh xqc_build.sh android build_android artifact_android \
+    ${PWD}/third_party/boringssl/include \
+    "${PWD}/third_party/boringssl/build/libssl.a;${PWD}/third_party/boringssl/build/libcrypto.a"
+```
+
+Both paths have to be passed explicitly, because cross-compiling toolchains confine
+CMake's `find_path` / `find_library` to their own sysroot and the SSL backend cannot be
+discovered automatically. Build BoringSSL or Tongsuo(BabaSSL) for the target ABI first --
+one build per ABI, since a single `<ssl_lib_path>` cannot serve several architectures.
+
+`[extra_c_flags]` is optional and is appended to `CMAKE_C_FLAGS` . Quote it as a single
+argument. Use it for macros the build has to define but CMake has no switch for -- most
+often the prefix of a BoringSSL built with `BORINGSSL_PREFIX` , so that its symbols do
+not clash with the system libssl:
+
+```bash
+sh xqc_build.sh ios build_ios artifact_ios \
+    ${PWD}/third_party/boringssl/include \
+    "${PWD}/third_party/boringssl/build/libssl.a;${PWD}/third_party/boringssl/build/libcrypto.a" \
+    "-DBORINGSSL_PREFIX=bs"
+```
+
+The prefixed BoringSSL itself has to be built beforehand; its `symbol_prefix_include`
+headers are picked up through `<ssl_inc_path>` .
+
+Both a static and a shared library are built, and land in `<artifact_dir>/<abi>/` as
+`libxquic-static.a` plus `libxquic.so` ( `libxquic.dylib` on iOS). For iOS the per-arch
+static libraries are additionally merged with `lipo` into
+`ios/xquic/xquic/Libs/libxquic-static.a` .
 
 > Note: You need to specify the IOS/android/harmony build toolchain before compiling, download and set the environment variable IOS_CMAKE_TOOLCHAIN or ANDROID_NDK or HMOS_CMAKE_PATH and HMOS_CMAKE_TOOLCHAIN, or directly modify CMAKE_TOOLCHAIN_FILE and HMOS_CMAKE_TOOLCHAIN in `xqc_build.sh` .
 

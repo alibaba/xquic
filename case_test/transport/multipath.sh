@@ -110,28 +110,29 @@ fi
 
 case_transport_multipath_MPNS_multipath_30_percent_loss_close_initial_path()
 {
-grep_err_log
 
 echo -e "MPNS multipath 30 percent loss close initial path ...\c"
 mpns_loss_close_initial_pass=0
 mpns_loss_close_initial_attempt=1
+client_status=0
 while [ $mpns_loss_close_initial_attempt -le 2 ]; do
     clear_log
     if [ $mpns_loss_close_initial_attempt -gt 1 ]; then
         echo -e " retry ${mpns_loss_close_initial_attempt} ...\c"
     fi
     case_test_sudo ${CLIENT_BIN} -s 10240 -t 25 -l d -E -d 300 -M -A -i lo -i lo -x 100 -e 10 --epoch_timeout 2000000 > stdlog
+    client_status=$?
     result_fail=`grep ">>>>>>>> pass:0" stdlog`
     result_pass=`grep ">>>>>>>> pass:1" stdlog`
-    errlog=`grep_err_log`
-    for wait_idx in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-        svr_res=`grep "|path closed|path:0|" slog`
-        cli_res=`grep "|path closed|path:0|" clog`
+    for wait_idx in $(seq 1 50); do
+        svr_res=`grep -m 1 "|path closed|path:0|" slog`
+        cli_res=`grep -m 1 "|path closed|path:0|" clog`
         if [ -n "$svr_res" ] && [ -n "$cli_res" ]; then
             break
         fi
         sleep 0.2
     done
+    errlog=`grep_err_log`
     if [ -z "$errlog" ] && [ -z "$result_fail" ] && [ -n "$result_pass" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
         mpns_loss_close_initial_pass=1
         break
@@ -157,8 +158,10 @@ else
     [ -n "$svr_res" ] && svr_closed_hit=1 || svr_closed_hit=0
     [ -n "$cli_res" ] && cli_closed_hit=1 || cli_closed_hit=0
     [ -n "$errlog" ] && errlog_hit=1 || errlog_hit=0
+    svr_closed_count=`grep -c "|path closed|path:0|" slog`
+    cli_closed_count=`grep -c "|path closed|path:0|" clog`
     echo ">>>>>>>> pass:0"
-    echo "[mpns-loss-close-initial]|result_pass:${result_pass_hit}|result_fail:${result_fail_hit}|svr_closed:${svr_closed_hit}|cli_closed:${cli_closed_hit}|errlog:${errlog_hit}|"
+    echo "[mpns-loss-close-initial]|attempt:${mpns_loss_close_initial_attempt}|client_status:${client_status}|result_pass:${result_pass_hit}|result_fail:${result_fail_hit}|svr_closed:${svr_closed_hit}|cli_closed:${cli_closed_hit}|svr_closed_count:${svr_closed_count}|cli_closed_count:${cli_closed_count}|errlog:${errlog_hit}|"
     case_print_result "MPNS_multipath_30_percent_loss_close_initial_path" "fail"
 fi
 }

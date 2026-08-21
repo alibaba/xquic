@@ -461,11 +461,11 @@ xqc_packet_parse_initial(xqc_connection_t *c, xqc_packet_in_t *packet_in)
     packet_in->pi_pkt.pkt_type = XQC_PTYPE_INIT;
     packet_in->pi_pkt.pkt_pns = XQC_PNS_INIT;
 
-    /* The smallest length of udp datagrams carrying initial packet frome client is 1200  */
+    /* RFC 9000 Section 14.1 applies the minimum to the UDP datagram. */
     if (c->conn_type == XQC_CONN_TYPE_SERVER) {
-        if (XQC_BUFF_LEFT_SIZE(packet_in->buf, end) < XQC_PACKET_INITIAL_MIN_LENGTH) {
+        if (packet_in->datagram_size < XQC_PACKET_INITIAL_MIN_LENGTH) {
             xqc_log(c->log, XQC_LOG_ERROR, "|initial size too small|%z|",
-                    (size_t)XQC_BUFF_LEFT_SIZE(packet_in->buf, end));
+                    packet_in->datagram_size);
             XQC_CONN_ERR(c, TRA_PROTOCOL_VIOLATION);
             return -XQC_EILLPKT;
         }

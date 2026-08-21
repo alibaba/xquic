@@ -14,6 +14,8 @@ void xqc_test_empty_pkt();
 void xqc_test_stateless_reset_parse_boundary(void);
 void xqc_test_coalesced_matching_dcid_processed(void);
 void xqc_test_coalesced_mismatching_dcid_ignored(void);
+void xqc_test_coalesced_initial_datagram_minimum(void);
+void xqc_test_coalesced_initial_datagram_too_small(void);
 
 
 #endif

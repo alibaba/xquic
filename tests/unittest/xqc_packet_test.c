@@ -529,7 +529,7 @@ xqc_test_coalesced_teardown(test_ctx *cli, test_ctx *svr)
 static size_t
 xqc_test_build_initial(test_ctx *cli, const xqc_cid_t *dcid,
     xqc_packet_number_t packet_number, xqc_bool_t connection_close,
-    unsigned char *buf, size_t buf_cap)
+    size_t packet_size, unsigned char *buf, size_t buf_cap)
 {
     xqc_packet_out_t *packet_out;
     size_t encrypted_size = 0;
@@ -571,12 +571,12 @@ xqc_test_build_initial(test_ctx *cli, const xqc_cid_t *dcid,
     }
 
     if (packet_out->po_used_size + XQC_TLS_AEAD_OVERHEAD_MAX_LEN
-        >= XQC_TEST_COALESCED_PACKET_SIZE)
+        >= packet_size)
     {
         goto end;
     }
 
-    padding_size = XQC_TEST_COALESCED_PACKET_SIZE
+    padding_size = packet_size
                    - packet_out->po_used_size
                    - XQC_TLS_AEAD_OVERHEAD_MAX_LEN;
     memset(packet_out->po_buf + packet_out->po_used_size, 0, padding_size);
@@ -615,10 +615,10 @@ xqc_test_coalesced_matching_dcid_processed(void)
 
     first_size = xqc_test_build_initial(
         &cli, &cli.c->dcid_set.current_dcid, 1, XQC_FALSE,
-        first, sizeof(first));
+        XQC_TEST_COALESCED_PACKET_SIZE, first, sizeof(first));
     second_size = xqc_test_build_initial(
         &cli, &cli.c->dcid_set.current_dcid, 2, XQC_TRUE,
-        second, sizeof(second));
+        XQC_TEST_COALESCED_PACKET_SIZE, second, sizeof(second));
     CU_ASSERT_NOT_EQUAL(first_size, 0);
     CU_ASSERT_NOT_EQUAL(second_size, 0);
     if (first_size == 0 || second_size == 0) {
@@ -674,9 +674,13 @@ xqc_test_coalesced_mismatching_dcid_ignored(void)
     dropped_count = svr.c->packet_dropped_count;
 
     first_size = xqc_test_build_initial(&cli, &matching_dcid, 1,
-                                        XQC_FALSE, first, sizeof(first));
+                                        XQC_FALSE,
+                                        XQC_TEST_COALESCED_PACKET_SIZE,
+                                        first, sizeof(first));
     second_size = xqc_test_build_initial(&cli, &mismatching_dcid, 2,
-                                         XQC_TRUE, second, sizeof(second));
+                                         XQC_TRUE,
+                                         XQC_TEST_COALESCED_PACKET_SIZE,
+                                         second, sizeof(second));
     CU_ASSERT_NOT_EQUAL(first_size, 0);
     CU_ASSERT_NOT_EQUAL(second_size, 0);
     if (first_size == 0 || second_size == 0) {
@@ -695,11 +699,17 @@ xqc_test_coalesced_mismatching_dcid_ignored(void)
     CU_ASSERT_EQUAL(svr.c->packet_dropped_count, dropped_count);
 
     first_size = xqc_test_build_initial(&cli, &matching_dcid, 3,
-                                        XQC_FALSE, first, sizeof(first));
+                                        XQC_FALSE,
+                                        XQC_TEST_COALESCED_PACKET_SIZE,
+                                        first, sizeof(first));
     second_size = xqc_test_build_initial(&cli, &mismatching_dcid, 4,
-                                         XQC_FALSE, second, sizeof(second));
+                                         XQC_FALSE,
+                                         XQC_TEST_COALESCED_PACKET_SIZE,
+                                         second, sizeof(second));
     third_size = xqc_test_build_initial(&cli, &matching_dcid, 5,
-                                        XQC_TRUE, third, sizeof(third));
+                                        XQC_TRUE,
+                                        XQC_TEST_COALESCED_PACKET_SIZE,
+                                        third, sizeof(third));
     CU_ASSERT_NOT_EQUAL(first_size, 0);
     CU_ASSERT_NOT_EQUAL(second_size, 0);
     CU_ASSERT_NOT_EQUAL(third_size, 0);
@@ -721,6 +731,103 @@ xqc_test_coalesced_mismatching_dcid_ignored(void)
     CU_ASSERT_NOT_EQUAL(svr.c->conn_close_recv_time, 0);
     CU_ASSERT(svr.c->conn_state >= XQC_CONN_STATE_DRAINING);
     CU_ASSERT_EQUAL(svr.c->packet_dropped_count, dropped_count);
+
+    xqc_test_coalesced_teardown(&cli, &svr);
+}
+
+
+void
+xqc_test_coalesced_initial_datagram_minimum(void)
+{
+    test_ctx cli = {0};
+    test_ctx svr = {0};
+    unsigned char first[XQC_PACKET_INITIAL_MIN_LENGTH];
+    unsigned char second[XQC_PACKET_INITIAL_MIN_LENGTH];
+    unsigned char datagram[XQC_PACKET_INITIAL_MIN_LENGTH];
+    size_t packet_size = XQC_PACKET_INITIAL_MIN_LENGTH / 2;
+    size_t first_size;
+    size_t second_size;
+    xqc_int_t ret;
+
+    ret = xqc_test_coalesced_setup(&cli, &svr);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    if (ret != XQC_OK) {
+        xqc_test_coalesced_teardown(&cli, &svr);
+        return;
+    }
+
+    first_size = xqc_test_build_initial(
+        &cli, &cli.c->dcid_set.current_dcid, 1, XQC_FALSE, packet_size,
+        first, sizeof(first));
+    second_size = xqc_test_build_initial(
+        &cli, &cli.c->dcid_set.current_dcid, 2, XQC_TRUE, packet_size,
+        second, sizeof(second));
+    CU_ASSERT_EQUAL(first_size, packet_size);
+    CU_ASSERT_EQUAL(second_size, packet_size);
+    if (first_size != packet_size || second_size != packet_size) {
+        xqc_test_coalesced_teardown(&cli, &svr);
+        return;
+    }
+
+    memcpy(datagram, first, first_size);
+    memcpy(datagram + first_size, second, second_size);
+
+    /* RFC 9000 Sections 12.2 and 14.1 allow expansion by coalescing. */
+    ret = xqc_conn_process_packet(svr.c, datagram, sizeof(datagram),
+                                  xqc_now());
+
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_NOT_EQUAL(svr.c->conn_close_recv_time, 0);
+    CU_ASSERT(svr.c->conn_state >= XQC_CONN_STATE_DRAINING);
+
+    xqc_test_coalesced_teardown(&cli, &svr);
+}
+
+
+void
+xqc_test_coalesced_initial_datagram_too_small(void)
+{
+    test_ctx cli = {0};
+    test_ctx svr = {0};
+    unsigned char first[XQC_PACKET_INITIAL_MIN_LENGTH];
+    unsigned char second[XQC_PACKET_INITIAL_MIN_LENGTH];
+    unsigned char datagram[XQC_PACKET_INITIAL_MIN_LENGTH - 1];
+    size_t first_packet_size = XQC_PACKET_INITIAL_MIN_LENGTH / 2;
+    size_t second_packet_size = sizeof(datagram) - first_packet_size;
+    size_t first_size;
+    size_t second_size;
+    xqc_int_t ret;
+
+    ret = xqc_test_coalesced_setup(&cli, &svr);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    if (ret != XQC_OK) {
+        xqc_test_coalesced_teardown(&cli, &svr);
+        return;
+    }
+
+    first_size = xqc_test_build_initial(
+        &cli, &cli.c->dcid_set.current_dcid, 1, XQC_FALSE,
+        first_packet_size, first, sizeof(first));
+    second_size = xqc_test_build_initial(
+        &cli, &cli.c->dcid_set.current_dcid, 2, XQC_TRUE,
+        second_packet_size, second, sizeof(second));
+    CU_ASSERT_EQUAL(first_size, first_packet_size);
+    CU_ASSERT_EQUAL(second_size, second_packet_size);
+    if (first_size != first_packet_size || second_size != second_packet_size) {
+        xqc_test_coalesced_teardown(&cli, &svr);
+        return;
+    }
+
+    memcpy(datagram, first, first_size);
+    memcpy(datagram + first_size, second, second_size);
+
+    /* RFC 9000 Section 14.1 rejects an undersized Initial datagram. */
+    ret = xqc_conn_process_packet(svr.c, datagram, sizeof(datagram),
+                                  xqc_now());
+
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(svr.c->conn_err, TRA_PROTOCOL_VIOLATION);
+    CU_ASSERT_EQUAL(svr.c->conn_close_recv_time, 0);
 
     xqc_test_coalesced_teardown(&cli, &svr);
 }

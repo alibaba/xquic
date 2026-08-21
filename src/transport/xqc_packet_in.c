@@ -17,6 +17,7 @@ xqc_packet_in_init(xqc_packet_in_t *packet_in,
 {
     packet_in->buf = packet_in_buf;
     packet_in->buf_size = packet_in_size;
+    packet_in->datagram_size = packet_in_size;
     packet_in->decode_payload = decode_payload;
     packet_in->decode_payload_size = decode_payload_size;
     packet_in->pos = (unsigned char *)packet_in_buf;
@@ -31,4 +32,3 @@ xqc_packet_in_destroy(xqc_packet_in_t *packet_in, xqc_connection_t *conn)
     xqc_free((void *)packet_in->decode_payload);
     xqc_free(packet_in);
 }
-

@@ -5107,6 +5107,7 @@ xqc_conn_process_packet(xqc_connection_t *c,
         xqc_packet_in_t *packet_in = &packet;
         memset(packet_in, 0, sizeof(*packet_in));
         xqc_packet_in_init(packet_in, pos, end - pos, decrypt_payload, XQC_MAX_PACKET_IN_LEN, recv_time);
+        packet_in->datagram_size = packet_in_size;
 
         packet_in->pi_path_id = XQC_UNKNOWN_PATH_ID;
 

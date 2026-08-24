@@ -199,7 +199,7 @@ xqc_packet_parse_single(xqc_connection_t *c, xqc_packet_in_t *packet_in)
 
         if (XQC_PTYPE_INIT == XQC_PACKET_LONG_HEADER_GET_TYPE(pos)) {
             if (c->conn_type == XQC_CONN_TYPE_SERVER && !(c->conn_flag & XQC_CONN_FLAG_SERVER_ACCEPT)) {
-                return xqc_conn_server_accept(c); 
+                return xqc_conn_server_accept(c, packet_in);
             }
         }
 

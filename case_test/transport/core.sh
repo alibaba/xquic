@@ -1011,6 +1011,66 @@ rm -f test_session xqc_token tp_localhost
 
 }
 
+case_transport_core_retry_invalid_token_close()
+{
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "retry invalid token closes connection ...\c"
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -x 715 > svr_stdlog
+sleep 1
+${CLIENT_BIN} -s 1024 -l d -t 2 -E -x 715 > stdlog 2>&1
+corrupted=`grep "\[retry-token-test\]|corrupt_retry_token" stdlog`
+retry_enabled=`grep "\[retry-token-test\]|retry_enabled|case:715" svr_stdlog`
+invalid_token=`grep -E "(conn_err:11|err:0xb|TRA_INVALID_TOKEN)" stdlog slog svr_stdlog 2>/dev/null`
+if [ -n "$corrupted" ] && [ -n "$retry_enabled" ] && [ -n "$invalid_token" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "retry_invalid_token_close" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "retry_invalid_token_close" "fail"
+    echo "$corrupted"
+    echo "$retry_enabled"
+    echo "$invalid_token"
+fi
+rm -rf tp_localhost test_session xqc_token
+}
+
+case_transport_core_retry_ignore_old_initial_dcid()
+{
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "retry ignores old Initial DCID after Retry ...\c"
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -x 716 > svr_stdlog
+sleep 1
+${CLIENT_BIN} -s 1024 -l d -t 2 -E -x 716 > stdlog 2>&1
+large_sni=`grep "\[retry-token-test\]|large_sni_len" stdlog`
+saved=`grep "\[retry-token-test\]|save_original_initial" stdlog`
+replayed=`grep "\[retry-token-test\]|replay_original_initial" stdlog`
+retry_enabled=`grep "\[retry-token-test\]|retry_enabled|case:716" svr_stdlog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+invalid_token=`grep -E "(conn_err:11|err:0xb|TRA_INVALID_TOKEN)" stdlog slog svr_stdlog 2>/dev/null`
+if [ -n "$large_sni" ] && [ -n "$saved" ] && [ -n "$replayed" ] \
+    && [ -n "$retry_enabled" ] && [ "$result" == ">>>>>>>> pass:1" ] \
+    && [ -z "$invalid_token" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "retry_ignore_old_initial_dcid" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "retry_ignore_old_initial_dcid" "fail"
+    echo "$large_sni"
+    echo "$saved"
+    echo "$replayed"
+    echo "$retry_enabled"
+    echo "$result"
+    echo "$invalid_token"
+fi
+rm -rf tp_localhost test_session xqc_token
+}
+
 case_test_case "log_switch_off" --id native --mode self-reporting --run case_transport_core_log_switch_off
 case_test_case "server_refuse" --id native --mode self-reporting --run case_transport_core_server_refuse
 case_test_case "create_connection_fail" --id native --mode self-reporting --run case_transport_core_create_connection_fail
@@ -1031,6 +1091,8 @@ case_test_case "active_cid_limit_minimum_accept" --id native --mode self-reporti
 case_test_case "active_cid_limit_below_minimum" --id native --mode self-reporting --run case_transport_core_active_cid_limit_below_minimum
 case_test_case "max_ack_delay_valid_boundary" --id native --mode self-reporting --run case_transport_core_max_ack_delay_valid_boundary
 case_test_case "max_ack_delay_invalid_boundary" --id native --mode self-reporting --run case_transport_core_max_ack_delay_invalid_boundary
+case_test_case "retry_invalid_token_close" --id 715 --mode self-reporting --run case_transport_core_retry_invalid_token_close
+case_test_case "retry_ignore_old_initial_dcid" --id 716 --mode self-reporting --run case_transport_core_retry_ignore_old_initial_dcid
 case_test_case "new_client_29_&_new_server" --id native --mode self-reporting --run case_transport_core_new_client_29_new_server
 case_test_case "load_balancer_cid_generate_with_encryption" --id native --mode self-reporting --run case_transport_core_load_balancer_cid_generate_with_encryption
 case_test_case "load_balancer_cid_generate" --id native --mode self-reporting --run case_transport_core_load_balancer_cid_generate

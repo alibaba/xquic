@@ -80,3 +80,62 @@ xqc_test_retry_same_length_dcid()
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+void
+xqc_test_retry_invalid_token_close()
+{
+    static const unsigned char retry_scid_buf[] = "retrycid";
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_packet_in_t packet_in;
+    memset(&packet_in, 0, sizeof(packet_in));
+
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    conn->conn_flag |= XQC_CONN_FLAG_RETRY_SENT;
+    conn->conn_flag &= ~XQC_CONN_FLAG_TOKEN_OK;
+    conn->conn_token_len = 0;
+    conn->conn_err = 0;
+    conn->version = XQC_VERSION_V1;
+    xqc_cid_set(&conn->retry_scid, retry_scid_buf, sizeof(retry_scid_buf) - 1);
+    xqc_cid_copy(&packet_in.pi_pkt.pkt_dcid, &conn->retry_scid);
+
+    xqc_int_t ret = xqc_conn_server_accept(conn, &packet_in);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_INVALID_TOKEN);
+    CU_ASSERT(conn->conn_flag & XQC_CONN_FLAG_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_retry_invalid_token_ignore_original_dcid()
+{
+    static const unsigned char retry_scid_buf[] = "retrycid";
+    static const unsigned char original_dcid_buf[] = "origdcid";
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_packet_in_t packet_in;
+    memset(&packet_in, 0, sizeof(packet_in));
+
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    conn->conn_flag |= XQC_CONN_FLAG_RETRY_SENT;
+    conn->conn_flag &= ~XQC_CONN_FLAG_TOKEN_OK;
+    conn->conn_token_len = 0;
+    conn->conn_err = 0;
+    conn->version = XQC_VERSION_V1;
+    xqc_cid_set(&conn->retry_scid, retry_scid_buf, sizeof(retry_scid_buf) - 1);
+    xqc_cid_set(&packet_in.pi_pkt.pkt_dcid, original_dcid_buf, sizeof(original_dcid_buf) - 1);
+
+    xqc_int_t ret = xqc_conn_server_accept(conn, &packet_in);
+    CU_ASSERT(ret == -XQC_EIGNORE_PKT);
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT(!(conn->conn_flag & XQC_CONN_FLAG_ERROR));
+
+    xqc_engine_destroy(conn->engine);
+}

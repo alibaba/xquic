@@ -353,6 +353,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_retry", xqc_test_retry)
         || !CU_add_test(pSuite, "xqc_test_retry_same_length_dcid",
                         xqc_test_retry_same_length_dcid)
+        || !CU_add_test(pSuite, "xqc_test_retry_invalid_token_close",
+                        xqc_test_retry_invalid_token_close)
+        || !CU_add_test(pSuite, "xqc_test_retry_invalid_token_ignore_original_dcid",
+                        xqc_test_retry_invalid_token_ignore_original_dcid)
         || !CU_add_test(pSuite, "xqc_test_receive_invalid_dgram", xqc_test_receive_invalid_dgram)
         || !CU_add_test(pSuite,
                         "xqc_test_receive_dgram_at_valid_encryption_level",

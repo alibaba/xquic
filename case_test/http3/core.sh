@@ -869,18 +869,29 @@ case_test_start_server ${SERVER_BIN} -l d -e -x 1007 > h3_frame_length_server.lo
 sleep 1
 echo -e "HTTP/3 non-minimal MAX_PUSH_ID length is accepted ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1007 > stdlog
+for wait_idx in 1 2 3 4 5 6 7 8 9 10; do
+    server_ok=`grep "\\[h3-frame-length-test\\]|case:1007|conn_err:0|" \
+        h3_frame_length_server.log`
+    if [ -n "$server_ok" ]; then
+        break
+    fi
+    sleep 0.2
+done
 sent=`grep "\\[h3-frame-length-test\\]|declared:2|actual:2|write:0|send:0|" \
     stdlog`
 received=`grep "|H3_MAX_PUSH_ID|max_push_id:1|" slog`
-server_ok=`grep "\\[h3-frame-length-test\\]|case:1007|conn_err:0|" \
-    h3_frame_length_server.log`
 result=`grep ">>>>>>>> pass:1" stdlog`
 if [ -n "$sent" ] && [ -n "$received" ] && [ -n "$server_ok" ] \
     && [ -n "$result" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "h3_non_minimal_max_push_id_accepted" "pass"
 else
+    [ -n "$sent" ] && sent_hit=1 || sent_hit=0
+    [ -n "$received" ] && received_hit=1 || received_hit=0
+    [ -n "$server_ok" ] && server_ok_hit=1 || server_ok_hit=0
+    [ -n "$result" ] && result_hit=1 || result_hit=0
     echo ">>>>>>>> pass:0"
+    echo "[h3-frame-length-test]|sent:${sent_hit}|received:${received_hit}|server_ok:${server_ok_hit}|result:${result_hit}|"
     case_print_result "h3_non_minimal_max_push_id_accepted" "fail"
 fi
 

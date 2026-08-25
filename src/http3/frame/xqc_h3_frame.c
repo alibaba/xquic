@@ -75,6 +75,11 @@ xqc_h3_frm_reset_pctx(xqc_h3_frame_pctx_t *pctx)
         break;
     case XQC_H3_FRM_MAX_PUSH_ID:
         break;
+    case XQC_H3_FRM_RESERVED_PRIORITY:
+    case XQC_H3_FRM_RESERVED_PING:
+    case XQC_H3_FRM_RESERVED_WINDOW_UPDATE:
+    case XQC_H3_FRM_RESERVED_CONTINUATION:
+        break;
     case XQC_H3_EXT_FRM_BIDI_STREAM_TYPE:
         break;
     case XQC_H3_FRM_UNKNOWN:
@@ -195,6 +200,21 @@ xqc_h3_ext_frm_parse_bidi_stream_type(const unsigned char *p, size_t sz, xqc_h3_
     return pos - p;
 }
 
+xqc_bool_t
+xqc_h3_frm_is_h2_reserved(uint64_t frame_type)
+{
+    switch (frame_type) {
+    case XQC_H3_FRM_RESERVED_PRIORITY:
+    case XQC_H3_FRM_RESERVED_PING:
+    case XQC_H3_FRM_RESERVED_WINDOW_UPDATE:
+    case XQC_H3_FRM_RESERVED_CONTINUATION:
+        return XQC_TRUE;
+    default:
+        return XQC_FALSE;
+    }
+}
+
+
 ssize_t
 xqc_h3_frm_parse_reserved(const unsigned char *p, size_t sz,
     xqc_h3_frame_t *frame, xqc_bool_t *fin)
@@ -233,6 +253,9 @@ xqc_h3_frm_parse(const unsigned char *p, size_t sz, xqc_h3_frame_pctx_t *pctx)
             pctx->frame.type = pctx->pctx.vi;
             xqc_discrete_int_pctx_clear(&pctx->pctx);
             pctx->state = XQC_H3_FRM_STATE_LEN;
+            if (xqc_h3_frm_is_h2_reserved(pctx->frame.type)) {
+                return -XQC_H3_RESERVED_FRAME_UNEXPECTED;
+            }
             fin = 0;
         }
     }

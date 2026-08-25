@@ -1590,6 +1590,56 @@ xqc_test_h3_reserved_control_frame_accepted()
 
 
 void
+xqc_test_h3_h2_reserved_frames_rejected()
+{
+    const unsigned char frame_types[] = {
+        XQC_H3_FRM_RESERVED_PRIORITY,
+        XQC_H3_FRM_RESERVED_PING,
+        XQC_H3_FRM_RESERVED_WINDOW_UPDATE,
+        XQC_H3_FRM_RESERVED_CONTINUATION,
+    };
+
+    for (size_t i = 0; i < sizeof(frame_types); ++i) {
+        unsigned char frame[] = { frame_types[i], 0x00 };
+        xqc_h3_frame_pctx_t pctx = {0};
+        xqc_h3_frm_reset_pctx(&pctx);
+        CU_ASSERT(xqc_h3_frm_parse(frame, sizeof(frame), &pctx)
+                  == -XQC_H3_RESERVED_FRAME_UNEXPECTED);
+        CU_ASSERT(pctx.frame.type == frame_types[i]);
+        CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_LEN);
+
+        xqc_connection_t *conn = NULL;
+        xqc_h3_conn_t *h3c = NULL;
+        xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+        CU_ASSERT_FATAL(h3s != NULL);
+        CU_ASSERT_FATAL(xqc_h3_ctrl_feed_settings(h3s) > 0);
+
+        CU_ASSERT(xqc_h3_stream_process_control(h3s, frame, sizeof(frame))
+                  == -XQC_H3_RESERVED_FRAME_UNEXPECTED);
+        CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_FRAME_UNEXPECTED);
+        CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+        CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
+        xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+
+        conn = NULL;
+        h3c = NULL;
+        h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+        CU_ASSERT_FATAL(h3s != NULL);
+        conn->conn_type = XQC_CONN_TYPE_SERVER;
+
+        CU_ASSERT(xqc_h3_stream_process_in(h3s, frame, sizeof(frame),
+                  XQC_FALSE) == -XQC_H3_EPROC_REQUEST);
+        CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_FRAME_UNEXPECTED);
+        CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+        CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
+        xqc_h3_msgerr_teardown(h3s, h3c, conn);
+    }
+
+    CU_ASSERT(xqc_h3_frm_is_h2_reserved(0x21) == XQC_FALSE);
+}
+
+
+void
 xqc_test_h3_cancel_push_rejected()
 {
     xqc_connection_t *conn = NULL;

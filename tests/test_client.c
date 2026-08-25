@@ -87,6 +87,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT 1012
 #define XQC_TEST_CASE_H3_LOWERCASE_RESPONSE 1013
 #define XQC_TEST_CASE_H3_UPPERCASE_RESPONSE 1014
+#define XQC_TEST_CASE_H3_H2_RESERVED_REQUEST_FRAME 1015
+#define XQC_TEST_CASE_H3_H2_RESERVED_CONTROL_FRAME 1016
 #define XQC_TEST_CASE_H3_GOAWAY_DECREASE 1017
 #define XQC_TEST_CASE_H3_GOAWAY_INCREASE 1018
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_BELOW_LIMIT 902
@@ -2016,7 +2018,8 @@ xqc_client_h3_conn_close_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void 
         fflush(stdout);
 
     } else if (g_test_case == XQC_TEST_CASE_H3_RESERVED_CONTROL_FRAME
-        || g_test_case == XQC_TEST_CASE_H3_CANCEL_PUSH_UNSET)
+        || g_test_case == XQC_TEST_CASE_H3_CANCEL_PUSH_UNSET
+        || g_test_case == XQC_TEST_CASE_H3_H2_RESERVED_CONTROL_FRAME)
     {
         printf("[h3-control-frame-test]|case:%d|conn_err:%d|\n",
                g_test_case, stats.conn_err);
@@ -2297,7 +2300,7 @@ xqc_client_send_test_request_frame(xqc_h3_request_t *h3_request,
                                             XQC_FALSE);
 
     } else {
-        unsigned char frame[] = { 0x21, 0x00 };
+        unsigned char frame[] = { (unsigned char)frame_type, 0x00 };
         ret = xqc_var_buf_save_data(buf, frame, sizeof(frame));
         if (ret == XQC_OK) {
             ret = xqc_list_buf_to_tail(&h3_stream->send_buf, buf);
@@ -2869,12 +2872,16 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
 
     if (!user_stream->h3_test_frame_queued
         && (g_test_case == XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME
-            || g_test_case == XQC_TEST_CASE_H3_CLIENT_PUSH_PROMISE))
+            || g_test_case == XQC_TEST_CASE_H3_CLIENT_PUSH_PROMISE
+            || g_test_case == XQC_TEST_CASE_H3_H2_RESERVED_REQUEST_FRAME))
     {
-        uint64_t frame_type =
-            g_test_case == XQC_TEST_CASE_H3_CLIENT_PUSH_PROMISE
-            ? XQC_H3_FRM_PUSH_PROMISE
-            : 0x21;
+        uint64_t frame_type = XQC_H3_FRM_RESERVED_PRIORITY;
+        if (g_test_case == XQC_TEST_CASE_H3_CLIENT_PUSH_PROMISE) {
+            frame_type = XQC_H3_FRM_PUSH_PROMISE;
+
+        } else if (g_test_case == XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME) {
+            frame_type = 0x21;
+        }
         ret = xqc_client_send_test_request_frame(h3_request, frame_type);
         if (ret != XQC_OK) {
             return ret;
@@ -2883,7 +2890,8 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
     }
 
     if (g_test_case == XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME
-        || g_test_case == XQC_TEST_CASE_H3_CLIENT_PUSH_PROMISE)
+        || g_test_case == XQC_TEST_CASE_H3_CLIENT_PUSH_PROMISE
+        || g_test_case == XQC_TEST_CASE_H3_H2_RESERVED_REQUEST_FRAME)
     {
         return XQC_OK;
     }

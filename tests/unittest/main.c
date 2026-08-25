@@ -306,6 +306,9 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_h3_reserved_control_frame_accepted",
                         xqc_test_h3_reserved_control_frame_accepted)
+        || !CU_add_test(pSuite,
+                        "xqc_test_h3_h2_reserved_frames_rejected",
+                        xqc_test_h3_h2_reserved_frames_rejected)
         || !CU_add_test(pSuite, "xqc_test_h3_cancel_push_rejected",
                         xqc_test_h3_cancel_push_rejected)
         /* RFC 9114 §4.2.2 field-section-size 32B overhead (issue 751) */

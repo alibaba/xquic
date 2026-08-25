@@ -255,6 +255,10 @@ main(int argc, char *argv[])
                         xqc_test_h3_max_push_id_valid)
         || !CU_add_test(pSuite, "xqc_test_h3_max_push_id_errors",
                         xqc_test_h3_max_push_id_errors)
+        || !CU_add_test(pSuite, "xqc_test_h3_goaway_id_valid",
+                        xqc_test_h3_goaway_id_valid)
+        || !CU_add_test(pSuite, "xqc_test_h3_goaway_id_increase_rejected",
+                        xqc_test_h3_goaway_id_increase_rejected)
         || !CU_add_test(pSuite,
                         "xqc_test_h3_reserved_control_frame_accepted",
                         xqc_test_h3_reserved_control_frame_accepted)

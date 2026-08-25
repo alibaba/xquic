@@ -87,6 +87,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT 1012
 #define XQC_TEST_CASE_H3_LOWERCASE_RESPONSE 1013
 #define XQC_TEST_CASE_H3_UPPERCASE_RESPONSE 1014
+#define XQC_TEST_CASE_H3_GOAWAY_DECREASE 1017
+#define XQC_TEST_CASE_H3_GOAWAY_INCREASE 1018
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_BELOW_LIMIT 902
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT 903
 
@@ -97,6 +99,8 @@ static void xqc_client_send_test_uni_stream(xqc_h3_conn_t *h3_conn,
 static xqc_int_t xqc_client_send_test_request_frame(
     xqc_h3_request_t *h3_request, uint64_t frame_type);
 static void xqc_client_send_test_max_push_ids(xqc_h3_conn_t *h3_conn,
+    uint64_t first, uint64_t second);
+static void xqc_client_send_test_goaway_ids(xqc_h3_conn_t *h3_conn,
     uint64_t first, uint64_t second);
 static void xqc_client_send_test_single_vint_frame(
     xqc_h3_conn_t *h3_conn, xqc_bool_t overlong);
@@ -2175,6 +2179,12 @@ xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
     } else if (g_test_case == XQC_TEST_CASE_H3_MAX_PUSH_ID_DECREASE) {
         xqc_client_send_test_max_push_ids(h3_conn, 3, 1);
 
+    } else if (g_test_case == XQC_TEST_CASE_H3_GOAWAY_DECREASE) {
+        xqc_client_send_test_goaway_ids(h3_conn, 3, 1);
+
+    } else if (g_test_case == XQC_TEST_CASE_H3_GOAWAY_INCREASE) {
+        xqc_client_send_test_goaway_ids(h3_conn, 1, 3);
+
     } else if (g_test_case == XQC_TEST_CASE_H3_SINGLE_VINT_VALID) {
         xqc_client_send_test_single_vint_frame(h3_conn, XQC_FALSE);
 
@@ -2261,6 +2271,23 @@ xqc_client_send_test_max_push_ids(xqc_h3_conn_t *h3_conn,
     xqc_int_t send_ret = xqc_h3_stream_send_buffer(control);
 
     printf("[h3-max-push-id-test]|first:%" PRIu64 "|second:%" PRIu64
+           "|write:%d,%d|send:%d|\n",
+           first, second, first_ret, second_ret, send_ret);
+}
+
+
+static void
+xqc_client_send_test_goaway_ids(xqc_h3_conn_t *h3_conn,
+    uint64_t first, uint64_t second)
+{
+    xqc_h3_stream_t *control = h3_conn->control_stream_out;
+    xqc_int_t first_ret = xqc_h3_frm_write_goaway(
+        &control->send_buf, first, XQC_FALSE);
+    xqc_int_t second_ret = xqc_h3_frm_write_goaway(
+        &control->send_buf, second, XQC_FALSE);
+    xqc_int_t send_ret = xqc_h3_stream_send_buffer(control);
+
+    printf("[h3-goaway-test]|first:%" PRIu64 "|second:%" PRIu64
            "|write:%d,%d|send:%d|\n",
            first, second, first_ret, second_ret, send_ret);
 }

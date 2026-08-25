@@ -3,14 +3,18 @@
 ## Purpose and Scope
 
 This document defines only the XQUIC-specific implementation architecture,
-object ownership, module interfaces, public C API, and migration constraints
-for WebTransport over HTTP/3. It does not redefine the WebTransport protocol.
+object ownership, binding interfaces, public C API, and migration constraints
+for WebTransport. It does not redefine any WebTransport protocol binding.
 
-The initial implementation target is the native HTTP/3 binding in
+The default built-in implementation targets the native HTTP/3 binding in
 [`draft-ietf-webtrans-http3-16`](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-16).
-Before implementation or review begins, the version-independent
-[IETF Datatracker entry](https://datatracker.ietf.org/doc/draft-ietf-webtrans-http3/)
-must be checked for a newer draft or a published RFC.
+The common core and binding interface also reserve an integration path for the
+capsule-based binding in
+[`draft-ietf-webtrans-http2-15`](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http2-15).
+Before implementation or review begins, the version-independent IETF entries
+for [HTTP/3](https://datatracker.ietf.org/doc/draft-ietf-webtrans-http3/) and
+[HTTP/2](https://datatracker.ietf.org/doc/draft-ietf-webtrans-http2/) must be
+checked for a newer draft or a published RFC.
 
 This is a target design. Existing prototype symbols under
 `include/xquic/xqc_webtransport.h` and `src/webtransport/` do not establish
@@ -20,7 +24,7 @@ conformance with this document.
 
 An XQUIC WebTransport implementation must satisfy both:
 
-1. the governing IETF WebTransport over HTTP/3 specification; and
+1. the governing IETF specification for its selected binding; and
 2. the XQUIC implementation and API requirements in this document.
 
 The governing IETF source owns all protocol behavior, including wire values,
@@ -66,63 +70,150 @@ protocol requirements:
 - [Section 7.1](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-16#section-7.1)
   governs draft compatibility. This document owns version tables and codec
   selection.
+- [HTTP/2 Sections 2 and 5](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http2-15#section-2)
+  govern the capsule-based transport model and properties. This document owns
+  the external carrier callback boundary and its translation into common
+  WebTransport events.
+- [HTTP/2 Appendix A](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http2-15#appendix-A)
+  describes reuse with other HTTP versions. This document owns how XQUIC
+  registers additional carrier implementations.
 
 ## Design Scope
 
-The first production implementation supports native WebTransport over HTTP/3.
-Capsule-based WebTransport data transport, HTTP/2 transport, and intermediary
-translation are outside this implementation scope. This scope decision does
-not alter any requirement for the supported native binding.
+The first production implementation ships native WebTransport over HTTP/3.
+The core object model and public application API are binding-neutral. A
+lightweight callback interface allows a future capsule binding to be driven by
+an external HTTP/2 implementation without adding an HTTP/2 stack to XQUIC.
 
-XQUIC exposes WebTransport as an application-facing service above HTTP/3 and
-uses QUIC streams, QUIC DATAGRAM, and TLS through internal adapters. Protocol
-encoding and decoding remain internal; applications operate on sessions,
-streams, datagrams, and application error values.
+The abstraction is:
 
-The implementation must allow ordinary HTTP/3 requests and multiple
-WebTransport sessions to share one HTTP/3 connection. A session is therefore
-not represented as a QUIC connection and does not own connection-wide
-application user data.
+```text
+Common WebTransport abstraction
+  session / stream / datagram / close / drain / flow control
+                       |
+          +------------+------------+
+          |                         |
+   HTTP/3 native binding      HTTP/2 capsule binding
+   QUIC stream/datagram       CONNECT stream + Capsule
+```
+
+Applications operate on common sessions, streams, datagrams, and application
+errors. A binding translates those operations to its carrier. Protocol
+encoding and decoding remain below the common API.
+
+`xqc_wt_session_t` is the central WebTransport entity. It is neither an HTTP/3
+request nor a QUIC connection. It is associated with one abstract carrier,
+while the carrier can host multiple sessions when its governing binding
+permits pooling.
 
 ## Ownership and Object Model
 
 The target ownership hierarchy is:
 
 ```text
-xqc_engine_t
-  `- xqc_h3_conn_t
-       |- ordinary HTTP/3 request objects
-       `- internal WebTransport connection state
-            |- capability and version state
-            |- session registry
-            |- bounded unresolved-input registries
-            `- xqc_wt_session_t
-                 |- carrier request reference
-                 |- xqc_wt_stream_t children
-                 |- datagram state
-                 `- session flow-control accounting
+xqc_wt_ctx_t
+  `- xqc_wt_carrier_t
+       |- binding operations and private binding data
+       |- negotiated capabilities and transport properties
+       |- session and unresolved-input registries
+       `- xqc_wt_session_t
+            |- binding-neutral session state and callbacks
+            |- binding-specific session handle
+            |- xqc_wt_stream_t children
+            |- datagram state
+            `- session flow-control accounting
 ```
 
-`xqc_wt_session_t` and `xqc_wt_stream_t` are public opaque handles. The
-connection extension state, request adapter, protocol codec, flow-control
-accounting, and unresolved-input registries are private.
+`xqc_wt_ctx_t`, `xqc_wt_carrier_t`, `xqc_wt_session_t`, and
+`xqc_wt_stream_t` are opaque handles. The carrier owns the lookup references
+that bind sessions to one underlying connection. The common WebTransport core
+owns session and stream memory and releases it only after final callbacks.
 
-The WebTransport connection state is allocated and freed with
-`xqc_h3_conn_t`. It must not replace or alias any of the following:
+The carrier binding borrows its underlying HTTP connection and CONNECT-stream
+objects. Closing the underlying carrier notifies the common core, which then
+terminates affected sessions using the binding's governing IETF rules.
+
+The default HTTP/3 binding may store a non-owning carrier reference on
+`xqc_h3_conn_t` for dispatch. It must not make `xqc_h3_conn_t` the owner or
+public identity of a WebTransport session.
+
+No carrier or session state may replace or alias:
 
 - `xqc_engine_t.user_data`;
-- HTTP/3 connection application data;
-- QUIC transport application data; or
-- another HTTP/3 extension's private state.
+- HTTP connection application data;
+- underlying transport application data; or
+- another protocol extension's private state.
 
 A session owns its WebTransport stream handles and session-scoped pending
-callbacks. It borrows its carrier HTTP/3 connection and transport objects.
-Connection teardown invalidates sessions only after their close callbacks have
-completed.
+callbacks. Carrier teardown invalidates sessions only after their close
+callbacks have completed.
 
 ## Internal Integration Design
 
-### HTTP/3 Extension Boundary
+### Carrier Binding Interface
+
+The common core communicates with every underlying protocol through a small
+`xqc_wt_binding_ops_t` interface. The interface exchanges WebTransport
+semantic operations and events; it does not expose HTTP/3 or QUIC object
+layouts.
+
+"Lightweight" describes the narrow callback boundary, not a stateless
+implementation. A binding retains only the protocol-specific stream maps,
+codec state, and carrier flow-control state required by its governing IETF
+specification; application session policy remains in the common core.
+
+```text
+xqc_wt_session_t / xqc_wt_stream_t
+                 |
+        xqc_wt_binding_ops_t
+          |               |
+  built-in H3 binding     capsule binding
+  XQUIC H3/QUIC objects   WT Capsule codec
+                                  |
+                         capsule I/O callbacks
+                                  |
+                         external HTTP/2 stack
+```
+
+The outbound binding operations cover:
+
+- opening, sending, finishing, resetting, and stopping a stream;
+- sending a datagram;
+- accepting, rejecting, closing, and draining a session;
+- deriving session exporter material;
+- querying readiness, writable state, payload limits, and transport
+  properties; and
+- releasing binding-owned session and stream handles.
+
+The inbound core entry points cover:
+
+- carrier readiness, drain, and close;
+- incoming session requests and session establishment results;
+- stream creation, readable, writable, reset, and close events;
+- datagram delivery and optional delivery-status events; and
+- binding-specific flow-control updates translated into common credit.
+
+Each operation carries an opaque binding handle. Input buffers are borrowed
+only for the duration of the call unless the receiver explicitly copies them.
+Callbacks must not retain HTTP/2, HTTP/3, or QUIC objects in common core
+structures.
+
+The binding reports transport properties separately from API availability.
+An application can therefore use the same session and stream API while
+discovering whether a carrier provides unreliable datagrams, stream
+independence, pooling, or delivery-status notifications.
+
+### Default HTTP/3 Binding
+
+XQUIC provides the default `h3-native` binding. It translates common
+WebTransport operations directly to XQUIC HTTP/3 connection and request
+objects, native QUIC streams, QUIC DATAGRAM, and the XQUIC TLS exporter.
+
+The binding is registered automatically by the WebTransport HTTP/3
+integration helper. Applications using the built-in path do not implement
+`xqc_wt_binding_ops_t` and do not pass internal H3 objects to the common API.
+
+#### HTTP/3 Extension Boundary
 
 `src/http3/` remains responsible for generic HTTP/3 connection and stream
 mechanisms. It exposes an internal extension interface that allows the
@@ -149,10 +240,10 @@ WebTransport stream abstraction. A shared internal dispatch primitive is
 acceptable only when the two extensions retain separate protocol codecs and
 lifetimes.
 
-### QUIC Transport Boundary
+#### QUIC Transport Boundary
 
 `src/transport/` remains unaware of WebTransport sessions. It supplies stable
-internal operations for the WebTransport and HTTP/3 layers to:
+internal operations for the `h3-native` binding and HTTP/3 layer to:
 
 - create and operate native unidirectional and bidirectional streams;
 - expose stream direction and initiator metadata;
@@ -164,30 +255,73 @@ internal operations for the WebTransport and HTTP/3 layers to:
 
 Transport APIs report QUIC state and errors without translating them into
 WebTransport application errors. That translation belongs to the
-WebTransport protocol adapter.
+HTTP/3 binding.
+
+### External Capsule Binding
+
+The capsule binding permits integration with an HTTP/2 implementation that is
+not part of XQUIC. The external adapter owns:
+
+- HTTP/2 connection and stream lifetime;
+- Extended CONNECT request and response framing;
+- HTTP/2 SETTINGS and DATA frame parsing;
+- generic Capsule envelope parsing and serialization; and
+- delivery of parsed settings, writable, drain, and close events.
+
+The capsule binding, rather than the external stack, validates the
+WebTransport-specific settings and fields and decides carrier readiness.
+
+For input, the external adapter passes the CONNECT-stream identity, Capsule
+type, and complete Capsule payload to the XQUIC capsule binding. The capsule
+binding validates and decodes WebTransport-specific payloads, updates the
+common session and stream objects, and emits application callbacks.
+
+For output, the capsule binding encodes the WebTransport-specific Capsule
+payload and invokes the external adapter's `send_capsule` callback. The
+external adapter wraps it in its HTTP/2 and generic Capsule framing.
+
+This boundary intentionally does not accept already-interpreted WebTransport
+events from arbitrary external parsers. Keeping WebTransport Capsule
+validation in one XQUIC binding prevents different HTTP/2 integrations from
+implementing conflicting protocol semantics.
+
+The capsule binding can also be reused with another HTTP version when the
+governing IETF specification permits the capsule-based protocol. HTTP-version
+negotiation and framing remain the external adapter's responsibility.
 
 ### WebTransport Module
 
-`src/webtransport/` owns:
+The target internal layout is:
 
-- engine-level settings and callback registration;
-- per-HTTP/3-connection capability, version, and session registries;
+```text
+src/webtransport/core/              binding-neutral objects and public API
+src/webtransport/bindings/h3/       built-in XQUIC HTTP/3 native binding
+src/webtransport/bindings/capsule/  external carrier callback integration
+```
+
+The binding-neutral core owns:
+
+- context-level settings and application callback registration;
+- carrier, session, stream, and unresolved-input registries;
 - the application-facing session state machine;
-- incremental protocol-prefix dispatch and session binding;
-- session-scoped datagram routing;
-- capsule handlers and session flow-control accounting;
-- conversion between public application errors and protocol errors; and
+- session-scoped datagram dispatch;
+- common session flow-control accounting;
+- transport-property reporting; and
 - bounded buffering for input whose session cannot yet be resolved.
 
-The module depends on explicit HTTP/3, QUIC, and TLS adapter APIs. Production
-code under `src/webtransport/` must not dereference private HTTP/3 or transport
-object fields.
+Each binding owns its wire codec, carrier error mapping, stream representation,
+and translation between carrier flow control and common session credit. Only
+the built-in H3 binding depends on XQUIC HTTP/3, QUIC, and TLS adapter APIs.
 
-### Internal Object Binding
+Production common-core code must not include HTTP/2, HTTP/3, QUIC, or TLS
+private headers.
 
-The carrier request keeps the normal HTTP/3 request representation and stores
-a reference to its `xqc_wt_session_t`. Each WebTransport data stream has one
-underlying `xqc_stream_t` and one WebTransport stream handle.
+### HTTP/3 Native Object Binding
+
+For the built-in H3 binding, the carrier request keeps the normal HTTP/3
+request representation and stores a non-owning reference to its
+`xqc_wt_session_t`. Each WebTransport data stream has one underlying
+`xqc_stream_t`, one binding handle, and one common WebTransport stream handle.
 
 An `xqc_h3_stream_t` may remain as the HTTP/3 dispatch and lifetime container,
 but after classification it routes application bytes to
@@ -204,7 +338,7 @@ data stream:     xqc_stream_t <-> dispatch container <-> xqc_wt_stream_t
 Public APIs never expose the dispatch container or accept an internal HTTP/3
 stream pointer.
 
-### Incremental Dispatch
+### HTTP/3 Incremental Dispatch
 
 The WebTransport codec consumes protocol prefixes incrementally. Parser state
 is stored on the candidate stream so any split across receive callbacks is
@@ -224,7 +358,7 @@ resolved must not be delivered to another session.
 
 ### Unresolved Input
 
-The connection extension state contains bounded registries for streams and
+The carrier state contains bounded registries for streams and
 datagrams that arrive before their session can be resolved. Limits include
 object counts, aggregate bytes, and a lifetime deadline. The public settings
 provide the bounds; internal defaults must be finite.
@@ -239,8 +373,9 @@ remains inside XQUIC until delivery or disposal.
 
 ### Flow-Control Accounting
 
-Session accounting is separate from QUIC connection and stream accounting.
-The WebTransport module stores, for each direction and stream class:
+Session accounting is separate from the carrier's connection-level and
+per-stream accounting. The WebTransport core stores, for each direction and
+stream class:
 
 - the effective peer and local limits;
 - opened and closed stream counts;
@@ -248,28 +383,28 @@ The WebTransport module stores, for each direction and stream class:
 - the last advertised limits; and
 - blocked notification state.
 
-The accounting layer obtains stream final sizes from the transport adapter and
-excludes internal protocol-prefix bytes. Limit changes are serialized through
-the carrier request's capsule sender. Local window-update heuristics use
-configurable thresholds and remain subordinate to the governing IETF rules.
+The accounting layer obtains final accounting sizes from the binding and
+excludes binding-specific framing bytes. The binding serializes limit changes
+using its governing protocol. Local window-update heuristics use configurable
+thresholds and remain subordinate to the governing IETF rules.
 
-The scheduler reuses the existing HTTP/3 priority state associated with the
-carrier request for competition among HTTP requests and WebTransport
-sessions. The first API version does not add XQUIC-specific priority signaling
-among streams inside one session.
+The built-in H3 binding reuses the existing HTTP/3 priority state associated
+with the carrier request. Other bindings report their scheduling capabilities
+and translate common priority requests when supported. The first API version
+does not add XQUIC-specific priority signaling among streams inside one
+session.
 
 ### Error and Teardown Isolation
 
 The protocol codec owns the tables and algorithms that map application errors
 to protocol codepoints. Public APIs accept and report only the application
-error width defined by the governing IETF source; raw mapped HTTP/3 values are
+error width defined by the governing IETF source; raw carrier error values are
 not public inputs.
 
 A stream failure tears down only that stream unless the governing IETF source
 classifies it as a session or connection error. A session close tears down its
 owned streams, queued input, and callbacks without closing unrelated sessions
-or ordinary HTTP/3 requests unless the governing source requires a connection
-error.
+or carrier work unless the governing source requires a connection error.
 
 Teardown order is:
 
@@ -284,11 +419,12 @@ callback. A handle is invalid after its final close callback returns.
 
 ### Version Adapter
 
-All revision-specific identifiers and codecs live in one internal immutable
-version table. Session, stream, datagram, and capsule paths select one table
-from the negotiated connection version and never mix tables on a connection.
+All revision-specific identifiers and codecs live in immutable tables owned by
+their binding. Session, stream, datagram, and capsule paths select one table
+from the negotiated carrier version and never mix tables on a carrier.
 
-The initial table targets draft 16. Adding another draft or RFC requires:
+The initial H3 table targets HTTP/3 draft 16. The capsule integration target is
+HTTP/2 draft 15. Adding another draft or RFC requires:
 
 - reviewing the current version-independent IETF source;
 - adding or updating one version table and its codec tests;
@@ -307,8 +443,15 @@ ownership, lifetime, and observable behavior are normative project choices.
 ### Opaque Handles and State
 
 ```c
+typedef struct xqc_wt_ctx_s     xqc_wt_ctx_t;
+typedef struct xqc_wt_carrier_s xqc_wt_carrier_t;
 typedef struct xqc_wt_session_s xqc_wt_session_t;
 typedef struct xqc_wt_stream_s  xqc_wt_stream_t;
+
+typedef struct xqc_wt_binding_ops_s    xqc_wt_binding_ops_t;
+typedef struct xqc_wt_capsule_io_ops_s xqc_wt_capsule_io_ops_t;
+typedef struct xqc_wt_http_fields_s    xqc_wt_http_fields_t;
+typedef struct xqc_wt_http_setting_s   xqc_wt_http_setting_t;
 
 typedef enum {
     XQC_WT_SESSION_CONNECTING,
@@ -324,26 +467,43 @@ typedef enum {
 } xqc_wt_stream_direction_t;
 ```
 
-There is no public `xqc_wt_conn_t`. Applications use `xqc_h3_conn_t` for the
-carrier connection and `xqc_wt_session_t` for WebTransport operations.
+`xqc_wt_carrier_t` is the backend-neutral connection handle. Application data
+operations use `xqc_wt_session_t` and `xqc_wt_stream_t`; integration code uses
+the carrier handle to attach a binding. The common API does not expose an
+HTTP/2 connection, `xqc_h3_conn_t`, or a QUIC connection.
 
 ### Context Configuration
 
 ```c
-xqc_int_t xqc_wt_ctx_init(xqc_engine_t *engine,
+xqc_wt_ctx_t *xqc_wt_ctx_create(
     const xqc_wt_settings_t *settings,
     const xqc_wt_callbacks_t *callbacks);
 
-xqc_int_t xqc_wt_ctx_destroy(xqc_engine_t *engine);
+void xqc_wt_ctx_destroy(xqc_wt_ctx_t *ctx);
+
+xqc_int_t xqc_wt_h3_binding_register(xqc_wt_ctx_t *ctx,
+    xqc_engine_t *engine);
+
+xqc_wt_carrier_t *xqc_wt_carrier_create(xqc_wt_ctx_t *ctx,
+    const xqc_wt_binding_ops_t *binding_ops, void *binding_data);
+
+xqc_wt_carrier_t *xqc_wt_capsule_carrier_create(xqc_wt_ctx_t *ctx,
+    const xqc_wt_capsule_io_ops_t *io_ops, void *io_data);
 ```
 
-`xqc_wt_ctx_init()` is called after `xqc_h3_ctx_init()` and before creating an
-HTTP/3 connection. XQUIC copies the settings and callback table. Registration
-must not replace existing HTTP/3 callbacks or application user data.
+XQUIC copies the settings, callback table, and binding operation table. The
+default H3 helper is registered after `xqc_h3_ctx_init()` and before creating
+an HTTP/3 connection. It creates and destroys carriers automatically with H3
+connections. External protocol integrations create carriers explicitly. An
+HTTP/2 integration uses `xqc_wt_capsule_carrier_create()` so that XQUIC, not
+the external stack, owns WebTransport Capsule semantics.
+
+Binding registration must not replace HTTP-stack callbacks or application
+user data.
 
 `xqc_wt_settings_t` contains:
 
-- maximum sessions per HTTP/3 connection;
+- maximum sessions per carrier;
 - initial per-session stream and data limits;
 - maximum unresolved sessions, streams, datagrams, and bytes;
 - application decision timeout; and
@@ -352,31 +512,80 @@ must not replace existing HTTP/3 callbacks or application user data.
 Initialization rejects settings that cannot support the configured pooling
 mode under the governing IETF flow-control requirements.
 
-### Connection Capability
+### External Capsule Integration
+
+The capsule binding exposes input entry points for an external HTTP stack:
 
 ```c
-xqc_bool_t xqc_wt_conn_is_ready(xqc_h3_conn_t *h3_conn);
+xqc_int_t xqc_wt_capsule_binding_on_settings(
+    xqc_wt_carrier_t *carrier,
+    const xqc_wt_http_setting_t *settings, size_t setting_count);
+
+xqc_int_t xqc_wt_capsule_binding_on_request(
+    xqc_wt_carrier_t *carrier, void *connect_stream_data,
+    const xqc_wt_http_fields_t *request);
+
+xqc_int_t xqc_wt_capsule_binding_on_response(
+    xqc_wt_carrier_t *carrier, void *connect_stream_data,
+    const xqc_wt_http_fields_t *response);
+
+xqc_int_t xqc_wt_capsule_binding_on_capsule(
+    xqc_wt_carrier_t *carrier, void *connect_stream_data,
+    uint64_t capsule_type, const unsigned char *payload,
+    size_t payload_len);
+
+void xqc_wt_capsule_binding_on_close(
+    xqc_wt_carrier_t *carrier, void *connect_stream_data,
+    xqc_int_t carrier_error);
 ```
 
-The callback table contains `wt_conn_ready_notify`. It fires once the
-WebTransport module has a final capability result from the HTTP/3 and
-transport adapters. Session creation before a positive result fails with
-`-XQC_EAGAIN` and performs no partial request creation.
+The settings, request, and response types are immutable, backend-neutral views
+of parsed HTTP values. `connect_stream_data` is owned by the external stack.
+Capsule payloads contain one complete generic Capsule payload without the type
+and length envelope and are borrowed for the duration of the call.
+
+For output, `xqc_wt_capsule_io_ops_t` provides at least `send_request`,
+`send_response`, `send_capsule`, `close_connect_stream`, writable-state, and
+exporter callbacks. XQUIC invokes those callbacks synchronously and does not
+assume ownership of external HTTP objects.
+
+These functions are integration APIs, not application data APIs. The built-in
+H3 binding bypasses them and emits the same common-core events directly from
+XQUIC HTTP/3 and QUIC callbacks.
+
+### Carrier Capability
+
+```c
+xqc_bool_t xqc_wt_carrier_is_ready(const xqc_wt_carrier_t *carrier);
+
+xqc_int_t xqc_wt_carrier_get_properties(
+    const xqc_wt_carrier_t *carrier,
+    xqc_wt_transport_properties_t *properties);
+```
+
+The callback table contains `wt_carrier_ready_notify`. It fires once the
+binding has a final capability result. Session creation before a positive
+result fails with `-XQC_EAGAIN` and performs no partial request creation.
+
+`xqc_wt_transport_properties_t` reports pooling, unreliable datagrams, stream
+independence, delivery-status notifications, and binding-defined payload
+limits. Property values describe the selected carrier and are not inferred
+from whether a common API function exists.
 
 ### Session APIs
 
 ```c
-xqc_wt_session_t *xqc_wt_session_create(xqc_engine_t *engine,
-    const xqc_cid_t *cid, const xqc_wt_session_config_t *config,
+xqc_wt_session_t *xqc_wt_session_create(xqc_wt_carrier_t *carrier,
+    const xqc_wt_session_config_t *config,
     void *session_user_data);
 
 xqc_int_t xqc_wt_session_accept(xqc_wt_session_t *session,
     const xqc_str_t *selected_protocol,
-    const xqc_http_headers_t *extra_response_headers);
+    const xqc_wt_http_fields_t *extra_response_fields);
 
 xqc_int_t xqc_wt_session_reject(xqc_wt_session_t *session,
     uint16_t status_code,
-    const xqc_http_headers_t *extra_response_headers);
+    const xqc_wt_http_fields_t *extra_response_fields);
 
 xqc_int_t xqc_wt_session_close(xqc_wt_session_t *session,
     uint32_t application_error_code, const char *reason,
@@ -396,9 +605,10 @@ void *xqc_wt_session_get_user_data(xqc_wt_session_t *session);
 ```
 
 `xqc_wt_session_config_t` contains authority, path, optional origin,
-application protocols in preference order, optional additional safe headers,
-and optional HTTP priority. XQUIC copies every input string and header before
-the create call returns.
+application protocols in preference order, optional additional safe fields,
+and optional HTTP priority. XQUIC copies every input string and field before
+the create call returns. `xqc_wt_http_fields_t` is independent of QPACK and
+HPACK storage.
 
 The callback table contains:
 
@@ -418,7 +628,7 @@ made in the wrong state fail without emitting additional protocol output.
 ```c
 xqc_wt_stream_t *xqc_wt_stream_create(xqc_wt_session_t *session,
     xqc_wt_stream_direction_t direction,
-    const xqc_stream_settings_t *settings, void *stream_user_data);
+    const xqc_wt_stream_settings_t *settings, void *stream_user_data);
 
 ssize_t xqc_wt_stream_send(xqc_wt_stream_t *stream,
     const unsigned char *data, size_t data_len, uint8_t fin);
@@ -449,6 +659,8 @@ session. The close callback is the last valid use of the stream handle.
 
 Send and receive counts contain application bytes only. Internal prefix bytes
 and retry state never appear in application buffers or return values.
+Stream identifiers are scoped to their WebTransport session and must not be
+interpreted as QUIC stream identifiers by common application code.
 
 ### Datagram APIs
 
@@ -457,7 +669,7 @@ size_t xqc_wt_datagram_get_mss(const xqc_wt_session_t *session);
 
 xqc_int_t xqc_wt_datagram_send(xqc_wt_session_t *session,
     const void *data, size_t data_len, uint64_t *datagram_id,
-    xqc_data_qos_level_t qos_level);
+    const xqc_wt_datagram_options_t *options);
 ```
 
 The reported MSS is the maximum application payload after internal protocol
@@ -465,9 +677,11 @@ overhead. An oversize send fails atomically. Datagram routing is always
 session-scoped; no connection-scoped public send API is provided.
 
 The callback table contains session-scoped datagram read, write,
-acknowledged, lost, and MSS-updated notifications. Received payload pointers
-are borrowed for the callback duration. The WebTransport module never
-retransmits an application datagram automatically.
+delivery-status, and MSS-updated notifications. Delivery-status callbacks are
+emitted only when the carrier reports that capability. Received payload
+pointers are borrowed for the callback duration. The WebTransport core never
+requests automatic retransmission that would contradict the selected
+binding's transport properties.
 
 ### Session Exporter API
 
@@ -478,24 +692,29 @@ xqc_int_t xqc_wt_session_export_keying_material(
     unsigned char *output, size_t output_len);
 ```
 
-The WebTransport module constructs the protocol-defined exporter input and
-delegates cryptographic derivation to the TLS adapter. Applications provide
-only their application label and optional context.
+The WebTransport core constructs the protocol-defined exporter input and
+delegates cryptographic derivation to the selected binding. The H3 binding
+uses the XQUIC TLS adapter; an external capsule carrier uses its exporter
+callback. Applications provide only their application label and optional
+context.
 
 ## Prototype API Migration
 
 The production API intentionally narrows the prototype surface:
 
-- `xqc_webtransport_connect()` is replaced by ordinary HTTP/3 connection
-  creation followed by `xqc_wt_session_create()`, enabling connection reuse;
+- `xqc_webtransport_connect()` is replaced by carrier creation followed by
+  `xqc_wt_session_create()`, with the default H3 helper attaching carriers to
+  ordinary XQUIC HTTP/3 connections;
 - `xqc_wt_session_init()`, `xqc_wt_create_unistream()`, and constructors that
   accept `xqc_h3_stream_t *` become private;
 - separate public unidirectional and bidirectional handle families become one
   `xqc_wt_stream_t` with an explicit direction;
+- `xqc_stream_settings_t`, `xqc_cid_t`, and `xqc_h3_conn_t` are removed from
+  the binding-neutral session and stream APIs;
 - connection-scoped datagram send becomes session-scoped;
 - public HTTP/3-stream getters and setters are removed;
-- session identifiers are derived internally and are never assigned by the
-  application; and
+- carrier and stream identifiers are interpreted by the selected binding and
+  are never assigned by the application; and
 - settings and callback tables are copied into module-owned storage.
 
 Compatibility aliases may be retained temporarily at the public API boundary.
@@ -505,8 +724,8 @@ obsolete wire codec under a newer advertised compatibility version.
 ## Non-Goals
 
 - defining or summarizing WebTransport wire behavior;
-- capsule-based WebTransport data transport;
-- WebTransport over HTTP/2;
+- implementing a general-purpose HTTP/2 stack inside XQUIC;
+- making the external HTTP stack depend on private XQUIC HTTP/3 or QUIC types;
 - HTTP/2-to-HTTP/3 intermediary translation;
 - automatic redirect policy in the XQUIC transport API;
 - application-visible protocol encoding or codepoint mapping; and
@@ -518,16 +737,22 @@ An implementation satisfies this project specification when:
 
 - its declared protocol revision passes tests derived directly from the
   governing IETF source;
-- ordinary HTTP/3 requests and multiple sessions coexist without ownership,
-  callback, or user-data collisions;
-- every data stream has one transport object and one opaque WebTransport
-  handle, with prefix bytes hidden from the application;
+- `xqc_wt_session_t` and `xqc_wt_stream_t` contain no HTTP/2, HTTP/3, QUIC, or
+  TLS private object dependency;
+- the built-in H3 binding supports ordinary HTTP/3 requests and multiple
+  sessions without ownership, callback, or user-data collisions;
+- an external capsule carrier can drive session, stream, datagram, close,
+  drain, and flow-control events without constructing XQUIC H3 objects;
+- every data stream has one opaque WebTransport handle and one binding handle,
+  with binding framing hidden from the application;
 - incremental classification and bounded unresolved-input handling never
   deliver data across sessions;
-- per-session accounting composes with, rather than replaces, QUIC flow
+- per-session accounting composes with, rather than replaces, carrier flow
   control;
+- transport properties prevent applications from assuming HTTP/3-native
+  reliability or stream-independence behavior on another binding;
 - session and stream teardown preserves callback and handle lifetimes and
-  isolates unrelated HTTP/3 work;
+  isolates unrelated carrier work;
 - all public inputs are copied or documented as borrowed, and every final
   callback has an explicit invalidation point;
 - no public API exposes private HTTP/3 or QUIC objects; and

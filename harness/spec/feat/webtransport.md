@@ -1,383 +1,308 @@
-# XQUIC WebTransport Specification
+# XQUIC WebTransport Implementation Specification
 
-## Status and Scope
+## Purpose and Scope
 
-This document defines the target functional behavior, protocol-layer
-boundaries, object model, and public C API for WebTransport over HTTP/3 in
-XQUIC. It is a design specification; it does not claim that the current
-implementation satisfies these requirements.
+This document defines only the XQUIC-specific implementation architecture,
+object ownership, module interfaces, public C API, and migration constraints
+for WebTransport over HTTP/3. It does not redefine the WebTransport protocol.
 
-The protocol baseline is
-[`draft-ietf-webtrans-http3-16`](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-16),
-published on 6 July 2026. The
-[version-independent Datatracker page](https://datatracker.ietf.org/doc/draft-ietf-webtrans-http3/)
-must be checked before implementation starts because this is a work in
-progress.
+The initial implementation target is the native HTTP/3 binding in
+[`draft-ietf-webtrans-http3-16`](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-16).
+Before implementation or review begins, the version-independent
+[IETF Datatracker entry](https://datatracker.ietf.org/doc/draft-ietf-webtrans-http3/)
+must be checked for a newer draft or a published RFC.
 
-The initial XQUIC implementation targets the native HTTP/3 binding identified
-by the `webtransport-h3` upgrade token. Capsule-based WebTransport using the
-`webtransport` token, HTTP/2 transport, and intermediary translation are out
-of scope.
+This is a target design. Existing prototype symbols under
+`include/xquic/xqc_webtransport.h` and `src/webtransport/` do not establish
+conformance with this document.
 
-Normative dependencies are:
+## Authority and Conformance
 
-- [RFC 9000](https://www.rfc-editor.org/rfc/rfc9000): QUIC transport and
-  streams.
-- [RFC 9114](https://www.rfc-editor.org/rfc/rfc9114): HTTP/3 stream and
-  connection semantics.
-- [RFC 9220](https://www.rfc-editor.org/rfc/rfc9220): Extended CONNECT for
-  HTTP/3.
-- [RFC 9221](https://www.rfc-editor.org/rfc/rfc9221): QUIC DATAGRAM.
-- [RFC 9297](https://www.rfc-editor.org/rfc/rfc9297): HTTP Datagrams and the
-  Capsule Protocol.
-- [QUIC Stream Resets with Partial Delivery](https://datatracker.ietf.org/doc/draft-ietf-quic-reliable-stream-reset/):
-  `RESET_STREAM_AT`.
+An XQUIC WebTransport implementation must satisfy both:
 
-## Protocol-Stack Position
+1. the governing IETF WebTransport over HTTP/3 specification; and
+2. the XQUIC implementation and API requirements in this document.
 
-WebTransport is an application transport protocol bound to HTTP/3. It is not
-a replacement for QUIC and it is not a normal HTTP request body protocol.
-HTTP/3 supplies connection negotiation, origin-aware session establishment,
-the lifetime-bearing CONNECT stream, and capsule delivery. After a session is
-established, WebTransport data uses native QUIC streams and QUIC DATAGRAMs
-with a short session-association prefix.
+The governing IETF source owns all protocol behavior, including wire values,
+HTTP fields, SETTINGS and transport parameters, frame and capsule formats,
+state transitions, flow-control rules, error codes, and security requirements.
+Those requirements are incorporated here by reference and are intentionally
+not repeated.
 
-```text
-application protocol using WebTransport
-                |
-XQUIC WebTransport session / stream / datagram API
-                |
-WebTransport over HTTP/3
-  - Extended CONNECT and capsules: HTTP/3 control plane
-  - WT stream prefixes and HTTP Datagrams: data association
-                |
-HTTP/3 connection, SETTINGS, request dispatch, QPACK
-                |
-QUIC streams, QUIC DATAGRAM, RESET_STREAM_AT, flow control
-                |
-QUIC-TLS / UDP / IP
-```
+Authority is resolved in this order:
 
-An HTTP/3 connection can simultaneously carry ordinary HTTP requests and
-multiple WebTransport sessions. A WebTransport session therefore must not be
-modeled as a QUIC connection or as the sole owner of an HTTP/3 connection.
+1. an applicable published IETF RFC;
+2. while no RFC exists, the draft revision selected by XQUIC's advertised
+   compatibility version; and
+3. this project specification for XQUIC choices not fixed by the IETF source.
 
-## Object Model
+If this document conflicts with a governing RFC or draft, the IETF source
+wins. The conflict is a defect in this document and must be corrected before,
+or in the same change as, the affected implementation. Implementers must not
+retain behavior solely because it appears in this document.
+
+Section references below use draft 16. They are navigation links, not copied
+protocol requirements:
+
+- [Sections 3.1-3.3](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-16#section-3)
+  govern connection and session setup. This document owns the XQUIC readiness
+  gate, application decision API, and callback ownership.
+- [Section 3.4](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-16#section-3.4)
+  governs prioritization. This document owns integration with the existing
+  XQUIC scheduler.
+- [Sections 4.2-4.6](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-16#section-4.2)
+  govern streams and datagrams. This document owns object binding,
+  incremental dispatch, buffering, and the public I/O API.
+- [Section 4.4](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-16#section-4.4)
+  and [Section 4.8](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-16#section-4.8)
+  govern stream resets and exporters. This document owns the transport and
+  TLS adapter contracts.
+- [Section 5](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-16#section-5)
+  governs session flow control. This document owns accounting structures,
+  configured limits, and the local window-update policy.
+- [Section 6](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-16#section-6)
+  governs session termination. This document owns teardown ordering and
+  callback lifetime.
+- [Section 7.1](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-16#section-7.1)
+  governs draft compatibility. This document owns version tables and codec
+  selection.
+
+## Design Scope
+
+The first production implementation supports native WebTransport over HTTP/3.
+Capsule-based WebTransport data transport, HTTP/2 transport, and intermediary
+translation are outside this implementation scope. This scope decision does
+not alter any requirement for the supported native binding.
+
+XQUIC exposes WebTransport as an application-facing service above HTTP/3 and
+uses QUIC streams, QUIC DATAGRAM, and TLS through internal adapters. Protocol
+encoding and decoding remain internal; applications operate on sessions,
+streams, datagrams, and application error values.
+
+The implementation must allow ordinary HTTP/3 requests and multiple
+WebTransport sessions to share one HTTP/3 connection. A session is therefore
+not represented as a QUIC connection and does not own connection-wide
+application user data.
+
+## Ownership and Object Model
 
 The target ownership hierarchy is:
 
 ```text
 xqc_engine_t
-  `- xqc_h3_conn_t                 one per QUIC connection
-       |- ordinary HTTP/3 requests
+  `- xqc_h3_conn_t
+       |- ordinary HTTP/3 request objects
        `- internal WebTransport connection state
-            |- xqc_wt_session_t    zero or more sessions
-            |    |- CONNECT stream and capsule state
-            |    |- xqc_wt_stream_t children
-            |    `- session flow-control state
-            `- bounded pending streams and datagrams
+            |- capability and version state
+            |- session registry
+            |- bounded unresolved-input registries
+            `- xqc_wt_session_t
+                 |- carrier request reference
+                 |- xqc_wt_stream_t children
+                 |- datagram state
+                 `- session flow-control accounting
 ```
 
 `xqc_wt_session_t` and `xqc_wt_stream_t` are public opaque handles. The
-WebTransport connection wrapper, request parser, wire parser, flow-control
-state, and pending-object registries are internal.
+connection extension state, request adapter, protocol codec, flow-control
+accounting, and unresolved-input registries are private.
 
-The internal WebTransport connection state is owned by `xqc_h3_conn_t`. It
-must not replace `xqc_engine_t.user_data`, the application's HTTP/3 connection
-user data, or transport user data.
+The WebTransport connection state is allocated and freed with
+`xqc_h3_conn_t`. It must not replace or alias any of the following:
 
-## Stream and Datagram Mapping
+- `xqc_engine_t.user_data`;
+- HTTP/3 connection application data;
+- QUIC transport application data; or
+- another HTTP/3 extension's private state.
 
-| WebTransport concept | HTTP/3 role | QUIC mapping | Wire prefix |
-|----------------------|-------------|--------------|-------------|
-| Carrier connection | One HTTP/3 connection | One QUIC connection | HTTP/3 SETTINGS and QUIC transport parameters |
-| Session / CONNECT stream | Extended CONNECT request and capsule stream | One client-initiated bidirectional QUIC stream | HTTP/3 HEADERS, then capsules |
-| Unidirectional data stream | HTTP/3 extension stream type | One native unidirectional QUIC stream | Stream type `0x54`, Session ID, application bytes |
-| Bidirectional data stream | Alternative HTTP/3 request-stream syntax | One native bidirectional QUIC stream | Signal value `0x41`, Session ID, application bytes |
-| Datagram | HTTP Datagram associated with the CONNECT request | One QUIC DATAGRAM | Quarter Stream ID, application bytes |
+A session owns its WebTransport stream handles and session-scoped pending
+callbacks. It borrows its carrier HTTP/3 connection and transport objects.
+Connection teardown invalidates sessions only after their close callbacks have
+completed.
 
-### Session and CONNECT Stream
+## Internal Integration Design
 
-A client creates a session with an Extended CONNECT request as specified by
-Sections 3.1 and 3.2 of the WebTransport draft. The request contains:
+### HTTP/3 Extension Boundary
 
-- `:method = CONNECT`;
-- `:protocol = webtransport-h3`;
-- `:scheme = https`;
-- non-empty `:authority` and `:path`; and
-- `Origin` when the application is a browser or otherwise requires origin
-  validation.
+`src/http3/` remains responsible for generic HTTP/3 connection and stream
+mechanisms. It exposes an internal extension interface that allows the
+WebTransport module to:
 
-The server accepts the session with a 2xx response. The session is open for
-the client after receiving that response and for the server after sending it.
-Redirects must be reported to the application and must not be followed
-automatically. A WebTransport CONNECT request must not be initiated in 0-RTT.
+- register capability SETTINGS and validate their parsed peer values;
+- register the supported Extended CONNECT protocol token;
+- receive the carrier request and response state transitions;
+- register first-value classifiers for extension streams;
+- send and receive capsules through a generic capsule codec;
+- send and receive HTTP Datagram contexts; and
+- observe connection drain and close events.
 
-The QUIC stream ID of the CONNECT stream is the Session ID. It is always a
-client-initiated bidirectional stream ID. The CONNECT stream remains an HTTP/3
-request stream for its lifetime and carries capsules after the 2xx response.
-It is not counted as a WebTransport bidirectional data stream.
+The extension callbacks receive parsed values and stable object references.
+They do not require WebTransport to access private `xqc_h3_conn_t` or
+`xqc_h3_stream_t` fields.
 
-Closing the CONNECT stream or sending or receiving `WT_CLOSE_SESSION`
-terminates the session. Session termination closes all associated data
-streams with `WT_SESSION_GONE` and prevents new streams and datagrams.
+HTTP/3 owns generic parsing, QPACK, request lifetime, and extension dispatch.
+It must not own WebTransport session policy, application callbacks, per-session
+limits, or WebTransport public handles.
 
-### Unidirectional Data Streams
+The existing generic HTTP/3 bytestream extension is not used as the public
+WebTransport stream abstraction. A shared internal dispatch primitive is
+acceptable only when the two extensions retain separate protocol codecs and
+lifetimes.
 
-Each WebTransport unidirectional stream maps one-to-one to a native QUIC
-unidirectional stream. Its first two values are:
+### QUIC Transport Boundary
 
-```text
-Stream Type = 0x54
-Session ID  = CONNECT stream ID
-```
+`src/transport/` remains unaware of WebTransport sessions. It supplies stable
+internal operations for the WebTransport and HTTP/3 layers to:
 
-All remaining bytes are application data. They are not HTTP/3 frames and must
-not pass through QPACK or the HTTP request-body parser.
+- create and operate native unidirectional and bidirectional streams;
+- expose stream direction and initiator metadata;
+- retain protocol header bytes required by reliable reset;
+- obtain final-size information for session accounting;
+- send and receive QUIC DATAGRAM payloads;
+- query the application-payload MSS after caller-supplied overhead; and
+- access the TLS exporter through the TLS integration layer.
 
-The local endpoint can send only on a locally initiated unidirectional
-stream. A remotely initiated unidirectional stream is receive-only.
-
-### Bidirectional Data Streams
-
-Each WebTransport bidirectional stream maps one-to-one to a native QUIC
-bidirectional stream. Its first two values are:
-
-```text
-Signal Value = 0x41
-Session ID   = CONNECT stream ID
-```
-
-All remaining bytes are application data. `0x41` is registered as
-`WT_STREAM` to avoid HTTP/3 frame-type collisions, but it has no length field
-and is not an ordinary HTTP/3 frame.
-
-On a client-initiated bidirectional stream, the HTTP/3 dispatcher must
-distinguish a WebTransport stream from an ordinary request stream without
-losing bytes. On a server-initiated bidirectional stream, the dispatcher can
-accept the stream only after WebTransport support has been negotiated. After
-classification, neither direction uses `xqc_h3_request_t` or the generic
-HTTP/3 bytestream object.
-
-### XQUIC H3 Stream Representation
-
-Every WebTransport data stream has exactly one underlying `xqc_stream_t`.
-XQUIC may retain an `xqc_h3_stream_t` as the HTTP/3 connection's dispatch and
-lifetime container, but it must classify it as a WebTransport data stream.
-The container must then route payload directly to `xqc_wt_stream_t` instead
-of treating it as an HTTP request, QPACK stream, control stream, or generic
-HTTP/3 bytestream.
-
-The mapping is therefore:
-
-```text
-CONNECT stream: xqc_stream_t <-> xqc_h3_stream_t <-> xqc_h3_request_t
-                                      `-> xqc_wt_session_t
-
-WT data stream: xqc_stream_t <-> xqc_h3_stream_t <-> xqc_wt_stream_t
-```
-
-Public WebTransport APIs must not expose `xqc_h3_stream_t` or require an
-application to construct internal H3 stream objects.
-
-### Datagrams
-
-WebTransport datagrams use HTTP Datagrams as specified by Section 4.5 of the
-WebTransport draft and Section 2 of RFC 9297. The QUIC DATAGRAM payload is:
-
-```text
-Quarter Stream ID = CONNECT stream ID / 4
-WebTransport application payload
-```
-
-The WebTransport payload is not fragmented by the WebTransport layer. A send
-larger than the session datagram MSS fails; silently splitting it into
-multiple datagrams would change application message boundaries.
-
-Datagram APIs are session-scoped. A connection-scoped send API is ambiguous
-when several sessions share one HTTP/3 connection and is not part of the
-target API.
-
-## Functional Requirements
-
-### Capability Negotiation
-
-Before a session can be created, XQUIC must validate the requirements in
-Section 3.1 of the WebTransport draft:
-
-- the server advertises `SETTINGS_WT_ENABLED = 1`;
-- the server advertises `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1`;
-- both endpoints advertise `SETTINGS_H3_DATAGRAM = 1`;
-- both endpoints enable QUIC DATAGRAM with a non-zero
-  `max_datagram_frame_size`; and
-- both endpoints negotiate `reset_stream_at`.
-
-Draft-version codepoints must be kept in one internal version table. The
-highest mutually supported version is selected. The initial implementation
-supports draft 16 only; old draft-02 or draft-07 header conventions must not
-be accepted under the draft-16 setting.
-
-The client must not send a `webtransport-h3` CONNECT request until the
-server's SETTINGS and required transport parameters have been validated. A
-settings value or dependency violation produces the specific HTTP/3 or
-WebTransport error required by the draft.
-
-### Session Establishment and Protocol Negotiation
-
-XQUIC owns all mandatory pseudo-header fields and validates the response
-status. Applications supply the authority, path, optional origin, optional
-additional safe headers, and optional ordered application protocol list.
-
-When `WT-Available-Protocols` is supplied, the server can select one value in
-`WT-Protocol`. XQUIC validates Structured Field syntax and rejects a selected
-value that was not offered with `WT_ALPN_ERROR`.
-
-Server acceptance is explicit. XQUIC must not send an implicit 200 response
-before the application has accepted the authority, path, origin, and optional
-application protocol.
-
-### Optimistic Data and Demultiplexing
-
-Streams and datagrams can arrive before the corresponding CONNECT response or
-even before the CONNECT request is processed. The WebTransport connection
-state therefore maintains bounded pending registries keyed by Session ID.
-
-Pending data is not delivered to the application until its session is open.
-There is no fallback to a default session. Unknown or closed Session IDs must
-never be delivered to another session.
-
-When pending-stream limits are exceeded, XQUIC rejects a stream with
-`WT_BUFFERED_STREAM_REJECTED`. When pending-datagram limits are exceeded, it
-drops a datagram. Counts and byte limits are configurable and enforced per
-HTTP/3 connection.
-
-Stream type and Session ID parsing must tolerate arbitrary fragmentation
-across QUIC receive callbacks. Application payload is delivered only after
-both values have been parsed and validated.
-
-### Flow Control and Fairness
-
-QUIC connection and stream flow control remain authoritative at the transport
-layer. WebTransport additionally applies per-session stream-count and data
-limits from Section 5 of the draft.
-
-XQUIC automatically sends and consumes `WT_MAX_STREAMS`,
-`WT_STREAMS_BLOCKED`, `WT_MAX_DATA`, and `WT_DATA_BLOCKED` capsules. The
-application configures receive windows and limits; it does not encode
-capsules directly.
-
-If more than one WebTransport session can share an HTTP/3 connection, session
-flow control is mandatory. A new stream can open only when both the QUIC
-connection-level limit and WebTransport session-level limit permit it.
-
-Scheduling must preserve fairness between ordinary HTTP traffic and
-WebTransport sessions, and between sessions on the same connection. Session
-priority follows RFC 9218. WebTransport does not define priority signaling
-between streams inside one session.
-
-### Reset, Close, and Drain
-
-Public stream reset and stop-sending APIs use unsigned 32-bit WebTransport
-application error codes. XQUIC maps them to and from the
-`WT_APPLICATION_ERROR` HTTP/3 error range and skips reserved HTTP/3
-codepoints as required by Section 4.4 of the draft.
-
-Resetting a WebTransport data stream uses `RESET_STREAM_AT` with a reliable
-size covering the complete stream type or signal value and Session ID. This
-keeps the session association reliably deliverable.
-
-`xqc_wt_session_close()` sends `WT_CLOSE_SESSION`, sends FIN on the CONNECT
-stream, and terminates the session without closing unrelated sessions or the
-HTTP/3 connection. `xqc_wt_session_drain()` sends `WT_DRAIN_SESSION` and
-notifies the peer to begin graceful shutdown while allowing existing session
-traffic to continue.
-
-Receiving HTTP/3 GOAWAY prevents new sessions on that HTTP/3 connection and
-notifies every existing session to drain. It does not immediately destroy
-those sessions.
-
-### Security and Resource Limits
-
-Server applications are responsible for authorization of authority, path,
-and Origin. XQUIC provides the parsed request and does not bypass the
-application decision.
-
-XQUIC enforces limits for sessions, pending decisions, streams, datagrams,
-pending bytes, and session flow-control credit. Malformed settings, invalid
-Session IDs, illegal stream prefixes, excessive buffering, and data after
-session closure use the most specific error required by the draft.
-
-TLS exporter support is session-separated using the
-`EXPORTER-WebTransport` label and the context defined by Section 4.8 of the
-draft.
-
-## Module Boundaries
-
-### Public API
-
-`include/xquic/xqc_webtransport.h` contains only opaque handles, public value
-types, callbacks, and exported functions. It can depend on public XQUIC and
-HTTP/3 types but not on `src/` headers, demo code, or internal H3 stream
-structures.
+Transport APIs report QUIC state and errors without translating them into
+WebTransport application errors. That translation belongs to the
+WebTransport protocol adapter.
 
 ### WebTransport Module
 
 `src/webtransport/` owns:
 
-- engine-level WebTransport context and callback registration;
-- per-H3-connection capability and session registries;
-- CONNECT request validation and session state machines;
-- stream prefix encoding, incremental parsing, and Session ID binding;
-- HTTP Datagram context mapping;
-- capsule handling and session-level flow control;
-- application error conversion; and
-- bounded optimistic-data buffering.
+- engine-level settings and callback registration;
+- per-HTTP/3-connection capability, version, and session registries;
+- the application-facing session state machine;
+- incremental protocol-prefix dispatch and session binding;
+- session-scoped datagram routing;
+- capsule handlers and session flow-control accounting;
+- conversion between public application errors and protocol errors; and
+- bounded buffering for input whose session cannot yet be resolved.
 
-The module depends downward on explicit HTTP/3 and transport interfaces. It
-must not dereference `xqc_h3_stream_t` or `xqc_stream_t` fields directly.
+The module depends on explicit HTTP/3, QUIC, and TLS adapter APIs. Production
+code under `src/webtransport/` must not dereference private HTTP/3 or transport
+object fields.
 
-### HTTP/3 Module
+### Internal Object Binding
 
-`src/http3/` owns generic HTTP/3 mechanisms:
+The carrier request keeps the normal HTTP/3 request representation and stores
+a reference to its `xqc_wt_session_t`. Each WebTransport data stream has one
+underlying `xqc_stream_t` and one WebTransport stream handle.
 
-- SETTINGS encoding, parsing, and validation;
-- Extended CONNECT request and response processing;
-- Capsule Protocol framing on CONNECT streams;
-- HTTP Datagram context encoding and decoding;
-- HTTP/3 stream creation, lifetime, and first-value dispatch; and
-- GOAWAY and RFC 9218 priority handling.
+An `xqc_h3_stream_t` may remain as the HTTP/3 dispatch and lifetime container,
+but after classification it routes application bytes to
+`xqc_wt_stream_t`. It must not also expose those bytes through HTTP request,
+QPACK, control-stream, or generic bytestream callbacks.
 
-HTTP/3 exposes an internal extension-registration interface for
-WebTransport. The HTTP/3 core does not include WebTransport headers or encode
-WebTransport session policy. This dependency inversion allows HTTP/3 to call
-registered WebTransport handlers without making ordinary HTTP/3 depend on the
-optional feature module.
+```text
+carrier request: xqc_stream_t <-> xqc_h3_stream_t <-> xqc_h3_request_t
+                                                       `-> xqc_wt_session_t
 
-The existing generic HTTP/3 bytestream extension is not the WebTransport
-stream abstraction and must not be reused as if its wire format were
-compatible.
+data stream:     xqc_stream_t <-> dispatch container <-> xqc_wt_stream_t
+```
 
-### QUIC Transport Module
+Public APIs never expose the dispatch container or accept an internal HTTP/3
+stream pointer.
 
-`src/transport/` owns native stream creation and I/O, QUIC flow control,
-QUIC DATAGRAM, final-size accounting, `RESET_STREAM_AT`, transport parameter
-negotiation, and TLS exporter access. It contains no WebTransport session or
-HTTP/3 framing logic.
+### Incremental Dispatch
 
-The transport layer supplies enough internal API for WebTransport to:
+The WebTransport codec consumes protocol prefixes incrementally. Parser state
+is stored on the candidate stream so any split across receive callbacks is
+handled without copying already-consumed bytes or exposing prefix bytes to the
+application.
 
-- create unidirectional and bidirectional streams;
-- send, receive, finish, reset, and stop a stream;
-- preserve a reliable WebTransport stream header during reset;
-- query final sizes for session flow-control accounting;
-- send and receive QUIC DATAGRAM payloads; and
-- derive session-specific exporter material through the TLS layer.
+Classification has exactly three outcomes:
+
+- `need more data`: retain bounded parser state;
+- `bound`: attach the stream to one resolved session and switch permanently
+  to WebTransport application-byte delivery; or
+- `reject`: invoke the protocol adapter's error path and never deliver the
+  bytes to an application.
+
+There is no fallback or default session. A stream or datagram that cannot be
+resolved must not be delivered to another session.
+
+### Unresolved Input
+
+The connection extension state contains bounded registries for streams and
+datagrams that arrive before their session can be resolved. Limits include
+object counts, aggregate bytes, and a lifetime deadline. The public settings
+provide the bounds; internal defaults must be finite.
+
+Once the session becomes deliverable, queued objects are drained in arrival
+order per object class. Once the session is rejected, closed, or times out,
+the registries discard or reject queued input through the governing protocol
+error path.
+
+No application callback is invoked for unresolved input. Buffer ownership
+remains inside XQUIC until delivery or disposal.
+
+### Flow-Control Accounting
+
+Session accounting is separate from QUIC connection and stream accounting.
+The WebTransport module stores, for each direction and stream class:
+
+- the effective peer and local limits;
+- opened and closed stream counts;
+- application bytes consumed against the session data limit;
+- the last advertised limits; and
+- blocked notification state.
+
+The accounting layer obtains stream final sizes from the transport adapter and
+excludes internal protocol-prefix bytes. Limit changes are serialized through
+the carrier request's capsule sender. Local window-update heuristics use
+configurable thresholds and remain subordinate to the governing IETF rules.
+
+The scheduler reuses the existing HTTP/3 priority state associated with the
+carrier request for competition among HTTP requests and WebTransport
+sessions. The first API version does not add XQUIC-specific priority signaling
+among streams inside one session.
+
+### Error and Teardown Isolation
+
+The protocol codec owns the tables and algorithms that map application errors
+to protocol codepoints. Public APIs accept and report only the application
+error width defined by the governing IETF source; raw mapped HTTP/3 values are
+not public inputs.
+
+A stream failure tears down only that stream unless the governing IETF source
+classifies it as a session or connection error. A session close tears down its
+owned streams, queued input, and callbacks without closing unrelated sessions
+or ordinary HTTP/3 requests unless the governing source requires a connection
+error.
+
+Teardown order is:
+
+1. stop new application operations on the object;
+2. detach it from lookup registries;
+3. complete its final application callback;
+4. release child and buffered objects; and
+5. release the opaque handle.
+
+Callbacks may inspect borrowed close information only for the duration of the
+callback. A handle is invalid after its final close callback returns.
+
+### Version Adapter
+
+All revision-specific identifiers and codecs live in one internal immutable
+version table. Session, stream, datagram, and capsule paths select one table
+from the negotiated connection version and never mix tables on a connection.
+
+The initial table targets draft 16. Adding another draft or RFC requires:
+
+- reviewing the current version-independent IETF source;
+- adding or updating one version table and its codec tests;
+- updating compatibility declarations exposed by XQUIC; and
+- updating this document only when an XQUIC-owned design or API changes.
+
+Protocol constants must not be copied into public API headers unless they are
+part of an application-visible value type required by the API.
 
 ## Target Public API
 
-The names below define the target source contract. Exact field ordering is an
-ABI decision for implementation, but the stated behavior and ownership are
-normative.
+The declarations below define the target XQUIC source contract. Exact field
+ordering and symbol visibility are implementation-time ABI decisions, but
+ownership, lifetime, and observable behavior are normative project choices.
 
 ### Opaque Handles and State
 
@@ -413,33 +338,30 @@ xqc_int_t xqc_wt_ctx_destroy(xqc_engine_t *engine);
 ```
 
 `xqc_wt_ctx_init()` is called after `xqc_h3_ctx_init()` and before creating an
-HTTP/3 connection. XQUIC copies the settings and callback table. It registers
-the WebTransport extension without replacing existing HTTP/3 callbacks or
-application user data.
+HTTP/3 connection. XQUIC copies the settings and callback table. Registration
+must not replace existing HTTP/3 callbacks or application user data.
 
-`xqc_wt_settings_t` includes:
+`xqc_wt_settings_t` contains:
 
 - maximum sessions per HTTP/3 connection;
-- initial per-session bidirectional and unidirectional stream limits;
-- initial per-session data window;
-- maximum pending sessions, streams, datagrams, and pending bytes;
-- session decision timeout; and
-- automatic flow-control window update thresholds.
+- initial per-session stream and data limits;
+- maximum unresolved sessions, streams, datagrams, and bytes;
+- application decision timeout; and
+- automatic window-update thresholds.
 
-When settings allow more than one simultaneous session, non-zero session flow
-control is required.
+Initialization rejects settings that cannot support the configured pooling
+mode under the governing IETF flow-control requirements.
 
-### Connection Capability Notification
+### Connection Capability
 
 ```c
 xqc_bool_t xqc_wt_conn_is_ready(xqc_h3_conn_t *h3_conn);
 ```
 
-The callback table includes `wt_conn_ready_notify`. It fires after peer
-SETTINGS and required QUIC transport parameters have been validated. The
-boolean result distinguishes a WebTransport-capable HTTP/3 connection from a
-normal HTTP/3 connection. Session creation before readiness fails with
-`-XQC_EAGAIN`; it does not send a CONNECT request speculatively.
+The callback table contains `wt_conn_ready_notify`. It fires once the
+WebTransport module has a final capability result from the HTTP/3 and
+transport adapters. Session creation before a positive result fails with
+`-XQC_EAGAIN` and performs no partial request creation.
 
 ### Session APIs
 
@@ -473,23 +395,23 @@ void xqc_wt_session_set_user_data(xqc_wt_session_t *session,
 void *xqc_wt_session_get_user_data(xqc_wt_session_t *session);
 ```
 
-`xqc_wt_session_config_t` contains authority, path, optional Origin,
-application protocols in preference order, optional safe extra headers, and
-optional RFC 9218 priority. XQUIC copies all input strings and headers before
-the call returns.
+`xqc_wt_session_config_t` contains authority, path, optional origin,
+application protocols in preference order, optional additional safe headers,
+and optional HTTP priority. XQUIC copies every input string and header before
+the create call returns.
 
-The callback table includes:
+The callback table contains:
 
-- `session_request_notify`: server authorization point; the application calls
-  accept or reject, synchronously or before the decision timeout;
-- `session_ready_notify`: the 2xx response has established the session;
-- `session_drain_notify`: `WT_DRAIN_SESSION` or HTTP/3 GOAWAY was received;
-  and
-- `session_close_notify`: final callback with local or remote origin,
-  optional 32-bit application error, protocol error, and reason.
+- `session_request_notify`: the server application's authorization point;
+- `session_ready_notify`: the protocol adapter reports an established
+  session;
+- `session_drain_notify`: the protocol adapter reports a drain signal; and
+- `session_close_notify`: the final callback, including close origin,
+  application error if present, protocol error, and borrowed reason.
 
-No implicit session acceptance is permitted. After `session_close_notify`,
-the session handle and borrowed close information are invalid.
+Server acceptance is always an explicit application decision. A decision may
+be synchronous or may remain pending until the configured deadline. Calls
+made in the wrong state fail without emitting additional protocol output.
 
 ### Stream APIs
 
@@ -520,19 +442,13 @@ void xqc_wt_stream_set_user_data(xqc_wt_stream_t *stream,
 void *xqc_wt_stream_get_user_data(xqc_wt_stream_t *stream);
 ```
 
-A locally created unidirectional stream is send-only. A remotely created
-unidirectional stream is receive-only. Invalid-direction operations fail
-without changing stream state.
+Direction-invalid operations fail without changing stream state. The callback
+table contains stream create, read, write, closing, and close notifications.
+The create callback is emitted only after the stream is bound to a deliverable
+session. The close callback is the last valid use of the stream handle.
 
-The callback table includes stream create, read, write, closing, and close
-notifications. The create callback is delivered only after the stream is
-bound to an open session. The closing callback reports whether a valid
-WebTransport application error code was present. The close callback is the
-last use of the stream handle.
-
-Send and receive return the number of application bytes consumed, not bytes
-used by the WebTransport prefix. Prefix bytes and retry state are entirely
-owned by XQUIC.
+Send and receive counts contain application bytes only. Internal prefix bytes
+and retry state never appear in application buffers or return values.
 
 ### Datagram APIs
 
@@ -544,13 +460,14 @@ xqc_int_t xqc_wt_datagram_send(xqc_wt_session_t *session,
     xqc_data_qos_level_t qos_level);
 ```
 
-The returned MSS is the maximum WebTransport application payload after the
-HTTP Datagram context prefix. An oversize send fails atomically.
+The reported MSS is the maximum application payload after internal protocol
+overhead. An oversize send fails atomically. Datagram routing is always
+session-scoped; no connection-scoped public send API is provided.
 
-The callback table includes session-scoped datagram read, write, acknowledged,
-lost, and MSS-updated notifications. Received payload pointers are borrowed
-for the callback duration. A lost notification never causes automatic
-retransmission by the WebTransport layer.
+The callback table contains session-scoped datagram read, write,
+acknowledged, lost, and MSS-updated notifications. Received payload pointers
+are borrowed for the callback duration. The WebTransport module never
+retransmits an application datagram automatically.
 
 ### Session Exporter API
 
@@ -561,56 +478,62 @@ xqc_int_t xqc_wt_session_export_keying_material(
     unsigned char *output, size_t output_len);
 ```
 
-XQUIC constructs the complete `EXPORTER-WebTransport` context internally.
-Applications provide only their label and optional context.
+The WebTransport module constructs the protocol-defined exporter input and
+delegates cryptographic derivation to the TLS adapter. Applications provide
+only their application label and optional context.
 
 ## Prototype API Migration
 
-The target API intentionally narrows the current prototype surface:
+The production API intentionally narrows the prototype surface:
 
-- `xqc_webtransport_connect()` is replaced by normal HTTP/3 connection
-  creation followed by `xqc_wt_session_create()`, allowing connection reuse
-  and multiple sessions.
+- `xqc_webtransport_connect()` is replaced by ordinary HTTP/3 connection
+  creation followed by `xqc_wt_session_create()`, enabling connection reuse;
 - `xqc_wt_session_init()`, `xqc_wt_create_unistream()`, and constructors that
-  accept `xqc_h3_stream_t *` become internal.
-- Separate public uni- and bidirectional handle families are replaced by one
-  `xqc_wt_stream_t` with an explicit direction.
-- Connection-scoped datagram send becomes session-scoped.
-- Public H3-stream getters and setters are removed.
-- Session IDs are always derived from CONNECT stream IDs and are never
-  application-assigned.
-- Callback tables and configuration are copied into module-owned context;
-  borrowed callback-structure pointers are not retained.
+  accept `xqc_h3_stream_t *` become private;
+- separate public unidirectional and bidirectional handle families become one
+  `xqc_wt_stream_t` with an explicit direction;
+- connection-scoped datagram send becomes session-scoped;
+- public HTTP/3-stream getters and setters are removed;
+- session identifiers are derived internally and are never assigned by the
+  application; and
+- settings and callback tables are copied into module-owned storage.
 
-Compatibility aliases can exist during migration, but they must not preserve
-obsolete draft-02 wire behavior under draft-16 negotiation.
+Compatibility aliases may be retained temporarily at the public API boundary.
+They must delegate to the selected version adapter and must not retain an
+obsolete wire codec under a newer advertised compatibility version.
 
 ## Non-Goals
 
-- Capsule-based WebTransport data streams over one CONNECT stream.
-- WebTransport over HTTP/2.
-- HTTP/2-to-HTTP/3 intermediary translation.
-- Automatic redirect following.
-- WebTransport session creation in 0-RTT.
-- Application-visible encoding of HTTP/3 settings, stream prefixes, HTTP
-  Datagram context IDs, capsules, or WebTransport error-code mappings.
+- defining or summarizing WebTransport wire behavior;
+- capsule-based WebTransport data transport;
+- WebTransport over HTTP/2;
+- HTTP/2-to-HTTP/3 intermediary translation;
+- automatic redirect policy in the XQUIC transport API;
+- application-visible protocol encoding or codepoint mapping; and
+- exposing private HTTP/3 or QUIC stream objects through the public API.
 
-## Acceptance Criteria for a Future Implementation
+## Implementation Acceptance Criteria
 
-A future implementation satisfies this specification when:
+An implementation satisfies this project specification when:
 
-- ordinary HTTP/3 requests and multiple WebTransport sessions coexist on one
-  connection without object or callback collisions;
-- session negotiation enforces all draft-16 settings and transport
-  dependencies;
-- CONNECT, unidirectional, bidirectional, and datagram mappings match the
-  table in this document;
-- fragmented prefixes, optimistic arrival, unknown sessions, and bounded
-  buffering are handled without cross-session delivery;
-- session flow control and fairness protect co-resident sessions and HTTP
-  traffic;
-- reset, close, drain, GOAWAY, and exporter behavior use the required
-  protocol semantics;
-- no public API exposes internal H3 or QUIC stream structures; and
-- happy-path and abnormal-path unit and endpoint tests cover every public
-  behavior above.
+- its declared protocol revision passes tests derived directly from the
+  governing IETF source;
+- ordinary HTTP/3 requests and multiple sessions coexist without ownership,
+  callback, or user-data collisions;
+- every data stream has one transport object and one opaque WebTransport
+  handle, with prefix bytes hidden from the application;
+- incremental classification and bounded unresolved-input handling never
+  deliver data across sessions;
+- per-session accounting composes with, rather than replaces, QUIC flow
+  control;
+- session and stream teardown preserves callback and handle lifetimes and
+  isolates unrelated HTTP/3 work;
+- all public inputs are copied or documented as borrowed, and every final
+  callback has an explicit invalidation point;
+- no public API exposes private HTTP/3 or QUIC objects; and
+- happy-path and abnormal-path tests cover every public API state transition
+  and each internal adapter boundary.
+
+Protocol conformance criteria belong in tests that cite the exact governing
+IETF section. They must not be recreated as a second protocol specification in
+this file.

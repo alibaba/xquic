@@ -157,6 +157,53 @@ reimplement those state machines. RTQ owns URL and header objects, promises,
 Web Stream wrappers, browser-style errors, application buffering and expiry
 policy, and W3C-specific statistics presentation.
 
+## MoQT Integration Boundary
+
+[MOQT](https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-19#section-3.1)
+can use either a WebTransport session or a native QUIC connection as its
+Transport Session. The MoQT module therefore remains above WebTransport and
+QUIC and selects one transport through a per-session
+`xqc_moq_transport_adapter_t`:
+
+```text
+xqc_moq_session_t
+  `- xqc_moq_transport_adapter_t
+       |- WebTransport implementation -> xqc_wt_session_t
+       `- native QUIC implementation  -> xqc_connection_t
+```
+
+The adapter is intentionally small. It contains one operation table and one
+opaque transport-session reference:
+
+```c
+typedef struct xqc_moq_transport_adapter_s {
+    const xqc_moq_transport_adapter_ops_t *ops;
+    void                                  *transport_session;
+} xqc_moq_transport_adapter_t;
+```
+
+The operations normalize only the transport capabilities required by MoQT:
+opening and operating unidirectional and bidirectional streams, sending and
+receiving datagrams, reporting writable state and payload limits, applying
+scheduling hints, and closing the Transport Session. MoQT framing, Track and
+Object state, subscriptions, delivery timeout policy, and relay behavior
+remain in `xqc_moq_session_t` and the MoQT module.
+
+The WebTransport implementation stores an `xqc_wt_session_t` as its transport
+session and invokes only the public WebTransport session, stream, and datagram
+APIs. It must not call `xqc_wt_adapter_ops_t` or access H3 and Capsule adapter
+state directly. The native QUIC implementation stores an `xqc_connection_t`
+and maps the same MoQT transport operations to native QUIC streams, QUIC
+DATAGRAM, connection state, and connection close.
+
+Transport-specific establishment and version selection remain in the two
+adapter implementations. The MoQT core receives a ready transport session and
+normalized capabilities, so changing between WebTransport and native QUIC
+does not change Track, Object, subscription, or relay logic. The
+`xqc_moq_transport_adapter_t` is a MoQT infrastructure object scoped to one
+MoQT session; it is not part of the WebTransport object model and is not a
+shared connection entity.
+
 ## Ownership and Object Model
 
 The target ownership hierarchy is:
@@ -890,7 +937,10 @@ An implementation satisfies this project specification when:
   isolates unrelated adapter work;
 - all public inputs are copied or documented as borrowed, and every final
   callback has an explicit invalidation point;
-- no public API exposes private HTTP/3 or QUIC objects; and
+- no public API exposes private HTTP/3 or QUIC objects;
+- `xqc_moq_transport_adapter_t` can bind an MoQT session to WebTransport or
+  native QUIC without the MoQT core accessing private WebTransport adapter
+  state; and
 - happy-path and abnormal-path tests cover every public API state transition
   and each internal adapter boundary.
 

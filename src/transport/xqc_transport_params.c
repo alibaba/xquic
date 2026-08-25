@@ -757,6 +757,10 @@ static xqc_int_t
 xqc_decode_retry_scid(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
     const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
 {
+    if (exttype != XQC_TP_TYPE_ENCRYPTED_EXTENSIONS) {
+        return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+    }
+
     if (param_len > XQC_MAX_CID_LEN) {
         return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
     }

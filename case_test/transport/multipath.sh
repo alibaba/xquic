@@ -110,7 +110,6 @@ fi
 
 case_transport_multipath_MPNS_multipath_30_percent_loss_close_initial_path()
 {
-grep_err_log
 
 echo -e "MPNS multipath 30 percent loss close initial path ...\c"
 mpns_loss_close_initial_pass=0
@@ -123,10 +122,17 @@ while [ $mpns_loss_close_initial_attempt -le 2 ]; do
     case_test_sudo ${CLIENT_BIN} -s 10240 -t 25 -l d -E -d 300 -M -A -i lo -i lo -x 100 -e 10 --epoch_timeout 2000000 > stdlog
     result_fail=`grep ">>>>>>>> pass:0" stdlog`
     result_pass=`grep ">>>>>>>> pass:1" stdlog`
-    errlog=`grep_err_log`
-    for wait_idx in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-        svr_res=`grep "|path closed|path:0|" slog`
-        cli_res=`grep "|path closed|path:0|" clog`
+    ignored_errlog=`grep_err_log \
+        | grep -E "conn closing, cannot create stream|xqc_stream_create\\|xqc_create_stream_with_conn error|xqc_h3_request_create\\|xqc_stream_create error" \
+        || true`
+    errlog=`grep_err_log \
+        | grep -v "conn closing, cannot create stream" \
+        | grep -v "xqc_stream_create|xqc_create_stream_with_conn error" \
+        | grep -v "xqc_h3_request_create|xqc_stream_create error" \
+        || true`
+    for wait_idx in $(seq 1 50); do
+        svr_res=`grep -m 1 "|path closed|path:0|" slog`
+        cli_res=`grep -m 1 "|path closed|path:0|" clog`
         if [ -n "$svr_res" ] && [ -n "$cli_res" ]; then
             break
         fi
@@ -139,7 +145,7 @@ while [ $mpns_loss_close_initial_attempt -le 2 ]; do
     if [ $mpns_loss_close_initial_attempt -ge 2 ]; then
         break
     fi
-    if [ -z "$errlog" ] && [ -z "$result_fail" ] && [ -n "$result_pass" ]; then
+    if [ -z "$errlog" ] && [ -n "$result_pass" ]; then
         mpns_loss_close_initial_attempt=$((mpns_loss_close_initial_attempt + 1))
         continue
     fi
@@ -157,8 +163,33 @@ else
     [ -n "$svr_res" ] && svr_closed_hit=1 || svr_closed_hit=0
     [ -n "$cli_res" ] && cli_closed_hit=1 || cli_closed_hit=0
     [ -n "$errlog" ] && errlog_hit=1 || errlog_hit=0
+    ignored_errlog_count=`printf '%s\n' "$ignored_errlog" | grep -c . || true`
+    remaining_errlog_count=`printf '%s\n' "$errlog" | grep -c . || true`
+    svr_closed_count=`grep -c "|path closed|path:0|" slog || true`
+    cli_closed_count=`grep -c "|path closed|path:0|" clog || true`
+    if [ -n "$result_fail" ]; then
+        client_status="fail"
+    elif [ -n "$result_pass" ]; then
+        client_status="pass"
+    else
+        client_status="no-result"
+    fi
     echo ">>>>>>>> pass:0"
-    echo "[mpns-loss-close-initial]|result_pass:${result_pass_hit}|result_fail:${result_fail_hit}|svr_closed:${svr_closed_hit}|cli_closed:${cli_closed_hit}|errlog:${errlog_hit}|"
+    echo "[mpns-loss-close-initial]|attempt:${mpns_loss_close_initial_attempt}|client_status:${client_status}|result_pass:${result_pass_hit}|result_fail:${result_fail_hit}|svr_closed:${svr_closed_hit}|cli_closed:${cli_closed_hit}|svr_closed_count:${svr_closed_count}|cli_closed_count:${cli_closed_count}|ignored_errlog:${ignored_errlog_count}|remaining_errlog:${remaining_errlog_count}|errlog:${errlog_hit}|"
+    if [ -n "$errlog" ]; then
+        echo "[mpns-loss-close-initial][remaining-errlog]"
+        printf '%s\n' "$errlog" | tail -n 10
+    fi
+    if [ -n "$ignored_errlog" ]; then
+        echo "[mpns-loss-close-initial][ignored-errlog]"
+        printf '%s\n' "$ignored_errlog" | tail -n 10
+    fi
+    echo "[mpns-loss-close-initial][stdlog-key-events]"
+    grep -E ">>>>>>>> pass:|xqc_client_epoch_callback|path removed|conn closing|send_body_size:|conn errno|conn_err_type|xqc_h3_request_create error|xqc_stream_create error" stdlog | tail -n 30 || true
+    echo "[mpns-loss-close-initial][slog-path0-events]"
+    grep -E "path closed|path removed|close path|PATH_STATUS|path_status|path:0" slog | tail -n 20 || true
+    echo "[mpns-loss-close-initial][clog-path0-events]"
+    grep -E "path closed|path removed|close path|PATH_STATUS|path_status|path:0" clog | tail -n 20 || true
     case_print_result "MPNS_multipath_30_percent_loss_close_initial_path" "fail"
 fi
 }

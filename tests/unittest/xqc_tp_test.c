@@ -135,6 +135,30 @@ xqc_test_transport_params()
     xqc_test_encrypted_extensions();
 }
 
+/* RFC 9000 Section 18.2: retry_source_connection_id is server-only. */
+void
+xqc_test_retry_scid_decode_role(void)
+{
+    uint8_t tp[] = {
+        XQC_TRANSPORT_PARAM_RETRY_SOURCE_CONNECTION_ID, 0x01, 0xab
+    };
+    xqc_transport_params_t params;
+    xqc_int_t              ret;
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params,
+                                      XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      tp, sizeof(tp));
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(params.retry_source_connection_id_present, 1);
+    CU_ASSERT_EQUAL(params.retry_source_connection_id.cid_len, 1);
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params, XQC_TP_TYPE_CLIENT_HELLO,
+                                      tp, sizeof(tp));
+    CU_ASSERT_EQUAL(ret, -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+}
+
 /* RFC 9000 Section 18.2: absent max_ack_delay defaults to 25 milliseconds. */
 void
 xqc_test_max_ack_delay_default_when_absent(void)

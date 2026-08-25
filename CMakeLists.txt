@@ -157,9 +157,20 @@ if(XQC_ONLY_ERROR_LOG)
     set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -DXQC_ONLY_ERROR_LOG ")
 endif()
 
+# compile out all logging
+if(XQC_DISABLE_LOG)
+    set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -DXQC_DISABLE_LOG ")
+endif()
+
 # enable event log
 if(XQC_ENABLE_EVENT_LOG)
     set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -DXQC_ENABLE_EVENT_LOG ")
+endif()
+
+# let warnings stay warnings, for toolchains whose headers do not survive the
+# -Werror set in CMAKE_C_FLAGS_OPTION above
+if(DISABLE_WARNINGS)
+    add_compile_options("-Wno-error")
 endif()
 
 # sendmmsg
@@ -409,28 +420,51 @@ add_library(
     ${XQC_SOURCE}
 )
 
+# BoringSSL is largely C++, and --whole-archive pulls all of it in, so the shared
+# library has to resolve its C++ symbols even though XQUIC itself is pure C. The
+# Android NDK ships no libstdc++ and names the runtime after ANDROID_STL instead.
+if(ANDROID)
+    set(XQC_CXX_RUNTIME c++_shared)
+else()
+    set(XQC_CXX_RUNTIME -lstdc++)
+endif()
+
 if(APPLE OR PLATFORM MATCHES "mac")
     target_link_libraries(
         xquic
         "-ldl -Wl,-all_load"
         ${SSL_LIB_PATH}
         "-Wl"
-        -lpthread
-        -lstdc++
+        -pthread
+        ${XQC_CXX_RUNTIME}
     )
 else()
+    # scripts/xquic.lds exports symbols that the feature switches above may have
+    # compiled out (xqc_reno_cb, xqc_copa_cb, the FEC scheme callbacks, ...). GNU
+    # ld only warns about those, while lld rejects them outright, so ask lld to
+    # tolerate them. Older GNU ld does not know the flag, hence the Android scope.
+    if(ANDROID)
+        set(XQC_UNDEFINED_VERSION "-Wl,--undefined-version")
+    else()
+        set(XQC_UNDEFINED_VERSION)
+    endif()
+
     target_link_libraries(
         xquic
         "-ldl -Wl,--whole-archive -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/scripts/xquic.lds"
         ${SSL_LIB_PATH}
         "-Wl,--no-whole-archive"
-        -lpthread
+        ${XQC_UNDEFINED_VERSION}
+        -pthread
+        ${XQC_CXX_RUNTIME}
     )
 endif()
 
 
-# Strip binary for release builds
-if(CMAKE_BUILD_TYPE STREQUAL MinSizeRel)
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-            COMMAND ${CMAKE_STRIP} libxquic.so)
+# Strip binary for release builds. The file is resolved by generator expression
+# because LIBRARY_OUTPUT_PATH may redirect where it lands, and a bare relative
+# name would be looked up in the build directory root instead.
+if(CMAKE_BUILD_TYPE STREQUAL Minsizerel AND CMAKE_STRIP)
+    add_custom_command(TARGET xquic POST_BUILD
+            COMMAND ${CMAKE_STRIP} $<TARGET_FILE:xquic>)
 endif()

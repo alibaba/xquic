@@ -120,6 +120,43 @@ Application event notification tables remain named callbacks; the adapter
 operation table remains named `xqc_wt_adapter_ops_t` because it represents a
 set of callable capabilities rather than one passive callback.
 
+## W3C Semantic Mapping and RTQ Boundary
+
+The [W3C WebTransport API](https://www.w3.org/TR/webtransport/) is the semantic
+reference for an RTQ or other web-facing adapter. It is not the source of
+XQUIC wire behavior and is not copied as a WebIDL-shaped C API. The governing
+IETF source remains authoritative for protocol behavior. When an RTQ claims
+W3C API compatibility, the W3C source is authoritative for that RTQ mapping.
+
+XQUIC exposes non-blocking protocol operations, state, capabilities, and
+callbacks. RTQ maps those primitives to promises, Web Streams, web objects,
+and endpoint policy:
+
+| W3C semantic | XQUIC protocol API | RTQ or web-facing layer |
+|--------------|--------------------|-------------------------|
+| `ready`, `draining`, `closed` | Session state and notifications | Promise or future objects |
+| Create unidirectional or bidirectional stream | `xqc_wt_stream_create()` | W3C stream objects |
+| Incoming streams | Stream-create notification | Incoming `ReadableStream` queues |
+| Datagrams | Send, receive, maximum size, writable notification | Duplex stream, buffering, and expiration policy |
+| `close()` and close information | `xqc_wt_session_close()` and structured close notification | W3C close dictionary conversion |
+| Reliability properties | Session transport properties | W3C reliability enum conversion |
+| Exporter | Raw session exporter operation | Promise and `BufferSource` conversion |
+| `getStats()` | Raw session and stream counters | Aggregation, privacy filtering, and W3C field layout |
+
+The mapping preserves semantic correspondence without copying camel-case
+names. Public XQUIC symbols use the `xqc_wt_` prefix and lowercase words
+separated by underscores. For example,
+`createBidirectionalStream()` maps to `xqc_wt_stream_create()` with an explicit
+direction, and `maxDatagramSize` maps to
+`xqc_wt_datagram_get_max_size()`.
+
+XQUIC retains protocol negotiation, validation, session and stream state,
+flow-control accounting, protocol error mapping, Capsule processing, and the
+H3 and Capsule adapters. RTQ must not parse WebTransport wire syntax or
+reimplement those state machines. RTQ owns URL and header objects, promises,
+Web Stream wrappers, browser-style errors, application buffering and expiry
+policy, and W3C-specific statistics presentation.
+
 ## Ownership and Object Model
 
 The target ownership hierarchy is:
@@ -759,23 +796,24 @@ interpreted as QUIC stream identifiers by common application code.
 ### Datagram APIs
 
 ```c
-size_t xqc_wt_datagram_get_mss(const xqc_wt_session_t *session);
+size_t xqc_wt_datagram_get_max_size(const xqc_wt_session_t *session);
 
 xqc_int_t xqc_wt_datagram_send(xqc_wt_session_t *session,
     const void *data, size_t data_len, uint64_t *datagram_id,
     const xqc_wt_datagram_options_t *options);
 ```
 
-The reported MSS is the maximum application payload after internal protocol
-overhead. An oversize send fails atomically. Datagram routing is always
-session-scoped; no connection-scoped public send API is provided.
+The reported maximum size is the largest application datagram payload after
+internal protocol overhead. An oversize send fails atomically. Datagram
+routing is always session-scoped; no connection-scoped public send API is
+provided.
 
 The callback table contains session-scoped datagram read, write,
-delivery-status, and MSS-updated notifications. Delivery-status callbacks are
-emitted only when the selected adapter reports that capability. Received
-payload pointers are borrowed for the callback duration. The WebTransport core
-never requests automatic retransmission that would contradict the selected
-binding's transport properties.
+delivery-status, and maximum-size-updated notifications. Delivery-status
+callbacks are emitted only when the selected adapter reports that capability.
+Received payload pointers are borrowed for the callback duration. The
+WebTransport core never requests automatic retransmission that would
+contradict the selected binding's transport properties.
 
 ### Session Exporter API
 

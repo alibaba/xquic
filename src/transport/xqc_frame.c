@@ -1657,6 +1657,18 @@ xqc_process_new_token_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 xqc_int_t
 xqc_process_datagram_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
+    /* RFC 9221 Section 5 permits DATAGRAM only with 0-RTT or 1-RTT keys. */
+    if (packet_in->pi_pkt.pkt_type != XQC_PTYPE_0RTT
+        && packet_in->pi_pkt.pkt_type != XQC_PTYPE_SHORT_HEADER)
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|illegal DATAGRAM frame in %s packet, close with "
+                "PROTOCOL_VIOLATION|",
+                xqc_pkt_type_2_str(packet_in->pi_pkt.pkt_type));
+        XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
+        return -XQC_EPROTO;
+    }
+
     /* does not support datagram */
     if (conn->local_settings.max_datagram_frame_size == 0) {
         xqc_log(conn->log, XQC_LOG_ERROR,

@@ -91,6 +91,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_GOAWAY_INCREASE 1018
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_BELOW_LIMIT 902
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT 903
+#define XQC_TEST_CASE_DATAGRAM_1RTT_ALLOWED 1201
+#define XQC_TEST_CASE_DATAGRAM_INITIAL_REJECTED 1202
 
 typedef struct user_conn_s user_conn_t;
 
@@ -104,6 +106,8 @@ static void xqc_client_send_test_goaway_ids(xqc_h3_conn_t *h3_conn,
     uint64_t first, uint64_t second);
 static void xqc_client_send_test_single_vint_frame(
     xqc_h3_conn_t *h3_conn, xqc_bool_t overlong);
+static xqc_int_t xqc_client_write_test_datagram_frame(
+    xqc_connection_t *conn, xqc_pkt_type_t pkt_type);
 
 
 #define XQC_TEST_DGRAM_BATCH_SZ 32
@@ -2129,6 +2133,28 @@ xqc_client_send_max_stream_data_test_frame(xqc_connection_t *conn)
     printf("[max-stream-data-test]|case:%d|stream_id:%"PRIu64
            "|limit:%"PRIu64"|\n", g_test_case, stream_id,
            XQC_MAX_FLOW_CONTROL_WINDOW);
+}
+
+static xqc_int_t
+xqc_client_write_test_datagram_frame(xqc_connection_t *conn,
+    xqc_pkt_type_t pkt_type)
+{
+    const unsigned char payload[1] = {0};
+    xqc_packet_out_t   *packet_out;
+    xqc_int_t           ret;
+
+    packet_out = xqc_write_new_packet(conn, pkt_type);
+    if (packet_out == NULL) {
+        return -XQC_ENOBUF;
+    }
+
+    ret = xqc_gen_datagram_frame(packet_out, payload, sizeof(payload));
+    if (ret == XQC_OK) {
+        printf("[dgram-encryption-level-test]|packet_type:%d|written|\n",
+               pkt_type);
+    }
+
+    return ret;
 }
 
 void
@@ -5734,6 +5760,14 @@ int main(int argc, char *argv[]) {
 
     /* copy cid to its own memory space to prevent crashes caused by internal cid being freed */
     memcpy(&user_conn->cid, cid, sizeof(*cid));
+
+    if (g_test_case == XQC_TEST_CASE_DATAGRAM_INITIAL_REJECTED
+        && user_conn->quic_conn != NULL)
+    {
+        xqc_int_t ret = xqc_client_write_test_datagram_frame(
+            user_conn->quic_conn, XQC_PTYPE_INIT);
+        printf("[dgram-encryption-level-test]|initial_write_ret:%d|\n", ret);
+    }
 
     user_conn->dgram_blk = calloc(1, sizeof(user_dgram_blk_t));
     user_conn->dgram_blk->data_sent = 0;

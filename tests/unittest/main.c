@@ -248,6 +248,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_h3_single_vint_frame_length_error",
                         xqc_test_h3_single_vint_frame_length_error)
+        || !CU_add_test(pSuite, "xqc_test_tls_default_cert_with_sni",
+                        xqc_test_tls_default_cert_with_sni)
+        || !CU_add_test(pSuite, "xqc_test_tls_default_cert_without_sni",
+                        xqc_test_tls_default_cert_without_sni)
         || !CU_add_test(pSuite, "xqc_test_tls", xqc_test_tls)
         || !CU_add_test(pSuite, "xqc_test_h3_stream", xqc_test_stream)
         || !CU_add_test(pSuite, "xqc_test_h3_critical_stream_close", xqc_test_h3_critical_stream_close)

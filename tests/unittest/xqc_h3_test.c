@@ -1394,6 +1394,95 @@ xqc_h3_ctrl_feed_settings(xqc_h3_stream_t *h3s)
 
 
 static ssize_t
+xqc_h3_ctrl_feed_setting(xqc_h3_stream_t *h3s, unsigned char identifier,
+    unsigned char value)
+{
+    unsigned char settings[] = {
+        XQC_H3_FRM_SETTINGS, 0x02, identifier, value
+    };
+    return xqc_h3_stream_process_control(h3s, settings, sizeof(settings));
+}
+
+
+void
+xqc_test_h3_settings_accepted()
+{
+    const xqc_conn_type_t roles[] = {
+        XQC_CONN_TYPE_CLIENT, XQC_CONN_TYPE_SERVER
+    };
+    const unsigned char identifiers[] = {
+        XQC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE,
+        0x08,
+        0x21,
+    };
+
+    for (size_t i = 0; i < sizeof(roles) / sizeof(roles[0]); i++) {
+        for (size_t j = 0;
+             j < sizeof(identifiers) / sizeof(identifiers[0]); j++)
+        {
+            xqc_connection_t *conn = NULL;
+            xqc_h3_conn_t *h3c = NULL;
+            xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+            CU_ASSERT_FATAL(h3s != NULL);
+
+            conn->conn_type = roles[i];
+            ssize_t processed = xqc_h3_ctrl_feed_setting(
+                h3s, identifiers[j], 1);
+
+            CU_ASSERT(processed == 4);
+            CU_ASSERT(conn->conn_err == 0);
+            CU_ASSERT(h3c->flags & XQC_H3_CONN_FLAG_SETTINGS_RECVED);
+            if (identifiers[j]
+                == XQC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE)
+            {
+                CU_ASSERT(h3c->peer_h3_conn_settings.max_field_section_size
+                          == 1);
+            }
+
+            xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+        }
+    }
+}
+
+
+void
+xqc_test_h3_reserved_h2_settings_rejected()
+{
+    const xqc_conn_type_t roles[] = {
+        XQC_CONN_TYPE_CLIENT, XQC_CONN_TYPE_SERVER
+    };
+    const unsigned char identifiers[] = {
+        XQC_H3_SETTINGS_H2_ENABLE_PUSH,
+        XQC_H3_SETTINGS_H2_MAX_CONCURRENT_STREAMS,
+        XQC_H3_SETTINGS_H2_INITIAL_WINDOW_SIZE,
+        XQC_H3_SETTINGS_H2_MAX_FRAME_SIZE,
+    };
+
+    for (size_t i = 0; i < sizeof(roles) / sizeof(roles[0]); i++) {
+        for (size_t j = 0;
+             j < sizeof(identifiers) / sizeof(identifiers[0]); j++)
+        {
+            xqc_connection_t *conn = NULL;
+            xqc_h3_conn_t *h3c = NULL;
+            xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+            CU_ASSERT_FATAL(h3s != NULL);
+
+            conn->conn_type = roles[i];
+            ssize_t processed = xqc_h3_ctrl_feed_setting(
+                h3s, identifiers[j], 0);
+
+            CU_ASSERT(processed == -H3_SETTINGS_ERROR);
+            CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err)
+                      == H3_SETTINGS_ERROR);
+            CU_ASSERT(conn->conn_flag & XQC_CONN_FLAG_ERROR);
+
+            xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+        }
+    }
+}
+
+
+static ssize_t
 xqc_h3_ctrl_feed_max_push_id(xqc_h3_stream_t *h3s, unsigned char push_id)
 {
     unsigned char frame[] = { XQC_H3_FRM_MAX_PUSH_ID, 0x01, push_id };

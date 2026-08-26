@@ -94,11 +94,9 @@ xqc_datagram_record_mss(xqc_connection_t *conn)
         mtu_limit = 0;
     }
 
-    dgram_frame_limit = conn->remote_settings.max_datagram_frame_size
-                        >= XQC_DATAGRAM_HEADER_BYTES
-                        ? conn->remote_settings.max_datagram_frame_size
-                          - XQC_DATAGRAM_HEADER_BYTES
-                        : 0;
+    dgram_frame_limit = conn->remote_settings.max_datagram_frame_size >= XQC_DATAGRAM_HEADER_BYTES ?
+                        conn->remote_settings.max_datagram_frame_size - XQC_DATAGRAM_HEADER_BYTES :
+                        0;
     dgram_frame_limit = xqc_min(dgram_frame_limit,
                                 (uint64_t) udp_payload_limit);
     conn->dgram_mss = xqc_min((size_t) dgram_frame_limit, mtu_limit);

@@ -554,6 +554,32 @@ fi
 
 }
 
+case_transport_stream_reset_stream_on_recv_only_stream()
+{
+
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e -x 717 > svr_stdlog
+sleep 1
+echo -e "reset_stream_on_recv_only_stream ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 717 > stdlog
+sleep 1
+result=`grep ">>>>>>>> pass:1" stdlog`
+server_reset=`grep "\[recv-only-reset-test\]|stream_id:.*|ret:0|" svr_stdlog`
+server_rejected=`grep "RESET_STREAM on send-only stream" slog`
+client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
+if [ -n "$result" ] && [ -n "$server_reset" ] \
+    && [ -z "$server_rejected" ] && [ -z "$client_close_code" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "reset_stream_on_recv_only_stream" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "reset_stream_on_recv_only_stream" "fail"
+fi
+
+}
+
 case_transport_stream_stop_sending_on_recv_only_stream()
 {
 
@@ -648,6 +674,7 @@ case_test_case "send_queue_full_batch" --id native --mode self-reporting --run c
 case_test_case "conn_rate_throttling" --id native --mode self-reporting --run case_transport_stream_conn_rate_throttling
 case_test_case "stream_rate_throttling" --id native --mode self-reporting --run case_transport_stream_stream_rate_throttling
 case_test_case "reset_stream_on_send_only_stream" --id native --mode self-reporting --run case_transport_stream_reset_stream_on_send_only_stream
+case_test_case "reset_stream_on_recv_only_stream" --id native --mode self-reporting --run case_transport_stream_reset_stream_on_recv_only_stream
 case_test_case "stop_sending_on_recv_only_stream" --id native --mode self-reporting --run case_transport_stream_stop_sending_on_recv_only_stream
 case_test_case "stream_frame_on_send_only_stream" --id native --mode self-reporting --run case_transport_stream_stream_frame_on_send_only_stream
 case_test_case "stream_frame_on_local_uncreated_stream" --id native --mode self-reporting --run case_transport_stream_stream_frame_on_local_uncreated_stream

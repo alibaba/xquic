@@ -226,6 +226,12 @@ main(int argc, char *argv[])
                         xqc_test_reset_stream_on_send_only_stream_server)
         || !CU_add_test(pSuite, "xqc_test_reset_stream_on_recv_only_stream_accepted",
                         xqc_test_reset_stream_on_recv_only_stream_accepted)
+        || !CU_add_test(pSuite,
+                        "xqc_test_process_reset_stream_on_bidirectional_stream",
+                        xqc_test_process_reset_stream_on_bidirectional_stream)
+        || !CU_add_test(pSuite,
+                        "xqc_test_process_reset_stream_on_recv_only_stream",
+                        xqc_test_process_reset_stream_on_recv_only_stream)
         || !CU_add_test(pSuite, "xqc_test_stop_sending_on_recv_only_stream",
                         xqc_test_stop_sending_on_recv_only_stream)
         || !CU_add_test(pSuite, "xqc_test_stop_sending_on_recv_only_stream_server",

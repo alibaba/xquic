@@ -10,6 +10,8 @@
 #include "src/transport/xqc_packet.h"
 #include "src/transport/xqc_packet_in.h"
 #include "src/transport/xqc_packet_out.h"
+#include "src/transport/xqc_send_queue.h"
+#include "src/transport/xqc_stream.h"
 #include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "src/transport/xqc_conn.h"
 #include "xquic/xqc_errno.h"
@@ -1403,6 +1405,58 @@ xqc_test_reset_stream_on_recv_only_stream_accepted(void)
     CU_ASSERT(pi.pos == frame_buf + sizeof(frame_buf));
 
     xqc_engine_destroy(conn->engine);
+}
+
+
+static void
+xqc_test_process_reset_stream_direction(xqc_stream_id_t stream_id,
+    xqc_bool_t expect_local_reset)
+{
+    unsigned char frame_buf[] = {0x04, (unsigned char)stream_id, 0x00, 0x00};
+    xqc_packet_in_t pi;
+    xqc_connection_t *conn;
+    xqc_stream_t *stream;
+    uint64_t packets_used;
+    xqc_int_t ret;
+
+    conn = xqc_test_dir_make_conn(XQC_CONN_TYPE_CLIENT);
+    CU_ASSERT_FATAL(conn != NULL);
+
+    packets_used = conn->conn_send_queue->sndq_packets_used;
+    xqc_test_dir_init_pi(&pi, frame_buf, sizeof(frame_buf));
+
+    ret = xqc_process_reset_stream_frame(conn, &pi);
+    CU_ASSERT(ret == XQC_OK);
+
+    stream = xqc_find_stream_by_id(stream_id, conn->streams_hash);
+    CU_ASSERT_FATAL(stream != NULL);
+    CU_ASSERT(stream->stream_state_recv == XQC_RECV_STREAM_ST_RESET_RECVD);
+
+    if (expect_local_reset) {
+        CU_ASSERT(conn->conn_send_queue->sndq_packets_used
+                  == packets_used + 1);
+        CU_ASSERT(stream->stream_state_send == XQC_SEND_STREAM_ST_RESET_SENT);
+
+    } else {
+        CU_ASSERT(conn->conn_send_queue->sndq_packets_used == packets_used);
+        CU_ASSERT(stream->stream_state_send == XQC_SEND_STREAM_ST_READY);
+    }
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_process_reset_stream_on_bidirectional_stream(void)
+{
+    /* Server-initiated bidirectional stream: the client has a sending part. */
+    xqc_test_process_reset_stream_direction(1, XQC_TRUE);
+}
+
+void
+xqc_test_process_reset_stream_on_recv_only_stream(void)
+{
+    /* RFC 9000 Section 3.3: the receiver cannot send RESET_STREAM. */
+    xqc_test_process_reset_stream_direction(3, XQC_FALSE);
 }
 
 

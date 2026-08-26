@@ -1164,6 +1164,24 @@ xqc_server_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *conn_user_da
                ", sent_countable:%"PRIu64"\n", peer_limit, countable);
     }
 
+    if (g_test_case == 717) {
+        xqc_connection_t *conn = xqc_h3_conn_get_xqc_conn(h3_conn);
+        xqc_stream_t *stream;
+        xqc_int_t ret;
+
+        stream = xqc_stream_create_with_direction(conn, XQC_STREAM_UNI, NULL);
+        if (stream == NULL) {
+            printf("[recv-only-reset-test]|stream unavailable|\n");
+
+        } else {
+            ret = xqc_write_reset_stream_to_packet(conn, stream, 0,
+                                                    stream->stream_send_offset);
+            printf("[recv-only-reset-test]|stream_id:%"PRIu64"|ret:%d|\n",
+                   xqc_stream_id(stream), ret);
+        }
+        fflush(stdout);
+    }
+
     /* pretend to create a server-inited http3 stream */
     if (g_test_case == 17) {
         xqc_stream_t * stream = xqc_stream_create_with_direction(

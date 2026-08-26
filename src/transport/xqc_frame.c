@@ -1297,7 +1297,10 @@ xqc_process_reset_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
 
     xqc_stream_closing(stream, err_code);
 
-    if (stream->stream_state_send < XQC_SEND_STREAM_ST_RESET_SENT) {
+    /* RFC 9000 Section 3.3: only the sender sends RESET_STREAM. */
+    if (!xqc_stream_is_recv_only(conn->conn_type, stream_id)
+        && stream->stream_state_send < XQC_SEND_STREAM_ST_RESET_SENT)
+    {
         xqc_send_queue_drop_stream_frame_packets(conn, stream_id);
         xqc_write_reset_stream_to_packet(conn, stream, err_code, stream->stream_send_offset);
     }

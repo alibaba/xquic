@@ -169,6 +169,60 @@ xqc_test_send_ctl_run_rtt_case(xqc_connection_t *conn, xqc_path_ctx_t *path,
 
 
 void
+xqc_test_send_ctl_update_rtt_subtracts_at_min_rtt(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_rtt_case_t tc = {
+        .name = "subtracts_at_min_rtt",
+        .hsk_confirmed = XQC_FALSE,
+        .first_sample  = XQC_FALSE,
+        .remote_max_ack_delay_ms = 100,
+        .input_ack_delay = 10000,
+        .latest_rtt      = 20000,
+        .pre_minrtt      = 10000,
+        .pre_srtt        = 20000,
+        .pre_rttvar      = 1000,
+        .expected_srtt   = 18750,
+        .expected_rttvar = 3250,
+        .expected_minrtt = 10000,
+    };
+
+    xqc_test_send_ctl_run_rtt_case(conn, conn->conn_initial_path, &tc);
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_send_ctl_update_rtt_rejects_below_min_rtt(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_rtt_case_t tc = {
+        .name = "rejects_below_min_rtt",
+        .hsk_confirmed = XQC_FALSE,
+        .first_sample  = XQC_FALSE,
+        .remote_max_ack_delay_ms = 100,
+        .input_ack_delay = 10000,
+        .latest_rtt      = 19999,
+        .pre_minrtt      = 10000,
+        .pre_srtt        = 20000,
+        .pre_rttvar      = 1000,
+        .expected_srtt   = 19999,
+        .expected_rttvar = 750,
+        .expected_minrtt = 10000,
+    };
+
+    xqc_test_send_ctl_run_rtt_case(conn, conn->conn_initial_path, &tc);
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
 xqc_test_send_ctl_update_rtt_ack_delay_cap(void)
 {
     xqc_connection_t *conn = test_engine_connect();
@@ -289,8 +343,8 @@ xqc_test_send_ctl_update_rtt_ack_delay_cap(void)
             .pre_srtt        = 12000,
             .pre_rttvar      = 1000,
             /*
-             * adjusted_rtt + 1000us = 13000us, minrtt + ack_delay = 21000us;
-             * plausibility check fails, ack_delay not subtracted.
+             * latest_rtt = 12000us is below minrtt + ack_delay = 21000us,
+             * so ack_delay is not subtracted.
              */
             .expected_srtt   = 12000,
             .expected_rttvar = 750,

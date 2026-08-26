@@ -151,6 +151,11 @@ main(int argc, char *argv[])
                         xqc_test_coalesced_matching_dcid_processed)
         || !CU_add_test(pSuite, "xqc_test_coalesced_mismatching_dcid_ignored",
                         xqc_test_coalesced_mismatching_dcid_ignored)
+        || !CU_add_test(pSuite, "xqc_test_coalesced_initial_datagram_minimum",
+                        xqc_test_coalesced_initial_datagram_minimum)
+        || !CU_add_test(pSuite,
+                        "xqc_test_coalesced_initial_datagram_too_small",
+                        xqc_test_coalesced_initial_datagram_too_small)
         || !CU_add_test(pSuite, "xqc_test_transport_params", xqc_test_transport_params)
         || !CU_add_test(pSuite, "xqc_test_retry_scid_decode_role",
                         xqc_test_retry_scid_decode_role)

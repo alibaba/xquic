@@ -22,6 +22,7 @@ struct xqc_packet_in_s {
     xqc_list_head_t         pi_list;
     const unsigned char    *buf;
     size_t                  buf_size;
+    size_t                  datagram_size;
     unsigned char          *decode_payload;
     size_t                  decode_payload_size;
     size_t                  decode_payload_len;

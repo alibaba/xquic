@@ -5,6 +5,8 @@
 #ifndef _XQC_TLS_TEST_INCLUDE_
 #define _XQC_TLS_TEST_INCLUDE_
 
-void xqc_test_tls();
+void xqc_test_tls(void);
+void xqc_test_tls_default_cert_with_sni(void);
+void xqc_test_tls_default_cert_without_sni(void);
 
 #endif

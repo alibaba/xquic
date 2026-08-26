@@ -5176,6 +5176,12 @@ xqc_conn_process_packet_recved_path(xqc_connection_t *conn, xqc_cid_t *scid,
 
     xqc_send_ctl_on_dgram_received(path->path_send_ctl, packet_in_size);
 
+    /*
+     * RFC 9000 Section 8.2.4: retain the abandonment deadline armed when
+     * PATH_CHALLENGE is sent. Unrelated packets must not extend validation.
+     * A matching PATH_RESPONSE changes the path to ACTIVE before this point,
+     * so the ordinary idle timeout is then restarted below.
+     */
     if (path->path_state != XQC_PATH_STATE_VALIDATING) {
         xqc_timer_set(&path->path_send_ctl->path_timer_manager,
                       XQC_TIMER_PATH_IDLE, recv_time,

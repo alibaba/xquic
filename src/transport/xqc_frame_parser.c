@@ -1347,7 +1347,10 @@ xqc_gen_conn_close_frame(xqc_packet_out_t *packet_out,
         return -XQC_ENOBUF;
     }
 
-    if (reason == NULL || reason_len > remained - need) {
+    if (reason == NULL
+        || reason_len > XQC_MAX_CONN_CLOSE_REASON_LEN
+        || reason_len > remained - need)
+    {
         reason_len = 0;
 
     } else {

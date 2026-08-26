@@ -125,6 +125,32 @@ xqc_test_server_buffers_received_zero_rtt(void)
 }
 
 
+void
+xqc_test_packet_out_remained_size(void)
+{
+    xqc_packet_out_t *packet_out;
+
+    packet_out = xqc_packet_out_create(16);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(packet_out);
+
+    CU_ASSERT_EQUAL(xqc_get_po_remained_size(packet_out), 16);
+
+    packet_out->po_used_size = 4;
+    packet_out->po_reserved_size = 3;
+    CU_ASSERT_EQUAL(xqc_get_po_remained_size(packet_out), 9);
+
+    packet_out->po_used_size = 17;
+    packet_out->po_reserved_size = 0;
+    CU_ASSERT_EQUAL(xqc_get_po_remained_size(packet_out), 0);
+
+    packet_out->po_used_size = 15;
+    packet_out->po_reserved_size = 2;
+    CU_ASSERT_EQUAL(xqc_get_po_remained_size(packet_out), 0);
+
+    xqc_packet_out_destroy(packet_out);
+}
+
+
 
 
 

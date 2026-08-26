@@ -21,6 +21,7 @@ void xqc_test_conn_close_transport_crypto_namespace(void);
 void xqc_test_conn_close_application_namespace(void);
 void xqc_test_conn_close_reason_phrase(void);
 void xqc_test_conn_close_reason_no_space(void);
+void xqc_test_conn_close_reason_too_long(void);
 void xqc_test_conn_tls_error_first_writer_wins();
 void xqc_test_conn_tls_error_cb_alert_zero();
 void xqc_test_conn_tls_error_cb_max_alert();

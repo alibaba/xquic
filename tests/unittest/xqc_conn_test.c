@@ -925,6 +925,51 @@ xqc_test_conn_close_reason_no_space(void)
 
 
 void
+xqc_test_conn_close_reason_too_long(void)
+{
+    unsigned char reason[XQC_MAX_CONN_CLOSE_REASON_LEN + 1];
+    xqc_connection_t *conn;
+    xqc_packet_out_t *packet_out;
+    ssize_t written;
+
+    memset(reason, 'x', sizeof(reason));
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->conn_close_msg = (const char *) reason;
+    CU_ASSERT_EQUAL(
+        xqc_write_conn_close_to_packet(conn, TRA_PROTOCOL_VIOLATION),
+        XQC_OK);
+    xqc_test_conn_close_packet_reason(conn, 0x1c, NULL, 0);
+    xqc_engine_destroy(conn->engine);
+
+    packet_out = xqc_packet_out_create(sizeof(reason) + 4);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(packet_out);
+
+    written = xqc_gen_conn_close_frame(
+        packet_out, TRA_PROTOCOL_VIOLATION, 0, 0,
+        reason, XQC_MAX_CONN_CLOSE_REASON_LEN);
+    CU_ASSERT_EQUAL(written, sizeof(reason) + 4);
+    CU_ASSERT_EQUAL(
+        memcmp(packet_out->po_buf + 5, reason,
+               XQC_MAX_CONN_CLOSE_REASON_LEN), 0);
+
+    xqc_packet_out_destroy(packet_out);
+
+    packet_out = xqc_packet_out_create(sizeof(reason) + 4);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(packet_out);
+
+    written = xqc_gen_conn_close_frame(packet_out,
+                                       TRA_PROTOCOL_VIOLATION, 0, 0,
+                                       reason, sizeof(reason));
+    CU_ASSERT_EQUAL(written, 4);
+    CU_ASSERT_EQUAL(packet_out->po_buf[3], 0);
+
+    xqc_packet_out_destroy(packet_out);
+}
+
+
+void
 xqc_test_conn_tls_error_first_writer_wins()
 {
     xqc_connection_t *conn = test_engine_connect();

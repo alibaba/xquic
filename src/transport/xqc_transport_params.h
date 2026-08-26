@@ -142,7 +142,7 @@ typedef struct {
     /* 
     * support for datagram (RFC 9221).
     * default: 0, not supported
-    * special: 65535, accept datagram frames with any length in a QUIC packet
+    * recommended: 65535, accept any DATAGRAM frame fitting in a QUIC packet
     */
     uint64_t                max_datagram_frame_size;
 

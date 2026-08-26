@@ -31,13 +31,13 @@ if [ -f stdlog ]; then
     rm -f stdlog
 fi
 
-case_test_start_server ${SERVER_BIN} -l d -Q 9000 > /dev/null
+case_test_start_server ${SERVER_BIN} -l d -Q 65536 > /dev/null
 sleep 1
 clear_log
 echo -e "datagram frame size negotiation...\c"
-${CLIENT_BIN} -l d -Q 9000 >> stdlog
-cli_result=`grep "|1RTT_transport_params|max_datagram_frame_size:9000|" clog`
-svr_result=`grep "|1RTT_transport_params|max_datagram_frame_size:9000|" slog`
+${CLIENT_BIN} -l d -Q 65536 >> stdlog
+cli_result=`grep "|1RTT_transport_params|max_datagram_frame_size:65536|" clog`
+svr_result=`grep "|1RTT_transport_params|max_datagram_frame_size:65536|" slog`
 errlog=`grep_err_log`
 if [ -n "$cli_result" ] && [ -n "$svr_result" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -55,8 +55,8 @@ case_transport_datagram__0rtt_max_datagram_frame_size_is_valid()
 clear_log
 echo -e "0RTT max_datagram_frame_size is valid...\c"
 ${CLIENT_BIN} -l d >> stdlog
-cli_result=`grep "|0RTT_transport_params|max_datagram_frame_size:9000|" clog`
-cli_result2=`grep "|1RTT_transport_params|max_datagram_frame_size:9000|" clog`
+cli_result=`grep "|0RTT_transport_params|max_datagram_frame_size:65536|" clog`
+cli_result2=`grep "|1RTT_transport_params|max_datagram_frame_size:65536|" clog`
 errlog=`grep_err_log`
 if [ -n "$cli_result" ] && [ -n "$cli_result2" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -77,7 +77,7 @@ sleep 1
 clear_log
 echo -e "0RTT max_datagram_frame_size is invalid...\c"
 ${CLIENT_BIN} -l d >> stdlog
-cli_result=`grep "|0RTT_transport_params|max_datagram_frame_size:9000|" clog`
+cli_result=`grep "|0RTT_transport_params|max_datagram_frame_size:65536|" clog`
 cli_err=`grep "[error].*err:0x55" clog`
 svr_err=`grep "[error].*err:0xa" slog`
 if [ -n "$cli_result" ] && [ -n "$cli_err" ] && [ -n "$svr_err" ]; then

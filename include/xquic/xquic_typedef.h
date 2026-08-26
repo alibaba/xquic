@@ -251,12 +251,12 @@ typedef enum xqc_conn_settings_type_e {
 } xqc_conn_settings_type_t;
 
 typedef struct xqc_conn_public_local_trans_settings_s {
-    uint16_t max_datagram_frame_size;
+    uint64_t max_datagram_frame_size;
     uint8_t  datagram_redundancy;
 } xqc_conn_public_local_trans_settings_t;
 
 typedef struct xqc_conn_public_remote_trans_settings_s {
-    uint16_t max_datagram_frame_size;
+    uint64_t max_datagram_frame_size;
 } xqc_conn_public_remote_trans_settings_t;
 
 typedef struct xqc_stream_settings_s {

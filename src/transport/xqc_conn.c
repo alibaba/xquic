@@ -1335,8 +1335,8 @@ xqc_conn_server_on_alpn(xqc_connection_t *conn, const unsigned char *alpn, size_
         }
 
         conn->conn_flag &= ~XQC_CONN_FLAG_LOCAL_TP_UPDATED;
-        xqc_log(conn->log, XQC_LOG_INFO, 
-                "|update tp|max_datagram_frame_size:%ud|", 
+        xqc_log(conn->log, XQC_LOG_INFO,
+                "|update tp|max_datagram_frame_size:%ui|",
                 conn->local_settings.max_datagram_frame_size);
     }
 
@@ -6266,7 +6266,8 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
         return;
     }
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|1RTT_transport_params|max_datagram_frame_size:%ud|",
+    xqc_log(conn->log, XQC_LOG_DEBUG,
+            "|1RTT_transport_params|max_datagram_frame_size:%ui|",
             conn->remote_settings.max_datagram_frame_size);
 
     if ((conn->local_settings.extended_ack_features & XQC_ACK_EXT_FEATURE_BIT_RECV_TS)

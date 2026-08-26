@@ -28,6 +28,9 @@
 #include "src/common/utils/vint/xqc_variable_len_int.h"
 
 extern void xqc_conn_tls_error_cb(xqc_int_t tls_err, void *user_data);
+extern xqc_int_t xqc_conn_set_remote_transport_params(
+    xqc_connection_t *conn, const xqc_transport_params_t *params,
+    xqc_transport_params_type_t exttype);
 
 /* forward-declare: defined in xqc_conn.c, exposed via xqc_conn_tls_cbs */
 xqc_int_t xqc_conn_tls_alpn_select_cb(const char *alpn,
@@ -89,6 +92,68 @@ xqc_test_conn_create()
     CU_ASSERT_NOT_EQUAL(cid, NULL);
 
     xqc_engine_destroy(engine);
+}
+
+
+void
+xqc_test_datagram_transport_param_65536(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    xqc_transport_params_t params;
+    xqc_init_transport_params(&params);
+    params.max_datagram_frame_size = 65536;
+
+    CU_ASSERT_EQUAL(xqc_conn_set_remote_transport_params(
+                        conn, &params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(conn->remote_settings.max_datagram_frame_size, 65536);
+
+    xqc_conn_public_remote_trans_settings_t public_settings;
+    public_settings = xqc_conn_get_public_remote_trans_settings(conn);
+    CU_ASSERT_EQUAL(public_settings.max_datagram_frame_size, 65536);
+
+    xqc_engine_destroy(conn->engine);
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    CU_ASSERT_EQUAL(
+        xqc_conn_set_early_remote_transport_params(conn, &params), XQC_OK);
+    CU_ASSERT_EQUAL(conn->remote_settings.max_datagram_frame_size, 65536);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_datagram_transport_param_varint_max(void)
+{
+    const uint64_t varint_max = (1ULL << 62) - 1;
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    xqc_transport_params_t remote_params;
+    xqc_init_transport_params(&remote_params);
+    remote_params.max_datagram_frame_size = varint_max;
+
+    CU_ASSERT_EQUAL(
+        xqc_conn_set_early_remote_transport_params(conn, &remote_params),
+        XQC_OK);
+    CU_ASSERT_EQUAL(conn->remote_settings.max_datagram_frame_size,
+                    varint_max);
+
+    xqc_conn_public_local_trans_settings_t public_settings = {0};
+    public_settings.max_datagram_frame_size = varint_max;
+    xqc_conn_set_public_local_trans_settings(conn, &public_settings);
+
+    xqc_transport_params_t local_params;
+    xqc_init_transport_params(&local_params);
+    CU_ASSERT_EQUAL(xqc_conn_get_local_transport_params(conn, &local_params),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(local_params.max_datagram_frame_size, varint_max);
+
+    xqc_engine_destroy(conn->engine);
 }
 
 /* -------------------------------------------------------------------------

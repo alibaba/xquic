@@ -52,7 +52,8 @@ xqc_datagram_destroy_0rtt_buffer(xqc_datagram_0rtt_buffer_t* buffer)
 void 
 xqc_datagram_record_mss(xqc_connection_t *conn)
 {
-    size_t udp_payload_limit = 0, dgram_frame_limit = 0, mtu_limit = 0;
+    size_t udp_payload_limit = 0, mtu_limit = 0;
+    uint64_t dgram_frame_limit;
     size_t quic_header_size, headroom;
     size_t old_mss = conn->dgram_mss;
 
@@ -94,10 +95,11 @@ xqc_datagram_record_mss(xqc_connection_t *conn)
     }
 
     dgram_frame_limit = conn->remote_settings.max_datagram_frame_size >= XQC_DATAGRAM_HEADER_BYTES ?
-                        conn->remote_settings.max_datagram_frame_size - XQC_DATAGRAM_HEADER_BYTES : 
+                        conn->remote_settings.max_datagram_frame_size - XQC_DATAGRAM_HEADER_BYTES :
                         0;
-    
-    conn->dgram_mss = xqc_min(xqc_min(dgram_frame_limit, udp_payload_limit), mtu_limit);
+    dgram_frame_limit = xqc_min(dgram_frame_limit,
+                                (uint64_t) udp_payload_limit);
+    conn->dgram_mss = xqc_min((size_t) dgram_frame_limit, mtu_limit);
 end:
     if (conn->dgram_mss > old_mss) {
         conn->conn_flag |= XQC_CONN_FLAG_DGRAM_MSS_NOTIFY;

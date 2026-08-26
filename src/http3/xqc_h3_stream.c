@@ -802,22 +802,31 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 break;
 
             case XQC_H3_FRM_GOAWAY:
-                
-                if (!(h3s->h3c->flags & XQC_H3_CONN_FLAG_GOAWAY_RECVD)) {
-                    h3c->goaway_stream_id = pl->goaway.stream_id.vi;
-                    h3s->h3c->flags |= XQC_H3_CONN_FLAG_GOAWAY_RECVD;
-                }
+                /*
+                 * RFC 9114 Section 5.2: a later GOAWAY identifier cannot
+                 * exceed any previously received identifier.
+                 */
+                if (h3c->flags & XQC_H3_CONN_FLAG_GOAWAY_RECVD) {
+                    if (pl->goaway.stream_id.vi > h3c->goaway_stream_id) {
+                        xqc_log(h3c->log, XQC_LOG_ERROR,
+                                "|GOAWAY ID increased|old:%ui|new:%ui|",
+                                h3c->goaway_stream_id,
+                                pl->goaway.stream_id.vi);
+                        xqc_h3_frm_reset_pctx(pctx);
+                        XQC_H3_CONN_ERR(h3c, H3_ID_ERROR,
+                                        -XQC_H3_INVALID_GOAWAY_ID);
+                        return -XQC_H3_INVALID_GOAWAY_ID;
+                    }
 
-                if (h3c->goaway_stream_id > pl->goaway.stream_id.vi) {
                     h3c->goaway_stream_id = pl->goaway.stream_id.vi;
 
                 } else {
-                    xqc_log(h3c->log, XQC_LOG_WARN, "|xqc_h3_stream_process_control goaway_frame"
-                            " receive bigger push id|push_id:%ui|",
-                            pl->goaway.stream_id.vi);
+                    h3c->goaway_stream_id = pl->goaway.stream_id.vi;
+                    h3c->flags |= XQC_H3_CONN_FLAG_GOAWAY_RECVD;
                 }
-                xqc_log(h3c->log, XQC_LOG_DEBUG, "|H3_GOAWAY|stream_id:%ui|", pl->goaway.stream_id.vi);
-                
+
+                xqc_log(h3c->log, XQC_LOG_DEBUG, "|H3_GOAWAY|stream_id:%ui|",
+                        pl->goaway.stream_id.vi);
                 break;
 
 

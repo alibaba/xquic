@@ -1409,6 +1409,73 @@ xqc_h3_ctrl_feed_cancel_push(xqc_h3_stream_t *h3s, unsigned char push_id)
 }
 
 
+static ssize_t
+xqc_h3_ctrl_feed_goaway(xqc_h3_stream_t *h3s, unsigned char identifier)
+{
+    unsigned char frame[] = { XQC_H3_FRM_GOAWAY, 0x01, identifier };
+    return xqc_h3_stream_process_control(h3s, frame, sizeof(frame));
+}
+
+
+void
+xqc_test_h3_goaway_id_valid()
+{
+    const xqc_conn_type_t roles[] = {
+        XQC_CONN_TYPE_CLIENT, XQC_CONN_TYPE_SERVER
+    };
+
+    for (size_t i = 0; i < sizeof(roles) / sizeof(roles[0]); i++) {
+        xqc_connection_t *conn = NULL;
+        xqc_h3_conn_t *h3c = NULL;
+        xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+        CU_ASSERT_FATAL(h3s != NULL);
+
+        conn->conn_type = roles[i];
+        CU_ASSERT_FATAL(xqc_h3_ctrl_feed_settings(h3s) > 0);
+
+        /* RFC 9114 Section 5.2 permits equal and decreasing IDs. */
+        CU_ASSERT(xqc_h3_ctrl_feed_goaway(h3s, 8) == 3);
+        CU_ASSERT(xqc_h3_ctrl_feed_goaway(h3s, 4) == 3);
+        CU_ASSERT(xqc_h3_ctrl_feed_goaway(h3s, 4) == 3);
+        CU_ASSERT(h3c->goaway_stream_id == 4);
+        CU_ASSERT(conn->conn_err == 0);
+        CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
+
+        xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+    }
+}
+
+
+void
+xqc_test_h3_goaway_id_increase_rejected()
+{
+    const xqc_conn_type_t roles[] = {
+        XQC_CONN_TYPE_CLIENT, XQC_CONN_TYPE_SERVER
+    };
+
+    for (size_t i = 0; i < sizeof(roles) / sizeof(roles[0]); i++) {
+        xqc_connection_t *conn = NULL;
+        xqc_h3_conn_t *h3c = NULL;
+        xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+        CU_ASSERT_FATAL(h3s != NULL);
+
+        conn->conn_type = roles[i];
+        CU_ASSERT_FATAL(xqc_h3_ctrl_feed_settings(h3s) > 0);
+        CU_ASSERT_FATAL(xqc_h3_ctrl_feed_goaway(h3s, 4) == 3);
+
+        /* A later larger ID is an H3_ID_ERROR and cannot replace the cutoff. */
+        CU_ASSERT(xqc_h3_ctrl_feed_goaway(h3s, 8)
+                  == -XQC_H3_INVALID_GOAWAY_ID);
+        CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_ID_ERROR);
+        CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+        CU_ASSERT(h3c->goaway_stream_id == 4);
+        CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
+
+        xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+    }
+}
+
+
 void
 xqc_test_h3_reserved_control_frame_accepted()
 {

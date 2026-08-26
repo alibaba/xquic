@@ -832,6 +832,54 @@ fi
 
 }
 
+case_http3_core_h3_goaway_decrease_accepted()
+{
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e -x 1017 > /dev/null
+sleep 1
+echo -e "HTTP/3 decreasing GOAWAY IDs are accepted ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1017 > stdlog
+sent=`grep "\\[h3-goaway-test\\]|first:3|second:1|write:0,0|send:0|" \
+    stdlog`
+first_received=`grep "|H3_GOAWAY|stream_id:3|" slog`
+second_received=`grep "|H3_GOAWAY|stream_id:1|" slog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+id_error=`grep "err:0x108" slog`
+if [ -n "$sent" ] && [ -n "$first_received" ] \
+    && [ -n "$second_received" ] && [ -n "$result" ] \
+    && [ -z "$id_error" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_goaway_decrease_accepted" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_goaway_decrease_accepted" "fail"
+fi
+}
+
+case_http3_core_h3_goaway_increase_rejected()
+{
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e -x 1018 > /dev/null
+sleep 1
+echo -e "HTTP/3 increasing GOAWAY ID gets H3_ID_ERROR ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1018 > stdlog
+sent=`grep "\\[h3-goaway-test\\]|first:1|second:3|write:0,0|send:0|" \
+    stdlog`
+server_err=`grep "err:0x108" slog`
+client_err=`grep -E "(conn errno:264|conn_err:264)" stdlog`
+if [ -n "$sent" ] && [ -n "$server_err" ] && [ -n "$client_err" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_goaway_increase_rejected" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_goaway_increase_rejected" "fail"
+fi
+}
+
 case_http3_core_h3_max_push_id_wrong_role_rejected()
 {
 
@@ -1156,6 +1204,8 @@ case_test_case "h3_reserved_request_frame_accepted" --id native --mode self-repo
 case_test_case "h3_client_push_promise_rejected" --id native --mode self-reporting --run case_http3_core_h3_client_push_promise_rejected
 case_test_case "h3_max_push_id_increase_accepted" --id native --mode self-reporting --run case_http3_core_h3_max_push_id_increase_accepted
 case_test_case "h3_max_push_id_decrease_rejected" --id native --mode self-reporting --run case_http3_core_h3_max_push_id_decrease_rejected
+case_test_case "h3_goaway_decrease_accepted" --id 1017 --mode self-reporting --run case_http3_core_h3_goaway_decrease_accepted
+case_test_case "h3_goaway_increase_rejected" --id 1018 --mode self-reporting --run case_http3_core_h3_goaway_increase_rejected
 case_test_case "h3_max_push_id_wrong_role_rejected" --id native --mode self-reporting --run case_http3_core_h3_max_push_id_wrong_role_rejected
 case_test_case "h3_non_minimal_max_push_id_accepted" --id native --mode self-reporting --run case_http3_core_h3_non_minimal_max_push_id_accepted
 case_test_case "h3_overlong_max_push_id_rejected" --id native --mode self-reporting --run case_http3_core_h3_overlong_max_push_id_rejected

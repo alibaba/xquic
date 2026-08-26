@@ -5176,8 +5176,11 @@ xqc_conn_process_packet_recved_path(xqc_connection_t *conn, xqc_cid_t *scid,
 
     xqc_send_ctl_on_dgram_received(path->path_send_ctl, packet_in_size);
 
-    xqc_timer_set(&path->path_send_ctl->path_timer_manager, XQC_TIMER_PATH_IDLE,
-                  recv_time, xqc_path_get_idle_timeout(path) * 1000);
+    if (path->path_state != XQC_PATH_STATE_VALIDATING) {
+        xqc_timer_set(&path->path_send_ctl->path_timer_manager,
+                      XQC_TIMER_PATH_IDLE, recv_time,
+                      xqc_path_get_idle_timeout(path) * 1000);
+    }
 
     return;
 }

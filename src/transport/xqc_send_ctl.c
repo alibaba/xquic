@@ -1171,11 +1171,12 @@ xqc_send_ctl_update_rtt(xqc_send_ctl_t *send_ctl, xqc_usec_t *latest_rtt, xqc_us
             ack_delay = xqc_min(ack_delay, XQC_DEFAULT_MAX_ACK_DELAY * 1000);
         }
 
-        /* Adjust for ack delay if it's plausible. */
+        /*
+         * RFC 9002 Section 5.3: do not subtract ack_delay if the result
+         * would be less than min_rtt.
+         */
         xqc_usec_t adjusted_rtt = *latest_rtt;
-        if (adjusted_rtt > ack_delay
-            && (adjusted_rtt + 1000) >= (send_ctl->ctl_minrtt + ack_delay)) 
-        {
+        if (ack_delay <= adjusted_rtt - send_ctl->ctl_minrtt) {
             adjusted_rtt -= ack_delay;
         }
 

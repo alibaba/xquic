@@ -339,6 +339,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_send_ctl_update_rtt_ack_delay_cap",
                         xqc_test_send_ctl_update_rtt_ack_delay_cap)
         || !CU_add_test(pSuite,
+                        "xqc_test_send_ctl_update_rtt_subtracts_at_min_rtt",
+                        xqc_test_send_ctl_update_rtt_subtracts_at_min_rtt)
+        || !CU_add_test(pSuite,
+                        "xqc_test_send_ctl_update_rtt_rejects_below_min_rtt",
+                        xqc_test_send_ctl_update_rtt_rejects_below_min_rtt)
+        || !CU_add_test(pSuite,
                         "xqc_test_send_ctl_granularity_marks_at_boundary",
                         xqc_test_send_ctl_granularity_marks_at_boundary)
         || !CU_add_test(pSuite,

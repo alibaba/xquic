@@ -22,6 +22,13 @@ void xqc_test_pto_remote_default_when_unset(void);
 void xqc_test_send_ctl_update_rtt_ack_delay_cap(void);
 
 /*
+ * RFC 9002 Section 5.3 permits subtracting ack_delay when the result is
+ * exactly min_rtt, but forbids subtraction when the result is smaller.
+ */
+void xqc_test_send_ctl_update_rtt_subtracts_at_min_rtt(void);
+void xqc_test_send_ctl_update_rtt_rejects_below_min_rtt(void);
+
+/*
  * RFC 9002 Section 6.1.2 recommends a 1 ms timer granularity. Verify that
  * time-threshold loss detection fires at that boundary, but not before it.
  */

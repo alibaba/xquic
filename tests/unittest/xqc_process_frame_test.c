@@ -1533,6 +1533,74 @@ xqc_test_stop_sending_on_send_only_stream_accepted(void)
 }
 
 
+/* ---- RFC 9000 Section 19.10 MAX_STREAM_DATA direction ---- */
+
+void
+xqc_test_max_stream_data_on_recv_only_stream(void)
+{
+    /* client + SVR_UNI: the client has no sending side on stream 3 */
+    xqc_connection_t *conn = xqc_test_dir_make_conn(XQC_CONN_TYPE_CLIENT);
+    CU_ASSERT_FATAL(conn != NULL);
+
+    unsigned char frame_buf[] = {0x11, 0x03, 0x10};
+    xqc_packet_in_t pi;
+    xqc_test_dir_init_pi(&pi, frame_buf, sizeof(frame_buf));
+
+    xqc_int_t ret = xqc_process_max_stream_data_frame(conn, &pi);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_STREAM_STATE_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_max_stream_data_on_recv_only_stream_server(void)
+{
+    /* server + CLI_UNI: the server has no sending side on stream 2 */
+    xqc_connection_t *conn = xqc_test_dir_make_conn(XQC_CONN_TYPE_SERVER);
+    CU_ASSERT_FATAL(conn != NULL);
+
+    unsigned char frame_buf[] = {0x11, 0x02, 0x10};
+    xqc_packet_in_t pi;
+    xqc_test_dir_init_pi(&pi, frame_buf, sizeof(frame_buf));
+
+    xqc_int_t ret = xqc_process_max_stream_data_frame(conn, &pi);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_STREAM_STATE_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_max_stream_data_on_send_only_stream(void)
+{
+    xqc_connection_t *conn = xqc_test_dir_make_conn(XQC_CONN_TYPE_CLIENT);
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_stream_t *stream = xqc_stream_create_with_direction(
+        conn, XQC_STREAM_UNI, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+    CU_ASSERT(stream->stream_id == 2);
+
+    stream->stream_flow_ctl.fc_max_stream_data_can_send = 0;
+    stream->stream_flag |= XQC_STREAM_FLAG_DATA_BLOCKED;
+
+    unsigned char frame_buf[] = {0x11, 0x02, 0x10};
+    xqc_packet_in_t pi;
+    xqc_test_dir_init_pi(&pi, frame_buf, sizeof(frame_buf));
+
+    xqc_int_t ret = xqc_process_max_stream_data_frame(conn, &pi);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT(stream->stream_flow_ctl.fc_max_stream_data_can_send == 16);
+    CU_ASSERT(!(stream->stream_flag & XQC_STREAM_FLAG_DATA_BLOCKED));
+    CU_ASSERT(pi.pi_frame_types & XQC_FRAME_BIT_MAX_STREAM_DATA);
+    CU_ASSERT(pi.pos == frame_buf + sizeof(frame_buf));
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 /* ---- issue #565: STREAM frame direction and locally initiated stream ---- */
 
 void

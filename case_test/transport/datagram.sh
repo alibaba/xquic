@@ -31,13 +31,13 @@ if [ -f stdlog ]; then
     rm -f stdlog
 fi
 
-case_test_start_server ${SERVER_BIN} -l d -Q 9000 > /dev/null
+case_test_start_server ${SERVER_BIN} -l d -Q 65536 > /dev/null
 sleep 1
 clear_log
 echo -e "datagram frame size negotiation...\c"
-${CLIENT_BIN} -l d -Q 9000 >> stdlog
-cli_result=`grep "|1RTT_transport_params|max_datagram_frame_size:9000|" clog`
-svr_result=`grep "|1RTT_transport_params|max_datagram_frame_size:9000|" slog`
+${CLIENT_BIN} -l d -Q 65536 >> stdlog
+cli_result=`grep "|1RTT_transport_params|max_datagram_frame_size:65536|" clog`
+svr_result=`grep "|1RTT_transport_params|max_datagram_frame_size:65536|" slog`
 errlog=`grep_err_log`
 if [ -n "$cli_result" ] && [ -n "$svr_result" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"

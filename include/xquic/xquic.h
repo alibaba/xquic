@@ -1364,12 +1364,13 @@ typedef struct xqc_conn_settings_s {
     size_t                      probing_pkt_out_size;
 
     /**
-     * datgram option
-     * 0: no support for datagram mode (default)
-     * >0: the max size of datagrams that the local end is willing to receive
-     * 65535: the local end is willing to receive a datagram with any length as long as it fits in a QUIC packet
+     * RFC 9221 Section 3 DATAGRAM transport parameter.
+     * 0: no support for DATAGRAM frames (default)
+     * >0: maximum DATAGRAM frame size the local endpoint accepts
+     * 65535: recommended when any DATAGRAM fitting in a QUIC packet is
+     * accepted
      */
-    uint16_t                    max_datagram_frame_size;
+    uint64_t                    max_datagram_frame_size;
     
     /** 
      * multipath option:

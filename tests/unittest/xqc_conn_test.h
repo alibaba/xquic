@@ -6,6 +6,8 @@
 #define XQC_CONN_TEST_H
 
 void xqc_test_conn_create();
+void xqc_test_datagram_transport_param_65536(void);
+void xqc_test_datagram_transport_param_varint_max(void);
 void xqc_test_conn_idle_timeout();
 void xqc_test_conn_pmtud_force_enable();
 void xqc_test_conn_pmtud_legacy_compatibility();

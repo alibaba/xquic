@@ -260,7 +260,7 @@ typedef struct {
     uint64_t                no_crypto;
     uint64_t                enable_multipath;
     xqc_multipath_version_t multipath_version;
-    uint16_t                max_datagram_frame_size;
+    uint64_t                max_datagram_frame_size;
     uint32_t                conn_options[XQC_CO_MAX_NUM];
     uint8_t                 conn_option_num;
 

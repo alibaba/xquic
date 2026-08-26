@@ -82,6 +82,11 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_get_random", xqc_test_get_random)
         || !CU_add_test(pSuite, "xqc_test_engine_create", xqc_test_engine_create)
         || !CU_add_test(pSuite, "xqc_test_conn_create", xqc_test_conn_create)
+        || !CU_add_test(pSuite, "xqc_test_datagram_transport_param_65536",
+                        xqc_test_datagram_transport_param_65536)
+        || !CU_add_test(pSuite,
+                        "xqc_test_datagram_transport_param_varint_max",
+                        xqc_test_datagram_transport_param_varint_max)
         || !CU_add_test(pSuite, "xqc_test_conn_idle_timeout", xqc_test_conn_idle_timeout)
         || !CU_add_test(pSuite, "xqc_test_conn_pmtud_force_enable",
                         xqc_test_conn_pmtud_force_enable)

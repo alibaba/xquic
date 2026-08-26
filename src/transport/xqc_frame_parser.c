@@ -1328,25 +1328,35 @@ xqc_parse_ack_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_ack_
  */
 ssize_t
 xqc_gen_conn_close_frame(xqc_packet_out_t *packet_out, 
-    uint64_t err_code, int is_app, int frame_type)
+    uint64_t err_code, int is_app, int frame_type,
+    const unsigned char *reason, size_t reason_len)
 {
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
     const unsigned char *begin = dst_buf;
-
-    unsigned char *reason = NULL;
-    int reason_len = 0;
+    size_t remained = xqc_get_po_remained_size(packet_out);
 
     unsigned frame_type_bits = xqc_vint_get_2bit(frame_type);
-    unsigned reason_len_bits = xqc_vint_get_2bit(reason_len);
+    unsigned reason_len_bits = 0;
     unsigned err_code_len_bits = xqc_vint_get_2bit(err_code);
 
-    unsigned need = 1
-                    + xqc_vint_len(err_code_len_bits)
-                    + xqc_vint_len(frame_type_bits)
-                    + xqc_vint_len(reason_len_bits)
-                    + reason_len;
-    if (need > xqc_get_po_remained_size(packet_out)) {
+    size_t need = 1
+                  + xqc_vint_len(err_code_len_bits)
+                  + (is_app ? 0 : xqc_vint_len(frame_type_bits))
+                  + xqc_vint_len(reason_len_bits);
+    if (need > remained) {
         return -XQC_ENOBUF;
+    }
+
+    if (reason == NULL || reason_len > remained - need) {
+        reason_len = 0;
+
+    } else {
+        reason_len_bits = xqc_vint_get_2bit(reason_len);
+        need += xqc_vint_len(reason_len_bits) - 1 + reason_len;
+        if (need > remained) {
+            reason_len = 0;
+            reason_len_bits = 0;
+        }
     }
 
     if (is_app) {
@@ -1367,12 +1377,10 @@ xqc_gen_conn_close_frame(xqc_packet_out_t *packet_out,
     xqc_vint_write(dst_buf, reason_len, reason_len_bits, xqc_vint_len(reason_len_bits));
     dst_buf += xqc_vint_len(reason_len_bits);
 
-#if 0   /* TODO: reason not supported yet */
     if (reason_len > 0) {
         memcpy(dst_buf, reason, reason_len);
         dst_buf += reason_len;
     }
-#endif
 
     packet_out->po_frame_types |= XQC_FRAME_BIT_CONNECTION_CLOSE;
 
@@ -1411,7 +1419,10 @@ xqc_parse_conn_close_frame(xqc_packet_in_t *packet_in, uint64_t *err_code, xqc_c
     }
     p += vlen;
 
-    /* TODO: get reason string */
+    if (reason_len > (uint64_t) (end - p)) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+
     p += reason_len;
 
     packet_in->pos = p;
@@ -1429,7 +1440,8 @@ xqc_parse_conn_close_frame(xqc_packet_in_t *packet_in, uint64_t *err_code, xqc_c
                               : XQC_CONN_ERR_TYPE_APPLICATION;
     }
 
-    xqc_log_event(conn->log, TRA_FRAMES_PROCESSED, XQC_FRAME_CONNECTION_CLOSE, *err_code);
+    xqc_log_event(conn->log, TRA_FRAMES_PROCESSED,
+                  XQC_FRAME_CONNECTION_CLOSE, *err_code, reason_len);
     return XQC_OK;
 }
 

@@ -102,6 +102,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_conn_close_application_namespace",
                         xqc_test_conn_close_application_namespace)
+        || !CU_add_test(pSuite, "xqc_test_conn_close_reason_phrase",
+                        xqc_test_conn_close_reason_phrase)
+        || !CU_add_test(pSuite, "xqc_test_conn_close_reason_no_space",
+                        xqc_test_conn_close_reason_no_space)
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_first_writer_wins", xqc_test_conn_tls_error_first_writer_wins)
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_alert_zero", xqc_test_conn_tls_error_cb_alert_zero)
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_max_alert", xqc_test_conn_tls_error_cb_max_alert)
@@ -212,6 +216,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_conn_close_transport_error_type_overlap",
                         xqc_test_conn_close_transport_error_type_overlap)
+        || !CU_add_test(pSuite, "xqc_test_conn_close_reason_truncated",
+                        xqc_test_conn_close_reason_truncated)
         || !CU_add_test(pSuite, "xqc_test_conn_close_valid_packet_types",
                         xqc_test_conn_close_valid_packet_types)
         || !CU_add_test(pSuite,

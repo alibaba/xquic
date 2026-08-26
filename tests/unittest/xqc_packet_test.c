@@ -563,7 +563,8 @@ xqc_test_build_initial(test_ctx *cli, const xqc_cid_t *dcid,
 
     if (connection_close) {
         written = xqc_gen_conn_close_frame(packet_out,
-                                           TRA_PROTOCOL_VIOLATION, 0, 0);
+                                           TRA_PROTOCOL_VIOLATION, 0, 0,
+                                           NULL, 0);
         if (written <= 0) {
             goto end;
         }

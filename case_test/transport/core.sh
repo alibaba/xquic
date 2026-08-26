@@ -169,7 +169,10 @@ sleep 1
 clear_log
 echo -e "user close connection ...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 2 >> clog
-if grep "<==.*CONNECTION_CLOSE" clog >/dev/null && grep "==>.*CONNECTION_CLOSE" clog >/dev/null; then
+if grep "<==.*CONNECTION_CLOSE" clog >/dev/null \
+    && grep "==>.*CONNECTION_CLOSE" clog >/dev/null \
+    && grep "frames_processed.*reason_len:11" slog >/dev/null
+then
     echo ">>>>>>>> pass:1"
     case_print_result "user_close_connection" "pass"
 else
@@ -187,7 +190,11 @@ grep_err_log
 clear_log
 echo -e "close connection with error ...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 3 >> stdlog
-if grep "<==.*CONNECTION_CLOSE" clog >/dev/null && grep "==>.*CONNECTION_CLOSE" clog >/dev/null && grep "conn closing: 1" stdlog >/dev/null; then
+if grep "<==.*CONNECTION_CLOSE" clog >/dev/null \
+    && grep "==>.*CONNECTION_CLOSE" clog >/dev/null \
+    && grep "conn closing: 1" stdlog >/dev/null \
+    && grep "frames_processed.*reason_len:11" slog >/dev/null
+then
     echo ">>>>>>>> pass:1"
     case_print_result "close_connection_with_error" "pass"
 else

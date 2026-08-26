@@ -57,6 +57,8 @@ void xqc_test_conn_close_application_error_type(void);
 
 void xqc_test_conn_close_transport_error_type_overlap(void);
 
+void xqc_test_conn_close_reason_truncated(void);
+
 void xqc_test_conn_close_valid_packet_types(void);
 
 void xqc_test_conn_close_app_error_in_handshake_rejected(void);

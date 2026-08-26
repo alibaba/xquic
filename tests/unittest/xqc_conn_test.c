@@ -4,6 +4,7 @@
 
 #include <CUnit/CUnit.h>
 #include <stdint.h>
+#include <string.h>
 #include "xquic/xquic.h"
 #include "xquic/xqc_errno.h"
 #include "src/transport/xqc_conn.h"
@@ -37,6 +38,9 @@ static xqc_packet_out_t *xqc_test_get_conn_close_packet(
     xqc_connection_t *conn);
 static void xqc_test_conn_close_packet_value(xqc_connection_t *conn,
     xqc_pkt_type_t pkt_type, unsigned char frame_type, uint64_t err_code);
+static void xqc_test_conn_close_packet_reason(xqc_connection_t *conn,
+    unsigned char frame_type, const unsigned char *expected,
+    size_t expected_len);
 
 
 static xqc_packet_out_t *
@@ -76,6 +80,61 @@ xqc_test_conn_close_packet_value(xqc_connection_t *conn,
     CU_ASSERT(len > 0);
     if (len > 0) {
         CU_ASSERT_EQUAL(parsed_err_code, err_code);
+    }
+}
+
+
+static void
+xqc_test_conn_close_packet_reason(xqc_connection_t *conn,
+    unsigned char frame_type, const unsigned char *expected,
+    size_t expected_len)
+{
+    xqc_packet_out_t *packet_out;
+    unsigned char *pos;
+    const unsigned char *end;
+    uint64_t value;
+    ssize_t len;
+
+    packet_out = xqc_test_get_conn_close_packet(conn);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(packet_out);
+
+    pos = packet_out->po_payload;
+    end = packet_out->po_buf + packet_out->po_used_size;
+    CU_ASSERT_FATAL(pos < end);
+    CU_ASSERT_EQUAL(*pos++, frame_type);
+
+    len = xqc_vint_read(pos, end, &value);
+    CU_ASSERT(len > 0);
+    if (len <= 0) {
+        return;
+    }
+    pos += len;
+
+    if (frame_type == 0x1c) {
+        len = xqc_vint_read(pos, end, &value);
+        CU_ASSERT(len > 0);
+        if (len <= 0) {
+            return;
+        }
+        pos += len;
+    }
+
+    len = xqc_vint_read(pos, end, &value);
+    CU_ASSERT(len > 0);
+    if (len <= 0) {
+        return;
+    }
+    pos += len;
+
+    CU_ASSERT_EQUAL(value, expected_len);
+    CU_ASSERT((uint64_t) (end - pos) >= value);
+    if ((uint64_t) (end - pos) < value) {
+        return;
+    }
+
+    if (expected_len > 0) {
+        CU_ASSERT_PTR_NOT_NULL_FATAL(expected);
+        CU_ASSERT_EQUAL(memcmp(pos, expected, expected_len), 0);
     }
 }
 
@@ -794,7 +853,74 @@ xqc_test_conn_close_application_namespace(void)
      */
     xqc_test_conn_close_packet_value(conn, XQC_PTYPE_INIT, 0x1c,
                                      TRA_APPLICATION_ERROR);
+    xqc_test_conn_close_packet_reason(conn, 0x1c, NULL, 0);
     xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_conn_close_reason_phrase(void)
+{
+    static const unsigned char reason[] = "local error";
+    xqc_connection_t *conn;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->conn_close_msg = (const char *) reason;
+    CU_ASSERT_EQUAL(
+        xqc_write_conn_close_to_packet(conn, TRA_PROTOCOL_VIOLATION),
+        XQC_OK);
+    xqc_test_conn_close_packet_reason(conn, 0x1c, reason,
+                                      sizeof(reason) - 1);
+    xqc_engine_destroy(conn->engine);
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_COMPLETED
+                       | XQC_CONN_FLAG_HSK_ACKED;
+    conn->conn_close_msg = (const char *) reason;
+    CU_ASSERT_EQUAL(
+        xqc_write_conn_close_to_packet(
+            conn, XQC_CONN_ERR_ENCODE_APPLICATION(
+                H3_GENERAL_PROTOCOL_ERROR)),
+        XQC_OK);
+    xqc_test_conn_close_packet_reason(conn, 0x1d, reason,
+                                      sizeof(reason) - 1);
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_conn_close_reason_no_space(void)
+{
+    static const unsigned char reason[] = "reason";
+    xqc_packet_out_t *packet_out;
+    ssize_t written;
+
+    packet_out = xqc_packet_out_create(4);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(packet_out);
+
+    written = xqc_gen_conn_close_frame(packet_out,
+                                       TRA_PROTOCOL_VIOLATION, 0, 0,
+                                       NULL, 0);
+    CU_ASSERT_EQUAL(written, 4);
+    CU_ASSERT_EQUAL(packet_out->po_buf[3], 0);
+
+    xqc_packet_out_destroy(packet_out);
+
+    packet_out = xqc_packet_out_create(4);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(packet_out);
+
+    written = xqc_gen_conn_close_frame(packet_out,
+                                       TRA_PROTOCOL_VIOLATION, 0, 0,
+                                       reason, sizeof(reason) - 1);
+    CU_ASSERT_EQUAL(written, 4);
+    CU_ASSERT_EQUAL(packet_out->po_buf[0], 0x1c);
+    CU_ASSERT_EQUAL(packet_out->po_buf[1], TRA_PROTOCOL_VIOLATION);
+    CU_ASSERT_EQUAL(packet_out->po_buf[2], 0);
+    CU_ASSERT_EQUAL(packet_out->po_buf[3], 0);
+
+    xqc_packet_out_destroy(packet_out);
 }
 
 

@@ -82,6 +82,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_get_random", xqc_test_get_random)
         || !CU_add_test(pSuite, "xqc_test_engine_create", xqc_test_engine_create)
         || !CU_add_test(pSuite, "xqc_test_conn_create", xqc_test_conn_create)
+        || !CU_add_test(pSuite,
+                        "xqc_test_conn_anti_amplification_limit_valid",
+                        xqc_test_conn_anti_amplification_limit_valid)
+        || !CU_add_test(pSuite,
+                        "xqc_test_conn_anti_amplification_limit_excess",
+                        xqc_test_conn_anti_amplification_limit_excess)
         || !CU_add_test(pSuite, "xqc_test_conn_idle_timeout", xqc_test_conn_idle_timeout)
         || !CU_add_test(pSuite, "xqc_test_conn_pmtud_force_enable",
                         xqc_test_conn_pmtud_force_enable)

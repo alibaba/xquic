@@ -206,7 +206,6 @@ xqc_mini_svr_init_conn_settings(xqc_engine_t *engine, xqc_mini_svr_args_t *args)
         .scheduler_callback = sched,
         .standby_path_probe_timeout = 1000,
         .adaptive_ack_frequency = 1,
-        .anti_amplification_limit = 4,
     };
 
     /* set customized connection settings to engine ctx */

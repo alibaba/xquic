@@ -236,7 +236,9 @@ xqc_server_set_conn_settings(xqc_engine_t *engine, const xqc_conn_settings_t *se
     }
 
     if (settings->anti_amplification_limit > 0) {
-        engine->default_conn_settings.anti_amplification_limit = settings->anti_amplification_limit;
+        engine->default_conn_settings.anti_amplification_limit =
+            xqc_min(settings->anti_amplification_limit,
+                    XQC_MAX_ANTI_AMPLIFICATION_LIMIT);
     }
 
     if (xqc_check_proto_version_valid(settings->proto_version)) {

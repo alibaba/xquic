@@ -6,6 +6,8 @@
 #define XQC_CONN_TEST_H
 
 void xqc_test_conn_create();
+void xqc_test_conn_anti_amplification_limit_valid(void);
+void xqc_test_conn_anti_amplification_limit_excess(void);
 void xqc_test_conn_idle_timeout();
 void xqc_test_conn_pmtud_force_enable();
 void xqc_test_conn_pmtud_legacy_compatibility();

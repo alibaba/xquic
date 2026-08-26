@@ -85,7 +85,9 @@ extern const unsigned char  xqc_proto_version_field[][XQC_PROTO_VERSION_LEN];
 #define XQC_MAX_ALPN_LEN                        255
 
 /* limit of anti-amplification (RFC 9000 Section 8.1) */
-#define XQC_DEFAULT_ANTI_AMPLIFICATION_LIMIT    3
+#define XQC_MAX_ANTI_AMPLIFICATION_LIMIT        3
+#define XQC_DEFAULT_ANTI_AMPLIFICATION_LIMIT    \
+    XQC_MAX_ANTI_AMPLIFICATION_LIMIT
 
 #define XQC_MAX_MT_ROW                          256
 

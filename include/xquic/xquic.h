@@ -1352,7 +1352,11 @@ typedef struct xqc_conn_settings_s {
     xqc_msec_t                  idle_time_out;
     xqc_usec_t                  fec_conn_queue_rpr_timeout;
     int32_t                     spurious_loss_detect_on;
-    /** limit of anti-amplification, default 5 */
+    /**
+     * Anti-amplification factor before client address validation.
+     * Zero uses the default of 3; explicit values are limited to 1 through 3
+     * per RFC 9000 Section 8.1.
+     */
     uint32_t                    anti_amplification_limit;
     /**
      * Optional early key-update threshold for one 1-RTT key phase. Zero

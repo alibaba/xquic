@@ -91,6 +91,54 @@ xqc_test_conn_create()
     xqc_engine_destroy(engine);
 }
 
+void
+xqc_test_conn_anti_amplification_limit_valid(void)
+{
+    xqc_engine_t *engine = test_create_engine();
+    xqc_conn_settings_t settings = {0};
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+    CU_ASSERT_EQUAL(engine->default_conn_settings.anti_amplification_limit,
+                    XQC_DEFAULT_ANTI_AMPLIFICATION_LIMIT);
+
+    xqc_server_set_conn_settings(engine, &settings);
+    CU_ASSERT_EQUAL(engine->default_conn_settings.anti_amplification_limit,
+                    XQC_DEFAULT_ANTI_AMPLIFICATION_LIMIT);
+
+    settings.anti_amplification_limit = 2;
+    xqc_server_set_conn_settings(engine, &settings);
+    CU_ASSERT_EQUAL(engine->default_conn_settings.anti_amplification_limit, 2);
+
+    settings.anti_amplification_limit = XQC_MAX_ANTI_AMPLIFICATION_LIMIT;
+    xqc_server_set_conn_settings(engine, &settings);
+    CU_ASSERT_EQUAL(engine->default_conn_settings.anti_amplification_limit,
+                    XQC_MAX_ANTI_AMPLIFICATION_LIMIT);
+
+    xqc_engine_destroy(engine);
+}
+
+void
+xqc_test_conn_anti_amplification_limit_excess(void)
+{
+    xqc_engine_t *engine = test_create_engine();
+    xqc_conn_settings_t settings = {0};
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+
+    settings.anti_amplification_limit =
+        XQC_MAX_ANTI_AMPLIFICATION_LIMIT + 1;
+    xqc_server_set_conn_settings(engine, &settings);
+    CU_ASSERT_EQUAL(engine->default_conn_settings.anti_amplification_limit,
+                    XQC_MAX_ANTI_AMPLIFICATION_LIMIT);
+
+    settings.anti_amplification_limit = UINT32_MAX;
+    xqc_server_set_conn_settings(engine, &settings);
+    CU_ASSERT_EQUAL(engine->default_conn_settings.anti_amplification_limit,
+                    XQC_MAX_ANTI_AMPLIFICATION_LIMIT);
+
+    xqc_engine_destroy(engine);
+}
+
 /* -------------------------------------------------------------------------
  * Idle-timeout negotiation tests for issue #559.
  *

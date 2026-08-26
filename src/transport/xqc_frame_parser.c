@@ -1871,6 +1871,15 @@ xqc_parse_max_stream_data_frame(xqc_packet_in_t *packet_in, xqc_stream_id_t *str
     }
     p += vlen;
 
+    /* RFC 9000 Section 19.10: a receiver cannot grant itself send credit. */
+    if (xqc_stream_is_recv_only(conn->conn_type, *stream_id)) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|MAX_STREAM_DATA on recv-only stream|stream_id:%ui|",
+                *stream_id);
+        XQC_CONN_ERR(conn, TRA_STREAM_STATE_ERROR);
+        return -XQC_EPROTO;
+    }
+
     vlen = xqc_vint_read(p, end, max_stream_data);
     if (vlen < 0) {
         return -XQC_EVINTREAD;

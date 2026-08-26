@@ -649,6 +649,63 @@ fi
 
 }
 
+case_transport_stream_max_stream_data_on_send_only_stream()
+{
+
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
+sleep 1
+echo -e "max_stream_data_on_send_only_stream ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 718 > stdlog
+sleep 1
+result=`grep ">>>>>>>> pass:1" stdlog`
+server_received=`grep \
+    "xqc_parse_max_stream_data_frame|type:9|"\
+"stream_id:3|max_stream_data:4611686018427387903|" \
+    slog`
+server_applied=`grep \
+    "xqc_process_max_stream_data_frame|"\
+"max_stream_data=4611686018427387903|"\
+"max_stream_data_old=16777216|" \
+    slog`
+client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
+if [ -n "$result" ] && [ -n "$server_received" ] \
+    && [ -n "$server_applied" ] \
+    && [ -z "$client_close_code" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "max_stream_data_on_send_only_stream" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "max_stream_data_on_send_only_stream" "fail"
+fi
+
+}
+
+case_transport_stream_max_stream_data_on_recv_only_stream()
+{
+
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
+sleep 1
+echo -e "max_stream_data_on_recv_only_stream ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 719 >> clog
+sleep 1
+server_rejected=`grep "MAX_STREAM_DATA on recv-only stream|stream_id:2|" slog`
+client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
+if [ -n "$server_rejected" ] && [ -n "$client_close_code" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "max_stream_data_on_recv_only_stream" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "max_stream_data_on_recv_only_stream" "fail"
+fi
+
+}
+
 case_test_case "server_inited_stream" --id native --mode self-reporting --run case_transport_stream_server_inited_stream
 case_test_case "stream_send_pure_fin" --id native --mode self-reporting --run case_transport_stream_stream_send_pure_fin
 case_test_case "stream_read_notify_fail" --id native --mode self-reporting --run case_transport_stream_stream_read_notify_fail
@@ -678,6 +735,12 @@ case_test_case "reset_stream_on_recv_only_stream" --id native --mode self-report
 case_test_case "stop_sending_on_recv_only_stream" --id native --mode self-reporting --run case_transport_stream_stop_sending_on_recv_only_stream
 case_test_case "stream_frame_on_send_only_stream" --id native --mode self-reporting --run case_transport_stream_stream_frame_on_send_only_stream
 case_test_case "stream_frame_on_local_uncreated_stream" --id native --mode self-reporting --run case_transport_stream_stream_frame_on_local_uncreated_stream
+case_test_case "max_stream_data_on_send_only_stream" --id native \
+    --mode self-reporting \
+    --run case_transport_stream_max_stream_data_on_send_only_stream
+case_test_case "max_stream_data_on_recv_only_stream" --id native \
+    --mode self-reporting \
+    --run case_transport_stream_max_stream_data_on_recv_only_stream
 
 if case_test_is_discovery; then
     case_test_run

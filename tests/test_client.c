@@ -289,6 +289,7 @@ uint64_t g_last_sock_op_time;
  * 711/712 for PMTUD peer-option omission validation
  * 713/714 for max_ack_delay boundary validation
  * 717 for RESET_STREAM on a peer-initiated unidirectional stream
+ * 718/719 for MAX_STREAM_DATA stream direction validation
  * 902/903 for AEAD confidentiality-limit validation
  * 1000-1014 for HTTP/3 protocol validation
  */
@@ -2101,6 +2102,35 @@ xqc_client_send_wrong_direction_frame(xqc_connection_t *conn)
     printf("test case %d, wrong direction frame written\n", g_test_case);
 }
 
+static void
+xqc_client_send_max_stream_data_test_frame(xqc_connection_t *conn)
+{
+    xqc_packet_out_t *packet_out;
+    xqc_stream_id_t   stream_id;
+    ssize_t           ret;
+
+    packet_out = xqc_write_new_packet(conn, XQC_PTYPE_SHORT_HEADER);
+    if (packet_out == NULL) {
+        printf("test case %d, xqc_write_new_packet error\n", g_test_case);
+        return;
+    }
+
+    stream_id = g_test_case == 718 ? 3 : 2;
+    ret = xqc_gen_max_stream_data_frame(packet_out, stream_id,
+                                        XQC_MAX_FLOW_CONTROL_WINDOW);
+    if (ret < 0) {
+        printf("test case %d, MAX_STREAM_DATA generation error:%zd\n",
+               g_test_case, ret);
+        xqc_maybe_recycle_packet_out(packet_out, conn);
+        return;
+    }
+
+    packet_out->po_used_size += ret;
+    printf("[max-stream-data-test]|case:%d|stream_id:%"PRIu64
+           "|limit:%"PRIu64"|\n", g_test_case, stream_id,
+           XQC_MAX_FLOW_CONTROL_WINDOW);
+}
+
 void
 xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
 {
@@ -2121,6 +2151,10 @@ xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
     /* issues #565/#566/#567: wrong direction frame, 1-RTT is available here */
     if (g_test_case >= 705 && g_test_case <= 708) {
         xqc_client_send_wrong_direction_frame(h3_conn->conn);
+    }
+
+    if (g_test_case == 718 || g_test_case == 719) {
+        xqc_client_send_max_stream_data_test_frame(h3_conn->conn);
     }
 
     xqc_conn_stats_t stats = xqc_conn_get_stats(p_ctx->engine, &user_conn->cid);

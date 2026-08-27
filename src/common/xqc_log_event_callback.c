@@ -474,8 +474,10 @@ xqc_log_TRA_FRAMES_PROCESSED_callback(xqc_log_t *log, const char *func, ...)
 
     case XQC_FRAME_CONNECTION_CLOSE: {
         uint64_t err_code = va_arg(args, uint64_t);
+        uint64_t reason_len = va_arg(args, uint64_t);
         xqc_qlog_implement(log, TRA_FRAMES_PROCESSED, func,
-                          "|type:%d|err_code:%ui|", frame_type, err_code);
+                          "|type:%d|err_code:%ui|reason_len:%ui|",
+                          frame_type, err_code, reason_len);
         break;
     }
 

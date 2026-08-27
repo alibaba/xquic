@@ -9,6 +9,7 @@ void xqc_test_short_header_packet_parse_cid();
 void xqc_test_long_header_packet_parse_cid();
 void xqc_test_client_discards_received_zero_rtt(void);
 void xqc_test_server_buffers_received_zero_rtt(void);
+void xqc_test_packet_out_remained_size(void);
 void xqc_test_packet_encrypt_hp_sample_boundary();
 void xqc_test_empty_pkt();
 void xqc_test_stateless_reset_parse_boundary(void);

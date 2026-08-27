@@ -2,6 +2,7 @@
  * @copyright Copyright (c) 2022, Alibaba Group Holding Limited
  */
 
+#include <string.h>
 
 #include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "src/transport/xqc_packet_out.h"
@@ -793,6 +794,8 @@ xqc_write_conn_close_to_packet(xqc_connection_t *conn, uint64_t err_code)
     xqc_packet_out_t *packet_out;
     xqc_pkt_type_t pkt_type = XQC_PTYPE_INIT;
     xqc_bool_t is_app;
+    const unsigned char *reason;
+    size_t reason_len;
 
     /* select packet type */
     if (xqc_tls_is_key_ready(conn->tls, XQC_ENC_LEV_HSK, XQC_KEY_TYPE_TX_WRITE)) {
@@ -815,6 +818,15 @@ xqc_write_conn_close_to_packet(xqc_connection_t *conn, uint64_t err_code)
     is_app = XQC_CONN_ERR_IS_APPLICATION(err_code);
     err_code = XQC_CONN_ERR_CODE(err_code);
     err_code = xqc_conn_close_wire_error_code(err_code);
+    reason = (const unsigned char *) conn->conn_close_msg;
+    reason_len = conn->conn_close_msg
+                 ? strnlen(conn->conn_close_msg,
+                           XQC_MAX_CONN_CLOSE_REASON_LEN + 1)
+                 : 0;
+    if (reason_len > XQC_MAX_CONN_CLOSE_REASON_LEN) {
+        reason = NULL;
+        reason_len = 0;
+    }
 
     /*
      * RFC 9000 Section 10.2.3: application close frames sent in Initial or
@@ -825,9 +837,12 @@ xqc_write_conn_close_to_packet(xqc_connection_t *conn, uint64_t err_code)
     {
         is_app = XQC_FALSE;
         err_code = TRA_APPLICATION_ERROR;
+        reason = NULL;
+        reason_len = 0;
     }
 
-    ret = xqc_gen_conn_close_frame(packet_out, err_code, is_app, 0);
+    ret = xqc_gen_conn_close_frame(packet_out, err_code, is_app, 0,
+                                   reason, reason_len);
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_conn_close_frame error|");
         goto error;
@@ -1718,11 +1733,13 @@ xqc_write_path_status_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *pa
 size_t
 xqc_get_po_remained_size(xqc_packet_out_t *po)
 {
-    size_t res;
+    if (po->po_used_size > po->po_buf_size
+        || po->po_reserved_size > po->po_buf_size - po->po_used_size)
+    {
+        return 0;
+    }
 
-    res = po->po_buf_size - po->po_used_size - po->po_reserved_size;
-
-    return xqc_max(res, 0);
+    return po->po_buf_size - po->po_used_size - po->po_reserved_size;
 }
 
 size_t

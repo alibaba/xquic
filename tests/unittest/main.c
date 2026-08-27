@@ -107,6 +107,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_conn_close_application_namespace",
                         xqc_test_conn_close_application_namespace)
+        || !CU_add_test(pSuite, "xqc_test_conn_close_reason_phrase",
+                        xqc_test_conn_close_reason_phrase)
+        || !CU_add_test(pSuite, "xqc_test_conn_close_reason_no_space",
+                        xqc_test_conn_close_reason_no_space)
+        || !CU_add_test(pSuite, "xqc_test_conn_close_reason_too_long",
+                        xqc_test_conn_close_reason_too_long)
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_first_writer_wins", xqc_test_conn_tls_error_first_writer_wins)
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_alert_zero", xqc_test_conn_tls_error_cb_alert_zero)
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_max_alert", xqc_test_conn_tls_error_cb_max_alert)
@@ -137,6 +143,8 @@ main(int argc, char *argv[])
                         xqc_test_client_discards_received_zero_rtt)
         || !CU_add_test(pSuite, "xqc_test_server_buffers_received_zero_rtt",
                         xqc_test_server_buffers_received_zero_rtt)
+        || !CU_add_test(pSuite, "xqc_test_packet_out_remained_size",
+                        xqc_test_packet_out_remained_size)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_flood", xqc_test_crypto_frame_flood)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_bytes_limit", xqc_test_crypto_frame_bytes_limit)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_recycle", xqc_test_crypto_frame_recycle)
@@ -217,6 +225,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_conn_close_transport_error_type_overlap",
                         xqc_test_conn_close_transport_error_type_overlap)
+        || !CU_add_test(pSuite, "xqc_test_conn_close_reason_truncated",
+                        xqc_test_conn_close_reason_truncated)
         || !CU_add_test(pSuite, "xqc_test_conn_close_valid_packet_types",
                         xqc_test_conn_close_valid_packet_types)
         || !CU_add_test(pSuite,

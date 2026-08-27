@@ -289,6 +289,35 @@ xqc_test_conn_close_transport_error_type_overlap(void)
 }
 
 
+void
+xqc_test_conn_close_reason_truncated(void)
+{
+    unsigned char frame[] = {
+        0x1c, 0x0a, 0x00, 0x03, 'b', 'a'
+    };
+    xqc_connection_t *conn;
+    xqc_packet_in_t packet_in;
+    uint64_t err_code;
+    xqc_int_t ret;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pos = frame;
+    packet_in.last = frame + sizeof(frame);
+
+    ret = xqc_parse_conn_close_frame(&packet_in, &err_code, conn);
+
+    CU_ASSERT_EQUAL(ret, -XQC_EILLEGAL_FRAME);
+    CU_ASSERT(packet_in.pos == frame);
+    CU_ASSERT_EQUAL(xqc_conn_get_err_type(conn),
+                    XQC_CONN_ERR_TYPE_UNKNOWN);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 static void
 xqc_test_conn_close_frame_accepted(unsigned char *frame, size_t frame_len,
     xqc_pkt_type_t pkt_type, xqc_conn_type_t conn_type,
@@ -325,6 +354,9 @@ xqc_test_conn_close_valid_packet_types(void)
 {
     unsigned char transport_frame[] = {0x1c, 0x00, 0x00, 0x00};
     unsigned char application_frame[] = {0x1d, 0x00, 0x00};
+    unsigned char reason_frame[] = {
+        0x1c, 0x00, 0x00, 0x03, 'b', 'y', 'e'
+    };
 
     xqc_test_conn_close_frame_accepted(transport_frame,
         sizeof(transport_frame), XQC_PTYPE_INIT, XQC_CONN_TYPE_CLIENT,
@@ -338,6 +370,9 @@ xqc_test_conn_close_valid_packet_types(void)
     xqc_test_conn_close_frame_accepted(application_frame,
         sizeof(application_frame), XQC_PTYPE_SHORT_HEADER,
         XQC_CONN_TYPE_CLIENT, XQC_CONN_ERR_TYPE_APPLICATION);
+    xqc_test_conn_close_frame_accepted(reason_frame,
+        sizeof(reason_frame), XQC_PTYPE_SHORT_HEADER,
+        XQC_CONN_TYPE_CLIENT, XQC_CONN_ERR_TYPE_TRANSPORT);
 }
 
 

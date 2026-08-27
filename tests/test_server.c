@@ -68,6 +68,7 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_UPPERCASE_RESPONSE 1014
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_BELOW_LIMIT 902
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT 903
+#define XQC_TEST_CASE_DATAGRAM_1RTT_ALLOWED 1201
 
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
@@ -387,6 +388,11 @@ static void
 xqc_server_datagram_read_callback(xqc_connection_t *conn, void *user_data, const void *data, size_t data_len, uint64_t dgram_ts)
 {
     user_conn_t *user_conn = (user_conn_t*)user_data;
+
+    if (g_test_case == XQC_TEST_CASE_DATAGRAM_1RTT_ALLOWED) {
+        printf("[dgram-encryption-level-test]|1RTT|received:%zu|\n",
+               data_len);
+    }
 
     if (g_send_dgram) {
         if (g_echo) {

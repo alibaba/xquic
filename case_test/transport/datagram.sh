@@ -331,6 +331,50 @@ fi
 
 }
 
+case_transport_datagram_1rtt_frame_allowed()
+{
+case_test_stop_server
+rm -f test_session tp_localhost xqc_token
+case_test_start_server stdbuf -oL ${SERVER_BIN} -l d -Q 65535 -e -U 1 \
+    -x 1201 > svr_stdlog
+sleep 1
+clear_log
+echo -e "1-RTT DATAGRAM frame allowed...\c"
+${CLIENT_BIN} -l d -T 1 -s 1000 -U 1 -Q 65535 -E -1 -x 1201 > stdlog
+cli_res=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+svr_res=`grep "\[dgram-encryption-level-test\]|1RTT|received:" svr_stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_res" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "datagram_1rtt_frame_allowed" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "datagram_1rtt_frame_allowed" "fail"
+fi
+}
+
+case_transport_datagram_initial_frame_rejected()
+{
+case_test_stop_server
+rm -f test_session tp_localhost xqc_token
+case_test_start_server ${SERVER_BIN} -l d -Q 65535 -x 1202 > /dev/null
+sleep 1
+clear_log
+echo -e "Initial DATAGRAM frame rejected...\c"
+${CLIENT_BIN} -l d -T 1 -s 1 -Q 65535 -1 -x 1202 > stdlog
+write_res=`grep "\[dgram-encryption-level-test\]|initial_write_ret:0|" stdlog`
+reject_res=`grep "illegal DATAGRAM frame in INIT packet" slog`
+protocol_res=`grep "err:0xa" slog`
+if [ -n "$write_res" ] && [ -n "$reject_res" ] \
+    && [ -n "$protocol_res" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "datagram_initial_frame_rejected" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "datagram_initial_frame_rejected" "fail"
+fi
+}
+
 case_transport_datagram_send_1RTT_datagram_100KB_batch()
 {
 case_test_stop_server
@@ -1472,6 +1516,8 @@ case_test_case "datagram_mss_limited_by_max_datagram_frame_size" --id native --m
 case_test_case "send_0RTT_datagram_100KB" --id native --mode self-reporting --run case_transport_datagram_send_0RTT_datagram_100KB
 case_test_case "send_0RTT_datagram_100KB_batch" --id native --mode self-reporting --run case_transport_datagram_send_0RTT_datagram_100KB_batch
 case_test_case "send_1RTT_datagram_100KB" --id native --mode self-reporting --run case_transport_datagram_send_1RTT_datagram_100KB
+case_test_case "datagram_1rtt_frame_allowed" --id 1201 --mode self-reporting --run case_transport_datagram_1rtt_frame_allowed
+case_test_case "datagram_initial_frame_rejected" --id 1202 --mode self-reporting --run case_transport_datagram_initial_frame_rejected
 case_test_case "send_1RTT_datagram_100KB_batch" --id native --mode self-reporting --run case_transport_datagram_send_1RTT_datagram_100KB_batch
 case_test_case "send_0rtt_datagram_without_saved_datagram_tp" --id native --mode self-reporting --run case_transport_datagram_send_0rtt_datagram_without_saved_datagram_tp
 case_test_case "send_0rtt_datagram_without_saved_datagram_tp_batch" --id native --mode self-reporting --run case_transport_datagram_send_0rtt_datagram_without_saved_datagram_tp_batch

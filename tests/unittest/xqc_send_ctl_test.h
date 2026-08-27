@@ -13,6 +13,11 @@
 void xqc_test_pto_uses_remote_max_ack_delay(void);
 void xqc_test_pto_remote_default_when_unset(void);
 
+/* RFC 9000 Section 8.2.4 path-validation timeout behavior. */
+void xqc_test_path_validation_timeout_current_pto_dominates(void);
+void xqc_test_path_validation_timeout_new_path_pto_dominates(void);
+void xqc_test_path_validation_timer_not_extended_by_packet(void);
+
 /*
  * Regression test for issue #724 (RFC 9002 5.3):
  * xqc_send_ctl_update_rtt must cap ack_delay by max_ack_delay

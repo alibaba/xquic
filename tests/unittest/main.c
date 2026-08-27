@@ -371,6 +371,17 @@ main(int argc, char *argv[])
                         xqc_test_pto_uses_remote_max_ack_delay)
         || !CU_add_test(pSuite, "xqc_test_pto_remote_default_when_unset",
                         xqc_test_pto_remote_default_when_unset)
+        || !CU_add_test(pSuite,
+                        "xqc_test_path_validation_timeout_"
+                        "current_pto_dominates",
+                        xqc_test_path_validation_timeout_current_pto_dominates)
+        || !CU_add_test(pSuite,
+                        "xqc_test_path_validation_timeout_"
+                        "new_path_pto_dominates",
+                        xqc_test_path_validation_timeout_new_path_pto_dominates)
+        || !CU_add_test(pSuite,
+                        "xqc_test_path_validation_timer_not_extended_by_packet",
+                        xqc_test_path_validation_timer_not_extended_by_packet)
         || !CU_add_test(pSuite, "xqc_test_send_ctl_update_rtt_ack_delay_cap",
                         xqc_test_send_ctl_update_rtt_ack_delay_cap)
         || !CU_add_test(pSuite,

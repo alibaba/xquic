@@ -43,6 +43,12 @@ typedef enum {
     /* QPACK settings */
     XQC_H3_SETTINGS_QPACK_MAX_TABLE_CAPACITY    = 0x01,
     XQC_H3_SETTINGS_QPACK_BLOCKED_STREAMS       = 0x07,
+
+    /* HTTP/2-only settings reserved by RFC 9114 Section 7.2.4.1 */
+    XQC_H3_SETTINGS_H2_ENABLE_PUSH               = 0x02,
+    XQC_H3_SETTINGS_H2_MAX_CONCURRENT_STREAMS    = 0x03,
+    XQC_H3_SETTINGS_H2_INITIAL_WINDOW_SIZE       = 0x04,
+    XQC_H3_SETTINGS_H2_MAX_FRAME_SIZE            = 0x05,
 } xqc_h3_settings_id;
 
 

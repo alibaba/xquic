@@ -750,6 +750,20 @@ xqc_h3_conn_on_settings_entry_received(uint64_t identifier, uint64_t value, void
         }
         break;
 
+    case XQC_H3_SETTINGS_H2_ENABLE_PUSH:
+    case XQC_H3_SETTINGS_H2_MAX_CONCURRENT_STREAMS:
+    case XQC_H3_SETTINGS_H2_INITIAL_WINDOW_SIZE:
+    case XQC_H3_SETTINGS_H2_MAX_FRAME_SIZE:
+        /*
+         * RFC 9114 Section 7.2.4.1: HTTP/2 setting identifiers without
+         * corresponding HTTP/3 settings are connection errors.
+         */
+        xqc_log(h3c->log, XQC_LOG_ERROR,
+                "|reserved HTTP/2 setting|identifier:%ui|value:%ui|",
+                identifier, value);
+        XQC_H3_CONN_ERR(h3c, H3_SETTINGS_ERROR, -XQC_H3_SETTING_ERROR);
+        return -XQC_H3_SETTING_ERROR;
+
     default:
         xqc_log(h3c->log, XQC_LOG_INFO, "|ignore unknown setting|identifier%ui|value:%ui",
                 identifier, value);

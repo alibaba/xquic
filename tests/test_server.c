@@ -66,6 +66,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT 1012
 #define XQC_TEST_CASE_H3_LOWERCASE_RESPONSE 1013
 #define XQC_TEST_CASE_H3_UPPERCASE_RESPONSE 1014
+#define XQC_TEST_CASE_H3_H2_RESERVED_REQUEST_FRAME 1015
+#define XQC_TEST_CASE_H3_H2_RESERVED_CONTROL_FRAME 1016
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_BELOW_LIMIT 902
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT 903
 #define XQC_TEST_CASE_DATAGRAM_1RTT_ALLOWED 1201
@@ -1025,8 +1027,12 @@ xqc_server_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, vo
     printf("send_count:%u, lost_count:%u, tlp_count:%u, recv_count:%u, srtt:%"PRIu64" early_data_flag:%d, conn_err:%d, ack_info:%s, conn_info:%s, alpn:%s\n",
            stats.send_count, stats.lost_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.ack_info, stats.conn_info, stats.alpn);
 
-    if (g_test_case == XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME) {
-        printf("[h3-request-frame-test]|reserved-frame|conn_err:%d|\n",
+    if (g_test_case == XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME
+        || g_test_case == XQC_TEST_CASE_H3_H2_RESERVED_REQUEST_FRAME)
+    {
+        const char *kind = g_test_case == XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME
+                           ? "reserved-frame" : "http2-reserved";
+        printf("[h3-request-frame-test]|%s|conn_err:%d|\n", kind,
                stats.conn_err);
         fflush(stdout);
 
@@ -1051,7 +1057,8 @@ xqc_server_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, vo
         fflush(stdout);
 
     } else if (g_test_case == XQC_TEST_CASE_H3_RESERVED_CONTROL_FRAME
-               || g_test_case == XQC_TEST_CASE_H3_CANCEL_PUSH_UNSET)
+               || g_test_case == XQC_TEST_CASE_H3_CANCEL_PUSH_UNSET
+               || g_test_case == XQC_TEST_CASE_H3_H2_RESERVED_CONTROL_FRAME)
     {
         printf("[h3-control-frame-test]|case:%d|conn_err:%d|\n",
                g_test_case, stats.conn_err);
@@ -1125,6 +1132,10 @@ xqc_server_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *conn_user_da
 
     } else if (g_test_case == XQC_TEST_CASE_H3_RESERVED_CONTROL_FRAME) {
         xqc_server_send_test_control_frame(h3_conn, 0x21);
+
+    } else if (g_test_case == XQC_TEST_CASE_H3_H2_RESERVED_CONTROL_FRAME) {
+        xqc_server_send_test_control_frame(h3_conn,
+                                           XQC_H3_FRM_RESERVED_PRIORITY);
 
     } else if (g_test_case == XQC_TEST_CASE_H3_CANCEL_PUSH_UNSET) {
         xqc_server_send_test_control_frame(h3_conn,
@@ -1214,7 +1225,7 @@ xqc_server_send_test_control_frame(xqc_h3_conn_t *h3_conn,
                                                  XQC_FALSE);
 
     } else {
-        unsigned char frame[] = { 0x21, 0x01, 0x00 };
+        unsigned char frame[] = { (unsigned char)frame_type, 0x01, 0x00 };
         xqc_var_buf_t *buf = xqc_var_buf_create(sizeof(frame));
         write_ret = -XQC_EMALLOC;
         if (buf != NULL) {

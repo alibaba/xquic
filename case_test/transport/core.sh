@@ -463,6 +463,61 @@ fi
 rm -rf tp_localhost test_session xqc_token
 }
 
+case_transport_core_crypto_previous_level_boundary()
+{
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "previous encryption level CRYPTO accepts received boundary ...\c"
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -x 720 > svr_stdlog
+sleep 1
+${CLIENT_BIN} -s 1024 -l d -T 1 -t 1 -E > stdlog 2>&1
+injected=`grep "\[crypto-level-test\]|sent:1|extend:0|" svr_stdlog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+protocol_err=`grep -E "conn_err:10([^0-9]|$)" stdlog`
+if [ -n "$injected" ] && [ "$result" == ">>>>>>>> pass:1" ] \
+    && [ -z "$protocol_err" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "crypto_previous_level_boundary" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "crypto_previous_level_boundary" "fail"
+    echo "$injected"
+    echo "$protocol_err"
+fi
+
+rm -rf tp_localhost test_session xqc_token
+}
+
+case_transport_core_crypto_previous_level_extension()
+{
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "previous encryption level CRYPTO rejects extension ...\c"
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -x 721 > svr_stdlog
+sleep 1
+${CLIENT_BIN} -s 1024 -l d -T 1 -t 2 -E > stdlog 2>&1
+injected=`grep "\[crypto-level-test\]|sent:1|extend:1|" svr_stdlog`
+protocol_err=`grep -E "conn_err:10([^0-9]|$)" stdlog`
+transport_type=`grep "conn_err_type:1" stdlog`
+if [ -n "$injected" ] && [ -n "$protocol_err" ] \
+    && [ -n "$transport_type" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "crypto_previous_level_extension" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "crypto_previous_level_extension" "fail"
+    echo "$injected"
+    echo "$protocol_err"
+    echo "$transport_type"
+fi
+
+rm -rf tp_localhost test_session xqc_token
+}
+
 case_transport_core_new_client_29_new_server()
 {
 case_test_stop_server
@@ -1031,6 +1086,8 @@ case_test_case "active_cid_limit_minimum_accept" --id native --mode self-reporti
 case_test_case "active_cid_limit_below_minimum" --id native --mode self-reporting --run case_transport_core_active_cid_limit_below_minimum
 case_test_case "max_ack_delay_valid_boundary" --id native --mode self-reporting --run case_transport_core_max_ack_delay_valid_boundary
 case_test_case "max_ack_delay_invalid_boundary" --id native --mode self-reporting --run case_transport_core_max_ack_delay_invalid_boundary
+case_test_case "crypto_previous_level_boundary" --id native --mode self-reporting --run case_transport_core_crypto_previous_level_boundary
+case_test_case "crypto_previous_level_extension" --id native --mode self-reporting --run case_transport_core_crypto_previous_level_extension
 case_test_case "new_client_29_&_new_server" --id native --mode self-reporting --run case_transport_core_new_client_29_new_server
 case_test_case "load_balancer_cid_generate_with_encryption" --id native --mode self-reporting --run case_transport_core_load_balancer_cid_generate_with_encryption
 case_test_case "load_balancer_cid_generate" --id native --mode self-reporting --run case_transport_core_load_balancer_cid_generate

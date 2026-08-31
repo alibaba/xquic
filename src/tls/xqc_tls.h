@@ -166,6 +166,11 @@ xqc_int_t xqc_tls_decrypt_payload(xqc_tls_t *tls, xqc_encrypt_level_t level,
 xqc_bool_t xqc_tls_is_key_ready(xqc_tls_t *tls, xqc_encrypt_level_t level, xqc_key_type_t key_type);
 
 /**
+ * @brief get the current TLS receiving encryption level
+ */
+xqc_encrypt_level_t xqc_tls_get_read_level(xqc_tls_t *tls);
+
+/**
  * @brief check whether it is adequate to send early data
  */
 xqc_bool_t xqc_tls_is_ready_to_send_early_data(xqc_tls_t *tls);

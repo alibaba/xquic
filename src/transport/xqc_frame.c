@@ -729,6 +729,34 @@ xqc_check_crypto_frame_data_buffer_exceed(xqc_stream_t *stream, xqc_stream_frame
     return XQC_OK;
 }
 
+
+xqc_int_t
+xqc_check_crypto_frame_level(xqc_connection_t *conn, xqc_stream_t *stream,
+    xqc_stream_frame_t *stream_frame, xqc_encrypt_level_t current_level)
+{
+    uint64_t frame_end;
+
+    if (stream_frame->data_length == 0
+        || stream->stream_encrypt_level >= current_level)
+    {
+        return XQC_OK;
+    }
+
+    frame_end = stream_frame->data_offset + stream_frame->data_length;
+    if (frame_end <= stream->stream_max_recv_offset) {
+        return XQC_OK;
+    }
+
+    xqc_log(conn->log, XQC_LOG_ERROR,
+            "|CRYPTO data extends previous encryption level|level:%d|"
+            "current_level:%d|frame_end:%ui|received_end:%ui|",
+            stream->stream_encrypt_level, current_level, frame_end,
+            stream->stream_max_recv_offset);
+    XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
+    return -XQC_EPROTO;
+}
+
+
 xqc_int_t
 xqc_insert_crypto_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream_frame_t *stream_frame)
 {
@@ -849,6 +877,18 @@ xqc_process_crypto_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     xqc_log(conn->log, XQC_LOG_DEBUG, "|level:%d|", encrypt_level);
 
     xqc_stream_t *stream = conn->crypto_stream[encrypt_level];
+    xqc_encrypt_level_t current_level = xqc_tls_get_read_level(conn->tls);
+
+    /*
+     * RFC 9001 Section 4.1.3: data received at a previously installed
+     * encryption level cannot extend that level's CRYPTO flow.
+     */
+    ret = xqc_check_crypto_frame_level(conn, stream, stream_frame,
+                                       current_level);
+    if (ret != XQC_OK) {
+        xqc_destroy_stream_frame(stream_frame);
+        return ret;
+    }
 
     ret = xqc_insert_crypto_frame(conn, stream, stream_frame);
     if (ret != XQC_OK) {
@@ -856,6 +896,10 @@ xqc_process_crypto_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         xqc_destroy_stream_frame(stream_frame);
         return ret;
     }
+
+    stream->stream_max_recv_offset =
+        xqc_max(stream->stream_max_recv_offset,
+                stream_frame->data_offset + stream_frame->data_length);
 
     ret = xqc_read_crypto_stream(stream);
     if (ret < 0) {

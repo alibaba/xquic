@@ -21,7 +21,11 @@
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_request.h"
 #include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_frame_parser.h"
 #include "src/transport/xqc_packet_out.h"
+#include "src/transport/xqc_packet_parser.h"
+#include "src/transport/xqc_send_queue.h"
+#include "src/transport/xqc_stream.h"
 
 #ifndef XQC_SYS_WINDOWS
 #include <unistd.h>
@@ -68,6 +72,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_UPPERCASE_RESPONSE 1014
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_BELOW_LIMIT 902
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT 903
+#define XQC_TEST_CASE_CRYPTO_PREVIOUS_LEVEL_BOUNDARY 720
+#define XQC_TEST_CASE_CRYPTO_PREVIOUS_LEVEL_EXTENSION 721
 #define XQC_TEST_CASE_DATAGRAM_1RTT_ALLOWED 1201
 
 extern long xqc_random(void);
@@ -75,6 +81,8 @@ extern xqc_usec_t xqc_now();
 
 static void xqc_server_send_test_control_frame(xqc_h3_conn_t *h3_conn,
     uint64_t frame_type);
+static xqc_int_t xqc_server_send_previous_level_crypto(
+    xqc_connection_t *conn, xqc_bool_t extend);
 
 
 typedef struct user_datagram_block_s {
@@ -738,12 +746,63 @@ xqc_server_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void 
     return 0;
 }
 
+static xqc_int_t
+xqc_server_send_previous_level_crypto(xqc_connection_t *conn,
+    xqc_bool_t extend)
+{
+    xqc_stream_t *stream = conn->crypto_stream[XQC_ENC_LEV_HSK];
+    xqc_packet_out_t *packet_out;
+    unsigned char payload = 0;
+    uint64_t offset;
+    size_t written_size = 0;
+    ssize_t ret;
+
+    if (stream == NULL || stream->stream_send_offset == 0) {
+        printf("[crypto-level-test]|handshake stream unavailable|\n");
+        return XQC_ERROR;
+    }
+
+    offset = stream->stream_send_offset - (extend ? 0 : 1);
+    packet_out = xqc_write_new_packet(conn, XQC_PTYPE_HSK);
+    if (packet_out == NULL) {
+        printf("[crypto-level-test]|packet unavailable|\n");
+        return -XQC_EWRITE_PKT;
+    }
+
+    ret = xqc_gen_crypto_frame(packet_out, offset, &payload,
+                               sizeof(payload), &written_size);
+    if (ret < 0 || written_size != sizeof(payload)) {
+        printf("[crypto-level-test]|frame generation failed|ret:%zd|"
+               "written:%zu|\n", ret, written_size);
+        xqc_maybe_recycle_packet_out(packet_out, conn);
+        return ret < 0 ? (xqc_int_t) ret : XQC_ERROR;
+    }
+
+    packet_out->po_used_size += ret;
+    xqc_long_packet_update_length(packet_out);
+    xqc_send_queue_move_to_high_pri(&packet_out->po_list,
+                                    conn->conn_send_queue);
+    printf("[crypto-level-test]|sent:1|extend:%d|offset:%"PRIu64
+           "|received_end:%"PRIu64"|\n", extend, offset,
+           stream->stream_send_offset);
+    fflush(stdout);
+    return XQC_OK;
+}
+
+
 void
 xqc_server_conn_handshake_finished(xqc_connection_t *conn, void *user_data, void *conn_proto_data)
 {
     DEBUG;
-    user_conn_t *user_conn = (user_conn_t *) user_data;
     printf("datagram_mss:%zd\n", xqc_datagram_get_mss(conn));
+
+    if (g_test_case == XQC_TEST_CASE_CRYPTO_PREVIOUS_LEVEL_BOUNDARY
+        || g_test_case == XQC_TEST_CASE_CRYPTO_PREVIOUS_LEVEL_EXTENSION)
+    {
+        xqc_server_send_previous_level_crypto(
+            conn,
+            g_test_case == XQC_TEST_CASE_CRYPTO_PREVIOUS_LEVEL_EXTENSION);
+    }
 }
 
 void

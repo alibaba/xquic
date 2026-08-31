@@ -23,6 +23,16 @@ void xqc_test_ack_range_negative_rejected(void);
 
 void xqc_test_stream_frame_offset_overflow();
 
+void xqc_test_crypto_frame_previous_level_boundary();
+
+void xqc_test_crypto_frame_previous_level_extension();
+
+void xqc_test_crypto_frame_initial_at_0rtt_boundary();
+
+void xqc_test_crypto_frame_initial_0rtt_reordering();
+
+void xqc_test_crypto_frame_initial_at_0rtt_extension();
+
 void xqc_test_crypto_frame_in_0rtt_rejected();
 
 void xqc_test_crypto_frame_in_initial_accepted();

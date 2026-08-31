@@ -724,6 +724,186 @@ xqc_test_crypto_frame_setup(xqc_connection_t **conn, xqc_packet_in_t *pi,
 
 
 void
+xqc_test_crypto_frame_previous_level_boundary()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    xqc_stream_t *stream = xqc_create_crypto_stream(
+        conn, XQC_ENC_LEV_INIT, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+    stream->stream_max_recv_offset = 64;
+
+    xqc_stream_frame_t frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.data_offset = 32;
+    frame.data_length = 32;
+
+    xqc_int_t ret = xqc_check_crypto_frame_level(
+        conn, stream, &frame, XQC_ENC_LEV_HSK);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+
+    /* An empty frame contains no data and cannot extend the old flow. */
+    frame.data_offset = 128;
+    frame.data_length = 0;
+    ret = xqc_check_crypto_frame_level(
+        conn, stream, &frame, XQC_ENC_LEV_HSK);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+
+    /* The current receiving level remains free to extend its own flow. */
+    frame.data_offset = 64;
+    frame.data_length = 1;
+    ret = xqc_check_crypto_frame_level(
+        conn, stream, &frame, XQC_ENC_LEV_INIT);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_crypto_frame_previous_level_extension()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    xqc_stream_t *stream = xqc_create_crypto_stream(
+        conn, XQC_ENC_LEV_HSK, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+    stream->stream_max_recv_offset = 64;
+
+    xqc_stream_frame_t frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.data_offset = 64;
+    frame.data_length = 1;
+
+    xqc_int_t ret = xqc_check_crypto_frame_level(
+        conn, stream, &frame, XQC_ENC_LEV_1RTT);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_PROTOCOL_VIOLATION);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_crypto_frame_initial_at_0rtt_boundary()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    xqc_stream_t *stream = xqc_create_crypto_stream(
+        conn, XQC_ENC_LEV_INIT, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+    stream->stream_max_recv_offset = 64;
+
+    xqc_stream_frame_t frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.data_offset = 32;
+    frame.data_length = 32;
+
+    xqc_int_t ret = xqc_check_crypto_frame_level(
+        conn, stream, &frame, XQC_ENC_LEV_0RTT);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+
+    /* Earlier duplicate data also stays within the received Initial flow. */
+    frame.data_offset = 0;
+    frame.data_length = 16;
+    ret = xqc_check_crypto_frame_level(
+        conn, stream, &frame, XQC_ENC_LEV_0RTT);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+
+    /* An empty frame cannot extend the old Initial flow. */
+    frame.data_offset = 128;
+    frame.data_length = 0;
+    ret = xqc_check_crypto_frame_level(
+        conn, stream, &frame, XQC_ENC_LEV_0RTT);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_crypto_frame_initial_0rtt_reordering()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    /*
+     * Receive the tail of the Initial CRYPTO flow first while Initial is the
+     * current TLS read level. The gap keeps the data from reaching TLS, but
+     * the receive boundary must still include all bytes already received.
+     */
+    unsigned char frame_buf[35] = {0x06, 0x20, 0x20};
+    xqc_packet_in_t packet_in;
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pi_pkt.pkt_type = XQC_PTYPE_INIT;
+    packet_in.pos = frame_buf;
+    packet_in.last = frame_buf + sizeof(frame_buf);
+
+    xqc_int_t ret = xqc_process_crypto_frame(conn, &packet_in);
+    CU_ASSERT(ret == XQC_OK);
+
+    xqc_stream_t *stream = conn->crypto_stream[XQC_ENC_LEV_INIT];
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+    CU_ASSERT(stream->stream_max_recv_offset == 64);
+    CU_ASSERT(stream->stream_data_in.next_read_offset == 0);
+
+    /*
+     * Model 0-RTT becoming the TLS read level before the missing leading
+     * Initial fragment arrives. Filling the earlier gap does not extend the
+     * previously received Initial flow and therefore remains valid.
+     */
+    xqc_stream_frame_t delayed_frame;
+    memset(&delayed_frame, 0, sizeof(delayed_frame));
+    delayed_frame.data_offset = 0;
+    delayed_frame.data_length = 32;
+
+    ret = xqc_check_crypto_frame_level(conn, stream, &delayed_frame,
+                                       XQC_ENC_LEV_0RTT);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_crypto_frame_initial_at_0rtt_extension()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    xqc_stream_t *stream = xqc_create_crypto_stream(
+        conn, XQC_ENC_LEV_INIT, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+    stream->stream_max_recv_offset = 64;
+
+    xqc_stream_frame_t frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.data_offset = 64;
+    frame.data_length = 1;
+
+    xqc_int_t ret = xqc_check_crypto_frame_level(
+        conn, stream, &frame, XQC_ENC_LEV_0RTT);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_PROTOCOL_VIOLATION);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
 xqc_test_crypto_frame_in_0rtt_rejected()
 {
     xqc_connection_t *conn;

@@ -149,6 +149,16 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_bytes_limit", xqc_test_crypto_frame_bytes_limit)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_recycle", xqc_test_crypto_frame_recycle)
         || !CU_add_test(pSuite, "xqc_test_stream_frame_offset_overflow", xqc_test_stream_frame_offset_overflow)
+        || !CU_add_test(pSuite, "xqc_test_crypto_frame_previous_level_boundary",
+                        xqc_test_crypto_frame_previous_level_boundary)
+        || !CU_add_test(pSuite, "xqc_test_crypto_frame_previous_level_extension",
+                        xqc_test_crypto_frame_previous_level_extension)
+        || !CU_add_test(pSuite, "xqc_test_crypto_frame_initial_at_0rtt_boundary",
+                        xqc_test_crypto_frame_initial_at_0rtt_boundary)
+        || !CU_add_test(pSuite, "xqc_test_crypto_frame_initial_0rtt_reordering",
+                        xqc_test_crypto_frame_initial_0rtt_reordering)
+        || !CU_add_test(pSuite, "xqc_test_crypto_frame_initial_at_0rtt_extension",
+                        xqc_test_crypto_frame_initial_at_0rtt_extension)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_in_0rtt_rejected", xqc_test_crypto_frame_in_0rtt_rejected)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_in_initial_accepted", xqc_test_crypto_frame_in_initial_accepted)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_in_handshake_accepted", xqc_test_crypto_frame_in_handshake_accepted)

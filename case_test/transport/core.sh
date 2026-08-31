@@ -845,9 +845,11 @@ sleep 1
 clear_log
 echo -e "check_clear_0rtt_ticket_flag_in_close_notify...\c"
 ${CLIENT_BIN} -l d -T 1 -s 4800 -U 1 -Q 65535 -E > stdlog
-cli_res2=`grep "conn_err:85, clear_0rtt_ticket:1" stdlog`
+cli_hsk=`grep "xqc_client_conn_handshake_finished" stdlog`
+cli_reject=`grep "early_data_flag:2, conn_err:0" stdlog`
+cli_ticket=`grep "clear_0rtt_ticket:0" stdlog`
 errlog=`grep_err_log`
-if [ -n "$cli_res2" ] && [ -n "$errlog" ]; then
+if [ -n "$cli_hsk" ] && [ -n "$cli_reject" ] && [ -n "$cli_ticket" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "check_clear_0rtt_ticket_flag_in_close_notify" "pass"
 else
@@ -873,9 +875,11 @@ sleep 1
 clear_log
 echo -e "check_clear_0rtt_ticket_flag_in_h3_close_notify...\c"
 ${CLIENT_BIN} -l d -s 4800 -Q 65535 -E > stdlog
-cli_res2=`grep "conn_err:85, clear_0rtt_ticket:1" stdlog`
+cli_pass=`grep ">>>>>>>> pass:1" stdlog`
+cli_reject=`grep "early_data_flag:2, conn_err:0" stdlog`
+cli_ticket=`grep "clear_0rtt_ticket:0" stdlog`
 errlog=`grep_err_log`
-if [ -n "$cli_res2" ] && [ -n "$errlog" ]; then
+if [ -n "$cli_pass" ] && [ -n "$cli_reject" ] && [ -n "$cli_ticket" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "check_clear_0rtt_ticket_flag_in_h3_close_notify" "pass"
 else

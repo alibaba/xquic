@@ -515,6 +515,59 @@ xqc_test_conn_early_data_reject()
 }
 
 
+void
+xqc_test_conn_early_data_reject_datagram_fallback()
+{
+    static const unsigned char dgram[] = "0rtt";
+    xqc_connection_t *conn;
+    xqc_engine_t *engine;
+    xqc_int_t ret;
+
+    /* A peer that disables DATAGRAM cannot receive the rejected payload. */
+    conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    engine = conn->engine;
+
+    conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
+    conn->remote_settings.max_datagram_frame_size = 0;
+    ret = xqc_conn_buff_0rtt_datagram(conn, (void *)dgram,
+                                      sizeof(dgram), 1,
+                                      XQC_DATA_QOS_NORMAL);
+    CU_ASSERT_EQUAL_FATAL(ret, XQC_OK);
+    CU_ASSERT_FALSE(xqc_list_empty(&conn->dgram_0rtt_buffer_list));
+
+    ret = xqc_conn_early_data_reject(conn);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+    CU_ASSERT_FALSE(conn->conn_flag & XQC_CONN_FLAG_ERROR);
+    CU_ASSERT_TRUE(xqc_list_empty(&conn->dgram_0rtt_buffer_list));
+
+    xqc_engine_destroy(engine);
+
+    /* A reduced limit can also make an individual 0-RTT DATAGRAM too large. */
+    conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    engine = conn->engine;
+
+    conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
+    conn->remote_settings.max_datagram_frame_size = 65535;
+    conn->dgram_mss = sizeof(dgram) - 1;
+    ret = xqc_conn_buff_0rtt_datagram(conn, (void *)dgram,
+                                      sizeof(dgram), 2,
+                                      XQC_DATA_QOS_NORMAL);
+    CU_ASSERT_EQUAL_FATAL(ret, XQC_OK);
+    CU_ASSERT_FALSE(xqc_list_empty(&conn->dgram_0rtt_buffer_list));
+
+    ret = xqc_conn_early_data_reject(conn);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+    CU_ASSERT_FALSE(conn->conn_flag & XQC_CONN_FLAG_ERROR);
+    CU_ASSERT_TRUE(xqc_list_empty(&conn->dgram_0rtt_buffer_list));
+
+    xqc_engine_destroy(engine);
+}
+
+
 /*
  * Regression guard for issue #767. When 0-RTT is rejected, the client
  * branch of xqc_conn_early_data_reject must reset the connection-level
@@ -738,40 +791,16 @@ xqc_0rtt_test_init_params(xqc_transport_params_t *params,
     params->max_ack_delay      = XQC_DEFAULT_MAX_ACK_DELAY;
 }
 
-/*
- * Directly validate 0-RTT parameters against remembered settings,
- * mirroring the checks in xqc_conn_tls_transport_params_cb (RFC 9000
- * §7.4.1).  We cannot call xqc_conn_tls_transport_params_cb because
- * xqc_tls_is_early_data_accepted() requires a real TLS handshake
- * (tls->resumption + SSL early-data status) that the unit-test
- * fixture cannot provide.
- */
+/* Exercise the production 0-RTT compatibility check without a TLS fixture. */
 static xqc_int_t
-xqc_0rtt_test_fire(xqc_connection_t *conn, xqc_transport_params_t *params)
+xqc_0rtt_test_fire(xqc_connection_t *conn, xqc_transport_params_t *params,
+    xqc_bool_t early_data_accepted)
 {
-    xqc_trans_settings_t *remembered = &conn->remote_settings;
-
     conn->conn_err = 0;
     conn->conn_flag &= ~XQC_CONN_FLAG_ERROR;
 
-    if (params->initial_max_data < remembered->max_data
-        || params->initial_max_stream_data_bidi_local < remembered->max_stream_data_bidi_local
-        || params->initial_max_stream_data_bidi_remote < remembered->max_stream_data_bidi_remote
-        || params->initial_max_stream_data_uni < remembered->max_stream_data_uni
-        || params->initial_max_streams_bidi < remembered->max_streams_bidi
-        || params->initial_max_streams_uni < remembered->max_streams_uni
-        || params->active_connection_id_limit
-           < remembered->active_connection_id_limit)
-    {
-        XQC_CONN_ERR(conn, TRA_0RTT_TRANS_PARAMS_ERROR);
-
-    } else if (params->max_datagram_frame_size
-               < remembered->max_datagram_frame_size)
-    {
-        XQC_CONN_ERR(conn, TRA_0RTT_DGRAM_PARAMS_ERROR);
-    }
-
-    return conn->conn_err;
+    return xqc_conn_check_0rtt_transport_params(
+        conn, params, early_data_accepted);
 }
 
 /* ---- individual test cases ---- */
@@ -786,8 +815,40 @@ xqc_test_0rtt_params_all_equal(void)
     xqc_0rtt_test_init_params(&params, conn, &server_scid);
     /* all values equal to remembered -- must succeed */
 
-    xqc_int_t err = xqc_0rtt_test_fire(conn, &params);
+    xqc_int_t err = xqc_0rtt_test_fire(conn, &params, XQC_TRUE);
     CU_ASSERT_EQUAL(err, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_0rtt_params_validation_guards(void)
+{
+    xqc_cid_t server_scid;
+    xqc_connection_t *conn = xqc_0rtt_test_make_conn(&server_scid);
+    xqc_transport_params_t params;
+
+    xqc_0rtt_test_init_params(&params, conn, &server_scid);
+    params.max_datagram_frame_size = REMEMBERED_MAX_DGRAM_FRAME_SIZE - 1;
+
+    /* Rejected early data makes every remembered limit inapplicable. */
+    CU_ASSERT_EQUAL(
+        xqc_0rtt_test_fire(conn, &params, XQC_FALSE), XQC_OK);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    /* A client that did not attempt 0-RTT must not validate old limits. */
+    conn->conn_flag &= ~XQC_CONN_FLAG_HAS_0RTT;
+    CU_ASSERT_EQUAL(
+        xqc_0rtt_test_fire(conn, &params, XQC_TRUE), XQC_OK);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    /* Peer parameters on a server are client settings, not remembered state. */
+    conn->conn_flag |= XQC_CONN_FLAG_HAS_0RTT;
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    CU_ASSERT_EQUAL(
+        xqc_0rtt_test_fire(conn, &params, XQC_TRUE), XQC_OK);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
 
     xqc_engine_destroy(conn->engine);
 }
@@ -1075,7 +1136,7 @@ xqc_test_0rtt_params_all_increased(void)
     params.active_connection_id_limit         *= 2;
     params.max_datagram_frame_size            *= 2;
 
-    xqc_int_t err = xqc_0rtt_test_fire(conn, &params);
+    xqc_int_t err = xqc_0rtt_test_fire(conn, &params, XQC_TRUE);
     CU_ASSERT_EQUAL(err, 0);
 
     xqc_engine_destroy(conn->engine);
@@ -1150,7 +1211,7 @@ xqc_test_0rtt_params_each_reduced(void)
         uint64_t *field = (uint64_t *)((char *)&params + cases[i].tp_offset);
         *field = cases[i].remembered_val - 1;
 
-        xqc_int_t err = xqc_0rtt_test_fire(conn, &params);
+        xqc_int_t err = xqc_0rtt_test_fire(conn, &params, XQC_TRUE);
         CU_ASSERT_EQUAL(err, cases[i].expected_err);
 
         xqc_engine_destroy(conn->engine);

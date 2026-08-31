@@ -784,5 +784,5 @@ xqc_msec_t xqc_conn_get_queue_fin_timeout(xqc_connection_t *conn);
 void xqc_conn_set_init_idle_timeout(xqc_connection_t *conn, xqc_msec_t init_idle_time_out);
 void xqc_conn_try_to_enable_pmtud(xqc_connection_t *conn);
 
-xqc_int_t xqc_conn_server_accept(xqc_connection_t *c);
+xqc_int_t xqc_conn_server_accept(xqc_connection_t *c, xqc_packet_in_t *packet_in);
 #endif /* _XQC_CONN_H_INCLUDED_ */

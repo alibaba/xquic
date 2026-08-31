@@ -692,6 +692,14 @@ xqc_tls_is_key_ready(xqc_tls_t *tls, xqc_encrypt_level_t level, xqc_key_type_t k
     return xqc_crypto_is_key_ready(tls->crypto[level], key_type);
 }
 
+
+xqc_encrypt_level_t
+xqc_tls_get_read_level(xqc_tls_t *tls)
+{
+    return (xqc_encrypt_level_t) SSL_quic_read_level(tls->ssl);
+}
+
+
 uint32_t
 xqc_tls_get_cipher_id(SSL *ssl, const SSL_CIPHER *cipher, xqc_encrypt_level_t level, xqc_bool_t no_crypto)
 {

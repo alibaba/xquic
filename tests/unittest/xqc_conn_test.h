@@ -12,6 +12,7 @@ void xqc_test_conn_idle_timeout();
 void xqc_test_conn_pmtud_force_enable();
 void xqc_test_conn_pmtud_legacy_compatibility();
 void xqc_test_conn_early_data_reject();
+void xqc_test_conn_early_data_reject_datagram_fallback();
 void xqc_test_conn_early_data_reject_flow_ctl();
 
 /* RFC 9000 §20.1 CRYPTO_ERROR dynamic construction */

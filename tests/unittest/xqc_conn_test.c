@@ -515,6 +515,59 @@ xqc_test_conn_early_data_reject()
 }
 
 
+void
+xqc_test_conn_early_data_reject_datagram_fallback()
+{
+    static const unsigned char dgram[] = "0rtt";
+    xqc_connection_t *conn;
+    xqc_engine_t *engine;
+    xqc_int_t ret;
+
+    /* A peer that disables DATAGRAM cannot receive the rejected payload. */
+    conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    engine = conn->engine;
+
+    conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
+    conn->remote_settings.max_datagram_frame_size = 0;
+    ret = xqc_conn_buff_0rtt_datagram(conn, (void *)dgram,
+                                      sizeof(dgram), 1,
+                                      XQC_DATA_QOS_NORMAL);
+    CU_ASSERT_EQUAL_FATAL(ret, XQC_OK);
+    CU_ASSERT_FALSE(xqc_list_empty(&conn->dgram_0rtt_buffer_list));
+
+    ret = xqc_conn_early_data_reject(conn);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+    CU_ASSERT_FALSE(conn->conn_flag & XQC_CONN_FLAG_ERROR);
+    CU_ASSERT_TRUE(xqc_list_empty(&conn->dgram_0rtt_buffer_list));
+
+    xqc_engine_destroy(engine);
+
+    /* A reduced limit can also make an individual 0-RTT DATAGRAM too large. */
+    conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    engine = conn->engine;
+
+    conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
+    conn->remote_settings.max_datagram_frame_size = 65535;
+    conn->dgram_mss = sizeof(dgram) - 1;
+    ret = xqc_conn_buff_0rtt_datagram(conn, (void *)dgram,
+                                      sizeof(dgram), 2,
+                                      XQC_DATA_QOS_NORMAL);
+    CU_ASSERT_EQUAL_FATAL(ret, XQC_OK);
+    CU_ASSERT_FALSE(xqc_list_empty(&conn->dgram_0rtt_buffer_list));
+
+    ret = xqc_conn_early_data_reject(conn);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+    CU_ASSERT_FALSE(conn->conn_flag & XQC_CONN_FLAG_ERROR);
+    CU_ASSERT_TRUE(xqc_list_empty(&conn->dgram_0rtt_buffer_list));
+
+    xqc_engine_destroy(engine);
+}
+
+
 /*
  * Regression guard for issue #767. When 0-RTT is rejected, the client
  * branch of xqc_conn_early_data_reject must reset the connection-level

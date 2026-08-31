@@ -93,6 +93,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_conn_pmtud_legacy_compatibility",
                         xqc_test_conn_pmtud_legacy_compatibility)
         || !CU_add_test(pSuite, "xqc_test_conn_early_data_reject", xqc_test_conn_early_data_reject)
+        || !CU_add_test(pSuite, "xqc_test_conn_early_data_reject_datagram_fallback",
+                        xqc_test_conn_early_data_reject_datagram_fallback)
         || !CU_add_test(pSuite, "xqc_test_conn_early_data_reject_flow_ctl", xqc_test_conn_early_data_reject_flow_ctl)
         /* RFC 9000 §20.1 CRYPTO_ERROR dynamic construction */
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_constructs_crypto_error", xqc_test_conn_tls_error_cb_constructs_crypto_error)

@@ -1049,7 +1049,7 @@ sleep 1
 ${CLIENT_BIN} -s 1024 -l d -t 2 -E -x 716 > stdlog 2>&1
 large_sni=`grep "\[retry-token-test\]|large_sni_len" stdlog`
 saved=`grep "\[retry-token-test\]|save_original_initial" stdlog`
-replayed=`grep "\[retry-token-test\]|replay_original_initial" stdlog`
+replayed=`grep -F "[retry-token-test]|replay_original_initial|len:" stdlog`
 retry_enabled=`grep "\[retry-token-test\]|retry_enabled|case:716" svr_stdlog`
 result=`grep ">>>>>>>> pass:1" stdlog`
 invalid_token=`grep -E "(conn_err:11|err:0xb|TRA_INVALID_TOKEN)" stdlog slog svr_stdlog 2>/dev/null`

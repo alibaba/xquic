@@ -259,10 +259,24 @@ xqc_tls_init_server_ssl(xqc_tls_t *tls, xqc_tls_config_t *cfg)
     /* configure ssl as server */
     SSL_set_accept_state(ssl);
 
-    /* enable early data and set context */
+    /* enable early data and bind its compatibility state to the ticket */
     xqc_ssl_enable_max_early_data(ssl);
-    SSL_set_quic_early_data_context(ssl, (const uint8_t *)XQC_EARLY_DATA_CONTEXT, 
-                                    XQC_EARLY_DATA_CONTEXT_LEN);
+
+    const uint8_t *context = cfg->early_data_context;
+    size_t context_len = cfg->early_data_context_len;
+    if (context == NULL || context_len == 0) {
+        context = (const uint8_t *)XQC_EARLY_DATA_CONTEXT;
+        context_len = XQC_EARLY_DATA_CONTEXT_LEN;
+    }
+
+    if (SSL_set_quic_early_data_context(ssl, context, context_len)
+        != XQC_SSL_SUCCESS)
+    {
+        xqc_log(tls->log, XQC_LOG_ERROR,
+                "|set quic early data context error|%s|",
+                ERR_error_string(ERR_get_error(), NULL));
+        return -XQC_TLS_INTERNAL;
+    }
 
     return ret;
 }

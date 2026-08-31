@@ -7,6 +7,7 @@
 #include "src/transport/xqc_conn.h"
 #include "src/tls/xqc_tls_ctx.h"
 #include "src/tls/xqc_tls.h"
+#include "src/tls/xqc_tls_common.h"
 
 #define XQC_TEST_MAX_CRYPTO_DATA_BUF 16 * 1024
 
@@ -255,6 +256,166 @@ static xqc_tls_ctx_t *ctx_cli, *ctx_svr;
 #define TEST_ALPN_1 "transport"
 #define TEST_ALPN_2 "h3"
 
+typedef struct {
+    unsigned char                  *ticket;
+    size_t                          ticket_len;
+    xqc_bool_t                      client_handshake_completed;
+    xqc_bool_t                      server_handshake_completed;
+    int                             client_session_reused;
+    int                             server_session_reused;
+    xqc_tls_early_data_accept_t     client_early_data;
+    xqc_tls_early_data_accept_t     server_early_data;
+} xqc_tls_handshake_result_t;
+
+
+static xqc_int_t
+xqc_test_tls_run_handshake(xqc_tls_ctx_t *client_ctx,
+    xqc_tls_ctx_t *server_ctx, xqc_log_t *log,
+    const unsigned char *ticket, size_t ticket_len,
+    const uint8_t *server_context, size_t server_context_len,
+    xqc_tls_handshake_result_t *result)
+{
+    xqc_int_t              ret = -XQC_TLS_INTERNAL;
+    uint8_t               *data_buf = NULL;
+    size_t                 data_len;
+    xqc_tls_t             *tls_cli = NULL;
+    xqc_tls_t             *tls_svr = NULL;
+    xqc_tls_test_buff_t   *ttbuf_cli = NULL;
+    xqc_tls_test_buff_t   *ttbuf_svr = NULL;
+    xqc_cid_t              odcid = {1};
+    xqc_tls_config_t       tls_config = {0};
+
+    memset(result, 0, sizeof(*result));
+    tls_config.session_ticket = (unsigned char *)ticket;
+    tls_config.session_ticket_len = ticket_len;
+    tls_config.hostname = "test.xquic.com";
+    tls_config.alpn = TEST_ALPN_1;
+    tls_config.trans_params = (uint8_t *)"10086";
+    tls_config.trans_params_len = 5;
+    tls_config.early_data_context = server_context;
+    tls_config.early_data_context_len = server_context_len;
+
+    data_buf = xqc_malloc(XQC_TEST_MAX_CRYPTO_DATA_BUF);
+    ttbuf_cli = xqc_create_tls_test_buffer();
+    ttbuf_svr = xqc_create_tls_test_buffer();
+    if (data_buf == NULL || ttbuf_cli == NULL || ttbuf_svr == NULL) {
+        ret = -XQC_EMALLOC;
+        goto end;
+    }
+
+    tls_cli = xqc_tls_create(client_ctx, &tls_config, log, ttbuf_cli);
+    tls_svr = xqc_tls_create(server_ctx, &tls_config, log, ttbuf_svr);
+    if (tls_cli == NULL || tls_svr == NULL) {
+        goto end;
+    }
+
+    ret = xqc_tls_init(tls_cli, XQC_VERSION_V1, &odcid);
+    if (ret != XQC_OK) {
+        goto end;
+    }
+    ret = xqc_tls_init(tls_svr, XQC_VERSION_V1, &odcid);
+    if (ret != XQC_OK) {
+        goto end;
+    }
+
+    data_len = xqc_crypto_data_list_get_buf(
+        &ttbuf_cli->initial_crypto_data_list, data_buf);
+    if (data_len == 0 || data_len > XQC_TEST_MAX_CRYPTO_DATA_BUF) {
+        ret = -XQC_TLS_INTERNAL;
+        goto end;
+    }
+    ret = xqc_tls_process_crypto_data(tls_svr, XQC_ENC_LEV_INIT,
+                                      data_buf, data_len);
+    if (ret != XQC_OK) {
+        goto end;
+    }
+
+    data_len = xqc_crypto_data_list_get_buf(
+        &ttbuf_svr->initial_crypto_data_list, data_buf);
+    if (data_len == 0 || data_len > XQC_TEST_MAX_CRYPTO_DATA_BUF) {
+        ret = -XQC_TLS_INTERNAL;
+        goto end;
+    }
+    ret = xqc_tls_process_crypto_data(tls_cli, XQC_ENC_LEV_INIT,
+                                      data_buf, data_len);
+    if (ret != XQC_OK) {
+        goto end;
+    }
+
+    data_len = xqc_crypto_data_list_get_buf(
+        &ttbuf_svr->hsk_crypto_data_list, data_buf);
+    if (data_len == 0 || data_len > XQC_TEST_MAX_CRYPTO_DATA_BUF) {
+        ret = -XQC_TLS_INTERNAL;
+        goto end;
+    }
+    ret = xqc_tls_process_crypto_data(tls_cli, XQC_ENC_LEV_HSK,
+                                      data_buf, data_len);
+    if (ret != XQC_OK) {
+        goto end;
+    }
+
+    data_len = xqc_crypto_data_list_get_buf(
+        &ttbuf_cli->hsk_crypto_data_list, data_buf);
+    if (data_len == 0 || data_len > XQC_TEST_MAX_CRYPTO_DATA_BUF) {
+        ret = -XQC_TLS_INTERNAL;
+        goto end;
+    }
+    ret = xqc_tls_process_crypto_data(tls_svr, XQC_ENC_LEV_HSK,
+                                      data_buf, data_len);
+    if (ret != XQC_OK) {
+        goto end;
+    }
+
+    result->client_handshake_completed = ttbuf_cli->handshake_completed;
+    result->server_handshake_completed = ttbuf_svr->handshake_completed;
+    result->client_session_reused = SSL_session_reused(
+        xqc_tls_get_ssl(tls_cli));
+    result->server_session_reused = SSL_session_reused(
+        xqc_tls_get_ssl(tls_svr));
+    result->client_early_data = xqc_tls_is_early_data_accepted(tls_cli);
+    result->server_early_data = xqc_tls_is_early_data_accepted(tls_svr);
+
+    data_len = xqc_crypto_data_list_get_buf(
+        &ttbuf_svr->application_crypto_data_list, data_buf);
+    if (data_len > XQC_TEST_MAX_CRYPTO_DATA_BUF) {
+        ret = -XQC_TLS_INTERNAL;
+        goto end;
+    }
+    if (data_len > 0) {
+        ret = xqc_tls_process_crypto_data(tls_cli, XQC_ENC_LEV_1RTT,
+                                          data_buf, data_len);
+        if (ret != XQC_OK) {
+            goto end;
+        }
+    }
+
+    if (ttbuf_cli->new_session_ticket != NULL) {
+        result->ticket = ttbuf_cli->new_session_ticket;
+        result->ticket_len = ttbuf_cli->new_session_ticket_len;
+        ttbuf_cli->new_session_ticket = NULL;
+        ttbuf_cli->new_session_ticket_len = 0;
+    }
+    ret = XQC_OK;
+
+end:
+    if (tls_cli != NULL) {
+        xqc_tls_destroy(tls_cli);
+    }
+    if (tls_svr != NULL) {
+        xqc_tls_destroy(tls_svr);
+    }
+    if (ttbuf_cli != NULL) {
+        xqc_destroy_tls_test_buffer(ttbuf_cli);
+    }
+    if (ttbuf_svr != NULL) {
+        xqc_destroy_tls_test_buffer(ttbuf_svr);
+    }
+    if (data_buf != NULL) {
+        xqc_free(data_buf);
+    }
+    return ret;
+}
+
 static xqc_int_t
 xqc_test_tls_default_cert_handshake(xqc_bool_t with_sni,
                                     int *cert_cb_called)
@@ -409,6 +570,105 @@ xqc_test_tls_default_cert_without_sni(void)
         XQC_FALSE, &cert_cb_called), XQC_OK);
     CU_ASSERT_EQUAL(cert_cb_called, 0);
 }
+
+void
+xqc_test_tls_legacy_ticket_compatibility(void)
+{
+    static const uint8_t current_context[] = {
+        'x', 'q', 'u', 'i', 'c', XQC_EARLY_DATA_CONTEXT_VERSION,
+        0, 0, 0, 0, 0, 1, 0, 0
+    };
+    xqc_tls_handshake_result_t initial = {0};
+    xqc_tls_handshake_result_t migrated = {0};
+    xqc_tls_handshake_result_t current_initial = {0};
+    xqc_tls_handshake_result_t current = {0};
+    xqc_log_callbacks_t log_cb = xqc_null_log_cb;
+    xqc_log_t *log = NULL;
+    xqc_tls_ctx_t *client_ctx = NULL;
+    xqc_tls_ctx_t *server_ctx = NULL;
+    def_engine_ssl_config_cli;
+    def_engine_ssl_config_svr;
+
+    log = xqc_log_init(0, 0, 0, 0, 0, NULL, &log_cb, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(log);
+
+    client_ctx = xqc_tls_ctx_create(XQC_TLS_TYPE_CLIENT,
+        &engine_ssl_config_cli, &tls_test_cbs, log);
+    server_ctx = xqc_tls_ctx_create(XQC_TLS_TYPE_SERVER,
+        &engine_ssl_config_svr, &tls_test_cbs, log);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(client_ctx);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(server_ctx);
+    CU_ASSERT_EQUAL_FATAL(xqc_tls_ctx_register_alpn(
+        server_ctx, TEST_ALPN_1, sizeof(TEST_ALPN_1) - 1), XQC_OK);
+
+    /* Mint a ticket exactly as servers before the context migration did. */
+    CU_ASSERT_EQUAL_FATAL(xqc_test_tls_run_handshake(
+        client_ctx, server_ctx, log, NULL, 0,
+        (const uint8_t *)XQC_EARLY_DATA_CONTEXT,
+        XQC_EARLY_DATA_CONTEXT_LEN, &initial), XQC_OK);
+    CU_ASSERT_TRUE(initial.client_handshake_completed);
+    CU_ASSERT_TRUE(initial.server_handshake_completed);
+    CU_ASSERT_FALSE(initial.client_session_reused);
+    CU_ASSERT_FALSE(initial.server_session_reused);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(initial.ticket);
+
+    /*
+     * A legacy ticket remains resumable after the server changes context.
+     * Only 0-RTT is rejected; the full 1-RTT handshake still succeeds.
+     */
+    CU_ASSERT_EQUAL_FATAL(xqc_test_tls_run_handshake(
+        client_ctx, server_ctx, log, initial.ticket, initial.ticket_len,
+        current_context, sizeof(current_context), &migrated), XQC_OK);
+    CU_ASSERT_TRUE(migrated.client_handshake_completed);
+    CU_ASSERT_TRUE(migrated.server_handshake_completed);
+    CU_ASSERT_TRUE(migrated.client_session_reused);
+    CU_ASSERT_TRUE(migrated.server_session_reused);
+    CU_ASSERT_EQUAL(migrated.client_early_data,
+                    XQC_TLS_EARLY_DATA_REJECT);
+    CU_ASSERT_EQUAL(migrated.server_early_data,
+                    XQC_TLS_EARLY_DATA_REJECT);
+
+    /* Mint and resume a ticket bound to the current context. */
+    CU_ASSERT_EQUAL_FATAL(xqc_test_tls_run_handshake(
+        client_ctx, server_ctx, log, NULL, 0,
+        current_context, sizeof(current_context), &current_initial), XQC_OK);
+    CU_ASSERT_TRUE(current_initial.client_handshake_completed);
+    CU_ASSERT_TRUE(current_initial.server_handshake_completed);
+    CU_ASSERT_FALSE(current_initial.client_session_reused);
+    CU_ASSERT_FALSE(current_initial.server_session_reused);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(current_initial.ticket);
+
+    /* A ticket minted with the current context can use 0-RTT again. */
+    CU_ASSERT_EQUAL_FATAL(xqc_test_tls_run_handshake(
+        client_ctx, server_ctx, log, current_initial.ticket,
+        current_initial.ticket_len, current_context,
+        sizeof(current_context), &current), XQC_OK);
+    CU_ASSERT_TRUE(current.client_handshake_completed);
+    CU_ASSERT_TRUE(current.server_handshake_completed);
+    CU_ASSERT_TRUE(current.client_session_reused);
+    CU_ASSERT_TRUE(current.server_session_reused);
+    CU_ASSERT_EQUAL(current.client_early_data,
+                    XQC_TLS_EARLY_DATA_ACCEPT);
+    CU_ASSERT_EQUAL(current.server_early_data,
+                    XQC_TLS_EARLY_DATA_ACCEPT);
+
+    if (initial.ticket != NULL) {
+        xqc_free(initial.ticket);
+    }
+    if (migrated.ticket != NULL) {
+        xqc_free(migrated.ticket);
+    }
+    if (current_initial.ticket != NULL) {
+        xqc_free(current_initial.ticket);
+    }
+    if (current.ticket != NULL) {
+        xqc_free(current.ticket);
+    }
+    xqc_tls_ctx_destroy(client_ctx);
+    xqc_tls_ctx_destroy(server_ctx);
+    xqc_free(log);
+}
+
 
 void
 xqc_test_create_client_tls_ctx()

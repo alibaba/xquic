@@ -282,6 +282,8 @@ main(int argc, char *argv[])
                         xqc_test_tls_default_cert_with_sni)
         || !CU_add_test(pSuite, "xqc_test_tls_default_cert_without_sni",
                         xqc_test_tls_default_cert_without_sni)
+        || !CU_add_test(pSuite, "xqc_test_tls_legacy_ticket_compatibility",
+                        xqc_test_tls_legacy_ticket_compatibility)
         || !CU_add_test(pSuite, "xqc_test_tls", xqc_test_tls)
         || !CU_add_test(pSuite, "xqc_test_h3_stream", xqc_test_stream)
         || !CU_add_test(pSuite, "xqc_test_h3_critical_stream_close", xqc_test_h3_critical_stream_close)
@@ -442,6 +444,8 @@ main(int argc, char *argv[])
                         xqc_test_0rtt_params_all_increased)
         || !CU_add_test(pSuite, "xqc_test_0rtt_params_each_reduced",
                         xqc_test_0rtt_params_each_reduced)
+        || !CU_add_test(pSuite, "xqc_test_0rtt_params_validation_guards",
+                        xqc_test_0rtt_params_validation_guards)
         || !CU_add_test(pSuite, "xqc_test_early_params_forbidden_fields_reset",
                         xqc_test_early_params_forbidden_fields_reset)
         || !CU_add_test(pSuite, "xqc_test_0rtt_calc_pto_ignores_stale_max_ack_delay",

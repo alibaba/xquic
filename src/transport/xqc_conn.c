@@ -4171,8 +4171,17 @@ xqc_conn_resend_0rtt_datagram(xqc_connection_t *conn)
         if (iov_size >= XQC_MAX_SEND_MSG_ONCE) {
             ret = xqc_datagram_send_multiple_internal(conn, iov, dgram_id_list, XQC_MAX_SEND_MSG_ONCE, &sent, &sent_bytes, dgram_buffer->qos_level, XQC_TRUE);
             if (ret < 0) {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|unable_to_resend_0rtt_pkts_in_1rtt_way|");
-                XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+                if (ret == -XQC_EDGRAM_NOT_SUPPORTED
+                    || ret == -XQC_EDGRAM_TOO_LARGE)
+                {
+                    xqc_log(conn->log, XQC_LOG_INFO,
+                            "|drop_0rtt_datagrams_after_reject|ret:%d|", ret);
+
+                } else {
+                    xqc_log(conn->log, XQC_LOG_ERROR,
+                            "|unable_to_resend_0rtt_pkts_in_1rtt_way|");
+                    XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+                }
                 iov_size = 0;
                 break;
             }
@@ -4183,8 +4192,17 @@ xqc_conn_resend_0rtt_datagram(xqc_connection_t *conn)
     if (iov_size > 0) {
         ret = xqc_datagram_send_multiple_internal(conn, iov, dgram_id_list, iov_size, &sent, &sent_bytes, dgram_buffer->qos_level, XQC_TRUE);
         if (ret < 0) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|unbale_to_resend_0rtt_pkts_in_1rtt_way|");
-            XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+            if (ret == -XQC_EDGRAM_NOT_SUPPORTED
+                || ret == -XQC_EDGRAM_TOO_LARGE)
+            {
+                xqc_log(conn->log, XQC_LOG_INFO,
+                        "|drop_0rtt_datagrams_after_reject|ret:%d|", ret);
+
+            } else {
+                xqc_log(conn->log, XQC_LOG_ERROR,
+                        "|unable_to_resend_0rtt_pkts_in_1rtt_way|");
+                XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+            }
         }
     }
 

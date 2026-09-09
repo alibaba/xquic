@@ -1502,6 +1502,20 @@ xqc_h3_stream_process_bidi_type_unknown(xqc_h3_stream_t *h3s,
                             -XQC_H3_REQUEST_FRAME_UNEXPECTED);
             return -XQC_H3_REQUEST_FRAME_UNEXPECTED;
         }
+
+        /*
+         * RFC 9114 Section 4.1: the unknown-type dispatcher consumes a
+         * complete zero-length first frame before request-stream processing.
+         * Reject DATA here so that form cannot bypass the sequence check.
+         */
+        if (pctx->frame.type == XQC_H3_FRM_DATA) {
+            xqc_log(h3s->log, XQC_LOG_ERROR,
+                    "|DATA before initial HEADERS on unknown bidi stream|");
+            xqc_h3_frm_reset_pctx(pctx);
+            XQC_H3_CONN_ERR(h3s->h3c, H3_FRAME_UNEXPECTED,
+                            -XQC_H3_REQUEST_FRAME_UNEXPECTED);
+            return -XQC_H3_REQUEST_FRAME_UNEXPECTED;
+        }
         
         if (pctx->frame.type != XQC_H3_EXT_FRM_BIDI_STREAM_TYPE) {
             /* the first frame is not BIDI_STREAM_TYPE */

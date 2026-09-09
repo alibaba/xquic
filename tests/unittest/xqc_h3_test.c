@@ -2273,6 +2273,33 @@ xqc_test_h3_data_before_headers_rejected()
     CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
 
     xqc_h3_msgerr_teardown(h3s, h3c, conn);
+
+    /*
+     * A peer-created bidi stream is initially type-unknown when extensions
+     * are enabled. Exercise a complete zero-length DATA frame, which the
+     * unknown-type dispatcher consumes before request-stream processing.
+     */
+    conn = NULL;
+    h3c = NULL;
+    h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+    xqc_h3_request_destroy(h3s->h3r);
+    h3s->h3r = NULL;
+    h3s->type = XQC_H3_STREAM_TYPE_UNKNOWN;
+    h3c->flags |= XQC_H3_CONN_FLAG_EXT_ENABLED;
+
+    unsigned char empty_data[] = { XQC_H3_FRM_DATA, 0x00 };
+    processed = xqc_h3_stream_process_in(h3s, empty_data,
+            sizeof(empty_data), XQC_FALSE);
+
+    CU_ASSERT(processed == -XQC_H3_EPROC_REQUEST);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_FRAME_UNEXPECTED);
+    CU_ASSERT(XQC_CONN_ERR_IS_APPLICATION(conn->conn_err));
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    CU_ASSERT(h3s->h3r == NULL);
+    CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
+
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
 }
 
 

@@ -282,6 +282,12 @@ main(int argc, char *argv[])
                         xqc_test_tls_default_cert_with_sni)
         || !CU_add_test(pSuite, "xqc_test_tls_default_cert_without_sni",
                         xqc_test_tls_default_cert_without_sni)
+        || !CU_add_test(pSuite,
+                        "xqc_test_tls_new_session_ticket_early_data_valid",
+                        xqc_test_tls_new_session_ticket_early_data_valid)
+        || !CU_add_test(pSuite,
+                        "xqc_test_tls_new_session_ticket_early_data_invalid",
+                        xqc_test_tls_new_session_ticket_early_data_invalid)
         || !CU_add_test(pSuite, "xqc_test_tls", xqc_test_tls)
         || !CU_add_test(pSuite, "xqc_test_h3_stream", xqc_test_stream)
         || !CU_add_test(pSuite, "xqc_test_h3_critical_stream_close", xqc_test_h3_critical_stream_close)

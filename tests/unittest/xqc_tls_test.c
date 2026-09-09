@@ -7,6 +7,7 @@
 #include "src/transport/xqc_conn.h"
 #include "src/tls/xqc_tls_ctx.h"
 #include "src/tls/xqc_tls.h"
+#include "src/tls/xqc_ssl_cbs.h"
 
 #define XQC_TEST_MAX_CRYPTO_DATA_BUF 16 * 1024
 
@@ -32,6 +33,7 @@ typedef struct xqc_tls_test_buff_s {
             size_t             crypto_data_total_len;
         
             uint64_t           error_code;
+            uint64_t           transport_error_code;
         };
         xqc_connection_t conn;
     };
@@ -55,6 +57,7 @@ xqc_create_tls_test_buffer()
     ttbuf->crypto_data_total_len = 0;
 
     ttbuf->error_code = 0;
+    ttbuf->transport_error_code = 0;
     ttbuf->cert_cb_called = 0;
 
     return ttbuf;
@@ -218,6 +221,14 @@ xqc_tt_tls_error_cb(xqc_int_t tls_err, void *user_data)
 }
 
 void
+xqc_tt_transport_error_cb(xqc_int_t transport_err, void *user_data)
+{
+    xqc_tls_test_buff_t *ttbuf = (xqc_tls_test_buff_t *)user_data;
+
+    ttbuf->transport_error_code = transport_err;
+}
+
+void
 xqc_tt_handshake_completed_cb(void *user_data)
 {
     xqc_tls_test_buff_t *ttbuf = (xqc_tls_test_buff_t *)user_data;
@@ -232,6 +243,7 @@ xqc_tls_callbacks_t tls_test_cbs = {
     .session_cb = xqc_tt_session_cb,
     .keylog_cb = xqc_tt_keylog_cb,
     .error_cb = xqc_tt_tls_error_cb,
+    .transport_error_cb = xqc_tt_transport_error_cb,
     .hsk_completed_cb = xqc_tt_handshake_completed_cb,
 };
 
@@ -254,6 +266,129 @@ static xqc_tls_ctx_t *ctx_cli, *ctx_svr;
 
 #define TEST_ALPN_1 "transport"
 #define TEST_ALPN_2 "h3"
+
+static uint64_t
+xqc_test_tls_new_session_ticket_error(const uint8_t *ticket,
+    size_t ticket_len)
+{
+    uint64_t                    error_code = UINT64_MAX;
+    xqc_log_callbacks_t         log_cb = xqc_null_log_cb;
+    xqc_log_t                  *log = NULL;
+    xqc_tls_ctx_t              *ctx = NULL;
+    xqc_tls_t                  *tls = NULL;
+    xqc_tls_test_buff_t        *ttbuf = NULL;
+    xqc_tls_config_t            tls_config = {0};
+    def_engine_ssl_config_cli;
+
+    log = xqc_log_init(0, 0, 0, 0, 0, NULL, &log_cb, NULL);
+    if (log == NULL) {
+        goto end;
+    }
+
+    ctx = xqc_tls_ctx_create(XQC_TLS_TYPE_CLIENT, &engine_ssl_config_cli,
+                             &tls_test_cbs, log);
+    if (ctx == NULL) {
+        goto end;
+    }
+
+    tls_config.hostname = "test.xquic.com";
+    tls_config.alpn = TEST_ALPN_1;
+    tls_config.trans_params = "test";
+    tls_config.trans_params_len = 4;
+
+    ttbuf = xqc_create_tls_test_buffer();
+    if (ttbuf == NULL) {
+        goto end;
+    }
+
+    tls = xqc_tls_create(ctx, &tls_config, log, ttbuf);
+    if (tls == NULL) {
+        goto end;
+    }
+
+    xqc_ssl_msg_cb(0, TLS1_3_VERSION, SSL3_RT_HANDSHAKE, ticket,
+                   ticket_len, xqc_tls_get_ssl(tls), NULL);
+    error_code = ttbuf->transport_error_code;
+
+end:
+    if (tls != NULL) {
+        xqc_tls_destroy(tls);
+    }
+    if (ttbuf != NULL) {
+        xqc_destroy_tls_test_buffer(ttbuf);
+    }
+    if (ctx != NULL) {
+        xqc_tls_ctx_destroy(ctx);
+    }
+    if (log != NULL) {
+        xqc_free(log);
+    }
+
+    return error_code;
+}
+
+
+void
+xqc_test_tls_new_session_ticket_early_data_valid(void)
+{
+    static const uint8_t valid_ticket[] = {
+        SSL3_MT_NEWSESSION_TICKET, 0x00, 0x00, 0x16,
+        0x00, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x02,
+        0x00,
+        0x00, 0x01, 0x01,
+        0x00, 0x08,
+        0x00, TLSEXT_TYPE_early_data, 0x00, 0x04,
+        0xff, 0xff, 0xff, 0xff,
+    };
+    static const uint8_t no_early_data_ticket[] = {
+        SSL3_MT_NEWSESSION_TICKET, 0x00, 0x00, 0x0e,
+        0x00, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x02,
+        0x00,
+        0x00, 0x01, 0x01,
+        0x00, 0x00,
+    };
+
+    CU_ASSERT_EQUAL(xqc_test_tls_new_session_ticket_error(
+                        valid_ticket, sizeof(valid_ticket)), 0);
+    CU_ASSERT_EQUAL(xqc_test_tls_new_session_ticket_error(
+                        no_early_data_ticket,
+                        sizeof(no_early_data_ticket)), 0);
+    CU_ASSERT_EQUAL(xqc_test_tls_new_session_ticket_error(NULL, 0), 0);
+}
+
+
+void
+xqc_test_tls_new_session_ticket_early_data_invalid(void)
+{
+    uint8_t invalid_ticket[] = {
+        SSL3_MT_NEWSESSION_TICKET, 0x00, 0x00, 0x16,
+        0x00, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x02,
+        0x00,
+        0x00, 0x01, 0x01,
+        0x00, 0x08,
+        0x00, TLSEXT_TYPE_early_data, 0x00, 0x04,
+        0x00, 0x00, 0x00, 0x00,
+    };
+    uint8_t malformed_ticket[sizeof(invalid_ticket)];
+
+    CU_ASSERT_EQUAL(xqc_test_tls_new_session_ticket_error(
+                        invalid_ticket, sizeof(invalid_ticket)),
+                    TRA_PROTOCOL_VIOLATION);
+
+    invalid_ticket[sizeof(invalid_ticket) - 1] = 0x01;
+    CU_ASSERT_EQUAL(xqc_test_tls_new_session_ticket_error(
+                        invalid_ticket, sizeof(invalid_ticket)),
+                    TRA_PROTOCOL_VIOLATION);
+
+    memcpy(malformed_ticket, invalid_ticket, sizeof(invalid_ticket));
+    malformed_ticket[21] = 0x03;
+    CU_ASSERT_EQUAL(xqc_test_tls_new_session_ticket_error(
+                        malformed_ticket, sizeof(malformed_ticket)), 0);
+}
+
 
 static xqc_int_t
 xqc_test_tls_default_cert_handshake(xqc_bool_t with_sni,

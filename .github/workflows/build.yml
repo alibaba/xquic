@@ -12,17 +12,22 @@ concurrency:
 
 jobs:
 
-  harness-check:
+  build-ubuntu:
 
-    name: Harness Check
+    name: Build on Ubuntu
 
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runs-on }}
+
+    strategy:
+      matrix:
+        runs-on: [ubuntu-latest]
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v2
       with:
         fetch-depth: 2
+        submodules: 'recursive'
 
     - name: Capture pull request body
       if: github.event_name == 'pull_request'
@@ -39,25 +44,6 @@ jobs:
         else
           bash harness/scripts/xqc_harness_check.sh
         fi
-
-  build-ubuntu:
-
-    name: Build on Ubuntu
-
-    needs: harness-check
-
-    runs-on: ${{ matrix.runs-on }}
-
-    strategy:
-      matrix:
-        runs-on: [ubuntu-latest]
-
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v2
-      with:
-        fetch-depth: 2
-        submodules: 'recursive'
 
     - name: Linux Setup
       timeout-minutes: 5
@@ -93,6 +79,11 @@ jobs:
         cmake -DBUILD_SHARED_LIBS=0 -DCMAKE_C_FLAGS="-fPIC" -DCMAKE_CXX_FLAGS="-fPIC" ..
         make ssl crypto
 
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v2
+      with:
+        languages: cpp
+
     - name: Build XQUIC
       run: |
         SSL_TYPE_STR="boringssl"
@@ -103,6 +94,9 @@ jobs:
         cd build
         cmake -DGCOV=on -DCMAKE_BUILD_TYPE=Debug -DXQC_ENABLE_TESTING=1 -DXQC_PRINT_SECRET=1 -DXQC_SUPPORT_SENDMMSG_BUILD=1 -DXQC_ENABLE_EVENT_LOG=1 -DXQC_ENABLE_BBR2=1 -DXQC_ENABLE_RENO=1 -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} -DSSL_INC_PATH=${SSL_INC_PATH_STR} -DSSL_LIB_PATH=${SSL_LIB_PATH_STR} -DXQC_ENABLE_UNLIMITED=1 -DXQC_ENABLE_COPA=1 -DXQC_COMPAT_DUPLICATE=1 -DXQC_ENABLE_FEC=1 -DXQC_ENABLE_XOR=1 -DXQC_ENABLE_RSC=1 -DXQC_ENABLE_PKM=1 ..
         make -j
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v2
 
     - name: Test
       run: |
@@ -201,8 +195,6 @@ jobs:
   build-ubuntu-24-babassl:
 
     name: Test BabaSSL on Ubuntu 24.04 with GCC 13
-
-    needs: harness-check
 
     runs-on: ubuntu-24.04
 
@@ -364,8 +356,6 @@ jobs:
   build-macos:
 
     name: Build on macOS
-
-    needs: harness-check
 
     runs-on: ${{ matrix.runs-on }}
 

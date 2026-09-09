@@ -1332,6 +1332,22 @@ xqc_process_reset_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
             return XQC_OK;
         }
     }
+
+    /*
+     * RFC 9000 Section 4.5: the final size cannot be smaller than the
+     * largest offset of stream data already received.
+     */
+    if (stream->stream_state_recv < XQC_RECV_STREAM_ST_RESET_RECVD
+        && final_size < stream->stream_max_recv_offset)
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|RESET_STREAM final size too small|stream_id:%ui|"
+                "final_size:%ui|max_recv_offset:%ui|",
+                stream_id, final_size, stream->stream_max_recv_offset);
+        XQC_CONN_ERR(conn, TRA_FINAL_SIZE_ERROR);
+        return -XQC_EPROTO;
+    }
+
     stream->stream_err = err_code;
 
     XQC_STREAM_CLOSE_MSG(stream, "remote reset");

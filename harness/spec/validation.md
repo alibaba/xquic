@@ -99,10 +99,10 @@ its case is retired so later changes cannot reuse it.
 
 | Range | New-case namespace | Allocated IDs |
 |-------|--------------------|---------------|
-| `[705, 799]` | QUIC Transport core | `705-721` |
+| `[705, 799]` | QUIC Transport core | `705-723` |
 | `[800, 899]` | Recovery and congestion control | `800` |
 | `[900, 999]` | QUIC-TLS | `902-903` |
-| `[1000, 1099]` | HTTP/3 framing, streams, and settings | `1000-1018` |
+| `[1000, 1099]` | HTTP/3 framing, streams, and settings | `1000-1020` |
 | `[1100, 1149]` | QPACK | None |
 | `[1150, 1199]` | HTTP priority | None |
 | `[1200, 1299]` | QUIC DATAGRAM | `1201-1202` |

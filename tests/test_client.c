@@ -91,12 +91,16 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_H2_RESERVED_CONTROL_FRAME 1016
 #define XQC_TEST_CASE_H3_GOAWAY_DECREASE 1017
 #define XQC_TEST_CASE_H3_GOAWAY_INCREASE 1018
+#define XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_VALID 1019
+#define XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_INVALID 1020
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_BELOW_LIMIT 902
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT 903
 #define XQC_TEST_CASE_DATAGRAM_1RTT_ALLOWED 1201
 #define XQC_TEST_CASE_DATAGRAM_INITIAL_REJECTED 1202
 #define XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE 715
 #define XQC_TEST_CASE_RETRY_IGNORE_OLD_INITIAL_DCID 716
+#define XQC_TEST_CASE_RESET_FINAL_SIZE_VALID 722
+#define XQC_TEST_CASE_RESET_FINAL_SIZE_TOO_SMALL 723
 
 typedef struct user_conn_s user_conn_t;
 
@@ -112,6 +116,7 @@ static void xqc_client_send_test_single_vint_frame(
     xqc_h3_conn_t *h3_conn, xqc_bool_t overlong);
 static xqc_int_t xqc_client_write_test_datagram_frame(
     xqc_connection_t *conn, xqc_pkt_type_t pkt_type);
+static void xqc_client_send_reset_final_size_frames(xqc_connection_t *conn);
 
 
 #define XQC_TEST_DGRAM_BATCH_SZ 32
@@ -286,7 +291,7 @@ int g_spec_url;
 int g_is_get;
 uint64_t g_last_sock_op_time;
 /*
- * currently, the maximum used test case id is 1014
+ * currently, the maximum used test case id is 1020
  * please keep this comment updated if you are adding more test cases. :-D
  * 55 for RFC 9114 Section 4.2 forbidden header e2e validation
  * 99 for pure fin
@@ -304,8 +309,9 @@ uint64_t g_last_sock_op_time;
  * 715/716 for Retry invalid token and old Initial validation
  * 717 for RESET_STREAM on a peer-initiated unidirectional stream
  * 718/719 for MAX_STREAM_DATA stream direction validation
+ * 722/723 for RESET_STREAM final-size validation
  * 902/903 for AEAD confidentiality-limit validation
- * 1000-1014 for HTTP/3 protocol validation
+ * 1000-1020 for HTTP/3 protocol validation
  */
 int g_test_case;
 int g_ipv6;
@@ -2078,6 +2084,12 @@ xqc_client_conn_handshake_finished(xqc_connection_t *conn, void *user_data, void
         printf("====>SCID:%s\n", xqc_scid_str(ctx.engine, &user_conn->cid));
     }
 
+    if (g_test_case == XQC_TEST_CASE_RESET_FINAL_SIZE_VALID
+        || g_test_case == XQC_TEST_CASE_RESET_FINAL_SIZE_TOO_SMALL)
+    {
+        xqc_client_send_reset_final_size_frames(conn);
+    }
+
     hsk_completed = 1;
 
     user_conn->dgram_mss = xqc_datagram_get_mss(conn);
@@ -2242,6 +2254,50 @@ xqc_client_send_wrong_direction_frame(xqc_connection_t *conn)
     packet_out->po_used_size += ret;
     printf("test case %d, wrong direction frame written\n", g_test_case);
 }
+
+
+static void
+xqc_client_send_reset_final_size_frames(xqc_connection_t *conn)
+{
+    const unsigned char payload[1] = {0x00};
+    xqc_packet_out_t *packet_out;
+    uint64_t final_size;
+    size_t written = 0;
+    ssize_t ret;
+
+    packet_out = xqc_write_new_packet(conn, XQC_PTYPE_SHORT_HEADER);
+    if (packet_out == NULL) {
+        printf("[reset-final-size-test]|case:%d|new_packet_failed|\n",
+               g_test_case);
+        return;
+    }
+
+    ret = xqc_gen_stream_frame(packet_out, 2, 5, 0, payload,
+                               sizeof(payload), &written);
+    if (ret < 0 || written != sizeof(payload)) {
+        printf("[reset-final-size-test]|case:%d|stream_frame_failed:%zd|\n",
+               g_test_case, ret);
+        xqc_maybe_recycle_packet_out(packet_out, conn);
+        return;
+    }
+    packet_out->po_used_size += ret;
+
+    final_size = g_test_case == XQC_TEST_CASE_RESET_FINAL_SIZE_VALID
+                 ? 6 : 5;
+    ret = xqc_gen_reset_stream_frame(packet_out, 2, 0, final_size);
+    if (ret < 0) {
+        printf("[reset-final-size-test]|case:%d|reset_frame_failed:%zd|\n",
+               g_test_case, ret);
+        xqc_maybe_recycle_packet_out(packet_out, conn);
+        return;
+    }
+    packet_out->po_used_size += ret;
+
+    printf("[reset-final-size-test]|case:%d|stream_id:2|offset:5|"
+           "data_length:1|final_size:%"PRIu64"|written|\n",
+           g_test_case, final_size);
+}
+
 
 static void
 xqc_client_send_max_stream_data_test_frame(xqc_connection_t *conn)
@@ -3567,6 +3623,20 @@ xqc_client_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
             {
                 printf("lowercase_header_received:1\n");
             }
+
+            if ((g_test_case
+                 == XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_VALID
+                 || g_test_case
+                    == XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_INVALID)
+                && headers->headers[i].name.iov_len == 14
+                && memcmp(headers->headers[i].name.iov_base,
+                          "x-pseudo-order", 14) == 0
+                && headers->headers[i].value.iov_len == 5
+                && memcmp(headers->headers[i].value.iov_base,
+                          "value", 5) == 0)
+            {
+                printf("pseudo_header_order_received:1\n");
+            }
         }
 
         user_stream->header_recvd = 1;
@@ -3729,10 +3799,28 @@ xqc_client_request_close_notify(xqc_h3_request_t *h3_request, void *user_data)
         }
     }
 
+    if (g_test_case == XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_VALID
+        && stats.stream_err == 0
+        && user_stream->header_recvd)
+    {
+        printf("pseudo_header_order_request_succeeded:1\n");
+    }
+
+    if (g_test_case == XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_INVALID) {
+        if (stats.stream_err == H3_MESSAGE_ERROR) {
+            printf("pseudo_header_order_stream_error:1\n");
+
+        } else if (stats.stream_err == 0 && user_stream->header_recvd) {
+            printf("post_pseudo_header_order_error_request_succeeded:1\n");
+        }
+    }
+
     if (g_echo_check
         && !(g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT
              && stats.stream_err == H3_MESSAGE_ERROR)
         && !(g_test_case == XQC_TEST_CASE_H3_UPPERCASE_RESPONSE
+             && stats.stream_err == H3_MESSAGE_ERROR)
+        && !(g_test_case == XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_INVALID
              && stats.stream_err == H3_MESSAGE_ERROR))
     {
         int pass = 0;

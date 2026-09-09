@@ -137,6 +137,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_reno", xqc_test_reno)
         || !CU_add_test(pSuite, "xqc_test_reno_init_cwnd", xqc_test_reno_init_cwnd)
         || !CU_add_test(pSuite, "xqc_test_reno_init_cwnd_override", xqc_test_reno_init_cwnd_override)
+        || !CU_add_test(pSuite, "xqc_test_reno_recovery_exit",
+                        xqc_test_reno_recovery_exit)
+        || !CU_add_test(pSuite, "xqc_test_reno_reordered_ack",
+                        xqc_test_reno_reordered_ack)
         || !CU_add_test(pSuite, "xqc_test_cubic", xqc_test_cubic)
         || !CU_add_test(pSuite, "xqc_test_cubic_init_cwnd", xqc_test_cubic_init_cwnd)
         || !CU_add_test(pSuite, "xqc_test_bbr_init_cwnd",
@@ -263,6 +267,11 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_process_reset_stream_on_recv_only_stream",
                         xqc_test_process_reset_stream_on_recv_only_stream)
+        || !CU_add_test(pSuite, "xqc_test_reset_stream_final_size_accepted",
+                        xqc_test_reset_stream_final_size_accepted)
+        || !CU_add_test(pSuite,
+                        "xqc_test_reset_stream_final_size_too_small",
+                        xqc_test_reset_stream_final_size_too_small)
         || !CU_add_test(pSuite, "xqc_test_stop_sending_on_recv_only_stream",
                         xqc_test_stop_sending_on_recv_only_stream)
         || !CU_add_test(pSuite, "xqc_test_stop_sending_on_recv_only_stream_server",
@@ -357,6 +366,12 @@ main(int argc, char *argv[])
                         xqc_test_h3_lowercase_field_name_stream_accepted)
         || !CU_add_test(pSuite, "xqc_test_h3_uppercase_field_name_stream_rejected",
                         xqc_test_h3_uppercase_field_name_stream_rejected)
+        /* RFC 9114 §4.3 pseudo-header field ordering */
+        || !CU_add_test(pSuite, "xqc_test_h3_pseudo_header_order_accepted",
+                        xqc_test_h3_pseudo_header_order_accepted)
+        || !CU_add_test(pSuite,
+                        "xqc_test_h3_pseudo_header_after_regular_rejected",
+                        xqc_test_h3_pseudo_header_after_regular_rejected)
         || !CU_add_test(pSuite, "xqc_test_stable", xqc_test_stable)
         || !CU_add_test(pSuite, "xqc_test_dtable", xqc_test_dtable)
         || !CU_add_test(pSuite, "test_2d_hash_table", test_2d_hash_table)

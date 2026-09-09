@@ -72,6 +72,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_UPPERCASE_RESPONSE 1014
 #define XQC_TEST_CASE_H3_H2_RESERVED_REQUEST_FRAME 1015
 #define XQC_TEST_CASE_H3_H2_RESERVED_CONTROL_FRAME 1016
+#define XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_VALID 1019
+#define XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_INVALID 1020
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_BELOW_LIMIT 902
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT 903
 #define XQC_TEST_CASE_CRYPTO_PREVIOUS_LEVEL_BOUNDARY 720
@@ -1465,9 +1467,12 @@ int
 xqc_server_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream)
 {
     static int uppercase_response_sent;
+    static int invalid_pseudo_header_order_sent;
     ssize_t ret = 0;
     int header_cnt = 6;
     int send_uppercase;
+    int send_pseudo_header_order;
+    int send_invalid_pseudo_header_order;
     xqc_http_header_t header[MAX_HEADER] = {
         {
             .name   = {.iov_base = ":method", .iov_len = 7},
@@ -1503,6 +1508,12 @@ xqc_server_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
 
     send_uppercase = g_test_case == XQC_TEST_CASE_H3_UPPERCASE_RESPONSE
                      && !uppercase_response_sent;
+    send_pseudo_header_order =
+        g_test_case == XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_VALID
+        || g_test_case == XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_INVALID;
+    send_invalid_pseudo_header_order =
+        g_test_case == XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_INVALID
+        && !invalid_pseudo_header_order_sent;
     if (g_test_case == XQC_TEST_CASE_H3_LOWERCASE_RESPONSE
         || (g_test_case == XQC_TEST_CASE_H3_UPPERCASE_RESPONSE
             && !send_uppercase))
@@ -1538,6 +1549,46 @@ xqc_server_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
             .flags = 0,
         };
         header[header_cnt++] = uppercase_name_hdr;
+    }
+
+    if (send_pseudo_header_order) {
+        xqc_http_header_t status_hdr = {
+            .name = {
+                .iov_base = ":status",
+                .iov_len = 7,
+            },
+            .value = {
+                .iov_base = "200",
+                .iov_len = 3,
+            },
+            .flags = 0,
+        };
+        xqc_http_header_t regular_hdr = {
+            .name = {
+                .iov_base = "x-pseudo-order",
+                .iov_len = 14,
+            },
+            .value = {
+                .iov_base = "value",
+                .iov_len = 5,
+            },
+            .flags = 0,
+        };
+
+        /*
+         * RFC 9114 Section 4.3 requires pseudo-header fields to precede
+         * regular fields. Bypass the public sender's normalization in this
+         * test peer so the client receives the selected wire order.
+         */
+        if (send_invalid_pseudo_header_order) {
+            header[0] = regular_hdr;
+            header[1] = status_hdr;
+
+        } else {
+            header[0] = status_hdr;
+            header[1] = regular_hdr;
+        }
+        header_cnt = 2;
     }
 
     if (g_test_case == 9) {
@@ -1579,6 +1630,13 @@ xqc_server_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
             uppercase_response_sent = 1;
             ret = xqc_h3_stream_send_headers(h3_request->h3_stream, &headers,
                                              header_only && send_fin);
+
+        } else if (send_pseudo_header_order) {
+            ret = xqc_h3_stream_send_headers(h3_request->h3_stream, &headers,
+                                             header_only && send_fin);
+            if (ret >= 0 && send_invalid_pseudo_header_order) {
+                invalid_pseudo_header_order_sent = 1;
+            }
 
         } else {
             ret = xqc_h3_request_send_headers(h3_request, &headers,

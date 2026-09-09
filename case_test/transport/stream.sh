@@ -580,6 +580,76 @@ fi
 
 }
 
+# RFC 9000 Section 4.5: RESET_STREAM final size must account for the largest
+# stream-data offset already received.
+case_transport_stream_reset_final_size_accepted()
+{
+
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e -x 722 > /dev/null
+sleep 1
+echo -e "reset_final_size_accepted ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -T 1 -x 722 > stdlog
+sleep 1
+result=`grep ">>>>>>>> pass:1" stdlog`
+client_injected=`grep \
+    "\[reset-final-size-test\]|case:722|stream_id:2|offset:5|"\
+"data_length:1|final_size:6|written|" stdlog`
+server_parsed=`grep \
+    "xqc_parse_reset_stream_frame|type:3|stream_id:2|"\
+"err_code:0|final_size:6|" slog`
+server_accepted=`grep \
+    "xqc_process_reset_stream_frame|stream_id:2|stream_state_recv:0|" slog`
+server_rejected=`grep "RESET_STREAM final size too small" slog`
+client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:6|" clog`
+if [ -n "$result" ] && [ -n "$client_injected" ] \
+    && [ -n "$server_parsed" ] && [ -n "$server_accepted" ] \
+    && [ -z "$server_rejected" ] && [ -z "$client_close_code" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "reset_final_size_accepted" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "reset_final_size_accepted" "fail"
+fi
+
+}
+
+
+case_transport_stream_reset_final_size_too_small()
+{
+
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e -x 723 > /dev/null
+sleep 1
+echo -e "reset_final_size_too_small ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -T 1 -x 723 > stdlog
+sleep 1
+client_injected=`grep \
+    "\[reset-final-size-test\]|case:723|stream_id:2|offset:5|"\
+"data_length:1|final_size:5|written|" stdlog`
+server_parsed=`grep \
+    "xqc_parse_reset_stream_frame|type:3|stream_id:2|"\
+"err_code:0|final_size:5|" slog`
+server_rejected=`grep \
+    "RESET_STREAM final size too small|stream_id:2|"\
+"final_size:5|max_recv_offset:6|" slog`
+client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:6|" clog`
+if [ -n "$client_injected" ] && [ -n "$server_parsed" ] \
+    && [ -n "$server_rejected" ] && [ -n "$client_close_code" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "reset_final_size_too_small" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "reset_final_size_too_small" "fail"
+fi
+
+}
+
+
 case_transport_stream_stop_sending_on_recv_only_stream()
 {
 
@@ -732,6 +802,11 @@ case_test_case "conn_rate_throttling" --id native --mode self-reporting --run ca
 case_test_case "stream_rate_throttling" --id native --mode self-reporting --run case_transport_stream_stream_rate_throttling
 case_test_case "reset_stream_on_send_only_stream" --id native --mode self-reporting --run case_transport_stream_reset_stream_on_send_only_stream
 case_test_case "reset_stream_on_recv_only_stream" --id native --mode self-reporting --run case_transport_stream_reset_stream_on_recv_only_stream
+case_test_case "reset_final_size_accepted" --id 722 \
+    --mode self-reporting --run case_transport_stream_reset_final_size_accepted
+case_test_case "reset_final_size_too_small" --id 723 \
+    --mode self-reporting \
+    --run case_transport_stream_reset_final_size_too_small
 case_test_case "stop_sending_on_recv_only_stream" --id native --mode self-reporting --run case_transport_stream_stop_sending_on_recv_only_stream
 case_test_case "stream_frame_on_send_only_stream" --id native --mode self-reporting --run case_transport_stream_stream_frame_on_send_only_stream
 case_test_case "stream_frame_on_local_uncreated_stream" --id native --mode self-reporting --run case_transport_stream_stream_frame_on_local_uncreated_stream

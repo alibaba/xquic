@@ -97,6 +97,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_DATAGRAM_INITIAL_REJECTED 1202
 #define XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE 715
 #define XQC_TEST_CASE_RETRY_IGNORE_OLD_INITIAL_DCID 716
+#define XQC_TEST_CASE_RESET_FINAL_SIZE_VALID 722
+#define XQC_TEST_CASE_RESET_FINAL_SIZE_TOO_SMALL 723
 
 typedef struct user_conn_s user_conn_t;
 
@@ -112,6 +114,7 @@ static void xqc_client_send_test_single_vint_frame(
     xqc_h3_conn_t *h3_conn, xqc_bool_t overlong);
 static xqc_int_t xqc_client_write_test_datagram_frame(
     xqc_connection_t *conn, xqc_pkt_type_t pkt_type);
+static void xqc_client_send_reset_final_size_frames(xqc_connection_t *conn);
 
 
 #define XQC_TEST_DGRAM_BATCH_SZ 32
@@ -304,6 +307,7 @@ uint64_t g_last_sock_op_time;
  * 715/716 for Retry invalid token and old Initial validation
  * 717 for RESET_STREAM on a peer-initiated unidirectional stream
  * 718/719 for MAX_STREAM_DATA stream direction validation
+ * 722/723 for RESET_STREAM final-size validation
  * 902/903 for AEAD confidentiality-limit validation
  * 1000-1014 for HTTP/3 protocol validation
  */
@@ -2078,6 +2082,12 @@ xqc_client_conn_handshake_finished(xqc_connection_t *conn, void *user_data, void
         printf("====>SCID:%s\n", xqc_scid_str(ctx.engine, &user_conn->cid));
     }
 
+    if (g_test_case == XQC_TEST_CASE_RESET_FINAL_SIZE_VALID
+        || g_test_case == XQC_TEST_CASE_RESET_FINAL_SIZE_TOO_SMALL)
+    {
+        xqc_client_send_reset_final_size_frames(conn);
+    }
+
     hsk_completed = 1;
 
     user_conn->dgram_mss = xqc_datagram_get_mss(conn);
@@ -2242,6 +2252,50 @@ xqc_client_send_wrong_direction_frame(xqc_connection_t *conn)
     packet_out->po_used_size += ret;
     printf("test case %d, wrong direction frame written\n", g_test_case);
 }
+
+
+static void
+xqc_client_send_reset_final_size_frames(xqc_connection_t *conn)
+{
+    const unsigned char payload[1] = {0x00};
+    xqc_packet_out_t *packet_out;
+    uint64_t final_size;
+    size_t written = 0;
+    ssize_t ret;
+
+    packet_out = xqc_write_new_packet(conn, XQC_PTYPE_SHORT_HEADER);
+    if (packet_out == NULL) {
+        printf("[reset-final-size-test]|case:%d|new_packet_failed|\n",
+               g_test_case);
+        return;
+    }
+
+    ret = xqc_gen_stream_frame(packet_out, 2, 5, 0, payload,
+                               sizeof(payload), &written);
+    if (ret < 0 || written != sizeof(payload)) {
+        printf("[reset-final-size-test]|case:%d|stream_frame_failed:%zd|\n",
+               g_test_case, ret);
+        xqc_maybe_recycle_packet_out(packet_out, conn);
+        return;
+    }
+    packet_out->po_used_size += ret;
+
+    final_size = g_test_case == XQC_TEST_CASE_RESET_FINAL_SIZE_VALID
+                 ? 6 : 5;
+    ret = xqc_gen_reset_stream_frame(packet_out, 2, 0, final_size);
+    if (ret < 0) {
+        printf("[reset-final-size-test]|case:%d|reset_frame_failed:%zd|\n",
+               g_test_case, ret);
+        xqc_maybe_recycle_packet_out(packet_out, conn);
+        return;
+    }
+    packet_out->po_used_size += ret;
+
+    printf("[reset-final-size-test]|case:%d|stream_id:2|offset:5|"
+           "data_length:1|final_size:%"PRIu64"|written|\n",
+           g_test_case, final_size);
+}
+
 
 static void
 xqc_client_send_max_stream_data_test_frame(xqc_connection_t *conn)

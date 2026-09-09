@@ -18,7 +18,10 @@
  */
 #define XQC_CUBIC_TEST_MSS              XQC_MSS
 #define XQC_CUBIC_TEST_DEFAULT_INIT_WIN (10 * XQC_CUBIC_TEST_MSS)
+#define XQC_CUBIC_TEST_MIN_WIN          (4 * XQC_CUBIC_TEST_MSS)
 #define XQC_CUBIC_TEST_MAX_INIT_WIN     (100 * XQC_CUBIC_TEST_MSS)
+#define XQC_CUBIC_TEST_BETA             718
+#define XQC_CUBIC_TEST_BETA_SCALE       1024
 
 void
 print_cubic(xqc_cubic_t *cubic)
@@ -69,6 +72,42 @@ xqc_test_cubic()
     xqc_cubic_cb.xqc_cong_ctl_reset_cwnd(&cubic);
     print_cubic(&cubic);
 
+}
+
+void
+xqc_test_cubic_loss_ssthresh()
+{
+    xqc_cubic_t     cubic;
+    xqc_cc_params_t params = {0};
+    uint64_t        expected_ssthresh;
+
+    xqc_cubic_cb.xqc_cong_ctl_init(&cubic, NULL, params);
+    expected_ssthresh = cubic.cwnd * XQC_CUBIC_TEST_BETA
+                        / XQC_CUBIC_TEST_BETA_SCALE;
+    xqc_cubic_cb.xqc_cong_ctl_on_lost(&cubic, 1);
+
+    CU_ASSERT_EQUAL(cubic.ssthresh, expected_ssthresh);
+    CU_ASSERT_EQUAL(cubic.cwnd, expected_ssthresh);
+    CU_ASSERT_EQUAL(cubic.tcp_cwnd, expected_ssthresh);
+}
+
+void
+xqc_test_cubic_loss_ssthresh_min_clamp()
+{
+    xqc_cubic_t     cubic;
+    xqc_cc_params_t params = {0};
+    uint64_t        expected_ssthresh;
+
+    xqc_cubic_cb.xqc_cong_ctl_init(&cubic, NULL, params);
+    cubic.cwnd = 5 * XQC_CUBIC_TEST_MSS;
+    expected_ssthresh = cubic.cwnd * XQC_CUBIC_TEST_BETA
+                        / XQC_CUBIC_TEST_BETA_SCALE;
+    xqc_cubic_cb.xqc_cong_ctl_on_lost(&cubic, 1);
+
+    CU_ASSERT_EQUAL(cubic.ssthresh, expected_ssthresh);
+    CU_ASSERT_EQUAL(cubic.cwnd, XQC_CUBIC_TEST_MIN_WIN);
+    CU_ASSERT_EQUAL(cubic.tcp_cwnd, XQC_CUBIC_TEST_MIN_WIN);
+    CU_ASSERT_TRUE(cubic.cwnd > cubic.ssthresh);
 }
 
 /*

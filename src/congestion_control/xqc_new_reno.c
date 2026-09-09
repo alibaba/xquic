@@ -101,9 +101,11 @@ xqc_reno_on_lost(void *cong_ctl, xqc_usec_t lost_sent_time)
     if (!xqc_reno_was_pkt_sent_in_recovery(cong_ctl, lost_sent_time)) {
         reno->reno_recovery_start_time = xqc_monotonic_timestamp();
         reno->reno_in_recovery = XQC_TRUE;
-        reno->reno_congestion_window *= XQC_kLossReductionFactor;
-        reno->reno_congestion_window = xqc_max(reno->reno_congestion_window, XQC_kMinimumWindow);
-        reno->reno_ssthresh = reno->reno_congestion_window;
+        /* RFC 9002 Appendix B.6 preserves the pre-clamp reduction. */
+        reno->reno_ssthresh =
+            reno->reno_congestion_window * XQC_kLossReductionFactor;
+        reno->reno_congestion_window =
+            xqc_max(reno->reno_ssthresh, XQC_kMinimumWindow);
     }
 }
 

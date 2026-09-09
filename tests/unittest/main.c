@@ -135,6 +135,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_flow_ctl_normal_no_clamp", xqc_test_flow_ctl_normal_no_clamp)
         || !CU_add_test(pSuite, "xqc_test_recv_record", xqc_test_recv_record)
         || !CU_add_test(pSuite, "xqc_test_reno", xqc_test_reno)
+        || !CU_add_test(pSuite, "xqc_test_reno_loss_ssthresh",
+                        xqc_test_reno_loss_ssthresh)
+        || !CU_add_test(pSuite, "xqc_test_reno_loss_ssthresh_min_clamp",
+                        xqc_test_reno_loss_ssthresh_min_clamp)
         || !CU_add_test(pSuite, "xqc_test_reno_init_cwnd", xqc_test_reno_init_cwnd)
         || !CU_add_test(pSuite, "xqc_test_reno_init_cwnd_override", xqc_test_reno_init_cwnd_override)
         || !CU_add_test(pSuite, "xqc_test_reno_recovery_exit",
@@ -142,6 +146,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_reno_reordered_ack",
                         xqc_test_reno_reordered_ack)
         || !CU_add_test(pSuite, "xqc_test_cubic", xqc_test_cubic)
+        || !CU_add_test(pSuite, "xqc_test_cubic_loss_ssthresh",
+                        xqc_test_cubic_loss_ssthresh)
+        || !CU_add_test(pSuite, "xqc_test_cubic_loss_ssthresh_min_clamp",
+                        xqc_test_cubic_loss_ssthresh_min_clamp)
         || !CU_add_test(pSuite, "xqc_test_cubic_init_cwnd", xqc_test_cubic_init_cwnd)
         || !CU_add_test(pSuite, "xqc_test_bbr_init_cwnd",
                         xqc_test_bbr_init_cwnd)

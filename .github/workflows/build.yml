@@ -59,8 +59,8 @@ jobs:
             libcunit1-doc \
             libevent-dev \
             python3-lxml \
-            python3-pip
-        sudo pip3 install --retries 3 --timeout 30 gcovr
+            python3-pip \
+            gcovr
 
     - name: Update Submodule
       run: |

@@ -93,6 +93,7 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_GOAWAY_INCREASE 1018
 #define XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_VALID 1019
 #define XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_INVALID 1020
+#define XQC_TEST_CASE_H3_DATA_BEFORE_HEADERS 1021
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_BELOW_LIMIT 902
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT 903
 #define XQC_TEST_CASE_DATAGRAM_1RTT_ALLOWED 1201
@@ -311,7 +312,7 @@ uint64_t g_last_sock_op_time;
  * 718/719 for MAX_STREAM_DATA stream direction validation
  * 722/723 for RESET_STREAM final-size validation
  * 902/903 for AEAD confidentiality-limit validation
- * 1000-1020 for HTTP/3 protocol validation
+ * 1000-1021 for HTTP/3 protocol validation
  */
 int g_test_case;
 int g_ipv6;
@@ -3063,7 +3064,8 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
     if (!user_stream->h3_test_frame_queued
         && (g_test_case == XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME
             || g_test_case == XQC_TEST_CASE_H3_CLIENT_PUSH_PROMISE
-            || g_test_case == XQC_TEST_CASE_H3_H2_RESERVED_REQUEST_FRAME))
+            || g_test_case == XQC_TEST_CASE_H3_H2_RESERVED_REQUEST_FRAME
+            || g_test_case == XQC_TEST_CASE_H3_DATA_BEFORE_HEADERS))
     {
         uint64_t frame_type = XQC_H3_FRM_RESERVED_PRIORITY;
         if (g_test_case == XQC_TEST_CASE_H3_CLIENT_PUSH_PROMISE) {
@@ -3071,6 +3073,9 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
 
         } else if (g_test_case == XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME) {
             frame_type = 0x21;
+
+        } else if (g_test_case == XQC_TEST_CASE_H3_DATA_BEFORE_HEADERS) {
+            frame_type = XQC_H3_FRM_DATA;
         }
         ret = xqc_client_send_test_request_frame(h3_request, frame_type);
         if (ret != XQC_OK) {
@@ -3081,7 +3086,8 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
 
     if (g_test_case == XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME
         || g_test_case == XQC_TEST_CASE_H3_CLIENT_PUSH_PROMISE
-        || g_test_case == XQC_TEST_CASE_H3_H2_RESERVED_REQUEST_FRAME)
+        || g_test_case == XQC_TEST_CASE_H3_H2_RESERVED_REQUEST_FRAME
+        || g_test_case == XQC_TEST_CASE_H3_DATA_BEFORE_HEADERS)
     {
         return XQC_OK;
     }

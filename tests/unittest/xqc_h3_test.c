@@ -2184,17 +2184,8 @@ xqc_test_h3_request_frame_unexpected()
     CU_ASSERT(XQC_H3_FRM_MAX_PUSH_ID == 0x0D);
 
 
-    /*
-     * ===== Negative cases: request-stream frames MUST NOT be rejected =====
-     *
-     * DATA and HEADERS are valid on request streams. Verify the fix
-     * does not accidentally widen the rejection to legitimate frames.
-     */
-
-    /* Case 5: DATA (0x00) on request stream -- must be accepted */
-    xqc_test_h3_request_frame_unexpected_one(XQC_H3_FRM_DATA, XQC_FALSE);
-
-    /* Case 6: HEADERS (0x01) on request stream -- must be accepted */
+    /* HEADERS is valid on request streams. DATA validity depends on the
+     * HTTP message sequence and is covered by dedicated tests below. */
     xqc_test_h3_request_frame_unexpected_one(XQC_H3_FRM_HEADERS, XQC_FALSE);
 
 
@@ -2227,6 +2218,61 @@ xqc_test_h3_request_frame_unexpected()
      */
     CU_ASSERT(XQC_H3_REQUEST_FRAME_UNEXPECTED == 835);
     CU_ASSERT(XQC_H3_REQUEST_FRAME_UNEXPECTED >= XQC_H3_EMALLOC);
+}
+
+
+void
+xqc_test_h3_data_after_headers_accepted()
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    unsigned char headers[sizeof(xqc_h3_msgerr_valid_headers)];
+    xqc_memcpy(headers, xqc_h3_msgerr_valid_headers, sizeof(headers));
+    unsigned char data[] = { XQC_H3_FRM_DATA, 0x01, 0x2a };
+
+    ssize_t processed = xqc_h3_stream_process_request(h3s, headers,
+            sizeof(headers), XQC_FALSE);
+    CU_ASSERT(processed == (ssize_t)sizeof(headers));
+    CU_ASSERT(h3s->h3r->current_header == XQC_H3_REQUEST_TRAILER);
+
+    processed = xqc_h3_stream_process_request(h3s, data, sizeof(data),
+            XQC_FALSE);
+    CU_ASSERT(processed == (ssize_t)sizeof(data));
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
+    CU_ASSERT(h3s->h3r->body_buf_count == 1);
+    CU_ASSERT(!xqc_list_empty(&h3s->h3r->body_buf));
+
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
+}
+
+
+void
+xqc_test_h3_data_before_headers_rejected()
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    /* RFC 9114 Section 4.1 requires H3_FRAME_UNEXPECTED for this sequence. */
+    unsigned char data[] = { XQC_H3_FRM_DATA, 0x01, 0x2a };
+    ssize_t processed = xqc_h3_stream_process_request(h3s, data,
+            sizeof(data), XQC_FALSE);
+
+    CU_ASSERT(processed == -XQC_H3_REQUEST_FRAME_UNEXPECTED);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_FRAME_UNEXPECTED);
+    CU_ASSERT(XQC_CONN_ERR_IS_APPLICATION(conn->conn_err));
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    CU_ASSERT(h3s->h3r->current_header == XQC_H3_REQUEST_HEADER);
+    CU_ASSERT(h3s->h3r->body_buf_count == 0);
+    CU_ASSERT(xqc_list_empty(&h3s->h3r->body_buf));
+    CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
+
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
 }
 
 

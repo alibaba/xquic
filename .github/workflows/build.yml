@@ -16,11 +16,7 @@ jobs:
 
     name: Build on Ubuntu
 
-    runs-on: ${{ matrix.runs-on }}
-
-    strategy:
-      matrix:
-        runs-on: [ubuntu-latest]
+    runs-on: self-hosted
 
     steps:
     - name: Checkout repository
@@ -63,8 +59,8 @@ jobs:
             libcunit1-doc \
             libevent-dev \
             python3-lxml \
-            python3-pip
-        sudo pip3 install --retries 3 --timeout 30 gcovr
+            python3-pip \
+            gcovr
 
     - name: Update Submodule
       run: |

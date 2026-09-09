@@ -14,6 +14,7 @@ typedef struct {
     unsigned        reno_congestion_window;
     unsigned        reno_ssthresh;
     xqc_usec_t      reno_recovery_start_time;
+    xqc_bool_t      reno_in_recovery;
     xqc_send_ctl_t *ctl_ctx;
 } xqc_new_reno_t;
 

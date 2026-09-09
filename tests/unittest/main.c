@@ -88,6 +88,12 @@ main(int argc, char *argv[])
                         "xqc_test_datagram_transport_param_varint_max",
                         xqc_test_datagram_transport_param_varint_max)
         || !CU_add_test(pSuite, "xqc_test_conn_idle_timeout", xqc_test_conn_idle_timeout)
+        || !CU_add_test(pSuite,
+                        "xqc_test_conn_pmtud_deferred_until_handshake",
+                        xqc_test_conn_pmtud_deferred_until_handshake)
+        || !CU_add_test(pSuite,
+                        "xqc_test_conn_pmtud_starts_after_handshake",
+                        xqc_test_conn_pmtud_starts_after_handshake)
         || !CU_add_test(pSuite, "xqc_test_conn_pmtud_force_enable",
                         xqc_test_conn_pmtud_force_enable)
         || !CU_add_test(pSuite, "xqc_test_conn_pmtud_legacy_compatibility",

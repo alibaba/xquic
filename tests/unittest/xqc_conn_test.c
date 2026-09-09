@@ -332,11 +332,68 @@ xqc_pmtud_case_set(xqc_connection_t *conn, xqc_conn_type_t role,
 }
 
 void
+xqc_test_conn_pmtud_deferred_until_handshake()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_pmtud_case_set(conn, XQC_CONN_TYPE_CLIENT,
+                       XQC_PMTUD_FORCE_ENABLE, XQC_PMTUD_DISABLE);
+    CU_ASSERT(!(conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_COMPLETED));
+
+    xqc_conn_try_to_enable_pmtud(conn);
+
+    CU_ASSERT(conn->enable_pmtud == 1);
+    CU_ASSERT(!xqc_timer_is_set(&conn->conn_timer_manager,
+                                XQC_TIMER_PMTUD_PROBING));
+
+    conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
+    xqc_conn_ptmud_probing(conn);
+    CU_ASSERT(conn->probing_cnt == 0);
+    CU_ASSERT(!(conn->conn_flag & XQC_CONN_FLAG_HAS_0RTT));
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_conn_pmtud_starts_after_handshake()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_packet_out_t *packet_out;
+    xqc_list_head_t *head;
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_pmtud_case_set(conn, XQC_CONN_TYPE_SERVER,
+                       XQC_PMTUD_FORCE_ENABLE, XQC_PMTUD_DISABLE);
+    conn->conn_flag |= XQC_CONN_FLAG_TOKEN_OK;
+    xqc_conn_try_to_enable_pmtud(conn);
+    CU_ASSERT(!xqc_timer_is_set(&conn->conn_timer_manager,
+                                XQC_TIMER_PMTUD_PROBING));
+
+    CU_ASSERT(xqc_conn_handshake_complete(conn) == XQC_OK);
+    CU_ASSERT(conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_COMPLETED);
+    CU_ASSERT(xqc_timer_is_set(&conn->conn_timer_manager,
+                               XQC_TIMER_PMTUD_PROBING));
+
+    conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
+    xqc_conn_ptmud_probing(conn);
+    head = &conn->conn_send_queue->sndq_send_packets_high_pri;
+    CU_ASSERT(!xqc_list_empty(head));
+    packet_out = xqc_list_entry(head->prev, xqc_packet_out_t, po_list);
+    CU_ASSERT(packet_out->po_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT(packet_out->po_flag & XQC_POF_PMTUD_PROBING);
+    CU_ASSERT(!(conn->conn_flag & XQC_CONN_FLAG_HAS_0RTT));
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
 xqc_test_conn_pmtud_force_enable()
 {
     xqc_connection_t *conn = test_engine_connect();
     xqc_transport_params_t params = {0};
     CU_ASSERT_FATAL(conn != NULL);
+    conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_COMPLETED;
 
     xqc_pmtud_case_set(conn, XQC_CONN_TYPE_CLIENT,
                        XQC_PMTUD_FORCE_ENABLE, XQC_PMTUD_DISABLE);
@@ -377,6 +434,7 @@ xqc_test_conn_pmtud_legacy_compatibility()
     uint8_t local_flags, remote_flags, expected;
 
     CU_ASSERT_FATAL(conn != NULL);
+    conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_COMPLETED;
 
     CU_ASSERT_EQUAL(XQC_PMTUD_DISABLE, 0x0);
     CU_ASSERT_EQUAL(XQC_PMTUD_ENABLE_CLIENT, 0x1);

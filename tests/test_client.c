@@ -91,6 +91,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_H2_RESERVED_CONTROL_FRAME 1016
 #define XQC_TEST_CASE_H3_GOAWAY_DECREASE 1017
 #define XQC_TEST_CASE_H3_GOAWAY_INCREASE 1018
+#define XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_VALID 1019
+#define XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_INVALID 1020
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_BELOW_LIMIT 902
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT 903
 #define XQC_TEST_CASE_DATAGRAM_1RTT_ALLOWED 1201
@@ -286,7 +288,7 @@ int g_spec_url;
 int g_is_get;
 uint64_t g_last_sock_op_time;
 /*
- * currently, the maximum used test case id is 1014
+ * currently, the maximum used test case id is 1020
  * please keep this comment updated if you are adding more test cases. :-D
  * 55 for RFC 9114 Section 4.2 forbidden header e2e validation
  * 99 for pure fin
@@ -305,7 +307,7 @@ uint64_t g_last_sock_op_time;
  * 717 for RESET_STREAM on a peer-initiated unidirectional stream
  * 718/719 for MAX_STREAM_DATA stream direction validation
  * 902/903 for AEAD confidentiality-limit validation
- * 1000-1014 for HTTP/3 protocol validation
+ * 1000-1020 for HTTP/3 protocol validation
  */
 int g_test_case;
 int g_ipv6;
@@ -3567,6 +3569,20 @@ xqc_client_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
             {
                 printf("lowercase_header_received:1\n");
             }
+
+            if ((g_test_case
+                 == XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_VALID
+                 || g_test_case
+                    == XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_INVALID)
+                && headers->headers[i].name.iov_len == 14
+                && memcmp(headers->headers[i].name.iov_base,
+                          "x-pseudo-order", 14) == 0
+                && headers->headers[i].value.iov_len == 5
+                && memcmp(headers->headers[i].value.iov_base,
+                          "value", 5) == 0)
+            {
+                printf("pseudo_header_order_received:1\n");
+            }
         }
 
         user_stream->header_recvd = 1;
@@ -3729,10 +3745,28 @@ xqc_client_request_close_notify(xqc_h3_request_t *h3_request, void *user_data)
         }
     }
 
+    if (g_test_case == XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_VALID
+        && stats.stream_err == 0
+        && user_stream->header_recvd)
+    {
+        printf("pseudo_header_order_request_succeeded:1\n");
+    }
+
+    if (g_test_case == XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_INVALID) {
+        if (stats.stream_err == H3_MESSAGE_ERROR) {
+            printf("pseudo_header_order_stream_error:1\n");
+
+        } else if (stats.stream_err == 0 && user_stream->header_recvd) {
+            printf("post_pseudo_header_order_error_request_succeeded:1\n");
+        }
+    }
+
     if (g_echo_check
         && !(g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT
              && stats.stream_err == H3_MESSAGE_ERROR)
         && !(g_test_case == XQC_TEST_CASE_H3_UPPERCASE_RESPONSE
+             && stats.stream_err == H3_MESSAGE_ERROR)
+        && !(g_test_case == XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_INVALID
              && stats.stream_err == H3_MESSAGE_ERROR))
     {
         int pass = 0;

@@ -1232,6 +1232,53 @@ fi
 
 }
 
+case_http3_core_h3_pseudo_header_order_accepted()
+{
+
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e -x 1019 > /dev/null
+sleep 1
+echo -e "HTTP/3 pseudo-header before regular field is accepted ...\c"
+${CLIENT_BIN} -G -l d -t 1 -x 1019 >> clog
+header_ok=`grep "pseudo_header_order_received:1" clog`
+stream_ok=`grep "pseudo_header_order_request_succeeded:1" clog`
+if [ -n "$header_ok" ] && [ -n "$stream_ok" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_pseudo_header_order_accepted" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_pseudo_header_order_accepted" "fail"
+fi
+
+}
+
+case_http3_core_h3_pseudo_header_after_regular_rejected()
+{
+
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e -x 1020 > /dev/null
+sleep 1
+echo -e "HTTP/3 misplaced pseudo-header resets only stream ...\c"
+${CLIENT_BIN} -G -l d -n 2 -t 2 -x 1020 >> clog
+stream_error_ok=`grep "pseudo_header_order_stream_error:1" clog`
+connection_reuse_ok=`grep \
+    "post_pseudo_header_order_error_request_succeeded:1" clog`
+transport_error=`grep "conn_err:1" clog`
+if [ -n "$stream_error_ok" ] && [ -n "$connection_reuse_ok" ] \
+    && [ -z "$transport_error" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_pseudo_header_after_regular_rejected" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_pseudo_header_after_regular_rejected" "fail"
+fi
+
+}
+
 case_test_case "h3_stream_send_pure_fin" --id native --mode self-reporting --run case_http3_core_h3_stream_send_pure_fin
 case_test_case "header_header_data" --id native --mode self-reporting --run case_http3_core_header_header_data
 case_test_case "header_data_header" --id native --mode self-reporting --run case_http3_core_header_data_header
@@ -1276,6 +1323,8 @@ case_test_case "h3_field_section_within_limit_succeeds" --id native --mode self-
 case_test_case "h3_field_section_over_limit_is_stream_error" --id native --mode self-reporting --run case_http3_core_h3_field_section_over_limit_is_stream_error
 case_test_case "h3_lowercase_response_field_name_accepted" --id native --mode self-reporting --run case_http3_core_h3_lowercase_response_field_name_accepted
 case_test_case "h3_uppercase_response_field_name_rejected" --id native --mode self-reporting --run case_http3_core_h3_uppercase_response_field_name_rejected
+case_test_case "h3_pseudo_header_order_accepted" --id 1019 --mode self-reporting --run case_http3_core_h3_pseudo_header_order_accepted
+case_test_case "h3_pseudo_header_after_regular_rejected" --id 1020 --mode self-reporting --run case_http3_core_h3_pseudo_header_after_regular_rejected
 
 if case_test_is_discovery; then
     case_test_run

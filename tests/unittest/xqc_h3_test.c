@@ -2659,3 +2659,70 @@ xqc_test_h3_uppercase_field_name_stream_rejected()
 
     xqc_h3_msgerr_teardown(h3s, h3c, conn);
 }
+
+
+/*
+ * RFC 9114 Section 4.3 requires pseudo-header fields to precede regular
+ * fields. These field sections contain the same otherwise valid request
+ * fields and differ only in the position of :authority relative to x: v.
+ */
+void
+xqc_test_h3_pseudo_header_order_accepted()
+{
+    const unsigned char pseudo_before_regular[] = {
+        0x01, 0x0a, 0x00, 0x00, 0xd1, 0xd7,
+        0xc1, 0xc0, 0x21, 0x78, 0x01, 0x76
+    };
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    unsigned char buf[sizeof(pseudo_before_regular)];
+    xqc_memcpy(buf, pseudo_before_regular, sizeof(buf));
+
+    xqc_int_t ret = xqc_h3_stream_process_in(h3s, buf, sizeof(buf),
+                                             XQC_TRUE);
+
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(xqc_h3_stream_get_err(h3s), 0);
+    CU_ASSERT_EQUAL(h3s->stream->stream_err, 0);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
+    CU_ASSERT_EQUAL(h3s->h3r->current_header, 1);
+    CU_ASSERT(h3s->h3r->read_flag & XQC_REQ_NOTIFY_READ_HEADER);
+
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
+}
+
+
+void
+xqc_test_h3_pseudo_header_after_regular_rejected()
+{
+    const unsigned char pseudo_after_regular[] = {
+        0x01, 0x0a, 0x00, 0x00, 0xd1, 0xd7,
+        0xc1, 0x21, 0x78, 0x01, 0x76, 0xc0
+    };
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    unsigned char buf[sizeof(pseudo_after_regular)];
+    xqc_memcpy(buf, pseudo_after_regular, sizeof(buf));
+
+    xqc_int_t ret = xqc_h3_stream_process_in(h3s, buf, sizeof(buf),
+                                             XQC_TRUE);
+
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(xqc_h3_stream_get_err(h3s), H3_MESSAGE_ERROR);
+    CU_ASSERT_EQUAL(h3s->stream->stream_err, H3_MESSAGE_ERROR);
+    CU_ASSERT(h3s->stream->stream_state_send
+              >= XQC_SEND_STREAM_ST_RESET_SENT);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
+    CU_ASSERT_EQUAL(h3s->h3r->current_header, 0);
+    CU_ASSERT_EQUAL(h3s->h3r->read_flag, 0);
+
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
+}

@@ -137,6 +137,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_reno", xqc_test_reno)
         || !CU_add_test(pSuite, "xqc_test_reno_init_cwnd", xqc_test_reno_init_cwnd)
         || !CU_add_test(pSuite, "xqc_test_reno_init_cwnd_override", xqc_test_reno_init_cwnd_override)
+        || !CU_add_test(pSuite, "xqc_test_reno_recovery_exit",
+                        xqc_test_reno_recovery_exit)
+        || !CU_add_test(pSuite, "xqc_test_reno_reordered_ack",
+                        xqc_test_reno_reordered_ack)
         || !CU_add_test(pSuite, "xqc_test_cubic", xqc_test_cubic)
         || !CU_add_test(pSuite, "xqc_test_cubic_init_cwnd", xqc_test_cubic_init_cwnd)
         || !CU_add_test(pSuite, "xqc_test_bbr_init_cwnd",

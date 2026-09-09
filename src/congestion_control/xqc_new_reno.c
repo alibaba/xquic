@@ -8,7 +8,7 @@
 #include "src/common/xqc_time.h"
 #include "src/transport/xqc_packet.h"
 
-/* https://tools.ietf.org/html/draft-ietf-quic-recovery-19#appendix-B */
+/* https://www.rfc-editor.org/rfc/rfc9002.html#appendix-B */
 
 #define XQC_kMaxDatagramSize XQC_MSS
 #define XQC_kMinimumWindow (2 * XQC_kMaxDatagramSize)
@@ -58,6 +58,7 @@ xqc_reno_init(void *cong_ctl, xqc_send_ctl_t *ctl_ctx, xqc_cc_params_t cc_params
     reno->reno_congestion_window = XQC_kInitialWindow;
     reno->reno_ssthresh = 0xffffffff;
     reno->reno_recovery_start_time = 0;
+    reno->reno_in_recovery = XQC_FALSE;
     reno->ctl_ctx = ctl_ctx;
 
     /*
@@ -99,6 +100,7 @@ xqc_reno_on_lost(void *cong_ctl, xqc_usec_t lost_sent_time)
      */
     if (!xqc_reno_was_pkt_sent_in_recovery(cong_ctl, lost_sent_time)) {
         reno->reno_recovery_start_time = xqc_monotonic_timestamp();
+        reno->reno_in_recovery = XQC_TRUE;
         reno->reno_congestion_window *= XQC_kLossReductionFactor;
         reno->reno_congestion_window = xqc_max(reno->reno_congestion_window, XQC_kMinimumWindow);
         reno->reno_ssthresh = reno->reno_congestion_window;
@@ -116,8 +118,12 @@ xqc_reno_on_ack(void *cong_ctl, xqc_packet_out_t *po, xqc_usec_t now)
         return;
     }
 
-    if (sent_time > reno->reno_recovery_start_time) {
-        reno->reno_recovery_start_time = 0;
+    /*
+     * RFC 9002 Appendix B.5 retains the recovery start time so reordered
+     * acknowledgments for older packets cannot increase the window.
+     */
+    if (reno->reno_in_recovery) {
+        reno->reno_in_recovery = XQC_FALSE;
     }
 
     if (reno->ctl_ctx && !xqc_send_ctl_is_cwnd_limited(reno->ctl_ctx)) {
@@ -146,7 +152,8 @@ xqc_reno_reset_cwnd(void *cong_ctl)
 {
     xqc_new_reno_t *reno = (xqc_new_reno_t*)(cong_ctl);
     reno->reno_congestion_window = XQC_kMinimumWindow;
-    reno->reno_recovery_start_time  = 0; /* clear recovery epoch. */
+    reno->reno_recovery_start_time = 0;
+    reno->reno_in_recovery = XQC_FALSE;
 }
 
 int
@@ -162,9 +169,10 @@ xqc_reno_restart_from_idle(void *cong_ctl, uint64_t arg) {
 }
 
 static int
-xqc_reno_in_recovery(void *cong_ctl) {
+xqc_reno_in_recovery(void *cong_ctl)
+{
     xqc_new_reno_t *reno = (xqc_new_reno_t*)(cong_ctl);
-    return reno->reno_recovery_start_time > 0;
+    return reno->reno_in_recovery;
 }
 
 const xqc_cong_ctrl_callback_t xqc_reno_cb = {

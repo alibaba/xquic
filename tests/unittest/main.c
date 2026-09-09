@@ -253,6 +253,11 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_process_reset_stream_on_recv_only_stream",
                         xqc_test_process_reset_stream_on_recv_only_stream)
+        || !CU_add_test(pSuite, "xqc_test_reset_stream_final_size_accepted",
+                        xqc_test_reset_stream_final_size_accepted)
+        || !CU_add_test(pSuite,
+                        "xqc_test_reset_stream_final_size_too_small",
+                        xqc_test_reset_stream_final_size_too_small)
         || !CU_add_test(pSuite, "xqc_test_stop_sending_on_recv_only_stream",
                         xqc_test_stop_sending_on_recv_only_stream)
         || !CU_add_test(pSuite, "xqc_test_stop_sending_on_recv_only_stream_server",

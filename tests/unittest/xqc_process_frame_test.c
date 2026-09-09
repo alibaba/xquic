@@ -1495,6 +1495,78 @@ xqc_test_process_reset_stream_on_recv_only_stream(void)
 }
 
 
+static xqc_connection_t *
+xqc_test_reset_stream_final_size_setup(xqc_stream_t **stream)
+{
+    xqc_connection_t *conn;
+
+    conn = xqc_test_dir_make_conn(XQC_CONN_TYPE_CLIENT);
+    if (conn == NULL) {
+        return NULL;
+    }
+
+    *stream = xqc_passive_create_stream(conn, 3, NULL);
+    if (*stream == NULL) {
+        xqc_engine_destroy(conn->engine);
+        return NULL;
+    }
+
+    (*stream)->stream_max_recv_offset = 5;
+    (*stream)->stream_data_in.next_read_offset = 2;
+    conn->conn_flow_ctl.fc_data_recved = 5;
+    conn->conn_flow_ctl.fc_data_read = 2;
+    return conn;
+}
+
+
+void
+xqc_test_reset_stream_final_size_accepted(void)
+{
+    unsigned char frame_buf[] = {0x04, 0x03, 0x00, 0x07};
+    xqc_packet_in_t pi;
+    xqc_connection_t *conn;
+    xqc_stream_t *stream = NULL;
+    xqc_int_t ret;
+
+    conn = xqc_test_reset_stream_final_size_setup(&stream);
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_test_dir_init_pi(&pi, frame_buf, sizeof(frame_buf));
+
+    ret = xqc_process_reset_stream_frame(conn, &pi);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT(stream->stream_state_recv == XQC_RECV_STREAM_ST_RESET_RECVD);
+    CU_ASSERT(conn->conn_flow_ctl.fc_data_recved == 7);
+    CU_ASSERT(conn->conn_flow_ctl.fc_data_read == 7);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_reset_stream_final_size_too_small(void)
+{
+    unsigned char frame_buf[] = {0x04, 0x03, 0x00, 0x04};
+    xqc_packet_in_t pi;
+    xqc_connection_t *conn;
+    xqc_stream_t *stream = NULL;
+    xqc_int_t ret;
+
+    conn = xqc_test_reset_stream_final_size_setup(&stream);
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_test_dir_init_pi(&pi, frame_buf, sizeof(frame_buf));
+
+    ret = xqc_process_reset_stream_frame(conn, &pi);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_FINAL_SIZE_ERROR);
+    CU_ASSERT(stream->stream_state_recv == XQC_RECV_STREAM_ST_RECV);
+    CU_ASSERT(conn->conn_flow_ctl.fc_data_recved == 5);
+    CU_ASSERT(conn->conn_flow_ctl.fc_data_read == 2);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 /* ---- issue #567: STOP_SENDING on a recv-only stream ---- */
 
 void

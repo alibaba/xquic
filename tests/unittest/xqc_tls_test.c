@@ -373,6 +373,17 @@ xqc_test_tls_new_session_ticket_early_data_invalid(void)
         0x00, 0x00, 0x00, 0x00,
     };
     uint8_t malformed_ticket[sizeof(invalid_ticket)];
+    static const uint8_t malformed_trailing_ticket[] = {
+        SSL3_MT_NEWSESSION_TICKET, 0x00, 0x00, 0x1a,
+        0x00, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x02,
+        0x00,
+        0x00, 0x01, 0x01,
+        0x00, 0x0c,
+        0x00, TLSEXT_TYPE_early_data, 0x00, 0x04,
+        0x00, 0x00, 0x00, 0x01,
+        0x12, 0x34, 0x00, 0x01,
+    };
 
     CU_ASSERT_EQUAL(xqc_test_tls_new_session_ticket_error(
                         invalid_ticket, sizeof(invalid_ticket)),
@@ -387,6 +398,9 @@ xqc_test_tls_new_session_ticket_early_data_invalid(void)
     malformed_ticket[21] = 0x03;
     CU_ASSERT_EQUAL(xqc_test_tls_new_session_ticket_error(
                         malformed_ticket, sizeof(malformed_ticket)), 0);
+    CU_ASSERT_EQUAL(xqc_test_tls_new_session_ticket_error(
+                        malformed_trailing_ticket,
+                        sizeof(malformed_trailing_ticket)), 0);
 }
 
 

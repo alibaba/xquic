@@ -859,6 +859,7 @@ xqc_tls_nst_has_invalid_early_data(const unsigned char *msg, size_t msg_len)
     uint32_t max_early_data;
     uint16_t extension_type;
     size_t field_len;
+    xqc_bool_t invalid_early_data = XQC_FALSE;
 
     if (msg_len < 4 || p[0] != SSL3_MT_NEWSESSION_TICKET) {
         return XQC_FALSE;
@@ -922,14 +923,14 @@ xqc_tls_nst_has_invalid_early_data(const unsigned char *msg, size_t msg_len)
                 | ((uint32_t)p[1] << 16)
                 | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
             if (max_early_data != XQC_UINT32_MAX) {
-                return XQC_TRUE;
+                invalid_early_data = XQC_TRUE;
             }
         }
 
         p += field_len;
     }
 
-    return XQC_FALSE;
+    return invalid_early_data;
 }
 
 

@@ -56,6 +56,8 @@ typedef struct xqc_h3_frame_pctx_s {
  */
 ssize_t xqc_h3_frm_parse(const unsigned char *pos, size_t sz, xqc_h3_frame_pctx_t *pctx);
 
+xqc_bool_t xqc_h3_frm_is_h2_reserved(uint64_t frame_type);
+
 
 /**
  * @brief parse SETTINGS frame

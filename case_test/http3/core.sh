@@ -750,6 +750,35 @@ fi
 
 }
 
+case_http3_core_h3_h2_reserved_request_frame_rejected()
+{
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost h3_request_frame_server.log
+case_test_start_server ${SERVER_BIN} -l d -e -x 1015 > h3_request_frame_server.log
+sleep 1
+echo -e "HTTP/2 reserved frame on request stream gets H3_FRAME_UNEXPECTED ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1015 > stdlog
+for wait_idx in 1 2 3 4 5 6 7 8 9 10; do
+    server_err=`grep "\\[h3-request-frame-test\\]|http2-reserved|conn_err:261|" \
+        h3_request_frame_server.log`
+    [ -n "$server_err" ] && break
+    sleep 0.2
+done
+sent=`grep "\\[h3-request-frame-test\\]|type:0x2|ret:0|" stdlog`
+wire_err=`grep "err:0x105" slog`
+client_err=`grep -E "(conn errno:261|conn_err:261)" stdlog`
+application_type=`grep "conn_err_type:2" stdlog`
+if [ -n "$sent" ] && [ -n "$server_err" ] && [ -n "$wire_err" ] \
+    && [ -n "$client_err" ] && [ -n "$application_type" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_h2_reserved_request_frame_rejected" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_h2_reserved_request_frame_rejected" "fail"
+fi
+}
+
 case_http3_core_h3_client_push_promise_rejected()
 {
 
@@ -1018,6 +1047,36 @@ fi
 
 }
 
+case_http3_core_h3_h2_reserved_control_frame_rejected()
+{
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost h3_control_frame_server.log
+case_test_start_server stdbuf -oL ${SERVER_BIN} -l d -e -x 1016 > h3_control_frame_server.log
+sleep 1
+echo -e "HTTP/2 reserved frame on control stream gets H3_FRAME_UNEXPECTED ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1016 > stdlog
+for wait_idx in 1 2 3 4 5 6 7 8 9 10; do
+    server_err=`grep "\\[h3-control-frame-test\\]|case:1016|conn_err:261|" \
+        h3_control_frame_server.log`
+    [ -n "$server_err" ] && break
+    sleep 0.2
+done
+sent=`grep "\\[h3-control-frame-test\\]|type:0x2|write:0|send:0|" \
+    h3_control_frame_server.log`
+wire_err=`grep "err:0x105" clog`
+client_err=`grep "\\[h3-control-frame-test\\]|case:1016|conn_err:261|" stdlog`
+application_type=`grep "conn_err_type:2" stdlog`
+if [ -n "$sent" ] && [ -n "$wire_err" ] && [ -n "$client_err" ] \
+    && [ -n "$server_err" ] && [ -n "$application_type" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_h2_reserved_control_frame_rejected" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_h2_reserved_control_frame_rejected" "fail"
+fi
+}
+
 case_http3_core_h3_cancel_push_unset_rejected()
 {
 
@@ -1201,6 +1260,7 @@ case_test_case "h3_engine_set_settings_api_h3_ext_more" --id native --mode self-
 case_test_case "h3_reserved_uni_stream_survives" --id native --mode self-reporting --run case_http3_core_h3_reserved_uni_stream_survives
 case_test_case "h3_client_push_stream_creation_error" --id native --mode self-reporting --run case_http3_core_h3_client_push_stream_creation_error
 case_test_case "h3_reserved_request_frame_accepted" --id native --mode self-reporting --run case_http3_core_h3_reserved_request_frame_accepted
+case_test_case "h3_h2_reserved_request_frame_rejected" --id 1015 --mode self-reporting --run case_http3_core_h3_h2_reserved_request_frame_rejected
 case_test_case "h3_client_push_promise_rejected" --id native --mode self-reporting --run case_http3_core_h3_client_push_promise_rejected
 case_test_case "h3_max_push_id_increase_accepted" --id native --mode self-reporting --run case_http3_core_h3_max_push_id_increase_accepted
 case_test_case "h3_max_push_id_decrease_rejected" --id native --mode self-reporting --run case_http3_core_h3_max_push_id_decrease_rejected
@@ -1210,6 +1270,7 @@ case_test_case "h3_max_push_id_wrong_role_rejected" --id native --mode self-repo
 case_test_case "h3_non_minimal_max_push_id_accepted" --id native --mode self-reporting --run case_http3_core_h3_non_minimal_max_push_id_accepted
 case_test_case "h3_overlong_max_push_id_rejected" --id native --mode self-reporting --run case_http3_core_h3_overlong_max_push_id_rejected
 case_test_case "h3_reserved_control_frame_accepted" --id native --mode self-reporting --run case_http3_core_h3_reserved_control_frame_accepted
+case_test_case "h3_h2_reserved_control_frame_rejected" --id 1016 --mode self-reporting --run case_http3_core_h3_h2_reserved_control_frame_rejected
 case_test_case "h3_cancel_push_unset_rejected" --id native --mode self-reporting --run case_http3_core_h3_cancel_push_unset_rejected
 case_test_case "h3_field_section_within_limit_succeeds" --id native --mode self-reporting --run case_http3_core_h3_field_section_within_limit_succeeds
 case_test_case "h3_field_section_over_limit_is_stream_error" --id native --mode self-reporting --run case_http3_core_h3_field_section_over_limit_is_stream_error

@@ -11,10 +11,14 @@
 typedef enum xqc_h3_frm_type_s {
     XQC_H3_FRM_DATA                 = 0x00,
     XQC_H3_FRM_HEADERS              = 0x01,
+    XQC_H3_FRM_RESERVED_PRIORITY    = 0x02,
     XQC_H3_FRM_CANCEL_PUSH          = 0x03,
     XQC_H3_FRM_SETTINGS             = 0x04,
     XQC_H3_FRM_PUSH_PROMISE         = 0x05,
+    XQC_H3_FRM_RESERVED_PING        = 0x06,
     XQC_H3_FRM_GOAWAY               = 0x07,
+    XQC_H3_FRM_RESERVED_WINDOW_UPDATE = 0x08,
+    XQC_H3_FRM_RESERVED_CONTINUATION  = 0x09,
     XQC_H3_FRM_MAX_PUSH_ID          = 0x0d,
 
     /* extension */

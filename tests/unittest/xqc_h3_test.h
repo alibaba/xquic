@@ -22,6 +22,7 @@ void xqc_test_h3_goaway_id_increase_rejected();
 void xqc_test_h3_settings_accepted();
 void xqc_test_h3_reserved_h2_settings_rejected();
 void xqc_test_h3_reserved_control_frame_accepted();
+void xqc_test_h3_h2_reserved_frames_rejected();
 void xqc_test_h3_cancel_push_rejected();
 void xqc_test_h3_uncompressed_fields_size();
 void xqc_test_h3_recv_header_field_section_size();

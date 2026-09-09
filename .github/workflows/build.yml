@@ -16,11 +16,7 @@ jobs:
 
     name: Build on Ubuntu
 
-    runs-on: ${{ matrix.runs-on }}
-
-    strategy:
-      matrix:
-        runs-on: [ubuntu-latest]
+    runs-on: self-hosted
 
     steps:
     - name: Checkout repository

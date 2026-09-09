@@ -347,6 +347,12 @@ main(int argc, char *argv[])
                         xqc_test_h3_lowercase_field_name_stream_accepted)
         || !CU_add_test(pSuite, "xqc_test_h3_uppercase_field_name_stream_rejected",
                         xqc_test_h3_uppercase_field_name_stream_rejected)
+        /* RFC 9114 §4.3 pseudo-header field ordering */
+        || !CU_add_test(pSuite, "xqc_test_h3_pseudo_header_order_accepted",
+                        xqc_test_h3_pseudo_header_order_accepted)
+        || !CU_add_test(pSuite,
+                        "xqc_test_h3_pseudo_header_after_regular_rejected",
+                        xqc_test_h3_pseudo_header_after_regular_rejected)
         || !CU_add_test(pSuite, "xqc_test_stable", xqc_test_stable)
         || !CU_add_test(pSuite, "xqc_test_dtable", xqc_test_dtable)
         || !CU_add_test(pSuite, "test_2d_hash_table", test_2d_hash_table)

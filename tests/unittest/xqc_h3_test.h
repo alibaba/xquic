@@ -58,4 +58,8 @@ void xqc_test_h3_field_name_uppercase_rejection();
 void xqc_test_h3_lowercase_field_name_stream_accepted();
 void xqc_test_h3_uppercase_field_name_stream_rejected();
 
+/* RFC 9114 §4.3 pseudo-header field ordering */
+void xqc_test_h3_pseudo_header_order_accepted();
+void xqc_test_h3_pseudo_header_after_regular_rejected();
+
 #endif //XQUIC_XQC_H3_TEST_H

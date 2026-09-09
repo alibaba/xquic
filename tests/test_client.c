@@ -93,6 +93,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT 903
 #define XQC_TEST_CASE_DATAGRAM_1RTT_ALLOWED 1201
 #define XQC_TEST_CASE_DATAGRAM_INITIAL_REJECTED 1202
+#define XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE 715
+#define XQC_TEST_CASE_RETRY_IGNORE_OLD_INITIAL_DCID 716
 
 typedef struct user_conn_s user_conn_t;
 
@@ -254,6 +256,11 @@ size_t dgram2_size = 0;
 
 int dgram_drop_pkt1 = 0;
 int path_response_drop_pkt1 = 0;
+static unsigned char g_retry_original_initial[XQC_PACKET_TMP_BUF_LEN];
+static size_t g_retry_original_initial_len;
+static int g_retry_original_initial_saved;
+static int g_retry_original_initial_replayed;
+static int g_retry_token_corrupted;
 client_ctx_t ctx;
 struct event_base *eb;
 int g_send_dgram;
@@ -292,6 +299,7 @@ uint64_t g_last_sock_op_time;
  * 709/710 for active_connection_id_limit minimum validation
  * 711/712 for PMTUD peer-option omission validation
  * 713/714 for max_ack_delay boundary validation
+ * 715/716 for Retry invalid token and old Initial validation
  * 717 for RESET_STREAM on a peer-initiated unidirectional stream
  * 718/719 for MAX_STREAM_DATA stream direction validation
  * 902/903 for AEAD confidentiality-limit validation
@@ -307,7 +315,7 @@ int g_epoch_timeout = 1000000; /* us */
 char g_write_file[256];
 char g_read_file[256];
 char g_log_path[256];
-char g_host[64] = "test.xquic.com";
+char g_host[256] = "test.xquic.com";
 char g_url_path[256] = "/path/resource";
 char g_scheme[8] = "https";
 char g_url[2048];
@@ -917,6 +925,118 @@ xqc_client_read_token(unsigned char *token, unsigned token_len)
     return n;
 }
 
+static int
+xqc_test_read_vint_value(const unsigned char *buf, size_t size,
+    size_t *offset, uint64_t *value)
+{
+    if (*offset >= size) {
+        return 0;
+    }
+
+    size_t len = 1ULL << (buf[*offset] >> 6);
+    if (len > size - *offset) {
+        return 0;
+    }
+
+    uint64_t v = buf[*offset] & 0x3f;
+    for (size_t i = 1; i < len; i++) {
+        v = (v << 8) | buf[*offset + i];
+    }
+
+    *offset += len;
+    *value = v;
+    return 1;
+}
+
+
+static int
+xqc_test_parse_initial_token_range(const unsigned char *buf, size_t size,
+    size_t *token_offset, size_t *token_len)
+{
+    if (size < 7 || (buf[0] & 0x80) == 0 || ((buf[0] & 0x30) >> 4) != 0) {
+        return 0;
+    }
+
+    size_t offset = 5;
+    size_t dcid_len = buf[offset++];
+    if (dcid_len > size - offset) {
+        return 0;
+    }
+    offset += dcid_len;
+
+    if (offset >= size) {
+        return 0;
+    }
+
+    size_t scid_len = buf[offset++];
+    if (scid_len > size - offset) {
+        return 0;
+    }
+    offset += scid_len;
+
+    uint64_t len = 0;
+    if (!xqc_test_read_vint_value(buf, size, &offset, &len)
+        || len > size - offset)
+    {
+        return 0;
+    }
+
+    *token_offset = offset;
+    *token_len = (size_t)len;
+    return 1;
+}
+
+
+static void
+xqc_client_handle_retry_token_tests(unsigned char *send_buf, size_t send_buf_size,
+    int fd, const struct sockaddr *peer_addr, socklen_t peer_addrlen)
+{
+    size_t token_offset = 0;
+    size_t token_len = 0;
+
+    if (!xqc_test_parse_initial_token_range(send_buf, send_buf_size,
+                                            &token_offset, &token_len))
+    {
+        return;
+    }
+
+    if (g_test_case == XQC_TEST_CASE_RETRY_IGNORE_OLD_INITIAL_DCID
+        && token_len == 0 && !g_retry_original_initial_saved)
+    {
+        memcpy(g_retry_original_initial, send_buf, send_buf_size);
+        g_retry_original_initial_len = send_buf_size;
+        g_retry_original_initial_saved = 1;
+        printf("[retry-token-test]|save_original_initial|len:%zu|\n", send_buf_size);
+    }
+
+    if (g_test_case == XQC_TEST_CASE_RETRY_IGNORE_OLD_INITIAL_DCID
+        && token_len > 0 && g_retry_original_initial_saved
+        && !g_retry_original_initial_replayed)
+    {
+        ssize_t n = sendto(fd, g_retry_original_initial,
+                           g_retry_original_initial_len, 0,
+                           peer_addr, peer_addrlen);
+        if (n >= 0) {
+            g_retry_original_initial_replayed = 1;
+            printf("[retry-token-test]|replay_original_initial|len:%zu|\n",
+                   g_retry_original_initial_len);
+        } else {
+            printf("[retry-token-test]|replay_original_initial_failed|errno:%d|\n",
+                   get_sys_errno());
+        }
+    }
+
+    if (g_test_case == XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE
+        && token_len > 0 && !g_retry_token_corrupted)
+    {
+        send_buf[token_offset] ^= 0xff;
+        g_retry_token_corrupted = 1;
+        printf("[retry-token-test]|corrupt_retry_token|offset:%zu|len:%zu|\n",
+               token_offset, token_len);
+    }
+}
+
+
 int
 read_file_data(char *data, size_t data_len, char *filename)
 {
@@ -988,6 +1108,13 @@ xqc_client_write_socket(const unsigned char *buf, size_t size,
             g_test_case = -1;
             set_sys_errno(EAGAIN);
             return XQC_SOCKET_EAGAIN;
+        }
+
+        if (g_test_case == XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE
+            || g_test_case == XQC_TEST_CASE_RETRY_IGNORE_OLD_INITIAL_DCID)
+        {
+            xqc_client_handle_retry_token_tests(send_buf, send_buf_size, fd,
+                                                peer_addr, peer_addrlen);
         }
 
         /* client Initial dcid corruption */
@@ -1262,6 +1389,13 @@ xqc_client_write_socket_ex(uint64_t path_id,
             g_test_case = -1;
             errno = EAGAIN;
             return XQC_SOCKET_EAGAIN;
+        }
+
+        if (g_test_case == XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE
+            || g_test_case == XQC_TEST_CASE_RETRY_IGNORE_OLD_INITIAL_DCID)
+        {
+            xqc_client_handle_retry_token_tests(send_buf, send_buf_size, fd,
+                                                peer_addr, peer_addrlen);
         }
 
         /* client Initial dcid corruption */
@@ -5327,6 +5461,16 @@ int main(int argc, char *argv[]) {
     if (g_test_case == 703) {
         g_verify_cert = 1;
         g_verify_cert_allow_self_sign = 0;
+    }
+
+    if (g_test_case == XQC_TEST_CASE_RETRY_IGNORE_OLD_INITIAL_DCID) {
+        memset(g_host, 'a', 63);
+        g_host[63] = '.';
+        memset(g_host + 64, 'b', 63);
+        g_host[127] = '.';
+        memset(g_host + 128, 'c', 63);
+        snprintf(g_host + 191, sizeof(g_host) - 191, ".test.xquic.com");
+        printf("[retry-token-test]|large_sni_len:%zu|\n", strlen(g_host));
     }
 
     g_conn_settings = &conn_settings;

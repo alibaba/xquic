@@ -4233,7 +4233,7 @@ xqc_conn_early_data_reject(xqc_connection_t *conn)
  * check retry packet condition first and send retry packet if needed
  */
 xqc_int_t 
-xqc_conn_server_accept(xqc_connection_t *c)
+xqc_conn_server_accept(xqc_connection_t *c, xqc_packet_in_t *packet_in)
 {
     xqc_int_t ret = XQC_OK;
     /* check whether to send retry packet */
@@ -4245,7 +4245,13 @@ xqc_conn_server_accept(xqc_connection_t *c)
         } else if (c->version != XQC_IDRAFT_VER_29) { /* IDRAFT_VER_29 is too old to send retry packet */
             xqc_log(c->log, XQC_LOG_INFO, "|check_token fail|conn:%p|%s|", c, xqc_conn_addr_str(c)); 
             if (c->conn_flag & XQC_CONN_FLAG_RETRY_SENT) {
-                return -XQC_EIGNORE_PKT; /* retry packet already sent */
+                if (packet_in != NULL
+                    && xqc_cid_is_equal(&packet_in->pi_pkt.pkt_dcid, &c->retry_scid) == XQC_OK)
+                {
+                    XQC_CONN_ERR(c, TRA_INVALID_TOKEN);
+                    return -XQC_EPROTO;
+                }
+                return -XQC_EIGNORE_PKT;
             } else {
                 if (c->transport_cbs.conn_retry_packet_condition_check) {
                     if (c->transport_cbs.conn_retry_packet_condition_check(c->engine, 

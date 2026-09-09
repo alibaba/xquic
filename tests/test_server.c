@@ -166,6 +166,9 @@ int g_send_body_size_defined;
 int g_save_body;
 int g_read_body;
 int g_spec_url;
+#define XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE 715
+#define XQC_TEST_CASE_RETRY_IGNORE_OLD_INITIAL_DCID 716
+
 /* 99 pure fin, 7XX for transport, 9XX for QUIC-TLS */
 int g_test_case;
 int g_server_conn_cnt;
@@ -2382,7 +2385,11 @@ xqc_retry_packet_check(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_c
     (void *)conn;
     (void *)cid;
     (void *)user_data;
-    if (g_test_case == 601) { /* 601 for test retry packet */
+    if (g_test_case == 601
+        || g_test_case == XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE
+        || g_test_case == XQC_TEST_CASE_RETRY_IGNORE_OLD_INITIAL_DCID)
+    {
+        printf("[retry-token-test]|retry_enabled|case:%d|\n", g_test_case);
         return XQC_TRUE;
     }
     return XQC_FALSE; 

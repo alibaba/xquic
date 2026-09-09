@@ -233,6 +233,8 @@ xqc_cubic_reset_cwnd(void *cong_ctl)
     cubic->cwnd = cubic->min_cwnd;
     cubic->tcp_cwnd = cubic->min_cwnd;
     cubic->last_max_cwnd = cubic->min_cwnd;
+    /* RFC 9002 Appendix B.8 resets recovery after persistent congestion. */
+    cubic->congestion_recovery_start_time = 0;
 }
 
 int32_t

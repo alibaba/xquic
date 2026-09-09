@@ -4382,6 +4382,15 @@ xqc_conn_try_to_enable_pmtud(xqc_connection_t *conn)
              & pmtud_check_bit) != 0))
     {
         conn->enable_pmtud = 1;
+
+        /*
+         * RFC 9000 Section 14.3.1 starts QUIC DPLPMTUD after the
+         * handshake completes. Transport parameters can arrive earlier.
+         */
+        if (!(conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_COMPLETED)) {
+            return;
+        }
+
         now = xqc_monotonic_timestamp();
         if (conn->enable_multipath) {
             xqc_timer_set(&conn->conn_timer_manager, XQC_TIMER_PMTUD_PROBING, now, XQC_PMTUD_START_DELAY * 1000);
@@ -4483,6 +4492,8 @@ xqc_conn_handshake_complete(xqc_connection_t *conn)
             xqc_conn_early_data_accept(conn);
         }
     }
+
+    xqc_conn_try_to_enable_pmtud(conn);
 
     return XQC_OK;
 }
@@ -5387,29 +5398,13 @@ xqc_conn_ptmud_probing(xqc_connection_t *conn)
     if (conn->conn_state >= XQC_CONN_STATE_CLOSING) {
         xqc_log(conn->log, XQC_LOG_INFO, "|conn closing, cannot send PMTUD probing|");
     }
-    /* probing can only be sent in 0RTT/1RTT packets */
-
-    xqc_pkt_type_t pkt_type = XQC_PTYPE_SHORT_HEADER;
-    int support_0rtt = xqc_conn_is_ready_to_send_early_data(conn);
-
-    if (!(conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT)) {
-        if ((conn->conn_type == XQC_CONN_TYPE_CLIENT) 
-            && (conn->conn_state == XQC_CONN_STATE_CLIENT_INITIAL_SENT) 
-            && support_0rtt)
-        {
-            pkt_type = XQC_PTYPE_0RTT;
-            conn->conn_flag |= XQC_CONN_FLAG_HAS_0RTT;
-
-        } else {
-            return;
-        }
-    }
-
-    if (pkt_type == XQC_PTYPE_0RTT 
-        && conn->zero_rtt_count >= XQC_PACKET_0RTT_MAX_COUNT) 
+    if (!(conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_COMPLETED)
+        || !(conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT))
     {
         return;
     }
+
+    xqc_pkt_type_t pkt_type = XQC_PTYPE_SHORT_HEADER;
 
     /* generate PING packets */
     if (conn->probing_cnt >= 3) {

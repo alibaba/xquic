@@ -6,6 +6,8 @@
 #define XQC_CONN_TEST_H
 
 void xqc_test_conn_create();
+void xqc_test_conn_default_recv_window(void);
+void xqc_test_conn_recv_window_with_many_streams(void);
 void xqc_test_datagram_transport_param_65536(void);
 void xqc_test_datagram_transport_param_varint_max(void);
 void xqc_test_conn_idle_timeout();

@@ -82,6 +82,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_get_random", xqc_test_get_random)
         || !CU_add_test(pSuite, "xqc_test_engine_create", xqc_test_engine_create)
         || !CU_add_test(pSuite, "xqc_test_conn_create", xqc_test_conn_create)
+        || !CU_add_test(pSuite, "xqc_test_conn_default_recv_window",
+                        xqc_test_conn_default_recv_window)
+        || !CU_add_test(pSuite, "xqc_test_conn_recv_window_with_many_streams",
+                        xqc_test_conn_recv_window_with_many_streams)
         || !CU_add_test(pSuite, "xqc_test_datagram_transport_param_65536",
                         xqc_test_datagram_transport_param_65536)
         || !CU_add_test(pSuite,

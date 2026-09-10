@@ -553,9 +553,11 @@ xqc_conn_init_trans_settings(xqc_connection_t *conn)
             ls->max_data = xqc_min(XQC_MAX_RECV_WINDOW, ls->max_data);
 
         } else {
-            /* max_data is the sum of stream_data on all uni and bidi streams */
-            ls->max_data = ls->max_streams_bidi * ls->max_stream_data_bidi_local
-                + ls->max_streams_uni * ls->max_stream_data_uni;
+            /*
+             * RFC 9000 Section 4.1: connection flow control limits the
+             * aggregate receive buffer independently of per-stream limits.
+             */
+            ls->max_data = XQC_MAX_RECV_WINDOW;
         }
     }
 

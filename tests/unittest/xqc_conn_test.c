@@ -155,6 +155,64 @@ xqc_test_conn_create()
 
 
 void
+xqc_test_conn_default_recv_window(void)
+{
+    xqc_connection_t *conn;
+    xqc_transport_params_t params;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    xqc_init_transport_params(&params);
+    CU_ASSERT_EQUAL(xqc_conn_get_local_transport_params(conn, &params),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(params.initial_max_data, XQC_MAX_RECV_WINDOW);
+    CU_ASSERT_EQUAL(conn->conn_flow_ctl.fc_max_data_can_recv,
+                    XQC_MAX_RECV_WINDOW);
+    CU_ASSERT_EQUAL(conn->conn_flow_ctl.fc_recv_windows_size,
+                    XQC_MAX_RECV_WINDOW);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_conn_recv_window_with_many_streams(void)
+{
+    xqc_conn_settings_t conn_settings = {0};
+    xqc_conn_ssl_config_t conn_ssl_config = {0};
+    xqc_transport_params_t params;
+    xqc_engine_t *engine;
+    xqc_connection_t *conn;
+    const xqc_cid_t *cid;
+
+    engine = test_create_engine();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+
+    conn_settings.proto_version = XQC_VERSION_V1;
+    conn_settings.max_streams_bidi = 4096;
+    conn_settings.max_streams_uni = 4096;
+    cid = xqc_connect(engine, &conn_settings, NULL, 0, "", 0,
+                      &conn_ssl_config, NULL, 0, "transport", NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(cid);
+
+    conn = xqc_engine_conns_hash_find(engine, cid, 's');
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    CU_ASSERT_EQUAL(conn->local_settings.max_streams_bidi, 4096);
+    CU_ASSERT_EQUAL(conn->local_settings.max_streams_uni, 4096);
+    CU_ASSERT_EQUAL(conn->local_settings.max_data, XQC_MAX_RECV_WINDOW);
+    CU_ASSERT_EQUAL(conn->conn_flow_ctl.fc_max_data_can_recv,
+                    XQC_MAX_RECV_WINDOW);
+    xqc_init_transport_params(&params);
+    CU_ASSERT_EQUAL(xqc_conn_get_local_transport_params(conn, &params),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(params.initial_max_data, XQC_MAX_RECV_WINDOW);
+
+    xqc_engine_destroy(engine);
+}
+
+
+void
 xqc_test_datagram_transport_param_65536(void)
 {
     xqc_connection_t *conn = test_engine_connect();

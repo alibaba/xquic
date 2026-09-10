@@ -5135,9 +5135,7 @@ xqc_conn_process_packet(xqc_connection_t *c,
         ret = xqc_packet_process_single(
             c, packet_in, pos == packet_in_buf ? NULL : &first_dcid,
             &dcid_mismatch);
-        if (pos == packet_in_buf
-            && (ret == XQC_OK || packet_in->pi_flag & XQC_PIF_DISCARD))
-        {
+        if (ret == XQC_OK && pos == packet_in_buf) {
             xqc_cid_copy(&first_dcid, &packet_in->pi_pkt.pkt_dcid);
         }
 
@@ -5150,12 +5148,6 @@ xqc_conn_process_packet(xqc_connection_t *c,
             xqc_log(c->log, XQC_LOG_INFO,
                     "|ignore coalesced packet with different DCID|skip:%uz|",
                     (size_t)(packet_in->last - packet_in->buf));
-            pos = packet_in->last;
-            ret = XQC_OK;
-            continue;
-
-        } else if (packet_in->pi_flag & XQC_PIF_DISCARD) {
-            /* RFC 9000 Section 12.2: continue at the parsed boundary. */
             pos = packet_in->last;
             ret = XQC_OK;
             continue;

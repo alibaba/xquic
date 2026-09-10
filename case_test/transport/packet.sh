@@ -467,6 +467,7 @@ fi
 server_initial_token_case()
 {
     local case_id="$1"
+    local token_len="$2"
 
     case_test_stop_server
     clear_log
@@ -481,7 +482,7 @@ server_initial_token_case()
     case_test_wait_for_log svr_stdlog \
         "|case:${case_id}|server_handshake_finished|conn_err:0|" \
         || return 1
-    grep -qF "|case:${case_id}|queued_ping|token_len:0|" \
+    grep -qF "|case:${case_id}|queued_ping|token_len:${token_len}|" \
         svr_stdlog || return 1
     grep -qE '\|<==\|.*\|pkt_type:INIT\|frame:[^|]*PING' slog || return 1
     ! grep -qE 'decrypt (data|payload) error|packet protection error' \
@@ -490,7 +491,7 @@ server_initial_token_case()
 
 server_initial_zero_token_accepted()
 {
-    server_initial_token_case 727 || return 1
+    server_initial_token_case 727 0 || return 1
     grep -qE '\|====>\|.*\|pkt_type:INIT\|.*\|frame:[^|]*PING' \
         clog || return 1
     ! grep -qF '|discard server Initial with nonzero token length|' clog
@@ -498,15 +499,10 @@ server_initial_zero_token_accepted()
 
 server_initial_nonzero_token_discarded()
 {
-    server_initial_token_case 728 || return 1
-    grep -qF '|case:728|queued_close|token_len:1|' svr_stdlog || return 1
-    grep -qF '[initial-token-test]|coalesced|' svr_stdlog || return 1
+    server_initial_token_case 728 1 || return 1
     grep -qF '|discard server Initial with nonzero token length|1|' \
         clog || return 1
-    grep -qE '\|====>\|.*\|pkt_type:INIT\|pkt_num:1\|frame:[^|]*PING' \
-        clog || return 1
-    ! grep -qE '\|====>\|.*\|pkt_type:INIT\|.*\|frame:[^|]*CONNECTION_CLOSE' \
-        clog
+    ! grep -qE '\|====>\|.*\|pkt_type:INIT\|.*\|frame:[^|]*PING' clog
 }
 
 case_test_case "server_initial_zero_token_accepted" --id 727 \

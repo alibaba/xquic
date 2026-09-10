@@ -960,7 +960,7 @@ xqc_test_h3_recv_header_field_section_size()
        total_len + count*32 > limit. Pre-fix this would have been accepted. */
     hdr->count     = 1;
     hdr->total_len = 80;
-    h3r->current_header = 0;
+    h3r->completed_header_count = 0;
     h3r->read_flag      = 0;
     ret = xqc_h3_request_on_recv_header(h3r);
     CU_ASSERT_EQUAL(ret, -XQC_H3_INVALID_HEADER);
@@ -968,7 +968,7 @@ xqc_test_h3_recv_header_field_section_size()
     /* exact-equal-to-limit must be accepted (check is strictly greater) */
     hdr->count     = 2;
     hdr->total_len = 36;
-    h3r->current_header = 0;
+    h3r->completed_header_count = 0;
     h3r->read_flag      = 0;
     ret = xqc_h3_request_on_recv_header(h3r);
     CU_ASSERT_EQUAL(ret, XQC_OK);
@@ -976,7 +976,7 @@ xqc_test_h3_recv_header_field_section_size()
     /* one byte over the limit must be rejected */
     hdr->count     = 2;
     hdr->total_len = 37;
-    h3r->current_header = 0;
+    h3r->completed_header_count = 0;
     h3r->read_flag      = 0;
     ret = xqc_h3_request_on_recv_header(h3r);
     CU_ASSERT_EQUAL(ret, -XQC_H3_INVALID_HEADER);
@@ -984,7 +984,7 @@ xqc_test_h3_recv_header_field_section_size()
     /* zero-field headers under the limit are accepted */
     hdr->count     = 0;
     hdr->total_len = 50;
-    h3r->current_header = 0;
+    h3r->completed_header_count = 0;
     h3r->read_flag      = 0;
     ret = xqc_h3_request_on_recv_header(h3r);
     CU_ASSERT_EQUAL(ret, XQC_OK);
@@ -1078,7 +1078,7 @@ xqc_h3_msgerr_setup(xqc_connection_t **out_conn, xqc_h3_conn_t **out_h3c)
         return NULL;
     }
 
-    /* eagerly create the request so tests can manipulate current_header
+    /* eagerly create the request so tests can manipulate completed_header_count
      * before feeding bytes through process_in. */
     h3s->h3r = xqc_h3_request_create_inner(h3c, h3s, NULL);
     if (h3s->h3r == NULL) {
@@ -1213,7 +1213,7 @@ xqc_test_h3_headers_capacity_uses_internal_error()
 
     /*
      * Simulate two prior HEADERS sections (request + trailer) by
-     * jumping current_header to the cap. A third HEADERS frame then
+     * jumping completed_header_count to the cap. A third HEADERS frame then
      * makes xqc_h3_request_get_writing_headers return NULL inside
      * xqc_h3_stream_process_request (xqc_h3_stream.c:920), which is
      * an implementation-side capacity exhaustion. Post-fix this must
@@ -1222,7 +1222,7 @@ xqc_test_h3_headers_capacity_uses_internal_error()
      * first-write-wins so the outer process_in mapping at line 1521
      * does not overwrite it.
      */
-    h3s->h3r->current_header = XQC_H3_REQUEST_MAX_HEADERS_CNT;
+    h3s->h3r->completed_header_count = XQC_H3_REQUEST_MAX_HEADERS_CNT;
 
     CU_ASSERT(conn->conn_err == 0);
 
@@ -1268,7 +1268,7 @@ xqc_test_h3_valid_headers_smoke()
     CU_ASSERT(h3s->stream->stream_state_send
               < XQC_SEND_STREAM_ST_RESET_SENT);
     /* the HEADERS frame should have advanced the request to 1 section */
-    CU_ASSERT(h3s->h3r->current_header == 1);
+    CU_ASSERT(h3s->h3r->completed_header_count == 1);
 
     xqc_h3_msgerr_teardown(h3s, h3c, conn);
 }
@@ -2236,7 +2236,7 @@ xqc_test_h3_data_after_headers_accepted()
     ssize_t processed = xqc_h3_stream_process_request(h3s, headers,
             sizeof(headers), XQC_FALSE);
     CU_ASSERT(processed == (ssize_t)sizeof(headers));
-    CU_ASSERT(h3s->h3r->current_header == XQC_H3_REQUEST_TRAILER);
+    CU_ASSERT(h3s->h3r->completed_header_count == 1);
 
     processed = xqc_h3_stream_process_request(h3s, data, sizeof(data),
             XQC_FALSE);
@@ -2267,7 +2267,7 @@ xqc_test_h3_data_before_headers_rejected()
     CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_FRAME_UNEXPECTED);
     CU_ASSERT(XQC_CONN_ERR_IS_APPLICATION(conn->conn_err));
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
-    CU_ASSERT(h3s->h3r->current_header == XQC_H3_REQUEST_HEADER);
+    CU_ASSERT(h3s->h3r->completed_header_count == 0);
     CU_ASSERT(h3s->h3r->body_buf_count == 0);
     CU_ASSERT(xqc_list_empty(&h3s->h3r->body_buf));
     CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
@@ -2641,7 +2641,7 @@ xqc_test_h3_field_name_uppercase_rejection()
     hdr->total_len = 12;
     hdr->capacity  = 1;
 
-    h3r->current_header = 0;
+    h3r->completed_header_count = 0;
     h3r->read_flag      = 0;
     xqc_int_t ret = xqc_h3_request_on_recv_header(h3r);
     CU_ASSERT_EQUAL(ret, -XQC_H3_EMALFORMED_HEADER);
@@ -2650,7 +2650,7 @@ xqc_test_h3_field_name_uppercase_rejection()
     fake_hdrs[0].name.iov_base = (void *)"x-good-name";
     fake_hdrs[0].name.iov_len  = 11;
     hdr->total_len = 13;
-    h3r->current_header = 0;
+    h3r->completed_header_count = 0;
     h3r->read_flag      = 0;
     ret = xqc_h3_request_on_recv_header(h3r);
     CU_ASSERT_EQUAL(ret, XQC_OK);
@@ -2762,7 +2762,7 @@ xqc_test_h3_pseudo_header_order_accepted()
     CU_ASSERT_EQUAL(h3s->stream->stream_err, 0);
     CU_ASSERT_EQUAL(conn->conn_err, 0);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
-    CU_ASSERT_EQUAL(h3s->h3r->current_header, 1);
+    CU_ASSERT_EQUAL(h3s->h3r->completed_header_count, 1);
     CU_ASSERT(h3s->h3r->read_flag & XQC_REQ_NOTIFY_READ_HEADER);
 
     xqc_h3_msgerr_teardown(h3s, h3c, conn);
@@ -2794,7 +2794,7 @@ xqc_test_h3_pseudo_header_after_regular_rejected()
               >= XQC_SEND_STREAM_ST_RESET_SENT);
     CU_ASSERT_EQUAL(conn->conn_err, 0);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
-    CU_ASSERT_EQUAL(h3s->h3r->current_header, 0);
+    CU_ASSERT_EQUAL(h3s->h3r->completed_header_count, 0);
     CU_ASSERT_EQUAL(h3s->h3r->read_flag, 0);
 
     xqc_h3_msgerr_teardown(h3s, h3c, conn);

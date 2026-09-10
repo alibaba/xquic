@@ -935,6 +935,10 @@ xqc_stream_close_with_error(xqc_stream_t *stream, uint64_t err_code)
             stream->stream_state_send, stream->stream_state_recv, conn,
             xqc_conn_state_2_str(conn->conn_state), err_code);
 
+    /* Preserve the local cause even when no close frame remains legal. */
+    if (stream->stream_close_msg == NULL) {
+        stream->stream_err = err_code;
+    }
     XQC_STREAM_CLOSE_MSG(stream, "local reset");
 
     send_reset = !recv_only

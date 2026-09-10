@@ -1849,6 +1849,7 @@ xqc_test_stream_close_after_data_recvd(void)
     ret = xqc_stream_close(stream);
     CU_ASSERT(ret == XQC_OK);
     CU_ASSERT(stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_RECVD);
+    CU_ASSERT(stream->stream_err == H3_REQUEST_CANCELLED);
     CU_ASSERT(xqc_test_count_queued_frame(
                   conn, XQC_FRAME_BIT_RESET_STREAM) == reset_before);
     CU_ASSERT(xqc_test_count_queued_frame(
@@ -1880,6 +1881,7 @@ xqc_test_stream_close_data_recvd_bidirectional(void)
     ret = xqc_stream_close(stream);
     CU_ASSERT(ret == XQC_OK);
     CU_ASSERT(stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_RECVD);
+    CU_ASSERT(stream->stream_err == H3_REQUEST_CANCELLED);
     CU_ASSERT(xqc_test_count_queued_frame(
                   conn, XQC_FRAME_BIT_RESET_STREAM) == reset_before);
     stop_after = xqc_test_count_queued_frame(

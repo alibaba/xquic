@@ -69,6 +69,7 @@ xqc_test_client_initial_zero_token(void)
         CU_ASSERT_EQUAL(packet_in.pi_pkt.length, 1);
         CU_ASSERT_EQUAL(packet_in.pi_pkt.pkt_num_offset, size - 1);
         CU_ASSERT_PTR_EQUAL(packet_in.last, buf + size);
+        CU_ASSERT_FALSE(packet_in.pi_flag & XQC_PIF_DISCARD);
         CU_ASSERT_EQUAL(conn->conn_err, 0);
     }
     xqc_engine_destroy(conn->engine);
@@ -79,9 +80,10 @@ void
 xqc_test_client_initial_nonzero_token(void)
 {
     xqc_connection_t *conn = test_engine_connect();
-    const size_t lengths[] = {1, 63, 64, XQC_MAX_TOKEN_LEN};
+    const size_t lengths[] = {1, 63, 64, XQC_MAX_TOKEN_LEN,
+                             XQC_MAX_TOKEN_LEN + 1};
     xqc_packet_in_t packet_in;
-    unsigned char buf[XQC_MAX_TOKEN_LEN + 10];
+    unsigned char buf[XQC_MAX_TOKEN_LEN + 11];
     size_t size;
     xqc_int_t ret;
 
@@ -104,7 +106,9 @@ xqc_test_client_initial_nonzero_token(void)
             CU_ASSERT_EQUAL(conn->conn_err, 0);
             CU_ASSERT_EQUAL(conn->conn_token_len, 1);
             CU_ASSERT_EQUAL(conn->conn_token[0], 0x7b);
-            CU_ASSERT_EQUAL(packet_in.pi_pkt.pkt_num_offset, 0);
+            CU_ASSERT_EQUAL(packet_in.pi_pkt.pkt_num_offset, size - 1);
+            CU_ASSERT_PTR_EQUAL(packet_in.last, buf + size);
+            CU_ASSERT_TRUE(packet_in.pi_flag & XQC_PIF_DISCARD);
         }
     }
     xqc_engine_destroy(conn->engine);
@@ -139,6 +143,7 @@ xqc_test_server_initial_token(void)
             CU_ASSERT_EQUAL(memcmp(conn->conn_token,
                                    buf + xqc_vint_len(bits), lengths[i]), 0);
             CU_ASSERT_EQUAL(packet_in.pi_pkt.pkt_num_offset, size - 1);
+            CU_ASSERT_FALSE(packet_in.pi_flag & XQC_PIF_DISCARD);
             CU_ASSERT_EQUAL(conn->conn_err, 0);
         }
     }
@@ -156,11 +161,14 @@ xqc_test_initial_token_bounds(void)
         size_t token_len;
         unsigned int bits;
         size_t truncated_bytes;
+        xqc_bool_t client_discard;
     } cases[] = {
-        {7, 0, 3},                         /* truncated token */
-        {XQC_MAX_TOKEN_LEN + 1, 1, 0},      /* oversized token */
-        {0, 0, 2},                         /* missing Length */
-        {0, 0, 1},                         /* missing payload */
+        {7, 0, 3, XQC_FALSE},                    /* truncated token */
+        {XQC_MAX_TOKEN_LEN + 1, 1, 0, XQC_TRUE},  /* oversized token */
+        {0, 0, 2, XQC_FALSE},                    /* missing Length */
+        {0, 0, 1, XQC_FALSE},                    /* missing payload */
+        {7, 0, 2, XQC_FALSE},                    /* missing Length */
+        {7, 0, 1, XQC_FALSE},                    /* missing payload */
     };
     xqc_packet_in_t packet_in;
     unsigned char buf[XQC_MAX_TOKEN_LEN + 11];
@@ -178,6 +186,7 @@ xqc_test_initial_token_bounds(void)
             packet_in.datagram_size = XQC_PACKET_INITIAL_MIN_LENGTH;
             ret = xqc_packet_parse_initial(conn, &packet_in);
             CU_ASSERT_EQUAL(ret, -XQC_EILLPKT);
+            CU_ASSERT_FALSE(packet_in.pi_flag & XQC_PIF_DISCARD);
         }
 
         for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
@@ -190,6 +199,9 @@ xqc_test_initial_token_bounds(void)
             ret = xqc_packet_parse_initial(conn, &packet_in);
             CU_ASSERT_EQUAL(ret, -XQC_EILLPKT);
             CU_ASSERT_EQUAL(conn->conn_err, 0);
+            CU_ASSERT_EQUAL(!!(packet_in.pi_flag & XQC_PIF_DISCARD),
+                            roles[role] == XQC_CONN_TYPE_CLIENT
+                            && cases[i].client_discard);
         }
     }
     conn->conn_type = XQC_CONN_TYPE_CLIENT;
@@ -415,6 +427,8 @@ static size_t xqc_test_build_initial_token(test_ctx *sender,
 static size_t xqc_test_build_initial(test_ctx *cli, const xqc_cid_t *dcid,
     xqc_packet_number_t packet_number, xqc_bool_t connection_close,
     size_t packet_size, unsigned char *buf, size_t buf_cap);
+static void xqc_test_initial_token_coalesced(uint32_t token_len,
+    xqc_bool_t mismatching_dcid);
 
 
 ssize_t
@@ -944,6 +958,92 @@ xqc_test_initial_token_discard_recovery(void)
 
 end:
     xqc_test_coalesced_teardown(&cli, &svr);
+}
+
+
+static void
+xqc_test_initial_token_coalesced(uint32_t token_len,
+    xqc_bool_t mismatching_dcid)
+{
+    test_ctx cli = {0};
+    test_ctx svr = {0};
+    xqc_cid_t wrong_dcid;
+    const xqc_cid_t *dcid;
+    unsigned char token[XQC_MAX_TOKEN_LEN + 1];
+    unsigned char datagram[4096];
+    size_t offset = 0;
+    size_t size;
+    uint64_t dropped_count;
+    unsigned int packet_count = mismatching_dcid ? 3 : 2;
+    int recv_index;
+    int valid_index;
+    xqc_int_t ret;
+
+    ret = xqc_test_coalesced_setup(&cli, &svr);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    if (ret != XQC_OK) {
+        goto end;
+    }
+
+    dropped_count = cli.c->packet_dropped_count;
+    recv_index = cli.c->rcv_pkt_stats.curr_index;
+    xqc_cid_copy(&wrong_dcid, &cli.c->scid_set.user_scid);
+    wrong_dcid.cid_buf[0] ^= 0xff;
+    memset(token, 0xa5, sizeof(token));
+
+    for (unsigned int i = 0; i < packet_count; i++) {
+        dcid = mismatching_dcid && i == 1
+               ? &wrong_dcid : &cli.c->scid_set.user_scid;
+        size = xqc_test_build_initial_token(
+            &svr, dcid, i + 1, XQC_TRUE, i == 0 ? token : NULL,
+            i == 0 ? token_len : 0, XQC_TEST_COALESCED_PACKET_SIZE,
+            datagram + offset, sizeof(datagram) - offset);
+        CU_ASSERT_EQUAL(size, XQC_TEST_COALESCED_PACKET_SIZE);
+        if (size != XQC_TEST_COALESCED_PACKET_SIZE) {
+            goto end;
+        }
+        offset += size;
+    }
+
+    /* RFC 9000 Section 12.2: retain the first DCID while skipping a packet. */
+    ret = xqc_conn_process_packet(cli.c, datagram, offset, xqc_now());
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(cli.c->packet_dropped_count, dropped_count);
+    CU_ASSERT_EQUAL(cli.c->rcv_pkt_stats.pkt_err[recv_index], -XQC_EILLPKT);
+    CU_ASSERT_EQUAL(cli.c->rcv_pkt_stats.pkt_frames[recv_index], 0);
+    if (mismatching_dcid) {
+        int mismatch_index = (recv_index + 1) % 3;
+        CU_ASSERT_EQUAL(cli.c->rcv_pkt_stats.pkt_err[mismatch_index],
+                        -XQC_EIGNORE_PKT);
+        CU_ASSERT_EQUAL(cli.c->rcv_pkt_stats.pkt_frames[mismatch_index], 0);
+    }
+
+    valid_index = (recv_index + packet_count - 1) % 3;
+    CU_ASSERT_EQUAL(cli.c->rcv_pkt_stats.pkt_err[valid_index], XQC_OK);
+    CU_ASSERT_EQUAL(cli.c->rcv_pkt_stats.pkt_pn[valid_index], packet_count);
+    CU_ASSERT_TRUE(cli.c->rcv_pkt_stats.pkt_frames[valid_index]
+                   & XQC_FRAME_BIT_CONNECTION_CLOSE);
+    CU_ASSERT_NOT_EQUAL(cli.c->conn_close_recv_time, 0);
+    CU_ASSERT(cli.c->conn_state >= XQC_CONN_STATE_DRAINING);
+
+end:
+    xqc_test_coalesced_teardown(&cli, &svr);
+}
+
+
+void
+xqc_test_initial_token_coalesced_tail(void)
+{
+    xqc_test_initial_token_coalesced(1, XQC_FALSE);
+    xqc_test_initial_token_coalesced(XQC_MAX_TOKEN_LEN + 1, XQC_FALSE);
+}
+
+
+void
+xqc_test_initial_token_coalesced_dcid(void)
+{
+    xqc_test_initial_token_coalesced(1, XQC_TRUE);
+    xqc_test_initial_token_coalesced(XQC_MAX_TOKEN_LEN + 1, XQC_TRUE);
 }
 
 

@@ -92,7 +92,8 @@ static void xqc_server_send_test_control_frame(xqc_h3_conn_t *h3_conn,
     uint64_t frame_type);
 static xqc_int_t xqc_server_send_previous_level_crypto(
     xqc_connection_t *conn, xqc_bool_t extend);
-static void xqc_server_send_initial_token_test_packet(xqc_connection_t *conn);
+static void xqc_server_send_initial_token_test_packet(xqc_connection_t *conn,
+    xqc_bool_t nonzero);
 
 
 typedef struct user_datagram_block_s {
@@ -150,6 +151,9 @@ typedef struct user_conn_s {
 
     xqc_connection_t   *quic_conn;
     xqc_h3_conn_t      *h3_conn;
+    unsigned char      initial_token_prefix[XQC_PACKET_TMP_BUF_LEN];
+    size_t             initial_token_prefix_len;
+    xqc_bool_t         initial_token_coalesced;
 } user_conn_t;
 
 typedef struct xqc_server_ctx_s {
@@ -1036,14 +1040,12 @@ xqc_server_stream_read_notify(xqc_stream_t *stream, void *user_data)
 }
 
 static void
-xqc_server_send_initial_token_test_packet(xqc_connection_t *conn)
+xqc_server_send_initial_token_test_packet(xqc_connection_t *conn,
+    xqc_bool_t nonzero)
 {
     xqc_packet_out_t *packet_out;
     const unsigned char token = 0xab;
-    xqc_bool_t nonzero;
     ssize_t ret;
-
-    nonzero = g_test_case == XQC_TEST_CASE_SERVER_INITIAL_NONZERO_TOKEN;
 
     packet_out = xqc_write_new_packet(conn, XQC_PTYPE_INIT);
     if (packet_out == NULL) {
@@ -1072,7 +1074,13 @@ xqc_server_send_initial_token_test_packet(xqc_connection_t *conn)
         packet_out->po_used_size = ret;
     }
 
-    ret = xqc_gen_ping_frame(packet_out);
+    if (nonzero) {
+        ret = xqc_gen_conn_close_frame(packet_out, TRA_PROTOCOL_VIOLATION,
+                                      0, 0, NULL, 0);
+
+    } else {
+        ret = xqc_gen_ping_frame(packet_out);
+    }
     if (ret < 0) {
         printf("[initial-token-test]|frame_failed:%zd|\n", ret);
         xqc_maybe_recycle_packet_out(packet_out, conn);
@@ -1083,8 +1091,8 @@ xqc_server_send_initial_token_test_packet(xqc_connection_t *conn)
     xqc_long_packet_update_length(packet_out);
     xqc_send_queue_move_to_high_pri(&packet_out->po_list,
                                     conn->conn_send_queue);
-    printf("[initial-token-test]|case:%d|queued_ping|token_len:%d|\n",
-           g_test_case, nonzero);
+    printf("[initial-token-test]|case:%d|queued_%s|token_len:%d|\n",
+           g_test_case, nonzero ? "close" : "ping", nonzero);
     fflush(stdout);
 }
 
@@ -1161,8 +1169,12 @@ xqc_server_h3_conn_create_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, v
     if (g_test_case == XQC_TEST_CASE_SERVER_INITIAL_ZERO_TOKEN
         || g_test_case == XQC_TEST_CASE_SERVER_INITIAL_NONZERO_TOKEN)
     {
+        if (g_test_case == XQC_TEST_CASE_SERVER_INITIAL_NONZERO_TOKEN) {
+            xqc_server_send_initial_token_test_packet(
+                xqc_h3_conn_get_xqc_conn(h3_conn), XQC_TRUE);
+        }
         xqc_server_send_initial_token_test_packet(
-            xqc_h3_conn_get_xqc_conn(h3_conn));
+            xqc_h3_conn_get_xqc_conn(h3_conn), XQC_FALSE);
     }
 
     return 0;
@@ -2038,6 +2050,7 @@ xqc_server_write_socket(const unsigned char *buf, size_t size,
     /* COPY to run corruption test cases */
     unsigned char send_buf[XQC_PACKET_TMP_BUF_LEN];
     size_t send_buf_size = 0;
+    xqc_bool_t coalescing = XQC_FALSE;
     
     if (size > XQC_PACKET_TMP_BUF_LEN) {
         printf("xqc_server_write_socket err: size=%zu is too long\n", size);
@@ -2045,6 +2058,28 @@ xqc_server_write_socket(const unsigned char *buf, size_t size,
     }
     send_buf_size = size;
     memcpy(send_buf, buf, send_buf_size);
+
+    if (g_test_case == XQC_TEST_CASE_SERVER_INITIAL_NONZERO_TOKEN
+        && user_conn != NULL && !user_conn->initial_token_coalesced)
+    {
+        /* RFC 9000 Section 12.2: the valid tail must survive prefix discard. */
+        if (size == 0 || (buf[0] & 0xf0) != 0xc0) {
+            return XQC_SOCKET_ERROR;
+        }
+        if (user_conn->initial_token_prefix_len == 0) {
+            memcpy(user_conn->initial_token_prefix, buf, size);
+            user_conn->initial_token_prefix_len = size;
+            return size;
+        }
+        if (size > sizeof(send_buf) - user_conn->initial_token_prefix_len) {
+            return XQC_SOCKET_ERROR;
+        }
+        memcpy(send_buf, user_conn->initial_token_prefix,
+               user_conn->initial_token_prefix_len);
+        memcpy(send_buf + user_conn->initial_token_prefix_len, buf, size);
+        send_buf_size += user_conn->initial_token_prefix_len;
+        coalescing = XQC_TRUE;
+    }
 
     /* server Initial dcid corruption ... */
     if (g_test_case == 3) {
@@ -2087,6 +2122,15 @@ xqc_server_write_socket(const unsigned char *buf, size_t size,
         // printf("sending rate: %.3f Kbps\n", (snd_sum - last_snd_sum) * 8.0 * 1000 / (xqc_now() - last_snd_ts));
         last_snd_ts = xqc_now();
         last_snd_sum = snd_sum;
+    }
+
+    if (coalescing && res == send_buf_size) {
+        printf("[initial-token-test]|coalesced|prefix:%zu|tail:%zu|\n",
+               user_conn->initial_token_prefix_len, size);
+        fflush(stdout);
+        user_conn->initial_token_prefix_len = 0;
+        user_conn->initial_token_coalesced = XQC_TRUE;
+        res = size;
     }
 
     return res;

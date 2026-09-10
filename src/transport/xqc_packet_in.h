@@ -15,6 +15,8 @@
 typedef enum {
     XQC_PIF_REINJECTED_REPLICA  = 1 << 0,
     XQC_PIF_FEC_RECOVERED       = 1 << 1,
+    /* Discard only this packet; last contains its validated boundary. */
+    XQC_PIF_DISCARD            = 1 << 2,
 } xqc_packet_in_flag_t;
 
 struct xqc_packet_in_s {

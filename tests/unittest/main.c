@@ -184,6 +184,10 @@ main(int argc, char *argv[])
                         xqc_test_client_initial_sends_token)
         || !CU_add_test(pSuite, "xqc_test_server_initial_omits_token",
                         xqc_test_server_initial_omits_token)
+        || !CU_add_test(pSuite, "xqc_test_initial_token_coalesced_tail",
+                        xqc_test_initial_token_coalesced_tail)
+        || !CU_add_test(pSuite, "xqc_test_initial_token_coalesced_dcid",
+                        xqc_test_initial_token_coalesced_dcid)
         || !CU_add_test(pSuite, "xqc_test_packet_out_remained_size",
                         xqc_test_packet_out_remained_size)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_flood", xqc_test_crypto_frame_flood)

@@ -16,6 +16,8 @@ void xqc_test_initial_token_bounds(void);
 void xqc_test_initial_token_discard_recovery(void);
 void xqc_test_client_initial_sends_token(void);
 void xqc_test_server_initial_omits_token(void);
+void xqc_test_initial_token_coalesced_tail(void);
+void xqc_test_initial_token_coalesced_dcid(void);
 void xqc_test_packet_out_remained_size(void);
 void xqc_test_packet_encrypt_hp_sample_boundary();
 void xqc_test_empty_pkt();

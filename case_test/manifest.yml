@@ -2,6 +2,16 @@
 version: 1
 max_parallel_jobs: 11
 groups:
+- id: demo.hq
+  module: demo
+  submodule: hq
+  source_paths:
+  - demo/xqc_hq*
+  - demo/demo_client.c
+  - demo/demo_server.c
+  runner: case_test/demo/hq.sh
+  execution: implemented
+  port_offset: 120
 - id: transport.core
   module: transport
   source_paths:

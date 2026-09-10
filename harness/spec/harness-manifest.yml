@@ -64,6 +64,15 @@ test_routing:
   case_manifest: case_test/manifest.yml
 
 modules:
+  demo:
+    paths:
+      - demo/*
+    read:
+      - harness/spec/architecture.md
+      - case_test/README.md
+    validation:
+      level: targeted
+
   api:
     paths:
       - include/xquic/*

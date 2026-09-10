@@ -45,10 +45,10 @@ The required minimum is:
 - endpoint-visible abnormal-path coverage.
 
 When `scripts/case_test.sh` cases are added, the paired cases must use
-distinct `case_print_result` names and exercise the real `tests/test_client` to
-`tests/test_server` path. Their assertions must prove the expected
-endpoint-visible result. For an error path, prove the specific rejection,
-connection error, close, or recovery behavior rather than accepting any
+distinct `case_print_result` names and exercise a real client-to-server path
+using the existing `tests/` or `demo/` executables. Their assertions must prove
+the expected endpoint-visible result. For an error path, prove the specific
+rejection, connection error, close, or recovery behavior rather than accepting any
 failure. Until targeted case execution exists, record missing or unrun
 client-to-server coverage as a gap instead of running the full suite by
 default.
@@ -110,7 +110,7 @@ its case is retired so later changes cannot reuse it.
 | `[1400, 1499]` | MoQT | None |
 | `[1500, 1599]` | LOC and MSF application protocols | None |
 | `[1600, 1699]` | FEC and experimental transport extensions | None |
-| `[1700, 1799]` | Common runtime, public API, and test harness | None |
+| `[1700, 1799]` | Common runtime, public API, and test harness | `1702-1703` |
 
 Apply these allocation rules before running a new case:
 

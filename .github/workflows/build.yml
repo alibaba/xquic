@@ -305,24 +305,29 @@ jobs:
     - name: Check Test Result
       run: |
         log_file=xquic_test_ubuntu_24_babassl.log
-        unit_total=$(awk '/  Test: / {count++} END {print count + 0}' \
-          "$log_file")
-        unit_passed=$(awk '/  Test: .*passed/ {count++} END {print count + 0}' \
-          "$log_file")
-        unit_failed=$(awk '/  Test: .*FAILED/ {count++} END {print count + 0}' \
-          "$log_file")
+        unit_summary=$(awk '
+          $1 == "tests" && NF == 6 && $2 ~ /^[0-9]+$/ \
+            && $3 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ && $5 ~ /^[0-9]+$/ {
+            summary = $2 " " $3 " " $4 " " $5
+          }
+          END {print summary}
+        ' "$log_file")
+        read -r unit_total unit_ran unit_passed unit_failed \
+          <<< "${unit_summary:-0 0 0 1}"
         case_result=1
         if [ -f xquic_case_status_ubuntu_24_babassl ]; then
           case_result=`cat xquic_case_status_ubuntu_24_babassl`
         fi
 
-        echo "unit test total:$unit_total passed:$unit_passed failed:$unit_failed"
+        echo "unit test total:$unit_total ran:$unit_ran" \
+          "passed:$unit_passed failed:$unit_failed"
         echo "case test result:$case_result"
         if [ -f xquic_case_test_ubuntu_24_babassl.log ]; then
           cat xquic_case_test_ubuntu_24_babassl.log | grep -E '^\[case-test:[^]]+\] .+ >>>>>>>> pass:' || true
         fi
 
         if [ "$unit_total" -gt 0 ] \
+          && [ "$unit_ran" -eq "$unit_total" ] \
           && [ "$unit_passed" -eq "$unit_total" ] \
           && [ "$unit_failed" -eq 0 ] \
           && [ "$case_result" -eq 0 ]; then

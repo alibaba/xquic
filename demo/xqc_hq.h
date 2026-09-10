@@ -132,6 +132,11 @@ void xqc_hq_request_set_user_data(xqc_hq_request_t *hqr, void *user_data);
 ssize_t
 xqc_hq_request_send_req(xqc_hq_request_t *hqr, const char *resource);
 
+/*
+ * Return copied resource bytes, excluding the terminating NUL. Partial reads
+ * resume at the previous offset; fin is set only when the last bytes are
+ * delivered. Later reads consume transport input without repeating the path.
+ */
 ssize_t
 xqc_hq_request_recv_req(xqc_hq_request_t *hqr, char *res_buf, size_t buf_sz, uint8_t *fin);
 

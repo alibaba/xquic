@@ -479,13 +479,21 @@ xqc_packet_parse_initial(xqc_connection_t *c, xqc_packet_in_t *packet_in)
     }
     pos += size;
 
+    if (token_len > XQC_MAX_TOKEN_LEN) {
+        xqc_log(c->log, XQC_LOG_ERROR, "|token length exceed XQC_MAX_TOKEN_LEN|%ui|", token_len);
+        return -XQC_EILLPKT;
+    }
+
+    /* RFC 9000 Section 17.2.2: server Initial packets cannot carry tokens. */
+    if (c->conn_type == XQC_CONN_TYPE_CLIENT && token_len != 0) {
+        xqc_log(c->log, XQC_LOG_INFO,
+                "|discard server Initial with nonzero token length|%ui|",
+                token_len);
+        return -XQC_EILLPKT;
+    }
+
     /* server save token and check token when decode crypto frame */
     if (c->conn_type == XQC_CONN_TYPE_SERVER) {
-        if (token_len > XQC_MAX_TOKEN_LEN) {
-            xqc_log(c->log, XQC_LOG_ERROR,
-                    "|token length exceed XQC_MAX_TOKEN_LEN|%ui|", token_len);
-            return -XQC_EILLPKT;
-        }
         memcpy(c->conn_token, pos, token_len);
         c->conn_token_len = token_len;
     }
@@ -506,18 +514,6 @@ xqc_packet_parse_initial(xqc_connection_t *c, xqc_packet_in_t *packet_in)
     packet_in->pi_pkt.pkt_num_offset = pos - packet_in->buf;
     if (packet_in->last > end) {
         xqc_log(c->log, XQC_LOG_ERROR, "|illegal pkt with wrong length");
-        return -XQC_EILLPKT;
-    }
-
-    /*
-     * RFC 9000 Sections 17.2.2 and 12.2: discard a server token, retaining
-     * the packet boundary so following coalesced packets can be processed.
-     */
-    if (c->conn_type == XQC_CONN_TYPE_CLIENT && token_len != 0) {
-        packet_in->pi_flag |= XQC_PIF_DISCARD;
-        xqc_log(c->log, XQC_LOG_INFO,
-                "|discard server Initial with nonzero token length|%ui|",
-                token_len);
         return -XQC_EILLPKT;
     }
 

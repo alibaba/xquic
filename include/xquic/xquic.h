@@ -2062,7 +2062,8 @@ XQC_EXPORT_PUBLIC_API
 xqc_stream_id_t xqc_stream_id(xqc_stream_t *stream);
 
 /**
- * Send RESET_STREAM to peer, stream_close_notify will callback when stream destroyed
+ * Close the applicable stream directions with RESET_STREAM or STOP_SENDING.
+ * stream_close_notify will callback when stream destroyed.
  * @retval XQC_OK for success, others for failure
  */
 XQC_EXPORT_PUBLIC_API

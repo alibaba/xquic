@@ -80,6 +80,7 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_CRYPTO_PREVIOUS_LEVEL_BOUNDARY 720
 #define XQC_TEST_CASE_CRYPTO_PREVIOUS_LEVEL_EXTENSION 721
 #define XQC_TEST_CASE_DATAGRAM_1RTT_ALLOWED 1201
+#define XQC_TEST_CASE_CLOSE_RECV_ONLY_STREAM 725
 
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
@@ -801,6 +802,10 @@ xqc_server_send_previous_level_crypto(xqc_connection_t *conn,
 void
 xqc_server_conn_handshake_finished(xqc_connection_t *conn, void *user_data, void *conn_proto_data)
 {
+    const unsigned char payload = 0;
+    xqc_stream_t *stream;
+    ssize_t ret;
+
     DEBUG;
     printf("datagram_mss:%zd\n", xqc_datagram_get_mss(conn));
 
@@ -810,6 +815,21 @@ xqc_server_conn_handshake_finished(xqc_connection_t *conn, void *user_data, void
         xqc_server_send_previous_level_crypto(
             conn,
             g_test_case == XQC_TEST_CASE_CRYPTO_PREVIOUS_LEVEL_EXTENSION);
+    }
+
+    if (g_test_case == XQC_TEST_CASE_CLOSE_RECV_ONLY_STREAM) {
+        stream = xqc_stream_create_with_direction(conn, XQC_STREAM_UNI, NULL);
+        if (stream == NULL) {
+            printf("[stream-close-direction-test]|case:%d|"
+                   "stream_unavailable|\n", g_test_case);
+            return;
+        }
+
+        ret = xqc_stream_send(stream, (unsigned char *) &payload,
+                              sizeof(payload), 0);
+        printf("[stream-close-direction-test]|case:%d|stream_id:%"PRIu64
+               "|send_ret:%zd|\n", g_test_case, xqc_stream_id(stream), ret);
+        fflush(stdout);
     }
 }
 

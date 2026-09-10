@@ -1675,6 +1675,152 @@ xqc_test_process_reset_stream_on_recv_only_stream(void)
 }
 
 
+static int
+xqc_test_count_frame_in_list(xqc_list_head_t *head,
+    xqc_frame_type_bit_t frame_bit)
+{
+    xqc_list_head_t *pos;
+    xqc_packet_out_t *packet_out;
+    int count = 0;
+
+    xqc_list_for_each(pos, head) {
+        packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        if (packet_out->po_frame_types & frame_bit) {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+
+static int
+xqc_test_count_queued_frame(xqc_connection_t *conn,
+    xqc_frame_type_bit_t frame_bit)
+{
+    xqc_send_queue_t *send_queue = conn->conn_send_queue;
+    int count = 0;
+    int i;
+
+    count += xqc_test_count_frame_in_list(&send_queue->sndq_send_packets,
+                                          frame_bit);
+    count += xqc_test_count_frame_in_list(
+        &send_queue->sndq_send_packets_high_pri, frame_bit);
+    count += xqc_test_count_frame_in_list(&send_queue->sndq_lost_packets,
+                                          frame_bit);
+    count += xqc_test_count_frame_in_list(
+        &send_queue->sndq_buff_1rtt_packets, frame_bit);
+    count += xqc_test_count_frame_in_list(&send_queue->sndq_pto_probe_packets,
+                                          frame_bit);
+    for (i = 0; i < XQC_PNS_N; i++) {
+        count += xqc_test_count_frame_in_list(
+            &send_queue->sndq_unacked_packets[i], frame_bit);
+    }
+
+    return count;
+}
+
+
+static void
+xqc_test_stream_close_direction(xqc_conn_type_t conn_type,
+    xqc_bool_t local_initiated, xqc_bool_t expect_reset,
+    xqc_bool_t expect_stop)
+{
+    xqc_connection_t *conn;
+    xqc_stream_t *stream;
+    xqc_stream_id_t stream_id;
+    int reset_before, reset_after;
+    int stop_before, stop_after;
+    xqc_int_t ret;
+
+    conn = xqc_test_dir_make_conn(conn_type);
+    CU_ASSERT_FATAL(conn != NULL);
+
+    if (local_initiated) {
+        stream = xqc_stream_create_with_direction(conn, XQC_STREAM_UNI,
+                                                  NULL);
+
+    } else {
+        stream_id = conn_type == XQC_CONN_TYPE_CLIENT ? 3 : 2;
+        stream = xqc_passive_create_stream(conn, stream_id, NULL);
+    }
+    CU_ASSERT_FATAL(stream != NULL);
+
+    reset_before = xqc_test_count_queued_frame(
+        conn, XQC_FRAME_BIT_RESET_STREAM);
+    stop_before = xqc_test_count_queued_frame(
+        conn, XQC_FRAME_BIT_STOP_SENDING);
+
+    ret = xqc_stream_close(stream);
+    CU_ASSERT(ret == XQC_OK);
+
+    reset_after = xqc_test_count_queued_frame(
+        conn, XQC_FRAME_BIT_RESET_STREAM);
+    stop_after = xqc_test_count_queued_frame(
+        conn, XQC_FRAME_BIT_STOP_SENDING);
+    CU_ASSERT(reset_after - reset_before == expect_reset);
+    CU_ASSERT(stop_after - stop_before == expect_stop);
+
+    ret = xqc_stream_close(stream);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(xqc_test_count_queued_frame(
+                  conn, XQC_FRAME_BIT_RESET_STREAM) == reset_after);
+    CU_ASSERT(xqc_test_count_queued_frame(
+                  conn, XQC_FRAME_BIT_STOP_SENDING) == stop_after);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_stream_close_send_only(void)
+{
+    xqc_test_stream_close_direction(XQC_CONN_TYPE_CLIENT, XQC_TRUE,
+                                    XQC_TRUE, XQC_FALSE);
+    xqc_test_stream_close_direction(XQC_CONN_TYPE_SERVER, XQC_TRUE,
+                                    XQC_TRUE, XQC_FALSE);
+}
+
+
+void
+xqc_test_stream_close_recv_only(void)
+{
+    xqc_test_stream_close_direction(XQC_CONN_TYPE_CLIENT, XQC_FALSE,
+                                    XQC_FALSE, XQC_TRUE);
+    xqc_test_stream_close_direction(XQC_CONN_TYPE_SERVER, XQC_FALSE,
+                                    XQC_FALSE, XQC_TRUE);
+}
+
+
+void
+xqc_test_stream_close_bidirectional(void)
+{
+    xqc_connection_t *conn;
+    xqc_stream_t *stream;
+    int reset_before, stop_before;
+    xqc_int_t ret;
+
+    conn = xqc_test_dir_make_conn(XQC_CONN_TYPE_CLIENT);
+    CU_ASSERT_FATAL(conn != NULL);
+    stream = xqc_stream_create_with_direction(conn, XQC_STREAM_BIDI, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+
+    reset_before = xqc_test_count_queued_frame(
+        conn, XQC_FRAME_BIT_RESET_STREAM);
+    stop_before = xqc_test_count_queued_frame(
+        conn, XQC_FRAME_BIT_STOP_SENDING);
+
+    ret = xqc_stream_close(stream);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(xqc_test_count_queued_frame(
+                  conn, XQC_FRAME_BIT_RESET_STREAM) == reset_before + 1);
+    CU_ASSERT(xqc_test_count_queued_frame(
+                  conn, XQC_FRAME_BIT_STOP_SENDING) == stop_before + 1);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 static xqc_connection_t *
 xqc_test_reset_stream_final_size_setup(xqc_stream_t **stream)
 {

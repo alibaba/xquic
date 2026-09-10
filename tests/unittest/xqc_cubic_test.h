@@ -6,6 +6,8 @@
 #define _XQC_CUBIC_TEST_H_INCLUDED_
 
 void xqc_test_cubic ();
+void xqc_test_cubic_loss_ssthresh ();
+void xqc_test_cubic_loss_ssthresh_min_clamp ();
 void xqc_test_cubic_init_cwnd ();
 
 #endif /* _XQC_CUBIC_TEST_H_INCLUDED_ */

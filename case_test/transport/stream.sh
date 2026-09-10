@@ -222,11 +222,11 @@ grep_err_log|grep -v stream
 clear_log
 echo -e "Reset stream when receiving...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 21 > stdlog
-result=`grep "xqc_send_queue_drop_stream_frame_packets" slog`
+reset=`grep "xqc_write_reset_stream_to_packet" clog`
 # RFC 9000 Section 3.3 keeps the terminal send side in Data Recvd.
 flag=`grep "send_state:3|recv_state:5" clog`
 errlog=`grep_err_log|grep -v stream`
-if [ -n "$flag" ] && [ -z "$errlog" ] && [ -n "$result" ]; then
+if [ -n "$flag" ] && [ -z "$errlog" ] && [ -z "$reset" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "reset_stream_when_receiving" "pass"
 else
@@ -234,6 +234,7 @@ else
     case_print_result "reset_stream_when_receiving" "fail"
     echo "$flag"
     echo "$errlog"
+    echo "$reset"
 fi
 
 }

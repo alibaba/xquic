@@ -6,8 +6,9 @@
 #define _XQC_H3_FRAME_H_
 
 #include <xquic/xqc_http3.h>
-#include "src/http3/xqc_h3_extension.h"
 #include "src/http3/frame/xqc_h3_frame_defs.h"
+
+#define XQC_H3_MAX_EXTRA_SETTINGS 16
 
 typedef union xqc_h3_frame_payload_s {
     xqc_h3_frame_headers_t              headers;
@@ -82,7 +83,7 @@ xqc_int_t xqc_h3_frm_write_cancel_push(xqc_list_head_t *send_buf, uint64_t push_
 
 xqc_int_t xqc_h3_frm_write_settings_extended(xqc_list_head_t *send_buf,
     xqc_h3_conn_settings_t *settings,
-    const xqc_h3_extension_setting_t *extra, size_t extra_count, uint8_t fin);
+    const xqc_h3_setting_t *extra, size_t extra_count, uint8_t fin);
 
 xqc_int_t xqc_h3_frm_write_settings(xqc_list_head_t *send_buf, xqc_h3_conn_settings_t *setting,
     uint8_t fin);

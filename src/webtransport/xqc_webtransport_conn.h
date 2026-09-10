@@ -7,6 +7,7 @@
 #include <xquic/xqc_webtransport.h>
 #include "src/common/xqc_id_hash.h"
 #include "src/common/xqc_list.h"
+#include "src/http3/frame/xqc_h3_frame_defs.h"
 #include "src/webtransport/xqc_webtransport_ctx.h"
 #include "src/webtransport/xqc_webtransport_session.h"
 
@@ -15,7 +16,8 @@ struct xqc_webtransport_conn_s {
     xqc_wt_ctx_t         *ctx;
     xqc_wt_ctx_t          ctx_storage;
     xqc_h3_request_callbacks_t app_request_callbacks;
-    xqc_h3_handshake_finished_pt app_handshake_finished;
+    xqc_h3_setting_t      local_settings[3];
+    xqc_list_head_t       h3_streams;
     xqc_wt_session_t     *wt_session;
     xqc_id_hash_table_t   sessions;
     xqc_list_head_t       session_list;

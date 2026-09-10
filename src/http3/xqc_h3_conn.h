@@ -10,7 +10,6 @@
 #include "src/http3/xqc_h3_stream.h"
 #include "src/transport/xqc_conn.h"
 #include <xquic/xqc_http3.h>
-#include "src/http3/xqc_h3_extension.h"
 
 #define XQC_H3_SETTINGS_UNSET XQC_MAX_UINT64_VALUE
 
@@ -69,9 +68,6 @@ typedef struct xqc_h3_conn_s {
     xqc_connection_t            *conn;
     xqc_log_t                   *log;
     void                        *user_data;
-    xqc_h3_extension_ops_t        extension_callbacks;
-    const xqc_h3_extension_ops_t *extension_ops;
-    void                        *extension_data;
 
     /* h3 connection state flags */
     uint64_t                     flags;
@@ -101,6 +97,12 @@ typedef struct xqc_h3_conn_s {
     /* h3 settings */
     xqc_h3_conn_settings_t       local_h3_conn_settings; /* set by user for sending to the peer */
     xqc_h3_conn_settings_t       peer_h3_conn_settings;  /* receive from peer */
+    const xqc_h3_setting_t       *local_settings_extra;
+    size_t                       local_settings_extra_count;
+    xqc_int_t                  (*on_settings_entry)(uint64_t identifier,
+        uint64_t value, void *user_data);
+    xqc_int_t                  (*on_settings_complete)(void *user_data);
+    void                        *settings_user_data;
 
     /* blocked buffer limits (effective values computed at init time) */
     size_t                       max_blocked_buf_per_stream;       /* effective limit per stream */

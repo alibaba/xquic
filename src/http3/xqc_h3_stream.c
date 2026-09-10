@@ -80,13 +80,6 @@ xqc_h3_stream_close(xqc_h3_stream_t *h3s)
 void
 xqc_h3_stream_destroy(xqc_h3_stream_t *h3s)
 {
-    if (h3s->extension_data && h3s->h3c->extension_ops
-        && h3s->h3c->extension_ops->stream_close)
-    {
-        h3s->h3c->extension_ops->stream_close(h3s, h3s->extension_data);
-        h3s->extension_data = NULL;
-    }
-
     /* if h3 stream is still blocked, remove it from h3 connection */
     if (h3s->blocked_stream) {
         xqc_h3_conn_remove_blocked_stream(h3s->h3c, h3s->blocked_stream);
@@ -287,19 +280,9 @@ xqc_int_t
 xqc_h3_stream_write_setting_to_buffer(xqc_h3_stream_t *h3s, xqc_h3_conn_settings_t *settings,
     uint8_t fin)
 {
-    xqc_h3_extension_setting_t extra[XQC_H3_EXTENSION_MAX_SETTINGS];
-    ssize_t count = 0;
-    if (h3s->h3c->extension_ops
-        && h3s->h3c->extension_ops->local_settings)
-    {
-        count = h3s->h3c->extension_ops->local_settings(h3s->h3c,
-            h3s->h3c->extension_data, extra, XQC_H3_EXTENSION_MAX_SETTINGS);
-        if (count < 0) {
-            return count;
-        }
-    }
     xqc_int_t ret = xqc_h3_frm_write_settings_extended(&h3s->send_buf,
-        settings, extra, count, fin);
+        settings, h3s->h3c->local_settings_extra,
+        h3s->h3c->local_settings_extra_count, fin);
     if (ret != XQC_OK) {
         xqc_log(h3s->log, XQC_LOG_ERROR, "|write SETTINGS frame error|%d|stream_id:%ui|fin:%d|",
                 ret, h3s->stream_id, (unsigned int)fin);
@@ -698,12 +681,6 @@ xqc_h3_stream_write_notify(xqc_stream_t *stream, void *user_data)
 
     xqc_log(h3s->log, XQC_LOG_DEBUG, "|xqc_h3_stream_send_buffer|success|");
 
-    if (h3s->type == XQC_H3_STREAM_TYPE_EXTENSION && h3s->extension_data) {
-        const xqc_h3_extension_ops_t *ops = h3s->h3c->extension_ops;
-        return ops && ops->stream_write
-            ? ops->stream_write(h3s, h3s->extension_data) : XQC_OK;
-    }
-
     /* request write  */
     if (h3s->type == XQC_H3_STREAM_TYPE_REQUEST
         && (h3s->flags & XQC_HTTP3_STREAM_NEED_WRITE_NOTIFY))
@@ -758,7 +735,6 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
     xqc_h3_conn_t *h3c = h3s->h3c;
     xqc_h3_frame_pctx_t *pctx = &h3s->pctx.frame_pctx;
     xqc_h3_frame_pl_t *pl = &pctx->frame.frame_payload;
-    xqc_int_t ret;
 
     ssize_t processed = 0;
     while (processed < data_len) {
@@ -839,11 +815,9 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                     xqc_h3_frm_reset_pctx(pctx);
                     return -H3_SETTINGS_ERROR;
                 }
-                if (h3c->extension_ops
-                    && h3c->extension_ops->peer_settings_complete)
-                {
-                    ret = h3c->extension_ops->peer_settings_complete(h3c,
-                        h3c->extension_data);
+                if (h3c->on_settings_complete) {
+                    xqc_int_t ret = h3c->on_settings_complete(
+                        h3c->settings_user_data);
                     if (ret < 0) {
                         xqc_h3_frm_reset_pctx(pctx);
                         return ret;
@@ -1901,13 +1875,6 @@ xqc_h3_stream_process_data(xqc_stream_t *stream, xqc_h3_stream_t *h3s, xqc_bool_
 
     do
     {
-        const xqc_h3_extension_ops_t *ops = h3c->extension_ops;
-        if (h3s->extension_data && ops && ops->stream_prepare_read) {
-            ret = ops->stream_prepare_read(h3s, h3s->extension_data);
-            if (ret != XQC_OK) {
-                return ret == -XQC_EAGAIN ? XQC_OK : ret;
-            }
-        }
         /* recv data from transport stream */
         read = xqc_stream_recv(h3s->stream, buff, buff_size, fin);
         if (read == -XQC_EAGAIN) {
@@ -1930,9 +1897,7 @@ xqc_h3_stream_process_data(xqc_stream_t *stream, xqc_h3_stream_t *h3s, xqc_bool_
         }
 
         /* process h3 stream data */
-        ret = ops && ops->stream_read
-            ? ops->stream_read(h3s, h3c->extension_data, buff, read, *fin)
-            : xqc_h3_stream_process_in(h3s, buff, read, *fin);
+        ret = xqc_h3_stream_process_in(h3s, buff, read, *fin);
         if (ret != XQC_OK) {
             xqc_log(h3c->log, XQC_LOG_ERROR, "|xqc_h3_stream_process_in error|%d|", ret);
             if (h3s->stream_err == 0) {
@@ -2106,9 +2071,7 @@ xqc_h3_stream_read_notify(xqc_stream_t *stream, void *user_data)
     h3s->flags |= XQC_HTTP3_STREAM_IN_READING;
 
     /* check goaway */
-    if ((h3s->type != XQC_H3_STREAM_TYPE_EXTENSION || !h3s->extension_data)
-        && xqc_h3_conn_is_goaway_recved(h3c, stream->stream_id) == XQC_TRUE)
-    {
+    if (xqc_h3_conn_is_goaway_recved(h3c, stream->stream_id) == XQC_TRUE) {
         /*
          * peer sent goaway and keep on sending data, 
          * stop it with STOP_SENDING frame 
@@ -2301,12 +2264,6 @@ xqc_h3_stream_close_notify(xqc_stream_t *stream, void *user_data)
     xqc_memcpy(h3s->begin_trans_state, stream->begin_trans_state, XQC_STREAM_TRANSPORT_STATE_SZ);
     xqc_memcpy(h3s->end_trans_state, stream->end_trans_state, XQC_STREAM_TRANSPORT_STATE_SZ);
 
-    if (h3s->extension_data && h3s->h3c->extension_ops
-        && h3s->h3c->extension_ops->stream_close)
-    {
-        h3s->h3c->extension_ops->stream_close(h3s, h3s->extension_data);
-        h3s->extension_data = NULL;
-    }
     h3s->stream = NULL;     /* stream closed, MUST NOT use it any more */
 
     /*
@@ -2346,14 +2303,6 @@ xqc_h3_stream_closing_notify(xqc_stream_t *stream,
 
     h3s = (xqc_h3_stream_t *)strm_user_data;
     if (NULL == h3s) {
-        return;
-    }
-
-    if (h3s->extension_data && h3s->h3c->extension_ops
-        && h3s->h3c->extension_ops->stream_closing)
-    {
-        h3s->h3c->extension_ops->stream_closing(h3s, err_code,
-            h3s->extension_data);
         return;
     }
 

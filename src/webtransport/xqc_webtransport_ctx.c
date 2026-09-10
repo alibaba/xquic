@@ -9,7 +9,7 @@
 #include "src/webtransport/xqc_webtransport_h3_stream.h"
 #include "src/webtransport/xqc_webtransport_dgram.h"
 #include "src/webtransport/xqc_webtransport_wire.h"
-#include "src/http3/xqc_h3_extension.h"
+#include "src/http3/xqc_h3_ctx.h"
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_request.h"
 #include "src/transport/xqc_engine.h"
@@ -21,6 +21,15 @@
 #define XQC_WT_SETTING_DATAGRAM 0x33
 #define XQC_WT_SETTING_CONNECT 0x08
 
+typedef struct {
+    xqc_h3_ctx_t  h3;
+    xqc_wt_ctx_t  wt;
+} xqc_wt_registration_t;
+
+static xqc_int_t xqc_wt_h3_conn_create(xqc_h3_conn_t *h3c,
+    const xqc_cid_t *cid, void *data);
+static xqc_int_t xqc_wt_h3_conn_close(xqc_h3_conn_t *h3c,
+    const xqc_cid_t *cid, void *data);
 static void xqc_wt_handshake_finished(xqc_h3_conn_t *h3c, void *data);
 
 static const xqc_webtransport_conn_settings_t xqc_wt_defaults = {
@@ -32,99 +41,89 @@ static const xqc_webtransport_conn_settings_t xqc_wt_defaults = {
     .enable_datagram = XQC_TRUE,
 };
 
-static void *
-xqc_wt_extension_conn_create(xqc_h3_conn_t *h3c, void *data)
+xqc_wt_ctx_t *
+xqc_wt_ctx_get(xqc_engine_t *engine)
 {
-    xqc_wt_ctx_t *ctx = data;
-    xqc_wt_conn_t *conn = xqc_wt_conn_create(h3c);
-    if (conn) {
-        ctx->started = XQC_TRUE;
-        conn->ctx_storage = *ctx;
-        conn->ctx = &conn->ctx_storage;
-        conn->cid = h3c->conn->scid_set.user_scid;
-        conn->app_handshake_finished =
-            h3c->h3_conn_callbacks.h3_conn_handshake_finished;
-        h3c->h3_conn_callbacks.h3_conn_handshake_finished =
-            xqc_wt_handshake_finished;
-        xqc_wt_request_adapter_init(conn);
+    if (engine == NULL) {
+        return NULL;
     }
-    return conn;
+    xqc_h3_ctx_t *h3 = xqc_engine_get_alpn_ctx(engine, XQC_ALPN_H3,
+                                             strlen(XQC_ALPN_H3));
+    if (h3 == NULL
+        || h3->h3_cbs.h3c_cbs.h3_conn_create_notify != xqc_wt_h3_conn_create)
+    {
+        return NULL;
+    }
+    return &((xqc_wt_registration_t *)h3)->wt;
 }
 
-static void
-xqc_wt_extension_conn_close(xqc_h3_conn_t *h3c, void *data)
+static xqc_int_t
+xqc_wt_h3_conn_create(xqc_h3_conn_t *h3c, const xqc_cid_t *cid, void *data)
 {
-    xqc_wt_conn_destroy(data);
+    xqc_wt_ctx_t *ctx = xqc_wt_ctx_get(h3c->conn->engine);
+    if (ctx == NULL) {
+        return -XQC_ESTATE;
+    }
+    if (ctx->app_conn_callbacks.h3_conn_create_notify) {
+        xqc_int_t ret = ctx->app_conn_callbacks.h3_conn_create_notify(h3c,
+                                                                    cid, data);
+        if (ret != XQC_OK) {
+            return ret;
+        }
+    }
+    xqc_wt_conn_t *conn = xqc_wt_conn_create(h3c);
+    if (conn == NULL) {
+        if (ctx->app_conn_callbacks.h3_conn_create_notify
+            && ctx->app_conn_callbacks.h3_conn_close_notify)
+        {
+            ctx->app_conn_callbacks.h3_conn_close_notify(h3c, cid,
+                xqc_h3_conn_get_user_data(h3c));
+        }
+        return -XQC_EMALLOC;
+    }
+    ctx->started = XQC_TRUE;
+    conn->ctx_storage = *ctx;
+    conn->ctx = &conn->ctx_storage;
+    conn->cid = h3c->conn->scid_set.user_scid;
+    conn->local_settings[0].identifier.vi = XQC_WT_SETTING_CONNECT;
+    conn->local_settings[0].value.vi = 1;
+    conn->local_settings[1].identifier.vi = XQC_WT_SETTING_DATAGRAM;
+    conn->local_settings[1].value.vi = 1;
+    conn->local_settings[2].identifier.vi = XQC_WT_SETTING_MAX_SESSIONS;
+    conn->local_settings[2].value.vi = ctx->settings.max_sessions_count;
+    h3c->local_settings_extra = conn->local_settings;
+    h3c->local_settings_extra_count = 3;
+    xqc_wt_request_adapter_init(conn);
+    return XQC_OK;
+}
+
+static xqc_int_t
+xqc_wt_h3_conn_close(xqc_h3_conn_t *h3c, const xqc_cid_t *cid, void *data)
+{
+    xqc_wt_conn_t *conn = xqc_wt_create_conn(h3c);
+    if (conn == NULL) {
+        return XQC_OK;
+    }
+    xqc_h3_conn_callbacks_t app = conn->ctx->app_conn_callbacks;
+    xqc_wt_conn_destroy(conn);
+    return app.h3_conn_create_notify && app.h3_conn_close_notify
+        ? app.h3_conn_close_notify(h3c, cid, data) : XQC_OK;
 }
 
 static void
 xqc_wt_handshake_finished(xqc_h3_conn_t *h3c, void *data)
 {
-    xqc_wt_conn_t *conn = h3c->extension_data;
+    xqc_wt_conn_t *conn = xqc_wt_create_conn(h3c);
+    if (conn == NULL) {
+        return;
+    }
     if (conn->ctx->session_cbs.webtransport_conn_handshake_finished_notify) {
         conn->ctx->session_cbs.webtransport_conn_handshake_finished_notify(
             h3c, xqc_h3_conn_get_user_data(h3c));
     }
-    if (conn->app_handshake_finished) {
-        conn->app_handshake_finished(h3c, data);
+    if (conn->ctx->app_conn_callbacks.h3_conn_handshake_finished) {
+        conn->ctx->app_conn_callbacks.h3_conn_handshake_finished(h3c, data);
     }
-}
-
-static ssize_t
-xqc_wt_local_settings(xqc_h3_conn_t *h3c, void *data,
-    xqc_h3_extension_setting_t *settings, size_t capacity)
-{
-    xqc_wt_conn_t *conn = data;
-    if (capacity < 3) {
-        return -XQC_EPARAM;
-    }
-    settings[0] = (xqc_h3_extension_setting_t){XQC_WT_SETTING_CONNECT, 1};
-    settings[1] = (xqc_h3_extension_setting_t){XQC_WT_SETTING_DATAGRAM, 1};
-    settings[2] = (xqc_h3_extension_setting_t){XQC_WT_SETTING_MAX_SESSIONS,
-        conn->ctx->settings.max_sessions_count};
-    return 3;
-}
-
-static xqc_int_t
-xqc_wt_peer_setting(xqc_h3_conn_t *h3c, void *data,
-    uint64_t id, uint64_t value)
-{
-    xqc_wt_conn_t *conn = data;
-    if (id == XQC_WT_SETTING_MAX_SESSIONS) {
-        conn->peer_max_sessions = value;
-    } else if (id == XQC_WT_SETTING_DATAGRAM) {
-        if (value > 1) {
-            return -XQC_H3_SETTING_ERROR;
-        }
-        conn->peer_datagram = value;
-    } else if (id == XQC_WT_SETTING_CONNECT) {
-        if (value > 1) {
-            return -XQC_H3_SETTING_ERROR;
-        }
-        conn->peer_connect = value;
-    }
-    return XQC_OK;
-}
-
-static xqc_int_t
-xqc_wt_peer_settings_complete(xqc_h3_conn_t *h3c, void *data)
-{
-    xqc_wt_conn_t *conn = data;
-    conn->settings_received = XQC_TRUE;
-    xqc_list_head_t *pos;
-    xqc_list_for_each(pos, &conn->session_list) {
-        xqc_wt_session_t *session = xqc_list_entry(pos,
-            xqc_wt_session_t, conn_list);
-        if (!session->open && !session->closed) {
-            xqc_int_t ret = xqc_wt_request_read(session->request,
-                XQC_REQ_NOTIFY_READ_HEADER | XQC_REQ_NOTIFY_READ_BODY,
-                session);
-            if (ret != XQC_OK) {
-                return ret;
-            }
-        }
-    }
-    return XQC_OK;
 }
 
 
@@ -137,8 +136,35 @@ xqc_wt_ctx_init(xqc_engine_t *engine,
     if (!engine) {
         return -XQC_EPARAM;
     }
-    xqc_wt_ctx_t storage = {0};
-    xqc_wt_ctx_t *ctx = &storage;
+    if (xqc_wt_ctx_get(engine)) {
+        return -XQC_ESTATE;
+    }
+    xqc_h3_ctx_t *h3 = xqc_engine_get_alpn_ctx(engine, XQC_ALPN_H3,
+                                             strlen(XQC_ALPN_H3));
+    if (h3 == NULL) {
+        xqc_h3_callbacks_t callbacks = {0};
+        xqc_int_t ret = xqc_h3_ctx_init(engine, &callbacks);
+        if (ret != XQC_OK) {
+            return ret;
+        }
+        h3 = xqc_engine_get_alpn_ctx(engine, XQC_ALPN_H3,
+                                     strlen(XQC_ALPN_H3));
+    }
+    /* Existing ALPN cleanup frees this single WT-owned allocation. */
+    xqc_wt_registration_t *registration = xqc_calloc(1,
+                                                    sizeof(*registration));
+    if (registration == NULL) {
+        return -XQC_EMALLOC;
+    }
+    registration->h3 = *h3;
+    xqc_wt_ctx_t *ctx = &registration->wt;
+    ctx->app_conn_callbacks = h3->h3_cbs.h3c_cbs;
+    registration->h3.h3_cbs.h3c_cbs.h3_conn_create_notify =
+        xqc_wt_h3_conn_create;
+    registration->h3.h3_cbs.h3c_cbs.h3_conn_close_notify =
+        xqc_wt_h3_conn_close;
+    registration->h3.h3_cbs.h3c_cbs.h3_conn_handshake_finished =
+        xqc_wt_handshake_finished;
     if (dgram_cbs) {
         ctx->dgram_cbs = *dgram_cbs;
     }
@@ -152,23 +178,26 @@ xqc_wt_ctx_init(xqc_engine_t *engine,
     ctx->pending_window = XQC_WEBTRANSPORT_DEFAULT_UNKNOWN_SESSION_DGRAM_WINDOW;
     ctx->pending_count_max = XQC_WEBTRANSPORT_DEFAULT_PENDING_DGRAM_COUNT_MAX;
     ctx->pending_bytes_max = XQC_WEBTRANSPORT_DEFAULT_PENDING_DGRAM_BYTES_MAX;
-    xqc_h3_extension_ops_t ops = {
-        .conn_create = xqc_wt_extension_conn_create,
-        .conn_close = xqc_wt_extension_conn_close,
-        .local_settings = xqc_wt_local_settings,
-        .peer_setting = xqc_wt_peer_setting,
-        .peer_settings_complete = xqc_wt_peer_settings_complete,
+    xqc_app_proto_callbacks_t callbacks = {
+        .conn_cbs = h3_conn_callbacks,
+        .stream_cbs = xqc_wt_h3_stream_callbacks,
     };
-    xqc_wt_h3_stream_callbacks(&ops);
-    xqc_wt_dgram_callbacks(&ops.datagram_callbacks);
-    return xqc_h3_extension_register(engine, &ops, ctx, sizeof(*ctx));
+    xqc_wt_dgram_callbacks(&callbacks.dgram_cbs);
+    xqc_int_t ret = xqc_engine_register_alpn(engine, XQC_ALPN_H3,
+        strlen(XQC_ALPN_H3), &callbacks, registration);
+    if (ret != XQC_OK) {
+        xqc_free(registration);
+        return ret;
+    }
+    xqc_free(h3);
+    return XQC_OK;
 }
 
 xqc_int_t
 xqc_wt_engine_set_default_settings(xqc_engine_t *engine,
     const xqc_webtransport_conn_settings_t *settings)
 {
-    xqc_wt_ctx_t *ctx = xqc_h3_extension_get_context(engine);
+    xqc_wt_ctx_t *ctx = xqc_wt_ctx_get(engine);
     if (!ctx || ctx->started) {
         return -XQC_ESTATE;
     }
@@ -197,7 +226,7 @@ xqc_int_t
 xqc_wt_ctx_set_pending_datagram_policy(xqc_engine_t *engine,
     uint64_t window, size_t count_max, size_t bytes_max)
 {
-    xqc_wt_ctx_t *ctx = xqc_h3_extension_get_context(engine);
+    xqc_wt_ctx_t *ctx = xqc_wt_ctx_get(engine);
     if (!ctx || ctx->started) {
         return -XQC_ESTATE;
     }

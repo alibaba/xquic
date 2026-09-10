@@ -22,7 +22,7 @@ static xqc_wt_conn_t *
 xqc_wt_dgram_conn(xqc_connection_t *conn)
 {
     xqc_h3_conn_t *h3c = conn->proto_data;
-    return h3c ? h3c->extension_data : NULL;
+    return xqc_wt_create_conn(h3c);
 }
 
 static void

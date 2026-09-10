@@ -6,16 +6,12 @@
 #define XQC_H3_CTX_H
 
 #include <xquic/xqc_http3.h>
-#include "src/http3/xqc_h3_extension.h"
 
 
 /* 应用层注册回调，放到engine */
 typedef struct xqc_h3_ctx_s {
     xqc_h3_callbacks_t  h3_cbs;
     xqc_h3_conn_settings_t h3c_def_local_settings;
-    xqc_h3_extension_ops_t extension_ops;
-    void *extension_data;
-    xqc_bool_t extension_registered;
 } xqc_h3_ctx_t;
 
 xqc_int_t xqc_h3_ctx_get_app_callbacks(xqc_engine_t *engine, char *alpn, 

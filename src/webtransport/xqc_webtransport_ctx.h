@@ -14,7 +14,10 @@ typedef struct xqc_wt_ctx_s {
     uint64_t                             pending_window;
     size_t                               pending_count_max;
     size_t                               pending_bytes_max;
+    xqc_h3_conn_callbacks_t               app_conn_callbacks;
     xqc_bool_t                           started;
 } xqc_wt_ctx_t;
+
+xqc_wt_ctx_t *xqc_wt_ctx_get(xqc_engine_t *engine);
 
 #endif

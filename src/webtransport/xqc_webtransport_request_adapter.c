@@ -61,7 +61,7 @@ xqc_wt_request_adapter_detach(xqc_h3_request_t *request)
 static xqc_wt_session_t *
 xqc_wt_request_session(xqc_h3_request_t *request)
 {
-    return xqc_wt_conn_find_session(request->h3_stream->h3c->extension_data,
+    return xqc_wt_conn_find_session(xqc_wt_create_conn(request->h3_stream->h3c),
                                    request->h3_stream->stream_id);
 }
 
@@ -76,7 +76,7 @@ xqc_wt_adapter_create(xqc_h3_request_t *request, void *user_data)
         request->request_if = &xqc_wt_pending_callbacks;
         return XQC_OK;
     }
-    xqc_wt_conn_t *conn = stream->h3c->extension_data;
+    xqc_wt_conn_t *conn = xqc_wt_create_conn(stream->h3c);
     return conn->app_request_callbacks.h3_request_create_notify
         ? conn->app_request_callbacks.h3_request_create_notify(request,
             user_data) : XQC_OK;
@@ -89,7 +89,7 @@ xqc_wt_adapter_classify(xqc_h3_request_t *request,
     if (!(flags & XQC_REQ_NOTIFY_READ_HEADER)) {
         return XQC_OK;
     }
-    xqc_wt_conn_t *conn = request->h3_stream->h3c->extension_data;
+    xqc_wt_conn_t *conn = xqc_wt_create_conn(request->h3_stream->h3c);
     xqc_int_t ret = xqc_wt_request_headers(request, conn,
         &request->h3_header[XQC_H3_REQUEST_HEADER]);
     if (ret < 0) {

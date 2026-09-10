@@ -455,16 +455,16 @@ xqc_h3_frm_write_settings(xqc_list_head_t *send_buf,
 xqc_int_t
 xqc_h3_frm_write_settings_extended(xqc_list_head_t *send_buf,
     xqc_h3_conn_settings_t *setting,
-    const xqc_h3_extension_setting_t *extra, size_t extra_count, uint8_t fin)
+    const xqc_h3_setting_t *extra, size_t extra_count, uint8_t fin)
 {
-    if (extra_count > XQC_H3_EXTENSION_MAX_SETTINGS
+    if (extra_count > XQC_H3_MAX_EXTRA_SETTINGS
         || (extra_count && extra == NULL))
     {
         return -XQC_EPARAM;
     }
     size_t len = 0;
     size_t count = 0;
-    xqc_h3_setting_t settings[3 + XQC_H3_EXTENSION_MAX_SETTINGS];
+    xqc_h3_setting_t settings[3 + XQC_H3_MAX_EXTRA_SETTINGS];
 
     settings[count].identifier.vi = XQC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE;
     settings[count].value.vi = setting->max_field_section_size;
@@ -485,23 +485,23 @@ xqc_h3_frm_write_settings_extended(xqc_list_head_t *send_buf,
     ++count;
 
     for (size_t i = 0; i < extra_count; i++) {
-        if (extra[i].identifier > ((1ULL << 62) - 1)
-            || extra[i].value > ((1ULL << 62) - 1)
-            || extra[i].identifier == 0x2 || extra[i].identifier == 0x3
-            || extra[i].identifier == 0x4 || extra[i].identifier == 0x5)
+        if (extra[i].identifier.vi > ((1ULL << 62) - 1)
+            || extra[i].value.vi > ((1ULL << 62) - 1)
+            || extra[i].identifier.vi == 0x2 || extra[i].identifier.vi == 0x3
+            || extra[i].identifier.vi == 0x4 || extra[i].identifier.vi == 0x5)
         {
             return -XQC_EPARAM;
         }
         /* RFC 9114 Section 7.2.4: SETTINGS identifiers cannot repeat. */
         for (size_t j = 0; j < count; j++) {
-            if (settings[j].identifier.vi == extra[i].identifier) {
+            if (settings[j].identifier.vi == extra[i].identifier.vi) {
                 return -XQC_EPARAM;
             }
         }
-        settings[count].identifier.vi = extra[i].identifier;
-        settings[count].value.vi = extra[i].value;
-        len += xqc_put_varint_len(extra[i].identifier);
-        len += xqc_put_varint_len(extra[i].value);
+        settings[count].identifier.vi = extra[i].identifier.vi;
+        settings[count].value.vi = extra[i].value.vi;
+        len += xqc_put_varint_len(extra[i].identifier.vi);
+        len += xqc_put_varint_len(extra[i].value.vi);
         count++;
     }
 

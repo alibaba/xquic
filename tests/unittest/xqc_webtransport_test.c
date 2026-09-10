@@ -70,10 +70,8 @@ wt_pause(xqc_h3_stream_t *stream, xqc_bool_t paused)
 static void
 wt_detach(xqc_h3_stream_t *stream)
 {
-    xqc_h3_extension_ops_t ops = {0};
-    xqc_wt_h3_stream_callbacks(&ops);
     xqc_wt_h3_stream_detach(stream);
-    ops.stream_close(stream, stream->extension_data);
+    xqc_wt_h3_stream_close(stream);
 }
 
 static const xqc_wt_stream_io_ops_t wt_io = {
@@ -95,9 +93,8 @@ xqc_test_wt_context(void)
 {
     xqc_engine_t *engine = test_create_engine();
     CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
-    xqc_h3_extension_ops_t ops = {0};
-    CU_ASSERT(xqc_h3_extension_register(engine, &ops, NULL, 1)
-              == -XQC_EPARAM);
+    CU_ASSERT_PTR_NULL(xqc_wt_ctx_get(engine));
+    CU_ASSERT(xqc_wt_engine_set_default_settings(engine, NULL) == -XQC_ESTATE);
     int marker;
     engine->user_data = &marker;
     xqc_webtransport_stream_callbacks_t cbs = {
@@ -105,7 +102,7 @@ xqc_test_wt_context(void)
     };
     CU_ASSERT(xqc_wt_ctx_init(engine, NULL, NULL, &cbs) == XQC_OK);
     cbs.wt_bidistream_read_notify = NULL;
-    xqc_wt_ctx_t *ctx = xqc_h3_extension_get_context(engine);
+    xqc_wt_ctx_t *ctx = xqc_wt_ctx_get(engine);
     CU_ASSERT_PTR_EQUAL(engine->user_data, &marker);
     CU_ASSERT(ctx->stream_cbs.wt_bidistream_read_notify == wt_read);
     CU_ASSERT(xqc_wt_engine_set_default_settings(engine, NULL) == XQC_OK);
@@ -114,6 +111,7 @@ xqc_test_wt_context(void)
               == XQC_OK);
     CU_ASSERT(ctx->pending_count_max == 2);
     xqc_h3_ctx_destroy(engine);
+    CU_ASSERT_PTR_NULL(xqc_wt_ctx_get(engine));
     xqc_engine_destroy(engine);
 }
 
@@ -125,7 +123,7 @@ xqc_test_wt_context_errors(void)
     CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
     CU_ASSERT(xqc_wt_ctx_init(engine, NULL, NULL, NULL) == XQC_OK);
     CU_ASSERT(xqc_wt_ctx_init(engine, NULL, NULL, NULL) == -XQC_ESTATE);
-    xqc_wt_ctx_t *ctx = xqc_h3_extension_get_context(engine);
+    xqc_wt_ctx_t *ctx = xqc_wt_ctx_get(engine);
     xqc_webtransport_conn_settings_t settings = ctx->settings;
     settings.draft_version = XQC_WEBTRANSPORT_DRAFT_VERSION_2;
     CU_ASSERT(xqc_wt_engine_set_default_settings(engine, &settings)
@@ -163,7 +161,7 @@ xqc_test_wt_stream_io(void)
     xqc_h3_conn_t h3c = {.user_data = &marker};
     xqc_wt_session_t *session = wt_session(&ctx, &h3c);
     CU_ASSERT_PTR_NOT_NULL_FATAL(session);
-    xqc_h3_stream_t h3s = {.stream_id = 8};
+    xqc_h3_stream_t h3s = {.stream_id = 8, .h3c = &h3c};
     xqc_wt_stream_base_t *stream = xqc_wt_stream_bind(session, &h3s,
         XQC_TRUE, XQC_TRUE, NULL);
     CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
@@ -186,7 +184,7 @@ xqc_test_wt_stream_io(void)
     CU_ASSERT_PTR_EQUAL(wt_last_context, &marker);
     xqc_wt_conn_destroy(session->wt_conn);
     CU_ASSERT(wt_closes == 1);
-    CU_ASSERT_PTR_NULL(h3s.extension_data);
+    CU_ASSERT_PTR_NULL(xqc_wt_h3_stream_context(&h3s));
 }
 
 void
@@ -197,7 +195,7 @@ xqc_test_wt_stream_errors(void)
     xqc_h3_conn_t h3c = {0};
     xqc_wt_session_t *session = wt_session(&ctx, &h3c);
     CU_ASSERT_PTR_NOT_NULL_FATAL(session);
-    xqc_h3_stream_t h3s = {.stream_id = 8};
+    xqc_h3_stream_t h3s = {.stream_id = 8, .h3c = &h3c};
     xqc_wt_stream_base_t *stream = xqc_wt_stream_bind(session, &h3s,
         XQC_TRUE, XQC_FALSE, NULL);
     CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
@@ -274,7 +272,6 @@ xqc_test_wt_datagram_association(void)
     xqc_h3_conn_t h3c = {.conn = &transport};
     xqc_wt_session_t *session = wt_session(&ctx, &h3c);
     CU_ASSERT_PTR_NOT_NULL_FATAL(session);
-    h3c.extension_data = session->wt_conn;
     transport.proto_data = &h3c;
     xqc_datagram_callbacks_t cbs = {0};
     xqc_wt_dgram_callbacks(&cbs);
@@ -305,7 +302,10 @@ xqc_test_wt_extension_settings(void)
     xqc_list_head_t buffers;
     xqc_init_list_head(&buffers);
     xqc_h3_conn_settings_t settings = {0};
-    xqc_h3_extension_setting_t extra[] = {{0x08, 1}, {0xc671706a, 4}};
+    xqc_h3_setting_t extra[] = {
+        {.identifier.vi = 0x08, .value.vi = 1},
+        {.identifier.vi = 0xc671706a, .value.vi = 4},
+    };
     CU_ASSERT(xqc_h3_frm_write_settings_extended(&buffers, &settings,
               extra, 2, 0) == XQC_OK);
     while (!xqc_list_empty(&buffers)) {
@@ -316,7 +316,7 @@ xqc_test_wt_extension_settings(void)
         xqc_free(item);
     }
     /* RFC 9114 Section 7.2.4: adapter cannot repeat an H3 setting. */
-    extra[0].identifier = 1;
+    extra[0].identifier.vi = 1;
     CU_ASSERT(xqc_h3_frm_write_settings_extended(&buffers, &settings,
               extra, 2, 0) == -XQC_EPARAM);
     CU_ASSERT(xqc_list_empty(&buffers));
@@ -326,7 +326,37 @@ static int wt_session_creates, wt_session_closes;
 static int wt_app_creates, wt_app_reads, wt_app_writes;
 static int wt_app_closings, wt_app_closes, wt_request_marker;
 static int wt_app_handshakes, wt_handshakes;
+static int wt_app_conn_creates, wt_app_conn_closes, wt_app_conn_fail;
+static int wt_conn_marker;
 static void *wt_app_conn_context;
+
+static int wt_app_conn_create(xqc_h3_conn_t *conn, const xqc_cid_t *cid,
+    void *ctx);
+static int wt_app_conn_close(xqc_h3_conn_t *conn, const xqc_cid_t *cid,
+    void *ctx);
+
+static int
+wt_app_conn_create(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *ctx)
+{
+    wt_app_conn_creates++;
+    CU_ASSERT_PTR_EQUAL(ctx, wt_app_conn_context);
+    CU_ASSERT_PTR_EQUAL(xqc_h3_conn_get_user_data(conn), wt_app_conn_context);
+    if (wt_app_conn_fail) {
+        return -XQC_EPARAM;
+    }
+    wt_app_conn_context = &wt_conn_marker;
+    xqc_h3_conn_set_user_data(conn, wt_app_conn_context);
+    return XQC_OK;
+}
+
+static int
+wt_app_conn_close(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *ctx)
+{
+    wt_app_conn_closes++;
+    CU_ASSERT_PTR_EQUAL(ctx, wt_app_conn_context);
+    CU_ASSERT_PTR_EQUAL(xqc_h3_conn_get_user_data(conn), wt_app_conn_context);
+    return XQC_OK;
+}
 
 static void
 wt_app_handshake(xqc_h3_conn_t *conn, void *ctx)
@@ -418,7 +448,11 @@ wt_test_connect_request(int scenario)
     CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
     xqc_engine_t *engine = conn->engine;
     xqc_h3_callbacks_t app = {
-        .h3c_cbs = {.h3_conn_handshake_finished = wt_app_handshake},
+        .h3c_cbs = {
+            .h3_conn_create_notify = wt_app_conn_create,
+            .h3_conn_close_notify = wt_app_conn_close,
+            .h3_conn_handshake_finished = wt_app_handshake,
+        },
         .h3r_cbs = {
             .h3_request_create_notify = wt_app_create,
             .h3_request_read_notify = wt_app_read,
@@ -427,6 +461,9 @@ wt_test_connect_request(int scenario)
             .h3_request_close_notify = wt_app_close,
         },
     };
+    if (scenario == 6) {
+        app.h3c_cbs.h3_conn_create_notify = NULL;
+    }
     CU_ASSERT(xqc_h3_ctx_init(engine, &app) == XQC_OK);
     xqc_webtransport_session_callbacks_t cbs = {
         .webtransport_will_create_session_notify = wt_accept,
@@ -447,10 +484,34 @@ wt_test_connect_request(int scenario)
     wt_app_creates = wt_app_reads = wt_app_writes = 0;
     wt_app_closings = wt_app_closes = 0;
     wt_app_handshakes = wt_handshakes = 0;
+    wt_app_conn_creates = wt_app_conn_closes = 0;
+    wt_app_conn_fail = scenario == 5;
     xqc_h3_conn_t *h3c = xqc_h3_conn_create(conn, &marker);
+    CU_ASSERT(wt_app_conn_creates == (scenario == 6 ? 0 : 1));
+    if (scenario == 5) {
+        CU_ASSERT_PTR_NULL(h3c);
+        CU_ASSERT(wt_app_conn_closes == 0);
+        xqc_engine_destroy(engine);
+        CU_ASSERT(wt_app_conn_closes == 0);
+        return;
+    }
     CU_ASSERT_PTR_NOT_NULL_FATAL(h3c);
-    xqc_wt_conn_t *wt_conn = h3c->extension_data;
-    xqc_wt_ctx_t *engine_ctx = xqc_h3_extension_get_context(engine);
+    xqc_wt_conn_t *wt_conn = xqc_wt_create_conn(h3c);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(wt_conn);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(h3c->local_settings_extra);
+    CU_ASSERT(h3c->local_settings_extra_count == 3);
+    if (scenario == 6) {
+        xqc_wt_session_t *session = xqc_wt_session_init(4, wt_conn, NULL);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(session);
+        session->open = XQC_TRUE;
+        wt_session_closes = 0;
+        conn->conn_flag |= XQC_CONN_FLAG_UPPER_CONN_EXIST;
+        xqc_engine_destroy(engine);
+        CU_ASSERT(wt_session_closes == 1);
+        CU_ASSERT(wt_app_conn_closes == 0);
+        return;
+    }
+    xqc_wt_ctx_t *engine_ctx = xqc_wt_ctx_get(engine);
     CU_ASSERT_PTR_NOT_EQUAL(wt_conn->ctx, engine_ctx);
     CU_ASSERT(xqc_wt_engine_set_default_settings(engine, NULL) == -XQC_ESTATE);
     conn->conn_flow_ctl.fc_max_streams_uni_can_send = 16;
@@ -481,6 +542,7 @@ wt_test_connect_request(int scenario)
         xqc_engine_destroy(engine);
         CU_ASSERT(wt_app_creates == 0 && wt_app_closes == 0);
         CU_ASSERT(wt_app_closings == 0);
+        CU_ASSERT(wt_app_conn_closes == 1);
         return;
     }
     if (scenario == 4) {
@@ -525,11 +587,14 @@ wt_test_connect_request(int scenario)
                   request->user_data) == XQC_OK);
         xqc_h3_request_closing(request, -XQC_EPARAM);
         /* QPACK-blocked H3 requests can outlive the WT connection state. */
-        h3c->extension_ops->conn_close(h3c, h3c->extension_data);
-        h3c->extension_data = NULL;
+        xqc_wt_conn_destroy(wt_conn);
+        CU_ASSERT_PTR_NULL(xqc_wt_create_conn(h3c));
+        CU_ASSERT_PTR_NULL(h3c->local_settings_extra);
+        CU_ASSERT_PTR_NULL(h3c->settings_user_data);
         xqc_engine_destroy(engine);
         CU_ASSERT(wt_app_writes == 1 && wt_app_closings == 1);
         CU_ASSERT(wt_app_closes == 1);
+        CU_ASSERT(wt_app_conn_closes == 1);
         return;
     }
     if (scenario == 4) {
@@ -537,15 +602,15 @@ wt_test_connect_request(int scenario)
         CU_ASSERT(wt_session_creates == 0 && wt_app_creates == 0);
         xqc_engine_destroy(engine);
         CU_ASSERT(wt_session_closes == 0 && wt_app_closes == 0);
+        CU_ASSERT(wt_app_conn_closes == 1);
         return;
     }
     CU_ASSERT(wt_app_creates == 0 && wt_app_reads == 0);
     CU_ASSERT(wt_session_creates == 0);
-    const xqc_h3_extension_ops_t *ops = h3c->extension_ops;
-    CU_ASSERT(ops->peer_setting(h3c, h3c->extension_data, 0xc671706a, 1)
+    CU_ASSERT(xqc_h3_conn_on_settings_entry_received(0xc671706a, 1, h3c)
               == XQC_OK);
-    CU_ASSERT(ops->peer_setting(h3c, h3c->extension_data, 0x33, 1) == XQC_OK);
-    CU_ASSERT(ops->peer_settings_complete(h3c, h3c->extension_data) == XQC_OK);
+    CU_ASSERT(xqc_h3_conn_on_settings_entry_received(0x33, 1, h3c) == XQC_OK);
+    CU_ASSERT(h3c->on_settings_complete(h3c->settings_user_data) == XQC_OK);
     CU_ASSERT(wt_session_creates == (accepted ? 1 : 0));
     xqc_wt_session_t *session = xqc_wt_conn_find_session(wt_conn,
         h3s->stream_id);
@@ -553,13 +618,14 @@ wt_test_connect_request(int scenario)
     CU_ASSERT(session->closed == !accepted);
     /* Connection snapshots survive ALPN context release by the engine. */
     memset(&engine_ctx->session_cbs, 0, sizeof(engine_ctx->session_cbs));
-    xqc_h3_ctx_t *h3_ctx = xqc_engine_get_alpn_ctx(engine, "h3", 2);
-    memset(&h3_ctx->extension_ops, 0, sizeof(h3_ctx->extension_ops));
+    memset(&engine_ctx->app_conn_callbacks, 0,
+           sizeof(engine_ctx->app_conn_callbacks));
     conn->app_proto_cbs.conn_cbs.conn_handshake_finished(conn, NULL, h3c);
     CU_ASSERT(wt_app_handshakes == 1 && wt_handshakes == 1);
     xqc_engine_destroy(engine);
     CU_ASSERT(wt_session_closes == (accepted ? 1 : 0));
     CU_ASSERT(wt_app_closes == 0);
+    CU_ASSERT(wt_app_conn_closes == 1);
 }
 
 void
@@ -572,6 +638,8 @@ void
 xqc_test_wt_connect_reject(void)
 {
     wt_test_connect_request(XQC_FALSE);
+    wt_test_connect_request(5);
+    wt_test_connect_request(6);
 }
 
 void

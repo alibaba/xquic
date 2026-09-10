@@ -1,33 +1,32 @@
 # Design
 
-Use the normal demo engine and standard h3 ALPN. Register WebTransport
-through a generic HTTP/3 extension boundary; do not replace application
-engine, connection, request, or transport user data. HTTP/3 owns parsed
-headers, stream dispatch, and generic settings transport. WebTransport owns
-version-specific values, validation, session association, and capsules.
+Use the normal demo engine and standard h3 ALPN. WebTransport registers
+its existing ALPN stream and datagram callbacks and wraps existing H3
+connection/request callbacks. It preserves application engine, connection,
+request and transport user data. Remove the generic H3 extension registration,
+callback table, connection state and stream state.
 
-Keep the QUIC engine unchanged. Store the flat adapter configuration in the
-H3 context allocation so the existing ALPN cleanup frees it. Each connection
-owns copies of its adapter callbacks and WT configuration; connection and
-stream teardown therefore does not borrow the engine's registration state.
+Keep the QUIC engine and H3 context implementation unchanged. A WT-owned
+registration allocation embeds the ordinary H3 context as its first member,
+followed by WT configuration, so existing ALPN cleanup owns one allocation.
+Each WT connection copies the configuration and original application callbacks.
+Teardown does not borrow engine registration storage.
 
-Route CONNECT and session capsules through the existing request callback
-table in the WT adapter. H3 request code stays unchanged. H3 additions are
-limited to extension registration and private connection lifetime, generic
-SETTINGS exchange, and raw stream dispatch required by draft-07 sections
-3.1, 3.2, 4.1 and 4.2. WT stream classification must precede ordinary HTTP
-frame parsing; its bidirectional prefix has no HTTP frame-length field.
+H3 changes are limited to extra local SETTINGS entries, callbacks for unknown
+peer settings and SETTINGS completion, and declaration of its existing input
+parser for prefix replay. WT owns the extra entries and supplies callback data.
+The H3 SETTINGS callbacks are not a protocol registration framework.
 
 Keep stream demultiplexing in `src/webtransport/xqc_webtransport_h3_stream.c`.
-This adapter owns incremental prefix classification, ordinary-prefix replay,
-raw receive buffering, pause/resume, detach and outgoing raw stream creation.
-H3 holds only an opaque stream extension pointer and invokes generic input,
-prepare-read, write and lifecycle callbacks. Its ordinary input parser remains
-responsible for HTTP frames and QPACK buffering; it never includes WT headers.
-An incomplete prefix is cleaned up on stream close. A detached WT stream must
-never return to HTTP parsing, and buffered FIN survives an EAGAIN retry.
+The WT ALPN adapter owns prefix classification, buffering, pause/resume,
+stream state and raw stream creation. It reads only the initial type before
+classification, replays ordinary prefixes to H3, then delegates subsequent
+ordinary events to the original H3 stream callbacks. WT streams stay with WT
+callbacks. No WT state or dispatch callbacks remain in H3 stream objects.
+An incomplete prefix is cleaned up on close. Detached WT streams never return
+to HTTP parsing, and buffered FIN survives an EAGAIN retry.
 
-Each H3 connection has private adapter state and a session registry.
+Each WT connection owns its session registry and stream adapter list.
 Each WT stream has one underlying QUIC stream. Callbacks carry the original
 application context. Session teardown detaches lookup state and keeps
 callback data valid during final notification. Stream short-write results

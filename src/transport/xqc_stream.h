@@ -39,6 +39,7 @@ typedef enum {
     XQC_STREAM_FLAG_CLOSED          = 1 << 7,
     XQC_STREAM_FLAG_UNEXPECTED      = 1 << 8,
     XQC_STREAM_FLAG_DISCARDED       = 1 << 9,   /* stream create_notify with error, all stream data will be discarded */
+    XQC_STREAM_FLAG_STOP_SENDING_SENT = 1 << 10,
 } xqc_stream_flag_t;
 
 typedef enum {

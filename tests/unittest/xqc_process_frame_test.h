@@ -86,6 +86,12 @@ void xqc_test_process_reset_stream_on_bidirectional_stream(void);
 
 void xqc_test_process_reset_stream_on_recv_only_stream(void);
 
+void xqc_test_stream_close_send_only(void);
+
+void xqc_test_stream_close_recv_only(void);
+
+void xqc_test_stream_close_bidirectional(void);
+
 void xqc_test_reset_stream_final_size_accepted(void);
 
 void xqc_test_reset_stream_final_size_too_small(void);

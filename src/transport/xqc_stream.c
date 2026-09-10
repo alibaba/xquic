@@ -923,6 +923,10 @@ xqc_stream_close_with_error(xqc_stream_t *stream, uint64_t err_code)
 {
     xqc_int_t ret;
     xqc_connection_t *conn = stream->stream_conn;
+    xqc_bool_t send_only = xqc_stream_is_send_only(conn->conn_type,
+                                                    stream->stream_id);
+    xqc_bool_t recv_only = xqc_stream_is_recv_only(conn->conn_type,
+                                                    stream->stream_id);
     xqc_log(conn->log, XQC_LOG_DEBUG, "|stream_id:%ui|"
             "stream_state_send:%d|stream_state_recv:%d|conn:%p|"
             "conn_state:%s|err_code:%ui|", stream->stream_id,
@@ -931,7 +935,12 @@ xqc_stream_close_with_error(xqc_stream_t *stream, uint64_t err_code)
 
     XQC_STREAM_CLOSE_MSG(stream, "local reset");
 
-    if (stream->stream_state_send >= XQC_SEND_STREAM_ST_RESET_SENT) {
+    if ((!recv_only
+         && stream->stream_state_send >= XQC_SEND_STREAM_ST_RESET_SENT)
+        || (recv_only
+            && (stream->stream_flag
+                & XQC_STREAM_FLAG_STOP_SENDING_SENT)))
+    {
         return XQC_OK;
     }
     if (conn->conn_state >= XQC_CONN_STATE_CLOSING) {
@@ -939,24 +948,34 @@ xqc_stream_close_with_error(xqc_stream_t *stream, uint64_t err_code)
     }
 
     xqc_send_queue_drop_stream_frame_packets(conn, stream->stream_id);
-    ret = xqc_write_reset_stream_to_packet(conn, stream, err_code,
-                                           stream->stream_send_offset);
-    if (ret < 0) {
-        xqc_log(conn->log, XQC_LOG_ERROR,
-                "|xqc_write_reset_stream_to_packet error|%d|", ret);
-        XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+    /*
+     * RFC 9000 Sections 3.3, 19.4, and 19.5: a stream receiver sends
+     * STOP_SENDING, while a stream sender sends RESET_STREAM.
+     */
+    if (!recv_only) {
+        ret = xqc_write_reset_stream_to_packet(conn, stream, err_code,
+                                               stream->stream_send_offset);
+        if (ret < 0) {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|xqc_write_reset_stream_to_packet error|%d|", ret);
+            XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+        }
     }
 
     /* A STOP_SENDING frame can be sent for streams in the "Recv" or "Size
        Known" states */
-    if (stream->stream_state_recv == XQC_RECV_STREAM_ST_RECV
-        || stream->stream_state_recv == XQC_RECV_STREAM_ST_SIZE_KNOWN)
+    if (!send_only
+        && (stream->stream_state_recv == XQC_RECV_STREAM_ST_RECV
+            || stream->stream_state_recv == XQC_RECV_STREAM_ST_SIZE_KNOWN))
     {
         ret = xqc_write_stop_sending_to_packet(conn, stream, err_code);
         if (ret < 0) {
             xqc_log(conn->log, XQC_LOG_ERROR,
                     "|xqc_write_stop_sending_to_packet error|%d|", ret);
             XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+
+        } else {
+            stream->stream_flag |= XQC_STREAM_FLAG_STOP_SENDING_SENT;
         }
     }
 

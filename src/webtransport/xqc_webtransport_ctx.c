@@ -6,6 +6,7 @@
 #include "src/webtransport/xqc_webtransport_session.h"
 #include "src/webtransport/xqc_webtransport_request_adapter.h"
 #include "src/webtransport/xqc_webtransport_stream.h"
+#include "src/webtransport/xqc_webtransport_h3_stream.h"
 #include "src/webtransport/xqc_webtransport_dgram.h"
 #include "src/webtransport/xqc_webtransport_wire.h"
 #include "src/http3/xqc_h3_extension.h"
@@ -126,13 +127,6 @@ xqc_wt_peer_settings_complete(xqc_h3_conn_t *h3c, void *data)
     return XQC_OK;
 }
 
-static xqc_bool_t
-xqc_wt_raw_type(xqc_h3_conn_t *h3c, void *data, uint64_t type,
-    xqc_bool_t bidi)
-{
-    return type == (bidi ? XQC_WT_STREAM_TYPE_BIDIRECTIONAL
-                        : XQC_WT_STREAM_TYPE_UNIDIRECTIONAL);
-}
 
 xqc_int_t
 xqc_wt_ctx_init(xqc_engine_t *engine,
@@ -164,12 +158,8 @@ xqc_wt_ctx_init(xqc_engine_t *engine,
         .local_settings = xqc_wt_local_settings,
         .peer_setting = xqc_wt_peer_setting,
         .peer_settings_complete = xqc_wt_peer_settings_complete,
-        .raw_stream_type = xqc_wt_raw_type,
-        .raw_read = xqc_wt_stream_read,
-        .raw_write = xqc_wt_stream_write,
-        .raw_closing = xqc_wt_stream_closing,
-        .raw_close = xqc_wt_stream_close,
     };
+    xqc_wt_h3_stream_callbacks(&ops);
     xqc_wt_dgram_callbacks(&ops.datagram_callbacks);
     return xqc_h3_extension_register(engine, &ops, ctx, sizeof(*ctx));
 }

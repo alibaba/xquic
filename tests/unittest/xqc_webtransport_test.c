@@ -8,6 +8,7 @@
 #include "src/webtransport/xqc_webtransport_conn.h"
 #include "src/webtransport/xqc_webtransport_session.h"
 #include "src/webtransport/xqc_webtransport_stream.h"
+#include "src/webtransport/xqc_webtransport_h3_stream.h"
 #include "src/webtransport/xqc_webtransport_dgram.h"
 #include "src/http3/xqc_h3_ctx.h"
 #include "src/http3/xqc_h3_conn.h"
@@ -69,7 +70,10 @@ wt_pause(xqc_h3_stream_t *stream, xqc_bool_t paused)
 static void
 wt_detach(xqc_h3_stream_t *stream)
 {
-    stream->extension_data = NULL;
+    xqc_h3_extension_ops_t ops = {0};
+    xqc_wt_h3_stream_callbacks(&ops);
+    xqc_wt_h3_stream_detach(stream);
+    ops.stream_close(stream, stream->extension_data);
 }
 
 static const xqc_wt_stream_io_ops_t wt_io = {

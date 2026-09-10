@@ -11,6 +11,8 @@
 - [x] Run a loopback native integration test.
 - [x] Remove engine and H3 request changes; verify connection-owned context
   teardown and existing H3 request/handshake callback routing.
+- [x] Move stream classification, buffering and lifecycle state into the WT
+  adapter; cover prefix fragmentation, ordinary H3 fallback and FIN retries.
 - [ ] Verify real Chrome connection, data exchange, rejection and close.
 - [x] Synchronize durable documentation and record remaining API gaps.
 - [x] Prepare the scoped change and honest validation evidence for a draft PR.

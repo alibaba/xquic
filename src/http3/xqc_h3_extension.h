@@ -19,7 +19,9 @@ typedef struct {
  * flat context data. Each connection owns its callback and context state;
  * it must not retain pointers into the H3 context. Application user_data
  * is never replaced.
- * Stream type is consumed by H3; raw_read receives only bytes after it.
+ * stream_read receives wire bytes, including the initial type. The adapter
+ * calls xqc_h3_stream_process_in for ordinary HTTP input. Stream state is
+ * opaque to H3; stream_close must release it and clear extension_data.
  */
 typedef struct {
     void *(*conn_create)(xqc_h3_conn_t *h3c, void *ctx);
@@ -31,14 +33,15 @@ typedef struct {
     xqc_int_t (*peer_settings_complete)(xqc_h3_conn_t *h3c,
         void *conn_ctx);
 
-    xqc_bool_t (*raw_stream_type)(xqc_h3_conn_t *h3c, void *conn_ctx,
-        uint64_t type, xqc_bool_t bidi);
-    ssize_t (*raw_read)(xqc_h3_stream_t *stream, void *conn_ctx,
-        const unsigned char *data, size_t data_len, uint8_t fin);
-    xqc_int_t (*raw_write)(xqc_h3_stream_t *stream, void *stream_ctx);
-    void (*raw_closing)(xqc_h3_stream_t *stream, xqc_int_t error,
+    xqc_int_t (*stream_read)(xqc_h3_stream_t *stream, void *conn_ctx,
+        unsigned char *data, size_t data_len, uint8_t fin);
+    /* -XQC_EAGAIN suspends reading until the adapter makes it ready again. */
+    xqc_int_t (*stream_prepare_read)(xqc_h3_stream_t *stream,
         void *stream_ctx);
-    void (*raw_close)(xqc_h3_stream_t *stream, void *stream_ctx);
+    xqc_int_t (*stream_write)(xqc_h3_stream_t *stream, void *stream_ctx);
+    void (*stream_closing)(xqc_h3_stream_t *stream, xqc_int_t error,
+        void *stream_ctx);
+    void (*stream_close)(xqc_h3_stream_t *stream, void *stream_ctx);
 
     xqc_datagram_callbacks_t datagram_callbacks;
 } xqc_h3_extension_ops_t;
@@ -48,14 +51,5 @@ xqc_int_t xqc_h3_extension_register(xqc_engine_t *engine,
     const xqc_h3_extension_ops_t *ops, const void *ctx, size_t ctx_size);
 
 void *xqc_h3_extension_get_context(xqc_engine_t *engine);
-
-/* Outgoing raw streams carry application-owned prefix bytes on send. */
-xqc_h3_stream_t *xqc_h3_extension_stream_create(xqc_h3_conn_t *h3c,
-    xqc_bool_t bidi, void *stream_ctx);
-
-xqc_int_t xqc_h3_extension_stream_set_read_paused(xqc_h3_stream_t *stream,
-    xqc_bool_t paused);
-
-void xqc_h3_extension_stream_detach(xqc_h3_stream_t *stream);
 
 #endif

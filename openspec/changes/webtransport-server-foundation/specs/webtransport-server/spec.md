@@ -11,6 +11,11 @@ teardown uses connection-owned callback and configuration copies after ALPN
 registration storage has been released. CONNECT routing uses existing H3
 request callbacks in the WT adapter, without changing H3 request internals.
 
+WT stream classification and buffering belong to the WT H3 stream adapter.
+Fragmented WT prefixes must classify once; non-WT prefixes must reach the
+ordinary H3 parser unchanged. Closing during classification frees its state,
+and read backpressure preserves both payload and FIN for retry.
+
 ## Server acceptance
 
 A supported, authorized CONNECT request establishes a session on the

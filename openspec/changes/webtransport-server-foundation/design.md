@@ -18,6 +18,15 @@ SETTINGS exchange, and raw stream dispatch required by draft-07 sections
 3.1, 3.2, 4.1 and 4.2. WT stream classification must precede ordinary HTTP
 frame parsing; its bidirectional prefix has no HTTP frame-length field.
 
+Keep stream demultiplexing in `src/webtransport/xqc_webtransport_h3_stream.c`.
+This adapter owns incremental prefix classification, ordinary-prefix replay,
+raw receive buffering, pause/resume, detach and outgoing raw stream creation.
+H3 holds only an opaque stream extension pointer and invokes generic input,
+prepare-read, write and lifecycle callbacks. Its ordinary input parser remains
+responsible for HTTP frames and QPACK buffering; it never includes WT headers.
+An incomplete prefix is cleaned up on stream close. A detached WT stream must
+never return to HTTP parsing, and buffered FIN survives an EAGAIN retry.
+
 Each H3 connection has private adapter state and a session registry.
 Each WT stream has one underlying QUIC stream. Callbacks carry the original
 application context. Session teardown detaches lookup state and keeps

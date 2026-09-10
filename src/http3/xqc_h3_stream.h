@@ -100,14 +100,6 @@ typedef struct xqc_h3_stream_s {
     uint64_t                        stream_err;
     void                           *user_data;
     void                           *extension_data;
-    uint64_t                        extension_stream_type;
-    xqc_bool_t                      extension_raw;
-    xqc_bool_t                      extension_detached;
-    xqc_bool_t                      extension_read_paused;
-    xqc_bool_t                      extension_type_checked;
-    unsigned char                   extension_prefix[8];
-    size_t                          extension_prefix_len;
-    xqc_var_buf_t                  *extension_recv_buf;
 
     /* http3 connection */
     xqc_h3_conn_t                  *h3c;
@@ -235,5 +227,8 @@ ssize_t xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data,
 
 ssize_t xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data,
     size_t data_len, xqc_bool_t fin_flag);
+
+xqc_int_t xqc_h3_stream_process_in(xqc_h3_stream_t *h3s,
+    unsigned char *data, size_t data_len, xqc_bool_t fin_flag);
 
 #endif

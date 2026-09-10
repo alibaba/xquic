@@ -170,6 +170,20 @@ main(int argc, char *argv[])
                         xqc_test_client_discards_received_zero_rtt)
         || !CU_add_test(pSuite, "xqc_test_server_buffers_received_zero_rtt",
                         xqc_test_server_buffers_received_zero_rtt)
+        || !CU_add_test(pSuite, "xqc_test_client_initial_zero_token",
+                        xqc_test_client_initial_zero_token)
+        || !CU_add_test(pSuite, "xqc_test_client_initial_nonzero_token",
+                        xqc_test_client_initial_nonzero_token)
+        || !CU_add_test(pSuite, "xqc_test_server_initial_token",
+                        xqc_test_server_initial_token)
+        || !CU_add_test(pSuite, "xqc_test_initial_token_bounds",
+                        xqc_test_initial_token_bounds)
+        || !CU_add_test(pSuite, "xqc_test_initial_token_discard_recovery",
+                        xqc_test_initial_token_discard_recovery)
+        || !CU_add_test(pSuite, "xqc_test_client_initial_sends_token",
+                        xqc_test_client_initial_sends_token)
+        || !CU_add_test(pSuite, "xqc_test_server_initial_omits_token",
+                        xqc_test_server_initial_omits_token)
         || !CU_add_test(pSuite, "xqc_test_packet_out_remained_size",
                         xqc_test_packet_out_remained_size)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_flood", xqc_test_crypto_frame_flood)

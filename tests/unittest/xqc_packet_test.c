@@ -14,6 +14,7 @@
 #include "xquic/xquic_typedef.h"
 #include "xquic/xquic.h"
 #include "src/common/xqc_str.h"
+#include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "xqc_common_test.h"
 #include "src/transport/xqc_conn.h"
 
@@ -26,6 +27,246 @@
 
 #define XQC_TEST_CHECK_CID "ab3f120acdef0089"
 #define XQC_TEST_COALESCED_PACKET_SIZE 1250
+
+static size_t xqc_test_initial_token_body(unsigned char *buf,
+    size_t token_len, unsigned int two_bit);
+static void xqc_test_initial_token_write(xqc_conn_type_t role);
+
+
+static size_t
+xqc_test_initial_token_body(unsigned char *buf, size_t token_len,
+    unsigned int two_bit)
+{
+    size_t width = xqc_vint_len(two_bit);
+
+    xqc_vint_write(buf, token_len, two_bit, width);
+    memset(buf + width, 0xa5, token_len);
+    buf[width + token_len] = 1;
+    buf[width + token_len + 1] = 0;
+    return width + token_len + 2;
+}
+
+
+void
+xqc_test_client_initial_zero_token(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_packet_in_t packet_in;
+    unsigned char buf[10];
+    size_t size;
+    xqc_int_t ret;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    /* RFC 9000 Sections 16 and 17.2.2 permit all encodings of zero. */
+    for (unsigned int bits = 0; bits < 4; bits++) {
+        size = xqc_test_initial_token_body(buf, 0, bits);
+        memset(&packet_in, 0, sizeof(packet_in));
+        xqc_packet_in_init(&packet_in, buf, size, NULL, 0, 0);
+        ret = xqc_packet_parse_initial(conn, &packet_in);
+
+        CU_ASSERT_EQUAL(ret, XQC_OK);
+        CU_ASSERT_EQUAL(packet_in.pi_pkt.pkt_pns, XQC_PNS_INIT);
+        CU_ASSERT_EQUAL(packet_in.pi_pkt.length, 1);
+        CU_ASSERT_EQUAL(packet_in.pi_pkt.pkt_num_offset, size - 1);
+        CU_ASSERT_PTR_EQUAL(packet_in.last, buf + size);
+        CU_ASSERT_EQUAL(conn->conn_err, 0);
+    }
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_client_initial_nonzero_token(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    const size_t lengths[] = {1, 63, 64, XQC_MAX_TOKEN_LEN};
+    xqc_packet_in_t packet_in;
+    unsigned char buf[XQC_MAX_TOKEN_LEN + 10];
+    size_t size;
+    xqc_int_t ret;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->conn_token[0] = 0x7b;
+    conn->conn_token_len = 1;
+
+    /* RFC 9000 Section 17.2.2 requires discard or PROTOCOL_VIOLATION. */
+    for (unsigned int bits = 0; bits < 4; bits++) {
+        for (size_t i = 0; i < sizeof(lengths) / sizeof(lengths[0]); i++) {
+            if (bits < xqc_vint_get_2bit(lengths[i])) {
+                continue;
+            }
+            size = xqc_test_initial_token_body(buf, lengths[i], bits);
+            memset(&packet_in, 0, sizeof(packet_in));
+            xqc_packet_in_init(&packet_in, buf, size, NULL, 0, 0);
+            ret = xqc_packet_parse_initial(conn, &packet_in);
+
+            CU_ASSERT_EQUAL(ret, -XQC_EILLPKT);
+            CU_ASSERT_EQUAL(conn->conn_err, 0);
+            CU_ASSERT_EQUAL(conn->conn_token_len, 1);
+            CU_ASSERT_EQUAL(conn->conn_token[0], 0x7b);
+            CU_ASSERT_EQUAL(packet_in.pi_pkt.pkt_num_offset, 0);
+        }
+    }
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_server_initial_token(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    const size_t lengths[] = {0, 1, 63, 64, XQC_MAX_TOKEN_LEN};
+    xqc_packet_in_t packet_in;
+    unsigned char buf[XQC_MAX_TOKEN_LEN + 10];
+    size_t size;
+    xqc_int_t ret;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    for (unsigned int bits = 0; bits < 4; bits++) {
+        for (size_t i = 0; i < sizeof(lengths) / sizeof(lengths[0]); i++) {
+            if (bits < xqc_vint_get_2bit(lengths[i])) {
+                continue;
+            }
+            size = xqc_test_initial_token_body(buf, lengths[i], bits);
+            memset(&packet_in, 0, sizeof(packet_in));
+            xqc_packet_in_init(&packet_in, buf, size, NULL, 0, 0);
+            packet_in.datagram_size = XQC_PACKET_INITIAL_MIN_LENGTH;
+            ret = xqc_packet_parse_initial(conn, &packet_in);
+
+            CU_ASSERT_EQUAL(ret, XQC_OK);
+            CU_ASSERT_EQUAL(conn->conn_token_len, lengths[i]);
+            CU_ASSERT_EQUAL(memcmp(conn->conn_token,
+                                   buf + xqc_vint_len(bits), lengths[i]), 0);
+            CU_ASSERT_EQUAL(packet_in.pi_pkt.pkt_num_offset, size - 1);
+            CU_ASSERT_EQUAL(conn->conn_err, 0);
+        }
+    }
+    conn->conn_type = XQC_CONN_TYPE_CLIENT;
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_initial_token_bounds(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_conn_type_t roles[] = {XQC_CONN_TYPE_CLIENT, XQC_CONN_TYPE_SERVER};
+    const struct {
+        size_t token_len;
+        unsigned int bits;
+        size_t truncated_bytes;
+    } cases[] = {
+        {7, 0, 3},                         /* truncated token */
+        {XQC_MAX_TOKEN_LEN + 1, 1, 0},      /* oversized token */
+        {0, 0, 2},                         /* missing Length */
+        {0, 0, 1},                         /* missing payload */
+    };
+    xqc_packet_in_t packet_in;
+    unsigned char buf[XQC_MAX_TOKEN_LEN + 11];
+    size_t size;
+    xqc_int_t ret;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    for (size_t role = 0; role < sizeof(roles) / sizeof(roles[0]); role++) {
+        conn->conn_type = roles[role];
+        for (unsigned int bits = 0; bits < 4; bits++) {
+            xqc_test_initial_token_body(buf, 0, bits);
+            size = xqc_vint_len(bits) - 1;
+            memset(&packet_in, 0, sizeof(packet_in));
+            xqc_packet_in_init(&packet_in, buf, size, NULL, 0, 0);
+            packet_in.datagram_size = XQC_PACKET_INITIAL_MIN_LENGTH;
+            ret = xqc_packet_parse_initial(conn, &packet_in);
+            CU_ASSERT_EQUAL(ret, -XQC_EILLPKT);
+        }
+
+        for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+            size = xqc_test_initial_token_body(buf, cases[i].token_len,
+                                               cases[i].bits)
+                   - cases[i].truncated_bytes;
+            memset(&packet_in, 0, sizeof(packet_in));
+            xqc_packet_in_init(&packet_in, buf, size, NULL, 0, 0);
+            packet_in.datagram_size = XQC_PACKET_INITIAL_MIN_LENGTH;
+            ret = xqc_packet_parse_initial(conn, &packet_in);
+            CU_ASSERT_EQUAL(ret, -XQC_EILLPKT);
+            CU_ASSERT_EQUAL(conn->conn_err, 0);
+        }
+    }
+    conn->conn_type = XQC_CONN_TYPE_CLIENT;
+    xqc_engine_destroy(conn->engine);
+}
+
+
+static void
+xqc_test_initial_token_write(xqc_conn_type_t role)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    const uint32_t lengths[] = {0, 1, 64, XQC_MAX_TOKEN_LEN};
+    unsigned char token[XQC_MAX_TOKEN_LEN];
+    xqc_packet_out_t *packet_out;
+    unsigned char *pos;
+    unsigned char *end;
+    uint64_t token_len;
+    size_t expected_len;
+    int width;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->conn_type = role;
+    for (size_t i = 0; i < sizeof(token); i++) {
+        token[i] = (unsigned char)i;
+    }
+    memcpy(conn->conn_token, token, sizeof(token));
+
+    /* RFC 9000 Section 17.2.2 forbids echoing a client's Initial token. */
+    for (size_t i = 0; i < sizeof(lengths) / sizeof(lengths[0]); i++) {
+        conn->conn_token_len = lengths[i];
+        expected_len = role == XQC_CONN_TYPE_CLIENT ? lengths[i] : 0;
+        packet_out = xqc_write_new_packet(conn, XQC_PTYPE_INIT);
+        CU_ASSERT_PTR_NOT_NULL(packet_out);
+        if (packet_out == NULL) {
+            break;
+        }
+
+        pos = packet_out->po_buf + XQC_PACKET_LONG_HEADER_PREFIX_LENGTH
+              + 1 + conn->dcid_set.current_dcid.cid_len
+              + 1 + conn->scid_set.user_scid.cid_len;
+        end = packet_out->po_buf + packet_out->po_used_size;
+        width = xqc_vint_read(pos, end, &token_len);
+        CU_ASSERT(width > 0);
+        if (width <= 0) {
+            continue;
+        }
+
+        CU_ASSERT_EQUAL(token_len, expected_len);
+        CU_ASSERT_PTR_EQUAL(packet_out->po_ppktno,
+                            pos + width + expected_len
+                            + XQC_LONG_HEADER_LENGTH_BYTE);
+        CU_ASSERT((size_t)(end - pos) >= width + expected_len);
+        if ((size_t)(end - pos) >= width + expected_len) {
+            CU_ASSERT_EQUAL(memcmp(pos + width, token, expected_len), 0);
+        }
+        CU_ASSERT_EQUAL(conn->conn_token_len, lengths[i]);
+        CU_ASSERT_EQUAL(memcmp(conn->conn_token, token, sizeof(token)), 0);
+    }
+
+    conn->conn_type = XQC_CONN_TYPE_CLIENT;
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_client_initial_sends_token(void)
+{
+    xqc_test_initial_token_write(XQC_CONN_TYPE_CLIENT);
+}
+
+
+void
+xqc_test_server_initial_omits_token(void)
+{
+    xqc_test_initial_token_write(XQC_CONN_TYPE_SERVER);
+}
+
 
 void
 xqc_test_packet_parse_cid(unsigned char *buf, size_t size, int is_short)
@@ -165,6 +406,15 @@ typedef struct test_ctx {
     char                 buf[2048];
     size_t               buf_len;
 } test_ctx;
+
+static size_t xqc_test_build_initial_token(test_ctx *sender,
+    const xqc_cid_t *dcid, xqc_packet_number_t packet_number,
+    xqc_bool_t connection_close, const unsigned char *token,
+    uint32_t token_len, size_t packet_size, unsigned char *buf,
+    size_t buf_cap);
+static size_t xqc_test_build_initial(test_ctx *cli, const xqc_cid_t *dcid,
+    xqc_packet_number_t packet_number, xqc_bool_t connection_close,
+    size_t packet_size, unsigned char *buf, size_t buf_cap);
 
 
 ssize_t
@@ -553,9 +803,10 @@ xqc_test_coalesced_teardown(test_ctx *cli, test_ctx *svr)
 
 
 static size_t
-xqc_test_build_initial(test_ctx *cli, const xqc_cid_t *dcid,
+xqc_test_build_initial_token(test_ctx *sender, const xqc_cid_t *dcid,
     xqc_packet_number_t packet_number, xqc_bool_t connection_close,
-    size_t packet_size, unsigned char *buf, size_t buf_cap)
+    const unsigned char *token, uint32_t token_len, size_t packet_size,
+    unsigned char *buf, size_t buf_cap)
 {
     xqc_packet_out_t *packet_out;
     size_t encrypted_size = 0;
@@ -572,16 +823,16 @@ xqc_test_build_initial(test_ctx *cli, const xqc_cid_t *dcid,
     packet_out->po_pkt.pkt_pns = XQC_PNS_INIT;
     packet_out->po_pkt.pkt_num = packet_number;
     xqc_cid_set(&packet_out->po_pkt.pkt_scid,
-                cli->c->scid_set.user_scid.cid_buf,
-                cli->c->scid_set.user_scid.cid_len);
+                sender->c->scid_set.user_scid.cid_buf,
+                sender->c->scid_set.user_scid.cid_len);
     xqc_cid_set(&packet_out->po_pkt.pkt_dcid, dcid->cid_buf, dcid->cid_len);
 
     written = xqc_gen_long_packet_header(
         packet_out, packet_out->po_pkt.pkt_dcid.cid_buf,
         packet_out->po_pkt.pkt_dcid.cid_len,
         packet_out->po_pkt.pkt_scid.cid_buf,
-        packet_out->po_pkt.pkt_scid.cid_len, NULL, 0, XQC_VERSION_V1,
-        XQC_PKTNO_BITS);
+        packet_out->po_pkt.pkt_scid.cid_len, token, token_len,
+        XQC_VERSION_V1, XQC_PKTNO_BITS);
     if (written <= 0) {
         goto end;
     }
@@ -609,7 +860,7 @@ xqc_test_build_initial(test_ctx *cli, const xqc_cid_t *dcid,
     memset(packet_out->po_buf + packet_out->po_used_size, 0, padding_size);
     packet_out->po_used_size += padding_size;
 
-    ret = xqc_packet_encrypt_buf(cli->c, packet_out, buf, buf_cap,
+    ret = xqc_packet_encrypt_buf(sender->c, packet_out, buf, buf_cap,
                                  &encrypted_size);
     if (ret != XQC_OK) {
         encrypted_size = 0;
@@ -618,6 +869,81 @@ xqc_test_build_initial(test_ctx *cli, const xqc_cid_t *dcid,
 end:
     xqc_packet_out_destroy(packet_out);
     return encrypted_size;
+}
+
+
+static size_t
+xqc_test_build_initial(test_ctx *cli, const xqc_cid_t *dcid,
+    xqc_packet_number_t packet_number, xqc_bool_t connection_close,
+    size_t packet_size, unsigned char *buf, size_t buf_cap)
+{
+    return xqc_test_build_initial_token(cli, dcid, packet_number,
+                                        connection_close, NULL, 0,
+                                        packet_size, buf, buf_cap);
+}
+
+
+void
+xqc_test_initial_token_discard_recovery(void)
+{
+    test_ctx cli = {0};
+    test_ctx svr = {0};
+    unsigned char invalid[2048];
+    unsigned char valid[2048];
+    const unsigned char token[] = {0xa5};
+    xqc_conn_state_t state;
+    xqc_conn_flag_t flags;
+    xqc_usec_t last_recv;
+    uint64_t dropped_count;
+    size_t invalid_size;
+    size_t valid_size;
+    int recv_index;
+    xqc_int_t ret;
+
+    ret = xqc_test_coalesced_setup(&cli, &svr);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    if (ret != XQC_OK) {
+        goto end;
+    }
+
+    state = cli.c->conn_state;
+    flags = cli.c->conn_flag;
+    last_recv = cli.c->conn_last_recv_time;
+    dropped_count = cli.c->packet_dropped_count;
+    recv_index = cli.c->rcv_pkt_stats.curr_index;
+
+    invalid_size = xqc_test_build_initial_token(
+        &svr, &cli.c->scid_set.user_scid, 1, XQC_TRUE,
+        token, sizeof(token), XQC_TEST_COALESCED_PACKET_SIZE,
+        invalid, sizeof(invalid));
+    valid_size = xqc_test_build_initial(
+        &svr, &cli.c->scid_set.user_scid, 2, XQC_TRUE,
+        XQC_TEST_COALESCED_PACKET_SIZE, valid, sizeof(valid));
+    CU_ASSERT_NOT_EQUAL(invalid_size, 0);
+    CU_ASSERT_NOT_EQUAL(valid_size, 0);
+    if (invalid_size == 0 || valid_size == 0) {
+        goto end;
+    }
+
+    /* RFC 9000 Section 17.2.2: discard before the close frame acts. */
+    ret = xqc_conn_process_packet(cli.c, invalid, invalid_size, xqc_now());
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(cli.c->conn_err, 0);
+    CU_ASSERT_EQUAL(cli.c->conn_state, state);
+    CU_ASSERT_EQUAL(cli.c->conn_flag, flags);
+    CU_ASSERT_EQUAL(cli.c->conn_close_recv_time, 0);
+    CU_ASSERT_EQUAL(cli.c->conn_last_recv_time, last_recv);
+    CU_ASSERT_EQUAL(cli.c->packet_dropped_count, dropped_count);
+    CU_ASSERT_EQUAL(cli.c->rcv_pkt_stats.pkt_err[recv_index], -XQC_EILLPKT);
+
+    ret = xqc_conn_process_packet(cli.c, valid, valid_size, xqc_now());
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_NOT_EQUAL(cli.c->conn_close_recv_time, 0);
+    CU_ASSERT(cli.c->conn_state >= XQC_CONN_STATE_DRAINING);
+    CU_ASSERT_EQUAL(cli.c->packet_dropped_count, dropped_count);
+
+end:
+    xqc_test_coalesced_teardown(&cli, &svr);
 }
 
 

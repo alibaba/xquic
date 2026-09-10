@@ -338,6 +338,89 @@ fi
 
 }
 
+case_congestion_persistent_run()
+{
+    local case_id="$1"
+    local expected_resets="$2"
+    local resets
+    local echoes
+    local server_receives
+
+    case_test_stop_server
+    clear_log
+    rm -f test_session xqc_token tp_localhost
+    case_test_start_server ${SERVER_BIN} -l d -e -x "${case_id}" \
+        > svr_stdlog
+    sleep 1
+    if ! ${CLIENT_BIN} -T 1 -s 1024 -l d -t 1 -E -c cubic \
+        -x "${case_id}" > stdlog 2>&1
+    then
+        return 1
+    fi
+
+    resets=$(grep -c 'persistent_congestion|reset_rtt' clog || true)
+    echoes=$(grep -c '^>>>>>>>> pass:1$' stdlog || true)
+    server_receives=$(grep -c \
+        '\[persistent-congestion-test\]|server_received:1024|' \
+        svr_stdlog || true)
+
+    if [[ "${resets}" -ne "${expected_resets}" \
+        || "${echoes}" -ne 2 || "${server_receives}" -ne 2 ]]
+    then
+        echo "resets=${resets} echoes=${echoes} server_receives=${server_receives}"
+        return 1
+    fi
+
+    grep -q '\[persistent-congestion-test\]|final_acked:1|' stdlog \
+        || return 1
+    grep -q '\[persistent-congestion-test\]|recovery_stream_started:1|' \
+        stdlog || return 1
+    grep -q 'conn_err:0,' stdlog || return 1
+
+    if ! awk -F'|' '
+        /\[persistent-congestion-test\]\|release\|/ {
+            for (i = 1; i <= NF; i++) {
+                split($i, value, ":")
+                if (value[1] == "drops") drops = value[2] + 0
+                if (value[1] == "loss_span") span = value[2] + 0
+                if (value[1] == "duration") duration = value[2] + 0
+                if (value[1] == "pto_count") pto_count = value[2] + 0
+            }
+            valid = drops >= 2 && span > duration && pto_count == 0
+        }
+        END { exit !valid }
+    ' stdlog
+    then
+        return 1
+    fi
+
+    if [[ "${case_id}" -eq 802 ]]; then
+        grep -q '\[persistent-congestion-test\]|middle_acked:1|' stdlog \
+            || return 1
+
+    elif grep -q '\[persistent-congestion-test\]|middle_acked:1|' stdlog; then
+        return 1
+    fi
+}
+
+case_congestion_core_persistent_congestion_loss()
+{
+    if case_congestion_persistent_run 801 1; then
+        case_print_result "persistent_congestion_loss" "pass"
+    else
+        case_print_result "persistent_congestion_loss" "fail"
+    fi
+}
+
+case_congestion_core_persistent_congestion_ack()
+{
+    if case_congestion_persistent_run 802 0; then
+        case_print_result "persistent_congestion_ack" "pass"
+    else
+        case_print_result "persistent_congestion_ack" "fail"
+    fi
+}
+
 case_test_group_setup()
 {
     case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
@@ -361,6 +444,8 @@ case_test_case "3_percent_loss" --id native --mode self-reporting --run case_con
 case_test_case "10_percent_loss" --id native --mode self-reporting --run case_congestion_core__10_percent_loss
 case_test_case "sengmmsg_with_10_percent_loss" --id native --mode self-reporting --run case_congestion_core_sengmmsg_with_10_percent_loss
 case_test_case "max_pkt_out_size" --id native --mode self-reporting --run case_congestion_core_max_pkt_out_size
+case_test_case "persistent_congestion_loss" --id 801 --mode self-reporting --run case_congestion_core_persistent_congestion_loss
+case_test_case "persistent_congestion_ack" --id 802 --mode self-reporting --run case_congestion_core_persistent_congestion_ack
 
 if case_test_is_discovery; then
     case_test_run

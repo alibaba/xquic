@@ -116,3 +116,21 @@ behind the TLS integration layer.
 These boundaries are initially documented rather than mechanically enforced.
 When the same class of violation recurs, promote the invariant into a test,
 lint, or structural check.
+
+## Recovery History
+
+Persistent-congestion detection in `xqc_send_ctl.*` follows
+[RFC 9002 Section 7.6](https://www.rfc-editor.org/rfc/rfc9002.html#section-7.6).
+It compares the sending times of lost ack-eliciting packets after an RTT
+sample, independently of PTO count, and checks for intervening acknowledgments
+across packet number spaces on the sending path. The existing congestion
+callback and RTT-estimator reset handle a qualifying interval.
+
+The detector retains only packet metadata in a lazily allocated per-path
+history, including ACK-only and direct path-probe transmissions that can be
+recycled before their ACK arrives. The history holds at most 256 packets;
+overflow keeps the newest suffix and can delay detection when an older
+endpoint is unavailable. It does not infer loss across missing history.
+Acknowledged prefixes are pruned; path reset, key-space discard and the
+persistent-congestion RTT reset clear the retained interval. Packet generation
+checks prevent a recycled history slot from receiving an older packet's loss.

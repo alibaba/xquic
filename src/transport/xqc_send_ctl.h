@@ -18,7 +18,7 @@
 #define XQC_kTimeThresholdShift             3
 #define XQC_kPersistentCongestionThreshold  3
 
-#define XQC_CONSECUTIVE_PTO_THRESH          2
+#define XQC_PERSISTENT_CONGESTION_MAX_PACKETS 256
 /*
  * RFC 9002 Section 6.1.2 recommends a timer granularity of 1 ms.
  */
@@ -76,6 +76,8 @@ typedef struct xqc_pn_ctl_s {
 typedef struct xqc_send_ctl_s {
     xqc_connection_t            *ctl_conn;
     xqc_path_ctx_t              *ctl_path;
+
+    struct xqc_persistent_congestion_s *ctl_pc;
 
     /* largest packet number of the acked packets in packet_out */
     xqc_packet_number_t         ctl_largest_acked[XQC_PNS_N];
@@ -226,6 +228,9 @@ void xqc_send_ctl_decrease_inflight(xqc_connection_t *conn, xqc_packet_out_t *pa
 
 void xqc_send_ctl_on_pns_discard(xqc_send_ctl_t *send_ctl, xqc_pkt_num_space_t pns);
 
+void xqc_send_ctl_pc_on_sent(xqc_send_ctl_t *send_ctl,
+    xqc_packet_out_t *po);
+
 void xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_packet_out_t *packet_out, xqc_usec_t now);
 
 int xqc_send_ctl_on_ack_received (xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_send_queue_t *send_queue, xqc_ack_info_t *const ack_info, xqc_usec_t ack_recv_time, xqc_bool_t ack_on_same_path);
@@ -241,7 +246,7 @@ void xqc_send_ctl_on_spurious_loss_detected(xqc_send_ctl_t *send_ctl,
 
 void xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue, xqc_pkt_num_space_t pns, xqc_usec_t now);
 
-xqc_bool_t xqc_send_ctl_in_persistent_congestion(xqc_send_ctl_t *send_ctl, xqc_packet_out_t *largest_lost, xqc_usec_t now);
+xqc_bool_t xqc_send_ctl_in_persistent_congestion(xqc_send_ctl_t *send_ctl);
 
 void xqc_send_ctl_congestion_event(xqc_send_ctl_t *send_ctl, xqc_usec_t sent_time);
 

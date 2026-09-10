@@ -62,4 +62,17 @@ void xqc_test_send_ctl_persistent_congestion_rtt_reseeds_from_new_sample(void);
 void xqc_test_send_ctl_single_loss_does_not_reset_rtt(void);
 void xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return(void);
 
+/* RFC 9002 Sections 7.6.1 and 7.6.2 loss-interval requirements. */
+void xqc_test_send_ctl_persistent_congestion_duration_boundary(void);
+void xqc_test_send_ctl_persistent_congestion_prior_rtt_required(void);
+void xqc_test_send_ctl_persistent_congestion_ack_interrupts(void);
+void xqc_test_send_ctl_persistent_congestion_ack_eliciting_endpoints(void);
+void xqc_test_send_ctl_persistent_congestion_across_loss_batches(void);
+
+void xqc_test_send_ctl_persistent_congestion_pending_other_space(void);
+void xqc_test_send_ctl_persistent_congestion_history_wrap(void);
+void xqc_test_send_ctl_persistent_congestion_history_reset(void);
+
+void xqc_test_send_ctl_persistent_congestion_recycled_probe(void);
+
 #endif

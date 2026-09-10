@@ -126,6 +126,10 @@ modules:
         validation:
           level: targeted
           hints: [send, loss, pacing]
+          unit:
+            - xqc_test_send_ctl_persistent_congestion_duration_boundary
+            - xqc_test_send_ctl_persistent_congestion_ack_interrupts
+            - xqc_test_send_ctl_persistent_congestion_across_loss_batches
       datagram:
         paths:
           - src/transport/xqc_datagram*

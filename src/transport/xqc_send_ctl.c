@@ -23,6 +23,120 @@
 #include "src/transport/xqc_reinjection.h"
 #include "src/transport/xqc_transport_params.h"
 
+typedef struct {
+    xqc_packet_number_t  pkt_num;
+    xqc_usec_t           sent_time;
+    xqc_pkt_num_space_t   pns;
+    uint8_t              ack_eliciting;
+    uint8_t              acked;
+    uint8_t              lost;
+} xqc_pc_packet_t;
+
+typedef struct xqc_persistent_congestion_s {
+    uint64_t         next;
+    size_t           count;
+    xqc_pc_packet_t   packets[XQC_PERSISTENT_CONGESTION_MAX_PACKETS];
+} xqc_persistent_congestion_t;
+
+static void xqc_send_ctl_pc_on_ack(xqc_send_ctl_t *send_ctl,
+    const xqc_ack_info_t *ack_info);
+static void xqc_send_ctl_pc_on_lost(xqc_send_ctl_t *send_ctl,
+    const xqc_packet_out_t *po);
+
+
+void
+xqc_send_ctl_pc_on_sent(xqc_send_ctl_t *send_ctl, xqc_packet_out_t *po)
+{
+    po->po_pc_seq = 0;
+    if (send_ctl->ctl_first_rtt_sample_time == 0) {
+        return;
+    }
+
+    if (send_ctl->ctl_pc == NULL) {
+        send_ctl->ctl_pc = xqc_calloc(1, sizeof(*send_ctl->ctl_pc));
+        if (send_ctl->ctl_pc == NULL) {
+            return;
+        }
+        send_ctl->ctl_pc->next = 1;
+    }
+
+    xqc_persistent_congestion_t *pc = send_ctl->ctl_pc;
+    xqc_pc_packet_t *packet = &pc->packets[
+        pc->next % XQC_PERSISTENT_CONGESTION_MAX_PACKETS];
+    memset(packet, 0, sizeof(*packet));
+    packet->pkt_num = po->po_pkt.pkt_num;
+    packet->sent_time = po->po_sent_time;
+    packet->pns = po->po_pkt.pkt_pns;
+    packet->ack_eliciting = XQC_IS_ACK_ELICITING(po->po_frame_types) != 0;
+    po->po_pc_seq = pc->next++;
+    pc->count = xqc_min(pc->count + 1,
+                       XQC_PERSISTENT_CONGESTION_MAX_PACKETS);
+}
+
+
+static void
+xqc_send_ctl_pc_on_ack(xqc_send_ctl_t *send_ctl,
+    const xqc_ack_info_t *ack_info)
+{
+    xqc_persistent_congestion_t *pc = send_ctl->ctl_pc;
+    if (pc == NULL) {
+        return;
+    }
+
+    unsigned range = ack_info->n_ranges - 1;
+    for (uint64_t seq = pc->next - pc->count; seq < pc->next; ++seq) {
+        xqc_pc_packet_t *packet = &pc->packets[
+            seq % XQC_PERSISTENT_CONGESTION_MAX_PACKETS];
+        if (packet->pns != ack_info->pns) {
+            continue;
+        }
+
+        while (range > 0
+               && packet->pkt_num > ack_info->ranges[range].high)
+        {
+            --range;
+        }
+        if (packet->pkt_num >= ack_info->ranges[range].low
+            && packet->pkt_num <= ack_info->ranges[range].high)
+        {
+            packet->acked = 1;
+        }
+    }
+
+    /* Keep unresolved prefixes; later loss detection can still need them. */
+    while (pc->count > 0) {
+        xqc_pc_packet_t *packet = &pc->packets[
+            (pc->next - pc->count) % XQC_PERSISTENT_CONGESTION_MAX_PACKETS];
+        if (!packet->acked) {
+            break;
+        }
+        --pc->count;
+    }
+}
+
+
+static void
+xqc_send_ctl_pc_on_lost(xqc_send_ctl_t *send_ctl,
+    const xqc_packet_out_t *po)
+{
+    xqc_persistent_congestion_t *pc = send_ctl->ctl_pc;
+    if (pc == NULL || po->po_pc_seq == 0
+        || po->po_pc_seq < pc->next - pc->count
+        || po->po_pc_seq >= pc->next)
+    {
+        return;
+    }
+
+    xqc_pc_packet_t *packet = &pc->packets[
+        po->po_pc_seq % XQC_PERSISTENT_CONGESTION_MAX_PACKETS];
+    if (packet->pns == po->po_pkt.pkt_pns
+        && packet->pkt_num == po->po_pkt.pkt_num
+        && packet->sent_time == po->po_sent_time)
+    {
+        packet->lost = 1;
+    }
+}
+
 int 
 xqc_send_ctl_may_remove_unacked_dgram(xqc_connection_t *conn, xqc_packet_out_t *po)
 {
@@ -200,6 +314,8 @@ xqc_send_ctl_destroy(xqc_send_ctl_t *send_ctl)
     }
 
     send_ctl->ctl_bytes_in_flight = 0;
+    xqc_free(send_ctl->ctl_pc);
+    send_ctl->ctl_pc = NULL;
 }
 
 void
@@ -217,6 +333,10 @@ xqc_send_ctl_reset(xqc_send_ctl_t *send_ctl)
     send_ctl->ctl_reordering_time_threshold_shift = XQC_kTimeThresholdShift;
     send_ctl->ctl_ack_sent_cnt = 0;
     send_ctl->ctl_first_rtt_sample_time = 0;
+
+    if (send_ctl->ctl_pc) {
+        send_ctl->ctl_pc->count = 0;
+    }
 
     for (size_t i = 0; i < XQC_PNS_N; i++) {
         send_ctl->ctl_largest_acked[i] = XQC_MAX_UINT64_VALUE;
@@ -583,6 +703,10 @@ xqc_send_ctl_decrease_inflight(xqc_connection_t *conn, xqc_packet_out_t *packet_
 void
 xqc_send_ctl_on_pns_discard(xqc_send_ctl_t *send_ctl, xqc_pkt_num_space_t pns)
 {
+    /* Discarded keys provide no evidence of packet loss (RFC 9002 6.4). */
+    if (send_ctl->ctl_pc) {
+        send_ctl->ctl_pc->count = 0;
+    }
     send_ctl->ctl_time_of_last_sent_ack_eliciting_packet[pns] = 0;
     send_ctl->ctl_loss_time[pns] = 0;
     send_ctl->ctl_pto_count = 0;
@@ -621,6 +745,7 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
 {
     xqc_pkt_num_space_t pns = packet_out->po_pkt.pkt_pns;
 
+    xqc_send_ctl_pc_on_sent(send_ctl, packet_out);
     xqc_sample_on_sent(packet_out, send_ctl, now);
 
     xqc_packet_number_t orig_pktnum = packet_out->po_origin ? packet_out->po_origin->po_pkt.pkt_num : 0;
@@ -836,6 +961,9 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
         XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
         return -XQC_EPROTO;
     }
+
+    /* ACK-only packets can already have been recycled by the sender. */
+    xqc_send_ctl_pc_on_ack(send_ctl, ack_info);
 
     xqc_packet_number_t largest_acked_ack = xqc_ack_sent_record_on_ack(&pn_ctl->ack_sent_record[pns], ack_info);
     if (largest_acked_ack > pn_ctl->ctl_largest_acked_ack[pns]) {
@@ -1305,6 +1433,8 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
 		{
             if (po->po_flag & XQC_POF_IN_FLIGHT) {
 
+                xqc_send_ctl_pc_on_lost(send_ctl, po);
+
                 /* reinjection */
                 if (conn->enable_multipath
                     && conn->reinj_callback
@@ -1413,7 +1543,7 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
 
         /* Collapse congestion window if persistent congestion */
         if (send_ctl->ctl_cong_callback->xqc_cong_ctl_reset_cwnd
-            && xqc_send_ctl_in_persistent_congestion(send_ctl, largest_lost, now))
+            && xqc_send_ctl_in_persistent_congestion(send_ctl))
         {
             /* For loss-based CCs, it means we are gonna slow start again. */
             send_ctl->ctl_max_bytes_in_flight = 0;
@@ -1438,6 +1568,7 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
             send_ctl->ctl_srtt = send_ctl->ctl_conn->conn_settings.initial_rtt;
             send_ctl->ctl_rttvar = send_ctl->ctl_srtt / 2;
             send_ctl->ctl_first_rtt_sample_time = 0;
+            send_ctl->ctl_pc->count = 0;
 
             /* we reset BBR's cwnd here */
             send_ctl->ctl_cong_callback->xqc_cong_ctl_reset_cwnd(send_ctl->ctl_cong);
@@ -1466,12 +1597,44 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
  * InPersistentCongestion
  */
 xqc_bool_t
-xqc_send_ctl_in_persistent_congestion(xqc_send_ctl_t *send_ctl, xqc_packet_out_t *largest_lost, xqc_usec_t now)
+xqc_send_ctl_in_persistent_congestion(xqc_send_ctl_t *send_ctl)
 {
-    if (send_ctl->ctl_pto_count >= XQC_CONSECUTIVE_PTO_THRESH) {
-        xqc_usec_t duration = (send_ctl->ctl_srtt + xqc_max(send_ctl->ctl_rttvar << 2, XQC_kGranularity * 1000)
-            + send_ctl->ctl_conn->remote_settings.max_ack_delay * 1000) * XQC_kPersistentCongestionThreshold;
-        if (now - largest_lost->po_sent_time > duration) {
+    xqc_persistent_congestion_t *pc = send_ctl->ctl_pc;
+    if (pc == NULL || send_ctl->ctl_first_rtt_sample_time == 0) {
+        return XQC_FALSE;
+    }
+
+    /* RFC 9002 7.6.1: include max_ack_delay in every packet number space. */
+    xqc_usec_t duration = xqc_send_ctl_calc_pto(send_ctl)
+                          * XQC_kPersistentCongestionThreshold;
+    xqc_usec_t first_sent = 0;
+    xqc_bool_t has_first = XQC_FALSE;
+
+    /*
+     * RFC 9002 7.6.2: only a post-RTT interval of lost ack-eliciting
+     * packets can establish persistent congestion. ACKs in any space
+     * interrupt it. Overflow retains a suffix, never an inferred prefix.
+     */
+    for (uint64_t seq = pc->next - pc->count; seq < pc->next; ++seq) {
+        xqc_pc_packet_t *packet = &pc->packets[
+            seq % XQC_PERSISTENT_CONGESTION_MAX_PACKETS];
+        if (packet->acked
+            || packet->sent_time <= send_ctl->ctl_first_rtt_sample_time
+            || (packet->ack_eliciting && !packet->lost))
+        {
+            has_first = XQC_FALSE;
+            continue;
+        }
+        if (!packet->ack_eliciting || !packet->lost) {
+            continue;
+        }
+        if (!has_first) {
+            first_sent = packet->sent_time;
+            has_first = XQC_TRUE;
+
+        } else if (packet->sent_time > first_sent
+                   && packet->sent_time - first_sent > duration)
+        {
             return XQC_TRUE;
         }
     }

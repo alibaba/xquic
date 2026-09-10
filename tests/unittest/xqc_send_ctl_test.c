@@ -520,61 +520,135 @@ xqc_test_send_ctl_update_rtt_ack_delay_cap(void)
 
 
 /*
- * Issue #739 regression tests.
- *
- * Pre-fix, xqc_send_ctl_detect_lost only reset cwnd on persistent
- * congestion; min_rtt/srtt/rttvar were left at their pre-disruption
- * values. After a major path event that triggers persistent
- * congestion, the stale (smaller) srtt and rttvar made every
- * downstream PTO and persistent-congestion duration computation use
- * RTT that no longer reflects the path, repeatedly mis-triggering
- * loss detection. RFC 9002 5.2 SHOULD reset min_rtt to the newest
- * sample; ngtcp2 (lib/ngtcp2_rtb.c persistent_congestion path)
- * additionally resets srtt/rttvar to initial and clears the
- * first-sample timestamp so the next sample re-seeds the estimator.
- *
- * The fix in xqc_send_ctl_detect_lost performs exactly that reset.
- * These tests pin its observable effects and guard against
- * regressions in two directions:
- *   - that the reset is *not* applied to ordinary loss
- *   - that the early-return guard for "no RTT sample yet" still
- *     short-circuits before any reset can fire
+ * RFC 9002 Sections 7.6.1 and 7.6.2 require two lost ack-eliciting
+ * transmissions, with no intervening ACK, after a prior RTT sample.
  */
+static xqc_packet_out_t *xqc_test_send_ctl_send_packet(xqc_connection_t *conn,
+    xqc_pkt_num_space_t pns, xqc_packet_number_t pkt_num,
+    xqc_usec_t sent_time, xqc_frame_type_bit_t frames);
+static xqc_packet_out_t *xqc_test_send_ctl_seed_lost_packet(
+    xqc_connection_t *conn, xqc_packet_number_t pkt_num,
+    xqc_usec_t sent_time);
+static void xqc_test_send_ctl_arm_pc_state(xqc_send_ctl_t *send_ctl,
+    xqc_usec_t srtt, xqc_usec_t rttvar, xqc_usec_t minrtt,
+    xqc_packet_number_t largest_acked);
+static void xqc_test_send_ctl_ack(xqc_connection_t *conn,
+    xqc_pkt_num_space_t pns, xqc_packet_number_t largest,
+    xqc_packet_number_t earlier, xqc_usec_t now);
+static void xqc_test_send_ctl_assert_pc(xqc_send_ctl_t *send_ctl,
+    xqc_bool_t expected);
 
 
-/*
- * Seed a single in-flight, ack-eliciting packet on the connection's
- * initial path. po_sent_time/pkt_num are caller-supplied so the
- * caller controls the persistent-congestion duration arithmetic.
- *
- * po_used_size is left at 0 so xqc_send_ctl_decrease_inflight is a
- * no-op on inflight bookkeeping; we only need the packet to be on
- * the unacked list and on the right path so detect_lost picks it up.
- */
 static xqc_packet_out_t *
-xqc_test_send_ctl_seed_lost_packet(xqc_connection_t *conn,
-    xqc_packet_number_t pkt_num, xqc_usec_t po_sent_time)
+xqc_test_send_ctl_send_packet(xqc_connection_t *conn,
+    xqc_pkt_num_space_t pns, xqc_packet_number_t pkt_num,
+    xqc_usec_t sent_time, xqc_frame_type_bit_t frames)
 {
     xqc_send_queue_t *sq = conn->conn_send_queue;
-    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_pkt_type_t type = XQC_PTYPE_SHORT_HEADER;
 
-    xqc_packet_out_t *po = xqc_packet_out_get(sq);
+    if (pns == XQC_PNS_INIT) {
+        type = XQC_PTYPE_INIT;
+
+    } else if (pns == XQC_PNS_HSK) {
+        type = XQC_PTYPE_HSK;
+    }
+
+    xqc_packet_out_t *po = xqc_packet_out_get_and_insert_send(sq, type);
     if (po == NULL) {
         return NULL;
     }
 
-    po->po_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
-    po->po_pkt.pkt_pns  = XQC_PNS_APP_DATA;
-    po->po_pkt.pkt_num  = pkt_num;
-    po->po_path_id      = send_ctl->ctl_path->path_id;
-    po->po_sent_time    = po_sent_time;
-    po->po_flag         = XQC_POF_IN_FLIGHT;
-    /* PING is ack-eliciting and is not in XQC_NEED_REPAIR. */
-    po->po_frame_types  = XQC_FRAME_BIT_PING;
-    po->po_used_size    = 0;
+    po->po_pkt.pkt_pns = pns;
+    po->po_pkt.pkt_num = pkt_num;
+    po->po_path_id = path->path_id;
+    po->po_sent_time = sent_time;
+    po->po_frame_types = frames;
+    po->po_used_size = 1200;
+    po->po_enc_size = 1200;
+    xqc_send_ctl_on_packet_sent(path->path_send_ctl,
+                                xqc_get_pn_ctl(conn, path), po, sent_time);
+    xqc_send_queue_remove_send(&po->po_list);
+    if (XQC_IS_ACK_ELICITING(frames)) {
+        xqc_send_queue_insert_unacked(po, &sq->sndq_unacked_packets[pns], sq);
 
-    xqc_send_queue_insert_unacked(po, &sq->sndq_unacked_packets[XQC_PNS_APP_DATA], sq);
+    } else {
+        xqc_send_queue_insert_free(po, &sq->sndq_free_packets, sq);
+    }
     return po;
+}
+
+
+static xqc_packet_out_t *
+xqc_test_send_ctl_seed_lost_packet(xqc_connection_t *conn,
+    xqc_packet_number_t pkt_num, xqc_usec_t sent_time)
+{
+    return xqc_test_send_ctl_send_packet(conn, XQC_PNS_APP_DATA, pkt_num,
+                                         sent_time, XQC_FRAME_BIT_PING);
+}
+
+
+static void
+xqc_test_send_ctl_arm_pc_state(xqc_send_ctl_t *send_ctl,
+    xqc_usec_t srtt, xqc_usec_t rttvar, xqc_usec_t minrtt,
+    xqc_packet_number_t largest_acked)
+{
+    send_ctl->ctl_srtt = srtt;
+    send_ctl->ctl_rttvar = rttvar;
+    send_ctl->ctl_minrtt = minrtt;
+    send_ctl->ctl_latest_rtt = srtt;
+    send_ctl->ctl_first_rtt_sample_time = 1;
+    send_ctl->ctl_pto_count = 0;
+    /* Direct loss passes model a previously received ACK above the losses. */
+    send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA] = largest_acked
+        ? largest_acked + 1 : XQC_MAX_UINT64_VALUE;
+    send_ctl->ctl_conn->remote_settings.max_ack_delay = 25;
+    send_ctl->ctl_conn->conn_settings.disable_pn_skipping = 1;
+}
+
+
+static void
+xqc_test_send_ctl_ack(xqc_connection_t *conn, xqc_pkt_num_space_t pns,
+    xqc_packet_number_t largest, xqc_packet_number_t earlier, xqc_usec_t now)
+{
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_ack_info_t ack = {0};
+
+    ack.pns = pns;
+    ack.n_ranges = 1;
+    ack.ranges[0].low = largest;
+    ack.ranges[0].high = largest;
+    if (earlier != XQC_MAX_UINT64_VALUE) {
+        ack.n_ranges = 2;
+        ack.ranges[1].low = earlier;
+        ack.ranges[1].high = earlier;
+    }
+
+    /* A cross-path ACK leaves the pinned RTT estimate unchanged. */
+    CU_ASSERT_EQUAL(xqc_send_ctl_on_ack_received(path->path_send_ctl,
+        xqc_get_pn_ctl(conn, path), conn->conn_send_queue, &ack, now,
+        XQC_FALSE), XQC_OK);
+}
+
+
+static void
+xqc_test_send_ctl_assert_pc(xqc_send_ctl_t *send_ctl, xqc_bool_t expected)
+{
+    if (expected) {
+        CU_ASSERT_EQUAL(send_ctl->ctl_first_rtt_sample_time, 0);
+        CU_ASSERT_EQUAL(send_ctl->ctl_minrtt, XQC_MAX_UINT32_VALUE);
+        CU_ASSERT_EQUAL(send_ctl->ctl_srtt,
+                        send_ctl->ctl_conn->conn_settings.initial_rtt);
+        CU_ASSERT_EQUAL(send_ctl->ctl_rttvar,
+                        send_ctl->ctl_conn->conn_settings.initial_rtt / 2);
+
+    } else {
+        CU_ASSERT_NOT_EQUAL(send_ctl->ctl_first_rtt_sample_time, 0);
+        CU_ASSERT_EQUAL(send_ctl->ctl_srtt, 10000);
+        CU_ASSERT_EQUAL(send_ctl->ctl_rttvar, 2000);
+        CU_ASSERT_EQUAL(send_ctl->ctl_minrtt, 8000);
+    }
 }
 
 
@@ -582,26 +656,22 @@ void
 xqc_test_send_ctl_granularity_marks_at_boundary(void)
 {
     xqc_connection_t *conn = test_engine_connect();
-    CU_ASSERT_FATAL(conn != NULL);
-    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
-
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
     xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
-    CU_ASSERT_FATAL(send_ctl != NULL);
+    uint32_t inflight_before = send_ctl->ctl_bytes_in_flight;
 
     send_ctl->ctl_srtt = 0;
     send_ctl->ctl_latest_rtt = 0;
     send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA] = 100;
     send_ctl->ctl_reordering_packet_threshold = XQC_kPacketThreshold;
-
-    xqc_packet_out_t *po = xqc_test_send_ctl_seed_lost_packet(conn, 99, 1);
-    CU_ASSERT_FATAL(po != NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(
+        xqc_test_send_ctl_seed_lost_packet(conn, 99, 1));
 
     xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
                              XQC_PNS_APP_DATA, 1001);
-
     CU_ASSERT_EQUAL(conn->detected_loss_cnt, 1);
     CU_ASSERT_EQUAL(send_ctl->sampler.loss, 1);
-
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight_before);
     xqc_engine_destroy(conn->engine);
 }
 
@@ -610,50 +680,24 @@ void
 xqc_test_send_ctl_granularity_defers_before_boundary(void)
 {
     xqc_connection_t *conn = test_engine_connect();
-    CU_ASSERT_FATAL(conn != NULL);
-    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
-
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
     xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
-    CU_ASSERT_FATAL(send_ctl != NULL);
+    uint32_t inflight_before = send_ctl->ctl_bytes_in_flight;
 
     send_ctl->ctl_srtt = 0;
     send_ctl->ctl_latest_rtt = 0;
     send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA] = 100;
     send_ctl->ctl_reordering_packet_threshold = XQC_kPacketThreshold;
-
-    xqc_packet_out_t *po = xqc_test_send_ctl_seed_lost_packet(conn, 99, 1);
-    CU_ASSERT_FATAL(po != NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(
+        xqc_test_send_ctl_seed_lost_packet(conn, 99, 1));
 
     xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
                              XQC_PNS_APP_DATA, 1000);
-
     CU_ASSERT_EQUAL(conn->detected_loss_cnt, 0);
     CU_ASSERT_EQUAL(send_ctl->sampler.loss, 0);
     CU_ASSERT_EQUAL(send_ctl->ctl_loss_time[XQC_PNS_APP_DATA], 1001);
-
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight_before + 1200);
     xqc_engine_destroy(conn->engine);
-}
-
-
-/*
- * Build a send_ctl state that satisfies xqc_send_ctl_in_persistent_congestion:
- *   - pto_count == XQC_CONSECUTIVE_PTO_THRESH
- *   - srtt/rttvar small so duration is bounded and easy to exceed
- *   - first_rtt_sample_time non-zero so detect_lost doesn't early-return
- *   - largest_acked[APP_DATA] >= our packet's pkt_num so the loop considers it
- */
-static void
-xqc_test_send_ctl_arm_pc_state(xqc_send_ctl_t *send_ctl,
-    xqc_usec_t srtt, xqc_usec_t rttvar, xqc_usec_t minrtt,
-    xqc_packet_number_t largest_acked)
-{
-    send_ctl->ctl_srtt    = srtt;
-    send_ctl->ctl_rttvar  = rttvar;
-    send_ctl->ctl_minrtt  = minrtt;
-    send_ctl->ctl_latest_rtt = srtt;
-    send_ctl->ctl_first_rtt_sample_time = 1;
-    send_ctl->ctl_pto_count = XQC_CONSECUTIVE_PTO_THRESH;
-    send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA] = largest_acked;
 }
 
 
@@ -661,57 +705,30 @@ void
 xqc_test_send_ctl_persistent_congestion_resets_rtt(void)
 {
     xqc_connection_t *conn = test_engine_connect();
-    CU_ASSERT_FATAL(conn != NULL);
-    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
-
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
     xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
-    CU_ASSERT_FATAL(send_ctl != NULL);
-    CU_ASSERT_FATAL(send_ctl->ctl_cong_callback != NULL);
-    CU_ASSERT_FATAL(send_ctl->ctl_cong_callback->xqc_cong_ctl_reset_cwnd != NULL);
-    CU_ASSERT_FATAL(send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd != NULL);
-
-    /* initial_rtt is the post-reset srtt; assert it is non-zero so the
-     * test does not silently accept an unintended 0/0 outcome. */
+    uint32_t inflight_before = send_ctl->ctl_bytes_in_flight;
+    CU_ASSERT_PTR_NOT_NULL_FATAL(
+        send_ctl->ctl_cong_callback->xqc_cong_ctl_reset_cwnd);
     CU_ASSERT_FATAL(conn->conn_settings.initial_rtt > 0);
-    conn->remote_settings.max_ack_delay = 25; /* ms */
 
-    /* Pin RTT estimator at a small, converged value. With srtt=10ms,
-     * rttvar=2ms, max_ack_delay=25ms, the persistent-congestion
-     * duration is (10 + max(8,2) + 25)ms * 3 = 129ms. Setting
-     * po_sent_time = 1us and now = 1s leaves a 999ms gap, well past
-     * the 129ms threshold. */
-    xqc_test_send_ctl_arm_pc_state(send_ctl,
-                                   /* srtt   */ 10000,
-                                   /* rttvar */  2000,
-                                   /* minrtt */  8000,
-                                   /* largest_acked */ 1);
-
-    xqc_packet_out_t *po = xqc_test_send_ctl_seed_lost_packet(conn, 1, 1);
-    CU_ASSERT_FATAL(po != NULL);
-
+    xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 0);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(
+        xqc_test_send_ctl_seed_lost_packet(conn, 1, 1000000));
+    CU_ASSERT_PTR_NOT_NULL_FATAL(
+        xqc_test_send_ctl_seed_lost_packet(conn, 2, 1200000));
     uint64_t cwnd_before = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(
         send_ctl->ctl_cong);
-    /* Cubic default init_cwnd = 10*MSS, which must exceed min_cwnd (4*MSS).
-     * If this invariant ever flips, the cwnd-reset assertion below would
-     * become a tautology, so guard it explicitly. */
-    CU_ASSERT_FATAL(cwnd_before > 0);
 
-    xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
-                             XQC_PNS_APP_DATA, 1000000);
-
-    /* min_rtt resets to the xquic sentinel (XQC_MAX_UINT32_VALUE), not
-     * UINT64_MAX, to stay consistent with xqc_send_ctl_create. */
-    CU_ASSERT_EQUAL(send_ctl->ctl_minrtt, XQC_MAX_UINT32_VALUE);
-    CU_ASSERT_EQUAL(send_ctl->ctl_srtt, conn->conn_settings.initial_rtt);
-    CU_ASSERT_EQUAL(send_ctl->ctl_rttvar, conn->conn_settings.initial_rtt / 2);
-    CU_ASSERT_EQUAL(send_ctl->ctl_first_rtt_sample_time, 0);
-
-    uint64_t cwnd_after = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(
-        send_ctl->ctl_cong);
-    /* Cubic reset_cwnd collapses cwnd to min_cwnd; cubic_init sets
-     * cwnd = init_cwnd > min_cwnd. So cwnd must strictly shrink. */
-    CU_ASSERT(cwnd_after < cwnd_before);
-
+    CU_ASSERT_PTR_NOT_NULL_FATAL(
+        xqc_test_send_ctl_seed_lost_packet(conn, 3, 1390000));
+    xqc_test_send_ctl_ack(conn, XQC_PNS_APP_DATA, 3,
+                          XQC_MAX_UINT64_VALUE, 1400000);
+    xqc_test_send_ctl_assert_pc(send_ctl, XQC_TRUE);
+    CU_ASSERT_EQUAL(conn->detected_loss_cnt, 2);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight_before);
+    CU_ASSERT(send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(
+        send_ctl->ctl_cong) < cwnd_before);
     xqc_engine_destroy(conn->engine);
 }
 
@@ -720,38 +737,27 @@ void
 xqc_test_send_ctl_persistent_congestion_rtt_reseeds_from_new_sample(void)
 {
     xqc_connection_t *conn = test_engine_connect();
-    CU_ASSERT_FATAL(conn != NULL);
-    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
-
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
     xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
-    CU_ASSERT_FATAL(send_ctl != NULL);
-    CU_ASSERT_FATAL(conn->conn_settings.initial_rtt > 0);
-    conn->remote_settings.max_ack_delay = 25;
 
-    /* Drive the persistent-congestion path identically to Test A so the
-     * state on entry to update_rtt is exactly what the fix produces. */
-    xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 1);
-    xqc_packet_out_t *po = xqc_test_send_ctl_seed_lost_packet(conn, 1, 1);
-    CU_ASSERT_FATAL(po != NULL);
-    xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
-                             XQC_PNS_APP_DATA, 1000000);
+    xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 0);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(
+        xqc_test_send_ctl_seed_lost_packet(conn, 1, 1000000));
+    CU_ASSERT_PTR_NOT_NULL_FATAL(
+        xqc_test_send_ctl_seed_lost_packet(conn, 2, 1200000));
+    CU_ASSERT_PTR_NOT_NULL_FATAL(
+        xqc_test_send_ctl_seed_lost_packet(conn, 3, 1390000));
+    xqc_test_send_ctl_ack(conn, XQC_PNS_APP_DATA, 3,
+                          XQC_MAX_UINT64_VALUE, 1400000);
+    CU_ASSERT_EQUAL(send_ctl->ctl_first_rtt_sample_time, 0);
 
-    CU_ASSERT_FATAL(send_ctl->ctl_first_rtt_sample_time == 0);
-
-    /* Inject a new RTT sample that is orders of magnitude larger than
-     * the pre-reset estimator (8ms minrtt -> 300ms latest_rtt). Without
-     * the first_rtt_sample_time clear, the existing min(latest, minrtt)
-     * code in update_rtt would have left minrtt pegged at 8ms — the
-     * exact bug. With the clear, the first-sample branch takes the
-     * value directly. */
+    /* RFC 9002 Section 5.2: the next RTT sample seeds the estimator. */
     xqc_usec_t latest = 300000;
     xqc_send_ctl_update_rtt(send_ctl, &latest, 0);
-
     CU_ASSERT_EQUAL(send_ctl->ctl_minrtt, 300000);
-    CU_ASSERT_EQUAL(send_ctl->ctl_srtt,   300000);
+    CU_ASSERT_EQUAL(send_ctl->ctl_srtt, 300000);
     CU_ASSERT_EQUAL(send_ctl->ctl_rttvar, 150000);
-    CU_ASSERT(send_ctl->ctl_first_rtt_sample_time != 0);
-
+    CU_ASSERT_NOT_EQUAL(send_ctl->ctl_first_rtt_sample_time, 0);
     xqc_engine_destroy(conn->engine);
 }
 
@@ -760,32 +766,19 @@ void
 xqc_test_send_ctl_single_loss_does_not_reset_rtt(void)
 {
     xqc_connection_t *conn = test_engine_connect();
-    CU_ASSERT_FATAL(conn != NULL);
-    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
-
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
     xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
-    CU_ASSERT_FATAL(send_ctl != NULL);
-    conn->remote_settings.max_ack_delay = 25;
+    uint32_t inflight_before = send_ctl->ctl_bytes_in_flight;
 
-    /* Same RTT state and same packet timing as Test A, but pto_count
-     * is below XQC_CONSECUTIVE_PTO_THRESH so the persistent-congestion
-     * predicate fails. The packet is still marked lost (single loss),
-     * but the RTT estimator must remain untouched. */
     xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 1);
-    send_ctl->ctl_pto_count = 0;
-
-    xqc_packet_out_t *po = xqc_test_send_ctl_seed_lost_packet(conn, 1, 1);
-    CU_ASSERT_FATAL(po != NULL);
-
+    send_ctl->ctl_pto_count = 10;
+    CU_ASSERT_PTR_NOT_NULL_FATAL(
+        xqc_test_send_ctl_seed_lost_packet(conn, 1, 1000000));
     xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
-                             XQC_PNS_APP_DATA, 1000000);
-
-    /* All four RTT fields must equal their pre-call values. */
-    CU_ASSERT_EQUAL(send_ctl->ctl_srtt,   10000);
-    CU_ASSERT_EQUAL(send_ctl->ctl_rttvar,  2000);
-    CU_ASSERT_EQUAL(send_ctl->ctl_minrtt,  8000);
-    CU_ASSERT(send_ctl->ctl_first_rtt_sample_time != 0);
-
+                             XQC_PNS_APP_DATA, 2000000);
+    xqc_test_send_ctl_assert_pc(send_ctl, XQC_FALSE);
+    CU_ASSERT_EQUAL(conn->detected_loss_cnt, 1);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight_before);
     xqc_engine_destroy(conn->engine);
 }
 
@@ -794,32 +787,334 @@ void
 xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return(void)
 {
     xqc_connection_t *conn = test_engine_connect();
-    CU_ASSERT_FATAL(conn != NULL);
-    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
-
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
     xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
-    CU_ASSERT_FATAL(send_ctl != NULL);
-    conn->remote_settings.max_ack_delay = 25;
 
-    /* Arm a state where the duration check WOULD pass if reached, then
-     * clear first_rtt_sample_time so the guard at the top of the
-     * OnPacketsLost block returns before the persistent-congestion
-     * branch can fire. This pins existing behavior: the fix must not
-     * change what happens before RTT has been measured. */
-    xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 1);
+    xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 2);
     send_ctl->ctl_first_rtt_sample_time = 0;
+    CU_ASSERT_PTR_NOT_NULL_FATAL(
+        xqc_test_send_ctl_seed_lost_packet(conn, 1, 1000000));
+    CU_ASSERT_PTR_NOT_NULL_FATAL(
+        xqc_test_send_ctl_seed_lost_packet(conn, 2, 1200000));
+    xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
+                             XQC_PNS_APP_DATA, 1400000);
+    CU_ASSERT_EQUAL(send_ctl->ctl_first_rtt_sample_time, 0);
+    CU_ASSERT_EQUAL(send_ctl->ctl_srtt, 10000);
+    CU_ASSERT_EQUAL(send_ctl->ctl_rttvar, 2000);
+    CU_ASSERT_EQUAL(send_ctl->ctl_minrtt, 8000);
+    CU_ASSERT_EQUAL(conn->detected_loss_cnt, 2);
+    xqc_engine_destroy(conn->engine);
+}
 
-    xqc_packet_out_t *po = xqc_test_send_ctl_seed_lost_packet(conn, 1, 1);
-    CU_ASSERT_FATAL(po != NULL);
+
+void
+xqc_test_send_ctl_persistent_congestion_duration_boundary(void)
+{
+    /* RFC 9002 Section 7.6.1: (10 + 8 + 25) ms * 3 = 129 ms. */
+    for (xqc_usec_t span = 128999; span <= 129001; span++) {
+        xqc_connection_t *conn = test_engine_connect();
+        CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+        xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+        uint32_t inflight_before = send_ctl->ctl_bytes_in_flight;
+        xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 0);
+
+        CU_ASSERT_PTR_NOT_NULL_FATAL(
+            xqc_test_send_ctl_seed_lost_packet(conn, 1, 1000000));
+        CU_ASSERT_PTR_NOT_NULL_FATAL(
+            xqc_test_send_ctl_seed_lost_packet(conn, 7, 1000000 + span));
+        CU_ASSERT_PTR_NOT_NULL_FATAL(
+            xqc_test_send_ctl_seed_lost_packet(conn, 8, 1390000));
+        CU_ASSERT_EQUAL(send_ctl->ctl_pto_count, 0);
+        xqc_test_send_ctl_ack(conn, XQC_PNS_APP_DATA, 8,
+                              XQC_MAX_UINT64_VALUE, 1400000);
+        xqc_test_send_ctl_assert_pc(send_ctl, span > 129000);
+        CU_ASSERT_EQUAL(conn->detected_loss_cnt, 2);
+        CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight_before);
+        xqc_engine_destroy(conn->engine);
+    }
+}
+
+
+void
+xqc_test_send_ctl_persistent_congestion_prior_rtt_required(void)
+{
+    for (int prior_sample = 0; prior_sample < 2; prior_sample++) {
+        xqc_connection_t *conn = test_engine_connect();
+        CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+        xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+        xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 2);
+        send_ctl->ctl_first_rtt_sample_time = prior_sample ? 1000000 : 0;
+        CU_ASSERT_PTR_NOT_NULL_FATAL(
+            xqc_test_send_ctl_seed_lost_packet(conn, 1, 1000000));
+        CU_ASSERT_PTR_NOT_NULL_FATAL(
+            xqc_test_send_ctl_seed_lost_packet(conn, 2, 1200000));
+        if (!prior_sample) {
+            send_ctl->ctl_first_rtt_sample_time = 1300000;
+        }
+        send_ctl->ctl_pto_count = 10;
+        xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
+                                 XQC_PNS_APP_DATA, 2000000);
+        xqc_test_send_ctl_assert_pc(send_ctl, XQC_FALSE);
+        CU_ASSERT_EQUAL(conn->detected_loss_cnt, 2);
+        xqc_engine_destroy(conn->engine);
+    }
+}
+
+
+void
+xqc_test_send_ctl_persistent_congestion_ack_interrupts(void)
+{
+    for (int mode = 0; mode < 5; mode++) {
+        xqc_connection_t *conn = test_engine_connect();
+        CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+        xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+        xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 0);
+        xqc_pkt_num_space_t middle_pns = mode == 3
+                                        ? XQC_PNS_HSK : XQC_PNS_APP_DATA;
+        xqc_frame_type_bit_t middle_frame = mode >= 2
+                                            ? XQC_FRAME_BIT_ACK
+                                            : XQC_FRAME_BIT_PING;
+        CU_ASSERT_PTR_NOT_NULL_FATAL(
+            xqc_test_send_ctl_seed_lost_packet(conn, 1, 1000000));
+        CU_ASSERT_PTR_NOT_NULL_FATAL(xqc_test_send_ctl_send_packet(conn,
+            middle_pns, 2, 1100000, middle_frame));
+        CU_ASSERT_PTR_NOT_NULL_FATAL(
+            xqc_test_send_ctl_seed_lost_packet(conn, 3, 1200000));
+        CU_ASSERT_PTR_NOT_NULL_FATAL(
+            xqc_test_send_ctl_seed_lost_packet(conn, 4, 1390000));
+
+        if (mode == 1) {
+            /* Reordered ACK, after the higher packet number was ACKed. */
+            send_ctl->ctl_srtt = 1000000;
+            send_ctl->ctl_latest_rtt = 1000000;
+            send_ctl->ctl_reordering_packet_threshold = 100;
+            xqc_test_send_ctl_ack(conn, XQC_PNS_APP_DATA, 4,
+                                  XQC_MAX_UINT64_VALUE, 1400000);
+            CU_ASSERT_EQUAL(conn->detected_loss_cnt, 0);
+            send_ctl->ctl_srtt = 10000;
+            send_ctl->ctl_latest_rtt = 10000;
+            xqc_test_send_ctl_ack(conn, XQC_PNS_APP_DATA, 2,
+                                  XQC_MAX_UINT64_VALUE, 1500000);
+
+        } else if (mode >= 2 && mode <= 3) {
+            /* ACK-only packets are already recycled, so has_acked is 0. */
+            xqc_test_send_ctl_ack(conn, middle_pns, 2,
+                                  XQC_MAX_UINT64_VALUE, 1400000);
+        }
+
+        send_ctl->ctl_pto_count = 10;
+        xqc_test_send_ctl_ack(conn, XQC_PNS_APP_DATA, 4,
+                              mode == 0 ? 2 : XQC_MAX_UINT64_VALUE, 1500000);
+        /* An unacknowledged ACK-only packet does not split the interval. */
+        xqc_test_send_ctl_assert_pc(send_ctl, mode == 4);
+        xqc_engine_destroy(conn->engine);
+    }
+}
+
+
+void
+xqc_test_send_ctl_persistent_congestion_ack_eliciting_endpoints(void)
+{
+    for (int endpoint = 0; endpoint < 2; endpoint++) {
+        xqc_connection_t *conn = test_engine_connect();
+        CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+        xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+        xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 2);
+        send_ctl->ctl_pto_count = 10;
+        CU_ASSERT_PTR_NOT_NULL_FATAL(xqc_test_send_ctl_send_packet(conn,
+            XQC_PNS_APP_DATA, 1, 1000000,
+            endpoint == 0 ? XQC_FRAME_BIT_PADDING : XQC_FRAME_BIT_PING));
+        CU_ASSERT_PTR_NOT_NULL_FATAL(xqc_test_send_ctl_send_packet(conn,
+            XQC_PNS_APP_DATA, 2, 1200000,
+            endpoint == 1 ? XQC_FRAME_BIT_ACK : XQC_FRAME_BIT_PING));
+        xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
+                                 XQC_PNS_APP_DATA, 2000000);
+        xqc_test_send_ctl_assert_pc(send_ctl, XQC_FALSE);
+        CU_ASSERT_EQUAL(conn->detected_loss_cnt, 1);
+        xqc_engine_destroy(conn->engine);
+    }
+}
+
+
+void
+xqc_test_send_ctl_persistent_congestion_across_loss_batches(void)
+{
+    for (int interrupted = 0; interrupted < 2; interrupted++) {
+        xqc_connection_t *conn = test_engine_connect();
+        CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+        xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+        uint32_t inflight_before = send_ctl->ctl_bytes_in_flight;
+        xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 1);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(xqc_test_send_ctl_send_packet(conn,
+            XQC_PNS_APP_DATA, 1, 1000000, XQC_FRAME_BIT_DATAGRAM));
+        xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
+                                 XQC_PNS_APP_DATA, 1050000);
+        CU_ASSERT_EQUAL(conn->detected_loss_cnt, 1);
+        CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight_before);
+        xqc_test_send_ctl_assert_pc(send_ctl, XQC_FALSE);
+
+        if (interrupted) {
+            CU_ASSERT_PTR_NOT_NULL_FATAL(xqc_test_send_ctl_send_packet(conn,
+                XQC_PNS_APP_DATA, 2, 1100000, XQC_FRAME_BIT_ACK));
+            xqc_test_send_ctl_ack(conn, XQC_PNS_APP_DATA, 2,
+                                  XQC_MAX_UINT64_VALUE, 1150000);
+        }
+
+        CU_ASSERT_PTR_NOT_NULL_FATAL(xqc_test_send_ctl_send_packet(conn,
+            XQC_PNS_APP_DATA, 3, 1200000, XQC_FRAME_BIT_DATAGRAM));
+        CU_ASSERT_PTR_NOT_NULL_FATAL(
+            xqc_test_send_ctl_seed_lost_packet(conn, 4, 1390000));
+        xqc_test_send_ctl_ack(conn, XQC_PNS_APP_DATA, 4,
+                              XQC_MAX_UINT64_VALUE, 1400000);
+        xqc_test_send_ctl_assert_pc(send_ctl, !interrupted);
+        CU_ASSERT_EQUAL(conn->detected_loss_cnt, 2);
+        CU_ASSERT_EQUAL(send_ctl->ctl_lost_dgram_cnt, 2);
+        CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight_before);
+        xqc_engine_destroy(conn->engine);
+    }
+}
+
+
+void
+xqc_test_send_ctl_persistent_congestion_pending_other_space(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    uint32_t inflight_before = send_ctl->ctl_bytes_in_flight;
+    xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 1);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(xqc_test_send_ctl_send_packet(conn,
+        XQC_PNS_HSK, 1, 1000000, XQC_FRAME_BIT_PING));
+    CU_ASSERT_PTR_NOT_NULL_FATAL(xqc_test_send_ctl_send_packet(conn,
+        XQC_PNS_APP_DATA, 1, 1100000, XQC_FRAME_BIT_DATAGRAM));
+    CU_ASSERT_PTR_NOT_NULL_FATAL(xqc_test_send_ctl_send_packet(conn,
+        XQC_PNS_HSK, 2, 1200000, XQC_FRAME_BIT_PING));
+    send_ctl->ctl_pto_count = 10;
+    send_ctl->ctl_largest_acked[XQC_PNS_HSK] = 3;
 
     xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
-                             XQC_PNS_APP_DATA, 1000000);
+                             XQC_PNS_HSK, 1400000);
+    xqc_test_send_ctl_assert_pc(send_ctl, XQC_FALSE);
+    CU_ASSERT_EQUAL(conn->detected_loss_cnt, 2);
 
-    /* No mutation, including first_rtt_sample_time itself. */
-    CU_ASSERT_EQUAL(send_ctl->ctl_srtt,   10000);
-    CU_ASSERT_EQUAL(send_ctl->ctl_rttvar,  2000);
-    CU_ASSERT_EQUAL(send_ctl->ctl_minrtt,  8000);
-    CU_ASSERT_EQUAL(send_ctl->ctl_first_rtt_sample_time, 0);
+    xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
+                             XQC_PNS_APP_DATA, 1400000);
+    xqc_test_send_ctl_assert_pc(send_ctl, XQC_TRUE);
+    CU_ASSERT_EQUAL(conn->detected_loss_cnt, 3);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight_before);
+    xqc_engine_destroy(conn->engine);
+}
 
+
+void
+xqc_test_send_ctl_persistent_congestion_history_wrap(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    uint32_t inflight_before = send_ctl->ctl_bytes_in_flight;
+    xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 1);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(xqc_test_send_ctl_send_packet(conn,
+        XQC_PNS_HSK, 1, 1000000, XQC_FRAME_BIT_PING));
+
+    for (size_t i = 1; i < XQC_PERSISTENT_CONGESTION_MAX_PACKETS; i++) {
+        CU_ASSERT_PTR_NOT_NULL_FATAL(xqc_test_send_ctl_send_packet(conn,
+            XQC_PNS_INIT, i, 1000000 + i, XQC_FRAME_BIT_ACK));
+    }
+    CU_ASSERT_PTR_NOT_NULL_FATAL(xqc_test_send_ctl_send_packet(conn,
+        XQC_PNS_APP_DATA, 1, 1200000, XQC_FRAME_BIT_DATAGRAM));
+    CU_ASSERT_PTR_NOT_NULL_FATAL(xqc_test_send_ctl_send_packet(conn,
+        XQC_PNS_HSK, 2, 1400000, XQC_FRAME_BIT_PING));
+
+    /* Losing an evicted packet must not mark its reused slot as lost. */
+    send_ctl->ctl_largest_acked[XQC_PNS_HSK] = 3;
+    xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
+                             XQC_PNS_HSK, 1500000);
+    xqc_test_send_ctl_assert_pc(send_ctl, XQC_FALSE);
+    CU_ASSERT_EQUAL(conn->detected_loss_cnt, 2);
+
+    xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
+                             XQC_PNS_APP_DATA, 1500000);
+    xqc_test_send_ctl_assert_pc(send_ctl, XQC_TRUE);
+    CU_ASSERT_EQUAL(conn->detected_loss_cnt, 3);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight_before);
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_send_ctl_persistent_congestion_history_reset(void)
+{
+    for (int reset_path = 0; reset_path < 2; reset_path++) {
+        xqc_connection_t *conn = test_engine_connect();
+        CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+        xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+        uint32_t inflight_before = send_ctl->ctl_bytes_in_flight;
+        xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 1);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(
+            xqc_test_send_ctl_seed_lost_packet(conn, 1, 1000000));
+        xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
+                                 XQC_PNS_APP_DATA, 1050000);
+        if (reset_path) {
+            xqc_send_ctl_reset(send_ctl);
+            inflight_before = send_ctl->ctl_bytes_in_flight;
+
+        } else {
+            xqc_send_ctl_on_pns_discard(send_ctl, XQC_PNS_HSK);
+        }
+        xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 2);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(
+            xqc_test_send_ctl_seed_lost_packet(conn, 2, 1200000));
+        xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
+                                 XQC_PNS_APP_DATA, 1250000);
+        xqc_test_send_ctl_assert_pc(send_ctl, XQC_FALSE);
+
+        CU_ASSERT_PTR_NOT_NULL_FATAL(
+            xqc_test_send_ctl_seed_lost_packet(conn, 3, 1400000));
+        send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA] = 4;
+        xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
+                                 XQC_PNS_APP_DATA, 1450000);
+        xqc_test_send_ctl_assert_pc(send_ctl, XQC_TRUE);
+        CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight_before);
+        xqc_engine_destroy(conn->engine);
+    }
+}
+
+
+void
+xqc_test_send_ctl_persistent_congestion_recycled_probe(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_send_queue_t *sq = conn->conn_send_queue;
+    uint32_t inflight_before = send_ctl->ctl_bytes_in_flight;
+    xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 0);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(
+        xqc_test_send_ctl_seed_lost_packet(conn, 1, 1000000));
+
+    /* Rebinding probes are recorded directly, then recycled by the sender. */
+    xqc_packet_out_t *probe = xqc_packet_out_get_and_insert_send(sq,
+        XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(probe);
+    probe->po_pkt.pkt_num = 2;
+    probe->po_path_id = send_ctl->ctl_path->path_id;
+    probe->po_sent_time = 1100000;
+    probe->po_frame_types = XQC_FRAME_BIT_PATH_CHALLENGE;
+    xqc_send_ctl_pc_on_sent(send_ctl, probe);
+    xqc_send_queue_remove_send(&probe->po_list);
+    xqc_send_queue_insert_free(probe, &sq->sndq_free_packets, sq);
+    xqc_test_send_ctl_ack(conn, XQC_PNS_APP_DATA, 2,
+                          XQC_MAX_UINT64_VALUE, 1150000);
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(
+        xqc_test_send_ctl_seed_lost_packet(conn, 3, 1200000));
+    CU_ASSERT_PTR_NOT_NULL_FATAL(
+        xqc_test_send_ctl_seed_lost_packet(conn, 4, 1390000));
+    xqc_test_send_ctl_ack(conn, XQC_PNS_APP_DATA, 4,
+                          XQC_MAX_UINT64_VALUE, 1400000);
+    xqc_test_send_ctl_assert_pc(send_ctl, XQC_FALSE);
+    CU_ASSERT_EQUAL(conn->detected_loss_cnt, 2);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight_before);
     xqc_engine_destroy(conn->engine);
 }

@@ -7080,6 +7080,7 @@ xqc_conn_send_path_challenge(xqc_connection_t *conn, xqc_path_ctx_t *path)
         goto end;
 
     } else {
+        xqc_send_ctl_pc_on_sent(path->path_send_ctl, packet_out);
         xqc_log(conn->log, XQC_LOG_INFO,
                 "|<==|conn:%p|pkt_num:%ui|size:%ud|sent:%z|pkt_type:%s|frame:%s|inflight:%ud|now:%ui|",
                 conn, packet_out->po_pkt.pkt_num, packet_out->po_used_size, sent,

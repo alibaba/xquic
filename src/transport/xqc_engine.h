@@ -22,7 +22,6 @@ typedef enum {
 
 
 typedef struct xqc_alpn_registration_s {
-    void                          (*ctx_destroy)(void *ctx);
     xqc_list_head_t             head;
 
     /* content of application layer protocol */
@@ -37,9 +36,6 @@ typedef struct xqc_alpn_registration_s {
     void                       *alp_ctx;
 
 } xqc_alpn_registration_t;
-
-xqc_int_t xqc_engine_set_alpn_ctx_destructor(xqc_engine_t *engine,
-    const char *alpn, size_t alpn_len, void (*destroy)(void *ctx));
 
 
 typedef struct xqc_engine_s {

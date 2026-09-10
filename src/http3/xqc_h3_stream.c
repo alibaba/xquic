@@ -716,8 +716,8 @@ xqc_h3_stream_write_notify(xqc_stream_t *stream, void *user_data)
     if (h3s->type == XQC_H3_STREAM_TYPE_REQUEST
         && (h3s->flags & XQC_HTTP3_STREAM_NEED_WRITE_NOTIFY))
     {
-        {
-            ret = xqc_h3_request_notify_write(h3s->h3r);
+        if (h3s->h3r->request_if->h3_request_write_notify) {
+            ret = h3s->h3r->request_if->h3_request_write_notify(h3s->h3r, h3s->h3r->user_data);
             if (ret < 0) {
                 xqc_log(stream->stream_conn->log, XQC_LOG_ERROR,
                         "|h3_request_write_notify error|%d|", ret);
@@ -2096,9 +2096,7 @@ xqc_h3_stream_create_notify(xqc_stream_t *stream, void *user_data)
     
     /* do not accept server initiated bidirectional streams at client */
     if (conn->conn_type == XQC_CONN_TYPE_CLIENT
-        && stream->stream_type == XQC_SVR_BID
-        && !(h3c && h3c->extension_ops
-             && h3c->extension_ops->raw_stream_type))
+        && stream->stream_type == XQC_SVR_BID)
     {
         /* xquic do not support server-inited bidi stream, return error and
            discard all subsequent stream data */

@@ -6,6 +6,11 @@ Registration must preserve ordinary HTTP/3 callbacks and all existing
 application user data. Repeated or invalid registration must fail without
 partially replacing the active configuration.
 
+The engine implementation and destruction order remain unchanged. Connection
+teardown uses connection-owned callback and configuration copies after ALPN
+registration storage has been released. CONNECT routing uses existing H3
+request callbacks in the WT adapter, without changing H3 request internals.
+
 ## Server acceptance
 
 A supported, authorized CONNECT request establishes a session on the

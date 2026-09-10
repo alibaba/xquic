@@ -109,17 +109,8 @@ xqc_h3_request_destroy(xqc_h3_request_t *h3_request)
             h3s->priority.fastpath
             );
 
-    const xqc_h3_extension_ops_t *ops = h3s->h3c->extension_ops;
-    if (h3_request->extension_owned) {
-        if (ops && ops->request_close) {
-            ops->request_close(h3_request, h3_request->extension_data);
-        }
-
-    } else if ((!ops || h3_request->app_create_notified)
-               && h3_request->request_if->h3_request_close_notify)
-    {
-        h3_request->request_if->h3_request_close_notify(h3_request,
-            h3_request->user_data);
+    if (h3_request->request_if->h3_request_close_notify) {
+        h3_request->request_if->h3_request_close_notify(h3_request, h3_request->user_data);
     }
 
     for (size_t i = 0; i < XQC_H3_REQUEST_MAX_HEADERS_CNT; i++) {
@@ -189,16 +180,8 @@ xqc_h3_request_create_inner(xqc_h3_conn_t *h3_conn, xqc_h3_stream_t *h3_stream, 
 
     xqc_h3_request_init_callbacks(h3_conn, h3_request);
 
-    xqc_bool_t incoming = (h3_stream->stream_id & 1)
-        != (h3_conn->conn->conn_type == XQC_CONN_TYPE_SERVER);
-    if (!incoming || !h3_conn->extension_ops
-        || !h3_conn->extension_ops->request_headers)
-    {
-        h3_request->app_create_notified = XQC_TRUE;
-        if (h3_request->request_if->h3_request_create_notify) {
-            h3_request->request_if->h3_request_create_notify(h3_request,
-                h3_request->user_data);
-        }
+    if (h3_request->request_if->h3_request_create_notify) {
+        h3_request->request_if->h3_request_create_notify(h3_request, h3_request->user_data);
     }
 
     xqc_h3_request_begin(h3_request);
@@ -934,31 +917,9 @@ xqc_h3_request_on_recv_header(xqc_h3_request_t *h3r)
     /* prepare to process next header */
     h3r->completed_header_count++;
 
-    const xqc_h3_extension_ops_t *ops = h3r->h3_stream->h3c->extension_ops;
-    if (h3r->completed_header_count == 1 && ops && ops->request_headers
-        && !h3r->app_create_notified)
-    {
-        ret = ops->request_headers(h3r, h3r->h3_stream->h3c->extension_data,
-            headers);
-        if (ret < 0) {
-            return ret;
-        }
-        h3r->extension_owned = ret > 0;
-        if (!h3r->extension_owned) {
-            h3r->app_create_notified = XQC_TRUE;
-            if (h3r->request_if->h3_request_create_notify) {
-                ret = h3r->request_if->h3_request_create_notify(h3r,
-                    h3r->user_data);
-                if (ret < 0) {
-                    return ret;
-                }
-            }
-        }
-    }
-
     /* header notify callback */
-    {
-        ret = xqc_h3_request_notify_read(h3r, h3r->read_flag);
+    if (h3r->request_if->h3_request_read_notify) {
+        ret = h3r->request_if->h3_request_read_notify(h3r, h3r->read_flag, h3r->user_data);
         if (ret < 0) {
             xqc_log(h3r->h3_stream->log, XQC_LOG_ERROR, "|h3_request_read_notify error|%d|"
                     "stream_id:%ui|conn:%p|", ret, h3r->h3_stream->stream_id,
@@ -977,8 +938,8 @@ xqc_h3_request_on_recv_body(xqc_h3_request_t *h3r)
     if (!xqc_list_empty(&h3r->body_buf)) {
 
         h3r->read_flag |= XQC_REQ_NOTIFY_READ_BODY;
-        {
-            xqc_int_t ret = xqc_h3_request_notify_read(h3r, h3r->read_flag);
+        if (h3r->request_if->h3_request_read_notify) {
+            xqc_int_t ret = h3r->request_if->h3_request_read_notify(h3r, h3r->read_flag, h3r->user_data);
             if (ret < 0) {
                 xqc_log(h3r->h3_stream->log, XQC_LOG_ERROR, "|h3_request_read_notify error|%d|"
                         "stream_id:%ui|conn:%p|", ret, h3r->h3_stream->stream_id,
@@ -1014,9 +975,10 @@ xqc_h3_request_on_recv_empty_fin(xqc_h3_request_t *h3r)
         return XQC_OK;
     }
 
-    {
+    if (h3r->request_if->h3_request_read_notify) {
         /* if all header and content were received by application, notify empty fin */
-        ret = xqc_h3_request_notify_read(h3r, XQC_REQ_NOTIFY_READ_EMPTY_FIN);
+        ret = h3r->request_if->h3_request_read_notify(h3r, XQC_REQ_NOTIFY_READ_EMPTY_FIN,
+                                                    h3r->user_data);
         if (ret < 0) {
             xqc_log(h3r->h3_stream->log, XQC_LOG_ERROR, "|h3_request_read_notify error|%d|"
                     "stream_id:%ui|conn:%p|", ret, h3r->h3_stream->stream_id,
@@ -1123,13 +1085,7 @@ xqc_h3_request_end(xqc_h3_request_t *h3r)
 void
 xqc_h3_request_closing(xqc_h3_request_t *h3r, xqc_int_t err)
 {
-    const xqc_h3_extension_ops_t *ops = h3r->h3_stream->h3c->extension_ops;
-    if (h3r->extension_owned) {
-        if (ops && ops->request_closing) {
-            ops->request_closing(h3r, err, h3r->extension_data);
-        }
-
-    } else if (h3r->request_if->h3_request_closing_notify) {
+    if (h3r->request_if->h3_request_closing_notify) {
         h3r->request_if->h3_request_closing_notify(h3r, err, h3r->user_data);
     }
 }
@@ -1317,33 +1273,4 @@ xqc_h3_request_set_priority(xqc_h3_request_t *h3r, xqc_h3_priority_t *prio)
     xqc_h3_stream_set_priority(h3r->h3_stream, prio);
     xqc_log_event(h3r->h3_stream->log, HTTP_PRIORITY_UPDATED, prio, h3r->h3_stream);
     return XQC_OK;
-}
-
-
-xqc_int_t
-xqc_h3_request_notify_read(xqc_h3_request_t *request,
-    xqc_request_notify_flag_t flags)
-{
-    const xqc_h3_extension_ops_t *ops = request->h3_stream->h3c->extension_ops;
-    if (request->extension_owned) {
-        return ops && ops->request_read
-            ? ops->request_read(request, flags, request->extension_data)
-            : XQC_OK;
-    }
-    return request->request_if->h3_request_read_notify
-        ? request->request_if->h3_request_read_notify(request, flags,
-            request->user_data) : XQC_OK;
-}
-
-xqc_int_t
-xqc_h3_request_notify_write(xqc_h3_request_t *request)
-{
-    const xqc_h3_extension_ops_t *ops = request->h3_stream->h3c->extension_ops;
-    if (request->extension_owned) {
-        return ops && ops->request_write
-            ? ops->request_write(request, request->extension_data) : XQC_OK;
-    }
-    return request->request_if->h3_request_write_notify
-        ? request->request_if->h3_request_write_notify(request,
-            request->user_data) : XQC_OK;
 }

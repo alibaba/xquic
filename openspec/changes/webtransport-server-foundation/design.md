@@ -6,6 +6,18 @@ engine, connection, request, or transport user data. HTTP/3 owns parsed
 headers, stream dispatch, and generic settings transport. WebTransport owns
 version-specific values, validation, session association, and capsules.
 
+Keep the QUIC engine unchanged. Store the flat adapter configuration in the
+H3 context allocation so the existing ALPN cleanup frees it. Each connection
+owns copies of its adapter callbacks and WT configuration; connection and
+stream teardown therefore does not borrow the engine's registration state.
+
+Route CONNECT and session capsules through the existing request callback
+table in the WT adapter. H3 request code stays unchanged. H3 additions are
+limited to extension registration and private connection lifetime, generic
+SETTINGS exchange, and raw stream dispatch required by draft-07 sections
+3.1, 3.2, 4.1 and 4.2. WT stream classification must precede ordinary HTTP
+frame parsing; its bidirectional prefix has no HTTP frame-length field.
+
 Each H3 connection has private adapter state and a session registry.
 Each WT stream has one underlying QUIC stream. Callbacks carry the original
 application context. Session teardown detaches lookup state and keeps

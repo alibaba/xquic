@@ -16,9 +16,6 @@ typedef struct xqc_h3_request_s {
 
     /* user data for request callback */
     void                           *user_data;
-    void                           *extension_data;
-    xqc_bool_t                      extension_owned;
-    xqc_bool_t                      app_create_notified;
 
     /* request callback */
     xqc_h3_request_callbacks_t     *request_if;
@@ -103,10 +100,6 @@ void xqc_h3_request_destroy(xqc_h3_request_t *h3_request);
 xqc_int_t xqc_h3_request_on_recv_header(xqc_h3_request_t *h3r);
 xqc_int_t xqc_h3_request_on_recv_body(xqc_h3_request_t *h3r);
 xqc_int_t xqc_h3_request_on_recv_empty_fin(xqc_h3_request_t *h3r);
-
-xqc_int_t xqc_h3_request_notify_read(xqc_h3_request_t *request,
-    xqc_request_notify_flag_t flags);
-xqc_int_t xqc_h3_request_notify_write(xqc_h3_request_t *request);
 
 /* get headers for writing */
 xqc_http_headers_t *xqc_h3_request_get_writing_headers(xqc_h3_request_t *h3r);

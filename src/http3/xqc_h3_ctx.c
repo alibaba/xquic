@@ -3,6 +3,7 @@
  */
 
 #include <xquic/xquic_typedef.h>
+#include <stddef.h>
 #include "xqc_h3_ctx.h"
 #include "xqc_h3_conn.h"
 #include "xqc_h3_stream.h"
@@ -105,11 +106,6 @@ xqc_h3_ctx_destroy(xqc_engine_t *engine)
 
     h3_ctx = xqc_engine_get_alpn_ctx(engine, XQC_ALPN_H3, strlen(XQC_ALPN_H3));
     if (h3_ctx) {
-        if (h3_ctx->extension_registered
-            && h3_ctx->extension_ops.ctx_destroy)
-        {
-            h3_ctx->extension_ops.ctx_destroy(h3_ctx->extension_data);
-        }
         xqc_free(h3_ctx);
     }
 
@@ -165,21 +161,16 @@ xqc_h3_ctx_get_default_conn_settings(xqc_engine_t *engine, char *alpn,
     return XQC_OK;
 }
 
-static void
-xqc_h3_extension_ctx_destroy(void *data)
-{
-    xqc_h3_ctx_t *ctx = data;
-    if (ctx->extension_ops.ctx_destroy) {
-        ctx->extension_ops.ctx_destroy(ctx->extension_data);
-    }
-    xqc_free(ctx);
-}
-
 xqc_int_t
 xqc_h3_extension_register(xqc_engine_t *engine,
-    const xqc_h3_extension_ops_t *ops, void *ctx)
+    const xqc_h3_extension_ops_t *ops, const void *ctx, size_t ctx_size)
 {
-    if (engine == NULL || ops == NULL) {
+    size_t alignment = _Alignof(max_align_t);
+    size_t ctx_offset = (sizeof(xqc_h3_ctx_t) + alignment - 1)
+        / alignment * alignment;
+    if (engine == NULL || ops == NULL || (ctx_size && ctx == NULL)
+        || ctx_size > SIZE_MAX - ctx_offset)
+    {
         return -XQC_EPARAM;
     }
 
@@ -198,21 +189,32 @@ xqc_h3_extension_register(xqc_engine_t *engine,
         return -XQC_ESTATE;
     }
 
+    /* ALPN cleanup owns one allocation; connections retain no ctx pointers. */
+    xqc_h3_ctx_t *copy = xqc_calloc(1, ctx_offset + ctx_size);
+    if (copy == NULL) {
+        return -XQC_EMALLOC;
+    }
+    *copy = *h3_ctx;
+    copy->extension_ops = *ops;
+    if (ctx_size) {
+        copy->extension_data = (unsigned char *)copy + ctx_offset;
+        xqc_memcpy(copy->extension_data, ctx, ctx_size);
+    }
+    copy->extension_registered = XQC_TRUE;
+
     xqc_app_proto_callbacks_t callbacks = {
         .conn_cbs = h3_conn_callbacks,
         .stream_cbs = h3_stream_callbacks,
         .dgram_cbs = ops->datagram_callbacks,
     };
     xqc_int_t ret = xqc_engine_register_alpn(engine, XQC_ALPN_H3,
-        strlen(XQC_ALPN_H3), &callbacks, h3_ctx);
+        strlen(XQC_ALPN_H3), &callbacks, copy);
     if (ret != XQC_OK) {
+        xqc_free(copy);
         return ret;
     }
-    h3_ctx->extension_ops = *ops;
-    h3_ctx->extension_data = ctx;
-    h3_ctx->extension_registered = XQC_TRUE;
-    return xqc_engine_set_alpn_ctx_destructor(engine, XQC_ALPN_H3,
-        strlen(XQC_ALPN_H3), xqc_h3_extension_ctx_destroy);
+    xqc_free(h3_ctx);
+    return XQC_OK;
 }
 
 void *

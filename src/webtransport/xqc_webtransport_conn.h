@@ -13,6 +13,9 @@
 struct xqc_webtransport_conn_s {
     xqc_h3_conn_t        *h3_conn;
     xqc_wt_ctx_t         *ctx;
+    xqc_wt_ctx_t          ctx_storage;
+    xqc_h3_request_callbacks_t app_request_callbacks;
+    xqc_h3_handshake_finished_pt app_handshake_finished;
     xqc_wt_session_t     *wt_session;
     xqc_id_hash_table_t   sessions;
     xqc_list_head_t       session_list;

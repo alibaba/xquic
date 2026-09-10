@@ -69,6 +69,7 @@ typedef struct xqc_h3_conn_s {
     xqc_connection_t            *conn;
     xqc_log_t                   *log;
     void                        *user_data;
+    xqc_h3_extension_ops_t        extension_callbacks;
     const xqc_h3_extension_ops_t *extension_ops;
     void                        *extension_data;
 

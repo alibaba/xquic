@@ -4,6 +4,7 @@
 #include "src/webtransport/xqc_webtransport_session.h"
 #include "src/webtransport/xqc_webtransport_conn.h"
 #include "src/webtransport/xqc_webtransport_stream.h"
+#include "src/webtransport/xqc_webtransport_request_adapter.h"
 #include "src/webtransport/xqc_webtransport_wire.h"
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_request.h"
@@ -100,7 +101,7 @@ xqc_wt_session_destroy(xqc_wt_session_t *session)
     }
     xqc_wt_session_notify_closed(session);
     if (session->request) {
-        session->request->extension_data = NULL;
+        xqc_wt_request_adapter_detach(session->request);
     }
     xqc_wt_conn_unregister_session(session->wt_conn, session->sessionID);
     xqc_free(session);

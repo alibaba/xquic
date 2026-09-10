@@ -77,6 +77,12 @@ main(int argc, char *argv[])
     }     
 
     if (!CU_add_test(pSuite, "xqc_cid_test", xqc_test_cid)
+        || !CU_add_test(pSuite, "xqc_test_wt_session_limit",
+                        xqc_test_wt_session_limit)
+        || !CU_add_test(pSuite, "xqc_test_wt_request_passthrough",
+                        xqc_test_wt_request_passthrough)
+        || !CU_add_test(pSuite, "xqc_test_wt_request_incomplete",
+                        xqc_test_wt_request_incomplete)
         || !CU_add_test(pSuite, "xqc_test_wt_connect_accept",
                         xqc_test_wt_connect_accept)
         || !CU_add_test(pSuite, "xqc_test_wt_connect_reject",

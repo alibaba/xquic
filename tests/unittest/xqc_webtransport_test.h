@@ -10,4 +10,7 @@ void xqc_test_wt_datagram_association(void);
 void xqc_test_wt_extension_settings(void);
 void xqc_test_wt_connect_accept(void);
 void xqc_test_wt_connect_reject(void);
+void xqc_test_wt_request_passthrough(void);
+void xqc_test_wt_request_incomplete(void);
+void xqc_test_wt_session_limit(void);
 #endif

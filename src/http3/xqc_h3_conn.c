@@ -531,7 +531,8 @@ xqc_h3_conn_create(xqc_connection_t *conn, void *user_data)
     xqc_h3_ctx_t *h3_ctx = xqc_engine_get_alpn_ctx(conn->engine,
         conn->alpn, conn->alpn_len);
     if (h3_ctx && h3_ctx->extension_registered) {
-        h3c->extension_ops = &h3_ctx->extension_ops;
+        h3c->extension_callbacks = h3_ctx->extension_ops;
+        h3c->extension_ops = &h3c->extension_callbacks;
         if (h3c->extension_ops->conn_create) {
             h3c->extension_data = h3c->extension_ops->conn_create(h3c,
                 h3_ctx->extension_data);
@@ -947,9 +948,6 @@ xqc_h3_conn_handshake_finished(xqc_connection_t *conn,
     void *conn_user_data, void *conn_proto_data)
 {
     xqc_h3_conn_t *h3c = (xqc_h3_conn_t *)conn_proto_data;
-    if (h3c->extension_ops && h3c->extension_ops->handshake_finished) {
-        h3c->extension_ops->handshake_finished(h3c, h3c->extension_data);
-    }
     if (h3c->h3_conn_callbacks.h3_conn_handshake_finished) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|HANDSHAKE_COMPLETED notify|");
 

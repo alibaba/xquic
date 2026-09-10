@@ -554,6 +554,8 @@ xqc_engine_destroy(xqc_engine_t *engine)
         xqc_log(engine->log, XQC_LOG_DEBUG, "|begin|");
     }
 
+    xqc_engine_free_alpn_list(engine);
+
     /* free destroy first, then destroy others */
     if (engine->conns_active_pq) {
         while (!xqc_pq_empty(engine->conns_active_pq)) {
@@ -585,9 +587,6 @@ xqc_engine_destroy(xqc_engine_t *engine)
             xqc_conn_destroy(conn);
         }
     }
-
-    /* Protocol contexts outlive every connection and stream callback. */
-    xqc_engine_free_alpn_list(engine);
 
     if (engine->conns_active_pq) {
         xqc_engine_conns_pq_destroy(engine->conns_active_pq);
@@ -1504,11 +1503,7 @@ xqc_engine_free_alpn_list(xqc_engine_t *engine)
 
         if (alpn_reg) {
             if (alpn_reg->alp_ctx) {
-                if (alpn_reg->ctx_destroy) {
-                    alpn_reg->ctx_destroy(alpn_reg->alp_ctx);
-                } else {
-                    xqc_free(alpn_reg->alp_ctx);
-                }
+                xqc_free(alpn_reg->alp_ctx);
             }
             
             if (alpn_reg->alpn) {
@@ -1608,22 +1603,4 @@ xqc_engine_remove_active_queue(xqc_engine_t *engine, xqc_connection_t *conn)
         conn->conn_flag &= ~XQC_CONN_FLAG_TICKING;
     }
     return XQC_OK;
-}
-
-xqc_int_t
-xqc_engine_set_alpn_ctx_destructor(xqc_engine_t *engine,
-    const char *alpn, size_t alpn_len, void (*destroy)(void *ctx))
-{
-    xqc_list_head_t *pos;
-    xqc_list_for_each(pos, &engine->alpn_reg_list) {
-        xqc_alpn_registration_t *entry = xqc_list_entry(pos,
-            xqc_alpn_registration_t, head);
-        if (entry->alpn_len == alpn_len
-            && memcmp(entry->alpn, alpn, alpn_len) == 0)
-        {
-            entry->ctx_destroy = destroy;
-            return XQC_OK;
-        }
-    }
-    return -XQC_EALPN_NOT_REGISTERED;
 }

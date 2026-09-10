@@ -9,6 +9,8 @@
 - [x] Add happy-path and abnormal-path unit coverage.
 - [x] Build and run the complete unit suite.
 - [x] Run a loopback native integration test.
+- [x] Remove engine and H3 request changes; verify connection-owned context
+  teardown and existing H3 request/handshake callback routing.
 - [ ] Verify real Chrome connection, data exchange, rejection and close.
 - [x] Synchronize durable documentation and record remaining API gaps.
 - [x] Prepare the scoped change and honest validation evidence for a draft PR.

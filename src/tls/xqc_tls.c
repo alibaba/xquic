@@ -7,7 +7,6 @@
 #include "xqc_ssl_if.h"
 #include "xqc_ssl_cbs.h"
 #include "xqc_crypto.h"
-#include "xqc_tls_common.h"
 #include "src/common/xqc_common.h"
 #include <openssl/rand.h>
 #include <openssl/hmac.h>
@@ -26,8 +25,8 @@ typedef enum xqc_tls_flag_e {
      */
     XQC_TLS_FLAG_HSK_COMPLETED          = 1 << 1,
 
-    /* received a NewSessionTicket with an invalid early_data value */
-    XQC_TLS_FLAG_INVALID_NST_EARLY_DATA = 1 << 2,
+    /* TLS is processing an incoming NewSessionTicket */
+    XQC_TLS_FLAG_RECV_NST               = 1 << 2,
 
 } xqc_tls_flag_t;
 
@@ -596,6 +595,7 @@ xqc_tls_process_crypto_data(xqc_tls_t *tls, xqc_encrypt_level_t level,
     } else {
         /* handshake finished, process NewSessionTicket */
         ret = SSL_process_quic_post_handshake(ssl);
+        tls->flag &= ~XQC_TLS_FLAG_RECV_NST;
 
         if (ret != XQC_SSL_SUCCESS) {
             err = SSL_get_error(ssl, ret);
@@ -849,131 +849,37 @@ xqc_ssl_keylog_cb(const SSL *ssl, const char *line)
     }
 }
 
-
-static xqc_bool_t
-xqc_tls_nst_has_invalid_early_data(const unsigned char *msg, size_t msg_len)
-{
-    const unsigned char *p = msg;
-    const unsigned char *end = msg + msg_len;
-    uint32_t body_len;
-    uint32_t max_early_data;
-    uint16_t extension_type;
-    size_t field_len;
-    xqc_bool_t invalid_early_data = XQC_FALSE;
-
-    if (msg_len < 4 || p[0] != SSL3_MT_NEWSESSION_TICKET) {
-        return XQC_FALSE;
-    }
-
-    body_len = ((uint32_t)p[1] << 16)
-        | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
-    if (body_len != msg_len - 4) {
-        return XQC_FALSE;
-    }
-    p += 4;
-
-    if ((size_t)(end - p) < 9) {
-        return XQC_FALSE;
-    }
-    p += 8;
-
-    field_len = *p++;
-    if ((size_t)(end - p) < field_len) {
-        return XQC_FALSE;
-    }
-    p += field_len;
-
-    if ((size_t)(end - p) < 2) {
-        return XQC_FALSE;
-    }
-    field_len = ((size_t)p[0] << 8) | (size_t)p[1];
-    p += 2;
-    if (field_len == 0 || (size_t)(end - p) < field_len) {
-        return XQC_FALSE;
-    }
-    p += field_len;
-
-    if ((size_t)(end - p) < 2) {
-        return XQC_FALSE;
-    }
-    field_len = ((size_t)p[0] << 8) | (size_t)p[1];
-    p += 2;
-    if ((size_t)(end - p) != field_len) {
-        return XQC_FALSE;
-    }
-
-    while (p < end) {
-        if ((size_t)(end - p) < 4) {
-            return XQC_FALSE;
-        }
-
-        extension_type = ((uint16_t)p[0] << 8) | (uint16_t)p[1];
-        field_len = ((size_t)p[2] << 8) | (size_t)p[3];
-        p += 4;
-        if ((size_t)(end - p) < field_len) {
-            return XQC_FALSE;
-        }
-
-        if (extension_type == TLSEXT_TYPE_early_data) {
-            if (field_len != 4) {
-                return XQC_FALSE;
-            }
-
-            max_early_data = ((uint32_t)p[0] << 24)
-                | ((uint32_t)p[1] << 16)
-                | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
-            if (max_early_data != XQC_UINT32_MAX) {
-                invalid_early_data = XQC_TRUE;
-            }
-        }
-
-        p += field_len;
-    }
-
-    return invalid_early_data;
-}
-
-
 void
 xqc_ssl_msg_cb(int write_p, int version, int content_type, 
     const void *buf, size_t len, SSL *ssl, void *arg)
 {
     xqc_tls_t *tls = (xqc_tls_t *)SSL_get_app_data(ssl);
-    const unsigned char *p = buf;
 
-    if (content_type != SSL3_RT_HANDSHAKE || len == 0) {
-        return;
+    if (!write_p) {
+        tls->flag &= ~XQC_TLS_FLAG_RECV_NST;
     }
 
-    if (*p == SSL3_MT_NEWSESSION_TICKET && !write_p
-        && tls->type == XQC_TLS_TYPE_CLIENT
-        && !(tls->flag & XQC_TLS_FLAG_INVALID_NST_EARLY_DATA)
-        && tls->cbs->transport_error_cb
-        && xqc_tls_nst_has_invalid_early_data(p, len))
-    {
-        /*
-         * RFC 9001 Section 4.6.1 requires PROTOCOL_VIOLATION when the
-         * early_data extension contains a value other than 0xffffffff.
-         */
-        tls->flag |= XQC_TLS_FLAG_INVALID_NST_EARLY_DATA;
-        xqc_log(tls->log, XQC_LOG_ERROR,
-                "|invalid early_data value in NewSessionTicket|");
-        tls->cbs->transport_error_cb(TRA_PROTOCOL_VIOLATION,
-                                     tls->user_data);
-    }
-
-    if (*p == SSL3_MT_CLIENT_HELLO && !write_p) {
-        /* Incoming ClientHello. */
-        if (tls->cbs->msg_cb) {
-            tls->cbs->msg_cb(XQC_TLS_1_3_CLIENT_HELLO,
-                             buf, len, tls->user_data);
+    if (content_type == SSL3_RT_HANDSHAKE && len > 0) {
+        const unsigned char *p = buf;
+        if (*p == SSL3_MT_NEWSESSION_TICKET && !write_p
+            && tls->type == XQC_TLS_TYPE_CLIENT)
+        {
+            tls->flag |= XQC_TLS_FLAG_RECV_NST;
         }
 
-    } else if (*p == SSL3_MT_SERVER_HELLO && write_p) {
-        /* Outgoing ServerHello. */
-        if (tls->cbs->msg_cb) {
-            tls->cbs->msg_cb(XQC_TLS_1_3_SERVER_HELLO,
-                             buf, len, tls->user_data);
+        if (*p == SSL3_MT_CLIENT_HELLO && !write_p) {
+            /* Incoming ClientHello. */
+            if (tls->cbs->msg_cb) {
+                tls->cbs->msg_cb(XQC_TLS_1_3_CLIENT_HELLO,
+                                 buf, len, tls->user_data);
+            }
+
+        } else if (*p == SSL3_MT_SERVER_HELLO && write_p) {
+            /* Outgoing ServerHello. */
+            if (tls->cbs->msg_cb) {
+                tls->cbs->msg_cb(XQC_TLS_1_3_SERVER_HELLO,
+                                 buf, len, tls->user_data);
+            }
         }
     }
 }
@@ -1438,7 +1344,14 @@ xqc_tls_send_alert(SSL *ssl, enum ssl_encryption_level_t level, uint8_t alert)
     xqc_log(tls->log, XQC_LOG_ERROR, "|ssl alert|level:%d|alert:%d|error:%s",
             level, alert, ERR_error_string(ERR_get_error(), NULL));
 
-    if (tls->flag & XQC_TLS_FLAG_INVALID_NST_EARLY_DATA) {
+    if (tls->type == XQC_TLS_TYPE_CLIENT
+        && (tls->flag & XQC_TLS_FLAG_RECV_NST)
+        && alert == SSL_AD_ILLEGAL_PARAMETER
+        && tls->cbs->transport_error_cb)
+    {
+        /* RFC 9001 Section 4.6.1 requires PROTOCOL_VIOLATION. */
+        tls->cbs->transport_error_cb(TRA_PROTOCOL_VIOLATION,
+                                     tls->user_data);
         return XQC_SSL_SUCCESS;
     }
 

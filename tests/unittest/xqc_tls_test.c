@@ -7,7 +7,6 @@
 #include "src/transport/xqc_conn.h"
 #include "src/tls/xqc_tls_ctx.h"
 #include "src/tls/xqc_tls.h"
-#include "src/tls/xqc_ssl_cbs.h"
 
 #define XQC_TEST_MAX_CRYPTO_DATA_BUF 16 * 1024
 
@@ -266,143 +265,6 @@ static xqc_tls_ctx_t *ctx_cli, *ctx_svr;
 
 #define TEST_ALPN_1 "transport"
 #define TEST_ALPN_2 "h3"
-
-static uint64_t
-xqc_test_tls_new_session_ticket_error(const uint8_t *ticket,
-    size_t ticket_len)
-{
-    uint64_t                    error_code = UINT64_MAX;
-    xqc_log_callbacks_t         log_cb = xqc_null_log_cb;
-    xqc_log_t                  *log = NULL;
-    xqc_tls_ctx_t              *ctx = NULL;
-    xqc_tls_t                  *tls = NULL;
-    xqc_tls_test_buff_t        *ttbuf = NULL;
-    xqc_tls_config_t            tls_config = {0};
-    def_engine_ssl_config_cli;
-
-    log = xqc_log_init(0, 0, 0, 0, 0, NULL, &log_cb, NULL);
-    if (log == NULL) {
-        goto end;
-    }
-
-    ctx = xqc_tls_ctx_create(XQC_TLS_TYPE_CLIENT, &engine_ssl_config_cli,
-                             &tls_test_cbs, log);
-    if (ctx == NULL) {
-        goto end;
-    }
-
-    tls_config.hostname = "test.xquic.com";
-    tls_config.alpn = TEST_ALPN_1;
-    tls_config.trans_params = "test";
-    tls_config.trans_params_len = 4;
-
-    ttbuf = xqc_create_tls_test_buffer();
-    if (ttbuf == NULL) {
-        goto end;
-    }
-
-    tls = xqc_tls_create(ctx, &tls_config, log, ttbuf);
-    if (tls == NULL) {
-        goto end;
-    }
-
-    xqc_ssl_msg_cb(0, TLS1_3_VERSION, SSL3_RT_HANDSHAKE, ticket,
-                   ticket_len, xqc_tls_get_ssl(tls), NULL);
-    error_code = ttbuf->transport_error_code;
-
-end:
-    if (tls != NULL) {
-        xqc_tls_destroy(tls);
-    }
-    if (ttbuf != NULL) {
-        xqc_destroy_tls_test_buffer(ttbuf);
-    }
-    if (ctx != NULL) {
-        xqc_tls_ctx_destroy(ctx);
-    }
-    if (log != NULL) {
-        xqc_free(log);
-    }
-
-    return error_code;
-}
-
-
-void
-xqc_test_tls_new_session_ticket_early_data_valid(void)
-{
-    static const uint8_t valid_ticket[] = {
-        SSL3_MT_NEWSESSION_TICKET, 0x00, 0x00, 0x16,
-        0x00, 0x00, 0x00, 0x01,
-        0x00, 0x00, 0x00, 0x02,
-        0x00,
-        0x00, 0x01, 0x01,
-        0x00, 0x08,
-        0x00, TLSEXT_TYPE_early_data, 0x00, 0x04,
-        0xff, 0xff, 0xff, 0xff,
-    };
-    static const uint8_t no_early_data_ticket[] = {
-        SSL3_MT_NEWSESSION_TICKET, 0x00, 0x00, 0x0e,
-        0x00, 0x00, 0x00, 0x01,
-        0x00, 0x00, 0x00, 0x02,
-        0x00,
-        0x00, 0x01, 0x01,
-        0x00, 0x00,
-    };
-
-    CU_ASSERT_EQUAL(xqc_test_tls_new_session_ticket_error(
-                        valid_ticket, sizeof(valid_ticket)), 0);
-    CU_ASSERT_EQUAL(xqc_test_tls_new_session_ticket_error(
-                        no_early_data_ticket,
-                        sizeof(no_early_data_ticket)), 0);
-    CU_ASSERT_EQUAL(xqc_test_tls_new_session_ticket_error(NULL, 0), 0);
-}
-
-
-void
-xqc_test_tls_new_session_ticket_early_data_invalid(void)
-{
-    uint8_t invalid_ticket[] = {
-        SSL3_MT_NEWSESSION_TICKET, 0x00, 0x00, 0x16,
-        0x00, 0x00, 0x00, 0x01,
-        0x00, 0x00, 0x00, 0x02,
-        0x00,
-        0x00, 0x01, 0x01,
-        0x00, 0x08,
-        0x00, TLSEXT_TYPE_early_data, 0x00, 0x04,
-        0x00, 0x00, 0x00, 0x00,
-    };
-    uint8_t malformed_ticket[sizeof(invalid_ticket)];
-    static const uint8_t malformed_trailing_ticket[] = {
-        SSL3_MT_NEWSESSION_TICKET, 0x00, 0x00, 0x1a,
-        0x00, 0x00, 0x00, 0x01,
-        0x00, 0x00, 0x00, 0x02,
-        0x00,
-        0x00, 0x01, 0x01,
-        0x00, 0x0c,
-        0x00, TLSEXT_TYPE_early_data, 0x00, 0x04,
-        0x00, 0x00, 0x00, 0x01,
-        0x12, 0x34, 0x00, 0x01,
-    };
-
-    CU_ASSERT_EQUAL(xqc_test_tls_new_session_ticket_error(
-                        invalid_ticket, sizeof(invalid_ticket)),
-                    TRA_PROTOCOL_VIOLATION);
-
-    invalid_ticket[sizeof(invalid_ticket) - 1] = 0x01;
-    CU_ASSERT_EQUAL(xqc_test_tls_new_session_ticket_error(
-                        invalid_ticket, sizeof(invalid_ticket)),
-                    TRA_PROTOCOL_VIOLATION);
-
-    memcpy(malformed_ticket, invalid_ticket, sizeof(invalid_ticket));
-    malformed_ticket[21] = 0x03;
-    CU_ASSERT_EQUAL(xqc_test_tls_new_session_ticket_error(
-                        malformed_ticket, sizeof(malformed_ticket)), 0);
-    CU_ASSERT_EQUAL(xqc_test_tls_new_session_ticket_error(
-                        malformed_trailing_ticket,
-                        sizeof(malformed_trailing_ticket)), 0);
-}
-
 
 static xqc_int_t
 xqc_test_tls_default_cert_handshake(xqc_bool_t with_sni,
@@ -756,6 +618,7 @@ xqc_test_tls_generic()
 {
     xqc_int_t ret;
     int cnt;
+    size_t early_data_offset;
 
     uint8_t *data_buf = malloc(XQC_TEST_MAX_CRYPTO_DATA_BUF);
     size_t   data_len = 0;
@@ -822,8 +685,32 @@ xqc_test_tls_generic()
     data_len = xqc_crypto_data_list_get_buf(&ttbuf_svr->application_crypto_data_list, data_buf);
     CU_ASSERT(data_len > 0);
     ret = xqc_tls_process_crypto_data(tls_cli, XQC_ENC_LEV_1RTT, data_buf, data_len);
+    CU_ASSERT(ret == XQC_OK);
     CU_ASSERT(ttbuf_cli->new_session_ticket != NULL);
     CU_ASSERT(ttbuf_cli->new_session_ticket_len > 0);
+    CU_ASSERT(ttbuf_cli->transport_error_code == 0);
+
+    /* RFC 9001 Section 4.6.1 requires this sentinel for QUIC 0-RTT. */
+    for (early_data_offset = 0; early_data_offset + 8 <= data_len;
+         early_data_offset++)
+    {
+        if (data_buf[early_data_offset] == 0
+            && data_buf[early_data_offset + 1] == TLSEXT_TYPE_early_data
+            && data_buf[early_data_offset + 2] == 0
+            && data_buf[early_data_offset + 3] == 4
+            && memcmp(data_buf + early_data_offset + 4,
+                      "\xff\xff\xff\xff", 4) == 0)
+        {
+            break;
+        }
+    }
+    CU_ASSERT(early_data_offset + 8 <= data_len);
+    data_buf[early_data_offset + 7] = 0;
+    ret = xqc_tls_process_crypto_data(tls_cli, XQC_ENC_LEV_1RTT,
+                                      data_buf, data_len);
+    CU_ASSERT(ret != XQC_OK);
+    CU_ASSERT(ttbuf_cli->transport_error_code == TRA_PROTOCOL_VIOLATION);
+    CU_ASSERT(ttbuf_cli->error_code == 0);
 
     /* 0-RTT */
     tls_config.session_ticket = ttbuf_cli->new_session_ticket;

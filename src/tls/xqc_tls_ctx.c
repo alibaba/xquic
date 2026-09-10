@@ -342,7 +342,9 @@ xqc_tls_ctx_create(xqc_tls_type_t type, const xqc_engine_ssl_config_t *cfg,
         SSL_CTX_set_keylog_callback(ctx->ssl_ctx, xqc_ssl_keylog_cb);
     }
 
-    SSL_CTX_set_msg_callback(ctx->ssl_ctx, xqc_ssl_msg_cb);
+    if (cbs->msg_cb || cbs->transport_error_cb) {
+        SSL_CTX_set_msg_callback(ctx->ssl_ctx, xqc_ssl_msg_cb);
+    }
 
     return ctx;
 

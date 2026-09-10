@@ -96,6 +96,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_DATAGRAM_1RTT_ALLOWED 1201
 #define XQC_TEST_CASE_CLOSE_RECV_ONLY_STREAM 725
 #define XQC_TEST_CASE_CLOSE_AFTER_DATA_RECVD 726
+#define XQC_TEST_CASE_SERVER_INITIAL_ZERO_TOKEN 727
+#define XQC_TEST_CASE_SERVER_INITIAL_NONZERO_TOKEN 728
 
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
@@ -104,6 +106,7 @@ static void xqc_server_send_test_control_frame(xqc_h3_conn_t *h3_conn,
     uint64_t frame_type);
 static xqc_int_t xqc_server_send_previous_level_crypto(
     xqc_connection_t *conn, xqc_bool_t extend);
+static void xqc_server_send_initial_token_test_packet(xqc_connection_t *conn);
 
 
 typedef struct user_datagram_block_s {
@@ -1130,6 +1133,60 @@ xqc_server_test_peer_settings(xqc_h3_conn_t *h3_conn,
 }
 
 
+static void
+xqc_server_send_initial_token_test_packet(xqc_connection_t *conn)
+{
+    xqc_packet_out_t *packet_out;
+    const unsigned char token = 0xab;
+    xqc_bool_t nonzero;
+    ssize_t ret;
+
+    nonzero = g_test_case == XQC_TEST_CASE_SERVER_INITIAL_NONZERO_TOKEN;
+
+    packet_out = xqc_write_new_packet(conn, XQC_PTYPE_INIT);
+    if (packet_out == NULL) {
+        printf("[initial-token-test]|packet_unavailable|\n");
+        return;
+    }
+
+    if (nonzero) {
+        /*
+         * Bypass the RFC 9000 Section 17.2.2 sender guard before packet
+         * protection so the forbidden token still has valid AEAD.
+         */
+        packet_out->po_used_size = 0;
+        ret = xqc_gen_long_packet_header(packet_out,
+                                        conn->dcid_set.current_dcid.cid_buf,
+                                        conn->dcid_set.current_dcid.cid_len,
+                                        conn->scid_set.user_scid.cid_buf,
+                                        conn->scid_set.user_scid.cid_len,
+                                        &token, sizeof(token), conn->version,
+                                        XQC_PKTNO_BITS);
+        if (ret < 0) {
+            printf("[initial-token-test]|header_failed:%zd|\n", ret);
+            xqc_maybe_recycle_packet_out(packet_out, conn);
+            return;
+        }
+        packet_out->po_used_size = ret;
+    }
+
+    ret = xqc_gen_ping_frame(packet_out);
+    if (ret < 0) {
+        printf("[initial-token-test]|frame_failed:%zd|\n", ret);
+        xqc_maybe_recycle_packet_out(packet_out, conn);
+        return;
+    }
+
+    packet_out->po_used_size += ret;
+    xqc_long_packet_update_length(packet_out);
+    xqc_send_queue_move_to_high_pri(&packet_out->po_list,
+                                    conn->conn_send_queue);
+    printf("[initial-token-test]|case:%d|queued_ping|token_len:%d|\n",
+           g_test_case, nonzero);
+    fflush(stdout);
+}
+
+
 int
 xqc_server_h3_conn_create_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, void *conn_user_data)
 {
@@ -1198,6 +1255,14 @@ xqc_server_h3_conn_create_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, v
                               sizeof(user_conn->peer_addr), &user_conn->peer_addrlen);
 
     memcpy(&user_conn->cid, cid, sizeof(*cid));
+
+    if (g_test_case == XQC_TEST_CASE_SERVER_INITIAL_ZERO_TOKEN
+        || g_test_case == XQC_TEST_CASE_SERVER_INITIAL_NONZERO_TOKEN)
+    {
+        xqc_server_send_initial_token_test_packet(
+            xqc_h3_conn_get_xqc_conn(h3_conn));
+    }
+
     return 0;
 }
 
@@ -1319,6 +1384,14 @@ xqc_server_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *conn_user_da
         printf("[reset-0rtt]|server_advertised:%d|early_data:%d|\n",
                h3_conn->conn->local_settings.reset_stream_at,
                stats.early_data_flag);
+        fflush(stdout);
+    }
+
+    if (g_test_case == XQC_TEST_CASE_SERVER_INITIAL_ZERO_TOKEN
+        || g_test_case == XQC_TEST_CASE_SERVER_INITIAL_NONZERO_TOKEN)
+    {
+        printf("[initial-token-test]|case:%d|server_handshake_finished|"
+               "conn_err:%d|\n", g_test_case, stats.conn_err);
         fflush(stdout);
     }
 

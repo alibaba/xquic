@@ -869,6 +869,15 @@ xqc_write_reset_stream_to_packet(xqc_connection_t *conn, xqc_stream_t *stream,
     int support_0rtt = xqc_conn_is_ready_to_send_early_data(conn);
     xqc_bool_t buff_reset = XQC_FALSE;
 
+    /*
+     * RFC 9000 Section 3.3: a sender MUST NOT send RESET_STREAM from the
+     * terminal Data Recvd or Reset Recvd states. Reset Sent retransmission is
+     * handled by the send queue rather than by generating another frame.
+     */
+    if (stream->stream_state_send >= XQC_SEND_STREAM_ST_DATA_RECVD) {
+        return XQC_OK;
+    }
+
     if (!(conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT)) {
         if ((conn->conn_type == XQC_CONN_TYPE_CLIENT) 
             && (conn->conn_state == XQC_CONN_STATE_CLIENT_INITIAL_SENT) 

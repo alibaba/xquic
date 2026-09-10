@@ -290,6 +290,11 @@ main(int argc, char *argv[])
                         xqc_test_stream_close_recv_only)
         || !CU_add_test(pSuite, "xqc_test_stream_close_bidirectional",
                         xqc_test_stream_close_bidirectional)
+        || !CU_add_test(pSuite, "xqc_test_stream_close_after_data_recvd",
+                        xqc_test_stream_close_after_data_recvd)
+        || !CU_add_test(
+            pSuite, "xqc_test_stream_close_data_recvd_bidirectional",
+            xqc_test_stream_close_data_recvd_bidirectional)
         || !CU_add_test(pSuite, "xqc_test_reset_stream_final_size_accepted",
                         xqc_test_reset_stream_final_size_accepted)
         || !CU_add_test(pSuite,

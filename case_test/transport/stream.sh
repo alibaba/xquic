@@ -840,6 +840,39 @@ fi
 
 }
 
+
+case_transport_stream_close_after_data_recvd()
+{
+
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e -x 726 > /dev/null
+sleep 1
+echo -e "close_after_data_recvd ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -T 1 -x 726 > stdlog
+sleep 1
+client_sent=`grep \
+    "\[stream-close-data-recvd-test\]|case:726|stream_id:2|send_ret:1|" \
+    stdlog`
+client_closed=`grep \
+    "\[stream-close-data-recvd-test\]|case:726|stream_id:2|"\
+"state_before:3|close_ret:0|state_after:3|" stdlog`
+server_reset=`grep \
+    "xqc_parse_reset_stream_frame|type:3|stream_id:2|" slog`
+client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
+if [ -n "$client_sent" ] && [ -n "$client_closed" ] \
+    && [ -z "$server_reset" ] && [ -z "$client_close_code" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "close_after_data_recvd" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "close_after_data_recvd" "fail"
+fi
+
+}
+
+
 case_test_case "server_inited_stream" --id native --mode self-reporting --run case_transport_stream_server_inited_stream
 case_test_case "stream_send_pure_fin" --id native --mode self-reporting --run case_transport_stream_stream_send_pure_fin
 case_test_case "stream_read_notify_fail" --id native --mode self-reporting --run case_transport_stream_stream_read_notify_fail
@@ -884,6 +917,8 @@ case_test_case "close_send_only_stream" --id 724 \
     --mode self-reporting --run case_transport_stream_close_send_only_stream
 case_test_case "close_recv_only_stream" --id 725 \
     --mode self-reporting --run case_transport_stream_close_recv_only_stream
+case_test_case "close_after_data_recvd" --id 726 \
+    --mode self-reporting --run case_transport_stream_close_after_data_recvd
 
 if case_test_is_discovery; then
     case_test_run

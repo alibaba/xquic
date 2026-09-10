@@ -16,6 +16,8 @@
 #include "src/transport/xqc_transport_params.h"
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_frame.h"
+#include "src/transport/xqc_frame_parser.h"
+#include "src/transport/xqc_packet_in.h"
 
 
 /*
@@ -1117,4 +1119,75 @@ xqc_test_send_ctl_persistent_congestion_recycled_probe(void)
     CU_ASSERT_EQUAL(conn->detected_loss_cnt, 2);
     CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight_before);
     xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_send_ctl_persistent_congestion_ack_range_limit(void)
+{
+    for (unsigned ranges = 63; ranges <= 65; ranges++) {
+        xqc_connection_t *conn = test_engine_connect();
+        CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+        xqc_path_ctx_t *path = conn->conn_initial_path;
+        xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+        uint32_t inflight_before = send_ctl->ctl_bytes_in_flight;
+        xqc_packet_number_t largest = ranges == 65 ? 130 : 128;
+        xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 0);
+
+        CU_ASSERT_PTR_NOT_NULL_FATAL(
+            xqc_test_send_ctl_seed_lost_packet(conn, 1, 1000000));
+        CU_ASSERT_PTR_NOT_NULL_FATAL(xqc_test_send_ctl_send_packet(conn,
+            XQC_PNS_APP_DATA, 2, 1100000, XQC_FRAME_BIT_ACK));
+        CU_ASSERT_PTR_NOT_NULL_FATAL(
+            xqc_test_send_ctl_seed_lost_packet(conn, 3, 1200000));
+        for (xqc_packet_number_t num = 4; num <= largest; num += 2) {
+            CU_ASSERT_PTR_NOT_NULL_FATAL(xqc_test_send_ctl_send_packet(conn,
+                XQC_PNS_APP_DATA, num, 1300000 + num,
+                num == largest ? XQC_FRAME_BIT_PING : XQC_FRAME_BIT_ACK));
+        }
+
+        /*
+         * RFC 9000 Section 19.3.1: singleton even-numbered ACK ranges.
+         * Encode largest_acked and ACK Range Count as two-byte varints;
+         * zero gaps and range lengths acknowledge every other packet.
+         * The 65th range acknowledges PN 2, inside the loss interval.
+         */
+        unsigned char wire[256] = {0x02, 0x40, 0, 0, 0x40, 0, 0};
+        wire[2] = (unsigned char) largest;
+        wire[5] = (unsigned char) (ranges - 1);
+        size_t wire_len = 7 + 2 * (ranges - 1);
+        xqc_packet_in_t packet_in = {0};
+        xqc_ack_info_t ack = {0};
+        packet_in.pos = wire;
+        packet_in.last = wire + wire_len;
+        packet_in.pi_pkt.pkt_pns = XQC_PNS_APP_DATA;
+        CU_ASSERT_EQUAL_FATAL(xqc_parse_ack_frame(&packet_in, conn, &ack),
+                              XQC_OK);
+        CU_ASSERT_PTR_EQUAL(packet_in.pos, packet_in.last);
+        CU_ASSERT_EQUAL(ack.n_ranges, ranges > 64 ? 64 : ranges);
+        CU_ASSERT_EQUAL(ack.ranges[ack.n_ranges - 1].low,
+                        ranges == 64 ? 2 : 4);
+        CU_ASSERT_EQUAL(xqc_send_ctl_on_ack_received(send_ctl,
+            xqc_get_pn_ctl(conn, path), conn->conn_send_queue, &ack, 1400000,
+            XQC_FALSE), XQC_OK);
+        xqc_test_send_ctl_assert_pc(send_ctl, ranges == 63);
+        CU_ASSERT_EQUAL(conn->detected_loss_cnt, 2);
+        CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight_before);
+
+        if (ranges >= 64) {
+            /* A fresh, fully observed suffix can still establish loss. */
+            CU_ASSERT_PTR_NOT_NULL_FATAL(xqc_test_send_ctl_seed_lost_packet(
+                conn, largest + 1, 1600000));
+            CU_ASSERT_PTR_NOT_NULL_FATAL(xqc_test_send_ctl_seed_lost_packet(
+                conn, largest + 2, 1800000));
+            CU_ASSERT_PTR_NOT_NULL_FATAL(xqc_test_send_ctl_seed_lost_packet(
+                conn, largest + 3, 1990000));
+            xqc_test_send_ctl_ack(conn, XQC_PNS_APP_DATA, largest + 3,
+                                  XQC_MAX_UINT64_VALUE, 2000000);
+            xqc_test_send_ctl_assert_pc(send_ctl, XQC_TRUE);
+            CU_ASSERT_EQUAL(conn->detected_loss_cnt, 4);
+            CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight_before);
+        }
+        xqc_engine_destroy(conn->engine);
+    }
 }

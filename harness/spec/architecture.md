@@ -132,5 +132,7 @@ recycled before their ACK arrives. The history holds at most 256 packets;
 overflow keeps the newest suffix and can delay detection when an older
 endpoint is unavailable. It does not infer loss across missing history.
 Acknowledged prefixes are pruned; path reset, key-space discard and the
-persistent-congestion RTT reset clear the retained interval. Packet generation
-checks prevent a recycled history slot from receiving an older packet's loss.
+persistent-congestion RTT reset clear the retained interval. A full ACK-range
+array also clears it because the parser may have omitted older acknowledged
+ranges. Packet generation checks prevent a recycled history slot from
+receiving an older packet's loss.

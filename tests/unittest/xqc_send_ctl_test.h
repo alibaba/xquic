@@ -75,4 +75,6 @@ void xqc_test_send_ctl_persistent_congestion_history_reset(void);
 
 void xqc_test_send_ctl_persistent_congestion_recycled_probe(void);
 
+void xqc_test_send_ctl_persistent_congestion_ack_range_limit(void);
+
 #endif

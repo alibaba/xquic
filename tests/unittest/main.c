@@ -494,6 +494,9 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
             "xqc_test_send_ctl_persistent_congestion_recycled_probe",
             xqc_test_send_ctl_persistent_congestion_recycled_probe)
+        || !CU_add_test(pSuite,
+            "xqc_test_send_ctl_persistent_congestion_ack_range_limit",
+            xqc_test_send_ctl_persistent_congestion_ack_range_limit)
         /* RFC 9000 §6.2 Version Negotiation abort suite */
         || !CU_add_test(pSuite, "xqc_test_vn_abort_on_unsupported_version", xqc_test_vn_abort_on_unsupported_version)
         || !CU_add_test(pSuite, "xqc_test_vn_downgrade_protection_when_version_matches", xqc_test_vn_downgrade_protection_when_version_matches)

@@ -83,6 +83,12 @@ xqc_send_ctl_pc_on_ack(xqc_send_ctl_t *send_ctl,
         return;
     }
 
+    /* The parser may have omitted older ranges when this array is full. */
+    if (ack_info->n_ranges >= XQC_MAX_ACK_RANGE_CNT) {
+        pc->count = 0;
+        return;
+    }
+
     unsigned range = ack_info->n_ranges - 1;
     for (uint64_t seq = pc->next - pc->count; seq < pc->next; ++seq) {
         xqc_pc_packet_t *packet = &pc->packets[

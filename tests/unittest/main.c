@@ -362,6 +362,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_h3_missing_settings", xqc_test_h3_missing_settings)
         || !CU_add_test(pSuite, "xqc_test_h3_request_frame_unexpected", xqc_test_h3_request_frame_unexpected)
         || !CU_add_test(pSuite,
+                        "xqc_test_h3_data_after_headers_accepted",
+                        xqc_test_h3_data_after_headers_accepted)
+        || !CU_add_test(pSuite,
+                        "xqc_test_h3_data_before_headers_rejected",
+                        xqc_test_h3_data_before_headers_rejected)
+        || !CU_add_test(pSuite,
                         "xqc_test_h3_server_reserved_request_frame_accepted",
                         xqc_test_h3_server_reserved_request_frame_accepted)
         || !CU_add_test(pSuite,

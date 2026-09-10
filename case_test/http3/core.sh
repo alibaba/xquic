@@ -779,6 +779,36 @@ else
 fi
 }
 
+case_http3_core_h3_data_before_headers_rejected()
+{
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost h3_request_frame_server.log
+case_test_start_server ${SERVER_BIN} -l d -e -x 1021 \
+    > h3_request_frame_server.log
+sleep 1
+echo -e "HTTP/3 DATA before HEADERS gets H3_FRAME_UNEXPECTED ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1021 > stdlog
+for wait_idx in 1 2 3 4 5 6 7 8 9 10; do
+    server_err=`grep "data-before-headers|conn_err:261|" \
+        h3_request_frame_server.log`
+    [ -n "$server_err" ] && break
+    sleep 0.2
+done
+sent=`grep "\[h3-request-frame-test\]|type:0x0|ret:0|" stdlog`
+wire_err=`grep "err:0x105" slog`
+client_err=`grep -E "(conn errno:261|conn_err:261)" stdlog`
+application_type=`grep "conn_err_type:2" stdlog`
+if [ -n "$sent" ] && [ -n "$server_err" ] && [ -n "$wire_err" ] \
+    && [ -n "$client_err" ] && [ -n "$application_type" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_data_before_headers_rejected" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_data_before_headers_rejected" "fail"
+fi
+}
+
 case_http3_core_h3_client_push_promise_rejected()
 {
 
@@ -1308,6 +1338,8 @@ case_test_case "h3_reserved_uni_stream_survives" --id native --mode self-reporti
 case_test_case "h3_client_push_stream_creation_error" --id native --mode self-reporting --run case_http3_core_h3_client_push_stream_creation_error
 case_test_case "h3_reserved_request_frame_accepted" --id native --mode self-reporting --run case_http3_core_h3_reserved_request_frame_accepted
 case_test_case "h3_h2_reserved_request_frame_rejected" --id 1015 --mode self-reporting --run case_http3_core_h3_h2_reserved_request_frame_rejected
+case_test_case "h3_data_before_headers_rejected" --id 1021 \
+    --mode self-reporting --run case_http3_core_h3_data_before_headers_rejected
 case_test_case "h3_client_push_promise_rejected" --id native --mode self-reporting --run case_http3_core_h3_client_push_promise_rejected
 case_test_case "h3_max_push_id_increase_accepted" --id native --mode self-reporting --run case_http3_core_h3_max_push_id_increase_accepted
 case_test_case "h3_max_push_id_decrease_rejected" --id native --mode self-reporting --run case_http3_core_h3_max_push_id_decrease_rejected

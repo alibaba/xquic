@@ -74,6 +74,7 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_H2_RESERVED_CONTROL_FRAME 1016
 #define XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_VALID 1019
 #define XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_INVALID 1020
+#define XQC_TEST_CASE_H3_DATA_BEFORE_HEADERS 1021
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_BELOW_LIMIT 902
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT 903
 #define XQC_TEST_CASE_CRYPTO_PREVIOUS_LEVEL_BOUNDARY 720
@@ -1092,10 +1093,18 @@ xqc_server_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, vo
            stats.send_count, stats.lost_count, stats.tlp_count, stats.recv_count, stats.srtt, stats.early_data_flag, stats.conn_err, stats.ack_info, stats.conn_info, stats.alpn);
 
     if (g_test_case == XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME
-        || g_test_case == XQC_TEST_CASE_H3_H2_RESERVED_REQUEST_FRAME)
+        || g_test_case == XQC_TEST_CASE_H3_H2_RESERVED_REQUEST_FRAME
+        || g_test_case == XQC_TEST_CASE_H3_DATA_BEFORE_HEADERS)
     {
-        const char *kind = g_test_case == XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME
-                           ? "reserved-frame" : "http2-reserved";
+        const char *kind = "data-before-headers";
+        if (g_test_case == XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME) {
+            kind = "reserved-frame";
+
+        } else if (g_test_case
+                   == XQC_TEST_CASE_H3_H2_RESERVED_REQUEST_FRAME)
+        {
+            kind = "http2-reserved";
+        }
         printf("[h3-request-frame-test]|%s|conn_err:%d|\n", kind,
                stats.conn_err);
         fflush(stdout);

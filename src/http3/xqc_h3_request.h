@@ -31,8 +31,8 @@ typedef struct xqc_h3_request_s {
     size_t                          header_recvd;
     /* received header buf */
     xqc_http_headers_t              h3_header[XQC_H3_REQUEST_MAX_HEADERS_CNT];
-    /* total received headers frame count */
-    xqc_h3_header_type_t            current_header;
+    /* number of fully processed HEADERS frames */
+    uint8_t                         completed_header_count;
 
     /* received body buf list and statistic information */
     xqc_list_head_t                 body_buf;

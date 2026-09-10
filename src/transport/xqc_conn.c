@@ -38,6 +38,9 @@
 
 #define XQC_DEFAULT_MAX_STREAMS     1024
 
+static void xqc_conn_tls_transport_error_cb(xqc_int_t transport_err,
+    void *user_data);
+
 xqc_conn_settings_t internal_default_conn_settings = {
     .pacing_on                  = 0,
     .ping_on                    = 0,
@@ -6615,6 +6618,16 @@ xqc_conn_tls_error_cb(xqc_int_t tls_err, void *user_data)
 }
 
 
+static void
+xqc_conn_tls_transport_error_cb(xqc_int_t transport_err, void *user_data)
+{
+    xqc_connection_t *conn = (xqc_connection_t *)user_data;
+    xqc_log(conn->log, XQC_LOG_ERROR, "|transport error from tls|0x%xi|",
+            transport_err);
+    XQC_CONN_ERR(conn, transport_err);
+}
+
+
 void
 xqc_free_crypto_buffer_list(xqc_list_head_t *buffer_list)
 {
@@ -6673,6 +6686,7 @@ const xqc_tls_callbacks_t xqc_conn_tls_cbs = {
     .session_cb         = xqc_conn_tls_session_cb,
     .keylog_cb          = xqc_conn_tls_keylog_cb,
     .error_cb           = xqc_conn_tls_error_cb,
+    .transport_error_cb = xqc_conn_tls_transport_error_cb,
     .hsk_completed_cb   = xqc_conn_tls_handshake_completed_cb,
     .cert_cb            = xqc_conn_tls_cert_cb,
     .msg_cb             = xqc_conn_tls_msg_cb,

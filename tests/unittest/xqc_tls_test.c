@@ -32,6 +32,7 @@ typedef struct xqc_tls_test_buff_s {
             size_t             crypto_data_total_len;
         
             uint64_t           error_code;
+            uint64_t           transport_error_code;
         };
         xqc_connection_t conn;
     };
@@ -55,6 +56,7 @@ xqc_create_tls_test_buffer()
     ttbuf->crypto_data_total_len = 0;
 
     ttbuf->error_code = 0;
+    ttbuf->transport_error_code = 0;
     ttbuf->cert_cb_called = 0;
 
     return ttbuf;
@@ -218,6 +220,14 @@ xqc_tt_tls_error_cb(xqc_int_t tls_err, void *user_data)
 }
 
 void
+xqc_tt_transport_error_cb(xqc_int_t transport_err, void *user_data)
+{
+    xqc_tls_test_buff_t *ttbuf = (xqc_tls_test_buff_t *)user_data;
+
+    ttbuf->transport_error_code = transport_err;
+}
+
+void
 xqc_tt_handshake_completed_cb(void *user_data)
 {
     xqc_tls_test_buff_t *ttbuf = (xqc_tls_test_buff_t *)user_data;
@@ -232,6 +242,7 @@ xqc_tls_callbacks_t tls_test_cbs = {
     .session_cb = xqc_tt_session_cb,
     .keylog_cb = xqc_tt_keylog_cb,
     .error_cb = xqc_tt_tls_error_cb,
+    .transport_error_cb = xqc_tt_transport_error_cb,
     .hsk_completed_cb = xqc_tt_handshake_completed_cb,
 };
 
@@ -607,6 +618,7 @@ xqc_test_tls_generic()
 {
     xqc_int_t ret;
     int cnt;
+    size_t early_data_offset;
 
     uint8_t *data_buf = malloc(XQC_TEST_MAX_CRYPTO_DATA_BUF);
     size_t   data_len = 0;
@@ -673,8 +685,32 @@ xqc_test_tls_generic()
     data_len = xqc_crypto_data_list_get_buf(&ttbuf_svr->application_crypto_data_list, data_buf);
     CU_ASSERT(data_len > 0);
     ret = xqc_tls_process_crypto_data(tls_cli, XQC_ENC_LEV_1RTT, data_buf, data_len);
+    CU_ASSERT(ret == XQC_OK);
     CU_ASSERT(ttbuf_cli->new_session_ticket != NULL);
     CU_ASSERT(ttbuf_cli->new_session_ticket_len > 0);
+    CU_ASSERT(ttbuf_cli->transport_error_code == 0);
+
+    /* RFC 9001 Section 4.6.1 requires this sentinel for QUIC 0-RTT. */
+    for (early_data_offset = 0; early_data_offset + 8 <= data_len;
+         early_data_offset++)
+    {
+        if (data_buf[early_data_offset] == 0
+            && data_buf[early_data_offset + 1] == TLSEXT_TYPE_early_data
+            && data_buf[early_data_offset + 2] == 0
+            && data_buf[early_data_offset + 3] == 4
+            && memcmp(data_buf + early_data_offset + 4,
+                      "\xff\xff\xff\xff", 4) == 0)
+        {
+            break;
+        }
+    }
+    CU_ASSERT(early_data_offset + 8 <= data_len);
+    data_buf[early_data_offset + 7] = 0;
+    ret = xqc_tls_process_crypto_data(tls_cli, XQC_ENC_LEV_1RTT,
+                                      data_buf, data_len);
+    CU_ASSERT(ret != XQC_OK);
+    CU_ASSERT(ttbuf_cli->transport_error_code == TRA_PROTOCOL_VIOLATION);
+    CU_ASSERT(ttbuf_cli->error_code == 0);
 
     /* 0-RTT */
     tls_config.session_ticket = ttbuf_cli->new_session_ticket;

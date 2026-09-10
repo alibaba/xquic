@@ -930,6 +930,16 @@ xqc_test_conn_close_transport_crypto_namespace(void)
                                      TRA_NO_APPLICATION_PROTOCOL);
 
     xqc_engine_destroy(conn->engine);
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(xqc_conn_tls_cbs.transport_error_cb);
+
+    xqc_conn_tls_cbs.transport_error_cb(TRA_PROTOCOL_VIOLATION, conn);
+    CU_ASSERT_EQUAL(conn->conn_err, TRA_PROTOCOL_VIOLATION);
+    CU_ASSERT_FALSE(XQC_CONN_ERR_IS_APPLICATION(conn->conn_err));
+
+    xqc_engine_destroy(conn->engine);
 }
 
 

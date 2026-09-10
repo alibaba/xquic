@@ -25,6 +25,9 @@ typedef enum xqc_tls_flag_e {
      */
     XQC_TLS_FLAG_HSK_COMPLETED          = 1 << 1,
 
+    /* TLS is processing an incoming NewSessionTicket */
+    XQC_TLS_FLAG_RECV_NST               = 1 << 2,
+
 } xqc_tls_flag_t;
 
 
@@ -592,6 +595,7 @@ xqc_tls_process_crypto_data(xqc_tls_t *tls, xqc_encrypt_level_t level,
     } else {
         /* handshake finished, process NewSessionTicket */
         ret = SSL_process_quic_post_handshake(ssl);
+        tls->flag &= ~XQC_TLS_FLAG_RECV_NST;
 
         if (ret != XQC_SSL_SUCCESS) {
             err = SSL_get_error(ssl, ret);
@@ -858,19 +862,30 @@ xqc_ssl_msg_cb(int write_p, int version, int content_type,
     const void *buf, size_t len, SSL *ssl, void *arg)
 {
     xqc_tls_t *tls = (xqc_tls_t *)SSL_get_app_data(ssl);
-    if (content_type == SSL3_RT_HANDSHAKE) {
+
+    if (!write_p) {
+        tls->flag &= ~XQC_TLS_FLAG_RECV_NST;
+    }
+
+    if (content_type == SSL3_RT_HANDSHAKE && len > 0) {
         const unsigned char *p = buf;
-        if (*p == SSL3_MT_CLIENT_HELLO && !write_p) { 
-            // Incoming ClientHello
+        if (*p == SSL3_MT_NEWSESSION_TICKET && !write_p
+            && tls->type == XQC_TLS_TYPE_CLIENT)
+        {
+            tls->flag |= XQC_TLS_FLAG_RECV_NST;
+        }
+
+        if (*p == SSL3_MT_CLIENT_HELLO && !write_p) {
+            /* Incoming ClientHello. */
             if (tls->cbs->msg_cb) {
-                tls->cbs->msg_cb(XQC_TLS_1_3_CLIENT_HELLO, 
+                tls->cbs->msg_cb(XQC_TLS_1_3_CLIENT_HELLO,
                                  buf, len, tls->user_data);
             }
 
         } else if (*p == SSL3_MT_SERVER_HELLO && write_p) {
-            // Outgoing ServerHello
+            /* Outgoing ServerHello. */
             if (tls->cbs->msg_cb) {
-                tls->cbs->msg_cb(XQC_TLS_1_3_SERVER_HELLO, 
+                tls->cbs->msg_cb(XQC_TLS_1_3_SERVER_HELLO,
                                  buf, len, tls->user_data);
             }
         }
@@ -1336,6 +1351,17 @@ xqc_tls_send_alert(SSL *ssl, enum ssl_encryption_level_t level, uint8_t alert)
 
     xqc_log(tls->log, XQC_LOG_ERROR, "|ssl alert|level:%d|alert:%d|error:%s",
             level, alert, ERR_error_string(ERR_get_error(), NULL));
+
+    if (tls->type == XQC_TLS_TYPE_CLIENT
+        && (tls->flag & XQC_TLS_FLAG_RECV_NST)
+        && alert == SSL_AD_ILLEGAL_PARAMETER
+        && tls->cbs->transport_error_cb)
+    {
+        /* RFC 9001 Section 4.6.1 requires PROTOCOL_VIOLATION. */
+        tls->cbs->transport_error_cb(TRA_PROTOCOL_VIOLATION,
+                                     tls->user_data);
+        return XQC_SSL_SUCCESS;
+    }
 
     /* callback to upper layer. */
     if (tls->cbs->error_cb) {

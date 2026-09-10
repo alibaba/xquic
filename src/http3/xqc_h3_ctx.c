@@ -105,6 +105,11 @@ xqc_h3_ctx_destroy(xqc_engine_t *engine)
 
     h3_ctx = xqc_engine_get_alpn_ctx(engine, XQC_ALPN_H3, strlen(XQC_ALPN_H3));
     if (h3_ctx) {
+        if (h3_ctx->extension_registered
+            && h3_ctx->extension_ops.ctx_destroy)
+        {
+            h3_ctx->extension_ops.ctx_destroy(h3_ctx->extension_data);
+        }
         xqc_free(h3_ctx);
     }
 
@@ -158,4 +163,66 @@ xqc_h3_ctx_get_default_conn_settings(xqc_engine_t *engine, char *alpn,
     *settings = &h3_ctx->h3c_def_local_settings;
 
     return XQC_OK;
+}
+
+static void
+xqc_h3_extension_ctx_destroy(void *data)
+{
+    xqc_h3_ctx_t *ctx = data;
+    if (ctx->extension_ops.ctx_destroy) {
+        ctx->extension_ops.ctx_destroy(ctx->extension_data);
+    }
+    xqc_free(ctx);
+}
+
+xqc_int_t
+xqc_h3_extension_register(xqc_engine_t *engine,
+    const xqc_h3_extension_ops_t *ops, void *ctx)
+{
+    if (engine == NULL || ops == NULL) {
+        return -XQC_EPARAM;
+    }
+
+    xqc_h3_ctx_t *h3_ctx = xqc_engine_get_alpn_ctx(engine, XQC_ALPN_H3,
+                                                 strlen(XQC_ALPN_H3));
+    if (h3_ctx == NULL) {
+        xqc_h3_callbacks_t callbacks = {0};
+        xqc_int_t ret = xqc_h3_ctx_init(engine, &callbacks);
+        if (ret != XQC_OK) {
+            return ret;
+        }
+        h3_ctx = xqc_engine_get_alpn_ctx(engine, XQC_ALPN_H3,
+                                        strlen(XQC_ALPN_H3));
+    }
+    if (h3_ctx->extension_registered) {
+        return -XQC_ESTATE;
+    }
+
+    xqc_app_proto_callbacks_t callbacks = {
+        .conn_cbs = h3_conn_callbacks,
+        .stream_cbs = h3_stream_callbacks,
+        .dgram_cbs = ops->datagram_callbacks,
+    };
+    xqc_int_t ret = xqc_engine_register_alpn(engine, XQC_ALPN_H3,
+        strlen(XQC_ALPN_H3), &callbacks, h3_ctx);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+    h3_ctx->extension_ops = *ops;
+    h3_ctx->extension_data = ctx;
+    h3_ctx->extension_registered = XQC_TRUE;
+    return xqc_engine_set_alpn_ctx_destructor(engine, XQC_ALPN_H3,
+        strlen(XQC_ALPN_H3), xqc_h3_extension_ctx_destroy);
+}
+
+void *
+xqc_h3_extension_get_context(xqc_engine_t *engine)
+{
+    if (engine == NULL) {
+        return NULL;
+    }
+    xqc_h3_ctx_t *h3_ctx = xqc_engine_get_alpn_ctx(engine, XQC_ALPN_H3,
+                                                 strlen(XQC_ALPN_H3));
+    return h3_ctx && h3_ctx->extension_registered
+        ? h3_ctx->extension_data : NULL;
 }

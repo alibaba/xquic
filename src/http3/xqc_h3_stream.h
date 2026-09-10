@@ -30,6 +30,7 @@ typedef enum {
     /* bidi stream type */
     XQC_H3_STREAM_TYPE_REQUEST          = 0x10,
     XQC_H3_STREAM_TYPE_BYTESTEAM        = 0x20,
+    XQC_H3_STREAM_TYPE_EXTENSION        = 0x40,
 
     /* reserved stream type or others */
     XQC_H3_STREAM_TYPE_UNKNOWN          = 0xFFFFFFFFFFFFFFFFull,
@@ -98,6 +99,15 @@ typedef struct xqc_h3_stream_s {
     uint64_t                        stream_id;
     uint64_t                        stream_err;
     void                           *user_data;
+    void                           *extension_data;
+    uint64_t                        extension_stream_type;
+    xqc_bool_t                      extension_raw;
+    xqc_bool_t                      extension_detached;
+    xqc_bool_t                      extension_read_paused;
+    xqc_bool_t                      extension_type_checked;
+    unsigned char                   extension_prefix[8];
+    size_t                          extension_prefix_len;
+    xqc_var_buf_t                  *extension_recv_buf;
 
     /* http3 connection */
     xqc_h3_conn_t                  *h3c;

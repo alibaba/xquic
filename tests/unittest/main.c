@@ -8,6 +8,7 @@
 #include <CUnit/CUnit.h>
 
 #include "xqc_random_test.h"
+#include "xqc_webtransport_test.h"
 #include "xqc_pq_test.h"
 #include "xqc_conn_test.h"
 #include "xqc_engine_test.h"
@@ -76,6 +77,26 @@ main(int argc, char *argv[])
     }     
 
     if (!CU_add_test(pSuite, "xqc_cid_test", xqc_test_cid)
+        || !CU_add_test(pSuite, "xqc_test_wt_connect_accept",
+                        xqc_test_wt_connect_accept)
+        || !CU_add_test(pSuite, "xqc_test_wt_connect_reject",
+                        xqc_test_wt_connect_reject)
+        || !CU_add_test(pSuite, "xqc_test_wt_extension_settings",
+                        xqc_test_wt_extension_settings)
+        || !CU_add_test(pSuite, "xqc_test_wt_datagram_association",
+                        xqc_test_wt_datagram_association)
+        || !CU_add_test(pSuite, "xqc_test_wt_capsule_errors",
+                        xqc_test_wt_capsule_errors)
+        || !CU_add_test(pSuite, "xqc_test_wt_capsules",
+                        xqc_test_wt_capsules)
+        || !CU_add_test(pSuite, "xqc_test_wt_stream_errors",
+                        xqc_test_wt_stream_errors)
+        || !CU_add_test(pSuite, "xqc_test_wt_stream_io",
+                        xqc_test_wt_stream_io)
+        || !CU_add_test(pSuite, "xqc_test_wt_context_errors",
+                        xqc_test_wt_context_errors)
+        || !CU_add_test(pSuite, "xqc_test_wt_context",
+                        xqc_test_wt_context)
         || !CU_add_test(pSuite, "xqc_test_hq_request_recv",
                         xqc_test_hq_request_recv)
         || !CU_add_test(pSuite, "xqc_test_hq_request_recv_errors",

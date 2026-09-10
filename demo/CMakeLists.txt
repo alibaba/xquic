@@ -16,6 +16,7 @@ set(
     DEMO_SERVER_SOURCES
     ${HQ_SOURCES}
     "demo_server.c"
+    "xqc_wt_echo_server.c"
 )
 
 

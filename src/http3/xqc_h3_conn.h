@@ -10,6 +10,7 @@
 #include "src/http3/xqc_h3_stream.h"
 #include "src/transport/xqc_conn.h"
 #include <xquic/xqc_http3.h>
+#include "src/http3/xqc_h3_extension.h"
 
 #define XQC_H3_SETTINGS_UNSET XQC_MAX_UINT64_VALUE
 
@@ -68,6 +69,8 @@ typedef struct xqc_h3_conn_s {
     xqc_connection_t            *conn;
     xqc_log_t                   *log;
     void                        *user_data;
+    const xqc_h3_extension_ops_t *extension_ops;
+    void                        *extension_data;
 
     /* h3 connection state flags */
     uint64_t                     flags;

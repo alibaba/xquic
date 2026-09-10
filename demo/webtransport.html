@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XQUIC WebTransport loopback test</title>
+<style>
+  body { font: 16px system-ui; max-width: 900px; margin: 40px auto;
+         padding: 0 20px; color: #152b3c; background: #f6f8fa; }
+  label { display: block; margin: 18px 0; }
+  input { box-sizing: border-box; display: block; width: 100%; padding: 10px;
+          margin-top: 6px; font: 14px ui-monospace, monospace; }
+  button { padding: 10px 14px; margin: 0 6px 8px 0; cursor: pointer; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 18px;
+        background: #102737; color: #d6ecf2; min-height: 160px; }
+  small { display: block; line-height: 1.6; }
+</style>
+<h1>XQUIC WebTransport loopback test</h1>
+<p>HTTP/3 draft-07 compatibility demo · bidirectional stream and datagram echo</p>
+<small id="environment"></small>
+<label>Session URL
+  <input id="url" value="https://127.0.0.1:8443/wt">
+</label>
+<label>Certificate SHA-256 fingerprint (64 hex digits, colons optional)
+  <input id="hash" autocomplete="off" spellcheck="false"
+         placeholder="Paste the fingerprint printed by the certificate script">
+</label>
+<label>Echo payload
+  <input id="payload" value="hello from Chrome">
+</label>
+<button id="connect">Connect</button>
+<button id="bidi">Bidirectional echo</button>
+<button id="datagram">Datagram echo</button>
+<button id="close">Close session</button>
+<button id="reject-path">Reject invalid path</button>
+<button id="reject-origin">Reject this Origin</button>
+<button id="all">Run allowed-Origin checks</button>
+<small>
+  Accepted Origins: http://127.0.0.1:8080 and http://localhost:8080.
+  To test Origin rejection, serve this same page on port 8081, paste the
+  same certificate fingerprint, and click “Reject this Origin”.
+</small>
+<pre id="results" aria-live="polite"></pre>
+<script>
+  "use strict";
+
+  const fingerprint = new URLSearchParams(location.search).get("hash");
+  if (fingerprint) document.querySelector("#hash").value = fingerprint;
+  const output = document.querySelector("#results");
+  const allowedOrigins = ["http://127.0.0.1:8080", "http://localhost:8080"];
+  let transport;
+  let ready = false;
+  let busy = false;
+
+  document.querySelector("#environment").textContent =
+    `Origin: ${location.origin}\nBrowser: ${navigator.userAgent}\n` +
+    `Secure context: ${isSecureContext}; WebTransport: ${"WebTransport" in window}`;
+
+  function report(name, result, detail = "") {
+    output.textContent += `${new Date().toISOString()} ${name}: ${result}` +
+      (detail ? ` — ${detail}` : "") + "\n";
+    output.dataset.lastResult = result;
+  }
+
+  function deadline(promise, name, milliseconds = 10000) {
+    let timer;
+    const expiry = new Promise((resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`${name} timed out`)), milliseconds);
+    });
+    return Promise.race([promise, expiry]).finally(() => clearTimeout(timer));
+  }
+
+  function createTransport(url) {
+    if (!isSecureContext || !("WebTransport" in window)) {
+      throw new Error("WebTransport requires a supported browser and secure context");
+    }
+    const hex = document.querySelector("#hash").value.replace(/[:\s]/g, "");
+    if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
+      throw new Error("Enter the certificate's 32-byte SHA-256 fingerprint");
+    }
+    const value = Uint8Array.from(hex.match(/../g), byte => parseInt(byte, 16));
+    const session = new WebTransport(url, {
+      serverCertificateHashes: [{ algorithm: "sha-256", value }]
+    });
+    session.closed.catch(() => {});
+    return session;
+  }
+
+  function requireReady() {
+    if (!ready || !transport) throw new Error("Connect successfully first");
+    return transport;
+  }
+
+  async function connect() {
+    if (transport) {
+      transport.close();
+      transport = undefined;
+      ready = false;
+    }
+    const session = createTransport(document.querySelector("#url").value);
+    transport = session;
+    try {
+      await deadline(session.ready, "ready");
+      ready = true;
+      report("ready", "PASS");
+      session.closed.then(info => {
+        if (transport === session) ready = false;
+        report("closed notification", "OBSERVED", JSON.stringify(info));
+      }, error => {
+        if (transport === session) ready = false;
+        report("closed notification", "ERROR", error.message);
+      });
+    } catch (error) {
+      session.close();
+      throw error;
+    }
+  }
+
+  async function bidi() {
+    const session = requireReady();
+    const bytes = new TextEncoder().encode(document.querySelector("#payload").value);
+    const stream = await deadline(session.createBidirectionalStream(), "create stream");
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+    const received = [];
+    let length = 0;
+    const read = (async () => {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        received.push(value);
+        length += value.length;
+        if (length > bytes.length) throw new Error("Echo contained unexpected bytes");
+      }
+    })();
+    const write = (async () => {
+      await writer.write(bytes);
+      await writer.close();
+    })();
+    try {
+      await deadline(Promise.all([read, write]), "bidirectional echo and FIN");
+      const joined = new Uint8Array(length);
+      let offset = 0;
+      for (const chunk of received) {
+        joined.set(chunk, offset);
+        offset += chunk.length;
+      }
+      if (joined.length !== bytes.length ||
+          !joined.every((byte, index) => byte === bytes[index])) {
+        throw new Error("Echo payload mismatch");
+      }
+      report("bidirectional echo", "PASS", `${length} bytes; FIN received`);
+    } catch (error) {
+      await Promise.allSettled([reader.cancel(), writer.abort()]);
+      throw error;
+    } finally {
+      reader.releaseLock();
+      writer.releaseLock();
+    }
+  }
+
+  async function datagram() {
+    const session = requireReady();
+    const bytes = new TextEncoder().encode(document.querySelector("#payload").value);
+    if (bytes.length > session.datagrams.maxDatagramSize) {
+      throw new Error(`Payload exceeds MSS ${session.datagrams.maxDatagramSize}`);
+    }
+    const writer = session.datagrams.writable.getWriter();
+    const reader = session.datagrams.readable.getReader();
+    try {
+      const incoming = reader.read();
+      await deadline(writer.write(bytes), "datagram send");
+      const { value, done } = await deadline(incoming, "datagram echo");
+      if (done || value.length !== bytes.length ||
+          !value.every((byte, index) => byte === bytes[index])) {
+        throw new Error("Datagram payload mismatch");
+      }
+      report("datagram echo", "PASS", `${value.length} bytes`);
+    } catch (error) {
+      /* Closing releases an outstanding datagram read after a timeout. */
+      session.close();
+      await deadline(session.closed.catch(() => {}), "cleanup").catch(() => {});
+      throw error;
+    } finally {
+      reader.releaseLock();
+      writer.releaseLock();
+    }
+  }
+
+  async function close() {
+    const session = requireReady();
+    session.close({ closeCode: 0, reason: "demo finished" });
+    const info = await deadline(session.closed, "session close");
+    ready = false;
+    report("close", "PASS", JSON.stringify(info));
+  }
+
+  async function rejection(kind) {
+    if (kind === "Origin" && allowedOrigins.includes(location.origin)) {
+      throw new Error("Open this page on port 8081 to test a disallowed Origin");
+    }
+    if (kind === "path") requireReady();
+    const url = new URL(document.querySelector("#url").value);
+    if (kind === "path") url.pathname = "/rejected";
+    const session = createTransport(url.href);
+    try {
+      const outcome = await deadline(session.ready.then(
+        () => "accepted", error => ({ error })), `${kind} rejection`);
+      if (outcome === "accepted") throw new Error("Server accepted the request");
+      report(`${kind} rejection`, "PASS", outcome.error.message);
+    } finally {
+      session.close();
+    }
+  }
+
+  async function run(name, action) {
+    if (busy) return;
+    busy = true;
+    document.querySelectorAll("button").forEach(button => button.disabled = true);
+    try {
+      await action();
+    } catch (error) {
+      report(name, "FAIL", error.message);
+    } finally {
+      busy = false;
+      document.querySelectorAll("button").forEach(button => button.disabled = false);
+    }
+  }
+
+  const actions = {
+    connect, bidi, datagram, close,
+    "reject-path": () => rejection("path"),
+    "reject-origin": () => rejection("Origin"),
+    all: async () => {
+      await connect();
+      await bidi();
+      await datagram();
+      await rejection("path");
+      await close();
+    }
+  };
+  for (const [id, action] of Object.entries(actions)) {
+    document.getElementById(id).addEventListener("click", () => run(id, action));
+  }
+</script>
+</html>

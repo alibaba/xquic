@@ -528,6 +528,20 @@ xqc_h3_conn_create(xqc_connection_t *conn, void *user_data)
         h3c->flags |= XQC_H3_CONN_FLAG_UPPER_CONN_EXIST;
     }
 
+    xqc_h3_ctx_t *h3_ctx = xqc_engine_get_alpn_ctx(conn->engine,
+        conn->alpn, conn->alpn_len);
+    if (h3_ctx && h3_ctx->extension_registered) {
+        h3c->extension_ops = &h3_ctx->extension_ops;
+        if (h3c->extension_ops->conn_create) {
+            h3c->extension_data = h3c->extension_ops->conn_create(h3c,
+                h3_ctx->extension_data);
+            if (h3c->extension_data == NULL) {
+                h3c->extension_ops = NULL;
+                goto fail;
+            }
+        }
+    }
+
     /* set ALPN user_data */
     xqc_conn_set_alp_user_data(conn, h3c);
 
@@ -541,6 +555,12 @@ fail:
 void
 xqc_h3_conn_destroy(xqc_h3_conn_t *h3_conn)
 {
+    if (h3_conn->extension_ops && h3_conn->extension_ops->conn_close) {
+        h3_conn->extension_ops->conn_close(h3_conn,
+            h3_conn->extension_data);
+    }
+    h3_conn->extension_data = NULL;
+
     if (h3_conn->h3_conn_callbacks.h3_conn_close_notify
         && (h3_conn->flags & XQC_H3_CONN_FLAG_UPPER_CONN_EXIST))
     {
@@ -765,6 +785,10 @@ xqc_h3_conn_on_settings_entry_received(uint64_t identifier, uint64_t value, void
         return -XQC_H3_SETTING_ERROR;
 
     default:
+        if (h3c->extension_ops && h3c->extension_ops->peer_setting) {
+            return h3c->extension_ops->peer_setting(h3c,
+                h3c->extension_data, identifier, value);
+        }
         xqc_log(h3c->log, XQC_LOG_INFO, "|ignore unknown setting|identifier%ui|value:%ui",
                 identifier, value);
         break;
@@ -923,6 +947,9 @@ xqc_h3_conn_handshake_finished(xqc_connection_t *conn,
     void *conn_user_data, void *conn_proto_data)
 {
     xqc_h3_conn_t *h3c = (xqc_h3_conn_t *)conn_proto_data;
+    if (h3c->extension_ops && h3c->extension_ops->handshake_finished) {
+        h3c->extension_ops->handshake_finished(h3c, h3c->extension_data);
+    }
     if (h3c->h3_conn_callbacks.h3_conn_handshake_finished) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|HANDSHAKE_COMPLETED notify|");
 

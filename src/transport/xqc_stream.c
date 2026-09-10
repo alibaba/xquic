@@ -1182,9 +1182,19 @@ xqc_crypto_stream_on_read(xqc_stream_t *stream, void *user_data)
             next_state = XQC_CONN_STATE_SERVER_HANDSHAKE_RECVD;
             break;
         case XQC_CONN_STATE_SERVER_HANDSHAKE_SENT:
-            next_state = XQC_CONN_STATE_ESTABED;
-            if (conn->crypto_stream[XQC_ENC_LEV_1RTT] != NULL) {
-                xqc_stream_ready_to_write(conn->crypto_stream[XQC_ENC_LEV_1RTT]);
+            /*
+             * RFC 9001 Section 4.1.1: handshake completion is reported by
+             * TLS after it has verified the peer's Finished message.
+             */
+            if (conn->conn_flag & XQC_CONN_FLAG_TLS_HSK_COMPLETED) {
+                next_state = XQC_CONN_STATE_ESTABED;
+                if (conn->crypto_stream[XQC_ENC_LEV_1RTT] != NULL) {
+                    xqc_stream_ready_to_write(
+                        conn->crypto_stream[XQC_ENC_LEV_1RTT]);
+                }
+
+            } else {
+                next_state = cur_state;
             }
             break;
         default:

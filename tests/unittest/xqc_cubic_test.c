@@ -167,3 +167,63 @@ xqc_test_cubic_init_cwnd()
     CU_ASSERT_EQUAL(cubic.init_cwnd, XQC_CUBIC_TEST_MAX_INIT_WIN);
     CU_ASSERT_EQUAL(cubic.cwnd, XQC_CUBIC_TEST_MAX_INIT_WIN);
 }
+
+
+void
+xqc_test_cubic_persistent_congestion_reset()
+{
+    xqc_cubic_t       cubic;
+    xqc_cc_params_t   params;
+    xqc_packet_out_t  po;
+    xqc_usec_t        lost_sent_time;
+    xqc_usec_t        recovery_start;
+    uint64_t          cwnd;
+
+    memset(&params, 0, sizeof(params));
+    memset(&po, 0, sizeof(po));
+    xqc_cubic_cb.xqc_cong_ctl_init(&cubic, NULL, params);
+
+    lost_sent_time = xqc_monotonic_timestamp() + 1;
+    xqc_cubic_cb.xqc_cong_ctl_on_lost(&cubic, lost_sent_time);
+    CU_ASSERT_FATAL(cubic.congestion_recovery_start_time != 0);
+
+    recovery_start = cubic.congestion_recovery_start_time;
+    xqc_cubic_cb.xqc_cong_ctl_reset_cwnd(&cubic);
+
+    CU_ASSERT_EQUAL(cubic.congestion_recovery_start_time, 0);
+    CU_ASSERT_EQUAL(cubic.cwnd, cubic.min_cwnd);
+
+    cwnd = cubic.cwnd;
+    po.po_sent_time = recovery_start;
+    po.po_used_size = 1000;
+    xqc_cubic_cb.xqc_cong_ctl_on_ack(&cubic, &po, recovery_start + 1);
+
+    CU_ASSERT(cubic.cwnd > cwnd);
+}
+
+
+void
+xqc_test_cubic_reordered_ack_in_recovery()
+{
+    xqc_cubic_t       cubic;
+    xqc_cc_params_t   params;
+    xqc_packet_out_t  po;
+    xqc_usec_t        lost_sent_time;
+    uint64_t          cwnd;
+
+    memset(&params, 0, sizeof(params));
+    memset(&po, 0, sizeof(po));
+    xqc_cubic_cb.xqc_cong_ctl_init(&cubic, NULL, params);
+
+    lost_sent_time = xqc_monotonic_timestamp() + 1;
+    xqc_cubic_cb.xqc_cong_ctl_on_lost(&cubic, lost_sent_time);
+    CU_ASSERT_FATAL(cubic.congestion_recovery_start_time != 0);
+
+    cwnd = cubic.cwnd;
+    po.po_sent_time = cubic.congestion_recovery_start_time;
+    po.po_used_size = 1000;
+    xqc_cubic_cb.xqc_cong_ctl_on_ack(
+        &cubic, &po, cubic.congestion_recovery_start_time + 1);
+
+    CU_ASSERT_EQUAL(cubic.cwnd, cwnd);
+}

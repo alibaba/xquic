@@ -151,6 +151,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_cubic_loss_ssthresh_min_clamp",
                         xqc_test_cubic_loss_ssthresh_min_clamp)
         || !CU_add_test(pSuite, "xqc_test_cubic_init_cwnd", xqc_test_cubic_init_cwnd)
+        || !CU_add_test(pSuite, "xqc_test_cubic_persistent_congestion_reset",
+                        xqc_test_cubic_persistent_congestion_reset)
+        || !CU_add_test(pSuite, "xqc_test_cubic_reordered_ack_in_recovery",
+                        xqc_test_cubic_reordered_ack_in_recovery)
         || !CU_add_test(pSuite, "xqc_test_bbr_init_cwnd",
                         xqc_test_bbr_init_cwnd)
         || !CU_add_test(pSuite, "xqc_test_bbr_init_cwnd_override",

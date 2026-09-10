@@ -52,13 +52,24 @@ fi
 case_transport_datagram__0rtt_max_datagram_frame_size_is_valid()
 {
 
+case_test_stop_server
+rm -f test_session tp_localhost xqc_token
+case_test_start_server ${SERVER_BIN} -l d -e -Q 65536 > /dev/null
+sleep 1
+# First connection: mint a ticket bound to max_datagram_frame_size 65536.
+${CLIENT_BIN} -s 1024 -l d -t 1 -T 1 -Q 65536 -E > /dev/null
 clear_log
 echo -e "0RTT max_datagram_frame_size is valid...\c"
-${CLIENT_BIN} -l d >> stdlog
-cli_result=`grep "|0RTT_transport_params|max_datagram_frame_size:65536|" clog`
-cli_result2=`grep "|1RTT_transport_params|max_datagram_frame_size:65536|" clog`
+${CLIENT_BIN} -s 1024 -l d -t 1 -T 1 -Q 65536 -E > stdlog
+cli_0rtt_tp=`grep "|0RTT_transport_params|max_datagram_frame_size:65536|" clog`
+cli_1rtt_tp=`grep "|1RTT_transport_params|max_datagram_frame_size:65536|" clog`
+flag=`grep "early_data_flag:1" stdlog`
+conn_err_zero=`grep -E "conn_err:0[^0-9]" stdlog`
+result=`grep ">>>>>>>> pass:1" stdlog`
 errlog=`grep_err_log`
-if [ -n "$cli_result" ] && [ -n "$cli_result2" ] && [ -z "$errlog" ]; then
+if [ -n "$cli_0rtt_tp" ] && [ -n "$cli_1rtt_tp" ] \
+    && [ -n "$flag" ] && [ -n "$conn_err_zero" ] \
+    && [ -n "$result" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "0rtt_max_datagram_frame_size_is_valid" "pass"
 else
@@ -72,15 +83,26 @@ case_transport_datagram__0rtt_max_datagram_frame_size_is_invalid()
 {
 
 case_test_stop_server
-case_test_start_server ${SERVER_BIN} -l d -Q 8000 > /dev/null
+rm -f test_session tp_localhost xqc_token
+case_test_start_server ${SERVER_BIN} -l d -e -Q 65536 > /dev/null
+sleep 1
+# First connection: save the old ticket and its remembered DATAGRAM limit.
+${CLIENT_BIN} -s 1024 -l d -t 1 -T 1 -Q 65536 -E > /dev/null
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -Q 8000 > /dev/null
 sleep 1
 clear_log
-echo -e "0RTT max_datagram_frame_size is invalid...\c"
-${CLIENT_BIN} -l d >> stdlog
-cli_result=`grep "|0RTT_transport_params|max_datagram_frame_size:65536|" clog`
-cli_err=`grep "[error].*err:0x55" clog`
-svr_err=`grep "[error].*err:0xa" slog`
-if [ -n "$cli_result" ] && [ -n "$cli_err" ] && [ -n "$svr_err" ]; then
+echo -e "old 0RTT ticket falls back to 1RTT after DATAGRAM limit change...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -T 1 -Q 65536 -E > stdlog
+cli_0rtt_tp=`grep "|0RTT_transport_params|max_datagram_frame_size:65536|" clog`
+cli_1rtt_tp=`grep "|1RTT_transport_params|max_datagram_frame_size:8000|" clog`
+flag=`grep "early_data_flag:2" stdlog`
+conn_err_zero=`grep -E "conn_err:0[^0-9]" stdlog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_0rtt_tp" ] && [ -n "$cli_1rtt_tp" ] \
+    && [ -n "$flag" ] && [ -n "$conn_err_zero" ] \
+    && [ -n "$result" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "0rtt_max_datagram_frame_size_is_invalid" "pass"
 else

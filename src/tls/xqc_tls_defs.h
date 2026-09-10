@@ -87,6 +87,10 @@ typedef struct xqc_tls_config_s {
     uint8_t                *trans_params;
     size_t                  trans_params_len;
 
+    /* ticket-bound compatibility context, only for server */
+    const uint8_t          *early_data_context;
+    size_t                  early_data_context_len;
+
     char                   *tls_groups;
 
 } xqc_tls_config_t;

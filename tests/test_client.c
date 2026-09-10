@@ -104,6 +104,10 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_RESET_FINAL_SIZE_TOO_SMALL 723
 #define XQC_TEST_CASE_CLOSE_SEND_ONLY_STREAM 724
 #define XQC_TEST_CASE_CLOSE_RECV_ONLY_STREAM 725
+#define XQC_TEST_CASE_HQ_REQUEST_FIN 1702
+#define XQC_TEST_CASE_HQ_REQUEST_DELAYED_FIN 1703
+
+static xqc_bool_t xqc_client_is_hq_case(void);
 
 typedef struct user_conn_s user_conn_t;
 
@@ -2660,6 +2664,13 @@ xqc_client_h3_conn_update_cid_notify(xqc_h3_conn_t *conn, const xqc_cid_t *retir
 
 }
 
+static xqc_bool_t
+xqc_client_is_hq_case(void)
+{
+    return g_test_case == XQC_TEST_CASE_HQ_REQUEST_FIN
+           || g_test_case == XQC_TEST_CASE_HQ_REQUEST_DELAYED_FIN;
+}
+
 int
 xqc_client_stream_send(xqc_stream_t *stream, void *user_data)
 {
@@ -2712,7 +2723,9 @@ xqc_client_stream_send(xqc_stream_t *stream, void *user_data)
     }
 
     int fin = 1;
-    if (g_test_case == 4) { /* test fin_only */
+    if (g_test_case == 4
+        || g_test_case == XQC_TEST_CASE_HQ_REQUEST_DELAYED_FIN)
+    {
         fin = 0;
     }
 
@@ -2867,6 +2880,18 @@ xqc_client_stream_read_notify(xqc_stream_t *stream, void *user_data)
     }
 
     if (fin) {
+        if (g_test_case == XQC_TEST_CASE_HQ_REQUEST_DELAYED_FIN
+            && !user_stream->recv_fin)
+        {
+            /* RFC 9000, Section 19.8: FIN may follow the request bytes. */
+            ssize_t ret = xqc_stream_send(stream, NULL, 0, 1);
+            printf("[hq-request]|stream_id:%"PRIu64
+                   "|fin_after_response:%zd|\n", xqc_stream_id(stream), ret);
+            if (ret < 0) {
+                return -1;
+            }
+        }
+
         user_stream->recv_fin = 1;
         xqc_usec_t now_us = xqc_now();
         printf("\033[33m>>>>>>>> request time cost:%"PRIu64" us, speed:%"PRIu64" Kbit/s \n"
@@ -2907,6 +2932,7 @@ xqc_client_stream_close_notify(xqc_stream_t *stream, void *user_data)
 {
     DEBUG;
     user_stream_t *user_stream = (user_stream_t*)user_data;
+    user_conn_t *user_conn = user_stream->user_conn;
     if (g_echo_check) {
         int pass = 0;
         printf("user_stream->recv_fin:%d, user_stream->send_body_len:%zu, user_stream->recv_body_len:%zd\n",
@@ -2932,6 +2958,29 @@ xqc_client_stream_close_notify(xqc_stream_t *stream, void *user_data)
     free(user_stream->send_body);
     free(user_stream->recv_body);
     free(user_stream);
+
+    if (xqc_client_is_hq_case() && stream->stream_err == 0
+        && stream->stream_conn->conn_state < XQC_CONN_STATE_CLOSING)
+    {
+        if (g_req_cnt >= g_req_max) {
+            return xqc_conn_close(user_conn->ctx->engine, &user_conn->cid);
+        }
+
+        user_stream = calloc(1, sizeof(*user_stream));
+        if (user_stream == NULL) {
+            return -1;
+        }
+        user_stream->user_conn = user_conn;
+        user_stream->stream = xqc_stream_create(user_conn->ctx->engine,
+                                              &user_conn->cid, NULL,
+                                              user_stream);
+        if (user_stream->stream == NULL) {
+            free(user_stream);
+            return -1;
+        }
+        g_req_cnt++;
+        return xqc_client_stream_send(user_stream->stream, user_stream);
+    }
     return 0;
 }
 
@@ -5895,7 +5944,10 @@ int main(int argc, char *argv[]) {
             xqc_client_stream_create_notify;
     }
 
-    xqc_engine_register_alpn(ctx.engine, XQC_ALPN_TRANSPORT, 9, &ap_cbs, NULL);
+    const char *transport_alpn = xqc_client_is_hq_case()
+                                ? "hq-interop" : XQC_ALPN_TRANSPORT;
+    xqc_engine_register_alpn(ctx.engine, transport_alpn,
+                             strlen(transport_alpn), &ap_cbs, NULL);
     /* test alpn negotiation failure */
     xqc_engine_register_alpn(ctx.engine, XQC_ALPN_TRANSPORT_TEST, 14, &ap_cbs, NULL);
 
@@ -6075,7 +6127,7 @@ int main(int argc, char *argv[]) {
         } else {
             cid = xqc_connect(ctx.engine, &conn_settings, user_conn->token, user_conn->token_len,
                             server_addr, g_no_crypt, &conn_ssl_config, user_conn->peer_addr, 
-                            user_conn->peer_addrlen, XQC_ALPN_TRANSPORT, user_conn);
+                            user_conn->peer_addrlen, transport_alpn, user_conn);
         }
     }
 

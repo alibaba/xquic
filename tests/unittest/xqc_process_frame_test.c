@@ -1821,6 +1821,84 @@ xqc_test_stream_close_bidirectional(void)
 }
 
 
+void
+xqc_test_stream_close_after_data_recvd(void)
+{
+    xqc_connection_t *conn;
+    xqc_stream_t *stream;
+    int reset_before, stop_before;
+    xqc_int_t ret;
+
+    conn = xqc_test_dir_make_conn(XQC_CONN_TYPE_CLIENT);
+    CU_ASSERT_FATAL(conn != NULL);
+    stream = xqc_stream_create_with_direction(conn, XQC_STREAM_UNI, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+
+    xqc_stream_send_state_update(stream, XQC_SEND_STREAM_ST_DATA_RECVD);
+    reset_before = xqc_test_count_queued_frame(
+        conn, XQC_FRAME_BIT_RESET_STREAM);
+    stop_before = xqc_test_count_queued_frame(
+        conn, XQC_FRAME_BIT_STOP_SENDING);
+
+    ret = xqc_write_reset_stream_to_packet(
+        conn, stream, H3_REQUEST_CANCELLED, stream->stream_send_offset);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(xqc_test_count_queued_frame(
+                  conn, XQC_FRAME_BIT_RESET_STREAM) == reset_before);
+
+    ret = xqc_stream_close(stream);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_RECVD);
+    CU_ASSERT(stream->stream_err == H3_REQUEST_CANCELLED);
+    CU_ASSERT(xqc_test_count_queued_frame(
+                  conn, XQC_FRAME_BIT_RESET_STREAM) == reset_before);
+    CU_ASSERT(xqc_test_count_queued_frame(
+                  conn, XQC_FRAME_BIT_STOP_SENDING) == stop_before);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_stream_close_data_recvd_bidirectional(void)
+{
+    xqc_connection_t *conn;
+    xqc_stream_t *stream;
+    int reset_before, stop_before, stop_after;
+    xqc_int_t ret;
+
+    conn = xqc_test_dir_make_conn(XQC_CONN_TYPE_CLIENT);
+    CU_ASSERT_FATAL(conn != NULL);
+    stream = xqc_stream_create_with_direction(conn, XQC_STREAM_BIDI, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+
+    xqc_stream_send_state_update(stream, XQC_SEND_STREAM_ST_DATA_RECVD);
+    reset_before = xqc_test_count_queued_frame(
+        conn, XQC_FRAME_BIT_RESET_STREAM);
+    stop_before = xqc_test_count_queued_frame(
+        conn, XQC_FRAME_BIT_STOP_SENDING);
+
+    ret = xqc_stream_close(stream);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_RECVD);
+    CU_ASSERT(stream->stream_err == H3_REQUEST_CANCELLED);
+    CU_ASSERT(xqc_test_count_queued_frame(
+                  conn, XQC_FRAME_BIT_RESET_STREAM) == reset_before);
+    stop_after = xqc_test_count_queued_frame(
+        conn, XQC_FRAME_BIT_STOP_SENDING);
+    CU_ASSERT(stop_after == stop_before + 1);
+
+    ret = xqc_stream_close(stream);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(xqc_test_count_queued_frame(
+                  conn, XQC_FRAME_BIT_RESET_STREAM) == reset_before);
+    CU_ASSERT(xqc_test_count_queued_frame(
+                  conn, XQC_FRAME_BIT_STOP_SENDING) == stop_after);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 static xqc_connection_t *
 xqc_test_reset_stream_final_size_setup(xqc_stream_t **stream)
 {

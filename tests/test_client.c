@@ -104,6 +104,7 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_RESET_FINAL_SIZE_TOO_SMALL 723
 #define XQC_TEST_CASE_CLOSE_SEND_ONLY_STREAM 724
 #define XQC_TEST_CASE_CLOSE_RECV_ONLY_STREAM 725
+#define XQC_TEST_CASE_CLOSE_AFTER_DATA_RECVD 726
 #define XQC_TEST_CASE_HQ_REQUEST_FIN 1702
 #define XQC_TEST_CASE_HQ_REQUEST_DELAYED_FIN 1703
 
@@ -125,6 +126,7 @@ static xqc_int_t xqc_client_write_test_datagram_frame(
     xqc_connection_t *conn, xqc_pkt_type_t pkt_type);
 static void xqc_client_send_reset_final_size_frames(xqc_connection_t *conn);
 static void xqc_client_close_send_only_stream(xqc_connection_t *conn);
+static void xqc_client_close_after_data_recvd(int fd, short what, void *arg);
 
 
 #define XQC_TEST_DGRAM_BATCH_SZ 32
@@ -176,6 +178,7 @@ typedef struct user_stream_s {
 
     xqc_h3_ext_bytestream_t *h3_ext_bs;
     struct event            *ev_bytestream_timer;
+    struct event            *ev_stream_close_timer;
 
     int                      snd_times;
     int                      rcv_times;
@@ -318,7 +321,7 @@ uint64_t g_last_sock_op_time;
  * 717 for RESET_STREAM on a peer-initiated unidirectional stream
  * 718/719 for MAX_STREAM_DATA stream direction validation
  * 722/723 for RESET_STREAM final-size validation
- * 724/725 for unidirectional stream close validation
+ * 724-726 for stream close state and direction validation
  * 902/903 for AEAD confidentiality-limit validation
  * 1000-1021 for HTTP/3 protocol validation
  */
@@ -2099,7 +2102,9 @@ xqc_client_conn_handshake_finished(xqc_connection_t *conn, void *user_data, void
         xqc_client_send_reset_final_size_frames(conn);
     }
 
-    if (g_test_case == XQC_TEST_CASE_CLOSE_SEND_ONLY_STREAM) {
+    if (g_test_case == XQC_TEST_CASE_CLOSE_SEND_ONLY_STREAM
+        || g_test_case == XQC_TEST_CASE_CLOSE_AFTER_DATA_RECVD)
+    {
         xqc_client_close_send_only_stream(conn);
     }
 
@@ -2313,10 +2318,38 @@ xqc_client_send_reset_final_size_frames(xqc_connection_t *conn)
 
 
 static void
+xqc_client_close_after_data_recvd(int fd, short what, void *arg)
+{
+    user_stream_t *user_stream = (user_stream_t *) arg;
+    xqc_stream_t *stream = user_stream->stream;
+    xqc_send_stream_state_t state_before;
+    struct timeval tv = {0, 10000};
+    xqc_int_t ret;
+
+    if (stream->stream_state_send != XQC_SEND_STREAM_ST_DATA_RECVD) {
+        event_add(user_stream->ev_stream_close_timer, &tv);
+        return;
+    }
+
+    state_before = stream->stream_state_send;
+    event_free(user_stream->ev_stream_close_timer);
+    user_stream->ev_stream_close_timer = NULL;
+    ret = xqc_stream_close(stream);
+    printf("[stream-close-data-recvd-test]|case:%d|stream_id:%"PRIu64
+           "|state_before:%d|close_ret:%d|state_after:%d|\n",
+           g_test_case, xqc_stream_id(stream), state_before, ret,
+           stream->stream_state_send);
+    fflush(stdout);
+}
+
+
+static void
 xqc_client_close_send_only_stream(xqc_connection_t *conn)
 {
+    const unsigned char payload = 0;
     user_stream_t *user_stream;
     xqc_stream_t *stream;
+    struct timeval tv = {0, 10000};
     xqc_int_t ret;
 
     user_stream = calloc(1, sizeof(*user_stream));
@@ -2336,6 +2369,31 @@ xqc_client_close_send_only_stream(xqc_connection_t *conn)
     }
 
     user_stream->stream = stream;
+
+    if (g_test_case == XQC_TEST_CASE_CLOSE_AFTER_DATA_RECVD) {
+        ret = xqc_stream_send(stream, (unsigned char *) &payload,
+                              sizeof(payload), 1);
+        if (ret != sizeof(payload)) {
+            printf("[stream-close-data-recvd-test]|case:%d|stream_id:%"PRIu64
+                   "|send_ret:%d|\n", g_test_case,
+                   xqc_stream_id(stream), ret);
+            return;
+        }
+
+        user_stream->ev_stream_close_timer = event_new(
+            eb, -1, 0, xqc_client_close_after_data_recvd, user_stream);
+        if (user_stream->ev_stream_close_timer == NULL) {
+            printf("[stream-close-data-recvd-test]|case:%d|timer_failed|\n",
+                   g_test_case);
+            return;
+        }
+        event_add(user_stream->ev_stream_close_timer, &tv);
+        printf("[stream-close-data-recvd-test]|case:%d|stream_id:%"PRIu64
+               "|send_ret:%d|\n", g_test_case, xqc_stream_id(stream), ret);
+        fflush(stdout);
+        return;
+    }
+
     ret = xqc_stream_close(stream);
     printf("[stream-close-direction-test]|case:%d|stream_id:%"PRIu64
            "|close_ret:%d|\n", g_test_case, xqc_stream_id(stream), ret);
@@ -2954,6 +3012,9 @@ xqc_client_stream_close_notify(xqc_stream_t *stream, void *user_data)
     /* test abnormal rate */
     if (g_test_case == 14) {
         printf("\033[33m>>>>>>>> abnormal pass:%d count:%d\033[0m\n", user_stream->abnormal_count == 0 ? 1 : 0, user_stream->abnormal_count);
+    }
+    if (user_stream->ev_stream_close_timer != NULL) {
+        event_free(user_stream->ev_stream_close_timer);
     }
     free(user_stream->send_body);
     free(user_stream->recv_body);

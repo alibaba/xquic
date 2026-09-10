@@ -57,6 +57,7 @@ typedef struct xqc_hq_request_s {
      */
     uint8_t                    *resource_buf;
     size_t                      resource_buf_sz;
+    size_t                      resource_len;
     size_t                      resource_read_offset;
     uint8_t                     fin;
 } xqc_hq_request_s;
@@ -244,7 +245,7 @@ xqc_hq_parse_req(xqc_hq_request_t *hqr, char *res, size_t sz, uint8_t *fin)
     snprintf(fmt, sizeof(fmt), "%%%zus %%%zus", method_cap, res_cap);
 
     int ret = sscanf((char *)hqr->req_recv_buf, fmt, method, res);
-    if (ret <= 0) {
+    if (ret != 2) {
         PRINT_LOG("|parse hq request failed: %s", hqr->req_recv_buf);
         return -XQC_EPROTO;
     }
@@ -284,7 +285,7 @@ xqc_hq_request_recv_req(xqc_hq_request_t *hqr, char *res_buf, size_t buf_sz, uin
 
         } else if (read < 0) {
             PRINT_LOG("|xqc_stream_recv error %zd|", read);
-            return 0;
+            return read;
         }
 
         hqr->recv_cnt += read;
@@ -311,31 +312,38 @@ xqc_hq_request_recv_req(xqc_hq_request_t *hqr, char *res_buf, size_t buf_sz, uin
         hqr->resource_buf_sz = XQC_HQ_REQUEST_RESOURCE_MAX_LEN;
     }
 
-    uint8_t req_fin = 0;
-    read = xqc_hq_parse_req(hqr, hqr->resource_buf, XQC_HQ_REQUEST_RESOURCE_MAX_LEN, &req_fin);
-    if (read <= 0) {
-        if (!hqr->fin) {
-            /* return until all request bytes are received in the current request */
-            return XQC_OK;
-        } else {
-            return -XQC_EPROTO;
+    if (hqr->resource_len == 0) {
+        uint8_t req_fin = 0;
+        read = xqc_hq_parse_req(hqr, hqr->resource_buf,
+                               hqr->resource_buf_sz, &req_fin);
+        if (read <= 0) {
+            return hqr->fin ? -XQC_EPROTO : XQC_OK;
         }
+
+        if (!hqr->fin && !req_fin) {
+            return XQC_OK;
+        }
+
+        hqr->resource_len = read;
     }
 
-    /* return until all request bytes are received in the current request */
-    if (!hqr->fin && !req_fin) {
+    /*
+     * RFC 9000 Section 19.8 permits FIN in a later, empty STREAM frame.
+     * Consume it above without delivering a CRLF-completed request again.
+     */
+    if (hqr->resource_read_offset == hqr->resource_len) {
         return XQC_OK;
     }
 
-    if (buf_sz < hqr->resource_read_offset) {
+    if (buf_sz <= 1) {
         return -XQC_ENOBUF;
     }
 
-    if (hqr->resource_read_offset < strlen(hqr->resource_buf)) {
-        read = (ssize_t)strncpy(res_buf, hqr->resource_buf, buf_sz);
-        hqr->resource_read_offset += read;
-        *fin = (hqr->fin || req_fin);
-    }
+    read = xqc_min(hqr->resource_len - hqr->resource_read_offset, buf_sz - 1);
+    memcpy(res_buf, hqr->resource_buf + hqr->resource_read_offset, read);
+    res_buf[read] = '\0';
+    hqr->resource_read_offset += read;
+    *fin = hqr->resource_read_offset == hqr->resource_len;
 
     return read;
 }

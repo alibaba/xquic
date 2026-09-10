@@ -24,6 +24,7 @@
 #include "xqc_tls_test.h"
 #include "xqc_crypto_test.h"
 #include "xqc_h3_test.h"
+#include "xqc_hq_test.h"
 #include "xqc_stable_test.h"
 #include "xqc_dtable_test.h"
 #include "utils/xqc_2d_hash_table_test.h"
@@ -75,6 +76,20 @@ main(int argc, char *argv[])
     }     
 
     if (!CU_add_test(pSuite, "xqc_cid_test", xqc_test_cid)
+        || !CU_add_test(pSuite, "xqc_test_hq_request_fin",
+                        xqc_test_hq_request_fin)
+        || !CU_add_test(pSuite, "xqc_test_hq_request_transport_fin",
+                        xqc_test_hq_request_transport_fin)
+        || !CU_add_test(pSuite, "xqc_test_hq_request_delayed_fin",
+                        xqc_test_hq_request_delayed_fin)
+        || !CU_add_test(pSuite, "xqc_test_hq_request_fragmented",
+                        xqc_test_hq_request_fragmented)
+        || !CU_add_test(pSuite, "xqc_test_hq_request_small_buffer",
+                        xqc_test_hq_request_small_buffer)
+        || !CU_add_test(pSuite, "xqc_test_hq_request_no_buffer",
+                        xqc_test_hq_request_no_buffer)
+        || !CU_add_test(pSuite, "xqc_test_hq_request_recv_reset",
+                        xqc_test_hq_request_recv_reset)
         || !CU_add_test(pSuite, "xqc_test_cid_active_limit", xqc_test_cid_active_limit)
         || !CU_add_test(pSuite, "xqc_test_cid_handshake_exclusion", xqc_test_cid_handshake_exclusion)
         || !CU_add_test(pSuite, "xqc_test_cid_mark_original_idempotent", xqc_test_cid_mark_original_idempotent)

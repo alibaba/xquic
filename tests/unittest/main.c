@@ -467,6 +467,36 @@ main(int argc, char *argv[])
                         xqc_test_send_ctl_single_loss_does_not_reset_rtt)
         || !CU_add_test(pSuite, "xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return",
                         xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return)
+        || !CU_add_test(pSuite,
+            "xqc_test_send_ctl_persistent_congestion_duration_boundary",
+            xqc_test_send_ctl_persistent_congestion_duration_boundary)
+        || !CU_add_test(pSuite,
+            "xqc_test_send_ctl_persistent_congestion_prior_rtt_required",
+            xqc_test_send_ctl_persistent_congestion_prior_rtt_required)
+        || !CU_add_test(pSuite,
+            "xqc_test_send_ctl_persistent_congestion_ack_interrupts",
+            xqc_test_send_ctl_persistent_congestion_ack_interrupts)
+        || !CU_add_test(pSuite,
+            "xqc_test_send_ctl_persistent_congestion_ack_eliciting_endpoints",
+            xqc_test_send_ctl_persistent_congestion_ack_eliciting_endpoints)
+        || !CU_add_test(pSuite,
+            "xqc_test_send_ctl_persistent_congestion_across_loss_batches",
+            xqc_test_send_ctl_persistent_congestion_across_loss_batches)
+        || !CU_add_test(pSuite,
+            "xqc_test_send_ctl_persistent_congestion_pending_other_space",
+            xqc_test_send_ctl_persistent_congestion_pending_other_space)
+        || !CU_add_test(pSuite,
+            "xqc_test_send_ctl_persistent_congestion_history_wrap",
+            xqc_test_send_ctl_persistent_congestion_history_wrap)
+        || !CU_add_test(pSuite,
+            "xqc_test_send_ctl_persistent_congestion_history_reset",
+            xqc_test_send_ctl_persistent_congestion_history_reset)
+        || !CU_add_test(pSuite,
+            "xqc_test_send_ctl_persistent_congestion_recycled_probe",
+            xqc_test_send_ctl_persistent_congestion_recycled_probe)
+        || !CU_add_test(pSuite,
+            "xqc_test_send_ctl_persistent_congestion_ack_range_limit",
+            xqc_test_send_ctl_persistent_congestion_ack_range_limit)
         /* RFC 9000 §6.2 Version Negotiation abort suite */
         || !CU_add_test(pSuite, "xqc_test_vn_abort_on_unsupported_version", xqc_test_vn_abort_on_unsupported_version)
         || !CU_add_test(pSuite, "xqc_test_vn_downgrade_protection_when_version_matches", xqc_test_vn_downgrade_protection_when_version_matches)

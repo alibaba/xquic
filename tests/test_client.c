@@ -21,6 +21,7 @@
 #include "src/http3/xqc_h3_request.h"
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_packet_out.h"
+#include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_frame_parser.h"
 #include "src/tls/xqc_crypto.h"
 #include "src/tls/xqc_tls.h"
@@ -104,6 +105,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_RESET_FINAL_SIZE_TOO_SMALL 723
 #define XQC_TEST_CASE_CLOSE_SEND_ONLY_STREAM 724
 #define XQC_TEST_CASE_CLOSE_RECV_ONLY_STREAM 725
+#define XQC_TEST_CASE_PERSISTENT_CONGESTION_LOSS 801
+#define XQC_TEST_CASE_PERSISTENT_CONGESTION_ACK 802
 
 typedef struct user_conn_s user_conn_t;
 
@@ -121,6 +124,8 @@ static xqc_int_t xqc_client_write_test_datagram_frame(
     xqc_connection_t *conn, xqc_pkt_type_t pkt_type);
 static void xqc_client_send_reset_final_size_frames(xqc_connection_t *conn);
 static void xqc_client_close_send_only_stream(xqc_connection_t *conn);
+static void xqc_client_congestion_timeout(int fd, short what, void *arg);
+static void xqc_client_start_congestion_test(user_conn_t *user_conn);
 
 
 #define XQC_TEST_DGRAM_BATCH_SZ 32
@@ -178,6 +183,27 @@ typedef struct user_stream_s {
 
 } user_stream_t;
 
+typedef struct {
+    struct event       *timer;
+    xqc_usec_t          start;
+    xqc_usec_t          duration;
+    xqc_usec_t          first_drop;
+    xqc_usec_t          last_drop;
+    xqc_usec_t          middle_sent_time;
+    unsigned            warmup_sent;
+    unsigned            warmup_acked;
+    unsigned            dropped;
+    int                 phase;
+    int                 allow_send;
+    int                 middle_sent;
+    int                 middle_acked;
+    int                 final_acked;
+} xqc_test_congestion_t;
+
+static int g_congestion_warmup_ping = 0;
+static int g_congestion_middle_ping = 1;
+static int g_congestion_final_ping = 2;
+
 typedef struct user_conn_s {
     int                 fd;
     xqc_cid_t           cid;
@@ -217,6 +243,7 @@ typedef struct user_conn_s {
 
     uint64_t            black_hole_start_time;
     int                 tracked_pkt_cnt;
+    xqc_test_congestion_t congestion_test;
 } user_conn_t;
 
 #define XQC_DEMO_INTERFACE_MAX_LEN 64
@@ -1280,6 +1307,25 @@ xqc_client_write_socket_ex(uint64_t path_id,
         return XQC_SOCKET_ERROR;
     }
 
+    if ((g_test_case == XQC_TEST_CASE_PERSISTENT_CONGESTION_LOSS
+         || g_test_case == XQC_TEST_CASE_PERSISTENT_CONGESTION_ACK)
+        && user_conn->congestion_test.phase == 2
+        && !user_conn->congestion_test.allow_send
+        && size > 0 && (buf[0] & 0x80) == 0)
+    {
+        xqc_test_congestion_t *test = &user_conn->congestion_test;
+        xqc_usec_t now = xqc_now();
+
+        if (test->dropped == 0) {
+            test->first_drop = now;
+        }
+        test->last_drop = now;
+        test->dropped++;
+        printf("[persistent-congestion-test]|drop:%u|sent:%"PRIu64"|\n",
+               test->dropped, now);
+        return size;
+    }
+
     /* test stateless reset after handshake completed */
     if (g_test_case == 41) {
         if (hsk_completed && ((buf[0] & 0xC0) == 0x40)) {
@@ -2011,6 +2057,11 @@ xqc_client_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void 
         p_ctx = &ctx;
     }
 
+    if (user_conn->congestion_test.timer != NULL) {
+        event_free(user_conn->congestion_test.timer);
+        user_conn->congestion_test.timer = NULL;
+    }
+
     xqc_int_t err = xqc_conn_get_errno(conn);
     printf("conn_err_type:%d\n", (int)xqc_conn_get_err_type(conn));
     printf("should_clear_0rtt_ticket, conn_err:%d, clear_0rtt_ticket:%d\n", err, xqc_conn_should_clear_0rtt_ticket(err));
@@ -2042,6 +2093,23 @@ void
 xqc_client_conn_ping_acked_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *ping_user_data, void *user_data, void *conn_proto_data)
 {
     DEBUG;
+    user_conn_t *user_conn = user_data;
+    xqc_test_congestion_t *test = &user_conn->congestion_test;
+
+    if (ping_user_data == &g_congestion_warmup_ping) {
+        test->warmup_acked++;
+
+    } else if (ping_user_data == &g_congestion_middle_ping) {
+        test->middle_acked = 1;
+        printf("[persistent-congestion-test]|middle_acked:1|"
+               "sent:%"PRIu64"|received:%"PRIu64"|\n",
+               test->middle_sent_time, xqc_now());
+
+    } else if (ping_user_data == &g_congestion_final_ping) {
+        test->final_acked = 1;
+        printf("[persistent-congestion-test]|final_acked:1|\n");
+    }
+
     if (ping_user_data) {
         printf("====>ping_id:%d\n", *(int *) ping_user_data);
 
@@ -2100,6 +2168,7 @@ xqc_client_conn_handshake_finished(xqc_connection_t *conn, void *user_data, void
     }
 
     hsk_completed = 1;
+    xqc_client_start_congestion_test(user_conn);
 
     user_conn->dgram_mss = xqc_datagram_get_mss(conn);
     if (user_conn->dgram_mss == 0) {
@@ -2739,6 +2808,124 @@ xqc_client_stream_send(xqc_stream_t *stream, void *user_data)
 
     return 0;
 }
+
+static void
+xqc_client_start_congestion_test(user_conn_t *user_conn)
+{
+    struct timeval delay = {0, 20000};
+
+    if (g_test_case != XQC_TEST_CASE_PERSISTENT_CONGESTION_LOSS
+        && g_test_case != XQC_TEST_CASE_PERSISTENT_CONGESTION_ACK)
+    {
+        return;
+    }
+
+    user_conn->congestion_test.timer = event_new(eb, -1, 0,
+        xqc_client_congestion_timeout, user_conn);
+    if (user_conn->congestion_test.timer == NULL) {
+        printf("[persistent-congestion-test]|timer_failed|\n");
+        return;
+    }
+    event_add(user_conn->congestion_test.timer, &delay);
+}
+
+
+static void
+xqc_client_congestion_timeout(int fd, short what, void *arg)
+{
+    user_conn_t *user_conn = arg;
+    xqc_test_congestion_t *test = &user_conn->congestion_test;
+    xqc_send_ctl_t *ctl = user_conn->quic_conn->conn_initial_path->path_send_ctl;
+    xqc_usec_t now = xqc_now();
+    xqc_usec_t delay_us = 20000;
+    struct timeval delay;
+    user_stream_t *stream;
+
+    if (test->phase == 0) {
+        xqc_conn_send_ping(ctx.engine, &user_conn->cid,
+                          &g_congestion_warmup_ping);
+        if (++test->warmup_sent == 8) {
+            test->phase = 1;
+            delay_us = 100000;
+        }
+
+    } else if (test->phase == 1) {
+        if (test->warmup_acked < 4 || ctl->ctl_first_rtt_sample_time == 0) {
+            printf("[persistent-congestion-test]|warmup_failed|\n");
+            return;
+        }
+
+        /* RFC 9002 Section 7.6.1: use the unbacked-off PTO duration. */
+        test->duration = (ctl->ctl_srtt
+            + xqc_max(4 * ctl->ctl_rttvar, XQC_kGranularity * 1000)
+            + user_conn->quic_conn->remote_settings.max_ack_delay * 1000)
+            * XQC_kPersistentCongestionThreshold;
+        test->start = now;
+        test->phase = 2;
+        printf("[persistent-congestion-test]|begin|duration:%"PRIu64
+               "|warmup_acked:%u|\n", test->duration, test->warmup_acked);
+        xqc_conn_send_ping(ctx.engine, &user_conn->cid, NULL);
+        delay_us = xqc_max(test->duration / 24, 1000);
+
+    } else if (test->phase == 2) {
+        if (now - test->start >= 3 * test->duration / 2) {
+            test->phase = 3;
+            printf("[persistent-congestion-test]|release|drops:%u|"
+                   "loss_span:%"PRIu64"|duration:%"PRIu64"|pto_count:%u|\n",
+                   test->dropped, test->last_drop - test->first_drop,
+                   test->duration, ctl->ctl_pto_count);
+            xqc_conn_send_ping(ctx.engine, &user_conn->cid,
+                              &g_congestion_final_ping);
+            delay_us = 100000;
+
+        } else {
+            /* An acknowledged packet splits the RFC 9002 7.6.2 interval. */
+            if (g_test_case == XQC_TEST_CASE_PERSISTENT_CONGESTION_ACK
+                && !test->middle_sent
+                && now - test->start >= 3 * test->duration / 4)
+            {
+                test->middle_sent = 1;
+                test->middle_sent_time = now;
+                test->allow_send = 1;
+                xqc_conn_send_ping(ctx.engine, &user_conn->cid,
+                                  &g_congestion_middle_ping);
+                test->allow_send = 0;
+
+            } else {
+                xqc_conn_send_ping(ctx.engine, &user_conn->cid, NULL);
+            }
+            delay_us = xqc_max(test->duration / 24, 1000);
+        }
+
+    } else if (test->phase == 3) {
+        if (!test->final_acked) {
+            printf("[persistent-congestion-test]|final_ack_missing|\n");
+            return;
+        }
+
+        stream = calloc(1, sizeof(*stream));
+        if (stream == NULL) {
+            return;
+        }
+        stream->user_conn = user_conn;
+        stream->stream = xqc_stream_create(ctx.engine, &user_conn->cid,
+                                          NULL, stream);
+        if (stream->stream == NULL) {
+            free(stream);
+            return;
+        }
+        test->phase = 4;
+        printf("[persistent-congestion-test]|recovery_stream_started:1|\n");
+        xqc_client_stream_send(stream->stream, stream);
+        xqc_engine_main_logic(ctx.engine);
+        return;
+    }
+
+    delay.tv_sec = delay_us / 1000000;
+    delay.tv_usec = delay_us % 1000000;
+    event_add(test->timer, &delay);
+}
+
 
 int
 xqc_client_stream_write_notify(xqc_stream_t *stream, void *user_data)
@@ -5432,6 +5619,14 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
+    if ((g_test_case == XQC_TEST_CASE_PERSISTENT_CONGESTION_LOSS
+         || g_test_case == XQC_TEST_CASE_PERSISTENT_CONGESTION_ACK)
+        && (transport != 1 || g_enable_multipath || !g_echo_check))
+    {
+        printf("persistent congestion cases require -T 1 -E and one path\n");
+        exit(1);
+    }
+
     memset(g_header_key, 'k', sizeof(g_header_key));
     memset(g_header_value, 'v', sizeof(g_header_value));
     memset(&ctx, 0, sizeof(ctx));
@@ -6251,6 +6446,9 @@ skip_data:
         event_free(user_conn->ev_socket);
     }
     event_free(user_conn->ev_timeout);
+    if (user_conn->congestion_test.timer != NULL) {
+        event_free(user_conn->congestion_test.timer);
+    }
 
     if (user_conn->dgram_blk) {
         if (user_conn->dgram_blk->data) {

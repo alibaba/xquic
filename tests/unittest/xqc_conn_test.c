@@ -1301,34 +1301,54 @@ xqc_test_0rtt_calc_pto_ignores_stale_max_ack_delay(void)
 
 
 /*
- * issue #672 computation-level: persistent congestion duration is another
- * ungated consumer of remote_settings.max_ack_delay. Elapsed time 200ms sits
- * between duration(default 25ms)=129ms and duration(stale 100ms)=354ms, so
- * one boundary discriminates both behaviors.
+ * RFC 9002 Section 7.6.1: a 200 ms lost interval exceeds the duration
+ * with the default 25 ms max_ack_delay, but not a stale 100 ms value.
  */
 void
 xqc_test_0rtt_persistent_congestion_default_max_ack_delay(void)
 {
-    xqc_connection_t *conn = xqc_0rtt_stale_mad_conn(100);
-    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    for (int stale_delay = 0; stale_delay < 2; stale_delay++) {
+        xqc_connection_t *conn = xqc_0rtt_stale_mad_conn(100);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+        xqc_path_ctx_t *path = conn->conn_initial_path;
+        xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+        uint32_t inflight_before = send_ctl->ctl_bytes_in_flight;
+        xqc_send_queue_t *sq = conn->conn_send_queue;
 
-    send_ctl->ctl_srtt = 10000;
-    send_ctl->ctl_rttvar = 2000;
-    send_ctl->ctl_pto_count = XQC_CONSECUTIVE_PTO_THRESH;
+        send_ctl->ctl_srtt = 10000;
+        send_ctl->ctl_latest_rtt = 10000;
+        send_ctl->ctl_rttvar = 2000;
+        send_ctl->ctl_first_rtt_sample_time = 1;
+        send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA] = 3;
+        if (stale_delay) {
+            conn->remote_settings.max_ack_delay = 100;
+        }
 
-    xqc_packet_out_t po;
-    memset(&po, 0, sizeof(po));
-    xqc_usec_t now = 1000000;
-    po.po_sent_time = now - 200000;
+        for (xqc_packet_number_t num = 1; num <= 2; num++) {
+            xqc_packet_out_t *po = xqc_packet_out_get_and_insert_send(sq,
+                XQC_PTYPE_0RTT);
+            CU_ASSERT_PTR_NOT_NULL_FATAL(po);
+            po->po_pkt.pkt_pns = XQC_PNS_APP_DATA;
+            po->po_pkt.pkt_num = num;
+            po->po_path_id = path->path_id;
+            po->po_sent_time = 1000000 + (num - 1) * 200000;
+            po->po_frame_types = XQC_FRAME_BIT_PING;
+            po->po_used_size = 1200;
+            po->po_enc_size = 1200;
+            xqc_send_ctl_on_packet_sent(send_ctl, xqc_get_pn_ctl(conn, path),
+                                        po, po->po_sent_time);
+            xqc_send_queue_remove_send(&po->po_list);
+            xqc_send_queue_insert_unacked(po,
+                &sq->sndq_unacked_packets[XQC_PNS_APP_DATA], sq);
+        }
 
-    /* (18000 + 25000) * 3 = 129000 < 200000: persistent congestion */
-    CU_ASSERT_EQUAL(xqc_send_ctl_in_persistent_congestion(send_ctl, &po, now), XQC_TRUE);
-
-    /* stale 100ms would give (18000 + 100000) * 3 = 354000 > 200000 */
-    conn->remote_settings.max_ack_delay = 100;
-    CU_ASSERT_EQUAL(xqc_send_ctl_in_persistent_congestion(send_ctl, &po, now), XQC_FALSE);
-
-    xqc_engine_destroy(conn->engine);
+        xqc_send_ctl_detect_lost(send_ctl, sq, XQC_PNS_APP_DATA, 1400000);
+        CU_ASSERT_EQUAL(conn->detected_loss_cnt, 2);
+        CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight_before);
+        CU_ASSERT_EQUAL(send_ctl->ctl_first_rtt_sample_time,
+                        stale_delay ? 1 : 0);
+        xqc_engine_destroy(conn->engine);
+    }
 }
 
 

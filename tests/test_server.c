@@ -81,6 +81,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_CRYPTO_PREVIOUS_LEVEL_EXTENSION 721
 #define XQC_TEST_CASE_DATAGRAM_1RTT_ALLOWED 1201
 #define XQC_TEST_CASE_CLOSE_RECV_ONLY_STREAM 725
+#define XQC_TEST_CASE_PERSISTENT_CONGESTION_LOSS 801
+#define XQC_TEST_CASE_PERSISTENT_CONGESTION_ACK 802
 
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
@@ -1026,6 +1028,14 @@ xqc_server_stream_read_notify(xqc_stream_t *stream, void *user_data)
     // printf("xqc_stream_recv read:%zd, offset:%zu, fin:%d\n", read_sum, user_stream->recv_body_len, fin);
 
     if (fin) {
+        if (g_test_case == XQC_TEST_CASE_PERSISTENT_CONGESTION_LOSS
+            || g_test_case == XQC_TEST_CASE_PERSISTENT_CONGESTION_ACK)
+        {
+            printf("[persistent-congestion-test]|server_received:%zu|"
+                   "stream:%"PRIu64"|\n", user_stream->recv_body_len,
+                   xqc_stream_id(stream));
+            fflush(stdout);
+        }
         xqc_server_stream_send(stream, user_data);
     }
     return 0;

@@ -100,7 +100,7 @@ its case is retired so later changes cannot reuse it.
 | Range | New-case namespace | Allocated IDs |
 |-------|--------------------|---------------|
 | `[705, 799]` | QUIC Transport core | `705-725` |
-| `[800, 899]` | Recovery and congestion control | `800` |
+| `[800, 899]` | Recovery and congestion control | `800-802` |
 | `[900, 999]` | QUIC-TLS | `902-903` |
 | `[1000, 1099]` | HTTP/3 framing, streams, and settings | `1000-1021` |
 | `[1100, 1149]` | QPACK | None |

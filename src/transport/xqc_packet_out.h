@@ -81,6 +81,7 @@ typedef struct xqc_packet_out_s {
     /* Largest Acknowledged in ACK frame, initiated to be 0 */
     xqc_packet_number_t     po_largest_ack;
     xqc_usec_t              po_sent_time;
+    uint64_t                po_pc_seq;
     xqc_frame_type_bit_t    po_frame_types;
 
     /* the stream related to stream frame */

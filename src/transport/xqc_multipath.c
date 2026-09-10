@@ -210,6 +210,9 @@ xqc_path_init(xqc_path_ctx_t *path, xqc_connection_t *conn)
         }
 
         xqc_set_path_state(path, XQC_PATH_STATE_VALIDATING);
+        xqc_timer_set(&path->path_send_ctl->path_timer_manager,
+                      XQC_TIMER_PATH_IDLE, xqc_monotonic_timestamp(),
+                      xqc_path_get_validation_timeout(path));
     }
 
     xqc_log(conn->log, XQC_LOG_DEBUG, 
@@ -1079,6 +1082,16 @@ xqc_path_get_idle_timeout(xqc_path_ctx_t *path)
     return xqc_conn_get_idle_timeout(path->parent_conn);
 }
 
+xqc_usec_t
+xqc_path_get_validation_timeout(xqc_path_ctx_t *path)
+{
+    xqc_usec_t current_pto = xqc_conn_get_max_pto(path->parent_conn);
+    xqc_usec_t new_path_pto = xqc_send_ctl_calc_pto(path->path_send_ctl);
+
+    /* RFC 9000 Section 8.2.4: allow multiple PTOs before abandoning. */
+    return 3 * xqc_max(current_pto, new_path_pto);
+}
+
 void
 xqc_path_validate(xqc_path_ctx_t *path)
 {
@@ -1087,6 +1100,9 @@ xqc_path_validate(xqc_path_ctx_t *path)
     if (path->path_state == XQC_PATH_STATE_VALIDATING) {
         xqc_set_path_state(path, XQC_PATH_STATE_ACTIVE);
         path->parent_conn->validated_path_count++;
+        xqc_timer_set(&path->path_send_ctl->path_timer_manager,
+                      XQC_TIMER_PATH_IDLE, xqc_monotonic_timestamp(),
+                      xqc_path_get_idle_timeout(path) * 1000);
 
         xqc_log(conn->log, XQC_LOG_DEBUG, 
                 "|path validated|path_id:%ui|validated_path_count:%ud|", 

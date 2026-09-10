@@ -190,6 +190,8 @@ xqc_bool_t xqc_is_same_addr_as_any_path(xqc_connection_t *conn, const struct soc
 
 xqc_int_t xqc_generate_path_challenge_data(xqc_connection_t *conn, xqc_path_ctx_t *path);
 
+xqc_int_t xqc_path_init(xqc_path_ctx_t *path, xqc_connection_t *conn);
+
 /* check mp support */
 xqc_multipath_mode_t xqc_conn_enable_multipath(xqc_connection_t *conn);
 
@@ -244,6 +246,8 @@ void xqc_stream_path_metrics_on_recv(xqc_connection_t *conn, xqc_stream_t *strea
 
 xqc_msec_t xqc_path_get_idle_timeout(xqc_path_ctx_t *path);
 
+xqc_usec_t xqc_path_get_validation_timeout(xqc_path_ctx_t *path);
+
 void xqc_path_validate(xqc_path_ctx_t *path);
 
 xqc_int_t xqc_conn_is_current_mp_version_supported(xqc_multipath_version_t mp_version);
@@ -263,5 +267,4 @@ double xqc_path_recent_loss_rate(xqc_path_ctx_t *path);
 double xqc_conn_recent_loss_rate(xqc_connection_t *conn);
 
 #endif /* XQC_MULTIPATH_H */
-
 

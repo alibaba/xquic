@@ -16,8 +16,8 @@ extern "C" {
  * @brief Draft Version of WebTransport
  */
 typedef enum {
-    XQC_WEBTRANSPORT_DRAFT_VERSION_2,
-    XQC_WEBTRANSPORT_DRAFT_VERSION_7,
+    XQC_WEBTRANSPORT_DRAFT_VERSION_7 = 1,
+    XQC_WEBTRANSPORT_DRAFT_VERSION_16 = 2,
 } xqc_webtransport_draft_version_t;
 
 #define XQC_WEBTRANSPORT_DEFAULT_DGRAM_MSS 512
@@ -51,6 +51,7 @@ typedef enum xqc_wt_unistream_type_s {
 typedef struct xqc_webtransport_conn_settings_s {
     /* max webtransport session count for single h3 connect */
     uint64_t max_sessions_count;
+    /* Highest supported revision: 16 also advertises 07 for Chrome. */
     xqc_webtransport_draft_version_t draft_version;
     uint64_t max_bidi_streams;
     uint64_t max_uni_streams;
@@ -357,7 +358,7 @@ xqc_int_t xqc_wt_ctx_init(xqc_engine_t *engine,
                           xqc_webtransport_stream_callbacks_t *stream_cbs);
 
 /**
- * @brief create and webtransport connection from client (not implemented)
+ * @brief create a WebTransport-capable HTTP/3 client connection
  *
  * @param engine return from xqc_engine_create
  * @param conn_settings connection settings
@@ -500,10 +501,24 @@ void xqc_wt_conn_set_dgram_mss(xqc_wt_conn_t *conn, size_t mss);
 XQC_EXPORT_PUBLIC_API
 xqc_h3_stream_t *xqc_wt_session_get_h3_stream(xqc_wt_session_t *session);
 
-/* Configure before the first connection; NULL selects draft-07 defaults. */
+/* NULL selects dual draft-07/16 support with one simultaneous session. */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_wt_engine_set_default_settings(xqc_engine_t *engine,
     const xqc_webtransport_conn_settings_t *settings);
+
+/* Copies request strings. Sends CONNECT after SETTINGS and the handshake. */
+XQC_EXPORT_PUBLIC_API
+xqc_wt_session_t *xqc_wt_client_open_session(xqc_h3_conn_t *h3_conn,
+    const char *authority, const char *path, const char *origin, int *err);
+
+/* Zero means that a version/response has not been selected/received. */
+XQC_EXPORT_PUBLIC_API
+xqc_webtransport_draft_version_t xqc_wt_session_get_draft_version(
+    xqc_wt_session_t *session);
+XQC_EXPORT_PUBLIC_API
+unsigned xqc_wt_session_get_response_status(xqc_wt_session_t *session);
+XQC_EXPORT_PUBLIC_API
+xqc_h3_conn_t *xqc_wt_conn_get_h3_conn(xqc_wt_conn_t *conn);
 
 /* window counts future client-initiated bidirectional stream IDs / 4. */
 XQC_EXPORT_PUBLIC_API

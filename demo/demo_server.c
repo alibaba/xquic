@@ -99,6 +99,7 @@ typedef struct xqc_demo_svr_quic_config_s {
     int  dummy_mode;
 
     int  webtransport;
+    int  wt_draft_version;
 
     /* multipath */
     int  multipath;
@@ -1236,7 +1237,8 @@ xqc_demo_svr_usage(int argc, char *argv[])
             "\n"
             "Options:\n"
             "   -p    Server port.\n"
-            "   -W    Enable loopback WebTransport draft-07 echo at /wt.\n"
+            "   -W    Enable loopback WebTransport echo at /wt.\n"
+            "   -v    Maximum WebTransport draft: 7 or 16 (default).\n"
             "   -K    TLS private key file.\n"
             "   -T    TLS certificate file.\n"
             "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic P:copa \n"
@@ -1293,6 +1295,7 @@ xqc_demo_svr_init_args(xqc_demo_svr_args_t *args)
     args->quic_cfg.keyupdate_pkt_threshold = UINT64_MAX;
     args->quic_cfg.least_available_cid_count = 1;
     args->quic_cfg.max_pkt_sz = 1200;
+    args->quic_cfg.wt_draft_version = 16;
 }
 
 void
@@ -1300,11 +1303,19 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
 {
     int ch = 0;
     while ((ch = getopt(argc, argv,
-                        "p:c:CD:l:L:6k:rdMiPs:R:u:a:F:f:WK:T:")) != -1)
+                        "p:c:CD:l:L:6k:rdMiPs:R:u:a:F:f:WK:T:v:")) != -1)
     {
         switch (ch) {
         case 'W':
             args->quic_cfg.webtransport = 1;
+            break;
+
+        case 'v':
+            if (strcmp(optarg, "7") && strcmp(optarg, "16")) {
+                fprintf(stderr, "WebTransport draft must be 7 or 16\n");
+                exit(1);
+            }
+            args->quic_cfg.wt_draft_version = atoi(optarg);
             break;
 
         case 'K':
@@ -1629,7 +1640,9 @@ xqc_demo_svr_init_alpn_ctx(xqc_demo_svr_ctx_t *ctx)
     }
 
     if (ctx->args->quic_cfg.webtransport) {
-        ret = xqc_demo_wt_init(ctx->engine, xqc_demo_svr_wt_schedule_send, ctx);
+        ret = xqc_demo_wt_init(ctx->engine,
+            ctx->args->quic_cfg.wt_draft_version,
+            xqc_demo_svr_wt_schedule_send, ctx);
         if (ret != XQC_OK) {
             printf("init WebTransport context error: %d\n", ret);
             return ret;
@@ -1786,7 +1799,8 @@ main(int argc, char *argv[])
     }
 
     if (args->quic_cfg.webtransport) {
-        printf("WebTransport draft-07: https://127.0.0.1:%u/wt\n",
+        printf("WebTransport maximum draft %d: https://127.0.0.1:%u/wt\n",
+               args->quic_cfg.wt_draft_version,
                (unsigned) (uint16_t) args->net_cfg.port);
         fflush(stdout);
     }

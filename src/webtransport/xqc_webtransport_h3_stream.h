@@ -29,5 +29,7 @@ xqc_int_t xqc_wt_h3_stream_set(xqc_h3_stream_t *h3s,
 xqc_int_t xqc_wt_h3_stream_set_read_paused(xqc_h3_stream_t *h3s,
     xqc_bool_t paused);
 void xqc_wt_h3_stream_detach(xqc_h3_stream_t *h3s);
+xqc_int_t xqc_wt_h3_stream_reset(xqc_h3_stream_t *h3s, uint64_t error,
+    const unsigned char *prefix, size_t prefix_len);
 
 #endif

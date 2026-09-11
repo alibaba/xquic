@@ -17,8 +17,11 @@
 #include <inttypes.h>
 #include <string.h>
 #include <event2/event.h>
+#include <openssl/ssl.h>
+#include <openssl/x509.h>
 #include "common.h"
 #include "xqc_hq.h"
+#include "xqc_wt_echo_client.h"
 #include "../tests/platform.h"
 
 #ifdef XQC_SYS_WINDOWS
@@ -157,6 +160,10 @@ typedef struct xqc_demo_cli_quic_config_s {
     xqc_demo_cli_alpn_type_t alpn_type;
     char alpn[16];
     int quic_version;
+    int webtransport;
+    int wt_draft_version;
+    const char *wt_cert_file;
+    const char *wt_origin;
 
     /* 0-rtt config */
     int  st_len;                        /* session ticket len */
@@ -397,6 +404,27 @@ typedef struct xqc_demo_cli_ctx_s {
     xqc_demo_cli_task_ctx_t     task_ctx;
 } xqc_demo_cli_ctx_t;
 
+static void xqc_demo_cli_wt_schedule_send(void *user_data);
+static void xqc_demo_cli_wt_finished(void *user_data);
+
+static void
+xqc_demo_cli_wt_schedule_send(void *user_data)
+{
+    xqc_demo_cli_ctx_t *ctx = user_data;
+    struct timeval delay = {0, 1000};
+
+    event_add(ctx->ev_engine, &delay);
+}
+
+static void
+xqc_demo_cli_wt_finished(void *user_data)
+{
+    xqc_demo_cli_ctx_t *ctx = user_data;
+    struct timeval delay = {0, 200000};
+
+    event_base_loopexit(ctx->eb, &delay);
+}
+
 typedef struct xqc_demo_cli_user_path_s {
 
     uint64_t                path_id;
@@ -454,6 +482,16 @@ typedef struct xqc_demo_cli_user_conn_s {
 
 static void
 xqc_demo_cli_delayed_idle_restart(int fd, short what, void *arg);
+
+static int xqc_demo_cli_wt_verify_cert(const unsigned char *certs[],
+    const size_t cert_len[], size_t cert_count, void *user_data);
+
+static int
+xqc_demo_cli_wt_verify_cert(const unsigned char *certs[],
+    const size_t cert_len[], size_t cert_count, void *user_data)
+{
+    return XQC_ERROR;
+}
 
 void
 xqc_demo_cli_continue_send_reqs(xqc_demo_cli_user_conn_t *user_conn);
@@ -1681,6 +1719,9 @@ xqc_demo_cli_init_conn_ssl_config(xqc_conn_ssl_config_t *conn_ssl_config,
     if (args->quic_cfg.use_x25519) {
         conn_ssl_config->tls_groups = XQC_TLS_GROUP_X25519_FIRST;
     }
+    if (args->quic_cfg.webtransport) {
+        conn_ssl_config->cert_verify_flag = XQC_TLS_CERT_FLAG_NEED_VERIFY;
+    }
 }
 
 void
@@ -1787,6 +1828,8 @@ xqc_demo_cli_init_args(xqc_demo_cli_client_args_t *args)
     args->quic_cfg.backup_path_id = 1;
     args->quic_cfg.quic_version = XQC_VERSION_V1;
     args->quic_cfg.use_x25519 = 0;
+    args->quic_cfg.wt_draft_version = 16;
+    args->quic_cfg.wt_origin = "http://127.0.0.1:8080";
 
     args->req_cfg.throttled_req = -1;
 
@@ -1921,6 +1964,10 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "Options:\n"
         "   -a    Server addr.\n"
         "   -p    Server port.\n"
+        "   -W    Run one WebTransport echo session (default URL: /wt).\n"
+        "   -v    WebTransport maximum draft version: 7 or 16 (default).\n"
+        "   -j    WebTransport Origin (default: http://127.0.0.1:8080).\n"
+        "   -J    PEM certificate to trust for a WT loopback peer.\n"
         "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic P:copa\n"
         "   -C    Pacing on.\n"
         "   -t    Connection timeout. Default 3 seconds.\n"
@@ -1972,8 +2019,27 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
     xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:b:Z:NQT:R:V:B:I:n:e:E:F:G:r:x:y:Y:f:z:q65O")) != -1) {
+    while ((ch = getopt(argc, argv,
+        "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:b:Z:NQT:R:V:B:I:"
+        "n:e:E:F:G:r:x:y:Y:f:z:q65OWv:j:J:")) != -1)
+    {
         switch (ch) {
+        case 'W':
+            args->quic_cfg.webtransport = 1;
+            break;
+        case 'v':
+            if (strcmp(optarg, "7") && strcmp(optarg, "16")) {
+                fprintf(stderr, "WebTransport draft must be 7 or 16\n");
+                return -1;
+            }
+            args->quic_cfg.wt_draft_version = atoi(optarg);
+            break;
+        case 'j':
+            args->quic_cfg.wt_origin = optarg;
+            break;
+        case 'J':
+            args->quic_cfg.wt_cert_file = optarg;
+            break;
         /* server ip */
         case '6':
             printf("option ipv6\n");
@@ -2275,6 +2341,38 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
         }
     }
 
+    if (args->quic_cfg.webtransport) {
+        if (args->req_cfg.request_cnt > 1 || args->req_cfg.ext_reqn
+            || args->quic_cfg.use_0rtt || args->quic_cfg.no_encryption)
+        {
+            fprintf(stderr, "WT demo requires one 1-RTT TLS session\n");
+            return -1;
+        }
+        args->net_cfg.mode = MODE_SCMR;
+        args->quic_cfg.alpn_type = ALPN_H3;
+        snprintf(args->quic_cfg.alpn, sizeof(args->quic_cfg.alpn), "h3");
+        if (args->env_cfg.life <= 0) {
+            args->env_cfg.life = 10;
+        }
+        if (!args->req_cfg.request_cnt) {
+            xqc_demo_cli_request_t *req = &args->req_cfg.reqs[0];
+            const char *host = args->net_cfg.addr_specified
+                ? args->net_cfg.server_addr : "localhost";
+            int ipv6 = strchr(host, ':') != NULL;
+
+            snprintf(req->scheme, sizeof(req->scheme), "https");
+            snprintf(req->path, sizeof(req->path), "/wt");
+            snprintf(req->auth, sizeof(req->auth), "%s%s%s:%u",
+                     ipv6 ? "[" : "",
+                     host,
+                     ipv6 ? "]" : "",
+                     (unsigned) (uint16_t) args->net_cfg.server_port);
+            snprintf(args->net_cfg.host, sizeof(args->net_cfg.host),
+                     "%s", host);
+            args->req_cfg.request_cnt = 1;
+        }
+    }
+
     if (args->req_cfg.ext_reqn 
         && args->req_cfg.request_cnt < args->req_cfg.ext_reqn) 
     {
@@ -2296,6 +2394,18 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
         printf("invalid server address: %s\n",
                args->net_cfg.server_addr);
         return -1;
+    }
+    if (args->quic_cfg.wt_cert_file) {
+        struct sockaddr_in *addr4 =
+            (struct sockaddr_in *) &args->net_cfg.addr;
+        int loopback = args->net_cfg.ipv6
+            ? IN6_IS_ADDR_LOOPBACK(&args->net_cfg.addr.sin6_addr)
+            : (ntohl(addr4->sin_addr.s_addr) >> 24) == 127;
+
+        if (!args->quic_cfg.webtransport || !loopback) {
+            fprintf(stderr, "-J requires a WebTransport loopback peer\n");
+            return -1;
+        }
     }
 
     return 0;
@@ -2516,7 +2626,32 @@ xqc_demo_cli_h3_conn_create_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid,
 {
     DEBUG;
     xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *) user_data;
-    // printf("xqc_h3_conn_is_ready_to_send_early_data:%d\n", xqc_h3_conn_is_ready_to_send_early_data(h3_conn));
+    xqc_demo_cli_quic_config_t *cfg = &user_conn->ctx->args->quic_cfg;
+
+    if (cfg->webtransport) {
+        SSL *ssl = xqc_h3_conn_get_ssl(h3_conn);
+        X509_STORE *store = X509_STORE_new();
+        int ok = 0;
+
+        if (ssl && store) {
+            ok = cfg->wt_cert_file
+                ? X509_STORE_load_locations(store, cfg->wt_cert_file, NULL)
+                : X509_STORE_set_default_paths(store);
+            if (ok == 1 && cfg->wt_cert_file) {
+                /* The explicit test leaf is a trust anchor, not a CA. */
+                ok = X509_VERIFY_PARAM_set_flags(SSL_get0_param(ssl),
+                    X509_V_FLAG_PARTIAL_CHAIN);
+            }
+            if (ok == 1) {
+                ok = SSL_set1_verify_cert_store(ssl, store);
+            }
+        }
+        X509_STORE_free(store);
+        if (ok != 1) {
+            fprintf(stderr, "WT certificate trust setup failed\n");
+            return XQC_ERROR;
+        }
+    }
     return 0;
 }
 
@@ -2547,6 +2682,12 @@ xqc_demo_cli_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
     xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *) user_data;
     xqc_conn_stats_t stats = xqc_conn_get_stats(user_conn->ctx->engine, &user_conn->cid);
     printf("0rtt_flag:%d\n", stats.early_data_flag);
+
+    if (user_conn->ctx->args->quic_cfg.webtransport) {
+        xqc_demo_cli_client_args_t *args = user_conn->ctx->args;
+        xqc_demo_wt_client_open(h3_conn, args->req_cfg.reqs[0].auth,
+            args->req_cfg.reqs[0].path, args->quic_cfg.wt_origin);
+    }
 
 }
 
@@ -2645,6 +2786,12 @@ xqc_demo_cli_init_alpn_ctx(xqc_demo_cli_ctx_t *ctx)
         return ret;
     }
 
+    if (ctx->args->quic_cfg.webtransport) {
+        ret = xqc_demo_wt_client_init(ctx->engine,
+            ctx->args->quic_cfg.wt_draft_version,
+            xqc_demo_cli_wt_schedule_send, xqc_demo_cli_wt_finished, ctx);
+    }
+
     return ret;
 }
 
@@ -2660,10 +2807,17 @@ xqc_demo_cli_init_xquic_engine(xqc_demo_cli_ctx_t *ctx, xqc_demo_cli_client_args
     /* init engine callbacks */
     xqc_engine_callback_t callback;
     xqc_demo_cli_init_callback(&callback, &transport_cbs, args);
+    if (args->quic_cfg.webtransport) {
+        transport_cbs.cert_verify_cb = xqc_demo_cli_wt_verify_cert;
+        transport_cbs.conn_closing = xqc_demo_wt_client_conn_closing;
+    }
 
     xqc_config_t config;
     if (xqc_engine_get_default_config(&config, XQC_ENGINE_CLIENT) < 0) {
         return XQC_ERROR;
+    }
+    if (args->quic_cfg.webtransport) {
+        config.manually_triggered_send = 1;
     }
 
     switch (args->env_cfg.log_level) {
@@ -2705,7 +2859,9 @@ xqc_demo_cli_init_xquic_connection(xqc_demo_cli_user_conn_t *user_conn,
     xqc_demo_cli_client_args_t *args)
 {
     /* load 0-rtt args before create connection */
-    xqc_demo_cli_init_0rtt(args);
+    if (!args->quic_cfg.webtransport) {
+        xqc_demo_cli_init_0rtt(args);
+    }
 
     /* init connection settings */
     xqc_conn_settings_t conn_settings;
@@ -2714,7 +2870,17 @@ xqc_demo_cli_init_xquic_connection(xqc_demo_cli_user_conn_t *user_conn,
     xqc_conn_ssl_config_t conn_ssl_config;
     xqc_demo_cli_init_conn_ssl_config(&conn_ssl_config, args);
 
-    if (args->quic_cfg.alpn_type == ALPN_H3) {
+    if (args->quic_cfg.webtransport) {
+        const xqc_cid_t *cid = xqc_webtransport_connect(user_conn->ctx->engine,
+            &conn_settings, NULL, 0, args->net_cfg.host, 0, &conn_ssl_config,
+            (struct sockaddr *) &args->net_cfg.addr, args->net_cfg.addr_len,
+            user_conn);
+        if (cid == NULL) {
+            return -1;
+        }
+        memcpy(&user_conn->cid, cid, sizeof(xqc_cid_t));
+
+    } else if (args->quic_cfg.alpn_type == ALPN_H3) {
         const xqc_cid_t *cid = xqc_h3_connect(user_conn->ctx->engine, &conn_settings,
             args->quic_cfg.token, args->quic_cfg.token_len, args->net_cfg.host, args->quic_cfg.no_encryption, &conn_ssl_config, 
             (struct sockaddr*)&args->net_cfg.addr, args->net_cfg.addr_len, user_conn);
@@ -2763,6 +2929,9 @@ xqc_demo_cli_start(xqc_demo_cli_user_conn_t *user_conn, xqc_demo_cli_client_args
 {
     if (XQC_OK != xqc_demo_cli_init_xquic_connection(user_conn, args)) {
         printf("|xqc_demo_cli_start FAILED|\n");
+        return;
+    }
+    if (args->quic_cfg.webtransport) {
         return;
     }
 
@@ -3221,14 +3390,20 @@ main(int argc, char *argv[])
     /* engine event */
     ctx->eb = event_base_new();
     ctx->ev_engine = event_new(ctx->eb, -1, 0, xqc_demo_cli_engine_callback, ctx);
-    xqc_demo_cli_init_xquic_engine(ctx, args);
+    if (xqc_demo_cli_init_xquic_engine(ctx, args) != XQC_OK) {
+        xqc_demo_cli_free_ctx(ctx);
+        return 1;
+    }
 
     /* start task scheduler */
     xqc_demo_cli_start_task_manager(ctx);
 
     event_base_dispatch(ctx->eb);
 
+    /* Capture before teardown: a timeout must not become a successful close. */
+    int result = args->quic_cfg.webtransport
+        ? xqc_demo_wt_client_finish() : 0;
     xqc_engine_destroy(ctx->engine);
     xqc_demo_cli_free_ctx(ctx);
-    return 0;
+    return result;
 }

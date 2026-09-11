@@ -631,6 +631,30 @@ xqc_send_ctl_stream_frame_can_drop(xqc_packet_out_t *packet_out, xqc_stream_id_t
     return drop;
 }
 
+static xqc_bool_t xqc_reset_stream_packet_can_drop(xqc_connection_t *conn,
+    xqc_packet_out_t *packet, xqc_stream_id_t id);
+
+static xqc_bool_t
+xqc_reset_stream_packet_can_drop(xqc_connection_t *conn,
+    xqc_packet_out_t *packet, xqc_stream_id_t id)
+{
+    if (!xqc_send_ctl_stream_frame_can_drop(packet, id)) {
+        return XQC_FALSE;
+    }
+    xqc_stream_t *stream = xqc_find_stream_by_id(id, conn->streams_hash);
+    if (stream != NULL && stream->reset_stream_at_sent) {
+        for (int i = 0; i < packet->po_stream_frames_idx; i++) {
+            xqc_po_stream_frame_t *frame = &packet->po_stream_frames[i];
+            if (frame->ps_stream_id == id && frame->ps_length
+                && frame->ps_offset < stream->reliable_size)
+            {
+                return XQC_FALSE;
+            }
+        }
+    }
+    return XQC_TRUE;
+}
+
 void
 xqc_send_queue_drop_stream_frame_packets(xqc_connection_t *conn, xqc_stream_id_t stream_id)
 {
@@ -650,7 +674,7 @@ xqc_send_queue_drop_stream_frame_packets(xqc_connection_t *conn, xqc_stream_id_t
 
     xqc_list_for_each_safe(pos, next, &send_queue->sndq_unacked_packets[XQC_PNS_APP_DATA]) {
         packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-        drop = xqc_send_ctl_stream_frame_can_drop(packet_out, stream_id);
+        drop = xqc_reset_stream_packet_can_drop(conn, packet_out, stream_id);
         if (drop) {
             count++;
             xqc_send_ctl_decrease_inflight(conn, packet_out);
@@ -661,7 +685,7 @@ xqc_send_queue_drop_stream_frame_packets(xqc_connection_t *conn, xqc_stream_id_t
 
     xqc_list_for_each_safe(pos, next, &send_queue->sndq_send_packets) {
         packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-        drop = xqc_send_ctl_stream_frame_can_drop(packet_out, stream_id);
+        drop = xqc_reset_stream_packet_can_drop(conn, packet_out, stream_id);
         if (drop) {
             count++;
             xqc_send_queue_remove_send(pos);
@@ -671,7 +695,7 @@ xqc_send_queue_drop_stream_frame_packets(xqc_connection_t *conn, xqc_stream_id_t
 
     xqc_list_for_each_safe(pos, next, &send_queue->sndq_lost_packets) {
         packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-        drop = xqc_send_ctl_stream_frame_can_drop(packet_out, stream_id);
+        drop = xqc_reset_stream_packet_can_drop(conn, packet_out, stream_id);
         if (drop) {
             count++;
             xqc_send_queue_remove_lost(pos);
@@ -681,7 +705,7 @@ xqc_send_queue_drop_stream_frame_packets(xqc_connection_t *conn, xqc_stream_id_t
 
     xqc_list_for_each_safe(pos, next, &send_queue->sndq_pto_probe_packets) {
         packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-        drop = xqc_send_ctl_stream_frame_can_drop(packet_out, stream_id);
+        drop = xqc_reset_stream_packet_can_drop(conn, packet_out, stream_id);
         if (drop) {
             count++;
             xqc_send_queue_remove_probe(pos);
@@ -696,7 +720,7 @@ xqc_send_queue_drop_stream_frame_packets(xqc_connection_t *conn, xqc_stream_id_t
 
         xqc_list_for_each_safe(pos, next, &path->path_schedule_buf[XQC_SEND_TYPE_NORMAL]) {
             packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-            drop = xqc_send_ctl_stream_frame_can_drop(packet_out, stream_id);
+            drop = xqc_reset_stream_packet_can_drop(conn, packet_out, stream_id);
             if (drop) {
                 count++;
                 xqc_path_send_buffer_remove(path, packet_out);
@@ -706,7 +730,7 @@ xqc_send_queue_drop_stream_frame_packets(xqc_connection_t *conn, xqc_stream_id_t
 
         xqc_list_for_each_safe(pos, next, &path->path_schedule_buf[XQC_SEND_TYPE_RETRANS]) {
             packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-            drop = xqc_send_ctl_stream_frame_can_drop(packet_out, stream_id);
+            drop = xqc_reset_stream_packet_can_drop(conn, packet_out, stream_id);
             if (drop) {
                 count++;
                 xqc_path_send_buffer_remove(path, packet_out);
@@ -716,7 +740,7 @@ xqc_send_queue_drop_stream_frame_packets(xqc_connection_t *conn, xqc_stream_id_t
 
         xqc_list_for_each_safe(pos, next, &path->path_schedule_buf[XQC_SEND_TYPE_PTO_PROBE]) {
             packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-            drop = xqc_send_ctl_stream_frame_can_drop(packet_out, stream_id);
+            drop = xqc_reset_stream_packet_can_drop(conn, packet_out, stream_id);
             if (drop) {
                 count++;
                 xqc_path_send_buffer_remove(path, packet_out);

@@ -26,6 +26,7 @@ typedef struct xqc_wt_stream_base_s {
     void                       *user_data;
     unsigned                    callback_depth;
     xqc_bool_t                  bidi;
+    xqc_bool_t                  outgoing;
     xqc_bool_t                  can_send;
     xqc_bool_t                  can_recv;
     xqc_bool_t                  send_fin;

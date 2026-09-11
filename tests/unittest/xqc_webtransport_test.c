@@ -106,7 +106,11 @@ xqc_test_wt_context(void)
     CU_ASSERT_PTR_EQUAL(engine->user_data, &marker);
     CU_ASSERT(ctx->stream_cbs.wt_bidistream_read_notify == wt_read);
     CU_ASSERT(xqc_wt_engine_set_default_settings(engine, NULL) == XQC_OK);
+    CU_ASSERT(ctx->settings.draft_version
+              == XQC_WEBTRANSPORT_DRAFT_VERSION_16);
+    CU_ASSERT(ctx->settings.max_sessions_count == 1);
     CU_ASSERT(engine->default_conn_settings.max_datagram_frame_size > 0);
+    CU_ASSERT(engine->default_conn_settings.enable_reset_stream_at);
     CU_ASSERT(xqc_wt_ctx_set_pending_datagram_policy(engine, 8, 2, 16)
               == XQC_OK);
     CU_ASSERT(ctx->pending_count_max == 2);
@@ -125,9 +129,14 @@ xqc_test_wt_context_errors(void)
     CU_ASSERT(xqc_wt_ctx_init(engine, NULL, NULL, NULL) == -XQC_ESTATE);
     xqc_wt_ctx_t *ctx = xqc_wt_ctx_get(engine);
     xqc_webtransport_conn_settings_t settings = ctx->settings;
-    settings.draft_version = XQC_WEBTRANSPORT_DRAFT_VERSION_2;
+    settings.draft_version = (xqc_webtransport_draft_version_t)0;
     CU_ASSERT(xqc_wt_engine_set_default_settings(engine, &settings)
               == -XQC_EPARAM);
+    settings = ctx->settings;
+    settings.max_sessions_count = 2;
+    CU_ASSERT(xqc_wt_engine_set_default_settings(engine, &settings)
+              == -XQC_EPARAM);
+    CU_ASSERT(ctx->settings.max_sessions_count == 1);
     ctx->started = XQC_TRUE;
     CU_ASSERT(xqc_wt_engine_set_default_settings(engine, NULL) == -XQC_ESTATE);
     CU_ASSERT(xqc_wt_ctx_set_pending_datagram_policy(engine, 1, 1, 1)
@@ -143,7 +152,10 @@ wt_session(xqc_wt_ctx_t *ctx, xqc_h3_conn_t *h3c)
     if (!conn) {
         return NULL;
     }
+    ctx->settings.draft_version = XQC_WEBTRANSPORT_DRAFT_VERSION_7;
+    ctx->settings.max_sessions_count = 16;
     conn->ctx = ctx;
+    conn->negotiated_version = XQC_WEBTRANSPORT_DRAFT_VERSION_7;
     xqc_wt_session_t *session = xqc_wt_session_init(4, conn, NULL);
     if (session) {
         session->open = XQC_TRUE;
@@ -486,8 +498,13 @@ wt_test_connect_request(int scenario)
         .webtransport_conn_handshake_finished_notify = wt_handshake,
     };
     CU_ASSERT(xqc_wt_ctx_init(engine, NULL, &cbs, NULL) == XQC_OK);
+    xqc_webtransport_conn_settings_t settings =
+        xqc_wt_ctx_get(engine)->settings;
+    settings.draft_version = XQC_WEBTRANSPORT_DRAFT_VERSION_7;
+    settings.max_sessions_count = 16;
+    CU_ASSERT(xqc_wt_engine_set_default_settings(engine, &settings) == XQC_OK);
     xqc_free(conn->alpn);
-    conn->alpn = (unsigned char *)xqc_malloc(3);
+    conn->alpn = xqc_malloc(3);
     memcpy(conn->alpn, "h3", 3);
     conn->alpn_len = 2;
     CU_ASSERT(xqc_engine_get_alpn_callbacks(engine, "h3", 2,
@@ -544,6 +561,7 @@ wt_test_connect_request(int scenario)
     CU_ASSERT_PTR_NOT_NULL_FATAL(h3c->qdec_stream);
     CU_ASSERT_PTR_NOT_NULL_FATAL(h3c->control_stream_out);
     conn->conn_flag |= XQC_CONN_FLAG_UPPER_CONN_EXIST;
+    conn->local_settings.max_datagram_frame_size = 1200;
     conn->remote_settings.max_datagram_frame_size = 1200;
     engine->config->manually_triggered_send = 1;
     xqc_stream_t *stream = xqc_create_stream_with_conn(conn,

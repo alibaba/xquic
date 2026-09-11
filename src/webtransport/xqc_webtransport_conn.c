@@ -8,6 +8,7 @@
 #include "src/webtransport/xqc_webtransport_dgram.h"
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_request.h"
+#include "src/transport/xqc_conn.h"
 #include "src/common/xqc_malloc.h"
 
 static xqc_int_t xqc_wt_peer_setting(uint64_t id, uint64_t value,
@@ -47,6 +48,52 @@ xqc_wt_create_conn(xqc_h3_conn_t *h3_conn)
 {
     return h3_conn && h3_conn->on_settings_entry == xqc_wt_peer_setting
         ? h3_conn->settings_user_data : NULL;
+}
+
+xqc_h3_conn_t *
+xqc_wt_conn_get_h3_conn(xqc_wt_conn_t *conn)
+{
+    return conn ? conn->h3_conn : NULL;
+}
+
+xqc_bool_t
+xqc_wt_conn_requirements_met(xqc_wt_conn_t *conn)
+{
+    if (!conn || !conn->settings_received || !conn->negotiated_version
+        || !conn->peer_datagram || !conn->h3_conn->conn)
+    {
+        return XQC_FALSE;
+    }
+    xqc_connection_t *quic = conn->h3_conn->conn;
+    if (!quic->local_settings.max_datagram_frame_size
+        || !quic->remote_settings.max_datagram_frame_size
+        || (quic->conn_type == XQC_CONN_TYPE_CLIENT && !conn->peer_connect))
+    {
+        return XQC_FALSE;
+    }
+    /* draft-ietf-webtrans-http3-16 §3.1: no fallback on missing prerequisites. */
+    return conn->negotiated_version == XQC_WEBTRANSPORT_DRAFT_VERSION_7
+        || (quic->local_settings.reset_stream_at
+            && quic->remote_settings.reset_stream_at);
+}
+
+void
+xqc_wt_conn_notify_goaway(xqc_wt_conn_t *conn)
+{
+    if (!conn || conn->goaway_notified
+        || !(conn->h3_conn->flags & XQC_H3_CONN_FLAG_GOAWAY_RECVD))
+    {
+        return;
+    }
+    conn->goaway_notified = XQC_TRUE;
+    xqc_list_head_t *pos;
+    xqc_list_for_each(pos, &conn->session_list) {
+        xqc_wt_session_t *session = xqc_list_entry(pos,
+            xqc_wt_session_t, conn_list);
+        if (session->open && !session->closed) {
+            xqc_wt_session_notify_draining(session);
+        }
+    }
 }
 
 void
@@ -139,19 +186,24 @@ xqc_wt_conn_find_session(xqc_wt_conn_t *conn, uint64_t id)
     return conn ? xqc_id_hash_find(&conn->sessions, id) : NULL;
 }
 
-/* draft-ietf-webtrans-http3-07 Sections 3.1, 3.2 and 8.2. */
+/* draft-ietf-webtrans-http3-07 §3.1; draft-ietf-webtrans-http3-16 §§3.1, 7.1. */
 static xqc_int_t
 xqc_wt_peer_setting(uint64_t id, uint64_t value, void *data)
 {
     xqc_wt_conn_t *conn = data;
-    if (id == UINT64_C(0xc671706a)) {
+    if (id == XQC_WT_SETTING_MAX_SESSIONS) {
         conn->peer_max_sessions = value;
-    } else if (id == 0x33) {
+    } else if (id == XQC_WT_SETTING_ENABLED_16) {
+        if (value > 1) {
+            return -XQC_H3_SETTING_ERROR;
+        }
+        conn->peer_draft16 = value;
+    } else if (id == XQC_WT_SETTING_DATAGRAM) {
         if (value > 1) {
             return -XQC_H3_SETTING_ERROR;
         }
         conn->peer_datagram = value;
-    } else if (id == 0x08) {
+    } else if (id == XQC_WT_SETTING_CONNECT) {
         if (value > 1) {
             return -XQC_H3_SETTING_ERROR;
         }
@@ -165,14 +217,23 @@ xqc_wt_peer_settings_complete(void *data)
 {
     xqc_wt_conn_t *conn = data;
     conn->settings_received = XQC_TRUE;
+    if (conn->peer_draft16 && conn->ctx->settings.draft_version
+                                == XQC_WEBTRANSPORT_DRAFT_VERSION_16)
+    {
+        conn->negotiated_version = XQC_WEBTRANSPORT_DRAFT_VERSION_16;
+    } else if (conn->peer_max_sessions) {
+        conn->negotiated_version = XQC_WEBTRANSPORT_DRAFT_VERSION_7;
+    }
     xqc_list_head_t *pos;
     xqc_list_for_each(pos, &conn->session_list) {
         xqc_wt_session_t *session = xqc_list_entry(pos,
             xqc_wt_session_t, conn_list);
         if (!session->open && !session->closed) {
-            xqc_int_t ret = xqc_wt_request_read(session->request,
-                XQC_REQ_NOTIFY_READ_HEADER | XQC_REQ_NOTIFY_READ_BODY,
-                session);
+            xqc_int_t ret = session->client
+                ? xqc_wt_client_send_request(session)
+                : xqc_wt_request_read(session->request,
+                    XQC_REQ_NOTIFY_READ_HEADER | XQC_REQ_NOTIFY_READ_BODY,
+                    session);
             if (ret != XQC_OK) {
                 return ret;
             }

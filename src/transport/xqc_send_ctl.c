@@ -1593,6 +1593,16 @@ xqc_send_ctl_on_packet_acked(xqc_send_ctl_t *send_ctl,
         conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_DONE_ACKED;
     }
 
+    for (int i = 0; i < packet_out->po_stream_frames_idx; i++) {
+        xqc_po_stream_frame_t *frame = &packet_out->po_stream_frames[i];
+        stream = xqc_find_stream_by_id(frame->ps_stream_id, conn->streams_hash);
+        if (frame->ps_is_used && stream != NULL) {
+            xqc_stream_ack_reliable(stream, frame->ps_offset,
+                frame->ps_is_reset_at ? 0 : frame->ps_length,
+                frame->ps_is_reset_at
+                    && frame->ps_reliable_size == stream->reliable_size);
+        }
+    }
     xqc_conn_decrease_unacked_stream_ref(send_ctl->ctl_conn, packet_out);
 
     /* If a packet marked as STREAM_CLOSED, when it is acked, it comes here */

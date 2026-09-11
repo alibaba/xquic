@@ -10,6 +10,7 @@
 #include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "src/webtransport/xqc_webtransport_h3_stream.h"
 #include "src/http3/xqc_h3_stream.h"
+#include "src/http3/xqc_h3_conn.h"
 #include "src/transport/xqc_stream.h"
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_engine.h"
@@ -31,6 +32,8 @@ static xqc_int_t xqc_wt_raw_pause(xqc_h3_stream_t *stream,
 static void xqc_wt_stream_release(xqc_wt_stream_base_t *stream);
 static void xqc_wt_stream_terminate(xqc_wt_stream_base_t *stream);
 static xqc_int_t xqc_wt_stream_send_data(xqc_wt_stream_base_t *stream,
+    void *data, uint32_t len, int fin);
+static xqc_int_t xqc_wt_stream_do_send(xqc_wt_stream_base_t *stream,
     void *data, uint32_t len, int fin);
 static xqc_int_t xqc_wt_stream_cancel(xqc_wt_stream_base_t *stream,
     uint32_t error, xqc_bool_t stop);
@@ -62,19 +65,15 @@ static xqc_int_t
 xqc_wt_raw_reset(xqc_h3_stream_t *h3_stream, uint64_t error)
 {
     xqc_stream_t *stream = h3_stream->stream;
-    xqc_connection_t *conn = stream->stream_conn;
-    if (stream->stream_state_send >= XQC_SEND_STREAM_ST_RESET_SENT) {
-        return XQC_OK;
+    xqc_wt_stream_base_t *wt = xqc_wt_h3_stream_get(h3_stream);
+    if (wt && wt->session && wt->session->wt_conn->negotiated_version
+                                == XQC_WEBTRANSPORT_DRAFT_VERSION_16
+        && wt->prefix_sent < wt->prefix_len)
+    {
+        return xqc_wt_h3_stream_reset(h3_stream, error,
+            wt->prefix + wt->prefix_sent, wt->prefix_len - wt->prefix_sent);
     }
-    xqc_send_queue_drop_stream_frame_packets(conn, stream->stream_id);
-    xqc_int_t ret = xqc_write_reset_stream_to_packet(conn, stream, error,
-                                                    stream->stream_send_offset);
-    if (ret == XQC_OK) {
-        xqc_stream_shutdown_write(stream);
-        xqc_engine_remove_wakeup_queue(conn->engine, conn);
-        xqc_engine_add_active_queue(conn->engine, conn);
-    }
-    return ret;
+    return xqc_stream_reset(stream, error);
 }
 
 static xqc_int_t
@@ -118,6 +117,7 @@ xqc_wt_stream_allocate(xqc_h3_stream_t *h3_stream, xqc_bool_t bidi,
     stream->io = &xqc_wt_h3_stream_io;
     stream->id = h3_stream->stream_id;
     stream->bidi = bidi;
+    stream->outgoing = outgoing;
     stream->can_send = bidi || outgoing;
     stream->can_recv = bidi || !outgoing;
     if (xqc_wt_h3_stream_set(h3_stream, stream) != XQC_OK) {
@@ -141,6 +141,13 @@ xqc_wt_stream_attach(xqc_wt_stream_base_t *stream,
         : xqc_wt_session_get_callback_user_data(session);
     xqc_list_add_tail(&stream->list, &session->stream_list);
     stream->listed = XQC_TRUE;
+    if (!stream->outgoing && stream->can_send && stream->h3_stream->stream
+        && session->wt_conn->negotiated_version
+            == XQC_WEBTRANSPORT_DRAFT_VERSION_16)
+    {
+        /* The reverse direction of a peer-created bidi stream has no header. */
+        xqc_stream_set_reliable_size(stream->h3_stream->stream, 0);
+    }
 }
 
 xqc_wt_stream_base_t *
@@ -166,6 +173,19 @@ xqc_wt_stream_bind(xqc_wt_session_t *session, xqc_h3_stream_t *h3_stream,
                  : XQC_WT_STREAM_TYPE_UNIDIRECTIONAL);
         end = xqc_put_varint(end, session->sessionID);
         stream->prefix_len = end - stream->prefix;
+        if (h3_stream->stream && session->wt_conn->negotiated_version
+                                    == XQC_WEBTRANSPORT_DRAFT_VERSION_16)
+        {
+            /* draft-ietf-webtrans-http3-16 §4.4: preserve the full header. */
+            if (xqc_stream_set_reliable_size(h3_stream->stream,
+                                             stream->prefix_len) != XQC_OK)
+            {
+                xqc_list_del_init(&stream->list);
+                xqc_wt_h3_stream_detach(h3_stream);
+                xqc_free(stream);
+                return NULL;
+            }
+        }
     }
     return stream;
 }
@@ -237,6 +257,20 @@ static xqc_int_t
 xqc_wt_stream_send_data(xqc_wt_stream_base_t *stream, void *data,
     uint32_t len, int fin)
 {
+    if (stream == NULL) {
+        return -XQC_EPARAM;
+    }
+    /* A deferred STOP_SENDING may notify the application during send. */
+    stream->callback_depth++;
+    xqc_int_t ret = xqc_wt_stream_do_send(stream, data, len, fin);
+    xqc_wt_stream_release(stream);
+    return ret;
+}
+
+static xqc_int_t
+xqc_wt_stream_do_send(xqc_wt_stream_base_t *stream, void *data,
+    uint32_t len, int fin)
+{
     if (stream == NULL || (data == NULL && len != 0)
         || len > INT32_MAX || (fin != 0 && fin != 1))
     {
@@ -258,6 +292,9 @@ xqc_wt_stream_send_data(xqc_wt_stream_base_t *stream, void *data,
         if (stream->prefix_sent < stream->prefix_len) {
             return -XQC_EAGAIN;
         }
+    }
+    if (stream->closed || stream->send_reset) {
+        return -XQC_ESTATE;
     }
     if (len == 0 && !fin) {
         return 0;
@@ -285,15 +322,17 @@ xqc_wt_stream_cancel(xqc_wt_stream_base_t *stream, uint32_t error,
     }
     /* draft-ietf-webtrans-http3-07 Section 4.3 reserves every 31st code. */
     uint64_t wire_error = XQC_WT_APP_ERROR_FIRST + error + error / 0x1e;
+    stream->callback_depth++;
     xqc_int_t ret = stop ? stream->io->stop(stream->h3_stream, wire_error)
                         : stream->io->reset(stream->h3_stream, wire_error);
-    if (ret == XQC_OK) {
+    if (ret == XQC_OK && !stream->closed) {
         if (stop) {
             stream->recv_reset = XQC_TRUE;
         } else {
             stream->send_reset = XQC_TRUE;
         }
     }
+    xqc_wt_stream_release(stream);
     return ret;
 }
 
@@ -374,13 +413,17 @@ xqc_wt_stream_notify_close(xqc_wt_stream_base_t *stream)
 static void
 xqc_wt_stream_terminate(xqc_wt_stream_base_t *stream)
 {
+    stream->callback_depth++;
     if (stream->can_send && !stream->send_fin && !stream->send_reset) {
         stream->io->reset(stream->h3_stream, XQC_WT_SESSION_GONE);
     }
-    if (stream->can_recv && !stream->recv_fin && !stream->recv_reset) {
+    if (!stream->closed && stream->can_recv
+        && !stream->recv_fin && !stream->recv_reset)
+    {
         stream->io->stop(stream->h3_stream, XQC_WT_SESSION_GONE);
     }
     xqc_wt_stream_notify_close(stream);
+    xqc_wt_stream_release(stream);
 }
 
 void
@@ -431,6 +474,13 @@ xqc_wt_stream_read(xqc_h3_stream_t *h3_stream, void *conn_ctx,
                 &stream->session_id);
             stream->session_id_complete = XQC_TRUE;
             if ((stream->session_id & 3) != 0) {
+                /* draft-ietf-webtrans-http3-16 §4: Session ID is a client bidi. */
+                if (conn->negotiated_version
+                    == XQC_WEBTRANSPORT_DRAFT_VERSION_16)
+                {
+                    XQC_H3_CONN_ERR(conn->h3_conn, H3_ID_ERROR,
+                                    -XQC_H3_DECODE_ERROR);
+                }
                 xqc_wt_stream_terminate(stream);
                 return (ssize_t)len;
             }
@@ -478,6 +528,16 @@ xqc_wt_stream_write(xqc_h3_stream_t *h3_stream, void *stream_ctx)
         xqc_wt_session_get_stream_callbacks(stream->session);
     xqc_int_t ret = XQC_OK;
     stream->callback_depth++;
+    if (stream->prefix_sent < stream->prefix_len
+        && stream->session->wt_conn->negotiated_version
+            == XQC_WEBTRANSPORT_DRAFT_VERSION_16)
+    {
+        ret = xqc_wt_stream_send_data(stream, NULL, 0, 0);
+        if (ret < 0 || stream->closed || stream->send_reset) {
+            xqc_wt_stream_release(stream);
+            return ret == -XQC_EAGAIN || ret == -XQC_ESTATE ? XQC_OK : ret;
+        }
+    }
     if (stream->bidi && cbs->wt_bidistream_write_notify) {
         ret = cbs->wt_bidistream_write_notify((xqc_wt_bidistream_t *)stream,
             stream->session, stream->user_data);
@@ -544,7 +604,7 @@ xqc_wt_session_open_stream(xqc_wt_session_t *session, void *user_data,
     if (err) {
         *err = -XQC_ESTATE;
     }
-    if (!xqc_wt_session_is_writable(session) || session->draining) {
+    if (!xqc_wt_session_is_writable(session)) {
         return NULL;
     }
     xqc_h3_stream_t *h3_stream = xqc_wt_h3_stream_create(

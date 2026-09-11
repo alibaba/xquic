@@ -10,6 +10,13 @@
 #include "src/webtransport/xqc_webtransport_ctx.h"
 #include "src/webtransport/xqc_webtransport_session.h"
 
+/* draft-ietf-webtrans-http3-07 §8.2; draft-ietf-webtrans-http3-16 §9.2. */
+#define XQC_WT_SETTING_MAX_SESSIONS UINT64_C(0xc671706a)
+#define XQC_WT_SETTING_ENABLED_16 UINT64_C(0x2c7cf000)
+#define XQC_WT_SETTING_DATAGRAM 0x33
+#define XQC_WT_SETTING_CONNECT 0x08
+#define XQC_WT_REQUIREMENTS_NOT_MET UINT64_C(0x212c0d48)
+
 struct xqc_webtransport_conn_s {
     xqc_h3_conn_t        *h3_conn;
     xqc_wt_ctx_t         *ctx;
@@ -29,9 +36,13 @@ struct xqc_webtransport_conn_s {
     size_t                dgram_mss;
     uint64_t              latest_session_id;
     uint64_t              peer_max_sessions;
+    xqc_webtransport_draft_version_t negotiated_version;
+    xqc_bool_t            peer_draft16;
     xqc_bool_t            peer_datagram;
     xqc_bool_t            peer_connect;
     xqc_bool_t            settings_received;
+    xqc_bool_t            client_creating;
+    xqc_bool_t            goaway_notified;
     xqc_bool_t            closing;
     xqc_cid_t             cid;
 };
@@ -42,5 +53,7 @@ xqc_int_t xqc_wt_conn_register_session(xqc_wt_conn_t *conn,
     xqc_wt_session_t *session);
 void xqc_wt_conn_unregister_session(xqc_wt_conn_t *conn, uint64_t id);
 xqc_wt_session_t *xqc_wt_conn_find_session(xqc_wt_conn_t *conn, uint64_t id);
+xqc_bool_t xqc_wt_conn_requirements_met(xqc_wt_conn_t *conn);
+void xqc_wt_conn_notify_goaway(xqc_wt_conn_t *conn);
 
 #endif

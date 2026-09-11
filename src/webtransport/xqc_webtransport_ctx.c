@@ -16,11 +16,6 @@
 #include "src/transport/xqc_conn.h"
 #include "src/common/xqc_malloc.h"
 
-/* draft-ietf-webtrans-http3-07 Sections 3.1, 3.2 and 8.2. */
-#define XQC_WT_SETTING_MAX_SESSIONS UINT64_C(0xc671706a)
-#define XQC_WT_SETTING_DATAGRAM 0x33
-#define XQC_WT_SETTING_CONNECT 0x08
-
 typedef struct {
     xqc_h3_ctx_t  h3;
     xqc_wt_ctx_t  wt;
@@ -33,8 +28,8 @@ static xqc_int_t xqc_wt_h3_conn_close(xqc_h3_conn_t *h3c,
 static void xqc_wt_handshake_finished(xqc_h3_conn_t *h3c, void *data);
 
 static const xqc_webtransport_conn_settings_t xqc_wt_defaults = {
-    .max_sessions_count = 16,
-    .draft_version = XQC_WEBTRANSPORT_DRAFT_VERSION_7,
+    .max_sessions_count = 1,
+    .draft_version = XQC_WEBTRANSPORT_DRAFT_VERSION_16,
     .max_bidi_streams = 128,
     .max_uni_streams = 128,
     .init_recv_window = 1024 * 1024,
@@ -78,6 +73,11 @@ xqc_wt_h3_conn_create(xqc_h3_conn_t *h3c, const xqc_cid_t *cid, void *data)
     if (ret == XQC_OK) {
         ret = xqc_h3_conn_set_setting(h3c, XQC_WT_SETTING_MAX_SESSIONS,
                                     ctx->settings.max_sessions_count);
+    }
+    if (ret == XQC_OK && ctx->settings.draft_version
+                            == XQC_WEBTRANSPORT_DRAFT_VERSION_16)
+    {
+        ret = xqc_h3_conn_set_setting(h3c, XQC_WT_SETTING_ENABLED_16, 1);
     }
     if (ret != XQC_OK) {
         goto fail;
@@ -130,6 +130,14 @@ xqc_wt_handshake_finished(xqc_h3_conn_t *h3c, void *data)
     }
     if (conn->ctx->app_conn_callbacks.h3_conn_handshake_finished) {
         conn->ctx->app_conn_callbacks.h3_conn_handshake_finished(h3c, data);
+    }
+    xqc_list_head_t *pos;
+    xqc_list_for_each(pos, &conn->session_list) {
+        xqc_wt_session_t *session = xqc_list_entry(pos,
+            xqc_wt_session_t, conn_list);
+        if (session->client) {
+            xqc_wt_client_send_request(session);
+        }
     }
 }
 
@@ -211,7 +219,10 @@ xqc_wt_engine_set_default_settings(xqc_engine_t *engine,
     if (!settings) {
         settings = &xqc_wt_defaults;
     }
-    if (settings->draft_version != XQC_WEBTRANSPORT_DRAFT_VERSION_7
+    if ((settings->draft_version != XQC_WEBTRANSPORT_DRAFT_VERSION_7
+         && settings->draft_version != XQC_WEBTRANSPORT_DRAFT_VERSION_16)
+        || (settings->draft_version == XQC_WEBTRANSPORT_DRAFT_VERSION_16
+            && settings->max_sessions_count != 1)
         || !settings->enable_datagram || !settings->max_sessions_count
         || settings->max_sessions_count > 1024
         || settings->max_bidi_streams < settings->max_sessions_count
@@ -225,6 +236,8 @@ xqc_wt_engine_set_default_settings(xqc_engine_t *engine,
     transport.max_streams_uni = settings->max_uni_streams;
     transport.init_recv_window = settings->init_recv_window;
     transport.max_datagram_frame_size = 65535;
+    transport.enable_reset_stream_at = settings->draft_version
+        == XQC_WEBTRANSPORT_DRAFT_VERSION_16;
     xqc_server_set_conn_settings(engine, &transport);
     return XQC_OK;
 }
@@ -250,6 +263,14 @@ xqc_webtransport_connect(xqc_engine_t *engine,
     const xqc_conn_ssl_config_t *ssl, const struct sockaddr *peer,
     socklen_t peer_len, void *user_data)
 {
-    return xqc_connect(engine, settings, token, token_len, host, no_crypto,
-        ssl, peer, peer_len, XQC_DEFINED_ALPN_H3_EXT, user_data);
+    xqc_wt_ctx_t *ctx = xqc_wt_ctx_get(engine);
+    if (!ctx || !settings) {
+        return NULL;
+    }
+    xqc_conn_settings_t transport = *settings;
+    transport.max_datagram_frame_size = 65535;
+    transport.enable_reset_stream_at = ctx->settings.draft_version
+        == XQC_WEBTRANSPORT_DRAFT_VERSION_16;
+    return xqc_connect(engine, &transport, token, token_len, host, no_crypto,
+        ssl, peer, peer_len, XQC_ALPN_H3, user_data);
 }

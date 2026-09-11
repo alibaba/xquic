@@ -1974,3 +1974,34 @@ error:
     xqc_maybe_recycle_packet_out(packet_out, conn);
     return ret;
 }
+
+int
+xqc_write_reset_stream_at_to_packet(xqc_connection_t *conn,
+    xqc_stream_t *stream, uint64_t err_code, uint64_t final_size,
+    uint64_t reliable_size)
+{
+    xqc_pkt_type_t type = XQC_PTYPE_SHORT_HEADER;
+    xqc_bool_t buffered = XQC_FALSE;
+    if (!(conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT)) {
+        buffered = XQC_TRUE;
+    }
+    xqc_packet_out_t *packet_out = xqc_write_new_packet(conn, type);
+    if (packet_out == NULL) {
+        return -XQC_EWRITE_PKT;
+    }
+    ssize_t n = xqc_gen_reset_stream_at_frame(packet_out, stream->stream_id,
+        err_code, final_size, reliable_size);
+    if (n < 0) {
+        xqc_maybe_recycle_packet_out(packet_out, conn);
+        return (int)n;
+    }
+    packet_out->po_used_size += n;
+    packet_out->po_stream_frames[0].ps_stream_id = stream->stream_id;
+    packet_out->po_stream_frames[0].ps_is_reset_at = 1;
+    packet_out->po_stream_frames[0].ps_is_used = 1;
+    packet_out->po_stream_frames_idx = 1;
+    if (buffered) {
+        xqc_conn_buff_1rtt_packet(conn, packet_out);
+    }
+    return XQC_OK;
+}

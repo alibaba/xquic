@@ -1646,6 +1646,27 @@ xqc_send_ctl_on_packet_acked(xqc_send_ctl_t *send_ctl,
     if (packet_out->po_origin) {
         packet_out->po_origin->po_acked = 1;
     }
+
+    /* reliable-stream-reset-09 Section 5.3: ACK the reset and its prefix. */
+    if (conn->conn_state < XQC_CONN_STATE_CLOSING) {
+        for (int i = 0; i < packet_out->po_stream_frames_idx; i++) {
+            xqc_po_stream_frame_t *frame = &packet_out->po_stream_frames[i];
+            if (!frame->ps_is_used) {
+                continue;
+            }
+            stream = xqc_find_stream_by_id(frame->ps_stream_id,
+                                           conn->streams_hash);
+            if (stream != NULL
+                && stream->reset_at.send_state == XQC_RESET_AT_SENT
+                && stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_SENT
+                && !xqc_send_queue_has_unacked_reliable(stream))
+            {
+                xqc_stream_send_state_update(stream,
+                                            XQC_SEND_STREAM_ST_DATA_RECVD);
+                xqc_stream_maybe_need_close(stream);
+            }
+        }
+    }
 }
 
 

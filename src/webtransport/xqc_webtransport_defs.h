@@ -21,12 +21,6 @@ typedef struct wt_dgram_block_s
     size_t         dgram_lost;
 } wt_dgram_blk_t;
 
-enum WebtransportVersion
-{
-    Draft02,
-    Draft07
-};
-
 wt_dgram_blk_t *xqc_wt_dgram_blk_create(const void *data, size_t data_len);
 
 void xqc_wt_dgram_blk_destroy(wt_dgram_blk_t *dgram_blk);

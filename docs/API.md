@@ -336,6 +336,13 @@ Besides, Application-Layer-Protocol implementations shall define its interfaces 
 Generic config for xquic, used to initialize an engine.
 
 ### xqc_conn_settings_t
+#### enable_reset_stream_at
+
+Advertise support for reliable stream reset; disabled by default. Set before
+creating the connection. Negotiation uses the empty `reset_stream_at`
+transport parameter defined in
+[reliable-stream-reset-09 Section 3](https://www.ietf.org/archive/id/draft-ietf-quic-reliable-stream-reset-09.html#section-3).
+
 #### xqc_cc_params_t
 Congestion control settings.
 
@@ -570,6 +577,36 @@ void xqc_stream_set_user_data(xqc_stream_t *stream, void *user_data);
 ```
 Set stream layer user_data.
 
+
+#### xqc_stream_set_reliable_size / xqc_stream_reset
+
+```c
+xqc_int_t xqc_stream_set_reliable_size(xqc_stream_t *stream,
+    uint64_t reliable_size);
+xqc_int_t xqc_stream_reset(xqc_stream_t *stream, uint64_t error_code);
+```
+
+Set the prefix length before sending data, after the current TLS handshake
+completes and the peer has advertised `reset_stream_at`. Setting a reliable
+prefix during 0-RTT returns `-XQC_ESTATE`. Reset affects only the send direction
+and preserves that prefix. Without a configured prefix, it uses ordinary
+RESET_STREAM.
+The reset returns `-XQC_EAGAIN` until the complete prefix has been submitted;
+submit the remaining bytes before retrying. Reliable bytes remain eligible
+for retransmission until acknowledged. The stream remains library-owned
+until its close callback.
+
+NULL handles, receive-only streams, and values beyond the QUIC varint
+range return `-XQC_EPARAM`. Setting a prefix after sending data or without
+peer support returns `-XQC_ESTATE`.
+
+The optional `stream_stop_sending_notify` callback immediately reports each
+processed STOP_SENDING frame and its 64-bit error; duplicate frames may repeat
+the callback. If a reliable prefix is incomplete, the application must
+continue submitting it before releasing its data. The callback does not
+transfer ownership or replace the final stream close callback. WebTransport
+deduplicates these events and delays its application notification until the
+required stream header has been submitted.
 
 #### xqc_get_conn_user_data_by_stream
 ```
@@ -1031,3 +1068,54 @@ Get connection's user_data by request
 xqc_stream_id_t xqc_h3_stream_id(xqc_h3_request_t *h3_request);
 ```
 Get the stream_id of QUIC Transport stream on which the h3 request stream relies.
+
+# WebTransport Native Client APIs
+
+Include `xquic/xqc_webtransport.h`. Initialize `xqc_wt_ctx_init` before
+creating connections; existing H3 callbacks and application user data are
+preserved. Configure `xqc_wt_engine_set_default_settings` before the first
+connection. Settings are copied; `NULL` selects draft-07/16 support and one
+simultaneous session per connection.
+
+`XQC_WEBTRANSPORT_DRAFT_VERSION_7` advertises only draft-07.
+`XQC_WEBTRANSPORT_DRAFT_VERSION_16` advertises both versions and selects the
+highest common version. Use these enum constants, not literal draft numbers.
+Draft-16 configuration requires `max_sessions_count=1`; session pooling and
+session-level flow control are not enabled. Missing draft-16 prerequisites
+cause rejection after version selection, without downgrading to draft-07.
+
+`xqc_webtransport_connect` creates the underlying connection using `h3` ALPN,
+enables QUIC datagrams, and enables reliable reset when draft-16 is offered.
+Its returned CID must be copied by the caller. TLS verification remains
+controlled by the supplied `xqc_conn_ssl_config_t`.
+
+```c
+xqc_wt_session_t *xqc_wt_client_open_session(xqc_h3_conn_t *h3_conn,
+    const char *authority, const char *path, const char *origin, int *err);
+```
+
+Open a pending session on an existing client H3 connection. The authority
+must be nonempty and the path must begin with `/`; Origin may be `NULL` for
+a native client. Request strings are copied. CONNECT is sent after the
+handshake and complete peer SETTINGS. Failure returns `NULL` and, when
+provided, stores the negative error in `err`; success stores `XQC_OK`.
+
+The returned session is library-owned. Wait for
+`webtransport_session_create_notify` before creating data streams or sending
+datagrams; this callback means a successful 2xx response. A rejected request
+never invokes it. `webtransport_session_close_notify` is also delivered for
+a rejected pending session. Keep application state until that final callback
+and discard the session handle when it returns. Local
+`xqc_wt_session_close_with_error` does not immediately destroy the handle.
+
+| Getter | Result |
+|--------|--------|
+| `xqc_wt_session_get_draft_version(session)` | Negotiated enum, or zero before selection. |
+| `xqc_wt_session_get_response_status(session)` | HTTP status, or zero. |
+| `xqc_wt_session_get_h3_conn(session)` | Borrowed underlying H3 connection. |
+| `xqc_wt_conn_get_h3_conn(conn)` | Borrowed H3 connection of a WT connection. |
+
+See the [native demo](../demo/webtransport.md) for connection, echo,
+rejection, and close checks. The existing server callback and ownership
+contracts remain defined in the
+[frozen API specification](../harness/spec/feat/webtransport-server-api-spec.md).

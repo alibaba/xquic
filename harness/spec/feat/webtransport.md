@@ -6,8 +6,14 @@ This document defines only the XQUIC-specific implementation architecture,
 object ownership, adapter interfaces, public C API, and migration constraints
 for WebTransport. It does not redefine any WebTransport protocol binding.
 
-The default built-in implementation targets the native HTTP/3 binding in
+The native HTTP/3 implementation supports only
+[`draft-ietf-webtrans-http3-07`](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-07)
+and
 [`draft-ietf-webtrans-http3-16`](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-16).
+Draft-16 is preferred; draft-07 is retained for Chrome compatibility.
+Both endpoints select the highest common advertised version and retain it
+for the connection lifetime. Unsupported revisions MUST NOT be advertised
+or silently interpreted as either supported revision.
 The common core and adapter interface also reserve an integration path for the
 capsule-based binding in
 [`draft-ietf-webtrans-http2-15`](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http2-15).
@@ -481,22 +487,69 @@ callback. A handle is invalid after its final close callback returns.
 
 ### Version Adapter
 
-All revision-specific identifiers and codecs live in immutable tables owned by
-their adapter. Session, stream, datagram, and capsule paths select one table
-from the negotiated binding version and never mix tables within a session.
-The H3 adapter pins one compatible table on `xqc_wt_h3_conn_ctx_t`; the capsule
-adapter pins one table on each `xqc_wt_capsule_session_ctx_t`.
+Revision-specific identifiers and codecs belong to their adapter. The H3
+connection pins the highest common draft after receiving complete peer
+SETTINGS. Its session, stream, datagram, and capsule paths MUST use that draft
+for the lifetime of the connection.
 
-The initial H3 table targets HTTP/3 draft 16. The capsule integration target is
-HTTP/2 draft 15. Adding another draft or RFC requires:
+The H3 adapter supports exactly draft-07 and draft-16. Draft-16 requires its
+own SETTINGS, CONNECT token and reliable-reset prerequisites; draft-07
+retains its Chrome-compatible negotiation. Shared codecs may be reused only
+where both revisions define the same wire format. The draft-16 MVP permits
+one simultaneous session per connection without session-level flow control,
+as allowed by draft-16 Section 5.1. It MUST reject additional simultaneous
+sessions and MUST NOT advertise pooling support.
+
+The future capsule integration target is HTTP/2 draft 15; this is not a
+currently supported protocol version. Adding another draft or RFC requires:
 
 - reviewing the current version-independent IETF source;
-- adding or updating one version table and its codec tests;
+- updating the adapter's identifiers, codecs and tests;
 - updating compatibility declarations exposed by XQUIC; and
 - updating this document only when an XQUIC-owned design or API changes.
 
 Protocol constants must not be copied into public API headers unless they are
 part of an application-visible value type required by the API.
+
+### Native HTTP/3 MVP
+
+The native binding defaults to draft-16 with draft-07 fallback. Configuring
+draft-07 advertises only draft-07. Unsupported drafts MUST NOT establish a
+session. Once draft-16 is selected, missing prerequisites MUST cause rejection
+without fallback to draft-07.
+
+| Binding | SETTINGS | CONNECT `:protocol` | Additional QUIC requirement |
+|---------|----------|---------------------|-----------------------------|
+| draft-07 | `0xc671706a > 0` | `webtransport` | None |
+| draft-16 | `0x2c7cf000 = 1` | `webtransport-h3` | Empty `reset_stream_at` (`0x1d`) from both peers |
+
+Both bindings require H3 and QUIC datagrams and server extended CONNECT
+support. Clients MUST wait for the TLS handshake and peer SETTINGS before
+sending CONNECT. Only a 2xx response creates a ready client session; rejected
+requests receive a final close notification without a create notification.
+
+The draft-16 MVP supports one simultaneous session, bidirectional stream
+exchange with FIN, unidirectional stream delivery, datagrams, stream reset,
+drain and close. It MUST NOT send nonzero WT INITIAL flow-control SETTINGS.
+It ignores session flow-control capsules and rejects an additional
+simultaneous CONNECT with `H3_REQUEST_REJECTED`. HTTP/2 per-stream flow-control
+capsules remain prohibited.
+
+Draft-16 resets MUST reliably deliver the complete outgoing WT stream header
+using `RESET_STREAM_AT` (`0x24`). Reset processing and acknowledgement MUST
+preserve required bytes across reordering and loss. STOP_SENDING notifications
+MUST preserve callback ownership while a deferred header is being sent.
+Close capsules validate UTF-8 and reject trailing data. Drain and GOAWAY MUST
+allow established sessions to continue exchanging data and creating streams.
+
+The native demo checks reset, bidirectional echo with FIN, datagram echo and
+close. Pooling, session-level flow control, HTTP/2, exporters and 0-RTT CONNECT
+are outside this implementation stage. Existing frozen server APIs and context
+lifetime rules apply to both versions.
+
+Sources: [draft-07 §§3–6](https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-07.html),
+[draft-16 §§3–7](https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-16.html)
+and [reliable-stream-reset-09 §§3–5](https://datatracker.ietf.org/doc/html/draft-ietf-quic-reliable-stream-reset-09).
 
 ## Target API
 

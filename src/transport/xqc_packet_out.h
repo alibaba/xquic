@@ -57,6 +57,8 @@ typedef struct xqc_po_stream_frame_s {
     unsigned int            ps_length_offset;
     unsigned char           ps_is_used;
     unsigned char           ps_has_fin;     /* whether fin flag from stream frame is set  */
+    uint64_t                ps_reliable_size;
+    unsigned char           ps_is_reset_at;
     unsigned char           ps_is_reset;    /* whether frame is RESET_STREAM */
 } xqc_po_stream_frame_t;
 
@@ -175,6 +177,9 @@ uint64_t xqc_conn_close_wire_error_code(uint64_t err_code);
 int xqc_write_conn_close_to_packet(xqc_connection_t *conn, uint64_t err_code);
 
 int xqc_write_reset_stream_to_packet(xqc_connection_t *conn, xqc_stream_t *stream, uint64_t err_code, uint64_t final_size);
+int xqc_write_reset_stream_at_to_packet(xqc_connection_t *conn,
+    xqc_stream_t *stream, uint64_t err_code, uint64_t final_size,
+    uint64_t reliable_size);
 
 int xqc_write_stop_sending_to_packet(xqc_connection_t *conn, xqc_stream_t *stream, uint64_t err_code);
 

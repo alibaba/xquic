@@ -12,6 +12,55 @@
 
 #define XQC_WT_CLOSE_CAPSULE 0x2843
 #define XQC_WT_DRAIN_CAPSULE 0x78ae
+#define XQC_WT_MAX_STREAM_DATA_CAPSULE 0x190b4d3e
+#define XQC_WT_STREAM_DATA_BLOCKED_CAPSULE 0x190b4d42
+
+static xqc_bool_t xqc_wt_valid_utf8(const unsigned char *data, size_t len);
+static xqc_int_t xqc_wt_capsule_complete(xqc_wt_session_t *session);
+
+static xqc_bool_t
+xqc_wt_valid_utf8(const unsigned char *data, size_t len)
+{
+    for (size_t i = 0; i < len;) {
+        uint32_t code = data[i++];
+        if (code < 0x80) {
+            continue;
+        }
+        unsigned count;
+        uint32_t minimum;
+        if (code >= 0xc2 && code <= 0xdf) {
+            count = 1;
+            minimum = 0x80;
+            code &= 0x1f;
+        } else if (code >= 0xe0 && code <= 0xef) {
+            count = 2;
+            minimum = 0x800;
+            code &= 0x0f;
+        } else if (code >= 0xf0 && code <= 0xf4) {
+            count = 3;
+            minimum = 0x10000;
+            code &= 0x07;
+        } else {
+            return XQC_FALSE;
+        }
+        if (len - i < count) {
+            return XQC_FALSE;
+        }
+        while (count--) {
+            unsigned char byte = data[i++];
+            if ((byte & 0xc0) != 0x80) {
+                return XQC_FALSE;
+            }
+            code = (code << 6) | (byte & 0x3f);
+        }
+        if (code < minimum || code > 0x10ffff
+            || (code >= 0xd800 && code <= 0xdfff))
+        {
+            return XQC_FALSE;
+        }
+    }
+    return XQC_TRUE;
+}
 
 xqc_wt_session_t *
 xqc_wt_session_init(uint64_t id, xqc_wt_conn_t *conn,
@@ -86,7 +135,9 @@ xqc_wt_session_notify_closed(xqc_wt_session_t *session)
     session->close_notified = XQC_TRUE;
     xqc_wt_session_close_streams(session);
     xqc_wt_ctx_t *ctx = session->wt_conn->ctx;
-    if (session->open && ctx->session_cbs.webtransport_session_close_notify) {
+    if ((session->open || session->client)
+        && ctx->session_cbs.webtransport_session_close_notify)
+    {
         ctx->session_cbs.webtransport_session_close_notify(session, NULL,
             &session->wt_conn->cid,
             xqc_wt_session_get_callback_user_data(session));
@@ -104,7 +155,21 @@ xqc_wt_session_destroy(xqc_wt_session_t *session)
         xqc_wt_request_adapter_detach(session->request);
     }
     xqc_wt_conn_unregister_session(session->wt_conn, session->sessionID);
+    xqc_free(session->client_authority);
     xqc_free(session);
+}
+
+xqc_webtransport_draft_version_t
+xqc_wt_session_get_draft_version(xqc_wt_session_t *session)
+{
+    return session && session->wt_conn
+        ? session->wt_conn->negotiated_version : 0;
+}
+
+unsigned
+xqc_wt_session_get_response_status(xqc_wt_session_t *session)
+{
+    return session ? session->response_status : 0;
 }
 
 uint32_t
@@ -124,6 +189,10 @@ xqc_wt_session_flush(xqc_wt_session_t *session)
 {
     if (!session || !session->request) {
         return -XQC_ESTATE;
+    }
+    if (session->request->h3_stream->flags & XQC_HTTP3_STREAM_FLAG_FIN_SENT) {
+        session->send_fin = XQC_FALSE;
+        return session->send_len ? -XQC_ESTATE : XQC_OK;
     }
     if (session->send_offset == session->send_len && !session->send_fin) {
         return XQC_OK;
@@ -148,7 +217,8 @@ xqc_wt_session_close_with_error(xqc_wt_session_t *session,
     uint32_t error, const char *reason, size_t reason_len)
 {
     if (!session || (!reason && reason_len)
-        || reason_len > XQC_WT_CLOSE_REASON_MAX)
+        || reason_len > XQC_WT_CLOSE_REASON_MAX
+        || !xqc_wt_valid_utf8((const unsigned char *)reason, reason_len))
     {
         return -XQC_EPARAM;
     }
@@ -161,7 +231,7 @@ xqc_wt_session_close_with_error(xqc_wt_session_t *session,
     if (session->send_len) {
         return -XQC_EAGAIN;
     }
-    /* draft-ietf-webtrans-http3-07 Section 5: CLOSE capsule then FIN. */
+    /* draft-ietf-webtrans-http3-07 §5 and -16 §6: CLOSE capsule then FIN. */
     session->close_error = error;
     if (reason_len) {
         memcpy(session->close_reason, reason, reason_len);
@@ -212,6 +282,10 @@ static xqc_int_t
 xqc_wt_capsule_complete(xqc_wt_session_t *session)
 {
     if (session->capsule_type == XQC_WT_CLOSE_CAPSULE) {
+        /* draft-ietf-webtrans-http3-16 §6: invalid UTF-8 is a message error. */
+        if (!xqc_wt_valid_utf8(session->recv_buf + 4, session->recv_len - 4)) {
+            return -XQC_H3_DECODE_ERROR;
+        }
         session->close_error = 0;
         for (size_t i = 0; i < 4; i++) {
             session->close_error = (session->close_error << 8)
@@ -221,22 +295,32 @@ xqc_wt_capsule_complete(xqc_wt_session_t *session)
                session->recv_len - 4);
         session->close_reason[session->recv_len - 4] = '\0';
         session->closed = XQC_TRUE;
+        session->peer_closed = XQC_TRUE;
         xqc_wt_session_close_streams(session);
 
     } else if (session->capsule_type == XQC_WT_DRAIN_CAPSULE
                && !session->draining)
     {
-        session->draining = XQC_TRUE;
-        xqc_wt_ctx_t *ctx = session->wt_conn->ctx;
-        if (ctx->session_cbs.webtransport_session_drain_notify) {
-            ctx->session_cbs.webtransport_session_drain_notify(session,
-                xqc_wt_session_get_callback_user_data(session));
-        }
+        xqc_wt_session_notify_draining(session);
     }
     session->capsule_body = XQC_FALSE;
     session->recv_header_len = 0;
     session->recv_len = 0;
     return XQC_OK;
+}
+
+void
+xqc_wt_session_notify_draining(xqc_wt_session_t *session)
+{
+    if (session->draining) {
+        return;
+    }
+    session->draining = XQC_TRUE;
+    xqc_wt_ctx_t *ctx = session->wt_conn->ctx;
+    if (ctx->session_cbs.webtransport_session_drain_notify) {
+        ctx->session_cbs.webtransport_session_drain_notify(session,
+            xqc_wt_session_get_callback_user_data(session));
+    }
 }
 
 xqc_int_t
@@ -247,7 +331,7 @@ xqc_wt_session_recv_capsules(xqc_wt_session_t *session,
         return -XQC_EPARAM;
     }
     for (size_t i = 0; i < len;) {
-        if (session->closed) {
+        if (session->peer_closed) {
             return -XQC_H3_DECODE_ERROR;
         }
         if (!session->capsule_body) {
@@ -265,6 +349,15 @@ xqc_wt_session_recv_capsules(xqc_wt_session_t *session,
                                      &session->capsule_type);
             xqc_wt_decode_session_id(session->recv_header + type_len,
                 length_len, &session->capsule_remaining);
+            /* draft-ietf-webtrans-http3-16 §5.4 forbids H2 stream limits. */
+            if (session->wt_conn->negotiated_version
+                    == XQC_WEBTRANSPORT_DRAFT_VERSION_16
+                && (session->capsule_type == XQC_WT_MAX_STREAM_DATA_CAPSULE
+                    || session->capsule_type
+                        == XQC_WT_STREAM_DATA_BLOCKED_CAPSULE))
+            {
+                return -XQC_H3_DECODE_ERROR;
+            }
             if ((session->capsule_type == XQC_WT_CLOSE_CAPSULE
                  && (session->capsule_remaining < 4
                      || session->capsule_remaining > 4 + XQC_WT_CLOSE_REASON_MAX))
@@ -286,7 +379,10 @@ xqc_wt_session_recv_capsules(xqc_wt_session_t *session,
             session->capsule_remaining -= n;
         }
         if (session->capsule_remaining == 0) {
-            xqc_wt_capsule_complete(session);
+            xqc_int_t ret = xqc_wt_capsule_complete(session);
+            if (ret != XQC_OK) {
+                return ret;
+            }
         }
     }
     if (fin) {
@@ -294,6 +390,7 @@ xqc_wt_session_recv_capsules(xqc_wt_session_t *session,
             return -XQC_H3_DECODE_ERROR;
         }
         session->closed = XQC_TRUE;
+        session->peer_closed = XQC_TRUE;
         xqc_wt_session_close_streams(session);
         session->send_fin = XQC_TRUE;
         return session->request ? xqc_wt_session_flush(session) : XQC_OK;

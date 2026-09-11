@@ -15,12 +15,12 @@
   adapter; cover prefix fragmentation, ordinary H3 fallback and FIN retries.
 - [x] Remove the generic H3 extension framework; restore H3 context and stream
   lifecycle paths, and verify existing ALPN callback ownership and GOAWAY.
-- [ ] Verify real Chrome connection, data exchange, rejection and close.
+- [x] Verify real Chrome connection, data exchange, rejection and close.
 - [x] Expose one H3 setting registration API, remove the extended writer,
   and verify registration, duplicate updates and frozen/invalid input rejection.
 - [x] Synchronize durable documentation and record remaining API gaps.
 - [x] Prepare the scoped change and honest validation evidence for a draft PR.
 
-Chrome control currently lacks its native messaging component. Server work
-continues while the user enables the browser connection. Browser results
-cannot be claimed until a real Chrome run succeeds.
+Verified with Chrome 152 and `EnableWebTransportDraft07`: connection,
+bidirectional echo with FIN, datagram echo, path/Origin rejection and close
+passed. Peer SETTINGS included `0xc671706a=16`.

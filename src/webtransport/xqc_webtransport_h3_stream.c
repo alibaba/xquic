@@ -22,6 +22,8 @@ typedef struct {
     size_t                 reset_prefix_sent;
     uint64_t               reset_error;
     xqc_bool_t             reset_pending;
+    xqc_bool_t             stop_received;
+    xqc_bool_t             stop_pending;
     unsigned               callback_depth;
     xqc_bool_t             raw;
     xqc_bool_t             paused;
@@ -70,10 +72,11 @@ xqc_wt_h3_stream_flush_reset(xqc_wt_h3_stream_t *adapter)
         }
     }
     /* A deferred peer STOP may already have reset with its own error. */
-    xqc_int_t ret = stream->reset_stream_at_sent
+    xqc_int_t ret = stream->reset_at.sent
         ? XQC_OK : xqc_stream_reset(stream, adapter->reset_error);
     if (ret == XQC_OK) {
         adapter->reset_pending = XQC_FALSE;
+        xqc_wt_h3_stream_notify_stop(adapter->h3s);
     }
     return ret;
 }
@@ -637,17 +640,35 @@ xqc_wt_h3_stream_close_notify(xqc_stream_t *stream, void *user_data)
     return h3_stream_callbacks.stream_close_notify(stream, user_data);
 }
 
+void
+xqc_wt_h3_stream_notify_stop(xqc_h3_stream_t *h3s)
+{
+    xqc_wt_h3_stream_t *adapter = xqc_wt_h3_stream_context(h3s);
+    if (!adapter || adapter->closed || adapter->detached || !adapter->raw
+        || !adapter->stop_pending || !h3s->stream
+        || h3s->stream->reset_at.pending)
+    {
+        return;
+    }
+    adapter->stop_pending = XQC_FALSE;
+    adapter->callback_depth++;
+    xqc_wt_stream_notify_closing(adapter->stream, XQC_TRUE);
+    xqc_wt_h3_stream_release(adapter);
+}
+
 static void
 xqc_wt_h3_stream_stop_sending_notify(xqc_stream_t *stream,
     uint64_t error, void *user_data)
 {
     xqc_wt_h3_stream_t *adapter = xqc_wt_h3_stream_context(user_data);
-    if (!adapter || adapter->closed || adapter->detached || !adapter->raw) {
+    if (!adapter || adapter->closed || adapter->detached || !adapter->raw
+        || adapter->stop_received)
+    {
         return;
     }
-    adapter->callback_depth++;
-    xqc_wt_stream_notify_closing(adapter->stream, XQC_TRUE);
-    xqc_wt_h3_stream_release(adapter);
+    adapter->stop_received = XQC_TRUE;
+    adapter->stop_pending = XQC_TRUE;
+    xqc_wt_h3_stream_notify_stop(user_data);
 }
 
 const xqc_stream_callbacks_t xqc_wt_h3_stream_callbacks = {

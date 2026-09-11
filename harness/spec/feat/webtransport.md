@@ -351,6 +351,10 @@ Transport APIs report QUIC state and errors without translating them into
 WebTransport application errors. That translation belongs to the HTTP/3
 adapter.
 
+Reliable reset state is contained in the embedded `xqc_stream_reset_at_t`
+member `xqc_stream_s::reset_at`. Transport reports STOP_SENDING frames directly;
+WebTransport owns duplicate suppression and pending application notifications.
+
 ### External Capsule Binding
 
 The capsule adapter permits integration with an HTTP/2 implementation that is
@@ -537,8 +541,10 @@ capsules remain prohibited.
 
 Draft-16 resets MUST reliably deliver the complete outgoing WT stream header
 using `RESET_STREAM_AT` (`0x24`). Reset processing and acknowledgement MUST
-preserve required bytes across reordering and loss. STOP_SENDING notifications
-MUST preserve callback ownership while a deferred header is being sent.
+preserve required bytes across reordering and loss. The WebTransport adapter
+MUST deduplicate STOP_SENDING notifications and defer its application callback
+until the required stream header has been submitted, preserving callback
+ownership throughout.
 Close capsules validate UTF-8 and reject trailing data. Drain and GOAWAY MUST
 allow established sessions to continue exchanging data and creating streams.
 

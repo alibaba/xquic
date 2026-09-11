@@ -642,11 +642,11 @@ xqc_reset_stream_packet_can_drop(xqc_connection_t *conn,
         return XQC_FALSE;
     }
     xqc_stream_t *stream = xqc_find_stream_by_id(id, conn->streams_hash);
-    if (stream != NULL && stream->reset_stream_at_sent) {
+    if (stream != NULL && stream->reset_at.sent) {
         for (int i = 0; i < packet->po_stream_frames_idx; i++) {
             xqc_po_stream_frame_t *frame = &packet->po_stream_frames[i];
             if (frame->ps_stream_id == id && frame->ps_length
-                && frame->ps_offset < stream->reliable_size)
+                && frame->ps_offset < stream->reset_at.send_size)
             {
                 return XQC_FALSE;
             }

@@ -363,7 +363,7 @@ xqc_test_wt_h3_stream_reliable_reset(void)
 
     xqc_wt_session_destroy(wt->base.session);
     CU_ASSERT_PTR_NULL(xqc_wt_h3_stream_get(h3s));
-    CU_ASSERT(stream->reset_at.sent);
+    CU_ASSERT(stream->reset_at.send_state == XQC_RESET_AT_SENT);
     CU_ASSERT(wt_h3_test_reset_count(stream) == 1);
     CU_ASSERT(stream->reset_at.send_error == UINT64_C(0x170d7b68));
     wt_h3_test_sent_prefix(stream, prefix, sizeof(prefix));
@@ -401,7 +401,7 @@ xqc_test_wt_h3_stream_reset_after_detach(void)
         CU_ASSERT_PTR_NULL(xqc_wt_conn_find_session(test.wt_conn, 4));
         CU_ASSERT_PTR_NULL(xqc_wt_h3_stream_get(h3s));
         CU_ASSERT_PTR_NOT_NULL(xqc_wt_h3_stream_context(h3s));
-        CU_ASSERT(!stream->reset_at.sent);
+        CU_ASSERT(stream->reset_at.send_state != XQC_RESET_AT_SENT);
         CU_ASSERT(stream->stream_send_offset == sent);
         CU_ASSERT(test.closes == 1);
         CU_ASSERT(stream->stream_if->stream_write_notify(stream, h3s)
@@ -412,7 +412,7 @@ xqc_test_wt_h3_stream_reset_after_detach(void)
         stream->stream_flag &= ~XQC_STREAM_FLAG_DATA_BLOCKED;
         CU_ASSERT(stream->stream_if->stream_write_notify(stream, h3s)
             == XQC_OK);
-        CU_ASSERT(stream->reset_at.sent);
+        CU_ASSERT(stream->reset_at.send_state == XQC_RESET_AT_SENT);
         CU_ASSERT(stream->stream_send_offset == sizeof(prefix));
         CU_ASSERT(stream->reset_at.send_error == UINT64_C(0x170d7b68));
         CU_ASSERT(wt_h3_test_reset_count(stream) == 1);
@@ -457,7 +457,7 @@ xqc_test_wt_h3_stream_stop_sending(void)
             == XQC_OK);
         CU_ASSERT(stream->reset_at.send_error == error);
         CU_ASSERT(test.stops == !deferred);
-        CU_ASSERT(stream->reset_at.pending == !!deferred);
+        CU_ASSERT((stream->reset_at.send_state == XQC_RESET_AT_PENDING) == !!deferred);
         /* WT suppresses repeated STOP notifications, including while blocked. */
         wire[n - 1]++;
         packet.pos = wire;
@@ -483,7 +483,7 @@ xqc_test_wt_h3_stream_stop_sending(void)
             CU_ASSERT(xqc_wt_unistream_send(wt, NULL, 0, 0) == -XQC_ESTATE);
         }
         CU_ASSERT(test.stops == (deferred == 2 ? 0 : 1));
-        CU_ASSERT(stream->reset_at.sent);
+        CU_ASSERT(stream->reset_at.send_state == XQC_RESET_AT_SENT);
         CU_ASSERT(stream->reset_at.send_error == error);
         CU_ASSERT(wt_h3_test_reset_count(stream) == 1);
         unsigned char prefix[] = {0x40, 0x54, 4};

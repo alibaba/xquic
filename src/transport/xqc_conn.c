@@ -6776,7 +6776,7 @@ xqc_conn_decrease_unacked_stream_ref(xqc_connection_t *conn, xqc_packet_out_t *p
 
                     /* Update stream state */
                     if (stream->stream_unacked_pkt == 0
-                        && !stream->reset_at.sent
+                        && stream->reset_at.send_state != XQC_RESET_AT_SENT
                         && stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_SENT) {
                         xqc_stream_send_state_update(stream, XQC_SEND_STREAM_ST_DATA_RECVD);
                         xqc_log(conn->log, XQC_LOG_DEBUG, "|stream enter DATA RECVD|stream_id:%d", stream->stream_id);

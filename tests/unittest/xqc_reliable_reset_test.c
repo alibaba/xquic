@@ -20,6 +20,10 @@ static xqc_int_t xqc_reset_test_input(xqc_connection_t *conn,
     unsigned char *data, size_t length);
 static unsigned xqc_reset_test_packet_count(xqc_connection_t *conn,
     xqc_frame_type_bit_t type);
+static xqc_packet_out_t *xqc_reset_test_queued_packet(xqc_stream_t *stream,
+    xqc_frame_type_bit_t type, uint64_t offset);
+static void xqc_reset_test_packet_sent(xqc_connection_t *conn,
+    xqc_packet_out_t *packet, xqc_packet_number_t number);
 
 typedef struct {
     unsigned stop_count;
@@ -39,7 +43,8 @@ xqc_reset_test_stop_notify(xqc_stream_t *stream, uint64_t error,
     notifications->stop_count++;
     notifications->stop_error = error;
     notifications->offset_at_stop = stream->stream_send_offset;
-    notifications->reset_at_stop = stream->reset_at.sent;
+    notifications->reset_at_stop =
+        stream->reset_at.send_state == XQC_RESET_AT_SENT;
 }
 
 static void
@@ -50,7 +55,7 @@ xqc_reset_test_closing_notify(xqc_stream_t *stream, xqc_int_t error,
     notifications->closing_count++;
     if (notifications->reenter_read && notifications->closing_count == 1) {
         unsigned char data[8], fin;
-        CU_ASSERT(stream->reset_at.reported);
+        CU_ASSERT(stream->stream_state_recv >= XQC_RECV_STREAM_ST_RESET_RECVD);
         notifications->reenter_result =
             xqc_stream_recv(stream, data, sizeof(data), &fin);
         CU_ASSERT(fin == 0);
@@ -92,6 +97,52 @@ xqc_reset_test_packet_count(xqc_connection_t *conn, xqc_frame_type_bit_t type)
         count += !!(packet->po_frame_types & type);
     }
     return count;
+}
+
+static xqc_packet_out_t *
+xqc_reset_test_queued_packet(xqc_stream_t *stream,
+    xqc_frame_type_bit_t type, uint64_t offset)
+{
+    xqc_list_head_t *pos;
+    xqc_list_for_each(pos,
+        &stream->stream_conn->conn_send_queue->sndq_send_packets)
+    {
+        xqc_packet_out_t *packet = xqc_list_entry(pos, xqc_packet_out_t,
+                                                po_list);
+        if (!(packet->po_frame_types & type)) {
+            continue;
+        }
+        for (unsigned i = 0; i < packet->po_stream_frames_idx; i++) {
+            xqc_po_stream_frame_t *frame = &packet->po_stream_frames[i];
+            if (frame->ps_is_used && frame->ps_stream_id == stream->stream_id
+                && (frame->ps_is_reset_at || frame->ps_offset == offset))
+            {
+                return packet;
+            }
+        }
+    }
+    return NULL;
+}
+
+static void
+xqc_reset_test_packet_sent(xqc_connection_t *conn, xqc_packet_out_t *packet,
+    xqc_packet_number_t number)
+{
+    if (packet->po_flag & XQC_POF_IN_PATH_BUF_LIST) {
+        xqc_path_send_buffer_remove(conn->conn_initial_path, packet);
+
+    } else {
+        xqc_send_queue_remove_send(&packet->po_list);
+    }
+    packet->po_pkt.pkt_num = number;
+    packet->po_pkt.pkt_pns = XQC_PNS_APP_DATA;
+    packet->po_path_id = conn->conn_initial_path->path_id;
+    packet->po_sent_time = 1;
+    xqc_send_ctl_increase_inflight(conn, packet);
+    xqc_conn_increase_unacked_stream_ref(conn, packet);
+    xqc_send_queue_insert_unacked(packet,
+        &conn->conn_send_queue->sndq_unacked_packets[XQC_PNS_APP_DATA],
+        conn->conn_send_queue);
 }
 
 void
@@ -144,7 +195,7 @@ xqc_test_reliable_reset_receive_order(void)
     xqc_stream_t *stream = xqc_find_stream_by_id(3, conn->streams_hash);
     CU_ASSERT_FATAL(stream != NULL);
     CU_ASSERT(stream->stream_state_recv == XQC_RECV_STREAM_ST_SIZE_KNOWN);
-    CU_ASSERT(!stream->reset_at.reported);
+    CU_ASSERT(stream->stream_state_recv < XQC_RECV_STREAM_ST_RESET_RECVD);
     CU_ASSERT(xqc_stream_recv(stream, result, sizeof(result), &fin)
         == -XQC_EAGAIN);
     CU_ASSERT(xqc_reset_test_input(conn, tail, sizeof(tail)) == XQC_OK);
@@ -153,7 +204,7 @@ xqc_test_reliable_reset_receive_order(void)
     CU_ASSERT(xqc_reset_test_input(conn, head, sizeof(head)) == XQC_OK);
     CU_ASSERT(xqc_stream_recv(stream, result, sizeof(result), &fin) == 3);
     CU_ASSERT(memcmp(result, "abc", 3) == 0 && fin == 0);
-    CU_ASSERT(!stream->reset_at.reported);
+    CU_ASSERT(stream->stream_state_recv < XQC_RECV_STREAM_ST_RESET_RECVD);
     CU_ASSERT(xqc_stream_recv(stream, result, sizeof(result), &fin)
         == -XQC_ESTREAM_RESET);
     CU_ASSERT(stream->stream_err == 9);
@@ -222,7 +273,8 @@ xqc_test_reliable_reset_receive_order(void)
         CU_ASSERT(stream->reset_at.recv_error == 9);
         CU_ASSERT(stream->reset_at.send_size == 3);
         CU_ASSERT(stream->reset_at.recv_size == 3);
-        CU_ASSERT(stream->reset_at.sent && stream->reset_at.received);
+        CU_ASSERT(stream->reset_at.send_state == XQC_RESET_AT_SENT);
+        CU_ASSERT(stream->reset_at.recv_state == XQC_RESET_AT_RELIABLE);
         CU_ASSERT(xqc_stream_recv(stream, result, sizeof(result), &fin)
             == -XQC_ESTREAM_RESET);
         CU_ASSERT(notifications.closing_count == 1);
@@ -289,74 +341,125 @@ xqc_test_reliable_reset_receive_errors(void)
 void
 xqc_test_reliable_reset_ack_order(void)
 {
+    /* Section 5.3: ACK the actual reset and every reliable prefix packet. */
+    for (unsigned ack_copy = 0; ack_copy < 2; ack_copy++) {
+        xqc_connection_t *conn = xqc_reset_test_conn();
+        CU_ASSERT_FATAL(conn != NULL);
+        xqc_send_queue_t *queue = conn->conn_send_queue;
+        xqc_send_ctl_t *ctl = conn->conn_initial_path->path_send_ctl;
+        xqc_stream_t *stream = xqc_stream_create_with_direction(conn,
+            XQC_STREAM_UNI, NULL);
+        CU_ASSERT_FATAL(stream != NULL);
+        stream->stream_flag |= XQC_STREAM_FLAG_HAS_H3;
+        CU_ASSERT(xqc_stream_set_reliable_size(stream, 3) == XQC_OK);
+        unsigned char prefix[] = "abc";
+        CU_ASSERT(xqc_stream_send(stream, prefix, 1, 0) == 1);
+        xqc_packet_out_t *head = xqc_reset_test_queued_packet(stream,
+            XQC_FRAME_BIT_STREAM, 0);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(head);
+        if (ack_copy) {
+            xqc_path_ctx_t *path = conn->conn_initial_path;
+            xqc_path_send_buffer_append(path, head,
+                &path->path_schedule_buf[XQC_SEND_TYPE_NORMAL]);
+
+        } else {
+            xqc_send_queue_move_to_high_pri(&head->po_list, queue);
+        }
+        CU_ASSERT(xqc_stream_send(stream, prefix + 1, 2, 0) == 2);
+        xqc_packet_out_t *tail = xqc_reset_test_queued_packet(stream,
+            XQC_FRAME_BIT_STREAM, 1);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(tail);
+        CU_ASSERT(xqc_stream_reset(stream, 9) == XQC_OK);
+        xqc_packet_out_t *reset = xqc_reset_test_queued_packet(stream,
+            XQC_FRAME_BIT_RESET_STREAM_AT, 0);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(reset);
+
+        /* Reset ACK cannot finish a prefix still waiting in the send queue. */
+        xqc_reset_test_packet_sent(conn, reset, 1);
+        xqc_send_ctl_on_packet_acked(ctl, reset, xqc_monotonic_timestamp(), 0);
+        CU_ASSERT(reset->po_acked && !head->po_acked && !tail->po_acked);
+        CU_ASSERT(stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_SENT);
+        xqc_reset_test_packet_sent(conn, tail, 2);
+        xqc_send_ctl_on_packet_acked(ctl, tail, xqc_monotonic_timestamp(), 0);
+        CU_ASSERT(tail->po_acked && !head->po_acked);
+        CU_ASSERT(stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_SENT);
+
+        /* A missing first prefix byte survives loss after the later ACKs. */
+        xqc_reset_test_packet_sent(conn, head, 3);
+        ctl->ctl_srtt = 1000;
+        ctl->ctl_latest_rtt = 1000;
+        ctl->ctl_largest_acked[XQC_PNS_APP_DATA] = 6;
+        xqc_send_ctl_detect_lost(ctl, queue, XQC_PNS_APP_DATA, 100000);
+        CU_ASSERT_FATAL(!xqc_list_empty(&queue->sndq_lost_packets));
+        xqc_packet_out_t *retry = xqc_list_entry(
+            queue->sndq_lost_packets.next, xqc_packet_out_t, po_list);
+        CU_ASSERT_PTR_EQUAL(retry->po_origin, head);
+        CU_ASSERT(retry->po_stream_frames[0].ps_offset == 0);
+        CU_ASSERT(retry->po_stream_frames[0].ps_length == 1);
+        CU_ASSERT(stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_SENT);
+        xqc_send_queue_copy_to_probe(head, queue, conn->conn_initial_path);
+        CU_ASSERT_FATAL(!xqc_list_empty(&queue->sndq_pto_probe_packets));
+        xqc_packet_out_t *probe = xqc_list_entry(
+            queue->sndq_pto_probe_packets.next, xqc_packet_out_t, po_list);
+        CU_ASSERT_PTR_EQUAL(probe->po_origin, head);
+        if (ack_copy) {
+            xqc_reset_test_packet_sent(conn, retry, 4);
+        }
+        xqc_send_ctl_on_packet_acked(ctl, ack_copy ? retry : head,
+            xqc_monotonic_timestamp(), 0);
+        CU_ASSERT(head->po_acked);
+        CU_ASSERT(!probe->po_acked);
+        CU_ASSERT(stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_RECVD);
+        CU_ASSERT(stream->stream_flag & XQC_STREAM_FLAG_NEED_CLOSE);
+
+        /* Queued copies of an ACKed origin must not reopen or retain it. */
+        if (!ack_copy) {
+            xqc_reset_test_packet_sent(conn, retry, 4);
+        }
+        xqc_send_ctl_on_packet_acked(ctl, retry, xqc_monotonic_timestamp(), 0);
+        xqc_send_ctl_on_packet_acked(ctl, head, xqc_monotonic_timestamp(), 0);
+        CU_ASSERT(stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_RECVD);
+        CU_ASSERT(stream->stream_unacked_pkt == 0);
+        xqc_engine_destroy(conn->engine);
+    }
+
+    /* Prefix ACK still waits for a lost reset, including its retransmit. */
     xqc_connection_t *conn = xqc_reset_test_conn();
     CU_ASSERT_FATAL(conn != NULL);
+    xqc_send_queue_t *queue = conn->conn_send_queue;
+    xqc_send_ctl_t *ctl = conn->conn_initial_path->path_send_ctl;
     xqc_stream_t *stream = xqc_stream_create_with_direction(conn,
         XQC_STREAM_UNI, NULL);
-    CU_ASSERT_FATAL(stream != NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
     stream->stream_flag |= XQC_STREAM_FLAG_HAS_H3;
-    CU_ASSERT(xqc_stream_set_reliable_size(stream, 3) == XQC_OK);
-    unsigned char prefix[] = "abc";
-    CU_ASSERT(xqc_stream_send(stream, prefix, 3, 0) == 3);
-    unsigned before = xqc_reset_test_packet_count(conn, XQC_FRAME_BIT_STREAM);
-    CU_ASSERT(before > 0);
+    CU_ASSERT(xqc_stream_set_reliable_size(stream, 1) == XQC_OK);
+    CU_ASSERT(xqc_stream_send(stream, (unsigned char *)"a", 1, 0) == 1);
+    xqc_packet_out_t *prefix = xqc_reset_test_queued_packet(stream,
+        XQC_FRAME_BIT_STREAM, 0);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(prefix);
     CU_ASSERT(xqc_stream_reset(stream, 9) == XQC_OK);
-    CU_ASSERT(xqc_reset_test_packet_count(conn, XQC_FRAME_BIT_STREAM) == before);
-    CU_ASSERT(xqc_reset_test_packet_count(conn, XQC_FRAME_BIT_RESET_STREAM_AT)
-        == 1);
-    xqc_packet_out_t ack = {0};
-    ack.po_frame_types = XQC_FRAME_BIT_RESET_STREAM_AT;
-    ack.po_stream_frames_idx = 1;
-    ack.po_stream_frames[0].ps_is_used = 1;
-    ack.po_stream_frames[0].ps_stream_id = stream->stream_id;
-    ack.po_stream_frames[0].ps_is_reset_at = 1;
-    ack.po_stream_frames[0].ps_reliable_size = 3;
-    xqc_send_ctl_on_packet_acked(conn->conn_initial_path->path_send_ctl,
-        &ack, xqc_monotonic_timestamp(), 0);
-    CU_ASSERT(stream->reset_at.acked);
+    xqc_packet_out_t *reset = xqc_reset_test_queued_packet(stream,
+        XQC_FRAME_BIT_RESET_STREAM_AT, 0);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(reset);
+    xqc_reset_test_packet_sent(conn, prefix, 1);
+    xqc_send_ctl_on_packet_acked(ctl, prefix, xqc_monotonic_timestamp(), 0);
     CU_ASSERT(stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_SENT);
-
-    /* The prefix is lost after the reset ACK; recovery must retain it. */
-    xqc_packet_out_t *head_packet = NULL;
-    xqc_list_head_t *pos;
-    xqc_list_for_each(pos, &conn->conn_send_queue->sndq_send_packets) {
-        xqc_packet_out_t *packet = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-        if (packet->po_frame_types & XQC_FRAME_BIT_STREAM) {
-            head_packet = packet;
-            break;
-        }
-    }
-    CU_ASSERT_FATAL(head_packet != NULL);
-    xqc_send_queue_remove_send(&head_packet->po_list);
-    head_packet->po_pkt.pkt_num = 1;
-    head_packet->po_pkt.pkt_pns = XQC_PNS_APP_DATA;
-    head_packet->po_path_id = conn->conn_initial_path->path_id;
-    head_packet->po_sent_time = 1;
-    xqc_send_ctl_increase_inflight(conn, head_packet);
-    xqc_conn_increase_unacked_stream_ref(conn, head_packet);
-    xqc_send_queue_insert_unacked(head_packet,
-        &conn->conn_send_queue->sndq_unacked_packets[XQC_PNS_APP_DATA],
-        conn->conn_send_queue);
-    xqc_send_ctl_t *ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_reset_test_packet_sent(conn, reset, 2);
     ctl->ctl_srtt = 1000;
     ctl->ctl_latest_rtt = 1000;
-    ctl->ctl_largest_acked[XQC_PNS_APP_DATA] = 4;
-    xqc_send_ctl_detect_lost(ctl, conn->conn_send_queue, XQC_PNS_APP_DATA,
-        100000);
-    CU_ASSERT_FATAL(!xqc_list_empty(&conn->conn_send_queue->sndq_lost_packets));
-    xqc_packet_out_t *retry = xqc_list_entry(
-        conn->conn_send_queue->sndq_lost_packets.next, xqc_packet_out_t, po_list);
-    CU_ASSERT(retry->po_frame_types & XQC_FRAME_BIT_STREAM);
-    CU_ASSERT(retry->po_stream_frames[0].ps_offset == 0);
-    CU_ASSERT(retry->po_stream_frames[0].ps_length == 3);
+    ctl->ctl_largest_acked[XQC_PNS_APP_DATA] = 5;
+    xqc_send_ctl_detect_lost(ctl, queue, XQC_PNS_APP_DATA, 100000);
+    CU_ASSERT_FATAL(!xqc_list_empty(&queue->sndq_lost_packets));
+    xqc_packet_out_t *retry = xqc_list_entry(queue->sndq_lost_packets.next,
+        xqc_packet_out_t, po_list);
+    CU_ASSERT_PTR_EQUAL(retry->po_origin, reset);
+    CU_ASSERT((retry->po_frame_types & XQC_FRAME_BIT_RESET_STREAM_AT) != 0);
     CU_ASSERT(stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_SENT);
-    xqc_stream_ack_reliable(stream, 1, 2, XQC_FALSE);
-    CU_ASSERT(stream->reset_at.acked_offset == 0);
-    CU_ASSERT(stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_SENT);
+    xqc_reset_test_packet_sent(conn, retry, 3);
     xqc_send_ctl_on_packet_acked(ctl, retry, xqc_monotonic_timestamp(), 0);
-    CU_ASSERT(stream->reset_at.acked_offset == 3);
+    CU_ASSERT(reset->po_acked);
     CU_ASSERT(stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_RECVD);
-    CU_ASSERT(stream->stream_flag & XQC_STREAM_FLAG_NEED_CLOSE);
+    CU_ASSERT(stream->stream_unacked_pkt == 0);
     xqc_engine_destroy(conn->engine);
 }
 
@@ -379,8 +482,8 @@ xqc_test_reliable_reset_stop_sending(void)
     CU_ASSERT(xqc_stream_set_reliable_size(stream, 3) == XQC_OK);
     unsigned char stop[] = {0x05, (unsigned char)stream->stream_id, 9};
     CU_ASSERT(xqc_reset_test_input(conn, stop, sizeof(stop)) == XQC_OK);
-    CU_ASSERT(stream->reset_at.pending);
-    CU_ASSERT(!stream->reset_at.sent);
+    CU_ASSERT(stream->reset_at.send_state == XQC_RESET_AT_PENDING);
+    CU_ASSERT(stream->reset_at.send_state != XQC_RESET_AT_SENT);
     CU_ASSERT(notifications.stop_count == 1);
     CU_ASSERT(notifications.stop_error == 9);
     CU_ASSERT(notifications.offset_at_stop == 0);
@@ -394,8 +497,8 @@ xqc_test_reliable_reset_stop_sending(void)
     CU_ASSERT(xqc_stream_send(stream, prefix, 1, 0) == 1);
     CU_ASSERT(notifications.stop_count == 2);
     CU_ASSERT(xqc_stream_send(stream, prefix + 1, 2, 0) == 2);
-    CU_ASSERT(stream->reset_at.sent);
-    CU_ASSERT(!stream->reset_at.pending);
+    CU_ASSERT(stream->reset_at.send_state == XQC_RESET_AT_SENT);
+    CU_ASSERT(stream->reset_at.send_state != XQC_RESET_AT_PENDING);
     CU_ASSERT(stream->reset_at.send_error == 9);
     CU_ASSERT(notifications.stop_count == 2);
     CU_ASSERT(notifications.stop_error == 10);
@@ -450,15 +553,19 @@ xqc_test_reliable_reset_send_errors(void)
     /* A remembered TP must not authorize resets before this handshake. */
     conn->conn_flag &= ~XQC_CONN_FLAG_TLS_HSK_COMPLETED;
     CU_ASSERT(xqc_stream_set_reliable_size(stream, 3) == -XQC_ESTATE);
-    CU_ASSERT(!stream->reset_at.enabled);
-    CU_ASSERT(!stream->reset_at.pending);
+    CU_ASSERT(stream->reset_at.send_state == XQC_RESET_AT_NONE);
+    CU_ASSERT(stream->reset_at.send_state != XQC_RESET_AT_PENDING);
     conn->conn_flag |= XQC_CONN_FLAG_TLS_HSK_COMPLETED;
     conn->remote_settings.reset_stream_at = XQC_FALSE;
     CU_ASSERT(xqc_stream_set_reliable_size(stream, 3) == -XQC_ESTATE);
     conn->remote_settings.reset_stream_at = XQC_TRUE;
     CU_ASSERT(xqc_stream_set_reliable_size(stream, 3) == XQC_OK);
+    CU_ASSERT(stream->reset_at.send_state == XQC_RESET_AT_READY);
     CU_ASSERT(xqc_stream_reset(stream, 9) == -XQC_EAGAIN);
-    CU_ASSERT(!stream->reset_at.sent);
+    CU_ASSERT(stream->reset_at.send_state == XQC_RESET_AT_PENDING);
+    CU_ASSERT(xqc_stream_set_reliable_size(stream, 3) == XQC_OK);
+    CU_ASSERT(stream->reset_at.send_state == XQC_RESET_AT_PENDING);
+    CU_ASSERT(stream->reset_at.send_error == 9);
     xqc_stream_t *recv_only = xqc_passive_create_stream(conn, 3, NULL);
     CU_ASSERT_FATAL(recv_only != NULL);
     CU_ASSERT(xqc_stream_reset(recv_only, 9) == -XQC_EPARAM);
@@ -468,12 +575,17 @@ xqc_test_reliable_reset_send_errors(void)
     CU_ASSERT_FATAL(empty != NULL);
     CU_ASSERT(xqc_stream_set_reliable_size(empty, 0) == XQC_OK);
     CU_ASSERT(xqc_stream_reset(empty, 9) == XQC_OK);
-    CU_ASSERT(empty->reset_at.sent);
+    CU_ASSERT(empty->reset_at.send_state == XQC_RESET_AT_SENT);
     CU_ASSERT(xqc_stream_reset(empty, 9) == XQC_OK);
     CU_ASSERT(xqc_stream_reset(empty, 10) == -XQC_ESTATE);
     CU_ASSERT(xqc_reset_test_packet_count(conn, XQC_FRAME_BIT_RESET_STREAM_AT)
         == 1);
-    xqc_stream_ack_reliable(empty, 0, 0, XQC_TRUE);
+    xqc_packet_out_t *reset = xqc_reset_test_queued_packet(empty,
+        XQC_FRAME_BIT_RESET_STREAM_AT, 0);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(reset);
+    xqc_reset_test_packet_sent(conn, reset, 1);
+    xqc_send_ctl_on_packet_acked(conn->conn_initial_path->path_send_ctl,
+        reset, xqc_monotonic_timestamp(), 0);
     CU_ASSERT(empty->stream_state_send == XQC_SEND_STREAM_ST_DATA_RECVD);
     unsigned char buf[64];
     xqc_packet_out_t packet = {0};

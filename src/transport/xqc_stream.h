@@ -115,26 +115,27 @@ typedef struct xqc_stream_write_buff_list_s {
     uint64_t                total_len;
 } xqc_stream_write_buff_list_t;
 
-typedef struct xqc_stream_ack_range_s {
-    struct xqc_stream_ack_range_s *next;
-    uint64_t                      start;
-    uint64_t                      end;
-} xqc_stream_ack_range_t;
+typedef enum {
+    XQC_RESET_AT_NONE = 0,
+    XQC_RESET_AT_READY,
+    XQC_RESET_AT_PENDING,
+    XQC_RESET_AT_SENT,
+} xqc_stream_reset_at_send_state_t;
+
+typedef enum {
+    XQC_RESET_AT_RECV_NONE = 0,
+    XQC_RESET_AT_RELIABLE,
+    XQC_RESET_AT_ORDINARY,
+} xqc_stream_reset_at_recv_state_t;
 
 /* draft-ietf-quic-reliable-stream-reset-09 Sections 4 and 5. */
 typedef struct {
     uint64_t                send_size;
     uint64_t                send_error;
-    uint64_t                acked_offset;
-    xqc_stream_ack_range_t  *acked_ranges;
     uint64_t                recv_size;
     uint64_t                recv_error;
-    xqc_bool_t              enabled;
-    xqc_bool_t              pending;
-    xqc_bool_t              sent;
-    xqc_bool_t              acked;
-    xqc_bool_t              received;
-    xqc_bool_t              reported;
+    xqc_stream_reset_at_send_state_t send_state;
+    xqc_stream_reset_at_recv_state_t recv_state;
 } xqc_stream_reset_at_t;
 
 struct xqc_stream_s {
@@ -351,8 +352,6 @@ void xqc_stream_close_discarded_stream(xqc_stream_t *stream);
 xqc_bool_t xqc_is_stream_finished(xqc_stream_t *stream);
 
 void xqc_record_stream_state(xqc_stream_t *stream);
-void xqc_stream_ack_reliable(xqc_stream_t *stream, uint64_t offset,
-    uint64_t length, xqc_bool_t reset_acked);
 xqc_int_t xqc_stream_do_reset(xqc_stream_t *stream, uint64_t error_code);
 
 #endif /* _XQC_STREAM_H_INCLUDED_ */

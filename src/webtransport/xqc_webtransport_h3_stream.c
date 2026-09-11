@@ -72,7 +72,7 @@ xqc_wt_h3_stream_flush_reset(xqc_wt_h3_stream_t *adapter)
         }
     }
     /* A deferred peer STOP may already have reset with its own error. */
-    xqc_int_t ret = stream->reset_at.sent
+    xqc_int_t ret = stream->reset_at.send_state == XQC_RESET_AT_SENT
         ? XQC_OK : xqc_stream_reset(stream, adapter->reset_error);
     if (ret == XQC_OK) {
         adapter->reset_pending = XQC_FALSE;
@@ -646,7 +646,7 @@ xqc_wt_h3_stream_notify_stop(xqc_h3_stream_t *h3s)
     xqc_wt_h3_stream_t *adapter = xqc_wt_h3_stream_context(h3s);
     if (!adapter || adapter->closed || adapter->detached || !adapter->raw
         || !adapter->stop_pending || !h3s->stream
-        || h3s->stream->reset_at.pending)
+        || h3s->stream->reset_at.send_state == XQC_RESET_AT_PENDING)
     {
         return;
     }

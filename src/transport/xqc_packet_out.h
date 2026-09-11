@@ -57,7 +57,6 @@ typedef struct xqc_po_stream_frame_s {
     unsigned int            ps_length_offset;
     unsigned char           ps_is_used;
     unsigned char           ps_has_fin;     /* whether fin flag from stream frame is set  */
-    uint64_t                ps_reliable_size;
     unsigned char           ps_is_reset_at;
     unsigned char           ps_is_reset;    /* whether frame is RESET_STREAM */
 } xqc_po_stream_frame_t;

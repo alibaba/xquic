@@ -593,7 +593,7 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         }
     }
 
-    if (stream->reset_at.received
+    if (stream->reset_at.recv_state != XQC_RESET_AT_RECV_NONE
         && (stream_frame->data_offset + stream_frame->data_length
                 > stream->stream_data_in.stream_length
             || (stream_frame->fin
@@ -698,7 +698,7 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     }
 
     if (stream->stream_data_in.stream_determined
-        && (stream->reset_at.received
+        && (stream->reset_at.recv_state != XQC_RESET_AT_RECV_NONE
             ? stream->stream_data_in.merged_offset_end
                 >= stream->reset_at.recv_size
             : stream->stream_data_in.stream_length == stream->stream_data_in.merged_offset_end))
@@ -1366,7 +1366,7 @@ xqc_process_reset_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
         return -XQC_EPROTO;
     }
 
-    if (stream->reset_at.received) {
+    if (stream->reset_at.recv_state != XQC_RESET_AT_RECV_NONE) {
         if (err_code != stream->reset_at.recv_error) {
             XQC_CONN_ERR(conn, TRA_STREAM_STATE_ERROR);
             return -XQC_EPROTO;
@@ -1376,13 +1376,12 @@ xqc_process_reset_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
             return -XQC_EPROTO;
         }
         stream->reset_at.recv_size = 0;
-        stream->reset_at.reported = XQC_TRUE;
+        stream->reset_at.recv_state = XQC_RESET_AT_ORDINARY;
     }
     if (conn->local_settings.reset_stream_at) {
-        stream->reset_at.received = XQC_TRUE;
+        stream->reset_at.recv_state = XQC_RESET_AT_ORDINARY;
         stream->reset_at.recv_error = err_code;
         stream->reset_at.recv_size = 0;
-        stream->reset_at.reported = XQC_TRUE;
         stream->stream_data_in.stream_length = final_size;
         stream->stream_data_in.stream_determined = XQC_TRUE;
     }
@@ -1461,11 +1460,11 @@ xqc_process_stop_sending_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
      * MUST send a RESET_STREAM frame if the stream is in the Ready or Send
      * state.
      */
-    if (!stream->reset_at.sent
-        && !stream->reset_at.pending
+    if (stream->reset_at.send_state != XQC_RESET_AT_SENT
+        && stream->reset_at.send_state != XQC_RESET_AT_PENDING
         && stream->stream_state_send < XQC_SEND_STREAM_ST_RESET_SENT)
     {
-        if (stream->reset_at.enabled) {
+        if (stream->reset_at.send_state != XQC_RESET_AT_NONE) {
             ret = xqc_stream_do_reset(stream, err_code);
             if (ret != XQC_OK && ret != -XQC_EAGAIN) {
                 return ret;
@@ -2586,7 +2585,9 @@ xqc_process_reset_stream_at_frame(xqc_connection_t *conn,
         XQC_CONN_ERR(conn, TRA_FINAL_SIZE_ERROR);
         return -XQC_EPROTO;
     }
-    if (stream->reset_at.received && error != stream->reset_at.recv_error) {
+    if (stream->reset_at.recv_state != XQC_RESET_AT_RECV_NONE
+        && error != stream->reset_at.recv_error)
+    {
         XQC_CONN_ERR(conn, TRA_STREAM_STATE_ERROR);
         return -XQC_EPROTO;
     }
@@ -2599,7 +2600,7 @@ xqc_process_reset_stream_at_frame(xqc_connection_t *conn,
         XQC_CONN_ERR(conn, TRA_FLOW_CONTROL_ERROR);
         return -XQC_EPROTO;
     }
-    if (stream->reset_at.received
+    if (stream->reset_at.recv_state != XQC_RESET_AT_RECV_NONE
         && reliable_size >= stream->reset_at.recv_size)
     {
         return XQC_OK;
@@ -2611,7 +2612,7 @@ xqc_process_reset_stream_at_frame(xqc_connection_t *conn,
     stream->stream_max_recv_offset = final_size;
     stream->stream_data_in.stream_length = final_size;
     stream->stream_data_in.stream_determined = XQC_TRUE;
-    stream->reset_at.received = XQC_TRUE;
+    stream->reset_at.recv_state = XQC_RESET_AT_RELIABLE;
     stream->reset_at.recv_size = reliable_size;
     stream->reset_at.recv_error = error;
     stream->stream_stats.peer_reset_time = xqc_monotonic_timestamp();

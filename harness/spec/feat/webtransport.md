@@ -352,7 +352,9 @@ WebTransport application errors. That translation belongs to the HTTP/3
 adapter.
 
 Reliable reset state is contained in the embedded `xqc_stream_reset_at_t`
-member `xqc_stream_s::reset_at`. Transport reports STOP_SENDING frames directly;
+member `xqc_stream_s::reset_at`: directional reliable sizes, errors and phases.
+Completion reuses packet ACK and retransmission state without separate
+stream byte-range allocations. Transport reports STOP_SENDING frames directly;
 WebTransport owns duplicate suppression and pending application notifications.
 
 ### External Capsule Binding

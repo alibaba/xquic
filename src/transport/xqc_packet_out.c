@@ -1998,7 +1998,6 @@ xqc_write_reset_stream_at_to_packet(xqc_connection_t *conn,
     packet_out->po_used_size += n;
     packet_out->po_stream_frames[0].ps_stream_id = stream->stream_id;
     packet_out->po_stream_frames[0].ps_is_reset_at = 1;
-    packet_out->po_stream_frames[0].ps_reliable_size = reliable_size;
     packet_out->po_stream_frames[0].ps_is_used = 1;
     packet_out->po_stream_frames_idx = 1;
     if (buffered) {

@@ -97,6 +97,7 @@ void xqc_send_queue_drop_initial_packets(xqc_connection_t *conn);
 void xqc_send_queue_drop_handshake_packets(xqc_connection_t *conn);
 void xqc_send_queue_drop_stream_frame_packets(xqc_connection_t *conn, xqc_stream_id_t stream_id);
 
+xqc_bool_t xqc_send_queue_has_unacked_reliable(xqc_stream_t *stream);
 
 
 

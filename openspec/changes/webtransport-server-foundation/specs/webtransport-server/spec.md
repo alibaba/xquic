@@ -19,6 +19,15 @@ Fragmented WT prefixes must classify once; non-WT prefixes must reach the
 ordinary H3 parser unchanged. Closing during classification frees its state,
 and read backpressure preserves both payload and FIN for retry.
 
+## Local SETTINGS registration
+
+WT registers its three draft-07 settings through the public H3 setting API.
+H3 owns the values independently of WT context lifetime. Registering the same
+identifier twice before encoding emits only the last value. Invalid or core
+H3/QPACK identifiers and updates after encoding fail without changing state.
+Ordinary H3 and WT use the same SETTINGS frame writer and each connection
+emits one SETTINGS frame, as required by RFC 9114 Section 7.2.4.
+
 ## Server acceptance
 
 A supported, authorized CONNECT request establishes a session on the

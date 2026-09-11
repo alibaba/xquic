@@ -301,13 +301,24 @@ xqc_test_wt_extension_settings(void)
 {
     xqc_list_head_t buffers;
     xqc_init_list_head(&buffers);
-    xqc_h3_conn_settings_t settings = {0};
-    xqc_h3_setting_t extra[] = {
-        {.identifier.vi = 0x08, .value.vi = 1},
-        {.identifier.vi = 0xc671706a, .value.vi = 4},
+    xqc_h3_conn_t h3c = {0};
+    /* draft-ietf-webtrans-http3-07 Sections 3.1, 3.2 and 8.2. */
+    const unsigned char expected[] = {
+        0x04, 0x13, 0x06, 0x00, 0x01, 0x00, 0x07, 0x00,
+        0x08, 0x01, 0x33, 0x01,
+        0xc0, 0x00, 0x00, 0x00, 0xc6, 0x71, 0x70, 0x6a, 0x04,
     };
-    CU_ASSERT(xqc_h3_frm_write_settings_extended(&buffers, &settings,
-              extra, 2, 0) == XQC_OK);
+    CU_ASSERT(xqc_h3_conn_set_setting(&h3c, 0x08, 1) == XQC_OK);
+    CU_ASSERT(xqc_h3_conn_set_setting(&h3c, 0x33, 1) == XQC_OK);
+    CU_ASSERT(xqc_h3_conn_set_setting(&h3c, 0xc671706a, 4) == XQC_OK);
+    CU_ASSERT_FATAL(xqc_h3_frm_write_settings(&buffers,
+        &h3c.local_h3_conn_settings, h3c.registered_settings,
+        h3c.registered_settings_count, 0) == XQC_OK);
+    CU_ASSERT_FALSE_FATAL(xqc_list_empty(&buffers));
+    xqc_list_buf_t *encoded = xqc_list_entry(buffers.next,
+        xqc_list_buf_t, list_head);
+    CU_ASSERT_EQUAL_FATAL(encoded->buf->data_len, sizeof(expected));
+    CU_ASSERT(memcmp(encoded->buf->data, expected, sizeof(expected)) == 0);
     while (!xqc_list_empty(&buffers)) {
         xqc_list_buf_t *item = xqc_list_entry(buffers.next,
             xqc_list_buf_t, list_head);
@@ -315,10 +326,8 @@ xqc_test_wt_extension_settings(void)
         xqc_var_buf_free(item->buf);
         xqc_free(item);
     }
-    /* RFC 9114 Section 7.2.4: adapter cannot repeat an H3 setting. */
-    extra[0].identifier.vi = 1;
-    CU_ASSERT(xqc_h3_frm_write_settings_extended(&buffers, &settings,
-              extra, 2, 0) == -XQC_EPARAM);
+    CU_ASSERT(xqc_h3_conn_set_setting(&h3c, 1, 1) == -XQC_EPARAM);
+    CU_ASSERT(h3c.registered_settings_count == 3);
     CU_ASSERT(xqc_list_empty(&buffers));
 }
 
@@ -341,11 +350,16 @@ wt_app_conn_create(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void *ctx)
     wt_app_conn_creates++;
     CU_ASSERT_PTR_EQUAL(ctx, wt_app_conn_context);
     CU_ASSERT_PTR_EQUAL(xqc_h3_conn_get_user_data(conn), wt_app_conn_context);
-    if (wt_app_conn_fail) {
+    if (wt_app_conn_fail == 1) {
         return -XQC_EPARAM;
     }
     wt_app_conn_context = &wt_conn_marker;
     xqc_h3_conn_set_user_data(conn, wt_app_conn_context);
+    if (wt_app_conn_fail == 2) {
+        for (size_t i = 0; i < XQC_H3_MAX_REGISTERED_SETTINGS - 2; i++) {
+            CU_ASSERT(xqc_h3_conn_set_setting(conn, 0x100 + i, 1) == XQC_OK);
+        }
+    }
     return XQC_OK;
 }
 
@@ -485,21 +499,26 @@ wt_test_connect_request(int scenario)
     wt_app_closings = wt_app_closes = 0;
     wt_app_handshakes = wt_handshakes = 0;
     wt_app_conn_creates = wt_app_conn_closes = 0;
-    wt_app_conn_fail = scenario == 5;
+    wt_app_conn_fail = scenario == 7 ? 2 : scenario == 5;
     xqc_h3_conn_t *h3c = xqc_h3_conn_create(conn, &marker);
     CU_ASSERT(wt_app_conn_creates == (scenario == 6 ? 0 : 1));
-    if (scenario == 5) {
+    if (scenario == 5 || scenario == 7) {
         CU_ASSERT_PTR_NULL(h3c);
-        CU_ASSERT(wt_app_conn_closes == 0);
+        CU_ASSERT(wt_app_conn_closes == (scenario == 7));
         xqc_engine_destroy(engine);
-        CU_ASSERT(wt_app_conn_closes == 0);
+        CU_ASSERT(wt_app_conn_closes == (scenario == 7));
         return;
     }
     CU_ASSERT_PTR_NOT_NULL_FATAL(h3c);
     xqc_wt_conn_t *wt_conn = xqc_wt_create_conn(h3c);
     CU_ASSERT_PTR_NOT_NULL_FATAL(wt_conn);
-    CU_ASSERT_PTR_NOT_NULL_FATAL(h3c->local_settings_extra);
-    CU_ASSERT(h3c->local_settings_extra_count == 3);
+    CU_ASSERT(h3c->registered_settings_count == 3);
+    CU_ASSERT(h3c->registered_settings[0].identifier.vi == 0x08);
+    CU_ASSERT(h3c->registered_settings[0].value.vi == 1);
+    CU_ASSERT(h3c->registered_settings[1].identifier.vi == 0x33);
+    CU_ASSERT(h3c->registered_settings[1].value.vi == 1);
+    CU_ASSERT(h3c->registered_settings[2].identifier.vi == 0xc671706a);
+    CU_ASSERT(h3c->registered_settings[2].value.vi == 16);
     if (scenario == 6) {
         xqc_wt_session_t *session = xqc_wt_session_init(4, wt_conn, NULL);
         CU_ASSERT_PTR_NOT_NULL_FATAL(session);
@@ -589,7 +608,8 @@ wt_test_connect_request(int scenario)
         /* QPACK-blocked H3 requests can outlive the WT connection state. */
         xqc_wt_conn_destroy(wt_conn);
         CU_ASSERT_PTR_NULL(xqc_wt_create_conn(h3c));
-        CU_ASSERT_PTR_NULL(h3c->local_settings_extra);
+        CU_ASSERT(h3c->registered_settings_count == 3);
+        CU_ASSERT(h3c->registered_settings[2].value.vi == 16);
         CU_ASSERT_PTR_NULL(h3c->settings_user_data);
         xqc_engine_destroy(engine);
         CU_ASSERT(wt_app_writes == 1 && wt_app_closings == 1);
@@ -640,6 +660,7 @@ xqc_test_wt_connect_reject(void)
     wt_test_connect_request(XQC_FALSE);
     wt_test_connect_request(5);
     wt_test_connect_request(6);
+    wt_test_connect_request(7);
 }
 
 void

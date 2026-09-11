@@ -548,6 +548,21 @@ void xqc_h3_engine_set_local_settings(xqc_engine_t *engine,
     const xqc_h3_conn_settings_t *h3_conn_settings);
 
 /**
+ * @brief Register an additional local HTTP/3 setting before SETTINGS is queued.
+ * Values are copied into the connection; setting an existing identifier updates
+ * its value. At most 16 distinct additional settings can be registered.
+ * Identifiers 0x01, 0x06 and 0x07 are rejected here; configure them through
+ * the existing H3 settings callback or engine settings APIs.
+ *
+ * @return XQC_OK, -XQC_ESTATE after SETTINGS is queued, or -XQC_EPARAM for
+ * a NULL connection, an invalid or reserved identifier/value, or a full table.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_h3_conn_set_setting(xqc_h3_conn_t *h3c, uint64_t identifier,
+    uint64_t value);
+
+
+/**
  * @brief create and http3 connection
  * 
  * @param engine return from xqc_engine_create

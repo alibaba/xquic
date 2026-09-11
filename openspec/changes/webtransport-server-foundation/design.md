@@ -12,10 +12,18 @@ followed by WT configuration, so existing ALPN cleanup owns one allocation.
 Each WT connection copies the configuration and original application callbacks.
 Teardown does not borrow engine registration storage.
 
-H3 changes are limited to extra local SETTINGS entries, callbacks for unknown
-peer settings and SETTINGS completion, and declaration of its existing input
-parser for prefix replay. WT owns the extra entries and supplies callback data.
-The H3 SETTINGS callbacks are not a protocol registration framework.
+H3 exposes `xqc_h3_conn_set_setting()` for registering additional local
+SETTINGS by identifier and value. H3 owns copied entries; repeated identifiers
+update their value before encoding. Once the SETTINGS frame is queued,
+registration fails without changing the advertised values. Core H3/QPACK
+settings retain their existing configuration path. WT registers its three
+draft-07 settings through this API. The frame writer has one entry point,
+`xqc_h3_frm_write_settings()`.
+
+Other H3 changes are limited to callbacks for unknown peer settings and SETTINGS
+completion, and declaration of its existing input parser for prefix replay.
+WT supplies callback data. The H3 SETTINGS callbacks are not a protocol
+registration framework.
 
 Keep stream demultiplexing in `src/webtransport/xqc_webtransport_h3_stream.c`.
 The WT ALPN adapter owns prefix classification, buffering, pause/resume,

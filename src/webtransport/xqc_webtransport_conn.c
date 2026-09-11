@@ -73,8 +73,6 @@ xqc_wt_conn_destroy(xqc_wt_conn_t *conn)
     }
     conn->h3_conn->h3_request_callbacks = conn->app_request_callbacks;
     conn->h3_conn->settings_user_data = NULL;
-    conn->h3_conn->local_settings_extra = NULL;
-    conn->h3_conn->local_settings_extra_count = 0;
     conn->h3_conn->on_settings_entry = NULL;
     conn->h3_conn->on_settings_complete = NULL;
     xqc_free(conn);

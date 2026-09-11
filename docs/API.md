@@ -889,6 +889,26 @@ void xqc_h3_conn_set_settings(xqc_h3_conn_t *h3c,
 ```
 Set settings for h3 connection, users can invoke this functions when h3_conn_create_notify callback function is triggered.
 
+#### xqc_h3_conn_set_setting
+```c
+xqc_int_t xqc_h3_conn_set_setting(xqc_h3_conn_t *h3c,
+    uint64_t identifier, uint64_t value);
+```
+Register an additional local HTTP/3 SETTINGS parameter during
+`h3_conn_create_notify`. H3 copies the identifier and value and owns them for
+the connection lifetime. Repeated identifiers update the existing value.
+Once the SETTINGS frame is queued, the function returns `-XQC_ESTATE`.
+Invalid identifiers or values and a full registration table return
+`-XQC_EPARAM` without changing existing entries. Up to 16 additional
+identifiers can be registered.
+
+Core H3/QPACK identifiers `0x01`, `0x06`, and `0x07` are rejected; configure
+them through `xqc_h3_engine_set_local_settings` or `h3_conn_init_settings`.
+HTTP/2-reserved identifiers `0x02` through `0x05` and values outside the
+QUIC variable-length integer range are also rejected. Registered parameters
+are encoded with the core settings in the single SETTINGS frame required by
+[RFC 9114 Section 7.2.4](https://www.rfc-editor.org/rfc/rfc9114.html#section-7.2.4).
+
 #### xqc_h3_conn_get_peer_addr
 ```
 xqc_int_t xqc_h3_conn_get_peer_addr(xqc_h3_conn_t *h3c, struct sockaddr *addr, socklen_t addr_cap,

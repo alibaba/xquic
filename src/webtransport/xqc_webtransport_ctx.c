@@ -71,30 +71,37 @@ xqc_wt_h3_conn_create(xqc_h3_conn_t *h3c, const xqc_cid_t *cid, void *data)
             return ret;
         }
     }
+    xqc_int_t ret = xqc_h3_conn_set_setting(h3c, XQC_WT_SETTING_CONNECT, 1);
+    if (ret == XQC_OK) {
+        ret = xqc_h3_conn_set_setting(h3c, XQC_WT_SETTING_DATAGRAM, 1);
+    }
+    if (ret == XQC_OK) {
+        ret = xqc_h3_conn_set_setting(h3c, XQC_WT_SETTING_MAX_SESSIONS,
+                                    ctx->settings.max_sessions_count);
+    }
+    if (ret != XQC_OK) {
+        goto fail;
+    }
     xqc_wt_conn_t *conn = xqc_wt_conn_create(h3c);
     if (conn == NULL) {
-        if (ctx->app_conn_callbacks.h3_conn_create_notify
-            && ctx->app_conn_callbacks.h3_conn_close_notify)
-        {
-            ctx->app_conn_callbacks.h3_conn_close_notify(h3c, cid,
-                xqc_h3_conn_get_user_data(h3c));
-        }
-        return -XQC_EMALLOC;
+        ret = -XQC_EMALLOC;
+        goto fail;
     }
     ctx->started = XQC_TRUE;
     conn->ctx_storage = *ctx;
     conn->ctx = &conn->ctx_storage;
     conn->cid = h3c->conn->scid_set.user_scid;
-    conn->local_settings[0].identifier.vi = XQC_WT_SETTING_CONNECT;
-    conn->local_settings[0].value.vi = 1;
-    conn->local_settings[1].identifier.vi = XQC_WT_SETTING_DATAGRAM;
-    conn->local_settings[1].value.vi = 1;
-    conn->local_settings[2].identifier.vi = XQC_WT_SETTING_MAX_SESSIONS;
-    conn->local_settings[2].value.vi = ctx->settings.max_sessions_count;
-    h3c->local_settings_extra = conn->local_settings;
-    h3c->local_settings_extra_count = 3;
     xqc_wt_request_adapter_init(conn);
     return XQC_OK;
+
+fail:
+    if (ctx->app_conn_callbacks.h3_conn_create_notify
+        && ctx->app_conn_callbacks.h3_conn_close_notify)
+    {
+        ctx->app_conn_callbacks.h3_conn_close_notify(h3c, cid,
+            xqc_h3_conn_get_user_data(h3c));
+    }
+    return ret;
 }
 
 static xqc_int_t

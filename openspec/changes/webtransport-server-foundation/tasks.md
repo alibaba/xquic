@@ -16,6 +16,8 @@
 - [x] Remove the generic H3 extension framework; restore H3 context and stream
   lifecycle paths, and verify existing ALPN callback ownership and GOAWAY.
 - [ ] Verify real Chrome connection, data exchange, rejection and close.
+- [x] Expose one H3 setting registration API, remove the extended writer,
+  and verify registration, duplicate updates and frozen/invalid input rejection.
 - [x] Synchronize durable documentation and record remaining API gaps.
 - [x] Prepare the scoped change and honest validation evidence for a draft PR.
 

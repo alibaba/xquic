@@ -447,24 +447,17 @@ xqc_h3_frm_write_cancel_push(xqc_list_head_t *send_buf, uint64_t push_id, uint8_
 
 xqc_int_t
 xqc_h3_frm_write_settings(xqc_list_head_t *send_buf,
-    xqc_h3_conn_settings_t *setting, uint8_t fin)
-{
-    return xqc_h3_frm_write_settings_extended(send_buf, setting, NULL, 0, fin);
-}
-
-xqc_int_t
-xqc_h3_frm_write_settings_extended(xqc_list_head_t *send_buf,
     xqc_h3_conn_settings_t *setting,
-    const xqc_h3_setting_t *extra, size_t extra_count, uint8_t fin)
+    const xqc_h3_setting_t *registered, size_t registered_count, uint8_t fin)
 {
-    if (extra_count > XQC_H3_MAX_EXTRA_SETTINGS
-        || (extra_count && extra == NULL))
+    if (registered_count > XQC_H3_MAX_REGISTERED_SETTINGS
+        || (registered_count && registered == NULL))
     {
         return -XQC_EPARAM;
     }
     size_t len = 0;
     size_t count = 0;
-    xqc_h3_setting_t settings[3 + XQC_H3_MAX_EXTRA_SETTINGS];
+    xqc_h3_setting_t settings[3 + XQC_H3_MAX_REGISTERED_SETTINGS];
 
     settings[count].identifier.vi = XQC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE;
     settings[count].value.vi = setting->max_field_section_size;
@@ -484,24 +477,24 @@ xqc_h3_frm_write_settings_extended(xqc_list_head_t *send_buf,
     len += xqc_put_varint_len(settings[count].value.vi);
     ++count;
 
-    for (size_t i = 0; i < extra_count; i++) {
-        if (extra[i].identifier.vi > ((1ULL << 62) - 1)
-            || extra[i].value.vi > ((1ULL << 62) - 1)
-            || extra[i].identifier.vi == 0x2 || extra[i].identifier.vi == 0x3
-            || extra[i].identifier.vi == 0x4 || extra[i].identifier.vi == 0x5)
+    for (size_t i = 0; i < registered_count; i++) {
+        if (registered[i].identifier.vi > ((1ULL << 62) - 1)
+            || registered[i].value.vi > ((1ULL << 62) - 1)
+            || (registered[i].identifier.vi >= 0x02
+                && registered[i].identifier.vi <= 0x05))
         {
             return -XQC_EPARAM;
         }
         /* RFC 9114 Section 7.2.4: SETTINGS identifiers cannot repeat. */
         for (size_t j = 0; j < count; j++) {
-            if (settings[j].identifier.vi == extra[i].identifier.vi) {
+            if (settings[j].identifier.vi == registered[i].identifier.vi) {
                 return -XQC_EPARAM;
             }
         }
-        settings[count].identifier.vi = extra[i].identifier.vi;
-        settings[count].value.vi = extra[i].value.vi;
-        len += xqc_put_varint_len(extra[i].identifier.vi);
-        len += xqc_put_varint_len(extra[i].value.vi);
+        settings[count].identifier.vi = registered[i].identifier.vi;
+        settings[count].value.vi = registered[i].value.vi;
+        len += xqc_put_varint_len(registered[i].identifier.vi);
+        len += xqc_put_varint_len(registered[i].value.vi);
         count++;
     }
 

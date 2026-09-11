@@ -32,6 +32,7 @@
 
 #include "common.h"
 #include "xqc_hq.h"
+#include "xqc_wt_echo_server.h"
 
 
 
@@ -96,6 +97,8 @@ typedef struct xqc_demo_svr_quic_config_s {
 
     /* dummy mode */
     int  dummy_mode;
+
+    int  webtransport;
 
     /* multipath */
     int  multipath;
@@ -237,6 +240,17 @@ typedef struct xqc_demo_svr_user_stream_s {
 
 /* the global unique server context */
 xqc_demo_svr_ctx_t svr_ctx;
+
+static void xqc_demo_svr_wt_schedule_send(void *user_data);
+
+static void
+xqc_demo_svr_wt_schedule_send(void *user_data)
+{
+    xqc_demo_svr_ctx_t *ctx = user_data;
+    struct timeval delay = {0, 1000};
+
+    event_add(ctx->ev_engine, &delay);
+}
 
 
 
@@ -1174,7 +1188,8 @@ xqc_demo_svr_create_socket(xqc_demo_svr_ctx_t *ctx, xqc_demo_svr_net_config_t* c
     memset(&ctx->local_addr, 0, sizeof(ctx->local_addr));
     ctx->local_addr.sin_family = AF_INET;
     ctx->local_addr.sin_port = htons(cfg->port);
-    ctx->local_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    ctx->local_addr.sin_addr.s_addr = htonl(ctx->args->quic_cfg.webtransport
+                                          ? INADDR_LOOPBACK : INADDR_ANY);
     ctx->local_addrlen = sizeof(ctx->local_addr);
     ctx->fd = xqc_demo_svr_init_socket(AF_INET, cfg->port, (struct sockaddr*)&ctx->local_addr, 
         ctx->local_addrlen);
@@ -1184,13 +1199,14 @@ xqc_demo_svr_create_socket(xqc_demo_svr_ctx_t *ctx, xqc_demo_svr_net_config_t* c
     memset(&ctx->local_addr6, 0, sizeof(ctx->local_addr6));
     ctx->local_addr6.sin6_family = AF_INET6;
     ctx->local_addr6.sin6_port = htons(cfg->port);
-    ctx->local_addr6.sin6_addr = in6addr_any;
+    ctx->local_addr6.sin6_addr = ctx->args->quic_cfg.webtransport
+                                ? in6addr_loopback : in6addr_any;
     ctx->local_addrlen6 = sizeof(ctx->local_addr6);
     ctx->fd6 = xqc_demo_svr_init_socket(AF_INET6, cfg->port, (struct sockaddr*)&ctx->local_addr6, 
         ctx->local_addrlen6);
     printf("create ipv6 socket fd: %d\n", ctx->fd6);
 
-    if (!ctx->fd && !ctx->fd6) {
+    if (ctx->fd < 0 && ctx->fd6 < 0) {
         return -1;
     }
 
@@ -1220,6 +1236,9 @@ xqc_demo_svr_usage(int argc, char *argv[])
             "\n"
             "Options:\n"
             "   -p    Server port.\n"
+            "   -W    Enable loopback WebTransport draft-07 echo at /wt.\n"
+            "   -K    TLS private key file.\n"
+            "   -T    TLS certificate file.\n"
             "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic P:copa \n"
             "   -C    Pacing on.\n"
             "   -l    Log level. e:error d:debug.\n"
@@ -1280,8 +1299,24 @@ void
 xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:rdMiPs:R:u:a:F:f:")) != -1) {
+    while ((ch = getopt(argc, argv,
+                        "p:c:CD:l:L:6k:rdMiPs:R:u:a:F:f:WK:T:")) != -1)
+    {
         switch (ch) {
+        case 'W':
+            args->quic_cfg.webtransport = 1;
+            break;
+
+        case 'K':
+            snprintf(args->env_cfg.priv_key_path,
+                     sizeof(args->env_cfg.priv_key_path), "%s", optarg);
+            break;
+
+        case 'T':
+            snprintf(args->env_cfg.cert_pem_path,
+                     sizeof(args->env_cfg.cert_pem_path), "%s", optarg);
+            break;
+
         /* listen port */
         case 'p':
             printf("option port :%s\n", optarg);
@@ -1593,6 +1628,14 @@ xqc_demo_svr_init_alpn_ctx(xqc_demo_svr_ctx_t *ctx)
         return ret;
     }
 
+    if (ctx->args->quic_cfg.webtransport) {
+        ret = xqc_demo_wt_init(ctx->engine, xqc_demo_svr_wt_schedule_send, ctx);
+        if (ret != XQC_OK) {
+            printf("init WebTransport context error: %d\n", ret);
+            return ret;
+        }
+    }
+
     return ret;
 }
 
@@ -1617,6 +1660,9 @@ xqc_demo_svr_init_xquic_engine(xqc_demo_svr_ctx_t *ctx, xqc_demo_svr_args_t *arg
     }
 
     config.cid_len = 12;
+    if (args->quic_cfg.webtransport) {
+        config.manually_triggered_send = 1;
+    }
 
     switch (args->env_cfg.log_level) {
     case 'd':
@@ -1726,14 +1772,24 @@ main(int argc, char *argv[])
     }
 
     /* socket event */
-    ctx->ev_socket = event_new(eb, ctx->fd, EV_READ | EV_PERSIST,
-        xqc_demo_svr_socket_event_callback, ctx);
-    event_add(ctx->ev_socket, NULL);
+    if (ctx->fd >= 0) {
+        ctx->ev_socket = event_new(eb, ctx->fd, EV_READ | EV_PERSIST,
+            xqc_demo_svr_socket_event_callback, ctx);
+        event_add(ctx->ev_socket, NULL);
+    }
 
     /* socket event */
-    ctx->ev_socket6 = event_new(eb, ctx->fd6, EV_READ | EV_PERSIST,
-        xqc_demo_svr_socket_event_callback, ctx);
-    event_add(ctx->ev_socket6, NULL);
+    if (ctx->fd6 >= 0) {
+        ctx->ev_socket6 = event_new(eb, ctx->fd6, EV_READ | EV_PERSIST,
+            xqc_demo_svr_socket_event_callback, ctx);
+        event_add(ctx->ev_socket6, NULL);
+    }
+
+    if (args->quic_cfg.webtransport) {
+        printf("WebTransport draft-07: https://127.0.0.1:%u/wt\n",
+               (unsigned) (uint16_t) args->net_cfg.port);
+        fflush(stdout);
+    }
 
     event_base_dispatch(eb);
 

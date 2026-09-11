@@ -226,4 +226,7 @@ ssize_t xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data,
 ssize_t xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data,
     size_t data_len, xqc_bool_t fin_flag);
 
+xqc_int_t xqc_h3_stream_process_in(xqc_h3_stream_t *h3s,
+    unsigned char *data, size_t data_len, xqc_bool_t fin_flag);
+
 #endif

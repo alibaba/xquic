@@ -101,6 +101,11 @@ Public headers must not depend on test or demo code. Core QUIC and HTTP/3 code
 must not depend on the optional MoQ module. Backend-specific TLS behavior stays
 behind the TLS integration layer.
 
+HTTP/3 owns local SETTINGS registered through `xqc_h3_conn_set_setting()`.
+Application protocols supply identifiers and values; their constants and
+negotiation policy remain in the owning protocol module. The registration
+contract is documented in [HTTP/3 APIs](../../docs/API.md#xqc_h3_conn_set_setting).
+
 ## Protocol Invariants
 
 - Wire behavior is governed by the applicable IETF RFC or draft.

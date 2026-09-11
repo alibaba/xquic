@@ -8,6 +8,8 @@
 #include <CUnit/CUnit.h>
 
 #include "xqc_random_test.h"
+#include "xqc_webtransport_test.h"
+#include "xqc_webtransport_h3_stream_test.h"
 #include "xqc_pq_test.h"
 #include "xqc_conn_test.h"
 #include "xqc_engine_test.h"
@@ -76,6 +78,42 @@ main(int argc, char *argv[])
     }     
 
     if (!CU_add_test(pSuite, "xqc_cid_test", xqc_test_cid)
+        || !CU_add_test(pSuite, "xqc_test_wt_h3_stream_demux",
+                        xqc_test_wt_h3_stream_demux)
+        || !CU_add_test(pSuite, "xqc_test_wt_h3_stream_passthrough",
+                        xqc_test_wt_h3_stream_passthrough)
+        || !CU_add_test(pSuite, "xqc_test_wt_h3_stream_prefix_errors",
+                        xqc_test_wt_h3_stream_prefix_errors)
+        || !CU_add_test(pSuite, "xqc_test_wt_h3_stream_backpressure",
+                        xqc_test_wt_h3_stream_backpressure)
+        || !CU_add_test(pSuite, "xqc_test_wt_h3_stream_buffer_limit",
+                        xqc_test_wt_h3_stream_buffer_limit)
+        || !CU_add_test(pSuite, "xqc_test_wt_session_limit",
+                        xqc_test_wt_session_limit)
+        || !CU_add_test(pSuite, "xqc_test_wt_request_passthrough",
+                        xqc_test_wt_request_passthrough)
+        || !CU_add_test(pSuite, "xqc_test_wt_request_incomplete",
+                        xqc_test_wt_request_incomplete)
+        || !CU_add_test(pSuite, "xqc_test_wt_connect_accept",
+                        xqc_test_wt_connect_accept)
+        || !CU_add_test(pSuite, "xqc_test_wt_connect_reject",
+                        xqc_test_wt_connect_reject)
+        || !CU_add_test(pSuite, "xqc_test_wt_extension_settings",
+                        xqc_test_wt_extension_settings)
+        || !CU_add_test(pSuite, "xqc_test_wt_datagram_association",
+                        xqc_test_wt_datagram_association)
+        || !CU_add_test(pSuite, "xqc_test_wt_capsule_errors",
+                        xqc_test_wt_capsule_errors)
+        || !CU_add_test(pSuite, "xqc_test_wt_capsules",
+                        xqc_test_wt_capsules)
+        || !CU_add_test(pSuite, "xqc_test_wt_stream_errors",
+                        xqc_test_wt_stream_errors)
+        || !CU_add_test(pSuite, "xqc_test_wt_stream_io",
+                        xqc_test_wt_stream_io)
+        || !CU_add_test(pSuite, "xqc_test_wt_context_errors",
+                        xqc_test_wt_context_errors)
+        || !CU_add_test(pSuite, "xqc_test_wt_context",
+                        xqc_test_wt_context)
         || !CU_add_test(pSuite, "xqc_test_hq_request_recv",
                         xqc_test_hq_request_recv)
         || !CU_add_test(pSuite, "xqc_test_hq_request_recv_errors",
@@ -348,6 +386,10 @@ main(int argc, char *argv[])
                         xqc_test_h3_goaway_id_increase_rejected)
         || !CU_add_test(pSuite, "xqc_test_h3_settings_accepted",
                         xqc_test_h3_settings_accepted)
+        || !CU_add_test(pSuite, "xqc_test_h3_registered_settings",
+                        xqc_test_h3_registered_settings)
+        || !CU_add_test(pSuite, "xqc_test_h3_registered_settings_errors",
+                        xqc_test_h3_registered_settings_errors)
         || !CU_add_test(pSuite,
                         "xqc_test_h3_reserved_h2_settings_rejected",
                         xqc_test_h3_reserved_h2_settings_rejected)

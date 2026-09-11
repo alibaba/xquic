@@ -8,6 +8,8 @@
 #include <xquic/xqc_http3.h>
 #include "src/http3/frame/xqc_h3_frame_defs.h"
 
+#define XQC_H3_MAX_REGISTERED_SETTINGS 16
+
 typedef union xqc_h3_frame_payload_s {
     xqc_h3_frame_headers_t              headers;
     xqc_h3_frame_data_t                 data;
@@ -79,8 +81,9 @@ xqc_int_t xqc_h3_frm_write_data(xqc_list_head_t *send_buf, unsigned char *data, 
 
 xqc_int_t xqc_h3_frm_write_cancel_push(xqc_list_head_t *send_buf, uint64_t push_id, uint8_t fin);
 
-xqc_int_t xqc_h3_frm_write_settings(xqc_list_head_t *send_buf, xqc_h3_conn_settings_t *setting,
-    uint8_t fin);
+xqc_int_t xqc_h3_frm_write_settings(xqc_list_head_t *send_buf,
+    xqc_h3_conn_settings_t *settings,
+    const xqc_h3_setting_t *registered, size_t registered_count, uint8_t fin);
 
 xqc_int_t xqc_h3_frm_write_push_promise(xqc_list_head_t *send_buf, uint64_t push_id, 
     xqc_var_buf_t *encoded_field_section, uint8_t fin);

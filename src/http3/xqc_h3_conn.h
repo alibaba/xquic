@@ -61,6 +61,9 @@ typedef enum {
     /* is h3 ext enabled ? */
     XQC_H3_CONN_FLAG_EXT_ENABLED                = 1 << 8,
 
+    /* local SETTINGS is encoded and cannot be changed */
+    XQC_H3_CONN_FLAG_SETTINGS_QUEUED            = 1 << 9,
+
 } xqc_http3_conn_flag;
 
 typedef struct xqc_h3_conn_s {
@@ -97,6 +100,13 @@ typedef struct xqc_h3_conn_s {
     /* h3 settings */
     xqc_h3_conn_settings_t       local_h3_conn_settings; /* set by user for sending to the peer */
     xqc_h3_conn_settings_t       peer_h3_conn_settings;  /* receive from peer */
+    xqc_h3_setting_t             registered_settings[
+                                     XQC_H3_MAX_REGISTERED_SETTINGS];
+    size_t                       registered_settings_count;
+    xqc_int_t                  (*on_settings_entry)(uint64_t identifier,
+        uint64_t value, void *user_data);
+    xqc_int_t                  (*on_settings_complete)(void *user_data);
+    void                        *settings_user_data;
 
     /* blocked buffer limits (effective values computed at init time) */
     size_t                       max_blocked_buf_per_stream;       /* effective limit per stream */

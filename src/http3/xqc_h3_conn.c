@@ -624,6 +624,43 @@ xqc_h3_conn_on_uni_stream_created(xqc_h3_conn_t *h3c, uint64_t stype)
 
 
 xqc_int_t
+xqc_h3_conn_set_setting(xqc_h3_conn_t *h3c, uint64_t identifier,
+    uint64_t value)
+{
+    if (h3c == NULL) {
+        return -XQC_EPARAM;
+    }
+    if (h3c->flags & XQC_H3_CONN_FLAG_SETTINGS_QUEUED) {
+        return -XQC_ESTATE;
+    }
+    /* RFC 9114 Section 7.2.4.1: 0x02 through 0x05 are reserved. */
+    if (identifier > ((UINT64_C(1) << 62) - 1)
+        || value > ((UINT64_C(1) << 62) - 1)
+        || (identifier >= 0x02 && identifier <= 0x05)
+        || identifier == XQC_H3_SETTINGS_QPACK_MAX_TABLE_CAPACITY
+        || identifier == XQC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE
+        || identifier == XQC_H3_SETTINGS_QPACK_BLOCKED_STREAMS)
+    {
+        return -XQC_EPARAM;
+    }
+    for (size_t i = 0; i < h3c->registered_settings_count; i++) {
+        if (h3c->registered_settings[i].identifier.vi == identifier) {
+            h3c->registered_settings[i].value.vi = value;
+            return XQC_OK;
+        }
+    }
+    if (h3c->registered_settings_count == XQC_H3_MAX_REGISTERED_SETTINGS) {
+        return -XQC_EPARAM;
+    }
+    xqc_h3_setting_t *setting =
+        &h3c->registered_settings[h3c->registered_settings_count++];
+    setting->identifier.vi = identifier;
+    setting->value.vi = value;
+    return XQC_OK;
+}
+
+
+xqc_int_t
 xqc_h3_conn_send_settings(xqc_h3_conn_t *h3c)
 {
     xqc_h3_conn_settings_t *settings = &h3c->local_h3_conn_settings;
@@ -765,6 +802,10 @@ xqc_h3_conn_on_settings_entry_received(uint64_t identifier, uint64_t value, void
         return -XQC_H3_SETTING_ERROR;
 
     default:
+        if (h3c->on_settings_entry) {
+            return h3c->on_settings_entry(identifier, value,
+                                          h3c->settings_user_data);
+        }
         xqc_log(h3c->log, XQC_LOG_INFO, "|ignore unknown setting|identifier%ui|value:%ui",
                 identifier, value);
         break;

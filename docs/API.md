@@ -600,11 +600,13 @@ NULL handles, receive-only streams, and values beyond the QUIC varint
 range return `-XQC_EPARAM`. Setting a prefix after sending data or without
 peer support returns `-XQC_ESTATE`.
 
-The optional `stream_stop_sending_notify` callback receives the first peer
-STOP_SENDING and its 64-bit error. When a reliable prefix is incomplete,
-notification waits until the application submits the remaining prefix.
-The callback can run synchronously from `xqc_stream_send`; it does not
-transfer ownership or replace the final stream close callback.
+The optional `stream_stop_sending_notify` callback immediately reports each
+processed STOP_SENDING frame and its 64-bit error; duplicate frames may repeat
+the callback. If a reliable prefix is incomplete, the application must
+continue submitting it before releasing its data. The callback does not
+transfer ownership or replace the final stream close callback. WebTransport
+deduplicates these events and delays its application notification until the
+required stream header has been submitted.
 
 #### xqc_get_conn_user_data_by_stream
 ```

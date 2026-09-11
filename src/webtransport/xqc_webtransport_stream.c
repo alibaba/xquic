@@ -58,7 +58,10 @@ static ssize_t
 xqc_wt_raw_send(xqc_h3_stream_t *stream, const unsigned char *data,
     size_t len, uint8_t fin)
 {
-    return xqc_stream_send(stream->stream, (unsigned char *)data, len, fin);
+    ssize_t ret = xqc_stream_send(stream->stream, (unsigned char *)data,
+                                  len, fin);
+    xqc_wt_h3_stream_notify_stop(stream);
+    return ret;
 }
 
 static xqc_int_t

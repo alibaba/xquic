@@ -814,9 +814,9 @@ typedef struct xqc_stream_callbacks_s {
     xqc_stream_closing_notify_pt    stream_closing_notify;
 
     /**
-     * Notify the first received STOP_SENDING with its application error.
-     * If a reliable prefix is pending, notification waits until the prefix
-     * is submitted. Applications must continue writing that prefix.
+     * Report a received STOP_SENDING with its application error. Duplicate
+     * frames can repeat this callback. If a reliable prefix is pending,
+     * the application must continue submitting it before releasing its data.
      */
     xqc_stream_stop_sending_notify_pt stream_stop_sending_notify;
 

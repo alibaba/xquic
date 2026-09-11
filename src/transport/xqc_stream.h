@@ -121,6 +121,22 @@ typedef struct xqc_stream_ack_range_s {
     uint64_t                      end;
 } xqc_stream_ack_range_t;
 
+/* draft-ietf-quic-reliable-stream-reset-09 Sections 4 and 5. */
+typedef struct {
+    uint64_t                send_size;
+    uint64_t                send_error;
+    uint64_t                acked_offset;
+    xqc_stream_ack_range_t  *acked_ranges;
+    uint64_t                recv_size;
+    uint64_t                recv_error;
+    xqc_bool_t              enabled;
+    xqc_bool_t              pending;
+    xqc_bool_t              sent;
+    xqc_bool_t              acked;
+    xqc_bool_t              received;
+    xqc_bool_t              reported;
+} xqc_stream_reset_at_t;
+
 struct xqc_stream_s {
     xqc_connection_t       *stream_conn;
     xqc_stream_id_t         stream_id;
@@ -137,21 +153,7 @@ struct xqc_stream_s {
                             all_stream_list;
 
     uint64_t                stream_send_offset;
-    uint64_t                reliable_size;
-    xqc_bool_t              reliable_size_set;
-    uint64_t                reliable_acked_offset;
-    xqc_stream_ack_range_t  *reliable_ack_ranges;
-    uint64_t                reset_stream_at_error;
-    uint64_t                recv_reliable_size;
-    uint64_t                recv_reset_error;
-    xqc_bool_t              reset_stream_at_sent;
-    xqc_bool_t              reset_stream_at_acked;
-    xqc_bool_t              reset_stream_at_pending;
-    xqc_bool_t              reset_stream_at_received;
-    xqc_bool_t              recv_reset_reported;
-    uint64_t                stop_sending_error;
-    xqc_bool_t              stop_sending_received;
-    xqc_bool_t              stop_sending_notified;
+    xqc_stream_reset_at_t    reset_at;
     uint64_t                stream_max_recv_offset;
     xqc_stream_flag_t       stream_flag;
     xqc_encrypt_level_t     stream_encrypt_level;
@@ -352,6 +354,5 @@ void xqc_record_stream_state(xqc_stream_t *stream);
 void xqc_stream_ack_reliable(xqc_stream_t *stream, uint64_t offset,
     uint64_t length, xqc_bool_t reset_acked);
 xqc_int_t xqc_stream_do_reset(xqc_stream_t *stream, uint64_t error_code);
-void xqc_stream_notify_stop_sending(xqc_stream_t *stream);
 
 #endif /* _XQC_STREAM_H_INCLUDED_ */

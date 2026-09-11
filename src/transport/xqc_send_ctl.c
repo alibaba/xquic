@@ -1600,7 +1600,7 @@ xqc_send_ctl_on_packet_acked(xqc_send_ctl_t *send_ctl,
             xqc_stream_ack_reliable(stream, frame->ps_offset,
                 frame->ps_is_reset_at ? 0 : frame->ps_length,
                 frame->ps_is_reset_at
-                    && frame->ps_reliable_size == stream->reliable_size);
+                    && frame->ps_reliable_size == stream->reset_at.send_size);
         }
     }
     xqc_conn_decrease_unacked_stream_ref(send_ctl->ctl_conn, packet_out);

@@ -490,6 +490,10 @@ static int
 xqc_demo_cli_wt_verify_cert(const unsigned char *certs[],
     const size_t cert_len[], size_t cert_count, void *user_data)
 {
+    /*
+     * Successful TLS certificate verification bypasses this callback.
+     * Reject exceptions after default verification fails.
+     */
     return XQC_ERROR;
 }
 

@@ -2,6 +2,8 @@ FROM martenseemann/quic-network-simulator-endpoint@sha256:3b2b9e6fa317da238c8140
 
 FROM endpoint AS builder
 ARG BORINGSSL_REV=27c62ff54d72b4a2dd55c3c4ace527550a051626
+# Use Ubuntu security updates with the digest-pinned base image.
+# hadolint ignore=DL3008
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     --no-install-recommends build-essential ca-certificates cmake git \
     golang-go libevent-dev libcunit1-dev python3 ruby && \
@@ -19,6 +21,7 @@ RUN python3 interop/webtransport/test_endpoint.py && \
         --group webtransport.core
 
 FROM endpoint AS runtime
+# hadolint ignore=DL3008
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     --no-install-recommends libevent-2.1-7t64 ca-certificates python3 && \
     rm -rf /var/lib/apt/lists/*

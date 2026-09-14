@@ -2,7 +2,8 @@
 """Run the XQUIC WebTransport demo with the simulator's environment."""
 import os
 import re
-import subprocess
+# Run fixed simulator helpers and role-whitelisted demos without a shell.
+import subprocess  # nosec B404
 import sys
 from urllib.parse import urlsplit
 
@@ -44,11 +45,11 @@ def main():
         args = endpoint_command(os.environ)
         if args is None:
             return 127
-        subprocess.run(["/setup.sh"], check=True)
+        subprocess.run(["/setup.sh"], check=True)  # nosec B603
         if os.environ["ROLE"] == "client":
-            subprocess.run(["/wait-for-it.sh", "sim:57832", "-s", "-t", "30"],
-                           check=True)
-        os.execv(args[0], args)
+            subprocess.run(  # nosec B603
+                ["/wait-for-it.sh", "sim:57832", "-s", "-t", "30"], check=True)
+        os.execv(args[0], args)  # nosec B606
     except (ValueError, OSError, subprocess.CalledProcessError) as exc:
         print(f"WebTransport endpoint failed: {exc}", file=sys.stderr)
         return 1

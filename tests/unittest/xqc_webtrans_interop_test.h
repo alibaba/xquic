@@ -9,5 +9,9 @@ void xqc_test_wt_interop_protocols(void);
 void xqc_test_wt_interop_stream_ownership(void);
 void xqc_test_wt_interop_stream_bound(void);
 void xqc_test_wt_interop_file_confinement(void);
+void xqc_test_wt_interop_roles(void);
+void xqc_test_wt_interop_bidi_receive(void);
+void xqc_test_wt_interop_datagrams(void);
+void xqc_test_wt_interop_datagram_backpressure(void);
 
 #endif

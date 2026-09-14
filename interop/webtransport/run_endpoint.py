@@ -10,8 +10,13 @@ from urllib.parse import urlsplit
 
 def endpoint_command(env):
     role = env.get("ROLE")
-    cases = {"client": ("handshake", "transfer-unidirectional-receive"),
-             "server": ("handshake", "transfer")}
+    cases = {"client": ("handshake", "transfer",
+                        "transfer-unidirectional-receive",
+                        "transfer-bidirectional-receive",
+                        "transfer-datagram-receive"),
+             "server": ("handshake", "transfer", "transfer-unidirectional-send",
+                        "transfer-bidirectional-send",
+                        "transfer-datagram-send")}
     if env.get("TESTCASE") not in cases.get(role, ()):
         return None
     args = [f"/usr/local/bin/wt_interop_{role}", "-W", "-v", "16",

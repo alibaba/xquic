@@ -111,6 +111,10 @@ xqc_test_wt_context(void)
     CU_ASSERT(ctx->settings.max_sessions_count == 1);
     CU_ASSERT(engine->default_conn_settings.max_datagram_frame_size > 0);
     CU_ASSERT(engine->default_conn_settings.enable_reset_stream_at);
+    CU_ASSERT(ctx->pending_count_max
+              == XQC_WEBTRANSPORT_DEFAULT_PENDING_DGRAM_COUNT_MAX);
+    CU_ASSERT(ctx->pending_bytes_max
+              == XQC_WEBTRANSPORT_DEFAULT_PENDING_DGRAM_BYTES_MAX);
     CU_ASSERT(xqc_wt_ctx_set_pending_datagram_policy(engine, 8, 2, 16)
               == XQC_OK);
     CU_ASSERT(ctx->pending_count_max == 2);
@@ -305,6 +309,23 @@ xqc_test_wt_datagram_association(void)
     CU_ASSERT(session->wt_conn->pending_count == 0);
     cbs.datagram_read_notify(&transport, NULL, "\xff", 1, 1);
     CU_ASSERT(wt_reads == 2);
+    second->open = XQC_FALSE;
+    ctx.pending_count_max = 256;
+    ctx.pending_bytes_max = 256 * 1200;
+    for (size_t i = 0; i < 256; i++) {
+        cbs.datagram_read_notify(&transport, NULL, "\x02x", 2, 1);
+    }
+    CU_ASSERT(session->wt_conn->pending_count == 256);
+    CU_ASSERT(session->wt_conn->pending_bytes == 256);
+    cbs.datagram_read_notify(&transport, NULL, "\x02x", 2, 1);
+    CU_ASSERT(session->wt_conn->pending_count == 256);
+    CU_ASSERT(session->wt_conn->pending_bytes == 256);
+    CU_ASSERT(wt_reads == 2);
+    second->open = XQC_TRUE;
+    xqc_wt_dgram_resume(second);
+    CU_ASSERT(wt_reads == 258);
+    CU_ASSERT(!session->wt_conn->pending_count);
+    CU_ASSERT(!session->wt_conn->pending_bytes);
     xqc_wt_conn_destroy(session->wt_conn);
 }
 

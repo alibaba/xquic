@@ -3,10 +3,12 @@
 This image runs the existing XQUIC `wt_interop_client` and
 `wt_interop_server` demos. Its entrypoint maps the standard
 [runner environment and application contract](https://github.com/quic-interop/quic-interop-runner/blob/master/webtransport.md)
-to demo arguments. The client supports handshake (H) and unidirectional
-receive (UR); the server supports handshake and unidirectional responses.
-Unsupported cases exit 127. Clients verify `/certs/ca.pem` and the requested
-hostname. Application behavior and native CI are described in
+to demo arguments. It supports handshake (H) and file transfers over
+unidirectional streams (UR/US), bidirectional streams (BR/BS), and datagrams
+(DR/DS). Receive cases make the client request files; send cases make the
+server request files from a client running `transfer`. Unsupported role/case
+combinations exit 127 before simulator setup. Clients verify `/certs/ca.pem`
+and the requested hostname. Application behavior and native CI are described in
 [the demo documentation](../../demo/webtransport.md).
 
 Build from the XQUIC repository root:
@@ -21,12 +23,12 @@ docker build --platform linux/amd64 -f interop/webtransport/Dockerfile \
 The builder runs the entrypoint tests, complete CUnit suite and native
 WebTransport group before copying the same tested binaries into the image.
 
-From a [runner checkout](https://github.com/quic-interop/quic-interop-runner)
+Run all seven cases from a
+[runner checkout](https://github.com/quic-interop/quic-interop-runner)
 with XQUIC registered:
 
 ```sh
 python3 run.py -p webtransport -s xquic -c xquic \
-    -t handshake,transfer-unidirectional-receive \
     -r xquic=xquic-webtransport-interop:local
 ```
 

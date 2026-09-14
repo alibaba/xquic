@@ -58,18 +58,22 @@ tests. This document does not maintain a parallel section index or summary.
 
 ### Interoperability application ownership
 
-The H and unidirectional-receive interoperability application belongs under
-`demo/` and must share the existing demo runtime and XQUIC CMake build graph.
+The handshake and bidirectional/unidirectional/datagram file-transfer
+interoperability application belongs under `demo/` and must share the
+existing demo runtime and XQUIC CMake build graph.
 XQUIC owns container packaging and environment mapping under
 `interop/webtransport/`, together with its image publication workflow. The
 public interop runner consumes the published image and owns shared cases and
 image registration. Packaging must not maintain a second XQUIC engine/TLS
 runtime.
 Native CI must exercise the same application binaries using input/output
-assertions for protocol preference, file contents and FIN, and explicit
-negotiation, file, and certificate failures. The owning case registrations
-are in `case_test/webtransport/core.sh`. Packet inspection remains an
-additional external interoperability check rather than a native CI dependency.
+assertions for protocol preference, file contents and stream FIN or complete
+datagrams, and explicit negotiation, file, and certificate failures. Both
+client and server requesters must be covered; a responding client must remain
+available until the requester completes and closes the session. The owning
+case registrations are in `case_test/webtransport/core.sh`. Packet inspection
+remains an additional external interoperability check rather than a native
+CI dependency.
 
 ### Protocol implementation
 

@@ -216,6 +216,7 @@ wt_interop_prepare()
     WT_INTEROP_DIR="$(mktemp -d \
         "${CASE_TEST_WORK_DIR}/case-logs/${name}/interop.XXXXXX")" || return 1
     mkdir -p "${WT_INTEROP_DIR}/server-www/wt" \
+        "${WT_INTEROP_DIR}/client-www/wt" \
         "${WT_INTEROP_DIR}/server-downloads" \
         "${WT_INTEROP_DIR}/client-downloads" || return 1
     WT_INTEROP_CLIENT_CASE=handshake
@@ -225,6 +226,7 @@ wt_interop_prepare()
     WT_INTEROP_HOST=test.xquic.com
     WT_INTEROP_CA="${PWD}/server.crt"
     WT_INTEROP_REQUESTS="https://${WT_INTEROP_HOST}:${CASE_TEST_PORT}/wt"
+    WT_INTEROP_SERVER_REQUESTS=''
     rm -f session_ticket transport_params token
     clear_log
 }
@@ -240,6 +242,7 @@ wt_interop_run()
     CASE_TEST_SERVER_WAIT=0 case_test_start_server env ROLE=server \
         TESTCASE="${WT_INTEROP_SERVER_CASE}" \
         PROTOCOLS="${WT_INTEROP_SERVER_PROTOCOLS}" \
+        REQUESTS="${WT_INTEROP_SERVER_REQUESTS}" \
         XQC_WT_WWW="${WT_INTEROP_DIR}/server-www" \
         XQC_WT_DOWNLOADS="${WT_INTEROP_DIR}/server-downloads" \
         "${build_dir}/demo/wt_interop_server" \
@@ -257,6 +260,7 @@ wt_interop_run()
     env ROLE=client TESTCASE="${WT_INTEROP_CLIENT_CASE}" \
         PROTOCOLS="${WT_INTEROP_CLIENT_PROTOCOLS}" \
         REQUESTS="${WT_INTEROP_REQUESTS}" \
+        XQC_WT_WWW="${WT_INTEROP_DIR}/client-www" \
         XQC_WT_DOWNLOADS="${WT_INTEROP_DIR}/client-downloads" \
         "${build_dir}/demo/wt_interop_client" -W -v 16 -a 127.0.0.1 \
         -U "https://${WT_INTEROP_HOST}:${CASE_TEST_PORT}/wt" \
@@ -323,80 +327,164 @@ wt_interop_protocol_rejected()
 
 wt_interop_transfer_prepare()
 {
-    WT_INTEROP_CLIENT_CASE=transfer-unidirectional-receive
+    local mode="${1:-UR}"
+    local carrier=unidirectional
+
+    case "${mode}" in
+        BR|BS) carrier=bidirectional ;;
+        DR|DS) carrier=datagram ;;
+    esac
+    WT_INTEROP_CLIENT_CASE="transfer-${carrier}-receive"
     WT_INTEROP_SERVER_CASE=transfer
     WT_INTEROP_CLIENT_PROTOCOLS=files
     WT_INTEROP_SERVER_PROTOCOLS=files
+    WT_INTEROP_SOURCE_ROLE=server
+    WT_INTEROP_RECEIVER_ROLE=client
+    WT_INTEROP_SOURCE_LOG=svr_stdlog
+    WT_INTEROP_RECEIVER_LOG=stdlog
+    WT_INTEROP_PREFIX="https://${WT_INTEROP_HOST}:${CASE_TEST_PORT}/wt"
+    case "${mode}" in
+        US|BS|DS)
+            WT_INTEROP_CLIENT_CASE=transfer
+            WT_INTEROP_SERVER_CASE="transfer-${carrier}-send"
+            WT_INTEROP_SOURCE_ROLE=client
+            WT_INTEROP_RECEIVER_ROLE=server
+            WT_INTEROP_SOURCE_LOG=stdlog
+            WT_INTEROP_RECEIVER_LOG=svr_stdlog
+            WT_INTEROP_PREFIX=wt
+            ;;
+    esac
 }
 
-# quic-interop-runner/webtransport.md: GET ends at FIN, PUSH at LF + body.
-wt_interop_ur()
+wt_interop_set_requests()
 {
-    local name=wt_interop_ur
-    local index=0
-    local size
-    local file
+    if [[ "${WT_INTEROP_RECEIVER_ROLE}" == client ]]; then
+        WT_INTEROP_REQUESTS="$1"
+    else
+        WT_INTEROP_SERVER_REQUESTS="$1"
+    fi
+}
+
+# quic-interop-runner/webtransport.md: stream FIN or one complete datagram.
+wt_interop_transfer()
+{
+    local name="$1"
+    local mode="$2"
+    local count=5
+    local fin=1
+    local carrier=uni
+    local completion=fin=1
     local log
+    local requests
+    local source
+    local destination
 
     wt_interop_prepare "${name}" || return 1
-    wt_interop_transfer_prepare
-    python3 - "${WT_INTEROP_DIR}/server-www/wt" <<'PY'
+    wt_interop_transfer_prepare "${mode}"
+    case "${mode}" in
+        BR|BS) carrier=bidi ;;
+        DR|DS) count=200; fin=0; completion=datagram=1 ;;
+    esac
+    source="${WT_INTEROP_DIR}/${WT_INTEROP_SOURCE_ROLE}-www/wt"
+    destination="${WT_INTEROP_DIR}/${WT_INTEROP_RECEIVER_ROLE}-downloads/wt"
+    requests="$(python3 - "${source}" "${count}" \
+        "${WT_INTEROP_PREFIX}" <<'PY'
 import pathlib
 import sys
 
 root = pathlib.Path(sys.argv[1])
-for index, size in enumerate((102400, 512000, 256000, 1048576, 2097152)):
+sizes = ((102400, 512000, 256000, 1048576, 2097152)
+         if sys.argv[2] == "5" else range(600, 1000, 2))
+for index, size in enumerate(sizes):
     block = bytes((value + index) % 256 for value in range(256))
-    (root / f"file-{index}.bin").write_bytes(block * (size // len(block)))
+    name = f"file-{index}.bin"
+    (root / name).write_bytes((block * ((size + 255) // 256))[:size])
+    print(f"{sys.argv[3]}/{name}", end=" ")
 PY
-    [[ "$?" -eq 0 ]] || return 1
-    WT_INTEROP_REQUESTS=''
-    for index in 0 1 2 3 4; do
-        WT_INTEROP_REQUESTS+=" https://${WT_INTEROP_HOST}:${CASE_TEST_PORT}"
-        WT_INTEROP_REQUESTS+="/wt/file-${index}.bin"
-    done
+    )" || return 1
+    wt_interop_set_requests "${requests}"
     wt_interop_run "${name}" '^WT closed: status=200 code=0$' || return 1
     [[ "${WT_INTEROP_CLIENT_STATUS}" -eq 0 ]] || return 1
     wt_interop_ready || return 1
-    index=0
-    for size in 102400 512000 256000 1048576 2097152; do
-        file="wt/file-${index}.bin"
-        cmp "${WT_INTEROP_DIR}/server-www/${file}" \
-            "${WT_INTEROP_DIR}/client-downloads/${file}" || return 1
-        grep -q "^WT file received: file-${index}.bin bytes=${size} fin=1$" \
-            stdlog \
-            || return 1
-        index=$((index + 1))
-    done
-    for log in stdlog svr_stdlog; do
-        [[ "$(grep -c '^WT uni sent: .* fin=1$' "${log}")" -eq 5 ]] \
-            || return 1
-        [[ "$(sed -n 's/^WT uni sent: id=\([0-9]*\) .*/\1/p' \
-            "${log}" | sort -u | wc -l)" -eq 5 ]] || return 1
-    done
-    grep -q '^WT INTEROP PASS: case=UR files=5 all_fin=1$' stdlog || return 1
+    python3 - "${source}" "${destination}" "${count}" \
+        "${WT_INTEROP_RECEIVER_LOG}" "${completion}" <<'PY_CHECK'
+import pathlib
+import sys
+
+source, destination = map(pathlib.Path, sys.argv[1:3])
+lines = set(pathlib.Path(sys.argv[4]).read_text().splitlines())
+for index in range(int(sys.argv[3])):
+    name = f"file-{index}.bin"
+    expected = (source / name).read_bytes()
+    assert (destination / name).read_bytes() == expected, name
+    assert (f"WT file received: {name} bytes={len(expected)} {sys.argv[5]}"
+            in lines), name
+PY_CHECK
+    [[ "$?" -eq 0 ]] || return 1
+    if [[ "${fin}" -eq 1 ]]; then
+        for log in stdlog svr_stdlog; do
+            [[ "$(grep -c "^WT ${carrier} sent: .* fin=1$" "${log}")" \
+                -eq 5 ]] || return 1
+            [[ "$(sed -n \
+                "s/^WT ${carrier} sent: id=\([0-9]*\) .*/\1/p" \
+                "${log}" | sort -u | wc -l)" -eq 5 ]] || return 1
+        done
+        if [[ "${carrier}" == bidi ]]; then
+            cmp <(sed -n 's/^WT bidi sent: id=\([0-9]*\) .*/\1/p' \
+                stdlog | sort -n) \
+                <(sed -n 's/^WT bidi sent: id=\([0-9]*\) .*/\1/p' \
+                svr_stdlog | sort -n) || return 1
+        fi
+    fi
+    grep -q "^WT INTEROP PASS: case=${mode} files=${count} all_fin=${fin}$" \
+        "${WT_INTEROP_RECEIVER_LOG}" || return 1
     ! grep -q '^WT INTEROP FAIL:' stdlog svr_stdlog
 }
 
-wt_interop_missing_file()
+wt_interop_transfer_missing()
 {
-    local name=wt_interop_missing_file
+    local name="$1"
+    local mode="$2"
+    local destination
+    local peer_pattern='^WT INTEROP FAIL: open requested file error=2$'
     local failure='session closed before completion|stream closed before FIN'
 
     wt_interop_prepare "${name}" || return 1
-    wt_interop_transfer_prepare
-    WT_INTEROP_REQUESTS+='/missing.bin'
-    wt_interop_run "${name}" \
-        '^WT INTEROP FAIL: open requested file error=2$' || return 1
+    wt_interop_transfer_prepare "${mode}"
+    wt_interop_set_requests "${WT_INTEROP_PREFIX}/missing.bin"
+    if [[ "${WT_INTEROP_RECEIVER_ROLE}" == server ]]; then
+        peer_pattern='^WT closed: status=200 code=1$'
+    fi
+    wt_interop_run "${name}" "${peer_pattern}" || return 1
     [[ "${WT_INTEROP_CLIENT_STATUS}" -eq 1 ]] || return 1
     wt_interop_ready || return 1
-    grep -q '^WT closed: status=200 code=1$' stdlog || return 1
+    grep -q '^WT INTEROP FAIL: open requested file error=2$' \
+        "${WT_INTEROP_SOURCE_LOG}" || return 1
+    grep -q '^WT closed: status=200 code=1$' \
+        "${WT_INTEROP_RECEIVER_LOG}" || return 1
     failure+='|stream reset or stopped'
     grep -Eq "^WT INTEROP FAIL: (${failure}) error=-1$" \
-        stdlog || return 1
+        "${WT_INTEROP_RECEIVER_LOG}" || return 1
     ! grep -q '^WT INTEROP PASS:' stdlog svr_stdlog || return 1
-    [[ ! -e "${WT_INTEROP_DIR}/client-downloads/wt/missing.bin" ]]
+    destination="${WT_INTEROP_DIR}/${WT_INTEROP_RECEIVER_ROLE}-downloads"
+    [[ ! -e "${destination}/wt/missing.bin" ]]
 }
+
+wt_interop_ur() { wt_interop_transfer wt_interop_ur UR; }
+wt_interop_missing_file()
+{
+    wt_interop_transfer_missing wt_interop_missing_file UR
+}
+wt_interop_us() { wt_interop_transfer wt_interop_us US; }
+wt_interop_us_missing() { wt_interop_transfer_missing wt_interop_us_missing US; }
+wt_interop_br() { wt_interop_transfer wt_interop_br BR; }
+wt_interop_br_missing() { wt_interop_transfer_missing wt_interop_br_missing BR; }
+wt_interop_bs() { wt_interop_transfer wt_interop_bs BS; }
+wt_interop_bs_missing() { wt_interop_transfer_missing wt_interop_bs_missing BS; }
+wt_interop_dr() { wt_interop_transfer wt_interop_dr DR; }
+wt_interop_dr_missing() { wt_interop_transfer_missing wt_interop_dr_missing DR; }
+wt_interop_ds() { wt_interop_transfer wt_interop_ds DS; }
+wt_interop_ds_missing() { wt_interop_transfer_missing wt_interop_ds_missing DS; }
 
 wt_interop_tls_rejected()
 {
@@ -473,6 +561,21 @@ case_test_case "wt_interop_wrong_ca" --id 1821 \
     --run wt_interop_wrong_ca --timeout 15
 case_test_case "wt_interop_wrong_hostname" --id 1822 \
     --run wt_interop_wrong_hostname --timeout 15
+case_test_case "wt_interop_us" --id 1823 --run wt_interop_us --timeout 15
+case_test_case "wt_interop_us_missing" --id 1824 \
+    --run wt_interop_us_missing --timeout 15
+case_test_case "wt_interop_br" --id 1825 --run wt_interop_br --timeout 15
+case_test_case "wt_interop_br_missing" --id 1826 \
+    --run wt_interop_br_missing --timeout 15
+case_test_case "wt_interop_bs" --id 1827 --run wt_interop_bs --timeout 15
+case_test_case "wt_interop_bs_missing" --id 1828 \
+    --run wt_interop_bs_missing --timeout 15
+case_test_case "wt_interop_dr" --id 1829 --run wt_interop_dr --timeout 15
+case_test_case "wt_interop_dr_missing" --id 1830 \
+    --run wt_interop_dr_missing --timeout 15
+case_test_case "wt_interop_ds" --id 1831 --run wt_interop_ds --timeout 15
+case_test_case "wt_interop_ds_missing" --id 1832 \
+    --run wt_interop_ds_missing --timeout 15
 
 if case_test_is_discovery; then
     case_test_run

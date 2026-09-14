@@ -153,14 +153,27 @@ WebTransport application callbacks. UDP, libevent, TLS, logging, and process
 completion remain shared. No separate runtime or CMake project is needed.
 
 The interop application implements the runner's
-[H and unidirectional file transfer contract](https://github.com/quic-interop/quic-interop-runner/blob/master/webtransport.md).
+[handshake and file transfer contract](https://github.com/quic-interop/quic-interop-runner/blob/master/webtransport.md).
 It selects the client's first common application protocol, writes
-`negotiated_protocol.txt`, and transfers files using parallel `GET` and
-`PUSH` unidirectional streams. Transfer completion requires receive FIN for
-every requested file. The application bounds stream state and pending data,
-and confines file access to the configured input and output directories.
+`negotiated_protocol.txt`, and transfers files in both directions using
+unidirectional streams (UR/US), bidirectional streams (BR/BS), or datagrams
+(DR/DS). Unidirectional responses use `PUSH`; bidirectional responses reuse
+the request stream and carry raw file bytes. A datagram contains one complete
+`GET` or `PUSH` message. The requester closes the session only after every
+file is received, with FIN required for stream transfers. The application
+bounds stream state and pending data, and confines file access to the
+configured input and output directories.
+Datagram requesters keep one GET outstanding and send the next after receiving
+the complete PUSH response, avoiding bursts of small packets.
+Before session readiness, it buffers at most 256 datagrams and 300 KiB of
+payload so the runner's 200 requests may arrive before the CONNECT response.
 
 The runner supplies `ROLE`, `TESTCASE`, `PROTOCOLS`, and `REQUESTS`.
+For receive cases the client requests file URLs. For send cases the server
+requests relative paths such as `wt/file.bin`, while the client connects to
+the session URL with `TESTCASE=transfer` and serves files. The generic
+`transfer` role responds on all three carriers and waits for the requester's
+session close before reporting success.
 `XQC_WT_WWW` and `XQC_WT_DOWNLOADS` override the default `/www` and
 `/downloads` directories for native execution. The interop server listens on
 all interfaces for container networking. Its client accepts an explicit
@@ -178,20 +191,24 @@ The `webtransport.core` CI group also registers these input/output cases:
 | 1820 | UR rejection: a missing source file produces an explicit peer application error and no success result. |
 | 1821 | An unrelated CA fails TLS verification before a session becomes ready. |
 | 1822 | A mismatched hostname fails TLS verification before a session becomes ready. |
+| 1823, 1824 | US: the server receives the five binary files with FIN; a missing client source file fails explicitly. |
+| 1825, 1826 | BR: the client receives the five binary files on the request streams with FIN; a missing server source file fails explicitly. |
+| 1827, 1828 | BS: the server receives the five binary files on the request streams with FIN; a missing client source file fails explicitly. |
+| 1829, 1830 | DR: the client receives 200 complete files of 600–998 bytes; a missing server source file fails explicitly. |
+| 1831, 1832 | DS: the server receives 200 complete files of 600–998 bytes; a missing client source file fails explicitly. |
 
 For a quick local run after the normal build:
 
 ```sh
 XQC_BUILD_DIR=build/validation bash scripts/case_test.sh --execute \
-    --case wt_interop_handshake --case wt_interop_protocol_rejected \
-    --case wt_interop_ur --case wt_interop_missing_file \
-    --case wt_interop_wrong_ca --case wt_interop_wrong_hostname
+    --group webtransport.core
 ```
 
 These native cases use the existing case runner's fixtures, isolated work
 directory, process lifecycle, and log assertions. They require no Docker,
 browser, packet capture, or external peer. Parser, callback ownership, stream
-bounds, and filesystem boundary checks run in the complete CUnit suite.
+and datagram bounds, and filesystem boundary checks run in the complete
+CUnit suite.
 
 Interop image builds must run the complete unit suite and these native cases
 before copying the same tested binaries into the final image. A final-image

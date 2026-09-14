@@ -96,6 +96,14 @@ main(int argc, char *argv[])
                         xqc_test_wt_interop_stream_bound)
         || !CU_add_test(pSuite, "xqc_test_wt_interop_file_confinement",
                         xqc_test_wt_interop_file_confinement)
+        || !CU_add_test(pSuite, "xqc_test_wt_interop_roles",
+                        xqc_test_wt_interop_roles)
+        || !CU_add_test(pSuite, "xqc_test_wt_interop_bidi_receive",
+                        xqc_test_wt_interop_bidi_receive)
+        || !CU_add_test(pSuite, "xqc_test_wt_interop_datagrams",
+                        xqc_test_wt_interop_datagrams)
+        || !CU_add_test(pSuite, "xqc_test_wt_interop_datagram_backpressure",
+                        xqc_test_wt_interop_datagram_backpressure)
 #endif
         || !CU_add_test(pSuite, "xqc_test_wt_version_negotiation",
                         xqc_test_wt_version_negotiation)
@@ -141,6 +149,8 @@ main(int argc, char *argv[])
                         xqc_test_reliable_reset_send_errors)
         || !CU_add_test(pSuite, "xqc_test_wt_h3_stream_demux",
                         xqc_test_wt_h3_stream_demux)
+        || !CU_add_test(pSuite, "xqc_test_wt_h3_server_bidi",
+                        xqc_test_wt_h3_server_bidi)
         || !CU_add_test(pSuite, "xqc_test_wt_h3_stream_reliable_reset",
                         xqc_test_wt_h3_stream_reliable_reset)
         || !CU_add_test(pSuite, "xqc_test_wt_h3_stream_reset_after_detach",

@@ -5,6 +5,7 @@
 #define XQC_WEBTRANSPORT_H3_STREAM_TEST_H
 
 void xqc_test_wt_h3_stream_demux(void);
+void xqc_test_wt_h3_server_bidi(void);
 void xqc_test_wt_h3_stream_passthrough(void);
 void xqc_test_wt_h3_stream_prefix_errors(void);
 void xqc_test_wt_h3_stream_backpressure(void);

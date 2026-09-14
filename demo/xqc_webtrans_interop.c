@@ -417,25 +417,36 @@ xqc_wt_interop_select_protocol(const char *value, size_t length,
     }
 }
 
-#define XQC_WT_INTEROP_FILES_MAX 32
-#define XQC_WT_INTEROP_STREAMS_MAX (2 * XQC_WT_INTEROP_FILES_MAX)
+#define XQC_WT_INTEROP_FILES_MAX 256
+#define XQC_WT_INTEROP_STREAMS_MAX 64
+#define XQC_WT_INTEROP_DATAGRAM_MAX 1200
 #define XQC_WT_INTEROP_BUFFER_SIZE (64 * 1024)
 
 typedef struct xqc_wt_interop_stream_s xqc_wt_interop_stream_t;
 
 struct xqc_wt_interop_stream_s {
     xqc_wt_interop_stream_t *next;
-    xqc_wt_unistream_t      *stream;
+    void                   *stream;
     xqc_wt_session_t        *session;
     xqc_wt_interop_header_t  header;
-    unsigned char           pending[XQC_WT_INTEROP_BUFFER_SIZE];
     size_t                  length;
     size_t                  offset;
     uint64_t                transferred;
     int                     file;
     int                     request_index;
     int                     sending;
+    int                     sent;
+    int                     bidirectional;
     int                     complete;
+    unsigned char           pending[];
+};
+
+typedef struct xqc_wt_interop_datagram_s xqc_wt_interop_datagram_t;
+
+struct xqc_wt_interop_datagram_s {
+    xqc_wt_interop_datagram_t *next;
+    size_t                    length;
+    unsigned char             data[];
 };
 
 typedef struct {
@@ -443,7 +454,7 @@ typedef struct {
     xqc_wt_session_t       *session;
     xqc_wt_interop_stream_t *streams;
     char                   *protocol_storage;
-    const char             *protocols[XQC_WT_INTEROP_FILES_MAX];
+    const char             *protocols[32];
     size_t                  protocol_count;
     char                    selected[XQC_WT_INTEROP_PROTOCOL_MAX + 1];
     char                    encoded[2 * XQC_WT_INTEROP_PROTOCOL_MAX + 3];
@@ -458,6 +469,11 @@ typedef struct {
     int                     directory;
     int                     server;
     int                     handshake;
+    int                     mode;
+    const char             *case_name;
+    xqc_wt_interop_datagram_t *datagrams;
+    xqc_wt_interop_datagram_t **datagram_tail;
+    size_t                  datagram_count;
     int                     failed;
     int                     success;
     int                     stopped;
@@ -466,7 +482,7 @@ typedef struct {
     void                   *user_data;
 } xqc_wt_interop_t;
 
-/* H and UR each establish exactly one session in one connection. */
+/* The interop cases use one session in one connection. */
 static xqc_wt_interop_t xqc_wt_interop;
 
 static void xqc_wt_interop_fail(const char *operation, int error);
@@ -485,14 +501,13 @@ static int xqc_wt_interop_closed(xqc_wt_session_t *session,
 static void xqc_wt_interop_complete(void);
 static void xqc_wt_interop_handshake(xqc_h3_conn_t *connection,
     void *user_data);
-static xqc_wt_interop_stream_t *xqc_wt_interop_find(
-    xqc_wt_unistream_t *stream);
+static xqc_wt_interop_stream_t *xqc_wt_interop_find(void *stream);
 static xqc_wt_interop_stream_t *xqc_wt_interop_allocate(
     xqc_wt_session_t *session);
 static void xqc_wt_interop_free_stream(xqc_wt_interop_stream_t *state);
 static xqc_int_t xqc_wt_interop_flush(xqc_wt_interop_stream_t *state);
 static xqc_int_t xqc_wt_interop_send(xqc_wt_session_t *session,
-    const char *filename, int push);
+    const char *filename, int push, int request_index);
 static xqc_int_t xqc_wt_interop_stream_create(xqc_wt_unistream_t *stream,
     xqc_wt_session_t *session, void *user_data);
 static xqc_int_t xqc_wt_interop_stream_write(xqc_wt_unistream_t *stream,
@@ -504,6 +519,29 @@ static xqc_int_t xqc_wt_interop_stream_close(xqc_wt_unistream_t *stream,
 static xqc_int_t xqc_wt_interop_stream_closing(xqc_wt_unistream_t *stream,
     xqc_wt_session_t *session, void *user_data);
 static int xqc_wt_interop_configure(int server);
+static void xqc_wt_interop_pass(void);
+static int xqc_wt_interop_directory(void);
+static int xqc_wt_interop_receive_file(xqc_wt_interop_stream_t *state,
+    const char *filename, const void *data, size_t length, int fin,
+    int datagram);
+static xqc_int_t xqc_wt_interop_receive(void *stream, const void *data,
+    size_t length, int fin);
+static xqc_int_t xqc_wt_interop_bidi_create(xqc_wt_bidistream_t *stream,
+    xqc_wt_session_t *session, void *user_data);
+static xqc_int_t xqc_wt_interop_bidi_write(xqc_wt_bidistream_t *stream,
+    xqc_wt_session_t *session, void *user_data);
+static xqc_int_t xqc_wt_interop_bidi_read(xqc_wt_bidistream_t *stream,
+    xqc_wt_session_t *session, void *data, size_t length, void *user_data);
+static xqc_int_t xqc_wt_interop_bidi_close(xqc_wt_bidistream_t *stream,
+    xqc_wt_session_t *session, void *user_data);
+static xqc_int_t xqc_wt_interop_bidi_closing(xqc_wt_bidistream_t *stream,
+    xqc_wt_session_t *session, void *user_data);
+static int xqc_wt_interop_datagram_queue(const void *data, size_t length);
+static int xqc_wt_interop_datagram_request(xqc_wt_session_t *session);
+static void xqc_wt_interop_datagram_write(xqc_wt_session_t *session,
+    void *user_data);
+static void xqc_wt_interop_datagram_read(xqc_wt_session_t *session,
+    const void *data, size_t length, void *user_data, uint64_t recv_time);
 static int xqc_wt_interop_requests(const char *authority, const char *path);
 static xqc_int_t xqc_wt_interop_init(xqc_engine_t *engine,
     int draft_version, int server, void (*schedule_send)(void *user_data),
@@ -665,9 +703,7 @@ xqc_wt_interop_accept(xqc_http_headers_t *headers,
         fprintf(stderr, "WT INTEROP reject: no application protocol\n");
         return 0;
     }
-    ctx->directory = openat(ctx->root, ctx->endpoint,
-                            O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
-    if (ctx->directory < 0) {
+    if (xqc_wt_interop_directory()) {
         fprintf(stderr, "WT INTEROP reject: endpoint directory missing\n");
         return 0;
     }
@@ -693,12 +729,30 @@ xqc_wt_interop_accept(xqc_http_headers_t *headers,
 }
 
 static void
+xqc_wt_interop_pass(void)
+{
+    xqc_wt_interop_t *ctx = &xqc_wt_interop;
+
+    ctx->success = 1;
+    if (!ctx->handshake && !ctx->mode) {
+        printf("WT INTEROP PASS: case=transfer files=%zu peer_close=1\n",
+               ctx->completed);
+    } else {
+        printf("WT INTEROP PASS: case=%s files=%zu all_fin=%d\n",
+               ctx->case_name, ctx->completed, ctx->mode != 3);
+    }
+    if (ctx->finished) {
+        ctx->finished(ctx->user_data);
+    }
+}
+
+static void
 xqc_wt_interop_complete(void)
 {
     xqc_wt_interop_t *ctx = &xqc_wt_interop;
     int result;
 
-    if (ctx->server || ctx->success || ctx->failed) {
+    if ((ctx->handshake && ctx->server) || ctx->success || ctx->failed) {
         return;
     }
     result = xqc_wt_session_close_with_error(ctx->session, 0,
@@ -707,11 +761,8 @@ xqc_wt_interop_complete(void)
         xqc_wt_interop_fail("session close", result);
         return;
     }
-    ctx->success = 1;
-    printf("WT INTEROP PASS: case=%s files=%zu all_fin=1\n",
-           ctx->handshake ? "handshake" : "UR", ctx->completed);
     ctx->schedule_send(ctx->user_data);
-    ctx->finished(ctx->user_data);
+    xqc_wt_interop_pass();
 }
 
 static void
@@ -745,9 +796,16 @@ xqc_wt_interop_ready(xqc_wt_session_t *session,
         }
         xqc_wt_interop_complete();
 
-    } else if (!ctx->server) {
+    } else if (ctx->mode) {
+        if (ctx->server && xqc_wt_interop_requests(NULL, NULL)) {
+            xqc_wt_interop_fail("invalid REQUESTS", XQC_ERROR);
+            return XQC_ERROR;
+        }
+        if (ctx->mode == 3) {
+            return xqc_wt_interop_datagram_request(session);
+        }
         for (size_t i = 0; i < ctx->file_count; i++) {
-            if (xqc_wt_interop_send(session, ctx->files[i], 0) != XQC_OK) {
+            if (xqc_wt_interop_send(session, ctx->files[i], 0, i)) {
                 return XQC_ERROR;
             }
         }
@@ -760,17 +818,34 @@ xqc_wt_interop_closed(xqc_wt_session_t *session,
     xqc_http_headers_t *headers, const xqc_cid_t *cid, void *user_data)
 {
     xqc_wt_interop_t *ctx = &xqc_wt_interop;
+    uint32_t code = xqc_wt_session_get_close_error_code(session);
+    int pending = ctx->datagram_count != 0;
 
     printf("WT closed: status=%u code=%" PRIu32 "\n",
-           xqc_wt_session_get_response_status(session),
-           xqc_wt_session_get_close_error_code(session));
+           xqc_wt_session_get_response_status(session), code);
     ctx->session = NULL;
-    if (!ctx->server && !ctx->success && !ctx->stopped) {
-        xqc_wt_interop_fail("session closed before completion", XQC_ERROR);
+    for (xqc_wt_interop_stream_t *s = ctx->streams; s; s = s->next) {
+        pending |= !s->complete;
+    }
+    if ((!ctx->server || ctx->mode) && !ctx->success && !ctx->stopped) {
+        if (!ctx->handshake && !ctx->mode && !ctx->failed && !code
+            && ctx->completed && !pending)
+        {
+            xqc_wt_interop_pass();
+        } else {
+            xqc_wt_interop_fail("session closed before completion", XQC_ERROR);
+        }
     }
     while (ctx->streams) {
         xqc_wt_interop_free_stream(ctx->streams);
     }
+    while (ctx->datagrams) {
+        xqc_wt_interop_datagram_t *next = ctx->datagrams->next;
+        free(ctx->datagrams);
+        ctx->datagrams = next;
+    }
+    ctx->datagram_count = 0;
+    ctx->datagram_tail = &ctx->datagrams;
     if (ctx->directory >= 0) {
         close(ctx->directory);
         ctx->directory = -1;
@@ -779,7 +854,7 @@ xqc_wt_interop_closed(xqc_wt_session_t *session,
 }
 
 static xqc_wt_interop_stream_t *
-xqc_wt_interop_find(xqc_wt_unistream_t *stream)
+xqc_wt_interop_find(void *stream)
 {
     xqc_wt_interop_stream_t *state = xqc_wt_interop.streams;
 
@@ -795,7 +870,8 @@ xqc_wt_interop_allocate(xqc_wt_session_t *session)
     if (xqc_wt_interop.stream_count == XQC_WT_INTEROP_STREAMS_MAX) {
         return NULL;
     }
-    xqc_wt_interop_stream_t *state = calloc(1, sizeof(*state));
+    xqc_wt_interop_stream_t *state = calloc(1,
+        sizeof(*state) + XQC_WT_INTEROP_BUFFER_SIZE);
 
     if (state) {
         state->session = session;
@@ -831,10 +907,10 @@ xqc_wt_interop_flush(xqc_wt_interop_stream_t *state)
 {
     xqc_wt_interop_t *ctx = &xqc_wt_interop;
 
-    while (state->sending && !state->complete && !ctx->failed) {
+    while (state->sending && !state->sent && !ctx->failed) {
         if (state->offset == state->length && state->file >= 0) {
             ssize_t bytes = read(state->file, state->pending,
-                                 sizeof(state->pending));
+                                 XQC_WT_INTEROP_BUFFER_SIZE);
             if (bytes < 0) {
                 if (errno == EINTR) {
                     continue;
@@ -851,14 +927,17 @@ xqc_wt_interop_flush(xqc_wt_interop_stream_t *state)
         }
         size_t remaining = state->length - state->offset;
         int fin = remaining == 0 && state->file < 0;
-        int result = xqc_wt_unistream_send(state->stream,
-            state->pending + state->offset, remaining, fin);
+        int result = state->bidirectional
+            ? xqc_wt_bidistream_send(state->stream,
+                state->pending + state->offset, remaining, fin)
+            : xqc_wt_unistream_send(state->stream,
+                state->pending + state->offset, remaining, fin);
         if (result < 0) {
             if (xqc_wt_interop_blocked(result)) {
                 ctx->schedule_send(ctx->user_data);
                 return XQC_OK;
             }
-            xqc_wt_interop_fail("unidirectional send", result);
+            xqc_wt_interop_fail("stream send", result);
             return result;
         }
         if ((size_t) result > remaining) {
@@ -868,10 +947,18 @@ xqc_wt_interop_flush(xqc_wt_interop_stream_t *state)
         state->offset += result;
         state->transferred += result;
         if (fin) {
-            state->complete = 1;
-            printf("WT uni sent: id=%" PRIu64 " bytes=%" PRIu64 " fin=1\n",
-                   (uint64_t) xqc_wt_unistream_id(state->stream),
+            state->sent = 1;
+            state->complete = !state->bidirectional || !ctx->mode;
+            printf("WT %s sent: id=%" PRIu64 " bytes=%" PRIu64 " fin=1\n",
+                   state->bidirectional ? "bidi" : "uni",
+                   (uint64_t) (state->bidirectional
+                       ? xqc_wt_bidistream_id(state->stream)
+                       : xqc_wt_unistream_id(state->stream)),
                    state->transferred);
+            if (!ctx->mode) {
+                ctx->completed++;
+            }
+            state->transferred = 0;
 
         } else if (!result) {
             break;
@@ -883,17 +970,20 @@ xqc_wt_interop_flush(xqc_wt_interop_stream_t *state)
 
 static xqc_int_t
 xqc_wt_interop_send(xqc_wt_session_t *session, const char *filename,
-    int push)
+    int push, int request_index)
 {
     xqc_wt_interop_stream_t *state = xqc_wt_interop_allocate(session);
     int error;
+    void *stream;
 
     if (!state) {
         xqc_wt_interop_fail("allocate send state", -XQC_EMALLOC);
         return -XQC_EMALLOC;
     }
     state->sending = 1;
-    state->length = snprintf((char *) state->pending, sizeof(state->pending),
+    state->bidirectional = xqc_wt_interop.mode == 2;
+    state->request_index = request_index;
+    state->length = snprintf((char *) state->pending, XQC_WT_INTEROP_BUFFER_SIZE,
                               push ? "PUSH %s\n" : "GET %s", filename);
     if (push) {
         state->file = xqc_wt_interop_open_file(xqc_wt_interop.directory,
@@ -904,7 +994,10 @@ xqc_wt_interop_send(xqc_wt_session_t *session, const char *filename,
             return XQC_ERROR;
         }
     }
-    if (!xqc_wt_session_create_uni_stream(session, state, &error)) {
+    stream = state->bidirectional
+        ? (void *) xqc_wt_session_create_bidi_stream(session, state, &error)
+        : (void *) xqc_wt_session_create_uni_stream(session, state, &error);
+    if (!stream) {
         /* A failed creation may already have delivered the close callback. */
         xqc_wt_interop_stream_t *current = xqc_wt_interop.streams;
         while (current && current != state) {
@@ -913,7 +1006,7 @@ xqc_wt_interop_send(xqc_wt_session_t *session, const char *filename,
         if (current) {
             xqc_wt_interop_free_stream(current);
         }
-        xqc_wt_interop_fail("create unidirectional stream", error);
+        xqc_wt_interop_fail("create stream", error);
         return error;
     }
     return xqc_wt_interop_flush(state);
@@ -949,54 +1042,40 @@ xqc_wt_interop_stream_write(xqc_wt_unistream_t *stream,
     return state ? xqc_wt_interop_flush(state) : XQC_OK;
 }
 
-static xqc_int_t
-xqc_wt_interop_stream_read(xqc_wt_unistream_t *stream,
-    xqc_wt_session_t *session, void *data, size_t length, void *user_data)
+static int
+xqc_wt_interop_receive_file(xqc_wt_interop_stream_t *state,
+    const char *filename, const void *data, size_t length, int fin,
+    int datagram)
 {
     xqc_wt_interop_t *ctx = &xqc_wt_interop;
-    xqc_wt_interop_stream_t *state = xqc_wt_interop_find(stream);
-    size_t consumed = 0;
-    int fin = xqc_wt_unistream_get_recv_fin(stream);
 
-    if (!state || state->sending || state->complete || ctx->failed
-        || ctx->handshake)
-    {
-        xqc_wt_interop_fail("unexpected unidirectional data", XQC_ERROR);
-        return XQC_ERROR;
-    }
-    if (!state->header.complete) {
-        int result = xqc_wt_interop_header_feed(&state->header,
-            data, length, fin, !ctx->server, &consumed);
-        if (result < 0) {
-            xqc_wt_interop_fail("invalid GET or PUSH header", XQC_ERROR);
-            return XQC_ERROR;
-        }
-        if (!result) {
-            return XQC_OK;
-        }
-        const char *filename = state->header.line + (ctx->server ? 4 : 5);
-        if (ctx->server) {
-            state->complete = 1;
-            return xqc_wt_interop_send(session, filename, 1);
-        }
-        for (size_t i = 0; i < ctx->file_count; i++) {
-            if (!strcmp(filename, ctx->files[i]) && !ctx->received[i]) {
+    if (state->file < 0) {
+        for (size_t i = 0; filename && i < ctx->file_count; i++) {
+            if (!strcmp(filename, ctx->files[i])) {
+                if (datagram && ctx->received[i] == 2) {
+                    return XQC_OK;
+                }
                 state->request_index = i;
-                ctx->received[i] = 1;
                 break;
             }
         }
-        if (state->request_index < 0) {
+        int index = state->request_index;
+        if (index < 0 || (size_t) index >= ctx->file_count
+            || ctx->received[index]
+            || (datagram && (size_t) index != ctx->completed))
+        {
             xqc_wt_interop_fail("unsolicited or duplicate PUSH", XQC_ERROR);
             return XQC_ERROR;
         }
-        state->file = xqc_wt_interop_open_file(ctx->directory, filename, 1);
+        ctx->received[index] = 1;
+        state->file = xqc_wt_interop_open_file(ctx->directory,
+                                               ctx->files[index], 1);
         if (state->file < 0) {
             xqc_wt_interop_fail("open download file", errno);
             return XQC_ERROR;
         }
     }
-    while (consumed < length) {
+    for (size_t consumed = 0; consumed < length;) {
         ssize_t bytes = write(state->file,
             (const unsigned char *) data + consumed, length - consumed);
         if (bytes < 0 && errno == EINTR) {
@@ -1017,14 +1096,74 @@ xqc_wt_interop_stream_read(xqc_wt_unistream_t *stream,
             return XQC_ERROR;
         }
         state->complete = 1;
+        ctx->received[state->request_index] = 2;
         ctx->completed++;
-        printf("WT file received: %s bytes=%" PRIu64 " fin=1\n",
-               ctx->files[state->request_index], state->transferred);
+        printf("WT file received: %s bytes=%" PRIu64 " %s=1\n",
+               ctx->files[state->request_index], state->transferred,
+               datagram ? "datagram" : "fin");
         if (ctx->completed == ctx->file_count) {
             xqc_wt_interop_complete();
+
+        } else if (datagram) {
+            return xqc_wt_interop_datagram_request(ctx->session);
         }
     }
     return XQC_OK;
+}
+
+static xqc_int_t
+xqc_wt_interop_receive(void *stream, const void *data, size_t length, int fin)
+{
+    xqc_wt_interop_t *ctx = &xqc_wt_interop;
+    xqc_wt_interop_stream_t *state = xqc_wt_interop_find(stream);
+    size_t consumed = 0;
+
+    if (!state || state->complete || ctx->failed || ctx->handshake
+        || (state->sending && (!state->bidirectional || !ctx->mode))
+        || (ctx->mode && ctx->mode != (state->bidirectional ? 2 : 1)))
+    {
+        xqc_wt_interop_fail("unexpected stream data", XQC_ERROR);
+        return XQC_ERROR;
+    }
+    if (ctx->mode && state->bidirectional) {
+        return xqc_wt_interop_receive_file(state, NULL, data, length, fin, 0);
+    }
+    if (!state->header.complete) {
+        int result = xqc_wt_interop_header_feed(&state->header,
+            data, length, fin, ctx->mode != 0, &consumed);
+        if (result < 0) {
+            xqc_wt_interop_fail("invalid GET or PUSH header", XQC_ERROR);
+            return XQC_ERROR;
+        }
+        if (!result) {
+            return XQC_OK;
+        }
+        if (!ctx->mode) {
+            const char *filename = state->header.line + 4;
+            if (!state->bidirectional) {
+                state->complete = 1;
+                return xqc_wt_interop_send(state->session, filename, 1, -1);
+            }
+            state->file = xqc_wt_interop_open_file(ctx->directory,
+                                                   filename, 0);
+            if (state->file < 0) {
+                xqc_wt_interop_fail("open requested file", errno);
+                return XQC_ERROR;
+            }
+            state->sending = 1;
+            return xqc_wt_interop_flush(state);
+        }
+    }
+    return xqc_wt_interop_receive_file(state, state->header.line + 5,
+        (const unsigned char *) data + consumed, length - consumed, fin, 0);
+}
+
+static xqc_int_t
+xqc_wt_interop_stream_read(xqc_wt_unistream_t *stream,
+    xqc_wt_session_t *session, void *data, size_t length, void *user_data)
+{
+    return xqc_wt_interop_receive(stream, data, length,
+                                   xqc_wt_unistream_get_recv_fin(stream));
 }
 
 static xqc_int_t
@@ -1057,6 +1196,196 @@ xqc_wt_interop_stream_closing(xqc_wt_unistream_t *stream,
     return XQC_OK;
 }
 
+static xqc_int_t
+xqc_wt_interop_bidi_create(xqc_wt_bidistream_t *stream,
+    xqc_wt_session_t *session, void *user_data)
+{
+    int result = xqc_wt_interop_stream_create((void *) stream,
+                                             session, user_data);
+    if (result == XQC_OK) {
+        xqc_wt_interop_find(stream)->bidirectional = 1;
+    }
+    return result;
+}
+
+static xqc_int_t
+xqc_wt_interop_bidi_write(xqc_wt_bidistream_t *stream,
+    xqc_wt_session_t *session, void *user_data)
+{
+    return xqc_wt_interop_stream_write((void *) stream, session, user_data);
+}
+
+static xqc_int_t
+xqc_wt_interop_bidi_read(xqc_wt_bidistream_t *stream,
+    xqc_wt_session_t *session, void *data, size_t length, void *user_data)
+{
+    return xqc_wt_interop_receive(stream, data, length,
+                                   xqc_wt_bidistream_get_recv_fin(stream));
+}
+
+static xqc_int_t
+xqc_wt_interop_bidi_close(xqc_wt_bidistream_t *stream,
+    xqc_wt_session_t *session, void *user_data)
+{
+    return xqc_wt_interop_stream_close((void *) stream, session, user_data);
+}
+
+static xqc_int_t
+xqc_wt_interop_bidi_closing(xqc_wt_bidistream_t *stream,
+    xqc_wt_session_t *session, void *user_data)
+{
+    return xqc_wt_interop_stream_closing((void *) stream, session, user_data);
+}
+
+static int
+xqc_wt_interop_datagram_queue(const void *data, size_t length)
+{
+    xqc_wt_interop_t *ctx = &xqc_wt_interop;
+    xqc_wt_interop_datagram_t *item;
+
+    if (length > XQC_WT_INTEROP_DATAGRAM_MAX
+        || ctx->datagram_count == XQC_WT_INTEROP_FILES_MAX)
+    {
+        xqc_wt_interop_fail("datagram queue bound", XQC_ERROR);
+        return XQC_ERROR;
+    }
+    item = malloc(sizeof(*item) + length);
+    if (!item) {
+        xqc_wt_interop_fail("allocate datagram", -XQC_EMALLOC);
+        return XQC_ERROR;
+    }
+    item->next = NULL;
+    item->length = length;
+    memcpy(item->data, data, length);
+    *ctx->datagram_tail = item;
+    ctx->datagram_tail = &item->next;
+    ctx->datagram_count++;
+    return XQC_OK;
+}
+
+static int
+xqc_wt_interop_datagram_request(xqc_wt_session_t *session)
+{
+    xqc_wt_interop_t *ctx = &xqc_wt_interop;
+    char request[XQC_WT_INTEROP_PATH_MAX + 5];
+
+    if (ctx->failed || ctx->success || ctx->stopped
+        || ctx->completed >= ctx->file_count)
+    {
+        return XQC_OK;
+    }
+    /* One outstanding GET avoids bursts of small packets in the simulator. */
+    int length = snprintf(request, sizeof(request),
+                           "GET %s", ctx->files[ctx->completed]);
+    if (xqc_wt_interop_datagram_queue(request, length)) {
+        return XQC_ERROR;
+    }
+    xqc_wt_interop_datagram_write(session, NULL);
+    return ctx->failed ? XQC_ERROR : XQC_OK;
+}
+
+static void
+xqc_wt_interop_datagram_write(xqc_wt_session_t *session, void *user_data)
+{
+    xqc_wt_interop_t *ctx = &xqc_wt_interop;
+
+    if (!ctx->datagrams || ctx->failed || ctx->success) {
+        return;
+    }
+    while (ctx->datagrams && !ctx->failed) {
+        xqc_wt_interop_datagram_t *item = ctx->datagrams;
+        int result = xqc_wt_session_datagram_send(session, item->data,
+                                                   item->length, NULL);
+        if (result != XQC_OK) {
+            if (!xqc_wt_interop_blocked(result)) {
+                xqc_wt_interop_fail("datagram send", result);
+            }
+            break;
+        }
+        ctx->datagrams = item->next;
+        ctx->datagram_count--;
+        if (!ctx->datagrams) {
+            ctx->datagram_tail = &ctx->datagrams;
+        }
+        if (!ctx->mode) {
+            ctx->completed++;
+        }
+        free(item);
+    }
+    ctx->schedule_send(ctx->user_data);
+}
+
+static void
+xqc_wt_interop_datagram_read(xqc_wt_session_t *session,
+    const void *data, size_t length, void *user_data, uint64_t recv_time)
+{
+    xqc_wt_interop_t *ctx = &xqc_wt_interop;
+    xqc_wt_interop_header_t header = {0};
+    size_t consumed;
+
+    if (ctx->failed || ctx->success) {
+        return;
+    }
+    if (ctx->handshake || (ctx->mode && ctx->mode != 3)
+        || length > XQC_WT_INTEROP_DATAGRAM_MAX
+        || xqc_wt_interop_header_feed(&header, data, length, 1,
+            ctx->mode != 0, &consumed) != 1)
+    {
+        xqc_wt_interop_fail("invalid datagram", XQC_ERROR);
+        return;
+    }
+    if (ctx->mode) {
+        xqc_wt_interop_stream_t state = {.file = -1, .request_index = -1};
+        xqc_wt_interop_receive_file(&state, header.line + 5,
+            (const unsigned char *) data + consumed, length - consumed, 1, 1);
+        if (state.file >= 0) {
+            close(state.file);
+        }
+        return;
+    }
+    unsigned char response[XQC_WT_INTEROP_DATAGRAM_MAX + 1];
+    const char *filename = header.line + 4;
+    int file = xqc_wt_interop_open_file(ctx->directory, filename, 0);
+    if (file < 0) {
+        xqc_wt_interop_fail("open requested file", errno);
+        return;
+    }
+    size_t used = snprintf((char *) response, sizeof(response),
+                            "PUSH %s\n", filename);
+    while (used < sizeof(response)) {
+        ssize_t bytes = read(file, response + used, sizeof(response) - used);
+        if (bytes < 0 && errno == EINTR) {
+            continue;
+        }
+        if (bytes <= 0) {
+            if (bytes < 0) {
+                xqc_wt_interop_fail("read source file", errno);
+            }
+            break;
+        }
+        used += bytes;
+    }
+    close(file);
+    if (!ctx->failed && !xqc_wt_interop_datagram_queue(response, used)) {
+        xqc_wt_interop_datagram_write(session, NULL);
+    }
+}
+
+static int
+xqc_wt_interop_directory(void)
+{
+    xqc_wt_interop_t *ctx = &xqc_wt_interop;
+
+    if (ctx->mode && mkdirat(ctx->root, ctx->endpoint, 0755) < 0
+        && errno != EEXIST)
+    {
+        return -1;
+    }
+    ctx->directory = openat(ctx->root, ctx->endpoint,
+                            O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+    return ctx->directory < 0 ? -1 : 0;
+}
+
 static int
 xqc_wt_interop_configure(int server)
 {
@@ -1064,7 +1393,7 @@ xqc_wt_interop_configure(int server)
     const char *protocols = getenv("PROTOCOLS");
     const char *testcase = getenv("TESTCASE");
     const char *role = getenv("ROLE");
-    const char *directory = getenv(server ? "XQC_WT_WWW" : "XQC_WT_DOWNLOADS");
+    const char *directory;
     char *save;
 
     if (!protocols || !*protocols || !testcase || !role
@@ -1073,10 +1402,28 @@ xqc_wt_interop_configure(int server)
         return -1;
     }
     ctx->handshake = !strcmp(testcase, "handshake");
-    if (!ctx->handshake && strcmp(testcase, server ? "transfer"
-                                  : "transfer-unidirectional-receive"))
-    {
-        return -1;
+    ctx->case_name = ctx->handshake ? "handshake" : "transfer";
+    if (!ctx->handshake && strcmp(testcase, "transfer")) {
+        const char *types[] = {"unidirectional", "bidirectional", "datagram"};
+        const char *names[][2] = {{"UR", "US"}, {"BR", "BS"}, {"DR", "DS"}};
+        char expected[64];
+        for (int i = 0; i < 3; i++) {
+            snprintf(expected, sizeof(expected), "transfer-%s-%s",
+                     types[i], server ? "send" : "receive");
+            if (!strcmp(testcase, expected)) {
+                ctx->mode = i + 1;
+                ctx->case_name = names[i][server];
+            }
+        }
+        if (!ctx->mode) {
+            return -1;
+        }
+    }
+    int source = !ctx->handshake && !ctx->mode;
+    directory = getenv(source ? "XQC_WT_WWW" : "XQC_WT_DOWNLOADS");
+    if (ctx->handshake && server) {
+        directory = getenv("XQC_WT_WWW");
+        source = 1;
     }
     ctx->protocol_storage = strdup(protocols);
     if (!ctx->protocol_storage) {
@@ -1085,7 +1432,7 @@ xqc_wt_interop_configure(int server)
     for (char *p = strtok_r(ctx->protocol_storage, " ", &save); p;
          p = strtok_r(NULL, " ", &save))
     {
-        if (ctx->protocol_count == XQC_WT_INTEROP_FILES_MAX
+        if (ctx->protocol_count == 32
             || strlen(p) > XQC_WT_INTEROP_PROTOCOL_MAX)
         {
             return -1;
@@ -1100,7 +1447,7 @@ xqc_wt_interop_configure(int server)
     if (!ctx->protocol_count) {
         return -1;
     }
-    ctx->root = open(directory ? directory : server ? "/www" : "/downloads",
+    ctx->root = open(directory ? directory : source ? "/www" : "/downloads",
                      O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
     return ctx->root < 0 ? -1 : 0;
 }
@@ -1111,16 +1458,22 @@ xqc_wt_interop_requests(const char *authority, const char *path)
     xqc_wt_interop_t *ctx = &xqc_wt_interop;
     const char *requests = getenv("REQUESTS");
     char *storage, *save;
-    size_t endpoint_length = strlen(path);
+    size_t count = 0;
     int result = -1;
 
-    if (!requests || endpoint_length < 2
-        || endpoint_length > sizeof(ctx->endpoint) || path[0] != '/'
-        || !xqc_wt_interop_valid_path(path + 1) || strchr(path + 1, '/'))
-    {
+    if (!requests) {
         return -1;
     }
-    strcpy(ctx->endpoint, path + 1);
+    if (!ctx->server) {
+        size_t length = strlen(path);
+        if (length < 2 || length > sizeof(ctx->endpoint) || path[0] != '/'
+            || !xqc_wt_interop_valid_path(path + 1) || strchr(path + 1, '/'))
+        {
+            return -1;
+        }
+        strcpy(ctx->endpoint, path + 1);
+    }
+    size_t endpoint_length = strlen(ctx->endpoint);
     storage = strdup(requests);
     if (!storage) {
         return -1;
@@ -1128,15 +1481,19 @@ xqc_wt_interop_requests(const char *authority, const char *path)
     for (char *url = strtok_r(storage, " ", &save); url;
          url = strtok_r(NULL, " ", &save))
     {
-        size_t authority_length = strlen(authority);
-        if (strncmp(url, "https://", 8)
-            || strncmp(url + 8, authority, authority_length)
-            || strlen(url + 8) < authority_length + endpoint_length)
-        {
-            goto done;
+        const char *file = url;
+        count++;
+        if (!ctx->server) {
+            size_t length = strlen(authority);
+            if (strncmp(url, "https://", 8)
+                || strncmp(url + 8, authority, length)
+                || url[8 + length] != '/')
+            {
+                goto done;
+            }
+            file += 9 + length;
         }
-        const char *file = url + 8 + authority_length;
-        if (strncmp(file, path, endpoint_length)
+        if (strncmp(file, ctx->endpoint, endpoint_length)
             || (file[endpoint_length] && file[endpoint_length] != '/'))
         {
             goto done;
@@ -1145,7 +1502,7 @@ xqc_wt_interop_requests(const char *authority, const char *path)
         if (*file == '/') {
             file++;
         }
-        if (ctx->handshake) {
+        if (!ctx->mode) {
             if (*file) {
                 goto done;
             }
@@ -1166,18 +1523,11 @@ xqc_wt_interop_requests(const char *authority, const char *path)
             goto done;
         }
     }
-    if (!ctx->handshake && !ctx->file_count) {
+    if ((ctx->mode && !ctx->file_count) || !count) {
         goto done;
     }
-    if (!ctx->handshake) {
-        if (mkdirat(ctx->root, ctx->endpoint, 0755) < 0 && errno != EEXIST) {
-            goto done;
-        }
-        ctx->directory = openat(ctx->root, ctx->endpoint,
-                                O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
-        if (ctx->directory < 0) {
-            goto done;
-        }
+    if (!ctx->server && !ctx->handshake && xqc_wt_interop_directory()) {
+        goto done;
     }
     result = 0;
 done:
@@ -1191,7 +1541,10 @@ xqc_wt_interop_init(xqc_engine_t *engine, int draft_version, int server,
     void *user_data)
 {
     xqc_wt_interop_t *ctx = &xqc_wt_interop;
-    xqc_webtransport_dgram_callbacks_t datagram_callbacks = {0};
+    xqc_webtransport_dgram_callbacks_t datagram_callbacks = {
+        .dgram_read_notify = xqc_wt_interop_datagram_read,
+        .dgram_write_notify = xqc_wt_interop_datagram_write,
+    };
     xqc_webtransport_session_callbacks_t session_callbacks = {
         .webtransport_will_create_session_notify = xqc_wt_interop_accept,
         .webtransport_session_create_notify = xqc_wt_interop_ready,
@@ -1205,6 +1558,11 @@ xqc_wt_interop_init(xqc_engine_t *engine, int draft_version, int server,
         .wt_unistream_read_notify = xqc_wt_interop_stream_read,
         .wt_unistream_close_notify = xqc_wt_interop_stream_close,
         .wt_unistream_closing_notify = xqc_wt_interop_stream_closing,
+        .wt_bidistream_create_notify = xqc_wt_interop_bidi_create,
+        .wt_bidistream_write_notify = xqc_wt_interop_bidi_write,
+        .wt_bidistream_read_notify = xqc_wt_interop_bidi_read,
+        .wt_bidistream_close_notify = xqc_wt_interop_bidi_close,
+        .wt_bidistream_closing_notify = xqc_wt_interop_bidi_closing,
     };
     xqc_webtransport_conn_settings_t settings = {
         .max_sessions_count = 1,
@@ -1221,6 +1579,7 @@ xqc_wt_interop_init(xqc_engine_t *engine, int draft_version, int server,
     memset(ctx, 0, sizeof(*ctx));
     ctx->root = -1;
     ctx->directory = -1;
+    ctx->datagram_tail = &ctx->datagrams;
     ctx->engine = engine;
     ctx->server = server;
     ctx->schedule_send = schedule_send;
@@ -1232,6 +1591,14 @@ xqc_wt_interop_init(xqc_engine_t *engine, int draft_version, int server,
     }
     result = xqc_wt_ctx_init(engine, &datagram_callbacks,
                              &session_callbacks, &stream_callbacks);
+    if (result != XQC_OK) {
+        return result;
+    }
+    /* The runner's 200 GET datagrams can precede the CONNECT response. */
+    result = xqc_wt_ctx_set_pending_datagram_policy(engine,
+        XQC_WEBTRANSPORT_DEFAULT_UNKNOWN_SESSION_DGRAM_WINDOW,
+        XQC_WT_INTEROP_FILES_MAX,
+        XQC_WT_INTEROP_FILES_MAX * XQC_WT_INTEROP_DATAGRAM_MAX);
     return result == XQC_OK
         ? xqc_wt_engine_set_default_settings(engine, &settings) : result;
 }

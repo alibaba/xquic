@@ -13,7 +13,16 @@ class EndpointTests(unittest.TestCase):
             ("client", "transfer-unidirectional-receive",
              "https://server:8443/wt/a https://server:8443/wt/b",
              "https://server:8443/wt", "8443"),
-            ("server", "transfer", "", None, "443"),
+            ("client", "transfer", "https://server/wt",
+             "https://server/wt", "443"),
+            *[("client", f"transfer-{carrier}-receive", "https://server/wt/a",
+               "https://server/wt", "443")
+              for carrier in ("bidirectional", "datagram")],
+            *[("server", case, "wt/a wt/b", None, "443")
+              for case in ("handshake", "transfer",
+                           "transfer-unidirectional-send",
+                           "transfer-bidirectional-send",
+                           "transfer-datagram-send")],
         ]:
             with self.subTest(role=role, case=case):
                 args = endpoint.endpoint_command(dict(
@@ -27,6 +36,8 @@ class EndpointTests(unittest.TestCase):
                 self.assertEqual(flags.get("-U"), session)
                 cert = "/certs/ca.pem" if session else "/certs/cert.pem"
                 self.assertEqual(flags.get("-J", flags.get("-T")), cert)
+                self.assertEqual(flags["-K"],
+                                 "45" if session else "/certs/priv.key")
 
     def test_invalid_urls(self):
         for url in ["", "http://server/wt", "https://user@server/wt",
@@ -45,6 +56,9 @@ class EndpointTests(unittest.TestCase):
         for role, case, error, status, calls in [
             ("client", "unknown", None, 127, 0),
             ("invalid", "handshake", None, 127, 0),
+            *[(role, f"transfer-{carrier}-{direction}", None, 127, 0)
+              for role, direction in (("client", "send"), ("server", "receive"))
+              for carrier in ("unidirectional", "bidirectional", "datagram")],
             ("server", "handshake", failure, 1, 1),
             ("server", "handshake", None, None, 1),
             ("client", "handshake", None, None, 2),

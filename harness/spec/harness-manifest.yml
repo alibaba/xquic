@@ -197,9 +197,11 @@ modules:
       - demo/xqc_wt*
       - demo/xqc_webtrans_interop.c
       - case_test/webtransport/*
+      - interop/webtransport/*
     read:
       - harness/spec/feat/webtransport.md
       - demo/webtransport.md
+      - interop/webtransport/README.md
     validation:
       level: targeted
 

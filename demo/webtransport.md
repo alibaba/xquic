@@ -197,6 +197,8 @@ Interop image builds must run the complete unit suite and these native cases
 before copying the same tested binaries into the final image. A final-image
 self test checks packaging, and external peer matrices remain the evidence
 for interoperability with other implementations.
+See the [container packaging instructions](../interop/webtransport/README.md)
+for image builds, local runner execution, and publication.
 
 ## Application protocol negotiation
 

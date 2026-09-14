@@ -60,8 +60,11 @@ tests. This document does not maintain a parallel section index or summary.
 
 The H and unidirectional-receive interoperability application belongs under
 `demo/` and must share the existing demo runtime and XQUIC CMake build graph.
-Runner integration owns container packaging, environment mapping, and matrix
-registration; it must not maintain a second XQUIC engine/TLS runtime.
+XQUIC owns container packaging and environment mapping under
+`interop/webtransport/`, together with its image publication workflow. The
+public interop runner consumes the published image and owns shared cases and
+image registration. Packaging must not maintain a second XQUIC engine/TLS
+runtime.
 Native CI must exercise the same application binaries using input/output
 assertions for protocol preference, file contents and FIN, and explicit
 negotiation, file, and certificate failures. The owning case registrations

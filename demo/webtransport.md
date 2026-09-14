@@ -1,5 +1,8 @@
 # WebTransport loopback demo
 
+Client API and ctx lifecycle contracts are defined in the
+[immutable client API specification](../harness/spec/feat/webtransport-client-api-spec.md).
+
 `demo_server -W` serves WebTransport at `/wt` alongside ordinary HTTP/3.
 `demo_client -W` opens one session, resets a data stream, then checks exact
 bidirectional echo with FIN, datagram echo, and session close. Both programs

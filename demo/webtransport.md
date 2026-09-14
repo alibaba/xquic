@@ -104,7 +104,40 @@ bidirectional stream; overflow resets that stream. Datagram send failures
 are reported and are not retried. Callback sends schedule a 1 ms engine
 event, preserving the shared HTTP/3 and engine user data.
 
-Incoming unidirectional streams are consumed without an echo. Native and
-browser checks described here do not cover unidirectional echo, pooling,
-HTTP/2, or the complete frozen server API contract. They are runnable demo
-checks and are not integrated into the legacy numeric case suite.
+Incoming unidirectional streams are consumed without an echo. These demos
+do not implement unidirectional echo, pooling, HTTP/2, or the complete
+frozen server API contract.
+
+## Native CI cases
+
+The `webtransport.core` group runs the built demo endpoints over loopback,
+using the existing build certificate and isolated case-runner work directory.
+It requires no browser, proxy, peer implementation, or additional package.
+The existing CI case-test stage discovers the group and runs it in parallel
+with the other module groups. Cases within the group run sequentially.
+
+```sh
+XQC_BUILD_DIR=build bash scripts/case_test.sh --execute \
+    --parallel --jobs auto --group webtransport.core
+```
+
+Both demos accept `-W -X <case-id>` for these cases; omitting `-X` retains
+the normal demo behavior. Case-only malformed input and receive observations
+are isolated in `case_test/webtransport/probe.c` and are not library APIs.
+
+| Case IDs | Coverage |
+|---|---|
+| 1801, 1802 | Draft-07 and draft-16 handshake, 1,048,576 bytes uploaded and echoed back, exact byte comparison and FIN in both directions. |
+| 1803, 1804 | CONNECT accepted; disallowed Origin rejected with 403 and no session-ready notification. |
+| 1805, 1806 | Bidirectional echo and peer receipt of RESET_STREAM_AT with the complete reliable header; invalid Session ID rejected with H3_ID_ERROR. |
+| 1807, 1808 | Exact unidirectional payload and FIN at the receiver; invalid Session ID rejected with H3_ID_ERROR. |
+| 1809, 1810 | Datagram echo; unassociated Quarter Stream ID actually received without application delivery or buffering, followed by successful valid traffic. |
+| 1811, 1812 | CLOSE code and reason received; invalid UTF-8 rejected with H3_MESSAGE_ERROR. |
+| 1813, 1814 | Empty DRAIN received while data exchange continues; nonempty DRAIN rejected with H3_MESSAGE_ERROR. |
+| 1815, 1816 | One session succeeds; a second CONNECT is rejected with H3_REQUEST_REJECTED while pooling is disabled. |
+
+The paired protocol cases follow
+[draft-16 §§3.2, 4–4.7, 5.1, and 6](https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-16.html).
+Every negative case checks the specific peer response or error; a timeout,
+crash, TLS failure, or missing echo cannot satisfy it. The namespace ledger
+is maintained in the [validation specification](../harness/spec/validation.md#client-to-server-case-id-namespace).

@@ -4,6 +4,10 @@
 #include <stdio.h>
 #include <string.h>
 #include "xqc_wt_echo_client.h"
+#include "case_test/webtransport/probe.h"
+
+#define XQC_DEMO_WT_TRANSFER_SIZE (1024 * 1024)
+#define XQC_DEMO_WT_SEND_WINDOW (16 * 1024)
 
 static unsigned char xqc_demo_wt_payload[] = "xquic WebTransport\0echo";
 static const unsigned char xqc_demo_wt_datagram[] = "xquic datagram";
@@ -12,9 +16,12 @@ typedef struct {
     xqc_engine_t       *engine;
     xqc_wt_session_t    *session;
     xqc_wt_bidistream_t *stream;
+    size_t              payload_len;
     size_t              sent;
     size_t              received;
+    int                 case_id;
     int                 ready;
+    int                 echo_enabled;
     int                 fin_sent;
     int                 fin_received;
     int                 datagram_sent;
@@ -34,6 +41,7 @@ static xqc_demo_wt_client_t xqc_demo_wt_client;
 
 static void xqc_demo_wt_client_fail(const char *operation, int error);
 static int xqc_demo_wt_client_blocked(int error);
+static unsigned char xqc_demo_wt_client_payload_byte(size_t offset);
 static void xqc_demo_wt_client_flush(void);
 static void xqc_demo_wt_client_maybe_close(void);
 static int xqc_demo_wt_client_ready(xqc_wt_session_t *session,
@@ -71,6 +79,18 @@ xqc_demo_wt_client_blocked(int error)
         || error == -XQC_ESTREAM_BLOCKED;
 }
 
+static unsigned char
+xqc_demo_wt_client_payload_byte(size_t offset)
+{
+    if (xqc_demo_wt_client.payload_len == sizeof(xqc_demo_wt_payload)) {
+        return xqc_demo_wt_payload[offset];
+    }
+    /* Each four-byte word identifies its offset, including across chunks. */
+    uint32_t word = (uint32_t) (offset / 4) * UINT32_C(2654435761)
+        ^ UINT32_C(0x6d2b79f5);
+    return (unsigned char) (word >> ((offset % 4) * 8));
+}
+
 static void
 xqc_demo_wt_client_flush(void)
 {
@@ -78,20 +98,37 @@ xqc_demo_wt_client_flush(void)
     xqc_int_t ret;
     uint64_t id;
 
-    if (!ctx->ready || ctx->failed || ctx->close_sent) {
+    if (!ctx->ready || !ctx->echo_enabled || ctx->failed || ctx->close_sent) {
         return;
     }
     if (ctx->stream && !ctx->fin_sent) {
-        ret = xqc_wt_bidistream_send(ctx->stream,
-            xqc_demo_wt_payload + ctx->sent,
-            sizeof(xqc_demo_wt_payload) - ctx->sent, 1);
-        if (ret >= 0) {
-            ctx->sent += ret;
-            ctx->fin_sent = ctx->sent == sizeof(xqc_demo_wt_payload);
+        unsigned char data[XQC_DEMO_WT_SEND_WINDOW];
+        size_t len = ctx->payload_len - ctx->sent;
+        size_t available = sizeof(data) - (ctx->sent - ctx->received);
 
-        } else if (!xqc_demo_wt_client_blocked(ret)) {
-            xqc_demo_wt_client_fail("stream send", ret);
-            return;
+        /* Bound server echo buffering while retaining every short write. */
+        if (len > available) {
+            len = available;
+        }
+        if (len || ctx->sent == ctx->payload_len) {
+            int fin = ctx->sent + len == ctx->payload_len;
+
+            for (size_t i = 0; i < len; i++) {
+                data[i] = xqc_demo_wt_client_payload_byte(ctx->sent + i);
+            }
+            ret = xqc_wt_bidistream_send(ctx->stream, data, len, fin);
+            if (ret >= 0) {
+                if ((size_t) ret > len) {
+                    xqc_demo_wt_client_fail("invalid stream write", ret);
+                    return;
+                }
+                ctx->sent += ret;
+                ctx->fin_sent = fin && (size_t) ret == len;
+
+            } else if (!xqc_demo_wt_client_blocked(ret)) {
+                xqc_demo_wt_client_fail("stream send", ret);
+                return;
+            }
         }
     }
     if (!ctx->datagram_sent) {
@@ -143,6 +180,17 @@ xqc_demo_wt_client_ready(xqc_wt_session_t *session,
            xqc_wt_session_get_draft_version(session)
                == XQC_WEBTRANSPORT_DRAFT_VERSION_16 ? 16 : 7,
            xqc_wt_session_get_response_status(session));
+
+    err = xqc_wt_case_prepare(session, ctx->case_id);
+    if (err < 0) {
+        xqc_demo_wt_client_fail("case prepare", err);
+        return XQC_ERROR;
+    }
+    if (err > 0) {
+        ctx->schedule_send(ctx->user_data);
+        return XQC_OK;
+    }
+    ctx->echo_enabled = 1;
 
     reset_stream = xqc_wt_session_create_bidi_stream(session, NULL, &err);
     if (!reset_stream) {
@@ -228,21 +276,34 @@ xqc_demo_wt_client_stream_read(xqc_wt_bidistream_t *stream,
     if (stream != ctx->stream) {
         return XQC_OK;
     }
-    if (len > sizeof(xqc_demo_wt_payload) - ctx->received
-        || (len && memcmp(data, xqc_demo_wt_payload + ctx->received, len)))
-    {
+    if (len > ctx->sent - ctx->received) {
         xqc_demo_wt_client_fail("stream echo mismatch", XQC_ERROR);
         return XQC_ERROR;
     }
+    for (size_t i = 0; i < len; i++) {
+        if (((unsigned char *) data)[i]
+            != xqc_demo_wt_client_payload_byte(ctx->received + i))
+        {
+            xqc_demo_wt_client_fail("stream echo mismatch", XQC_ERROR);
+            return XQC_ERROR;
+        }
+    }
     ctx->received += len;
     if (xqc_wt_bidistream_get_recv_fin(stream)) {
-        if (ctx->received != sizeof(xqc_demo_wt_payload)) {
+        if (ctx->received != ctx->payload_len || !ctx->fin_sent) {
             xqc_demo_wt_client_fail("short stream echo", XQC_ERROR);
             return XQC_ERROR;
         }
         ctx->fin_received = 1;
         printf("WT bidi verified: bytes=%zu fin=1\n", ctx->received);
+        if (ctx->case_id == 1801 || ctx->case_id == 1802) {
+            printf("WT transfer: sent=%zu received=%zu\n",
+                   ctx->sent, ctx->received);
+        }
         xqc_demo_wt_client_maybe_close();
+
+    } else {
+        xqc_demo_wt_client_flush();
     }
     return XQC_OK;
 }
@@ -272,7 +333,7 @@ xqc_demo_wt_client_datagram_write(xqc_wt_session_t *session, void *user_data)
 
 xqc_int_t
 xqc_demo_wt_client_init(xqc_engine_t *engine, int draft_version,
-    void (*schedule_send)(void *user_data),
+    int case_id, void (*schedule_send)(void *user_data),
     void (*finished)(void *user_data), void *user_data)
 {
     xqc_webtransport_dgram_callbacks_t dgram_cbs = {
@@ -304,6 +365,9 @@ xqc_demo_wt_client_init(xqc_engine_t *engine, int draft_version,
 
     memset(&xqc_demo_wt_client, 0, sizeof(xqc_demo_wt_client));
     xqc_demo_wt_client.engine = engine;
+    xqc_demo_wt_client.case_id = case_id;
+    xqc_demo_wt_client.payload_len = case_id == 1801 || case_id == 1802
+        ? XQC_DEMO_WT_TRANSFER_SIZE : sizeof(xqc_demo_wt_payload);
     xqc_demo_wt_client.result = 1;
     xqc_demo_wt_client.schedule_send = schedule_send;
     xqc_demo_wt_client.finished = finished;

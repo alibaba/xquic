@@ -67,8 +67,10 @@ bash harness/scripts/xqc_harness_check.sh
 ## Client-to-Server Case ID Namespace
 
 The `-x <id>` value shared by `tests/test_client` and `tests/test_server`
-selects case-specific behavior. A case ID is a permanent behavior identifier,
-not a reusable execution slot.
+selects case-specific behavior. WebTransport demo cases use `-X <id>` with
+`demo_client -W` and `demo_server -W`. Native group scripts register the same
+IDs with `case_test_case`. A case ID is a permanent behavior identifier, not a
+reusable execution slot.
 
 The following registry records IDs present in the current tree or previously
 used in repository history. Range boundaries are inclusive. ID `0` means the
@@ -79,7 +81,8 @@ including gaps.
 The registry is the permanent ledger for merged and historical allocations.
 It cannot show every unmerged branch, so each open pull request also holds a
 temporary reservation for every literal case ID present at its published head
-in `scripts/case_test.sh`, `tests/test_client.c`, or `tests/test_server.c`.
+in `scripts/case_test.sh`, `case_test/`, `tests/test_client.c`,
+`tests/test_server.c`, or demo case selectors under `demo/`.
 
 | Range | Existing namespace | Permanently reserved IDs |
 |-------|--------------------|--------------------------|
@@ -111,6 +114,7 @@ its case is retired so later changes cannot reuse it.
 | `[1500, 1599]` | LOC and MSF application protocols | None |
 | `[1600, 1699]` | FEC and experimental transport extensions | None |
 | `[1700, 1799]` | Common runtime, public API, and test harness | `1702-1703` |
+| `[1800, 1899]` | WebTransport | `1801-1816` |
 
 Apply these allocation rules before running a new case:
 
@@ -127,10 +131,12 @@ Apply these allocation rules before running a new case:
    git fetch origin main
    case_id=1000  # replace with the candidate ID
    rg -n -- "(^|[^0-9])${case_id}([^0-9]|$)" \
-       scripts/case_test.sh tests/test_client.c tests/test_server.c
+       scripts/case_test.sh case_test/ tests/test_client.c tests/test_server.c \
+       demo/
    git log --all -G \
        "(^|[^0-9])${case_id}([^0-9]|$)" -- \
-       scripts/case_test.sh tests/test_client.c tests/test_server.c
+       scripts/case_test.sh case_test/ tests/test_client.c tests/test_server.c \
+       demo/
    ```
 
    Both commands must return no prior allocation.
@@ -145,8 +151,8 @@ Apply these allocation rules before running a new case:
 
    For each result other than the current pull request, fetch
    `refs/pull/<number>/head`, verify that its fetched commit equals the reported
-   `headRefOid`, and search the three selector files for the candidate as a
-   complete numeric token. For example:
+   `headRefOid`, and search the selector files and directories for the candidate
+   as a complete numeric token. For example:
 
    ```bash
    pr=123
@@ -157,7 +163,8 @@ Apply these allocation rules before running a new case:
    git fetch --quiet origin "refs/pull/${pr}/head:${pr_ref}"
    test "$(git rev-parse "${pr_ref}")" = "${head_sha}"
    git grep -n -E "(^|[^0-9])${case_id}([^0-9]|$)" "${pr_ref}" -- \
-       scripts/case_test.sh tests/test_client.c tests/test_server.c
+       scripts/case_test.sh case_test/ tests/test_client.c tests/test_server.c \
+       demo/
    cleanup_case_ref
    trap - EXIT HUP INT TERM
    ```

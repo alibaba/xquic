@@ -543,9 +543,16 @@ xqc_test_wt_interop_roles(void)
         for (size_t count = 200; count <= 257; count += count == 200 ? 56 : 1) {
             size_t length = 0;
             for (size_t i = 0; i < count; i++) {
-                length += snprintf(requests + length,
+                int written = snprintf(requests + length,
                     sizeof(requests) - length, "%swt/file-%zu ",
                     server ? "" : "https://server/", i);
+                if (written < 0
+                    || (size_t) written >= sizeof(requests) - length)
+                {
+                    CU_FAIL("request fixture exceeds buffer");
+                    goto restore_environment;
+                }
+                length += (size_t) written;
             }
             setenv("ROLE", server ? "server" : "client", 1);
             setenv("TESTCASE", server ? "transfer-datagram-send"
@@ -565,6 +572,7 @@ xqc_test_wt_interop_roles(void)
             xqc_wt_interop_test_clear();
         }
     }
+restore_environment:
     for (size_t i = 0; i < 6; i++) {
         if (saved[i]) {
             setenv(variables[i], saved[i], 1);

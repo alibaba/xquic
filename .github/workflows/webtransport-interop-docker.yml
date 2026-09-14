@@ -13,12 +13,12 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IMAGE_NAME: ghcr.io/yanmei-liu/xquic-webtransport-interop
+  IMAGE_NAME: ghcr.io/alibaba/xquic/xquic-webtransport-interop
 
 jobs:
   publish:
     if: >-
-      github.repository == 'Yanmei-Liu/xquic' &&
+      github.repository == 'alibaba/xquic' &&
       github.ref == 'refs/heads/feat/webtrans-interop'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -38,18 +38,11 @@ jobs:
             --tag "${IMAGE_NAME}:sha-${GITHUB_SHA}" \
             -f interop/webtransport/Dockerfile .
 
-      - name: Verify the public and fork branches before publication
+      - name: Verify the branch head before publication
         shell: bash
         run: |
-          set -euo pipefail
-          for repository in alibaba/xquic Yanmei-Liu/xquic; do
-            revision="$(git ls-remote --exit-code \
-              "https://github.com/${repository}.git" "$GITHUB_REF" | awk '{print $1}')"
-            if [[ "$revision" != "$GITHUB_SHA" ]]; then
-              echo "${repository}:${GITHUB_REF} is ${revision}, expected ${GITHUB_SHA}." >&2
-              exit 1
-            fi
-          done
+          test "$(git ls-remote --exit-code origin "$GITHUB_REF" \
+            | cut -f1)" = "$GITHUB_SHA"
 
       - name: Sign in to the GitHub Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3

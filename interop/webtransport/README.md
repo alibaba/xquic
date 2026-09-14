@@ -33,8 +33,10 @@ python3 run.py -p webtransport -s xquic -c xquic \
 ```
 
 The [publication workflow](../../.github/workflows/webtransport-interop-docker.yml)
-builds the checked-out XQUIC commit and publishes
-`ghcr.io/yanmei-liu/xquic-webtransport-interop` from the user fork. It requires
-matching public and fork feature branches and publishes `sha-<xquic-commit>`
-and `latest`. The image revision label identifies that XQUIC commit; use the
-published digest to reproduce an image.
+builds the checked-out `alibaba/xquic` commit and publishes
+`ghcr.io/alibaba/xquic/xquic-webtransport-interop` with `sha-<xquic-commit>`
+and `latest` tags. Only the official repository publishes this image, using
+`interop/webtransport/Dockerfile`; the existing QUIC image remains at
+`ghcr.io/alibaba/xquic/xquic-interop` with `interop/Dockerfile`.
+The image revision label identifies the XQUIC commit; use the published
+digest to reproduce an image.

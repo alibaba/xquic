@@ -10,6 +10,9 @@
 #include "xqc_random_test.h"
 #include "xqc_webtransport_test.h"
 #include "xqc_webtransport_version_test.h"
+#ifndef XQC_SYS_WINDOWS
+#include "xqc_webtrans_interop_test.h"
+#endif
 #include "xqc_reliable_reset_test.h"
 #include "xqc_webtransport_h3_stream_test.h"
 #include "xqc_pq_test.h"
@@ -80,6 +83,20 @@ main(int argc, char *argv[])
     }     
 
     if (!CU_add_test(pSuite, "xqc_cid_test", xqc_test_cid)
+#ifndef XQC_SYS_WINDOWS
+        || !CU_add_test(pSuite, "xqc_test_wt_interop_paths",
+                        xqc_test_wt_interop_paths)
+        || !CU_add_test(pSuite, "xqc_test_wt_interop_headers",
+                        xqc_test_wt_interop_headers)
+        || !CU_add_test(pSuite, "xqc_test_wt_interop_protocols",
+                        xqc_test_wt_interop_protocols)
+        || !CU_add_test(pSuite, "xqc_test_wt_interop_stream_ownership",
+                        xqc_test_wt_interop_stream_ownership)
+        || !CU_add_test(pSuite, "xqc_test_wt_interop_stream_bound",
+                        xqc_test_wt_interop_stream_bound)
+        || !CU_add_test(pSuite, "xqc_test_wt_interop_file_confinement",
+                        xqc_test_wt_interop_file_confinement)
+#endif
         || !CU_add_test(pSuite, "xqc_test_wt_version_negotiation",
                         xqc_test_wt_version_negotiation)
         || !CU_add_test(pSuite, "xqc_test_wt_version_fallback",

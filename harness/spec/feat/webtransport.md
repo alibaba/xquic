@@ -56,6 +56,20 @@ tests. This document does not maintain a parallel section index or summary.
 
 ## Design Scope
 
+### Interoperability application ownership
+
+The H and unidirectional-receive interoperability application belongs under
+`demo/` and must share the existing demo runtime and XQUIC CMake build graph.
+Runner integration owns container packaging, environment mapping, and matrix
+registration; it must not maintain a second XQUIC engine/TLS runtime.
+Native CI must exercise the same application binaries using input/output
+assertions for protocol preference, file contents and FIN, and explicit
+negotiation, file, and certificate failures. The owning case registrations
+are in `case_test/webtransport/core.sh`. Packet inspection remains an
+additional external interoperability check rather than a native CI dependency.
+
+### Protocol implementation
+
 The first production implementation ships native WebTransport over HTTP/3.
 The core object model and public application API are binding-neutral. A
 lightweight adapter interface allows a future capsule binding to be driven by

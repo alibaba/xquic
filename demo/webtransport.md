@@ -143,6 +143,61 @@ Every negative case checks the specific peer response or error; a timeout,
 crash, TLS failure, or missing echo cannot satisfy it. The namespace ledger
 is maintained in the [validation specification](../harness/spec/validation.md#client-to-server-case-id-namespace).
 
+## Interoperability application and CI
+
+On POSIX platforms, the existing XQUIC CMake build also produces
+`wt_interop_client` and `wt_interop_server` under the build directory's
+`demo/` directory. They compile the same `demo_client.c` and `demo_server.c`
+runtime as the echo demos, with `xqc_webtrans_interop.c` supplying the
+WebTransport application callbacks. UDP, libevent, TLS, logging, and process
+completion remain shared. No separate runtime or CMake project is needed.
+
+The interop application implements the runner's
+[H and unidirectional file transfer contract](https://github.com/quic-interop/quic-interop-runner/blob/master/webtransport.md).
+It selects the client's first common application protocol, writes
+`negotiated_protocol.txt`, and transfers files using parallel `GET` and
+`PUSH` unidirectional streams. Transfer completion requires receive FIN for
+every requested file. The application bounds stream state and pending data,
+and confines file access to the configured input and output directories.
+
+The runner supplies `ROLE`, `TESTCASE`, `PROTOCOLS`, and `REQUESTS`.
+`XQC_WT_WWW` and `XQC_WT_DOWNLOADS` override the default `/www` and
+`/downloads` directories for native execution. The interop server listens on
+all interfaces for container networking. Its client accepts an explicit
+`-J` trust file for remote peers while retaining certificate and hostname
+verification. These policies apply only to the interop targets; the echo
+demos retain their loopback defaults. Interop targets do not accept `-X`.
+
+The `webtransport.core` CI group also registers these input/output cases:
+
+| Case ID | Coverage |
+|---|---|
+| 1817 | H: exactly one handshake per endpoint and matching protocol selection with differing preference lists. |
+| 1818 | H rejection: disjoint protocol lists produce 403 and no negotiated-protocol output. |
+| 1819 | UR: exact 100/500/250 KiB and 1/2 MiB binary downloads, each completed with FIN. |
+| 1820 | UR rejection: a missing source file produces an explicit peer application error and no success result. |
+| 1821 | An unrelated CA fails TLS verification before a session becomes ready. |
+| 1822 | A mismatched hostname fails TLS verification before a session becomes ready. |
+
+For a quick local run after the normal build:
+
+```sh
+XQC_BUILD_DIR=build/validation bash scripts/case_test.sh --execute \
+    --case wt_interop_handshake --case wt_interop_protocol_rejected \
+    --case wt_interop_ur --case wt_interop_missing_file \
+    --case wt_interop_wrong_ca --case wt_interop_wrong_hostname
+```
+
+These native cases use the existing case runner's fixtures, isolated work
+directory, process lifecycle, and log assertions. They require no Docker,
+browser, packet capture, or external peer. Parser, callback ownership, stream
+bounds, and filesystem boundary checks run in the complete CUnit suite.
+
+Interop image builds must run the complete unit suite and these native cases
+before copying the same tested binaries into the final image. A final-image
+self test checks packaging, and external peer matrices remain the evidence
+for interoperability with other implementations.
+
 ## Application protocol negotiation
 
 Native clients that require an application protocol can use

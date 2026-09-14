@@ -2368,6 +2368,12 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
         }
     }
 
+#ifdef XQC_WEBTRANSPORT_INTEROP
+    if (wt_case_selected || !args->quic_cfg.webtransport) {
+        fprintf(stderr, "WT interop requires -W and does not accept -X\n");
+        return -1;
+    }
+#endif
     if (wt_case_selected && !args->quic_cfg.webtransport) {
         fprintf(stderr, "-X requires WebTransport mode (-W)\n");
         return -1;
@@ -2427,6 +2433,7 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
                args->net_cfg.server_addr);
         return -1;
     }
+#ifndef XQC_WEBTRANSPORT_INTEROP
     if (args->quic_cfg.wt_cert_file) {
         struct sockaddr_in *addr4 =
             (struct sockaddr_in *) &args->net_cfg.addr;
@@ -2439,6 +2446,7 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
             return -1;
         }
     }
+#endif
 
     return 0;
 }

@@ -195,6 +195,7 @@ modules:
     paths:
       - src/webtransport/*
       - demo/xqc_wt*
+      - demo/xqc_webtrans_interop.c
       - case_test/webtransport/*
     read:
       - harness/spec/feat/webtransport.md

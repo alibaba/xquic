@@ -18,6 +18,7 @@ groups:
   - src/webtransport/*
   - include/xquic/xqc_webtransport.h
   - demo/xqc_wt*
+  - demo/xqc_webtrans_interop.c
   runner: case_test/webtransport/core.sh
   execution: implemented
   port_offset: 130

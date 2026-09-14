@@ -208,6 +208,230 @@ wt_second_session_rejected()
         clog
 }
 
+wt_interop_prepare()
+{
+    local name="$1"
+
+    mkdir -p "${CASE_TEST_WORK_DIR}/case-logs/${name}" || return 1
+    WT_INTEROP_DIR="$(mktemp -d \
+        "${CASE_TEST_WORK_DIR}/case-logs/${name}/interop.XXXXXX")" || return 1
+    mkdir -p "${WT_INTEROP_DIR}/server-www/wt" \
+        "${WT_INTEROP_DIR}/server-downloads" \
+        "${WT_INTEROP_DIR}/client-downloads" || return 1
+    WT_INTEROP_CLIENT_CASE=handshake
+    WT_INTEROP_SERVER_CASE=handshake
+    WT_INTEROP_CLIENT_PROTOCOLS='client-only first second'
+    WT_INTEROP_SERVER_PROTOCOLS='second first server-only'
+    WT_INTEROP_HOST=test.xquic.com
+    WT_INTEROP_CA="${PWD}/server.crt"
+    WT_INTEROP_REQUESTS="https://${WT_INTEROP_HOST}:${CASE_TEST_PORT}/wt"
+    rm -f session_ticket transport_params token
+    clear_log
+}
+
+wt_interop_run()
+{
+    local name="$1"
+    local peer_pattern="${2:-}"
+    local build_dir
+    local status=0
+
+    build_dir="$(case_test_build_dir "${ROOT_DIR}")"
+    CASE_TEST_SERVER_WAIT=0 case_test_start_server env ROLE=server \
+        TESTCASE="${WT_INTEROP_SERVER_CASE}" \
+        PROTOCOLS="${WT_INTEROP_SERVER_PROTOCOLS}" \
+        XQC_WT_WWW="${WT_INTEROP_DIR}/server-www" \
+        XQC_WT_DOWNLOADS="${WT_INTEROP_DIR}/server-downloads" \
+        "${build_dir}/demo/wt_interop_server" \
+        -W -v 16 -p "${CASE_TEST_PORT}" -K server.key -T server.crt \
+        -l d -L slog -k skeys.log > svr_stdlog 2>&1
+    if ! case_test_wait_for_log svr_stdlog \
+        'WebTransport maximum draft' 40 0.025
+    then
+        case_test_stop_server
+        case_test_snapshot_case_logs "${name}"
+        return 1
+    fi
+
+    WT_INTEROP_CLIENT_STATUS=0
+    env ROLE=client TESTCASE="${WT_INTEROP_CLIENT_CASE}" \
+        PROTOCOLS="${WT_INTEROP_CLIENT_PROTOCOLS}" \
+        REQUESTS="${WT_INTEROP_REQUESTS}" \
+        XQC_WT_DOWNLOADS="${WT_INTEROP_DIR}/client-downloads" \
+        "${build_dir}/demo/wt_interop_client" -W -v 16 -a 127.0.0.1 \
+        -U "https://${WT_INTEROP_HOST}:${CASE_TEST_PORT}/wt" \
+        -J "${WT_INTEROP_CA}" -K 10 -l d -L clog -k ckeys.log \
+        > stdlog 2>&1 || WT_INTEROP_CLIENT_STATUS="$?"
+
+    if [[ -n "${peer_pattern}" ]]; then
+        case_test_wait_for_log svr_stdlog "${peer_pattern}" 40 0.025 \
+            || status=1
+    fi
+    kill -0 "${CASE_TEST_SERVER_PID}" 2> /dev/null || status=1
+    case_test_stop_server
+    case_test_snapshot_case_logs "${name}"
+    return "${status}"
+}
+
+wt_interop_ready()
+{
+    local log
+
+    for log in stdlog svr_stdlog; do
+        [[ "$(grep -c '^WT handshake complete$' "${log}")" -eq 1 ]] \
+            || return 1
+        grep -q '^WT ready: draft=16 status=200 endpoint=/wt$' "${log}" \
+            || return 1
+    done
+}
+
+# draft-ietf-webtrans-http3-16 Section 3.3: client protocol preference.
+wt_interop_handshake()
+{
+    local role
+    local name=wt_interop_handshake
+
+    wt_interop_prepare "${name}" || return 1
+    wt_interop_run "${name}" '^WT closed: status=200 code=0$' || return 1
+    [[ "${WT_INTEROP_CLIENT_STATUS}" -eq 0 ]] || return 1
+    wt_interop_ready || return 1
+    printf '%s' first > "${WT_INTEROP_DIR}/expected-protocol.txt"
+    for role in client server; do
+        cmp "${WT_INTEROP_DIR}/expected-protocol.txt" \
+            "${WT_INTEROP_DIR}/${role}-downloads/negotiated_protocol.txt" \
+            || return 1
+    done
+    grep -q '^WT INTEROP PASS: case=handshake files=0 all_fin=1$' stdlog \
+        || return 1
+    ! grep -q '^WT INTEROP FAIL:' stdlog svr_stdlog
+}
+
+wt_interop_protocol_rejected()
+{
+    local name=wt_interop_protocol_rejected
+
+    wt_interop_prepare "${name}" || return 1
+    WT_INTEROP_CLIENT_PROTOCOLS=client-only
+    WT_INTEROP_SERVER_PROTOCOLS=server-only
+    wt_interop_run "${name}" || return 1
+    [[ "${WT_INTEROP_CLIENT_STATUS}" -eq 1 ]] || return 1
+    grep -q '^WT closed: status=403 ' stdlog || return 1
+    ! grep -q '^WT ready:\|^WT INTEROP PASS:' stdlog svr_stdlog || return 1
+    [[ ! -e "${WT_INTEROP_DIR}/client-downloads/negotiated_protocol.txt" \
+        && ! -e "${WT_INTEROP_DIR}/server-downloads/negotiated_protocol.txt" ]]
+}
+
+wt_interop_transfer_prepare()
+{
+    WT_INTEROP_CLIENT_CASE=transfer-unidirectional-receive
+    WT_INTEROP_SERVER_CASE=transfer
+    WT_INTEROP_CLIENT_PROTOCOLS=files
+    WT_INTEROP_SERVER_PROTOCOLS=files
+}
+
+# quic-interop-runner/webtransport.md: GET ends at FIN, PUSH at LF + body.
+wt_interop_ur()
+{
+    local name=wt_interop_ur
+    local index=0
+    local size
+    local file
+    local log
+
+    wt_interop_prepare "${name}" || return 1
+    wt_interop_transfer_prepare
+    python3 - "${WT_INTEROP_DIR}/server-www/wt" <<'PY'
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+for index, size in enumerate((102400, 512000, 256000, 1048576, 2097152)):
+    block = bytes((value + index) % 256 for value in range(256))
+    (root / f"file-{index}.bin").write_bytes(block * (size // len(block)))
+PY
+    [[ "$?" -eq 0 ]] || return 1
+    WT_INTEROP_REQUESTS=''
+    for index in 0 1 2 3 4; do
+        WT_INTEROP_REQUESTS+=" https://${WT_INTEROP_HOST}:${CASE_TEST_PORT}"
+        WT_INTEROP_REQUESTS+="/wt/file-${index}.bin"
+    done
+    wt_interop_run "${name}" '^WT closed: status=200 code=0$' || return 1
+    [[ "${WT_INTEROP_CLIENT_STATUS}" -eq 0 ]] || return 1
+    wt_interop_ready || return 1
+    index=0
+    for size in 102400 512000 256000 1048576 2097152; do
+        file="wt/file-${index}.bin"
+        cmp "${WT_INTEROP_DIR}/server-www/${file}" \
+            "${WT_INTEROP_DIR}/client-downloads/${file}" || return 1
+        grep -q "^WT file received: file-${index}.bin bytes=${size} fin=1$" \
+            stdlog \
+            || return 1
+        index=$((index + 1))
+    done
+    for log in stdlog svr_stdlog; do
+        [[ "$(grep -c '^WT uni sent: .* fin=1$' "${log}")" -eq 5 ]] \
+            || return 1
+        [[ "$(sed -n 's/^WT uni sent: id=\([0-9]*\) .*/\1/p' \
+            "${log}" | sort -u | wc -l)" -eq 5 ]] || return 1
+    done
+    grep -q '^WT INTEROP PASS: case=UR files=5 all_fin=1$' stdlog || return 1
+    ! grep -q '^WT INTEROP FAIL:' stdlog svr_stdlog
+}
+
+wt_interop_missing_file()
+{
+    local name=wt_interop_missing_file
+    local failure='session closed before completion|stream closed before FIN'
+
+    wt_interop_prepare "${name}" || return 1
+    wt_interop_transfer_prepare
+    WT_INTEROP_REQUESTS+='/missing.bin'
+    wt_interop_run "${name}" \
+        '^WT INTEROP FAIL: open requested file error=2$' || return 1
+    [[ "${WT_INTEROP_CLIENT_STATUS}" -eq 1 ]] || return 1
+    wt_interop_ready || return 1
+    grep -q '^WT closed: status=200 code=1$' stdlog || return 1
+    failure+='|stream reset or stopped'
+    grep -Eq "^WT INTEROP FAIL: (${failure}) error=-1$" \
+        stdlog || return 1
+    ! grep -q '^WT INTEROP PASS:' stdlog svr_stdlog || return 1
+    [[ ! -e "${WT_INTEROP_DIR}/client-downloads/wt/missing.bin" ]]
+}
+
+wt_interop_tls_rejected()
+{
+    [[ "${WT_INTEROP_CLIENT_STATUS}" -eq 1 ]] || return 1
+    grep -q 'certificate verify failed' clog || return 1
+    ! grep -q '^WT ready:\|^WT INTEROP PASS:' stdlog svr_stdlog || return 1
+    [[ ! -e "${WT_INTEROP_DIR}/client-downloads/negotiated_protocol.txt" \
+        && ! -e "${WT_INTEROP_DIR}/server-downloads/negotiated_protocol.txt" ]]
+}
+
+wt_interop_wrong_ca()
+{
+    local name=wt_interop_wrong_ca
+
+    wt_interop_prepare "${name}" || return 1
+    WT_INTEROP_CA="${WT_INTEROP_DIR}/unrelated-ca.pem"
+    openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -x509 -nodes \
+        -keyout "${WT_INTEROP_DIR}/unrelated-ca.key" \
+        -out "${WT_INTEROP_CA}" -subj /CN=Unrelated-CA -days 1 \
+        > "${WT_INTEROP_DIR}/certificate.log" 2>&1 || return 1
+    wt_interop_run "${name}" || return 1
+    wt_interop_tls_rejected
+}
+
+wt_interop_wrong_hostname()
+{
+    local name=wt_interop_wrong_hostname
+
+    wt_interop_prepare "${name}" || return 1
+    WT_INTEROP_HOST=wrong.xquic.test
+    WT_INTEROP_REQUESTS="https://${WT_INTEROP_HOST}:${CASE_TEST_PORT}/wt"
+    wt_interop_run "${name}" || return 1
+    wt_interop_tls_rejected
+}
+
 case_test_case "wt_draft07_1m" --id 1801 --run wt_draft07_1m --timeout 15
 case_test_case "wt_draft16_1m" --id 1802 --run wt_draft16_1m --timeout 15
 case_test_case "wt_connect_accepted" --id 1803 \
@@ -238,6 +462,17 @@ case_test_case "wt_single_session" --id 1815 \
     --run wt_single_session --timeout 15
 case_test_case "wt_second_session_rejected" --id 1816 \
     --run wt_second_session_rejected --timeout 15
+case_test_case "wt_interop_handshake" --id 1817 \
+    --run wt_interop_handshake --timeout 15
+case_test_case "wt_interop_protocol_rejected" --id 1818 \
+    --run wt_interop_protocol_rejected --timeout 15
+case_test_case "wt_interop_ur" --id 1819 --run wt_interop_ur --timeout 15
+case_test_case "wt_interop_missing_file" --id 1820 \
+    --run wt_interop_missing_file --timeout 15
+case_test_case "wt_interop_wrong_ca" --id 1821 \
+    --run wt_interop_wrong_ca --timeout 15
+case_test_case "wt_interop_wrong_hostname" --id 1822 \
+    --run wt_interop_wrong_hostname --timeout 15
 
 if case_test_is_discovery; then
     case_test_run

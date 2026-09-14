@@ -88,8 +88,6 @@ main(int argc, char *argv[])
                         xqc_test_wt_interop_paths)
         || !CU_add_test(pSuite, "xqc_test_wt_interop_headers",
                         xqc_test_wt_interop_headers)
-        || !CU_add_test(pSuite, "xqc_test_wt_interop_protocols",
-                        xqc_test_wt_interop_protocols)
         || !CU_add_test(pSuite, "xqc_test_wt_interop_stream_ownership",
                         xqc_test_wt_interop_stream_ownership)
         || !CU_add_test(pSuite, "xqc_test_wt_interop_stream_bound",
@@ -123,6 +121,12 @@ main(int argc, char *argv[])
                         xqc_test_wt_client_session_rejected)
         || !CU_add_test(pSuite, "xqc_test_wt_application_protocol",
                         xqc_test_wt_application_protocol)
+        || !CU_add_test(pSuite, "xqc_test_wt_protocol_selection",
+                        xqc_test_wt_protocol_selection)
+        || !CU_add_test(pSuite, "xqc_test_wt_protocol_selection_errors",
+                        xqc_test_wt_protocol_selection_errors)
+        || !CU_add_test(pSuite, "xqc_test_wt_protocol_selection_inputs",
+                        xqc_test_wt_protocol_selection_inputs)
         || !CU_add_test(pSuite, "xqc_test_wt_application_protocol_errors",
                         xqc_test_wt_application_protocol_errors)
         || !CU_add_test(pSuite, "xqc_test_wt_application_protocol_inputs",

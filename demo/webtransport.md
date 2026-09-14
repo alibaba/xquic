@@ -154,15 +154,18 @@ completion remain shared. No separate runtime or CMake project is needed.
 
 The interop application implements the runner's
 [handshake and file transfer contract](https://github.com/quic-interop/quic-interop-runner/blob/master/webtransport.md).
-It selects the client's first common application protocol, writes
-`negotiated_protocol.txt`, and transfers files in both directions using
+It uses `xqc_wt_select_application_protocol` to select the client's first
+common application protocol, writes `negotiated_protocol.txt`, and transfers
+files in both directions using
 unidirectional streams (UR/US), bidirectional streams (BR/BS), or datagrams
 (DR/DS). Unidirectional responses use `PUSH`; bidirectional responses reuse
 the request stream and carry raw file bytes. A datagram contains one complete
 `GET` or `PUSH` message. The requester closes the session only after every
 file is received, with FIN required for stream transfers. The application
 bounds stream state and pending data, and confines file access to the
-configured input and output directories.
+configured input and output directories. Request names share one owned
+`REQUESTS` buffer; outgoing datagrams use a fixed 256-slot queue with 1200
+bytes per slot, retaining the queued payload when sending is blocked.
 Datagram requesters keep one GET outstanding and send the next after receiving
 the complete PUSH response, avoiding bursts of small packets.
 Before session readiness, it buffers at most 256 datagrams and 300 KiB of

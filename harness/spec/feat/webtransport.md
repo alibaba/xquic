@@ -66,6 +66,11 @@ XQUIC owns container packaging and environment mapping under
 public interop runner consumes the published image and owns shared cases and
 image registration. Packaging must not maintain a second XQUIC engine/TLS
 runtime.
+The native server application uses `xqc_wt_select_application_protocol` to
+select a supported protocol in client preference order. The helper shares
+the adapter's Structured Field parser with client response validation and
+returns a borrowed supported string. Applications retain session acceptance
+policy and response-header ownership; the parser remains adapter-private.
 Native CI must exercise the same application binaries using input/output
 assertions for protocol preference, file contents and stream FIN or complete
 datagrams, and explicit negotiation, file, and certificate failures. Both

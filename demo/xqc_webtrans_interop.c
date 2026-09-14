@@ -24,17 +24,6 @@ typedef struct {
 static int xqc_wt_interop_valid_path(const char *path);
 static int xqc_wt_interop_header_feed(xqc_wt_interop_header_t *header,
     const void *data, size_t length, int fin, int push, size_t *consumed);
-static int xqc_wt_interop_select_protocol(const char *value, size_t length,
-    const char *const *protocols, size_t count, char *selected,
-    size_t capacity);
-static int xqc_wt_interop_string(const char **cursor, const char *end,
-    char *output, size_t capacity);
-static int xqc_wt_interop_parameters(const char **cursor, const char *end);
-static int xqc_wt_interop_key_char(unsigned char ch, int first);
-static int xqc_wt_interop_bare_item(const char *start, const char *end);
-static int xqc_wt_interop_valid_utf8(const unsigned char *data, size_t length);
-static int xqc_wt_interop_display_string(const char **cursor,
-    const char *end);
 
 static int
 xqc_wt_interop_valid_path(const char *path)
@@ -110,313 +99,6 @@ xqc_wt_interop_header_feed(xqc_wt_interop_header_t *header,
     return 1;
 }
 
-static int
-xqc_wt_interop_string(const char **cursor, const char *end,
-    char *output, size_t capacity)
-{
-    const char *p = *cursor;
-    size_t used = 0;
-
-    if (p == end || *p++ != '"') {
-        return -1;
-    }
-    while (p != end) {
-        unsigned char ch = *p++;
-        if (ch == '"') {
-            if (output) {
-                output[used] = '\0';
-            }
-            *cursor = p;
-            return 0;
-        }
-        if (ch == '\\') {
-            if (p == end || (*p != '"' && *p != '\\')) {
-                return -1;
-            }
-            ch = *p++;
-        }
-        if (ch < 0x20 || ch > 0x7e || (output && used + 1 >= capacity)) {
-            return -1;
-        }
-        if (output) {
-            output[used++] = ch;
-        }
-    }
-    return -1;
-}
-
-static int
-xqc_wt_interop_key_char(unsigned char ch, int first)
-{
-    return (ch >= 'a' && ch <= 'z') || ch == '*'
-        || (!first && ((ch >= '0' && ch <= '9')
-                      || ch == '_' || ch == '-' || ch == '.'));
-}
-
-static int
-xqc_wt_interop_bare_item(const char *start, const char *end)
-{
-    const char *p = start;
-    int date = *p == '@';
-
-    if (*p == '?') {
-        return end - p == 2 && (p[1] == '0' || p[1] == '1');
-    }
-    if (date) {
-        p++;
-    }
-    if (p != end && (*p == '-' || (*p >= '0' && *p <= '9'))) {
-        if (*p == '-') {
-            p++;
-        }
-        const char *digits = p;
-        while (p != end && *p >= '0' && *p <= '9') {
-            p++;
-        }
-        size_t integral = p - digits;
-        if (!integral || integral > 15) {
-            return 0;
-        }
-        if (p == end) {
-            return 1;
-        }
-        if (date || *p++ != '.' || integral > 12) {
-            return 0;
-        }
-        digits = p;
-        while (p != end && *p >= '0' && *p <= '9') {
-            p++;
-        }
-        return p == end && p - digits >= 1 && p - digits <= 3;
-    }
-    if (date || p == end
-        || !((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z')
-             || *p == '*'))
-    {
-        return 0;
-    }
-    for (; p != end; p++) {
-        if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z')
-              || (*p >= '0' && *p <= '9')
-              || strchr("!#$%&'*+-.^_`|~:/", *p)))
-        {
-            return 0;
-        }
-    }
-    return 1;
-}
-
-static int
-xqc_wt_interop_valid_utf8(const unsigned char *data, size_t length)
-{
-    for (size_t i = 0; i < length;) {
-        unsigned code = data[i++];
-        unsigned count, minimum;
-        if (code < 0x80) {
-            continue;
-        }
-        if (code >= 0xc2 && code <= 0xdf) {
-            count = 1;
-            minimum = 0x80;
-            code &= 0x1f;
-        } else if (code >= 0xe0 && code <= 0xef) {
-            count = 2;
-            minimum = 0x800;
-            code &= 0x0f;
-        } else if (code >= 0xf0 && code <= 0xf4) {
-            count = 3;
-            minimum = 0x10000;
-            code &= 0x07;
-        } else {
-            return 0;
-        }
-        if (length - i < count) {
-            return 0;
-        }
-        while (count--) {
-            unsigned byte = data[i++];
-            if ((byte & 0xc0) != 0x80) {
-                return 0;
-            }
-            code = (code << 6) | (byte & 0x3f);
-        }
-        if (code < minimum || code > 0x10ffff
-            || (code >= 0xd800 && code <= 0xdfff))
-        {
-            return 0;
-        }
-    }
-    return 1;
-}
-
-static int
-xqc_wt_interop_display_string(const char **cursor, const char *end)
-{
-    const char *p = *cursor;
-    unsigned char decoded[4096];
-    size_t length = 0;
-
-    if (++p == end || *p++ != '"') {
-        return -1;
-    }
-    while (p != end && *p != '"') {
-        unsigned char ch = *p++;
-        if (ch < 0x20 || ch > 0x7e) {
-            return -1;
-        }
-        if (ch == '%') {
-            unsigned value = 0;
-            for (unsigned i = 0; i < 2; i++) {
-                if (p == end || !((*p >= '0' && *p <= '9')
-                    || (*p >= 'a' && *p <= 'f')))
-                {
-                    return -1;
-                }
-                value = value * 16 + (*p <= '9'
-                    ? *p - '0' : *p - 'a' + 10);
-                p++;
-            }
-            ch = value;
-        }
-        if (length == sizeof(decoded)) {
-            return -1;
-        }
-        decoded[length++] = ch;
-    }
-    if (p == end || !xqc_wt_interop_valid_utf8(decoded, length)) {
-        return -1;
-    }
-    *cursor = p + 1;
-    return 0;
-}
-
-static int
-xqc_wt_interop_parameters(const char **cursor, const char *end)
-{
-    const char *p = *cursor;
-
-    /* draft-ietf-webtrans-http3-16 Section 3.3 ignores SF parameters. */
-    while (p != end && *p == ';') {
-        p++;
-        while (p != end && *p == ' ') {
-            p++;
-        }
-        if (p == end || !xqc_wt_interop_key_char(*p++, 1)) {
-            return -1;
-        }
-        while (p != end && xqc_wt_interop_key_char(*p, 0)) {
-            p++;
-        }
-        if (p == end || *p != '=') {
-            continue;
-        }
-        p++;
-        if (p == end) {
-            return -1;
-        }
-        if (*p == '"') {
-            if (xqc_wt_interop_string(&p, end, NULL, 0)) {
-                return -1;
-            }
-
-        } else if (*p == '%') {
-            if (xqc_wt_interop_display_string(&p, end)) {
-                return -1;
-            }
-
-        } else if (*p == ':') {
-            size_t digits = 0, padding = 0;
-            p++;
-            while (p != end && *p != ':') {
-                unsigned char ch = *p++;
-                if (ch == '=') {
-                    padding++;
-                } else if (!padding && ((ch >= 'a' && ch <= 'z')
-                    || (ch >= 'A' && ch <= 'Z')
-                    || (ch >= '0' && ch <= '9') || ch == '+' || ch == '/'))
-                {
-                    digits++;
-                } else {
-                    return -1;
-                }
-            }
-            if (p == end || digits % 4 == 1 || padding > 2
-                || (padding && (digits + padding) % 4 != 0))
-            {
-                return -1;
-            }
-            p++;
-
-        } else {
-            const char *start = p;
-            while (p != end && *p != ';' && *p != ',' && *p != ' '
-                   && *p != '\t')
-            {
-                if ((unsigned char) *p < 0x21
-                    || (unsigned char) *p > 0x7e || *p == '"'
-                    || *p == '\\' || *p == '(' || *p == ')')
-                {
-                    return -1;
-                }
-                p++;
-            }
-            if (p == start || !xqc_wt_interop_bare_item(start, p)) {
-                return -1;
-            }
-        }
-    }
-    *cursor = p;
-    return 0;
-}
-
-static int
-xqc_wt_interop_select_protocol(const char *value, size_t length,
-    const char *const *protocols, size_t count, char *selected,
-    size_t capacity)
-{
-    const char *p = value;
-    const char *end = value + length;
-    char item[XQC_WT_INTEROP_PROTOCOL_MAX + 1];
-    int found = 0;
-
-    if (!capacity || !length || length > 4096) {
-        return -1;
-    }
-    selected[0] = '\0';
-    while (p != end && *p == ' ') {
-        p++;
-    }
-    for (;;) {
-        if (xqc_wt_interop_string(&p, end, item, sizeof(item))) {
-            return -1;
-        }
-        for (size_t i = 0; !found && i < count; i++) {
-            if (!strcmp(item, protocols[i])) {
-                if (strlen(item) >= capacity) {
-                    return -1;
-                }
-                strcpy(selected, item);
-                found = 1;
-            }
-        }
-        if (xqc_wt_interop_parameters(&p, end)) {
-            return -1;
-        }
-        while (p != end && (*p == ' ' || *p == '\t')) {
-            p++;
-        }
-        if (p == end) {
-            return found;
-        }
-        if (*p++ != ',' || p == end) {
-            return -1;
-        }
-        while (p != end && (*p == ' ' || *p == '\t')) {
-            p++;
-        }
-    }
-}
-
 #define XQC_WT_INTEROP_FILES_MAX 256
 #define XQC_WT_INTEROP_STREAMS_MAX 64
 #define XQC_WT_INTEROP_DATAGRAM_MAX 1200
@@ -441,26 +123,23 @@ struct xqc_wt_interop_stream_s {
     unsigned char           pending[];
 };
 
-typedef struct xqc_wt_interop_datagram_s xqc_wt_interop_datagram_t;
-
-struct xqc_wt_interop_datagram_s {
-    xqc_wt_interop_datagram_t *next;
-    size_t                    length;
-    unsigned char             data[];
-};
+typedef struct {
+    size_t         length;
+    unsigned char  data[XQC_WT_INTEROP_DATAGRAM_MAX];
+} xqc_wt_interop_datagram_t;
 
 typedef struct {
-    xqc_engine_t           *engine;
     xqc_wt_session_t       *session;
     xqc_wt_interop_stream_t *streams;
     char                   *protocol_storage;
+    char                   *requests_storage;
     const char             *protocols[32];
     size_t                  protocol_count;
-    char                    selected[XQC_WT_INTEROP_PROTOCOL_MAX + 1];
+    const char             *selected;
     char                    encoded[2 * XQC_WT_INTEROP_PROTOCOL_MAX + 3];
     xqc_http_header_t       response[2];
     char                   endpoint[256];
-    char                   *files[XQC_WT_INTEROP_FILES_MAX];
+    const char             *files[XQC_WT_INTEROP_FILES_MAX];
     int                     received[XQC_WT_INTEROP_FILES_MAX];
     size_t                  file_count;
     size_t                  completed;
@@ -471,8 +150,8 @@ typedef struct {
     int                     handshake;
     int                     mode;
     const char             *case_name;
-    xqc_wt_interop_datagram_t *datagrams;
-    xqc_wt_interop_datagram_t **datagram_tail;
+    xqc_wt_interop_datagram_t datagrams[XQC_WT_INTEROP_FILES_MAX];
+    size_t                  datagram_head;
     size_t                  datagram_count;
     int                     failed;
     int                     success;
@@ -661,7 +340,7 @@ xqc_wt_interop_accept(xqc_http_headers_t *headers,
     xqc_http_headers_t *response)
 {
     xqc_wt_interop_t *ctx = &xqc_wt_interop;
-    const xqc_http_header_t *path = NULL, *protocol = NULL;
+    const xqc_http_header_t *path = NULL;
     size_t written = 0;
 
     for (size_t i = 0; i < headers->count; i++) {
@@ -671,12 +350,6 @@ xqc_wt_interop_accept(xqc_http_headers_t *headers,
                 return 0;
             }
             path = header;
-        }
-        if (xqc_wt_interop_header_name(header, "wt-available-protocols")) {
-            if (protocol) {
-                return 0;
-            }
-            protocol = header;
         }
     }
     if (ctx->session || !path || path->value.iov_len < 2
@@ -695,10 +368,8 @@ xqc_wt_interop_accept(xqc_http_headers_t *headers,
         fprintf(stderr, "WT INTEROP reject: unsafe endpoint\n");
         return 0;
     }
-    if (!protocol || xqc_wt_interop_select_protocol(
-            protocol->value.iov_base, protocol->value.iov_len,
-            ctx->protocols, ctx->protocol_count, ctx->selected,
-            sizeof(ctx->selected)) != 1)
+    if (xqc_wt_select_application_protocol(headers, ctx->protocols,
+            ctx->protocol_count, &ctx->selected) != 1)
     {
         fprintf(stderr, "WT INTEROP reject: no application protocol\n");
         return 0;
@@ -839,13 +510,8 @@ xqc_wt_interop_closed(xqc_wt_session_t *session,
     while (ctx->streams) {
         xqc_wt_interop_free_stream(ctx->streams);
     }
-    while (ctx->datagrams) {
-        xqc_wt_interop_datagram_t *next = ctx->datagrams->next;
-        free(ctx->datagrams);
-        ctx->datagrams = next;
-    }
     ctx->datagram_count = 0;
-    ctx->datagram_tail = &ctx->datagrams;
+    ctx->datagram_head = 0;
     if (ctx->directory >= 0) {
         close(ctx->directory);
         ctx->directory = -1;
@@ -1249,16 +915,10 @@ xqc_wt_interop_datagram_queue(const void *data, size_t length)
         xqc_wt_interop_fail("datagram queue bound", XQC_ERROR);
         return XQC_ERROR;
     }
-    item = malloc(sizeof(*item) + length);
-    if (!item) {
-        xqc_wt_interop_fail("allocate datagram", -XQC_EMALLOC);
-        return XQC_ERROR;
-    }
-    item->next = NULL;
+    item = &ctx->datagrams[(ctx->datagram_head + ctx->datagram_count)
+                           % XQC_WT_INTEROP_FILES_MAX];
     item->length = length;
     memcpy(item->data, data, length);
-    *ctx->datagram_tail = item;
-    ctx->datagram_tail = &item->next;
     ctx->datagram_count++;
     return XQC_OK;
 }
@@ -1289,11 +949,12 @@ xqc_wt_interop_datagram_write(xqc_wt_session_t *session, void *user_data)
 {
     xqc_wt_interop_t *ctx = &xqc_wt_interop;
 
-    if (!ctx->datagrams || ctx->failed || ctx->success) {
+    if (!ctx->datagram_count || ctx->failed || ctx->success) {
         return;
     }
-    while (ctx->datagrams && !ctx->failed) {
-        xqc_wt_interop_datagram_t *item = ctx->datagrams;
+    while (ctx->datagram_count && !ctx->failed) {
+        xqc_wt_interop_datagram_t *item =
+            &ctx->datagrams[ctx->datagram_head];
         int result = xqc_wt_session_datagram_send(session, item->data,
                                                    item->length, NULL);
         if (result != XQC_OK) {
@@ -1302,15 +963,16 @@ xqc_wt_interop_datagram_write(xqc_wt_session_t *session, void *user_data)
             }
             break;
         }
-        ctx->datagrams = item->next;
-        ctx->datagram_count--;
-        if (!ctx->datagrams) {
-            ctx->datagram_tail = &ctx->datagrams;
+        /* Sending may synchronously close the session and clear the queue. */
+        if (!ctx->datagram_count || ctx->session != session) {
+            return;
         }
+        ctx->datagram_head = (ctx->datagram_head + 1)
+            % XQC_WT_INTEROP_FILES_MAX;
+        ctx->datagram_count--;
         if (!ctx->mode) {
             ctx->completed++;
         }
-        free(item);
     }
     ctx->schedule_send(ctx->user_data);
 }
@@ -1457,11 +1119,10 @@ xqc_wt_interop_requests(const char *authority, const char *path)
 {
     xqc_wt_interop_t *ctx = &xqc_wt_interop;
     const char *requests = getenv("REQUESTS");
-    char *storage, *save;
+    char *save;
     size_t count = 0;
-    int result = -1;
 
-    if (!requests) {
+    if (!requests || ctx->requests_storage) {
         return -1;
     }
     if (!ctx->server) {
@@ -1474,11 +1135,11 @@ xqc_wt_interop_requests(const char *authority, const char *path)
         strcpy(ctx->endpoint, path + 1);
     }
     size_t endpoint_length = strlen(ctx->endpoint);
-    storage = strdup(requests);
-    if (!storage) {
+    ctx->requests_storage = strdup(requests);
+    if (!ctx->requests_storage) {
         return -1;
     }
-    for (char *url = strtok_r(storage, " ", &save); url;
+    for (char *url = strtok_r(ctx->requests_storage, " ", &save); url;
          url = strtok_r(NULL, " ", &save))
     {
         const char *file = url;
@@ -1489,14 +1150,14 @@ xqc_wt_interop_requests(const char *authority, const char *path)
                 || strncmp(url + 8, authority, length)
                 || url[8 + length] != '/')
             {
-                goto done;
+                return -1;
             }
             file += 9 + length;
         }
         if (strncmp(file, ctx->endpoint, endpoint_length)
             || (file[endpoint_length] && file[endpoint_length] != '/'))
         {
-            goto done;
+            return -1;
         }
         file += endpoint_length;
         if (*file == '/') {
@@ -1504,35 +1165,29 @@ xqc_wt_interop_requests(const char *authority, const char *path)
         }
         if (!ctx->mode) {
             if (*file) {
-                goto done;
+                return -1;
             }
             continue;
         }
         if (!xqc_wt_interop_valid_path(file)
             || ctx->file_count == XQC_WT_INTEROP_FILES_MAX)
         {
-            goto done;
+            return -1;
         }
         for (size_t i = 0; i < ctx->file_count; i++) {
             if (!strcmp(file, ctx->files[i])) {
-                goto done;
+                return -1;
             }
         }
-        ctx->files[ctx->file_count] = strdup(file);
-        if (!ctx->files[ctx->file_count++]) {
-            goto done;
-        }
+        ctx->files[ctx->file_count++] = file;
     }
     if ((ctx->mode && !ctx->file_count) || !count) {
-        goto done;
+        return -1;
     }
     if (!ctx->server && !ctx->handshake && xqc_wt_interop_directory()) {
-        goto done;
+        return -1;
     }
-    result = 0;
-done:
-    free(storage);
-    return result;
+    return 0;
 }
 
 static xqc_int_t
@@ -1579,8 +1234,6 @@ xqc_wt_interop_init(xqc_engine_t *engine, int draft_version, int server,
     memset(ctx, 0, sizeof(*ctx));
     ctx->root = -1;
     ctx->directory = -1;
-    ctx->datagram_tail = &ctx->datagrams;
-    ctx->engine = engine;
     ctx->server = server;
     ctx->schedule_send = schedule_send;
     ctx->finished = finished;
@@ -1654,10 +1307,8 @@ xqc_demo_wt_client_finish(void)
         close(ctx->root);
         ctx->root = -1;
     }
-    for (size_t i = 0; i < ctx->file_count; i++) {
-        free(ctx->files[i]);
-        ctx->files[i] = NULL;
-    }
+    free(ctx->requests_storage);
+    ctx->requests_storage = NULL;
     free(ctx->protocol_storage);
     ctx->protocol_storage = NULL;
     return ctx->success && !ctx->failed ? 0 : 1;

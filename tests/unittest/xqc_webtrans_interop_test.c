@@ -37,6 +37,9 @@ static unsigned xqc_wt_interop_test_status(xqc_wt_session_t *session);
 
 static int xqc_wt_interop_test_result;
 static int xqc_wt_interop_test_sends;
+static int xqc_wt_interop_test_accepts;
+static int xqc_wt_interop_test_sequence;
+static int xqc_wt_interop_test_close_on_send;
 static int xqc_wt_interop_test_scheduled;
 static int xqc_wt_interop_test_closes;
 static uint32_t xqc_wt_interop_test_code;
@@ -58,13 +61,35 @@ static xqc_int_t
 xqc_wt_interop_test_send(xqc_wt_session_t *session, const void *data,
     size_t length, uint64_t *datagram_id)
 {
+    int result = xqc_wt_interop_test_accepts
+                 ? xqc_wt_interop_test_result : -XQC_EAGAIN;
+
     CU_ASSERT(length <= sizeof(xqc_wt_interop_test_payload));
     xqc_wt_interop_test_length = length;
     if (length <= sizeof(xqc_wt_interop_test_payload)) {
         memcpy(xqc_wt_interop_test_payload, data, length);
     }
     xqc_wt_interop_test_sends++;
-    return xqc_wt_interop_test_result;
+    if (xqc_wt_interop_test_sequence >= 0) {
+        uint32_t sequence = 0;
+        CU_ASSERT(length == sizeof(sequence));
+        if (length == sizeof(sequence)) {
+            memcpy(&sequence, data, length);
+        }
+        CU_ASSERT(sequence == (uint32_t) xqc_wt_interop_test_sequence);
+        if (result == XQC_OK) {
+            xqc_wt_interop_test_sequence++;
+        }
+    }
+    if (result == XQC_OK && xqc_wt_interop_test_accepts > 0) {
+        xqc_wt_interop_test_accepts--;
+    }
+    if (xqc_wt_interop_test_close_on_send) {
+        xqc_wt_interop_closed(session, NULL, NULL, NULL);
+        xqc_wt_interop_test_close_on_send = 0;
+        xqc_wt_interop_test_result = XQC_ERROR;
+    }
+    return result;
 }
 
 static xqc_int_t
@@ -100,11 +125,13 @@ xqc_wt_interop_test_reset(void)
     memset(&xqc_wt_interop, 0, sizeof(xqc_wt_interop));
     xqc_wt_interop.root = -1;
     xqc_wt_interop.directory = -1;
-    xqc_wt_interop.datagram_tail = &xqc_wt_interop.datagrams;
     xqc_wt_interop.schedule_send = xqc_wt_interop_test_schedule;
     xqc_wt_interop.case_name = "unit";
     xqc_wt_interop_test_result = XQC_OK;
     xqc_wt_interop_test_sends = 0;
+    xqc_wt_interop_test_accepts = -1;
+    xqc_wt_interop_test_sequence = -1;
+    xqc_wt_interop_test_close_on_send = 0;
     xqc_wt_interop_test_scheduled = 0;
     xqc_wt_interop_test_closes = 0;
     xqc_wt_interop_test_code = 0;
@@ -116,14 +143,7 @@ xqc_wt_interop_test_clear(void)
     while (xqc_wt_interop.streams) {
         xqc_wt_interop_free_stream(xqc_wt_interop.streams);
     }
-    while (xqc_wt_interop.datagrams) {
-        xqc_wt_interop_datagram_t *item = xqc_wt_interop.datagrams;
-        xqc_wt_interop.datagrams = item->next;
-        free(item);
-    }
-    for (size_t i = 0; i < xqc_wt_interop.file_count; i++) {
-        free(xqc_wt_interop.files[i]);
-    }
+    free(xqc_wt_interop.requests_storage);
     free(xqc_wt_interop.protocol_storage);
     if (xqc_wt_interop.directory >= 0) {
         close(xqc_wt_interop.directory);
@@ -259,70 +279,6 @@ xqc_test_wt_interop_headers(void)
     xqc_wt_interop_check(xqc_wt_interop_header_feed(&header,
         oversized, sizeof(oversized), 0, 0, &consumed) == -1,
         "bounded header rejects oversized fragment");
-}
-
-void
-xqc_test_wt_interop_protocols(void)
-{
-    const char *protocols[] = {"server-first", "client-first", "a\"b\\c"};
-    const char *valid[] = {"\"client-first\", \"server-first\"",
-        " \"client-first\";ignored=\"x,y\", \"server-first\" ",
-        "\"client-first\";flag;version=7;raw=:YQ==:",
-        ("\"client-first\";display=%\"caf%c3%a9\";flag=?0;date=@-5"
-         ";decimal=-1.25;token=*a:/;raw=:AQI:;empty=::;text=\"a\\\"b\""),
-        "\"other\",\t\"client-first\"\t"};
-    const char *invalid[] = {"client-first", "\"client-first\",",
-        "\"client-first\" garbage", "\"client-first\";=1",
-        "\"client-first\";value=", "\"unterminated",
-        "\"bad\\escape\"", "\"client-first\", unquoted",
-        "\"client-first\";bad=?7", "\"client-first\";bad=1.1234",
-        "\"client-first\";bad=-", "\"client-first\";bad=@",
-        "\"client-first\";bad=:a:", "\"client-first\";bad=:AQ=I:",
-        "\"client-first\";bad=:AQI===:", "\"client-first\";bad=:AQI",
-        "\"client-first\";bad=%\"%ff\"",
-        "\"client-first\";bad=%\"%e2%82\"",
-        "\"client-first\";bad=%\"%gg\"",
-        "\"client-first\";bad=%\"%\"",
-        "\"client-first\";bad=%oops",
-        "\"client-first\";bad=%\"unterminated",
-        "\t\"client-first\""};
-    char selected[256];
-
-    /* draft-ietf-webtrans-http3-16 Section 3.3: strings, client preference. */
-    for (size_t i = 0; i < sizeof(valid) / sizeof(valid[0]); i++) {
-        xqc_wt_interop_check(xqc_wt_interop_select_protocol(valid[i],
-            strlen(valid[i]), protocols, 3, selected, sizeof(selected)) == 1
-            && !strcmp(selected, "client-first"),
-            "client preference selected and parameters ignored");
-    }
-    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
-        xqc_wt_interop_check(xqc_wt_interop_select_protocol(invalid[i],
-            strlen(invalid[i]), protocols, 3, selected, sizeof(selected))
-                == -1, "malformed protocol list rejected");
-    }
-    const char escaped[] = "\"a\\\"b\\\\c\"";
-    xqc_wt_interop_check(xqc_wt_interop_select_protocol(escaped,
-        strlen(escaped), protocols, 3, selected, sizeof(selected)) == 1
-        && !strcmp(selected, protocols[2]), "SF string escapes decoded");
-    xqc_wt_interop_check(xqc_wt_interop_select_protocol("\"other\"", 7,
-        protocols, 3, selected, sizeof(selected)) == 0,
-        "no protocol intersection rejected");
-    char long_protocol[1026], long_list[1028], long_selected[1025];
-    memset(long_protocol, 'a', 1024);
-    long_protocol[1024] = '\0';
-    const char *long_offered[] = {long_protocol};
-    snprintf(long_list, sizeof(long_list), "\"%s\"", long_protocol);
-    xqc_wt_interop_check(xqc_wt_interop_select_protocol(long_list,
-        strlen(long_list), long_offered, 1, long_selected,
-        sizeof(long_selected)) == 1,
-        "RFC 9651 required 1024-byte string accepted");
-    long_protocol[1024] = 'a';
-    long_protocol[1025] = '\0';
-    snprintf(long_list, sizeof(long_list), "\"%s\"", long_protocol);
-    xqc_wt_interop_check(xqc_wt_interop_select_protocol(long_list,
-        strlen(long_list), long_offered, 1, long_selected,
-        sizeof(long_selected)) == -1,
-        "protocol over configured size bound rejected");
 }
 
 void
@@ -536,9 +492,31 @@ xqc_test_wt_interop_roles(void)
             CU_ASSERT(xqc_wt_interop.mode == cases[i].mode);
             CU_ASSERT(xqc_wt_interop.file_count
                 == (cases[i].mode ? cases[i].server ? 2 : 1 : 0));
+            for (size_t n = 0; n < xqc_wt_interop.file_count; n++) {
+                uintptr_t file = (uintptr_t) xqc_wt_interop.files[n];
+                uintptr_t storage =
+                    (uintptr_t) xqc_wt_interop.requests_storage;
+                CU_ASSERT(file >= storage
+                    && file < storage + strlen(cases[i].requests) + 1);
+            }
         }
         xqc_wt_interop_test_clear();
     }
+    setenv("ROLE", "client", 1);
+    setenv("TESTCASE", "transfer-unidirectional-receive", 1);
+    setenv("REQUESTS", "https://server/wt/first https://server/wt/first", 1);
+    CU_ASSERT(xqc_wt_interop_configure(0) == 0);
+    CU_ASSERT(xqc_wt_interop_requests("server", "/wt") < 0);
+    CU_ASSERT(xqc_wt_interop.file_count == 1);
+    CU_ASSERT_STRING_EQUAL(xqc_wt_interop.files[0], "first");
+    setenv("REQUESTS", "replaced", 1);
+    CU_ASSERT_STRING_EQUAL(xqc_wt_interop.files[0], "first");
+    xqc_wt_interop.failed = 1;
+    CU_ASSERT(xqc_demo_wt_client_finish() == 1);
+    CU_ASSERT(xqc_wt_interop.requests_storage == NULL);
+    CU_ASSERT(xqc_demo_wt_client_finish() == 1);
+    xqc_wt_interop_test_clear();
+
     for (int server = 0; server < 2; server++) {
         for (size_t count = 200; count <= 257; count += count == 200 ? 56 : 1) {
             size_t length = 0;
@@ -608,8 +586,8 @@ xqc_test_wt_interop_bidi_receive(void)
     xqc_wt_interop_test_fixture(directory);
     xqc_wt_interop.mode = 2;
     xqc_wt_interop.file_count = 2;
-    xqc_wt_interop.files[0] = strdup("binary");
-    xqc_wt_interop.files[1] = strdup("empty");
+    xqc_wt_interop.files[0] = "binary";
+    xqc_wt_interop.files[1] = "empty";
     for (int i = 0; i < 2; i++) {
         state = xqc_wt_interop_allocate(NULL);
         xqc_wt_interop_check(state != NULL, "allocate bidi response state");
@@ -676,8 +654,8 @@ xqc_test_wt_interop_datagrams(void)
     xqc_wt_interop.mode = 3;
     xqc_wt_interop.completed = 0;
     xqc_wt_interop.file_count = 2;
-    xqc_wt_interop.files[0] = strdup("binary");
-    xqc_wt_interop.files[1] = strdup("empty");
+    xqc_wt_interop.files[0] = "binary";
+    xqc_wt_interop.files[1] = "empty";
     xqc_wt_interop_datagram_read(NULL, push, sizeof(push) - 1, NULL, 0);
     CU_ASSERT(xqc_wt_interop.completed == 1 && !xqc_wt_interop.success);
     CU_ASSERT(xqc_wt_interop_test_file("binary", push + header, body));
@@ -743,9 +721,13 @@ xqc_test_wt_interop_datagrams(void)
     xqc_wt_interop.mode = 3;
     xqc_wt_interop.file_count = 200;
     strcpy(xqc_wt_interop.endpoint, "wt");
+    xqc_wt_interop.requests_storage = calloc(200, sizeof(request));
+    xqc_wt_interop_check(xqc_wt_interop.requests_storage != NULL,
+                         "allocate request-name fixture");
     for (size_t i = 0; i < 200; i++) {
-        snprintf(request, sizeof(request), "window-%zu", i);
-        xqc_wt_interop.files[i] = strdup(request);
+        char *name = xqc_wt_interop.requests_storage + i * sizeof(request);
+        snprintf(name, sizeof(request), "window-%zu", i);
+        xqc_wt_interop.files[i] = name;
     }
     CU_ASSERT(xqc_wt_interop_ready(&session, NULL, NULL, NULL) == XQC_OK);
     CU_ASSERT(xqc_wt_interop_test_sends == 1);
@@ -771,8 +753,8 @@ xqc_test_wt_interop_datagrams(void)
 
     xqc_wt_interop.mode = 3;
     xqc_wt_interop.file_count = 2;
-    xqc_wt_interop.files[0] = strdup("first");
-    xqc_wt_interop.files[1] = strdup("future");
+    xqc_wt_interop.files[0] = "first";
+    xqc_wt_interop.files[1] = "future";
     xqc_wt_interop_datagram_read(NULL, "PUSH future\nx", 13, NULL, 0);
     CU_ASSERT(xqc_wt_interop.failed && !xqc_wt_interop.completed);
     CU_ASSERT(!xqc_wt_interop.received[1] && !xqc_wt_interop_test_sends);
@@ -794,12 +776,12 @@ xqc_test_wt_interop_datagram_backpressure(void)
     for (size_t i = 0; i < sizeof(blocked) / sizeof(blocked[0]); i++) {
         CU_ASSERT(xqc_wt_interop_datagram_queue(payload, sizeof(payload) - 1)
                   == XQC_OK);
-        item = xqc_wt_interop.datagrams;
+        item = &xqc_wt_interop.datagrams[xqc_wt_interop.datagram_head];
         xqc_wt_interop_test_result = blocked[i];
         xqc_wt_interop_datagram_write(NULL, NULL);
         CU_ASSERT(!xqc_wt_interop.failed && !xqc_wt_interop.completed);
-        CU_ASSERT(xqc_wt_interop.datagrams == item
-            && xqc_wt_interop.datagram_count == 1);
+        CU_ASSERT(&xqc_wt_interop.datagrams[xqc_wt_interop.datagram_head]
+            == item && xqc_wt_interop.datagram_count == 1);
         CU_ASSERT(item->length == sizeof(payload) - 1
             && !memcmp(item->data, payload, sizeof(payload) - 1));
         CU_ASSERT(xqc_wt_interop_test_length == item->length);
@@ -807,8 +789,8 @@ xqc_test_wt_interop_datagram_backpressure(void)
                            sizeof(payload) - 1));
         xqc_wt_interop_test_result = XQC_OK;
         xqc_wt_interop_datagram_write(NULL, NULL);
-        CU_ASSERT(!xqc_wt_interop.datagrams && !xqc_wt_interop.datagram_count);
-        CU_ASSERT(xqc_wt_interop.datagram_tail == &xqc_wt_interop.datagrams);
+        CU_ASSERT(!xqc_wt_interop.datagram_count);
+        CU_ASSERT(xqc_wt_interop.datagram_head == 1);
         CU_ASSERT(xqc_wt_interop.completed == 1
             && xqc_wt_interop_test_sends == 2);
         CU_ASSERT(!memcmp(xqc_wt_interop_test_payload, payload,
@@ -817,14 +799,15 @@ xqc_test_wt_interop_datagram_backpressure(void)
     }
     CU_ASSERT(xqc_wt_interop_datagram_queue(payload, sizeof(payload) - 1)
               == XQC_OK);
-    item = xqc_wt_interop.datagrams;
+    item = &xqc_wt_interop.datagrams[xqc_wt_interop.datagram_head];
     xqc_wt_interop.success = 1;
     xqc_wt_interop_datagram_write(NULL, NULL);
     CU_ASSERT(!xqc_wt_interop_test_sends && !xqc_wt_interop_test_scheduled);
     xqc_wt_interop.success = 0;
     xqc_wt_interop_test_result = XQC_ERROR;
     xqc_wt_interop_datagram_write(NULL, NULL);
-    CU_ASSERT(xqc_wt_interop.failed && xqc_wt_interop.datagrams == item);
+    CU_ASSERT(xqc_wt_interop.failed
+        && &xqc_wt_interop.datagrams[xqc_wt_interop.datagram_head] == item);
     CU_ASSERT(!xqc_wt_interop.completed);
     int scheduled = xqc_wt_interop_test_scheduled;
     xqc_wt_interop_datagram_write(NULL, NULL);
@@ -843,20 +826,20 @@ xqc_test_wt_interop_datagram_backpressure(void)
     xqc_wt_interop_test_clear();
     CU_ASSERT(xqc_wt_interop_datagram_queue(oversized,
         XQC_WT_INTEROP_DATAGRAM_MAX) == XQC_OK);
-    CU_ASSERT(xqc_wt_interop.datagrams->length == XQC_WT_INTEROP_DATAGRAM_MAX);
+    item = &xqc_wt_interop.datagrams[xqc_wt_interop.datagram_head];
+    CU_ASSERT(item->length == XQC_WT_INTEROP_DATAGRAM_MAX);
     xqc_wt_interop_test_clear();
     CU_ASSERT(xqc_wt_interop_datagram_queue(oversized, sizeof(oversized))
               == XQC_ERROR);
-    CU_ASSERT(xqc_wt_interop.failed && !xqc_wt_interop.datagrams);
+    CU_ASSERT(xqc_wt_interop.failed && !xqc_wt_interop.datagram_count);
     xqc_wt_interop_test_clear();
 
     xqc_wt_interop.mode = 3;
     xqc_wt_interop.file_count = 1;
-    xqc_wt_interop.files[0] = strdup("blocked");
+    xqc_wt_interop.files[0] = "blocked";
     xqc_wt_interop_test_result = -XQC_EAGAIN;
     CU_ASSERT(xqc_wt_interop_datagram_request(NULL) == XQC_OK);
-    item = xqc_wt_interop.datagrams;
-    xqc_wt_interop_check(item != NULL, "blocked GET stays queued");
+    item = &xqc_wt_interop.datagrams[xqc_wt_interop.datagram_head];
     CU_ASSERT(xqc_wt_interop.datagram_count == 1 && item->length == 11);
     CU_ASSERT(!memcmp(item->data, "GET blocked", 11));
     xqc_wt_interop_test_result = XQC_OK;
@@ -868,7 +851,7 @@ xqc_test_wt_interop_datagram_backpressure(void)
     xqc_wt_interop_test_clear();
     for (int guard = 0; guard < 4; guard++) {
         xqc_wt_interop.file_count = 1;
-        xqc_wt_interop.files[0] = strdup("stopped");
+        xqc_wt_interop.files[0] = "stopped";
         xqc_wt_interop.failed = guard == 0;
         xqc_wt_interop.success = guard == 1;
         xqc_wt_interop.stopped = guard == 2;
@@ -877,4 +860,57 @@ xqc_test_wt_interop_datagram_backpressure(void)
         CU_ASSERT(!xqc_wt_interop_test_sends && !xqc_wt_interop.datagram_count);
         xqc_wt_interop_test_clear();
     }
+
+    /* Refill across the ring boundary while a partially drained head blocks. */
+    xqc_wt_interop_test_sequence = 0;
+    for (uint32_t i = 0; i < 8; i++) {
+        CU_ASSERT(xqc_wt_interop_datagram_queue(&i, sizeof(i)) == XQC_OK);
+    }
+    xqc_wt_interop_datagram_write(NULL, NULL);
+    CU_ASSERT(xqc_wt_interop.datagram_head == 8
+        && !xqc_wt_interop.datagram_count);
+    for (uint32_t i = 8; i < 264; i++) {
+        CU_ASSERT(xqc_wt_interop_datagram_queue(&i, sizeof(i)) == XQC_OK);
+    }
+    CU_ASSERT(xqc_wt_interop.datagram_count == XQC_WT_INTEROP_FILES_MAX);
+    xqc_wt_interop_test_accepts = 3;
+    xqc_wt_interop_datagram_write(NULL, NULL);
+    CU_ASSERT(xqc_wt_interop.datagram_head == 11
+        && xqc_wt_interop.datagram_count == 253);
+    item = &xqc_wt_interop.datagrams[xqc_wt_interop.datagram_head];
+    uint32_t blocked_sequence = 11;
+    CU_ASSERT(item->length == sizeof(blocked_sequence)
+        && !memcmp(item->data, &blocked_sequence, sizeof(blocked_sequence)));
+    for (uint32_t i = 264; i < 267; i++) {
+        CU_ASSERT(xqc_wt_interop_datagram_queue(&i, sizeof(i)) == XQC_OK);
+    }
+    CU_ASSERT(xqc_wt_interop.datagram_count == XQC_WT_INTEROP_FILES_MAX);
+    CU_ASSERT(item->length == sizeof(blocked_sequence)
+        && !memcmp(item->data, &blocked_sequence, sizeof(blocked_sequence)));
+    xqc_wt_interop_test_accepts = -1;
+    xqc_wt_interop_datagram_write(NULL, NULL);
+    CU_ASSERT(!xqc_wt_interop.failed && !xqc_wt_interop.datagram_count);
+    CU_ASSERT(xqc_wt_interop.datagram_head == 11);
+    CU_ASSERT(xqc_wt_interop.completed == 267
+        && xqc_wt_interop_test_sequence == 267);
+    CU_ASSERT(xqc_wt_interop_test_sends == 268);
+    xqc_wt_interop_test_clear();
+
+    xqc_wt_session_t session = {0};
+    xqc_wt_interop.session = &session;
+    xqc_wt_interop.server = 1;
+    xqc_wt_interop.datagram_head = 8;
+    xqc_wt_interop_test_close_on_send = 1;
+    for (int i = 0; i < 2; i++) {
+        CU_ASSERT(xqc_wt_interop_datagram_queue(payload, sizeof(payload) - 1)
+                  == XQC_OK);
+    }
+    xqc_wt_interop_datagram_write(&session, NULL);
+    CU_ASSERT(!xqc_wt_interop.session && !xqc_wt_interop.datagram_count
+        && !xqc_wt_interop.datagram_head && !xqc_wt_interop.completed);
+    CU_ASSERT(xqc_wt_interop_test_sends == 1
+        && !xqc_wt_interop_test_scheduled);
+    xqc_wt_interop_datagram_write(&session, NULL);
+    CU_ASSERT(xqc_wt_interop_test_sends == 1);
+    xqc_wt_interop_test_clear();
 }

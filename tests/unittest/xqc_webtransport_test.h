@@ -13,4 +13,7 @@ void xqc_test_wt_connect_reject(void);
 void xqc_test_wt_request_passthrough(void);
 void xqc_test_wt_request_incomplete(void);
 void xqc_test_wt_session_limit(void);
+void xqc_test_wt_protocol_selection(void);
+void xqc_test_wt_protocol_selection_errors(void);
+void xqc_test_wt_protocol_selection_inputs(void);
 #endif

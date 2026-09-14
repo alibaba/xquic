@@ -12,6 +12,7 @@
 #include "src/transport/xqc_stream.h"
 #include "src/transport/xqc_packet_out.h"
 #include "src/common/xqc_malloc.h"
+#include "src/common/xqc_str.h"
 
 #define XQC_WT_ALPN_ERROR UINT64_C(0x0817b3dd)
 #define XQC_WT_PROTOCOL_MAX 1024
@@ -27,9 +28,11 @@ static xqc_int_t xqc_wt_accept_session(xqc_wt_session_t *session);
 static xqc_int_t xqc_wt_client_response(xqc_wt_session_t *session);
 static char *xqc_wt_encode_protocols(const char *const *protocols,
     size_t count, int *err);
+static xqc_bool_t xqc_wt_protocols_length(const char *const *protocols,
+    size_t count, size_t *length);
 static xqc_bool_t xqc_wt_protocol_string(const unsigned char **pos,
     const unsigned char *end, char *output, size_t capacity);
-static xqc_bool_t xqc_wt_protocol_parameters(const unsigned char *pos,
+static xqc_bool_t xqc_wt_protocol_parameters(const unsigned char **cursor,
     const unsigned char *end);
 static xqc_bool_t xqc_wt_protocol_parameter_value(const unsigned char **pos,
     const unsigned char *end);
@@ -163,33 +166,44 @@ xqc_wt_request_fail(xqc_wt_session_t *session, uint64_t error)
     xqc_wt_session_notify_closed(session);
 }
 
-/* draft-ietf-webtrans-http3-16 Section 3.3; RFC 9651 Sections 4.1, 4.2. */
-static char *
-xqc_wt_encode_protocols(const char *const *protocols, size_t count, int *err)
+static xqc_bool_t
+xqc_wt_protocols_length(const char *const *protocols, size_t count,
+    size_t *length)
 {
-    if (err) {
-        *err = -XQC_EPARAM;
+    *length = 0;
+    if ((!protocols && count) || count > XQC_WT_PROTOCOL_LIST_MAX / 4) {
+        return XQC_FALSE;
     }
-    if (!protocols || count > XQC_WT_PROTOCOL_LIST_MAX / 4) {
-        return NULL;
-    }
-    size_t length = 0;
     for (size_t i = 0; i < count; i++) {
         if (!protocols[i]) {
-            return NULL;
+            return XQC_FALSE;
         }
         size_t n = 0;
         for (; protocols[i][n]; n++) {
             unsigned char c = protocols[i][n];
             if (n == XQC_WT_PROTOCOL_MAX || c < 0x20 || c > 0x7e) {
-                return NULL;
+                return XQC_FALSE;
             }
-            length += c == '"' || c == '\\' ? 2 : 1;
+            *length += c == '"' || c == '\\' ? 2 : 1;
         }
-        length += i ? 4 : 2;
-        if (length > XQC_WT_PROTOCOL_LIST_MAX) {
-            return NULL;
+        *length += i ? 4 : 2;
+        if (*length > XQC_WT_PROTOCOL_LIST_MAX) {
+            return XQC_FALSE;
         }
+    }
+    return XQC_TRUE;
+}
+
+/* draft-ietf-webtrans-http3-16 Section 3.3; RFC 9651 Sections 4.1, 4.2. */
+static char *
+xqc_wt_encode_protocols(const char *const *protocols, size_t count, int *err)
+{
+    size_t length;
+    if (err) {
+        *err = -XQC_EPARAM;
+    }
+    if (!xqc_wt_protocols_length(protocols, count, &length)) {
+        return NULL;
     }
     char *encoded = xqc_malloc(length + 1);
     if (!encoded) {
@@ -370,9 +384,10 @@ xqc_wt_protocol_parameter_value(const unsigned char **pos,
 }
 
 static xqc_bool_t
-xqc_wt_protocol_parameters(const unsigned char *pos,
+xqc_wt_protocol_parameters(const unsigned char **cursor,
     const unsigned char *end)
 {
+    const unsigned char *pos = *cursor;
     while (pos < end && *pos == ';') {
         pos++;
         while (pos < end && *pos == ' ') {
@@ -393,10 +408,98 @@ xqc_wt_protocol_parameters(const unsigned char *pos,
             }
         }
     }
+    *cursor = pos;
+    return XQC_TRUE;
+}
+
+xqc_int_t
+xqc_wt_select_application_protocol(const xqc_http_headers_t *headers,
+    const char *const *protocols, size_t protocol_count,
+    const char **selected)
+{
+    static const char name[] = "wt-available-protocols";
+    unsigned char list[XQC_WT_PROTOCOL_LIST_MAX];
+    size_t length, fields = 0;
+    const char *match = NULL;
+
+    if (!selected) {
+        return -XQC_EPARAM;
+    }
+    *selected = NULL;
+    if (!headers || (headers->count && !headers->headers)
+        || !xqc_wt_protocols_length(protocols, protocol_count, &length))
+    {
+        return -XQC_EPARAM;
+    }
+    length = 0;
+    /* RFC 9651 Section 4.2 combines all field lines before parsing. */
+    for (size_t i = 0; i < headers->count; i++) {
+        const xqc_http_header_t *header = &headers->headers[i];
+        if (header->name.iov_len && !header->name.iov_base) {
+            return -XQC_EPARAM;
+        }
+        if (header->name.iov_len != sizeof(name) - 1) {
+            continue;
+        }
+        const unsigned char *key = header->name.iov_base;
+        size_t n = 0;
+        while (n < sizeof(name) - 1 && xqc_tolower(key[n]) == name[n]) {
+            n++;
+        }
+        if (n != sizeof(name) - 1) {
+            continue;
+        }
+        if (fields++) {
+            if (sizeof(list) - length < 2) {
+                return -XQC_EPARAM;
+            }
+            list[length++] = ',';
+            list[length++] = ' ';
+        }
+        n = header->value.iov_len;
+        if (n > sizeof(list) - length || (n && !header->value.iov_base)) {
+            return -XQC_EPARAM;
+        }
+        if (n) {
+            memcpy(list + length, header->value.iov_base, n);
+            length += n;
+        }
+    }
+    const unsigned char *pos = list, *end = list + length;
     while (pos < end && *pos == ' ') {
         pos++;
     }
-    return pos == end;
+    while (pos < end) {
+        char offered[XQC_WT_PROTOCOL_MAX + 1];
+        if (!xqc_wt_protocol_string(&pos, end, offered, sizeof(offered))
+            || !xqc_wt_protocol_parameters(&pos, end))
+        {
+            return -XQC_EPARAM;
+        }
+        for (size_t i = 0; !match && i < protocol_count; i++) {
+            if (!strcmp(offered, protocols[i])) {
+                match = protocols[i];
+            }
+        }
+        while (pos < end && (*pos == ' ' || *pos == '\t')) {
+            pos++;
+        }
+        if (pos == end) {
+            break;
+        }
+        if (*pos++ != ',') {
+            return -XQC_EPARAM;
+        }
+        while (pos < end && (*pos == ' ' || *pos == '\t')) {
+            pos++;
+        }
+        if (pos == end) {
+            return -XQC_EPARAM;
+        }
+    }
+    /* draft-16 Section 3.3: a malformed suffix invalidates the whole field. */
+    *selected = match;
+    return match ? 1 : 0;
 }
 
 static xqc_int_t
@@ -427,8 +530,14 @@ xqc_wt_negotiate_protocol(xqc_wt_session_t *session,
     }
     char selected[XQC_WT_PROTOCOL_MAX + 1];
     if (!xqc_wt_protocol_string(&p, end, selected, sizeof(selected))
-        || !xqc_wt_protocol_parameters(p, end))
+        || !xqc_wt_protocol_parameters(&p, end))
     {
+        return -XQC_EPARAM;
+    }
+    while (p < end && *p == ' ') {
+        p++;
+    }
+    if (p != end) {
         return -XQC_EPARAM;
     }
     p = (const unsigned char *)session->client_protocols;

@@ -162,6 +162,7 @@ typedef struct xqc_demo_cli_quic_config_s {
     int quic_version;
     int webtransport;
     int wt_draft_version;
+    int wt_case_id;
     const char *wt_cert_file;
     const char *wt_origin;
 
@@ -1970,6 +1971,7 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -p    Server port.\n"
         "   -W    Run one WebTransport echo session (default URL: /wt).\n"
         "   -v    WebTransport maximum draft version: 7 or 16 (default).\n"
+        "   -X    WebTransport native case: 1801..1816 (0: normal demo).\n"
         "   -j    WebTransport Origin (default: http://127.0.0.1:8080).\n"
         "   -J    PEM certificate to trust for a WT loopback peer.\n"
         "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic P:copa\n"
@@ -2023,14 +2025,31 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
     xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
+    int wt_case_selected = 0;
     while ((ch = getopt(argc, argv,
         "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:b:Z:NQT:R:V:B:I:"
-        "n:e:E:F:G:r:x:y:Y:f:z:q65OWv:j:J:")) != -1)
+        "n:e:E:F:G:r:x:y:Y:f:z:q65OWv:j:J:X:")) != -1)
     {
         switch (ch) {
         case 'W':
             args->quic_cfg.webtransport = 1;
             break;
+        case 'X': {
+            char *end;
+            long case_id;
+
+            errno = 0;
+            case_id = strtol(optarg, &end, 10);
+            if (errno || end == optarg || *end != '\0'
+                || (case_id != 0 && (case_id < 1801 || case_id > 1816)))
+            {
+                fprintf(stderr, "WT case must be 0 or 1801..1816\n");
+                return -1;
+            }
+            args->quic_cfg.wt_case_id = (int) case_id;
+            wt_case_selected = 1;
+            break;
+        }
         case 'v':
             if (strcmp(optarg, "7") && strcmp(optarg, "16")) {
                 fprintf(stderr, "WebTransport draft must be 7 or 16\n");
@@ -2339,10 +2358,19 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
             break;
 
         default:
+            if (ch == '?' && optopt == 'X') {
+                fprintf(stderr, "-X requires a WebTransport case ID\n");
+                return -1;
+            }
             printf("other option :%c\n", ch);
             xqc_demo_cli_usage(argc, argv);
             exit(0);
         }
+    }
+
+    if (wt_case_selected && !args->quic_cfg.webtransport) {
+        fprintf(stderr, "-X requires WebTransport mode (-W)\n");
+        return -1;
     }
 
     if (args->quic_cfg.webtransport) {
@@ -2793,6 +2821,7 @@ xqc_demo_cli_init_alpn_ctx(xqc_demo_cli_ctx_t *ctx)
     if (ctx->args->quic_cfg.webtransport) {
         ret = xqc_demo_wt_client_init(ctx->engine,
             ctx->args->quic_cfg.wt_draft_version,
+            ctx->args->quic_cfg.wt_case_id,
             xqc_demo_cli_wt_schedule_send, xqc_demo_cli_wt_finished, ctx);
     }
 
@@ -3374,6 +3403,8 @@ xqc_demo_cli_free_ctx(xqc_demo_cli_ctx_t *ctx)
 int
 main(int argc, char *argv[])
 {
+    setvbuf(stdout, NULL, _IOLBF, 0);
+
     /* init env if necessary */
     xqc_platform_init_env();
     

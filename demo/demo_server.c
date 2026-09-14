@@ -33,6 +33,7 @@
 #include "common.h"
 #include "xqc_hq.h"
 #include "xqc_wt_echo_server.h"
+#include "case_test/webtransport/xqc_webtrans_test_cases.h"
 
 
 
@@ -100,6 +101,7 @@ typedef struct xqc_demo_svr_quic_config_s {
 
     int  webtransport;
     int  wt_draft_version;
+    int  wt_case_id;
 
     /* multipath */
     int  multipath;
@@ -1239,6 +1241,7 @@ xqc_demo_svr_usage(int argc, char *argv[])
             "   -p    Server port.\n"
             "   -W    Enable loopback WebTransport echo at /wt.\n"
             "   -v    Maximum WebTransport draft: 7 or 16 (default).\n"
+            "   -X    WebTransport CI case ID (requires -W).\n"
             "   -K    TLS private key file.\n"
             "   -T    TLS certificate file.\n"
             "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic P:copa \n"
@@ -1302,13 +1305,33 @@ void
 xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
 {
     int ch = 0;
+    int wt_case_selected = 0;
     while ((ch = getopt(argc, argv,
-                        "p:c:CD:l:L:6k:rdMiPs:R:u:a:F:f:WK:T:v:")) != -1)
+                        ":p:c:CD:l:L:6k:rdMiPs:R:u:a:F:f:WK:T:v:X:")) != -1)
     {
         switch (ch) {
         case 'W':
             args->quic_cfg.webtransport = 1;
             break;
+
+        case 'X': {
+            char *end;
+            long value = strtol(optarg, &end, 10);
+            if (*optarg == '\0' || *end != '\0'
+                || (value != 0 && (value < 1801 || value > 1816)))
+            {
+                fprintf(stderr, "invalid WebTransport case ID\n");
+                exit(1);
+            }
+            args->quic_cfg.wt_case_id = (int) value;
+            wt_case_selected = 1;
+            break;
+        }
+
+        case ':':
+        case '?':
+            fprintf(stderr, "invalid or incomplete demo option\n");
+            exit(1);
 
         case 'v':
             if (strcmp(optarg, "7") && strcmp(optarg, "16")) {
@@ -1455,6 +1478,10 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
             xqc_demo_svr_usage(argc, argv);
             exit(0);
         }
+    }
+    if (wt_case_selected && !args->quic_cfg.webtransport) {
+        fprintf(stderr, "WebTransport case ID requires -W\n");
+        exit(1);
     }
 }
 
@@ -1647,6 +1674,11 @@ xqc_demo_svr_init_alpn_ctx(xqc_demo_svr_ctx_t *ctx)
             printf("init WebTransport context error: %d\n", ret);
             return ret;
         }
+        ret = xqc_wt_case_server_init(ctx->engine,
+                                     ctx->args->quic_cfg.wt_case_id);
+        if (ret != XQC_OK) {
+            return ret;
+        }
     }
 
     return ret;
@@ -1754,6 +1786,7 @@ th3_demo_proxy_sig_hndlr(int signo)
 int
 main(int argc, char *argv[])
 {
+    setvbuf(stdout, NULL, _IOLBF, 0);
     /* init env if necessary */
     xqc_platform_init_env();
 

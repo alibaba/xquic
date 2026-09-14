@@ -517,8 +517,6 @@ xqc_webtransport_draft_version_t xqc_wt_session_get_draft_version(
     xqc_wt_session_t *session);
 XQC_EXPORT_PUBLIC_API
 unsigned xqc_wt_session_get_response_status(xqc_wt_session_t *session);
-XQC_EXPORT_PUBLIC_API
-xqc_h3_conn_t *xqc_wt_conn_get_h3_conn(xqc_wt_conn_t *conn);
 
 /* window counts future client-initiated bidirectional stream IDs / 4. */
 XQC_EXPORT_PUBLIC_API

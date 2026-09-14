@@ -177,7 +177,6 @@ common to standalone QUIC programs and are not listed as WT-specific APIs.
 |---|---|
 | `xqc_wt_client_open_session` | Open a WT session from the client. |
 | `xqc_wt_session_create_bidi_stream` | Create a bidirectional stream with an `*err` output parameter. |
-| `xqc_wt_conn_get_h3_conn` | Retrieve the underlying H3 connection from a WT connection. |
 | `xqc_wt_bidistream_get_peer_reset_error` | Retrieve the peer RESET_STREAM error code. |
 | `xqc_wt_bidistream_get_peer_stop_sending_error` | Retrieve the peer STOP_SENDING error code. |
 | `xqc_h3_ext_bytestream_create` | Create an H3 extension bytestream to carry WT capsules. |
@@ -234,7 +233,7 @@ xqc_wt_unistream_set_read_paused
 xqc_wt_unistream_stop_sending
 ```
 
-### Additional Demo APIs: 19 APIs
+### Additional Demo APIs: 18 APIs
 
 ```text
 xqc_h3_ext_bytestream_create
@@ -254,6 +253,5 @@ xqc_webtransport_stream_write
 xqc_wt_bidistream_get_peer_reset_error
 xqc_wt_bidistream_get_peer_stop_sending_error
 xqc_wt_client_open_session
-xqc_wt_conn_get_h3_conn
 xqc_wt_session_create_bidi_stream
 ```

@@ -115,25 +115,18 @@ MUST NOT free them. Applications MUST retain a stream ctx through its final
 NOT use the stream handle after that callback returns. A stream-close
 callback MUST NOT free a shared connection ctx.
 
-## 5. Session and Connection Queries
+## 5. Session Queries
 
 ```c
 xqc_webtransport_draft_version_t xqc_wt_session_get_draft_version(
     xqc_wt_session_t *session);
 unsigned xqc_wt_session_get_response_status(xqc_wt_session_t *session);
-xqc_h3_conn_t *xqc_wt_session_get_h3_conn(xqc_wt_session_t *session);
-xqc_h3_conn_t *xqc_wt_conn_get_h3_conn(xqc_wt_conn_t *conn);
 ```
 
 | Getter | Contract |
 |---|---|
 | `xqc_wt_session_get_draft_version` | Return the negotiated enum, or zero before selection. |
 | `xqc_wt_session_get_response_status` | Return the HTTP response status, or zero before receipt. |
-| `xqc_wt_session_get_h3_conn` | Return the session's borrowed H3 connection. |
-| `xqc_wt_conn_get_h3_conn` | Return the WT connection's borrowed H3 connection. |
-
-Getters MUST NOT transfer ownership or extend the underlying handle's
-lifetime.
 
 The shared session, stream, and datagram API inventory is listed in the
 [server API specification](webtransport-server-api-spec.md#2-data-and-control-apis).

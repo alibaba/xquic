@@ -50,12 +50,6 @@ xqc_wt_create_conn(xqc_h3_conn_t *h3_conn)
         ? h3_conn->settings_user_data : NULL;
 }
 
-xqc_h3_conn_t *
-xqc_wt_conn_get_h3_conn(xqc_wt_conn_t *conn)
-{
-    return conn ? conn->h3_conn : NULL;
-}
-
 xqc_bool_t
 xqc_wt_conn_requirements_met(xqc_wt_conn_t *conn)
 {

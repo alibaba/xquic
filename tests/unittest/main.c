@@ -96,6 +96,12 @@ main(int argc, char *argv[])
                         xqc_test_wt_client_session_response)
         || !CU_add_test(pSuite, "xqc_test_wt_client_session_rejected",
                         xqc_test_wt_client_session_rejected)
+        || !CU_add_test(pSuite, "xqc_test_wt_application_protocol",
+                        xqc_test_wt_application_protocol)
+        || !CU_add_test(pSuite, "xqc_test_wt_application_protocol_errors",
+                        xqc_test_wt_application_protocol_errors)
+        || !CU_add_test(pSuite, "xqc_test_wt_application_protocol_inputs",
+                        xqc_test_wt_application_protocol_inputs)
         || !CU_add_test(pSuite, "xqc_test_wt_draft16_close_utf8",
                         xqc_test_wt_draft16_close_utf8)
         || !CU_add_test(pSuite, "xqc_test_wt_draft16_close_utf8_errors",

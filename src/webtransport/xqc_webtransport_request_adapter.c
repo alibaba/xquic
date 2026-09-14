@@ -13,6 +13,10 @@
 #include "src/transport/xqc_packet_out.h"
 #include "src/common/xqc_malloc.h"
 
+#define XQC_WT_ALPN_ERROR UINT64_C(0x0817b3dd)
+#define XQC_WT_PROTOCOL_MAX 1024
+#define XQC_WT_PROTOCOL_LIST_MAX 4096
+
 static xqc_bool_t xqc_wt_header_is(const xqc_http_header_t *header,
     const char *name, const char *value);
 static xqc_int_t xqc_wt_response(xqc_h3_request_t *request,
@@ -21,6 +25,16 @@ static xqc_int_t xqc_wt_request_headers(xqc_h3_request_t *request,
     void *data, const xqc_http_headers_t *headers);
 static xqc_int_t xqc_wt_accept_session(xqc_wt_session_t *session);
 static xqc_int_t xqc_wt_client_response(xqc_wt_session_t *session);
+static char *xqc_wt_encode_protocols(const char *const *protocols,
+    size_t count, int *err);
+static xqc_bool_t xqc_wt_protocol_string(const unsigned char **pos,
+    const unsigned char *end, char *output, size_t capacity);
+static xqc_bool_t xqc_wt_protocol_parameters(const unsigned char *pos,
+    const unsigned char *end);
+static xqc_bool_t xqc_wt_protocol_parameter_value(const unsigned char **pos,
+    const unsigned char *end);
+static xqc_int_t xqc_wt_negotiate_protocol(xqc_wt_session_t *session,
+    const xqc_http_headers_t *headers);
 static xqc_int_t xqc_wt_notify_ready(xqc_wt_session_t *session,
     xqc_http_headers_t *headers);
 static xqc_wt_session_t *xqc_wt_request_session(xqc_h3_request_t *request);
@@ -149,9 +163,309 @@ xqc_wt_request_fail(xqc_wt_session_t *session, uint64_t error)
     xqc_wt_session_notify_closed(session);
 }
 
+/* draft-ietf-webtrans-http3-16 Section 3.3; RFC 9651 Sections 4.1, 4.2. */
+static char *
+xqc_wt_encode_protocols(const char *const *protocols, size_t count, int *err)
+{
+    if (err) {
+        *err = -XQC_EPARAM;
+    }
+    if (!protocols || count > XQC_WT_PROTOCOL_LIST_MAX / 4) {
+        return NULL;
+    }
+    size_t length = 0;
+    for (size_t i = 0; i < count; i++) {
+        if (!protocols[i]) {
+            return NULL;
+        }
+        size_t n = 0;
+        for (; protocols[i][n]; n++) {
+            unsigned char c = protocols[i][n];
+            if (n == XQC_WT_PROTOCOL_MAX || c < 0x20 || c > 0x7e) {
+                return NULL;
+            }
+            length += c == '"' || c == '\\' ? 2 : 1;
+        }
+        length += i ? 4 : 2;
+        if (length > XQC_WT_PROTOCOL_LIST_MAX) {
+            return NULL;
+        }
+    }
+    char *encoded = xqc_malloc(length + 1);
+    if (!encoded) {
+        if (err) {
+            *err = -XQC_EMALLOC;
+        }
+        return NULL;
+    }
+    char *p = encoded;
+    for (size_t i = 0; i < count; i++) {
+        if (i) {
+            *p++ = ',';
+            *p++ = ' ';
+        }
+        *p++ = '"';
+        for (const char *v = protocols[i]; *v; v++) {
+            if (*v == '"' || *v == '\\') {
+                *p++ = '\\';
+            }
+            *p++ = *v;
+        }
+        *p++ = '"';
+    }
+    *p = '\0';
+    return encoded;
+}
+
+static xqc_bool_t
+xqc_wt_protocol_string(const unsigned char **pos, const unsigned char *end,
+    char *output, size_t capacity)
+{
+    const unsigned char *p = *pos;
+    size_t n = 0;
+    if (p == end || *p++ != '"') {
+        return XQC_FALSE;
+    }
+    while (p < end) {
+        unsigned char c = *p++;
+        if (c == '"') {
+            if (output) {
+                output[n] = '\0';
+            }
+            *pos = p;
+            return XQC_TRUE;
+        }
+        if (c == '\\') {
+            if (p == end || (*p != '\\' && *p != '"')) {
+                return XQC_FALSE;
+            }
+            c = *p++;
+        }
+        if (c < 0x20 || c > 0x7e || (output && n + 1 >= capacity)) {
+            return XQC_FALSE;
+        }
+        if (output) {
+            output[n++] = c;
+        }
+    }
+    return XQC_FALSE;
+}
+
+static xqc_bool_t
+xqc_wt_protocol_parameter_value(const unsigned char **pos,
+    const unsigned char *end)
+{
+    const unsigned char *p = *pos;
+    if (p == end) {
+        return XQC_FALSE;
+    }
+    if (*p == '"') {
+        return xqc_wt_protocol_string(pos, end, NULL, 0);
+    }
+    if (*p == '%') {
+        unsigned char decoded[XQC_WT_PROTOCOL_LIST_MAX];
+        size_t n = 0;
+        if (++p == end || *p++ != '"') {
+            return XQC_FALSE;
+        }
+        while (p < end && *p != '"') {
+            unsigned char c = *p++;
+            if (c < 0x20 || c > 0x7e) {
+                return XQC_FALSE;
+            }
+            if (c == '%') {
+                unsigned value = 0;
+                for (unsigned i = 0; i < 2; i++) {
+                    if (p == end || !((*p >= '0' && *p <= '9')
+                        || (*p >= 'a' && *p <= 'f')))
+                    {
+                        return XQC_FALSE;
+                    }
+                    value = value * 16 + (*p <= '9'
+                        ? *p - '0' : *p - 'a' + 10);
+                    p++;
+                }
+                c = value;
+            }
+            if (n == sizeof(decoded)) {
+                return XQC_FALSE;
+            }
+            decoded[n++] = c;
+        }
+        if (p == end || !xqc_wt_valid_utf8(decoded, n)) {
+            return XQC_FALSE;
+        }
+        *pos = p + 1;
+        return XQC_TRUE;
+    }
+    if (*p == '?') {
+        if (++p == end || (*p != '0' && *p != '1')) {
+            return XQC_FALSE;
+        }
+        *pos = p + 1;
+        return XQC_TRUE;
+    }
+    if (*p == ':') {
+        size_t digits = 0, padding = 0;
+        for (p++; p < end && *p != ':'; p++) {
+            if (*p == '=') {
+                padding++;
+            } else if (!padding && ((*p >= 'a' && *p <= 'z')
+                || (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9')
+                || *p == '+' || *p == '/'))
+            {
+                digits++;
+            } else {
+                return XQC_FALSE;
+            }
+        }
+        if (p == end || digits % 4 == 1 || padding > 2
+            || (padding && (digits + padding) % 4 != 0))
+        {
+            return XQC_FALSE;
+        }
+        *pos = p + 1;
+        return XQC_TRUE;
+    }
+    if ((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z')
+        || *p == '*')
+    {
+        do {
+            p++;
+        } while (p < end && ((*p >= 'A' && *p <= 'Z')
+            || (*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9')
+            || (*p && strchr("!#$%&'*+-.^_`|~:/", *p))));
+        *pos = p;
+        return XQC_TRUE;
+    }
+    xqc_bool_t date = *p == '@';
+    if (date && ++p == end) {
+        return XQC_FALSE;
+    }
+    if (*p == '-') {
+        p++;
+    }
+    size_t digits = 0;
+    while (p < end && *p >= '0' && *p <= '9') {
+        p++;
+        digits++;
+    }
+    if (!digits || digits > 15) {
+        return XQC_FALSE;
+    }
+    if (p < end && *p == '.') {
+        if (date || digits > 12) {
+            return XQC_FALSE;
+        }
+        digits = 0;
+        for (p++; p < end && *p >= '0' && *p <= '9'; p++) {
+            digits++;
+        }
+        if (!digits || digits > 3) {
+            return XQC_FALSE;
+        }
+    }
+    *pos = p;
+    return XQC_TRUE;
+}
+
+static xqc_bool_t
+xqc_wt_protocol_parameters(const unsigned char *pos,
+    const unsigned char *end)
+{
+    while (pos < end && *pos == ';') {
+        pos++;
+        while (pos < end && *pos == ' ') {
+            pos++;
+        }
+        if (pos == end || !((*pos >= 'a' && *pos <= 'z') || *pos == '*')) {
+            return XQC_FALSE;
+        }
+        do {
+            pos++;
+        } while (pos < end && ((*pos >= 'a' && *pos <= 'z')
+            || (*pos >= '0' && *pos <= '9') || *pos == '_'
+            || *pos == '-' || *pos == '.' || *pos == '*'));
+        if (pos < end && *pos == '=') {
+            pos++;
+            if (!xqc_wt_protocol_parameter_value(&pos, end)) {
+                return XQC_FALSE;
+            }
+        }
+    }
+    while (pos < end && *pos == ' ') {
+        pos++;
+    }
+    return pos == end;
+}
+
+static xqc_int_t
+xqc_wt_negotiate_protocol(xqc_wt_session_t *session,
+    const xqc_http_headers_t *headers)
+{
+    if (!session->client_protocols) {
+        return XQC_OK;
+    }
+    const xqc_http_header_t *protocol = NULL;
+    for (size_t i = 0; i < headers->count; i++) {
+        if (xqc_wt_header_is(&headers->headers[i], "wt-protocol", NULL)) {
+            if (protocol) {
+                return -XQC_EPARAM;
+            }
+            protocol = &headers->headers[i];
+        }
+    }
+    if (!protocol || !protocol->value.iov_base
+        || protocol->value.iov_len > XQC_WT_PROTOCOL_LIST_MAX)
+    {
+        return -XQC_EPARAM;
+    }
+    const unsigned char *p = protocol->value.iov_base;
+    const unsigned char *end = p + protocol->value.iov_len;
+    while (p < end && *p == ' ') {
+        p++;
+    }
+    char selected[XQC_WT_PROTOCOL_MAX + 1];
+    if (!xqc_wt_protocol_string(&p, end, selected, sizeof(selected))
+        || !xqc_wt_protocol_parameters(p, end))
+    {
+        return -XQC_EPARAM;
+    }
+    p = (const unsigned char *)session->client_protocols;
+    end = p + strlen(session->client_protocols);
+    while (p < end) {
+        char offered[XQC_WT_PROTOCOL_MAX + 1];
+        if (!xqc_wt_protocol_string(&p, end, offered, sizeof(offered))) {
+            return -XQC_EPARAM;
+        }
+        if (strcmp(offered, selected) == 0) {
+            size_t n = strlen(selected) + 1;
+            session->application_protocol = xqc_malloc(n);
+            if (!session->application_protocol) {
+                return -XQC_EMALLOC;
+            }
+            memcpy(session->application_protocol, selected, n);
+            return XQC_OK;
+        }
+        if (p < end) {
+            p += 2;
+        }
+    }
+    return -XQC_EPARAM;
+}
+
 xqc_wt_session_t *
 xqc_wt_client_open_session(xqc_h3_conn_t *h3c, const char *authority,
     const char *path, const char *origin, int *err)
+{
+    return xqc_wt_client_open_session_with_protocols(h3c, authority, path,
+        origin, NULL, 0, err);
+}
+
+xqc_wt_session_t *
+xqc_wt_client_open_session_with_protocols(xqc_h3_conn_t *h3c,
+    const char *authority, const char *path, const char *origin,
+    const char *const *protocols, size_t protocol_count, int *err)
 {
     if (err) {
         *err = -XQC_EPARAM;
@@ -182,8 +496,17 @@ xqc_wt_client_open_session(xqc_h3_conn_t *h3c, const char *authority,
     if (conn->session_count >= limit) {
         return NULL;
     }
+    char *encoded_protocols = NULL;
+    if (protocol_count) {
+        encoded_protocols = xqc_wt_encode_protocols(protocols,
+            protocol_count, err);
+        if (!encoded_protocols) {
+            return NULL;
+        }
+    }
     char *strings = xqc_malloc(alen + plen + olen);
     if (!strings) {
+        xqc_free(encoded_protocols);
         if (err) {
             *err = -XQC_EMALLOC;
         }
@@ -200,6 +523,7 @@ xqc_wt_client_open_session(xqc_h3_conn_t *h3c, const char *authority,
     conn->client_creating = XQC_FALSE;
     if (!request) {
         xqc_free(strings);
+        xqc_free(encoded_protocols);
         if (err) {
             *err = -XQC_ESTREAM_BLOCKED;
         }
@@ -211,6 +535,7 @@ xqc_wt_client_open_session(xqc_h3_conn_t *h3c, const char *authority,
         xqc_wt_request_adapter_detach(request);
         xqc_h3_request_close(request);
         xqc_free(strings);
+        xqc_free(encoded_protocols);
         if (err) {
             *err = -XQC_EMALLOC;
         }
@@ -220,6 +545,7 @@ xqc_wt_client_open_session(xqc_h3_conn_t *h3c, const char *authority,
     session->client_authority = strings;
     session->client_path = strings + alen;
     session->client_origin = olen ? strings + alen + plen : NULL;
+    session->client_protocols = encoded_protocols;
     xqc_wt_client_send_request(session);
     if (err) {
         *err = XQC_OK;
@@ -247,21 +573,25 @@ xqc_wt_client_send_request(xqc_wt_session_t *session)
         return XQC_OK;
     }
     const char *names[] = {":method", ":scheme", ":authority", ":path",
-                           ":protocol", "origin"};
+                           ":protocol", "origin", "wt-available-protocols"};
     const char *values[] = {"CONNECT", "https", session->client_authority,
         session->client_path, conn->negotiated_version
             == XQC_WEBTRANSPORT_DRAFT_VERSION_16
-            ? "webtransport-h3" : "webtransport", session->client_origin};
-    xqc_http_header_t fields[6] = {0};
+            ? "webtransport-h3" : "webtransport", session->client_origin,
+        session->client_protocols};
+    xqc_http_header_t fields[7] = {0};
     xqc_http_headers_t headers = {
         .headers = fields,
-        .count = session->client_origin ? 6 : 5,
     };
-    for (size_t i = 0; i < headers.count; i++) {
-        fields[i].name.iov_base = (void *)names[i];
-        fields[i].name.iov_len = strlen(names[i]);
-        fields[i].value.iov_base = (void *)values[i];
-        fields[i].value.iov_len = strlen(values[i]);
+    for (size_t i = 0; i < 7; i++) {
+        if (!values[i]) {
+            continue;
+        }
+        xqc_http_header_t *field = &fields[headers.count++];
+        field->name.iov_base = (void *)names[i];
+        field->name.iov_len = strlen(names[i]);
+        field->value.iov_base = (void *)values[i];
+        field->value.iov_len = strlen(values[i]);
     }
     ssize_t ret = xqc_h3_request_send_headers(session->request, &headers, 0);
     if (ret == -XQC_EAGAIN) {
@@ -494,6 +824,12 @@ xqc_wt_client_response(xqc_wt_session_t *session)
     }
     if (!xqc_wt_conn_requirements_met(session->wt_conn)) {
         xqc_wt_request_fail(session, H3_MESSAGE_ERROR);
+        return XQC_OK;
+    }
+    xqc_int_t protocol_ret = xqc_wt_negotiate_protocol(session, headers);
+    if (protocol_ret != XQC_OK) {
+        xqc_wt_request_fail(session, protocol_ret == -XQC_EMALLOC
+            ? H3_INTERNAL_ERROR : XQC_WT_ALPN_ERROR);
         return XQC_OK;
     }
     xqc_int_t ret = xqc_wt_notify_ready(session, headers);

@@ -37,6 +37,8 @@ static void version_headers(xqc_h3_request_t *request,
 static xqc_wt_session_t *version_capsule_session(xqc_wt_ctx_t *ctx,
     xqc_h3_conn_t *h3c, xqc_connection_t *transport);
 static void version_client_response(const char *status);
+static void version_protocol_response(const char *value,
+    const char *expected, xqc_bool_t duplicate);
 static int version_accept(xqc_http_headers_t *headers,
     xqc_http_headers_t *response);
 static int version_created(xqc_wt_session_t *session,
@@ -633,4 +635,135 @@ xqc_test_wt_client_session_rejected(void)
 {
     version_client_response("403");
     version_client_response("404");
+}
+
+
+static void
+version_protocol_response(const char *value, const char *expected,
+    xqc_bool_t duplicate)
+{
+    xqc_h3_conn_t *h3c = version_engine(XQC_WEBTRANSPORT_DRAFT_VERSION_16,
+                                        XQC_TRUE);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(h3c);
+    char alpha[] = "alpha", quoted[] = "quoted\\\"proto";
+    const char *protocols[] = {alpha, quoted, ""};
+    int err = -1;
+    xqc_wt_session_t *session = xqc_wt_client_open_session_with_protocols(
+        h3c, "localhost", "/wt", NULL, protocols, 3, &err);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(session);
+    CU_ASSERT(err == XQC_OK && !session->open);
+    CU_ASSERT(session->request->header_sent == 0);
+    CU_ASSERT_PTR_NULL(xqc_wt_session_get_application_protocol(session));
+    CU_ASSERT_STRING_EQUAL(session->client_protocols,
+        "\"alpha\", \"quoted\\\\\\\"proto\", \"\"");
+    memset(alpha, 'x', strlen(alpha));
+    memset(quoted, 'x', strlen(quoted));
+    version_peer_settings(session->wt_conn, XQC_TRUE, XQC_TRUE);
+    CU_ASSERT(session->request->header_sent > 0);
+    CU_ASSERT_STRING_EQUAL(session->client_protocols,
+        "\"alpha\", \"quoted\\\\\\\"proto\", \"\"");
+    const char *names[] = {":status", "wt-protocol", "wt-protocol"};
+    const char *values[] = {"200", value, value};
+    version_headers(session->request, names, values,
+        value ? (duplicate ? 3 : 2) : 1);
+    CU_ASSERT(xqc_h3_request_on_recv_header(session->request) == XQC_OK);
+    if (expected) {
+        CU_ASSERT(version_creates == 1 && version_closes == 0);
+        CU_ASSERT(session->open && !session->closed);
+        CU_ASSERT_STRING_EQUAL(
+            xqc_wt_session_get_application_protocol(session), expected);
+    } else {
+        CU_ASSERT(version_creates == 0 && version_closes == 1);
+        CU_ASSERT(!session->open && session->closed);
+        CU_ASSERT_PTR_NULL(xqc_wt_session_get_application_protocol(session));
+        CU_ASSERT(xqc_wt_session_get_close_error_code(session) == 0x0817b3dd);
+        CU_ASSERT(session->request->h3_stream->stream->stream_err
+                  == 0x0817b3dd);
+        CU_ASSERT(h3c->conn->conn_err == 0);
+    }
+    xqc_engine_destroy(h3c->conn->engine);
+    CU_ASSERT(version_closes == 1);
+}
+
+void
+xqc_test_wt_application_protocol(void)
+{
+    /* draft-ietf-webtrans-http3-16 Section 3.3; RFC 9651 Section 4.2. */
+    version_protocol_response("\"alpha\"", "alpha", XQC_FALSE);
+    version_protocol_response("\"quoted\\\\\\\"proto\"",
+        "quoted\\\"proto", XQC_FALSE);
+    version_protocol_response("\"\"", "", XQC_FALSE);
+    version_protocol_response("  \"alpha\";flag; flag=?0;num=-1.25;int=42"
+        ";date=@-5;token=*a:/;bytes=:AQI=:;text=\"a\\\"b\""
+        ";display=%\"caf%c3%a9\"  ", "alpha", XQC_FALSE);
+    version_protocol_response("\"alpha\";bytes=:AQI:;empty=::",
+        "alpha", XQC_FALSE);
+    CU_ASSERT_PTR_NULL(xqc_wt_session_get_application_protocol(NULL));
+}
+
+void
+xqc_test_wt_application_protocol_errors(void)
+{
+    /* Section 3.3: required, malformed or unoffered selection closes only WT. */
+    const char *invalid[] = {
+        NULL, "alpha", "1", "?1", ":YWxwaGE=:", "%\"alpha\"",
+        "\"beta\"", "\"alpha\", \"alpha\"", "(\"alpha\")",
+        "\"alpha\"garbage", "\"alpha", "\"al\\pha\"", "\"al\npha\"",
+        "\t\"alpha\"", "\"alpha\"\t", "\"alpha\" ;flag", "\"alpha\";",
+        "\"alpha\";Upper", "\"alpha\";v=", "\"alpha\";v=?2",
+        "\"alpha\";v=@1.5", "\"alpha\";v=@", "\"alpha\";v=-",
+        "\"alpha\";v=1234567890123456", "\"alpha\";v=1234567890123.1",
+        "\"alpha\";v=1.", "\"alpha\";v=1.2345", "\"alpha\";v=(1)",
+        "\"alpha\";v=:a:", "\"alpha\";v=:!:", "\"alpha\";v=:AQI===:",
+        "\"alpha\";v=:AQ=I:", "\"alpha\";v=:AQI", "\"alpha\";v=\"x",
+        "\"alpha\";v=%\"%gg\"", "\"alpha\";v=%\"%ff\"",
+        "\"alpha\";v=%\"%e2%82\"", "\"alpha\";v=%\"%\"",
+        "\"alpha\";v=%oops", "\"alpha\";v=%\"unterminated",
+    };
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        version_protocol_response(invalid[i], NULL, XQC_FALSE);
+    }
+    version_protocol_response("\"alpha\"", NULL, XQC_TRUE);
+}
+
+void
+xqc_test_wt_application_protocol_inputs(void)
+{
+    xqc_h3_conn_t *h3c = version_engine(XQC_WEBTRANSPORT_DRAFT_VERSION_16,
+                                        XQC_TRUE);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(h3c);
+    char long_protocol[1026];
+    memset(long_protocol, 'a', sizeof(long_protocol) - 1);
+    long_protocol[sizeof(long_protocol) - 1] = '\0';
+    const char *invalid[] = {NULL, "bad\nprotocol", "non-ascii\x80",
+                             long_protocol};
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        int err = 0;
+        const char *protocols[] = {invalid[i]};
+        CU_ASSERT_PTR_NULL(xqc_wt_client_open_session_with_protocols(h3c,
+            "localhost", "/wt", NULL, protocols, 1, &err));
+        CU_ASSERT(err == -XQC_EPARAM);
+        CU_ASSERT(xqc_wt_create_conn(h3c)->session_count == 0);
+    }
+    int err = 0;
+    CU_ASSERT_PTR_NULL(xqc_wt_client_open_session_with_protocols(h3c,
+        "localhost", "/wt", NULL, NULL, 1, &err));
+    CU_ASSERT(err == -XQC_EPARAM);
+    const char *protocols[17];
+    long_protocol[1024] = '\0';
+    for (size_t i = 0; i < 17; i++) {
+        protocols[i] = long_protocol;
+    }
+    CU_ASSERT_PTR_NULL(xqc_wt_client_open_session_with_protocols(h3c,
+        "localhost", "/wt", NULL, protocols, 17, &err));
+    CU_ASSERT(err == -XQC_EPARAM);
+    CU_ASSERT_PTR_NULL(xqc_wt_client_open_session_with_protocols(h3c,
+        "localhost", "/wt", NULL, protocols, SIZE_MAX, &err));
+    CU_ASSERT(err == -XQC_EPARAM);
+    xqc_wt_session_t *session = xqc_wt_client_open_session_with_protocols(h3c,
+        "localhost", "/wt", NULL, protocols, 1, &err);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(session);
+    CU_ASSERT(err == XQC_OK);
+    CU_ASSERT(strlen(session->client_protocols) == 1026);
+    xqc_engine_destroy(h3c->conn->engine);
 }

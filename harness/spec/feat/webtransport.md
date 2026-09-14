@@ -534,6 +534,17 @@ support. Clients MUST wait for the TLS handshake and peer SETTINGS before
 sending CONNECT. Only a 2xx response creates a ready client session; rejected
 requests receive a final close notification without a create notification.
 
+The additive `xqc_wt_client_open_session_with_protocols()` entry point accepts
+application protocols in preference order and copies them before returning.
+Inputs are bounded to 1024 printable ASCII bytes per protocol and 4096 bytes
+for the encoded list. A nonempty offer requires a valid negotiated selection
+before the ready callback. The original client-open API and an empty offer
+retain optional negotiation. `xqc_wt_session_get_application_protocol()`
+returns a borrowed decoded selection, valid through the final close callback,
+or `NULL` when no client protocol was negotiated. Encoding and validation
+follow the selected binding's governing IETF source; application protocol
+selection policy remains with the server application.
+
 The draft-16 MVP supports one simultaneous session, bidirectional stream
 exchange with FIN, unidirectional stream delivery, datagrams, stream reset,
 drain and close. It MUST NOT send nonzero WT INITIAL flow-control SETTINGS.

@@ -142,3 +142,24 @@ The paired protocol cases follow
 Every negative case checks the specific peer response or error; a timeout,
 crash, TLS failure, or missing echo cannot satisfy it. The namespace ledger
 is maintained in the [validation specification](../harness/spec/validation.md#client-to-server-case-id-namespace).
+
+## Application protocol negotiation
+
+Native clients that require an application protocol can use
+`xqc_wt_client_open_session_with_protocols(h3_conn, authority, path, origin,
+protocols, protocol_count, &err)`. The array lists protocols in preference
+order. XQUIC copies the strings and encodes `WT-Available-Protocols`, including
+quoted-string escaping. Each protocol may contain up to 1024 printable ASCII
+bytes; the encoded list may contain up to 4096 bytes.
+
+With a nonzero count, a successful CONNECT must select an offered protocol
+in `WT-Protocol`; missing, malformed, duplicate, or unoffered selections close
+the session with `WT_ALPN_ERROR` without reporting it ready. Structured Field
+parameters are ignored after validation, following
+[draft-16 Section 3.3](https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-16.html#section-3.3)
+and [RFC 9651](https://www.rfc-editor.org/rfc/rfc9651.html#section-4.2).
+The ready callback can read the decoded selection using
+`xqc_wt_session_get_application_protocol(session)`; its storage is borrowed
+through the final close callback. The getter returns `NULL` when no client
+protocol was negotiated. The original `xqc_wt_client_open_session` API and a
+zero protocol count retain optional negotiation behavior.

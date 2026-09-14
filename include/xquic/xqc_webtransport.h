@@ -21,6 +21,9 @@ typedef enum {
 } xqc_webtransport_draft_version_t;
 
 #define XQC_WEBTRANSPORT_DEFAULT_DGRAM_MSS 512
+#define XQC_WEBTRANSPORT_DEFAULT_PENDING_DGRAM_COUNT_MAX 64
+#define XQC_WEBTRANSPORT_DEFAULT_PENDING_DGRAM_BYTES_MAX (64 * 1024)
+#define XQC_WEBTRANSPORT_DEFAULT_UNKNOWN_SESSION_DGRAM_WINDOW 32
 
 /**
  * @brief Stream Type of WebTransport
@@ -48,6 +51,11 @@ typedef enum xqc_wt_unistream_type_s {
 typedef struct xqc_webtransport_conn_settings_s {
     /* max webtransport session count for single h3 connect */
     uint64_t max_sessions_count;
+    xqc_webtransport_draft_version_t draft_version;
+    uint64_t max_bidi_streams;
+    uint64_t max_uni_streams;
+    uint32_t init_recv_window;
+    xqc_bool_t enable_datagram;
 } xqc_webtransport_conn_settings_t;
 
 /**
@@ -196,6 +204,12 @@ typedef void (*wt_stream_close_func_pt)();
  */
 typedef void (*xqc_webtransport_session_handshake_finish_notify_pt)(xqc_webtransport_session_t *session);
 
+typedef void (*xqc_webtransport_conn_handshake_finished_notify_pt)(
+    xqc_h3_conn_t *h3_conn, void *h3c_user_data);
+
+typedef void (*xqc_webtransport_session_drain_notify_pt)(
+    xqc_wt_session_t *session, void *h3c_user_data);
+
 /**
  * @brief webtransport session callbacks for application layer
  */
@@ -208,6 +222,11 @@ typedef struct xqc_webtransport_session_callbacks_s {
     xqc_webtransport_session_notify_pt webtransport_session_close_notify;
     /*webtransport connection finished notify */
     xqc_webtransport_session_handshake_finish_notify_pt webtransport_session_handshake_finished_notify;
+
+    xqc_webtransport_conn_handshake_finished_notify_pt
+        webtransport_conn_handshake_finished_notify;
+    xqc_webtransport_session_drain_notify_pt
+        webtransport_session_drain_notify;
 
 } xqc_webtransport_session_callbacks_t;
 
@@ -305,6 +324,8 @@ typedef struct xqc_webtransport_stream_callbacks_s {
      * Applications can free the context which was created in stream_create_notify here.
      */
     xqc_webtransport_bidistream_notify_pt wt_bidistream_close_notify;
+
+    xqc_webtransport_bidistream_notify_pt wt_bidistream_closing_notify;
 
 } xqc_webtransport_stream_callbacks_t;
 
@@ -419,7 +440,7 @@ xqc_wt_session_t *xqc_wt_session_init(uint64_t sessionID, xqc_wt_conn_t *wt_conn
  *            If fin is 1, we are not allowed to send data by this unistream anymore
  *            If fin is 0, client may not receive the data immediately (depends on client design)
  *
- * @return XQC_OK for success, XQC_ERROR for failure
+ * @return accepted payload bytes, or a negative error; prefixes are excluded.
  */
 
 XQC_EXPORT_PUBLIC_API
@@ -452,7 +473,7 @@ void xqc_wt_request_table_insert(xqc_wt_request_t *wt_request, const char *key, 
  * @param data data to be sent
  * @param len data len
  * @param fin 1:fin, 0:not fin. other value is not allowed
- * @return XQC_EXPORT_PUBLIC_API
+ * @return accepted payload bytes, or a negative error; prefixes are excluded.
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_wt_bidistream_send(xqc_wt_bidistream_t *wt_bidistream, void *data, uint32_t len, int fin);
@@ -468,7 +489,7 @@ xqc_connection_t *xqc_wt_session_get_conn(xqc_wt_session_t *wt_session);
 
 /**
  * @brief set the dgram mss of the connection , if not set then dgram_mss = 100 ;
- * @details if datagram to be sent is larger than mss, it will be split into multiple datagrams
+ * @details Datagram sends are atomic and reject payloads exceeding the MSS.
  * @param conn
  * @param mss
  *
@@ -478,6 +499,85 @@ void xqc_wt_conn_set_dgram_mss(xqc_wt_conn_t *conn, size_t mss);
 
 XQC_EXPORT_PUBLIC_API
 xqc_h3_stream_t *xqc_wt_session_get_h3_stream(xqc_wt_session_t *session);
+
+/* Configure before the first connection; NULL selects draft-07 defaults. */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_engine_set_default_settings(xqc_engine_t *engine,
+    const xqc_webtransport_conn_settings_t *settings);
+
+/* window counts future client-initiated bidirectional stream IDs / 4. */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_ctx_set_pending_datagram_policy(xqc_engine_t *engine,
+    uint64_t window, size_t count_max, size_t bytes_max);
+
+XQC_EXPORT_PUBLIC_API
+xqc_h3_conn_t *xqc_wt_session_get_h3_conn(xqc_wt_session_t *session);
+
+/* reason is copied; getters borrow storage until the final close callback. */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_session_close_with_error(xqc_wt_session_t *session,
+    uint32_t error_code, const char *reason, size_t reason_len);
+
+XQC_EXPORT_PUBLIC_API
+uint32_t xqc_wt_session_get_close_error_code(xqc_wt_session_t *session);
+
+XQC_EXPORT_PUBLIC_API
+const char *xqc_wt_session_get_close_reason(xqc_wt_session_t *session);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_session_drain(xqc_wt_session_t *session);
+
+/* One application datagram per call; zero means accepted, errors are negative. */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_session_datagram_send(xqc_wt_session_t *session,
+    const void *data, size_t data_len, uint64_t *datagram_id);
+
+XQC_EXPORT_PUBLIC_API
+xqc_wt_unistream_t *xqc_wt_session_create_uni_stream(
+    xqc_wt_session_t *session, void *user_data, int *err);
+
+XQC_EXPORT_PUBLIC_API
+xqc_wt_bidistream_t *xqc_wt_session_create_bidi_stream(
+    xqc_wt_session_t *session, void *user_data, int *err);
+
+XQC_EXPORT_PUBLIC_API
+xqc_stream_id_t xqc_wt_bidistream_id(xqc_wt_bidistream_t *stream);
+XQC_EXPORT_PUBLIC_API
+xqc_stream_id_t xqc_wt_unistream_id(xqc_wt_unistream_t *stream);
+
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_bidistream_reset(xqc_wt_bidistream_t *stream,
+    uint32_t error_code);
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_unistream_reset(xqc_wt_unistream_t *stream,
+    uint32_t error_code);
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_bidistream_stop_sending(xqc_wt_bidistream_t *stream,
+    uint32_t error_code);
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_unistream_stop_sending(xqc_wt_unistream_t *stream,
+    uint32_t error_code);
+
+/* Read callbacks return XQC_OK for full consumption or -XQC_EAGAIN for none. */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_bidistream_set_read_paused(xqc_wt_bidistream_t *stream,
+    xqc_bool_t paused);
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_unistream_set_read_paused(xqc_wt_unistream_t *stream,
+    xqc_bool_t paused);
+
+XQC_EXPORT_PUBLIC_API
+xqc_bool_t xqc_wt_bidistream_closing_is_stop_sending(
+    xqc_wt_bidistream_t *stream);
+XQC_EXPORT_PUBLIC_API
+xqc_bool_t xqc_wt_unistream_closing_is_stop_sending(
+    xqc_wt_unistream_t *stream);
+
+/* A zero-length read callback can carry FIN; these getters disambiguate it. */
+XQC_EXPORT_PUBLIC_API
+xqc_bool_t xqc_wt_bidistream_get_recv_fin(xqc_wt_bidistream_t *stream);
+XQC_EXPORT_PUBLIC_API
+xqc_bool_t xqc_wt_unistream_get_recv_fin(xqc_wt_unistream_t *stream);
 
 /* for test
 XQC_EXPORT_PUBLIC_API

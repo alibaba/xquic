@@ -228,6 +228,8 @@ set(
     "src/webtransport/xqc_webtransport_defs.c"
     "src/webtransport/xqc_webtransport_dgram.c"
     "src/webtransport/xqc_webtransport_request.c"
+    "src/webtransport/xqc_webtransport_request_adapter.c"
+    "src/webtransport/xqc_webtransport_h3_stream.c"
     "src/webtransport/xqc_webtransport_stream.c"
     "src/webtransport/xqc_webtransport_conn.c"
     "src/webtransport/xqc_webtransport_wire.c"

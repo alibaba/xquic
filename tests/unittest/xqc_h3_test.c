@@ -15,6 +15,7 @@
 #include "src/http3/qpack/stable/xqc_stable.h"
 
 #include "xqc_common_test.h"
+#include "xqc_h3_test.h"
 
 
 ssize_t xqc_h3_stream_write_data_to_buffer(xqc_h3_stream_t *h3s, unsigned char *data, uint64_t data_size, uint8_t fin);
@@ -89,7 +90,7 @@ xqc_test_frame()
     ret = xqc_h3_frm_write_max_push_id(&send_buf, push_id, XQC_TRUE);
     CU_ASSERT(ret == XQC_OK);
     /* write settings frame */
-    ret = xqc_h3_frm_write_settings(&send_buf, &settings, XQC_TRUE);
+    ret = xqc_h3_frm_write_settings(&send_buf, &settings, NULL, 0, XQC_TRUE);
     CU_ASSERT(ret == XQC_OK);
 
     xqc_var_buf_t *buf = xqc_var_buf_create(XQC_VAR_BUF_INIT_SIZE);
@@ -1442,6 +1443,89 @@ xqc_test_h3_settings_accepted()
             xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
         }
     }
+}
+
+
+void
+xqc_test_h3_registered_settings(void)
+{
+    xqc_h3_conn_t h3c = {0};
+    uint64_t value = 7;
+    CU_ASSERT(xqc_h3_conn_set_setting(&h3c, 0x21, value) == XQC_OK);
+    value = 9;
+    CU_ASSERT(h3c.registered_settings[0].value.vi == 7);
+    CU_ASSERT(xqc_h3_conn_set_setting(&h3c, 0x21, value) == XQC_OK);
+    CU_ASSERT(h3c.registered_settings_count == 1);
+    uint64_t max_varint = (UINT64_C(1) << 62) - 1;
+    CU_ASSERT(xqc_h3_conn_set_setting(&h3c, max_varint, max_varint)
+              == XQC_OK);
+    CU_ASSERT(h3c.registered_settings_count == 2);
+
+    xqc_list_head_t buffers;
+    xqc_init_list_head(&buffers);
+    CU_ASSERT(xqc_h3_frm_write_settings(&buffers,
+              &h3c.local_h3_conn_settings, h3c.registered_settings,
+              h3c.registered_settings_count, 0) == XQC_OK);
+    CU_ASSERT_FATAL(!xqc_list_empty(&buffers));
+    xqc_list_buf_t *item = xqc_list_entry(buffers.next,
+        xqc_list_buf_t, list_head);
+    /* RFC 9114 Section 7.2.4: each identifier appears once in SETTINGS. */
+    unsigned char prefix[] = {4, 24, 6, 0, 1, 0, 7, 0, 0x21, 9};
+    CU_ASSERT_FATAL(item->buf->data_len == sizeof(prefix) + 16);
+    CU_ASSERT(memcmp(item->buf->data, prefix, sizeof(prefix)) == 0);
+    for (size_t i = sizeof(prefix); i < item->buf->data_len; i++) {
+        CU_ASSERT(item->buf->data[i] == 0xff);
+    }
+    CU_ASSERT(item->list_head.next == &buffers);
+    xqc_list_buf_list_free(&buffers);
+}
+
+
+void
+xqc_test_h3_registered_settings_errors(void)
+{
+    xqc_h3_conn_t local = {0};
+    CU_ASSERT(xqc_h3_conn_set_setting(NULL, 0x21, 1) == -XQC_EPARAM);
+    /* Core H3 settings and reserved HTTP/2 identifiers use no new entry. */
+    for (uint64_t id = 1; id <= 7; id++) {
+        CU_ASSERT(xqc_h3_conn_set_setting(&local, id, 1) == -XQC_EPARAM);
+    }
+    uint64_t overflow = UINT64_C(1) << 62;
+    CU_ASSERT(xqc_h3_conn_set_setting(&local, overflow, 1) == -XQC_EPARAM);
+    CU_ASSERT(xqc_h3_conn_set_setting(&local, 0x21, overflow) == -XQC_EPARAM);
+    CU_ASSERT(local.registered_settings_count == 0);
+    for (size_t i = 0; i < XQC_H3_MAX_REGISTERED_SETTINGS; i++) {
+        CU_ASSERT(xqc_h3_conn_set_setting(&local, 0x100 + i, i) == XQC_OK);
+    }
+    CU_ASSERT(xqc_h3_conn_set_setting(&local, 0x100, 99) == XQC_OK);
+    CU_ASSERT(local.registered_settings[0].value.vi == 99);
+    CU_ASSERT(xqc_h3_conn_set_setting(&local, 0x200, 1) == -XQC_EPARAM);
+    CU_ASSERT(local.registered_settings_count
+              == XQC_H3_MAX_REGISTERED_SETTINGS);
+
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(h3s);
+    CU_ASSERT(xqc_h3_conn_set_setting(h3c, 0x21, 1) == XQC_OK);
+    h3c->registered_settings_count = XQC_H3_MAX_REGISTERED_SETTINGS + 1;
+    CU_ASSERT(xqc_h3_stream_send_setting(h3s, &h3c->local_h3_conn_settings, 0)
+              == -XQC_EPARAM);
+    CU_ASSERT(!(h3c->flags & XQC_H3_CONN_FLAG_SETTINGS_QUEUED));
+    CU_ASSERT(xqc_list_empty(&h3s->send_buf));
+    h3c->registered_settings_count = 1;
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    conn->conn_flag &= ~XQC_CONN_FLAG_CAN_SEND_1RTT;
+    /* Queuing freezes the values even when transport returns EAGAIN. */
+    CU_ASSERT(xqc_h3_stream_send_setting(h3s, &h3c->local_h3_conn_settings, 0)
+              == XQC_OK);
+    CU_ASSERT(h3c->flags & XQC_H3_CONN_FLAG_SETTINGS_QUEUED);
+    CU_ASSERT(!xqc_list_empty(&h3s->send_buf));
+    CU_ASSERT(xqc_h3_conn_set_setting(h3c, 0x21, 2) == -XQC_ESTATE);
+    CU_ASSERT(xqc_h3_conn_set_setting(h3c, 0x22, 1) == -XQC_ESTATE);
+    CU_ASSERT(h3c->registered_settings_count == 1);
+    CU_ASSERT(h3c->registered_settings[0].value.vi == 1);
+    xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
 }
 
 

@@ -280,12 +280,15 @@ xqc_int_t
 xqc_h3_stream_write_setting_to_buffer(xqc_h3_stream_t *h3s, xqc_h3_conn_settings_t *settings,
     uint8_t fin)
 {
-    xqc_int_t ret = xqc_h3_frm_write_settings(&h3s->send_buf, settings, fin);
+    xqc_int_t ret = xqc_h3_frm_write_settings(&h3s->send_buf,
+        settings, h3s->h3c->registered_settings,
+        h3s->h3c->registered_settings_count, fin);
     if (ret != XQC_OK) {
         xqc_log(h3s->log, XQC_LOG_ERROR, "|write SETTINGS frame error|%d|stream_id:%ui|fin:%d|",
                 ret, h3s->stream_id, (unsigned int)fin);
         return ret;
     }
+    h3s->h3c->flags |= XQC_H3_CONN_FLAG_SETTINGS_QUEUED;
     xqc_log_event(h3s->log, HTTP_FRAME_CREATED, h3s, XQC_H3_FRM_SETTINGS, settings);
 
     ret = xqc_h3_stream_send_buffer(h3s);
@@ -812,6 +815,14 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 if (xqc_h3_frm_parse_setting(pl->settings.setting, (void *)h3c) < 0) {
                     xqc_h3_frm_reset_pctx(pctx);
                     return -H3_SETTINGS_ERROR;
+                }
+                if (h3c->on_settings_complete) {
+                    xqc_int_t ret = h3c->on_settings_complete(
+                        h3c->settings_user_data);
+                    if (ret < 0) {
+                        xqc_h3_frm_reset_pctx(pctx);
+                        return ret;
+                    }
                 }
                 break;
 

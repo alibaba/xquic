@@ -1,147 +1,90 @@
 /**
- * xqc_webtransport_stream.h
- * @copyright Copyright (c) 2022, Alibaba Group Holding Limited
+ * @copyright Copyright (c) 2026, Alibaba Group Holding Limited
  */
 #ifndef XQC_WEBTRANSPORT_STREAM_H
 #define XQC_WEBTRANSPORT_STREAM_H
 
-
-#include <src/common/utils/var_buf/xqc_var_buf.h>
-#include <xquic/xqc_http3.h>
 #include <xquic/xqc_webtransport.h>
+#include "src/common/xqc_list.h"
 
+typedef struct {
+    ssize_t (*send)(xqc_h3_stream_t *stream, const unsigned char *data,
+        size_t len, uint8_t fin);
+    xqc_int_t (*reset)(xqc_h3_stream_t *stream, uint64_t error);
+    xqc_int_t (*stop)(xqc_h3_stream_t *stream, uint64_t error);
+    xqc_int_t (*pause)(xqc_h3_stream_t *stream, xqc_bool_t paused);
+    void (*detach)(xqc_h3_stream_t *stream);
+} xqc_wt_stream_io_ops_t;
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+typedef struct xqc_wt_stream_base_s {
+    xqc_list_head_t              list;
+    xqc_wt_session_t           *session;
+    xqc_h3_stream_t            *h3_stream;
+    const xqc_wt_stream_io_ops_t *io;
+    xqc_stream_id_t             id;
+    uint64_t                    session_id;
+    void                       *user_data;
+    unsigned                    callback_depth;
+    xqc_bool_t                  bidi;
+    xqc_bool_t                  can_send;
+    xqc_bool_t                  can_recv;
+    xqc_bool_t                  send_fin;
+    xqc_bool_t                  recv_fin;
+    xqc_bool_t                  send_reset;
+    xqc_bool_t                  recv_reset;
+    xqc_bool_t                  read_paused;
+    xqc_bool_t                  closed;
+    xqc_bool_t                  listed;
+    xqc_bool_t                  stop_sending;
+    xqc_bool_t                  session_id_complete;
+    unsigned char               prefix[16];
+    size_t                      prefix_len;
+    size_t                      prefix_sent;
+    unsigned char               session_prefix[8];
+    size_t                      session_prefix_len;
+    size_t                      session_prefix_need;
+    wt_stream_close_func_pt      legacy_close;
+    wt_stream_close_func_pt      legacy_recv_close;
+} xqc_wt_stream_base_t;
 
-/**
- * @note only one send stream or recv stream can be obtained by one unistream
- * @note send stream and recv stream can be obtained by one bidistream at the
- * same time
- */
-typedef struct xqc_wt_send_stream_s xqc_wt_send_stream_t;
-typedef struct xqc_wt_recv_stream_s xqc_wt_recv_stream_t;
+struct xqc_wt_unistream_s {
+    xqc_wt_stream_base_t base;
+};
 
+struct xqc_wt_bidistream_s {
+    xqc_wt_stream_base_t base;
+};
 
-typedef struct xqc_wt_buffer_s
-{
-    uint8_t                *data;
-    size_t                  capacity;
-    size_t                  len;
-    size_t                  offset;
-    struct xqc_wt_buffer_s *next;
-} xqc_wt_buffer_t;
+xqc_wt_stream_base_t *xqc_wt_stream_bind(xqc_wt_session_t *session,
+    xqc_h3_stream_t *h3_stream, xqc_bool_t bidi, xqc_bool_t outgoing,
+    void *user_data);
 
-typedef struct xqc_wt_buffer_list_s
-{
-    xqc_wt_buffer_t *head;
-    xqc_wt_buffer_t *tail;
-} xqc_wt_buffer_list_t;
+xqc_int_t xqc_wt_stream_notify_create(xqc_wt_stream_base_t *stream);
+ssize_t xqc_wt_stream_notify_read(xqc_wt_stream_base_t *stream,
+    const unsigned char *data, size_t len, uint8_t fin);
+void xqc_wt_stream_notify_closing(xqc_wt_stream_base_t *stream,
+    xqc_bool_t stop_sending);
+void xqc_wt_stream_notify_close(xqc_wt_stream_base_t *stream);
 
+ssize_t xqc_wt_stream_read(xqc_h3_stream_t *stream, void *conn_ctx,
+    const unsigned char *data, size_t len, uint8_t fin);
+xqc_int_t xqc_wt_stream_write(xqc_h3_stream_t *stream, void *stream_ctx);
+void xqc_wt_stream_closing(xqc_h3_stream_t *stream, xqc_int_t error,
+    void *stream_ctx);
+void xqc_wt_stream_close(xqc_h3_stream_t *stream, void *stream_ctx);
+void xqc_wt_session_close_streams(xqc_wt_session_t *session);
+void xqc_wt_conn_resume_streams(xqc_wt_conn_t *conn);
+void xqc_wt_conn_close_pending_streams(xqc_wt_conn_t *conn);
 
-// xqc_wt_stream_map_t暂时不使用，后续再整合到stream里面
-typedef struct xqc_wt_stream_map_s
-{
-    xqc_id_hash_table_t *FuncMap;
-} xqc_wt_stream_map_t;
-
-typedef struct xqc_wt_send_stream_s
-{
-    xqc_h3_stream_t        *h3_stream;
-    xqc_stream_t           *stream;
-    wt_stream_close_func_pt close_func;
-    xqc_bool_t              send_header_flag;
-} xqc_wt_send_stream_t;
-
-typedef struct xqc_wt_recv_stream_s
-{
-    xqc_h3_stream_t        *h3_stream;
-    xqc_stream_t           *stream;
-    wt_stream_close_func_pt close_func;
-} xqc_wt_recv_stream_t;
-
-
-typedef struct xqc_wt_unistream_s
-{
-    xqc_wt_unistream_type_t type;   // 并非 xqc_webtransport_stream_t
-    union fin_t
-    {
-        xqc_bool_t send_fin;
-        xqc_bool_t recv_fin;
-    } fin;
-
-    uint64_t          sessionID;
-    xqc_h3_stream_t  *h3_stream;   // 多余的 暂时保留
-    xqc_connection_t *conn;
-    xqc_bool_t packet_parsed_flag;   // default value = XQC_FALSE , when packet
-                                     // parsed , set it to XQC_TRUE
-
-    union stream
-    {
-        xqc_wt_send_stream_t *send_stream;
-        xqc_wt_recv_stream_t *recv_stream;
-    } stream;
-
-    wt_stream_close_func_pt close_func;
-
-} xqc_wt_unistream_t;
-
-typedef struct xqc_wt_bidistream_s
-{
-    xqc_wt_send_stream_t   *send_stream;
-    xqc_wt_recv_stream_t   *recv_stream;
-    wt_stream_close_func_pt send_stream_close_func;
-    wt_stream_close_func_pt recv_stream_close_func;
-
-    xqc_bool_t packet_parsed_flag;   // default value = XQC_FALSE , when packet
-                                     // parsed , set it to XQC_TRUE
-    uint64_t         sessionID;
-    xqc_h3_stream_t *h3_stream;
-
-    xqc_bool_t send_fin;
-    xqc_bool_t recv_fin;
-} xqc_wt_bidistream_t;
-
-
-void xqc_wt_send_stream_set_write_deadline(xqc_wt_send_stream_t *wt_stream,
-    xqc_usec_t                                                   deadline);
-
-xqc_h3_stream_t *xqc_wt_unistream_get_h3_stream(xqc_wt_unistream_t *wt_stream);
-
-
-/* 这里整合了三种stream 类型： send , recv , bidi(同时包含send 和 recv)
- * send 和 recv 的close_func 由自己管理
- * 这里要同时考虑2种情况
- */
-
-uint64_t xqc_wt_unistream_getid(xqc_wt_unistream_t *wt_stream);
-
-/*
- *According to https://www.w3.org/TR/webtransport/#webtransport-stream
- *TODO feature:
- *    stop For send
- *    reset For read
- */
-
-xqc_wt_bidistream_t *xqc_wt_create_bidistream(xqc_h3_stream_t *h3_stream,
+xqc_wt_bidistream_t *xqc_wt_create_bidistream(xqc_h3_stream_t *stream,
     xqc_wt_session_t *session, wt_stream_close_func_pt send_close_func,
     wt_stream_close_func_pt recv_close_func, xqc_bool_t passive_created);
-
 xqc_h3_stream_t *xqc_wt_bidistream_get_h3_stream(
-    xqc_wt_bidistream_t *wt_stream);
-
-xqc_int_t xqc_wt_bidistream_destroy(xqc_wt_bidistream_t *wt_stream);
-
-xqc_int_t xqc_wt_bidistream_send(xqc_wt_bidistream_t *wt_stream, void *data,
-    uint32_t len, int fin);
-
-void xqc_wt_unistream_set_sessionID(xqc_wt_unistream_t *wt_stream,
-    uint64_t                                            sessionID);
-
-
-#ifdef __cplusplus
-}
-#endif
+    xqc_wt_bidistream_t *stream);
+xqc_h3_stream_t *xqc_wt_unistream_get_h3_stream(xqc_wt_unistream_t *stream);
+xqc_int_t xqc_wt_bidistream_destroy(xqc_wt_bidistream_t *stream);
+uint64_t xqc_wt_unistream_getid(xqc_wt_unistream_t *stream);
+void xqc_wt_unistream_set_sessionID(xqc_wt_unistream_t *stream,
+    uint64_t session_id);
 
 #endif

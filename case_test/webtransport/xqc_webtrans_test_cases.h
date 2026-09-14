@@ -1,7 +1,7 @@
 /* Copyright (c) 2026, Alibaba Group Holding Limited. */
 
-#ifndef XQC_WT_CASE_PROBE_H
-#define XQC_WT_CASE_PROBE_H
+#ifndef XQC_WEBTRANS_TEST_CASES_H
+#define XQC_WEBTRANS_TEST_CASES_H
 
 #include <xquic/xqc_webtransport.h>
 

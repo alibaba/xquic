@@ -123,7 +123,8 @@ XQC_BUILD_DIR=build bash scripts/case_test.sh --execute \
 
 Both demos accept `-W -X <case-id>` for these cases; omitting `-X` retains
 the normal demo behavior. Case-only malformed input and receive observations
-are isolated in `case_test/webtransport/probe.c` and are not library APIs.
+are isolated in `case_test/webtransport/xqc_webtrans_test_cases.c` and are
+not library APIs.
 
 | Case IDs | Coverage |
 |---|---|

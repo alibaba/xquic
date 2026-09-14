@@ -11,7 +11,7 @@ set(
     ${HQ_SOURCES}
     "demo_client.c"
     "xqc_wt_echo_client.c"
-    "${CMAKE_SOURCE_DIR}/case_test/webtransport/probe.c"
+    "${CMAKE_SOURCE_DIR}/case_test/webtransport/xqc_webtrans_test_cases.c"
 )
 
 set(
@@ -19,7 +19,7 @@ set(
     ${HQ_SOURCES}
     "demo_server.c"
     "xqc_wt_echo_server.c"
-    "${CMAKE_SOURCE_DIR}/case_test/webtransport/probe.c"
+    "${CMAKE_SOURCE_DIR}/case_test/webtransport/xqc_webtrans_test_cases.c"
 )
 
 

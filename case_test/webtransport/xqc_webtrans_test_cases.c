@@ -3,7 +3,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
-#include "probe.h"
+#include "xqc_webtrans_test_cases.h"
 #include "src/webtransport/xqc_webtransport_conn.h"
 #include "src/webtransport/xqc_webtransport_h3_stream.h"
 #include "src/webtransport/xqc_webtransport_stream.h"

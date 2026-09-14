@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "xqc_wt_echo_client.h"
-#include "case_test/webtransport/probe.h"
+#include "case_test/webtransport/xqc_webtrans_test_cases.h"
 
 #define XQC_DEMO_WT_TRANSFER_SIZE (1024 * 1024)
 #define XQC_DEMO_WT_SEND_WINDOW (16 * 1024)

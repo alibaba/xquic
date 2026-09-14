@@ -33,7 +33,7 @@
 #include "common.h"
 #include "xqc_hq.h"
 #include "xqc_wt_echo_server.h"
-#include "case_test/webtransport/probe.h"
+#include "case_test/webtransport/xqc_webtrans_test_cases.h"
 
 
 

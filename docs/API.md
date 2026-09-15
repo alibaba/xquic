@@ -1073,6 +1073,7 @@ Get the stream_id of QUIC Transport stream on which the h3 request stream relies
 
 - [Immutable client API specification](../harness/spec/feat/webtransport-client-api-spec.md)
 - [Immutable server API specification](../harness/spec/feat/webtransport-server-api-spec.md)
+- [Optional message framing](../harness/spec/feat/webtransport-websocket-message-framing.md)
 
 `xqc_wt_select_application_protocol(headers, protocols, protocol_count,
 &selected)` selects the first client-offered application protocol supported by
@@ -1089,3 +1090,32 @@ helper does not send a response or accept a session. The server callback owns
 that policy and the `WT-Protocol` response field. See the
 [application negotiation example](../demo/webtransport.md#application-protocol-negotiation)
 and [draft-16 Section 3.3](https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-16.html#section-3.3).
+
+## Optional message-stream API
+
+`<xquic/xqc_webtransport_msg.h>` provides an application-layer wrapper for one
+WebTransport bidirectional stream. Applications create the wrapper only after
+their private application protocol has been negotiated. The wrapper borrows
+the raw stream. It may be destroyed earlier when framing is no longer needed,
+but destruction must be requested by the final close callback. Destruction
+from a synchronous callback is deferred until the active wrapper operation
+returns.
+
+`xqc_wt_msg_stream_send_msg()` copies one binary or text message into a bounded
+single-frame send slot. `XQC_OK` means that the wrapper accepted the message;
+it does not mean that all bytes were submitted to QUIC. A second message is
+rejected with `-XQC_EAGAIN` while the slot is occupied. The stream write
+callback calls `xqc_wt_msg_stream_flush()`, which retains lower-layer short
+writes and blocking internally and returns `XQC_OK`. Applications must not mix
+raw and framed sends on the same stream.
+
+`xqc_wt_msg_stream_finish()` queues FIN after the pending message and prevents
+later framed sends. The write callback continues a blocked message or FIN with
+`xqc_wt_msg_stream_flush()`.
+
+The raw stream read callback passes each complete input chunk to
+`xqc_wt_msg_stream_recv_msg()`. The wrapper buffers partial frames and invokes
+its receive notification once per complete message. Notification payloads are
+borrowed for the callback duration. Parse failures are private
+application-protocol errors: the application chooses a stream error code and
+must return `XQC_OK`, rather than the parse error, from the raw read callback.

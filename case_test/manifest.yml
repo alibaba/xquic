@@ -20,6 +20,7 @@ groups:
   source_paths:
   - src/webtransport/*
   - include/xquic/xqc_webtransport.h
+  - include/xquic/xqc_webtransport_msg.h
   - demo/xqc_wt*
   - demo/xqc_webtrans_interop.c
   - interop/webtransport/*

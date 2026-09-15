@@ -599,6 +599,29 @@ close. Pooling, session-level flow control, HTTP/2, exporters and 0-RTT CONNECT
 are outside this implementation stage. Existing frozen server APIs and context
 lifetime rules apply to both versions.
 
+### Optional Application Message Framing
+
+The optional `xqc_webtransport_msg.h` API restores binary and text message
+boundaries above one raw bidirectional WebTransport stream. An application
+activates it only after both endpoints select the private protocol. Selection
+can use endpoint configuration or the existing application-protocol
+negotiation API. The wrapper owns bounded frame buffers and incremental parser
+state but borrows the raw stream.
+
+The send operation accepts one copied message at a time. The flush operation
+resumes short or blocked writes, and the finish operation queues FIN after the
+accepted message. The receive operation reconstructs complete messages from
+arbitrary raw stream chunks.
+
+This application layer does not change either native WebTransport binding,
+the H3 stream prefix, datagrams, reliable reset, or raw stream callbacks. Its
+wire grammar and processing rules are defined in the
+[message-framing specification](webtransport-websocket-message-framing.md).
+Native case 1833 covers a complete framed-message echo through the demo client
+and raw WebTransport server. Case 1834 covers an oversized message declaration
+from a peer and the demo's local message-size bound. The codec, other parser
+errors, and compatibility boundary are covered by unit tests.
+
 Sources: [draft-07 §§3–6](https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-07.html),
 [draft-16 §§3–7](https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-16.html)
 and [reliable-stream-reset-09 §§3–5](https://datatracker.ietf.org/doc/html/draft-ietf-quic-reliable-stream-reset-09).

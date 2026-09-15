@@ -9,6 +9,7 @@
 
 #include "xqc_random_test.h"
 #include "xqc_webtransport_test.h"
+#include "xqc_webtransport_msg_test.h"
 #include "xqc_webtransport_version_test.h"
 #ifndef XQC_SYS_WINDOWS
 #include "xqc_webtrans_interop_test.h"
@@ -83,6 +84,14 @@ main(int argc, char *argv[])
     }     
 
     if (!CU_add_test(pSuite, "xqc_cid_test", xqc_test_cid)
+        || !CU_add_test(pSuite, "xqc_test_wt_msg_send",
+                        xqc_test_wt_msg_send)
+        || !CU_add_test(pSuite, "xqc_test_wt_msg_receive",
+                        xqc_test_wt_msg_receive)
+        || !CU_add_test(pSuite, "xqc_test_wt_msg_backpressure",
+                        xqc_test_wt_msg_backpressure)
+        || !CU_add_test(pSuite, "xqc_test_wt_msg_errors",
+                        xqc_test_wt_msg_errors)
 #ifndef XQC_SYS_WINDOWS
         || !CU_add_test(pSuite, "xqc_test_wt_interop_policy",
                         xqc_test_wt_interop_policy)

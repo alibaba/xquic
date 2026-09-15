@@ -101,6 +101,11 @@ Public headers must not depend on test or demo code. Core QUIC and HTTP/3 code
 must not depend on the optional MoQ module. Backend-specific TLS behavior stays
 behind the TLS integration layer.
 
+Optional WebTransport message framing is an application-layer module above the
+raw WebTransport bidirectional-stream API. It owns only application frame
+buffers and parser state; it does not alter HTTP/3, WebTransport bindings, or
+raw stream callback dispatch.
+
 HTTP/3 owns local SETTINGS registered through `xqc_h3_conn_set_setting()`.
 Application protocols supply identifiers and values; their constants and
 negotiation policy remain in the owning protocol module. The registration

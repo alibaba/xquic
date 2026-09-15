@@ -130,6 +130,12 @@ XQUIC_VERS_1.0 {
         xqc_xor_code_cb;
         xqc_packet_mask_code_cb;
         xqc_conn_set_init_idle_timeout;
+        xqc_wt_msg_stream_create;
+        xqc_wt_msg_stream_destroy;
+        xqc_wt_msg_stream_send_msg;
+        xqc_wt_msg_stream_flush;
+        xqc_wt_msg_stream_finish;
+        xqc_wt_msg_stream_recv_msg;
     local:
         *;
 };

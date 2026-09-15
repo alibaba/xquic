@@ -27,6 +27,7 @@ static xqc_datagram_read_notify_pt wt_case_raw_read;
 static int wt_case_server_id;
 static size_t wt_case_uni_received;
 static int wt_case_uni_match;
+static int wt_case_message_sent;
 static unsigned wt_case_datagram_deliveries;
 
 static xqc_int_t wt_case_send_stream(xqc_wt_session_t *session,
@@ -38,6 +39,8 @@ static int wt_case_session_ready(xqc_wt_session_t *session,
 static int wt_case_session_closed(xqc_wt_session_t *session,
     xqc_http_headers_t *headers, const xqc_cid_t *cid, void *user_data);
 static xqc_int_t wt_case_uni_read(xqc_wt_unistream_t *stream,
+    xqc_wt_session_t *session, void *data, size_t len, void *user_data);
+static xqc_int_t wt_case_message_length_read(xqc_wt_bidistream_t *stream,
     xqc_wt_session_t *session, void *data, size_t len, void *user_data);
 static xqc_int_t wt_case_bidi_closing(xqc_wt_bidistream_t *stream,
     xqc_wt_session_t *session, void *user_data);
@@ -204,6 +207,27 @@ wt_case_uni_read(xqc_wt_unistream_t *stream, xqc_wt_session_t *session,
             data, len, user_data) : XQC_OK;
 }
 
+static xqc_int_t
+wt_case_message_length_read(xqc_wt_bidistream_t *stream,
+    xqc_wt_session_t *session, void *data, size_t len, void *user_data)
+{
+    /* Message-framing Syntax: Length 6 exceeds the peer's bound of 5. */
+    unsigned char oversized[] = {0x00, 0x01, 0x06};
+    xqc_int_t sent;
+
+    if (wt_case_message_sent) {
+        return XQC_OK;
+    }
+    sent = xqc_wt_bidistream_send(stream, oversized, sizeof(oversized), 1);
+    if (sent != (xqc_int_t) sizeof(oversized)) {
+        return XQC_ERROR;
+    }
+    wt_case_message_sent = 1;
+    printf("WT case message oversized: declared=6 bytes=%zu fin=1\n",
+           sizeof(oversized));
+    return XQC_OK;
+}
+
 static int
 wt_case_session_closed(xqc_wt_session_t *session, xqc_http_headers_t *headers,
     const xqc_cid_t *cid, void *user_data)
@@ -278,11 +302,14 @@ xqc_wt_case_server_init(xqc_engine_t *engine, int case_id)
         return XQC_OK;
     }
     xqc_wt_ctx_t *ctx = xqc_wt_ctx_get(engine);
-    if (ctx == NULL || case_id < 1801 || case_id > 1816) {
+    if (ctx == NULL
+        || ((case_id < 1801 || case_id > 1816) && case_id != 1834))
+    {
         return -XQC_EPARAM;
     }
     wt_case_server_id = case_id;
     wt_case_uni_match = 1;
+    wt_case_message_sent = 0;
     wt_case_stream_cbs = ctx->stream_cbs;
     wt_case_session_cbs = ctx->session_cbs;
     wt_case_dgram_cbs = ctx->dgram_cbs;
@@ -290,6 +317,10 @@ xqc_wt_case_server_init(xqc_engine_t *engine, int case_id)
     ctx->session_cbs.webtransport_session_create_notify = wt_case_session_ready;
     ctx->session_cbs.webtransport_session_close_notify = wt_case_session_closed;
     ctx->stream_cbs.wt_unistream_read_notify = wt_case_uni_read;
+    if (case_id == 1834) {
+        ctx->stream_cbs.wt_bidistream_read_notify =
+            wt_case_message_length_read;
+    }
     ctx->stream_cbs.wt_bidistream_closing_notify = wt_case_bidi_closing;
     ctx->dgram_cbs.dgram_read_notify = wt_case_datagram_read;
     ctx->app_conn_callbacks.h3_conn_close_notify = wt_case_conn_closed;

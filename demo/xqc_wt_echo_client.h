@@ -3,8 +3,11 @@
 
 #include <xquic/xqc_webtransport.h>
 
+#define XQC_DEMO_WT_MSG_MAX_SIZE (16 * 1024 * 1024)
+
 xqc_int_t xqc_demo_wt_client_init(xqc_engine_t *engine, int draft_version,
-    int case_id, void (*schedule_send)(void *user_data),
+    int case_id, size_t payload_len, int print_response,
+    void (*schedule_send)(void *user_data),
     void (*finished)(void *user_data), void *user_data);
 xqc_int_t xqc_demo_wt_client_open(xqc_h3_conn_t *h3_conn,
     const char *authority, const char *path, const char *origin);

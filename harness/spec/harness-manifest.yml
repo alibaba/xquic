@@ -195,6 +195,8 @@ modules:
     paths:
       - include/xquic/xqc_webtransport_msg.h
       - src/webtransport/*
+      - demo/demo_client.c
+      - demo/demo_server.c
       - demo/xqc_wt*
       - demo/xqc_webtrans_interop.c
       - case_test/webtransport/*

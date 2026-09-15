@@ -1095,11 +1095,11 @@ and [draft-16 Section 3.3](https://www.ietf.org/archive/id/draft-ietf-webtrans-h
 
 `<xquic/xqc_webtransport_msg.h>` provides an application-layer wrapper for one
 WebTransport bidirectional stream. Applications create the wrapper only after
-their private application protocol has been negotiated. The wrapper borrows
-the raw stream. It may be destroyed earlier when framing is no longer needed,
-but destruction must be requested by the final close callback. Destruction
-from a synchronous callback is deferred until the active wrapper operation
-returns.
+both endpoints have selected the private framing, either by endpoint
+configuration or application-protocol negotiation. The wrapper borrows the
+raw stream. It may be destroyed earlier when framing is no longer needed, but
+destruction must be requested by the final close callback. Destruction from a
+synchronous callback is deferred until the active wrapper operation returns.
 
 `xqc_wt_msg_stream_send_msg()` copies one binary or text message into a bounded
 single-frame send slot. `XQC_OK` means that the wrapper accepted the message;

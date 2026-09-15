@@ -63,6 +63,7 @@ xqc_test_wt_interop_policy(void)
     CU_ASSERT(xqc_demo_wt_app_policy.require_webtransport);
     CU_ASSERT(!xqc_demo_wt_app_policy.allow_case_id);
     CU_ASSERT(xqc_demo_wt_app_policy.allow_remote_certificate);
+    CU_ASSERT(!xqc_demo_wt_app_policy.allow_client_probe);
     CU_ASSERT_PTR_NULL(xqc_demo_wt_app_policy.server_init);
 }
 

@@ -164,6 +164,9 @@ typedef struct xqc_demo_cli_quic_config_s {
     int webtransport;
     int wt_draft_version;
     int wt_case_id;
+    int wt_print_response;
+    size_t wt_payload_len;
+    int wt_payload_specified;
     const char *wt_cert_file;
     const char *wt_origin;
 
@@ -1973,6 +1976,8 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -W    Run one WebTransport echo session (default URL: /wt).\n"
         "   -v    WebTransport maximum draft version: 7 or 16 (default).\n"
         "   -X    WebTransport native case: 1801..1816 (0: normal demo).\n"
+        "   -g    Print received WebTransport data or complete messages.\n"
+        "   -H L  Send one framed text message containing L bytes of 'd'.\n"
         "   -j    WebTransport Origin (default: http://127.0.0.1:8080).\n"
         "   -J    PEM certificate to trust for a WT peer.\n"
         "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic P:copa\n"
@@ -2029,12 +2034,36 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
     int wt_case_selected = 0;
     while ((ch = getopt(argc, argv,
         "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:b:Z:NQT:R:V:B:I:"
-        "n:e:E:F:G:r:x:y:Y:f:z:q65OWv:j:J:X:")) != -1)
+        "n:e:E:F:G:r:x:y:Y:f:z:q65OWv:j:J:X:gH:")) != -1)
     {
         switch (ch) {
         case 'W':
             args->quic_cfg.webtransport = 1;
             break;
+        case 'g':
+            args->quic_cfg.wt_print_response = 1;
+            break;
+        case 'H': {
+            char *end;
+            unsigned long long payload_len;
+
+            errno = 0;
+            payload_len = strtoull(optarg, &end, 10);
+            if (errno || end == optarg || *end != '\0'
+                || optarg[0] < '0' || optarg[0] > '9'
+                || payload_len == 0 || payload_len > SIZE_MAX
+                || payload_len > XQC_DEMO_WT_MSG_MAX_SIZE)
+            {
+                fprintf(stderr,
+                        "WT message length must be an integer from 1 "
+                        "through %zu\n",
+                        (size_t) XQC_DEMO_WT_MSG_MAX_SIZE);
+                return -1;
+            }
+            args->quic_cfg.wt_payload_len = (size_t) payload_len;
+            args->quic_cfg.wt_payload_specified = 1;
+            break;
+        }
         case 'X': {
             char *end;
             long case_id;
@@ -2042,9 +2071,12 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
             errno = 0;
             case_id = strtol(optarg, &end, 10);
             if (errno || end == optarg || *end != '\0'
-                || (case_id != 0 && (case_id < 1801 || case_id > 1816)))
+                || (case_id != 0
+                    && (case_id < 1801 || case_id > 1816)
+                    && case_id != 1834))
             {
-                fprintf(stderr, "WT case must be 0 or 1801..1816\n");
+                fprintf(stderr,
+                        "WT case must be 0, 1801..1816, or 1834\n");
                 return -1;
             }
             args->quic_cfg.wt_case_id = (int) case_id;
@@ -2363,6 +2395,10 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
                 fprintf(stderr, "-X requires a WebTransport case ID\n");
                 return -1;
             }
+            if (ch == '?' && optopt == 'H') {
+                fprintf(stderr, "-H requires a WebTransport payload length\n");
+                return -1;
+            }
             printf("other option :%c\n", ch);
             xqc_demo_cli_usage(argc, argv);
             exit(0);
@@ -2381,6 +2417,33 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
     }
     if (wt_case_selected && !args->quic_cfg.webtransport) {
         fprintf(stderr, "-X requires WebTransport mode (-W)\n");
+        return -1;
+    }
+    if ((args->quic_cfg.wt_print_response
+         || args->quic_cfg.wt_payload_specified)
+        && !args->quic_cfg.webtransport)
+    {
+        fprintf(stderr, "-g and -H require WebTransport mode (-W)\n");
+        return -1;
+    }
+    if ((args->quic_cfg.wt_print_response
+         || args->quic_cfg.wt_payload_specified)
+        && !xqc_demo_wt_app_policy.allow_client_probe)
+    {
+        fprintf(stderr,
+                "This WebTransport application does not support -g or -H\n");
+        return -1;
+    }
+    if (args->quic_cfg.wt_payload_specified && wt_case_selected
+        && args->quic_cfg.wt_case_id != 1834)
+    {
+        fprintf(stderr, "-H cannot be combined with a WebTransport case\n");
+        return -1;
+    }
+    if (args->quic_cfg.wt_payload_specified
+        && args->quic_cfg.wt_draft_version != 16)
+    {
+        fprintf(stderr, "-H requires WebTransport draft 16 (-v 16)\n");
         return -1;
     }
 
@@ -2839,6 +2902,9 @@ xqc_demo_cli_init_alpn_ctx(xqc_demo_cli_ctx_t *ctx)
         ret = xqc_demo_wt_client_init(ctx->engine,
             ctx->args->quic_cfg.wt_draft_version,
             ctx->args->quic_cfg.wt_case_id,
+            ctx->args->quic_cfg.wt_payload_specified
+                ? ctx->args->quic_cfg.wt_payload_len : 0,
+            ctx->args->quic_cfg.wt_print_response,
             xqc_demo_cli_wt_schedule_send, xqc_demo_cli_wt_finished, ctx);
     }
 

@@ -603,9 +603,10 @@ lifetime rules apply to both versions.
 
 The optional `xqc_webtransport_msg.h` API restores binary and text message
 boundaries above one raw bidirectional WebTransport stream. An application
-activates it only after selecting a private protocol with the existing
-application-protocol negotiation API. The wrapper owns bounded frame buffers
-and incremental parser state but borrows the raw stream.
+activates it only after both endpoints select the private protocol. Selection
+can use endpoint configuration or the existing application-protocol
+negotiation API. The wrapper owns bounded frame buffers and incremental parser
+state but borrows the raw stream.
 
 The send operation accepts one copied message at a time. The flush operation
 resumes short or blocked writes, and the finish operation queues FIN after the
@@ -616,9 +617,10 @@ This application layer does not change either native WebTransport binding,
 the H3 stream prefix, datagrams, reliable reset, or raw stream callbacks. Its
 wire grammar and processing rules are defined in the
 [message-framing specification](webtransport-websocket-message-framing.md).
-The native demo does not currently provide client-to-server coverage for this
-optional layer; its codec and compatibility boundary are covered by unit
-tests.
+Native case 1833 covers a complete framed-message echo through the demo client
+and raw WebTransport server. Case 1834 covers an oversized message declaration
+from a peer and the demo's local message-size bound. The codec, other parser
+errors, and compatibility boundary are covered by unit tests.
 
 Sources: [draft-07 §§3–6](https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-07.html),
 [draft-16 §§3–7](https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-16.html)

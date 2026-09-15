@@ -3,9 +3,11 @@
 ## Scope
 
 This application-layer protocol carries ordered binary and text messages in
-each direction of a WebTransport bidirectional stream. It is used only after
-explicit application-protocol negotiation and does not modify WebTransport or
-HTTP/3. Unnegotiated streams retain their existing application semantics.
+each direction of a WebTransport bidirectional stream. Both endpoints enable
+it only after application-level agreement. The selection mechanism is outside
+this protocol and may use endpoint configuration or explicit negotiation. It
+does not modify WebTransport or HTTP/3; other streams retain their existing
+application semantics.
 
 ## Syntax
 

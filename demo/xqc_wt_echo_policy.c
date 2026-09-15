@@ -7,5 +7,6 @@ const xqc_demo_wt_app_policy_t xqc_demo_wt_app_policy = {
     .require_webtransport = 0,
     .allow_case_id = 1,
     .allow_remote_certificate = 0,
+    .allow_client_probe = 1,
     .server_init = xqc_wt_case_server_init,
 };

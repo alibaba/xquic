@@ -20,6 +20,7 @@ const xqc_demo_wt_app_policy_t xqc_demo_wt_app_policy = {
     .require_webtransport = 1,
     .allow_case_id = 0,
     .allow_remote_certificate = 1,
+    .allow_client_probe = 0,
     .server_init = NULL,
 };
 
@@ -1274,9 +1275,13 @@ xqc_demo_wt_init(xqc_engine_t *engine, int draft_version,
 
 xqc_int_t
 xqc_demo_wt_client_init(xqc_engine_t *engine, int draft_version,
-    int case_id, void (*schedule_send)(void *user_data),
+    int case_id, size_t payload_len, int print_response,
+    void (*schedule_send)(void *user_data),
     void (*finished)(void *user_data), void *user_data)
 {
+    (void) case_id;
+    (void) payload_len;
+    (void) print_response;
     return xqc_wt_interop_init(engine, draft_version, 0,
                                 schedule_send, finished, user_data);
 }

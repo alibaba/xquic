@@ -12,6 +12,7 @@ typedef struct {
     int                         require_webtransport;
     int                         allow_case_id;
     int                         allow_remote_certificate;
+    int                         allow_client_probe;
     xqc_demo_wt_server_init_pt  server_init;
 } xqc_demo_wt_app_policy_t;
 

@@ -53,6 +53,25 @@ Success prints `WT ready: draft=16 status=200`, byte and FIN checks, then
 for the reset stream verifies that the reset reached the peer; sending a
 reset alone is not a peer acknowledgement.
 
+Use `-H <length>` to replace the normal echo sequence with a draft-16 stream
+probe. The client opens one bidirectional stream, sends exactly `length`
+bytes whose value is `d`, and sets FIN. The length must be a positive decimal
+integer that fits in `size_t`; `-H` requires `-W -v 16` and cannot be combined
+with `-X`. This mode succeeds when the peer ends its response on the same
+stream with FIN; otherwise the configured client lifetime can expire after
+printing any response received so far.
+
+Use `-g` to print data received on WebTransport bidirectional streams,
+unidirectional streams, and datagrams. Printable ASCII is shown directly;
+quotes, backslashes, control characters, and binary bytes are escaped. The
+flag can also be used with the normal echo sequence. For example:
+
+```sh
+build/demo/demo_client -W -v 16 -H 16 -g -a 127.0.0.1 \
+    -J build/webtransport-cert/server.crt \
+    -U https://localhost:8443/wt
+```
+
 Run the client with `-v 7` against the same server to verify draft-07.
 Restart the server with `-v 7` and run the client with `-v 16` to verify
 fallback. Both runs should report `draft=7` and pass the echo checks.

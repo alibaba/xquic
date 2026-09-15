@@ -32,6 +32,7 @@
 
 #include "common.h"
 #include "xqc_hq.h"
+#include "xqc_wt_app.h"
 #include "xqc_wt_echo_server.h"
 
 
@@ -62,6 +63,7 @@ typedef struct xqc_demo_svr_net_config_s {
 
     /* ipv4 or ipv6 */
     int     ipv6;
+    int     listen_any;
 
     /* congestion control algorithm */
     CC_TYPE cc;     /* congestion control algorithm */
@@ -99,6 +101,8 @@ typedef struct xqc_demo_svr_quic_config_s {
     int  dummy_mode;
 
     int  webtransport;
+    int  wt_draft_version;
+    int  wt_case_id;
 
     /* multipath */
     int  multipath;
@@ -1188,8 +1192,9 @@ xqc_demo_svr_create_socket(xqc_demo_svr_ctx_t *ctx, xqc_demo_svr_net_config_t* c
     memset(&ctx->local_addr, 0, sizeof(ctx->local_addr));
     ctx->local_addr.sin_family = AF_INET;
     ctx->local_addr.sin_port = htons(cfg->port);
-    ctx->local_addr.sin_addr.s_addr = htonl(ctx->args->quic_cfg.webtransport
-                                          ? INADDR_LOOPBACK : INADDR_ANY);
+    ctx->local_addr.sin_addr.s_addr = htonl(
+        ctx->args->quic_cfg.webtransport && !cfg->listen_any
+        ? INADDR_LOOPBACK : INADDR_ANY);
     ctx->local_addrlen = sizeof(ctx->local_addr);
     ctx->fd = xqc_demo_svr_init_socket(AF_INET, cfg->port, (struct sockaddr*)&ctx->local_addr, 
         ctx->local_addrlen);
@@ -1199,8 +1204,9 @@ xqc_demo_svr_create_socket(xqc_demo_svr_ctx_t *ctx, xqc_demo_svr_net_config_t* c
     memset(&ctx->local_addr6, 0, sizeof(ctx->local_addr6));
     ctx->local_addr6.sin6_family = AF_INET6;
     ctx->local_addr6.sin6_port = htons(cfg->port);
-    ctx->local_addr6.sin6_addr = ctx->args->quic_cfg.webtransport
-                                ? in6addr_loopback : in6addr_any;
+    ctx->local_addr6.sin6_addr =
+        ctx->args->quic_cfg.webtransport && !cfg->listen_any
+        ? in6addr_loopback : in6addr_any;
     ctx->local_addrlen6 = sizeof(ctx->local_addr6);
     ctx->fd6 = xqc_demo_svr_init_socket(AF_INET6, cfg->port, (struct sockaddr*)&ctx->local_addr6, 
         ctx->local_addrlen6);
@@ -1236,7 +1242,10 @@ xqc_demo_svr_usage(int argc, char *argv[])
             "\n"
             "Options:\n"
             "   -p    Server port.\n"
-            "   -W    Enable loopback WebTransport draft-07 echo at /wt.\n"
+            "   -W    Enable WebTransport at /wt (loopback by default).\n"
+            "   -A    Listen on all interfaces.\n"
+            "   -v    Maximum WebTransport draft: 7 or 16 (default).\n"
+            "   -X    WebTransport CI case ID (requires -W).\n"
             "   -K    TLS private key file.\n"
             "   -T    TLS certificate file.\n"
             "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic P:copa \n"
@@ -1293,18 +1302,51 @@ xqc_demo_svr_init_args(xqc_demo_svr_args_t *args)
     args->quic_cfg.keyupdate_pkt_threshold = UINT64_MAX;
     args->quic_cfg.least_available_cid_count = 1;
     args->quic_cfg.max_pkt_sz = 1200;
+    args->quic_cfg.wt_draft_version = 16;
 }
 
 void
 xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
 {
     int ch = 0;
+    int wt_case_selected = 0;
     while ((ch = getopt(argc, argv,
-                        "p:c:CD:l:L:6k:rdMiPs:R:u:a:F:f:WK:T:")) != -1)
+                        ":p:c:CD:l:L:6k:rdMiPs:R:u:a:F:f:AWK:T:v:X:")) != -1)
     {
         switch (ch) {
+        case 'A':
+            args->net_cfg.listen_any = 1;
+            break;
+
         case 'W':
             args->quic_cfg.webtransport = 1;
+            break;
+
+        case 'X': {
+            char *end;
+            long value = strtol(optarg, &end, 10);
+            if (*optarg == '\0' || *end != '\0'
+                || (value != 0 && (value < 1801 || value > 1816)))
+            {
+                fprintf(stderr, "invalid WebTransport case ID\n");
+                exit(1);
+            }
+            args->quic_cfg.wt_case_id = (int) value;
+            wt_case_selected = 1;
+            break;
+        }
+
+        case ':':
+        case '?':
+            fprintf(stderr, "invalid or incomplete demo option\n");
+            exit(1);
+
+        case 'v':
+            if (strcmp(optarg, "7") && strcmp(optarg, "16")) {
+                fprintf(stderr, "WebTransport draft must be 7 or 16\n");
+                exit(1);
+            }
+            args->quic_cfg.wt_draft_version = atoi(optarg);
             break;
 
         case 'K':
@@ -1444,6 +1486,20 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
             xqc_demo_svr_usage(argc, argv);
             exit(0);
         }
+    }
+    if (xqc_demo_wt_app_policy.require_webtransport
+        && !args->quic_cfg.webtransport)
+    {
+        fprintf(stderr, "This WebTransport application requires -W\n");
+        exit(1);
+    }
+    if (wt_case_selected && !xqc_demo_wt_app_policy.allow_case_id) {
+        fprintf(stderr, "This WebTransport application does not accept -X\n");
+        exit(1);
+    }
+    if (wt_case_selected && !args->quic_cfg.webtransport) {
+        fprintf(stderr, "WebTransport case ID requires -W\n");
+        exit(1);
     }
 }
 
@@ -1629,10 +1685,19 @@ xqc_demo_svr_init_alpn_ctx(xqc_demo_svr_ctx_t *ctx)
     }
 
     if (ctx->args->quic_cfg.webtransport) {
-        ret = xqc_demo_wt_init(ctx->engine, xqc_demo_svr_wt_schedule_send, ctx);
+        ret = xqc_demo_wt_init(ctx->engine,
+            ctx->args->quic_cfg.wt_draft_version,
+            xqc_demo_svr_wt_schedule_send, ctx);
         if (ret != XQC_OK) {
             printf("init WebTransport context error: %d\n", ret);
             return ret;
+        }
+        if (xqc_demo_wt_app_policy.server_init) {
+            ret = xqc_demo_wt_app_policy.server_init(
+                ctx->engine, ctx->args->quic_cfg.wt_case_id);
+            if (ret != XQC_OK) {
+                return ret;
+            }
         }
     }
 
@@ -1741,6 +1806,7 @@ th3_demo_proxy_sig_hndlr(int signo)
 int
 main(int argc, char *argv[])
 {
+    setvbuf(stdout, NULL, _IOLBF, 0);
     /* init env if necessary */
     xqc_platform_init_env();
 
@@ -1786,7 +1852,8 @@ main(int argc, char *argv[])
     }
 
     if (args->quic_cfg.webtransport) {
-        printf("WebTransport draft-07: https://127.0.0.1:%u/wt\n",
+        printf("WebTransport maximum draft %d: https://127.0.0.1:%u/wt\n",
+               args->quic_cfg.wt_draft_version,
                (unsigned) (uint16_t) args->net_cfg.port);
         fflush(stdout);
     }

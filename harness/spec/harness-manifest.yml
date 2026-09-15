@@ -191,6 +191,34 @@ modules:
             - xqc_test_fec
           hints: [fec, repair]
 
+  webtransport:
+    paths:
+      - src/webtransport/*
+      - demo/xqc_wt*
+      - demo/xqc_webtrans_interop.c
+      - case_test/webtransport/*
+      - interop/webtransport/*
+    read:
+      - harness/spec/feat/webtransport.md
+      - demo/webtransport.md
+      - interop/webtransport/README.md
+    validation:
+      level: targeted
+    features:
+      webtransport_interop:
+        paths:
+          - demo/xqc_webtrans_interop.c
+          - case_test/webtransport/*
+          - interop/webtransport/*
+        feature_flags:
+          - XQC_ENABLE_WEBTRANSPORT_INTEROP=ON
+        read:
+          - harness/spec/feat/webtransport.md
+          - demo/webtransport.md
+          - interop/webtransport/README.md
+        validation:
+          level: targeted
+
   http3:
     paths:
       - src/http3/*

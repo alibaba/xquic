@@ -41,7 +41,7 @@ static ssize_t
 xqc_transport_params_calc_length(const xqc_transport_params_t *params,
     xqc_transport_params_type_t exttype) 
 {
-    size_t len = 0;
+    size_t len = params->reset_stream_at ? 2 : 0;
     size_t preferred_addrlen = 0, preferred_fec_paramslen = 0;
 
     if (params->original_dest_connection_id_present) {
@@ -299,6 +299,11 @@ xqc_encode_transport_params(const xqc_transport_params_t *params,
 
     /* start writing */
     /* write transport parameter buffer len */
+    if (params->reset_stream_at) {
+        p = xqc_put_varint(p, XQC_TRANSPORT_PARAM_RESET_STREAM_AT);
+        p = xqc_put_varint(p, 0);
+    }
+
     if (params->original_dest_connection_id_present) {
         p = xqc_put_varint(p, XQC_TRANSPORT_PARAM_ORIGINAL_DEST_CONNECTION_ID);
         p = xqc_put_varint(p, params->original_dest_connection_id.cid_len);
@@ -1124,6 +1129,13 @@ xqc_decode_one_transport_param(xqc_transport_params_t *params,
      * read param value, note: some parameters are allowed to be zero-length,
      * for example, disable_active_migration. 
      */
+    /* reliable-stream-reset-09 Section 3: this parameter is empty. */
+    if (param_type == XQC_TRANSPORT_PARAM_RESET_STREAM_AT) {
+        if (param_len != 0 || params->reset_stream_at) {
+            return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+        }
+        params->reset_stream_at = XQC_TRUE;
+    }
     uint64_t param_index = xqc_trans_param_get_index(param_type);
     if (param_index != XQC_TP_DECODER_UNKNOWN) {
         xqc_int_t ret = xqc_trans_param_decode_func_list[param_index](params, exttype, p, end,
@@ -1176,6 +1188,7 @@ xqc_decode_transport_params(xqc_transport_params_t *params,
 
     params->no_crypto = 0;
     params->max_datagram_frame_size = 0;
+    params->reset_stream_at = XQC_FALSE;
 
     params->enable_multipath = 0;
     params->multipath_version = XQC_ERR_MULTIPATH_VERSION;
@@ -1216,12 +1229,17 @@ xqc_read_transport_params(char *tp_data, size_t tp_data_len, xqc_transport_param
 {
     char *p = tp_data;
     char *e = p + tp_data_len;
+    params->reset_stream_at = XQC_FALSE;
     while (*p != '\0' && p < e) {
         if (*p == ' ') {
             p++;
         }
 
-        if (strncmp(p, "initial_max_streams_bidi=",
+        if (strncmp(p, "reset_stream_at=", 16) == 0) {
+            p += 16;
+            params->reset_stream_at = strtoul(p, NULL, XQC_DECIMAL) != 0;
+
+        } else if (strncmp(p, "initial_max_streams_bidi=",
                     xqc_lengthof("initial_max_streams_bidi=")) == 0)
         {
             p += xqc_lengthof("initial_max_streams_bidi=");
@@ -1305,6 +1323,7 @@ xqc_write_transport_params(char *tp_buf, size_t cap, const xqc_transport_params_
                                    "initial_max_data=%"PRIu64"\n"
                                    "max_ack_delay=%"PRIu64"\n"
                                    "active_connection_id_limit=%"PRIu64"\n"
+                                   "reset_stream_at=%u\n"
                                    "%s",
                                    params->initial_max_streams_bidi,
                                    params->initial_max_streams_uni,
@@ -1314,6 +1333,7 @@ xqc_write_transport_params(char *tp_buf, size_t cap, const xqc_transport_params_
                                    params->initial_max_data,
                                    params->max_ack_delay,
                                    params->active_connection_id_limit,
+                                   (unsigned)params->reset_stream_at,
                                    dgram_tp_str);
                                    
     if (tp_data_len < 0) {

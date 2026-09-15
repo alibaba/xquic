@@ -6,8 +6,14 @@ This document defines only the XQUIC-specific implementation architecture,
 object ownership, adapter interfaces, public C API, and migration constraints
 for WebTransport. It does not redefine any WebTransport protocol binding.
 
-The default built-in implementation targets the native HTTP/3 binding in
+The native HTTP/3 implementation supports only
+[`draft-ietf-webtrans-http3-07`](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-07)
+and
 [`draft-ietf-webtrans-http3-16`](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-16).
+Draft-16 is preferred; draft-07 is retained for Chrome compatibility.
+Both endpoints select the highest common advertised version and retain it
+for the connection lifetime. Unsupported revisions MUST NOT be advertised
+or silently interpreted as either supported revision.
 The common core and adapter interface also reserve an integration path for the
 capsule-based binding in
 [`draft-ietf-webtrans-http2-15`](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http2-15).
@@ -49,6 +55,39 @@ Protocol behavior is cited directly from the governing source in code and
 tests. This document does not maintain a parallel section index or summary.
 
 ## Design Scope
+
+### Interoperability application ownership
+
+The handshake and bidirectional/unidirectional/datagram file-transfer
+interoperability application belongs under `demo/` and must share the
+existing demo runtime and XQUIC CMake build graph.
+The `XQC_ENABLE_WEBTRANSPORT_INTEROP` CMake option controls whether the
+interop client and server are built. Their shared runtime consumes a
+link-selected application policy; it must not use compile-time branches to
+distinguish the echo and interop applications. The policy owns required
+WebTransport mode, native-case availability, remote trust-file permission,
+and optional application initialization. Listening beyond loopback remains
+an explicit runtime choice rather than application policy.
+XQUIC owns container packaging and environment mapping under
+`interop/webtransport/`, together with its image publication workflow. The
+public interop runner consumes the published image and owns shared cases and
+image registration. Packaging must not maintain a second XQUIC engine/TLS
+runtime.
+The native server application uses `xqc_wt_select_application_protocol` to
+select a supported protocol in client preference order. The helper shares
+the adapter's Structured Field parser with client response validation and
+returns a borrowed supported string. Applications retain session acceptance
+policy and response-header ownership; the parser remains adapter-private.
+Native CI must exercise the same application binaries using input/output
+assertions for protocol preference, file contents and stream FIN or complete
+datagrams, and explicit negotiation, file, and certificate failures. Both
+client and server requesters must be covered; a responding client must remain
+available until the requester completes and closes the session. The owning
+case registrations are in `case_test/webtransport/core.sh`. Packet inspection
+remains an additional external interoperability check rather than a native
+CI dependency.
+
+### Protocol implementation
 
 The first production implementation ships native WebTransport over HTTP/3.
 The core object model and public application API are binding-neutral. A
@@ -345,6 +384,12 @@ Transport APIs report QUIC state and errors without translating them into
 WebTransport application errors. That translation belongs to the HTTP/3
 adapter.
 
+Reliable reset state is contained in the embedded `xqc_stream_reset_at_t`
+member `xqc_stream_s::reset_at`: directional reliable sizes, errors and phases.
+Completion reuses packet ACK and retransmission state without separate
+stream byte-range allocations. Transport reports STOP_SENDING frames directly;
+WebTransport owns duplicate suppression and pending application notifications.
+
 ### External Capsule Binding
 
 The capsule adapter permits integration with an HTTP/2 implementation that is
@@ -481,22 +526,82 @@ callback. A handle is invalid after its final close callback returns.
 
 ### Version Adapter
 
-All revision-specific identifiers and codecs live in immutable tables owned by
-their adapter. Session, stream, datagram, and capsule paths select one table
-from the negotiated binding version and never mix tables within a session.
-The H3 adapter pins one compatible table on `xqc_wt_h3_conn_ctx_t`; the capsule
-adapter pins one table on each `xqc_wt_capsule_session_ctx_t`.
+Revision-specific identifiers and codecs belong to their adapter. The H3
+connection pins the highest common draft after receiving complete peer
+SETTINGS. Its session, stream, datagram, and capsule paths MUST use that draft
+for the lifetime of the connection.
 
-The initial H3 table targets HTTP/3 draft 16. The capsule integration target is
-HTTP/2 draft 15. Adding another draft or RFC requires:
+The H3 adapter supports exactly draft-07 and draft-16. Draft-16 requires its
+own SETTINGS, CONNECT token and reliable-reset prerequisites; draft-07
+retains its Chrome-compatible negotiation. Shared codecs may be reused only
+where both revisions define the same wire format. The draft-16 MVP permits
+one simultaneous session per connection without session-level flow control,
+as allowed by draft-16 Section 5.1. It MUST reject additional simultaneous
+sessions and MUST NOT advertise pooling support.
+
+The future capsule integration target is HTTP/2 draft 15; this is not a
+currently supported protocol version. Adding another draft or RFC requires:
 
 - reviewing the current version-independent IETF source;
-- adding or updating one version table and its codec tests;
+- updating the adapter's identifiers, codecs and tests;
 - updating compatibility declarations exposed by XQUIC; and
 - updating this document only when an XQUIC-owned design or API changes.
 
 Protocol constants must not be copied into public API headers unless they are
 part of an application-visible value type required by the API.
+
+### Native HTTP/3 MVP
+
+The native binding defaults to draft-16 with draft-07 fallback. Configuring
+draft-07 advertises only draft-07. Unsupported drafts MUST NOT establish a
+session. Once draft-16 is selected, missing prerequisites MUST cause rejection
+without fallback to draft-07.
+
+| Binding | SETTINGS | CONNECT `:protocol` | Additional QUIC requirement |
+|---------|----------|---------------------|-----------------------------|
+| draft-07 | `0xc671706a > 0` | `webtransport` | None |
+| draft-16 | `0x2c7cf000 = 1` | `webtransport-h3` | Empty `reset_stream_at` (`0x1d`) from both peers |
+
+Both bindings require H3 and QUIC datagrams and server extended CONNECT
+support. Clients MUST wait for the TLS handshake and peer SETTINGS before
+sending CONNECT. Only a 2xx response creates a ready client session; rejected
+requests receive a final close notification without a create notification.
+
+The additive `xqc_wt_client_open_session_with_protocols()` entry point accepts
+application protocols in preference order and copies them before returning.
+Inputs are bounded to 1024 printable ASCII bytes per protocol and 4096 bytes
+for the encoded list. A nonempty offer requires a valid negotiated selection
+before the ready callback. The original client-open API and an empty offer
+retain optional negotiation. `xqc_wt_session_get_application_protocol()`
+returns a borrowed decoded selection, valid through the final close callback,
+or `NULL` when no client protocol was negotiated. Encoding and validation
+follow the selected binding's governing IETF source; application protocol
+selection policy remains with the server application.
+
+The draft-16 MVP supports one simultaneous session, bidirectional stream
+exchange with FIN, unidirectional stream delivery, datagrams, stream reset,
+drain and close. It MUST NOT send nonzero WT INITIAL flow-control SETTINGS.
+It ignores session flow-control capsules and rejects an additional
+simultaneous CONNECT with `H3_REQUEST_REJECTED`. HTTP/2 per-stream flow-control
+capsules remain prohibited.
+
+Draft-16 resets MUST reliably deliver the complete outgoing WT stream header
+using `RESET_STREAM_AT` (`0x24`). Reset processing and acknowledgement MUST
+preserve required bytes across reordering and loss. The WebTransport adapter
+MUST deduplicate STOP_SENDING notifications and defer its application callback
+until the required stream header has been submitted, preserving callback
+ownership throughout.
+Close capsules validate UTF-8 and reject trailing data. Drain and GOAWAY MUST
+allow established sessions to continue exchanging data and creating streams.
+
+The native demo checks reset, bidirectional echo with FIN, datagram echo and
+close. Pooling, session-level flow control, HTTP/2, exporters and 0-RTT CONNECT
+are outside this implementation stage. Existing frozen server APIs and context
+lifetime rules apply to both versions.
+
+Sources: [draft-07 §§3–6](https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-07.html),
+[draft-16 §§3–7](https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-16.html)
+and [reliable-stream-reset-09 §§3–5](https://datatracker.ietf.org/doc/html/draft-ietf-quic-reliable-stream-reset-09).
 
 ## Target API
 

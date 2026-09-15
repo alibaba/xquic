@@ -109,7 +109,10 @@ static int
 xqc_demo_wt_session_create(xqc_wt_session_t *session,
     xqc_http_headers_t *headers, const xqc_cid_t *cid, void *user_data)
 {
-    printf("WT ready: session=%p h3_user_data=%p\n", (void *) session,
+    printf("WT ready: draft=%d session=%p h3_user_data=%p\n",
+           xqc_wt_session_get_draft_version(session)
+               == XQC_WEBTRANSPORT_DRAFT_VERSION_16 ? 16 : 7,
+           (void *) session,
            xqc_h3_conn_get_user_data(xqc_wt_session_get_h3_conn(session)));
     return XQC_OK;
 }
@@ -256,6 +259,10 @@ xqc_demo_wt_bidi_closing(xqc_wt_bidistream_t *stream,
     xqc_demo_wt_stream_t *ctx = xqc_demo_wt_find(session,
                                                xqc_wt_bidistream_id(stream));
 
+    printf("WT stream closing: id=%" PRIu64 " stop_sending=%d\n",
+           (uint64_t) xqc_wt_bidistream_id(stream),
+           xqc_wt_bidistream_closing_is_stop_sending(stream));
+
     if (ctx && xqc_wt_bidistream_closing_is_stop_sending(stream)) {
         ctx->pending_len = 0;
         ctx->send_closed = 1;
@@ -336,7 +343,7 @@ xqc_demo_wt_dgram_mss(xqc_wt_session_t *session,
 }
 
 xqc_int_t
-xqc_demo_wt_init(xqc_engine_t *engine,
+xqc_demo_wt_init(xqc_engine_t *engine, int draft_version,
     void (*schedule_send)(void *user_data), void *user_data)
 {
     xqc_webtransport_dgram_callbacks_t dgram_cbs = {
@@ -366,8 +373,10 @@ xqc_demo_wt_init(xqc_engine_t *engine,
         .wt_unistream_close_notify = xqc_demo_wt_uni_notify,
     };
     xqc_webtransport_conn_settings_t settings = {
-        .max_sessions_count = 4,
-        .draft_version = XQC_WEBTRANSPORT_DRAFT_VERSION_7,
+        .max_sessions_count = 1,
+        .draft_version = draft_version == 7
+            ? XQC_WEBTRANSPORT_DRAFT_VERSION_7
+            : XQC_WEBTRANSPORT_DRAFT_VERSION_16,
         .max_bidi_streams = 16,
         .max_uni_streams = 16,
         .init_recv_window = 1024 * 1024,

@@ -10,6 +10,8 @@
 #define XQC_WT_CLOSE_REASON_MAX 1024
 #define XQC_WT_CAPSULE_BUFFER_SIZE (XQC_WT_CLOSE_REASON_MAX + 32)
 
+xqc_bool_t xqc_wt_valid_utf8(const unsigned char *data, size_t len);
+
 struct xqc_webtransport_session_s {
     uint64_t              sessionID;
     xqc_wt_conn_t        *wt_conn;
@@ -21,6 +23,15 @@ struct xqc_webtransport_session_s {
     xqc_bool_t            closed;
     xqc_bool_t            draining;
     xqc_bool_t            close_notified;
+    xqc_bool_t            client;
+    xqc_bool_t            request_sent;
+    xqc_bool_t            peer_closed;
+    unsigned              response_status;
+    char                 *client_authority;
+    char                 *client_path;
+    char                 *client_origin;
+    char                 *client_protocols;
+    char                 *application_protocol;
     uint32_t              close_error;
     char                  close_reason[XQC_WT_CLOSE_REASON_MAX + 1];
     unsigned char         send_buf[XQC_WT_CAPSULE_BUFFER_SIZE];
@@ -43,6 +54,7 @@ xqc_int_t xqc_wt_session_flush(xqc_wt_session_t *session);
 xqc_int_t xqc_wt_session_recv_capsules(xqc_wt_session_t *session,
     const unsigned char *data, size_t len, xqc_bool_t fin);
 xqc_bool_t xqc_wt_session_is_writable(xqc_wt_session_t *session);
+void xqc_wt_session_notify_draining(xqc_wt_session_t *session);
 const xqc_webtransport_stream_callbacks_t *
 xqc_wt_session_get_stream_callbacks(xqc_wt_session_t *session);
 void *xqc_wt_session_get_callback_user_data(xqc_wt_session_t *session);

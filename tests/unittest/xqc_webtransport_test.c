@@ -25,6 +25,242 @@ static unsigned char wt_output[64];
 static xqc_wt_session_t *wt_last_session;
 static void *wt_last_context;
 
+static xqc_int_t wt_select_protocol(const char *value,
+    const char *const *protocols, size_t count, const char **selected);
+
+static xqc_int_t
+wt_select_protocol(const char *value, const char *const *protocols,
+    size_t count, const char **selected)
+{
+    xqc_http_header_t header = {
+        .name = {(void *)"wt-available-protocols",
+                 sizeof("wt-available-protocols") - 1},
+        .value = {(void *)value, strlen(value)},
+    };
+    xqc_http_headers_t headers = {.headers = &header, .count = 1};
+    return xqc_wt_select_application_protocol(&headers, protocols, count,
+                                             selected);
+}
+
+void
+xqc_test_wt_protocol_selection(void)
+{
+    const char *protocols[] = {"server-first", "client-first", "a\"b\\c"};
+    const char *valid[] = {"\"client-first\", \"server-first\"",
+        " \"client-first\";ignored=\"x,y\", \"server-first\" ",
+        "\"client-first\";flag;version=7;raw=:YQ==:",
+        ("\"client-first\";display=%\"caf%c3%a9\";flag=?0;date=@-5"
+         ";decimal=-1.25;token=*a:/;raw=:AQI:;empty=::;text=\"a\\\"b\""),
+        "\"other\",\t\"client-first\"\t"};
+    const char *selected;
+
+    /* draft-16 Section 3.3: String List, client order, ignored parameters. */
+    for (size_t i = 0; i < sizeof(valid) / sizeof(valid[0]); i++) {
+        CU_ASSERT(wt_select_protocol(valid[i], protocols, 3, &selected) == 1);
+        CU_ASSERT_PTR_EQUAL(selected, protocols[1]);
+    }
+    CU_ASSERT(wt_select_protocol("\"a\\\"b\\\\c\"", protocols, 3,
+                                 &selected) == 1);
+    CU_ASSERT_PTR_EQUAL(selected, protocols[2]);
+
+    /* RFC 9651 Section 4.2 combines List field lines in received order. */
+    char offer[] = "\"client-first\"";
+    xqc_http_header_t fields[] = {
+        {.name = {(void *)"wt-available-protocols",
+                 sizeof("wt-available-protocols") - 1},
+         .value = {(void *)"\"other\"", sizeof("\"other\"") - 1}},
+        {.name = {(void *)"x-unrelated", sizeof("x-unrelated") - 1},
+         .value = {(void *)"ignored", sizeof("ignored") - 1}},
+        {.name = {(void *)"WT-Available-Protocols",
+                  sizeof("WT-Available-Protocols") - 1},
+         .value = {offer, sizeof(offer) - 1}},
+        {.name = {(void *)"wt-available-protocols",
+                 sizeof("wt-available-protocols") - 1},
+         .value = {(void *)"\"server-first\"", sizeof("\"server-first\"") - 1}},
+    };
+    xqc_http_headers_t headers = {.headers = fields, .count = 4};
+    CU_ASSERT(xqc_wt_select_application_protocol(&headers, protocols, 3,
+                                                &selected) == 1);
+    CU_ASSERT_PTR_EQUAL(selected, protocols[1]);
+    memset(offer, 'x', sizeof(offer) - 1);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(selected);
+    CU_ASSERT_STRING_EQUAL(selected, "client-first");
+
+    char long_protocol[1025], long_list[1027];
+    memset(long_protocol, 'a', sizeof(long_protocol) - 1);
+    long_protocol[sizeof(long_protocol) - 1] = '\0';
+    long_list[0] = '"';
+    memcpy(long_list + 1, long_protocol, sizeof(long_protocol) - 1);
+    long_list[1025] = '"';
+    long_list[1026] = '\0';
+    const char *long_offered[] = {long_protocol};
+    /* RFC 9651 Section 3.3.3 requires support for 1024-character Strings. */
+    CU_ASSERT(wt_select_protocol(long_list, long_offered, 1, &selected) == 1);
+    CU_ASSERT_PTR_EQUAL(selected, long_protocol);
+
+    const char *empty[] = {""};
+    CU_ASSERT(wt_select_protocol("\"\"", empty, 1, &selected) == 1);
+    CU_ASSERT_PTR_EQUAL(selected, empty[0]);
+    CU_ASSERT(wt_select_protocol("\"other\"", protocols, 3, &selected) == 0);
+    CU_ASSERT_PTR_NULL(selected);
+    CU_ASSERT(wt_select_protocol("", protocols, 3, &selected) == 0);
+    CU_ASSERT_PTR_NULL(selected);
+    CU_ASSERT(wt_select_protocol("   ", protocols, 3, &selected) == 0);
+    CU_ASSERT_PTR_NULL(selected);
+}
+
+void
+xqc_test_wt_protocol_selection_errors(void)
+{
+    const char *protocols[] = {"server-first", "client-first", "a\"b\\c"};
+    const char *invalid[] = {"client-first", "\"client-first\",",
+        "\"client-first\" garbage", "\"client-first\";=1",
+        "\"client-first\";value=", "\"unterminated",
+        "\"bad\\escape\"", "\"client-first\", unquoted",
+        "\"client-first\";bad=?7", "\"client-first\";bad=1.1234",
+        "\"client-first\";bad=-", "\"client-first\";bad=@",
+        "\"client-first\";bad=:a:", "\"client-first\";bad=:AQ=I:",
+        "\"client-first\";bad=:AQI===:", "\"client-first\";bad=:AQI",
+        "\"client-first\";bad=%\"%ff\"",
+        "\"client-first\";bad=%\"%e2%82\"",
+        "\"client-first\";bad=%\"%gg\"",
+        "\"client-first\";bad=%\"%\"",
+        "\"client-first\";bad=%oops",
+        "\"client-first\";bad=%\"unterminated",
+        "\t\"client-first\"", "\"client-first\", (\"nested\")"};
+    const char *selected;
+
+    /* RFC 9651 Section 4.2: a matching prefix cannot hide invalid suffixes. */
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        selected = protocols[0];
+        CU_ASSERT(wt_select_protocol(invalid[i], protocols, 3,
+                                     &selected) == -XQC_EPARAM);
+        CU_ASSERT_PTR_NULL(selected);
+    }
+    xqc_http_header_t fields[] = {
+        {.name = {(void *)"wt-available-protocols",
+                 sizeof("wt-available-protocols") - 1},
+         .value = {(void *)"\"client-first\"", sizeof("\"client-first\"") - 1}},
+        {.name = {(void *)"wt-available-protocols",
+                 sizeof("wt-available-protocols") - 1},
+         .value = {(void *)"invalid", sizeof("invalid") - 1}},
+    };
+    xqc_http_headers_t headers = {.headers = fields, .count = 2};
+    CU_ASSERT(xqc_wt_select_application_protocol(&headers, protocols, 3,
+                                                &selected) == -XQC_EPARAM);
+    CU_ASSERT_PTR_NULL(selected);
+    fields[1].value.iov_base = NULL;
+    fields[1].value.iov_len = 0;
+    CU_ASSERT(xqc_wt_select_application_protocol(&headers, protocols, 3,
+                                                &selected) == -XQC_EPARAM);
+    CU_ASSERT_PTR_NULL(selected);
+
+    char long_list[1028];
+    memset(long_list, 'a', sizeof(long_list));
+    long_list[0] = '"';
+    long_list[1026] = '"';
+    long_list[1027] = '\0';
+    CU_ASSERT(wt_select_protocol(long_list, protocols, 3,
+                                 &selected) == -XQC_EPARAM);
+    CU_ASSERT_PTR_NULL(selected);
+
+    char large[4097];
+    memset(large, ' ', sizeof(large));
+    memcpy(large, "\"client-first\"", sizeof("\"client-first\"") - 1);
+    fields[0].value.iov_base = large;
+    fields[0].value.iov_len = 4092;
+    fields[1].value.iov_base = (void *)"\"\"";
+    fields[1].value.iov_len = sizeof("\"\"") - 1;
+    CU_ASSERT(xqc_wt_select_application_protocol(&headers, protocols, 3,
+                                                &selected) == 1);
+    CU_ASSERT_PTR_EQUAL(selected, protocols[1]);
+    fields[0].value.iov_len++;
+    CU_ASSERT(xqc_wt_select_application_protocol(&headers, protocols, 3,
+                                                &selected) == -XQC_EPARAM);
+    CU_ASSERT_PTR_NULL(selected);
+    headers.count = 1;
+    fields[0].value.iov_len = sizeof(large);
+    CU_ASSERT(xqc_wt_select_application_protocol(&headers, protocols, 3,
+                                                &selected) == -XQC_EPARAM);
+    CU_ASSERT_PTR_NULL(selected);
+    fields[0].value.iov_len = 4096;
+    large[sizeof("\"client-first\"") - 1] = '\0';
+    CU_ASSERT(xqc_wt_select_application_protocol(&headers, protocols, 3,
+                                                &selected) == -XQC_EPARAM);
+    CU_ASSERT_PTR_NULL(selected);
+}
+
+void
+xqc_test_wt_protocol_selection_inputs(void)
+{
+    const char *protocols[] = {"valid"};
+    const char *selected = protocols[0];
+    xqc_http_headers_t headers = {0};
+
+    CU_ASSERT(xqc_wt_select_application_protocol(NULL, protocols, 1,
+                                                &selected) == -XQC_EPARAM);
+    CU_ASSERT_PTR_NULL(selected);
+    CU_ASSERT(xqc_wt_select_application_protocol(&headers, protocols, 1,
+                                                NULL) == -XQC_EPARAM);
+    CU_ASSERT(xqc_wt_select_application_protocol(&headers, protocols, 1,
+                                                &selected) == 0);
+    CU_ASSERT_PTR_NULL(selected);
+    CU_ASSERT(wt_select_protocol("\"valid\"", NULL, 0, &selected) == 0);
+    CU_ASSERT_PTR_NULL(selected);
+    CU_ASSERT(wt_select_protocol("invalid", NULL, 0,
+                                 &selected) == -XQC_EPARAM);
+    CU_ASSERT_PTR_NULL(selected);
+    CU_ASSERT(wt_select_protocol("\"valid\"", NULL, 1,
+                                 &selected) == -XQC_EPARAM);
+    CU_ASSERT_PTR_NULL(selected);
+    CU_ASSERT(wt_select_protocol("\"valid\"", protocols, 1025,
+                                 &selected) == -XQC_EPARAM);
+    CU_ASSERT_PTR_NULL(selected);
+
+    const char *invalid[] = {NULL, "bad\nvalue", "bad\x80"};
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        CU_ASSERT(wt_select_protocol("\"valid\"", &invalid[i], 1,
+                                     &selected) == -XQC_EPARAM);
+        CU_ASSERT_PTR_NULL(selected);
+    }
+    char long_protocol[1026];
+    memset(long_protocol, 'a', sizeof(long_protocol) - 1);
+    long_protocol[sizeof(long_protocol) - 1] = '\0';
+    const char *too_long[] = {long_protocol};
+    CU_ASSERT(wt_select_protocol("\"valid\"", too_long, 1,
+                                 &selected) == -XQC_EPARAM);
+    CU_ASSERT_PTR_NULL(selected);
+    long_protocol[1024] = '\0';
+    const char *too_many[] = {
+        long_protocol, long_protocol, long_protocol, long_protocol
+    };
+    CU_ASSERT(wt_select_protocol("\"valid\"", too_many, 4,
+                                 &selected) == -XQC_EPARAM);
+    CU_ASSERT_PTR_NULL(selected);
+
+    headers.count = 1;
+    CU_ASSERT(xqc_wt_select_application_protocol(&headers, protocols, 1,
+                                                &selected) == -XQC_EPARAM);
+    CU_ASSERT_PTR_NULL(selected);
+    xqc_http_header_t header = {
+        .name = {NULL, sizeof("wt-available-protocols") - 1},
+        .value = {(void *)"\"valid\"", sizeof("\"valid\"") - 1},
+    };
+    headers.headers = &header;
+    CU_ASSERT(xqc_wt_select_application_protocol(&headers, protocols, 1,
+                                                &selected) == -XQC_EPARAM);
+    CU_ASSERT_PTR_NULL(selected);
+    header.name.iov_base = (void *)"wt-available-protocols";
+    header.value.iov_base = NULL;
+    CU_ASSERT(xqc_wt_select_application_protocol(&headers, protocols, 1,
+                                                &selected) == -XQC_EPARAM);
+    CU_ASSERT_PTR_NULL(selected);
+    header.value.iov_len = 0;
+    CU_ASSERT(xqc_wt_select_application_protocol(&headers, protocols, 1,
+                                                &selected) == 0);
+    CU_ASSERT_PTR_NULL(selected);
+}
+
 static xqc_int_t
 wt_read(xqc_wt_bidistream_t *stream, xqc_wt_session_t *session,
     void *data, size_t len, void *ctx)
@@ -106,7 +342,15 @@ xqc_test_wt_context(void)
     CU_ASSERT_PTR_EQUAL(engine->user_data, &marker);
     CU_ASSERT(ctx->stream_cbs.wt_bidistream_read_notify == wt_read);
     CU_ASSERT(xqc_wt_engine_set_default_settings(engine, NULL) == XQC_OK);
+    CU_ASSERT(ctx->settings.draft_version
+              == XQC_WEBTRANSPORT_DRAFT_VERSION_16);
+    CU_ASSERT(ctx->settings.max_sessions_count == 1);
     CU_ASSERT(engine->default_conn_settings.max_datagram_frame_size > 0);
+    CU_ASSERT(engine->default_conn_settings.enable_reset_stream_at);
+    CU_ASSERT(ctx->pending_count_max
+              == XQC_WEBTRANSPORT_DEFAULT_PENDING_DGRAM_COUNT_MAX);
+    CU_ASSERT(ctx->pending_bytes_max
+              == XQC_WEBTRANSPORT_DEFAULT_PENDING_DGRAM_BYTES_MAX);
     CU_ASSERT(xqc_wt_ctx_set_pending_datagram_policy(engine, 8, 2, 16)
               == XQC_OK);
     CU_ASSERT(ctx->pending_count_max == 2);
@@ -125,9 +369,14 @@ xqc_test_wt_context_errors(void)
     CU_ASSERT(xqc_wt_ctx_init(engine, NULL, NULL, NULL) == -XQC_ESTATE);
     xqc_wt_ctx_t *ctx = xqc_wt_ctx_get(engine);
     xqc_webtransport_conn_settings_t settings = ctx->settings;
-    settings.draft_version = XQC_WEBTRANSPORT_DRAFT_VERSION_2;
+    settings.draft_version = (xqc_webtransport_draft_version_t)0;
     CU_ASSERT(xqc_wt_engine_set_default_settings(engine, &settings)
               == -XQC_EPARAM);
+    settings = ctx->settings;
+    settings.max_sessions_count = 2;
+    CU_ASSERT(xqc_wt_engine_set_default_settings(engine, &settings)
+              == -XQC_EPARAM);
+    CU_ASSERT(ctx->settings.max_sessions_count == 1);
     ctx->started = XQC_TRUE;
     CU_ASSERT(xqc_wt_engine_set_default_settings(engine, NULL) == -XQC_ESTATE);
     CU_ASSERT(xqc_wt_ctx_set_pending_datagram_policy(engine, 1, 1, 1)
@@ -143,7 +392,10 @@ wt_session(xqc_wt_ctx_t *ctx, xqc_h3_conn_t *h3c)
     if (!conn) {
         return NULL;
     }
+    ctx->settings.draft_version = XQC_WEBTRANSPORT_DRAFT_VERSION_7;
+    ctx->settings.max_sessions_count = 16;
     conn->ctx = ctx;
+    conn->negotiated_version = XQC_WEBTRANSPORT_DRAFT_VERSION_7;
     xqc_wt_session_t *session = xqc_wt_session_init(4, conn, NULL);
     if (session) {
         session->open = XQC_TRUE;
@@ -293,6 +545,23 @@ xqc_test_wt_datagram_association(void)
     CU_ASSERT(session->wt_conn->pending_count == 0);
     cbs.datagram_read_notify(&transport, NULL, "\xff", 1, 1);
     CU_ASSERT(wt_reads == 2);
+    second->open = XQC_FALSE;
+    ctx.pending_count_max = 256;
+    ctx.pending_bytes_max = 256 * 1200;
+    for (size_t i = 0; i < 256; i++) {
+        cbs.datagram_read_notify(&transport, NULL, "\x02x", 2, 1);
+    }
+    CU_ASSERT(session->wt_conn->pending_count == 256);
+    CU_ASSERT(session->wt_conn->pending_bytes == 256);
+    cbs.datagram_read_notify(&transport, NULL, "\x02x", 2, 1);
+    CU_ASSERT(session->wt_conn->pending_count == 256);
+    CU_ASSERT(session->wt_conn->pending_bytes == 256);
+    CU_ASSERT(wt_reads == 2);
+    second->open = XQC_TRUE;
+    xqc_wt_dgram_resume(second);
+    CU_ASSERT(wt_reads == 258);
+    CU_ASSERT(!session->wt_conn->pending_count);
+    CU_ASSERT(!session->wt_conn->pending_bytes);
     xqc_wt_conn_destroy(session->wt_conn);
 }
 
@@ -486,8 +755,13 @@ wt_test_connect_request(int scenario)
         .webtransport_conn_handshake_finished_notify = wt_handshake,
     };
     CU_ASSERT(xqc_wt_ctx_init(engine, NULL, &cbs, NULL) == XQC_OK);
+    xqc_webtransport_conn_settings_t settings =
+        xqc_wt_ctx_get(engine)->settings;
+    settings.draft_version = XQC_WEBTRANSPORT_DRAFT_VERSION_7;
+    settings.max_sessions_count = 16;
+    CU_ASSERT(xqc_wt_engine_set_default_settings(engine, &settings) == XQC_OK);
     xqc_free(conn->alpn);
-    conn->alpn = (unsigned char *)xqc_malloc(3);
+    conn->alpn = xqc_malloc(3);
     memcpy(conn->alpn, "h3", 3);
     conn->alpn_len = 2;
     CU_ASSERT(xqc_engine_get_alpn_callbacks(engine, "h3", 2,
@@ -544,6 +818,7 @@ wt_test_connect_request(int scenario)
     CU_ASSERT_PTR_NOT_NULL_FATAL(h3c->qdec_stream);
     CU_ASSERT_PTR_NOT_NULL_FATAL(h3c->control_stream_out);
     conn->conn_flag |= XQC_CONN_FLAG_UPPER_CONN_EXIST;
+    conn->local_settings.max_datagram_frame_size = 1200;
     conn->remote_settings.max_datagram_frame_size = 1200;
     engine->config->manually_triggered_send = 1;
     xqc_stream_t *stream = xqc_create_stream_with_conn(conn,

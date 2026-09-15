@@ -3571,3 +3571,54 @@ xqc_parse_ack_ext_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
     }
     return XQC_OK;
 }
+
+/* draft-ietf-quic-reliable-stream-reset-09 Section 4. */
+ssize_t
+xqc_gen_reset_stream_at_frame(xqc_packet_out_t *packet_out,
+    xqc_stream_id_t stream_id, uint64_t error, uint64_t final_size,
+    uint64_t reliable_size)
+{
+    uint64_t values[] = {0x24, stream_id, error, final_size, reliable_size};
+    size_t need = 0;
+    for (size_t i = 0; i < 5; i++) {
+        if (values[i] > ((UINT64_C(1) << 62) - 1)) {
+            return -XQC_EPARAM;
+        }
+        need += xqc_put_varint_len(values[i]);
+    }
+    if (reliable_size > final_size) {
+        return -XQC_EPARAM;
+    }
+    if (need > xqc_get_po_remained_size(packet_out)) {
+        return -XQC_ENOBUF;
+    }
+    unsigned char *p = packet_out->po_buf + packet_out->po_used_size;
+    for (size_t i = 0; i < 5; i++) {
+        p = xqc_put_varint(p, values[i]);
+    }
+    packet_out->po_frame_types |= XQC_FRAME_BIT_RESET_STREAM_AT;
+    return need;
+}
+
+xqc_int_t
+xqc_parse_reset_stream_at_frame(xqc_packet_in_t *packet_in,
+    xqc_stream_id_t *stream_id, uint64_t *error, uint64_t *final_size,
+    uint64_t *reliable_size)
+{
+    uint64_t type;
+    uint64_t *values[] = {&type, stream_id, error, final_size, reliable_size};
+    unsigned char *p = packet_in->pos;
+    for (size_t i = 0; i < 5; i++) {
+        ssize_t n = xqc_vint_read(p, packet_in->last, values[i]);
+        if (n < 0) {
+            return -XQC_EVINTREAD;
+        }
+        p += n;
+    }
+    if (type != 0x24 || *reliable_size > *final_size) {
+        return -XQC_EPROTO;
+    }
+    packet_in->pos = p;
+    packet_in->pi_frame_types |= XQC_FRAME_BIT_RESET_STREAM_AT;
+    return XQC_OK;
+}

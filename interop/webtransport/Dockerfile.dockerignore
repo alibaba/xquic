@@ -1,0 +1,10 @@
+.*
+build
+third_party
+bss
+cmake-build-*
+harness/private
+openspec
+**/__pycache__
+**/*.pyc
+**/*.swp

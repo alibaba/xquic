@@ -61,6 +61,13 @@ tests. This document does not maintain a parallel section index or summary.
 The handshake and bidirectional/unidirectional/datagram file-transfer
 interoperability application belongs under `demo/` and must share the
 existing demo runtime and XQUIC CMake build graph.
+The `XQC_ENABLE_WEBTRANSPORT_INTEROP` CMake option controls whether the
+interop client and server are built. Their shared runtime consumes a
+link-selected application policy; it must not use compile-time branches to
+distinguish the echo and interop applications. The policy owns required
+WebTransport mode, native-case availability, remote trust-file permission,
+and optional application initialization. Listening beyond loopback remains
+an explicit runtime choice rather than application policy.
 XQUIC owns container packaging and environment mapping under
 `interop/webtransport/`, together with its image publication workflow. The
 public interop runner consumes the published image and owns shared cases and

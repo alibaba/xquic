@@ -30,7 +30,9 @@ class EndpointTests(unittest.TestCase):
                     SSLKEYLOGFILE="/logs/custom.keys"))
                 self.assertEqual(args[0], f"/usr/local/bin/wt_interop_{role}")
                 self.assertEqual(args[1:4], ["-W", "-v", "16"])
-                flags = dict(zip(args[4::2], args[5::2]))
+                self.assertEqual("-A" in args, role == "server")
+                value_args = [arg for arg in args[4:] if arg != "-A"]
+                flags = dict(zip(value_args[::2], value_args[1::2]))
                 self.assertEqual(flags["-p"], port)
                 self.assertEqual(flags["-k"], "/logs/custom.keys")
                 self.assertEqual(flags.get("-U"), session)

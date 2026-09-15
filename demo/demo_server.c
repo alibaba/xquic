@@ -32,8 +32,8 @@
 
 #include "common.h"
 #include "xqc_hq.h"
+#include "xqc_wt_app.h"
 #include "xqc_wt_echo_server.h"
-#include "case_test/webtransport/xqc_webtrans_test_cases.h"
 
 
 
@@ -63,6 +63,7 @@ typedef struct xqc_demo_svr_net_config_s {
 
     /* ipv4 or ipv6 */
     int     ipv6;
+    int     listen_any;
 
     /* congestion control algorithm */
     CC_TYPE cc;     /* congestion control algorithm */
@@ -1191,12 +1192,9 @@ xqc_demo_svr_create_socket(xqc_demo_svr_ctx_t *ctx, xqc_demo_svr_net_config_t* c
     memset(&ctx->local_addr, 0, sizeof(ctx->local_addr));
     ctx->local_addr.sin_family = AF_INET;
     ctx->local_addr.sin_port = htons(cfg->port);
-#ifdef XQC_WEBTRANSPORT_INTEROP
-    ctx->local_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-#else
-    ctx->local_addr.sin_addr.s_addr = htonl(ctx->args->quic_cfg.webtransport
-                                          ? INADDR_LOOPBACK : INADDR_ANY);
-#endif
+    ctx->local_addr.sin_addr.s_addr = htonl(
+        ctx->args->quic_cfg.webtransport && !cfg->listen_any
+        ? INADDR_LOOPBACK : INADDR_ANY);
     ctx->local_addrlen = sizeof(ctx->local_addr);
     ctx->fd = xqc_demo_svr_init_socket(AF_INET, cfg->port, (struct sockaddr*)&ctx->local_addr, 
         ctx->local_addrlen);
@@ -1206,12 +1204,9 @@ xqc_demo_svr_create_socket(xqc_demo_svr_ctx_t *ctx, xqc_demo_svr_net_config_t* c
     memset(&ctx->local_addr6, 0, sizeof(ctx->local_addr6));
     ctx->local_addr6.sin6_family = AF_INET6;
     ctx->local_addr6.sin6_port = htons(cfg->port);
-#ifdef XQC_WEBTRANSPORT_INTEROP
-    ctx->local_addr6.sin6_addr = in6addr_any;
-#else
-    ctx->local_addr6.sin6_addr = ctx->args->quic_cfg.webtransport
-                                ? in6addr_loopback : in6addr_any;
-#endif
+    ctx->local_addr6.sin6_addr =
+        ctx->args->quic_cfg.webtransport && !cfg->listen_any
+        ? in6addr_loopback : in6addr_any;
     ctx->local_addrlen6 = sizeof(ctx->local_addr6);
     ctx->fd6 = xqc_demo_svr_init_socket(AF_INET6, cfg->port, (struct sockaddr*)&ctx->local_addr6, 
         ctx->local_addrlen6);
@@ -1247,7 +1242,8 @@ xqc_demo_svr_usage(int argc, char *argv[])
             "\n"
             "Options:\n"
             "   -p    Server port.\n"
-            "   -W    Enable loopback WebTransport echo at /wt.\n"
+            "   -W    Enable WebTransport at /wt (loopback by default).\n"
+            "   -A    Listen on all interfaces.\n"
             "   -v    Maximum WebTransport draft: 7 or 16 (default).\n"
             "   -X    WebTransport CI case ID (requires -W).\n"
             "   -K    TLS private key file.\n"
@@ -1315,9 +1311,13 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
     int ch = 0;
     int wt_case_selected = 0;
     while ((ch = getopt(argc, argv,
-                        ":p:c:CD:l:L:6k:rdMiPs:R:u:a:F:f:WK:T:v:X:")) != -1)
+                        ":p:c:CD:l:L:6k:rdMiPs:R:u:a:F:f:AWK:T:v:X:")) != -1)
     {
         switch (ch) {
+        case 'A':
+            args->net_cfg.listen_any = 1;
+            break;
+
         case 'W':
             args->quic_cfg.webtransport = 1;
             break;
@@ -1487,12 +1487,16 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
             exit(0);
         }
     }
-#ifdef XQC_WEBTRANSPORT_INTEROP
-    if (wt_case_selected || !args->quic_cfg.webtransport) {
-        fprintf(stderr, "WT interop requires -W and does not accept -X\n");
+    if (xqc_demo_wt_app_policy.require_webtransport
+        && !args->quic_cfg.webtransport)
+    {
+        fprintf(stderr, "This WebTransport application requires -W\n");
         exit(1);
     }
-#endif
+    if (wt_case_selected && !xqc_demo_wt_app_policy.allow_case_id) {
+        fprintf(stderr, "This WebTransport application does not accept -X\n");
+        exit(1);
+    }
     if (wt_case_selected && !args->quic_cfg.webtransport) {
         fprintf(stderr, "WebTransport case ID requires -W\n");
         exit(1);
@@ -1688,13 +1692,13 @@ xqc_demo_svr_init_alpn_ctx(xqc_demo_svr_ctx_t *ctx)
             printf("init WebTransport context error: %d\n", ret);
             return ret;
         }
-#ifndef XQC_WEBTRANSPORT_INTEROP
-        ret = xqc_wt_case_server_init(ctx->engine,
-                                     ctx->args->quic_cfg.wt_case_id);
-        if (ret != XQC_OK) {
-            return ret;
+        if (xqc_demo_wt_app_policy.server_init) {
+            ret = xqc_demo_wt_app_policy.server_init(
+                ctx->engine, ctx->args->quic_cfg.wt_case_id);
+            if (ret != XQC_OK) {
+                return ret;
+            }
         }
-#endif
     }
 
     return ret;

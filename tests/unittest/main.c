@@ -84,6 +84,8 @@ main(int argc, char *argv[])
 
     if (!CU_add_test(pSuite, "xqc_cid_test", xqc_test_cid)
 #ifndef XQC_SYS_WINDOWS
+        || !CU_add_test(pSuite, "xqc_test_wt_interop_policy",
+                        xqc_test_wt_interop_policy)
         || !CU_add_test(pSuite, "xqc_test_wt_interop_paths",
                         xqc_test_wt_interop_paths)
         || !CU_add_test(pSuite, "xqc_test_wt_interop_headers",

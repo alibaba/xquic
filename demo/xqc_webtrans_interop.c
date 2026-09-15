@@ -9,11 +9,19 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "xqc_wt_app.h"
 #include "xqc_wt_echo_client.h"
 #include "xqc_wt_echo_server.h"
 
 #define XQC_WT_INTEROP_PATH_MAX 1024
 #define XQC_WT_INTEROP_PROTOCOL_MAX 1024
+
+const xqc_demo_wt_app_policy_t xqc_demo_wt_app_policy = {
+    .require_webtransport = 1,
+    .allow_case_id = 0,
+    .allow_remote_certificate = 1,
+    .server_init = NULL,
+};
 
 typedef struct {
     char    line[XQC_WT_INTEROP_PATH_MAX + 6];

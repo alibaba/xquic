@@ -246,7 +246,7 @@ wt_interop_run()
         XQC_WT_WWW="${WT_INTEROP_DIR}/server-www" \
         XQC_WT_DOWNLOADS="${WT_INTEROP_DIR}/server-downloads" \
         "${build_dir}/demo/wt_interop_server" \
-        -W -v 16 -p "${CASE_TEST_PORT}" -K server.key -T server.crt \
+        -W -A -v 16 -p "${CASE_TEST_PORT}" -K server.key -T server.crt \
         -l d -L slog -k skeys.log > svr_stdlog 2>&1
     if ! case_test_wait_for_log svr_stdlog \
         'WebTransport maximum draft' 40 0.025

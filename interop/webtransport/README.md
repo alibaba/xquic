@@ -22,6 +22,8 @@ docker build --platform linux/amd64 -f interop/webtransport/Dockerfile \
 
 The builder runs the entrypoint tests, complete CUnit suite and native
 WebTransport group before copying the same tested binaries into the image.
+It selects the `webtransport_interop` validation profile, which enables the
+`XQC_ENABLE_WEBTRANSPORT_INTEROP` CMake option used to build those binaries.
 
 Run all seven cases from a
 [runner checkout](https://github.com/quic-interop/quic-interop-runner)

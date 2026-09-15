@@ -377,6 +377,11 @@ endpoint cases belong in the relevant `case_test/<module>/<group>.sh` runner
 and are registered with `case_test_case`; they do not require per-case manifest
 entries.
 
+A group whose executable is controlled by a CMake option declares both its
+feature and `requires_cmake` entries. Select the matching feature profile when
+building evidence for that group; an ordinary build may omit the executable
+and the execution plan must report the group as build-gated.
+
 Selector mode is discovery evidence until a group runner implements selected
 execution:
 

@@ -57,6 +57,15 @@ static int xqc_wt_interop_test_file(const char *name, const void *data,
 static void xqc_wt_interop_test_early(xqc_wt_session_t *session,
     const void *data, size_t length, void *user_data, uint64_t time);
 
+void
+xqc_test_wt_interop_policy(void)
+{
+    CU_ASSERT(xqc_demo_wt_app_policy.require_webtransport);
+    CU_ASSERT(!xqc_demo_wt_app_policy.allow_case_id);
+    CU_ASSERT(xqc_demo_wt_app_policy.allow_remote_certificate);
+    CU_ASSERT_PTR_NULL(xqc_demo_wt_app_policy.server_init);
+}
+
 static xqc_int_t
 xqc_wt_interop_test_send(xqc_wt_session_t *session, const void *data,
     size_t length, uint64_t *datagram_id)

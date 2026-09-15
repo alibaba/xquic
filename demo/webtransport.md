@@ -145,12 +145,19 @@ is maintained in the [validation specification](../harness/spec/validation.md#cl
 
 ## Interoperability application and CI
 
-On POSIX platforms, the existing XQUIC CMake build also produces
+On POSIX platforms, enable the WebTransport feature profile to build
 `wt_interop_client` and `wt_interop_server` under the build directory's
-`demo/` directory. They compile the same `demo_client.c` and `demo_server.c`
-runtime as the echo demos, with `xqc_webtrans_interop.c` supplying the
-WebTransport application callbacks. UDP, libevent, TLS, logging, and process
-completion remain shared. No separate runtime or CMake project is needed.
+`demo/` directory:
+
+```sh
+./scripts/validate.sh build --feature webtransport_interop
+```
+
+The profile sets `XQC_ENABLE_WEBTRANSPORT_INTEROP=ON`. The targets compile
+the same `demo_client.c` and `demo_server.c` runtime as the echo demos, with
+`xqc_webtrans_interop.c` supplying the WebTransport application callbacks and
+policy. UDP, libevent, TLS, logging, and process completion remain shared. No
+separate runtime or CMake project is needed.
 
 The interop application implements the runner's
 [handshake and file transfer contract](https://github.com/quic-interop/quic-interop-runner/blob/master/webtransport.md).
@@ -178,11 +185,12 @@ the session URL with `TESTCASE=transfer` and serves files. The generic
 `transfer` role responds on all three carriers and waits for the requester's
 session close before reporting success.
 `XQC_WT_WWW` and `XQC_WT_DOWNLOADS` override the default `/www` and
-`/downloads` directories for native execution. The interop server listens on
-all interfaces for container networking. Its client accepts an explicit
-`-J` trust file for remote peers while retaining certificate and hostname
-verification. These policies apply only to the interop targets; the echo
-demos retain their loopback defaults. Interop targets do not accept `-X`.
+`/downloads` directories for native execution. The container entrypoint and
+native cases pass `-A` explicitly so the interop server listens on all
+interfaces. Its application policy permits an explicit `-J` trust file for
+remote peers while retaining certificate and hostname verification. The echo
+policy retains its loopback trust-file restriction and accepts native case
+IDs; the interop policy requires `-W` and rejects `-X`.
 
 The `webtransport.core` CI group also registers these input/output cases:
 
@@ -200,7 +208,7 @@ The `webtransport.core` CI group also registers these input/output cases:
 | 1829, 1830 | DR: the client receives 200 complete files of 600–998 bytes; a missing server source file fails explicitly. |
 | 1831, 1832 | DS: the server receives 200 complete files of 600–998 bytes; a missing client source file fails explicitly. |
 
-For a quick local run after the normal build:
+For a quick local run after the feature-profile build:
 
 ```sh
 XQC_BUILD_DIR=build/validation bash scripts/case_test.sh --execute \

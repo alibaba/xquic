@@ -23,7 +23,7 @@ def endpoint_command(env):
             "-l", "d", "-L", f"/logs/{role}.log",
             "-k", env.get("SSLKEYLOGFILE", "/logs/keys.log")]
     if role == "server":
-        return args + ["-p", "443", "-T", "/certs/cert.pem",
+        return args + ["-A", "-p", "443", "-T", "/certs/cert.pem",
                        "-K", "/certs/priv.key"]
     requests = env.get("REQUESTS", "").split()
     if not requests:

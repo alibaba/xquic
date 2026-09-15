@@ -16,7 +16,8 @@ RUN git init /deps/boringssl && \
 COPY . /xquic
 WORKDIR /xquic
 RUN python3 interop/webtransport/test_endpoint.py && \
-    XQC_SSL_PATH=/deps/boringssl XQC_BUILD_JOBS=4 ./scripts/validate.sh test && \
+    XQC_SSL_PATH=/deps/boringssl XQC_BUILD_JOBS=4 \
+        ./scripts/validate.sh test --feature webtransport_interop && \
     XQC_BUILD_DIR=/xquic/build/validation bash scripts/case_test.sh --execute \
         --group webtransport.core
 

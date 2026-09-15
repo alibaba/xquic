@@ -62,6 +62,9 @@ static xqc_wt_unistream_t *wt_h3_test_outgoing(xqc_wt_h3_test_t *test);
 static unsigned wt_h3_test_reset_count(xqc_stream_t *stream);
 static void wt_h3_test_sent_prefix(xqc_stream_t *stream,
     const unsigned char *expected, size_t length);
+static void wt_h3_test_client(xqc_wt_h3_test_t *test,
+    xqc_webtransport_draft_version_t version);
+static xqc_int_t wt_h3_test_server_stream(xqc_wt_h3_test_t *test);
 
 static xqc_int_t
 wt_h3_test_bidi_create(xqc_wt_bidistream_t *stream,
@@ -271,6 +274,107 @@ wt_h3_test_close(xqc_wt_h3_test_t *test)
     xqc_wt_h3_stream_close(test->h3s);
     CU_ASSERT_PTR_NULL(xqc_wt_h3_stream_context(test->h3s));
     xqc_engine_destroy(test->engine);
+}
+
+static void
+wt_h3_test_client(xqc_wt_h3_test_t *test,
+    xqc_webtransport_draft_version_t version)
+{
+    xqc_connection_t *conn = test->h3c->conn;
+    conn->conn_type = XQC_CONN_TYPE_CLIENT;
+    conn->local_settings.max_datagram_frame_size = 65535;
+    conn->remote_settings.max_datagram_frame_size = 65535;
+    conn->local_settings.reset_stream_at = XQC_TRUE;
+    conn->remote_settings.reset_stream_at = XQC_TRUE;
+    test->wt_conn->settings_received = XQC_TRUE;
+    test->wt_conn->negotiated_version = version;
+    test->wt_conn->peer_datagram = XQC_TRUE;
+    test->wt_conn->peer_connect = XQC_TRUE;
+}
+
+static xqc_int_t
+wt_h3_test_server_stream(xqc_wt_h3_test_t *test)
+{
+    xqc_stream_t *stream = xqc_create_stream_with_conn(test->h3c->conn,
+        1, 0, NULL, NULL);
+    if (!stream || (stream->stream_flag & XQC_STREAM_FLAG_DISCARDED)) {
+        return XQC_ERROR;
+    }
+    test->h3s = xqc_h3_stream_create(test->h3c, stream,
+        XQC_H3_STREAM_TYPE_UNKNOWN, NULL);
+    return test->h3s ? XQC_OK : XQC_ERROR;
+}
+
+void
+xqc_test_wt_h3_server_bidi(void)
+{
+    /* Draft-07 §4.2 and draft-16 §§4.3, 4.6 allow server bidi streams. */
+    for (unsigned draft16 = 0; draft16 < 2; draft16++) {
+        xqc_wt_h3_test_t test;
+        CU_ASSERT_FATAL(wt_h3_test_init(&test, XQC_TRUE) == XQC_OK);
+        wt_h3_test_client(&test, draft16 ? XQC_WEBTRANSPORT_DRAFT_VERSION_16
+                                       : XQC_WEBTRANSPORT_DRAFT_VERSION_7);
+        CU_ASSERT_FATAL(wt_h3_test_server_stream(&test) == XQC_OK);
+        xqc_wt_session_t *session = xqc_wt_conn_find_session(test.wt_conn, 4);
+        session->open = !draft16;
+        unsigned char wire[] = {0x40, 0x41, 4, 'a', 'b', 'c'};
+        CU_ASSERT(wt_h3_test_queue(&test, wire, 1, 0) == XQC_OK);
+        CU_ASSERT(test.creates == 0 && test.reads == 0);
+        CU_ASSERT(wt_h3_test_queue(&test, wire + 1, sizeof(wire) - 1, 1)
+                  == XQC_OK);
+        if (draft16) {
+            CU_ASSERT(test.creates == 0 && test.received == 0);
+            session->open = XQC_TRUE;
+            xqc_wt_conn_resume_streams(test.wt_conn);
+            CU_ASSERT(xqc_wt_h3_stream_prepare_read(test.h3s) == XQC_OK);
+        }
+        CU_ASSERT(test.creates == 1 && test.fins == 1);
+        CU_ASSERT(test.received == 3 && memcmp(test.data, "abc", 3) == 0);
+        CU_ASSERT(test.h3c->conn->conn_err == 0);
+        wt_h3_test_close(&test);
+        CU_ASSERT(test.closes == 1);
+    }
+
+    /* RFC 9114 §6.1: ordinary H3 and unnegotiated WT retain rejection. */
+    for (unsigned missing = 0; missing < 4; missing++) {
+        xqc_wt_h3_test_t test;
+        CU_ASSERT_FATAL(wt_h3_test_init(&test, XQC_TRUE) == XQC_OK);
+        wt_h3_test_client(&test, XQC_WEBTRANSPORT_DRAFT_VERSION_16);
+        if (missing == 0) {
+            test.h3c->conn->app_proto_cbs.stream_cbs = h3_stream_callbacks;
+        } else if (missing == 1) {
+            test.wt_conn->settings_received = XQC_FALSE;
+        } else if (missing == 2) {
+            test.wt_conn->peer_connect = XQC_FALSE;
+        } else {
+            test.h3c->conn->remote_settings.reset_stream_at = XQC_FALSE;
+        }
+        xqc_stream_t *stream = xqc_create_stream_with_conn(test.h3c->conn,
+            1, 0, NULL, NULL);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+        CU_ASSERT(stream->stream_flag & XQC_STREAM_FLAG_DISCARDED);
+        CU_ASSERT(test.creates == 0 && test.reads == 0);
+        wt_h3_test_close(&test);
+    }
+
+    for (unsigned invalid = 0; invalid < 4; invalid++) {
+        xqc_wt_h3_test_t test;
+        CU_ASSERT_FATAL(wt_h3_test_init(&test, XQC_TRUE) == XQC_OK);
+        wt_h3_test_client(&test, XQC_WEBTRANSPORT_DRAFT_VERSION_16);
+        CU_ASSERT_FATAL(wt_h3_test_server_stream(&test) == XQC_OK);
+        unsigned char wire[] = {0x40, 0x41, 1};
+        size_t length = invalid == 0 ? 0 : invalid == 3 ? 3 : 1;
+        if (invalid == 1) {
+            wire[0] = XQC_H3_FRM_HEADERS;
+        }
+        xqc_int_t ret = wt_h3_test_queue(&test, wire, length, 1);
+        CU_ASSERT(ret == (invalid == 3 ? XQC_OK : -XQC_H3_EPROC_REQUEST));
+        CU_ASSERT(XQC_CONN_ERR_CODE(test.h3c->conn->conn_err)
+                  == (invalid == 3 ? H3_ID_ERROR : H3_FRAME_ERROR));
+        CU_ASSERT(test.creates == 0 && test.reads == 0);
+        CU_ASSERT_PTR_NULL(test.h3s->h3r);
+        wt_h3_test_close(&test);
+    }
 }
 
 static xqc_wt_unistream_t *

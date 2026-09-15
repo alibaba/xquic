@@ -12,4 +12,7 @@ void xqc_test_wt_draft16_close_utf8(void);
 void xqc_test_wt_draft16_close_utf8_errors(void);
 void xqc_test_wt_draft16_drain_streams(void);
 void xqc_test_wt_draft16_session_limit(void);
+void xqc_test_wt_application_protocol(void);
+void xqc_test_wt_application_protocol_errors(void);
+void xqc_test_wt_application_protocol_inputs(void);
 #endif

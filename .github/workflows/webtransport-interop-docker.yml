@@ -1,0 +1,67 @@
+name: Publish XQUIC WebTransport image
+
+on:
+  push:
+    branches: [feat/webtrans-interop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xquic-webtransport-image
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ghcr.io/alibaba/xquic/xquic-webtransport-interop
+
+jobs:
+  publish:
+    if: >-
+      github.repository == 'alibaba/xquic' &&
+      github.ref == 'refs/heads/feat/webtrans-interop'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Build and test the amd64 endpoint
+        run: |
+          docker buildx build --load --platform linux/amd64 \
+            --build-arg "IMAGE_SOURCE=https://github.com/${GITHUB_REPOSITORY}" \
+            --build-arg "XQUIC_REVISION=${GITHUB_SHA}" \
+            --tag "${IMAGE_NAME}:sha-${GITHUB_SHA}" \
+            -f interop/webtransport/Dockerfile .
+
+      - name: Verify the branch head before publication
+        shell: bash
+        run: |
+          test "$(git ls-remote --exit-code origin "$GITHUB_REF" \
+            | cut -f1)" = "$GITHUB_SHA"
+
+      - name: Sign in to the GitHub Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish the commit tag and latest alias
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${IMAGE_NAME}:sha-${GITHUB_SHA}"
+          docker push "$image"
+          docker tag "$image" "${IMAGE_NAME}:latest"
+          docker push "${IMAGE_NAME}:latest"
+          digest="$(docker image inspect "$image" --format '{{index .RepoDigests 0}}')"
+          {
+            echo "XQUIC revision: ${GITHUB_SHA}"
+            echo "Commit tag: ${image}"
+            echo "Image digest: ${digest}"
+          } >> "$GITHUB_STEP_SUMMARY"

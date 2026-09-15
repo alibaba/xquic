@@ -56,6 +56,39 @@ tests. This document does not maintain a parallel section index or summary.
 
 ## Design Scope
 
+### Interoperability application ownership
+
+The handshake and bidirectional/unidirectional/datagram file-transfer
+interoperability application belongs under `demo/` and must share the
+existing demo runtime and XQUIC CMake build graph.
+The `XQC_ENABLE_WEBTRANSPORT_INTEROP` CMake option controls whether the
+interop client and server are built. Their shared runtime consumes a
+link-selected application policy; it must not use compile-time branches to
+distinguish the echo and interop applications. The policy owns required
+WebTransport mode, native-case availability, remote trust-file permission,
+and optional application initialization. Listening beyond loopback remains
+an explicit runtime choice rather than application policy.
+XQUIC owns container packaging and environment mapping under
+`interop/webtransport/`, together with its image publication workflow. The
+public interop runner consumes the published image and owns shared cases and
+image registration. Packaging must not maintain a second XQUIC engine/TLS
+runtime.
+The native server application uses `xqc_wt_select_application_protocol` to
+select a supported protocol in client preference order. The helper shares
+the adapter's Structured Field parser with client response validation and
+returns a borrowed supported string. Applications retain session acceptance
+policy and response-header ownership; the parser remains adapter-private.
+Native CI must exercise the same application binaries using input/output
+assertions for protocol preference, file contents and stream FIN or complete
+datagrams, and explicit negotiation, file, and certificate failures. Both
+client and server requesters must be covered; a responding client must remain
+available until the requester completes and closes the session. The owning
+case registrations are in `case_test/webtransport/core.sh`. Packet inspection
+remains an additional external interoperability check rather than a native
+CI dependency.
+
+### Protocol implementation
+
 The first production implementation ships native WebTransport over HTTP/3.
 The core object model and public application API are binding-neutral. A
 lightweight adapter interface allows a future capsule binding to be driven by
@@ -533,6 +566,17 @@ Both bindings require H3 and QUIC datagrams and server extended CONNECT
 support. Clients MUST wait for the TLS handshake and peer SETTINGS before
 sending CONNECT. Only a 2xx response creates a ready client session; rejected
 requests receive a final close notification without a create notification.
+
+The additive `xqc_wt_client_open_session_with_protocols()` entry point accepts
+application protocols in preference order and copies them before returning.
+Inputs are bounded to 1024 printable ASCII bytes per protocol and 4096 bytes
+for the encoded list. A nonempty offer requires a valid negotiated selection
+before the ready callback. The original client-open API and an empty offer
+retain optional negotiation. `xqc_wt_session_get_application_protocol()`
+returns a borrowed decoded selection, valid through the final close callback,
+or `NULL` when no client protocol was negotiated. Encoding and validation
+follow the selected binding's governing IETF source; application protocol
+selection policy remains with the server application.
 
 The draft-16 MVP supports one simultaneous session, bidirectional stream
 exchange with FIN, unidirectional stream delivery, datagrams, stream reset,

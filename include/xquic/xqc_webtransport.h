@@ -511,6 +511,34 @@ XQC_EXPORT_PUBLIC_API
 xqc_wt_session_t *xqc_wt_client_open_session(xqc_h3_conn_t *h3_conn,
     const char *authority, const char *path, const char *origin, int *err);
 
+/*
+ * Copies protocols in preference order and requires a negotiated protocol
+ * when protocol_count is nonzero. Each string is printable ASCII, at most
+ * 1024 bytes; the encoded list is at most 4096 bytes. Zero preserves the
+ * optional negotiation behavior of xqc_wt_client_open_session().
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_wt_session_t *xqc_wt_client_open_session_with_protocols(
+    xqc_h3_conn_t *h3_conn, const char *authority, const char *path,
+    const char *origin, const char *const *protocols, size_t protocol_count,
+    int *err);
+
+/*
+ * Selects the first client-offered application protocol supported locally.
+ * Repeated WT-Available-Protocols fields form one list, at most 4096 bytes.
+ * Local strings use the same size/character limits as the client API above.
+ * Returns 1 for a match, 0 for no offer/match, or a negative error. On 1,
+ * *selected borrows an element of protocols; otherwise it is NULL. The
+ * caller retains the strings and decides whether to accept the session.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_wt_select_application_protocol(const xqc_http_headers_t *headers,
+    const char *const *protocols, size_t protocol_count, const char **selected);
+
+/* Client-selected protocol, borrowed until close notification; else NULL. */
+XQC_EXPORT_PUBLIC_API
+const char *xqc_wt_session_get_application_protocol(xqc_wt_session_t *session);
+
 /* Zero means that a version/response has not been selected/received. */
 XQC_EXPORT_PUBLIC_API
 xqc_webtransport_draft_version_t xqc_wt_session_get_draft_version(

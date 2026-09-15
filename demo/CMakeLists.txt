@@ -11,6 +11,7 @@ set(
     ${HQ_SOURCES}
     "demo_client.c"
     "xqc_wt_echo_client.c"
+    "xqc_wt_echo_policy.c"
     "${CMAKE_SOURCE_DIR}/case_test/webtransport/xqc_webtrans_test_cases.c"
 )
 
@@ -19,6 +20,7 @@ set(
     ${HQ_SOURCES}
     "demo_server.c"
     "xqc_wt_echo_server.c"
+    "xqc_wt_echo_policy.c"
     "${CMAKE_SOURCE_DIR}/case_test/webtransport/xqc_webtrans_test_cases.c"
 )
 
@@ -48,3 +50,19 @@ add_executable(demo_client ${DEMO_CLIENT_SOURCES})
 
 target_link_libraries(demo_server ${APP_DEPEND_LIBS})
 target_link_libraries(demo_client ${APP_DEPEND_LIBS})
+
+if(XQC_ENABLE_WEBTRANSPORT_INTEROP AND NOT UNIX)
+    message(FATAL_ERROR
+        "XQC_ENABLE_WEBTRANSPORT_INTEROP requires a POSIX platform")
+endif()
+
+if(XQC_ENABLE_WEBTRANSPORT_INTEROP)
+    foreach(role client server)
+        add_executable(wt_interop_${role}
+            ${HQ_SOURCES}
+            "demo_${role}.c"
+            "xqc_webtrans_interop.c"
+        )
+        target_link_libraries(wt_interop_${role} ${APP_DEPEND_LIBS})
+    endforeach()
+endif()

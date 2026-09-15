@@ -15,10 +15,9 @@
 #define XQC_WT_MAX_STREAM_DATA_CAPSULE 0x190b4d3e
 #define XQC_WT_STREAM_DATA_BLOCKED_CAPSULE 0x190b4d42
 
-static xqc_bool_t xqc_wt_valid_utf8(const unsigned char *data, size_t len);
 static xqc_int_t xqc_wt_capsule_complete(xqc_wt_session_t *session);
 
-static xqc_bool_t
+xqc_bool_t
 xqc_wt_valid_utf8(const unsigned char *data, size_t len)
 {
     for (size_t i = 0; i < len;) {
@@ -156,7 +155,15 @@ xqc_wt_session_destroy(xqc_wt_session_t *session)
     }
     xqc_wt_conn_unregister_session(session->wt_conn, session->sessionID);
     xqc_free(session->client_authority);
+    xqc_free(session->client_protocols);
+    xqc_free(session->application_protocol);
     xqc_free(session);
+}
+
+const char *
+xqc_wt_session_get_application_protocol(xqc_wt_session_t *session)
+{
+    return session ? session->application_protocol : NULL;
 }
 
 xqc_webtransport_draft_version_t

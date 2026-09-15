@@ -142,3 +142,109 @@ The paired protocol cases follow
 Every negative case checks the specific peer response or error; a timeout,
 crash, TLS failure, or missing echo cannot satisfy it. The namespace ledger
 is maintained in the [validation specification](../harness/spec/validation.md#client-to-server-case-id-namespace).
+
+## Interoperability application and CI
+
+On POSIX platforms, enable the WebTransport feature profile to build
+`wt_interop_client` and `wt_interop_server` under the build directory's
+`demo/` directory:
+
+```sh
+./scripts/validate.sh build --feature webtransport_interop
+```
+
+The profile sets `XQC_ENABLE_WEBTRANSPORT_INTEROP=ON`. The targets compile
+the same `demo_client.c` and `demo_server.c` runtime as the echo demos, with
+`xqc_webtrans_interop.c` supplying the WebTransport application callbacks and
+policy. UDP, libevent, TLS, logging, and process completion remain shared. No
+separate runtime or CMake project is needed.
+
+The interop application implements the runner's
+[handshake and file transfer contract](https://github.com/quic-interop/quic-interop-runner/blob/master/webtransport.md).
+It uses `xqc_wt_select_application_protocol` to select the client's first
+common application protocol, writes `negotiated_protocol.txt`, and transfers
+files in both directions using
+unidirectional streams (UR/US), bidirectional streams (BR/BS), or datagrams
+(DR/DS). Unidirectional responses use `PUSH`; bidirectional responses reuse
+the request stream and carry raw file bytes. A datagram contains one complete
+`GET` or `PUSH` message. The requester closes the session only after every
+file is received, with FIN required for stream transfers. The application
+bounds stream state and pending data, and confines file access to the
+configured input and output directories. Request names share one owned
+`REQUESTS` buffer; outgoing datagrams use a fixed 256-slot queue with 1200
+bytes per slot, retaining the queued payload when sending is blocked.
+Datagram requesters keep one GET outstanding and send the next after receiving
+the complete PUSH response, avoiding bursts of small packets.
+Before session readiness, it buffers at most 256 datagrams and 300 KiB of
+payload so the runner's 200 requests may arrive before the CONNECT response.
+
+The runner supplies `ROLE`, `TESTCASE`, `PROTOCOLS`, and `REQUESTS`.
+For receive cases the client requests file URLs. For send cases the server
+requests relative paths such as `wt/file.bin`, while the client connects to
+the session URL with `TESTCASE=transfer` and serves files. The generic
+`transfer` role responds on all three carriers and waits for the requester's
+session close before reporting success.
+`XQC_WT_WWW` and `XQC_WT_DOWNLOADS` override the default `/www` and
+`/downloads` directories for native execution. The container entrypoint and
+native cases pass `-A` explicitly so the interop server listens on all
+interfaces. Its application policy permits an explicit `-J` trust file for
+remote peers while retaining certificate and hostname verification. The echo
+policy retains its loopback trust-file restriction and accepts native case
+IDs; the interop policy requires `-W` and rejects `-X`.
+
+The `webtransport.core` CI group also registers these input/output cases:
+
+| Case ID | Coverage |
+|---|---|
+| 1817 | H: exactly one handshake per endpoint and matching protocol selection with differing preference lists. |
+| 1818 | H rejection: disjoint protocol lists produce 403 and no negotiated-protocol output. |
+| 1819 | UR: exact 100/500/250 KiB and 1/2 MiB binary downloads, each completed with FIN. |
+| 1820 | UR rejection: a missing source file produces an explicit peer application error and no success result. |
+| 1821 | An unrelated CA fails TLS verification before a session becomes ready. |
+| 1822 | A mismatched hostname fails TLS verification before a session becomes ready. |
+| 1823, 1824 | US: the server receives the five binary files with FIN; a missing client source file fails explicitly. |
+| 1825, 1826 | BR: the client receives the five binary files on the request streams with FIN; a missing server source file fails explicitly. |
+| 1827, 1828 | BS: the server receives the five binary files on the request streams with FIN; a missing client source file fails explicitly. |
+| 1829, 1830 | DR: the client receives 200 complete files of 600–998 bytes; a missing server source file fails explicitly. |
+| 1831, 1832 | DS: the server receives 200 complete files of 600–998 bytes; a missing client source file fails explicitly. |
+
+For a quick local run after the feature-profile build:
+
+```sh
+XQC_BUILD_DIR=build/validation bash scripts/case_test.sh --execute \
+    --group webtransport.core
+```
+
+These native cases use the existing case runner's fixtures, isolated work
+directory, process lifecycle, and log assertions. They require no Docker,
+browser, packet capture, or external peer. Parser, callback ownership, stream
+and datagram bounds, and filesystem boundary checks run in the complete
+CUnit suite.
+
+Interop image builds must run the complete unit suite and these native cases
+before copying the same tested binaries into the final image. A final-image
+self test checks packaging, and external peer matrices remain the evidence
+for interoperability with other implementations.
+See the [container packaging instructions](../interop/webtransport/README.md)
+for image builds, local runner execution, and publication.
+
+## Application protocol negotiation
+
+Native clients that require an application protocol can use
+`xqc_wt_client_open_session_with_protocols(h3_conn, authority, path, origin,
+protocols, protocol_count, &err)`. The array lists protocols in preference
+order. XQUIC copies the strings and encodes `WT-Available-Protocols`, including
+quoted-string escaping. Each protocol may contain up to 1024 printable ASCII
+bytes; the encoded list may contain up to 4096 bytes.
+
+With a nonzero count, a successful CONNECT must select an offered protocol
+in `WT-Protocol`; missing, malformed, duplicate, or unoffered selections close
+the session with `WT_ALPN_ERROR` without reporting it ready. Structured Field
+parameters are ignored after validation, following
+[draft-16 Section 3.3](https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-16.html#section-3.3)
+and [RFC 9651](https://www.rfc-editor.org/rfc/rfc9651.html#section-4.2).
+The ready callback can read the decoded selection using
+`xqc_wt_session_get_application_protocol(session)`; its storage is borrowed
+through the final close callback. The getter returns `NULL` when no client
+protocol was negotiated. The original `xqc_wt_client_open_session` API and a
+zero protocol count retain optional negotiation behavior.

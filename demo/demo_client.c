@@ -21,6 +21,7 @@
 #include <openssl/x509.h>
 #include "common.h"
 #include "xqc_hq.h"
+#include "xqc_wt_app.h"
 #include "xqc_wt_echo_client.h"
 #include "../tests/platform.h"
 
@@ -1973,7 +1974,7 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -v    WebTransport maximum draft version: 7 or 16 (default).\n"
         "   -X    WebTransport native case: 1801..1816 (0: normal demo).\n"
         "   -j    WebTransport Origin (default: http://127.0.0.1:8080).\n"
-        "   -J    PEM certificate to trust for a WT loopback peer.\n"
+        "   -J    PEM certificate to trust for a WT peer.\n"
         "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic P:copa\n"
         "   -C    Pacing on.\n"
         "   -t    Connection timeout. Default 3 seconds.\n"
@@ -2368,6 +2369,16 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
         }
     }
 
+    if (xqc_demo_wt_app_policy.require_webtransport
+        && !args->quic_cfg.webtransport)
+    {
+        fprintf(stderr, "This WebTransport application requires -W\n");
+        return -1;
+    }
+    if (wt_case_selected && !xqc_demo_wt_app_policy.allow_case_id) {
+        fprintf(stderr, "This WebTransport application does not accept -X\n");
+        return -1;
+    }
     if (wt_case_selected && !args->quic_cfg.webtransport) {
         fprintf(stderr, "-X requires WebTransport mode (-W)\n");
         return -1;
@@ -2434,7 +2445,13 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
             ? IN6_IS_ADDR_LOOPBACK(&args->net_cfg.addr.sin6_addr)
             : (ntohl(addr4->sin_addr.s_addr) >> 24) == 127;
 
-        if (!args->quic_cfg.webtransport || !loopback) {
+        if (!args->quic_cfg.webtransport) {
+            fprintf(stderr, "-J requires WebTransport mode (-W)\n");
+            return -1;
+        }
+        if (!loopback
+            && !xqc_demo_wt_app_policy.allow_remote_certificate)
+        {
             fprintf(stderr, "-J requires a WebTransport loopback peer\n");
             return -1;
         }

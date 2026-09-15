@@ -292,6 +292,8 @@ xqc_int_t
 xqc_wt_h3_stream_read(xqc_h3_stream_t *h3s, void *conn_ctx,
     unsigned char *data, size_t data_len, uint8_t fin)
 {
+    xqc_bool_t server_bidi = h3s->h3c->conn->conn_type == XQC_CONN_TYPE_CLIENT
+        && (h3s->stream_id & 3) == XQC_SVR_BID;
     if (fin) {
         h3s->flags |= XQC_HTTP3_STREAM_FLAG_READ_EOF;
     }
@@ -308,6 +310,10 @@ xqc_wt_h3_stream_read(xqc_h3_stream_t *h3s, void *conn_ctx,
         return xqc_h3_stream_process_in(h3s, data, data_len, fin);
     }
     if (data_len == 0 && adapter == NULL) {
+        if (fin && server_bidi) {
+            return xqc_wt_h3_stream_input_result(h3s,
+                                                 -XQC_H3_DECODE_ERROR);
+        }
         if (fin && h3s->stream) {
             h3s->stream->stream_if =
                 (xqc_stream_callbacks_t *)&h3_stream_callbacks;
@@ -370,6 +376,12 @@ xqc_wt_h3_stream_read(xqc_h3_stream_t *h3s, void *conn_ctx,
             data_len > used ? data + used : NULL, data_len - used, fin);
         xqc_wt_h3_stream_release(adapter);
         return xqc_wt_h3_stream_input_result(h3s, ret);
+    }
+
+    /* draft-ietf-webtrans-http3-16 §4.3: server bidi requires WT_STREAM. */
+    if (server_bidi) {
+        xqc_wt_h3_stream_release(adapter);
+        return xqc_wt_h3_stream_input_result(h3s, -XQC_H3_DECODE_ERROR);
     }
 
     unsigned char prefix[8];
@@ -498,6 +510,14 @@ xqc_wt_h3_stream_clear(xqc_wt_conn_t *conn)
 static xqc_int_t
 xqc_wt_h3_stream_create_notify(xqc_stream_t *stream, void *user_data)
 {
+    xqc_connection_t *conn = stream->stream_conn;
+    if (conn->conn_type == XQC_CONN_TYPE_CLIENT
+        && stream->stream_type == XQC_SVR_BID
+        && xqc_wt_conn_requirements_met(xqc_wt_create_conn(conn->proto_data)))
+    {
+        /* Draft-16 §§4.3, 4.6: classify even before the CONNECT response. */
+        return XQC_OK;
+    }
     return h3_stream_callbacks.stream_create_notify(stream, user_data);
 }
 

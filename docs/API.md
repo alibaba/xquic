@@ -1073,3 +1073,19 @@ Get the stream_id of QUIC Transport stream on which the h3 request stream relies
 
 - [Immutable client API specification](../harness/spec/feat/webtransport-client-api-spec.md)
 - [Immutable server API specification](../harness/spec/feat/webtransport-server-api-spec.md)
+
+`xqc_wt_select_application_protocol(headers, protocols, protocol_count,
+&selected)` selects the first client-offered application protocol supported by
+the server. It processes all `WT-Available-Protocols` field lines in order,
+validates the complete Structured Field list and ignores parameter semantics.
+The combined field value is limited to 4096 bytes. Local strings follow the
+same character and size limits as `xqc_wt_client_open_session_with_protocols`.
+
+The helper returns 1 on a match, 0 for an absent offer or no common protocol,
+and a negative error for invalid arguments or field syntax. On success,
+`selected` borrows a string from `protocols`; the caller must keep that string
+valid while using it. On other results, `selected` is set to `NULL`. The
+helper does not send a response or accept a session. The server callback owns
+that policy and the `WT-Protocol` response field. See the
+[application negotiation example](../demo/webtransport.md#application-protocol-negotiation)
+and [draft-16 Section 3.3](https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-16.html#section-3.3).

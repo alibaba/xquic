@@ -10,6 +10,8 @@
 #define XQC_WT_CLOSE_REASON_MAX 1024
 #define XQC_WT_CAPSULE_BUFFER_SIZE (XQC_WT_CLOSE_REASON_MAX + 32)
 
+xqc_bool_t xqc_wt_valid_utf8(const unsigned char *data, size_t len);
+
 struct xqc_webtransport_session_s {
     uint64_t              sessionID;
     xqc_wt_conn_t        *wt_conn;
@@ -28,6 +30,8 @@ struct xqc_webtransport_session_s {
     char                 *client_authority;
     char                 *client_path;
     char                 *client_origin;
+    char                 *client_protocols;
+    char                 *application_protocol;
     uint32_t              close_error;
     char                  close_reason[XQC_WT_CLOSE_REASON_MAX + 1];
     unsigned char         send_buf[XQC_WT_CAPSULE_BUFFER_SIZE];

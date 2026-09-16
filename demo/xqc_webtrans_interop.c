@@ -451,7 +451,7 @@ xqc_wt_interop_complete(void)
     xqc_wt_interop_t *ctx = &xqc_wt_interop;
     int result;
 
-    if ((ctx->handshake && ctx->server) || ctx->success || ctx->failed) {
+    if (ctx->success || ctx->failed) {
         return;
     }
     result = xqc_wt_session_close_with_error(ctx->session, 0,

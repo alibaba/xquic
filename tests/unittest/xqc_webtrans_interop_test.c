@@ -46,6 +46,7 @@ static int xqc_wt_interop_test_sequence;
 static int xqc_wt_interop_test_close_on_send;
 static int xqc_wt_interop_test_scheduled;
 static int xqc_wt_interop_test_closes;
+static int xqc_wt_interop_test_close_result;
 static uint32_t xqc_wt_interop_test_code;
 static unsigned char xqc_wt_interop_test_payload[XQC_WT_INTEROP_DATAGRAM_MAX];
 static size_t xqc_wt_interop_test_length;
@@ -181,7 +182,7 @@ xqc_wt_interop_test_close(xqc_wt_session_t *session, uint32_t error,
 {
     xqc_wt_interop_test_closes++;
     xqc_wt_interop_test_code = error;
-    return XQC_OK;
+    return xqc_wt_interop_test_close_result;
 }
 
 static uint32_t
@@ -217,6 +218,7 @@ xqc_wt_interop_test_reset(void)
     xqc_wt_interop_test_close_on_send = 0;
     xqc_wt_interop_test_scheduled = 0;
     xqc_wt_interop_test_closes = 0;
+    xqc_wt_interop_test_close_result = XQC_OK;
     xqc_wt_interop_test_code = 0;
 }
 
@@ -587,6 +589,33 @@ restore_environment:
     xqc_wt_interop_test_clear();
 }
 
+
+void
+xqc_test_wt_interop_handshake_complete(void)
+{
+    xqc_wt_session_t session = {0};
+
+    xqc_wt_interop_test_reset();
+    xqc_wt_interop.session = &session;
+    xqc_wt_interop.server = 1;
+    xqc_wt_interop.handshake = 1;
+    xqc_wt_interop_complete();
+    CU_ASSERT(xqc_wt_interop.success && !xqc_wt_interop.failed);
+    CU_ASSERT(xqc_wt_interop_test_closes == 1
+              && xqc_wt_interop_test_code == 0);
+    CU_ASSERT(xqc_wt_interop_test_scheduled == 1);
+    xqc_wt_interop_test_clear();
+
+    xqc_wt_interop.session = &session;
+    xqc_wt_interop.server = 1;
+    xqc_wt_interop.handshake = 1;
+    xqc_wt_interop_test_close_result = XQC_ERROR;
+    xqc_wt_interop_complete();
+    CU_ASSERT(xqc_wt_interop.failed && !xqc_wt_interop.success);
+    CU_ASSERT(xqc_wt_interop_test_closes == 2
+              && xqc_wt_interop_test_code == 1);
+    xqc_wt_interop_test_clear();
+}
 
 void
 xqc_test_wt_interop_peer_close_complete(void)

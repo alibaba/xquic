@@ -107,6 +107,8 @@ main(int argc, char *argv[])
                         xqc_test_wt_interop_file_confinement)
         || !CU_add_test(pSuite, "xqc_test_wt_interop_roles",
                         xqc_test_wt_interop_roles)
+        || !CU_add_test(pSuite, "xqc_test_wt_interop_handshake_complete",
+                        xqc_test_wt_interop_handshake_complete)
         || !CU_add_test(pSuite, "xqc_test_wt_interop_peer_close_complete",
                         xqc_test_wt_interop_peer_close_complete)
         || !CU_add_test(pSuite, "xqc_test_wt_interop_peer_close_incomplete",

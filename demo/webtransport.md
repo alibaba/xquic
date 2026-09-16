@@ -190,10 +190,12 @@ files in both directions using
 unidirectional streams (UR/US), bidirectional streams (BR/BS), or datagrams
 (DR/DS). Unidirectional responses use `PUSH`; bidirectional responses reuse
 the request stream and carry raw file bytes. A datagram contains one complete
-`GET` or `PUSH` message. The requester closes the session only after every
-file is received, with FIN required for stream transfers. The application
-bounds stream state and pending data, and confines file access to the
-configured input and output directories. Request names share one owned
+`GET` or `PUSH` message. For handshake-only cases, the server closes the
+accepted session after writing its negotiated-protocol file so a peer waiting
+for session completion can exit. The requester closes transfer sessions only
+after every file is received, with FIN required for stream transfers. The
+application bounds stream state and pending data, and confines file access to
+the configured input and output directories. Request names share one owned
 `REQUESTS` buffer; outgoing datagrams use a fixed 256-slot queue with 1200
 bytes per slot, retaining the queued payload when sending is blocked.
 The client acting as a responder finishes on a normal peer close only after

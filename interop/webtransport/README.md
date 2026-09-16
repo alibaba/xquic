@@ -42,3 +42,6 @@ and `latest` tags. Only the official repository publishes this image, using
 `ghcr.io/alibaba/xquic/xquic-interop` with `interop/Dockerfile`.
 The image revision label identifies the XQUIC commit; use the published
 digest to reproduce an image.
+The branch-image CI keeps the runner matrices and endpoint logs and fails
+closed if any xquic endpoint reports `WT INTEROP FAIL`, even when the runner
+marks a case successful because the peer exited first.

@@ -50,7 +50,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            python3-venv tshark
+            python3-venv ripgrep tshark
           python3 -m venv "$RUNNER_TEMP/interop-venv"
           git init "$RUNNER_TEMP/quic-interop-runner"
           git -C "$RUNNER_TEMP/quic-interop-runner" remote add origin \
@@ -83,6 +83,16 @@ jobs:
           set -e
           printf 'client status: %s; server status: %s\n' \
             "$client_status" "$server_status"
+          test -d "$RUNNER_TEMP/webtransport-client-logs"
+          test -d "$RUNNER_TEMP/webtransport-server-logs"
+          if rg -n --glob output.txt 'WT INTEROP FAIL' \
+              "$RUNNER_TEMP/webtransport-client-logs" \
+              "$RUNNER_TEMP/webtransport-server-logs"; then
+            echo 'XQUIC endpoint reported an interop failure' >&2
+            exit 1
+          else
+            test "$?" -eq 1
+          fi
           test "$client_status" -eq 0
           test "$server_status" -eq 0
           jq -e '

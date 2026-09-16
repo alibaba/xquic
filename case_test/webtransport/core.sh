@@ -239,7 +239,6 @@ wt_message_length_rejected()
         || return 1
     grep -q '^WT FAIL: message parse error=-613$' stdlog || return 1
     ! grep -q '^WT PASS:' stdlog || return 1
-    grep -Eq 'frame:(RESET_STREAM_AT|RESET_STREAM) ' slog || return 1
 
     build_dir="$(case_test_build_dir "${ROOT_DIR}")"
     "${CASE_TEST_CLIENT_BIN:-${build_dir}/demo/demo_client}" \

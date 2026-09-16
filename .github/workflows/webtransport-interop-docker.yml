@@ -59,11 +59,24 @@ jobs:
       - name: Test all xquic client and server pairs
         working-directory: ${{ runner.temp }}/quic-interop-runner
         run: |
+          set +e
           "$RUNNER_TEMP/interop-venv/bin/python" run.py \
-            -p webtransport -i xquic \
+            -p webtransport -c xquic \
             -r xquic=xquic-webtransport-interop:refactor \
-            -j "$RUNNER_TEMP/webtransport-results.json" \
-            -l "$RUNNER_TEMP/webtransport-logs"
+            -j "$RUNNER_TEMP/webtransport-client-results.json" \
+            -l "$RUNNER_TEMP/webtransport-client-logs"
+          client_status=$?
+          "$RUNNER_TEMP/interop-venv/bin/python" run.py \
+            -p webtransport -s xquic \
+            -r xquic=xquic-webtransport-interop:refactor \
+            -j "$RUNNER_TEMP/webtransport-server-results.json" \
+            -l "$RUNNER_TEMP/webtransport-server-logs"
+          server_status=$?
+          set -e
+          printf 'client status: %s; server status: %s\n' \
+            "$client_status" "$server_status"
+          test "$client_status" -eq 0
+          test "$server_status" -eq 0
 
       - name: Preserve interop evidence
         if: always()
@@ -71,8 +84,10 @@ jobs:
         with:
           name: webtransport-interop-${{ github.sha }}
           path: |
-            ${{ runner.temp }}/webtransport-results.json
-            ${{ runner.temp }}/webtransport-logs/
+            ${{ runner.temp }}/webtransport-client-results.json
+            ${{ runner.temp }}/webtransport-client-logs/
+            ${{ runner.temp }}/webtransport-server-results.json
+            ${{ runner.temp }}/webtransport-server-logs/
           if-no-files-found: warn
 
   publish:

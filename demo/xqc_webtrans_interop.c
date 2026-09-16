@@ -208,6 +208,7 @@ static xqc_int_t xqc_wt_interop_stream_closing(xqc_wt_unistream_t *stream,
     xqc_wt_session_t *session, void *user_data);
 static int xqc_wt_interop_configure(int server);
 static void xqc_wt_interop_pass(void);
+static int xqc_wt_interop_responder_done(void);
 static int xqc_wt_interop_directory(void);
 static int xqc_wt_interop_receive_file(xqc_wt_interop_stream_t *state,
     const char *filename, const void *data, size_t length, int fin,
@@ -426,6 +427,24 @@ xqc_wt_interop_pass(void)
     }
 }
 
+static int
+xqc_wt_interop_responder_done(void)
+{
+    xqc_wt_interop_t *ctx = &xqc_wt_interop;
+
+    if (ctx->server || ctx->handshake || ctx->mode || ctx->failed
+        || !ctx->completed || ctx->datagram_count)
+    {
+        return 0;
+    }
+    for (xqc_wt_interop_stream_t *s = ctx->streams; s; s = s->next) {
+        if (!s->complete) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static void
 xqc_wt_interop_complete(void)
 {
@@ -499,18 +518,13 @@ xqc_wt_interop_closed(xqc_wt_session_t *session,
 {
     xqc_wt_interop_t *ctx = &xqc_wt_interop;
     uint32_t code = xqc_wt_session_get_close_error_code(session);
-    int pending = ctx->datagram_count != 0;
 
     printf("WT closed: status=%u code=%" PRIu32 "\n",
            xqc_wt_session_get_response_status(session), code);
     ctx->session = NULL;
-    for (xqc_wt_interop_stream_t *s = ctx->streams; s; s = s->next) {
-        pending |= !s->complete;
-    }
     if ((!ctx->server || ctx->mode) && !ctx->success && !ctx->stopped) {
-        if (!ctx->handshake && !ctx->mode && !ctx->failed && !code
-            && ctx->completed && !pending)
-        {
+        /* The runner verifies files; peer close codes are application-defined. */
+        if (xqc_wt_interop_responder_done()) {
             xqc_wt_interop_pass();
         } else {
             xqc_wt_interop_fail("session closed before completion", XQC_ERROR);
@@ -1332,7 +1346,11 @@ xqc_wt_interop_client_conn_closing(xqc_connection_t *conn,
     const xqc_cid_t *cid, xqc_int_t error, void *user_data)
 {
     if (!xqc_wt_interop.success && !xqc_wt_interop.stopped) {
-        xqc_wt_interop_fail("connection closed before completion", error);
+        if (error == XQC_OK && xqc_wt_interop_responder_done()) {
+            xqc_wt_interop_pass();
+        } else {
+            xqc_wt_interop_fail("connection closed before completion", error);
+        }
     }
     return XQC_OK;
 }

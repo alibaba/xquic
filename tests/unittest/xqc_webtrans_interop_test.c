@@ -589,6 +589,50 @@ restore_environment:
 
 
 void
+xqc_test_wt_interop_peer_close_complete(void)
+{
+    xqc_wt_interop_test_reset();
+    xqc_wt_interop.finished = xqc_wt_interop_test_schedule;
+    xqc_wt_interop.completed = 5;
+    xqc_wt_interop_client_conn_closing(NULL, NULL, XQC_OK, NULL);
+    CU_ASSERT(xqc_wt_interop.success && !xqc_wt_interop.failed);
+    CU_ASSERT(xqc_wt_interop_test_scheduled == 1);
+    xqc_wt_interop_test_clear();
+
+    xqc_wt_interop.completed = 5;
+    xqc_wt_interop_test_code = 1;
+    xqc_wt_interop_closed(NULL, NULL, NULL, NULL);
+    CU_ASSERT(xqc_wt_interop.success && !xqc_wt_interop.failed);
+    xqc_wt_interop_test_clear();
+}
+
+void
+xqc_test_wt_interop_peer_close_incomplete(void)
+{
+    xqc_wt_interop_test_reset();
+    xqc_wt_interop_client_conn_closing(NULL, NULL, XQC_OK, NULL);
+    CU_ASSERT(xqc_wt_interop.failed && !xqc_wt_interop.success);
+    xqc_wt_interop_test_clear();
+
+    xqc_wt_interop.completed = 1;
+    CU_ASSERT(xqc_wt_interop_datagram_queue("pending", 7) == XQC_OK);
+    xqc_wt_interop_client_conn_closing(NULL, NULL, XQC_OK, NULL);
+    CU_ASSERT(xqc_wt_interop.failed && !xqc_wt_interop.success);
+    xqc_wt_interop_test_clear();
+
+    xqc_wt_interop.completed = 1;
+    CU_ASSERT(xqc_wt_interop_allocate(NULL) != NULL);
+    xqc_wt_interop_client_conn_closing(NULL, NULL, XQC_OK, NULL);
+    CU_ASSERT(xqc_wt_interop.failed && !xqc_wt_interop.success);
+    xqc_wt_interop_test_clear();
+
+    xqc_wt_interop.completed = 1;
+    xqc_wt_interop_client_conn_closing(NULL, NULL, XQC_ERROR, NULL);
+    CU_ASSERT(xqc_wt_interop.failed && !xqc_wt_interop.success);
+    xqc_wt_interop_test_clear();
+}
+
+void
 xqc_test_wt_interop_datagram_backpressure(void)
 {
     const unsigned char payload[] = "PUSH file\n\0\xff" "data";

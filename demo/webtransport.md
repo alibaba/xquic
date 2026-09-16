@@ -196,6 +196,10 @@ bounds stream state and pending data, and confines file access to the
 configured input and output directories. Request names share one owned
 `REQUESTS` buffer; outgoing datagrams use a fixed 256-slot queue with 1200
 bytes per slot, retaining the queued payload when sending is blocked.
+The client acting as a responder finishes on a normal peer close only after
+it sent a response and drained all pending streams and datagrams. The runner
+verifies file counts and contents; peer application close codes are not a
+file-transfer success signal.
 Datagram requesters keep one GET outstanding and send the next after receiving
 the complete PUSH response, avoiding bursts of small packets.
 Before session readiness, it buffers at most 256 datagrams and 300 KiB of

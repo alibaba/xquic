@@ -10,6 +10,8 @@ void xqc_test_wt_interop_paths(void);
 void xqc_test_wt_interop_headers(void);
 void xqc_test_wt_interop_file_confinement(void);
 void xqc_test_wt_interop_roles(void);
+void xqc_test_wt_interop_peer_close_complete(void);
+void xqc_test_wt_interop_peer_close_incomplete(void);
 void xqc_test_wt_interop_datagram_backpressure(void);
 
 #endif

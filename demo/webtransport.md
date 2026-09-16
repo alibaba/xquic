@@ -53,6 +53,30 @@ Success prints `WT ready: draft=16 status=200`, byte and FIN checks, then
 for the reset stream verifies that the reset reached the peer; sending a
 reset alone is not a peer acknowledgement.
 
+Use `-H <length>` to replace the normal echo sequence with the optional
+message-framing probe. The client opens one draft-16 bidirectional stream and
+sends one text message containing exactly `length` bytes whose value is `d`.
+The length must be between 1 and 16 MiB; `-H` requires `-W -v 16`. Except for
+internal validation, it cannot be combined with `-X`. The mode succeeds only
+after one complete text message with the same length and payload is decoded on
+that stream. The probe queues FIN after its single message. FIN ends the
+sending direction; transport read chunks and FIN do not define message
+boundaries.
+
+`-H` is an explicit demo opt-in. The selected endpoint must use the same
+framing; the option does not change HTTP/3 or WebTransport negotiation, and
+omitting it retains the raw WebTransport echo behavior. Use `-g` to print each
+complete decoded message in framing mode. In normal mode it prints raw data
+from WebTransport stream and datagram callbacks. Printable ASCII is shown
+directly; quotes, backslashes, control characters, and binary bytes are
+escaped. For example:
+
+```sh
+build/demo/demo_client -W -v 16 -H 16 -g -a 127.0.0.1 \
+    -J build/webtransport-cert/server.crt \
+    -U https://localhost:8443/wt
+```
+
 Run the client with `-v 7` against the same server to verify draft-07.
 Restart the server with `-v 7` and run the client with `-v 16` to verify
 fallback. Both runs should report `draft=7` and pass the echo checks.
@@ -192,7 +216,8 @@ remote peers while retaining certificate and hostname verification. The echo
 policy retains its loopback trust-file restriction and accepts native case
 IDs; the interop policy requires `-W` and rejects `-X`.
 
-The `webtransport.core` CI group also registers these input/output cases:
+The `webtransport.core` CI group also registers these interop and
+message-framing cases:
 
 | Case ID | Coverage |
 |---|---|
@@ -207,6 +232,7 @@ The `webtransport.core` CI group also registers these input/output cases:
 | 1827, 1828 | BS: the server receives the five binary files on the request streams with FIN; a missing client source file fails explicitly. |
 | 1829, 1830 | DR: the client receives 200 complete files of 600–998 bytes; a missing server source file fails explicitly. |
 | 1831, 1832 | DS: the server receives 200 complete files of 600–998 bytes; a missing client source file fails explicitly. |
+| 1833, 1834 | Optional message framing exact echo; oversized peer and local message declarations rejected. |
 
 For a quick local run after the feature-profile build:
 

@@ -1073,6 +1073,7 @@ Get the stream_id of QUIC Transport stream on which the h3 request stream relies
 
 - [Immutable client API specification](../harness/spec/feat/webtransport-client-api-spec.md)
 - [Immutable server API specification](../harness/spec/feat/webtransport-server-api-spec.md)
+- [Optional message framing](../harness/spec/feat/webtransport-websocket-message-framing.md)
 
 `xqc_wt_select_application_protocol(headers, protocols, protocol_count,
 &selected)` selects the first client-offered application protocol supported by

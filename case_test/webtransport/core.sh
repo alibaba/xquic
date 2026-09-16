@@ -12,16 +12,20 @@ wt_case_run()
     local draft="$3"
     local peer_pattern="$4"
     local build_dir
+    local case_args=()
     local status=0
     shift 4
 
     build_dir="$(case_test_build_dir "${ROOT_DIR}")"
+    if [[ "${id}" -ne 0 ]]; then
+        case_args=(-X "${id}")
+    fi
     rm -f session_ticket transport_params token
     clear_log
 
     CASE_TEST_SERVER_WAIT=0 case_test_start_server \
         "${CASE_TEST_SERVER_BIN:-${build_dir}/demo/demo_server}" \
-        -W -v "${draft}" -X "${id}" -p "${CASE_TEST_PORT}" \
+        -W -v "${draft}" "${case_args[@]}" -p "${CASE_TEST_PORT}" \
         -K server.key -T server.crt -l d -L slog -k skeys.log \
         > svr_stdlog 2>&1
     if ! case_test_wait_for_log svr_stdlog \
@@ -34,7 +38,8 @@ wt_case_run()
 
     WT_CASE_CLIENT_STATUS=0
     "${CASE_TEST_CLIENT_BIN:-${build_dir}/demo/demo_client}" \
-        -W -v "${draft}" -X "${id}" -a 127.0.0.1 -J server.crt \
+        -W -v "${draft}" "${case_args[@]}" -a 127.0.0.1 \
+        -J server.crt \
         -U "https://test.xquic.com:${CASE_TEST_PORT}/wt" \
         -l d -L clog -k ckeys.log "$@" > stdlog 2>&1 \
         || WT_CASE_CLIENT_STATUS="$?"
@@ -206,6 +211,42 @@ wt_second_session_rejected()
     grep -Fq 'xqc_write_reset_stream_to_packet|stream_id:4|' slog || return 1
     grep -Eq 'xqc_parse_(reset_stream|stop_sending)_frame\|type:[34]\|stream_id:4\|err_code:267\|' \
         clog
+}
+
+wt_message_framing()
+{
+    wt_case_run 0 wt_message_framing 16 \
+        '^WT closed: code=0$' -H 5 -g || return 1
+    wt_case_success || return 1
+    grep -q '^WT message queued: type=text bytes=5 fill=d$' stdlog \
+        || return 1
+    grep -q '^WT recv message text: id=[0-9]* bytes=5 data="ddddd"$' \
+        stdlog || return 1
+    grep -q '^WT message verified: type=text bytes=5$' stdlog
+}
+
+wt_message_length_rejected()
+{
+    local build_dir
+    local status=0
+
+    wt_case_run 1834 wt_message_length_rejected 16 \
+        '^WT case message oversized: declared=6 bytes=3 fin=1$' \
+        -H 5 -g || return 1
+    [[ "${WT_CASE_CLIENT_STATUS}" -eq 1 ]] || return 1
+    grep -q '^WT ready: draft=16 status=200$' stdlog || return 1
+    grep -q '^WT message queued: type=text bytes=5 fill=d$' stdlog \
+        || return 1
+    grep -q '^WT FAIL: message parse error=-613$' stdlog || return 1
+    ! grep -q '^WT PASS:' stdlog || return 1
+    grep -Eq 'frame:(RESET_STREAM_AT|RESET_STREAM) ' slog || return 1
+
+    build_dir="$(case_test_build_dir "${ROOT_DIR}")"
+    "${CASE_TEST_CLIENT_BIN:-${build_dir}/demo/demo_client}" \
+        -W -v 16 -H 16777217 > length_stdlog 2>&1 || status="$?"
+    [[ "${status}" -ne 0 ]] || return 1
+    grep -q '^WT message length must be an integer from 1 through 16777216$' \
+        length_stdlog
 }
 
 wt_interop_prepare()
@@ -576,6 +617,10 @@ case_test_case "wt_interop_dr_missing" --id 1830 \
 case_test_case "wt_interop_ds" --id 1831 --run wt_interop_ds --timeout 15
 case_test_case "wt_interop_ds_missing" --id 1832 \
     --run wt_interop_ds_missing --timeout 15
+case_test_case "wt_message_framing" --id 1833 \
+    --run wt_message_framing --timeout 15
+case_test_case "wt_message_length_rejected" --id 1834 \
+    --run wt_message_length_rejected --timeout 15
 
 if case_test_is_discovery; then
     case_test_run

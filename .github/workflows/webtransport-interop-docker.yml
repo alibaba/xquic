@@ -29,6 +29,13 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
+        with:
+          version: version=v28.3.0
+
+      - name: Enable IPv6 support
+        run: sudo modprobe ip6table_filter
+
       - name: Build the branch's tested amd64 image
         run: |
           docker buildx build --load --platform linux/amd64 \

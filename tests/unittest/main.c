@@ -115,6 +115,10 @@ main(int argc, char *argv[])
                         xqc_test_wt_interop_peer_close_incomplete)
         || !CU_add_test(pSuite, "xqc_test_wt_interop_datagram_backpressure",
                         xqc_test_wt_interop_datagram_backpressure)
+        || !CU_add_test(pSuite, "xqc_test_wt_interop_datagram_pacing",
+                        xqc_test_wt_interop_datagram_pacing)
+        || !CU_add_test(pSuite, "xqc_test_wt_interop_datagram_pacing_close",
+                        xqc_test_wt_interop_datagram_pacing_close)
 #endif
         || !CU_add_test(pSuite, "xqc_test_wt_version_negotiation",
                         xqc_test_wt_version_negotiation)

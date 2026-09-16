@@ -15,6 +15,7 @@ xqc_int_t xqc_wt_interop_client_init(xqc_engine_t *engine,
 xqc_int_t xqc_wt_interop_client_open(xqc_h3_conn_t *h3_conn,
     const char *authority, const char *path, const char *origin);
 int xqc_wt_interop_client_finish(void);
+void xqc_wt_interop_datagram_tick(void);
 xqc_int_t xqc_wt_interop_client_conn_closing(xqc_connection_t *conn,
     const xqc_cid_t *cid, xqc_int_t error, void *user_data);
 

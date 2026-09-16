@@ -1513,6 +1513,11 @@ xqc_demo_cli_engine_callback(int fd, short what, void *arg)
     // printf("timer wakeup now:%"PRIu64"\n", xqc_now());
     xqc_demo_cli_ctx_t *ctx = (xqc_demo_cli_ctx_t *) arg;
     xqc_engine_main_logic(ctx->engine);
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+    if (xqc_demo_wt_app_is_interop()) {
+        xqc_wt_interop_datagram_tick();
+    }
+#endif
 }
 
 

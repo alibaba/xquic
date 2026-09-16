@@ -9,6 +9,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "src/common/xqc_time.h"
 #include "xqc_wt_app.h"
 #include "xqc_wt_echo_client.h"
 #include "xqc_wt_echo_server.h"
@@ -111,6 +112,7 @@ xqc_wt_interop_header_feed(xqc_wt_interop_header_t *header,
 #define XQC_WT_INTEROP_FILES_MAX 256
 #define XQC_WT_INTEROP_STREAMS_MAX 64
 #define XQC_WT_INTEROP_DATAGRAM_MAX 1200
+#define XQC_WT_INTEROP_DATAGRAM_INTERVAL_US 2000
 #define XQC_WT_INTEROP_BUFFER_SIZE (64 * 1024)
 
 typedef struct xqc_wt_interop_stream_s xqc_wt_interop_stream_t;
@@ -162,6 +164,8 @@ typedef struct {
     xqc_wt_interop_datagram_t datagrams[XQC_WT_INTEROP_FILES_MAX];
     size_t                  datagram_head;
     size_t                  datagram_count;
+    xqc_usec_t              next_datagram_at;
+    int                     pace_datagrams;
     int                     failed;
     int                     success;
     int                     stopped;
@@ -975,6 +979,12 @@ xqc_wt_interop_datagram_write(xqc_wt_session_t *session, void *user_data)
     if (!ctx->datagram_count || ctx->failed || ctx->success) {
         return;
     }
+    if (ctx->pace_datagrams
+        && xqc_monotonic_timestamp() < ctx->next_datagram_at)
+    {
+        ctx->schedule_send(ctx->user_data);
+        return;
+    }
     while (ctx->datagram_count && !ctx->failed) {
         xqc_wt_interop_datagram_t *item =
             &ctx->datagrams[ctx->datagram_head];
@@ -996,8 +1006,23 @@ xqc_wt_interop_datagram_write(xqc_wt_session_t *session, void *user_data)
         if (!ctx->mode) {
             ctx->completed++;
         }
+        if (ctx->pace_datagrams) {
+            ctx->next_datagram_at = xqc_monotonic_timestamp()
+                + XQC_WT_INTEROP_DATAGRAM_INTERVAL_US;
+            break;
+        }
     }
     ctx->schedule_send(ctx->user_data);
+}
+
+void
+xqc_wt_interop_datagram_tick(void)
+{
+    xqc_wt_interop_t *ctx = &xqc_wt_interop;
+
+    if (ctx->session && !ctx->stopped && ctx->datagram_count) {
+        xqc_wt_interop_datagram_write(ctx->session, NULL);
+    }
 }
 
 static void
@@ -1258,6 +1283,7 @@ xqc_wt_interop_init(xqc_engine_t *engine, int draft_version, int server,
     ctx->root = -1;
     ctx->directory = -1;
     ctx->server = server;
+    ctx->pace_datagrams = 1;
     ctx->schedule_send = schedule_send;
     ctx->finished = finished;
     ctx->user_data = user_data;

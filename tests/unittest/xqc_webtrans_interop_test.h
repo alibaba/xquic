@@ -14,5 +14,7 @@ void xqc_test_wt_interop_handshake_complete(void);
 void xqc_test_wt_interop_peer_close_complete(void);
 void xqc_test_wt_interop_peer_close_incomplete(void);
 void xqc_test_wt_interop_datagram_backpressure(void);
+void xqc_test_wt_interop_datagram_pacing(void);
+void xqc_test_wt_interop_datagram_pacing_close(void);
 
 #endif

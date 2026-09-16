@@ -814,3 +814,67 @@ xqc_test_wt_interop_datagram_backpressure(void)
     CU_ASSERT(xqc_wt_interop_test_sends == 1);
     xqc_wt_interop_test_clear();
 }
+
+void
+xqc_test_wt_interop_datagram_pacing(void)
+{
+    xqc_wt_session_t session = {0};
+
+    xqc_wt_interop_test_reset();
+    xqc_wt_interop.session = &session;
+    xqc_wt_interop.pace_datagrams = 1;
+    xqc_wt_interop_test_sequence = 0;
+    for (uint32_t i = 0; i < 3; i++) {
+        CU_ASSERT(xqc_wt_interop_datagram_queue(&i, sizeof(i)) == XQC_OK);
+    }
+    xqc_wt_interop_datagram_tick();
+    CU_ASSERT(xqc_wt_interop_test_sends == 1
+        && xqc_wt_interop.datagram_count == 2
+        && xqc_wt_interop.completed == 1);
+    xqc_wt_interop.next_datagram_at = xqc_monotonic_timestamp() + 1000000;
+    xqc_wt_interop_datagram_tick();
+    CU_ASSERT(xqc_wt_interop_test_sends == 1
+        && xqc_wt_interop.datagram_head == 1
+        && xqc_wt_interop.datagram_count == 2);
+    xqc_wt_interop.next_datagram_at = 0;
+    xqc_wt_interop_datagram_tick();
+    CU_ASSERT(xqc_wt_interop_test_sends == 2
+        && xqc_wt_interop.datagram_count == 1);
+    xqc_wt_interop.next_datagram_at = 0;
+    xqc_wt_interop_datagram_tick();
+    CU_ASSERT(xqc_wt_interop_test_sends == 3
+        && !xqc_wt_interop.datagram_count
+        && xqc_wt_interop.completed == 3);
+    xqc_wt_interop_test_clear();
+}
+
+void
+xqc_test_wt_interop_datagram_pacing_close(void)
+{
+    xqc_wt_session_t session = {0};
+    const char payload[] = "response";
+
+    xqc_wt_interop_test_reset();
+    xqc_wt_interop.session = &session;
+    xqc_wt_interop.server = 1;
+    xqc_wt_interop.pace_datagrams = 1;
+    CU_ASSERT(xqc_wt_interop_datagram_queue(payload, sizeof(payload))
+              == XQC_OK);
+    xqc_wt_interop_test_result = -XQC_EAGAIN;
+    xqc_wt_interop_datagram_tick();
+    CU_ASSERT(xqc_wt_interop_test_sends == 1
+        && xqc_wt_interop.datagram_count == 1
+        && !xqc_wt_interop.completed);
+    xqc_wt_interop_test_result = XQC_OK;
+    xqc_wt_interop_datagram_tick();
+    CU_ASSERT(xqc_wt_interop_test_sends == 2
+        && !xqc_wt_interop.datagram_count
+        && xqc_wt_interop.completed == 1);
+    CU_ASSERT(xqc_wt_interop_datagram_queue(payload, sizeof(payload))
+              == XQC_OK);
+    xqc_wt_interop_closed(&session, NULL, NULL, NULL);
+    xqc_wt_interop_datagram_tick();
+    CU_ASSERT(xqc_wt_interop_test_sends == 2
+        && !xqc_wt_interop.datagram_count);
+    xqc_wt_interop_test_clear();
+}

@@ -198,6 +198,9 @@ application bounds stream state and pending data, and confines file access to
 the configured input and output directories. Request names share one owned
 `REQUESTS` buffer; outgoing datagrams use a fixed 256-slot queue with 1200
 bytes per slot, retaining the queued payload when sending is blocked.
+The responder drains at most one queued datagram per 2 ms through the demo
+engine timer, limiting bursts in the runner's bounded network queue without
+changing the transport's unreliable-delivery semantics.
 The client acting as a responder finishes on a normal peer close only after
 it sent a response and drained all pending streams and datagrams. The runner
 verifies file counts and contents; peer application close codes are not a

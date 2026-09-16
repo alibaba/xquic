@@ -29,9 +29,10 @@ class EndpointTests(unittest.TestCase):
                     ROLE=role, TESTCASE=case, REQUESTS=request,
                     SSLKEYLOGFILE="/logs/custom.keys"))
                 self.assertEqual(args[0], f"/usr/local/bin/demo_{role}")
-                self.assertEqual(args[1:4], ["-W", "-v", "16"])
+                self.assertEqual(args[1:5], ["-W", "-C", "-v", "16"])
+                self.assertEqual(args.count("-C"), 1)
                 self.assertEqual("-A" in args, role == "server")
-                value_args = [arg for arg in args[4:] if arg != "-A"]
+                value_args = [arg for arg in args[5:] if arg != "-A"]
                 flags = dict(zip(value_args[::2], value_args[1::2]))
                 self.assertEqual(flags["-p"], port)
                 self.assertEqual(flags["-k"], "/logs/custom.keys")
@@ -76,6 +77,8 @@ class EndpointTests(unittest.TestCase):
                 self.assertEqual(endpoint.main(), status)
                 self.assertEqual(run.call_count, calls)
                 self.assertEqual(execute.call_count, int(status is None))
+                if status is None:
+                    self.assertEqual(execute.call_args.args[1].count("-C"), 1)
                 if calls:
                     run.assert_any_call(["/setup.sh"], check=True)
                 if calls == 2:

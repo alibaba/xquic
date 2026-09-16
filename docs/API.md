@@ -61,10 +61,10 @@ Support version count.
 ### xqc_cert_verify_flag_e
 Certificate verify flag.
 
-#### XQC_TLS_CERT_FLAG_NEED_VERIFY (0x00)
+#### XQC_TLS_CERT_FLAG_NEED_VERIFY (0x01)
 Verify certificate.
 
-#### XQC_TLS_CERT_FLAG_ALLOW_SELF_SIGNED (0x01)
+#### XQC_TLS_CERT_FLAG_ALLOW_SELF_SIGNED (0x02)
 Self-signed certificates is allowed.
 
 ### xqc_0rtt_flag_t

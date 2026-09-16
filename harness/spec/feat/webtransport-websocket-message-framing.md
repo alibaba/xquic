@@ -49,3 +49,21 @@ a protocol error. An unsupported Version is an error.
 A binary message maps to WebSocket opcode `0x2`; a text message maps to opcode
 `0x1`. WebSocket text validation and control-message mapping are outside the
 scope of this protocol.
+
+## Optional message-stream API
+
+`<xquic/xqc_webtransport_msg.h>` wraps one borrowed bidirectional stream after
+both endpoints select this framing. `xqc_wt_msg_stream_create()` bounds the
+payload size in both directions; request destruction by the final stream-close
+callback.
+
+`xqc_wt_msg_stream_send_msg()` copies and queues one message, returning
+`-XQC_EAGAIN` while a previous message is pending. The write callback calls
+`xqc_wt_msg_stream_flush()` to resume short or blocked writes;
+`xqc_wt_msg_stream_finish()` queues FIN after the message. Do not mix raw and
+framed sends on the same stream.
+
+The raw read callback passes chunks to `xqc_wt_msg_stream_recv_msg()`, which
+notifies once per complete message with a callback-lifetime borrowed payload.
+Handle parse errors as application-protocol stream errors; do not propagate
+them from the raw read callback.

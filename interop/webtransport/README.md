@@ -1,7 +1,7 @@
 # WebTransport interop image
 
-This image runs the existing XQUIC `wt_interop_client` and
-`wt_interop_server` demos. Its entrypoint maps the standard
+This image runs the XQUIC `demo_client` and `demo_server` binaries, with the
+interop application selected by the runner environment. Its entrypoint maps the standard
 [runner environment and application contract](https://github.com/quic-interop/quic-interop-runner/blob/master/webtransport.md)
 to demo arguments. It supports handshake (H) and file transfers over
 unidirectional streams (UR/US), bidirectional streams (BR/BS), and datagrams
@@ -20,10 +20,10 @@ docker build --platform linux/amd64 -f interop/webtransport/Dockerfile \
     -t xquic-webtransport-interop:local .
 ```
 
-The builder runs the entrypoint tests, complete CUnit suite and native
+The builder runs the entrypoint tests, complete CUnit suite and focused native
 WebTransport group before copying the same tested binaries into the image.
-It selects the `webtransport_interop` validation profile, which enables the
-`XQC_ENABLE_WEBTRANSPORT_INTEROP` CMake option used to build those binaries.
+It selects the `webtransport_interop` validation profile, which links the
+interop application into the normal demo binaries.
 
 Run all seven cases from a
 [runner checkout](https://github.com/quic-interop/quic-interop-runner)

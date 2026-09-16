@@ -167,21 +167,20 @@ Every negative case checks the specific peer response or error; a timeout,
 crash, TLS failure, or missing echo cannot satisfy it. The namespace ledger
 is maintained in the [validation specification](../harness/spec/validation.md#client-to-server-case-id-namespace).
 
-## Interoperability application and CI
+## Interoperability application
 
-On POSIX platforms, enable the WebTransport feature profile to build
-`wt_interop_client` and `wt_interop_server` under the build directory's
-`demo/` directory:
+On POSIX platforms, enable the WebTransport feature profile to link the
+interop application into the normal `demo_client` and `demo_server` binaries:
 
 ```sh
 ./scripts/validate.sh build --feature webtransport_interop
 ```
 
-The profile sets `XQC_ENABLE_WEBTRANSPORT_INTEROP=ON`. The targets compile
-the same `demo_client.c` and `demo_server.c` runtime as the echo demos, with
-`xqc_webtrans_interop.c` supplying the WebTransport application callbacks and
-policy. UDP, libevent, TLS, logging, and process completion remain shared. No
-separate runtime or CMake project is needed.
+The profile sets `XQC_ENABLE_WEBTRANSPORT_INTEROP=ON`. With the runner's
+`ROLE` and `TESTCASE` environment present, the demos select the interop
+callbacks and policy before parsing their shared `-W` and `-X` options.
+Without that environment they retain the echo behavior. Unsupported role/case
+combinations exit 127; interop mode requires `-W` and rejects `-X`.
 
 The interop application implements the runner's
 [handshake and file transfer contract](https://github.com/quic-interop/quic-interop-runner/blob/master/webtransport.md).
@@ -209,30 +208,48 @@ the session URL with `TESTCASE=transfer` and serves files. The generic
 `transfer` role responds on all three carriers and waits for the requester's
 session close before reporting success.
 `XQC_WT_WWW` and `XQC_WT_DOWNLOADS` override the default `/www` and
-`/downloads` directories for native execution. The container entrypoint and
-native cases pass `-A` explicitly so the interop server listens on all
-interfaces. Its application policy permits an explicit `-J` trust file for
-remote peers while retaining certificate and hostname verification. The echo
-policy retains its loopback trust-file restriction and accepts native case
-IDs; the interop policy requires `-W` and rejects `-X`.
+`/downloads` directories. The container entrypoint passes `-A` explicitly
+so the interop server listens on all interfaces. Its application policy
+permits an explicit `-J` trust file for remote peers while retaining
+certificate and hostname verification. The echo policy retains its loopback
+trust-file restriction and accepts native case IDs.
 
-The `webtransport.core` CI group also registers these interop and
-message-framing cases:
+The `webtransport.core` CI group also keeps the message-framing pair:
 
 | Case ID | Coverage |
 |---|---|
-| 1817 | H: exactly one handshake per endpoint and matching protocol selection with differing preference lists. |
-| 1818 | H rejection: disjoint protocol lists produce 403 and no negotiated-protocol output. |
-| 1819 | UR: exact 100/500/250 KiB and 1/2 MiB binary downloads, each completed with FIN. |
-| 1820 | UR rejection: a missing source file produces an explicit peer application error and no success result. |
-| 1821 | An unrelated CA fails TLS verification before a session becomes ready. |
-| 1822 | A mismatched hostname fails TLS verification before a session becomes ready. |
-| 1823, 1824 | US: the server receives the five binary files with FIN; a missing client source file fails explicitly. |
-| 1825, 1826 | BR: the client receives the five binary files on the request streams with FIN; a missing server source file fails explicitly. |
-| 1827, 1828 | BS: the server receives the five binary files on the request streams with FIN; a missing client source file fails explicitly. |
-| 1829, 1830 | DR: the client receives 200 complete files of 600–998 bytes; a missing server source file fails explicitly. |
-| 1831, 1832 | DS: the server receives 200 complete files of 600–998 bytes; a missing client source file fails explicitly. |
 | 1833, 1834 | Optional message framing exact echo; oversized peer and local message declarations rejected. |
+
+The public interop runner is the sole owner of handshake and file-transfer
+cases H, UR/US, BR/BS, and DR/DS. IDs 1817–1832 are retired from native CI
+and remain reserved in the namespace ledger. Protocol-level rejection cases
+remain in the native CI group; parser, ownership, backpressure, and filesystem
+boundary checks remain in CUnit.
+
+The `dev/webtransport-refactor` push workflow builds the image from that
+branch's exact commit and runs the public runner with xquic as client and
+server against every registered peer, including xquic itself. Its JSON and
+endpoint logs are retained as CI artifacts. A successful local build or native
+case run does not substitute for that external matrix.
+
+## Draft-16 coverage boundary
+
+The current HTTP/3 implementation is a draft-16 MVP, not a claim that every
+optional API in the draft is exposed. The evidence is divided deliberately:
+
+| Area | Local evidence | External evidence |
+|---|---|---|
+| SETTINGS and draft negotiation, CONNECT acceptance and rejection, application protocol selection | CUnit and native cases 1801–1804 | Runner handshake |
+| Bidirectional and unidirectional streams, FIN, reliable reset, Session ID validation | CUnit and native cases 1805–1808 | Runner UR/US/BR/BS |
+| Datagram association and buffering | CUnit and native cases 1809–1810 | Runner DR/DS |
+| CLOSE, DRAIN, GOAWAY and one-session limit without session flow control | CUnit and native cases 1811–1816, except GOAWAY is CUnit-only | Runner session close |
+| Input bounds, filesystem confinement and backpressure in the interop application | CUnit | Runner file transfers |
+
+Session-level flow control and pooling are deliberately disabled under
+[draft-16 §5.1](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-16#section-5.1).
+The session exporter (§4.8), explicit WebTransport priority controls (§3.4),
+HTTP/2 binding and 0-RTT CONNECT are not implemented by this MVP; neither the
+native CI cases nor the public interop runner establishes their support.
 
 For a quick local run after the feature-profile build:
 

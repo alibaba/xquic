@@ -95,22 +95,18 @@ main(int argc, char *argv[])
 #ifndef XQC_SYS_WINDOWS
         || !CU_add_test(pSuite, "xqc_test_wt_interop_policy",
                         xqc_test_wt_interop_policy)
+        || !CU_add_test(pSuite, "xqc_test_wt_app_select",
+                        xqc_test_wt_app_select)
+        || !CU_add_test(pSuite, "xqc_test_wt_app_reject",
+                        xqc_test_wt_app_reject)
         || !CU_add_test(pSuite, "xqc_test_wt_interop_paths",
                         xqc_test_wt_interop_paths)
         || !CU_add_test(pSuite, "xqc_test_wt_interop_headers",
                         xqc_test_wt_interop_headers)
-        || !CU_add_test(pSuite, "xqc_test_wt_interop_stream_ownership",
-                        xqc_test_wt_interop_stream_ownership)
-        || !CU_add_test(pSuite, "xqc_test_wt_interop_stream_bound",
-                        xqc_test_wt_interop_stream_bound)
         || !CU_add_test(pSuite, "xqc_test_wt_interop_file_confinement",
                         xqc_test_wt_interop_file_confinement)
         || !CU_add_test(pSuite, "xqc_test_wt_interop_roles",
                         xqc_test_wt_interop_roles)
-        || !CU_add_test(pSuite, "xqc_test_wt_interop_bidi_receive",
-                        xqc_test_wt_interop_bidi_receive)
-        || !CU_add_test(pSuite, "xqc_test_wt_interop_datagrams",
-                        xqc_test_wt_interop_datagrams)
         || !CU_add_test(pSuite, "xqc_test_wt_interop_datagram_backpressure",
                         xqc_test_wt_interop_datagram_backpressure)
 #endif

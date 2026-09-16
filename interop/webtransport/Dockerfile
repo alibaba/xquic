@@ -30,8 +30,8 @@ ARG XQUIC_REVISION=unknown
 ARG IMAGE_SOURCE=https://github.com/alibaba/xquic
 LABEL org.opencontainers.image.source="${IMAGE_SOURCE}" \
     org.opencontainers.image.revision="${XQUIC_REVISION}"
-COPY --from=builder /xquic/build/validation/demo/wt_interop_client /usr/local/bin/
-COPY --from=builder /xquic/build/validation/demo/wt_interop_server /usr/local/bin/
+COPY --from=builder /xquic/build/validation/demo/demo_client /usr/local/bin/
+COPY --from=builder /xquic/build/validation/demo/demo_server /usr/local/bin/
 COPY --from=builder /xquic/interop/webtransport/run_endpoint.py /run_endpoint.py
 RUN mkdir -p /logs /downloads /www
 ENTRYPOINT ["python3", "/run_endpoint.py"]

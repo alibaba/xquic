@@ -23,6 +23,9 @@
 #include "xqc_hq.h"
 #include "xqc_wt_app.h"
 #include "xqc_wt_echo_client.h"
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+#include "xqc_webtrans_interop.h"
+#endif
 #include "../tests/platform.h"
 
 #ifdef XQC_SYS_WINDOWS
@@ -2405,13 +2408,13 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
         }
     }
 
-    if (xqc_demo_wt_app_policy.require_webtransport
+    if (xqc_demo_wt_app_policy->require_webtransport
         && !args->quic_cfg.webtransport)
     {
         fprintf(stderr, "This WebTransport application requires -W\n");
         return -1;
     }
-    if (wt_case_selected && !xqc_demo_wt_app_policy.allow_case_id) {
+    if (wt_case_selected && !xqc_demo_wt_app_policy->allow_case_id) {
         fprintf(stderr, "This WebTransport application does not accept -X\n");
         return -1;
     }
@@ -2428,7 +2431,7 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
     }
     if ((args->quic_cfg.wt_print_response
          || args->quic_cfg.wt_payload_specified)
-        && !xqc_demo_wt_app_policy.allow_client_probe)
+        && !xqc_demo_wt_app_policy->allow_client_probe)
     {
         fprintf(stderr,
                 "This WebTransport application does not support -g or -H\n");
@@ -2513,7 +2516,7 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
             return -1;
         }
         if (!loopback
-            && !xqc_demo_wt_app_policy.allow_remote_certificate)
+            && !xqc_demo_wt_app_policy->allow_remote_certificate)
         {
             fprintf(stderr, "-J requires a WebTransport loopback peer\n");
             return -1;
@@ -2797,8 +2800,15 @@ xqc_demo_cli_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
 
     if (user_conn->ctx->args->quic_cfg.webtransport) {
         xqc_demo_cli_client_args_t *args = user_conn->ctx->args;
-        xqc_demo_wt_client_open(h3_conn, args->req_cfg.reqs[0].auth,
-            args->req_cfg.reqs[0].path, args->quic_cfg.wt_origin);
+        xqc_int_t (*open_session)(xqc_h3_conn_t *, const char *,
+            const char *, const char *) = xqc_wt_echo_client_open;
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+        if (xqc_demo_wt_app_is_interop()) {
+            open_session = xqc_wt_interop_client_open;
+        }
+#endif
+        open_session(h3_conn, args->req_cfg.reqs[0].auth,
+                     args->req_cfg.reqs[0].path, args->quic_cfg.wt_origin);
     }
 
 }
@@ -2899,7 +2909,15 @@ xqc_demo_cli_init_alpn_ctx(xqc_demo_cli_ctx_t *ctx)
     }
 
     if (ctx->args->quic_cfg.webtransport) {
-        ret = xqc_demo_wt_client_init(ctx->engine,
+        xqc_int_t (*init)(xqc_engine_t *, int, int, size_t, int,
+            void (*)(void *), void (*)(void *), void *) =
+            xqc_wt_echo_client_init;
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+        if (xqc_demo_wt_app_is_interop()) {
+            init = xqc_wt_interop_client_init;
+        }
+#endif
+        ret = init(ctx->engine,
             ctx->args->quic_cfg.wt_draft_version,
             ctx->args->quic_cfg.wt_case_id,
             ctx->args->quic_cfg.wt_payload_specified
@@ -2925,7 +2943,12 @@ xqc_demo_cli_init_xquic_engine(xqc_demo_cli_ctx_t *ctx, xqc_demo_cli_client_args
     xqc_demo_cli_init_callback(&callback, &transport_cbs, args);
     if (args->quic_cfg.webtransport) {
         transport_cbs.cert_verify_cb = xqc_demo_cli_wt_verify_cert;
-        transport_cbs.conn_closing = xqc_demo_wt_client_conn_closing;
+        transport_cbs.conn_closing = xqc_wt_echo_client_conn_closing;
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+        if (xqc_demo_wt_app_is_interop()) {
+            transport_cbs.conn_closing = xqc_wt_interop_client_conn_closing;
+        }
+#endif
     }
 
     xqc_config_t config;
@@ -3490,6 +3513,11 @@ main(int argc, char *argv[])
 
     /* init env if necessary */
     xqc_platform_init_env();
+
+    if (xqc_demo_wt_app_select(0) != 0) {
+        fprintf(stderr, "Unsupported WebTransport client case\n");
+        return 127;
+    }
     
     /* get input client args */
     xqc_demo_cli_client_args_t *args;
@@ -3519,8 +3547,18 @@ main(int argc, char *argv[])
     event_base_dispatch(ctx->eb);
 
     /* Capture before teardown: a timeout must not become a successful close. */
-    int result = args->quic_cfg.webtransport
-        ? xqc_demo_wt_client_finish() : 0;
+    int result = 0;
+    if (args->quic_cfg.webtransport) {
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+        if (xqc_demo_wt_app_is_interop()) {
+            result = xqc_wt_interop_client_finish();
+
+        } else
+#endif
+        {
+            result = xqc_wt_echo_client_finish();
+        }
+    }
     xqc_engine_destroy(ctx->engine);
     xqc_demo_cli_free_ctx(ctx);
     return result;

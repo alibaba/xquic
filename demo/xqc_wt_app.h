@@ -16,6 +16,10 @@ typedef struct {
     xqc_demo_wt_server_init_pt  server_init;
 } xqc_demo_wt_app_policy_t;
 
-extern const xqc_demo_wt_app_policy_t xqc_demo_wt_app_policy;
+extern const xqc_demo_wt_app_policy_t *xqc_demo_wt_app_policy;
+
+/* Select once, before parsing the shared demo command line. */
+int xqc_demo_wt_app_select(int server);
+int xqc_demo_wt_app_is_interop(void);
 
 #endif

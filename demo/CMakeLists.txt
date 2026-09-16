@@ -10,6 +10,7 @@ set(
     DEMO_CLIENT_SOURCES
     ${HQ_SOURCES}
     "demo_client.c"
+    "xqc_wt_app.c"
     "xqc_wt_echo_client.c"
     "xqc_wt_echo_policy.c"
     "${CMAKE_SOURCE_DIR}/case_test/webtransport/xqc_webtrans_test_cases.c"
@@ -19,6 +20,7 @@ set(
     DEMO_SERVER_SOURCES
     ${HQ_SOURCES}
     "demo_server.c"
+    "xqc_wt_app.c"
     "xqc_wt_echo_server.c"
     "xqc_wt_echo_policy.c"
     "${CMAKE_SOURCE_DIR}/case_test/webtransport/xqc_webtrans_test_cases.c"
@@ -57,12 +59,10 @@ if(XQC_ENABLE_WEBTRANSPORT_INTEROP AND NOT UNIX)
 endif()
 
 if(XQC_ENABLE_WEBTRANSPORT_INTEROP)
-    foreach(role client server)
-        add_executable(wt_interop_${role}
-            ${HQ_SOURCES}
-            "demo_${role}.c"
-            "xqc_webtrans_interop.c"
-        )
-        target_link_libraries(wt_interop_${role} ${APP_DEPEND_LIBS})
-    endforeach()
+    target_sources(demo_client PRIVATE "xqc_webtrans_interop.c")
+    target_sources(demo_server PRIVATE "xqc_webtrans_interop.c")
+    target_compile_definitions(demo_client PRIVATE
+        XQC_ENABLE_WEBTRANSPORT_INTEROP=1)
+    target_compile_definitions(demo_server PRIVATE
+        XQC_ENABLE_WEBTRANSPORT_INTEROP=1)
 endif()

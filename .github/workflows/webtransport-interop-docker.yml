@@ -59,15 +59,16 @@ jobs:
       - name: Test all xquic client and server pairs
         working-directory: ${{ runner.temp }}/quic-interop-runner
         run: |
+          docker compose version
           set +e
           "$RUNNER_TEMP/interop-venv/bin/python" run.py \
-            -p webtransport -c xquic \
+            -d -p webtransport -c xquic \
             -r xquic=xquic-webtransport-interop:refactor \
             -j "$RUNNER_TEMP/webtransport-client-results.json" \
             -l "$RUNNER_TEMP/webtransport-client-logs"
           client_status=$?
           "$RUNNER_TEMP/interop-venv/bin/python" run.py \
-            -p webtransport -s xquic \
+            -d -p webtransport -s xquic \
             -r xquic=xquic-webtransport-interop:refactor \
             -j "$RUNNER_TEMP/webtransport-server-results.json" \
             -l "$RUNNER_TEMP/webtransport-server-logs"
@@ -77,6 +78,27 @@ jobs:
             "$client_status" "$server_status"
           test "$client_status" -eq 0
           test "$server_status" -eq 0
+          jq -e '
+            (.clients | sort) == ["xquic"] and
+            (.servers | sort) ==
+              ["flupke-webtransport", "ngtcp2", "webtransport-go", "xquic"] and
+            (.tests | keys | sort) == ["BR", "BS", "DR", "DS", "H", "UR", "US"] and
+            (.results | length) == 4 and
+            all(.results[]; length == 7 and
+              all(.[]; .result == "succeeded" or .result == "failed" or
+                .result == "unsupported"))
+          ' "$RUNNER_TEMP/webtransport-client-results.json"
+          jq -e '
+            (.clients | sort) ==
+              ["chrome", "firefox", "flupke-webtransport", "ngtcp2",
+               "webtransport-go", "xquic"] and
+            (.servers | sort) == ["xquic"] and
+            (.tests | keys | sort) == ["BR", "BS", "DR", "DS", "H", "UR", "US"] and
+            (.results | length) == 6 and
+            all(.results[]; length == 7 and
+              all(.[]; .result == "succeeded" or .result == "failed" or
+                .result == "unsupported"))
+          ' "$RUNNER_TEMP/webtransport-server-results.json"
 
       - name: Preserve interop evidence
         if: always()

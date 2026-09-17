@@ -2,7 +2,7 @@ name: Publish XQUIC WebTransport image
 
 on:
   push:
-    branches: [feat/webtrans-interop, dev/webtransport-refactor]
+    branches: [feat/webtrans-interop]
   workflow_dispatch:
 
 permissions:
@@ -16,119 +16,6 @@ env:
   IMAGE_NAME: ghcr.io/alibaba/xquic/xquic-webtransport-interop
 
 jobs:
-  verify-refactor:
-    if: >-
-      github.repository == 'alibaba/xquic' &&
-      github.ref == 'refs/heads/dev/webtransport-refactor'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 180
-    env:
-      RUNNER_REF: f0fdfddd4aad9f04f6356aaf85dac83212f88845
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-
-      - uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
-        with:
-          version: version=v28.3.0
-
-      - name: Enable IPv6 support
-        run: sudo modprobe ip6table_filter
-
-      - name: Build the branch's tested amd64 image
-        run: |
-          docker buildx build --load --platform linux/amd64 \
-            --build-arg "XQUIC_REVISION=${GITHUB_SHA}" \
-            --tag xquic-webtransport-interop:refactor \
-            -f interop/webtransport/Dockerfile .
-          test "$(docker image inspect xquic-webtransport-interop:refactor \
-            --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" \
-            = "$GITHUB_SHA"
-
-      - name: Prepare pinned interop runner
-        run: |
-          sudo apt-get update
-          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            python3-venv ripgrep tshark
-          python3 -m venv "$RUNNER_TEMP/interop-venv"
-          git init "$RUNNER_TEMP/quic-interop-runner"
-          git -C "$RUNNER_TEMP/quic-interop-runner" remote add origin \
-            https://github.com/quic-interop/quic-interop-runner.git
-          git -C "$RUNNER_TEMP/quic-interop-runner" fetch --depth 1 origin \
-            "$RUNNER_REF"
-          git -C "$RUNNER_TEMP/quic-interop-runner" checkout --detach FETCH_HEAD
-          test "$(git -C "$RUNNER_TEMP/quic-interop-runner" rev-parse HEAD)" \
-            = "$RUNNER_REF"
-          "$RUNNER_TEMP/interop-venv/bin/pip" install -r \
-            "$RUNNER_TEMP/quic-interop-runner/requirements.txt"
-
-      - name: Test all xquic client and server pairs
-        working-directory: ${{ runner.temp }}/quic-interop-runner
-        run: |
-          docker compose version
-          set +e
-          "$RUNNER_TEMP/interop-venv/bin/python" run.py \
-            -d -p webtransport -c xquic \
-            -r xquic=xquic-webtransport-interop:refactor \
-            -j "$RUNNER_TEMP/webtransport-client-results.json" \
-            -l "$RUNNER_TEMP/webtransport-client-logs"
-          client_status=$?
-          "$RUNNER_TEMP/interop-venv/bin/python" run.py \
-            -d -p webtransport -s xquic \
-            -r xquic=xquic-webtransport-interop:refactor \
-            -j "$RUNNER_TEMP/webtransport-server-results.json" \
-            -l "$RUNNER_TEMP/webtransport-server-logs"
-          server_status=$?
-          set -e
-          printf 'client status: %s; server status: %s\n' \
-            "$client_status" "$server_status"
-          test -d "$RUNNER_TEMP/webtransport-client-logs"
-          test -d "$RUNNER_TEMP/webtransport-server-logs"
-          if rg -n --glob output.txt 'WT INTEROP FAIL' \
-              "$RUNNER_TEMP/webtransport-client-logs" \
-              "$RUNNER_TEMP/webtransport-server-logs"; then
-            echo 'XQUIC endpoint reported an interop failure' >&2
-            exit 1
-          else
-            test "$?" -eq 1
-          fi
-          test "$client_status" -eq 0
-          test "$server_status" -eq 0
-          jq -e '
-            (.clients | sort) == ["xquic"] and
-            (.servers | sort) ==
-              ["flupke-webtransport", "ngtcp2", "webtransport-go", "xquic"] and
-            (.tests | keys | sort) == ["BR", "BS", "DR", "DS", "H", "UR", "US"] and
-            (.results | length) == 4 and
-            all(.results[]; length == 7 and
-              all(.[]; .result == "succeeded" or .result == "failed" or
-                .result == "unsupported"))
-          ' "$RUNNER_TEMP/webtransport-client-results.json"
-          jq -e '
-            (.clients | sort) ==
-              ["chrome", "firefox", "flupke-webtransport", "ngtcp2",
-               "webtransport-go", "xquic"] and
-            (.servers | sort) == ["xquic"] and
-            (.tests | keys | sort) == ["BR", "BS", "DR", "DS", "H", "UR", "US"] and
-            (.results | length) == 6 and
-            all(.results[]; length == 7 and
-              all(.[]; .result == "succeeded" or .result == "failed" or
-                .result == "unsupported"))
-          ' "$RUNNER_TEMP/webtransport-server-results.json"
-
-      - name: Preserve interop evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: webtransport-interop-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/webtransport-client-results.json
-            ${{ runner.temp }}/webtransport-client-logs/
-            ${{ runner.temp }}/webtransport-server-results.json
-            ${{ runner.temp }}/webtransport-server-logs/
-          if-no-files-found: warn
-
   publish:
     if: >-
       github.repository == 'alibaba/xquic' &&

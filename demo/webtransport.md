@@ -237,11 +237,13 @@ and remain reserved in the namespace ledger. Protocol-level rejection cases
 remain in the native CI group; parser, ownership, backpressure, and filesystem
 boundary checks remain in CUnit.
 
-The `dev/webtransport-refactor` push workflow builds the image from that
-branch's exact commit and runs the public runner with xquic as client and
-server against every registered peer, including xquic itself. Its JSON and
-endpoint logs are retained as CI artifacts. A successful local build or native
-case run does not substitute for that external matrix.
+Cross-implementation validation is run locally with an image built from the
+exact branch commit, with xquic as client and server against every registered
+peer, including xquic itself. Retain the runner JSON and endpoint logs as
+validation evidence and inspect endpoint failures even when a runner case
+appears successful. Repository CI runs the native XQUIC functional cases; it
+does not run the external matrix. A successful native case run does not
+substitute for cross-implementation evidence.
 
 ## Draft-16 coverage boundary
 

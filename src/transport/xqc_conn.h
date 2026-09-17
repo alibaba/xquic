@@ -689,6 +689,10 @@ xqc_int_t xqc_conn_encode_local_tp(xqc_connection_t *conn, uint8_t *dst, size_t 
 
 xqc_int_t xqc_conn_on_recv_retry(xqc_connection_t *conn, xqc_cid_t *retry_scid);
 
+/* validate remembered peer limits after the server accepted 0-RTT */
+xqc_int_t xqc_conn_check_0rtt_transport_params(xqc_connection_t *conn,
+    const xqc_transport_params_t *params, xqc_bool_t early_data_accepted);
+
 /* exposed for unit tests; validates the peer's transport parameters per RFC 9000 7.3 */
 xqc_int_t xqc_conn_check_transport_params(xqc_connection_t *conn,
     const xqc_transport_params_t *params);

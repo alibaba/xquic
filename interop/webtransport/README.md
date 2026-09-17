@@ -13,10 +13,9 @@ and the requested hostname. Application behavior and native CI are described in
 Both roles enable the demos' existing transport pacing option for the
 simulator's bounded network queue; the runner's case behavior is unchanged.
 
-Build the branch image from the XQUIC repository root:
+Build an image from the XQUIC repository root:
 
 ```sh
-git switch feat/webtransport
 python3 interop/webtransport/test_endpoint.py
 docker build --platform linux/amd64 -f interop/webtransport/Dockerfile \
     --build-arg XQUIC_REVISION="$(git rev-parse HEAD)" \
@@ -38,9 +37,7 @@ python3 run.py -p webtransport -s xquic -c xquic \
 ```
 
 The [publication workflow](../../.github/workflows/webtransport-interop-docker.yml)
-builds the checked-out `alibaba/xquic` commit and publishes only when the
-workflow runs on `feat/webtransport`.
-It publishes
+builds the checked-out `alibaba/xquic` commit and publishes
 `ghcr.io/alibaba/xquic/xquic-webtransport-interop` with `sha-<xquic-commit>`
 and `latest` tags. Only the official repository publishes this image, using
 `interop/webtransport/Dockerfile`; the existing QUIC image remains at

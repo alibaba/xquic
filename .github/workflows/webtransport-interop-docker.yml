@@ -2,7 +2,7 @@ name: Publish XQUIC WebTransport image
 
 on:
   push:
-    branches: [feat/webtrans-interop]
+    branches: [feat/webtransport]
   workflow_dispatch:
 
 permissions:
@@ -19,7 +19,7 @@ jobs:
   publish:
     if: >-
       github.repository == 'alibaba/xquic' &&
-      github.ref == 'refs/heads/feat/webtrans-interop'
+      github.ref == 'refs/heads/feat/webtransport'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -29,6 +29,12 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+
+      - name: Verify the feat/webtransport branch head
+        shell: bash
+        run: |
+          test "$(git ls-remote --exit-code origin "$GITHUB_REF" \
+            | cut -f1)" = "$GITHUB_SHA"
 
       - name: Build and test the amd64 endpoint
         run: |

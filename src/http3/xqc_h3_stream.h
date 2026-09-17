@@ -17,6 +17,19 @@
 /* Default maximum total size of blocked buffers per connection (8 MB) */
 #define XQC_H3_CONN_MAX_BLOCKED_BUF_SIZE_DEFAULT (8 * 1024 * 1024)
 
+/*
+ * Resume a paused request once its buffered body has drained to a quarter of
+ * max_body_buf_per_stream.
+ */
+#define XQC_H3_BODY_BUF_LOW_WATER(limit)    ((limit) / 4)
+
+/*
+ * Bytes per buffered DATA frame assumed when deriving a node bound from
+ * max_body_buf_per_stream. The byte limit counts payload; each DATA frame
+ * appended to body_buf also costs a node.
+ */
+#define XQC_H3_BODY_BUF_MIN_BYTES_PER_NODE  256
+
 typedef struct xqc_h3_conn_s    xqc_h3_conn_t;
 typedef struct xqc_h3_stream_s  xqc_h3_stream_t;
 
@@ -80,6 +93,9 @@ typedef enum {
     XQC_HTTP3_STREAM_FLAG_ACTIVELY_CLOSED       = 0x1000,
     /* FIN was sent and no data will be sent any more */
     XQC_HTTP3_STREAM_FLAG_FIN_SENT              = 0x2000,
+    /* reading the transport stream is suspended until the application
+       drains body_buf; cleared in xqc_h3_request_recv_body() */
+    XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED       = 0x4000,
 } xqc_h3_stream_flag;
 
 typedef struct xqc_h3_stream_pctx_s {

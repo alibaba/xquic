@@ -74,13 +74,13 @@ xqc_wt_h3_conn_create(xqc_h3_conn_t *h3c, const xqc_cid_t *cid, void *data)
         ret = xqc_h3_conn_set_setting(h3c, XQC_WT_SETTING_MAX_SESSIONS,
                                     ctx->settings.max_sessions_count);
     }
-    if (ret == XQC_OK && ctx->settings.draft_version
-                            == XQC_WEBTRANSPORT_DRAFT_VERSION_16)
+    if (ret == XQC_OK
+        && ctx->settings.draft_version == XQC_WEBTRANSPORT_DRAFT_VERSION_16)
     {
         ret = xqc_h3_conn_set_setting(h3c, XQC_WT_SETTING_ENABLED_16, 1);
     }
-    if (ret == XQC_OK && ctx->settings.draft_version
-                            == XQC_WEBTRANSPORT_DRAFT_VERSION_16
+    if (ret == XQC_OK
+        && ctx->settings.draft_version == XQC_WEBTRANSPORT_DRAFT_VERSION_16
         && ctx->settings.max_sessions_count > 1)
     {
         /* draft-ietf-webtrans-http3-16 §§5.1, 5.5, 9.2. */

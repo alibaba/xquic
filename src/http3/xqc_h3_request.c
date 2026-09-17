@@ -117,6 +117,7 @@ xqc_h3_request_destroy(xqc_h3_request_t *h3_request)
         xqc_h3_headers_free(&h3_request->h3_header[i]);
     }
 
+    h3_request->body_buf_bytes = 0;
     xqc_list_buf_list_free(&h3_request->body_buf);
     xqc_free(h3_request);
 }
@@ -177,6 +178,7 @@ xqc_h3_request_create_inner(xqc_h3_conn_t *h3_conn, xqc_h3_stream_t *h3_stream, 
 
     xqc_init_list_head(&h3_request->body_buf);
     h3_request->body_buf_count = 0;
+    h3_request->body_buf_bytes = 0;
 
     xqc_h3_request_init_callbacks(h3_conn, h3_request);
 
@@ -742,6 +744,70 @@ xqc_h3_request_recv_headers(xqc_h3_request_t *h3_request, uint8_t *fin)
     return NULL;
 }
 
+/* Give `bytes` back to this request's body_buf counter. Saturating: it is a
+   size_t. */
+static void
+xqc_h3_request_body_buf_release(xqc_h3_request_t *h3_request, size_t bytes)
+{
+    if (bytes == 0) {
+        return;
+    }
+
+    h3_request->body_buf_bytes = (h3_request->body_buf_bytes >= bytes)
+                                     ? h3_request->body_buf_bytes - bytes
+                                     : 0;
+}
+
+
+/*
+ * Clear the pause and re-arm the transport stream once this request's own
+ * body_buf has drained to its low watermark.
+ */
+static void
+xqc_h3_request_body_buf_resume(xqc_h3_request_t *h3_request)
+{
+    xqc_h3_stream_t *h3s = h3_request->h3_stream;
+    xqc_h3_conn_t   *h3c;
+    size_t           limit;
+
+    if (h3s == NULL || !(h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED)) {
+        return;
+    }
+
+    h3c = h3s->h3c;
+    if (h3c == NULL) {
+        return;
+    }
+
+    /* both arms that can pause must fall to their low watermark first */
+    limit = h3c->max_body_buf_per_stream;
+    if (limit > 0) {
+        uint64_t node_limit = (uint64_t)(limit / XQC_H3_BODY_BUF_MIN_BYTES_PER_NODE);
+        if (node_limit == 0) {
+            node_limit = 1;
+        }
+        if (h3_request->body_buf_bytes > XQC_H3_BODY_BUF_LOW_WATER(limit)) {
+            return;
+        }
+        if (h3_request->body_buf_count > XQC_H3_BODY_BUF_LOW_WATER(node_limit)) {
+            return;
+        }
+    }
+
+    h3s->flags &= ~XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED;
+
+    /* h3s->stream can already be NULL: xqc_h3_stream_close_notify() clears
+       it and can leave the request alive */
+    if (h3s->stream != NULL) {
+        xqc_stream_ready_to_read(h3s->stream);
+        xqc_log(h3c->log, XQC_LOG_DEBUG,
+                "|body_buf resumed|stream_id:%ui|bytes:%uz|nodes:%ui|",
+                h3s->stream_id, h3_request->body_buf_bytes,
+                h3_request->body_buf_count);
+    }
+}
+
+
 ssize_t
 xqc_h3_request_recv_body(xqc_h3_request_t *h3_request, unsigned char *recv_buf,
     size_t recv_buf_size, uint8_t *fin)
@@ -764,6 +830,9 @@ xqc_h3_request_recv_body(xqc_h3_request_t *h3_request, unsigned char *recv_buf,
         if (buf->data_len - buf->consumed_len <= recv_buf_size - n_recv) {
             memcpy(recv_buf + n_recv, buf->data + buf->consumed_len,
                    buf->data_len - buf->consumed_len);
+            /* released from this branch's own quantity, before n_recv moves */
+            xqc_h3_request_body_buf_release(h3_request,
+                                            buf->data_len - buf->consumed_len);
             n_recv += buf->data_len - buf->consumed_len;
             h3_request->body_buf_count--;
             xqc_list_buf_free(list_buf);
@@ -771,10 +840,17 @@ xqc_h3_request_recv_body(xqc_h3_request_t *h3_request, unsigned char *recv_buf,
         } else {
             memcpy(recv_buf + n_recv, buf->data + buf->consumed_len, recv_buf_size - n_recv);
             buf->consumed_len += recv_buf_size - n_recv;
+            /* computed before the assignment below: once n_recv is
+             * recv_buf_size, recv_buf_size - n_recv is no longer this
+             * iteration's quantity */
+            xqc_h3_request_body_buf_release(h3_request, recv_buf_size - n_recv);
             n_recv = recv_buf_size;
             break;
         }
     }
+
+    /* the application has taken bytes out; the stream may be readable again */
+    xqc_h3_request_body_buf_resume(h3_request);
 
     /* all data in body buf was read, reset XQC_REQ_NOTIFY_READ_BODY */
     if (xqc_list_empty(&h3_request->body_buf)) {

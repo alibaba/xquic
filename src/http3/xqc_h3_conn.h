@@ -104,6 +104,9 @@ typedef struct xqc_h3_conn_s {
 
     /* blocked buffer monitoring */
     size_t                       total_blocked_buf_size;           /* current total blocked buffer size */
+
+    /* body buffer limit per stream (0 = unbounded) */
+    size_t                       max_body_buf_per_stream;
 } xqc_h3_conn_t;
 
 

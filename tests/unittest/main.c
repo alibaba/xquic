@@ -373,6 +373,27 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_h3_headers_capacity_uses_internal_error", xqc_test_h3_headers_capacity_uses_internal_error)
         || !CU_add_test(pSuite, "xqc_test_h3_valid_headers_smoke", xqc_test_h3_valid_headers_smoke)
         || !CU_add_test(pSuite, "xqc_test_h3_frame_parse_error_uses_frame_error", xqc_test_h3_frame_parse_error_uses_frame_error)
+        /* conn_settings.max_body_buf_per_stream: the HTTP/3 body buffer bound */
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_flag_bit_is_free",
+                        xqc_test_h3_body_buf_flag_bit_is_free)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_no_spin",
+                        xqc_test_h3_body_buf_no_spin)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_second_stream_unaffected",
+                        xqc_test_h3_body_buf_second_stream_unaffected)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_backpressure",
+                        xqc_test_h3_body_buf_backpressure)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_resume",
+                        xqc_test_h3_body_buf_resume)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_reset_while_paused",
+                        xqc_test_h3_body_buf_reset_while_paused)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_tiny_frames",
+                        xqc_test_h3_body_buf_tiny_frames)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_reaches_server",
+                        xqc_test_h3_body_buf_reaches_server)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_conn_arm_orphan",
+                        xqc_test_h3_body_buf_conn_arm_orphan)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_pause_is_per_stream_only",
+                        xqc_test_h3_body_buf_pause_is_per_stream_only)
                 || !CU_add_test(pSuite, "xqc_test_h3_settings_frame_size_limit", xqc_test_h3_settings_frame_size_limit)
         || !CU_add_test(pSuite, "xqc_test_h3_control_frame_unexpected", xqc_test_h3_control_frame_unexpected)
         || !CU_add_test(pSuite, "xqc_test_h3_missing_settings", xqc_test_h3_missing_settings)

@@ -539,10 +539,14 @@ for the lifetime of the connection.
 The H3 adapter supports exactly draft-07 and draft-16. Draft-16 requires its
 own SETTINGS, CONNECT token and reliable-reset prerequisites; draft-07
 retains its Chrome-compatible negotiation. Shared codecs may be reused only
-where both revisions define the same wire format. The draft-16 MVP permits
-one simultaneous session per connection without session-level flow control,
-as allowed by draft-16 Section 5.1. It MUST reject additional simultaneous
-sessions and MUST NOT advertise pooling support.
+where both revisions define the same wire format. The default draft-16
+configuration permits one simultaneous session per connection. Configuring
+`max_sessions_count>1` advertises initial session stream and data credit and
+enables simultaneous sessions only if the peer also enables flow control,
+as required by draft-16 Section 5.1. Each session owns its own cumulative
+stream and data limits and flow-control capsule state. Without mutual
+negotiation, additional simultaneous CONNECT requests are rejected with
+`H3_REQUEST_REJECTED`.
 
 The future capsule integration target is HTTP/2 draft 15; this is not a
 currently supported protocol version. Adding another draft or RFC requires:
@@ -583,12 +587,17 @@ or `NULL` when no client protocol was negotiated. Encoding and validation
 follow the selected binding's governing IETF source; application protocol
 selection policy remains with the server application.
 
-The draft-16 MVP supports one simultaneous session, bidirectional stream
-exchange with FIN, unidirectional stream delivery, datagrams, stream reset,
-drain and close. It MUST NOT send nonzero WT INITIAL flow-control SETTINGS.
-It ignores session flow-control capsules and rejects an additional
-simultaneous CONNECT with `H3_REQUEST_REJECTED`. HTTP/2 per-stream flow-control
-capsules remain prohibited.
+The draft-16 binding supports bidirectional stream exchange with FIN,
+unidirectional stream delivery, datagrams, stream reset, drain and close.
+The default configuration allows one simultaneous session and ignores
+session flow-control capsules. Configured pooling sends nonzero initial WT
+flow-control SETTINGS and enforces per-session stream and data credit after
+mutual negotiation. It renews cumulative data credit as stream bodies are
+consumed and stream credit as peer-created streams close, using WT_MAX_DATA
+and WT_MAX_STREAMS Capsules on the owning session's CONNECT stream. Without
+mutual negotiation, it rejects an additional simultaneous CONNECT with
+`H3_REQUEST_REJECTED`. HTTP/2 per-stream
+flow-control capsules remain prohibited.
 
 Draft-16 resets MUST reliably deliver the complete outgoing WT stream header
 using `RESET_STREAM_AT` (`0x24`). Reset processing and acknowledgement MUST
@@ -599,10 +608,10 @@ ownership throughout.
 Close capsules validate UTF-8 and reject trailing data. Drain and GOAWAY MUST
 allow established sessions to continue exchanging data and creating streams.
 
-The native demo checks reset, bidirectional echo with FIN, datagram echo and
-close. Pooling, session-level flow control, HTTP/2, exporters and 0-RTT CONNECT
-are outside this implementation stage. Existing frozen server APIs and context
-lifetime rules apply to both versions.
+The native demo checks reset, bidirectional echo with FIN, datagram echo,
+close, and two concurrent draft-16 sessions with flow control. HTTP/2,
+exporters and 0-RTT CONNECT are outside this implementation stage. Existing
+frozen server APIs and context lifetime rules apply to both versions.
 
 ### Optional Application Message Framing
 

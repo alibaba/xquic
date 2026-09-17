@@ -33,10 +33,13 @@ connection. `XQC_WEBTRANSPORT_DRAFT_VERSION_7` advertises only draft-07;
 highest common version. Applications MUST use these enum constants, not
 literal draft numbers.
 
-Draft-16 configuration requires `max_sessions_count=1`; session pooling and
-session-level flow control are not enabled. Missing draft-16 prerequisites
-MUST cause rejection after version selection, without downgrading to
-draft-07.
+Draft-16 configuration permits `max_sessions_count>1`. XQUIC advertises
+nonzero initial per-session stream and data limits in that configuration and
+allows a second simultaneous session only when the peer also enables flow
+control. Each session has independent cumulative stream and data credit.
+Without mutual flow-control negotiation, only one simultaneous session is
+allowed. Missing draft-16 prerequisites MUST cause rejection after version
+selection, without downgrading to draft-07.
 
 ## 2. Connection Creation and ctx
 

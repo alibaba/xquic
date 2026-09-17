@@ -375,8 +375,19 @@ xqc_test_wt_context_errors(void)
     settings = ctx->settings;
     settings.max_sessions_count = 2;
     CU_ASSERT(xqc_wt_engine_set_default_settings(engine, &settings)
+              == XQC_OK);
+    CU_ASSERT(ctx->settings.max_sessions_count == 2);
+    settings.max_bidi_streams = (UINT64_C(1) << 60) + 1;
+    CU_ASSERT(xqc_wt_engine_set_default_settings(engine, &settings)
               == -XQC_EPARAM);
-    CU_ASSERT(ctx->settings.max_sessions_count == 1);
+    settings.max_bidi_streams = ctx->settings.max_bidi_streams;
+    settings.max_uni_streams = (UINT64_C(1) << 60) + 1;
+    CU_ASSERT(xqc_wt_engine_set_default_settings(engine, &settings)
+              == -XQC_EPARAM);
+    settings.max_uni_streams = ctx->settings.max_uni_streams;
+    settings.max_sessions_count = 1025;
+    CU_ASSERT(xqc_wt_engine_set_default_settings(engine, &settings)
+              == -XQC_EPARAM);
     ctx->started = XQC_TRUE;
     CU_ASSERT(xqc_wt_engine_set_default_settings(engine, NULL) == -XQC_ESTATE);
     CU_ASSERT(xqc_wt_ctx_set_pending_datagram_policy(engine, 1, 1, 1)
@@ -466,6 +477,61 @@ xqc_test_wt_stream_errors(void)
     CU_ASSERT(xqc_wt_bidistream_send((void *)stream, "x", 1, 0)
               == -XQC_ESTATE);
     xqc_wt_conn_destroy(session->wt_conn);
+}
+
+void
+xqc_test_wt_pooled_stream_credit(void)
+{
+    /* draft-ietf-webtrans-http3-16 §§5.3-5.4: stream and byte credit. */
+    xqc_wt_ctx_t ctx = {0};
+    ctx.stream_cbs.wt_bidistream_read_notify = wt_read;
+    xqc_h3_conn_t h3c = {0};
+    xqc_wt_session_t *first = wt_session(&ctx, &h3c);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(first);
+    xqc_wt_conn_t *conn = first->wt_conn;
+    ctx.settings.draft_version = XQC_WEBTRANSPORT_DRAFT_VERSION_16;
+    ctx.settings.max_sessions_count = 2;
+    ctx.settings.max_bidi_streams = 1;
+    ctx.settings.max_uni_streams = 1;
+    ctx.settings.init_recv_window = 2;
+    conn->negotiated_version = XQC_WEBTRANSPORT_DRAFT_VERSION_16;
+    conn->flow_control_enabled = XQC_TRUE;
+    conn->peer_initial_max_streams_bidi = 1;
+    conn->peer_initial_max_streams_uni = 1;
+    conn->peer_initial_max_data = 2;
+    xqc_wt_session_init_flow_control(first);
+    xqc_wt_session_t *second = xqc_wt_session_init(8, conn, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(second);
+    second->open = XQC_TRUE;
+
+    xqc_h3_stream_t h3a = {.stream_id = 12, .h3c = &h3c};
+    xqc_h3_stream_t h3b = {.stream_id = 16, .h3c = &h3c};
+    xqc_wt_stream_base_t *a = xqc_wt_stream_bind(first, &h3a,
+        XQC_TRUE, XQC_TRUE, NULL);
+    xqc_wt_stream_base_t *b = xqc_wt_stream_bind(second, &h3b,
+        XQC_TRUE, XQC_TRUE, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(a);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(b);
+    xqc_h3_stream_t h3extra = {.stream_id = 20, .h3c = &h3c};
+    CU_ASSERT_PTR_NULL(xqc_wt_stream_bind(first, &h3extra,
+        XQC_TRUE, XQC_TRUE, NULL));
+    CU_ASSERT(!first->closed && !second->closed);
+    a->io = b->io = &wt_io;
+    wt_sent = 0;
+    wt_send_limit = sizeof(wt_output);
+    CU_ASSERT(xqc_wt_bidistream_send((void *)a, "abc", 3, 0) == 2);
+    CU_ASSERT(first->sent_data == 2 && second->sent_data == 0);
+    CU_ASSERT(xqc_wt_bidistream_send((void *)a, "c", 1, 0)
+              == -XQC_EAGAIN);
+    CU_ASSERT(xqc_wt_bidistream_send((void *)b, "xy", 2, 0) == 2);
+    CU_ASSERT(second->sent_data == 2);
+    CU_ASSERT(first->sent_streams[1] == 1 && second->sent_streams[1] == 1);
+    wt_block = 0;
+    CU_ASSERT(xqc_wt_stream_notify_read(a, (void *)"abc", 3, 0) == 3);
+    CU_ASSERT(first->closed);
+    CU_ASSERT(first->close_error == XQC_WT_FLOW_CONTROL_ERROR);
+    CU_ASSERT(!second->closed && second->send_data_limit == 2);
+    xqc_wt_conn_destroy(conn);
 }
 
 void

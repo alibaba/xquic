@@ -1350,7 +1350,7 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
             long value = strtol(optarg, &end, 10);
             if (*optarg == '\0' || *end != '\0'
                 || (value != 0 && (value < 1801 || value > 1816)
-                    && value != 1834))
+                    && value != 1834 && value != 1835))
             {
                 fprintf(stderr, "invalid WebTransport case ID\n");
                 exit(1);

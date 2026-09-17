@@ -4,6 +4,7 @@ void xqc_test_wt_context(void);
 void xqc_test_wt_context_errors(void);
 void xqc_test_wt_stream_io(void);
 void xqc_test_wt_stream_errors(void);
+void xqc_test_wt_pooled_stream_credit(void);
 void xqc_test_wt_capsules(void);
 void xqc_test_wt_capsule_errors(void);
 void xqc_test_wt_datagram_association(void);

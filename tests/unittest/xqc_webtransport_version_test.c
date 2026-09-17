@@ -8,6 +8,7 @@
 #include "src/webtransport/xqc_webtransport_conn.h"
 #include "src/webtransport/xqc_webtransport_session.h"
 #include "src/webtransport/xqc_webtransport_stream.h"
+#include "src/webtransport/xqc_webtransport_request_adapter.h"
 #include "src/webtransport/xqc_webtransport_wire.h"
 #include "src/http3/xqc_h3_ctx.h"
 #include "src/http3/xqc_h3_conn.h"
@@ -30,6 +31,9 @@ static void version_peer_settings(xqc_wt_conn_t *conn,
     xqc_bool_t draft07, xqc_bool_t draft16);
 static xqc_h3_conn_t *version_engine(
     xqc_webtransport_draft_version_t version, xqc_bool_t client);
+static xqc_h3_conn_t *version_engine_sessions(
+    xqc_webtransport_draft_version_t version, xqc_bool_t client,
+    uint64_t max_sessions);
 static xqc_h3_request_t *version_request(xqc_h3_conn_t *h3c,
     const char *protocol);
 static void version_headers(xqc_h3_request_t *request,
@@ -243,6 +247,13 @@ xqc_test_wt_version_settings_errors(void)
 static xqc_h3_conn_t *
 version_engine(xqc_webtransport_draft_version_t version, xqc_bool_t client)
 {
+    return version_engine_sessions(version, client, 1);
+}
+
+static xqc_h3_conn_t *
+version_engine_sessions(xqc_webtransport_draft_version_t version,
+    xqc_bool_t client, uint64_t max_sessions)
+{
     xqc_connection_t *conn = test_engine_connect();
     CU_ASSERT_PTR_NOT_NULL(conn);
     if (!conn) {
@@ -260,7 +271,7 @@ version_engine(xqc_webtransport_draft_version_t version, xqc_bool_t client)
     xqc_webtransport_conn_settings_t settings =
         xqc_wt_ctx_get(engine)->settings;
     settings.draft_version = version;
-    settings.max_sessions_count = 1;
+    settings.max_sessions_count = max_sessions;
     CU_ASSERT(xqc_wt_engine_set_default_settings(engine, &settings) == XQC_OK);
     xqc_free(conn->alpn);
     conn->alpn = xqc_malloc(3);
@@ -562,6 +573,194 @@ xqc_test_wt_draft16_session_limit(void)
     CU_ASSERT(original->open && !original->closed);
     CU_ASSERT(!rejected->open && rejected->closed);
     xqc_engine_destroy(h3c->conn->engine);
+}
+
+void
+xqc_test_wt_draft16_pooled_sessions(void)
+{
+    /* draft-ietf-webtrans-http3-16 §§3.2, 5.1, 5.5, 6. */
+    xqc_h3_conn_t *h3c = version_engine_sessions(
+        XQC_WEBTRANSPORT_DRAFT_VERSION_16, XQC_FALSE, 2);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(h3c);
+    xqc_wt_conn_t *conn = xqc_wt_create_conn(h3c);
+    CU_ASSERT(h3c->registered_settings_count == 7);
+    CU_ASSERT(xqc_h3_conn_on_settings_entry_received(0x08, 1, h3c)
+              == XQC_OK);
+    CU_ASSERT(xqc_h3_conn_on_settings_entry_received(0x33, 1, h3c)
+              == XQC_OK);
+    CU_ASSERT(xqc_h3_conn_on_settings_entry_received(WT_TEST_SETTING_16,
+              1, h3c) == XQC_OK);
+    CU_ASSERT(xqc_h3_conn_on_settings_entry_received(0x2b64, 2, h3c)
+              == XQC_OK);
+    CU_ASSERT(xqc_h3_conn_on_settings_entry_received(0x2b65, 2, h3c)
+              == XQC_OK);
+    CU_ASSERT(xqc_h3_conn_on_settings_entry_received(0x2b61, 4096, h3c)
+              == XQC_OK);
+    CU_ASSERT(h3c->on_settings_complete(conn) == XQC_OK);
+    CU_ASSERT(conn->flow_control_enabled);
+
+    xqc_h3_request_t *first = version_request(h3c, "webtransport-h3");
+    xqc_h3_request_t *second = version_request(h3c, "webtransport-h3");
+    CU_ASSERT_PTR_NOT_NULL_FATAL(first);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(second);
+    CU_ASSERT(xqc_h3_request_on_recv_header(first) == XQC_OK);
+    CU_ASSERT(xqc_h3_request_on_recv_header(second) == XQC_OK);
+    xqc_wt_session_t *a = xqc_wt_conn_find_session(conn,
+        first->h3_stream->stream_id);
+    xqc_wt_session_t *b = xqc_wt_conn_find_session(conn,
+        second->h3_stream->stream_id);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(a);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(b);
+    CU_ASSERT_PTR_NOT_EQUAL(a, b);
+    CU_ASSERT(a->open && b->open && a->flow_control && b->flow_control);
+    CU_ASSERT(a->send_stream_limit[1] == 2);
+    CU_ASSERT(b->send_stream_limit[1] == 2);
+    CU_ASSERT(version_creates == 2 && conn->session_count == 2);
+    xqc_wt_session_notify_closed(a);
+    CU_ASSERT(a->closed && b->open && !b->closed);
+    CU_ASSERT(xqc_wt_conn_find_session(conn, b->sessionID) == b);
+    CU_ASSERT(xqc_wt_session_is_writable(b));
+    CU_ASSERT(xqc_wt_conn_active_session_count(conn) == 1);
+    xqc_h3_request_t *third = version_request(h3c, "webtransport-h3");
+    CU_ASSERT_PTR_NOT_NULL_FATAL(third);
+    CU_ASSERT(xqc_h3_request_on_recv_header(third) == XQC_OK);
+    CU_ASSERT(version_creates == 3);
+    CU_ASSERT(xqc_wt_conn_active_session_count(conn) == 2);
+    xqc_engine_destroy(h3c->conn->engine);
+}
+
+void
+xqc_test_wt_draft16_pooling_requires_flow_control(void)
+{
+    /* draft-ietf-webtrans-http3-16 §5.1: either peer may decline pooling. */
+    xqc_h3_conn_t *h3c = version_engine_sessions(
+        XQC_WEBTRANSPORT_DRAFT_VERSION_16, XQC_FALSE, 2);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(h3c);
+    xqc_wt_conn_t *conn = xqc_wt_create_conn(h3c);
+    version_peer_settings(conn, XQC_TRUE, XQC_TRUE);
+    CU_ASSERT(!conn->flow_control_enabled);
+    xqc_h3_request_t *first = version_request(h3c, "webtransport-h3");
+    xqc_h3_request_t *second = version_request(h3c, "webtransport-h3");
+    CU_ASSERT_PTR_NOT_NULL_FATAL(first);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(second);
+    CU_ASSERT(xqc_h3_request_on_recv_header(first) == XQC_OK);
+    CU_ASSERT(xqc_h3_request_on_recv_header(second) == XQC_OK);
+    CU_ASSERT(version_creates == 1);
+    CU_ASSERT(second->h3_stream->stream->stream_err == H3_REQUEST_REJECTED);
+    CU_ASSERT(xqc_wt_conn_find_session(conn, first->h3_stream->stream_id)
+              ->open);
+    xqc_engine_destroy(h3c->conn->engine);
+}
+
+void
+xqc_test_wt_draft16_flow_capsules(void)
+{
+    /* draft-ietf-webtrans-http3-16 §§5.6.2, 5.6.4: per-session updates. */
+    xqc_wt_ctx_t ctx = {0};
+    xqc_h3_conn_t h3c = {0};
+    xqc_connection_t transport = {0};
+    xqc_wt_conn_t *conn = version_conn(&ctx, &h3c, &transport,
+        XQC_WEBTRANSPORT_DRAFT_VERSION_16);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    ctx.settings.max_sessions_count = 2;
+    ctx.settings.max_bidi_streams = 2;
+    ctx.settings.max_uni_streams = 2;
+    ctx.settings.init_recv_window = 32;
+    CU_ASSERT(xqc_h3_conn_on_settings_entry_received(WT_TEST_SETTING_16,
+              1, &h3c) == XQC_OK);
+    CU_ASSERT(xqc_h3_conn_on_settings_entry_received(0x33, 1, &h3c)
+              == XQC_OK);
+    CU_ASSERT(xqc_h3_conn_on_settings_entry_received(0x2b65, 2, &h3c)
+              == XQC_OK);
+    CU_ASSERT(xqc_h3_conn_on_settings_entry_received(0x2b61, 32, &h3c)
+              == XQC_OK);
+    CU_ASSERT(h3c.on_settings_complete(conn) == XQC_OK);
+    xqc_wt_session_t *a = xqc_wt_session_init(0, conn, NULL);
+    xqc_wt_session_t *b = xqc_wt_session_init(4, conn, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(a);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(b);
+    a->open = b->open = XQC_TRUE;
+    CU_ASSERT(a->send_stream_limit[1] == 2 && b->send_stream_limit[1] == 2);
+    unsigned char capsule[24];
+    size_t n = xqc_wt_encode_session_id(0x190b4d3f, capsule,
+                                        sizeof(capsule));
+    capsule[n++] = 1;
+    capsule[n++] = 3;
+    for (size_t i = 0; i < n; i++) {
+        CU_ASSERT(xqc_wt_session_recv_capsules(a, capsule + i, 1, 0)
+                  == XQC_OK);
+    }
+    CU_ASSERT(a->send_stream_limit[1] == 3);
+    CU_ASSERT(b->send_stream_limit[1] == 2);
+    CU_ASSERT(xqc_wt_session_recv_capsules(a, capsule, n, 0)
+              == -XQC_WT_FLOW_CONTROL_ERROR);
+    CU_ASSERT(!b->closed);
+    n = xqc_wt_encode_session_id(0x190b4d3d, capsule,
+                                 sizeof(capsule));
+    capsule[n++] = 1;
+    capsule[n++] = 33;
+    CU_ASSERT(xqc_wt_session_recv_capsules(b, capsule, n, 0) == XQC_OK);
+    CU_ASSERT(b->send_data_limit == 33 && a->send_data_limit == 32);
+    capsule[n - 2] = 2;
+    CU_ASSERT(xqc_wt_session_recv_capsules(b, capsule, n, 1)
+              == -XQC_H3_DECODE_ERROR);
+    xqc_wt_conn_destroy(conn);
+}
+
+void
+xqc_test_wt_draft16_credit_renewal(void)
+{
+    /* draft-ietf-webtrans-http3-16 §§5.3, 5.6: absolute session credit. */
+    xqc_wt_ctx_t ctx = {0};
+    xqc_h3_conn_t h3c = {0};
+    xqc_connection_t transport = {0};
+    xqc_wt_conn_t *conn = version_conn(&ctx, &h3c, &transport,
+        XQC_WEBTRANSPORT_DRAFT_VERSION_16);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    ctx.settings.max_bidi_streams = 1;
+    ctx.settings.max_uni_streams = 1;
+    ctx.settings.init_recv_window = 4;
+    conn->negotiated_version = XQC_WEBTRANSPORT_DRAFT_VERSION_16;
+    conn->flow_control_enabled = XQC_TRUE;
+    xqc_wt_session_t *a = xqc_wt_session_init(0, conn, NULL);
+    xqc_wt_session_t *b = xqc_wt_session_init(4, conn, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(a);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(b);
+    a->open = b->open = XQC_TRUE;
+    a->recv_data = 2;
+    CU_ASSERT(xqc_wt_session_prepare_flow_credit(a));
+    uint64_t type = 0, length = 0, value = 0;
+    size_t n = xqc_wt_decode_session_id(a->send_buf, a->send_len, &type);
+    CU_ASSERT(type == 0x190b4d3d);
+    size_t m = xqc_wt_decode_session_id(a->send_buf + n,
+        a->send_len - n, &length);
+    CU_ASSERT(length == 1);
+    CU_ASSERT(xqc_wt_decode_session_id(a->send_buf + n + m,
+        a->send_len - n - m, &value) == 1);
+    CU_ASSERT(value == 6 && a->recv_data_limit == 6);
+    CU_ASSERT(b->recv_data_limit == 4 && !b->send_len);
+    CU_ASSERT(!xqc_wt_session_prepare_flow_credit(a));
+
+    a->send_len = 0;
+    xqc_wt_session_stream_closed(a, XQC_TRUE);
+    CU_ASSERT(xqc_wt_session_prepare_flow_credit(a));
+    n = xqc_wt_decode_session_id(a->send_buf, a->send_len, &type);
+    m = xqc_wt_decode_session_id(a->send_buf + n,
+        a->send_len - n, &length);
+    CU_ASSERT(type == 0x190b4d3f && length == 1);
+    CU_ASSERT(xqc_wt_decode_session_id(a->send_buf + n + m,
+        a->send_len - n - m, &value) == 1);
+    CU_ASSERT(value == 2 && a->recv_stream_limit[1] == 2);
+    CU_ASSERT(b->recv_stream_limit[1] == 1);
+
+    a->send_len = 0;
+    a->closed = XQC_TRUE;
+    xqc_wt_session_stream_closed(a, XQC_TRUE);
+    CU_ASSERT(!xqc_wt_session_prepare_flow_credit(a));
+    b->flow_control = XQC_FALSE;
+    b->recv_data = 4;
+    CU_ASSERT(!xqc_wt_session_prepare_flow_credit(b));
+    xqc_wt_conn_destroy(conn);
 }
 
 static void

@@ -2096,10 +2096,10 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
             if (errno || end == optarg || *end != '\0'
                 || (case_id != 0
                     && (case_id < 1801 || case_id > 1816)
-                    && case_id != 1834))
+                    && case_id != 1834 && case_id != 1835))
             {
                 fprintf(stderr,
-                        "WT case must be 0, 1801..1816, or 1834\n");
+                        "WT case must be 0, 1801..1816, 1834, or 1835\n");
                 return -1;
             }
             args->quic_cfg.wt_case_id = (int) case_id;

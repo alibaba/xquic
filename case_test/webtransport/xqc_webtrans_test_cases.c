@@ -25,6 +25,7 @@ static xqc_webtransport_dgram_callbacks_t wt_case_dgram_cbs;
 static xqc_h3_conn_callbacks_t wt_case_conn_cbs;
 static xqc_datagram_read_notify_pt wt_case_raw_read;
 static int wt_case_server_id;
+static xqc_wt_session_t *wt_case_first_session;
 static size_t wt_case_uni_received;
 static int wt_case_uni_match;
 static int wt_case_message_sent;
@@ -153,10 +154,13 @@ xqc_wt_case_prepare(xqc_wt_session_t *session, int case_id)
          */
         xqc_wt_conn_t *conn = session->wt_conn;
         uint64_t limit = conn->ctx->settings.max_sessions_count;
+        xqc_bool_t flow_control = conn->flow_control_enabled;
         int err;
         conn->ctx->settings.max_sessions_count = 2;
+        conn->flow_control_enabled = XQC_TRUE;
         xqc_wt_session_t *second = xqc_wt_client_open_session(conn->h3_conn,
             "test.xquic.com", "/wt", "http://127.0.0.1:8080", &err);
+        conn->flow_control_enabled = flow_control;
         conn->ctx->settings.max_sessions_count = limit;
         if (second == NULL) {
             return XQC_ERROR;
@@ -164,6 +168,30 @@ xqc_wt_case_prepare(xqc_wt_session_t *session, int case_id)
         printf("WT case second CONNECT sent: session=%" PRIu64 "\n",
                second->sessionID);
         return 1;
+    }
+    case 1835: {
+        xqc_wt_conn_t *conn = session->wt_conn;
+        if (wt_case_first_session == NULL) {
+            int err;
+            wt_case_first_session = session;
+            xqc_wt_session_t *second = xqc_wt_client_open_session(
+                conn->h3_conn, "test.xquic.com", "/wt",
+                "http://127.0.0.1:8080", &err);
+            if (second == NULL || second == session) {
+                return XQC_ERROR;
+            }
+            return 1;
+        }
+        if (session == wt_case_first_session
+            || !wt_case_first_session->open || wt_case_first_session->closed
+            || conn->session_count != 2 || !conn->flow_control_enabled)
+        {
+            return XQC_ERROR;
+        }
+        printf("WT pooled client: first=%" PRIu64 " second=%" PRIu64
+               " active=%zu\n", wt_case_first_session->sessionID,
+               session->sessionID, conn->session_count);
+        return XQC_OK;
     }
     default:
         return XQC_OK;
@@ -174,6 +202,10 @@ static int
 wt_case_session_ready(xqc_wt_session_t *session, xqc_http_headers_t *headers,
     const xqc_cid_t *cid, void *user_data)
 {
+    if (wt_case_server_id == 1835 && session->wt_conn->session_count == 2) {
+        printf("WT pooled server: second=%" PRIu64 " active=%zu\n",
+               session->sessionID, session->wt_conn->session_count);
+    }
     if (wt_case_server_id == 1810) {
         xqc_connection_t *conn = session->wt_conn->h3_conn->conn;
         wt_case_raw_read = conn->app_proto_cbs.dgram_cbs.datagram_read_notify;
@@ -303,11 +335,23 @@ xqc_wt_case_server_init(xqc_engine_t *engine, int case_id)
     }
     xqc_wt_ctx_t *ctx = xqc_wt_ctx_get(engine);
     if (ctx == NULL
-        || ((case_id < 1801 || case_id > 1816) && case_id != 1834))
+        || ((case_id < 1801 || case_id > 1816)
+            && case_id != 1834 && case_id != 1835))
     {
         return -XQC_EPARAM;
     }
+    if (case_id == 1835) {
+        xqc_webtransport_conn_settings_t settings = ctx->settings;
+        settings.max_sessions_count = 2;
+        settings.init_recv_window = 8;
+        xqc_int_t ret = xqc_wt_engine_set_default_settings(engine,
+                                                             &settings);
+        if (ret != XQC_OK) {
+            return ret;
+        }
+    }
     wt_case_server_id = case_id;
+    wt_case_first_session = NULL;
     wt_case_uni_match = 1;
     wt_case_message_sent = 0;
     wt_case_stream_cbs = ctx->stream_cbs;

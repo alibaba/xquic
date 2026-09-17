@@ -44,6 +44,7 @@ typedef struct xqc_wt_stream_base_s {
     unsigned char               session_prefix[8];
     size_t                      session_prefix_len;
     size_t                      session_prefix_need;
+    uint64_t                    recv_accounted;
     wt_stream_close_func_pt      legacy_close;
     wt_stream_close_func_pt      legacy_recv_close;
 } xqc_wt_stream_base_t;

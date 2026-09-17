@@ -592,13 +592,13 @@ xqc_wt_echo_client_init(xqc_engine_t *engine, int draft_version,
         .wt_bidistream_closing_notify = xqc_demo_wt_client_stream_notify,
     };
     xqc_webtransport_conn_settings_t settings = {
-        .max_sessions_count = 1,
+        .max_sessions_count = case_id == 1835 ? 2 : 1,
         .draft_version = draft_version == 7
             ? XQC_WEBTRANSPORT_DRAFT_VERSION_7
             : XQC_WEBTRANSPORT_DRAFT_VERSION_16,
         .max_bidi_streams = 16,
         .max_uni_streams = 16,
-        .init_recv_window = 1024 * 1024,
+        .init_recv_window = case_id == 1835 ? 8 : 1024 * 1024,
         .enable_datagram = 1,
     };
     xqc_int_t ret;

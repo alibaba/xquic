@@ -157,6 +157,19 @@ xqc_wt_conn_register_session(xqc_wt_conn_t *conn, xqc_wt_session_t *session)
     return XQC_OK;
 }
 
+size_t
+xqc_wt_conn_active_session_count(xqc_wt_conn_t *conn)
+{
+    size_t count = 0;
+    xqc_list_head_t *pos;
+    xqc_list_for_each(pos, &conn->session_list) {
+        xqc_wt_session_t *session = xqc_list_entry(pos,
+            xqc_wt_session_t, conn_list);
+        count += !session->closed;
+    }
+    return count;
+}
+
 void
 xqc_wt_conn_unregister_session(xqc_wt_conn_t *conn, uint64_t id)
 {
@@ -192,6 +205,18 @@ xqc_wt_peer_setting(uint64_t id, uint64_t value, void *data)
             return -XQC_H3_SETTING_ERROR;
         }
         conn->peer_draft16 = value;
+    } else if (id == XQC_WT_SETTING_INITIAL_MAX_STREAMS_UNI) {
+        if (value > (UINT64_C(1) << 60)) {
+            return -XQC_H3_SETTING_ERROR;
+        }
+        conn->peer_initial_max_streams_uni = value;
+    } else if (id == XQC_WT_SETTING_INITIAL_MAX_STREAMS_BIDI) {
+        if (value > (UINT64_C(1) << 60)) {
+            return -XQC_H3_SETTING_ERROR;
+        }
+        conn->peer_initial_max_streams_bidi = value;
+    } else if (id == XQC_WT_SETTING_INITIAL_MAX_DATA) {
+        conn->peer_initial_max_data = value;
     } else if (id == XQC_WT_SETTING_DATAGRAM) {
         if (value > 1) {
             return -XQC_H3_SETTING_ERROR;
@@ -215,6 +240,10 @@ xqc_wt_peer_settings_complete(void *data)
                                 == XQC_WEBTRANSPORT_DRAFT_VERSION_16)
     {
         conn->negotiated_version = XQC_WEBTRANSPORT_DRAFT_VERSION_16;
+        conn->flow_control_enabled = conn->ctx->settings.max_sessions_count > 1
+            && (conn->peer_initial_max_streams_uni
+                || conn->peer_initial_max_streams_bidi
+                || conn->peer_initial_max_data);
     } else if (conn->peer_max_sessions) {
         conn->negotiated_version = XQC_WEBTRANSPORT_DRAFT_VERSION_7;
     }
@@ -222,6 +251,7 @@ xqc_wt_peer_settings_complete(void *data)
     xqc_list_for_each(pos, &conn->session_list) {
         xqc_wt_session_t *session = xqc_list_entry(pos,
             xqc_wt_session_t, conn_list);
+        xqc_wt_session_init_flow_control(session);
         if (!session->open && !session->closed) {
             xqc_int_t ret = session->client
                 ? xqc_wt_client_send_request(session)

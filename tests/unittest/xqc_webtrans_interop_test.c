@@ -824,27 +824,29 @@ xqc_test_wt_interop_datagram_pacing(void)
     xqc_wt_interop.session = &session;
     xqc_wt_interop.pace_datagrams = 1;
     xqc_wt_interop_test_sequence = 0;
-    for (uint32_t i = 0; i < 3; i++) {
+    for (uint32_t i = 0; i < 200; i++) {
         CU_ASSERT(xqc_wt_interop_datagram_queue(&i, sizeof(i)) == XQC_OK);
     }
     xqc_wt_interop_datagram_tick();
     CU_ASSERT(xqc_wt_interop_test_sends == 1
-        && xqc_wt_interop.datagram_count == 2
+        && xqc_wt_interop.datagram_count == 199
         && xqc_wt_interop.completed == 1);
     xqc_wt_interop.next_datagram_at = xqc_monotonic_timestamp() + 1000000;
     xqc_wt_interop_datagram_tick();
     CU_ASSERT(xqc_wt_interop_test_sends == 1
         && xqc_wt_interop.datagram_head == 1
-        && xqc_wt_interop.datagram_count == 2);
+        && xqc_wt_interop.datagram_count == 199);
     xqc_wt_interop.next_datagram_at = 0;
     xqc_wt_interop_datagram_tick();
     CU_ASSERT(xqc_wt_interop_test_sends == 2
-        && xqc_wt_interop.datagram_count == 1);
-    xqc_wt_interop.next_datagram_at = 0;
-    xqc_wt_interop_datagram_tick();
-    CU_ASSERT(xqc_wt_interop_test_sends == 3
+        && xqc_wt_interop.datagram_count == 198);
+    for (int i = 2; i < 200; i++) {
+        xqc_wt_interop.next_datagram_at = 0;
+        xqc_wt_interop_datagram_tick();
+    }
+    CU_ASSERT(xqc_wt_interop_test_sends == 200
         && !xqc_wt_interop.datagram_count
-        && xqc_wt_interop.completed == 3);
+        && xqc_wt_interop.completed == 200);
     xqc_wt_interop_test_clear();
 }
 

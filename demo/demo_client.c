@@ -394,6 +394,9 @@ typedef struct xqc_demo_cli_ctx_s {
 
     /* libevent context */
     struct event    *ev_engine;
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+    struct event    *ev_wt_datagram;
+#endif
     struct event    *ev_task;
     struct event    *ev_kill;
     struct event_base *eb;  /* handle of libevent */
@@ -422,6 +425,11 @@ xqc_demo_cli_wt_schedule_send(void *user_data)
     struct timeval delay = {0, 1000};
 
     event_add(ctx->ev_engine, &delay);
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+    if (ctx->ev_wt_datagram) {
+        event_add(ctx->ev_wt_datagram, &delay);
+    }
+#endif
 }
 
 static void
@@ -1513,12 +1521,19 @@ xqc_demo_cli_engine_callback(int fd, short what, void *arg)
     // printf("timer wakeup now:%"PRIu64"\n", xqc_now());
     xqc_demo_cli_ctx_t *ctx = (xqc_demo_cli_ctx_t *) arg;
     xqc_engine_main_logic(ctx->engine);
-#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
-    if (xqc_demo_wt_app_is_interop()) {
-        xqc_wt_interop_datagram_tick();
-    }
-#endif
 }
+
+
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+static void
+xqc_demo_cli_wt_datagram_callback(int fd, short what, void *arg)
+{
+    xqc_demo_cli_ctx_t *ctx = arg;
+
+    xqc_wt_interop_datagram_tick();
+    xqc_engine_main_logic(ctx->engine);
+}
+#endif
 
 
 static void
@@ -3498,6 +3513,11 @@ xqc_demo_cli_start_task_manager(xqc_demo_cli_ctx_t *ctx)
 void
 xqc_demo_cli_free_ctx(xqc_demo_cli_ctx_t *ctx)
 {
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+    if (ctx->ev_wt_datagram) {
+        event_free(ctx->ev_wt_datagram);
+    }
+#endif
     xqc_demo_cli_close_keylog_file(ctx);
     xqc_demo_cli_close_log_file(ctx);
 
@@ -3541,6 +3561,16 @@ main(int argc, char *argv[])
     /* engine event */
     ctx->eb = event_base_new();
     ctx->ev_engine = event_new(ctx->eb, -1, 0, xqc_demo_cli_engine_callback, ctx);
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+    if (xqc_demo_wt_app_is_interop()) {
+        ctx->ev_wt_datagram = event_new(ctx->eb, -1, 0,
+            xqc_demo_cli_wt_datagram_callback, ctx);
+        if (!ctx->ev_wt_datagram) {
+            xqc_demo_cli_free_ctx(ctx);
+            return 1;
+        }
+    }
+#endif
     if (xqc_demo_cli_init_xquic_engine(ctx, args) != XQC_OK) {
         xqc_demo_cli_free_ctx(ctx);
         return 1;

@@ -185,6 +185,9 @@ typedef struct xqc_demo_svr_ctx_s {
 
     xqc_engine_t        *engine;
     struct event        *ev_engine;
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+    struct event        *ev_wt_datagram;
+#endif
 
     /* ipv4 server */
     int                 fd;
@@ -257,6 +260,11 @@ xqc_demo_svr_wt_schedule_send(void *user_data)
     struct timeval delay = {0, 1000};
 
     event_add(ctx->ev_engine, &delay);
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+    if (ctx->ev_wt_datagram) {
+        event_add(ctx->ev_wt_datagram, &delay);
+    }
+#endif
 }
 
 
@@ -1229,12 +1237,19 @@ xqc_demo_svr_engine_callback(int fd, short what, void *arg)
     xqc_demo_svr_ctx_t *ctx = (xqc_demo_svr_ctx_t *) arg;
 
     xqc_engine_main_logic(ctx->engine);
-#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
-    if (xqc_demo_wt_app_is_interop()) {
-        xqc_wt_interop_datagram_tick();
-    }
-#endif
 }
+
+
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+static void
+xqc_demo_svr_wt_datagram_callback(int fd, short what, void *arg)
+{
+    xqc_demo_svr_ctx_t *ctx = arg;
+
+    xqc_wt_interop_datagram_tick();
+    xqc_engine_main_logic(ctx->engine);
+}
+#endif
 
 
 void
@@ -1846,6 +1861,15 @@ main(int argc, char *argv[])
     struct event_base *eb = event_base_new();
     ctx->ev_engine = event_new(eb, -1, 0, xqc_demo_svr_engine_callback, ctx);
     ctx->eb = eb;
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+    if (xqc_demo_wt_app_is_interop()) {
+        ctx->ev_wt_datagram = event_new(eb, -1, 0,
+            xqc_demo_svr_wt_datagram_callback, ctx);
+        if (!ctx->ev_wt_datagram) {
+            return 1;
+        }
+    }
+#endif
 
     if (xqc_demo_svr_init_xquic_engine(ctx, args) < 0) {
         return -1;

@@ -79,6 +79,25 @@ xqc_wt_h3_conn_create(xqc_h3_conn_t *h3c, const xqc_cid_t *cid, void *data)
     {
         ret = xqc_h3_conn_set_setting(h3c, XQC_WT_SETTING_ENABLED_16, 1);
     }
+    if (ret == XQC_OK && ctx->settings.draft_version
+                            == XQC_WEBTRANSPORT_DRAFT_VERSION_16
+        && ctx->settings.max_sessions_count > 1)
+    {
+        /* draft-ietf-webtrans-http3-16 §§5.1, 5.5, 9.2. */
+        ret = xqc_h3_conn_set_setting(h3c,
+            XQC_WT_SETTING_INITIAL_MAX_STREAMS_UNI,
+            ctx->settings.max_uni_streams);
+        if (ret == XQC_OK) {
+            ret = xqc_h3_conn_set_setting(h3c,
+                XQC_WT_SETTING_INITIAL_MAX_STREAMS_BIDI,
+                ctx->settings.max_bidi_streams);
+        }
+        if (ret == XQC_OK) {
+            ret = xqc_h3_conn_set_setting(h3c,
+                XQC_WT_SETTING_INITIAL_MAX_DATA,
+                ctx->settings.init_recv_window);
+        }
+    }
     if (ret != XQC_OK) {
         goto fail;
     }
@@ -221,12 +240,14 @@ xqc_wt_engine_set_default_settings(xqc_engine_t *engine,
     }
     if ((settings->draft_version != XQC_WEBTRANSPORT_DRAFT_VERSION_7
          && settings->draft_version != XQC_WEBTRANSPORT_DRAFT_VERSION_16)
-        || (settings->draft_version == XQC_WEBTRANSPORT_DRAFT_VERSION_16
-            && settings->max_sessions_count != 1)
         || !settings->enable_datagram || !settings->max_sessions_count
         || settings->max_sessions_count > 1024
         || settings->max_bidi_streams < settings->max_sessions_count
-        || settings->max_uni_streams < 3 || !settings->init_recv_window)
+        || settings->max_uni_streams < 3 || !settings->init_recv_window
+        || (settings->draft_version == XQC_WEBTRANSPORT_DRAFT_VERSION_16
+            && settings->max_sessions_count > 1
+            && (settings->max_bidi_streams > (UINT64_C(1) << 60)
+                || settings->max_uni_streams > (UINT64_C(1) << 60))))
     {
         return -XQC_EPARAM;
     }

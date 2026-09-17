@@ -601,8 +601,10 @@ xqc_wt_client_open_session_with_protocols(xqc_h3_conn_t *h3c,
     size_t limit = conn->ctx->settings.max_sessions_count;
     if (conn->negotiated_version == XQC_WEBTRANSPORT_DRAFT_VERSION_7) {
         limit = xqc_min(limit, conn->peer_max_sessions);
+    } else if (!conn->settings_received || !conn->flow_control_enabled) {
+        limit = 1;
     }
-    if (conn->session_count >= limit) {
+    if (xqc_wt_conn_active_session_count(conn) >= limit) {
         return NULL;
     }
     char *encoded_protocols = NULL;
@@ -774,14 +776,19 @@ xqc_wt_request_headers(xqc_h3_request_t *request, void *data,
     if (!wt) {
         return 0;
     }
-    if (conn->session_count >= conn->ctx->settings.max_sessions_count
+    if (xqc_wt_conn_active_session_count(conn)
+            >= conn->ctx->settings.max_sessions_count
         && conn->ctx->settings.draft_version
             == XQC_WEBTRANSPORT_DRAFT_VERSION_7)
     {
         xqc_int_t ret = xqc_wt_response(request, "429");
         return ret < 0 ? ret : 1;
     }
-    if (conn->session_count >= 64) {
+    if ((conn->ctx->settings.max_sessions_count > 1
+         && xqc_wt_conn_active_session_count(conn)
+            >= conn->ctx->settings.max_sessions_count)
+        || conn->session_count >= 64)
+    {
         xqc_stream_reset(request->h3_stream->stream, H3_REQUEST_REJECTED);
         return 1;
     }
@@ -831,8 +838,10 @@ xqc_wt_accept_session(xqc_wt_session_t *session)
         xqc_list_for_each(pos, &conn->session_list) {
             xqc_wt_session_t *other = xqc_list_entry(pos,
                 xqc_wt_session_t, conn_list);
-            if (other != session && other->open && !other->closed) {
-                /* draft-ietf-webtrans-http3-16 §5.1: pooling is disabled. */
+            if (other != session && other->open && !other->closed
+                && !conn->flow_control_enabled)
+            {
+                /* draft-ietf-webtrans-http3-16 §5.1. */
                 xqc_wt_request_fail(session, H3_REQUEST_REJECTED);
                 return XQC_OK;
             }
@@ -980,7 +989,9 @@ xqc_wt_request_read(xqc_h3_request_t *request,
             xqc_int_t ret = xqc_wt_session_recv_capsules(session, buffer,
                                                         n, fin);
             if (ret != XQC_OK) {
-                xqc_wt_request_fail(session, H3_MESSAGE_ERROR);
+                xqc_wt_request_fail(session,
+                    ret == -XQC_WT_FLOW_CONTROL_ERROR
+                        ? XQC_WT_FLOW_CONTROL_ERROR : H3_MESSAGE_ERROR);
                 return XQC_OK;
             }
             if (n == 0 || fin) {
@@ -992,7 +1003,9 @@ xqc_wt_request_read(xqc_h3_request_t *request,
         xqc_int_t ret = xqc_wt_session_recv_capsules(session, NULL, 0,
                                                    XQC_TRUE);
         if (ret != XQC_OK) {
-            xqc_wt_request_fail(session, H3_MESSAGE_ERROR);
+            xqc_wt_request_fail(session,
+                ret == -XQC_WT_FLOW_CONTROL_ERROR
+                    ? XQC_WT_FLOW_CONTROL_ERROR : H3_MESSAGE_ERROR);
         }
     }
     return XQC_OK;

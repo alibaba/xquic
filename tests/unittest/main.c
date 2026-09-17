@@ -125,6 +125,13 @@ main(int argc, char *argv[])
                         xqc_test_wt_draft16_drain_streams)
         || !CU_add_test(pSuite, "xqc_test_wt_draft16_session_limit",
                         xqc_test_wt_draft16_session_limit)
+        || !CU_add_test(pSuite, "xqc_test_wt_draft16_pooled_sessions",
+                        xqc_test_wt_draft16_pooled_sessions)
+        || !CU_add_test(pSuite,
+                        "xqc_test_wt_draft16_pooling_requires_flow_control",
+                        xqc_test_wt_draft16_pooling_requires_flow_control)
+        || !CU_add_test(pSuite, "xqc_test_wt_draft16_flow_capsules",
+                        xqc_test_wt_draft16_flow_capsules)
         || !CU_add_test(pSuite, "xqc_test_reliable_reset_transport_params",
                         xqc_test_reliable_reset_transport_params)
         || !CU_add_test(pSuite, "xqc_test_reliable_reset_receive_order",
@@ -179,6 +186,8 @@ main(int argc, char *argv[])
                         xqc_test_wt_capsules)
         || !CU_add_test(pSuite, "xqc_test_wt_stream_errors",
                         xqc_test_wt_stream_errors)
+        || !CU_add_test(pSuite, "xqc_test_wt_pooled_stream_credit",
+                        xqc_test_wt_pooled_stream_credit)
         || !CU_add_test(pSuite, "xqc_test_wt_stream_io",
                         xqc_test_wt_stream_io)
         || !CU_add_test(pSuite, "xqc_test_wt_context_errors",

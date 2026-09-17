@@ -49,7 +49,7 @@ typedef enum xqc_wt_unistream_type_s {
  *
  */
 typedef struct xqc_webtransport_conn_settings_s {
-    /* max webtransport session count for single h3 connect */
+    /* Maximum simultaneous sessions on one HTTP/3 connection. */
     uint64_t max_sessions_count;
     /* Highest supported revision: 16 also advertises 07 for Chrome. */
     xqc_webtransport_draft_version_t draft_version;

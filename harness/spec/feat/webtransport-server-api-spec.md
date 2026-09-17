@@ -7,7 +7,8 @@ semantics below MUST remain unchanged.
 The native HTTP/3 binding supports only WebTransport draft-07 and draft-16.
 Draft-16 is preferred; draft-07 is retained for Chrome compatibility. Both
 versions MUST preserve the same server API, callback and ctx lifecycle
-contracts. The draft-16 MVP permits one simultaneous session per connection.
+contracts. Draft-16 defaults to one simultaneous session per connection;
+configured pooling requires mutual session flow-control negotiation.
 
 ```c
 #include <xquic/xquic.h>

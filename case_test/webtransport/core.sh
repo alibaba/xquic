@@ -209,8 +209,21 @@ wt_second_session_rejected()
     [[ "$(grep -c '^WT ready: draft=16 session=' svr_stdlog)" -eq 1 ]] \
         || return 1
     grep -Fq 'xqc_write_reset_stream_to_packet|stream_id:4|' slog || return 1
-    grep -Eq 'xqc_parse_(reset_stream|stop_sending)_frame\|type:[34]\|stream_id:4\|err_code:267\|' \
-        clog
+    grep -Fq 'xqc_process_reset_stream_frame|stream_id:4|' clog \
+        || return 1
+    grep -Eq 'xqc_h3_request_destroy\|stream_id:4\|.*err:267\|' clog
+}
+
+# draft-ietf-webtrans-http3-16 Sections 5.1-5.5: two active sessions share H3.
+wt_pooled_sessions()
+{
+    wt_case_run 1835 wt_pooled_sessions 16 \
+        '^WT pooled server: second=4 active=2$' || return 1
+    wt_case_success || return 1
+    grep -q '^WT pooled client: first=0 second=4 active=2$' stdlog \
+        || return 1
+    grep -q '^WT bidi verified:.* fin=1$' stdlog || return 1
+    [[ "$(grep -c '^WT ready: draft=16 session=' svr_stdlog)" -eq 2 ]]
 }
 
 wt_message_framing()
@@ -279,6 +292,8 @@ case_test_case "wt_single_session" --id 1815 \
     --run wt_single_session --timeout 15
 case_test_case "wt_second_session_rejected" --id 1816 \
     --run wt_second_session_rejected --timeout 15
+case_test_case "wt_pooled_sessions" --id 1835 \
+    --run wt_pooled_sessions --timeout 15
 case_test_case "wt_message_framing" --id 1833 \
     --run wt_message_framing --timeout 15
 case_test_case "wt_message_length_rejected" --id 1834 \

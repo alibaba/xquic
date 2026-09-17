@@ -15,6 +15,7 @@ void xqc_test_wt_draft16_session_limit(void);
 void xqc_test_wt_draft16_pooled_sessions(void);
 void xqc_test_wt_draft16_pooling_requires_flow_control(void);
 void xqc_test_wt_draft16_flow_capsules(void);
+void xqc_test_wt_draft16_credit_renewal(void);
 void xqc_test_wt_application_protocol(void);
 void xqc_test_wt_application_protocol_errors(void);
 void xqc_test_wt_application_protocol_inputs(void);

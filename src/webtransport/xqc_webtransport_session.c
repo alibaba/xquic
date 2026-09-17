@@ -23,6 +23,9 @@
 
 static xqc_int_t xqc_wt_capsule_complete(xqc_wt_session_t *session);
 static xqc_bool_t xqc_wt_flow_capsule(uint64_t type);
+static void xqc_wt_session_encode_flow_credit(xqc_wt_session_t *session,
+    uint64_t type, uint64_t value);
+static void xqc_wt_session_resume_writes(xqc_wt_session_t *session);
 
 static xqc_bool_t
 xqc_wt_flow_capsule(uint64_t type)
@@ -116,6 +119,8 @@ xqc_wt_session_init_flow_control(xqc_wt_session_t *session)
     session->send_stream_limit[1] = conn->peer_initial_max_streams_bidi;
     session->recv_stream_limit[0] = conn->ctx->settings.max_uni_streams;
     session->recv_stream_limit[1] = conn->ctx->settings.max_bidi_streams;
+    session->recv_stream_target[0] = session->recv_stream_limit[0];
+    session->recv_stream_target[1] = session->recv_stream_limit[1];
     session->send_data_limit = conn->peer_initial_max_data;
     session->recv_data_limit = conn->ctx->settings.init_recv_window;
 }
@@ -251,22 +256,114 @@ xqc_wt_session_flush(xqc_wt_session_t *session)
         session->send_fin = XQC_FALSE;
         return session->send_len ? -XQC_ESTATE : XQC_OK;
     }
-    if (session->send_offset == session->send_len && !session->send_fin) {
-        return XQC_OK;
-    }
-    ssize_t sent = xqc_h3_request_send_body(session->request,
-        session->send_buf + session->send_offset,
-        session->send_len - session->send_offset, session->send_fin);
-    if (sent < 0) {
-        return sent == -XQC_EAGAIN ? XQC_OK : (xqc_int_t)sent;
-    }
-    session->send_offset += sent;
-    if (session->send_offset == session->send_len) {
+    for (;;) {
+        if (session->send_offset == session->send_len && !session->send_fin
+            && !xqc_wt_session_prepare_flow_credit(session))
+        {
+            return XQC_OK;
+        }
+        ssize_t sent = xqc_h3_request_send_body(session->request,
+            session->send_buf + session->send_offset,
+            session->send_len - session->send_offset, session->send_fin);
+        if (sent < 0) {
+            return sent == -XQC_EAGAIN ? XQC_OK : (xqc_int_t)sent;
+        }
+        session->send_offset += sent;
+        if (session->send_offset < session->send_len) {
+            return XQC_OK;
+        }
+        xqc_bool_t fin = session->send_fin;
         session->send_offset = 0;
         session->send_len = 0;
         session->send_fin = XQC_FALSE;
+        if (fin) {
+            return XQC_OK;
+        }
     }
-    return XQC_OK;
+}
+
+static void
+xqc_wt_session_encode_flow_credit(xqc_wt_session_t *session, uint64_t type,
+    uint64_t value)
+{
+    unsigned char encoded[8];
+    size_t value_len = xqc_wt_encode_session_id(value, encoded,
+                                               sizeof(encoded));
+    size_t n = xqc_wt_encode_session_id(type, session->send_buf,
+                                        sizeof(session->send_buf));
+    n += xqc_wt_encode_session_id(value_len, session->send_buf + n,
+                                  sizeof(session->send_buf) - n);
+    memcpy(session->send_buf + n, encoded, value_len);
+    session->send_len = n + value_len;
+}
+
+/* draft-ietf-webtrans-http3-16 §§5.5-5.6: cumulative session credit. */
+xqc_bool_t
+xqc_wt_session_prepare_flow_credit(xqc_wt_session_t *session)
+{
+    if (!session || !xqc_wt_session_is_writable(session)
+        || !session->flow_control || session->send_len || session->send_fin)
+    {
+        return XQC_FALSE;
+    }
+    for (unsigned bidi = 0; bidi < 2; bidi++) {
+        if (session->recv_stream_target[bidi]
+            > session->recv_stream_limit[bidi])
+        {
+            uint64_t value = session->recv_stream_target[bidi];
+            uint64_t type = bidi ? XQC_WT_MAX_STREAMS_BIDI_CAPSULE
+                                 : XQC_WT_MAX_STREAMS_UNI_CAPSULE;
+            xqc_wt_session_encode_flow_credit(session, type, value);
+            session->recv_stream_limit[bidi] = value;
+            return XQC_TRUE;
+        }
+    }
+    uint64_t window = session->wt_conn->ctx->settings.init_recv_window;
+    if (window && session->recv_data_limit >= session->recv_data
+        && session->recv_data_limit - session->recv_data <= window / 2)
+    {
+        uint64_t max = (UINT64_C(1) << 62) - 1;
+        uint64_t value = session->recv_data > max - window
+            ? max : session->recv_data + window;
+        if (value > session->recv_data_limit) {
+            xqc_wt_session_encode_flow_credit(session,
+                XQC_WT_MAX_DATA_CAPSULE, value);
+            session->recv_data_limit = value;
+            return XQC_TRUE;
+        }
+    }
+    return XQC_FALSE;
+}
+
+void
+xqc_wt_session_stream_closed(xqc_wt_session_t *session, xqc_bool_t bidi)
+{
+    if (!session || !session->flow_control || session->closed) {
+        return;
+    }
+    uint64_t *target = &session->recv_stream_target[bidi];
+    if (*target < (UINT64_C(1) << 60)) {
+        (*target)++;
+        if (session->request) {
+            xqc_wt_session_flush(session);
+        }
+    }
+}
+
+static void
+xqc_wt_session_resume_writes(xqc_wt_session_t *session)
+{
+    xqc_list_head_t *pos, *next;
+    xqc_list_for_each_safe(pos, next, &session->stream_list) {
+        xqc_wt_stream_base_t *stream = xqc_list_entry(pos,
+            xqc_wt_stream_base_t, list);
+        if (session->closed) {
+            return;
+        }
+        if (stream->can_send && !stream->closed) {
+            xqc_wt_stream_write(stream->h3_stream, stream);
+        }
+    }
 }
 
 xqc_int_t
@@ -338,6 +435,7 @@ xqc_wt_session_drain(xqc_wt_session_t *session)
 static xqc_int_t
 xqc_wt_capsule_complete(xqc_wt_session_t *session)
 {
+    xqc_bool_t resume_writes = XQC_FALSE;
     if (session->capsule_type == XQC_WT_CLOSE_CAPSULE) {
         /* draft-ietf-webtrans-http3-16 §6: invalid UTF-8 is a message error. */
         if (!xqc_wt_valid_utf8(session->recv_buf + 4, session->recv_len - 4)) {
@@ -389,6 +487,7 @@ xqc_wt_capsule_complete(xqc_wt_session_t *session)
                 return -XQC_WT_FLOW_CONTROL_ERROR;
             }
             session->send_data_limit = value;
+            resume_writes = XQC_TRUE;
             break;
         case XQC_WT_STREAMS_BLOCKED_UNI_CAPSULE:
         case XQC_WT_STREAMS_BLOCKED_BIDI_CAPSULE:
@@ -403,6 +502,9 @@ xqc_wt_capsule_complete(xqc_wt_session_t *session)
     session->capsule_body = XQC_FALSE;
     session->recv_header_len = 0;
     session->recv_len = 0;
+    if (resume_writes) {
+        xqc_wt_session_resume_writes(session);
+    }
     return XQC_OK;
 }
 

@@ -343,6 +343,7 @@ xqc_wt_case_server_init(xqc_engine_t *engine, int case_id)
     if (case_id == 1835) {
         xqc_webtransport_conn_settings_t settings = ctx->settings;
         settings.max_sessions_count = 2;
+        settings.init_recv_window = 8;
         xqc_int_t ret = xqc_wt_engine_set_default_settings(engine,
                                                              &settings);
         if (ret != XQC_OK) {

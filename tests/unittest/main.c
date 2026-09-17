@@ -132,6 +132,8 @@ main(int argc, char *argv[])
                         xqc_test_wt_draft16_pooling_requires_flow_control)
         || !CU_add_test(pSuite, "xqc_test_wt_draft16_flow_capsules",
                         xqc_test_wt_draft16_flow_capsules)
+        || !CU_add_test(pSuite, "xqc_test_wt_draft16_credit_renewal",
+                        xqc_test_wt_draft16_credit_renewal)
         || !CU_add_test(pSuite, "xqc_test_reliable_reset_transport_params",
                         xqc_test_reliable_reset_transport_params)
         || !CU_add_test(pSuite, "xqc_test_reliable_reset_receive_order",

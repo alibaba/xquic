@@ -592,8 +592,11 @@ unidirectional stream delivery, datagrams, stream reset, drain and close.
 The default configuration allows one simultaneous session and ignores
 session flow-control capsules. Configured pooling sends nonzero initial WT
 flow-control SETTINGS and enforces per-session stream and data credit after
-mutual negotiation. Without mutual negotiation, it rejects an additional
-simultaneous CONNECT with `H3_REQUEST_REJECTED`. HTTP/2 per-stream
+mutual negotiation. It renews cumulative data credit as stream bodies are
+consumed and stream credit as peer-created streams close, using WT_MAX_DATA
+and WT_MAX_STREAMS Capsules on the owning session's CONNECT stream. Without
+mutual negotiation, it rejects an additional simultaneous CONNECT with
+`H3_REQUEST_REJECTED`. HTTP/2 per-stream
 flow-control capsules remain prohibited.
 
 Draft-16 resets MUST reliably deliver the complete outgoing WT stream header

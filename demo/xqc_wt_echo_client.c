@@ -598,7 +598,7 @@ xqc_wt_echo_client_init(xqc_engine_t *engine, int draft_version,
             : XQC_WEBTRANSPORT_DRAFT_VERSION_16,
         .max_bidi_streams = 16,
         .max_uni_streams = 16,
-        .init_recv_window = 1024 * 1024,
+        .init_recv_window = case_id == 1835 ? 8 : 1024 * 1024,
         .enable_datagram = 1,
     };
     xqc_int_t ret;

@@ -707,6 +707,62 @@ xqc_test_wt_draft16_flow_capsules(void)
     xqc_wt_conn_destroy(conn);
 }
 
+void
+xqc_test_wt_draft16_credit_renewal(void)
+{
+    /* draft-ietf-webtrans-http3-16 §§5.3, 5.6: absolute session credit. */
+    xqc_wt_ctx_t ctx = {0};
+    xqc_h3_conn_t h3c = {0};
+    xqc_connection_t transport = {0};
+    xqc_wt_conn_t *conn = version_conn(&ctx, &h3c, &transport,
+        XQC_WEBTRANSPORT_DRAFT_VERSION_16);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    ctx.settings.max_bidi_streams = 1;
+    ctx.settings.max_uni_streams = 1;
+    ctx.settings.init_recv_window = 4;
+    conn->negotiated_version = XQC_WEBTRANSPORT_DRAFT_VERSION_16;
+    conn->flow_control_enabled = XQC_TRUE;
+    xqc_wt_session_t *a = xqc_wt_session_init(0, conn, NULL);
+    xqc_wt_session_t *b = xqc_wt_session_init(4, conn, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(a);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(b);
+    a->open = b->open = XQC_TRUE;
+    a->recv_data = 2;
+    CU_ASSERT(xqc_wt_session_prepare_flow_credit(a));
+    uint64_t type = 0, length = 0, value = 0;
+    size_t n = xqc_wt_decode_session_id(a->send_buf, a->send_len, &type);
+    CU_ASSERT(type == 0x190b4d3d);
+    size_t m = xqc_wt_decode_session_id(a->send_buf + n,
+        a->send_len - n, &length);
+    CU_ASSERT(length == 1);
+    CU_ASSERT(xqc_wt_decode_session_id(a->send_buf + n + m,
+        a->send_len - n - m, &value) == 1);
+    CU_ASSERT(value == 6 && a->recv_data_limit == 6);
+    CU_ASSERT(b->recv_data_limit == 4 && !b->send_len);
+    CU_ASSERT(!xqc_wt_session_prepare_flow_credit(a));
+
+    a->send_len = 0;
+    xqc_wt_session_stream_closed(a, XQC_TRUE);
+    CU_ASSERT(xqc_wt_session_prepare_flow_credit(a));
+    n = xqc_wt_decode_session_id(a->send_buf, a->send_len, &type);
+    m = xqc_wt_decode_session_id(a->send_buf + n,
+        a->send_len - n, &length);
+    CU_ASSERT(type == 0x190b4d3f && length == 1);
+    CU_ASSERT(xqc_wt_decode_session_id(a->send_buf + n + m,
+        a->send_len - n - m, &value) == 1);
+    CU_ASSERT(value == 2 && a->recv_stream_limit[1] == 2);
+    CU_ASSERT(b->recv_stream_limit[1] == 1);
+
+    a->send_len = 0;
+    a->closed = XQC_TRUE;
+    xqc_wt_session_stream_closed(a, XQC_TRUE);
+    CU_ASSERT(!xqc_wt_session_prepare_flow_credit(a));
+    b->flow_control = XQC_FALSE;
+    b->recv_data = 4;
+    CU_ASSERT(!xqc_wt_session_prepare_flow_credit(b));
+    xqc_wt_conn_destroy(conn);
+}
+
 static void
 version_client_response(const char *status)
 {

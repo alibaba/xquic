@@ -29,6 +29,7 @@ struct xqc_webtransport_session_s {
     xqc_bool_t            flow_control;
     uint64_t              send_stream_limit[2];
     uint64_t              recv_stream_limit[2];
+    uint64_t              recv_stream_target[2];
     uint64_t              sent_streams[2];
     uint64_t              recv_streams[2];
     uint64_t              send_data_limit;
@@ -60,6 +61,8 @@ xqc_int_t xqc_wt_session_close(xqc_wt_session_t *session);
 void xqc_wt_session_destroy(xqc_wt_session_t *session);
 void xqc_wt_session_notify_closed(xqc_wt_session_t *session);
 xqc_int_t xqc_wt_session_flush(xqc_wt_session_t *session);
+void xqc_wt_session_stream_closed(xqc_wt_session_t *session, xqc_bool_t bidi);
+xqc_bool_t xqc_wt_session_prepare_flow_credit(xqc_wt_session_t *session);
 xqc_int_t xqc_wt_session_recv_capsules(xqc_wt_session_t *session,
     const unsigned char *data, size_t len, xqc_bool_t fin);
 void xqc_wt_session_init_flow_control(xqc_wt_session_t *session);

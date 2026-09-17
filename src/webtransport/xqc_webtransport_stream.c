@@ -281,6 +281,9 @@ xqc_wt_stream_notify_read(xqc_wt_stream_base_t *stream,
     if (ret >= 0 && session->flow_control) {
         session->recv_data += len;
         stream->recv_accounted += len;
+        if (session->request && !session->closed) {
+            xqc_wt_session_flush(session);
+        }
     }
     xqc_wt_stream_release(stream);
     return ret < 0 ? ret : (ssize_t)len;
@@ -458,6 +461,9 @@ xqc_wt_stream_notify_close(xqc_wt_stream_base_t *stream)
     stream->io->detach(stream->h3_stream);
     stream->callback_depth++;
     if (stream->session != NULL) {
+        if (!stream->outgoing) {
+            xqc_wt_session_stream_closed(stream->session, stream->bidi);
+        }
         const xqc_webtransport_stream_callbacks_t *cbs =
             xqc_wt_session_get_stream_callbacks(stream->session);
         if (stream->bidi && cbs->wt_bidistream_close_notify) {

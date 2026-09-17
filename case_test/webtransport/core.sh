@@ -214,7 +214,7 @@ wt_second_session_rejected()
     grep -Eq 'xqc_h3_request_destroy\|stream_id:4\|.*err:267\|' clog
 }
 
-# draft-ietf-webtrans-http3-16 Sections 5.1-5.5: two active sessions share H3.
+# draft-ietf-webtrans-http3-16 Sections 5.1-5.6: pooled byte credit renews.
 wt_pooled_sessions()
 {
     wt_case_run 1835 wt_pooled_sessions 16 \

@@ -19,10 +19,19 @@ static unsigned xqc_wt_interop_test_status(xqc_wt_session_t *session);
 #undef xqc_wt_session_close_with_error
 #undef xqc_wt_session_get_close_error_code
 #undef xqc_wt_session_get_response_status
-const xqc_demo_wt_app_policy_t xqc_demo_wt_echo_policy = {0};
+static xqc_int_t
+xqc_wt_test_server_init(xqc_engine_t *engine, int case_id)
+{
+    (void) engine;
+    (void) case_id;
+    return XQC_OK;
+}
+
+#define xqc_wt_case_server_init xqc_wt_test_server_init
 #define XQC_ENABLE_WEBTRANSPORT_INTEROP 1
-#include "demo/xqc_wt_app.c"
+#include "demo/xqc_wt_app_policy.c"
 #undef XQC_ENABLE_WEBTRANSPORT_INTEROP
+#undef xqc_wt_case_server_init
 #include <dirent.h>
 #include <CUnit/CUnit.h>
 #include "xqc_webtrans_interop_test.h"
@@ -63,6 +72,11 @@ static void xqc_wt_interop_test_early(xqc_wt_session_t *session,
 void
 xqc_test_wt_interop_policy(void)
 {
+    CU_ASSERT(!xqc_demo_wt_echo_policy.require_webtransport);
+    CU_ASSERT(xqc_demo_wt_echo_policy.allow_case_id);
+    CU_ASSERT(!xqc_demo_wt_echo_policy.allow_remote_certificate);
+    CU_ASSERT(xqc_demo_wt_echo_policy.allow_client_probe);
+    CU_ASSERT(xqc_demo_wt_echo_policy.server_init == xqc_wt_test_server_init);
     CU_ASSERT(xqc_wt_interop_policy.require_webtransport);
     CU_ASSERT(!xqc_wt_interop_policy.allow_case_id);
     CU_ASSERT(xqc_wt_interop_policy.allow_remote_certificate);

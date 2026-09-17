@@ -10,9 +10,8 @@ set(
     DEMO_CLIENT_SOURCES
     ${HQ_SOURCES}
     "demo_client.c"
-    "xqc_wt_app.c"
+    "xqc_wt_app_policy.c"
     "xqc_wt_echo_client.c"
-    "xqc_wt_echo_policy.c"
     "${CMAKE_SOURCE_DIR}/case_test/webtransport/xqc_webtrans_test_cases.c"
 )
 
@@ -20,9 +19,8 @@ set(
     DEMO_SERVER_SOURCES
     ${HQ_SOURCES}
     "demo_server.c"
-    "xqc_wt_app.c"
+    "xqc_wt_app_policy.c"
     "xqc_wt_echo_server.c"
-    "xqc_wt_echo_policy.c"
     "${CMAKE_SOURCE_DIR}/case_test/webtransport/xqc_webtrans_test_cases.c"
 )
 

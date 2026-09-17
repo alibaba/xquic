@@ -3,8 +3,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include "xqc_wt_app.h"
+#include "case_test/webtransport/xqc_webtrans_test_cases.h"
 
-extern const xqc_demo_wt_app_policy_t xqc_demo_wt_echo_policy;
+const xqc_demo_wt_app_policy_t xqc_demo_wt_echo_policy = {
+    .require_webtransport = 0,
+    .allow_case_id = 1,
+    .allow_remote_certificate = 0,
+    .allow_client_probe = 1,
+    .server_init = xqc_wt_case_server_init,
+};
+
 #ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
 extern const xqc_demo_wt_app_policy_t xqc_wt_interop_policy;
 #endif
@@ -12,12 +20,14 @@ extern const xqc_demo_wt_app_policy_t xqc_wt_interop_policy;
 const xqc_demo_wt_app_policy_t *xqc_demo_wt_app_policy =
     &xqc_demo_wt_echo_policy;
 
-static int xqc_demo_wt_interop_selected;
-
 int
 xqc_demo_wt_app_is_interop(void)
 {
-    return xqc_demo_wt_interop_selected;
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+    return xqc_demo_wt_app_policy == &xqc_wt_interop_policy;
+#else
+    return 0;
+#endif
 }
 
 int
@@ -27,7 +37,6 @@ xqc_demo_wt_app_select(int server)
     const char *testcase = getenv("TESTCASE");
 
     xqc_demo_wt_app_policy = &xqc_demo_wt_echo_policy;
-    xqc_demo_wt_interop_selected = 0;
 
     if (role == NULL && testcase == NULL) {
         return 0;
@@ -54,7 +63,6 @@ xqc_demo_wt_app_select(int server)
         return -1;
     }
     xqc_demo_wt_app_policy = &xqc_wt_interop_policy;
-    xqc_demo_wt_interop_selected = 1;
     return 0;
 #else
     return -1;

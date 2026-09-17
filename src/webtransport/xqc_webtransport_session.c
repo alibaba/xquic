@@ -453,7 +453,7 @@ xqc_wt_capsule_complete(xqc_wt_session_t *session)
         session->peer_closed = XQC_TRUE;
         xqc_wt_session_close_streams(session);
         if (session->wt_conn->negotiated_version
-            == XQC_WEBTRANSPORT_DRAFT_VERSION_16)
+            >= XQC_WEBTRANSPORT_DRAFT_VERSION_16)
         {
             /* draft-ietf-webtrans-http3-16 §6: answer before peer FIN. */
             session->send_fin = XQC_TRUE;

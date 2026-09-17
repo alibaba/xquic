@@ -464,33 +464,50 @@ xqc_test_wt_draft16_close_utf8(void)
 void
 xqc_test_wt_draft16_peer_close_response(void)
 {
-    /* draft-ietf-webtrans-http3-16 §6: respond without waiting for FIN. */
-    xqc_h3_conn_t *h3c = version_engine(
-        XQC_WEBTRANSPORT_DRAFT_VERSION_16, XQC_TRUE);
-    CU_ASSERT_PTR_NOT_NULL_FATAL(h3c);
-    int err = -1;
-    xqc_wt_session_t *session = xqc_wt_client_open_session(h3c,
-        "localhost", "/wt", "https://localhost", &err);
-    CU_ASSERT_PTR_NOT_NULL_FATAL(session);
-    version_peer_settings(session->wt_conn, XQC_FALSE, XQC_TRUE);
-    CU_ASSERT(h3c->forbidden_frame_type == 0x41);
-    const char *names[] = {":status"};
-    const char *values[] = {"200"};
-    version_headers(session->request, names, values, 1);
-    CU_ASSERT(xqc_h3_request_on_recv_header(session->request) == XQC_OK);
-    CU_ASSERT(session->open);
-    h3c->conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
-    unsigned char close[] = {0x68, 0x43, 4, 0, 0, 0, 7};
-    CU_ASSERT(xqc_wt_session_recv_capsules(session, close,
-              sizeof(close), XQC_FALSE) == XQC_OK);
-    CU_ASSERT(session->peer_closed && session->closed);
-    CU_ASSERT(session->close_error == 7);
-    CU_ASSERT(session->request->h3_stream->flags
-              & XQC_HTTP3_STREAM_FLAG_FIN_SENT);
-    CU_ASSERT(!session->send_fin);
-    CU_ASSERT(xqc_wt_session_recv_capsules(session, close, 1, XQC_FALSE)
-              == -XQC_H3_DECODE_ERROR);
-    xqc_engine_destroy(h3c->conn->engine);
+    /* draft-07 §5 waits for FIN; draft-16 §6 responds to the capsule. */
+    for (int i = 0; i < 3; i++) {
+        xqc_webtransport_draft_version_t version = i == 0
+            ? XQC_WEBTRANSPORT_DRAFT_VERSION_7
+            : XQC_WEBTRANSPORT_DRAFT_VERSION_16;
+        xqc_h3_conn_t *h3c = version_engine(version, XQC_TRUE);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(h3c);
+        int err = -1;
+        xqc_wt_session_t *session = xqc_wt_client_open_session(h3c,
+            "localhost", "/wt", "https://localhost", &err);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(session);
+        version_peer_settings(session->wt_conn, i == 0, i != 0);
+        CU_ASSERT(h3c->forbidden_frame_type == (i == 0 ? 0 : 0x41));
+        if (i == 2) {
+            /* A later compatible version retains the draft-16 close rule. */
+            session->wt_conn->negotiated_version =
+                (xqc_webtransport_draft_version_t)
+                (XQC_WEBTRANSPORT_DRAFT_VERSION_16 + 1);
+        }
+        const char *names[] = {":status"};
+        const char *values[] = {"200"};
+        version_headers(session->request, names, values, 1);
+        CU_ASSERT(xqc_h3_request_on_recv_header(session->request) == XQC_OK);
+        CU_ASSERT(session->open);
+        h3c->conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
+        unsigned char close[] = {0x68, 0x43, 4, 0, 0, 0, 7};
+        CU_ASSERT(xqc_wt_session_recv_capsules(session, close,
+                  sizeof(close), XQC_FALSE) == XQC_OK);
+        CU_ASSERT(session->peer_closed && session->closed);
+        CU_ASSERT(session->close_error == 7);
+        xqc_bool_t fin_sent = (session->request->h3_stream->flags
+            & XQC_HTTP3_STREAM_FLAG_FIN_SENT) != 0;
+        CU_ASSERT(fin_sent == (i != 0));
+        CU_ASSERT(!session->send_fin);
+        CU_ASSERT(xqc_wt_session_recv_capsules(session, close, 1, XQC_FALSE)
+                  == -XQC_H3_DECODE_ERROR);
+        if (i == 0) {
+            CU_ASSERT(xqc_wt_session_recv_capsules(session, NULL, 0,
+                      XQC_TRUE) == XQC_OK);
+            CU_ASSERT(session->request->h3_stream->flags
+                      & XQC_HTTP3_STREAM_FLAG_FIN_SENT);
+        }
+        xqc_engine_destroy(h3c->conn->engine);
+    }
 }
 
 void

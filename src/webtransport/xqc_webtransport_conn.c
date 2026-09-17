@@ -240,6 +240,8 @@ xqc_wt_peer_settings_complete(void *data)
                                 == XQC_WEBTRANSPORT_DRAFT_VERSION_16)
     {
         conn->negotiated_version = XQC_WEBTRANSPORT_DRAFT_VERSION_16;
+        /* draft-ietf-webtrans-http3-16 §4.3: 0x41 is a stream header. */
+        conn->h3_conn->forbidden_frame_type = 0x41;
         conn->flow_control_enabled = conn->ctx->settings.max_sessions_count > 1
             && (conn->peer_initial_max_streams_uni
                 || conn->peer_initial_max_streams_bidi

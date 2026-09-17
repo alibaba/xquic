@@ -21,6 +21,7 @@ typedef struct {
     size_t                 reset_prefix_len;
     size_t                 reset_prefix_sent;
     uint64_t               reset_error;
+    uint64_t               stop_error;
     xqc_bool_t             reset_pending;
     xqc_bool_t             stop_received;
     xqc_bool_t             stop_pending;
@@ -672,7 +673,8 @@ xqc_wt_h3_stream_notify_stop(xqc_h3_stream_t *h3s)
     }
     adapter->stop_pending = XQC_FALSE;
     adapter->callback_depth++;
-    xqc_wt_stream_notify_closing(adapter->stream, XQC_TRUE);
+    xqc_wt_stream_notify_closing(adapter->stream, XQC_TRUE,
+        adapter->stop_error);
     xqc_wt_h3_stream_release(adapter);
 }
 
@@ -688,6 +690,7 @@ xqc_wt_h3_stream_stop_sending_notify(xqc_stream_t *stream,
     }
     adapter->stop_received = XQC_TRUE;
     adapter->stop_pending = XQC_TRUE;
+    adapter->stop_error = error;
     xqc_wt_h3_stream_notify_stop(user_data);
 }
 

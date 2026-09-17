@@ -364,6 +364,10 @@ mechanisms. Its internal extension interface supplies registration, parsed
 HTTP events, extension-stream dispatch, generic Capsule and Datagram I/O, and
 connection lifecycle notifications. The H3 adapter supplies all
 WebTransport-specific values and validation required by the governing draft.
+After draft-16 negotiation, the adapter marks `WT_STREAM` (`0x41`) as a
+forbidden ordinary H3 frame type. The generic H3 parser enforces that mark on
+control, push, request, and bytestream frames; the native dispatch layer alone
+recognizes `WT_STREAM` as a stream prefix.
 
 The extension callbacks receive parsed values and stable object references.
 They do not require WebTransport to access private `xqc_h3_conn_t` or
@@ -491,6 +495,9 @@ Classification has exactly three outcomes:
 
 There is no fallback or default session. A stream or datagram that cannot be
 resolved must not be delivered to another session.
+Once a known session closes, a newly resolved stream for that identifier is
+rejected, and any buffered stream already resolved to that identifier is
+aborted with the session-gone error.
 
 ### Unresolved Input
 
@@ -535,6 +542,10 @@ Revision-specific identifiers and codecs belong to their adapter. The H3
 connection pins the highest common draft after receiving complete peer
 SETTINGS. Its session, stream, datagram, and capsule paths MUST use that draft
 for the lifetime of the connection.
+For draft-16, a complete peer CLOSE capsule ends the session and triggers a
+local CONNECT FIN immediately. Stream-closing callbacks can query a mapped
+32-bit application error code for RESET_STREAM or STOP_SENDING. The query
+returns false for transport and reserved wire errors.
 
 The H3 adapter supports exactly draft-07 and draft-16. Draft-16 requires its
 own SETTINGS, CONNECT token and reliable-reset prerequisites; draft-07

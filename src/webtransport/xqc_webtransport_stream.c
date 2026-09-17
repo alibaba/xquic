@@ -17,8 +17,10 @@
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_send_queue.h"
 
-/* draft-ietf-webtrans-http3-07, Sections 4.3 and 4.4. */
+/* draft-ietf-webtrans-http3-07 §§4.3-4.4 and -16 §4.4. */
 #define XQC_WT_APP_ERROR_FIRST UINT64_C(0x52e4a40fa8db)
+#define XQC_WT_APP_ERROR_LAST \
+    (XQC_WT_APP_ERROR_FIRST + UINT32_MAX + UINT32_MAX / 0x1e)
 #define XQC_WT_SESSION_GONE UINT64_C(0x170d7b68)
 #define XQC_WT_BUFFERED_STREAM_REJECTED UINT64_C(0x3994bd84)
 #define XQC_WT_PENDING_STREAM_MAX 64
@@ -369,7 +371,7 @@ xqc_wt_stream_cancel(xqc_wt_stream_base_t *stream, uint32_t error,
     if (stop ? stream->recv_reset : stream->send_reset) {
         return XQC_OK;
     }
-    /* draft-ietf-webtrans-http3-07 Section 4.3 reserves every 31st code. */
+    /* draft-ietf-webtrans-http3-16 §4.4 reserves every 31st code. */
     uint64_t wire_error = XQC_WT_APP_ERROR_FIRST + error + error / 0x1e;
     stream->callback_depth++;
     xqc_int_t ret = stop ? stream->io->stop(stream->h3_stream, wire_error)
@@ -400,7 +402,7 @@ xqc_wt_stream_pause(xqc_wt_stream_base_t *stream, xqc_bool_t paused)
 
 void
 xqc_wt_stream_notify_closing(xqc_wt_stream_base_t *stream,
-    xqc_bool_t stop_sending)
+    xqc_bool_t stop_sending, uint64_t wire_error)
 {
     if (stream == NULL || stream->closed || stream->session == NULL) {
         return;
@@ -429,6 +431,14 @@ xqc_wt_stream_notify_closing(xqc_wt_stream_base_t *stream,
         }
     }
     stream->stop_sending = stop_sending;
+    /* draft-ietf-webtrans-http3-16 §4.4 skips every 31st wire code. */
+    stream->recv_error_valid = wire_error >= XQC_WT_APP_ERROR_FIRST
+        && wire_error <= XQC_WT_APP_ERROR_LAST
+        && (wire_error - XQC_WT_APP_ERROR_FIRST) % 0x1f != 0x1e;
+    if (stream->recv_error_valid) {
+        uint64_t offset = wire_error - XQC_WT_APP_ERROR_FIRST;
+        stream->recv_error_code = (uint32_t)(offset - offset / 0x1f);
+    }
     if (stop_sending) {
         stream->send_reset = XQC_TRUE;
     } else {
@@ -509,6 +519,17 @@ xqc_wt_session_close_streams(xqc_wt_session_t *session)
             session->stream_list.next, xqc_wt_stream_base_t, list);
         xqc_wt_stream_terminate(stream);
     }
+    xqc_list_head_t *pos, *next;
+    xqc_list_for_each_safe(pos, next, &session->wt_conn->pending_streams) {
+        xqc_wt_stream_base_t *stream =
+            xqc_list_entry(pos, xqc_wt_stream_base_t, list);
+        if (stream->session_id_complete
+            && stream->session_id == session->sessionID)
+        {
+            /* draft-ietf-webtrans-http3-16 §6: abort associated streams. */
+            xqc_wt_stream_terminate(stream);
+        }
+    }
 }
 
 ssize_t
@@ -570,6 +591,10 @@ xqc_wt_stream_read(xqc_h3_stream_t *h3_stream, void *conn_ctx,
     if (stream->session == NULL) {
         xqc_wt_session_t *session =
             xqc_wt_conn_find_session(conn, stream->session_id);
+        if (session != NULL && session->closed) {
+            xqc_wt_stream_terminate(stream);
+            return (ssize_t)len;
+        }
         if (session == NULL || !xqc_wt_session_is_writable(session)) {
             stream->io->pause(h3_stream, XQC_TRUE);
             return consumed ? (ssize_t)consumed : -XQC_EAGAIN;
@@ -632,8 +657,9 @@ void
 xqc_wt_stream_closing(xqc_h3_stream_t *h3_stream, xqc_int_t error,
     void *stream_ctx)
 {
-    /* The legacy transport closing callback currently reports RESET_STREAM. */
-    xqc_wt_stream_notify_closing(stream_ctx, XQC_FALSE);
+    /* The transport callback narrows error; stream_err retains all 62 bits. */
+    xqc_wt_stream_notify_closing(stream_ctx, XQC_FALSE,
+        h3_stream->stream->stream_err);
 }
 
 void
@@ -654,6 +680,10 @@ xqc_wt_conn_resume_streams(xqc_wt_conn_t *conn)
         }
         xqc_wt_session_t *session =
             xqc_wt_conn_find_session(conn, stream->session_id);
+        if (session != NULL && session->closed) {
+            xqc_wt_stream_terminate(stream);
+            continue;
+        }
         if (session != NULL && xqc_wt_session_is_writable(session)) {
             xqc_h3_stream_t *h3_stream = stream->h3_stream;
             if (xqc_wt_stream_attach(stream, session, NULL) != XQC_OK) {
@@ -812,6 +842,17 @@ xqc_wt_bidistream_closing_is_stop_sending(xqc_wt_bidistream_t *stream)
     return stream ? stream->base.stop_sending : XQC_FALSE;
 }
 
+xqc_bool_t
+xqc_wt_bidistream_get_recv_error_code(xqc_wt_bidistream_t *stream,
+    uint32_t *error_code)
+{
+    if (!stream || !error_code || !stream->base.recv_error_valid) {
+        return XQC_FALSE;
+    }
+    *error_code = stream->base.recv_error_code;
+    return XQC_TRUE;
+}
+
 xqc_stream_id_t
 xqc_wt_bidistream_id(xqc_wt_bidistream_t *stream)
 {
@@ -858,6 +899,17 @@ xqc_bool_t
 xqc_wt_unistream_closing_is_stop_sending(xqc_wt_unistream_t *stream)
 {
     return stream ? stream->base.stop_sending : XQC_FALSE;
+}
+
+xqc_bool_t
+xqc_wt_unistream_get_recv_error_code(xqc_wt_unistream_t *stream,
+    uint32_t *error_code)
+{
+    if (!stream || !error_code || !stream->base.recv_error_valid) {
+        return XQC_FALSE;
+    }
+    *error_code = stream->base.recv_error_code;
+    return XQC_TRUE;
 }
 
 xqc_stream_id_t

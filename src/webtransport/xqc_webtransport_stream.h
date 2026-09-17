@@ -37,6 +37,8 @@ typedef struct xqc_wt_stream_base_s {
     xqc_bool_t                  closed;
     xqc_bool_t                  listed;
     xqc_bool_t                  stop_sending;
+    xqc_bool_t                  recv_error_valid;
+    uint32_t                    recv_error_code;
     xqc_bool_t                  session_id_complete;
     unsigned char               prefix[16];
     size_t                      prefix_len;
@@ -65,7 +67,7 @@ xqc_int_t xqc_wt_stream_notify_create(xqc_wt_stream_base_t *stream);
 ssize_t xqc_wt_stream_notify_read(xqc_wt_stream_base_t *stream,
     const unsigned char *data, size_t len, uint8_t fin);
 void xqc_wt_stream_notify_closing(xqc_wt_stream_base_t *stream,
-    xqc_bool_t stop_sending);
+    xqc_bool_t stop_sending, uint64_t wire_error);
 void xqc_wt_stream_notify_close(xqc_wt_stream_base_t *stream);
 
 ssize_t xqc_wt_stream_read(xqc_h3_stream_t *stream, void *conn_ctx,

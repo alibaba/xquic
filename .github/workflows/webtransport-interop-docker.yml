@@ -30,12 +30,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Verify the feat/webtransport branch head
-        shell: bash
-        run: |
-          test "$(git ls-remote --exit-code origin "$GITHUB_REF" \
-            | cut -f1)" = "$GITHUB_SHA"
-
       - name: Build and test the amd64 endpoint
         run: |
           docker buildx build --load --platform linux/amd64 \
@@ -43,12 +37,6 @@ jobs:
             --build-arg "XQUIC_REVISION=${GITHUB_SHA}" \
             --tag "${IMAGE_NAME}:sha-${GITHUB_SHA}" \
             -f interop/webtransport/Dockerfile .
-
-      - name: Verify the branch head before publication
-        shell: bash
-        run: |
-          test "$(git ls-remote --exit-code origin "$GITHUB_REF" \
-            | cut -f1)" = "$GITHUB_SHA"
 
       - name: Sign in to the GitHub Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3

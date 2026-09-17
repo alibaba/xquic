@@ -38,8 +38,8 @@ python3 run.py -p webtransport -s xquic -c xquic \
 ```
 
 The [publication workflow](../../.github/workflows/webtransport-interop-docker.yml)
-builds the checked-out `alibaba/xquic` commit and publishes
-only when the workflow runs on the current `feat/webtransport` branch head.
+builds the checked-out `alibaba/xquic` commit and publishes only when the
+workflow runs on `feat/webtransport`.
 It publishes
 `ghcr.io/alibaba/xquic/xquic-webtransport-interop` with `sha-<xquic-commit>`
 and `latest` tags. Only the official repository publishes this image, using

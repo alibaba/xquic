@@ -28,6 +28,10 @@ static void xqc_test_conn_close_frame_accepted(unsigned char *frame,
 static void xqc_test_conn_close_app_error_rejected(xqc_pkt_type_t pkt_type);
 static void xqc_test_ack_range_rejected(unsigned char *frame,
     size_t frame_len);
+static void xqc_test_handshake_finished_cb(xqc_connection_t *conn,
+    void *user_data, void *conn_proto_data);
+static void xqc_test_server_handshake_streams(xqc_connection_t **conn,
+    xqc_stream_t **hsk_stream, xqc_stream_t **one_rtt_stream);
 
 
 static xqc_int_t
@@ -974,6 +978,114 @@ xqc_test_crypto_frame_in_handshake_accepted()
     CU_ASSERT(conn->conn_err != TRA_PROTOCOL_VIOLATION);
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
     CU_ASSERT((pi.pi_frame_types & XQC_FRAME_BIT_CRYPTO) != 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+static int xqc_test_handshake_finished_count;
+
+
+static void
+xqc_test_handshake_finished_cb(xqc_connection_t *conn, void *user_data,
+    void *conn_proto_data)
+{
+    (void) conn;
+    (void) user_data;
+    (void) conn_proto_data;
+    xqc_test_handshake_finished_count++;
+}
+
+
+static void
+xqc_test_server_handshake_streams(xqc_connection_t **conn,
+    xqc_stream_t **hsk_stream, xqc_stream_t **one_rtt_stream)
+{
+    *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(*conn);
+
+    (*conn)->conn_type = XQC_CONN_TYPE_SERVER;
+    (*conn)->conn_state = XQC_CONN_STATE_SERVER_HANDSHAKE_SENT;
+    (*conn)->conn_flag |= XQC_CONN_FLAG_TOKEN_OK
+                         | XQC_CONN_FLAG_0RTT_REJ;
+    (*conn)->app_proto_cbs.conn_cbs.conn_handshake_finished =
+        xqc_test_handshake_finished_cb;
+
+    *hsk_stream = xqc_create_crypto_stream(
+        *conn, XQC_ENC_LEV_HSK, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(*hsk_stream);
+    (*conn)->crypto_stream[XQC_ENC_LEV_HSK] = *hsk_stream;
+
+    *one_rtt_stream = xqc_create_crypto_stream(
+        *conn, XQC_ENC_LEV_1RTT, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(*one_rtt_stream);
+    (*conn)->crypto_stream[XQC_ENC_LEV_1RTT] = *one_rtt_stream;
+
+    xqc_test_handshake_finished_count = 0;
+}
+
+
+void
+xqc_test_crypto_read_waits_for_tls_completion()
+{
+    unsigned char frame[] = {
+        0x06, 0x01, 0x01, 0x00
+    };
+    xqc_connection_t *conn;
+    xqc_stream_t *hsk_stream;
+    xqc_stream_t *one_rtt_stream;
+    xqc_packet_in_t packet_in;
+
+    xqc_test_server_handshake_streams(&conn, &hsk_stream, &one_rtt_stream);
+
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pi_pkt.pkt_type = XQC_PTYPE_HSK;
+    packet_in.pos = frame;
+    packet_in.last = frame + sizeof(frame);
+
+    /*
+     * RFC 9001 Sections 4.1.1 and 4.1.3: the offset gap leaves no new
+     * in-order bytes for TLS, so the CRYPTO event cannot complete the
+     * handshake without TLS's completion signal.
+     */
+    CU_ASSERT_EQUAL(xqc_process_crypto_frame(conn, &packet_in), XQC_OK);
+    CU_ASSERT_EQUAL(hsk_stream->stream_data_in.next_read_offset, 0);
+    CU_ASSERT_EQUAL(hsk_stream->stream_data_in.buffered_frame_count, 1);
+    CU_ASSERT(hsk_stream->stream_flag & XQC_STREAM_FLAG_READY_TO_READ);
+
+    xqc_process_crypto_read_streams(conn);
+
+    CU_ASSERT_EQUAL(conn->conn_state,
+                    XQC_CONN_STATE_SERVER_HANDSHAKE_SENT);
+    CU_ASSERT(!(conn->conn_flag & XQC_CONN_FLAG_TLS_HSK_COMPLETED));
+    CU_ASSERT(!(conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_COMPLETED));
+    CU_ASSERT(!(conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_CONFIRMED));
+    CU_ASSERT(!(one_rtt_stream->stream_flag
+                & XQC_STREAM_FLAG_READY_TO_WRITE));
+    CU_ASSERT_EQUAL(xqc_test_handshake_finished_count, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_crypto_read_after_tls_completion()
+{
+    xqc_connection_t *conn;
+    xqc_stream_t *hsk_stream;
+    xqc_stream_t *one_rtt_stream;
+
+    xqc_test_server_handshake_streams(&conn, &hsk_stream, &one_rtt_stream);
+    conn->conn_flag |= XQC_CONN_FLAG_TLS_HSK_COMPLETED;
+
+    CU_ASSERT_EQUAL(hsk_stream->stream_if->stream_read_notify(
+                        hsk_stream, NULL), XQC_OK);
+    CU_ASSERT_EQUAL(conn->conn_state, XQC_CONN_STATE_ESTABED);
+    CU_ASSERT(conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_COMPLETED);
+    CU_ASSERT(conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_CONFIRMED);
+    CU_ASSERT(one_rtt_stream->stream_flag
+              & XQC_STREAM_FLAG_READY_TO_WRITE);
+    CU_ASSERT_EQUAL(xqc_test_handshake_finished_count, 1);
 
     xqc_engine_destroy(conn->engine);
 }

@@ -10,7 +10,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include "src/common/xqc_time.h"
-#include "xqc_wt_app.h"
+#include "xqc_wt_app_policy.h"
 #include "xqc_wt_echo_client.h"
 #include "xqc_wt_echo_server.h"
 

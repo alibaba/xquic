@@ -32,7 +32,7 @@
 
 #include "common.h"
 #include "xqc_hq.h"
-#include "xqc_wt_app.h"
+#include "xqc_wt_app_policy.h"
 #include "xqc_wt_echo_server.h"
 #ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
 #include "xqc_webtrans_interop.h"

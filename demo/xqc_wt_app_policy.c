@@ -2,7 +2,7 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include "xqc_wt_app.h"
+#include "xqc_wt_app_policy.h"
 #include "case_test/webtransport/xqc_webtrans_test_cases.h"
 
 const xqc_demo_wt_app_policy_t xqc_demo_wt_echo_policy = {

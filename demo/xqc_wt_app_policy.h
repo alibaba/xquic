@@ -1,7 +1,7 @@
 /* Copyright (c) 2026, Alibaba Group Holding Limited. */
 
-#ifndef XQC_WT_APP_H
-#define XQC_WT_APP_H
+#ifndef XQC_WT_APP_POLICY_H
+#define XQC_WT_APP_POLICY_H
 
 #include <xquic/xquic.h>
 

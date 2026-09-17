@@ -452,6 +452,18 @@ xqc_wt_capsule_complete(xqc_wt_session_t *session)
         session->closed = XQC_TRUE;
         session->peer_closed = XQC_TRUE;
         xqc_wt_session_close_streams(session);
+        if (session->wt_conn->negotiated_version
+            >= XQC_WEBTRANSPORT_DRAFT_VERSION_16)
+        {
+            /* draft-ietf-webtrans-http3-16 §6: answer before peer FIN. */
+            session->send_fin = XQC_TRUE;
+            if (session->request) {
+                xqc_int_t ret = xqc_wt_session_flush(session);
+                if (ret != XQC_OK) {
+                    return ret;
+                }
+            }
+        }
 
     } else if (session->capsule_type == XQC_WT_DRAIN_CAPSULE
                && !session->draining)

@@ -14,5 +14,8 @@ void xqc_test_wt_h3_stream_reliable_reset(void);
 void xqc_test_wt_h3_stream_reset_after_detach(void);
 void xqc_test_wt_h3_stream_goaway(void);
 void xqc_test_wt_h3_stream_stop_sending(void);
+void xqc_test_wt_h3_stream_recv_reset_error(void);
+void xqc_test_wt_h3_stream_closed_session(void);
+void xqc_test_wt_h3_stream_frame_position(void);
 
 #endif

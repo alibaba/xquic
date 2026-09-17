@@ -13,7 +13,7 @@ and the requested hostname. Application behavior and native CI are described in
 Both roles enable the demos' existing transport pacing option for the
 simulator's bounded network queue; the runner's case behavior is unchanged.
 
-Build from the XQUIC repository root:
+Build an image from the XQUIC repository root:
 
 ```sh
 python3 interop/webtransport/test_endpoint.py

@@ -107,6 +107,7 @@ typedef struct xqc_h3_conn_s {
         uint64_t value, void *user_data);
     xqc_int_t                  (*on_settings_complete)(void *user_data);
     void                        *settings_user_data;
+    uint64_t                     forbidden_frame_type;
 
     /* blocked buffer limits (effective values computed at init time) */
     size_t                       max_blocked_buf_per_stream;       /* effective limit per stream */

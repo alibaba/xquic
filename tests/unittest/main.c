@@ -119,6 +119,8 @@ main(int argc, char *argv[])
                         xqc_test_wt_application_protocol_inputs)
         || !CU_add_test(pSuite, "xqc_test_wt_draft16_close_utf8",
                         xqc_test_wt_draft16_close_utf8)
+        || !CU_add_test(pSuite, "xqc_test_wt_draft16_peer_close_response",
+                        xqc_test_wt_draft16_peer_close_response)
         || !CU_add_test(pSuite, "xqc_test_wt_draft16_close_utf8_errors",
                         xqc_test_wt_draft16_close_utf8_errors)
         || !CU_add_test(pSuite, "xqc_test_wt_draft16_drain_streams",
@@ -158,6 +160,12 @@ main(int argc, char *argv[])
                         xqc_test_wt_h3_stream_goaway)
         || !CU_add_test(pSuite, "xqc_test_wt_h3_stream_stop_sending",
                         xqc_test_wt_h3_stream_stop_sending)
+        || !CU_add_test(pSuite, "xqc_test_wt_h3_stream_recv_reset_error",
+                        xqc_test_wt_h3_stream_recv_reset_error)
+        || !CU_add_test(pSuite, "xqc_test_wt_h3_stream_closed_session",
+                        xqc_test_wt_h3_stream_closed_session)
+        || !CU_add_test(pSuite, "xqc_test_wt_h3_stream_frame_position",
+                        xqc_test_wt_h3_stream_frame_position)
         || !CU_add_test(pSuite, "xqc_test_wt_h3_stream_passthrough",
                         xqc_test_wt_h3_stream_passthrough)
         || !CU_add_test(pSuite, "xqc_test_wt_h3_stream_prefix_errors",

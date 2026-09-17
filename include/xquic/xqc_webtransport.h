@@ -614,6 +614,14 @@ XQC_EXPORT_PUBLIC_API
 xqc_bool_t xqc_wt_unistream_closing_is_stop_sending(
     xqc_wt_unistream_t *stream);
 
+/* Inside a closing callback, returns false when no application code exists. */
+XQC_EXPORT_PUBLIC_API
+xqc_bool_t xqc_wt_bidistream_get_recv_error_code(
+    xqc_wt_bidistream_t *stream, uint32_t *error_code);
+XQC_EXPORT_PUBLIC_API
+xqc_bool_t xqc_wt_unistream_get_recv_error_code(
+    xqc_wt_unistream_t *stream, uint32_t *error_code);
+
 /* A zero-length read callback can carry FIN; these getters disambiguate it. */
 XQC_EXPORT_PUBLIC_API
 xqc_bool_t xqc_wt_bidistream_get_recv_fin(xqc_wt_bidistream_t *stream);

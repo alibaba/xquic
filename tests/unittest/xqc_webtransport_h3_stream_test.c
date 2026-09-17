@@ -29,6 +29,9 @@ typedef struct {
     unsigned           fins;
     unsigned           drains;
     unsigned           stops;
+    unsigned           resets;
+    xqc_bool_t         closing_error_valid;
+    uint32_t           closing_error;
     xqc_bool_t         blocked;
     xqc_bool_t         destroy_on_stop;
     size_t             received;
@@ -138,9 +141,15 @@ wt_h3_test_uni_closing(xqc_wt_unistream_t *stream,
     xqc_wt_session_t *session, void *ctx)
 {
     xqc_wt_h3_test_t *test = ctx;
-    CU_ASSERT(xqc_wt_unistream_closing_is_stop_sending(stream));
-    test->stops++;
-    if (test->destroy_on_stop) {
+    xqc_bool_t stop = xqc_wt_unistream_closing_is_stop_sending(stream);
+    test->closing_error_valid = xqc_wt_unistream_get_recv_error_code(stream,
+        &test->closing_error);
+    if (stop) {
+        test->stops++;
+    } else {
+        test->resets++;
+    }
+    if (stop && test->destroy_on_stop) {
         xqc_wt_session_destroy(session);
     }
     return XQC_OK;
@@ -561,6 +570,9 @@ xqc_test_wt_h3_stream_stop_sending(void)
             == XQC_OK);
         CU_ASSERT(stream->reset_at.send_error == error);
         CU_ASSERT(test.stops == !deferred);
+        if (!deferred) {
+            CU_ASSERT(test.closing_error_valid && test.closing_error == 7);
+        }
         CU_ASSERT((stream->reset_at.send_state == XQC_RESET_AT_PENDING) == !!deferred);
         /* WT suppresses repeated STOP notifications, including while blocked. */
         wire[n - 1]++;
@@ -603,6 +615,105 @@ xqc_test_wt_h3_stream_stop_sending(void)
         wt_h3_test_close(&test);
         CU_ASSERT(test.closes == 1);
     }
+}
+
+void
+xqc_test_wt_h3_stream_recv_reset_error(void)
+{
+    /* draft-ietf-webtrans-http3-16 §4.4: full wire code reaches the app. */
+    for (unsigned variant = 0; variant < 4; variant++) {
+        xqc_wt_h3_test_t test;
+        CU_ASSERT_FATAL(wt_h3_test_init(&test, XQC_FALSE) == XQC_OK);
+        unsigned char prefix[] = {0x40, 0x54, 4};
+        CU_ASSERT(wt_h3_test_input(&test, prefix, sizeof(prefix), 0)
+                  == XQC_OK);
+        xqc_wt_stream_base_t *wt = xqc_wt_h3_stream_get(test.h3s);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(wt);
+        uint32_t code = 0;
+        CU_ASSERT(!xqc_wt_unistream_get_recv_error_code((void *)wt, &code));
+        xqc_stream_t *raw = test.h3s->stream;
+        uint64_t first = UINT64_C(0x52e4a40fa8db);
+        uint64_t last = first + UINT32_MAX + UINT32_MAX / 30;
+        raw->stream_err = variant == 0 ? first + 31
+            : variant == 1 ? first + 30
+            : variant == 2 ? last : last + 1;
+        raw->stream_if->stream_closing_notify(raw,
+            (xqc_int_t)raw->stream_err, test.h3s);
+        CU_ASSERT(test.resets == 1 && test.stops == 0);
+        CU_ASSERT(test.closing_error_valid == (variant == 0 || variant == 2));
+        if (variant == 0 || variant == 2) {
+            CU_ASSERT(test.closing_error
+                      == (variant == 0 ? 30 : UINT32_MAX));
+        }
+        wt_h3_test_close(&test);
+    }
+}
+
+void
+xqc_test_wt_h3_stream_closed_session(void)
+{
+    /* draft-ietf-webtrans-http3-16 §6: no pending stream survives CLOSE. */
+    xqc_wt_h3_test_t test;
+    CU_ASSERT_FATAL(wt_h3_test_init(&test, XQC_TRUE) == XQC_OK);
+    xqc_wt_session_t *session = xqc_wt_conn_find_session(test.wt_conn, 4);
+    session->open = XQC_FALSE;
+    unsigned char prefix[] = {0x40, 0x41, 4};
+    CU_ASSERT(wt_h3_test_input(&test, prefix, sizeof(prefix), 0) == XQC_OK);
+    CU_ASSERT_PTR_NOT_NULL(xqc_wt_h3_stream_get(test.h3s));
+    CU_ASSERT(!xqc_list_empty(&test.wt_conn->pending_streams));
+    session->closed = XQC_TRUE;
+    xqc_wt_session_close_streams(session);
+    CU_ASSERT(xqc_list_empty(&test.wt_conn->pending_streams));
+    CU_ASSERT_PTR_NULL(xqc_wt_h3_stream_get(test.h3s));
+    CU_ASSERT(test.h3s->stream->stream_state_send
+              >= XQC_SEND_STREAM_ST_RESET_SENT);
+    CU_ASSERT(test.creates == 0);
+
+    xqc_stream_t *raw = xqc_create_stream_with_conn(test.h3c->conn,
+        12, 0, NULL, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(raw);
+    test.h3s = xqc_h3_stream_create(test.h3c, raw,
+        XQC_H3_STREAM_TYPE_UNKNOWN, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(test.h3s);
+    CU_ASSERT(wt_h3_test_input(&test, prefix, sizeof(prefix), 0) == XQC_OK);
+    CU_ASSERT_PTR_NULL(xqc_wt_h3_stream_get(test.h3s));
+    CU_ASSERT(xqc_list_empty(&test.wt_conn->pending_streams));
+    CU_ASSERT(test.creates == 0);
+    wt_h3_test_close(&test);
+}
+
+void
+xqc_test_wt_h3_stream_frame_position(void)
+{
+    /* draft-ietf-webtrans-http3-16 §4.3: 0x41 is never an H3 frame. */
+    for (unsigned draft16 = 0; draft16 < 2; draft16++) {
+        xqc_wt_h3_test_t test;
+        CU_ASSERT_FATAL(wt_h3_test_init(&test, XQC_FALSE) == XQC_OK);
+        unsigned char settings[] = {0, 4, 0};
+        CU_ASSERT(wt_h3_test_queue(&test, settings, sizeof(settings), 0)
+                  == XQC_OK);
+        test.h3c->forbidden_frame_type = draft16 ? 0x41 : 0;
+        unsigned char misplaced[] = {0x40, 0x41, 0};
+        xqc_int_t ret = wt_h3_test_queue(&test, misplaced,
+                                        sizeof(misplaced), 0);
+        CU_ASSERT((ret == XQC_OK) == !draft16);
+        CU_ASSERT(XQC_CONN_ERR_CODE(test.h3c->conn->conn_err)
+                  == (draft16 ? H3_FRAME_ERROR : 0));
+        wt_h3_test_close(&test);
+    }
+
+    xqc_wt_h3_test_t test;
+    CU_ASSERT_FATAL(wt_h3_test_init(&test, XQC_TRUE) == XQC_OK);
+    test.h3c->forbidden_frame_type = 0x41;
+    unsigned char unknown[] = {0x21, 0};
+    CU_ASSERT(wt_h3_test_queue(&test, unknown, sizeof(unknown), 0)
+              == XQC_OK);
+    CU_ASSERT(test.h3s->type == XQC_H3_STREAM_TYPE_REQUEST);
+    unsigned char misplaced[] = {0x40, 0x41, 0};
+    CU_ASSERT(wt_h3_test_queue(&test, misplaced, sizeof(misplaced), 0)
+              != XQC_OK);
+    CU_ASSERT(XQC_CONN_ERR_CODE(test.h3c->conn->conn_err) == H3_FRAME_ERROR);
+    wt_h3_test_close(&test);
 }
 
 void

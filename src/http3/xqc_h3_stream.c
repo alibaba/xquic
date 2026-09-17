@@ -10,6 +10,21 @@
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_ext_bytestream.h"
 
+static xqc_bool_t
+xqc_h3_stream_forbidden_frame(xqc_h3_stream_t *h3s,
+    xqc_h3_frame_pctx_t *pctx)
+{
+    if (pctx->state < XQC_H3_FRM_STATE_PAYLOAD
+        || !h3s->h3c->forbidden_frame_type
+        || pctx->frame.type != h3s->h3c->forbidden_frame_type)
+    {
+        return XQC_FALSE;
+    }
+    /* draft-ietf-webtrans-http3-16 §4.3: WT_STREAM is first bytes only. */
+    XQC_H3_CONN_ERR(h3s->h3c, H3_FRAME_ERROR, -XQC_H3_DECODE_ERROR);
+    return XQC_TRUE;
+}
+
 xqc_h3_stream_t *
 xqc_h3_stream_create(xqc_h3_conn_t *h3c, xqc_stream_t *stream, xqc_h3_stream_type_t type,
     void *user_data)
@@ -746,6 +761,10 @@ xqc_h3_stream_process_control(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
 
         processed += read;
 
+        if (xqc_h3_stream_forbidden_frame(h3s, pctx)) {
+            return -XQC_H3_DECODE_ERROR;
+        }
+
         /*
          * RFC 9114 §7.2.1/§7.2.5: DATA, HEADERS, and PUSH_PROMISE MUST NOT
          * appear on control stream.  This check runs first because the frame
@@ -925,6 +944,10 @@ xqc_h3_stream_process_push(xqc_h3_stream_t *h3s, unsigned char *data, size_t dat
 
         processed += read;
 
+        if (xqc_h3_stream_forbidden_frame(h3s, pctx)) {
+            return -XQC_H3_DECODE_ERROR;
+        }
+
         if (pctx->state != XQC_H3_FRM_STATE_END && data_len != processed) {
             xqc_log(h3s->log, XQC_LOG_ERROR, "|parse frame state error|state:%d||data_len:%uz|"
                     "processed:%uz|", pctx->state, data_len, processed);
@@ -1005,6 +1028,10 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
         xqc_log(h3s->log, XQC_LOG_DEBUG, "|parse frame success|frame_type:%xL|len:%ui|read:%z|",
                 pctx->frame.type, pctx->frame.len, read);
         processed += read;
+
+        if (xqc_h3_stream_forbidden_frame(h3s, pctx)) {
+            return -XQC_H3_DECODE_ERROR;
+        }
 
         xqc_bool_t fin = pctx->state == XQC_H3_FRM_STATE_END ? XQC_TRUE : XQC_FALSE;
 
@@ -1226,6 +1253,10 @@ xqc_h3_stream_process_bytestream(xqc_h3_stream_t *h3s,
         xqc_log(h3s->log, XQC_LOG_DEBUG, "|parse frame success|frame_type:%xL|len:%ui|read:%z|",
                 pctx->frame.type, pctx->frame.len, read);
         processed += read;
+
+        if (xqc_h3_stream_forbidden_frame(h3s, pctx)) {
+            return -XQC_H3_DECODE_ERROR;
+        }
 
         xqc_bool_t fin = pctx->state == XQC_H3_FRM_STATE_END ? XQC_TRUE : XQC_FALSE;
 

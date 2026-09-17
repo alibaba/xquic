@@ -384,6 +384,9 @@ xqc_server_set_conn_settings(xqc_engine_t *engine, const xqc_conn_settings_t *se
 
     engine->default_conn_settings.simulate_ecn = settings->simulate_ecn;
 
+    engine->default_conn_settings.max_body_buf_per_stream =
+        settings->max_body_buf_per_stream;
+
     /* compute effective blocked buffer limits (use default if not configured) */
     if (settings->max_blocked_buf_per_stream > 0) {
         engine->default_conn_settings.max_blocked_buf_per_stream = settings->max_blocked_buf_per_stream;

@@ -1573,6 +1573,26 @@ typedef struct xqc_conn_settings_s {
      * Default: 0 (use internal default: 8MB)
      */
     size_t                      max_blocked_buf_per_conn;
+
+    /**
+     * Maximum HTTP/3 DATA payload buffered per request stream, in bytes:
+     * payload that xqc_h3_stream_process_data() has read out of the transport
+     * stream and that the application has not yet collected with
+     * xqc_h3_request_recv_body().
+     *
+     * Non-zero makes the HTTP/3 layer stop reading a request's transport
+     * stream while that request holds this many bytes, or holds this many
+     * bytes divided by XQC_H3_BODY_BUF_MIN_BYTES_PER_NODE buffered DATA
+     * frames, whichever is reached first. Reading resumes from
+     * xqc_h3_request_recv_body() once the application has drained to a
+     * quarter of both.
+     *
+     * Default: 0, which means unbounded and leaves the read loop unchanged.
+     *
+     * Appended last in this struct: a caller compiled against the previous
+     * header is source-compatible with this one, not binary-compatible.
+     */
+    size_t                      max_body_buf_per_stream;
 } xqc_conn_settings_t;
 
 

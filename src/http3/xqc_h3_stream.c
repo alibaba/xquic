@@ -1125,6 +1125,7 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                     return ret;
                 }
                 h3s->h3r->body_buf_count++;
+                h3s->h3r->body_buf_bytes += len;
 
                 processed += len;
                 pctx->frame.consumed_len += len;
@@ -1853,6 +1854,56 @@ xqc_h3_stream_process_blocked_data(xqc_stream_t *stream, xqc_h3_stream_t *h3s, x
 }
 
 
+/* How many body_buf nodes a byte limit buys. Never 0. */
+static inline uint64_t
+xqc_h3_body_buf_node_limit(size_t byte_limit)
+{
+    uint64_t nodes = (uint64_t)(byte_limit / XQC_H3_BODY_BUF_MIN_BYTES_PER_NODE);
+    return nodes > 0 ? nodes : 1;
+}
+
+
+/*
+ * Should xqc_h3_stream_process_data() stop reading this request's transport
+ * stream?
+ */
+static xqc_bool_t
+xqc_h3_stream_body_buf_should_pause(xqc_h3_stream_t *h3s)
+{
+    xqc_h3_conn_t *h3c;
+    size_t         limit;
+
+    /* request streams holding a request object only: h3r shares a union
+       with h3_ext_bs */
+    if (h3s->type != XQC_H3_STREAM_TYPE_REQUEST || h3s->h3r == NULL) {
+        return XQC_FALSE;
+    }
+
+    /* terminal receive states are left to xqc_stream_recv(), which converts
+       RESET_RECVD and returns -XQC_ESTREAM_RESET */
+    if (h3s->stream == NULL
+        || h3s->stream->stream_state_recv >= XQC_RECV_STREAM_ST_RESET_RECVD)
+    {
+        return XQC_FALSE;
+    }
+
+    h3c = h3s->h3c;
+    limit = h3c->max_body_buf_per_stream;
+
+    if (limit > 0) {
+        if (h3s->h3r->body_buf_bytes >= limit) {
+            return XQC_TRUE;
+        }
+        /* metadata bound; see XQC_H3_BODY_BUF_MIN_BYTES_PER_NODE */
+        if (h3s->h3r->body_buf_count >= xqc_h3_body_buf_node_limit(limit)) {
+            return XQC_TRUE;
+        }
+    }
+
+    return XQC_FALSE;
+}
+
+
 xqc_int_t
 xqc_h3_stream_process_data(xqc_stream_t *stream, xqc_h3_stream_t *h3s, xqc_bool_t *fin)
 {
@@ -1865,6 +1916,22 @@ xqc_h3_stream_process_data(xqc_stream_t *stream, xqc_h3_stream_t *h3s, xqc_bool_
 
     do
     {
+        /*
+         * Stop reading once this request is full. xqc_stream_shutdown_read()
+         * is called here because the xqc_stream_recv() below, which otherwise
+         * calls it, is being skipped; break rather than return so the QPACK
+         * insert-count check at the tail of this function still runs.
+         */
+        if (xqc_h3_stream_body_buf_should_pause(h3s)) {
+            h3s->flags |= XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED;
+            xqc_stream_shutdown_read(stream);
+            xqc_log(h3c->log, XQC_LOG_DEBUG,
+                    "|body_buf paused|stream_id:%ui|bytes:%uz|nodes:%ui|limit:%uz|",
+                    h3s->stream_id, h3s->h3r->body_buf_bytes,
+                    h3s->h3r->body_buf_count, h3c->max_body_buf_per_stream);
+            break;
+        }
+
         /* recv data from transport stream */
         read = xqc_stream_recv(h3s->stream, buff, buff_size, fin);
         if (read == -XQC_EAGAIN) {

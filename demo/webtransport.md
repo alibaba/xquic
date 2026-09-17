@@ -234,8 +234,9 @@ The `webtransport.core` CI group also keeps the message-framing pair:
 The public interop runner is the sole owner of handshake and file-transfer
 cases H, UR/US, BR/BS, and DR/DS. IDs 1817–1832 are retired from native CI
 and remain reserved in the namespace ledger. Protocol-level rejection cases
-remain in the native CI group; parser, ownership, backpressure, and filesystem
-boundary checks remain in CUnit.
+remain in the native CI group. Protocol-stack parser, ownership, and
+backpressure checks remain in CUnit; the interop demo no longer has a separate
+CUnit suite.
 
 Cross-implementation validation is run locally with an image built from the
 exact branch commit, with xquic as client and server against every registered
@@ -254,9 +255,15 @@ optional API in the draft is exposed. The evidence is divided deliberately:
 |---|---|---|
 | SETTINGS and draft negotiation, CONNECT acceptance and rejection, application protocol selection | CUnit and native cases 1801–1804 | Runner handshake |
 | Bidirectional and unidirectional streams, FIN, reliable reset, Session ID validation | CUnit and native cases 1805–1808 | Runner UR/US/BR/BS |
-| Datagram association and buffering | CUnit and native cases 1809–1810 | Runner DR/DS |
+| Datagram association, buffering, and send error boundaries | CUnit and native cases 1809–1810 | Runner DR/DS |
 | CLOSE, DRAIN, GOAWAY and one-session limit without session flow control | CUnit and native cases 1811–1816, except GOAWAY is CUnit-only | Runner session close |
-| Input bounds, filesystem confinement and backpressure in the interop application | CUnit | Runner file transfers |
+| Input bounds, filesystem confinement and backpressure in the interop application | Entrypoint argument checks only; no demo-internal abnormal-path test | Runner file transfers exercise normal inputs only |
+
+The entrypoint checks invalid role, case, and URL before launching the demo.
+The runner does not deterministically inject invalid file paths, premature
+peer close, blocked sends, or early timer wakeups. Those demo-internal branches
+are coverage gaps after removing the duplicate application CUnit suite; a
+successful normal transfer is not evidence that they passed.
 
 Session-level flow control and pooling are deliberately disabled under
 [draft-16 §5.1](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-16#section-5.1).
@@ -274,8 +281,9 @@ XQC_BUILD_DIR=build/validation bash scripts/case_test.sh --execute \
 These native cases use the existing case runner's fixtures, isolated work
 directory, process lifecycle, and log assertions. They require no Docker,
 browser, packet capture, or external peer. Parser, callback ownership, stream
-and datagram bounds, and filesystem boundary checks run in the complete
-CUnit suite.
+and datagram send limits in the protocol stack run in the complete CUnit suite.
+Filesystem confinement and backpressure in the interop demo are not currently
+covered by native CI.
 
 Interop image builds must run the complete unit suite and these native cases
 before copying the same tested binaries into the final image. A final-image

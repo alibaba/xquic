@@ -87,6 +87,10 @@ native CI must not duplicate that matrix. A responding client remains
 available until the requester completes and closes the session. Packet
 inspection remains an additional external interoperability check rather than
 a native CI dependency.
+CUnit tests protocol behavior, not the interop-demo regression harness.
+Normal interop flows are validated by the runner; abnormal application
+branches not driven by those flows remain explicit gaps rather than inferred
+coverage.
 
 ### Protocol implementation
 

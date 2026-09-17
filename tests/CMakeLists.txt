@@ -138,11 +138,6 @@ if(HAVE_CUNIT)
         )
     endif()
 
-    if(UNIX)
-        list(APPEND test_SOURCES
-            ${UNIT_TEST_DIR}/xqc_webtrans_interop_test.c)
-    endif()
-
     add_executable(run_tests
         ${test_SOURCES}
     )

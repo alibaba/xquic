@@ -9,14 +9,15 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include "xqc_wt_app.h"
+#include "src/common/xqc_time.h"
+#include "xqc_wt_app_policy.h"
 #include "xqc_wt_echo_client.h"
 #include "xqc_wt_echo_server.h"
 
 #define XQC_WT_INTEROP_PATH_MAX 1024
 #define XQC_WT_INTEROP_PROTOCOL_MAX 1024
 
-const xqc_demo_wt_app_policy_t xqc_demo_wt_app_policy = {
+const xqc_demo_wt_app_policy_t xqc_wt_interop_policy = {
     .require_webtransport = 1,
     .allow_case_id = 0,
     .allow_remote_certificate = 1,
@@ -111,6 +112,7 @@ xqc_wt_interop_header_feed(xqc_wt_interop_header_t *header,
 #define XQC_WT_INTEROP_FILES_MAX 256
 #define XQC_WT_INTEROP_STREAMS_MAX 64
 #define XQC_WT_INTEROP_DATAGRAM_MAX 1200
+#define XQC_WT_INTEROP_DATAGRAM_INTERVAL_US 2000
 #define XQC_WT_INTEROP_BUFFER_SIZE (64 * 1024)
 
 typedef struct xqc_wt_interop_stream_s xqc_wt_interop_stream_t;
@@ -162,6 +164,8 @@ typedef struct {
     xqc_wt_interop_datagram_t datagrams[XQC_WT_INTEROP_FILES_MAX];
     size_t                  datagram_head;
     size_t                  datagram_count;
+    xqc_usec_t              next_datagram_at;
+    int                     pace_datagrams;
     int                     failed;
     int                     success;
     int                     stopped;
@@ -208,6 +212,7 @@ static xqc_int_t xqc_wt_interop_stream_closing(xqc_wt_unistream_t *stream,
     xqc_wt_session_t *session, void *user_data);
 static int xqc_wt_interop_configure(int server);
 static void xqc_wt_interop_pass(void);
+static int xqc_wt_interop_responder_done(void);
 static int xqc_wt_interop_directory(void);
 static int xqc_wt_interop_receive_file(xqc_wt_interop_stream_t *state,
     const char *filename, const void *data, size_t length, int fin,
@@ -426,13 +431,31 @@ xqc_wt_interop_pass(void)
     }
 }
 
+static int
+xqc_wt_interop_responder_done(void)
+{
+    xqc_wt_interop_t *ctx = &xqc_wt_interop;
+
+    if (ctx->server || ctx->handshake || ctx->mode || ctx->failed
+        || !ctx->completed || ctx->datagram_count)
+    {
+        return 0;
+    }
+    for (xqc_wt_interop_stream_t *s = ctx->streams; s; s = s->next) {
+        if (!s->complete) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static void
 xqc_wt_interop_complete(void)
 {
     xqc_wt_interop_t *ctx = &xqc_wt_interop;
     int result;
 
-    if ((ctx->handshake && ctx->server) || ctx->success || ctx->failed) {
+    if (ctx->success || ctx->failed) {
         return;
     }
     result = xqc_wt_session_close_with_error(ctx->session, 0,
@@ -499,18 +522,13 @@ xqc_wt_interop_closed(xqc_wt_session_t *session,
 {
     xqc_wt_interop_t *ctx = &xqc_wt_interop;
     uint32_t code = xqc_wt_session_get_close_error_code(session);
-    int pending = ctx->datagram_count != 0;
 
     printf("WT closed: status=%u code=%" PRIu32 "\n",
            xqc_wt_session_get_response_status(session), code);
     ctx->session = NULL;
-    for (xqc_wt_interop_stream_t *s = ctx->streams; s; s = s->next) {
-        pending |= !s->complete;
-    }
     if ((!ctx->server || ctx->mode) && !ctx->success && !ctx->stopped) {
-        if (!ctx->handshake && !ctx->mode && !ctx->failed && !code
-            && ctx->completed && !pending)
-        {
+        /* The runner verifies files; peer close codes are application-defined. */
+        if (xqc_wt_interop_responder_done()) {
             xqc_wt_interop_pass();
         } else {
             xqc_wt_interop_fail("session closed before completion", XQC_ERROR);
@@ -961,6 +979,12 @@ xqc_wt_interop_datagram_write(xqc_wt_session_t *session, void *user_data)
     if (!ctx->datagram_count || ctx->failed || ctx->success) {
         return;
     }
+    if (ctx->pace_datagrams
+        && xqc_monotonic_timestamp() < ctx->next_datagram_at)
+    {
+        ctx->schedule_send(ctx->user_data);
+        return;
+    }
     while (ctx->datagram_count && !ctx->failed) {
         xqc_wt_interop_datagram_t *item =
             &ctx->datagrams[ctx->datagram_head];
@@ -982,8 +1006,23 @@ xqc_wt_interop_datagram_write(xqc_wt_session_t *session, void *user_data)
         if (!ctx->mode) {
             ctx->completed++;
         }
+        if (ctx->pace_datagrams) {
+            ctx->next_datagram_at = xqc_monotonic_timestamp()
+                + XQC_WT_INTEROP_DATAGRAM_INTERVAL_US;
+            break;
+        }
     }
     ctx->schedule_send(ctx->user_data);
+}
+
+void
+xqc_wt_interop_datagram_tick(void)
+{
+    xqc_wt_interop_t *ctx = &xqc_wt_interop;
+
+    if (ctx->session && !ctx->stopped && ctx->datagram_count) {
+        xqc_wt_interop_datagram_write(ctx->session, NULL);
+    }
 }
 
 static void
@@ -1244,6 +1283,7 @@ xqc_wt_interop_init(xqc_engine_t *engine, int draft_version, int server,
     ctx->root = -1;
     ctx->directory = -1;
     ctx->server = server;
+    ctx->pace_datagrams = 1;
     ctx->schedule_send = schedule_send;
     ctx->finished = finished;
     ctx->user_data = user_data;
@@ -1266,7 +1306,7 @@ xqc_wt_interop_init(xqc_engine_t *engine, int draft_version, int server,
 }
 
 xqc_int_t
-xqc_demo_wt_init(xqc_engine_t *engine, int draft_version,
+xqc_wt_interop_server_init(xqc_engine_t *engine, int draft_version,
     void (*schedule_send)(void *user_data), void *user_data)
 {
     return xqc_wt_interop_init(engine, draft_version, 1,
@@ -1274,7 +1314,7 @@ xqc_demo_wt_init(xqc_engine_t *engine, int draft_version,
 }
 
 xqc_int_t
-xqc_demo_wt_client_init(xqc_engine_t *engine, int draft_version,
+xqc_wt_interop_client_init(xqc_engine_t *engine, int draft_version,
     int case_id, size_t payload_len, int print_response,
     void (*schedule_send)(void *user_data),
     void (*finished)(void *user_data), void *user_data)
@@ -1287,7 +1327,7 @@ xqc_demo_wt_client_init(xqc_engine_t *engine, int draft_version,
 }
 
 xqc_int_t
-xqc_demo_wt_client_open(xqc_h3_conn_t *h3_conn,
+xqc_wt_interop_client_open(xqc_h3_conn_t *h3_conn,
     const char *authority, const char *path, const char *origin)
 {
     xqc_wt_interop_t *ctx = &xqc_wt_interop;
@@ -1308,7 +1348,7 @@ xqc_demo_wt_client_open(xqc_h3_conn_t *h3_conn,
 }
 
 int
-xqc_demo_wt_client_finish(void)
+xqc_wt_interop_client_finish(void)
 {
     xqc_wt_interop_t *ctx = &xqc_wt_interop;
 
@@ -1328,11 +1368,15 @@ xqc_demo_wt_client_finish(void)
 }
 
 xqc_int_t
-xqc_demo_wt_client_conn_closing(xqc_connection_t *conn,
+xqc_wt_interop_client_conn_closing(xqc_connection_t *conn,
     const xqc_cid_t *cid, xqc_int_t error, void *user_data)
 {
     if (!xqc_wt_interop.success && !xqc_wt_interop.stopped) {
-        xqc_wt_interop_fail("connection closed before completion", error);
+        if (error == XQC_OK && xqc_wt_interop_responder_done()) {
+            xqc_wt_interop_pass();
+        } else {
+            xqc_wt_interop_fail("connection closed before completion", error);
+        }
     }
     return XQC_OK;
 }

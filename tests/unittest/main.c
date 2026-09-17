@@ -11,9 +11,6 @@
 #include "xqc_webtransport_test.h"
 #include "xqc_webtransport_msg_test.h"
 #include "xqc_webtransport_version_test.h"
-#ifndef XQC_SYS_WINDOWS
-#include "xqc_webtrans_interop_test.h"
-#endif
 #include "xqc_reliable_reset_test.h"
 #include "xqc_webtransport_h3_stream_test.h"
 #include "xqc_pq_test.h"
@@ -92,28 +89,6 @@ main(int argc, char *argv[])
                         xqc_test_wt_msg_backpressure)
         || !CU_add_test(pSuite, "xqc_test_wt_msg_errors",
                         xqc_test_wt_msg_errors)
-#ifndef XQC_SYS_WINDOWS
-        || !CU_add_test(pSuite, "xqc_test_wt_interop_policy",
-                        xqc_test_wt_interop_policy)
-        || !CU_add_test(pSuite, "xqc_test_wt_interop_paths",
-                        xqc_test_wt_interop_paths)
-        || !CU_add_test(pSuite, "xqc_test_wt_interop_headers",
-                        xqc_test_wt_interop_headers)
-        || !CU_add_test(pSuite, "xqc_test_wt_interop_stream_ownership",
-                        xqc_test_wt_interop_stream_ownership)
-        || !CU_add_test(pSuite, "xqc_test_wt_interop_stream_bound",
-                        xqc_test_wt_interop_stream_bound)
-        || !CU_add_test(pSuite, "xqc_test_wt_interop_file_confinement",
-                        xqc_test_wt_interop_file_confinement)
-        || !CU_add_test(pSuite, "xqc_test_wt_interop_roles",
-                        xqc_test_wt_interop_roles)
-        || !CU_add_test(pSuite, "xqc_test_wt_interop_bidi_receive",
-                        xqc_test_wt_interop_bidi_receive)
-        || !CU_add_test(pSuite, "xqc_test_wt_interop_datagrams",
-                        xqc_test_wt_interop_datagrams)
-        || !CU_add_test(pSuite, "xqc_test_wt_interop_datagram_backpressure",
-                        xqc_test_wt_interop_datagram_backpressure)
-#endif
         || !CU_add_test(pSuite, "xqc_test_wt_version_negotiation",
                         xqc_test_wt_version_negotiation)
         || !CU_add_test(pSuite, "xqc_test_wt_version_fallback",
@@ -196,6 +171,8 @@ main(int argc, char *argv[])
                         xqc_test_wt_extension_settings)
         || !CU_add_test(pSuite, "xqc_test_wt_datagram_association",
                         xqc_test_wt_datagram_association)
+        || !CU_add_test(pSuite, "xqc_test_wt_datagram_send_errors",
+                        xqc_test_wt_datagram_send_errors)
         || !CU_add_test(pSuite, "xqc_test_wt_capsule_errors",
                         xqc_test_wt_capsule_errors)
         || !CU_add_test(pSuite, "xqc_test_wt_capsules",

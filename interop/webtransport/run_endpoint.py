@@ -19,7 +19,7 @@ def endpoint_command(env):
                         "transfer-datagram-send")}
     if env.get("TESTCASE") not in cases.get(role, ()):
         return None
-    args = [f"/usr/local/bin/wt_interop_{role}", "-W", "-v", "16",
+    args = [f"/usr/local/bin/demo_{role}", "-W", "-C", "-v", "16",
             "-l", "d", "-L", f"/logs/{role}.log",
             "-k", env.get("SSLKEYLOGFILE", "/logs/keys.log")]
     if role == "server":

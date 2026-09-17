@@ -61,10 +61,11 @@ tests. This document does not maintain a parallel section index or summary.
 The handshake and bidirectional/unidirectional/datagram file-transfer
 interoperability application belongs under `demo/` and must share the
 existing demo runtime and XQUIC CMake build graph.
-The `XQC_ENABLE_WEBTRANSPORT_INTEROP` CMake option controls whether the
-interop client and server are built. Their shared runtime consumes a
-link-selected application policy; it must not use compile-time branches to
-distinguish the echo and interop applications. The policy owns required
+The `XQC_ENABLE_WEBTRANSPORT_INTEROP` CMake option links the interop
+application into the normal demo client and server. Their shared runtime
+selects the application once from the runner's role and case environment;
+it must not maintain a second command-line parser or executable pair. The
+policy owns required
 WebTransport mode, native-case availability, remote trust-file permission,
 and optional application initialization. Listening beyond loopback remains
 an explicit runtime choice rather than application policy.
@@ -78,14 +79,18 @@ select a supported protocol in client preference order. The helper shares
 the adapter's Structured Field parser with client response validation and
 returns a borrowed supported string. Applications retain session acceptance
 policy and response-header ownership; the parser remains adapter-private.
-Native CI must exercise the same application binaries using input/output
-assertions for protocol preference, file contents and stream FIN or complete
-datagrams, and explicit negotiation, file, and certificate failures. Both
-client and server requesters must be covered; a responding client must remain
-available until the requester completes and closes the session. The owning
-case registrations are in `case_test/webtransport/core.sh`. Packet inspection
-remains an additional external interoperability check rather than a native
-CI dependency.
+Native CI uses the demo binaries for focused positive and abnormal protocol
+cases in `case_test/webtransport/core.sh`. The external interop runner owns
+the handshake and file-transfer matrix, including protocol preference,
+file contents, stream FIN, complete datagrams, and both requesting roles;
+native CI must not duplicate that matrix. A responding client remains
+available until the requester completes and closes the session. Packet
+inspection remains an additional external interoperability check rather than
+a native CI dependency.
+CUnit tests protocol behavior, not the interop-demo regression harness.
+Normal interop flows are validated by the runner; abnormal application
+branches not driven by those flows remain explicit gaps rather than inferred
+coverage.
 
 ### Protocol implementation
 

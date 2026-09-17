@@ -566,6 +566,34 @@ xqc_test_wt_datagram_association(void)
 }
 
 void
+xqc_test_wt_datagram_send_errors(void)
+{
+    xqc_wt_ctx_t ctx = {0};
+    xqc_connection_t transport = {0};
+    xqc_h3_conn_t h3c = {.conn = &transport};
+    xqc_wt_session_t *session = wt_session(&ctx, &h3c);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(session);
+
+    CU_ASSERT(xqc_wt_session_datagram_send(NULL, "x", 1, NULL)
+              == -XQC_EPARAM);
+    CU_ASSERT(xqc_wt_session_datagram_send(session, NULL, 1, NULL)
+              == -XQC_EPARAM);
+    /* RFC 9297 Section 2.1: the session ID consumes datagram space. */
+    transport.dgram_mss = 1;
+    CU_ASSERT(xqc_wt_session_datagram_send(session, "x", 1, NULL)
+              == -XQC_EDGRAM_TOO_LARGE);
+    transport.dgram_mss = 1200;
+    session->wt_conn->sent_count = 1024;
+    CU_ASSERT(xqc_wt_session_datagram_send(session, "x", 1, NULL)
+              == -XQC_EAGAIN);
+    session->wt_conn->sent_count = 0;
+    session->closed = XQC_TRUE;
+    CU_ASSERT(xqc_wt_session_datagram_send(session, "x", 1, NULL)
+              == -XQC_ESTATE);
+    xqc_wt_conn_destroy(session->wt_conn);
+}
+
+void
 xqc_test_wt_extension_settings(void)
 {
     xqc_list_head_t buffers;

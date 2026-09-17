@@ -343,7 +343,7 @@ xqc_demo_wt_dgram_mss(xqc_wt_session_t *session,
 }
 
 xqc_int_t
-xqc_demo_wt_init(xqc_engine_t *engine, int draft_version,
+xqc_wt_echo_server_init(xqc_engine_t *engine, int draft_version,
     void (*schedule_send)(void *user_data), void *user_data)
 {
     xqc_webtransport_dgram_callbacks_t dgram_cbs = {

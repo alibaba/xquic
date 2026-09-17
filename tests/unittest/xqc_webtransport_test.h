@@ -7,6 +7,7 @@ void xqc_test_wt_stream_errors(void);
 void xqc_test_wt_capsules(void);
 void xqc_test_wt_capsule_errors(void);
 void xqc_test_wt_datagram_association(void);
+void xqc_test_wt_datagram_send_errors(void);
 void xqc_test_wt_extension_settings(void);
 void xqc_test_wt_connect_accept(void);
 void xqc_test_wt_connect_reject(void);

@@ -1143,6 +1143,7 @@ xqc_engine_packet_process(xqc_engine_t *engine,
     xqc_connection_t *conn = NULL;
     xqc_cid_t dcid, scid;   /* dcid: cid of peer; scid: cid of endpoint */
     xqc_log_level_t lvl;
+    uint32_t rebinding_authenticated_pkts_before;
 
     xqc_cid_init_zero(&dcid);
     xqc_cid_init_zero(&scid);
@@ -1236,52 +1237,9 @@ process:
         xqc_log_event(conn->log, CON_CONNECTION_STARTED, conn, XQC_LOG_LOCAL_EVENT);
     }
 
-    /* NAT rebinding */
-    if (engine->eng_type == XQC_ENGINE_SERVER
-        && (conn->conn_flag & XQC_CONN_FLAG_SERVER_ACCEPT)
-        && (peer_addr != NULL && peer_addrlen != 0)
-        && !xqc_is_same_addr_as_any_path(conn, peer_addr))
-    {
-        xqc_path_ctx_t *path = xqc_conn_find_path_by_scid(conn, &scid);
-        if ((path != NULL) && (path->path_state == XQC_PATH_STATE_ACTIVE)) {
-
-            if ((path->rebinding_addrlen == 0)
-                && !xqc_timer_is_set(&path->path_send_ctl->path_timer_manager, XQC_TIMER_NAT_REBINDING))
-            {
-                /* set rebinding_addr & send PATH_CHALLENGE */
-                ret = xqc_memcpy_with_cap(path->rebinding_addr, sizeof(path->rebinding_addr), 
-                                          peer_addr, peer_addrlen);
-                if (ret == XQC_OK) {
-                    path->rebinding_addrlen = peer_addrlen;
-
-                } else {
-                    xqc_log(conn->log, XQC_LOG_ERROR, 
-                            "|REBINDING|peer addr too large|addr_len:%d|", (int)peer_addrlen);
-                }
-            
-                ret = xqc_conn_send_path_challenge(conn, path);
-                if (ret == XQC_OK) {
-                    xqc_log(conn->log, XQC_LOG_INFO, "|REBINDING|path:%ui|send PATH_CHALLENGE|addr:%s|", path->path_id, xqc_path_addr_str(path));
-                    path->rebinding_count++;
-                    xqc_usec_t pto = xqc_conn_get_max_pto(conn);
-                    xqc_timer_set(&path->path_send_ctl->path_timer_manager,
-                                  XQC_TIMER_NAT_REBINDING, recv_time, 3 * pto);
-
-                } else {
-                    xqc_log(engine->log, XQC_LOG_ERROR, "|REBINDING|xqc_conn_send_path_challenge error|conn:%p|path:%ui|ret:%d|", conn, path->path_id, ret);
-                    path->rebinding_addrlen = 0;
-                }
-
-            } else if ((path->rebinding_check_response == 0)
-                       && xqc_is_same_addr(peer_addr, (struct sockaddr *)path->rebinding_addr))
-            {
-                /* PATH_RESPONSE recv from rebinding_addr */
-                path->rebinding_check_response = 1;
-                xqc_log(conn->log, XQC_LOG_INFO, "|REBINDING|path:%ui|recv_addr = rebinding_addr|check PATH_RESPONSE|", path->path_id);
-            }
-        }
-
-    }
+    /* NAT rebinding is considered only after packet authentication succeeds. */
+    rebinding_authenticated_pkts_before =
+        conn->rcv_pkt_stats.conn_authenticated_pkts;
 
     /* process packets */
     ret = xqc_conn_process_packet(conn, packet_in_buf, packet_in_size, recv_time);
@@ -1292,6 +1250,27 @@ process:
         xqc_log(engine->log, XQC_LOG_ERROR, "|fail to process packets|conn:%p|ret:%d|", conn, ret);
         XQC_CONN_ERR(conn, TRA_FRAME_ENCODING_ERROR);
         goto after_process;
+    }
+
+    if (engine->eng_type == XQC_ENGINE_SERVER
+        && xqc_conn_is_handshake_confirmed(conn)
+        && conn->rcv_pkt_stats.conn_authenticated_pkts
+           != rebinding_authenticated_pkts_before
+        && (conn->conn_flag & XQC_CONN_FLAG_SERVER_ACCEPT)
+        && peer_addr != NULL && peer_addrlen != 0
+        && !xqc_is_same_addr_as_any_path(conn, peer_addr))
+    {
+        xqc_path_ctx_t *path = xqc_conn_find_path_by_scid(conn, &scid);
+        if (path != NULL && path->path_state == XQC_PATH_STATE_ACTIVE) {
+            ret = xqc_path_rebinding_on_authenticated_datagram(conn, path, peer_addr,
+                                                               peer_addrlen, packet_in_size,
+                                                               recv_time);
+            if (ret != XQC_OK && ret != -XQC_EAGAIN) {
+                xqc_log(engine->log, XQC_LOG_ERROR,
+                        "|REBINDING|process authenticated datagram error|conn:%p|path:%ui|ret:%d|",
+                        conn, path->path_id, ret);
+            }
+        }
     }
 
     // 每次只会从一个fd上接收一批数据包，所以这里是ok的

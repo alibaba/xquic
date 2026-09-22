@@ -479,9 +479,11 @@ xqc_gen_padding_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
 {
     size_t total_len = XQC_PACKET_INITIAL_MIN_LENGTH - XQC_TLS_AEAD_OVERHEAD_MAX_LEN;
 
-    if (conn->enable_pmtud) {
+    if (conn->enable_pmtud
+        && !(packet_out->po_flag & XQC_POF_PATH_MIN_PADDING))
+    {
         if ((packet_out->po_frame_types & (XQC_FRAME_BIT_PATH_CHALLENGE | XQC_FRAME_BIT_PATH_RESPONSE))
-            || (packet_out->po_flag & XQC_POF_PMTUD_PROBING)) 
+            || (packet_out->po_flag & XQC_POF_PMTUD_PROBING))
         {
             total_len = packet_out->po_buf_size + XQC_ACK_SPACE;
         }

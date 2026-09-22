@@ -1881,12 +1881,23 @@ xqc_process_path_response_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_
         return XQC_OK;
     }
 
+    if (conn->conn_type == XQC_CONN_TYPE_SERVER) {
+        xqc_path_ctx_t *rebinding_path =
+            xqc_path_rebinding_find_by_challenge(conn, path_response_data);
+        if (rebinding_path != NULL) {
+            /* RFC 9000 Section 8.2.2 permits the response on another path. */
+            return xqc_path_rebinding_on_response(conn, rebinding_path,
+                                                  path_response_data,
+                                                  packet_in->pkt_recv_time);
+        }
+    }
+
     xqc_path_ctx_t *path = NULL;
     if (conn->enable_multipath) {
         path = xqc_conn_find_path_by_path_id(conn, packet_in->pi_path_id);
         if (path == NULL) {
-            xqc_log(conn->log, XQC_LOG_ERROR, 
-                    "|ingnore path response|pkt_dcid:%s|path_id:%ui|", 
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|ingnore path response|pkt_dcid:%s|path_id:%ui|",
                     xqc_scid_str(conn->engine, &packet_in->pi_pkt.pkt_dcid),
                     packet_in->pi_path_id);
             return XQC_OK;
@@ -1895,57 +1906,24 @@ xqc_process_path_response_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_
     } else {
         path = conn->conn_initial_path;
     }
-    
+
     xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|state:%d|RECV path_response_data:%*s|",
             path->path_id, path->path_state, XQC_PATH_CHALLENGE_DATA_LEN, path_response_data);
 
-    /* 
+    /*
      * If the content of a PATH_RESPONSE frame does not match the content of
      * a PATH_CHALLENGE frame previously sent by the endpoint, the endpoint
      * MAY generate a connection error of type PROTOCOL_VIOLATION.
      */
-
-    if (memcmp(path->path_challenge_data, path_response_data, (size_t)XQC_PATH_CHALLENGE_DATA_LEN) != 0) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|path:%ui|ignore|no match path challenge data|", path->path_id);
+    if (memcmp(path->path_challenge_data, path_response_data,
+               (size_t)XQC_PATH_CHALLENGE_DATA_LEN) != 0)
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|path:%ui|ignore|no match path challenge data|", path->path_id);
         return XQC_OK;
     }
 
     xqc_path_validate(path);
-
-    if (conn->conn_type == XQC_CONN_TYPE_SERVER
-        && (path->rebinding_addrlen != 0)
-        && (path->rebinding_check_response == 1))
-    {
-        /* successfully validate rebinding addr */
-        xqc_memcpy(path->peer_addr, path->rebinding_addr, path->rebinding_addrlen);
-        path->peer_addrlen = path->rebinding_addrlen;
-        path->addr_str_len = 0;
-        xqc_log(conn->log, XQC_LOG_INFO, "|path:%ui|REBINDING|validate NAT rebinding addr|path:%s|", path->path_id, xqc_path_addr_str(path));
-
-        if (conn->enable_multipath
-            && (path->path_id != XQC_INITIAL_PATH_ID))
-        {
-            if (conn->transport_cbs.path_peer_addr_changed_notify) {
-                conn->transport_cbs.path_peer_addr_changed_notify(conn, path->path_id, xqc_conn_get_user_data(conn));
-            }
-
-        } else {
-            xqc_memcpy(conn->peer_addr, path->rebinding_addr, path->rebinding_addrlen);
-            conn->peer_addrlen = path->rebinding_addrlen;
-            conn->addr_str_len = 0;
-            xqc_log(conn->log, XQC_LOG_INFO, "|path:%ui|REBINDING|validate NAT rebinding addr|conn:%s|", path->path_id, xqc_conn_addr_str(conn));
-
-            if (conn->transport_cbs.conn_peer_addr_changed_notify) {
-                conn->transport_cbs.conn_peer_addr_changed_notify(conn, xqc_conn_get_user_data(conn));
-            }
-        }
-
-        path->rebinding_valid++;
-        path->rebinding_addrlen = 0;
-        path->rebinding_check_response = 0;
-        xqc_timer_unset(&path->path_send_ctl->path_timer_manager, XQC_TIMER_NAT_REBINDING);
-    }
-
     return XQC_OK;
 }
 

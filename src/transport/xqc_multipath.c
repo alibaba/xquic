@@ -14,6 +14,7 @@
 #include "src/transport/xqc_frame_parser.h"
 #include "src/transport/xqc_datagram.h"
 #include "src/transport/xqc_recv_timestamps_info.h"
+#include "src/transport/xqc_timer.h"
 
 #include "src/common/xqc_common.h"
 #include "src/common/xqc_malloc.h"
@@ -173,6 +174,342 @@ xqc_generate_path_challenge_data(xqc_connection_t *conn, xqc_path_ctx_t *path)
     return xqc_get_random(engine->rand_generator,
                           path->path_challenge_data, XQC_PATH_CHALLENGE_DATA_LEN);
 }
+
+static void
+xqc_path_rebinding_add_recv(xqc_path_rebinding_t *rebinding, size_t bytes)
+{
+    if (bytes > XQC_MAX_UINT64_VALUE - rebinding->recv_bytes) {
+        rebinding->recv_bytes = XQC_MAX_UINT64_VALUE;
+
+    } else {
+        rebinding->recv_bytes += bytes;
+    }
+}
+
+
+static void
+xqc_path_rebinding_add_sent(xqc_path_rebinding_t *rebinding, size_t bytes)
+{
+    if (bytes > XQC_MAX_UINT64_VALUE - rebinding->sent_bytes) {
+        rebinding->sent_bytes = XQC_MAX_UINT64_VALUE;
+
+    } else {
+        rebinding->sent_bytes += bytes;
+    }
+}
+
+
+static uint64_t
+xqc_path_rebinding_remaining_budget(xqc_path_rebinding_t *rebinding)
+{
+    uint64_t limit;
+
+    if (rebinding->recv_bytes > XQC_MAX_UINT64_VALUE / 3) {
+        limit = XQC_MAX_UINT64_VALUE;
+
+    } else {
+        limit = rebinding->recv_bytes * 3;
+    }
+
+    return rebinding->sent_bytes < limit ? limit - rebinding->sent_bytes : 0;
+}
+
+
+static xqc_bool_t
+xqc_path_rebinding_is_same_candidate(xqc_path_rebinding_t *rebinding,
+    const struct sockaddr *peer_addr)
+{
+    return rebinding->state != XQC_REBINDING_IDLE
+           && xqc_is_same_addr(peer_addr, (struct sockaddr *)rebinding->addr);
+}
+
+
+static void
+xqc_path_rebinding_set_timer(xqc_path_ctx_t *path, xqc_usec_t now)
+{
+    xqc_timer_set(&path->path_send_ctl->path_timer_manager, XQC_TIMER_NAT_REBINDING,
+                  now, 3 * xqc_conn_get_max_pto(path->parent_conn));
+}
+
+
+void
+xqc_path_rebinding_clear(xqc_path_ctx_t *path)
+{
+    xqc_path_rebinding_t *rebinding = &path->rebinding;
+
+    /* Keep path lifetime counters when discarding a candidate. */
+    rebinding->addrlen = 0;
+    rebinding->recv_bytes = 0;
+    rebinding->sent_bytes = 0;
+    rebinding->mtu_probe_retries = 0;
+    rebinding->state = XQC_REBINDING_IDLE;
+    rebinding->initial_challenge_padded = XQC_FALSE;
+    xqc_memzero(rebinding->challenge_data, sizeof(rebinding->challenge_data));
+}
+
+
+static xqc_int_t
+xqc_path_rebinding_start(xqc_path_ctx_t *path, const struct sockaddr *peer_addr,
+    socklen_t peer_addrlen, size_t recv_bytes)
+{
+    xqc_path_rebinding_t *rebinding = &path->rebinding;
+    xqc_int_t ret;
+
+    ret = xqc_memcpy_with_cap(rebinding->addr, sizeof(rebinding->addr), peer_addr,
+                              peer_addrlen);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    rebinding->addrlen = peer_addrlen;
+    rebinding->recv_bytes = recv_bytes;
+    rebinding->sent_bytes = 0;
+    rebinding->mtu_probe_retries = 0;
+    rebinding->state = XQC_REBINDING_ADDRESS_VALIDATING;
+    rebinding->initial_challenge_padded = XQC_FALSE;
+    return XQC_OK;
+}
+
+
+static xqc_int_t
+xqc_path_rebinding_send_address_probe(xqc_connection_t *conn, xqc_path_ctx_t *path)
+{
+    xqc_path_rebinding_t *rebinding = &path->rebinding;
+    uint64_t remaining_budget;
+    size_t sent_bytes;
+    xqc_bool_t min_padding;
+    xqc_int_t ret;
+
+    remaining_budget = xqc_path_rebinding_remaining_budget(rebinding);
+    min_padding = remaining_budget >= XQC_PACKET_INITIAL_MIN_LENGTH;
+    ret = xqc_get_random(conn->engine->rand_generator, rebinding->challenge_data,
+                         sizeof(rebinding->challenge_data));
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    ret = xqc_conn_send_rebinding_path_challenge(conn, path,
+                                                 (struct sockaddr *)rebinding->addr,
+                                                 rebinding->addrlen,
+                                                 rebinding->challenge_data, min_padding,
+                                                 remaining_budget, &sent_bytes);
+    if (ret == XQC_OK) {
+        xqc_path_rebinding_add_sent(rebinding, sent_bytes);
+        rebinding->initial_challenge_padded = min_padding;
+    }
+
+    return ret;
+}
+
+
+static xqc_int_t
+xqc_path_rebinding_send_mtu_probe(xqc_connection_t *conn, xqc_path_ctx_t *path)
+{
+    xqc_path_rebinding_t *rebinding = &path->rebinding;
+    size_t sent_bytes;
+    xqc_int_t ret;
+
+    ret = xqc_get_random(conn->engine->rand_generator, rebinding->challenge_data,
+                         sizeof(rebinding->challenge_data));
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    return xqc_conn_send_rebinding_path_challenge(conn, path,
+                                                  (struct sockaddr *)rebinding->addr,
+                                                  rebinding->addrlen,
+                                                  rebinding->challenge_data, XQC_TRUE,
+                                                  XQC_MAX_UINT64_VALUE, &sent_bytes);
+}
+
+
+xqc_path_ctx_t *
+xqc_path_rebinding_find_by_challenge(xqc_connection_t *conn,
+    const unsigned char *challenge_data)
+{
+    xqc_list_head_t *pos, *next;
+    xqc_path_ctx_t *path;
+
+    if (conn->conn_initial_path != NULL
+        && conn->conn_initial_path->rebinding.state != XQC_REBINDING_IDLE
+        && memcmp(conn->conn_initial_path->rebinding.challenge_data, challenge_data,
+                  XQC_PATH_CHALLENGE_DATA_LEN) == 0)
+    {
+        return conn->conn_initial_path;
+    }
+
+    if (!conn->enable_multipath) {
+        return NULL;
+    }
+
+    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
+        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+        if (path == conn->conn_initial_path) {
+            continue;
+        }
+
+        if (path->rebinding.state != XQC_REBINDING_IDLE
+            && memcmp(path->rebinding.challenge_data, challenge_data,
+                      XQC_PATH_CHALLENGE_DATA_LEN) == 0)
+        {
+            return path;
+        }
+    }
+
+    return NULL;
+}
+
+
+xqc_int_t
+xqc_path_rebinding_on_authenticated_datagram(xqc_connection_t *conn,
+    xqc_path_ctx_t *path, const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    size_t recv_bytes, xqc_usec_t now)
+{
+    xqc_path_rebinding_t *rebinding = &path->rebinding;
+    xqc_int_t ret;
+
+    if (rebinding->state == XQC_REBINDING_IDLE) {
+        ret = xqc_path_rebinding_start(path, peer_addr, peer_addrlen, recv_bytes);
+        if (ret != XQC_OK) {
+            return ret;
+        }
+
+    } else if (xqc_path_rebinding_is_same_candidate(rebinding, peer_addr)) {
+        xqc_path_rebinding_add_recv(rebinding, recv_bytes);
+
+    } else {
+        return XQC_OK;
+    }
+
+    if (rebinding->state != XQC_REBINDING_ADDRESS_VALIDATING
+        || xqc_timer_is_set(&path->path_send_ctl->path_timer_manager,
+                            XQC_TIMER_NAT_REBINDING))
+    {
+        return XQC_OK;
+    }
+
+    ret = xqc_path_rebinding_send_address_probe(conn, path);
+    if (ret == XQC_OK) {
+        rebinding->count++;
+        xqc_path_rebinding_set_timer(path, now);
+        xqc_log(conn->log, XQC_LOG_INFO,
+                "|REBINDING|path:%ui|send PATH_CHALLENGE|addr:%s|",
+                path->path_id, xqc_path_addr_str(path));
+
+    } else if (ret != -XQC_EAGAIN) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|REBINDING|send PATH_CHALLENGE error|path:%ui|ret:%d|",
+                path->path_id, ret);
+        xqc_path_rebinding_clear(path);
+    }
+
+    return ret;
+}
+
+
+static void
+xqc_path_rebinding_commit_addr(xqc_connection_t *conn, xqc_path_ctx_t *path)
+{
+    xqc_path_rebinding_t *rebinding = &path->rebinding;
+
+    xqc_memcpy(path->peer_addr, rebinding->addr, rebinding->addrlen);
+    path->peer_addrlen = rebinding->addrlen;
+    path->addr_str_len = 0;
+    xqc_log(conn->log, XQC_LOG_INFO,
+            "|path:%ui|REBINDING|validate NAT rebinding addr|path:%s|",
+            path->path_id, xqc_path_addr_str(path));
+
+    if (conn->enable_multipath && path->path_id != XQC_INITIAL_PATH_ID) {
+        if (conn->transport_cbs.path_peer_addr_changed_notify) {
+            conn->transport_cbs.path_peer_addr_changed_notify(
+                conn, path->path_id, xqc_conn_get_user_data(conn));
+        }
+        return;
+    }
+
+    xqc_memcpy(conn->peer_addr, rebinding->addr, rebinding->addrlen);
+    conn->peer_addrlen = rebinding->addrlen;
+    conn->addr_str_len = 0;
+    xqc_log(conn->log, XQC_LOG_INFO,
+            "|path:%ui|REBINDING|validate NAT rebinding addr|conn:%s|",
+            path->path_id, xqc_conn_addr_str(conn));
+    if (conn->transport_cbs.conn_peer_addr_changed_notify) {
+        conn->transport_cbs.conn_peer_addr_changed_notify(conn,
+                                                          xqc_conn_get_user_data(conn));
+    }
+}
+
+
+xqc_int_t
+xqc_path_rebinding_on_response(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    const unsigned char *challenge_data, xqc_usec_t now)
+{
+    xqc_path_rebinding_t *rebinding = &path->rebinding;
+    xqc_int_t ret;
+
+    if (rebinding->state == XQC_REBINDING_IDLE
+        || memcmp(rebinding->challenge_data, challenge_data,
+                  XQC_PATH_CHALLENGE_DATA_LEN) != 0)
+    {
+        return XQC_ERROR;
+    }
+
+    xqc_path_validate(path);
+    if (rebinding->state == XQC_REBINDING_ADDRESS_VALIDATING) {
+        xqc_path_rebinding_commit_addr(conn, path);
+        rebinding->valid++;
+        if (rebinding->initial_challenge_padded) {
+            xqc_path_rebinding_clear(path);
+            xqc_timer_unset(&path->path_send_ctl->path_timer_manager,
+                            XQC_TIMER_NAT_REBINDING);
+            return XQC_OK;
+        }
+
+        rebinding->state = XQC_REBINDING_MTU_VALIDATING;
+        ret = xqc_path_rebinding_send_mtu_probe(conn, path);
+        if (ret == XQC_OK || ret == -XQC_EAGAIN) {
+            xqc_timer_unset(&path->path_send_ctl->path_timer_manager,
+                            XQC_TIMER_NAT_REBINDING);
+            xqc_path_rebinding_set_timer(path, now);
+            return XQC_OK;
+        }
+
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|REBINDING|MTU probe send failed|path:%ui|ret:%d|",
+                path->path_id, ret);
+    }
+
+    xqc_path_rebinding_clear(path);
+    xqc_timer_unset(&path->path_send_ctl->path_timer_manager,
+                    XQC_TIMER_NAT_REBINDING);
+    return XQC_OK;
+}
+
+
+void
+xqc_path_rebinding_on_timeout(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    xqc_usec_t now)
+{
+    xqc_path_rebinding_t *rebinding = &path->rebinding;
+    xqc_int_t ret;
+
+    if (rebinding->state == XQC_REBINDING_MTU_VALIDATING) {
+        if (rebinding->mtu_probe_retries < XQC_REBINDING_MAX_MTU_PROBE_RETRIES) {
+            rebinding->mtu_probe_retries++;
+            ret = xqc_path_rebinding_send_mtu_probe(conn, path);
+            if (ret == XQC_OK || ret == -XQC_EAGAIN) {
+                xqc_path_rebinding_set_timer(path, now);
+                return;
+            }
+        }
+
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|REBINDING|MTU validation failed|path:%ui|retries:%ud|",
+                path->path_id, rebinding->mtu_probe_retries);
+    }
+    xqc_path_rebinding_clear(path);
+}
+
 
 xqc_int_t
 xqc_path_init(xqc_path_ctx_t *path, xqc_connection_t *conn)

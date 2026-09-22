@@ -386,6 +386,7 @@ main(int argc, char *argv[])
                         xqc_test_h3_cancel_push_rejected)
         /* RFC 9114 §4.2.2 field-section-size 32B overhead (issue 751) */
         || !CU_add_test(pSuite, "xqc_test_h3_uncompressed_fields_size", xqc_test_h3_uncompressed_fields_size)
+        || !CU_add_test(pSuite, "xqc_test_h3_headers_total_len_lifecycle", xqc_test_h3_headers_total_len_lifecycle)
         || !CU_add_test(pSuite, "xqc_test_h3_recv_header_field_section_size", xqc_test_h3_recv_header_field_section_size)
         /* issue #744: RFC 9114 §4.1.2 / §8.1 H3_MESSAGE_ERROR + INTERNAL split */
         || !CU_add_test(pSuite, "xqc_test_h3_message_error_code_value", xqc_test_h3_message_error_code_value)

@@ -25,6 +25,7 @@ void xqc_test_h3_reserved_control_frame_accepted();
 void xqc_test_h3_h2_reserved_frames_rejected();
 void xqc_test_h3_cancel_push_rejected();
 void xqc_test_h3_uncompressed_fields_size();
+void xqc_test_h3_headers_total_len_lifecycle();
 void xqc_test_h3_recv_header_field_section_size();
 
 /* issue #744: RFC 9114 §4.1.2 / §8.1 H3_MESSAGE_ERROR + INTERNAL split */

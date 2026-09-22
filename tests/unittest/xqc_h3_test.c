@@ -897,6 +897,36 @@ xqc_test_h3_uncompressed_fields_size()
 }
 
 
+void
+xqc_test_h3_headers_total_len_lifecycle()
+{
+    xqc_http_headers_t headers;
+
+    memset(&headers, 0xa5, sizeof(headers));
+    CU_ASSERT_EQUAL(xqc_h3_headers_create_buf(&headers, 1), XQC_OK);
+    CU_ASSERT_EQUAL(headers.count, 0);
+    CU_ASSERT_EQUAL(headers.total_len, 0);
+
+    headers.total_len = 42;
+    xqc_h3_headers_clear(&headers);
+    CU_ASSERT_EQUAL(headers.count, 0);
+    CU_ASSERT_EQUAL(headers.total_len, 0);
+
+    headers.total_len = 42;
+    xqc_h3_headers_free(&headers);
+    CU_ASSERT_PTR_NULL(headers.headers);
+    CU_ASSERT_EQUAL(headers.capacity, 0);
+    CU_ASSERT_EQUAL(headers.total_len, 0);
+
+    memset(&headers, 0xa5, sizeof(headers));
+    xqc_h3_headers_initial(&headers);
+    CU_ASSERT_PTR_NULL(headers.headers);
+    CU_ASSERT_EQUAL(headers.count, 0);
+    CU_ASSERT_EQUAL(headers.capacity, 0);
+    CU_ASSERT_EQUAL(headers.total_len, 0);
+}
+
+
 /*
  * Drive xqc_h3_request_on_recv_header against the
  * SETTINGS_MAX_FIELD_SECTION_SIZE check to prove it now uses

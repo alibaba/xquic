@@ -944,6 +944,12 @@ xqc_parse_repair_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in,
         return -XQC_EVINTREAD;
     }
     p += vlen;
+    if (repair_payload_id >= XQC_REPAIR_LEN) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|quic_fec|repair symbol index exceeds supported range|idx:%ui|",
+                repair_payload_id);
+        return -XQC_EFEC_SYMBOL_ERROR;
+    }
     rpr_symbol->symbol_idx = repair_payload_id;
 
     vlen = xqc_vint_read(p, end, &repair_key_size);

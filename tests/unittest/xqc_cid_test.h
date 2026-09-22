@@ -27,5 +27,11 @@ void xqc_test_cid_mark_original_idempotent();
 /* delete_cid must decrement original_cid_cnt when removing an original CID */
 void xqc_test_cid_delete_original();
 
+/* CID hash removal must preserve an equal key owned by another connection. */
+void xqc_test_conns_hash_remove_owned_entry();
+
+/* Removing an equal key with a non-owner must leave all mappings intact. */
+void xqc_test_conns_hash_reject_non_owner();
+
 #endif
 

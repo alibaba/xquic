@@ -187,12 +187,12 @@ xqc_qpack_test_basic()
 
     /* decode stream 0, shall be blocked */
     void *req_ctx = xqc_qpack_create_req_ctx(0);
-    read = xqc_qpack_dec_headers(qpk_server, req_ctx, efs_buf_client->data + efs_buf_client->consumed_len, efs_buf_client->data_len - efs_buf_client->consumed_len, &hdrs_out, 1, &blocked);
+    read = xqc_qpack_dec_headers(qpk_server, req_ctx, efs_buf_client->data + efs_buf_client->consumed_len, efs_buf_client->data_len - efs_buf_client->consumed_len, &hdrs_out, XQC_H3_MAX_FIELD_SECTION_SIZE, 1, &blocked);
     CU_ASSERT(read > 0 && blocked == XQC_TRUE);
     efs_buf_client->consumed_len += read;
 
     /* try again will do nothing */
-    read = xqc_qpack_dec_headers(qpk_server, req_ctx, efs_buf_client->data + efs_buf_client->consumed_len, efs_buf_client->data_len - efs_buf_client->consumed_len, &hdrs_out, 1, &blocked);
+    read = xqc_qpack_dec_headers(qpk_server, req_ctx, efs_buf_client->data + efs_buf_client->consumed_len, efs_buf_client->data_len - efs_buf_client->consumed_len, &hdrs_out, XQC_H3_MAX_FIELD_SECTION_SIZE, 1, &blocked);
     CU_ASSERT(read == 0 && blocked == XQC_TRUE);
     efs_buf_client->consumed_len += read;
 
@@ -201,7 +201,7 @@ xqc_qpack_test_basic()
     xqc_bool_t blocked2 = XQC_FALSE;
     void *req_ctx2 = xqc_qpack_create_req_ctx(1);
     while (efs_buf_server->consumed_len < efs_buf_server->data_len) {
-        read = xqc_qpack_dec_headers(qpk_server, req_ctx2, efs_buf_server->data + efs_buf_server->consumed_len, 1, &hdrs_out2, 1, &blocked);
+        read = xqc_qpack_dec_headers(qpk_server, req_ctx2, efs_buf_server->data + efs_buf_server->consumed_len, 1, &hdrs_out2, XQC_H3_MAX_FIELD_SECTION_SIZE, 1, &blocked);
 
         CU_ASSERT(read == 1);
         efs_buf_server->consumed_len += read;
@@ -222,7 +222,7 @@ xqc_qpack_test_basic()
 
     /* decode blocked stream, shall finish */
     blocked = XQC_FALSE;
-    read = xqc_qpack_dec_headers(qpk_server, req_ctx, efs_buf_client->data + efs_buf_client->consumed_len, efs_buf_client->data_len - efs_buf_client->consumed_len, &hdrs_out, 1, &blocked);
+    read = xqc_qpack_dec_headers(qpk_server, req_ctx, efs_buf_client->data + efs_buf_client->consumed_len, efs_buf_client->data_len - efs_buf_client->consumed_len, &hdrs_out, XQC_H3_MAX_FIELD_SECTION_SIZE, 1, &blocked);
     CU_ASSERT(read > 0);
     efs_buf_client->consumed_len += read;
     CU_ASSERT(blocked == XQC_FALSE && (efs_buf_client->data_len == efs_buf_client->consumed_len));
@@ -360,7 +360,7 @@ xqc_qpack_test_duplicate()
 
     /* server received headers frame */
     void *req_ctx_0 = xqc_qpack_create_req_ctx(0);
-    read = xqc_qpack_dec_headers(qpk_server, req_ctx_0, efs_buf_client->data + efs_buf_client->consumed_len, efs_buf_client->data_len - efs_buf_client->consumed_len, &hdrs_out, 1, &blocked);
+    read = xqc_qpack_dec_headers(qpk_server, req_ctx_0, efs_buf_client->data + efs_buf_client->consumed_len, efs_buf_client->data_len - efs_buf_client->consumed_len, &hdrs_out, XQC_H3_MAX_FIELD_SECTION_SIZE, 1, &blocked);
     CU_ASSERT(read == efs_buf_client->data_len && hdrs_out.count == header_in_cnt);
     efs_buf_client->consumed_len += read;
     for (size_t i = 0; i < header_in_cnt && i < hdrs_out.count; i++) {
@@ -392,7 +392,7 @@ xqc_qpack_test_duplicate()
 
     /* decode header */
     void *req_ctx_1 = xqc_qpack_create_req_ctx(1);
-    read = xqc_qpack_dec_headers(qpk_server, req_ctx_1, efs_buf_client->data + efs_buf_client->consumed_len, efs_buf_client->data_len - efs_buf_client->consumed_len, &hdrs_out_draining, 1,
+    read = xqc_qpack_dec_headers(qpk_server, req_ctx_1, efs_buf_client->data + efs_buf_client->consumed_len, efs_buf_client->data_len - efs_buf_client->consumed_len, &hdrs_out_draining, XQC_H3_MAX_FIELD_SECTION_SIZE, 1,
                                  &blocked);
     CU_ASSERT(read == efs_buf_client->data_len && hdrs_out_draining.count == 1);
     efs_buf_client->consumed_len += read;
@@ -540,7 +540,7 @@ xqc_qpack_test_robust()
 
     /* server decode headers */
     void *req_ctx_0 = xqc_qpack_create_req_ctx(0);
-    ret = xqc_qpack_dec_headers(qpk_server, req_ctx_0, efs_buf_client->data + efs_buf_client->consumed_len, efs_buf_client->data_len - efs_buf_client->consumed_len, &hdrs_out, 1, &blocked);
+    ret = xqc_qpack_dec_headers(qpk_server, req_ctx_0, efs_buf_client->data + efs_buf_client->consumed_len, efs_buf_client->data_len - efs_buf_client->consumed_len, &hdrs_out, UINT64_MAX, 1, &blocked);
     CU_ASSERT(ret == efs_buf_client->data_len && dec_ins_buf_server->data_len > 0
               && hdrs_out.count == hdrs_in.count);
     efs_buf_client->consumed_len += read;
@@ -718,12 +718,12 @@ xqc_test_min_ref()
     xqc_var_buf_clear(ins_buf_client.enc_ins);
 
     xqc_rep_ctx_t *rep_ctx1 = xqc_qpack_create_req_ctx(0);
-    processed = xqc_qpack_dec_headers(qpk_server, rep_ctx1, efs_buf_client->data, efs_buf_client->data_len, &hdrs_out, XQC_TRUE, &blocked);
+    processed = xqc_qpack_dec_headers(qpk_server, rep_ctx1, efs_buf_client->data, efs_buf_client->data_len, &hdrs_out, XQC_H3_MAX_FIELD_SECTION_SIZE, XQC_TRUE, &blocked);
     CU_ASSERT(processed == efs_buf_client->data_len);
 
 
     xqc_rep_ctx_t *rep_ctx2 = xqc_qpack_create_req_ctx(4);
-    processed = xqc_qpack_dec_headers(qpk_server, rep_ctx2, efs_buf_client2->data, efs_buf_client2->data_len, &hdrs_out2, XQC_TRUE, &blocked);
+    processed = xqc_qpack_dec_headers(qpk_server, rep_ctx2, efs_buf_client2->data, efs_buf_client2->data_len, &hdrs_out2, XQC_H3_MAX_FIELD_SECTION_SIZE, XQC_TRUE, &blocked);
     CU_ASSERT(processed == efs_buf_client2->data_len);
 
     xqc_h3_headers_clear(&hdrs_out);
@@ -749,6 +749,116 @@ xqc_test_min_ref()
 
 
 
+static void
+xqc_qpack_test_field_section_limit()
+{
+    const unsigned char field_section[] = { 0x00, 0x00, 0xc0 };
+    xqc_engine_t *engine = test_create_engine();
+    xqc_ins_buf_t ins_buf = { NULL, NULL };
+    xqc_qpack_t *qpk;
+    xqc_http_headers_t headers;
+    xqc_rep_ctx_t *req_ctx;
+    xqc_bool_t blocked = XQC_FALSE;
+    ssize_t processed;
+
+    CU_ASSERT_FATAL(engine != NULL);
+    qpk = xqc_qpack_create(0, 0, engine->log, &ins_cb, &ins_buf);
+    CU_ASSERT_FATAL(qpk != NULL);
+
+    memset(&headers, 0, sizeof(headers));
+    req_ctx = xqc_qpack_create_req_ctx(0);
+    CU_ASSERT_FATAL(req_ctx != NULL);
+    processed = xqc_qpack_dec_headers(qpk, req_ctx,
+                                      (unsigned char *)field_section,
+                                      sizeof(field_section), &headers, 42,
+                                      XQC_FALSE, &blocked);
+    CU_ASSERT_EQUAL(processed, sizeof(field_section));
+    CU_ASSERT_EQUAL(headers.count, 1);
+    CU_ASSERT_EQUAL(headers.total_len, 10);
+    CU_ASSERT_EQUAL(blocked, XQC_FALSE);
+    xqc_h3_headers_free(&headers);
+    xqc_qpack_destroy_req_ctx(req_ctx);
+
+    memset(&headers, 0, sizeof(headers));
+    req_ctx = xqc_qpack_create_req_ctx(4);
+    CU_ASSERT_FATAL(req_ctx != NULL);
+    processed = xqc_qpack_dec_headers(qpk, req_ctx,
+                                      (unsigned char *)field_section,
+                                      sizeof(field_section), &headers, 41,
+                                      XQC_FALSE, &blocked);
+    CU_ASSERT_EQUAL(processed, -XQC_H3_INVALID_HEADER);
+    CU_ASSERT_EQUAL(headers.count, 0);
+    CU_ASSERT_PTR_NULL(headers.headers[0].name.iov_base);
+    CU_ASSERT_PTR_NULL(headers.headers[0].value.iov_base);
+    xqc_h3_headers_free(&headers);
+    xqc_qpack_destroy_req_ctx(req_ctx);
+
+    xqc_qpack_destroy(qpk);
+    xqc_engine_destroy(engine);
+}
+
+
+static void
+xqc_qpack_test_blocked_field_section_limit()
+{
+    static const unsigned char encoder_ins[] = {
+        0x3f, 0x61, 0x41, 'a', 0x01, 'b'
+    };
+    static const unsigned char field_section[] = {
+        0x02, 0x00,
+        0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+        0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80
+    };
+    xqc_engine_t *engine = test_create_engine();
+    xqc_var_buf_t *dec_ins_buf = xqc_var_buf_create(128);
+    xqc_ins_buf_t ins_buf = { NULL, dec_ins_buf };
+    xqc_qpack_t *qpk;
+    xqc_http_headers_t headers;
+    xqc_rep_ctx_t *req_ctx;
+    xqc_bool_t blocked = XQC_FALSE;
+    ssize_t processed;
+
+    CU_ASSERT_FATAL(engine != NULL);
+    CU_ASSERT_FATAL(dec_ins_buf != NULL);
+    qpk = xqc_qpack_create(0, 128, engine->log, &ins_cb, &ins_buf);
+    CU_ASSERT_FATAL(qpk != NULL);
+
+    memset(&headers, 0, sizeof(headers));
+    req_ctx = xqc_qpack_create_req_ctx(0);
+    CU_ASSERT_FATAL(req_ctx != NULL);
+
+    processed = xqc_qpack_dec_headers(qpk, req_ctx,
+                                      (unsigned char *)field_section,
+                                      sizeof(field_section), &headers, 512,
+                                      XQC_FALSE, &blocked);
+    CU_ASSERT_EQUAL(processed, 2);
+    CU_ASSERT_EQUAL(blocked, XQC_TRUE);
+    CU_ASSERT_EQUAL(headers.count, 0);
+
+    processed = xqc_qpack_process_encoder(qpk, (unsigned char *)encoder_ins,
+                                          sizeof(encoder_ins));
+    CU_ASSERT_EQUAL(processed, sizeof(encoder_ins));
+
+    blocked = XQC_FALSE;
+    processed = xqc_qpack_dec_headers(qpk, req_ctx,
+                                      (unsigned char *)field_section + 2,
+                                      sizeof(field_section) - 2, &headers, 512,
+                                      XQC_TRUE, &blocked);
+    CU_ASSERT_EQUAL(processed, -XQC_H3_INVALID_HEADER);
+    CU_ASSERT_EQUAL(blocked, XQC_FALSE);
+    CU_ASSERT_EQUAL(headers.count, 15);
+    CU_ASSERT_EQUAL(headers.total_len, 30);
+    CU_ASSERT_PTR_NULL(headers.headers[15].name.iov_base);
+    CU_ASSERT_PTR_NULL(headers.headers[15].value.iov_base);
+
+    xqc_h3_headers_free(&headers);
+    xqc_qpack_destroy_req_ctx(req_ctx);
+    xqc_qpack_destroy(qpk);
+    xqc_var_buf_free(dec_ins_buf);
+    xqc_engine_destroy(engine);
+}
+
+
 void
 xqc_qpack_test()
 {
@@ -756,4 +866,6 @@ xqc_qpack_test()
     xqc_qpack_test_duplicate();
     xqc_qpack_test_robust();
     xqc_test_min_ref();
+    xqc_qpack_test_field_section_limit();
+    xqc_qpack_test_blocked_field_section_limit();
 }

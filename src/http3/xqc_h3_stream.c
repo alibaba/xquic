@@ -1018,11 +1018,16 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
 
                 len = xqc_min(pctx->frame.len - pctx->frame.consumed_len, data_len - processed);
                 read = xqc_qpack_dec_headers(h3s->qpack, h3s->ctx, data + processed, len,
-                                             hdrs, fin, &blocked);
+                                             hdrs,
+                                             h3s->h3c->local_h3_conn_settings.max_field_section_size,
+                                             fin, &blocked);
                 if (read < 0) {
                     xqc_log(h3s->log, XQC_LOG_ERROR, "|xqc_h3_stream_process_request error"
                             "|error frame type:%xL|", pctx->frame.type);
                     xqc_h3_frm_reset_pctx(pctx);
+                    if (read == -XQC_H3_INVALID_HEADER) {
+                        return read;
+                    }
                     return -XQC_QPACK_SAVE_HEADERS_ERROR;
                 }
                 processed += read;
@@ -1948,7 +1953,27 @@ xqc_h3_stream_process_blocked_stream(xqc_h3_stream_t *h3s)
         ssize_t processed = xqc_h3_stream_process_request(h3s, buf->data + buf->consumed_len,
                                                           buf->data_len - buf->consumed_len, buf->fin_flag);
         if (processed < 0) {
-            if (processed == -XQC_H3_EMALFORMED_HEADER) {
+            if (processed == -XQC_H3_INVALID_HEADER
+                || processed == -XQC_H3_EMALFORMED_HEADER)
+            {
+                if (h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED) {
+                    h3s->flags &= ~XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED;
+                }
+
+                if (h3s->blocked_stream) {
+                    xqc_h3_conn_remove_blocked_stream(h3s->h3c, h3s->blocked_stream);
+                    h3s->blocked_stream = NULL;
+                    if (h3s->type == XQC_H3_STREAM_TYPE_REQUEST && h3s->h3r) {
+                        xqc_h3_request_unblocked(h3s->h3r);
+                    }
+                }
+
+                if (h3s->blocked_buf_size > 0 && h3s->h3c != NULL) {
+                    h3s->h3c->total_blocked_buf_size -= h3s->blocked_buf_size;
+                    h3s->blocked_buf_size = 0;
+                }
+                xqc_list_buf_list_free(&h3s->blocked_buf);
+
                 xqc_stream_close_with_error(h3s->stream,
                                             H3_MESSAGE_ERROR);
                 h3s->ref_cnt--;

@@ -38,6 +38,29 @@ typedef struct xqc_qpack_s {
     uint64_t                enc_max_cap;
 } xqc_qpack_s;
 
+static xqc_bool_t
+xqc_qpack_headers_exceed_size(xqc_http_headers_t *headers,
+    xqc_http_header_t *hdr, uint64_t max_field_section_size)
+{
+    uint64_t remaining = max_field_section_size;
+
+    if (headers->total_len > remaining) {
+        return XQC_TRUE;
+    }
+    remaining -= headers->total_len;
+
+    if (headers->count >= remaining / 32) {
+        return XQC_TRUE;
+    }
+    remaining -= (headers->count + 1) * 32;
+
+    if (hdr->name.iov_len > remaining) {
+        return XQC_TRUE;
+    }
+    remaining -= hdr->name.iov_len;
+
+    return hdr->value.iov_len > remaining;
+}
 
 xqc_qpack_t *
 xqc_qpack_create(uint64_t enc_max_cap, uint64_t dec_max_cap, xqc_log_t *log, const xqc_qpack_ins_cb_t *ins_cb,
@@ -494,7 +517,8 @@ xqc_qpack_field_name_has_uppercase(const unsigned char *name, size_t name_len)
 
 ssize_t
 xqc_qpack_dec_headers(xqc_qpack_t *qpk, xqc_rep_ctx_t *req_ctx, unsigned char *data,
-    size_t data_len, xqc_http_headers_t *headers, xqc_bool_t fin, xqc_bool_t *blocked)
+    size_t data_len, xqc_http_headers_t *headers, uint64_t max_field_section_size,
+    xqc_bool_t fin, xqc_bool_t *blocked)
 {
     ssize_t read = 0;
     unsigned char *pos = data;
@@ -527,6 +551,19 @@ xqc_qpack_dec_headers(xqc_qpack_t *qpk, xqc_rep_ctx_t *req_ctx, unsigned char *d
 
         /* one field line is available */
         if (req_ctx->state == XQC_REP_DECODE_STATE_FINISH) {
+            if (xqc_qpack_headers_exceed_size(headers, hdr,
+                                              max_field_section_size))
+            {
+                xqc_log(qpk->log, XQC_LOG_ERROR,
+                        "|field section exceeds local limit|limit:%ui|",
+                        max_field_section_size);
+                xqc_free(hdr->name.iov_base);
+                xqc_free(hdr->value.iov_base);
+                memset(hdr, 0, sizeof(*hdr));
+                xqc_rep_ctx_clear_rep(req_ctx);
+                return -XQC_H3_INVALID_HEADER;
+            }
+
             headers->count++;
             headers->total_len += (hdr->name.iov_len + hdr->value.iov_len);
             xqc_rep_ctx_clear_rep(req_ctx);

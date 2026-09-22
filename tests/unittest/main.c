@@ -378,6 +378,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_h3_malformed_headers_uses_message_error", xqc_test_h3_malformed_headers_uses_message_error)
         || !CU_add_test(pSuite, "xqc_test_h3_headers_capacity_uses_internal_error", xqc_test_h3_headers_capacity_uses_internal_error)
         || !CU_add_test(pSuite, "xqc_test_h3_valid_headers_smoke", xqc_test_h3_valid_headers_smoke)
+        || !CU_add_test(pSuite, "xqc_test_h3_qpack_duplicate_uses_excessive_load",
+                        xqc_test_h3_qpack_duplicate_uses_excessive_load)
         || !CU_add_test(pSuite, "xqc_test_h3_frame_parse_error_uses_frame_error", xqc_test_h3_frame_parse_error_uses_frame_error)
                 || !CU_add_test(pSuite, "xqc_test_h3_settings_frame_size_limit", xqc_test_h3_settings_frame_size_limit)
         || !CU_add_test(pSuite, "xqc_test_h3_control_frame_unexpected", xqc_test_h3_control_frame_unexpected)

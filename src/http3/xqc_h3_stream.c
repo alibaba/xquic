@@ -1369,6 +1369,9 @@ xqc_h3_stream_process_uni(xqc_h3_stream_t *h3s, unsigned char *data, size_t data
         /* deliver data to modules which is concerned */
         ssize_t read = xqc_h3_stream_process_uni_payload(h3s, data + processed,
                                                          data_len - processed);
+        if (read == -XQC_QPACK_DYNAMIC_TABLE_EXCESSIVE_LOAD) {
+            return read;
+        }
         if (read < 0 || read + processed != data_len) {
             xqc_log(h3s->log, XQC_LOG_ERROR, "|error processing uni-stream payload|type:%d|"
                     "sz:%uz|processed:%z|", h3s->type, data_len, read);
@@ -1650,6 +1653,14 @@ xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_
         if (processed < 0 || processed != data_len) {
             xqc_log(h3c->log, XQC_LOG_ERROR, "|xqc_h3_stream_process_uni error|processed:%z"
                     "|size:%uz|stream_id:%ui|", processed, data_len, h3s->stream_id);
+
+            /* Duplicate work budget only applies to peer QPACK encoder streams. */
+            if (h3s->type == XQC_H3_STREAM_TYPE_QPACK_ENCODER
+                && processed == -XQC_QPACK_DYNAMIC_TABLE_EXCESSIVE_LOAD)
+            {
+                XQC_H3_CONN_ERR(h3c, H3_EXCESSIVE_LOAD, processed);
+                return processed;
+            }
 
             XQC_H3_CONN_ERR(h3c, H3_FRAME_ERROR, -XQC_H3_EPROC_CONTROL);
             return -XQC_H3_EPROC_CONTROL;

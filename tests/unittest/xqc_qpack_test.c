@@ -7,6 +7,7 @@
 #include "src/http3/xqc_h3_header.h"
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/qpack/xqc_qpack.h"
+#include "src/common/xqc_time.h"
 #include <inttypes.h>
 #include <stdlib.h>
 #include <time.h>
@@ -749,6 +750,92 @@ xqc_test_min_ref()
 
 
 
+static xqc_usec_t xqc_qpack_test_duplicate_now;
+
+
+static xqc_usec_t
+xqc_qpack_test_duplicate_timestamp(void)
+{
+    return xqc_qpack_test_duplicate_now;
+}
+
+
+static ssize_t
+xqc_qpack_test_process_duplicate(xqc_qpack_t *qpk, xqc_var_buf_t *enc_ins)
+{
+    xqc_var_buf_clear(enc_ins);
+    if (xqc_ins_write_dup(enc_ins, 0) != XQC_OK) {
+        return XQC_ERROR;
+    }
+
+    return xqc_qpack_process_encoder(qpk, enc_ins->data, enc_ins->data_len);
+}
+
+
+static void
+xqc_qpack_test_duplicate_work_limit()
+{
+    unsigned char name[100];
+    xqc_var_buf_t *enc_ins = xqc_var_buf_create(1024);
+    xqc_var_buf_t *dec_ins = xqc_var_buf_create(1024);
+    xqc_ins_buf_t ins_buf = {enc_ins, dec_ins};
+    xqc_engine_t *engine = test_create_engine();
+    xqc_qpack_t *qpk = NULL;
+    xqc_timestamp_pt saved_timestamp;
+    ssize_t read;
+
+    CU_ASSERT_FATAL(engine != NULL);
+    CU_ASSERT_FATAL(enc_ins != NULL);
+    CU_ASSERT_FATAL(dec_ins != NULL);
+    memset(name, 'a', sizeof(name));
+
+    qpk = xqc_qpack_create(528, 528, engine->log, &ins_cb, &ins_buf);
+    CU_ASSERT_FATAL(qpk != NULL);
+
+    saved_timestamp = xqc_monotonic_timestamp;
+    xqc_qpack_test_duplicate_now = 1000000;
+    xqc_monotonic_timestamp = xqc_qpack_test_duplicate_timestamp;
+
+    CU_ASSERT(xqc_ins_write_set_dtable_cap(enc_ins, 528) == XQC_OK);
+    CU_ASSERT(xqc_ins_write_insert_literal_name(enc_ins, name, sizeof(name),
+                                                NULL, 0) == XQC_OK);
+    read = xqc_qpack_process_encoder(qpk, enc_ins->data, enc_ins->data_len);
+    CU_ASSERT(read == enc_ins->data_len);
+    CU_ASSERT(xqc_qpack_get_dec_insert_count(qpk) == 1);
+
+    /* Seven 132-byte copies exceed one table capacity but remain below the hard limit. */
+    for (int i = 0; i < 7; i++) {
+        read = xqc_qpack_test_process_duplicate(qpk, enc_ins);
+        CU_ASSERT(read == enc_ins->data_len);
+    }
+    CU_ASSERT(xqc_qpack_get_dec_insert_count(qpk) == 8);
+
+    /* A new second clears the per-second duplicate-work accounting. */
+    xqc_qpack_test_duplicate_now += 1000000;
+    for (int i = 0; i < 7; i++) {
+        read = xqc_qpack_test_process_duplicate(qpk, enc_ins);
+        CU_ASSERT(read == enc_ins->data_len);
+    }
+    CU_ASSERT(xqc_qpack_get_dec_insert_count(qpk) == 15);
+
+    xqc_qpack_test_duplicate_now += 1000000;
+    /* Sixteen copies exactly reach 4 * 528 and must remain allowed. */
+    for (int i = 0; i < 16; i++) {
+        read = xqc_qpack_test_process_duplicate(qpk, enc_ins);
+        CU_ASSERT(read == enc_ins->data_len);
+    }
+    read = xqc_qpack_test_process_duplicate(qpk, enc_ins);
+    CU_ASSERT(read == -XQC_QPACK_DYNAMIC_TABLE_EXCESSIVE_LOAD);
+    CU_ASSERT(xqc_qpack_get_dec_insert_count(qpk) == 31);
+
+    xqc_monotonic_timestamp = saved_timestamp;
+    xqc_qpack_destroy(qpk);
+    xqc_var_buf_free(enc_ins);
+    xqc_var_buf_free(dec_ins);
+    xqc_engine_destroy(engine);
+}
+
+
 static void
 xqc_qpack_test_field_section_limit()
 {
@@ -866,6 +953,7 @@ xqc_qpack_test()
     xqc_qpack_test_duplicate();
     xqc_qpack_test_robust();
     xqc_test_min_ref();
+    xqc_qpack_test_duplicate_work_limit();
     xqc_qpack_test_field_section_limit();
     xqc_qpack_test_blocked_field_section_limit();
 }

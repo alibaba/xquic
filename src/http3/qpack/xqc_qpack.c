@@ -5,6 +5,7 @@
 #include "src/http3/qpack/xqc_qpack.h"
 #include "src/http3/xqc_h3_request.h"
 #include "src/http3/xqc_h3_conn.h"
+#include "src/common/xqc_time.h"
 
 
 
@@ -36,6 +37,11 @@ typedef struct xqc_qpack_s {
 
     /* max encoder's dynamic table capacity configured by local */
     uint64_t                enc_max_cap;
+
+    /* per-second Duplicate work received from the peer encoder stream */
+    uint64_t                dec_duplicate_work_second;
+    uint64_t                dec_duplicate_work_bytes;
+    xqc_bool_t              dec_duplicate_work_warned;
 } xqc_qpack_s;
 
 static xqc_bool_t
@@ -100,6 +106,9 @@ xqc_qpack_create(uint64_t enc_max_cap, uint64_t dec_max_cap, xqc_log_t *log, con
     qpk->user_data = user_data;
     qpk->enc_max_cap = enc_max_cap;
     qpk->dec_max_cap = dec_max_cap;
+    qpk->dec_duplicate_work_second = 0;
+    qpk->dec_duplicate_work_bytes = 0;
+    qpk->dec_duplicate_work_warned = XQC_FALSE;
 
     return qpk;
 
@@ -266,6 +275,51 @@ xqc_qpack_get_dec_insert_count(xqc_qpack_t *qpk)
     return xqc_decoder_get_insert_cnt(qpk->dec);
 }
 
+
+static xqc_int_t
+xqc_qpack_account_duplicate_work(xqc_qpack_t *qpk, uint64_t relative_idx)
+{
+    size_t work_size = 0;
+    xqc_int_t ret = xqc_decoder_get_duplicate_entry_size(qpk->dec, relative_idx,
+                                                          &work_size);
+    if (ret != XQC_OK) {
+        return -XQC_QPACK_DECODER_ERROR;
+    }
+
+    uint64_t now_second = xqc_monotonic_timestamp() / 1000000;
+    /* A clock rollback must not open a new Duplicate work window. */
+    if (now_second > qpk->dec_duplicate_work_second) {
+        qpk->dec_duplicate_work_second = now_second;
+        qpk->dec_duplicate_work_bytes = 0;
+        qpk->dec_duplicate_work_warned = XQC_FALSE;
+    }
+
+    uint64_t hard_limit = qpk->dec_max_cap
+                          > UINT64_MAX / XQC_QPACK_DUPLICATE_WORK_HARD_LIMIT_MULTIPLIER
+                          ? UINT64_MAX
+                          : qpk->dec_max_cap * XQC_QPACK_DUPLICATE_WORK_HARD_LIMIT_MULTIPLIER;
+    if ((uint64_t)work_size > hard_limit - qpk->dec_duplicate_work_bytes) {
+        xqc_log(qpk->log, XQC_LOG_ERROR,
+                "|qpack duplicate work limit exceeded|cost:%uz|work:%ui|limit:%ui|",
+                work_size, qpk->dec_duplicate_work_bytes, hard_limit);
+        return -XQC_QPACK_DYNAMIC_TABLE_EXCESSIVE_LOAD;
+    }
+
+    qpk->dec_duplicate_work_bytes += work_size;
+    if (qpk->dec_duplicate_work_bytes > qpk->dec_max_cap
+        && qpk->dec_duplicate_work_warned == XQC_FALSE)
+    {
+        xqc_log(qpk->log, XQC_LOG_WARN,
+                "|qpack duplicate work exceeds table capacity|work:%ui|cap:%ui|",
+                qpk->dec_duplicate_work_bytes, qpk->dec_max_cap);
+        /* Warn only once per second to avoid duplicate log entries. */
+        qpk->dec_duplicate_work_warned = XQC_TRUE;
+    }
+
+    return XQC_OK;
+}
+
+
 static inline xqc_int_t
 xqc_qpack_on_encoder_ins(xqc_qpack_t *qpk, xqc_ins_enc_ctx_t *ctx)
 {
@@ -296,7 +350,10 @@ xqc_qpack_on_encoder_ins(xqc_qpack_t *qpk, xqc_ins_enc_ctx_t *ctx)
         break;
 
     case XQC_INS_TYPE_ENC_DUP:
-        ret = xqc_decoder_duplicate(qpk->dec, ctx->name_index.value);
+        ret = xqc_qpack_account_duplicate_work(qpk, ctx->name_index.value);
+        if (ret == XQC_OK) {
+            ret = xqc_decoder_duplicate(qpk->dec, ctx->name_index.value);
+        }
         break;
 
     default:

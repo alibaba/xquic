@@ -404,8 +404,10 @@ xqc_conn_enable_multipath(xqc_connection_t *conn)
 xqc_multipath_version_t
 xqc_conn_multipath_version_negotiation(xqc_connection_t *conn)
 {
-    if (xqc_conn_is_current_mp_version_supported(conn->remote_settings.multipath_version) == XQC_OK &&
-        conn->local_settings.multipath_version == conn->remote_settings.multipath_version)
+    if (conn->local_settings.enable_multipath == 1
+        && conn->remote_settings.enable_multipath == 1
+        && xqc_conn_is_current_mp_version_supported(conn->remote_settings.multipath_version) == XQC_OK
+        && conn->local_settings.multipath_version == conn->remote_settings.multipath_version)
     {
         xqc_log(conn->log, XQC_LOG_DEBUG, 
                         "|multipath version negotiation succeed on multipath 0%d|", conn->remote_settings.multipath_version);

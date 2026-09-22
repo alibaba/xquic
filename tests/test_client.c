@@ -20,6 +20,7 @@
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_request.h"
 #include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_engine.h"
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_frame_parser.h"
 #include "src/tls/xqc_crypto.h"
@@ -72,6 +73,7 @@ printf_null(const char *format, ...)
 
 #define XQC_MAX_LOG_LEN 2048
 
+#define XQC_TEST_CASE_MP_FROZEN_UNNEGOTIATED 1302
 #define XQC_TEST_CASE_H3_RESERVED_UNI_STREAM 1000
 #define XQC_TEST_CASE_H3_CLIENT_PUSH_STREAM 1001
 #define XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME 1002
@@ -173,6 +175,7 @@ typedef struct user_stream_s {
     int                      body_read_notify_cnt;
     int                      h3_test_frame_queued;
     int                      h3_test_request_index;
+    int                      mp_frozen_injected;
     xqc_usec_t               last_recv_log_time;
     uint64_t                 recv_log_bytes;
 
@@ -3228,6 +3231,51 @@ xqc_client_request_send_fin_only(int fd, short what, void *arg)
     }
 }
 
+static void
+xqc_client_try_inject_mp_frozen(user_stream_t *user_stream)
+{
+    xqc_connection_t *conn;
+    xqc_path_ctx_t *path;
+    xqc_app_path_status_t path_status;
+    xqc_multipath_version_t mp_version;
+    xqc_int_t ret;
+    client_ctx_t *p_ctx;
+
+    if (g_test_case != XQC_TEST_CASE_MP_FROZEN_UNNEGOTIATED
+        || user_stream->mp_frozen_injected)
+    {
+        return;
+    }
+
+    p_ctx = g_test_qch_mode ? user_stream->user_conn->ctx : &ctx;
+    conn = xqc_engine_conns_hash_find(p_ctx->engine,
+                                       &user_stream->user_conn->cid, 's');
+    if (conn == NULL || !(conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT)) {
+        return;
+    }
+
+    path = conn->conn_initial_path;
+    if (path == NULL) {
+        printf("mp_frozen_injection_failed:no_initial_path\n");
+        return;
+    }
+
+    path_status = path->app_path_status;
+    mp_version = conn->conn_settings.multipath_version;
+    conn->conn_settings.multipath_version = XQC_MULTIPATH_10;
+    path->app_path_status = XQC_APP_PATH_STATUS_FROZEN;
+    ret = xqc_write_path_status_frame_to_packet(conn, path);
+    path->app_path_status = path_status;
+    conn->conn_settings.multipath_version = mp_version;
+    printf("mp_frozen_injected:%d\n", ret == XQC_OK);
+
+    if (ret == XQC_OK) {
+        user_stream->mp_frozen_injected = 1;
+        g_test_case = -1;
+        xqc_conn_continue_send(p_ctx->engine, &user_stream->user_conn->cid);
+    }
+}
+
 int
 xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream)
 {
@@ -3241,6 +3289,10 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
     }
     ssize_t ret = 0;
     char content_len[10];
+
+    if (user_stream->header_sent) {
+        xqc_client_try_inject_mp_frozen(user_stream);
+    }
 
     if (!user_stream->h3_test_frame_queued
         && (g_test_case == XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME
@@ -3579,6 +3631,8 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
             printf("xqc_h3_request_send_headers success size=%zd\n", ret);
             user_stream->header_sent = 1;
         }
+
+        xqc_client_try_inject_mp_frozen(user_stream);
 
         if (g_test_case == 30) {
             usleep(200*1000);

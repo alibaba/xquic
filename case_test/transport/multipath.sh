@@ -37,6 +37,27 @@ else
 fi
 }
 
+case_transport_multipath_MPNS_unnegotiated_frozen_rejected()
+{
+    case_test_stop_server
+    case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
+    sleep 1
+
+    clear_log
+    echo -e "reject unnegotiated MP_FROZEN ...\c"
+    case_test_sudo ${CLIENT_BIN} -s 10240 -l d -t 2 -1 -M -i lo -x 1302 > stdlog
+    injected=`grep "mp_frozen_injected:1" stdlog`
+    rejected=`grep "|mp_version error|" slog | grep "f:15228cff"`
+    closed=`grep "|fail to process packets|" slog`
+    if [ -n "$injected" ] && [ -n "$rejected" ] && [ -n "$closed" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "MPNS_unnegotiated_frozen_rejected" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "MPNS_unnegotiated_frozen_rejected" "fail"
+    fi
+}
+
 case_transport_multipath_MPNS_send_1M_data_on_multiple_paths()
 {
 grep_err_log
@@ -772,6 +793,7 @@ fi
 }
 
 case_test_case "MPNS_enable_multipath_negotiate" --id native --mode self-reporting --run case_transport_multipath_MPNS_enable_multipath_negotiate
+case_test_case "MPNS_unnegotiated_frozen_rejected" --id 1302 --mode self-reporting --run case_transport_multipath_MPNS_unnegotiated_frozen_rejected
 case_test_case "MPNS_send_1M_data_on_multiple_paths" --id native --mode self-reporting --run case_transport_multipath_MPNS_send_1M_data_on_multiple_paths
 case_test_case "MPNS_multipath_30_percent_loss" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss --timeout 120
 case_test_case "MPNS_multipath_close_initial_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_close_initial_path

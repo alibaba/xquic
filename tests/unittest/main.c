@@ -228,6 +228,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_stream_frame", xqc_test_stream_frame)
                 || !CU_add_test(pSuite, "xqc_test_stream_frame_buffered_limit", xqc_test_stream_frame_buffered_limit)
         || !CU_add_test(pSuite, "xqc_test_process_frame", xqc_test_process_frame)
+        || !CU_add_test(pSuite, "xqc_test_multipath_frames_require_negotiation",
+                        xqc_test_multipath_frames_require_negotiation)
+        || !CU_add_test(pSuite, "xqc_test_multipath_version_requires_negotiation",
+                        xqc_test_multipath_version_requires_negotiation)
+        || !CU_add_test(pSuite, "xqc_test_negotiated_multipath_frozen_frame",
+                        xqc_test_negotiated_multipath_frozen_frame)
         || !CU_add_test(pSuite, "xqc_test_parse_padding_frame", xqc_test_parse_padding_frame)
 #ifdef XQC_PING_ATTACK_PROTECT
         || !CU_add_test(pSuite,

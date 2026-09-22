@@ -106,7 +106,7 @@ its case is retired so later changes cannot reuse it.
 | `[1100, 1149]` | QPACK | None |
 | `[1150, 1199]` | HTTP priority | None |
 | `[1200, 1299]` | QUIC DATAGRAM | `1201-1202` |
-| `[1300, 1399]` | Multipath QUIC | None |
+| `[1300, 1399]` | Multipath QUIC | `1302` |
 | `[1400, 1499]` | MoQT | None |
 | `[1500, 1599]` | LOC and MSF application protocols | None |
 | `[1600, 1699]` | FEC and experimental transport extensions | None |

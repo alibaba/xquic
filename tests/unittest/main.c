@@ -150,6 +150,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_stream_flow_ctl_clamp", xqc_test_stream_flow_ctl_clamp)
         || !CU_add_test(pSuite, "xqc_test_conn_flow_ctl_clamp", xqc_test_conn_flow_ctl_clamp)
         || !CU_add_test(pSuite, "xqc_test_flow_ctl_normal_no_clamp", xqc_test_flow_ctl_normal_no_clamp)
+        || !CU_add_test(pSuite, "xqc_test_uni_stream_credit_exhausted", xqc_test_uni_stream_credit_exhausted)
+        || !CU_add_test(pSuite, "xqc_test_uni_stream_credit_not_exhausted", xqc_test_uni_stream_credit_not_exhausted)
         || !CU_add_test(pSuite, "xqc_test_recv_record", xqc_test_recv_record)
         || !CU_add_test(pSuite, "xqc_test_reno", xqc_test_reno)
         || !CU_add_test(pSuite, "xqc_test_reno_loss_ssthresh",

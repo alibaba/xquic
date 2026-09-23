@@ -347,7 +347,7 @@ sleep 1
 clear_log
 echo -e "test client long header ...\c"
 ${CLIENT_BIN} -G -l d -x 29 >> clog
-slog_res=`grep -a "large nv|conn" slog`
+slog_res=`grep -a "field section exceeds local limit" slog`
 stream_reset=`grep -a "xqc_parse_reset_stream_frame|" clog \
     | grep "err_code:270"`
 if [ -n "$stream_reset" ] && [ -n "$slog_res" ]; then

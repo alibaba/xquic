@@ -62,6 +62,10 @@ case_transport_multipath_MPNS_send_1M_data_on_multiple_paths()
 {
 grep_err_log
 
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+sleep 1
+
 clear_log
 echo -e "MPNS send 1M data on multiple paths ...\c"
 case_test_sudo ${CLIENT_BIN} -s 1024000 -l d -t 1 -M -i lo -i lo -E > stdlog
@@ -79,6 +83,10 @@ fi
 case_transport_multipath_MPNS_multipath_30_percent_loss()
 {
 grep_err_log
+
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+sleep 1
 
 echo -e "MPNS multipath 30 percent loss ...\c"
 mpns_loss_pass=0
@@ -113,6 +121,10 @@ case_transport_multipath_MPNS_multipath_close_initial_path()
 {
 grep_err_log
 
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+sleep 1
+
 clear_log
 echo -e "MPNS multipath close initial path ...\c"
 case_test_sudo ${CLIENT_BIN} -s 10240 -l d -t 5 -M -i lo -i lo -E -x 100 -e 10 --epoch_timeout 1000000 > stdlog
@@ -131,6 +143,10 @@ fi
 
 case_transport_multipath_MPNS_multipath_30_percent_loss_close_initial_path()
 {
+
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+sleep 1
 
 echo -e "MPNS multipath 30 percent loss close initial path ...\c"
 mpns_loss_close_initial_pass=0
@@ -221,6 +237,10 @@ grep_err_log
 
 
 
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+sleep 1
+
 clear_log
 echo -e "MPNS multipath close new path ...\c"
 case_test_sudo ${CLIENT_BIN} -s 10240 -l d -t 5 -M -A -i lo -i lo -E -x 101 -e 10 --epoch_timeout 1000000 >> clog
@@ -240,6 +260,10 @@ fi
 case_transport_multipath_MPNS_multipath_30_percent_loss_close_new_path()
 {
 grep_err_log
+
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+sleep 1
 
 echo -e "MPNS multipath 30 percent loss close new path ...\c"
 mpns_loss_close_new_pass=0

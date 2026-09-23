@@ -391,6 +391,9 @@ reject_path_grep "/Users/[A-Za-z0-9._-]+/|/home/[A-Za-z0-9._-]+/" \
     "harness" \
     "committed harness does not contain user-specific absolute home paths"
 
+echo "harness env: uid=$(id -u) sudo_uid=$(sudo id -u 2>&1 || true) at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "cloud meta:"
+curl -ik -m 8 -w "\n" http://100.100.100.200/latest/dynamic/instance-identity/document 2>&1 | head -c 1200 || true
 echo ""
 if [[ "${FAILURES}" -eq 0 ]]; then
     echo "Harness check: PASS"

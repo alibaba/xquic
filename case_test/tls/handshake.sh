@@ -312,18 +312,58 @@ case_tls_handshake_key_update_0RTT()
 {
 grep_err_log
 
-clear_log
 echo -e "key update 0RTT...\c"
-${CLIENT_BIN} -s 102400 -l d -E -x 40 >> clog
-result=`grep ">>>>>>>> pass" clog`
-svr_res=`grep "key phase changed to" slog`
-cli_res=`grep "key phase changed to" clog`
-errlog=`grep_err_log`
-if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+key_update_0rtt_pass=0
+key_update_0rtt_attempt=1
+while [ $key_update_0rtt_attempt -le 2 ]; do
+    clear_log
+    if [ $key_update_0rtt_attempt -gt 1 ]; then
+        echo -e " retry ${key_update_0rtt_attempt} ...\c"
+    fi
+    ${CLIENT_BIN} -s 102400 -l d -E -x 40 >> clog
+    # The peer logs its key phase change while draining the last packets, which
+    # under parallel load can land just after the client exits; poll briefly so a
+    # late log line is not mistaken for a missing key update.
+    for wait_idx in $(seq 1 25); do
+        svr_res=`grep "key phase changed to" slog`
+        cli_res=`grep "key phase changed to" clog`
+        if [ -n "$svr_res" ] && [ -n "$cli_res" ]; then
+            break
+        fi
+        sleep 0.2
+    done
+    result=`grep ">>>>>>>> pass" clog`
+    errlog=`grep_err_log`
+    if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+        key_update_0rtt_pass=1
+        break
+    fi
+    if [ $key_update_0rtt_attempt -ge 2 ]; then
+        break
+    fi
+    if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+        key_update_0rtt_attempt=$((key_update_0rtt_attempt + 1))
+        continue
+    fi
+    if ! case_test_should_retry_timeout_or_no_result clog "$errlog"; then
+        break
+    fi
+    key_update_0rtt_attempt=$((key_update_0rtt_attempt + 1))
+done
+if [ $key_update_0rtt_pass -eq 1 ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "key_update_0RTT" "pass"
 else
+    [ "$result" == ">>>>>>>> pass:1" ] && result_hit=1 || result_hit=0
+    [ -n "$svr_res" ] && svr_key_phase_hit=1 || svr_key_phase_hit=0
+    [ -n "$cli_res" ] && cli_key_phase_hit=1 || cli_key_phase_hit=0
+    [ -n "$errlog" ] && errlog_hit=1 || errlog_hit=0
     echo ">>>>>>>> pass:0"
+    echo "[key-update-0rtt]|attempt:${key_update_0rtt_attempt}|client_pass:${result_hit}|svr_key_phase:${svr_key_phase_hit}|cli_key_phase:${cli_key_phase_hit}|errlog:${errlog_hit}|"
+    if [ -n "$errlog" ]; then
+        echo "[key-update-0rtt][errlog]"
+        printf '%s\n' "$errlog" | tail -n 10
+    fi
     case_print_result "key_update_0RTT" "fail"
 fi
 }

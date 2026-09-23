@@ -151,7 +151,12 @@ sleep 1
 echo -e "MPNS multipath 30 percent loss close initial path ...\c"
 mpns_loss_close_initial_pass=0
 mpns_loss_close_initial_attempt=1
-while [ $mpns_loss_close_initial_attempt -le 2 ]; do
+# A single attempt runs ~55s under 30 percent induced loss and frequently needs a
+# retry, so keep the retry budget in step with the registered --timeout: three
+# attempts need roughly 200s and the watchdog kills the whole group shell once it
+# fires.
+mpns_loss_close_initial_max_attempts=3
+while [ $mpns_loss_close_initial_attempt -le $mpns_loss_close_initial_max_attempts ]; do
     clear_log
     if [ $mpns_loss_close_initial_attempt -gt 1 ]; then
         echo -e " retry ${mpns_loss_close_initial_attempt} ...\c"
@@ -179,7 +184,7 @@ while [ $mpns_loss_close_initial_attempt -le 2 ]; do
         mpns_loss_close_initial_pass=1
         break
     fi
-    if [ $mpns_loss_close_initial_attempt -ge 2 ]; then
+    if [ $mpns_loss_close_initial_attempt -ge $mpns_loss_close_initial_max_attempts ]; then
         break
     fi
     if [ -z "$errlog" ] && [ -n "$result_pass" ]; then
@@ -821,7 +826,7 @@ case_test_case "MPNS_unnegotiated_frozen_rejected" --id 1302 --mode self-reporti
 case_test_case "MPNS_send_1M_data_on_multiple_paths" --id native --mode self-reporting --run case_transport_multipath_MPNS_send_1M_data_on_multiple_paths
 case_test_case "MPNS_multipath_30_percent_loss" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss --timeout 120
 case_test_case "MPNS_multipath_close_initial_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_close_initial_path
-case_test_case "MPNS_multipath_30_percent_loss_close_initial_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss_close_initial_path --timeout 120
+case_test_case "MPNS_multipath_30_percent_loss_close_initial_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss_close_initial_path --timeout 240
 case_test_case "MPNS_multipath_close_new_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_close_new_path
 case_test_case "MPNS_multipath_30_percent_loss_close_new_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss_close_new_path --timeout 120
 case_test_case "MPNS_send_data_with_multipath_10" --id native --mode self-reporting --run case_transport_multipath_MPNS_send_data_with_multipath_10

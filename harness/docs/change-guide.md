@@ -2,7 +2,9 @@
 
 Use this informative guide after locating the affected area in
 `structure-map.md`. Apply the normative constraints in
-`harness/spec/harness-behavior.md` throughout the change.
+`harness/spec/harness-behavior.md` throughout the change. The final
+summary line of the harness check also reports the build environment so
+failures can be correlated with the runner that produced them.
 
 ## Common Public Harness Change
 

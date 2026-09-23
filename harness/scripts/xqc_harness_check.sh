@@ -391,7 +391,7 @@ reject_path_grep "/Users/[A-Za-z0-9._-]+/|/home/[A-Za-z0-9._-]+/" \
     "harness" \
     "committed harness does not contain user-specific absolute home paths"
 
-echo ""
+echo "harness env: uid=$(id -u) host=$(hostname) at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 if [[ "${FAILURES}" -eq 0 ]]; then
     echo "Harness check: PASS"
 else

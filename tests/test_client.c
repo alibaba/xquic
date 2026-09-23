@@ -483,6 +483,7 @@ static void xqc_client_bytestream_timeout_callback(int, short, void*);
 /* 用于路径增删debug */
 static void xqc_client_path_callback(int fd, short what, void *arg);
 static void xqc_client_epoch_callback(int fd, short what, void *arg);
+static void xqc_client_ready_to_create_path(const xqc_cid_t *cid, void *conn_user_data);
 
 /*  */
 
@@ -1976,7 +1977,19 @@ xqc_client_path_removed(const xqc_cid_t *scid, uint64_t path_id,
             
             printf("***** path removed. index: %d, path_id: %" PRIu64 "\n", i, path_id);
 
-            xqc_client_set_path_debug_timer(user_conn);
+            if (g_test_case == 100 && path_id != XQC_INITIAL_PATH_ID) {
+                /* 次路径验证失败后迅速重试，避免初始路径成为唯一活跃路径。 */
+                struct timeval tv = { .tv_sec = 0, .tv_usec = 100000 };
+                if (user_conn->ev_path == NULL) {
+                    user_conn->ev_path = event_new(eb, -1, 0, xqc_client_path_callback,
+                                                   user_conn);
+                }
+                printf("[mpns-close-initial]|retry_path_after_removal|\n");
+                event_add(user_conn->ev_path, &tv);
+
+            } else {
+                xqc_client_set_path_debug_timer(user_conn);
+            }
             
             break;
         }
@@ -4649,9 +4662,22 @@ xqc_client_epoch_callback(int fd, short what, void *arg)
         }
     }
 
-        /* close initial path */
-    if (g_test_case == 100 && g_cur_epoch > 5) {
-        xqc_conn_close_path(ctx.engine, &user_conn->cid, 0);
+    /* 次路径验证成功后关闭初始路径。 */
+    if (g_test_case == 100 && g_cur_epoch > 1) {
+        xqc_conn_stats_t stats = xqc_conn_get_stats(ctx.engine, &user_conn->cid);
+        if (stats.mp_state == 1) {
+            if (g_cur_epoch > 5) {
+                ret = xqc_conn_close_path(ctx.engine, &user_conn->cid, 0);
+                if (ret < 0) {
+                    printf("xqc_conn_close_path err = %d\n", ret);
+                }
+            }
+
+        } else {
+            printf("[mpns-close-initial]|epoch:%d|mp_state:%d|recreate_path|\n",
+                   g_cur_epoch, stats.mp_state);
+            xqc_client_ready_to_create_path(&user_conn->cid, user_conn);
+        }
     }
 
     /* close new path */
@@ -4806,7 +4832,7 @@ xqc_client_cert_verify(const unsigned char *certs[],
     return 0;
 }
 
-void 
+static void
 xqc_client_ready_to_create_path(const xqc_cid_t *cid, 
     void *conn_user_data)
 {

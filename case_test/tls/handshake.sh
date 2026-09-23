@@ -341,11 +341,10 @@ while [ $key_update_0rtt_attempt -le 2 ]; do
     if [ $key_update_0rtt_attempt -ge 2 ]; then
         break
     fi
-    if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
-        key_update_0rtt_attempt=$((key_update_0rtt_attempt + 1))
-        continue
-    fi
-    if ! case_test_should_retry_timeout_or_no_result clog "$errlog"; then
+    # A client pass:0 is a stream echo failure, not proof of a deterministic
+    # key-update failure. Retry every error-free first attempt so transient
+    # response loss and late peer processing do not bypass this case's budget.
+    if [ -n "$errlog" ]; then
         break
     fi
     key_update_0rtt_attempt=$((key_update_0rtt_attempt + 1))

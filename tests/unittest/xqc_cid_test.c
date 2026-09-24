@@ -8,6 +8,7 @@
 #include "src/transport/xqc_cid.h"
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_send_ctl.h"
+#include "src/transport/xqc_utils.h"
 
 #define XQC_TEST_CID_1 "xquictestconnid1"
 #define XQC_TEST_CID_2 "xquictestconnid2"
@@ -634,5 +635,91 @@ xqc_test_cid_delete_original()
     CU_ASSERT(inner_set->original_cid_cnt == cnt_after_insert);
 
     xqc_engine_destroy(conn->engine);
+}
+
+
+static xqc_engine_t *
+xqc_test_create_hash_engine(void)
+{
+    xqc_engine_t *engine = test_create_engine();
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+    return engine;
+}
+
+
+void
+xqc_test_conns_hash_remove_owned_entry()
+{
+    xqc_engine_t      *engine = xqc_test_create_hash_engine();
+    xqc_connection_t   conn_a;
+    xqc_connection_t   conn_b;
+    unsigned char      cid[] = {0x43, 0x49, 0x44, 0x2d,
+                                0x6f, 0x77, 0x6e, 0x65};
+
+    if (engine == NULL) {
+        return;
+    }
+
+    xqc_memzero(&conn_a, sizeof(conn_a));
+    xqc_memzero(&conn_b, sizeof(conn_b));
+    conn_a.log = engine->log;
+    conn_b.log = engine->log;
+
+    CU_ASSERT(xqc_insert_conns_hash(engine->conns_hash_dcid, &conn_a,
+                                    cid, sizeof(cid)) == XQC_OK);
+    CU_ASSERT(xqc_insert_conns_hash(engine->conns_hash_dcid, &conn_b,
+                                    cid, sizeof(cid)) == XQC_OK);
+    CU_ASSERT(xqc_find_conns_hash(engine->conns_hash_dcid, &conn_a,
+                                  cid, sizeof(cid)) == &conn_b);
+
+    CU_ASSERT(xqc_remove_conns_hash(engine->conns_hash_dcid, &conn_a,
+                                    cid, sizeof(cid)) == XQC_OK);
+    CU_ASSERT(xqc_find_conns_hash(engine->conns_hash_dcid, &conn_b,
+                                  cid, sizeof(cid)) == &conn_b);
+
+    CU_ASSERT(xqc_remove_conns_hash(engine->conns_hash_dcid, &conn_b,
+                                    cid, sizeof(cid)) == XQC_OK);
+    CU_ASSERT(xqc_find_conns_hash(engine->conns_hash_dcid, &conn_b,
+                                  cid, sizeof(cid)) == NULL);
+    xqc_engine_destroy(engine);
+}
+
+
+void
+xqc_test_conns_hash_reject_non_owner()
+{
+    xqc_engine_t      *engine = xqc_test_create_hash_engine();
+    xqc_connection_t   conn_a;
+    xqc_connection_t   conn_b;
+    xqc_connection_t   conn_c;
+    unsigned char      cid[] = {0x43, 0x49, 0x44, 0x2d,
+                                0x6f, 0x77, 0x6e, 0x65};
+
+    if (engine == NULL) {
+        return;
+    }
+
+    xqc_memzero(&conn_a, sizeof(conn_a));
+    xqc_memzero(&conn_b, sizeof(conn_b));
+    xqc_memzero(&conn_c, sizeof(conn_c));
+    conn_a.log = engine->log;
+    conn_b.log = engine->log;
+    conn_c.log = engine->log;
+
+    CU_ASSERT(xqc_insert_conns_hash(engine->conns_hash_dcid, &conn_a,
+                                    cid, sizeof(cid)) == XQC_OK);
+    CU_ASSERT(xqc_insert_conns_hash(engine->conns_hash_dcid, &conn_b,
+                                    cid, sizeof(cid)) == XQC_OK);
+    CU_ASSERT(xqc_remove_conns_hash(engine->conns_hash_dcid, &conn_c,
+                                    cid, sizeof(cid)) == -XQC_ECONN_NFOUND);
+    CU_ASSERT(xqc_find_conns_hash(engine->conns_hash_dcid, &conn_c,
+                                  cid, sizeof(cid)) == &conn_b);
+
+    CU_ASSERT(xqc_remove_conns_hash(engine->conns_hash_dcid, &conn_b,
+                                    cid, sizeof(cid)) == XQC_OK);
+    CU_ASSERT(xqc_remove_conns_hash(engine->conns_hash_dcid, &conn_a,
+                                    cid, sizeof(cid)) == XQC_OK);
+    xqc_engine_destroy(engine);
 }
 

@@ -83,6 +83,95 @@ xqc_test_process_frame()
 
 
 void
+xqc_test_multipath_frames_require_negotiation(void)
+{
+    static const unsigned char mp_frames[][4] = {
+        {0x95, 0x22, 0x8c, 0x00},
+        {0x95, 0x22, 0x8c, 0x05},
+        {0x95, 0x22, 0x8c, 0xff},
+        {0x95, 0x22, 0x8c, 0x09},
+        {0x95, 0x22, 0x8c, 0x0a},
+        {0x95, 0x22, 0x8c, 0x0c},
+    };
+    xqc_connection_t *conn;
+    xqc_packet_in_t packet_in;
+    xqc_int_t ret;
+    size_t i;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    conn->enable_multipath = XQC_CONN_MP_DISABLED;
+    conn->conn_settings.multipath_version = XQC_MULTIPATH_10;
+
+    /* draft-ietf-quic-multipath-10 Section 2 requires both endpoints to
+     * advertise initial_max_path_id before using multipath mechanisms. */
+    for (i = 0; i < sizeof(mp_frames) / sizeof(mp_frames[0]); i++) {
+        memset(&packet_in, 0, sizeof(packet_in));
+        packet_in.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+        packet_in.pos = (unsigned char *)mp_frames[i];
+        packet_in.last = packet_in.pos + sizeof(mp_frames[i]);
+
+        ret = xqc_process_frames(conn, &packet_in);
+        CU_ASSERT_EQUAL(ret, -XQC_EMP_INVALID_MP_VERTION);
+    }
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_multipath_version_requires_negotiation(void)
+{
+    xqc_connection_t *conn;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    conn->local_settings.enable_multipath = 0;
+    conn->remote_settings.enable_multipath = 1;
+    conn->local_settings.multipath_version = XQC_MULTIPATH_10;
+    conn->remote_settings.multipath_version = XQC_MULTIPATH_10;
+    CU_ASSERT_EQUAL(xqc_conn_multipath_version_negotiation(conn),
+                    XQC_ERR_MULTIPATH_VERSION);
+
+    conn->local_settings.enable_multipath = 1;
+    CU_ASSERT_EQUAL(xqc_conn_multipath_version_negotiation(conn),
+                    XQC_MULTIPATH_10);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_negotiated_multipath_frozen_frame(void)
+{
+    unsigned char frame[] = {0x95, 0x22, 0x8c, 0xff, 0x00, 0x01};
+    xqc_connection_t *conn;
+    xqc_packet_in_t packet_in;
+    xqc_int_t ret;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn->conn_initial_path);
+
+    conn->enable_multipath = XQC_CONN_MP_ENABLED;
+    conn->conn_settings.multipath_version = XQC_MULTIPATH_10;
+    conn->conn_initial_path->path_state = XQC_PATH_STATE_ACTIVE;
+    conn->conn_initial_path->app_path_status = XQC_APP_PATH_STATUS_AVAILABLE;
+
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    packet_in.pos = frame;
+    packet_in.last = packet_in.pos + sizeof(frame);
+
+    ret = xqc_process_frames(conn, &packet_in);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(conn->conn_initial_path->app_path_status,
+                    XQC_APP_PATH_STATUS_FROZEN);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
 xqc_test_parse_padding_frame()
 {
     xqc_connection_t *conn = test_engine_connect();

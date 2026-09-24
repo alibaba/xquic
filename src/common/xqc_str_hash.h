@@ -178,14 +178,18 @@ xqc_str_hash_add(xqc_str_hash_table_t *hash_tab, xqc_str_hash_element_t e)
 }
 
 static inline int
-xqc_str_hash_delete(xqc_str_hash_table_t *hash_tab, uint64_t hash, xqc_str_t str)
+xqc_str_hash_delete(xqc_str_hash_table_t *hash_tab, uint64_t hash, xqc_str_t str,
+    void *value)
 {
     uint64_t index = hash % hash_tab->count;
     xqc_allocator_t        *a    = &hash_tab->allocator;
     xqc_str_hash_node_t   **pp   = &hash_tab->list[index];
     xqc_str_hash_node_t    *node = hash_tab->list[index];
     while (node) {
-        if (node->element.hash == hash && xqc_str_equal(str, node->element.str)) {
+        /* Equal keys can be owned by different connections; match the owner. */
+        if (node->element.hash == hash && xqc_str_equal(str, node->element.str)
+            && node->element.value == value)
+        {
             *pp = node->next;
             if (hash_tab->conflict_stat[index] > 0) {
                 hash_tab->conflict_stat[index] -= 1;

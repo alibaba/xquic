@@ -536,6 +536,7 @@ struct xqc_connection_s {
         xqc_packet_number_t         pkt_pn[3];
         uint8_t                     curr_index;
         uint32_t                    conn_rcvd_pkts;
+        uint32_t                    conn_authenticated_pkts;
         uint32_t                    conn_udp_pkts;
     } rcv_pkt_stats;
 
@@ -728,7 +729,10 @@ void xqc_conn_closing(xqc_connection_t *conn);
 
 void xqc_conn_closing_notify(xqc_connection_t *conn);
 
-xqc_int_t xqc_conn_send_path_challenge(xqc_connection_t *conn, xqc_path_ctx_t *path);
+xqc_int_t xqc_conn_send_rebinding_path_challenge(xqc_connection_t *conn,
+    xqc_path_ctx_t *path, const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    unsigned char *challenge_data, xqc_bool_t min_padding, uint64_t max_send_bytes,
+    size_t *sent_bytes);
 
 int xqc_conn_buff_0rtt_datagram(xqc_connection_t *conn, void *data, size_t data_len, uint64_t dgram_id, xqc_data_qos_level_t qos_level);
 

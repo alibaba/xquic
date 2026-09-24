@@ -849,7 +849,7 @@ xqc_destroy_stream(xqc_stream_t *stream)
         if (stream->stream_conn->conn_flow_ctl.fc_max_streams_uni_recv_wind < XQC_MAX_STREAMS) {
             stream->stream_conn->conn_flow_ctl.fc_max_streams_uni_recv_wind++;
         }
-        if (((stream->stream_conn->max_stream_id_uni_remote >> 2) + 1) >=
+        if ((stream->stream_conn->max_stream_id_uni_remote + 1) >=
                 stream->stream_conn->conn_flow_ctl.fc_max_streams_uni_can_recv)
         { 
             stream->stream_conn->conn_flow_ctl.fc_max_streams_uni_can_recv =

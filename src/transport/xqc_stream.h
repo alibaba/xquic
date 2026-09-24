@@ -294,6 +294,13 @@ int xqc_stream_do_send_flow_ctl(xqc_stream_t *stream);
 
 int xqc_stream_do_recv_flow_ctl(xqc_stream_t *stream);
 
+/*
+ * The connection level of xqc_stream_do_recv_flow_ctl(), for an event that
+ * counts data as read without a read.
+ */
+void xqc_stream_do_conn_recv_flow_ctl(xqc_stream_t *stream, xqc_usec_t now,
+    xqc_usec_t min_srtt);
+
 int xqc_stream_do_create_flow_ctl(xqc_connection_t *conn, xqc_stream_id_t stream_id, xqc_stream_type_t stream_type);
 
 xqc_stream_t *xqc_passive_create_stream(xqc_connection_t *conn, xqc_stream_id_t stream_id, void *user_data);

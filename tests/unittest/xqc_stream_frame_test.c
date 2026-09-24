@@ -952,3 +952,157 @@ xqc_test_stream_recv_credit_released()
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+/* one RESET_STREAM frame from the peer, H3_REQUEST_CANCELLED, processed */
+static xqc_int_t
+test_sf_reset_stream(xqc_connection_t *conn, xqc_stream_t *stream,
+    uint64_t final_size)
+{
+    xqc_packet_in_t pi;
+    unsigned char   wire[32];
+    unsigned char  *p = wire;
+
+    *p++ = 0x04;
+    p = xqc_put_varint(p, stream->stream_id);
+    p = xqc_put_varint(p, 0x10c);
+    p = xqc_put_varint(p, final_size);
+
+    memset(&pi, 0, sizeof(pi));
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    pi.pos = wire;
+    pi.last = p;
+    return xqc_process_reset_stream_frame(conn, &pi);
+}
+
+/* Count packets carrying a MAX_DATA frame. */
+static int
+test_sf_count_max_data_packets(xqc_connection_t *conn)
+{
+    xqc_send_queue_t *sq = conn->conn_send_queue;
+    xqc_list_head_t  *queues[6];
+    xqc_list_head_t  *pos, *next;
+    xqc_packet_out_t *po;
+    int               n = 0;
+    int               q;
+
+    /* MAX_DATA goes to the high-priority queue */
+    queues[0] = &sq->sndq_send_packets_high_pri;
+    queues[1] = &sq->sndq_send_packets;
+    queues[2] = &sq->sndq_unacked_packets[XQC_PNS_APP_DATA];
+    queues[3] = &sq->sndq_lost_packets;
+    queues[4] = &sq->sndq_pto_probe_packets;
+    queues[5] = &sq->sndq_buff_1rtt_packets;
+
+    for (q = 0; q < 6; q++) {
+        xqc_list_for_each_safe(pos, next, queues[q]) {
+            po = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+            if (po->po_frame_types & XQC_FRAME_BIT_MAX_DATA) {
+                n++;
+            }
+        }
+    }
+
+    return n;
+}
+
+/*
+ * A stream whose reader has taken none of `unread` bytes, received through
+ * the STREAM frame handler under a 1 MiB connection window: the bytes
+ * count against the window as received, not read.
+ */
+static xqc_stream_t *
+test_sf_unread_setup(xqc_connection_t *conn, uint64_t unread)
+{
+    xqc_stream_t    *stream;
+    xqc_packet_in_t  pi;
+    unsigned char    wire[1100];
+    uint64_t         off = 0;
+    unsigned         len;
+
+    stream = xqc_stream_create_with_direction(conn, XQC_STREAM_BIDI, NULL);
+    if (stream == NULL) {
+        return NULL;
+    }
+    stream->stream_flow_ctl.fc_max_stream_data_can_recv = 16 * 1024 * 1024;
+    conn->conn_flow_ctl.fc_max_data_can_recv = 1024 * 1024;
+    conn->conn_flow_ctl.fc_recv_windows_size = 1024 * 1024;
+    conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
+
+    while (off < unread) {
+        len = (unsigned) xqc_min(unread - off, 1024);
+        memset(&pi, 0, sizeof(pi));
+        pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+        pi.pos = wire;
+        pi.last = wire + test_sf_put_stream_frame(wire, stream->stream_id,
+                                                  off, len);
+        if (xqc_process_stream_frame(conn, &pi) != XQC_OK) {
+            return NULL;
+        }
+        off += len;
+    }
+    return stream;
+}
+
+
+/*
+ * The reader has taken none of 900 KiB that fill most of a 1 MiB
+ * connection window when the peer resets the stream. The reset counts
+ * them as read, and the connection's credit is extended at once, with no
+ * DATA_BLOCKED from the peer.
+ */
+void
+xqc_test_stream_reset_extends_conn_credit()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_stream_t     *stream;
+    uint64_t          read_before;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    stream = test_sf_unread_setup(conn, 900 * 1024);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+    read_before = conn->conn_flow_ctl.fc_data_read;
+    CU_ASSERT_EQUAL(conn->conn_flow_ctl.fc_max_data_can_recv, 1024 * 1024);
+    CU_ASSERT_EQUAL(test_sf_count_max_data_packets(conn), 0);
+
+    CU_ASSERT_EQUAL(test_sf_reset_stream(conn, stream, 900 * 1024), XQC_OK);
+    CU_ASSERT_EQUAL(conn->conn_flow_ctl.fc_data_read,
+                    read_before + 900 * 1024);
+    CU_ASSERT(conn->conn_flow_ctl.fc_max_data_can_recv > 1024 * 1024);
+    CU_ASSERT(test_sf_count_max_data_packets(conn) > 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * A reset that leaves more than half the connection's window free extends
+ * nothing, and a repeated RESET_STREAM counts the stream's bytes no second
+ * time.
+ */
+void
+xqc_test_stream_reset_small_keeps_conn_credit()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_stream_t     *stream;
+    uint64_t          read_before;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    stream = test_sf_unread_setup(conn, 100 * 1024);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+    read_before = conn->conn_flow_ctl.fc_data_read;
+    CU_ASSERT_FATAL(read_before < 100 * 1024);
+
+    CU_ASSERT_EQUAL(test_sf_reset_stream(conn, stream, 100 * 1024), XQC_OK);
+    CU_ASSERT_EQUAL(conn->conn_flow_ctl.fc_data_read,
+                    read_before + 100 * 1024);
+    CU_ASSERT_EQUAL(conn->conn_flow_ctl.fc_max_data_can_recv, 1024 * 1024);
+    CU_ASSERT_EQUAL(test_sf_count_max_data_packets(conn), 0);
+
+    CU_ASSERT_EQUAL(test_sf_reset_stream(conn, stream, 100 * 1024), XQC_OK);
+    CU_ASSERT_EQUAL(conn->conn_flow_ctl.fc_data_read,
+                    read_before + 100 * 1024);
+    CU_ASSERT_EQUAL(test_sf_count_max_data_packets(conn), 0);
+
+    xqc_engine_destroy(conn->engine);
+}

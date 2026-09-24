@@ -1488,6 +1488,15 @@ xqc_process_reset_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
         conn->conn_flow_ctl.fc_data_read += (int64_t)final_size - (int64_t)stream->stream_data_in.next_read_offset;
         xqc_destroy_frame_list(&stream->stream_data_in.frames_tailq);
         stream->stream_data_in.buffered_frame_count = 0;
+
+        /*
+         * What the stream held unread now counts as read. Extend the
+         * connection's credit for it now: reading a reset stream returns
+         * before any credit is extended, and waiting for the peer's
+         * DATA_BLOCKED is not allowed (RFC 9000 Section 4.2).
+         */
+        xqc_stream_do_conn_recv_flow_ctl(stream, xqc_monotonic_timestamp(),
+                                         xqc_conn_get_min_srtt(conn, 0));
         xqc_stream_ready_to_read(stream);
     }
     return XQC_OK;

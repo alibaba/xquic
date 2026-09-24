@@ -252,6 +252,10 @@ main(int argc, char *argv[])
                         xqc_test_stream_recv_credit_held)
         || !CU_add_test(pSuite, "xqc_test_stream_recv_credit_released",
                         xqc_test_stream_recv_credit_released)
+        || !CU_add_test(pSuite, "xqc_test_stream_reset_extends_conn_credit",
+                        xqc_test_stream_reset_extends_conn_credit)
+        || !CU_add_test(pSuite, "xqc_test_stream_reset_small_keeps_conn_credit",
+                        xqc_test_stream_reset_small_keeps_conn_credit)
         || !CU_add_test(pSuite, "xqc_test_process_frame", xqc_test_process_frame)
         || !CU_add_test(pSuite, "xqc_test_parse_padding_frame", xqc_test_parse_padding_frame)
 #ifdef XQC_PING_ATTACK_PROTECT

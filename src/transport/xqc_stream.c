@@ -384,6 +384,67 @@ xqc_stream_do_send_flow_ctl(xqc_stream_t *stream)
     return ret;
 }
 
+/*
+ * Extend the connection's receive credit once less than half its window
+ * is left. A read calls this, and so does a reset, which frees the credit
+ * of data that will now never be read.
+ */
+void
+xqc_stream_do_conn_recv_flow_ctl(xqc_stream_t *stream, xqc_usec_t now,
+    xqc_usec_t min_srtt)
+{
+    xqc_connection_t *conn = stream->stream_conn;
+    xqc_usec_t max_srtt = 0;
+    uint64_t old_fc_win = 0;
+    uint64_t available_window;
+
+    available_window = conn->conn_flow_ctl.fc_max_data_can_recv - conn->conn_flow_ctl.fc_data_read;
+
+    if (available_window < conn->conn_flow_ctl.fc_recv_windows_size / 2) {
+
+        if (!conn->conn_settings.recv_rate_bytes_per_sec) {
+
+            if (conn->conn_flow_ctl.fc_last_window_update_time
+                && (now - conn->conn_flow_ctl.fc_last_window_update_time < 2 * min_srtt))
+            {
+                conn->conn_flow_ctl.fc_recv_windows_size
+                        = xqc_min(conn->conn_flow_ctl.fc_recv_windows_size * 2, XQC_MAX_RECV_WINDOW);
+            }
+
+            if (conn->conn_flow_ctl.fc_recv_windows_size < 1.5 * stream->stream_flow_ctl.fc_stream_recv_window_size) {
+                conn->conn_flow_ctl.fc_recv_windows_size = (uint64_t)(1.5 * stream->stream_flow_ctl.fc_stream_recv_window_size);
+            }
+
+        } else {
+
+            if (!max_srtt) {
+                max_srtt = xqc_conn_get_max_srtt(conn);
+            }
+
+            old_fc_win = conn->conn_flow_ctl.fc_recv_windows_size;
+            conn->conn_flow_ctl.fc_recv_windows_size = conn->conn_settings.recv_rate_bytes_per_sec * max_srtt / 1000000;
+            conn->conn_flow_ctl.fc_recv_windows_size = xqc_max(XQC_MIN_RECV_WINDOW, conn->conn_flow_ctl.fc_recv_windows_size);
+            conn->conn_flow_ctl.fc_recv_windows_size = xqc_min(XQC_MAX_RECV_WINDOW, conn->conn_flow_ctl.fc_recv_windows_size);
+            xqc_log(conn->log, XQC_LOG_DEBUG, 
+                    "|conn_level|fc_win_update|old_fc_win:%ui|fc_win:%ui|", 
+                    old_fc_win, conn->conn_flow_ctl.fc_recv_windows_size);
+
+        }
+
+        conn->conn_flow_ctl.fc_last_window_update_time = now;
+
+        if (conn->conn_flow_ctl.fc_recv_windows_size > available_window) {
+            conn->conn_flow_ctl.fc_max_data_can_recv += (conn->conn_flow_ctl.fc_recv_windows_size - available_window);
+            conn->conn_flow_ctl.fc_max_data_can_recv = xqc_clamp_to_max_flow_ctl(conn->conn_flow_ctl.fc_max_data_can_recv);
+            xqc_log(conn->log, XQC_LOG_DEBUG,
+                    "|xqc_write_max_data_to_packet|new_max_data:%ui|fc_data_recved:%ui|fc_data_read:%ui|window_size:%ui|",
+                    conn->conn_flow_ctl.fc_max_data_can_recv, conn->conn_flow_ctl.fc_data_recved,
+                    conn->conn_flow_ctl.fc_data_read, conn->conn_flow_ctl.fc_recv_windows_size);
+            xqc_write_max_data_to_packet(conn, conn->conn_flow_ctl.fc_max_data_can_recv);
+        }
+    }
+}
+
 int
 xqc_stream_do_recv_flow_ctl(xqc_stream_t *stream)
 {
@@ -440,51 +501,7 @@ xqc_stream_do_recv_flow_ctl(xqc_stream_t *stream)
     }
 
     /* connection level */
-    available_window = conn->conn_flow_ctl.fc_max_data_can_recv - conn->conn_flow_ctl.fc_data_read;
-
-    if (available_window < conn->conn_flow_ctl.fc_recv_windows_size / 2) {
-
-        if (!conn->conn_settings.recv_rate_bytes_per_sec) {
-
-            if (conn->conn_flow_ctl.fc_last_window_update_time
-                && (now - conn->conn_flow_ctl.fc_last_window_update_time < 2 * min_srtt))
-            {
-                conn->conn_flow_ctl.fc_recv_windows_size
-                        = xqc_min(conn->conn_flow_ctl.fc_recv_windows_size * 2, XQC_MAX_RECV_WINDOW);
-            }
-
-            if (conn->conn_flow_ctl.fc_recv_windows_size < 1.5 * stream->stream_flow_ctl.fc_stream_recv_window_size) {
-                conn->conn_flow_ctl.fc_recv_windows_size = (uint64_t)(1.5 * stream->stream_flow_ctl.fc_stream_recv_window_size);
-            }
-
-        } else {
-
-            if (!max_srtt) {
-                max_srtt = xqc_conn_get_max_srtt(conn);
-            }
-
-            old_fc_win = conn->conn_flow_ctl.fc_recv_windows_size;
-            conn->conn_flow_ctl.fc_recv_windows_size = conn->conn_settings.recv_rate_bytes_per_sec * max_srtt / 1000000;
-            conn->conn_flow_ctl.fc_recv_windows_size = xqc_max(XQC_MIN_RECV_WINDOW, conn->conn_flow_ctl.fc_recv_windows_size);
-            conn->conn_flow_ctl.fc_recv_windows_size = xqc_min(XQC_MAX_RECV_WINDOW, conn->conn_flow_ctl.fc_recv_windows_size);
-            xqc_log(conn->log, XQC_LOG_DEBUG, 
-                    "|conn_level|fc_win_update|old_fc_win:%ui|fc_win:%ui|", 
-                    old_fc_win, conn->conn_flow_ctl.fc_recv_windows_size);
-
-        }
-
-        conn->conn_flow_ctl.fc_last_window_update_time = now;
-
-        if (conn->conn_flow_ctl.fc_recv_windows_size > available_window) {
-            conn->conn_flow_ctl.fc_max_data_can_recv += (conn->conn_flow_ctl.fc_recv_windows_size - available_window);
-            conn->conn_flow_ctl.fc_max_data_can_recv = xqc_clamp_to_max_flow_ctl(conn->conn_flow_ctl.fc_max_data_can_recv);
-            xqc_log(conn->log, XQC_LOG_DEBUG,
-                    "|xqc_write_max_data_to_packet|new_max_data:%ui|fc_data_recved:%ui|fc_data_read:%ui|window_size:%ui|",
-                    conn->conn_flow_ctl.fc_max_data_can_recv, conn->conn_flow_ctl.fc_data_recved,
-                    conn->conn_flow_ctl.fc_data_read, conn->conn_flow_ctl.fc_recv_windows_size);
-            xqc_write_max_data_to_packet(conn, conn->conn_flow_ctl.fc_max_data_can_recv);
-        }
-    }
+    xqc_stream_do_conn_recv_flow_ctl(stream, now, min_srtt);
 
     return XQC_OK;
 }

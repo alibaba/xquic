@@ -2083,15 +2083,18 @@ xqc_h3_stream_body_buf_resume(xqc_h3_stream_t *h3s)
      * leaves the stream queued with nothing to run the engine: the peer
      * may be waiting for flow-control credit and send nothing. Inside the
      * engine the main logic is not scheduled from here. A request resumed
-     * from its own body notify is read on by xqc_h3_stream_read_notify();
-     * one resumed from anywhere else is queued behind a read-list walk that
+     * from its own body notify is read on by xqc_h3_stream_read_notify(),
+     * which reads no request the application has closed. One closed there,
+     * or resumed from anywhere else, is queued behind a read-list walk that
      * may have passed it, so the connection is visited again.
      */
     engine = h3s->stream->stream_conn->engine;
     if (!(engine->eng_flag & XQC_ENG_FLAG_RUNNING)) {
         xqc_engine_wakeup_once(engine);
 
-    } else if (!(h3s->flags & XQC_HTTP3_STREAM_FLAG_IN_BODY_NOTIFY)) {
+    } else if (!(h3s->flags & XQC_HTTP3_STREAM_FLAG_IN_BODY_NOTIFY)
+               || (h3s->flags & XQC_HTTP3_STREAM_FLAG_ACTIVELY_CLOSED))
+    {
         xqc_h3_conn_body_buf_revisit(h3s->h3c);
     }
 }

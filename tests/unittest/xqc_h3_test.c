@@ -4341,6 +4341,76 @@ xqc_test_h3_body_buf_close_releases_pause()
 }
 
 
+static int
+xqc_h3_bb_close_in_read_notify(xqc_h3_request_t *h3r,
+    xqc_request_notify_flag_t flag, void *user_data)
+{
+    if (flag & XQC_REQ_NOTIFY_READ_BODY) {
+        xqc_h3_request_close(h3r);
+    }
+    return 0;
+}
+
+static xqc_h3_request_callbacks_t xqc_h3_bb_close_in_read_cbs = {
+    .h3_request_read_notify = xqc_h3_bb_close_in_read_notify,
+};
+
+/*
+ * The same close from the request's own body notify, while the engine runs.
+ * The read-on loop there reads no closed request, and nothing else is due
+ * once the peer has sent everything, so the connection must be visited
+ * again: that pass reads the stream to the end.
+ */
+void
+xqc_test_h3_body_buf_close_in_read_notify()
+{
+    xqc_h3_bb_fixture_t fx;
+    unsigned char       buf[8192];
+    xqc_bool_t          is_set = XQC_FALSE;
+    xqc_usec_t          expire = 0;
+    int                 i;
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+    fx.conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
+    fx.h3s->h3r->request_if = &xqc_h3_bb_close_in_read_cbs;
+
+    for (i = 0; i < 40; i++) {
+        size_t n = xqc_h3_bb_put_data_frame(buf, 3000,
+                                            (unsigned char) ('a' + (i % 26)));
+        CU_ASSERT_EQUAL_FATAL(xqc_h3_bb_feed(fx.conn, fx.stream, &fx.offset,
+                                             buf, n), XQC_OK);
+    }
+    xqc_h3_bb_peer_finished(&fx);
+
+    /* the engine is running, as it is whenever a read notify runs */
+    fx.conn->engine->eng_flag |= XQC_ENG_FLAG_RUNNING;
+    xqc_stream_ready_to_read(fx.stream);
+    xqc_process_read_streams(fx.conn);
+    fx.conn->engine->eng_flag &= ~XQC_ENG_FLAG_RUNNING;
+
+    CU_ASSERT(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_ACTIVELY_CLOSED);
+    CU_ASSERT_FALSE(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    CU_ASSERT(fx.stream->stream_flag & XQC_STREAM_FLAG_READY_TO_READ);
+    CU_ASSERT(fx.stream->stream_data_in.next_read_offset < fx.offset);
+
+    CU_ASSERT_FATAL(fx.h3c->body_buf_revisit_timer >= 0);
+    CU_ASSERT_EQUAL(xqc_conn_gp_timer_get_info(fx.conn,
+                        fx.h3c->body_buf_revisit_timer, &is_set, &expire),
+                    XQC_OK);
+    CU_ASSERT(is_set);
+    CU_ASSERT(expire <= xqc_monotonic_timestamp());
+    xqc_conn_gp_timer_unset(fx.conn, fx.h3c->body_buf_revisit_timer);
+
+    /* the visit */
+    xqc_process_read_streams(fx.conn);
+    CU_ASSERT_EQUAL(fx.stream->stream_data_in.next_read_offset, fx.offset);
+    CU_ASSERT_EQUAL(fx.stream->stream_state_recv,
+                    XQC_RECV_STREAM_ST_DATA_READ);
+
+    xqc_h3_bb_teardown(&fx);
+}
+
+
 /*
  * A reset of a request whose read stopped at its limit: the rest of the
  * read it kept is dropped, not replayed into a body nobody will collect,

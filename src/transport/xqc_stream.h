@@ -40,6 +40,7 @@ typedef enum {
     XQC_STREAM_FLAG_UNEXPECTED      = 1 << 8,
     XQC_STREAM_FLAG_DISCARDED       = 1 << 9,   /* stream create_notify with error, all stream data will be discarded */
     XQC_STREAM_FLAG_STOP_SENDING_SENT = 1 << 10,
+    XQC_STREAM_FLAG_RECV_CREDIT_HELD  = 1 << 11,   /* reader paused */
 } xqc_stream_flag_t;
 
 typedef enum {
@@ -272,6 +273,12 @@ void xqc_stream_shutdown_write(xqc_stream_t *stream);
 void xqc_stream_ready_to_read(xqc_stream_t *stream);
 
 void xqc_stream_shutdown_read(xqc_stream_t *stream);
+
+/*
+ * While held, nothing extends the stream's receive credit: its reader has
+ * stopped taking data, and the peer can still send what it was granted.
+ */
+void xqc_stream_hold_recv_credit(xqc_stream_t *stream, xqc_bool_t hold);
 
 xqc_bool_t xqc_stream_is_terminal_state(xqc_stream_t *stream);
 

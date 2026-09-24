@@ -81,5 +81,7 @@ void xqc_test_h3_body_buf_resume_wakes_engine();
 void xqc_test_h3_body_buf_resume_inside_engine_no_wakeup();
 void xqc_test_h3_body_buf_resume_from_read_callback();
 void xqc_test_h3_body_buf_paused_small_frames();
+void xqc_test_h3_body_buf_pause_holds_credit();
+void xqc_test_h3_body_buf_hold_is_per_stream();
 
 #endif //XQUIC_XQC_H3_TEST_H

@@ -244,6 +244,10 @@ main(int argc, char *argv[])
                         xqc_test_stream_frame_coalesce_reordered)
         || !CU_add_test(pSuite, "xqc_test_stream_frame_coalesce_fin_only",
                         xqc_test_stream_frame_coalesce_fin_only)
+        || !CU_add_test(pSuite, "xqc_test_stream_recv_credit_held",
+                        xqc_test_stream_recv_credit_held)
+        || !CU_add_test(pSuite, "xqc_test_stream_recv_credit_released",
+                        xqc_test_stream_recv_credit_released)
         || !CU_add_test(pSuite, "xqc_test_process_frame", xqc_test_process_frame)
         || !CU_add_test(pSuite, "xqc_test_parse_padding_frame", xqc_test_parse_padding_frame)
 #ifdef XQC_PING_ATTACK_PROTECT
@@ -421,6 +425,10 @@ main(int argc, char *argv[])
                         xqc_test_h3_body_buf_resume_from_read_callback)
         || !CU_add_test(pSuite, "xqc_test_h3_body_buf_paused_small_frames",
                         xqc_test_h3_body_buf_paused_small_frames)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_pause_holds_credit",
+                        xqc_test_h3_body_buf_pause_holds_credit)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_hold_is_per_stream",
+                        xqc_test_h3_body_buf_hold_is_per_stream)
                 || !CU_add_test(pSuite, "xqc_test_h3_settings_frame_size_limit", xqc_test_h3_settings_frame_size_limit)
         || !CU_add_test(pSuite, "xqc_test_h3_control_frame_unexpected", xqc_test_h3_control_frame_unexpected)
         || !CU_add_test(pSuite, "xqc_test_h3_missing_settings", xqc_test_h3_missing_settings)

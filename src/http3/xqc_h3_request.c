@@ -800,6 +800,8 @@ xqc_h3_request_body_buf_resume(xqc_h3_request_t *h3_request)
     /* h3s->stream can already be NULL: xqc_h3_stream_close_notify() clears
        it and can leave the request alive */
     if (h3s->stream != NULL) {
+        /* credit is extended again as the stream is read */
+        xqc_stream_hold_recv_credit(h3s->stream, XQC_FALSE);
         xqc_stream_ready_to_read(h3s->stream);
         xqc_log(h3c->log, XQC_LOG_DEBUG,
                 "|body_buf resumed|stream_id:%ui|bytes:%uz|nodes:%ui|",

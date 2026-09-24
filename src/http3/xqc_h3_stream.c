@@ -1904,6 +1904,24 @@ xqc_h3_stream_body_buf_should_pause(xqc_h3_stream_t *h3s)
 }
 
 
+/*
+ * Stop reading a request's transport stream until its application drains:
+ * de-arm the stream, as the skipped xqc_stream_recv() would have, and hold
+ * its receive credit, so the peer can send only what it was already granted.
+ */
+static void
+xqc_h3_stream_body_buf_pause(xqc_h3_stream_t *h3s)
+{
+    h3s->flags |= XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED;
+    xqc_stream_shutdown_read(h3s->stream);
+    xqc_stream_hold_recv_credit(h3s->stream, XQC_TRUE);
+    xqc_log(h3s->h3c->log, XQC_LOG_DEBUG,
+            "|body_buf paused|stream_id:%ui|bytes:%uz|nodes:%ui|limit:%uz|",
+            h3s->stream_id, h3s->h3r->body_buf_bytes,
+            h3s->h3r->body_buf_count, h3s->h3c->max_body_buf_per_stream);
+}
+
+
 xqc_int_t
 xqc_h3_stream_process_data(xqc_stream_t *stream, xqc_h3_stream_t *h3s, xqc_bool_t *fin)
 {
@@ -1917,18 +1935,12 @@ xqc_h3_stream_process_data(xqc_stream_t *stream, xqc_h3_stream_t *h3s, xqc_bool_
     do
     {
         /*
-         * Stop reading once this request is full. xqc_stream_shutdown_read()
-         * is called here because the xqc_stream_recv() below, which otherwise
-         * calls it, is being skipped; break rather than return so the QPACK
-         * insert-count check at the tail of this function still runs.
+         * Stop reading once this request is full; break rather than return
+         * so the QPACK insert-count check at the tail of this function still
+         * runs.
          */
         if (xqc_h3_stream_body_buf_should_pause(h3s)) {
-            h3s->flags |= XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED;
-            xqc_stream_shutdown_read(stream);
-            xqc_log(h3c->log, XQC_LOG_DEBUG,
-                    "|body_buf paused|stream_id:%ui|bytes:%uz|nodes:%ui|limit:%uz|",
-                    h3s->stream_id, h3s->h3r->body_buf_bytes,
-                    h3s->h3r->body_buf_count, h3c->max_body_buf_per_stream);
+            xqc_h3_stream_body_buf_pause(h3s);
             break;
         }
 

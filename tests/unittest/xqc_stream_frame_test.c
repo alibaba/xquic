@@ -684,3 +684,150 @@ xqc_test_stream_frame_coalesce_through_handler()
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+/* one STREAM_DATA_BLOCKED frame from the peer, processed */
+static xqc_int_t
+test_sf_stream_data_blocked(xqc_connection_t *conn, xqc_stream_t *stream,
+    uint64_t limit)
+{
+    xqc_packet_in_t pi;
+    unsigned char   wire[32];
+    unsigned char  *p = wire;
+
+    *p++ = 0x15;
+    p = xqc_put_varint(p, stream->stream_id);
+    p = xqc_put_varint(p, limit);
+
+    memset(&pi, 0, sizeof(pi));
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    pi.pos = wire;
+    pi.last = p;
+    return xqc_process_stream_data_blocked_frame(conn, &pi);
+}
+
+/*
+ * A stream with a 64 KiB window and credit, 48 KiB of it received, read to
+ * 40 KiB: past half the window, so every path that extends credit would.
+ */
+static xqc_stream_t *
+test_sf_credit_setup(xqc_connection_t *conn)
+{
+    xqc_stream_t *stream;
+    uint64_t      off = 0;
+
+    stream = xqc_stream_create_with_direction(conn, XQC_STREAM_BIDI, NULL);
+    if (stream == NULL) {
+        return NULL;
+    }
+    stream->stream_flow_ctl.fc_stream_recv_window_size = 64 * 1024;
+    stream->stream_flow_ctl.fc_max_stream_data_can_recv = 64 * 1024;
+    conn->conn_flow_ctl.fc_max_data_can_recv = 1024 * 1024 * 1024;
+
+    while (off < 48 * 1024) {
+        if (test_sf_insert(conn, stream, off, 1024) != XQC_OK) {
+            return NULL;
+        }
+        off += 1024;
+    }
+    return stream;
+}
+
+static void
+test_sf_read_to(xqc_stream_t *stream, uint64_t point, xqc_bool_t hold)
+{
+    unsigned char buf[1024];
+    uint8_t       fin = 0;
+
+    xqc_stream_hold_recv_credit(stream, hold);
+    while (stream->stream_data_in.next_read_offset < point) {
+        if (xqc_stream_recv(stream, buf, sizeof(buf), &fin) <= 0) {
+            break;
+        }
+    }
+}
+
+
+/*
+ * Held, no path extends the credit: a read past half the window, the
+ * peer's STREAM_DATA_BLOCKED, a rate update, and the first STREAM frame
+ * the stream sends. The window size itself may still change.
+ */
+void
+xqc_test_stream_recv_credit_held()
+{
+    xqc_connection_t      *conn = test_engine_connect();
+    xqc_stream_t          *stream;
+    xqc_stream_settings_t  settings;
+    unsigned char          payload[64];
+    size_t                 written = 0;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    stream = test_sf_credit_setup(conn);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+
+    test_sf_read_to(stream, 40 * 1024, XQC_TRUE);
+    CU_ASSERT_EQUAL(stream->stream_data_in.next_read_offset, 40 * 1024);
+    CU_ASSERT_EQUAL(stream->stream_flow_ctl.fc_max_stream_data_can_recv,
+                    64 * 1024);
+
+    CU_ASSERT_EQUAL(test_sf_stream_data_blocked(conn, stream, 64 * 1024),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(stream->stream_flow_ctl.fc_max_stream_data_can_recv,
+                    64 * 1024);
+
+    conn->conn_settings.enable_stream_rate_limit = 1;
+    conn->conn_settings.init_recv_window = 1024 * 1024;
+    memset(&settings, 0, sizeof(settings));
+    settings.recv_rate_bytes_per_sec = 10 * 1024 * 1024;
+    CU_ASSERT_EQUAL(xqc_stream_update_settings(stream, &settings), XQC_OK);
+    CU_ASSERT(stream->stream_flow_ctl.fc_stream_recv_window_size
+              >= 1024 * 1024);
+    CU_ASSERT_EQUAL(stream->stream_flow_ctl.fc_max_stream_data_can_recv,
+                    64 * 1024);
+
+    stream->stream_flow_ctl.fc_max_stream_data_can_send = 1024 * 1024;
+    conn->conn_flow_ctl.fc_max_data_can_send = 8 * 1024 * 1024;
+    conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
+    memset(payload, 'q', sizeof(payload));
+    CU_ASSERT_FATAL(stream->stream_send_offset == 0);
+    CU_ASSERT(xqc_write_stream_frame_to_packet(conn, stream,
+                                               XQC_PTYPE_SHORT_HEADER, 0,
+                                               payload, sizeof(payload),
+                                               &written) >= 0);
+    CU_ASSERT_EQUAL(stream->stream_flow_ctl.fc_max_stream_data_can_recv,
+                    64 * 1024);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * Released, the same events extend it again: the read past half the
+ * window, and then the peer's STREAM_DATA_BLOCKED after the window grows.
+ */
+void
+xqc_test_stream_recv_credit_released()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_stream_t     *stream;
+    uint64_t          fc;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    stream = test_sf_credit_setup(conn);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+
+    /* held first, as a paused reader would be, then released */
+    xqc_stream_hold_recv_credit(stream, XQC_TRUE);
+    test_sf_read_to(stream, 40 * 1024, XQC_FALSE);
+    CU_ASSERT_FALSE(stream->stream_flag & XQC_STREAM_FLAG_RECV_CREDIT_HELD);
+    fc = stream->stream_flow_ctl.fc_max_stream_data_can_recv;
+    CU_ASSERT(fc > 64 * 1024);
+
+    /* a bigger window leaves room the peer can ask for */
+    stream->stream_flow_ctl.fc_stream_recv_window_size = 256 * 1024;
+    CU_ASSERT_EQUAL(test_sf_stream_data_blocked(conn, stream, fc), XQC_OK);
+    CU_ASSERT(stream->stream_flow_ctl.fc_max_stream_data_can_recv > fc);
+
+    xqc_engine_destroy(conn->engine);
+}

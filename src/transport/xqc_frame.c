@@ -1605,6 +1605,13 @@ xqc_process_stream_data_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *p
         }
     }
 
+    /* the reader has stopped taking data; the grant waits for it */
+    if (stream->stream_flag & XQC_STREAM_FLAG_RECV_CREDIT_HELD) {
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|recv credit held|stream_id:%ui|"
+                "stream_data_limit:%ui|", stream_id, stream_data_limit);
+        return XQC_OK;
+    }
+
     if (stream->stream_data_in.next_read_offset + stream->stream_flow_ctl.fc_stream_recv_window_size <= stream_data_limit) {
         xqc_log(conn->log, XQC_LOG_INFO, "|cannot increase data_limit now|fc_max_stream_data_can_recv:%ui|stream_data_limit:%ui|next_read_offset:%ui|stream_max_recv_offset:%ui|",
                 stream->stream_flow_ctl.fc_max_stream_data_can_recv, stream_data_limit, stream->stream_data_in.next_read_offset, stream->stream_max_recv_offset);

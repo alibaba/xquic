@@ -83,6 +83,17 @@ xqc_stream_shutdown_read(xqc_stream_t *stream)
     }
 }
 
+void
+xqc_stream_hold_recv_credit(xqc_stream_t *stream, xqc_bool_t hold)
+{
+    if (hold) {
+        stream->stream_flag |= XQC_STREAM_FLAG_RECV_CREDIT_HELD;
+
+    } else {
+        stream->stream_flag &= ~XQC_STREAM_FLAG_RECV_CREDIT_HELD;
+    }
+}
+
 xqc_bool_t
 xqc_stream_is_terminal_state(xqc_stream_t *stream)
 {
@@ -387,7 +398,10 @@ xqc_stream_do_recv_flow_ctl(xqc_stream_t *stream)
     /* stream level */
     uint64_t available_window = stream->stream_flow_ctl.fc_max_stream_data_can_recv - stream->stream_data_in.next_read_offset;
 
-    if (available_window < stream->stream_flow_ctl.fc_stream_recv_window_size / 2) {
+    if (!(stream->stream_flag & XQC_STREAM_FLAG_RECV_CREDIT_HELD)
+        && available_window
+           < stream->stream_flow_ctl.fc_stream_recv_window_size / 2)
+    {
         
         if (!stream->recv_rate_bytes_per_sec) {
             if (stream->stream_flow_ctl.fc_last_window_update_time
@@ -1094,7 +1108,9 @@ xqc_stream_update_settings(xqc_stream_t *stream,
                     old_fc_win, stream->stream_flow_ctl.fc_stream_recv_window_size);
             new_offset = xqc_clamp_to_max_flow_ctl(stream->stream_data_in.next_read_offset + stream->stream_flow_ctl.fc_stream_recv_window_size);
 
-            if(new_offset > stream->stream_flow_ctl.fc_max_stream_data_can_recv) {
+            if (new_offset > stream->stream_flow_ctl.fc_max_stream_data_can_recv
+                && !(stream->stream_flag & XQC_STREAM_FLAG_RECV_CREDIT_HELD))
+            {
                 stream->stream_flow_ctl.fc_max_stream_data_can_recv = new_offset;
                 xqc_log(conn->log, XQC_LOG_DEBUG,
                         "|new_max_data:%ui|stream_max_recv_offset:%ui|next_read_offset:%ui|window_size:%ui|",

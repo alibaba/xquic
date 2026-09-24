@@ -14,6 +14,8 @@
 #include "src/transport/xqc_stream.h"
 #include "src/transport/xqc_frame.h"
 #include "src/transport/xqc_engine.h"
+#include "src/common/utils/vint/xqc_variable_len_int.h"
+#include "src/transport/xqc_packet.h"
 #include "src/http3/qpack/stable/xqc_stable.h"
 
 #include "xqc_common_test.h"
@@ -3812,5 +3814,110 @@ xqc_test_h3_body_buf_paused_small_frames()
     CU_ASSERT_EQUAL(fx.stream->stream_data_in.next_read_offset, fx.offset);
     CU_ASSERT_EQUAL(fx.conn->conn_err, 0);
 
+    xqc_h3_bb_teardown(&fx);
+}
+
+
+/* the peer reports itself blocked on this stream at `limit` */
+static xqc_int_t
+xqc_h3_bb_stream_data_blocked(xqc_connection_t *conn, xqc_stream_t *stream,
+    uint64_t limit)
+{
+    xqc_packet_in_t pi;
+    unsigned char   wire[32];
+    unsigned char  *p = wire;
+
+    *p++ = 0x15;
+    p = xqc_put_varint(p, stream->stream_id);
+    p = xqc_put_varint(p, limit);
+
+    memset(&pi, 0, sizeof(pi));
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    pi.pos = wire;
+    pi.last = p;
+    return xqc_process_stream_data_blocked_frame(conn, &pi);
+}
+
+
+/*
+ * A paused request holds its receive credit: the peer's STREAM_DATA_BLOCKED
+ * is answered with nothing while paused, although the read point has moved
+ * past the last grant, and with more credit once the application drains.
+ */
+void
+xqc_test_h3_body_buf_pause_holds_credit()
+{
+    xqc_h3_bb_fixture_t fx;
+    uint64_t            fc;
+
+    /* 128 KiB of credit and window: reading ~12 KiB leaves room to grant */
+    CU_ASSERT_FATAL(xqc_h3_bb_setup_win(&fx, 8192, 128 * 1024) == XQC_TRUE);
+
+    xqc_h3_bb_feed_and_run(&fx, 40, 3000);
+    CU_ASSERT_FATAL(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    CU_ASSERT(fx.stream->stream_flag & XQC_STREAM_FLAG_RECV_CREDIT_HELD);
+
+    fc = fx.stream->stream_flow_ctl.fc_max_stream_data_can_recv;
+    CU_ASSERT_FATAL(fx.stream->stream_data_in.next_read_offset
+                    + fx.stream->stream_flow_ctl.fc_stream_recv_window_size
+                    > fc);
+
+    CU_ASSERT_EQUAL(xqc_h3_bb_stream_data_blocked(fx.conn, fx.stream, fc),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(fx.stream->stream_flow_ctl.fc_max_stream_data_can_recv,
+                    fc);
+
+    (void)xqc_h3_bb_drain_all(fx.h3s->h3r);
+    CU_ASSERT_FALSE(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    CU_ASSERT_FALSE(fx.stream->stream_flag & XQC_STREAM_FLAG_RECV_CREDIT_HELD);
+
+    CU_ASSERT_EQUAL(xqc_h3_bb_stream_data_blocked(fx.conn, fx.stream, fc),
+                    XQC_OK);
+    CU_ASSERT(fx.stream->stream_flow_ctl.fc_max_stream_data_can_recv > fc);
+
+    xqc_h3_bb_teardown(&fx);
+}
+
+
+/*
+ * The hold is the paused stream's own: a second request on the connection,
+ * not paused, is still granted credit when its peer reports it blocked.
+ */
+void
+xqc_test_h3_body_buf_hold_is_per_stream()
+{
+    xqc_h3_bb_fixture_t fx;
+    xqc_stream_t       *s2 = NULL;
+    xqc_h3_stream_t    *h3s2;
+    uint64_t            off2 = 0, fc2;
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+    h3s2 = xqc_h3_bb_add_stream(&fx, &s2);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(h3s2);
+
+    xqc_h3_bb_feed_and_run(&fx, 40, 3000);
+    CU_ASSERT_FATAL(fx.stream->stream_flag & XQC_STREAM_FLAG_RECV_CREDIT_HELD);
+
+    /* the second request reads 5,000 B and holds nothing back */
+    xqc_h3_bb_feed_stream(&fx, s2, &off2, 10, 500);
+    xqc_stream_ready_to_read(s2);
+    xqc_process_read_streams(fx.conn);
+    CU_ASSERT_FALSE(h3s2->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    CU_ASSERT_FALSE(s2->stream_flag & XQC_STREAM_FLAG_RECV_CREDIT_HELD);
+
+    /* a smaller window than its credit, then its peer asks at that credit */
+    s2->stream_flow_ctl.fc_max_stream_data_can_recv = 16 * 1024;
+    s2->stream_flow_ctl.fc_stream_recv_window_size = 64 * 1024;
+    fc2 = s2->stream_flow_ctl.fc_max_stream_data_can_recv;
+    CU_ASSERT_EQUAL(xqc_h3_bb_stream_data_blocked(fx.conn, s2, fc2), XQC_OK);
+    CU_ASSERT(s2->stream_flow_ctl.fc_max_stream_data_can_recv > fc2);
+
+    /* and the paused one is still held */
+    CU_ASSERT(fx.stream->stream_flag & XQC_STREAM_FLAG_RECV_CREDIT_HELD);
+    CU_ASSERT_EQUAL(fx.conn->conn_err, 0);
+
+    s2->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_h3_stream_destroy(h3s2);
+    xqc_destroy_stream(s2);
     xqc_h3_bb_teardown(&fx);
 }

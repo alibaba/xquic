@@ -97,6 +97,9 @@ typedef enum {
     /* reading the transport stream is suspended until the application
        drains body_buf; cleared in xqc_h3_request_recv_body() */
     XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED       = 0x4000,
+    /* the application is being notified of this request's body by
+       xqc_h3_stream_read_notify(), which reads on if it resumes */
+    XQC_HTTP3_STREAM_FLAG_IN_BODY_NOTIFY        = 0x8000,
 } xqc_h3_stream_flag;
 
 typedef struct xqc_h3_stream_pctx_s {
@@ -225,6 +228,12 @@ xqc_int_t xqc_h3_stream_send_setting(xqc_h3_stream_t *h3s, xqc_h3_conn_settings_
 xqc_int_t xqc_h3_stream_send_goaway(xqc_h3_stream_t *h3s, uint64_t push_id, uint8_t fin);
 
 xqc_int_t xqc_h3_stream_process_blocked_stream(xqc_h3_stream_t *h3s);
+
+/*
+ * Read a paused request's transport stream again: clear the pause, release
+ * the stream's receive credit, and have the engine read it.
+ */
+void xqc_h3_stream_body_buf_resume(xqc_h3_stream_t *h3s);
 
 xqc_var_buf_t *xqc_h3_stream_get_send_buf(xqc_h3_stream_t *h3s);
 

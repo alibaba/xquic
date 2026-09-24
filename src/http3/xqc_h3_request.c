@@ -760,15 +760,14 @@ xqc_h3_request_body_buf_release(xqc_h3_request_t *h3_request, size_t bytes)
 
 
 /*
- * Clear the pause and re-arm the transport stream once this request's own
- * body_buf has drained to its low watermark.
+ * Resume a paused request once its own body_buf has drained to its low
+ * watermark.
  */
 static void
 xqc_h3_request_body_buf_resume(xqc_h3_request_t *h3_request)
 {
     xqc_h3_stream_t *h3s = h3_request->h3_stream;
     xqc_h3_conn_t   *h3c;
-    xqc_engine_t    *engine;
     size_t           limit;
 
     if (h3s == NULL || !(h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED)) {
@@ -787,32 +786,7 @@ xqc_h3_request_body_buf_resume(xqc_h3_request_t *h3_request)
         return;
     }
 
-    h3s->flags &= ~XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED;
-
-    /* h3s->stream can already be NULL: xqc_h3_stream_close_notify() clears
-       it and can leave the request alive */
-    if (h3s->stream != NULL) {
-        /* credit is extended again as the stream is read */
-        xqc_stream_hold_recv_credit(h3s->stream, XQC_FALSE);
-        xqc_stream_ready_to_read(h3s->stream);
-        xqc_log(h3c->log, XQC_LOG_DEBUG,
-                "|body_buf resumed|stream_id:%ui|bytes:%uz|nodes:%ui|",
-                h3s->stream_id, h3_request->body_buf_bytes,
-                h3_request->body_buf_count);
-
-        /*
-         * An application draining from its own event, outside the engine,
-         * leaves the stream queued with nothing to run the engine: the peer
-         * may be waiting for flow-control credit and send nothing. Inside
-         * the engine the main logic is not scheduled from here; a request
-         * resumed from its own read callback is continued by
-         * xqc_h3_stream_read_notify().
-         */
-        engine = h3s->stream->stream_conn->engine;
-        if (!(engine->eng_flag & XQC_ENG_FLAG_RUNNING)) {
-            xqc_engine_wakeup_once(engine);
-        }
-    }
+    xqc_h3_stream_body_buf_resume(h3s);
 }
 
 

@@ -504,6 +504,7 @@ xqc_h3_conn_create(xqc_connection_t *conn, void *user_data)
             h3c->max_blocked_buf_per_stream, h3c->max_blocked_buf_per_conn);
 
     h3c->max_body_buf_per_stream = conn->conn_settings.max_body_buf_per_stream;
+    h3c->body_buf_revisit_timer = -1;
     xqc_log(h3c->log, XQC_LOG_DEBUG, "|body_buf_limit|per_stream:%uz|",
             h3c->max_body_buf_per_stream);
 
@@ -556,8 +557,41 @@ xqc_h3_conn_destroy(xqc_h3_conn_t *h3_conn)
     xqc_h3_conn_destroy_blocked_stream_list(h3_conn);
     xqc_qpack_destroy(h3_conn->qpack);
 
+    if (h3_conn->body_buf_revisit_timer >= 0 && h3_conn->conn != NULL) {
+        xqc_conn_unregister_gp_timer(h3_conn->conn,
+                                     h3_conn->body_buf_revisit_timer);
+    }
+
     xqc_log(h3_conn->log, XQC_LOG_DEBUG, "|success|");
     xqc_free(h3_conn);
+}
+
+
+/* nothing to do on expiry: the connection is processed, and with it the
+   streams queued to read */
+static void
+xqc_h3_conn_body_buf_revisit_timeout(xqc_gp_timer_id_t gp_timer_id,
+    xqc_usec_t now, void *user_data)
+{
+}
+
+
+void
+xqc_h3_conn_body_buf_revisit(xqc_h3_conn_t *h3c)
+{
+    if (h3c->body_buf_revisit_timer < 0) {
+        h3c->body_buf_revisit_timer = xqc_conn_register_gp_timer(
+            h3c->conn, "h3_body_buf_revisit",
+            xqc_h3_conn_body_buf_revisit_timeout, NULL);
+        if (h3c->body_buf_revisit_timer < 0) {
+            xqc_log(h3c->log, XQC_LOG_ERROR,
+                    "|register body_buf revisit timer failed|");
+            return;
+        }
+    }
+
+    xqc_conn_gp_timer_set(h3c->conn, h3c->body_buf_revisit_timer,
+                          xqc_monotonic_timestamp());
 }
 
 

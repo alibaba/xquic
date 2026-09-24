@@ -107,6 +107,9 @@ typedef struct xqc_h3_conn_s {
 
     /* body buffer limit per stream (0 = unbounded) */
     size_t                       max_body_buf_per_stream;
+
+    /* has the engine process this connection again; -1 until registered */
+    xqc_gp_timer_id_t            body_buf_revisit_timer;
 } xqc_h3_conn_t;
 
 
@@ -153,5 +156,12 @@ xqc_var_buf_t *xqc_h3_conn_get_ins_buf(xqc_qpack_ins_type_t type, void *user_dat
 
 ssize_t xqc_h3_conn_send_ins(xqc_qpack_ins_type_t type, xqc_var_buf_t *buf, void *user_data);
 
+
+/*
+ * Have the engine process this connection again once its current pass
+ * ends: a request resumed while the engine runs, outside its own read
+ * callback, is queued behind a read-list walk that may have passed it.
+ */
+void xqc_h3_conn_body_buf_revisit(xqc_h3_conn_t *h3c);
 
 #endif /* _XQC_H3_CONN_H_INCLUDED_ */

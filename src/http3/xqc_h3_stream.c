@@ -2016,6 +2016,52 @@ xqc_h3_stream_body_buf_pause(xqc_h3_stream_t *h3s)
 }
 
 
+void
+xqc_h3_stream_body_buf_resume(xqc_h3_stream_t *h3s)
+{
+    xqc_engine_t *engine;
+
+    h3s->flags &= ~XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED;
+
+    /* h3s->stream can already be NULL: xqc_h3_stream_close_notify() clears
+       it and can leave the request alive */
+    if (h3s->stream == NULL) {
+        return;
+    }
+
+    /* credit is extended again as the stream is read */
+    xqc_stream_hold_recv_credit(h3s->stream, XQC_FALSE);
+
+    /* after the peer's FIN there is nothing left to read */
+    if (h3s->flags & XQC_HTTP3_STREAM_FLAG_READ_EOF) {
+        return;
+    }
+
+    xqc_stream_ready_to_read(h3s->stream);
+    xqc_log(h3s->h3c->log, XQC_LOG_DEBUG,
+            "|body_buf resumed|stream_id:%ui|bytes:%uz|nodes:%ui|",
+            h3s->stream_id, h3s->h3r ? h3s->h3r->body_buf_bytes : 0,
+            h3s->h3r ? h3s->h3r->body_buf_count : 0);
+
+    /*
+     * An application draining from its own event, outside the engine,
+     * leaves the stream queued with nothing to run the engine: the peer
+     * may be waiting for flow-control credit and send nothing. Inside the
+     * engine the main logic is not scheduled from here. A request resumed
+     * from its own body notify is read on by xqc_h3_stream_read_notify();
+     * one resumed from anywhere else is queued behind a read-list walk that
+     * may have passed it, so the connection is visited again.
+     */
+    engine = h3s->stream->stream_conn->engine;
+    if (!(engine->eng_flag & XQC_ENG_FLAG_RUNNING)) {
+        xqc_engine_wakeup_once(engine);
+
+    } else if (!(h3s->flags & XQC_HTTP3_STREAM_FLAG_IN_BODY_NOTIFY)) {
+        xqc_h3_conn_body_buf_revisit(h3s->h3c);
+    }
+}
+
+
 /* Free the input kept in blocked_buf: the request has no use for it. */
 static void
 xqc_h3_stream_drop_kept_input(xqc_h3_stream_t *h3s)
@@ -2396,7 +2442,9 @@ xqc_h3_stream_read_notify(xqc_stream_t *stream, void *user_data)
                 && !xqc_list_empty(&h3s->h3r->body_buf))
             {
                 /* notify DATA whenever there is data */
+                h3s->flags |= XQC_HTTP3_STREAM_FLAG_IN_BODY_NOTIFY;
                 ret = xqc_h3_request_on_recv_body(h3s->h3r);
+                h3s->flags &= ~XQC_HTTP3_STREAM_FLAG_IN_BODY_NOTIFY;
                 if (ret != XQC_OK) {
                     xqc_log(h3s->log, XQC_LOG_ERROR,
                             "|recv body error|%d|", ret);

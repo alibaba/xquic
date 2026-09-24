@@ -3153,6 +3153,14 @@ xqc_test_h3_body_buf_flag_bit_is_free()
     CU_ASSERT_EQUAL(XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED
                     & XQC_HTTP3_STREAM_FLAG_ACTIVELY_CLOSED, 0);
     CU_ASSERT_EQUAL(XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED, 0x4000);
+
+    /* and the body-notify marker is a bit of its own */
+    for (i = 0; i < sizeof(taken) / sizeof(taken[0]); i++) {
+        CU_ASSERT_EQUAL(XQC_HTTP3_STREAM_FLAG_IN_BODY_NOTIFY & taken[i], 0);
+    }
+    CU_ASSERT_EQUAL(XQC_HTTP3_STREAM_FLAG_IN_BODY_NOTIFY
+                    & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED, 0);
+    CU_ASSERT_EQUAL(XQC_HTTP3_STREAM_FLAG_IN_BODY_NOTIFY, 0x8000);
 }
 
 
@@ -3697,6 +3705,41 @@ xqc_test_h3_body_buf_resume_inside_engine_no_wakeup()
 
     CU_ASSERT_FALSE(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
     CU_ASSERT(fx.stream->stream_flag & XQC_STREAM_FLAG_READY_TO_READ);
+    CU_ASSERT_EQUAL(xqc_h3_bb_timer_calls, 0);
+
+    /* outside the request's own body notify, the connection is visited
+       again: its revisit timer is due now */
+    {
+        xqc_bool_t is_set = XQC_FALSE;
+        xqc_usec_t expire = 0;
+
+        CU_ASSERT_FATAL(fx.h3c->body_buf_revisit_timer >= 0);
+        CU_ASSERT_EQUAL(xqc_conn_gp_timer_get_info(fx.conn,
+                            fx.h3c->body_buf_revisit_timer, &is_set, &expire),
+                        XQC_OK);
+        CU_ASSERT(is_set);
+        CU_ASSERT(expire <= xqc_monotonic_timestamp());
+        xqc_conn_gp_timer_unset(fx.conn, fx.h3c->body_buf_revisit_timer);
+    }
+
+    /* inside it, the read notify reads on and nothing is scheduled */
+    xqc_process_read_streams(fx.conn);
+    xqc_h3_bb_feed_and_run(&fx, 40, 3000);
+    CU_ASSERT_FATAL(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    fx.h3s->flags |= XQC_HTTP3_STREAM_FLAG_IN_BODY_NOTIFY;
+    engine->eng_flag |= XQC_ENG_FLAG_RUNNING;
+    (void)xqc_h3_bb_drain_all(fx.h3s->h3r);
+    engine->eng_flag &= ~XQC_ENG_FLAG_RUNNING;
+    fx.h3s->flags &= ~XQC_HTTP3_STREAM_FLAG_IN_BODY_NOTIFY;
+    {
+        xqc_bool_t is_set = XQC_TRUE;
+        xqc_usec_t expire = 0;
+
+        CU_ASSERT_EQUAL(xqc_conn_gp_timer_get_info(fx.conn,
+                            fx.h3c->body_buf_revisit_timer, &is_set, &expire),
+                        XQC_OK);
+        CU_ASSERT_FALSE(is_set);
+    }
     CU_ASSERT_EQUAL(xqc_h3_bb_timer_calls, 0);
 
     /* paused again, then drained with the transport stream already gone */
@@ -4331,6 +4374,56 @@ xqc_test_h3_body_buf_empty_data_fin_notifies()
     CU_ASSERT_EQUAL(xqc_h3_request_recv_body(fx.h3s->h3r, sink, sizeof(sink),
                                              &fin), 0);
     CU_ASSERT(fin);
+
+    xqc_h3_bb_teardown(&fx);
+}
+
+
+/*
+ * A pause lasts only while nothing is read. An arrival that finds the
+ * request below its limit, though above the low watermark, reads on, and
+ * the pause and the credit hold end with it. After the peer's FIN a resume
+ * releases the hold without re-arming a stream with nothing left to read.
+ */
+void
+xqc_test_h3_body_buf_stale_pause_ends()
+{
+    xqc_h3_bb_fixture_t fx;
+    unsigned char       frame[4200], sink[4096];
+    uint64_t            fed = 0;
+    uint8_t             fin = 0;
+    int                 i;
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+    for (i = 0; i < 3; i++) {
+        size_t len = xqc_h3_bb_put_pattern_frame(frame, 3000, &fed);
+        CU_ASSERT_EQUAL_FATAL(xqc_h3_bb_feed(fx.conn, fx.stream, &fx.offset,
+                                             frame, len), XQC_OK);
+    }
+    xqc_stream_ready_to_read(fx.stream);
+    xqc_process_read_streams(fx.conn);
+    CU_ASSERT_FATAL(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+
+    /* collect 4 KiB: below the limit, above its quarter */
+    CU_ASSERT_EQUAL(xqc_h3_request_recv_body(fx.h3s->h3r, sink, sizeof(sink),
+                                             &fin), (ssize_t) sizeof(sink));
+    CU_ASSERT(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+
+    /* an arrival: the request reads on */
+    xqc_h3_bb_feed_and_run(&fx, 1, 100);
+    CU_ASSERT_FALSE(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    CU_ASSERT_FALSE(fx.stream->stream_flag & XQC_STREAM_FLAG_RECV_CREDIT_HELD);
+    CU_ASSERT(xqc_list_empty(&fx.h3s->blocked_buf));
+
+    /* after the FIN, a resume re-arms nothing */
+    fx.h3s->flags |= XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED
+                     | XQC_HTTP3_STREAM_FLAG_READ_EOF;
+    xqc_stream_hold_recv_credit(fx.stream, XQC_TRUE);
+    xqc_stream_shutdown_read(fx.stream);
+    xqc_h3_stream_body_buf_resume(fx.h3s);
+    CU_ASSERT_FALSE(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    CU_ASSERT_FALSE(fx.stream->stream_flag & XQC_STREAM_FLAG_RECV_CREDIT_HELD);
+    CU_ASSERT_FALSE(fx.stream->stream_flag & XQC_STREAM_FLAG_READY_TO_READ);
 
     xqc_h3_bb_teardown(&fx);
 }

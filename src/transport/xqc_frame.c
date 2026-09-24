@@ -149,7 +149,11 @@ xqc_stream_frame_append(xqc_stream_frame_t *node, const unsigned char *data,
 
 /*
  * Absorb the nodes that follow `node` while each starts exactly where it
- * ends: data that filled a gap joins what was received past it.
+ * ends and holds no more than `node`: data that filled a gap joins what
+ * was received past it. Absorbing copies the absorbed node, so a byte is
+ * copied only into a node at least twice the size of the one it leaves,
+ * at most log2(XQC_STREAM_FRAME_COALESCE_MAX_LEN) times in whatever order
+ * its frames arrive. A larger node stays a node of its own.
  */
 static void
 xqc_stream_frame_absorb_next(xqc_stream_t *stream, xqc_stream_frame_t *node)
@@ -163,6 +167,7 @@ xqc_stream_frame_absorb_next(xqc_stream_t *stream, xqc_stream_frame_t *node)
                               sf_list);
         if (next->data_offset != node->data_offset + node->data_length
             || next->next_read_offset != 0
+            || next->data_length > node->data_length
             || !xqc_stream_frame_append(node, next->data, next->data_length))
         {
             return;
@@ -182,9 +187,10 @@ xqc_insert_stream_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream
      * A reader that stops taking data leaves the peer free to fill the
      * credit already granted. Once many nodes are buffered, a frame that
      * continues the node before it is copied into that node, and nodes the
-     * result then reaches are absorbed, so that credit does not cost a node
-     * per frame against the cap below. Frames after a gap still take a node
-     * each. On XQC_OK, new_frame belongs to the stream, or has been freed.
+     * result then reaches are absorbed while no larger than it, so that
+     * credit does not cost a node per frame against the cap below. Frames
+     * after a gap still take a node each. On XQC_OK, new_frame belongs to
+     * the stream, or has been freed.
      */
     xqc_bool_t          coalesce = stream->stream_data_in.buffered_frame_count
                                    >= XQC_STREAM_FRAME_COALESCE_THRESHOLD;

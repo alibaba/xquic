@@ -244,6 +244,10 @@ main(int argc, char *argv[])
                         xqc_test_stream_frame_coalesce_reordered)
         || !CU_add_test(pSuite, "xqc_test_stream_frame_coalesce_fin_only",
                         xqc_test_stream_frame_coalesce_fin_only)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_coalesce_smaller_joins",
+                        xqc_test_stream_frame_coalesce_smaller_joins)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_coalesce_back_to_front",
+                        xqc_test_stream_frame_coalesce_back_to_front)
         || !CU_add_test(pSuite, "xqc_test_stream_recv_credit_held",
                         xqc_test_stream_recv_credit_held)
         || !CU_add_test(pSuite, "xqc_test_stream_recv_credit_released",

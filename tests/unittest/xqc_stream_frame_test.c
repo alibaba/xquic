@@ -617,6 +617,127 @@ xqc_test_stream_frame_coalesce_fin_only()
 }
 
 
+/* the length of the node that starts at `offset`, or 0 when none does */
+static uint64_t
+test_sf_node_len_at(xqc_stream_t *stream, uint64_t offset)
+{
+    xqc_list_head_t    *pos;
+    xqc_stream_frame_t *f;
+
+    xqc_list_for_each(pos, &stream->stream_data_in.frames_tailq) {
+        f = xqc_list_entry(pos, xqc_stream_frame_t, sf_list);
+        if (f->data_offset == offset) {
+            return f->data_length;
+        }
+    }
+    return 0;
+}
+
+/* 7-byte frames from offset 0 up to the coalescing threshold; their end */
+static uint64_t
+test_sf_fill_threshold(xqc_connection_t *conn, xqc_stream_t *stream)
+{
+    uint64_t off = 0;
+    int      i;
+
+    for (i = 0; i < XQC_STREAM_FRAME_COALESCE_THRESHOLD; i++) {
+        if (test_sf_insert(conn, stream, off, 7) != XQC_OK) {
+            return 0;
+        }
+        off += 7;
+    }
+    return off;
+}
+
+
+/*
+ * A frame that fills the gap in front of a larger node is not given that
+ * node's bytes: it keeps a node of its own, and the larger node keeps its
+ * bytes. A node no larger than it still joins it, and once the gap is
+ * filled everything reads back in order.
+ */
+void
+xqc_test_stream_frame_coalesce_smaller_joins()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_stream_t     *stream;
+    uint64_t          off, big, count;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    stream = xqc_stream_create_with_direction(conn, XQC_STREAM_BIDI, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+    off = test_sf_fill_threshold(conn, stream);
+    CU_ASSERT_FATAL(off > 0);
+
+    /* 4 KiB received past a 50-byte gap */
+    big = off + 50;
+    CU_ASSERT_EQUAL_FATAL(test_sf_insert(conn, stream, big, 4096), XQC_OK);
+    count = stream->stream_data_in.buffered_frame_count;
+
+    /* one byte in front of it: a node of its own, the 4 KiB untouched */
+    CU_ASSERT_EQUAL(test_sf_insert(conn, stream, big - 1, 1), XQC_OK);
+    CU_ASSERT_EQUAL(stream->stream_data_in.buffered_frame_count, count + 1);
+    CU_ASSERT_EQUAL(test_sf_node_len_at(stream, big - 1), 1);
+    CU_ASSERT_EQUAL(test_sf_node_len_at(stream, big), 4096);
+
+    /* one more in front of that: the one byte joins it, the 4 KiB not */
+    CU_ASSERT_EQUAL(test_sf_insert(conn, stream, big - 2, 1), XQC_OK);
+    CU_ASSERT_EQUAL(stream->stream_data_in.buffered_frame_count, count + 1);
+    CU_ASSERT_EQUAL(test_sf_node_len_at(stream, big - 2), 2);
+    CU_ASSERT_EQUAL(test_sf_node_len_at(stream, big), 4096);
+
+    /* the rest of the gap continues the prefix, which takes the 2 bytes */
+    CU_ASSERT_EQUAL(test_sf_insert(conn, stream, off, 48), XQC_OK);
+    CU_ASSERT_EQUAL(test_sf_node_len_at(stream, big - 2), 0);
+    CU_ASSERT_EQUAL(stream->stream_data_in.merged_offset_end, big + 4096);
+    CU_ASSERT_EQUAL(test_sf_read_back(stream, 0), (int64_t) (big + 4096));
+    CU_ASSERT_EQUAL(stream->stream_data_in.buffered_frame_count, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * 20,000 one-byte frames that arrive back to front, each filling the gap
+ * in front of the last. Each join copies a node into one at least as
+ * large, so the run stays at a handful of nodes, 16 at most, and every
+ * byte reads back in order.
+ */
+void
+xqc_test_stream_frame_coalesce_back_to_front()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_stream_t     *stream;
+    const int         n = 20000;
+    uint64_t          off, top, base, run, max_run = 0;
+    int               i, refused = 0;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    stream = xqc_stream_create_with_direction(conn, XQC_STREAM_BIDI, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+    off = test_sf_fill_threshold(conn, stream);
+    CU_ASSERT_FATAL(off > 0);
+    base = stream->stream_data_in.buffered_frame_count;
+    top = off + n;
+
+    for (i = 1; i <= n; i++) {
+        if (test_sf_insert(conn, stream, top - i, 1) != XQC_OK) {
+            refused++;
+            break;
+        }
+        run = stream->stream_data_in.buffered_frame_count - base;
+        max_run = xqc_max(max_run, run);
+    }
+
+    CU_ASSERT_EQUAL(refused, 0);
+    CU_ASSERT(max_run <= 16);
+    CU_ASSERT_EQUAL(stream->stream_data_in.merged_offset_end, top);
+    CU_ASSERT_EQUAL(test_sf_read_back(stream, 0), (int64_t) top);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 /* one STREAM frame on the wire: OFF and LEN bits, 8-byte offset */
 static size_t
 test_sf_put_stream_frame(unsigned char *out, xqc_stream_id_t sid,

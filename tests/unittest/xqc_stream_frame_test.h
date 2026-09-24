@@ -16,6 +16,8 @@ void  xqc_test_stream_frame_coalesce_bounds();
 void  xqc_test_stream_frame_coalesce_through_handler();
 void  xqc_test_stream_frame_coalesce_reordered();
 void  xqc_test_stream_frame_coalesce_fin_only();
+void  xqc_test_stream_frame_coalesce_smaller_joins();
+void  xqc_test_stream_frame_coalesce_back_to_front();
 void  xqc_test_stream_recv_credit_held();
 void  xqc_test_stream_recv_credit_released();
 

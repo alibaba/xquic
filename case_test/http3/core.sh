@@ -1327,8 +1327,16 @@ close_ok=`grep \
     stdlog`
 conn_ok=`grep -E "^send_count:.*, conn_err:0, mp_state:" stdlog`
 mismatch=`grep "\[h3-body-buf-test\]|mismatch|" stdlog`
+# no tick collects more than the 64 KiB limit and the rest of one 4 KiB
+# read, which can follow the peer's FIN; unbounded, a tick gets 128 KiB
+max_tick=`grep -o "\[h3-body-buf-test\]|max-per-tick:[0-9]*|" stdlog \
+    | sed 's/.*max-per-tick:\([0-9]*\)|/\1/'`
+bound_ok=""
+if [ -n "$max_tick" ] && [ "$max_tick" -le $((64 * 1024 + 4096)) ]; then
+    bound_ok="1"
+fi
 if [ -n "$reader_ok" ] && [ -n "$close_ok" ] && [ -n "$conn_ok" ] \
-    && [ -z "$mismatch" ]; then
+    && [ -z "$mismatch" ] && [ -n "$bound_ok" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "h3_body_buf_slow_reader" "pass"
 else

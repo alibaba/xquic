@@ -3758,6 +3758,7 @@ xqc_client_request_write_notify(xqc_h3_request_t *h3_request, void *user_data)
 static struct event  *g_body_buf_read_ev;
 static user_stream_t *g_body_buf_stream;
 static int            g_body_buf_mismatch;
+static size_t         g_body_buf_max_tick;  /* most collected in one tick */
 
 /*
  * An application that collects the body on its own clock, outside the
@@ -3799,11 +3800,15 @@ xqc_client_body_buf_read_cb(int fd, short what, void *arg)
         got += n;
         user_stream->recv_body_len += n;
     }
+    if (got > g_body_buf_max_tick) {
+        g_body_buf_max_tick = got;
+    }
 
     if (fin) {
         user_stream->recv_fin = 1;
         printf("[h3-body-buf-test]|slow-reader|recv:%zu|fin:1|\n",
                user_stream->recv_body_len);
+        printf("[h3-body-buf-test]|max-per-tick:%zu|\n", g_body_buf_max_tick);
         fflush(stdout);
         return;
     }

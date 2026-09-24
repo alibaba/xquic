@@ -4738,3 +4738,106 @@ xqc_test_h3_body_buf_setting_reaches_conn()
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+/* kept input: 10 bytes of DATA, then the given frame */
+static void
+xqc_h3_bb_keep_data_then(xqc_h3_bb_fixture_t *fx, const unsigned char *frame,
+    size_t len)
+{
+    unsigned char data[16];
+    size_t        n;
+
+    n = xqc_h3_bb_put_data_frame(data, 10, 'x');
+    xqc_h3_bb_keep_input(fx, data, n, 0);
+    xqc_h3_bb_keep_input(fx, frame, len, 0);
+}
+
+static void
+xqc_h3_bb_assert_kept_input_dropped(xqc_h3_bb_fixture_t *fx)
+{
+    CU_ASSERT(xqc_list_empty(&fx->h3s->blocked_buf));
+    CU_ASSERT_EQUAL(fx->h3s->blocked_buf_size, 0);
+    CU_ASSERT_EQUAL(fx->h3c->total_blocked_buf_size, 0);
+}
+
+
+/*
+ * Kept input whose trailer section is refused: its replay ends the request
+ * with H3_MESSAGE_ERROR (RFC 9114 Section 4.1.2), drops the rest of what
+ * was kept, and leaves the connection up.
+ */
+void
+xqc_test_h3_body_buf_replay_refused_trailer()
+{
+    xqc_h3_bb_fixture_t fx;
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+    fx.conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
+
+    /* any field makes the section too large */
+    fx.h3c->local_h3_conn_settings.max_field_section_size = 1;
+    xqc_h3_bb_keep_data_then(&fx, xqc_h3_msgerr_valid_headers,
+                             sizeof(xqc_h3_msgerr_valid_headers));
+
+    xqc_stream_ready_to_read(fx.stream);
+    xqc_process_read_streams(fx.conn);
+
+    xqc_h3_bb_assert_kept_input_dropped(&fx);
+    CU_ASSERT_EQUAL(fx.h3s->h3r->body_buf_bytes, 10);
+    CU_ASSERT_EQUAL(fx.stream->stream_err, H3_MESSAGE_ERROR);
+    CU_ASSERT_EQUAL(fx.conn->conn_err, 0);
+
+    xqc_h3_bb_teardown(&fx);
+}
+
+
+/*
+ * Kept input with a frame a request stream must not carry: its replay
+ * fails the connection with that frame's error, not the request alone.
+ */
+void
+xqc_test_h3_body_buf_replay_unexpected_frame()
+{
+    xqc_h3_bb_fixture_t fx;
+    unsigned char       settings[] = { 0x04, 0x00 };   /* empty SETTINGS */
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+    xqc_h3_bb_keep_data_then(&fx, settings, sizeof(settings));
+
+    xqc_stream_ready_to_read(fx.stream);
+    xqc_process_read_streams(fx.conn);
+
+    CU_ASSERT(XQC_CONN_ERR_CODE(fx.conn->conn_err) == H3_FRAME_UNEXPECTED);
+    CU_ASSERT_NOT_EQUAL(fx.stream->stream_err, H3_MESSAGE_ERROR);
+
+    xqc_h3_bb_teardown(&fx);
+}
+
+
+/*
+ * The same kind of refusal where a header section that waited on QPACK is
+ * decoded: a malformed trailer section ends the request with
+ * H3_MESSAGE_ERROR, and the rest of the kept input is dropped.
+ */
+void
+xqc_test_h3_body_buf_unblocked_replay_malformed()
+{
+    xqc_h3_bb_fixture_t fx;
+    /* HEADERS: an empty prefix, then one literal field line, "X-A: b";
+       an uppercase field name is malformed (RFC 9114 Section 4.2) */
+    unsigned char       trailer[] = { 0x01, 0x08, 0x00, 0x00,
+                                      0x23, 'X', '-', 'A', 0x01, 'b' };
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+    fx.conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
+    xqc_h3_bb_keep_data_then(&fx, trailer, sizeof(trailer));
+
+    CU_ASSERT_EQUAL(xqc_h3_stream_process_blocked_stream(fx.h3s), XQC_OK);
+
+    xqc_h3_bb_assert_kept_input_dropped(&fx);
+    CU_ASSERT_EQUAL(fx.stream->stream_err, H3_MESSAGE_ERROR);
+    CU_ASSERT_EQUAL(fx.conn->conn_err, 0);
+
+    xqc_h3_bb_teardown(&fx);
+}

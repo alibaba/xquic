@@ -97,5 +97,8 @@ void xqc_test_h3_conn_create_failure_keeps_timers();
 void xqc_test_h3_body_buf_close_drops_body();
 void xqc_test_h3_body_buf_unbounded_keeps_nodes();
 void xqc_test_h3_body_buf_setting_reaches_conn();
+void xqc_test_h3_body_buf_replay_refused_trailer();
+void xqc_test_h3_body_buf_replay_unexpected_frame();
+void xqc_test_h3_body_buf_unblocked_replay_malformed();
 
 #endif //XQUIC_XQC_H3_TEST_H

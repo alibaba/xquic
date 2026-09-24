@@ -100,5 +100,6 @@ void xqc_test_h3_body_buf_setting_reaches_conn();
 void xqc_test_h3_body_buf_replay_refused_trailer();
 void xqc_test_h3_body_buf_replay_unexpected_frame();
 void xqc_test_h3_body_buf_unblocked_replay_malformed();
+void xqc_test_h3_body_buf_engine_destroy_live_conn();
 
 #endif //XQUIC_XQC_H3_TEST_H

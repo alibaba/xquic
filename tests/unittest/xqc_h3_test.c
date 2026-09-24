@@ -4464,11 +4464,10 @@ xqc_test_h3_body_buf_stale_pause_ends()
 }
 
 
-/* whether `conn` is in the engine's active queue, found by address alone */
+/* whether `conn` is in the queue, found by address alone */
 static xqc_bool_t
-xqc_h3_bb_in_active_queue(xqc_engine_t *engine, xqc_connection_t *conn)
+xqc_h3_bb_in_pq(xqc_pq_t *pq, xqc_connection_t *conn)
 {
-    xqc_pq_t            *pq = engine->conns_active_pq;
     xqc_conns_pq_elem_t *el;
     size_t               i;
 
@@ -4479,6 +4478,13 @@ xqc_h3_bb_in_active_queue(xqc_engine_t *engine, xqc_connection_t *conn)
         }
     }
     return XQC_FALSE;
+}
+
+/* whether `conn` is in the engine's active queue */
+static xqc_bool_t
+xqc_h3_bb_in_active_queue(xqc_engine_t *engine, xqc_connection_t *conn)
+{
+    return xqc_h3_bb_in_pq(engine->conns_active_pq, conn);
 }
 
 
@@ -4507,7 +4513,9 @@ xqc_test_h3_body_buf_resume_closing_conn()
     CU_ASSERT_FALSE(fx.stream->stream_flag & XQC_STREAM_FLAG_READY_TO_READ);
     CU_ASSERT_FALSE(xqc_h3_bb_in_active_queue(engine, fx.conn));
 
+    /* queued again, so that xqc_engine_destroy() frees it */
     fx.conn->conn_state = XQC_CONN_STATE_ESTABED;
+    xqc_engine_add_active_queue(engine, fx.conn);
     xqc_h3_bb_teardown(&fx);
 }
 
@@ -4546,7 +4554,7 @@ static xqc_h3_request_callbacks_t xqc_h3_bb_sibling_cbs = {
 };
 
 static void
-xqc_h3_bb_teardown_resumes_sibling(xqc_bool_t drains)
+xqc_h3_bb_teardown_resumes_sibling(xqc_bool_t drains, xqc_conn_state_t state)
 {
     xqc_h3_bb_fixture_t fx;
     xqc_engine_t       *engine;
@@ -4578,16 +4586,20 @@ xqc_h3_bb_teardown_resumes_sibling(xqc_bool_t drains)
     fx.conn->app_proto_cbs.conn_cbs = h3_conn_callbacks;
     fx.conn->conn_flag |= XQC_CONN_FLAG_UPPER_CONN_EXIST;
 
-    /* destroyed the way xqc_engine_main_logic() destroys a closed one */
+    /*
+     * destroyed as xqc_engine_main_logic() destroys a closed connection, or
+     * as xqc_engine_destroy() destroys a live one, outside both queues
+     */
     xqc_engine_remove_wakeup_queue(engine, fx.conn);
     xqc_engine_remove_active_queue(engine, fx.conn);
-    fx.conn->conn_flag &= ~XQC_CONN_FLAG_TICKING;
-    fx.conn->conn_state = XQC_CONN_STATE_CLOSED;
+    fx.conn->conn_state = state;
     dead = fx.conn;
     xqc_conn_destroy(fx.conn);
 
     /* if it were queued, the engine would read the freed connection */
-    CU_ASSERT_FALSE_FATAL(xqc_h3_bb_in_active_queue(engine, dead));
+    CU_ASSERT_FALSE_FATAL(xqc_h3_bb_in_pq(engine->conns_active_pq, dead));
+    CU_ASSERT_FALSE_FATAL(xqc_h3_bb_in_pq(engine->conns_wait_wakeup_pq,
+                                          dead));
 
     xqc_h3_bb_first = NULL;
     xqc_h3_bb_sibling = NULL;
@@ -4597,13 +4609,16 @@ xqc_h3_bb_teardown_resumes_sibling(xqc_bool_t drains)
 /*
  * A request's close notify, run while xqc_conn_destroy() frees the
  * connection, closes or drains a paused request on the same connection.
- * The freed connection is not left in the engine's active queue.
+ * The freed connection is left in neither engine queue, whether it was
+ * closed first or is destroyed live, as xqc_engine_destroy() does.
  */
 void
 xqc_test_h3_body_buf_resume_in_conn_teardown()
 {
-    xqc_h3_bb_teardown_resumes_sibling(XQC_FALSE);
-    xqc_h3_bb_teardown_resumes_sibling(XQC_TRUE);
+    xqc_h3_bb_teardown_resumes_sibling(XQC_FALSE, XQC_CONN_STATE_CLOSED);
+    xqc_h3_bb_teardown_resumes_sibling(XQC_TRUE, XQC_CONN_STATE_CLOSED);
+    xqc_h3_bb_teardown_resumes_sibling(XQC_FALSE, XQC_CONN_STATE_ESTABED);
+    xqc_h3_bb_teardown_resumes_sibling(XQC_TRUE, XQC_CONN_STATE_ESTABED);
 }
 
 
@@ -4840,4 +4855,46 @@ xqc_test_h3_body_buf_unblocked_replay_malformed()
     CU_ASSERT_EQUAL(fx.conn->conn_err, 0);
 
     xqc_h3_bb_teardown(&fx);
+}
+
+
+/*
+ * xqc_engine_destroy() of a live connection whose first request, as it
+ * closes, drains a paused request on the same connection: the engine
+ * frees the connection once and then finishes.
+ */
+void
+xqc_test_h3_body_buf_engine_destroy_live_conn()
+{
+    xqc_h3_bb_fixture_t fx;
+    xqc_h3_stream_t    *h3s_b;
+    xqc_stream_t       *stream_b = NULL;
+    uint64_t            off_b = 0;
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+    h3s_b = xqc_h3_bb_add_stream(&fx, &stream_b);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(h3s_b);
+
+    fx.stream->stream_if = (xqc_stream_callbacks_t *) &h3_stream_callbacks;
+    stream_b->stream_if = (xqc_stream_callbacks_t *) &h3_stream_callbacks;
+    fx.h3s->h3r->request_if = &xqc_h3_bb_sibling_cbs;
+    h3s_b->h3r->request_if = &xqc_h3_bb_sibling_cbs;
+    xqc_h3_bb_first = fx.h3s->h3r;
+    xqc_h3_bb_sibling = h3s_b->h3r;
+    xqc_h3_bb_sibling_drains = XQC_TRUE;
+
+    xqc_h3_bb_feed_stream(&fx, stream_b, &off_b, 40, 3000);
+    xqc_stream_ready_to_read(stream_b);
+    xqc_process_read_streams(fx.conn);
+    CU_ASSERT_FATAL(h3s_b->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+
+    fx.conn->app_proto_cbs.conn_cbs = h3_conn_callbacks;
+    fx.conn->conn_flag |= XQC_CONN_FLAG_UPPER_CONN_EXIST;
+    xqc_engine_add_active_queue(fx.conn->engine, fx.conn);
+
+    /* a use of the freed connection shows under AddressSanitizer */
+    xqc_engine_destroy(fx.conn->engine);
+
+    xqc_h3_bb_first = NULL;
+    xqc_h3_bb_sibling = NULL;
 }

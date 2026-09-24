@@ -1643,6 +1643,14 @@ xqc_conn_destroy(xqc_connection_t *xc)
     }
     xc->conn_flag &= ~XQC_CONN_FLAG_UPPER_CONN_EXIST;
 
+    /*
+     * The close notifies above run application callbacks, and those can
+     * queue this connection again, for example by draining a paused
+     * request. The engine must not keep a connection that is being freed.
+     */
+    xqc_engine_remove_wakeup_queue(xc->engine, xc);
+    xqc_engine_remove_active_queue(xc->engine, xc);
+
     /* destroy gp_timer list */
     xqc_timer_destroy_gp_timer_list(&xc->conn_timer_manager);
 

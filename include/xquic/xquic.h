@@ -1589,6 +1589,15 @@ typedef struct xqc_conn_settings_s {
      * that stops collecting a request's body must close it with
      * xqc_h3_request_close() to release its stream.
      *
+     * What the transport buffers for a paused request counts against the
+     * connection's receive window too. With the default windows one
+     * request cannot fill the connection's, but when that window is
+     * smaller than a stream's (is_interop_mode, or recv_rate_bytes_per_sec),
+     * one paused request can, and every other stream on the connection, the
+     * peer's control and QPACK streams included, then waits until the
+     * application drains or closes that request. A request that is neither
+     * drained nor closed stays paused until the connection closes.
+     *
      * Default: 0, which means unbounded and leaves the read loop unchanged.
      *
      * Appended last in this struct: a caller compiled against the previous

@@ -92,6 +92,7 @@ void xqc_test_h3_body_buf_close_in_read_notify();
 void xqc_test_h3_body_buf_reset_drops_kept_input();
 void xqc_test_h3_body_buf_empty_data_fin_notifies();
 void xqc_test_h3_body_buf_stale_pause_ends();
+void xqc_test_h3_body_buf_resume_closing_conn();
 void xqc_test_h3_body_buf_resume_in_conn_teardown();
 void xqc_test_h3_conn_create_failure_keeps_timers();
 void xqc_test_h3_body_buf_close_drops_body();

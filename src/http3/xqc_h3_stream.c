@@ -2063,6 +2063,16 @@ xqc_h3_stream_body_buf_resume(xqc_h3_stream_t *h3s)
         return;
     }
 
+    /*
+     * A closing connection reads nothing more, so it is not queued again.
+     * The engine pass would read nothing, could send CONNECTION_CLOSE once
+     * more after an error close, and a connection queued while
+     * xqc_engine_destroy() walks its queues can be missed by the walk.
+     */
+    if (h3s->stream->stream_conn->conn_state >= XQC_CONN_STATE_CLOSING) {
+        return;
+    }
+
     xqc_stream_ready_to_read(h3s->stream);
     xqc_log(h3s->h3c->log, XQC_LOG_DEBUG,
             "|body_buf resumed|stream_id:%ui|bytes:%uz|nodes:%ui|",

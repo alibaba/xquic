@@ -4560,6 +4560,45 @@ xqc_h3_bb_in_pq(xqc_pq_t *pq, xqc_connection_t *conn)
     return XQC_FALSE;
 }
 
+/* whether `conn` is in the engine's active queue */
+static xqc_bool_t
+xqc_h3_bb_in_active_queue(xqc_engine_t *engine, xqc_connection_t *conn)
+{
+    return xqc_h3_bb_in_pq(engine->conns_active_pq, conn);
+}
+
+
+/*
+ * A request drained on a connection that is closing resumes, but the
+ * connection is not queued again: the pass would read nothing.
+ */
+void
+xqc_test_h3_body_buf_resume_closing_conn()
+{
+    xqc_h3_bb_fixture_t fx;
+    xqc_engine_t       *engine;
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+    engine = fx.conn->engine;
+
+    xqc_h3_bb_feed_and_run(&fx, 40, 3000);
+    CU_ASSERT_FATAL(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+
+    xqc_engine_remove_wakeup_queue(engine, fx.conn);
+    xqc_engine_remove_active_queue(engine, fx.conn);
+    fx.conn->conn_state = XQC_CONN_STATE_CLOSING;
+
+    (void) xqc_h3_bb_drain_all(fx.h3s->h3r);
+    CU_ASSERT_FALSE(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    CU_ASSERT_FALSE(fx.stream->stream_flag & XQC_STREAM_FLAG_READY_TO_READ);
+    CU_ASSERT_FALSE(xqc_h3_bb_in_active_queue(engine, fx.conn));
+
+    /* queued again, so that xqc_engine_destroy() frees it */
+    fx.conn->conn_state = XQC_CONN_STATE_ESTABED;
+    xqc_engine_add_active_queue(engine, fx.conn);
+    xqc_h3_bb_teardown(&fx);
+}
+
 
 /* when the first request closes, it closes or drains the other one */
 static xqc_h3_request_t *xqc_h3_bb_first;

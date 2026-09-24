@@ -4307,6 +4307,39 @@ xqc_h3_bb_peer_finished(xqc_h3_bb_fixture_t *fx)
 
 
 /*
+ * An application that closes a paused request collects nothing more. The
+ * request stops holding its input, so its transport stream reads to the
+ * end and can finish; left paused, it would stay open for good once the
+ * peer had sent everything, since no STOP_SENDING goes out then.
+ */
+void
+xqc_test_h3_body_buf_close_releases_pause()
+{
+    xqc_h3_bb_fixture_t fx;
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+    fx.conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
+
+    xqc_h3_bb_feed_and_run(&fx, 40, 3000);
+    CU_ASSERT_FATAL(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    xqc_h3_bb_peer_finished(&fx);
+
+    /* the close runs the connection itself, outside the engine */
+    CU_ASSERT_EQUAL(xqc_h3_request_close(fx.h3s->h3r), XQC_OK);
+    CU_ASSERT_FALSE(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    CU_ASSERT_FALSE(fx.stream->stream_flag & XQC_STREAM_FLAG_RECV_CREDIT_HELD);
+
+    xqc_process_read_streams(fx.conn);
+    CU_ASSERT_EQUAL(fx.stream->stream_data_in.next_read_offset, fx.offset);
+    CU_ASSERT_EQUAL(fx.stream->stream_state_recv,
+                    XQC_RECV_STREAM_ST_DATA_READ);
+    CU_ASSERT_FALSE(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+
+    xqc_h3_bb_teardown(&fx);
+}
+
+
+/*
  * A reset of a request whose read stopped at its limit: the rest of the
  * read it kept is dropped, not replayed into a body nobody will collect,
  * and the reset still reaches the application.

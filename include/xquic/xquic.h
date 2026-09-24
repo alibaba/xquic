@@ -1585,7 +1585,9 @@ typedef struct xqc_conn_settings_s {
      * stream's receive credit meanwhile; the peer can still send what it
      * was granted before, which the transport buffers. Reading resumes once
      * the application has drained the request to a quarter of the limit. A
-     * request whose peer has sent its FIN is not held back.
+     * request whose peer has sent its FIN is not held back. An application
+     * that stops collecting a request's body must close it with
+     * xqc_h3_request_close() to release its stream.
      *
      * Default: 0, which means unbounded and leaves the read loop unchanged.
      *

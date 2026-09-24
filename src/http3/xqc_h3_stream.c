@@ -69,6 +69,14 @@ xqc_h3_stream_close(xqc_h3_stream_t *h3s)
 
     } else {
         /*
+         * a closed request no longer collects its body; reading on lets its
+         * transport stream finish, or see the reset its STOP_SENDING asks for
+         */
+        if (h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED) {
+            xqc_h3_stream_body_buf_resume(h3s);
+        }
+
+        /*
          * lifetime of stream and h3 stream synchronizes,
          * will destroy h3 stream during stream close notify
          */
@@ -1951,6 +1959,10 @@ xqc_h3_stream_body_buf_can_pause(xqc_h3_stream_t *h3s)
         return XQC_FALSE;
     }
 
+    /* the application closed the request and collects nothing more */
+    if (h3s->flags & XQC_HTTP3_STREAM_FLAG_ACTIVELY_CLOSED) {
+        return XQC_FALSE;
+    }
 
     /* terminal receive states are left to xqc_stream_recv(), which converts
        RESET_RECVD and returns -XQC_ESTREAM_RESET */

@@ -439,6 +439,8 @@ main(int argc, char *argv[])
                         xqc_test_h3_body_buf_pause_during_read_walk)
         || !CU_add_test(pSuite, "xqc_test_h3_body_buf_reset_drops_kept_input",
                         xqc_test_h3_body_buf_reset_drops_kept_input)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_close_releases_pause",
+                        xqc_test_h3_body_buf_close_releases_pause)
         || !CU_add_test(pSuite, "xqc_test_h3_body_buf_empty_data_fin_notifies",
                         xqc_test_h3_body_buf_empty_data_fin_notifies)
         || !CU_add_test(pSuite, "xqc_test_h3_body_buf_stale_pause_ends",

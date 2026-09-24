@@ -1419,6 +1419,8 @@ xqc_process_stop_sending_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
      * state.
      */
     if (stream->stream_state_send < XQC_SEND_STREAM_ST_RESET_SENT) {
+        /* as xqc_stream_close_with_error() and the path above both do */
+        xqc_send_queue_drop_stream_frame_packets(conn, stream_id);
         xqc_write_reset_stream_to_packet(conn, stream, H3_REQUEST_CANCELLED, stream->stream_send_offset);
     }
 

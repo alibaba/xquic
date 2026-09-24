@@ -227,6 +227,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_engine_packet_process", xqc_test_engine_packet_process)
         || !CU_add_test(pSuite, "xqc_test_stream_frame", xqc_test_stream_frame)
                 || !CU_add_test(pSuite, "xqc_test_stream_frame_buffered_limit", xqc_test_stream_frame_buffered_limit)
+        || !CU_add_test(pSuite,
+                        "xqc_test_stop_sending_drops_queued_stream_packets",
+                        xqc_test_stop_sending_drops_queued_stream_packets)
+        || !CU_add_test(pSuite,
+                        "xqc_test_stop_sending_spares_other_streams",
+                        xqc_test_stop_sending_spares_other_streams)
         || !CU_add_test(pSuite, "xqc_test_process_frame", xqc_test_process_frame)
         || !CU_add_test(pSuite, "xqc_test_parse_padding_frame", xqc_test_parse_padding_frame)
 #ifdef XQC_PING_ATTACK_PROTECT

@@ -2101,7 +2101,8 @@ xqc_h3_stream_create_notify(xqc_stream_t *stream, void *user_data)
 int
 xqc_h3_stream_read_notify(xqc_stream_t *stream, void *user_data)
 {
-    xqc_int_t ret;
+    xqc_int_t  ret;
+    xqc_bool_t paused, resumed;
 
     xqc_h3_stream_t *h3s;
     xqc_h3_conn_t   *h3c = (xqc_h3_conn_t *)stream->stream_conn->proto_data;
@@ -2158,40 +2159,64 @@ xqc_h3_stream_read_notify(xqc_stream_t *stream, void *user_data)
         }
 
     } else {
-        /* if stream is not blocked, recv data and process */
-        ret = xqc_h3_stream_process_data(stream, h3s, &fin);
+        do {
+            /* if stream is not blocked, recv data and process */
+            ret = xqc_h3_stream_process_data(stream, h3s, &fin);
 
-        h3s->flags &= ~XQC_HTTP3_STREAM_IN_READING;
-        if (ret == -XQC_H3_STREAM_RECV_ERROR) {
-            return XQC_OK;
-        } else if (ret != XQC_OK) {
-            xqc_log(h3c->log, XQC_LOG_ERROR, "|xqc_h3_stream_process_data error|%d|", ret);
-            return ret;
-        }
-
-        /* REQUEST: notify DATA to application ASAP */
-        if (h3s->type == XQC_H3_STREAM_TYPE_REQUEST
-            && !xqc_list_empty(&h3s->h3r->body_buf))
-        {
-            /* notify DATA whenever there is data */
-            ret = xqc_h3_request_on_recv_body(h3s->h3r);
-            if (ret != XQC_OK) {
-                xqc_log(h3s->log, XQC_LOG_ERROR, "|recv body error|%d|", ret);
+            h3s->flags &= ~XQC_HTTP3_STREAM_IN_READING;
+            if (ret == -XQC_H3_STREAM_RECV_ERROR) {
+                return XQC_OK;
+            } else if (ret != XQC_OK) {
+                xqc_log(h3c->log, XQC_LOG_ERROR,
+                        "|xqc_h3_stream_process_data error|%d|", ret);
                 return ret;
             }
-        }
 
-        /* TODO: BYTESTRAM: notify DATA to application ASAP */
-        if (h3s->type == XQC_H3_STREAM_TYPE_BYTESTEAM
-            && h3s->h3_ext_bs
-            && xqc_h3_ext_bytestream_should_notify_read(h3s->h3_ext_bs))
-        {
-            ret = xqc_h3_ext_bytestream_notify_read(h3s->h3_ext_bs);
-            if (ret < 0) {
-                xqc_log(h3s->log, XQC_LOG_ERROR, "|recv bytestream error|%d|", ret);
-                return ret;
+            paused = (h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED)
+                     ? XQC_TRUE : XQC_FALSE;
+
+            /* REQUEST: notify DATA to application ASAP */
+            if (h3s->type == XQC_H3_STREAM_TYPE_REQUEST
+                && !xqc_list_empty(&h3s->h3r->body_buf))
+            {
+                /* notify DATA whenever there is data */
+                ret = xqc_h3_request_on_recv_body(h3s->h3r);
+                if (ret != XQC_OK) {
+                    xqc_log(h3s->log, XQC_LOG_ERROR,
+                            "|recv body error|%d|", ret);
+                    return ret;
+                }
             }
-        }
+
+            /* TODO: BYTESTRAM: notify DATA to application ASAP */
+            if (h3s->type == XQC_H3_STREAM_TYPE_BYTESTEAM
+                && h3s->h3_ext_bs
+                && xqc_h3_ext_bytestream_should_notify_read(h3s->h3_ext_bs))
+            {
+                ret = xqc_h3_ext_bytestream_notify_read(h3s->h3_ext_bs);
+                if (ret < 0) {
+                    xqc_log(h3s->log, XQC_LOG_ERROR,
+                            "|recv bytestream error|%d|", ret);
+                    return ret;
+                }
+            }
+
+            /*
+             * The application drained the request from the notify above and
+             * resumed it. That queued the stream on the connection's read
+             * list, which this pass may already have walked past, so nothing
+             * would read it before another packet or timer. Read it here.
+             */
+            resumed = paused
+                      && !(h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED)
+                      && !(h3s->flags & (XQC_HTTP3_STREAM_FLAG_ACTIVELY_CLOSED
+                                         | XQC_HTTP3_STREAM_FLAG_READ_EOF))
+                      && h3s->stream == stream;
+            if (resumed) {
+                h3s->flags |= XQC_HTTP3_STREAM_IN_READING;
+            }
+
+        } while (resumed);
     }
 
     xqc_log(h3c->log, XQC_LOG_DEBUG, "|success|stream_id:%ui|conn:%p|",

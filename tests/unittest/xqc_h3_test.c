@@ -3610,3 +3610,153 @@ xqc_test_h3_body_buf_pause_is_per_stream_only()
     }
     xqc_h3_bb_teardown(&fx);
 }
+
+
+/* records the engine timer an application would arm */
+static int        xqc_h3_bb_timer_calls;
+static xqc_usec_t xqc_h3_bb_timer_last;
+
+static void
+xqc_h3_bb_record_timer(xqc_usec_t wake_after, void *user_data)
+{
+    xqc_h3_bb_timer_calls++;
+    xqc_h3_bb_timer_last = wake_after;
+}
+
+
+/*
+ * An application that drains from its own event, outside the engine: the
+ * resume must arm the engine timer, because a peer waiting for flow-control
+ * credit sends nothing that would run the engine otherwise.
+ */
+void
+xqc_test_h3_body_buf_resume_wakes_engine()
+{
+    xqc_h3_bb_fixture_t    fx;
+    xqc_engine_t          *engine;
+    xqc_set_event_timer_pt saved;
+    uint64_t               read_point;
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+    engine = fx.conn->engine;
+
+    xqc_h3_bb_feed_and_run(&fx, 40, 3000);
+    CU_ASSERT_FATAL(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    read_point = fx.stream->stream_data_in.next_read_offset;
+
+    saved = engine->eng_callback.set_event_timer;
+    engine->eng_callback.set_event_timer = xqc_h3_bb_record_timer;
+    engine->eng_flag &= ~XQC_ENG_FLAG_RUNNING;
+    xqc_h3_bb_timer_calls = 0;
+    xqc_h3_bb_timer_last = 0;
+
+    (void)xqc_h3_bb_drain_all(fx.h3s->h3r);
+
+    CU_ASSERT_FALSE(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    CU_ASSERT(fx.stream->stream_flag & XQC_STREAM_FLAG_READY_TO_READ);
+    CU_ASSERT_EQUAL(xqc_h3_bb_timer_calls, 1);
+    CU_ASSERT_EQUAL(xqc_h3_bb_timer_last, 1);
+
+    /* the pass that timer runs reads the stream again */
+    xqc_process_read_streams(fx.conn);
+    CU_ASSERT(fx.stream->stream_data_in.next_read_offset > read_point);
+
+    engine->eng_callback.set_event_timer = saved;
+    xqc_h3_bb_teardown(&fx);
+}
+
+
+/*
+ * The same drain inside the engine arms no timer: the engine is running and
+ * reads the queued stream itself. A request whose transport stream is gone
+ * has nothing to re-arm, and arms no timer either.
+ */
+void
+xqc_test_h3_body_buf_resume_inside_engine_no_wakeup()
+{
+    xqc_h3_bb_fixture_t    fx;
+    xqc_engine_t          *engine;
+    xqc_set_event_timer_pt saved;
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+    engine = fx.conn->engine;
+
+    xqc_h3_bb_feed_and_run(&fx, 40, 3000);
+    CU_ASSERT_FATAL(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+
+    saved = engine->eng_callback.set_event_timer;
+    engine->eng_callback.set_event_timer = xqc_h3_bb_record_timer;
+    xqc_h3_bb_timer_calls = 0;
+
+    engine->eng_flag |= XQC_ENG_FLAG_RUNNING;
+    (void)xqc_h3_bb_drain_all(fx.h3s->h3r);
+    engine->eng_flag &= ~XQC_ENG_FLAG_RUNNING;
+
+    CU_ASSERT_FALSE(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    CU_ASSERT(fx.stream->stream_flag & XQC_STREAM_FLAG_READY_TO_READ);
+    CU_ASSERT_EQUAL(xqc_h3_bb_timer_calls, 0);
+
+    /* paused again, then drained with the transport stream already gone */
+    xqc_h3_bb_feed_and_run(&fx, 40, 3000);
+    CU_ASSERT_FATAL(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    fx.h3s->stream = NULL;
+    (void)xqc_h3_bb_drain_all(fx.h3s->h3r);
+    CU_ASSERT_FALSE(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    CU_ASSERT_EQUAL(xqc_h3_bb_timer_calls, 0);
+    fx.h3s->stream = fx.stream;
+
+    engine->eng_callback.set_event_timer = saved;
+    xqc_h3_bb_teardown(&fx);
+}
+
+
+/* an application that collects the whole body inside its read callback */
+static size_t xqc_h3_bb_cb_total;
+
+static int
+xqc_h3_bb_draining_read_notify(xqc_h3_request_t *h3r,
+    xqc_request_notify_flag_t flag, void *user_data)
+{
+    if (flag & XQC_REQ_NOTIFY_READ_BODY) {
+        xqc_h3_bb_cb_total += xqc_h3_bb_drain_all(h3r);
+    }
+    return 0;
+}
+
+static xqc_h3_request_callbacks_t xqc_h3_bb_draining_cbs = {
+    .h3_request_read_notify = xqc_h3_bb_draining_read_notify,
+};
+
+
+/*
+ * A request resumed from its own read callback is read on, inside that same
+ * callback: one engine pass over the only readable stream delivers the whole
+ * backlog. Without it the pass stops at the first pause, with the resumed
+ * stream queued behind a list walk that has already finished.
+ */
+void
+xqc_test_h3_body_buf_resume_from_read_callback()
+{
+    xqc_h3_bb_fixture_t fx;
+    int                 i;
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+    fx.h3s->h3r->request_if = &xqc_h3_bb_draining_cbs;
+    xqc_h3_bb_cb_total = 0;
+
+    /* 120,000 bytes of payload against an 8 KiB limit: one pass */
+    xqc_h3_bb_feed_and_run(&fx, 40, 3000);
+
+    CU_ASSERT_EQUAL(xqc_h3_bb_cb_total, (size_t)(40 * 3000));
+    CU_ASSERT_EQUAL(fx.stream->stream_data_in.next_read_offset, fx.offset);
+    CU_ASSERT_FALSE(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    CU_ASSERT_EQUAL(fx.conn->conn_err, 0);
+
+    /* the loop ends: idle passes cost nothing further */
+    for (i = 0; i < 10; i++) {
+        xqc_process_read_streams(fx.conn);
+    }
+    CU_ASSERT_EQUAL(xqc_h3_bb_cb_total, (size_t)(40 * 3000));
+
+    xqc_h3_bb_teardown(&fx);
+}

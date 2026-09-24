@@ -93,5 +93,6 @@ void xqc_test_h3_body_buf_empty_data_fin_notifies();
 void xqc_test_h3_body_buf_stale_pause_ends();
 void xqc_test_h3_body_buf_resume_closing_conn();
 void xqc_test_h3_body_buf_resume_in_conn_teardown();
+void xqc_test_h3_conn_create_failure_keeps_timers();
 
 #endif //XQUIC_XQC_H3_TEST_H

@@ -4605,3 +4605,40 @@ xqc_test_h3_body_buf_resume_in_conn_teardown()
     xqc_h3_bb_teardown_resumes_sibling(XQC_FALSE);
     xqc_h3_bb_teardown_resumes_sibling(XQC_TRUE);
 }
+
+
+static void
+xqc_h3_bb_other_timer_cb(xqc_gp_timer_id_t gp_timer_id, xqc_usec_t now,
+    void *user_data)
+{
+}
+
+/*
+ * An HTTP/3 connection whose creation fails leaves the connection's other
+ * general-purpose timers alone: it never registered one of its own.
+ */
+void
+xqc_test_h3_conn_create_failure_keeps_timers()
+{
+    xqc_connection_t  *conn = test_engine_connect();
+    xqc_gp_timer_id_t  id;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    id = xqc_conn_register_gp_timer(conn, "other_owner",
+                                    xqc_h3_bb_other_timer_cb, NULL);
+    CU_ASSERT_FATAL(id >= 0);
+    CU_ASSERT_EQUAL(xqc_conn_gp_timer_set(conn, id,
+                        xqc_monotonic_timestamp() + 1000000), XQC_OK);
+
+    /* without an ALPN, xqc_h3_conn_create() fails part way */
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+        conn->alpn = NULL;
+    }
+    CU_ASSERT_PTR_NULL(xqc_h3_conn_create(conn, NULL));
+
+    CU_ASSERT_EQUAL(xqc_conn_gp_timer_set(conn, id,
+                        xqc_monotonic_timestamp() + 1000000), XQC_OK);
+
+    xqc_engine_destroy(conn->engine);
+}

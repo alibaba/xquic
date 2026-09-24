@@ -437,6 +437,8 @@ xqc_h3_conn_create(xqc_connection_t *conn, void *user_data)
         return NULL;
     }
 
+    /* before any failure exit: destroying h3c unregisters a timer id >= 0 */
+    h3c->body_buf_revisit_timer = -1;
     h3c->conn = conn;
     h3c->log = conn->log;
     h3c->user_data = user_data;
@@ -504,7 +506,6 @@ xqc_h3_conn_create(xqc_connection_t *conn, void *user_data)
             h3c->max_blocked_buf_per_stream, h3c->max_blocked_buf_per_conn);
 
     h3c->max_body_buf_per_stream = conn->conn_settings.max_body_buf_per_stream;
-    h3c->body_buf_revisit_timer = -1;
     xqc_log(h3c->log, XQC_LOG_DEBUG, "|body_buf_limit|per_stream:%uz|",
             h3c->max_body_buf_per_stream);
 

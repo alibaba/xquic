@@ -4642,3 +4642,31 @@ xqc_test_h3_conn_create_failure_keeps_timers()
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+/*
+ * The body of a request its application closed is read and dropped: its
+ * transport stream still reads to the end, and the request holds no more
+ * than it did at the close.
+ */
+void
+xqc_test_h3_body_buf_close_drops_body()
+{
+    xqc_h3_bb_fixture_t fx;
+    size_t              held;
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+    fx.conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
+
+    xqc_h3_bb_feed_and_run(&fx, 40, 3000);
+    CU_ASSERT_FATAL(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    held = fx.h3s->h3r->body_buf_bytes;
+    CU_ASSERT(held <= 8192);
+
+    CU_ASSERT_EQUAL(xqc_h3_request_close(fx.h3s->h3r), XQC_OK);
+    xqc_process_read_streams(fx.conn);
+    CU_ASSERT_EQUAL(fx.stream->stream_data_in.next_read_offset, fx.offset);
+    CU_ASSERT_EQUAL(fx.h3s->h3r->body_buf_bytes, held);
+
+    xqc_h3_bb_teardown(&fx);
+}

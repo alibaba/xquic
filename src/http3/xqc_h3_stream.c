@@ -971,6 +971,15 @@ xqc_h3_stream_append_body(xqc_h3_stream_t *h3s, const unsigned char *data,
     xqc_var_buf_t    *buf;
     xqc_int_t         ret;
 
+    /*
+     * The application closed the request and collects nothing more: its
+     * DATA is read and dropped (RFC 9000 Section 3.5), so what the request
+     * holds stops growing at the close.
+     */
+    if (h3s->flags & XQC_HTTP3_STREAM_FLAG_ACTIVELY_CLOSED) {
+        return len;
+    }
+
     if (xqc_h3_stream_body_buf_can_pause(h3s)) {
         if (xqc_h3_stream_body_buf_full(h3s)) {
             xqc_h3_stream_body_buf_pause(h3s);

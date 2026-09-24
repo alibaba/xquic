@@ -459,6 +459,8 @@ main(int argc, char *argv[])
                         xqc_test_h3_body_buf_resume_in_conn_teardown)
         || !CU_add_test(pSuite, "xqc_test_h3_conn_create_failure_keeps_timers",
                         xqc_test_h3_conn_create_failure_keeps_timers)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_close_drops_body",
+                        xqc_test_h3_body_buf_close_drops_body)
                 || !CU_add_test(pSuite, "xqc_test_h3_settings_frame_size_limit", xqc_test_h3_settings_frame_size_limit)
         || !CU_add_test(pSuite, "xqc_test_h3_control_frame_unexpected", xqc_test_h3_control_frame_unexpected)
         || !CU_add_test(pSuite, "xqc_test_h3_missing_settings", xqc_test_h3_missing_settings)

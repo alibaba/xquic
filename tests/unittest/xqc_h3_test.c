@@ -4898,3 +4898,165 @@ xqc_test_h3_body_buf_engine_destroy_live_conn()
     xqc_h3_bb_first = NULL;
     xqc_h3_bb_sibling = NULL;
 }
+
+
+/* the QPACK decoder stream, which the decoder's acknowledgements need */
+static void
+xqc_h3_bb_qpack_setup(xqc_h3_bb_fixture_t *fx)
+{
+    fx->conn->conn_flow_ctl.fc_max_streams_uni_can_send = 16;
+    fx->conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
+    fx->h3c->qdec_stream = xqc_h3_conn_create_uni_stream(fx->h3c,
+                                        XQC_H3_STREAM_TYPE_QPACK_DECODER);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(fx->h3c->qdec_stream);
+}
+
+static void
+xqc_h3_bb_qpack_teardown(xqc_h3_bb_fixture_t *fx)
+{
+    xqc_h3_stream_t *h3s = fx->h3c->qdec_stream;
+    xqc_stream_t    *stream = h3s->stream;
+
+    fx->h3c->qdec_stream = NULL;
+    stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_h3_stream_destroy(h3s);
+    xqc_destroy_stream(stream);
+}
+
+/*
+ * The peer's encoder inserts "x-<name>: <value>", the first time after
+ * setting a 220-byte table; the streams waiting on it are then processed,
+ * as the encoder stream's handler does.
+ */
+static void
+xqc_h3_bb_qpack_insert(xqc_h3_bb_fixture_t *fx, xqc_bool_t first,
+    unsigned char name, unsigned char value)
+{
+    unsigned char ins[16];
+    size_t        n = 0;
+
+    if (first) {
+        ins[n++] = 0x3f;                    /* Set Dynamic Table Capacity */
+        ins[n++] = 0xbd;
+        ins[n++] = 0x01;
+    }
+    ins[n++] = 0x43;                        /* Insert With Literal Name */
+    ins[n++] = 'x';
+    ins[n++] = '-';
+    ins[n++] = name;
+    ins[n++] = 0x01;
+    ins[n++] = value;
+
+    CU_ASSERT_EQUAL(xqc_qpack_process_encoder(fx->h3c->qpack, ins, n),
+                    (ssize_t) n);
+    CU_ASSERT_EQUAL(xqc_h3_conn_process_blocked_stream(fx->h3c), XQC_OK);
+}
+
+
+/*
+ * Kept input whose trailer section refers to a dynamic-table entry the
+ * encoder has not sent yet: the replay leaves the request waiting on
+ * QPACK, and the trailer decodes once the entry arrives, with nothing
+ * left kept.
+ */
+void
+xqc_test_h3_body_buf_replay_waits_for_insert()
+{
+    xqc_h3_bb_fixture_t fx;
+    /* HEADERS: Required Insert Count 1, dynamic entry 0 */
+    unsigned char       trailer[] = { 0x01, 0x03, 0x02, 0x00, 0x80 };
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+    xqc_h3_bb_qpack_setup(&fx);
+    xqc_h3_bb_keep_data_then(&fx, trailer, sizeof(trailer));
+
+    xqc_stream_ready_to_read(fx.stream);
+    xqc_process_read_streams(fx.conn);
+    CU_ASSERT(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED);
+    CU_ASSERT_EQUAL(fx.h3s->h3r->body_buf_bytes, 10);
+    CU_ASSERT_EQUAL(fx.conn->conn_err, 0);
+
+    xqc_h3_bb_qpack_insert(&fx, XQC_TRUE, 't', '1');
+    CU_ASSERT_FALSE(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED);
+    CU_ASSERT_EQUAL(fx.h3s->h3r->completed_header_count, 2);
+    xqc_h3_bb_assert_kept_input_dropped(&fx);
+    CU_ASSERT_EQUAL(fx.conn->conn_err, 0);
+
+    xqc_h3_bb_qpack_teardown(&fx);
+    xqc_h3_bb_teardown(&fx);
+}
+
+
+/* what the application is told, by kind */
+static int xqc_h3_bb_told_header;
+static int xqc_h3_bb_told_body;
+
+static int
+xqc_h3_bb_telling_read_notify(xqc_h3_request_t *h3r,
+    xqc_request_notify_flag_t flag, void *user_data)
+{
+    xqc_h3_bb_told_header += (flag & XQC_REQ_NOTIFY_READ_HEADER) ? 1 : 0;
+    xqc_h3_bb_told_body += (flag & XQC_REQ_NOTIFY_READ_BODY) ? 1 : 0;
+    return 0;
+}
+
+static xqc_h3_request_callbacks_t xqc_h3_bb_telling_cbs = {
+    .h3_request_read_notify = xqc_h3_bb_telling_read_notify,
+};
+
+
+/*
+ * A response whose header section and trailer section each wait on their
+ * own dynamic-table entry. Once the first arrives, the replay of what was
+ * kept delivers the headers and appends the DATA, then waits again on the
+ * trailer without telling the application of the body yet, as before this
+ * series. After the second, the trailer decodes and the body is told, with
+ * nothing left kept.
+ */
+void
+xqc_test_h3_body_buf_unblocked_replay_waits_again()
+{
+    xqc_h3_bb_fixture_t fx;
+    unsigned char       data[16];
+    size_t              n;
+    /* HEADERS: Required Insert Count 1, :status 200, dynamic entry 0 */
+    unsigned char       headers[] = { 0x01, 0x04, 0x02, 0x00, 0xd9, 0x80 };
+    /* HEADERS: Required Insert Count 2, dynamic entry 1 */
+    unsigned char       trailer[] = { 0x01, 0x03, 0x03, 0x00, 0x80 };
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+    xqc_h3_bb_qpack_setup(&fx);
+    fx.h3s->h3r->completed_header_count = 0;
+    fx.h3s->h3r->request_if = &xqc_h3_bb_telling_cbs;
+    xqc_h3_bb_told_header = 0;
+    xqc_h3_bb_told_body = 0;
+
+    n = xqc_h3_bb_put_data_frame(data, 10, 'x');
+    CU_ASSERT_EQUAL_FATAL(xqc_h3_bb_feed(fx.conn, fx.stream, &fx.offset,
+                                         headers, sizeof(headers)), XQC_OK);
+    CU_ASSERT_EQUAL_FATAL(xqc_h3_bb_feed(fx.conn, fx.stream, &fx.offset,
+                                         data, n), XQC_OK);
+    CU_ASSERT_EQUAL_FATAL(xqc_h3_bb_feed(fx.conn, fx.stream, &fx.offset,
+                                         trailer, sizeof(trailer)), XQC_OK);
+    xqc_stream_ready_to_read(fx.stream);
+    xqc_process_read_streams(fx.conn);
+    CU_ASSERT(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED);
+    CU_ASSERT_EQUAL(fx.h3s->h3r->completed_header_count, 0);
+
+    xqc_h3_bb_qpack_insert(&fx, XQC_TRUE, 't', '1');
+    CU_ASSERT(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED);
+    CU_ASSERT_EQUAL(fx.h3s->h3r->completed_header_count, 1);
+    CU_ASSERT_EQUAL(fx.h3s->h3r->body_buf_bytes, 10);
+    CU_ASSERT_EQUAL(xqc_h3_bb_told_header, 1);
+    CU_ASSERT_EQUAL(xqc_h3_bb_told_body, 0);
+
+    xqc_h3_bb_qpack_insert(&fx, XQC_FALSE, 'u', '2');
+    CU_ASSERT_FALSE(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED);
+    CU_ASSERT_EQUAL(fx.h3s->h3r->completed_header_count, 2);
+    CU_ASSERT(xqc_h3_bb_told_body > 0);
+    xqc_h3_bb_assert_kept_input_dropped(&fx);
+    CU_ASSERT_EQUAL(fx.conn->conn_err, 0);
+
+    xqc_h3_bb_qpack_teardown(&fx);
+    xqc_h3_bb_teardown(&fx);
+}

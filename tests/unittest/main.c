@@ -478,6 +478,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_h3_body_buf_engine_destroy_live_conn",
                         xqc_test_h3_body_buf_engine_destroy_live_conn)
+        || !CU_add_test(pSuite,
+                        "xqc_test_h3_body_buf_replay_waits_for_insert",
+                        xqc_test_h3_body_buf_replay_waits_for_insert)
+        || !CU_add_test(pSuite,
+                        "xqc_test_h3_body_buf_unblocked_replay_waits_again",
+                        xqc_test_h3_body_buf_unblocked_replay_waits_again)
                 || !CU_add_test(pSuite, "xqc_test_h3_settings_frame_size_limit", xqc_test_h3_settings_frame_size_limit)
         || !CU_add_test(pSuite, "xqc_test_h3_control_frame_unexpected", xqc_test_h3_control_frame_unexpected)
         || !CU_add_test(pSuite, "xqc_test_h3_missing_settings", xqc_test_h3_missing_settings)

@@ -780,19 +780,11 @@ xqc_h3_request_body_buf_resume(xqc_h3_request_t *h3_request)
         return;
     }
 
-    /* both arms that can pause must fall to their low watermark first */
     limit = h3c->max_body_buf_per_stream;
-    if (limit > 0) {
-        uint64_t node_limit = (uint64_t)(limit / XQC_H3_BODY_BUF_MIN_BYTES_PER_NODE);
-        if (node_limit == 0) {
-            node_limit = 1;
-        }
-        if (h3_request->body_buf_bytes > XQC_H3_BODY_BUF_LOW_WATER(limit)) {
-            return;
-        }
-        if (h3_request->body_buf_count > XQC_H3_BODY_BUF_LOW_WATER(node_limit)) {
-            return;
-        }
+    if (limit > 0
+        && h3_request->body_buf_bytes > XQC_H3_BODY_BUF_LOW_WATER(limit))
+    {
+        return;
     }
 
     h3s->flags &= ~XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED;

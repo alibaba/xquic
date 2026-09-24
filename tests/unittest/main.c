@@ -429,6 +429,18 @@ main(int argc, char *argv[])
                         xqc_test_h3_body_buf_pause_holds_credit)
         || !CU_add_test(pSuite, "xqc_test_h3_body_buf_hold_is_per_stream",
                         xqc_test_h3_body_buf_hold_is_per_stream)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_limit_is_exact",
+                        xqc_test_h3_body_buf_limit_is_exact)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_replay_is_bounded",
+                        xqc_test_h3_body_buf_replay_is_bounded)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_replay_after_fin",
+                        xqc_test_h3_body_buf_replay_after_fin)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_pause_during_read_walk",
+                        xqc_test_h3_body_buf_pause_during_read_walk)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_reset_drops_kept_input",
+                        xqc_test_h3_body_buf_reset_drops_kept_input)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_empty_data_fin_notifies",
+                        xqc_test_h3_body_buf_empty_data_fin_notifies)
                 || !CU_add_test(pSuite, "xqc_test_h3_settings_frame_size_limit", xqc_test_h3_settings_frame_size_limit)
         || !CU_add_test(pSuite, "xqc_test_h3_control_frame_unexpected", xqc_test_h3_control_frame_unexpected)
         || !CU_add_test(pSuite, "xqc_test_h3_missing_settings", xqc_test_h3_missing_settings)

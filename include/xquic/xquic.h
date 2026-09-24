@@ -1576,16 +1576,16 @@ typedef struct xqc_conn_settings_s {
 
     /**
      * Maximum HTTP/3 DATA payload buffered per request stream, in bytes:
-     * payload that xqc_h3_stream_process_data() has read out of the transport
-     * stream and that the application has not yet collected with
+     * payload that the HTTP/3 layer has read out of the transport stream
+     * and that the application has not yet collected with
      * xqc_h3_request_recv_body().
      *
      * Non-zero makes the HTTP/3 layer stop reading a request's transport
-     * stream while that request holds this many bytes, or holds this many
-     * bytes divided by XQC_H3_BODY_BUF_MIN_BYTES_PER_NODE buffered DATA
-     * frames, whichever is reached first. Reading resumes from
-     * xqc_h3_request_recv_body() once the application has drained to a
-     * quarter of both.
+     * stream while that request holds this many bytes, and hold the
+     * stream's receive credit meanwhile; the peer can still send what it
+     * was granted before, which the transport buffers. Reading resumes once
+     * the application has drained the request to a quarter of the limit. A
+     * request whose peer has sent its FIN is not held back.
      *
      * Default: 0, which means unbounded and leaves the read loop unchanged.
      *

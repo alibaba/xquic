@@ -83,5 +83,11 @@ void xqc_test_h3_body_buf_resume_from_read_callback();
 void xqc_test_h3_body_buf_paused_small_frames();
 void xqc_test_h3_body_buf_pause_holds_credit();
 void xqc_test_h3_body_buf_hold_is_per_stream();
+void xqc_test_h3_body_buf_limit_is_exact();
+void xqc_test_h3_body_buf_replay_is_bounded();
+void xqc_test_h3_body_buf_replay_after_fin();
+void xqc_test_h3_body_buf_pause_during_read_walk();
+void xqc_test_h3_body_buf_reset_drops_kept_input();
+void xqc_test_h3_body_buf_empty_data_fin_notifies();
 
 #endif //XQUIC_XQC_H3_TEST_H

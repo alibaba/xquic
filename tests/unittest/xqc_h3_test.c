@@ -3391,8 +3391,9 @@ xqc_test_h3_body_buf_reset_while_paused()
 
 
 /*
- * Tiny DATA frames: the byte limit counts payload, so the derived node bound
- * is what stops a peer framing DATA at one byte. 8192 / 256 = 32 nodes.
+ * Tiny DATA frames: short payloads share a node, so a peer framing DATA at
+ * one byte costs a node per XQC_H3_BODY_BUF_MIN_BYTES_PER_NODE bytes, and
+ * the byte limit is what stops it. 8192 / 256 = 32 nodes.
  */
 void
 xqc_test_h3_body_buf_tiny_frames()
@@ -3402,20 +3403,20 @@ xqc_test_h3_body_buf_tiny_frames()
 
     CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
 
-    /* 2000 one-byte DATA frames: 2 KB of payload, well under the byte limit,
-     * against 2000 nodes */
-    xqc_h3_bb_feed_and_run(&fx, 2000, 1);
+    /* 20,000 one-byte DATA frames: 20,000 bytes of payload against 8,192 */
+    xqc_h3_bb_feed_and_run(&fx, 20000, 1);
 
     CU_ASSERT(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    CU_ASSERT_EQUAL(fx.h3s->h3r->body_buf_bytes, (size_t) 8192);
+    CU_ASSERT(fx.h3s->h3r->body_buf_count <= node_limit + 1);
 
-    /* stopped on nodes, with the byte limit not reached */
-    CU_ASSERT(fx.h3s->h3r->body_buf_bytes < 8192);
-    CU_ASSERT(fx.h3s->h3r->body_buf_count >= node_limit);
-
-    /* one 4 KB transport read may land after the check, at 3 wire bytes per
-     * DATA frame, so at most 4096/3 + 1 extra nodes */
-    CU_ASSERT(fx.h3s->h3r->body_buf_count
-              <= node_limit + XQC_DATA_BUF_SIZE_4K / 3 + 1);
+    /* empty DATA frames add no node behind data that notifies anyway */
+    xqc_h3_bb_teardown(&fx);
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+    xqc_h3_bb_feed_and_run(&fx, 1, 100);
+    xqc_h3_bb_feed_and_run(&fx, 1000, 0);
+    CU_ASSERT_EQUAL(fx.h3s->h3r->body_buf_count, 1);
+    CU_ASSERT_EQUAL(fx.h3s->h3r->body_buf_bytes, (size_t) 100);
 
     xqc_h3_bb_teardown(&fx);
 }
@@ -3803,6 +3804,7 @@ xqc_test_h3_body_buf_paused_small_frames()
     for (i = 0; i < 1000; i++) {
         total += xqc_h3_bb_drain_all(fx.h3s->h3r);
         if (fx.stream->stream_data_in.next_read_offset == fx.offset
+            && xqc_list_empty(&fx.h3s->blocked_buf)
             && xqc_list_empty(&fx.h3s->h3r->body_buf))
         {
             break;
@@ -3919,5 +3921,416 @@ xqc_test_h3_body_buf_hold_is_per_stream()
     s2->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
     xqc_h3_stream_destroy(h3s2);
     xqc_destroy_stream(s2);
+    xqc_h3_bb_teardown(&fx);
+}
+
+
+/* the byte a request body carries at payload position `pos` */
+static unsigned char
+xqc_h3_bb_pattern(uint64_t pos)
+{
+    return (unsigned char) (pos * 131 + 17);
+}
+
+/* a DATA frame whose payload continues the pattern at *pos (len < 16384) */
+static size_t
+xqc_h3_bb_put_pattern_frame(unsigned char *out, size_t payload_len,
+    uint64_t *pos)
+{
+    size_t n = 0, i;
+
+    out[n++] = 0x00;
+    if (payload_len < 64) {
+        out[n++] = (unsigned char) payload_len;
+
+    } else {
+        out[n++] = (unsigned char) (0x40 | (payload_len >> 8));
+        out[n++] = (unsigned char) (payload_len & 0xff);
+    }
+    for (i = 0; i < payload_len; i++) {
+        out[n++] = xqc_h3_bb_pattern(*pos + i);
+    }
+    *pos += payload_len;
+    return n;
+}
+
+/* drain the request, checking each byte against the pattern at *pos */
+static int64_t
+xqc_h3_bb_drain_verify(xqc_h3_request_t *h3r, uint64_t *pos)
+{
+    unsigned char sink[16 * 1024];
+    int64_t       total = 0;
+    uint8_t       fin;
+    ssize_t       n, i;
+
+    for ( ;; ) {
+        fin = 0;
+        n = xqc_h3_request_recv_body(h3r, sink, sizeof(sink), &fin);
+        if (n <= 0) {
+            break;
+        }
+        for (i = 0; i < n; i++) {
+            if (sink[i] != xqc_h3_bb_pattern(*pos + i)) {
+                return -1;
+            }
+        }
+        *pos += n;
+        total += n;
+    }
+    return total;
+}
+
+/* input the H3 layer read and kept, as a QPACK-blocked request keeps it */
+static void
+xqc_h3_bb_keep_input(xqc_h3_bb_fixture_t *fx, const unsigned char *data,
+    size_t len, uint8_t fin)
+{
+    xqc_var_buf_t *buf = xqc_var_buf_create(len);
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(buf);
+    CU_ASSERT_EQUAL_FATAL(xqc_var_buf_save_data(buf, data, len), XQC_OK);
+    buf->fin_flag = fin;
+    CU_ASSERT_EQUAL_FATAL(xqc_list_buf_to_tail(&fx->h3s->blocked_buf, buf),
+                          XQC_OK);
+    fx->h3s->blocked_buf_size += len;
+    fx->h3c->total_blocked_buf_size += len;
+}
+
+/* keep 50 DATA frames of 1,000 bytes and 3,000 of one byte */
+static uint64_t
+xqc_h3_bb_keep_backlog(xqc_h3_bb_fixture_t *fx, uint8_t fin)
+{
+    unsigned char frame[1100];
+    uint64_t      pos = 0;
+    size_t        n;
+    int           i;
+
+    for (i = 0; i < 50; i++) {
+        n = xqc_h3_bb_put_pattern_frame(frame, 1000, &pos);
+        xqc_h3_bb_keep_input(fx, frame, n, 0);
+    }
+    for (i = 0; i < 3000; i++) {
+        n = xqc_h3_bb_put_pattern_frame(frame, 1, &pos);
+        xqc_h3_bb_keep_input(fx, frame, n, fin && i == 2999);
+    }
+    return pos;
+}
+
+
+/*
+ * The limit holds where DATA is appended: a read that crosses it stops
+ * there, the rest of the read is kept, and it is delivered, in order,
+ * before anything the transport stream received later.
+ */
+void
+xqc_test_h3_body_buf_limit_is_exact()
+{
+    xqc_h3_bb_fixture_t fx;
+    unsigned char       frame[4200];
+    uint64_t            fed = 0, got = 0;
+    int64_t             n;
+    int                 i;
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+
+    for (i = 0; i < 5; i++) {
+        size_t len = xqc_h3_bb_put_pattern_frame(frame, 4000, &fed);
+        CU_ASSERT_EQUAL_FATAL(xqc_h3_bb_feed(fx.conn, fx.stream, &fx.offset,
+                                             frame, len), XQC_OK);
+    }
+    xqc_stream_ready_to_read(fx.stream);
+    xqc_process_read_streams(fx.conn);
+
+    CU_ASSERT(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    CU_ASSERT_EQUAL(fx.h3s->h3r->body_buf_bytes, (size_t) 8192);
+    CU_ASSERT(fx.h3s->blocked_buf_size > 0);
+    CU_ASSERT(fx.h3s->blocked_buf_size <= XQC_DATA_BUF_SIZE_4K);
+
+    /* more arrives behind the kept input */
+    for (i = 0; i < 5; i++) {
+        size_t len = xqc_h3_bb_put_pattern_frame(frame, 4000, &fed);
+        CU_ASSERT_EQUAL_FATAL(xqc_h3_bb_feed(fx.conn, fx.stream, &fx.offset,
+                                             frame, len), XQC_OK);
+    }
+
+    for (i = 0; i < 100 && got < fed; i++) {
+        n = xqc_h3_bb_drain_verify(fx.h3s->h3r, &got);
+        CU_ASSERT_FATAL(n >= 0);
+        CU_ASSERT(fx.h3s->h3r->body_buf_bytes <= 8192);
+        xqc_process_read_streams(fx.conn);
+    }
+    CU_ASSERT_EQUAL(got, fed);
+    CU_ASSERT(xqc_list_empty(&fx.h3s->blocked_buf));
+    CU_ASSERT_EQUAL(fx.h3c->total_blocked_buf_size, 0);
+    CU_ASSERT_EQUAL(fx.conn->conn_err, 0);
+
+    xqc_h3_bb_teardown(&fx);
+}
+
+
+/*
+ * The replay of input kept while a request waited on QPACK obeys the limit
+ * in bytes and in nodes, keeps the rest, and still delivers every byte in
+ * order as the application drains.
+ */
+void
+xqc_test_h3_body_buf_replay_is_bounded()
+{
+    xqc_h3_bb_fixture_t fx;
+    uint64_t            kept, got = 0;
+    int64_t             n;
+    int                 i;
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+    kept = xqc_h3_bb_keep_backlog(&fx, 0);
+
+    CU_ASSERT_EQUAL(xqc_h3_stream_process_blocked_stream(fx.h3s), XQC_OK);
+
+    CU_ASSERT(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    CU_ASSERT(fx.stream->stream_flag & XQC_STREAM_FLAG_RECV_CREDIT_HELD);
+    CU_ASSERT(fx.h3s->h3r->body_buf_bytes <= 8192);
+    CU_ASSERT(fx.h3s->h3r->body_buf_count
+              <= 8192 / XQC_H3_BODY_BUF_MIN_BYTES_PER_NODE + 1);
+    CU_ASSERT_FALSE(xqc_list_empty(&fx.h3s->blocked_buf));
+
+    for (i = 0; i < 1000 && got < kept; i++) {
+        n = xqc_h3_bb_drain_verify(fx.h3s->h3r, &got);
+        CU_ASSERT_FATAL(n >= 0);
+        CU_ASSERT(fx.h3s->h3r->body_buf_count
+                  <= 8192 / XQC_H3_BODY_BUF_MIN_BYTES_PER_NODE + 1);
+        xqc_process_read_streams(fx.conn);
+    }
+    CU_ASSERT_EQUAL(got, kept);
+    CU_ASSERT(xqc_list_empty(&fx.h3s->blocked_buf));
+    CU_ASSERT_EQUAL(fx.h3s->blocked_buf_size, 0);
+    CU_ASSERT_EQUAL(fx.h3c->total_blocked_buf_size, 0);
+    CU_ASSERT_EQUAL(fx.conn->conn_err, 0);
+
+    xqc_h3_bb_teardown(&fx);
+}
+
+
+/*
+ * Once the peer's FIN has been read, the replay runs to the end: the rest
+ * of the request is already in memory, and a transport stream that has
+ * delivered everything may close and drop whatever was held back.
+ */
+void
+xqc_test_h3_body_buf_replay_after_fin()
+{
+    xqc_h3_bb_fixture_t fx;
+    unsigned char       sink[64 * 1024];
+    uint64_t            kept, got = 0;
+    uint8_t             fin = 0;
+    ssize_t             n;
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+    kept = xqc_h3_bb_keep_backlog(&fx, 1);
+    fx.h3s->flags |= XQC_HTTP3_STREAM_FLAG_READ_EOF;
+
+    CU_ASSERT_EQUAL(xqc_h3_stream_process_blocked_stream(fx.h3s), XQC_OK);
+
+    CU_ASSERT_FALSE(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    CU_ASSERT(xqc_list_empty(&fx.h3s->blocked_buf));
+    CU_ASSERT_EQUAL(fx.h3s->h3r->body_buf_bytes, (size_t) kept);
+    CU_ASSERT(fx.h3s->h3r->fin_flag);
+
+    do {
+        n = xqc_h3_request_recv_body(fx.h3s->h3r, sink, sizeof(sink), &fin);
+        if (n > 0) {
+            got += n;
+        }
+    } while (n > 0 && !fin);
+    CU_ASSERT_EQUAL(got, kept);
+    CU_ASSERT(fin);
+
+    xqc_h3_bb_teardown(&fx);
+}
+
+
+/* keep input on an arbitrary request stream, as a QPACK-blocked one would */
+static void
+xqc_h3_bb_keep_input_on(xqc_h3_stream_t *h3s, const unsigned char *data,
+    size_t len)
+{
+    xqc_var_buf_t *buf = xqc_var_buf_create(len);
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(buf);
+    CU_ASSERT_EQUAL_FATAL(xqc_var_buf_save_data(buf, data, len), XQC_OK);
+    CU_ASSERT_EQUAL_FATAL(xqc_list_buf_to_tail(&h3s->blocked_buf, buf),
+                          XQC_OK);
+    h3s->blocked_buf_size += len;
+    h3s->h3c->total_blocked_buf_size += len;
+}
+
+/* the stream whose QPACK unblock the next body notify stands in for */
+static xqc_h3_stream_t *xqc_h3_bb_unblock_target;
+
+static int
+xqc_h3_bb_unblocking_read_notify(xqc_h3_request_t *h3r,
+    xqc_request_notify_flag_t flag, void *user_data)
+{
+    xqc_h3_stream_t *target = xqc_h3_bb_unblock_target;
+
+    /* once: replay the target as the encoder stream's inserts would */
+    xqc_h3_bb_unblock_target = NULL;
+    if (target != NULL) {
+        CU_ASSERT_EQUAL(xqc_h3_stream_process_blocked_stream(target), XQC_OK);
+    }
+    return 0;
+}
+
+static xqc_h3_request_callbacks_t xqc_h3_bb_unblocking_cbs = {
+    .h3_request_read_notify = xqc_h3_bb_unblocking_read_notify,
+};
+
+
+/*
+ * A request paused by a replay that runs from another stream's processing,
+ * as a QPACK unblock does from the encoder stream's, while the connection's
+ * read-list walk holds the paused stream as its next entry. The walk must
+ * survive, and the paused request must still deliver every byte in order.
+ */
+void
+xqc_test_h3_body_buf_pause_during_read_walk()
+{
+    xqc_h3_bb_fixture_t fx;
+    xqc_stream_t       *s2 = NULL;
+    xqc_h3_stream_t    *h3s2;
+    unsigned char       frame[1100];
+    uint64_t            kept = 0, total, got = 0, off2 = 0;
+    size_t              n;
+    int64_t             r;
+    int                 i;
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+    h3s2 = xqc_h3_bb_add_stream(&fx, &s2);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(h3s2);
+
+    /* 40,000 bytes kept on the second request, past its 8 KiB limit */
+    for (i = 0; i < 40; i++) {
+        n = xqc_h3_bb_put_pattern_frame(frame, 1000, &kept);
+        xqc_h3_bb_keep_input_on(h3s2, frame, n);
+    }
+
+    /* one frame each, so both streams are on the read list, first first;
+       the second request's continues its body after the kept bytes */
+    n = xqc_h3_bb_put_data_frame(frame, 10, 'x');
+    CU_ASSERT_EQUAL_FATAL(xqc_h3_bb_feed(fx.conn, fx.stream, &fx.offset,
+                                         frame, n), XQC_OK);
+    total = kept;
+    n = xqc_h3_bb_put_pattern_frame(frame, 10, &total);
+    CU_ASSERT_EQUAL_FATAL(xqc_h3_bb_feed(fx.conn, s2, &off2, frame, n),
+                          XQC_OK);
+    xqc_stream_ready_to_read(fx.stream);
+    xqc_stream_ready_to_read(s2);
+
+    fx.h3s->h3r->request_if = &xqc_h3_bb_unblocking_cbs;
+    xqc_h3_bb_unblock_target = h3s2;
+    xqc_process_read_streams(fx.conn);
+
+    CU_ASSERT_EQUAL(fx.conn->conn_err, 0);
+    CU_ASSERT(h3s2->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    CU_ASSERT(h3s2->h3r->body_buf_bytes <= 8192);
+
+    /* the kept bytes first, then the frame from the transport stream */
+    for (i = 0; i < 100 && got < total; i++) {
+        r = xqc_h3_bb_drain_verify(h3s2->h3r, &got);
+        CU_ASSERT_FATAL(r >= 0);
+        xqc_process_read_streams(fx.conn);
+    }
+    CU_ASSERT_EQUAL(got, total);
+    CU_ASSERT(xqc_list_empty(&h3s2->blocked_buf));
+    CU_ASSERT_EQUAL(fx.h3c->total_blocked_buf_size, 0);
+    CU_ASSERT_EQUAL(fx.conn->conn_err, 0);
+
+    s2->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_h3_stream_destroy(h3s2);
+    xqc_destroy_stream(s2);
+    xqc_h3_bb_teardown(&fx);
+}
+
+
+/* the peer has sent everything, and its FIN, on the fixture's stream */
+static void
+xqc_h3_bb_peer_finished(xqc_h3_bb_fixture_t *fx)
+{
+    fx->stream->stream_data_in.stream_determined = XQC_TRUE;
+    fx->stream->stream_data_in.stream_length = fx->offset;
+    fx->stream->stream_max_recv_offset = fx->offset;
+    xqc_stream_recv_state_update(fx->stream, XQC_RECV_STREAM_ST_SIZE_KNOWN);
+    xqc_stream_recv_state_update(fx->stream, XQC_RECV_STREAM_ST_DATA_RECVD);
+}
+
+
+/*
+ * A reset of a request whose read stopped at its limit: the rest of the
+ * read it kept is dropped, not replayed into a body nobody will collect,
+ * and the reset still reaches the application.
+ */
+void
+xqc_test_h3_body_buf_reset_drops_kept_input()
+{
+    xqc_h3_bb_fixture_t fx;
+    unsigned char       frame[4200];
+    uint64_t            fed = 0;
+    size_t              held;
+    int                 i;
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+    for (i = 0; i < 5; i++) {
+        size_t len = xqc_h3_bb_put_pattern_frame(frame, 4000, &fed);
+        CU_ASSERT_EQUAL_FATAL(xqc_h3_bb_feed(fx.conn, fx.stream, &fx.offset,
+                                             frame, len), XQC_OK);
+    }
+    xqc_stream_ready_to_read(fx.stream);
+    xqc_process_read_streams(fx.conn);
+    CU_ASSERT_FATAL(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    CU_ASSERT_FATAL(!xqc_list_empty(&fx.h3s->blocked_buf));
+    held = fx.h3s->h3r->body_buf_bytes;
+
+    xqc_stream_recv_state_update(fx.stream, XQC_RECV_STREAM_ST_RESET_RECVD);
+    xqc_destroy_frame_list(&fx.stream->stream_data_in.frames_tailq);
+    fx.stream->stream_data_in.buffered_frame_count = 0;
+    xqc_stream_ready_to_read(fx.stream);
+    xqc_process_read_streams(fx.conn);
+
+    CU_ASSERT(xqc_list_empty(&fx.h3s->blocked_buf));
+    CU_ASSERT_EQUAL(fx.h3s->blocked_buf_size, 0);
+    CU_ASSERT_EQUAL(fx.h3c->total_blocked_buf_size, 0);
+    CU_ASSERT_EQUAL(fx.h3s->h3r->body_buf_bytes, held);
+    CU_ASSERT_EQUAL(fx.stream->stream_state_recv,
+                    XQC_RECV_STREAM_ST_RESET_READ);
+    CU_ASSERT_EQUAL(fx.conn->conn_err, 0);
+
+    xqc_h3_bb_teardown(&fx);
+}
+
+
+/*
+ * A body that ends with an empty DATA frame and the FIN still notifies the
+ * application, which then sees the FIN: an empty payload still makes a node
+ * when body_buf is otherwise empty.
+ */
+void
+xqc_test_h3_body_buf_empty_data_fin_notifies()
+{
+    xqc_h3_bb_fixture_t fx;
+    unsigned char       sink[16];
+    uint8_t             fin = 0;
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+
+    xqc_h3_bb_feed_and_run(&fx, 1, 0);
+    xqc_h3_bb_peer_finished(&fx);
+    xqc_stream_ready_to_read(fx.stream);
+    xqc_process_read_streams(fx.conn);
+
+    CU_ASSERT_FALSE(xqc_list_empty(&fx.h3s->h3r->body_buf));
+    CU_ASSERT(fx.h3s->h3r->read_flag & XQC_REQ_NOTIFY_READ_BODY);
+    CU_ASSERT_EQUAL(xqc_h3_request_recv_body(fx.h3s->h3r, sink, sizeof(sink),
+                                             &fin), 0);
+    CU_ASSERT(fin);
+
     xqc_h3_bb_teardown(&fx);
 }

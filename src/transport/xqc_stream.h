@@ -79,6 +79,7 @@ typedef struct xqc_stream_frame_s {
     xqc_list_head_t         sf_list;
     unsigned char          *data;
     unsigned                data_length;
+    unsigned                data_cap;           /* allocated; 0: data_length */
     uint64_t                data_offset;
     uint64_t                next_read_offset;   /* next offset in frame */
     unsigned char           fin;

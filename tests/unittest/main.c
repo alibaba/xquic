@@ -233,6 +233,17 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_stop_sending_spares_other_streams",
                         xqc_test_stop_sending_spares_other_streams)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_coalesce_contiguous",
+                        xqc_test_stream_frame_coalesce_contiguous)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_coalesce_bounds",
+                        xqc_test_stream_frame_coalesce_bounds)
+        || !CU_add_test(pSuite,
+                        "xqc_test_stream_frame_coalesce_through_handler",
+                        xqc_test_stream_frame_coalesce_through_handler)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_coalesce_reordered",
+                        xqc_test_stream_frame_coalesce_reordered)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_coalesce_fin_only",
+                        xqc_test_stream_frame_coalesce_fin_only)
         || !CU_add_test(pSuite, "xqc_test_process_frame", xqc_test_process_frame)
         || !CU_add_test(pSuite, "xqc_test_parse_padding_frame", xqc_test_parse_padding_frame)
 #ifdef XQC_PING_ATTACK_PROTECT
@@ -408,6 +419,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_h3_body_buf_resume_from_read_callback",
                         xqc_test_h3_body_buf_resume_from_read_callback)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_paused_small_frames",
+                        xqc_test_h3_body_buf_paused_small_frames)
                 || !CU_add_test(pSuite, "xqc_test_h3_settings_frame_size_limit", xqc_test_h3_settings_frame_size_limit)
         || !CU_add_test(pSuite, "xqc_test_h3_control_frame_unexpected", xqc_test_h3_control_frame_unexpected)
         || !CU_add_test(pSuite, "xqc_test_h3_missing_settings", xqc_test_h3_missing_settings)

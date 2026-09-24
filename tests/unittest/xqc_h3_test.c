@@ -3760,3 +3760,57 @@ xqc_test_h3_body_buf_resume_from_read_callback()
 
     xqc_h3_bb_teardown(&fx);
 }
+
+
+/*
+ * A paused request whose peer keeps sending, in small frames, within credit
+ * already granted. Each STREAM frame used to cost a reassembly node, so the
+ * 8,193rd closed the connection. All are accepted now, and the application
+ * still gets every byte, in order, once it drains.
+ */
+void
+xqc_test_h3_body_buf_paused_small_frames()
+{
+    xqc_h3_bb_fixture_t fx;
+    unsigned char       frame[16];
+    size_t              total = 0;
+    int                 i, refused = 0;
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+
+    xqc_h3_bb_feed_and_run(&fx, 40, 3000);
+    CU_ASSERT_FATAL(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+
+    /* 20,000 DATA frames of 5 bytes, one STREAM frame each */
+    for (i = 0; i < 20000; i++) {
+        size_t n = xqc_h3_bb_put_data_frame(frame, 5,
+                                            (unsigned char) ('a' + i % 26));
+        if (xqc_h3_bb_feed(fx.conn, fx.stream, &fx.offset, frame, n)
+            != XQC_OK)
+        {
+            refused++;
+        }
+    }
+
+    CU_ASSERT_EQUAL(refused, 0);
+    CU_ASSERT(fx.stream->stream_data_in.buffered_frame_count
+              < XQC_MAX_STREAM_FRAME_BUFFERED_COUNT);
+    CU_ASSERT(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+    CU_ASSERT_EQUAL(fx.conn->conn_err, 0);
+
+    for (i = 0; i < 1000; i++) {
+        total += xqc_h3_bb_drain_all(fx.h3s->h3r);
+        if (fx.stream->stream_data_in.next_read_offset == fx.offset
+            && xqc_list_empty(&fx.h3s->h3r->body_buf))
+        {
+            break;
+        }
+        xqc_process_read_streams(fx.conn);
+    }
+
+    CU_ASSERT_EQUAL(total, (size_t) (40 * 3000 + 20000 * 5));
+    CU_ASSERT_EQUAL(fx.stream->stream_data_in.next_read_offset, fx.offset);
+    CU_ASSERT_EQUAL(fx.conn->conn_err, 0);
+
+    xqc_h3_bb_teardown(&fx);
+}

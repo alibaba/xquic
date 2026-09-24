@@ -110,21 +110,90 @@ xqc_crypto_frame_header_size(uint64_t offset, size_t length)
 
 }
 
+/*
+ * Append len bytes to a node's buffer, growing it geometrically so that the
+ * copying stays linear in the bytes merged. Fails, leaving the node as it
+ * was, when the node would pass XQC_STREAM_FRAME_COALESCE_MAX_LEN.
+ */
+static xqc_bool_t
+xqc_stream_frame_append(xqc_stream_frame_t *node, const unsigned char *data,
+    unsigned len)
+{
+    unsigned char *buf;
+    uint64_t       need, cap;
+
+    need = (uint64_t) node->data_length + len;
+    if (need > XQC_STREAM_FRAME_COALESCE_MAX_LEN) {
+        return XQC_FALSE;
+    }
+
+    cap = xqc_max(node->data_cap, node->data_length);
+    if (need > cap) {
+        cap = xqc_max(need,
+                      xqc_min(cap * 2, XQC_STREAM_FRAME_COALESCE_MAX_LEN));
+        buf = xqc_realloc(node->data, cap);
+        if (buf == NULL) {
+            return XQC_FALSE;
+        }
+        node->data = buf;
+        node->data_cap = (unsigned) cap;
+    }
+
+    if (len > 0) {
+        xqc_memcpy(node->data + node->data_length, data, len);
+    }
+    node->data_length = (unsigned) need;
+
+    return XQC_TRUE;
+}
+
+/*
+ * Absorb the nodes that follow `node` while each starts exactly where it
+ * ends: data that filled a gap joins what was received past it.
+ */
+static void
+xqc_stream_frame_absorb_next(xqc_stream_t *stream, xqc_stream_frame_t *node)
+{
+    xqc_stream_frame_t *next;
+
+    while (node->sf_list.next != &stream->stream_data_in.frames_tailq
+           && !node->fin)
+    {
+        next = xqc_list_entry(node->sf_list.next, xqc_stream_frame_t,
+                              sf_list);
+        if (next->data_offset != node->data_offset + node->data_length
+            || next->next_read_offset != 0
+            || !xqc_stream_frame_append(node, next->data, next->data_length))
+        {
+            return;
+        }
+
+        node->fin = next->fin;
+        xqc_list_del_init(&next->sf_list);
+        xqc_destroy_stream_frame(next);
+        stream->stream_data_in.buffered_frame_count--;
+    }
+}
+
 xqc_int_t
 xqc_insert_stream_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream_frame_t *new_frame)
 {
-
-    /* CWE-770 mitigation: reject if buffered frame count exceeds cap (RFC 9000 §21.7) */
-    if (stream->stream_data_in.buffered_frame_count >= XQC_MAX_STREAM_FRAME_BUFFERED_COUNT) {
-        xqc_log(conn->log, XQC_LOG_WARN,
-                "|stream frame buffered count exceed|stream_id:%ui|count:%ui|limit:%d|",
-                stream->stream_id, stream->stream_data_in.buffered_frame_count,
-                XQC_MAX_STREAM_FRAME_BUFFERED_COUNT);
-        return -XQC_ELIMIT;
-    }
+    /*
+     * A reader that stops taking data leaves the peer free to fill the
+     * credit already granted. Once many nodes are buffered, a frame that
+     * continues the node before it is copied into that node, and nodes the
+     * result then reaches are absorbed, so that credit does not cost a node
+     * per frame against the cap below. Frames after a gap still take a node
+     * each. On XQC_OK, new_frame belongs to the stream, or has been freed.
+     */
+    xqc_bool_t          coalesce = stream->stream_data_in.buffered_frame_count
+                                   >= XQC_STREAM_FRAME_COALESCE_THRESHOLD;
+    xqc_stream_frame_t *prev = NULL, *target;
+    uint64_t            new_offset = new_frame->data_offset;
+    uint64_t            new_end = new_offset + new_frame->data_length;
+    uint64_t            target_end;
 
     /* insert xqc_stream_frame_t into stream->stream_data_in.frames_tailq in order of offset */
-    unsigned char inserted = 0;
     xqc_list_head_t *pos;
     xqc_stream_frame_t *frame;
 
@@ -155,15 +224,46 @@ xqc_insert_stream_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream
         }
 
         if (new_frame->data_offset >= frame->data_offset) {
-            xqc_list_add(&new_frame->sf_list, pos);
-            inserted = 1;
+            prev = frame;
             break;
         }
     }
 
-    if (!inserted) {
-        xqc_list_add(&new_frame->sf_list, &stream->stream_data_in.frames_tailq);
+    if (coalesce && prev != NULL && !prev->fin
+        && prev->data_offset + prev->data_length == new_offset
+        && xqc_stream_frame_append(prev, new_frame->data,
+                                   new_frame->data_length))
+    {
+        prev->fin = new_frame->fin;
+        xqc_destroy_stream_frame(new_frame);
+        target = prev;
+
+    } else {
+        /* CWE-770 mitigation: reject if buffered frame count exceeds cap (RFC 9000 §21.7) */
+        if (stream->stream_data_in.buffered_frame_count >= XQC_MAX_STREAM_FRAME_BUFFERED_COUNT) {
+            xqc_log(conn->log, XQC_LOG_WARN,
+                    "|stream frame buffered count exceed|stream_id:%ui|count:%ui|limit:%d|",
+                    stream->stream_id, stream->stream_data_in.buffered_frame_count,
+                    XQC_MAX_STREAM_FRAME_BUFFERED_COUNT);
+            return -XQC_ELIMIT;
+        }
+
+        if (prev != NULL) {
+            xqc_list_add(&new_frame->sf_list, &prev->sf_list);
+
+        } else {
+            xqc_list_add(&new_frame->sf_list, &stream->stream_data_in.frames_tailq);
+        }
+
+        /* update buffered resource counter */
+        stream->stream_data_in.buffered_frame_count++;
+        target = new_frame;
     }
+
+    if (coalesce) {
+        xqc_stream_frame_absorb_next(stream, target);
+    }
+    target_end = target->data_offset + target->data_length;
 
     /*
      * can merge
@@ -172,14 +272,14 @@ xqc_insert_stream_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream
      *                |--------|
      */
     /* merge */
-    if (stream->stream_data_in.merged_offset_end >= new_frame->data_offset
-        && stream->stream_data_in.merged_offset_end < new_frame->data_offset + new_frame->data_length)
+    if (stream->stream_data_in.merged_offset_end >= new_offset
+        && stream->stream_data_in.merged_offset_end < xqc_max(new_end, target_end))
     {
-        stream->stream_data_in.merged_offset_end = new_frame->data_offset + new_frame->data_length;
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|merge left|merged_offset_end:%ui|new_offset:%ui|new_len:%ud|",
-                stream->stream_data_in.merged_offset_end, new_frame->data_offset, new_frame->data_length);
+        stream->stream_data_in.merged_offset_end = xqc_max(new_end, target_end);
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|merge left|merged_offset_end:%ui|new_offset:%ui|new_end:%ui|",
+                stream->stream_data_in.merged_offset_end, new_offset, new_end);
 
-        pos = new_frame->sf_list.next;
+        pos = target->sf_list.next;
         xqc_list_for_each_from(pos, &stream->stream_data_in.frames_tailq) {
             frame = xqc_list_entry(pos, xqc_stream_frame_t, sf_list);
             if (stream->stream_data_in.merged_offset_end >= frame->data_offset) {
@@ -193,9 +293,6 @@ xqc_insert_stream_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream
             }
         }
     }
-
-    /* update buffered resource counter */
-    stream->stream_data_in.buffered_frame_count++;
 
     return XQC_OK;
 }
@@ -500,6 +597,8 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     xqc_stream_type_t    stream_type;
     xqc_stream_t        *stream = NULL;
     xqc_stream_frame_t  *stream_frame;
+    uint64_t             frame_end;
+    unsigned             frame_len;
 
     if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_INIT
         || packet_in->pi_pkt.pkt_type == XQC_PTYPE_HSK)
@@ -650,6 +749,13 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         goto free;
     }
 
+    /*
+     * the stream owns stream_frame after a successful insert, which may
+     * have merged it into another node and freed it
+     */
+    frame_end = stream_frame->data_offset + stream_frame->data_length;
+    frame_len = stream_frame->data_length;
+
     ret = xqc_insert_stream_frame(conn, stream, stream_frame);
     if (ret == -XQC_EDUP_FRAME) {
         ret = XQC_OK;
@@ -661,9 +767,10 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     }
 
     /* receiver flow control */
-    if (stream->stream_max_recv_offset < stream_frame->data_offset + stream_frame->data_length) {
-        conn->conn_flow_ctl.fc_data_recved += stream_frame->data_offset + stream_frame->data_length - stream->stream_max_recv_offset;
-        stream->stream_max_recv_offset = stream_frame->data_offset + stream_frame->data_length;
+    if (stream->stream_max_recv_offset < frame_end) {
+        conn->conn_flow_ctl.fc_data_recved +=
+            frame_end - stream->stream_max_recv_offset;
+        stream->stream_max_recv_offset = frame_end;
     }
 
     if (conn->conn_flow_ctl.fc_data_recved > conn->conn_flow_ctl.fc_max_data_can_recv) {
@@ -704,7 +811,8 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     if (!(packet_in->pi_flag & XQC_PIF_FEC_RECOVERED)
         && packet_in->pi_path_id < XQC_MAX_PATHS_COUNT)
     {
-        stream->paths_info[packet_in->pi_path_id].path_recv_effective_bytes += stream_frame->data_length;
+        stream->paths_info[packet_in->pi_path_id].path_recv_effective_bytes +=
+            frame_len;
     }
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|stream_length:%ui|merged_offset_end:%ui|stream_id:%ui|",

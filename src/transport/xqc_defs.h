@@ -53,6 +53,17 @@
  */
 #define XQC_MAX_STREAM_FRAME_BUFFERED_COUNT     8192    /* max buffered frame nodes per stream */
 
+/*
+ * Once a stream buffers this many frame nodes, a frame that continues the
+ * node before it is copied into that node, and nodes the result then
+ * reaches are absorbed, up to XQC_STREAM_FRAME_COALESCE_MAX_LEN bytes per
+ * node. Contiguous data the peer sends within credit already granted then
+ * fits under the cap above whatever its frame sizes, while the reader is
+ * not taking it; frames after a gap still take a node each.
+ */
+#define XQC_STREAM_FRAME_COALESCE_THRESHOLD     1024
+#define XQC_STREAM_FRAME_COALESCE_MAX_LEN       (64 * 1024)
+
 
 /* xquic will not send stateless reset to packets which are smaller than
    XQC_STATELESS_RESET_PKT_MIN_LEN */

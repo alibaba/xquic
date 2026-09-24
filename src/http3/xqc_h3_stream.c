@@ -2049,6 +2049,15 @@ xqc_h3_stream_body_buf_resume(xqc_h3_stream_t *h3s)
         return;
     }
 
+    /*
+     * A closing connection reads nothing more and must not be queued
+     * again: this can run from a request's close notify while
+     * xqc_conn_destroy() is freeing the connection.
+     */
+    if (h3s->stream->stream_conn->conn_state >= XQC_CONN_STATE_CLOSING) {
+        return;
+    }
+
     xqc_stream_ready_to_read(h3s->stream);
     xqc_log(h3s->h3c->log, XQC_LOG_DEBUG,
             "|body_buf resumed|stream_id:%ui|bytes:%uz|nodes:%ui|",

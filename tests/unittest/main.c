@@ -256,6 +256,9 @@ main(int argc, char *argv[])
                         xqc_test_stream_reset_extends_conn_credit)
         || !CU_add_test(pSuite, "xqc_test_stream_reset_small_keeps_conn_credit",
                         xqc_test_stream_reset_small_keeps_conn_credit)
+        || !CU_add_test(pSuite,
+                        "xqc_test_stream_recv_credit_released_on_update",
+                        xqc_test_stream_recv_credit_released_on_update)
         || !CU_add_test(pSuite, "xqc_test_process_frame", xqc_test_process_frame)
         || !CU_add_test(pSuite, "xqc_test_parse_padding_frame", xqc_test_parse_padding_frame)
 #ifdef XQC_PING_ATTACK_PROTECT
@@ -463,6 +466,8 @@ main(int argc, char *argv[])
                         xqc_test_h3_body_buf_close_drops_body)
         || !CU_add_test(pSuite, "xqc_test_h3_body_buf_unbounded_keeps_nodes",
                         xqc_test_h3_body_buf_unbounded_keeps_nodes)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_setting_reaches_conn",
+                        xqc_test_h3_body_buf_setting_reaches_conn)
                 || !CU_add_test(pSuite, "xqc_test_h3_settings_frame_size_limit", xqc_test_h3_settings_frame_size_limit)
         || !CU_add_test(pSuite, "xqc_test_h3_control_frame_unexpected", xqc_test_h3_control_frame_unexpected)
         || !CU_add_test(pSuite, "xqc_test_h3_missing_settings", xqc_test_h3_missing_settings)

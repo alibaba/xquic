@@ -96,5 +96,6 @@ void xqc_test_h3_body_buf_resume_in_conn_teardown();
 void xqc_test_h3_conn_create_failure_keeps_timers();
 void xqc_test_h3_body_buf_close_drops_body();
 void xqc_test_h3_body_buf_unbounded_keeps_nodes();
+void xqc_test_h3_body_buf_setting_reaches_conn();
 
 #endif //XQUIC_XQC_H3_TEST_H

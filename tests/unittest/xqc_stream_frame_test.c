@@ -1106,3 +1106,54 @@ xqc_test_stream_reset_small_keeps_conn_credit()
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+/*
+ * Released, the rate update and the stream's first STREAM frame extend the
+ * credit again, as they did before the hold existed.
+ */
+void
+xqc_test_stream_recv_credit_released_on_update()
+{
+    xqc_connection_t      *conn = test_engine_connect();
+    xqc_stream_t          *stream;
+    xqc_stream_settings_t  settings;
+    unsigned char          payload[64];
+    size_t                 written = 0;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->conn_settings.enable_stream_rate_limit = 1;
+    conn->conn_settings.init_recv_window = 1024 * 1024;
+
+    /* read to 40 KiB while held, so the reads extend nothing */
+    stream = test_sf_credit_setup(conn);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+    test_sf_read_to(stream, 40 * 1024, XQC_TRUE);
+    xqc_stream_hold_recv_credit(stream, XQC_FALSE);
+    CU_ASSERT_EQUAL(stream->stream_flow_ctl.fc_max_stream_data_can_recv,
+                    64 * 1024);
+
+    memset(&settings, 0, sizeof(settings));
+    settings.recv_rate_bytes_per_sec = 10 * 1024 * 1024;
+    CU_ASSERT_EQUAL(xqc_stream_update_settings(stream, &settings), XQC_OK);
+    CU_ASSERT(stream->stream_flow_ctl.fc_max_stream_data_can_recv
+              >= 40 * 1024 + 1024 * 1024);
+
+    /* a new request stream's first STREAM frame */
+    stream = xqc_stream_create_with_direction(conn, XQC_STREAM_BIDI, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+    stream->stream_flow_ctl.fc_max_stream_data_can_recv = 64 * 1024;
+    stream->stream_flow_ctl.fc_max_stream_data_can_send = 1024 * 1024;
+    conn->conn_flow_ctl.fc_max_data_can_send = 8 * 1024 * 1024;
+    conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
+    memset(payload, 'q', sizeof(payload));
+    CU_ASSERT_FATAL(stream->stream_send_offset == 0);
+    CU_ASSERT(xqc_write_stream_frame_to_packet(conn, stream,
+                                               XQC_PTYPE_SHORT_HEADER, 0,
+                                               payload, sizeof(payload),
+                                               &written) >= 0);
+    CU_ASSERT(stream->stream_flow_ctl.fc_max_stream_data_can_recv
+              > 64 * 1024);
+
+    xqc_engine_destroy(conn->engine);
+}

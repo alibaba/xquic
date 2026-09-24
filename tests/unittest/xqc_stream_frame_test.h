@@ -22,5 +22,6 @@ void  xqc_test_stream_recv_credit_held();
 void  xqc_test_stream_recv_credit_released();
 void  xqc_test_stream_reset_extends_conn_credit();
 void  xqc_test_stream_reset_small_keeps_conn_credit();
+void  xqc_test_stream_recv_credit_released_on_update();
 
 #endif /* _XQC_STREAM_FRAME_TEST_H_INCLUDED_ */

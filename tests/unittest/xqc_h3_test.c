@@ -4693,3 +4693,48 @@ xqc_test_h3_body_buf_unbounded_keeps_nodes()
 
     xqc_h3_bb_teardown(&fx);
 }
+
+
+/*
+ * max_body_buf_per_stream travels the way applications set it: a server's
+ * default settings take it, and an HTTP/3 connection reads it from its
+ * connection's settings.
+ */
+void
+xqc_test_h3_body_buf_setting_reaches_conn()
+{
+    xqc_connection_t    *conn = test_engine_connect();
+    xqc_conn_settings_t  settings;
+    xqc_h3_conn_t       *h3c;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    settings = conn->engine->default_conn_settings;
+    settings.max_body_buf_per_stream = 64 * 1024;
+    xqc_server_set_conn_settings(conn->engine, &settings);
+    CU_ASSERT_EQUAL(
+        conn->engine->default_conn_settings.max_body_buf_per_stream,
+        64 * 1024);
+
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+
+    conn->conn_settings.max_body_buf_per_stream = 64 * 1024;
+    h3c = xqc_h3_conn_create(conn, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(h3c);
+    CU_ASSERT_EQUAL(h3c->max_body_buf_per_stream, 64 * 1024);
+    xqc_h3_conn_destroy(h3c);
+
+    /* the default, 0, leaves the limit off */
+    conn->conn_settings.max_body_buf_per_stream = 0;
+    h3c = xqc_h3_conn_create(conn, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(h3c);
+    CU_ASSERT_EQUAL(h3c->max_body_buf_per_stream, 0);
+    xqc_h3_conn_destroy(h3c);
+
+    xqc_engine_destroy(conn->engine);
+}

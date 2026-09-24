@@ -95,7 +95,8 @@ typedef enum {
     /* FIN was sent and no data will be sent any more */
     XQC_HTTP3_STREAM_FLAG_FIN_SENT              = 0x2000,
     /* reading the transport stream is suspended until the application
-       drains body_buf; cleared in xqc_h3_request_recv_body() */
+       drains body_buf; cleared by xqc_h3_stream_body_buf_resume(), or by
+       xqc_h3_stream_process_data() once the body is below the limit */
     XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED       = 0x4000,
     /* the application is being notified of this request's body by
        xqc_h3_stream_read_notify(), which reads on if it resumes */

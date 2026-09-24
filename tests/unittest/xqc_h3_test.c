@@ -4670,3 +4670,26 @@ xqc_test_h3_body_buf_close_drops_body()
 
     xqc_h3_bb_teardown(&fx);
 }
+
+
+/*
+ * Without a limit each DATA payload keeps a buffer of its own, as before
+ * the limit existed, and empty DATA frames add none to a body with data.
+ */
+void
+xqc_test_h3_body_buf_unbounded_keeps_nodes()
+{
+    xqc_h3_bb_fixture_t fx;
+
+    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 0) == XQC_TRUE);
+
+    xqc_h3_bb_feed_and_run(&fx, 10, 100);
+    CU_ASSERT_EQUAL(fx.h3s->h3r->body_buf_count, 10);
+    CU_ASSERT_EQUAL(fx.h3s->h3r->body_buf_bytes, 1000);
+
+    xqc_h3_bb_feed_and_run(&fx, 100, 0);
+    CU_ASSERT_EQUAL(fx.h3s->h3r->body_buf_count, 10);
+    CU_ASSERT_EQUAL(xqc_h3_bb_drain_all(fx.h3s->h3r), 1000);
+
+    xqc_h3_bb_teardown(&fx);
+}

@@ -991,13 +991,18 @@ xqc_h3_stream_append_body(xqc_h3_stream_t *h3s, const unsigned char *data,
     }
 
     /*
-     * A short payload joins the last buffer when it fits there, and a new
-     * buffer made for one has room for more, so DATA framed at a few bytes
-     * each costs a node per XQC_H3_BODY_BUF_MIN_BYTES_PER_NODE bytes rather
-     * than one per frame. An empty payload needs a node only to make an
-     * otherwise empty body_buf notify the application.
+     * With a limit, a short payload joins the last buffer when it fits
+     * there, and a new buffer made for one has room for more, so DATA
+     * framed at a few bytes each costs a node per
+     * XQC_H3_BODY_BUF_MIN_BYTES_PER_NODE bytes rather than one per frame,
+     * and the limit bounds the nodes too. Without one, each payload keeps a
+     * buffer of its own, as before. An empty payload needs a node only to
+     * make an otherwise empty body_buf notify the application.
      */
-    if (len < XQC_H3_BODY_BUF_MIN_BYTES_PER_NODE) {
+    if (len == 0
+        || (len < XQC_H3_BODY_BUF_MIN_BYTES_PER_NODE
+            && h3s->h3c->max_body_buf_per_stream != 0))
+    {
         if (!xqc_list_empty(&h3r->body_buf)) {
             tail = xqc_list_entry(h3r->body_buf.prev, xqc_list_buf_t,
                                   list_head);

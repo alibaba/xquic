@@ -24,10 +24,10 @@
 #define XQC_H3_BODY_BUF_LOW_WATER(limit)    ((limit) / 4)
 
 /*
- * A DATA payload shorter than this joins the request's last body_buf node
- * when it fits there, and a node made for one is given this much room, so
- * DATA framed at a few bytes each costs a node per this many bytes and the
- * byte limit bounds the nodes as well.
+ * Under max_body_buf_per_stream, a DATA payload shorter than this joins the
+ * request's last body_buf node when it fits there, and a node made for one
+ * is given this much room, so DATA framed at a few bytes each costs a node
+ * per this many bytes and the byte limit bounds the nodes as well.
  */
 #define XQC_H3_BODY_BUF_MIN_BYTES_PER_NODE  256
 

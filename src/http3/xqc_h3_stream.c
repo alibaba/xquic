@@ -2424,6 +2424,17 @@ xqc_h3_stream_read_notify(xqc_stream_t *stream, void *user_data)
         xqc_log(h3c->log, XQC_LOG_ERROR, "|read again|stream_id:%ui|", stream->stream_id);
         return XQC_OK;
     }
+
+    /*
+     * A connection that is closing reads nothing more, as the engine reads
+     * none of its streams in later passes. This pass can still reach a
+     * stream after an application callback closed the connection, such as a
+     * request that a resume queued behind the walk, and a read would send
+     * flow-control credit after the CONNECTION_CLOSE.
+     */
+    if (stream->stream_conn->conn_state >= XQC_CONN_STATE_CLOSING) {
+        return XQC_OK;
+    }
     h3s->flags |= XQC_HTTP3_STREAM_IN_READING;
 
     /* check goaway */

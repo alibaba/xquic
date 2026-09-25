@@ -454,6 +454,8 @@ main(int argc, char *argv[])
                         xqc_test_h3_body_buf_close_releases_pause)
         || !CU_add_test(pSuite, "xqc_test_h3_body_buf_close_in_read_notify",
                         xqc_test_h3_body_buf_close_in_read_notify)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_closing_conn_read_walk",
+                        xqc_test_h3_body_buf_closing_conn_read_walk)
         || !CU_add_test(pSuite, "xqc_test_h3_body_buf_empty_data_fin_notifies",
                         xqc_test_h3_body_buf_empty_data_fin_notifies)
         || !CU_add_test(pSuite, "xqc_test_h3_body_buf_stale_pause_ends",

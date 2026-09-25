@@ -4618,6 +4618,125 @@ xqc_h3_bb_in_active_queue(xqc_engine_t *engine, xqc_connection_t *conn)
 }
 
 
+/* from the acting request's body notify, once: close the target request,
+   then the connection, and note how far each stream had been read */
+static xqc_h3_request_t *xqc_h3_bb_walk_target;
+static xqc_stream_t     *xqc_h3_bb_walk_streams[3];
+static uint64_t          xqc_h3_bb_walk_read[3];
+static int               xqc_h3_bb_walk_acted;
+
+static int
+xqc_h3_bb_close_other_in_read_notify(xqc_h3_request_t *h3r,
+    xqc_request_notify_flag_t flag, void *user_data)
+{
+    xqc_connection_t *conn = h3r->h3_stream->h3c->conn;
+    int               i;
+
+    if (!(flag & XQC_REQ_NOTIFY_READ_BODY) || xqc_h3_bb_walk_acted) {
+        return 0;
+    }
+    xqc_h3_bb_walk_acted++;
+
+    xqc_h3_request_close(xqc_h3_bb_walk_target);
+    (void) xqc_conn_close(conn->engine, &conn->scid_set.user_scid);
+
+    for (i = 0; i < 3; i++) {
+        xqc_h3_bb_walk_read[i] =
+            xqc_h3_bb_walk_streams[i]->stream_data_in.next_read_offset;
+    }
+    return 0;
+}
+
+static xqc_h3_request_callbacks_t xqc_h3_bb_close_other_cbs = {
+    .h3_request_read_notify = xqc_h3_bb_close_other_in_read_notify,
+};
+
+/*
+ * A resume queues its request at the tail of the read walk, so a walk that
+ * an application callback turns closing can still come back to it, and to
+ * any stream still ahead. None of them is read: the connection is closing.
+ * The paused request closes itself and the connection from its own body
+ * notify with a second request behind it in the walk; or a second request
+ * closes the paused one and the connection, with a third behind it.
+ */
+void
+xqc_test_h3_body_buf_closing_conn_read_walk()
+{
+    int self;
+
+    for (self = 1; self >= 0; self--) {
+        xqc_h3_bb_fixture_t fx;
+        xqc_stream_t       *s2 = NULL, *s3 = NULL;
+        xqc_h3_stream_t    *h3s2, *h3s3;
+        uint64_t            off2 = 0, off3 = 0;
+        unsigned char       buf[8192];
+        int                 i;
+
+        CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+        fx.conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
+        h3s2 = xqc_h3_bb_add_stream(&fx, &s2);
+        h3s3 = xqc_h3_bb_add_stream(&fx, &s3);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(h3s2);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(h3s3);
+
+        /* the request that pauses, with everything received */
+        for (i = 0; i < 40; i++) {
+            size_t n = xqc_h3_bb_put_data_frame(buf, 3000,
+                                                (unsigned char) ('a' + (i % 26)));
+            CU_ASSERT_EQUAL_FATAL(xqc_h3_bb_feed(fx.conn, fx.stream,
+                                                 &fx.offset, buf, n), XQC_OK);
+        }
+        xqc_h3_bb_peer_finished(&fx);
+        xqc_h3_bb_feed_stream(&fx, s2, &off2, 10, 500);
+        xqc_h3_bb_feed_stream(&fx, s3, &off3, 10, 500);
+
+        xqc_h3_bb_walk_target = fx.h3s->h3r;
+        xqc_h3_bb_walk_streams[0] = fx.stream;
+        xqc_h3_bb_walk_streams[1] = s2;
+        xqc_h3_bb_walk_streams[2] = s3;
+        xqc_h3_bb_walk_acted = 0;
+
+        if (self) {
+            /* it pauses in this walk and acts from its own notify */
+            fx.h3s->h3r->request_if = &xqc_h3_bb_close_other_cbs;
+            xqc_stream_ready_to_read(fx.stream);
+            xqc_stream_ready_to_read(s2);
+
+        } else {
+            /* it paused in an earlier walk; the second request acts */
+            xqc_stream_ready_to_read(fx.stream);
+            xqc_process_read_streams(fx.conn);
+            CU_ASSERT_FATAL(fx.h3s->flags
+                            & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+            h3s2->h3r->request_if = &xqc_h3_bb_close_other_cbs;
+            xqc_stream_ready_to_read(s2);
+            xqc_stream_ready_to_read(s3);
+        }
+
+        /* the engine is running, as it is whenever a read notify runs */
+        fx.conn->engine->eng_flag |= XQC_ENG_FLAG_RUNNING;
+        xqc_process_read_streams(fx.conn);
+        fx.conn->engine->eng_flag &= ~XQC_ENG_FLAG_RUNNING;
+
+        CU_ASSERT_EQUAL(xqc_h3_bb_walk_acted, 1);
+        CU_ASSERT(fx.conn->conn_state >= XQC_CONN_STATE_CLOSING);
+        for (i = 0; i < 3; i++) {
+            CU_ASSERT_EQUAL(
+                xqc_h3_bb_walk_streams[i]->stream_data_in.next_read_offset,
+                xqc_h3_bb_walk_read[i]);
+        }
+
+        s2->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+        xqc_h3_stream_destroy(h3s2);
+        xqc_destroy_stream(s2);
+        s3->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+        xqc_h3_stream_destroy(h3s3);
+        xqc_destroy_stream(s3);
+        xqc_h3_bb_teardown(&fx);
+    }
+}
+
+
 /*
  * A request drained on a connection that is closing, draining or closed
  * resumes, but the connection is not queued again: the pass would read

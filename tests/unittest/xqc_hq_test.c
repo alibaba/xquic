@@ -57,13 +57,15 @@ xqc_test_hq_input(xqc_stream_t *stream, const char *data, uint8_t fin)
     frame->data_length = len;
     frame->data_offset = stream->stream_data_in.merged_offset_end;
     frame->fin = fin;
+    /* frame is not ours to read once the insert succeeds */
+    uint64_t end = frame->data_offset + len;
     int ret = xqc_insert_stream_frame(stream->stream_conn, stream, frame);
     if (ret != XQC_OK) {
         xqc_destroy_stream_frame(frame);
 
     } else if (fin) {
         stream->stream_data_in.stream_determined = 1;
-        stream->stream_data_in.stream_length = frame->data_offset + len;
+        stream->stream_data_in.stream_length = end;
         stream->stream_state_recv = XQC_RECV_STREAM_ST_DATA_RECVD;
     }
     return ret;

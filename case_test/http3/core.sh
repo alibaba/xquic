@@ -1309,6 +1309,69 @@ fi
 
 }
 
+case_http3_core_h3_body_buf_slow_reader()
+{
+
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost h3_body_buf_server.log
+case_test_start_server ${SERVER_BIN} -l e -s 16777216 -x 1022 \
+    > h3_body_buf_server.log
+sleep 1
+echo -e "HTTP/3 body bound, slow reader gets the whole response ...\c"
+${CLIENT_BIN} -s 1 -l e -t 5 -x 1022 > stdlog
+reader_ok=`grep "\[h3-body-buf-test\]|slow-reader|recv:16777216|fin:1|" \
+    stdlog`
+close_ok=`grep \
+    "\[h3-body-buf-test\]|request-close|recv:16777216|fin:1|stream_err:0|" \
+    stdlog`
+conn_ok=`grep -E "^send_count:.*, conn_err:0, mp_state:" stdlog`
+mismatch=`grep "\[h3-body-buf-test\]|mismatch|" stdlog`
+# no tick collects more than the 64 KiB limit and the rest of one 4 KiB
+# read, which can follow the peer's FIN; unbounded, a tick gets 128 KiB
+max_tick=`grep -o "\[h3-body-buf-test\]|max-per-tick:[0-9]*|" stdlog \
+    | sed 's/.*max-per-tick:\([0-9]*\)|/\1/'`
+bound_ok=""
+if [ -n "$max_tick" ] && [ "$max_tick" -le $((64 * 1024 + 4096)) ]; then
+    bound_ok="1"
+fi
+if [ -n "$reader_ok" ] && [ -n "$close_ok" ] && [ -n "$conn_ok" ] \
+    && [ -z "$mismatch" ] && [ -n "$bound_ok" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_body_buf_slow_reader" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_body_buf_slow_reader" "fail"
+fi
+
+}
+
+case_http3_core_h3_body_buf_reset_while_paused()
+{
+
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost h3_body_buf_server.log
+case_test_start_server ${SERVER_BIN} -l e -s 16777216 -x 1023 \
+    > h3_body_buf_server.log
+sleep 1
+echo -e "HTTP/3 body bound, reset reaches a paused request ...\c"
+${CLIENT_BIN} -s 1 -l e -t 3 -x 1023 > stdlog
+server_reset=`grep "\[h3-body-buf-test\]|server-reset|sent:2097152|" \
+    h3_body_buf_server.log`
+client_reset=`grep \
+    "\[h3-body-buf-test\]|request-close|recv:0|fin:0|stream_err:268|" stdlog`
+conn_ok=`grep -E "^send_count:.*, conn_err:0, mp_state:" stdlog`
+if [ -n "$server_reset" ] && [ -n "$client_reset" ] && [ -n "$conn_ok" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_body_buf_reset_while_paused" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_body_buf_reset_while_paused" "fail"
+fi
+
+}
+
 case_test_case "h3_stream_send_pure_fin" --id native --mode self-reporting --run case_http3_core_h3_stream_send_pure_fin
 case_test_case "header_header_data" --id native --mode self-reporting --run case_http3_core_header_header_data
 case_test_case "header_data_header" --id native --mode self-reporting --run case_http3_core_header_data_header
@@ -1357,6 +1420,10 @@ case_test_case "h3_lowercase_response_field_name_accepted" --id native --mode se
 case_test_case "h3_uppercase_response_field_name_rejected" --id native --mode self-reporting --run case_http3_core_h3_uppercase_response_field_name_rejected
 case_test_case "h3_pseudo_header_order_accepted" --id 1019 --mode self-reporting --run case_http3_core_h3_pseudo_header_order_accepted
 case_test_case "h3_pseudo_header_after_regular_rejected" --id 1020 --mode self-reporting --run case_http3_core_h3_pseudo_header_after_regular_rejected
+case_test_case "h3_body_buf_slow_reader" --id 1022 \
+    --mode self-reporting --run case_http3_core_h3_body_buf_slow_reader
+case_test_case "h3_body_buf_reset_while_paused" --id 1023 \
+    --mode self-reporting --run case_http3_core_h3_body_buf_reset_while_paused
 
 if case_test_is_discovery; then
     case_test_run

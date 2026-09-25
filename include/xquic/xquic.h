@@ -1573,6 +1573,37 @@ typedef struct xqc_conn_settings_s {
      * Default: 0 (use internal default: 8MB)
      */
     size_t                      max_blocked_buf_per_conn;
+
+    /**
+     * Maximum HTTP/3 DATA payload buffered per request stream, in bytes:
+     * payload that the HTTP/3 layer has read out of the transport stream
+     * and that the application has not yet collected with
+     * xqc_h3_request_recv_body().
+     *
+     * Non-zero makes the HTTP/3 layer stop reading a request's transport
+     * stream while that request holds this many bytes, and hold the
+     * stream's receive credit meanwhile; the peer can still send what it
+     * was granted before, which the transport buffers. Reading resumes once
+     * the application has drained the request to a quarter of the limit. A
+     * request whose peer has sent its FIN is not held back. An application
+     * that stops collecting a request's body must close it with
+     * xqc_h3_request_close() to release its stream.
+     *
+     * What the transport buffers for a paused request counts against the
+     * connection's receive window too. With the default windows one
+     * request cannot fill the connection's, but when that window is
+     * smaller than a stream's (is_interop_mode, or recv_rate_bytes_per_sec),
+     * one paused request can, and every other stream on the connection, the
+     * peer's control and QPACK streams included, then waits until the
+     * application drains or closes that request. A request that is neither
+     * drained nor closed stays paused until the connection closes.
+     *
+     * Default: 0, which means unbounded and leaves the read loop unchanged.
+     *
+     * Appended last in this struct: a caller compiled against the previous
+     * header is source-compatible with this one, not binary-compatible.
+     */
+    size_t                      max_body_buf_per_stream;
 } xqc_conn_settings_t;
 
 

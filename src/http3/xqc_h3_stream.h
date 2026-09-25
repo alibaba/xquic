@@ -17,6 +17,20 @@
 /* Default maximum total size of blocked buffers per connection (8 MB) */
 #define XQC_H3_CONN_MAX_BLOCKED_BUF_SIZE_DEFAULT (8 * 1024 * 1024)
 
+/*
+ * Resume a paused request once its buffered body has drained to a quarter of
+ * max_body_buf_per_stream.
+ */
+#define XQC_H3_BODY_BUF_LOW_WATER(limit)    ((limit) / 4)
+
+/*
+ * Under max_body_buf_per_stream, a DATA payload shorter than this joins the
+ * request's last body_buf node when it fits there, and a node made for one
+ * is given this much room, so DATA framed at a few bytes each costs a node
+ * per this many bytes and the byte limit bounds the nodes as well.
+ */
+#define XQC_H3_BODY_BUF_MIN_BYTES_PER_NODE  256
+
 typedef struct xqc_h3_conn_s    xqc_h3_conn_t;
 typedef struct xqc_h3_stream_s  xqc_h3_stream_t;
 
@@ -80,6 +94,13 @@ typedef enum {
     XQC_HTTP3_STREAM_FLAG_ACTIVELY_CLOSED       = 0x1000,
     /* FIN was sent and no data will be sent any more */
     XQC_HTTP3_STREAM_FLAG_FIN_SENT              = 0x2000,
+    /* reading the transport stream is suspended until the application
+       drains body_buf; cleared by xqc_h3_stream_body_buf_resume(), or by
+       xqc_h3_stream_process_data() once the body is below the limit */
+    XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED       = 0x4000,
+    /* the application is being notified of this request's body by
+       xqc_h3_stream_read_notify(), which reads on if it resumes */
+    XQC_HTTP3_STREAM_FLAG_IN_BODY_NOTIFY        = 0x8000,
 } xqc_h3_stream_flag;
 
 typedef struct xqc_h3_stream_pctx_s {
@@ -208,6 +229,12 @@ xqc_int_t xqc_h3_stream_send_setting(xqc_h3_stream_t *h3s, xqc_h3_conn_settings_
 xqc_int_t xqc_h3_stream_send_goaway(xqc_h3_stream_t *h3s, uint64_t push_id, uint8_t fin);
 
 xqc_int_t xqc_h3_stream_process_blocked_stream(xqc_h3_stream_t *h3s);
+
+/*
+ * Read a paused request's transport stream again: clear the pause, release
+ * the stream's receive credit, and have the engine read it.
+ */
+void xqc_h3_stream_body_buf_resume(xqc_h3_stream_t *h3s);
 
 xqc_var_buf_t *xqc_h3_stream_get_send_buf(xqc_h3_stream_t *h3s);
 

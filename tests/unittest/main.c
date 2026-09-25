@@ -233,6 +233,32 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_stop_sending_spares_other_streams",
                         xqc_test_stop_sending_spares_other_streams)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_coalesce_contiguous",
+                        xqc_test_stream_frame_coalesce_contiguous)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_coalesce_bounds",
+                        xqc_test_stream_frame_coalesce_bounds)
+        || !CU_add_test(pSuite,
+                        "xqc_test_stream_frame_coalesce_through_handler",
+                        xqc_test_stream_frame_coalesce_through_handler)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_coalesce_reordered",
+                        xqc_test_stream_frame_coalesce_reordered)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_coalesce_fin_only",
+                        xqc_test_stream_frame_coalesce_fin_only)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_coalesce_smaller_joins",
+                        xqc_test_stream_frame_coalesce_smaller_joins)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_coalesce_back_to_front",
+                        xqc_test_stream_frame_coalesce_back_to_front)
+        || !CU_add_test(pSuite, "xqc_test_stream_recv_credit_held",
+                        xqc_test_stream_recv_credit_held)
+        || !CU_add_test(pSuite, "xqc_test_stream_recv_credit_released",
+                        xqc_test_stream_recv_credit_released)
+        || !CU_add_test(pSuite, "xqc_test_stream_reset_extends_conn_credit",
+                        xqc_test_stream_reset_extends_conn_credit)
+        || !CU_add_test(pSuite, "xqc_test_stream_reset_small_keeps_conn_credit",
+                        xqc_test_stream_reset_small_keeps_conn_credit)
+        || !CU_add_test(pSuite,
+                        "xqc_test_stream_recv_credit_released_on_update",
+                        xqc_test_stream_recv_credit_released_on_update)
         || !CU_add_test(pSuite, "xqc_test_process_frame", xqc_test_process_frame)
         || !CU_add_test(pSuite, "xqc_test_parse_padding_frame", xqc_test_parse_padding_frame)
 #ifdef XQC_PING_ATTACK_PROTECT
@@ -379,6 +405,89 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_h3_headers_capacity_uses_internal_error", xqc_test_h3_headers_capacity_uses_internal_error)
         || !CU_add_test(pSuite, "xqc_test_h3_valid_headers_smoke", xqc_test_h3_valid_headers_smoke)
         || !CU_add_test(pSuite, "xqc_test_h3_frame_parse_error_uses_frame_error", xqc_test_h3_frame_parse_error_uses_frame_error)
+        /* conn_settings.max_body_buf_per_stream: the HTTP/3 body buffer bound */
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_flag_bit_is_free",
+                        xqc_test_h3_body_buf_flag_bit_is_free)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_no_spin",
+                        xqc_test_h3_body_buf_no_spin)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_second_stream_unaffected",
+                        xqc_test_h3_body_buf_second_stream_unaffected)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_backpressure",
+                        xqc_test_h3_body_buf_backpressure)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_resume",
+                        xqc_test_h3_body_buf_resume)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_reset_while_paused",
+                        xqc_test_h3_body_buf_reset_while_paused)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_tiny_frames",
+                        xqc_test_h3_body_buf_tiny_frames)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_reaches_server",
+                        xqc_test_h3_body_buf_reaches_server)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_conn_arm_orphan",
+                        xqc_test_h3_body_buf_conn_arm_orphan)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_pause_is_per_stream_only",
+                        xqc_test_h3_body_buf_pause_is_per_stream_only)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_resume_wakes_engine",
+                        xqc_test_h3_body_buf_resume_wakes_engine)
+        || !CU_add_test(pSuite,
+                        "xqc_test_h3_body_buf_resume_inside_engine_no_wakeup",
+                        xqc_test_h3_body_buf_resume_inside_engine_no_wakeup)
+        || !CU_add_test(pSuite,
+                        "xqc_test_h3_body_buf_resume_from_read_callback",
+                        xqc_test_h3_body_buf_resume_from_read_callback)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_paused_small_frames",
+                        xqc_test_h3_body_buf_paused_small_frames)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_pause_holds_credit",
+                        xqc_test_h3_body_buf_pause_holds_credit)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_hold_is_per_stream",
+                        xqc_test_h3_body_buf_hold_is_per_stream)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_limit_is_exact",
+                        xqc_test_h3_body_buf_limit_is_exact)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_replay_is_bounded",
+                        xqc_test_h3_body_buf_replay_is_bounded)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_replay_after_fin",
+                        xqc_test_h3_body_buf_replay_after_fin)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_pause_during_read_walk",
+                        xqc_test_h3_body_buf_pause_during_read_walk)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_reset_drops_kept_input",
+                        xqc_test_h3_body_buf_reset_drops_kept_input)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_close_releases_pause",
+                        xqc_test_h3_body_buf_close_releases_pause)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_close_in_read_notify",
+                        xqc_test_h3_body_buf_close_in_read_notify)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_closing_conn_read_walk",
+                        xqc_test_h3_body_buf_closing_conn_read_walk)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_empty_data_fin_notifies",
+                        xqc_test_h3_body_buf_empty_data_fin_notifies)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_stale_pause_ends",
+                        xqc_test_h3_body_buf_stale_pause_ends)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_resume_closing_conn",
+                        xqc_test_h3_body_buf_resume_closing_conn)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_resume_in_conn_teardown",
+                        xqc_test_h3_body_buf_resume_in_conn_teardown)
+        || !CU_add_test(pSuite, "xqc_test_h3_conn_create_failure_keeps_timers",
+                        xqc_test_h3_conn_create_failure_keeps_timers)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_close_drops_body",
+                        xqc_test_h3_body_buf_close_drops_body)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_unbounded_keeps_nodes",
+                        xqc_test_h3_body_buf_unbounded_keeps_nodes)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_setting_reaches_conn",
+                        xqc_test_h3_body_buf_setting_reaches_conn)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_replay_refused_trailer",
+                        xqc_test_h3_body_buf_replay_refused_trailer)
+        || !CU_add_test(pSuite, "xqc_test_h3_body_buf_replay_unexpected_frame",
+                        xqc_test_h3_body_buf_replay_unexpected_frame)
+        || !CU_add_test(pSuite,
+                        "xqc_test_h3_body_buf_unblocked_replay_malformed",
+                        xqc_test_h3_body_buf_unblocked_replay_malformed)
+        || !CU_add_test(pSuite,
+                        "xqc_test_h3_body_buf_engine_destroy_live_conn",
+                        xqc_test_h3_body_buf_engine_destroy_live_conn)
+        || !CU_add_test(pSuite,
+                        "xqc_test_h3_body_buf_replay_waits_for_insert",
+                        xqc_test_h3_body_buf_replay_waits_for_insert)
+        || !CU_add_test(pSuite,
+                        "xqc_test_h3_body_buf_unblocked_replay_waits_again",
+                        xqc_test_h3_body_buf_unblocked_replay_waits_again)
                 || !CU_add_test(pSuite, "xqc_test_h3_settings_frame_size_limit", xqc_test_h3_settings_frame_size_limit)
         || !CU_add_test(pSuite, "xqc_test_h3_control_frame_unexpected", xqc_test_h3_control_frame_unexpected)
         || !CU_add_test(pSuite, "xqc_test_h3_missing_settings", xqc_test_h3_missing_settings)

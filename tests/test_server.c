@@ -75,6 +75,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_VALID 1019
 #define XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_INVALID 1020
 #define XQC_TEST_CASE_H3_DATA_BEFORE_HEADERS 1021
+#define XQC_TEST_CASE_H3_BODY_BUF_SLOW_READER 1022
+#define XQC_TEST_CASE_H3_BODY_BUF_RESET_WHILE_PAUSED 1023
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_BELOW_LIMIT 902
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT 903
 #define XQC_TEST_CASE_CRYPTO_PREVIOUS_LEVEL_BOUNDARY 720
@@ -1491,6 +1493,26 @@ xqc_client_h3_send_pure_fin(int fd, short what, void *arg)
 
 
 
+/*
+ * Case 1023 sends this much of the response, then resets the stream once
+ * the client has had time to receive it: the client never collects the
+ * body, so by then its request is paused.
+ */
+#define XQC_TEST_H3_BODY_BUF_RESET_AT (2 * 1024 * 1024)
+
+static void
+xqc_server_body_buf_reset(int fd, short what, void *arg)
+{
+    user_stream_t *user_stream = arg;
+
+    printf("[h3-body-buf-test]|server-reset|sent:%"PRIu64"|\n",
+           user_stream->send_offset);
+    fflush(stdout);
+    xqc_h3_request_close(user_stream->h3_request);
+    xqc_engine_main_logic(ctx.engine);
+}
+
+
 #define MAX_HEADER 100
 
 int
@@ -1701,6 +1723,16 @@ xqc_server_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
                 user_stream->send_body = malloc(g_send_body_size);
                 user_stream->send_body_len = g_send_body_size;
 
+                /* a body whose every byte names its offset */
+                if (g_test_case == XQC_TEST_CASE_H3_BODY_BUF_SLOW_READER
+                    || g_test_case
+                       == XQC_TEST_CASE_H3_BODY_BUF_RESET_WHILE_PAUSED)
+                {
+                    for (size_t i = 0; i < user_stream->send_body_len; i++) {
+                        user_stream->send_body[i] = (char) (i * 131 + 17);
+                    }
+                }
+
             } else if (g_read_body) {
                 user_stream->send_body = malloc(user_stream->send_body_max);
                 ret = read_file_data(user_stream->send_body, user_stream->send_body_max, g_read_file);
@@ -1724,6 +1756,13 @@ xqc_server_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
     }
 
 
+    if (g_test_case == XQC_TEST_CASE_H3_BODY_BUF_RESET_WHILE_PAUSED
+        && user_stream->send_body_len > XQC_TEST_H3_BODY_BUF_RESET_AT)
+    {
+        user_stream->send_body_len = XQC_TEST_H3_BODY_BUF_RESET_AT;
+        send_fin = 0;
+    }
+
     if (user_stream->send_offset < user_stream->send_body_len) {
         ret = xqc_h3_request_send_body(h3_request, user_stream->send_body + user_stream->send_offset,
                                        user_stream->send_body_len - user_stream->send_offset, send_fin);
@@ -1736,6 +1775,18 @@ xqc_server_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
             // mpshell
             // printf("xqc_h3_request_send_body sent:%zd, offset=%"PRIu64"\n", ret, user_stream->send_offset);
         }
+    }
+
+    if (g_test_case == XQC_TEST_CASE_H3_BODY_BUF_RESET_WHILE_PAUSED
+        && user_stream->send_offset == XQC_TEST_H3_BODY_BUF_RESET_AT
+        && user_stream->ev_timeout == NULL)
+    {
+        struct timeval tv = {0, 500000};
+        user_stream->ev_timeout = event_new(eb, -1, 0,
+                                            xqc_server_body_buf_reset,
+                                            user_stream);
+        event_add(user_stream->ev_timeout, &tv);
+        return 0;
     }
 
     if (g_test_case == 12 /* test linger close */
@@ -1790,7 +1841,9 @@ xqc_server_request_close_notify(xqc_h3_request_t *h3_request, void *user_data)
         fflush(stdout);
     }
 
-    if (g_test_case == 100) {
+    if (g_test_case == 100
+        || g_test_case == XQC_TEST_CASE_H3_BODY_BUF_RESET_WHILE_PAUSED)
+    {
         if (user_stream->ev_timeout) {
             event_free(user_stream->ev_timeout);
         }

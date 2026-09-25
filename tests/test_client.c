@@ -94,6 +94,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_VALID 1019
 #define XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_INVALID 1020
 #define XQC_TEST_CASE_H3_DATA_BEFORE_HEADERS 1021
+#define XQC_TEST_CASE_H3_BODY_BUF_SLOW_READER 1022
+#define XQC_TEST_CASE_H3_BODY_BUF_RESET_WHILE_PAUSED 1023
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_BELOW_LIMIT 902
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT 903
 #define XQC_TEST_CASE_DATAGRAM_1RTT_ALLOWED 1201
@@ -3745,6 +3747,75 @@ xqc_client_request_write_notify(xqc_h3_request_t *h3_request, void *user_data)
     return ret;
 }
 
+/*
+ * max_body_buf_per_stream in cases 1022 and 1023, and what the slow reader
+ * of case 1022 collects per 10 ms tick: more than the limit plus one read,
+ * so one tick empties the request after its final read.
+ */
+#define XQC_TEST_H3_BODY_BUF_LIMIT (64 * 1024)
+#define XQC_TEST_H3_BODY_BUF_READ_PER_TICK (128 * 1024)
+
+static struct event  *g_body_buf_read_ev;
+static user_stream_t *g_body_buf_stream;
+static int            g_body_buf_mismatch;
+static size_t         g_body_buf_max_tick;  /* most collected in one tick */
+
+/*
+ * An application that collects the body on its own clock, outside the
+ * engine: max_body_buf_per_stream pauses the request between ticks, and
+ * the tick's drain is what resumes it.
+ */
+static void
+xqc_client_body_buf_read_cb(int fd, short what, void *arg)
+{
+    user_stream_t  *user_stream = g_body_buf_stream;
+    unsigned char   buff[4096];
+    uint8_t         fin = 0;
+    size_t          got = 0;
+    ssize_t         n;
+    struct timeval  tv = {0, 10000};
+
+    if (user_stream == NULL || user_stream->h3_request == NULL) {
+        return;
+    }
+
+    while (got < XQC_TEST_H3_BODY_BUF_READ_PER_TICK && !fin) {
+        n = xqc_h3_request_recv_body(user_stream->h3_request, buff,
+                                     sizeof(buff), &fin);
+        if (n == -XQC_EAGAIN) {
+            break;
+
+        } else if (n < 0) {
+            printf("[h3-body-buf-test]|recv_body error|%zd|\n", n);
+            return;
+        }
+        /* the server sends byte (offset * 131 + 17) at every offset */
+        for (ssize_t i = 0; i < n && !g_body_buf_mismatch; i++) {
+            size_t off = user_stream->recv_body_len + i;
+            if (buff[i] != (unsigned char) (off * 131 + 17)) {
+                g_body_buf_mismatch = 1;
+                printf("[h3-body-buf-test]|mismatch|offset:%zu|\n", off);
+            }
+        }
+        got += n;
+        user_stream->recv_body_len += n;
+    }
+    if (got > g_body_buf_max_tick) {
+        g_body_buf_max_tick = got;
+    }
+
+    if (fin) {
+        user_stream->recv_fin = 1;
+        printf("[h3-body-buf-test]|slow-reader|recv:%zu|fin:1|\n",
+               user_stream->recv_body_len);
+        printf("[h3-body-buf-test]|max-per-tick:%zu|\n", g_body_buf_max_tick);
+        fflush(stdout);
+        return;
+    }
+
+    event_add(g_body_buf_read_ev, &tv);
+}
+
 int
 xqc_client_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_flag_t flag, void *user_data)
 {
@@ -3835,6 +3906,26 @@ xqc_client_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
         }
 
         /* continue to receive body */
+    }
+
+    if ((flag & XQC_REQ_NOTIFY_READ_BODY)
+        && g_test_case == XQC_TEST_CASE_H3_BODY_BUF_RESET_WHILE_PAUSED)
+    {
+        /* never collected: the request stays paused until the reset */
+        return 0;
+    }
+
+    if ((flag & XQC_REQ_NOTIFY_READ_BODY)
+        && g_test_case == XQC_TEST_CASE_H3_BODY_BUF_SLOW_READER)
+    {
+        if (g_body_buf_read_ev == NULL) {
+            struct timeval tv = {0, 10000};
+            g_body_buf_read_ev = event_new(eb, -1, 0,
+                                           xqc_client_body_buf_read_cb, NULL);
+            event_add(g_body_buf_read_ev, &tv);
+        }
+        g_body_buf_stream = user_stream;
+        return 0;
     }
 
     if (flag & XQC_REQ_NOTIFY_READ_BODY) {
@@ -3969,6 +4060,18 @@ xqc_client_request_close_notify(xqc_h3_request_t *h3_request, void *user_data)
 
     printf("retx:%u, sent:%u, max_pto:%u\n", stats.retrans_cnt,
            stats.sent_pkt_cnt, stats.max_pto_backoff);
+
+    if (g_test_case == XQC_TEST_CASE_H3_BODY_BUF_SLOW_READER
+        || g_test_case == XQC_TEST_CASE_H3_BODY_BUF_RESET_WHILE_PAUSED)
+    {
+        if (g_body_buf_stream == user_stream) {
+            g_body_buf_stream = NULL;
+        }
+        printf("[h3-body-buf-test]|request-close|recv:%zu|fin:%d|"
+               "stream_err:%d|\n", user_stream->recv_body_len,
+               user_stream->recv_fin, stats.stream_err);
+        fflush(stdout);
+    }
 
     if (g_test_case == XQC_TEST_CASE_H3_LOWERCASE_RESPONSE
         && stats.stream_err == 0
@@ -5669,6 +5772,12 @@ int main(int argc, char *argv[]) {
 #endif
 
     xqc_stream_settings_t stream_settings = { .recv_rate_bytes_per_sec = 0 };
+
+    if (g_test_case == XQC_TEST_CASE_H3_BODY_BUF_SLOW_READER
+        || g_test_case == XQC_TEST_CASE_H3_BODY_BUF_RESET_WHILE_PAUSED)
+    {
+        conn_settings.max_body_buf_per_stream = XQC_TEST_H3_BODY_BUF_LIMIT;
+    }
 
     if (g_test_case == 109) {
         conn_settings.enable_stream_rate_limit = 1;

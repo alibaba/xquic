@@ -1269,7 +1269,10 @@ xqc_write_stream_frame_to_packet(xqc_connection_t *conn,
                     old_fc_win, stream->stream_flow_ctl.fc_stream_recv_window_size);
         }
 
-        if (stream->stream_flow_ctl.fc_stream_recv_window_size > available_window) {        
+        if (stream->stream_flow_ctl.fc_stream_recv_window_size
+            > available_window
+            && !(stream->stream_flag & XQC_STREAM_FLAG_RECV_CREDIT_HELD))
+        {
             stream->stream_flow_ctl.fc_max_stream_data_can_recv += (stream->stream_flow_ctl.fc_stream_recv_window_size - available_window);
             stream->stream_flow_ctl.fc_max_stream_data_can_recv = xqc_clamp_to_max_flow_ctl(stream->stream_flow_ctl.fc_max_stream_data_can_recv);
             xqc_log(conn->log, XQC_LOG_DEBUG,

@@ -4341,22 +4341,40 @@ xqc_test_h3_body_buf_close_releases_pause()
 }
 
 
-/* the application closes the request once from its body notify, taking
-   the body first when xqc_h3_bb_take_first is set */
+/* what the application does, once, from its body notify: take the body
+   first or not, close its connection before or after the request or not,
+   and close the request or not */
 static xqc_bool_t xqc_h3_bb_take_first;
-static int        xqc_h3_bb_closes;
+static int        xqc_h3_bb_close_conn;     /* 0 no, 1 before, 2 after */
+static xqc_bool_t xqc_h3_bb_close_req;
+static int        xqc_h3_bb_acted;
+static uint64_t   xqc_h3_bb_read_when_acted;
 
 static int
 xqc_h3_bb_close_in_read_notify(xqc_h3_request_t *h3r,
     xqc_request_notify_flag_t flag, void *user_data)
 {
-    if ((flag & XQC_REQ_NOTIFY_READ_BODY) && xqc_h3_bb_closes == 0) {
-        if (xqc_h3_bb_take_first) {
-            (void) xqc_h3_bb_drain_all(h3r);
-        }
-        xqc_h3_bb_closes++;
+    xqc_connection_t *conn = h3r->h3_stream->h3c->conn;
+    xqc_stream_t     *stream = h3r->h3_stream->stream;
+
+    if (!(flag & XQC_REQ_NOTIFY_READ_BODY) || xqc_h3_bb_acted) {
+        return 0;
+    }
+    xqc_h3_bb_acted++;
+
+    if (xqc_h3_bb_take_first) {
+        (void) xqc_h3_bb_drain_all(h3r);
+    }
+    if (xqc_h3_bb_close_conn == 1) {
+        (void) xqc_conn_close(conn->engine, &conn->scid_set.user_scid);
+    }
+    if (xqc_h3_bb_close_req) {
         xqc_h3_request_close(h3r);
     }
+    if (xqc_h3_bb_close_conn == 2) {
+        (void) xqc_conn_close(conn->engine, &conn->scid_set.user_scid);
+    }
+    xqc_h3_bb_read_when_acted = stream->stream_data_in.next_read_offset;
     return 0;
 }
 
@@ -4368,14 +4386,29 @@ static xqc_h3_request_callbacks_t xqc_h3_bb_close_in_read_cbs = {
  * The same close from the request's own body notify, while the engine runs,
  * with the body taken first or not. Nothing else is due once the peer has
  * sent everything, so the read-on there reads the closed request's stream
- * to the end in the same pass.
+ * to the end in the same pass. If the application also closes the
+ * connection, in either order, or only drains the request and closes the
+ * connection, nothing is read on: a closing connection sends no more
+ * credit after its CONNECTION_CLOSE.
  */
 void
 xqc_test_h3_body_buf_close_in_read_notify()
 {
-    int take_first;
+    static const struct {
+        xqc_bool_t take_first;
+        int        close_conn;
+        xqc_bool_t close_req;
+        xqc_bool_t read_on;
+    } cases[] = {
+        { XQC_FALSE, 0, XQC_TRUE,  XQC_TRUE  },
+        { XQC_TRUE,  0, XQC_TRUE,  XQC_TRUE  },
+        { XQC_FALSE, 1, XQC_TRUE,  XQC_FALSE },
+        { XQC_TRUE,  2, XQC_TRUE,  XQC_FALSE },
+        { XQC_TRUE,  1, XQC_FALSE, XQC_FALSE },
+    };
+    size_t c;
 
-    for (take_first = 0; take_first <= 1; take_first++) {
+    for (c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
         xqc_h3_bb_fixture_t fx;
         unsigned char       buf[8192];
         xqc_bool_t          is_set = XQC_FALSE;
@@ -4385,8 +4418,10 @@ xqc_test_h3_body_buf_close_in_read_notify()
         CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
         fx.conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
         fx.h3s->h3r->request_if = &xqc_h3_bb_close_in_read_cbs;
-        xqc_h3_bb_take_first = take_first ? XQC_TRUE : XQC_FALSE;
-        xqc_h3_bb_closes = 0;
+        xqc_h3_bb_take_first = cases[c].take_first;
+        xqc_h3_bb_close_conn = cases[c].close_conn;
+        xqc_h3_bb_close_req = cases[c].close_req;
+        xqc_h3_bb_acted = 0;
 
         for (i = 0; i < 40; i++) {
             size_t n = xqc_h3_bb_put_data_frame(buf, 3000,
@@ -4402,12 +4437,21 @@ xqc_test_h3_body_buf_close_in_read_notify()
         xqc_process_read_streams(fx.conn);
         fx.conn->engine->eng_flag &= ~XQC_ENG_FLAG_RUNNING;
 
-        CU_ASSERT_EQUAL(xqc_h3_bb_closes, 1);
-        CU_ASSERT_EQUAL(fx.stream->stream_data_in.next_read_offset, fx.offset);
-        CU_ASSERT_EQUAL(fx.stream->stream_state_recv,
-                        XQC_RECV_STREAM_ST_DATA_READ);
+        CU_ASSERT_EQUAL(xqc_h3_bb_acted, 1);
+        if (cases[c].read_on) {
+            CU_ASSERT_EQUAL(fx.stream->stream_data_in.next_read_offset,
+                            fx.offset);
+            CU_ASSERT_EQUAL(fx.stream->stream_state_recv,
+                            XQC_RECV_STREAM_ST_DATA_READ);
 
-        /* read in this pass, so no visit is scheduled */
+        } else {
+            /* nothing is read after the notify closed the connection */
+            CU_ASSERT(fx.conn->conn_state >= XQC_CONN_STATE_CLOSING);
+            CU_ASSERT_EQUAL(fx.stream->stream_data_in.next_read_offset,
+                            xqc_h3_bb_read_when_acted);
+        }
+
+        /* read in this pass or not at all, so no visit is scheduled */
         if (fx.h3c->body_buf_revisit_timer >= 0) {
             CU_ASSERT_EQUAL(xqc_conn_gp_timer_get_info(fx.conn,
                                 fx.h3c->body_buf_revisit_timer,

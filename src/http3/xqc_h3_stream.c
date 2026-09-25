@@ -2509,11 +2509,15 @@ xqc_h3_stream_read_notify(xqc_stream_t *stream, void *user_data)
              * timer. Read it here. A closed request's DATA is read and
              * dropped, and it cannot pause again, so this goes round at most
              * once more for it and reads its transport stream to the end.
+             * A connection that is closing reads nothing more: a read would
+             * send flow-control credit after its CONNECTION_CLOSE.
              */
             resumed = paused
                       && !(h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED)
                       && !(h3s->flags & XQC_HTTP3_STREAM_FLAG_READ_EOF)
-                      && h3s->stream == stream;
+                      && h3s->stream == stream
+                      && stream->stream_conn->conn_state
+                         < XQC_CONN_STATE_CLOSING;
             if (resumed) {
                 h3s->flags |= XQC_HTTP3_STREAM_IN_READING;
             }

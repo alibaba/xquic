@@ -4384,9 +4384,9 @@ static xqc_h3_request_callbacks_t xqc_h3_bb_close_in_read_cbs = {
 
 /*
  * The same close from the request's own body notify, while the engine runs,
- * with the body taken first or not. Nothing else is due once the peer has
- * sent everything, so the read-on there reads the closed request's stream
- * to the end in the same pass. If the application also closes the
+ * with the body taken first or not. The read-on there reads what the closed
+ * request's stream holds in the same pass, to the end once the peer has sent
+ * everything, when nothing else is due. If the application also closes the
  * connection, in either order, or only drains the request and closes the
  * connection, nothing is read on: a closing connection sends no more
  * credit after its CONNECTION_CLOSE.
@@ -4398,13 +4398,15 @@ xqc_test_h3_body_buf_close_in_read_notify()
         xqc_bool_t take_first;
         int        close_conn;
         xqc_bool_t close_req;
+        xqc_bool_t peer_done;
         xqc_bool_t read_on;
     } cases[] = {
-        { XQC_FALSE, 0, XQC_TRUE,  XQC_TRUE  },
-        { XQC_TRUE,  0, XQC_TRUE,  XQC_TRUE  },
-        { XQC_FALSE, 1, XQC_TRUE,  XQC_FALSE },
-        { XQC_TRUE,  2, XQC_TRUE,  XQC_FALSE },
-        { XQC_TRUE,  1, XQC_FALSE, XQC_FALSE },
+        { XQC_FALSE, 0, XQC_TRUE,  XQC_TRUE,  XQC_TRUE  },
+        { XQC_TRUE,  0, XQC_TRUE,  XQC_TRUE,  XQC_TRUE  },
+        { XQC_FALSE, 0, XQC_TRUE,  XQC_FALSE, XQC_TRUE  },
+        { XQC_FALSE, 1, XQC_TRUE,  XQC_TRUE,  XQC_FALSE },
+        { XQC_TRUE,  2, XQC_TRUE,  XQC_TRUE,  XQC_FALSE },
+        { XQC_TRUE,  1, XQC_FALSE, XQC_TRUE,  XQC_FALSE },
     };
     size_t c;
 
@@ -4429,7 +4431,9 @@ xqc_test_h3_body_buf_close_in_read_notify()
             CU_ASSERT_EQUAL_FATAL(xqc_h3_bb_feed(fx.conn, fx.stream,
                                                  &fx.offset, buf, n), XQC_OK);
         }
-        xqc_h3_bb_peer_finished(&fx);
+        if (cases[c].peer_done) {
+            xqc_h3_bb_peer_finished(&fx);
+        }
 
         /* the engine is running, as it is whenever a read notify runs */
         fx.conn->engine->eng_flag |= XQC_ENG_FLAG_RUNNING;
@@ -4441,8 +4445,10 @@ xqc_test_h3_body_buf_close_in_read_notify()
         if (cases[c].read_on) {
             CU_ASSERT_EQUAL(fx.stream->stream_data_in.next_read_offset,
                             fx.offset);
-            CU_ASSERT_EQUAL(fx.stream->stream_state_recv,
-                            XQC_RECV_STREAM_ST_DATA_READ);
+            if (cases[c].peer_done) {
+                CU_ASSERT_EQUAL(fx.stream->stream_state_recv,
+                                XQC_RECV_STREAM_ST_DATA_READ);
+            }
 
         } else {
             /* nothing is read after the notify closed the connection */
@@ -4613,34 +4619,42 @@ xqc_h3_bb_in_active_queue(xqc_engine_t *engine, xqc_connection_t *conn)
 
 
 /*
- * A request drained on a connection that is closing resumes, but the
- * connection is not queued again: the pass would read nothing.
+ * A request drained on a connection that is closing, draining or closed
+ * resumes, but the connection is not queued again: the pass would read
+ * nothing.
  */
 void
 xqc_test_h3_body_buf_resume_closing_conn()
 {
-    xqc_h3_bb_fixture_t fx;
-    xqc_engine_t       *engine;
+    static const xqc_conn_state_t states[] = {
+        XQC_CONN_STATE_CLOSING, XQC_CONN_STATE_DRAINING, XQC_CONN_STATE_CLOSED,
+    };
+    size_t i;
 
-    CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
-    engine = fx.conn->engine;
+    for (i = 0; i < sizeof(states) / sizeof(states[0]); i++) {
+        xqc_h3_bb_fixture_t fx;
+        xqc_engine_t       *engine;
 
-    xqc_h3_bb_feed_and_run(&fx, 40, 3000);
-    CU_ASSERT_FATAL(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+        CU_ASSERT_FATAL(xqc_h3_bb_setup(&fx, 8192) == XQC_TRUE);
+        engine = fx.conn->engine;
 
-    xqc_engine_remove_wakeup_queue(engine, fx.conn);
-    xqc_engine_remove_active_queue(engine, fx.conn);
-    fx.conn->conn_state = XQC_CONN_STATE_CLOSING;
+        xqc_h3_bb_feed_and_run(&fx, 40, 3000);
+        CU_ASSERT_FATAL(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
 
-    (void) xqc_h3_bb_drain_all(fx.h3s->h3r);
-    CU_ASSERT_FALSE(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
-    CU_ASSERT_FALSE(fx.stream->stream_flag & XQC_STREAM_FLAG_READY_TO_READ);
-    CU_ASSERT_FALSE(xqc_h3_bb_in_active_queue(engine, fx.conn));
+        xqc_engine_remove_wakeup_queue(engine, fx.conn);
+        xqc_engine_remove_active_queue(engine, fx.conn);
+        fx.conn->conn_state = states[i];
 
-    /* queued again, so that xqc_engine_destroy() frees it */
-    fx.conn->conn_state = XQC_CONN_STATE_ESTABED;
-    xqc_engine_add_active_queue(engine, fx.conn);
-    xqc_h3_bb_teardown(&fx);
+        (void) xqc_h3_bb_drain_all(fx.h3s->h3r);
+        CU_ASSERT_FALSE(fx.h3s->flags & XQC_HTTP3_STREAM_FLAG_BODY_BUF_PAUSED);
+        CU_ASSERT_FALSE(fx.stream->stream_flag & XQC_STREAM_FLAG_READY_TO_READ);
+        CU_ASSERT_FALSE(xqc_h3_bb_in_active_queue(engine, fx.conn));
+
+        /* queued again, so that xqc_engine_destroy() frees it */
+        fx.conn->conn_state = XQC_CONN_STATE_ESTABED;
+        xqc_engine_add_active_queue(engine, fx.conn);
+        xqc_h3_bb_teardown(&fx);
+    }
 }
 
 

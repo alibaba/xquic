@@ -105,6 +105,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_CLOSE_SEND_ONLY_STREAM 724
 #define XQC_TEST_CASE_CLOSE_RECV_ONLY_STREAM 725
 #define XQC_TEST_CASE_CLOSE_AFTER_DATA_RECVD 726
+#define XQC_TEST_CASE_SERVER_INITIAL_ZERO_TOKEN 727
+#define XQC_TEST_CASE_SERVER_INITIAL_NONZERO_TOKEN 728
 #define XQC_TEST_CASE_HQ_REQUEST_FIN 1702
 #define XQC_TEST_CASE_HQ_REQUEST_DELAYED_FIN 1703
 
@@ -2480,6 +2482,13 @@ xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
 
     xqc_conn_stats_t stats = xqc_conn_get_stats(p_ctx->engine, &user_conn->cid);
     printf("0rtt_flag:%d\n", stats.early_data_flag);
+
+    if (g_test_case == XQC_TEST_CASE_SERVER_INITIAL_ZERO_TOKEN
+        || g_test_case == XQC_TEST_CASE_SERVER_INITIAL_NONZERO_TOKEN)
+    {
+        printf("[initial-token-test]|case:%d|handshake_finished|conn_err:%d|\n",
+               g_test_case, stats.conn_err);
+    }
 
     if (g_enable_multipath) {
         printf("transport_parameter:enable_multipath=%d\n", stats.enable_multipath);

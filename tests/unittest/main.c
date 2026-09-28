@@ -286,6 +286,8 @@ main(int argc, char *argv[])
                         xqc_test_tls_default_cert_without_sni)
         || !CU_add_test(pSuite, "xqc_test_tls_legacy_ticket_compatibility",
                         xqc_test_tls_legacy_ticket_compatibility)
+        || !CU_add_test(pSuite, "xqc_test_tls_early_data_context_matrix",
+                        xqc_test_tls_early_data_context_matrix)
         || !CU_add_test(pSuite, "xqc_test_tls", xqc_test_tls)
         || !CU_add_test(pSuite, "xqc_test_h3_stream", xqc_test_stream)
         || !CU_add_test(pSuite, "xqc_test_h3_critical_stream_close", xqc_test_h3_critical_stream_close)

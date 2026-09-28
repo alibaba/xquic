@@ -9,5 +9,6 @@ void xqc_test_tls(void);
 void xqc_test_tls_default_cert_with_sni(void);
 void xqc_test_tls_default_cert_without_sni(void);
 void xqc_test_tls_legacy_ticket_compatibility(void);
+void xqc_test_tls_early_data_context_matrix(void);
 
 #endif

@@ -416,6 +416,57 @@ end:
     return ret;
 }
 
+/*
+ * Mint a ticket under mint_context, then resume it under resume_context and
+ * assert the resulting early-data decision. Both handshakes share one ctx pair
+ * with a fixed session ticket key (def_engine_ssl_config_svr), so the ticket
+ * stays decryptable and the early_data_context is the ONLY variable. This is
+ * what isolates the issue #618 context binding -- the case_test integration
+ * flow cannot, because restarting test_server also rotates the ticket key.
+ *
+ * A context mismatch must reject 0-RTT while the abbreviated 1-RTT handshake
+ * still succeeds (session_reused stays true): graceful degradation, never a
+ * connection failure.
+ */
+static void
+xqc_test_tls_assert_context_resumption(xqc_tls_ctx_t *client_ctx,
+    xqc_tls_ctx_t *server_ctx, xqc_log_t *log,
+    const uint8_t *mint_context, size_t mint_context_len,
+    const uint8_t *resume_context, size_t resume_context_len,
+    xqc_tls_early_data_accept_t expected_early_data)
+{
+    xqc_tls_handshake_result_t mint = {0};
+    xqc_tls_handshake_result_t resume = {0};
+
+    /* Full handshake mints a ticket that embeds mint_context. */
+    CU_ASSERT_EQUAL_FATAL(xqc_test_tls_run_handshake(
+        client_ctx, server_ctx, log, NULL, 0,
+        mint_context, mint_context_len, &mint), XQC_OK);
+    CU_ASSERT_TRUE(mint.client_handshake_completed);
+    CU_ASSERT_TRUE(mint.server_handshake_completed);
+    CU_ASSERT_FALSE(mint.client_session_reused);
+    CU_ASSERT_FALSE(mint.server_session_reused);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(mint.ticket);
+
+    /* Resumption is decided solely by comparing resume_context to the ticket. */
+    CU_ASSERT_EQUAL_FATAL(xqc_test_tls_run_handshake(
+        client_ctx, server_ctx, log, mint.ticket, mint.ticket_len,
+        resume_context, resume_context_len, &resume), XQC_OK);
+    CU_ASSERT_TRUE(resume.client_handshake_completed);
+    CU_ASSERT_TRUE(resume.server_handshake_completed);
+    CU_ASSERT_TRUE(resume.client_session_reused);
+    CU_ASSERT_TRUE(resume.server_session_reused);
+    CU_ASSERT_EQUAL(resume.client_early_data, expected_early_data);
+    CU_ASSERT_EQUAL(resume.server_early_data, expected_early_data);
+
+    if (mint.ticket != NULL) {
+        xqc_free(mint.ticket);
+    }
+    if (resume.ticket != NULL) {
+        xqc_free(resume.ticket);
+    }
+}
+
 static xqc_int_t
 xqc_test_tls_default_cert_handshake(xqc_bool_t with_sni,
                                     int *cert_cb_called)
@@ -571,6 +622,16 @@ xqc_test_tls_default_cert_without_sni(void)
     CU_ASSERT_EQUAL(cert_cb_called, 0);
 }
 
+/*
+ * Legacy 0-RTT ticket compatibility (issue #618 context migration).
+ *
+ * The early_data_context is server-generated and stored inside the opaque
+ * session ticket; a client never sets it. So cross-version behaviour depends
+ * only on which server version minted the ticket vs which validates it. This
+ * test covers old->new and the same-context accept path; the reverse crossing
+ * and the value/version binding matrix live in
+ * xqc_test_tls_early_data_context_matrix.
+ */
 void
 xqc_test_tls_legacy_ticket_compatibility(void)
 {
@@ -613,8 +674,10 @@ xqc_test_tls_legacy_ticket_compatibility(void)
     CU_ASSERT_PTR_NOT_NULL_FATAL(initial.ticket);
 
     /*
-     * A legacy ticket remains resumable after the server changes context.
-     * Only 0-RTT is rejected; the full 1-RTT handshake still succeeds.
+     * old server ticket (legacy 5-byte "xquic") -> new server (14-byte v1):
+     * compatibility-matrix scenarios 3 & 5 (server side). A legacy ticket
+     * remains resumable after the server changes context -- only 0-RTT is
+     * rejected, the abbreviated 1-RTT handshake still succeeds.
      */
     CU_ASSERT_EQUAL_FATAL(xqc_test_tls_run_handshake(
         client_ctx, server_ctx, log, initial.ticket, initial.ticket_len,
@@ -638,7 +701,11 @@ xqc_test_tls_legacy_ticket_compatibility(void)
     CU_ASSERT_FALSE(current_initial.server_session_reused);
     CU_ASSERT_PTR_NOT_NULL_FATAL(current_initial.ticket);
 
-    /* A ticket minted with the current context can use 0-RTT again. */
+    /*
+     * same versioned context on both sides -> 0-RTT accepted:
+     * compatibility-matrix scenarios 2, 4 & 6 (accept path). Once a client
+     * holds a ticket minted by the same server version, 0-RTT works again.
+     */
     CU_ASSERT_EQUAL_FATAL(xqc_test_tls_run_handshake(
         client_ctx, server_ctx, log, current_initial.ticket,
         current_initial.ticket_len, current_context,
@@ -664,6 +731,83 @@ xqc_test_tls_legacy_ticket_compatibility(void)
     if (current.ticket != NULL) {
         xqc_free(current.ticket);
     }
+    xqc_tls_ctx_destroy(client_ctx);
+    xqc_tls_ctx_destroy(server_ctx);
+    xqc_free(log);
+}
+
+
+/*
+ * Early-data context decision matrix for issue #618 (RFC 9221 Section 3).
+ *
+ * The server folds its current max_datagram_frame_size into the QUIC early
+ * data context: "xquic" || version || be64(max_datagram_frame_size). BabaSSL
+ * stores that blob in the session ticket and, on resumption, compares it with
+ * the server's current context; ANY mismatch rejects 0-RTT while the 1-RTT
+ * abbreviated handshake still succeeds. These cases complement
+ * xqc_test_tls_legacy_ticket_compatibility and map to the compatibility matrix:
+ *
+ *   accept control (same context) ...... scenarios 2/4/6 accept path
+ *   new(14B) -> legacy(5B) ............. scenarios 5/7 reverse crossing
+ *   v1 dgram 65536 -> 8000 (reduced) ... scenarios 6/7, the actual #618 trigger
+ *   v1 dgram 8000 -> 65536 (raised) .... documents exact-value conservatism
+ */
+void
+xqc_test_tls_early_data_context_matrix(void)
+{
+    /* "xquic" || v1 || be64(65536) */
+    static const uint8_t ctx_v1_65536[] = {
+        'x', 'q', 'u', 'i', 'c', XQC_EARLY_DATA_CONTEXT_VERSION,
+        0, 0, 0, 0, 0, 1, 0, 0
+    };
+    /* "xquic" || v1 || be64(8000): same format, smaller DATAGRAM limit */
+    static const uint8_t ctx_v1_8000[] = {
+        'x', 'q', 'u', 'i', 'c', XQC_EARLY_DATA_CONTEXT_VERSION,
+        0, 0, 0, 0, 0, 0, 0x1f, 0x40
+    };
+    xqc_log_callbacks_t log_cb = xqc_null_log_cb;
+    xqc_log_t *log = NULL;
+    xqc_tls_ctx_t *client_ctx = NULL;
+    xqc_tls_ctx_t *server_ctx = NULL;
+    def_engine_ssl_config_cli;
+    def_engine_ssl_config_svr;
+
+    log = xqc_log_init(0, 0, 0, 0, 0, NULL, &log_cb, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(log);
+
+    client_ctx = xqc_tls_ctx_create(XQC_TLS_TYPE_CLIENT,
+        &engine_ssl_config_cli, &tls_test_cbs, log);
+    server_ctx = xqc_tls_ctx_create(XQC_TLS_TYPE_SERVER,
+        &engine_ssl_config_svr, &tls_test_cbs, log);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(client_ctx);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(server_ctx);
+    CU_ASSERT_EQUAL_FATAL(xqc_tls_ctx_register_alpn(
+        server_ctx, TEST_ALPN_1, sizeof(TEST_ALPN_1) - 1), XQC_OK);
+
+    /* Control: identical context keeps 0-RTT. */
+    xqc_test_tls_assert_context_resumption(client_ctx, server_ctx, log,
+        ctx_v1_65536, sizeof(ctx_v1_65536),
+        ctx_v1_65536, sizeof(ctx_v1_65536),
+        XQC_TLS_EARLY_DATA_ACCEPT);
+
+    /* Reverse legacy crossing: new ticket -> old server context. */
+    xqc_test_tls_assert_context_resumption(client_ctx, server_ctx, log,
+        ctx_v1_65536, sizeof(ctx_v1_65536),
+        (const uint8_t *)XQC_EARLY_DATA_CONTEXT, XQC_EARLY_DATA_CONTEXT_LEN,
+        XQC_TLS_EARLY_DATA_REJECT);
+
+    /* #618 trigger: server lowered max_datagram_frame_size 65536 -> 8000. */
+    xqc_test_tls_assert_context_resumption(client_ctx, server_ctx, log,
+        ctx_v1_65536, sizeof(ctx_v1_65536),
+        ctx_v1_8000, sizeof(ctx_v1_8000),
+        XQC_TLS_EARLY_DATA_REJECT);
+
+    /* Conservatism: raising the limit 8000 -> 65536 also rejects 0-RTT. */
+    xqc_test_tls_assert_context_resumption(client_ctx, server_ctx, log,
+        ctx_v1_8000, sizeof(ctx_v1_8000),
+        ctx_v1_65536, sizeof(ctx_v1_65536),
+        XQC_TLS_EARLY_DATA_REJECT);
+
     xqc_tls_ctx_destroy(client_ctx);
     xqc_tls_ctx_destroy(server_ctx);
     xqc_free(log);

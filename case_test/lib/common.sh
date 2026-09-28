@@ -40,6 +40,21 @@ case_test_prepare_work_dir()
     fi
 }
 
+# Pin ONE session ticket key in the work dir so that a test_server restart
+# within a single case reuses the SAME key. test_server reads the fixed file
+# name "session_ticket.key" from its CWD; when the file is absent it falls back
+# to a per-process random key, so a restarted server cannot decrypt the ticket
+# minted before the restart and 0-RTT is rejected regardless of the
+# early_data_context. That would mask the issue #618 context binding, so any
+# case that restarts the server and still expects session resumption must call
+# this first. xqc_init_session_ticket_keys requires exactly 48 or 80 raw bytes
+# and no trailing newline.
+case_test_write_session_ticket_key()
+{
+    local key_file="${1:-session_ticket.key}"
+    head -c 48 /dev/urandom > "${key_file}"
+}
+
 case_test_enter_work_dir()
 {
     local root

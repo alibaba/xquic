@@ -52,13 +52,24 @@ fi
 case_transport_datagram__0rtt_max_datagram_frame_size_is_valid()
 {
 
+case_test_stop_server
+rm -f test_session tp_localhost xqc_token
+case_test_start_server ${SERVER_BIN} -l d -e -Q 65536 > /dev/null
+sleep 1
+# First connection: mint a ticket bound to max_datagram_frame_size 65536.
+${CLIENT_BIN} -s 1024 -l d -t 1 -T 1 -Q 65536 -E > /dev/null
 clear_log
 echo -e "0RTT max_datagram_frame_size is valid...\c"
-${CLIENT_BIN} -l d >> stdlog
-cli_result=`grep "|0RTT_transport_params|max_datagram_frame_size:65536|" clog`
-cli_result2=`grep "|1RTT_transport_params|max_datagram_frame_size:65536|" clog`
+${CLIENT_BIN} -s 1024 -l d -t 1 -T 1 -Q 65536 -E > stdlog
+cli_0rtt_tp=`grep "|0RTT_transport_params|max_datagram_frame_size:65536|" clog`
+cli_1rtt_tp=`grep "|1RTT_transport_params|max_datagram_frame_size:65536|" clog`
+flag=`grep "early_data_flag:1" stdlog`
+conn_err_zero=`grep -E "conn_err:0[^0-9]" stdlog`
+result=`grep ">>>>>>>> pass:1" stdlog`
 errlog=`grep_err_log`
-if [ -n "$cli_result" ] && [ -n "$cli_result2" ] && [ -z "$errlog" ]; then
+if [ -n "$cli_0rtt_tp" ] && [ -n "$cli_1rtt_tp" ] \
+    && [ -n "$flag" ] && [ -n "$conn_err_zero" ] \
+    && [ -n "$result" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "0rtt_max_datagram_frame_size_is_valid" "pass"
 else
@@ -72,24 +83,131 @@ case_transport_datagram__0rtt_max_datagram_frame_size_is_invalid()
 {
 
 case_test_stop_server
-case_test_start_server ${SERVER_BIN} -l d -Q 8000 > /dev/null
+rm -f test_session tp_localhost xqc_token session_ticket.key
+# Pin ONE ticket key across the restart below. Without it the restarted server
+# generates a fresh random key, cannot decrypt the old ticket, and rejects
+# 0-RTT for a key-rotation reason unrelated to issue #618 -- this assertion
+# would then pass even with the early_data_context binding reverted. With a
+# shared key the ticket stays decryptable, so max_datagram_frame_size
+# (65536 -> 8000) is the ONLY variable and is provably what rejects 0-RTT.
+# Positive control (same key, unchanged limit => accepted) lives in
+# case_transport_datagram__0rtt_ticket_survives_server_restart.
+case_test_write_session_ticket_key
+case_test_start_server ${SERVER_BIN} -l d -e -Q 65536 > /dev/null
+sleep 1
+# First connection: save the old ticket and its remembered DATAGRAM limit.
+${CLIENT_BIN} -s 1024 -l d -t 1 -T 1 -Q 65536 -E > /dev/null
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -Q 8000 > /dev/null
 sleep 1
 clear_log
-echo -e "0RTT max_datagram_frame_size is invalid...\c"
-${CLIENT_BIN} -l d >> stdlog
-cli_result=`grep "|0RTT_transport_params|max_datagram_frame_size:65536|" clog`
-cli_err=`grep "[error].*err:0x55" clog`
-svr_err=`grep "[error].*err:0xa" slog`
-if [ -n "$cli_result" ] && [ -n "$cli_err" ] && [ -n "$svr_err" ]; then
+echo -e "old 0RTT ticket falls back to 1RTT after DATAGRAM limit change...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -T 1 -Q 65536 -E > stdlog
+cli_0rtt_tp=`grep "|0RTT_transport_params|max_datagram_frame_size:65536|" clog`
+cli_1rtt_tp=`grep "|1RTT_transport_params|max_datagram_frame_size:8000|" clog`
+flag=`grep "early_data_flag:2" stdlog`
+conn_err_zero=`grep -E "conn_err:0[^0-9]" stdlog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_0rtt_tp" ] && [ -n "$cli_1rtt_tp" ] \
+    && [ -n "$flag" ] && [ -n "$conn_err_zero" ] \
+    && [ -n "$result" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "0rtt_max_datagram_frame_size_is_invalid" "pass"
 else
     echo ">>>>>>>> pass:0"
     case_print_result "0rtt_max_datagram_frame_size_is_invalid" "fail"
 fi
-rm -f test_session tp_localhost xqc_token
+rm -f test_session tp_localhost xqc_token session_ticket.key
 
 # issue #672: RFC 9000 7.4.1 forbidden remembered transport params must not be used in 0-RTT
+}
+
+
+# Positive control for 0rtt_max_datagram_frame_size_is_invalid. With ONE shared
+# ticket key, a ticket minted before a server restart stays decryptable, so an
+# UNCHANGED max_datagram_frame_size keeps 0-RTT accepted across the restart.
+# Paired with the invalid case (same key, lowered limit => rejected), this
+# isolates the early_data_context binding as the sole cause of the rejection.
+case_transport_datagram__0rtt_ticket_survives_server_restart()
+{
+
+case_test_stop_server
+rm -f test_session tp_localhost xqc_token session_ticket.key
+case_test_write_session_ticket_key
+case_test_start_server ${SERVER_BIN} -l d -e -Q 65536 > /dev/null
+sleep 1
+# First connection: mint a ticket bound to max_datagram_frame_size 65536.
+${CLIENT_BIN} -s 1024 -l d -t 1 -T 1 -Q 65536 -E > /dev/null
+case_test_stop_server
+# Restart with the SAME limit and the SAME ticket key: 0-RTT must be accepted.
+case_test_start_server ${SERVER_BIN} -l d -e -Q 65536 > /dev/null
+sleep 1
+clear_log
+echo -e "0RTT ticket survives server restart with shared key...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -T 1 -Q 65536 -E > stdlog
+cli_0rtt_tp=`grep "|0RTT_transport_params|max_datagram_frame_size:65536|" clog`
+cli_1rtt_tp=`grep "|1RTT_transport_params|max_datagram_frame_size:65536|" clog`
+flag=`grep "early_data_flag:1" stdlog`
+conn_err_zero=`grep -E "conn_err:0[^0-9]" stdlog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_0rtt_tp" ] && [ -n "$cli_1rtt_tp" ] \
+    && [ -n "$flag" ] && [ -n "$conn_err_zero" ] \
+    && [ -n "$result" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "0rtt_ticket_survives_server_restart" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "0rtt_ticket_survives_server_restart" "fail"
+fi
+rm -f test_session tp_localhost xqc_token session_ticket.key
+
+}
+
+
+# Case B complement to 0rtt_max_datagram_frame_size_is_invalid: here the server
+# cannot validate the ticket AT ALL. With no shared session_ticket.key, each
+# test_server process derives a fresh random ticket key, so the ticket minted
+# before the restart is undecryptable afterwards. 0-RTT must be rejected, the
+# client must fall back to a FULL 1-RTT handshake, and the echoed 1024-byte body
+# must still verify (send/recv body size + pass:1 memcmp).
+case_transport_datagram__0rtt_ticket_undecryptable_falls_back_to_1rtt()
+{
+
+case_test_stop_server
+# Deliberately NO case_test_write_session_ticket_key here: the restarted server
+# cannot decrypt the previous ticket, exercising the ticket-validation-failed path.
+rm -f test_session tp_localhost xqc_token session_ticket.key
+case_test_start_server ${SERVER_BIN} -l d -e -Q 65536 > /dev/null
+sleep 1
+# First connection: mint a ticket under the first server's random key.
+${CLIENT_BIN} -s 1024 -l d -t 1 -T 1 -Q 65536 -E > /dev/null
+case_test_stop_server
+# Restart with the SAME limit but a NEW random key: the old ticket is
+# undecryptable, so 0-RTT is rejected and a full 1-RTT handshake is used.
+case_test_start_server ${SERVER_BIN} -l d -e -Q 65536 > /dev/null
+sleep 1
+clear_log
+echo -e "undecryptable 0RTT ticket falls back to full 1RTT...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -T 1 -Q 65536 -E > stdlog
+cli_1rtt_tp=`grep "|1RTT_transport_params|max_datagram_frame_size:65536|" clog`
+flag=`grep "early_data_flag:2" stdlog`
+conn_err_zero=`grep -E "conn_err:0[^0-9]" stdlog`
+body_ok=`grep "send_body_size:1024, recv_body_size:1024" stdlog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_1rtt_tp" ] \
+    && [ -n "$flag" ] && [ -n "$conn_err_zero" ] \
+    && [ -n "$body_ok" ] && [ -n "$result" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "0rtt_ticket_undecryptable_falls_back_to_1rtt" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "0rtt_ticket_undecryptable_falls_back_to_1rtt" "fail"
+fi
+rm -f test_session tp_localhost xqc_token session_ticket.key
+
 }
 
 case_transport_datagram_datagram_get_mss_no_saved_transport_params()
@@ -1508,6 +1626,8 @@ fi
 case_test_case "datagram_frame_size_negotiation" --id native --mode self-reporting --run case_transport_datagram_datagram_frame_size_negotiation
 case_test_case "0rtt_max_datagram_frame_size_is_valid" --id native --mode self-reporting --run case_transport_datagram__0rtt_max_datagram_frame_size_is_valid
 case_test_case "0rtt_max_datagram_frame_size_is_invalid" --id native --mode self-reporting --run case_transport_datagram__0rtt_max_datagram_frame_size_is_invalid
+case_test_case "0rtt_ticket_survives_server_restart" --id native --mode self-reporting --run case_transport_datagram__0rtt_ticket_survives_server_restart
+case_test_case "0rtt_ticket_undecryptable_falls_back_to_1rtt" --id native --mode self-reporting --run case_transport_datagram__0rtt_ticket_undecryptable_falls_back_to_1rtt
 case_test_case "datagram_get_mss_no_saved_transport_params" --id native --mode self-reporting --run case_transport_datagram_datagram_get_mss_no_saved_transport_params
 case_test_case "datagram_get_mss_saved_transport_params" --id native --mode self-reporting --run case_transport_datagram_datagram_get_mss_saved_transport_params
 case_test_case "datagram_mss_limited_by_MTU" --id native --mode self-reporting --run case_transport_datagram_datagram_mss_limited_by_MTU

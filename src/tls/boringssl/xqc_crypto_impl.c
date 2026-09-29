@@ -173,10 +173,17 @@ xqc_bssl_hp_mask_chacha20(const xqc_hdr_protect_cipher_t *hp_cipher, void *hp_ct
     if (XQC_UNLIKELY(keylen != 32 && samplelen != 16)) {
         return -XQC_TLS_INVALID_ARGUMENT;
     }
-    uint32_t *counter = (uint32_t *)(sample);
-    sample += sizeof(uint32_t);
+    /*
+     * RFC 9001 §5.4.4: decode the counter as little-endian without
+     * alignment or strict-aliasing requirements on sample.
+     */
+    uint32_t counter = (uint32_t)sample[0]
+                     | ((uint32_t)sample[1] << 8)
+                     | ((uint32_t)sample[2] << 16)
+                     | ((uint32_t)sample[3] << 24);
+    sample += sizeof(counter);
 
-    CRYPTO_chacha_20(dest, plaintext, plaintextlen, key, sample, *counter);
+    CRYPTO_chacha_20(dest, plaintext, plaintextlen, key, sample, counter);
 
     *destlen = plaintextlen;
     return XQC_OK;

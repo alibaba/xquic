@@ -5781,6 +5781,27 @@ xqc_conn_on_recv_retry(xqc_connection_t *conn, xqc_cid_t *retry_scid)
 }
 
 
+static void
+xqc_conn_limit_pkt_out_size_by_peer(xqc_connection_t *conn)
+{
+    size_t peer_pkt_out_size;
+
+    if (conn->remote_settings.max_udp_payload_size
+        < XQC_MIN_UDP_PAYLOAD_SIZE)
+    {
+        return;
+    }
+
+    peer_pkt_out_size = conn->remote_settings.max_udp_payload_size
+                        - XQC_PACKET_OUT_EXT_SPACE;
+    conn->pkt_out_size = xqc_min(conn->pkt_out_size, peer_pkt_out_size);
+    conn->max_pkt_out_size = xqc_min(conn->max_pkt_out_size,
+                                     peer_pkt_out_size);
+    conn->probing_pkt_out_size = xqc_min(conn->probing_pkt_out_size,
+                                         peer_pkt_out_size);
+}
+
+
 xqc_int_t
 xqc_conn_set_remote_transport_params(xqc_connection_t *conn,
     const xqc_transport_params_t *params, xqc_transport_params_type_t exttype)
@@ -5877,10 +5898,7 @@ xqc_conn_set_remote_transport_params(xqc_connection_t *conn,
     settings->max_receive_timestamps_per_ack = params->max_receive_timestamps_per_ack;
     settings->receive_timestamps_exponent = params->receive_timestamps_exponent;
 
-    if (conn->conn_type == XQC_CONN_TYPE_SERVER
-        && settings->max_udp_payload_size >= XQC_PACKET_OUT_SIZE) {
-        conn->pkt_out_size = xqc_min(conn->pkt_out_size, settings->max_udp_payload_size - XQC_PACKET_OUT_EXT_SPACE);
-    }
+    xqc_conn_limit_pkt_out_size_by_peer(conn);
 
     return XQC_OK;
 }
@@ -6557,6 +6575,7 @@ xqc_conn_set_early_remote_transport_params(xqc_connection_t *conn,
     }
 
     xqc_settings_copy_from_transport_params(&conn->remote_settings, params);
+    xqc_conn_limit_pkt_out_size_by_peer(conn);
 
     /*
      * RFC 9000 §7.4.1: a client MUST NOT use remembered values for

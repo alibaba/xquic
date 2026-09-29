@@ -186,6 +186,88 @@ xqc_test_datagram_transport_param_65536(void)
 
 
 void
+xqc_test_peer_max_udp_payload_size_limits_packets(void)
+{
+    const size_t peer_pkt_out_size = XQC_MIN_UDP_PAYLOAD_SIZE
+                                     - XQC_PACKET_OUT_EXT_SPACE;
+    xqc_connection_t *conn;
+    xqc_packet_out_t *packet_out;
+    xqc_transport_params_t params;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->pkt_out_size = peer_pkt_out_size - 100;
+    conn->max_pkt_out_size = peer_pkt_out_size + 100;
+    conn->probing_pkt_out_size = peer_pkt_out_size + 100;
+    xqc_init_transport_params(&params);
+    params.max_udp_payload_size = XQC_MIN_UDP_PAYLOAD_SIZE;
+
+    CU_ASSERT_EQUAL(xqc_conn_set_remote_transport_params(
+                        conn, &params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(conn->pkt_out_size, peer_pkt_out_size - 100);
+    CU_ASSERT_EQUAL(conn->max_pkt_out_size, peer_pkt_out_size);
+    CU_ASSERT_EQUAL(conn->probing_pkt_out_size, peer_pkt_out_size);
+
+    conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_COMPLETED
+                       | XQC_CONN_FLAG_CAN_SEND_1RTT;
+    xqc_conn_ptmud_probing(conn);
+    packet_out = xqc_test_get_conn_close_packet(conn);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(packet_out);
+    CU_ASSERT_EQUAL(packet_out->po_buf_size, peer_pkt_out_size);
+    xqc_engine_destroy(conn->engine);
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    conn->pkt_out_size = peer_pkt_out_size - 100;
+    conn->max_pkt_out_size = peer_pkt_out_size + 100;
+    conn->probing_pkt_out_size = peer_pkt_out_size + 100;
+    CU_ASSERT_EQUAL(xqc_conn_set_remote_transport_params(
+                        conn, &params, XQC_TP_TYPE_CLIENT_HELLO), XQC_OK);
+    CU_ASSERT_EQUAL(conn->pkt_out_size, peer_pkt_out_size - 100);
+    CU_ASSERT_EQUAL(conn->max_pkt_out_size, peer_pkt_out_size);
+    CU_ASSERT_EQUAL(conn->probing_pkt_out_size, peer_pkt_out_size);
+    xqc_engine_destroy(conn->engine);
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->pkt_out_size = peer_pkt_out_size - 100;
+    conn->max_pkt_out_size = peer_pkt_out_size + 100;
+    conn->probing_pkt_out_size = peer_pkt_out_size + 100;
+    CU_ASSERT_EQUAL(xqc_conn_set_early_remote_transport_params(conn, &params),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(conn->pkt_out_size, peer_pkt_out_size - 100);
+    CU_ASSERT_EQUAL(conn->max_pkt_out_size, peer_pkt_out_size);
+    CU_ASSERT_EQUAL(conn->probing_pkt_out_size, peer_pkt_out_size);
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_peer_max_udp_payload_size_does_not_expand_packets(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_transport_params_t params;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->pkt_out_size = XQC_PACKET_OUT_SIZE;
+    conn->max_pkt_out_size = XQC_MAX_PACKET_OUT_SIZE;
+    conn->probing_pkt_out_size = XQC_MAX_PACKET_OUT_SIZE;
+    xqc_init_transport_params(&params);
+    params.max_udp_payload_size = XQC_DEFAULT_MAX_UDP_PAYLOAD_SIZE;
+
+    CU_ASSERT_EQUAL(xqc_conn_set_remote_transport_params(
+                        conn, &params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(conn->pkt_out_size, XQC_PACKET_OUT_SIZE);
+    CU_ASSERT_EQUAL(conn->max_pkt_out_size, XQC_MAX_PACKET_OUT_SIZE);
+    CU_ASSERT_EQUAL(conn->probing_pkt_out_size, XQC_MAX_PACKET_OUT_SIZE);
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
 xqc_test_datagram_transport_param_varint_max(void)
 {
     const uint64_t varint_max = (1ULL << 62) - 1;

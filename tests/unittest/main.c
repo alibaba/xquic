@@ -90,6 +90,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_datagram_transport_param_65536",
                         xqc_test_datagram_transport_param_65536)
         || !CU_add_test(pSuite,
+                        "xqc_test_peer_max_udp_payload_size_limits_packets",
+                        xqc_test_peer_max_udp_payload_size_limits_packets)
+        || !CU_add_test(pSuite,
+                        "xqc_test_peer_max_udp_payload_size_does_not_expand_packets",
+                        xqc_test_peer_max_udp_payload_size_does_not_expand_packets)
+        || !CU_add_test(pSuite,
                         "xqc_test_datagram_transport_param_varint_max",
                         xqc_test_datagram_transport_param_varint_max)
         || !CU_add_test(pSuite, "xqc_test_conn_idle_timeout", xqc_test_conn_idle_timeout)

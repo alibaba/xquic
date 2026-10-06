@@ -2576,6 +2576,7 @@ void usage(int argc, char *argv[]) {
 "   -a    Server addr.\n"
 "   -p    Server port.\n"
 "   -e    Echo. Send received body.\n"
+"   -f    Enable FEC on.\n"
 "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic B:bbr2 bbr+ bbr2+\n"
 "   -C    Pacing on.\n"
 "   -L    Endless_sending. default is 0(off).\n"
@@ -2595,7 +2596,7 @@ void usage(int argc, char *argv[]) {
 "   -o    Output log file path, default ./slog\n"
 "   -m    Set mpshell on.\n"
 "   -y    Multipath backup path standby.\n"
-"   -Q    Multipath backup path standby, set backup_mode on(1). default backup_mode is 0(off).\n"
+"   -Q    Max datagram frame size.\n"
 "   -H    Disable h3_ext.\n"
 "   -U    Send_datagram 0 (off), 1 (on), 2(on + batch).\n"
 , prog);

@@ -1120,14 +1120,21 @@ xqc_decode_one_transport_param(xqc_transport_params_t *params,
     }
     p += nread;
 
-    /* 
+    /*
      * read param value, note: some parameters are allowed to be zero-length,
-     * for example, disable_active_migration. 
+     * for example, disable_active_migration.
+     *
+     * RFC 9000 Section 18: the value occupies exactly the declared length, so
+     * pass p + param_len rather than the end of the whole extension. A decoder
+     * then cannot read bytes that belong to the following parameter, and a
+     * value whose own encoding is longer than the declared length is refused
+     * by that decoder's bound check instead of silently borrowing them.
      */
     uint64_t param_index = xqc_trans_param_get_index(param_type);
     if (param_index != XQC_TP_DECODER_UNKNOWN) {
-        xqc_int_t ret = xqc_trans_param_decode_func_list[param_index](params, exttype, p, end,
-                                                                      param_type, param_len);
+        xqc_int_t ret;
+        ret = xqc_trans_param_decode_func_list[param_index](
+            params, exttype, p, p + param_len, param_type, param_len);
         if (ret < 0) {
             return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
         }

@@ -194,6 +194,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_crypto_in_0rtt_emits_connection_close", xqc_test_crypto_in_0rtt_emits_connection_close)
         || !CU_add_test(pSuite, "xqc_test_crypto", xqc_test_crypto)
         || !CU_add_test(pSuite, "xqc_test_hp_sample_boundary", xqc_test_hp_sample_boundary)
+        || !CU_add_test(pSuite, "xqc_test_rfc9001_chacha20_hp_mask",
+                        xqc_test_rfc9001_chacha20_hp_mask)
+        || !CU_add_test(pSuite, "xqc_test_rfc9001_chacha20_hp_unaligned_sample",
+                        xqc_test_rfc9001_chacha20_hp_unaligned_sample)
         || !CU_add_test(pSuite, "xqc_test_packet_encrypt_hp_sample_boundary", xqc_test_packet_encrypt_hp_sample_boundary)
         || !CU_add_test(pSuite, "xqc_test_empty_pkt", xqc_test_empty_pkt)
         || !CU_add_test(pSuite, "xqc_test_stateless_reset_parse_boundary", xqc_test_stateless_reset_parse_boundary)

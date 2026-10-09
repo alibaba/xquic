@@ -66,4 +66,44 @@ void xqc_test_h3_uppercase_field_name_stream_rejected();
 void xqc_test_h3_pseudo_header_order_accepted();
 void xqc_test_h3_pseudo_header_after_regular_rejected();
 
+/* conn_settings.max_body_buf_per_stream: the body_buf bound */
+void xqc_test_h3_body_buf_flag_bit_is_free();
+void xqc_test_h3_body_buf_no_spin();
+void xqc_test_h3_body_buf_second_stream_unaffected();
+void xqc_test_h3_body_buf_backpressure();
+void xqc_test_h3_body_buf_resume();
+void xqc_test_h3_body_buf_reset_while_paused();
+void xqc_test_h3_body_buf_tiny_frames();
+void xqc_test_h3_body_buf_reaches_server();
+void xqc_test_h3_body_buf_conn_arm_orphan();
+void xqc_test_h3_body_buf_pause_is_per_stream_only();
+void xqc_test_h3_body_buf_resume_wakes_engine();
+void xqc_test_h3_body_buf_resume_inside_engine_no_wakeup();
+void xqc_test_h3_body_buf_resume_from_read_callback();
+void xqc_test_h3_body_buf_paused_small_frames();
+void xqc_test_h3_body_buf_pause_holds_credit();
+void xqc_test_h3_body_buf_hold_is_per_stream();
+void xqc_test_h3_body_buf_limit_is_exact();
+void xqc_test_h3_body_buf_replay_is_bounded();
+void xqc_test_h3_body_buf_replay_after_fin();
+void xqc_test_h3_body_buf_pause_during_read_walk();
+void xqc_test_h3_body_buf_close_releases_pause();
+void xqc_test_h3_body_buf_close_in_read_notify();
+void xqc_test_h3_body_buf_closing_conn_read_walk();
+void xqc_test_h3_body_buf_reset_drops_kept_input();
+void xqc_test_h3_body_buf_empty_data_fin_notifies();
+void xqc_test_h3_body_buf_stale_pause_ends();
+void xqc_test_h3_body_buf_resume_closing_conn();
+void xqc_test_h3_body_buf_resume_in_conn_teardown();
+void xqc_test_h3_conn_create_failure_keeps_timers();
+void xqc_test_h3_body_buf_close_drops_body();
+void xqc_test_h3_body_buf_unbounded_keeps_nodes();
+void xqc_test_h3_body_buf_setting_reaches_conn();
+void xqc_test_h3_body_buf_replay_refused_trailer();
+void xqc_test_h3_body_buf_replay_unexpected_frame();
+void xqc_test_h3_body_buf_unblocked_replay_malformed();
+void xqc_test_h3_body_buf_engine_destroy_live_conn();
+void xqc_test_h3_body_buf_replay_waits_for_insert();
+void xqc_test_h3_body_buf_unblocked_replay_waits_again();
+
 #endif //XQUIC_XQC_H3_TEST_H

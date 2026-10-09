@@ -40,6 +40,7 @@ typedef enum {
     XQC_STREAM_FLAG_UNEXPECTED      = 1 << 8,
     XQC_STREAM_FLAG_DISCARDED       = 1 << 9,   /* stream create_notify with error, all stream data will be discarded */
     XQC_STREAM_FLAG_STOP_SENDING_SENT = 1 << 10,
+    XQC_STREAM_FLAG_RECV_CREDIT_HELD  = 1 << 11,   /* reader paused */
 } xqc_stream_flag_t;
 
 typedef enum {
@@ -79,6 +80,7 @@ typedef struct xqc_stream_frame_s {
     xqc_list_head_t         sf_list;
     unsigned char          *data;
     unsigned                data_length;
+    unsigned                data_cap;           /* allocated; 0: data_length */
     uint64_t                data_offset;
     uint64_t                next_read_offset;   /* next offset in frame */
     unsigned char           fin;
@@ -272,6 +274,12 @@ void xqc_stream_ready_to_read(xqc_stream_t *stream);
 
 void xqc_stream_shutdown_read(xqc_stream_t *stream);
 
+/*
+ * While held, nothing extends the stream's receive credit: its reader has
+ * stopped taking data, and the peer can still send what it was granted.
+ */
+void xqc_stream_hold_recv_credit(xqc_stream_t *stream, xqc_bool_t hold);
+
 xqc_bool_t xqc_stream_is_terminal_state(xqc_stream_t *stream);
 
 void xqc_stream_maybe_need_close(xqc_stream_t *stream);
@@ -285,6 +293,13 @@ void xqc_stream_update_flow_ctl(xqc_stream_t *stream);
 int xqc_stream_do_send_flow_ctl(xqc_stream_t *stream);
 
 int xqc_stream_do_recv_flow_ctl(xqc_stream_t *stream);
+
+/*
+ * The connection level of xqc_stream_do_recv_flow_ctl(), for an event that
+ * counts data as read without a read.
+ */
+void xqc_stream_do_conn_recv_flow_ctl(xqc_stream_t *stream, xqc_usec_t now,
+    xqc_usec_t min_srtt);
 
 int xqc_stream_do_create_flow_ctl(xqc_connection_t *conn, xqc_stream_id_t stream_id, xqc_stream_type_t stream_type);
 

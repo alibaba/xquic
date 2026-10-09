@@ -189,6 +189,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_in_0rtt_rejected", xqc_test_crypto_frame_in_0rtt_rejected)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_in_initial_accepted", xqc_test_crypto_frame_in_initial_accepted)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_in_handshake_accepted", xqc_test_crypto_frame_in_handshake_accepted)
+        || !CU_add_test(pSuite,
+                        "xqc_test_crypto_read_waits_for_tls_completion",
+                        xqc_test_crypto_read_waits_for_tls_completion)
+        || !CU_add_test(pSuite,
+                        "xqc_test_crypto_read_after_tls_completion",
+                        xqc_test_crypto_read_after_tls_completion)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_in_short_header_accepted", xqc_test_crypto_frame_in_short_header_accepted)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_dispatched_via_xqc_process_frame", xqc_test_crypto_frame_dispatched_via_xqc_process_frame)
         || !CU_add_test(pSuite, "xqc_test_crypto_in_0rtt_emits_connection_close", xqc_test_crypto_in_0rtt_emits_connection_close)

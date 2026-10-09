@@ -39,6 +39,10 @@ void xqc_test_crypto_frame_in_initial_accepted();
 
 void xqc_test_crypto_frame_in_handshake_accepted();
 
+void xqc_test_crypto_read_waits_for_tls_completion();
+
+void xqc_test_crypto_read_after_tls_completion();
+
 void xqc_test_crypto_frame_in_short_header_accepted();
 
 void xqc_test_crypto_frame_dispatched_via_xqc_process_frame();

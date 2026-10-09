@@ -773,3 +773,77 @@ xqc_test_check_transport_params_cids(void)
     xqc_tp_test_check_client_retry_all_match();
     xqc_tp_test_check_client_no_retry_but_rscid_present();
 }
+
+/*
+ * RFC 9000 Section 18: the Transport Parameter Length field gives the length
+ * of the value in bytes, so a value whose own encoding is longer than the
+ * declared length is malformed. The decoder is confined to the declared
+ * length, so such a value cannot borrow bytes from the following parameter;
+ * it is refused with TRANSPORT_PARAMETER_ERROR instead.
+ */
+void
+xqc_test_tp_value_not_longer_than_len(void)
+{
+    /* initial_max_data declares one value byte, but 0x40 begins a two-byte
+     * varint, which would borrow the following 0x1f. */
+    uint8_t spill[] = {
+        XQC_TRANSPORT_PARAM_INITIAL_MAX_DATA, 0x01, 0x40, 0x1f
+    };
+    /* the spill would also make 0x04 serve as the next parameter's id. */
+    uint8_t spill_desync[] = {
+        XQC_TRANSPORT_PARAM_INITIAL_MAX_DATA, 0x01, 0x40,
+        XQC_TRANSPORT_PARAM_INITIAL_MAX_DATA, 0x01, 0x05
+    };
+    xqc_transport_params_t params;
+    xqc_int_t              ret;
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params,
+                                      XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      spill, sizeof(spill));
+    CU_ASSERT_EQUAL(ret, -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params,
+                                      XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      spill_desync, sizeof(spill_desync));
+    CU_ASSERT_EQUAL(ret, -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+}
+
+/*
+ * A well-formed value whose varint length equals the declared length decodes
+ * correctly, including when it is the last parameter in the buffer (confining
+ * the decode to the declared length must not truncate a legitimate value).
+ */
+void
+xqc_test_tp_value_matches_len_decodes(void)
+{
+    /* a two-byte varint (0x40 0x1f = 31) with a matching declared length,
+     * followed by, then preceded by, another parameter. */
+    uint8_t first[] = {
+        XQC_TRANSPORT_PARAM_INITIAL_MAX_DATA, 0x02, 0x40, 0x1f,
+        XQC_TRANSPORT_PARAM_DISABLE_ACTIVE_MIGRATION, 0x00
+    };
+    uint8_t last[] = {
+        XQC_TRANSPORT_PARAM_DISABLE_ACTIVE_MIGRATION, 0x00,
+        XQC_TRANSPORT_PARAM_INITIAL_MAX_DATA, 0x02, 0x40, 0x1f
+    };
+    xqc_transport_params_t params;
+    xqc_int_t              ret;
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params,
+                                      XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      first, sizeof(first));
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(params.initial_max_data, 31);
+    CU_ASSERT_EQUAL(params.disable_active_migration, 1);
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params,
+                                      XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      last, sizeof(last));
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(params.initial_max_data, 31);
+    CU_ASSERT_EQUAL(params.disable_active_migration, 1);
+}

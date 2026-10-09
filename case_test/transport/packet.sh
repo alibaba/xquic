@@ -464,6 +464,51 @@ fi
 
 }
 
+server_initial_token_case()
+{
+    local case_id="$1"
+    local token_len="$2"
+
+    case_test_stop_server
+    clear_log
+    rm -f test_session xqc_token tp_localhost
+    case_test_start_server ${SERVER_BIN} -l d -e -x "${case_id}" \
+        > svr_stdlog
+    ${CLIENT_BIN} -s 1024 -l d -t 3 -E -x "${case_id}" > stdlog
+
+    grep -qF ">>>>>>>> pass:1" stdlog || return 1
+    grep -qF "|case:${case_id}|handshake_finished|conn_err:0|" \
+        stdlog || return 1
+    case_test_wait_for_log svr_stdlog \
+        "|case:${case_id}|server_handshake_finished|conn_err:0|" \
+        || return 1
+    grep -qF "|case:${case_id}|queued_ping|token_len:${token_len}|" \
+        svr_stdlog || return 1
+    grep -qE '\|<==\|.*\|pkt_type:INIT\|frame:[^|]*PING' slog || return 1
+    ! grep -qE 'decrypt (data|payload) error|packet protection error' \
+        clog slog
+}
+
+server_initial_zero_token_accepted()
+{
+    server_initial_token_case 727 0 || return 1
+    grep -qE '\|====>\|.*\|pkt_type:INIT\|.*\|frame:[^|]*PING' \
+        clog || return 1
+    ! grep -qF '|discard server Initial with nonzero token length|' clog
+}
+
+server_initial_nonzero_token_discarded()
+{
+    server_initial_token_case 728 1 || return 1
+    grep -qF '|discard server Initial with nonzero token length|1|' \
+        clog || return 1
+    ! grep -qE '\|====>\|.*\|pkt_type:INIT\|.*\|frame:[^|]*PING' clog
+}
+
+case_test_case "server_initial_zero_token_accepted" --id 727 \
+    --run server_initial_zero_token_accepted
+case_test_case "server_initial_nonzero_token_discarded" --id 728 \
+    --run server_initial_nonzero_token_discarded
 case_test_case "illegal_packet" --id native --mode self-reporting --run case_transport_packet_illegal_packet
 case_test_case "duplicate_packet" --id native --mode self-reporting --run case_transport_packet_duplicate_packet
 case_test_case "packet_with_wrong_cid" --id native --mode self-reporting --run case_transport_packet_packet_with_wrong_cid

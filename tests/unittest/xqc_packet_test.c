@@ -14,6 +14,7 @@
 #include "xquic/xquic_typedef.h"
 #include "xquic/xquic.h"
 #include "src/common/xqc_str.h"
+#include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "xqc_common_test.h"
 #include "src/transport/xqc_conn.h"
 
@@ -121,6 +122,65 @@ xqc_test_server_buffers_received_zero_rtt(void)
     CU_ASSERT_TRUE(conn->conn_flag & XQC_CONN_FLAG_HAS_0RTT);
 
     conn->conn_type = XQC_CONN_TYPE_CLIENT;
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_client_initial_zero_token(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_packet_in_t packet_in;
+    unsigned char buf[10];
+    size_t width;
+    xqc_int_t ret;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    /* RFC 9000 Sections 16 and 17.2.2 permit all encodings of zero. */
+    for (unsigned int bits = 0; bits < 4; bits++) {
+        width = xqc_vint_len(bits);
+        xqc_vint_write(buf, 0, bits, width);
+        buf[width] = 1;
+        buf[width + 1] = 0;
+        memset(&packet_in, 0, sizeof(packet_in));
+        xqc_packet_in_init(&packet_in, buf, width + 2, NULL, 0, 0);
+        ret = xqc_packet_parse_initial(conn, &packet_in);
+
+        CU_ASSERT_EQUAL(ret, XQC_OK);
+        CU_ASSERT_EQUAL(conn->conn_err, 0);
+    }
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_client_initial_nonzero_token(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_packet_in_t packet_in;
+    unsigned char buf[11];
+    size_t width;
+    xqc_int_t ret;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->conn_token[0] = 0x7b;
+    conn->conn_token_len = 1;
+    /* RFC 9000 Section 17.2.2 permits discarding the invalid Initial. */
+    for (unsigned int bits = 0; bits < 4; bits++) {
+        width = xqc_vint_len(bits);
+        xqc_vint_write(buf, 1, bits, width);
+        buf[width] = 0xa5;
+        buf[width + 1] = 1;
+        buf[width + 2] = 0;
+        memset(&packet_in, 0, sizeof(packet_in));
+        xqc_packet_in_init(&packet_in, buf, width + 3, NULL, 0, 0);
+        ret = xqc_packet_parse_initial(conn, &packet_in);
+
+        CU_ASSERT_EQUAL(ret, -XQC_EILLPKT);
+        CU_ASSERT_EQUAL(conn->conn_err, 0);
+        CU_ASSERT_EQUAL(conn->conn_token_len, 1);
+        CU_ASSERT_EQUAL(conn->conn_token[0], 0x7b);
+    }
     xqc_engine_destroy(conn->engine);
 }
 

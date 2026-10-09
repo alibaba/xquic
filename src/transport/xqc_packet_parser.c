@@ -484,6 +484,14 @@ xqc_packet_parse_initial(xqc_connection_t *c, xqc_packet_in_t *packet_in)
         return -XQC_EILLPKT;
     }
 
+    /* RFC 9000 Section 17.2.2: server Initial packets cannot carry tokens. */
+    if (c->conn_type == XQC_CONN_TYPE_CLIENT && token_len != 0) {
+        xqc_log(c->log, XQC_LOG_INFO,
+                "|discard server Initial with nonzero token length|%ui|",
+                token_len);
+        return -XQC_EILLPKT;
+    }
+
     /* server save token and check token when decode crypto frame */
     if (c->conn_type == XQC_CONN_TYPE_SERVER) {
         memcpy(c->conn_token, pos, token_len);

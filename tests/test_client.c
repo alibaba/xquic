@@ -5117,7 +5117,7 @@ void usage(int argc, char *argv[]) {
 "   -x    Test case ID\n"
 "   -N    No encryption\n"
 "   -6    IPv6\n"
-"   -M    Enable multi-path on. |\n"
+"   -M    Enable multi-path on.\n"
 "   -v    Multipath Version Negotiation.\n"
 "   -i    Multi-path interface. e.g. -i interface1 -i interface2.\n"
 "   -R    Enable reinjection. Default is 0, no reinjection.\n"
@@ -5130,11 +5130,13 @@ void usage(int argc, char *argv[]) {
 "   -b    Create connection per second. default is 100.\n"
 "   -B    Max connection num. default is 1000.\n"
 "   -J    Random CID. default is 0.\n"
-"   -Q    Multipath backup path standby, set backup_mode on(1). default backup_mode is 0(off).\n"
+"   -Q    Max datagram frame size.\n"
 "   -A    Multipath request accelerate on. default is 0(off).\n"
 "   -y    multipath backup path standby.\n"
 "   -z    periodically send request.\n"
 "   -S    request per second.\n"
+"   -U    Send datagram. 0: off, 1: on, 2: on + batch.\n"
+"   -g    Enable FEC on.\n"
 , prog);
 }
 

@@ -149,7 +149,8 @@ void xqc_qpack_set_enc_insert_limit(xqc_qpack_t *qpk, double name_limit, double 
  * @return >= 0 for bytes consumed, others for failure
  */
 ssize_t xqc_qpack_dec_headers(xqc_qpack_t *qpk, xqc_rep_ctx_t *req_ctx, unsigned char *data,
-    size_t data_len, xqc_http_headers_t *headers, xqc_bool_t fin, xqc_bool_t *blocked);
+    size_t data_len, xqc_http_headers_t *headers, uint64_t max_field_section_size,
+    xqc_bool_t fin, xqc_bool_t *blocked);
 
 /**
  * @brief encode http headers to encoded field section

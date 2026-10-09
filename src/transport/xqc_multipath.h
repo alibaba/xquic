@@ -84,6 +84,28 @@ typedef enum {
     XQC_PATH_CLASS_PERF_CLASS_SIZE,
 } xqc_path_perf_class_t;
 
+#define XQC_REBINDING_MAX_MTU_PROBE_RETRIES 3
+
+typedef enum {
+    XQC_REBINDING_IDLE = 0,
+    XQC_REBINDING_ADDRESS_VALIDATING,
+    XQC_REBINDING_MTU_VALIDATING,
+} xqc_rebinding_state_t;
+
+typedef struct {
+    /* Path lifetime statistics are preserved when a candidate is cleared. */
+    uint32_t              count;
+    uint32_t              valid;
+    unsigned char         addr[sizeof(struct sockaddr_in6)];
+    socklen_t             addrlen;
+    uint64_t              recv_bytes;
+    uint64_t              sent_bytes;
+    uint32_t              mtu_probe_retries;
+    xqc_rebinding_state_t state;
+    xqc_bool_t            initial_challenge_padded;
+    unsigned char         challenge_data[XQC_PATH_CHALLENGE_DATA_LEN];
+} xqc_path_rebinding_t;
+
 /* path context */
 struct xqc_path_ctx_s {
 
@@ -101,14 +123,8 @@ struct xqc_path_ctx_s {
     char                addr_str[2*(XQC_MAX_CID_LEN + INET6_ADDRSTRLEN) + 10];
     socklen_t           addr_str_len;
 
-    /* server receives a packet from different address (NAT rebinding) */
-    uint32_t            rebinding_count;
-    /* server validate NAT rebinding (PATH_CHALLENGE & PATH_RESPONSE) */
-    uint32_t            rebinding_valid;
-
-    unsigned char       rebinding_addr[sizeof(struct sockaddr_in6)];
-    socklen_t           rebinding_addrlen;
-    int                 rebinding_check_response;
+    /* server-side NAT rebinding candidate and validation state */
+    xqc_path_rebinding_t rebinding;
 
     /* Path_state */
     xqc_path_state_t    path_state;
@@ -215,6 +231,17 @@ xqc_path_ctx_t *xqc_conn_create_path_inner(xqc_connection_t *conn,
 xqc_int_t xqc_conn_server_init_path_addr(xqc_connection_t *conn, uint64_t path_id,
     const struct sockaddr *local_addr, socklen_t local_addrlen,
     const struct sockaddr *peer_addr, socklen_t peer_addrlen);
+
+void xqc_path_rebinding_clear(xqc_path_ctx_t *path);
+xqc_path_ctx_t *xqc_path_rebinding_find_by_challenge(xqc_connection_t *conn,
+    const unsigned char *challenge_data);
+xqc_int_t xqc_path_rebinding_on_authenticated_datagram(xqc_connection_t *conn,
+    xqc_path_ctx_t *path, const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    size_t recv_bytes, xqc_usec_t now);
+xqc_int_t xqc_path_rebinding_on_response(xqc_connection_t *conn,
+    xqc_path_ctx_t *path, const unsigned char *challenge_data, xqc_usec_t now);
+void xqc_path_rebinding_on_timeout(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    xqc_usec_t now);
 
 xqc_int_t xqc_conn_client_init_path_addr(xqc_connection_t *conn);
 

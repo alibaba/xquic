@@ -11,6 +11,7 @@
 #include "src/http3/xqc_h3_request.h"
 #include "src/http3/xqc_h3_header.h"
 #include "src/http3/qpack/xqc_qpack.h"
+#include "src/common/xqc_time.h"
 #include "src/transport/xqc_stream.h"
 #include "src/http3/qpack/stable/xqc_stable.h"
 
@@ -896,6 +897,36 @@ xqc_test_h3_uncompressed_fields_size()
 }
 
 
+void
+xqc_test_h3_headers_total_len_lifecycle()
+{
+    xqc_http_headers_t headers;
+
+    memset(&headers, 0xa5, sizeof(headers));
+    CU_ASSERT_EQUAL(xqc_h3_headers_create_buf(&headers, 1), XQC_OK);
+    CU_ASSERT_EQUAL(headers.count, 0);
+    CU_ASSERT_EQUAL(headers.total_len, 0);
+
+    headers.total_len = 42;
+    xqc_h3_headers_clear(&headers);
+    CU_ASSERT_EQUAL(headers.count, 0);
+    CU_ASSERT_EQUAL(headers.total_len, 0);
+
+    headers.total_len = 42;
+    xqc_h3_headers_free(&headers);
+    CU_ASSERT_PTR_NULL(headers.headers);
+    CU_ASSERT_EQUAL(headers.capacity, 0);
+    CU_ASSERT_EQUAL(headers.total_len, 0);
+
+    memset(&headers, 0xa5, sizeof(headers));
+    xqc_h3_headers_initial(&headers);
+    CU_ASSERT_PTR_NULL(headers.headers);
+    CU_ASSERT_EQUAL(headers.count, 0);
+    CU_ASSERT_EQUAL(headers.capacity, 0);
+    CU_ASSERT_EQUAL(headers.total_len, 0);
+}
+
+
 /*
  * Drive xqc_h3_request_on_recv_header against the
  * SETTINGS_MAX_FIELD_SECTION_SIZE check to prove it now uses
@@ -1271,6 +1302,118 @@ xqc_test_h3_valid_headers_smoke()
     CU_ASSERT(h3s->h3r->completed_header_count == 1);
 
     xqc_h3_msgerr_teardown(h3s, h3c, conn);
+}
+
+
+static xqc_usec_t xqc_h3_test_duplicate_now;
+
+
+static xqc_usec_t
+xqc_h3_test_duplicate_timestamp(void)
+{
+    return xqc_h3_test_duplicate_now;
+}
+
+
+/*
+ * A peer QPACK encoder-stream Duplicate may be syntactically valid while
+ * exceeding one second's bounded work budget. It must close the H3 connection
+ * with H3_EXCESSIVE_LOAD instead of the generic encoder-stream H3_FRAME_ERROR.
+ */
+void
+xqc_test_h3_qpack_duplicate_uses_excessive_load()
+{
+    unsigned char name[100];
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_h3_conn_t *h3c;
+    xqc_stream_t *qdec_stream;
+    xqc_stream_t *qenc_stream;
+    xqc_h3_stream_t *qdec_h3s;
+    xqc_h3_stream_t *qenc_h3s;
+    xqc_var_buf_t *enc_ins;
+    xqc_timestamp_pt saved_timestamp;
+    xqc_int_t ret;
+
+    CU_ASSERT_FATAL(conn != NULL);
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    CU_ASSERT_FATAL(conn->alpn != NULL);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+    conn->conn_state = XQC_CONN_STATE_ESTABED;
+    conn->conn_flow_ctl.fc_max_streams_uni_can_send = 16;
+
+    xqc_h3_engine_set_max_dtable_capacity(conn->engine, 512);
+    h3c = xqc_h3_conn_create(conn, NULL);
+    CU_ASSERT_FATAL(h3c != NULL);
+
+    /* The decoder's Insert Count Increment needs its outbound stream. */
+    qdec_stream = xqc_create_stream_with_conn(conn, XQC_UNDEFINE_STREAM_ID,
+                                               XQC_CLI_UNI, NULL, NULL);
+    CU_ASSERT_FATAL(qdec_stream != NULL);
+    qdec_h3s = xqc_h3_stream_create(h3c, qdec_stream,
+                                     XQC_H3_STREAM_TYPE_QPACK_DECODER, NULL);
+    CU_ASSERT_FATAL(qdec_h3s != NULL);
+    h3c->qdec_stream = qdec_h3s;
+
+    qenc_stream = xqc_create_stream_with_conn(conn, XQC_UNDEFINE_STREAM_ID,
+                                               XQC_CLI_UNI, NULL, NULL);
+    CU_ASSERT_FATAL(qenc_stream != NULL);
+    qenc_h3s = xqc_h3_stream_create(h3c, qenc_stream,
+                                     XQC_H3_STREAM_TYPE_QPACK_ENCODER, NULL);
+    CU_ASSERT_FATAL(qenc_h3s != NULL);
+    qenc_h3s->flags |= XQC_HTTP3_STREAM_FLAG_TYPE_IDENTIFIED;
+
+    enc_ins = xqc_var_buf_create(256);
+    CU_ASSERT_FATAL(enc_ins != NULL);
+    xqc_h3_test_duplicate_now = 1000000;
+    saved_timestamp = xqc_monotonic_timestamp;
+    xqc_monotonic_timestamp = xqc_h3_test_duplicate_timestamp;
+    memset(name, 'a', sizeof(name));
+    CU_ASSERT(xqc_ins_write_set_dtable_cap(enc_ins, 512) == XQC_OK);
+    CU_ASSERT(xqc_ins_write_insert_literal_name(enc_ins, name, sizeof(name),
+                                                NULL, 0) == XQC_OK);
+    ret = xqc_h3_stream_process_in(qenc_h3s, enc_ins->data, enc_ins->data_len,
+                                   XQC_FALSE);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(xqc_qpack_get_dec_insert_count(h3c->qpack) == 1);
+
+    for (int i = 0; i < 15; i++) {
+        xqc_var_buf_clear(enc_ins);
+        CU_ASSERT(xqc_ins_write_dup(enc_ins, 0) == XQC_OK);
+        ret = xqc_h3_stream_process_in(qenc_h3s, enc_ins->data, enc_ins->data_len,
+                                       XQC_FALSE);
+        CU_ASSERT(ret == XQC_OK);
+    }
+    CU_ASSERT(xqc_qpack_get_dec_insert_count(h3c->qpack) == 16);
+
+    xqc_var_buf_clear(enc_ins);
+    CU_ASSERT(xqc_ins_write_dup(enc_ins, 0) == XQC_OK);
+    ret = xqc_h3_stream_process_in(qenc_h3s, enc_ins->data, enc_ins->data_len,
+                                   XQC_FALSE);
+    CU_ASSERT(ret == -XQC_QPACK_DYNAMIC_TABLE_EXCESSIVE_LOAD);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_EXCESSIVE_LOAD);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == 0x107);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    CU_ASSERT(xqc_qpack_get_dec_insert_count(h3c->qpack) == 16);
+
+    xqc_var_buf_free(enc_ins);
+    qenc_stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_h3_stream_destroy(qenc_h3s);
+    xqc_destroy_stream(qenc_stream);
+    qdec_stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_h3_stream_destroy(qdec_h3s);
+    xqc_destroy_stream(qdec_stream);
+    xqc_h3_conn_destroy(h3c);
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+
+    xqc_monotonic_timestamp = saved_timestamp;
+    xqc_h3_engine_set_max_dtable_capacity(conn->engine,
+                                          XQC_QPACK_MAX_TABLE_CAPACITY);
 }
 
 

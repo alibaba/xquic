@@ -331,6 +331,19 @@ xqc_dtable_get_entry_by_abs_idx(xqc_dtable_t *dt, uint64_t idx)
 }
 
 
+xqc_int_t
+xqc_dtable_get_entry_size(xqc_dtable_t *dt, uint64_t idx, size_t *size)
+{
+    xqc_dtable_entry_t *entry = xqc_dtable_get_entry_by_abs_idx(dt, idx);
+    if (entry == NULL || size == NULL) {
+        return -XQC_QPACK_DYNAMIC_TABLE_VOID_ENTRY;
+    }
+
+    *size = xqc_dtable_entry_size(entry->nv.nlen, entry->nv.vlen);
+    return XQC_OK;
+}
+
+
 /* evict entries for space */
 xqc_int_t
 xqc_dtable_make_space(xqc_dtable_t *dt, size_t space)

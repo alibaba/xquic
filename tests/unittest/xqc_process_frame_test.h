@@ -7,6 +7,12 @@
 
 void xqc_test_process_frame();
 
+void xqc_test_multipath_frames_require_negotiation(void);
+
+void xqc_test_multipath_version_requires_negotiation(void);
+
+void xqc_test_negotiated_multipath_frozen_frame(void);
+
 void xqc_test_parse_padding_frame();
 
 #ifdef XQC_PING_ATTACK_PROTECT

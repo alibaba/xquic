@@ -124,10 +124,8 @@ void
 xqc_timer_nat_rebinding_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_data)
 {
     xqc_send_ctl_t *send_ctl = (xqc_send_ctl_t *)user_data;
-    xqc_path_ctx_t *path = send_ctl->ctl_path;
 
-    path->rebinding_addrlen = 0;
-    path->rebinding_check_response = 0;
+    xqc_path_rebinding_on_timeout(send_ctl->ctl_conn, send_ctl->ctl_path, now);
 }
 
 void

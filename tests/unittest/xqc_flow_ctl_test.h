@@ -9,5 +9,7 @@ void xqc_test_flow_ctl_clamp_boundary(void);
 void xqc_test_stream_flow_ctl_clamp(void);
 void xqc_test_conn_flow_ctl_clamp(void);
 void xqc_test_flow_ctl_normal_no_clamp(void);
+void xqc_test_uni_stream_credit_exhausted(void);
+void xqc_test_uni_stream_credit_not_exhausted(void);
 
 #endif /* _XQC_TEST_FLOW_CTL_H_INCLUDED_ */

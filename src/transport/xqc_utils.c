@@ -86,7 +86,7 @@ xqc_remove_conns_hash(xqc_str_hash_table_t *conns_hash, xqc_connection_t *conn,
         .len    = len,
     };
 
-    if (xqc_str_hash_delete(conns_hash, hash, str)) {
+    if (xqc_str_hash_delete(conns_hash, hash, str, conn)) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_str_hash_delete error|");
         return -XQC_ECONN_NFOUND;
     }

@@ -1321,7 +1321,7 @@ xqc_int_t
 xqc_process_src_symbol(xqc_connection_t *conn, uint64_t block_id, uint64_t symbol_idx,
     unsigned char *symbol, xqc_int_t symbol_size)
 {
-    xqc_int_t           ret, window_size, min_block_id;
+    xqc_int_t           ret, window_size, min_block_id, max_src_symbol_num;
     xqc_fec_ctl_t       *fec_ctl;
     xqc_list_head_t     *symbol_list, *rpr_list;
     xqc_fec_src_syb_t   *src_symbol;
@@ -1330,6 +1330,23 @@ xqc_process_src_symbol(xqc_connection_t *conn, uint64_t block_id, uint64_t symbo
     fec_ctl = conn->fec_ctl;
     symbol_list = &conn->fec_ctl->fec_recv_src_syb_list;
     src_symbol = NULL;
+    max_src_symbol_num = conn->remote_settings.fec_max_symbols_num;
+
+    if (conn->conn_settings.fec_params.fec_decoder_scheme == XQC_PACKET_MASK_CODE) {
+        max_src_symbol_num = XQC_FEC_MAX_SYMBOL_NUM_PBLOCK;
+    }
+
+    if (max_src_symbol_num <= 0
+        || symbol_idx >= XQC_FEC_MAX_SYMBOL_NUM_PBLOCK
+        || symbol_idx >= max_src_symbol_num)
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|quic_fec|source symbol index exceeds negotiated block size|"
+                "idx:%ui|max:%d|limit:%d|", symbol_idx,
+                max_src_symbol_num,
+                XQC_FEC_MAX_SYMBOL_NUM_PBLOCK);
+        return -XQC_EFEC_SYMBOL_ERROR;
+    }
 
     if (block_id != 0
         && !xqc_if_src_blk_exists(conn->fec_ctl, block_id)
@@ -1384,6 +1401,15 @@ xqc_process_rpr_symbol(xqc_connection_t *conn, xqc_fec_rpr_syb_t *tmp_rpr_symbol
     min_block_id = xqc_get_min_rpr_blk_num(conn);
     block_id = tmp_rpr_symbol->block_id;
 
+    if (tmp_rpr_symbol->symbol_idx < 0
+        || tmp_rpr_symbol->symbol_idx >= XQC_REPAIR_LEN)
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|quic_fec|repair symbol index exceeds supported range|idx:%d|",
+                tmp_rpr_symbol->symbol_idx);
+        return -XQC_EFEC_SYMBOL_ERROR;
+    }
+
     if (block_id != 0
         && !xqc_if_src_blk_exists(conn->fec_ctl, block_id)
         && block_id <= conn->fec_ctl->fec_max_fin_blk_id)
@@ -1423,12 +1449,13 @@ xqc_process_rpr_symbol(xqc_connection_t *conn, xqc_fec_rpr_syb_t *tmp_rpr_symbol
     return XQC_OK;
 }
 
-xqc_int_t
+uint64_t
 xqc_get_symbol_flag(xqc_connection_t *conn, uint64_t block_id)
 {
     xqc_list_head_t *pos, *next;
-    xqc_int_t symbol_flag, max_src_symbol_num;
-    
+    uint64_t symbol_flag;
+    xqc_int_t max_src_symbol_num;
+
     symbol_flag = 0;
     max_src_symbol_num = conn->remote_settings.fec_max_symbols_num;
 
@@ -1438,7 +1465,7 @@ xqc_get_symbol_flag(xqc_connection_t *conn, uint64_t block_id)
             break;
         }
         if (src_symbol->block_id == block_id) {
-            symbol_flag |= (1 << src_symbol->symbol_idx);
+            symbol_flag |= 1ULL << src_symbol->symbol_idx;
         }
     }
     xqc_list_for_each_safe(pos, next, &conn->fec_ctl->fec_recv_rpr_syb_list) {
@@ -1447,7 +1474,7 @@ xqc_get_symbol_flag(xqc_connection_t *conn, uint64_t block_id)
             break;
         }
         if (rpr_symbol->block_id == block_id) {
-            symbol_flag |= (1 << (rpr_symbol->symbol_idx + max_src_symbol_num));
+            symbol_flag |= 1ULL << (rpr_symbol->symbol_idx + max_src_symbol_num);
         }
     }
     return symbol_flag;

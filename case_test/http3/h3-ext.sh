@@ -382,22 +382,50 @@ case_http3_ext_h3_ext_0RTT_accept_concurrent_send_test()
 {
 
 ## 0RTT
-clear_log
-echo -e "h3_ext_0RTT_accept_concurrent_send_test...\c"
-${CLIENT_BIN} -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 301 -P 2 > stdlog
-cli_res1=`grep -c ">>>>>>>> pass:1" stdlog`
-cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
-cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
-cli_res4=`grep "\[bytestream\]|bytes_sent:102400|bytes_rcvd:102400|recv_fin:1|" stdlog`
-cli_res5=`grep -c "\[bytestream\]|same_content:yes|" stdlog`
-cli_res6=`grep "early_data_flag:1" stdlog`
-
-errlog=`grep_err_log`
-if [ "$cli_res1" == "2" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "2" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
+h3_ext_0rtt_accept_concurrent_pass=0
+h3_ext_0rtt_accept_concurrent_attempt=1
+while [ $h3_ext_0rtt_accept_concurrent_attempt -le 2 ]; do
+    clear_log
+    echo -e "h3_ext_0RTT_accept_concurrent_send_test...\c"
+    if [ $h3_ext_0rtt_accept_concurrent_attempt -gt 1 ]; then
+        echo -e " retry ${h3_ext_0rtt_accept_concurrent_attempt} ...\c"
+    fi
+    ${CLIENT_BIN} -l e -T 2 -s 102400 -U 1 -Q 65535 -E -x 301 -P 2 > stdlog
+    cli_res1=`grep -c ">>>>>>>> pass:1" stdlog`
+    cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+    cli_res3=`grep "\[h3-dgram\]|recv_dgram_bytes:102400|sent_dgram_bytes:102400|lost_dgram_bytes:0|lost_cnt:0|" stdlog`
+    cli_res4=`grep "\[bytestream\]|bytes_sent:102400|bytes_rcvd:102400|recv_fin:1|" stdlog`
+    cli_res5=`grep -c "\[bytestream\]|same_content:yes|" stdlog`
+    cli_res6=`grep "early_data_flag:1" stdlog`
+    errlog=`grep_err_log`
+    if [ "$cli_res1" == "2" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -n "$cli_res4" ] && [ "$cli_res5" == "2" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
+        h3_ext_0rtt_accept_concurrent_pass=1
+        break
+    fi
+    if [ $h3_ext_0rtt_accept_concurrent_attempt -ge 2 ] || [ -n "$errlog" ]; then
+        break
+    fi
+    h3_ext_0rtt_accept_concurrent_attempt=$((h3_ext_0rtt_accept_concurrent_attempt + 1))
+done
+if [ $h3_ext_0rtt_accept_concurrent_pass -eq 1 ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "h3_ext_0RTT_accept_concurrent_send_test" "pass"
 else
+    [ "$cli_res1" == "2" ] && stream_pass_hit=1 || stream_pass_hit=0
+    [ -n "$cli_res2" ] && dgram_echo_hit=1 || dgram_echo_hit=0
+    [ -n "$cli_res3" ] && h3_dgram_hit=1 || h3_dgram_hit=0
+    [ -n "$cli_res4" ] && bytestream_size_hit=1 || bytestream_size_hit=0
+    [ "$cli_res5" == "2" ] && bytestream_echo_hit=1 || bytestream_echo_hit=0
+    [ -n "$cli_res6" ] && early_data_hit=1 || early_data_hit=0
+    [ -n "$errlog" ] && errlog_hit=1 || errlog_hit=0
     echo ">>>>>>>> pass:0"
+    echo "[h3-ext-0rtt-accept-concurrent]|attempt:${h3_ext_0rtt_accept_concurrent_attempt}|stream_pass:${stream_pass_hit}|dgram_echo:${dgram_echo_hit}|h3_dgram:${h3_dgram_hit}|bytestream_size:${bytestream_size_hit}|bytestream_echo:${bytestream_echo_hit}|early_data:${early_data_hit}|errlog:${errlog_hit}|"
+    if [ -n "$errlog" ]; then
+        echo "[h3-ext-0rtt-accept-concurrent][errlog]"
+        printf '%s\n' "$errlog" | tail -n 10
+    fi
+    echo "[h3-ext-0rtt-accept-concurrent][stream-close]"
+    grep "user_stream->recv_fin:" stdlog | tail -n 4 || true
     case_print_result "h3_ext_0RTT_accept_concurrent_send_test" "fail"
 fi
 

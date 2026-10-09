@@ -144,3 +144,66 @@ xqc_test_flow_ctl_normal_no_clamp(void)
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+void
+xqc_test_uni_stream_credit_exhausted(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    conn->local_settings.max_streams_uni = 4;
+    conn->conn_flow_ctl.fc_max_streams_uni_can_recv = 4;
+    conn->conn_flow_ctl.fc_max_streams_uni_recv_wind = 4;
+    conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
+
+    /* RFC 9000 Section 4.6: replenish credit without STREAMS_BLOCKED. */
+    for (unsigned batch = 0; batch < 3; ++batch) {
+        xqc_stream_t *streams[4];
+        uint64_t limit = 4 * (batch + 1);
+        for (unsigned i = 0; i < 4; ++i) {
+            xqc_stream_id_t id = 4 * (4 * batch + i) + XQC_SVR_UNI;
+            streams[i] = xqc_passive_create_stream(conn, id, NULL);
+            CU_ASSERT_PTR_NOT_NULL_FATAL(streams[i]);
+        }
+        CU_ASSERT_EQUAL(conn->max_stream_id_uni_remote + 1, limit);
+        CU_ASSERT_EQUAL(conn->conn_flow_ctl.fc_max_streams_uni_can_recv,
+                        limit);
+
+        /* Exhaust the limit before any stream is destroyed. */
+        xqc_destroy_stream(streams[0]);
+        CU_ASSERT_EQUAL(conn->conn_flow_ctl.fc_max_streams_uni_can_recv,
+                        limit + 1);
+        for (unsigned i = 1; i < 4; ++i) {
+            xqc_destroy_stream(streams[i]);
+        }
+        CU_ASSERT_EQUAL(conn->conn_flow_ctl.fc_max_streams_uni_recv_wind,
+                        limit + 4);
+        if (conn->conn_flow_ctl.fc_max_streams_uni_can_recv != limit + 1) {
+            break;
+        }
+    }
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_uni_stream_credit_not_exhausted(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    conn->local_settings.max_streams_uni = 4;
+    conn->conn_flow_ctl.fc_max_streams_uni_can_recv = 4;
+    conn->conn_flow_ctl.fc_max_streams_uni_recv_wind = 4;
+
+    xqc_stream_id_t stream_id = (0ULL << 2) | XQC_SVR_UNI;
+    xqc_stream_t *stream = xqc_passive_create_stream(conn, stream_id, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+    xqc_destroy_stream(stream);
+    CU_ASSERT_EQUAL(conn->conn_flow_ctl.fc_max_streams_uni_recv_wind, 5);
+    CU_ASSERT_EQUAL(conn->conn_flow_ctl.fc_max_streams_uni_can_recv, 4);
+
+    xqc_engine_destroy(conn->engine);
+}

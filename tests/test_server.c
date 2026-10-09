@@ -82,6 +82,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_DATAGRAM_1RTT_ALLOWED 1201
 #define XQC_TEST_CASE_CLOSE_RECV_ONLY_STREAM 725
 #define XQC_TEST_CASE_CLOSE_AFTER_DATA_RECVD 726
+#define XQC_TEST_CASE_PEER_MAX_UDP_PAYLOAD_SIZE_LIMIT 729
+#define XQC_TEST_CASE_PEER_MAX_UDP_PAYLOAD_SIZE_DEFAULT 730
 
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
@@ -1061,6 +1063,25 @@ xqc_server_h3_conn_create_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, v
             conn->conn_flag |= XQC_CONN_FLAG_LOCAL_TP_UPDATED;
             printf("[active-cid-limit-min-test] advertised_limit:%"PRIu64"\n",
                    conn->local_settings.active_connection_id_limit);
+        }
+    }
+
+    /* RFC 9000 Section 18.2: max_udp_payload_size limits peer UDP payloads. */
+    if (g_test_case == XQC_TEST_CASE_PEER_MAX_UDP_PAYLOAD_SIZE_LIMIT
+        || g_test_case == XQC_TEST_CASE_PEER_MAX_UDP_PAYLOAD_SIZE_DEFAULT)
+    {
+        xqc_connection_t *conn = xqc_h3_conn_get_xqc_conn(h3_conn);
+
+        if (conn == NULL) {
+            printf("[max-udp-payload-size-test] conn unavailable\n");
+
+        } else {
+            conn->local_settings.max_udp_payload_size =
+                g_test_case == XQC_TEST_CASE_PEER_MAX_UDP_PAYLOAD_SIZE_LIMIT
+                ? XQC_MIN_UDP_PAYLOAD_SIZE : XQC_DEFAULT_MAX_UDP_PAYLOAD_SIZE;
+            conn->conn_flag |= XQC_CONN_FLAG_LOCAL_TP_UPDATED;
+            printf("[max-udp-payload-size-test] advertised:%"PRIu64"\n",
+                   conn->local_settings.max_udp_payload_size);
         }
     }
 

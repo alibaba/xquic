@@ -19,6 +19,8 @@
 #define XQC_kPersistentCongestionThreshold  3
 
 #define XQC_CONSECUTIVE_PTO_THRESH          2
+/* cap of xqc_send_ctl_get_effective_pto_count(), as the PTO backoff's */
+#define XQC_EFFECTIVE_PTO_COUNT_MAX         16
 /*
  * RFC 9002 Section 6.1.2 recommends a timer granularity of 1 ms.
  */
@@ -96,6 +98,18 @@ typedef struct xqc_send_ctl_s {
 
     xqc_usec_t                  ctl_last_inflight_pkt_sent_time;
     xqc_usec_t                  ctl_time_of_last_sent_ack_eliciting_packet[XQC_PNS_N];
+    /*
+     * For xqc_send_ctl_get_effective_pto_count(), which leaves PMTUD probes
+     * out (the loss of a probe can mean that the path MTU is smaller, RFC
+     * 9000 Section 14.4, not that the path stopped delivering): the last
+     * progress on the path, when its application data bytes in flight
+     * other than probes became non-zero or an ACK acknowledged a packet sent
+     * on it; the last ack-eliciting application data send other than a
+     * probe; and the bytes of those sends in flight.
+     */
+    xqc_usec_t                  ctl_progress_time;
+    xqc_usec_t                  ctl_progress_last_sent;
+    uint32_t                    ctl_progress_bytes_inflight;
     xqc_packet_number_t         ctl_last_sent_ack_eliciting_packet_number[XQC_PNS_N];
     xqc_usec_t                  ctl_srtt,
                                 ctl_rttvar,
@@ -182,13 +196,98 @@ typedef struct xqc_send_ctl_s {
  * The pns-specific Initial/Handshake rule (max_ack_delay term must be 0
  * before handshake confirmation) is enforced by
  * xqc_send_ctl_get_pto_time_and_space; callers needing that granularity
- * must use it instead. See xqc_send_ctl.c for the canonical formula.
+ * must use it instead. See xqc_send_ctl_get_pto_duration() for the period
+ * that the PTO timer arms.
  */
 static inline xqc_usec_t
 xqc_send_ctl_calc_pto(xqc_send_ctl_t *send_ctl)
 {
     return send_ctl->ctl_srtt + xqc_max(4 * send_ctl->ctl_rttvar, XQC_kGranularity * 1000)
         + send_ctl->ctl_conn->remote_settings.max_ack_delay * 1000;
+}
+
+/*
+ * The backoff of the PTO period after pto_count consecutive PTOs:
+ * pto_backoff_factor ^ pto_count, capped.
+ */
+static inline double
+xqc_send_ctl_get_pto_backoff(xqc_send_ctl_t *send_ctl, unsigned pto_count)
+{
+    double backoff = xqc_send_ctl_pow_x(
+        send_ctl->ctl_conn->conn_settings.pto_backoff_factor, pto_count);
+
+    /* set a cap to avoid PTO timeout overflow */
+    return xqc_min(backoff, 1 << 16);
+}
+
+/*
+ * The PTO period that the loss detection timer arms for packet number space
+ * pns after pto_count consecutive PTOs (RFC 9002 Section 6.2.1, with the
+ * connection's PTO settings): srtt + max(4 * rttvar, kGranularity), or
+ * srtt + srtt / 4 with control_pto_value, or initial_pto_duration when it
+ * is set and the path has no RTT sample yet; times the backoff; plus, for
+ * Application Data, whose PTO is only armed once the handshake is
+ * confirmed, the peer's max_ack_delay times the backoff.
+ * xqc_send_ctl_get_pto_time_and_space() arms the timer with it, and
+ * xqc_send_ctl_get_effective_pto_count() counts its expiries.
+ */
+static inline xqc_usec_t
+xqc_send_ctl_get_pto_duration(xqc_send_ctl_t *send_ctl,
+    xqc_pkt_num_space_t pns, unsigned pto_count)
+{
+    xqc_connection_t *c = send_ctl->ctl_conn;
+    double backoff = xqc_send_ctl_get_pto_backoff(send_ctl, pto_count);
+    xqc_usec_t duration;
+
+    if (c->conn_settings.control_pto_value) {
+        duration = send_ctl->ctl_srtt + send_ctl->ctl_srtt / 4;
+
+    } else {
+        duration = (send_ctl->ctl_srtt
+                   + xqc_max(4 * send_ctl->ctl_rttvar, XQC_kGranularity * 1000));
+    }
+
+    /* RTT has not been measured yet */
+    if (send_ctl->ctl_first_rtt_sample_time == 0
+        && c->conn_settings.initial_pto_duration != 0)
+    {
+        duration = c->conn_settings.initial_pto_duration;
+    }
+
+    duration *= backoff;
+
+    if (pns == XQC_PNS_APP_DATA) {
+        duration += c->remote_settings.max_ack_delay * 1000 * backoff;
+    }
+
+    return duration;
+}
+
+unsigned xqc_send_ctl_count_hidden_ptos(xqc_send_ctl_t *send_ctl);
+
+/**
+ * The PTO count the path would have if new ack-eliciting packets did not
+ * restart its PTO timer: the number of the timer's expiries, with its own
+ * periods (xqc_send_ctl_get_pto_duration()), between the last progress on
+ * the path (ctl_progress_time) and its last ack-eliciting send other than a
+ * PMTUD probe (ctl_progress_last_sent), or ctl_pto_count if that is larger.
+ * Path schedulers compare this, not ctl_pto_count, with their thresholds,
+ * for every path and every packet, so the common case (no such send in
+ * flight, or progress within the first period before the last one) is
+ * decided inline.
+ */
+static inline unsigned
+xqc_send_ctl_get_effective_pto_count(xqc_send_ctl_t *send_ctl)
+{
+    if (send_ctl->ctl_progress_bytes_inflight == 0
+        || send_ctl->ctl_progress_last_sent
+           < send_ctl->ctl_progress_time
+             + xqc_send_ctl_get_pto_duration(send_ctl, XQC_PNS_APP_DATA, 0))
+    {
+        return send_ctl->ctl_pto_count;
+    }
+
+    return xqc_send_ctl_count_hidden_ptos(send_ctl);
 }
 
 

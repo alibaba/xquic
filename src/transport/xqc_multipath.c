@@ -1757,6 +1757,15 @@ xqc_path_standby_probe(xqc_path_ctx_t *path)
 xqc_path_perf_class_t 
 xqc_path_get_perf_class(xqc_path_ctx_t *path)
 {
+    /* A closing or closed path stays in conn_paths_list until the connection
+     * is destroyed, and the schedulers classify every entry for every packet.
+     * Its class is the lowest; skip the work below, which walks the whole
+     * path list again (xqc_conn_get_min_srtt) and made scheduling quadratic
+     * in the number of paths ever created. */
+    if (path->path_state >= XQC_PATH_STATE_CLOSING) {
+        return XQC_PATH_CLASS_STANDBY_LOW;
+    }
+
     xqc_connection_t *conn = path->parent_conn;
     xqc_scheduler_params_t *param = &conn->conn_settings.scheduler_params;
     xqc_usec_t path_srtt = xqc_send_ctl_get_srtt(path->path_send_ctl);

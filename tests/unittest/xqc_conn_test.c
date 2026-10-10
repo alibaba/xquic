@@ -1632,3 +1632,75 @@ xqc_test_key_update_old_key_retention(void)
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+/*
+ * A closing or closed path stays in conn_paths_list until the connection is
+ * destroyed, and the minrtt, backup and backup_fec schedulers classify every
+ * path for every packet before they skip the paths that are not ACTIVE.
+ * A path that is no longer ACTIVE gets the lowest class without computing
+ * it: the computation walks the whole path list again.
+ */
+static xqc_path_ctx_t *
+xqc_test_conn_fast_path(xqc_connection_t *conn)
+{
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+
+    /* 10 ms srtt, no loss, cwnd / srtt well above bw_Bps_thr: HIGH */
+    send_ctl->ctl_srtt = 10000;
+    send_ctl->ctl_rttvar = 1000;
+    send_ctl->ctl_first_rtt_sample_time = 1;
+    path->app_path_status = XQC_APP_PATH_STATUS_AVAILABLE;
+    return path;
+}
+
+void
+xqc_test_conn_closed_path_perf_class(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_path_ctx_t *path = xqc_test_conn_fast_path(conn);
+    xqc_path_state_t state = path->path_state;
+
+    path->path_state = XQC_PATH_STATE_CLOSING;
+    CU_ASSERT_EQUAL(xqc_path_get_perf_class(path), XQC_PATH_CLASS_STANDBY_LOW);
+
+    path->path_state = XQC_PATH_STATE_CLOSED;
+    CU_ASSERT_EQUAL(xqc_path_get_perf_class(path), XQC_PATH_CLASS_STANDBY_LOW);
+
+    path->path_state = state;
+    xqc_engine_destroy(conn->engine);
+}
+
+/* Paths short of CLOSING are still classified from their measurements. */
+void
+xqc_test_conn_open_path_perf_class(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_path_ctx_t *path = xqc_test_conn_fast_path(conn);
+    xqc_path_state_t state = path->path_state;
+
+    path->path_state = XQC_PATH_STATE_ACTIVE;
+    CU_ASSERT_EQUAL(xqc_path_get_perf_class(path),
+                    XQC_PATH_CLASS_AVAILABLE_HIGH);
+
+    path->path_state = XQC_PATH_STATE_VALIDATING;
+    CU_ASSERT_EQUAL(xqc_path_get_perf_class(path),
+                    XQC_PATH_CLASS_AVAILABLE_HIGH);
+
+    /* a measured but slow path is still LOW for its own reason */
+    path->path_state = XQC_PATH_STATE_ACTIVE;
+    path->path_send_ctl->ctl_srtt =
+        conn->conn_settings.scheduler_params.rtt_us_thr_high + 1;
+    CU_ASSERT_EQUAL(xqc_path_get_perf_class(path),
+                    XQC_PATH_CLASS_AVAILABLE_LOW);
+
+    path->path_state = state;
+    xqc_engine_destroy(conn->engine);
+}

@@ -62,4 +62,14 @@ void xqc_test_send_ctl_persistent_congestion_rtt_reseeds_from_new_sample(void);
 void xqc_test_send_ctl_single_loss_does_not_reset_rtt(void);
 void xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return(void);
 
+/*
+ * A path that silently stops delivering while packets keep being sent on
+ * it never gets a PTO (RFC 9002 6.2.1): xqc_send_ctl_get_effective_pto_count
+ * counts the PTO expiries those sends hid, from the last progress on the
+ * path to its last send, and the path class drops to LOW until an ACK
+ * acknowledges a packet sent on it.
+ */
+void xqc_test_effective_pto_count_silent_path(void);
+void xqc_test_effective_pto_count_bounds(void);
+
 #endif

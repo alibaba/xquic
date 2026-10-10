@@ -854,6 +854,24 @@ main(int argc, char *argv[])
                         xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction)
         || !CU_add_test(pSuite, "xqc_test_send_ctl_lost_packet_cc_reaction",
                         xqc_test_send_ctl_lost_packet_cc_reaction)
+        /* silently failed path: PTO expiries hidden by sends */
+        || !CU_add_test(pSuite, "xqc_test_effective_pto_count_silent_path",
+                        xqc_test_effective_pto_count_silent_path)
+        || !CU_add_test(pSuite, "xqc_test_effective_pto_count_pmtud_only",
+                        xqc_test_effective_pto_count_pmtud_only)
+        || !CU_add_test(pSuite,
+                        "xqc_test_effective_pto_count_pmtud_interleaved",
+                        xqc_test_effective_pto_count_pmtud_interleaved)
+        || !CU_add_test(pSuite, "xqc_test_effective_pto_count_bounds",
+                        xqc_test_effective_pto_count_bounds)
+        || !CU_add_test(pSuite,
+                        "xqc_test_effective_pto_count_control_pto_value",
+                        xqc_test_effective_pto_count_control_pto_value)
+        || !CU_add_test(pSuite,
+                        "xqc_test_effective_pto_count_initial_pto_duration",
+                        xqc_test_effective_pto_count_initial_pto_duration)
+        || !CU_add_test(pSuite, "xqc_test_effective_pto_count_timer_policy",
+                        xqc_test_effective_pto_count_timer_policy)
         /* RFC 9000 §6.2 Version Negotiation abort suite */
         || !CU_add_test(pSuite, "xqc_test_vn_abort_on_unsupported_version", xqc_test_vn_abort_on_unsupported_version)
         || !CU_add_test(pSuite, "xqc_test_vn_downgrade_protection_when_version_matches", xqc_test_vn_downgrade_protection_when_version_matches)

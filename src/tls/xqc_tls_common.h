@@ -108,6 +108,9 @@ typedef struct xqc_ssl_session_ticket_key_s {
 
 #define XQC_EARLY_DATA_CONTEXT          "xquic"
 #define XQC_EARLY_DATA_CONTEXT_LEN      (sizeof(XQC_EARLY_DATA_CONTEXT) - 1)
+#define XQC_EARLY_DATA_CONTEXT_VERSION  1
+#define XQC_EARLY_DATA_CONTEXT_V1_LEN   \
+    (XQC_EARLY_DATA_CONTEXT_LEN + 1 + sizeof(uint64_t))
 
 
 

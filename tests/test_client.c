@@ -112,6 +112,21 @@ static xqc_bool_t xqc_client_is_hq_case(void);
 
 typedef struct user_conn_s user_conn_t;
 
+typedef struct {
+    xqc_bool_t      started;
+    xqc_bool_t      replayed;
+    size_t          packet_len;
+    unsigned char   packet[XQC_PACKET_TMP_BUF_LEN];
+    user_conn_t    *user_conn;
+    struct event   *ev_release;
+    struct event   *ev_poll;
+} xqc_key_update_retention_test_t;
+
+static xqc_key_update_retention_test_t xqc_key_update_retention_test;
+
+static void xqc_client_release_key_update_packet(int fd, short what, void *arg);
+static void xqc_client_poll_key_update(int fd, short what, void *arg);
+
 static void xqc_client_send_test_uni_stream(xqc_h3_conn_t *h3_conn,
     xqc_h3_stream_type_t stream_type);
 static xqc_int_t xqc_client_send_test_request_frame(
@@ -1110,6 +1125,21 @@ xqc_client_write_socket(const unsigned char *buf, size_t size,
     send_buf_size = size;
     memcpy(send_buf, buf, send_buf_size);
 
+    /*
+     * RFC 9001 Section 6.1 old-key retention test: as soon as the local
+     * endpoint has initiated a key update, suppress outbound packets so no
+     * new-phase packet reaches the peer. The peer therefore stays on the old
+     * key phase and keeps replying with old-phase packets. Checking
+     * key_update_cnt synchronously here (rather than via the poll timer)
+     * closes the window in which a new-phase packet could otherwise leak out.
+     */
+    if (g_test_case == 904 && !xqc_key_update_retention_test.replayed
+        && user_conn->quic_conn != NULL
+        && user_conn->quic_conn->key_update_ctx.key_update_cnt > 0)
+    {
+        return send_buf_size;
+    }
+
     /* make initial packet loss to test 0rtt buffer */
     if (g_test_case == 39) {
         g_test_case = -1;
@@ -1360,6 +1390,18 @@ xqc_client_write_socket_ex(uint64_t path_id,
     }
     send_buf_size = size;
     memcpy(send_buf, buf, send_buf_size);
+
+    /*
+     * RFC 9001 Section 6.1 old-key retention test: suppress outbound packets
+     * as soon as a key update has been initiated, so no new-phase packet
+     * reaches the peer. See xqc_client_write_socket.
+     */
+    if (g_test_case == 904 && !xqc_key_update_retention_test.replayed
+        && user_conn->quic_conn != NULL
+        && user_conn->quic_conn->key_update_ctx.key_update_cnt > 0)
+    {
+        return send_buf_size;
+    }
 
     /* make initial packet loss to test 0rtt buffer */
     if (g_test_case == 39) {
@@ -2139,6 +2181,15 @@ xqc_client_h3_conn_create_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void
 
     user_conn->dgram_mss = xqc_h3_ext_datagram_get_mss(conn);
     user_conn->h3_conn = conn;
+
+    if (g_test_case == 904) {
+        struct timeval tv = { 0, 1000 };
+        user_conn->quic_conn = xqc_h3_conn_get_xqc_conn(conn);
+        xqc_key_update_retention_test.ev_poll = event_new(eb, -1, 0,
+            xqc_client_poll_key_update, user_conn);
+        event_add(xqc_key_update_retention_test.ev_poll, &tv);
+        printf("[key-update-retention]|poll-started|\n");
+    }
 
     if (g_test_case == 200 || g_test_case == 201) {
         printf("[h3-dgram-200]|0RTT|initial_mss:%zu|\n", user_conn->dgram_mss);
@@ -4076,6 +4127,94 @@ xqc_client_socket_write_handler(user_conn_t *user_conn)
 }
 
 
+static void
+xqc_client_poll_key_update(int fd, short what, void *arg)
+{
+    xqc_key_update_retention_test_t *test = &xqc_key_update_retention_test;
+    user_conn_t *user_conn = arg;
+    struct timeval tv = { 0, 1000 };
+
+    if (g_test_case != 904 || test->started || user_conn == NULL) {
+        return;
+    }
+
+    if (user_conn->quic_conn != NULL
+        && user_conn->quic_conn->key_update_ctx.key_update_cnt > 0)
+    {
+        /*
+         * Hold the peer's old-phase packet longer than the 3*PTO old-key
+         * retention window so that, if old read keys are discarded before a
+         * new-key packet is unprotected (the RFC 9001 Section 6.1 defect),
+         * the replay below cannot decrypt it. The 2s floor also guarantees
+         * the peer has time to retransmit an old-phase packet while outbound
+         * is suppressed.
+         */
+        xqc_usec_t delay = 3 * xqc_conn_get_max_pto(user_conn->quic_conn)
+                           + 500000;
+        struct timeval release_tv;
+
+        if (delay < 2000000) {
+            delay = 2000000;
+        }
+        release_tv.tv_sec = delay / 1000000;
+        release_tv.tv_usec = delay % 1000000;
+
+        test->started = XQC_TRUE;
+        test->user_conn = user_conn;
+        test->ev_release = event_new(eb, -1, 0,
+            xqc_client_release_key_update_packet, NULL);
+        event_add(test->ev_release, &release_tv);
+        printf("[key-update-retention]|hold-old-key-packet|delay:%"PRIu64"|\n",
+               delay);
+        return;
+    }
+
+    event_add(test->ev_poll, &tv);
+}
+
+
+static void
+xqc_client_release_key_update_packet(int fd, short what, void *arg)
+{
+    xqc_key_update_retention_test_t *test = &xqc_key_update_retention_test;
+    user_conn_t *user_conn = test->user_conn;
+    xqc_connection_t *conn;
+    uint64_t dropped_before;
+    uint64_t dropped_after;
+
+    if (user_conn == NULL || test->packet_len == 0) {
+        printf("[key-update-retention]|missing-old-key-packet|\n");
+        return;
+    }
+
+    conn = user_conn->quic_conn;
+    dropped_before = (conn != NULL) ? conn->packet_dropped_count : 0;
+
+    test->replayed = XQC_TRUE;
+    xqc_engine_packet_process(user_conn->ctx->engine, test->packet,
+        test->packet_len, user_conn->local_addr, user_conn->local_addrlen,
+        user_conn->peer_addr, user_conn->peer_addrlen, xqc_now(), user_conn);
+    xqc_engine_finish_recv(user_conn->ctx->engine);
+
+    dropped_after = (conn != NULL) ? conn->packet_dropped_count : 0;
+
+    /*
+     * RFC 9001 Section 6.1: an endpoint MUST retain old read keys until it has
+     * successfully unprotected a packet sent using the new keys. The replayed
+     * packet is protected with the peer's old-phase read key. If old keys were
+     * discarded before any new-key packet was unprotected (the defect), the
+     * replay cannot decrypt it and packet_dropped_count increases; correct
+     * retention decrypts it with no drop.
+     */
+    if (dropped_after > dropped_before) {
+        printf("[key-update-retention]|RESULT|dropped|delta:%"PRIu64"|\n",
+               dropped_after - dropped_before);
+    } else {
+        printf("[key-update-retention]|RESULT|retained|\n");
+    }
+}
+
+
 void
 xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
 {
@@ -4228,6 +4367,18 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
             if (loss_num >= 1 && loss_num <= 10) {
                 continue;
             }
+        }
+
+        if (g_test_case == 904 && xqc_key_update_retention_test.started
+            && !xqc_key_update_retention_test.replayed)
+        {
+            if (xqc_key_update_retention_test.packet_len == 0) {
+                memcpy(xqc_key_update_retention_test.packet, packet_buf, recv_size);
+                xqc_key_update_retention_test.packet_len = recv_size;
+                printf("[key-update-retention]|cached-old-key-packet|len:%zd|\n",
+                       recv_size);
+            }
+            continue;
         }
 
         ret = xqc_engine_packet_process(p_ctx->engine, packet_buf, recv_size,
@@ -5827,6 +5978,16 @@ int main(int argc, char *argv[]) {
     /* test key update */
     if (g_test_case == 40) {
         conn_settings.keyupdate_pkt_threshold = 30;
+
+    } else if (g_test_case == 904) {
+        /*
+         * Trigger the key update only after the request body has been fully
+         * sent (so the peer starts echoing) but while the echo is still in
+         * flight. The request is ~87 packets at -s 102400, so a threshold of
+         * 100 fires during the echo, leaving the peer with unacknowledged
+         * old-phase data to retransmit while outbound is suppressed.
+         */
+        conn_settings.keyupdate_pkt_threshold = 100;
     }
 
     if (g_test_case == 42) {

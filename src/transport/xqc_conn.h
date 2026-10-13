@@ -323,6 +323,16 @@ typedef struct {
     uint64_t                aead_confidentiality_limit;
     xqc_usec_t              initiate_time_guard;  /* time limit for initiating next key update */
 
+    /*
+     * RFC 9001 Section 6.1: set TRUE when the local endpoint initiates a key
+     * update. Old read keys MUST be retained until a packet protected with the
+     * peer's new keys is successfully unprotected; this flag stays TRUE until
+     * then, and is cleared at that point where the 3*PTO old-key discard timer
+     * is finally armed. It is FALSE for the responder role, which arms the
+     * timer immediately after decrypting the peer's new-phase packet.
+     */
+    xqc_bool_t              awaiting_peer_key_update;
+
 } xqc_key_update_ctx_t;
 
 typedef struct xqc_ping_record_s {
@@ -696,7 +706,9 @@ xqc_int_t xqc_conn_check_transport_params(xqc_connection_t *conn,
 /* get idle timeout in milliseconds */
 xqc_msec_t xqc_conn_get_idle_timeout(xqc_connection_t *conn);
 
-xqc_int_t xqc_conn_confirm_key_update(xqc_connection_t *conn);
+xqc_int_t xqc_conn_confirm_key_update(xqc_connection_t *conn,
+    xqc_bool_t initiated);
+void xqc_conn_confirm_peer_key_update(xqc_connection_t *conn);
 
 /* from send_ctl */
 void xqc_conn_decrease_unacked_stream_ref(xqc_connection_t *conn, xqc_packet_out_t *packet_out);

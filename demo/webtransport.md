@@ -1,7 +1,7 @@
 # WebTransport loopback demo
 
 Client API and ctx lifecycle contracts are defined in the
-[immutable client API specification](../harness/spec/feat/webtransport-client-api-spec.md).
+[WebTransport specification](../harness/spec/webtransport/spec.md).
 
 `demo_server -W` serves WebTransport at `/wt` alongside ordinary HTTP/3.
 `demo_client -W` opens one session, resets a data stream, then checks exact
@@ -11,7 +11,7 @@ accept `-v 16` (the default, advertising draft-07 and draft-16) or `-v 7`
 
 The draft-16 mode supports one simultaneous session per connection and
 negotiates reliable stream reset. It does not enable session-level flow
-control or pooling, as permitted by
+control or pooling by default, as permitted by
 [draft-16 Section 5.1](https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-16.html#section-5.1).
 
 Run from the repository root after building the demos. Substitute your
@@ -124,17 +124,22 @@ The application accepts exactly `/wt` and one Origin header equal to
 `http://127.0.0.1:8080` or `http://localhost:8080`. Stream callback state is
 keyed by session and QUIC stream ID, retained across short writes, and freed
 at stream or session close. Pending echo data is bounded to 64 KiB per
-bidirectional stream; overflow resets that stream. Datagram send failures
-are reported and are not retried. Callback sends schedule a 1 ms engine
-event, preserving the shared HTTP/3 and engine user data.
+bidirectional stream; reads pause while pending writes drain.
+Datagram sends blocked by backpressure are queued within a 64-datagram
+bound and retried on the next write notification. Callback sends schedule a
+1 ms engine event, preserving the shared HTTP/3 and engine user data.
 
-Incoming unidirectional streams are consumed without an echo. These demos
-do not implement unidirectional echo, pooling, HTTP/2, or the complete
-frozen server API contract.
+Incoming unidirectional streams are consumed without an echo. The default
+demo does not enable pooling or implement HTTP/2.
 
 ## Native CI cases
 
-The `webtransport.core` group runs the built demo endpoints over loopback,
+`webtransport.core` runs the library's native integration executable,
+including draft-16/07, pooling, credit, rejection and lifecycle checks.
+`webtransport.demo` exercises the shipped demo's raw/message echo, input
+validation, Origin/path rejection and ordinary HTTP/3 coexistence.
+
+The `webtransport.public` group runs the built demo endpoints over loopback,
 using the existing build certificate and isolated case-runner work directory.
 It requires no browser, proxy, peer implementation, or additional package.
 The existing CI case-test stage discovers the group and runs it in parallel
@@ -142,7 +147,7 @@ with the other module groups. Cases within the group run sequentially.
 
 ```sh
 XQC_BUILD_DIR=build bash scripts/case_test.sh --execute \
-    --parallel --jobs auto --group webtransport.core
+    --parallel --jobs auto --group webtransport.public
 ```
 
 Both demos accept `-W -X <case-id>` for these cases; omitting `-X` retains
@@ -176,7 +181,8 @@ interop application into the normal `demo_client` and `demo_server` binaries:
 ./scripts/validate.sh build --feature webtransport_interop
 ```
 
-The profile sets `XQC_ENABLE_WEBTRANSPORT_INTEROP=ON`. With the runner's
+The profile sets `XQC_ENABLE_WEBTRANSPORT=ON` and
+`XQC_ENABLE_WEBTRANSPORT_INTEROP=ON`. With the runner's
 `ROLE` and `TESTCASE` environment present, the demos select the interop
 callbacks and policy before parsing their shared `-W` and `-X` options.
 Without that environment they retain the echo behavior. Unsupported role/case
@@ -225,11 +231,12 @@ permits an explicit `-J` trust file for remote peers while retaining
 certificate and hostname verification. The echo policy retains its loopback
 trust-file restriction and accepts native case IDs.
 
-The `webtransport.core` CI group also keeps the message-framing pair:
+The `webtransport.public` CI group also keeps the message-framing pair:
 
 | Case ID | Coverage |
 |---|---|
 | 1833, 1834 | Optional message framing exact echo; oversized peer and local message declarations rejected. |
+| 1835 | Explicit pooled sessions keep stream and datagram traffic isolated. |
 
 The public interop runner is the sole owner of handshake and file-transfer
 cases H, UR/US, BR/BS, and DR/DS. IDs 1817–1832 are retired from native CI
@@ -265,7 +272,7 @@ peer close, blocked sends, or early timer wakeups. Those demo-internal branches
 are coverage gaps after removing the duplicate application CUnit suite; a
 successful normal transfer is not evidence that they passed.
 
-Session-level flow control and pooling are deliberately disabled under
+The default demo disables session-level flow control and pooling under
 [draft-16 §5.1](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-16#section-5.1).
 The session exporter (§4.8), explicit WebTransport priority controls (§3.4),
 HTTP/2 binding and 0-RTT CONNECT are not implemented by this MVP; neither the
@@ -275,7 +282,7 @@ For a quick local run after the feature-profile build:
 
 ```sh
 XQC_BUILD_DIR=build/validation bash scripts/case_test.sh --execute \
-    --group webtransport.core
+    --group webtransport.public
 ```
 
 These native cases use the existing case runner's fixtures, isolated work

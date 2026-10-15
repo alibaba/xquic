@@ -5,19 +5,18 @@
 #include "src/webtransport/xqc_webtransport_h3_stream.h"
 #include "src/webtransport/xqc_webtransport_conn.h"
 #include "src/webtransport/xqc_webtransport_stream.h"
-#include "src/webtransport/xqc_webtransport_wire.h"
 #include "src/common/xqc_malloc.h"
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_stream.h"
 
 typedef struct {
-    xqc_list_head_t         list;
-    xqc_h3_stream_t        *h3s;
-    xqc_wt_stream_base_t   *stream;
+    xqc_list_head_t        list;
+    xqc_h3_stream_t       *h3s;
+    xqc_wt_stream_base_t  *stream;
     xqc_var_buf_t         *recv_buf;
-    unsigned char          prefix[8];
+    unsigned char          prefix[XQC_WT_VARINT_MAX_LEN];
     size_t                 prefix_len;
-    unsigned char          reset_prefix[16];
+    unsigned char          reset_prefix[2 * XQC_WT_VARINT_MAX_LEN];
     size_t                 reset_prefix_len;
     size_t                 reset_prefix_sent;
     uint64_t               reset_error;
@@ -35,6 +34,7 @@ typedef struct {
 static xqc_wt_h3_stream_t *xqc_wt_h3_stream_allocate(
     xqc_h3_stream_t *h3s);
 static void xqc_wt_h3_stream_release(xqc_wt_h3_stream_t *adapter);
+static void xqc_wt_h3_stream_unlink(xqc_wt_h3_stream_t *adapter);
 static xqc_int_t xqc_wt_h3_stream_flush_reset(xqc_wt_h3_stream_t *adapter);
 static xqc_int_t xqc_wt_h3_read_ordinary(xqc_stream_t *stream,
     xqc_h3_stream_t *h3s);
@@ -43,6 +43,8 @@ static xqc_int_t xqc_wt_h3_stream_input_result(xqc_h3_stream_t *h3s,
 static xqc_int_t xqc_wt_h3_stream_receive(xqc_h3_stream_t *h3s,
     xqc_wt_h3_stream_t *adapter, void *conn_ctx,
     const unsigned char *data, size_t data_len, uint8_t fin);
+static xqc_int_t xqc_wt_h3_stream_prepare_stop(xqc_stream_t *stream,
+    uint64_t error);
 static xqc_int_t xqc_wt_h3_stream_create_notify(xqc_stream_t *stream,
     void *user_data);
 static xqc_int_t xqc_wt_h3_stream_read_notify(xqc_stream_t *stream,
@@ -60,9 +62,13 @@ static xqc_int_t
 xqc_wt_h3_stream_flush_reset(xqc_wt_h3_stream_t *adapter)
 {
     xqc_stream_t *stream = adapter->h3s->stream;
+    if (stream->stream_conn->conn_state >= XQC_CONN_STATE_CLOSING) {
+        adapter->reset_pending = XQC_FALSE;
+        return XQC_OK;
+    }
     if (adapter->reset_prefix_sent < adapter->reset_prefix_len) {
-        ssize_t n = xqc_stream_send(stream,
-            adapter->reset_prefix + adapter->reset_prefix_sent,
+        ssize_t n = xqc_stream_send(
+            stream, adapter->reset_prefix + adapter->reset_prefix_sent,
             adapter->reset_prefix_len - adapter->reset_prefix_sent, 0);
         if (n < 0) {
             return n == -XQC_EAGAIN ? XQC_OK : (xqc_int_t)n;
@@ -95,7 +101,8 @@ xqc_wt_h3_stream_reset(xqc_h3_stream_t *h3s, uint64_t error,
         memcpy(adapter->reset_prefix, prefix, prefix_len);
         adapter->reset_prefix_len = prefix_len;
         adapter->reset_prefix_sent = 0;
-        adapter->reset_error = error;
+        adapter->reset_error = adapter->stop_received
+            ? adapter->stop_error : error;
         adapter->reset_pending = XQC_TRUE;
     }
     adapter->callback_depth++;
@@ -107,19 +114,11 @@ xqc_wt_h3_stream_reset(xqc_h3_stream_t *h3s, uint64_t error,
 void *
 xqc_wt_h3_stream_context(xqc_h3_stream_t *h3s)
 {
-    xqc_wt_conn_t *conn = h3s ? xqc_wt_create_conn(h3s->h3c) : NULL;
+    xqc_wt_conn_t *conn = h3s ? xqc_wt_get_conn_from_h3(h3s->h3c) : NULL;
     if (conn == NULL) {
         return NULL;
     }
-    xqc_list_head_t *pos;
-    xqc_list_for_each(pos, &conn->h3_streams) {
-        xqc_wt_h3_stream_t *adapter = xqc_list_entry(pos,
-            xqc_wt_h3_stream_t, list);
-        if (adapter->h3s == h3s) {
-            return adapter;
-        }
-    }
-    return NULL;
+    return xqc_id_hash_find(&conn->h3_stream_index, h3s->stream_id);
 }
 
 xqc_bool_t
@@ -134,17 +133,30 @@ xqc_wt_h3_stream_allocate(xqc_h3_stream_t *h3s)
 {
     xqc_wt_h3_stream_t *adapter = xqc_wt_h3_stream_context(h3s);
     if (adapter == NULL) {
-        xqc_wt_conn_t *conn = h3s ? xqc_wt_create_conn(h3s->h3c) : NULL;
+        xqc_wt_conn_t *conn = h3s ? xqc_wt_get_conn_from_h3(h3s->h3c) : NULL;
         if (conn == NULL) {
             return NULL;
         }
         adapter = xqc_calloc(1, sizeof(*adapter));
         if (adapter) {
             adapter->h3s = h3s;
+            xqc_id_hash_element_t entry = {h3s->stream_id, adapter};
+            if (xqc_id_hash_add(&conn->h3_stream_index, entry) != XQC_OK) {
+                xqc_free(adapter);
+                return NULL;
+            }
             xqc_list_add_tail(&adapter->list, &conn->h3_streams);
         }
     }
     return adapter;
+}
+
+static void
+xqc_wt_h3_stream_unlink(xqc_wt_h3_stream_t *adapter)
+{
+    xqc_wt_conn_t *conn = xqc_wt_get_conn_from_h3(adapter->h3s->h3c);
+    xqc_id_hash_delete(&conn->h3_stream_index, adapter->h3s->stream_id);
+    xqc_list_del_init(&adapter->list);
 }
 
 static void
@@ -191,10 +203,12 @@ xqc_wt_h3_stream_set(xqc_h3_stream_t *h3s,
         return -XQC_ESTATE;
     }
     adapter->stream = stream;
+    stream->type_prefix_len = adapter->prefix_len;
     adapter->raw = XQC_TRUE;
     if (h3s->stream) {
         h3s->stream->stream_if =
             (xqc_stream_callbacks_t *)&xqc_wt_h3_stream_callbacks;
+        h3s->stream->stop_sending_prepare = xqc_wt_h3_stream_prepare_stop;
     }
     return XQC_OK;
 }
@@ -247,7 +261,8 @@ xqc_wt_h3_stream_receive(xqc_h3_stream_t *h3s,
     }
     ssize_t consumed = -XQC_EAGAIN;
     if (!adapter->paused && adapter->recv_buf == NULL) {
-        consumed = xqc_wt_stream_read(h3s, conn_ctx,
+        consumed = xqc_wt_stream_read(
+            h3s, conn_ctx,
             data ? data : (const unsigned char *)"", data_len, fin);
         if (adapter->detached || adapter->closed) {
             return XQC_OK;
@@ -280,8 +295,8 @@ xqc_wt_h3_stream_receive(xqc_h3_stream_t *h3s,
             return -XQC_EMALLOC;
         }
     }
-    xqc_int_t ret = xqc_var_buf_save_data(adapter->recv_buf,
-        remaining ? data + consumed : NULL, remaining);
+    xqc_int_t ret = xqc_var_buf_save_data(
+        adapter->recv_buf, remaining ? data + consumed : NULL, remaining);
     if (ret != XQC_OK) {
         return ret;
     }
@@ -328,12 +343,12 @@ xqc_wt_h3_stream_read(xqc_h3_stream_t *h3s, void *conn_ctx,
     adapter->callback_depth++;
     if (adapter->raw) {
         xqc_int_t ret = xqc_wt_h3_stream_receive(h3s, adapter, conn_ctx,
-                                               data, data_len, fin);
+                                                 data, data_len, fin);
         xqc_wt_h3_stream_release(adapter);
         return xqc_wt_h3_stream_input_result(h3s, ret);
     }
 
-    /* draft-ietf-webtrans-http3-07 Sections 4.1 and 4.2. */
+    /* draft-ietf-webtrans-http3-16 Sections 4.2 and 4.3. */
     size_t used = 0;
     size_t length = adapter->prefix_len
         ? (size_t)1 << (adapter->prefix[0] >> 6) : 1;
@@ -352,10 +367,10 @@ xqc_wt_h3_stream_read(xqc_h3_stream_t *h3s, void *conn_ctx,
                                                  -XQC_H3_DECODE_ERROR);
         }
         /* An unfinished uni type still belongs to the ordinary H3 parser. */
-        unsigned char prefix[8];
+        unsigned char prefix[XQC_WT_VARINT_MAX_LEN];
         size_t prefix_len = adapter->prefix_len;
         xqc_memcpy(prefix, adapter->prefix, prefix_len);
-        xqc_list_del_init(&adapter->list);
+        xqc_wt_h3_stream_unlink(adapter);
         adapter->closed = XQC_TRUE;
         xqc_wt_h3_stream_release(adapter);
         if (h3s->stream) {
@@ -364,7 +379,7 @@ xqc_wt_h3_stream_read(xqc_h3_stream_t *h3s, void *conn_ctx,
         }
         return xqc_h3_stream_process_in(h3s, prefix, prefix_len, fin);
     }
-    uint64_t type = adapter->prefix[0] & 0x3f;
+    uint64_t type = adapter->prefix[0] & XQC_WT_VARINT_PREFIX_MASK;
     for (size_t i = 1; i < length; i++) {
         type = (type << 8) | adapter->prefix[i];
     }
@@ -373,7 +388,8 @@ xqc_wt_h3_stream_read(xqc_h3_stream_t *h3s, void *conn_ctx,
                     : XQC_WT_STREAM_TYPE_BIDIRECTIONAL))
     {
         adapter->raw = XQC_TRUE;
-        xqc_int_t ret = xqc_wt_h3_stream_receive(h3s, adapter, conn_ctx,
+        xqc_int_t ret = xqc_wt_h3_stream_receive(
+            h3s, adapter, conn_ctx,
             data_len > used ? data + used : NULL, data_len - used, fin);
         xqc_wt_h3_stream_release(adapter);
         return xqc_wt_h3_stream_input_result(h3s, ret);
@@ -385,9 +401,9 @@ xqc_wt_h3_stream_read(xqc_h3_stream_t *h3s, void *conn_ctx,
         return xqc_wt_h3_stream_input_result(h3s, -XQC_H3_DECODE_ERROR);
     }
 
-    unsigned char prefix[8];
+    unsigned char prefix[XQC_WT_VARINT_MAX_LEN];
     xqc_memcpy(prefix, adapter->prefix, length);
-    xqc_list_del_init(&adapter->list);
+    xqc_wt_h3_stream_unlink(adapter);
     adapter->closed = XQC_TRUE;
     xqc_wt_h3_stream_release(adapter);
     if (h3s->stream) {
@@ -395,12 +411,12 @@ xqc_wt_h3_stream_read(xqc_h3_stream_t *h3s, void *conn_ctx,
     }
 
     xqc_int_t ret = xqc_h3_stream_process_in(h3s, prefix, length,
-                                            XQC_FALSE);
+                                             XQC_FALSE);
     if (ret != XQC_OK) {
         return ret;
     }
-    return xqc_h3_stream_process_in(h3s,
-        data_len > used ? data + used : prefix + length,
+    return xqc_h3_stream_process_in(
+        h3s, data_len > used ? data + used : prefix + length,
         data_len - used, fin);
 }
 
@@ -420,7 +436,8 @@ xqc_wt_h3_stream_prepare_read(xqc_h3_stream_t *h3s)
     }
     adapter->callback_depth++;
     size_t remaining = buf->data_len - buf->consumed_len;
-    ssize_t consumed = xqc_wt_stream_read(h3s, xqc_wt_create_conn(h3s->h3c),
+    ssize_t consumed = xqc_wt_stream_read(
+        h3s, xqc_wt_get_conn_from_h3(h3s->h3c),
         buf->data + buf->consumed_len, remaining, buf->fin_flag);
     xqc_int_t ret = XQC_OK;
     if (adapter->closed || adapter->detached || adapter->recv_buf != buf) {
@@ -464,7 +481,7 @@ xqc_wt_h3_stream_close(xqc_h3_stream_t *h3s)
     adapter->closed = XQC_TRUE;
     adapter->callback_depth++;
     xqc_wt_stream_close(h3s, adapter->stream);
-    xqc_list_del_init(&adapter->list);
+    xqc_wt_h3_stream_unlink(adapter);
     xqc_var_buf_free(adapter->recv_buf);
     adapter->recv_buf = NULL;
     xqc_wt_h3_stream_release(adapter);
@@ -473,16 +490,16 @@ xqc_wt_h3_stream_close(xqc_h3_stream_t *h3s)
 xqc_h3_stream_t *
 xqc_wt_h3_stream_create(xqc_h3_conn_t *h3c, xqc_bool_t bidi)
 {
-    if (h3c == NULL || xqc_wt_create_conn(h3c) == NULL) {
+    if (h3c == NULL || xqc_wt_get_conn_from_h3(h3c) == NULL) {
         return NULL;
     }
-    xqc_stream_t *stream = xqc_stream_create_with_direction(h3c->conn,
-        bidi ? XQC_STREAM_BIDI : XQC_STREAM_UNI, NULL);
+    xqc_stream_t *stream = xqc_stream_create_with_direction(
+        h3c->conn, bidi ? XQC_STREAM_BIDI : XQC_STREAM_UNI, NULL);
     if (stream == NULL) {
         return NULL;
     }
-    xqc_h3_stream_t *h3s = xqc_h3_stream_create(h3c, stream,
-        XQC_H3_STREAM_TYPE_UNKNOWN, NULL);
+    xqc_h3_stream_t *h3s = xqc_h3_stream_create(
+        h3c, stream, XQC_H3_STREAM_TYPE_UNKNOWN, NULL);
     if (h3s == NULL) {
         xqc_destroy_stream(stream);
         return NULL;
@@ -514,7 +531,8 @@ xqc_wt_h3_stream_create_notify(xqc_stream_t *stream, void *user_data)
     xqc_connection_t *conn = stream->stream_conn;
     if (conn->conn_type == XQC_CONN_TYPE_CLIENT
         && stream->stream_type == XQC_SVR_BID
-        && xqc_wt_conn_requirements_met(xqc_wt_create_conn(conn->proto_data)))
+        && xqc_wt_conn_requirements_met(
+            xqc_wt_get_conn_from_h3(conn->proto_data)))
     {
         /* Draft-16 §§4.3, 4.6: classify even before the CONNECT response. */
         return XQC_OK;
@@ -530,7 +548,7 @@ xqc_wt_h3_read_ordinary(xqc_stream_t *stream, xqc_h3_stream_t *h3s)
         /* Keep only the control stream wrapped to observe H3 GOAWAY. */
         stream->stream_if =
             (xqc_stream_callbacks_t *)&xqc_wt_h3_stream_callbacks;
-        xqc_wt_conn_notify_goaway(xqc_wt_create_conn(h3s->h3c));
+        xqc_wt_conn_notify_goaway(xqc_wt_get_conn_from_h3(h3s->h3c));
     }
     return ret;
 }
@@ -539,7 +557,7 @@ static xqc_int_t
 xqc_wt_h3_stream_read_notify(xqc_stream_t *stream, void *user_data)
 {
     xqc_h3_conn_t *h3c = stream->stream_conn->proto_data;
-    xqc_wt_conn_t *conn = xqc_wt_create_conn(h3c);
+    xqc_wt_conn_t *conn = xqc_wt_get_conn_from_h3(h3c);
     if (conn == NULL) {
         stream->stream_if = (xqc_stream_callbacks_t *)&h3_stream_callbacks;
         return h3_stream_callbacks.stream_read_notify(stream, user_data);
@@ -547,7 +565,7 @@ xqc_wt_h3_stream_read_notify(xqc_stream_t *stream, void *user_data)
     xqc_h3_stream_t *h3s = user_data;
     if (h3s == NULL) {
         h3s = xqc_h3_stream_create(h3c, stream,
-            XQC_H3_STREAM_TYPE_UNKNOWN, NULL);
+                                   XQC_H3_STREAM_TYPE_UNKNOWN, NULL);
         if (h3s == NULL) {
             return -XQC_H3_ECREATE_STREAM;
         }
@@ -600,7 +618,10 @@ xqc_wt_h3_stream_read_notify(xqc_stream_t *stream, void *user_data)
             h3s->flags &= ~XQC_HTTP3_STREAM_IN_READING;
             return xqc_wt_h3_read_ordinary(stream, h3s);
         }
-        if (fin || (capacity == sizeof(data) && read < capacity)) {
+        /* A short reliable prefix can leave a reset notification readable. */
+        if (fin || (capacity == sizeof(data) && read < capacity
+                    && !(stream->stream_flag & XQC_STREAM_FLAG_READY_TO_READ)))
+        {
             break;
         }
     }
@@ -640,6 +661,14 @@ xqc_wt_h3_stream_closing_notify(xqc_stream_t *stream,
 {
     xqc_h3_stream_t *h3s = user_data;
     xqc_wt_h3_stream_t *adapter = xqc_wt_h3_stream_context(h3s);
+    if (adapter && (adapter->closed || adapter->detached)) {
+        return;
+    }
+    if (!adapter || !adapter->stream || !adapter->stream->session) {
+        xqc_wt_stream_bind_reset(stream, stream->stream_err);
+        h3s = stream->user_data;
+        adapter = xqc_wt_h3_stream_context(h3s);
+    }
     if (adapter == NULL) {
         h3_stream_callbacks.stream_closing_notify(stream, error, user_data);
         return;
@@ -667,15 +696,48 @@ xqc_wt_h3_stream_notify_stop(xqc_h3_stream_t *h3s)
     xqc_wt_h3_stream_t *adapter = xqc_wt_h3_stream_context(h3s);
     if (!adapter || adapter->closed || adapter->detached || !adapter->raw
         || !adapter->stop_pending || !h3s->stream
-        || h3s->stream->reset_at.send_state == XQC_RESET_AT_PENDING)
+        || adapter->reset_pending)
     {
         return;
     }
     adapter->stop_pending = XQC_FALSE;
     adapter->callback_depth++;
     xqc_wt_stream_notify_closing(adapter->stream, XQC_TRUE,
-        adapter->stop_error);
+                                 adapter->stop_error);
     xqc_wt_h3_stream_release(adapter);
+}
+
+static xqc_int_t
+xqc_wt_h3_stream_prepare_stop(xqc_stream_t *stream, uint64_t error)
+{
+    xqc_wt_h3_stream_t *adapter = xqc_wt_h3_stream_context(stream->user_data);
+    if (!adapter || adapter->closed || !adapter->raw) {
+        return XQC_OK;
+    }
+    if (adapter->reset_pending) {
+        return -XQC_EAGAIN;
+    }
+    xqc_wt_stream_base_t *wt = adapter->stream;
+    if (!wt || !wt->session
+        || wt->session->wt_conn->negotiated_version
+            != XQC_WEBTRANSPORT_DRAFT_VERSION_16
+        || wt->prefix_sent == wt->prefix_len)
+    {
+        return XQC_OK;
+    }
+    /* Draft-16 Section 4.4: even STOP must preserve the entire WT header.
+     * Keep this retry in the adapter; core QUIC retains its reset policy. */
+    adapter->stop_received = XQC_TRUE;
+    adapter->stop_pending = XQC_TRUE;
+    adapter->stop_error = error;
+    adapter->reset_error = error;
+    adapter->reset_prefix_len = wt->prefix_len - wt->prefix_sent;
+    memcpy(adapter->reset_prefix, wt->prefix + wt->prefix_sent,
+           adapter->reset_prefix_len);
+    adapter->reset_prefix_sent = 0;
+    adapter->reset_pending = XQC_TRUE;
+    xqc_stream_ready_to_write(stream);
+    return -XQC_EAGAIN;
 }
 
 static void

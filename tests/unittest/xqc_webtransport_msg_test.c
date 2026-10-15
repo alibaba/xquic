@@ -22,33 +22,33 @@
 #define WT_MSG_TEST_PAYLOAD_CAPACITY 128
 
 typedef struct {
-    xqc_wt_msg_type_t type;
-    size_t             len;
+    xqc_wt_msg_type_t   type;
+    size_t              len;
     unsigned char      data[WT_MSG_TEST_PAYLOAD_CAPACITY];
 } wt_msg_test_record_t;
 
 typedef struct {
-    xqc_wt_ctx_t        wt_ctx;
-    xqc_h3_conn_t       h3_conn;
-    xqc_wt_conn_t      *wt_conn;
-    xqc_wt_session_t   *session;
-    xqc_h3_stream_t     h3_stream;
-    xqc_wt_stream_base_t *stream;
-    xqc_wt_msg_stream_t *msg_stream;
+    xqc_wt_ctx_t           wt_ctx;
+    xqc_h3_conn_t          h3_conn;
+    xqc_wt_conn_t         *wt_conn;
+    xqc_wt_session_t      *session;
+    xqc_h3_stream_t        h3_stream;
+    xqc_wt_stream_base_t  *stream;
+    xqc_wt_msg_stream_t   *msg_stream;
     unsigned char       output[WT_MSG_TEST_OUTPUT_CAPACITY];
-    size_t              output_len;
-    size_t              send_limit;
-    xqc_bool_t          send_blocked;
-    xqc_int_t           send_error;
-    size_t              fin_calls;
-    xqc_bool_t          recursive_flush;
-    xqc_int_t           recursive_flush_result;
-    xqc_bool_t          recursive_recv;
-    xqc_int_t           recursive_recv_result;
-    xqc_bool_t          destroy_on_send;
-    xqc_bool_t          destroy_on_notify;
-    wt_msg_test_record_t records[WT_MSG_TEST_RECORD_CAPACITY];
-    size_t              record_count;
+    size_t                 output_len;
+    size_t                 send_limit;
+    xqc_bool_t             send_blocked;
+    xqc_int_t              send_error;
+    size_t                 fin_calls;
+    xqc_bool_t             recursive_flush;
+    xqc_int_t              recursive_flush_result;
+    xqc_bool_t             recursive_recv;
+    xqc_int_t              recursive_recv_result;
+    xqc_bool_t             destroy_on_send;
+    xqc_bool_t             destroy_on_notify;
+    wt_msg_test_record_t   records[WT_MSG_TEST_RECORD_CAPACITY];
+    size_t                 record_count;
 } wt_msg_test_t;
 
 static ssize_t wt_msg_test_send(xqc_h3_stream_t *stream,
@@ -227,12 +227,13 @@ xqc_test_wt_msg_send(void)
     wt_msg_test_t test;
     CU_ASSERT_FATAL(wt_msg_test_init(&test, 128));
 
+    CU_ASSERT(xqc_wt_msg_stream_send_msg(
+        test.msg_stream,
+        XQC_WT_MSG_BINARY, "bin", 3) == XQC_OK);
     CU_ASSERT(xqc_wt_msg_stream_send_msg(test.msg_stream,
-              XQC_WT_MSG_BINARY, "bin", 3) == XQC_OK);
+                                         XQC_WT_MSG_TEXT, "text", 4) == XQC_OK);
     CU_ASSERT(xqc_wt_msg_stream_send_msg(test.msg_stream,
-              XQC_WT_MSG_TEXT, "text", 4) == XQC_OK);
-    CU_ASSERT(xqc_wt_msg_stream_send_msg(test.msg_stream,
-              XQC_WT_MSG_BINARY, NULL, 0) == XQC_OK);
+                                         XQC_WT_MSG_BINARY, NULL, 0) == XQC_OK);
 
     static const unsigned char expected[] = {
         0x40, 0x41, 0x04,
@@ -246,8 +247,9 @@ xqc_test_wt_msg_send(void)
     test.output_len = 0;
     unsigned char payload[64];
     memset(payload, 'd', sizeof(payload));
-    CU_ASSERT(xqc_wt_msg_stream_send_msg(test.msg_stream,
-              XQC_WT_MSG_BINARY, payload, 63) == XQC_OK);
+    CU_ASSERT(xqc_wt_msg_stream_send_msg(
+        test.msg_stream,
+        XQC_WT_MSG_BINARY, payload, 63) == XQC_OK);
     CU_ASSERT(test.output_len == 66);
     CU_ASSERT(test.output[0] == 0x00);
     CU_ASSERT(test.output[1] == 0x00);
@@ -255,8 +257,9 @@ xqc_test_wt_msg_send(void)
     CU_ASSERT(memcmp(test.output + 3, payload, 63) == 0);
 
     test.output_len = 0;
-    CU_ASSERT(xqc_wt_msg_stream_send_msg(test.msg_stream,
-              XQC_WT_MSG_TEXT, payload, 64) == XQC_OK);
+    CU_ASSERT(xqc_wt_msg_stream_send_msg(
+        test.msg_stream,
+        XQC_WT_MSG_TEXT, payload, 64) == XQC_OK);
     CU_ASSERT(test.output_len == 68);
     CU_ASSERT(test.output[0] == 0x00);
     CU_ASSERT(test.output[1] == 0x01);
@@ -335,16 +338,19 @@ xqc_test_wt_msg_backpressure(void)
 
     unsigned char payload[] = "abc";
     test.send_blocked = XQC_TRUE;
-    CU_ASSERT(xqc_wt_msg_stream_send_msg(test.msg_stream,
-              XQC_WT_MSG_BINARY, payload, 3) == XQC_OK);
+    CU_ASSERT(xqc_wt_msg_stream_send_msg(
+        test.msg_stream,
+        XQC_WT_MSG_BINARY, payload, 3) == XQC_OK);
     memcpy(payload, "xyz", 3);
     CU_ASSERT(test.output_len == 0);
-    CU_ASSERT(xqc_wt_msg_stream_send_msg(test.msg_stream,
-              XQC_WT_MSG_TEXT, "x", 1) == -XQC_EAGAIN);
+    CU_ASSERT(xqc_wt_msg_stream_send_msg(
+        test.msg_stream,
+        XQC_WT_MSG_TEXT, "x", 1) == -XQC_EAGAIN);
     CU_ASSERT(xqc_wt_msg_stream_finish(test.msg_stream) == XQC_OK);
     CU_ASSERT(xqc_wt_msg_stream_finish(test.msg_stream) == XQC_OK);
-    CU_ASSERT(xqc_wt_msg_stream_send_msg(test.msg_stream,
-              XQC_WT_MSG_TEXT, "x", 1) == -XQC_ESTATE);
+    CU_ASSERT(xqc_wt_msg_stream_send_msg(
+        test.msg_stream,
+        XQC_WT_MSG_TEXT, "x", 1) == -XQC_ESTATE);
     CU_ASSERT(test.fin_calls == 0);
     CU_ASSERT(xqc_wt_msg_stream_flush(test.msg_stream) == XQC_OK);
     CU_ASSERT(test.output_len == 0);
@@ -365,8 +371,9 @@ xqc_test_wt_msg_backpressure(void)
     CU_ASSERT(test.fin_calls == 1);
     CU_ASSERT(xqc_wt_msg_stream_finish(test.msg_stream) == XQC_OK);
     CU_ASSERT(test.fin_calls == 1);
-    CU_ASSERT(xqc_wt_msg_stream_send_msg(test.msg_stream,
-              XQC_WT_MSG_BINARY, NULL, 0) == -XQC_ESTATE);
+    CU_ASSERT(xqc_wt_msg_stream_send_msg(
+        test.msg_stream,
+        XQC_WT_MSG_BINARY, NULL, 0) == -XQC_ESTATE);
 
     wt_msg_test_destroy(&test);
 
@@ -379,8 +386,24 @@ xqc_test_wt_msg_backpressure(void)
     CU_ASSERT(xqc_wt_msg_stream_finish(test.msg_stream) == XQC_OK);
     CU_ASSERT(xqc_wt_msg_stream_flush(test.msg_stream) == XQC_OK);
     CU_ASSERT(test.fin_calls == 1);
+    CU_ASSERT(xqc_wt_msg_stream_send_msg(
+        test.msg_stream,
+        XQC_WT_MSG_BINARY, "x", 1) == -XQC_ESTATE);
+    wt_msg_test_destroy(&test);
+
+    CU_ASSERT_FATAL(wt_msg_test_init(&test, 16));
     CU_ASSERT(xqc_wt_msg_stream_send_msg(test.msg_stream,
-              XQC_WT_MSG_BINARY, "x", 1) == -XQC_ESTATE);
+                                         XQC_WT_MSG_BINARY, NULL, 0) == XQC_OK);
+    test.send_error = -XQC_EAGAIN;
+    CU_ASSERT(xqc_wt_msg_stream_finish(test.msg_stream) == XQC_OK);
+    CU_ASSERT(test.fin_calls == 1);
+    CU_ASSERT(!test.stream->send_fin);
+    test.send_error = XQC_OK;
+    CU_ASSERT(xqc_wt_msg_stream_flush(test.msg_stream) == XQC_OK);
+    CU_ASSERT(test.fin_calls == 2);
+    CU_ASSERT(test.stream->send_fin);
+    CU_ASSERT(xqc_wt_msg_stream_flush(test.msg_stream) == XQC_OK);
+    CU_ASSERT(test.fin_calls == 2);
     wt_msg_test_destroy(&test);
 }
 
@@ -388,11 +411,13 @@ void
 xqc_test_wt_msg_errors(void)
 {
     int err = XQC_OK;
-    CU_ASSERT_PTR_NULL(xqc_wt_msg_stream_create(NULL, 16,
-                       wt_msg_test_notify, NULL, &err));
+    CU_ASSERT_PTR_NULL(xqc_wt_msg_stream_create(
+        NULL, 16,
+        wt_msg_test_notify, NULL, &err));
     CU_ASSERT(err == -XQC_EPARAM);
-    CU_ASSERT_PTR_NULL(xqc_wt_msg_stream_create(NULL, 16,
-                       wt_msg_test_notify, NULL, NULL));
+    CU_ASSERT_PTR_NULL(xqc_wt_msg_stream_create(
+        NULL, 16,
+        wt_msg_test_notify, NULL, NULL));
 
     wt_msg_test_t test;
     CU_ASSERT_FATAL(wt_msg_test_init(&test, 4));
@@ -405,12 +430,15 @@ xqc_test_wt_msg_errors(void)
     CU_ASSERT(err == -XQC_EPARAM);
     CU_ASSERT(xqc_wt_msg_stream_send_msg(NULL, XQC_WT_MSG_BINARY,
                                          NULL, 0) == -XQC_EPARAM);
-    CU_ASSERT(xqc_wt_msg_stream_send_msg(test.msg_stream,
-              (xqc_wt_msg_type_t)2, NULL, 0) == -XQC_EPARAM);
-    CU_ASSERT(xqc_wt_msg_stream_send_msg(test.msg_stream,
-              XQC_WT_MSG_BINARY, NULL, 1) == -XQC_EPARAM);
-    CU_ASSERT(xqc_wt_msg_stream_send_msg(test.msg_stream,
-              XQC_WT_MSG_BINARY, "12345", 5) == -XQC_ELIMIT);
+    CU_ASSERT(xqc_wt_msg_stream_send_msg(
+        test.msg_stream,
+        (xqc_wt_msg_type_t)2, NULL, 0) == -XQC_EPARAM);
+    CU_ASSERT(xqc_wt_msg_stream_send_msg(
+        test.msg_stream,
+        XQC_WT_MSG_BINARY, NULL, 1) == -XQC_EPARAM);
+    CU_ASSERT(xqc_wt_msg_stream_send_msg(
+        test.msg_stream,
+        XQC_WT_MSG_BINARY, "12345", 5) == -XQC_ELIMIT);
     CU_ASSERT(xqc_wt_msg_stream_flush(NULL) == -XQC_EPARAM);
     CU_ASSERT(xqc_wt_msg_stream_finish(NULL) == -XQC_EPARAM);
     CU_ASSERT(xqc_wt_msg_stream_recv_msg(NULL, NULL, 0) == -XQC_EPARAM);
@@ -448,8 +476,9 @@ xqc_test_wt_msg_errors(void)
     static const unsigned char truncated_varint[] = {
         0x00, 0x00, 0x40,
     };
-    CU_ASSERT(xqc_wt_msg_stream_recv_msg(test.msg_stream, truncated_varint,
-              sizeof(truncated_varint)) == -XQC_EPROTO);
+    CU_ASSERT(xqc_wt_msg_stream_recv_msg(
+        test.msg_stream, truncated_varint,
+        sizeof(truncated_varint)) == -XQC_EPROTO);
     CU_ASSERT(xqc_wt_msg_stream_recv_msg(test.msg_stream, "\0",
                                          1) == -XQC_EPROTO);
     CU_ASSERT(test.record_count == 0);
@@ -460,8 +489,9 @@ xqc_test_wt_msg_errors(void)
     static const unsigned char truncated_payload[] = {
         0x00, 0x00, 0x02, 'a',
     };
-    CU_ASSERT(xqc_wt_msg_stream_recv_msg(test.msg_stream, truncated_payload,
-              sizeof(truncated_payload)) == -XQC_EPROTO);
+    CU_ASSERT(xqc_wt_msg_stream_recv_msg(
+        test.msg_stream, truncated_payload,
+        sizeof(truncated_payload)) == -XQC_EPROTO);
     CU_ASSERT(xqc_wt_msg_stream_recv_msg(test.msg_stream, "b",
                                          1) == -XQC_EPROTO);
     CU_ASSERT(test.record_count == 0);
@@ -480,27 +510,29 @@ xqc_test_wt_msg_errors(void)
 
     CU_ASSERT_FATAL(wt_msg_test_init(&test, 16));
     test.send_error = -XQC_ESYS;
-    CU_ASSERT(xqc_wt_msg_stream_send_msg(test.msg_stream,
-              XQC_WT_MSG_BINARY, "x", 1) == -XQC_ESYS);
+    CU_ASSERT(xqc_wt_msg_stream_send_msg(
+        test.msg_stream,
+        XQC_WT_MSG_BINARY, "x", 1) == -XQC_ESYS);
     test.send_error = XQC_OK;
     CU_ASSERT(xqc_wt_msg_stream_flush(test.msg_stream) == -XQC_ESYS);
     CU_ASSERT(xqc_wt_msg_stream_finish(test.msg_stream) == -XQC_ESYS);
-    CU_ASSERT(xqc_wt_msg_stream_send_msg(test.msg_stream,
-              XQC_WT_MSG_BINARY, "x", 1) == -XQC_ESYS);
+    CU_ASSERT(xqc_wt_msg_stream_send_msg(
+        test.msg_stream,
+        XQC_WT_MSG_BINARY, "x", 1) == -XQC_ESYS);
     wt_msg_test_destroy(&test);
 
     CU_ASSERT_FATAL(wt_msg_test_init(&test, 16));
     test.recursive_flush = XQC_TRUE;
     test.recursive_flush_result = XQC_OK;
     CU_ASSERT(xqc_wt_msg_stream_send_msg(test.msg_stream,
-              XQC_WT_MSG_TEXT, "x", 1) == XQC_OK);
+                                         XQC_WT_MSG_TEXT, "x", 1) == XQC_OK);
     CU_ASSERT(test.recursive_flush_result == -XQC_ESTATE);
     wt_msg_test_destroy(&test);
 
     CU_ASSERT_FATAL(wt_msg_test_init(&test, 16));
     test.send_blocked = XQC_TRUE;
     CU_ASSERT(xqc_wt_msg_stream_send_msg(test.msg_stream,
-              XQC_WT_MSG_BINARY, "x", 1) == XQC_OK);
+                                         XQC_WT_MSG_BINARY, "x", 1) == XQC_OK);
     CU_ASSERT(xqc_wt_msg_stream_finish(test.msg_stream) == XQC_OK);
     test.send_blocked = XQC_FALSE;
     test.destroy_on_send = XQC_TRUE;

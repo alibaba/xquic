@@ -340,6 +340,11 @@ xqc_h3_conn_send_ins(xqc_qpack_ins_type_t type, xqc_var_buf_t *buf, void *user_d
         h3s = h3c->qdec_stream;
     }
 
+    if (h3s == NULL) {
+        xqc_log(h3c->log, XQC_LOG_ERROR, "|h3 stream is null|type:%d|", type);
+        return type == XQC_INS_TYPE_ENCODER ? -XQC_H3_EQPACK_ENCODE : -XQC_H3_EQPACK_DECODE;
+    }
+
     /* directly send */
     xqc_int_t ret = xqc_h3_stream_send_buffer(h3s);
     if (ret < 0 && ret != -XQC_EAGAIN) {
@@ -366,6 +371,11 @@ xqc_h3_conn_get_ins_buf(xqc_qpack_ins_type_t type, void *user_data)
 
     } else {
         h3s = h3c->qdec_stream;
+    }
+
+    if (h3s == NULL) {
+        xqc_log(h3c->log, XQC_LOG_ERROR, "|h3 stream is null|type:%d|", type);
+        return NULL;
     }
 
     return xqc_h3_stream_get_send_buf(h3s);
@@ -497,6 +507,12 @@ xqc_h3_conn_create(xqc_connection_t *conn, void *user_data)
 #endif
     }
 
+    if (xqc_h3_conn_settings_validate(&h3c->local_h3_conn_settings,
+                                      h3c->log) != XQC_OK)
+    {
+        goto fail;
+    }
+
     /* read effective blocked buffer limits (already computed in xqc_server_set_conn_settings) */
     h3c->max_blocked_buf_per_stream = conn->conn_settings.max_blocked_buf_per_stream;
     h3c->max_blocked_buf_per_conn = conn->conn_settings.max_blocked_buf_per_conn;
@@ -624,38 +640,140 @@ xqc_h3_conn_on_uni_stream_created(xqc_h3_conn_t *h3c, uint64_t stype)
 
 
 xqc_int_t
-xqc_h3_conn_set_setting(xqc_h3_conn_t *h3c, uint64_t identifier,
-    uint64_t value)
+xqc_h3_conn_settings_add_extern(xqc_h3_conn_settings_t *settings,
+    uint64_t identifier, uint64_t value)
 {
-    if (h3c == NULL) {
+    if (settings == NULL) {
         return -XQC_EPARAM;
     }
-    if (h3c->flags & XQC_H3_CONN_FLAG_SETTINGS_QUEUED) {
-        return -XQC_ESTATE;
-    }
-    /* RFC 9114 Section 7.2.4.1: 0x02 through 0x05 are reserved. */
-    if (identifier > ((UINT64_C(1) << 62) - 1)
-        || value > ((UINT64_C(1) << 62) - 1)
-        || (identifier >= 0x02 && identifier <= 0x05)
-        || identifier == XQC_H3_SETTINGS_QPACK_MAX_TABLE_CAPACITY
-        || identifier == XQC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE
-        || identifier == XQC_H3_SETTINGS_QPACK_BLOCKED_STREAMS)
+
+    /* RFC 9114 Sections 7.2.4 and 7.2.4.1. */
+    if (identifier > XQC_VINT_MAX
+        || value > XQC_VINT_MAX
+        || identifier <= XQC_H3_SETTINGS_QPACK_BLOCKED_STREAMS)
     {
         return -XQC_EPARAM;
     }
-    for (size_t i = 0; i < h3c->registered_settings_count; i++) {
-        if (h3c->registered_settings[i].identifier.vi == identifier) {
-            h3c->registered_settings[i].value.vi = value;
+
+    /* A full registry still permits replacement of an existing entry. */
+    if (settings->extern_settings_count > XQC_H3_MAX_EXTERN_SETTINGS) {
+        return -XQC_EPARAM;
+    }
+
+    for (size_t i = 0; i < settings->extern_settings_count; i++) {
+        if (settings->extern_settings[i].identifier == identifier) {
+            settings->extern_settings[i].value = value;
             return XQC_OK;
         }
     }
-    if (h3c->registered_settings_count == XQC_H3_MAX_REGISTERED_SETTINGS) {
+
+    if (settings->extern_settings_count == XQC_H3_MAX_EXTERN_SETTINGS) {
         return -XQC_EPARAM;
     }
+
     xqc_h3_setting_t *setting =
-        &h3c->registered_settings[h3c->registered_settings_count++];
-    setting->identifier.vi = identifier;
-    setting->value.vi = value;
+        &settings->extern_settings[settings->extern_settings_count++];
+    setting->identifier = identifier;
+    setting->value = value;
+    return XQC_OK;
+}
+
+
+xqc_int_t
+xqc_h3_conn_settings_validate(const xqc_h3_conn_settings_t *settings,
+    xqc_log_t *log)
+{
+    const uint64_t max_varint = XQC_VINT_MAX;
+
+    if (settings == NULL) {
+        if (log != NULL) {
+            xqc_log(log, XQC_LOG_ERROR,
+                "|invalid local HTTP/3 settings|reason:null_settings|");
+        }
+        return -XQC_EPARAM;
+    }
+
+    if (settings->extern_settings_count > XQC_H3_MAX_EXTERN_SETTINGS) {
+        if (log != NULL) {
+            xqc_log(log, XQC_LOG_ERROR,
+                "|invalid local HTTP/3 settings|reason:count_exceeds_limit|"
+                "count:%uz|limit:%d|", settings->extern_settings_count,
+                XQC_H3_MAX_EXTERN_SETTINGS);
+        }
+        return -XQC_EPARAM;
+    }
+
+    if (settings->max_field_section_size > max_varint) {
+        if (log != NULL) {
+            xqc_log(log, XQC_LOG_ERROR,
+                "|invalid local HTTP/3 settings|reason:value_out_of_range|"
+                "field:max_field_section_size|value:%ui|limit:%ui|",
+                settings->max_field_section_size, max_varint);
+        }
+        return -XQC_EPARAM;
+    }
+
+    if (settings->qpack_dec_max_table_capacity > max_varint) {
+        if (log != NULL) {
+            xqc_log(log, XQC_LOG_ERROR,
+                "|invalid local HTTP/3 settings|reason:value_out_of_range|"
+                "field:qpack_dec_max_table_capacity|value:%ui|limit:%ui|",
+                settings->qpack_dec_max_table_capacity, max_varint);
+        }
+        return -XQC_EPARAM;
+    }
+
+    if (settings->qpack_blocked_streams > max_varint) {
+        if (log != NULL) {
+            xqc_log(log, XQC_LOG_ERROR,
+                "|invalid local HTTP/3 settings|reason:value_out_of_range|"
+                "field:qpack_blocked_streams|value:%ui|limit:%ui|",
+                settings->qpack_blocked_streams, max_varint);
+        }
+        return -XQC_EPARAM;
+    }
+
+    for (size_t i = 0; i < settings->extern_settings_count; i++) {
+        const xqc_h3_setting_t *current =
+            &settings->extern_settings[i];
+        if (current->identifier > max_varint
+            || current->identifier <= XQC_H3_SETTINGS_QPACK_BLOCKED_STREAMS)
+        {
+            if (log != NULL) {
+                xqc_log(log, XQC_LOG_ERROR,
+                    "|invalid local HTTP/3 settings|reason:invalid_identifier|"
+                    "index:%uz|identifier:%ui|value:%ui|", i,
+                    current->identifier, current->value);
+            }
+            return -XQC_EPARAM;
+        }
+
+        if (current->value > max_varint) {
+            if (log != NULL) {
+                xqc_log(log, XQC_LOG_ERROR,
+                    "|invalid local HTTP/3 settings|reason:value_out_of_range|"
+                    "field:extern_settings|index:%uz|identifier:%ui|value:%ui|",
+                    i, current->identifier, current->value);
+            }
+            return -XQC_EPARAM;
+        }
+
+        for (size_t j = 0; j < i; j++) {
+            if (settings->extern_settings[j].identifier
+                == current->identifier)
+            {
+                if (log != NULL) {
+                    xqc_log(log, XQC_LOG_ERROR,
+                        "|invalid local HTTP/3 settings|"
+                        "reason:duplicate_identifier|index:%uz|"
+                        "previous_index:%uz|identifier:%ui|value:%ui|",
+                        i, j, current->identifier, current->value);
+                }
+                return -XQC_EPARAM;
+            }
+        }
+    }
+
     return XQC_OK;
 }
 
@@ -743,10 +861,11 @@ xqc_h3_conn_is_goaway_recved(xqc_h3_conn_t *h3c, uint64_t stream_id)
 }
 
 xqc_int_t
-xqc_h3_conn_on_settings_entry_received(uint64_t identifier, uint64_t value, void *user_data)
+xqc_h3_conn_on_settings_entry_received(uint64_t identifier, uint64_t value,
+    void *user_data)
 {
     xqc_int_t ret;
-    xqc_h3_conn_t *h3c = (xqc_h3_conn_t *) user_data;
+    xqc_h3_conn_t *h3c = (xqc_h3_conn_t *)user_data;
 
     xqc_log(h3c->log, XQC_LOG_DEBUG, "|id:%ui|value:%ui|", identifier, value);
 
@@ -787,27 +906,7 @@ xqc_h3_conn_on_settings_entry_received(uint64_t identifier, uint64_t value, void
         }
         break;
 
-    case XQC_H3_SETTINGS_H2_ENABLE_PUSH:
-    case XQC_H3_SETTINGS_H2_MAX_CONCURRENT_STREAMS:
-    case XQC_H3_SETTINGS_H2_INITIAL_WINDOW_SIZE:
-    case XQC_H3_SETTINGS_H2_MAX_FRAME_SIZE:
-        /*
-         * RFC 9114 Section 7.2.4.1: HTTP/2 setting identifiers without
-         * corresponding HTTP/3 settings are connection errors.
-         */
-        xqc_log(h3c->log, XQC_LOG_ERROR,
-                "|reserved HTTP/2 setting|identifier:%ui|value:%ui|",
-                identifier, value);
-        XQC_H3_CONN_ERR(h3c, H3_SETTINGS_ERROR, -XQC_H3_SETTING_ERROR);
-        return -XQC_H3_SETTING_ERROR;
-
     default:
-        if (h3c->on_settings_entry) {
-            return h3c->on_settings_entry(identifier, value,
-                                          h3c->settings_user_data);
-        }
-        xqc_log(h3c->log, XQC_LOG_INFO, "|ignore unknown setting|identifier%ui|value:%ui",
-                identifier, value);
         break;
     }
 

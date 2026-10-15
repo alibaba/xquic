@@ -525,19 +525,36 @@ xqc_send_queue_maybe_remove_unacked(xqc_packet_out_t *packet_out, xqc_send_queue
 void
 xqc_send_ctl_on_reset_stream_acked(xqc_send_ctl_t *send_ctl, xqc_packet_out_t *packet_out)
 {
-    if (packet_out->po_frame_types & XQC_FRAME_BIT_RESET_STREAM) {
-        xqc_stream_t *stream;
-        for (int i = 0; i < XQC_MAX_STREAM_FRAME_IN_PO; i++) {
-            if (packet_out->po_stream_frames[i].ps_is_used == 0) {
-                break;
+    xqc_connection_t *conn = send_ctl->ctl_conn;
+    if (!(packet_out->po_frame_types
+          & (XQC_FRAME_BIT_RESET_STREAM | XQC_FRAME_BIT_RESET_STREAM_AT)))
+    {
+        return;
+    }
+
+    for (int i = 0; i < XQC_MAX_STREAM_FRAME_IN_PO; i++) {
+        xqc_po_stream_frame_t *frame = &packet_out->po_stream_frames[i];
+        if (!frame->ps_is_used) {
+            break;
+        }
+        xqc_stream_t *stream = xqc_find_stream_by_id(frame->ps_stream_id,
+                                                     conn->streams_hash);
+        if (stream == NULL) {
+            continue;
+        }
+        if (frame->ps_is_reset_at) {
+            if (conn->conn_state < XQC_CONN_STATE_CLOSING) {
+                xqc_stream_on_reset_at_acked(stream,
+                                             frame->ps_reset_at_size);
             }
-            stream = xqc_find_stream_by_id(packet_out->po_stream_frames[i].ps_stream_id, send_ctl->ctl_conn->streams_hash);
-            if (stream != NULL && packet_out->po_stream_frames[i].ps_is_reset) {
-                if (stream->stream_state_send == XQC_SEND_STREAM_ST_RESET_SENT) {
-                    xqc_stream_send_state_update(stream, XQC_SEND_STREAM_ST_RESET_RECVD);
-                    xqc_stream_maybe_need_close(stream);
-                }
-            }
+
+        } else if (frame->ps_is_reset
+                   && stream->stream_state_send
+                       == XQC_SEND_STREAM_ST_RESET_SENT)
+        {
+            xqc_stream_send_state_update(stream,
+                                         XQC_SEND_STREAM_ST_RESET_RECVD);
+            xqc_stream_maybe_need_close(stream);
         }
     }
 }
@@ -576,6 +593,11 @@ xqc_send_ctl_decrease_inflight(xqc_connection_t *conn, xqc_packet_out_t *packet_
             send_ctl->ctl_bytes_ack_eliciting_inflight[packet_out->po_pkt.pkt_pns] = xqc_uint32_bounded_subtract(send_ctl->ctl_bytes_ack_eliciting_inflight[packet_out->po_pkt.pkt_pns], packet_out->po_used_size);
             send_ctl->ctl_bytes_in_flight = xqc_uint32_bounded_subtract(send_ctl->ctl_bytes_in_flight, packet_out->po_used_size);
             packet_out->po_flag &= ~XQC_POF_IN_FLIGHT;
+            if (packet_out->po_flag & XQC_POF_INFLIGHT_CANCELED) {
+                /* Cancelled packets can not be acked. It could lead to bw under-estimation because of no enough application data. Therefore, we should mark the path as application limited. */
+                send_ctl->ctl_app_limited = (send_ctl->ctl_delivered + send_ctl->ctl_bytes_in_flight) ? (send_ctl->ctl_delivered + send_ctl->ctl_bytes_in_flight) : 1;
+                packet_out->po_flag &= ~XQC_POF_INFLIGHT_CANCELED;
+            }
         }
     }
 }
@@ -1595,11 +1617,18 @@ xqc_send_ctl_on_packet_acked(xqc_send_ctl_t *send_ctl,
 
     xqc_conn_decrease_unacked_stream_ref(send_ctl->ctl_conn, packet_out);
 
+    /* A lost RESET_STREAM_AT can still be acknowledged (-09 Section 5.3). */
+    if (packet_out->po_frame_types & XQC_FRAME_BIT_RESET_STREAM_AT) {
+        xqc_send_ctl_on_reset_stream_acked(send_ctl, packet_out);
+    }
+
     /* If a packet marked as STREAM_CLOSED, when it is acked, it comes here */
     if (packet_out->po_flag & XQC_POF_IN_FLIGHT) {
         xqc_send_ctl_decrease_inflight(send_ctl->ctl_conn, packet_out);
 
-        if (packet_out->po_frame_types & XQC_FRAME_BIT_RESET_STREAM) {
+        if ((packet_out->po_frame_types & XQC_FRAME_BIT_RESET_STREAM)
+            && !(packet_out->po_frame_types & XQC_FRAME_BIT_RESET_STREAM_AT))
+        {
             xqc_send_ctl_on_reset_stream_acked(send_ctl, packet_out);
         }
 
@@ -1647,8 +1676,11 @@ xqc_send_ctl_on_packet_acked(xqc_send_ctl_t *send_ctl,
         packet_out->po_origin->po_acked = 1;
     }
 
-    /* reliable-stream-reset-09 Section 5.3: ACK the reset and its prefix. */
-    if (conn->conn_state < XQC_CONN_STATE_CLOSING) {
+    /* reliable-stream-reset-09 Sections 3 and 5.3: only peers advertising
+       reset support need prefix ACK tracking, including before reset. */
+    if (conn->remote_settings.reset_stream_at
+        && conn->conn_state < XQC_CONN_STATE_CLOSING)
+    {
         for (int i = 0; i < packet_out->po_stream_frames_idx; i++) {
             xqc_po_stream_frame_t *frame = &packet_out->po_stream_frames[i];
             if (!frame->ps_is_used) {
@@ -1656,14 +1688,18 @@ xqc_send_ctl_on_packet_acked(xqc_send_ctl_t *send_ctl,
             }
             stream = xqc_find_stream_by_id(frame->ps_stream_id,
                                            conn->streams_hash);
-            if (stream != NULL
-                && stream->reset_at.send_state == XQC_RESET_AT_SENT
-                && stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_SENT
-                && !xqc_send_queue_has_unacked_reliable(stream))
+            if (stream == NULL) {
+                continue;
+            }
+            if (!frame->ps_is_reset && !frame->ps_is_reset_at
+                && frame->ps_length > 0)
             {
-                xqc_stream_send_state_update(stream,
-                                            XQC_SEND_STREAM_ST_DATA_RECVD);
-                xqc_stream_maybe_need_close(stream);
+                if (xqc_stream_on_data_acked(stream, frame->ps_offset,
+                                             frame->ps_length) != XQC_OK)
+                {
+                    XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+                    return;
+                }
             }
         }
     }

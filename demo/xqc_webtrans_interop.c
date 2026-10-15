@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <inttypes.h>
 #include <stdio.h>
+#include "src/webtransport/xqc_webtransport_conn.h"
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -185,7 +186,7 @@ static int xqc_wt_interop_write_protocol(const char *protocol);
 static int xqc_wt_interop_header_name(const xqc_http_header_t *header,
     const char *name);
 static int xqc_wt_interop_accept(xqc_http_headers_t *headers,
-    xqc_http_headers_t *response);
+    xqc_http_headers_t *response, void *user_data);
 static int xqc_wt_interop_ready(xqc_wt_session_t *session,
     xqc_http_headers_t *headers, const xqc_cid_t *cid, void *user_data);
 static int xqc_wt_interop_closed(xqc_wt_session_t *session,
@@ -351,7 +352,7 @@ xqc_wt_interop_header_name(const xqc_http_header_t *header,
 
 static int
 xqc_wt_interop_accept(xqc_http_headers_t *headers,
-    xqc_http_headers_t *response)
+    xqc_http_headers_t *response, void *user_data)
 {
     xqc_wt_interop_t *ctx = &xqc_wt_interop;
     const xqc_http_header_t *path = NULL;
@@ -489,7 +490,7 @@ xqc_wt_interop_ready(xqc_wt_session_t *session,
         return XQC_ERROR;
     }
     printf("WT ready: draft=%d status=%u endpoint=/%s\n",
-           xqc_wt_session_get_draft_version(session)
+           session->wt_conn->negotiated_version
                == XQC_WEBTRANSPORT_DRAFT_VERSION_16 ? 16 : 7,
            xqc_wt_session_get_response_status(session), ctx->endpoint);
     if (ctx->handshake) {

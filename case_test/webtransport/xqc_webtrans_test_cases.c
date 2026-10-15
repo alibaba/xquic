@@ -7,7 +7,7 @@
 #include "src/webtransport/xqc_webtransport_conn.h"
 #include "src/webtransport/xqc_webtransport_h3_stream.h"
 #include "src/webtransport/xqc_webtransport_stream.h"
-#include "src/webtransport/xqc_webtransport_wire.h"
+#include "src/webtransport/xqc_webtransport_session.h"
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_request.h"
 #include "src/transport/xqc_conn.h"
@@ -100,8 +100,8 @@ wt_case_send_capsule(xqc_wt_session_t *session, uint64_t type,
     const unsigned char *body, size_t len)
 {
     unsigned char capsule[32];
-    size_t offset = xqc_wt_encode_session_id(type, capsule, sizeof(capsule));
-    offset += xqc_wt_encode_session_id(len, capsule + offset,
+    size_t offset = xqc_wt_put_varint(type, capsule, sizeof(capsule));
+    offset += xqc_wt_put_varint(len, capsule + offset,
                                        sizeof(capsule) - offset);
     memcpy(capsule + offset, body, len);
     ssize_t sent = xqc_h3_request_send_body(session->request, capsule,
@@ -166,7 +166,7 @@ xqc_wt_case_prepare(xqc_wt_session_t *session, int case_id)
             return XQC_ERROR;
         }
         printf("WT case second CONNECT sent: session=%" PRIu64 "\n",
-               second->sessionID);
+               second->session_id);
         return 1;
     }
     case 1835: {
@@ -189,8 +189,8 @@ xqc_wt_case_prepare(xqc_wt_session_t *session, int case_id)
             return XQC_ERROR;
         }
         printf("WT pooled client: first=%" PRIu64 " second=%" PRIu64
-               " active=%zu\n", wt_case_first_session->sessionID,
-               session->sessionID, conn->session_count);
+               " active=%zu\n", wt_case_first_session->session_id,
+               session->session_id, conn->session_count);
         return XQC_OK;
     }
     default:
@@ -204,7 +204,7 @@ wt_case_session_ready(xqc_wt_session_t *session, xqc_http_headers_t *headers,
 {
     if (wt_case_server_id == 1835 && session->wt_conn->session_count == 2) {
         printf("WT pooled server: second=%" PRIu64 " active=%zu\n",
-               session->sessionID, session->wt_conn->session_count);
+               session->session_id, session->wt_conn->session_count);
     }
     if (wt_case_server_id == 1810) {
         xqc_connection_t *conn = session->wt_conn->h3_conn->conn;
@@ -305,7 +305,7 @@ static void
 wt_case_raw_datagram(xqc_connection_t *transport, void *user_data,
     const void *data, size_t len, uint64_t recv_time)
 {
-    xqc_wt_conn_t *conn = xqc_wt_create_conn(transport->proto_data);
+    xqc_wt_conn_t *conn = xqc_wt_get_conn_from_h3(transport->proto_data);
     size_t before = conn->pending_count;
     unsigned delivered = wt_case_datagram_deliveries;
     int unknown = len == sizeof(wt_case_unknown)

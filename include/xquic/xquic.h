@@ -525,6 +525,11 @@ typedef xqc_int_t (*xqc_stream_notify_pt)(xqc_stream_t *stream,
 typedef void (*xqc_stream_closing_notify_pt)(xqc_stream_t *stream,
     xqc_int_t err_code, void *strm_user_data);
 
+/**
+ * Report a received STOP_SENDING error. Retransmissions can repeat this
+ * callback. The application does not need to submit additional stream data
+ * for a configured reliable reset after this notification.
+ */
 typedef void (*xqc_stream_stop_sending_notify_pt)(xqc_stream_t *stream,
     uint64_t err_code, void *strm_user_data);
 
@@ -815,8 +820,8 @@ typedef struct xqc_stream_callbacks_s {
 
     /**
      * Report a received STOP_SENDING with its application error. Duplicate
-     * frames can repeat this callback. If a reliable prefix is pending,
-     * the application must continue submitting it before releasing its data.
+     * frames can repeat this callback. A pending reliable reset is reduced to
+     * an ordinary reset; the application does not need to submit more data.
      */
     xqc_stream_stop_sending_notify_pt stream_stop_sending_notify;
 
@@ -1381,9 +1386,6 @@ typedef struct xqc_conn_settings_s {
      * accepted
      */
     uint64_t                    max_datagram_frame_size;
-
-    /* draft-ietf-quic-reliable-stream-reset-09 Section 3; default off. */
-    xqc_bool_t                  enable_reset_stream_at;
     
     /** 
      * multipath option:
@@ -1586,6 +1588,10 @@ typedef struct xqc_conn_settings_s {
      * Default: 0 (use internal default: 8MB)
      */
     size_t                      max_blocked_buf_per_conn;
+
+
+    /* draft-ietf-quic-reliable-stream-reset-09 Section 3; default off. */
+    xqc_bool_t                  enable_reset_stream_at;
 } xqc_conn_settings_t;
 
 
@@ -2083,9 +2089,10 @@ XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_stream_close(xqc_stream_t *stream);
 
 /**
- * Require reliable delivery of a prefix when resetting the send direction.
- * Call after TLS handshake completion, before sending data. The peer must
- * advertise reset_stream_at in this handshake; 0-RTT use is unsupported.
+ * Select the reliable prefix for a later send-direction reset. A positive
+ * value requires current-handshake peer support. Before reset the value can
+ * be replaced; after RESET_STREAM_AT is sent it can only decrease. Zero
+ * selects ordinary RESET_STREAM.
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_stream_set_reliable_size(xqc_stream_t *stream,
@@ -2093,7 +2100,8 @@ xqc_int_t xqc_stream_set_reliable_size(xqc_stream_t *stream,
 
 /**
  * Reset only the send direction, preserving its configured reliable prefix.
- * Returns -XQC_EAGAIN until the complete prefix has been submitted.
+ * If the prefix exceeds bytes already accepted by XQUIC, returns
+ * -XQC_EAGAIN without recording a reset or blocking later writes.
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_stream_reset(xqc_stream_t *stream, uint64_t error_code);

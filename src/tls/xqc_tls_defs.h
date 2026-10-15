@@ -59,7 +59,6 @@ typedef enum xqc_tls_early_data_accept_s {
 } xqc_tls_early_data_accept_t;
 
 
-
 /**
  * @brief tls config for create xqc_tls_t instance
  */
@@ -88,6 +87,9 @@ typedef struct xqc_tls_config_s {
     size_t                  trans_params_len;
 
     char                   *tls_groups;
+
+    /* Advertised server capability bound to the early-data context. */
+    xqc_bool_t              reset_stream_at;
 
 } xqc_tls_config_t;
 

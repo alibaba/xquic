@@ -19,7 +19,7 @@ RUN python3 interop/webtransport/test_endpoint.py && \
     XQC_SSL_PATH=/deps/boringssl XQC_BUILD_JOBS=4 \
         ./scripts/validate.sh test --feature webtransport_interop && \
     XQC_BUILD_DIR=/xquic/build/validation bash scripts/case_test.sh --execute \
-        --group webtransport.core
+        --group webtransport.core --group webtransport.public --group webtransport.demo
 
 FROM endpoint AS runtime
 # hadolint ignore=DL3008

@@ -60,8 +60,8 @@ xqc_bool_t xqc_h3_frm_is_h2_reserved(uint64_t frame_type);
 
 
 /**
- * @brief parse SETTINGS frame
- * @param data input data
+ * @brief Parse entries after the entire SETTINGS payload is buffered.
+ * @param data Complete payload from the frame parser.
  * @param user_data 
  * @return ssize_t 
  */
@@ -79,7 +79,8 @@ xqc_int_t xqc_h3_frm_write_data(xqc_list_head_t *send_buf, unsigned char *data, 
 
 xqc_int_t xqc_h3_frm_write_cancel_push(xqc_list_head_t *send_buf, uint64_t push_id, uint8_t fin);
 
-xqc_int_t xqc_h3_frm_write_settings(xqc_list_head_t *send_buf, xqc_h3_conn_settings_t *setting,
+xqc_int_t xqc_h3_frm_write_settings(xqc_list_head_t *send_buf,
+    const xqc_h3_conn_settings_t *setting,
     uint8_t fin);
 
 xqc_int_t xqc_h3_frm_write_push_promise(xqc_list_head_t *send_buf, uint64_t push_id, 

@@ -137,4 +137,78 @@ xqc_str_2_int(char *str, xqc_int_t str_len)
     return result;
 }
 
+#ifndef XQC_ONLY_CLIENT_LIB
+inline static size_t
+xqc_uint64_decimal_len(uint64_t value)
+{
+    size_t len = 1;
+    while (value >= 10) {
+        value /= 10;
+        len++;
+    }
+    return len;
+}
+#endif
+
+static inline unsigned char *
+xqc_fmt_uint(unsigned char *buf, unsigned char *last, uint64_t n)
+{
+    static const char lut[200] = {
+        '0','0','0','1','0','2','0','3','0','4','0','5','0','6','0','7','0','8','0','9',
+        '1','0','1','1','1','2','1','3','1','4','1','5','1','6','1','7','1','8','1','9',
+        '2','0','2','1','2','2','2','3','2','4','2','5','2','6','2','7','2','8','2','9',
+        '3','0','3','1','3','2','3','3','3','4','3','5','3','6','3','7','3','8','3','9',
+        '4','0','4','1','4','2','4','3','4','4','4','5','4','6','4','7','4','8','4','9',
+        '5','0','5','1','5','2','5','3','5','4','5','5','5','6','5','7','5','8','5','9',
+        '6','0','6','1','6','2','6','3','6','4','6','5','6','6','6','7','6','8','6','9',
+        '7','0','7','1','7','2','7','3','7','4','7','5','7','6','7','7','7','8','7','9',
+        '8','0','8','1','8','2','8','3','8','4','8','5','8','6','8','7','8','8','8','9',
+        '9','0','9','1','9','2','9','3','9','4','9','5','9','6','9','7','9','8','9','9',
+    };
+    unsigned char temp[20];
+    unsigned char *t = temp + 20;
+    size_t len;
+
+    if (n == 0) {
+        if (buf < last) *buf++ = '0';
+        return buf;
+    }
+
+    if (n <= (uint64_t)0xFFFFFFFFu) {
+        uint32_t n32 = (uint32_t)n;
+        while (n32 >= 100) {
+            unsigned idx = (n32 % 100) * 2;
+            n32 /= 100;
+            *--t = (unsigned char)lut[idx + 1];
+            *--t = (unsigned char)lut[idx];
+        }
+        if (n32 >= 10) {
+            unsigned idx = n32 * 2;
+            *--t = (unsigned char)lut[idx + 1];
+            *--t = (unsigned char)lut[idx];
+        } else {
+            *--t = (unsigned char)('0' + n32);
+        }
+    } else {
+        while (n >= 100) {
+            unsigned idx = (unsigned)(n % 100) * 2;
+            n /= 100;
+            *--t = (unsigned char)lut[idx + 1];
+            *--t = (unsigned char)lut[idx];
+        }
+        if (n >= 10) {
+            unsigned idx = (unsigned)n * 2;
+            *--t = (unsigned char)lut[idx + 1];
+            *--t = (unsigned char)lut[idx];
+        } else {
+            *--t = (unsigned char)('0' + n);
+        }
+    }
+
+    len = (size_t)((temp + 20) - t);
+    if ((size_t)(last - buf) < len) len = (size_t)(last - buf);
+    memcpy(buf, t, len);
+    return buf + len;
+}
+
 #endif /*_XQC_STR_H_INCLUDED_*/

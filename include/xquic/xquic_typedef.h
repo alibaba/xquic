@@ -11,6 +11,9 @@
 
 #define XQC_EXTERN extern
 
+#define XQC_H3_FINGERPRINT_SETTINGS_MAX_LEN       128
+#define XQC_H3_FINGERPRINT_ERROR_MARKER            "!e"
+
 /* defined UNIX system default */
 #ifndef XQC_SYS_WINDOWS
 #   define XQC_SYS_UNIX

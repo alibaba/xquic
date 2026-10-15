@@ -4,6 +4,7 @@
 
 #include "src/http3/frame/xqc_h3_frame.h"
 #include "src/http3/xqc_h3_conn.h"
+#include "src/common/xqc_str.h"
 
 #define XQC_H3_DECODE_DISCRETE_VINT_VALUE(pos, sz, pctx, fin) \
     do {                                                      \
@@ -270,8 +271,22 @@ xqc_h3_frm_parse(const unsigned char *p, size_t sz, xqc_h3_frame_pctx_t *pctx)
             pctx->frame.len = pctx->pctx.vi;
             pctx->frame.consumed_len = 0;
             xqc_discrete_int_pctx_clear(&pctx->pctx);
-            pctx->state = XQC_H3_FRM_STATE_PAYLOAD;
             memset(&pctx->frame.frame_payload, 0, sizeof(xqc_h3_frame_pl_t));
+            pctx->state = XQC_H3_FRM_STATE_PAYLOAD;
+            if (pctx->frame.len == 0) {
+                /* RFC 9114 Section 7.1: required fields cannot be absent. */
+                switch (pctx->frame.type) {
+                case XQC_H3_FRM_CANCEL_PUSH:
+                case XQC_H3_FRM_PUSH_PROMISE:
+                case XQC_H3_FRM_GOAWAY:
+                case XQC_H3_FRM_MAX_PUSH_ID:
+                case XQC_H3_EXT_FRM_BIDI_STREAM_TYPE:
+                    return -XQC_H3_DECODE_ERROR;
+                default:
+                    pctx->state = XQC_H3_FRM_STATE_END;
+                    break;
+                }
+            }
             fin = 0;
         }
     }
@@ -329,34 +344,181 @@ xqc_h3_frm_parse(const unsigned char *p, size_t sz, xqc_h3_frame_pctx_t *pctx)
 ssize_t
 xqc_h3_frm_parse_setting(xqc_var_buf_t *data, void *user_data)
 {
-    while (data->consumed_len < data->data_len)
-    {
-        xqc_bool_t fin;
-        xqc_discrete_int_pctx_t identifier, value;
-        memset(&identifier, 0, sizeof(xqc_discrete_int_pctx_t));
-        memset(&value, 0, sizeof(xqc_discrete_int_pctx_t));
+    xqc_h3_conn_t             *h3c = (xqc_h3_conn_t *)user_data;
+    xqc_h3_setting_t          *entries = NULL;
+    size_t                     data_len = data == NULL ? 0 : data->data_len;
+    size_t                     capacity = (data_len + 1) / 2;
+    size_t                     count = 0;
+    size_t                     extern_count = 0;
+    size_t                     offset = 0;
+    xqc_bool_t                 fin;
+    xqc_discrete_int_pctx_t    identifier;
+    xqc_discrete_int_pctx_t    value;
+    ssize_t                    read;
+    xqc_int_t                  ret;
+#ifndef XQC_ONLY_CLIENT_LIB
+    size_t                     fingerprint_len = 0;
+    xqc_bool_t                 fingerprint_error = XQC_FALSE;
+    size_t                     entry_len;
+    size_t                     separator_len;
+    unsigned char             *pos;
+    unsigned char             *last;
+#endif
 
-        ssize_t read = xqc_discrete_vint_parse(data->data + data->consumed_len, 
-                                               data->data_len - data->consumed_len,
-                                               &identifier, &fin);
-        if (read < 0) {
-            return XQC_ERROR;
-        }
-        data->consumed_len += read;
-
-        read = xqc_discrete_vint_parse(data->data + data->consumed_len,
-                                       data->data_len - data->consumed_len, &value, &fin);
-        if (read < 0) {
-            return XQC_ERROR;
-        }
-        data->consumed_len += read;
-
-        if (xqc_h3_conn_on_settings_entry_received(identifier.vi, value.vi, user_data) < 0) {
-            return XQC_ERROR;
+    if (capacity > 0) {
+        entries = xqc_malloc(capacity * sizeof(*entries));
+        if (entries == NULL) {
+            XQC_H3_CONN_ERR(h3c, H3_INTERNAL_ERROR, -XQC_H3_EMALLOC);
+            ret = -H3_INTERNAL_ERROR;
+            goto finish;
         }
     }
 
-    return XQC_OK;
+    while (offset < data_len) {
+        memset(&identifier, 0, sizeof(xqc_discrete_int_pctx_t));
+        memset(&value, 0, sizeof(xqc_discrete_int_pctx_t));
+
+        fin = XQC_FALSE;
+        read = xqc_discrete_vint_parse(data->data + offset,
+                                       data_len - offset,
+                                       &identifier, &fin);
+        if (read < 0 || !fin) {
+            goto frame_error;
+        }
+        offset += read;
+
+        fin = XQC_FALSE;
+        read = xqc_discrete_vint_parse(data->data + offset,
+                                       data_len - offset, &value, &fin);
+        if (read < 0 || !fin) {
+            goto frame_error;
+        }
+        offset += read;
+
+        if (identifier.vi >= XQC_H3_SETTINGS_H2_ENABLE_PUSH
+            && identifier.vi <= XQC_H3_SETTINGS_H2_MAX_FRAME_SIZE)
+        {
+            xqc_log(h3c->log, XQC_LOG_ERROR,
+                    "|reserved HTTP/2 setting|identifier:%ui|", identifier.vi);
+            goto settings_error;
+        }
+
+        for (size_t i = 0; i < count; i++) {
+            if (entries[i].identifier == identifier.vi) {
+                xqc_log(h3c->log, XQC_LOG_ERROR,
+                        "|duplicate setting|identifier:%ui|", identifier.vi);
+                goto settings_error;
+            }
+        }
+
+        entries[count].identifier = identifier.vi;
+        entries[count].value = value.vi;
+        count++;
+    }
+
+    for (size_t i = 0; i < count; i++) {
+        ret = xqc_h3_conn_on_settings_entry_received(entries[i].identifier,
+                                                      entries[i].value, h3c);
+        if (ret != XQC_OK) {
+            XQC_H3_CONN_ERR(h3c, H3_INTERNAL_ERROR,
+                            -XQC_H3_EPROC_CONTROL);
+            ret = -H3_INTERNAL_ERROR;
+            goto finish;
+        }
+    }
+
+#ifndef XQC_ONLY_CLIENT_LIB
+    h3c->h3_settings_params[0] = '\0';
+    for (size_t i = 0; i < count && !fingerprint_error; i++) {
+        uint64_t setting_id = entries[i].identifier;
+        if (setting_id != XQC_H3_SETTINGS_QPACK_MAX_TABLE_CAPACITY
+            && setting_id != XQC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE
+            && setting_id != XQC_H3_SETTINGS_QPACK_BLOCKED_STREAMS)
+        {
+            continue;
+        }
+
+        separator_len = fingerprint_len == 0 ? 0 : 1;
+        entry_len = xqc_uint64_decimal_len(setting_id) + 1
+                    + xqc_uint64_decimal_len(entries[i].value);
+        if (fingerprint_len + separator_len + entry_len
+            > XQC_H3_FINGERPRINT_SETTINGS_MAX_LEN)
+        {
+            fingerprint_error = XQC_TRUE;
+            xqc_memcpy(h3c->h3_settings_params,
+                       XQC_H3_FINGERPRINT_ERROR_MARKER,
+                       sizeof(XQC_H3_FINGERPRINT_ERROR_MARKER));
+            continue;
+        }
+
+        pos = (unsigned char *)h3c->h3_settings_params + fingerprint_len;
+        last = (unsigned char *)h3c->h3_settings_params
+               + XQC_H3_FINGERPRINT_SETTINGS_MAX_LEN;
+        if (separator_len) {
+            *pos++ = ';';
+        }
+        pos = xqc_fmt_uint(pos, last, setting_id);
+        *pos++ = ':';
+        pos = xqc_fmt_uint(pos, last, entries[i].value);
+        fingerprint_len = pos - (unsigned char *)h3c->h3_settings_params;
+        h3c->h3_settings_params[fingerprint_len] = '\0';
+    }
+#endif
+
+    for (size_t i = 0; i < count; i++) {
+        uint64_t setting_id = entries[i].identifier;
+        xqc_bool_t is_core =
+            setting_id == XQC_H3_SETTINGS_QPACK_MAX_TABLE_CAPACITY
+            || setting_id == XQC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE
+            || setting_id == XQC_H3_SETTINGS_QPACK_BLOCKED_STREAMS;
+        /* RFC 9114 Section 7.2.4.1: reserved settings have no semantics. */
+        xqc_bool_t is_grease = setting_id >= XQC_H3_SETTINGS_GREASE_FIRST
+            && (setting_id - XQC_H3_SETTINGS_GREASE_FIRST)
+                % XQC_H3_SETTINGS_GREASE_INTERVAL == 0;
+        if (!is_core && !is_grease) {
+            entries[extern_count++] = entries[i];
+        }
+    }
+
+    /* Notify only after every core setting has been applied successfully. */
+    if (h3c->h3_conn_callbacks.h3_conn_peer_extern_settings_notify) {
+        xqc_h3_settings_result_t result =
+            h3c->h3_conn_callbacks.h3_conn_peer_extern_settings_notify(
+                h3c, entries, extern_count, h3c->user_data);
+        if (result == XQC_H3_SETTINGS_REJECT) {
+            xqc_log(h3c->log, XQC_LOG_ERROR, "|application rejected SETTINGS|");
+            goto settings_error;
+        }
+        if (result != XQC_H3_SETTINGS_ACCEPT) {
+            XQC_H3_CONN_ERR(h3c, H3_INTERNAL_ERROR,
+                            -XQC_H3_EPROC_CONTROL);
+            ret = -H3_INTERNAL_ERROR;
+            goto finish;
+        }
+    }
+
+    if (data != NULL) {
+        data->consumed_len = data_len;
+    }
+    ret = XQC_OK;
+    goto finish;
+
+frame_error:
+    xqc_log(h3c->log, XQC_LOG_ERROR,
+            "|truncated setting|offset:%uz|length:%uz|", offset, data_len);
+    XQC_H3_CONN_ERR(h3c, H3_FRAME_ERROR, -XQC_H3_DECODE_ERROR);
+    ret = -H3_FRAME_ERROR;
+    goto finish;
+
+settings_error:
+    XQC_H3_CONN_ERR(h3c, H3_SETTINGS_ERROR, -XQC_H3_SETTING_ERROR);
+    ret = -H3_SETTINGS_ERROR;
+
+finish:
+    if (entries != NULL) {
+        xqc_free(entries);
+    }
+    return ret;
 }
 
 xqc_int_t
@@ -446,29 +608,30 @@ xqc_h3_frm_write_cancel_push(xqc_list_head_t *send_buf, uint64_t push_id, uint8_
 }
 
 xqc_int_t
-xqc_h3_frm_write_settings(xqc_list_head_t *send_buf, xqc_h3_conn_settings_t *setting, uint8_t fin)
+xqc_h3_frm_write_settings(xqc_list_head_t *send_buf,
+    const xqc_h3_conn_settings_t *setting, uint8_t fin)
 {
+    if (xqc_h3_conn_settings_validate(setting, NULL) != XQC_OK) {
+        return -XQC_EPARAM;
+    }
+
+    const xqc_h3_setting_t core_settings[] = {
+        { XQC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE,
+          setting->max_field_section_size },
+        { XQC_H3_SETTINGS_QPACK_MAX_TABLE_CAPACITY,
+          setting->qpack_dec_max_table_capacity },
+        { XQC_H3_SETTINGS_QPACK_BLOCKED_STREAMS,
+          setting->qpack_blocked_streams },
+    };
+    size_t core_count = sizeof(core_settings) / sizeof(core_settings[0]);
+    size_t count = core_count + setting->extern_settings_count;
     size_t len = 0;
-    size_t count = 0;
-    xqc_h3_setting_t settings[MAX_SETTING_ENTRY];
-
-    settings[count].identifier.vi = XQC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE;
-    settings[count].value.vi = setting->max_field_section_size;
-    len += xqc_put_varint_len(settings[count].identifier.vi);
-    len += xqc_put_varint_len(settings[count].value.vi);
-    ++count;
-
-    settings[count].identifier.vi = XQC_H3_SETTINGS_QPACK_MAX_TABLE_CAPACITY;
-    settings[count].value.vi = setting->qpack_dec_max_table_capacity;
-    len += xqc_put_varint_len(settings[count].identifier.vi);
-    len += xqc_put_varint_len(settings[count].value.vi);
-    ++count;
-
-    settings[count].identifier.vi = XQC_H3_SETTINGS_QPACK_BLOCKED_STREAMS;
-    settings[count].value.vi = setting->qpack_blocked_streams;
-    len += xqc_put_varint_len(settings[count].identifier.vi);
-    len += xqc_put_varint_len(settings[count].value.vi);
-    ++count;
+    for (size_t i = 0; i < count; i++) {
+        const xqc_h3_setting_t *entry = i < core_count
+            ? &core_settings[i] : &setting->extern_settings[i - core_count];
+        len += xqc_put_varint_len(entry->identifier);
+        len += xqc_put_varint_len(entry->value);
+    }
 
     xqc_var_buf_t *buf = xqc_var_buf_create(xqc_put_varint_len(XQC_H3_FRM_SETTINGS)
                                             + xqc_put_varint_len(len)
@@ -480,9 +643,11 @@ xqc_h3_frm_write_settings(xqc_list_head_t *send_buf, xqc_h3_conn_settings_t *set
     unsigned char *pos = buf->data;
     pos = xqc_put_varint(pos, XQC_H3_FRM_SETTINGS);
     pos = xqc_put_varint(pos, len);
-    for (int i = 0; i < count; ++i) {
-        pos = xqc_put_varint(pos, settings[i].identifier.vi);
-        pos = xqc_put_varint(pos, settings[i].value.vi);
+    for (size_t i = 0; i < count; i++) {
+        const xqc_h3_setting_t *entry = i < core_count
+            ? &core_settings[i] : &setting->extern_settings[i - core_count];
+        pos = xqc_put_varint(pos, entry->identifier);
+        pos = xqc_put_varint(pos, entry->value);
     }
     buf->data_len = pos - buf->data;
     buf->fin_flag = fin;

@@ -109,6 +109,13 @@ TLS integration binds only its reset flag through the backend's native context
 or ticket callbacks; see the
 [ticket contract](reliable-stream-reset/spec.md#0-rtt-session-tickets).
 
+HTTP/3 owns the generic local SETTINGS registry and receive dispatch described
+in the [SETTINGS registration specification](http3-settings-registration/spec.md).
+A consuming extension owns its setting identifiers, values, and negotiation
+policy. WebTransport over HTTP/3 draft-16 requires both capabilities, and a
+future binding will consume them. The two foundations remain independent and
+neither depends on WebTransport.
+
 ## Protocol Invariants
 
 - Wire behavior is governed by the applicable IETF RFC or draft.

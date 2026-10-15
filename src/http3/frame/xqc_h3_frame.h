@@ -52,9 +52,11 @@ typedef struct xqc_h3_frame_pctx_s {
  * @param pos, the start of buffer
  * @param sz, length of input buffer
  * @param pctx, the parse context
+ * @param h3c, connection for negotiated frame rules, or NULL without extensions
  * @return XQC_ERROR for failure, >= 0 for bytes consumed
  */
-ssize_t xqc_h3_frm_parse(const unsigned char *pos, size_t sz, xqc_h3_frame_pctx_t *pctx);
+ssize_t xqc_h3_frm_parse(const unsigned char *pos, size_t sz,
+    xqc_h3_frame_pctx_t *pctx, const xqc_h3_conn_t *h3c);
 
 xqc_bool_t xqc_h3_frm_is_h2_reserved(uint64_t frame_type);
 

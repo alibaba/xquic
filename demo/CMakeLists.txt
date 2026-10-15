@@ -19,6 +19,11 @@ set(
 )
 
 
+if(XQC_ENABLE_WEBTRANSPORT)
+    list(APPEND DEMO_CLIENT_SOURCES "xqc_wt_echo_client.c")
+    list(APPEND DEMO_SERVER_SOURCES "xqc_wt_echo_server.c")
+endif()
+
 if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
     set(DEMO_SERVER_SOURCES
         ${DEMO_SERVER_SOURCES}

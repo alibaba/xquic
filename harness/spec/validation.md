@@ -31,8 +31,13 @@ For feature-gated code, select the feature by manifest key:
 ```
 
 The script reads feature flags and feature unit-test names from
-`harness/spec/harness-manifest.yml`. The default profile does not enable any
-optional feature-gated build flags.
+`harness/spec/harness-manifest.yml`. Validation enables WebTransport by default;
+use `XQC_ENABLE_WEBTRANSPORT=OFF ./scripts/validate.sh test` for disabled
+coverage, including in a reused build directory. `--feature webtransport`
+explicitly enables it and adds focused feature checks. Other optional features
+remain disabled unless selected. The laboratory CI driver enables WebTransport
+for both TLS backends. Endpoint groups use the retained CMake cache to exclude
+disabled capabilities.
 
 ## Required Coverage Contract
 

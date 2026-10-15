@@ -153,6 +153,13 @@ struct xqc_stream_s {
     xqc_stream_type_t       stream_type;
     void                   *user_data;
     xqc_stream_callbacks_t *stream_if;
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    /* A protocol adapter may retain a pending reset while queuing its prefix.
+     * -XQC_EAGAIN transfers reset completion to the adapter's writable path.
+     * The hook must not destroy the QUIC stream or notify application code. */
+    xqc_int_t            (*stop_sending_prepare)(xqc_stream_t *stream,
+        uint64_t error);
+#endif
 
     xqc_stream_flow_ctl_t   stream_flow_ctl;
     xqc_stream_write_buff_list_t

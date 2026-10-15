@@ -32,6 +32,9 @@
 
 #include "common.h"
 #include "xqc_hq.h"
+#ifdef XQC_ENABLE_WEBTRANSPORT
+#include "xqc_wt_echo_server.h"
+#endif
 
 
 
@@ -83,6 +86,10 @@ typedef struct xqc_demo_svr_net_config_s {
 #define SESSION_TICKET_KEY_FILE     "session_ticket.key"
 #define SESSION_TICKET_KEY_BUF_LEN  2048
 typedef struct xqc_demo_svr_quic_config_s {
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    int webtransport;
+#endif
+
     /* cipher config */
     char cipher_suit[CIPHER_SUIT_LEN];
     char groups[TLS_GROUPS_LEN];
@@ -238,7 +245,21 @@ typedef struct xqc_demo_svr_user_stream_s {
 /* the global unique server context */
 xqc_demo_svr_ctx_t svr_ctx;
 
+#ifdef XQC_ENABLE_WEBTRANSPORT
+static void xqc_demo_svr_wt_schedule(void *user_data);
 
+static void
+xqc_demo_svr_wt_schedule(void *user_data)
+{
+    xqc_demo_svr_ctx_t *ctx = user_data;
+    struct timeval delay = {0, 1000};
+
+    event_add(ctx->ev_engine, &delay);
+}
+
+
+
+#endif
 
 /******************************************************************************
  *                   start of engine callback functions                       *
@@ -1219,6 +1240,9 @@ xqc_demo_svr_usage(int argc, char *argv[])
             "Usage: %s [Options]\n"
             "\n"
             "Options:\n"
+#ifdef XQC_ENABLE_WEBTRANSPORT
+            "   -W    Enable WebTransport draft-16/07 echo at /wt.\n"
+#endif
             "   -p    Server port.\n"
             "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic P:copa \n"
             "   -C    Pacing on.\n"
@@ -1280,8 +1304,19 @@ void
 xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:rdMiPs:R:u:a:F:f:")) != -1) {
+    while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:rdMiPs:R:u:a:F:f:"
+#ifdef XQC_ENABLE_WEBTRANSPORT
+                        "W"
+#endif
+                        )) != -1)
+    {
         switch (ch) {
+#ifdef XQC_ENABLE_WEBTRANSPORT
+        case 'W':
+            args->quic_cfg.webtransport = 1;
+            break;
+#endif
+
         /* listen port */
         case 'p':
             printf("option port :%s\n", optarg);
@@ -1593,6 +1628,13 @@ xqc_demo_svr_init_alpn_ctx(xqc_demo_svr_ctx_t *ctx)
         return ret;
     }
 
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    if (ctx->args->quic_cfg.webtransport) {
+        return xqc_wt_echo_server_init(ctx->engine,
+                                       xqc_demo_svr_wt_schedule, ctx);
+    }
+#endif
+
     return ret;
 }
 
@@ -1695,6 +1737,8 @@ th3_demo_proxy_sig_hndlr(int signo)
 int
 main(int argc, char *argv[])
 {
+    setvbuf(stdout, NULL, _IOLBF, 0);
+
     /* init env if necessary */
     xqc_platform_init_env();
 

@@ -15,6 +15,7 @@ option (XQC_ENABLE_MP_INTEROP "enable MPQUIC interop" OFF)
 option (XQC_NO_PID_PACKET_PROCESS "do not expose path_id in xqc_engine_packet_process" OFF)
 option (XQC_PROTECT_POOL_MEM "enable write protection for pool memory (for debug)" OFF)
 option (XQC_COMPAT_DUPLICATE "qpack compat dup" OFF)
+option (XQC_ENABLE_WEBTRANSPORT "enable native WebTransport" OFF)
 option (XQC_ENABLE_FEC "enable fec" OFF)
 option (XQC_ENABLE_XOR "enable fec scheme xor" OFF)
 option (XQC_ENABLE_RSC "enable fec scheme reed-solomon code" OFF)
@@ -219,6 +220,20 @@ set(
     "src/http3/xqc_h3_ext_bytestream.c"
 )
 
+# Native WebTransport over HTTP/3
+if(XQC_ENABLE_WEBTRANSPORT)
+    set(WEBTRANSPORT_SOURCES
+        "src/webtransport/xqc_webtransport_conn.c"
+        "src/webtransport/xqc_webtransport_ctx.c"
+        "src/webtransport/xqc_webtransport_msg.c"
+        "src/webtransport/xqc_webtransport_dgram.c"
+        "src/webtransport/xqc_webtransport_h3_stream.c"
+        "src/webtransport/xqc_webtransport_request_adapter.c"
+        "src/webtransport/xqc_webtransport_session.c"
+        "src/webtransport/xqc_webtransport_stream.c"
+    )
+endif()
+
 # Transport source
 set(
     TRANSPORT_SOURCES
@@ -399,6 +414,7 @@ set (
     XQC_SOURCE
     ${XQC_SOURCE}
     ${HTTP3_SOURCES}
+    ${WEBTRANSPORT_SOURCES}
     ${TRANSPORT_SOURCES}
     ${TLS_SOURCE}
     ${COMMON_SOURCES}

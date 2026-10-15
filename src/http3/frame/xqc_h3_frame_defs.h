@@ -23,6 +23,9 @@ typedef enum xqc_h3_frm_type_s {
 
     /* extension */
     XQC_H3_EXT_FRM_BIDI_STREAM_TYPE = 0x20,
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    XQC_H3_FRM_WT_STREAM            = 0x41,
+#endif
 
     XQC_H3_FRM_UNKNOWN              = UINT64_MAX,
 } xqc_h3_frm_type_t;

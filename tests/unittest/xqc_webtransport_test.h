@@ -1,0 +1,31 @@
+#ifndef XQC_WEBTRANSPORT_TEST_H
+#define XQC_WEBTRANSPORT_TEST_H
+void xqc_test_wt_session_id_wire(void);
+void xqc_test_wt_context(void);
+void xqc_test_wt_context_errors(void);
+void xqc_test_wt_stream_io(void);
+void xqc_test_wt_stream_errors(void);
+void xqc_test_wt_pooled_stream_credit(void);
+void xqc_test_wt_capsules(void);
+void xqc_test_wt_capsule_errors(void);
+void xqc_test_wt_datagram_association(void);
+void xqc_test_wt_datagram_send_errors(void);
+void xqc_test_wt_extension_settings(void);
+void xqc_test_wt_connect_accept(void);
+void xqc_test_wt_connect_reject(void);
+void xqc_test_wt_request_passthrough(void);
+void xqc_test_wt_request_incomplete(void);
+void xqc_test_wt_session_limit(void);
+void xqc_test_wt_protocol_selection(void);
+void xqc_test_wt_protocol_selection_errors(void);
+void xqc_test_wt_protocol_selection_inputs(void);
+void xqc_test_wt_settings_capacity(void);
+void xqc_test_wt_datagram_retirement(void);
+void xqc_test_wt_datagram_tracking(void);
+void xqc_test_wt_stream_index(void);
+void xqc_test_wt_capsule_header_bounds(void);
+
+void xqc_test_wt_transport_bounds(void);
+void xqc_test_wt_datagram_quota(void);
+void xqc_test_wt_close_error_retained(void);
+#endif

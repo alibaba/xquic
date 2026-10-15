@@ -83,6 +83,10 @@ xqc_h3_frm_reset_pctx(xqc_h3_frame_pctx_t *pctx)
         break;
     case XQC_H3_EXT_FRM_BIDI_STREAM_TYPE:
         break;
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    case XQC_H3_FRM_WT_STREAM:
+        break;
+#endif
     case XQC_H3_FRM_UNKNOWN:
         break;
     }
@@ -239,7 +243,8 @@ xqc_h3_frm_parse_reserved(const unsigned char *p, size_t sz,
 }
 
 ssize_t
-xqc_h3_frm_parse(const unsigned char *p, size_t sz, xqc_h3_frame_pctx_t *pctx)
+xqc_h3_frm_parse(const unsigned char *p, size_t sz,
+    xqc_h3_frame_pctx_t *pctx, const xqc_h3_conn_t *h3c)
 {
     const unsigned char *pos = p;
     xqc_bool_t fin = 0;
@@ -257,6 +262,19 @@ xqc_h3_frm_parse(const unsigned char *p, size_t sz, xqc_h3_frame_pctx_t *pctx)
             if (xqc_h3_frm_is_h2_reserved(pctx->frame.type)) {
                 return -XQC_H3_RESERVED_FRAME_UNEXPECTED;
             }
+#ifdef XQC_ENABLE_WEBTRANSPORT
+            if (pctx->frame.type == XQC_H3_FRM_WT_STREAM && h3c
+                && (h3c->flags & XQC_H3_CONN_FLAG_WEBTRANSPORT))
+            {
+                /*
+                 * draft-ietf-webtrans-http3-16 Section 4.3: the native
+                 * demultiplexer consumes a legal stream-start signal.
+                 * In an H3 frame sequence, 0x41 is invalid and has no
+                 * length field to wait for.
+                 */
+                return -XQC_H3_INVALID_FRAME_TYPE;
+            }
+#endif
             fin = 0;
         }
     }

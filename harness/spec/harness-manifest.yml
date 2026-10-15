@@ -64,6 +64,42 @@ test_routing:
   case_manifest: case_test/manifest.yml
 
 modules:
+  webtransport:
+    paths:
+      - src/webtransport/*
+      - include/xquic/xqc_webtransport*
+      - demo/xqc_wt_echo_*
+      - demo/demo_client.c
+      - demo/demo_server.c
+      - tests/unittest/xqc_webtransport*
+      - tests/complex_case/test_webtransport.c
+      - case_test/webtransport/*
+    read:
+      - harness/spec/webtransport/spec.md
+      - harness/spec/http3-settings-registration/spec.md
+      - harness/spec/reliable-stream-reset/spec.md
+    update_when:
+      behavior_or_boundary_changed:
+        - harness/spec/webtransport/spec.md
+        - harness/spec/architecture.md
+    validation:
+      level: targeted
+      hints: [webtransport, http3, stream, datagram, reliable-reset]
+    features:
+      webtransport:
+        paths:
+          - src/webtransport/*
+          - include/xquic/xqc_webtransport*
+        feature_flags:
+          - XQC_ENABLE_WEBTRANSPORT=ON
+        validation:
+          level: targeted
+          unit:
+            - xqc_test_wt_context
+            - xqc_test_wt_context_errors
+            - xqc_test_h3_optional_frame_accepted
+            - xqc_test_h3_optional_frame_errors
+
   demo:
     paths:
       - demo/*

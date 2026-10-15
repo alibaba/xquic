@@ -73,11 +73,13 @@ QUIC or HTTP working groups.
 
 ### Work-in-Progress Standards
 
-Internet-Drafts can change or be replaced. These version-independent
-Datatracker links resolve to the current revision:
+Internet-Drafts can change or be replaced. Version-independent Datatracker
+links resolve to the current revision; a capability specification pins a
+revision when a dependent protocol targets that exact version.
 
 | Protocol or capability | Governing draft | Primary implementation |
 |------------------------|-----------------|------------------------|
+| Reliable Stream Reset | [Reliable Stream Resets `-09`](https://datatracker.ietf.org/doc/html/draft-ietf-quic-reliable-stream-reset-09) | `src/transport/xqc_stream.*`, frame and recovery paths; see the [capability specification](reliable-stream-reset/spec.md) |
 | Multipath QUIC | [Managing multiple paths for a QUIC connection](https://datatracker.ietf.org/doc/draft-ietf-quic-multipath/) | `src/transport/xqc_multipath.*`, `src/transport/scheduler/`, and `src/transport/reinjection_control/` |
 | MoQT | [Media over QUIC Transport](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/) | Optional `moq/` and `include/moq/`, enabled with `XQC_ENABLE_MOQ` |
 
@@ -100,6 +102,12 @@ TLS adapters, congestion control, and common utilities
 Public headers must not depend on test or demo code. Core QUIC and HTTP/3 code
 must not depend on the optional MoQ module. Backend-specific TLS behavior stays
 behind the TLS integration layer.
+
+QUIC transport owns Reliable Stream Reset negotiation, state, and recovery.
+Applications consume this capability through the public stream API.
+TLS integration binds only its reset flag through the backend's native context
+or ticket callbacks; see the
+[ticket contract](reliable-stream-reset/spec.md#0-rtt-session-tickets).
 
 ## Protocol Invariants
 

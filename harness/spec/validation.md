@@ -58,6 +58,15 @@ use link, format, and command-syntax checks. Validation-tooling changes require
 the closest deterministic self-checks. The pull request must state why paired
 runtime coverage does not apply.
 
+Reliable-reset ticket policy changes must exercise all four saved/current
+capability combinations, PSK reuse after early-data rejection, and refreshed
+tickets. TLS units also cover default and configured 48/80-byte keys and
+legacy unbound contexts on both BoringSSL and BabaSSL. BabaSSL coverage also
+rejects malformed ticket appdata and checks subsequent refreshed tickets.
+Endpoint cases 909–912 verify
+the [reset ticket contract](reliable-stream-reset/spec.md#0-rtt-session-tickets);
+701/702 retain the existing non-reset parameter checks.
+
 Harness-only changes must also run:
 
 ```bash
@@ -99,9 +108,9 @@ its case is retired so later changes cannot reuse it.
 
 | Range | New-case namespace | Allocated IDs |
 |-------|--------------------|---------------|
-| `[705, 799]` | QUIC Transport core | `705-726` |
+| `[705, 799]` | QUIC Transport core | `705-726`, `739-746` |
 | `[800, 899]` | Recovery and congestion control | `800` |
-| `[900, 999]` | QUIC-TLS | `902-903` |
+| `[900, 999]` | QUIC-TLS | `902-903`, `909-912` |
 | `[1000, 1099]` | HTTP/3 framing, streams, and settings | `1000-1021` |
 | `[1100, 1149]` | QPACK | None |
 | `[1150, 1199]` | HTTP priority | None |

@@ -14,6 +14,10 @@
  */
 #define XQC_ACK_EXT_FEATURE_BIT_ENC_COUNT 1
 #define XQC_ACK_EXT_FEATURE_BIT_RECV_TS   2
+#define XQC_FRAME_TYPE_RESET_STREAM       0x04
+
+/* draft-ietf-quic-reliable-stream-reset-09, Section 4. */
+#define XQC_FRAME_TYPE_RESET_STREAM_AT    0x24
 
 typedef enum {
     XQC_FRAME_PADDING,
@@ -49,6 +53,7 @@ typedef enum {
     XQC_FRAME_Extension,
     XQC_FRAME_SID,
     XQC_FRAME_REPAIR_SYMBOL,
+    XQC_FRAME_RESET_STREAM_AT,
     XQC_FRAME_NUM,
 } xqc_frame_type_t;
 
@@ -125,6 +130,8 @@ typedef uint64_t xqc_frame_type_bit_t;
     (1ULL << XQC_FRAME_SID)
 #define XQC_FRAME_BIT_REPAIR_SYMBOL \
     (1ULL << XQC_FRAME_REPAIR_SYMBOL)
+#define XQC_FRAME_BIT_RESET_STREAM_AT \
+    (1ULL << XQC_FRAME_RESET_STREAM_AT)
 #define XQC_FRAME_BIT_NUM \
     (1ULL << XQC_FRAME_NUM)
 
@@ -200,6 +207,10 @@ xqc_int_t xqc_process_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in
 xqc_int_t xqc_process_conn_close_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 xqc_int_t xqc_process_reset_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
+xqc_int_t xqc_process_reset_stream_with_reset_at(xqc_connection_t *conn,
+    xqc_packet_in_t *packet_in);
+xqc_int_t xqc_process_reset_stream_at_frame(xqc_connection_t *conn,
+    xqc_packet_in_t *packet_in);
 
 xqc_int_t xqc_process_stop_sending_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 

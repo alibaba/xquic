@@ -140,6 +140,14 @@ xqc_create_server_ssl_ctx(xqc_tls_ctx_t *ctx)
         SSL_CTX_set_tlsext_ticket_key_cb(ssl_ctx, xqc_ssl_session_ticket_key_cb);
     }
 
+#ifndef OPENSSL_IS_BORINGSSL
+    if (SSL_CTX_set_session_ticket_cb(ssl_ctx, xqc_ssl_tp_ticket_generate_cb,
+            xqc_ssl_tp_ticket_decrypt_cb, NULL) != XQC_SSL_SUCCESS)
+    {
+        goto fail;
+    }
+#endif
+
     SSL_CTX_set_cert_cb(ssl_ctx, xqc_ssl_cert_cb, ctx);
 
     SSL_CTX_set_default_verify_paths(ssl_ctx);

@@ -50,6 +50,8 @@ XQUIC_VERS_1.0 {
         xqc_get_conn_user_data_by_stream;
         xqc_stream_id;
         xqc_stream_close;
+        xqc_stream_set_reliable_size;
+        xqc_stream_reset;
         xqc_stream_recv;
         xqc_stream_send;
         xqc_engine_packet_process;

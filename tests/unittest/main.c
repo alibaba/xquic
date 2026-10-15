@@ -8,6 +8,8 @@
 #include <CUnit/CUnit.h>
 
 #include "xqc_random_test.h"
+#include "xqc_reliable_reset_test.h"
+#include "xqc_reset_stream_frame_test.h"
 #include "xqc_pq_test.h"
 #include "xqc_conn_test.h"
 #include "xqc_engine_test.h"
@@ -76,6 +78,44 @@ main(int argc, char *argv[])
     }     
 
     if (!CU_add_test(pSuite, "xqc_cid_test", xqc_test_cid)
+        || !CU_add_test(pSuite, "xqc_test_reset_stream_frame_notify_last",
+                        xqc_test_reset_stream_frame_notify_last)
+        || !CU_add_test(pSuite, "xqc_test_reset_stream_frame_closing_destroys_stream",
+                        xqc_test_reset_stream_frame_closing_destroys_stream)
+        || !CU_add_test(pSuite, "xqc_test_reset_stream_frame_duplicate",
+                        xqc_test_reset_stream_frame_duplicate)
+        || !CU_add_test(pSuite, "xqc_test_reliable_reset_transport_params",
+                        xqc_test_reliable_reset_transport_params)
+        || !CU_add_test(pSuite, "xqc_test_reliable_reset_receive_order",
+                        xqc_test_reliable_reset_receive_order)
+        || !CU_add_test(pSuite, "xqc_test_reliable_reset_receive_errors",
+                        xqc_test_reliable_reset_receive_errors)
+        || !CU_add_test(pSuite, "xqc_test_reliable_reset_ack_order",
+                        xqc_test_reliable_reset_ack_order)
+        || !CU_add_test(pSuite, "xqc_test_reliable_reset_stop_sending",
+                        xqc_test_reliable_reset_stop_sending)
+        || !CU_add_test(pSuite, "xqc_test_reliable_reset_send_errors",
+                        xqc_test_reliable_reset_send_errors)
+        || !CU_add_test(pSuite, "xqc_test_reliable_reset_direction_error",
+                        xqc_test_reliable_reset_direction_error)
+        || !CU_add_test(pSuite, "xqc_test_reliable_reset_peer_reset_send",
+                        xqc_test_reliable_reset_peer_reset_send)
+        || !CU_add_test(pSuite, "xqc_test_reliable_reset_peer_reset_terminal",
+                        xqc_test_reliable_reset_peer_reset_terminal)
+        || !CU_add_test(pSuite, "xqc_test_reliable_reset_peer_reset_pending",
+                        xqc_test_reliable_reset_peer_reset_pending)
+        || !CU_add_test(pSuite, "xqc_test_reliable_reset_zero_fin",
+                        xqc_test_reliable_reset_zero_fin)
+        || !CU_add_test(pSuite, "xqc_test_reliable_reset_zero_close",
+                        xqc_test_reliable_reset_zero_close)
+        || !CU_add_test(pSuite, "xqc_test_reliable_reset_close",
+                        xqc_test_reliable_reset_close)
+        || !CU_add_test(pSuite, "xqc_test_reliable_reset_late_ack",
+                        xqc_test_reliable_reset_late_ack)
+        || !CU_add_test(pSuite, "xqc_test_reliable_reset_retry",
+                        xqc_test_reliable_reset_retry)
+        || !CU_add_test(pSuite, "xqc_test_reliable_reset_zero_validation",
+                        xqc_test_reliable_reset_zero_validation)
         || !CU_add_test(pSuite, "xqc_test_hq_request_recv",
                         xqc_test_hq_request_recv)
         || !CU_add_test(pSuite, "xqc_test_hq_request_recv_errors",

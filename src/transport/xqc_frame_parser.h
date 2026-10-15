@@ -79,6 +79,13 @@ ssize_t xqc_gen_conn_close_frame(xqc_packet_out_t *packet_out,
 
 xqc_int_t xqc_parse_conn_close_frame(xqc_packet_in_t *packet_in, uint64_t *err_code, xqc_connection_t *conn);
 
+ssize_t xqc_gen_reset_stream_at_frame(xqc_packet_out_t *packet_out,
+    xqc_stream_id_t stream_id, uint64_t error, uint64_t final_size,
+    uint64_t reliable_size);
+xqc_int_t xqc_parse_reset_stream_at_frame(xqc_packet_in_t *packet_in,
+    xqc_stream_id_t *stream_id, uint64_t *error, uint64_t *final_size,
+    uint64_t *reliable_size);
+
 ssize_t xqc_gen_reset_stream_frame(xqc_packet_out_t *packet_out, xqc_stream_id_t stream_id,
     uint64_t err_code, uint64_t final_size);
 

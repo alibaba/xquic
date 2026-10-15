@@ -6,7 +6,8 @@
  * Tests for the xqc_frame_type_bit_t overflow fix (issue #534).
  *
  * The enum-to-typedef conversion ensures that frame type bitmasks with
- * shift counts >= 32 (XQC_FRAME_REPAIR_SYMBOL = 32, XQC_FRAME_NUM = 33)
+ * shift counts >= 32 (REPAIR_SYMBOL = 32, RESET_STREAM_AT = 33,
+ * XQC_FRAME_NUM = 34)
  * are correctly represented as 64-bit values. On MSVC, the old enum
  * representation silently truncated these to 0 because enum is 32-bit int.
  *
@@ -38,13 +39,14 @@ xqc_test_frame_type_enum_ordinals()
 {
     CU_ASSERT(XQC_FRAME_SID == 31);
     CU_ASSERT(XQC_FRAME_REPAIR_SYMBOL == 32);
-    CU_ASSERT(XQC_FRAME_NUM == 33);
+    CU_ASSERT(XQC_FRAME_RESET_STREAM_AT == 33);
+    CU_ASSERT(XQC_FRAME_NUM == 34);
 }
 
 
 /*
  * The core of the overflow fix: XQC_FRAME_BIT_REPAIR_SYMBOL must be
- * (1ULL << 32) and XQC_FRAME_BIT_NUM must be (1ULL << 33). If these
+ * (1ULL << 32) and XQC_FRAME_BIT_NUM must be (1ULL << 34). If these
  * were truncated to 32-bit int (the MSVC bug), they would be 0.
  */
 void
@@ -53,11 +55,14 @@ xqc_test_frame_bit_high_values_nonzero()
     /* bit 32 must not be zero */
     CU_ASSERT(XQC_FRAME_BIT_REPAIR_SYMBOL != 0);
     /* bit 33 must not be zero */
+    CU_ASSERT(XQC_FRAME_BIT_RESET_STREAM_AT != 0);
+    /* bit 34 must not be zero */
     CU_ASSERT(XQC_FRAME_BIT_NUM != 0);
 
     /* exact expected values */
     CU_ASSERT(XQC_FRAME_BIT_REPAIR_SYMBOL == (1ULL << 32));
-    CU_ASSERT(XQC_FRAME_BIT_NUM == (1ULL << 33));
+    CU_ASSERT(XQC_FRAME_BIT_RESET_STREAM_AT == (1ULL << 33));
+    CU_ASSERT(XQC_FRAME_BIT_NUM == (1ULL << 34));
 
     /* bit 31 (SID) is the last value that fits in 32-bit */
     CU_ASSERT(XQC_FRAME_BIT_SID == (1ULL << 31));
@@ -65,6 +70,8 @@ xqc_test_frame_bit_high_values_nonzero()
     /* these must all be distinct from each other */
     CU_ASSERT(XQC_FRAME_BIT_SID != XQC_FRAME_BIT_REPAIR_SYMBOL);
     CU_ASSERT(XQC_FRAME_BIT_REPAIR_SYMBOL != XQC_FRAME_BIT_NUM);
+    CU_ASSERT(XQC_FRAME_BIT_RESET_STREAM_AT != XQC_FRAME_BIT_REPAIR_SYMBOL);
+    CU_ASSERT(XQC_FRAME_BIT_RESET_STREAM_AT != XQC_FRAME_BIT_NUM);
     CU_ASSERT(XQC_FRAME_BIT_SID != XQC_FRAME_BIT_NUM);
 }
 
@@ -137,6 +144,10 @@ xqc_test_need_repair_with_high_bit()
     types = XQC_FRAME_BIT_STREAM;
     CU_ASSERT(XQC_NEED_REPAIR(types) != 0);
 
+    /* reliable-stream-reset-09 Section 5.3: retransmit a lost reset. */
+    types = XQC_FRAME_BIT_RESET_STREAM_AT;
+    CU_ASSERT(XQC_NEED_REPAIR(types) != 0);
+
     /* STREAM + REPAIR_SYMBOL: should need repair (STREAM triggers it) */
     types = XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_REPAIR_SYMBOL;
     CU_ASSERT(XQC_NEED_REPAIR(types) != 0);
@@ -176,6 +187,9 @@ xqc_test_ack_eliciting_with_high_bit()
     types = XQC_FRAME_BIT_REPAIR_SYMBOL;
     CU_ASSERT(XQC_IS_ACK_ELICITING(types) != 0);
 
+    types = XQC_FRAME_BIT_RESET_STREAM_AT;
+    CU_ASSERT(XQC_IS_ACK_ELICITING(types) != 0);
+
     /* SID alone: ack-eliciting */
     types = XQC_FRAME_BIT_SID;
     CU_ASSERT(XQC_IS_ACK_ELICITING(types) != 0);
@@ -206,6 +220,9 @@ xqc_test_can_in_flight_with_high_bit()
 
     /* REPAIR_SYMBOL alone: in-flight */
     types = XQC_FRAME_BIT_REPAIR_SYMBOL;
+    CU_ASSERT(XQC_CAN_IN_FLIGHT(types) != 0);
+
+    types = XQC_FRAME_BIT_RESET_STREAM_AT;
     CU_ASSERT(XQC_CAN_IN_FLIGHT(types) != 0);
 
     /* ACK alone: NOT in-flight */
@@ -239,6 +256,10 @@ xqc_test_frame_type_2_str_high_bit()
     result = xqc_frame_type_2_str(conn->engine, XQC_FRAME_BIT_REPAIR_SYMBOL);
     CU_ASSERT(result != NULL);
     CU_ASSERT(strstr(result, "FEC_REPAIR") != NULL);
+
+    result = xqc_frame_type_2_str(conn->engine, XQC_FRAME_BIT_RESET_STREAM_AT);
+    CU_ASSERT(result != NULL);
+    CU_ASSERT(strstr(result, "RESET_STREAM_AT") != NULL);
 
     /* SID (bit 31) alone */
     result = xqc_frame_type_2_str(conn->engine, XQC_FRAME_BIT_SID);
@@ -298,9 +319,10 @@ xqc_test_packet_frame_types_64bit_storage()
     /* store the largest valid bitmask (all bits set) */
     pi.pi_frame_types = XQC_FRAME_BIT_NUM - 1;
     CU_ASSERT(pi.pi_frame_types != 0);
-    /* all bits from 0..32 should be set */
+    /* all bits from 0..33 should be set */
     CU_ASSERT((pi.pi_frame_types & XQC_FRAME_BIT_PADDING) != 0);
     CU_ASSERT((pi.pi_frame_types & XQC_FRAME_BIT_REPAIR_SYMBOL) != 0);
+    CU_ASSERT((pi.pi_frame_types & XQC_FRAME_BIT_RESET_STREAM_AT) != 0);
 }
 
 
@@ -325,7 +347,8 @@ xqc_test_frame_bit_all_constants_have_correct_bit_position()
     CU_ASSERT(XQC_FRAME_BIT_EXTENSION            == (1ULL << 30));
     CU_ASSERT(XQC_FRAME_BIT_SID                  == (1ULL << 31));
     CU_ASSERT(XQC_FRAME_BIT_REPAIR_SYMBOL        == (1ULL << 32));
-    CU_ASSERT(XQC_FRAME_BIT_NUM                  == (1ULL << 33));
+    CU_ASSERT(XQC_FRAME_BIT_RESET_STREAM_AT      == (1ULL << 33));
+    CU_ASSERT(XQC_FRAME_BIT_NUM                  == (1ULL << 34));
 
     /* verify popcount == 1 for a selection (each is a power of two) */
     CU_ASSERT((XQC_FRAME_BIT_REPAIR_SYMBOL & (XQC_FRAME_BIT_REPAIR_SYMBOL - 1)) == 0);

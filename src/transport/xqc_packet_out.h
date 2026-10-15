@@ -47,6 +47,7 @@ typedef enum {
     XQC_POF_SPURIOUS_LOSS       = 1 << 20,
     XQC_POF_USE_FEC             = 1 << 21,
     XQC_POF_STREAM_NO_LEN       = 1 << 22,  /* for stream without LEN bit, shouldn't attach different frame to it */
+    XQC_POF_INFLIGHT_CANCELED   = 1 << 23,  /* an inflight packet is dropped because of application cancelling. */
 } xqc_packet_out_flag_t;
 
 typedef struct xqc_po_stream_frame_s {
@@ -55,8 +56,10 @@ typedef struct xqc_po_stream_frame_s {
     unsigned int            ps_length;
     unsigned int            ps_type_offset;
     unsigned int            ps_length_offset;
+    uint64_t                ps_reset_at_size;
     unsigned char           ps_is_used;
     unsigned char           ps_has_fin;     /* whether fin flag from stream frame is set  */
+    unsigned char           ps_is_reset_at;
     unsigned char           ps_is_reset;    /* whether frame is RESET_STREAM */
 } xqc_po_stream_frame_t;
 
@@ -174,7 +177,13 @@ uint64_t xqc_conn_close_wire_error_code(uint64_t err_code);
 
 int xqc_write_conn_close_to_packet(xqc_connection_t *conn, uint64_t err_code);
 
+xqc_int_t xqc_record_reset_frame(xqc_packet_out_t *packet_out,
+    xqc_stream_t *stream, xqc_bool_t reset_at, uint64_t reliable_size);
+
 int xqc_write_reset_stream_to_packet(xqc_connection_t *conn, xqc_stream_t *stream, uint64_t err_code, uint64_t final_size);
+int xqc_write_reset_stream_at_to_packet(xqc_connection_t *conn,
+    xqc_stream_t *stream, uint64_t err_code, uint64_t final_size,
+    uint64_t reliable_size);
 
 int xqc_write_stop_sending_to_packet(xqc_connection_t *conn, xqc_stream_t *stream, uint64_t err_code);
 

@@ -336,13 +336,6 @@ Besides, Application-Layer-Protocol implementations shall define its interfaces 
 Generic config for xquic, used to initialize an engine.
 
 ### xqc_conn_settings_t
-#### enable_reset_stream_at
-
-Advertise support for reliable stream reset; disabled by default. Set before
-creating the connection. Negotiation uses the empty `reset_stream_at`
-transport parameter defined in
-[reliable-stream-reset-09 Section 3](https://www.ietf.org/archive/id/draft-ietf-quic-reliable-stream-reset-09.html#section-3).
-
 #### xqc_cc_params_t
 Congestion control settings.
 
@@ -577,36 +570,6 @@ void xqc_stream_set_user_data(xqc_stream_t *stream, void *user_data);
 ```
 Set stream layer user_data.
 
-
-#### xqc_stream_set_reliable_size / xqc_stream_reset
-
-```c
-xqc_int_t xqc_stream_set_reliable_size(xqc_stream_t *stream,
-    uint64_t reliable_size);
-xqc_int_t xqc_stream_reset(xqc_stream_t *stream, uint64_t error_code);
-```
-
-Set the prefix length before sending data, after the current TLS handshake
-completes and the peer has advertised `reset_stream_at`. Setting a reliable
-prefix during 0-RTT returns `-XQC_ESTATE`. Reset affects only the send direction
-and preserves that prefix. Without a configured prefix, it uses ordinary
-RESET_STREAM.
-The reset returns `-XQC_EAGAIN` until the complete prefix has been submitted;
-submit the remaining bytes before retrying. Reliable bytes remain eligible
-for retransmission until acknowledged. The stream remains library-owned
-until its close callback.
-
-NULL handles, receive-only streams, and values beyond the QUIC varint
-range return `-XQC_EPARAM`. Setting a prefix after sending data or without
-peer support returns `-XQC_ESTATE`.
-
-The optional `stream_stop_sending_notify` callback immediately reports each
-processed STOP_SENDING frame and its 64-bit error; duplicate frames may repeat
-the callback. If a reliable prefix is incomplete, the application must
-continue submitting it before releasing its data. The callback does not
-transfer ownership or replace the final stream close callback. WebTransport
-deduplicates these events and delays its application notification until the
-required stream header has been submitted.
 
 #### xqc_get_conn_user_data_by_stream
 ```
@@ -926,26 +889,6 @@ void xqc_h3_conn_set_settings(xqc_h3_conn_t *h3c,
 ```
 Set settings for h3 connection, users can invoke this functions when h3_conn_create_notify callback function is triggered.
 
-#### xqc_h3_conn_set_setting
-```c
-xqc_int_t xqc_h3_conn_set_setting(xqc_h3_conn_t *h3c,
-    uint64_t identifier, uint64_t value);
-```
-Register an additional local HTTP/3 SETTINGS parameter during
-`h3_conn_create_notify`. H3 copies the identifier and value and owns them for
-the connection lifetime. Repeated identifiers update the existing value.
-Once the SETTINGS frame is queued, the function returns `-XQC_ESTATE`.
-Invalid identifiers or values and a full registration table return
-`-XQC_EPARAM` without changing existing entries. Up to 16 additional
-identifiers can be registered.
-
-Core H3/QPACK identifiers `0x01`, `0x06`, and `0x07` are rejected; configure
-them through `xqc_h3_engine_set_local_settings` or `h3_conn_init_settings`.
-HTTP/2-reserved identifiers `0x02` through `0x05` and values outside the
-QUIC variable-length integer range are also rejected. Registered parameters
-are encoded with the core settings in the single SETTINGS frame required by
-[RFC 9114 Section 7.2.4](https://www.rfc-editor.org/rfc/rfc9114.html#section-7.2.4).
-
 #### xqc_h3_conn_get_peer_addr
 ```
 xqc_int_t xqc_h3_conn_get_peer_addr(xqc_h3_conn_t *h3c, struct sockaddr *addr, socklen_t addr_cap,
@@ -1069,24 +1012,33 @@ xqc_stream_id_t xqc_h3_stream_id(xqc_h3_request_t *h3_request);
 ```
 Get the stream_id of QUIC Transport stream on which the h3 request stream relies.
 
-# WebTransport API Specifications
+## Native WebTransport and extension settings
 
-- [Immutable client API specification](../harness/spec/feat/webtransport-client-api-spec.md)
-- [Immutable server API specification](../harness/spec/feat/webtransport-server-api-spec.md)
-- [Optional message framing](../harness/spec/feat/webtransport-websocket-message-framing.md)
+Enable `XQC_ENABLE_WEBTRANSPORT` to expose the native draft-16/07 API in
+`xqc_webtransport.h` and message framing in `xqc_webtransport_msg.h`.
+The [WebTransport specification](../harness/spec/webtransport/spec.md)
+defines callback ownership, session lifetime and flow control. Runnable
+examples and interop applications are described in
+[the demo guide](../demo/webtransport.md).
 
-`xqc_wt_select_application_protocol(headers, protocols, protocol_count,
-&selected)` selects the first client-offered application protocol supported by
-the server. It processes all `WT-Available-Protocols` field lines in order,
-validates the complete Structured Field list and ignores parameter semantics.
-The combined field value is limited to 4096 bytes. Local strings follow the
-same character and size limits as `xqc_wt_client_open_session_with_protocols`.
+The implementation replaces the earlier feature-branch API:
 
-The helper returns 1 on a match, 0 for an absent offer or no common protocol,
-and a negative error for invalid arguments or field syntax. On success,
-`selected` borrows a string from `protocols`; the caller must keep that string
-valid while using it. On other results, `selected` is set to `NULL`. The
-helper does not send a response or accept a session. The server callback owns
-that policy and the `WT-Protocol` response field. See the
-[application negotiation example](../demo/webtransport.md#application-protocol-negotiation)
-and [draft-16 Section 3.3](https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-16.html#section-3.3).
+- Register external HTTP/3 settings on `xqc_h3_conn_settings_t` with
+  `xqc_h3_conn_settings_add_extern`, then use engine defaults or
+  `h3_conn_init_settings`. The per-connection `xqc_h3_conn_set_setting`
+  entry point is removed. Peer settings are delivered as a validated batch
+  to `h3_conn_peer_extern_settings_notify`; see the
+  [SETTINGS contract](../harness/spec/http3-settings-registration/spec.md).
+- `webtransport_will_create_session_notify` receives an additional
+  `h3c_user_data` argument. The session handshake callback field is removed;
+  use the connection handshake callback and session-create notification.
+- Session and stream structures are opaque. Use the session create-stream,
+  reset/stop-sending and close-with-error APIs instead of the removed legacy
+  constructors, destructors and internal wire helpers. The draft-version
+  getter is no longer a public API.
+- Stream-send data parameters are `const void *`. Callback and settings
+  structure layouts changed; applications must rebuild against these headers.
+- Reliable-reset function signatures remain unchanged. The
+  [reset specification](../harness/spec/reliable-stream-reset/spec.md)
+  defines the reliable-size, zero-length, STOP_SENDING, ACK and 0-RTT ticket
+  contracts. `enable_reset_stream_at` is at the end of connection settings.

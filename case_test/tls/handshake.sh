@@ -461,6 +461,135 @@ rm -f aead_confidentiality_server.log
 
 }
 
+reset_0rtt_saved_tp_matches()
+{
+    local expected="$1"
+    test -s tp_localhost || return 1
+    grep -q '^initial_max_data=' tp_localhost || return 1
+    if [[ "${expected}" = 1 ]]; then
+        grep -qx 'reset_stream_at=1' tp_localhost
+    else
+        ! grep -q '^reset_stream_at=' tp_localhost
+    fi
+}
+
+reset_0rtt_check_connection()
+{
+    local phase="$1" cached="$2" current="$3" early="$4" reused="$5"
+    local ready=1 packets_ok=1
+    [[ "${phase}" = warmup ]] && ready=0
+
+    if [[ "${ready}" = 1 ]] && ! grep -Eq \
+        'xqc_send_ctl_on_packet_sent.*pkt_type:0RTT\|frame:.*STREAM' clog; then
+        echo "${phase}: no STREAM packet was sent in 0-RTT"
+        packets_ok=0
+    fi
+    if [[ "${early}" = 2 ]]; then
+        if ! grep -Fq 'xqc_conn_early_data_reject|reject|' clog \
+            || ! grep -Eq \
+                'xqc_send_ctl_on_packet_sent.*pkt_type:SHORT_HEADER\|frame:.*STREAM' clog; then
+            echo "${phase}: missing 0-RTT rejection or 1-RTT stream replay"
+            packets_ok=0
+        fi
+    fi
+
+    if [[ "${packets_ok}" = 1 ]] \
+        && grep -Fxq '>>>>>>>> pass:1' "${phase}.log" \
+        && grep -Fq "early_data_flag:${early}, conn_err:0," "${phase}.log" \
+        && grep -Fxq "[reset-0rtt]|cached:${cached}|early_ready:${ready}|" \
+            "${phase}.log" \
+        && grep -Fxq "[reset-0rtt]|negotiated:${current}|session_reused:${reused}|" \
+            "${phase}.log" \
+        && grep -Fq 'save_tp_cb use server domain as the key.' "${phase}.log" \
+        && grep -Fq 'save_session_cb use server domain as the key.' \
+            "${phase}.log" \
+        && reset_0rtt_saved_tp_matches "${current}"; then
+        return 0
+    fi
+
+    echo "${phase}: expected cached=${cached} current=${current} early=${early} reused=${reused}"
+    grep -E 'reset-0rtt|early_data_flag:|>>>>>>>> pass:|save.*tp' "${phase}.log"
+    cat tp_localhost
+    return 1
+}
+
+case_tls_reset_0rtt_transition()
+{
+    local id="$1" saved="$2" current="$3" early="$4"
+    local failed=0
+
+    # reliable-stream-reset-09 Section 3; RFC 9000 Section 7.4.1.
+    # Keep one server/TLS context so rejection cannot come from lost keys.
+    case_test_stop_server
+    clear_log
+    rm -f test_session xqc_token tp_localhost
+    case_test_start_server ${SERVER_BIN} -l d -e -x "${id}" > server.log
+
+    ${CLIENT_BIN} -s 4096 -l d -t 1 -E -x "${id}" > warmup.log || failed=1
+    reset_0rtt_check_connection warmup 0 "${saved}" 0 0 || failed=1
+    test -s test_session || failed=1
+    cp tp_localhost warmup.tp
+    cp clog warmup.clog
+    cp slog warmup.slog
+
+    if ! case_test_wait_for_log server.log \
+        "server_ready:${current}|" 100 0.1; then
+        echo 'server did not finish the warmup connection'
+        cat server.log
+        case_test_stop_server
+        return 1
+    fi
+
+    clear_log
+    ${CLIENT_BIN} -s 4096 -l d -t 1 -E -x "${id}" > resume.log || failed=1
+    reset_0rtt_check_connection resume "${saved}" "${current}" \
+        "${early}" 1 || failed=1
+    cp tp_localhost resume.tp
+    cp clog resume.clog
+    cp slog resume.slog
+
+    # The newly issued ticket and saved parameters must describe this server.
+    clear_log
+    ${CLIENT_BIN} -s 4096 -l d -t 1 -E -x "${id}" > refreshed.log || failed=1
+    reset_0rtt_check_connection refreshed "${current}" "${current}" \
+        1 1 || failed=1
+    cp tp_localhost refreshed.tp
+    cp clog refreshed.clog
+    cp slog refreshed.slog
+    case_test_stop_server
+
+    grep -Fxq "[reset-0rtt]|server_advertised:${current}|early_data:${early}|" \
+        server.log || failed=1
+    grep -Fxq "[reset-0rtt]|server_advertised:${current}|early_data:1|" \
+        server.log || failed=1
+    return "${failed}"
+}
+
+case_tls_reset_0rtt_downgrade()
+{
+    case_tls_reset_0rtt_transition 908 1 0 2
+}
+
+case_tls_reset_0rtt_upgrade()
+{
+    case_tls_reset_0rtt_transition 905 0 1 2
+}
+
+case_tls_reset_0rtt_disabled()
+{
+    case_tls_reset_0rtt_transition 906 0 0 1
+}
+
+case_tls_reset_0rtt_enabled()
+{
+    case_tls_reset_0rtt_transition 907 1 1 1
+}
+
+case_test_case "reset_0RTT_downgrade" --id 908 --run case_tls_reset_0rtt_downgrade
+case_test_case "reset_0RTT_upgrade" --id 905 --run case_tls_reset_0rtt_upgrade
+case_test_case "reset_0RTT_disabled" --id 906 --run case_tls_reset_0rtt_disabled
+case_test_case "reset_0RTT_enabled" --id 907 --run case_tls_reset_0rtt_enabled
+
 case_test_case "cert_verify" --id native --mode self-reporting --run case_tls_handshake_cert_verify
 case_test_case "1RTT" --id native --mode self-reporting --run case_tls_handshake__1RTT
 case_test_case "alpn_negotiation_success" --id native --mode self-reporting --run case_tls_handshake_alpn_negotiation_success

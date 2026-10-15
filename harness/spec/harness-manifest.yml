@@ -73,6 +73,55 @@ modules:
     validation:
       level: targeted
 
+  webtransport:
+    paths:
+      - src/webtransport/*
+      - include/xquic/xqc_webtransport*
+      - demo/xqc_wt_echo_*
+      - demo/demo_client.c
+      - demo/demo_server.c
+      - tests/unittest/xqc_webtransport*
+      - tests/complex_case/test_webtransport.c
+      - case_test/webtransport/*
+    read:
+      - harness/spec/webtransport/spec.md
+      - harness/spec/http3-settings-registration/spec.md
+      - harness/spec/reliable-stream-reset/spec.md
+    update_when:
+      behavior_or_boundary_changed:
+        - harness/spec/webtransport/spec.md
+        - harness/spec/architecture.md
+    validation:
+      level: targeted
+      hints: [webtransport, http3, stream, datagram, reliable-reset]
+    features:
+      webtransport_interop:
+        paths:
+          - demo/xqc_webtrans_interop.c
+          - interop/webtransport/*
+        feature_flags:
+          - XQC_ENABLE_WEBTRANSPORT=ON
+          - XQC_ENABLE_WEBTRANSPORT_INTEROP=ON
+        read:
+          - harness/spec/webtransport/spec.md
+          - demo/webtransport.md
+          - interop/webtransport/README.md
+        validation:
+          level: targeted
+      webtransport:
+        paths:
+          - src/webtransport/*
+          - include/xquic/xqc_webtransport*
+        feature_flags:
+          - XQC_ENABLE_WEBTRANSPORT=ON
+        validation:
+          level: targeted
+          unit:
+            - xqc_test_wt_context
+            - xqc_test_wt_context_errors
+            - xqc_test_h3_optional_frame_accepted
+            - xqc_test_h3_optional_frame_errors
+
   api:
     paths:
       - include/xquic/*
@@ -164,6 +213,45 @@ modules:
             - xqc_test_initial_ping_before_crypto_accepted
             - xqc_test_initial_ping_without_crypto_rejected
           hints: [frame, initial, ping]
+      reliable_stream_reset:
+        paths:
+          - include/xquic/xquic.h
+          - src/transport/xqc_conn.*
+          - src/transport/xqc_frame*
+          - src/transport/xqc_packet_out.*
+          - src/transport/xqc_send_ctl.*
+          - src/transport/xqc_send_queue.*
+          - src/transport/xqc_stream.*
+          - src/transport/xqc_transport_params.*
+          - tests/unittest/xqc_reliable_reset_test.*
+        read:
+          - harness/spec/reliable-stream-reset/spec.md
+          - include/xquic/xquic.h
+          - tests/unittest/xqc_reliable_reset_test.c
+        update_when:
+          behavior_or_api_changed:
+            - harness/spec/reliable-stream-reset/spec.md
+            - harness/spec/harness-manifest.yml
+          dependency_boundary_changed:
+            - harness/spec/reliable-stream-reset/spec.md
+            - harness/spec/architecture.md
+            - harness/spec/harness-manifest.yml
+        validation:
+          level: targeted
+          unit:
+            - xqc_test_reliable_reset_transport_params
+            - xqc_test_reliable_reset_receive_order
+            - xqc_test_reliable_reset_receive_errors
+            - xqc_test_reliable_reset_ack_order
+            - xqc_test_reliable_reset_stop_sending
+            - xqc_test_reliable_reset_send_errors
+            - xqc_test_reliable_reset_peer_reset_send
+            - xqc_test_reliable_reset_peer_reset_terminal
+            - xqc_test_reliable_reset_peer_reset_pending
+            - xqc_test_reliable_reset_close
+            - xqc_test_reliable_reset_late_ack
+            - xqc_test_reliable_reset_zero_validation
+          hints: [stream, reset, recovery, 0RTT]
       fec:
         paths:
           - src/transport/xqc_fec*
@@ -191,38 +279,6 @@ modules:
             - xqc_test_fec
           hints: [fec, repair]
 
-  webtransport:
-    paths:
-      - include/xquic/xqc_webtransport_msg.h
-      - src/webtransport/*
-      - demo/demo_client.c
-      - demo/demo_server.c
-      - demo/xqc_wt*
-      - demo/xqc_webtrans_interop.c
-      - case_test/webtransport/*
-      - interop/webtransport/*
-    read:
-      - harness/spec/feat/webtransport.md
-      - harness/spec/feat/webtransport-websocket-message-framing.md
-      - demo/webtransport.md
-      - interop/webtransport/README.md
-    validation:
-      level: targeted
-    features:
-      webtransport_interop:
-        paths:
-          - demo/xqc_webtrans_interop.c
-          - case_test/webtransport/*
-          - interop/webtransport/*
-        feature_flags:
-          - XQC_ENABLE_WEBTRANSPORT_INTEROP=ON
-        read:
-          - harness/spec/feat/webtransport.md
-          - demo/webtransport.md
-          - interop/webtransport/README.md
-        validation:
-          level: targeted
-
   http3:
     paths:
       - src/http3/*
@@ -242,6 +298,39 @@ modules:
         validation:
           level: targeted
           hints: [qpack]
+    features:
+      http3_settings_registration:
+        paths:
+          - include/xquic/xqc_http3.h
+          - src/http3/xqc_h3_conn.*
+          - src/http3/xqc_h3_stream.*
+          - src/http3/frame/xqc_h3_frame*
+          - tests/unittest/xqc_h3_test.*
+        read:
+          - harness/spec/http3-settings-registration/spec.md
+          - include/xquic/xqc_http3.h
+          - tests/unittest/xqc_h3_test.c
+        update_when:
+          behavior_or_api_changed:
+            - harness/spec/http3-settings-registration/spec.md
+            - harness/spec/harness-manifest.yml
+          dependency_boundary_changed:
+            - harness/spec/http3-settings-registration/spec.md
+            - harness/spec/architecture.md
+            - harness/spec/harness-manifest.yml
+        validation:
+          level: targeted
+          unit:
+            - xqc_test_h3_settings_accepted
+            - xqc_test_h3_registered_settings
+            - xqc_test_h3_registered_settings_errors
+            - xqc_test_h3_settings_validation_log
+            - xqc_test_h3_settings_validation_log_errors
+            - xqc_test_h3_peer_settings_batch
+            - xqc_test_h3_settings_fragmented
+            - xqc_test_h3_settings_fragmented_errors
+            - xqc_test_h3_reserved_h2_settings_rejected
+          hints: [h3, settings, extension]
 
   tls:
     paths:

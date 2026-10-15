@@ -7,13 +7,24 @@
 #include <xquic/xqc_webtransport.h>
 #include "src/common/xqc_list.h"
 
+/* RFC 9000 Section 16: two length bits and up to 62 value bits. */
+#define XQC_WT_VARINT_MAX ((UINT64_C(1) << 62) - 1)
+#define XQC_WT_VARINT_MAX_LEN 8
+#define XQC_WT_VARINT_PREFIX_MASK 0x3f
+
+/* Encoders return 0 on error; decoders return a negative error code. */
+size_t xqc_wt_put_varint(uint64_t value, uint8_t *buf, size_t buf_len);
+ssize_t xqc_wt_get_varint(const uint8_t *buf, size_t buf_len, uint64_t *value);
+
+#define XQC_WT_CAPSULE_HEADER_MAX (2 * XQC_WT_VARINT_MAX_LEN)
+
 #define XQC_WT_CLOSE_REASON_MAX 1024
 #define XQC_WT_CAPSULE_BUFFER_SIZE (XQC_WT_CLOSE_REASON_MAX + 32)
 
 xqc_bool_t xqc_wt_valid_utf8(const unsigned char *data, size_t len);
 
 struct xqc_webtransport_session_s {
-    uint64_t              sessionID;
+    uint64_t              session_id;
     xqc_wt_conn_t        *wt_conn;
     xqc_h3_stream_t      *h3_stream;
     xqc_h3_request_t     *request;
@@ -37,6 +48,7 @@ struct xqc_webtransport_session_s {
     uint64_t              sent_data;
     uint64_t              recv_data;
     unsigned              response_status;
+    /* Authority owns one allocation; path and origin point inside it. */
     char                 *client_authority;
     char                 *client_path;
     char                 *client_origin;
@@ -48,7 +60,7 @@ struct xqc_webtransport_session_s {
     size_t                send_len;
     size_t                send_offset;
     xqc_bool_t            send_fin;
-    unsigned char         recv_header[16];
+    unsigned char         recv_header[XQC_WT_CAPSULE_HEADER_MAX];
     size_t                recv_header_len;
     uint64_t              capsule_type;
     uint64_t              capsule_remaining;
@@ -72,5 +84,10 @@ void xqc_wt_session_notify_draining(xqc_wt_session_t *session);
 const xqc_webtransport_stream_callbacks_t *
 xqc_wt_session_get_stream_callbacks(xqc_wt_session_t *session);
 void *xqc_wt_session_get_callback_user_data(xqc_wt_session_t *session);
+
+xqc_h3_stream_t *xqc_wt_session_get_h3_stream(xqc_wt_session_t *session);
+
+xqc_wt_session_t *xqc_wt_session_init(uint64_t session_id,
+    xqc_wt_conn_t *conn, xqc_h3_stream_t *stream);
 
 #endif

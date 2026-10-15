@@ -16,31 +16,31 @@
 #define XQC_WT_MSG_WIRE_LENGTH_MAX ((1ULL << 62) - 1)
 
 struct xqc_wt_msg_stream_s {
-    xqc_wt_bidistream_t       *stream;
-    xqc_wt_msg_recv_notify_pt  recv_notify;
-    void                      *user_data;
-    size_t                     max_message_size;
-    size_t                     call_depth;
-    xqc_bool_t                 destroy_pending;
+    xqc_wt_bidistream_t        *stream;
+    xqc_wt_msg_recv_notify_pt   recv_notify;
+    void                       *user_data;
+    size_t                      max_message_size;
+    size_t                      call_depth;
+    xqc_bool_t                  destroy_pending;
 
     unsigned char             *send_buf;
-    size_t                     send_len;
-    size_t                     send_offset;
-    xqc_int_t                  send_error;
-    xqc_bool_t                 send_fin_pending;
-    xqc_bool_t                 send_fin;
-    xqc_bool_t                 in_send;
+    size_t                      send_len;
+    size_t                      send_offset;
+    xqc_int_t                   send_error;
+    xqc_bool_t                  send_fin_pending;
+    xqc_bool_t                  send_fin;
+    xqc_bool_t                  in_send;
 
     unsigned char              recv_header[XQC_WT_MSG_MAX_HEADER_SIZE];
-    size_t                     recv_header_len;
-    size_t                     recv_header_need;
+    size_t                      recv_header_len;
+    size_t                      recv_header_need;
     unsigned char             *recv_buf;
-    size_t                     recv_len;
-    size_t                     recv_offset;
-    xqc_wt_msg_type_t          recv_type;
-    xqc_int_t                  recv_error;
-    xqc_bool_t                 recv_fin;
-    xqc_bool_t                 in_recv;
+    size_t                      recv_len;
+    size_t                      recv_offset;
+    xqc_wt_msg_type_t           recv_type;
+    xqc_int_t                   recv_error;
+    xqc_bool_t                  recv_fin;
+    xqc_bool_t                  in_recv;
 };
 
 static void xqc_wt_msg_send_clear(xqc_wt_msg_stream_t *msg_stream);
@@ -179,7 +179,8 @@ xqc_wt_msg_stream_do_flush(xqc_wt_msg_stream_t *msg_stream)
 
         uint32_t chunk = remaining > INT32_MAX
             ? INT32_MAX : (uint32_t)remaining;
-        xqc_int_t sent = xqc_wt_bidistream_send(msg_stream->stream,
+        xqc_int_t sent = xqc_wt_bidistream_send(
+            msg_stream->stream,
             msg_stream->send_buf + msg_stream->send_offset, chunk, 0);
         if (msg_stream->destroy_pending) {
             return XQC_OK;

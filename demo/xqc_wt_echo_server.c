@@ -5,9 +5,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <xquic/xqc_webtransport.h>
+#include "src/webtransport/xqc_webtransport_conn.h"
 #include "xqc_wt_echo_server.h"
 
 #define XQC_DEMO_WT_PENDING_MAX (64 * 1024)
+#define XQC_DEMO_WT_DGRAM_MAX 64
 
 typedef struct xqc_demo_wt_stream_s xqc_demo_wt_stream_t;
 
@@ -19,22 +21,32 @@ struct xqc_demo_wt_stream_s {
     size_t              pending_len;
     int                 fin;
     int                 send_closed;
+    int                 read_paused;
+};
+
+typedef struct xqc_demo_wt_dgram_s xqc_demo_wt_dgram_t;
+
+struct xqc_demo_wt_dgram_s {
+    xqc_demo_wt_dgram_t *next;
+    xqc_wt_session_t    *session;
+    size_t              len;
+    unsigned char       data[];
 };
 
 static xqc_demo_wt_stream_t *xqc_demo_wt_streams;
+static xqc_demo_wt_dgram_t *xqc_demo_wt_datagrams;
+static size_t xqc_demo_wt_datagram_count;
 static void (*xqc_demo_wt_schedule_send)(void *user_data);
 static void *xqc_demo_wt_schedule_data;
 
 static int xqc_demo_wt_header_equal(const xqc_http_header_t *header,
     const char *name, const char *value);
 static int xqc_demo_wt_accept(xqc_http_headers_t *headers,
-    xqc_http_headers_t *response);
+    xqc_http_headers_t *response, void *user_data);
 static int xqc_demo_wt_session_create(xqc_wt_session_t *session,
     xqc_http_headers_t *headers, const xqc_cid_t *cid, void *user_data);
 static int xqc_demo_wt_session_close(xqc_wt_session_t *session,
     xqc_http_headers_t *headers, const xqc_cid_t *cid, void *user_data);
-static void xqc_demo_wt_handshake(xqc_h3_conn_t *h3_conn, void *user_data);
-static void xqc_demo_wt_drain(xqc_wt_session_t *session, void *user_data);
 static xqc_demo_wt_stream_t *xqc_demo_wt_find(xqc_wt_session_t *session,
     xqc_stream_id_t id);
 static xqc_int_t xqc_demo_wt_bidi_flush(xqc_wt_bidistream_t *stream,
@@ -49,20 +61,10 @@ static xqc_int_t xqc_demo_wt_bidi_closing(xqc_wt_bidistream_t *stream,
     xqc_wt_session_t *session, void *user_data);
 static xqc_int_t xqc_demo_wt_bidi_close(xqc_wt_bidistream_t *stream,
     xqc_wt_session_t *session, void *user_data);
-static xqc_int_t xqc_demo_wt_uni_notify(xqc_wt_unistream_t *stream,
-    xqc_wt_session_t *session, void *user_data);
-static xqc_int_t xqc_demo_wt_uni_read(xqc_wt_unistream_t *stream,
-    xqc_wt_session_t *session, void *data, size_t len, void *user_data);
 static void xqc_demo_wt_dgram_read(xqc_wt_session_t *session,
     const void *data, size_t len, void *user_data, uint64_t recv_time);
 static void xqc_demo_wt_dgram_write(xqc_wt_session_t *session,
     void *user_data);
-static void xqc_demo_wt_dgram_acked(xqc_wt_session_t *session,
-    uint64_t id, void *user_data);
-static int xqc_demo_wt_dgram_lost(xqc_wt_session_t *session,
-    uint64_t id, void *user_data);
-static void xqc_demo_wt_dgram_mss(xqc_wt_session_t *session,
-    size_t mss, void *user_data);
 
 static int
 xqc_demo_wt_header_equal(const xqc_http_header_t *header,
@@ -76,7 +78,7 @@ xqc_demo_wt_header_equal(const xqc_http_header_t *header,
 
 static int
 xqc_demo_wt_accept(xqc_http_headers_t *headers,
-    xqc_http_headers_t *response)
+    xqc_http_headers_t *response, void *user_data)
 {
     size_t i;
     int path = 0;
@@ -92,9 +94,9 @@ xqc_demo_wt_accept(xqc_http_headers_t *headers,
             origins++;
         }
         origin += xqc_demo_wt_header_equal(header, "origin",
-                                          "http://127.0.0.1:8080");
+                                           "http://127.0.0.1:8080");
         origin += xqc_demo_wt_header_equal(header, "origin",
-                                          "http://localhost:8080");
+                                           "http://localhost:8080");
     }
 
     if (path != 1 || origin != 1 || origins != 1) {
@@ -110,7 +112,7 @@ xqc_demo_wt_session_create(xqc_wt_session_t *session,
     xqc_http_headers_t *headers, const xqc_cid_t *cid, void *user_data)
 {
     printf("WT ready: draft=%d session=%p h3_user_data=%p\n",
-           xqc_wt_session_get_draft_version(session)
+           session->wt_conn->negotiated_version
                == XQC_WEBTRANSPORT_DRAFT_VERSION_16 ? 16 : 7,
            (void *) session,
            xqc_h3_conn_get_user_data(xqc_wt_session_get_h3_conn(session)));
@@ -136,19 +138,19 @@ xqc_demo_wt_session_close(xqc_wt_session_t *session,
             link = &ctx->next;
         }
     }
+    xqc_demo_wt_dgram_t **dgram = &xqc_demo_wt_datagrams;
+    while (*dgram != NULL) {
+        xqc_demo_wt_dgram_t *item = *dgram;
+        if (item->session == session) {
+            *dgram = item->next;
+            xqc_demo_wt_datagram_count--;
+            free(item);
+
+        } else {
+            dgram = &item->next;
+        }
+    }
     return XQC_OK;
-}
-
-static void
-xqc_demo_wt_handshake(xqc_h3_conn_t *h3_conn, void *user_data)
-{
-    printf("WT handshake complete\n");
-}
-
-static void
-xqc_demo_wt_drain(xqc_wt_session_t *session, void *user_data)
-{
-    printf("WT draining\n");
 }
 
 static xqc_demo_wt_stream_t *
@@ -173,7 +175,7 @@ xqc_demo_wt_bidi_flush(xqc_wt_bidistream_t *stream,
     }
 
     xqc_int_t sent = xqc_wt_bidistream_send(stream, ctx->pending,
-                                           ctx->pending_len, ctx->fin);
+                                            ctx->pending_len, ctx->fin);
     xqc_demo_wt_schedule_send(xqc_demo_wt_schedule_data);
     if (sent == -XQC_EAGAIN || sent == -XQC_ECONN_BLOCKED
         || sent == -XQC_ESTREAM_BLOCKED)
@@ -189,6 +191,10 @@ xqc_demo_wt_bidi_flush(xqc_wt_bidistream_t *stream,
 
     } else if (ctx->fin) {
         ctx->send_closed = 1;
+    }
+    if (ctx->pending_len == 0 && ctx->read_paused) {
+        ctx->read_paused = 0;
+        return xqc_wt_bidistream_set_read_paused(stream, XQC_FALSE);
     }
     return XQC_OK;
 }
@@ -219,7 +225,7 @@ xqc_demo_wt_bidi_read(xqc_wt_bidistream_t *stream,
     xqc_wt_session_t *session, void *data, size_t len, void *user_data)
 {
     xqc_demo_wt_stream_t *ctx = xqc_demo_wt_find(session,
-                                               xqc_wt_bidistream_id(stream));
+                                                 xqc_wt_bidistream_id(stream));
 
     if (ctx == NULL) {
         return XQC_ERROR;
@@ -228,10 +234,8 @@ xqc_demo_wt_bidi_read(xqc_wt_bidistream_t *stream,
         return XQC_OK;
     }
     if (len > XQC_DEMO_WT_PENDING_MAX - ctx->pending_len) {
-        xqc_wt_bidistream_stop_sending(stream, 1);
-        xqc_wt_bidistream_reset(stream, 1);
-        xqc_demo_wt_schedule_send(xqc_demo_wt_schedule_data);
-        return XQC_ERROR;
+        ctx->read_paused = 1;
+        return -XQC_EAGAIN;
     }
     if (len > 0) {
         memcpy(ctx->pending + ctx->pending_len, data, len);
@@ -248,7 +252,7 @@ xqc_demo_wt_bidi_write(xqc_wt_bidistream_t *stream,
     xqc_wt_session_t *session, void *user_data)
 {
     xqc_demo_wt_stream_t *ctx = xqc_demo_wt_find(session,
-                                               xqc_wt_bidistream_id(stream));
+                                                 xqc_wt_bidistream_id(stream));
     return ctx ? xqc_demo_wt_bidi_flush(stream, ctx) : XQC_OK;
 }
 
@@ -257,7 +261,7 @@ xqc_demo_wt_bidi_closing(xqc_wt_bidistream_t *stream,
     xqc_wt_session_t *session, void *user_data)
 {
     xqc_demo_wt_stream_t *ctx = xqc_demo_wt_find(session,
-                                               xqc_wt_bidistream_id(stream));
+                                                 xqc_wt_bidistream_id(stream));
 
     printf("WT stream closing: id=%" PRIu64 " stop_sending=%d\n",
            (uint64_t) xqc_wt_bidistream_id(stream),
@@ -290,6 +294,74 @@ xqc_demo_wt_bidi_close(xqc_wt_bidistream_t *stream,
     return XQC_OK;
 }
 
+static void
+xqc_demo_wt_dgram_read(xqc_wt_session_t *session,
+    const void *data, size_t len, void *user_data, uint64_t recv_time)
+{
+    uint64_t id;
+    xqc_int_t ret = xqc_wt_session_datagram_send(session, data, len, &id);
+
+    printf("WT datagram echo: bytes=%zu result=%d\n", len, ret);
+    if (ret == -XQC_EAGAIN) {
+        if (xqc_demo_wt_datagram_count == XQC_DEMO_WT_DGRAM_MAX) {
+            printf("WT datagram echo: pending limit reached\n");
+            return;
+        }
+        xqc_demo_wt_dgram_t *item = malloc(sizeof(*item) + len);
+        if (item == NULL) {
+            printf("WT datagram echo: pending allocation failed\n");
+            return;
+        }
+        item->session = session;
+        item->len = len;
+        memcpy(item->data, data, len);
+        item->next = NULL;
+        xqc_demo_wt_dgram_t **link = &xqc_demo_wt_datagrams;
+        while (*link != NULL) {
+            link = &(*link)->next;
+        }
+        *link = item;
+        xqc_demo_wt_datagram_count++;
+    }
+    xqc_demo_wt_schedule_send(xqc_demo_wt_schedule_data);
+}
+
+static void
+xqc_demo_wt_dgram_write(xqc_wt_session_t *session, void *user_data)
+{
+    xqc_demo_wt_dgram_t **link = &xqc_demo_wt_datagrams;
+
+    while (*link != NULL) {
+        xqc_demo_wt_dgram_t *item = *link;
+        if (item->session != session) {
+            link = &item->next;
+            continue;
+        }
+        xqc_int_t ret = xqc_wt_session_datagram_send(session, item->data,
+                                                     item->len, NULL);
+        if (ret == -XQC_EAGAIN) {
+            return;
+        }
+        printf("WT datagram retry: bytes=%zu result=%d\n", item->len, ret);
+        *link = item->next;
+        xqc_demo_wt_datagram_count--;
+        free(item);
+        xqc_demo_wt_schedule_send(xqc_demo_wt_schedule_data);
+    }
+}
+
+static void
+xqc_demo_wt_handshake(xqc_h3_conn_t *h3_conn, void *user_data)
+{
+    printf("WT handshake complete\n");
+}
+
+static void
+xqc_demo_wt_drain(xqc_wt_session_t *session, void *user_data)
+{
+    printf("WT draining\n");
+}
+
 static xqc_int_t
 xqc_demo_wt_uni_notify(xqc_wt_unistream_t *stream,
     xqc_wt_session_t *session, void *user_data)
@@ -304,22 +376,6 @@ xqc_demo_wt_uni_read(xqc_wt_unistream_t *stream,
     printf("WT uni received: id=%" PRIu64 " bytes=%zu\n",
            (uint64_t) xqc_wt_unistream_id(stream), len);
     return XQC_OK;
-}
-
-static void
-xqc_demo_wt_dgram_read(xqc_wt_session_t *session,
-    const void *data, size_t len, void *user_data, uint64_t recv_time)
-{
-    uint64_t id;
-    xqc_int_t ret = xqc_wt_session_datagram_send(session, data, len, &id);
-
-    printf("WT datagram echo: bytes=%zu result=%d\n", len, ret);
-    xqc_demo_wt_schedule_send(xqc_demo_wt_schedule_data);
-}
-
-static void
-xqc_demo_wt_dgram_write(xqc_wt_session_t *session, void *user_data)
-{
 }
 
 static void

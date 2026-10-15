@@ -2,6 +2,7 @@
 
 #include <inttypes.h>
 #include <stdio.h>
+#include "src/webtransport/xqc_webtransport_conn.h"
 #include <stdlib.h>
 #include <string.h>
 #include <xquic/xqc_webtransport_msg.h>
@@ -290,7 +291,7 @@ xqc_demo_wt_client_ready(xqc_wt_session_t *session,
     ctx->session = session;
     ctx->ready = 1;
     printf("WT ready: draft=%d status=%u\n",
-           xqc_wt_session_get_draft_version(session)
+           session->wt_conn->negotiated_version
                == XQC_WEBTRANSPORT_DRAFT_VERSION_16 ? 16 : 7,
            xqc_wt_session_get_response_status(session));
 
@@ -304,7 +305,7 @@ xqc_demo_wt_client_ready(xqc_wt_session_t *session,
         return XQC_OK;
     }
     if (ctx->message_mode
-        && xqc_wt_session_get_draft_version(session)
+        && session->wt_conn->negotiated_version
             != XQC_WEBTRANSPORT_DRAFT_VERSION_16)
     {
         xqc_demo_wt_client_fail("message framing requires draft 16",

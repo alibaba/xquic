@@ -19,7 +19,7 @@ xqc_test_h3_ext_frame_parse(const char *p, size_t sz, xqc_h3_frame_pctx_t *state
     ssize_t offset = 0;
     while (offset < sz) {
         ssize_t len = rand() % sz + 1;
-        ssize_t ret = xqc_h3_frm_parse(p + offset, len, state);
+        ssize_t ret = xqc_h3_frm_parse(p + offset, len, state, NULL);
         if (ret < 0) {
             return ret;
         }

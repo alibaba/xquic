@@ -10,6 +10,7 @@
 #cmakedefine XQC_NO_PID_PACKET_PROCESS
 #cmakedefine XQC_PROTECT_POOL_MEM
 #cmakedefine XQC_COMPAT_DUPLICATE
+#cmakedefine XQC_ENABLE_WEBTRANSPORT
 #cmakedefine XQC_ENABLE_FEC
 #cmakedefine XQC_ENABLE_XOR
 #cmakedefine XQC_ENABLE_RSC

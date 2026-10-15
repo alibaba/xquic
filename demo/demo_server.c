@@ -1511,6 +1511,12 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
             exit(0);
         }
     }
+#ifndef XQC_ENABLE_WEBTRANSPORT
+    if (args->quic_cfg.webtransport) {
+        fprintf(stderr, "WebTransport is disabled in this build\n");
+        exit(1);
+    }
+#endif
     if (xqc_demo_wt_app_policy->require_webtransport
         && !args->quic_cfg.webtransport)
     {
@@ -1708,6 +1714,7 @@ xqc_demo_svr_init_alpn_ctx(xqc_demo_svr_ctx_t *ctx)
         return ret;
     }
 
+#ifdef XQC_ENABLE_WEBTRANSPORT
     if (ctx->args->quic_cfg.webtransport) {
         xqc_int_t (*init)(xqc_engine_t *, int, void (*)(void *),
             void *) = xqc_wt_echo_server_init;
@@ -1731,6 +1738,7 @@ xqc_demo_svr_init_alpn_ctx(xqc_demo_svr_ctx_t *ctx)
             }
         }
     }
+#endif
 
     return ret;
 }

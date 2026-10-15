@@ -192,3 +192,12 @@ Feel free to contact us in the following ways:
 * slack channel: #xquic in quicdev group
 
   <img src="docs/images/dingtalk_group.JPG" width=200 alt="dingtalk group"/>
+
+## Optional WebTransport
+
+Native WebTransport is disabled by default. Configure with
+`-DXQC_ENABLE_WEBTRANSPORT=ON` to enable it. Validation and CI builds enable
+it by default. Use `XQC_ENABLE_WEBTRANSPORT=OFF ./scripts/validate.sh test`
+for disabled local validation. See
+[the WebTransport specification](harness/spec/webtransport/spec.md) for APIs,
+demos and endpoint checks.

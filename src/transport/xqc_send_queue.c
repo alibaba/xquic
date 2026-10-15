@@ -10,11 +10,6 @@
 #include "src/transport/xqc_reinjection.h"
 #include "src/transport/xqc_conn.h"
 
-
-static xqc_bool_t xqc_send_queue_list_has_unacked_reliable(
-    xqc_list_head_t *head, xqc_stream_t *stream);
-
-
 xqc_send_queue_t *
 xqc_send_queue_create(xqc_connection_t *conn)
 {
@@ -635,11 +630,11 @@ xqc_send_ctl_stream_frame_can_drop(xqc_packet_out_t *packet_out, xqc_stream_id_t
     return drop;
 }
 
-static xqc_bool_t xqc_reset_stream_packet_can_drop(xqc_connection_t *conn,
+static xqc_bool_t xqc_enhanced_packet_can_drop(xqc_connection_t *conn,
     xqc_packet_out_t *packet, xqc_stream_id_t id);
 
 static xqc_bool_t
-xqc_reset_stream_packet_can_drop(xqc_connection_t *conn,
+xqc_enhanced_packet_can_drop(xqc_connection_t *conn,
     xqc_packet_out_t *packet, xqc_stream_id_t id)
 {
     if (!xqc_send_ctl_stream_frame_can_drop(packet, id)) {
@@ -661,74 +656,33 @@ xqc_reset_stream_packet_can_drop(xqc_connection_t *conn,
     return XQC_TRUE;
 }
 
-static xqc_bool_t
-xqc_send_queue_list_has_unacked_reliable(xqc_list_head_t *head,
-    xqc_stream_t *stream)
+static void
+xqc_reset_stream_release_origin(xqc_connection_t *conn,
+    xqc_packet_out_t *packet, xqc_stream_id_t stream_id)
 {
-    xqc_list_head_t *pos;
-    xqc_list_for_each(pos, head) {
-        xqc_packet_out_t *packet = xqc_list_entry(pos, xqc_packet_out_t,
-                                                po_list);
-        if (packet->po_acked
-            || (packet->po_origin && packet->po_origin->po_acked))
-        {
-            continue;
-        }
-        for (int i = 0; i < packet->po_stream_frames_idx; i++) {
-            xqc_po_stream_frame_t *frame = &packet->po_stream_frames[i];
-            if (!frame->ps_is_used || frame->ps_stream_id != stream->stream_id) {
-                continue;
-            }
-            if (frame->ps_is_reset_at) {
-                return XQC_TRUE;
-            }
-            if (!frame->ps_is_reset && frame->ps_length
-                && frame->ps_offset < stream->reset_at.send_size)
-            {
-                return XQC_TRUE;
-            }
-        }
+    xqc_packet_out_t *origin = packet->po_origin;
+    if (origin == NULL) {
+        return;
     }
-    return XQC_FALSE;
-}
 
-xqc_bool_t
-xqc_send_queue_has_unacked_reliable(xqc_stream_t *stream)
-{
-    xqc_connection_t *conn = stream->stream_conn;
-    xqc_send_queue_t *queue = conn->conn_send_queue;
-    xqc_list_head_t *heads[] = {
-        &queue->sndq_send_packets,
-        &queue->sndq_send_packets_high_pri,
-        &queue->sndq_unacked_packets[XQC_PNS_APP_DATA],
-        &queue->sndq_lost_packets,
-        &queue->sndq_pto_probe_packets,
-        &queue->sndq_buff_1rtt_packets,
-    };
+    packet->po_origin = NULL;
+    if (origin->po_origin_ref_cnt == 0) {
+        return;
+    }
+    origin->po_origin_ref_cnt--;
+    if (origin->po_origin_ref_cnt != 0
+        || !(origin->po_flag & XQC_POF_IN_UNACK_LIST)
+        || !xqc_enhanced_packet_can_drop(conn, origin, stream_id))
+    {
+        return;
+    }
 
-    /* Reliable prefix packets remain queued until their origin is ACKed. */
-    for (size_t i = 0; i < sizeof(heads) / sizeof(heads[0]); i++) {
-        if (xqc_send_queue_list_has_unacked_reliable(heads[i], stream)) {
-            return XQC_TRUE;
-        }
-    }
-    xqc_list_head_t *pos;
-    xqc_list_for_each(pos, &conn->conn_paths_list) {
-        xqc_path_ctx_t *path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
-        for (int type = 0; type < XQC_SEND_TYPE_N; type++) {
-            if (xqc_send_queue_list_has_unacked_reliable(
-                    &path->path_schedule_buf[type], stream))
-            {
-                return XQC_TRUE;
-            }
-        }
-        if (xqc_send_queue_list_has_unacked_reliable(&path->path_reinj_tmp_buf,
-                                                    stream))
-        {
-            return XQC_TRUE;
-        }
-    }
-    return XQC_FALSE;
+    origin->po_flag |= XQC_POF_INFLIGHT_CANCELED;
+    xqc_send_ctl_decrease_inflight(conn, origin);
+    xqc_send_queue_remove_unacked(origin, conn->conn_send_queue);
+    xqc_conn_decrease_unacked_stream_ref(conn, origin);
+    xqc_send_queue_insert_free(origin,
+        &conn->conn_send_queue->sndq_free_packets, conn->conn_send_queue);
 }
 
 void
@@ -750,41 +704,88 @@ xqc_send_queue_drop_stream_frame_packets(xqc_connection_t *conn, xqc_stream_id_t
 
     xqc_list_for_each_safe(pos, next, &send_queue->sndq_unacked_packets[XQC_PNS_APP_DATA]) {
         packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-        drop = xqc_reset_stream_packet_can_drop(conn, packet_out, stream_id);
+        drop = xqc_enhanced_packet_can_drop(conn, packet_out, stream_id);
         if (drop) {
+            if (packet_out->po_origin == NULL
+                && packet_out->po_origin_ref_cnt != 0)
+            {
+                continue;
+            }
             count++;
+            packet_out->po_flag |= XQC_POF_INFLIGHT_CANCELED;
             xqc_send_ctl_decrease_inflight(conn, packet_out);
             xqc_send_queue_remove_unacked(packet_out, send_queue);
+            if (packet_out->po_origin == NULL) {
+                xqc_conn_decrease_unacked_stream_ref(conn, packet_out);
+
+            } else {
+                xqc_reset_stream_release_origin(conn, packet_out,
+                                                stream_id);
+            }
             xqc_send_queue_insert_free(packet_out, &send_queue->sndq_free_packets, send_queue);
         }
     }
 
     xqc_list_for_each_safe(pos, next, &send_queue->sndq_send_packets) {
         packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-        drop = xqc_reset_stream_packet_can_drop(conn, packet_out, stream_id);
+        drop = xqc_enhanced_packet_can_drop(conn, packet_out, stream_id);
         if (drop) {
             count++;
             xqc_send_queue_remove_send(pos);
+            xqc_reset_stream_release_origin(conn, packet_out, stream_id);
             xqc_send_queue_insert_free(packet_out, &send_queue->sndq_free_packets, send_queue);
+        }
+    }
+
+    xqc_list_for_each_safe(pos, next,
+                           &send_queue->sndq_send_packets_high_pri)
+    {
+        packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        drop = xqc_enhanced_packet_can_drop(conn, packet_out, stream_id);
+        if (drop) {
+            count++;
+            xqc_send_queue_remove_send(pos);
+            xqc_reset_stream_release_origin(conn, packet_out, stream_id);
+            xqc_send_queue_insert_free(packet_out,
+                &send_queue->sndq_free_packets, send_queue);
+        }
+    }
+
+    xqc_list_for_each_safe(pos, next, &send_queue->sndq_buff_1rtt_packets) {
+        packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        drop = xqc_enhanced_packet_can_drop(conn, packet_out, stream_id);
+        if (drop) {
+            count++;
+            /*
+             * Buffered packets still count toward sndq_packets_used.
+             * Only unlink here; insert_free() decrements the count.
+             * Using remove_buff() would decrement it twice.
+             */
+            xqc_send_queue_remove_send(pos);
+            xqc_reset_stream_release_origin(conn, packet_out, stream_id);
+            xqc_send_queue_insert_free(packet_out,
+                &send_queue->sndq_free_packets, send_queue);
         }
     }
 
     xqc_list_for_each_safe(pos, next, &send_queue->sndq_lost_packets) {
         packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-        drop = xqc_reset_stream_packet_can_drop(conn, packet_out, stream_id);
+        drop = xqc_enhanced_packet_can_drop(conn, packet_out, stream_id);
         if (drop) {
             count++;
             xqc_send_queue_remove_lost(pos);
+            xqc_reset_stream_release_origin(conn, packet_out, stream_id);
             xqc_send_queue_insert_free(packet_out, &send_queue->sndq_free_packets, send_queue);
         }
     }
 
     xqc_list_for_each_safe(pos, next, &send_queue->sndq_pto_probe_packets) {
         packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-        drop = xqc_reset_stream_packet_can_drop(conn, packet_out, stream_id);
+        drop = xqc_enhanced_packet_can_drop(conn, packet_out, stream_id);
         if (drop) {
             count++;
             xqc_send_queue_remove_probe(pos);
+            xqc_reset_stream_release_origin(conn, packet_out, stream_id);
             xqc_send_queue_insert_free(packet_out, &send_queue->sndq_free_packets, send_queue);
         }
     }
@@ -794,33 +795,34 @@ xqc_send_queue_drop_stream_frame_packets(xqc_connection_t *conn, xqc_stream_id_t
     xqc_list_for_each_safe(pos_path, next_path, &conn->conn_paths_list) {
         path = xqc_list_entry(pos_path, xqc_path_ctx_t, path_list);
 
-        xqc_list_for_each_safe(pos, next, &path->path_schedule_buf[XQC_SEND_TYPE_NORMAL]) {
-            packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-            drop = xqc_reset_stream_packet_can_drop(conn, packet_out, stream_id);
-            if (drop) {
-                count++;
-                xqc_path_send_buffer_remove(path, packet_out);
-                xqc_send_queue_insert_free(packet_out, &send_queue->sndq_free_packets, send_queue);
+        for (int type = 0; type < XQC_SEND_TYPE_N; type++) {
+            xqc_list_for_each_safe(pos, next,
+                                   &path->path_schedule_buf[type])
+            {
+                packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+                drop = xqc_enhanced_packet_can_drop(conn, packet_out,
+                                                        stream_id);
+                if (drop) {
+                    count++;
+                    xqc_path_send_buffer_remove(path, packet_out);
+                    xqc_reset_stream_release_origin(conn, packet_out,
+                                                    stream_id);
+                    xqc_send_queue_insert_free(packet_out,
+                        &send_queue->sndq_free_packets, send_queue);
+                }
             }
         }
 
-        xqc_list_for_each_safe(pos, next, &path->path_schedule_buf[XQC_SEND_TYPE_RETRANS]) {
+        xqc_list_for_each_safe(pos, next, &path->path_reinj_tmp_buf) {
             packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-            drop = xqc_reset_stream_packet_can_drop(conn, packet_out, stream_id);
+            drop = xqc_enhanced_packet_can_drop(conn, packet_out,
+                                                    stream_id);
             if (drop) {
                 count++;
                 xqc_path_send_buffer_remove(path, packet_out);
-                xqc_send_queue_insert_free(packet_out, &send_queue->sndq_free_packets, send_queue);
-            }
-        }
-
-        xqc_list_for_each_safe(pos, next, &path->path_schedule_buf[XQC_SEND_TYPE_PTO_PROBE]) {
-            packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
-            drop = xqc_reset_stream_packet_can_drop(conn, packet_out, stream_id);
-            if (drop) {
-                count++;
-                xqc_path_send_buffer_remove(path, packet_out);
-                xqc_send_queue_insert_free(packet_out, &send_queue->sndq_free_packets, send_queue);
+                xqc_reset_stream_release_origin(conn, packet_out, stream_id);
+                xqc_send_queue_insert_free(packet_out,
+                    &send_queue->sndq_free_packets, send_queue);
             }
         }
     }

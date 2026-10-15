@@ -7,6 +7,8 @@
 
 #include <xquic/xqc_webtransport.h>
 
+#ifdef XQC_ENABLE_WEBTRANSPORT
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -105,5 +107,7 @@ xqc_int_t xqc_wt_msg_stream_recv_msg(xqc_wt_msg_stream_t *msg_stream,
 #ifdef __cplusplus
 }
 #endif
+
+#endif /* XQC_ENABLE_WEBTRANSPORT */
 
 #endif

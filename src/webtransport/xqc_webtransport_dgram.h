@@ -7,5 +7,6 @@
 
 void xqc_wt_dgram_callbacks(xqc_datagram_callbacks_t *callbacks);
 void xqc_wt_dgram_resume(xqc_wt_session_t *session);
+void xqc_wt_dgram_purge(xqc_wt_session_t *session);
 void xqc_wt_dgram_clear(xqc_wt_conn_t *conn);
 #endif

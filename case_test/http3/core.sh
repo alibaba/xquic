@@ -1309,6 +1309,42 @@ fi
 
 }
 
+case_http3_core_custom_settings()
+{
+local id="$1" name="$2" result=fail
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e -x "${id}" > svr_stdlog
+sleep 1
+${CLIENT_BIN} -s 8 -l d -t 1 -E -x "${id}" > stdlog
+if [[ "${id}" = 1026 ]]; then
+    if grep -q '\[h3-custom-settings-test\]|register:0,0|' stdlog \
+        && grep -q '\[h3-custom-settings-test\]|peer|matched:3|reject:0|' svr_stdlog \
+        && grep -q '>>>>>>>> pass:1' stdlog \
+        && [ -z "$(grep_err_log)" ]
+    then
+        result=pass
+    fi
+elif grep -q '\[h3-custom-settings-test\]|peer|matched:3|reject:1|' svr_stdlog \
+    && grep -q 'xqc_parse_conn_close_frame|type:18|err_code:265|' clog
+then
+    result=pass
+fi
+case_print_result "${name}" "${result}"
+}
+
+case_http3_core_custom_settings_accept()
+{
+case_http3_core_custom_settings 1026 h3_custom_settings_accept
+}
+
+case_http3_core_custom_settings_reject()
+{
+case_http3_core_custom_settings 1027 h3_custom_settings_reject
+}
+
+
 case_test_case "h3_stream_send_pure_fin" --id native --mode self-reporting --run case_http3_core_h3_stream_send_pure_fin
 case_test_case "header_header_data" --id native --mode self-reporting --run case_http3_core_header_header_data
 case_test_case "header_data_header" --id native --mode self-reporting --run case_http3_core_header_data_header
@@ -1357,6 +1393,9 @@ case_test_case "h3_lowercase_response_field_name_accepted" --id native --mode se
 case_test_case "h3_uppercase_response_field_name_rejected" --id native --mode self-reporting --run case_http3_core_h3_uppercase_response_field_name_rejected
 case_test_case "h3_pseudo_header_order_accepted" --id 1019 --mode self-reporting --run case_http3_core_h3_pseudo_header_order_accepted
 case_test_case "h3_pseudo_header_after_regular_rejected" --id 1020 --mode self-reporting --run case_http3_core_h3_pseudo_header_after_regular_rejected
+
+case_test_case "h3_custom_settings_accept" --id 1026 --mode self-reporting --run case_http3_core_custom_settings_accept
+case_test_case "h3_custom_settings_reject" --id 1027 --mode self-reporting --run case_http3_core_custom_settings_reject
 
 if case_test_is_discovery; then
     case_test_run

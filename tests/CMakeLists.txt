@@ -71,6 +71,12 @@ else()
 endif()
 
 target_link_libraries(test_server ${APP_DEPEND_LIBS})
+if(XQC_ENABLE_WEBTRANSPORT)
+    add_executable(test_webtransport
+        complex_case/test_webtransport.c
+        complex_case/complex_case_common.c)
+    target_link_libraries(test_webtransport ${APP_DEPEND_LIBS})
+endif()
 target_link_libraries(test_client ${APP_DEPEND_LIBS})
 
 
@@ -81,11 +87,8 @@ if(HAVE_CUNIT)
 
     set(test_SOURCES
         ${UNIT_TEST_DIR}/main.c
-        ${UNIT_TEST_DIR}/xqc_webtransport_test.c
-        ${UNIT_TEST_DIR}/xqc_webtransport_msg_test.c
-        ${UNIT_TEST_DIR}/xqc_webtransport_version_test.c
         ${UNIT_TEST_DIR}/xqc_reliable_reset_test.c
-        ${UNIT_TEST_DIR}/xqc_webtransport_h3_stream_test.c
+        ${UNIT_TEST_DIR}/xqc_reset_stream_frame_test.c
         ${UNIT_TEST_DIR}/xqc_random_test.c
         ${UNIT_TEST_DIR}/xqc_pq_test.c
         ${UNIT_TEST_DIR}/xqc_common_test.c
@@ -127,6 +130,16 @@ if(HAVE_CUNIT)
         ${UNIT_TEST_DIR}/xqc_frame_type_bit_test.c
         ${UNIT_TEST_DIR}/xqc_flow_ctl_test.c
     )
+
+    if(XQC_ENABLE_WEBTRANSPORT)
+        list(APPEND test_SOURCES
+            ${CMAKE_SOURCE_DIR}/demo/xqc_wt_echo_server.c
+            ${UNIT_TEST_DIR}/xqc_webtransport_h3_stream_test.c
+            ${UNIT_TEST_DIR}/xqc_webtransport_test.c
+            ${UNIT_TEST_DIR}/xqc_webtransport_msg_test.c
+            ${UNIT_TEST_DIR}/xqc_webtransport_version_test.c
+        )
+    endif()
 
     if(XQC_ENABLE_FEC)
         set(

@@ -51,6 +51,10 @@ typedef enum {
     XQC_H3_SETTINGS_H2_MAX_FRAME_SIZE            = 0x05,
 } xqc_h3_settings_id;
 
+/* RFC 9114 Section 7.2.4.1: GREASE-reserved SETTINGS identifiers. */
+#define XQC_H3_SETTINGS_GREASE_FIRST       0x21
+#define XQC_H3_SETTINGS_GREASE_INTERVAL    0x1f
+
 
 typedef struct xqc_h3_blocked_stream_s xqc_h3_blocked_stream_t;
 

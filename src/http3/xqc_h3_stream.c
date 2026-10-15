@@ -1111,25 +1111,34 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 }
 
                 len = xqc_min(pctx->frame.len - pctx->frame.consumed_len, data_len - processed);
-                buf = xqc_var_buf_create(len);
-                if (buf == NULL) {
-                    return -XQC_EMALLOC;
-                }
+                /*
+                 * Keep a final empty DATA node to notify message completion
+                 * through recv_body (RFC 9114 Section 4.1).
+                 */
+                if (len > 0
+                    || (fin_flag && processed == data_len
+                        && pctx->frame.len == 0))
+                {
+                    buf = xqc_var_buf_create(len);
+                    if (buf == NULL) {
+                        return -XQC_EMALLOC;
+                    }
 
-                ret = xqc_var_buf_save_data(buf, data + processed, len);
-                if (ret != XQC_OK) {
-                    xqc_var_buf_free(buf);
-                    xqc_h3_frm_reset_pctx(pctx);
-                    return ret;
-                }
+                    ret = xqc_var_buf_save_data(buf, data + processed, len);
+                    if (ret != XQC_OK) {
+                        xqc_var_buf_free(buf);
+                        xqc_h3_frm_reset_pctx(pctx);
+                        return ret;
+                    }
 
-                /* add data to buffer list */
-                ret = xqc_list_buf_to_tail(&h3s->h3r->body_buf, buf);
-                if (ret < 0) {
-                    xqc_h3_frm_reset_pctx(pctx);
-                    return ret;
+                    /* add data to buffer list */
+                    ret = xqc_list_buf_to_tail(&h3s->h3r->body_buf, buf);
+                    if (ret < 0) {
+                        xqc_h3_frm_reset_pctx(pctx);
+                        return ret;
+                    }
+                    h3s->h3r->body_buf_count++;
                 }
-                h3s->h3r->body_buf_count++;
 
                 processed += len;
                 pctx->frame.consumed_len += len;

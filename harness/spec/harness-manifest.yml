@@ -249,6 +249,39 @@ modules:
         validation:
           level: targeted
           hints: [qpack]
+    features:
+      http3_settings_registration:
+        paths:
+          - include/xquic/xqc_http3.h
+          - src/http3/xqc_h3_conn.*
+          - src/http3/xqc_h3_stream.*
+          - src/http3/frame/xqc_h3_frame*
+          - tests/unittest/xqc_h3_test.*
+        read:
+          - harness/spec/http3-settings-registration/spec.md
+          - include/xquic/xqc_http3.h
+          - tests/unittest/xqc_h3_test.c
+        update_when:
+          behavior_or_api_changed:
+            - harness/spec/http3-settings-registration/spec.md
+            - harness/spec/harness-manifest.yml
+          dependency_boundary_changed:
+            - harness/spec/http3-settings-registration/spec.md
+            - harness/spec/architecture.md
+            - harness/spec/harness-manifest.yml
+        validation:
+          level: targeted
+          unit:
+            - xqc_test_h3_settings_accepted
+            - xqc_test_h3_registered_settings
+            - xqc_test_h3_registered_settings_errors
+            - xqc_test_h3_settings_validation_log
+            - xqc_test_h3_settings_validation_log_errors
+            - xqc_test_h3_peer_settings_batch
+            - xqc_test_h3_settings_fragmented
+            - xqc_test_h3_settings_fragmented_errors
+            - xqc_test_h3_reserved_h2_settings_rejected
+          hints: [h3, settings, extension]
 
   tls:
     paths:

@@ -50,10 +50,41 @@ typedef void (*xqc_h3_conn_ping_ack_notify_pt)(xqc_h3_conn_t *h3_conn, const xqc
 
 
 typedef struct xqc_h3_conn_settings_s xqc_h3_conn_settings_t;
+
+#define XQC_H3_MAX_EXTERN_SETTINGS 16
+
+/** A complete HTTP/3 SETTINGS entry, for built-in or extension parameters. */
+typedef struct xqc_h3_setting_s {
+    uint64_t identifier;
+    uint64_t value;
+} xqc_h3_setting_t;
+
+typedef enum xqc_h3_settings_result_s {
+    XQC_H3_SETTINGS_ACCEPT = 0,
+    XQC_H3_SETTINGS_REJECT,
+    XQC_H3_SETTINGS_INTERNAL_ERROR,
+} xqc_h3_settings_result_t;
+
+/**
+ * @brief Notify the application of validated peer extern SETTINGS.
+ *
+ * The settings array is borrowed and remains valid only during this callback.
+ * The callback is also invoked with settings_count == 0; settings may then
+ * be NULL and must not be dereferenced. Entries retain their wire order.
+ * Ignore unknown identifiers. Return ACCEPT on success, REJECT for invalid
+ * extension settings (H3_SETTINGS_ERROR), or INTERNAL_ERROR for local failure
+ * (H3_INTERNAL_ERROR). Validate the entire batch before publishing app state.
+ */
+typedef xqc_h3_settings_result_t
+(*xqc_h3_conn_peer_extern_settings_notify_pt)(xqc_h3_conn_t *h3_conn,
+    const xqc_h3_setting_t *settings, size_t settings_count,
+    void *h3c_user_data);
+
 /**
  * @brief In this callback, only operations related to modifying current_settings is allowed.
  *        This callback is triggered before the connection has been fully initialized.
- *        PLEASE DO NOT call any XQUIC APIs in this callback.
+ *        xqc_h3_conn_settings_add_extern() may modify current_settings here.
+ *        Do not retain current_settings or call other XQUIC APIs.
  */
 typedef void (*xqc_h3_conn_init_settings_pt)(xqc_h3_conn_t *h3_conn, 
     xqc_h3_conn_settings_t *current_settings, void *h3c_user_data);
@@ -261,7 +292,11 @@ typedef struct xqc_h3_ext_bytestream_stats_s {
 } xqc_h3_ext_bytestream_stats_t;
 
 /**
- * @brief connection settings for http3 
+ * @brief connection settings for http3
+ *
+ * Fully initialize standalone objects, for example with = {0}, or copy an
+ * initialized settings object before setting fields. The library initializes
+ * the object supplied to h3_conn_init_settings; preserve its existing values.
  */
 typedef struct xqc_h3_conn_settings_s {
     /** MAX_FIELD_SECTION_SIZE of http3 */
@@ -283,6 +318,12 @@ typedef struct xqc_h3_conn_settings_s {
     /** compat with the original qpack encoder's duplicate strategy */
     xqc_bool_t  qpack_compat_duplicate;
 #endif
+
+    /** Extern SETTINGS, separate from the built-in fields above. */
+    xqc_h3_setting_t extern_settings[XQC_H3_MAX_EXTERN_SETTINGS];
+
+    /** Entry count maintained by the add-extern helper; do not assign. */
+    size_t extern_settings_count;
 
 } xqc_h3_conn_settings_t;
 
@@ -401,6 +442,10 @@ typedef struct xqc_h3_conn_callbacks_s {
     xqc_h3_conn_ping_ack_notify_pt      h3_conn_ping_acked;            /* optional */
 
     xqc_h3_conn_init_settings_pt        h3_conn_init_settings;
+
+    /** Validated peer extern SETTINGS, delivered once per SETTINGS frame. */
+    xqc_h3_conn_peer_extern_settings_notify_pt
+                                       h3_conn_peer_extern_settings_notify;
 
 } xqc_h3_conn_callbacks_t;
 
@@ -546,6 +591,25 @@ void xqc_h3_engine_set_qpack_compat_duplicate(xqc_engine_t *engine,
 XQC_EXPORT_PUBLIC_API
 void xqc_h3_engine_set_local_settings(xqc_engine_t *engine, 
     const xqc_h3_conn_settings_t *h3_conn_settings);
+
+/**
+ * @brief Add or replace a local HTTP/3 extern setting.
+ *
+ * Use this on an engine-default settings object or on current_settings from
+ * h3_conn_init_settings. Identifiers 0x00 through 0x07 are rejected; the core
+ * identifiers 0x01, 0x06, and 0x07 use the typed fields above.
+ *
+ * Standalone settings must be fully initialized, for example with = {0}, or
+ * copied from an initialized object. current_settings is already initialized;
+ * do not clear it. Use this helper to maintain the extern list and never
+ * assign extern_settings_count directly.
+ *
+ * @return XQC_OK, or -XQC_EPARAM for invalid input or a full settings array.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_h3_conn_settings_add_extern(xqc_h3_conn_settings_t *settings,
+    uint64_t identifier, uint64_t value);
+
 
 /**
  * @brief create and http3 connection

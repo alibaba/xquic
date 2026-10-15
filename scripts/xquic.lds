@@ -21,6 +21,7 @@ XQUIC_VERS_1.0 {
         xqc_h3_request_stats_print;
         xqc_h3_request_set_user_data;
         xqc_h3_engine_set_local_settings;
+        xqc_h3_conn_settings_add_extern;
         xqc_h3_get_conn_user_data_by_request;
         xqc_h3_stream_id;
         xqc_h3_request_close;

@@ -95,6 +95,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_VALID 1019
 #define XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_INVALID 1020
 #define XQC_TEST_CASE_H3_DATA_BEFORE_HEADERS 1021
+#define XQC_TEST_CASE_H3_CUSTOM_SETTINGS_ACCEPT 1026
+#define XQC_TEST_CASE_H3_CUSTOM_SETTINGS_REJECT 1027
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_BELOW_LIMIT 902
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT 903
 #define XQC_TEST_CASE_DATAGRAM_1RTT_ALLOWED 1201
@@ -2857,6 +2859,16 @@ xqc_client_h3_conn_init_settings_notify(xqc_h3_conn_t *h3_conn,
     xqc_h3_conn_settings_t *current_settings, void *h3c_user_data)
 {
     current_settings->qpack_dec_max_table_capacity = 64 * 1024;
+    if (g_test_case == XQC_TEST_CASE_H3_CUSTOM_SETTINGS_ACCEPT
+        || g_test_case == XQC_TEST_CASE_H3_CUSTOM_SETTINGS_REJECT)
+    {
+        int first = xqc_h3_conn_settings_add_extern(current_settings,
+            0x2c7cf000, 1);
+        int second = xqc_h3_conn_settings_add_extern(current_settings, 0x2b61,
+            UINT64_C(1) << 40);
+        printf("[h3-custom-settings-test]|register:%d,%d|\n", first, second);
+        fflush(stdout);
+    }
 }
 
 void
@@ -6069,7 +6081,10 @@ int main(int argc, char *argv[]) {
         },
     };
 
-    if (g_test_case == 502) {
+    if (g_test_case == 502
+        || g_test_case == XQC_TEST_CASE_H3_CUSTOM_SETTINGS_ACCEPT
+        || g_test_case == XQC_TEST_CASE_H3_CUSTOM_SETTINGS_REJECT)
+    {
         /* test h3 init settings callback */
         h3_cbs.h3c_cbs.h3_conn_init_settings = xqc_client_h3_conn_init_settings_notify;
     }

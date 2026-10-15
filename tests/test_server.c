@@ -87,6 +87,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_VALID 1019
 #define XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_INVALID 1020
 #define XQC_TEST_CASE_H3_DATA_BEFORE_HEADERS 1021
+#define XQC_TEST_CASE_H3_CUSTOM_SETTINGS_ACCEPT 1026
+#define XQC_TEST_CASE_H3_CUSTOM_SETTINGS_REJECT 1027
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_BELOW_LIMIT 902
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT 903
 #define XQC_TEST_CASE_CRYPTO_PREVIOUS_LEVEL_BOUNDARY 720
@@ -1104,6 +1106,29 @@ xqc_server_stream_read_notify(xqc_stream_t *stream, void *user_data)
     }
     return 0;
 }
+
+static xqc_h3_settings_result_t
+xqc_server_test_peer_settings(xqc_h3_conn_t *h3_conn,
+    const xqc_h3_setting_t *settings, size_t count, void *user_data)
+{
+    unsigned matched = 0;
+    for (size_t i = 0; i < count; i++) {
+        if (settings[i].identifier == 0x2c7cf000 && settings[i].value == 1) {
+            matched |= 1;
+        }
+        if (settings[i].identifier == 0x2b61
+            && settings[i].value == (UINT64_C(1) << 40))
+        {
+            matched |= 2;
+        }
+    }
+    int reject = g_test_case == XQC_TEST_CASE_H3_CUSTOM_SETTINGS_REJECT;
+    printf("[h3-custom-settings-test]|peer|matched:%u|reject:%d|\n",
+           matched, reject);
+    fflush(stdout);
+    return reject ? XQC_H3_SETTINGS_REJECT : XQC_H3_SETTINGS_ACCEPT;
+}
+
 
 int
 xqc_server_h3_conn_create_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, void *conn_user_data)
@@ -3325,6 +3350,13 @@ int main(int argc, char *argv[]) {
             .bs_close_notify = xqc_h3_ext_bytestream_close_callback,
         },
     };
+
+    if (g_test_case == XQC_TEST_CASE_H3_CUSTOM_SETTINGS_ACCEPT
+        || g_test_case == XQC_TEST_CASE_H3_CUSTOM_SETTINGS_REJECT)
+    {
+        h3_cbs.h3c_cbs.h3_conn_peer_extern_settings_notify =
+            xqc_server_test_peer_settings;
+    }
 
     /* register transport callbacks */
     xqc_app_proto_callbacks_t ap_cbs = {

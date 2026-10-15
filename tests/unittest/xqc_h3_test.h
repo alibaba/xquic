@@ -68,4 +68,7 @@ void xqc_test_h3_uppercase_field_name_stream_rejected();
 void xqc_test_h3_pseudo_header_order_accepted();
 void xqc_test_h3_pseudo_header_after_regular_rejected();
 
+/* RFC 9114 §4.1: final empty DATA ends the message */
+void xqc_test_h3_empty_data_fin();
+
 #endif //XQUIC_XQC_H3_TEST_H

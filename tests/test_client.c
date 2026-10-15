@@ -26,6 +26,7 @@
 #include "src/tls/xqc_crypto.h"
 #include "src/tls/xqc_tls.h"
 #include "platform.h"
+#include "test_h3_split_fin.h"
 #ifndef XQC_SYS_WINDOWS
 #include <unistd.h>
 #include <sys/socket.h>
@@ -182,6 +183,7 @@ typedef struct user_stream_s {
     xqc_h3_ext_bytestream_t *h3_ext_bs;
     struct event            *ev_bytestream_timer;
     struct event            *ev_stream_close_timer;
+    xqc_test_h3_split_fin_t  split_fin;
 
     int                      snd_times;
     int                      rcv_times;
@@ -3292,6 +3294,14 @@ xqc_client_try_inject_mp_frozen(user_stream_t *user_stream)
 int
 xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream)
 {
+    if (xqc_test_h3_split_fin_case(g_test_case)) {
+        client_ctx_t *p_ctx = user_stream->user_conn->ctx
+                              ? user_stream->user_conn->ctx : &ctx;
+        xqc_test_h3_split_fin_init(&user_stream->split_fin, h3_request,
+            p_ctx->engine, g_test_qch_mode ? p_ctx->eb : eb, g_test_case,
+            "client", xqc_test_h3_split_fin_uplink(g_test_case));
+    }
+
     if (g_test_case == 99) {
         xqc_h3_request_finish(h3_request);
         return 0;
@@ -3681,6 +3691,11 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
     }
 
     int fin = 1;
+    if (xqc_test_h3_split_fin_case(g_test_case)
+        && user_stream->split_fin.sender)
+    {
+        fin = 0;
+    }
     if (g_test_case == 4 || g_test_case == 31 || g_test_case == 35 || g_test_case == 36) { /* test fin_only */
         fin = 0;
     }
@@ -3730,6 +3745,13 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
         }
     }
 next:
+    if (xqc_test_h3_split_fin_case(g_test_case)
+        && user_stream->send_offset == user_stream->send_body_len)
+    {
+        return xqc_test_h3_split_fin_after_send(&user_stream->split_fin,
+            user_stream->send_body_len);
+    }
+
     /* send trailer header */
     if (user_stream->send_offset == user_stream->send_body_len) {
         if (g_test_case == 31) {
@@ -3974,6 +3996,11 @@ xqc_client_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
     }
 
 
+    if (xqc_test_h3_split_fin_case(g_test_case)) {
+        xqc_test_h3_split_fin_on_read(&user_stream->split_fin,
+            user_stream->recv_body_len, fin, flag);
+    }
+
     if (fin) {
         user_stream->recv_fin = 1;
         xqc_request_stats_t stats;
@@ -4015,6 +4042,9 @@ xqc_client_request_close_notify(xqc_h3_request_t *h3_request, void *user_data)
 {
     DEBUG;
     user_stream_t *user_stream = (user_stream_t *)user_data;
+    if (xqc_test_h3_split_fin_case(g_test_case)) {
+        xqc_test_h3_split_fin_close(&user_stream->split_fin);
+    }
     user_conn_t *user_conn = user_stream->user_conn;
     client_ctx_t *p_ctx;
     if (g_test_qch_mode) {

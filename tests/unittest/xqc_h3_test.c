@@ -2942,3 +2942,103 @@ xqc_test_h3_pseudo_header_after_regular_rejected()
 
     xqc_h3_msgerr_teardown(h3s, h3c, conn);
 }
+
+
+typedef struct {
+    size_t          calls;
+    ssize_t         nread;
+    uint8_t         fin;
+    unsigned char   body[4];
+} xqc_h3_empty_data_test_ctx_t;
+
+
+static int
+xqc_h3_empty_data_read_notify(xqc_h3_request_t *h3r,
+    xqc_request_notify_flag_t flag, void *user_data)
+{
+    xqc_h3_empty_data_test_ctx_t *ctx = user_data;
+
+    CU_ASSERT_EQUAL(flag, XQC_REQ_NOTIFY_READ_BODY);
+    ctx->calls++;
+    ctx->nread = xqc_h3_request_recv_body(h3r, ctx->body,
+                                        sizeof(ctx->body), &ctx->fin);
+    return XQC_OK;
+}
+
+
+/* RFC 9114 Section 4.1: a final empty DATA frame ends the HTTP message */
+void
+xqc_test_h3_empty_data_fin()
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    unsigned char headers[sizeof(xqc_h3_msgerr_valid_headers)];
+    xqc_memcpy(headers, xqc_h3_msgerr_valid_headers, sizeof(headers));
+    CU_ASSERT_EQUAL(xqc_h3_stream_process_request(h3s, headers,
+                    sizeof(headers), XQC_FALSE), sizeof(headers));
+    uint8_t fin = XQC_FALSE;
+    CU_ASSERT_PTR_NOT_NULL(xqc_h3_request_recv_headers(h3s->h3r, &fin));
+    CU_ASSERT_EQUAL(fin, XQC_FALSE);
+    CU_ASSERT_EQUAL(h3s->h3r->read_flag, XQC_REQ_NOTIFY_READ_NULL);
+
+    xqc_h3_empty_data_test_ctx_t ctx = {0};
+    h3s->h3r->user_data = &ctx;
+    h3c->h3_request_callbacks.h3_request_read_notify =
+        xqc_h3_empty_data_read_notify;
+
+    unsigned char body_frame[] = {0x00, 0x04, 0x01, 0x02, 0x03, 0x04};
+    CU_ASSERT_EQUAL(xqc_h3_stream_process_request(h3s, body_frame,
+                    sizeof(body_frame), XQC_FALSE), sizeof(body_frame));
+    CU_ASSERT_EQUAL(xqc_h3_request_on_recv_body(h3s->h3r), XQC_OK);
+    CU_ASSERT_EQUAL(ctx.calls, 1);
+    CU_ASSERT_EQUAL(ctx.nread, sizeof(ctx.body));
+    CU_ASSERT_EQUAL(memcmp(ctx.body, body_frame + 2, sizeof(ctx.body)), 0);
+    CU_ASSERT_EQUAL(ctx.fin, XQC_FALSE);
+    CU_ASSERT_EQUAL(h3s->h3r->read_flag, XQC_REQ_NOTIFY_READ_NULL);
+    CU_ASSERT_EQUAL(h3s->h3r->h3r_end_time, 0);
+
+    /* final empty DATA carrying stream FIN reports application EOF */
+    unsigned char empty_data_frame[] = {0x00, 0x00};
+    CU_ASSERT_EQUAL(xqc_h3_stream_process_request(h3s, empty_data_frame,
+                    sizeof(empty_data_frame), XQC_TRUE),
+                    sizeof(empty_data_frame));
+    CU_ASSERT_EQUAL(xqc_h3_request_on_recv_body(h3s->h3r), XQC_OK);
+    CU_ASSERT_EQUAL(ctx.calls, 2);
+    CU_ASSERT_EQUAL(ctx.nread, 0);
+    CU_ASSERT_EQUAL(ctx.fin, XQC_TRUE);
+    CU_ASSERT(h3s->h3r->h3r_end_time > 0);
+    CU_ASSERT_EQUAL(h3s->h3r->body_recvd_final_size, sizeof(ctx.body));
+    CU_ASSERT_EQUAL(h3s->h3r->body_buf_count, 0);
+    CU_ASSERT(xqc_list_empty(&h3s->h3r->body_buf));
+    CU_ASSERT_EQUAL(h3s->h3r->read_flag, XQC_REQ_NOTIFY_READ_NULL);
+
+    CU_ASSERT_EQUAL(xqc_h3_request_on_recv_body(h3s->h3r), XQC_OK);
+    CU_ASSERT_EQUAL(ctx.calls, 2);
+
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
+
+    /* A DATA header without its payload is not a final empty DATA frame. */
+    conn = NULL;
+    h3c = NULL;
+    h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    xqc_memcpy(headers, xqc_h3_msgerr_valid_headers, sizeof(headers));
+    CU_ASSERT_EQUAL(xqc_h3_stream_process_request(h3s, headers,
+                    sizeof(headers), XQC_FALSE), sizeof(headers));
+    fin = XQC_FALSE;
+    CU_ASSERT_PTR_NOT_NULL(xqc_h3_request_recv_headers(h3s->h3r, &fin));
+    CU_ASSERT_EQUAL(fin, XQC_FALSE);
+
+    unsigned char incomplete_data_frame[] = {0x00, 0x01};
+    CU_ASSERT_EQUAL(xqc_h3_stream_process_request(h3s, incomplete_data_frame,
+                    sizeof(incomplete_data_frame), XQC_TRUE),
+                    sizeof(incomplete_data_frame));
+    CU_ASSERT_EQUAL(h3s->h3r->body_buf_count, 0);
+    CU_ASSERT_EQUAL(h3s->h3r->fin_flag, XQC_FALSE);
+
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
+}

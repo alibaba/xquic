@@ -41,7 +41,10 @@ static ssize_t
 xqc_transport_params_calc_length(const xqc_transport_params_t *params,
     xqc_transport_params_type_t exttype) 
 {
-    size_t len = 0;
+    size_t len = params->reset_stream_at
+        ? xqc_put_varint_len(XQC_TRANSPORT_PARAM_RESET_STREAM_AT)
+          + xqc_put_varint_len(0)
+        : 0;
     size_t preferred_addrlen = 0, preferred_fec_paramslen = 0;
 
     if (params->original_dest_connection_id_present) {
@@ -299,6 +302,11 @@ xqc_encode_transport_params(const xqc_transport_params_t *params,
 
     /* start writing */
     /* write transport parameter buffer len */
+    if (params->reset_stream_at) {
+        p = xqc_put_varint(p, XQC_TRANSPORT_PARAM_RESET_STREAM_AT);
+        p = xqc_put_varint(p, 0);
+    }
+
     if (params->original_dest_connection_id_present) {
         p = xqc_put_varint(p, XQC_TRANSPORT_PARAM_ORIGINAL_DEST_CONNECTION_ID);
         p = xqc_put_varint(p, params->original_dest_connection_id.cid_len);
@@ -943,6 +951,19 @@ xqc_decode_max_datagram_frame_size(xqc_transport_params_t *params, xqc_transport
     XQC_DECODE_VINT_VALUE(&params->max_datagram_frame_size, p, end);
 }
 
+static xqc_int_t
+xqc_decode_reset_stream_at(xqc_transport_params_t *params,
+    xqc_transport_params_type_t exttype, const uint8_t *p,
+    const uint8_t *end, uint64_t param_type, uint64_t param_len)
+{
+    if (param_len != 0 || params->reset_stream_at) {
+        return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+    }
+
+    params->reset_stream_at = XQC_TRUE;
+    return XQC_OK;
+}
+
 typedef enum {
     XQC_TP_DECODER_ORIGINAL_DEST_CONNECTION_ID = 0x0000,
     XQC_TP_DECODER_MAX_IDLE_TIMEOUT                    ,
@@ -964,6 +985,7 @@ typedef enum {
 
     XQC_TP_DECODER_ENABLE_MULTIPATH                    ,
     XQC_TP_DECODER_MAX_DATAGRAM_FRAME_SIZE             ,
+    XQC_TP_DECODER_RESET_STREAM_AT                     ,
     
     /* whether enable datagram reduncy */
     XQC_TP_DECODER_CLOSE_DGRAM_REDUNDANCY              ,
@@ -1007,6 +1029,7 @@ xqc_trans_param_decode_func xqc_trans_param_decode_func_list[] = {
     xqc_decode_retry_scid,
     xqc_decode_enable_multipath,
     xqc_decode_max_datagram_frame_size,
+    xqc_decode_reset_stream_at,
     xqc_decode_close_dgram_redundancy,
 #ifdef XQC_ENABLE_FEC
     xqc_decode_fec_version,
@@ -1052,6 +1075,9 @@ xqc_trans_param_get_index(uint64_t param_type)
 
     case XQC_TRANSPORT_PARAM_MAX_DATAGRAM_FRAME_SIZE:
         return XQC_TP_DECODER_MAX_DATAGRAM_FRAME_SIZE;
+
+    case XQC_TRANSPORT_PARAM_RESET_STREAM_AT:
+        return XQC_TP_DECODER_RESET_STREAM_AT;
     
     case XQC_TRANSPORT_PARAM_CLOSE_DGRAM_REDUNDANCY:
         return XQC_TP_DECODER_CLOSE_DGRAM_REDUNDANCY;
@@ -1120,14 +1146,21 @@ xqc_decode_one_transport_param(xqc_transport_params_t *params,
     }
     p += nread;
 
-    /* 
+    /*
      * read param value, note: some parameters are allowed to be zero-length,
-     * for example, disable_active_migration. 
+     * for example, disable_active_migration.
+     *
+     * RFC 9000 Section 18: the value occupies exactly the declared length, so
+     * pass p + param_len rather than the end of the whole extension. A decoder
+     * then cannot read bytes that belong to the following parameter, and a
+     * value whose own encoding is longer than the declared length is refused
+     * by that decoder's bound check instead of silently borrowing them.
      */
     uint64_t param_index = xqc_trans_param_get_index(param_type);
     if (param_index != XQC_TP_DECODER_UNKNOWN) {
-        xqc_int_t ret = xqc_trans_param_decode_func_list[param_index](params, exttype, p, end,
-                                                                      param_type, param_len);
+        xqc_int_t ret;
+        ret = xqc_trans_param_decode_func_list[param_index](
+            params, exttype, p, p + param_len, param_type, param_len);
         if (ret < 0) {
             return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
         }
@@ -1176,6 +1209,7 @@ xqc_decode_transport_params(xqc_transport_params_t *params,
 
     params->no_crypto = 0;
     params->max_datagram_frame_size = 0;
+    params->reset_stream_at = XQC_FALSE;
 
     params->enable_multipath = 0;
     params->multipath_version = XQC_ERR_MULTIPATH_VERSION;
@@ -1211,11 +1245,40 @@ xqc_decode_transport_params(xqc_transport_params_t *params,
 }
 
 
+static xqc_int_t
+xqc_remembered_tp_parse_decimal(const char *data, size_t data_len,
+    uint64_t *value)
+{
+    uint64_t parsed = 0;
+
+    if (data_len == 0) {
+        return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+    }
+
+    for (size_t i = 0; i < data_len; i++) {
+        if (data[i] < '0' || data[i] > '9') {
+            return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+        }
+
+        uint64_t digit = (uint64_t)(data[i] - '0');
+        if (parsed > (XQC_VINT_MAX - digit) / 10) {
+            return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+        }
+        parsed = parsed * 10 + digit;
+    }
+
+    *value = parsed;
+    return XQC_OK;
+}
+
+
 xqc_int_t
 xqc_read_transport_params(char *tp_data, size_t tp_data_len, xqc_transport_params_t *params)
 {
     char *p = tp_data;
     char *e = p + tp_data_len;
+    xqc_bool_t reset_stream_at_seen = XQC_FALSE;
+    params->reset_stream_at = XQC_FALSE;
     while (*p != '\0' && p < e) {
         if (*p == ' ') {
             p++;
@@ -1263,6 +1326,27 @@ xqc_read_transport_params(char *tp_data, size_t tp_data_len, xqc_transport_param
             p += xqc_lengthof("max_datagram_frame_size=");
             params->max_datagram_frame_size = strtoul(p, NULL, XQC_DECIMAL);
 
+        } else if (strncmp(p, "reset_stream_at=",
+                           xqc_lengthof("reset_stream_at=")) == 0)
+        {
+            p += xqc_lengthof("reset_stream_at=");
+            if (p > e || reset_stream_at_seen) {
+                return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+            }
+            const char *end = memchr(p, '\n', e - p);
+            if (end == NULL) {
+                end = e;
+            }
+            uint64_t value;
+            if (xqc_remembered_tp_parse_decimal(p, end - p, &value)
+                    != XQC_OK
+                || value > 1)
+            {
+                return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+            }
+            params->reset_stream_at = value == 1;
+            reset_stream_at_seen = XQC_TRUE;
+
         } else if (strncmp(p, "active_connection_id_limit=",
                            xqc_lengthof("active_connection_id_limit=")) == 0)
         {
@@ -1285,6 +1369,7 @@ ssize_t
 xqc_write_transport_params(char *tp_buf, size_t cap, const xqc_transport_params_t *params)
 {
     char dgram_tp_str[256] = "";
+    char reset_stream_at_tp_str[32] = "";
     ssize_t tp_data_len = 0;
 
     if (params->max_datagram_frame_size) {
@@ -1292,6 +1377,17 @@ xqc_write_transport_params(char *tp_buf, size_t cap, const xqc_transport_params_
                                "max_datagram_frame_size=%"PRIu64"\n", 
                                params->max_datagram_frame_size);
         if (tp_data_len < 0) {
+            return -XQC_ESYS;
+        }
+    }
+
+    if (params->reset_stream_at) {
+        tp_data_len = snprintf(reset_stream_at_tp_str,
+                               sizeof(reset_stream_at_tp_str),
+                               "reset_stream_at=1\n");
+        if (tp_data_len < 0
+            || tp_data_len >= sizeof(reset_stream_at_tp_str))
+        {
             return -XQC_ESYS;
         }
     }
@@ -1305,6 +1401,7 @@ xqc_write_transport_params(char *tp_buf, size_t cap, const xqc_transport_params_
                                    "initial_max_data=%"PRIu64"\n"
                                    "max_ack_delay=%"PRIu64"\n"
                                    "active_connection_id_limit=%"PRIu64"\n"
+                                   "%s"
                                    "%s",
                                    params->initial_max_streams_bidi,
                                    params->initial_max_streams_uni,
@@ -1314,6 +1411,7 @@ xqc_write_transport_params(char *tp_buf, size_t cap, const xqc_transport_params_
                                    params->initial_max_data,
                                    params->max_ack_delay,
                                    params->active_connection_id_limit,
+                                   reset_stream_at_tp_str,
                                    dgram_tp_str);
                                    
     if (tp_data_len < 0) {

@@ -177,6 +177,72 @@ xqc_test_hp_sample_boundary()
 }
 
 
+/* RFC 9001 §5.4.4 and Appendix A.5 ChaCha20 HP test vector. */
+#ifdef OPENSSL_IS_BORINGSSL
+static const uint8_t rfc9001_chacha20_hp_key[32] = {
+    0x25, 0xa2, 0x82, 0xb9, 0xe8, 0x2f, 0x06, 0xf2,
+    0x1f, 0x48, 0x89, 0x17, 0xa4, 0xfc, 0x8f, 0x1b,
+    0x73, 0x57, 0x36, 0x85, 0x60, 0x85, 0x97, 0xd0,
+    0xef, 0xcb, 0x07, 0x6b, 0x0a, 0xb7, 0xa7, 0xa4
+};
+
+static const uint8_t rfc9001_chacha20_hp_sample[16] = {
+    0x5e, 0x5c, 0xd5, 0x5c, 0x41, 0xf6, 0x90, 0x80,
+    0x57, 0x5d, 0x79, 0x99, 0xc2, 0x5a, 0x5b, 0xfb
+};
+
+static const uint8_t rfc9001_chacha20_hp_mask[5] = {
+    0xae, 0xfe, 0xfe, 0x7d, 0x03
+};
+#endif
+
+void
+xqc_test_rfc9001_chacha20_hp_mask()
+{
+#ifdef OPENSSL_IS_BORINGSSL
+    uint8_t plaintext[sizeof(rfc9001_chacha20_hp_mask)] = {0};
+    uint8_t mask[sizeof(rfc9001_chacha20_hp_mask)] = {0};
+    size_t masklen = 0;
+
+    xqc_int_t ret = xqc_bssl_hp_mask_chacha20(NULL, NULL, mask,
+                                               sizeof(mask), &masklen,
+                                               plaintext, sizeof(plaintext),
+                                               rfc9001_chacha20_hp_key,
+                                               sizeof(rfc9001_chacha20_hp_key),
+                                               rfc9001_chacha20_hp_sample,
+                                               sizeof(rfc9001_chacha20_hp_sample));
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(masklen == sizeof(mask));
+    CU_ASSERT(memcmp(mask, rfc9001_chacha20_hp_mask, sizeof(mask)) == 0);
+#endif
+}
+
+void
+xqc_test_rfc9001_chacha20_hp_unaligned_sample()
+{
+#ifdef OPENSSL_IS_BORINGSSL
+    uint8_t plaintext[sizeof(rfc9001_chacha20_hp_mask)] = {0};
+    uint8_t mask[sizeof(rfc9001_chacha20_hp_mask)] = {0};
+    uint8_t sample[sizeof(rfc9001_chacha20_hp_sample) + 1];
+    size_t masklen = 0;
+
+    memcpy(sample + 1, rfc9001_chacha20_hp_sample,
+           sizeof(rfc9001_chacha20_hp_sample));
+
+    xqc_int_t ret = xqc_bssl_hp_mask_chacha20(NULL, NULL, mask,
+                                               sizeof(mask), &masklen,
+                                               plaintext, sizeof(plaintext),
+                                               rfc9001_chacha20_hp_key,
+                                               sizeof(rfc9001_chacha20_hp_key),
+                                               sample + 1,
+                                               sizeof(rfc9001_chacha20_hp_sample));
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(masklen == sizeof(mask));
+    CU_ASSERT(memcmp(mask, rfc9001_chacha20_hp_mask, sizeof(mask)) == 0);
+#endif
+}
+
+
 /*
  * ==========================================================================
  * RFC 9001 Appendix A test vectors.

@@ -44,6 +44,14 @@ int xqc_ssl_alpn_select_cb(SSL *ssl, const unsigned char **out, unsigned char *o
 int xqc_ssl_session_ticket_key_cb(SSL *ssl, unsigned char *key_name, unsigned char *iv,
     EVP_CIPHER_CTX *ectx, HMAC_CTX *hctx, int encrypt);
 
+#ifndef OPENSSL_IS_BORINGSSL
+int xqc_ssl_tp_ticket_generate_cb(SSL *ssl, void *arg);
+
+SSL_TICKET_RETURN xqc_ssl_tp_ticket_decrypt_cb(SSL *ssl, SSL_SESSION *session,
+    const unsigned char *keyname, size_t keyname_len, SSL_TICKET_STATUS status,
+    void *arg);
+#endif
+
 
 /**
  * @brief be called when a new session is established and ready to be cached

@@ -119,3 +119,29 @@ groups:
   - scripts/qlog_parser.py
   runner: case_test/observability/qlog.sh
   port_offset: 110
+- id: webtransport.core
+  feature: webtransport
+  requires_cmake: [XQC_ENABLE_WEBTRANSPORT]
+  estimated_seconds: 3
+  module: webtransport
+  source_paths:
+  - src/webtransport/*
+  - include/xquic/xqc_webtransport.h
+  - tests/complex_case/test_webtransport.c
+  runner: case_test/webtransport/core.sh
+  execution: implemented
+  port_offset: 130
+- id: webtransport.demo
+  feature: webtransport
+  requires_cmake: [XQC_ENABLE_WEBTRANSPORT]
+  estimated_seconds: 10
+  module: webtransport
+  source_paths:
+  - src/webtransport/*
+  - include/xquic/xqc_webtransport*
+  - demo/demo_client.c
+  - demo/demo_server.c
+  - demo/xqc_wt_echo_*
+  runner: case_test/webtransport/demo.sh
+  execution: implemented
+  port_offset: 140

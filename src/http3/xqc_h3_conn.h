@@ -61,6 +61,14 @@ typedef enum {
     /* is h3 ext enabled ? */
     XQC_H3_CONN_FLAG_EXT_ENABLED                = 1 << 8,
 
+    /* local SETTINGS is encoded and cannot be changed */
+    XQC_H3_CONN_FLAG_SETTINGS_QUEUED            = 1 << 9,
+
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    /* native WebTransport framing has been negotiated */
+    XQC_H3_CONN_FLAG_WEBTRANSPORT               = 1 << 10,
+#endif
+
 } xqc_http3_conn_flag;
 
 typedef struct xqc_h3_conn_s {
@@ -94,6 +102,11 @@ typedef struct xqc_h3_conn_s {
     xqc_list_head_t              block_stream_head;
     uint64_t                     block_stream_count;
 
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    /* Extension-owned state; independent of application user data. */
+    void                       *extension_data;
+#endif
+
     /* h3 settings */
     xqc_h3_conn_settings_t       local_h3_conn_settings; /* set by user for sending to the peer */
     xqc_h3_conn_settings_t       peer_h3_conn_settings;  /* receive from peer */
@@ -104,6 +117,10 @@ typedef struct xqc_h3_conn_s {
 
     /* blocked buffer monitoring */
     size_t                       total_blocked_buf_size;           /* current total blocked buffer size */
+
+#ifndef XQC_ONLY_CLIENT_LIB
+    char                         h3_settings_params[XQC_H3_FINGERPRINT_SETTINGS_MAX_LEN + 1];
+#endif
 } xqc_h3_conn_t;
 
 
@@ -128,8 +145,12 @@ xqc_int_t xqc_h3_conn_on_uni_stream_created(xqc_h3_conn_t *h3c, uint64_t stype);
  */
 xqc_bool_t xqc_h3_conn_is_goaway_recved(xqc_h3_conn_t *h3c, uint64_t stream_id);
 
-xqc_int_t xqc_h3_conn_on_settings_entry_received(uint64_t identifier, uint64_t value,
-    void *user_data);
+/* Validate local settings and report the first failure when log is non-NULL. */
+xqc_int_t xqc_h3_conn_settings_validate(
+    const xqc_h3_conn_settings_t *settings, xqc_log_t *log);
+
+xqc_int_t xqc_h3_conn_on_settings_entry_received(uint64_t identifier,
+    uint64_t value, void *user_data);
 
 /**
  * get qpack instance

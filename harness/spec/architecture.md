@@ -20,6 +20,8 @@ order.
 - `src/http3/`: HTTP/3 connection and stream behavior.
 - `src/http3/frame/`: HTTP/3 frame encoding and parsing.
 - `src/http3/qpack/`: QPACK state, encoding, and decoding.
+- `src/webtransport/`: WebTransport over HTTP/3 draft-16 and draft-07 sessions
+  and streams.
 - `src/congestion_control/`: congestion-control implementations.
 - `tests/unittest/`: CUnit regression and unit tests.
 - `tests/`, `demo/`, and `mini/`: executable test and example applications.
@@ -73,11 +75,14 @@ QUIC or HTTP working groups.
 
 ### Work-in-Progress Standards
 
-Internet-Drafts can change or be replaced. These version-independent
-Datatracker links resolve to the current revision:
+Internet-Drafts can change or be replaced. Version-independent Datatracker
+links resolve to the current revision; a capability specification pins a
+revision when a dependent protocol targets that exact version.
 
 | Protocol or capability | Governing draft | Primary implementation |
 |------------------------|-----------------|------------------------|
+| Reliable Stream Reset | [Reliable Stream Resets `-09`](https://datatracker.ietf.org/doc/html/draft-ietf-quic-reliable-stream-reset-09) | `src/transport/xqc_stream.*`, frame and recovery paths; see the [capability specification](reliable-stream-reset/spec.md) |
+| WebTransport over HTTP/3 | [WebTransport over HTTP/3 `-16`](https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-16.html), [`-07`](https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-07.html) | `src/webtransport/`; see the [capability specification](webtransport/spec.md) |
 | Multipath QUIC | [Managing multiple paths for a QUIC connection](https://datatracker.ietf.org/doc/draft-ietf-quic-multipath/) | `src/transport/xqc_multipath.*`, `src/transport/scheduler/`, and `src/transport/reinjection_control/` |
 | MoQT | [Media over QUIC Transport](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/) | Optional `moq/` and `include/moq/`, enabled with `XQC_ENABLE_MOQ` |
 
@@ -100,6 +105,25 @@ TLS adapters, congestion control, and common utilities
 Public headers must not depend on test or demo code. Core QUIC and HTTP/3 code
 must not depend on the optional MoQ module. Backend-specific TLS behavior stays
 behind the TLS integration layer.
+
+QUIC transport owns Reliable Stream Reset negotiation, state, and recovery.
+Applications consume this capability through the public stream API.
+TLS integration binds only its reset flag through the backend's native context
+or ticket callbacks; see the
+[ticket contract](reliable-stream-reset/spec.md#0-rtt-session-tickets).
+
+HTTP/3 owns the generic local SETTINGS registry and receive dispatch described
+in the [SETTINGS registration specification](http3-settings-registration/spec.md).
+A consuming extension owns its setting identifiers, values, and negotiation
+policy. Optional WebTransport (`XQC_ENABLE_WEBTRANSPORT`, default OFF)
+consumes both foundations through an HTTP/3 adapter.
+It chains existing HTTP/3 callbacks and stores extension state separately
+from application user data. The transport's private STOP_SENDING preparation
+hook lets the adapter queue its reliable prefix before resetting a blocked
+stream; transport retains reset state and recovery ownership. Neither
+foundation depends on WebTransport types or setting identifiers. Disabling
+WebTransport removes its adapter state and framing/reset hooks while retaining
+both independent foundations.
 
 ## Protocol Invariants
 

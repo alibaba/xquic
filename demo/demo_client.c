@@ -19,6 +19,9 @@
 #include <event2/event.h>
 #include "common.h"
 #include "xqc_hq.h"
+#ifdef XQC_ENABLE_WEBTRANSPORT
+#include "xqc_wt_echo_client.h"
+#endif
 #include "../tests/platform.h"
 
 #ifdef XQC_SYS_WINDOWS
@@ -153,6 +156,12 @@ typedef struct xqc_demo_cli_net_config_s {
 #define TOKEN_FILE                  "token"
 
 typedef struct xqc_demo_cli_quic_config_s {
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    int webtransport;
+    size_t wt_payload_len;
+    const char *wt_origin;
+#endif
+
     /* alpn protocol of client */
     xqc_demo_cli_alpn_type_t alpn_type;
     char alpn[16];
@@ -396,6 +405,30 @@ typedef struct xqc_demo_cli_ctx_s {
     /* task schedule context */
     xqc_demo_cli_task_ctx_t     task_ctx;
 } xqc_demo_cli_ctx_t;
+
+#ifdef XQC_ENABLE_WEBTRANSPORT
+static void xqc_demo_cli_wt_schedule(void *user_data);
+static void xqc_demo_cli_wt_finished(void *user_data);
+
+static void
+xqc_demo_cli_wt_schedule(void *user_data)
+{
+    xqc_demo_cli_ctx_t *ctx = user_data;
+    struct timeval delay = {0, 1000};
+
+    event_add(ctx->ev_engine, &delay);
+}
+
+static void
+xqc_demo_cli_wt_finished(void *user_data)
+{
+    xqc_demo_cli_ctx_t *ctx = user_data;
+    struct timeval delay = {0, 200000};
+
+    event_base_loopexit(ctx->eb, &delay);
+}
+
+#endif
 
 typedef struct xqc_demo_cli_user_path_s {
 
@@ -1775,6 +1808,9 @@ xqc_demo_cli_init_args(xqc_demo_cli_client_args_t *args)
     snprintf(args->env_cfg.key_out_path, sizeof(args->env_cfg.key_out_path), "%s", KEY_PATH);
 
     /* quic cfg */
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    args->quic_cfg.wt_origin = "http://127.0.0.1:8080";
+#endif
     args->quic_cfg.alpn_type = ALPN_HQ;
     snprintf(args->quic_cfg.alpn, sizeof(args->quic_cfg.alpn), "%s", "hq-interop");
     args->quic_cfg.keyupdate_pkt_threshold = UINT64_MAX;
@@ -1919,6 +1955,11 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "Usage: %s [Options]\n"
         "\n"
         "Options:\n"
+#ifdef XQC_ENABLE_WEBTRANSPORT
+        "   -W    Enable WebTransport draft-16/07 echo at /wt.\n"
+        "   -H    With -W, send a framed text message (1..16777216 bytes).\n"
+        "   -j    WebTransport Origin (default http://127.0.0.1:8080).\n"
+#endif
         "   -a    Server addr.\n"
         "   -p    Server port.\n"
         "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic P:copa\n"
@@ -1972,8 +2013,39 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
     xqc_demo_cli_client_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:b:Z:NQT:R:V:B:I:n:e:E:F:G:r:x:y:Y:f:z:q65O")) != -1) {
+    while ((ch = getopt(argc, argv,
+                        "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:b:Z:NQT:"
+                        "R:V:B:I:n:e:E:F:G:r:x:y:Y:f:z:q65O"
+#ifdef XQC_ENABLE_WEBTRANSPORT
+                        "WH:j:"
+#endif
+                        )) != -1)
+    {
         switch (ch) {
+#ifdef XQC_ENABLE_WEBTRANSPORT
+        case 'W':
+            args->quic_cfg.webtransport = 1;
+            break;
+
+        case 'H': {
+            char *end;
+            unsigned long long len = strtoull(optarg, &end, 10);
+
+            if (optarg[0] < '0' || optarg[0] > '9' || *end != '\0'
+                || len == 0 || len > XQC_DEMO_WT_MSG_MAX_SIZE)
+            {
+                fprintf(stderr, "invalid WebTransport message length\n");
+                exit(1);
+            }
+            args->quic_cfg.wt_payload_len = (size_t) len;
+            break;
+        }
+
+        case 'j':
+            args->quic_cfg.wt_origin = optarg;
+            break;
+#endif
+
         /* server ip */
         case '6':
             printf("option ipv6\n");
@@ -2275,6 +2347,31 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
         }
     }
 
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    if (args->quic_cfg.wt_payload_len && !args->quic_cfg.webtransport) {
+        fprintf(stderr, "-H requires -W\n");
+        exit(1);
+    }
+    if (args->quic_cfg.webtransport) {
+        if (args->req_cfg.request_cnt == 0) {
+            char url[] = "https://127.0.0.1:8443/wt";
+            xqc_demo_cli_parse_urls(url, args);
+        }
+        if (args->req_cfg.request_cnt != 1 || args->req_cfg.ext_reqn > 1
+            || args->quic_cfg.use_0rtt || args->quic_cfg.no_encryption)
+        {
+            fprintf(stderr, "WebTransport requires one URL and 1-RTT TLS\n");
+            exit(1);
+        }
+        args->quic_cfg.alpn_type = ALPN_H3;
+        strcpy(args->quic_cfg.alpn, "h3");
+        args->quic_cfg.quic_version = XQC_VERSION_V1;
+        if (args->env_cfg.life == 0) {
+            args->env_cfg.life = 10;
+        }
+    }
+#endif
+
     if (args->req_cfg.ext_reqn 
         && args->req_cfg.request_cnt < args->req_cfg.ext_reqn) 
     {
@@ -2548,6 +2645,15 @@ xqc_demo_cli_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
     xqc_conn_stats_t stats = xqc_conn_get_stats(user_conn->ctx->engine, &user_conn->cid);
     printf("0rtt_flag:%d\n", stats.early_data_flag);
 
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    xqc_demo_cli_client_args_t *args = user_conn->ctx->args;
+    if (args->quic_cfg.webtransport) {
+        xqc_wt_echo_client_open(h3_conn, args->req_cfg.reqs[0].auth,
+                               args->req_cfg.reqs[0].path,
+                               args->quic_cfg.wt_origin);
+    }
+#endif
+
 }
 
 void
@@ -2645,6 +2751,15 @@ xqc_demo_cli_init_alpn_ctx(xqc_demo_cli_ctx_t *ctx)
         return ret;
     }
 
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    if (ctx->args->quic_cfg.webtransport) {
+        return xqc_wt_echo_client_init(ctx->engine,
+                                       ctx->args->quic_cfg.wt_payload_len,
+                                       xqc_demo_cli_wt_schedule,
+                                       xqc_demo_cli_wt_finished, ctx);
+    }
+#endif
+
     return ret;
 }
 
@@ -2660,6 +2775,11 @@ xqc_demo_cli_init_xquic_engine(xqc_demo_cli_ctx_t *ctx, xqc_demo_cli_client_args
     /* init engine callbacks */
     xqc_engine_callback_t callback;
     xqc_demo_cli_init_callback(&callback, &transport_cbs, args);
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    if (args->quic_cfg.webtransport) {
+        transport_cbs.conn_closing = xqc_wt_echo_client_conn_closing;
+    }
+#endif
 
     xqc_config_t config;
     if (xqc_engine_get_default_config(&config, XQC_ENGINE_CLIENT) < 0) {
@@ -2714,6 +2834,20 @@ xqc_demo_cli_init_xquic_connection(xqc_demo_cli_user_conn_t *user_conn,
     xqc_conn_ssl_config_t conn_ssl_config;
     xqc_demo_cli_init_conn_ssl_config(&conn_ssl_config, args);
 
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    if (args->quic_cfg.webtransport) {
+        const xqc_cid_t *cid = xqc_webtransport_connect(
+            user_conn->ctx->engine, &conn_settings, NULL, 0,
+            args->net_cfg.host, 0, &conn_ssl_config,
+            (struct sockaddr *) &args->net_cfg.addr, args->net_cfg.addr_len,
+            user_conn);
+        if (cid == NULL) {
+            return -1;
+        }
+        memcpy(&user_conn->cid, cid, sizeof(xqc_cid_t));
+
+    } else
+#endif
     if (args->quic_cfg.alpn_type == ALPN_H3) {
         const xqc_cid_t *cid = xqc_h3_connect(user_conn->ctx->engine, &conn_settings,
             args->quic_cfg.token, args->quic_cfg.token_len, args->net_cfg.host, args->quic_cfg.no_encryption, &conn_ssl_config, 
@@ -2765,6 +2899,12 @@ xqc_demo_cli_start(xqc_demo_cli_user_conn_t *user_conn, xqc_demo_cli_client_args
         printf("|xqc_demo_cli_start FAILED|\n");
         return;
     }
+
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    if (args->quic_cfg.webtransport) {
+        return;
+    }
+#endif
 
 #if 0
     if (xqc_demo_cli_is_0rtt_compliant(args)) {
@@ -3201,6 +3341,8 @@ xqc_demo_cli_free_ctx(xqc_demo_cli_ctx_t *ctx)
 int
 main(int argc, char *argv[])
 {
+    setvbuf(stdout, NULL, _IOLBF, 0);
+
     /* init env if necessary */
     xqc_platform_init_env();
     
@@ -3221,14 +3363,22 @@ main(int argc, char *argv[])
     /* engine event */
     ctx->eb = event_base_new();
     ctx->ev_engine = event_new(ctx->eb, -1, 0, xqc_demo_cli_engine_callback, ctx);
-    xqc_demo_cli_init_xquic_engine(ctx, args);
+    if (xqc_demo_cli_init_xquic_engine(ctx, args) != XQC_OK) {
+        return 1;
+    }
 
     /* start task scheduler */
     xqc_demo_cli_start_task_manager(ctx);
 
     event_base_dispatch(ctx->eb);
 
+    int result = 0;
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    if (args->quic_cfg.webtransport) {
+        result = xqc_wt_echo_client_finish();
+    }
+#endif
     xqc_engine_destroy(ctx->engine);
     xqc_demo_cli_free_ctx(ctx);
-    return 0;
+    return result;
 }

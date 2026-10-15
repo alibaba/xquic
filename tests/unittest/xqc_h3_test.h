@@ -6,6 +6,8 @@
 #define XQUIC_XQC_H3_TEST_H
 
 void xqc_test_frame();
+void xqc_test_h3_optional_frame_accepted(void);
+void xqc_test_h3_optional_frame_errors(void);
 void xqc_test_h3_single_vint_frame_valid();
 void xqc_test_h3_single_vint_frame_length_error();
 void xqc_test_stream();
@@ -20,6 +22,14 @@ void xqc_test_h3_max_push_id_errors();
 void xqc_test_h3_goaway_id_valid();
 void xqc_test_h3_goaway_id_increase_rejected();
 void xqc_test_h3_settings_accepted();
+void xqc_test_h3_registered_settings(void);
+void xqc_test_h3_registered_settings_errors(void);
+void xqc_test_h3_settings_validation_log(void);
+void xqc_test_h3_settings_validation_log_errors(void);
+void xqc_test_h3_peer_settings_batch(void);
+void xqc_test_h3_settings_frame_boundaries(void);
+void xqc_test_h3_settings_fragmented(void);
+void xqc_test_h3_settings_fragmented_errors(void);
 void xqc_test_h3_reserved_h2_settings_rejected();
 void xqc_test_h3_reserved_control_frame_accepted();
 void xqc_test_h3_h2_reserved_frames_rejected();

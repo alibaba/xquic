@@ -12,6 +12,11 @@
 #include <openssl/hmac.h>
 
 
+/* Encoded TP offsets and length shared by context and ticket appdata. */
+#define XQC_EARLY_DATA_TP_RESET_STREAM_AT  0
+#define XQC_EARLY_DATA_TP_LEN              1
+
+
 typedef enum xqc_tls_flag_e {
     /* initial state */
     XQC_TLS_FLAG_NONE                   = 0,
@@ -70,6 +75,10 @@ typedef struct xqc_tls_s {
     xqc_proto_version_t         version;
 
     xqc_bool_t                  key_update_confirmed;
+
+#ifndef OPENSSL_IS_BORINGSSL
+    uint8_t                     early_data_tp[XQC_EARLY_DATA_TP_LEN];
+#endif
 
 } xqc_tls_t;
 
@@ -253,19 +262,99 @@ end:
     return ret;
 }
 
+#ifndef OPENSSL_IS_BORINGSSL
+int
+xqc_ssl_tp_ticket_generate_cb(SSL *ssl, void *arg)
+{
+    xqc_tls_t *tls = SSL_get_app_data(ssl);
+
+    /* Renewed sessions must record current TPs, not the old values. */
+    return SSL_SESSION_set1_ticket_appdata(SSL_get_session(ssl),
+        tls->early_data_tp, sizeof(tls->early_data_tp));
+}
+
+
+SSL_TICKET_RETURN
+xqc_ssl_tp_ticket_decrypt_cb(SSL *ssl, SSL_SESSION *session,
+    const unsigned char *keyname, size_t keyname_len, SSL_TICKET_STATUS status,
+    void *arg)
+{
+    switch (status) {
+    case SSL_TICKET_SUCCESS:
+    case SSL_TICKET_SUCCESS_RENEW:
+        return SSL_TICKET_RETURN_USE_RENEW;
+
+    case SSL_TICKET_EMPTY:
+    case SSL_TICKET_NO_DECRYPT:
+        return SSL_TICKET_RETURN_IGNORE_RENEW;
+
+    default:
+        return SSL_TICKET_RETURN_ABORT;
+    }
+}
+
+
+static int
+xqc_ssl_tp_allow_early_data_cb(SSL *ssl, void *arg)
+{
+    xqc_tls_t *tls = SSL_get_app_data(ssl);
+    void *data = NULL;
+    size_t len = 0;
+
+    SSL_SESSION_get0_ticket_appdata(SSL_get_session(ssl), &data, &len);
+
+    if (data == NULL || len != sizeof(tls->early_data_tp)) {
+        return 0;
+    }
+
+    const uint8_t *tp = data;
+
+    /* reliable-stream-reset-09 Section 3; reject only early data. */
+    if (tp[XQC_EARLY_DATA_TP_RESET_STREAM_AT]
+        != tls->early_data_tp[XQC_EARLY_DATA_TP_RESET_STREAM_AT])
+    {
+        return 0;
+    }
+
+    return 1;
+}
+#endif
+
+
 xqc_int_t
 xqc_tls_init_server_ssl(xqc_tls_t *tls, xqc_tls_config_t *cfg)
 {
     xqc_int_t ret = XQC_OK;
     SSL *ssl = tls->ssl;
+    uint8_t context[XQC_EARLY_DATA_CONTEXT_LEN + XQC_EARLY_DATA_TP_LEN]
+        = XQC_EARLY_DATA_CONTEXT;
+    uint8_t *tp = context + XQC_EARLY_DATA_CONTEXT_LEN;
+    size_t context_len = sizeof(context);
 
     /* configure ssl as server */
     SSL_set_accept_state(ssl);
 
-    /* enable early data and set context */
+    /*
+     * Encode the TPs checked for 0-RTT in the shared context/ticket layout.
+     * Only reset_stream_at is included for now. BoringSSL compares the native
+     * context; BabaSSL checks each TP in xqc_ssl_tp_allow_early_data_cb.
+     * An explicit zero also rejects legacy contexts without TP bindings.
+     */
+    tp[XQC_EARLY_DATA_TP_RESET_STREAM_AT] = cfg->reset_stream_at != 0;
+#ifndef OPENSSL_IS_BORINGSSL
+    /* BabaSSL copies the old native context when renewing a session ticket. */
+    memcpy(tls->early_data_tp, tp, sizeof(tls->early_data_tp));
+    context_len = XQC_EARLY_DATA_CONTEXT_LEN;
+    SSL_set_allow_early_data_cb(ssl, xqc_ssl_tp_allow_early_data_cb, NULL);
+#endif
     xqc_ssl_enable_max_early_data(ssl);
-    SSL_set_quic_early_data_context(ssl, (const uint8_t *)XQC_EARLY_DATA_CONTEXT, 
-                                    XQC_EARLY_DATA_CONTEXT_LEN);
+    if (SSL_set_quic_early_data_context(ssl, context, context_len)
+        != XQC_SSL_SUCCESS)
+    {
+        xqc_log(tls->log, XQC_LOG_ERROR, "|SSL_set_quic_early_data_context failed| error info:%s|",
+                ERR_error_string(ERR_get_error(), NULL));
+        return -XQC_TLS_INTERNAL;
+    }
 
     return ret;
 }

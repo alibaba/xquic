@@ -16,6 +16,7 @@
 #include "src/http3/qpack/stable/xqc_stable.h"
 
 #include "xqc_common_test.h"
+#include "xqc_h3_test.h"
 
 
 ssize_t xqc_h3_stream_write_data_to_buffer(xqc_h3_stream_t *h3s, unsigned char *data, uint64_t data_size, uint8_t fin);
@@ -24,13 +25,64 @@ xqc_int_t xqc_decoder_copy_header(xqc_http_header_t *hdr, xqc_var_buf_t *name, x
 xqc_int_t xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_len, xqc_bool_t fin_flag);
 
 
+void
+xqc_test_h3_optional_frame_accepted(void)
+{
+    xqc_h3_conn_t h3c = {0};
+    xqc_h3_frame_pctx_t pctx = {0};
+    unsigned char frame[] = {0x40, 0x41, 0x01, 0xff};
+
+    /* RFC 9114 Section 9: unnegotiated extension frames are ignored. */
+    CU_ASSERT(xqc_h3_frm_parse(frame, 1, &pctx, &h3c) == 1);
+    CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_TYPE);
+    CU_ASSERT(xqc_h3_frm_parse(frame + 1, 2, &pctx, &h3c) == 2);
+    CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_PAYLOAD);
+    CU_ASSERT(xqc_h3_frm_parse(frame + 3, 1, &pctx, &h3c) == 1);
+    CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_END);
+    xqc_h3_frm_reset_pctx(&pctx);
+
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    h3c.flags |= XQC_H3_CONN_FLAG_WEBTRANSPORT;
+#endif
+    frame[1] = 0x42;
+    CU_ASSERT(xqc_h3_frm_parse(frame, sizeof(frame), &pctx, &h3c)
+              == sizeof(frame));
+    CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_END);
+    xqc_h3_frm_reset_pctx(&pctx);
+}
+
+
+void
+xqc_test_h3_optional_frame_errors(void)
+{
+    xqc_h3_conn_t h3c = {0};
+    xqc_h3_frame_pctx_t pctx = {0};
+    unsigned char reserved[] = {0x02};
+
+    /* RFC 9114 Section 7.2.8: H2-reserved frames are always rejected. */
+    CU_ASSERT(xqc_h3_frm_parse(reserved, sizeof(reserved), &pctx, &h3c)
+              == -XQC_H3_RESERVED_FRAME_UNEXPECTED);
+    xqc_h3_frm_reset_pctx(&pctx);
+
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    /* draft-ietf-webtrans-http3-16 Section 4.3: not an H3 frame. */
+    unsigned char wt_type[] = {0x40, 0x41};
+    h3c.flags |= XQC_H3_CONN_FLAG_WEBTRANSPORT;
+    CU_ASSERT(xqc_h3_frm_parse(wt_type, 1, &pctx, &h3c) == 1);
+    CU_ASSERT(xqc_h3_frm_parse(wt_type + 1, 1, &pctx, &h3c)
+              == -XQC_H3_INVALID_FRAME_TYPE);
+    xqc_h3_frm_reset_pctx(&pctx);
+#endif
+}
+
+
 ssize_t
 xqc_test_frame_parse(const char *p, size_t sz, xqc_h3_frame_pctx_t *state)
 {
     ssize_t offset = 0;
     while (offset < sz) {
         ssize_t len = rand() % sz + 1;
-        ssize_t ret = xqc_h3_frm_parse(p + offset, len, state);
+        ssize_t ret = xqc_h3_frm_parse(p + offset, len, state, NULL);
         if (ret < 0) {
             return ret;
         }
@@ -56,7 +108,7 @@ xqc_test_frame()
     xqc_var_buf_t *push_promise = xqc_var_buf_create(size);
     xqc_var_buf_save_data(push_promise, data, size);
 
-    xqc_h3_conn_settings_t settings;
+    xqc_h3_conn_settings_t settings = {0};
     settings.max_field_section_size = 10;
     settings.max_pushes = 20;
     settings.qpack_blocked_streams = 30;
@@ -165,7 +217,8 @@ xqc_test_frame()
     size_t reserved_frame_len = sizeof(reserved_frame) - 1;
     size_t reserved_consumed_len = 0;
     for (size_t i = 0; i < reserved_frame_len; i++) {
-        processed = xqc_h3_frm_parse(reserved_frame + reserved_consumed_len, 1, &pctx);
+        processed = xqc_h3_frm_parse(
+            reserved_frame + reserved_consumed_len, 1, &pctx, NULL);
         CU_ASSERT(processed > 0);
         reserved_consumed_len += processed;
     }
@@ -196,12 +249,12 @@ xqc_test_h3_single_vint_frame_valid()
         xqc_h3_frame_pctx_t pctx;
         memset(&pctx, 0, sizeof(pctx));
 
-        ssize_t processed = xqc_h3_frm_parse(frames[i], 3, &pctx);
+        ssize_t processed = xqc_h3_frm_parse(frames[i], 3, &pctx, NULL);
         CU_ASSERT(processed == 3);
         CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_PAYLOAD);
         CU_ASSERT(pctx.frame.consumed_len == 1);
 
-        processed = xqc_h3_frm_parse(frames[i] + 3, 1, &pctx);
+        processed = xqc_h3_frm_parse(frames[i] + 3, 1, &pctx, NULL);
         CU_ASSERT(processed == 1);
         CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_END);
         CU_ASSERT(pctx.frame.type == types[i]);
@@ -231,13 +284,13 @@ xqc_test_h3_single_vint_frame_length_error()
         xqc_h3_frame_pctx_t pctx;
         memset(&pctx, 0, sizeof(pctx));
 
-        ssize_t processed = xqc_h3_frm_parse(overlong[i], 3, &pctx);
+        ssize_t processed = xqc_h3_frm_parse(overlong[i], 3, &pctx, NULL);
         CU_ASSERT(processed == 3);
         CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_PAYLOAD);
         CU_ASSERT(pctx.frame.consumed_len == 1);
 
         processed = xqc_h3_frm_parse(overlong[i] + 3,
-                                     sizeof(overlong[i]) - 3, &pctx);
+                                     sizeof(overlong[i]) - 3, &pctx, NULL);
         CU_ASSERT(processed == -XQC_H3_DECODE_ERROR);
         CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_PAYLOAD);
         CU_ASSERT(pctx.frame.consumed_len == 2);
@@ -251,8 +304,8 @@ xqc_test_h3_single_vint_frame_length_error()
         xqc_h3_frame_pctx_t pctx;
         memset(&pctx, 0, sizeof(pctx));
 
-        ssize_t processed = xqc_h3_frm_parse(short_payload[i],
-                                             sizeof(short_payload[i]), &pctx);
+        ssize_t processed = xqc_h3_frm_parse(
+            short_payload[i], sizeof(short_payload[i]), &pctx, NULL);
         CU_ASSERT(processed == -XQC_H3_DECODE_ERROR);
         CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_PAYLOAD);
         CU_ASSERT(pctx.frame.consumed_len == 2);
@@ -1547,6 +1600,36 @@ xqc_h3_ctrl_feed_setting(xqc_h3_stream_t *h3s, unsigned char identifier,
 }
 
 
+#define XQC_H3_TEST_CAPTURED_SETTINGS 32
+
+typedef struct {
+    size_t                    calls;
+    size_t                    count;
+    xqc_h3_setting_t          settings[XQC_H3_TEST_CAPTURED_SETTINGS];
+    xqc_h3_settings_result_t  result;
+} xqc_h3_test_settings_capture_t;
+
+
+static xqc_h3_settings_result_t
+xqc_h3_test_settings_notify(xqc_h3_conn_t *h3c,
+    const xqc_h3_setting_t *settings, size_t settings_count,
+    void *user_data)
+{
+    (void)h3c;
+    xqc_h3_test_settings_capture_t *capture =
+        (xqc_h3_test_settings_capture_t *)user_data;
+    capture->calls++;
+    capture->count = settings_count;
+    CU_ASSERT(settings_count <= XQC_H3_TEST_CAPTURED_SETTINGS);
+    for (size_t i = 0;
+         i < settings_count && i < XQC_H3_TEST_CAPTURED_SETTINGS; i++)
+    {
+        capture->settings[i] = settings[i];
+    }
+    return capture->result;
+}
+
+
 void
 xqc_test_h3_settings_accepted()
 {
@@ -1568,6 +1651,13 @@ xqc_test_h3_settings_accepted()
             xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
             CU_ASSERT_FATAL(h3s != NULL);
 
+            xqc_h3_test_settings_capture_t capture = {
+                .result = XQC_H3_SETTINGS_ACCEPT,
+            };
+            h3c->user_data = &capture;
+            h3c->h3_conn_callbacks.h3_conn_peer_extern_settings_notify =
+                xqc_h3_test_settings_notify;
+
             conn->conn_type = roles[i];
             ssize_t processed = xqc_h3_ctrl_feed_setting(
                 h3s, identifiers[j], 1);
@@ -1575,6 +1665,12 @@ xqc_test_h3_settings_accepted()
             CU_ASSERT(processed == 4);
             CU_ASSERT(conn->conn_err == 0);
             CU_ASSERT(h3c->flags & XQC_H3_CONN_FLAG_SETTINGS_RECVED);
+            CU_ASSERT(capture.calls == 1);
+            CU_ASSERT(capture.count == (identifiers[j] == 0x08 ? 1 : 0));
+            if (capture.count == 1) {
+                CU_ASSERT(capture.settings[0].identifier == 0x08);
+                CU_ASSERT(capture.settings[0].value == 1);
+            }
             if (identifiers[j]
                 == XQC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE)
             {
@@ -1585,6 +1681,601 @@ xqc_test_h3_settings_accepted()
             xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
         }
     }
+}
+
+
+void
+xqc_test_h3_registered_settings(void)
+{
+    xqc_h3_conn_settings_t settings = {0};
+    /* Default-only SETTINGS keeps the original three entries and order. */
+    {
+        xqc_list_head_t buffers;
+        xqc_init_list_head(&buffers);
+        CU_ASSERT(xqc_h3_frm_write_settings(&buffers, &settings, 0) == XQC_OK);
+        CU_ASSERT_FATAL(!xqc_list_empty(&buffers));
+        xqc_list_buf_t *item = xqc_list_entry(buffers.next,
+            xqc_list_buf_t, list_head);
+        const unsigned char expected[] = {4, 6, 6, 0, 1, 0, 7, 0};
+        CU_ASSERT_FATAL(item->buf->data_len == sizeof(expected));
+        CU_ASSERT(memcmp(item->buf->data, expected, sizeof(expected)) == 0);
+        CU_ASSERT(settings.extern_settings_count == 0);
+        xqc_list_buf_list_free(&buffers);
+    }
+
+    uint64_t value = 7;
+    CU_ASSERT(xqc_h3_conn_settings_add_extern(&settings, 0x08, value)
+              == XQC_OK);
+    value = 9;
+    CU_ASSERT(settings.extern_settings[0].value == 7);
+    CU_ASSERT(xqc_h3_conn_settings_add_extern(&settings, 0x08, value)
+              == XQC_OK);
+    CU_ASSERT(settings.extern_settings_count == 1);
+    uint64_t max_varint = XQC_VINT_MAX;
+    CU_ASSERT(xqc_h3_conn_settings_add_extern(&settings, max_varint, max_varint)
+              == XQC_OK);
+    CU_ASSERT(settings.extern_settings_count == 2);
+
+    xqc_h3_conn_settings_t inherited = settings;
+    CU_ASSERT(xqc_h3_conn_settings_add_extern(&inherited, 0x08, 11) == XQC_OK);
+    CU_ASSERT(inherited.extern_settings[0].value == 11);
+    CU_ASSERT(settings.extern_settings[0].value == 9);
+
+    xqc_list_head_t buffers;
+    xqc_init_list_head(&buffers);
+    CU_ASSERT(xqc_h3_frm_write_settings(&buffers, &settings, 0) == XQC_OK);
+    CU_ASSERT_FATAL(!xqc_list_empty(&buffers));
+    xqc_list_buf_t *item = xqc_list_entry(buffers.next,
+        xqc_list_buf_t, list_head);
+    /* RFC 9114 Section 7.2.4: each identifier appears once in SETTINGS. */
+    unsigned char prefix[] = {4, 24, 6, 0, 1, 0, 7, 0, 0x08, 9};
+    CU_ASSERT_FATAL(item->buf->data_len == sizeof(prefix) + 16);
+    CU_ASSERT(memcmp(item->buf->data, prefix, sizeof(prefix)) == 0);
+    for (size_t i = sizeof(prefix); i < item->buf->data_len; i++) {
+        CU_ASSERT(item->buf->data[i] == 0xff);
+    }
+    CU_ASSERT(item->list_head.next == &buffers);
+    xqc_list_buf_list_free(&buffers);
+}
+
+
+void
+xqc_test_h3_registered_settings_errors(void)
+{
+    xqc_h3_conn_settings_t local = {
+        .max_field_section_size = 17,
+        .qpack_dec_max_table_capacity = 64,
+        .qpack_blocked_streams = 3,
+    };
+    CU_ASSERT(xqc_h3_conn_settings_add_extern(NULL, 0x21, 1) == -XQC_EPARAM);
+    for (uint64_t id = 0; id <= 7; id++) {
+        CU_ASSERT(xqc_h3_conn_settings_add_extern(&local, id, 1)
+              == -XQC_EPARAM);
+    }
+    CU_ASSERT(local.max_field_section_size == 17);
+    CU_ASSERT(local.qpack_dec_max_table_capacity == 64);
+    CU_ASSERT(local.qpack_blocked_streams == 3);
+    uint64_t overflow = XQC_VINT_MAX + 1;
+    CU_ASSERT(xqc_h3_conn_settings_add_extern(&local, overflow, 1)
+              == -XQC_EPARAM);
+    CU_ASSERT(xqc_h3_conn_settings_add_extern(&local, 0x21, overflow)
+              == -XQC_EPARAM);
+    CU_ASSERT(local.extern_settings_count == 0);
+    for (size_t i = 0; i < XQC_H3_MAX_EXTERN_SETTINGS; i++) {
+        CU_ASSERT(xqc_h3_conn_settings_add_extern(&local, 0x100 + i, i)
+              == XQC_OK);
+    }
+    CU_ASSERT(xqc_h3_conn_settings_add_extern(&local, 0x100, 99) == XQC_OK);
+    CU_ASSERT(local.extern_settings[0].value == 99);
+    CU_ASSERT(xqc_h3_conn_settings_add_extern(&local, 0x200, 1) == -XQC_EPARAM);
+    CU_ASSERT(local.extern_settings_count == XQC_H3_MAX_EXTERN_SETTINGS);
+
+    xqc_h3_conn_settings_t invalid = {0};
+    invalid.extern_settings_count = XQC_H3_MAX_EXTERN_SETTINGS + 1;
+    xqc_list_head_t buffers;
+    xqc_init_list_head(&buffers);
+    CU_ASSERT(xqc_h3_frm_write_settings(&buffers, &invalid, 0)
+              == -XQC_EPARAM);
+    CU_ASSERT(xqc_list_empty(&buffers));
+    invalid.extern_settings_count = 2;
+    invalid.extern_settings[0].identifier = 0x08;
+    invalid.extern_settings[1].identifier = 0x08;
+    CU_ASSERT(xqc_h3_frm_write_settings(&buffers, &invalid, 0)
+              == -XQC_EPARAM);
+    CU_ASSERT(xqc_list_empty(&buffers));
+
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(h3s);
+    CU_ASSERT(xqc_h3_conn_settings_add_extern(&h3c->local_h3_conn_settings,
+              0x08, 1) == XQC_OK);
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    conn->conn_flag &= ~XQC_CONN_FLAG_CAN_SEND_1RTT;
+    CU_ASSERT(xqc_h3_stream_send_setting(h3s, &h3c->local_h3_conn_settings, 0)
+              == XQC_OK);
+    CU_ASSERT(h3c->flags & XQC_H3_CONN_FLAG_SETTINGS_QUEUED);
+    CU_ASSERT(!xqc_list_empty(&h3s->send_buf));
+    CU_ASSERT(xqc_h3_stream_send_setting(h3s,
+              &h3c->local_h3_conn_settings, 0) == -XQC_ESTATE);
+    xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+}
+
+
+typedef struct {
+    char             message[XQC_MAX_LOG_LEN];
+    size_t           calls;
+    xqc_log_level_t  level;
+} xqc_h3_test_validation_log_t;
+
+
+static void
+xqc_h3_test_validation_log(xqc_log_level_t level, const void *buf,
+    size_t size, void *user_data)
+{
+    xqc_h3_test_validation_log_t *capture = user_data;
+    size = xqc_min(size, sizeof(capture->message) - 1);
+    memcpy(capture->message, buf, size);
+    capture->message[size] = '\0';
+    capture->level = level;
+    capture->calls++;
+}
+
+
+static void
+xqc_h3_test_validate_local_settings(const xqc_h3_conn_settings_t *settings,
+    const char *error)
+{
+    xqc_h3_test_validation_log_t capture;
+    memset(&capture, 0, sizeof(capture));
+    xqc_log_callbacks_t callbacks = {
+        .xqc_log_write_err = xqc_h3_test_validation_log,
+    };
+    xqc_log_t log = {
+        .log_level = XQC_LOG_ERROR,
+        .log_callbacks = &callbacks,
+        .user_data = &capture,
+    };
+    xqc_h3_conn_settings_t before;
+    if (settings != NULL) {
+        memcpy(&before, settings, sizeof(before));
+    }
+
+    xqc_int_t expected = error == NULL ? XQC_OK : -XQC_EPARAM;
+    CU_ASSERT(xqc_h3_conn_settings_validate(settings, &log) == expected);
+    CU_ASSERT(xqc_h3_conn_settings_validate(settings, NULL) == expected);
+    if (settings != NULL) {
+        CU_ASSERT(memcmp(&before, settings, sizeof(before)) == 0);
+    }
+#ifndef XQC_DISABLE_LOG
+    if (error != NULL) {
+        CU_ASSERT(capture.calls == 1);
+        CU_ASSERT(capture.level == XQC_LOG_ERROR);
+        CU_ASSERT_PTR_NOT_NULL(strstr(capture.message,
+            "|invalid local HTTP/3 settings|"));
+        CU_ASSERT_PTR_NOT_NULL(strstr(capture.message, error));
+
+    } else {
+        CU_ASSERT(capture.calls == 0);
+    }
+#endif
+}
+
+
+void
+xqc_test_h3_settings_validation_log(void)
+{
+    xqc_h3_conn_settings_t settings = {0};
+    xqc_h3_test_validate_local_settings(&settings, NULL);
+
+    uint64_t max_varint = XQC_VINT_MAX;
+    settings.max_field_section_size = max_varint;
+    settings.qpack_dec_max_table_capacity = max_varint;
+    settings.qpack_blocked_streams = max_varint;
+    CU_ASSERT(xqc_h3_conn_settings_add_extern(&settings, max_varint, max_varint)
+              == XQC_OK);
+    xqc_h3_test_validate_local_settings(&settings, NULL);
+}
+
+
+void
+xqc_test_h3_settings_validation_log_errors(void)
+{
+    xqc_h3_test_validate_local_settings(NULL, "|reason:null_settings|");
+
+    xqc_h3_conn_settings_t settings = {0};
+    settings.extern_settings_count = XQC_H3_MAX_EXTERN_SETTINGS + 1;
+    xqc_h3_test_validate_local_settings(&settings,
+        "|reason:count_exceeds_limit|count:17|limit:16|");
+    settings.extern_settings_count = 0;
+
+    uint64_t overflow = XQC_VINT_MAX + 1;
+    settings.max_field_section_size = overflow;
+    xqc_h3_test_validate_local_settings(&settings,
+        "|field:max_field_section_size|value:4611686018427387904|");
+    settings.max_field_section_size = 0;
+    settings.qpack_dec_max_table_capacity = overflow;
+    xqc_h3_test_validate_local_settings(&settings,
+        "|field:qpack_dec_max_table_capacity|value:4611686018427387904|");
+    settings.qpack_dec_max_table_capacity = 0;
+    settings.qpack_blocked_streams = overflow;
+    xqc_h3_test_validate_local_settings(&settings,
+        "|field:qpack_blocked_streams|value:4611686018427387904|");
+    settings.qpack_blocked_streams = 0;
+
+    settings.extern_settings_count = 1;
+    settings.extern_settings[0].identifier = overflow;
+    settings.extern_settings[0].value = 11;
+    xqc_h3_test_validate_local_settings(&settings,
+        "|reason:invalid_identifier|index:0|"
+        "identifier:4611686018427387904|value:11|");
+    for (uint64_t id = 0; id <= 7; id++) {
+        char context[128];
+        snprintf(context, sizeof(context),
+            "|reason:invalid_identifier|index:0|identifier:%llu|value:11|",
+            (unsigned long long)id);
+        settings.extern_settings[0].identifier = id;
+        xqc_h3_test_validate_local_settings(&settings, context);
+    }
+    settings.extern_settings[0].identifier = 0x08;
+    settings.extern_settings[0].value = overflow;
+    xqc_h3_test_validate_local_settings(&settings,
+        "|reason:value_out_of_range|field:extern_settings|index:0|"
+        "identifier:8|value:4611686018427387904|");
+
+    settings.extern_settings[0].value = 1;
+    settings.extern_settings[1] = settings.extern_settings[0];
+    settings.extern_settings[1].value = 2;
+    settings.extern_settings_count = 2;
+    xqc_h3_test_validate_local_settings(&settings,
+        "|reason:duplicate_identifier|index:1|previous_index:0|"
+        "identifier:8|value:2|");
+}
+
+
+static void
+xqc_h3_test_invalid_settings(const unsigned char *frame, size_t frame_size,
+    uint64_t error)
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(h3s);
+
+    xqc_h3_test_settings_capture_t capture = {
+        .result = XQC_H3_SETTINGS_ACCEPT,
+    };
+    h3c->user_data = &capture;
+    h3c->h3_conn_callbacks.h3_conn_peer_extern_settings_notify =
+        xqc_h3_test_settings_notify;
+
+    CU_ASSERT(xqc_h3_stream_process_control(h3s,
+              (unsigned char *)frame, frame_size) == -(ssize_t)error);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == error);
+    CU_ASSERT(capture.calls == 0);
+    CU_ASSERT(h3c->peer_h3_conn_settings.max_field_section_size
+              == XQC_H3_SETTINGS_UNSET);
+    xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+}
+
+
+void
+xqc_test_h3_peer_settings_batch(void)
+{
+    const unsigned char truncated_id[] = { 0x04, 0x01, 0x40 };
+    const unsigned char truncated_value[] = { 0x04, 0x02, 0x08, 0x40 };
+    const unsigned char duplicate[] = { 0x04, 0x04, 0x08, 1, 0x08, 2 };
+    const unsigned char reserved_tail[] = { 0x04, 0x04, 0x06, 1, 0x02, 0 };
+    /* RFC 9114 Section 7.1: missing fields are frame errors. */
+    xqc_h3_test_invalid_settings(truncated_id, sizeof(truncated_id),
+                                 H3_FRAME_ERROR);
+    xqc_h3_test_invalid_settings(truncated_value, sizeof(truncated_value),
+                                 H3_FRAME_ERROR);
+    xqc_h3_test_invalid_settings(duplicate, sizeof(duplicate),
+                                 H3_SETTINGS_ERROR);
+    xqc_h3_test_invalid_settings(reserved_tail, sizeof(reserved_tail),
+                                 H3_SETTINGS_ERROR);
+
+    const xqc_h3_settings_result_t results[] = {
+        XQC_H3_SETTINGS_REJECT,
+        XQC_H3_SETTINGS_INTERNAL_ERROR,
+    };
+    const uint64_t errors[] = { H3_SETTINGS_ERROR, H3_INTERNAL_ERROR };
+    const unsigned char custom[] = { 0x04, 0x02, 0x08, 1 };
+    for (size_t i = 0; i < sizeof(results) / sizeof(results[0]); i++) {
+        xqc_connection_t *conn = NULL;
+        xqc_h3_conn_t *h3c = NULL;
+        xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(h3s);
+        xqc_h3_test_settings_capture_t capture = { .result = results[i] };
+        h3c->user_data = &capture;
+        h3c->h3_conn_callbacks.h3_conn_peer_extern_settings_notify =
+            xqc_h3_test_settings_notify;
+
+        CU_ASSERT(xqc_h3_stream_process_control(h3s,
+                  (unsigned char *)custom, sizeof(custom))
+                  == -(xqc_int_t)errors[i]);
+        CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == errors[i]);
+        CU_ASSERT(capture.calls == 1);
+        CU_ASSERT(capture.count == 1);
+        xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+    }
+
+    /* A core SETTINGS failure must happen before extension notification. */
+    {
+        xqc_connection_t *conn = NULL;
+        xqc_h3_conn_t *h3c = NULL;
+        xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(h3s);
+        xqc_h3_test_settings_capture_t capture = {
+            .result = XQC_H3_SETTINGS_ACCEPT,
+        };
+        h3c->user_data = &capture;
+        h3c->h3_conn_callbacks.h3_conn_peer_extern_settings_notify =
+            xqc_h3_test_settings_notify;
+
+        const unsigned char core_failure[] = {
+            XQC_H3_FRM_SETTINGS, 0x04, 0x08, 1,
+            XQC_H3_SETTINGS_QPACK_MAX_TABLE_CAPACITY, 0,
+        };
+        CU_ASSERT(xqc_h3_stream_process_control(h3s,
+                  (unsigned char *)core_failure, sizeof(core_failure))
+                  == -H3_INTERNAL_ERROR);
+        CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_INTERNAL_ERROR);
+        CU_ASSERT(capture.calls == 0);
+        CU_ASSERT((h3c->flags & XQC_H3_CONN_FLAG_SETTINGS_RECVED) == 0);
+        xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+    }
+
+    unsigned char many[2 + 2 * 17] = { XQC_H3_FRM_SETTINGS, 2 * 17 };
+    for (size_t i = 0; i < 17; i++) {
+        many[2 + 2 * i] = 0x08 + i;
+        many[3 + 2 * i] = i;
+    }
+
+    const unsigned char empty[] = { XQC_H3_FRM_SETTINGS, 0 };
+    const unsigned char *valid_frames[] = { empty, many };
+    const size_t valid_sizes[] = { sizeof(empty), sizeof(many) };
+    const size_t expected_counts[] = { 0, 17 };
+    for (size_t i = 0; i < sizeof(valid_frames) / sizeof(valid_frames[0]); i++) {
+        xqc_connection_t *conn = NULL;
+        xqc_h3_conn_t *h3c = NULL;
+        xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(h3s);
+        xqc_h3_test_settings_capture_t capture = {
+            .result = XQC_H3_SETTINGS_ACCEPT,
+        };
+        h3c->user_data = &capture;
+        h3c->h3_conn_callbacks.h3_conn_peer_extern_settings_notify =
+            xqc_h3_test_settings_notify;
+
+        CU_ASSERT(xqc_h3_stream_process_control(h3s,
+                  (unsigned char *)valid_frames[i], valid_sizes[i])
+                  == (ssize_t)valid_sizes[i]);
+        CU_ASSERT(conn->conn_err == 0);
+        CU_ASSERT(capture.calls == 1);
+        CU_ASSERT(capture.count == expected_counts[i]);
+        CU_ASSERT(h3c->peer_h3_conn_settings.extern_settings_count == 0);
+        xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+    }
+
+    const uint64_t webtransport_ids[] = {
+        0x08, 0x33, 0x2c7cf000, 0x2b61, 0x2b64, 0x2b65,
+    };
+    xqc_h3_conn_settings_t webtransport = default_local_h3_conn_settings;
+    for (size_t i = 0;
+         i < sizeof(webtransport_ids) / sizeof(webtransport_ids[0]); i++)
+    {
+        CU_ASSERT(xqc_h3_conn_settings_add_extern(&webtransport,
+                  webtransport_ids[i], 1) == XQC_OK);
+    }
+    CU_ASSERT(webtransport.extern_settings_count
+              == sizeof(webtransport_ids) / sizeof(webtransport_ids[0]));
+    size_t payload_len = 0;
+    for (size_t i = 0; i < webtransport.extern_settings_count; i++) {
+        payload_len += xqc_put_varint_len(webtransport_ids[i]);
+        payload_len += xqc_put_varint_len(1);
+    }
+    unsigned char frame[64];
+    unsigned char *frame_pos = frame;
+    frame_pos = xqc_put_varint(frame_pos, XQC_H3_FRM_SETTINGS);
+    frame_pos = xqc_put_varint(frame_pos, payload_len);
+    for (size_t i = 0; i < webtransport.extern_settings_count; i++) {
+        frame_pos = xqc_put_varint(frame_pos, webtransport_ids[i]);
+        frame_pos = xqc_put_varint(frame_pos, 1);
+    }
+    size_t frame_len = frame_pos - frame;
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(h3s);
+    xqc_h3_test_settings_capture_t capture = {
+        .result = XQC_H3_SETTINGS_ACCEPT,
+    };
+    h3c->user_data = &capture;
+    h3c->h3_conn_callbacks.h3_conn_peer_extern_settings_notify =
+        xqc_h3_test_settings_notify;
+    ssize_t processed = xqc_h3_stream_process_control(h3s, frame, frame_len);
+    CU_ASSERT(processed >= 0);
+    CU_ASSERT(processed == (ssize_t)frame_len);
+    CU_ASSERT(capture.calls == 1);
+    CU_ASSERT(capture.count
+              == sizeof(webtransport_ids) / sizeof(webtransport_ids[0]));
+    for (size_t i = 0; i < capture.count; i++) {
+        CU_ASSERT(capture.settings[i].identifier == webtransport_ids[i]);
+        CU_ASSERT(capture.settings[i].value == 1);
+    }
+    xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+}
+
+
+void
+xqc_test_h3_settings_frame_boundaries(void)
+{
+    const uint64_t structured[] = {
+        XQC_H3_FRM_CANCEL_PUSH, XQC_H3_FRM_GOAWAY,
+        XQC_H3_FRM_MAX_PUSH_ID, XQC_H3_FRM_PUSH_PROMISE,
+        XQC_H3_EXT_FRM_BIDI_STREAM_TYPE,
+    };
+    /* RFC 9114 Section 7.1: zero length cannot supply a required varint. */
+    for (size_t i = 0; i < sizeof(structured) / sizeof(structured[0]); i++) {
+        unsigned char frame[16];
+        unsigned char *end = xqc_put_varint(frame, structured[i]);
+        end = xqc_put_varint(end, 0);
+        xqc_h3_frame_pctx_t pctx = {0};
+        CU_ASSERT(xqc_h3_frm_parse(frame, end - frame, &pctx, NULL)
+                  == -XQC_H3_DECODE_ERROR);
+        CU_ASSERT(pctx.state != XQC_H3_FRM_STATE_END);
+        xqc_h3_frm_reset_pctx(&pctx);
+    }
+
+    const unsigned char empty[][2] = {
+        { XQC_H3_FRM_SETTINGS, 0 }, { XQC_H3_FRM_DATA, 0 },
+        { XQC_H3_FRM_HEADERS, 0 }, { 0x21, 0 },
+    };
+    for (size_t i = 0; i < sizeof(empty) / sizeof(empty[0]); i++) {
+        xqc_h3_frame_pctx_t pctx = {0};
+        CU_ASSERT(xqc_h3_frm_parse(empty[i], 1, &pctx, NULL) == 1);
+        CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_LEN);
+        CU_ASSERT(xqc_h3_frm_parse(empty[i] + 1, 1, &pctx, NULL) == 1);
+        CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_END);
+        xqc_h3_frm_reset_pctx(&pctx);
+    }
+
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(h3s);
+    xqc_h3_test_settings_capture_t capture = {
+        .result = XQC_H3_SETTINGS_ACCEPT,
+    };
+    h3c->user_data = &capture;
+    h3c->h3_conn_callbacks.h3_conn_peer_extern_settings_notify =
+        xqc_h3_test_settings_notify;
+    unsigned char mixed[] = {
+        XQC_H3_FRM_SETTINGS, 10,
+        0x33, 1, XQC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE, 9,
+        0x21, 0, 0x08, 1, 0x09, 2,
+    };
+    for (size_t i = 0; i < sizeof(mixed); i++) {
+        CU_ASSERT(xqc_h3_stream_process_control(h3s, mixed + i, 1) == 1);
+        CU_ASSERT(capture.calls == (i + 1 == sizeof(mixed) ? 1 : 0));
+    }
+    CU_ASSERT(capture.count == 3);
+    CU_ASSERT(capture.settings[0].identifier == 0x33);
+    CU_ASSERT(capture.settings[1].identifier == 0x08);
+    CU_ASSERT(capture.settings[2].identifier == 0x09);
+    CU_ASSERT(capture.settings[2].value == 2);
+    CU_ASSERT(h3c->peer_h3_conn_settings.max_field_section_size == 9);
+#ifndef XQC_ONLY_CLIENT_LIB
+    CU_ASSERT_STRING_EQUAL(h3c->h3_settings_params, "6:9");
+#endif
+    /* RFC 9114 Section 7.2.4: a second SETTINGS is a frame-type error. */
+    CU_ASSERT(xqc_h3_stream_process_control(h3s, mixed, sizeof(mixed))
+              == -H3_FRAME_UNEXPECTED);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_FRAME_UNEXPECTED);
+    CU_ASSERT(capture.calls == 1);
+    xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+}
+
+
+static void
+xqc_h3_test_fragmented_settings(xqc_bool_t invalid_tail)
+{
+    /* RFC 9000 Section 16 permits the two-byte payload-length encoding. */
+    unsigned char frame[] = {
+        XQC_H3_FRM_SETTINGS, 0x40, 0x10,
+        XQC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE, 9,
+        0x80, 0x00, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0x08, 1,
+    };
+    const size_t header_size = 3;
+    const xqc_conn_type_t roles[] = {
+        XQC_CONN_TYPE_CLIENT, XQC_CONN_TYPE_SERVER
+    };
+    if (invalid_tail) {
+        /* RFC 9114 Section 7.1: complete payload, incomplete final value. */
+        frame[sizeof(frame) - 1] = 0x40;
+    }
+
+    for (size_t role = 0; role < sizeof(roles) / sizeof(roles[0]); role++) {
+        for (size_t chunk = 1; chunk < sizeof(frame); chunk++) {
+            xqc_connection_t *conn = NULL;
+            xqc_h3_conn_t *h3c = NULL;
+            xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+            CU_ASSERT_PTR_NOT_NULL_FATAL(h3s);
+            conn->conn_type = roles[role];
+            xqc_h3_test_settings_capture_t capture = {
+                .result = XQC_H3_SETTINGS_ACCEPT,
+            };
+            h3c->user_data = &capture;
+            h3c->h3_conn_callbacks.h3_conn_peer_extern_settings_notify =
+                xqc_h3_test_settings_notify;
+
+            for (size_t offset = 0; offset < sizeof(frame); offset += chunk) {
+                size_t len = xqc_min(chunk, sizeof(frame) - offset);
+                ssize_t ret = xqc_h3_stream_process_control(h3s,
+                    frame + offset, len);
+                if (offset + len == sizeof(frame)) {
+                    CU_ASSERT(ret == (invalid_tail
+                        ? -H3_FRAME_ERROR : (ssize_t)len));
+                    break;
+                }
+
+                CU_ASSERT(ret == (ssize_t)len);
+                CU_ASSERT(conn->conn_err == 0);
+                CU_ASSERT(capture.calls == 0);
+                CU_ASSERT(!(h3c->flags & XQC_H3_CONN_FLAG_SETTINGS_RECVED));
+                CU_ASSERT(h3c->peer_h3_conn_settings.max_field_section_size
+                          == XQC_H3_SETTINGS_UNSET);
+                if (offset + len > header_size) {
+                    xqc_var_buf_t *buffer = h3s->pctx.frame_pctx.frame
+                        .frame_payload.settings.setting;
+                    CU_ASSERT_PTR_NOT_NULL_FATAL(buffer);
+                    CU_ASSERT(buffer->data_len == offset + len - header_size);
+                    CU_ASSERT(buffer->consumed_len == 0);
+                }
+            }
+
+            CU_ASSERT(h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE);
+            if (invalid_tail) {
+                CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_FRAME_ERROR);
+                CU_ASSERT(capture.calls == 0);
+                CU_ASSERT(!(h3c->flags & XQC_H3_CONN_FLAG_SETTINGS_RECVED));
+                CU_ASSERT(h3c->peer_h3_conn_settings.max_field_section_size
+                          == XQC_H3_SETTINGS_UNSET);
+
+            } else {
+                CU_ASSERT(conn->conn_err == 0);
+                CU_ASSERT(h3c->flags & XQC_H3_CONN_FLAG_SETTINGS_RECVED);
+                CU_ASSERT(capture.calls == 1);
+                CU_ASSERT(capture.count == 2);
+                CU_ASSERT(capture.settings[0].identifier == 0xffff);
+                CU_ASSERT(capture.settings[0].value
+                          == XQC_VINT_MAX);
+                CU_ASSERT(capture.settings[1].identifier == 0x08);
+                CU_ASSERT(capture.settings[1].value == 1);
+                CU_ASSERT(h3c->peer_h3_conn_settings.max_field_section_size
+                          == 9);
+            }
+            xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+        }
+    }
+}
+
+
+void
+xqc_test_h3_settings_fragmented(void)
+{
+    xqc_h3_test_fragmented_settings(XQC_FALSE);
+}
+
+
+void
+xqc_test_h3_settings_fragmented_errors(void)
+{
+    xqc_h3_test_fragmented_settings(XQC_TRUE);
 }
 
 
@@ -1746,7 +2437,7 @@ xqc_test_h3_h2_reserved_frames_rejected()
         unsigned char frame[] = { frame_types[i], 0x00 };
         xqc_h3_frame_pctx_t pctx = {0};
         xqc_h3_frm_reset_pctx(&pctx);
-        CU_ASSERT(xqc_h3_frm_parse(frame, sizeof(frame), &pctx)
+        CU_ASSERT(xqc_h3_frm_parse(frame, sizeof(frame), &pctx, NULL)
                   == -XQC_H3_RESERVED_FRAME_UNEXPECTED);
         CU_ASSERT(pctx.frame.type == frame_types[i]);
         CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_LEN);
@@ -2195,12 +2886,12 @@ xqc_test_h3_missing_settings_one(uint64_t frame_type)
     conn->conn_flag &= ~XQC_CONN_FLAG_ERROR;
 
     /*
-     * Build a minimal frame: [type varint][length=0].
-     * All standard H3 types fit in a single byte varint.
+     * A structured frame declares its required varint, but supplies only
+     * the header: the type alone must trigger the SETTINGS-first rule.
      */
     unsigned char frame_buf[2];
     frame_buf[0] = (unsigned char)(frame_type & 0x3F);  /* 1-byte varint */
-    frame_buf[1] = 0x00;  /* length = 0 */
+    frame_buf[1] = frame_type == 0x21 ? 0 : 1;
 
     ssize_t processed = xqc_h3_stream_process_control(h3s, frame_buf,
             sizeof(frame_buf));
@@ -2248,7 +2939,7 @@ xqc_test_h3_missing_settings()
  * via XQC_H3_CONN_ERR.
  *
  * Each sub-case builds a fresh request-bidi h3 stream, feeds a minimal
- * frame (type varint + length=0 varint), and checks the result.
+ * frame header, and checks the result before its payload is received.
  */
 
 static void
@@ -2265,15 +2956,14 @@ xqc_test_h3_request_frame_unexpected_one(uint64_t frame_type,
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
 
     /*
-     * Build a minimal frame: [type varint][length=0 varint].
-     * All tested frame types fit in a single-byte varint (<=0x3F).
-     * Length=0 means the frame body is empty; the frame parser will
-     * still enter PAYLOAD state, which is enough for the
-     * process_request switch to dispatch on the type.
+     * Keep the declared layout valid to isolate the wrong-stream error
+     * from a missing-field error. The header alone identifies the type.
      */
     unsigned char frame_buf[2];
     frame_buf[0] = (unsigned char)(frame_type & 0x3F);
-    frame_buf[1] = 0x00;  /* length = 0 */
+    frame_buf[1] = (frame_type == XQC_H3_FRM_CANCEL_PUSH
+                   || frame_type == XQC_H3_FRM_GOAWAY
+                   || frame_type == XQC_H3_FRM_MAX_PUSH_ID) ? 1 : 0;
 
     ssize_t processed = xqc_h3_stream_process_request(h3s, frame_buf,
             sizeof(frame_buf), XQC_FALSE);
@@ -2635,7 +3325,8 @@ xqc_test_h3_settings_frame_size_limit()
     unsigned char oversized_settings[] = { 0x04, 0x60, 0x00, 0x00 };
 
     memset(&pctx, 0, sizeof(xqc_h3_frame_pctx_t));
-    ret = xqc_h3_frm_parse(oversized_settings, sizeof(oversized_settings), &pctx);
+    ret = xqc_h3_frm_parse(oversized_settings, sizeof(oversized_settings),
+                           &pctx, NULL);
     /* frame parser should return negative error for oversized SETTINGS */
     CU_ASSERT(ret < 0);
 
@@ -2647,7 +3338,8 @@ xqc_test_h3_settings_frame_size_limit()
     unsigned char normal_settings[] = { 0x04, 0x04, 0x06, 0x00, 0x01, 0x00 };
 
     memset(&pctx, 0, sizeof(xqc_h3_frame_pctx_t));
-    ret = xqc_h3_frm_parse(normal_settings, sizeof(normal_settings), &pctx);
+    ret = xqc_h3_frm_parse(normal_settings, sizeof(normal_settings),
+                           &pctx, NULL);
     /* normal-sized SETTINGS frame should parse successfully */
     CU_ASSERT(ret >= 0);
 }

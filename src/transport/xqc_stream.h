@@ -115,12 +115,51 @@ typedef struct xqc_stream_write_buff_list_s {
     uint64_t                total_len;
 } xqc_stream_write_buff_list_t;
 
+typedef enum {
+    XQC_RESET_AT_NONE = 0,
+    XQC_RESET_AT_READY,
+    XQC_RESET_AT_SENT,
+} xqc_stream_reset_at_send_state_t;
+
+typedef enum {
+    XQC_RESET_AT_RECV_NONE = 0,
+    XQC_RESET_AT_RELIABLE,
+    XQC_RESET_AT_ORDINARY,
+} xqc_stream_reset_at_recv_state_t;
+
+/* draft-ietf-quic-reliable-stream-reset-09 Sections 4 and 5. */
+typedef struct {
+    uint64_t                send_size;
+    uint64_t                send_final_size;
+    uint64_t                send_error;
+    uint64_t                recv_size;
+    uint64_t                recv_error;
+    xqc_bool_t              send_update_pending;
+    xqc_bool_t              send_reset_acked;
+    xqc_bool_t              recv_seen;
+    xqc_stream_reset_at_send_state_t send_state;
+    xqc_stream_reset_at_recv_state_t recv_state;
+} xqc_stream_reset_at_t;
+
+typedef struct {
+    xqc_list_head_t         list;
+    uint64_t                start;
+    uint64_t                end;
+} xqc_stream_ack_range_t;
+
 struct xqc_stream_s {
     xqc_connection_t       *stream_conn;
     xqc_stream_id_t         stream_id;
     xqc_stream_type_t       stream_type;
     void                   *user_data;
     xqc_stream_callbacks_t *stream_if;
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    /* A protocol adapter may retain a pending reset while queuing its prefix.
+     * -XQC_EAGAIN transfers reset completion to the adapter's writable path.
+     * The hook must not destroy the QUIC stream or notify application code. */
+    xqc_int_t            (*stop_sending_prepare)(xqc_stream_t *stream,
+        uint64_t error);
+#endif
 
     xqc_stream_flow_ctl_t   stream_flow_ctl;
     xqc_stream_write_buff_list_t
@@ -131,6 +170,9 @@ struct xqc_stream_s {
                             all_stream_list;
 
     uint64_t                stream_send_offset;
+    uint64_t                stream_acked_offset;
+    xqc_list_head_t         stream_acked_ranges;
+    xqc_stream_reset_at_t   reset_at;
     uint64_t                stream_max_recv_offset;
     xqc_stream_flag_t       stream_flag;
     xqc_encrypt_level_t     stream_encrypt_level;
@@ -286,6 +328,8 @@ int xqc_stream_do_send_flow_ctl(xqc_stream_t *stream);
 
 int xqc_stream_do_recv_flow_ctl(xqc_stream_t *stream);
 
+int xqc_stream_do_recv_conn_flow_ctl(xqc_stream_t *stream);
+
 int xqc_stream_do_create_flow_ctl(xqc_connection_t *conn, xqc_stream_id_t stream_id, xqc_stream_type_t stream_type);
 
 xqc_stream_t *xqc_passive_create_stream(xqc_connection_t *conn, xqc_stream_id_t stream_id, void *user_data);
@@ -328,4 +372,13 @@ void xqc_stream_close_discarded_stream(xqc_stream_t *stream);
 xqc_bool_t xqc_is_stream_finished(xqc_stream_t *stream);
 
 void xqc_record_stream_state(xqc_stream_t *stream);
+xqc_int_t xqc_stream_do_reset(xqc_stream_t *stream, uint64_t error_code);
+
+xqc_int_t xqc_stream_on_data_acked(xqc_stream_t *stream, uint64_t offset,
+    uint64_t length);
+void xqc_stream_on_reset_at_acked(xqc_stream_t *stream,
+    uint64_t reliable_size);
+
+void xqc_stream_complete_recv_reset(xqc_stream_t *stream,
+    uint64_t error_code, uint64_t final_size, xqc_bool_t consume_reset);
 #endif /* _XQC_STREAM_H_INCLUDED_ */

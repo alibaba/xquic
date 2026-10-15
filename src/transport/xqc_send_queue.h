@@ -97,11 +97,6 @@ void xqc_send_queue_drop_initial_packets(xqc_connection_t *conn);
 void xqc_send_queue_drop_handshake_packets(xqc_connection_t *conn);
 void xqc_send_queue_drop_stream_frame_packets(xqc_connection_t *conn, xqc_stream_id_t stream_id);
 
-
-
-
 #endif /* _XQC_SEND_QUEUE_H_INCLUDED_ */
-
-
 
 

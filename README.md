@@ -156,6 +156,15 @@ make -j
 sh ../scripts/xquic_test.sh
 ```
 
+## Optional WebTransport
+
+Native WebTransport is disabled by default. Configure with
+`-DXQC_ENABLE_WEBTRANSPORT=ON` to enable it. Validation and CI builds enable
+it by default. Use `XQC_ENABLE_WEBTRANSPORT=OFF ./scripts/validate.sh test`
+for disabled local validation. See
+[the WebTransport specification](harness/spec/webtransport/spec.md) for APIs,
+demos and endpoint checks.
+
 ## Documentation
 
 * For using the API, see the [API docs](./docs/API.md).

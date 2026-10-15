@@ -64,6 +64,11 @@ typedef enum {
     /* local SETTINGS is encoded and cannot be changed */
     XQC_H3_CONN_FLAG_SETTINGS_QUEUED            = 1 << 9,
 
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    /* native WebTransport framing has been negotiated */
+    XQC_H3_CONN_FLAG_WEBTRANSPORT               = 1 << 10,
+#endif
+
 } xqc_http3_conn_flag;
 
 typedef struct xqc_h3_conn_s {
@@ -96,6 +101,11 @@ typedef struct xqc_h3_conn_s {
     /* blocked streams */
     xqc_list_head_t              block_stream_head;
     uint64_t                     block_stream_count;
+
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    /* Extension-owned state; independent of application user data. */
+    void                       *extension_data;
+#endif
 
     /* h3 settings */
     xqc_h3_conn_settings_t       local_h3_conn_settings; /* set by user for sending to the peer */

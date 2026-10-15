@@ -1594,6 +1594,15 @@ xqc_process_stop_sending_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
         }
     }
 
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    if (stream->stop_sending_prepare) {
+        ret = stream->stop_sending_prepare(stream, err_code);
+        if (ret != XQC_OK) {
+            return ret == -XQC_EAGAIN ? XQC_OK : ret;
+        }
+    }
+#endif
+
     /*
      * An endpoint that receives a STOP_SENDING frame
      * MUST send a RESET_STREAM frame if the stream is in the Ready or Send

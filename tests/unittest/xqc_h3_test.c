@@ -24,13 +24,64 @@ xqc_int_t xqc_decoder_copy_header(xqc_http_header_t *hdr, xqc_var_buf_t *name, x
 xqc_int_t xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_len, xqc_bool_t fin_flag);
 
 
+void
+xqc_test_h3_optional_frame_accepted(void)
+{
+    xqc_h3_conn_t h3c = {0};
+    xqc_h3_frame_pctx_t pctx = {0};
+    unsigned char frame[] = {0x40, 0x41, 0x01, 0xff};
+
+    /* RFC 9114 Section 9: unnegotiated extension frames are ignored. */
+    CU_ASSERT(xqc_h3_frm_parse(frame, 1, &pctx, &h3c) == 1);
+    CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_TYPE);
+    CU_ASSERT(xqc_h3_frm_parse(frame + 1, 2, &pctx, &h3c) == 2);
+    CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_PAYLOAD);
+    CU_ASSERT(xqc_h3_frm_parse(frame + 3, 1, &pctx, &h3c) == 1);
+    CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_END);
+    xqc_h3_frm_reset_pctx(&pctx);
+
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    h3c.flags |= XQC_H3_CONN_FLAG_WEBTRANSPORT;
+#endif
+    frame[1] = 0x42;
+    CU_ASSERT(xqc_h3_frm_parse(frame, sizeof(frame), &pctx, &h3c)
+              == sizeof(frame));
+    CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_END);
+    xqc_h3_frm_reset_pctx(&pctx);
+}
+
+
+void
+xqc_test_h3_optional_frame_errors(void)
+{
+    xqc_h3_conn_t h3c = {0};
+    xqc_h3_frame_pctx_t pctx = {0};
+    unsigned char reserved[] = {0x02};
+
+    /* RFC 9114 Section 7.2.8: H2-reserved frames are always rejected. */
+    CU_ASSERT(xqc_h3_frm_parse(reserved, sizeof(reserved), &pctx, &h3c)
+              == -XQC_H3_RESERVED_FRAME_UNEXPECTED);
+    xqc_h3_frm_reset_pctx(&pctx);
+
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    /* draft-ietf-webtrans-http3-16 Section 4.3: not an H3 frame. */
+    unsigned char wt_type[] = {0x40, 0x41};
+    h3c.flags |= XQC_H3_CONN_FLAG_WEBTRANSPORT;
+    CU_ASSERT(xqc_h3_frm_parse(wt_type, 1, &pctx, &h3c) == 1);
+    CU_ASSERT(xqc_h3_frm_parse(wt_type + 1, 1, &pctx, &h3c)
+              == -XQC_H3_INVALID_FRAME_TYPE);
+    xqc_h3_frm_reset_pctx(&pctx);
+#endif
+}
+
+
 ssize_t
 xqc_test_frame_parse(const char *p, size_t sz, xqc_h3_frame_pctx_t *state)
 {
     ssize_t offset = 0;
     while (offset < sz) {
         ssize_t len = rand() % sz + 1;
-        ssize_t ret = xqc_h3_frm_parse(p + offset, len, state);
+        ssize_t ret = xqc_h3_frm_parse(p + offset, len, state, NULL);
         if (ret < 0) {
             return ret;
         }
@@ -165,7 +216,8 @@ xqc_test_frame()
     size_t reserved_frame_len = sizeof(reserved_frame) - 1;
     size_t reserved_consumed_len = 0;
     for (size_t i = 0; i < reserved_frame_len; i++) {
-        processed = xqc_h3_frm_parse(reserved_frame + reserved_consumed_len, 1, &pctx);
+        processed = xqc_h3_frm_parse(
+            reserved_frame + reserved_consumed_len, 1, &pctx, NULL);
         CU_ASSERT(processed > 0);
         reserved_consumed_len += processed;
     }
@@ -196,12 +248,12 @@ xqc_test_h3_single_vint_frame_valid()
         xqc_h3_frame_pctx_t pctx;
         memset(&pctx, 0, sizeof(pctx));
 
-        ssize_t processed = xqc_h3_frm_parse(frames[i], 3, &pctx);
+        ssize_t processed = xqc_h3_frm_parse(frames[i], 3, &pctx, NULL);
         CU_ASSERT(processed == 3);
         CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_PAYLOAD);
         CU_ASSERT(pctx.frame.consumed_len == 1);
 
-        processed = xqc_h3_frm_parse(frames[i] + 3, 1, &pctx);
+        processed = xqc_h3_frm_parse(frames[i] + 3, 1, &pctx, NULL);
         CU_ASSERT(processed == 1);
         CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_END);
         CU_ASSERT(pctx.frame.type == types[i]);
@@ -231,13 +283,13 @@ xqc_test_h3_single_vint_frame_length_error()
         xqc_h3_frame_pctx_t pctx;
         memset(&pctx, 0, sizeof(pctx));
 
-        ssize_t processed = xqc_h3_frm_parse(overlong[i], 3, &pctx);
+        ssize_t processed = xqc_h3_frm_parse(overlong[i], 3, &pctx, NULL);
         CU_ASSERT(processed == 3);
         CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_PAYLOAD);
         CU_ASSERT(pctx.frame.consumed_len == 1);
 
         processed = xqc_h3_frm_parse(overlong[i] + 3,
-                                     sizeof(overlong[i]) - 3, &pctx);
+                                     sizeof(overlong[i]) - 3, &pctx, NULL);
         CU_ASSERT(processed == -XQC_H3_DECODE_ERROR);
         CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_PAYLOAD);
         CU_ASSERT(pctx.frame.consumed_len == 2);
@@ -251,8 +303,8 @@ xqc_test_h3_single_vint_frame_length_error()
         xqc_h3_frame_pctx_t pctx;
         memset(&pctx, 0, sizeof(pctx));
 
-        ssize_t processed = xqc_h3_frm_parse(short_payload[i],
-                                             sizeof(short_payload[i]), &pctx);
+        ssize_t processed = xqc_h3_frm_parse(
+            short_payload[i], sizeof(short_payload[i]), &pctx, NULL);
         CU_ASSERT(processed == -XQC_H3_DECODE_ERROR);
         CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_PAYLOAD);
         CU_ASSERT(pctx.frame.consumed_len == 2);
@@ -1928,7 +1980,7 @@ xqc_test_h3_settings_frame_boundaries(void)
         unsigned char *end = xqc_put_varint(frame, structured[i]);
         end = xqc_put_varint(end, 0);
         xqc_h3_frame_pctx_t pctx = {0};
-        CU_ASSERT(xqc_h3_frm_parse(frame, end - frame, &pctx)
+        CU_ASSERT(xqc_h3_frm_parse(frame, end - frame, &pctx, NULL)
                   == -XQC_H3_DECODE_ERROR);
         CU_ASSERT(pctx.state != XQC_H3_FRM_STATE_END);
         xqc_h3_frm_reset_pctx(&pctx);
@@ -1940,9 +1992,9 @@ xqc_test_h3_settings_frame_boundaries(void)
     };
     for (size_t i = 0; i < sizeof(empty) / sizeof(empty[0]); i++) {
         xqc_h3_frame_pctx_t pctx = {0};
-        CU_ASSERT(xqc_h3_frm_parse(empty[i], 1, &pctx) == 1);
+        CU_ASSERT(xqc_h3_frm_parse(empty[i], 1, &pctx, NULL) == 1);
         CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_LEN);
-        CU_ASSERT(xqc_h3_frm_parse(empty[i] + 1, 1, &pctx) == 1);
+        CU_ASSERT(xqc_h3_frm_parse(empty[i] + 1, 1, &pctx, NULL) == 1);
         CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_END);
         xqc_h3_frm_reset_pctx(&pctx);
     }
@@ -2242,7 +2294,7 @@ xqc_test_h3_h2_reserved_frames_rejected()
         unsigned char frame[] = { frame_types[i], 0x00 };
         xqc_h3_frame_pctx_t pctx = {0};
         xqc_h3_frm_reset_pctx(&pctx);
-        CU_ASSERT(xqc_h3_frm_parse(frame, sizeof(frame), &pctx)
+        CU_ASSERT(xqc_h3_frm_parse(frame, sizeof(frame), &pctx, NULL)
                   == -XQC_H3_RESERVED_FRAME_UNEXPECTED);
         CU_ASSERT(pctx.frame.type == frame_types[i]);
         CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_LEN);
@@ -3130,7 +3182,8 @@ xqc_test_h3_settings_frame_size_limit()
     unsigned char oversized_settings[] = { 0x04, 0x60, 0x00, 0x00 };
 
     memset(&pctx, 0, sizeof(xqc_h3_frame_pctx_t));
-    ret = xqc_h3_frm_parse(oversized_settings, sizeof(oversized_settings), &pctx);
+    ret = xqc_h3_frm_parse(oversized_settings, sizeof(oversized_settings),
+                           &pctx, NULL);
     /* frame parser should return negative error for oversized SETTINGS */
     CU_ASSERT(ret < 0);
 
@@ -3142,7 +3195,8 @@ xqc_test_h3_settings_frame_size_limit()
     unsigned char normal_settings[] = { 0x04, 0x04, 0x06, 0x00, 0x01, 0x00 };
 
     memset(&pctx, 0, sizeof(xqc_h3_frame_pctx_t));
-    ret = xqc_h3_frm_parse(normal_settings, sizeof(normal_settings), &pctx);
+    ret = xqc_h3_frm_parse(normal_settings, sizeof(normal_settings),
+                           &pctx, NULL);
     /* normal-sized SETTINGS frame should parse successfully */
     CU_ASSERT(ret >= 0);
 }

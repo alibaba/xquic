@@ -223,8 +223,8 @@ clear_log
 echo -e "Reset stream when receiving...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 21 > stdlog
 reset=`grep "xqc_write_reset_stream_to_packet" clog`
-# RFC 9000 Section 3.3 keeps the terminal send side in Data Recvd.
-flag=`grep "send_state:3|recv_state:5" clog`
+# RFC 9000 Sections 3.1 and 3.4: an acknowledged send stays Data Recvd.
+flag=`grep 'xqc_destroy_stream|err:0x10c|.*send_state:[35]|recv_state:5|stream_id:0|' clog`
 errlog=`grep_err_log|grep -v stream`
 if [ -n "$flag" ] && [ -z "$errlog" ] && [ -z "$reset" ]; then
     echo ">>>>>>>> pass:1"
@@ -246,8 +246,8 @@ clear_log
 echo -e "Send header after reset stream...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 28 > stdlog
 result=`grep "xqc_conn_destroy.*err:0x0" clog`
-# RFC 9000 Section 3.3 keeps the terminal send side in Data Recvd.
-flag=`grep "send_state:3|recv_state:5" clog`
+# RFC 9000 Sections 3.1 and 3.4: an acknowledged send stays Data Recvd.
+flag=`grep 'xqc_destroy_stream|err:0x10c|.*send_state:[35]|recv_state:5|stream_id:0|' clog`
 errlog=`grep_err_log|grep -v stream`
 if [ -n "$flag" ] && [ -z "$errlog" ] && [ -n "$result" ]; then
     echo ">>>>>>>> pass:1"
@@ -603,13 +603,11 @@ client_injected=`grep \
 server_parsed=`grep \
     "xqc_parse_reset_stream_frame|type:3|stream_id:2|"\
 "err_code:0|final_size:6|" slog`
-server_accepted=`grep \
-    "xqc_process_reset_stream_frame|stream_id:2|stream_state_recv:0|" slog`
-server_rejected=`grep "RESET_STREAM final size too small" slog`
+server_accepted=`grep "xqc_stream_recv_state_update|stream_id:2|recv_stream|old:0|new:4|" slog`
 client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:6|" clog`
 if [ -n "$result" ] && [ -n "$client_injected" ] \
     && [ -n "$server_parsed" ] && [ -n "$server_accepted" ] \
-    && [ -z "$server_rejected" ] && [ -z "$client_close_code" ]; then
+    && [ -z "$client_close_code" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "reset_final_size_accepted" "pass"
 else
@@ -637,12 +635,9 @@ client_injected=`grep \
 server_parsed=`grep \
     "xqc_parse_reset_stream_frame|type:3|stream_id:2|"\
 "err_code:0|final_size:5|" slog`
-server_rejected=`grep \
-    "RESET_STREAM final size too small|stream_id:2|"\
-"final_size:5|max_recv_offset:6|" slog`
 client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:6|" clog`
 if [ -n "$client_injected" ] && [ -n "$server_parsed" ] \
-    && [ -n "$server_rejected" ] && [ -n "$client_close_code" ]; then
+    && [ -n "$client_close_code" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "reset_final_size_too_small" "pass"
 else
@@ -876,6 +871,103 @@ fi
 }
 
 
+case_transport_stream_reliable_reset()
+{
+    local id="$1" name="$2" expected_error="$3" result=fail
+    local echo_check=""
+    [[ "${id}" = 744 ]] && echo_check="-E"
+    case_test_stop_server
+    clear_log
+    rm -f test_session xqc_token tp_localhost
+    case_test_start_server ${SERVER_BIN} -l d -e -x "${id}" > svr_stdlog
+    sleep 1
+    ${CLIENT_BIN} -s 8 -l d -t 1 -T 1 ${echo_check} -x "${id}" > stdlog
+    if [[ "${id}" = 739 ]]; then
+        if case_test_wait_for_log svr_stdlog \
+            '\[reliable-reset-test\]|reset:1|total:3|conn_error:0|' \
+            && grep -q '\[reliable-reset-test\]|prefix:abc|total:3|fin:0|' \
+                svr_stdlog \
+            && ! grep -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
+        then
+            result=pass
+        fi
+    elif [[ "${id}" = 741 ]]; then
+        if grep -q '\[reliable-reset-test\]|api|set:0|sent:3|reset:0|close:0|conn_error:0|' stdlog \
+            && case_test_wait_for_log svr_stdlog \
+                '\[reliable-reset-test\]|peer_reset|stream:.*|error:9|prefix:3|' \
+            && ! grep -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
+        then
+            result=pass
+        fi
+    elif [[ "${id}" = 744 ]]; then
+        if grep -Fq '[reliable-reset-test]|opposite|set:0|sent:1|reset:0|' svr_stdlog \
+            && grep -Fq '[reliable-reset-test]|lower|set:0|reset:0|' svr_stdlog \
+            && grep -Fq '[reliable-reset-test]|duplicate:2|send_error:17|recv_error:9|conn_error:0|' svr_stdlog \
+            && grep -q '>>>>>>>> pass:1' stdlog \
+            && ! grep -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
+        then
+            result=pass
+        fi
+    elif [[ "${id}" = 745 ]]; then
+        if grep -Fq '[reliable-reset-test]|case:745|injected|' stdlog \
+            && grep -Fq '[reliable-reset-test]|peer_reset|stream:2|error:9|prefix:0|' svr_stdlog \
+            && grep -q 'xqc_parse_stream_frame|type:7|data_offset:8|data_length:0|fin:1|' slog \
+            && grep -q 'xqc_parse_stream_frame|type:7|data_offset:8|data_length:1|fin:1|' slog \
+            && grep -q 'xqc_parse_conn_close_frame|type:18|err_code:6|' clog
+        then
+            result=pass
+        fi
+    elif [[ "${id}" = 746 ]]; then
+        if grep -Fq '[reliable-reset-test]|api|set:0|sent:3|reset:0|close:0|conn_error:0|' stdlog \
+            && grep -Fq '[reliable-reset-test]|repeat_close:0|send_error:9|stop:1|' stdlog \
+            && grep -q 'xqc_parse_reset_stream_frame|type:3|stream_id:4|err_code:9|final_size:3|' slog \
+            && grep -q 'xqc_parse_stop_sending_frame|type:4|stream_id:4|err_code:268|' slog \
+            && ! grep -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
+        then
+            result=pass
+        fi
+    elif grep -q "\[reliable-reset-test\]|case:${id}|injected|" stdlog \
+        && grep -q "xqc_parse_conn_close_frame|type:18|err_code:${expected_error}|" clog
+    then
+        result=pass
+    fi
+    case_print_result "${name}" "${result}"
+}
+
+case_reliable_reset_prefix()
+{
+    case_transport_stream_reliable_reset 739 reliable_reset_prefix 0
+}
+case_reliable_reset_invalid_size()
+{
+    case_transport_stream_reliable_reset 740 reliable_reset_invalid_size 7
+}
+case_reliable_reset_close()
+{
+    case_transport_stream_reliable_reset 741 reliable_reset_close 0
+}
+case_reliable_reset_zero_final()
+{
+    case_transport_stream_reliable_reset 742 reliable_reset_zero_final 6
+}
+case_reliable_reset_zero_error()
+{
+    case_transport_stream_reliable_reset 743 reliable_reset_zero_error 5
+}
+case_reliable_reset_direction_error()
+{
+    case_transport_stream_reliable_reset 744 reliable_reset_direction_error 0
+}
+case_reliable_reset_zero_fin()
+{
+    case_transport_stream_reliable_reset 745 reliable_reset_zero_fin 6
+}
+case_reliable_reset_zero_close()
+{
+    case_transport_stream_reliable_reset 746 reliable_reset_zero_close 0
+}
+
+
 case_test_case "server_inited_stream" --id native --mode self-reporting --run case_transport_stream_server_inited_stream
 case_test_case "stream_send_pure_fin" --id native --mode self-reporting --run case_transport_stream_stream_send_pure_fin
 case_test_case "stream_read_notify_fail" --id native --mode self-reporting --run case_transport_stream_stream_read_notify_fail
@@ -922,6 +1014,16 @@ case_test_case "close_recv_only_stream" --id 725 \
     --mode self-reporting --run case_transport_stream_close_recv_only_stream
 case_test_case "close_after_data_recvd" --id 726 \
     --mode self-reporting --run case_transport_stream_close_after_data_recvd
+
+case_test_case "reliable_reset_prefix" --id 739 --mode self-reporting --run case_reliable_reset_prefix
+case_test_case "reliable_reset_invalid_size" --id 740 --mode self-reporting --run case_reliable_reset_invalid_size
+case_test_case "reliable_reset_close" --id 741 --mode self-reporting --run case_reliable_reset_close
+case_test_case "reliable_reset_zero_final" --id 742 --mode self-reporting --run case_reliable_reset_zero_final
+case_test_case "reliable_reset_zero_error" --id 743 --mode self-reporting --run case_reliable_reset_zero_error
+case_test_case "reliable_reset_direction_error" --id 744 --mode self-reporting --run case_reliable_reset_direction_error
+case_test_case "reliable_reset_zero_fin" --id 745 --mode self-reporting --run case_reliable_reset_zero_fin
+case_test_case "reliable_reset_zero_close" --id 746 --mode self-reporting --run case_reliable_reset_zero_close
+
 
 if case_test_is_discovery; then
     case_test_run

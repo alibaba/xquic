@@ -248,6 +248,7 @@ xqc_server_set_conn_settings(xqc_engine_t *engine, const xqc_conn_settings_t *se
 
     engine->default_conn_settings.keyupdate_pkt_threshold = settings->keyupdate_pkt_threshold;
     engine->default_conn_settings.max_datagram_frame_size = settings->max_datagram_frame_size;
+    engine->default_conn_settings.enable_reset_stream_at = settings->enable_reset_stream_at;
 
     if (settings->max_pkt_out_size != 0) {
         engine->default_conn_settings.max_pkt_out_size = settings->max_pkt_out_size;
@@ -575,6 +576,7 @@ xqc_conn_init_trans_settings(xqc_connection_t *conn)
     ls->enable_pmtud = conn->conn_settings.enable_pmtud;
 
     ls->max_datagram_frame_size = conn->conn_settings.max_datagram_frame_size;
+    ls->reset_stream_at = conn->conn_settings.enable_reset_stream_at;
     ls->disable_active_migration = ls->enable_multipath ? 0 : 1;
 
     ls->max_ack_delay = conn->conn_settings.max_ack_delay;
@@ -1142,6 +1144,8 @@ xqc_conn_create_server_tls(xqc_connection_t *conn)
     if (ret != XQC_OK) {
         return ret;
     }
+
+    cfg.reset_stream_at = conn->local_settings.reset_stream_at;
 
     /* create tls instance */
     conn->tls = xqc_tls_create(conn->engine->tls_ctx, &cfg, conn->log, conn);
@@ -5674,6 +5678,7 @@ xqc_conn_reassemble_packet(xqc_connection_t *conn, xqc_packet_out_t *ori_po)
 
     /* copy packet_out info */
     new_po->po_frame_types = ori_po->po_frame_types;
+    new_po->po_stream_frames_idx = ori_po->po_stream_frames_idx;
     for (int i = 0; i < XQC_MAX_STREAM_FRAME_IN_PO; i++) {
         new_po->po_stream_frames[i] = ori_po->po_stream_frames[i];
     }
@@ -5839,6 +5844,7 @@ xqc_conn_set_remote_transport_params(xqc_connection_t *conn,
     settings->multipath_version = params->multipath_version;
     settings->init_max_path_id = params->init_max_path_id;
     settings->max_datagram_frame_size = params->max_datagram_frame_size;
+    settings->reset_stream_at = params->reset_stream_at;
     settings->close_dgram_redundancy = params->close_dgram_redundancy;
     settings->enable_pmtud = params->enable_pmtud;
 
@@ -5919,6 +5925,7 @@ xqc_conn_get_local_transport_params(xqc_connection_t *conn, xqc_transport_params
     params->multipath_version = settings->multipath_version;
     params->init_max_path_id = settings->init_max_path_id;
     params->max_datagram_frame_size = settings->max_datagram_frame_size;
+    params->reset_stream_at = settings->reset_stream_at;
     /* XQC_PMTUD_FORCE_ENABLE is a local-only sender policy. */
     params->enable_pmtud = settings->enable_pmtud & XQC_PMTUD_ENABLE_MASK;
 
@@ -6174,6 +6181,22 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
         && xqc_tls_is_early_data_accepted(conn->tls) == XQC_TLS_EARLY_DATA_ACCEPT)
     {
         xqc_trans_settings_t *remembered = &conn->remote_settings;
+
+        /*
+         * draft-ietf-quic-reliable-stream-reset-09 Section 3: a server that
+         * accepts 0-RTT MUST NOT disable remembered reset support. TLS has
+         * already reported acceptance here (RFC 9001 Section 4.6.2).
+         * Updating transport parameters cannot undo the peer's processing
+         * of 0-RTT, so treat this downgrade as invalid peer parameters.
+         *
+         * If TLS rejects 0-RTT, the outer check is skipped. The normal path
+         * below installs the new parameters and invokes save_tp_cb; the
+         * handshake rejection path replays the rejected data in 1-RTT.
+         */
+        if (remembered->reset_stream_at && !params.reset_stream_at) {
+            XQC_CONN_ERR(conn, TRA_TRANSPORT_PARAMETER_ERROR);
+            return;
+        }
 
         /*
          * MUST parameters -- server MUST NOT reduce these after 0-RTT is
@@ -6545,6 +6568,7 @@ xqc_settings_copy_from_transport_params(xqc_trans_settings_t *dest,
     dest->enable_multipath = src->enable_multipath;
     dest->init_max_path_id = src->init_max_path_id;
     dest->max_datagram_frame_size = src->max_datagram_frame_size;
+    dest->reset_stream_at = src->reset_stream_at;
     dest->enable_pmtud = src->enable_pmtud;
 }
 
@@ -6779,7 +6803,9 @@ xqc_conn_decrease_unacked_stream_ref(xqc_connection_t *conn, xqc_packet_out_t *p
                     }
 
                     /* Update stream state */
-                    if (stream->stream_unacked_pkt == 0 && stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_SENT) {
+                    if (stream->stream_unacked_pkt == 0
+                        && stream->reset_at.send_state != XQC_RESET_AT_SENT
+                        && stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_SENT) {
                         xqc_stream_send_state_update(stream, XQC_SEND_STREAM_ST_DATA_RECVD);
                         xqc_log(conn->log, XQC_LOG_DEBUG, "|stream enter DATA RECVD|stream_id:%d", stream->stream_id);
                         xqc_stream_maybe_need_close(stream);
@@ -6832,7 +6858,10 @@ xqc_conn_update_stream_stats_on_sent(xqc_connection_t *conn, xqc_send_ctl_t *ctl
     int stream_cnt = 0;
     int i, j;
 
-    if (packet_out->po_frame_types & (XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_RESET_STREAM)) {
+    if (packet_out->po_frame_types
+        & (XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_RESET_STREAM
+           | XQC_FRAME_BIT_RESET_STREAM_AT))
+    {
         for (i = 0; i < XQC_MAX_STREAM_FRAME_IN_PO; i++) {
             if (packet_out->po_stream_frames[i].ps_is_used == 0) {
                 break;
@@ -6855,7 +6884,9 @@ xqc_conn_update_stream_stats_on_sent(xqc_connection_t *conn, xqc_send_ctl_t *ctl
                         stream[stream_cnt]->stream_stats.local_fst_fin_snd_time = now;
                     }
                 }
-                if (packet_out->po_stream_frames[i].ps_is_reset) {
+                if (packet_out->po_stream_frames[i].ps_is_reset
+                    || packet_out->po_stream_frames[i].ps_is_reset_at)
+                {
                     stream[stream_cnt]->stream_stats.local_reset_time = now;
                 }
                 // do not repeatedly count

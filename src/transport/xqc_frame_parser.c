@@ -516,6 +516,85 @@ xqc_gen_padding_frame_with_len(xqc_connection_t *conn, xqc_packet_out_t *packet_
     return XQC_OK;
 }
 
+/* draft-ietf-quic-reliable-stream-reset-09 Section 4. */
+ssize_t
+xqc_gen_reset_stream_at_frame(xqc_packet_out_t *packet_out,
+    xqc_stream_id_t stream_id, uint64_t error, uint64_t final_size,
+    uint64_t reliable_size)
+{
+    if (stream_id > XQC_VINT_MAX || error > XQC_VINT_MAX
+        || final_size > XQC_VINT_MAX || reliable_size > final_size)
+    {
+        return -XQC_EPARAM;
+    }
+
+    size_t need = 1 + xqc_put_varint_len(stream_id)
+                   + xqc_put_varint_len(error)
+                   + xqc_put_varint_len(final_size)
+                   + xqc_put_varint_len(reliable_size);
+    if (need > xqc_get_po_remained_size(packet_out)) {
+        return -XQC_ENOBUF;
+    }
+
+    unsigned char *p = packet_out->po_buf + packet_out->po_used_size;
+    p = xqc_put_varint(p, XQC_FRAME_TYPE_RESET_STREAM_AT);
+    p = xqc_put_varint(p, stream_id);
+    p = xqc_put_varint(p, error);
+    p = xqc_put_varint(p, final_size);
+    p = xqc_put_varint(p, reliable_size);
+    packet_out->po_frame_types |= XQC_FRAME_BIT_RESET_STREAM_AT;
+    return need;
+}
+
+xqc_int_t
+xqc_parse_reset_stream_at_frame(xqc_packet_in_t *packet_in,
+    xqc_stream_id_t *stream_id, uint64_t *error, uint64_t *final_size,
+    uint64_t *reliable_size)
+{
+    uint64_t type;
+    unsigned char *p = packet_in->pos;
+    const unsigned char *end = packet_in->last;
+
+    int vlen = xqc_vint_read(p, end, &type);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    vlen = xqc_vint_read(p, end, stream_id);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    vlen = xqc_vint_read(p, end, error);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    vlen = xqc_vint_read(p, end, final_size);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    vlen = xqc_vint_read(p, end, reliable_size);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    if (type != XQC_FRAME_TYPE_RESET_STREAM_AT
+        || *reliable_size > *final_size)
+    {
+        return -XQC_EPROTO;
+    }
+    packet_in->pos = p;
+    packet_in->pi_frame_types |= XQC_FRAME_BIT_RESET_STREAM_AT;
+    return XQC_OK;
+}
+
 xqc_int_t
 xqc_parse_padding_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn)
 {

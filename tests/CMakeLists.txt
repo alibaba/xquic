@@ -81,6 +81,8 @@ if(HAVE_CUNIT)
 
     set(test_SOURCES
         ${UNIT_TEST_DIR}/main.c
+        ${UNIT_TEST_DIR}/xqc_reliable_reset_test.c
+        ${UNIT_TEST_DIR}/xqc_reset_stream_frame_test.c
         ${UNIT_TEST_DIR}/xqc_random_test.c
         ${UNIT_TEST_DIR}/xqc_pq_test.c
         ${UNIT_TEST_DIR}/xqc_common_test.c

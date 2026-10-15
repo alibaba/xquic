@@ -115,11 +115,16 @@ echo -e "MPNS multipath 30 percent loss close initial path ...\c"
 mpns_loss_close_initial_pass=0
 mpns_loss_close_initial_attempt=1
 while [ $mpns_loss_close_initial_attempt -le 2 ]; do
+    # Use 1-RTT setup on every attempt, independent of session state left
+    # by preceding cases or an earlier attempt in this shared work directory.
+    rm -f test_session xqc_token tp_localhost
     clear_log
     if [ $mpns_loss_close_initial_attempt -gt 1 ]; then
         echo -e " retry ${mpns_loss_close_initial_attempt} ...\c"
     fi
-    case_test_sudo ${CLIENT_BIN} -s 10240 -t 25 -l d -E -d 300 -M -A -i lo -i lo -x 100 -e 10 --epoch_timeout 2000000 > stdlog
+    # Keep the spare path alive until the scheduled initial-path close;
+    # otherwise induced loss can leave path 0 as the only active path.
+    case_test_sudo ${CLIENT_BIN} -s 10240 -t 25 -l d -E -d 300 -M -A -i lo -i lo -x 100 -e 10 --epoch_timeout 2000000 --mp_ping 1 > stdlog
     result_fail=`grep ">>>>>>>> pass:0" stdlog`
     result_pass=`grep ">>>>>>>> pass:1" stdlog`
     ignored_errlog=`grep_err_log \

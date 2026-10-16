@@ -44,6 +44,10 @@ xqc_int_t xqc_decoder_set_dtable_cap(xqc_decoder_t *dec, uint64_t cap);
  */
 xqc_int_t xqc_decoder_duplicate(xqc_decoder_t *dec, uint64_t idx);
 
+/* Get the logical size of a Duplicate target addressed by relative index. */
+xqc_int_t xqc_decoder_get_duplicate_entry_size(xqc_decoder_t *dec, uint64_t idx,
+    size_t *size);
+
 
 /**
  * @brief insert name-value pair into decoder's dynamic table

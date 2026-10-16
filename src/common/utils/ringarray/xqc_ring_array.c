@@ -221,10 +221,12 @@ xqc_rarray_resize(xqc_rarray_t *ra, uint64_t cap)
     if (ra->cap != 0) {
         /* copy data from original buf to the begin of new buf */
         uint64_t end = (ra->offset + ra->count) & ra->mask; /* end index */
-        if (end >= ra->offset) {
+        if (end > ra->offset || ra->count == 0) {
+            /* data is continuous, or array is empty */
             memcpy(buf, ra->buf + ra->offset * ra->esize, ra->count * ra->esize);
 
         } else {
+            /* data wraps around: end == offset when count == cap (full array) */
             memcpy(buf, ra->buf + ra->offset * ra->esize, (ra->cap - ra->offset) * ra->esize);
             memcpy(buf + (ra->cap - ra->offset) * ra->esize, ra->buf, end * ra->esize);
         }

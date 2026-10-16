@@ -537,6 +537,7 @@ struct xqc_connection_s {
         xqc_packet_number_t         pkt_pn[3];
         uint8_t                     curr_index;
         uint32_t                    conn_rcvd_pkts;
+        uint32_t                    conn_authenticated_pkts;
         uint32_t                    conn_udp_pkts;
     } rcv_pkt_stats;
 
@@ -671,6 +672,7 @@ xqc_int_t xqc_conn_check_handshake_complete(xqc_connection_t *conn);
 xqc_int_t xqc_conn_get_available_path_id(xqc_connection_t *conn, uint64_t *path_id);
 xqc_int_t xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to);
 xqc_int_t xqc_conn_check_dcid(xqc_connection_t *conn, xqc_cid_t *dcid);
+void xqc_conn_purge_removed_scid(xqc_connection_t *conn, xqc_cid_inner_t *inner_cid);
 void xqc_conn_destroy_cids(xqc_connection_t *conn);
 xqc_int_t xqc_conn_update_user_scid(xqc_connection_t *conn);
 xqc_int_t xqc_conn_set_cid_retired_ts(xqc_connection_t *conn, xqc_cid_inner_t *inner_cid);
@@ -729,7 +731,10 @@ void xqc_conn_closing(xqc_connection_t *conn);
 
 void xqc_conn_closing_notify(xqc_connection_t *conn);
 
-xqc_int_t xqc_conn_send_path_challenge(xqc_connection_t *conn, xqc_path_ctx_t *path);
+xqc_int_t xqc_conn_send_rebinding_path_challenge(xqc_connection_t *conn,
+    xqc_path_ctx_t *path, const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    unsigned char *challenge_data, xqc_bool_t min_padding, uint64_t max_send_bytes,
+    size_t *sent_bytes);
 
 int xqc_conn_buff_0rtt_datagram(xqc_connection_t *conn, void *data, size_t data_len, uint64_t dgram_id, xqc_data_qos_level_t qos_level);
 

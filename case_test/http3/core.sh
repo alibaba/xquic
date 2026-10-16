@@ -8,6 +8,117 @@ source "${ROOT_DIR}/case_test/lib/common.sh"
 
 case_test_group "http3.core"
 
+case_http3_core_split_data_fin()
+{
+    local case_id="$1"
+    local sender="$2"
+    local receiver="$3"
+    local kind="$4"
+    local repeats="${CASE_TEST_H3_SPLIT_FIN_REPEATS:-1}"
+    local run ok=0 missing_eof=0 other_failure=0
+    local sender_log receiver_log run_dir client_status
+    local prefix="\[h3-split-fin-test\]|case:${case_id}|"
+    local close_state='stream_err:0|failed:0|'
+    local data_sent="${prefix}peer:${sender}|stage:data_sent|"
+    data_sent+='bytes:117|fin:0|'
+    local fin_sent="${prefix}peer:${sender}|stage:fin_sent|kind:${kind}|"
+    fin_sent+='ret:0|failed:0|'
+    local body_read="${prefix}peer:${receiver}|stage:body_read|"
+    body_read+='bytes:117|app_fin:0|'
+    local sender_close="${prefix}peer:${sender}|stage:close|"
+    sender_close+='bytes:117|app_fin:1|body_before_fin:0|fin_sent:1|'
+    # Transport FIN can precede H3 request type identification, leaving
+    # the FIN timestamp unset even though application EOF was read.
+    sender_close+="fin_seen:[01]|rcv_e_set:1|${close_state}"
+    local receiver_close="${prefix}peer:${receiver}|stage:close|"
+    local receiver_state='body_before_fin:1|fin_sent:0|fin_seen:1|'
+    local receiver_ok="${receiver_close}bytes:117|app_fin:1|${receiver_state}"
+    receiver_ok+="rcv_e_set:1|${close_state}"
+    local receiver_missing="${receiver_close}bytes:117|app_fin:0|"
+    receiver_missing+="${receiver_state}rcv_e_set:0|${close_state}"
+
+    if ! [[ "${repeats}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "CASE_TEST_H3_SPLIT_FIN_REPEATS must be a positive integer"
+        return 1
+    fi
+
+    if [[ "${sender}" == client ]]; then
+        sender_log=stdlog
+        receiver_log=svr_stdlog
+    else
+        sender_log=svr_stdlog
+        receiver_log=stdlog
+    fi
+
+    for ((run = 1; run <= repeats; run++)); do
+        case_test_stop_server
+        clear_log
+        rm -f test_session xqc_token tp_localhost stdlog svr_stdlog
+        case_test_start_server ${SERVER_BIN} -l d -e -x "${case_id}" \
+            > svr_stdlog 2>&1
+        client_status=0
+        ${CLIENT_BIN} -s 117 -n 1 -l d -t 2 -E -x "${case_id}" \
+            > stdlog 2>&1 || client_status=$?
+        case_test_wait_for_log svr_stdlog \
+            "${prefix}peer:server|stage:close|" 40 0.05 || true
+
+        local prerequisites=0
+        if [[ "${client_status}" -eq 0 ]] \
+            && grep -q "${data_sent}" "${sender_log}" \
+            && grep -q "${fin_sent}" "${sender_log}" \
+            && grep -q "${body_read}" "${receiver_log}" \
+            && grep -q "${sender_close}" "${sender_log}" \
+            && grep -q 'conn_err:0' stdlog \
+            && [[ -z "$(grep_err_log)" ]]; then
+            prerequisites=1
+        fi
+
+        if [[ "${prerequisites}" -eq 1 ]] \
+            && grep -q "${receiver_ok}" "${receiver_log}" \
+            && grep -q '>>>>>>>> pass:1' stdlog; then
+            ok=$((ok + 1))
+            echo "[h3-split-fin-test] case:${case_id} run:${run} EOF received"
+        elif [[ "${prerequisites}" -eq 1 ]] \
+            && grep -q "${receiver_missing}" "${receiver_log}"; then
+            missing_eof=$((missing_eof + 1))
+            echo "[h3-split-fin-test] case:${case_id} run:${run} FIN received, application EOF missing"
+            grep '\[h3-split-fin-test\]' stdlog svr_stdlog || true
+        else
+            other_failure=$((other_failure + 1))
+            echo "[h3-split-fin-test] case:${case_id} run:${run} precondition or transfer failed"
+            grep '\[h3-split-fin-test\]' stdlog svr_stdlog || true
+        fi
+
+        run_dir="h3-split-fin-${case_id}/run-${run}"
+        mkdir -p "${run_dir}"
+        cp stdlog svr_stdlog clog slog "${run_dir}/"
+    done
+
+    case_test_stop_server
+    echo "[h3-split-fin-test] case:${case_id} runs:${repeats} ok:${ok} missing_eof:${missing_eof} other_failure:${other_failure}"
+    [[ "${ok}" -eq "${repeats}" ]]
+}
+
+case_http3_core_h3_uplink_pure_fin()
+{
+    case_http3_core_split_data_fin 1032 client server pure
+}
+
+case_http3_core_h3_downlink_pure_fin()
+{
+    case_http3_core_split_data_fin 1033 server client pure
+}
+
+case_http3_core_h3_uplink_empty_data_fin()
+{
+    case_http3_core_split_data_fin 1034 client server empty_data
+}
+
+case_http3_core_h3_downlink_empty_data_fin()
+{
+    case_http3_core_split_data_fin 1035 server client empty_data
+}
+
 case_http3_core_h3_stream_send_pure_fin()
 {
 case_test_stop_server
@@ -347,7 +458,7 @@ sleep 1
 clear_log
 echo -e "test client long header ...\c"
 ${CLIENT_BIN} -G -l d -x 29 >> clog
-slog_res=`grep -a "large nv|conn" slog`
+slog_res=`grep -a "field section exceeds local limit" slog`
 stream_reset=`grep -a "xqc_parse_reset_stream_frame|" clog \
     | grep "err_code:270"`
 if [ -n "$stream_reset" ] && [ -n "$slog_res" ]; then
@@ -1344,6 +1455,14 @@ case_http3_core_custom_settings_reject()
 case_http3_core_custom_settings 1027 h3_custom_settings_reject
 }
 
+case_test_case "h3_uplink_pure_fin" --id 1032 \
+    --run case_http3_core_h3_uplink_pure_fin
+case_test_case "h3_downlink_pure_fin" --id 1033 \
+    --run case_http3_core_h3_downlink_pure_fin
+case_test_case "h3_uplink_empty_data_fin" --id 1034 \
+    --run case_http3_core_h3_uplink_empty_data_fin
+case_test_case "h3_downlink_empty_data_fin" --id 1035 \
+    --run case_http3_core_h3_downlink_empty_data_fin
 
 case_test_case "h3_stream_send_pure_fin" --id native --mode self-reporting --run case_http3_core_h3_stream_send_pure_fin
 case_test_case "header_header_data" --id native --mode self-reporting --run case_http3_core_header_header_data

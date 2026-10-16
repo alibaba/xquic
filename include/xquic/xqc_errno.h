@@ -328,6 +328,7 @@ typedef enum {
     XQC_QPACK_DYNAMIC_TABLE_NOT_ENOUGH  = 913,  /**< dynamic table not enough */
     XQC_QPACK_HUFFMAN_DEC_ERROR         = 914,  /**< huffman decode error */
     XQC_QPACK_HUFFMAN_DEC_STATE_ERROR   = 915,  /**< huffman decode state error */
+    XQC_QPACK_DYNAMIC_TABLE_EXCESSIVE_LOAD = 916, /**< peer Duplicate work limit exceeded */
 
     XQC_QPACK_ERR_MAX,
 } xqc_qpack_error_t;

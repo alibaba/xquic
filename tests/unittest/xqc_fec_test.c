@@ -9,6 +9,7 @@
 #include "src/transport/xqc_fec.h"
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_packet_out.h"
+#include "src/transport/fec_schemes/xqc_reed_solomon.h"
 #include "xqc_common_test.h"
 
 xqc_fec_schemes_e fec_schemes[XQC_FEC_MAX_SCHEME_NUM] = {0, XQC_XOR_CODE, XQC_REED_SOLOMON_CODE, XQC_PACKET_MASK_CODE};
@@ -220,6 +221,55 @@ xqc_test_process_src_syb()
     xqc_engine_destroy(conn->engine);
 }
 
+static void
+xqc_test_fec_symbol_index_bounds(void)
+{
+    xqc_int_t ret;
+    uint64_t symbol_flag;
+    unsigned char source_symbol[1] = {0};
+    xqc_connection_t *conn = test_engine_connect_fec();
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    conn->remote_settings.fec_max_symbols_num = XQC_FEC_MAX_SYMBOL_NUM_PBLOCK;
+    ret = xqc_process_src_symbol(conn, 0, XQC_FEC_MAX_SYMBOL_NUM_PBLOCK - 1,
+                                 source_symbol, sizeof(source_symbol));
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    symbol_flag = xqc_get_symbol_flag(conn, 0);
+    CU_ASSERT_EQUAL(symbol_flag,
+                    1ULL << (XQC_FEC_MAX_SYMBOL_NUM_PBLOCK - 1));
+
+    ret = xqc_process_src_symbol(conn, 0, XQC_FEC_MAX_SYMBOL_NUM_PBLOCK,
+                                 source_symbol, sizeof(source_symbol));
+    CU_ASSERT_EQUAL(ret, -XQC_EFEC_SYMBOL_ERROR);
+
+    conn->conn_settings.fec_params.fec_decoder_scheme = XQC_PACKET_MASK_CODE;
+    conn->remote_settings.fec_max_symbols_num = 3;
+    ret = xqc_process_src_symbol(conn, 1, XQC_FEC_MAX_SYMBOL_NUM_PBLOCK - 1,
+                                 source_symbol, sizeof(source_symbol));
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+static void
+xqc_test_reed_solomon_symbol_index_bound(void)
+{
+    xqc_int_t ret;
+    unsigned char input[1] = {0};
+    unsigned char output[1] = {0};
+    unsigned char *outputs[1] = {output};
+    unsigned char gm[1][XQC_RSM_COL] = {{0}};
+
+    ret = xqc_rs_code_one_symbol(gm, input, outputs, 1, sizeof(input),
+                                 XQC_FEC_MAX_SYMBOL_NUM_PBLOCK - 1);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+
+    ret = xqc_rs_code_one_symbol(gm, input, outputs, 1, sizeof(input),
+                                 XQC_FEC_MAX_SYMBOL_NUM_PBLOCK);
+    CU_ASSERT_EQUAL(ret, -XQC_EFEC_SCHEME_ERROR);
+}
+
 void
 xqc_test_fec()
 {
@@ -230,4 +280,6 @@ xqc_test_fec()
     xqc_test_chk_fec_param();
     xqc_test_encoder_chk_param();
     xqc_test_process_src_syb();
+    xqc_test_fec_symbol_index_bounds();
+    xqc_test_reed_solomon_symbol_index_bound();
 }

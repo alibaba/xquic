@@ -6,12 +6,14 @@ xqc_h3_headers_create_buf(xqc_http_headers_t *headers, size_t capacity)
     headers->headers = xqc_malloc(sizeof(xqc_http_header_t) * capacity);
     if (headers->headers == NULL) {
         headers->count = 0;
+        headers->total_len = 0;
         headers->capacity = 0;
         return -XQC_H3_EMALLOC;
     }
 
     headers->capacity = capacity;
     headers->count = 0;
+    headers->total_len = 0;
     return XQC_OK;
 }
 
@@ -65,6 +67,7 @@ xqc_h3_headers_clear(xqc_http_headers_t *headers)
     }
 
     headers->count = 0;
+    headers->total_len = 0;
 }
 
 
@@ -82,6 +85,7 @@ xqc_h3_headers_free(xqc_http_headers_t *headers)
     xqc_free(headers->headers);
     headers->headers = NULL;
     headers->count = 0;
+    headers->total_len = 0;
     headers->capacity = 0;
 }
 
@@ -91,6 +95,7 @@ xqc_h3_headers_initial(xqc_http_headers_t *headers)
 {
     headers->headers = NULL;
     headers->count = 0;
+    headers->total_len = 0;
     headers->capacity = 0;
 }
 

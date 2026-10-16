@@ -7,5 +7,7 @@
 
 
 void xqc_test_ring_mem();
+void xqc_test_ring_mem_resize_wrapped();
+void xqc_test_ring_mem_copy_bounds();
 
 #endif

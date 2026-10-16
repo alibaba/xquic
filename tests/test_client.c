@@ -21,11 +21,13 @@
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_request.h"
 #include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_engine.h"
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_frame_parser.h"
 #include "src/tls/xqc_crypto.h"
 #include "src/tls/xqc_tls.h"
 #include "platform.h"
+#include "test_h3_split_fin.h"
 #ifndef XQC_SYS_WINDOWS
 #include <unistd.h>
 #include <sys/socket.h>
@@ -73,6 +75,7 @@ printf_null(const char *format, ...)
 
 #define XQC_MAX_LOG_LEN 2048
 
+#define XQC_TEST_CASE_MP_FROZEN_UNNEGOTIATED 1302
 #define XQC_TEST_CASE_H3_RESERVED_UNI_STREAM 1000
 #define XQC_TEST_CASE_H3_CLIENT_PUSH_STREAM 1001
 #define XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME 1002
@@ -189,12 +192,14 @@ typedef struct user_stream_s {
     int                      body_read_notify_cnt;
     int                      h3_test_frame_queued;
     int                      h3_test_request_index;
+    int                      mp_frozen_injected;
     xqc_usec_t               last_recv_log_time;
     uint64_t                 recv_log_bytes;
 
     xqc_h3_ext_bytestream_t *h3_ext_bs;
     struct event            *ev_bytestream_timer;
     struct event            *ev_stream_close_timer;
+    xqc_test_h3_split_fin_t  split_fin;
 
     int                      snd_times;
     int                      rcv_times;
@@ -496,6 +501,7 @@ static void xqc_client_bytestream_timeout_callback(int, short, void*);
 /* 用于路径增删debug */
 static void xqc_client_path_callback(int fd, short what, void *arg);
 static void xqc_client_epoch_callback(int fd, short what, void *arg);
+static void xqc_client_ready_to_create_path(const xqc_cid_t *cid, void *conn_user_data);
 
 /*  */
 
@@ -1989,7 +1995,19 @@ xqc_client_path_removed(const xqc_cid_t *scid, uint64_t path_id,
             
             printf("***** path removed. index: %d, path_id: %" PRIu64 "\n", i, path_id);
 
-            xqc_client_set_path_debug_timer(user_conn);
+            if (g_test_case == 100 && path_id != XQC_INITIAL_PATH_ID) {
+                /* 次路径验证失败后迅速重试，避免初始路径成为唯一活跃路径。 */
+                struct timeval tv = { .tv_sec = 0, .tv_usec = 100000 };
+                if (user_conn->ev_path == NULL) {
+                    user_conn->ev_path = event_new(eb, -1, 0, xqc_client_path_callback,
+                                                   user_conn);
+                }
+                printf("[mpns-close-initial]|retry_path_after_removal|\n");
+                event_add(user_conn->ev_path, &tv);
+
+            } else {
+                xqc_client_set_path_debug_timer(user_conn);
+            }
             
             break;
         }
@@ -3392,9 +3410,62 @@ xqc_client_request_send_fin_only(int fd, short what, void *arg)
     }
 }
 
+static void
+xqc_client_try_inject_mp_frozen(user_stream_t *user_stream)
+{
+    xqc_connection_t *conn;
+    xqc_path_ctx_t *path;
+    xqc_app_path_status_t path_status;
+    xqc_multipath_version_t mp_version;
+    xqc_int_t ret;
+    client_ctx_t *p_ctx;
+
+    if (g_test_case != XQC_TEST_CASE_MP_FROZEN_UNNEGOTIATED
+        || user_stream->mp_frozen_injected)
+    {
+        return;
+    }
+
+    p_ctx = g_test_qch_mode ? user_stream->user_conn->ctx : &ctx;
+    conn = xqc_engine_conns_hash_find(p_ctx->engine,
+                                       &user_stream->user_conn->cid, 's');
+    if (conn == NULL || !(conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT)) {
+        return;
+    }
+
+    path = conn->conn_initial_path;
+    if (path == NULL) {
+        printf("mp_frozen_injection_failed:no_initial_path\n");
+        return;
+    }
+
+    path_status = path->app_path_status;
+    mp_version = conn->conn_settings.multipath_version;
+    conn->conn_settings.multipath_version = XQC_MULTIPATH_10;
+    path->app_path_status = XQC_APP_PATH_STATUS_FROZEN;
+    ret = xqc_write_path_status_frame_to_packet(conn, path);
+    path->app_path_status = path_status;
+    conn->conn_settings.multipath_version = mp_version;
+    printf("mp_frozen_injected:%d\n", ret == XQC_OK);
+
+    if (ret == XQC_OK) {
+        user_stream->mp_frozen_injected = 1;
+        g_test_case = -1;
+        xqc_conn_continue_send(p_ctx->engine, &user_stream->user_conn->cid);
+    }
+}
+
 int
 xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream)
 {
+    if (xqc_test_h3_split_fin_case(g_test_case)) {
+        client_ctx_t *p_ctx = user_stream->user_conn->ctx
+                              ? user_stream->user_conn->ctx : &ctx;
+        xqc_test_h3_split_fin_init(&user_stream->split_fin, h3_request,
+            p_ctx->engine, g_test_qch_mode ? p_ctx->eb : eb, g_test_case,
+            "client", xqc_test_h3_split_fin_uplink(g_test_case));
+    }
+
     if (g_test_case == 99) {
         xqc_h3_request_finish(h3_request);
         return 0;
@@ -3405,6 +3476,10 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
     }
     ssize_t ret = 0;
     char content_len[10];
+
+    if (user_stream->header_sent) {
+        xqc_client_try_inject_mp_frozen(user_stream);
+    }
 
     if (!user_stream->h3_test_frame_queued
         && (g_test_case == XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME
@@ -3744,6 +3819,8 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
             user_stream->header_sent = 1;
         }
 
+        xqc_client_try_inject_mp_frozen(user_stream);
+
         if (g_test_case == 30) {
             usleep(200*1000);
             ret = xqc_h3_request_send_headers(h3_request, &headers, header_only);
@@ -3778,6 +3855,11 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
     }
 
     int fin = 1;
+    if (xqc_test_h3_split_fin_case(g_test_case)
+        && user_stream->split_fin.sender)
+    {
+        fin = 0;
+    }
     if (g_test_case == 4 || g_test_case == 31 || g_test_case == 35 || g_test_case == 36) { /* test fin_only */
         fin = 0;
     }
@@ -3827,6 +3909,13 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
         }
     }
 next:
+    if (xqc_test_h3_split_fin_case(g_test_case)
+        && user_stream->send_offset == user_stream->send_body_len)
+    {
+        return xqc_test_h3_split_fin_after_send(&user_stream->split_fin,
+            user_stream->send_body_len);
+    }
+
     /* send trailer header */
     if (user_stream->send_offset == user_stream->send_body_len) {
         if (g_test_case == 31) {
@@ -4071,6 +4160,11 @@ xqc_client_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
     }
 
 
+    if (xqc_test_h3_split_fin_case(g_test_case)) {
+        xqc_test_h3_split_fin_on_read(&user_stream->split_fin,
+            user_stream->recv_body_len, fin, flag);
+    }
+
     if (fin) {
         user_stream->recv_fin = 1;
         xqc_request_stats_t stats;
@@ -4112,6 +4206,9 @@ xqc_client_request_close_notify(xqc_h3_request_t *h3_request, void *user_data)
 {
     DEBUG;
     user_stream_t *user_stream = (user_stream_t *)user_data;
+    if (xqc_test_h3_split_fin_case(g_test_case)) {
+        xqc_test_h3_split_fin_close(&user_stream->split_fin);
+    }
     user_conn_t *user_conn = user_stream->user_conn;
     client_ctx_t *p_ctx;
     if (g_test_qch_mode) {
@@ -4759,9 +4856,22 @@ xqc_client_epoch_callback(int fd, short what, void *arg)
         }
     }
 
-        /* close initial path */
-    if (g_test_case == 100 && g_cur_epoch > 5) {
-        xqc_conn_close_path(ctx.engine, &user_conn->cid, 0);
+    /* 次路径验证成功后关闭初始路径。 */
+    if (g_test_case == 100 && g_cur_epoch > 1) {
+        xqc_conn_stats_t stats = xqc_conn_get_stats(ctx.engine, &user_conn->cid);
+        if (stats.mp_state == 1) {
+            if (g_cur_epoch > 5) {
+                ret = xqc_conn_close_path(ctx.engine, &user_conn->cid, 0);
+                if (ret < 0) {
+                    printf("xqc_conn_close_path err = %d\n", ret);
+                }
+            }
+
+        } else {
+            printf("[mpns-close-initial]|epoch:%d|mp_state:%d|recreate_path|\n",
+                   g_cur_epoch, stats.mp_state);
+            xqc_client_ready_to_create_path(&user_conn->cid, user_conn);
+        }
     }
 
     /* close new path */
@@ -4916,7 +5026,7 @@ xqc_client_cert_verify(const unsigned char *certs[],
     return 0;
 }
 
-void 
+static void
 xqc_client_ready_to_create_path(const xqc_cid_t *cid, 
     void *conn_user_data)
 {

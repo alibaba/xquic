@@ -34,8 +34,144 @@ xqc_test_engine_create()
 
 #define XQC_TEST_SHORT_HEADER_PACKET_A "\x40\xAB\x3f\x12\x0a\xcd\xef\x00\x89"
 #define XQC_TEST_LONG_HEADER_PACKET_B "\xC0\xFF\x00\x00\x1D\x08\xAB\x3f\x12\x0a\xcd\xef\x00\x89\x08\xAB\x3f\x12\x0a\xcd\xef\x00\x89"
+#define XQC_TEST_INITIAL_FIRST_BYTE 0xC0
+#define XQC_TEST_0RTT_FIRST_BYTE 0xD0
 
 #define XQC_TEST_CHECK_CID "ab3f120acdef0089"
+
+
+static void
+xqc_test_build_long_header(unsigned char *packet, size_t packet_size,
+    unsigned char first_byte)
+{
+    static const unsigned char cid[] = {0xAB, 0x3F, 0x12, 0x0A, 0xCD, 0xEF, 0x00, 0x89};
+
+    xqc_memzero(packet, packet_size);
+    packet[0] = first_byte;
+    packet[4] = XQC_VERSION_V1;
+    packet[5] = sizeof(cid);
+    xqc_memcpy(packet + 6, cid, sizeof(cid));
+    packet[14] = sizeof(cid);
+    xqc_memcpy(packet + 15, cid, sizeof(cid));
+}
+
+
+static xqc_connection_t *
+xqc_test_find_packet_conn(xqc_engine_t *engine, const unsigned char *packet,
+    size_t packet_size)
+{
+    xqc_cid_t dcid, scid;
+
+    xqc_cid_init_zero(&dcid);
+    xqc_cid_init_zero(&scid);
+    if (xqc_packet_parse_cid(&scid, &dcid, engine->config->cid_len,
+                             packet, packet_size) != XQC_OK)
+    {
+        return NULL;
+    }
+
+    return xqc_engine_conns_hash_find(engine, &scid, 's');
+}
+
+
+/*
+ * test_create_engine_server() (in xqc_common_test.c) loads server.key /
+ * server.crt from disk and is unusable in environments without those
+ * fixtures. The pre-connection drop gate under test only depends on
+ * engine->eng_type and packet parsing, not on a real TLS handshake, so we
+ * intentionally reuse the certificate-free client engine helper and
+ * override eng_type to XQC_ENGINE_SERVER to exercise the server code path.
+ */
+static xqc_engine_t *
+xqc_test_create_server_role_engine()
+{
+    xqc_engine_t *engine = test_create_engine();
+
+    if (engine != NULL) {
+        engine->eng_type = XQC_ENGINE_SERVER;
+    }
+
+    return engine;
+}
+
+
+static void
+xqc_test_engine_small_new_conn_packet(unsigned char first_byte)
+{
+    unsigned char packet[XQC_PACKET_INITIAL_MIN_LENGTH];
+    struct sockaddr local_addr = {0};
+    struct sockaddr peer_addr = {0};
+    xqc_engine_t *engine = xqc_test_create_server_role_engine();
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+    xqc_test_build_long_header(packet, sizeof(packet), first_byte);
+
+    xqc_int_t ret = xqc_engine_packet_process(engine, packet,
+        XQC_PACKET_INITIAL_MIN_LENGTH - 1,
+        &local_addr, sizeof(local_addr), &peer_addr, sizeof(peer_addr),
+        xqc_monotonic_timestamp(), NULL);
+
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT_PTR_NULL(xqc_test_find_packet_conn(engine, packet,
+                                                 sizeof(packet) - 1));
+    xqc_engine_destroy(engine);
+}
+
+
+void
+xqc_test_engine_drop_small_initial()
+{
+    xqc_test_engine_small_new_conn_packet(XQC_TEST_INITIAL_FIRST_BYTE);
+}
+
+
+void
+xqc_test_engine_drop_small_unknown_0rtt()
+{
+    xqc_test_engine_small_new_conn_packet(XQC_TEST_0RTT_FIRST_BYTE);
+}
+
+
+void
+xqc_test_engine_min_initial_not_pre_dropped()
+{
+    unsigned char packet[XQC_PACKET_INITIAL_MIN_LENGTH];
+    struct sockaddr local_addr = {0};
+    struct sockaddr peer_addr = {0};
+    xqc_engine_t *engine = xqc_test_create_server_role_engine();
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+    xqc_test_build_long_header(packet, sizeof(packet), XQC_TEST_INITIAL_FIRST_BYTE);
+
+    xqc_engine_packet_process(engine, packet, sizeof(packet),
+        &local_addr, sizeof(local_addr), &peer_addr, sizeof(peer_addr),
+        xqc_monotonic_timestamp(), NULL);
+
+    CU_ASSERT_PTR_NOT_NULL(xqc_test_find_packet_conn(engine, packet,
+                                                     sizeof(packet)));
+    xqc_engine_destroy(engine);
+}
+
+
+void
+xqc_test_engine_min_unknown_0rtt_not_pre_dropped()
+{
+    unsigned char packet[XQC_PACKET_INITIAL_MIN_LENGTH];
+    struct sockaddr local_addr = {0};
+    struct sockaddr peer_addr = {0};
+    xqc_engine_t *engine = xqc_test_create_server_role_engine();
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+    xqc_test_build_long_header(packet, sizeof(packet), XQC_TEST_0RTT_FIRST_BYTE);
+
+    xqc_engine_packet_process(engine, packet, sizeof(packet),
+        &local_addr, sizeof(local_addr), &peer_addr, sizeof(peer_addr),
+        xqc_monotonic_timestamp(), NULL);
+
+    CU_ASSERT_PTR_NOT_NULL(xqc_test_find_packet_conn(engine, packet,
+                                                     sizeof(packet)));
+    xqc_engine_destroy(engine);
+}
 
 
 void

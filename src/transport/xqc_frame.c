@@ -74,6 +74,28 @@ static const char * const frame_type_2_str[XQC_FRAME_NUM] = {
     [XQC_FRAME_REPAIR_SYMBOL]        = "FEC_REPAIR",
 };
 
+static void
+xqc_rollback_new_conn_id_hash_entries(xqc_connection_t *conn,
+    const xqc_cid_t *new_conn_cid, xqc_bool_t sr_token_inserted)
+{
+    if (xqc_find_conns_hash(conn->engine->conns_hash_dcid, conn,
+                            new_conn_cid->cid_buf, new_conn_cid->cid_len) == conn)
+    {
+        xqc_remove_conns_hash(conn->engine->conns_hash_dcid, conn,
+                              new_conn_cid->cid_buf, new_conn_cid->cid_len);
+    }
+
+    if (sr_token_inserted == XQC_TRUE
+        && xqc_find_conns_hash(conn->engine->conns_hash_sr_token, conn,
+                               new_conn_cid->sr_token,
+                               XQC_STATELESS_RESET_TOKENLEN) == conn)
+    {
+        xqc_remove_conns_hash(conn->engine->conns_hash_sr_token, conn,
+                              new_conn_cid->sr_token,
+                              XQC_STATELESS_RESET_TOKENLEN);
+    }
+}
+
 const char *
 xqc_frame_type_2_str(xqc_engine_t *engine, xqc_frame_type_bit_t type_bit)
 {
@@ -1060,6 +1082,7 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
     xqc_cid_inner_t *inner_cid;
     xqc_list_head_t *pos, *next;
     xqc_cid_set_inner_t *inner_set;
+    xqc_bool_t sr_token_inserted = XQC_FALSE;
 
     ret = xqc_parse_new_conn_id_frame(packet_in, &new_conn_cid, &retire_prior_to, conn);
     if (ret != XQC_OK) {
@@ -1161,6 +1184,9 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
         ret = xqc_insert_conns_hash(conn->engine->conns_hash_sr_token, conn,
                                     new_conn_cid.sr_token,
                                     XQC_STATELESS_RESET_TOKENLEN);
+        if (ret == XQC_OK) {
+            sr_token_inserted = XQC_TRUE;
+        }
     } else {
         xqc_log(conn->log, XQC_LOG_ERROR, "|sr_token conflict:%s", xqc_sr_token_str(conn->engine, new_conn_cid.sr_token));
         /* ignore this error, as it is not fatal. */
@@ -1170,6 +1196,7 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR,
                 "|insert new_cid into conns_hash_sr_token failed|");
+        xqc_rollback_new_conn_id_hash_entries(conn, &new_conn_cid, XQC_FALSE);
         return ret;
     }
 
@@ -1178,6 +1205,7 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
                                  conn->local_settings.active_connection_id_limit, 
                                  XQC_INITIAL_PATH_ID);
     if (ret != XQC_OK) {
+        xqc_rollback_new_conn_id_hash_entries(conn, &new_conn_cid, sr_token_inserted);
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_cid_set_insert_cid error|limit:%ui|unused:%i|used:%i|",
                 conn->local_settings.active_connection_id_limit, 
                 xqc_cid_set_get_unused_cnt(&conn->dcid_set, XQC_INITIAL_PATH_ID), 
@@ -2300,6 +2328,7 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
     xqc_cid_inner_t *inner_cid;
     xqc_list_head_t *pos, *next;
     xqc_cid_set_inner_t *inner_set;
+    xqc_bool_t sr_token_inserted = XQC_FALSE;
     uint64_t path_id;
 
     ret = xqc_parse_mp_new_conn_id_frame(packet_in, &new_conn_cid, &retire_prior_to, &path_id, conn);
@@ -2413,6 +2442,9 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         ret = xqc_insert_conns_hash(conn->engine->conns_hash_sr_token, conn,
                                     new_conn_cid.sr_token,
                                     XQC_STATELESS_RESET_TOKENLEN);
+        if (ret == XQC_OK) {
+            sr_token_inserted = XQC_TRUE;
+        }
     } else {
         xqc_log(conn->log, XQC_LOG_ERROR, "|sr_token conflict:%s", xqc_sr_token_str(conn->engine, new_conn_cid.sr_token));
         /* ignore this error, as it is not fatal. */
@@ -2422,6 +2454,7 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR,
                 "|insert new_cid into conns_hash_sr_token failed|");
+        xqc_rollback_new_conn_id_hash_entries(conn, &new_conn_cid, XQC_FALSE);
         return ret;
     }
 
@@ -2430,6 +2463,7 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
                                  conn->local_settings.active_connection_id_limit, 
                                  path_id);
     if (ret != XQC_OK) {
+        xqc_rollback_new_conn_id_hash_entries(conn, &new_conn_cid, sr_token_inserted);
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_cid_set_insert_cid error|limit:%ui|unused:%i|used:%i|path:%ui|",
                 conn->local_settings.active_connection_id_limit, 
                 xqc_cid_set_get_unused_cnt(&conn->dcid_set, path_id), 

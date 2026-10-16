@@ -7,5 +7,7 @@
 
 
 void test_ring_array();
+void xqc_test_ring_array_resize_full_wrapped();
+void xqc_test_ring_array_resize_empty();
 
 #endif

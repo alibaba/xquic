@@ -801,3 +801,249 @@ xqc_test_new_conn_id_insert_failure_hash_rollback()
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+/*
+ * Verify the two-phase retirement cleanup of an expired SCID:
+ *   Phase 1 (timer N):   the expired RETIRED CID transitions to REMOVED;
+ *                        the node is still physically present.
+ *   Phase 2 (timer N+1): the REMOVED CID is purged from scid_set and
+ *                        engine->conns_hash.
+ */
+void
+xqc_test_retired_scid_cleanup()
+{
+    xqc_int_t ret;
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    ret = xqc_write_new_conn_id_frame_to_packet(conn, 0);
+    CU_ASSERT(ret == XQC_OK);
+
+    xqc_cid_inner_t *inner_cid = NULL;
+    xqc_cid_t retired_cid;
+    xqc_cid_set_inner_t *inner_set = xqc_get_path_cid_set(&conn->scid_set,
+                                                           XQC_INITIAL_PATH_ID);
+    CU_ASSERT_FATAL(inner_set != NULL);
+
+    xqc_list_head_t *pos;
+    xqc_list_for_each(pos, &inner_set->cid_list) {
+        xqc_cid_inner_t *tmp = xqc_list_entry(pos, xqc_cid_inner_t, list);
+        if (tmp->state == XQC_CID_UNUSED) {
+            inner_cid = tmp;
+            break;
+        }
+    }
+    CU_ASSERT_FATAL(inner_cid != NULL);
+    xqc_cid_copy(&retired_cid, &inner_cid->cid);
+    CU_ASSERT(xqc_find_conns_hash(conn->engine->conns_hash, conn,
+                                  retired_cid.cid_buf, retired_cid.cid_len) == conn);
+
+    ret = xqc_cid_switch_to_next_state(&conn->scid_set, inner_cid,
+                                       XQC_CID_RETIRED, XQC_INITIAL_PATH_ID);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(inner_set->retired_cnt == 1);
+    CU_ASSERT(xqc_cid_in_cid_set(&conn->scid_set, &retired_cid,
+                                 XQC_INITIAL_PATH_ID) != NULL);
+
+    xqc_usec_t now = xqc_monotonic_timestamp();
+    inner_cid->retired_ts = now - 1;
+    xqc_timer_set(&conn->conn_timer_manager, XQC_TIMER_RETIRE_CID, now - 1, 0);
+    xqc_conn_timer_expire(conn, now);
+
+    /* Phase 1: state machine marks REMOVED and decrements retired_cnt;
+     * the node is still physically present in scid_set and conns_hash. */
+    xqc_cid_inner_t *removed_inner = xqc_cid_in_cid_set(&conn->scid_set, &retired_cid,
+                                                          XQC_INITIAL_PATH_ID);
+    CU_ASSERT(removed_inner != NULL);
+    CU_ASSERT(removed_inner->state == XQC_CID_REMOVED);
+    CU_ASSERT(inner_set->retired_cnt == 0);
+    CU_ASSERT(xqc_find_conns_hash(conn->engine->conns_hash, conn,
+                                   retired_cid.cid_buf, retired_cid.cid_len) == conn);
+
+    /* Phase 2: fire timer again; the REMOVED branch purges the node. */
+    now = xqc_monotonic_timestamp();
+    xqc_timer_set(&conn->conn_timer_manager, XQC_TIMER_RETIRE_CID, now - 1, 0);
+    xqc_conn_timer_expire(conn, now);
+
+    CU_ASSERT(xqc_cid_in_cid_set(&conn->scid_set, &retired_cid,
+                                 XQC_INITIAL_PATH_ID) == NULL);
+    CU_ASSERT(xqc_find_conns_hash(conn->engine->conns_hash, conn,
+                                  retired_cid.cid_buf, retired_cid.cid_len) == NULL);
+    CU_ASSERT(inner_set->retired_cnt == 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * Verify the two-phase RETIRED CID cleanup:
+ *   Phase 1 (timer N):   expired RETIRED CIDs are transitioned to REMOVED;
+ *                         non-expired ones stay RETIRED and re-arm the timer.
+ *   Phase 2 (timer N+1): REMOVED CIDs from phase 1 are physically purged
+ *                         from scid_set and conns_hash.
+ */
+void
+xqc_test_retired_scid_batch_cleanup()
+{
+    xqc_int_t ret;
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    /* Create two additional SCIDs so both end up UNUSED in scid_set + conns_hash.
+     * Raise the remote limit first to allow multiple NEW_CONNECTION_ID frames. */
+    conn->remote_settings.active_connection_id_limit = XQC_CONN_ACTIVE_CID_LIMIT;
+    ret = xqc_write_new_conn_id_frame_to_packet(conn, 0);
+    CU_ASSERT(ret == XQC_OK);
+    ret = xqc_write_new_conn_id_frame_to_packet(conn, 0);
+    CU_ASSERT(ret == XQC_OK);
+
+    xqc_cid_set_inner_t *inner_set = xqc_get_path_cid_set(&conn->scid_set,
+                                                           XQC_INITIAL_PATH_ID);
+    CU_ASSERT_FATAL(inner_set != NULL);
+
+    /* Collect the two UNUSED CIDs */
+    xqc_cid_inner_t *cid1 = NULL, *cid2 = NULL;
+    xqc_list_head_t *pos;
+    xqc_list_for_each(pos, &inner_set->cid_list) {
+        xqc_cid_inner_t *tmp = xqc_list_entry(pos, xqc_cid_inner_t, list);
+        if (tmp->state == XQC_CID_UNUSED) {
+            if (cid1 == NULL) {
+                cid1 = tmp;
+            } else {
+                cid2 = tmp;
+                break;
+            }
+        }
+    }
+    CU_ASSERT_FATAL(cid1 != NULL);
+    CU_ASSERT_FATAL(cid2 != NULL);
+
+    xqc_cid_t scid1, scid2;
+    xqc_cid_copy(&scid1, &cid1->cid);
+    xqc_cid_copy(&scid2, &cid2->cid);
+
+    /* Retire both */
+    ret = xqc_cid_switch_to_next_state(&conn->scid_set, cid1,
+                                       XQC_CID_RETIRED, XQC_INITIAL_PATH_ID);
+    CU_ASSERT(ret == XQC_OK);
+    ret = xqc_cid_switch_to_next_state(&conn->scid_set, cid2,
+                                       XQC_CID_RETIRED, XQC_INITIAL_PATH_ID);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(inner_set->retired_cnt == 2);
+
+    xqc_usec_t now = xqc_monotonic_timestamp();
+    cid1->retired_ts = now - 1;                  /* already expired        */
+    cid2->retired_ts = now + 10000000000ULL;     /* expires far in future  */
+
+    /* Phase 1: timer transitions expired CIDs to REMOVED; non-expired stay RETIRED. */
+    xqc_timer_set(&conn->conn_timer_manager, XQC_TIMER_RETIRE_CID, now - 1, 0);
+    xqc_conn_timer_expire(conn, now);
+
+    /* cid1 (expired): transitioned to REMOVED, still physically in scid_set and hash */
+    xqc_cid_inner_t *cid1_removed = xqc_cid_in_cid_set(&conn->scid_set, &scid1,
+                                                         XQC_INITIAL_PATH_ID);
+    CU_ASSERT(cid1_removed != NULL);
+    CU_ASSERT(cid1_removed->state == XQC_CID_REMOVED);
+    CU_ASSERT(xqc_find_conns_hash(conn->engine->conns_hash, conn,
+                                  scid1.cid_buf, scid1.cid_len) != NULL);
+
+    /* cid2 (not yet expired): still RETIRED, present in both */
+    CU_ASSERT(xqc_cid_in_cid_set(&conn->scid_set, &scid2, XQC_INITIAL_PATH_ID) != NULL);
+    CU_ASSERT(xqc_find_conns_hash(conn->engine->conns_hash, conn,
+                                  scid2.cid_buf, scid2.cid_len) != NULL);
+
+    /* retired_cnt: cid1 decremented (now REMOVED), cid2 still RETIRED */
+    CU_ASSERT(inner_set->retired_cnt == 1);
+
+    /* Timer must be re-armed to handle cid2 when it eventually expires */
+    CU_ASSERT(xqc_timer_is_set(&conn->conn_timer_manager, XQC_TIMER_RETIRE_CID));
+
+    /* Phase 2: fire timer again; the REMOVED branch purges cid1. */
+    now = xqc_monotonic_timestamp();
+    xqc_timer_set(&conn->conn_timer_manager, XQC_TIMER_RETIRE_CID, now - 1, 0);
+    xqc_conn_timer_expire(conn, now);
+
+    /* cid1: now completely gone */
+    CU_ASSERT(xqc_cid_in_cid_set(&conn->scid_set, &scid1, XQC_INITIAL_PATH_ID) == NULL);
+    CU_ASSERT(xqc_find_conns_hash(conn->engine->conns_hash, conn,
+                                  scid1.cid_buf, scid1.cid_len) == NULL);
+
+    /* cid2: still RETIRED (not yet expired), timer still re-armed */
+    CU_ASSERT(xqc_cid_in_cid_set(&conn->scid_set, &scid2, XQC_INITIAL_PATH_ID) != NULL);
+    CU_ASSERT(inner_set->retired_cnt == 1);
+    CU_ASSERT(xqc_timer_is_set(&conn->conn_timer_manager, XQC_TIMER_RETIRE_CID));
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * Verify the REMOVED-state safety-net branch in xqc_timer_retire_cid_timeout.
+ *
+ * Simulate the pre-fix scenario: a CID is driven into XQC_CID_REMOVED by the
+ * old state machine path (UNUSED -> RETIRED -> REMOVED) but is NOT physically
+ * freed.  When the timer fires, the REMOVED branch must purge the node from
+ * both scid_set and conns_hash.
+ */
+void
+xqc_test_removed_scid_safety_net()
+{
+    xqc_int_t ret;
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    ret = xqc_write_new_conn_id_frame_to_packet(conn, 0);
+    CU_ASSERT(ret == XQC_OK);
+
+    xqc_cid_set_inner_t *inner_set = xqc_get_path_cid_set(&conn->scid_set,
+                                                           XQC_INITIAL_PATH_ID);
+    CU_ASSERT_FATAL(inner_set != NULL);
+
+    xqc_cid_inner_t *inner_cid = NULL;
+    xqc_list_head_t *pos;
+    xqc_list_for_each(pos, &inner_set->cid_list) {
+        xqc_cid_inner_t *tmp = xqc_list_entry(pos, xqc_cid_inner_t, list);
+        if (tmp->state == XQC_CID_UNUSED) {
+            inner_cid = tmp;
+            break;
+        }
+    }
+    CU_ASSERT_FATAL(inner_cid != NULL);
+
+    xqc_cid_t removed_cid;
+    xqc_cid_copy(&removed_cid, &inner_cid->cid);
+
+    /* Reproduce old behavior: drive the CID all the way to REMOVED via the
+     * state machine, but intentionally skip physical cleanup. */
+    ret = xqc_cid_switch_to_next_state(&conn->scid_set, inner_cid,
+                                       XQC_CID_RETIRED, XQC_INITIAL_PATH_ID);
+    CU_ASSERT(ret == XQC_OK);
+    ret = xqc_cid_switch_to_next_state(&conn->scid_set, inner_cid,
+                                       XQC_CID_REMOVED, XQC_INITIAL_PATH_ID);
+    CU_ASSERT(ret == XQC_OK);
+
+    /* State is REMOVED; retired_cnt already decremented by state machine */
+    CU_ASSERT(inner_cid->state == XQC_CID_REMOVED);
+    CU_ASSERT(inner_set->retired_cnt == 0);
+
+    /* Node is still physically present in scid_set and conns_hash (the bug) */
+    CU_ASSERT(xqc_cid_in_cid_set(&conn->scid_set, &removed_cid,
+                                  XQC_INITIAL_PATH_ID) != NULL);
+    CU_ASSERT(xqc_find_conns_hash(conn->engine->conns_hash, conn,
+                                  removed_cid.cid_buf, removed_cid.cid_len) == conn);
+
+    /* Fire the timer; the safety-net REMOVED branch should purge it */
+    xqc_usec_t now = xqc_monotonic_timestamp();
+    xqc_timer_set(&conn->conn_timer_manager, XQC_TIMER_RETIRE_CID, now - 1, 0);
+    xqc_conn_timer_expire(conn, now);
+
+    /* Node must now be physically gone from both structures */
+    CU_ASSERT(xqc_cid_in_cid_set(&conn->scid_set, &removed_cid,
+                                  XQC_INITIAL_PATH_ID) == NULL);
+    CU_ASSERT(xqc_find_conns_hash(conn->engine->conns_hash, conn,
+                                  removed_cid.cid_buf, removed_cid.cid_len) == NULL);
+
+    xqc_engine_destroy(conn->engine);
+}
+

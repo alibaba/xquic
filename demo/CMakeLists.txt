@@ -49,3 +49,19 @@ add_executable(demo_client ${DEMO_CLIENT_SOURCES})
 
 target_link_libraries(demo_server ${APP_DEPEND_LIBS})
 target_link_libraries(demo_client ${APP_DEPEND_LIBS})
+
+if(XQC_ENABLE_WEBTRANSPORT_INTEROP AND NOT UNIX)
+    message(FATAL_ERROR
+        "XQC_ENABLE_WEBTRANSPORT_INTEROP requires a POSIX platform")
+endif()
+
+if(XQC_ENABLE_WEBTRANSPORT_INTEROP)
+    target_sources(demo_client PRIVATE
+        "xqc_webtrans_interop.c")
+    target_sources(demo_server PRIVATE
+        "xqc_webtrans_interop.c")
+    target_compile_definitions(demo_client PRIVATE
+        XQC_ENABLE_WEBTRANSPORT_INTEROP=1)
+    target_compile_definitions(demo_server PRIVATE
+        XQC_ENABLE_WEBTRANSPORT_INTEROP=1)
+endif()

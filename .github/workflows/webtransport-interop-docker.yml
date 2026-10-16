@@ -2,7 +2,7 @@ name: Publish XQUIC WebTransport image
 
 on:
   push:
-    branches: [main, dev/webtrans-16]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -19,8 +19,7 @@ jobs:
   publish:
     if: >-
       github.repository == 'alibaba/xquic' &&
-      (github.ref == 'refs/heads/main' ||
-       github.ref == 'refs/heads/dev/webtrans-16')
+      github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:

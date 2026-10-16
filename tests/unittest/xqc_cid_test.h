@@ -27,6 +27,9 @@ void xqc_test_cid_mark_original_idempotent();
 /* delete_cid must decrement original_cid_cnt when removing an original CID */
 void xqc_test_cid_delete_original();
 
+/* rejected NEW_CONNECTION_ID must not leave orphaned engine hash entries */
+void xqc_test_new_conn_id_insert_failure_hash_rollback();
+
 /* CID hash removal must preserve an equal key owned by another connection. */
 void xqc_test_conns_hash_remove_owned_entry();
 

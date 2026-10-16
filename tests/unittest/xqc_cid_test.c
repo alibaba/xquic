@@ -7,6 +7,7 @@
 #include "xqc_common_test.h"
 #include "src/transport/xqc_cid.h"
 #include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_frame.h"
 #include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_utils.h"
 
@@ -723,3 +724,80 @@ xqc_test_conns_hash_reject_non_owner()
     xqc_engine_destroy(engine);
 }
 
+
+void
+xqc_test_new_conn_id_insert_failure_hash_rollback()
+{
+    xqc_int_t         ret;
+    xqc_connection_t *conn;
+    unsigned char     frame_buf[64];
+    unsigned char    *p = frame_buf;
+    unsigned char     cid[] = {'h', 'a', 's', 'h', 'r', 'b', '0', '1'};
+    unsigned char     sr_token[XQC_STATELESS_RESET_TOKENLEN];
+    xqc_cid_t         rejected_cid;
+    xqc_cid_t         peer_cid;
+
+    conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    /*
+     * Insert one peer-supplied CID so the countable active number is not 0.
+     * The initial DCID from test_engine_connect() is locally generated and
+     * marked original, so it does not count into active_connection_id_limit.
+     */
+    ret = xqc_generate_cid(conn->engine, NULL, &peer_cid, 1);
+    CU_ASSERT(ret == XQC_OK);
+    ret = xqc_cid_set_insert_cid(&conn->dcid_set, &peer_cid, XQC_CID_USED,
+                                 conn->local_settings.active_connection_id_limit,
+                                 XQC_INITIAL_PATH_ID);
+    CU_ASSERT(ret == XQC_OK);
+
+    /* Clamp the limit to the current active count so the next insert fails. */
+    conn->local_settings.active_connection_id_limit =
+        xqc_test_cid_active_count(&conn->dcid_set);
+    CU_ASSERT(conn->local_settings.active_connection_id_limit > 0);
+
+    for (size_t i = 0; i < XQC_STATELESS_RESET_TOKENLEN; i++) {
+        sr_token[i] = (unsigned char)(0xa0 + i);
+    }
+
+    memset(&rejected_cid, 0, sizeof(rejected_cid));
+    rejected_cid.cid_seq_num = 8;
+    rejected_cid.cid_len = sizeof(cid);
+    memcpy(rejected_cid.cid_buf, cid, sizeof(cid));
+    memcpy(rejected_cid.sr_token, sr_token, sizeof(sr_token));
+
+    *p++ = 0x18;  /* NEW_CONNECTION_ID */
+    *p++ = 0x08;  /* sequence number */
+    *p++ = 0x00;  /* retire prior to */
+    *p++ = sizeof(cid);
+    memcpy(p, cid, sizeof(cid));
+    p += sizeof(cid);
+    memcpy(p, sr_token, sizeof(sr_token));
+    p += sizeof(sr_token);
+
+    CU_ASSERT(xqc_find_conns_hash(conn->engine->conns_hash_dcid, conn,
+                                  cid, sizeof(cid)) == NULL);
+    CU_ASSERT(xqc_find_conns_hash(conn->engine->conns_hash_sr_token, conn,
+                                  sr_token, XQC_STATELESS_RESET_TOKENLEN) == NULL);
+
+    xqc_packet_in_t packet_in;
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    packet_in.pos = frame_buf;
+    packet_in.last = p;
+
+    ret = xqc_process_frames(conn, &packet_in);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_CONNECTION_ID_LIMIT_ERROR);
+
+    /* The rejected CID must not linger in dcid_set or engine hash tables. */
+    CU_ASSERT(xqc_cid_in_cid_set(&conn->dcid_set, &rejected_cid,
+                                 XQC_INITIAL_PATH_ID) == NULL);
+    CU_ASSERT(xqc_find_conns_hash(conn->engine->conns_hash_dcid, conn,
+                                  cid, sizeof(cid)) == NULL);
+    CU_ASSERT(xqc_find_conns_hash(conn->engine->conns_hash_sr_token, conn,
+                                  sr_token, XQC_STATELESS_RESET_TOKENLEN) == NULL);
+
+    xqc_engine_destroy(conn->engine);
+}

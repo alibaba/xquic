@@ -303,6 +303,18 @@ xqc_timer_retire_cid_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_d
                     }
                     to_be_retired_cnt++;
                 }
+
+            } else if (inner_cid->state == XQC_CID_REMOVED) {
+                /* A CID in REMOVED state was transitioned here by a previous timer
+                 * invocation.  xqc_cid_switch_to_next_state(RETIRED -> REMOVED)
+                 * already decremented retired_cnt, so only physical cleanup is
+                 * needed: remove from engine->conns_hash, unlink, and free.
+                 * This is the normal deferred-cleanup path for expired SCIDs. */
+                uint64_t seq_num = inner_cid->cid.cid_seq_num;
+                uint8_t cid_len = inner_cid->cid.cid_len;
+                xqc_conn_purge_removed_scid(conn, inner_cid);
+                xqc_log(conn->log, XQC_LOG_DEBUG,
+                        "|removed->purged|seq:%ui|len:%d|", seq_num, cid_len);
             }
         }
     }

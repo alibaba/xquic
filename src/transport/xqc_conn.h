@@ -672,6 +672,7 @@ xqc_int_t xqc_conn_check_handshake_complete(xqc_connection_t *conn);
 xqc_int_t xqc_conn_get_available_path_id(xqc_connection_t *conn, uint64_t *path_id);
 xqc_int_t xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to);
 xqc_int_t xqc_conn_check_dcid(xqc_connection_t *conn, xqc_cid_t *dcid);
+void xqc_conn_purge_removed_scid(xqc_connection_t *conn, xqc_cid_inner_t *inner_cid);
 void xqc_conn_destroy_cids(xqc_connection_t *conn);
 xqc_int_t xqc_conn_update_user_scid(xqc_connection_t *conn);
 xqc_int_t xqc_conn_set_cid_retired_ts(xqc_connection_t *conn, xqc_cid_inner_t *inner_cid);

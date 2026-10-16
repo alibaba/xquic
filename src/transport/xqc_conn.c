@@ -5279,6 +5279,31 @@ xqc_conn_get_available_path_id(xqc_connection_t *conn, uint64_t *path_id)
 }
 
 void
+xqc_conn_purge_removed_scid(xqc_connection_t *conn, xqc_cid_inner_t *inner_cid)
+{
+    if (conn == NULL || inner_cid == NULL) {
+        return;
+    }
+
+    /*
+     * Counter updates have already been handled by xqc_cid_switch_to_next_state
+     * when the CID transitioned to XQC_CID_REMOVED.  This function only does
+     * physical cleanup: remove the mapping from engine->conns_hash, unlink the
+     * node from scid_set, and free it.
+     */
+    if (conn->engine != NULL && conn->engine->conns_hash != NULL
+        && xqc_find_conns_hash(conn->engine->conns_hash, conn,
+                               inner_cid->cid.cid_buf, inner_cid->cid.cid_len))
+    {
+        xqc_remove_conns_hash(conn->engine->conns_hash, conn,
+                              inner_cid->cid.cid_buf, inner_cid->cid.cid_len);
+    }
+
+    xqc_list_del(&inner_cid->list);
+    xqc_free(inner_cid);
+}
+
+void
 xqc_conn_destroy_cids(xqc_connection_t *conn)
 {
     xqc_cid_inner_t *cid = NULL;

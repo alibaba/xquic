@@ -86,6 +86,18 @@ modules:
       level: targeted
       hints: [webtransport, http3, stream, datagram, reliable-reset]
     features:
+      webtransport_interop:
+        paths:
+          - demo/xqc_webtrans_interop.c
+          - interop/webtransport/*
+        feature_flags:
+          - XQC_ENABLE_WEBTRANSPORT=ON
+          - XQC_ENABLE_WEBTRANSPORT_INTEROP=ON
+        read:
+          - harness/spec/webtransport/spec.md
+          - interop/webtransport/README.md
+        validation:
+          level: targeted
       webtransport:
         paths:
           - src/webtransport/*

@@ -32,6 +32,10 @@
 
 #include "common.h"
 #include "xqc_hq.h"
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+#include "xqc_wt_app_policy.h"
+#include "xqc_webtrans_interop.h"
+#endif
 #ifdef XQC_ENABLE_WEBTRANSPORT
 #include "xqc_wt_echo_server.h"
 #endif
@@ -88,6 +92,9 @@ typedef struct xqc_demo_svr_net_config_s {
 typedef struct xqc_demo_svr_quic_config_s {
 #ifdef XQC_ENABLE_WEBTRANSPORT
     int webtransport;
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+    int wt_draft_version;
+#endif
 #endif
 
     /* cipher config */
@@ -182,6 +189,9 @@ typedef struct xqc_demo_svr_ctx_s {
 
     xqc_engine_t        *engine;
     struct event        *ev_engine;
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+    struct event        *ev_wt_datagram;
+#endif
 
     /* ipv4 server */
     int                 fd;
@@ -255,6 +265,11 @@ xqc_demo_svr_wt_schedule(void *user_data)
     struct timeval delay = {0, 1000};
 
     event_add(ctx->ev_engine, &delay);
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+    if (ctx->ev_wt_datagram) {
+        event_add(ctx->ev_wt_datagram, &delay);
+    }
+#endif
 }
 
 
@@ -1228,6 +1243,18 @@ xqc_demo_svr_engine_callback(int fd, short what, void *arg)
 }
 
 
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+static void
+xqc_demo_svr_wt_datagram_callback(int fd, short what, void *arg)
+{
+    xqc_demo_svr_ctx_t *ctx = arg;
+
+    xqc_wt_interop_datagram_tick();
+    xqc_engine_main_logic(ctx->engine);
+}
+#endif
+
+
 void
 xqc_demo_svr_usage(int argc, char *argv[])
 {
@@ -1242,6 +1269,11 @@ xqc_demo_svr_usage(int argc, char *argv[])
             "Options:\n"
 #ifdef XQC_ENABLE_WEBTRANSPORT
             "   -W    Enable WebTransport draft-16/07 echo at /wt.\n"
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+            "   -v    Maximum WebTransport interop draft: 7 or 16 (default).\n"
+            "   -K    TLS private key file.\n"
+            "   -T    TLS certificate file.\n"
+#endif
 #endif
             "   -p    Server port.\n"
             "   -c    Congestion Control Algorithm. r:reno b:bbr c:cubic P:copa \n"
@@ -1298,6 +1330,9 @@ xqc_demo_svr_init_args(xqc_demo_svr_args_t *args)
     args->quic_cfg.keyupdate_pkt_threshold = UINT64_MAX;
     args->quic_cfg.least_available_cid_count = 1;
     args->quic_cfg.max_pkt_sz = 1200;
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+    args->quic_cfg.wt_draft_version = 16;
+#endif
 }
 
 void
@@ -1307,6 +1342,9 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
     while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:rdMiPs:R:u:a:F:f:"
 #ifdef XQC_ENABLE_WEBTRANSPORT
                         "W"
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+                        "v:K:T:"
+#endif
 #endif
                         )) != -1)
     {
@@ -1315,6 +1353,27 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
         case 'W':
             args->quic_cfg.webtransport = 1;
             break;
+#endif
+
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+        case 'v':
+            if (strcmp(optarg, "7") && strcmp(optarg, "16")) {
+                fprintf(stderr, "WebTransport draft must be 7 or 16\n");
+                exit(1);
+            }
+            args->quic_cfg.wt_draft_version = atoi(optarg);
+            break;
+
+        case 'K':
+            snprintf(args->env_cfg.priv_key_path,
+                     sizeof(args->env_cfg.priv_key_path), "%s", optarg);
+            break;
+
+        case 'T':
+            snprintf(args->env_cfg.cert_pem_path,
+                     sizeof(args->env_cfg.cert_pem_path), "%s", optarg);
+            break;
+
 #endif
 
         /* listen port */
@@ -1445,6 +1504,14 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
             exit(0);
         }
     }
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+    if (xqc_demo_wt_app_policy->require_webtransport
+        && !args->quic_cfg.webtransport)
+    {
+        fprintf(stderr, "This WebTransport application requires -W\n");
+        exit(1);
+    }
+#endif
 }
 
 int
@@ -1630,6 +1697,13 @@ xqc_demo_svr_init_alpn_ctx(xqc_demo_svr_ctx_t *ctx)
 
 #ifdef XQC_ENABLE_WEBTRANSPORT
     if (ctx->args->quic_cfg.webtransport) {
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+        if (xqc_demo_wt_app_is_interop()) {
+            return xqc_wt_interop_server_init(ctx->engine,
+                ctx->args->quic_cfg.wt_draft_version,
+                xqc_demo_svr_wt_schedule, ctx);
+        }
+#endif
         return xqc_wt_echo_server_init(ctx->engine,
                                        xqc_demo_svr_wt_schedule, ctx);
     }
@@ -1659,6 +1733,11 @@ xqc_demo_svr_init_xquic_engine(xqc_demo_svr_ctx_t *ctx, xqc_demo_svr_args_t *arg
     }
 
     config.cid_len = 12;
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+    if (xqc_demo_wt_app_is_interop()) {
+        config.manually_triggered_send = 1;
+    }
+#endif
 
     switch (args->env_cfg.log_level) {
     case 'd':
@@ -1742,6 +1821,13 @@ main(int argc, char *argv[])
     /* init env if necessary */
     xqc_platform_init_env();
 
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+    if (xqc_demo_wt_app_select(1) != 0) {
+        fprintf(stderr, "Unsupported WebTransport server case\n");
+        return 127;
+    }
+#endif
+
     signal(SIGTERM, th3_demo_proxy_sig_hndlr);
 
     /* get input server args */
@@ -1757,6 +1843,16 @@ main(int argc, char *argv[])
     struct event_base *eb = event_base_new();
     ctx->ev_engine = event_new(eb, -1, 0, xqc_demo_svr_engine_callback, ctx);
     ctx->eb = eb;
+#ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
+    if (xqc_demo_wt_app_is_interop()) {
+        ctx->ev_wt_datagram = event_new(eb, -1, 0,
+            xqc_demo_svr_wt_datagram_callback, ctx);
+        if (!ctx->ev_wt_datagram) {
+            return 1;
+        }
+    }
+#endif
+
 
     if (xqc_demo_svr_init_xquic_engine(ctx, args) < 0) {
         return -1;

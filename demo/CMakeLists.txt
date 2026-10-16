@@ -57,9 +57,9 @@ endif()
 
 if(XQC_ENABLE_WEBTRANSPORT_INTEROP)
     target_sources(demo_client PRIVATE
-        "xqc_webtrans_interop.c" "xqc_wt_app_policy.c")
+        "xqc_webtrans_interop.c")
     target_sources(demo_server PRIVATE
-        "xqc_webtrans_interop.c" "xqc_wt_app_policy.c")
+        "xqc_webtrans_interop.c")
     target_compile_definitions(demo_client PRIVATE
         XQC_ENABLE_WEBTRANSPORT_INTEROP=1)
     target_compile_definitions(demo_server PRIVATE

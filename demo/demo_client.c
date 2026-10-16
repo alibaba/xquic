@@ -25,7 +25,6 @@
 #ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
-#include "xqc_wt_app_policy.h"
 #include "xqc_webtrans_interop.h"
 #endif
 #include "../tests/platform.h"

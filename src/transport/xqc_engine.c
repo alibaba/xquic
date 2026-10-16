@@ -1162,19 +1162,40 @@ xqc_engine_packet_process(xqc_engine_t *engine,
     if (XQC_UNLIKELY(conn == NULL)) {
 
         if (XQC_PACKET_IS_LONG_HEADER(packet_in_buf)) {
-            /* server creates connection when receiving a initial/0-rtt packet */
-            if (engine->eng_type == XQC_ENGINE_SERVER
-                && (XQC_PACKET_LONG_HEADER_GET_TYPE(packet_in_buf) == XQC_PTYPE_INIT
-                || XQC_PACKET_LONG_HEADER_GET_TYPE(packet_in_buf) == XQC_PTYPE_0RTT)
+            xqc_pkt_type_t pkt_type = XQC_PACKET_LONG_HEADER_GET_TYPE(packet_in_buf);
+
+            if (engine->eng_type == XQC_ENGINE_SERVER) {
+
+                /*
+                 * RFC 9000 Section 14.1 requires servers to discard Initial
+                 * packets carried in UDP datagrams smaller than 1200 bytes.
+                 * Discard unknown 0-RTT packets below the same cost threshold
+                 * before allocating connection state.
+                 */
+                if (packet_in_size < XQC_PACKET_INITIAL_MIN_LENGTH
+                    && (pkt_type == XQC_PTYPE_INIT || pkt_type == XQC_PTYPE_0RTT))
+                {
+                    xqc_log(engine->log, XQC_LOG_DEBUG,
+                            "|discard undersized new-conn packet|pkt_type:%s|size:%uz|",
+                            xqc_pkt_type_2_str(pkt_type), packet_in_size);
+                    xqc_log_event(engine->log, TRA_PACKET_DROPPED,
+                                  "datagram too small to create connection",
+                                  -XQC_EIGNORE_PKT, xqc_pkt_type_2_str(pkt_type), 0);
+                    return XQC_OK;
+                }
+
+                /* server creates connection when receiving a initial/0-rtt packet */
+                if ((pkt_type == XQC_PTYPE_INIT || pkt_type == XQC_PTYPE_0RTT)
                      && (local_addr != NULL && peer_addr != NULL))
-            {
-                conn = xqc_conn_server_create(engine, local_addr, local_addrlen,
-                                            peer_addr, peer_addrlen, &dcid, &scid,
-                                            &engine->default_conn_settings, user_data);
-                xqc_log_event(engine->log, CON_SERVER_LISTENING, peer_addr, peer_addrlen);
-                if (conn == NULL) {
-                    xqc_log(engine->log, XQC_LOG_ERROR, "|fail to create connection|");
-                    return -XQC_ECREATE_CONN;
+                {
+                    conn = xqc_conn_server_create(engine, local_addr, local_addrlen,
+                                                peer_addr, peer_addrlen, &dcid, &scid,
+                                                &engine->default_conn_settings, user_data);
+                    xqc_log_event(engine->log, CON_SERVER_LISTENING, peer_addr, peer_addrlen);
+                    if (conn == NULL) {
+                        xqc_log(engine->log, XQC_LOG_ERROR, "|fail to create connection|");
+                        return -XQC_ECREATE_CONN;
+                    }
                 }
             }
 

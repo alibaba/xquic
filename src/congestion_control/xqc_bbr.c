@@ -415,7 +415,7 @@ xqc_bbr_compensate_cwnd_for_rttvar(xqc_bbr_t *bbr, xqc_sample_t *sampler)
                                        xqc_bbr_rtt_compensation_cwnd_factor;
 
         } else {
-            xqc_log(sampler->send_ctl->ctl_conn->log, XQC_LOG_WARN, 
+            xqc_log(sampler->send_ctl->ctl_conn->log, XQC_LOG_DEBUG, 
                     "|rttvar compensation|weird things happened|"
                     "|srtt %ui <= min_rtt %ui|", 
                     srtt, bbr->min_rtt);

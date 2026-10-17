@@ -332,6 +332,8 @@ main(int argc, char *argv[])
                         xqc_test_conn_pmtud_legacy_compatibility)
         || !CU_add_test(pSuite, "xqc_test_conn_early_data_reject", xqc_test_conn_early_data_reject)
         || !CU_add_test(pSuite, "xqc_test_conn_early_data_reject_flow_ctl", xqc_test_conn_early_data_reject_flow_ctl)
+        || !CU_add_test(pSuite, "xqc_test_key_update_old_key_retention",
+                        xqc_test_key_update_old_key_retention)
         /* RFC 9000 §20.1 CRYPTO_ERROR dynamic construction */
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_constructs_crypto_error", xqc_test_conn_tls_error_cb_constructs_crypto_error)
         || !CU_add_test(pSuite, "xqc_test_conn_crypto_error_base_value", xqc_test_conn_crypto_error_base_value)

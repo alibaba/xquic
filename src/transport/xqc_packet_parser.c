@@ -619,7 +619,7 @@ xqc_packet_initiate_key_update(xqc_connection_t *conn)
         return ret;
     }
 
-    ret = xqc_conn_confirm_key_update(conn);
+    ret = xqc_conn_confirm_key_update(conn, XQC_TRUE);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR,
                 "|xqc_conn_confirm_key_update error|");
@@ -865,6 +865,13 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         }
     }
 
+    if (packet_in->pi_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER
+        && level == XQC_ENC_LEV_1RTT
+        && key_phase == conn->key_update_ctx.next_in_key_phase)
+    {
+        xqc_conn_confirm_peer_key_update(conn);
+    }
+
     packet_in->pos = dst;
     packet_in->last = dst + packet_in->decode_payload_len;
 
@@ -880,7 +887,7 @@ xqc_packet_decrypt(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
                 return ret;
             }
 
-            ret = xqc_conn_confirm_key_update(conn);
+            ret = xqc_conn_confirm_key_update(conn, XQC_FALSE);
             if (ret != XQC_OK) {
                 xqc_log(conn->log, XQC_LOG_WARN, "|xqc_conn_confirm_key_update error|");
                 return ret;

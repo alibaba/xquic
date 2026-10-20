@@ -11,6 +11,7 @@
 #include "src/http3/xqc_h3_request.h"
 #include "src/http3/xqc_h3_header.h"
 #include "src/http3/qpack/xqc_qpack.h"
+#include "src/common/xqc_time.h"
 #include "src/transport/xqc_stream.h"
 #include "src/http3/qpack/stable/xqc_stable.h"
 
@@ -949,6 +950,36 @@ xqc_test_h3_uncompressed_fields_size()
 }
 
 
+void
+xqc_test_h3_headers_total_len_lifecycle()
+{
+    xqc_http_headers_t headers;
+
+    memset(&headers, 0xa5, sizeof(headers));
+    CU_ASSERT_EQUAL(xqc_h3_headers_create_buf(&headers, 1), XQC_OK);
+    CU_ASSERT_EQUAL(headers.count, 0);
+    CU_ASSERT_EQUAL(headers.total_len, 0);
+
+    headers.total_len = 42;
+    xqc_h3_headers_clear(&headers);
+    CU_ASSERT_EQUAL(headers.count, 0);
+    CU_ASSERT_EQUAL(headers.total_len, 0);
+
+    headers.total_len = 42;
+    xqc_h3_headers_free(&headers);
+    CU_ASSERT_PTR_NULL(headers.headers);
+    CU_ASSERT_EQUAL(headers.capacity, 0);
+    CU_ASSERT_EQUAL(headers.total_len, 0);
+
+    memset(&headers, 0xa5, sizeof(headers));
+    xqc_h3_headers_initial(&headers);
+    CU_ASSERT_PTR_NULL(headers.headers);
+    CU_ASSERT_EQUAL(headers.count, 0);
+    CU_ASSERT_EQUAL(headers.capacity, 0);
+    CU_ASSERT_EQUAL(headers.total_len, 0);
+}
+
+
 /*
  * Drive xqc_h3_request_on_recv_header against the
  * SETTINGS_MAX_FIELD_SECTION_SIZE check to prove it now uses
@@ -1324,6 +1355,179 @@ xqc_test_h3_valid_headers_smoke()
     CU_ASSERT(h3s->h3r->completed_header_count == 1);
 
     xqc_h3_msgerr_teardown(h3s, h3c, conn);
+}
+
+
+/*
+ * Regression test: the transport stream is passively closed while the h3
+ * stream still waits for QPACK encoder-stream insertions (blocked with FIN
+ * received), so the h3 stream survives with h3s->stream == NULL. When the
+ * buffered HEADERS is later reprocessed and rejected for exceeding the
+ * field-section limit, the reject path must not dereference the dead
+ * transport stream in xqc_stream_close_with_error; it must destroy the h3
+ * stream to finish the deferred cleanup.
+ */
+void
+xqc_test_h3_blocked_stream_reject_after_close()
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+    xqc_stream_t *stream = h3s->stream;
+
+    /* the 10-byte :authority section trips the field-section limit */
+    h3c->local_h3_conn_settings.max_field_section_size = 4;
+
+    /* buffer the HEADERS frame as if decode had blocked on the dynamic table */
+    xqc_var_buf_t *buf = xqc_var_buf_create(sizeof(xqc_h3_msgerr_valid_headers));
+    CU_ASSERT_FATAL(buf != NULL);
+    CU_ASSERT(xqc_var_buf_save_data(buf, (unsigned char *)xqc_h3_msgerr_valid_headers,
+                                    sizeof(xqc_h3_msgerr_valid_headers)) == XQC_OK);
+    buf->fin_flag = 1;
+    CU_ASSERT(xqc_list_buf_to_tail(&h3s->blocked_buf, buf) == XQC_OK);
+    h3s->blocked_buf_size += sizeof(xqc_h3_msgerr_valid_headers);
+    h3c->total_blocked_buf_size += sizeof(xqc_h3_msgerr_valid_headers);
+
+    h3s->flags |= XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED
+                | XQC_HTTP3_STREAM_FLAG_READ_EOF;
+    h3s->blocked_stream = xqc_h3_conn_add_blocked_stream(h3c, h3s, 0);
+    CU_ASSERT_FATAL(h3s->blocked_stream != NULL);
+
+    /* passive transport close while blocked: h3s survives with stream == NULL */
+    CU_ASSERT(xqc_h3_stream_close_notify(stream, h3s) == XQC_OK);
+    CU_ASSERT(h3s->stream == NULL);
+    CU_ASSERT(h3s->flags & XQC_HTTP3_STREAM_FLAG_CLOSED);
+
+    /*
+     * An encoder-stream insertion arrives and the blocked h3 stream is
+     * reprocessed; the oversized field section is rejected. Pre-fix this
+     * dereferenced h3s->stream (NULL); post-fix the h3 stream is destroyed
+     * and the blocked bookkeeping is drained.
+     */
+    CU_ASSERT(xqc_h3_conn_process_blocked_stream(h3c) == XQC_OK);
+    CU_ASSERT(xqc_list_empty(&h3c->block_stream_head));
+    CU_ASSERT(h3c->total_blocked_buf_size == 0);
+
+    /* h3s was destroyed above; tear down the rest without touching it */
+    stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_destroy_stream(stream);
+    xqc_h3_conn_destroy(h3c);
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+}
+
+
+static xqc_usec_t xqc_h3_test_duplicate_now;
+
+
+static xqc_usec_t
+xqc_h3_test_duplicate_timestamp(void)
+{
+    return xqc_h3_test_duplicate_now;
+}
+
+
+/*
+ * A peer QPACK encoder-stream Duplicate may be syntactically valid while
+ * exceeding one second's bounded work budget. It must close the H3 connection
+ * with H3_EXCESSIVE_LOAD instead of the generic encoder-stream H3_FRAME_ERROR.
+ */
+void
+xqc_test_h3_qpack_duplicate_uses_excessive_load()
+{
+    unsigned char name[100];
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_h3_conn_t *h3c;
+    xqc_stream_t *qdec_stream;
+    xqc_stream_t *qenc_stream;
+    xqc_h3_stream_t *qdec_h3s;
+    xqc_h3_stream_t *qenc_h3s;
+    xqc_var_buf_t *enc_ins;
+    xqc_timestamp_pt saved_timestamp;
+    xqc_int_t ret;
+
+    CU_ASSERT_FATAL(conn != NULL);
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    CU_ASSERT_FATAL(conn->alpn != NULL);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+    conn->conn_state = XQC_CONN_STATE_ESTABED;
+    conn->conn_flow_ctl.fc_max_streams_uni_can_send = 16;
+
+    xqc_h3_engine_set_max_dtable_capacity(conn->engine, 512);
+    h3c = xqc_h3_conn_create(conn, NULL);
+    CU_ASSERT_FATAL(h3c != NULL);
+
+    /* The decoder's Insert Count Increment needs its outbound stream. */
+    qdec_stream = xqc_create_stream_with_conn(conn, XQC_UNDEFINE_STREAM_ID,
+                                               XQC_CLI_UNI, NULL, NULL);
+    CU_ASSERT_FATAL(qdec_stream != NULL);
+    qdec_h3s = xqc_h3_stream_create(h3c, qdec_stream,
+                                     XQC_H3_STREAM_TYPE_QPACK_DECODER, NULL);
+    CU_ASSERT_FATAL(qdec_h3s != NULL);
+    h3c->qdec_stream = qdec_h3s;
+
+    qenc_stream = xqc_create_stream_with_conn(conn, XQC_UNDEFINE_STREAM_ID,
+                                               XQC_CLI_UNI, NULL, NULL);
+    CU_ASSERT_FATAL(qenc_stream != NULL);
+    qenc_h3s = xqc_h3_stream_create(h3c, qenc_stream,
+                                     XQC_H3_STREAM_TYPE_QPACK_ENCODER, NULL);
+    CU_ASSERT_FATAL(qenc_h3s != NULL);
+    qenc_h3s->flags |= XQC_HTTP3_STREAM_FLAG_TYPE_IDENTIFIED;
+
+    enc_ins = xqc_var_buf_create(256);
+    CU_ASSERT_FATAL(enc_ins != NULL);
+    xqc_h3_test_duplicate_now = 1000000;
+    saved_timestamp = xqc_monotonic_timestamp;
+    xqc_monotonic_timestamp = xqc_h3_test_duplicate_timestamp;
+    memset(name, 'a', sizeof(name));
+    CU_ASSERT(xqc_ins_write_set_dtable_cap(enc_ins, 512) == XQC_OK);
+    CU_ASSERT(xqc_ins_write_insert_literal_name(enc_ins, name, sizeof(name),
+                                                NULL, 0) == XQC_OK);
+    ret = xqc_h3_stream_process_in(qenc_h3s, enc_ins->data, enc_ins->data_len,
+                                   XQC_FALSE);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(xqc_qpack_get_dec_insert_count(h3c->qpack) == 1);
+
+    for (int i = 0; i < 15; i++) {
+        xqc_var_buf_clear(enc_ins);
+        CU_ASSERT(xqc_ins_write_dup(enc_ins, 0) == XQC_OK);
+        ret = xqc_h3_stream_process_in(qenc_h3s, enc_ins->data, enc_ins->data_len,
+                                       XQC_FALSE);
+        CU_ASSERT(ret == XQC_OK);
+    }
+    CU_ASSERT(xqc_qpack_get_dec_insert_count(h3c->qpack) == 16);
+
+    xqc_var_buf_clear(enc_ins);
+    CU_ASSERT(xqc_ins_write_dup(enc_ins, 0) == XQC_OK);
+    ret = xqc_h3_stream_process_in(qenc_h3s, enc_ins->data, enc_ins->data_len,
+                                   XQC_FALSE);
+    CU_ASSERT(ret == -XQC_QPACK_DYNAMIC_TABLE_EXCESSIVE_LOAD);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_EXCESSIVE_LOAD);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == 0x107);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+    CU_ASSERT(xqc_qpack_get_dec_insert_count(h3c->qpack) == 16);
+
+    xqc_var_buf_free(enc_ins);
+    qenc_stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_h3_stream_destroy(qenc_h3s);
+    xqc_destroy_stream(qenc_stream);
+    qdec_stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_h3_stream_destroy(qdec_h3s);
+    xqc_destroy_stream(qdec_stream);
+    xqc_h3_conn_destroy(h3c);
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+
+    xqc_monotonic_timestamp = saved_timestamp;
+    xqc_h3_engine_set_max_dtable_capacity(conn->engine,
+                                          XQC_QPACK_MAX_TABLE_CAPACITY);
 }
 
 
@@ -3488,6 +3692,106 @@ xqc_test_h3_pseudo_header_after_regular_rejected()
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
     CU_ASSERT_EQUAL(h3s->h3r->completed_header_count, 0);
     CU_ASSERT_EQUAL(h3s->h3r->read_flag, 0);
+
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
+}
+
+
+typedef struct {
+    size_t          calls;
+    ssize_t         nread;
+    uint8_t         fin;
+    unsigned char   body[4];
+} xqc_h3_empty_data_test_ctx_t;
+
+
+static int
+xqc_h3_empty_data_read_notify(xqc_h3_request_t *h3r,
+    xqc_request_notify_flag_t flag, void *user_data)
+{
+    xqc_h3_empty_data_test_ctx_t *ctx = user_data;
+
+    CU_ASSERT_EQUAL(flag, XQC_REQ_NOTIFY_READ_BODY);
+    ctx->calls++;
+    ctx->nread = xqc_h3_request_recv_body(h3r, ctx->body,
+                                        sizeof(ctx->body), &ctx->fin);
+    return XQC_OK;
+}
+
+
+/* RFC 9114 Section 4.1: a final empty DATA frame ends the HTTP message */
+void
+xqc_test_h3_empty_data_fin()
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    unsigned char headers[sizeof(xqc_h3_msgerr_valid_headers)];
+    xqc_memcpy(headers, xqc_h3_msgerr_valid_headers, sizeof(headers));
+    CU_ASSERT_EQUAL(xqc_h3_stream_process_request(h3s, headers,
+                    sizeof(headers), XQC_FALSE), sizeof(headers));
+    uint8_t fin = XQC_FALSE;
+    CU_ASSERT_PTR_NOT_NULL(xqc_h3_request_recv_headers(h3s->h3r, &fin));
+    CU_ASSERT_EQUAL(fin, XQC_FALSE);
+    CU_ASSERT_EQUAL(h3s->h3r->read_flag, XQC_REQ_NOTIFY_READ_NULL);
+
+    xqc_h3_empty_data_test_ctx_t ctx = {0};
+    h3s->h3r->user_data = &ctx;
+    h3c->h3_request_callbacks.h3_request_read_notify =
+        xqc_h3_empty_data_read_notify;
+
+    unsigned char body_frame[] = {0x00, 0x04, 0x01, 0x02, 0x03, 0x04};
+    CU_ASSERT_EQUAL(xqc_h3_stream_process_request(h3s, body_frame,
+                    sizeof(body_frame), XQC_FALSE), sizeof(body_frame));
+    CU_ASSERT_EQUAL(xqc_h3_request_on_recv_body(h3s->h3r), XQC_OK);
+    CU_ASSERT_EQUAL(ctx.calls, 1);
+    CU_ASSERT_EQUAL(ctx.nread, sizeof(ctx.body));
+    CU_ASSERT_EQUAL(memcmp(ctx.body, body_frame + 2, sizeof(ctx.body)), 0);
+    CU_ASSERT_EQUAL(ctx.fin, XQC_FALSE);
+    CU_ASSERT_EQUAL(h3s->h3r->read_flag, XQC_REQ_NOTIFY_READ_NULL);
+    CU_ASSERT_EQUAL(h3s->h3r->h3r_end_time, 0);
+
+    /* final empty DATA carrying stream FIN reports application EOF */
+    unsigned char empty_data_frame[] = {0x00, 0x00};
+    CU_ASSERT_EQUAL(xqc_h3_stream_process_request(h3s, empty_data_frame,
+                    sizeof(empty_data_frame), XQC_TRUE),
+                    sizeof(empty_data_frame));
+    CU_ASSERT_EQUAL(xqc_h3_request_on_recv_body(h3s->h3r), XQC_OK);
+    CU_ASSERT_EQUAL(ctx.calls, 2);
+    CU_ASSERT_EQUAL(ctx.nread, 0);
+    CU_ASSERT_EQUAL(ctx.fin, XQC_TRUE);
+    CU_ASSERT(h3s->h3r->h3r_end_time > 0);
+    CU_ASSERT_EQUAL(h3s->h3r->body_recvd_final_size, sizeof(ctx.body));
+    CU_ASSERT_EQUAL(h3s->h3r->body_buf_count, 0);
+    CU_ASSERT(xqc_list_empty(&h3s->h3r->body_buf));
+    CU_ASSERT_EQUAL(h3s->h3r->read_flag, XQC_REQ_NOTIFY_READ_NULL);
+
+    CU_ASSERT_EQUAL(xqc_h3_request_on_recv_body(h3s->h3r), XQC_OK);
+    CU_ASSERT_EQUAL(ctx.calls, 2);
+
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
+
+    /* A DATA header without its payload is not a final empty DATA frame. */
+    conn = NULL;
+    h3c = NULL;
+    h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    xqc_memcpy(headers, xqc_h3_msgerr_valid_headers, sizeof(headers));
+    CU_ASSERT_EQUAL(xqc_h3_stream_process_request(h3s, headers,
+                    sizeof(headers), XQC_FALSE), sizeof(headers));
+    fin = XQC_FALSE;
+    CU_ASSERT_PTR_NOT_NULL(xqc_h3_request_recv_headers(h3s->h3r, &fin));
+    CU_ASSERT_EQUAL(fin, XQC_FALSE);
+
+    unsigned char incomplete_data_frame[] = {0x00, 0x01};
+    CU_ASSERT_EQUAL(xqc_h3_stream_process_request(h3s, incomplete_data_frame,
+                    sizeof(incomplete_data_frame), XQC_TRUE),
+                    sizeof(incomplete_data_frame));
+    CU_ASSERT_EQUAL(h3s->h3r->body_buf_count, 0);
+    CU_ASSERT_EQUAL(h3s->h3r->fin_flag, XQC_FALSE);
 
     xqc_h3_msgerr_teardown(h3s, h3c, conn);
 }

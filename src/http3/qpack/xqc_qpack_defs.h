@@ -10,6 +10,7 @@
 #include "src/http3/xqc_h3_defs.h"
 
 #define XQC_QPACK_MAX_TABLE_CAPACITY            (16 * 1024)
+#define XQC_QPACK_DUPLICATE_WORK_HARD_LIMIT_MULTIPLIER (4ULL)
 
 #define XQC_QPACK_MAX_BLOCK_STREAM              (64)
 

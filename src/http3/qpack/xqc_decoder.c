@@ -245,6 +245,20 @@ xqc_decoder_set_dtable_cap(xqc_decoder_t *dec, uint64_t cap)
 
 
 xqc_int_t
+xqc_decoder_get_duplicate_entry_size(xqc_decoder_t *dec, uint64_t idx, size_t *size)
+{
+    uint64_t base_idx = xqc_dtable_get_insert_cnt(dec->dtable);
+
+    if (size == NULL || idx >= base_idx) {
+        return -XQC_QPACK_DYNAMIC_TABLE_VOID_ENTRY;
+    }
+
+    idx = xqc_brel2abs(base_idx, idx);
+    return xqc_dtable_get_entry_size(dec->dtable, idx, size);
+}
+
+
+xqc_int_t
 xqc_decoder_duplicate(xqc_decoder_t *dec, uint64_t idx)
 {
     uint64_t new_idx = 0;

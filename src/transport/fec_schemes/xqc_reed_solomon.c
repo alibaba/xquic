@@ -76,7 +76,7 @@ xqc_rs_code_one_symbol(unsigned char (*GM_rows)[XQC_RSM_COL], unsigned char *inp
     unsigned char *output_p, *gm_p;
     output_i = 0;
 
-    if (input_idx > XQC_FEC_MAX_SYMBOL_NUM_PBLOCK) {
+    if (input_idx < 0 || input_idx >= XQC_FEC_MAX_SYMBOL_NUM_PBLOCK) {
         return -XQC_EFEC_SCHEME_ERROR;
     }
 
@@ -160,23 +160,18 @@ xqc_reed_solomon_encode(xqc_connection_t *conn, unsigned char *stream, size_t st
 }
 
 void
-xqc_gen_invert_GM(xqc_connection_t *conn, int row, int col, unsigned char (*GM)[XQC_RSM_COL], xqc_int_t block_idx, xqc_int_t symbol_flag)
+xqc_gen_invert_GM(xqc_connection_t *conn, int row, int col, unsigned char (*GM)[XQC_RSM_COL], xqc_int_t block_idx, uint64_t symbol_flag)
 {
-    xqc_int_t i, j, k, symbol_num, repair_symbol_num, src_symbol_num, symbol_idx, ret;
+    xqc_int_t i, k, symbol_idx;
     xqc_list_head_t *pos, *next;
-    xqc_fec_rpr_syb_t *rpr_symbol;
 
-    src_symbol_num = xqc_cnt_src_symbols_num(conn->fec_ctl, block_idx);
-    repair_symbol_num = xqc_cnt_rpr_symbols_num(conn->fec_ctl, block_idx);
-    symbol_num = src_symbol_num + repair_symbol_num;
     symbol_idx = 0;
-    rpr_symbol = NULL;
 
     xqc_memset(GM, 0, col * sizeof(*GM));
 
     for (i = 0; i < row; i++) {
         for (k = symbol_idx; k < col; k++) {
-            if (symbol_flag & (1 << k)) {
+            if (symbol_flag & (1ULL << k)) {
                 symbol_idx = k;
                 GM[i][symbol_idx] = 1;
                 symbol_idx++;
@@ -208,25 +203,53 @@ xqc_reed_solomon_decode(xqc_connection_t *conn, unsigned char **outputs, size_t 
      * 2. 将recv symbols格式化
      * 3. 逆矩阵 * recv symbols
      */
-    xqc_int_t           i, j, ret, recv_symbols_num, recv_source_symbols_num, symbol_flag, max_src_symbol_num, loss_src_num;
-    unsigned char       GM[XQC_RSM_COL][XQC_RSM_COL] = {{0}}, *recv_symbols_buff[XQC_RSM_COL], *recovered_symbols_buff[XQC_FEC_MAX_SYMBOL_NUM_PBLOCK];
+    xqc_int_t           i, j, ret, recv_symbols_num, recv_source_symbols_num, max_src_symbol_num, loss_src_num;
+    uint64_t            symbol_flag;
+    unsigned char       GM[XQC_RSM_COL][XQC_RSM_COL] = {{0}};
+    unsigned char       *recv_symbols_buff[XQC_RSM_COL] = {NULL};
+    unsigned char       *recovered_symbols_buff[XQC_FEC_MAX_SYMBOL_NUM_PBLOCK] = {NULL};
     xqc_int_t           loss_symbol_idx[XQC_RSM_COL] = {-1};
 
     *output_size = loss_src_num = 0;
+    ret = XQC_OK;
     recv_source_symbols_num = xqc_cnt_src_symbols_num(conn->fec_ctl, block_idx);
     recv_symbols_num =  recv_source_symbols_num + xqc_cnt_rpr_symbols_num(conn->fec_ctl, block_idx);
-    symbol_flag = xqc_get_symbol_flag(conn, block_idx);
     max_src_symbol_num = conn->remote_settings.fec_max_symbols_num;
+
+    if (max_src_symbol_num <= 0
+        || max_src_symbol_num > XQC_FEC_MAX_SYMBOL_NUM_PBLOCK
+        || recv_source_symbols_num > max_src_symbol_num
+        || recv_symbols_num > XQC_RSM_COL)
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|quic_fec|invalid reed-solomon decoder symbol count|"
+                "src:%d|total:%d|max:%d|", recv_source_symbols_num,
+                recv_symbols_num, max_src_symbol_num);
+        return -XQC_EFEC_SCHEME_ERROR;
+    }
+
+    symbol_flag = xqc_get_symbol_flag(conn, block_idx);
+
+    for (i = 0; i < max_src_symbol_num; i++) {
+        if ((symbol_flag & (1ULL << i)) == 0) {
+            loss_symbol_idx[loss_src_num] = i;
+            loss_src_num++;
+        }
+    }
+
+    if (loss_src_num > XQC_REPAIR_LEN) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|quic_fec|recovered symbol count exceeds output capacity|"
+                "loss:%d|capacity:%d|", loss_src_num, XQC_REPAIR_LEN);
+        return -XQC_EFEC_SCHEME_ERROR;
+    }
 
     for (i = 0; i < recv_symbols_num; i++) {
         recv_symbols_buff[i] = xqc_calloc(XQC_MAX_SYMBOL_SIZE, sizeof(unsigned char));
         recovered_symbols_buff[i] = xqc_calloc(XQC_MAX_SYMBOL_SIZE, sizeof(unsigned char));
-    }
-
-    for (i = 0; i < max_src_symbol_num; i++) {
-        if ((symbol_flag & (1 << i)) == 0) {
-            loss_symbol_idx[loss_src_num] = i;
-            loss_src_num++;
+        if (recv_symbols_buff[i] == NULL || recovered_symbols_buff[i] == NULL) {
+            ret = -XQC_EMALLOC;
+            goto decoder_end;
         }
     }
 
@@ -236,25 +259,32 @@ xqc_reed_solomon_decode(xqc_connection_t *conn, unsigned char **outputs, size_t 
     i = xqc_get_symbols_buff(recv_symbols_buff, conn->fec_ctl, block_idx, output_size);
     if (i < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_get_symbols_buff|recv invalid symbols");
-        return -XQC_EFEC_SCHEME_ERROR;
+        ret = -XQC_EFEC_SCHEME_ERROR;
+        goto decoder_end;
     }
     if (i != recv_symbols_num) {
         xqc_log(conn->log, XQC_LOG_WARN, "|quic_fec|xqc_reed_solomon_decode|recv symbols not enouph to recover lost symbols");
-        return -XQC_EFEC_SCHEME_ERROR;
+        ret = -XQC_EFEC_SCHEME_ERROR;
+        goto decoder_end;
     }
 
-    ret = xqc_rs_code_symbols(GM, recv_symbols_buff, recv_symbols_num, 
+    ret = xqc_rs_code_symbols(GM, recv_symbols_buff, recv_symbols_num,
                               recovered_symbols_buff, recv_symbols_num,
                               *output_size);
 
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_reed_solomon_decode|reed solomon decode symbols failed");
+        goto decoder_end;
     }
 
     for (i = 0; i < loss_src_num; i++) {
-        xqc_fec_ctl_save_symbol(&outputs[i], recovered_symbols_buff[loss_symbol_idx[i]], *output_size);
+        ret = xqc_fec_ctl_save_symbol(&outputs[i], recovered_symbols_buff[loss_symbol_idx[i]], *output_size);
+        if (ret != XQC_OK) {
+            goto decoder_end;
+        }
     }
 
+decoder_end:
     for (i = 0; i < recv_symbols_num; i++) {
         if (recv_symbols_buff[i] != NULL) {
             xqc_free(recv_symbols_buff[i]);

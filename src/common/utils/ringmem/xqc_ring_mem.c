@@ -125,8 +125,8 @@ xqc_ring_mem_resize(xqc_ring_mem_t *rmem, size_t cap)
 
             } else {
                 /* bytes are both truncated in new and original buffer */
-                size_t new_sz1 = mcap - soffset_new;    /* size of first block in new buffer */
-                size_t ori_sz1 = mcap - soffset_ori;    /* size of first block in original buffer */
+                size_t new_sz1 = mcap - soffset_new;            /* size of first block in new buffer */
+                size_t ori_sz1 = rmem->capacity - soffset_ori;  /* size of first block in original buffer (use old capacity) */
                 if (new_sz1 >= ori_sz1) {
                     /* the first block of new buffer is larger than original buffer */
                     xqc_memcpy(buf + soffset_new, rmem->buf + soffset_ori, ori_sz1);
@@ -170,6 +170,11 @@ xqc_ring_mem_copy(xqc_ring_mem_t *rmem, xqc_ring_mem_idx_t idx,
 
     /* compare range using sidx and eidx of rmem is convenient and safe */
     if (idx < rmem->sidx || idx >= rmem->eidx) {
+        return -XQC_EPARAM;
+    }
+
+    /* ensure the requested range [idx, idx+len) does not exceed used data */
+    if (idx + len > rmem->eidx) {
         return -XQC_EPARAM;
     }
 

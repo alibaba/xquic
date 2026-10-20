@@ -186,7 +186,7 @@ xqc_int_t xqc_cnt_src_symbols_num(xqc_fec_ctl_t *fec_ctl, uint64_t block_id);
 
 xqc_int_t xqc_cnt_rpr_symbols_num(xqc_fec_ctl_t *fec_ctl, uint64_t block_id);
 
-xqc_int_t xqc_get_symbol_flag(xqc_connection_t *conn, uint64_t block_id);
+uint64_t xqc_get_symbol_flag(xqc_connection_t *conn, uint64_t block_id);
 
 xqc_fec_src_syb_t *xqc_build_src_symbol(xqc_connection_t *conn, uint64_t block_id, uint64_t symbol_idx,
     unsigned char *symbol, xqc_int_t symbol_size);

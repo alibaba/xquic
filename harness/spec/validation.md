@@ -116,11 +116,11 @@ its case is retired so later changes cannot reuse it.
 | `[705, 799]` | QUIC Transport core | `705-726`, `739-746` |
 | `[800, 899]` | Recovery and congestion control | `800` |
 | `[900, 999]` | QUIC-TLS | `902-903`, `909-912` |
-| `[1000, 1099]` | HTTP/3 framing, streams, and settings | `1000-1021`, `1026-1027` |
+| `[1000, 1099]` | HTTP/3 framing, streams, and settings | `1000-1021`, `1026-1027`, `1032-1035` |
 | `[1100, 1149]` | QPACK | None |
 | `[1150, 1199]` | HTTP priority | None |
 | `[1200, 1299]` | QUIC DATAGRAM | `1201-1202` |
-| `[1300, 1399]` | Multipath QUIC | None |
+| `[1300, 1399]` | Multipath QUIC | `1302` |
 | `[1400, 1499]` | MoQT | None |
 | `[1500, 1599]` | LOC and MSF application protocols | None |
 | `[1600, 1699]` | FEC and experimental transport extensions | None |

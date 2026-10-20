@@ -18,6 +18,7 @@
 #include <stdint.h>
 
 #include "platform.h"
+#include "test_h3_split_fin.h"
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_request.h"
 #include "src/transport/xqc_conn.h"
@@ -147,6 +148,7 @@ typedef struct user_stream_s {
     int                      snd_times;
     int                      rcv_times;
     struct event            *ev_timeout;
+    xqc_test_h3_split_fin_t   split_fin;
 } user_stream_t;
 
 typedef struct user_conn_s {
@@ -1761,6 +1763,11 @@ xqc_server_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
 
     int header_only = 0;
     int send_fin = 1;
+    if (xqc_test_h3_split_fin_case(g_test_case)
+        && user_stream->split_fin.sender)
+    {
+        send_fin = 0;
+    }
 
     if (g_echo && user_stream->recv_body_len == 0) {
         header_only = 1;
@@ -1858,6 +1865,13 @@ xqc_server_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
         }
     }
 
+    if (xqc_test_h3_split_fin_case(g_test_case)
+        && user_stream->send_offset == user_stream->send_body_len)
+    {
+        return xqc_test_h3_split_fin_after_send(&user_stream->split_fin,
+            user_stream->send_body_len);
+    }
+
     if (g_test_case == 12 /* test linger close */
         && user_stream->send_offset == user_stream->send_body_len)
     {
@@ -1879,6 +1893,12 @@ xqc_server_request_create_notify(xqc_h3_request_t *h3_request, void *strm_user_d
     user_stream->h3_request = h3_request;
     xqc_h3_request_set_user_data(h3_request, user_stream);
 
+    if (xqc_test_h3_split_fin_case(g_test_case)) {
+        xqc_test_h3_split_fin_init(&user_stream->split_fin, h3_request,
+            ctx.engine, eb, g_test_case, "server",
+            !xqc_test_h3_split_fin_uplink(g_test_case));
+    }
+
     if (g_test_case == 99) {
         xqc_h3_request_finish(h3_request);
     }
@@ -1898,6 +1918,9 @@ xqc_server_request_close_notify(xqc_h3_request_t *h3_request, void *user_data)
 {
     DEBUG;
     user_stream_t *user_stream = (user_stream_t*)user_data;
+    if (xqc_test_h3_split_fin_case(g_test_case)) {
+        xqc_test_h3_split_fin_close(&user_stream->split_fin);
+    }
 
     if (g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_VALID
         || g_test_case == XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT)
@@ -2061,6 +2084,20 @@ xqc_server_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
         fin = 1;
 
         printf("h3 fin only received\n");
+    }
+
+    if (xqc_test_h3_split_fin_case(g_test_case)) {
+        xqc_test_h3_split_fin_on_read(&user_stream->split_fin,
+            user_stream->recv_body_len, fin, flag);
+        if (xqc_test_h3_split_fin_uplink(g_test_case)) {
+            /* Reply after DATA so missing EOF is visible at request close. */
+            if (user_stream->recv_body_len == XQC_TEST_H3_SPLIT_FIN_BODY_SIZE
+                && !user_stream->header_sent)
+            {
+                return xqc_server_request_send(h3_request, user_stream);
+            }
+            return XQC_OK;
+        }
     }
 
     if (fin) {

@@ -77,6 +77,11 @@ if(XQC_ENABLE_WEBTRANSPORT)
         complex_case/complex_case_common.c)
     target_link_libraries(test_webtransport ${APP_DEPEND_LIBS})
 endif()
+
+add_executable(test_h3_qpack
+    complex_case/test_h3_qpack.c
+    complex_case/complex_case_common.c)
+target_link_libraries(test_h3_qpack ${APP_DEPEND_LIBS})
 target_link_libraries(test_client ${APP_DEPEND_LIBS})
 
 

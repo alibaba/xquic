@@ -1538,3 +1538,53 @@ xqc_test_alpn_client_handshake_no_alpn(void)
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+/*
+ * RFC 9001 Section 6.1: an endpoint MUST retain old read keys until it has
+ * successfully unprotected a packet sent using the new keys. When the local
+ * endpoint initiates a key update, xqc_conn_confirm_key_update(conn, TRUE)
+ * records awaiting_peer_key_update and defers arming the 3*PTO old-key discard
+ * timer; xqc_conn_confirm_peer_key_update arms it only once the peer's new-key
+ * packet has been unprotected.
+ *
+ * The initiator entry point xqc_conn_confirm_key_update also drives the TLS
+ * 1-RTT key phase, which requires a completed handshake, so the full initiator
+ * path is covered by endpoint case 904. This unit test exercises the TLS-free
+ * deferred-arming decision directly.
+ */
+void
+xqc_test_key_update_old_key_retention(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    /*
+     * Guard path: not awaiting a peer key update, confirmation is a no-op and
+     * the old-key retention timer stays unarmed.
+     */
+    conn->key_update_ctx.awaiting_peer_key_update = XQC_FALSE;
+    xqc_conn_confirm_peer_key_update(conn);
+    CU_ASSERT(!xqc_timer_is_set(&conn->conn_timer_manager,
+                                XQC_TIMER_KEY_UPDATE));
+
+    /*
+     * Happy path: awaiting the peer's new-key packet (the initiator state
+     * after xqc_conn_confirm_key_update(conn, TRUE)). Confirming arms the
+     * retention timer and clears the pending flag.
+     */
+    conn->key_update_ctx.awaiting_peer_key_update = XQC_TRUE;
+    xqc_conn_confirm_peer_key_update(conn);
+    CU_ASSERT(xqc_timer_is_set(&conn->conn_timer_manager,
+                               XQC_TIMER_KEY_UPDATE));
+    CU_ASSERT(!conn->key_update_ctx.awaiting_peer_key_update);
+
+    /* A repeated confirmation with the flag cleared must not disturb state. */
+    xqc_conn_confirm_peer_key_update(conn);
+    CU_ASSERT(!conn->key_update_ctx.awaiting_peer_key_update);
+    CU_ASSERT(xqc_timer_is_set(&conn->conn_timer_manager,
+                               XQC_TIMER_KEY_UPDATE));
+
+    xqc_engine_destroy(conn->engine);
+}

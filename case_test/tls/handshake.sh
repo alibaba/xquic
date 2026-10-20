@@ -308,6 +308,28 @@ else
 fi
 }
 
+case_tls_handshake_key_update_old_key_retention()
+{
+    case_test_stop_server
+    case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
+
+    clear_log
+    echo -e "key update old key retention ...\c"
+    ${CLIENT_BIN} -s 102400 -l d -t 8 -E -x 904 >> clog
+    held=`grep "hold-old-key-packet" clog`
+    cached=`grep "cached-old-key-packet" clog`
+    retained=`grep "RESULT|retained" clog`
+    dropped=`grep "RESULT|dropped" clog`
+    if [ "$held" != "" ] && [ "$cached" != "" ] \
+        && [ "$retained" != "" ] && [ -z "$dropped" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "key_update_old_key_retention" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "key_update_old_key_retention" "fail"
+    fi
+}
+
 case_tls_handshake_key_update_0RTT()
 {
 grep_err_log
@@ -603,6 +625,7 @@ case_test_case "no_crypto_with_0RTT_twice" --id native --mode self-reporting --r
 case_test_case "0RTT_buffer_limit_before_Initial" --id native --mode self-reporting --run case_tls_handshake__0RTT_buffer_limit_before_Initial
 case_test_case "set_cipher_suites" --id native --mode self-reporting --run case_tls_handshake_set_cipher_suites
 case_test_case "key_update" --id native --mode self-reporting --run case_tls_handshake_key_update
+case_test_case "key_update_old_key_retention" --id 904 --mode self-reporting --run case_tls_handshake_key_update_old_key_retention
 case_test_case "key_update_0RTT" --id native --mode self-reporting --run case_tls_handshake_key_update_0RTT
 case_test_case "initial_salt_v1_key_derivation" --id native --mode self-reporting --run case_tls_handshake_initial_salt_v1_key_derivation
 case_test_case "crypto_error_cert_verify" --id native --mode self-reporting --run case_tls_handshake_crypto_error_cert_verify

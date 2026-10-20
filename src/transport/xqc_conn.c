@@ -664,6 +664,7 @@ xqc_conn_init_key_update_ctx(xqc_connection_t *conn)
     ctx->aead_confidentiality_limit = 0;
 
     ctx->initiate_time_guard   = 0;
+    ctx->awaiting_peer_key_update = XQC_FALSE;
 }
 
 static inline void
@@ -5477,11 +5478,25 @@ xqc_conn_ptmud_probing(xqc_connection_t *conn)
 }
 
 
+static void
+xqc_conn_set_key_update_timer(xqc_connection_t *conn)
+{
+    xqc_usec_t now = xqc_monotonic_timestamp();
+    xqc_usec_t pto = xqc_conn_get_max_pto(conn);
+
+    if (!xqc_timer_is_set(&conn->conn_timer_manager, XQC_TIMER_KEY_UPDATE)) {
+        xqc_timer_set(&conn->conn_timer_manager, XQC_TIMER_KEY_UPDATE, now, 3 * pto);
+    }
+}
+
+
 xqc_int_t
-xqc_conn_confirm_key_update(xqc_connection_t *conn)
+xqc_conn_confirm_key_update(xqc_connection_t *conn, xqc_bool_t initiated)
 {
     xqc_key_update_ctx_t *ctx = &conn->key_update_ctx;
     xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, conn->conn_initial_path);
+    xqc_usec_t now;
+    xqc_usec_t pto;
 
     ctx->key_update_cnt++;
     ctx->first_sent_pktno = pn_ctl->ctl_packet_number[XQC_PNS_APP_DATA] + 1;
@@ -5489,19 +5504,13 @@ xqc_conn_confirm_key_update(xqc_connection_t *conn)
     ctx->cur_out_key_phase ^= 1;
     ctx->next_in_key_phase ^= 1;
     ctx->enc_pkt_cnt = 0;
+    ctx->awaiting_peer_key_update = initiated;
 
     xqc_tls_set_1rtt_key_phase(conn->tls, ctx->cur_out_key_phase);
     xqc_log(conn->log, XQC_LOG_DEBUG, "|key phase changed to %ui|", ctx->cur_out_key_phase);
 
-    /*
-     * An endpoint SHOULD retain old read keys for no more than three times the PTO after having
-     * received a packet protected using the new keys. After this period, old read keys and their
-     * corresponding secrets SHOULD be discarded.
-     */
-    xqc_usec_t now = xqc_monotonic_timestamp();
-    xqc_usec_t pto = xqc_conn_get_max_pto(conn);
-    if (!xqc_timer_is_set(&conn->conn_timer_manager, XQC_TIMER_KEY_UPDATE)) {
-        xqc_timer_set(&conn->conn_timer_manager, XQC_TIMER_KEY_UPDATE, now, 3 * pto);
+    if (!initiated) {
+        xqc_conn_set_key_update_timer(conn);
     }
 
     /*
@@ -5511,9 +5520,23 @@ xqc_conn_confirm_key_update(xqc_connection_t *conn)
      * an acknowledgment that confirms that the previous key update was received.
      * Failing to allow sufficient time could lead to packets being discarded.
      */
+    now = xqc_monotonic_timestamp();
+    pto = xqc_conn_get_max_pto(conn);
     ctx->initiate_time_guard = now + 3 * pto;
 
     return XQC_OK;
+}
+
+
+void
+xqc_conn_confirm_peer_key_update(xqc_connection_t *conn)
+{
+    xqc_key_update_ctx_t *ctx = &conn->key_update_ctx;
+
+    if (ctx->awaiting_peer_key_update) {
+        ctx->awaiting_peer_key_update = XQC_FALSE;
+        xqc_conn_set_key_update_timer(conn);
+    }
 }
 
 

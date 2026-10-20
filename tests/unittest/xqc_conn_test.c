@@ -332,6 +332,50 @@ xqc_pmtud_case_set(xqc_connection_t *conn, xqc_conn_type_t role,
 }
 
 void
+xqc_test_conn_next_wakeup_path_timers(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    CU_ASSERT_PTR_NOT_NULL_FATAL(path);
+    xqc_path_state_t saved_state = path->path_state;
+    xqc_timer_manager_t *path_tm = &path->path_send_ctl->path_timer_manager;
+    xqc_list_head_t *pos, *next;
+    xqc_gp_timer_t *gp_timer;
+
+    /* leave the path's validation deadline as the only armed timer */
+    for (xqc_timer_type_t type = 0; type < XQC_TIMER_N; ++type) {
+        conn->conn_timer_manager.timer[type].timer_is_set = 0;
+        path_tm->timer[type].timer_is_set = 0;
+    }
+    xqc_list_for_each_safe(pos, next,
+                           &conn->conn_timer_manager.gp_timer_list)
+    {
+        gp_timer = xqc_list_entry(pos, xqc_gp_timer_t, list);
+        gp_timer->timer_is_set = XQC_FALSE;
+    }
+    path_tm->timer[XQC_TIMER_PATH_IDLE].timer_is_set = 1;
+    path_tm->timer[XQC_TIMER_PATH_IDLE].expire_time = 12345;
+
+    /* RFC 9000 Section 8.2.4: the deadline armed while validating must wake
+     * the engine, as must a closing path's draining timer */
+    path->path_state = XQC_PATH_STATE_VALIDATING;
+    CU_ASSERT(xqc_conn_next_wakeup_time(conn) == 12345);
+    path->path_state = XQC_PATH_STATE_CLOSING;
+    CU_ASSERT(xqc_conn_next_wakeup_time(conn) == 12345);
+    path->path_state = XQC_PATH_STATE_ACTIVE;
+    CU_ASSERT(xqc_conn_next_wakeup_time(conn) == 12345);
+
+    /* a CLOSED path is no longer serviced, so its timers are skipped */
+    path->path_state = XQC_PATH_STATE_CLOSED;
+    CU_ASSERT(xqc_conn_next_wakeup_time(conn) == 0);
+
+    path->path_state = saved_state;
+    xqc_engine_destroy(conn->engine);
+}
+
+void
 xqc_test_conn_pmtud_deferred_until_handshake()
 {
     xqc_connection_t *conn = test_engine_connect();

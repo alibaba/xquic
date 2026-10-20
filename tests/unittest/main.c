@@ -340,6 +340,8 @@ main(int argc, char *argv[])
                         "xqc_test_datagram_transport_param_varint_max",
                         xqc_test_datagram_transport_param_varint_max)
         || !CU_add_test(pSuite, "xqc_test_conn_idle_timeout", xqc_test_conn_idle_timeout)
+        || !CU_add_test(pSuite, "xqc_test_conn_next_wakeup_path_timers",
+                        xqc_test_conn_next_wakeup_path_timers)
         || !CU_add_test(pSuite,
                         "xqc_test_conn_pmtud_deferred_until_handshake",
                         xqc_test_conn_pmtud_deferred_until_handshake)

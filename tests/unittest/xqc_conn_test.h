@@ -9,6 +9,7 @@ void xqc_test_conn_create();
 void xqc_test_datagram_transport_param_65536(void);
 void xqc_test_datagram_transport_param_varint_max(void);
 void xqc_test_conn_idle_timeout();
+void xqc_test_conn_next_wakeup_path_timers(void);
 void xqc_test_conn_pmtud_deferred_until_handshake();
 void xqc_test_conn_pmtud_starts_after_handshake();
 void xqc_test_conn_pmtud_force_enable();

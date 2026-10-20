@@ -4669,9 +4669,16 @@ xqc_conn_next_wakeup_time(xqc_connection_t *conn)
 
     xqc_path_ctx_t *path;
     
+    /*
+     * Match xqc_conn_timer_expire, which services the timers of every path
+     * below CLOSED. A VALIDATING path arms the RFC 9000 Section 8.2.4
+     * validation deadline on PATH_IDLE and retransmits PATH_CHALLENGE from
+     * LOSS_DETECTION, and a CLOSING path drains on PATH_DRAINING. None of
+     * them fires on time unless the engine is woken for it.
+     */
     xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
         path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
-        if (path->path_state != XQC_PATH_STATE_ACTIVE) {
+        if (path->path_state >= XQC_PATH_STATE_CLOSED) {
             continue;
         }
 

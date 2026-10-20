@@ -487,6 +487,33 @@ rm -rf tp_localhost test_session xqc_token
 }
 
 
+case_transport_core_peer_max_udp_payload_size_0rtt()
+{
+case_test_stop_server
+rm -rf tp_localhost test_session xqc_token
+case_test_start_server ${SERVER_BIN} -l d -e --pmtud 1 -x 729 > svr_stdlog
+sleep 1
+
+clear_log
+echo -e "peer max_udp_payload_size survives 0-RTT resumption ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E --pmtud 1 -x 729 > stdlog 2>&1
+${CLIENT_BIN} -s 1024 -l d -t 1 -E --pmtud 1 -x 729 >> stdlog 2>&1
+advertised=`grep "\[max-udp-payload-size-test\] advertised:1200" svr_stdlog`
+limited=`grep "\[max-udp-payload-size-test\]|case:729|peer:1200|.*pass:1" stdlog`
+flag=`grep "early_data_flag:1" stdlog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+if [ -n "$advertised" ] && [ -n "$limited" ] && [ -n "$flag" ] && [ -n "$result" ]; then
+    case_print_result "peer_max_udp_payload_size_0rtt" "pass"
+else
+    case_print_result "peer_max_udp_payload_size_0rtt" "fail"
+    echo "$advertised"
+    echo "$limited"
+    echo "$flag"
+fi
+rm -rf tp_localhost test_session xqc_token
+}
+
+
 case_transport_core_peer_max_udp_payload_size_default()
 {
 case_test_stop_server
@@ -1198,6 +1225,7 @@ case_test_case "retry_invalid_token_close" --id 715 --mode self-reporting --run 
 case_test_case "retry_ignore_old_initial_dcid" --id 716 --mode self-reporting --run case_transport_core_retry_ignore_old_initial_dcid
 case_test_case "peer_max_udp_payload_size_limit" --id 729 --mode self-reporting --run case_transport_core_peer_max_udp_payload_size_limit
 case_test_case "peer_max_udp_payload_size_default" --id 730 --mode self-reporting --run case_transport_core_peer_max_udp_payload_size_default
+case_test_case "peer_max_udp_payload_size_0rtt" --id 747 --mode self-reporting --run case_transport_core_peer_max_udp_payload_size_0rtt
 case_test_case "crypto_previous_level_boundary" --id native --mode self-reporting --run case_transport_core_crypto_previous_level_boundary
 case_test_case "crypto_previous_level_extension" --id native --mode self-reporting --run case_transport_core_crypto_previous_level_extension
 case_test_case "new_client_29_&_new_server" --id native --mode self-reporting --run case_transport_core_new_client_29_new_server

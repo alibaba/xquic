@@ -1346,6 +1346,9 @@ xqc_read_transport_params(char *tp_data, size_t tp_data_len, xqc_transport_param
             }
             params->reset_stream_at = value == 1;
             reset_stream_at_seen = XQC_TRUE;
+        } else if (strncmp(p, "max_udp_payload_size=", xqc_lengthof("max_udp_payload_size=")) == 0) {
+            p += xqc_lengthof("max_udp_payload_size=");
+            params->max_udp_payload_size = strtoul(p, NULL, XQC_DECIMAL);
 
         } else if (strncmp(p, "active_connection_id_limit=",
                            xqc_lengthof("active_connection_id_limit=")) == 0)
@@ -1370,6 +1373,7 @@ xqc_write_transport_params(char *tp_buf, size_t cap, const xqc_transport_params_
 {
     char dgram_tp_str[256] = "";
     char reset_stream_at_tp_str[32] = "";
+    char max_udp_tp_str[64] = "";
     ssize_t tp_data_len = 0;
 
     if (params->max_datagram_frame_size) {
@@ -1391,6 +1395,15 @@ xqc_write_transport_params(char *tp_buf, size_t cap, const xqc_transport_params_
             return -XQC_ESYS;
         }
     }
+
+    if (params->max_udp_payload_size != XQC_DEFAULT_MAX_UDP_PAYLOAD_SIZE) {
+        tp_data_len = snprintf(max_udp_tp_str, sizeof(max_udp_tp_str),
+                               "max_udp_payload_size=%"PRIu64"\n",
+                               params->max_udp_payload_size);
+        if (tp_data_len < 0) {
+            return -XQC_ESYS;
+        }
+    }
     
 
     tp_data_len = snprintf(tp_buf, cap, "initial_max_streams_bidi=%"PRIu64"\n"
@@ -1402,6 +1415,7 @@ xqc_write_transport_params(char *tp_buf, size_t cap, const xqc_transport_params_
                                    "max_ack_delay=%"PRIu64"\n"
                                    "active_connection_id_limit=%"PRIu64"\n"
                                    "%s"
+                                   "%s"
                                    "%s",
                                    params->initial_max_streams_bidi,
                                    params->initial_max_streams_uni,
@@ -1412,7 +1426,8 @@ xqc_write_transport_params(char *tp_buf, size_t cap, const xqc_transport_params_
                                    params->max_ack_delay,
                                    params->active_connection_id_limit,
                                    reset_stream_at_tp_str,
-                                   dgram_tp_str);
+                                   dgram_tp_str,
+                                   max_udp_tp_str);
                                    
     if (tp_data_len < 0) {
         return -XQC_ESYS;

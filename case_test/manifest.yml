@@ -83,10 +83,12 @@ groups:
 - id: http3.qpack
   module: http3
   submodule: qpack
-  status: gap
+  estimated_seconds: 3
   source_paths:
   - src/http3/qpack/*
+  - tests/complex_case/test_h3_qpack.c
   runner: case_test/http3/qpack.sh
+  execution: implemented
   port_offset: 70
 - id: http3.ext
   module: http3

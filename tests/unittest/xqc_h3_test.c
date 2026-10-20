@@ -1358,6 +1358,67 @@ xqc_test_h3_valid_headers_smoke()
 }
 
 
+/*
+ * Regression test: the transport stream is passively closed while the h3
+ * stream still waits for QPACK encoder-stream insertions (blocked with FIN
+ * received), so the h3 stream survives with h3s->stream == NULL. When the
+ * buffered HEADERS is later reprocessed and rejected for exceeding the
+ * field-section limit, the reject path must not dereference the dead
+ * transport stream in xqc_stream_close_with_error; it must destroy the h3
+ * stream to finish the deferred cleanup.
+ */
+void
+xqc_test_h3_blocked_stream_reject_after_close()
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+    xqc_stream_t *stream = h3s->stream;
+
+    /* the 10-byte :authority section trips the field-section limit */
+    h3c->local_h3_conn_settings.max_field_section_size = 4;
+
+    /* buffer the HEADERS frame as if decode had blocked on the dynamic table */
+    xqc_var_buf_t *buf = xqc_var_buf_create(sizeof(xqc_h3_msgerr_valid_headers));
+    CU_ASSERT_FATAL(buf != NULL);
+    CU_ASSERT(xqc_var_buf_save_data(buf, (unsigned char *)xqc_h3_msgerr_valid_headers,
+                                    sizeof(xqc_h3_msgerr_valid_headers)) == XQC_OK);
+    buf->fin_flag = 1;
+    CU_ASSERT(xqc_list_buf_to_tail(&h3s->blocked_buf, buf) == XQC_OK);
+    h3s->blocked_buf_size += sizeof(xqc_h3_msgerr_valid_headers);
+    h3c->total_blocked_buf_size += sizeof(xqc_h3_msgerr_valid_headers);
+
+    h3s->flags |= XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED
+                | XQC_HTTP3_STREAM_FLAG_READ_EOF;
+    h3s->blocked_stream = xqc_h3_conn_add_blocked_stream(h3c, h3s, 0);
+    CU_ASSERT_FATAL(h3s->blocked_stream != NULL);
+
+    /* passive transport close while blocked: h3s survives with stream == NULL */
+    CU_ASSERT(xqc_h3_stream_close_notify(stream, h3s) == XQC_OK);
+    CU_ASSERT(h3s->stream == NULL);
+    CU_ASSERT(h3s->flags & XQC_HTTP3_STREAM_FLAG_CLOSED);
+
+    /*
+     * An encoder-stream insertion arrives and the blocked h3 stream is
+     * reprocessed; the oversized field section is rejected. Pre-fix this
+     * dereferenced h3s->stream (NULL); post-fix the h3 stream is destroyed
+     * and the blocked bookkeeping is drained.
+     */
+    CU_ASSERT(xqc_h3_conn_process_blocked_stream(h3c) == XQC_OK);
+    CU_ASSERT(xqc_list_empty(&h3c->block_stream_head));
+    CU_ASSERT(h3c->total_blocked_buf_size == 0);
+
+    /* h3s was destroyed above; tear down the rest without touching it */
+    stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_destroy_stream(stream);
+    xqc_h3_conn_destroy(h3c);
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+}
+
+
 static xqc_usec_t xqc_h3_test_duplicate_now;
 
 

@@ -2011,9 +2011,22 @@ xqc_h3_stream_process_blocked_stream(xqc_h3_stream_t *h3s)
                 }
                 xqc_list_buf_list_free(&h3s->blocked_buf);
 
-                xqc_stream_close_with_error(h3s->stream,
-                                            H3_MESSAGE_ERROR);
+                if (h3s->stream != NULL) {
+                    xqc_stream_close_with_error(h3s->stream,
+                                                H3_MESSAGE_ERROR);
+                    h3s->ref_cnt--;
+                    return XQC_OK;
+                }
+
+                /*
+                 * the transport stream was already closed while this h3 stream
+                 * was blocked; nothing remains to reset at the transport layer.
+                 * destroy the h3 stream to finish the deferred cleanup.
+                 */
+                xqc_log(h3s->log, XQC_LOG_DEBUG, "|reject blocked h3 stream after "
+                        "transport stream closed|stream_id:%ui|", h3s->stream_id);
                 h3s->ref_cnt--;
+                xqc_h3_stream_destroy(h3s);
                 return XQC_OK;
             }
             h3s->ref_cnt--;

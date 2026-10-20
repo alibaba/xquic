@@ -167,8 +167,14 @@ typedef uint64_t xqc_frame_type_bit_t;
  *     PATH_RESPONSE frames are sent just once and MUST NOT be retransmitted on
  *     loss; the peer sends additional PATH_CHALLENGE frames to elicit new
  *     PATH_RESPONSE frames, so PATH_RESPONSE is excluded from repair here.
+ *
+ * ACK_MP is excluded like ACK: the repair copy drops both
+ *     (xqc_packet_out_remove_ack_frame), so counting ACK_MP here resent a
+ *     lost packet holding only ACK_MP and DATAGRAM frames as a DATAGRAM-only
+ *     packet. RFC 9221 Section 5.2: DATAGRAM frames are not retransmitted
+ *     upon loss detection.
  */
-#define XQC_NEED_REPAIR(types) ((types) & ~(XQC_FRAME_BIT_ACK| XQC_FRAME_BIT_PADDING | XQC_FRAME_BIT_PING | XQC_FRAME_BIT_CONNECTION_CLOSE | XQC_FRAME_BIT_DATAGRAM | XQC_FRAME_BIT_SID | XQC_FRAME_BIT_REPAIR_SYMBOL | XQC_FRAME_BIT_PATH_RESPONSE))
+#define XQC_NEED_REPAIR(types) ((types) & ~(XQC_FRAME_BIT_ACK| XQC_FRAME_BIT_ACK_MP | XQC_FRAME_BIT_PADDING | XQC_FRAME_BIT_PING | XQC_FRAME_BIT_CONNECTION_CLOSE | XQC_FRAME_BIT_DATAGRAM | XQC_FRAME_BIT_SID | XQC_FRAME_BIT_REPAIR_SYMBOL | XQC_FRAME_BIT_PATH_RESPONSE))
 
 
 const char *xqc_frame_type_2_str(xqc_engine_t *engine, xqc_frame_type_bit_t type_bit);

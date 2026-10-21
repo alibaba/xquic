@@ -46,7 +46,6 @@ xqc_conn_settings_t internal_default_conn_settings = {
     .ping_on                    = 0,
     .so_sndbuf                  = 0,
     .sndq_packets_used_max      = 0,
-    .max_stream_frame_buffered_cnt = 0,
     .linger                     = {.linger_on = 0, .linger_timeout = 0},
     .proto_version              = XQC_VERSION_V1,
     .init_idle_time_out         = XQC_CONN_INITIAL_IDLE_TIMEOUT,

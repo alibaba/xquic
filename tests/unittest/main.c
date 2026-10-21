@@ -486,6 +486,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_engine_packet_process", xqc_test_engine_packet_process)
         || !CU_add_test(pSuite, "xqc_test_stream_frame", xqc_test_stream_frame)
                 || !CU_add_test(pSuite, "xqc_test_stream_frame_buffered_limit", xqc_test_stream_frame_buffered_limit)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_cap_reserved_slot", xqc_test_stream_frame_cap_reserved_slot)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_fin_only_no_accumulation", xqc_test_stream_frame_fin_only_no_accumulation)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_cap_tolerant_drop", xqc_test_stream_frame_cap_tolerant_drop)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_fc_before_cap", xqc_test_stream_frame_fc_before_cap)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_fin_dropped_then_retransmitted", xqc_test_stream_frame_fin_dropped_then_retransmitted)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_cap_setting", xqc_test_stream_frame_cap_setting)
         || !CU_add_test(pSuite,
                         "xqc_test_stop_sending_drops_queued_stream_packets",
                         xqc_test_stop_sending_drops_queued_stream_packets)

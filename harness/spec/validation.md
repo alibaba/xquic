@@ -113,7 +113,7 @@ its case is retired so later changes cannot reuse it.
 
 | Range | New-case namespace | Allocated IDs |
 |-------|--------------------|---------------|
-| `[705, 799]` | QUIC Transport core | `705-726`, `739-746` |
+| `[705, 799]` | QUIC Transport core | `705-726`, `739-746`, `749` |
 | `[800, 899]` | Recovery and congestion control | `800` |
 | `[900, 999]` | QUIC-TLS | `902-903`, `909-912` |
 | `[1000, 1099]` | HTTP/3 framing, streams, and settings | `1000-1021`, `1026-1027`, `1032-1035` |

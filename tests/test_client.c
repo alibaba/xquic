@@ -102,6 +102,7 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_CUSTOM_SETTINGS_REJECT 1027
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_BELOW_LIMIT 902
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT 903
+#define XQC_TEST_CASE_KEY_UPDATE_STALE_DEADLINE 905
 #define XQC_TEST_CASE_DATAGRAM_1RTT_ALLOWED 1201
 #define XQC_TEST_CASE_DATAGRAM_INITIAL_REJECTED 1202
 #define XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE 715
@@ -161,6 +162,14 @@ static void xqc_client_send_reset_final_size_frames(xqc_connection_t *conn);
 static void xqc_client_test_reliable_reset(xqc_connection_t *conn);
 static void xqc_client_close_send_only_stream(xqc_connection_t *conn);
 static void xqc_client_close_after_data_recvd(int fd, short what, void *arg);
+static void xqc_client_key_update_add_timer(struct event *ev,
+    xqc_usec_t deadline);
+static void xqc_client_key_update_copy_packet(user_conn_t *user_conn,
+    const unsigned char *buf, size_t len);
+static void xqc_client_key_update_start(user_conn_t *user_conn);
+static void xqc_client_key_update_force(int fd, short what, void *arg);
+static void xqc_client_key_update_replay(int fd, short what, void *arg);
+static void xqc_client_key_update_conn_closed(void);
 
 
 #define XQC_TEST_DGRAM_BATCH_SZ 32
@@ -261,6 +270,21 @@ typedef struct user_conn_s {
     uint64_t            black_hole_start_time;
     int                 tracked_pkt_cnt;
 } user_conn_t;
+
+/* state of case 905, see xqc_client_key_update_copy_packet */
+typedef struct {
+    int                 started;
+    int                 copied;
+    xqc_usec_t          first_deadline;
+    size_t              packet_len;
+    unsigned char       packet[XQC_PACKET_TMP_BUF_LEN];
+    user_conn_t        *user_conn;
+    xqc_connection_t   *conn;
+    struct event       *ev_force;
+    struct event       *ev_replay;
+} xqc_key_update_stale_test_t;
+
+static xqc_key_update_stale_test_t xqc_key_update_stale_test;
 
 #define XQC_DEMO_INTERFACE_MAX_LEN 64
 #define XQC_DEMO_MAX_PATH_COUNT    8
@@ -2087,6 +2111,10 @@ xqc_client_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void 
 
     user_conn_t *user_conn = (user_conn_t *)user_data;
 
+    if (g_test_case == XQC_TEST_CASE_KEY_UPDATE_STALE_DEADLINE) {
+        xqc_client_key_update_conn_closed();
+    }
+
     client_ctx_t *p_ctx;
     if (g_test_qch_mode) {
         p_ctx = user_conn->ctx;
@@ -2255,6 +2283,11 @@ xqc_client_h3_conn_close_notify(xqc_h3_conn_t *conn, const xqc_cid_t *cid, void 
 
     user_conn_t *user_conn = (user_conn_t *) user_data;
     xqc_connection_t *transport_conn = xqc_h3_conn_get_xqc_conn(conn);
+
+    if (g_test_case == XQC_TEST_CASE_KEY_UPDATE_STALE_DEADLINE) {
+        xqc_client_key_update_conn_closed();
+    }
+
     printf("conn errno:%d\n", xqc_h3_conn_get_errno(conn));
     printf("conn_err_type:%d\n",
            (int)xqc_conn_get_err_type(transport_conn));
@@ -2555,6 +2588,221 @@ xqc_client_close_after_data_recvd(int fd, short what, void *arg)
            g_test_case, xqc_stream_id(stream), state_before, ret,
            stream->stream_state_send);
     fflush(stdout);
+}
+
+
+static void
+xqc_client_key_update_add_timer(struct event *ev, xqc_usec_t deadline)
+{
+    xqc_usec_t now = xqc_now();
+    xqc_usec_t delay = deadline > now ? deadline - now : 0;
+    struct timeval tv;
+
+    tv.tv_sec = delay / 1000000;
+    tv.tv_usec = delay % 1000000;
+    event_add(ev, &tv);
+}
+
+
+/*
+ * Case 905, RFC 9001 Sections 6.1 and 6.5: a key update started while the
+ * old-key discard deadline of the previous update is pending keeps the read
+ * keys it retires until a packet protected with the peer's new keys has been
+ * unprotected, and then for three times the PTO. Keep a copy of the first
+ * server packet that the client unprotects with the keys of its first key
+ * update, start a second key update one PTO before the first update's discard
+ * deadline, and replay the copy once that deadline has passed: its keys have
+ * been retired by the second update, but must still be available.
+ *
+ * Header protection hides the key phase, so every datagram holding one short
+ * header packet is copied before processing until one of them turns out to be
+ * protected with the new keys.
+ */
+static void
+xqc_client_key_update_copy_packet(user_conn_t *user_conn,
+    const unsigned char *buf, size_t len)
+{
+    xqc_key_update_stale_test_t *test = &xqc_key_update_stale_test;
+    xqc_connection_t *conn = user_conn->quic_conn;
+
+    if (conn == NULL && user_conn->h3_conn != NULL) {
+        conn = xqc_h3_conn_get_xqc_conn(user_conn->h3_conn);
+    }
+
+    test->copied = 0;
+    if (test->started || conn == NULL || len > sizeof(test->packet)
+        || (buf[0] & 0x80) != 0
+        || conn->key_update_ctx.key_update_cnt != 1
+        || conn->key_update_ctx.first_recv_pktno != XQC_MAX_UINT64_VALUE)
+    {
+        return;
+    }
+
+    test->copied = 1;
+    test->user_conn = user_conn;
+    test->conn = conn;
+    test->packet_len = len;
+    memcpy(test->packet, buf, len);
+}
+
+
+/* called after each received datagram has been processed */
+static void
+xqc_client_key_update_start(user_conn_t *user_conn)
+{
+    xqc_key_update_stale_test_t *test = &xqc_key_update_stale_test;
+    xqc_connection_t *conn = user_conn->quic_conn;
+    xqc_timer_manager_t *timers;
+    xqc_usec_t now, pto;
+
+    if (conn == NULL && user_conn->h3_conn != NULL) {
+        conn = xqc_h3_conn_get_xqc_conn(user_conn->h3_conn);
+    }
+
+    if (test->started || conn == NULL
+        || conn->key_update_ctx.key_update_cnt != 1
+        || conn->key_update_ctx.first_recv_pktno == XQC_MAX_UINT64_VALUE)
+    {
+        return;
+    }
+
+    test->started = 1;
+    timers = &conn->conn_timer_manager;
+    now = xqc_now();
+    pto = xqc_conn_get_max_pto(conn);
+    if (!test->copied || !xqc_timer_is_set(timers, XQC_TIMER_KEY_UPDATE)
+        || timers->timer[XQC_TIMER_KEY_UPDATE].expire_time < now + 2 * pto)
+    {
+        printf("[key-update-stale-deadline]|not-exercised|copied:%d|\n",
+               test->copied);
+        return;
+    }
+
+    test->first_deadline = timers->timer[XQC_TIMER_KEY_UPDATE].expire_time;
+    test->ev_force = event_new(eb, -1, 0, xqc_client_key_update_force, test);
+    xqc_client_key_update_add_timer(test->ev_force,
+                                    test->first_deadline - pto);
+
+    printf("[key-update-stale-deadline]|copy-old-key-packet|len:%zu|"
+           "deadline_in:%"PRIu64"|pto:%"PRIu64"|\n",
+           test->packet_len, test->first_deadline - now, pto);
+}
+
+
+static void
+xqc_client_key_update_force(int fd, short what, void *arg)
+{
+    xqc_key_update_stale_test_t *test = arg;
+    user_conn_t *user_conn = test->user_conn;
+    xqc_connection_t *conn = test->conn;
+    xqc_usec_t now;
+
+    if (conn == NULL) {
+        return;
+    }
+
+    now = xqc_now();
+    if (now >= test->first_deadline
+        || !xqc_timer_is_set(&conn->conn_timer_manager, XQC_TIMER_KEY_UPDATE))
+    {
+        printf("[key-update-stale-deadline]|not-exercised|late_by:%"PRId64"|\n",
+               (int64_t) (now - test->first_deadline));
+        return;
+    }
+
+    /*
+     * Let the next 1-RTT packet start the second key update now, while the
+     * first update's discard deadline is pending, as when that deadline and
+     * the initiation guard expire in the same engine tick.
+     */
+    conn->key_update_ctx.initiate_time_guard = 0;
+    conn->key_update_ctx.enc_pkt_cnt =
+        conn->conn_settings.keyupdate_pkt_threshold;
+    if (user_conn->h3_conn != NULL) {
+        xqc_h3_conn_send_ping(user_conn->ctx->engine, &user_conn->cid, NULL);
+
+    } else {
+        xqc_conn_send_ping(user_conn->ctx->engine, &user_conn->cid, NULL);
+    }
+    xqc_engine_main_logic(user_conn->ctx->engine);
+
+    if (test->conn == NULL) {
+        printf("[key-update-stale-deadline]|not-exercised|closed|\n");
+        return;
+    }
+
+    if (conn->key_update_ctx.key_update_cnt != 2) {
+        printf("[key-update-stale-deadline]|not-exercised|key_update_cnt:%u|\n",
+               (unsigned int) conn->key_update_ctx.key_update_cnt);
+        return;
+    }
+
+    test->ev_replay = event_new(eb, -1, 0, xqc_client_key_update_replay, test);
+    xqc_client_key_update_add_timer(test->ev_replay,
+                                    test->first_deadline + 1000);
+
+    printf("[key-update-stale-deadline]|second-update|before_deadline:%"PRId64
+           "|\n", (int64_t) (test->first_deadline - now));
+}
+
+
+static void
+xqc_client_key_update_replay(int fd, short what, void *arg)
+{
+    xqc_key_update_stale_test_t *test = arg;
+    user_conn_t *user_conn = test->user_conn;
+    xqc_connection_t *conn = test->conn;
+    xqc_timer_manager_t *timers;
+    xqc_usec_t now = xqc_now();
+    uint64_t dropped;
+
+    if (conn == NULL) {
+        return;
+    }
+    timers = &conn->conn_timer_manager;
+
+    /* wait until the engine has handled the first update's deadline */
+    if (xqc_timer_is_set(timers, XQC_TIMER_KEY_UPDATE)
+        && timers->timer[XQC_TIMER_KEY_UPDATE].expire_time
+           == test->first_deadline
+        && now < test->first_deadline + 1000000)
+    {
+        xqc_client_key_update_add_timer(test->ev_replay, now + 1000);
+        return;
+    }
+
+    dropped = conn->packet_dropped_count;
+    xqc_engine_packet_process(user_conn->ctx->engine, test->packet,
+                              test->packet_len, user_conn->local_addr,
+                              user_conn->local_addrlen, user_conn->peer_addr,
+                              user_conn->peer_addrlen, xqc_now(), user_conn);
+    if (test->conn == NULL) {
+        printf("[key-update-stale-deadline]|not-exercised|closed|\n");
+        return;
+    }
+    dropped = conn->packet_dropped_count - dropped;
+    xqc_engine_finish_recv(user_conn->ctx->engine);
+
+    printf("[key-update-stale-deadline]|RESULT|%s|after_deadline:%"PRId64"|\n",
+           dropped > 0 ? "dropped" : "retained",
+           (int64_t) (now - test->first_deadline));
+}
+
+
+/* the connection is going away: its pointers must not be used any more */
+static void
+xqc_client_key_update_conn_closed(void)
+{
+    xqc_key_update_stale_test_t *test = &xqc_key_update_stale_test;
+
+    test->started = 1;
+    test->conn = NULL;
+    if (test->ev_force != NULL) {
+        event_del(test->ev_force);
+    }
+    if (test->ev_replay != NULL) {
+        event_del(test->ev_replay);
+    }
 }
 
 
@@ -4596,6 +4844,11 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
 
         if (TEST_DROP) continue;
 
+        if (g_test_case == XQC_TEST_CASE_KEY_UPDATE_STALE_DEADLINE) {
+            xqc_client_key_update_copy_packet(user_conn, packet_buf,
+                                              recv_size);
+        }
+
         if (g_test_case == 6) { /* socket recv fail */
             g_test_case = -1;
             break;
@@ -4649,6 +4902,10 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
         if (ret != XQC_OK) {
             printf("xqc_client_read_handler: packet process err, ret: %d\n", ret);
             return;
+        }
+
+        if (g_test_case == XQC_TEST_CASE_KEY_UPDATE_STALE_DEADLINE) {
+            xqc_client_key_update_start(user_conn);
         }
 
         if (g_test_case == 9) { /* duplicate packet */
@@ -6256,7 +6513,9 @@ int main(int argc, char *argv[]) {
     }
 
     /* test key update */
-    if (g_test_case == 40) {
+    if (g_test_case == 40
+        || g_test_case == XQC_TEST_CASE_KEY_UPDATE_STALE_DEADLINE)
+    {
         conn_settings.keyupdate_pkt_threshold = 30;
 
     } else if (g_test_case == 904) {

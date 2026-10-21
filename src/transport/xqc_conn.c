@@ -5506,15 +5506,22 @@ xqc_conn_ptmud_probing(xqc_connection_t *conn)
 }
 
 
+/*
+ * RFC 9001 Section 6.5: an endpoint SHOULD retain old read keys for no more
+ * than three times the PTO after having received a packet protected using the
+ * new keys. Called once per key update, when such a packet has been
+ * unprotected. The deadline is restarted rather than kept: a deadline left by
+ * an earlier key update would discard the read keys this update has just
+ * retired while the peer may still be sending packets protected with them.
+ */
 static void
 xqc_conn_set_key_update_timer(xqc_connection_t *conn)
 {
     xqc_usec_t now = xqc_monotonic_timestamp();
     xqc_usec_t pto = xqc_conn_get_max_pto(conn);
 
-    if (!xqc_timer_is_set(&conn->conn_timer_manager, XQC_TIMER_KEY_UPDATE)) {
-        xqc_timer_set(&conn->conn_timer_manager, XQC_TIMER_KEY_UPDATE, now, 3 * pto);
-    }
+    xqc_timer_set(&conn->conn_timer_manager, XQC_TIMER_KEY_UPDATE, now,
+                  3 * pto);
 }
 
 
@@ -5537,7 +5544,16 @@ xqc_conn_confirm_key_update(xqc_connection_t *conn, xqc_bool_t initiated)
     xqc_tls_set_1rtt_key_phase(conn->tls, ctx->cur_out_key_phase);
     xqc_log(conn->log, XQC_LOG_DEBUG, "|key phase changed to %ui|", ctx->cur_out_key_phase);
 
-    if (!initiated) {
+    if (initiated) {
+        /*
+         * RFC 9001 Section 6.1: the read keys this update retires MUST be
+         * retained until a packet protected with the peer's new keys has been
+         * unprotected. Cancel a discard deadline left by the previous key
+         * update; xqc_conn_confirm_peer_key_update starts a new one.
+         */
+        xqc_timer_unset(&conn->conn_timer_manager, XQC_TIMER_KEY_UPDATE);
+
+    } else {
         xqc_conn_set_key_update_timer(conn);
     }
 

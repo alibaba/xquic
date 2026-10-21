@@ -47,6 +47,7 @@
 #define XQC_TEST_CASE_RELIABLE_RESET_DIRECTION_ERROR 744
 #define XQC_TEST_CASE_RELIABLE_RESET_ZERO_FIN 745
 #define XQC_TEST_CASE_RELIABLE_RESET_ZERO_CLOSE 746
+#define XQC_TEST_CASE_STREAM_REASSEMBLY_CAP_SMALL 749
 #define XQC_TEST_CASE_RESET_0RTT_DOWNGRADE 909
 #define XQC_TEST_CASE_RESET_0RTT_UPGRADE 910
 #define XQC_TEST_CASE_RESET_0RTT_DISABLED 911
@@ -3159,6 +3160,11 @@ int main(int argc, char *argv[]) {
 
     if (g_test_case == 6) {
         conn_settings.idle_time_out = 10000;
+    }
+
+    /* tiny reassembly cap so client-side packet drops reach it quickly */
+    if (g_test_case == XQC_TEST_CASE_STREAM_REASSEMBLY_CAP_SMALL) {
+        conn_settings.max_stream_frame_buffered_cnt = 16;
     }
 
     /* enable_multipath */

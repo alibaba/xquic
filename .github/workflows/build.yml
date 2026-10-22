@@ -16,7 +16,7 @@ jobs:
 
     name: Build on Ubuntu
 
-    runs-on: self-hosted
+    runs-on: ubuntu-24.04
 
     steps:
     - name: Checkout repository
@@ -192,7 +192,7 @@ jobs:
 
     name: Test BabaSSL on Ubuntu 24.04 with GCC 13
 
-    runs-on: self-hosted
+    runs-on: ubuntu-24.04
 
     steps:
     - name: Checkout repository

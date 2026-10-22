@@ -522,6 +522,36 @@ rm -f aead_confidentiality_server.log
 
 }
 
+case_tls_handshake_key_update_stale_deadline()
+{
+    # RFC 9001 Sections 6.1 and 6.5: a second key update started while the
+    # first update's old-key discard deadline is pending keeps the keys it
+    # retires.
+    case_test_stop_server
+    case_test_start_server ${SERVER_BIN} -l d -e -x 905 > /dev/null
+
+    clear_log
+    echo -e "key update keeps retired keys past an earlier deadline ...\c"
+    ${CLIENT_BIN} -s 102400 -l d -t 5 -E -x 905 >> clog
+    result=`grep ">>>>>>>> pass" clog`
+    copied=`grep "\[key-update-stale-deadline\]|copy-old-key-packet|" clog`
+    forced=`grep "\[key-update-stale-deadline\]|second-update|" clog`
+    retained=`grep "\[key-update-stale-deadline\]|RESULT|retained|" clog`
+    errlog=`grep_err_log`
+    if [ -n "$copied" ] && [ -n "$forced" ] && [ -n "$retained" ] \
+        && [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "key_update_stale_deadline" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "key_update_stale_deadline" "fail"
+        grep "\[key-update-stale-deadline\]" clog
+        echo "$errlog"
+    fi
+
+    case_test_stop_server
+}
+
 reset_0rtt_saved_tp_matches()
 {
     local expected="$1"
@@ -671,6 +701,7 @@ case_test_case "crypto_error_cert_verify" --id native --mode self-reporting --ru
 case_test_case "crypto_error_not_fixed_enum" --id native --mode self-reporting --run case_tls_handshake_crypto_error_not_fixed_enum
 case_test_case "aead_confidentiality_boundary_updates_keys" --id native --mode self-reporting --run case_tls_handshake_aead_confidentiality_boundary_updates_keys
 case_test_case "aead_confidentiality_exhaustion_stops_sender" --id native --mode self-reporting --run case_tls_handshake_aead_confidentiality_exhaustion_stops_sender
+case_test_case "key_update_stale_deadline" --id 905 --mode self-reporting --run case_tls_handshake_key_update_stale_deadline
 
 if case_test_is_discovery; then
     case_test_run

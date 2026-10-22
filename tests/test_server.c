@@ -47,6 +47,7 @@
 #define XQC_TEST_CASE_RELIABLE_RESET_DIRECTION_ERROR 744
 #define XQC_TEST_CASE_RELIABLE_RESET_ZERO_FIN 745
 #define XQC_TEST_CASE_RELIABLE_RESET_ZERO_CLOSE 746
+#define XQC_TEST_CASE_KEY_UPDATE_STALE_DEADLINE 905
 #define XQC_TEST_CASE_RESET_0RTT_DOWNGRADE 909
 #define XQC_TEST_CASE_RESET_0RTT_UPGRADE 910
 #define XQC_TEST_CASE_RESET_0RTT_DISABLED 911
@@ -1177,6 +1178,19 @@ xqc_server_h3_conn_create_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, v
             printf("[max-ack-delay-boundary-test] "
                    "advertised_max_ack_delay:%"PRIu64"\n",
                    conn->local_settings.max_ack_delay);
+        }
+    }
+
+    /*
+     * Case 905 schedules its steps in client PTOs. A larger advertised
+     * max_ack_delay stretches that PTO so the schedule is not upset by
+     * scheduling delays on a loaded host.
+     */
+    if (g_test_case == XQC_TEST_CASE_KEY_UPDATE_STALE_DEADLINE) {
+        xqc_connection_t *conn = xqc_h3_conn_get_xqc_conn(h3_conn);
+        if (conn != NULL) {
+            conn->local_settings.max_ack_delay = 500;
+            conn->conn_flag |= XQC_CONN_FLAG_LOCAL_TP_UPDATED;
         }
     }
 

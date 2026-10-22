@@ -41,6 +41,8 @@
 static void xqc_conn_tls_transport_error_cb(xqc_int_t transport_err,
     void *user_data);
 
+static void xqc_conn_limit_pkt_out_size_by_peer(xqc_connection_t *conn);
+
 xqc_conn_settings_t internal_default_conn_settings = {
     .pacing_on                  = 0,
     .ping_on                    = 0,
@@ -1926,6 +1928,8 @@ xqc_conn_try_to_update_mss(xqc_connection_t *conn)
         /* try to update PMTUD probing info */
         conn->max_pkt_out_size = max_pkt_out_size;
         conn->probing_pkt_out_size = max_pkt_out_size;
+        /* peer max_udp_payload_size remains a hard cap on the raised MSS */
+        xqc_conn_limit_pkt_out_size_by_peer(conn);
         conn->probing_cnt = 0;
         /* launch new probing immediately */
         conn->conn_flag |= XQC_CONN_FLAG_PMTUD_PROBING;
@@ -5837,6 +5841,79 @@ xqc_conn_on_recv_retry(xqc_connection_t *conn, xqc_cid_t *retry_scid)
 }
 
 
+/* shrink packets that are queued but not sent yet to the new budget */
+static void
+xqc_conn_shrink_queued_packets(xqc_connection_t *conn, size_t pkt_out_size)
+{
+    xqc_send_queue_t *send_queue = conn->conn_send_queue;
+    xqc_list_head_t *pos, *next;
+    xqc_packet_out_t *packet_out;
+    xqc_list_head_t *pending_lists[] = {
+        &send_queue->sndq_send_packets,
+        &send_queue->sndq_send_packets_high_pri,
+        &send_queue->sndq_buff_1rtt_packets,
+    };
+
+    for (size_t i = 0; i < sizeof(pending_lists) / sizeof(pending_lists[0]); i++) {
+        xqc_list_for_each_safe(pos, next, pending_lists[i]) {
+            packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+            if (packet_out->po_buf_size > pkt_out_size) {
+                packet_out->po_buf_size = pkt_out_size;
+                if (packet_out->po_used_size > pkt_out_size) {
+                    /* content already serialized beyond the budget cannot be
+                     * unwritten; log and leave the packet as is */
+                    xqc_log(conn->log, XQC_LOG_DEBUG,
+                            "|queued packet exceeds peer max_udp_payload_size"
+                            "|po_used:%ud|budget:%"PRIu64"|",
+                            packet_out->po_used_size, (uint64_t)pkt_out_size);
+                }
+            }
+        }
+    }
+}
+
+
+static void
+xqc_conn_limit_pkt_out_size_by_peer(xqc_connection_t *conn)
+{
+    uint64_t peer_udp_payload_size;
+    size_t peer_pkt_out_size;
+    xqc_path_ctx_t *path;
+    xqc_list_head_t *pos, *next;
+
+    if (conn->remote_settings.max_udp_payload_size
+        < XQC_MIN_UDP_PAYLOAD_SIZE)
+    {
+        return;
+    }
+
+    /* saturate before narrowing to size_t, otherwise a huge remembered/peer
+     * value wraps to zero on 32-bit builds */
+    peer_udp_payload_size = xqc_min(conn->remote_settings.max_udp_payload_size,
+                                    (uint64_t)XQC_MAX_PACKET_OUT_SIZE
+                                    + XQC_PACKET_OUT_EXT_SPACE);
+    peer_pkt_out_size = peer_udp_payload_size - XQC_PACKET_OUT_EXT_SPACE;
+
+    conn->pkt_out_size = xqc_min(conn->pkt_out_size, peer_pkt_out_size);
+    conn->max_pkt_out_size = xqc_min(conn->max_pkt_out_size,
+                                     peer_pkt_out_size);
+    conn->probing_pkt_out_size = xqc_min(conn->probing_pkt_out_size,
+                                         peer_pkt_out_size);
+
+    /* clamp per-path values as well, so that xqc_conn_try_to_update_mss()
+     * cannot restore the budget from stale path state after a path close */
+    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
+        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+        path->curr_pkt_out_size = xqc_min(path->curr_pkt_out_size,
+                                          peer_pkt_out_size);
+        path->path_max_pkt_out_size = xqc_min(path->path_max_pkt_out_size,
+                                              peer_pkt_out_size);
+    }
+
+    xqc_conn_shrink_queued_packets(conn, peer_pkt_out_size);
+}
+
+
 xqc_int_t
 xqc_conn_set_remote_transport_params(xqc_connection_t *conn,
     const xqc_transport_params_t *params, xqc_transport_params_type_t exttype)
@@ -5934,10 +6011,7 @@ xqc_conn_set_remote_transport_params(xqc_connection_t *conn,
     settings->max_receive_timestamps_per_ack = params->max_receive_timestamps_per_ack;
     settings->receive_timestamps_exponent = params->receive_timestamps_exponent;
 
-    if (conn->conn_type == XQC_CONN_TYPE_SERVER
-        && settings->max_udp_payload_size >= XQC_PACKET_OUT_SIZE) {
-        conn->pkt_out_size = xqc_min(conn->pkt_out_size, settings->max_udp_payload_size - XQC_PACKET_OUT_EXT_SPACE);
-    }
+    xqc_conn_limit_pkt_out_size_by_peer(conn);
 
     return XQC_OK;
 }
@@ -6632,6 +6706,7 @@ xqc_conn_set_early_remote_transport_params(xqc_connection_t *conn,
     }
 
     xqc_settings_copy_from_transport_params(&conn->remote_settings, params);
+    xqc_conn_limit_pkt_out_size_by_peer(conn);
 
     /*
      * RFC 9000 §7.4.1: a client MUST NOT use remembered values for

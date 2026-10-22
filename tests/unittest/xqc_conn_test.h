@@ -7,6 +7,11 @@
 
 void xqc_test_conn_create();
 void xqc_test_datagram_transport_param_65536(void);
+void xqc_test_peer_max_udp_payload_size_limits_packets(void);
+void xqc_test_peer_max_udp_payload_size_does_not_expand_packets(void);
+void xqc_test_peer_max_udp_payload_size_survives_path_update(void);
+void xqc_test_peer_max_udp_payload_size_shrinks_queued_packets(void);
+void xqc_test_peer_max_udp_payload_size_huge_value_safe(void);
 void xqc_test_datagram_transport_param_varint_max(void);
 void xqc_test_conn_idle_timeout();
 void xqc_test_conn_pmtud_deferred_until_handshake();

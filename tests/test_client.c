@@ -123,6 +123,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_RESET_0RTT_DISABLED 911
 #define XQC_TEST_CASE_RESET_0RTT_ENABLED 912
 #define XQC_TEST_CASE_CLOSE_AFTER_DATA_RECVD 726
+#define XQC_TEST_CASE_PEER_MAX_UDP_PAYLOAD_SIZE_LIMIT 729
+#define XQC_TEST_CASE_PEER_MAX_UDP_PAYLOAD_SIZE_DEFAULT 730
 #define XQC_TEST_CASE_HQ_REQUEST_FIN 1702
 #define XQC_TEST_CASE_HQ_REQUEST_DELAYED_FIN 1703
 
@@ -2702,6 +2704,38 @@ xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
         printf("[reset-0rtt]|negotiated:%d|session_reused:%d|\n",
                h3_conn->conn->remote_settings.reset_stream_at,
                SSL_session_reused(xqc_tls_get_ssl(h3_conn->conn->tls)));
+    }
+
+    if (g_test_case == XQC_TEST_CASE_PEER_MAX_UDP_PAYLOAD_SIZE_LIMIT
+        || g_test_case == XQC_TEST_CASE_PEER_MAX_UDP_PAYLOAD_SIZE_DEFAULT)
+    {
+        xqc_connection_t *conn = xqc_h3_conn_get_xqc_conn(h3_conn);
+        size_t peer_pkt_out_size;
+        int passed = 0;
+
+        if (conn != NULL) {
+            peer_pkt_out_size = conn->remote_settings.max_udp_payload_size
+                                - XQC_PACKET_OUT_EXT_SPACE;
+            if (g_test_case == XQC_TEST_CASE_PEER_MAX_UDP_PAYLOAD_SIZE_LIMIT) {
+                passed = conn->remote_settings.max_udp_payload_size
+                         == XQC_MIN_UDP_PAYLOAD_SIZE
+                         && conn->pkt_out_size <= peer_pkt_out_size
+                         && conn->max_pkt_out_size <= peer_pkt_out_size
+                         && conn->probing_pkt_out_size <= peer_pkt_out_size;
+
+            } else {
+                passed = conn->remote_settings.max_udp_payload_size
+                         == XQC_DEFAULT_MAX_UDP_PAYLOAD_SIZE
+                         && conn->max_pkt_out_size == XQC_MAX_PACKET_OUT_SIZE
+                         && conn->probing_pkt_out_size == XQC_MAX_PACKET_OUT_SIZE;
+            }
+
+            printf("[max-udp-payload-size-test]|case:%d|peer:%"PRIu64
+                   "|pkt:%zu|max:%zu|probing:%zu|pass:%d|\n", g_test_case,
+                   conn->remote_settings.max_udp_payload_size,
+                   conn->pkt_out_size, conn->max_pkt_out_size,
+                   conn->probing_pkt_out_size, passed);
+        }
     }
 
     if (g_enable_multipath) {

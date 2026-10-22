@@ -163,12 +163,28 @@ xqc_test_need_repair_with_high_bit()
     types = XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_PATH_RESPONSE;
     CU_ASSERT(XQC_NEED_REPAIR(types) != 0);
 
-    /* ACK + PADDING + PING + CONN_CLOSE + DATAGRAM + SID + REPAIR_SYMBOL +
-     * PATH_RESPONSE: all are excluded from repair; result should be 0 */
-    types = XQC_FRAME_BIT_ACK | XQC_FRAME_BIT_PADDING | XQC_FRAME_BIT_PING
-          | XQC_FRAME_BIT_CONNECTION_CLOSE | XQC_FRAME_BIT_DATAGRAM
-          | XQC_FRAME_BIT_SID | XQC_FRAME_BIT_REPAIR_SYMBOL
-          | XQC_FRAME_BIT_PATH_RESPONSE;
+    /* ACK_MP alone: should NOT need repair, like ACK. The repair copy
+     * strips ACK and ACK_MP, so nothing would be left to resend. */
+    types = XQC_FRAME_BIT_ACK_MP;
+    CU_ASSERT(XQC_NEED_REPAIR(types) == 0);
+
+    /* ACK_MP + DATAGRAM: should NOT need repair. Repairing it resends a
+     * DATAGRAM-only copy, but RFC 9221 Section 5.2 says DATAGRAM frames are
+     * not retransmitted upon loss detection. */
+    types = XQC_FRAME_BIT_ACK_MP | XQC_FRAME_BIT_DATAGRAM;
+    CU_ASSERT(XQC_NEED_REPAIR(types) == 0);
+
+    /* STREAM + ACK_MP: should need repair (STREAM triggers it) */
+    types = XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_ACK_MP;
+    CU_ASSERT(XQC_NEED_REPAIR(types) != 0);
+
+    /* ACK + ACK_MP + PADDING + PING + CONN_CLOSE + DATAGRAM + SID +
+     * REPAIR_SYMBOL + PATH_RESPONSE: all are excluded from repair; result
+     * should be 0 */
+    types = XQC_FRAME_BIT_ACK | XQC_FRAME_BIT_ACK_MP | XQC_FRAME_BIT_PADDING
+          | XQC_FRAME_BIT_PING | XQC_FRAME_BIT_CONNECTION_CLOSE
+          | XQC_FRAME_BIT_DATAGRAM | XQC_FRAME_BIT_SID
+          | XQC_FRAME_BIT_REPAIR_SYMBOL | XQC_FRAME_BIT_PATH_RESPONSE;
     CU_ASSERT(XQC_NEED_REPAIR(types) == 0);
 }
 

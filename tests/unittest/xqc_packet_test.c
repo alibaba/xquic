@@ -14,6 +14,7 @@
 #include "xquic/xquic_typedef.h"
 #include "xquic/xquic.h"
 #include "src/common/xqc_str.h"
+#include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "xqc_common_test.h"
 #include "src/transport/xqc_conn.h"
 
@@ -26,6 +27,80 @@
 
 #define XQC_TEST_CHECK_CID "ab3f120acdef0089"
 #define XQC_TEST_COALESCED_PACKET_SIZE 1250
+
+static void xqc_test_initial_token_write(xqc_conn_type_t role);
+
+
+static void
+xqc_test_initial_token_write(xqc_conn_type_t role)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    const uint32_t lengths[] = {0, 1, 63, 64, XQC_MAX_TOKEN_LEN};
+    unsigned char token[XQC_MAX_TOKEN_LEN];
+    xqc_packet_out_t *packet_out;
+    unsigned char *pos;
+    unsigned char *end;
+    uint64_t token_len;
+    size_t expected_len;
+    int width;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->conn_type = role;
+    for (size_t i = 0; i < sizeof(token); i++) {
+        token[i] = (unsigned char)i;
+    }
+    memcpy(conn->conn_token, token, sizeof(token));
+
+    /* RFC 9000 Section 17.2.2 forbids echoing a client's Initial token. */
+    for (size_t i = 0; i < sizeof(lengths) / sizeof(lengths[0]); i++) {
+        conn->conn_token_len = lengths[i];
+        expected_len = role == XQC_CONN_TYPE_CLIENT ? lengths[i] : 0;
+        packet_out = xqc_write_new_packet(conn, XQC_PTYPE_INIT);
+        CU_ASSERT_PTR_NOT_NULL(packet_out);
+        if (packet_out == NULL) {
+            break;
+        }
+
+        pos = packet_out->po_buf + XQC_PACKET_LONG_HEADER_PREFIX_LENGTH
+              + 1 + conn->dcid_set.current_dcid.cid_len
+              + 1 + conn->scid_set.user_scid.cid_len;
+        end = packet_out->po_buf + packet_out->po_used_size;
+        width = xqc_vint_read(pos, end, &token_len);
+        CU_ASSERT(width > 0);
+        if (width <= 0) {
+            continue;
+        }
+
+        CU_ASSERT_EQUAL(token_len, expected_len);
+        CU_ASSERT_PTR_EQUAL(packet_out->po_ppktno,
+                            pos + width + expected_len
+                            + XQC_LONG_HEADER_LENGTH_BYTE);
+        CU_ASSERT((size_t)(end - pos) >= width + expected_len);
+        if ((size_t)(end - pos) >= width + expected_len) {
+            CU_ASSERT_EQUAL(memcmp(pos + width, token, expected_len), 0);
+        }
+        CU_ASSERT_EQUAL(conn->conn_token_len, lengths[i]);
+        CU_ASSERT_EQUAL(memcmp(conn->conn_token, token, sizeof(token)), 0);
+    }
+
+    conn->conn_type = XQC_CONN_TYPE_CLIENT;
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_client_initial_sends_token(void)
+{
+    xqc_test_initial_token_write(XQC_CONN_TYPE_CLIENT);
+}
+
+
+void
+xqc_test_server_initial_omits_token(void)
+{
+    xqc_test_initial_token_write(XQC_CONN_TYPE_SERVER);
+}
+
 
 void
 xqc_test_packet_parse_cid(unsigned char *buf, size_t size, int is_short)
@@ -121,6 +196,65 @@ xqc_test_server_buffers_received_zero_rtt(void)
     CU_ASSERT_TRUE(conn->conn_flag & XQC_CONN_FLAG_HAS_0RTT);
 
     conn->conn_type = XQC_CONN_TYPE_CLIENT;
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_client_initial_zero_token(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_packet_in_t packet_in;
+    unsigned char buf[10];
+    size_t width;
+    xqc_int_t ret;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    /* RFC 9000 Sections 16 and 17.2.2 permit all encodings of zero. */
+    for (unsigned int bits = 0; bits < 4; bits++) {
+        width = xqc_vint_len(bits);
+        xqc_vint_write(buf, 0, bits, width);
+        buf[width] = 1;
+        buf[width + 1] = 0;
+        memset(&packet_in, 0, sizeof(packet_in));
+        xqc_packet_in_init(&packet_in, buf, width + 2, NULL, 0, 0);
+        ret = xqc_packet_parse_initial(conn, &packet_in);
+
+        CU_ASSERT_EQUAL(ret, XQC_OK);
+        CU_ASSERT_EQUAL(conn->conn_err, 0);
+    }
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_client_initial_nonzero_token(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_packet_in_t packet_in;
+    unsigned char buf[11];
+    size_t width;
+    xqc_int_t ret;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->conn_token[0] = 0x7b;
+    conn->conn_token_len = 1;
+    /* RFC 9000 Section 17.2.2 permits discarding the invalid Initial. */
+    for (unsigned int bits = 0; bits < 4; bits++) {
+        width = xqc_vint_len(bits);
+        xqc_vint_write(buf, 1, bits, width);
+        buf[width] = 0xa5;
+        buf[width + 1] = 1;
+        buf[width + 2] = 0;
+        memset(&packet_in, 0, sizeof(packet_in));
+        xqc_packet_in_init(&packet_in, buf, width + 3, NULL, 0, 0);
+        ret = xqc_packet_parse_initial(conn, &packet_in);
+
+        CU_ASSERT_EQUAL(ret, -XQC_EILLPKT);
+        CU_ASSERT_EQUAL(conn->conn_err, 0);
+        CU_ASSERT_EQUAL(conn->conn_token_len, 1);
+        CU_ASSERT_EQUAL(conn->conn_token[0], 0x7b);
+    }
     xqc_engine_destroy(conn->engine);
 }
 

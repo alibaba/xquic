@@ -280,10 +280,14 @@ xqc_write_packet_header(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
                                           conn->key_update_ctx.cur_out_key_phase);
 
     } else if (pkt_type != XQC_PTYPE_SHORT_HEADER && packet_out->po_used_size == 0) {
+        /* RFC 9000 Section 17.2.2: only client Initials carry tokens. */
+        uint32_t token_len = conn->conn_type == XQC_CONN_TYPE_CLIENT
+                             ? conn->conn_token_len : 0;
+
         ret = xqc_gen_long_packet_header(packet_out,
                                          conn->dcid_set.current_dcid.cid_buf, conn->dcid_set.current_dcid.cid_len,
                                          conn->scid_set.user_scid.cid_buf, conn->scid_set.user_scid.cid_len,
-                                         conn->conn_token, conn->conn_token_len,
+                                         conn->conn_token, token_len,
                                          conn->version, XQC_PKTNO_BITS);
     }
 

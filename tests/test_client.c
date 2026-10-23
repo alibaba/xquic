@@ -1117,6 +1117,35 @@ xqc_client_handle_retry_token_tests(unsigned char *send_buf, size_t send_buf_siz
     }
 }
 
+/* cases 804-805: a path that drops every datagram above
+ * XQC_TEST_CASE_PATH_MTU bytes, 100 more than the default packet size,
+ * which only PMTUD probes exceed. 805 also drops one ordinary full-size
+ * packet, a real loss next to the probe losses. */
+#define XQC_TEST_CASE_PATH_MTU (XQC_PACKET_OUT_SIZE + 100)
+
+static int
+xqc_client_mtu_dropped(const unsigned char *buf, size_t size)
+{
+    static int full_pkts = 0;
+
+    if (g_test_case != 804 && g_test_case != 805) {
+        return 0;
+    }
+
+    if (size > XQC_TEST_CASE_PATH_MTU) {
+        return 1;
+    }
+
+    /* the 20th full-size short header packet */
+    if (g_test_case == 805 && (buf[0] & 0x80) == 0 && size >= 1000
+        && ++full_pkts == 20)
+    {
+        return 1;
+    }
+
+    return 0;
+}
+
 
 int
 read_file_data(char *data, size_t data_len, char *filename)
@@ -1184,6 +1213,11 @@ xqc_client_write_socket(const unsigned char *buf, size_t size,
         && user_conn->quic_conn->key_update_ctx.key_update_cnt > 0)
     {
         return send_buf_size;
+    }
+
+    /* cases 804-805 */
+    if (xqc_client_mtu_dropped(buf, size)) {
+        return size;
     }
 
     /* make initial packet loss to test 0rtt buffer */
@@ -1361,6 +1395,11 @@ xqc_client_write_socket_ex(uint64_t path_id,
 
     if (user_conn == NULL || buf == NULL) {
         return XQC_SOCKET_ERROR;
+    }
+
+    /* cases 804-805 */
+    if (xqc_client_mtu_dropped(buf, size)) {
+        return size;
     }
 
     /* test stateless reset after handshake completed */

@@ -823,3 +823,76 @@ xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return(void)
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+/*
+ * RFC 9000 14.4: the loss of a PMTU probe "SHOULD NOT trigger a congestion
+ * control reaction" (also RFC 8899 3, item 7). Both tests arm the
+ * persistent-congestion state, so a probe counted as a loss would also
+ * collapse cwnd and reset the RTT estimator.
+ */
+static void
+xqc_test_send_ctl_lost_packet_cc(xqc_bool_t pmtud_probe)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_send_queue_t *sq = conn->conn_send_queue;
+    CU_ASSERT_FATAL(send_ctl != NULL);
+    CU_ASSERT_FATAL(send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd != NULL);
+    conn->remote_settings.max_ack_delay = 25;
+
+    xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 1);
+
+    xqc_packet_out_t *po = xqc_test_send_ctl_seed_lost_packet(conn, 1, 1);
+    CU_ASSERT_FATAL(po != NULL);
+    if (pmtud_probe) {
+        po->po_flag |= XQC_POF_PMTUD_PROBING;
+    }
+
+    uint64_t cwnd_before = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(
+        send_ctl->ctl_cong);
+    uint64_t lost_before = send_ctl->ctl_lost_pkts_number;
+    uint64_t detected_before = conn->detected_loss_cnt;
+
+    xqc_send_ctl_detect_lost(send_ctl, sq, XQC_PNS_APP_DATA, 1000000);
+
+    uint64_t cwnd_after = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(
+        send_ctl->ctl_cong);
+
+    /* Either way the packet leaves the unacked list. */
+    CU_ASSERT(xqc_list_empty(&sq->sndq_unacked_packets[XQC_PNS_APP_DATA]));
+
+    if (pmtud_probe) {
+        CU_ASSERT_EQUAL(cwnd_after, cwnd_before);
+        CU_ASSERT_EQUAL(send_ctl->sampler.loss, 0);
+        CU_ASSERT_EQUAL(send_ctl->ctl_lost_pkts_number, lost_before);
+        CU_ASSERT_EQUAL(conn->detected_loss_cnt, detected_before);
+        CU_ASSERT_EQUAL(send_ctl->ctl_srtt, 10000);
+        CU_ASSERT_EQUAL(send_ctl->ctl_minrtt, 8000);
+
+    } else {
+        CU_ASSERT(cwnd_after < cwnd_before);
+        CU_ASSERT_EQUAL(send_ctl->sampler.loss, 1);
+        CU_ASSERT_EQUAL(send_ctl->ctl_lost_pkts_number, lost_before + 1);
+        CU_ASSERT_EQUAL(conn->detected_loss_cnt, detected_before + 1);
+    }
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction(void)
+{
+    xqc_test_send_ctl_lost_packet_cc(XQC_TRUE);
+}
+
+
+void
+xqc_test_send_ctl_lost_packet_cc_reaction(void)
+{
+    xqc_test_send_ctl_lost_packet_cc(XQC_FALSE);
+}

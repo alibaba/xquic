@@ -54,6 +54,8 @@ typedef enum {
     XQC_FRAME_SID,
     XQC_FRAME_REPAIR_SYMBOL,
     XQC_FRAME_RESET_STREAM_AT,
+    XQC_FRAME_PATHS_BLOCKED,
+    XQC_FRAME_PATH_CIDS_BLOCKED,
     XQC_FRAME_NUM,
 } xqc_frame_type_t;
 
@@ -132,6 +134,10 @@ typedef uint64_t xqc_frame_type_bit_t;
     (1ULL << XQC_FRAME_REPAIR_SYMBOL)
 #define XQC_FRAME_BIT_RESET_STREAM_AT \
     (1ULL << XQC_FRAME_RESET_STREAM_AT)
+#define XQC_FRAME_BIT_PATHS_BLOCKED \
+    (1ULL << XQC_FRAME_PATHS_BLOCKED)
+#define XQC_FRAME_BIT_PATH_CIDS_BLOCKED \
+    (1ULL << XQC_FRAME_PATH_CIDS_BLOCKED)
 #define XQC_FRAME_BIT_NUM \
     (1ULL << XQC_FRAME_NUM)
 
@@ -257,5 +263,9 @@ xqc_int_t xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in
 xqc_int_t xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 xqc_int_t xqc_process_max_path_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
+
+xqc_int_t xqc_process_paths_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
+
+xqc_int_t xqc_process_path_cids_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 #endif /* _XQC_FRAME_H_INCLUDED_ */

@@ -293,5 +293,10 @@ double xqc_path_recent_loss_rate(xqc_path_ctx_t *path);
 
 double xqc_conn_recent_loss_rate(xqc_connection_t *conn);
 
+/* draft-ietf-quic-multipath-21 Section 4.6: path IDs are bounded by the nonce width */
+#define XQC_PATH_ID_MAX_VALUE   0xFFFFFFFFULL
+
+void xqc_conn_mp_protocol_violation(xqc_connection_t *conn);
+
 #endif /* XQC_MULTIPATH_H */
 

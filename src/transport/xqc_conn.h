@@ -457,6 +457,7 @@ struct xqc_connection_s {
     uint64_t                        curr_max_path_id;
     uint64_t                        local_max_path_id;
     uint64_t                        remote_max_path_id;
+    xqc_usec_t                      last_path_blocked_sent_time;  /* PATHS_BLOCKED / PATH_CIDS_BLOCKED pacing */
 
     /* for qlog */
     uint32_t                        MTU_updated_count;    

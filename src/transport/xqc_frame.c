@@ -72,6 +72,8 @@ static const char * const frame_type_2_str[XQC_FRAME_NUM] = {
     [XQC_FRAME_Extension]            = "Extension",
     [XQC_FRAME_SID]                  = "FEC_SID",
     [XQC_FRAME_REPAIR_SYMBOL]        = "FEC_REPAIR",
+    [XQC_FRAME_PATHS_BLOCKED]        = "PATHS_BLOCKED",
+    [XQC_FRAME_PATH_CIDS_BLOCKED]    = "PATH_CIDS_BLOCKED",
 };
 
 static void
@@ -223,6 +225,15 @@ xqc_insert_stream_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream
 }
 
 
+static xqc_bool_t
+xqc_is_mp3e_frame_type(uint64_t frame_type)
+{
+    return frame_type == XQC_TRANS_FRAME_TYPE_PATH_ACK
+        || frame_type == XQC_TRANS_FRAME_TYPE_PATH_ACK_ECN
+        || (frame_type >= XQC_TRANS_FRAME_TYPE_PATH_ABANDON
+            && frame_type <= XQC_TRANS_FRAME_TYPE_PATH_CIDS_BLOCKED);
+}
+
 xqc_int_t
 xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
@@ -270,6 +281,18 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
             /* do not respond any packet */
             packet_in->pos = packet_in->last;
             return XQC_OK;
+        }
+
+        /* draft-ietf-quic-multipath-21 Section 4: multipath frames are only sent in 1-RTT packets */
+        if (conn->enable_multipath
+            && conn->conn_settings.multipath_version == XQC_MULTIPATH_3E
+            && xqc_is_mp3e_frame_type(frame_type)
+            && packet_in->pi_pkt.pkt_type != XQC_PTYPE_SHORT_HEADER)
+        {
+            xqc_log(conn->log, XQC_LOG_ERROR, "|multipath frame outside 1-RTT|f:%xL|pkt_type:%d|",
+                    frame_type, packet_in->pi_pkt.pkt_type);
+            xqc_conn_mp_protocol_violation(conn);
+            return -XQC_EILLEGAL_FRAME;
         }
 
         xqc_log(conn->log, XQC_LOG_DEBUG, "|frame_type:%xL|", frame_type);
@@ -361,12 +384,14 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
             break;
         case XQC_TRANS_FRAME_TYPE_PATH_ACK:
         case XQC_TRANS_FRAME_TYPE_PATH_ACK_ECN:
-            if (conn->conn_settings.multipath_version == XQC_MULTIPATH_3E) {
+            if (conn->enable_multipath
+                && conn->conn_settings.multipath_version == XQC_MULTIPATH_3E)
+            {
                 ret = xqc_process_ack_mp_frame(conn, packet_in);
 
             } else {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|mp_version error|v:%ud|f:%xL|",
-                        conn->conn_settings.multipath_version, frame_type);
+                xqc_log(conn->log, XQC_LOG_ERROR, "|mp_version error|enable_multipath:%d|v:%ud|f:%xL|",
+                        conn->enable_multipath, conn->conn_settings.multipath_version, frame_type);
                 ret = -XQC_EMP_INVALID_MP_VERTION;
             }
             break;
@@ -384,12 +409,14 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
             }
             break;
         case XQC_TRANS_FRAME_TYPE_PATH_ABANDON:
-            if (conn->conn_settings.multipath_version == XQC_MULTIPATH_3E) {
+            if (conn->enable_multipath
+                && conn->conn_settings.multipath_version == XQC_MULTIPATH_3E)
+            {
                 ret = xqc_process_path_abandon_frame(conn, packet_in);
 
             } else {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|mp_version error|v:%ud|f:%xL|",
-                        conn->conn_settings.multipath_version, frame_type);
+                xqc_log(conn->log, XQC_LOG_ERROR, "|mp_version error|enable_multipath:%d|v:%ud|f:%xL|",
+                        conn->enable_multipath, conn->conn_settings.multipath_version, frame_type);
                 ret = -XQC_EMP_INVALID_MP_VERTION;
             }
             break;
@@ -408,12 +435,14 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 
         case XQC_TRANS_FRAME_TYPE_PATH_STATUS_STANDBY:
         case XQC_TRANS_FRAME_TYPE_PATH_STATUS_AVAILABLE:
-            if (conn->conn_settings.multipath_version == XQC_MULTIPATH_3E) {
+            if (conn->enable_multipath
+                && conn->conn_settings.multipath_version == XQC_MULTIPATH_3E)
+            {
                 ret = xqc_process_path_status_frame(conn, packet_in);
 
             } else {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|mp_version error|v:%ud|f:%xL|",
-                        conn->conn_settings.multipath_version, frame_type);
+                xqc_log(conn->log, XQC_LOG_ERROR, "|mp_version error|enable_multipath:%d|v:%ud|f:%xL|",
+                        conn->enable_multipath, conn->conn_settings.multipath_version, frame_type);
                 ret = -XQC_EMP_INVALID_MP_VERTION;
             }
             break;
@@ -433,12 +462,14 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
             break;
 
         case XQC_TRANS_FRAME_TYPE_PATH_NEW_CONNECTION_ID:
-            if (conn->conn_settings.multipath_version == XQC_MULTIPATH_3E) {
+            if (conn->enable_multipath
+                && conn->conn_settings.multipath_version == XQC_MULTIPATH_3E)
+            {
                 ret = xqc_process_mp_new_conn_id_frame(conn, packet_in);
 
             } else {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|mp_version error|v:%ud|f:%xL|",
-                        conn->conn_settings.multipath_version, frame_type);
+                xqc_log(conn->log, XQC_LOG_ERROR, "|mp_version error|enable_multipath:%d|v:%ud|f:%xL|",
+                        conn->enable_multipath, conn->conn_settings.multipath_version, frame_type);
                 ret = -XQC_EMP_INVALID_MP_VERTION;
             }
             break;
@@ -455,12 +486,14 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
             }
             break;
         case XQC_TRANS_FRAME_TYPE_PATH_RETIRE_CONNECTION_ID:
-            if (conn->conn_settings.multipath_version == XQC_MULTIPATH_3E) {
+            if (conn->enable_multipath
+                && conn->conn_settings.multipath_version == XQC_MULTIPATH_3E)
+            {
                 ret = xqc_process_mp_retire_conn_id_frame(conn, packet_in);
 
             } else {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|mp_version error|v:%ud|f:%xL|",
-                        conn->conn_settings.multipath_version, frame_type);
+                xqc_log(conn->log, XQC_LOG_ERROR, "|mp_version error|enable_multipath:%d|v:%ud|f:%xL|",
+                        conn->enable_multipath, conn->conn_settings.multipath_version, frame_type);
                 ret = -XQC_EMP_INVALID_MP_VERTION;
             }
             break;
@@ -477,12 +510,14 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
             }
             break;
         case XQC_TRANS_FRAME_TYPE_PATH_MAX_PATH_ID:
-            if (conn->conn_settings.multipath_version == XQC_MULTIPATH_3E) {
+            if (conn->enable_multipath
+                && conn->conn_settings.multipath_version == XQC_MULTIPATH_3E)
+            {
                 ret = xqc_process_max_path_id_frame(conn, packet_in);
 
             } else {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|mp_version error|v:%ud|f:%xL|",
-                        conn->conn_settings.multipath_version, frame_type);
+                xqc_log(conn->log, XQC_LOG_ERROR, "|mp_version error|enable_multipath:%d|v:%ud|f:%xL|",
+                        conn->enable_multipath, conn->conn_settings.multipath_version, frame_type);
                 ret = -XQC_EMP_INVALID_MP_VERTION;
             }
             break;
@@ -491,6 +526,30 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
                 && conn->conn_settings.multipath_version >= XQC_MULTIPATH_10)
             {
                 ret = xqc_process_max_path_id_frame(conn, packet_in);
+
+            } else {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|mp_version error|enable_multipath:%d|v:%ud|f:%xL|",
+                        conn->enable_multipath, conn->conn_settings.multipath_version, frame_type);
+                ret = -XQC_EMP_INVALID_MP_VERTION;
+            }
+            break;
+        case XQC_TRANS_FRAME_TYPE_PATHS_BLOCKED:
+            if (conn->enable_multipath
+                && conn->conn_settings.multipath_version == XQC_MULTIPATH_3E)
+            {
+                ret = xqc_process_paths_blocked_frame(conn, packet_in);
+
+            } else {
+                xqc_log(conn->log, XQC_LOG_ERROR, "|mp_version error|enable_multipath:%d|v:%ud|f:%xL|",
+                        conn->enable_multipath, conn->conn_settings.multipath_version, frame_type);
+                ret = -XQC_EMP_INVALID_MP_VERTION;
+            }
+            break;
+        case XQC_TRANS_FRAME_TYPE_PATH_CIDS_BLOCKED:
+            if (conn->enable_multipath
+                && conn->conn_settings.multipath_version == XQC_MULTIPATH_3E)
+            {
+                ret = xqc_process_path_cids_blocked_frame(conn, packet_in);
 
             } else {
                 xqc_log(conn->log, XQC_LOG_ERROR, "|mp_version error|enable_multipath:%d|v:%ud|f:%xL|",
@@ -2243,7 +2302,7 @@ xqc_process_ack_mp_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     if (path_id > conn->local_max_path_id) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|path_id exceeds limit|path_id:%ui|limit:%ui|",
                 path_id, conn->local_max_path_id);
-        XQC_CONN_ERR(conn, TRA_MP_PROTOCOL_VIOLATION);
+        xqc_conn_mp_protocol_violation(conn);
         return -XQC_EILLEGAL_FRAME;
     }
 
@@ -2286,7 +2345,7 @@ xqc_process_path_abandon_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
     uint64_t path_id = 0;
     uint64_t error_code;
 
-    ret = xqc_parse_path_abandon_frame(packet_in, &path_id, &error_code);
+    ret = xqc_parse_path_abandon_frame(packet_in, &path_id, &error_code, conn);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_parse_path_abandon_frame error|");
         return ret;
@@ -2296,7 +2355,7 @@ xqc_process_path_abandon_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
     if (path_id > conn->local_max_path_id) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|path_id exceeds limit|path_id:%ui|limit:%ui|",
                 path_id, conn->local_max_path_id);
-        XQC_CONN_ERR(conn, TRA_MP_PROTOCOL_VIOLATION);
+        xqc_conn_mp_protocol_violation(conn);
         return -XQC_EILLEGAL_FRAME;
     }
 
@@ -2353,7 +2412,7 @@ xqc_process_path_status_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
     if (path_id > conn->local_max_path_id) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|path_id exceeds limit|path_id:%ui|limit:%ui|",
                 path_id, conn->local_max_path_id);
-        XQC_CONN_ERR(conn, TRA_MP_PROTOCOL_VIOLATION);
+        xqc_conn_mp_protocol_violation(conn);
         return -XQC_EILLEGAL_FRAME;
     }
 
@@ -2406,7 +2465,7 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         xqc_log(conn->log, XQC_LOG_ERROR, 
                 "|path_id exceeds limit|path_id:%ui|limit:%ui|",
                 path_id, conn->local_max_path_id);
-        XQC_CONN_ERR(conn, TRA_MP_PROTOCOL_VIOLATION);
+        xqc_conn_mp_protocol_violation(conn);
         return -XQC_EILLEGAL_FRAME;
     }
 
@@ -2564,7 +2623,7 @@ xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
         xqc_log(conn->log, XQC_LOG_ERROR,
                 "|path_id exceeds limit|path_id:%ui|limit:%ui|",
                 path_id, conn->local_max_path_id);
-        XQC_CONN_ERR(conn, TRA_MP_PROTOCOL_VIOLATION);
+        xqc_conn_mp_protocol_violation(conn);
         return -XQC_EILLEGAL_FRAME;
     }
 
@@ -2646,6 +2705,17 @@ xqc_process_max_path_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
     xqc_log(conn->log, XQC_LOG_DEBUG,
             "|max_path_id:%ui|prev_max_path_id:%ui|", max_path_id, conn->remote_max_path_id);
 
+    /* draft-ietf-quic-multipath-21 Section 4.6 */
+    if (max_path_id > XQC_PATH_ID_MAX_VALUE
+        || max_path_id < conn->remote_settings.init_max_path_id)
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|invalid max_path_id|max_path_id:%ui|init_max_path_id:%ui|",
+                max_path_id, conn->remote_settings.init_max_path_id);
+        xqc_conn_mp_protocol_violation(conn);
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    /* a smaller value is reordering or loss and is ignored */
     if (conn->remote_max_path_id < max_path_id) {
         conn->remote_max_path_id = max_path_id;
         new_max_path_id = xqc_min(conn->local_max_path_id, conn->remote_max_path_id);
@@ -2659,6 +2729,76 @@ xqc_process_max_path_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
     }
 
     return ret;
+}
+
+xqc_int_t
+xqc_process_paths_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
+{
+    xqc_int_t ret;
+    uint64_t max_path_id;
+
+    ret = xqc_parse_paths_blocked_frame(packet_in, &max_path_id);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_parse_paths_blocked_frame error|");
+        return ret;
+    }
+
+    /* draft-ietf-quic-multipath-21 Section 4.7 */
+    if (max_path_id > conn->local_max_path_id) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|PATHS_BLOCKED exceeds limit|max_path_id:%ui|limit:%ui|",
+                max_path_id, conn->local_max_path_id);
+        xqc_conn_mp_protocol_violation(conn);
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    /* informational: the peer has no path ID left under our limit */
+    xqc_log(conn->log, XQC_LOG_INFO, "|PATHS_BLOCKED|max_path_id:%ui|local_max_path_id:%ui|",
+            max_path_id, conn->local_max_path_id);
+
+    return XQC_OK;
+}
+
+xqc_int_t
+xqc_process_path_cids_blocked_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
+{
+    xqc_int_t ret;
+    uint64_t path_id, next_seq, next_expected = 0;
+    xqc_cid_set_inner_t *scid_set;
+
+    ret = xqc_parse_path_cids_blocked_frame(packet_in, &path_id, &next_seq);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_parse_path_cids_blocked_frame error|");
+        return ret;
+    }
+
+    /* draft-ietf-quic-multipath-21 Section 4.7 */
+    if (path_id > conn->local_max_path_id) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|path_id exceeds limit|path_id:%ui|limit:%ui|",
+                path_id, conn->local_max_path_id);
+        xqc_conn_mp_protocol_violation(conn);
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    /* the first connection ID issued for a new path uses sequence 0 */
+    scid_set = xqc_get_path_cid_set(&conn->scid_set, path_id);
+    if (scid_set != NULL
+        && (path_id == XQC_INITIAL_PATH_ID
+            || scid_set->unused_cnt + scid_set->used_cnt + scid_set->retired_cnt > 0))
+    {
+        next_expected = scid_set->largest_scid_seq_num + 1;
+    }
+    if (next_seq > next_expected) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|PATH_CIDS_BLOCKED next_seq exceeds issued|path_id:%ui|next_seq:%ui|next_expected:%ui|",
+                path_id, next_seq, next_expected);
+        xqc_conn_mp_protocol_violation(conn);
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    /* informational: the peer waits for a connection ID on this path */
+    xqc_log(conn->log, XQC_LOG_INFO, "|PATH_CIDS_BLOCKED|path_id:%ui|next_seq:%ui|",
+            path_id, next_seq);
+
+    return XQC_OK;
 }
 
 #ifdef XQC_ENABLE_FEC

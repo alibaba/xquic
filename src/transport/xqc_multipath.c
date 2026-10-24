@@ -723,7 +723,7 @@ xqc_conn_enable_multipath(xqc_connection_t *conn)
             || conn->scid_set.user_scid.cid_len == 0) 
         {
             xqc_log(conn->log, XQC_LOG_ERROR, "|zero-length DCID|");
-            XQC_CONN_ERR(conn, TRA_MP_PROTOCOL_VIOLATION);
+            xqc_conn_mp_protocol_violation(conn);
             return XQC_CONN_MP_DISABLED;
         }
 
@@ -769,6 +769,83 @@ xqc_conn_is_current_mp_version_supported(xqc_multipath_version_t mp_version)
     return ret;
 }
 
+/* draft-ietf-quic-multipath-21 Section 4 uses PROTOCOL_VIOLATION, draft-10 had its own code */
+void
+xqc_conn_mp_protocol_violation(xqc_connection_t *conn)
+{
+    if (conn->conn_settings.multipath_version == XQC_MULTIPATH_3E) {
+        XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
+
+    } else {
+        XQC_CONN_ERR(conn, TRA_MP_PROTOCOL_VIOLATION);
+    }
+}
+
+/*
+ * draft-ietf-quic-multipath-21 Section 3.2.1: tell the peer why a path could
+ * not be opened. PATHS_BLOCKED when every path ID under the peer's limit is in
+ * use, PATH_CIDS_BLOCKED when the peer has not issued a connection ID for the
+ * next path ID. Both frames are informational; at most one is sent per PTO.
+ */
+static void
+xqc_conn_path_blocked_sent(xqc_connection_t *conn, xqc_usec_t now)
+{
+    conn->last_path_blocked_sent_time = now;
+    /* the caller returns an error to the application: make sure the frame leaves */
+    xqc_engine_remove_wakeup_queue(conn->engine, conn);
+    xqc_engine_add_active_queue(conn->engine, conn);
+    xqc_engine_wakeup_once(conn->engine);
+}
+
+static void
+xqc_conn_report_path_blocked(xqc_connection_t *conn)
+{
+    xqc_cid_set_inner_t *scid_set, *dcid_set;
+    xqc_cid_inner_t *cid;
+    xqc_list_head_t *pos;
+    uint64_t next_seq = 0;
+    xqc_usec_t now;
+
+    if (conn->conn_settings.multipath_version != XQC_MULTIPATH_3E) {
+        return;
+    }
+
+    now = xqc_monotonic_timestamp();
+    if (conn->last_path_blocked_sent_time != 0
+        && now - conn->last_path_blocked_sent_time < xqc_conn_get_max_pto(conn))
+    {
+        return;
+    }
+
+    scid_set = xqc_get_next_unused_path_cid_set(&conn->scid_set);
+    if (scid_set == NULL) {
+        /* every path ID under the limit is in use; only the peer's limit is reported */
+        if (conn->remote_max_path_id <= conn->local_max_path_id
+            && xqc_write_paths_blocked_to_packet(conn, conn->remote_max_path_id) == XQC_OK)
+        {
+            xqc_conn_path_blocked_sent(conn, now);
+        }
+        return;
+    }
+
+    dcid_set = xqc_get_path_cid_set(&conn->dcid_set, scid_set->path_id);
+    if (dcid_set == NULL || dcid_set->unused_cnt > 0) {
+        /* the peer did its part; our own connection ID is not acknowledged yet */
+        return;
+    }
+
+    xqc_list_for_each(pos, &dcid_set->cid_list) {
+        cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
+        if (cid->cid.cid_seq_num + 1 > next_seq) {
+            next_seq = cid->cid.cid_seq_num + 1;
+        }
+    }
+
+    if (xqc_write_path_cids_blocked_to_packet(conn, scid_set->path_id, next_seq) == XQC_OK) {
+        xqc_conn_path_blocked_sent(conn, now);
+    }
+}
+
 xqc_int_t
 xqc_conn_create_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t *new_path_id, int path_status)
 {
@@ -797,6 +874,7 @@ xqc_conn_create_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t *new_
         conn->conn_flag |= XQC_CONN_FLAG_MP_WAIT_MP_READY;
         xqc_log(conn->log, XQC_LOG_WARN,
                 "|don't have available cid for new path|");
+        xqc_conn_report_path_blocked(conn);
         return -XQC_EMP_NO_AVAIL_PATH_ID;
     }
 

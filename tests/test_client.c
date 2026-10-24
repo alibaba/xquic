@@ -6034,9 +6034,12 @@ int main(int argc, char *argv[]) {
             g_enable_multipath = 1;
             break;
 
-        case 'v': /* Negotiate multipath version. 4: Multipath-04. 5: Multipath-05*/
+        case 'v': /* multipath version: 10 for draft-10, 19 or 3e for draft-19 */
             printf("option multipath version: %s\n", optarg);
-            if (atoi(optarg) == 10) {
+            if (strcmp(optarg, "19") == 0 || strcmp(optarg, "3e") == 0) {
+                g_multipath_version = XQC_MULTIPATH_3E;
+
+            } else if (atoi(optarg) == 10) {
                 g_multipath_version = XQC_MULTIPATH_10;
             }
             break;

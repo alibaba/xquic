@@ -137,30 +137,16 @@ xqc_insert_stream_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream
 {
 
     /*
-     * RFC 9000 Section 21.7 mitigation: bound the buffered out-of-order frame
-     * nodes per stream. One slot stays reserved for a frame that extends the
-     * contiguous prefix (fills the leftmost hole); rejecting that frame at the
-     * cap would leave the buffered data unreadable forever. Frames beyond the
-     * hole stop at (cap - 1), so they cannot take the reserved slot.
+     * Find the insert position in stream->stream_data_in.frames_tailq (kept in
+     * offset order) before enforcing the cap below: a retransmitted range must
+     * be reported as a duplicate even while the buffer is at its cap, so that
+     * a packet carrying a duplicate ahead of a hole-filling frame still gets
+     * its later frames processed. Since the scan visits offsets in descending
+     * order, uncovered_from can track how far down from the new frame's end
+     * the buffered nodes reach without a gap.
      */
-    uint64_t cap = conn->conn_settings.max_stream_frame_buffered_cnt > 0
-                   ? conn->conn_settings.max_stream_frame_buffered_cnt
-                   : XQC_MAX_STREAM_FRAME_BUFFERED_COUNT;
-    uint64_t buffered = stream->stream_data_in.buffered_frame_count;
-    xqc_bool_t extends_prefix =
-        new_frame->data_offset <= stream->stream_data_in.merged_offset_end
-        && new_frame->data_offset + new_frame->data_length
-           > stream->stream_data_in.merged_offset_end;
-
-    if (buffered + (extends_prefix ? 0 : 1) >= cap) {
-        xqc_log(conn->log, XQC_LOG_WARN,
-                "|stream frame buffered count exceed|stream_id:%ui|count:%ui|limit:%ui|",
-                stream->stream_id, buffered, cap);
-        return -XQC_ELIMIT;
-    }
-
-    /* insert xqc_stream_frame_t into stream->stream_data_in.frames_tailq in order of offset */
-    unsigned char inserted = 0;
+    uint64_t uncovered_from = new_frame->data_offset + new_frame->data_length;
+    xqc_list_head_t *insert_pos = &stream->stream_data_in.frames_tailq;
     xqc_list_head_t *pos;
     xqc_stream_frame_t *frame;
 
@@ -182,24 +168,61 @@ xqc_insert_stream_frame(xqc_connection_t *conn, xqc_stream_t *stream, xqc_stream
                     frame->data_offset, new_frame->data_offset, frame->data_length, new_frame->data_length);
         }
 
-        if (new_frame->data_offset >= frame->data_offset && new_frame->data_length > 0
-            && new_frame->data_offset + new_frame->data_length <= frame->data_offset + frame->data_length)
+        if (frame->data_offset < uncovered_from
+            && frame->data_offset + frame->data_length >= uncovered_from)
         {
-            xqc_log(conn->log, XQC_LOG_INFO, "|already recvd|offset:%ui|new_offset:%ui|len:%ud|new_len:%ud|",
-                    frame->data_offset, new_frame->data_offset, frame->data_length, new_frame->data_length);
-            return -XQC_EDUP_FRAME;
+            uncovered_from = frame->data_offset;
         }
 
         if (new_frame->data_offset >= frame->data_offset) {
-            xqc_list_add(&new_frame->sf_list, pos);
-            inserted = 1;
+            insert_pos = pos;
             break;
         }
     }
 
-    if (!inserted) {
-        xqc_list_add(&new_frame->sf_list, &stream->stream_data_in.frames_tailq);
+    /*
+     * Every byte of the frame is already buffered or delivered: report a
+     * duplicate, not a cap rejection, so its packet stays acknowledgeable.
+     * A retransmission may re-split ranges, so this also catches a frame
+     * that spans several buffered nodes. A zero-length frame is kept out:
+     * its FIN may still carry the final size.
+     */
+    if (new_frame->data_length > 0
+        && uncovered_from <= xqc_max(new_frame->data_offset,
+                                     stream->stream_data_in.merged_offset_end))
+    {
+        xqc_log(conn->log, XQC_LOG_INFO, "|already recvd|new_offset:%ui|new_len:%ud|",
+                new_frame->data_offset, new_frame->data_length);
+        return -XQC_EDUP_FRAME;
     }
+
+    /*
+     * RFC 9000 Section 21.7 mitigation: bound the buffered frame nodes per
+     * stream. One slot stays reserved for a frame the stream can make progress
+     * on: one that extends the contiguous prefix (fills the leftmost hole), or
+     * a FIN-only frame at or behind the prefix, the only carrier of the final
+     * size. Rejecting those at the cap would leave the stream unreadable
+     * forever. Other frames stop at (cap - 1), so they cannot take the
+     * reserved slot.
+     */
+    uint64_t cap = conn->conn_settings.max_stream_frame_buffered_cnt > 0
+                   ? conn->conn_settings.max_stream_frame_buffered_cnt
+                   : XQC_MAX_STREAM_FRAME_BUFFERED_COUNT;
+    uint64_t buffered = stream->stream_data_in.buffered_frame_count;
+    xqc_bool_t advances_stream =
+        new_frame->data_offset <= stream->stream_data_in.merged_offset_end
+        && (new_frame->data_offset + new_frame->data_length
+               > stream->stream_data_in.merged_offset_end
+            || (new_frame->fin && new_frame->data_length == 0));
+
+    if (buffered + (advances_stream ? 0 : 1) >= cap) {
+        xqc_log(conn->log, XQC_LOG_WARN,
+                "|stream frame buffered count exceed|stream_id:%ui|count:%ui|limit:%ui|",
+                stream->stream_id, buffered, cap);
+        return -XQC_ELIMIT;
+    }
+
+    xqc_list_add(&new_frame->sf_list, insert_pos);
 
     /*
      * can merge
@@ -745,6 +768,21 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 
     ret = xqc_insert_stream_frame(conn, stream, stream_frame);
     if (ret == -XQC_EDUP_FRAME) {
+        /*
+         * The payload is already buffered or delivered, but the frame may
+         * still carry the stream's first FIN: a retransmission can bundle FIN
+         * onto a range first received without it. The stream cannot complete
+         * here: a duplicate always ends beyond merged_offset_end, or the
+         * already-recvd check above would have consumed it.
+         */
+        if (stream_frame->fin && !stream->stream_data_in.stream_determined) {
+            stream->stream_data_in.stream_length = frame_end;
+            stream->stream_data_in.stream_determined = XQC_TRUE;
+
+            if (stream->stream_state_recv == XQC_RECV_STREAM_ST_RECV) {
+                xqc_stream_recv_state_update(stream, XQC_RECV_STREAM_ST_SIZE_KNOWN);
+            }
+        }
         ret = XQC_OK;
         goto free;
 

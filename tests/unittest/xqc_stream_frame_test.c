@@ -452,6 +452,213 @@ xqc_test_stream_frame_cap_setting()
     xqc_engine_destroy(conn->engine);
 }
 
+/**
+ * A duplicate of a buffered range that carries the stream's first FIN still
+ * records the final size, so the stream completes once the hole is filled.
+ */
+void
+xqc_test_stream_frame_dup_carries_fin()
+{
+    xqc_int_t ret;
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+    if (conn == NULL) return;
+
+    xqc_stream_t *stream = test_stream_with_fc(conn, 1 << 20, 1 << 20);
+    CU_ASSERT(stream != NULL);
+    if (stream == NULL) { xqc_engine_destroy(conn->engine); return; }
+    CU_ASSERT(stream->stream_id < 64);
+
+    /* [10,20) without FIN, buffered beyond the hole (OFF|LEN) */
+    unsigned char mid[14] = { 0x0e, (unsigned char)stream->stream_id, 0x0a, 0x0a,
+                              'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x' };
+    ret = test_process_stream_bytes(conn, mid, sizeof(mid), XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(stream->stream_data_in.merged_offset_end == 0);
+
+    /* the same range retransmitted with FIN: duplicate payload, new FIN */
+    unsigned char mid_fin[14] = { 0x0f, (unsigned char)stream->stream_id, 0x0a, 0x0a,
+                                  'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x' };
+    ret = test_process_stream_bytes(conn, mid_fin, sizeof(mid_fin), XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(stream->stream_data_in.stream_determined == XQC_TRUE);
+    CU_ASSERT(stream->stream_data_in.stream_length == 20);
+    CU_ASSERT(stream->stream_state_recv == XQC_RECV_STREAM_ST_SIZE_KNOWN);
+
+    /* fill the hole [0,10): the stream completes with EOF */
+    unsigned char head[13] = { 0x0a, (unsigned char)stream->stream_id, 0x0a,
+                               'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd' };
+    ret = test_process_stream_bytes(conn, head, sizeof(head), XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(stream->stream_data_in.merged_offset_end == 20);
+    CU_ASSERT(stream->stream_state_recv == XQC_RECV_STREAM_ST_DATA_RECVD);
+
+    char buf[64];
+    unsigned char fin = 0;
+    ret = xqc_stream_recv(stream, buf, sizeof(buf), &fin);
+    CU_ASSERT(ret == 20);
+    CU_ASSERT(fin == 1);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/**
+ * At the cap, a packet that carries a duplicate frame ahead of the
+ * hole-filling frame still gets the hole filled: the duplicate is reported
+ * as such, not rejected by the cap, so the packet is not dropped before its
+ * later frames are processed.
+ */
+void
+xqc_test_stream_frame_dup_then_gap_fill_at_cap()
+{
+    xqc_int_t ret;
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+    if (conn == NULL) return;
+
+    xqc_stream_t *stream = test_stream_with_fc(conn, 1 << 20, 1 << 20);
+    CU_ASSERT(stream != NULL);
+    if (stream == NULL) { xqc_engine_destroy(conn->engine); return; }
+    CU_ASSERT(stream->stream_id < 64);
+
+    /* seed [20,30) beyond the hole (OFF|LEN) */
+    unsigned char seed[14] = { 0x0e, (unsigned char)stream->stream_id, 0x14, 0x0a,
+                               'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x' };
+    ret = test_process_stream_bytes(conn, seed, sizeof(seed), XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT(ret == XQC_OK);
+
+    stream->stream_data_in.buffered_frame_count = XQC_MAX_STREAM_FRAME_BUFFERED_COUNT - 1;
+
+    /* one packet: a duplicate of [20,30), then the hole-filling [0,20) */
+    unsigned char pkt[14 + 23] = {
+        0x0e, (unsigned char)stream->stream_id, 0x14, 0x0a,
+        'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x',
+        0x0a, (unsigned char)stream->stream_id, 0x14,
+        'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd',
+        'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd',
+    };
+
+    xqc_packet_in_t packet_in;
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.buf = pkt;
+    packet_in.buf_size = sizeof(pkt);
+    packet_in.pos = pkt;
+    packet_in.last = pkt + sizeof(pkt);
+    packet_in.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+
+    ret = xqc_process_frames(conn, &packet_in);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(stream->stream_data_in.merged_offset_end == 30);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/**
+ * A retransmission may re-split ranges: a frame spanning several buffered
+ * nodes carries nothing new and is a duplicate, not a cap rejection, so a
+ * packet carrying it ahead of the hole-filling frame still gets the hole
+ * filled at the cap.
+ */
+void
+xqc_test_stream_frame_resplit_dup_at_cap()
+{
+    xqc_int_t ret;
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+    if (conn == NULL) return;
+
+    xqc_stream_t *stream = test_stream_with_fc(conn, 1 << 20, 1 << 20);
+    CU_ASSERT(stream != NULL);
+    if (stream == NULL) { xqc_engine_destroy(conn->engine); return; }
+    CU_ASSERT(stream->stream_id < 64);
+
+    /* seed [10,20) and [20,30) as two beyond-hole nodes (OFF|LEN) */
+    unsigned char seed1[14] = { 0x0e, (unsigned char)stream->stream_id, 0x0a, 0x0a,
+                                'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x' };
+    unsigned char seed2[14] = { 0x0e, (unsigned char)stream->stream_id, 0x14, 0x0a,
+                                'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x' };
+    ret = test_process_stream_bytes(conn, seed1, sizeof(seed1), XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT(ret == XQC_OK);
+    ret = test_process_stream_bytes(conn, seed2, sizeof(seed2), XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT(ret == XQC_OK);
+
+    stream->stream_data_in.buffered_frame_count = XQC_MAX_STREAM_FRAME_BUFFERED_COUNT - 1;
+
+    /* one packet: [10,30) spanning both nodes, then the hole-filling [0,10) */
+    unsigned char pkt[24 + 13] = {
+        0x0e, (unsigned char)stream->stream_id, 0x0a, 0x14,
+        'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x',
+        'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x',
+        0x0a, (unsigned char)stream->stream_id, 0x0a,
+        'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd',
+    };
+
+    xqc_packet_in_t packet_in;
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.buf = pkt;
+    packet_in.buf_size = sizeof(pkt);
+    packet_in.pos = pkt;
+    packet_in.last = pkt + sizeof(pkt);
+    packet_in.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+
+    ret = xqc_process_frames(conn, &packet_in);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(stream->stream_data_in.merged_offset_end == 30);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/**
+ * A cap of 1 still lets the stream progress: a frame the stream can be
+ * advanced by (in-order data, or a FIN-only frame fixing the final size)
+ * takes the reserved slot, while out-of-order frames keep being rejected.
+ */
+void
+xqc_test_stream_frame_cap_one()
+{
+    xqc_int_t ret;
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+    if (conn == NULL) return;
+
+    conn->conn_settings.max_stream_frame_buffered_cnt = 1;
+
+    /* a FIN-only frame on an empty stream is the whole delivery */
+    xqc_stream_t *stream = test_stream_with_fc(conn, 1 << 20, 1 << 20);
+    CU_ASSERT(stream != NULL);
+    if (stream == NULL) { xqc_engine_destroy(conn->engine); return; }
+    CU_ASSERT(stream->stream_id < 64);
+
+    unsigned char fin_only[3] = { 0x0b, (unsigned char)stream->stream_id, 0x00 };
+    ret = test_process_stream_bytes(conn, fin_only, sizeof(fin_only), XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(stream->stream_data_in.stream_determined == XQC_TRUE);
+    CU_ASSERT(stream->stream_state_recv == XQC_RECV_STREAM_ST_DATA_RECVD);
+
+    /* in-order data is admitted, out-of-order data is not */
+    xqc_stream_t *stream2 = test_stream_with_fc(conn, 1 << 20, 1 << 20);
+    CU_ASSERT(stream2 != NULL);
+    if (stream2 == NULL) { xqc_engine_destroy(conn->engine); return; }
+    CU_ASSERT(stream2->stream_id < 64);
+
+    unsigned char head[13] = { 0x0a, (unsigned char)stream2->stream_id, 0x0a,
+                               'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd' };
+    ret = test_process_stream_bytes(conn, head, sizeof(head), XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(stream2->stream_data_in.merged_offset_end == 10);
+
+    unsigned char beyond[14] = { 0x0e, (unsigned char)stream2->stream_id, 0x14, 0x0a,
+                                 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x' };
+    ret = test_process_stream_bytes(conn, beyond, sizeof(beyond), XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT(ret == -XQC_EIGNORE_PKT);
+
+    xqc_engine_destroy(conn->engine);
+}
+
 
 /* Count packets carrying a STREAM frame for stream_id. */
 static int

@@ -30,6 +30,7 @@
 #include "xqc_packet_test.h"
 #include "xqc_stream_frame_test.h"
 #include "xqc_process_frame_test.h"
+#include "xqc_multipath_frame_test.h"
 #include "xqc_tp_test.h"
 #include "xqc_tls_test.h"
 #include "xqc_crypto_test.h"
@@ -510,6 +511,18 @@ main(int argc, char *argv[])
                         xqc_test_multipath_version_requires_negotiation)
         || !CU_add_test(pSuite, "xqc_test_negotiated_multipath_frozen_frame",
                         xqc_test_negotiated_multipath_frozen_frame)
+        || !CU_add_test(pSuite, "xqc_test_mp3e_path_abandon_frame", xqc_test_mp3e_path_abandon_frame)
+        || !CU_add_test(pSuite, "xqc_test_mp3e_path_status_parse", xqc_test_mp3e_path_status_parse)
+        || !CU_add_test(pSuite, "xqc_test_mp3e_path_ack_ecn_counts", xqc_test_mp3e_path_ack_ecn_counts)
+        || !CU_add_test(pSuite, "xqc_test_mp3e_blocked_frames_roundtrip", xqc_test_mp3e_blocked_frames_roundtrip)
+        || !CU_add_test(pSuite, "xqc_test_mp3e_paths_blocked_limit", xqc_test_mp3e_paths_blocked_limit)
+        || !CU_add_test(pSuite, "xqc_test_mp3e_path_cids_blocked_limit", xqc_test_mp3e_path_cids_blocked_limit)
+        || !CU_add_test(pSuite, "xqc_test_mp3e_max_path_id_validation", xqc_test_mp3e_max_path_id_validation)
+        || !CU_add_test(pSuite, "xqc_test_mp3e_frames_require_negotiation", xqc_test_mp3e_frames_require_negotiation)
+        || !CU_add_test(pSuite, "xqc_test_mp3e_frames_require_1rtt", xqc_test_mp3e_frames_require_1rtt)
+        || !CU_add_test(pSuite, "xqc_test_mp10_max_path_id_lower_bound", xqc_test_mp10_max_path_id_lower_bound)
+        || !CU_add_test(pSuite, "xqc_test_mp3e_blocked_frames_bounds", xqc_test_mp3e_blocked_frames_bounds)
+        || !CU_add_test(pSuite, "xqc_test_mp3e_report_path_blocked", xqc_test_mp3e_report_path_blocked)
         || !CU_add_test(pSuite, "xqc_test_parse_padding_frame", xqc_test_parse_padding_frame)
 #ifdef XQC_PING_ATTACK_PROTECT
         || !CU_add_test(pSuite,

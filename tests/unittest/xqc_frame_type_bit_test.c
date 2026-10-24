@@ -7,7 +7,7 @@
  *
  * The enum-to-typedef conversion ensures that frame type bitmasks with
  * shift counts >= 32 (REPAIR_SYMBOL = 32, RESET_STREAM_AT = 33,
- * XQC_FRAME_NUM = 34)
+ * XQC_FRAME_NUM = 36)
  * are correctly represented as 64-bit values. On MSVC, the old enum
  * representation silently truncated these to 0 because enum is 32-bit int.
  *
@@ -40,13 +40,15 @@ xqc_test_frame_type_enum_ordinals()
     CU_ASSERT(XQC_FRAME_SID == 31);
     CU_ASSERT(XQC_FRAME_REPAIR_SYMBOL == 32);
     CU_ASSERT(XQC_FRAME_RESET_STREAM_AT == 33);
-    CU_ASSERT(XQC_FRAME_NUM == 34);
+    CU_ASSERT(XQC_FRAME_PATHS_BLOCKED == 34);
+    CU_ASSERT(XQC_FRAME_PATH_CIDS_BLOCKED == 35);
+    CU_ASSERT(XQC_FRAME_NUM == 36);
 }
 
 
 /*
  * The core of the overflow fix: XQC_FRAME_BIT_REPAIR_SYMBOL must be
- * (1ULL << 32) and XQC_FRAME_BIT_NUM must be (1ULL << 34). If these
+ * (1ULL << 32) and XQC_FRAME_BIT_NUM must be (1ULL << 36). If these
  * were truncated to 32-bit int (the MSVC bug), they would be 0.
  */
 void
@@ -56,13 +58,15 @@ xqc_test_frame_bit_high_values_nonzero()
     CU_ASSERT(XQC_FRAME_BIT_REPAIR_SYMBOL != 0);
     /* bit 33 must not be zero */
     CU_ASSERT(XQC_FRAME_BIT_RESET_STREAM_AT != 0);
-    /* bit 34 must not be zero */
+    /* bit 36 must not be zero */
     CU_ASSERT(XQC_FRAME_BIT_NUM != 0);
 
     /* exact expected values */
     CU_ASSERT(XQC_FRAME_BIT_REPAIR_SYMBOL == (1ULL << 32));
     CU_ASSERT(XQC_FRAME_BIT_RESET_STREAM_AT == (1ULL << 33));
-    CU_ASSERT(XQC_FRAME_BIT_NUM == (1ULL << 34));
+    CU_ASSERT(XQC_FRAME_BIT_PATHS_BLOCKED == (1ULL << 34));
+    CU_ASSERT(XQC_FRAME_BIT_PATH_CIDS_BLOCKED == (1ULL << 35));
+    CU_ASSERT(XQC_FRAME_BIT_NUM == (1ULL << 36));
 
     /* bit 31 (SID) is the last value that fits in 32-bit */
     CU_ASSERT(XQC_FRAME_BIT_SID == (1ULL << 31));
@@ -364,7 +368,9 @@ xqc_test_frame_bit_all_constants_have_correct_bit_position()
     CU_ASSERT(XQC_FRAME_BIT_SID                  == (1ULL << 31));
     CU_ASSERT(XQC_FRAME_BIT_REPAIR_SYMBOL        == (1ULL << 32));
     CU_ASSERT(XQC_FRAME_BIT_RESET_STREAM_AT      == (1ULL << 33));
-    CU_ASSERT(XQC_FRAME_BIT_NUM                  == (1ULL << 34));
+    CU_ASSERT(XQC_FRAME_BIT_PATHS_BLOCKED        == (1ULL << 34));
+    CU_ASSERT(XQC_FRAME_BIT_PATH_CIDS_BLOCKED    == (1ULL << 35));
+    CU_ASSERT(XQC_FRAME_BIT_NUM                  == (1ULL << 36));
 
     /* verify popcount == 1 for a selection (each is a power of two) */
     CU_ASSERT((XQC_FRAME_BIT_REPAIR_SYMBOL & (XQC_FRAME_BIT_REPAIR_SYMBOL - 1)) == 0);

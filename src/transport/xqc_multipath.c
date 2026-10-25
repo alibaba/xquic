@@ -1762,16 +1762,18 @@ xqc_path_get_perf_class(xqc_path_ctx_t *path)
     xqc_usec_t min_srtt = xqc_conn_get_min_srtt(path->parent_conn, 0);
     uint64_t path_bw = xqc_send_ctl_get_est_bw(path->path_send_ctl);
     double loss_rate = xqc_path_recent_loss_rate(path);
+    unsigned pto_count =
+        xqc_send_ctl_get_effective_pto_count(path->path_send_ctl);
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|conn:%p|path_id:%ui|"
             "path_srtt:%ui|min_srtt:%ui|path_bw:%ui|loss_rate:%.2f|"
             "path_pto:%ud|", 
             conn, path->path_id, path_srtt, min_srtt, path_bw, loss_rate,
-            path->path_send_ctl->ctl_pto_count);
+            pto_count);
 
     // low 
     if (path_srtt > param->rtt_us_thr_high
-        || path->path_send_ctl->ctl_pto_count >= param->pto_cnt_thr
+        || pto_count >= param->pto_cnt_thr
         || loss_rate > param->loss_percent_thr_high) 
     {
         if (path->app_path_status == XQC_APP_PATH_STATUS_AVAILABLE) {

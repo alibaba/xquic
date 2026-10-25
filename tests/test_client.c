@@ -542,6 +542,181 @@ static void xqc_client_path_callback(int fd, short what, void *arg);
 static void xqc_client_epoch_callback(int fd, short what, void *arg);
 static void xqc_client_ready_to_create_path(const xqc_cid_t *cid, void *conn_user_data);
 
+/*
+ * Cases 1300 and 1301: paths that fail silently. The client sends one small
+ * datagram per epoch, so it stays application-limited, and the server echoes
+ * each one. Half a second after the first XQC_TEST_SILENT_WARMUP echoes have
+ * arrived with two paths active, the blackhole starts: every packet sent or
+ * received on an affected path is dropped without an error, as on a dead
+ * link.
+ *   1300: the path that carried the most bytes in that half second stops
+ *         delivering for the rest of the run, XQC_TEST_SILENT_RUN_US.
+ *   1301: every path stops delivering for XQC_TEST_SILENT_ALL_US, then
+ *         comes back for the rest of the run, XQC_TEST_SILENT_RUN_US.
+ */
+#define XQC_TEST_SILENT_DGRAM_SIZE      100
+#define XQC_TEST_SILENT_WARMUP          25
+#define XQC_TEST_SILENT_MARK_US         500000
+#define XQC_TEST_SILENT_ALL_US          1000000
+#define XQC_TEST_SILENT_RUN_US          4000000
+
+typedef struct xqc_test_silent_path_s {
+    xqc_usec_t  mark_time;  /* 0 until the warm-up is over */
+    size_t      mark[XQC_DEMO_MAX_PATH_COUNT];
+    xqc_usec_t  start;      /* 0 until the blackhole starts */
+    xqc_usec_t  end;        /* 0 if it lasts until the end of the run */
+    int         all_paths;
+    uint64_t    path_id;
+    size_t      sent;
+    size_t      echoed;
+    xqc_usec_t  last_echo;
+    xqc_usec_t  max_gap;    /* longest time without an echo from start */
+    xqc_usec_t  resumed;    /* first echo after end */
+} xqc_test_silent_path_t;
+
+static xqc_test_silent_path_t g_silent;
+
+static int
+xqc_client_silent_case(void)
+{
+    return g_test_case == 1300 || g_test_case == 1301;
+}
+
+static int
+xqc_client_silent_dropped(uint64_t path_id)
+{
+    if (!xqc_client_silent_case() || g_silent.start == 0) {
+        return 0;
+    }
+
+    if (g_silent.end != 0 && xqc_now() >= g_silent.end) {
+        return 0;
+    }
+
+    return g_silent.all_paths || path_id == g_silent.path_id;
+}
+
+static void
+xqc_client_silent_update_gap(xqc_usec_t now)
+{
+    xqc_usec_t from = g_silent.last_echo > g_silent.start
+                      ? g_silent.last_echo : g_silent.start;
+
+    if (g_silent.start != 0 && now > from
+        && now - from > g_silent.max_gap)
+    {
+        g_silent.max_gap = now - from;
+    }
+}
+
+static void
+xqc_client_silent_on_echo(void)
+{
+    xqc_usec_t now = xqc_now();
+
+    xqc_client_silent_update_gap(now);
+    if (g_silent.end != 0 && now >= g_silent.end && g_silent.resumed == 0) {
+        g_silent.resumed = now;
+    }
+    g_silent.last_echo = now;
+    g_silent.echoed++;
+}
+
+static int
+xqc_client_silent_active_paths(user_conn_t *user_conn)
+{
+    xqc_conn_stats_t stats = xqc_conn_get_stats(ctx.engine, &user_conn->cid);
+    int active = 0;
+
+    /* paths_info lists the paths that reached ACTIVE, and none has closed
+     * before the blackhole starts */
+    for (int i = 0; i < XQC_MAX_PATHS_COUNT; i++) {
+        if (stats.paths_info[i].path_id != XQC_MAX_UINT64_VALUE) {
+            active++;
+        }
+    }
+    return active;
+}
+
+static void
+xqc_client_silent_start(xqc_usec_t now)
+{
+    size_t most = 0;
+
+    g_silent.start = now;
+    if (g_test_case == 1301) {
+        g_silent.all_paths = 1;
+        g_silent.end = now + XQC_TEST_SILENT_ALL_US;
+        printf("[dgram]|silent_path|start|path:all|\n");
+        return;
+    }
+
+    for (int i = 0; i < XQC_DEMO_MAX_PATH_COUNT; i++) {
+        size_t bytes = g_client_path[i].send_size - g_silent.mark[i];
+        if (bytes > most) {
+            most = bytes;
+            g_silent.path_id = i;
+        }
+    }
+    printf("[dgram]|silent_path|start|path:%"PRIu64"|\n", g_silent.path_id);
+}
+
+static void
+xqc_client_silent_report(user_conn_t *user_conn, xqc_usec_t now)
+{
+    /* count a gap that is still open */
+    xqc_client_silent_update_gap(now);
+    printf("[dgram]|silent_path|sent:%zu|echoed:%zu|max_gap_ms:%"PRIu64"|"
+           "resume_ms:%"PRId64"|\n", g_silent.sent, g_silent.echoed,
+           g_silent.max_gap / 1000,
+           g_silent.resumed
+           ? (int64_t) (g_silent.resumed - g_silent.end) / 1000
+           : (int64_t) -1);
+    xqc_conn_close(ctx.engine, &user_conn->cid);
+}
+
+/* returns 0 once the run is over, so that no further epoch is scheduled */
+static int
+xqc_client_silent_epoch(user_conn_t *user_conn)
+{
+    unsigned char dgram[XQC_TEST_SILENT_DGRAM_SIZE];
+    xqc_usec_t now = xqc_now();
+    uint64_t dgram_id;
+
+    if (g_silent.mark_time == 0) {
+        if (g_silent.echoed >= XQC_TEST_SILENT_WARMUP
+            && xqc_client_silent_active_paths(user_conn) >= 2)
+        {
+            g_silent.mark_time = now;
+            for (int i = 0; i < XQC_DEMO_MAX_PATH_COUNT; i++) {
+                g_silent.mark[i] = g_client_path[i].send_size;
+            }
+        }
+
+    } else if (g_silent.start == 0) {
+        if (now - g_silent.mark_time >= XQC_TEST_SILENT_MARK_US) {
+            xqc_client_silent_start(now);
+        }
+
+    } else if (now >= (g_silent.end ? g_silent.end : g_silent.start)
+                      + XQC_TEST_SILENT_RUN_US)
+    {
+        xqc_client_silent_report(user_conn, now);
+        return 0;
+    }
+
+    if (user_conn->dgram_mss >= sizeof(dgram)) {
+        memset(dgram, 0x31, sizeof(dgram));
+        if (xqc_datagram_send(user_conn->quic_conn, dgram, sizeof(dgram),
+                              &dgram_id, g_dgram_qos_level) == XQC_OK)
+        {
+            g_silent.sent++;
+        }
+    }
+
+    return 1;
+}
+
 /*  */
 
 static void 
@@ -673,6 +848,9 @@ static void
 xqc_client_datagram_read_callback(xqc_connection_t *conn, void *user_data, const void *data, size_t data_len, uint64_t dgram_ts)
 {
     user_conn_t *user_conn = (user_conn_t*)user_data;
+    if (xqc_client_silent_case()) {
+        xqc_client_silent_on_echo();
+    }
     if (g_echo_check) {
         memcpy(user_conn->dgram_blk->recv_data + user_conn->dgram_blk->data_recv, data, data_len);
     }
@@ -1361,6 +1539,11 @@ xqc_client_write_socket_ex(uint64_t path_id,
 
     if (user_conn == NULL || buf == NULL) {
         return XQC_SOCKET_ERROR;
+    }
+
+    /* cases 1300-1301: the packet is lost without any error */
+    if (xqc_client_silent_dropped(path_id)) {
+        return size;
     }
 
     /* test stateless reset after handshake completed */
@@ -4844,6 +5027,11 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
 
         if (TEST_DROP) continue;
 
+        /* cases 1300-1301 */
+        if (xqc_client_silent_dropped(path_id)) {
+            continue;
+        }
+
         if (g_test_case == XQC_TEST_CASE_KEY_UPDATE_STALE_DEADLINE) {
             xqc_client_key_update_copy_packet(user_conn, packet_buf,
                                               recv_size);
@@ -5185,7 +5373,12 @@ xqc_client_epoch_callback(int fd, short what, void *arg)
     printf("|xqc_client_epoch_callback|epoch:%d|\n", g_cur_epoch);
 
     if (g_send_dgram) {
-        if (user_conn->h3 == 1) {
+        if (xqc_client_silent_case()) {
+            if (!xqc_client_silent_epoch(user_conn)) {
+                return;
+            }
+
+        } else if (user_conn->h3 == 1) {
             xqc_client_datagram_send(user_conn);
 
         } else if (user_conn->h3 == 2) {

@@ -782,6 +782,11 @@ main(int argc, char *argv[])
                         xqc_test_send_ctl_single_loss_does_not_reset_rtt)
         || !CU_add_test(pSuite, "xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return",
                         xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return)
+        /* silently failed path: PTO expiries hidden by sends */
+        || !CU_add_test(pSuite, "xqc_test_effective_pto_count_silent_path",
+                        xqc_test_effective_pto_count_silent_path)
+        || !CU_add_test(pSuite, "xqc_test_effective_pto_count_bounds",
+                        xqc_test_effective_pto_count_bounds)
         /* RFC 9000 §6.2 Version Negotiation abort suite */
         || !CU_add_test(pSuite, "xqc_test_vn_abort_on_unsupported_version", xqc_test_vn_abort_on_unsupported_version)
         || !CU_add_test(pSuite, "xqc_test_vn_downgrade_protection_when_version_matches", xqc_test_vn_downgrade_protection_when_version_matches)

@@ -106,6 +106,7 @@ static void xqc_server_send_test_control_frame(xqc_h3_conn_t *h3_conn,
     uint64_t frame_type);
 static xqc_int_t xqc_server_send_previous_level_crypto(
     xqc_connection_t *conn, xqc_bool_t extend);
+static void xqc_test_record_udp_payload(size_t size);
 
 
 typedef struct user_datagram_block_s {

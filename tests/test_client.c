@@ -145,6 +145,7 @@ static xqc_key_update_retention_test_t xqc_key_update_retention_test;
 
 static void xqc_client_release_key_update_packet(int fd, short what, void *arg);
 static void xqc_client_poll_key_update(int fd, short what, void *arg);
+static void xqc_test_record_udp_payload(size_t size);
 
 static void xqc_client_send_test_uni_stream(xqc_h3_conn_t *h3_conn,
     xqc_h3_stream_type_t stream_type);

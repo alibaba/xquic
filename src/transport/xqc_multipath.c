@@ -91,6 +91,12 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid, uint64
     }
     xqc_memzero(path, sizeof(xqc_path_ctx_t));
 
+    /* xqc_path_destroy() on the error path below empties these lists */
+    for (xqc_send_type_t type = 0; type < XQC_SEND_TYPE_N; type++) {
+        xqc_init_list_head(&path->path_schedule_buf[type]);
+    }
+    xqc_init_list_head(&path->path_reinj_tmp_buf);
+
     path->path_state = XQC_PATH_STATE_INIT;
     path->parent_conn = conn;
     path->app_path_status = XQC_APP_PATH_STATUS_AVAILABLE;
@@ -110,11 +116,6 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid, uint64
     if (path->path_send_ctl == NULL) {
         goto err;
     }
-
-    for (xqc_send_type_t type = 0; type < XQC_SEND_TYPE_N; type++) {
-        xqc_init_list_head(&path->path_schedule_buf[type]);
-    }
-    xqc_init_list_head(&path->path_reinj_tmp_buf);
 
     /* cid & path_id init */
     if (scid == NULL) {

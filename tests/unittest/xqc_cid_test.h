@@ -70,5 +70,11 @@ void xqc_test_mp_retire_cid_without_cid_set();
 /* a failed connection ID set lookup is an error, not a retirement */
 void xqc_test_cid_set_lookup_error();
 
+/* an abandoned path ID's CIDs leave cid_set_list but stay findable */
+void xqc_test_cid_abandoned_set_off_list(void);
+
+/* a set that leaves ABANDONED goes back to cid_set_list */
+void xqc_test_cid_abandoned_set_back_on_list(void);
+
 #endif
 

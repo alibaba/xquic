@@ -1047,3 +1047,110 @@ xqc_test_removed_scid_safety_net()
     xqc_engine_destroy(conn->engine);
 }
 
+
+static xqc_bool_t
+xqc_test_cid_set_listed(xqc_list_head_t *list, xqc_cid_set_inner_t *inner_set)
+{
+    xqc_list_head_t *pos, *next;
+
+    xqc_list_for_each_safe(pos, next, list) {
+        if (xqc_list_entry(pos, xqc_cid_set_inner_t, next) == inner_set) {
+            return XQC_TRUE;
+        }
+    }
+    return XQC_FALSE;
+}
+
+/*
+ * The CIDs of an abandoned path ID leave cid_set_list, which the lookups
+ * made for every received packet search first, but stay findable: a
+ * long-lived connection would otherwise compare every incoming CID against
+ * the CIDs of every path it has ever closed.
+ */
+void
+xqc_test_cid_abandoned_set_off_list(void)
+{
+    xqc_int_t ret;
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_cid_t cid1, cid2;
+    CU_ASSERT(xqc_cid_set_add_path(&conn->scid_set, 1) == XQC_OK);
+    CU_ASSERT(xqc_cid_set_add_path(&conn->scid_set, 2) == XQC_OK);
+    ret = xqc_generate_cid(conn->engine, NULL, &cid1, 1);
+    CU_ASSERT(ret == XQC_OK);
+    ret = xqc_generate_cid(conn->engine, NULL, &cid2, 1);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(xqc_cid_set_insert_cid(&conn->scid_set, &cid1, XQC_CID_UNUSED, 8, 1) == XQC_OK);
+    CU_ASSERT(xqc_cid_set_insert_cid(&conn->scid_set, &cid2, XQC_CID_UNUSED, 8, 2) == XQC_OK);
+    xqc_cid_set_update_state(&conn->scid_set, 1, XQC_CID_SET_USED);
+    xqc_cid_set_update_state(&conn->scid_set, 2, XQC_CID_SET_USED);
+
+    xqc_cid_set_inner_t *set1 = xqc_get_path_cid_set(&conn->scid_set, 1);
+    CU_ASSERT_FATAL(set1 != NULL);
+    CU_ASSERT(xqc_test_cid_set_listed(&conn->scid_set.cid_set_list, set1));
+    uint32_t used = conn->scid_set.set_cnt[XQC_CID_SET_USED];
+    uint32_t abandoned = conn->scid_set.set_cnt[XQC_CID_SET_ABANDONED];
+
+    xqc_cid_set_update_state(&conn->scid_set, 1, XQC_CID_SET_ABANDONED);
+
+    CU_ASSERT(!xqc_test_cid_set_listed(&conn->scid_set.cid_set_list, set1));
+    CU_ASSERT(set1->set_state == XQC_CID_SET_ABANDONED);
+    CU_ASSERT(conn->scid_set.set_cnt[XQC_CID_SET_USED] == used - 1);
+    CU_ASSERT(conn->scid_set.set_cnt[XQC_CID_SET_ABANDONED] == abandoned + 1);
+    CU_ASSERT_PTR_EQUAL(xqc_get_path_cid_set(&conn->scid_set, 1), set1);
+
+    xqc_cid_t probe = cid1;
+    probe.path_id = 0;
+    xqc_cid_inner_t *found = xqc_cid_set_search_cid(&conn->scid_set, &probe);
+    CU_ASSERT(found != NULL);
+    CU_ASSERT(probe.path_id == 1);
+    CU_ASSERT(xqc_cid_in_cid_set(&conn->scid_set, &cid1, 1) != NULL);
+    probe = cid2;
+    CU_ASSERT(xqc_cid_set_search_cid(&conn->scid_set, &probe) != NULL);
+    CU_ASSERT(probe.path_id == 2);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * A set that leaves ABANDONED goes back to cid_set_list, where the walks
+ * that look for USED or UNUSED sets find it. xqc_path_create() moves the
+ * sets of the path ID it creates to USED, whatever their state.
+ */
+void
+xqc_test_cid_abandoned_set_back_on_list(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_cid_set_t *scid_set = &conn->scid_set;
+    CU_ASSERT(xqc_cid_set_add_path(scid_set, 1) == XQC_OK);
+    xqc_cid_set_update_state(scid_set, 1, XQC_CID_SET_USED);
+
+    xqc_cid_set_inner_t *set1 = xqc_get_path_cid_set(scid_set, 1);
+    CU_ASSERT_FATAL(set1 != NULL);
+    uint32_t used = scid_set->set_cnt[XQC_CID_SET_USED];
+    uint32_t abandoned = scid_set->set_cnt[XQC_CID_SET_ABANDONED];
+
+    xqc_cid_set_update_state(scid_set, 1, XQC_CID_SET_ABANDONED);
+    CU_ASSERT(xqc_test_cid_set_listed(&scid_set->abandoned_set_list, set1));
+
+    /* a set already ABANDONED is left where it is and counted once */
+    xqc_cid_set_update_state(scid_set, 1, XQC_CID_SET_ABANDONED);
+    CU_ASSERT(xqc_test_cid_set_listed(&scid_set->abandoned_set_list, set1));
+    CU_ASSERT(!xqc_test_cid_set_listed(&scid_set->cid_set_list, set1));
+    CU_ASSERT(scid_set->set_cnt[XQC_CID_SET_USED] == used - 1);
+    CU_ASSERT(scid_set->set_cnt[XQC_CID_SET_ABANDONED] == abandoned + 1);
+
+    xqc_cid_set_update_state(scid_set, 1, XQC_CID_SET_USED);
+
+    CU_ASSERT(xqc_test_cid_set_listed(&scid_set->cid_set_list, set1));
+    CU_ASSERT(!xqc_test_cid_set_listed(&scid_set->abandoned_set_list, set1));
+    CU_ASSERT(set1->set_state == XQC_CID_SET_USED);
+    CU_ASSERT(scid_set->set_cnt[XQC_CID_SET_USED] == used);
+    CU_ASSERT(scid_set->set_cnt[XQC_CID_SET_ABANDONED] == abandoned);
+    CU_ASSERT_PTR_EQUAL(xqc_get_path_cid_set(scid_set, 1), set1);
+
+    xqc_engine_destroy(conn->engine);
+}

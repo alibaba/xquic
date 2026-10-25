@@ -7,6 +7,7 @@
 #include <openssl/x509.h>
 #endif
 #include <openssl/hmac.h>
+#include <openssl/rand.h>
 #include "src/transport/xqc_packet_parser.h"
 #include "src/transport/xqc_cid.h"
 #include "src/common/utils/vint/xqc_variable_len_int.h"
@@ -1504,21 +1505,20 @@ xqc_packet_parse_long_header(xqc_connection_t *c,
 void
 xqc_gen_reset_token(xqc_cid_t *cid, unsigned char *token, int token_len, char *key, size_t keylen)
 {
-    unsigned char *input = cid->cid_buf;
-    int input_len = cid->cid_len;
     unsigned char output[EVP_MAX_MD_SIZE];
-    int output_len = EVP_MAX_MD_SIZE;
-    const EVP_MD *engine = NULL;
-    engine = EVP_md5();
-    HMAC_CTX *ctx = HMAC_CTX_new();
-    HMAC_CTX_reset(ctx);
-    HMAC_Init_ex(ctx, key, keylen, engine, NULL);
-    HMAC_Update(ctx, input, input_len);
+    unsigned int output_len = 0;
 
-    HMAC_Final(ctx, output, &output_len);
-    HMAC_CTX_free(ctx);
+    /* one-shot HMAC: BoringSSL allocates no context for it (BabaSSL does) */
+    if (HMAC(EVP_md5(), key, keylen, cid->cid_buf, cid->cid_len, output, &output_len) == NULL) {
+        /* a zeroed token would be guessable (RFC 9000 Section 10.3.2): a
+         * random one only keeps this connection ID from being reset
+         * statelessly */
+        output_len = RAND_bytes(output, sizeof(output)) == 1 ? sizeof(output) : 0;
+    }
 
-    memcpy(token, output, output_len < token_len ? output_len : token_len);
+    size_t n = xqc_min((size_t)output_len, (size_t)token_len);
+    memset(token, 0, token_len);
+    memcpy(token, output, n);
 }
 
 /*

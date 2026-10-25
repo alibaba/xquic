@@ -1632,3 +1632,207 @@ xqc_test_key_update_old_key_retention(void)
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+/*
+ * A closing path stays in conn_paths_list until it is closed (a closed path
+ * moves to conn_closed_paths_list), and the minrtt, backup and backup_fec
+ * schedulers classify every path on conn_paths_list for every packet before
+ * they skip the paths that are not ACTIVE. A path that is no longer ACTIVE
+ * gets the lowest class without computing it: the computation walks
+ * conn_paths_list again.
+ */
+static xqc_path_ctx_t *
+xqc_test_conn_fast_path(xqc_connection_t *conn)
+{
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+
+    /* 10 ms srtt, no loss, cwnd / srtt well above bw_Bps_thr: HIGH */
+    send_ctl->ctl_srtt = 10000;
+    send_ctl->ctl_rttvar = 1000;
+    send_ctl->ctl_first_rtt_sample_time = 1;
+    path->app_path_status = XQC_APP_PATH_STATUS_AVAILABLE;
+    return path;
+}
+
+void
+xqc_test_conn_closed_path_perf_class(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_path_ctx_t *path = xqc_test_conn_fast_path(conn);
+    xqc_path_state_t state = path->path_state;
+
+    path->path_state = XQC_PATH_STATE_CLOSING;
+    CU_ASSERT_EQUAL(xqc_path_get_perf_class(path), XQC_PATH_CLASS_STANDBY_LOW);
+
+    path->path_state = XQC_PATH_STATE_CLOSED;
+    CU_ASSERT_EQUAL(xqc_path_get_perf_class(path), XQC_PATH_CLASS_STANDBY_LOW);
+
+    path->path_state = state;
+    xqc_engine_destroy(conn->engine);
+}
+
+/* Paths short of CLOSING are still classified from their measurements. */
+void
+xqc_test_conn_open_path_perf_class(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_path_ctx_t *path = xqc_test_conn_fast_path(conn);
+    xqc_path_state_t state = path->path_state;
+
+    path->path_state = XQC_PATH_STATE_ACTIVE;
+    CU_ASSERT_EQUAL(xqc_path_get_perf_class(path),
+                    XQC_PATH_CLASS_AVAILABLE_HIGH);
+
+    path->path_state = XQC_PATH_STATE_VALIDATING;
+    CU_ASSERT_EQUAL(xqc_path_get_perf_class(path),
+                    XQC_PATH_CLASS_AVAILABLE_HIGH);
+
+    /* a measured but slow path is still LOW for its own reason */
+    path->path_state = XQC_PATH_STATE_ACTIVE;
+    path->path_send_ctl->ctl_srtt =
+        conn->conn_settings.scheduler_params.rtt_us_thr_high + 1;
+    CU_ASSERT_EQUAL(xqc_path_get_perf_class(path),
+                    XQC_PATH_CLASS_AVAILABLE_LOW);
+
+    path->path_state = state;
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/* xqc_path_create has no header prototype. */
+extern xqc_path_ctx_t *xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid,
+                                       xqc_cid_t *dcid, uint64_t path_id);
+
+static void
+xqc_test_conn_fill_path_cid(xqc_cid_t *cid, uint64_t path_id, unsigned char side)
+{
+    memset(cid, 0, sizeof(*cid));
+    cid->cid_len = XQC_DEFAULT_CID_LEN;
+    cid->path_id = path_id;
+    cid->cid_buf[0] = 0xc1;
+    cid->cid_buf[1] = side;
+    cid->cid_buf[2] = (unsigned char)path_id;
+}
+
+/* An ACTIVE path next to the initial one, on CIDs as if the peer had issued
+ * them for its path ID. */
+static xqc_path_ctx_t *
+xqc_test_conn_add_active_path(xqc_connection_t *conn, uint64_t path_id)
+{
+    xqc_cid_t scid, dcid;
+
+    if (xqc_cid_set_add_path(&conn->scid_set, path_id) != XQC_OK
+        || xqc_cid_set_add_path(&conn->dcid_set, path_id) != XQC_OK)
+    {
+        return NULL;
+    }
+
+    xqc_test_conn_fill_path_cid(&scid, path_id, 's');
+    xqc_test_conn_fill_path_cid(&dcid, path_id, 'd');
+    if (xqc_cid_set_insert_cid(&conn->scid_set, &scid, XQC_CID_UNUSED, 2, path_id) != XQC_OK
+        || xqc_cid_set_insert_cid(&conn->dcid_set, &dcid, XQC_CID_UNUSED, 2, path_id) != XQC_OK)
+    {
+        return NULL;
+    }
+
+    if (conn->local_max_path_id < path_id) {
+        conn->local_max_path_id = path_id;
+    }
+
+    xqc_path_ctx_t *path = xqc_path_create(conn, NULL, NULL, path_id);
+    if (path != NULL) {
+        xqc_set_path_state(path, XQC_PATH_STATE_ACTIVE);
+    }
+    return path;
+}
+
+static xqc_bool_t
+xqc_test_conn_path_listed(xqc_connection_t *conn, xqc_path_ctx_t *path)
+{
+    xqc_list_head_t *pos, *next;
+
+    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
+        if (xqc_list_entry(pos, xqc_path_ctx_t, path_list) == path) {
+            return XQC_TRUE;
+        }
+    }
+    return XQC_FALSE;
+}
+
+/*
+ * A path that reaches CLOSED leaves conn_paths_list, which the per-packet
+ * code walks: a long-lived connection would otherwise walk every path it has
+ * ever closed for every packet. It can still be found by its path ID, and
+ * whatever was still scheduled on it goes back to the connection.
+ */
+void
+xqc_test_conn_closed_path_leaves_path_list(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_path_ctx_t *path = xqc_test_conn_add_active_path(conn, 1);
+    CU_ASSERT_FATAL(path != NULL);
+    CU_ASSERT(xqc_test_conn_path_listed(conn, path));
+
+    xqc_packet_out_t *po = xqc_write_new_packet(conn, XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT_FATAL(po != NULL);
+    int ret = xqc_gen_ping_frame(po);
+    CU_ASSERT_FATAL(ret > 0);
+    po->po_used_size += ret;
+    xqc_path_send_buffer_append(path, po, &path->path_schedule_buf[XQC_SEND_TYPE_NORMAL]);
+    CU_ASSERT(path->path_schedule_bytes > 0);
+
+    xqc_set_path_state(path, XQC_PATH_STATE_CLOSING);
+    CU_ASSERT_EQUAL(xqc_path_closed(path), XQC_OK);
+    CU_ASSERT_EQUAL(path->path_state, XQC_PATH_STATE_CLOSED);
+
+    CU_ASSERT(!xqc_test_conn_path_listed(conn, path));
+    CU_ASSERT(xqc_test_conn_path_listed(conn, conn->conn_initial_path));
+    CU_ASSERT_PTR_EQUAL(xqc_conn_find_path_by_path_id(conn, 1), path);
+    CU_ASSERT_PTR_EQUAL(xqc_conn_find_path_by_path_id(conn, 0), conn->conn_initial_path);
+
+    CU_ASSERT(xqc_list_empty(&path->path_schedule_buf[XQC_SEND_TYPE_NORMAL]));
+    CU_ASSERT_EQUAL(path->path_schedule_bytes, 0);
+    CU_ASSERT(!(po->po_flag & XQC_POF_IN_PATH_BUF_LIST));
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/* The connection's statistics still count a closed path. */
+void
+xqc_test_conn_closed_path_still_counted(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_path_ctx_t *path = xqc_test_conn_add_active_path(conn, 1);
+    CU_ASSERT_FATAL(path != NULL);
+    path->path_send_ctl->ctl_send_count = 7;
+    path->path_send_ctl->ctl_app_bytes_send = 1000;
+
+    xqc_set_path_state(path, XQC_PATH_STATE_CLOSING);
+    CU_ASSERT_EQUAL(xqc_path_closed(path), XQC_OK);
+
+    xqc_conn_stats_t st = xqc_conn_get_stats(conn->engine, &conn->scid_set.user_scid);
+    CU_ASSERT(st.send_count >= 7);
+
+    int found = 0;
+    for (int i = 0; i < XQC_MAX_PATHS_COUNT; i++) {
+        if (st.paths_info[i].path_id == 1) {
+            found = 1;
+            CU_ASSERT_EQUAL(st.paths_info[i].path_send_bytes, 1000);
+        }
+    }
+    CU_ASSERT(found);
+
+    xqc_engine_destroy(conn->engine);
+}

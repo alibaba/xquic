@@ -244,6 +244,63 @@ xqc_test_ack_refused_by_full_packet_at_cap(void)
     xqc_engine_destroy(conn->engine);
 }
 
+void xqc_send_ctl_on_pmtud_ping_acked(xqc_send_ctl_t *send_ctl,
+    xqc_packet_out_t *po);
+
+/* acknowledge a PMTUD probe sized like the one the connection would send */
+static size_t
+xqc_test_pmtud_acked_pkt_out_size(size_t probing_pkt_out_size)
+{
+    xqc_engine_t           *engine;
+    xqc_connection_t       *conn;
+    xqc_path_ctx_t         *path;
+    xqc_packet_out_t       *po;
+    xqc_conn_settings_t     settings;
+    xqc_conn_ssl_config_t   ssl_config;
+    const xqc_cid_t        *cid;
+    size_t                  pkt_out_size;
+
+    engine = test_create_engine();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+
+    memset(&settings, 0, sizeof(settings));
+    settings.proto_version = XQC_VERSION_V1;
+    settings.probing_pkt_out_size = probing_pkt_out_size;
+    memset(&ssl_config, 0, sizeof(ssl_config));
+    cid = xqc_connect(engine, &settings, NULL, 0, "", 0, &ssl_config,
+                      NULL, 0, "transport", NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(cid);
+    conn = xqc_engine_conns_hash_find(engine, cid, 's');
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    path = conn->conn_initial_path;
+    po = xqc_packet_out_create(conn->probing_pkt_out_size);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(po);
+    po->po_path_id = path->path_id;
+    po->po_max_pkt_out_size = conn->max_pkt_out_size;
+
+    xqc_send_ctl_on_pmtud_ping_acked(path->path_send_ctl, po);
+    pkt_out_size = conn->pkt_out_size;
+
+    xqc_packet_out_destroy(po);
+    xqc_engine_destroy(engine);
+    return pkt_out_size;
+}
+
+/*
+ * An acknowledged PMTUD probe sets pkt_out_size, so a probing size above
+ * the cap is clamped to it: a probe at the cap is taken as is, and one as
+ * large as the packet buffer cannot raise pkt_out_size past XQC_MSS.
+ */
+void
+xqc_test_pmtud_probe_capped_at_mss(void)
+{
+    CU_ASSERT_EQUAL(xqc_test_pmtud_acked_pkt_out_size(XQC_MAX_PACKET_OUT_SIZE),
+                    XQC_MSS);
+    CU_ASSERT_EQUAL(xqc_test_pmtud_acked_pkt_out_size(XQC_PACKET_OUT_BUF_CAP),
+                    XQC_MSS);
+}
+
 
 
 

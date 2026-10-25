@@ -467,6 +467,8 @@ main(int argc, char *argv[])
                         xqc_test_ack_room_capped_at_mss)
         || !CU_add_test(pSuite, "xqc_test_ack_refused_by_full_packet_at_cap",
                         xqc_test_ack_refused_by_full_packet_at_cap)
+        || !CU_add_test(pSuite, "xqc_test_pmtud_probe_capped_at_mss",
+                        xqc_test_pmtud_probe_capped_at_mss)
         || !CU_add_test(pSuite, "xqc_test_coalesced_matching_dcid_processed",
                         xqc_test_coalesced_matching_dcid_processed)
         || !CU_add_test(pSuite, "xqc_test_coalesced_mismatching_dcid_ignored",

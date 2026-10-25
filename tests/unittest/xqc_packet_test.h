@@ -12,6 +12,7 @@ void xqc_test_server_buffers_received_zero_rtt(void);
 void xqc_test_packet_out_remained_size(void);
 void xqc_test_ack_room_capped_at_mss(void);
 void xqc_test_ack_refused_by_full_packet_at_cap(void);
+void xqc_test_pmtud_probe_capped_at_mss(void);
 void xqc_test_packet_encrypt_hp_sample_boundary();
 void xqc_test_empty_pkt();
 void xqc_test_stateless_reset_parse_boundary(void);

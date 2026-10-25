@@ -841,6 +841,11 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
         xc->conn_settings.probing_pkt_out_size = engine->default_conn_settings.probing_pkt_out_size;
     }
 
+    /* an acked probe becomes pkt_out_size, which must not pass the cap */
+    if (xc->conn_settings.probing_pkt_out_size > XQC_MAX_PACKET_OUT_SIZE) {
+        xc->conn_settings.probing_pkt_out_size = XQC_MAX_PACKET_OUT_SIZE;
+    }
+
     xc->conn_settings.extended_ack_features = 0;
     xc->conn_settings.max_receive_timestamps_per_ack = 0;
     xc->conn_settings.receive_timestamps_exponent = 0;

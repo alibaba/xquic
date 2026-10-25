@@ -88,6 +88,7 @@ xqc_test_connection_closed_log_with_error(void)
     xqc_send_ctl_t     send_ctl = {0};
 
     xqc_init_list_head(&conn.conn_paths_list);
+    xqc_init_list_head(&conn.conn_closed_paths_list);
     path.path_id = 7;
     path.path_send_ctl = &send_ctl;
     xqc_list_add_tail(&path.path_list, &conn.conn_paths_list);

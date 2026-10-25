@@ -45,6 +45,7 @@
 #include "xqc_qpack_test.h"
 #include "xqc_prefixed_str_test.h"
 #include "xqc_cid_test.h"
+#include "xqc_alloc_fail_test.h"
 #include "xqc_id_hash_test.h"
 #include "xqc_retry_test.h"
 #include "xqc_datagram_test.h"
@@ -86,6 +87,8 @@ main(int argc, char *argv[])
     }     
 
     if (!CU_add_test(pSuite, "xqc_cid_test", xqc_test_cid)
+        || !CU_add_test(pSuite, "xqc_test_conn_create_alloc_failures", xqc_test_conn_create_alloc_failures)
+        || !CU_add_test(pSuite, "xqc_test_reset_token_alloc_failure", xqc_test_reset_token_alloc_failure)
         || !CU_add_test(pSuite, "xqc_test_reset_stream_frame_notify_last",
                         xqc_test_reset_stream_frame_notify_last)
         || !CU_add_test(pSuite, "xqc_test_reset_stream_frame_closing_destroys_stream",
@@ -365,6 +368,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_tls_key_update_responder_keeps_retired_keys",
                         xqc_test_tls_key_update_responder_keeps_retired_keys)
+        || !CU_add_test(pSuite, "xqc_test_conn_closed_path_perf_class", xqc_test_conn_closed_path_perf_class)
+        || !CU_add_test(pSuite, "xqc_test_conn_open_path_perf_class", xqc_test_conn_open_path_perf_class)
+        || !CU_add_test(pSuite, "xqc_test_conn_closed_path_leaves_path_list", xqc_test_conn_closed_path_leaves_path_list)
+        || !CU_add_test(pSuite, "xqc_test_conn_closed_path_still_counted", xqc_test_conn_closed_path_still_counted)
         /* RFC 9000 §20.1 CRYPTO_ERROR dynamic construction */
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_constructs_crypto_error", xqc_test_conn_tls_error_cb_constructs_crypto_error)
         || !CU_add_test(pSuite, "xqc_test_conn_crypto_error_base_value", xqc_test_conn_crypto_error_base_value)

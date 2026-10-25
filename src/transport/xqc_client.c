@@ -199,8 +199,8 @@ xqc_client_create_tls(xqc_connection_t *conn, const xqc_conn_ssl_config_t *conn_
     /* copy hostname */
     host_cap = strlen(hostname) + 1;
     cfg.hostname = xqc_malloc(host_cap);
-    if (NULL == cfg.alpn) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|malloc for alpn fail|");
+    if (NULL == cfg.hostname) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|malloc for hostname fail|");
         ret = -XQC_EMALLOC;
         goto end;
     }

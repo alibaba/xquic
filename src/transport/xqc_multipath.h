@@ -220,6 +220,12 @@ xqc_int_t xqc_conn_init_paths_list(xqc_connection_t *conn);
 /* destroy all the paths of the connection */
 void xqc_conn_destroy_paths_list(xqc_connection_t *conn);
 
+/* Walk every path of the connection, the closed ones included: the paths on
+ * conn_paths_list, then those on conn_closed_paths_list. The loop body must
+ * not move or free the path it is on. */
+xqc_path_ctx_t *xqc_conn_all_paths_first(xqc_connection_t *conn);
+xqc_path_ctx_t *xqc_conn_all_paths_next(xqc_connection_t *conn, xqc_path_ctx_t *path);
+
 void xqc_path_schedule_buf_destroy(xqc_path_ctx_t *path);
 void xqc_path_schedule_buf_pre_destroy(xqc_send_queue_t *send_queue, xqc_path_ctx_t *path);
 

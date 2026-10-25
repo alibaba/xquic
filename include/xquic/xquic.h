@@ -1591,6 +1591,12 @@ typedef struct xqc_conn_settings_s {
 
     /* draft-ietf-quic-reliable-stream-reset-09 Section 3; default off. */
     xqc_bool_t                  enable_reset_stream_at;
+
+    /**
+     * Max buffered out-of-order STREAM frame nodes per stream (RFC 9000
+     * Section 21.7 mitigation). 0 means the built-in default (8192).
+     */
+    uint64_t                    max_stream_frame_buffered_cnt;
 } xqc_conn_settings_t;
 
 

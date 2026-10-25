@@ -149,11 +149,10 @@ xqc_sample_check_app_limited(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl, xq
     uint32_t actual_mss = xqc_conn_get_mss(send_ctl->ctl_conn);
     xqc_bool_t not_cwnd_limited = send_ctl->ctl_bytes_in_flight + actual_mss <= 
                                   cwnd_bytes;
-    /* @FIXME: We should find a better way to adapt it to multipath. 
-     * The current implemetation is problematic. As even if we have pkts 
-     * in snd/lost/pto list, they may not be scheduled on the path. Therefore,
-     * if the path buffer is empty, there might be some "bubbles" in the pipe.
-     * However, we have no better idea to handle this problem at this moment.
+    /*
+     * Runs before the scheduler, so packets for this path may still sit in
+     * the connection queues; a path the scheduler leaves unfed is marked by
+     * xqc_sample_check_app_limited_after_send() instead.
      */
 
     xqc_bool_t all_path_buffer_empty = XQC_TRUE;
@@ -195,6 +194,48 @@ xqc_sample_check_app_limited(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl, xq
     }
 
     return XQC_FALSE;
+}
+
+/*
+ * Schedulers admit packets on the window, with no pacing term
+ * (xqc_scheduler_check_path_can_send), so after the send step a path with
+ * room for one more MSS and no unsent ack-eliciting packet of its own was
+ * offered all it could take: it is application-limited (RFC 9002 Section
+ * 7.8, draft-ietf-ccwg-bbr-06 Section 4.1.2.4) even while packets the
+ * scheduler gave to other paths wait in the connection queues. Re-marked on
+ * every pass because ACK processing clears the marker once delivered passes
+ * it. No pacer refill: on every pass it would defeat pacing.
+ */
+void
+xqc_sample_check_app_limited_after_send(xqc_send_ctl_t *send_ctl)
+{
+    xqc_connection_t *conn = send_ctl->ctl_conn;
+    uint64_t cwnd = send_ctl->ctl_cong_callback->
+                    xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong);
+    uint32_t mss = xqc_conn_get_mss(conn);
+    xqc_bool_t was_limited = send_ctl->ctl_app_limited > 0;
+
+    /* the window xqc_send_ctl_can_send admits packets against */
+    if (conn->conn_settings.so_sndbuf > 0) {
+        cwnd = xqc_min(cwnd, conn->conn_settings.so_sndbuf);
+    }
+
+    if (send_ctl->ctl_path->path_schedule_bytes > 0
+        || send_ctl->ctl_bytes_in_flight + mss > cwnd)
+    {
+        return;
+    }
+
+    send_ctl->ctl_app_limited = xqc_max(send_ctl->ctl_delivered
+                                        + send_ctl->ctl_bytes_in_flight, 1);
+
+    /* an idle path is re-marked on every pass; log the transition only */
+    if (!was_limited) {
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|applimit:%ui|",
+                send_ctl->ctl_path->path_id, send_ctl->ctl_app_limited);
+        xqc_log_event(conn->log, REC_CONGESTION_STATE_UPDATED,
+                      "application_limit");
+    }
 }
 
 void 

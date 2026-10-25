@@ -782,6 +782,11 @@ main(int argc, char *argv[])
                         xqc_test_send_ctl_single_loss_does_not_reset_rtt)
         || !CU_add_test(pSuite, "xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return",
                         xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return)
+        /* RFC 9000 14.4: no congestion reaction to a lost PMTU probe */
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction",
+                        xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_lost_packet_cc_reaction",
+                        xqc_test_send_ctl_lost_packet_cc_reaction)
         /* RFC 9000 §6.2 Version Negotiation abort suite */
         || !CU_add_test(pSuite, "xqc_test_vn_abort_on_unsupported_version", xqc_test_vn_abort_on_unsupported_version)
         || !CU_add_test(pSuite, "xqc_test_vn_downgrade_protection_when_version_matches", xqc_test_vn_downgrade_protection_when_version_matches)

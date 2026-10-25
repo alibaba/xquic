@@ -501,7 +501,8 @@ xqc_test_applimit_pacer_untouched(void)
  * T7. The initial path fails on a send error during the pass and is
  * closed (xqc_conn_should_close), which puts its packets back in the
  * connection queues after the scheduler ran. Path 1, idle with room, was
- * never offered them, so the pass must not mark it.
+ * never offered them, so the pass must not mark it. The skip lasts one
+ * pass: the next pass, entered the other way, marks path 1.
  */
 void
 xqc_test_applimit_requeued_on_send_error(void)
@@ -512,6 +513,7 @@ xqc_test_applimit_requeued_on_send_error(void)
                                              XQC_APP_PATH_STATUS_AVAILABLE);
     xqc_send_ctl_t   *c1 = p1->path_send_ctl;
     xqc_send_queue_t *sq = conn->conn_send_queue;
+    xqc_packet_out_t *po;
 
     conn->enable_multipath = 1;
     conn->transport_cbs.write_socket_ex = applimit_write_fail_path0;
@@ -523,6 +525,18 @@ xqc_test_applimit_requeued_on_send_error(void)
     CU_ASSERT(!xqc_list_empty(&sq->sndq_send_packets)
               || !xqc_list_empty(&sq->sndq_lost_packets));
     CU_ASSERT_EQUAL(c1->ctl_app_limited, 0);
+
+    /* this client has no 1-RTT keys to encrypt the PATH_ABANDON with */
+    CU_ASSERT_FATAL(!xqc_list_empty(&sq->sndq_send_packets_high_pri));
+    po = xqc_list_entry(sq->sndq_send_packets_high_pri.next,
+                        xqc_packet_out_t, po_list);
+    CU_ASSERT_FATAL((po->po_frame_types & XQC_FRAME_BIT_PATH_ABANDON) != 0);
+    xqc_send_queue_remove_send(&po->po_list);
+    xqc_send_queue_insert_free(po, &sq->sndq_free_packets, sq);
+
+    applimit_engine_pass(conn, 1);
+
+    CU_ASSERT(c1->ctl_app_limited > 0);
 
     xqc_engine_destroy(conn->engine);
 }

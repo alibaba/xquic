@@ -45,6 +45,7 @@
 #include "xqc_qpack_test.h"
 #include "xqc_prefixed_str_test.h"
 #include "xqc_cid_test.h"
+#include "xqc_alloc_fail_test.h"
 #include "xqc_id_hash_test.h"
 #include "xqc_retry_test.h"
 #include "xqc_datagram_test.h"
@@ -86,6 +87,8 @@ main(int argc, char *argv[])
     }     
 
     if (!CU_add_test(pSuite, "xqc_cid_test", xqc_test_cid)
+        || !CU_add_test(pSuite, "xqc_test_conn_create_alloc_failures", xqc_test_conn_create_alloc_failures)
+        || !CU_add_test(pSuite, "xqc_test_reset_token_alloc_failure", xqc_test_reset_token_alloc_failure)
         || !CU_add_test(pSuite, "xqc_test_reset_stream_frame_notify_last",
                         xqc_test_reset_stream_frame_notify_last)
         || !CU_add_test(pSuite, "xqc_test_reset_stream_frame_closing_destroys_stream",

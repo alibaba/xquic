@@ -134,6 +134,7 @@ if(HAVE_CUNIT)
         ${UNIT_TEST_DIR}/xqc_vn_test.c
         ${UNIT_TEST_DIR}/xqc_frame_type_bit_test.c
         ${UNIT_TEST_DIR}/xqc_flow_ctl_test.c
+        ${UNIT_TEST_DIR}/xqc_alloc_fail_test.c
     )
 
     if(XQC_ENABLE_WEBTRANSPORT)
@@ -159,6 +160,20 @@ if(HAVE_CUNIT)
     add_executable(run_tests
         ${test_SOURCES}
     )
+
+    # xqc_alloc_fail_test makes chosen allocations fail through the linker's
+    # --wrap (GNU ld and lld); elsewhere it does nothing. Its sweep over a
+    # connection's creation runs with BoringSSL only: BabaSSL itself crashes
+    # when some of its own allocations fail (EVP_KDF_CTX_new_id(), which
+    # every connection's key derivation reaches).
+    if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+        target_compile_definitions(run_tests PRIVATE XQC_TEST_ALLOC_WRAP)
+        target_link_libraries(run_tests
+            "-Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc")
+        if(${SSL_TYPE} MATCHES "boringssl")
+            target_compile_definitions(run_tests PRIVATE XQC_TEST_ALLOC_SWEEP)
+        endif()
+    endif()
 
     target_include_directories(run_tests
         PRIVATE

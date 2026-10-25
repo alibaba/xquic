@@ -858,3 +858,18 @@ xqc_test_coalesced_initial_datagram_too_small(void)
 
     xqc_test_coalesced_teardown(&cli, &svr);
 }
+
+/* A version field with the top bit set (any byte >= 0x80 first) must not
+ * shift into the sign bit of an int: that is undefined behaviour, and the
+ * long-header version comes straight from the network. */
+void
+xqc_test_parse_uint32_high_bytes(void)
+{
+    const unsigned char all[4] = {0xff, 0xff, 0xff, 0xff};
+    const unsigned char high[4] = {0x80, 0x00, 0x00, 0x01};
+    const unsigned char v1[4] = {0x00, 0x00, 0x00, 0x01};
+
+    CU_ASSERT_EQUAL(xqc_parse_uint32(all), 0xffffffffU);
+    CU_ASSERT_EQUAL(xqc_parse_uint32(high), 0x80000001U);
+    CU_ASSERT_EQUAL(xqc_parse_uint32(v1), 0x00000001U);
+}

@@ -71,7 +71,8 @@ struct xqc_packet_s {
 #define XQC_PACKET_SHORT_HEADER_KEY_PHASE(buf)  ((buf[0] & 0x04) >> 2)
 
 #define xqc_parse_uint16(p) ((p)[0] << 8 | (p)[1])
-#define xqc_parse_uint32(p) ((p)[0] << 24 | (p)[1] << 16 | (p)[2] << 8 | (p)[3])
+#define xqc_parse_uint32(p) ((uint32_t)(p)[0] << 24 | (uint32_t)(p)[1] << 16 \
+                             | (uint32_t)(p)[2] << 8 | (uint32_t)(p)[3])
 
 /* check if the packet has packet number */
 static inline uint8_t

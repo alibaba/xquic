@@ -472,6 +472,7 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_coalesced_initial_datagram_too_small",
                         xqc_test_coalesced_initial_datagram_too_small)
+        || !CU_add_test(pSuite, "xqc_test_parse_uint32_high_bytes", xqc_test_parse_uint32_high_bytes)
         || !CU_add_test(pSuite, "xqc_test_transport_params", xqc_test_transport_params)
         || !CU_add_test(pSuite, "xqc_test_retry_scid_decode_role",
                         xqc_test_retry_scid_decode_role)

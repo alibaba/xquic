@@ -271,12 +271,11 @@ xqc_timer_retire_cid_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_d
     xqc_usec_t interval = 0;
 
     xqc_cid_set_inner_t *inner_set;
-    xqc_list_head_t *pos_set, *next_set;
     uint32_t to_be_retired_cnt = 0;
 
-    xqc_list_for_each_safe(pos_set, next_set, &conn->scid_set.cid_set_list) {
-        inner_set = xqc_list_entry(pos_set, xqc_cid_set_inner_t, next);
-
+    for (inner_set = xqc_cid_set_first(&conn->scid_set); inner_set != NULL;
+         inner_set = xqc_cid_set_next(&conn->scid_set, inner_set))
+    {
         xqc_list_for_each_safe(pos, next, &inner_set->cid_list) {
             inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
 

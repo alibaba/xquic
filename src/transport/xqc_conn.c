@@ -749,6 +749,10 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     xqc_init_list_head(&xc->ping_notification_list);
     xqc_init_list_head(&xc->conn_timer_manager.gp_timer_list);
 
+    /* Every failure below ends in xqc_conn_destroy(), which walks
+     * conn_closed_paths_list. */
+    xqc_init_list_head(&xc->conn_closed_paths_list);
+
     xc->conn_settings = *settings;
 
     xqc_memcpy(xc->conn_settings.conn_option_str, settings->conn_option_str, XQC_CO_STR_MAX_LEN);
@@ -3558,7 +3562,6 @@ xqc_conn_info_print(xqc_connection_t *conn, xqc_conn_stats_t *conn_stats)
     size_t curr_size = 0;
     int ret = 0;
     int i = 0;
-    xqc_list_head_t *pos, *next;
     xqc_path_ctx_t *path = NULL;
     xqc_path_info_t path_info;
     char mp_settings[XQC_MP_SETTINGS_STR_LEN] = {0};
@@ -3639,9 +3642,9 @@ xqc_conn_info_print(xqc_connection_t *conn, xqc_conn_stats_t *conn_stats)
     }
 
     /* path layer 自定义 */
-    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
-        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
-
+    for (path = xqc_conn_all_paths_first(conn); path != NULL;
+         path = xqc_conn_all_paths_next(conn, path))
+    {
         xqc_path_record_info(path, &path_info);
 
         sock_err_flag = (path->path_flag & XQC_PATH_FLAG_SOCKET_ERROR) != 0;
@@ -3752,16 +3755,11 @@ xqc_conn_get_stats_internal(xqc_connection_t *conn, xqc_conn_stats_t *conn_stats
 
 
     /* 3. 遍历路径，获取各个路径count加和 */
-    xqc_list_head_t *pos, *next;
     xqc_path_ctx_t *path = NULL;
     xqc_send_ctl_t *send_ctl;
-    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
-        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
-        if (path == NULL) {
-            xqc_log(conn->log, XQC_LOG_WARN, "|path NULL|");
-            continue;
-        }
-
+    for (path = xqc_conn_all_paths_first(conn); path != NULL;
+         path = xqc_conn_all_paths_next(conn, path))
+    {
         send_ctl = path->path_send_ctl;
         if (send_ctl == NULL) {
             xqc_log(conn->log, XQC_LOG_WARN, "|path_send_ctl NULL|path%ui|", path->path_id);
@@ -3840,15 +3838,11 @@ xqc_conn_get_qos_stats(xqc_engine_t *engine, const xqc_cid_t *cid)
         }
     }
 
-    xqc_list_head_t *pos, *next;
     xqc_path_ctx_t *path = NULL;
     xqc_send_ctl_t *send_ctl;
-    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
-        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
-        if (path == NULL) {
-            continue;
-        }
-
+    for (path = xqc_conn_all_paths_first(conn); path != NULL;
+         path = xqc_conn_all_paths_next(conn, path))
+    {
         send_ctl = path->path_send_ctl;
         if (send_ctl == NULL) {
             continue;

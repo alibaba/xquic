@@ -423,6 +423,11 @@ struct xqc_connection_s {
     xqc_log_t                      *log;
 
     xqc_send_queue_t               *conn_send_queue;
+    /*
+     * packets went back to the connection queues, possibly after this
+     * pass scheduled them; the end-of-pass app-limited check skips once
+     */
+    xqc_bool_t                      conn_pkts_requeued;
 
     xqc_timer_manager_t             conn_timer_manager;
 

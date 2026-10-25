@@ -198,13 +198,15 @@ xqc_sample_check_app_limited(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl, xq
 
 /*
  * Schedulers admit packets on the window, with no pacing term
- * (xqc_scheduler_check_path_can_send), so after the send step a path with
+ * (xqc_scheduler_check_path_can_send). After the send step, a path with
  * room for one more MSS and no unsent ack-eliciting packet of its own was
- * offered all it could take: it is application-limited (RFC 9002 Section
- * 7.8, draft-ietf-ccwg-bbr-06 Section 4.1.2.4) even while packets the
- * scheduler gave to other paths wait in the connection queues. Re-marked on
- * every pass because ACK processing clears the marker once delivered passes
- * it. No pacer refill: on every pass it would defeat pacing.
+ * offered all the scheduler would give it, so it is application-limited
+ * (RFC 9002 Section 7.8, draft-ietf-ccwg-bbr-06 Section 4.1.2.4) even while
+ * packets the scheduler gave to other paths wait in the connection queues.
+ * Packets requeued after scheduling were not offered to it yet; the caller
+ * skips the check on that pass. Re-marked on every pass because ACK
+ * processing clears the marker once delivered passes it. No pacer refill:
+ * on every pass it would defeat pacing.
  */
 void
 xqc_sample_check_app_limited_after_send(xqc_send_ctl_t *send_ctl)

@@ -27,11 +27,44 @@
 extern xqc_path_ctx_t *xqc_path_create(xqc_connection_t *conn,
     xqc_cid_t *scid, xqc_cid_t *dcid, uint64_t path_id);
 
+static ssize_t applimit_write_eagain(uint64_t path_id,
+    const unsigned char *buf, size_t size, const struct sockaddr *peer_addr,
+    socklen_t peer_addrlen, void *user_data);
+static ssize_t applimit_write_fail_path0(uint64_t path_id,
+    const unsigned char *buf, size_t size, const struct sockaddr *peer_addr,
+    socklen_t peer_addrlen, void *user_data);
+static ssize_t applimit_write_mmsg(uint64_t path_id,
+    const struct iovec *msg_iov, unsigned int vlen,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    void *user_data);
+static uint64_t applimit_cwnd(xqc_send_ctl_t *ctl);
+static xqc_connection_t *applimit_conn_create(
+    const xqc_scheduler_callback_t *scheduler);
+static xqc_path_ctx_t *applimit_add_path(xqc_connection_t *conn,
+    xqc_app_path_status_t status);
+static xqc_packet_out_t *applimit_queue_ping(xqc_connection_t *conn);
+static xqc_packet_out_t *applimit_queue_initial_ping(xqc_connection_t *conn);
+static void applimit_engine_pass(xqc_connection_t *conn, int via_main_logic);
+static void applimit_test_unfed_path(int via_main_logic);
+static void applimit_test_idle_path(int via_main_logic, int batch_send);
+static void applimit_test_pacing_held_packet(
+    const xqc_scheduler_callback_t *scheduler);
+static void applimit_test_recovery_held(int pto_probe);
+
 static ssize_t
 applimit_write_eagain(uint64_t path_id, const unsigned char *buf, size_t size,
     const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *user_data)
 {
     return XQC_SOCKET_EAGAIN;
+}
+
+/* a send error on the initial path, success on any other */
+static ssize_t
+applimit_write_fail_path0(uint64_t path_id, const unsigned char *buf,
+    size_t size, const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    void *user_data)
+{
+    return path_id == 0 ? XQC_SOCKET_ERROR : (ssize_t)size;
 }
 
 static ssize_t
@@ -96,9 +129,9 @@ applimit_conn_create(const xqc_scheduler_callback_t *scheduler)
     return conn;
 }
 
-/* a second ACTIVE path, STANDBY for the backup scheduler, idle */
+/* a second ACTIVE path with the given status, idle */
 static xqc_path_ctx_t *
-applimit_add_standby_path(xqc_connection_t *conn)
+applimit_add_path(xqc_connection_t *conn, xqc_app_path_status_t status)
 {
     xqc_path_ctx_t  *path;
     xqc_cid_t        cid;
@@ -115,7 +148,7 @@ applimit_add_standby_path(xqc_connection_t *conn)
 
     path = xqc_path_create(conn, NULL, NULL, 1);
     CU_ASSERT_PTR_NOT_NULL_FATAL(path);
-    path->app_path_status = XQC_APP_PATH_STATUS_STANDBY;
+    path->app_path_status = status;
     xqc_set_path_state(path, XQC_PATH_STATE_ACTIVE);
     path->path_send_ctl->ctl_app_limited = 0;
     return path;
@@ -133,6 +166,21 @@ applimit_queue_ping(xqc_connection_t *conn)
     ssize_t           n;
 
     po = xqc_write_new_packet(conn, XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(po);
+    n = xqc_gen_ping_frame(po);
+    CU_ASSERT_FATAL(n > 0);
+    po->po_used_size += n;
+    return po;
+}
+
+/* an Initial PING: Initial keys are the ones this client has */
+static xqc_packet_out_t *
+applimit_queue_initial_ping(xqc_connection_t *conn)
+{
+    xqc_packet_out_t *po;
+    ssize_t           n;
+
+    po = xqc_write_new_packet(conn, XQC_PTYPE_INIT);
     CU_ASSERT_PTR_NOT_NULL_FATAL(po);
     n = xqc_gen_ping_frame(po);
     CU_ASSERT_FATAL(n > 0);
@@ -174,7 +222,8 @@ applimit_test_unfed_path(int via_main_logic)
 {
     xqc_connection_t *conn = applimit_conn_create(&xqc_backup_scheduler_cb);
     xqc_path_ctx_t   *p0 = conn->conn_initial_path;
-    xqc_path_ctx_t   *p1 = applimit_add_standby_path(conn);
+    xqc_path_ctx_t   *p1 = applimit_add_path(conn,
+                                         XQC_APP_PATH_STATUS_STANDBY);
     xqc_send_ctl_t   *c0 = p0->path_send_ctl;
     xqc_send_ctl_t   *c1 = p1->path_send_ctl;
     xqc_send_queue_t *sq = conn->conn_send_queue;
@@ -444,6 +493,157 @@ xqc_test_applimit_pacer_untouched(void)
     xqc_conn_check_app_limit(conn);
     CU_ASSERT_NOT_EQUAL(pacing->bytes_budget, 1234);
     CU_ASSERT_NOT_EQUAL(pacing->last_sent_time, 42);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * T7. The initial path fails on a send error during the pass and is
+ * closed (xqc_conn_should_close), which puts its packets back in the
+ * connection queues after the scheduler ran. Path 1, idle with room, was
+ * never offered them, so the pass must not mark it.
+ */
+void
+xqc_test_applimit_requeued_on_send_error(void)
+{
+    xqc_connection_t *conn = applimit_conn_create(NULL);
+    xqc_path_ctx_t   *p0 = conn->conn_initial_path;
+    xqc_path_ctx_t   *p1 = applimit_add_path(conn,
+                                             XQC_APP_PATH_STATUS_AVAILABLE);
+    xqc_send_ctl_t   *c1 = p1->path_send_ctl;
+    xqc_send_queue_t *sq = conn->conn_send_queue;
+
+    conn->enable_multipath = 1;
+    conn->transport_cbs.write_socket_ex = applimit_write_fail_path0;
+    applimit_queue_initial_ping(conn);
+
+    applimit_engine_pass(conn, 0);
+
+    CU_ASSERT(p0->path_state >= XQC_PATH_STATE_CLOSING);
+    CU_ASSERT(!xqc_list_empty(&sq->sndq_send_packets)
+              || !xqc_list_empty(&sq->sndq_lost_packets));
+    CU_ASSERT_EQUAL(c1->ctl_app_limited, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * T3 for recovery traffic: a retransmission or PTO probe the socket left
+ * in the path's own buffer (EAGAIN) is unsent data, so the path is not
+ * app-limited.
+ */
+static void
+applimit_test_recovery_held(int pto_probe)
+{
+    xqc_connection_t *conn = applimit_conn_create(NULL);
+    xqc_path_ctx_t   *path = conn->conn_initial_path;
+    xqc_send_ctl_t   *ctl = path->path_send_ctl;
+    xqc_send_queue_t *sq = conn->conn_send_queue;
+    xqc_send_type_t   type;
+    xqc_packet_out_t *po;
+
+    conn->transport_cbs.write_socket_ex = applimit_write_eagain;
+    po = applimit_queue_initial_ping(conn);
+    if (pto_probe) {
+        po->po_flag |= XQC_POF_TLP;
+        xqc_send_queue_move_to_tail(&po->po_list,
+                                    &sq->sndq_pto_probe_packets);
+        type = XQC_SEND_TYPE_PTO_PROBE;
+
+    } else {
+        po->po_flag |= XQC_POF_LOST;
+        xqc_send_queue_move_to_tail(&po->po_list, &sq->sndq_lost_packets);
+        type = XQC_SEND_TYPE_RETRANS;
+    }
+
+    applimit_engine_pass(conn, 0);
+
+    CU_ASSERT_PTR_EQUAL(path->path_schedule_buf[type].next, &po->po_list);
+    CU_ASSERT(path->path_schedule_bytes > 0);
+    CU_ASSERT_EQUAL(ctl->ctl_app_limited, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_applimit_lost_packet_held(void)
+{
+    applimit_test_recovery_held(0);
+}
+
+void
+xqc_test_applimit_pto_probe_held(void)
+{
+    applimit_test_recovery_held(1);
+}
+
+/*
+ * T3, an existing marker: a pass that leaves the path cwnd-limited does not
+ * clear the marker; only ACK processing does.
+ */
+void
+xqc_test_applimit_marker_kept_when_blocked(void)
+{
+    xqc_connection_t *conn = applimit_conn_create(NULL);
+    xqc_send_ctl_t   *ctl = conn->conn_initial_path->path_send_ctl;
+
+    ctl->ctl_app_limited = 12345;
+    ctl->ctl_bytes_in_flight = applimit_cwnd(ctl);
+
+    applimit_engine_pass(conn, 0);
+
+    CU_ASSERT_EQUAL(ctl->ctl_app_limited, 12345);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * T5, the lifecycle: an idle path is marked; a packet sent while marked
+ * is flagged and fills the window, so that pass keeps the marker without
+ * renewing it; the ACK of that packet moves delivered past the marker and
+ * clears it; the next idle pass marks the path again.
+ */
+void
+xqc_test_applimit_ack_clears_then_remarks(void)
+{
+    xqc_connection_t *conn = applimit_conn_create(NULL);
+    xqc_path_ctx_t   *path = conn->conn_initial_path;
+    xqc_send_ctl_t   *ctl = path->path_send_ctl;
+    xqc_packet_out_t *po;
+    xqc_ack_info_t    ack_info;
+    uint32_t          mss = xqc_conn_get_mss(conn);
+
+    ctl->ctl_delivered = 0;
+    applimit_engine_pass(conn, 0);
+    CU_ASSERT_EQUAL_FATAL(ctl->ctl_app_limited, 1);
+
+    /* room for exactly this packet, none left after it */
+    ctl->ctl_bytes_in_flight = applimit_cwnd(ctl) - mss;
+    po = applimit_queue_initial_ping(conn);
+    applimit_engine_pass(conn, 0);
+
+    CU_ASSERT_FATAL(po->po_flag & XQC_POF_IN_FLIGHT);
+    CU_ASSERT_EQUAL(po->po_is_app_limited, XQC_TRUE);
+    CU_ASSERT_EQUAL(ctl->ctl_app_limited, 1);
+
+    memset(&ack_info, 0, sizeof(ack_info));
+    ack_info.pns = XQC_PNS_INIT;
+    ack_info.path_id = path->path_id;
+    ack_info.n_ranges = 1;
+    ack_info.ranges[0].low = po->po_pkt.pkt_num;
+    ack_info.ranges[0].high = po->po_pkt.pkt_num;
+    ack_info.largest_acked = po->po_pkt.pkt_num;
+    CU_ASSERT_FATAL(xqc_send_ctl_on_ack_received(ctl, path->path_pn_ctl,
+                        conn->conn_send_queue, &ack_info,
+                        xqc_monotonic_timestamp(), XQC_TRUE) == XQC_OK);
+
+    CU_ASSERT(ctl->ctl_delivered > 1);
+    CU_ASSERT_EQUAL(ctl->ctl_app_limited, 0);
+
+    /* drop the bytes that stood in for other in-flight packets */
+    ctl->ctl_bytes_in_flight = 0;
+    applimit_engine_pass(conn, 0);
+    CU_ASSERT_EQUAL(ctl->ctl_app_limited, ctl->ctl_delivered);
 
     xqc_engine_destroy(conn->engine);
 }

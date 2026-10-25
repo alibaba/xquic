@@ -890,6 +890,16 @@ main(int argc, char *argv[])
                         xqc_test_applimit_marker_value)
         || !CU_add_test(pSuite, "xqc_test_applimit_pacer_untouched",
                         xqc_test_applimit_pacer_untouched)
+        || !CU_add_test(pSuite, "xqc_test_applimit_requeued_on_send_error",
+                        xqc_test_applimit_requeued_on_send_error)
+        || !CU_add_test(pSuite, "xqc_test_applimit_lost_packet_held",
+                        xqc_test_applimit_lost_packet_held)
+        || !CU_add_test(pSuite, "xqc_test_applimit_pto_probe_held",
+                        xqc_test_applimit_pto_probe_held)
+        || !CU_add_test(pSuite, "xqc_test_applimit_marker_kept_when_blocked",
+                        xqc_test_applimit_marker_kept_when_blocked)
+        || !CU_add_test(pSuite, "xqc_test_applimit_ack_clears_then_remarks",
+                        xqc_test_applimit_ack_clears_then_remarks)
         /* ADD TESTS HERE */)
     {
         CU_cleanup_registry();

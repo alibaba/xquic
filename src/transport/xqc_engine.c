@@ -848,15 +848,24 @@ void xqc_engine_main_logic_internal(xqc_engine_t *engine) {
     engine->eng_flag &= ~XQC_ENG_FLAG_NO_DESTROY;
 }
 
+static void xqc_engine_check_app_limit_after_send(xqc_connection_t *conn);
+
 /*
  * Before the AFTER_SEND reinjection, so its replicas go out on a path
- * already marked if it had nothing else to send.
+ * already marked if it had nothing else to send. Skipped when packets were
+ * requeued, e.g. by a path closed on a send error: the scheduler has not
+ * offered them to the other paths yet.
  */
 static void
 xqc_engine_check_app_limit_after_send(xqc_connection_t *conn)
 {
     xqc_list_head_t *pos, *next;
     xqc_path_ctx_t  *path;
+
+    if (conn->conn_pkts_requeued) {
+        conn->conn_pkts_requeued = XQC_FALSE;
+        return;
+    }
 
     xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
         path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);

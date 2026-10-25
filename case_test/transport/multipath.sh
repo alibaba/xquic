@@ -331,6 +331,58 @@ rm -f test_session tp_localhost xqc_token
 
 }
 
+case_transport_multipath_MPNS_send_data_with_multipath_19()
+{
+grep_err_log
+
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -M -v 19 > /dev/null
+sleep 1
+
+
+clear_log
+echo -e "send 1M data on multiple paths with multipath version 19 (0x3e)"
+case_test_sudo ${CLIENT_BIN} -s 1024000 -l d -t 1 -M -i lo -i lo -E -v 19 > stdlog
+result=`grep ">>>>>>>> pass" stdlog`
+cli_result=`grep "multipath version negotiation succeed on multipath 062" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_result" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MPNS_send_data_with_multipath_19" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MPNS_send_data_with_multipath_19" "fail"
+fi
+rm -f test_session tp_localhost xqc_token
+
+}
+
+case_transport_multipath_MPNS_multipath_19_close_initial_path()
+{
+grep_err_log
+
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -M -v 19 > /dev/null
+sleep 1
+
+clear_log
+echo -e "multipath version 19 close initial path (PATH_ABANDON without Reason Phrase) ...\c"
+case_test_sudo ${CLIENT_BIN} -s 10240 -l d -t 5 -M -i lo -i lo -E -x 100 -e 10 -v 19 --epoch_timeout 1000000 > stdlog
+result=`grep ">>>>>>>> pass" stdlog`
+svr_res=`grep "|path closed|path:0|" slog`
+cli_res=`grep "|path closed|path:0|" clog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$result" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "MPNS_multipath_19_close_initial_path" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "MPNS_multipath_19_close_initial_path" "fail"
+fi
+rm -f test_session tp_localhost xqc_token
+
+}
+
 case_transport_multipath_MPNS_reinject_unack_packets_by_capacity()
 {
 rm -f test_session tp_localhost xqc_token
@@ -835,6 +887,8 @@ case_test_case "MPNS_multipath_30_percent_loss_close_initial_path" --id native -
 case_test_case "MPNS_multipath_close_new_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_close_new_path
 case_test_case "MPNS_multipath_30_percent_loss_close_new_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss_close_new_path --timeout 120
 case_test_case "MPNS_send_data_with_multipath_10" --id native --mode self-reporting --run case_transport_multipath_MPNS_send_data_with_multipath_10
+case_test_case "MPNS_send_data_with_multipath_19" --id native --mode self-reporting --run case_transport_multipath_MPNS_send_data_with_multipath_19
+case_test_case "MPNS_multipath_19_close_initial_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_19_close_initial_path
 case_test_case "MPNS_reinject_unack_packets_by_capacity" --id native --mode self-reporting --run case_transport_multipath_MPNS_reinject_unack_packets_by_capacity
 case_test_case "MPNS_reinject_unack_packets_by_deadline" --id native --mode self-reporting --run case_transport_multipath_MPNS_reinject_unack_packets_by_deadline
 case_test_case "NAT_rebinding_path_0" --id native --mode self-reporting --run case_transport_multipath_NAT_rebinding_path_0 --timeout 60

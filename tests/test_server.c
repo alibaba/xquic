@@ -209,6 +209,7 @@ int g_ipv6;
 int g_batch=0;
 int g_lb_cid_encryption_on = 0;
 int g_enable_multipath = 0;
+xqc_multipath_version_t g_multipath_version = XQC_MULTIPATH_10;
 int g_enable_reinjection = 0;
 int g_spec_local_addr = 0;
 int g_mpshell = 0;
@@ -2826,7 +2827,7 @@ int main(int argc, char *argv[]) {
     };
 
     int ch = 0;
-    while ((ch = getopt_long(argc, argv, "a:p:efc:Cs:w:r:l:u:x:6bS:MR:o:EK:mLQ:U:yH", long_opts, NULL)) != -1) {
+    while ((ch = getopt_long(argc, argv, "a:p:efc:Cs:w:r:l:u:x:6bS:MR:o:EK:mLQ:U:yHv:", long_opts, NULL)) != -1) {
         switch (ch) {
         case 'H':
             printf("option disable h3_ext\n");
@@ -2936,6 +2937,15 @@ int main(int argc, char *argv[]) {
         case 'M':
             printf("option enable multi-path: %s\n",  "on");
             g_enable_multipath = 1;
+            break;
+        case 'v': /* multipath version: 10 for draft-10, 19 or 3e for draft-19 */
+            printf("option multipath version: %s\n", optarg);
+            if (strcmp(optarg, "19") == 0 || strcmp(optarg, "3e") == 0) {
+                g_multipath_version = XQC_MULTIPATH_3E;
+
+            } else if (atoi(optarg) == 10) {
+                g_multipath_version = XQC_MULTIPATH_10;
+            }
             break;
         case 'R':
             printf("option enable reinjection: %s\n", "on");
@@ -3178,6 +3188,7 @@ int main(int argc, char *argv[]) {
     /* enable_multipath */
     if (g_enable_multipath) {
         conn_settings.enable_multipath = g_enable_multipath;
+        conn_settings.multipath_version = g_multipath_version;
     }
 
     /* enable_reinjection */

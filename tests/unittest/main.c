@@ -393,6 +393,9 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_connection_closed_log_with_error",
                         xqc_test_connection_closed_log_with_error)
         || !CU_add_test(pSuite, "xqc_test_common", xqc_test_common)
+        || !CU_add_test(pSuite, "xqc_test_murmur_hash2", xqc_test_murmur_hash2)
+        || !CU_add_test(pSuite, "xqc_test_murmur_hash2_high_bytes",
+                        xqc_test_murmur_hash2_high_bytes)
         || !CU_add_test(pSuite, "xqc_test_vint", xqc_test_vint)
         || !CU_add_test(pSuite, "xqc_test_flow_ctl_clamp_boundary", xqc_test_flow_ctl_clamp_boundary)
         || !CU_add_test(pSuite, "xqc_test_stream_flow_ctl_clamp", xqc_test_stream_flow_ctl_clamp)

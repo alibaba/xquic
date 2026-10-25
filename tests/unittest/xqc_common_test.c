@@ -430,3 +430,25 @@ test_engine_connect()
     xqc_connection_t *conn = test_connect(engine);
     return conn;
 }
+
+void
+xqc_test_murmur_hash2(void)
+{
+    unsigned char  text[] = "hello,world";
+
+    CU_ASSERT_EQUAL(xqc_murmur_hash2(text, 11), 0xb28179afU);
+}
+
+/*
+ * A byte of 0x80 or more in the top position of a 4-byte block must not be
+ * shifted into the sign bit of an int, which is undefined behaviour.
+ */
+void
+xqc_test_murmur_hash2_high_bytes(void)
+{
+    unsigned char  all[4] = {0xff, 0xff, 0xff, 0xff};
+    unsigned char  high[4] = {0x00, 0x00, 0x00, 0x80};
+
+    CU_ASSERT_EQUAL(xqc_murmur_hash2(all, 4), 0x14acb3daU);
+    CU_ASSERT_EQUAL(xqc_murmur_hash2(high, 4), 0x26de7447U);
+}

@@ -463,6 +463,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_packet_encrypt_hp_sample_boundary", xqc_test_packet_encrypt_hp_sample_boundary)
         || !CU_add_test(pSuite, "xqc_test_empty_pkt", xqc_test_empty_pkt)
         || !CU_add_test(pSuite, "xqc_test_stateless_reset_parse_boundary", xqc_test_stateless_reset_parse_boundary)
+        || !CU_add_test(pSuite, "xqc_test_ack_room_capped_at_mss",
+                        xqc_test_ack_room_capped_at_mss)
+        || !CU_add_test(pSuite, "xqc_test_ack_refused_by_full_packet_at_cap",
+                        xqc_test_ack_refused_by_full_packet_at_cap)
         || !CU_add_test(pSuite, "xqc_test_coalesced_matching_dcid_processed",
                         xqc_test_coalesced_matching_dcid_processed)
         || !CU_add_test(pSuite, "xqc_test_coalesced_mismatching_dcid_ignored",

@@ -382,6 +382,7 @@ uint64_t g_last_sock_op_time;
  * 718/719 for MAX_STREAM_DATA stream direction validation
  * 722/723 for RESET_STREAM final-size validation
  * 724-726 for stream close state and direction validation
+ * 748/750 for max_pkt_out_size at and above its cap
  * 902/903 for AEAD confidentiality-limit validation
  * 1000-1021 for HTTP/3 protocol validation
  */
@@ -573,6 +574,13 @@ xqc_client_datagram_send(user_conn_t *user_conn)
     if (g_send_dgram == 1) {
         if (g_test_case == 203 && user_conn->dgram_mss) {
             g_test_case = -1;
+            user_conn->dgram_mss++;
+        }
+        /* 750: one byte over the clamped MSS must be refused */
+        if (g_test_case == 750 && user_conn->dgram_mss
+            && user_conn->dgram_mss
+               == xqc_datagram_get_mss(user_conn->quic_conn))
+        {
             user_conn->dgram_mss++;
         }
         uint64_t dgram_id;
@@ -1152,6 +1160,29 @@ end:
     return ret;
 }
 
+/*
+ * 748/750: the largest UDP payload sent must stay within a 1500-byte IPv6
+ * packet (1452) when max_pkt_out_size is at or above its cap
+ */
+static size_t g_max_udp_payload;
+
+static void
+xqc_test_record_udp_payload(size_t size)
+{
+    if (g_test_case != 748 && g_test_case != 750) {
+        return;
+    }
+
+    if (size > 1452) {
+        printf("[udp-748]|oversize|size:%zu|\n", size);
+    }
+
+    if (size > g_max_udp_payload) {
+        g_max_udp_payload = size;
+        printf("[udp-748]|max|size:%zu|\n", size);
+    }
+}
+
 ssize_t 
 xqc_client_write_socket(const unsigned char *buf, size_t size,
     const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *user)
@@ -1170,6 +1201,7 @@ xqc_client_write_socket(const unsigned char *buf, size_t size,
     }
     send_buf_size = size;
     memcpy(send_buf, buf, send_buf_size);
+    xqc_test_record_udp_payload(size);
 
     /*
      * RFC 9001 Section 6.1 old-key retention test: as soon as the local
@@ -1436,6 +1468,7 @@ xqc_client_write_socket_ex(uint64_t path_id,
     }
     send_buf_size = size;
     memcpy(send_buf, buf, send_buf_size);
+    xqc_test_record_udp_payload(size);
 
     /*
      * RFC 9001 Section 6.1 old-key retention test: suppress outbound packets
@@ -2230,6 +2263,10 @@ xqc_client_conn_handshake_finished(xqc_connection_t *conn, void *user_data, void
     }
     if (g_test_case == 200 || g_test_case == 201) {
         printf("[dgram-200]|1RTT|updated_mss:%zu|\n", user_conn->dgram_mss);
+    }
+
+    if (g_test_case == 748 || g_test_case == 750) {
+        printf("[dgram-748]|1RTT|updated_mss:%zu|\n", user_conn->dgram_mss);
     }
     
     if (g_send_dgram && user_conn->dgram_retry_in_hs_cb) {
@@ -6535,6 +6572,14 @@ int main(int argc, char *argv[]) {
 
     if (g_test_case == 201) {
         conn_settings.max_pkt_out_size = 1216;
+    }
+
+    if (g_test_case == 748) {
+        conn_settings.max_pkt_out_size = 1436;
+    }
+
+    if (g_test_case == 750) {
+        conn_settings.max_pkt_out_size = 1500;
     }
     
 

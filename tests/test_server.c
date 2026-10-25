@@ -408,6 +408,10 @@ xqc_server_datagram_mss_updated_callback(xqc_connection_t *conn,
             printf("[dgram-200]|1RTT|initial_mss:%zu|\n", mss);
         }
 
+        if (g_test_case == 748 || g_test_case == 750) {
+            printf("[dgram-748]|1RTT|initial_mss:%zu|\n", mss);
+        }
+
     } else {
         printf("[dgram]|1RTT|updated_mss:%zu|\n", mss);
     }
@@ -2122,6 +2126,29 @@ xqc_server_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
 }
 
 
+/*
+ * 748/750: the largest UDP payload sent must stay within a 1500-byte IPv6
+ * packet (1452) when max_pkt_out_size is at or above its cap
+ */
+static size_t g_max_udp_payload;
+
+static void
+xqc_test_record_udp_payload(size_t size)
+{
+    if (g_test_case != 748 && g_test_case != 750) {
+        return;
+    }
+
+    if (size > 1452) {
+        printf("[udp-748]|oversize|size:%zu|\n", size);
+    }
+
+    if (size > g_max_udp_payload) {
+        g_max_udp_payload = size;
+        printf("[udp-748]|max|size:%zu|\n", size);
+    }
+}
+
 ssize_t 
 xqc_server_write_socket(const unsigned char *buf, size_t size,
     const struct sockaddr *peer_addr,
@@ -2143,6 +2170,7 @@ xqc_server_write_socket(const unsigned char *buf, size_t size,
     }
     send_buf_size = size;
     memcpy(send_buf, buf, send_buf_size);
+    xqc_test_record_udp_payload(size);
 
     /* server Initial dcid corruption ... */
     if (g_test_case == 3) {
@@ -3238,6 +3266,14 @@ int main(int argc, char *argv[]) {
 
     if (g_test_case == 201) {
         conn_settings.max_pkt_out_size = 1216;
+    }
+
+    if (g_test_case == 748) {
+        conn_settings.max_pkt_out_size = 1436;
+    }
+
+    if (g_test_case == 750) {
+        conn_settings.max_pkt_out_size = 1500;
     }
 
     if (g_test_case == 208) {

@@ -464,6 +464,67 @@ fi
 
 }
 
+case_transport_packet_max_pkt_out_size_at_cap()
+{
+# 748 happy path: both ends set max_pkt_out_size to its cap, 1436. The
+# datagram MSS is 1420 and a 1 MB datagram echo completes with full
+# 1452-byte UDP payloads and none larger, so no ACK is added to a full
+# packet.
+case_test_stop_server
+rm -f test_session tp_localhost xqc_token
+case_test_start_server stdbuf -oL ${SERVER_BIN} -l e -Q 65535 -e -U 1 \
+    -x 748 > svr_stdlog
+sleep 1
+clear_log
+echo -e "max_pkt_out_size at its cap ...\c"
+${CLIENT_BIN} -l e -T 1 -s 1048576 -U 1 -Q 65535 -E -x 748 > stdlog
+cli_mss=`grep "\[dgram-748\]|1RTT|updated_mss:1420|" stdlog`
+svr_mss=`grep -a "\[dgram-748\]|1RTT|initial_mss:1420|" svr_stdlog`
+echo_ok=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
+cli_max=`grep "\[udp-748\]|max|size:1452|" stdlog`
+svr_max=`grep -a "\[udp-748\]|max|size:1452|" svr_stdlog`
+oversize=`grep -a "\[udp-748\]|oversize|" stdlog svr_stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_mss" ] && [ -n "$svr_mss" ] && [ -n "$echo_ok" ] \
+    && [ -n "$cli_max" ] && [ -n "$svr_max" ] && [ -z "$oversize" ] \
+    && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "max_pkt_out_size_at_cap" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "max_pkt_out_size_at_cap" "fail"
+fi
+}
+
+case_transport_packet_max_pkt_out_size_above_cap()
+{
+# 750 abnormal path: both ends ask for max_pkt_out_size 1500, above the cap.
+# It is clamped to 1436, so the MSS is 1420, a 1421-byte datagram is refused
+# with EDGRAM_TOO_LARGE, and no UDP payload exceeds 1452.
+case_test_stop_server
+rm -f test_session tp_localhost xqc_token
+case_test_start_server stdbuf -oL ${SERVER_BIN} -l e -Q 65535 -e -U 1 \
+    -x 750 > svr_stdlog
+sleep 1
+clear_log
+echo -e "max_pkt_out_size above its cap ...\c"
+${CLIENT_BIN} -l d -T 1 -s 4800 -U 1 -Q 65535 -E -x 750 > stdlog
+cli_mss=`grep "\[dgram-748\]|1RTT|updated_mss:1420|" stdlog`
+svr_mss=`grep -a "\[dgram-748\]|1RTT|initial_mss:1420|" svr_stdlog`
+refused=`grep "datagram_is_too_large" clog`
+oversized=`grep "oversized_datagram|recorded_mss:1421|send_size:1421|" stdlog`
+oversize=`grep -a "\[udp-748\]|oversize|" stdlog svr_stdlog`
+errlog=`grep_err_log`
+if [ -n "$cli_mss" ] && [ -n "$svr_mss" ] && [ -n "$refused" ] \
+    && [ -n "$oversized" ] && [ -z "$oversize" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "max_pkt_out_size_above_cap" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "max_pkt_out_size_above_cap" "fail"
+fi
+}
+
 case_test_case "illegal_packet" --id native --mode self-reporting --run case_transport_packet_illegal_packet
 case_test_case "duplicate_packet" --id native --mode self-reporting --run case_transport_packet_duplicate_packet
 case_test_case "packet_with_wrong_cid" --id native --mode self-reporting --run case_transport_packet_packet_with_wrong_cid
@@ -482,6 +543,8 @@ case_test_case "ack_timestamp_frame_case_5" --id native --mode self-reporting --
 case_test_case "ack_timestamp_frame_case_6" --id native --mode self-reporting --run case_transport_packet_ack_timestamp_frame_case_6
 case_test_case "ack_ecn_parse_both" --id native --mode self-reporting --run case_transport_packet_ack_ecn_parse_both
 case_test_case "ack_ecn_parse_server_only" --id native --mode self-reporting --run case_transport_packet_ack_ecn_parse_server_only
+case_test_case "max_pkt_out_size_at_cap" --id 748 --mode self-reporting --run case_transport_packet_max_pkt_out_size_at_cap
+case_test_case "max_pkt_out_size_above_cap" --id 750 --mode self-reporting --run case_transport_packet_max_pkt_out_size_above_cap
 
 if case_test_is_discovery; then
     case_test_run

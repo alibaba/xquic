@@ -770,7 +770,7 @@ void xqc_conn_encode_transport_state(xqc_connection_t *conn, char *buf, size_t b
 
 static inline xqc_uint_t 
 xqc_conn_get_mss(xqc_connection_t *conn) {
-    return conn->pkt_out_size + XQC_ACK_SPACE;
+    return xqc_min(conn->pkt_out_size + XQC_ACK_SPACE, XQC_MSS);
 }
 
 xqc_int_t xqc_conn_handle_stateless_reset(xqc_connection_t *conn,
